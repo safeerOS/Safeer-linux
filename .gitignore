@@ -1,0 +1,38 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.sock
+.pytest_cache/
+.coverage
+htmlcov/
+*.swp
+*.swo
+*~
+.DS_Store
+build/
+dist/
+*.deb
+*.tar.gz
+
+.flatpak-builder/
+*.flatpak
+*.AppImage
+
+# Vsaka izdaja objavi svoj SHA256SUMS kot prilogo; kopija v repozitoriju bi bila stara.
+/SHA256SUMS
+
+# tests/: v repozitorij gredo samo pravi testi in njihove priloge. Pomozne skripte sej (_*.py, hubr_*, sonda_* ...),
+# dnevniki in posnetki vsebujejo naslove naprav in ostanejo samo na razvojnem racunalniku.
+tests/*
+!tests/test_*.py
+!tests/test_*.js
+!tests/README.md
+!tests/fixtures/
+!tests/results/
+!tests/auth_compat_runtime.py
+!tests/live_obremenitev.py
+!tests/login_runtime.py
+!tests/network_runtime.py
+!tests/stability_runtime.py
+!tests/youtube_live.py
+!tests/youtube_startup.py

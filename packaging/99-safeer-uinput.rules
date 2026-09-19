@@ -1,0 +1,19 @@
+# Safeer Control: navidezni igralni plošček za igre, ki jih uporabnik igra s televizorja.
+#
+# Brez tega pravila je /dev/uinput dostopen samo uporabniku root, zato Safeer Control
+# navideznega ploščka ne more narediti in igra ploščka s televizorja ne vidi (gumbi ostanejo
+# tipke in miška). Pravilo napravo odpre skupini "input" — isto naredijo Steam, Sunshine in
+# podobni programi.
+#
+# Namesti (enkrat, z uporabnikovim dovoljenjem):
+#   sudo install -m644 99-safeer-uinput.rules /etc/udev/rules.d/99-safeer-uinput.rules
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger --subsystem-match=misc --sysname-match=uinput
+#
+# Odstrani:
+#   sudo rm /etc/udev/rules.d/99-safeer-uinput.rules && sudo udevadm control --reload-rules
+#
+# Uporabnik mora biti v skupini "input" (preveri z ukazom: id). Če ni:
+#   sudo usermod -aG input "$USER"   (nato se odjavi in prijavi)
+
+KERNEL=="uinput", SUBSYSTEM=="misc", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"
