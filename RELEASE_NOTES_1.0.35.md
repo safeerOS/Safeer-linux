@@ -1,0 +1,12 @@
+# Safeer Linux 1.0.35
+
+**Safeer Control 2.0.2: your programs on the TV, a key that is really held, and a fix that mattered.**
+
+- Safeer Browser: no functional changes in this release.
+- Package **safeer-control** (2.0.2) — **fixed:** the installed Safeer Control did not start at all. Three modules were missing from the package, so it stopped with `ImportError` on launch. Running from the source tree hid the problem; a test now installs the package and imports it on every test run, so it cannot happen again.
+- **Programs for the TV, sorted into groups.** Control now tells the television which group each program belongs to — games, office, web, media, programming, learning, tools — taken from the standard desktop categories, so Safeer OS can sort a hundred programs instead of listing them alphabetically. The same name is listed once, even when a program is installed twice (system and Flatpak).
+- **A key held on the remote is really held on the computer.** Control can now press and release, not only tap, so games and long scrolling work. Safety: a key held without word from the television is released after five seconds, and everything is released when the session ends or the connection drops. Shortcuts with modifiers (Ctrl+S) are never held.
+- **Icons of your own apps are found.** Programs you installed for your user only (`flatpak --user`) had no icon on the television; Control now looks in your own Flatpak icon folder too.
+- Safeer Link: the computer also reports its graphics card, so the TV's Performance view can show it.
+
+Slovensko: Safeer Browser: v tej izdaji brez funkcionalnih sprememb. Paket **safeer-control** (2.0.2) — **popravljeno:** nameščeni Safeer Control se sploh ni zagnal, ker v paket niso šli trije moduli; iz izvorne mape se tega ni videlo, zdaj pa preizkus ob vsakem teku paket namesti in uvozi. **Programi za televizor so razvrščeni v skupine** (igre, pisarna, splet, predstavnost, programiranje, učenje, orodja) iz standardnih namiznih kategorij, isto ime pa se pokaže enkrat, tudi če je program nameščen dvakrat. **Tipka, držana na daljincu, je zdaj res držana na računalniku** — igre in dolgo drsenje delujejo; varovalo: drzana tipka se po petih sekundah tišine, ob koncu seje in ob prekinjeni povezavi sama spusti, bližnjice s krmilkami pa se ne držijo. **Ikone tvojih programov:** programi, nameščeni samo zate (`flatpak --user`), so bili na televizorju brez ikone. **Safeer Link** pove tudi grafično kartico računalnika.

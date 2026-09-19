@@ -1,0 +1,19 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Safeer Control
+GenericName=Remote control for your devices
+GenericName[sl]=Daljinec za tvoje naprave
+GenericName[de]=Fernbedienung für deine Geräte
+GenericName[es]=Mando para tus dispositivos
+GenericName[fr]=Télécommande pour tes appareils
+GenericName[it]=Telecomando per i tuoi dispositivi
+Comment=Control your TV and phone over Safeer Link: voice, keys, apps, sharing — on your home network, no cloud
+Comment[sl]=Upravljaj televizor in telefon prek Safeer Linka: glas, tipke, aplikacije, deljenje – v domačem omrežju, brez oblaka
+Exec=safeer-control
+Icon=safeer-control
+Terminal=false
+StartupNotify=true
+StartupWMClass=safeer-control
+Categories=Utility;RemoteAccess;AudioVideo;
+Keywords=Safeer;Link;remote;TV;daljinec;
