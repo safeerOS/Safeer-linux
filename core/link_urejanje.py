@@ -185,11 +185,14 @@ def _zavrti_pillow(pot: str, stopinje: int) -> str:
     except ImportError as e:
         raise NapakaUrejanja("ni_pillow") from e
     try:
+        # Pillow 9.1 je konstante prestavil v Image.Transpose; starejsi (Ubuntu 22.04) jih imajo
+        # na Image, novejsi (Pillow 10+) samo v Transpose. Vzamemo tisto, kar je na voljo.
+        vrtenje = getattr(Image, "Transpose", Image)
         with Image.open(pot) as slika:
             oblika = slika.format
             ravna = ImageOps.exif_transpose(slika) or slika
             # PIL ROTATE_90 vrti v nasprotni smeri urinega kazalca.
-            zavrtena = ravna.transpose(Image.Transpose.ROTATE_270 if stopinje == 90 else Image.Transpose.ROTATE_90)
+            zavrtena = ravna.transpose(vrtenje.ROTATE_270 if stopinje == 90 else vrtenje.ROTATE_90)
             exif = slika.getexif()
             if 0x0112 in exif:
                 exif[0x0112] = 1
