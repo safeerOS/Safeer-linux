@@ -238,5 +238,56 @@ class Zdravje(unittest.TestCase):
         self.assertEqual(z["status"], "ok")
 
 
+class Razsirljivost(unittest.TestCase):
+    """Naprava iz leta 2028 se mora znati pogovarjati z Hubom iz leta 2026 in obratno.
+
+    Pogoj je, da neznana polja nikogar ne podrejo: nova zmoznost se doda kot novo polje, stara
+    stran ga preskoci in dela naprej s tistim, kar pozna. To je isto, kar je pri BitTorrentu
+    razsiritev v rokovanju - le da tu ni treba nicesar dodajati, ker protokol to ze prenese.
+    """
+
+    def setUp(self):
+        self.hub = link_hub_streznik.Hub(odtis="ab" * 32)
+
+    def test_neznana_polja_v_prijavi_ne_motijo(self):
+        p = LaznaPovezava()
+        prijava = json.dumps({
+            "id": "r1", "type": "cast.register", "nekaj_novega": {"x": 1},
+            "payload": {"device_id": "novost", "name": "Naprava 2028", "role": "receiver",
+                        "capabilities": ["url", "files", "neznana_zmoznost"],
+                        "capability_versions": {"files": 3, "screen": 2},
+                        "prihodnje_polje": [1, 2, 3]},
+        })
+        odgovor = json.loads(self.hub.obdelaj(p, prijava))
+        self.assertEqual(odgovor["status"], "accepted", "neznana polja ne smejo zavrniti prijave")
+        naprava = p.zadnje("cast.devices")["devices"][0]
+        self.assertIn("neznana_zmoznost", naprava["capabilities"],
+                      "neznano zmoznost posredujemo naprej, da jo razume, kdor jo pozna")
+
+    def test_neznana_vrsta_sporocila_se_posreduje_naprej(self):
+        """Hub ni razsodnik vsebine: sporocilo, ki ga ne pozna, mora priti do cilja."""
+        a, b = LaznaPovezava(), LaznaPovezava("192.168.0.60")
+        self.hub.obdelaj(a, _prijava("a1"))
+        self.hub.obdelaj(b, _prijava("b1"))
+        odgovor = json.loads(self.hub.obdelaj(a, json.dumps(
+            {"id": "n1", "type": "prihodnost.novost", "target": "b1", "payload": {"kaj": "novo"}})))
+        self.assertEqual(odgovor["status"], "accepted")
+        self.assertEqual(odgovor["type"], "prihodnost.ack")
+        prejeto = b.zadnje("prihodnost.novost")
+        self.assertIsNotNone(prejeto, "neznano sporocilo mora priti do cilja nespremenjeno")
+        self.assertEqual(prejeto["payload"], {"kaj": "novo"})
+
+    def test_stara_naprava_brez_novih_polj_dela_naprej(self):
+        """Naprava protokola 0.2 ne poslje platform/kind/version - to ne sme biti tezava."""
+        p = LaznaPovezava()
+        odgovor = json.loads(self.hub.obdelaj(p, json.dumps(
+            {"id": "r1", "type": "cast.register",
+             "payload": {"device_id": "stara", "name": "Naprava 2024", "role": "receiver"}})))
+        self.assertEqual(odgovor["status"], "accepted")
+        naprava = p.zadnje("cast.devices")["devices"][0]
+        self.assertNotIn("platform", naprava, "praznih polj ne izmisljujemo")
+        self.assertEqual(naprava["capabilities"], [])
+
+
 if __name__ == "__main__":
     unittest.main()
