@@ -263,5 +263,50 @@ class MintovPult(unittest.TestCase):
         self.assertEqual(self.nastavljeno, {})
 
 
+class ZaganjalnikControl(unittest.TestCase):
+    """Safeer Control tece ves dan v ozadju; ce pade, naprave tiho izgubijo racunalnik."""
+
+    POT = os.path.join(KOREN, "packaging", "safeer-control-launcher")
+
+    def _zazeni(self, program, argumenti=()):
+        mapa = tempfile.mkdtemp(prefix="safeer-control-zagon-")
+        app = os.path.join(mapa, "lib", "safeer-control")
+        os.makedirs(os.path.join(app, "core"), exist_ok=True)
+        os.makedirs(os.path.join(mapa, "bin"), exist_ok=True)
+        with open(os.path.join(app, "safeer_control.py"), "w", encoding="utf-8") as d:
+            d.write(program)
+        with open(os.path.join(app, "core", "__init__.py"), "w", encoding="utf-8") as d:
+            d.write("")
+        with open(os.path.join(app, "core", "os_stabilnost.py"), "w", encoding="utf-8") as d:
+            d.write("def zabelezi_sesutje(*a, **k):\n    return 1\n")
+        pot = os.path.join(mapa, "bin", "safeer-control")
+        with open(self.POT, encoding="utf-8") as d:
+            vsebina = d.read()
+        with open(pot, "w", encoding="utf-8") as d:
+            d.write(vsebina)
+        os.chmod(pot, 0o755)
+        o = dict(os.environ, XDG_CACHE_HOME=os.path.join(mapa, "cache"), PYTHON=sys.executable)
+        return subprocess.run(["bash", pot, *argumenti], capture_output=True, text=True, timeout=120, env=o), mapa
+
+    def test_normalen_izhod_se_ne_ponovi(self):
+        r, mapa = self._zazeni("import os\nopen(os.path.join(os.path.dirname(__file__), 'stevec'), 'a').write('x')\n")
+        self.assertEqual(r.returncode, 0)
+        with open(os.path.join(mapa, "lib", "safeer-control", "stevec")) as f:
+            self.assertEqual(len(f.read()), 1)
+
+    def test_sesutje_se_ponovi_in_nato_odneha(self):
+        program = ("import os, signal\n"
+                   "open(os.path.join(os.path.dirname(__file__), 'stevec'), 'a').write('x')\n"
+                   "os.kill(os.getpid(), signal.SIGSEGV)\n")
+        r, mapa = self._zazeni(program)
+        with open(os.path.join(mapa, "lib", "safeer-control", "stevec")) as f:
+            self.assertEqual(len(f.read()), 5, "zaganjalnik mora poskusiti petkrat, potem odnehati")
+        self.assertGreater(r.returncode, 128)
+        with open(os.path.join(mapa, "cache", "safeer-control", "dnevnik.log"), encoding="utf-8") as f:
+            dnevnik = f.read()
+        self.assertIn("signala 11", dnevnik)
+        self.assertIn("odneham", dnevnik)
+
+
 if __name__ == "__main__":
     unittest.main()
