@@ -68,6 +68,45 @@ def podpisi(podatki: bytes) -> str:
     return base64.b64encode(podpis).decode("ascii")
 
 
+def preveri_podpis(kljuc_b64: str, podatki: bytes, podpis_b64: str) -> bool:
+    """Ali je `podpis_b64` res podpis `podatki` s tem javnim kljucem (SHA256withECDSA)?
+
+    Rabi ga hub, ko preverja prijavo naprave iz kroga - doslej je racunalnik znal samo podpisati,
+    ker ni bil nikoli hub. Isto orodje kot pri podpisovanju (openssl), zato brez nove odvisnosti.
+    Vsaka napaka pomeni False: neveljaven kljuc ali pokvarjen podpis nista izjema, ampak zavrnitev.
+    """
+    if not kljuc_b64 or not podpis_b64:
+        return False
+    try:
+        der = base64.b64decode(kljuc_b64, validate=True)
+        podpis = base64.b64decode(podpis_b64, validate=True)
+    except Exception:
+        return False
+    if not podpis or not _veljaven_kljuc(kljuc_b64):
+        return False
+    import tempfile
+    mapa = tempfile.mkdtemp(prefix="safeer-podpis-")
+    try:
+        pot_kljuca = os.path.join(mapa, "kljuc.der")
+        pot_podpisa = os.path.join(mapa, "podpis.bin")
+        with open(pot_kljuca, "wb") as d:
+            d.write(der)
+        with open(pot_podpisa, "wb") as d:
+            d.write(podpis)
+        r = subprocess.run(["openssl", "dgst", "-sha256", "-verify", pot_kljuca,
+                            "-keyform", "DER", "-signature", pot_podpisa],
+                           input=podatki, capture_output=True)
+        return r.returncode == 0
+    except Exception:
+        return False
+    finally:
+        try:
+            import shutil
+            shutil.rmtree(mapa, ignore_errors=True)
+        except Exception:
+            pass
+
+
 def podatki_za_podpis(odtis_huba: str, nonce: str, device_id: str) -> bytes:
     """Kar naprava podpise ob prijavi: vezano na odtis huba in enkratni izziv (HubUsmerjevalnik.podatkiZaPodpis)."""
     return f"safeer-link-auth\n{(odtis_huba or '').lower()}\n{nonce}\n{device_id}".encode("utf-8")
