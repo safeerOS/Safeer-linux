@@ -23,12 +23,13 @@ import ssl
 import struct
 import threading
 import time
+import sys
 import urllib.error
 import urllib.request
 from typing import Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
-from core import link_tls, spake2
+from core import link_krog, link_tls, spake2
 
 PRIVZETA_VRATA = 8990
 # Uporabnik naj vidi kratko domace ime, ne naslova IP. Staro ime ostane takoj za njim,
@@ -64,10 +65,32 @@ def _ime_naprave() -> str:
         return "racunalnik"
 
 
-def id_naprave() -> str:
+def stari_id_naprave() -> str:
+    """Id po imenu racunalnika (`pc-<ime>`), kot je veljal pred prehodom na id iz kljuca."""
     ime = _ime_naprave().split(".")[0].lower()
     cisto = "".join(z if (z.isalnum() or z in "-_") else "-" for z in ime)
     return "pc-" + (cisto or "safeer")
+
+
+_id_iz_kljuca: Optional[str] = None
+
+
+def id_naprave() -> str:
+    """Id te naprave: iz njenega kljuca (`n-<16 hex>`, link_krog.id_iz_kljuca) - isti na vseh hubih in po
+    menjavi huba; Control doda pripono `-control`. Stari `pc-<ime>` ostane v krogih kot alias: hub ga ob prvi
+    prijavi s podpisom sam poveze z novim. Ce kljuca ni mogoce dobiti, ostane stari id."""
+    global _id_iz_kljuca
+    if _id_iz_kljuca:
+        return _id_iz_kljuca
+    try:
+        _id_iz_kljuca = link_krog.id_iz_kljuca(link_krog.javni_kljuc_b64())
+        return _id_iz_kljuca
+    except Exception:
+        return stari_id_naprave()
+
+
+def je_id_iz_kljuca(device_id: str) -> bool:
+    return link_krog.je_id_iz_kljuca(device_id)
 
 
 class Nastavitve:
@@ -175,9 +198,13 @@ def poisci_hube_mdns(cas: float = 2.0) -> List[dict]:
             ime_h = lastnosti.get(b"name") or lastnosti.get("name") or b""
             if isinstance(ime_h, bytes):
                 ime_h = ime_h.decode("utf-8", "replace")
+            # Izvolitev huba: id in prioriteta iz oglasa (IzvolitevHuba na Androidu).
+            id_h = lastnosti.get(b"id") or lastnosti.get("id") or b""
+            if isinstance(id_h, bytes):
+                id_h = id_h.decode("utf-8", "replace")
             naslov = f"{shema}://{naslovi[0]}:{info.port}{pot}"
             if all(n["naslov"] != naslov for n in najdeno):
-                najdeno.append({"naslov": naslov, "fp": str(fp).lower(), "tls": str(tls) == "1", "ime": str(ime_h)})
+                najdeno.append({"naslov": naslov, "fp": str(fp).lower(), "tls": str(tls) == "1", "ime": str(ime_h), "id": str(id_h)})
 
         def update_service(self, zc, vrsta, ime):
             pass
@@ -260,9 +287,10 @@ def poisci_hub(znani: str = "", odtis: Optional[str] = None) -> Optional[str]:
 
 
 def poisci_hub_z_odtisom(znani: str = "", odtis: Optional[str] = None) -> Optional[dict]:
-    """Kot poisci_hub, a vrne {"naslov", "fp", "isti"}: isti = to je Hub, s katerim smo seznanjeni
+    """Kot poisci_hub, a vrne {"naslov", "fp", "isti", "krog", "id"}: isti = to je Hub, s katerim smo seznanjeni
     (isti naslov, ki se oglasa, ali isti odtis potrdila na drugem naslovu). Med vec Hubi ima
-    prednost tisti z nasim odtisom, nato TLS Hubi po vrsti.
+    prednost tisti z nasim odtisom, nato hub, ki je clan kroga zaupanja (krog=True: njegovo potrdilo
+    nosi kljuc iz kroga, zato mu zaupamo brez seznanitve - prijava gre s podpisom), nato TLS Hubi po vrsti.
     """
     if znani:
         osnova = _osnova(znani)
@@ -274,6 +302,19 @@ def poisci_hub_z_odtisom(znani: str = "", odtis: Optional[str] = None) -> Option
         for h in hubi:
             if h["fp"] == odtis.lower() and je_hub(_osnova(h["naslov"]), odtis=odtis):
                 return {"naslov": h["naslov"], "fp": h["fp"], "isti": True}
+    # Izvoljeni hub (drug clan kroga zaupanja): oglas mDNS ne dobi zaupanja; da ga sele kljuc v
+    # potrdilu, ki se ujema s kljucem tega clana v krogu.
+    try:
+        krog = link_krog.krog()
+    except Exception:
+        krog = None
+    for h in hubi:
+        clan = krog.clan(h.get("id") or "") if (krog and h.get("id")) else None
+        if clan is None:
+            continue
+        videni, kljuc = link_tls.potrdilo_huba(h["naslov"])
+        if videni and kljuc and kljuc == clan["kljuc"] and je_hub(_osnova(h["naslov"]), odtis=videni):
+            return {"naslov": h["naslov"], "fp": videni, "isti": False, "krog": True, "id": h["id"]}
     for h in hubi:
         if je_hub(_osnova(h["naslov"])):
             return {"naslov": h["naslov"], "fp": h["fp"], "isti": False}
@@ -375,6 +416,94 @@ def potrdi_kodo(ws_naslov: str, prijava: dict, device_id: str, koda: str) -> Tup
     return zeton, ""
 
 
+# ----------------------------------------------------------------------
+# Prijava s QR kodo (prijavno okno Safeer OS / Safeer Control)
+# ----------------------------------------------------------------------
+
+# Povezava v QR: kamera telefona jo odpre v Safeer (aplikacija jo prestreze) ali na strani safeer.si/p,
+# ki ponudi »Odpri v Safeer«. Skrivnost je v delu za #, zato je streznik strani nikoli ne vidi.
+QR_POVEZAVA = "https://safeer.si/p#i={qr_id}&s={skrivnost}&f={odtis}"
+QR_ODTIS_ZNAKOV = 16
+
+
+def zacni_qr(ws_naslov: str, device_id: str, ime: str, platforma: str = "linux") -> Optional[dict]:
+    """Odpre prijavo s QR kodo. Vrne {"qr_id", "odtis", "skrivnost", "prevzem", "povezava", "velja"},
+    {"napaka": ...} ali None, ce se hub ne oglasi.
+
+    V QR gre skrivnost (hub dobi samo njen SHA-256) in zacetek odtisa potrdila, ki ga vidimo zdaj -
+    telefon ga primerja s hubom, ki mu zaupa, zato vsiljivec v sredini ne more dobiti potrditve.
+    Za prevzem zetona je druga skrivnost, ki je v QR ni.
+    """
+    import hashlib
+    import secrets
+    osnova = _osnova(ws_naslov)
+    if not osnova.startswith("https://"):
+        return {"napaka": "hub_brez_tls"}
+    skrivnost = secrets.token_hex(16)
+    prevzem = secrets.token_hex(24)
+    koda, odgovor, videni = link_tls.zahteva(osnova + "/cast/pair/qr/start", {
+        "device_id": device_id, "name": ime, "platform": platforma,
+        "secret_sha256": hashlib.sha256(skrivnost.encode("utf-8")).hexdigest(), "poll_secret": prevzem})
+    if koda == 404 or koda == 405:
+        return {"napaka": "hub_star"}
+    if koda != 200 or not videni:
+        if koda == 429:
+            return {"napaka": "prevec_prijav"}
+        return None
+    qr_id = str(odgovor.get("qr_id", "") or "")
+    if not qr_id:
+        return None
+    odtis = videni.lower()
+    return {
+        "qr_id": qr_id, "odtis": odtis, "skrivnost": skrivnost, "prevzem": prevzem,
+        "povezava": QR_POVEZAVA.format(qr_id=qr_id, skrivnost=skrivnost, odtis=odtis[:QR_ODTIS_ZNAKOV]),
+        "velja": int(odgovor.get("expires_in_seconds", 300) or 300),
+    }
+
+
+def stanje_qr(ws_naslov: str, prijava: dict, device_id: str) -> Tuple[Optional[str], str]:
+    """(zeton, "") ko je prijavo dovolil clan Safeer Linka; (None, "caka"), (None, "qr_ne_obstaja")
+    ali (None, "povezava_ni_uspela"). Govorimo samo s potrdilom, ki smo ga videli ob zacetku."""
+    koda, odgovor = _zahteva(_osnova(ws_naslov) + "/cast/pair/qr/status",
+                             {"qr_id": prijava.get("qr_id", ""), "device_id": device_id,
+                              "poll_secret": prijava.get("prevzem", "")}, odtis=prijava.get("odtis"))
+    if koda == 404:
+        return None, "qr_ne_obstaja"
+    if koda != 200:
+        return None, "povezava_ni_uspela"
+    zeton = odgovor.get("token")
+    if odgovor.get("approved") and isinstance(zeton, str) and zeton:
+        return zeton, ""
+    return None, "caka"
+
+
+def preklici_qr(ws_naslov: str, prijava: dict, device_id: str) -> None:
+    """Stara koda ne sme veljati do poteka, ko je okno zaprto ali koda zamenjana."""
+    try:
+        _zahteva(_osnova(ws_naslov) + "/cast/pair/qr/cancel",
+                 {"qr_id": prijava.get("qr_id", ""), "device_id": device_id,
+                  "poll_secret": prijava.get("prevzem", "")}, odtis=prijava.get("odtis"), timeout=3.0)
+    except Exception:
+        pass
+
+
+def qr_svg(besedilo: str) -> str:
+    """QR koda kot SVG (python3-qrcode). Prazen niz, ce knjiznice ni - stran takrat ponudi samo kodo."""
+    try:
+        import qrcode  # type: ignore
+        import qrcode.image.svg  # type: ignore
+    except Exception:
+        return ""
+    import io
+    qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, border=2, box_size=10)
+    qr.add_data(besedilo)
+    qr.make(fit=True)
+    slika = qr.make_image(image_factory=qrcode.image.svg.SvgPathImage)
+    izhod = io.BytesIO()
+    slika.save(izhod)
+    return izhod.getvalue().decode("utf-8")
+
+
 def vzemi_vstopnico_s_kodo(ws_naslov: str, zeton: str, odtis: Optional[str] = None) -> Tuple[Optional[str], int]:
     """(vstopnica, koda HTTP). Koda 401 pomeni: Hub tega zetona ne pozna vec (npr. gostitelj
     je bil ponastavljen ali je napravo odstranil) - naprava se mora znova seznaniti."""
@@ -387,6 +516,134 @@ def vzemi_vstopnico_s_kodo(ws_naslov: str, zeton: str, odtis: Optional[str] = No
 
 def vzemi_vstopnico(ws_naslov: str, zeton: str, odtis: Optional[str] = None) -> Optional[str]:
     return vzemi_vstopnico_s_kodo(ws_naslov, zeton, odtis)[0]
+
+
+# ----------------------------------------------------------------------
+# Krog zaupanja: prijava s podpisom kljuca naprave namesto zetona
+# ----------------------------------------------------------------------
+
+def vzemi_vstopnico_s_podpisom(ws_naslov: str, device_id: str, odtis: str, ime: str = "") -> Tuple[Optional[str], int]:
+    """(vstopnica, koda HTTP) s podpisom kljuca naprave (core/link_krog.py).
+
+    Hub poslje enkratni izziv, naprava podpise izziv + odtis huba + svoj id; hub preveri podpis
+    s kljucem iz kroga zaupanja. Zeton pri tem ni potreben - tako prezivimo zamenjavo huba.
+    Koda 401 pomeni, da hub te naprave (s tem kljucem) v krogu nima.
+    """
+    osnova = _osnova(ws_naslov)
+    koda, izziv = _zahteva(osnova + "/cast/auth/challenge", {"device_id": device_id}, odtis=odtis)
+    if koda != 200:
+        return None, koda
+    nonce = str(izziv.get("nonce", "") or "")
+    odtis_huba = str(izziv.get("fp", "") or "") or odtis
+    if not nonce:
+        return None, koda
+    try:
+        podpis = link_krog.podpisi(link_krog.podatki_za_podpis(odtis_huba, nonce, device_id))
+    except Exception:
+        return None, 0
+    # Ime in platforma: ce hub nov id (iz kljuca) sele vpisuje kot alias starega, naj ima pravo ime.
+    koda, odgovor = _zahteva(osnova + "/cast/auth/ticket",
+                             {"device_id": device_id, "nonce": nonce, "signature": podpis,
+                              "name": ime or "", "platform": "linux"}, odtis=odtis)
+    if koda != 200:
+        return None, koda
+    krog = odgovor.get("ring")
+    if isinstance(krog, dict):
+        link_krog.sprejmi(krog)
+    vstopnica = odgovor.get("ticket")
+    return (vstopnica if isinstance(vstopnica, str) and vstopnica else None), koda
+
+
+def seja_s_podpisom(ws_naslov: str, device_id: str, odtis: str, ime: str = "") -> Optional[str]:
+    """Sejni zeton za HTTP (vabilo, odhod) za napravo v krogu zaupanja, ki nima zetona seznanitve."""
+    osnova = _osnova(ws_naslov)
+    koda, izziv = _zahteva(osnova + "/cast/auth/challenge", {"device_id": device_id}, odtis=odtis)
+    nonce = str(izziv.get("nonce", "") or "") if koda == 200 else ""
+    if not nonce:
+        return None
+    try:
+        podpis = link_krog.podpisi(link_krog.podatki_za_podpis(str(izziv.get("fp", "") or "") or odtis, nonce, device_id))
+    except Exception:
+        return None
+    koda, odgovor = _zahteva(osnova + "/cast/auth/ticket", {"device_id": device_id, "nonce": nonce, "signature": podpis,
+                                                            "name": ime or "", "platform": "linux"}, odtis=odtis)
+    seja = odgovor.get("session_token") if koda == 200 else None
+    return seja if isinstance(seja, str) and seja else None
+
+
+def povabi(ws_naslov: str, zeton: str, odtis: str, preklici: str = "") -> dict:
+    """»Poveži novo napravo«: sredisce ustvari enkratno kodo za pridruzitev (kot jo pokaze na svojem zaslonu).
+    Vrne {"qr_id", "povezava", "velja"} ali {"napaka": "hub_star" | "ni_huba" | "ni_seznanjena"}.
+
+    Povezava je ista kot na televizorju: https://safeer.si/p#j=<id>&s=<skrivnost>&f=<odtis>&a=<naslov:vrata>
+    - skrivnost je za #, zato je streznik strani nikoli ne vidi; telefon se pripne na odtis."""
+    koda, odgovor = _zahteva(_osnova(ws_naslov) + "/cast/pair/qr/invite", {"qr_id": preklici}, zeton=zeton, odtis=odtis)
+    if koda in (404, 405):
+        return {"napaka": "hub_star"}
+    if koda in (401, 403):
+        return {"napaka": "ni_seznanjena"}
+    if koda != 200:
+        return {"napaka": "ni_huba"}
+    qr_id, skrivnost = str(odgovor.get("qr_id") or ""), str(odgovor.get("secret") or "")
+    fp = str(odgovor.get("fp") or odtis or "").lower()
+    if not qr_id or not skrivnost:
+        return {"napaka": "ni_huba"}
+    u = urlparse(ws_naslov)
+    naslov = "%s:%d" % (u.hostname, u.port or 443)
+    return {"qr_id": qr_id, "velja": int(odgovor.get("expires_in_seconds") or 300),
+            "povezava": povezava_vabila(u.hostname or "", int(odgovor.get("web_port") or 0), qr_id, skrivnost, fp, naslov)}
+
+
+def povezava_vabila(gostitelj: str, spletna_vrata: int, qr_id: str, skrivnost: str, fp: str, naslov: str) -> str:
+    """Koda za novo napravo: stran spletnega odjemalca na srediscu (http://<sredisce>:<vrata>/#...), da dela tudi
+    telefon brez Safeerja; telefon s Safeerjem jo odpre v aplikaciji. Brez spletnih vrat (staro sredisce)
+    ostane https://safeer.si/p#..., ki jo razume samo aplikacija. Skrivnost je za # - streznik je ne vidi."""
+    rep = "#j=%s&s=%s&f=%s&a=%s" % (qr_id, skrivnost, fp, naslov)
+    if spletna_vrata > 0 and gostitelj and ":" not in gostitelj:
+        return "http://%s:%d/%s" % (gostitelj, spletna_vrata, rep)
+    return "https://safeer.si/p" + rep
+
+
+def stanje_vabila(ws_naslov: str, zeton: str, odtis: str, qr_id: str) -> dict:
+    """{"caka": bool, "pridruzen": ime ali ""} - ali se je z vabilom ze kdo pridruzil."""
+    koda, odgovor = _zahteva(_osnova(ws_naslov) + "/cast/pair/qr/invite/status", {"qr_id": qr_id},
+                             zeton=zeton, odtis=odtis, timeout=4.0)
+    if koda != 200:
+        return {"caka": False, "pridruzen": "", "napaka": koda}
+    return {"caka": bool(odgovor.get("pending")),
+            "pridruzen": str(odgovor.get("name") or "") if odgovor.get("joined") else ""}
+
+
+def preklici_vabilo(ws_naslov: str, zeton: str, odtis: str, qr_id: str) -> None:
+    try:
+        _zahteva(_osnova(ws_naslov) + "/cast/pair/qr/invite/cancel", {"qr_id": qr_id}, zeton=zeton, odtis=odtis, timeout=3.0)
+    except Exception:
+        pass
+
+
+def odidi(ws_naslov: str, zeton: str, odtis: str) -> bool:
+    """Ta naprava zapusti Safeer Link: sredisce pozabi njen zeton in jo umakne iz kroga zaupanja."""
+    try:
+        koda, _ = _zahteva(_osnova(ws_naslov) + "/cast/devices/leave", {}, zeton=zeton, odtis=odtis, timeout=4.0)
+    except Exception:
+        return False
+    return koda == 200
+
+
+def vpisi_v_krog(ws_naslov: str, zeton: str, odtis: str, ime: str) -> bool:
+    """Z veljavnim zetonom vpise kljuc te naprave v krog zaupanja huba (enkrat; potem gre s podpisom)."""
+    try:
+        kljuc = link_krog.javni_kljuc_b64()
+    except Exception:
+        return False
+    koda, odgovor = _zahteva(_osnova(ws_naslov) + "/cast/trust/enroll",
+                             {"pubkey": kljuc, "name": ime, "platform": "linux"}, zeton=zeton, odtis=odtis)
+    if koda != 200:
+        return False
+    krog = odgovor.get("ring")
+    if isinstance(krog, dict):
+        link_krog.sprejmi(krog)
+    return True
 
 
 # ----------------------------------------------------------------------
@@ -609,6 +866,32 @@ class WsOdjemalec:
 
 
 # ----------------------------------------------------------------------
+# Protocol v1: model naprave v prijavi (cast.register)
+# ----------------------------------------------------------------------
+
+PROTOKOL_V1 = "1.0"
+
+
+def _razlicica_aplikacije() -> str:
+    glavni = sys.modules.get("__main__")
+    return str(getattr(glavni, "APP_VERSION", "") or "")
+
+
+def model_naprave_v1(device_id: str) -> dict:
+    """Polja Protocol v1 v tovoru cast.register: protocol, platform, kind, version (HubUsmerjevalnik.PROTOKOL_V1).
+
+    kind: "control" za Safeer Control (id se konca na -control), sicer "computer" (brskalnik).
+    Prioritete ne posljemo - racunalnik huba (se) ne gosti. Hub 0.2 ta polja prezre.
+    """
+    polja = {"protocol": PROTOKOL_V1, "platform": "linux",
+             "kind": "control" if device_id.endswith("-control") else "computer"}
+    razlicica = _razlicica_aplikacije()
+    if razlicica:
+        polja["version"] = razlicica
+    return polja
+
+
+# ----------------------------------------------------------------------
 # Povezava z Hubom v svoji niti
 # ----------------------------------------------------------------------
 
@@ -621,8 +904,15 @@ class Povezava:
 
     def __init__(self, ws_naslov: str, zeton: str, device_id: str, ime: str,
                  sinhronizira: bool = False, odtis: Optional[str] = None,
-                 dodatne_zmoznosti: Optional[List[str]] = None) -> None:
+                 dodatne_zmoznosti: Optional[List[str]] = None,
+                 katalog: Optional[Callable[[], dict]] = None, v_krog: bool = True) -> None:
         self.ws_naslov = ws_naslov
+        # False za racunalnik, ki mu uporabnik ni zaupal (core/link_seja.py): brez prijave s podpisom
+        # in brez vpisa v krog zaupanja - povezava velja samo z zetonom te prijave.
+        self.v_krog = v_krog
+        # Protocol v1: katalog aplikacij te naprave ({"<id>": {"name", "kind"}}), ki gre v prijavo.
+        # Klic, ne vrednost: katalog se prebere ob vsaki (ponovni) povezavi, da je svez.
+        self.katalog = katalog
         # Zmoznosti, ki jih doda klicatelj (Safeer Control: "files" - deljene mape za televizor).
         self.dodatne_zmoznosti = list(dodatne_zmoznosti or [])
         self.zeton = zeton
@@ -631,6 +921,10 @@ class Povezava:
         self.ime = ime
         # True, ko je Hub zeton zavrnil (401/403): naprava ni vec seznanjena.
         self.zavrnjena = False
+        # True, ko je zadnja prijava sla s podpisom kljuca naprave (krog zaupanja), ne z zetonom.
+        self.prijava_s_podpisom = False
+        # True, ko je ta povezava kljuc naprave ravnokar vpisala v krog huba.
+        self.vpisana_v_krog = False
         self.sinhronizira = sinhronizira
         self.odjemalec: Optional[WsOdjemalec] = None
         self.nit: Optional[threading.Thread] = None
@@ -649,9 +943,35 @@ class Povezava:
         # znova seznani.
         if not self.ws_naslov.startswith("wss://") or not self.odtis:
             return False
-        vstopnica, koda = vzemi_vstopnico_s_kodo(self.ws_naslov, self.zeton, self.odtis)
-        # Hub nas ne pozna vec: brez nove seznanitve ne bo slo, zato tega ne poskusamo v krogu.
-        self.zavrnjena = koda in (401, 403)
+        vstopnica: Optional[str] = None
+        # Najprej s podpisom kljuca naprave (krog zaupanja): zeton ni potreben, zato ta pot
+        # prezivi tudi zamenjavo huba. Ce hub kroga se ne pozna (starejsi hub: 404) ali nas v
+        # njem nima, gre po stari poti z zetonom.
+        s_podpisom = False
+        try:
+            # Tudi ce je nas kljuc v krogu pod starim id-jem: hub nov id sam vpise kot alias.
+            s_podpisom = self.v_krog and link_krog.lahko_s_podpisom(self.device_id)
+        except Exception:
+            s_podpisom = False
+        if s_podpisom:
+            vstopnica, koda = vzemi_vstopnico_s_podpisom(self.ws_naslov, self.device_id, self.odtis, self.ime)
+            if vstopnica:
+                self.prijava_s_podpisom = True
+        if not vstopnica:
+            self.prijava_s_podpisom = False
+            vstopnica, koda = vzemi_vstopnico_s_kodo(self.ws_naslov, self.zeton, self.odtis)
+            # Hub nas ne pozna vec: brez nove seznanitve ne bo slo, zato tega ne poskusamo v krogu.
+            self.zavrnjena = koda in (401, 403)
+            if vstopnica and not s_podpisom and self.v_krog:
+                # Zeton je veljaven: vpisemo kljuc naprave v krog, da gre naslednjic s podpisom.
+                # Starejsi hub brez kroga vrne 404 - nic hudega, ostanemo pri zetonu.
+                try:
+                    if vpisi_v_krog(self.ws_naslov, self.zeton, self.odtis, self.ime):
+                        self.vpisana_v_krog = True
+                except Exception:
+                    pass
+        else:
+            self.zavrnjena = False
         if not vstopnica:
             return False
         locilo = "&" if "?" in self.ws_naslov else "?"
@@ -669,8 +989,16 @@ class Povezava:
                 "device_id": self.device_id,
                 "name": self.ime,
                 "role": "sender",
+                **model_naprave_v1(self.device_id),
             },
         }
+        if self.katalog is not None:
+            try:
+                katalog = self.katalog()
+            except Exception:
+                katalog = None
+            if isinstance(katalog, dict) and katalog:
+                prijava["payload"]["apps"] = katalog
         # Racunalnik sprejema besedilo, datoteke in zaslon; sync samo, ce je vklopljen.
         # "remote": Safeer Control sme temu racunalniku posiljati ukaze daljinca (core/link_daljinec.py).
         zmoznosti = ["url", "text", "file", "screen", "remote"]
@@ -755,6 +1083,14 @@ class Povezava:
                     sporocilo = json.loads(besedilo)
                 except json.JSONDecodeError:
                     continue
+                if isinstance(sporocilo, dict) and sporocilo.get("type") == "trust.update":
+                    # Hub razposlje krog zaupanja ob prijavi in ob vsaki spremembi; shranimo ga,
+                    # da nas pozna tudi naslednji hub. Naprej ga ne dajemo.
+                    try:
+                        link_krog.sprejmi(sporocilo.get("payload"))
+                    except Exception:
+                        pass
+                    continue
                 if self.ob_sporocilu:
                     self.ob_sporocilu(sporocilo)
         except Exception:
@@ -776,6 +1112,11 @@ class Povezava:
             return True
         except Exception:
             return False
+
+    def objavi_katalog(self, katalog: dict) -> bool:
+        """Protocol v1: naknadno objavi (ali izprazni) katalog aplikacij brez ponovne prijave."""
+        return self.poslji({"id": str(int(time.time() * 1000)), "type": "apps.announce",
+                            "payload": {"apps": katalog if isinstance(katalog, dict) else {}}})
 
     def poslji_url(self, cilj: str, url: str, naslov: Optional[str] = None) -> bool:
         return self.poslji({

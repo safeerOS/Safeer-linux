@@ -78,7 +78,15 @@ class ControlPaket(unittest.TestCase):
             self.assertIn('pokazi("%s", false)' % id_, js)
         # Deljene mape za televizor: plosca samo v Controlu, besedila v vseh jezikih, most zna dodati/odstraniti.
         html = open(os.path.join(KOREN, "assets", "link", "index.html"), encoding="utf-8").read()
-        self.assertIn('id="panelMape" hidden', html)
+        self.assertRegex(html, r'id="panelMape"[^>]*\bhidden\b')
+        # Samostojna aplikacija: levi meni z razdelki je v strani, a skrit (telefon in TV ga ne vidita);
+        # razdelke vklopi samo Control (body.namizje), Safeer OS na televizorju je en klik.
+        self.assertRegex(html, r'<nav class="stranski" id="stranskiMeni" hidden')
+        for razdelek in ("naprave", "daljinec", "poslji", "mape", "sync"):
+            self.assertIn('data-razdelek="%s"' % razdelek, html)
+        self.assertIn("function narisiMeni()", js)
+        self.assertIn('classList.add("namizje")', js)
+        self.assertIn('id="gumbOdpriSafeerOs"', html)
         for jezik in ("sl", "en", "de", "es", "fr", "it"):
             blok = js.split("\n    %s: {\n" % jezik, 1)[1]
             for kljuc in ("mapeNaslov", "mapeOpis", "mapeDodaj", "mapePrazno", "mapeOdstrani", "mapeStandardne"):

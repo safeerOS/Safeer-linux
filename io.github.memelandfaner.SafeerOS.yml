@@ -1,0 +1,46 @@
+app-id: io.github.memelandfaner.SafeerOS
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+command: safeer-os
+# Safeer OS is a shell over the desktop: it needs the session bus (Safeer Control's D-Bus name is
+# used by the browser and by Safeer OS), the network (Safeer Link at home), sound, the home folder
+# (Files) and the host's system tools through flatpak-spawn (see packaging/flatpak_host_wrappers.sh).
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+  - --share=network
+  - --socket=pulseaudio
+  - --socket=session-bus
+  - --filesystem=home
+  - --filesystem=xdg-run/pipewire-0
+  - --talk-name=org.freedesktop.Flatpak
+  - --own-name=io.github.memelandfaner.SafeerControl
+  - --own-name=io.github.memelandfaner.SafeerOS
+  - --env=GTK_USE_PORTAL=1
+modules:
+  - name: python3-qrcode
+    buildsystem: simple
+    build-commands:
+      - pip3 install --no-index --no-deps --prefix=/app qrcode-8.2-py3-none-any.whl
+    sources:
+      - type: file
+        url: https://files.pythonhosted.org/packages/dd/b8/d2d6d731733f51684bbf76bf34dab3b70a9148e8f2cef2bb544fccec681a/qrcode-8.2-py3-none-any.whl
+        sha256: 16e64e0716c14960108e85d853062c9e8bba5ca8252c0b4d0231b9df4060ff4f
+  - name: safeer-os
+    buildsystem: simple
+    build-commands:
+      - bash packaging/install_control_payload.sh /app
+      - bash packaging/install_os_payload.sh /app io.github.memelandfaner.SafeerOS
+      - bash packaging/flatpak_host_wrappers.sh /app/host-bin
+      - rm -f /app/share/applications/safeer-control.desktop
+    sources:
+      - type: dir
+        path: .
+        skip:
+          - .git
+          - build
+          - dist
+          - .flatpak-builder

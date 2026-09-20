@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Safeer OS (Linux) — application launcher (shared by .deb, AppImage, Flatpak and source checkout).
+# Resolves the payload relative to its own location, like the Safeer Control launcher.
+# ==============================================================================
+PRG="$0"
+while [ -h "$PRG" ]; do
+    link="$(readlink "$PRG")"
+    case "$link" in
+        /*) PRG="$link" ;;
+        *) PRG="$(dirname "$PRG")/$link" ;;
+    esac
+done
+BIN_DIR="$(cd "$(dirname "$PRG")" && pwd)"
+APP_DIR="$(cd "$BIN_DIR/../lib/safeer-os" && pwd)" || {
+    echo "Safeer OS: application payload not found next to launcher." >&2
+    exit 1
+}
+# Flatpak: system tools (nmcli, pactl, resolvectl, pkexec ...) live on the host; /app/host-bin holds
+# wrappers that run them through flatpak-spawn --host (packaging/flatpak_host_wrappers.sh).
+if [ -n "${FLATPAK_ID:-}" ] && [ -d /app/host-bin ]; then
+    export PATH="/app/host-bin:$PATH"
+fi
+exec "${PYTHON:-python3}" "$APP_DIR/safeer_os.py" "$@"

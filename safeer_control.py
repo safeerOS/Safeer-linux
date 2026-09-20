@@ -28,6 +28,8 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import threading
+import time
 import sys
 from typing import Optional
 
@@ -41,10 +43,11 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("WebKit2", "4.1")
 from gi.repository import Gio, GLib, Gtk, WebKit2  # noqa: E402
 
-from core import link_datoteke, link_hub, link_programi, link_sway, link_tls, link_zaslon  # noqa: E402
+from core import link_datoteke, link_deljenje, link_hub, link_programi, link_sway, link_tls, link_zaslon, link_zvok  # noqa: E402
 from core.safeer_link import SafeerLink  # noqa: E402
 
 APP_ID = "io.github.memelandfaner.SafeerControl"
+CONTROL_POT = "/io/github/memelandfaner/SafeerControl"
 NASTAVITVE_MAPA = os.path.expanduser("~/.config/safeer-control")
 SAMOZAGON_POT = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "autostart", "safeer-control.desktop")
 
@@ -353,17 +356,105 @@ class SafeerControl(Gtk.Application):
                              else None)
         self.programi.drugi = self.drugi_zaslon
         self.zaslon.drugi = self.drugi_zaslon
+        # Zvok racunalnika na televizorju ali tablici (Safeer OS: stran Zvok). Navidezni izhod, ki ga je
+        # pustil prejsnji (ubit) Control, pospravimo takoj - sicer bi zvok sel v prazno.
+        self.zvok = link_zvok.ZvokNaNapravo()
+        self.zvok.ustavi()
 
     def do_startup(self) -> None:
         Gtk.Application.do_startup(self)
+        # Safeer OS (stikalo »Zaupaj temu računalniku«) klice to dejanje prek D-Bus (org.gtk.Actions).
+        zaupanje = Gio.SimpleAction.new("zaupanje", GLib.VariantType.new("b"))
+        zaupanje.connect("activate", self._na_zaupanje)
+        self.add_action(zaupanje)
+        # Safeer OS: prijavno okno, »Poveži novo napravo« in »Odjavi ta računalnik«.
+        for ime, klic in (("prijava", self.prijava_iz_os), ("nova-naprava", self.nova_naprava),
+                          ("odjava", self.odjava), ("zvok-ustavi", self.zvok_ustavi)):
+            dejanje = Gio.SimpleAction.new(ime, None)
+            dejanje.connect("activate", lambda _d, _v, k=klic: k())
+            self.add_action(dejanje)
+        # Safeer OS: »Predvajaj na« - zvok racunalnika na napravo v Safeer Linku (id naprave).
+        zvok = Gio.SimpleAction.new("zvok-na-napravo", GLib.VariantType.new("s"))
+        zvok.connect("activate", lambda _d, v: self.zvok_na_napravo(v.get_string()))
+        self.add_action(zvok)
         if self.ozadje:
             self.hold()  # brez okna bi se GApplication koncal; ikona v pladnju ga drzi
+        self._izvozi_naprave()
+
+    # ------------------------------------------------------------------ D-Bus za Safeer OS: naprave in njihovi programi
+    VMESNIK_NAPRAVE = """
+    <node><interface name="io.github.memelandfaner.SafeerControl.Naprave">
+      <method name="Seznam"><arg type="s" name="json" direction="out"/></method>
+      <method name="Aplikacije"><arg type="s" name="naprava" direction="in"/><arg type="s" name="json" direction="out"/></method>
+      <method name="Zazeni"><arg type="s" name="naprava" direction="in"/><arg type="s" name="app" direction="in"/><arg type="s" name="json" direction="out"/></method>
+      <method name="Preimenuj"><arg type="s" name="naprava" direction="in"/><arg type="s" name="ime" direction="in"/><arg type="s" name="json" direction="out"/></method>
+    </interface></node>"""
+
+    def _izvozi_naprave(self) -> None:
+        """Safeer OS (locen proces) prek tega vmesnika naste naprave v Linku, njihove programe (apps.list) in
+        jih zazene (apps.launch). Klici cakajo na odgovor naprave, zato tecejo v ozadju, ne na glavni niti."""
+        try:
+            vodilo = self.get_dbus_connection() or Gio.bus_get_sync(Gio.BusType.SESSION, None)
+            info = Gio.DBusNodeInfo.new_for_xml(self.VMESNIK_NAPRAVE)
+            vodilo.register_object(CONTROL_POT + "/naprave", info.interfaces[0], self._klic_naprave, None, None)
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerControl] D-Bus Naprave:", e)
+
+    def _klic_naprave(self, _vodilo, _posiljatelj, _pot, _vmesnik, metoda, parametri, klic) -> None:
+        argumenti = list(parametri.unpack())
+
+        def delo() -> None:
+            try:
+                izid = self._naprave_metoda(metoda, argumenti)
+            except Exception as e:  # noqa: BLE001
+                izid = {"ok": False, "message": str(e)}
+            klic.return_value(GLib.Variant("(s)", (json.dumps(izid, ensure_ascii=True),)))
+        threading.Thread(target=delo, name="safeer-dbus-naprave", daemon=True).start()
+
+    def _naprave_metoda(self, metoda: str, a: list) -> dict:
+        if self.link is None:
+            self._pripravi_link()
+        link = self.link
+        if metoda == "Seznam":
+            return {"ok": True, "naprave": [
+                {"id": n.get("id", ""), "ime": n.get("ime", ""), "zmoznosti": n.get("zmoznosti") or [],
+                 "platforma": n.get("platforma", ""), "vrsta": n.get("vrsta", ""),
+                 "ta": n.get("id", "") == link._id()} for n in link.naprave]}
+        if metoda == "Preimenuj":
+            # Ime hrani sredisce (/cast/devices/rename) in ga vidijo vse naprave; prazno vrne prvotno ime.
+            if not (link._hub() and link._zeton() and link._odtis()):
+                return {"ok": False, "koda": "hub_ni_znan"}
+            ok, novo, n = link_deljenje.preimenuj_napravo(link._hub(), link._zeton() or "", link._odtis() or "",
+                                                          str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "")
+            return {"ok": bool(ok), "ime": novo, "message": "" if ok else n.get("sporocilo", "")}
+        if metoda == "Aplikacije":
+            id_naprave = str(a[0]) if a else ""
+            # Po kosih (racunalnik daje najvec 60 z ikonami na sporocilo); Android vrne vse naenkrat.
+            vsi, od = [], 0
+            for _ in range(20):
+                r = link.ukaz_pocakaj(id_naprave, "apps.list", {"icons": True, "offset": od, "limit": 60}, cas=20.0)
+                if not r.get("ok"):
+                    return r
+                d = r.get("data") or {}
+                kos = d.get("items") if isinstance(d.get("items"), list) else []
+                vsi += kos
+                skupaj = int(d.get("total") or len(vsi))
+                od = int(d.get("offset") or 0) + len(kos)
+                if not kos or od >= skupaj:
+                    break
+            return {"ok": True, "items": vsi, "enabled": bool((r.get("data") or {}).get("enabled", True))}
+        if metoda == "Zazeni":
+            return link.ukaz_pocakaj(str(a[0]) if a else "", "apps.launch", {"app": str(a[1]) if len(a) > 1 else ""})
+        return {"ok": False, "message": "neznana metoda"}
 
     def _pripravi_link(self) -> None:
         nastavitve_linka = link_hub.Nastavitve(os.path.join(NASTAVITVE_MAPA, "link.json"))
         id_naprave, ime = identiteta()
         try:
-            if prevzemi_seznanitev_brskalnika(nastavitve_linka, id_naprave, ime):
+            # Racunalniku, ki mu uporabnik ni zaupal, seznanitve brskalnika ne prevzemamo: ob novi prijavi
+            # mora biti prijavno okno, ne tiha povezava (core/link_seja.py).
+            if nastavitve_linka.get("zaupana") is not False and \
+                    prevzemi_seznanitev_brskalnika(nastavitve_linka, id_naprave, ime):
                 print("[SafeerControl] Seznanitev prevzeta od Safeer Browserja (brez kode).")
         except Exception as e:  # noqa: BLE001
             print(f"[SafeerControl] Seznanitve brskalnika ni bilo mogoče prevzeti: {e}")
@@ -379,9 +470,76 @@ class SafeerControl(Gtk.Application):
             ob_zaprtju=self.ob_zaprtju_okna,
         )
         self.link.ob_povezavi = self._na_povezavo
+        self.link.ob_brez_povezave = self.odpri_safeer_os
+        self.link.ob_seznanitvi = self._po_seznanitvi
         self.link.datoteke = self.datoteke
         self.link.programi = self.programi
         self.link.zaslon = self.zaslon
+        self.link.zvok = self.zvok
+        self.zvok.ob_spremembi = lambda _opis: self.link.zapisi_stanje_za_os() if self.link is not None else None
+
+    # ------------------------------------------------------------------ Safeer OS
+    _iz_os = False
+
+    def prijava_iz_os(self) -> None:
+        """Safeer OS pokaze prijavno okno (QR / koda / brez povezave). Okno je nad Safeer OS; po prijavi
+        ali »brez povezave« se zapre in uporabnik je spet v Safeer OS."""
+        if self.link is None:
+            self._pripravi_link()
+        self._iz_os = True
+        if self.link.nastavitve.get("brez_povezave"):
+            self.link._povezi_naprave()        # prej izbral »brez povezave«: spet prijavno okno
+        self.pokazi_okno()
+        if self.link.okno is not None:
+            self.link.okno.set_keep_above(True)
+            self.link.okno.present()
+
+    def nova_naprava(self) -> None:
+        """»Poveži novo napravo« iz Safeer OS: okno Control z QR kodo za nov telefon ali tablico."""
+        if self.link is None:
+            self._pripravi_link()
+        koda = "window.safeerLinkOdpri && safeerLinkOdpri('novaNaprava')"
+        nalozena = self.link.pogled is not None
+        self.link.ob_nalozitvi_js = "" if nalozena else koda
+        self.pokazi_okno()
+        if nalozena:
+            self.link._js(koda)
+        if self.link.okno is not None:
+            self.link.okno.present()
+
+    def odjava(self) -> None:
+        """»Odjavi ta računalnik« iz Safeer OS: sredisce ga pozabi, ob naslednjem odprtju je prijavno okno."""
+        if self.link is None:
+            self._pripravi_link()
+        self.link._v_ozadju(self.link._pozabi_napravo)
+
+    def zvok_na_napravo(self, id_naprave: str) -> None:
+        if self.link is None:
+            self._pripravi_link()
+        self.link._v_ozadju(lambda: self.link.zvok_na_napravo(str(id_naprave or "")))
+
+    def zvok_ustavi(self) -> None:
+        if self.link is None:
+            self.zvok.ustavi()
+            return
+        self.link._v_ozadju(self.link.zvok_ustavi)
+
+    def _po_seznanitvi(self) -> None:
+        if not self._iz_os:
+            return
+        self._iz_os = False
+
+        def nazaj():
+            if self.link is not None and self.link.okno is not None:
+                self.link.okno.set_keep_above(False)
+            self.odpri_safeer_os()
+            return False
+        GLib.timeout_add(2500, nazaj)      # »Prijavljeno« ostane vidno, nato nazaj v Safeer OS
+
+    def _na_zaupanje(self, _dejanje, vrednost) -> None:
+        if self.link is None:
+            self._pripravi_link()
+        self.link.nastavi_zaupanje(bool(vrednost.get_boolean()))
 
     def nastavi_zaslon(self, vklopljeno: bool) -> None:
         """Televizor sme (ali ne sme vec) videti zaslon tega racunalnika. Izklop takoj konca sejo;
@@ -491,6 +649,11 @@ class SafeerControl(Gtk.Application):
             self.quit()
 
     def koncaj(self) -> None:
+        self.koncaj_brez_izhoda()
+        self.quit()
+
+    def koncaj_brez_izhoda(self) -> None:
+        """Pospravi povezavo, deljene mape in zaslon (ob izhodu in pred zagonom nove razlicice)."""
         try:
             if self.link is not None and self.link.povezava is not None:
                 self.link.povezava.zapri()
@@ -501,12 +664,47 @@ class SafeerControl(Gtk.Application):
         except Exception:
             pass
         try:
+            self.zvok.ustavi()
+        except Exception:
+            pass
+        try:
             self.zaslon.ustavi()
             if self.drugi_zaslon is not None:
                 self.drugi_zaslon.ustavi()
         except Exception:
             pass
-        self.quit()
+
+    def odpri_safeer_os(self) -> None:
+        """»Nadaljuj brez povezave naprav« v prijavnem oknu: odpre Safeer OS na tem racunalniku, Control
+        gre v pladenj. Dokler Safeer OS za racunalnik ni namescen, to okno to posteno pove."""
+        self._iz_os = False
+        if self.link is not None and self.link.okno is not None:
+            self.link.okno.set_keep_above(False)
+        ukaz = None
+        pot = shutil_which("safeer-os")
+        if pot:
+            ukaz = [pot]
+        else:
+            skripta = os.path.join(KOREN, "safeer_os.py")
+            if os.path.isfile(skripta):
+                ukaz = [sys.executable, skripta]
+        if not ukaz:
+            if self.link is not None:
+                self.link._odziv("brezPovezave", {"os": False})
+            return
+        try:
+            subprocess.Popen(ukaz, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as e:  # noqa: BLE001
+            print(f"[SafeerControl] Safeer OS se ni odprl: {e}")
+            if self.link is not None:
+                self.link._odziv("brezPovezave", {"os": False})
+            return
+        if self.link is not None and self.link.okno is not None:
+            # S pladnjem se okno umakne tja; brez njega (zagon iz menija) ga le pomanjsamo, da ne izgine.
+            if getattr(self, "pladenj", None) is not None:
+                self.link.okno.hide()
+            else:
+                self.link.okno.iconify()
 
     def pokazi_okno(self) -> None:
         if self.link is None:
@@ -525,9 +723,40 @@ class SafeerControl(Gtk.Application):
                 self._pripravi_link()
             self.pladenj = Pladenj(self)
             self.link.povezi_v_ozadju()
+            if os.environ.pop("SAFEER_CONTROL_ODPRI", "") == "1":
+                self.pokazi_okno()
             return
         self._prva_aktivacija = False
+        # Program je tekel v ozadju, medtem pa je bil posodobljen: namesto starega okna odpremo novo
+        # razlicico (uporabniku ni treba vedeti, da je bilo treba kaj znova zagnati).
+        if self._koda_posodobljena() and (self.link is None or self.link.okno is None):
+            self._znova_zazeni()
+            return
         self.pokazi_okno()
+
+    _ZAGNAN_OB = time.time()
+    _DATOTEKE_KODE = ("safeer_control.py", "core/safeer_link.py", "core/link_hub.py",
+                      "assets/link/link.js", "assets/link/index.html", "assets/link/daljinec.js")
+
+    def _koda_posodobljena(self) -> bool:
+        for ime in self._DATOTEKE_KODE:
+            try:
+                if os.path.getmtime(os.path.join(KOREN, ime)) > self._ZAGNAN_OB + 1:
+                    return True
+            except OSError:
+                continue
+        return False
+
+    def _znova_zazeni(self) -> None:
+        print("[SafeerControl] Koda je posodobljena; zaganjam novo razlicico.")
+        try:
+            self.koncaj_brez_izhoda()
+        except Exception:
+            pass
+        # Pladenj ostane (--ozadje), okno pa se odpre takoj, ker ga je uporabnik pravkar zahteval.
+        argv = [a for a in sys.argv if a != "--ozadje"] + ["--ozadje"]
+        os.environ["SAFEER_CONTROL_ODPRI"] = "1"
+        os.execv(sys.executable, [sys.executable] + argv)
 
     # ------------------------------------------------------------------
     # Odpiranje naslovov: gledalec zaslona s Huba v svojem oknu, vse drugo v sistemskem brskalniku
@@ -566,10 +795,79 @@ class SafeerControl(Gtk.Application):
             except Exception as e:  # noqa: BLE001
                 print(f"[SafeerControl] Naslova ni bilo mogoče odpreti: {e}")
 
+    # Okno gledalca: dotik, poteg in tipke z miske in tipkovnice gredo na napravo, katere zaslon gledamo
+    # (Safeer Vnos na tablici). Slika je v <img id="zaslon"> z object-fit: contain; koordinate
+    # preracunamo v delez prave slike, da sirina okna ali crni robovi ne zamaknejo dotika.
+    GLEDALEC_VNOS_JS = r"""
+(function () {
+  function poslji(d, p) {
+    try { window.webkit.messageHandlers.safeerVnos.postMessage(JSON.stringify({d: d, p: p})); } catch (e) {}
+  }
+  function delez(img, x, y) {
+    var r = img.getBoundingClientRect();
+    var nw = img.naturalWidth || 1, nh = img.naturalHeight || 1;
+    var m = Math.min(r.width / nw, r.height / nh);
+    var w = nw * m, h = nh * m;
+    var ox = r.left + (r.width - w) / 2, oy = r.top + (r.height - h) / 2;
+    var fx = (x - ox) / w, fy = (y - oy) / h;
+    if (fx < 0 || fy < 0 || fx > 1 || fy > 1) return null;
+    return {x: fx, y: fy};
+  }
+  var zacetek = null, cas = 0, tipkano = "", casovnik = null;
+  document.addEventListener("mousedown", function (e) {
+    var img = document.getElementById("zaslon");
+    if (!img || e.button !== 0) return;
+    zacetek = delez(img, e.clientX, e.clientY); cas = Date.now();
+    e.preventDefault();
+  }, true);
+  document.addEventListener("mouseup", function (e) {
+    var img = document.getElementById("zaslon");
+    if (!img || !zacetek || e.button !== 0) return;
+    var konec = delez(img, e.clientX, e.clientY) || zacetek;
+    var trajanje = Math.max(60, Math.min(1500, Date.now() - cas));
+    if (Math.abs(konec.x - zacetek.x) + Math.abs(konec.y - zacetek.y) > 0.02) {
+      poslji("input.swipe", {x1: zacetek.x, y1: zacetek.y, x2: konec.x, y2: konec.y, ms: trajanje});
+    } else {
+      poslji("input.tap", {x: zacetek.x, y: zacetek.y, ms: trajanje > 450 ? 700 : 60});
+    }
+    zacetek = null;
+  }, true);
+  document.addEventListener("wheel", function (e) {
+    var img = document.getElementById("zaslon");
+    if (!img) return;
+    var t = delez(img, e.clientX, e.clientY);
+    if (!t) return;
+    var dy = e.deltaY > 0 ? -0.25 : 0.25;
+    poslji("input.swipe", {x1: t.x, y1: t.y, x2: t.x, y2: Math.max(0, Math.min(1, t.y + dy)), ms: 250});
+    e.preventDefault();
+  }, {capture: true, passive: false});
+  document.addEventListener("contextmenu", function (e) { e.preventDefault(); poslji("input.key", {key: "back"}); }, true);
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" || e.key === "BrowserBack") { poslji("input.key", {key: "back"}); e.preventDefault(); return; }
+    if (e.key === "Home") { poslji("input.key", {key: "home"}); e.preventDefault(); return; }
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      tipkano += e.key; e.preventDefault();
+      clearTimeout(casovnik);
+      casovnik = setTimeout(function () { if (tipkano) poslji("input.text", {text: tipkano}); tipkano = ""; }, 250);
+    }
+  }, true);
+})();
+"""
+
     def _odpri_gledalca(self, url: str) -> None:
-        """Deljen zaslon druge naprave: stran gledalca s Huba v svojem oknu Controla."""
+        """Deljen zaslon druge naprave: stran gledalca s Huba v svojem oknu Controla. Ce naprava to
+        zna (Safeer Vnos na tablici), jo iz tega okna upravljas z misko in tipkovnico."""
         if self.gledalec is None:
-            pogled = WebKit2.WebView.new_with_context(self.web_context)
+            upravitelj = WebKit2.UserContentManager()
+            upravitelj.register_script_message_handler("safeerVnos")
+            upravitelj.connect("script-message-received::safeerVnos", self._vnos_iz_gledalca)
+            upravitelj.add_script(WebKit2.UserScript(
+                self.GLEDALEC_VNOS_JS,
+                WebKit2.UserContentInjectedFrames.TOP_FRAME,
+                WebKit2.UserScriptInjectionTime.END,
+                None, None,
+            ))
+            pogled = WebKit2.WebView(web_context=self.web_context, user_content_manager=upravitelj)
             nastavitve = pogled.get_settings()
             nastavitve.set_property("enable-developer-extras", False)
             okno = Gtk.Window(title="Safeer Control — zaslon")
@@ -581,10 +879,38 @@ class SafeerControl(Gtk.Application):
             okno.connect("destroy", zaprto)
             self.add_window(okno)
             self.gledalec = okno
+            self._vnos_nastavitve_odprte = False
             okno.show_all()
+            if self.link is not None:
+                self.link.ob_odzivu_vnosa = self._odziv_vnosa
         pogled = self.gledalec.get_child()
         pogled.load_uri(url)
         self.gledalec.present()
+
+    def _vnos_iz_gledalca(self, _upravitelj, rezultat) -> None:
+        """Dotik/tipka iz okna gledalca -> ukaz input.* napravi, katere zaslon gledamo."""
+        try:
+            sporocilo = json.loads(rezultat.get_js_value().to_string())
+            dejanje = str(sporocilo.get("d", ""))
+            parametri = sporocilo.get("p") if isinstance(sporocilo.get("p"), dict) else {}
+        except Exception:
+            return
+        if self.link is not None and dejanje.startswith("input."):
+            self.link.poslji_vnos(dejanje, parametri)
+
+    def _odziv_vnosa(self, odziv: dict) -> None:
+        """Naprava vnosa ne sprejme: v naslovu okna povemo, kaj naj uporabnik naredi (enkrat)."""
+        if self.gledalec is None:
+            return
+        if odziv.get("ok"):
+            self.gledalec.set_title("Safeer Control — zaslon")
+        elif odziv.get("koda") == "vnos_ni_vklopljen":
+            self.gledalec.set_title("Safeer Control — zaslon · na tablici vklopi Safeer Vnos "
+                                    "(Dostopnost → Nameščene aplikacije → Safeer Vnos)")
+            # Uporabniku ni treba iskati: tablica sama odpre nastavitve, ki jih potrebuje (enkrat na okno).
+            if not getattr(self, "_vnos_nastavitve_odprte", False) and self.link is not None:
+                self._vnos_nastavitve_odprte = True
+                self.link.poslji_vnos("input.enable", {})
 
 
 def main() -> int:

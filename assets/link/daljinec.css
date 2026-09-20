@@ -294,3 +294,9 @@
   .aplikacije { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
   .aplikacija img, .aplikacija .aplikacijaZnak { width: 56px; height: 56px; }
 }
+
+/* Safeer Control: odpri aplikacijo naprave na tem racunalniku (pretakanje) */
+.pretociIzbira { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; margin-right: 10px;
+  font-size: 0.9em; cursor: pointer; user-select: none; }
+.pretociIzbira[hidden] { display: none; }
+.pretociIzbira input { width: 16px; height: 16px; margin: 0; }

@@ -31,6 +31,24 @@ class PackagingTests(unittest.TestCase):
             self.assertEqual(result.returncode,0,result.stderr[-800:])
             self.assertIn('SafeerControl',result.stdout)
 
+    def test_os_payload_can_actually_start(self):
+        """Namesceni Safeer OS (Linux) mora biti uvozljiv brez izvorne mape - isti nauk kot pri Controlu:
+        seznam modulov v install_os_payload.sh je rocen, zato ga ta test preveri z uvozom."""
+        import sys
+        with tempfile.TemporaryDirectory() as directory:
+            prefix=Path(directory)/'usr'
+            subprocess.run(['bash',str(ROOT/'packaging/install_os_payload.sh'),str(prefix)],check=True)
+            lib=prefix/'lib/safeer-os'
+            environment={k:v for k,v in os.environ.items() if k!='PYTHONPATH'}
+            code=f"import sys; sys.path.insert(0, {str(lib)!r}); import safeer_os; from core import link_hub, link_seja, link_krog, link_programi, threat_intel; print(safeer_os.APP_ID, safeer_os.RAZLICICA)"
+            result=subprocess.run([sys.executable,'-c',code],capture_output=True,text=True,
+                                  cwd=tempfile.gettempdir(),env=environment)
+            self.assertEqual(result.returncode,0,result.stderr[-800:])
+            self.assertIn('SafeerOS',result.stdout)
+            self.assertIn((ROOT/'packaging/VERSION_OS').read_text().strip(),result.stdout)
+            subprocess.run(['desktop-file-validate',str(prefix/'share/applications/safeer-os.desktop')],check=True)
+            self.assertTrue((lib/'assets/os/index.html').exists())
+
     def test_xdg_config_and_ipc_use_same_profile(self):
         with tempfile.TemporaryDirectory() as directory:
             result=subprocess.check_output(['/usr/bin/python3','-c','from core.config import CONFIG_DIR; print(CONFIG_DIR)'],cwd=ROOT,env={**os.environ,'XDG_CONFIG_HOME':directory},text=True).strip()
@@ -55,8 +73,13 @@ class PackagingTests(unittest.TestCase):
             subprocess.run(['desktop-file-validate',str(prefix/'share/applications/safeer-browser.desktop')],check=True)
 
     def test_debian_maintainer_scripts_are_posix_sh(self):
-        text=(ROOT/'build_deb.sh').read_text()
-        scripts=re.findall(r"cat << 'EOF' > \"\$BUILD_ROOT/DEBIAN/(post(?:inst|rm))\"\n(.*?)\nEOF\n",text,re.S)
+        for builder in ('build_deb.sh','build_control_deb.sh','build_os_deb.sh'):
+            with self.subTest(builder=builder):
+                self._preveri_skripte(builder)
+
+    def _preveri_skripte(self, builder):
+        text=(ROOT/builder).read_text()
+        scripts=re.findall(r"cat << 'EOF2?' > \"\$BUILD_ROOT/DEBIAN/(post(?:inst|rm))\"\n(.*?)\nEOF2?\n",text,re.S)
         self.assertEqual({name for name,_ in scripts},{'postinst','postrm'})
         shell=shutil.which('dash') or shutil.which('sh')
         for name,body in scripts:

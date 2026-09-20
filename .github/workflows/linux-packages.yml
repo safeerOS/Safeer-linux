@@ -57,11 +57,24 @@ jobs:
           xvfb-run -a safeer-control --version | tee /dev/stderr | grep -Fx "Safeer Control $(cat packaging/VERSION_CONTROL)"
           desktop-file-validate /usr/share/applications/safeer-control.desktop
           sudo apt-get remove -y safeer-control
+      - name: Safeer OS package (shell over the desktop; depends on safeer-control)
+        run: |
+          bash build_os_deb.sh
+          sudo apt-get install -y "./safeer-control_$(cat packaging/VERSION_CONTROL)_all.deb" "./safeer-os_$(cat packaging/VERSION_OS)_all.deb"
+          xvfb-run -a safeer-os --version | tee /dev/stderr | grep -Fx "Safeer OS $(cat packaging/VERSION_OS)"
+          desktop-file-validate /usr/share/applications/safeer-os.desktop
+          sudo apt-get remove -y safeer-os safeer-control
       - name: AppImage
         run: |
           bash packaging/fetch_linuxdeploy.sh
           LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_appimage.sh
-          APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a python3 packaging/test_appimage.py dist/*.AppImage
+          APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a python3 packaging/test_appimage.py dist/Safeer-Browser-*.AppImage
+      - name: Safeer OS AppImage (Safeer OS + Safeer Control)
+        run: |
+          LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_os_appimage.sh
+          chmod +x dist/Safeer-OS-*.AppImage
+          APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a dist/Safeer-OS-*.AppImage --version | tee /dev/stderr | grep -Fx "Safeer OS $(cat packaging/VERSION_OS)"
+          APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a dist/Safeer-OS-*.AppImage --control --version | tee /dev/stderr | grep -Fx "Safeer Control $(cat packaging/VERSION_CONTROL)"
       - uses: actions/upload-artifact@v7
         with:
           name: deb-appimage
@@ -80,6 +93,8 @@ jobs:
           flatpak install --user --noninteractive flathub org.gnome.Platform//50 org.gnome.Sdk//50
       - run: python3 packaging/check_version.py
       - run: bash packaging/build_flatpak.sh
+      - name: Safeer OS Flatpak (Safeer OS + Safeer Control)
+        run: bash packaging/build_os_flatpak.sh
       - uses: actions/upload-artifact@v7
         with:
           name: flatpak

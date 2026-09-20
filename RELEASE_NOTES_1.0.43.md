@@ -1,0 +1,10 @@
+# Safeer Browser for Linux 1.0.43 · Safeer Control 2.0.9 · Safeer OS 0.4.1 (new)
+
+**Safeer OS comes to Linux as a package - and any phone can join Safeer Link without an app.**
+
+- **Safeer OS for Linux (new package `safeer-os`, also AppImage and Flatpak with Safeer Control included).** A full-screen shell over Linux Mint: programs, files, devices, network, sound and settings in one place, for the keyboard, the mouse or the remote of a Safeer device. Through Safeer Link it opens the apps of your phone, tablet and TV, plays your computer's sound on them and shares files. *Shield* filters ads, trackers and dangerous domains for the whole computer (DNS, nothing goes to the cloud). Mint stays underneath - one click returns you to the desktop. Safeer OS works without connecting anything; connect devices whenever you like.
+- **Safeer Link Web (Safeer Control 2.0.9).** *Connect a new device* shows a code that any phone opens in its browser: remote control, links and text without installing anything (home network only). A phone with Safeer Browser opens the same code in the app.
+- **Name your devices.** Rename any device - including this computer - in Safeer OS *Devices* or on the Safeer Link page; the name is kept by Safeer Link and shown the same on every TV, tablet and phone.
+- **Safeer Browser:** the Safeer Link page uses the shared device names; no other functional changes.
+
+Slovensko: **Safeer OS za Linux** kot paket (`safeer-os`, tudi AppImage in Flatpak s Safeer Controlom): celozaslonska lupina nad Linux Mintom - programi, datoteke, naprave, omrežje, zvok in nastavitve na enem mestu; prek Safeer Linka odpira aplikacije telefona, tablice in TV, predvaja zvok računalnika na njih in deli datoteke; *Ščit* filtrira oglase, sledilce in nevarne domene za ves računalnik (DNS, nič ne gre v oblak); Mint ostane spodaj, en klik vrne na namizje. **Safeer Link Web (Control 2.0.9):** »Poveži novo napravo« pokaže kodo, ki jo katerikoli telefon odpre v brskalniku - daljinec, povezave in besedilo brez namestitve. **Poimenuj naprave:** ime hrani Safeer Link in ga vse naprave kažejo enako. Brskalnik: brez drugih sprememb.
