@@ -34,6 +34,18 @@ def _seznanitve():
     return [k for k in kandidati if k[0].startswith("wss://")]
 
 
+def posiljatelj(pripona: str):
+    """(device_id, ime) za ziv test, ki samo posilja ukaze.
+
+    Vsak test ima svoj id: hub drzi eno povezavo na napravo, zato bi dva odjemalca z istim id-jem
+    (npr. s Controlovim \"-control\") drug drugega izbijala - tekoci Safeer Control se ob izbitju
+    sam vrne in bi test sredi cakanja ostal brez povezave. Kljuc racunalnika je isti, zato hub id
+    prepozna kot alias istega clana kroga.
+    """
+    ime_g = link_hub._ime_naprave().split(".")[0]
+    return link_hub.id_naprave() + "-" + pripona, "Safeer test " + pripona + " (" + ime_g + ")"
+
+
 class KrogVZivo(unittest.TestCase):
     def test_vpis_in_prijava_s_podpisom(self):
         kandidati = _seznanitve()

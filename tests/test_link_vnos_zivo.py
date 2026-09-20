@@ -9,7 +9,7 @@ import time
 import unittest
 
 from core import link_hub
-from tests.test_link_krog_zivo import _seznanitve
+from tests.test_link_krog_zivo import _seznanitve, posiljatelj
 from tests.test_link_naprave_zivo import naprave_na_hubu
 
 PLATFORME_Z_VNOSOM = ("tablet", "handheld")
@@ -25,8 +25,7 @@ class VnosVZivo(unittest.TestCase):
         if not izbran:
             self.skipTest("noben seznanjeni hub se ne oglasa")
         hub, zeton, odtis = izbran
-        ime_g = link_hub._ime_naprave().split(".")[0]
-        device_id = link_hub.id_naprave() + "-control"
+        device_id, ime_posiljatelja = posiljatelj("vnos")
         prejeto = []
         dogodek = threading.Event()
 
@@ -35,7 +34,7 @@ class VnosVZivo(unittest.TestCase):
             if s.get("type") == "control.result" or (s.get("type") == "control.ack" and s.get("status") != "accepted"):
                 dogodek.set()
 
-        p = link_hub.Povezava(hub, zeton, device_id, "Safeer Control (" + ime_g + ")", odtis=odtis)
+        p = link_hub.Povezava(hub, zeton, device_id, ime_posiljatelja, odtis=odtis)
         p.ob_sporocilu = ob_sporocilu
         self.assertTrue(p.poveži(), "prijava")
         try:

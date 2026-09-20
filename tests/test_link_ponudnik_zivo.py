@@ -1,11 +1,12 @@
 """Korak 6 v zivo: racunalnik in Android kot ponudnika aplikacij prek Safeer Linka (Protocol v1).
 
-1. Racunalnik (Controlova identiteta) se prijavi s katalogom `apps` - hub ga pokaze v /cast/devices.
+1. Racunalnik (svoj id testa, isti kljuc kot Control) se prijavi s katalogom `apps` - hub ga pokaze
+   v /cast/devices.
 2. Isti odjemalec vprasa zaslon (Android) za `apps.list` in dobi seznam v enotni obliki
    {"enabled", "items": [{"id", "name"}]} - isti ukaz kot pri racunalniku.
 
-Preskoci se, ce Control ni seznanjen ali hub ne odgovarja. Tekoci Control se za trenutek odklopi
-in sam vrne (kot pri test_link_krog_zivo).
+Preskoci se, ce Control ni seznanjen ali hub ne odgovarja. Test ima svoj id naprave, zato tekocega
+Controla ne izbije (glej posiljatelj() v test_link_krog_zivo).
 """
 import json
 import threading
@@ -13,7 +14,7 @@ import time
 import unittest
 
 from core import link_hub
-from tests.test_link_krog_zivo import _seznanitve
+from tests.test_link_krog_zivo import _seznanitve, posiljatelj
 from tests.test_link_naprave_zivo import naprave_na_hubu
 
 KATALOG = {"app:preizkus-safeer.desktop": {"name": "Preizkus Safeer", "kind": "linux"}}
@@ -29,8 +30,7 @@ class PonudnikVZivo(unittest.TestCase):
         if not izbran:
             self.skipTest("noben seznanjeni hub se ne oglasa")
         hub, zeton, odtis = izbran
-        ime_g = link_hub._ime_naprave().split(".")[0]
-        device_id = link_hub.id_naprave() + "-control"
+        device_id, ime_posiljatelja = posiljatelj("ponudnik")
         prejeto = []
         dogodek = threading.Event()
 
@@ -39,7 +39,7 @@ class PonudnikVZivo(unittest.TestCase):
             if s.get("type") == "control.result":
                 dogodek.set()
 
-        p = link_hub.Povezava(hub, zeton, device_id, "Safeer Control (" + ime_g + ")", odtis=odtis,
+        p = link_hub.Povezava(hub, zeton, device_id, ime_posiljatelja, odtis=odtis,
                               dodatne_zmoznosti=["apps"], katalog=lambda: KATALOG)
         p.ob_sporocilu = ob_sporocilu
         self.assertTrue(p.poveži(), "prijava")
