@@ -27,7 +27,12 @@ import threading
 import urllib.parse
 from typing import Dict, List, Optional, Tuple
 
+from core import link_urejanje
+
 NAJVEC_VNOSOV = 500
+NAJVEC_TELESA = 64 * 1024
+#: Kaj naprava sme narediti z datoteko racunalnika (POST /d/<id>, telo JSON {"op": ...}).
+UKAZI = ("delete", "rename", "move", "rotate")
 VELIKOST_KOSA = 256 * 1024
 TLS_MAPA = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "safeer-control", "tls")
 
@@ -105,6 +110,16 @@ class DeljeneMape:
         if pot != koren and not pot.startswith(koren + os.sep):
             return None
         return (i, pot) if os.path.exists(pot) else None
+
+    def oznaka_poti(self, pot: str) -> str:
+        """Obratno od `razresi`: absolutna pot -> `share:<i>:<rel>` (ali `disk:<pot>`, ce je ves disk vklopljen)."""
+        pot = os.path.realpath(pot)
+        for i, koren in enumerate(self.poti):
+            if pot == koren:
+                return f"share:{i}:"
+            if pot.startswith(koren + os.sep):
+                return f"share:{i}:" + os.path.relpath(pot, koren).replace(os.sep, "/")
+        return "disk:" + pot if self.ves_disk else ""
 
     def seznam(self, oznaka: str) -> Optional[List[dict]]:
         if oznaka in ("", "root"):
@@ -219,6 +234,40 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802
         self._datoteka(samo_glava=False)
+
+    def do_POST(self):  # noqa: N802
+        """Urejanje datoteke z naprave: `{"op": "delete"|"rename"|"move"|"rotate", ...}` z istim zetonom kot prenos."""
+        streznik: StreznikDatotek = self.server.streznik  # type: ignore[attr-defined]
+        u = urllib.parse.urlparse(self.path)
+        if not u.path.startswith("/d/"):
+            self._napaka(404, "ni take poti")
+            return
+        if not streznik.zeton_velja(self._zeton()):
+            self._napaka(401, "manjka ali napacen zeton")
+            return
+        try:
+            dolzina = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            dolzina = -1
+        if dolzina < 0 or dolzina > NAJVEC_TELESA:
+            self._napaka(413, "predolgo telo")
+            return
+        try:
+            zahteva = json.loads(self.rfile.read(dolzina).decode("utf-8") or "{}")
+            if not isinstance(zahteva, dict):
+                raise ValueError
+        except (ValueError, UnicodeDecodeError):
+            self._napaka(400, "telo ni JSON")
+            return
+        oznaka = urllib.parse.unquote(u.path[3:])
+        koda, odgovor = streznik.uredi(oznaka, zahteva)
+        telo = json.dumps(odgovor).encode("utf-8")
+        self.send_response(koda)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(telo)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(telo)
 
     def _napaka(self, koda: int, besedilo: str) -> None:
         telo = json.dumps({"napaka": besedilo}).encode("utf-8")
@@ -357,6 +406,41 @@ class StreznikDatotek:
     def osnova(self, naslov_racunalnika: str) -> str:
         return f"https://{naslov_racunalnika}:{self.vrata}"
 
+    def uredi(self, oznaka: str, zahteva: dict) -> Tuple[int, dict]:
+        """Izvede ukaz nad datoteko; vrne (HTTP koda, odgovor). Napake so kratke kode za napravo."""
+        ukaz = str(zahteva.get("op") or "")
+        if ukaz not in UKAZI:
+            return 400, {"ok": False, "napaka": "neznan_ukaz"}
+        r = self.mape.razresi(oznaka)
+        if r is None:
+            return 404, {"ok": False, "napaka": "ni_datoteke"}
+        i, pot = r
+        if i >= 0 and pot == self.mape.poti[i]:
+            return 403, {"ok": False, "napaka": "ni_dovoljeno"}  # deljene mape same ne brisemo in ne preimenujemo
+        if i < 0 and pot in (os.sep, os.path.realpath(os.path.expanduser("~"))):
+            return 403, {"ok": False, "napaka": "ni_dovoljeno"}
+        try:
+            if ukaz == "delete":
+                link_urejanje.v_smeti(pot)
+                return 200, {"ok": True, "op": ukaz}
+            if ukaz == "rename":
+                nova = link_urejanje.preimenuj(pot, str(zahteva.get("name") or ""))
+            elif ukaz == "move":
+                cilj = self.mape.razresi(str(zahteva.get("folder") or ""))
+                if cilj is None:
+                    return 404, {"ok": False, "napaka": "ni_mape"}
+                nova = link_urejanje.premakni(pot, cilj[1])
+            else:
+                if os.path.isdir(pot) or vrsta_datoteke(pot) != "image":
+                    return 400, {"ok": False, "napaka": "ni_slike"}
+                nacin = link_urejanje.zavrti(pot, int(zahteva.get("degrees") or 0))
+                return 200, {"ok": True, "op": ukaz, "id": oznaka, "how": nacin, "size": os.path.getsize(pot)}
+        except link_urejanje.NapakaUrejanja as e:
+            return 409 if str(e) == "obstaja" else 400, {"ok": False, "napaka": str(e)}
+        except (ValueError, TypeError):
+            return 400, {"ok": False, "napaka": "napacna_zahteva"}
+        return 200, {"ok": True, "op": ukaz, "id": self.mape.oznaka_poti(nova), "name": os.path.basename(nova)}
+
 
 class Datoteke:
     """Vse, kar Safeer Control potrebuje za deljenje datotek: izbrane mape, streznik, odgovor na `files.list`."""
@@ -432,7 +516,8 @@ class Datoteke:
         vnosi = self.mape.seznam(oznaka)
         if vnosi is None:
             raise FileNotFoundError("Te mape ni (vec) med deljenimi")
-        o: dict = {"items": vnosi, "folder": oznaka if oznaka != "root" else "", "shared": True}
+        # `edit`: naprava sme datoteke te mape brisati (v Smeti), preimenovati, premakniti in vrteti slike (POST /d/<id>).
+        o: dict = {"items": vnosi, "folder": oznaka if oznaka != "root" else "", "shared": True, "edit": oznaka not in ("", "root")}
         if any(v.get("type") != "folder" for v in vnosi):
             self.streznik.zazeni()
             naslov = naslov_do_huba(hub_url) if hub_url else krajevni_naslov()
