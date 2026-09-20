@@ -525,6 +525,7 @@ class SafeerOS(Gtk.Application):
         self.vrstica: Optional[Gtk.Window] = None
         self.pogledi: list = []
         self._okna_zamik = 0
+        self._zaslon_zamik = 0
         self._koncano = False
 
     # ------------------------------------------------------------------ okno
@@ -650,6 +651,51 @@ class SafeerOS(Gtk.Application):
         vrstica.show_all()
         self.vrstica = vrstica
         self._spremljaj_okna()
+        self._spremljaj_zaslone()
+
+    def _spremljaj_zaslone(self) -> None:
+        """Zaslon se med delom lahko zamenja: zaprt pokrov, priklopljen televizor, druga
+        locljivost. Vrstica in namizje morata za njim - sicer ostaneta v velikosti zaslona,
+        ki ga ni vec (20. 9. 2026: pokrov zaprt, slika sla na televizor 3840x2160, vrstica
+        pa je ostala siroka 1920 in na starem mestu)."""
+        try:
+            zaslon = Gdk.Screen.get_default()
+            if zaslon is None:
+                return
+            zaslon.connect("monitors-changed", lambda *a: self._zaslon_spremenjen())
+            zaslon.connect("size-changed", lambda *a: self._zaslon_spremenjen())
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] spremljanja zaslonov ni:", e)
+
+    def _zaslon_spremenjen(self) -> None:
+        # Menjava zaslona sprozi vec dogodkov zapored (ugasne se en izhod, prizge drug):
+        # pocakamo pol sekunde, da se umirijo, in se prilagodimo enkrat.
+        if self._zaslon_zamik:
+            try:
+                GLib.source_remove(self._zaslon_zamik)
+            except Exception:  # noqa: BLE001
+                pass
+        self._zaslon_zamik = GLib.timeout_add(500, self._prilagodi_zaslonu)
+
+    def _prilagodi_zaslonu(self) -> bool:
+        """Vrstico in namizje postavi na trenutni zaslon in v njegovo velikost."""
+        self._zaslon_zamik = 0
+        zaslon = self._zaslon()
+        g = zaslon.get_geometry() if zaslon else None
+        if g is None:
+            return False
+        if self.vrstica is not None:
+            self.vrstica.move(g.x, g.y + g.height - VISINA_VRSTICE)
+            self.vrstica.set_size_request(g.width, VISINA_VRSTICE)
+            self.vrstica.resize(g.width, VISINA_VRSTICE)
+            # Rezervacija spodnjega roba je vezana na velikost zaslona, zato gre znova tudi ta.
+            self._rezerviraj(self.vrstica, g)
+        if self.namizje and self.okno is not None:
+            self.okno.move(g.x, g.y)
+            self.okno.set_size_request(g.width, g.height - VISINA_VRSTICE)
+            self.okno.resize(g.width, g.height - VISINA_VRSTICE)
+        print("[SafeerOS] zaslon %dx%d: vrstica in namizje prilagojena" % (g.width, g.height))
+        return False
 
     def _rezerviraj(self, vrstica, g) -> None:
         """Rezervira spodnji rob zaslona za vrstico (xprop; GTK 3 tega sam ne zna)."""
