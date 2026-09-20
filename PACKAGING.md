@@ -65,6 +65,10 @@ bash packaging/build_os_flatpak.sh                                              
 
 The Flatpak needs more than the browser: the session bus (Safeer Control's D-Bus name), the home folder (Files), PipeWire/PulseAudio and `--talk-name=org.freedesktop.Flatpak`, because Safeer OS controls the computer with the system's own tools (`nmcli`, `pactl`, `resolvectl`, `pkexec`, `gsettings`, `systemctl` ...). Inside the sandbox these are wrappers in `/app/host-bin` (`packaging/flatpak_host_wrappers.sh`) that run the host's tool through `flatpak-spawn --host`. The Flatpak is therefore a bundle for people who prefer Flatpak, not a sandboxed build; the .deb is the primary format on Linux Mint. Flathub is not a target: since May 2026 Flathub rejects applications developed with generative AI, which Safeer openly is; the bundles are published on GitHub and safeer.si instead.
 
+## Editing shared files from devices (Safeer Control 2.1.0+)
+
+Devices (Safeer OS on the TV and tablet) may rename, move and delete the files Control shares and rotate pictures: `POST /d/<id>` on the same pinned-TLS file server, with the same per-device token as downloads, body `{"op": "delete"|"rename"|"move"|"rotate", ...}` (`core/link_urejanje.py`, `tests/test_link_urejanje.py`). Delete moves to the freedesktop Trash (`gio trash`, fallback `~/.local/share/Trash`); rename/move never overwrite and stay inside the shared folders; the shared roots themselves are protected. A JPEG with an EXIF orientation tag is rotated by rewriting only that tag (lossless); other images need Pillow (`python3-pil`, recommended by the .deb; bundled in the Flatpak as a wheel).
+
 ## Tests and release gates
 
 ```sh
