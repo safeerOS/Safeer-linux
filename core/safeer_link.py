@@ -670,7 +670,12 @@ class SafeerLink:
             # Isti Hub (isti naslov ali isti odtis na novem naslovu): naslov posodobimo, zeton velja.
             self.nastavitve.set("hub_url", naslov)
             self._odziv("hub", {"najden": True, "naslov": naslov})
-            if self._zeton():
+            p = self.povezava
+            if p is not None and p.aktivna and p.ws_naslov == naslov:
+                # Obstojeca povezava se na isti naslov vraca sama; druga hkrati bi hub zmedla
+                # (dve prijavi iste naprave, ena bi ostala osirotela).
+                return
+            if self._zeton() or (najden.get("krog") and self._v_krogu()):
                 self._povezi()
             return
         # Drug Hub. Trenutno seznanitev shranimo, morebitno prejsnjo s tem Hubom pa vrnemo -

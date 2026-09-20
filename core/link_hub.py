@@ -47,6 +47,8 @@ NAJVECJE_SPOROCILO = 1024 * 1024
 # Koliko tisine prenesemo, preden povezavo razglasimo za mrtvo. Sami posiljamo
 # ping pogosteje od tega, zato tisina pomeni, da Huba res ni vec.
 BRALNI_TIMEOUT = 70.0
+SONDA_VSAKIH_UTRIPOV = 4          # vsak 4. ping (~100 s) preveri, da smo na hubu se prijavljeni
+SONDA_PREDPONA = "sonda-prijave-"
 PING_VSAKIH = 25.0
 ZAMIKI_PONOVNEGA_POSKUSA = (2.0, 5.0, 10.0, 20.0, 40.0, 60.0)
 
@@ -972,7 +974,7 @@ class Povezava:
                     pass
         else:
             self.zavrnjena = False
-        if not vstopnica:
+        if not vstopnica or self._ustavljen:
             return False
         locilo = "&" if "?" in self.ws_naslov else "?"
         naslov = f"{self.ws_naslov}{locilo}ticket={vstopnica}"
@@ -980,6 +982,13 @@ class Povezava:
         try:
             odjemalec.odpri()
         except Exception:
+            return False
+        if self._ustavljen:
+            # zapri() je prisel med odpiranjem: hub ne sme dobiti prijave, ki bi jo takoj zapustili.
+            try:
+                odjemalec.zapri()
+            except Exception:
+                pass
             return False
 
         prijava = {
@@ -1039,6 +1048,7 @@ class Povezava:
 
     def _srcni_utrip(self) -> None:
         """Redni ping. Brez njega tisina ni locljiva od prekinjenega omrezja."""
+        utrip = 0
         while not self._ustavljen:
             if self._cakaj(PING_VSAKIH):
                 return
@@ -1050,6 +1060,13 @@ class Povezava:
                         odjemalec.zapri()
                     except Exception:
                         pass
+                    continue
+                utrip += 1
+                if utrip % SONDA_VSAKIH_UTRIPOV == 0:
+                    # Ali nas hub sploh se vodi kot prijavljene? Ukaz sami sebi: prijavljeni dobimo
+                    # zavrnitev isti_naprava, osirotela vticnica pa naprava_ni_povezana (glej _poslusaj).
+                    self.poslji({"id": SONDA_PREDPONA + str(int(time.time() * 1000)), "type": "control.command",
+                                 "target": self.device_id, "payload": {"action": "status", "params": {}}})
 
     def _zanka(self) -> None:
         """Poslusa in se po izpadu sama vrne. Konca samo, ko klicatelj zapre."""
@@ -1072,6 +1089,18 @@ class Povezava:
             else:
                 poskus += 1
         self.tece = False
+        odjemalec = self.odjemalec
+        self.odjemalec = None
+        if odjemalec is not None:
+            try:
+                odjemalec.zapri()
+            except Exception:
+                pass
+
+    @property
+    def aktivna(self) -> bool:
+        """Povezava se vzdrzuje sama (tudi med ponovnim poskusom), dokler je klicatelj ne zapre."""
+        return not self._ustavljen
 
     def _poslusaj(self) -> None:
         try:
@@ -1082,6 +1111,12 @@ class Povezava:
                 try:
                     sporocilo = json.loads(besedilo)
                 except json.JSONDecodeError:
+                    continue
+                if isinstance(sporocilo, dict) and str(sporocilo.get("ref_id") or "").startswith(SONDA_PREDPONA):
+                    if sporocilo.get("error_code") == "naprava_ni_povezana":
+                        # Hub nas ne vodi vec (druga povezava iste naprave je prisla in odsla): vticnico
+                        # zapremo, zanka se prijavi znova.
+                        break
                     continue
                 if isinstance(sporocilo, dict) and sporocilo.get("type") == "trust.update":
                     # Hub razposlje krog zaupanja ob prijavi in ob vsaki spremembi; shranimo ga,

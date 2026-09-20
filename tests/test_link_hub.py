@@ -8,6 +8,7 @@ import os
 import tempfile
 import threading
 import unittest
+from unittest import mock
 
 from core import link_hub
 
@@ -148,3 +149,48 @@ class Okvirji(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+
+class OsirotelaPovezava(unittest.TestCase):
+    """Sonda registracije: zavrnitev naprava_ni_povezana na sondo zapre vticnico (zanka se prijavi znova);
+    isti_naprava (prijavljeni smo) ne stori nicesar; po zapri() _odpri ne odpre nove vticnice."""
+
+    def test_sonda_zapre_osirotelo(self):
+        from core import link_hub
+
+        class Lazni:
+            def __init__(self, sporocila):
+                self.sporocila = list(sporocila); self.zaprt = False
+            def prejmi(self):
+                return self.sporocila.pop(0) if self.sporocila else None
+            def zapri(self):
+                self.zaprt = True
+            def ping(self):
+                return True
+            def poslji(self, b):
+                pass
+
+        p = link_hub.Povezava("wss://x:1/cast/ws", "z", "id", "ime", odtis="ab")
+        prejeta = []
+        p.ob_sporocilu = prejeta.append
+        p.tece = True
+        p.odjemalec = Lazni([json.dumps({"type": "cast.ack", "ref_id": link_hub.SONDA_PREDPONA + "1", "status": "rejected",
+                                          "error_code": "isti_naprava"}),
+                             json.dumps({"type": "cast.devices", "devices": []}),
+                             json.dumps({"type": "cast.ack", "ref_id": link_hub.SONDA_PREDPONA + "2", "status": "rejected",
+                                          "error_code": "naprava_ni_povezana"}),
+                             json.dumps({"type": "cast.devices", "devices": [1]})])
+        p._poslusaj()
+        self.assertEqual([m["type"] for m in prejeta], ["cast.devices"])  # sonda ni sla naprej; po sirotenju konec
+        self.assertTrue(p.aktivna)
+
+    def test_odpri_po_zapri_ne_odpre(self):
+        from core import link_hub
+        p = link_hub.Povezava("wss://x:1/cast/ws", "z", "id", "ime", odtis="ab")
+        p.zapri()
+        self.assertFalse(p.aktivna)
+        with mock.patch.object(link_hub, "vzemi_vstopnico_s_kodo", return_value=("v", 200)), \
+                mock.patch.object(link_hub, "WsOdjemalec") as ws:
+            self.assertFalse(p._odpri())
+            ws.assert_not_called()
