@@ -2,6 +2,12 @@
 # ==============================================================================
 # Safeer Control — application launcher (shared by .deb and source checkout).
 # Resolves the app payload relative to its own location, like the browser launcher.
+#
+# Safeer Control runs all day in the background: the TV, the tablet and the phone see this
+# computer only while it is alive. So the launcher supervises it — if it dies from a signal
+# (a crash inside a C library, an out-of-memory kill), the launcher notes it in
+# ~/.cache/safeer-control/dnevnik.log and starts it again, at most a few times in a row.
+# A normal exit (the user chose Quit) and an ordinary error are never restarted.
 # ==============================================================================
 PRG="$0"
 while [ -h "$PRG" ]; do
@@ -16,4 +22,46 @@ APP_DIR="$(cd "$BIN_DIR/../lib/safeer-control" && pwd)" || {
     echo "Safeer Control: application payload not found next to launcher." >&2
     exit 1
 }
-exec "${PYTHON:-python3}" "$APP_DIR/safeer_control.py" "$@"
+
+PY="${PYTHON:-python3}"
+
+# One-shot runs and an explicitly disabled supervisor run in the foreground.
+for arg in "$@"; do
+    case "$arg" in
+        --version|--help|-h) exec "$PY" "$APP_DIR/safeer_control.py" "$@" ;;
+    esac
+done
+if [ -n "${SAFEER_CONTROL_BREZ_NADZORA:-}" ]; then
+    exec "$PY" "$APP_DIR/safeer_control.py" "$@"
+fi
+
+DNEVNIK="${XDG_CACHE_HOME:-$HOME/.cache}/safeer-control/dnevnik.log"
+mkdir -p "$(dirname "$DNEVNIK")" 2>/dev/null
+
+NAJVEC_ZAGONOV=5          # more than this in the window below means restarting does not help
+OKNO_S=600
+zacetek_okna=$(date +%s)
+zagonov=0
+
+while :; do
+    "$PY" "$APP_DIR/safeer_control.py" "$@"
+    koda=$?
+    [ "$koda" -eq 0 ] && exit 0                       # normal exit: the user quit Safeer Control
+    [ "$koda" -lt 128 ] && exit "$koda"               # ordinary error: report it, do not loop
+
+    zdaj=$(date +%s)
+    if [ $((zdaj - zacetek_okna)) -gt "$OKNO_S" ]; then
+        zacetek_okna=$zdaj
+        zagonov=0
+    fi
+    zagonov=$((zagonov + 1))
+    signal=$((koda - 128))
+    echo "$(date '+%Y-%m-%d %H:%M:%S') zaganjalnik: Safeer Control se je ustavil zaradi signala $signal (poskus $zagonov)" >> "$DNEVNIK"
+    "$PY" -c "import sys; sys.path.insert(0, '$APP_DIR'); from core import os_stabilnost; os_stabilnost.zabelezi_sesutje('safeer-control', $koda)" 2>/dev/null
+
+    if [ "$zagonov" -ge "$NAJVEC_ZAGONOV" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') zaganjalnik: prevec ponovnih zagonov, odneham (glej sled.log)" >> "$DNEVNIK"
+        exit "$koda"
+    fi
+    sleep 2
+done

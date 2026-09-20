@@ -421,6 +421,8 @@ VISINA_VRSTICE = 64
 #: skrijemo in mu nastavimo zelo dolg zamik prikaza - ostane, a se ne pokaze.
 _PULT_KLJUCI = ("panels-autohide", "panels-show-delay")
 SKRIT_ZAMIK_MS = 86_400_000
+#: Varni nacin (ponovljena sesutja): brez seznama oken in brez skrivanja Mintovega pulta.
+VARNI_NACIN = False
 
 
 def _gsettings(*argumenti) -> Optional[str]:
@@ -462,6 +464,8 @@ def skrij_mintov_pult(shramba) -> None:
 
 
 def vrni_mintov_pult(shramba) -> None:
+    """Vrne Mintov pult na vrednosti pred skrivanjem. Klic je idempotenten: ce ni nicesar shranjenega,
+    ne naredi nicesar, zato ga sme poklicati vsak (konec, --vrni-mint, zaganjalnik po sesutju)."""
     prej = shramba.get("mintov_pult")
     if not isinstance(prej, dict):
         return
@@ -471,6 +475,23 @@ def vrni_mintov_pult(shramba) -> None:
             ok = False
     if ok:
         shramba.set("mintov_pult", None)
+
+
+def pult_je_skrit(shramba) -> bool:
+    """Ali je v shrambi zapis, da Safeer OS trenutno skriva Mintov pult (= prejsnji zagon se ni koncal)."""
+    return isinstance(shramba.get("mintov_pult"), dict)
+
+
+def popravi_po_sesutju(shramba) -> bool:
+    """Ce je prejsnji zagon pustil Mintov pult skrit (sesutje, OOM, izklop), ga najprej vrnemo.
+
+    Brez tega je uporabnik po sesutju Safeer OS ostal pred namizjem brez pulta in brez menija - tocno
+    to se je zgodilo 20. 9. 2026. Mint pod masko mora ostati varnostna mreza, ne talec.
+    """
+    if not pult_je_skrit(shramba):
+        return False
+    vrni_mintov_pult(shramba)
+    return True
 
 
 def _ukaz_controla() -> Optional[list]:
@@ -514,7 +535,11 @@ class SafeerOS(Gtk.Application):
         self._ustvari_okno()
         if self.namizje:
             self._ustvari_vrstico()
-            skrij_mintov_pult(self.shramba)
+            if VARNI_NACIN:
+                # Po ponovljenih sesutjih pusti Mintov pult viden: uporabnik ima vedno pot ven.
+                print("[SafeerOS] varni način: Mintov pult ostane viden")
+            else:
+                skrij_mintov_pult(self.shramba)
         koncaj = Gio.SimpleAction.new("koncaj", None)
         koncaj.connect("activate", lambda *a: self._koncaj())
         self.add_action(koncaj)
@@ -1044,17 +1069,31 @@ def _velikost_okna(vrednost: str):
 
 
 def main() -> int:
+    global VARNI_NACIN
     if "--version" in sys.argv[1:]:
         print("Safeer OS", RAZLICICA)
+        return 0
+    if "--vrni-mint" in sys.argv[1:] or "--restore-mint" in sys.argv[1:]:
+        # Samo povrnitev Mintovega pulta, brez okna in brez WebKita: to poklice zaganjalnik, ko
+        # odneha, in uporabnik iz terminala, ce bi Safeer OS kdaj pustil namizje brez pulta.
+        shramba = os_programi.Shramba()
+        vrnjeno = popravi_po_sesutju(shramba)
+        print("Mintov pult je vrnjen." if vrnjeno else "Mintov pult ni bil skrit; nicesar ni bilo treba vrniti.")
         return 0
     # Sled ob sesutju (tudi ob SIGSEGV v knjiznici C) in dnevnik neujetih izjem; brez tega je ob
     # sesutju ostalo samo prazno namizje in nobenega podatka o tem, kaj je teklo.
     os_stabilnost.vkljuci("safeer-os")
     if os_stabilnost.naj_bo_varni_nacin("safeer-os") and not os.environ.get(os_okna.IZKLOP):
-        # Vec sesutij v kratkem casu: tokrat brez seznama oken (libwnck), da je Safeer OS vsaj uporaben.
+        # Vec sesutij v kratkem casu: tokrat brez seznama oken (libwnck) in brez skrivanja Mintovega
+        # pulta, da je Safeer OS vsaj uporaben in da ima uporabnik pot nazaj v Mint.
         os.environ[os_okna.IZKLOP] = "1"
-        os_stabilnost.zapisi("safeer-os", "varni nacin: seznam oken je izklopljen (ponovljena sesutja)")
+        VARNI_NACIN = True
+        os_stabilnost.zapisi("safeer-os", "varni nacin: seznam oken izklopljen, Mintov pult ostane viden")
         print("[SafeerOS] varni način: seznam odprtih oken je izklopljen (glej ~/.cache/safeer-os/dnevnik.log)")
+    if popravi_po_sesutju(os_programi.Shramba()):
+        # Prejsnji zagon se ni koncal (sesutje, OOM, izklop): pult je bil se skrit. Vrnemo ga zdaj in
+        # ga spodaj po potrebi skrijemo znova - tako je zapis v shrambi vedno resnicen.
+        os_stabilnost.zapisi("safeer-os", "prejsnji zagon se ni koncal: Mintov pult vrnjen pred zagonom")
     posnetek = ""
     if "--posnetek" in sys.argv[1:]:
         i = sys.argv.index("--posnetek")
