@@ -51,6 +51,10 @@ SONDA_VSAKIH_UTRIPOV = 4          # vsak 4. ping (~100 s) preveri, da smo na hub
 SONDA_PREDPONA = "sonda-prijave-"
 PING_VSAKIH = 25.0
 ZAMIKI_PONOVNEGA_POSKUSA = (2.0, 5.0, 10.0, 20.0, 40.0, 60.0)
+# Koliko zamude pri utripu ze pomeni, da je racunalnik spal (pokrov zaprt, pripravljenost).
+# Po prebujenju je vticnica praviloma mrtva, a tega ne pove nihce: pisanje se zatakne, branje
+# caka do BRALNI_TIMEOUT. Zato jo takrat zapremo sami in se povezemo znova.
+SKOK_UTRIPA = 20.0
 
 NASTAVITVE_MAPA = os.path.expanduser("~/.config/safeer-browser")
 NASTAVITVE_POT = os.path.join(NASTAVITVE_MAPA, "link.json")
@@ -937,6 +941,8 @@ class Povezava:
         # Zapiranje je namerno dejanje; vse drugo je izpad, po katerem se vrnemo.
         self._ustavljen = False
         self._budilka = threading.Event()
+        # Zahteva za takojsen nov poskus (prebudi): locena od budilke, ker cakata dve niti.
+        self._prebuditev = threading.Event()
 
     def _odpri(self) -> bool:
         """Ena vzpostavitev: vstopnica, rokovanje, prijava. Brez cakanja."""
@@ -1031,6 +1037,7 @@ class Povezava:
         """Prvi poskus. Ce uspe, povezavo od tu naprej vzdrzujemo sami."""
         self._ustavljen = False
         self._budilka.clear()
+        self._prebuditev.clear()
         if not self._odpri():
             return False
 
@@ -1046,12 +1053,80 @@ class Povezava:
         """Prekinljivo cakanje. Vrne True, ce je medtem prislo zaprtje."""
         return self._budilka.wait(timeout=sekunde)
 
+    def _cakaj_na_poskus(self, sekunde: float) -> str:
+        """Cakanje pred novim poskusom povezave.
+
+        Vrne "zaprto" (konec), "prebudi" (nekdo zeli takojsen poskus) ali "potek" (zamik je minil).
+        Prebuditev ima svoj dogodek, ne budilke: sicer bi si jo srcni utrip in ta zanka odzirala,
+        saj oba cakata - in prebuditev bi se izgubila prav takrat, ko je najbolj potrebna.
+        """
+        konec = time.monotonic() + sekunde
+        while True:
+            preostanek = konec - time.monotonic()
+            if preostanek <= 0:
+                return "potek"
+            if self._budilka.wait(timeout=min(0.25, preostanek)):
+                return "zaprto"
+            if self._prebuditev.is_set():
+                self._prebuditev.clear()
+                return "prebudi"
+
+    def prebudi(self, razlog: str = "") -> None:
+        """Takoj preveri povezavo, brez cakanja na utrip ali zamik.
+
+        Poklicemo jo, kadar vemo, da se je pod povezavo nekaj spremenilo: racunalnik je spal ali
+        pa je dobil drugo omrezje. Takrat vticnica ni zaprta, le mrtva - zato jo zapremo sami,
+        zanka pa se povezanje zacne takoj in brez zamika.
+        """
+        if self._ustavljen:
+            return
+        if razlog:
+            print("[SafeerLink] prebujam povezavo:", razlog)
+        odjemalec = self.odjemalec
+        self.odjemalec = None
+        self.tece = False
+        if odjemalec is not None:
+            try:
+                odjemalec.zapri()
+            except Exception:
+                pass
+        self._prebuditev.set()
+
+    def _krajevni_naslov(self) -> str:
+        """Nas IP na tej povezavi ('' ce ga ni): sprememba pomeni drugo omrezje."""
+        odjemalec = self.odjemalec
+        vticnik = getattr(odjemalec, "vticnik", None) if odjemalec is not None else None
+        if vticnik is None:
+            return ""
+        try:
+            return str(vticnik.getsockname()[0])
+        except Exception:
+            return ""
+
     def _srcni_utrip(self) -> None:
-        """Redni ping. Brez njega tisina ni locljiva od prekinjenega omrezja."""
+        """Redni ping. Brez njega tisina ni locljiva od prekinjenega omrezja.
+
+        Ob vsakem utripu pogledamo tudi, ali je racunalnik vmes spal in ali smo se v istem
+        omrezju. Oboje pomeni, da povezave najbrz ni vec, cetudi vticnica se ni zaprta.
+        """
         utrip = 0
+        naslov = self._krajevni_naslov()
         while not self._ustavljen:
+            pred = time.time()
             if self._cakaj(PING_VSAKIH):
                 return
+            zamuda = time.time() - pred - PING_VSAKIH
+            if zamuda > SKOK_UTRIPA:
+                self.prebudi("racunalnik je spal %d s" % int(zamuda))
+                naslov = ""
+                continue
+            zdajsnji = self._krajevni_naslov()
+            if zdajsnji and naslov and zdajsnji != naslov:
+                self.prebudi("drugo omrezje (%s -> %s)" % (naslov, zdajsnji))
+                naslov = ""
+                continue
+            if zdajsnji:
+                naslov = zdajsnji
             odjemalec = self.odjemalec
             if odjemalec is not None and self.tece:
                 if not odjemalec.ping():
@@ -1080,8 +1155,12 @@ class Povezava:
                 self.ob_stanju(False)
             zamik = ZAMIKI_PONOVNEGA_POSKUSA[
                 min(poskus, len(ZAMIKI_PONOVNEGA_POSKUSA) - 1)]
-            if self._cakaj(zamik):
+            izid = self._cakaj_na_poskus(zamik)
+            if izid == "zaprto":
                 break
+            if izid == "prebudi":
+                # Spanje ali drugo omrezje: poskusimo takoj in spet od zacetka zamikov.
+                poskus = 0
             if self._odpri():
                 poskus = 0
                 if self.ob_stanju:

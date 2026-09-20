@@ -26,7 +26,7 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gtk, WebKit2, GLib  # noqa: E402
 
-from core import link_deljenje, link_hub, link_krog, link_seja, link_tls  # noqa: E402
+from core import link_deljenje, link_hub, link_iskanje, link_krog, link_seja, link_tls  # noqa: E402
 
 
 def secrets_token() -> str:
@@ -659,12 +659,18 @@ class SafeerLink:
             s[self._odtis()] = {"token": self._zeton(), "hub_url": self._hub()}
             self.nastavitve.podatki["seznanitve"] = s
 
-    def _poisci_hub(self) -> None:
+    def _poisci_hub(self, tiho: bool = False) -> bool:
+        """En poskus: najprej znani naslov, sele nato odkrivanje. Vrne True, ce je Hub najden.
+
+        `tiho` pomeni, da neuspeha ne javimo strani - med hitrim iskanjem bi uporabnik v treh
+        sekundah dobil stiri sporocila »ni naprav«, ceprav iskanje se tece.
+        """
         znani = self._hub()
         najden = link_hub.poisci_hub_z_odtisom(znani, self._odtis())
         if not najden:
-            self._odziv("hub", {"najden": False, "naslov": ""})
-            return
+            if not tiho:
+                self._odziv("hub", {"najden": False, "naslov": ""})
+            return False
         naslov, fp = najden["naslov"], najden.get("fp") or ""
         if najden.get("isti"):
             # Isti Hub (isti naslov ali isti odtis na novem naslovu): naslov posodobimo, zeton velja.
@@ -674,10 +680,10 @@ class SafeerLink:
             if p is not None and p.aktivna and p.ws_naslov == naslov:
                 # Obstojeca povezava se na isti naslov vraca sama; druga hkrati bi hub zmedla
                 # (dve prijavi iste naprave, ena bi ostala osirotela).
-                return
+                return True
             if self._zeton() or (najden.get("krog") and self._v_krogu()):
                 self._povezi()
-            return
+            return True
         # Drug Hub. Trenutno seznanitev shranimo, morebitno prejsnjo s tem Hubom pa vrnemo -
         # sicer se uporabnik seznani s tem Hubom s kodo, kot vedno.
         self._zapomni_seznanitev()
@@ -698,6 +704,7 @@ class SafeerLink:
         # Z zetonom ali, v krogu zaupanja, s podpisom kljuca: ta naprava prijave ne potrebuje.
         if self._zeton() or (najden.get("krog") and self._v_krogu()):
             self._povezi()
+        return True
 
     def _seznani(self) -> None:
         if self._seznanjanje:
@@ -982,21 +989,32 @@ class SafeerLink:
                 pass
         if povezan:
             return
-        # Sredisce je ugasnilo ali dobilo nov naslov. Cez nekaj sekund pogledamo, ali se
-        # Safeer Link javlja kje drugje - npr. telefon prevzame, ko televizor ugasne. Ce je
-        # bila ta naprava z njim ze seznanjena, se poveze brez nove kode.
+        # Sredisce je ugasnilo ali dobilo nov naslov. Poiscemo drugega - npr. telefon prevzame,
+        # ko televizor ugasne. Ce je bila ta naprava z njim ze seznanjena, se poveze brez kode.
+        self._v_ozadju(self._isci_hub_dokler_ni)
 
-        def preveri() -> None:
-            p = self.povezava
-            if p is not None and p.tece:
-                return
-            zdaj = time.time()
-            if zdaj - getattr(self, "_zadnje_iskanje", 0.0) < 30:
-                return
-            self._zadnje_iskanje = zdaj
-            self._v_ozadju(self._poisci_hub)
+    def _povezave_ni(self) -> bool:
+        """True, dokler povezave ni: samo takrat ima iskanje smisel."""
+        p = self.povezava
+        return not (p is not None and p.tece)
 
-        threading.Timer(8.0, preveri).start()
+    def _isci_hub_dokler_ni(self) -> None:
+        """Hitro iskanje drugega Huba (0-3 s, konec ob najdbi), nato pocasno v ozadju.
+
+        Politika zamikov je v core/link_iskanje.py; tu povemo samo, kaj je poskus, kdaj iskanje
+        se ima smisel in kaj naj vidi uporabnik, ko hitro iskanje mine brez uspeha.
+        """
+        if getattr(self, "_iskanje_tece", False):
+            return      # eno iskanje naenkrat; drugo bi samo podvajalo zahteve v omrezju
+        self._iskanje_tece = True
+        try:
+            link_iskanje.isci_hub(
+                poskus=lambda: self._poisci_hub(tiho=True),
+                povezave_ni=self._povezave_ni,
+                ob_neuspehu=lambda: self._odziv("hub", {"najden": False, "naslov": "", "isce_naprej": True}),
+            )
+        finally:
+            self._iskanje_tece = False
 
     def _na_sporocilo_huba(self, sporocilo: dict) -> None:
         vrsta = sporocilo.get("type")
