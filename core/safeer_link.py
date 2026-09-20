@@ -26,7 +26,7 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gtk, WebKit2, GLib  # noqa: E402
 
-from core import link_deljenje, link_hub, link_iskanje, link_krog, link_seja, link_tls  # noqa: E402
+from core import link_deljenje, link_hub, link_hub_streznik, link_iskanje, link_krog, link_seja, link_tls  # noqa: E402
 
 
 def secrets_token() -> str:
@@ -659,18 +659,68 @@ class SafeerLink:
             s[self._odtis()] = {"token": self._zeton(), "hub_url": self._hub()}
             self.nastavitve.podatki["seznanitve"] = s
 
+    def _gostitelj(self):
+        """Hub na tem racunalniku (lenobno): da televizor ni pogoj, da se naprave vidijo."""
+        g = getattr(self, "_hub_gostitelj", None)
+        if g is None:
+            ime = "Safeer Control (" + link_hub._ime_naprave().split(".")[0] + ")"
+            g = link_hub_streznik.HubGostitelj(poisci=self._poisci_tuj_hub, ime=ime)
+            self._hub_gostitelj = g
+        return g
+
+    def _prevzemi_gostovanje(self) -> bool:
+        """Ce Huba ni nikjer, ga zazenemo sami in se nanj povezemo.
+
+        Tako ugasnjen televizor ne pomeni vec, da telefon in tablica izgubita racunalnik. Ko se
+        televizor vrne, se nas Hub umakne (HubGostitelj.preveri) in naprave gredo nazaj k njemu.
+        """
+        try:
+            g = self._gostitelj()
+            if not g.preveri():
+                return False
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerLink] gostovanja ni bilo mogoce zagnati:", e)
+            return False
+        naslov = "wss://127.0.0.1:%d%s" % (g.streznik.vrata, link_hub_streznik.POT_WS)
+        self.nastavitve.podatki["hub_url"] = naslov
+        self.nastavitve.podatki["hub_fp"] = g.streznik.odtis
+        self.nastavitve.podatki.pop("control_token", None)
+        self.nastavitve.shrani()
+        self._odziv("hub", {"najden": True, "naslov": naslov, "gostimo": True})
+        return self._povezi() or True
+
+    def _poisci_tuj_hub(self):
+        """Poisci Hub, ki ni nas.
+
+        Kadar gostimo sami, je shranjeni naslov nas lasten Hub. Ce bi z njim iskali, bi iskanje
+        obstalo pri nas in televizorja, ki se je vrnil, ne bi nikoli nasli - racunalnik bi ostal
+        ujet na samem sebi. Zato takrat iscemo od zacetka, brez znanega naslova.
+        """
+        g = getattr(self, "_hub_gostitelj", None)
+        znani = "" if (g is not None and g.gostimo()) else self._hub()
+        return link_hub.poisci_hub_z_odtisom(znani, self._odtis())
+
     def _poisci_hub(self, tiho: bool = False) -> bool:
         """En poskus: najprej znani naslov, sele nato odkrivanje. Vrne True, ce je Hub najden.
 
         `tiho` pomeni, da neuspeha ne javimo strani - med hitrim iskanjem bi uporabnik v treh
         sekundah dobil stiri sporocila »ni naprav«, ceprav iskanje se tece.
         """
-        znani = self._hub()
-        najden = link_hub.poisci_hub_z_odtisom(znani, self._odtis())
+        najden = self._poisci_tuj_hub()
         if not najden:
+            # Huba ni nikjer: ce smo v krogu zaupanja, ga zazenemo sami.
+            if self._v_krogu() and self._prevzemi_gostovanje():
+                return True
             if not tiho:
                 self._odziv("hub", {"najden": False, "naslov": ""})
             return False
+        gostitelj = getattr(self, "_hub_gostitelj", None)
+        if gostitelj is not None and gostitelj.gostimo() and not najden.get("gostimo"):
+            # Drug Hub je spet tu: nas se umakne, da hisa nima dveh sredisc.
+            try:
+                gostitelj.preveri()
+            except Exception:
+                pass
         naslov, fp = najden["naslov"], najden.get("fp") or ""
         if najden.get("isti"):
             # Isti Hub (isti naslov ali isti odtis na novem naslovu): naslov posodobimo, zeton velja.

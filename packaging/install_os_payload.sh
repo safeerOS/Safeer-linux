@@ -14,7 +14,7 @@ cp -a "$ROOT/safeer_os.py" "$LIB/"
 # identity, sessions, circle of trust, hub discovery, programs). tests/test_packaging.py installs this
 # payload and imports it without the source tree, so a missing module fails the test, not the user.
 for modul in os_datoteke os_jbl os_okna os_omrezje os_programi os_scit os_sistem os_stabilnost os_zvok \
-             link_datoteke link_urejanje link_hub link_iskanje link_krog link_programi link_seja link_tls spake2 signed_feed threat_intel; do
+             link_datoteke link_urejanje link_hub link_hub_streznik link_iskanje link_krog link_programi link_seja link_tls link_ws spake2 signed_feed threat_intel; do
     cp -a "$ROOT/core/$modul.py" "$LIB/core/"
 done
 [ -f "$ROOT/core/__init__.py" ] && cp -a "$ROOT/core/__init__.py" "$LIB/core/" || true
