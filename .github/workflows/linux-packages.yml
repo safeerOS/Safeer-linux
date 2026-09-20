@@ -60,7 +60,7 @@ jobs:
       - name: Safeer OS package (shell over the desktop; depends on safeer-control)
         run: |
           bash build_os_deb.sh
-          sudo apt-get install -y "./safeer-control_$(cat packaging/VERSION_CONTROL)_all.deb" "./safeer-os_$(cat packaging/VERSION_OS)_all.deb"
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "./safeer-control_$(cat packaging/VERSION_CONTROL)_all.deb" "./safeer-os_$(cat packaging/VERSION_OS)_all.deb"
           xvfb-run -a safeer-os --version | tee /dev/stderr | grep -Fx "Safeer OS $(cat packaging/VERSION_OS)"
           desktop-file-validate /usr/share/applications/safeer-os.desktop
           sudo apt-get remove -y safeer-os safeer-control
