@@ -42,7 +42,8 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 
-from core import os_datoteke, os_jbl, os_omrezje, os_programi, os_scit, os_sistem, os_zvok  # noqa: E402
+from core import (os_datoteke, os_jbl, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
+                  os_stabilnost, os_zvok)
 
 APP_ID = "io.github.memelandfaner.SafeerOS"
 
@@ -496,7 +497,6 @@ class SafeerOS(Gtk.Application):
         self.okno: Optional[Gtk.ApplicationWindow] = None
         self.pogled: Optional[WebKit2.WebView] = None
         self._ikone: dict = {}
-        self._wnck = None
         self._prvic = True
         #: Namizni nacin: Safeer OS je namizje (spodaj, programi nad njim) s svojo vrstico namesto
         #: Mintovega pulta. Sicer navadno okno (--okno, posnetki).
@@ -570,8 +570,8 @@ class SafeerOS(Gtk.Application):
         okno.set_wmclass("safeer-os", "Safeer OS")
         okno.set_icon_name("safeer-browser")
         zaslon = self._zaslon()
-        if self.posnetek and os.environ.get("SAFEER_OS_OKNO"):
-            sirina, visina = (int(x) for x in os.environ["SAFEER_OS_OKNO"].split("x"))
+        if self.posnetek and _velikost_okna(os.environ.get("SAFEER_OS_OKNO", "")):
+            sirina, visina = _velikost_okna(os.environ["SAFEER_OS_OKNO"])
             okno.set_default_size(sirina, visina)
         elif self.posnetek:
             okno.set_decorated(False)
@@ -646,11 +646,8 @@ class SafeerOS(Gtk.Application):
 
     def _spremljaj_okna(self) -> None:
         """Vrstica in Domov vidita odprte programe sproti (odprtje, zaprtje, aktivno okno)."""
-        zaslon = self._zaslon_wnck()
-        if zaslon is None:
-            return
-
-        def sprememba(*_a):
+        def sprememba():
+            # Dogodki pridejo v rafalih (odpiranje okna sprozi vec signalov): zberemo jih v cetrt sekunde.
             if self._okna_zamik:
                 return
             def poslji():
@@ -658,18 +655,14 @@ class SafeerOS(Gtk.Application):
                 self._dogodek("okna", self._odprta_okna())
                 return False
             self._okna_zamik = GLib.timeout_add(250, poslji)
-        for signal in ("window-opened", "window-closed", "active-window-changed"):
-            zaslon.connect(signal, sprememba)
+        os_okna.spremljaj(sprememba)
 
     def _domov(self, razdelek: str = "") -> bool:
         """Gumb Domov v vrstici (ali ponoven zagon Safeer OS iz menija): programe pomanjsamo, pred nami je
         Safeer OS."""
-        zaslon = self._zaslon_wnck()
-        if zaslon is not None and self.namizje:
+        if self.namizje:
             cas = Gtk.get_current_event_time() or int(GLib.get_monotonic_time() / 1000)
-            for o in self._okna_programov():
-                if not o.is_minimized():
-                    o.minimize()
+            os_okna.pomanjsaj_vse(self._nasi_xid(), cas)
         if self.okno is not None:
             self.okno.deiconify()
             self.okno.present()
@@ -976,78 +969,25 @@ class SafeerOS(Gtk.Application):
             print("[SafeerOS] nedavne pocisti:", e)
             return False
 
-    # --- odprta okna (Wnck: samo X11; na Waylandu seznama ni)
-    def _zaslon_wnck(self):
-        if self._wnck is None:
-            try:
-                gi.require_version("Wnck", "3.0")
-                from gi.repository import Wnck
-                Wnck.set_client_type(Wnck.ClientType.PAGER)
-                self._wnck = Wnck.Screen.get_default()
-            except Exception:
-                self._wnck = False
-        return self._wnck or None
-
-    def _okna_programov(self) -> list:
-        """Okna programov (Wnck), brez oken Safeer OS in brez pomoznih (plosce, namizja, pojavna okna)."""
-        zaslon = self._zaslon_wnck()
-        if zaslon is None:
-            return []
-        from gi.repository import Wnck
-        zaslon.force_update()
-        nasa = set()
+    # --- odprta okna (libwnck prek core/os_okna.py: samo X11, samo glavna nit, brez ponovnega
+    # osvezevanja seznama oken v zanki - to je povzrocilo sesutje)
+    def _nasi_xid(self) -> set:
+        """Okni Safeer OS (domaci zaslon, vrstica) v seznamu programov ne smeta biti."""
+        nasi = set()
         for w in (self.okno, self.vrstica):
             try:
                 if w is not None and w.get_window() is not None:
-                    nasa.add(w.get_window().get_xid())
-            except Exception:
+                    nasi.add(w.get_window().get_xid())
+            except Exception:  # noqa: BLE001
                 pass
-        return [o for o in (zaslon.get_windows_stacked() or [])
-                if o.get_window_type() == Wnck.WindowType.NORMAL and not o.is_skip_tasklist() and o.get_xid() not in nasa]
+        return nasi
 
     def _odprta_okna(self) -> list:
-        zaslon = self._zaslon_wnck()
-        if zaslon is None:
-            return []
-        try:
-            aktivno = zaslon.get_active_window()
-            aktivni_xid = aktivno.get_xid() if aktivno is not None else 0
-            izhod = []
-            for o in self._okna_programov():
-                ikona = ""
-                try:
-                    pb = o.get_icon()
-                    if pb is not None:
-                        pot = os.path.join(os_programi.MAPA_IKON, "okno-%d.png" % o.get_xid())
-                        os.makedirs(os_programi.MAPA_IKON, exist_ok=True)
-                        if not os.path.isfile(pot):
-                            pb.savev(pot, "png", [], [])
-                        ikona = "file://" + pot
-                except Exception:
-                    pass
-                izhod.append({"id": o.get_xid(), "ime": o.get_name(), "program": (o.get_class_group_name() or ""),
-                              "ikona": ikona, "pomanjsano": o.is_minimized(), "aktivno": o.get_xid() == aktivni_xid})
-            izhod.reverse()      # najnovejse zgoraj
-            return izhod
-        except Exception as e:  # noqa: BLE001
-            print("[SafeerOS] okna:", e)
-            return []
+        return os_okna.seznam(self._nasi_xid(), os_programi.MAPA_IKON)
 
     def _okno_dejanje(self, xid, dejanje: str) -> bool:
-        zaslon = self._zaslon_wnck()
-        if zaslon is None:
-            return False
         cas = Gtk.get_current_event_time() or int(GLib.get_monotonic_time() / 1000)
-        for o in zaslon.get_windows() or []:
-            if o.get_xid() == int(xid):
-                if dejanje == "zapri":
-                    o.close(cas)
-                elif dejanje == "preklopi" and o.is_active() and not o.is_minimized():
-                    o.minimize()          # kot opravilna vrstica: klik na aktivni program ga pomanjsa
-                else:
-                    o.activate(cas)
-                return True
-        return False
+        return os_okna.dejanje(xid, dejanje, cas)
 
     def _namizje(self) -> bool:
         """Umakne Safeer OS in pokaze Mintovo namizje (vrne se s klikom v meniju ali na plosci)."""
@@ -1086,15 +1026,42 @@ class SafeerOS(Gtk.Application):
             return False
 
 
+def _velikost_okna(vrednost: str):
+    """SAFEER_OS_OKNO kot »1280x800«; ob nerazumljivi vrednosti None (okno naj bo celozaslonsko).
+
+    Napacna spremenljivka okolja ne sme podreti izdelave okna - brez okna Safeer OS samo visi.
+    """
+    deli = (vrednost or "").lower().split("x")
+    if len(deli) != 2:
+        return None
+    try:
+        sirina, visina = int(deli[0]), int(deli[1])
+    except ValueError:
+        return None
+    if sirina < 200 or visina < 200:
+        return None
+    return sirina, visina
+
+
 def main() -> int:
     if "--version" in sys.argv[1:]:
         print("Safeer OS", RAZLICICA)
         return 0
+    # Sled ob sesutju (tudi ob SIGSEGV v knjiznici C) in dnevnik neujetih izjem; brez tega je ob
+    # sesutju ostalo samo prazno namizje in nobenega podatka o tem, kaj je teklo.
+    os_stabilnost.vkljuci("safeer-os")
+    if os_stabilnost.naj_bo_varni_nacin("safeer-os") and not os.environ.get(os_okna.IZKLOP):
+        # Vec sesutij v kratkem casu: tokrat brez seznama oken (libwnck), da je Safeer OS vsaj uporaben.
+        os.environ[os_okna.IZKLOP] = "1"
+        os_stabilnost.zapisi("safeer-os", "varni nacin: seznam oken je izklopljen (ponovljena sesutja)")
+        print("[SafeerOS] varni način: seznam odprtih oken je izklopljen (glej ~/.cache/safeer-os/dnevnik.log)")
     posnetek = ""
     if "--posnetek" in sys.argv[1:]:
         i = sys.argv.index("--posnetek")
         posnetek = sys.argv[i + 1] if i + 1 < len(sys.argv) else "/tmp/safeer-os.png"
     app = SafeerOS(v_oknu="--okno" in sys.argv[1:], posnetek=posnetek)
+    # Ce program tece brez tezav, zgodovina sesutij ni vec pomembna (sicer bi varni nacin ostal za vedno).
+    GLib.timeout_add_seconds(120, lambda: (os_stabilnost.pozabi_sesutja("safeer-os"), False)[1])
     return app.run([sys.argv[0]])
 
 
