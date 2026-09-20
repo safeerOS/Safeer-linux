@@ -768,6 +768,9 @@
       deliZ: "Deli z: {ime}",
       izberiVsebino: "Kaj želiš deliti s to napravo?",
       deliZaslon: "Zaslon",
+      odpriSafeerOs: "Safeer OS na televizorju",
+      odpriBrskalnik: "Safeer brskalnik",
+      odpiramNaZaslonu: "Odpiram {ime} na napravi {naprava} …",
       deliDatoteka: "Datoteka",
       deliBesedilo: "Besedilo",
       posljiNaNapravo: "Pošlji na napravo",
@@ -789,6 +792,13 @@
       prejetZaslon: "{ime} deli zaslon s to napravo",
       naprava: "Naprava",
       deliDotik: "Dotakni se za deljenje",
+      deliKlik: "Klikni za deljenje in daljinec",
+      dodajNaslov: "Dodaj telefon ali tablico",
+      dodajKorak1: "Na telefonu odpri Safeer in v meniju izberi Safeer Link.",
+      dodajKorak2: "Pritisni »Poveži s Safeer Link«.",
+      dodajKorak3: "Na napravi {sredisce} se izpiše 6-mestna koda – prepiši jo v telefon.",
+      dodajOpomba: "Koda se pokaže samo na središču: kdor ga ne vidi, se ne more povezati – tudi ne v javnem omrežju.",
+      istaNaprava: "{ime} teče na tej napravi",
       daljinec: "Daljinec",
       ospredjeOpis: "Da se Safeer odpre sam, ko mu s telefona pošlješ stran ali ukaz, mu enkrat dovoli prekrivanje drugih aplikacij.",
       ospredjeDovoli: "Dovoli",
@@ -809,6 +819,9 @@
       deliZ: "Share with: {ime}",
       izberiVsebino: "What do you want to share with this device?",
       deliZaslon: "Screen",
+      odpriSafeerOs: "Safeer OS on the TV",
+      odpriBrskalnik: "Safeer browser",
+      odpiramNaZaslonu: "Opening {ime} on {naprava} …",
       deliDatoteka: "File",
       deliBesedilo: "Text",
       posljiNaNapravo: "Send to device",
@@ -830,6 +843,13 @@
       prejetZaslon: "{ime} is sharing its screen with this device",
       naprava: "Device",
       deliDotik: "Tap to share",
+      deliKlik: "Click to share or use the remote",
+      dodajNaslov: "Add a phone or tablet",
+      dodajKorak1: "On the phone, open Safeer and choose Safeer Link in the menu.",
+      dodajKorak2: "Tap “Connect to Safeer Link”.",
+      dodajKorak3: "A 6-digit code appears on {sredisce} – type it into the phone.",
+      dodajOpomba: "The code is shown only on the hub: whoever cannot see it cannot connect – not even on public Wi-Fi.",
+      istaNaprava: "{ime} runs on this device",
       daljinec: "Remote control",
       ospredjeOpis: "So that Safeer opens by itself when your phone sends it a page or a command, allow it once to appear over other apps.",
       ospredjeDovoli: "Allow",
@@ -850,6 +870,9 @@
       deliZ: "Teilen mit: {ime}",
       izberiVsebino: "Was möchtest du mit diesem Gerät teilen?",
       deliZaslon: "Bildschirm",
+      odpriSafeerOs: "Safeer OS auf dem Fernseher",
+      odpriBrskalnik: "Safeer-Browser",
+      odpiramNaZaslonu: "Öffne {ime} auf {naprava} …",
       deliDatoteka: "Datei",
       deliBesedilo: "Text",
       posljiNaNapravo: "An Gerät senden",
@@ -871,6 +894,8 @@
       prejetZaslon: "{ime} teilt den Bildschirm mit diesem Gerät",
       naprava: "Gerät",
       deliDotik: "Zum Teilen antippen",
+      deliKlik: "Klicken zum Teilen oder für die Fernbedienung",
+      istaNaprava: "{ime} läuft auf diesem Gerät",
       daljinec: "Fernbedienung",
       ospredjeOpis: "Damit sich Safeer von selbst öffnet, wenn das Telefon eine Seite oder einen Befehl schickt, erlaube ihm einmal, über anderen Apps zu erscheinen.",
       ospredjeDovoli: "Erlauben",
@@ -891,6 +916,9 @@
       deliZ: "Compartir con: {ime}",
       izberiVsebino: "¿Qué quieres compartir con este dispositivo?",
       deliZaslon: "Pantalla",
+      odpriSafeerOs: "Safeer OS en el televisor",
+      odpriBrskalnik: "Navegador Safeer",
+      odpiramNaZaslonu: "Abriendo {ime} en {naprava} …",
       deliDatoteka: "Archivo",
       deliBesedilo: "Texto",
       posljiNaNapravo: "Enviar al dispositivo",
@@ -912,6 +940,8 @@
       prejetZaslon: "{ime} comparte su pantalla con este dispositivo",
       naprava: "Dispositivo",
       deliDotik: "Toca para compartir",
+      deliKlik: "Haz clic para compartir o usar el mando",
+      istaNaprava: "{ime} funciona en este dispositivo",
       daljinec: "Mando a distancia",
       ospredjeOpis: "Para que Safeer se abra solo cuando el teléfono le envíe una página o un comando, permítele una vez aparecer sobre otras apps.",
       ospredjeDovoli: "Permitir",
@@ -932,6 +962,9 @@
       deliZ: "Partager avec : {ime}",
       izberiVsebino: "Que veux-tu partager avec cet appareil ?",
       deliZaslon: "Écran",
+      odpriSafeerOs: "Safeer OS sur le téléviseur",
+      odpriBrskalnik: "Navigateur Safeer",
+      odpiramNaZaslonu: "Ouverture de {ime} sur {naprava} …",
       deliDatoteka: "Fichier",
       deliBesedilo: "Texte",
       posljiNaNapravo: "Envoyer à l’appareil",
@@ -953,6 +986,8 @@
       prejetZaslon: "{ime} partage son écran avec cet appareil",
       naprava: "Appareil",
       deliDotik: "Toucher pour partager",
+      deliKlik: "Cliquer pour partager ou utiliser la télécommande",
+      istaNaprava: "{ime} fonctionne sur cet appareil",
       daljinec: "Télécommande",
       ospredjeOpis: "Pour que Safeer s'ouvre tout seul quand le téléphone lui envoie une page ou une commande, autorisez-le une fois à s'afficher par-dessus les autres applis.",
       ospredjeDovoli: "Autoriser",
@@ -994,6 +1029,11 @@
       prejetZaslon: "{ime} condivide lo schermo con questo dispositivo",
       naprava: "Dispositivo",
       deliDotik: "Tocca per condividere",
+      deliKlik: "Fai clic per condividere o usare il telecomando",
+      istaNaprava: "{ime} è in esecuzione su questo dispositivo",
+      odpriSafeerOs: "Safeer OS sul televisore",
+      odpriBrskalnik: "Browser Safeer",
+      odpiramNaZaslonu: "Apro {ime} su {naprava} …",
       daljinec: "Telecomando",
       ospredjeOpis: "Perché Safeer si apra da solo quando il telefono gli invia una pagina o un comando, consentigli una volta di apparire sopra le altre app.",
       ospredjeDovoli: "Consenti",
@@ -1003,6 +1043,248 @@
   for (var _jd in BESEDILA_DELJENJE) {
     if (!BESEDILA[_jd]) BESEDILA[_jd] = {};
     for (var _kd in BESEDILA_DELJENJE[_jd]) BESEDILA[_jd][_kd] = BESEDILA_DELJENJE[_jd][_kd];
+  }
+
+  // Prijavno okno (Safeer Control / Safeer OS na racunalniku).
+  var BESEDILA_PRIJAVA = {
+    sl: {
+      prijavaNaslov: "Prijava",
+      prijavaPodnaslov: "Poveži ta računalnik s svojimi napravami.",
+      prijavaQrNaslov: "Skeniraj s telefonom",
+      prijavaQrOpis: "Usmeri kamero telefona ali tablice, ki je že v Safeer Linku, v kodo in potrdi na telefonu.",
+      prijavaQrPripravljam: "Pripravljam kodo …",
+      prijavaQrOsvezi: "Koda se sama obnavlja.",
+      prijavaNiHuba: "V domačem omrežju ni Safeer Linka. Vklopi ga na televizorju ali tablici.",
+      prijavaPoisci: "Poišči znova",
+      prijavaHubStar: "Safeer na televizorju je za kodo QR prestar. Uporabi 6-mestno kodo ali ga posodobi.",
+      prijavaPrevec: "Preveč hkratnih prijav. Poskusi čez minuto.",
+      prijavaBrezQr: "Kode QR tu ni mogoče narisati. Uporabi 6-mestno kodo.",
+      prijavaAli: "ali",
+      prijavaKodaNaslov: "Vpiši 6-mestno kodo",
+      prijavaKodaOpis: "Klikni v polje – koda se pokaže na televizorju ali tablici, kjer teče Safeer Link.",
+      prijavaKodaNaSredisce: "Koda je zdaj na zaslonu naprave s Safeer Linkom. Prepiši jo sem.",
+      prijavaKodaSestMest: "Koda ima 6 številk.",
+      prijavaGumb: "Prijava",
+      prijavaPreverjam: "Preverjam …",
+      prijavaBrez: "Nadaljuj brez povezave naprav",
+      prijavaOsSeNastaja: "Safeer OS za računalnik še nastaja. Ko bo nameščen, se odpre od tu.",
+      prijavaZaupaj: "Zaupaj temu računalniku",
+      prijavaZaupajOpis: "Povezava bo potrebna samo enkrat. Izberi le na svojem računalniku – sicer se ob naslednji prijavi v računalnik znova povežeš.",
+      prijavaUspela: "Prijavljeno. Povezujem …",
+      prijavaZnovaZazeni: "Safeer Control je treba znova zagnati, da naloži posodobitev: zapri ga v pladnju ali se odjavi in prijavi.",
+      brezPovezaveNaslov: "Naprave niso povezane",
+      brezPovezaveOpis: "Safeer OS deluje na tem računalniku. Telefon, tablico ali televizor povežeš, kadar želiš.",
+      poveziNaprave: "Poveži naprave",
+      odpriSafeerOs: "Odpri Safeer OS"
+    },
+    en: {
+      prijavaNaslov: "Sign in",
+      prijavaPodnaslov: "Connect this computer to your devices.",
+      prijavaQrNaslov: "Scan with your phone",
+      prijavaQrOpis: "Point the camera of a phone or tablet that is already in Safeer Link at the code and confirm on the phone.",
+      prijavaQrPripravljam: "Preparing the code …",
+      prijavaQrOsvezi: "The code refreshes by itself.",
+      prijavaNiHuba: "There is no Safeer Link on your home network. Turn it on on the TV or tablet.",
+      prijavaPoisci: "Search again",
+      prijavaHubStar: "Safeer on the TV is too old for the QR code. Use the 6-digit code or update it.",
+      prijavaPrevec: "Too many sign-ins at once. Try again in a minute.",
+      prijavaBrezQr: "The QR code can't be drawn here. Use the 6-digit code.",
+      prijavaAli: "or",
+      prijavaKodaNaslov: "Enter the 6-digit code",
+      prijavaKodaOpis: "Click the field – the code appears on the TV or tablet running Safeer Link.",
+      prijavaKodaNaSredisce: "The code is now on the screen of the Safeer Link device. Type it here.",
+      prijavaKodaSestMest: "The code has 6 digits.",
+      prijavaGumb: "Sign in",
+      prijavaPreverjam: "Checking …",
+      prijavaBrez: "Continue without connecting devices",
+      prijavaOsSeNastaja: "Safeer OS for computers is still being built. Once installed, it opens from here.",
+      prijavaZaupaj: "Trust this computer",
+      prijavaZaupajOpis: "You'll only need to connect once. Choose this only on your own computer – otherwise you'll connect again next time you sign in to the computer.",
+      prijavaUspela: "Signed in. Connecting …",
+      prijavaZnovaZazeni: "Restart Safeer Control to load the update: quit it from the tray, or log out and back in.",
+      brezPovezaveNaslov: "No devices connected",
+      brezPovezaveOpis: "Safeer OS works on this computer. Connect your phone, tablet or TV whenever you like.",
+      poveziNaprave: "Connect devices",
+      odpriSafeerOs: "Open Safeer OS"
+    },
+    de: {
+      prijavaNaslov: "Anmelden",
+      prijavaPodnaslov: "Verbinde diesen Computer mit deinen Geräten.",
+      prijavaQrNaslov: "Mit dem Handy scannen",
+      prijavaQrOpis: "Richte die Kamera eines Handys oder Tablets, das schon in Safeer Link ist, auf den Code und bestätige am Handy.",
+      prijavaQrPripravljam: "Code wird vorbereitet …",
+      prijavaQrOsvezi: "Der Code erneuert sich von selbst.",
+      prijavaNiHuba: "Kein Safeer Link im Heimnetz. Schalte ihn am Fernseher oder Tablet ein.",
+      prijavaPoisci: "Erneut suchen",
+      prijavaHubStar: "Safeer auf dem Fernseher ist für den QR-Code zu alt. Nutze den 6-stelligen Code oder aktualisiere ihn.",
+      prijavaPrevec: "Zu viele gleichzeitige Anmeldungen. Versuche es in einer Minute erneut.",
+      prijavaBrezQr: "Der QR-Code kann hier nicht angezeigt werden. Nutze den 6-stelligen Code.",
+      prijavaAli: "oder",
+      prijavaKodaNaslov: "6-stelligen Code eingeben",
+      prijavaKodaOpis: "Klicke ins Feld – der Code erscheint auf dem Fernseher oder Tablet mit Safeer Link.",
+      prijavaKodaNaSredisce: "Der Code steht jetzt auf dem Bildschirm des Safeer-Link-Geräts. Gib ihn hier ein.",
+      prijavaKodaSestMest: "Der Code hat 6 Ziffern.",
+      prijavaGumb: "Anmelden",
+      prijavaPreverjam: "Wird geprüft …",
+      prijavaBrez: "Ohne Geräteverbindung fortfahren",
+      prijavaOsSeNastaja: "Safeer OS für Computer entsteht noch. Sobald es installiert ist, öffnet es sich von hier.",
+      prijavaZaupaj: "Diesem Computer vertrauen",
+      prijavaZaupajOpis: "Die Verbindung ist nur einmal nötig. Wähle das nur auf deinem eigenen Computer – sonst verbindest du dich bei der nächsten Anmeldung am Computer erneut.",
+      prijavaUspela: "Angemeldet. Verbinde …",
+      prijavaZnovaZazeni: "Starte Safeer Control neu, um das Update zu laden: im Infobereich beenden oder ab- und wieder anmelden.",
+      brezPovezaveNaslov: "Keine Geräte verbunden",
+      brezPovezaveOpis: "Safeer OS läuft auf diesem Computer. Verbinde Handy, Tablet oder Fernseher, wann immer du willst.",
+      poveziNaprave: "Geräte verbinden",
+      odpriSafeerOs: "Safeer OS öffnen"
+    },
+    es: {
+      prijavaNaslov: "Iniciar sesión",
+      prijavaPodnaslov: "Conecta este ordenador con tus dispositivos.",
+      prijavaQrNaslov: "Escanea con el móvil",
+      prijavaQrOpis: "Apunta al código con la cámara de un móvil o tableta que ya esté en Safeer Link y confirma en el móvil.",
+      prijavaQrPripravljam: "Preparando el código …",
+      prijavaQrOsvezi: "El código se renueva solo.",
+      prijavaNiHuba: "No hay Safeer Link en tu red doméstica. Actívalo en el televisor o la tableta.",
+      prijavaPoisci: "Buscar de nuevo",
+      prijavaHubStar: "Safeer en el televisor es demasiado antiguo para el código QR. Usa el código de 6 cifras o actualízalo.",
+      prijavaPrevec: "Demasiados inicios de sesión a la vez. Inténtalo en un minuto.",
+      prijavaBrezQr: "Aquí no se puede mostrar el código QR. Usa el código de 6 cifras.",
+      prijavaAli: "o",
+      prijavaKodaNaslov: "Introduce el código de 6 cifras",
+      prijavaKodaOpis: "Haz clic en el campo: el código aparece en el televisor o la tableta con Safeer Link.",
+      prijavaKodaNaSredisce: "El código está ahora en la pantalla del dispositivo con Safeer Link. Escríbelo aquí.",
+      prijavaKodaSestMest: "El código tiene 6 cifras.",
+      prijavaGumb: "Entrar",
+      prijavaPreverjam: "Comprobando …",
+      prijavaBrez: "Continuar sin conectar dispositivos",
+      prijavaOsSeNastaja: "Safeer OS para ordenador aún está en desarrollo. Cuando esté instalado, se abrirá desde aquí.",
+      prijavaZaupaj: "Confiar en este ordenador",
+      prijavaZaupajOpis: "Solo tendrás que conectarte una vez. Elígelo solo en tu propio ordenador; si no, volverás a conectarte la próxima vez que inicies sesión en el ordenador.",
+      prijavaUspela: "Sesión iniciada. Conectando …",
+      prijavaZnovaZazeni: "Reinicia Safeer Control para cargar la actualización: ciérralo desde la bandeja o cierra y abre sesión.",
+      brezPovezaveNaslov: "No hay dispositivos conectados",
+      brezPovezaveOpis: "Safeer OS funciona en este ordenador. Conecta el móvil, la tableta o el televisor cuando quieras.",
+      poveziNaprave: "Conectar dispositivos",
+      odpriSafeerOs: "Abrir Safeer OS"
+    },
+    fr: {
+      prijavaNaslov: "Connexion",
+      prijavaPodnaslov: "Connecte cet ordinateur à tes appareils.",
+      prijavaQrNaslov: "Scanne avec ton téléphone",
+      prijavaQrOpis: "Vise le code avec l'appareil photo d'un téléphone ou d'une tablette déjà dans Safeer Link, puis confirme sur le téléphone.",
+      prijavaQrPripravljam: "Préparation du code …",
+      prijavaQrOsvezi: "Le code se renouvelle tout seul.",
+      prijavaNiHuba: "Aucun Safeer Link sur ton réseau domestique. Active-le sur le téléviseur ou la tablette.",
+      prijavaPoisci: "Chercher à nouveau",
+      prijavaHubStar: "Safeer sur le téléviseur est trop ancien pour le code QR. Utilise le code à 6 chiffres ou mets-le à jour.",
+      prijavaPrevec: "Trop de connexions simultanées. Réessaie dans une minute.",
+      prijavaBrezQr: "Le code QR ne peut pas être affiché ici. Utilise le code à 6 chiffres.",
+      prijavaAli: "ou",
+      prijavaKodaNaslov: "Saisis le code à 6 chiffres",
+      prijavaKodaOpis: "Clique dans le champ : le code s'affiche sur le téléviseur ou la tablette avec Safeer Link.",
+      prijavaKodaNaSredisce: "Le code est maintenant à l'écran de l'appareil Safeer Link. Saisis-le ici.",
+      prijavaKodaSestMest: "Le code a 6 chiffres.",
+      prijavaGumb: "Se connecter",
+      prijavaPreverjam: "Vérification …",
+      prijavaBrez: "Continuer sans connecter d'appareils",
+      prijavaOsSeNastaja: "Safeer OS pour ordinateur est encore en préparation. Une fois installé, il s'ouvrira d'ici.",
+      prijavaZaupaj: "Faire confiance à cet ordinateur",
+      prijavaZaupajOpis: "La connexion ne sera nécessaire qu'une fois. Choisis-le seulement sur ton propre ordinateur – sinon tu te reconnecteras à la prochaine ouverture de session.",
+      prijavaUspela: "Connecté. Connexion en cours …",
+      prijavaZnovaZazeni: "Redémarre Safeer Control pour charger la mise à jour : quitte-le depuis la zone de notification ou reconnecte-toi.",
+      brezPovezaveNaslov: "Aucun appareil connecté",
+      brezPovezaveOpis: "Safeer OS fonctionne sur cet ordinateur. Connecte ton téléphone, ta tablette ou ton téléviseur quand tu veux.",
+      poveziNaprave: "Connecter des appareils",
+      odpriSafeerOs: "Ouvrir Safeer OS"
+    },
+    it: {
+      prijavaNaslov: "Accedi",
+      prijavaPodnaslov: "Collega questo computer ai tuoi dispositivi.",
+      prijavaQrNaslov: "Scansiona con il telefono",
+      prijavaQrOpis: "Inquadra il codice con la fotocamera di un telefono o tablet già in Safeer Link e conferma sul telefono.",
+      prijavaQrPripravljam: "Preparo il codice …",
+      prijavaQrOsvezi: "Il codice si rinnova da solo.",
+      prijavaNiHuba: "Nessun Safeer Link nella rete di casa. Attivalo sul televisore o sul tablet.",
+      prijavaPoisci: "Cerca di nuovo",
+      prijavaHubStar: "Safeer sul televisore è troppo vecchio per il codice QR. Usa il codice di 6 cifre o aggiornalo.",
+      prijavaPrevec: "Troppi accessi contemporanei. Riprova tra un minuto.",
+      prijavaBrezQr: "Qui il codice QR non può essere mostrato. Usa il codice di 6 cifre.",
+      prijavaAli: "oppure",
+      prijavaKodaNaslov: "Inserisci il codice di 6 cifre",
+      prijavaKodaOpis: "Fai clic nel campo: il codice appare sul televisore o sul tablet con Safeer Link.",
+      prijavaKodaNaSredisce: "Il codice è ora sullo schermo del dispositivo con Safeer Link. Scrivilo qui.",
+      prijavaKodaSestMest: "Il codice ha 6 cifre.",
+      prijavaGumb: "Accedi",
+      prijavaPreverjam: "Verifica …",
+      prijavaBrez: "Continua senza collegare dispositivi",
+      prijavaOsSeNastaja: "Safeer OS per computer è ancora in preparazione. Una volta installato, si aprirà da qui.",
+      prijavaZaupaj: "Considera attendibile questo computer",
+      prijavaZaupajOpis: "Dovrai collegarti una sola volta. Sceglilo solo sul tuo computer, altrimenti ti ricollegherai al prossimo accesso al computer.",
+      prijavaUspela: "Accesso eseguito. Connessione …",
+      prijavaZnovaZazeni: "Riavvia Safeer Control per caricare l'aggiornamento: chiudilo dall'area di notifica o esci e rientra.",
+      brezPovezaveNaslov: "Nessun dispositivo collegato",
+      brezPovezaveOpis: "Safeer OS funziona su questo computer. Collega telefono, tablet o televisore quando vuoi.",
+      poveziNaprave: "Collega dispositivi",
+      odpriSafeerOs: "Apri Safeer OS"
+    }
+  };
+  for (var _jp in BESEDILA_PRIJAVA) {
+    if (!BESEDILA[_jp]) BESEDILA[_jp] = {};
+    for (var _kp in BESEDILA_PRIJAVA[_jp]) BESEDILA[_jp][_kp] = BESEDILA_PRIJAVA[_jp][_kp];
+  }
+  var BESEDILA_VABILO = {
+    "sl": {
+      "vabiloGumb": "Pokaži QR kodo za novo napravo",
+      "vabiloOpis": "S kamero telefona ali tablice skeniraj kodo – Safeer se odpre in naprava se poveže s Safeer Linkom.",
+      "vabiloPridruzen": "✓ {ime} je povezan.",
+      "vabiloHubStar": "Središče je treba posodobiti, da lahko pokaže kodo tukaj. Kodo najdeš tudi na središču (Naprave → Poveži novo napravo).",
+      "vabiloNapaka": "Kode ni bilo mogoče pripraviti. Poskusi znova.",
+      "vabiloZapri": "Skrij kodo"
+    },
+    "en": {
+      "vabiloGumb": "Show QR code for a new device",
+      "vabiloOpis": "Scan the code with your phone or tablet camera – Safeer opens and the device joins Safeer Link.",
+      "vabiloPridruzen": "✓ {ime} is connected.",
+      "vabiloHubStar": "The hub needs an update to show the code here. You'll also find the code on the hub (Devices → Connect a new device).",
+      "vabiloNapaka": "The code could not be prepared. Try again.",
+      "vabiloZapri": "Hide code"
+    },
+    "de": {
+      "vabiloGumb": "QR-Code für ein neues Gerät zeigen",
+      "vabiloOpis": "Scanne den Code mit der Kamera von Handy oder Tablet – Safeer öffnet sich und das Gerät tritt Safeer Link bei.",
+      "vabiloPridruzen": "✓ {ime} ist verbunden.",
+      "vabiloHubStar": "Die Zentrale muss aktualisiert werden, um den Code hier zu zeigen. Den Code findest du auch auf der Zentrale (Geräte → Neues Gerät verbinden).",
+      "vabiloNapaka": "Der Code konnte nicht erstellt werden. Versuche es erneut.",
+      "vabiloZapri": "Code ausblenden"
+    },
+    "es": {
+      "vabiloGumb": "Mostrar código QR para un dispositivo nuevo",
+      "vabiloOpis": "Escanea el código con la cámara del móvil o la tableta: Safeer se abre y el dispositivo se une a Safeer Link.",
+      "vabiloPridruzen": "✓ {ime} está conectado.",
+      "vabiloHubStar": "Hay que actualizar el centro para mostrar el código aquí. También encontrarás el código en el centro (Dispositivos → Conectar un dispositivo nuevo).",
+      "vabiloNapaka": "No se ha podido preparar el código. Inténtalo de nuevo.",
+      "vabiloZapri": "Ocultar código"
+    },
+    "fr": {
+      "vabiloGumb": "Afficher le code QR pour un nouvel appareil",
+      "vabiloOpis": "Scanne le code avec l'appareil photo du téléphone ou de la tablette – Safeer s'ouvre et l'appareil rejoint Safeer Link.",
+      "vabiloPridruzen": "✓ {ime} est connecté.",
+      "vabiloHubStar": "Le centre doit être mis à jour pour afficher le code ici. Tu trouveras aussi le code sur le centre (Appareils → Connecter un nouvel appareil).",
+      "vabiloNapaka": "Impossible de préparer le code. Réessaie.",
+      "vabiloZapri": "Masquer le code"
+    },
+    "it": {
+      "vabiloGumb": "Mostra il codice QR per un nuovo dispositivo",
+      "vabiloOpis": "Scansiona il codice con la fotocamera del telefono o del tablet: Safeer si apre e il dispositivo entra in Safeer Link.",
+      "vabiloPridruzen": "✓ {ime} è collegato.",
+      "vabiloHubStar": "L'hub va aggiornato per mostrare il codice qui. Trovi il codice anche sull'hub (Dispositivi → Collega un nuovo dispositivo).",
+      "vabiloNapaka": "Impossibile preparare il codice. Riprova.",
+      "vabiloZapri": "Nascondi codice"
+    }
+  };
+  for (var _jv in BESEDILA_VABILO) {
+    if (!BESEDILA[_jv]) BESEDILA[_jv] = {};
+    for (var _kv in BESEDILA_VABILO[_jv]) BESEDILA[_jv][_kv] = BESEDILA_VABILO[_jv][_kv];
   }
 
   var jezik = (function () {
@@ -1333,6 +1615,20 @@
   function narisiZaslon() {
     // Dokler je odprt daljinec, so drugi zasloni skriti; narisemo jih, ko se zapre.
     if (daljinecOdprt) return;
+    // Safeer Control brez povezave: samo prijavno okno (QR, koda, nadaljuj brez). Nic drugega.
+    var prijavno = jePrijavnoOkno();
+    var brezPovezave = jeBrezPovezave();
+    document.body.classList.toggle("prijava", prijavno || brezPovezave);
+    pokazi("zaslonPrijava", prijavno);
+    pokazi("zaslonBrezPovezave", brezPovezave);
+    if (prijavno || brezPovezave) {
+      ["zaslonHubTu", "zaslonBrezHuba", "zaslonPreseljen", "zaslonSeznanitev", "zaslonPovezan", "hubStikalo"]
+        .forEach(function (id) { pokazi(id, false); });
+      if (prijavno) zacniPrijavo(); else koncajPrijavo();
+      narisiStanje();
+      return;
+    }
+    koncajPrijavo();
     // Sredisce tece tu. Naprava, ki gosti (telefon, racunalnik ali televizor), je hkrati
     // navadna naprava: vidi ostale in jim posilja, zato ostane tudi obicajni pogled.
     var tuSredisce = stanje.hubTece;
@@ -1396,14 +1692,24 @@
 
     // Vse naprave, ki jih Hub pozna, razen te: vsaka je lahko cilj deljenja.
     var druge = stanje.naprave.filter(function (n) { return n.id !== stanje.idNaprave; });
+    // Ena fizicna naprava, ena vrstica: Safeer OS (vrsta "os") na istem naslovu kot zaslon je
+    // aplikacija tega zaslona, ne druga naprava. Protocol v1; naprave 0.2 ostanejo, kot so.
+    var sorodniki = {};
+    druge = druge.filter(function (n) {
+      if (n.vrsta !== "os" || !n.naslov) return true;
+      var zaslon = druge.some(function (z) { return z !== n && z.vloga === "receiver" && z.naslov === n.naslov; });
+      if (zaslon) sorodniki[n.naslov] = n;
+      return !zaslon;
+    });
     druge.forEach(function (n) {
       var jeZaslon = n.vloga === "receiver";
       var deljivo = znaDeliti;
       var zasedena = !!n.zasedenaOd && n.zasedenaOd !== stanje.idNaprave;
       var pod = zasedena ? t("zasedenoDeli", { ime: n.zasedenaOdIme || n.zasedenaOd })
-        : (deljivo ? t("deliDotik") : (jeZaslon ? t("zaslon") : t("naprava")));
+        : (deljivo ? t(jeNamizje() ? "deliKlik" : "deliDotik") : (jeZaslon ? t("zaslon") : t("naprava")));
+      if (!zasedena && n.naslov && sorodniki[n.naslov]) pod = t("istaNaprava", { ime: "Safeer OS" }) + " · " + pod;
       seznam.appendChild(vrstica(
-        jeZaslon ? "tv" : ikonaNapraveVSeznamu(n),
+        (jeZaslon && !n.platforma) ? "tv" : ikonaNapraveVSeznamu(n),
         prijaznoIme(n),
         pod,
         zasedena ? t("zasedenoKratko") : t("povezan"), zasedena ? "rumenaZnacka" : "zivo",
@@ -1415,6 +1721,12 @@
   }
 
   function ikonaNapraveVSeznamu(naprava) {
+    // Protocol v1: naprava pove platformo in vrsto sama; ugibanje po imenu ostane za naprave 0.2.
+    var pl = (naprava && naprava.platforma) || "";
+    var vr = (naprava && naprava.vrsta) || "";
+    if (pl === "tv" || vr === "screen" && pl !== "tablet") return "tv";
+    if (pl === "linux" || pl === "windows" || pl === "macos" || vr === "computer" || vr === "control") return "racunalnik";
+    if (pl === "phone" || pl === "tablet" || vr === "handheld") return "telefon";
     var opis = ((naprava && (naprava.ime || "")) + " " + (naprava && (naprava.id || ""))).toLowerCase();
     if (/(televizor|tv|philips|android tv)/.test(opis)) return "tv";
     if (/(racunaln|računaln|computer|namizn|desktop|laptop|prenosn|linux|windows|mac|pc\b)/.test(opis)) return "racunalnik";
@@ -1569,7 +1881,73 @@
     pokazi("panelSync", false);
     pokazi("predvajalnik", false);
     pokazi("panelMape", stanje.znan && stanje.seznanjen);
+    pokazi("panelDodaj", stanje.znan && (stanje.seznanjen || stanje.vKrogu));
+    pokazi("vabiloBlok", !!(most && most.zacniVabilo));
+    var sredisce = imeSredisca() || t("televizor");
+    besedilo("dodajKorak3", t("dodajKorak3", { sredisce: sredisce }));
     narisiMape();
+    narisiMeni();
+  }
+
+  // ---------- samostojna aplikacija: levi meni z razdelki (samo Safeer Control) ----------
+
+  var razdelek = "";
+
+  function jeNamizje() { return !!stanje.control; }
+
+  function narisiMeni() {
+    if (!jeNamizje()) return;
+    if (jePrijavnoOkno() || jeBrezPovezave()) return;
+    besedilo("dodajKorak3", t("dodajKorak3", { sredisce: imeSredisca() || t("televizor") }));
+    document.body.classList.add("namizje");
+    pokazi("stranskiMeni", true);
+    // Razdelek je na voljo le, ce je njegov panel sploh na voljo (Control nima strani za posiljanje ne sinhronizacije).
+    var gumbi = document.querySelectorAll("#stranskiMeni button[data-razdelek]");
+    for (var i = 0; i < gumbi.length; i++) {
+      var ime = gumbi[i].getAttribute("data-razdelek");
+      var naVoljo = true;
+      if (ime === "poslji") naVoljo = !el("panelCast").hidden;
+      else if (ime === "sync") naVoljo = !el("panelSync").hidden;
+      else if (ime === "mape") naVoljo = !el("panelMape").hidden;
+      else if (ime === "daljinec") naVoljo = napravaZaDaljinec() !== null;
+      gumbi[i].hidden = !naVoljo;
+    }
+    if (!razdelek) izberiRazdelek("naprave");
+    else if (razdelek !== "daljinec" && el("stranskiMeni").querySelector('button[data-razdelek="' + razdelek + '"]').hidden) izberiRazdelek("naprave");
+  }
+
+  /** Zaslon (televizor), ki sprejema ukaze daljinca; prvi tak, ali null. */
+  function napravaZaDaljinec() {
+    var z = zasloni().filter(function (n) { return (n.zmoznosti || []).indexOf("remote") >= 0; });
+    return z.length ? z[0] : null;
+  }
+
+  function oznaciRazdelek(ime) {
+    razdelek = ime;
+    document.body.setAttribute("data-razdelek", ime);
+    var gumbi = document.querySelectorAll("#stranskiMeni button[data-razdelek]");
+    for (var i = 0; i < gumbi.length; i++) {
+      gumbi[i].classList.toggle("izbran", gumbi[i].getAttribute("data-razdelek") === ime);
+    }
+  }
+
+  function izberiRazdelek(ime) {
+    if (ime === "daljinec") {
+      var n = napravaZaDaljinec();
+      if (!n || !window.SafeerDaljinec) { izberiRazdelek("naprave"); return; }
+      oznaciRazdelek("daljinec");
+      window.SafeerDaljinec.odpri(n);
+      return;
+    }
+    if (window.SafeerDaljinec && window.SafeerDaljinec.jeOdprt()) {
+      oznaciRazdelek(ime);
+      window.SafeerDaljinec.zapri();
+      return;
+    }
+    oznaciRazdelek(ime);
+    zapriDeljenje();
+    var glavni = el("main") || document.querySelector("main");
+    if (glavni) glavni.scrollTop = 0;
   }
 
   /** Deljene mape (Safeer Control): seznam, odstranitev s klikom na vrstico, gumb za dodajanje. */
@@ -1767,6 +2145,160 @@
   // Odzivi mostu
   // ----------------------------------------------------------------
 
+  // ----------------------------------------------------------------
+  // Prijavno okno (Safeer Control / Safeer OS na racunalniku)
+  // ----------------------------------------------------------------
+
+  var prijava = { qr: false, koda: false, krogNeuspel: false, cakalnik: null, ponovno: null };
+
+  /**
+   * Control, ki ni povezan (ne z zetonom ne s krogom zaupanja) in sredisce ne tece tu. Clan kroga
+   * zaupanja se poveze sam s podpisom; prijavno okno dobi sele, ce to ne uspe.
+   */
+  function jeNepovezan() {
+    if (!stanje.control || stanje.hubTece || (stanje.znan && stanje.seznanjen) || stanje.vKrogu) return false;
+    return !(stanje.clanKroga && !prijava.krogNeuspel);
+  }
+
+  function jePrijavnoOkno() { return jeNepovezan() && !stanje.brezPovezaveIzbrano; }
+
+  /** Uporabnik je izbral »Nadaljuj brez povezave«: namesto prijave kartica »Poveži naprave«. */
+  function jeBrezPovezave() { return jeNepovezan() && !!stanje.brezPovezaveIzbrano; }
+
+  // »Poveži novo napravo« (Safeer Control): QR koda sredisca za nov telefon ali tablico.
+  var vabiloOdprto = false;
+  function narisiVabilo(p) {
+    var qr = el("vabiloQr");
+    if (p.svg) {
+      qr.innerHTML = p.svg;
+      qr.hidden = false;
+      besedilo("opombaVabilo", t("prijavaQrOsvezi"));
+    } else if (p.pridruzen) {
+      qr.hidden = true;
+      vabiloOdprto = false;
+      besedilo("gumbVabilo", t("vabiloGumb"));
+      besedilo("opombaVabilo", t("vabiloPridruzen", { ime: p.pridruzen }));
+    } else if (p.napaka) {
+      qr.hidden = true;
+      vabiloOdprto = false;
+      besedilo("gumbVabilo", t("vabiloGumb"));
+      besedilo("opombaVabilo", t(p.napaka === "hub_star" ? "vabiloHubStar" : "vabiloNapaka"));
+    }
+  }
+  function preklopiVabilo(odpri) {
+    if (!most || !most.zacniVabilo) return;
+    vabiloOdprto = odpri === undefined ? !vabiloOdprto : !!odpri;
+    besedilo("gumbVabilo", t(vabiloOdprto ? "vabiloZapri" : "vabiloGumb"));
+    if (vabiloOdprto) {
+      besedilo("opombaVabilo", t("prijavaQrPripravljam"));
+      most.zacniVabilo();
+    } else {
+      el("vabiloQr").hidden = true;
+      besedilo("opombaVabilo", "");
+      most.prekiniVabilo();
+    }
+  }
+  window.safeerLinkOdpri = function (kaj) {
+    if (kaj === "novaNaprava") {
+      if (typeof izberiRazdelek === "function") izberiRazdelek("naprave");
+      preklopiVabilo(true);
+      var p = el("panelDodaj");
+      if (p && p.scrollIntoView) p.scrollIntoView({ block: "start" });
+    }
+  };
+
+  function zacniPrijavo() {
+    pokazi("gumbBrezPovezave", !!stanje.brezPovezave);
+    // »Zaupaj temu racunalniku« zna samo Safeer Control / Linux (most.nastaviZaupanje).
+    pokazi("prijavaZaupanje", !!(most && most.nastaviZaupanje));
+    var kljukica = el("prijavaZaupaj");
+    if (kljukica) kljukica.checked = !!stanje.zaupajOkno;
+    if (most && !most.zacniQr) {
+      // Stran je novejsa od programa, ki tece (posodobitev med tekom): povemo, kaj pomaga.
+      besedilo("opombaQr", t("prijavaZnovaZazeni"));
+      return;
+    }
+    if (prijava.qr || !most) return;
+    prijava.qr = true;
+    // Odgovor pride v nekaj sekundah; ce ga ni, uporabnik ne sme gledati »Pripravljam kodo« v nedogled.
+    if (prijava.cakalnik) clearTimeout(prijava.cakalnik);
+    prijava.cakalnik = setTimeout(function () {
+      prijava.cakalnik = null;
+      if (prijava.qr && !(el("qrSlika") && el("qrSlika").querySelector("svg"))) narisiQr({ napaka: "ni_huba" });
+    }, 20000);
+    var okvir = el("qrSlika");
+    if (okvir && !okvir.querySelector("svg")) {
+      okvir.classList.remove("prazno");
+      okvir.innerHTML = "";
+      var cakam = document.createElement("span");
+      cakam.className = "qrCakam";
+      cakam.textContent = t("prijavaQrPripravljam");
+      okvir.appendChild(cakam);
+    }
+    pokazi("gumbQrZnova", false);
+    besedilo("opombaQr", "");
+    most.zacniQr();
+  }
+
+  function koncajPrijavo() {
+    if (prijava.ponovno) { clearTimeout(prijava.ponovno); prijava.ponovno = null; }
+    if (prijava.qr && most && most.prekiniQr) most.prekiniQr();
+    prijava.qr = false;
+    prijava.koda = false;
+  }
+
+  function narisiQr(podatki) {
+    if (prijava.cakalnik) { clearTimeout(prijava.cakalnik); prijava.cakalnik = null; }
+    var okvir = el("qrSlika");
+    if (!okvir) return;
+    if (podatki && podatki.svg) {
+      // SVG narise program sam (python3-qrcode) iz nase povezave; z omrezja ne pride nic.
+      okvir.classList.remove("prazno");
+      okvir.innerHTML = String(podatki.svg).replace(/^<\?xml[^>]*>\s*/, "");
+      besedilo("opombaQr", t("prijavaQrOsvezi"));
+      pokazi("gumbQrZnova", false);
+      return;
+    }
+    okvir.innerHTML = "";
+    okvir.classList.add("prazno");
+    var n = (podatki && podatki.napaka) || "";
+    prijava.qr = false;
+    if (!n) {
+      besedilo("opombaQr", t("prijavaBrezQr"));
+      return;
+    }
+    besedilo("opombaQr", t(n === "hub_star" ? "prijavaHubStar" : n === "prevec_prijav" ? "prijavaPrevec" : "prijavaNiHuba"));
+    pokazi("gumbQrZnova", true);
+    // Safeer Linka (se) ni: iscemo naprej sami, vsakih 8 s - ko ga uporabnik vklopi na televizorju ali
+    // telefonu, se koda pokaze brez klika. Gumb »Poišči znova« ostane za nestrpne.
+    if (n === "ni_huba" && jePrijavnoOkno()) {
+      if (prijava.ponovno) clearTimeout(prijava.ponovno);
+      prijava.ponovno = setTimeout(function () { prijava.ponovno = null; if (jePrijavnoOkno()) zacniPrijavo(); }, 8000);
+    }
+  }
+
+  /** Klik v polje za kodo: sredisce pokaze kodo (seznanitev s kodo, SPAKE2). */
+  function zacniKodo() {
+    if (prijava.koda || !most) return;
+    prijava.koda = true;
+    besedilo("opombaPrijavaKoda", t("iscem"));
+    if (stanje.znan) most.seznani();
+    else { povezujemPoIskanju = true; most.poisciHub(); }
+  }
+
+  function posljiKodo() {
+    var vnos = el("prijavaVnosKode");
+    var koda = vnos ? String(vnos.value || "").replace(/\D/g, "") : "";
+    if (koda.length !== 6) {
+      besedilo("opombaPrijavaKoda", t("prijavaKodaSestMest"));
+      if (vnos) try { vnos.focus(); } catch (e) {}
+      if (!prijava.koda) zacniKodo();
+      return;
+    }
+    besedilo("opombaPrijavaKoda", t("prijavaPreverjam"));
+    if (most) most.potrdiKodo(koda);
+  }
+
   /** Ali je iskanje sprozil gumb za povezavo; takrat gremo naprej brez novega klika. */
   var povezujemPoIskanju = false;
 
@@ -1785,6 +2317,7 @@
           }
         } else {
           povezujemPoIskanju = false;
+          if (stanje.clanKroga && !prijava.krogNeuspel) { prijava.krogNeuspel = true; narisiZaslon(); }
           besedilo("opombaIskanje", t("niNajden"));
           besedilo("opombaSeznanitev", t("niNajden"));
           narisiStanje();
@@ -1811,6 +2344,23 @@
         besedilo("opombaSeznanitev", t("cakamNaPotrditev"));
         var g = el("gumbSeznani");
         if (g) g.disabled = true;
+      } else if (vrsta === "qr") {
+        narisiQr(podatki);
+      } else if (vrsta === "brezPovezave") {
+        var sporociloOs = podatki && podatki.os === false ? t("prijavaOsSeNastaja") : "";
+        besedilo("opombaBrezPovezave", sporociloOs);
+        besedilo("opombaBrezPovezaveOs", sporociloOs);
+      } else if (vrsta === "nacin" && jePrijavnoOkno()) {
+        besedilo("opombaPrijavaKoda", t("prijavaKodaNaSredisce"));
+        var vp = el("prijavaVnosKode");
+        if (vp) try { vp.focus(); } catch (e) {}
+      } else if (vrsta === "kodaNiSprejeta" && jePrijavnoOkno()) {
+        var rp = (podatki && podatki.razlog) || "napacna_koda";
+        besedilo("opombaPrijavaKoda", t(rp === "prevec_poskusov" ? "napPrevecPoskusov"
+          : (rp === "prijava_ne_obstaja" ? "napPrijavaPotekla" : "napNapacnaKoda")));
+        if (rp === "prevec_poskusov" || rp === "prijava_ne_obstaja") prijava.koda = false;
+        var vk = el("prijavaVnosKode");
+        if (vk) { vk.value = ""; try { vk.focus(); } catch (e) {} }
       } else if (vrsta === "nacin") {
         // Nov Hub: kodo pokaze gostitelj, uporabnik jo prepise sem.
         // Starejsi Hub: kodo pokazemo mi, potrdi se na gostitelju.
@@ -1845,6 +2395,7 @@
           if (v2) { v2.value = ""; try { v2.focus(); } catch (e) {} }
         }
       } else if (vrsta === "seznanitev") {
+        if (podatki && jePrijavnoOkno()) besedilo("opombaPrijavaKoda", t("prijavaUspela"));
         var gumb = el("gumbSeznani");
         if (gumb) gumb.disabled = false;
         if (podatki) {
@@ -1867,12 +2418,15 @@
         if (deljenje.naprava && !stanje.naprave.some(function (n) { return n.id === deljenje.naprava.id; })) zapriDeljenje();
         narisiNaprave();
         narisiPrejemnike();
+        narisiMeni();
       } else if (vrsta === "predvajanje") {
         stanje.predvajanje = podatki;
         narisiPredvajanje();
       } else if (vrsta === "poslano") {
         var kam = stanje.prejemnik ? prijaznoIme(stanje.prejemnik) : t("televizor");
         besedilo("opombaCast", t("poslanoNa", { ime: kam }));
+      } else if (vrsta === "vabilo") {
+        narisiVabilo(podatki || {});
       } else if (vrsta === "pozabljeno") {
         besedilo("opombaPozabi", t("pozabljeno"));
         stanje.seznanjen = false;
@@ -1917,6 +2471,13 @@
         besedilo("opombaIskanje", sporocilo);
         besedilo("opombaCast", sporocilo);
         besedilo("opombaSeznanitev", sporocilo);
+        if (jePrijavnoOkno()) besedilo("opombaPrijavaKoda", sporocilo);
+        // Clan kroga, ki ga sredisce ne sprejme vec: zdaj potrebuje prijavo (QR ali koda).
+        var kodaNapake = podatki && typeof podatki === "object" ? podatki.koda : "";
+        if (stanje.clanKroga && !prijava.krogNeuspel && kodaNapake === "naprava_ni_znana") {
+          prijava.krogNeuspel = true;
+          narisiZaslon();
+        }
         narisiStanje();
       }
     } catch (e) {
@@ -2002,9 +2563,10 @@
     // Daljinec: napravo, ki javi zmoznost "remote", je mogoce upravljati (Safeer Control).
     var znaDaljinec = !samoIme && !!(most && most.ukaz) && ((naprava.zmoznosti || []).indexOf("remote") >= 0) && !!window.SafeerDaljinec;
     pokazi("gumbDaljinec", znaDaljinec);
+    pokazi("bliznjiceZaslona", znaDaljinec);
     pokazi("izbireDeljenja", !samoIme);
     pokazi("opisIzbire", !samoIme);
-    var izbire = document.querySelectorAll("#panelDeljenje .izbira");
+    var izbire = document.querySelectorAll("#izbireDeljenja .izbira");
     var zasedena = !samoIme && !!naprava.zasedenaOd && naprava.zasedenaOd !== stanje.idNaprave;
     for (var i = 0; i < izbire.length; i++) {
       izbire[i].classList.remove("izbrana");
@@ -2103,7 +2665,7 @@
 
   function izberiVrsto(vrsta) {
     deljenje.vrsta = vrsta;
-    var izbire = document.querySelectorAll("#panelDeljenje .izbira");
+    var izbire = document.querySelectorAll("#izbireDeljenja .izbira");
     for (var i = 0; i < izbire.length; i++) {
       izbire[i].classList.toggle("izbrana", izbire[i].getAttribute("data-vrsta") === vrsta);
     }
@@ -2227,7 +2789,7 @@
     naKlik("gumbPrekiniZaslon", function () {
       if (most && most.koncajDeljenjeZaslona) most.koncajDeljenjeZaslona();
     });
-    var izbire = document.querySelectorAll("#panelDeljenje .izbira");
+    var izbire = document.querySelectorAll("#izbireDeljenja .izbira");
     for (var i = 0; i < izbire.length; i++) {
       (function (gumb) {
         gumb.addEventListener("click", function () { izberiVrsto(gumb.getAttribute("data-vrsta")); });
@@ -2260,6 +2822,11 @@
     stanje.imeNaprave = s.naprava || "";
     stanje.idNaprave = s.id || "";
     stanje.control = !!s.control;
+    stanje.vKrogu = !!s.vKrogu;
+    stanje.clanKroga = !!s.clanKroga;
+    stanje.brezPovezaveIzbrano = !!s.brezPovezaveIzbrano;
+    stanje.zaupajOkno = !!s.zaupajOkno;
+    stanje.brezPovezave = !!s.brezPovezave;
     stanje.deljeneMape = s.deljeneMape || [];
     stanje.standardneDeljene = !!s.standardneDeljene;
     besedilo("naslovHuba", prijaznaHisa(s.hub));
@@ -2302,6 +2869,40 @@
       besedilo("opombaIskanje", t("iscem"));
       if (most) most.poisciHub();
     });
+
+    naKlik("gumbQrZnova", function () {
+      prijava.qr = false;
+      zacniPrijavo();
+    });
+    naKlik("gumbPrijavaKoda", posljiKodo);
+    naKlik("gumbPoveziNaprave", function () {
+      if (most && most.poveziNaprave) most.poveziNaprave();
+    });
+    naKlik("gumbOdpriOsLokalno", function () {
+      besedilo("opombaBrezPovezaveOs", "");
+      if (most && most.nadaljujBrezPovezave) most.nadaljujBrezPovezave();
+    });
+    naKlik("gumbBrezPovezave", function () {
+      besedilo("opombaBrezPovezave", "");
+      if (most && most.nadaljujBrezPovezave) most.nadaljujBrezPovezave();
+    });
+    naKlik("gumbVabilo", function () { preklopiVabilo(); });
+    var zaupaj = el("prijavaZaupaj");
+    if (zaupaj) {
+      zaupaj.addEventListener("change", function () {
+        if (most && most.nastaviZaupanje) most.nastaviZaupanje(!!zaupaj.checked);
+      });
+    }
+    var vnosPrijava = el("prijavaVnosKode");
+    if (vnosPrijava) {
+      vnosPrijava.addEventListener("focus", zacniKodo);
+      vnosPrijava.addEventListener("input", function () {
+        var cisto = String(vnosPrijava.value || "").replace(/\D/g, "").slice(0, 6);
+        if (cisto !== vnosPrijava.value) vnosPrijava.value = cisto;
+        if (cisto.length === 6) posljiKodo();
+      });
+      vnosPrijava.addEventListener("keydown", function (e) { if (e.key === "Enter") posljiKodo(); });
+    }
 
     naKlik("gumbNavodila", function () {
       if (most && most.odpri) most.odpri("https://safeer.si/");
@@ -2447,15 +3048,21 @@
       if (daljinecOdprt) return;
       daljinecOdprt = true;
       pokritoZaDaljinec = [];
-      var kandidati = document.querySelectorAll("header.glava, main > .zaslon:not(#zaslonDaljinec), #hubStikalo, footer.opozoriloWifi");
+      // V aplikaciji glava in levi meni ostaneta: daljinec je le se en razdelek.
+      var izbor = jeNamizje()
+        ? "main > .zaslon:not(#zaslonDaljinec), #hubStikalo"
+        : "header.glava, main > .zaslon:not(#zaslonDaljinec), #hubStikalo, footer.opozoriloWifi";
+      var kandidati = document.querySelectorAll(izbor);
       for (var i = 0; i < kandidati.length; i++) {
         if (!kandidati[i].hidden) { kandidati[i].hidden = true; pokritoZaDaljinec.push(kandidati[i]); }
       }
+      if (jeNamizje()) oznaciRazdelek("daljinec");
     } else {
       if (!daljinecOdprt) return;
       daljinecOdprt = false;
       for (var j = 0; j < pokritoZaDaljinec.length; j++) pokritoZaDaljinec[j].hidden = false;
       pokritoZaDaljinec = [];
+      if (jeNamizje() && razdelek === "daljinec") oznaciRazdelek("naprave");
       narisiZaslon();
       var nazaj = el("gumbOsvezi");
       if (stanje.televizor && nazaj) { try { nazaj.focus(); } catch (e) {} }
@@ -2496,6 +3103,37 @@
   osveziOpozoriloOspredje();
   document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") osveziOpozoriloOspredje(); });
   window.addEventListener("focus", osveziOpozoriloOspredje);
+
+  var meniGumbi = document.querySelectorAll("#stranskiMeni button[data-razdelek]");
+  for (var mi = 0; mi < meniGumbi.length; mi++) {
+    meniGumbi[mi].addEventListener("click", function () { izberiRazdelek(this.getAttribute("data-razdelek")); });
+  }
+
+  /** Paket Safeer OS na tej napravi: iz kataloga aplikacij (Protocol v1), sicer po platformi. */
+  function paketSafeerOs(n) {
+    var k = n.aplikacije || {};
+    if (k["si.safeer.os"]) return "si.safeer.os";
+    if (k["si.safeer.tablet"]) return "si.safeer.tablet";
+    return n.platforma === "tablet" ? "si.safeer.tablet" : "si.safeer.os";
+  }
+
+  function odpriNaZaslonu(paket, ime) {
+    var n = deljenje.naprava;
+    if (!n || !most || !most.ukaz) return;
+    besedilo("opombaDeljenje", t("odpiramNaZaslonu", { ime: ime, naprava: prijaznoIme(n) }));
+    most.ukaz(n.id, "launch_app", JSON.stringify({ package: paket }), "");
+  }
+
+  var gumbOdpriSafeerOs = el("gumbOdpriSafeerOs");
+  if (gumbOdpriSafeerOs) gumbOdpriSafeerOs.addEventListener("click", function () {
+    var n = deljenje.naprava;
+    if (n) odpriNaZaslonu(paketSafeerOs(n), "Safeer OS");
+  });
+  var gumbOdpriBrskalnik = el("gumbOdpriBrskalnik");
+  if (gumbOdpriBrskalnik) gumbOdpriBrskalnik.addEventListener("click", function () {
+    var n = deljenje.naprava;
+    if (n) odpriNaZaslonu(n.platforma === "tablet" ? "si.safeer.tablet" : "si.safeer.tv", "Safeer");
+  });
 
   var gumbDaljinec = el("gumbDaljinec");
   if (gumbDaljinec) gumbDaljinec.addEventListener("click", function () {

@@ -24,9 +24,14 @@ import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("WebKit2", "4.1")
-from gi.repository import Gtk, WebKit2, GLib  # noqa: E402
+from gi.repository import Gdk, Gtk, WebKit2, GLib  # noqa: E402
 
-from core import link_deljenje, link_hub, link_tls  # noqa: E402
+from core import link_deljenje, link_hub, link_krog, link_seja, link_tls  # noqa: E402
+
+
+def secrets_token() -> str:
+    import secrets
+    return secrets.token_urlsafe(9)
 
 KATEGORIJA_ZAZNAMKI = "bookmarks"
 
@@ -65,6 +70,13 @@ MOST_JS = """
     seznani: function () { poslji("seznani"); },
     potrdiKodo: function (koda) { poslji("potrdiKodo", [String(koda || "")]); },
     prekiniSeznanitev: function () { poslji("prekiniSeznanitev"); },
+    zacniQr: function () { poslji("zacniQr"); },
+    prekiniQr: function () { poslji("prekiniQr"); },
+    nadaljujBrezPovezave: function () { poslji("nadaljujBrezPovezave"); },
+    nastaviZaupanje: function (vklop) { poslji("nastaviZaupanje", [!!vklop]); },
+    zacniVabilo: function () { poslji("zacniVabilo"); },
+    prekiniVabilo: function () { poslji("prekiniVabilo"); },
+    poveziNaprave: function () { poslji("poveziNaprave"); },
     poveziSe: function () { poslji("poveziSe"); },
     posljiTrenutno: function (id) { poslji("posljiTrenutno", [id]); },
     poslji: function (id, url, naslov) { poslji("poslji", [id, url, naslov]); },
@@ -125,10 +137,18 @@ class SafeerLink:
         # (pem, gostitelj). Brez tega WebKit stran s Huba zavrne.
         self.dovoli_potrdilo = dovoli_potrdilo
         self.deljenje_zaslona: Optional[link_deljenje.DeljenjeZaslona] = None
+        # Naprava, katere zaslon trenutno gledamo (share.screen start): kam gredo dotik in tipke
+        # iz okna gledalca (Safeer Vnos na tablici). Prazno, ko ne gledamo nicesar.
+        self.gledani_zaslon: str = ""
+        self.ob_odzivu_vnosa: Optional[Callable[[dict], None]] = None
         # Safeer Control: deljene mape za televizor (core/link_datoteke.Datoteke); brskalnik jih nima.
         self.datoteke = None
         self.programi = None
         self.zaslon = None
+        # Safeer Control: zvok racunalnika na napravi v Linku (core/link_zvok.ZvokNaNapravo).
+        self.zvok = None
+        # Ukazi drugim napravam, na katere kdo caka (Safeer OS prek D-Bus): ref -> (Event, odgovor).
+        self._cakajoci: Dict[str, list] = {}
 
         self.nastavitve = nastavitve if nastavitve is not None else link_hub.Nastavitve()
         self.povezava: Optional[link_hub.Povezava] = None
@@ -138,6 +158,12 @@ class SafeerLink:
         self._seznanjanje = False
         # Odprta prijava na Hubu (pair_id, hub_id, odtis); caka na vnos kode.
         self._prijava: Optional[dict] = None
+        # Prijava s QR kodo (prijavno okno Safeer Control / Safeer OS): odprta koda in rod - nova koda
+        # ali zaprto okno povecata rod, da nit, ki caka na potrditev, sama odneha.
+        self._qr: Optional[dict] = None
+        self._qr_rod = 0
+        # »Nadaljuj brez povezave naprav« v prijavnem oknu (Safeer Control odpre Safeer OS na tem racunalniku).
+        self.ob_brez_povezave: Optional[Callable[[], None]] = None
         # Naslov, ki se je javil namesto potrjenega; caka na en uporabnikov dotik.
         self._predlagani_naslov = ""
         # Da iskanje po neuspeli povezavi ne tece v krogu.
@@ -149,6 +175,28 @@ class SafeerLink:
         self._dovoljeni_koren = ""
         # Kdor Link gosti brez okna (Safeer Control v pladnju), zeli vedeti, ali je povezan.
         self.ob_povezavi: Optional[Callable[[bool], None]] = None
+        # »Zaupaj temu racunalniku« v prijavnem oknu (core/link_seja.py): privzeto ne - racunalnik lahko
+        # uporablja vec ljudi, zato povezava brez zaupanja velja samo do konca te prijave.
+        self._zaupaj_ob_prijavi = False
+        # »Poveži novo napravo«: odprto vabilo in rod (nova koda ali preklic ga povecata).
+        self._vabilo: Optional[dict] = None
+        self._vabilo_rod = 0
+        # Klic ob uspesni prijavi (Safeer Control: prijavno okno iz Safeer OS se zapre in vrne v Safeer OS).
+        self.ob_seznanitvi: Optional[Callable[[], None]] = None
+        # Koda za stran, ko se nalozi (npr. Safeer OS odpre »Poveži novo napravo«).
+        self.ob_nalozitvi_js = ""
+        # Nova prijava v racunalnik: kar je veljalo samo za prejsnjo (nezaupana povezava, »brez
+        # povezave«), odpade - prijavno okno se pokaze znova. Nezaupan racunalnik ob tem zapusti tudi
+        # sredisce, da njegov zeton ne ostane veljaven.
+        try:
+            prej = dict(self.nastavitve.podatki)
+            if link_seja.pocisti(self.nastavitve.podatki):
+                self.nastavitve.shrani()
+                if prej.get("control_token") and not self.nastavitve.get("control_token") and prej.get("hub_url"):
+                    self._v_ozadju(lambda: link_hub.odidi(str(prej["hub_url"]), str(prej["control_token"]),
+                                                          str(prej.get("hub_fp") or "")))
+        except Exception as e:  # noqa: BLE001
+            print(f"[SafeerLink] Seje ni bilo mogoče preveriti: {e}")
 
     # ------------------------------------------------------------------
     # Stanje
@@ -184,9 +232,36 @@ class SafeerLink:
             "naprava": self._ime(),
             "id": self._id(),
             "control": self.control,
+            # V krogu zaupanja (prijava s podpisom, brez zetona): prijavnega okna ne potrebuje.
+            "vKrogu": self._v_krogu(),
+            # Clan kroga, ki sredisce se isce: stran pokaze »Povezujem«, ne prijavnega okna.
+            "clanKroga": self._clan_kroga(),
+            "brezPovezave": self.ob_brez_povezave is not None,
+            # Uporabnik je v prijavnem oknu izbral »Nadaljuj brez povezave naprav«: okno se ne vsiljuje vec,
+            # naprave pa lahko poveze kadarkoli (»Poveži naprave«).
+            "brezPovezaveIzbrano": link_seja.brez_v_seji(self.nastavitve.podatki),
+            # Zaupan racunalnik ostane povezan tudi po odjavi; nezaupan le do konca te prijave.
+            "zaupana": self._zaupana(),
+            "zaupajOkno": self._zaupaj_ob_prijavi,
             "deljeneMape": self._deljene_mape(),
             "standardneDeljene": self._standardne_deljene(),
         }
+
+    def _zaupana(self) -> bool:
+        return link_seja.zaupana(self.nastavitve.podatki)
+
+    def _clan_kroga(self) -> bool:
+        """Kljuc te naprave je v krogu zaupanja (ne glede na to, ali trenutno sredisce poznamo)."""
+        try:
+            return self._zaupana() and bool(link_krog.lahko_s_podpisom(self._id()))
+        except Exception:
+            return False
+
+    def _v_krogu(self) -> bool:
+        try:
+            return self._zaupana() and bool(self._odtis()) and link_krog.lahko_s_podpisom(self._id())
+        except Exception:
+            return False
 
     def _deljene_mape(self) -> list:
         """Deljene mape za stran: ime in pot (stran pot le izpise, nikamor je ne poslje)."""
@@ -297,10 +372,34 @@ class SafeerLink:
         nastavitve.set_property("enable-developer-extras", False)
         # Stran je nasa in ne potrebuje omrezja; vse gre skozi most.
         nastavitve.set_property("enable-webgl", False)
+        # Pisava je nasa: privzeta velikost in najmanjsa velikost iz sistema oz. brskalnika ne
+        # smeta spremeniti postavitve (stran ima vse velikosti dolocene v link.css).
+        try:
+            nastavitve.set_property("default-font-size", 16)
+            nastavitve.set_property("default-monospace-font-size", 13)
+            nastavitve.set_property("minimum-font-size", 0)
+        except Exception:
+            pass
         pogled.set_background_color(_barva(0x0b, 0x10, 0x17))
+        pogled.set_zoom_level(1.0)
 
         okno = Gtk.Window(title="Safeer Control" if self.control else "Safeer Link")
-        okno.set_default_size(560, 760 if not self.control else 820)
+        # Samostojna aplikacija (Control) ima levi meni z razdelki, zato sirse okno.
+        if self.control:
+            # Samostojna aplikacija: veliko okno (prijavno okno Safeer OS ima prostor za QR in kodo),
+            # a nikoli vecje od zaslona.
+            sirina, visina = 1440, 960
+            try:
+                zaslon = Gdk.Display.get_default().get_primary_monitor() or Gdk.Display.get_default().get_monitor(0)
+                obmocje = zaslon.get_workarea()
+                sirina = min(sirina, int(obmocje.width * 0.92))
+                visina = min(visina, int(obmocje.height * 0.92))
+            except Exception:
+                pass
+            okno.set_default_size(sirina, visina)
+            okno.set_position(Gtk.WindowPosition.CENTER)
+        else:
+            okno.set_default_size(560, 760)
         if self.control:
             okno.set_wmclass("safeer-control", "Safeer Control")
             okno.set_icon_name("safeer-control")
@@ -348,6 +447,7 @@ class SafeerLink:
         # in zaslon tudi, ko Safeer Link ni odprt - kot telefon s storitvijo.
         self.okno = None
         self.pogled = None
+        self._prekini_qr()
         if self.ob_zaprtju is not None:
             try:
                 self.ob_zaprtju()
@@ -358,6 +458,8 @@ class SafeerLink:
         """Ob zagonu brskalnika: ce je racunalnik seznanjen, se poveze brez okna."""
         if self._hub() and self._zeton() and self._odtis():
             self._v_ozadju(self._povezi)
+        elif self._clan_kroga():
+            self._v_ozadju(self._poisci_hub)
 
     def _na_nalozeno(self, pogled, dogodek) -> None:
         if dogodek != WebKit2.LoadEvent.FINISHED:
@@ -365,11 +467,18 @@ class SafeerLink:
         # Stran je svoje prvo stanje prebrala ze ob DOMContentLoaded (pred tem vstavkom): povemo ji,
         # naj ga prebere znova, sicer do prvega dogodka kaze »ni nastavljeno«.
         self._odziv("stanje", None)
+        if self.ob_nalozitvi_js:
+            koda, self.ob_nalozitvi_js = self.ob_nalozitvi_js, ""
+            GLib.timeout_add(300, lambda: (self._js(koda), False)[1])
         # Ce Huba se ne poznamo, ga poiscemo sami -- uporabniku ni treba nicesar vedeti.
         if not self._hub():
             self._v_ozadju(self._poisci_hub)
-        elif self._zeton():
+        elif self._zeton() or self._v_krogu():
             self._v_ozadju(self._povezi)
+        elif self._clan_kroga():
+            # Clan kroga zaupanja s staro shranjenim srediscem (npr. tablica, ki zdaj ni vec sredisce):
+            # poiscemo pravo in se povezemo s podpisom - brez prijavnega okna.
+            self._v_ozadju(self._poisci_hub)
 
     # ------------------------------------------------------------------
     # Most
@@ -422,6 +531,13 @@ class SafeerLink:
             "potrdiKodo": lambda: self._v_ozadju(
                 lambda: self._potrdi_kodo(str(argumenti[0]) if argumenti else "")),
             "prekiniSeznanitev": lambda: self._prekini_seznanitev(),
+            "zacniQr": lambda: self._v_ozadju(self._zacni_qr),
+            "prekiniQr": lambda: self._prekini_qr(),
+            "nadaljujBrezPovezave": lambda: self._nadaljuj_brez_povezave(),
+            "nastaviZaupanje": lambda: self.nastavi_zaupanje(bool(argumenti[0]) if argumenti else False),
+            "zacniVabilo": lambda: self._v_ozadju(self._zacni_vabilo),
+            "prekiniVabilo": lambda: self._prekini_vabilo(),
+            "poveziNaprave": lambda: self._povezi_naprave(),
             "poveziSe": lambda: self._v_ozadju(self._povezi),
             "posljiTrenutno": lambda: self._poslji_trenutno(*argumenti[:1]),
             "poslji": lambda: self._poslji(*argumenti[:3]),
@@ -497,6 +613,15 @@ class SafeerLink:
         Namenoma ne posegamo v druge naprave -- to je uporabnikova odlocitev za
         napravo, ki jo drzi v roki. Ostale se odstrani v Safeer Controlu.
         """
+        # Najprej sredisce: pozabi zeton te naprave in jo umakne iz kroga zaupanja (starejse sredisce
+        # tega ne zna - potem ostane samo krajevno pozabljanje, kot doslej).
+        naslov, odtis = self._hub(), self._odtis() or ""
+        zeton = self._zeton_http() if naslov else None
+        if naslov and zeton:
+            try:
+                link_hub.odidi(naslov, zeton, odtis)
+            except Exception:
+                pass
         povezava = self.povezava
         self.povezava = None
         if povezava is not None:
@@ -504,8 +629,17 @@ class SafeerLink:
                 povezava.zapri()
             except Exception:
                 pass
+        # Tudi krajevno: nas kljuc ni vec v krogu, sicer bi se naprava prijavila s podpisom.
+        try:
+            k = link_krog.krog()
+            kljuc = link_krog.javni_kljuc_b64()
+            for i, c in list(k.clani.items()):
+                if c.get("kljuc") == kljuc:
+                    k.umakni(i, self._id(), time.time() + 0.001)
+        except Exception:
+            pass
         for kljuc in ("control_token", "hub_url", "hub_fp", "seznanitve", "sync_bookmarks",
-                      "sync_bookmarks_version"):
+                      "sync_bookmarks_version", "zaupana", "seja_prijave"):
             try:
                 self.nastavitve.podatki.pop(kljuc, None)
             except Exception:
@@ -547,12 +681,17 @@ class SafeerLink:
         if znana and znana.get("token"):
             self.nastavitve.podatki["control_token"] = znana["token"]
             self.nastavitve.podatki["hub_fp"] = fp
+        elif najden.get("krog"):
+            # Izvoljeni hub iz kroga zaupanja: zetona ni, prijava gre s podpisom kljuca te naprave.
+            self.nastavitve.podatki.pop("control_token", None)
+            self.nastavitve.podatki["hub_fp"] = fp
         else:
             self.nastavitve.podatki.pop("control_token", None)
             self.nastavitve.podatki.pop("hub_fp", None)
         self.nastavitve.shrani()
         self._odziv("hub", {"najden": True, "naslov": naslov})
-        if self._zeton():
+        # Z zetonom ali, v krogu zaupanja, s podpisom kljuca: ta naprava prijave ne potrebuje.
+        if self._zeton() or (najden.get("krog") and self._v_krogu()):
             self._povezi()
 
     def _seznani(self) -> None:
@@ -600,13 +739,173 @@ class SafeerLink:
         self._prijava = None
         self.nastavitve.podatki["control_token"] = zeton
         self.nastavitve.podatki["hub_fp"] = str(prijava.get("odtis", ""))
+        link_seja.po_prijavi(self.nastavitve.podatki, self._zaupaj_ob_prijavi)
         self._zapomni_seznanitev()
         self.nastavitve.shrani()
         self._odziv("seznanitev", True)
+        if self.ob_seznanitvi is not None:
+            GLib.idle_add(lambda: (self.ob_seznanitvi(), False)[1])
         self._povezi()
 
     def _prekini_seznanitev(self) -> None:
         self._prijava = None
+
+    # ---------- prijava s QR kodo (prijavno okno) ----------
+
+    def _zacni_qr(self) -> None:
+        try:
+            self._zacni_qr_notranje()
+        except Exception as e:  # noqa: BLE001 - stran mora vedno dobiti odgovor
+            print(f"[SafeerLink] QR kode ni bilo mogoče pripraviti: {e}")
+            self._odziv("qr", {"napaka": "ni_huba"})
+
+    def _zacni_qr_notranje(self) -> None:
+        """QR koda za prijavo s telefonom ali tablico, ki sta ze v Safeer Linku. Koda se obnavlja
+        sama, dokler je prijavno okno odprto; ko jo clan Linka dovoli, se ta naprava poveze."""
+        self._qr_rod += 1
+        rod = self._qr_rod
+        self._preklici_qr()
+        if not self._hub():
+            self._poisci_hub()
+        naslov = self._hub()
+        prijava = link_hub.zacni_qr(naslov, self._id(), self._ime()) if naslov else None
+        if prijava is None and naslov:
+            # Znani naslov se ne oglasi - morda je sredisce dobilo nov naslov ali ga zdaj gosti druga naprava.
+            self._poisci_hub()
+            naslov = self._hub()
+            prijava = link_hub.zacni_qr(naslov, self._id(), self._ime()) if naslov else None
+        if rod != self._qr_rod:
+            if prijava and not prijava.get("napaka"):
+                link_hub.preklici_qr(naslov, prijava, self._id())
+            return
+        if not prijava or prijava.get("napaka"):
+            self._odziv("qr", {"napaka": (prijava or {}).get("napaka") or "ni_huba"})
+            return
+        svg = link_hub.qr_svg(prijava["povezava"])
+        self._qr = prijava
+        self._odziv("qr", {"svg": svg, "velja": prijava["velja"]})
+        konec = time.time() + max(30, int(prijava["velja"]) - 20)
+        while rod == self._qr_rod:
+            time.sleep(1.5)
+            if rod != self._qr_rod:
+                return
+            if time.time() > konec:
+                # Nova koda, preden stara potece - uporabnik nikoli ne skenira mrtve kode.
+                self._v_ozadju(self._zacni_qr)
+                return
+            zeton, razlog = link_hub.stanje_qr(naslov, prijava, self._id())
+            if zeton:
+                self._qr = None
+                self._qr_rod += 1
+                self.nastavitve.podatki["hub_url"] = naslov
+                self.nastavitve.podatki["control_token"] = zeton
+                self.nastavitve.podatki["hub_fp"] = prijava["odtis"]
+                link_seja.po_prijavi(self.nastavitve.podatki, self._zaupaj_ob_prijavi)
+                self._zapomni_seznanitev()
+                self.nastavitve.shrani()
+                self._odziv("seznanitev", True)
+                if self.ob_seznanitvi is not None:
+                    GLib.idle_add(lambda: (self.ob_seznanitvi(), False)[1])
+                self._povezi()
+                return
+            if razlog == "qr_ne_obstaja":
+                # Potekla ali preklicana (npr. preveč poskusov): takoj nova.
+                self._qr = None
+                self._v_ozadju(self._zacni_qr)
+                return
+
+    def _preklici_qr(self) -> None:
+        stara, self._qr = self._qr, None
+        naslov = self._hub()
+        if stara and naslov:
+            self._v_ozadju(lambda: link_hub.preklici_qr(naslov, stara, self._id()))
+
+    def _zeton_http(self) -> Optional[str]:
+        """Zeton za HTTP klice sredisca: zeton seznanitve ali sejni zeton s podpisom (krog zaupanja)."""
+        if self._zeton():
+            return self._zeton()
+        if self._v_krogu():
+            return link_hub.seja_s_podpisom(self._hub(), self._id(), self._odtis() or "", self._ime())
+        return None
+
+    def _zacni_vabilo(self) -> None:
+        """QR koda, s katero se nov telefon ali tablica pridruzi Safeer Linku (kot na televizorju).
+        Koda se obnovi pred potekom; ko se kdo pridruzi, stran pokaze »povezan«."""
+        self._vabilo_rod += 1
+        rod = self._vabilo_rod
+        naslov, odtis = self._hub(), self._odtis() or ""
+        zeton = self._zeton_http() if naslov else None
+        if not naslov or not zeton:
+            self._odziv("vabilo", {"napaka": "ni_seznanjena"})
+            return
+        stara = self._vabilo
+        vabilo = link_hub.povabi(naslov, zeton, odtis, (stara or {}).get("qr_id", ""))
+        if rod != self._vabilo_rod:
+            if vabilo.get("qr_id"):
+                link_hub.preklici_vabilo(naslov, zeton, odtis, vabilo["qr_id"])
+            return
+        if vabilo.get("napaka"):
+            self._odziv("vabilo", vabilo)
+            return
+        self._vabilo = vabilo
+        self._odziv("vabilo", {"svg": link_hub.qr_svg(vabilo["povezava"]), "velja": vabilo["velja"]})
+        konec = time.time() + max(30, int(vabilo["velja"]) - 20)
+        while rod == self._vabilo_rod:
+            time.sleep(2.0)
+            if rod != self._vabilo_rod:
+                return
+            if time.time() > konec:
+                self._v_ozadju(self._zacni_vabilo)
+                return
+            st = link_hub.stanje_vabila(naslov, zeton, odtis, vabilo["qr_id"])
+            if st.get("pridruzen"):
+                self._vabilo = None
+                self._odziv("vabilo", {"pridruzen": st["pridruzen"]})
+                return
+            if not st.get("caka") and not st.get("napaka"):
+                self._v_ozadju(self._zacni_vabilo)       # preklicana ali potekla: takoj nova
+                return
+
+    def _prekini_vabilo(self) -> None:
+        self._vabilo_rod += 1
+        stara, self._vabilo = self._vabilo, None
+        if stara and self._hub():
+            naslov, odtis = self._hub(), self._odtis() or ""
+            self._v_ozadju(lambda: link_hub.preklici_vabilo(naslov, self._zeton_http() or "", odtis, stara["qr_id"]))
+
+    def _povezi_naprave(self) -> None:
+        """»Poveži naprave« po izbiri »brez povezave«: spet prijavno okno (QR, koda)."""
+        self.nastavitve.podatki.pop("brez_povezave", None)
+        self.nastavitve.shrani()
+        self._odziv("stanje", None)
+
+    def _prekini_qr(self) -> None:
+        self._qr_rod += 1
+        self._preklici_qr()
+
+    def _nadaljuj_brez_povezave(self) -> None:
+        self._prekini_qr()
+        self._prijava = None
+        self.nastavitve.podatki["brez_povezave"] = link_seja.trenutna_seja()
+        self.nastavitve.shrani()
+        self._odziv("stanje", None)
+        if self.ob_brez_povezave is not None:
+            GLib.idle_add(lambda: (self.ob_brez_povezave(), False)[1])
+
+    def nastavi_zaupanje(self, zaupaj: bool) -> None:
+        """Kljukica »Zaupaj temu racunalniku« (prijavno okno) ali stikalo v Safeer OS.
+
+        Pred prijavo si odlocitev le zapomnimo. Povezan racunalnik jo dobi takoj: zaupan se ob
+        naslednji povezavi vpise v krog zaupanja (povezava ostane po odjavi), nezaupan velja samo do
+        konca te prijave in ne uporablja vec prijave s podpisom."""
+        self._zaupaj_ob_prijavi = bool(zaupaj)
+        if link_seja.seznanjena(self.nastavitve.podatki) or "zaupana" in self.nastavitve.podatki:
+            self.nastavitve.podatki["zaupana"] = bool(zaupaj)
+            self.nastavitve.podatki["seja_prijave"] = link_seja.trenutna_seja()
+            self.nastavitve.shrani()
+            if zaupaj and self._zeton():
+                self._v_ozadju(self._povezi)   # vpis v krog gre ob povezavi z zetonom
+        self._odziv("stanje", None)
 
     def _povezi(self) -> None:
         with self._zaklep_povezave:
@@ -624,8 +923,9 @@ class SafeerLink:
 
     def _povezi_zaklenjeno(self) -> bool:
         naslov = self._hub()
-        zeton = self._zeton()
-        if not naslov or not zeton or not self._odtis():
+        zeton = self._zeton() or ""
+        # Brez zetona gre samo, ce je ta naprava v krogu zaupanja (prijava s podpisom, izvoljeni hub).
+        if not naslov or not self._odtis() or (not zeton and not self._v_krogu()):
             return True  # ni kaj povezati; to ni neuspeh, ki bi ga bilo treba iskati
         if self.povezava is not None:
             self.povezava.zapri()
@@ -638,6 +938,10 @@ class SafeerLink:
             dodatne_zmoznosti=(["files"] if self.datoteke is not None else [])
             + (["apps"] if self.programi is not None and self.programi.vklopljeno else [])
             + (["desktop"] if self.zaslon is not None and self.zaslon.na_voljo().get("dovoljeno") else []),
+            # Protocol v1: programi racunalnika kot katalog aplikacij (samo, ce jih je uporabnik dovolil).
+            katalog=(self.programi.katalog_v1 if self.programi is not None else None),
+            # Nezaupan racunalnik (link_seja): samo zeton te prijave, brez kroga zaupanja.
+            v_krog=self._zaupana(),
         )
         povezava.ob_sporocilu = self._na_sporocilo_huba
         povezava.ob_stanju = self._na_stanje_povezave
@@ -665,6 +969,7 @@ class SafeerLink:
 
     def _na_stanje_povezave(self, povezan: bool) -> None:
         self._odziv("povezava", povezan)
+        self.zapisi_stanje_za_os()
         if self.ob_povezavi is not None:
             try:
                 self.ob_povezavi(povezan)
@@ -699,9 +1004,18 @@ class SafeerLink:
                     "vloga": d.get("role", "receiver"),
                     "zmoznosti": d.get("capabilities") or [],
                     "naslov": d.get("ip") or "",
+                    # Protocol v1 (prazno pri napravah 0.2): platforma, vrsta in katalog aplikacij.
+                    "platforma": d.get("platform") or "",
+                    "vrsta": d.get("kind") or "",
+                    "aplikacije": d.get("apps") if isinstance(d.get("apps"), dict) else {},
                 })
             self.naprave = naprave
             self._odziv("naprave", naprave)
+            zvok = self.zvok
+            if zvok is not None and zvok.naprava and not any(n["id"] == zvok.naprava for n in naprave):
+                # Naprava, ki je predvajala zvok racunalnika, je izginila iz Linka: zvok nazaj.
+                self._v_ozadju(zvok.ustavi)
+            self.zapisi_stanje_za_os()
         elif vrsta == "cast.status":
             telo = sporocilo.get("payload") or {}
             self._odziv("predvajanje", {
@@ -796,6 +1110,7 @@ class SafeerLink:
         elif vrsta == "share.screen":
             dejanje = str(telo.get("action", "") or "")
             if dejanje == "start":
+                self.gledani_zaslon = str(sporocilo.get("sender", "") or "")
                 pot = str(telo.get("path", "") or "")
                 url = (link_hub._osnova(self._hub()) + pot) if pot.startswith("/") else str(telo.get("url", "") or "")
                 if url:
@@ -1027,9 +1342,147 @@ class SafeerLink:
         if not poslano:
             self._odziv("ukaz", {"ref": ref, "ok": False, "message": "Ukaza ni bilo mogoče poslati."})
 
+    def poslji_vnos(self, dejanje: str, parametri: dict) -> bool:
+        """Dotik, poteg, tipka ali besedilo iz okna gledalca na napravo, katere zaslon gledamo
+        (ukazi input.* - Safeer Vnos na tablici). Odgovor pride v ob_odzivu_vnosa."""
+        cilj = self.gledani_zaslon
+        povezava = self.povezava
+        if not cilj or povezava is None or not povezava.tece or not dejanje.startswith("input."):
+            return False
+        return povezava.poslji({
+            "id": "vnos-" + str(int(time.time() * 1000)),
+            "type": "control.command",
+            "target": cilj,
+            "payload": {"action": dejanje, "params": parametri if isinstance(parametri, dict) else {}},
+        })
+
+    # ------------------------------------------------------------------
+    # Zvok racunalnika na napravi v Linku (Safeer OS: stran Zvok)
+    # ------------------------------------------------------------------
+
+    def zapisi_stanje_za_os(self) -> None:
+        """Safeer OS (locen proces) bere naprave in stanje zvoka iz datoteke v XDG_RUNTIME_DIR.
+        Samo imena, zmoznosti in platforma - nic, kar bi bilo skrivno."""
+        if not self.control:
+            return
+        try:
+            mapa = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid(), "safeer-link")
+            os.makedirs(mapa, mode=0o700, exist_ok=True)
+            p = self.povezava
+            stanje = {
+                "povezan": bool(p is not None and p.tece),
+                "naprave": [{"id": n.get("id", ""), "ime": n.get("ime", ""), "zmoznosti": n.get("zmoznosti") or [],
+                             "platforma": n.get("platforma", ""), "vrsta": n.get("vrsta", "")}
+                            for n in self.naprave],
+                "zvok": self.zvok.opis() if self.zvok is not None else {},
+                "cas": time.time(),
+            }
+            zacasna = os.path.join(mapa, ".stanje.json")
+            with open(zacasna, "w", encoding="utf-8") as f:
+                json.dump(stanje, f, ensure_ascii=False)
+            os.replace(zacasna, os.path.join(mapa, "stanje.json"))
+        except Exception as e:  # noqa: BLE001
+            print(f"[SafeerLink] Stanja za Safeer OS ni bilo mogoče zapisati: {e}")
+
+    def zvok_na_napravo(self, id_naprave: str) -> bool:
+        """Zvok racunalnika na napravo v Linku (klic iz ozadja). Naprava mora imeti zmoznost `audio`."""
+        from core import link_zvok
+        zvok, povezava = self.zvok, self.povezava
+        naprava = next((n for n in self.naprave if n.get("id") == id_naprave), None)
+        if zvok is None or povezava is None or not povezava.tece or naprava is None:
+            return False
+        if link_zvok.ZMOZNOST not in (naprava.get("zmoznosti") or []):
+            return False
+        try:
+            parametri = zvok.zacni(id_naprave, str(naprava.get("ime") or ""), self._hub())
+        except Exception as e:  # noqa: BLE001
+            print(f"[SafeerLink] Zvoka ni bilo mogoče pripraviti: {e}")
+            zvok.ustavi()
+            return False
+        poslano = povezava.poslji({
+            "id": "zvok-" + str(int(time.time() * 1000)),
+            "type": "control.command",
+            "target": id_naprave,
+            "payload": {"action": "audio.play", "params": parametri},
+        })
+        if not poslano:
+            zvok.ustavi()
+        return bool(poslano)
+
+    def zvok_ustavi(self) -> bool:
+        """Zvok nazaj na racunalnik; napravi povemo, naj neha (povezavo sicer zapre ze racunalnik)."""
+        zvok, povezava = self.zvok, self.povezava
+        if zvok is None:
+            return False
+        naprava = zvok.naprava
+        imel = zvok.ustavi()
+        if naprava and povezava is not None and povezava.tece:
+            povezava.poslji({"id": "zvok-stop-" + str(int(time.time() * 1000)), "type": "control.command",
+                             "target": naprava, "payload": {"action": "audio.stop", "params": {}}})
+        return imel
+
+    def _zvok_odziv(self, sporocilo: dict, telo: dict) -> None:
+        if sporocilo.get("type") == "control.ack" and sporocilo.get("status") == "accepted":
+            return
+        if str(sporocilo.get("ref_id", "")).startswith("zvok-stop-"):
+            return
+        ok = sporocilo.get("type") != "control.ack" and bool(telo.get("ok"))
+        if not ok and self.zvok is not None:
+            print("[SafeerLink] Naprava zvoka ne sprejme: %s" % (telo.get("message") or sporocilo.get("error") or "?"))
+            self._v_ozadju(self.zvok.ustavi)
+
+    def ukaz_pocakaj(self, id_naprave: str, dejanje: str, parametri: Optional[dict] = None,
+                     cas: float = 15.0) -> dict:
+        """Ukaz napravi in pocakan odgovor (za klice iz ozadja, npr. Safeer OS prek D-Bus).
+        Vrne {"ok", "message", "data", "koda"}; ce naprava ne odgovori, ok=False."""
+        povezava = self.povezava
+        if povezava is None or not povezava.tece:
+            return {"ok": False, "message": "Ni povezave s Safeer Linkom.", "koda": "ni_povezave"}
+        ref = "cakaj-" + secrets_token()
+        dogodek = threading.Event()
+        self._cakajoci[ref] = [dogodek, None]
+        poslano = povezava.poslji({"id": ref, "type": "control.command", "target": id_naprave,
+                                   "payload": {"action": dejanje, "params": parametri or {}}})
+        if not poslano:
+            self._cakajoci.pop(ref, None)
+            return {"ok": False, "message": "Ukaza ni bilo mogoče poslati.", "koda": "ni_poslano"}
+        dogodek.wait(cas)
+        vnos = self._cakajoci.pop(ref, None)
+        if vnos is None or vnos[1] is None:
+            return {"ok": False, "message": "Naprava ni odgovorila.", "koda": "cas"}
+        return vnos[1]
+
     def _ukaz_odziv(self, sporocilo: dict) -> None:
         """Odgovor naprave (control.result) ali zavrnitev sredisca (control.ack) -> stran."""
         telo = sporocilo.get("payload") or {}
+        ref = str(sporocilo.get("ref_id", "") or "")
+        if ref.startswith("zvok-"):
+            self._zvok_odziv(sporocilo, telo)
+            return
+        if ref.startswith("cakaj-"):
+            vnos = self._cakajoci.get(ref)
+            if vnos is None:
+                return
+            if sporocilo.get("type") == "control.ack":
+                if sporocilo.get("status") == "accepted":
+                    return
+                vnos[1] = {"ok": False, "message": str(sporocilo.get("error") or "Središče je ukaz zavrnilo."),
+                           "koda": str(sporocilo.get("error_code") or ""), "data": {}}
+            else:
+                vnos[1] = {"ok": bool(telo.get("ok")), "message": str(telo.get("message") or ""),
+                           "koda": str(telo.get("code") or ""),
+                           "data": telo.get("data") if isinstance(telo.get("data"), dict) else {}}
+            vnos[0].set()
+            return
+        if str(sporocilo.get("ref_id", "") or "").startswith("vnos-"):
+            # Odgovor na vnos iz okna gledalca: stran Linka ga ne potrebuje.
+            if self.ob_odzivu_vnosa is not None:
+                o = {"ok": bool(telo.get("ok")), "koda": str(telo.get("code") or sporocilo.get("error_code") or ""),
+                     "sporocilo": str(telo.get("message") or sporocilo.get("error") or "")}
+                if sporocilo.get("type") == "control.ack" and sporocilo.get("status") == "accepted":
+                    return
+                GLib.idle_add(lambda: (self.ob_odzivu_vnosa(o), False)[1])
+            return
         o = {"ref": str(sporocilo.get("ref_id", "") or ""), "naprava": str(sporocilo.get("sender", "") or "")}
         if sporocilo.get("type") == "control.ack":
             if sporocilo.get("status") == "accepted":

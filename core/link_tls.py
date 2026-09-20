@@ -84,6 +84,53 @@ def potrdilo_pem(ws_naslov: str, pripeti: str) -> str:
             pass
 
 
+def javni_kljuc_potrdila(der: bytes) -> str:
+    """Javni kljuc potrdila (base64 SubjectPublicKeyInfo DER) - za primerjavo s krogom zaupanja.
+    Uporabi `cryptography`, ce je, sicer openssl; prazno, ce ne gre."""
+    import base64
+    try:
+        from cryptography import x509  # type: ignore
+        from cryptography.hazmat.primitives import serialization  # type: ignore
+        k = x509.load_der_x509_certificate(der).public_key()
+        return base64.b64encode(k.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)).decode("ascii")
+    except Exception:
+        pass
+    try:
+        import subprocess
+        pem = subprocess.run(["openssl", "x509", "-inform", "DER", "-pubkey", "-noout"], input=der, check=True, capture_output=True).stdout
+        spki = subprocess.run(["openssl", "pkey", "-pubin", "-outform", "DER"], input=pem, check=True, capture_output=True).stdout
+        return base64.b64encode(spki).decode("ascii")
+    except Exception:
+        return ""
+
+
+def potrdilo_huba(ws_naslov: str, timeout: float = 4.0) -> Tuple[str, str]:
+    """(odtis, javni kljuc b64) potrdila, ki ga hub kaze na tem naslovu - brez pripetega odtisa.
+    Samo za preverjanje pred zaupanjem: zaupanje da sele ujemanje kljuca s krogom zaupanja."""
+    u = urlparse(ws_naslov)
+    gostitelj, vrata = u.hostname or "127.0.0.1", u.port or 443
+    try:
+        surov = socket.create_connection((gostitelj, vrata), timeout)
+    except OSError:
+        return "", ""
+    try:
+        s, videni = ovij(surov, gostitelj, None)
+    except Exception:
+        try:
+            surov.close()
+        except Exception:
+            pass
+        return "", ""
+    try:
+        der = s.getpeercert(binary_form=True) or b""
+        return videni, (javni_kljuc_potrdila(der) if der else "")
+    finally:
+        try:
+            s.close()
+        except Exception:
+            pass
+
+
 def _isti(a: str, b: str) -> bool:
     import hmac
     return hmac.compare_digest(a.lower().encode(), b.lower().encode())

@@ -37,8 +37,10 @@ class Identiteta(unittest.TestCase):
 
     def test_id_je_uporaben(self):
         ident = link_hub.id_naprave()
-        self.assertTrue(ident.startswith("pc-"))
+        # Id iz kljuca (n-<16 hex>) ali, brez kljuca, stari id po imenu racunalnika (pc-...).
+        self.assertTrue(ident.startswith(("n-", "pc-")), ident)
         self.assertTrue(all(z.isalnum() or z in "-_" for z in ident), ident)
+        self.assertTrue(link_hub.stari_id_naprave().startswith("pc-"))
 
 
 class Osnova(unittest.TestCase):

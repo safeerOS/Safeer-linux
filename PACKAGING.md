@@ -8,7 +8,7 @@ Install build dependencies: Python 3, Pillow, dpkg-dev, desktop-file-utils and a
 
 ```sh
 bash build_deb.sh
-sudo apt install ./safeer-browser_1.0.42_all.deb
+sudo apt install ./safeer-browser_1.0.43_all.deb
 ```
 
 The existing source tarball is retained. Builds no longer copy into neighbouring website repositories. Native package upgrades continue using the existing `~/.config/safeer-mint` profile unless XDG_CONFIG_HOME is explicitly set. Existing alternatives registration and removal scripts are retained.
@@ -20,7 +20,7 @@ flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flath
 flatpak install --user flathub org.gnome.Platform//50 org.gnome.Sdk//50
 # Also install your distribution's flatpak-builder and AppStream compose tools.
 bash packaging/build_flatpak.sh
-flatpak install --user dist/Safeer-Browser-1.0.42-x86_64.flatpak
+flatpak install --user dist/Safeer-Browser-1.0.43-x86_64.flatpak
 flatpak run io.github.memelandfaner.SafeerBrowser
 ```
 
@@ -44,13 +44,26 @@ Release build baseline: Ubuntu 22.04 x86_64 / glibc 2.35. CI runs the `deb-appim
 ```sh
 bash packaging/fetch_linuxdeploy.sh
 LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_appimage.sh
-chmod +x dist/Safeer-Browser-1.0.42-x86_64.AppImage
-./dist/Safeer-Browser-1.0.42-x86_64.AppImage
+chmod +x dist/Safeer-Browser-1.0.43-x86_64.AppImage
+./dist/Safeer-Browser-1.0.43-x86_64.AppImage
 ```
 
 linuxdeploy is pinned to a versioned release and checked against SHA256. The AppDir includes Python, GI modules/typelibs, GTK, WebKit subprocesses, GStreamer and GIO TLS resources. linuxdeploy resolves ELF dependencies and applies its system-library exclusions. glibc, the ELF loader and GPU drivers must remain host-provided. WebKit process sandboxing is not disabled. Host bubblewrap/user-namespace support may be required by the distro WebKit build. A build must fail acceptance rather than use an insecure fallback.
 
 AppImages do not automatically register a permanent desktop launcher. Use desktop integration before selecting the app as a default browser. Files in the transient AppImage mount must not be registered as permanent executables.
+
+## Safeer OS for Linux (safeer-os)
+
+Safeer OS is a full-screen shell over the desktop (programs, files, devices, network, sound, Shield) that talks to Safeer Control over D-Bus and starts it when needed. Its payload is `packaging/install_os_payload.sh` (version `packaging/VERSION_OS`); `tests/test_packaging.py` installs it and imports it without the source tree.
+
+```sh
+bash build_control_deb.sh && bash build_os_deb.sh
+sudo apt install ./safeer-control_2.0.9_all.deb ./safeer-os_0.4.1_all.deb      # .deb: safeer-os depends on safeer-control
+LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_os_appimage.sh   # Safeer-OS-<version>-x86_64.AppImage (Safeer OS + Control; `--control` starts Control)
+bash packaging/build_os_flatpak.sh                                                        # Safeer-OS-<version>-x86_64.flatpak (io.github.memelandfaner.SafeerOS)
+```
+
+The Flatpak needs more than the browser: the session bus (Safeer Control's D-Bus name), the home folder (Files), PipeWire/PulseAudio and `--talk-name=org.freedesktop.Flatpak`, because Safeer OS controls the computer with the system's own tools (`nmcli`, `pactl`, `resolvectl`, `pkexec`, `gsettings`, `systemctl` ...). Inside the sandbox these are wrappers in `/app/host-bin` (`packaging/flatpak_host_wrappers.sh`) that run the host's tool through `flatpak-spawn --host`. The Flatpak is therefore a bundle for people who prefer Flatpak, not a sandboxed build; the .deb is the primary format on Linux Mint. Flathub is not a target: since May 2026 Flathub rejects applications developed with generative AI, which Safeer openly is; the bundles are published on GitHub and safeer.si instead.
 
 ## Tests and release gates
 

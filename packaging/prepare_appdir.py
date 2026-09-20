@@ -1,6 +1,9 @@
 """Seed dynamic GTK, GI, Python and WebKit resources before ELF dependency resolution."""
 import pathlib, re, shutil, subprocess, sys, sysconfig
 root = pathlib.Path(sys.argv[1])
+# AppStream/desktop ID and the desktop file's base name: browser by default, Safeer OS when asked.
+appid = sys.argv[2] if len(sys.argv) > 2 else 'io.github.memelandfaner.SafeerBrowser'
+desktop_name = sys.argv[3] if len(sys.argv) > 3 else 'safeer-browser'
 license_packages = set()
 triplet = subprocess.check_output(['dpkg-architecture','-qDEB_HOST_MULTIARCH'],text=True).strip()
 lib = pathlib.Path('/usr/lib')/triplet
@@ -44,15 +47,14 @@ for package in sorted(license_packages):
         shutil.copy2(notice,dest)
 
 # Match the desktop ID and AppStream component ID for AppImage validators.
-appid='io.github.memelandfaner.SafeerBrowser'
 metadata=root/'usr/share/metainfo'
 (metadata/f'{appid}.metainfo.xml').rename(metadata/f'{appid}.appdata.xml')
 xml=metadata/f'{appid}.appdata.xml'
-text=xml.read_text().replace('safeer-browser.desktop',f'{appid}.desktop')
+text=xml.read_text().replace(f'{desktop_name}.desktop',f'{appid}.desktop')
 # appimagetool validates with the build host's appstreamcli (Ubuntu 22.04: AppStream 0.15),
 # where vcs-browser URLs are a warning and <developer> is unknown. Use the 0.15 equivalents.
 text=re.sub(r'\s*<url type="vcs-browser">[^<]*</url>','',text)
 text=re.sub(r'<developer id="[^"]*">\s*<name>([^<]*)</name>\s*</developer>',r'<developer_name>\1</developer_name>',text)
 xml.write_text(text)
-desktop=root/'usr/share/applications/safeer-browser.desktop'
+desktop=root/f'usr/share/applications/{desktop_name}.desktop'
 desktop.rename(desktop.with_name(f'{appid}.desktop'))

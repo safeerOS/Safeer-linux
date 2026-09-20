@@ -26,6 +26,16 @@
   <button class="zapri" id="gumbZapri" aria-label="Zapri" data-t-naslov="zapri">✕</button>
 </header>
 
+<!-- Samostojna aplikacija (Safeer Control na racunalniku): razdelki v levem meniju namesto enega
+     dolgega zaslona. Telefon in televizor menija ne vidita - tam ostane ena drsna stran. -->
+<nav class="stranski" id="stranskiMeni" hidden aria-label="Razdelki">
+  <button data-razdelek="naprave"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v11H3z M8 20h8 M12 16v4"/></svg><span data-t="povezaneNaprave">Povezane naprave</span></button>
+  <button data-razdelek="daljinec"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z M12 6v.1 M10 11h4 M12 9v4 M10 17h4"/></svg><span data-t="daljinec">Daljinec</span></button>
+  <button data-razdelek="poslji"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12l16-8-6 16-2-7z"/></svg><span data-t="posljiStran">Pošlji to stran</span></button>
+  <button data-razdelek="mape"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h6l2 2h10v11H3z"/></svg><span data-t="mapeNaslov">Datoteke za televizor</span></button>
+  <button data-razdelek="sync"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5l2 2 M20 12a8 8 0 0 1-14 5l-2-2 M18 3v4h-4 M6 21v-4h4"/></svg><span data-t="sinhronizacija">Sinhronizacija</span></button>
+</nav>
+
 <main>
 
   <!-- Vklop in izklop sta skupaj in na vrhu: kdor odpre Safeer Link, najprej odloca o tem. -->
@@ -58,6 +68,62 @@
       <p class="opomba" id="opombaHub"></p>
     </div>
 
+  </section>
+
+  <!-- Prijavno okno (Safeer Control in Safeer OS na racunalniku): samo tri moznosti - QR koda,
+       6-mestna koda ali nadaljevanje brez povezave naprav. Brez menija in glave, na sredini okna. -->
+  <section class="zaslon" id="zaslonPrijava" hidden>
+    <div class="prijavaOkno">
+      <div class="prijavaZnak"><span class="znakOs" aria-hidden="true">S</span><span>Safeer OS</span></div>
+      <h2 data-t="prijavaNaslov">Prijava</h2>
+      <p class="prijavaPodnaslov" data-t="prijavaPodnaslov">Poveži ta računalnik s svojimi napravami.</p>
+
+      <div class="prijavaNacini">
+        <div class="prijavaNacin" id="prijavaQr">
+          <div class="qrOkvir" id="qrSlika" aria-live="polite"><span class="qrCakam" data-t="prijavaQrPripravljam">Pripravljam kodo …</span></div>
+          <h3 data-t="prijavaQrNaslov">Skeniraj s telefonom</h3>
+          <p data-t="prijavaQrOpis">Usmeri kamero telefona ali tablice, ki je že v Safeer Linku, v kodo in potrdi na telefonu.</p>
+          <p class="opomba" id="opombaQr"></p>
+          <button class="drobniGumb" id="gumbQrZnova" data-t="prijavaPoisci" hidden>Poišči znova</button>
+        </div>
+
+        <div class="prijavaLoci" data-t="prijavaAli">ali</div>
+
+        <div class="prijavaNacin" id="prijavaKoda">
+          <div class="kodaIkona" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 5h18v11H3z M8 20h8 M12 16v4 M7 10.5h.01 M10.5 10.5h.01 M14 10.5h.01 M17.5 10.5h.01"/></svg></div>
+          <h3 data-t="prijavaKodaNaslov">Vpiši 6-mestno kodo</h3>
+          <p id="prijavaKodaOpis" data-t="prijavaKodaOpis">Klikni v polje – koda se pokaže na televizorju ali tablici, kjer teče Safeer Link.</p>
+          <input class="vnosStevilke" id="prijavaVnosKode" type="text" inputmode="numeric"
+                 autocomplete="one-time-code" maxlength="6" placeholder="------" aria-label="Koda" />
+          <button class="glavni" id="gumbPrijavaKoda" data-t="prijavaGumb">Prijava</button>
+          <p class="opomba" id="opombaPrijavaKoda"></p>
+        </div>
+      </div>
+
+      <label class="zaupajIzbira" id="prijavaZaupanje" hidden>
+        <input type="checkbox" id="prijavaZaupaj" />
+        <span><b data-t="prijavaZaupaj">Zaupaj temu računalniku</b>
+          <small data-t="prijavaZaupajOpis">Povezava bo potrebna samo enkrat. Izberi le na svojem računalniku – sicer se ob naslednji prijavi v računalnik znova povežeš.</small></span>
+      </label>
+
+      <button class="povezavaGumb" id="gumbBrezPovezave" data-t="prijavaBrez" hidden>Nadaljuj brez povezave naprav</button>
+      <p class="opomba" id="opombaBrezPovezave"></p>
+    </div>
+  </section>
+
+  <!-- Po »Nadaljuj brez povezave naprav«: Safeer OS dela na tem racunalniku, naprave se povezejo, ko uporabnik zeli. -->
+  <section class="zaslon" id="zaslonBrezPovezave" hidden>
+    <div class="prijavaOkno">
+      <div class="prijavaZnak"><span class="znakOs" aria-hidden="true">S</span><span>Safeer OS</span></div>
+      <div class="prijavaNacin brezPovezaveKartica">
+        <div class="kodaIkona" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 5h18v11H3z M8 20h8 M12 16v4 M9 9l6 4 M15 9l-6 4"/></svg></div>
+        <h3 data-t="brezPovezaveNaslov">Naprave niso povezane</h3>
+        <p data-t="brezPovezaveOpis">Safeer OS deluje na tem računalniku. Telefon, tablico ali televizor povežeš, kadar želiš.</p>
+        <button class="glavni" id="gumbPoveziNaprave" data-t="poveziNaprave">Poveži naprave</button>
+        <button class="drugotni" id="gumbOdpriOsLokalno" data-t="odpriSafeerOs">Odpri Safeer OS</button>
+        <p class="opomba" id="opombaBrezPovezaveOs"></p>
+      </div>
+    </div>
   </section>
 
   <!-- Stanje 1: Huba ni -->
@@ -135,7 +201,7 @@
     </div>
 
     <!-- Deljenje z izbrano napravo: zaslon, datoteka ali besedilo, nato en gumb. -->
-    <div class="panel" id="panelDeljenje" hidden>
+    <div class="panel" id="panelDeljenje" data-razdelek="naprave" hidden>
       <div class="vrsticaGlave">
         <h2 id="deljenjeNaslov">Deli z napravo</h2>
         <span class="gumbiGlave">
@@ -149,6 +215,11 @@
         <button class="drugotni tanek" id="gumbShraniIme" data-t="shraniIme">Shrani ime</button>
       </div>
       <button class="glavni" id="gumbDaljinec" hidden><svg viewBox="0 0 24 24" aria-hidden="true" style="width:18px;height:18px;margin-right:6px"><path d="M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z M12 6v.1 M10 11h4 M12 9v4 M10 17h4"/></svg><span data-t="daljinec">Daljinec</span></button>
+      <!-- Blizajnica na zaslon: Safeer OS in Safeer brskalnik na televizorju z enim klikom. -->
+      <div class="izbire" id="bliznjiceZaslona" hidden>
+        <button class="izbira" id="gumbOdpriSafeerOs"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v11H3z M8 20h8 M12 16v4"/></svg> <span data-t="odpriSafeerOs">Safeer OS na televizorju</span></button>
+        <button class="izbira" id="gumbOdpriBrskalnik"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z M2 12h20 M12 2c3 3 3 17 0 20 M12 2c-3 3-3 17 0 20"/></svg> <span data-t="odpriBrskalnik">Safeer brskalnik</span></button>
+      </div>
       <p class="pojasnilo drobno" id="opisIzbire" data-t="izberiVsebino">Kaj želiš deliti s to napravo?</p>
       <div class="izbire" id="izbireDeljenja">
         <button class="izbira" data-vrsta="zaslon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 1.5h11a2.5 2.5 0 0 1 2.5 2.5v16a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 20V4a2.5 2.5 0 0 1 2.5-2.5z M8 6h8v9H8z"/></svg> <span data-t="deliZaslon">Zaslon</span></button>
@@ -161,7 +232,7 @@
       <p class="opomba" id="opombaDeljenje"></p>
     </div>
 
-    <div class="panel" id="panelCast" hidden>
+    <div class="panel" id="panelCast" data-razdelek="poslji" hidden>
       <h2 data-t="posljiStran">Pošlji to stran</h2>
       <div class="kartica tesno">
         <p class="oznaka" data-t="odprtoVBrskalniku">Odprto v brskalniku</p>
@@ -193,7 +264,7 @@
       <button class="drugotni tanek" id="gumbDovoliOspredje" data-t="ospredjeDovoli">Dovoli</button>
     </div>
 
-    <div class="panel" id="panelNaprave">
+    <div class="panel" id="panelNaprave" data-razdelek="naprave">
       <div class="vrsticaGlave">
         <h2 data-t="povezaneNaprave">Povezane naprave</h2>
         <button class="drobniGumb" id="gumbOsvezi" data-t="osvezi">Osveži</button>
@@ -206,8 +277,26 @@
       <p class="opomba" id="opombaPozabi"></p>
     </div>
 
+    <!-- Samo Safeer Control: kako se prikljuci nova naprava. Kodo vedno pokaze sredisce (varnost:
+         kdor sredisca ne vidi, se ne more prikljuciti), zato povemo, kje jo bo uporabnik videl. -->
+    <div class="panel" id="panelDodaj" data-razdelek="naprave" hidden>
+      <h2 data-t="dodajNaslov">Dodaj telefon ali tablico</h2>
+      <div id="vabiloBlok" class="vabilo" hidden>
+        <p class="pojasnilo" data-t="vabiloOpis">S kamero telefona ali tablice skeniraj kodo – Safeer se odpre in naprava se poveže s Safeer Linkom.</p>
+        <div class="qrOkvir" id="vabiloQr" hidden></div>
+        <button class="glavni" id="gumbVabilo" data-t="vabiloGumb">Pokaži QR kodo za novo napravo</button>
+        <p class="opomba" id="opombaVabilo"></p>
+      </div>
+      <ol class="koraki">
+        <li data-t="dodajKorak1">Na telefonu odpri Safeer in v meniju izberi Safeer Link.</li>
+        <li data-t="dodajKorak2">Pritisni »Poveži s Safeer Link«.</li>
+        <li id="dodajKorak3">Na središču se izpiše 6-mestna koda – prepiši jo v telefon.</li>
+      </ol>
+      <p class="opomba" data-t="dodajOpomba">Koda se pokaže samo na središču: kdor ga ne vidi, se ne more povezati – tudi ne v javnem omrežju.</p>
+    </div>
+
     <!-- Samo Safeer Control: mape na tem racunalniku, ki jih sme videti televizor (Safeer OS). -->
-    <div class="panel" id="panelMape" hidden>
+    <div class="panel" id="panelMape" data-razdelek="mape" hidden>
       <h2 data-t="mapeNaslov">Datoteke za televizor</h2>
       <p class="pojasnilo" data-t="mapeOpis">
         Izbrane mape vidi Safeer OS na televizorju — filmi, glasba in slike se predvajajo naravnost s tega računalnika, samo v domačem omrežju.
@@ -218,7 +307,7 @@
       <button class="drugotni" id="gumbStandardneMape" data-t="mapeStandardne">Deli Videi, Glasba in Slike</button>
     </div>
 
-    <div class="panel" id="panelSync">
+    <div class="panel" id="panelSync" data-razdelek="sync">
       <h2 data-t="sinhronizacija">Sinhronizacija</h2>
       <p class="pojasnilo" data-t="syncOpis">
         Zaznamki potujejo med tvojimi napravami prek domačega Safeer Linka.
@@ -309,6 +398,7 @@
     <div class="panel" id="daljinecAplikacijePanel">
       <div class="vrsticaGlave">
         <h2 id="daljinecAplikacijeNaslov">Aplikacije na napravi</h2>
+        <label class="pretociIzbira" id="daljinecPretociIzbira" hidden><input type="checkbox" id="daljinecPretoci"> <span data-d="pretociNaRacunalnik">Odpri na tem računalniku</span></label>
         <button class="drobniGumb" id="daljinecAplikacijeOsvezi" data-d="osvezi">Osveži</button>
       </div>
       <div class="aplikacije" id="daljinecAplikacije"></div>

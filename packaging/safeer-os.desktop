@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Safeer OS
+Name[sl]=Safeer OS
+Comment=Your computer in your hands – apps, files, devices and settings in one place
+Comment[sl]=Tvoj računalnik v rokah – programi, datoteke, naprave in nastavitve na enem mestu
+Exec=safeer-os
+Icon=safeer-os
+Terminal=false
+Categories=System;
+Keywords=Safeer;OS;launcher;home;
+StartupWMClass=safeer-os

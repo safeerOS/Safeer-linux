@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.memelandfaner.SafeerOS</id>
+  <name>Safeer OS</name>
+  <summary>Your computer in your hands - programs, files and devices on top of Linux</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Apache-2.0</project_license>
+  <developer id="io.github.memelandfaner">
+    <name>Safeer Open Source Project</name>
+  </developer>
+  <description>
+    <p>
+      Safeer OS is a full-screen shell over your existing Linux desktop: programs, files, devices,
+      network, sound and settings in one place, made for a TV-like experience with the keyboard,
+      the mouse or the remote of a Safeer device. Linux Mint stays underneath - one click returns
+      you to the desktop.
+    </p>
+    <ul>
+      <li>Safeer Link: apps of your phone, tablet and TV, your computer's sound on them, files across devices - at home, no cloud, no account.</li>
+      <li>Connect a phone without any Safeer app: scan the code and it opens a small page served by your own Safeer Link.</li>
+      <li>Name your devices; the name is kept by Safeer Link and shown the same everywhere.</li>
+      <li>Shield: DNS filtering of ads, trackers and dangerous domains for the whole computer.</li>
+      <li>Includes Safeer Control (Safeer Link for the computer) in the AppImage and Flatpak bundles.</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">safeer-os.desktop</launchable>
+  <url type="homepage">https://safeer.si/os/</url>
+  <url type="bugtracker">https://github.com/safeerOS/Safeer-linux/issues</url>
+  <url type="vcs-browser">https://github.com/safeerOS/Safeer-linux</url>
+  <categories>
+    <category>System</category>
+    <category>Utility</category>
+  </categories>
+  <provides>
+    <binary>safeer-os</binary>
+  </provides>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.4.1" date="2026-09-20"><description><p>First packaged release of Safeer OS for Linux (.deb, AppImage, Flatpak): programs, files, devices, network, sound, Shield; Safeer Link Web for phones without Safeer; device names shared by all devices; sign-in of the computer with a QR code, no cloud.</p></description></release>
+  </releases>
+</component>
