@@ -2,6 +2,12 @@
 # ==============================================================================
 # Safeer OS (Linux) — application launcher (shared by .deb, AppImage, Flatpak and source checkout).
 # Resolves the payload relative to its own location, like the Safeer Control launcher.
+#
+# The launcher also supervises the app: if Safeer OS dies from a signal (a crash inside a C
+# library, an out-of-memory kill), the desktop would simply be gone with no explanation. Instead
+# the launcher writes a line to ~/.cache/safeer-os/dnevnik.log and starts it again, at most a few
+# times in a row (core/os_stabilnost.py then falls back to a safe mode). A normal exit, a version
+# query or a screenshot run is never restarted.
 # ==============================================================================
 PRG="$0"
 while [ -h "$PRG" ]; do
@@ -21,4 +27,46 @@ APP_DIR="$(cd "$BIN_DIR/../lib/safeer-os" && pwd)" || {
 if [ -n "${FLATPAK_ID:-}" ] && [ -d /app/host-bin ]; then
     export PATH="/app/host-bin:$PATH"
 fi
-exec "${PYTHON:-python3}" "$APP_DIR/safeer_os.py" "$@"
+
+PY="${PYTHON:-python3}"
+
+# One-shot runs (version, screenshot) and an explicitly disabled supervisor run in the foreground.
+for arg in "$@"; do
+    case "$arg" in
+        --version|--posnetek|--help|-h) exec "$PY" "$APP_DIR/safeer_os.py" "$@" ;;
+    esac
+done
+if [ -n "${SAFEER_OS_BREZ_NADZORA:-}" ]; then
+    exec "$PY" "$APP_DIR/safeer_os.py" "$@"
+fi
+
+DNEVNIK="${XDG_CACHE_HOME:-$HOME/.cache}/safeer-os/dnevnik.log"
+mkdir -p "$(dirname "$DNEVNIK")" 2>/dev/null
+
+NAJVEC_ZAGONOV=5          # more than this in the window below means restarting does not help
+OKNO_S=600
+zacetek_okna=$(date +%s)
+zagonov=0
+
+while :; do
+    "$PY" "$APP_DIR/safeer_os.py" "$@"
+    koda=$?
+    [ "$koda" -eq 0 ] && exit 0                       # normal exit: the user quit Safeer OS
+    [ "$koda" -lt 128 ] && exit "$koda"               # ordinary error: report it, do not loop
+
+    zdaj=$(date +%s)
+    if [ $((zdaj - zacetek_okna)) -gt "$OKNO_S" ]; then
+        zacetek_okna=$zdaj
+        zagonov=0
+    fi
+    zagonov=$((zagonov + 1))
+    signal=$((koda - 128))
+    echo "$(date '+%Y-%m-%d %H:%M:%S') zaganjalnik: Safeer OS se je ustavil zaradi signala $signal (poskus $zagonov)" >> "$DNEVNIK"
+    "$PY" -c "import sys; sys.path.insert(0, '$APP_DIR'); from core import os_stabilnost; os_stabilnost.zabelezi_sesutje('safeer-os', $koda)" 2>/dev/null
+
+    if [ "$zagonov" -ge "$NAJVEC_ZAGONOV" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') zaganjalnik: prevec ponovnih zagonov, odneham (glej sled.log)" >> "$DNEVNIK"
+        exit "$koda"
+    fi
+    sleep 2
+done

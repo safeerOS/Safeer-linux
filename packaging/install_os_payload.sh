@@ -13,7 +13,7 @@ cp -a "$ROOT/safeer_os.py" "$LIB/"
 # Everything safeer_os.py imports, directly or lazily (core/os_* plus the Safeer Link modules it reads:
 # identity, sessions, circle of trust, hub discovery, programs). tests/test_packaging.py installs this
 # payload and imports it without the source tree, so a missing module fails the test, not the user.
-for modul in os_datoteke os_jbl os_omrezje os_programi os_scit os_sistem os_zvok \
+for modul in os_datoteke os_jbl os_okna os_omrezje os_programi os_scit os_sistem os_stabilnost os_zvok \
              link_datoteke link_urejanje link_hub link_krog link_programi link_seja link_tls spake2 signed_feed threat_intel; do
     cp -a "$ROOT/core/$modul.py" "$LIB/core/"
 done
