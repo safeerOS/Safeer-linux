@@ -44,6 +44,7 @@ gi.require_version("WebKit2", "4.1")
 from gi.repository import Gio, GLib, Gtk, WebKit2  # noqa: E402
 
 from core import link_datoteke, link_deljenje, link_hub, link_programi, link_sway, link_tls, link_zaslon, link_zvok  # noqa: E402
+from core import os_stabilnost  # noqa: E402
 from core.safeer_link import SafeerLink  # noqa: E402
 
 APP_ID = "io.github.memelandfaner.SafeerControl"
@@ -917,6 +918,9 @@ def main() -> int:
     if "--version" in sys.argv[1:]:
         print(f"Safeer Control {APP_VERSION}")
         return 0
+    # Sled ob sesutju in dnevnik neujetih izjem (~/.cache/safeer-control/). Control tece ves dan v
+    # ozadju; brez tega naprave samo izgubijo racunalnik in nihce ne ve, zakaj.
+    os_stabilnost.vkljuci("safeer-control")
     ozadje = "--ozadje" in sys.argv[1:]
     argv = [a for a in sys.argv if a != "--ozadje"]
     GLib.set_prgname("safeer-control")

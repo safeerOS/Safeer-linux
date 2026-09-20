@@ -133,6 +133,12 @@ class Zaganjalnik(unittest.TestCase):
         os.makedirs(os.path.join(app, "core"), exist_ok=True)
         os.makedirs(os.path.join(mapa, "bin"), exist_ok=True)
         with open(os.path.join(app, "safeer_os.py"), "w", encoding="utf-8") as d:
+            # Zaganjalnik ob vsakem nekoncnem izhodu poklice `--vrni-mint`; vzorcni program to zabelezi
+            # in koncna, da ne vpliva na stetje zagonov.
+            d.write("import os, sys\n"
+                    "if '--vrni-mint' in sys.argv[1:]:\n"
+                    "    open(os.path.join(os.path.dirname(__file__), 'vrni-mint'), 'a').write('x')\n"
+                    "    raise SystemExit(0)\n")
             d.write(vsebina_programa)
         with open(os.path.join(app, "core", "__init__.py"), "w", encoding="utf-8") as d:
             d.write("")
@@ -148,16 +154,24 @@ class Zaganjalnik(unittest.TestCase):
         o.update(okolje or {})
         return subprocess.run(["bash", zaganjalnik, *argumenti], capture_output=True, text=True, timeout=120, env=o), mapa
 
+    def _vrnitev_mint(self, mapa) -> int:
+        pot = os.path.join(mapa, "lib", "safeer-os", "vrni-mint")
+        return len(open(pot).read()) if os.path.exists(pot) else 0
+
     def test_normalen_izhod_se_ne_ponovi(self):
         program = ("import os\n"
                    "open(os.path.join(os.path.dirname(__file__), 'stevec'), 'a').write('x')\n")
         r, mapa = self._zazeni(program)
         self.assertEqual(r.returncode, 0)
         self.assertEqual(len(open(os.path.join(mapa, "lib", "safeer-os", "stevec")).read()), 1)
+        # Ob normalnem koncu je Safeer OS pult vrnil sam; zaganjalnik ga ne sme klicati se enkrat.
+        self.assertEqual(self._vrnitev_mint(mapa), 0)
 
-    def test_navadna_napaka_se_ne_ponovi(self):
+    def test_napaka_vrne_mintov_pult(self):
+        """Tudi navadna napaka (ne sesutje) ne sme pustiti namizja brez Mintovega pulta."""
         r, mapa = self._zazeni("import sys\nsys.exit(3)\n")
         self.assertEqual(r.returncode, 3)
+        self.assertEqual(self._vrnitev_mint(mapa), 1)
 
     def test_sesutje_se_ponovi_in_nato_odneha(self):
         """Signal (sesutje) pomeni ponoven zagon, a najvec petkrat."""
@@ -172,10 +186,81 @@ class Zaganjalnik(unittest.TestCase):
         dnevnik = open(os.path.join(mapa, "cache", "safeer-os", "dnevnik.log"), encoding="utf-8").read()
         self.assertIn("signala 11", dnevnik)
         self.assertIn("odneham", dnevnik)
+        # Po vsakem sesutju in se enkrat, ko zaganjalnik odneha: Mint mora ostati uporaben.
+        self.assertEqual(self._vrnitev_mint(mapa), 6, "pult se mora vrniti po vsakem sesutju in ob odnehanju")
 
     def test_version_ne_gre_skozi_nadzor(self):
         r, _ = self._zazeni("print('Safeer OS 0.4.2')\n", argumenti=["--version"])
         self.assertIn("Safeer OS", r.stdout)
+
+
+class MintovPult(unittest.TestCase):
+    """Mint pod masko mora ostati varnostna mreza: pult se vrne tudi, kadar Safeer OS ne konca lepo."""
+
+    def setUp(self):
+        import safeer_os
+        self.os_modul = safeer_os
+        self.nastavljeno = {}
+        self.brano = {"panels-autohide": "['1:false']", "panels-show-delay": "['1:0']",
+                      "panels-enabled": "['1:0:bottom']"}
+
+        def lazni_gsettings(*a):
+            if a[0] == "get":
+                return self.brano.get(a[2])
+            if a[0] == "set":
+                self.nastavljeno[a[2]] = a[3]
+                self.brano[a[2]] = a[3]
+                return ""
+            return None
+
+        self.zaplata = mock.patch.object(safeer_os, "_gsettings", lazni_gsettings)
+        self.zaplata.start()
+
+    def tearDown(self):
+        self.zaplata.stop()
+
+    class Shramba:
+        def __init__(self):
+            self.d = {}
+
+        def get(self, k, privzeto=None):
+            return self.d.get(k, privzeto)
+
+        def set(self, k, v):
+            self.d[k] = v
+
+    def test_skrij_shrani_prvotne_vrednosti(self):
+        s = self.Shramba()
+        self.os_modul.skrij_mintov_pult(s)
+        self.assertEqual(s.get("mintov_pult"),
+                         {"panels-autohide": "['1:false']", "panels-show-delay": "['1:0']"})
+        self.assertEqual(self.nastavljeno["panels-show-delay"], "['1:86400000']")
+
+    def test_popravi_po_sesutju_vrne_pult(self):
+        """Prejsnji zagon je pustil pult skrit: naslednji zagon (ali --vrni-mint) ga vrne."""
+        s = self.Shramba()
+        self.os_modul.skrij_mintov_pult(s)
+        self.assertTrue(self.os_modul.pult_je_skrit(s))
+        self.assertTrue(self.os_modul.popravi_po_sesutju(s))
+        self.assertEqual(self.brano["panels-autohide"], "['1:false']")
+        self.assertEqual(self.brano["panels-show-delay"], "['1:0']")
+        self.assertFalse(self.os_modul.pult_je_skrit(s))
+
+    def test_popravi_je_idempotenten(self):
+        """Veckraten klic (zaganjalnik + zagon) ne sme nicesar pokvariti."""
+        s = self.Shramba()
+        self.os_modul.skrij_mintov_pult(s)
+        self.os_modul.popravi_po_sesutju(s)
+        self.brano["panels-show-delay"] = "['1:250']"      # uporabnik je medtem sam nekaj nastavil
+        self.assertFalse(self.os_modul.popravi_po_sesutju(s))
+        self.assertEqual(self.brano["panels-show-delay"], "['1:250']")
+
+    def test_brez_pulta_ni_kaj_skriti(self):
+        s = self.Shramba()
+        self.brano["panels-enabled"] = "@as []"
+        self.os_modul.skrij_mintov_pult(s)
+        self.assertIsNone(s.get("mintov_pult"))
+        self.assertEqual(self.nastavljeno, {})
 
 
 if __name__ == "__main__":
