@@ -95,6 +95,14 @@ jobs:
       - run: bash packaging/build_flatpak.sh
       - name: Safeer OS Flatpak (Safeer OS + Safeer Control)
         run: bash packaging/build_os_flatpak.sh
+      - name: Safeer OS Flatpak runs, with Safeer Control inside
+        # Kot pri AppImage: paket se ne sme samo zgraditi, v njem morata res teci Safeer OS in Control
+        # (Safeer OS brez Controla nima Safeer Linka). Namestimo prav datoteko, ki gre v izdajo.
+        run: |
+          sudo apt-get install -y xvfb dbus
+          flatpak install --user --noninteractive --bundle dist/Safeer-OS-*.flatpak
+          dbus-run-session -- xvfb-run -a flatpak run io.github.memelandfaner.SafeerOS --version | tee /dev/stderr | grep -Fx "Safeer OS $(cat packaging/VERSION_OS)"
+          dbus-run-session -- xvfb-run -a flatpak run --command=safeer-control io.github.memelandfaner.SafeerOS --version | tee /dev/stderr | grep -Fx "Safeer Control $(cat packaging/VERSION_CONTROL)"
       - uses: actions/upload-artifact@v7
         with:
           name: flatpak
