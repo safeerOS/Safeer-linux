@@ -17,6 +17,11 @@ import urllib.parse
 from typing import Optional, Tuple
 
 NAJDALJSE_IME = 255
+#: Meje za vrtenje s Pillow: slika se razsiri v pomnilnik (sirina x visina x 4 bajte), zato
+#: majhna datoteka z ogromnimi merami ("dekompresijska bomba") ne sme do dekodiranja.
+#: 200 milijonov pik pokrije tudi 200-MP fotografije s telefonov.
+NAJVEC_PIK = 200_000_000
+NAJVEC_BAJTOV_SLIKE = 200 * 1024 * 1024
 # EXIF Orientation po vrtenju za 90 stopinj v smeri urinega kazalca.
 _V_DESNO = {1: 6, 6: 3, 3: 8, 8: 1, 2: 7, 7: 4, 4: 5, 5: 2}
 _V_LEVO = {v: k for k, v in _V_DESNO.items()}
@@ -188,7 +193,12 @@ def _zavrti_pillow(pot: str, stopinje: int) -> str:
         # Pillow 9.1 je konstante prestavil v Image.Transpose; starejsi (Ubuntu 22.04) jih imajo
         # na Image, novejsi (Pillow 10+) samo v Transpose. Vzamemo tisto, kar je na voljo.
         vrtenje = getattr(Image, "Transpose", Image)
+        if os.path.getsize(pot) > NAJVEC_BAJTOV_SLIKE:
+            raise NapakaUrejanja("prevelika")
         with Image.open(pot) as slika:
+            # Image.open prebere samo glavo; mere preverimo, preden se slika dekodira.
+            if slika.size[0] * slika.size[1] > NAJVEC_PIK:
+                raise NapakaUrejanja("prevelika")
             oblika = slika.format
             ravna = ImageOps.exif_transpose(slika) or slika
             # PIL ROTATE_90 vrti v nasprotni smeri urinega kazalca.

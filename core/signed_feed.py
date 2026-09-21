@@ -505,6 +505,14 @@ def _normalize_host(host) -> str:
 # Storage and updates
 # --------------------------------------------------------------------------------------------------
 
+def isti_gostitelj(zahtevano: str, koncno: str) -> bool:
+    """Seznam sprejmemo samo z gostitelja, ki smo ga vprasali: preusmeritev drugam ga ne sme podtakniti."""
+    try:
+        return (urlsplit(zahtevano).hostname or "") == (urlsplit(koncno).hostname or "x")
+    except ValueError:
+        return False
+
+
 def _atomic_write(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)

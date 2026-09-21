@@ -666,7 +666,13 @@ class DrugiZaslon:
         self._kljuc = threading.RLock()
         #: Skupina zadnjega programa, ki ga je televizor zagnal ("igre" -> televizor zacne v nacinu tipk).
         self.zadnja_skupina = ""
+        #: Profil zadnjega programa ("predvajalnik" -> televizor ga upravlja kot predvajalnik).
+        self.zadnji_profil = ""
         self.vnos = SwayVnos(self)
+        from core.link_mediji import Mpris
+        #: Predvajalnik na tem zaslonu prek MPRIS (samo procesi, ki so potomci tega swaya).
+        self.mediji = Mpris(lambda: self._sway.pid if self.tece() else 0,
+                            lambda: self._wayland if self.tece() else "")
         from core.link_fokus import Fokus
         self.fokus = Fokus(self)
 

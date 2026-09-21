@@ -248,5 +248,50 @@ class PreizkusPosrednikaVZivo(unittest.TestCase):
             doh_proxy.je_dovoljena_vrata = prava_vrata
 
 
+class OdgovorDoH(unittest.TestCase):
+    """Odgovor velja samo, ce je odgovor na nase vprasanje; imena brez tihega krajsanja."""
+
+    R = doh_proxy.DoHResolver
+
+    def odgovor(self, ime, id_=b"\x00\x00"):
+        return (id_ + b"\x81\x80\x00\x01\x00\x01\x00\x00\x00\x00" + self.R._ime_v_zapis(ime)
+                + b"\x00\x01\x00\x01" + b"\xc0\x0c\x00\x01\x00\x01\x00\x00\x01\x2c\x00\x04\x5d\xb8\xd7\x0e")
+
+    def test_pravi_odgovor(self):
+        self.assertEqual(self.R._parse_dns_wire_response(self.odgovor("Example.COM"), "example.com"),
+                         ("93.184.215.14", 300))
+
+    def test_odgovor_za_drugo_ime_je_zavrnjen(self):
+        self.assertIsNone(self.R._parse_dns_wire_response(self.odgovor("zlo.example"), "banka.si")[0])
+
+    def test_odgovor_z_drugim_id_je_zavrnjen(self):
+        self.assertIsNone(self.R._parse_dns_wire_response(self.odgovor("banka.si", b"\x12\x34"), "banka.si")[0])
+
+    def test_ne_ascii_ime_ni_tiho_skrajsano(self):
+        # Prej je "раураl.com" postal ".com" (znaki so izpadli); zdaj poizvedbe sploh ni.
+        for ime in ("раураl.com", "a..b", "x" * 64 + ".si"):
+            with self.assertRaises(ValueError):
+                self.R._build_dns_wire_query(ime)
+        self.assertTrue(self.R._build_dns_wire_query("xn--80aa0cbo65f.com").startswith(b"\x00\x00"))
+
+
+class LastniStreznikDoH(unittest.TestCase):
+    """Uporabnikov DoH streznik ne sme biti pot do metapodatkov oblaka ali povratnih storitev."""
+
+    def test_zavrnjeni(self):
+        for g in ("169.254.169.254", "[fe80::1]", "127.0.0.1", "::1", "::ffff:169.254.169.254",
+                  "metadata.google.internal", "localhost", "nas.local", "0.0.0.0", ""):
+            self.assertFalse(doh_proxy.je_dovoljen_doh_streznik(g), g)
+
+    def test_dovoljeni(self):
+        # Domace omrezje ostane: Pi-hole ali AdGuard Home na usmerjevalniku.
+        for g in ("1.1.1.1", "dns.quad9.net", "192.168.1.2", "[2606:4700:4700::1111]"):
+            self.assertTrue(doh_proxy.je_dovoljen_doh_streznik(g), g)
+
+    def test_poizvedba_na_metapodatke_se_ne_zgodi(self):
+        r = doh_proxy.DoHResolver("custom", "https://169.254.169.254/dns-query")
+        self.assertEqual(r._query_doh("example.com", 1), (None, 15))
+
+
 if __name__ == "__main__":
     unittest.main()

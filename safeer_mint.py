@@ -79,7 +79,7 @@ from core import userscripts as uporabniske_skripte
 
 # Use WebKitGTK's maintained browser identity consistently across redirects.
 USER_AGENT = None
-APP_VERSION = "1.0.44"
+APP_VERSION = "1.0.45"
 
 
 # ---------------------------------------------------------------- crtne ikone
@@ -180,6 +180,17 @@ def je_lokalni_dokument(url: str) -> bool:
         return pot.lower().endswith(".pdf") and os.path.isfile(pot)
     except Exception:
         return False
+
+
+#: Programi in namestitveni paketi: teh brskalnik nikoli ne prenese brez uporabnikove potrditve.
+IZVRSLJIVE_KONCNICE = (".deb", ".rpm", ".apk", ".appimage", ".flatpak", ".flatpakref", ".snap", ".exe",
+                       ".msi", ".msix", ".bat", ".cmd", ".ps1", ".dmg", ".pkg", ".jar", ".run", ".sh",
+                       ".desktop", ".bin")
+
+
+def je_izvrsljiv_prenos(ime: str) -> bool:
+    """Ali je prenesena datoteka program ali namestitveni paket (po koncnici imena)."""
+    return str(ime or "").strip().lower().rstrip(". ").endswith(IZVRSLJIVE_KONCNICE)
 
 
 def varno_ime_datoteke(ime: str, privzeto: str = "prenos_datoteke") -> str:
@@ -664,8 +675,10 @@ class SafeerMintBrowser(Gtk.Window):
             # GProxyResolver razume imena, pripone domen in obsege CIDR - ne vzorcev z zvezdico.
             # Prejsnji zapis ("192.168.*") ni izvzel nicesar: promet v domace omrezje (Safeer Link,
             # Control, usmerjevalnik) je sel skozi posrednik, ki ga namenoma zavrne.
+            # Povezavno-lokalnih naslovov (169.254.0.0/16, fe80::/10) namenoma NI med izjemami: tam so
+            # metapodatki oblaka (169.254.169.254) s kljuci streznika. Gredo skozi posrednik, ki jih zavrne.
             ignore_hosts = ["localhost", "127.0.0.0/8", "::1", "10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12",
-                            "169.254.0.0/16", "fe80::/10", ".local"]
+                            ".local"]
 
             if proxy_mode == "custom":
                 custom_url = self.config.get("secure_proxy_url", "").strip()
@@ -5366,7 +5379,9 @@ class SafeerMintBrowser(Gtk.Window):
         # datoteke, sicer bi `../../` ali absolutna pot pisala zunaj mape Prenosi.
         suggested_filename = varno_ime_datoteke(urllib.parse.unquote(suggested_filename))
 
-        always_ask = self.config.get("always_ask_download_dir", False)
+        # Programov in namestitvenih paketov nikoli ne prenesemo sami: stran bi jih lahko podtaknila
+        # ob obisku. Uporabnik vidi ime in mapo ter prenos potrdi (ali preklice).
+        always_ask = self.config.get("always_ask_download_dir", False) or je_izvrsljiv_prenos(suggested_filename)
         target_path = None
 
         if always_ask:

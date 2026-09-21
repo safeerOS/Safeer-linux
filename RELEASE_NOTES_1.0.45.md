@@ -1,0 +1,16 @@
+# Safeer Browser for Linux 1.0.45 · Safeer Control 2.1.1 · Safeer OS 0.4.3
+
+**Safeer Control 2.1.1: the TV remote controls a media player as a media player.** When a program on the computer's separate TV screen is a media player (VLC, Celluloid, Totem, Rhythmbox …), the TV (Safeer OS 0.4.7 / tablet 0.3.7) sends meaning instead of keys: play/pause, skip, seek. The computer carries it out over MPRIS, so it works whatever keys the player expects, and reports title, time and progress for the playback bar on the TV. Only players on the separate TV screen are controlled – never music you play at the desk. A dropped connection now ends the session on both sides at once, so the TV reconnects within a second.
+
+**Security fixes after an external review.**
+
+- **Downloads:** programs and installer packages (`.deb`, `.rpm`, `.AppImage`, `.flatpak`, `.exe`, `.msi`, `.apk`, scripts …) are never saved without asking – you see the name and the folder and confirm.
+- **Cloud metadata:** pages can no longer reach link-local addresses (169.254.0.0/16, fe80::/10, where cloud servers keep their keys). Your home network (router, NAS) stays reachable.
+- **Encrypted DNS:** an answer is accepted only if it repeats the question (same name, same type); names that cannot be written in ASCII are refused instead of being shortened. A custom DoH server may be in your home network (Pi-hole, AdGuard Home), but not on a loopback, link-local or internal address.
+- **Files for the TV:** the access token is accepted only in a header, never in the address, and compared in constant time; hidden files and folders (`.ssh`, `.gnupg` …) cannot be opened, even with the whole disk shared.
+- **Safeer Link hub on the computer:** the trust circle is given only to signed-in devices, as on the TV.
+- **Rotating pictures:** images over 200 megapixels or 200 MB are refused before decoding.
+- **Block lists** (ads, Shield) are accepted only from the server that was asked and written to disk safely; the Shield never blocks system and Safeer updates. Domain matching also works for international names.
+- README: honest about what is not there yet – the checksums are not signed, AppImage and Flatpak are x86_64 only, and the full threat list arrives after the first start.
+
+Slovensko: **Safeer Control 2.1.1 – daljinec upravlja predvajalnik kot predvajalnik.** Ko na ločenem zaslonu za televizor teče predvajalnik (VLC, Celluloid, Totem, Rhythmbox …), televizor (Safeer OS 0.4.7 / tablica 0.3.7) pošlje pomen namesto tipk: predvajaj/ustavi, naprej, previj. Računalnik ga izvede prek MPRIS in televizorju sporoča naslov, čas in napredek za pas predvajanja. Upravljamo samo predvajalnik na ločenem zaslonu, nikoli glasbe za mizo. Po izpadu povezave se televizor znova poveže v sekundi. **Varnostni popravki po zunanjem pregledu:** programov in namestitvenih paketov brskalnik ne prenese brez vprašanja; strani ne dosežejo naslovov za metapodatke oblaka (domače omrežje ostane dosegljivo); šifriran DNS sprejme le odgovor na svoje vprašanje; žeton za datoteke samo v glavi, skrite mape nedosegljive tudi pri deljenju celega diska; krog zaupanja samo prijavljenim napravam; prevelike slike se ne vrtijo; seznami samo z vprašanega strežnika in varno zapisani, Ščit nikoli ne blokira posodobitev.

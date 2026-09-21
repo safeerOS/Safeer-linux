@@ -77,6 +77,8 @@ class SeznamiTest(unittest.TestCase):
             "phishing-army": "phish.example\n",
             "si-cert": "cert.example CNAME .\n",
         }
+        # Zastrupljen seznam (npr. prek CDN-ja) bi zaprl posodobitve - te ostanejo odprte.
+        vsebine["phishing-army"] += "archive.ubuntu.com\ngithub.com\npackages.linuxmint.com\n"
         klici = []
 
         def prenesi(url, etag, cas=60.0):
@@ -89,19 +91,27 @@ class SeznamiTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as m:
             s = os_scit.Seznami(m, prenesi_fn=prenesi)
             self.assertTrue(s.osvezi())
-            self.assertEqual(len(s.nabor), 1200 + 1100 + 1050 + 3)
+            self.assertEqual(len(s.nabor), 1200 + 1100 + 1050 + 6)
             self.assertEqual(s.kategorija("ad7.example"), "oglasi")
             self.assertEqual(s.kategorija("x.mal.example"), "malware")
             self.assertEqual(s.kategorija("cert.example"), "phishing")
             self.assertIsNone(s.kategorija("printer.local"))
             self.assertIsNone(s.kategorija("safeer.si"))
             self.assertIsNone(s.kategorija("ad7.example.safeer.si"))
+            for ime in ("archive.ubuntu.com", "si.archive.ubuntu.com", "github.com", "packages.linuxmint.com"):
+                self.assertIsNone(s.kategorija(ime), ime)
             # Drugi zagon iz iste mape: nabor je na disku, brez prenosa; osvezitev vrne 304 in nic ne prezida.
             s2 = os_scit.Seznami(m, prenesi_fn=prenesi)
             self.assertEqual(len(s2.nabor), len(s.nabor))
             self.assertTrue(s2.osvezi())
             self.assertEqual(klici[-1][1], "e-si-cert")
             self.assertEqual(s2.stanje()["seznami"]["urlhaus"], 1)
+
+    def test_preusmeritev_na_drug_streznik_ni_sprejeta(self):
+        from core.signed_feed import isti_gostitelj
+        self.assertTrue(isti_gostitelj("https://cdn.jsdelivr.net/gh/a", "https://cdn.jsdelivr.net/gh/b"))
+        self.assertFalse(isti_gostitelj("https://cdn.jsdelivr.net/gh/a", "https://zlo.example/a"))
+        self.assertFalse(isti_gostitelj("https://phishing.army/x", "https://phishing.army.zlo.example/x"))
 
     def test_napaka_prenosa_ohrani_nabor(self):
         def prenesi(url, etag, cas=60.0):

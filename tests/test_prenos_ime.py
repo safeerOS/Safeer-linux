@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import safeer_mint
 
 varno = safeer_mint.varno_ime_datoteke
+izvrsljiv = safeer_mint.je_izvrsljiv_prenos
 
 
 class VarnoIme(unittest.TestCase):
@@ -73,6 +74,19 @@ class PotVMapi(unittest.TestCase):
     def test_navadno_ime_dela(self):
         izid = self.pot("/home/uporabnik/Prenosi", "slika.png")
         self.assertEqual(izid, "/home/uporabnik/Prenosi/slika.png")
+
+
+class IzvrsljivPrenos(unittest.TestCase):
+    """Programov in paketov brskalnik ne prenese sam: stran bi jih lahko podtaknila ob obisku."""
+
+    def test_paketi_in_programi(self):
+        for ime in ("safeer_1.0.45_all.deb", "Namesti.EXE", "igra.AppImage", "app.apk", "x.msi",
+                    "skripta.sh", "zagon.desktop", "paket.rpm", "orodje.jar", "zlo.exe.", "zlo.exe "):
+            self.assertTrue(izvrsljiv(ime), ime)
+
+    def test_dokumenti_niso(self):
+        for ime in ("porocilo.pdf", "slika.jpg", "arhiv.zip", "debata.txt", "", "exe"):
+            self.assertFalse(izvrsljiv(ime), ime)
 
 
 if __name__ == "__main__":
