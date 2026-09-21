@@ -36,6 +36,7 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.4.2" date="2026-09-21"><description><p>Fix: no more crash when listing open windows; the Linux Mint panel is always restored after an abnormal end and Safeer OS starts in safe mode after repeated crashes. The bar and the desktop follow a change of screen (laptop lid closed with a TV attached).</p></description></release>
     <release version="0.4.1" date="2026-09-20"><description><p>First packaged release of Safeer OS for Linux (.deb, AppImage, Flatpak): programs, files, devices, network, sound, Shield; Safeer Link Web for phones without Safeer; device names shared by all devices; sign-in of the computer with a QR code, no cloud.</p></description></release>
   </releases>
 </component>

@@ -79,7 +79,7 @@ from core import userscripts as uporabniske_skripte
 
 # Use WebKitGTK's maintained browser identity consistently across redirects.
 USER_AGENT = None
-APP_VERSION = "1.0.43"
+APP_VERSION = "1.0.44"
 
 
 # ---------------------------------------------------------------- crtne ikone
