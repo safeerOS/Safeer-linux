@@ -445,15 +445,10 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             # Samo stevila, nikoli imena naprav: to je preverba, da tu res tece Safeer Hub.
             self._odgovori(200, self._hub.zdravje())
             return
-        if pot == "/cast/trust/ring":
-            try:
-                self._odgovori(200, link_krog.krog().json())
-            except Exception:
-                self._napaka(500, "Kroga ni mogoče prebrati.", "krog_ni_berljiv")
-            return
-        if pot == "/cast/devices":
-            # Seznam naprav gre po WebSocketu (cast.devices) napravam, ki so se prijavile.
-            # Po HTTP ga ta Hub ne daje: zetonov za HTTP (se) ne izdaja.
+        if pot in ("/cast/devices", "/cast/trust/ring"):
+            # Seznam naprav in krog zaupanja (kljuci, imena, kdo je koga dodal) dobijo samo prijavljene
+            # naprave, po WebSocketu (cast.devices, trust.update). Po HTTP ju ta Hub ne daje nikomur:
+            # zetonov za HTTP (se) ne izdaja, brez zetona pa ju ne da niti Hub na televizorju.
             self._napaka(401, "Naprava ni seznanjena.", "naprava_ni_seznanjena")
             return
         if pot in ("/cast/ticket", "/cast/pair/start", "/cast/pair/spake", "/cast/pair/finish"):

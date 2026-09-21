@@ -289,5 +289,22 @@ class Razsirljivost(unittest.TestCase):
         self.assertEqual(naprava["capabilities"], [])
 
 
+class KrogPoHttp(unittest.TestCase):
+    """Krog zaupanja gospodinjstva ni za vsakogar v omrezju: brez prijave ga ne da."""
+
+    def test_krog_brez_prijave_ni_dostopen(self):
+        o = link_hub_streznik._Obravnava.__new__(link_hub_streznik._Obravnava)
+        o.path = "/cast/trust/ring"
+        o._je_krajevni = lambda: True
+        odgovori = []
+        o._odgovori = lambda koda, telo: odgovori.append((koda, telo))
+        o._napaka = lambda koda, sporocilo, oznaka: odgovori.append((koda, oznaka))
+        with mock.patch.object(link_krog, "krog") as k:
+            k.return_value.json.return_value = {"clani": {"skrivno": {}}}
+            o.do_GET()
+            k.assert_not_called()
+        self.assertEqual(odgovori, [(401, "naprava_ni_seznanjena")])
+
+
 if __name__ == "__main__":
     unittest.main()

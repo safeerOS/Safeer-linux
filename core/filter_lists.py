@@ -23,6 +23,7 @@ import urllib.request
 from pathlib import Path
 
 from . import webkit_filters
+from .signed_feed import _atomic_write, isti_gostitelj
 
 EASYLIST_URL = "https://easylist.to/easylist/easylist.txt"
 FILTER_ID = "safeer-easylist"
@@ -70,6 +71,8 @@ def default_fetch(url: str, etag: str, last_modified: str):
         with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310 - fixed https URL
             if response.geturl().split(":", 1)[0].lower() != "https":
                 raise ListRejected("redirected away from HTTPS")
+            if not isti_gostitelj(url, response.geturl()):
+                raise ListRejected("redirected to another host")
             body = response.read(MAX_BYTES + 1)
             return response.status, body, response.headers.get("ETag", ""), response.headers.get("Last-Modified", "")
     except urllib.error.HTTPError as exc:
@@ -117,14 +120,10 @@ class FilterListAgent:
             return {}
 
     def _write(self, data: bytes, etag: str, last_modified: str) -> None:
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        tmp = self.list_path.with_suffix(".tmp")
-        tmp.write_bytes(data)
-        os.replace(tmp, self.list_path)
+        # Kot podpisani seznam groznj: fsync pred zamenjavo, da izpad elektrike ne pusti pol datoteke.
+        _atomic_write(self.list_path, data)
         meta = {"sha256": _sha256(data), "etag": etag, "last_modified": last_modified, "fetched_at": time.time(), "url": self.url}
-        tmp = self.meta_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(meta), "utf-8")
-        os.replace(tmp, self.meta_path)
+        _atomic_write(self.meta_path, json.dumps(meta).encode("utf-8"))
 
     # -- lifecycle -------------------------------------------------------------------------------
     def start(self) -> bool:

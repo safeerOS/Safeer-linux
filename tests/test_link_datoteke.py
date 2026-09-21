@@ -58,9 +58,32 @@ class Mape(unittest.TestCase):
                             or oznaka == "share:0:.skrita.mp4", oznaka)
         self.assertIsNone(self.m.razresi("share:0:../skrivnost.txt"))
         self.assertIsNone(self.m.razresi("share:0:povezava.txt"))
+        self.assertIsNone(self.m.razresi("share:0:.skrita.mp4"))  # skrite datoteke tudi po imenu ne
         self.assertIsNone(self.m.seznam("share:0:film.mp4"))  # datoteka ni mapa
         self.assertEqual(link_datoteke.vrsta_datoteke("A.JPG"), "image")
         self.assertEqual(link_datoteke.vrsta_datoteke("x.pdf"), "file")
+
+
+class CelDisk(unittest.TestCase):
+    """Tudi "cel disk za TV" ne da skritih map (.ssh, .gnupg, piskotki), ceprav naprava pot ugane."""
+
+    def setUp(self):
+        self.mapa = tempfile.mkdtemp(prefix="safeer-disk-")
+        os.makedirs(os.path.join(self.mapa, ".ssh"))
+        os.makedirs(os.path.join(self.mapa, "Slike"))
+        for pot in (".ssh/id_ed25519", "Slike/a.jpg", ".bashrc"):
+            with open(os.path.join(self.mapa, pot), "w") as d:
+                d.write("x")
+        os.symlink(os.path.join(self.mapa, ".ssh"), os.path.join(self.mapa, "Slike", "kljuci"))
+        self.m = link_datoteke.DeljeneMape([], ves_disk=True)
+
+    def tearDown(self):
+        shutil.rmtree(self.mapa, ignore_errors=True)
+
+    def test_skrite_poti_niso_dosegljive(self):
+        for rel in (".ssh/id_ed25519", ".ssh", ".bashrc", "Slike/kljuci/id_ed25519", "Slike/../.ssh/id_ed25519"):
+            self.assertIsNone(self.m.razresi("disk:" + os.path.join(self.mapa, rel)), rel)
+        self.assertIsNotNone(self.m.razresi("disk:" + os.path.join(self.mapa, "Slike/a.jpg")))
 
 
 class Streznik(unittest.TestCase):
@@ -115,9 +138,8 @@ class Streznik(unittest.TestCase):
         self.assertEqual(telo, self.vsebina)
         self.assertEqual(gl["content-type"], "image/png")
         self.assertEqual(gl["accept-ranges"], "bytes")
-        # zeton tudi v poizvedbi (za predvajalnike, ki ne znajo glav)
-        st, _, telo, _ = self._zahteva("/d/share:0:slika.png?t=" + zeton)
-        self.assertEqual((st, len(telo)), (200, len(self.vsebina)))
+        # zeton samo v glavi: v naslovu (?t=) bi ostal v dnevnikih in zgodovini
+        self.assertEqual(self._zahteva("/d/share:0:slika.png?t=" + zeton)[0], 401)
         # obsegi
         st, gl, telo, _ = self._zahteva("/d/share:0:slika.png", glave={"X-Safeer-Token": zeton, "Range": "bytes=100-199"})
         self.assertEqual(st, 206)

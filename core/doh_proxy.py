@@ -97,6 +97,28 @@ def je_javni_naslov(naslov: str) -> bool:
     return True
 
 
+#: Imena, ki jih javni DNS ne pozna in vodijo v notranja omrezja (tudi metapodatki oblaka).
+NOTRANJA_IMENA = ("localhost", ".localhost", ".local", ".internal", ".home.arpa", ".lan")
+
+
+def je_dovoljen_doh_streznik(gostitelj: str) -> bool:
+    """Ali sme uporabnikov lastni DoH streznik biti na tem naslovu.
+
+    Domace omrezje je dovoljeno (Pi-hole ali AdGuard Home na usmerjevalniku), povratni,
+    povezavno-lokalni (metapodatki oblaka, 169.254.169.254) in posebni naslovi pa ne:
+    nastavitev ne sme postati pot do storitev, ki jih brskalnik sicer nikoli ne doseze."""
+    g = str(gostitelj or "").strip().strip("[]").rstrip(".").lower()
+    if not g:
+        return False
+    try:
+        ip = ipaddress.ip_address(g)
+    except ValueError:
+        return not (g == "localhost" or g.endswith(NOTRANJA_IMENA))
+    if ip.version == 6 and getattr(ip, "ipv4_mapped", None) is not None:
+        ip = ip.ipv4_mapped
+    return not (ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified)
+
+
 def je_dovoljena_vrata(vrata: int) -> bool:
     """True za vsa vrata, ki jih brskanje potrebuje; nevarna so zavrnjena."""
     try:
@@ -194,36 +216,46 @@ class DoHResolver:
 
     @staticmethod
     def _build_dns_wire_query(hostname: str) -> bytes:
-        header = b"\x00\x01\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00"
-        qname = bytearray()
-        for label in hostname.strip(".").split("."):
-            l_bytes = label.encode("ascii", errors="ignore")
-            qname.append(len(l_bytes))
-            qname.extend(l_bytes)
-        qname.append(0)
-        return header + bytes(qname) + b"\x00\x01\x00\x01"
+        """Poizvedba tipa A. ID je 0, kot priporoca RFC 8484 (DoH), odgovor pa preverimo po imenu.
+
+        Ime mora biti ze v obliki ASCII (IDNA, "xn--"): cesar ni mogoce zapisati, zavrnemo (ValueError),
+        namesto da bi tiho izpustili znake in vprasali za drugo ime."""
+        return b"\x00\x00\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00" + DoHResolver._ime_v_zapis(hostname) + b"\x00\x01\x00\x01"
 
     @staticmethod
-    def _parse_dns_wire_response(data: bytes) -> Tuple[Optional[str], int]:
+    def _ime_v_zapis(hostname: str) -> bytes:
+        oznake = str(hostname or "").strip().rstrip(".").split(".")
+        zapis = bytearray()
+        for oznaka in oznake:
+            b = oznaka.encode("ascii")  # UnicodeEncodeError je ValueError
+            if not b or len(b) > 63:
+                raise ValueError("neveljavno ime")
+            zapis.append(len(b))
+            zapis.extend(b)
+        zapis.append(0)
+        if len(zapis) > 255:
+            raise ValueError("predolgo ime")
+        return bytes(zapis)
+
+    @staticmethod
+    def _parse_dns_wire_response(data: bytes, hostname: str) -> Tuple[Optional[str], int]:
+        """IPv4 naslov iz odgovora - samo ce je odgovor res na nase vprasanje (ID 0, isto ime, tip A)."""
         if len(data) < 12 or not data[2] & 0x80 or data[2] & 0x02 or data[3] & 0x0f:
             return None, 300
         try:
-            qdcount = int.from_bytes(data[4:6], "big")
+            vprasanje = DoHResolver._ime_v_zapis(hostname) + b"\x00\x01\x00\x01"
+        except ValueError:
+            return None, 300
+        # Odgovor mora ponoviti nase vprasanje: en vnos, isto ime (velikost crk ni pomembna), tip A.
+        if (data[0:2] != b"\x00\x00" or int.from_bytes(data[4:6], "big") != 1
+                or data[12:12 + len(vprasanje)].lower() != vprasanje.lower()):
+            return None, 300
+        try:
             ancount = int.from_bytes(data[6:8], "big")
             if ancount == 0:
                 return None, 300
 
-            idx = 12
-            for _ in range(qdcount):
-                while idx < len(data) and data[idx] != 0:
-                    if data[idx] >= 192:
-                        idx += 2
-                        break
-                    idx += 1 + data[idx]
-                if idx < len(data) and data[idx] == 0:
-                    idx += 1
-                idx += 4
-
+            idx = 12 + len(vprasanje)
             for _ in range(ancount):
                 if idx >= len(data):
                     break
@@ -260,6 +292,8 @@ class DoHResolver:
         parsed = urllib.parse.urlsplit(base_url)
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
             return None, 15
+        if self.provider == "custom" and not je_dovoljen_doh_streznik(parsed.hostname):
+            return None, 15
         try:
             session = getattr(self._transport, "session", None)
             if session is None:
@@ -285,7 +319,7 @@ class DoHResolver:
                     data.extend(chunk)
                 if len(data) > 65535:
                     return None, 15
-                return self._parse_dns_wire_response(bytes(data))
+                return self._parse_dns_wire_response(bytes(data), hostname)
             finally:
                 stream.close(None)
         except Exception:

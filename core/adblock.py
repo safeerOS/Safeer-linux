@@ -875,6 +875,20 @@ AD_TRACKER_DOMAINS = {
 }
 
 
+def ascii_gostitelj(host: str) -> str:
+    """Ime gostitelja v obliki, v kateri so zapisani seznami: male crke, brez koncne pike, IDNA ("xn--").
+
+    Seznami imajo unicode imena zapisana kot xn--; brez tega "bаnka.si" (cirilicni "а") ne bi
+    ujel vnosa v seznamu. Ime, ki ga ni mogoce zapisati, ostane, kot je (ne ujema se z nicemer)."""
+    h = str(host or "").strip().lower().rstrip(".")
+    if h.isascii():
+        return h
+    try:
+        return h.encode("idna").decode("ascii")
+    except UnicodeError:
+        return h
+
+
 class ReverseDomainTrie:
     """High-performance O(k) reverse-label domain tree for sub-microsecond threat lookups."""
 
@@ -888,6 +902,7 @@ class ReverseDomainTrie:
         is_suffix = cleaned.startswith(".")
         if is_suffix:
             cleaned = cleaned[1:]
+        cleaned = ascii_gostitelj(cleaned)
         labels = [l for l in cleaned.split(".") if l]
         node = self.root
         for label in reversed(labels):
@@ -900,7 +915,7 @@ class ReverseDomainTrie:
     def is_blocked(self, host: str) -> bool:
         if not host:
             return False
-        labels = [l for l in host.lower().split(".") if l]
+        labels = [l for l in ascii_gostitelj(host).split(".") if l]
         node = self.root
         for label in reversed(labels):
             node = node.get(label)
@@ -931,7 +946,7 @@ def _url_host(url: str) -> str:
     except Exception:
         host = url.lower().strip()
 
-    return host
+    return ascii_gostitelj(host)
 
 
 _ad_trie = ReverseDomainTrie()

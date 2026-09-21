@@ -22,12 +22,15 @@ brskalniškega pogona, brez posodabljalnika v ozadju.
 **Krajevni ščit pred grožnjami.** Botnetni C2, gostitelji zlonamerne kode in lažno
 predstavljanje iz virov abuse.ch (Feodo Tracker, URLhaus, ThreatFox) in Phishing Army, ujeti
 lokalno v O(k) prek obrnjenega domenskega drevesa. Za to odločitev se o tvojem brskanju nikamor
-ne pošlje nič.
+ne pošlje nič. Seznam pride kot podpisan vir (Ed25519) po prvem zagonu; dokler ni prenesen,
+velja le majhen vgrajen zasilni seznam.
 
 **Blokirani oglasi in sledilci**, blokirani piškotki tretjih oseb, sledilni parametri
 odstranjeni iz povezav, brez telemetrije. Privzeti iskalnik je DuckDuckGo.
 
 **Šifriran DNS** prek HTTPS z delujočim HTTP/2 in brez tihega preklopa na navadni DNS ob napaki.
+Ponudnikoma, ki ju dosežemo po imenu (Quad9, AdGuard), se naslov strežnika enkrat poišče prek
+sistemskega DNS; Cloudflare in Google dosežemo po IP. Zaenkrat samo naslovi IPv4 (zapisi A).
 
 **Predvajanje v ozadju.** Glasba in podkasti tečejo naprej ob menjavi zavihkov, z dovolj nizko
 porabo procesorja, da prenosnik ostane tih.
@@ -71,11 +74,17 @@ flatpak install ./Safeer-Browser-<verzija>-x86_64.flatpak
 
 Ali pa v upravitelju datotek preprosto dvoklikni `.deb`.
 
+AppImage in Flatpak sta narejena samo za x86_64. Paket `.deb` ni vezan na arhitekturo (Python
+na sistemskem GTK in WebKit2GTK), a na ARM64 ni preizkušen ob vsaki izdaji.
+
 Preveri, kaj si prenesel, s `SHA256SUMS` iz iste izdaje:
 
 ```bash
 sha256sum -c --ignore-missing SHA256SUMS
 ```
+
+Vsote ujamejo poškodovan prenos. Še niso podpisane, zato ne varujejo pred nekom, ki bi lahko
+zamenjal datoteke v sami izdaji.
 
 **Safeer Control** — spremljevalna namizna aplikacija, ki ta računalnik poveže s telefonom ali
 televizorjem Safeer prek tvojega omrežja — je v isti izdaji kot
@@ -99,11 +108,6 @@ Testi:
 ```bash
 python3 -m unittest discover -s tests
 ```
-
-## Brez receptov za posamezne strani
-
-Safeer ne vsebuje prilagoditve, napisane za eno imenovano spletno stran. Kar zna, zna po tem,
-KAJ stran je, in ne po tem, kdo jo objavlja.
 
 ## Vzemi in predelaj
 

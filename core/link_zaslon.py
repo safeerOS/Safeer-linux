@@ -30,6 +30,7 @@ import time
 from typing import Dict, List, Optional
 
 from core.link_datoteke import TLS_MAPA, zagotovi_potrdilo
+from core.link_mediji import dogodek_v_tipko
 from core.link_plosek import Plosek
 from core.link_vnos import Vnos
 
@@ -328,7 +329,10 @@ class Zaslon:
                 # Igra: puscice daljinca morajo biti puscice, ne miska.
                 "game": self._cilj == "apps" and getattr(self.drugi, "zadnja_skupina", "") == "igre",
                 # Racunalnik zna skok po gumbih (dogodek "fokus"); starejsi Control tega ne zna.
-                "focus": self._cilj == "apps" and hasattr(self.drugi, "fokus")}
+                "focus": self._cilj == "apps" and hasattr(self.drugi, "fokus"),
+                # Predvajalnik: televizor ga upravlja kot predvajalnik in narise svoj pas za predvajanje.
+                "profile": getattr(self.drugi, "zadnji_profil", "") if self._cilj == "apps" else "",
+                "media": self._cilj == "apps" and hasattr(self.drugi, "mediji")}
 
     @staticmethod
     def _prilagodi(izvor, najvec_sirina, najvec_visina) -> tuple:
@@ -378,6 +382,9 @@ class Zaslon:
             if self._cilj == "apps" and self.drugi is not None:
                 niti.append(threading.Thread(target=self._strazi_prazno, args=(odjemalec, slika),
                                              name="safeer-zaslon-prazno", daemon=True))
+                if hasattr(self.drugi, "mediji"):
+                    niti.append(threading.Thread(target=self._porocaj_medij, args=(odjemalec, slika),
+                                                 name="safeer-zaslon-medij", daemon=True))
             for n in niti:
                 n.start()
             niti[0].join()          # dokler tece slika, tece seja
@@ -387,6 +394,12 @@ class Zaslon:
             self._povezan = False
             try:
                 if odjemalec is not None:
+                    # Najprej shutdown: druge niti (zvok, vnos) drzijo vticnico in sam close televizorju
+                    # ne bi poslal konca - ta bi gledal zamrznjeno sliko.
+                    try:
+                        odjemalec.shutdown(socket.SHUT_RDWR)
+                    except (OSError, ValueError):
+                        pass
                     odjemalec.close()
             except Exception:
                 pass
@@ -550,6 +563,9 @@ class Zaslon:
                         continue
                     if isinstance(dogodek, dict) and dogodek.get("vrsta") == "tocka":
                         dogodek = self._v_zaslon(dogodek)
+                    if isinstance(dogodek, dict) and dogodek.get("vrsta") == "medij":
+                        self._medij(odjemalec, dogodek)
+                        continue
                     tipkovnica = self._odpre_tipkovnico(dogodek)
                     f = self._fokus()
                     imel_izbiro = f is not None and f.izbira is not None
@@ -577,6 +593,41 @@ class Zaslon:
                 break
             zbrano += b
         return zbrano.decode("utf-8", "replace")
+
+    def _mediji(self):
+        return getattr(self.drugi, "mediji", None) if self._cilj == "apps" and self.drugi is not None else None
+
+    def _medij(self, odjemalec, dogodek: dict) -> None:
+        """Ukaz za predvajalnik (predvajaj/pavza, previj). Najprej MPRIS; kjer ga ni, tipka."""
+        m = self._mediji()
+        ukaz = str(dogodek.get("ukaz", "") or "")
+        try:
+            sekund = float(dogodek.get("s", 0) or 0)
+        except (TypeError, ValueError):
+            sekund = 0.0
+        if m is not None and m.ukaz(ukaz, sekund):
+            # Pas na televizorju naj takoj pokaze novo stanje, ne sele ob naslednjem porocilu.
+            stanje = m.stanje()
+            if stanje is not None:
+                self._obvesti(odjemalec, {"medij": stanje})
+            return
+        tipka = dogodek_v_tipko(dogodek)
+        if tipka is not None:
+            self._vnos.izvedi(tipka)
+
+    def _porocaj_medij(self, odjemalec, slika: subprocess.Popen) -> None:
+        """Vsako sekundo: stanje predvajalnika na locenem zaslonu (samo ko se spremeni)."""
+        zadnje: Optional[dict] = None
+        poslano = False
+        while self._proces is slika and slika.poll() is None:
+            m = self._mediji()
+            stanje = m.stanje() if m is not None else None
+            if stanje != zadnje or not poslano:
+                if stanje is not None or poslano:
+                    self._obvesti(odjemalec, {"medij": stanje})
+                    poslano = True
+                zadnje = stanje
+            time.sleep(1.0)
 
     def _plosek_dogodek(self, dogodek: dict) -> bool:
         """Gumb ali os igralnega plosecka s televizorja. Vse drugo pusti vnosu (tipke, miska)."""

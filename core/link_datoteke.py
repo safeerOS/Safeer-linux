@@ -14,6 +14,7 @@ izbrane mape (simbolne povezave navzven ne pridejo skozi), skrite datoteke se ne
 from __future__ import annotations
 
 import hashlib
+import hmac
 import http.server
 import json
 import mimetypes
@@ -50,6 +51,13 @@ def vrsta_datoteke(ime: str) -> str:
         if k in koncnice:
             return vrsta
     return "file"
+
+
+def _skrita(pot: str) -> bool:
+    """Ali pot vodi skozi skrito mapo ali do skrite datoteke (`.ssh`, `.gnupg`, `.mozilla` ...).
+
+    Seznam jih ne kaze; tudi ce naprava ime ugane, jih ne damo: tam so kljuci, gesla in piskotki."""
+    return any(del_.startswith(".") for del_ in pot.replace(os.sep, "/").split("/") if del_)
 
 
 class DeljeneMape:
@@ -96,6 +104,8 @@ class DeljeneMape:
             if not self.ves_disk:
                 return None
             pot = os.path.realpath(oznaka[len("disk:"):] or "/")
+            if _skrita(pot):
+                return None
             return (-1, pot) if os.path.exists(pot) else None
         deli = str(oznaka or "").split(":", 2)
         if len(deli) != 3 or deli[0] != "share":
@@ -108,6 +118,8 @@ class DeljeneMape:
         rel = deli[2].replace("\\", "/").lstrip("/")
         pot = os.path.realpath(os.path.join(koren, rel)) if rel else koren
         if pot != koren and not pot.startswith(koren + os.sep):
+            return None
+        if pot != koren and _skrita(os.path.relpath(pot, koren)):
             return None
         return (i, pot) if os.path.exists(pot) else None
 
@@ -223,11 +235,9 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
         return
 
     def _zeton(self) -> Optional[str]:
+        # Samo glava: zeton v naslovu (?t=) bi ostal v dnevnikih, zgodovini in glavi Referer.
         z = self.headers.get("X-Safeer-Token")
-        if z:
-            return z.strip()
-        q = urllib.parse.urlparse(self.path).query
-        return (urllib.parse.parse_qs(q).get("t") or [None])[0]
+        return z.strip() if z else None
 
     def do_HEAD(self):  # noqa: N802
         self._datoteka(samo_glava=True)
@@ -401,7 +411,8 @@ class StreznikDatotek:
         return z
 
     def zeton_velja(self, zeton: Optional[str]) -> bool:
-        return bool(zeton) and zeton in self._zetoni
+        # Primerjava v stalnem casu: iz casa odgovora se ne da uganiti, koliko znakov se ujema.
+        return bool(zeton) and any(hmac.compare_digest(zeton.encode(), z.encode()) for z in list(self._zetoni))
 
     def osnova(self, naslov_racunalnika: str) -> str:
         return f"https://{naslov_racunalnika}:{self.vrata}"

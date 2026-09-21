@@ -80,6 +80,19 @@ class Vrtenje(unittest.TestCase):
             link_urejanje.zavrti(os.path.join(self.mapa, "ni.jpg"), 90)
 
     @unittest.skipIf(Image is None, "Pillow ni namescen")
+    def test_dekompresijska_bomba_se_ne_dekodira(self):
+        p = os.path.join(self.mapa, "bomba.png")
+        Image.new("1", (64, 64)).save(p)
+        with mock.patch.object(link_urejanje, "NAJVEC_PIK", 64 * 64 - 1):
+            with self.assertRaises(link_urejanje.NapakaUrejanja) as e:
+                link_urejanje.zavrti(p, 90)
+        self.assertEqual(str(e.exception), "prevelika")
+        with mock.patch.object(link_urejanje, "NAJVEC_BAJTOV_SLIKE", 10):
+            with self.assertRaises(link_urejanje.NapakaUrejanja):
+                link_urejanje.zavrti(p, 90)
+        self.assertEqual(link_urejanje.zavrti(p, 90), "pillow")  # v mejah dela naprej
+
+    @unittest.skipIf(Image is None, "Pillow ni namescen")
     def test_pillow_png_in_jpeg_brez_exifa(self):
         p = os.path.join(self.mapa, "slika.png")
         s = Image.new("RGB", (4, 2), "white")

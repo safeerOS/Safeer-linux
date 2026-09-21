@@ -34,7 +34,10 @@ import time
 import urllib.error
 import urllib.request
 from array import array
+from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
+
+from core.signed_feed import _atomic_write, isti_gostitelj
 
 NASLOV = "127.0.0.1"
 VRATA = (5354, 5355, 5356, 5357)
@@ -70,6 +73,16 @@ PONOVNI_POSKUS = 30 * 60.0
 #: Imena, ki jih Scit nikoli ne blokira: domace omrezje in Safeer sam.
 NIKOLI = ("localhost", "safeer.si")
 NIKOLI_KONCNICE = (".local", ".lan", ".home", ".arpa", ".internal", ".safeer.si")
+#: Posodobitve sistema in Safeerja: pot do popravka mora ostati odprta, tudi ce bi seznam s
+#: preusmeritvijo ali okvaro na CDN-ju dobil napacne vnose. Velja tudi za poddomene (zrcala).
+POSODOBITVE = ("archive.ubuntu.com", "security.ubuntu.com", "ports.ubuntu.com", "ppa.launchpadcontent.net",
+               "packages.linuxmint.com", "deb.debian.org", "security.debian.org", "flathub.org",
+               "github.com", "api.github.com", "objects.githubusercontent.com",
+               "release-assets.githubusercontent.com")
+
+
+def je_posodobitev(ime: str) -> bool:
+    return any(ime == d or ime.endswith("." + d) for d in POSODOBITVE)
 
 
 def _zazeni(ukaz: List[str], cas: float = 8.0) -> Tuple[int, str]:
@@ -357,8 +370,8 @@ def prenesi(url: str, etag: str, cas: float = 60.0) -> Tuple[int, bytes, str]:
         z.add_header("If-None-Match", etag)
     try:
         with urllib.request.urlopen(z, timeout=cas) as o:  # noqa: S310 - fiksni naslovi https
-            if not o.geturl().lower().startswith("https://"):
-                return 0, b"", etag
+            if not o.geturl().lower().startswith("https://") or not isti_gostitelj(url, o.geturl()):
+                return 0, b"", etag  # preusmeritev drugam: seznama ne vzamemo, ostane prejsnji
             return o.status, o.read(NAJVEC_BAJTOV + 1), o.headers.get("ETag", "") or ""
     except urllib.error.HTTPError as e:
         if e.code == 304:
@@ -453,10 +466,7 @@ class Seznami:
             if domen < (NAJMANJ_DOMEN if oznaka.startswith("hagezi") else 1):
                 napake.append("%s: %d domen" % (oznaka, domen))
                 continue
-            zacasna = os.path.join(self.mapa, oznaka + ".tmp")
-            with open(zacasna, "wb") as f:
-                f.write(telo)
-            os.replace(zacasna, os.path.join(self.mapa, oznaka + ".txt"))
+            _atomic_write(Path(self.mapa, oznaka + ".txt"), telo)
             self.meta[oznaka] = {"etag": etag, "cas": time.time(), "domen": domen}
             spremenjeno = True
         if spremenjeno or not len(self.nabor):
@@ -491,7 +501,7 @@ class Seznami:
 
     # -- preverjanje
     def kategorija(self, ime: str) -> Optional[str]:
-        if not ime or "." not in ime or ime in NIKOLI or ime.endswith(NIKOLI_KONCNICE):
+        if not ime or "." not in ime or ime in NIKOLI or ime.endswith(NIKOLI_KONCNICE) or je_posodobitev(ime):
             return None
         with self._kljuc:
             k = self.nabor.kategorija(ime)

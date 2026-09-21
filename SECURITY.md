@@ -52,6 +52,9 @@ downloaded against it before installing:
 sha256sum -c SHA256SUMS --ignore-missing
 ```
 
+The checksum file is not signed yet: it catches a damaged download, not a release whose files
+were replaced together with the checksums. Signed checksums are planned.
+
 Android packages are signed; the signing key does not change between versions, so an
 update that will not install over an existing one is a signal worth reporting.
 
