@@ -796,9 +796,11 @@ class SafeerControl(Gtk.Application):
             except Exception as e:  # noqa: BLE001
                 print(f"[SafeerControl] Naslova ni bilo mogoče odpreti: {e}")
 
-    # Okno gledalca: dotik, poteg in tipke z miske in tipkovnice gredo na napravo, katere zaslon gledamo
-    # (Safeer Vnos na tablici). Slika je v <img id="zaslon"> z object-fit: contain; koordinate
-    # preracunamo v delez prave slike, da sirina okna ali crni robovi ne zamaknejo dotika.
+    # Okno gledalca: miska in tipkovnica gredo na napravo, katere zaslon gledamo (Safeer Vnos).
+    # Slika je v <img id="zaslon"> z object-fit: contain; koordinate preracunamo v delez prave slike,
+    # da sirina okna ali crni robovi ne zamaknejo dotika. Tu posljemo pomen (puscica, Enter, kolesce),
+    # naprava pa ga prilagodi sebi in aplikaciji: v besedilnem polju premakne kazalec, drugje fokus,
+    # na televizorju kolesce premika fokus namesto potega (VnosStoritev na napravi).
     GLEDALEC_VNOS_JS = r"""
 (function () {
   function poslji(d, p) {
@@ -815,9 +817,16 @@ class SafeerControl(Gtk.Application):
     return {x: fx, y: fy};
   }
   var zacetek = null, cas = 0, tipkano = "", casovnik = null;
+  var kolesce = 0, kolescePoz = null, kolesceCas = null;
+  // Natipkano gre v paketu (manj sporocil); pred vsako drugo tipko ga posljemo, da vrstni red drzi.
+  function izprazni() {
+    if (casovnik) { clearTimeout(casovnik); casovnik = null; }
+    if (tipkano) { poslji("input.text", {text: tipkano}); tipkano = ""; }
+  }
   document.addEventListener("mousedown", function (e) {
     var img = document.getElementById("zaslon");
     if (!img || e.button !== 0) return;
+    izprazni();
     zacetek = delez(img, e.clientX, e.clientY); cas = Date.now();
     e.preventDefault();
   }, true);
@@ -838,18 +847,37 @@ class SafeerControl(Gtk.Application):
     if (!img) return;
     var t = delez(img, e.clientX, e.clientY);
     if (!t) return;
-    var dy = e.deltaY > 0 ? -0.25 : 0.25;
-    poslji("input.swipe", {x1: t.x, y1: t.y, x2: t.x, y2: Math.max(0, Math.min(1, t.y + dy)), ms: 250});
     e.preventDefault();
+    if (window.safeerKolesceStaro) {
+      // Starejsa naprava ne pozna input.scroll: kot prej, s potegom.
+      var dy = e.deltaY > 0 ? -0.25 : 0.25;
+      poslji("input.swipe", {x1: t.x, y1: t.y, x2: t.x, y2: Math.max(0, Math.min(1, t.y + dy)), ms: 250});
+      return;
+    }
+    // Hitro vrtenje zdruzimo v en pomik z vec koraki: sicer bi se potegi prekrivali.
+    kolesce += e.deltaY > 0 ? 1 : (e.deltaY < 0 ? -1 : 0);
+    kolescePoz = t;
+    if (!kolesceCas) kolesceCas = setTimeout(function () {
+      var n = kolesce; kolesce = 0; kolesceCas = null;
+      if (n) poslji("input.scroll", {x: kolescePoz.x, y: kolescePoz.y, steps: n});
+    }, 90);
   }, {capture: true, passive: false});
-  document.addEventListener("contextmenu", function (e) { e.preventDefault(); poslji("input.key", {key: "back"}); }, true);
+  document.addEventListener("contextmenu", function (e) { e.preventDefault(); izprazni(); poslji("input.key", {key: "back"}); }, true);
+  var TIPKE = {ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", Enter: "enter",
+               Backspace: "backspace", Delete: "delete", Escape: "back", BrowserBack: "back", Home: "home"};
   document.addEventListener("keydown", function (e) {
-    if (e.key === "Escape" || e.key === "BrowserBack") { poslji("input.key", {key: "back"}); e.preventDefault(); return; }
-    if (e.key === "Home") { poslji("input.key", {key: "home"}); e.preventDefault(); return; }
+    if ((e.ctrlKey || e.metaKey) && (e.key === "v" || e.key === "V")) {
+      izprazni(); poslji("input.paste", {}); e.preventDefault(); return;
+    }
+    var k = TIPKE[e.key];
+    if (k && !e.ctrlKey && !e.altKey && !e.metaKey) { izprazni(); poslji("input.key", {key: k}); e.preventDefault(); return; }
+    if (e.key === "PageDown" || e.key === "PageUp") {
+      izprazni(); poslji("input.scroll", {x: 0.5, y: 0.5, steps: e.key === "PageDown" ? 5 : -5}); e.preventDefault(); return;
+    }
     if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
       tipkano += e.key; e.preventDefault();
       clearTimeout(casovnik);
-      casovnik = setTimeout(function () { if (tipkano) poslji("input.text", {text: tipkano}); tipkano = ""; }, 250);
+      casovnik = setTimeout(izprazni, 250);
     }
   }, true);
 })();
@@ -896,12 +924,28 @@ class SafeerControl(Gtk.Application):
             parametri = sporocilo.get("p") if isinstance(sporocilo.get("p"), dict) else {}
         except Exception:
             return
-        if self.link is not None and dejanje.startswith("input."):
+        if self.link is None:
+            return
+        if dejanje == "input.paste":
+            # Ctrl+V: besedilo z odlozisca racunalnika v polje na napravi.
+            def prilepi(_odlozisce, besedilo):
+                if besedilo and self.link is not None:
+                    self.link.poslji_vnos("input.text", {"text": besedilo[:2000]})
+            Gtk.Clipboard.get_default(self.gledalec.get_display()).request_text(prilepi)
+            return
+        if dejanje.startswith("input."):
             self.link.poslji_vnos(dejanje, parametri)
 
     def _odziv_vnosa(self, odziv: dict) -> None:
         """Naprava vnosa ne sprejme: v naslovu okna povemo, kaj naj uporabnik naredi (enkrat)."""
         if self.gledalec is None:
+            return
+        if odziv.get("koda") == "neznano_dejanje":
+            # Starejsa naprava ne pozna kolesca (input.scroll): v tem oknu pomikamo s potegom kot prej.
+            try:
+                self.gledalec.get_child().run_javascript("window.safeerKolesceStaro = true;", None, None, None)
+            except Exception:
+                pass
             return
         if odziv.get("ok"):
             self.gledalec.set_title("Safeer Control — zaslon")

@@ -138,8 +138,17 @@ class Fokus:
         okno = self._okno()
         if okno is None:
             return ""
-        from core.link_sway import _je_brskalnik
-        return "brskalnik" if _je_brskalnik(okno[0]) else ""
+        from core.link_sway import _je_spletni_brskalnik
+        return "brskalnik" if _je_spletni_brskalnik(okno[0]) else ""
+
+    def brskalnik_na_strani(self) -> bool:
+        """V ospredju je brskalnik, ki ne kaze nicesar cez cel zaslon (video): tam Nazaj pomeni
+        prejsnjo stran. Cez cel zaslon Nazaj ostane Escape - to video vrne v okno."""
+        n = self._v_ospredju()
+        if n is None or n.get("fullscreen_mode"):
+            return False
+        from core.link_sway import _je_spletni_brskalnik
+        return _je_spletni_brskalnik(int(n["pid"]))
 
     def pozabi(self) -> None:
         """Po kliku se okno lahko spremeni: naslednji pritisk prebere elemente znova."""
@@ -148,6 +157,15 @@ class Fokus:
     # ------------------------------------------------------------------ okno in elementi
     def _okno(self) -> Optional[Tuple[int, int, int, int, int]]:
         """(pid, x, y, sirina, visina) okna v ospredju na drugem zaslonu."""
+        n = self._v_ospredju()
+        if n is None:
+            return None
+        r, w = n.get("rect") or {}, n.get("window_rect") or {}
+        return (int(n["pid"]), int(r.get("x", 0)) + int(w.get("x", 0)), int(r.get("y", 0)) + int(w.get("y", 0)),
+                int(w.get("width", r.get("width", 0))), int(w.get("height", r.get("height", 0))))
+
+    def _v_ospredju(self) -> Optional[dict]:
+        """Vozlisce sway okna v ospredju na drugem zaslonu (ali None)."""
         try:
             drevo = json.loads(self.drugi._msg([], "get_tree") or "{}")
         except ValueError:
@@ -160,12 +178,7 @@ class Fokus:
             for o in n.get("nodes", []) + n.get("floating_nodes", []):
                 hodi(o)
         hodi(drevo)
-        if not najdeno:
-            return None
-        n = najdeno[0]
-        r, w = n.get("rect") or {}, n.get("window_rect") or {}
-        return (int(n["pid"]), int(r.get("x", 0)) + int(w.get("x", 0)), int(r.get("y", 0)) + int(w.get("y", 0)),
-                int(w.get("width", r.get("width", 0))), int(w.get("height", r.get("height", 0))))
+        return najdeno[0] if najdeno else None
 
     def _elementi(self, okno) -> List[Element]:
         zdaj = time.monotonic()

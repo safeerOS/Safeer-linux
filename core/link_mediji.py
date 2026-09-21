@@ -19,6 +19,14 @@ from typing import Callable, Dict, Iterable, List, Optional
 
 #: Profil programa, ki ga racunalnik javi televizorju v `screen.start`.
 PROFIL_PREDVAJALNIK = "predvajalnik"
+#: Program za televizor (Kodi, Plex HTPC): narejen za daljinec, zato dobi tipke, ne kazalca in ne
+#: pasu predvajalnika - ima svoj meni, po katerem se premikas s puscicami.
+PROFIL_TV = "tv"
+#: Imena vnosov/programov za televizor (v imenu datoteke .desktop ali ukazu, male crke).
+PROGRAMI_ZA_TV = ("kodi", "plexhtpc", "plex-htpc")
+#: Koliko casa ima predvajalnik po zagonu, da se oglasi na MPRIS; sicer televizor ne ostane v
+#: nacinu predvajalnika (Hypnotix, mpv brez MPRIS: OK bi bil presledek, seznam kanalov neuporaben).
+CAKAJ_MPRIS_S = 8.0
 
 #: Kategorije XDG, po katerih program ni predvajalnik, ceprav je "AudioVideo" (urejevalniki, snemalniki).
 NI_PREDVAJALNIK = {"AudioVideoEditing", "Recorder", "Mixer", "Sequencer", "Midi", "Graphics",
@@ -48,6 +56,14 @@ def je_predvajalnik(kategorije: Iterable[str]) -> bool:
         return True
     # Nastavitve kamere (Cameractrls) so "AudioVideo;Video", pa niso predvajalnik.
     return "AudioVideo" in k and bool(k & {"Video", "TV"}) and not (k & NI_PREDVAJALNIK)
+
+
+def profil_programa(kategorije: Iterable[str], ime_vnosa: str = "", ukaz: str = "") -> str:
+    """Kako naj televizor upravlja program: "tv", "predvajalnik" ali "" (kazalec/tipke po izbiri)."""
+    oznaka = (os.path.basename(str(ime_vnosa or "")) + " " + os.path.basename(str(ukaz or "").split(" ")[0])).lower()
+    if any(p in oznaka for p in PROGRAMI_ZA_TV):
+        return PROFIL_TV
+    return PROFIL_PREDVAJALNIK if je_predvajalnik(kategorije) else ""
 
 
 def je_potomec(pid: int, prednik: int, starsi: Callable[[int], int]) -> bool:

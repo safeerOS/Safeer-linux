@@ -24,7 +24,7 @@ import signal
 import subprocess
 from typing import Dict, List, Optional
 
-from core.link_mediji import PROFIL_PREDVAJALNIK, je_predvajalnik
+from core.link_mediji import profil_programa
 
 NAJVEC = 200
 IKONA_VELIKOST = 128
@@ -193,7 +193,7 @@ class Programi:
             return None
         return {"pot": pot, "ime": ime, "opis": _vrednost(vnos, "Comment").strip(),
                 "ikona": (vnos.get("Icon", "") or "").strip(), "skupina": skupina(kategorije),
-                "predvajalnik": je_predvajalnik(kategorije)}
+                "profil": profil_programa(kategorije, pot, vnos.get("Exec", "") or "")}
 
     # ------------------------------------------------------------------ za Safeer Link
     def seznam(self, z_ikonami: bool = True, od: int = 0, koliko: int = 0) -> dict:
@@ -261,8 +261,8 @@ class Programi:
             # Na drugi zaslon ukaz iz vnosa pozenemo neposredno: `gio launch` bi program z D-Bus
             # zagonom odprl na uporabnikovem zaslonu, mimo drugega.
             self.drugi.zadnja_skupina = vnos.get("skupina", "")
-            # Predvajalnik: televizor ga upravlja kot predvajalnik (OK pavza, levo/desno previjanje).
-            self.drugi.zadnji_profil = PROFIL_PREDVAJALNIK if vnos.get("predvajalnik") else ""
+            # Predvajalnik (OK pavza, levo/desno previjanje) ali program za televizor (tipke).
+            self.drugi.zadnji_profil = vnos.get("profil", "")
             # Ce program na drugem zaslonu ze tece, ga samo pokazemo - drugo okno bi bilo odvec.
             if self.drugi.pokazi(self._procesi(self._iskani_vzorci(ime))):
                 return True
