@@ -30,7 +30,7 @@ import time
 from typing import Dict, List, Optional
 
 from core.link_datoteke import TLS_MAPA, zagotovi_potrdilo
-from core.link_mediji import dogodek_v_tipko
+from core.link_mediji import CAKAJ_MPRIS_S, dogodek_v_tipko
 from core.link_plosek import Plosek
 from core.link_vnos import Vnos
 
@@ -619,9 +619,16 @@ class Zaslon:
         """Vsako sekundo: stanje predvajalnika na locenem zaslonu (samo ko se spremeni)."""
         zadnje: Optional[dict] = None
         poslano = False
+        zacetek, najden = time.monotonic(), False
         while self._proces is slika and slika.poll() is None:
             m = self._mediji()
             stanje = m.stanje() if m is not None else None
+            if stanje is not None:
+                najden = True
+            elif not najden and time.monotonic() - zacetek > CAKAJ_MPRIS_S:
+                # Predvajalnik se ni oglasil na MPRIS: televizor naj ne ostane v nacinu predvajalnika.
+                najden = True
+                self._obvesti(odjemalec, {"mpris": False})
             if stanje != zadnje or not poslano:
                 if stanje is not None or poslano:
                     self._obvesti(odjemalec, {"medij": stanje})

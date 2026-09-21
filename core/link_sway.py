@@ -345,7 +345,11 @@ class SwayVnos:
         vrsta = str(dogodek.get("vrsta", "") or "")
         ok = False
         if vrsta == "tipka":
-            kode = self._kode(str(dogodek.get("tipka", "") or ""))
+            oznaka = str(dogodek.get("tipka", "") or "")
+            if oznaka.strip().lower() == "nazaj" and self.drugi.fokus.brskalnik_na_strani():
+                # Nazaj na daljincu v brskalniku: prejsnja stran, kot v brskalniku na televizorju.
+                oznaka = "brskalnik_nazaj"
+            kode = self._kode(oznaka)
             if kode:
                 for k in kode:
                     self._tipko(k, True)
@@ -541,18 +545,26 @@ BARVE_BRSKALNIK = {"rdeca": "brskalnik_nazaj", "zelena": "brskalnik_naprej",
 KORAK_KAZALCA = 24
 
 BRSKALNIKI = ("brave", "chrome", "chromium", "msedge", "microsoft-edge", "vivaldi", "opera")
+#: Druzina Firefox: ni med BRSKALNIKI (ti dobijo zastavice Chromiuma in se ob koncu seje zaprejo
+#: posebej), je pa spletni brskalnik - barvne tipke in Nazaj v njem delujejo enako.
+FIREFOXI = ("firefox", "librewolf", "waterfox", "floorp")
 
 
-def _ime_brskalnika(pot: str) -> bool:
+def _ime_brskalnika(pot: str, imena=BRSKALNIKI) -> bool:
     ime = os.path.basename(str(pot or "")).lower()
-    return any(b in ime for b in BRSKALNIKI)
+    return any(b in ime for b in imena)
 
 
-def _je_brskalnik(pid: int) -> bool:
+def _je_spletni_brskalnik(pid: int) -> bool:
+    """Katerikoli spletni brskalnik (Chromium ali Firefox) - za profil daljinca."""
+    return _je_brskalnik(pid, BRSKALNIKI + FIREFOXI)
+
+
+def _je_brskalnik(pid: int, imena=BRSKALNIKI) -> bool:
     # Chromium si ukazno vrstico prepise v en niz s presledki, zato najprej pogledamo izvrsljivo
     # datoteko, sele nato prvo besedo ukazne vrstice.
     try:
-        if _ime_brskalnika(os.readlink("/proc/%d/exe" % pid)):
+        if _ime_brskalnika(os.readlink("/proc/%d/exe" % pid), imena):
             return True
     except OSError:
         pass
@@ -561,7 +573,7 @@ def _je_brskalnik(pid: int) -> bool:
             prvi = f.read().split(b"\0")[0].decode("utf-8", "replace").split(" ")[0]
     except OSError:
         return False
-    return _ime_brskalnika(prvi)
+    return _ime_brskalnika(prvi, imena)
 
 
 def _pidi_na_namizju() -> Optional[set]:

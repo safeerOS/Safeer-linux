@@ -8,6 +8,16 @@ from core.link_vnos import TIPKE
 
 
 class Profil(unittest.TestCase):
+    def test_profil_programa(self):
+        P = link_mediji.profil_programa
+        vlc = {"AudioVideo", "Player", "Recorder"}
+        self.assertEqual(P(vlc, "/usr/share/applications/vlc.desktop", "/usr/bin/vlc %U"), "predvajalnik")
+        # Kodi ima kategorije predvajalnika, a je narejen za daljinec: tipke, ne pas predvajalnika.
+        self.assertEqual(P({"AudioVideo", "Video", "Player", "TV"}, "/usr/share/applications/kodi.desktop", "kodi"), "tv")
+        self.assertEqual(P({"AudioVideo"}, "tv.plex.PlexHTPC.desktop", "/usr/bin/flatpak run tv.plex.PlexHTPC"), "tv")
+        self.assertEqual(P({"Network", "WebBrowser"}, "firefox.desktop", "firefox %u"), "")
+        self.assertEqual(P(None), "")
+
     def test_predvajalniki(self):
         self.assertTrue(je_predvajalnik({"AudioVideo", "Player", "Recorder"}))      # VLC
         self.assertTrue(je_predvajalnik({"GTK", "AudioVideo", "Video", "Player"}))  # Celluloid
