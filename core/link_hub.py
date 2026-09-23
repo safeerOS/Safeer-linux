@@ -105,14 +105,16 @@ class Nastavitve:
     def __init__(self, pot: str = NASTAVITVE_POT) -> None:
         self.pot = pot
         self.podatki: Dict[str, object] = {}
-        self.naloži()
+        self.nalozi()
 
-    def naloži(self) -> None:
+    def nalozi(self) -> None:
         try:
             with open(self.pot, "r", encoding="utf-8") as d:
                 self.podatki = json.load(d)
         except Exception:
             self.podatki = {}
+
+    naloži = nalozi  # staro ime s sumnikom; jedro uporablja ASCII
 
     def shrani(self) -> None:
         try:
@@ -1033,7 +1035,7 @@ class Povezava:
         self.tece = True
         return True
 
-    def poveži(self) -> bool:
+    def povezi(self) -> bool:
         """Prvi poskus. Ce uspe, povezavo od tu naprej vzdrzujemo sami."""
         self._ustavljen = False
         self._budilka.clear()
@@ -1048,6 +1050,8 @@ class Povezava:
         if self.ob_stanju:
             self.ob_stanju(True)
         return True
+
+    poveži = povezi  # staro ime s sumnikom; jedro uporablja ASCII
 
     def _cakaj(self, sekunde: float) -> bool:
         """Prekinljivo cakanje. Vrne True, ce je medtem prislo zaprtje."""
