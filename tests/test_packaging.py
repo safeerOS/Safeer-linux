@@ -30,6 +30,7 @@ class PackagingTests(unittest.TestCase):
                                   cwd=tempfile.gettempdir(),env=environment)
             self.assertEqual(result.returncode,0,result.stderr[-800:])
             self.assertIn('SafeerControl',result.stdout)
+            self.assertTrue((lib/'assets/link/link.js').stat().st_mode & 0o004)
 
     def test_os_payload_can_actually_start(self):
         """Namesceni Safeer OS (Linux) mora biti uvozljiv brez izvorne mape - isti nauk kot pri Controlu:
@@ -48,6 +49,7 @@ class PackagingTests(unittest.TestCase):
             self.assertIn((ROOT/'packaging/VERSION_OS').read_text().strip(),result.stdout)
             subprocess.run(['desktop-file-validate',str(prefix/'share/applications/safeer-os.desktop')],check=True)
             self.assertTrue((lib/'assets/os/index.html').exists())
+            self.assertTrue((lib/'assets/os/index.html').stat().st_mode & 0o004)
 
     def test_xdg_config_and_ipc_use_same_profile(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -92,4 +94,3 @@ class PackagingTests(unittest.TestCase):
                     result=subprocess.run([shell,'-c',body.replace('/usr/bin/','/nonexistent/').replace('/usr/sbin/','/nonexistent/'),name,action],
                                           env={'PATH':directory},capture_output=True,text=True)
                     self.assertEqual(result.returncode,0,(name,action,result.stderr))
-

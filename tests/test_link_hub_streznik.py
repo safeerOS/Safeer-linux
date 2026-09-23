@@ -10,6 +10,7 @@ import unittest
 from unittest import mock
 
 from core import link_hub_streznik, link_krog
+from core.spake2 import Spake2
 
 
 class LaznaPovezava:
@@ -184,9 +185,9 @@ class PrijavaSPodpisom(unittest.TestCase):
             odgovor = self.hub.vstopnica_s_podpisom("n-0123456789abcdef", izziv["nonce"], podpis)
         self.assertIsNotNone(odgovor)
         self.assertTrue(odgovor["ticket"])
+        self.assertTrue(odgovor["session_token"], "podpisana naprava potrebuje tudi HTTP sejo")
         self.assertEqual(odgovor["fp"], "ab" * 32, "odtis je vedno z malimi crkami")
         self.assertIn("ring", odgovor, "naprava mora dobiti krog, da pozna ostale")
-
     def test_vstopnica_velja_enkrat(self):
         izziv, podpis = self._izziv_in_podpis()
         with mock.patch.object(link_krog, "krog") as k:
@@ -226,6 +227,63 @@ class PrijavaSPodpisom(unittest.TestCase):
         with mock.patch.object(link_krog, "krog") as k:
             k.return_value.clan_za_id.return_value = self.clan
             self.assertIsNone(self.hub.vstopnica_s_podpisom("n-ffffffffffffffff", izziv["nonce"], podpis))
+
+
+class Seznanitev(unittest.TestCase):
+    def setUp(self):
+        self.odtis = "ab" * 32
+        self.hub = link_hub_streznik.Hub(odtis=self.odtis)
+
+    def test_sestmestna_koda_spake2_izda_zeton(self):
+        zacetek = self.hub.zacni_seznanitev("telefon-1", "Telefon")
+        self.assertIsNotNone(zacetek)
+        pair_id = zacetek["pair_id"]
+        koda = self.hub._prijave[pair_id]["pin"]
+        self.assertRegex(koda, r"^\d{6}$")
+        odjemalec = Spake2.odjemalec(koda, "telefon-1", link_hub_streznik.IDENTITETA_HUBA,
+                                     self.odtis.encode(), pair_id.encode())
+        pa, ca, napaka = self.hub.spake_korak1(pair_id, "telefon-1", odjemalec.sporocilo())
+        self.assertIsNone(napaka)
+        _kljuc, cb = odjemalec.zakljuci(pa)
+        self.assertTrue(odjemalec.preveri(ca))
+        zeton, napaka = self.hub.spake_korak2(pair_id, "telefon-1", cb)
+        self.assertIsNone(napaka)
+        self.assertTrue(zeton.startswith("saf_pc_"))
+        self.assertEqual(self.hub.naprava_zetona(zeton), ("telefon-1", "Telefon"))
+        self.assertNotIn(pair_id, self.hub._prijave)
+
+    def test_napacna_koda_ne_izda_zetona(self):
+        zacetek = self.hub.zacni_seznanitev("telefon-2", "Telefon")
+        pair_id = zacetek["pair_id"]
+        odjemalec = Spake2.odjemalec("000000", "telefon-2", link_hub_streznik.IDENTITETA_HUBA,
+                                     self.odtis.encode(), pair_id.encode())
+        pa, _ca, napaka = self.hub.spake_korak1(pair_id, "telefon-2", odjemalec.sporocilo())
+        self.assertIsNone(napaka)
+        _kljuc, cb = odjemalec.zakljuci(pa)
+        zeton, napaka = self.hub.spake_korak2(pair_id, "telefon-2", cb)
+        self.assertIsNone(zeton)
+        self.assertEqual(napaka, "napacna_koda")
+
+    def test_qr_vabilo_pokaze_kdo_se_je_pridruzil(self):
+        qr_id, skrivnost = self.hub.ustvari_pridruzitev()
+        self.assertTrue(self.hub.stanje_pridruzitve(qr_id)["pending"])
+        zeton, napaka = self.hub.pridruzi(qr_id, skrivnost, "tablica-1", "Tablica")
+        self.assertIsNone(napaka)
+        self.assertTrue(zeton)
+        stanje = self.hub.stanje_pridruzitve(qr_id)
+        self.assertFalse(stanje["pending"])
+        self.assertTrue(stanje["joined"])
+        self.assertEqual(stanje["name"], "Tablica")
+
+    def test_sorodni_program_dobi_svoj_zeton(self):
+        with self.hub._zaklep:
+            prvi = self.hub._nov_zeton("n-primer", "Safeer Browser")
+        drugi, napaka = self.hub.sorodni_zeton(prvi, "n-primer-control", "Safeer Control")
+        self.assertIsNone(napaka)
+        self.assertEqual(self.hub.naprava_zetona(drugi), ("n-primer-control", "Safeer Control"))
+        zavrnjen, napaka = self.hub.sorodni_zeton(prvi, "tuja-naprava", "Tujec")
+        self.assertIsNone(zavrnjen)
+        self.assertEqual(napaka, "ni_sorodnik")
 
 
 class Zdravje(unittest.TestCase):

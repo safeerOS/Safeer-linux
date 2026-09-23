@@ -2874,7 +2874,15 @@
       prijava.qr = false;
       zacniPrijavo();
     });
-    naKlik("gumbPrijavaKoda", posljiKodo);
+    naKlik("gumbPrijavaKoda", function () {
+      // Prazen klik pomeni »pokaži novo kodo«. Hub prejšnjo prijavo iste naprave zamenja,
+      // zato se na gostitelju res prikaže sveža 6-mestna koda ob vsakem takem kliku.
+      var vnos = el("prijavaVnosKode");
+      if (!String((vnos && vnos.value) || "").replace(/\D/g, "")) {
+        prijava.koda = false;
+        zacniKodo();
+      } else posljiKodo();
+    });
     naKlik("gumbPoveziNaprave", function () {
       if (most && most.poveziNaprave) most.poveziNaprave();
     });

@@ -2,7 +2,7 @@
 """Safeer OS za racunalnik - preobleka cez Linux Mint.
 
 Isti Safeer OS kot na televizorju, le za racunalnik: celozaslonski domaci zaslon z levim menijem
-(Domov, Programi, Datoteke, Naprave, Nastavitve), ki pokaze VSE, kar je ze na racunalniku -
+(Domov, Safeer Media, Programi, Datoteke, Naprave, Nastavitve), ki pokaze VSE, kar je ze na racunalniku -
 programe iz menija, uporabnikove mape, nastavitve Minta - in doda Safeerjeve reci (Safeer Link,
 spletne aplikacije, iskanje po vsem hkrati).
 
@@ -43,7 +43,7 @@ gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 
 from core import (os_datoteke, os_jbl, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
-                  os_stabilnost, os_zvok)
+                  os_spletne, os_stabilnost, os_zvok)
 
 APP_ID = "io.github.memelandfaner.SafeerOS"
 
@@ -527,6 +527,7 @@ class SafeerOS(Gtk.Application):
         self._okna_zamik = 0
         self._zaslon_zamik = 0
         self._koncano = False
+        self._posnetek_nacrtovan = False
 
     # ------------------------------------------------------------------ okno
     def do_activate(self) -> None:
@@ -578,7 +579,13 @@ class SafeerOS(Gtk.Application):
         pogled.set_background_color(barva)
         pogled.connect("decide-policy", self._na_politiko)
         pogled.connect("context-menu", lambda *a: True)   # brez »Reload / Inspect« v preobleki
-        self._koren_strani = "file://" + os.path.join(KOREN, "assets", "os")
+        # Posnetek mora load-changed priklopiti PRED load_uri. Pri hitrem file:// nalaganju je bil
+        # dogodek sicer lahko že mimo in preverjevalni zagon je ostal odprt za vedno.
+        if self.posnetek:
+            pogled.connect("load-changed", self._za_posnetek)
+        # Pot projekta lahko vsebuje presledke ali sumnike. Golo "file://" sestavljanje je takrat
+        # pustilo WebKit na praznem crnem zaslonu; GLib izdela pravilen, kodiran datotecni URI.
+        self._koren_strani = GLib.filename_to_uri(os.path.join(KOREN, "assets", "os"), None)
         pogled.load_uri(self._koren_strani + "/" + stran)
         self.pogledi.append(pogled)
         return pogled
@@ -624,9 +631,11 @@ class SafeerOS(Gtk.Application):
         okno.connect("focus-in-event", lambda *a: (self._dogodek("fokus", None), False)[1])
         okno.connect("destroy", lambda *a: self._koncaj())
         self.okno, self.pogled = okno, pogled
-        if self.posnetek:
-            pogled.connect("load-changed", self._za_posnetek)
         okno.show_all()
+        if self.posnetek:
+            # V nekaterih WebKit2GTK/Mesa kombinacijah FINISHED za krajevni file:// pogled ne
+            # pride. Preverjanje mora kljub temu narediti posnetek in se koncati, ne viseti.
+            GLib.timeout_add(8000, self._rezervni_posnetek)
         GLib.timeout_add_seconds(10, self._periodicno)
 
     def _ustvari_vrstico(self) -> None:
@@ -802,8 +811,9 @@ class SafeerOS(Gtk.Application):
 
     # ------------------------------------------------------------------ posnetek (preverjanje)
     def _za_posnetek(self, pogled, dogodek) -> None:
-        if dogodek != WebKit2.LoadEvent.FINISHED:
+        if dogodek != WebKit2.LoadEvent.FINISHED or self._posnetek_nacrtovan:
             return
+        self._posnetek_nacrtovan = True
         razdelek = os.environ.get("SAFEER_OS_RAZDELEK", "")
         if razdelek:
             GLib.timeout_add(1500, lambda: (self._js("window.safeerOsPojdi && safeerOsPojdi(%s)" % json.dumps(razdelek)), False)[1])
@@ -813,6 +823,12 @@ class SafeerOS(Gtk.Application):
             return False
         GLib.timeout_add(3500, velikost)
         GLib.timeout_add(4000, self._naredi_posnetek)
+
+    def _rezervni_posnetek(self) -> bool:
+        if not self._posnetek_nacrtovan:
+            self._posnetek_nacrtovan = True
+            return self._naredi_posnetek()
+        return False
 
     def _naredi_posnetek(self) -> bool:
         def konec(pogled, rezultat):
@@ -944,6 +960,12 @@ class SafeerOS(Gtk.Application):
     # ------------------------------------------------------------------ dejanja
     def _zacetek(self) -> dict:
         ozadje = os_sistem.ozadje_namizja()
+        shranjene_spletne = self.shramba.get("spletne", None)
+        if isinstance(shranjene_spletne, list):
+            ciste_spletne = os_spletne.pocisti(shranjene_spletne)
+            if ciste_spletne != shranjene_spletne:
+                self.shramba.set("spletne", ciste_spletne)
+            shranjene_spletne = ciste_spletne
         return {
             "jezik": _jezik(),
             "ime": GLib.get_real_name() if GLib.get_real_name() not in ("", "Unknown") else GLib.get_user_name(),
@@ -953,7 +975,7 @@ class SafeerOS(Gtk.Application):
             "mape": os_datoteke.uporabniske_mape(),
             "celozaslonsko": bool(self.shramba.get("celozaslonsko", True)) and not self.v_oknu,
             "namizje": self.namizje,
-            "spletne": self.shramba.get("spletne", None),
+            "spletne": shranjene_spletne,
             "razlicica": RAZLICICA,
             "sistem": _ime_sistema(),
             "samozagon": je_samozagon(),
@@ -976,13 +998,7 @@ class SafeerOS(Gtk.Application):
 
     def _shrani_spletne(self, seznam) -> list:
         """Spletne aplikacije na domacem zaslonu: samo ime in naslov http(s), najvec 24."""
-        cisti = []
-        for e in (seznam if isinstance(seznam, list) else [])[:24]:
-            if not isinstance(e, dict):
-                continue
-            ime, url = str(e.get("ime", ""))[:40].strip(), str(e.get("url", ""))[:300].strip()
-            if ime and url.startswith(("https://", "http://")):
-                cisti.append({"ime": ime, "url": url})
+        cisti = os_spletne.pocisti(seznam)
         self.shramba.set("spletne", cisti)
         return cisti
 

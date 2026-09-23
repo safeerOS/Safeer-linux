@@ -16,6 +16,7 @@
     </div>
     <nav id="meni">
       <button data-razdelek="domov" class="izbran"><svg data-ikona="domov"></svg><span data-t="domov"></span></button>
+      <button data-razdelek="mediji"><svg data-ikona="video"></svg><span data-t="mediji"></span></button>
       <button data-razdelek="programi"><svg data-ikona="programi"></svg><span data-t="programi"></span></button>
       <button data-razdelek="datoteke"><svg data-ikona="mapa"></svg><span data-t="datoteke"></span></button>
       <button data-razdelek="naprave"><svg data-ikona="povezava"></svg><span data-t="naprave"></span></button>
@@ -55,6 +56,7 @@
         <p data-t="pozdravPod"></p>
         <div class="velike">
           <button class="velika" id="kBrskalnik"><svg data-ikona="splet"></svg><div><b data-t="brskalnik"></b><span data-t="brskalnikPod"></span></div><svg class="puscica" data-ikona="desno"></svg></button>
+          <button class="velika" data-pojdi="mediji"><svg data-ikona="video"></svg><div><b data-t="mediji"></b><span data-t="medijiPod"></span></div><svg class="puscica" data-ikona="desno"></svg></button>
           <button class="velika" data-pojdi="datoteke"><svg data-ikona="mapa"></svg><div><b data-t="datoteke"></b><span data-t="datotekePod"></span></div><svg class="puscica" data-ikona="desno"></svg></button>
           <button class="velika" data-pojdi="naprave"><svg data-ikona="naprave"></svg><div><b data-t="naprave"></b><span id="kNapravePod" data-t="napravePodNov"></span></div><svg class="puscica" data-ikona="desno"></svg></button>
         </div>
@@ -84,6 +86,21 @@
         <div id="blokNedavne" hidden>
           <h2><span data-t="nedavneDatoteke"></span><button class="dodatno" id="gumbNedavnePocistiDomov" data-t="pocistiSeznam"></button><button class="dodatno" data-pojdi="datoteke" data-t="vseDatoteke"></button></h2>
           <div class="vrstice" id="nedavneDomov"></div>
+        </div>
+      </section>
+
+      <!-- SAFEER MEDIA -->
+      <section class="razdelek" id="r-mediji">
+        <div class="media-glava">
+          <div><h1 data-t="mediji"></h1><p data-t="medijiOpis"></p></div>
+          <button class="gumb glavni" id="medijiDodaj"><svg data-ikona="plus"></svg><span data-t="dodajMedijskiVir"></span></button>
+        </div>
+        <div class="media-kategorije" id="mediaKategorije"></div>
+        <h2><span data-t="medijskeAplikacije"></span><span class="media-stevec" id="mediaStevec"></span></h2>
+        <div class="mreza media-mreza" id="mediaMreza"></div>
+        <div class="media-prazno" id="mediaPrazno" hidden>
+          <svg data-ikona="video"></svg><b data-t="niMedijev"></b><span data-t="niMedijevPod"></span>
+          <button class="gumb" id="medijiDodajPrazno"><svg data-ikona="plus"></svg><span data-t="dodajMedijskiVir"></span></button>
         </div>
       </section>
 

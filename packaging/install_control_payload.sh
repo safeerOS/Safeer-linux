@@ -20,6 +20,10 @@ cp -a "$ROOT/assets/link" "$LIB/assets/"
 cp -a "$ROOT/packaging/VERSION_CONTROL" "$LIB/packaging/"
 find "$LIB" -type d -name __pycache__ -exec rm -rf {} +
 find "$LIB" -name '*.pyc' -delete
+# Izvorna delovna kopija ima lahko zasebne pravice (0600). Paket bo v lasti root,
+# zato morajo biti Python, HTML, CSS in JS datoteke berljive navadnemu uporabniku.
+find "$LIB" -type d -exec chmod 755 {} +
+find "$LIB" -type f -exec chmod 644 {} +
 install -m755 "$ROOT/packaging/safeer-control-launcher" "$PREFIX/bin/safeer-control"
 install -Dm644 "$ROOT/LICENSE" "$PREFIX/share/doc/safeer-control/LICENSE"
 install -m644 "$ROOT/packaging/safeer-control.desktop" "$PREFIX/share/applications/$ID.desktop"
