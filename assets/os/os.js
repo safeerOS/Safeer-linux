@@ -41,6 +41,7 @@
     slika: "M4 4h16v16H4z M4 16l5-5 4 4 3-3 4 4 M15 8.5v.1",
     video: "M3 6h13v12H3z M16 10l5-3v10l-5-3",
     glasba: "M9 18V5l11-2v13 M9 18a3 3 0 1 1-3-3 3 3 0 0 1 3 3z M20 16a3 3 0 1 1-3-3 3 3 0 0 1 3 3z",
+    radio: "M5 7h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z M7 7l9-4 M8 13a2 2 0 1 0 0 4 2 2 0 0 0 0-4z M14 12h4 M14 16h4",
     dokument: "M6 3h8l4 4v14H6z M14 3v4h4 M9 12h6 M9 16h6",
     arhiv: "M4 4h16v4H4z M5 8v12h14V8 M10 12h4",
     program: "M4 5h16v14H4z M4 9h16 M8 13l2 2-2 2 M12 17h4",
@@ -136,7 +137,7 @@
     zacetek: null, programi: [], skupina: "vse", razdelek: "domov", pot: "", stanje: null,
     // Multi-host: programi drugih naprav v Safeer Linku (id naprave -> seznam), izbrana naprava ("" = ta racunalnik).
     naprave: [], programiNaprav: {}, nalagam: {}, naprava: "",
-    povezava: { stanje: "nov", control: true }, spletne: null, nedavne: []
+    povezava: { stanje: "nov", control: true }, spletne: null, nedavne: [], mediaFilter: "vse"
   };
   var PRIVZETE_SPLETNE = [
     { ime: "YouTube", url: "https://www.youtube.com" },
@@ -157,6 +158,7 @@
     if (razdelek === "naprave") { osveziPovezavo(); napraveZanka(); }
     if (razdelek === "nastavitve") { narisiNastavitve(); nalozScit(); scitZanka(); }
     if (razdelek === "programi") nalozNaprave();
+    if (razdelek === "mediji") narisiMedije();
     if (razdelek === "omrezje") nalozOmrezje(false);
     if (razdelek === "zvok") { nalozZvok(); zvokZanka(); if (!jblStanje) nalozJbl(); }
   }
@@ -200,6 +202,7 @@
       S.programi = seznam || [];
       narisiPrograme();
       narisiDomov();
+      narisiMedije();
     }, function () {});
   }
   function zazeni(p) {
@@ -407,13 +410,70 @@
   function shraniSpletne(seznam) {
     S.spletne = seznam;
     narisiDomov();
-    klic("shraniSpletne", [seznam]).catch(function () {});
+    narisiMedije();
+    klic("shraniSpletne", [seznam]).then(function (cisti) {
+      if (Array.isArray(cisti)) S.spletne = cisti;
+      narisiDomov();
+      narisiMedije();
+    }).catch(function () {});
   }
   function normalizirajNaslov(s) {
     s = String(s || "").trim();
     if (!s) return "";
     if (!/^https?:\/\//i.test(s)) s = "https://" + s;
     try { var u = new URL(s); return /\./.test(u.hostname) ? u.href : ""; } catch (e) { return ""; }
+  }
+  function kljucNaslova(s) {
+    try {
+      var u = new URL(s);
+      u.hash = "";
+      u.hostname = u.hostname.toLowerCase();
+      if ((u.protocol === "https:" && u.port === "443") || (u.protocol === "http:" && u.port === "80")) u.port = "";
+      u.pathname = u.pathname.replace(/\/+$/, "");
+      return u.href.replace(/\/$/, "");
+    } catch (e) { return ""; }
+  }
+
+  // ------------------------------------------------------------------ Safeer Media
+  var MEDIA_KATEGORIJE = [
+    ["vse", "programi"], ["video", "video"], ["glasba", "glasba"],
+    ["radio", "radio"], ["videospoti", "video"]
+  ];
+  function vrstaMedija(vnos) {
+    var s = ((vnos.ime || "") + " " + (vnos.url || "") + " " + (vnos.id || "") + " " + (vnos.opis || "")).toLowerCase();
+    if (/radio|podcast|tunein|radioplayer/.test(s)) return "radio";
+    if (/videospot|music.?video|vevo|youtube|youtu\.be/.test(s)) return "videospoti";
+    if (/glasb|music|spotify|deezer|soundcloud|rhythmbox|audacious|clementine/.test(s)) return "glasba";
+    return "video";
+  }
+  function medijskiVnosi() {
+    var vnosi = [];
+    S.programi.filter(function (p) { return p.skupina === "predstavnost"; }).forEach(function (p) {
+      vnosi.push({ vrsta: vrstaMedija(p), program: p });
+    });
+    spletne().forEach(function (a, i) { vnosi.push({ vrsta: vrstaMedija(a), spletna: a, indeks: i }); });
+    return vnosi;
+  }
+  function narisiMedije() {
+    var kategorije = $("mediaKategorije"), mreza = $("mediaMreza");
+    if (!kategorije || !mreza) return;
+    var vsi = medijskiVnosi();
+    kategorije.innerHTML = "";
+    MEDIA_KATEGORIJE.forEach(function (k) {
+      var n = k[0] === "vse" ? vsi.length : vsi.filter(function (v) { return v.vrsta === k[0]; }).length;
+      var b = el("button", "media-kategorija" + (S.mediaFilter === k[0] ? " izbrana" : ""),
+        svg(k[1]) + '<div><b>' + ubezi(t("media_" + k[0])) + '</b><span>' + ubezi(t("media_" + k[0] + "_pod")) +
+        '</span></div><i>' + n + "</i>");
+      b.addEventListener("click", function () { S.mediaFilter = k[0]; narisiMedije(); });
+      kategorije.appendChild(b);
+    });
+    var prikaz = vsi.filter(function (v) { return S.mediaFilter === "vse" || v.vrsta === S.mediaFilter; });
+    $("mediaStevec").textContent = prikaz.length ? String(prikaz.length) : "";
+    mreza.innerHTML = "";
+    prikaz.forEach(function (v) {
+      mreza.appendChild(v.program ? ploscicaPrograma(v.program, true) : ploscicaSpletne(v.spletna, v.indeks));
+    });
+    $("mediaPrazno").hidden = prikaz.length !== 0;
   }
   function odpriDodaj() {
     $("dodajIme").value = "";
@@ -1401,10 +1461,18 @@
       zapriSloje();
     }); });
     $("dodajPreklici").addEventListener("click", zapriSloje);
+    $("medijiDodaj").addEventListener("click", odpriDodaj);
+    $("medijiDodajPrazno").addEventListener("click", odpriDodaj);
     $("obrazecDodaj").addEventListener("submit", function (e) {
       e.preventDefault();
       var naslov = normalizirajNaslov($("dodajNaslov").value);
       if (!naslov) { $("dodajNaslov").focus(); return; }
+      var kljuc = kljucNaslova(naslov);
+      if (spletne().some(function (a) { return kljucNaslova(a.url) === kljuc; })) {
+        obvesti(t("virZeDodan"));
+        $("dodajNaslov").focus();
+        return;
+      }
       var ime = $("dodajIme").value.trim() || new URL(naslov).hostname.replace(/^www\./, "");
       shraniSpletne(spletne().concat([{ ime: ime.slice(0, 40), url: naslov }]).slice(0, 24));
       zapriSloje();
