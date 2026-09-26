@@ -430,16 +430,18 @@ def potrdi_kodo(ws_naslov: str, prijava: dict, device_id: str, koda: str) -> Tup
 
 # Povezava v QR: kamera telefona jo odpre v Safeer (aplikacija jo prestreze) ali na strani safeer.si/p,
 # ki ponudi »Odpri v Safeer«. Skrivnost je v delu za #, zato je streznik strani nikoli ne vidi.
-QR_POVEZAVA = "https://safeer.si/p#i={qr_id}&s={skrivnost}&f={odtis}"
+QR_POVEZAVA = "https://safeer.si/p#i={qr_id}&s={skrivnost}&f={odtis}&a={naslov}"
 QR_ODTIS_ZNAKOV = 16
 
 
 def zacni_qr(ws_naslov: str, device_id: str, ime: str, platforma: str = "linux") -> Optional[dict]:
-    """Odpre prijavo s QR kodo. Vrne {"qr_id", "odtis", "skrivnost", "prevzem", "povezava", "velja"},
+    """Odpre prijavo s QR kodo. Vrne {"qr_id", "odtis", "skrivnost", "prevzem", "naslov", "povezava", "velja"},
     {"napaka": ...} ali None, ce se hub ne oglasi.
 
-    V QR gre skrivnost (hub dobi samo njen SHA-256) in zacetek odtisa potrdila, ki ga vidimo zdaj -
-    telefon ga primerja s hubom, ki mu zaupa, zato vsiljivec v sredini ne more dobiti potrditve.
+    V QR gre skrivnost (hub dobi samo njen SHA-256), zacetek odtisa potrdila, ki ga vidimo zdaj, in
+    naslov Huba, ki je kodo izdal - telefon se poveze neposredno nanj (peer-to-peer), ne na huba, ki
+    mu je morda ze zaupal prej (ta je lahko medtem ze druga naprava). Vsiljivec v sredini kljub temu
+    ne more dobiti potrditve, ker se mora odtis v QR ujemati z zivim potrdilom na tem istem naslovu.
     Za prevzem zetona je druga skrivnost, ki je v QR ni.
     """
     import hashlib
@@ -462,9 +464,11 @@ def zacni_qr(ws_naslov: str, device_id: str, ime: str, platforma: str = "linux")
     if not qr_id:
         return None
     odtis = videni.lower()
+    u = urlparse(ws_naslov)
+    naslov = "%s:%d" % (u.hostname, u.port or 443)
     return {
-        "qr_id": qr_id, "odtis": odtis, "skrivnost": skrivnost, "prevzem": prevzem,
-        "povezava": QR_POVEZAVA.format(qr_id=qr_id, skrivnost=skrivnost, odtis=odtis[:QR_ODTIS_ZNAKOV]),
+        "qr_id": qr_id, "odtis": odtis, "skrivnost": skrivnost, "prevzem": prevzem, "naslov": naslov,
+        "povezava": QR_POVEZAVA.format(qr_id=qr_id, skrivnost=skrivnost, odtis=odtis[:QR_ODTIS_ZNAKOV], naslov=naslov),
         "velja": int(odgovor.get("expires_in_seconds", 300) or 300),
     }
 
