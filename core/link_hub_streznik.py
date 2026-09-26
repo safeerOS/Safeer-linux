@@ -1325,10 +1325,32 @@ class HubStreznik:
     def tece(self) -> bool:
         return self._streznik is not None
 
+    @staticmethod
+    def _ze_gosti_lokalno() -> bool:
+        """Ali na tem racunalniku ze posluša drug Hub (Safeer OS ali Safeer Control) na privzetih
+        vratih? Varnostna mreza poleg mDNS izvolitve: oba procesa privzeto delita isto TLS identiteto
+        (core/link_datoteke.TLS_MAPA), zato se v izvolitvi napacno prepoznata kot "jaz sam" namesto
+        kot dva razlicna kandidata - brez tega preverjanja bi oba hkrati gostila Hub."""
+        import socket as _s
+        v = _s.socket(_s.AF_INET, _s.SOCK_STREAM)
+        v.settimeout(0.3)
+        try:
+            v.connect(("127.0.0.1", PRIVZETA_VRATA))
+            return True
+        except OSError:
+            return False
+        finally:
+            try:
+                v.close()
+            except Exception:
+                pass
+
     def zazeni(self) -> bool:
         with self._zaklep:
             if self._streznik is not None:
                 return True
+            if self._ze_gosti_lokalno():
+                return False
             from core import link_datoteke
             if self.tls_mapa:
                 kljuc, potrdilo, self.odtis = link_datoteke.zagotovi_potrdilo(self.tls_mapa)
