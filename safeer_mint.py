@@ -7,6 +7,7 @@ YouTube Zero-Ad & Background Audio engine, Cyber Threat Shield, and Persistent S
 
 import os
 import pathlib
+import signal
 import sys
 import hashlib
 import json
@@ -5138,6 +5139,10 @@ class SafeerMintBrowser(Gtk.Window):
     def _tab_lifecycle_tick(self):
         """Zamrzne in zavrže tihe zavihke ter ob pomanjkanju RAM-a ukrepa takoj."""
         zdaj = time.monotonic()
+        # Sejo shranimo tudi sproti (vsako minuto): po sesutju ali izpadu elektrike zavihki niso izgubljeni.
+        if zdaj - getattr(self, "_seja_shranjena", 0.0) >= 60:
+            self._seja_shranjena = zdaj
+            self.save_session()
         zamrzni_po = max(0.0, float(self.config.get("tab_freeze_after_s", 60) or 0))
         zavrzi_po = max(0.0, float(self.config.get("tab_discard_after_s", 600) or 0))
         stanje = []
@@ -7336,13 +7341,15 @@ def main():
             print("Nastavitev ni uspela: " + "; ".join(errors), file=sys.stderr)
         sys.exit(0 if success else 1)
 
-    target_url = None
-    if len(sys.argv) > 1 and not sys.argv[1].startswith("-"):
-        target_url = sys.argv[1]
+    # Vsi naslovi iz ukazne vrstice (upravitelj datotek jih lahko poda vec); prvi odpre okno, ostali zavihke.
+    ciljni = []
+    for argument in sys.argv[1:]:
+        if argument.startswith("-"):
+            continue
         # Upravitelj datotek ("Odpri z") poda pot ali file:// naslov; pot spremenimo v naslov,
         # da se PDF odpre v pregledovalniku, ne kot iskanje.
-        if os.path.isfile(target_url):
-            target_url = pathlib.Path(target_url).resolve().as_uri()
+        ciljni.append(pathlib.Path(argument).resolve().as_uri() if os.path.isfile(argument) else argument)
+    target_url = ciljni[0] if ciljni else None
 
     # Preveri, če Safeer že teče – v tem primeru povezavo nemudoma pošlji obstoječi instanci
     sock_path = os.path.join(CONFIG_DIR, "safeer.sock")
@@ -7355,6 +7362,13 @@ def main():
             s.sendall(cmd.encode("utf-8"))
             s.recv(1024)
             s.close()
+            for dodatni in ciljni[1:]:
+                s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                s.settimeout(1.5)
+                s.connect(sock_path)
+                s.sendall(f"OPEN {dodatni}".encode("utf-8"))
+                s.recv(1024)
+                s.close()
             sys.exit(0)
         except Exception:
             try:
@@ -7367,6 +7381,18 @@ def main():
     start_threat_intel()
     app = SafeerMintBrowser(initial_url=target_url)
     app.connect("destroy", Gtk.main_quit)
+    for dodatni in ciljni[1:]:
+        GLib.idle_add(app.open_url_from_external, dodatni)
+
+    # Odjava, izklop ali kill: zapremo kot ob kliku na X - seja zavihkov se shrani.
+    def ob_signalu(*_a):
+        try:
+            app.on_delete_event(app, None)
+        finally:
+            Gtk.main_quit()
+        return GLib.SOURCE_REMOVE
+    for stevilka in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+        GLib.unix_signal_add(GLib.PRIORITY_HIGH, stevilka, ob_signalu)
 
     # Paint the built-in home before making the first window visible.
     app.show_initial_window()
