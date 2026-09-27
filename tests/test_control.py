@@ -82,8 +82,13 @@ class ControlPaket(unittest.TestCase):
         # Samostojna aplikacija: levi meni z razdelki je v strani, a skrit (telefon in TV ga ne vidita);
         # razdelke vklopi samo Control (body.namizje), Safeer OS na televizorju je en klik.
         self.assertRegex(html, r'<nav class="stranski" id="stranskiMeni" hidden')
-        for razdelek in ("naprave", "daljinec", "poslji", "mape", "sync"):
+        for razdelek in ("naprave", "poslji", "sync"):
             self.assertIn('data-razdelek="%s"' % razdelek, html)
+        for razdelek in ("daljinec", "mape"):
+            self.assertNotIn('<button data-razdelek="%s"' % razdelek, html)
+        self.assertRegex(html, r'<details[^>]+id="panelMape"[^>]+data-razdelek="naprave"[^>]*\bhidden\b')
+        self.assertIn('if (ime === "daljinec" || ime === "mape") ime = "naprave"', js)
+        self.assertIn('(stanje.seznanjen || stanje.vKrogu) && imaTelevizor()', js)
         self.assertIn("function narisiMeni()", js)
         self.assertIn('classList.add("namizje")', js)
         self.assertIn('id="gumbOdpriSafeerOs"', html)
