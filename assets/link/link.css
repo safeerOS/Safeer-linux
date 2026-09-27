@@ -523,8 +523,35 @@ body.namizje #hubStikalo { max-width: 560px; }
 body.namizje #zaslonPovezan .panel[data-razdelek] { display: none !important; }
 body.namizje[data-razdelek="naprave"] #zaslonPovezan .panel[data-razdelek="naprave"]:not([hidden]),
 body.namizje[data-razdelek="poslji"] #zaslonPovezan .panel[data-razdelek="poslji"]:not([hidden]),
-body.namizje[data-razdelek="mape"] #zaslonPovezan .panel[data-razdelek="mape"]:not([hidden]),
 body.namizje[data-razdelek="sync"] #zaslonPovezan .panel[data-razdelek="sync"]:not([hidden]) { display: block !important; }
+
+.zlozljiv { padding: 0; overflow: hidden; }
+.zlozljiv > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 18px 20px;
+  font-size: 18px;
+  font-weight: 700;
+}
+.zlozljiv > summary::-webkit-details-marker { display: none; }
+.zlozljiv > summary::after { content: "+"; float: right; color: var(--zelena); font-size: 22px; line-height: 1; }
+.zlozljiv[open] > summary::after { content: "−"; }
+.zlozljivaVsebina { border-top: 1px solid var(--crta); padding: 0 20px 20px; }
+
+.kodaPrijave {
+  margin: 14px 0;
+  padding: 16px;
+  border: 1px solid var(--zelena);
+  border-radius: 12px;
+  background: var(--zelenaTemna);
+  text-align: center;
+}
+.kodaPrijaveNaslov { font-size: 32px; font-weight: 700; letter-spacing: .04em; color: var(--zelena); }
+.kodaPrijave .opomba { margin-bottom: 0; }
+.vnosKodeDodaj { margin-top: 16px; border-top: 1px solid var(--crta); padding-top: 14px; }
+.vnosKodeDodaj summary { cursor: pointer; color: var(--zelena); font-weight: 650; }
+.vnosKodeDodaj h3 { margin-bottom: 10px; }
+.vnosKodeDodaj .vnosStevilke { max-width: 240px; }
 
 /* Koraki (Dodaj napravo): stevilke v zelenem krogcu, besedilo v eni vrsti. */
 .koraki { list-style: none; counter-reset: korak; margin: 12px 0; padding: 0; }

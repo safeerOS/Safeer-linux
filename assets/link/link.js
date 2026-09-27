@@ -1235,7 +1235,10 @@
   var BESEDILA_VABILO = {
     "sl": {
       "vabiloGumb": "Pokaži QR kodo za novo napravo",
-      "vabiloOpis": "S kamero telefona ali tablice skeniraj kodo – Safeer se odpre in naprava se poveže s Safeer Linkom.",
+      "vabiloOpis": "Telefon s Safeerjem: skeniraj kodo. Brez kamere: na telefonu izberi Poveži s Safeer Link in vpiši kodo, ki se pokaže tukaj.",
+      "vabiloKodaNaslov": "Koda za povezavo: {koda}",
+      "vabiloKodaVelja": "Velja še {cas}.",
+      "vabiloVnosNaslov": "Imaš kodo z druge naprave? Vpiši jo",
       "vabiloPridruzen": "✓ {ime} je povezan.",
       "vabiloHubStar": "Središče je treba posodobiti, da lahko pokaže kodo tukaj. Kodo najdeš tudi na središču (Naprave → Poveži novo napravo).",
       "vabiloNapaka": "Kode ni bilo mogoče pripraviti. Poskusi znova.",
@@ -1243,7 +1246,10 @@
     },
     "en": {
       "vabiloGumb": "Show QR code for a new device",
-      "vabiloOpis": "Scan the code with your phone or tablet camera – Safeer opens and the device joins Safeer Link.",
+      "vabiloOpis": "Phone with Safeer: scan the code. No camera: choose Connect to Safeer Link on the phone and enter the code shown here.",
+      "vabiloKodaNaslov": "Connection code: {koda}",
+      "vabiloKodaVelja": "Valid for {cas} more.",
+      "vabiloVnosNaslov": "Have a code from another device? Enter it",
       "vabiloPridruzen": "✓ {ime} is connected.",
       "vabiloHubStar": "The hub needs an update to show the code here. You'll also find the code on the hub (Devices → Connect a new device).",
       "vabiloNapaka": "The code could not be prepared. Try again.",
@@ -1251,7 +1257,10 @@
     },
     "de": {
       "vabiloGumb": "QR-Code für ein neues Gerät zeigen",
-      "vabiloOpis": "Scanne den Code mit der Kamera von Handy oder Tablet – Safeer öffnet sich und das Gerät tritt Safeer Link bei.",
+      "vabiloOpis": "Handy mit Safeer: Scanne den Code. Ohne Kamera: Wähle auf dem Handy Mit Safeer Link verbinden und gib den hier angezeigten Code ein.",
+      "vabiloKodaNaslov": "Verbindungscode: {koda}",
+      "vabiloKodaVelja": "Noch {cas} gültig.",
+      "vabiloVnosNaslov": "Du hast einen Code von einem anderen Gerät? Gib ihn ein",
       "vabiloPridruzen": "✓ {ime} ist verbunden.",
       "vabiloHubStar": "Die Zentrale muss aktualisiert werden, um den Code hier zu zeigen. Den Code findest du auch auf der Zentrale (Geräte → Neues Gerät verbinden).",
       "vabiloNapaka": "Der Code konnte nicht erstellt werden. Versuche es erneut.",
@@ -1259,7 +1268,10 @@
     },
     "es": {
       "vabiloGumb": "Mostrar código QR para un dispositivo nuevo",
-      "vabiloOpis": "Escanea el código con la cámara del móvil o la tableta: Safeer se abre y el dispositivo se une a Safeer Link.",
+      "vabiloOpis": "Móvil con Safeer: escanea el código. Sin cámara: elige Conectar con Safeer Link en el móvil e introduce el código que aparece aquí.",
+      "vabiloKodaNaslov": "Código de conexión: {koda}",
+      "vabiloKodaVelja": "Válido durante {cas} más.",
+      "vabiloVnosNaslov": "¿Tienes un código de otro dispositivo? Introdúcelo",
       "vabiloPridruzen": "✓ {ime} está conectado.",
       "vabiloHubStar": "Hay que actualizar el centro para mostrar el código aquí. También encontrarás el código en el centro (Dispositivos → Conectar un dispositivo nuevo).",
       "vabiloNapaka": "No se ha podido preparar el código. Inténtalo de nuevo.",
@@ -1267,7 +1279,10 @@
     },
     "fr": {
       "vabiloGumb": "Afficher le code QR pour un nouvel appareil",
-      "vabiloOpis": "Scanne le code avec l'appareil photo du téléphone ou de la tablette – Safeer s'ouvre et l'appareil rejoint Safeer Link.",
+      "vabiloOpis": "Téléphone avec Safeer : scanne le code. Sans appareil photo : choisis Se connecter à Safeer Link sur le téléphone et saisis le code affiché ici.",
+      "vabiloKodaNaslov": "Code de connexion : {koda}",
+      "vabiloKodaVelja": "Valable encore {cas}.",
+      "vabiloVnosNaslov": "Tu as un code d’un autre appareil ? Saisis-le",
       "vabiloPridruzen": "✓ {ime} est connecté.",
       "vabiloHubStar": "Le centre doit être mis à jour pour afficher le code ici. Tu trouveras aussi le code sur le centre (Appareils → Connecter un nouvel appareil).",
       "vabiloNapaka": "Impossible de préparer le code. Réessaie.",
@@ -1275,7 +1290,10 @@
     },
     "it": {
       "vabiloGumb": "Mostra il codice QR per un nuovo dispositivo",
-      "vabiloOpis": "Scansiona il codice con la fotocamera del telefono o del tablet: Safeer si apre e il dispositivo entra in Safeer Link.",
+      "vabiloOpis": "Telefono con Safeer: scansiona il codice. Senza fotocamera: scegli Connetti a Safeer Link sul telefono e inserisci il codice mostrato qui.",
+      "vabiloKodaNaslov": "Codice di connessione: {koda}",
+      "vabiloKodaVelja": "Valido ancora per {cas}.",
+      "vabiloVnosNaslov": "Hai un codice da un altro dispositivo? Inseriscilo",
       "vabiloPridruzen": "✓ {ime} è collegato.",
       "vabiloHubStar": "L'hub va aggiornato per mostrare il codice qui. Trovi il codice anche sull'hub (Dispositivi → Collega un nuovo dispositivo).",
       "vabiloNapaka": "Impossibile preparare il codice. Riprova.",
@@ -1880,9 +1898,10 @@
     pokazi("panelCast", false);
     pokazi("panelSync", false);
     pokazi("predvajalnik", false);
-    pokazi("panelMape", stanje.znan && stanje.seznanjen);
+    pokazi("panelMape", stanje.znan && (stanje.seznanjen || stanje.vKrogu) && imaTelevizor());
     pokazi("panelDodaj", stanje.znan && (stanje.seznanjen || stanje.vKrogu));
     pokazi("vabiloBlok", !!(most && most.zacniVabilo));
+    pokazi("vnosKodeDodaj", !(stanje.seznanjen || stanje.vKrogu));
     var sredisce = imeSredisca() || t("televizor");
     besedilo("dodajKorak3", t("dodajKorak3", { sredisce: sredisce }));
     narisiMape();
@@ -1908,12 +1927,22 @@
       var naVoljo = true;
       if (ime === "poslji") naVoljo = !el("panelCast").hidden;
       else if (ime === "sync") naVoljo = !el("panelSync").hidden;
-      else if (ime === "mape") naVoljo = !el("panelMape").hidden;
-      else if (ime === "daljinec") naVoljo = napravaZaDaljinec() !== null;
       gumbi[i].hidden = !naVoljo;
     }
     if (!razdelek) izberiRazdelek("naprave");
-    else if (razdelek !== "daljinec" && el("stranskiMeni").querySelector('button[data-razdelek="' + razdelek + '"]').hidden) izberiRazdelek("naprave");
+    else {
+      var izbran = el("stranskiMeni").querySelector('button[data-razdelek="' + razdelek + '"]');
+      if (!izbran || izbran.hidden) izberiRazdelek("naprave");
+    }
+  }
+
+  /** Ali je v Linku televizor: izrecna vrsta TV/zaslon ali zmoznost daljinca. */
+  function imaTelevizor() {
+    return stanje.naprave.some(function (n) {
+      var z = n.zmoznosti || [];
+      return z.indexOf("remote") >= 0 || n.platforma === "tv" || n.vrsta === "tv"
+        || (n.vrsta === "screen" && n.platforma !== "tablet");
+    });
   }
 
   /** Zaslon (televizor), ki sprejema ukaze daljinca; prvi tak, ali null. */
@@ -1932,13 +1961,8 @@
   }
 
   function izberiRazdelek(ime) {
-    if (ime === "daljinec") {
-      var n = napravaZaDaljinec();
-      if (!n || !window.SafeerDaljinec) { izberiRazdelek("naprave"); return; }
-      oznaciRazdelek("daljinec");
-      window.SafeerDaljinec.odpri(n);
-      return;
-    }
+    // Stari bliznjici ostaneta varni, ceprav teh dveh gumbov ni vec v meniju.
+    if (ime === "daljinec" || ime === "mape") ime = "naprave";
     if (window.SafeerDaljinec && window.SafeerDaljinec.jeOdprt()) {
       oznaciRazdelek(ime);
       window.SafeerDaljinec.zapri();
@@ -2167,6 +2191,40 @@
 
   // »Poveži novo napravo« (Safeer Control): QR koda sredisca za nov telefon ali tablico.
   var vabiloOdprto = false;
+  var kodaPrijaveId = "";
+  var kodaPrijaveDo = 0;
+  var kodaPrijaveCasovnik = null;
+
+  function skrijKodoPrijave() {
+    kodaPrijaveId = "";
+    kodaPrijaveDo = 0;
+    if (kodaPrijaveCasovnik) clearInterval(kodaPrijaveCasovnik);
+    kodaPrijaveCasovnik = null;
+    pokazi("kodaPrijaveBlok", false);
+  }
+
+  function osveziCasKodePrijave() {
+    var ostane = Math.max(0, Math.ceil((kodaPrijaveDo - Date.now()) / 1000));
+    if (!ostane) { skrijKodoPrijave(); return; }
+    besedilo("kodaPrijaveVelja", t("vabiloKodaVelja", { cas: cas(ostane) }));
+  }
+
+  function narisiKodoPrijave(p) {
+    if (!p) return;
+    if (p.koncano) {
+      if (!p.id || !kodaPrijaveId || p.id === kodaPrijaveId) skrijKodoPrijave();
+      return;
+    }
+    var koda = String(p.koda || "").replace(/\D/g, "");
+    if (koda.length !== 6) return;
+    kodaPrijaveId = String(p.id || "");
+    kodaPrijaveDo = Date.now() + Math.max(1, Number(p.velja) || 300) * 1000;
+    besedilo("kodaPrijaveNaslov", t("vabiloKodaNaslov", { koda: koda.slice(0, 3) + " " + koda.slice(3) }));
+    pokazi("kodaPrijaveBlok", true);
+    osveziCasKodePrijave();
+    if (kodaPrijaveCasovnik) clearInterval(kodaPrijaveCasovnik);
+    kodaPrijaveCasovnik = setInterval(osveziCasKodePrijave, 1000);
+  }
   function narisiVabilo(p) {
     var qr = el("vabiloQr");
     if (p.svg) {
@@ -2278,24 +2336,25 @@
   }
 
   /** Klik v polje za kodo: sredisce pokaze kodo (seznanitev s kodo, SPAKE2). */
-  function zacniKodo() {
+  function zacniKodo(opombaId) {
     if (prijava.koda || !most) return;
     prijava.koda = true;
-    besedilo("opombaPrijavaKoda", t("iscem"));
+    besedilo(opombaId || "opombaPrijavaKoda", t("iscem"));
     if (stanje.znan) most.seznani();
     else { povezujemPoIskanju = true; most.poisciHub(); }
   }
 
-  function posljiKodo() {
-    var vnos = el("prijavaVnosKode");
+  function posljiKodo(vnosId, opombaId) {
+    var vnos = el(vnosId || "prijavaVnosKode");
+    opombaId = opombaId || "opombaPrijavaKoda";
     var koda = vnos ? String(vnos.value || "").replace(/\D/g, "") : "";
     if (koda.length !== 6) {
-      besedilo("opombaPrijavaKoda", t("prijavaKodaSestMest"));
+      besedilo(opombaId, t("prijavaKodaSestMest"));
       if (vnos) try { vnos.focus(); } catch (e) {}
-      if (!prijava.koda) zacniKodo();
+      if (!prijava.koda) zacniKodo(opombaId);
       return;
     }
-    besedilo("opombaPrijavaKoda", t("prijavaPreverjam"));
+    besedilo(opombaId, t("prijavaPreverjam"));
     if (most) most.potrdiKodo(koda);
   }
 
@@ -2418,7 +2477,7 @@
         if (deljenje.naprava && !stanje.naprave.some(function (n) { return n.id === deljenje.naprava.id; })) zapriDeljenje();
         narisiNaprave();
         narisiPrejemnike();
-        narisiMeni();
+        if (stanje.control) narisiControl(); else narisiMeni();
       } else if (vrsta === "predvajanje") {
         stanje.predvajanje = podatki;
         narisiPredvajanje();
@@ -2427,6 +2486,8 @@
         besedilo("opombaCast", t("poslanoNa", { ime: kam }));
       } else if (vrsta === "vabilo") {
         narisiVabilo(podatki || {});
+      } else if (vrsta === "kodaPrijave") {
+        narisiKodoPrijave(podatki || {});
       } else if (vrsta === "pozabljeno") {
         besedilo("opombaPozabi", t("pozabljeno"));
         stanje.seznanjen = false;
@@ -2883,6 +2944,7 @@
         zacniKodo();
       } else posljiKodo();
     });
+    naKlik("gumbDodajKoda", function () { posljiKodo("dodajVnosKode", "opombaDodajKoda"); });
     naKlik("gumbPoveziNaprave", function () {
       if (most && most.poveziNaprave) most.poveziNaprave();
     });
@@ -2903,13 +2965,25 @@
     }
     var vnosPrijava = el("prijavaVnosKode");
     if (vnosPrijava) {
-      vnosPrijava.addEventListener("focus", zacniKodo);
+      vnosPrijava.addEventListener("focus", function () { zacniKodo(); });
       vnosPrijava.addEventListener("input", function () {
         var cisto = String(vnosPrijava.value || "").replace(/\D/g, "").slice(0, 6);
         if (cisto !== vnosPrijava.value) vnosPrijava.value = cisto;
         if (cisto.length === 6) posljiKodo();
       });
       vnosPrijava.addEventListener("keydown", function (e) { if (e.key === "Enter") posljiKodo(); });
+    }
+    var vnosDodaj = el("dodajVnosKode");
+    if (vnosDodaj) {
+      vnosDodaj.addEventListener("focus", function () { zacniKodo("opombaDodajKoda"); });
+      vnosDodaj.addEventListener("input", function () {
+        var cisto = String(vnosDodaj.value || "").replace(/\D/g, "").slice(0, 6);
+        if (cisto !== vnosDodaj.value) vnosDodaj.value = cisto;
+        if (cisto.length === 6) posljiKodo("dodajVnosKode", "opombaDodajKoda");
+      });
+      vnosDodaj.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") posljiKodo("dodajVnosKode", "opombaDodajKoda");
+      });
     }
 
     naKlik("gumbNavodila", function () {

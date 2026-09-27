@@ -23,6 +23,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 import gi
 
 gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
 gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gtk, WebKit2, GLib  # noqa: E402
 
@@ -1140,6 +1141,27 @@ class SafeerLink:
             })
         elif vrsta == "sync.data":
             self._prejmi_zaznamke(sporocilo.get("payload") or {})
+        elif vrsta == "pair.code":
+            # Nova naprava caka na kodo. Pokazemo jo v Controlu in z istim sistemskim
+            # obvestilom kot lokalno sredisce; neveljavne kode nikoli ne prikazemo.
+            telo = sporocilo.get("payload") if isinstance(sporocilo.get("payload"), dict) else {}
+            koda = str(telo.get("code") or "")
+            if len(koda) == 6 and koda.isdigit():
+                ime = str(telo.get("name") or "")[:64]
+                try:
+                    velja = max(1, int(telo.get("expires_in_seconds") or 300))
+                except (TypeError, ValueError):
+                    velja = 300
+                self._odziv("kodaPrijave", {
+                    "id": str(telo.get("pair_id") or ""),
+                    "ime": ime,
+                    "koda": koda,
+                    "velja": velja,
+                })
+                link_hub_streznik._obvestilo_kode(ime, koda)
+        elif vrsta == "pair.done":
+            telo = sporocilo.get("payload") if isinstance(sporocilo.get("payload"), dict) else {}
+            self._odziv("kodaPrijave", {"id": str(telo.get("pair_id") or ""), "koncano": True})
         elif vrsta in ("share.text", "share.file", "share.screen"):
             self._prejmi_deljenje(vrsta, sporocilo)
         elif vrsta == "cast.url":
