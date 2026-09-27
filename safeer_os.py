@@ -43,7 +43,7 @@ gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 
 from core import (os_datoteke, os_jbl, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
-                  os_spletne, os_stabilnost, os_zvok)
+                  os_mediji, os_spletne, os_stabilnost, os_zvok)
 
 APP_ID = "io.github.memelandfaner.SafeerOS"
 
@@ -539,6 +539,15 @@ class SafeerOS(Gtk.Application):
         self._zaslon_zamik = 0
         self._koncano = False
         self._posnetek_nacrtovan = False
+        # Safeer Media ima največ en lahek spletni pogled, ki se med vsebinami ponovno uporabi.
+        self._medijski_okno = None
+        self._medijski_pogled = None
+        self._medijski_naslov = ""
+        self._medijski_js = False
+        self._medijski_rod = 0
+        self._medijski_predvajalnik = None
+        self._medijski_gst = None
+        self._medijski_predvajalnik_okno = None
 
     # ------------------------------------------------------------------ okno
     def do_activate(self) -> None:
@@ -767,6 +776,8 @@ class SafeerOS(Gtk.Application):
         if self._koncano:
             return
         self._koncano = True
+        self._pocisti_medijski_pogled()
+        self._ustavi_neposredni_medij()
         if self.namizje:
             vrni_mintov_pult(self.shramba)
         # Brez nasega razresevalnika bi racunalnik ostal brez DNS: nastavitev povrnemo.
@@ -919,6 +930,7 @@ class SafeerOS(Gtk.Application):
             "odpriDatoteko": lambda: os_datoteke.odpri(str(a[0]) if a else ""),
             "pokaziVMapi": lambda: os_datoteke.pokazi_v_mapi(str(a[0]) if a else ""),
             "splet": lambda: self._splet(str(a[0]) if a else ""),
+            "medij": lambda: self._medij(str(a[0]) if a else ""),
             "iskanjeSplet": lambda: self._splet(_iskalnik() + GLib.uri_escape_string(str(a[0] if a else ""), None, False)),
             "povezava": stanje_povezave,
             "zaupanje": lambda: nastavi_zaupanje(bool(a[0]) if a else False),
@@ -1107,6 +1119,151 @@ class SafeerOS(Gtk.Application):
                 except Exception:
                     continue
         return False
+
+    def _medij(self, naslov: str) -> bool:
+        """Safeer Media: neposredni tok, nato lahek WebKit, šele nazadnje brskalnik."""
+        nivo = os_mediji.izberi_nivo(naslov)
+        if not nivo:
+            return False
+        if nivo == "neposredno":
+            return self._predvajaj_neposredno(naslov)
+        return self._odpri_lahki_medijski_pogled(naslov)
+
+    @staticmethod
+    def _nalozi_gstreamer():
+        gi.require_version("Gst", "1.0")
+        from gi.repository import Gst  # noqa: WPS433
+        Gst.init(None)
+        return Gst
+
+    def _predvajaj_neposredno(self, naslov: str) -> bool:
+        """Neposredni medij predvaja GStreamerjev playbin, brez spletnega procesa."""
+        self._pocisti_medijski_pogled()
+        try:
+            Gst = self._medijski_gst or self._nalozi_gstreamer()
+            self._medijski_gst = Gst
+            if self._medijski_predvajalnik is None:
+                self._medijski_predvajalnik = Gst.ElementFactory.make("playbin", "safeer-media")
+            if self._medijski_predvajalnik is None:
+                raise RuntimeError("GStreamer playbin ni na voljo")
+            if self._medijski_predvajalnik_okno is None:
+                okno = Gtk.Window(title="Safeer Media")
+                okno.set_default_size(960, 540)
+                okno.set_transient_for(self.okno)
+                okno.connect("delete-event", lambda *a: (self._ustavi_neposredni_medij(), True)[1])
+                ponor = Gst.ElementFactory.make("gtksink", "safeer-media-video")
+                if ponor is not None:
+                    self._medijski_predvajalnik.set_property("video-sink", ponor)
+                    okno.add(ponor.get_property("widget"))
+                else:
+                    okno.add(Gtk.Label(label="Safeer Media\nPredvajanje zvoka ali videa"))
+                self.add_window(okno)
+                self._medijski_predvajalnik_okno = okno
+            self._medijski_predvajalnik.set_property("uri", naslov)
+            self._medijski_predvajalnik_okno.show_all()
+            self._medijski_predvajalnik_okno.present()
+            if self._medijski_predvajalnik.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
+                raise RuntimeError("GStreamer predvajanja ni mogel začeti")
+            return True
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] neposredni medij:", e)
+            self._ustavi_neposredni_medij()
+            return self._splet(naslov)
+
+    def _ustavi_neposredni_medij(self) -> None:
+        if self._medijski_predvajalnik is not None and self._medijski_gst is not None:
+            try:
+                self._medijski_predvajalnik.set_state(self._medijski_gst.State.NULL)
+            except Exception:
+                pass
+        if self._medijski_predvajalnik_okno is not None:
+            self._medijski_predvajalnik_okno.hide()
+
+    def _odpri_lahki_medijski_pogled(self, naslov: str) -> bool:
+        """En WebKit brez JavaScripta; če ni medija, enkrat poskusi z JavaScriptom."""
+        self._ustavi_neposredni_medij()
+        if self._medijski_pogled is None:
+            # Tuje strani v lastnem, zacasnem kontekstu s peskovnikom: nic piskotkov/podatkov Safeer OS in
+            # locen spletni proces, ki ga ob izhodu z vsebine izpraznemo.
+            kontekst = WebKit2.WebContext.new_ephemeral()
+            try:
+                kontekst.set_sandbox_enabled(True)
+            except Exception:
+                pass
+            kontekst.set_cache_model(WebKit2.CacheModel.DOCUMENT_VIEWER)
+            pogled = WebKit2.WebView.new_with_context(kontekst)
+            nastavitve = pogled.get_settings()
+            # Skripte strani izklopimo (markup), API skripte ostanejo - z njimi preverimo, ali je na strani video.
+            nastavitve.set_property("enable-javascript-markup", False)
+            nastavitve.set_property("enable-webgl", False)
+            pogled.connect("load-changed", self._medijski_nalozen)
+            okno = Gtk.ApplicationWindow(application=self, title="Safeer Media")
+            okno.set_default_size(1100, 700)
+            okno.set_transient_for(self.okno)
+            okno.add(pogled)
+            okno.connect("delete-event", lambda *a: (self._pocisti_medijski_pogled(), True)[1])
+            self._medijski_pogled, self._medijski_okno = pogled, okno
+        self._medijski_rod += 1
+        self._medijski_naslov = naslov
+        self._medijski_js = False
+        self._medijski_pogled.get_settings().set_property("enable-javascript-markup", False)
+        self._medijski_pogled.load_uri(naslov)
+        self._medijski_okno.show_all()
+        self._medijski_okno.present()
+        return True
+
+    def _medijski_nalozen(self, pogled, dogodek) -> None:
+        if dogodek != WebKit2.LoadEvent.FINISHED or not self._medijski_naslov:
+            return
+        rod = self._medijski_rod
+        GLib.timeout_add(1800, lambda: self._preveri_medijski_pogled(pogled, rod))
+
+    def _preveri_medijski_pogled(self, pogled, rod: int) -> bool:
+        if rod != self._medijski_rod or not self._medijski_naslov:
+            return False
+
+        def koncano(p, rezultat):
+            if rod != self._medijski_rod:
+                return
+            najden = False
+            try:
+                vrednost = p.evaluate_javascript_finish(rezultat)
+                najden = bool(vrednost.to_boolean())
+            except Exception:
+                pass
+            if najden:
+                return
+            if not self._medijski_js:
+                self._medijski_js = True
+                p.get_settings().set_property("enable-javascript-markup", True)
+                p.reload()
+            else:
+                naslov = self._medijski_naslov
+                self._pocisti_medijski_pogled()
+                self._splet(naslov)
+
+        pogled.evaluate_javascript(
+            "!!document.querySelector('video, audio, source[src], video source, audio source')",
+            -1, None, None, None, koncano)
+        return False
+
+    def _pocisti_medijski_pogled(self) -> None:
+        """Ob izhodu odstrani stran in njen predpomnilnik, pogled pa ohrani za naslednjič."""
+        self._medijski_rod += 1
+        self._medijski_naslov = ""
+        self._medijski_js = False
+        if self._medijski_pogled is None:
+            return
+        try:
+            self._medijski_pogled.load_uri("about:blank")
+            self._medijski_pogled.get_settings().set_property("enable-javascript-markup", False)
+            upravitelj = self._medijski_pogled.get_context().get_website_data_manager()
+            vrste = WebKit2.WebsiteDataTypes.MEMORY_CACHE | WebKit2.WebsiteDataTypes.DISK_CACHE
+            upravitelj.clear(vrste, 0, None, None, None)
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] čiščenje medijskega pogleda:", e)
+        if self._medijski_okno is not None:
+            self._medijski_okno.hide()
 
     def _prijava(self) -> bool:
         """Prijavno okno Safeer Linka (QR / koda / brez povezave) - zanj skrbi Safeer Control; okno je nad

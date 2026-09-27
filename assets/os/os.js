@@ -370,7 +370,7 @@
   }
   // Ena vrsta ploscic kot na televizorju: programi (pripeti, pogosti), nato spletne aplikacije, na koncu »Dodaj«.
   // Koliko jih gre v vrsto, je odvisno od sirine zaslona.
-  function ploscicaSpletne(a, i) {
+  function ploscicaSpletne(a, i, kotMedij) {
     var b = el("button", "ploscica");
     b.title = a.url;
     b.appendChild(crka(a.ime));
@@ -384,7 +384,10 @@
       shraniSpletne(nove);
     });
     b.appendChild(x);
-    b.addEventListener("click", function () { obvesti(t("odpiram", { ime: a.ime })); klic("splet", [a.url]); });
+    b.addEventListener("click", function () {
+      obvesti(t("odpiram", { ime: a.ime }));
+      klic(kotMedij ? "medij" : "splet", [a.url]);
+    });
     return b;
   }
   function narisiDomov() {
@@ -490,7 +493,7 @@
     $("mediaStevec").textContent = prikaz.length ? String(prikaz.length) : "";
     mreza.innerHTML = "";
     prikaz.forEach(function (v) {
-      mreza.appendChild(v.program ? ploscicaPrograma(v.program, true) : ploscicaSpletne(v.spletna, v.indeks));
+      mreza.appendChild(v.program ? ploscicaPrograma(v.program, true) : ploscicaSpletne(v.spletna, v.indeks, true));
     });
     $("mediaPrazno").hidden = prikaz.length !== 0;
   }
