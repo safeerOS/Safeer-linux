@@ -3,7 +3,8 @@ import json
 import pytest
 
 from core.link_gledalec import (NapakaGledalca, RazclenjevalnikOkvirjev,
-                                preslikaj_tipko, razcleni_odgovor)
+                                izberi_ponor, niz_cevovoda, preslikaj_tipko,
+                                preslikaj_tocko, razcleni_odgovor)
 
 
 ODTIS = "ab:" * 31 + "ab"
@@ -40,3 +41,25 @@ def test_preslikava_tipk_in_sumnikov():
     assert preslikaj_tipko("Return", dol=True) == {"vrsta": "tipka_dol", "tipka": "vnasalka"}
     assert preslikaj_tipko("ccaron", "č", True) == {"vrsta": "besedilo", "besedilo": "č"}
     assert preslikaj_tipko("ccaron", "č", False) is None
+
+
+def test_cevovod_ima_h264_caps_in_gtk3_ponor():
+    cevovod = niz_cevovoda("gtksink")
+    assert "appsrc name=vir is-live=true format=time" in cevovod
+    assert "video/x-h264" in cevovod
+    assert "stream-format=(string)byte-stream" in cevovod
+    assert "alignment=(string)au" in cevovod
+    assert "! h264parse ! avdec_h264 ! videoconvert ! gtksink name=ponor sync=false" in cevovod
+
+
+def test_izbira_ponora_daje_prednost_gtk3_in_pozna_zasilnega():
+    assert izberi_ponor(lambda ime: ime in {"gtksink", "glimagesink"}) == "gtksink"
+    assert izberi_ponor(lambda ime: ime == "glimagesink") == "glimagesink"
+    with pytest.raises(NapakaGledalca, match="gtksink in glimagesink"):
+        izberi_ponor(lambda _ime: False)
+
+
+def test_preslikava_tocke_izpusti_crne_robove():
+    # Slika 16:9 v kvadratnem widgetu ima crna robova zgoraj in spodaj.
+    assert preslikaj_tocko(500, 500, 1000, 1000, 1920, 1080) == pytest.approx((960, 540))
+    assert preslikaj_tocko(500, 100, 1000, 1000, 1920, 1080) is None

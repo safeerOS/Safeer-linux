@@ -351,6 +351,11 @@ def preimenuj_napravo(id_naprave: str, ime: str) -> dict:
     return _control_naprave("Preimenuj", str(id_naprave or ""), str(ime or ""))
 
 
+def upravljaj_racunalnik(id_naprave: str) -> dict:
+    """Safeer Control pridobi dovoljenje in odpre oddaljeni zaslon izbranega racunalnika."""
+    return _control_naprave("Upravljaj", str(id_naprave or ""))
+
+
 def programi_naprave(id_naprave: str) -> dict:
     """Programi ene naprave v obliki, kot jo ima stran (ikone kot data URL)."""
     izid = _control_naprave("Aplikacije", str(id_naprave or ""))
@@ -938,6 +943,7 @@ class SafeerOS(Gtk.Application):
             "napraveSProgrami": naprave_s_programi,
             "vseNaprave": vse_naprave,
             "preimenujNapravo": lambda: preimenuj_napravo(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
+            "upravljajRacunalnik": lambda: upravljaj_racunalnik(str(a[0]) if a else ""),
             "programiNaprave": lambda: programi_naprave(str(a[0]) if a else ""),
             "zazeniNaNapravi": lambda: zazeni_na_napravi(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "odpriTukaj": lambda: odpri_tukaj(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),

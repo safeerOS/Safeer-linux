@@ -13,13 +13,51 @@ import ssl
 import struct
 import threading
 from dataclasses import dataclass
-from typing import Callable, Dict, Iterator, Optional, Tuple
+from typing import Callable, Iterator, Optional, Tuple
 
 
 OKVIR_SLIKA = 1
 OKVIR_ZVOK = 2
 OKVIR_OBVESTILO = 3
 NAJVECJI_OKVIR = 8 * 1024 * 1024
+
+
+def izberi_ponor(je_na_voljo: Callable[[str], bool]) -> str:
+    """Izbere video ponor, ne da bi moral test uvoziti GStreamer."""
+    if je_na_voljo("gtksink"):
+        return "gtksink"
+    if je_na_voljo("glimagesink"):
+        return "glimagesink"
+    raise NapakaGledalca("Manjkata video ponora gtksink in glimagesink.")
+
+
+def niz_cevovoda(ponor: str) -> str:
+    """Vrne cevovod H.264 za izbrani podprti video ponor."""
+    if ponor not in ("gtksink", "glimagesink"):
+        raise NapakaGledalca("Nepodprt video ponor.")
+    return (
+        "appsrc name=vir is-live=true format=time do-timestamp=true block=false "
+        'caps="video/x-h264,stream-format=(string)byte-stream,alignment=(string)au" '
+        "! h264parse ! avdec_h264 ! videoconvert "
+        f"! {ponor} name=ponor sync=false"
+    )
+
+
+def preslikaj_tocko(x: float, y: float, sirina: float, visina: float,
+                    sirina_slike: int, visina_slike: int) -> Optional[Tuple[float, float]]:
+    """Tocko widgeta preslika v sliko z razmerjem stranic; crni rob vrne None."""
+    if min(sirina, visina, sirina_slike, visina_slike) <= 0:
+        return None
+    merilo = min(sirina / sirina_slike, visina / visina_slike)
+    prikaz_sirina = sirina_slike * merilo
+    prikaz_visina = visina_slike * merilo
+    odmik_x = (sirina - prikaz_sirina) / 2.0
+    odmik_y = (visina - prikaz_visina) / 2.0
+    slika_x = (x - odmik_x) / merilo
+    slika_y = (y - odmik_y) / merilo
+    if slika_x < 0 or slika_y < 0 or slika_x > sirina_slike or slika_y > visina_slike:
+        return None
+    return slika_x, slika_y
 
 
 class NapakaGledalca(RuntimeError):
@@ -207,4 +245,5 @@ class Gledalec:
 
 
 __all__ = ["Gledalec", "Glava", "NapakaGledalca", "RazclenjevalnikOkvirjev", "razcleni_odgovor",
-           "preslikaj_tipko", "normalen_odtis", "OKVIR_SLIKA", "OKVIR_ZVOK", "OKVIR_OBVESTILO"]
+           "izberi_ponor", "niz_cevovoda", "preslikaj_tocko", "preslikaj_tipko", "normalen_odtis",
+           "OKVIR_SLIKA", "OKVIR_ZVOK", "OKVIR_OBVESTILO"]
