@@ -536,12 +536,12 @@ class OddaljeniGledalec(Gtk.Window):
                                self.sirina_slike, self.visina_slike)
 
     def _premik(self, _widget, dogodek) -> bool:
+        # Absolutni polozaj (kot Windows gledalec): oddaljeni kazalec je vedno tam, kamor kaze nas.
+        # Relativni premiki so se razlezli (pospesek miske na drugi strani, skok ob vstopu v okno).
         tocka = self._tocka(dogodek.x, dogodek.y)
-        prej, self.prejsnja_tocka = self.prejsnja_tocka, tocka
-        if prej is not None and tocka is not None:
-            dx, dy = round(tocka[0] - prej[0]), round(tocka[1] - prej[1])
-            if dx or dy:
-                self._poslji({"vrsta": "premik", "dx": dx, "dy": dy})
+        if tocka is not None and tocka != self.prejsnja_tocka:
+            self._poslji({"vrsta": "tocka", "x": round(tocka[0]), "y": round(tocka[1])})
+        self.prejsnja_tocka = tocka
         return True
 
     def _izhod_miske(self, *_a) -> bool:
@@ -549,8 +549,11 @@ class OddaljeniGledalec(Gtk.Window):
         return False
 
     def _klik(self, _widget, dogodek, dol: bool) -> bool:
-        if self._tocka(dogodek.x, dogodek.y) is None:
+        tocka = self._tocka(dogodek.x, dogodek.y)
+        if tocka is None:
             return True
+        if dol:
+            self._poslji({"vrsta": "tocka", "x": round(tocka[0]), "y": round(tocka[1])})
         if dol:
             self.dogodki.grab_focus()
         gumb = {1: "levi", 2: "srednji", 3: "desni"}.get(int(dogodek.button))
