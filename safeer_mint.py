@@ -74,6 +74,7 @@ from core.external_apps import ExternalLinkGate, external_scheme, is_allowed, re
 from core.filter_lists import FILTER_ID as FILTER_LIST_ID
 from core.default_browser import is_default_browser as system_is_default_browser, set_default_browser
 from core.tab_monitor import TabMonitor, describe as describe_load
+from core.tab_lifecycle import dejanje_zavihka, izberi_za_sprostitev, pomnilnik
 from core import processes_page
 from core import userscripts as uporabniske_skripte
 
@@ -758,6 +759,8 @@ class SafeerMintBrowser(Gtk.Window):
         self.tab_monitor = TabMonitor(cpu_budget=0.7, show_after=15.0, patience=60.0,
                                       memory_budget_mb=max(512, min(1024, web_process_memory_limit_mb() // 4)))
         GLib.timeout_add_seconds(2, self._monitor_tabs)
+        # Ena skupna ura za vse zavihke; posamezen zavihek nima svojega časovnika.
+        GLib.timeout_add_seconds(15, self._tab_lifecycle_tick)
 
         # Create first initial tab
         if initial_url and je_lokalni_dokument(initial_url):
@@ -4710,14 +4713,20 @@ class SafeerMintBrowser(Gtk.Window):
             else:
                 btn.hide()
 
-            # Dinamični čuvaj zvoka in procesorja:
-            # Če zavihek v ozadju predvaja zvok (npr. YouTube Music), ga ohrani na polni hitrosti
-            # Če ne predvaja zvoka in ni aktiven, ga uspavaj za prihranek RAM-a in procesorja
+            # Zvočni zavihek mora delovati s polno hitrostjo. Ko zvok utihne, začne
+            # njegova neaktivnost teči znova; skupna 15-sekundna ura ga ne zamrzne takoj.
             if tid != self.active_tab_id and not getattr(w, "_safeer_crashed", False):
                 if playing:
                     w.run_javascript("if (window.__safeerResumeTab) window.__safeerResumeTab();", None, None, None)
+                    for item in self.tabs:
+                        if item["id"] == tid:
+                            item["frozen"] = False
+                            break
                 else:
-                    w.run_javascript("if (window.__safeerThrottleTab) window.__safeerThrottleTab();", None, None, None)
+                    for item in self.tabs:
+                        if item["id"] == tid:
+                            item["inactive_since"] = time.monotonic()
+                            break
 
         wv.connect("notify::is-playing-audio", on_audio_state_notify)
         wv.connect("notify::is-muted", on_audio_state_notify)
@@ -4777,6 +4786,8 @@ class SafeerMintBrowser(Gtk.Window):
             "icon_label": tab_icon,
             "load_btn": btn_load,
             "sleeping": False,
+            "frozen": False,
+            "inactive_since": None if switch else time.monotonic(),
             "load_started_at": time.monotonic()
         }
         self.tabs.append(tab_data)
@@ -4849,12 +4860,15 @@ class SafeerMintBrowser(Gtk.Window):
             self.switch_to_tab(self.tabs[new_idx]["id"])
 
     def switch_to_tab(self, tab_id):
+        zdaj = time.monotonic()
         self.active_tab_id = tab_id
         target = None
         for tab in self.tabs:
             is_active = (tab["id"] == tab_id)
             if is_active:
                 target = tab
+                tab["inactive_since"] = None
+                tab["frozen"] = False
                 if tab.pop("deferred", False):
                     tab["webview"].load_uri(self.get_home_uri() if tab["uri"] == "safeer://home" else tab["uri"])
                 tab["tab_box"].get_style_context().add_class("active-tab")
@@ -4866,15 +4880,15 @@ class SafeerMintBrowser(Gtk.Window):
                 except Exception:
                     pass
             else:
+                if tab.get("inactive_since") is None:
+                    tab["inactive_since"] = zdaj
                 tab["tab_box"].get_style_context().remove_class("active-tab")
                 tab["tab_box"].get_style_context().add_class("inactive-tab")
                 try:
                     if tab.get("crashed") or tab.get("deferred"):
                         continue
                     is_audio = tab["webview"].get_property("is-playing-audio")
-                    if not is_audio:
-                        tab["webview"].run_javascript("if (window.__safeerThrottleTab) window.__safeerThrottleTab();", None, None, None)
-                    else:
+                    if is_audio:
                         tab["webview"].run_javascript("if (window.__safeerResumeTab) window.__safeerResumeTab();", None, None, None)
                 except Exception:
                     pass
@@ -5109,6 +5123,68 @@ class SafeerMintBrowser(Gtk.Window):
     # -------------------------------------------------------------
     # Per-tab load: indicator, sleep, menu
     # -------------------------------------------------------------
+    @staticmethod
+    def _tab_is_protected(tab):
+        """Prihodnje pripenjanje/prijavni čuvaji lahko uporabijo iste zastavice."""
+        return bool(tab.get("pinned") or tab.get("login_in_progress") or tab.get("unsaved_form"))
+
+    @staticmethod
+    def _tab_has_audio(tab):
+        try:
+            return bool(tab.get("webview").get_property("is-playing-audio"))
+        except Exception:
+            return False
+
+    def _tab_lifecycle_tick(self):
+        """Zamrzne in zavrže tihe zavihke ter ob pomanjkanju RAM-a ukrepa takoj."""
+        zdaj = time.monotonic()
+        zamrzni_po = max(0.0, float(self.config.get("tab_freeze_after_s", 60) or 0))
+        zavrzi_po = max(0.0, float(self.config.get("tab_discard_after_s", 600) or 0))
+        stanje = []
+        vzorci = self.tab_monitor.snapshot()
+        for tab in list(self.tabs):
+            aktiven = tab["id"] == self.active_tab_id
+            zvok = self._tab_has_audio(tab)
+            zasciten = self._tab_is_protected(tab)
+            stanje.append({"id": tab["id"], "active": aktiven, "audio": zvok,
+                            "protected": zasciten, "sleeping": bool(tab.get("sleeping")),
+                            "inactive_since": tab.get("inactive_since"),
+                            "rss_mb": getattr(vzorci.get(tab["id"]), "rss_mb", 0)})
+            if tab.get("sleeping") or tab.get("crashed") or tab.get("deferred"):
+                continue
+            dejanje = dejanje_zavihka(
+                neaktiven_od=tab.get("inactive_since"), zdaj=zdaj, aktiven=aktiven,
+                zvok=zvok, zasciten=zasciten, zamrznjen=bool(tab.get("frozen")),
+                zamrzni_po=zamrzni_po, zavrzi_po=zavrzi_po)
+            if dejanje == "zamrzni":
+                try:
+                    tab["webview"].run_javascript(
+                        "if (window.__safeerThrottleTab) window.__safeerThrottleTab();", None, None, None)
+                    tab["frozen"] = True
+                except Exception:
+                    pass
+            elif dejanje == "obnovi":
+                try:
+                    tab["webview"].run_javascript(
+                        "if (window.__safeerResumeTab) window.__safeerResumeTab();", None, None, None)
+                    tab["frozen"] = False
+                except Exception:
+                    pass
+            elif dejanje == "zavrzi":
+                if self.sleep_tab(tab["id"], f"neaktiven {int(zdaj - tab['inactive_since'])} s"):
+                    stanje[-1]["sleeping"] = True
+
+        try:
+            with open("/proc/meminfo", encoding="ascii") as datoteka:
+                razpolozljivo, skupaj = pomnilnik(datoteka.read())
+        except OSError:
+            razpolozljivo, skupaj = 0, 0
+        if skupaj > 0 and razpolozljivo / skupaj < 0.10:
+            manjkajoce = int(skupaj * 0.10 - razpolozljivo)
+            for kandidat in izberi_za_sprostitev(stanje, manjkajoce):
+                self.sleep_tab(kandidat["id"], "MemAvailable pod 10 %")
+        return True
+
     def _monitor_tabs(self):
         """Two-second sample of every tab's web process; called from the main loop."""
         rows = []
@@ -5160,7 +5236,9 @@ class SafeerMintBrowser(Gtk.Window):
     def sleep_tab(self, tab_id, reason=""):
         """Stop a tab's web process but keep the tab; selecting it loads the page again."""
         tab = next((item for item in self.tabs if item["id"] == tab_id), None)
-        if tab is None or tab.get("sleeping") or tab.get("crashed"):
+        if (tab is None or tab.get("sleeping") or tab.get("crashed")
+                or tab_id == self.active_tab_id or self._tab_has_audio(tab)
+                or self._tab_is_protected(tab)):
             return False
         wv = tab["webview"]
         current = wv.get_uri() or tab.get("uri") or "safeer://home"
@@ -5168,6 +5246,7 @@ class SafeerMintBrowser(Gtk.Window):
             current = "safeer://home"
         tab["uri"] = current
         tab["sleeping"] = True
+        tab["frozen"] = False
         tab["deferred"] = True  # switch_to_tab() loads the page again
         try:
             wv.terminate_web_process()
