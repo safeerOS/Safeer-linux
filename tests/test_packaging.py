@@ -51,6 +51,27 @@ class PackagingTests(unittest.TestCase):
             self.assertTrue((lib/'assets/os/index.html').exists())
             self.assertTrue((lib/'assets/os/index.html').stat().st_mode & 0o004)
 
+    def test_payloads_ship_every_lazily_imported_core_module(self):
+        """Tudi leni uvozi (``from core import x`` v funkciji) morajo biti v tovoru.
+
+        link_krog uvozi link_kripto sele ob podpisu: namesceni Control se je zagnal, a se ni mogel
+        vpisati v krog zaupanja, zato mu hub ni poslal seznama naprav (prazen seznam na Linuxu).
+        """
+        vzorec=re.compile(r'^\s*from core import ([\w, ]+)|^\s*from core\.(\w+) import|^\s*import core\.(\w+)',re.M)
+        for skripta,mapa in (('install_control_payload.sh','safeer-control'),('install_os_payload.sh','safeer-os')):
+            with self.subTest(skripta=skripta), tempfile.TemporaryDirectory() as directory:
+                prefix=Path(directory)/'usr'
+                subprocess.run(['bash',str(ROOT/'packaging'/skripta),str(prefix)],check=True)
+                lib=prefix/'lib'/mapa
+                manjka=set()
+                for datoteka in [*lib.glob('*.py'),*(lib/'core').glob('*.py')]:
+                    for m in vzorec.finditer(datoteka.read_text(encoding='utf-8')):
+                        imena=[i.strip() for i in (m.group(1) or '').split(',') if i.strip()]+[g for g in m.group(2,3) if g]
+                        for ime in imena:
+                            if (ROOT/'core'/f'{ime}.py').exists() and not (lib/'core'/f'{ime}.py').exists():
+                                manjka.add(f'{datoteka.name} -> {ime}')
+                self.assertFalse(manjka,sorted(manjka))
+
     def test_xdg_config_and_ipc_use_same_profile(self):
         with tempfile.TemporaryDirectory() as directory:
             result=subprocess.check_output(['/usr/bin/python3','-c','from core.config import CONFIG_DIR; print(CONFIG_DIR)'],cwd=ROOT,env={**os.environ,'XDG_CONFIG_HOME':directory},text=True).strip()
