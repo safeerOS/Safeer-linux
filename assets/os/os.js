@@ -718,10 +718,25 @@
           });
           setTimeout(function () { vnos.focus(); vnos.select(); }, 0);
         } else {
-          li.innerHTML = svg(ikonaNaprave(n)) + "<div><b></b><small></small></div><button class=\"gumb majhen\"></button>";
+          var jeRacunalnik = !n.ta && (n.vrsta === "computer" || n.vrsta === "control" ||
+            n.platforma === "linux" || n.platforma === "windows" || n.platforma === "macos");
+          li.innerHTML = svg(ikonaNaprave(n)) + "<div><b></b><small></small></div>" +
+            (jeRacunalnik ? "<button class=\"gumb glavni majhen upravljaj\"></button>" : "") +
+            "<button class=\"gumb majhen preimenuj\"></button>";
           li.querySelector("b").textContent = n.ime || n.id;
           li.querySelector("small").textContent = opis;
-          var g = li.querySelector("button"); g.textContent = "✎ " + t("preimenuj"); g.title = t("preimenuj");
+          if (jeRacunalnik) {
+            var u = li.querySelector("button.upravljaj");
+            u.textContent = t("upravljajRacunalnik");
+            u.addEventListener("click", function () {
+              u.disabled = true;
+              klic("upravljajRacunalnik", [n.id]).then(function (r) {
+                u.disabled = false;
+                if (!r || !r.ok) obvesti((r && r.message) || t("oddaljeniNapaka"));
+              }, function (e) { u.disabled = false; obvesti(String(e || t("oddaljeniNapaka"))); });
+            });
+          }
+          var g = li.querySelector("button.preimenuj"); g.textContent = "✎ " + t("preimenuj"); g.title = t("preimenuj");
           g.addEventListener("click", function () { preimenujem = n.id; narisiSeznamNaprav(true); });
         }
         ul.appendChild(li);

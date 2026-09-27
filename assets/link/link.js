@@ -800,6 +800,8 @@
       dodajOpomba: "Koda se pokaže samo na središču: kdor ga ne vidi, se ne more povezati – tudi ne v javnem omrežju.",
       istaNaprava: "{ime} teče na tej napravi",
       daljinec: "Daljinec",
+      upravljajRacunalnik: "Upravljaj ta računalnik",
+      oddaljeniPovezujem: "Čakam na dovoljenje računalnika …",
       ospredjeOpis: "Da se Safeer odpre sam, ko mu s telefona pošlješ stran ali ukaz, mu enkrat dovoli prekrivanje drugih aplikacij.",
       ospredjeDovoli: "Dovoli",
       zapriDeljenje: "Zapri"
@@ -810,6 +812,8 @@
       zasedenoDeli: "Busy — {ime} is sharing",
       napZasedena: "{ime} is currently sharing with this device. Wait until it finishes.",
       preimenuj: "Rename",
+      upravljajRacunalnik: "Control this computer",
+      oddaljeniPovezujem: "Waiting for permission from the computer …",
       shraniIme: "Save name",
       vnesiIme: "New device name …",
       preimenovano: "Name saved.",
@@ -2487,6 +2491,9 @@
         }
       } else if (vrsta === "ukaz") {
         if (window.SafeerDaljinec) window.SafeerDaljinec.odziv(podatki);
+      } else if (vrsta === "oddaljeniZaslon") {
+        besedilo("opombaDeljenje", podatki && podatki.ok ? "" :
+          ((podatki && podatki.message) || t("napUkaz")));
       } else if (vrsta === "govor") {
         if (window.SafeerDaljinec) window.SafeerDaljinec.govor(podatki);
       } else if (vrsta === "naprave") {
@@ -2642,6 +2649,9 @@
     // Daljinec: napravo, ki javi zmoznost "remote", je mogoce upravljati (Safeer Control).
     var znaDaljinec = !samoIme && !!(most && most.ukaz) && ((naprava.zmoznosti || []).indexOf("remote") >= 0) && !!window.SafeerDaljinec;
     pokazi("gumbDaljinec", znaDaljinec);
+    var jeRacunalnik = !samoIme && naprava.id !== stanje.idNaprave && !!(most && most.upravljajRacunalnik) &&
+      ikonaNapraveVSeznamu(naprava) === "racunalnik";
+    pokazi("gumbUpravljajRacunalnik", jeRacunalnik);
     pokazi("bliznjiceZaslona", znaDaljinec);
     pokazi("izbireDeljenja", !samoIme);
     pokazi("opisIzbire", !samoIme);
@@ -3260,5 +3270,12 @@
     if (!n || !window.SafeerDaljinec) return;
     zapriDeljenje();
     window.SafeerDaljinec.odpri(n);
+  });
+  var gumbUpravljajRacunalnik = el("gumbUpravljajRacunalnik");
+  if (gumbUpravljajRacunalnik) gumbUpravljajRacunalnik.addEventListener("click", function () {
+    var n = deljenje.naprava;
+    if (!n || !most || !most.upravljajRacunalnik) return;
+    besedilo("opombaDeljenje", t("oddaljeniPovezujem"));
+    most.upravljajRacunalnik(n.id);
   });
 })();

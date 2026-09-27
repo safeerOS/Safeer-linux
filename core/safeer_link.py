@@ -126,6 +126,7 @@ MOST_JS = """
     posljiBesedilo: function (id, besedilo) { poslji("posljiBesedilo", [id, String(besedilo || "")]); },
     izberiDatoteko: function (id) { poslji("izberiDatoteko", [id]); },
     zacniDeljenjeZaslona: function (id, ime) { poslji("zacniDeljenjeZaslona", [id, String(ime || "")]); },
+    upravljajRacunalnik: function (id) { poslji("upravljajRacunalnik", [id]); },
     koncajDeljenjeZaslona: function () { poslji("koncajDeljenjeZaslona"); },
     deljenjeZaslonaStanje: function () { return JSON.stringify(window.__safeerLink.deljenje || {tece: false}); },
     preimenujNapravo: function (id, ime) { poslji("preimenujNapravo", [id, String(ime || "")]); },
@@ -156,13 +157,15 @@ class SafeerLink:
                  identiteta: Optional[Tuple[str, str]] = None,
                  control: bool = False,
                  ob_zaprtju: Optional[Callable[[], None]] = None,
-                 zapri_deljeni_zaslon: Optional[Callable[[], None]] = None) -> None:
+                 zapri_deljeni_zaslon: Optional[Callable[[], None]] = None,
+                 odpri_oddaljeni_zaslon: Optional[Callable[[str], dict]] = None) -> None:
         self.starsevsko = starsevsko
         # Safeer Control: ista stran in isti Link, a brez brskalnika (svoja identiteta in shramba,
         # okno je glavno okno programa, prejete strani odpre sistemski brskalnik).
         self.control = control
         self.ob_zaprtju = ob_zaprtju
         self.zapri_deljeni_zaslon = zapri_deljeni_zaslon
+        self.odpri_oddaljeni_zaslon = odpri_oddaljeni_zaslon
         self._identiteta = identiteta
         self.config = config
         self.trenutna_stran = trenutna_stran
@@ -585,6 +588,7 @@ class SafeerLink:
             "posljiBesedilo": lambda: self._v_ozadju(lambda: self._poslji_besedilo(*argumenti[:2])),
             "izberiDatoteko": lambda: self._izberi_datoteko(*argumenti[:1]),
             "zacniDeljenjeZaslona": lambda: self._v_ozadju(lambda: self._zacni_deljenje_zaslona(*argumenti[:2])),
+            "upravljajRacunalnik": lambda: self._v_ozadju(lambda: self._upravljaj_racunalnik(*argumenti[:1])),
             "koncajDeljenjeZaslona": lambda: self._koncaj_deljenje_zaslona(),
             "preimenujNapravo": lambda: self._v_ozadju(lambda: self._preimenuj_napravo(*argumenti[:2])),
             "shraniVzdevek": lambda: self._shrani_vzdevek(*argumenti[:2]),
@@ -600,6 +604,17 @@ class SafeerLink:
                 obravnava()
             except Exception as e:  # noqa: BLE001 - stran ne sme podreti brskalnika
                 self._odziv("napaka", str(e))
+
+    def _upravljaj_racunalnik(self, id_naprave: str = "") -> None:
+        """Odpre domaci gledalec; odziv strani vsebuje tudi zavrnitev ciljne naprave."""
+        if self.odpri_oddaljeni_zaslon is None:
+            self._odziv("oddaljeniZaslon", {"ok": False, "message": "Gledalec ni na voljo."})
+            return
+        try:
+            izid = self.odpri_oddaljeni_zaslon(str(id_naprave or ""))
+        except Exception as e:  # noqa: BLE001
+            izid = {"ok": False, "message": str(e)}
+        self._odziv("oddaljeniZaslon", izid)
 
     # Krajevna imena naprav: uporabnik tega racunalnika poimenuje druge naprave po svoje;
     # imena ostanejo tu (nastavitve), ne na Safeer Linku, zato prezivijo zamenjavo gostitelja.
