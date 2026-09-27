@@ -661,7 +661,6 @@
     $("gumbControl").querySelector("svg").innerHTML = '<path d="' + IK[povezan ? "naprave" : "qr"] + '"/>';
     $("kNapravePod").textContent = t(povezan ? "napravePodPovezan" : "napravePodNov");
     $("blokZaupanje").hidden = !povezan;
-    $("gumbNovaNaprava").hidden = !povezan || !p.control;
     $("gumbOdjava").hidden = !povezan || !p.control;
     $("gumbOdjava").classList.toggle("opozorilo", odjavaPotrjujem);
     $("gumbOdjavaBesedilo").textContent = t(odjavaPotrjujem ? "odjavaPotrdi" : "odjaviRacunalnik");
@@ -1384,10 +1383,6 @@
       obvesti(t("odpiram", { ime: "Safeer Control" }));
       // Povezan racunalnik: Control z napravami; sicer prijavno okno (QR / koda / brez povezave).
       klic(S.povezava.stanje === "povezan" ? "control" : "prijava");
-    });
-    $("gumbNovaNaprava").addEventListener("click", function () {
-      obvesti(t("odpiram", { ime: "Safeer Control" }));
-      klic("novaNaprava");
     });
     $("gumbOdjava").addEventListener("click", function () {
       if (!odjavaPotrjujem) {
