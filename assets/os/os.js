@@ -207,10 +207,7 @@
   }
   function zazeni(p) {
     if (p.naprava) {
-      var n = S.naprave.find(function (x) { return x.id === p.naprava; }) || { ime: "" };
-      obvesti(t("zaganjamNa", { ime: p.ime, naprava: n.ime }));
-      klic("zazeniNaNapravi", [p.naprava, p.id]).then(function (ok) { if (!ok) obvesti(t("niUspelo")); },
-                                                        function () { obvesti(t("niUspelo")); });
+      odpriTukaj(p);
       return;
     }
     obvesti(t("odpiram", { ime: p.ime }));
@@ -221,12 +218,34 @@
       setTimeout(narisiDomov, 400);
     }, function () { obvesti(t("niUspelo")); });
   }
+  function odpriTukaj(p) {
+    var n = S.naprave.find(function (x) { return x.id === p.naprava; }) || { ime: "" };
+    obvesti(t("potrdiNaNapravi", { ime: p.ime, naprava: n.ime }));
+    klic("odpriTukaj", [p.naprava, p.id]).then(function (r) {
+      if (!r || !r.ok) { obvesti(r && r.message ? r.message : t("niUspelo")); return; }
+      if (!r.tu) obvesti(t("napravaNePretaka", { ime: p.ime, naprava: n.ime }));
+    }, function () { obvesti(t("niUspelo")); });
+  }
+  function zazeniNaSamiNapravi(p) {
+    var n = S.naprave.find(function (x) { return x.id === p.naprava; }) || { ime: "" };
+    obvesti(t("zaganjamNa", { ime: p.ime, naprava: n.ime }));
+    klic("zazeniNaNapravi", [p.naprava, p.id]).then(function (r) {
+      var ok = r === true || !!(r && r.ok);
+      if (!ok) obvesti(r && r.message ? r.message : t("niUspelo"));
+    }, function () { obvesti(t("niUspelo")); });
+  }
   function ploscicaPrograma(p, zPripenjanjem, naDomacem) {
     var b = el("button", "ploscica");
     b.title = p.opis || p.ime;
     b.appendChild(slikaAliCrka(p.ikona, p.ime));
     b.appendChild(el("span", "ime", ubezi(p.ime)));
     b.addEventListener("click", function () { zazeni(p); });
+    if (p.naprava) {
+      var tam = el("span", "pripni", svg("zaslon"));
+      tam.title = t("zazeniNaNapravi");
+      tam.addEventListener("click", function (e) { e.stopPropagation(); zazeniNaSamiNapravi(p); });
+      b.appendChild(tam);
+    }
     if (zPripenjanjem) {
       var pr = el("span", "pripni" + (p.pripet ? " pripet" : "") + (naDomacem ? " levo" : ""), svg("zvezda"));
       pr.title = p.pripet ? t("odpni") : t("pripni");
