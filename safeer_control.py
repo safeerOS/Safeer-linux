@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import json
 import os
-import socket
 import subprocess
 import threading
 import time
@@ -39,261 +38,18 @@ if KOREN not in sys.path:
     sys.path.insert(0, KOREN)
 
 
-def _zazeni_oddaljeni_zaslon(vticnik_fd: int) -> int:
-    """GTK4/GStreamer okno v locenem procesu.
-
-    Glavni Control uporablja GTK3 zaradi WebKita. GTK4 ne sme biti v istem procesu,
-    zato si procesa podatke sej podajata po podedovanem lokalnem vticniku.
-    """
-    import gi as gi4
-
-    gi4.require_version("Gtk", "4.0")
-    gi4.require_version("Gdk", "4.0")
-    gi4.require_version("Gst", "1.0")
-    from gi.repository import Gdk, GLib as GLib4, Gst, Gtk as Gtk4
-    from core.link_gledalec import (Gledalec, OKVIR_OBVESTILO, OKVIR_SLIKA,
-                                    preslikaj_tipko)
-
-    kanal = socket.socket(fileno=vticnik_fd)
-    kanal_datoteka = kanal.makefile("rwb", buffering=0)
-
-    def prejmi() -> dict:
-        vrstica = kanal_datoteka.readline(1024 * 1024)
-        if not vrstica:
-            raise RuntimeError("Safeer Control je zaprl povezavo.")
-        vrednost = json.loads(vrstica.decode("utf-8"))
-        if not isinstance(vrednost, dict):
-            raise RuntimeError("Neveljavni podatki seje.")
-        return vrednost
-
-    def sporoci(vrednost: dict) -> None:
-        kanal_datoteka.write(json.dumps(vrednost, ensure_ascii=False).encode("utf-8") + b"\n")
-
-    prva = prejmi()
-    Gst.init(None)
-
-    class Okno(Gtk4.ApplicationWindow):
-        def __init__(self, app) -> None:
-            super().__init__(application=app, title="Oddaljeni zaslon – " + str(prva.get("ime") or "racunalnik"))
-            self.set_default_size(1200, 760)
-            self.gledalec = None
-            self.pipeline = None
-            self.appsrc = None
-            self.zaprto = False
-            self.prejsnja_tocka = None
-
-            prekrivnik = Gtk4.Overlay()
-            self.set_child(prekrivnik)
-            self.slika = Gtk4.Picture()
-            self.slika.set_can_shrink(True)
-            self.slika.set_content_fit(Gtk4.ContentFit.CONTAIN)
-            self.slika.set_focusable(True)
-            prekrivnik.set_child(self.slika)
-
-            self.stanje = Gtk4.Box(orientation=Gtk4.Orientation.VERTICAL, spacing=12)
-            self.stanje.set_halign(Gtk4.Align.CENTER)
-            self.stanje.set_valign(Gtk4.Align.CENTER)
-            self.stanje.add_css_class("card")
-            self.napis = Gtk4.Label(label="Povezujem …")
-            self.napis.set_wrap(True)
-            self.ponovno = Gtk4.Button(label="Poveži znova")
-            self.ponovno.set_visible(False)
-            self.ponovno.connect("clicked", self._ponovi)
-            self.stanje.append(self.napis)
-            self.stanje.append(self.ponovno)
-            prekrivnik.add_overlay(self.stanje)
-
-            celo = Gtk4.Button(label="Celozaslonsko")
-            celo.set_halign(Gtk4.Align.END)
-            celo.set_valign(Gtk4.Align.START)
-            celo.set_margin_top(12)
-            celo.set_margin_end(12)
-            celo.connect("clicked", self._celo)
-            prekrivnik.add_overlay(celo)
-
-            tipke = Gtk4.EventControllerKey()
-            tipke.connect("key-pressed", self._tipka_dol)
-            tipke.connect("key-released", self._tipka_gor)
-            self.add_controller(tipke)
-            premik = Gtk4.EventControllerMotion()
-            premik.connect("motion", self._premik)
-            premik.connect("leave", lambda *_: setattr(self, "prejsnja_tocka", None))
-            self.slika.add_controller(premik)
-            klik = Gtk4.GestureClick()
-            klik.set_button(0)
-            klik.connect("pressed", self._klik, True)
-            klik.connect("released", self._klik, False)
-            self.slika.add_controller(klik)
-            kolo = Gtk4.EventControllerScroll.new(Gtk4.EventControllerScrollFlags.VERTICAL)
-            kolo.connect("scroll", self._kolo)
-            self.slika.add_controller(kolo)
-            self.connect("close-request", self._zapri)
-            self._zacni(prva)
-
-        def _celo(self, *_a) -> None:
-            if self.is_fullscreen():
-                self.unfullscreen()
-            else:
-                self.fullscreen()
-
-        def _pokazi_napako(self, sporocilo: str) -> bool:
-            self.napis.set_text(sporocilo or "Povezava je bila prekinjena.")
-            self.ponovno.set_visible(True)
-            self.stanje.set_visible(True)
-            return False
-
-        def _pripravi_pipeline(self) -> None:
-            self.pipeline = Gst.parse_launch(
-                "appsrc name=vir is-live=true format=time do-timestamp=true block=false "
-                "! h264parse config-interval=-1 ! avdec_h264 ! videoconvert "
-                "! gtk4paintablesink name=ponor sync=false")
-            self.appsrc = self.pipeline.get_by_name("vir")
-            self.appsrc.set_property("caps", Gst.Caps.from_string(
-                "video/x-h264,stream-format=(string)byte-stream"))
-            ponor = self.pipeline.get_by_name("ponor")
-            self.slika.set_paintable(ponor.get_property("paintable"))
-            vodilo = self.pipeline.get_bus()
-            vodilo.add_signal_watch()
-            vodilo.connect("message::error", self._gst_napaka)
-            self.pipeline.set_state(Gst.State.PLAYING)
-
-        def _gst_napaka(self, _vodilo, sporocilo) -> None:
-            napaka, _ = sporocilo.parse_error()
-            GLib4.idle_add(self._pokazi_napako, str(napaka))
-
-        def _zacni(self, podatki: dict) -> None:
-            self.napis.set_text("Povezujem …")
-            self.ponovno.set_visible(False)
-            self.stanje.set_visible(True)
-            self._ustavi_pretok()
-            try:
-                self._pripravi_pipeline()
-            except Exception as e:  # noqa: BLE001
-                self._pokazi_napako("GStreamer ne more pripraviti slike (gtk4paintablesink): " + str(e))
-                return
-
-            def delo() -> None:
-                try:
-                    g = Gledalec(str(podatki.get("naslov") or ""), podatki.get("seja") or {})
-                    self.gledalec = g
-                    g.povezi()
-                    GLib4.idle_add(self.stanje.set_visible, False)
-                    GLib4.idle_add(self.slika.grab_focus)
-                    for vrsta, telo in g.okvirji():
-                        if self.zaprto or self.gledalec is not g:
-                            break
-                        if vrsta == OKVIR_SLIKA:
-                            medpomnilnik = Gst.Buffer.new_allocate(None, len(telo), None)
-                            medpomnilnik.fill(0, telo)
-                            if self.appsrc.emit("push-buffer", medpomnilnik) == Gst.FlowReturn.ERROR:
-                                raise RuntimeError("Dekoder slike se je ustavil.")
-                        elif vrsta == OKVIR_OBVESTILO:
-                            obvestilo = json.loads(telo.decode("utf-8"))
-                            if obvestilo.get("konec"):
-                                raise RuntimeError(str(obvestilo.get("konec")))
-                except Exception as e:
-                    if not self.zaprto:
-                        GLib4.idle_add(self._pokazi_napako, str(e))
-
-            threading.Thread(target=delo, name="safeer-gledalec", daemon=True).start()
-
-        def _ustavi_pretok(self) -> None:
-            if self.gledalec is not None:
-                self.gledalec.zapri()
-                self.gledalec = None
-            if self.pipeline is not None:
-                self.pipeline.set_state(Gst.State.NULL)
-                self.pipeline = None
-                self.appsrc = None
-
-        def _ponovi(self, *_a) -> None:
-            self.ponovno.set_visible(False)
-            self.napis.set_text("Pridobivam novo dovoljenje …")
-
-            def delo() -> None:
-                try:
-                    sporoci({"action": "reconnect"})
-                    novi = prejmi()
-                    if not novi.get("ok", True):
-                        raise RuntimeError(str(novi.get("message") or "Povezava ni dovoljena."))
-                    GLib4.idle_add(self._zacni, novi)
-                except Exception as e:
-                    GLib4.idle_add(self._pokazi_napako, str(e))
-
-            threading.Thread(target=delo, name="safeer-gledalec-ponovi", daemon=True).start()
-
-        def _poslji(self, dogodek) -> None:
-            if dogodek and self.gledalec is not None:
-                try:
-                    self.gledalec.poslji(dogodek)
-                except OSError:
-                    pass
-
-        def _tipka_dol(self, _krmilnik, keyval, _keycode, stanje) -> bool:
-            ime = Gdk.keyval_name(keyval) or ""
-            znak = chr(Gdk.keyval_to_unicode(keyval)) if Gdk.keyval_to_unicode(keyval) else ""
-            bliznjice = {"c": "kopiraj", "v": "prilepi", "x": "izrezi", "z": "razveljavi",
-                         "y": "ponovi", "a": "izberi_vse", "s": "shrani", "p": "natisni",
-                         "f": "isci", "w": "zapri_okno", "b": "krepko", "i": "lezece", "u": "podcrtano"}
-            if stanje & Gdk.ModifierType.CONTROL_MASK and znak.lower() in bliznjice:
-                self._poslji({"vrsta": "tipka", "tipka": bliznjice[znak.lower()]})
-            else:
-                self._poslji(preslikaj_tipko(ime, znak, True))
-            return True
-
-        def _tipka_gor(self, _krmilnik, keyval, _keycode, _stanje) -> None:
-            self._poslji(preslikaj_tipko(Gdk.keyval_name(keyval) or "", "", False))
-
-        def _premik(self, _krmilnik, x, y) -> None:
-            prej, self.prejsnja_tocka = self.prejsnja_tocka, (x, y)
-            if prej is not None:
-                self._poslji({"vrsta": "premik", "dx": round(x - prej[0]), "dy": round(y - prej[1])})
-
-        def _klik(self, kretnja, _n, _x, _y, dol) -> None:
-            gumbi = {1: "levi", 2: "srednji", 3: "desni"}
-            gumb = gumbi.get(kretnja.get_current_button())
-            if gumb:
-                self._poslji({"vrsta": "gumb", "gumb": gumb, "dol": dol})
-
-        def _kolo(self, _krmilnik, _dx, dy) -> bool:
-            if dy:
-                self._poslji({"vrsta": "kolesce", "smer": "dol" if dy > 0 else "gor",
-                              "koliko": min(10, max(1, round(abs(dy)) or 1))})
-            return True
-
-        def _zapri(self, *_a) -> bool:
-            self.zaprto = True
-            self._ustavi_pretok()
-            try:
-                sporoci({"action": "closed"})
-            except OSError:
-                pass
-            return False
-
-    class Program(Gtk4.Application):
-        def do_activate(self) -> None:
-            Okno(self).present()
-
-    return Program(application_id="io.github.memelandfaner.SafeerRemoteViewer",
-                   flags=0).run([])
-
-
-if "--oddaljeni-zaslon" in sys.argv:
-    try:
-        _mesto = sys.argv.index("--oddaljeni-zaslon")
-        raise SystemExit(_zazeni_oddaljeni_zaslon(int(sys.argv[_mesto + 1])))
-    except (IndexError, ValueError) as _napaka:
-        print("[SafeerControl] Gledalca ni mogoce zagnati:", _napaka)
-        raise SystemExit(2)
-
 import gi  # noqa: E402
 
 gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
 gi.require_version("WebKit2", "4.1")
-from gi.repository import Gio, GLib, Gtk, WebKit2  # noqa: E402
+from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 
 from core import link_datoteke, link_deljenje, link_hub, link_programi, link_sway, link_tls, link_zaslon, link_zvok  # noqa: E402
 from core import os_stabilnost  # noqa: E402
+from core.link_gledalec import (Gledalec, OKVIR_OBVESTILO, OKVIR_SLIKA,  # noqa: E402
+                                izberi_ponor, niz_cevovoda, preslikaj_tipko,
+                                preslikaj_tocko)
 from core.safeer_link import SafeerLink  # noqa: E402
 
 APP_ID = "io.github.memelandfaner.SafeerControl"
@@ -575,6 +331,305 @@ class Pladenj:
         self.samozagon.handler_unblock(self._preklop_id)
 
 
+class OddaljeniGledalec(Gtk.Window):
+    """GTK3 gledalec H.264, ki tece v istem procesu kot Safeer Control."""
+
+    def __init__(self, control, id_naprave: str, podatki: dict) -> None:
+        super().__init__(title="Oddaljeni zaslon - " + str(podatki.get("ime") or "racunalnik"))
+        self.control = control
+        self.id_naprave = id_naprave
+        self.gledalec = None
+        self.pipeline = None
+        self.appsrc = None
+        self.Gst = None
+        self.ponor_ime = ""
+        self.zaprto = False
+        self.prejsnja_tocka = None
+        self.sirina_slike = 1920
+        self.visina_slike = 1080
+        self.set_default_size(1200, 760)
+
+        prekrivnik = Gtk.Overlay()
+        self.add(prekrivnik)
+        self.dogodki = Gtk.EventBox()
+        self.dogodki.set_visible_window(False)
+        self.dogodki.set_above_child(True)
+        self.dogodki.set_can_focus(True)
+        self.dogodki.add_events(
+            Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.LEAVE_NOTIFY_MASK |
+            Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK |
+            Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.KEY_PRESS_MASK | Gdk.EventMask.KEY_RELEASE_MASK)
+        prekrivnik.add(self.dogodki)
+
+        self.stanje = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.stanje.set_halign(Gtk.Align.CENTER)
+        self.stanje.set_valign(Gtk.Align.CENTER)
+        self.napis = Gtk.Label(label="Povezujem ...")
+        self.napis.set_line_wrap(True)
+        self.ponovno = Gtk.Button(label="Povezi znova")
+        self.ponovno.set_no_show_all(True)
+        self.ponovno.connect("clicked", self._ponovi)
+        self.stanje.pack_start(self.napis, False, False, 0)
+        self.stanje.pack_start(self.ponovno, False, False, 0)
+        prekrivnik.add_overlay(self.stanje)
+
+        celo = Gtk.Button(label="Celozaslonsko")
+        celo.set_halign(Gtk.Align.END)
+        celo.set_valign(Gtk.Align.START)
+        celo.set_margin_top(12)
+        celo.set_margin_end(12)
+        celo.connect("clicked", self._celo)
+        prekrivnik.add_overlay(celo)
+
+        self.dogodki.connect("motion-notify-event", self._premik)
+        self.dogodki.connect("leave-notify-event", self._izhod_miske)
+        self.dogodki.connect("button-press-event", self._klik, True)
+        self.dogodki.connect("button-release-event", self._klik, False)
+        self.dogodki.connect("scroll-event", self._kolo)
+        self.dogodki.connect("key-press-event", self._tipka, True)
+        self.dogodki.connect("key-release-event", self._tipka, False)
+        self.connect("delete-event", self._zahteva_zaprtje)
+        self.show_all()
+        self._zacni(podatki)
+
+    @staticmethod
+    def _nalozi_gstreamer():
+        # Uvoz je namenoma pozen: Control mora delovati tudi brez GStreamerja.
+        gi.require_version("Gst", "1.0")
+        from gi.repository import Gst  # noqa: WPS433
+        Gst.init(None)
+        return Gst
+
+    def _celo(self, *_a) -> None:
+        if self.get_window() is not None and self.get_window().get_state() & Gdk.WindowState.FULLSCREEN:
+            self.unfullscreen()
+        else:
+            self.fullscreen()
+
+    def _pokazi_napako(self, sporocilo: str) -> bool:
+        if self.zaprto:
+            return False
+        self.napis.set_text(sporocilo or "Povezava je bila prekinjena.")
+        self.ponovno.show()
+        self.stanje.show_all()
+        return False
+
+    def _zamenjaj_vsebino(self, widget) -> None:
+        otrok = self.dogodki.get_child()
+        if otrok is not None:
+            self.dogodki.remove(otrok)
+        self.dogodki.add(widget)
+        widget.show()
+
+    def _pripravi_pipeline(self) -> None:
+        self.Gst = self._nalozi_gstreamer()
+        Gst = self.Gst
+        self.ponor_ime = izberi_ponor(lambda ime: Gst.ElementFactory.find(ime) is not None)
+        self.pipeline = Gst.parse_launch(niz_cevovoda(self.ponor_ime))
+        self.appsrc = self.pipeline.get_by_name("vir")
+        ponor = self.pipeline.get_by_name("ponor")
+        if self.ponor_ime == "gtksink":
+            self._zamenjaj_vsebino(ponor.props.widget)
+        else:
+            prazno = Gtk.DrawingArea()
+            self._zamenjaj_vsebino(prazno)
+            if ponor.find_property("handle-events") is not None:
+                ponor.set_property("handle-events", True)
+            self.napis.set_text("Paket gtksink ni na voljo. Slika je odprta v locenem oknu glimagesink.")
+            self.stanje.show_all()
+            print("[SafeerControl] gtksink ni na voljo; uporabljam glimagesink v locenem oknu.")
+            podloga = ponor.get_static_pad("sink")
+            if podloga is not None:
+                podloga.add_probe(Gst.PadProbeType.EVENT_UPSTREAM, self._navigacijski_dogodek)
+        vodilo = self.pipeline.get_bus()
+        vodilo.add_signal_watch()
+        vodilo.connect("message::error", self._gst_napaka)
+        if self.pipeline.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
+            raise RuntimeError("GStreamer cevovoda ni mogel zagnati.")
+
+    def _gst_napaka(self, _vodilo, sporocilo) -> None:
+        napaka, _podrobnosti = sporocilo.parse_error()
+        GLib.idle_add(self._pokazi_napako, "GStreamer: " + str(napaka))
+
+    def _zacni(self, podatki: dict) -> None:
+        self.napis.set_text("Povezujem ...")
+        self.ponovno.hide()
+        self.stanje.show_all()
+        self.ponovno.hide()
+        self._ustavi_pretok()
+        try:
+            self._pripravi_pipeline()
+        except Exception as e:  # noqa: BLE001
+            self._pokazi_napako("GStreamer ne more pripraviti slike: " + str(e))
+            return
+
+        def delo() -> None:
+            gledalec = None
+            try:
+                gledalec = Gledalec(str(podatki.get("naslov") or ""), podatki.get("seja") or {})
+                self.gledalec = gledalec
+                glava = gledalec.povezi()
+                self.sirina_slike, self.visina_slike = glava.sirina, glava.visina
+                GLib.idle_add(self._povezano)
+                for vrsta, telo in gledalec.okvirji():
+                    if self.zaprto or self.gledalec is not gledalec:
+                        break
+                    if vrsta == OKVIR_SLIKA:
+                        medpomnilnik = self.Gst.Buffer.new_allocate(None, len(telo), None)
+                        medpomnilnik.fill(0, telo)
+                        appsrc = self.appsrc
+                        if appsrc is None or appsrc.emit("push-buffer", medpomnilnik) == self.Gst.FlowReturn.ERROR:
+                            raise RuntimeError("Dekoder slike se je ustavil.")
+                    elif vrsta == OKVIR_OBVESTILO:
+                        obvestilo = json.loads(telo.decode("utf-8"))
+                        if obvestilo.get("konec"):
+                            raise RuntimeError(str(obvestilo.get("konec")))
+            except Exception as e:  # noqa: BLE001
+                if not self.zaprto and gledalec is not None and self.gledalec is gledalec:
+                    GLib.idle_add(self._pokazi_napako, str(e))
+
+        threading.Thread(target=delo, name="safeer-gledalec", daemon=True).start()
+
+    def _povezano(self) -> bool:
+        if self.ponor_ime == "gtksink":
+            self.stanje.hide()
+        self.dogodki.grab_focus()
+        return False
+
+    def _ustavi_pretok(self) -> None:
+        if self.gledalec is not None:
+            self.gledalec.zapri()
+            self.gledalec = None
+        if self.pipeline is not None and self.Gst is not None:
+            self.pipeline.set_state(self.Gst.State.NULL)
+            self.pipeline = None
+            self.appsrc = None
+
+    def _ponovi(self, *_a) -> None:
+        self.ponovno.hide()
+        self.napis.set_text("Pridobivam novo dovoljenje ...")
+        self.stanje.show()
+
+        def delo() -> None:
+            try:
+                if self.control.link is not None:
+                    self.control.link.ukaz_pocakaj(self.id_naprave, "screen.stop", {}, cas=5.0)
+                novi = self.control._nova_oddaljena_seja(self.id_naprave)
+                if not novi.get("ok"):
+                    raise RuntimeError(str(novi.get("message") or "Povezava ni dovoljena."))
+                GLib.idle_add(self._zacni, novi)
+            except Exception as e:  # noqa: BLE001
+                GLib.idle_add(self._pokazi_napako, str(e))
+
+        threading.Thread(target=delo, name="safeer-gledalec-ponovi", daemon=True).start()
+
+    def _poslji(self, dogodek) -> None:
+        if dogodek and self.gledalec is not None:
+            try:
+                self.gledalec.poslji(dogodek)
+            except OSError:
+                pass
+
+    def _tocka(self, x: float, y: float):
+        razpored = self.dogodki.get_allocation()
+        return preslikaj_tocko(x, y, razpored.width, razpored.height,
+                               self.sirina_slike, self.visina_slike)
+
+    def _premik(self, _widget, dogodek) -> bool:
+        tocka = self._tocka(dogodek.x, dogodek.y)
+        prej, self.prejsnja_tocka = self.prejsnja_tocka, tocka
+        if prej is not None and tocka is not None:
+            dx, dy = round(tocka[0] - prej[0]), round(tocka[1] - prej[1])
+            if dx or dy:
+                self._poslji({"vrsta": "premik", "dx": dx, "dy": dy})
+        return True
+
+    def _izhod_miske(self, *_a) -> bool:
+        self.prejsnja_tocka = None
+        return False
+
+    def _klik(self, _widget, dogodek, dol: bool) -> bool:
+        if self._tocka(dogodek.x, dogodek.y) is None:
+            return True
+        if dol:
+            self.dogodki.grab_focus()
+        gumb = {1: "levi", 2: "srednji", 3: "desni"}.get(int(dogodek.button))
+        if gumb:
+            self._poslji({"vrsta": "gumb", "gumb": gumb, "dol": dol})
+        return True
+
+    def _kolo(self, _widget, dogodek) -> bool:
+        if self._tocka(dogodek.x, dogodek.y) is None:
+            return True
+        if dogodek.direction == Gdk.ScrollDirection.SMOOTH:
+            _uspeh, _dx, dy = dogodek.get_scroll_deltas()
+            if not dy:
+                return True
+            smer = "dol" if dy > 0 else "gor"
+            koliko = min(10, max(1, round(abs(dy)) or 1))
+        else:
+            smer = "dol" if dogodek.direction in (Gdk.ScrollDirection.DOWN, Gdk.ScrollDirection.RIGHT) else "gor"
+            koliko = 1
+        self._poslji({"vrsta": "kolesce", "smer": smer, "koliko": koliko})
+        return True
+
+    def _tipka(self, _widget, dogodek, dol: bool) -> bool:
+        ime = Gdk.keyval_name(dogodek.keyval) or ""
+        unicode_vrednost = Gdk.keyval_to_unicode(dogodek.keyval)
+        znak = chr(unicode_vrednost) if unicode_vrednost else ""
+        bliznjice = {"c": "kopiraj", "v": "prilepi", "x": "izrezi", "z": "razveljavi",
+                     "y": "ponovi", "a": "izberi_vse", "s": "shrani", "p": "natisni",
+                     "f": "isci", "w": "zapri_okno", "b": "krepko", "i": "lezece", "u": "podcrtano"}
+        if dol and dogodek.state & Gdk.ModifierType.CONTROL_MASK and znak.lower() in bliznjice:
+            self._poslji({"vrsta": "tipka", "tipka": bliznjice[znak.lower()]})
+        else:
+            self._poslji(preslikaj_tipko(ime, znak, dol))
+        return True
+
+    def _navigacijski_dogodek(self, _podloga, podatek):
+        """Vhod lastnega okna glimagesink prevede iz navigacijskih dogodkov."""
+        Gst = self.Gst
+        dogodek = podatek.get_event()
+        struktura = dogodek.get_structure() if dogodek is not None else None
+        if struktura is None or struktura.get_name() != "application/x-gst-navigation":
+            return Gst.PadProbeReturn.OK
+        vrsta = struktura.get_string("event") or ""
+        if vrsta == "mouse-move":
+            x, y = float(struktura.get_value("pointer_x")), float(struktura.get_value("pointer_y"))
+            prej, self.prejsnja_tocka = self.prejsnja_tocka, (x, y)
+            if prej is not None:
+                self._poslji({"vrsta": "premik", "dx": round(x - prej[0]), "dy": round(y - prej[1])})
+        elif vrsta in ("mouse-button-press", "mouse-button-release"):
+            gumb = {1: "levi", 2: "srednji", 3: "desni"}.get(int(struktura.get_value("button")))
+            if gumb:
+                self._poslji({"vrsta": "gumb", "gumb": gumb, "dol": vrsta.endswith("press")})
+        elif vrsta == "mouse-scroll":
+            dy = float(struktura.get_value("delta_y") or 0)
+            if dy:
+                self._poslji({"vrsta": "kolesce", "smer": "dol" if dy > 0 else "gor",
+                              "koliko": min(10, max(1, round(abs(dy)) or 1))})
+        elif vrsta in ("key-press", "key-release"):
+            ime = struktura.get_string("key") or ""
+            self._poslji(preslikaj_tipko(ime, ime if len(ime) == 1 else "", vrsta == "key-press"))
+        return Gst.PadProbeReturn.OK
+
+    def _zahteva_zaprtje(self, *_a) -> bool:
+        self.zapri()
+        return True
+
+    def zapri(self, sporoci_stop: bool = True) -> None:
+        if self.zaprto:
+            return
+        self.zaprto = True
+        self._ustavi_pretok()
+        if self.control._oddaljeni_gledalec is self:
+            self.control._oddaljeni_gledalec = None
+        self.destroy()
+        if sporoci_stop:
+            threading.Thread(target=self.control._ustavi_oddaljeno_sejo,
+                             args=(self.id_naprave,), name="safeer-gledalec-stop", daemon=True).start()
+
+
 class SafeerControl(Gtk.Application):
     def __init__(self, ozadje: bool = False) -> None:
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.FLAGS_NONE)
@@ -582,9 +637,7 @@ class SafeerControl(Gtk.Application):
         self.nastavitve = Nastavitve(os.path.join(NASTAVITVE_MAPA, "control.json"))
         self.web_context = WebKit2.WebContext.get_default()
         self.gledalec: Optional[Gtk.Window] = None
-        self._oddaljeni_proces = None
-        self._oddaljeni_kanal = None
-        self._oddaljeni_nit = None
+        self._oddaljeni_gledalec: Optional[OddaljeniGledalec] = None
         # --ozadje: brez okna, z ikono v pladnju; okno se odpre iz pladnja ali ob ponovnem zagonu iz menija.
         self.ozadje = ozadje
         self.pladenj: Optional[Pladenj] = None
@@ -812,80 +865,46 @@ class SafeerControl(Gtk.Application):
                 "naslov": str(naprava.get("naslov") or ""), "seja": seja}
 
     def upravljaj_racunalnik(self, id_naprave: str) -> dict:
-        """Odpre GTK4 gledalec in v ozadju skrbi za stop ter ponovno povezavo."""
+        """Pripravi sejo in odpre GTK3 gledalec v glavnem procesu Controla."""
         id_naprave = str(id_naprave or "")
         if not id_naprave:
             return {"ok": False, "message": "Naprava ni izbrana."}
-        # Nova izbira najprej povsem zapre prejsnjega gledalca. Njegova straza poslje screen.stop;
-        # sele nato smemo zahtevati nov zeton, sicer bi stari stop lahko ubil novo sejo.
-        stari = self._oddaljeni_proces
-        if stari is not None and stari.poll() is None:
-            try:
-                stari.terminate()
-                stari.wait(timeout=3)
-            except OSError:
-                pass
-            except subprocess.TimeoutExpired:
-                pass
-            for _ in range(30):
-                if self._oddaljeni_proces is None:
-                    break
-                time.sleep(0.05)
+        # Metoda se klice iz delovne niti Safeer Linka. GTK spremembe zato prepustimo glavni zanki.
+        stari = self._oddaljeni_gledalec
+        if stari is not None:
+            koncano = threading.Event()
+
+            def zapri_starega() -> bool:
+                stari.zapri(sporoci_stop=False)
+                koncano.set()
+                return False
+
+            GLib.idle_add(zapri_starega)
+            koncano.wait(3.0)
+            self._ustavi_oddaljeno_sejo(stari.id_naprave)
         zacetna = self._nova_oddaljena_seja(id_naprave)
         if not zacetna.get("ok"):
             return zacetna
-
-        stars, otrok = socket.socketpair()
-        try:
-            proces = subprocess.Popen(
-                [sys.executable, os.path.abspath(__file__), "--oddaljeni-zaslon", str(otrok.fileno())],
-                pass_fds=(otrok.fileno(),), close_fds=True)
-        except Exception as e:  # noqa: BLE001
-            stars.close()
-            otrok.close()
-            self.link.ukaz_pocakaj(id_naprave, "screen.stop", {}, cas=5.0)
-            return {"ok": False, "message": "Gledalca ni bilo mogoce odpreti: " + str(e)}
-        otrok.close()
-        self._oddaljeni_proces = proces
-        self._oddaljeni_kanal = stars
-        datoteka = stars.makefile("rwb", buffering=0)
-        datoteka.write(json.dumps(zacetna, ensure_ascii=False).encode("utf-8") + b"\n")
-
-        def nadzor() -> None:
-            try:
-                while proces.poll() is None:
-                    vrstica = datoteka.readline(64 * 1024)
-                    if not vrstica:
-                        break
-                    sporocilo = json.loads(vrstica.decode("utf-8"))
-                    if sporocilo.get("action") == "reconnect":
-                        self.link.ukaz_pocakaj(id_naprave, "screen.stop", {}, cas=5.0)
-                        nova = self._nova_oddaljena_seja(id_naprave)
-                        datoteka.write(json.dumps(nova, ensure_ascii=False).encode("utf-8") + b"\n")
-                    elif sporocilo.get("action") == "closed":
-                        break
-            except Exception as e:  # noqa: BLE001
-                print("[SafeerControl] Gledalec:", e)
-            finally:
-                try:
-                    datoteka.close()
-                except OSError:
-                    pass
-                try:
-                    stars.close()
-                except OSError:
-                    pass
-                if self.link is not None:
-                    self.link.ukaz_pocakaj(id_naprave, "screen.stop", {}, cas=5.0)
-                if self._oddaljeni_proces is proces:
-                    self._oddaljeni_proces = None
-                    self._oddaljeni_kanal = None
-                    self._oddaljeni_nit = None
-
-        nit = threading.Thread(target=nadzor, name="safeer-oddaljeni-zaslon", daemon=True)
-        self._oddaljeni_nit = nit
-        nit.start()
+        GLib.idle_add(self._odpri_oddaljeni_gledalec, id_naprave, zacetna)
         return {"ok": True}
+
+    def _odpri_oddaljeni_gledalec(self, id_naprave: str, podatki: dict) -> bool:
+        try:
+            okno = OddaljeniGledalec(self, id_naprave, podatki)
+            self._oddaljeni_gledalec = okno
+            self.add_window(okno)
+            okno.present()
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerControl] Gledalca ni bilo mogoce odpreti:", e)
+            threading.Thread(target=self._ustavi_oddaljeno_sejo, args=(id_naprave,), daemon=True).start()
+        return False
+
+    def _ustavi_oddaljeno_sejo(self, id_naprave: str) -> None:
+        try:
+            if self.link is not None:
+                self.link.ukaz_pocakaj(id_naprave, "screen.stop", {}, cas=5.0)
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerControl] Oddaljene seje ni bilo mogoce ustaviti:", e)
 
     def _po_seznanitvi(self) -> None:
         if not self._iz_os:
@@ -1018,11 +1037,10 @@ class SafeerControl(Gtk.Application):
     def koncaj_brez_izhoda(self) -> None:
         """Pospravi povezavo, deljene mape in zaslon (ob izhodu in pred zagonom nove razlicice)."""
         try:
-            if self._oddaljeni_proces is not None and self._oddaljeni_proces.poll() is None:
-                self._oddaljeni_proces.terminate()
-                self._oddaljeni_proces.wait(timeout=2)
-            if self._oddaljeni_nit is not None:
-                self._oddaljeni_nit.join(timeout=2)
+            oddaljeni = self._oddaljeni_gledalec
+            if oddaljeni is not None:
+                oddaljeni.zapri(sporoci_stop=False)
+                self._ustavi_oddaljeno_sejo(oddaljeni.id_naprave)
         except Exception:
             pass
         try:
