@@ -33,6 +33,38 @@ def secrets_token() -> str:
     import secrets
     return secrets.token_urlsafe(9)
 
+
+def _zdruzi_sorodne_naprave(naprave: List[dict]) -> List[dict]:
+    """Zdruzi vnose iste fizicne naprave v seznamu Linka.
+
+    Naprava z vec vlogami na istem kljucu (npr. tablica ima svoj Safeer OS in svoj
+    zaslon, racunalnik ima brskalnik in Safeer Control) dobi vec id-jev, hub pa jih
+    oznaci z istim poljem "naprava" (device_id iz kljuca, HubStreznik.naprava_iz_kljuca).
+    Brez zdruzevanja tu bi uporabnik v seznamu videl dve "napravi", ceprav je fizicno
+    ena - enak popravek, kot ga ima Android (LinkOdjemalec.drugeZaPrikaz, docs/LINK-CORE.md
+    poglavje 10). Naprava brez kljuca v krogu (staro ali nezaupano) polja nima in ostane
+    v seznamu, kot je bila; med vec sorodniki ostane tisti z vec zmoznostmi.
+    """
+    najboljsi: Dict[str, dict] = {}
+    for n in naprave:
+        kljuc = n.get("naprava") or ""
+        if kljuc and (kljuc not in najboljsi
+                      or len(n.get("zmoznosti") or []) > len(najboljsi[kljuc].get("zmoznosti") or [])):
+            najboljsi[kljuc] = n
+    koncni: List[dict] = []
+    videno = set()
+    for n in naprave:
+        kljuc = n.get("naprava") or ""
+        if not kljuc:
+            koncni.append(n)
+            continue
+        if kljuc in videno:
+            continue
+        videno.add(kljuc)
+        koncni.append(najboljsi[kljuc])
+    return koncni
+
+
 KATEGORIJA_ZAZNAMKI = "bookmarks"
 
 # Skripta, ki v strani naredi window.SafeerLink. Sinhroni bralci berejo stanje, ki
@@ -1081,9 +1113,13 @@ class SafeerLink:
                     "platforma": d.get("platform") or "",
                     "vrsta": d.get("kind") or "",
                     "aplikacije": d.get("apps") if isinstance(d.get("apps"), dict) else {},
+                    # Fizicna naprava (isti kljuc = ista naprava); hub jo poda samo, ko pozna
+                    # kljuc v krogu zaupanja. Zdruzevanje spodaj prepreci podvojene vrstice za
+                    # eno napravo z vec id-ji (npr. tablica: Safeer OS + zaslon).
+                    "naprava": d.get("device") or "",
                 })
-            self.naprave = naprave
-            self._odziv("naprave", naprave)
+            self.naprave = _zdruzi_sorodne_naprave(naprave)
+            self._odziv("naprave", self.naprave)
             zvok = self.zvok
             if zvok is not None and zvok.naprava and not any(n["id"] == zvok.naprava for n in naprave):
                 # Naprava, ki je predvajala zvok racunalnika, je izginila iz Linka: zvok nazaj.
