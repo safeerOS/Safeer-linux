@@ -946,7 +946,8 @@ class SafeerLink:
             self._odziv("vabilo", vabilo)
             return
         self._vabilo = vabilo
-        self._odziv("vabilo", {"svg": link_hub.qr_svg(vabilo["povezava"]), "velja": vabilo["velja"]})
+        self._odziv("vabilo", {"svg": link_hub.qr_svg(vabilo["povezava"]),
+                                "velja": vabilo["velja"], "pin": vabilo.get("pin", "")})
         konec = time.time() + max(30, int(vabilo["velja"]) - 20)
         while rod == self._vabilo_rod:
             time.sleep(2.0)
@@ -959,6 +960,10 @@ class SafeerLink:
             if st.get("pridruzen"):
                 self._vabilo = None
                 self._odziv("vabilo", {"pridruzen": st["pridruzen"]})
+                # Potrdilo ostane kratko vidno, nato pripravimo novo vabilo za naslednjo napravo.
+                time.sleep(1.5)
+                if rod == self._vabilo_rod:
+                    self._v_ozadju(self._zacni_vabilo)
                 return
             if not st.get("caka") and not st.get("napaka"):
                 self._v_ozadju(self._zacni_vabilo)       # preklicana ali potekla: takoj nova
