@@ -23,6 +23,7 @@ TIPKE: Dict[str, str] = {
     "ok": "Return", "nazaj": "Escape", "domov": "super", "meni": "Menu",
     "presledek": "space", "vnasalka": "Return", "vracalka": "BackSpace",
     "brisalka": "Delete", "tabulator": "Tab", "ubezna": "Escape",
+    "ctrl": "Control_L", "alt": "Alt_L", "shift": "Shift_L", "super": "Super_L",
     "stran_gor": "Page_Up", "stran_dol": "Page_Down", "zacetek": "Home", "konec": "End",
     "predvajaj": "XF86AudioPlay", "ustavi": "XF86AudioStop",
     "naprej": "XF86AudioNext", "prejsnja": "XF86AudioPrev",
@@ -52,6 +53,7 @@ NAJVEC_BESEDILA = 200
 #: pade sredi drzanja (igra, drsenje), se tipka po tem casu sama spusti - pritisnjena tipka na
 #: tujem racunalniku je huja tezava od izgubljenega pritiska.
 NAJVEC_DRZANJA_S = 5.0
+KRMILKE = {"Control_L", "Alt_L", "Shift_L", "Super_L"}
 
 
 class Vnos:
@@ -137,7 +139,11 @@ class Vnos:
         if tipka in self._drzane:
             self._drzane[tipka] = time.monotonic()   # televizor ponavlja, da se ve, da se drzi
             return True
-        if not self._pozeni(["keydown", "--clearmodifiers", tipka]):
+        # Pri navadnem drzanje ohranimo staro varovalo, pri bliznjici pa ne smemo spustiti
+        # krmilke, ki jo je gledalec pravkar pritisnil (Alt+Tab, Ctrl+poljubna tipka).
+        ukaz = ["keydown", tipka] if tipka in KRMILKE or any(k in KRMILKE for k in self._drzane) \
+            else ["keydown", "--clearmodifiers", tipka]
+        if not self._pozeni(ukaz):
             return False
         self._drzane[tipka] = time.monotonic()
         self._zbudi_strazo()
@@ -147,8 +153,9 @@ class Vnos:
         tipka = self._drzljiva(oznaka)
         if tipka is None:
             return False
+        ima_krmilko = tipka in KRMILKE or any(k in KRMILKE for k in self._drzane)
         self._drzane.pop(tipka, None)
-        return self._pozeni(["keyup", "--clearmodifiers", tipka])
+        return self._pozeni(["keyup", tipka] if ima_krmilko else ["keyup", "--clearmodifiers", tipka])
 
     def drzane(self) -> List[str]:
         """Katere tipke ta trenutek drzimo (za teste in dnevnik)."""
@@ -163,7 +170,7 @@ class Vnos:
             self._pozeni(["mouseup", gumb])
         for tipka in list(self._drzane):
             self._drzane.pop(tipka, None)
-            self._pozeni(["keyup", "--clearmodifiers", tipka])
+            self._pozeni(["keyup", tipka] if tipka in KRMILKE else ["keyup", "--clearmodifiers", tipka])
         self._konec.set()
 
     def sprosti_pozabljene(self, zdaj: Optional[float] = None) -> None:
@@ -172,7 +179,7 @@ class Vnos:
         for tipka, ko in list(self._drzane.items()):
             if sedaj - ko > NAJVEC_DRZANJA_S:
                 self._drzane.pop(tipka, None)
-                self._pozeni(["keyup", "--clearmodifiers", tipka])
+                self._pozeni(["keyup", tipka] if tipka in KRMILKE else ["keyup", "--clearmodifiers", tipka])
 
     def _zbudi_strazo(self) -> None:
         """Straza sama spusti pozabljene tipke tudi, kadar od televizorja ne pride nic vec."""
