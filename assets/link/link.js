@@ -1234,70 +1234,100 @@
   }
   var BESEDILA_VABILO = {
     "sl": {
-      "vabiloGumb": "Pokaži QR kodo za novo napravo",
-      "vabiloOpis": "Telefon s Safeerjem: skeniraj kodo. Brez kamere: na telefonu izberi Poveži s Safeer Link in vpiši kodo, ki se pokaže tukaj.",
-      "vabiloKodaNaslov": "Koda za povezavo: {koda}",
-      "vabiloKodaVelja": "Velja še {cas}.",
-      "vabiloVnosNaslov": "Imaš kodo z druge naprave? Vpiši jo",
+      "vabiloNaslov": "Poveži naprave",
+      "vabiloPodnaslov": "Telefon, tablica in računalnik se pridružijo temu televizorju.",
+      "vabiloQrNaslov": "Skeniraj s kamero",
+      "vabiloQrOpis": "Usmeri kamero druge naprave v kodo. S Safeerjem se odpre v aplikaciji, brez njega v brskalniku – nič ni treba namestiti.",
+      "vabiloPripravljam": "Pripravljam kodo …",
+      "vabiloAli": "ali",
+      "vabiloPinNaslov": "6-mestna koda",
+      "vabiloPinOpis": "Na napravi, ki se pridružuje, odpri Safeer → Povezane naprave → Pridruži se. Koda se pokaže tukaj – prepiši jo tja.",
+      "vabiloPinVelja": "Velja 5 minut · vnesite na novi napravi",
+      "vabiloVpisiGumb": "Vpiši kodo z druge naprave",
       "vabiloPridruzen": "✓ {ime} je povezan.",
       "vabiloHubStar": "Središče je treba posodobiti, da lahko pokaže kodo tukaj. Kodo najdeš tudi na središču (Naprave → Poveži novo napravo).",
       "vabiloNapaka": "Kode ni bilo mogoče pripraviti. Poskusi znova.",
-      "vabiloZapri": "Skrij kodo"
+      "vabiloZapri": "Zapri"
     },
     "en": {
-      "vabiloGumb": "Show QR code for a new device",
-      "vabiloOpis": "Phone with Safeer: scan the code. No camera: choose Connect to Safeer Link on the phone and enter the code shown here.",
-      "vabiloKodaNaslov": "Connection code: {koda}",
-      "vabiloKodaVelja": "Valid for {cas} more.",
-      "vabiloVnosNaslov": "Have a code from another device? Enter it",
+      "vabiloNaslov": "Connect devices",
+      "vabiloPodnaslov": "Your phone, tablet and computer join this TV.",
+      "vabiloQrNaslov": "Scan with a camera",
+      "vabiloQrOpis": "Point the other device's camera at the code. With Safeer it opens in the app; without it, in the browser – nothing to install.",
+      "vabiloPripravljam": "Preparing the code …",
+      "vabiloAli": "or",
+      "vabiloPinNaslov": "6-digit code",
+      "vabiloPinOpis": "On the joining device open Safeer → Connected devices → Join. The code appears here – type it there.",
+      "vabiloPinVelja": "Valid for 5 minutes · enter on joining device",
+      "vabiloVpisiGumb": "Enter code from another device",
       "vabiloPridruzen": "✓ {ime} is connected.",
       "vabiloHubStar": "The hub needs an update to show the code here. You'll also find the code on the hub (Devices → Connect a new device).",
       "vabiloNapaka": "The code could not be prepared. Try again.",
-      "vabiloZapri": "Hide code"
+      "vabiloZapri": "Close"
     },
     "de": {
-      "vabiloGumb": "QR-Code für ein neues Gerät zeigen",
-      "vabiloOpis": "Handy mit Safeer: Scanne den Code. Ohne Kamera: Wähle auf dem Handy Mit Safeer Link verbinden und gib den hier angezeigten Code ein.",
-      "vabiloKodaNaslov": "Verbindungscode: {koda}",
-      "vabiloKodaVelja": "Noch {cas} gültig.",
-      "vabiloVnosNaslov": "Du hast einen Code von einem anderen Gerät? Gib ihn ein",
+      "vabiloNaslov": "Geräte verbinden",
+      "vabiloPodnaslov": "Handy, Tablet und Computer verbinden sich mit diesem Fernseher.",
+      "vabiloQrNaslov": "Mit der Kamera scannen",
+      "vabiloQrOpis": "Richte die Kamera des anderen Geräts auf den Code. Mit Safeer öffnet er sich in der App, sonst im Browser – nichts zu installieren.",
+      "vabiloPripravljam": "Code wird vorbereitet …",
+      "vabiloAli": "oder",
+      "vabiloPinNaslov": "6-stelliger Code",
+      "vabiloPinOpis": "Öffne auf dem beitretenden Gerät Safeer → Verbundene Geräte → Beitreten. Der Code erscheint hier – gib ihn dort ein.",
+      "vabiloPinVelja": "Gültig für 5 Minuten · auf beitretendem Gerät eingeben",
+      "vabiloVpisiGumb": "Code von anderem Gerät eingeben",
       "vabiloPridruzen": "✓ {ime} ist verbunden.",
       "vabiloHubStar": "Die Zentrale muss aktualisiert werden, um den Code hier zu zeigen. Den Code findest du auch auf der Zentrale (Geräte → Neues Gerät verbinden).",
       "vabiloNapaka": "Der Code konnte nicht erstellt werden. Versuche es erneut.",
-      "vabiloZapri": "Code ausblenden"
+      "vabiloZapri": "Schließen"
     },
     "es": {
-      "vabiloGumb": "Mostrar código QR para un dispositivo nuevo",
-      "vabiloOpis": "Móvil con Safeer: escanea el código. Sin cámara: elige Conectar con Safeer Link en el móvil e introduce el código que aparece aquí.",
-      "vabiloKodaNaslov": "Código de conexión: {koda}",
-      "vabiloKodaVelja": "Válido durante {cas} más.",
-      "vabiloVnosNaslov": "¿Tienes un código de otro dispositivo? Introdúcelo",
+      "vabiloNaslov": "Conectar dispositivos",
+      "vabiloPodnaslov": "Tu móvil, tableta y ordenador se unen a este televisor.",
+      "vabiloQrNaslov": "Escanea con la cámara",
+      "vabiloQrOpis": "Apunta la cámara del otro dispositivo al código. Con Safeer se abre en la app; sin él, en el navegador: no hay que instalar nada.",
+      "vabiloPripravljam": "Preparando el código …",
+      "vabiloAli": "o",
+      "vabiloPinNaslov": "Código de 6 cifras",
+      "vabiloPinOpis": "En el dispositivo que se une abre Safeer → Dispositivos conectados → Unirse. El código aparece aquí: escríbelo allí.",
+      "vabiloPinVelja": "Válido durante 5 minutos · introducir en el nuevo dispositivo",
+      "vabiloVpisiGumb": "Introducir código de otro dispositivo",
       "vabiloPridruzen": "✓ {ime} está conectado.",
       "vabiloHubStar": "Hay que actualizar el centro para mostrar el código aquí. También encontrarás el código en el centro (Dispositivos → Conectar un dispositivo nuevo).",
       "vabiloNapaka": "No se ha podido preparar el código. Inténtalo de nuevo.",
-      "vabiloZapri": "Ocultar código"
+      "vabiloZapri": "Cerrar"
     },
     "fr": {
-      "vabiloGumb": "Afficher le code QR pour un nouvel appareil",
-      "vabiloOpis": "Téléphone avec Safeer : scanne le code. Sans appareil photo : choisis Se connecter à Safeer Link sur le téléphone et saisis le code affiché ici.",
-      "vabiloKodaNaslov": "Code de connexion : {koda}",
-      "vabiloKodaVelja": "Valable encore {cas}.",
-      "vabiloVnosNaslov": "Tu as un code d’un autre appareil ? Saisis-le",
+      "vabiloNaslov": "Connecter des appareils",
+      "vabiloPodnaslov": "Ton téléphone, ta tablette et ton ordinateur rejoignent ce téléviseur.",
+      "vabiloQrNaslov": "Scanne avec l'appareil photo",
+      "vabiloQrOpis": "Dirige l'appareil photo de l'autre appareil vers le code. Avec Safeer, il s'ouvre dans l'application ; sinon dans le navigateur – rien à installer.",
+      "vabiloPripravljam": "Préparation du code …",
+      "vabiloAli": "ou",
+      "vabiloPinNaslov": "Code à 6 chiffres",
+      "vabiloPinOpis": "Sur l'appareil qui rejoint, ouvre Safeer → Appareils connectés → Rejoindre. Le code apparaît ici – saisis-le là-bas.",
+      "vabiloPinVelja": "Valable 5 minutes · saisir sur le nouvel appareil",
+      "vabiloVpisiGumb": "Saisir le code d'un autre appareil",
       "vabiloPridruzen": "✓ {ime} est connecté.",
       "vabiloHubStar": "Le centre doit être mis à jour pour afficher le code ici. Tu trouveras aussi le code sur le centre (Appareils → Connecter un nouvel appareil).",
       "vabiloNapaka": "Impossible de préparer le code. Réessaie.",
-      "vabiloZapri": "Masquer le code"
+      "vabiloZapri": "Fermer"
     },
     "it": {
-      "vabiloGumb": "Mostra il codice QR per un nuovo dispositivo",
-      "vabiloOpis": "Telefono con Safeer: scansiona il codice. Senza fotocamera: scegli Connetti a Safeer Link sul telefono e inserisci il codice mostrato qui.",
-      "vabiloKodaNaslov": "Codice di connessione: {koda}",
-      "vabiloKodaVelja": "Valido ancora per {cas}.",
-      "vabiloVnosNaslov": "Hai un codice da un altro dispositivo? Inseriscilo",
+      "vabiloNaslov": "Collega dispositivi",
+      "vabiloPodnaslov": "Telefono, tablet e computer si uniscono a questo televisore.",
+      "vabiloQrNaslov": "Scansiona con la fotocamera",
+      "vabiloQrOpis": "Inquadra il codice con la fotocamera dell'altro dispositivo. Con Safeer si apre nell'app, altrimenti nel browser: non serve installare nulla.",
+      "vabiloPripravljam": "Preparo il codice …",
+      "vabiloAli": "oppure",
+      "vabiloPinNaslov": "Codice di 6 cifre",
+      "vabiloPinOpis": "Sul dispositivo che si unisce apri Safeer → Dispositivi connessi → Unisciti. Il codice appare qui: digitalo lì.",
+      "vabiloPinVelja": "Valido per 5 minuti · inserire sul nuovo dispositivo",
+      "vabiloVpisiGumb": "Inserisci codice da un altro dispositivo",
       "vabiloPridruzen": "✓ {ime} è collegato.",
       "vabiloHubStar": "L'hub va aggiornato per mostrare il codice qui. Trovi il codice anche sull'hub (Dispositivi → Collega un nuovo dispositivo).",
       "vabiloNapaka": "Impossibile preparare il codice. Riprova.",
-      "vabiloZapri": "Nascondi codice"
+      "vabiloZapri": "Chiudi"
     }
   };
   for (var _jv in BESEDILA_VABILO) {
@@ -1901,9 +1931,7 @@
     pokazi("panelMape", stanje.znan && (stanje.seznanjen || stanje.vKrogu) && imaTelevizor());
     pokazi("panelDodaj", stanje.znan && (stanje.seznanjen || stanje.vKrogu));
     pokazi("vabiloBlok", !!(most && most.zacniVabilo));
-    pokazi("vnosKodeDodaj", !(stanje.seznanjen || stanje.vKrogu));
-    var sredisce = imeSredisca() || t("televizor");
-    besedilo("dodajKorak3", t("dodajKorak3", { sredisce: sredisce }));
+    if (stanje.znan && (stanje.seznanjen || stanje.vKrogu) && !vabiloOdprto) preklopiVabilo(true);
     narisiMape();
     narisiMeni();
   }
@@ -2191,67 +2219,57 @@
 
   // »Poveži novo napravo« (Safeer Control): QR koda sredisca za nov telefon ali tablico.
   var vabiloOdprto = false;
-  var kodaPrijaveId = "";
-  var kodaPrijaveDo = 0;
-  var kodaPrijaveCasovnik = null;
+  var zadnjiPinVabila = "";
+  var potrdiloVabilaDo = 0;
 
-  function skrijKodoPrijave() {
-    kodaPrijaveId = "";
-    kodaPrijaveDo = 0;
-    if (kodaPrijaveCasovnik) clearInterval(kodaPrijaveCasovnik);
-    kodaPrijaveCasovnik = null;
-    pokazi("kodaPrijaveBlok", false);
+  function narisiPinVabila(pin) {
+    var koda = String(pin || "").replace(/\D/g, "");
+    var veljaven = koda.length === 6;
+    pokazi("vabiloPinVsebina", veljaven);
+    if (veljaven) besedilo("vabiloPin", koda.slice(0, 3) + " " + koda.slice(3));
   }
 
-  function osveziCasKodePrijave() {
-    var ostane = Math.max(0, Math.ceil((kodaPrijaveDo - Date.now()) / 1000));
-    if (!ostane) { skrijKodoPrijave(); return; }
-    besedilo("kodaPrijaveVelja", t("vabiloKodaVelja", { cas: cas(ostane) }));
-  }
-
+  // Tudi stari tok s kodo uporabi isto veliko polje, kot ga ima televizor.
   function narisiKodoPrijave(p) {
     if (!p) return;
     if (p.koncano) {
-      if (!p.id || !kodaPrijaveId || p.id === kodaPrijaveId) skrijKodoPrijave();
+      narisiPinVabila(zadnjiPinVabila);
       return;
     }
-    var koda = String(p.koda || "").replace(/\D/g, "");
-    if (koda.length !== 6) return;
-    kodaPrijaveId = String(p.id || "");
-    kodaPrijaveDo = Date.now() + Math.max(1, Number(p.velja) || 300) * 1000;
-    besedilo("kodaPrijaveNaslov", t("vabiloKodaNaslov", { koda: koda.slice(0, 3) + " " + koda.slice(3) }));
-    pokazi("kodaPrijaveBlok", true);
-    osveziCasKodePrijave();
-    if (kodaPrijaveCasovnik) clearInterval(kodaPrijaveCasovnik);
-    kodaPrijaveCasovnik = setInterval(osveziCasKodePrijave, 1000);
+    narisiPinVabila(p.koda);
   }
+
   function narisiVabilo(p) {
     var qr = el("vabiloQr");
     if (p.svg) {
       qr.innerHTML = p.svg;
-      qr.hidden = false;
-      besedilo("opombaVabilo", t("prijavaQrOsvezi"));
+      zadnjiPinVabila = String(p.pin || "");
+      narisiPinVabila(zadnjiPinVabila);
+      if (Date.now() >= potrdiloVabilaDo) besedilo("opombaVabilo", "");
     } else if (p.pridruzen) {
-      qr.hidden = true;
-      vabiloOdprto = false;
-      besedilo("gumbVabilo", t("vabiloGumb"));
+      potrdiloVabilaDo = Date.now() + 6000;
       besedilo("opombaVabilo", t("vabiloPridruzen", { ime: p.pridruzen }));
+      setTimeout(function () {
+        if (Date.now() >= potrdiloVabilaDo) besedilo("opombaVabilo", "");
+      }, 6100);
     } else if (p.napaka) {
-      qr.hidden = true;
-      vabiloOdprto = false;
-      besedilo("gumbVabilo", t("vabiloGumb"));
+      qr.textContent = t("vabiloNapaka");
+      zadnjiPinVabila = "";
+      narisiPinVabila("");
       besedilo("opombaVabilo", t(p.napaka === "hub_star" ? "vabiloHubStar" : "vabiloNapaka"));
     }
   }
+
   function preklopiVabilo(odpri) {
     if (!most || !most.zacniVabilo) return;
+    if (odpri !== undefined && !!odpri === vabiloOdprto) return;
     vabiloOdprto = odpri === undefined ? !vabiloOdprto : !!odpri;
-    besedilo("gumbVabilo", t(vabiloOdprto ? "vabiloZapri" : "vabiloGumb"));
     if (vabiloOdprto) {
-      besedilo("opombaVabilo", t("prijavaQrPripravljam"));
+      var qr = el("vabiloQr");
+      if (qr && !qr.querySelector("svg")) qr.textContent = t("vabiloPripravljam");
+      besedilo("opombaVabilo", "");
       most.zacniVabilo();
     } else {
-      el("vabiloQr").hidden = true;
       besedilo("opombaVabilo", "");
       most.prekiniVabilo();
     }
@@ -2956,7 +2974,19 @@
       besedilo("opombaBrezPovezave", "");
       if (most && most.nadaljujBrezPovezave) most.nadaljujBrezPovezave();
     });
-    naKlik("gumbVabilo", function () { preklopiVabilo(); });
+    naKlik("gumbOdpriVnosKode", function () {
+      var blok = el("vnosKodeDodaj");
+      if (!blok) return;
+      blok.hidden = !blok.hidden;
+      if (!blok.hidden) {
+        var vnos = el("dodajVnosKode");
+        if (vnos) try { vnos.focus(); } catch (e) {}
+      }
+    });
+    naKlik("gumbZapriVabilo", function () {
+      preklopiVabilo(false);
+      if (most && most.zapri) most.zapri();
+    });
     var zaupaj = el("prijavaZaupaj");
     if (zaupaj) {
       zaupaj.addEventListener("change", function () {
