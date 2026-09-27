@@ -154,12 +154,14 @@ class SafeerLink:
                  nastavitve: Optional[link_hub.Nastavitve] = None,
                  identiteta: Optional[Tuple[str, str]] = None,
                  control: bool = False,
-                 ob_zaprtju: Optional[Callable[[], None]] = None) -> None:
+                 ob_zaprtju: Optional[Callable[[], None]] = None,
+                 zapri_deljeni_zaslon: Optional[Callable[[], None]] = None) -> None:
         self.starsevsko = starsevsko
         # Safeer Control: ista stran in isti Link, a brez brskalnika (svoja identiteta in shramba,
         # okno je glavno okno programa, prejete strani odpre sistemski brskalnik).
         self.control = control
         self.ob_zaprtju = ob_zaprtju
+        self.zapri_deljeni_zaslon = zapri_deljeni_zaslon
         self._identiteta = identiteta
         self.config = config
         self.trenutna_stran = trenutna_stran
@@ -172,6 +174,7 @@ class SafeerLink:
         # Naprava, katere zaslon trenutno gledamo (share.screen start): kam gredo dotik in tipke
         # iz okna gledalca (Safeer Vnos na tablici). Prazno, ko ne gledamo nicesar.
         self.gledani_zaslon: str = ""
+        self.gledani_zaslon_id: str = ""
         self.ob_odzivu_vnosa: Optional[Callable[[dict], None]] = None
         # Safeer Control: deljene mape za televizor (core/link_datoteke.Datoteke); brskalnik jih nima.
         self.datoteke = None
@@ -1220,10 +1223,22 @@ class SafeerLink:
             dejanje = str(telo.get("action", "") or "")
             if dejanje == "start":
                 self.gledani_zaslon = str(sporocilo.get("sender", "") or "")
+                self.gledani_zaslon_id = str(telo.get("id", "") or "")
                 pot = str(telo.get("path", "") or "")
                 url = (link_hub._osnova(self._hub()) + pot) if pot.startswith("/") else str(telo.get("url", "") or "")
-                if url:
-                    self._v_ozadju(lambda: self._odpri_zaslon_s_huba(url))
+                # Novejse naprave posljejo odtis izrecno; pri starejsih je sporocilo prislo po
+                # ze pripeti povezavi z istim Hubom, zato uporabimo njen pripeti odtis.
+                odtis = str(telo.get("fp") or telo.get("fingerprint") or telo.get("odtis")
+                            or sporocilo.get("fp") or sporocilo.get("fingerprint") or self._odtis() or "")
+                if url.startswith("https://") and odtis:
+                    self._v_ozadju(lambda: self._odpri_zaslon_s_huba(url, odtis))
+            elif dejanje == "stop":
+                id_deljenja = str(telo.get("id", "") or "")
+                if not self.gledani_zaslon_id or not id_deljenja or id_deljenja == self.gledani_zaslon_id:
+                    self.gledani_zaslon = ""
+                    self.gledani_zaslon_id = ""
+                    if self.zapri_deljeni_zaslon is not None:
+                        GLib.idle_add(lambda: (self.zapri_deljeni_zaslon(), False)[1])
             self._odziv("prejeto", {"vrsta": "zaslon", "od": od, "dejanje": dejanje})
         elif vrsta == "share.file":
             ime = str(telo.get("name", "") or "datoteka")
@@ -1241,14 +1256,14 @@ class SafeerLink:
                     GLib.idle_add(self._obvesti, "📁 " + od, f"Datoteke {ime} ni bilo mogoče prevzeti: {razlog}")
             self._v_ozadju(prenesi)
 
-    def _odpri_zaslon_s_huba(self, url: str) -> None:
+    def _odpri_zaslon_s_huba(self, url: str, odtis: str) -> None:
         """Stran gledalca prihaja s Huba (https, samopodpisano): brskalniku najprej povemo, da
         temu potrdilu - in samo temu - zaupa, potem odpremo zavihek."""
         try:
             from urllib.parse import urlparse
             gostitelj = urlparse(url).hostname or ""
             if self.dovoli_potrdilo is not None:
-                pem = link_tls.potrdilo_pem(self._hub(), self._odtis() or "")
+                pem = link_tls.potrdilo_pem(url, odtis)
                 if pem:
                     GLib.idle_add(lambda: (self.dovoli_potrdilo(pem, gostitelj), False)[1])
         except Exception as e:  # noqa: BLE001

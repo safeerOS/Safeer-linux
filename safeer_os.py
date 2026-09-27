@@ -371,8 +371,14 @@ def programi_naprave(id_naprave: str) -> dict:
     return {"ok": True, "programi": programi, "deli": bool(izid.get("enabled", True))}
 
 
-def zazeni_na_napravi(id_naprave: str, app: str) -> bool:
-    return bool(_control_naprave("Zazeni", str(id_naprave or ""), str(app or "")).get("ok"))
+def zazeni_na_napravi(id_naprave: str, app: str) -> dict:
+    """Program zazene na sami napravi in ohrani njeno sporocilo ob napaki."""
+    return _control_naprave("Zazeni", str(id_naprave or ""), str(app or ""))
+
+
+def odpri_tukaj(id_naprave: str, app: str) -> dict:
+    """Napravo prosi za zagon programa in pretakanje zaslona na ta racunalnik."""
+    return _control_naprave("OdpriTukaj", str(id_naprave or ""), str(app or ""))
 
 
 SAMOZAGON = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
@@ -934,6 +940,7 @@ class SafeerOS(Gtk.Application):
             "preimenujNapravo": lambda: preimenuj_napravo(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "programiNaprave": lambda: programi_naprave(str(a[0]) if a else ""),
             "zazeniNaNapravi": lambda: zazeni_na_napravi(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
+            "odpriTukaj": lambda: odpri_tukaj(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "zvokUstavi": zvok_ustavi,
             "jbl": lambda: os_jbl.stanje(True),
             "jblVklop": lambda: os_jbl.vklopi(bool(a[0]) if a else False),

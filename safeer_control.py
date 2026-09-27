@@ -388,6 +388,7 @@ class SafeerControl(Gtk.Application):
       <method name="Seznam"><arg type="s" name="json" direction="out"/></method>
       <method name="Aplikacije"><arg type="s" name="naprava" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="Zazeni"><arg type="s" name="naprava" direction="in"/><arg type="s" name="app" direction="in"/><arg type="s" name="json" direction="out"/></method>
+      <method name="OdpriTukaj"><arg type="s" name="naprava" direction="in"/><arg type="s" name="app" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="Preimenuj"><arg type="s" name="naprava" direction="in"/><arg type="s" name="ime" direction="in"/><arg type="s" name="json" direction="out"/></method>
     </interface></node>"""
 
@@ -446,6 +447,13 @@ class SafeerControl(Gtk.Application):
             return {"ok": True, "items": vsi, "enabled": bool((r.get("data") or {}).get("enabled", True))}
         if metoda == "Zazeni":
             return link.ukaz_pocakaj(str(a[0]) if a else "", "apps.launch", {"app": str(a[1]) if len(a) > 1 else ""})
+        if metoda == "OdpriTukaj":
+            r = link.ukaz_pocakaj(str(a[0]) if a else "", "apps.launch",
+                                  {"app": str(a[1]) if len(a) > 1 else "", "stream": True}, cas=8.0)
+            podatki = r.get("data") if isinstance(r.get("data"), dict) else {}
+            return {"ok": bool(r.get("ok")), "tu": podatki.get("stream") == "pending",
+                    "koda": str(r.get("koda") or r.get("code") or ""),
+                    "message": str(r.get("message") or "")}
         return {"ok": False, "message": "neznana metoda"}
 
     def _pripravi_link(self) -> None:
@@ -469,6 +477,7 @@ class SafeerControl(Gtk.Application):
             identiteta=(id_naprave, ime),
             control=True,
             ob_zaprtju=self.ob_zaprtju_okna,
+            zapri_deljeni_zaslon=self._zapri_gledalca,
         )
         self.link.ob_povezavi = self._na_povezavo
         self.link.ob_brez_povezave = self.odpri_safeer_os
@@ -887,6 +896,20 @@ class SafeerControl(Gtk.Application):
         pogled = self.gledalec.get_child()
         pogled.load_uri(url)
         self.gledalec.present()
+
+    def _zapri_gledalca(self) -> None:
+        """Ob koncu share.screen odstrani zadnjo sliko in zapri samo vgrajeni gledalec."""
+        if self.gledalec is None:
+            return
+        okno = self.gledalec
+        self.gledalec = None
+        try:
+            pogled = okno.get_child()
+            if pogled is not None:
+                pogled.load_uri("about:blank")
+            okno.destroy()
+        except Exception as e:  # noqa: BLE001
+            print(f"[SafeerControl] Gledalca ni bilo mogoce zapreti: {e}")
 
     def _vnos_iz_gledalca(self, _upravitelj, rezultat) -> None:
         """Dotik/tipka iz okna gledalca -> ukaz input.* napravi, katere zaslon gledamo."""
