@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import threading
 import time
 from typing import Callable, Dict, List, Optional, Tuple
@@ -188,6 +190,10 @@ class SafeerLink:
         self.zvok = None
         # Ukazi drugim napravam, na katere kdo caka (Safeer OS prek D-Bus): ref -> (Event, odgovor).
         self._cakajoci: Dict[str, list] = {}
+        #: Safeer Chat: potrditve sredisca po id-ju sporocila in naprave, ki znajo klepet.
+        self._klepet_cakajoci: Dict[str, list] = {}
+        self.naprave_klepeta: List[dict] = []
+        self._sporocila = None
 
         self.nastavitve = nastavitve if nastavitve is not None else link_hub.Nastavitve()
         self.povezava: Optional[link_hub.Povezava] = None
@@ -1058,7 +1064,9 @@ class SafeerLink:
             odtis=self._odtis(),
             dodatne_zmoznosti=(["files"] if self.datoteke is not None else [])
             + (["apps"] if self.programi is not None and self.programi.vklopljeno else [])
-            + (["desktop"] if self.zaslon is not None and self.zaslon.na_voljo().get("dovoljeno") else []),
+            + (["desktop"] if self.zaslon is not None and self.zaslon.na_voljo().get("dovoljeno") else [])
+            # Safeer Chat: sporocila sprejema Control (in jih vpise v Sporocila Safeer OS).
+            + (["chat"] if self.control else []),
             # Protocol v1: programi racunalnika kot katalog aplikacij (samo, ce jih je uporabnik dovolil).
             katalog=(self.programi.katalog_v1 if self.programi is not None else None),
             # Nezaupan racunalnik (link_seja): samo zeton te prijave, brez kroga zaupanja.
@@ -1146,6 +1154,7 @@ class SafeerLink:
                     "naprava": d.get("device") or "",
                 })
             self.naprave = _zdruzi_sorodne_naprave(naprave)
+            self.naprave_klepeta = self._naprave_za_klepet(naprave)
             self._odziv("naprave", self.naprave)
             zvok = self.zvok
             if zvok is not None and zvok.naprava and not any(n["id"] == zvok.naprava for n in naprave):
@@ -1197,10 +1206,19 @@ class SafeerLink:
             try:
                 from core.sporocila.safeer_chat import preveri_tovor
                 telo = preveri_tovor(sporocilo.get("payload") or {})
+            except ValueError:
+                return
+            if self.control:
+                self._v_ozadju(lambda: self._prejmi_klepet(sporocilo, telo))
+            else:
                 self._odziv("chat", {"vrsta": "sporocilo", "id": str(sporocilo.get("id") or ""),
                     "od": str(sporocilo.get("sender") or ""), **telo})
-            except ValueError:
-                pass
+        elif vrsta == "chat.ack":
+            vnos = self._klepet_cakajoci.get(str(sporocilo.get("ref_id") or ""))
+            if vnos is not None:
+                stanje = str(sporocilo.get("status") or "")
+                vnos[1] = stanje if stanje in ("accepted", "queued") else str(sporocilo.get("error_code") or stanje or "zavrnjeno")
+                vnos[0].set()
         elif vrsta == "chat.list":
             # Zgodovina je lokalna pri adapterju; starejsi odjemalec varno odgovori s
             # praznim seznamom, namesto da bi uvedel novo hrambo kljucev na Hubu.
@@ -1547,6 +1565,64 @@ class SafeerLink:
     # Zvok racunalnika na napravi v Linku (Safeer OS: stran Zvok)
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------ Safeer Chat
+    def _naprave_za_klepet(self, naprave: List[dict]) -> List[dict]:
+        """Naprave, ki znajo klepet, brez te fizicne naprave; ena vrstica na napravo."""
+        jaz = self._id()
+        moja = next((n.get("naprava") for n in naprave if n.get("id") == jaz), "") or ""
+        izhod, videno = [], set()
+        for n in naprave:
+            if "chat" not in (n.get("zmoznosti") or []) or n.get("id") == jaz:
+                continue
+            kljuc = n.get("naprava") or ("id:" + str(n.get("id")))
+            if (moja and kljuc == moja) or kljuc in videno:
+                continue
+            videno.add(kljuc)
+            # Naslov je fizicna naprava (kljuc), ce jo hub pozna: sporocilo dobi tista aplikacija na njej,
+            # ki je takrat povezana, pogovor pa ostane en sam.
+            izhod.append({"id": n.get("naprava") or n.get("id", ""), "ime": n.get("ime", ""), "platforma": n.get("platforma", "")})
+        return izhod
+
+    def poslji_klepet(self, id_naprave: str, besedilo: str, cas: str, cakaj: float = 10.0) -> str:
+        """chat.send napravi v Linku; vrne "accepted", "queued" ali kodo napake."""
+        povezava = self.povezava
+        if povezava is None or not povezava.tece:
+            return "ni_povezave"
+        ref = "klepet-" + secrets_token()
+        vnos = [threading.Event(), "potek"]
+        self._klepet_cakajoci[ref] = vnos
+        try:
+            if not povezava.poslji({"id": ref, "type": "chat.send", "target": str(id_naprave),
+                                    "payload": {"text": str(besedilo), "created_at": str(cas)}}):
+                return "ni_povezave"
+            vnos[0].wait(cakaj)
+            return vnos[1]
+        finally:
+            self._klepet_cakajoci.pop(ref, None)
+
+    def _prejmi_klepet(self, sporocilo: dict, telo: dict) -> None:
+        od = str(sporocilo.get("sender_device") or sporocilo.get("sender") or "")
+        posiljatelj = str(sporocilo.get("sender") or "")
+        # Ime iz seznama naprav (kot ga vidi uporabnik), sicer ime, ki ga je dal hub.
+        ime = next((n.get("ime", "") for n in self.naprave
+                    if n.get("id") == posiljatelj or (n.get("naprava") and n.get("naprava") == od)), "") \
+            or str(sporocilo.get("sender_name") or "") or od
+        try:
+            if self._sporocila is None:
+                from core.os_sporocila import SporocilaOS
+                self._sporocila = SporocilaOS(zazeni=False)
+            novo = self._sporocila.prejmi_klepet(od, ime, telo["text"], telo.get("created_at", ""),
+                                                  str(sporocilo.get("id") or ""))
+        except Exception as e:  # noqa: BLE001
+            print(f"[SafeerLink] Klepeta ni bilo mogoče shraniti: {e}")
+            return
+        if novo and shutil.which("notify-send"):
+            try:
+                subprocess.Popen(["notify-send", "-a", "Safeer OS", "-i", "safeer-os", ime, telo["text"][:300]],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except OSError:
+                pass
+
     def zapisi_stanje_za_os(self) -> None:
         """Safeer OS (locen proces) bere naprave in stanje zvoka iz datoteke v XDG_RUNTIME_DIR.
         Samo imena, zmoznosti in platforma - nic, kar bi bilo skrivno."""
@@ -1562,6 +1638,7 @@ class SafeerLink:
                              "platforma": n.get("platforma", ""), "vrsta": n.get("vrsta", "")}
                             for n in self.naprave],
                 "zvok": self.zvok.opis() if self.zvok is not None else {},
+                "klepet": list(self.naprave_klepeta),
                 "cas": time.time(),
             }
             zacasna = os.path.join(mapa, ".stanje.json")

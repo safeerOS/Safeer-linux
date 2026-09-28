@@ -134,3 +134,33 @@ def test_odstranitev_kanala_pocisti_osebe_brez_pogovorov():
         assert s.zdruzeni_pogovori() == [] and s.kanali() == []
         assert s.graf.vse() == []
         s.zapri()
+
+
+def test_safeer_chat_prek_linka():
+    from core.os_sporocila import KANAL_LINKA, SporocilaOS
+    with tempfile.TemporaryDirectory() as d:
+        s = SporocilaOS(Path(d) / "s.sqlite3", zazeni=False)
+        assert s.prejmi_klepet("fon1", "Telefon", "Živjo\nkako si?", "2026-09-28T08:00:00.123456+00:00", "m1")
+        assert not s.prejmi_klepet("fon1", "Telefon", "Živjo\nkako si?", "", "m1"), "ponovna dostava ni novo sporocilo"
+        sez = s.seznam()
+        assert [k["id"] for k in sez["kanali"]] == [KANAL_LINKA]
+        p = sez["skupine"][0]["pogovori"][0]
+        assert (sez["skupine"][0]["oseba"]["ime"], p["id"], p["neprebrano"]) == ("Telefon", "fon1", 1)
+        assert p["cas"] == "2026-09-28T08:00:00+00:00" and p["zadnje_sporocilo"] == "Živjo kako si?"
+        # odgovor gre po Linku; nepovezana naprava -> caka
+        poslano = []
+        s.poslji_klepet = lambda n, b, c: poslano.append((n, b)) or "queued"
+        r = s.poslji(KANAL_LINKA, "fon1", "Ob desetih")
+        assert r["caka"] and poslano == [("fon1", "Ob desetih")]
+        msgs = s.pogovor(KANAL_LINKA, "fon1")
+        assert [m["smer"] for m in msgs] == ["noter", "ven"]
+        assert s.seznam()["skupine"][0]["pogovori"][0]["neprebrano"] == 0
+        s.poslji_klepet = lambda n, b, c: "ni_naprave"
+        try:
+            s.poslji(KANAL_LINKA, "fon1", "x"); assert False
+        except ValueError as e:
+            assert "Safeer Linku" in str(e)
+        # novo sporocilo napravi, ki se ni pisala
+        s.zacni_klepet("tv1", "Televizor")
+        assert {sk["oseba"]["ime"] for sk in s.seznam()["skupine"]} == {"Telefon", "Televizor"}
+        s.zapri()

@@ -1556,9 +1556,38 @@
       var b = el("button", "kanal-cip" + (opis ? " napaka" : ""));
       b.type = "button";
       b.innerHTML = "<i></i><span>" + ubezi(k.ime) + "</span>" + (opis ? "<small>" + ubezi(opis) + "</small>" : "");
-      b.addEventListener("click", function () { odpriUrejanjeKanala(k); });
+      b.addEventListener("click", function () { if (k.vrsta === "safeer") odpriPisiNapravi(); else odpriUrejanjeKanala(k); });
       cilj.appendChild(b);
     });
+  }
+  /* Safeer Chat: napisi napravi v Linku (telefon, tablica, TV, drug racunalnik). */
+  function odpriPisiNapravi() {
+    zapriSloje();
+    var cilj = $("pisiNaprave"); cilj.innerHTML = "";
+    cilj.appendChild(el("p", "drobno", ubezi(t("povezujem"))));
+    $("slojPisi").classList.add("viden");
+    klic("sporocilaNaprave").then(function (naprave) {
+      cilj.innerHTML = "";
+      if (!(naprave || []).length) { cilj.appendChild(el("p", "drobno", ubezi(t("niNapravKlepet")))); $("pisiPreklici").focus(); return; }
+      naprave.forEach(function (n, i) {
+        var b = el("button", "pogovor-vrstica");
+        b.type = "button";
+        b.innerHTML = '<span class="kanal-ikona">' + svg("povezava") + '</span><span><b>' + ubezi(n.ime || n.id) + '</b></span>';
+        b.addEventListener("click", function () {
+          klic("sporocilaZacni", [n.id, n.ime || ""]).then(function (p) {
+            zapriSloje();
+            S.sporocilaSkupine = p.skupine || []; S.sporocilaKanali = p.kanali || [];
+            var najden = null, oseba = null;
+            S.sporocilaSkupine.forEach(function (sk) { (sk.pogovori || []).forEach(function (x) {
+              if (x.kanal_id === "safeer-link" && x.id === n.id) { najden = x; oseba = sk.oseba; } }); });
+            narisiSporocila();
+            if (najden) { odpriPogovor(oseba, najden); setTimeout(function () { $("sporocilaBesedilo").focus(); }, 30); }
+          }).catch(function (e) { obvesti(typeof e === "string" ? e : t("niUspelo")); });
+        });
+        cilj.appendChild(b);
+        if (i === 0) setTimeout(function () { b.focus(); }, 30);
+      });
+    }).catch(function () { cilj.innerHTML = ""; cilj.appendChild(el("p", "drobno", ubezi(t("niNapravKlepet")))); });
   }
   function odpriUrejanjeKanala(k) {
     zapriSloje(); S.urejaniKanal = k;
@@ -1846,6 +1875,8 @@
       b.addEventListener("click", function () { pojdi(b.getAttribute("data-pojdi")); });
     });
     $("sporocilaDodaj").addEventListener("click", odpriCarovnikKanala);
+    $("sporocilaPisi").addEventListener("click", odpriPisiNapravi);
+    $("pisiPreklici").addEventListener("click", zapriSloje);
     $("kanalPreklici").addEventListener("click", zapriSloje);
     $("kanalVrstaIzbira").querySelectorAll("button").forEach(function (b) {
       b.addEventListener("click", function () {
@@ -1909,9 +1940,11 @@
     $("sporocilaVnos").addEventListener("submit", function (e) {
       e.preventDefault(); var p = S.sporocilaAktivni, besedilo = $("sporocilaBesedilo").value.trim();
       if (!p || !besedilo) return;
-      klic("sporocilaPoslji", [p.kanal_id, p.id, besedilo]).then(function () {
+      klic("sporocilaPoslji", [p.kanal_id, p.id, besedilo]).then(function (r) {
         $("sporocilaBesedilo").value = ""; odpriPogovor({ ime: $("sporocilaNaslov").textContent.split(" · ")[0] }, p);
-      }).catch(function () { obvesti(t("niUspelo")); });
+        naloziSporocila();          // seznam pokaze zadnje sporocilo takoj, ne sele ob naslednji osvezitvi
+        if (r && r.caka) obvesti(t("klepetCaka"));
+      }).catch(function (e) { obvesti(typeof e === "string" && e ? e : t("niUspelo")); });
     });
     $("kBrskalnik").addEventListener("click", function () {
       var b = S.programi.find(function (p) { return p.id === "safeer-browser.desktop"; }) ||

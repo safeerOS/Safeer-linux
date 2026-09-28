@@ -710,6 +710,8 @@ class SafeerControl(Gtk.Application):
       <method name="OdpriTukaj"><arg type="s" name="naprava" direction="in"/><arg type="s" name="app" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="Preimenuj"><arg type="s" name="naprava" direction="in"/><arg type="s" name="ime" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="Upravljaj"><arg type="s" name="naprava" direction="in"/><arg type="s" name="json" direction="out"/></method>
+      <method name="Klepet"><arg type="s" name="naprava" direction="in"/><arg type="s" name="besedilo" direction="in"/><arg type="s" name="cas" direction="in"/><arg type="s" name="json" direction="out"/></method>
+      <method name="KlepetNaprave"><arg type="s" name="json" direction="out"/></method>
     </interface></node>"""
 
     def _izvozi_naprave(self) -> None:
@@ -751,6 +753,12 @@ class SafeerControl(Gtk.Application):
             return {"ok": bool(ok), "ime": novo, "message": "" if ok else n.get("sporocilo", "")}
         if metoda == "Upravljaj":
             return self.upravljaj_racunalnik(str(a[0]) if a else "")
+        if metoda == "Klepet":
+            # Safeer Chat iz Sporocil v Safeer OS: poslje napravi v Linku in vrne potrditev sredisca.
+            stanje = link.poslji_klepet(str(a[0]), str(a[1]), str(a[2]) if len(a) > 2 else "")
+            return {"ok": stanje in ("accepted", "queued"), "stanje": stanje}
+        if metoda == "KlepetNaprave":
+            return {"ok": True, "naprave": list(link.naprave_klepeta)}
         if metoda == "Aplikacije":
             id_naprave = str(a[0]) if a else ""
             # Po kosih (racunalnik daje najvec 60 z ikonami na sporocilo); Android vrne vse naenkrat.
