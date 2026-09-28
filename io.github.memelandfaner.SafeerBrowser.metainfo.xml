@@ -48,6 +48,7 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.0.47" date="2026-09-28"><description><p>Safeer Control speaks the language of your session, and devices in Safeer Link can now message each other.</p></description></release>
     <release version="1.0.46" date="2026-09-28"><description><p>Tabs you have not looked at for a while are put to sleep to save memory and restored when you return; the session is saved on shutdown; links from Safeer OS open in a new tab and bring the browser to the front.</p></description></release>
     <release version="1.0.45" date="2026-09-21"><description><p>Safer by default: programs and installer packages are never downloaded without asking, pages cannot reach cloud metadata addresses, encrypted DNS answers must match the question, and block lists are only accepted from the server that was asked. Safeer Control 2.1.1: the TV remote controls a media player on the separate TV screen as a media player (play, pause, skip, playback bar on the TV); shared files hide hidden folders even with the whole disk shared.</p></description></release>
     <release version="1.0.44" date="2026-09-21"><description><p>Safeer Control 2.1.0: devices (TV, tablet) can rename, move and delete the files you share (delete goes to the Trash) and rotate pictures (JPEG without re-encoding). The computer can be the Safeer Link hub when no other hub is on the network; faster discovery and immediate reconnection after suspend or a change of network.</p></description></release>
