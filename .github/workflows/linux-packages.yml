@@ -64,6 +64,17 @@ jobs:
           xvfb-run -a safeer-os --version | tee /dev/stderr | grep -Fx "Safeer OS $(cat packaging/VERSION_OS)"
           desktop-file-validate /usr/share/applications/safeer-os.desktop
           sudo apt-get remove -y safeer-os safeer-control
+      - name: Safeer OS tema package (Safeer OS as the desktop over Linux Mint)
+        # mint-themes obstaja samo v Linux Mint, zato tu paket ne namescamo - preverimo vsebino.
+        run: |
+          bash build_os_tema_deb.sh
+          T="safeer-os-tema_$(cat packaging/VERSION_OS)_all.deb"
+          dpkg-deb -f "$T" Package Version Depends
+          dpkg-deb -c "$T" | grep -F ./usr/share/themes/Safeer-OS/gtk-3.0/gtk.css
+          dpkg-deb -c "$T" | grep -F ./etc/xdg/autostart/safeer-os-tema.desktop
+          rm -rf build/tema-x && dpkg-deb -x "$T" build/tema-x
+          bash -n build/tema-x/usr/bin/safeer-os-tema
+          desktop-file-validate build/tema-x/etc/xdg/autostart/safeer-os-tema.desktop build/tema-x/usr/share/applications/*.desktop
       - name: AppImage
         run: |
           bash packaging/fetch_linuxdeploy.sh

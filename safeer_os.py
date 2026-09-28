@@ -53,7 +53,7 @@ def _razlicica() -> str:
         with open(os.path.join(KOREN, "packaging", "VERSION_OS"), encoding="utf-8") as d:
             return d.read().strip()
     except Exception:
-        return "0.4.3"
+        return "0.4.4"
 
 
 RAZLICICA = _razlicica()
@@ -519,7 +519,7 @@ def _ukaz_controla() -> Optional[list]:
 
 
 class SafeerOS(Gtk.Application):
-    def __init__(self, v_oknu: bool = False, posnetek: str = "") -> None:
+    def __init__(self, v_oknu: bool = False, posnetek: str = "", namizje: bool = False) -> None:
         zastavice = Gio.ApplicationFlags.NON_UNIQUE if posnetek else Gio.ApplicationFlags.FLAGS_NONE
         super().__init__(application_id=APP_ID, flags=zastavice)
         self.v_oknu = v_oknu
@@ -535,7 +535,8 @@ class SafeerOS(Gtk.Application):
         self._prvic = True
         #: Namizni nacin: Safeer OS je namizje (spodaj, programi nad njim) s svojo vrstico namesto
         #: Mintovega pulta. Sicer navadno okno (--okno, posnetki).
-        self.namizje = not v_oknu and not posnetek and bool(self.shramba.get("celozaslonsko", True))
+        # --namizje (paket safeer-os-tema, ob prijavi) vedno zazene namizje; --okno (program v oknu) nikoli.
+        self.namizje = not v_oknu and not posnetek and (namizje or bool(self.shramba.get("celozaslonsko", True)))
         self.vrstica: Optional[Gtk.Window] = None
         self.pogledi: list = []
         self._okna_zamik = 0
@@ -1342,7 +1343,7 @@ def main() -> int:
     if "--posnetek" in sys.argv[1:]:
         i = sys.argv.index("--posnetek")
         posnetek = sys.argv[i + 1] if i + 1 < len(sys.argv) else "/tmp/safeer-os.png"
-    app = SafeerOS(v_oknu="--okno" in sys.argv[1:], posnetek=posnetek)
+    app = SafeerOS(v_oknu="--okno" in sys.argv[1:], posnetek=posnetek, namizje="--namizje" in sys.argv[1:])
     # Ce program tece brez tezav, zgodovina sesutij ni vec pomembna (sicer bi varni nacin ostal za vedno).
     GLib.timeout_add_seconds(120, lambda: (os_stabilnost.pozabi_sesutja("safeer-os"), False)[1])
     return app.run([sys.argv[0]])

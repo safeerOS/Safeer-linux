@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Safeer OS tema - Safeer OS kot namizje nad Linux Mint (paket safeer-os-tema).
+#
+#   safeer-os-tema            vklopi temo Safeer-OS (GTK, okna, Cinnamon) in si zapomni prejsnjo
+#   safeer-os-tema --seja     ob prijavi: uveljavi temo in zazene Safeer OS kot namizje
+#   safeer-os-tema --izklopi  vrne prejsnjo temo in Mintov pult ter izklopi samodejni zagon
+#
+# Linux Mint ostane spodaj: uporabnik se vedno lahko vrne (tudi iz Nastavitve -> Zagonski programi).
+# ==============================================================================
+set -u
+
+MAPA="${XDG_CONFIG_HOME:-$HOME/.config}/safeer-os"
+PREJ="$MAPA/tema-prej.txt"
+IZKLOP="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/safeer-os-tema.desktop"
+TEMA="Safeer-OS"
+KLJUCI="org.cinnamon.desktop.interface:gtk-theme org.cinnamon.desktop.wm.preferences:theme org.cinnamon.theme:name org.gnome.desktop.interface:gtk-theme org.gnome.desktop.wm.preferences:theme org.gnome.desktop.interface:color-scheme"
+
+beri() { gsettings get "${1%%:*}" "${1#*:}" 2>/dev/null; }
+pisi() { gsettings set "${1%%:*}" "${1#*:}" "$2" >/dev/null 2>&1 || true; }
+
+vklopi() {
+    mkdir -p "$MAPA"
+    if [ ! -s "$PREJ" ]; then
+        : > "$PREJ"
+        for k in $KLJUCI; do
+            v="$(beri "$k")" || continue
+            [ -n "$v" ] && printf '%s=%s\n' "$k" "$v" >> "$PREJ"
+        done
+    fi
+    for k in $KLJUCI; do
+        case "$k" in
+            *color-scheme) pisi "$k" "'prefer-dark'" ;;
+            *) pisi "$k" "'$TEMA'" ;;
+        esac
+    done
+    rm -f "$IZKLOP"
+}
+
+izklopi() {
+    if [ -s "$PREJ" ]; then
+        while IFS= read -r vrstica; do
+            [ -n "$vrstica" ] && pisi "${vrstica%%=*}" "${vrstica#*=}"
+        done < "$PREJ"
+        rm -f "$PREJ"
+    fi
+    safeer-os --vrni-mint >/dev/null 2>&1 || true
+    mkdir -p "$(dirname "$IZKLOP")"
+    printf '[Desktop Entry]\nType=Application\nName=Safeer OS tema\nHidden=true\n' > "$IZKLOP"
+}
+
+case "${1:-}" in
+    --seja)
+        # Pocakamo, da nastavitveni demon Cinnamona prebere nastavitve, sicer bi jih prepisal.
+        sleep 1
+        vklopi
+        exec safeer-os --namizje
+        ;;
+    --izklopi|--off) izklopi ;;
+    ""|--vklopi|--on) vklopi ;;
+    -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' ;;
+    *) echo "safeer-os-tema: neznana moznost $1 (--help)" >&2; exit 2 ;;
+esac

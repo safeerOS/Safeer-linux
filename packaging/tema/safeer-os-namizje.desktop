@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Safeer OS desktop
+Name[sl]=Safeer OS namizje
+Comment=Start Safeer OS as the full-screen desktop
+Comment[sl]=Zaženi Safeer OS kot celozaslonsko namizje
+Exec=/usr/bin/safeer-os --namizje
+Icon=safeer-os
+Terminal=false
+Categories=System;

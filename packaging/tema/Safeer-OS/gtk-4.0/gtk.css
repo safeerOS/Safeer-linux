@@ -1,0 +1,27 @@
+@import url("/usr/share/themes/Mint-Y-Dark-Teal/gtk-4.0/gtk.css");
+
+@define-color accent_color #54d6a5;
+@define-color accent_bg_color #54d6a5;
+@define-color accent_fg_color #06231a;
+
+@define-color window_bg_color #090d15;
+@define-color window_fg_color #f0f4f3;
+@define-color view_bg_color #0d141f;
+@define-color view_fg_color #f0f4f3;
+@define-color headerbar_bg_color #0f1823;
+@define-color headerbar_fg_color #f0f4f3;
+@define-color headerbar_border_color rgba(84, 214, 165, 0.22);
+@define-color card_bg_color #111924;
+@define-color card_fg_color #f0f4f3;
+@define-color dialog_bg_color #0f1823;
+@define-color dialog_fg_color #f0f4f3;
+@define-color popover_bg_color #0e1621;
+@define-color popover_fg_color #f0f4f3;
+
+window, .background { background-color: #090d15; color: #f0f4f3; }
+window.csd { border-radius: 12px; border: 1px solid rgba(84, 214, 165, 0.25); }
+headerbar { background: linear-gradient(180deg, #121c2a, #0d141f); border-bottom: 1px solid rgba(84, 214, 165, 0.22); color: #f0f4f3; }
+headerbar:backdrop { background: #0b111a; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+.view, textview text { background-color: #0d141f; color: #f0f4f3; }
+selection, *:selected { background-color: #54d6a5; color: #06231a; }
+button.suggested-action { background-color: #54d6a5; color: #06231a; font-weight: 700; border-radius: 8px; }

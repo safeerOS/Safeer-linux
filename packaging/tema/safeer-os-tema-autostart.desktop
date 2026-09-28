@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Safeer OS
+Name[sl]=Safeer OS
+Comment=Safeer OS as your desktop over Linux Mint (theme and shell)
+Comment[sl]=Safeer OS kot namizje nad Linux Mint (tema in lupina)
+Exec=/usr/bin/safeer-os-tema --seja
+Icon=safeer-os
+Terminal=false
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=1

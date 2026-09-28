@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Return to Linux Mint
+Name[sl]=Vrni Linux Mint
+Comment=Turn off the Safeer OS theme and start-up; restore the previous Mint look
+Comment[sl]=Izklopi temo in samodejni zagon Safeer OS ter vrni prejšnji videz Minta
+Exec=/usr/bin/safeer-os-tema --izklopi
+Icon=safeer-os
+Terminal=false
+Categories=Settings;DesktopSettings;
