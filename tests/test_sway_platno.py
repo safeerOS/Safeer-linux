@@ -26,3 +26,11 @@ class FiksnoPlatnoTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UrejenoTest(unittest.TestCase):
+    def test_povecano_okno_ni_urejeno(self):
+        from core.link_sway import _ze_urejeno
+        self.assertTrue(_ze_urejeno({"type": "floating_con", "rect": {"width": 400, "height": 400}}, (400, 400)))
+        self.assertFalse(_ze_urejeno({"type": "floating_con", "rect": {"width": 1920, "height": 1075}}, (400, 400)))
+        self.assertFalse(_ze_urejeno({"type": "con", "rect": {"width": 400, "height": 400}}, (400, 400)))
