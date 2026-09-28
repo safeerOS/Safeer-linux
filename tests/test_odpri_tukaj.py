@@ -39,6 +39,21 @@ class OdpriTukaj(unittest.TestCase):
         self.assertEqual((izid["koda"], izid["message"]), ("ni_dovoljenja", "Dovoli deljenje."))
 
 
+    def test_racunalnik_odpre_oddaljeni_zaslon_tukaj(self):
+        # Windows/Linux zaslona ne potisneta sama: Control po zagonu odpre gledalca namizja.
+        control = safeer_control.SafeerControl.__new__(safeer_control.SafeerControl)
+        control.link = _LinkZaUkaz({"ok": True, "message": "Paint se odpira", "data": {"stream": "pending"}})
+        control.link.naprave = [{"id": "pc-1", "platforma": "windows", "vrsta": "control"}]
+        control.upravljaj_racunalnik = mock.Mock(return_value={"ok": True})
+        with mock.patch.object(safeer_control.time, "sleep"):
+            izid = control._naprave_metoda("OdpriTukaj", ["pc-1", "win_app_1"])
+            for nit in list(safeer_control.threading.enumerate()):
+                if nit.name == "safeer-odpri-tukaj":
+                    nit.join(2)
+        self.assertTrue(izid["ok"] and izid["tu"])
+        control.upravljaj_racunalnik.assert_called_once_with("pc-1")
+
+
 class SprejemZaslona(unittest.TestCase):
     def _link(self):
         link = safeer_link.SafeerLink.__new__(safeer_link.SafeerLink)

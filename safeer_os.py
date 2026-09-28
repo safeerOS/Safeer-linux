@@ -89,6 +89,9 @@ MOST_JS = r"""
 
 def _jezik() -> str:
     """Jezik vmesnika: nastavitev Safeer Browserja, sicer jezik seje; podprti sl/en/de/es/fr/it."""
+    posnetek = (os.environ.get("SAFEER_OS_JEZIK") or "")[:2].lower()   # samo za razvoj/posnetke
+    if posnetek in ("sl", "en", "de", "es", "fr", "it"):
+        return posnetek
     try:
         with open(BRSKALNIK_NASTAVITVE, encoding="utf-8") as f:
             v = (json.load(f) or {}).get("ui_language")
@@ -338,7 +341,9 @@ def naprave_s_programi() -> list:
     naprave = []
     for n in izid.get("naprave") or []:
         z = n.get("zmoznosti") or []
-        if n.get("vrsta") == "control" or n.get("platforma") == "linux" and socket.gethostname() in n.get("ime", ""):
+        # Preskoci samo ta racunalnik. Prej je bila izpuscena vsaka naprava vrste "control", zato Linux ni
+        # videl programov racunalnika z Windows (ta se v Link prijavi kot Safeer Control).
+        if n.get("ta") or n.get("platforma") == "linux" and socket.gethostname() in n.get("ime", ""):
             continue
         if "apps" in z or "remote" in z:
             naprave.append({"id": n["id"], "ime": n.get("ime", ""), "platforma": n.get("platforma", ""),
@@ -673,7 +678,7 @@ class SafeerOS(Gtk.Application):
         if self.posnetek:
             # V nekaterih WebKit2GTK/Mesa kombinacijah FINISHED za krajevni file:// pogled ne
             # pride. Preverjanje mora kljub temu narediti posnetek in se koncati, ne viseti.
-            GLib.timeout_add(8000, self._rezervni_posnetek)
+            GLib.timeout_add(8000 + int(os.environ.get("SAFEER_OS_POSNETEK_ZAMIK", "0") or 0), self._rezervni_posnetek)
         GLib.timeout_add_seconds(10, self._periodicno)
 
     def _ustvari_vrstico(self) -> None:
@@ -861,12 +866,19 @@ class SafeerOS(Gtk.Application):
         razdelek = os.environ.get("SAFEER_OS_RAZDELEK", "")
         if razdelek:
             GLib.timeout_add(1500, lambda: (self._js("window.safeerOsPojdi && safeerOsPojdi(%s)" % json.dumps(razdelek)), False)[1])
+        # Razvoj: skripta, ki se izvede pred posnetkom (npr. klik na pogovor ali zamenjava imen za predstavitev).
+        skripta = os.environ.get("SAFEER_OS_POSNETEK_JS", "")
+        if skripta and os.path.isfile(skripta):
+            with open(skripta, encoding="utf-8") as d:
+                koda = d.read()
+            GLib.timeout_add(2200, lambda: (self._js(koda), False)[1])
+        zamik = int(os.environ.get("SAFEER_OS_POSNETEK_ZAMIK", "0") or 0)
         def velikost():
             self.pogled.evaluate_javascript("innerWidth + 'x' + innerHeight + ' @' + devicePixelRatio", -1, None, None, None,
                                             lambda p, r: print("pogled:", p.evaluate_javascript_finish(r).to_string()))
             return False
-        GLib.timeout_add(3500, velikost)
-        GLib.timeout_add(4000, self._naredi_posnetek)
+        GLib.timeout_add(3500 + zamik, velikost)
+        GLib.timeout_add(4000 + zamik, self._naredi_posnetek)
 
     def _rezervni_posnetek(self) -> bool:
         if not self._posnetek_nacrtovan:

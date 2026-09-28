@@ -781,6 +781,16 @@ class SafeerControl(Gtk.Application):
             r = link.ukaz_pocakaj(str(a[0]) if a else "", "apps.launch",
                                   {"app": str(a[1]) if len(a) > 1 else "", "stream": True}, cas=8.0)
             podatki = r.get("data") if isinstance(r.get("data"), dict) else {}
+            id_cilja = str(a[0]) if a else ""
+            naprava = next((n for n in (getattr(link, "naprave", None) or []) if n.get("id") == id_cilja), {}) or {}
+            if r.get("ok") and (naprava.get("platforma") in ("windows", "linux") or naprava.get("vrsta") == "control"):
+                # Racunalnik zaslona ne potisne sam (kot telefon ali TV): program se odpre na njegovem
+                # namizju, tukaj pa odpremo oddaljeni zaslon tega namizja - z misko in tipkovnico.
+                def _odpri_gledalca() -> None:
+                    time.sleep(1.5)
+                    self.upravljaj_racunalnik(id_cilja)
+                threading.Thread(target=_odpri_gledalca, name="safeer-odpri-tukaj", daemon=True).start()
+                return {"ok": True, "tu": True, "koda": "", "message": str(r.get("message") or "")}
             return {"ok": bool(r.get("ok")), "tu": podatki.get("stream") == "pending",
                     "koda": str(r.get("koda") or r.get("code") or ""),
                     "message": str(r.get("message") or "")}
