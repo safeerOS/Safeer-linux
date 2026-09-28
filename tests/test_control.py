@@ -182,3 +182,36 @@ class ControlOzadje(unittest.TestCase):
                 self.assertTrue(sc.besedilo(jezik, kljuc))
         self.assertEqual(sc.besedilo("xx", "koncaj"), sc.besedilo("en", "koncaj"))
         self.assertEqual(sc.besedilo(None, "odpri"), sc.besedilo("en", "odpri"))
+
+
+class ControlJezik(unittest.TestCase):
+    """Pladenj govori v jeziku seje, kadar Safeer Browser nima nastavljenega jezika."""
+
+    def setUp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("safeer_control_jezik", os.path.join(KOREN, "safeer_control.py"))
+        self.m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.m)
+        self.prej = {k: os.environ.get(k) for k in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG", "XDG_CONFIG_HOME")}
+        self.mapa = tempfile.mkdtemp()
+        os.environ["XDG_CONFIG_HOME"] = self.mapa
+        for k in ("LANGUAGE", "LC_ALL", "LC_MESSAGES"):
+            os.environ.pop(k, None)
+
+    def tearDown(self):
+        for k, v in self.prej.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def test_jezik_seje(self):
+        os.environ["LANG"] = "sl_SI.UTF-8"
+        n = self.m.Nastavitve(os.path.join(self.mapa, "control.json"))
+        self.assertEqual(n.get("ui_language"), "sl")
+        self.assertEqual(self.m.besedilo(n.get("ui_language"), "koncaj"), "Končaj")
+
+    def test_nepodprt_jezik_pade_na_anglescino(self):
+        os.environ["LANG"] = "pt_BR.UTF-8"
+        n = self.m.Nastavitve(os.path.join(self.mapa, "control.json"))
+        self.assertEqual(self.m.besedilo(n.get("ui_language"), "koncaj"), "Quit")

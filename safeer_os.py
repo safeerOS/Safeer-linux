@@ -593,6 +593,10 @@ class SafeerOS(Gtk.Application):
         upravitelj.connect("script-message-received::safeerOs", lambda _u, r: self._na_sporocilo(pogled, r))
         n = pogled.get_settings()
         n.set_property("enable-developer-extras", bool(os.environ.get("SAFEER_OS_RAZVOJ")))
+        try:   # razvojni nacin: napake JavaScripta v terminal (preverjanje razdelkov s --posnetek)
+            n.set_property("enable-write-console-messages-to-stdout", bool(os.environ.get("SAFEER_OS_RAZVOJ")))
+        except Exception:
+            pass
         n.set_property("enable-webgl", False)
         try:
             n.set_property("default-font-size", 16)
