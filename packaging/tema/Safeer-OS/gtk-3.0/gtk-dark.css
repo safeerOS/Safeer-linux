@@ -1,0 +1,240 @@
+@import url("/usr/share/themes/Mint-Y-Dark-Teal/gtk-3.0/gtk.css");
+
+/* ==========================================================================
+   Safeer OS — Global GTK 3.0 Theme Override
+   Usklajeno s Safeer OS barvno paleto (Obsidian #090d15, Mint Teal #54d6a5)
+   ========================================================================== */
+
+@define-color theme_base_color #090d15;
+@define-color theme_text_color #f0f4f3;
+@define-color theme_bg_color #0f1823;
+@define-color theme_fg_color #f0f4f3;
+@define-color theme_selected_bg_color #54d6a5;
+@define-color theme_selected_fg_color #06231a;
+
+@define-color accent_color #54d6a5;
+@define-color accent_bg_color #54d6a5;
+@define-color accent_fg_color #06231a;
+
+@define-color window_bg_color #090d15;
+@define-color window_fg_color #f0f4f3;
+@define-color view_bg_color #0d141f;
+@define-color view_fg_color #f0f4f3;
+@define-color headerbar_bg_color #0f1823;
+@define-color headerbar_fg_color #f0f4f3;
+@define-color headerbar_border_color rgba(84, 214, 165, 0.22);
+@define-color card_bg_color #111924;
+@define-color card_fg_color #f0f4f3;
+@define-color dialog_bg_color #0f1823;
+@define-color dialog_fg_color #f0f4f3;
+@define-color popover_bg_color #0e1621;
+@define-color popover_fg_color #f0f4f3;
+
+@define-color wm_bg #0f1823;
+@define-color wm_bg_unfocused #090d15;
+@define-color wm_title #f0f4f3;
+@define-color wm_title_unfocused #8c9ba5;
+@define-color wm_border rgba(84, 214, 165, 0.25);
+@define-color wm_border_unfocused rgba(255, 255, 255, 0.08);
+
+/* Okna in ozadja */
+window, .background {
+  background-color: #090d15;
+  color: #f0f4f3;
+}
+
+window.csd {
+  border-radius: 12px;
+  border: 1px solid rgba(84, 214, 165, 0.25);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
+window.csd:backdrop {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+/* Glavne glave oken (Headerbar / Titlebar) */
+headerbar, .titlebar {
+  background: linear-gradient(180deg, #121c2a, #0d141f);
+  color: #f0f4f3;
+  border-bottom: 1px solid rgba(84, 214, 165, 0.22);
+  min-height: 42px;
+  padding: 0 8px;
+}
+
+headerbar:backdrop, .titlebar:backdrop {
+  background: #0b111a;
+  color: #8c9ba5;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+headerbar .title {
+  font-weight: 700;
+  color: #f0f4f3;
+}
+
+headerbar .subtitle {
+  font-size: 11px;
+  color: #54d6a5;
+}
+
+/* Gumbi na naslovni vrstici */
+headerbar button.titlebutton {
+  border-radius: 8px;
+  padding: 4px;
+  transition: all 0.15s ease;
+  color: #b0bdc4;
+}
+
+headerbar button.titlebutton:hover {
+  background-color: rgba(84, 214, 165, 0.18);
+  color: #54d6a5;
+}
+
+headerbar button.titlebutton.close:hover {
+  background-color: rgba(255, 107, 107, 0.22);
+  color: #ff6b6b;
+}
+
+/* Pogledi, seznami, datoteke (Nemo, Xed, pregledovalniki) */
+.view, textview text, iconview, treeview.view {
+  background-color: #0d141f;
+  color: #f0f4f3;
+}
+
+/* Izbira elementov (Selection) */
+selection, *:selected, .view:selected, .view text:selected, iconview:selected {
+  background-color: #54d6a5;
+  color: #06231a;
+  font-weight: 600;
+}
+
+/* Poudarjeni gumbi in kontrolniki */
+button.suggested-action, .suggested-action {
+  background: linear-gradient(180deg, #5fe8b4, #44ca97);
+  color: #06231a;
+  border: none;
+  font-weight: 700;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(84, 214, 165, 0.3);
+}
+
+button.suggested-action:hover {
+  background: #6ee7b7;
+  box-shadow: 0 4px 14px rgba(84, 214, 165, 0.45);
+}
+
+button.destructive-action, .destructive-action {
+  background: linear-gradient(180deg, #ff7b7b, #f05252);
+  color: #ffffff;
+  border: none;
+  font-weight: 600;
+  border-radius: 8px;
+}
+
+/* Splošni gumbi */
+button {
+  border-radius: 8px;
+  border: 1px solid rgba(120, 140, 160, 0.2);
+  background-color: rgba(255, 255, 255, 0.05);
+  color: #f0f4f3;
+  transition: all 0.12s;
+}
+
+button:hover {
+  background-color: rgba(84, 214, 165, 0.12);
+  border-color: rgba(84, 214, 165, 0.35);
+  color: #ffffff;
+}
+
+button:active, button:checked {
+  background-color: rgba(84, 214, 165, 0.22);
+  border-color: #54d6a5;
+}
+
+/* Vnosna polja (Entry) */
+entry {
+  background-color: #0d141f;
+  color: #f0f4f3;
+  border: 1px solid rgba(120, 140, 160, 0.25);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
+entry:focus {
+  border-color: #54d6a5;
+  box-shadow: 0 0 0 1px #54d6a5;
+}
+
+/* Drsniki (Scrollbars) */
+scrollbar slider {
+  background-color: rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  min-width: 6px;
+  min-height: 6px;
+  transition: background-color 0.15s;
+}
+
+scrollbar slider:hover {
+  background-color: #54d6a5;
+}
+
+/* Stranske vrstice (Sidebars npr. v Nemo) */
+.sidebar, placessidebar, stacksidebar {
+  background-color: #0a0f18;
+  border-right: 1px solid rgba(84, 214, 165, 0.14);
+}
+
+.sidebar .view {
+  background-color: transparent;
+}
+
+.sidebar row:selected {
+  background-color: rgba(84, 214, 165, 0.16);
+  color: #54d6a5;
+  border-left: 3px solid #54d6a5;
+}
+
+/* Zavihki (Notebook / Tabs) */
+notebook > header {
+  background-color: #0a0f18;
+  border-bottom: 1px solid rgba(84, 214, 165, 0.18);
+}
+
+notebook > header tab {
+  border-radius: 8px 8px 0 0;
+  padding: 6px 14px;
+  color: #b0bdc4;
+}
+
+notebook > header tab:checked {
+  background-color: #0d141f;
+  color: #f0f4f3;
+  border-top: 2px solid #54d6a5;
+}
+
+/* Meniji in pojavna okna */
+menu, .menu, popover.background {
+  background-color: #0e1621;
+  border: 1px solid rgba(84, 214, 165, 0.22);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+  padding: 4px;
+}
+
+menuitem:hover {
+  background-color: rgba(84, 214, 165, 0.18);
+  color: #ffffff;
+  border-radius: 6px;
+}
+
+/* Preklopna stikala (Switch) */
+switch:checked {
+  background-color: #54d6a5;
+  border-color: #54d6a5;
+}
+
+switch:checked slider {
+  background-color: #06231a;
+}

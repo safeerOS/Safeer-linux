@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=X-GNOME-Metatheme
+Name=Safeer-OS
+Comment=Safeer OS Tema za Linux Mint
+Encoding=UTF-8
+
+[X-GNOME-Metatheme]
+GtkTheme=Safeer-OS
+MetacityTheme=Safeer-OS
+IconTheme=Papirus-Dark
+CursorTheme=DMZ-Black
+ButtonLayout=:minimize,maximize,close
