@@ -567,6 +567,11 @@ class SafeerOS(Gtk.Application):
         self._medijski_predvajalnik = None
         self._medijski_gst = None
         self._medijski_predvajalnik_okno = None
+        # Splet je del istega okna. Ustvarimo ga sele ob prvem obisku in ga med razdelki samo skrijemo,
+        # zato zavihki, prijave in zgodovina ostanejo zivi.
+        self._spletni = None
+        self._glavna_postavitev = None
+        self._spletni_nacin = False
 
     # ------------------------------------------------------------------ okno
     def do_activate(self) -> None:
@@ -669,11 +674,13 @@ class SafeerOS(Gtk.Application):
                 okno.move(g.x, g.y)
                 okno.set_default_size(g.width, g.height - VISINA_VRSTICE)
                 okno.set_size_request(g.width, g.height - VISINA_VRSTICE)
-        okno.add(pogled)
+        postavitev = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        postavitev.pack_start(pogled, True, True, 0)
+        okno.add(postavitev)
         okno.connect("key-press-event", self._na_tipko)
         okno.connect("focus-in-event", lambda *a: (self._dogodek("fokus", None), False)[1])
         okno.connect("destroy", lambda *a: self._koncaj())
-        self.okno, self.pogled = okno, pogled
+        self.okno, self.pogled, self._glavna_postavitev = okno, pogled, postavitev
         okno.show_all()
         if self.posnetek:
             # V nekaterih WebKit2GTK/Mesa kombinacijah FINISHED za krajevni file:// pogled ne
@@ -812,6 +819,11 @@ class SafeerOS(Gtk.Application):
             self.sporocila.zapri()
         except Exception:
             pass
+        try:
+            if self._spletni is not None:
+                self._spletni.koncaj()
+        except Exception:
+            pass
         self.quit()
 
     def _na_politiko(self, _pogled, odlocitev, vrsta) -> bool:
@@ -887,6 +899,18 @@ class SafeerOS(Gtk.Application):
         return False
 
     def _naredi_posnetek(self) -> bool:
+        # Zajemi celo okno: levi WebKit je v spletnem nacinu samo stranska vrstica.
+        if self.okno is not None and self.okno.get_window() is not None:
+            try:
+                w, h = self.okno.get_allocated_width(), self.okno.get_allocated_height()
+                slika = Gdk.pixbuf_get_from_window(self.okno.get_window(), 0, 0, w, h)
+                if slika is not None:
+                    slika.savev(self.posnetek, "png", [], [])
+                    print("posnetek:", self.posnetek)
+                    self.quit()
+                    return False
+            except Exception as e:  # noqa: BLE001
+                print("posnetek okna ni uspel, poskus pogleda:", e)
         def konec(pogled, rezultat):
             try:
                 povrsina = pogled.get_snapshot_finish(rezultat)
@@ -956,6 +980,9 @@ class SafeerOS(Gtk.Application):
             "sporocilaSeznam": lambda: self.sporocila.seznam(str(a[0]) if a else ""),
             "samozagon": lambda: self._samozagon(bool(a[0])) if a else je_samozagon(),
             "nazajVMint": lambda: self._nazaj_v_mint(bool(a[0]) if a else False),
+            "razdelek": lambda: self._razdelek(str(a[0]) if a else "domov"),
+            "splet": lambda: self._splet(str(a[0]) if a else ""),
+            "iskanjeSplet": lambda: self._splet(_iskalnik() + GLib.uri_escape_string(str(a[0] if a else ""), None, False)),
         }
         # V ozadju (ukazi, ki lahko trajajo):
         ozadje = {
@@ -971,9 +998,7 @@ class SafeerOS(Gtk.Application):
             "isciDatoteke": lambda: os_datoteke.isci(str(a[0]) if a else ""),
             "odpriDatoteko": lambda: os_datoteke.odpri(str(a[0]) if a else ""),
             "pokaziVMapi": lambda: os_datoteke.pokazi_v_mapi(str(a[0]) if a else ""),
-            "splet": lambda: self._splet(str(a[0]) if a else ""),
             "medij": lambda: self._medij(str(a[0]) if a else ""),
-            "iskanjeSplet": lambda: self._splet(_iskalnik() + GLib.uri_escape_string(str(a[0] if a else ""), None, False)),
             "povezava": stanje_povezave,
             "zaupanje": lambda: nastavi_zaupanje(bool(a[0]) if a else False),
             "novaNaprava": lambda: control_dejanje("nova-naprava"),
@@ -1160,19 +1185,104 @@ class SafeerOS(Gtk.Application):
         return True
 
     def _splet(self, naslov: str) -> bool:
-        if not naslov.startswith(("http://", "https://")):
+        """Odpre naslov v zavihku znotraj glavnega okna; brez procesa ali dodatnega okna."""
+        if naslov and not naslov.startswith(("http://", "https://")):
             return False
-        from shutil import which
-        # Splet ostane v Safeerju: Safeer Browser (isti Scit in zavihki), sicer vgrajeni pogled Safeer OS.
-        # Nikoli sistemski (tuji) brskalnik.
-        for ukaz in (["safeer-browser", naslov], ["safeer", naslov]):
-            if which(ukaz[0]):
-                try:
-                    subprocess.Popen(ukaz, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-                    return True
-                except Exception:
-                    continue
-        return self._odpri_lahki_medijski_pogled(naslov)
+        self._pokazi_spletni_nacin()
+        return self._spletni.odpri(naslov) if naslov else True
+
+    def _ustvari_spletni(self) -> None:
+        if self._spletni is not None:
+            return
+        from core.os_splet import VdelaniSplet
+        self._spletni = VdelaniSplet(Gtk, Gdk, Gio, GLib, WebKit2, KOREN, _jezik, stanje_povezave,
+                                     self._splet_v_zapisek, self.okno)
+        self._glavna_postavitev.pack_start(self._spletni.gradnik, True, True, 0)
+        self._spletni.gradnik.set_no_show_all(True)
+        self._spletni.gradnik.hide()
+
+    def _pokazi_spletni_nacin(self) -> bool:
+        """Najprej izmeri #stranska, sele nato doda nacin-splet in zozi HTML lupino."""
+        self._ustvari_spletni()
+        self._spletni_nacin = True
+        koda = (
+            "(function(){var s=document.getElementById('stranska'),b=document.body;"
+            "var w=b.classList.contains('nacin-splet')?Number(b.dataset.stranska||0):"
+            "(s?s.getBoundingClientRect().width:0);b.dataset.stranska=String(w);"
+            "b.classList.add('nacin-splet');"
+            "document.querySelectorAll('#meni button').forEach(function(x){x.classList.toggle('izbran',x.getAttribute('data-razdelek')==='splet');});"
+            "return w*(window.devicePixelRatio||1);})()"
+        )
+
+        def izmerjeno(pogled, rezultat):
+            if not self._spletni_nacin:
+                return
+            try:
+                sirina = round(pogled.evaluate_javascript_finish(rezultat).to_double())
+            except Exception:
+                sirina = 300
+            if sirina < 160:
+                sirina = 375
+            self.pogled.set_size_request(sirina, -1)
+            self.pogled.set_hexpand(False)
+            # Lupina je v Box zapakirana z expand=True; v nacinu Splet mora ostati le stranska vrstica.
+            self._glavna_postavitev.set_child_packing(self.pogled, False, False, 0, Gtk.PackType.START)
+            # WebKitWebView kot naravno sirino javi zadnjo dodelitev, zato Box lupine ne bi zozil:
+            # brskalniku dodelimo preostanek okna (in ga uskladimo ob vsaki spremembi velikosti okna).
+            # JS vrne sirino v fizicnih pikslih (CSS * devicePixelRatio, npr. besedilo 1,5x); GTK hoce logicne.
+            try:
+                sirina = round(sirina / max(1, int(self.pogled.get_scale_factor() or 1)))
+            except Exception:
+                pass
+            self.pogled.set_size_request(sirina, -1)
+            self._sirina_stranske = sirina
+            self._uskladi_sirino_spleta()
+            self._spletni.gradnik.set_no_show_all(False)
+            self._spletni.gradnik.show_all()
+
+        self.pogled.evaluate_javascript(koda, -1, None, None, None, izmerjeno)
+        return True
+
+    def _uskladi_sirino_spleta(self, *_):
+        if not self._spletni_nacin or self._spletni is None or self.okno is None:
+            return False
+        skupaj = self.okno.get_allocated_width()
+        stranska = int(getattr(self, "_sirina_stranske", 300) or 300)
+        self._spletni.gradnik.set_size_request(max(360, skupaj - stranska), -1)
+        if not getattr(self, "_splet_povezan_resize", False):
+            self._splet_povezan_resize = True
+            self.okno.connect("size-allocate", lambda *a: GLib.idle_add(self._uskladi_sirino_spleta))
+        return False
+
+    def _skrij_spletni_nacin(self, razdelek: str = "domov") -> bool:
+        self._spletni_nacin = False
+        if self._spletni is not None:
+            self._spletni.gradnik.hide()
+            self._spletni.gradnik.set_no_show_all(True)
+        self.pogled.set_size_request(-1, -1)
+        self.pogled.set_hexpand(True)
+        if self._spletni is not None:
+            self._spletni.gradnik.set_size_request(-1, -1)
+        self._glavna_postavitev.set_child_packing(self.pogled, True, True, 0, Gtk.PackType.START)
+        self._js("document.body.classList.remove('nacin-splet');")
+        return True
+
+    def _razdelek(self, razdelek: str) -> bool:
+        if razdelek == "splet":
+            return self._pokazi_spletni_nacin()
+        if self._spletni_nacin:
+            self._skrij_spletni_nacin(razdelek)
+        return True
+
+    def vrniSplet(self) -> bool:  # noqa: N802 - enako javno ime kot na drugih izdajah Safeer OS
+        return self._pokazi_spletni_nacin()
+
+    def _splet_v_zapisek(self, naslov: str, url: str) -> None:
+        vsebina = "[%s](%s)" % (naslov.replace("]", ""), url)
+        zapisek = self.zapiski.shrani("", naslov, vsebina, None)
+        self._skrij_spletni_nacin("zapiski")
+        self._js("window.safeerOsPojdi && window.safeerOsPojdi('zapiski');")
+        self._dogodek("zapisek", zapisek)
 
     def _medij(self, naslov: str) -> bool:
         """Safeer Media: neposredni tok, nato lahek WebKit, šele nazadnje brskalnik."""
