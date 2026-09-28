@@ -1111,14 +1111,16 @@ class SafeerOS(Gtk.Application):
         if not naslov.startswith(("http://", "https://")):
             return False
         from shutil import which
-        for ukaz in (["safeer-browser", naslov], ["safeer", naslov], ["xdg-open", naslov]):
+        # Splet ostane v Safeerju: Safeer Browser (isti Scit in zavihki), sicer vgrajeni pogled Safeer OS.
+        # Nikoli sistemski (tuji) brskalnik.
+        for ukaz in (["safeer-browser", naslov], ["safeer", naslov]):
             if which(ukaz[0]):
                 try:
                     subprocess.Popen(ukaz, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
                     return True
                 except Exception:
                     continue
-        return False
+        return self._odpri_lahki_medijski_pogled(naslov)
 
     def _medij(self, naslov: str) -> bool:
         """Safeer Media: neposredni tok, nato lahek WebKit, šele nazadnje brskalnik."""
