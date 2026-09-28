@@ -98,8 +98,9 @@ class Nastavitve:
     def get(self, kljuc: str, privzeto=None):
         v = self.podatki.get(kljuc)
         if v is None and kljuc == "ui_language":
-            # Jezik vmesnika: ce ima uporabnik na tem racunalniku Safeer Browser, govori Control v istem jeziku.
-            v = _jezik_brskalnika()
+            # Jezik vmesnika: ce ima uporabnik na tem racunalniku Safeer Browser, govori Control v istem jeziku,
+            # sicer v jeziku seje (prej je pladenj brez brskalnika vedno govoril anglesko).
+            v = _jezik_brskalnika() or _jezik_sistema()
         return v if v is not None else privzeto
 
     def set(self, kljuc: str, vrednost) -> None:
@@ -120,6 +121,16 @@ class Nastavitve:
 
     def import_bookmarks_items(self, _postavke) -> tuple:
         return 0, 0
+
+
+def _jezik_sistema() -> Optional[str]:
+    """Jezik seje (LANGUAGE, LC_ALL, LC_MESSAGES, LANG), ce ga Control zna; sicer None."""
+    for kljuc in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
+        vrednost = os.environ.get(kljuc, "")
+        if vrednost:
+            oznaka = vrednost.split(":")[0].replace("-", "_").split(".")[0].split("_")[0].strip().lower()[:2]
+            return oznaka if oznaka in BESEDILA else None
+    return None
 
 
 def _jezik_brskalnika() -> Optional[str]:

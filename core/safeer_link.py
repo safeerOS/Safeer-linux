@@ -96,7 +96,7 @@ MOST_JS = """
     trenutnaStranJson: function () { return JSON.stringify(window.__safeerLink.stran); },
     sinhronizacijaStanje: function () { return JSON.stringify(window.__safeerLink.sinhronizacija); },
     naslovKonzole: function () { return window.__safeerLink.konzola; },
-    jezik: function () { return window.__safeerLink.jezik || ""; },
+    jezik: function () { return (window.__safeerLink && window.__safeerLink.jezik) || window.__safeerLinkJezik || ""; },
     potrdiNovNaslov: function () { poslji("potrdiNovNaslov"); },
     pozabiNapravo: function () { poslji("pozabiNapravo"); },
     poisciHub: function () { poslji("poisciHub"); },
@@ -398,8 +398,11 @@ class SafeerLink:
         upravitelj = WebKit2.UserContentManager()
         upravitelj.register_script_message_handler("safeerLink")
         upravitelj.connect("script-message-received::safeerLink", self._na_sporocilo)
+        # Jezik mora biti znan ze ob nalaganju strani: link.js ga prebere enkrat, stanje
+        # (window.__safeerLink) pa pride sele po nalaganju - prej je stran padla na navigator.language
+        # (WebKit: en-US) in Control je govoril anglesko tudi v slovenski seji.
         upravitelj.add_script(WebKit2.UserScript(
-            MOST_JS,
+            "window.__safeerLinkJezik = " + json.dumps(self._jezik()) + ";\n" + MOST_JS,
             WebKit2.UserContentInjectedFrames.TOP_FRAME,
             WebKit2.UserScriptInjectionTime.START,
             None, None,
