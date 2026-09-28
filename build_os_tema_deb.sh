@@ -16,6 +16,7 @@ rm -rf "$ROOT"
 mkdir -p "$ROOT/DEBIAN" "$ROOT/usr/share/themes" "$ROOT/usr/bin" "$ROOT/etc/xdg/autostart" \
          "$ROOT/usr/share/applications" "$ROOT/usr/share/doc/safeer-os-tema"
 cp -a "$T/Safeer-OS" "$ROOT/usr/share/themes/"
+install -D -m 644 "$T/ozadje/safeer-gore.jpg" "$ROOT/usr/share/backgrounds/safeer-os/safeer-gore.jpg"
 install -m 755 "$T/safeer-os-tema" "$ROOT/usr/bin/safeer-os-tema"
 install -m 644 "$T/safeer-os-tema-autostart.desktop" "$ROOT/etc/xdg/autostart/safeer-os-tema.desktop"
 install -m 644 "$T/safeer-os-namizje.desktop" "$ROOT/usr/share/applications/safeer-os-namizje.desktop"
