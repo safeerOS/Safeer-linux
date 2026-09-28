@@ -730,6 +730,10 @@ class Hub:
 
     def _usmeri_klepet(self, sporocilo: dict, id_sporocila: str, cilj: str, moj_id: str) -> str:
         """Safeer Chat. Cilj je fizicna naprava (kljuc iz kroga) ali posamezen id; nepovezani pocaka."""
+        tovor = sporocilo.get("payload") if isinstance(sporocilo.get("payload"), dict) else {}
+        besedilo_kl = str(tovor.get("text") or "")
+        if not besedilo_kl or len(besedilo_kl.encode("utf-8")) > 16 * 1024:
+            return self._potrditev(id_sporocila, "chat", "rejected", "Sporočilo je prazno ali preveliko.", "meja")
         with self._zaklep:
             vse = list(self._naprave.values())
         kandidati = [n for n in vse if "chat" in (n.zmoznosti or []) and self.naprava_iz_kljuca(n.id) == cilj]
