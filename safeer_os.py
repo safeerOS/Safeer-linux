@@ -309,6 +309,11 @@ def _control_naprave(metoda: str, *argumenti: str) -> dict:
         return {"ok": False, "koda": "napaka", "message": str(e)}
 
 
+def _control_naprave_koda(_metoda: str) -> str:
+    """Control ni odgovoril s stanjem (ne tece ali stara razlicica brez klepeta)."""
+    return "ni_controla"
+
+
 _ANDROID_SKUPINE = (
     ("igre", ("game", "games", "unity", "rovio", "supercell", "king.", "gameloft", "ea.", "minecraft", "roblox")),
     ("splet", ("browser", "chrome", "firefox", "safeer", "youtube", "netflix", "spotify", "tv", "video", "music", "radio")),
@@ -528,6 +533,10 @@ class SafeerOS(Gtk.Application):
         self.programi = os_programi.Programi(self.shramba)
         self.zapiski = os_zapiski.Zapiski(ZAPISKI_POT)
         self.sporocila = os_sporocila.SporocilaOS()
+        # Safeer Chat gre po Linku, ki ga drzi Safeer Control (D-Bus).
+        self.sporocila.poslji_klepet = lambda n, b, c: _control_naprave("Klepet", n, b, c).get("stanje") \
+            or _control_naprave_koda("Klepet")
+        self.sporocila.naprave_klepeta = lambda: _control_naprave("KlepetNaprave").get("naprave") or []
         #: Scit: filtriranje DNS za ves racunalnik; ce je bil vklopljen, tece od zagona naprej.
         self.scit = os_scit.Scit(self.shramba)
         self.okno: Optional[Gtk.ApplicationWindow] = None
@@ -993,6 +1002,8 @@ class SafeerOS(Gtk.Application):
             "sporocilaSkrivnost": lambda: self.sporocila.nastavi_skrivnost(str(a[0]), str(a[1])),
             "sporocilaOdstrani": lambda: self.sporocila.odstrani_kanal(str(a[0])),
             "sporocilaStreznik": lambda: self.sporocila.privzeta_streznika(str(a[0]) if a else ""),
+            "sporocilaNaprave": self.sporocila.naprave_za_klepet,
+            "sporocilaZacni": lambda: self.sporocila.zacni_klepet(str(a[0]), str(a[1]) if len(a) > 1 else ""),
         }
         if metoda in glavna:
             try:

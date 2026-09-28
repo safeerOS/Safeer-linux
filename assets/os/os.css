@@ -266,8 +266,8 @@ h2 .dodatno + .dodatno { margin-left: 14px; }
 .sporocila-glava p { color:var(--medlo); font-size:18px; margin:0 0 20px; }
 .sporocila-postavitev { display:grid; grid-template-columns:minmax(280px, 36%) 1fr; min-height:520px;
   border:1px solid var(--rob); border-radius:var(--polmer); overflow:hidden; background:var(--kartica); }
-.pogovori-seznam { border-right:1px solid var(--rob); overflow-y:auto; max-height:58vh; }
-.pogovor-vrstica { width:100%; display:grid; grid-template-columns:40px 1fr auto; gap:10px; padding:14px;
+.pogovori-seznam { border-right:1px solid var(--rob); overflow-y:auto; overflow-x:hidden; max-height:58vh; }
+.pogovor-vrstica { width:100%; display:grid; grid-template-columns:40px minmax(0,1fr) auto; gap:10px; padding:14px;
   text-align:left; border-bottom:1px solid var(--rob); }
 .pogovor-vrstica:hover,.pogovor-vrstica.izbran { background:var(--kartica-poudarek); }
 .kanal-ikona { width:36px; height:36px; display:grid; place-items:center; border-radius:50%; background:rgba(84,214,165,.15); color:var(--zelena); }
@@ -286,7 +286,7 @@ h2 .dodatno + .dodatno { margin-left: 14px; }
 .sporocila-vnos { display:flex; gap:10px; padding:14px; border-top:1px solid var(--rob); }
 .sporocila-vnos textarea { flex:1; resize:none; border:1px solid var(--rob); border-radius:12px; background:rgba(0,0,0,.18); padding:10px; outline:0; }
 .sporocila-vnos textarea:focus { border-color:var(--zelena); }
-#slojKanal .plosca, #slojKanalUredi .plosca { left:50%; top:50%; transform:translate(-50%,-50%); width:520px; max-width:calc(100vw - 32px); }
+#slojKanal .plosca, #slojKanalUredi .plosca, #slojPisi .plosca { left:50%; top:50%; transform:translate(-50%,-50%); width:520px; max-width:calc(100vw - 32px); }
 .kanal-carovnik,.kanal-carovnik>div { display:flex; flex-direction:column; gap:12px; }
 .kanal-carovnik label span { display:block; color:var(--medlo); margin-bottom:6px; }
 .kanal-carovnik input,.kanal-carovnik select { width:100%; border:1px solid var(--rob); border-radius:10px; background:#111b27; padding:11px 12px; }
@@ -641,3 +641,5 @@ div.vrstica { cursor: default; }
 .kanal-carovnik .dva { display:flex; gap:10px; flex-direction:row; }
 .kanal-carovnik .filtri { flex-direction:row; }
 .kanal-napaka { margin:0; padding:10px 12px; border-radius:10px; background:rgba(242,184,75,.12); color:#f2b84b; }
+.sporocila-glava .gumbi-glave { display:flex; gap:10px; margin-bottom:20px; }
+.pisi-naprave { display:flex; flex-direction:column; gap:6px; max-height:50vh; overflow:auto; margin:10px 0; }
