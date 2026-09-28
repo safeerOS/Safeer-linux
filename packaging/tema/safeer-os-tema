@@ -14,7 +14,8 @@ MAPA="${XDG_CONFIG_HOME:-$HOME/.config}/safeer-os"
 PREJ="$MAPA/tema-prej.txt"
 IZKLOP="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/safeer-os-tema.desktop"
 TEMA="Safeer-OS"
-KLJUCI="org.cinnamon.desktop.interface:gtk-theme org.cinnamon.desktop.wm.preferences:theme org.cinnamon.theme:name org.gnome.desktop.interface:gtk-theme org.gnome.desktop.wm.preferences:theme org.gnome.desktop.interface:color-scheme"
+OZADJE="/usr/share/backgrounds/safeer-os/safeer-gore.jpg"
+KLJUCI="org.cinnamon.desktop.interface:gtk-theme org.cinnamon.desktop.wm.preferences:theme org.cinnamon.theme:name org.gnome.desktop.interface:gtk-theme org.gnome.desktop.wm.preferences:theme org.gnome.desktop.interface:color-scheme org.cinnamon.desktop.background:picture-uri org.cinnamon.desktop.background:picture-options"
 
 beri() { gsettings get "${1%%:*}" "${1#*:}" 2>/dev/null; }
 pisi() { gsettings set "${1%%:*}" "${1#*:}" "$2" >/dev/null 2>&1 || true; }
@@ -31,6 +32,8 @@ vklopi() {
     for k in $KLJUCI; do
         case "$k" in
             *color-scheme) pisi "$k" "'prefer-dark'" ;;
+            *picture-uri) [ -f "$OZADJE" ] && pisi "$k" "'file://$OZADJE'" ;;
+            *picture-options) [ -f "$OZADJE" ] && pisi "$k" "'zoom'" ;;
             *) pisi "$k" "'$TEMA'" ;;
         esac
     done

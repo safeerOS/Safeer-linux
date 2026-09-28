@@ -4231,6 +4231,19 @@ hdyleaflet:last-child headerbar {
 hdyleaflet:first-child headerbar {
   border-top-left-radius: 8px; }
 
-/* Safeer OS */
+/* Safeer OS: videz kot v vmesniku Safeer OS (zaobljeno, zeleni poudarki, mehka izbira) */
 button.suggested-action, button.suggested-action:hover, button.suggested-action:active,
 button.suggested-action:checked, button.suggested-action label { color: #06231a; }
+button, entry, spinbutton, combobox button { border-radius: 10px; }
+notebook > header > tabs > tab { border-radius: 10px 10px 0 0; }
+menu, .menu, .context-menu, popover.background { border-radius: 12px; }
+menu menuitem { border-radius: 8px; }
+tooltip.background, tooltip { border-radius: 10px; }
+placessidebar row, stacksidebar row, .sidebar row, .navigation-sidebar row { border-radius: 10px; }
+placessidebar row:selected, stacksidebar row:selected, .sidebar row:selected, .navigation-sidebar row:selected,
+placessidebar row:selected label, stacksidebar row:selected label, .sidebar row:selected label {
+  background-color: rgba(84, 214, 165, 0.16); color: #54d6a5; }
+scale trough, scale highlight, progressbar trough, progressbar progress, levelbar block { border-radius: 99px; }
+frame > border, .frame, list, .view.frame { border-radius: 12px; }
+switch { border-radius: 99px; }
+switch slider { border-radius: 99px; }

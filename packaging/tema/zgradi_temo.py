@@ -67,17 +67,36 @@ OBVEZNE = {"base_color", "header_bg", "bg_color", "selected_fg_color"}
 
 # Svetla zelena potrebuje temno besedilo (Mint na gumbu »predlagano dejanje« vedno pise belo).
 GTK_DODATKI = """
-/* Safeer OS */
+/* Safeer OS: videz kot v vmesniku Safeer OS (zaobljeno, zeleni poudarki, mehka izbira) */
 button.suggested-action, button.suggested-action:hover, button.suggested-action:active,
-button.suggested-action:checked, button.suggested-action label { color: %s; }
-""" % NA_POUDARKU
+button.suggested-action:checked, button.suggested-action label { color: %(na)s; }
+button, entry, spinbutton, combobox button { border-radius: 10px; }
+notebook > header > tabs > tab { border-radius: 10px 10px 0 0; }
+menu, .menu, .context-menu, popover.background { border-radius: 12px; }
+menu menuitem { border-radius: 8px; }
+tooltip.background, tooltip { border-radius: 10px; }
+placessidebar row, stacksidebar row, .sidebar row, .navigation-sidebar row { border-radius: 10px; }
+placessidebar row:selected, stacksidebar row:selected, .sidebar row:selected, .navigation-sidebar row:selected,
+placessidebar row:selected label, stacksidebar row:selected label, .sidebar row:selected label {
+  background-color: rgba(84, 214, 165, 0.16); color: %(p)s; }
+scale trough, scale highlight, progressbar trough, progressbar progress, levelbar block { border-radius: 99px; }
+frame > border, .frame, list, .view.frame { border-radius: 12px; }
+switch { border-radius: 99px; }
+switch slider { border-radius: 99px; }
+""" % {"na": NA_POUDARKU, "p": POUDAREK}
 
 # Dodatki Safeer, ki jih Mint-Y nima (zaobljen meni, tanka zelena crta plosce).
 CINNAMON_DODATKI = """
 /* Safeer OS */
-#panel { border-top: 1px solid rgba(84, 214, 165, 0.22); }
-.popup-menu { border-radius: 12px; }
-.popup-menu-boxpointer, .popup-menu { border: 1px solid rgba(84, 214, 165, 0.22); }
+#panel { background-color: rgba(9, 13, 21, 0.94); border-top: 1px solid rgba(84, 214, 165, 0.22); }
+.menu, .popup-menu, .popup-menu-boxpointer { border-radius: 16px; }
+.popup-menu, .menu { border: 1px solid rgba(84, 214, 165, 0.22); }
+.popup-menu-item, .menu-application-button, .menu-category-button { border-radius: 10px; }
+.popup-menu-item:active, .menu-application-button-selected, .menu-category-button-selected {
+  background-color: rgba(84, 214, 165, 0.16); color: #54d6a5; }
+.applet-box, .window-list-item-box, .grouped-window-list-item-box { border-radius: 8px; }
+.tooltip, .notification, .osd-window, .info-osd { border-radius: 14px; }
+.modal-dialog, .cinnamon-dialog { border-radius: 16px; }
 """
 
 
