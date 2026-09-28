@@ -97,6 +97,7 @@
           <div><h1 data-t="mediji"></h1><p data-t="medijiOpis"></p></div>
           <button class="gumb glavni" id="medijiDodaj"><svg data-ikona="plus"></svg><span data-t="dodajMedijskiVir"></span></button>
         </div>
+        <label class="razdelek-iskanje"><svg data-ikona="isci"></svg><input id="mediaIskanje" type="search" autocomplete="off" data-ph="isciMedije"></label>
         <div class="media-kategorije" id="mediaKategorije"></div>
         <h2><span data-t="medijskeAplikacije"></span><span class="media-stevec" id="mediaStevec"></span></h2>
         <div class="mreza media-mreza" id="mediaMreza"></div>
@@ -139,6 +140,7 @@
       <section class="razdelek" id="r-programi">
         <h1 data-t="programi"></h1>
         <p id="programiPod"></p>
+        <label class="razdelek-iskanje"><svg data-ikona="isci"></svg><input id="programiIskanje" type="search" autocomplete="off" data-ph="isciPrograme"></label>
         <div class="filtri naprave-filtri" id="filtriNaprav" hidden></div>
         <div class="filtri" id="filtri"></div>
         <div class="mreza" id="vsiProgrami"></div>
@@ -148,6 +150,7 @@
       <section class="razdelek" id="r-datoteke">
         <h1 data-t="datoteke"></h1>
         <p data-t="datotekeOpis"></p>
+        <label class="razdelek-iskanje"><svg data-ikona="isci"></svg><input id="datotekeIskanje" type="search" autocomplete="off" data-ph="isciDatoteke"></label>
         <div class="datoteke-postavitev">
           <div class="mape-seznam" id="mapeSeznam"></div>
           <div>
@@ -161,6 +164,7 @@
       <section class="razdelek" id="r-naprave">
         <h1>Safeer Link</h1>
         <p data-t="napraveOpis"></p>
+        <label class="razdelek-iskanje"><svg data-ikona="isci"></svg><input id="napraveIskanje" type="search" autocomplete="off" data-ph="isciNaprave"></label>
         <div class="panel">
           <h3><i class="pika siva" id="napravePika"></i><span id="napraveNaslov"></span></h3>
           <p id="napraveBesedilo"></p>
@@ -309,6 +313,7 @@
 </div>
 <div id="obvestilo"></div>
 <script src="besedila.js"></script>
+<script src="iskanje.js"></script>
 <script src="os.js"></script>
 </body>
 </html>
