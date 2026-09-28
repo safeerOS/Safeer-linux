@@ -13,7 +13,8 @@ cp -a "$ROOT/safeer_os.py" "$LIB/"
 # Everything safeer_os.py imports, directly or lazily (core/os_* plus the Safeer Link modules it reads:
 # identity, sessions, circle of trust, hub discovery, programs). tests/test_packaging.py installs this
 # payload and imports it without the source tree, so a missing module fails the test, not the user.
-for modul in os_datoteke os_jbl os_mediji os_okna os_omrezje os_programi os_scit os_sistem os_sporocila os_spletne os_stabilnost os_zapiski os_zvok \
+# core/os_jbl.py (JBL input switching) is an internal experiment and is deliberately NOT shipped.
+for modul in os_datoteke os_mediji os_okna os_omrezje os_programi os_scit os_sistem os_sporocila os_spletne os_stabilnost os_zapiski os_zvok \
              link_datoteke link_urejanje link_hub link_hub_streznik link_iskanje link_krog link_kripto link_mediji link_programi link_seja link_tls link_ws spake2 signed_feed threat_intel \
              os_splet ikone_strani adblock config bookmarks_importer doh_proxy filter_lists bank_guard; do
     cp -a "$ROOT/core/$modul.py" "$LIB/core/"
