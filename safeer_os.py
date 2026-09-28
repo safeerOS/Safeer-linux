@@ -1147,7 +1147,7 @@ class SafeerOS(Gtk.Application):
             if self._medijski_predvajalnik is None:
                 raise RuntimeError("GStreamer playbin ni na voljo")
             if self._medijski_predvajalnik_okno is None:
-                okno = Gtk.Window(title="Safeer Media")
+                okno = Gtk.Window(title="Medijski center")
                 okno.set_default_size(960, 540)
                 okno.set_transient_for(self.okno)
                 okno.connect("delete-event", lambda *a: (self._ustavi_neposredni_medij(), True)[1])
@@ -1156,7 +1156,7 @@ class SafeerOS(Gtk.Application):
                     self._medijski_predvajalnik.set_property("video-sink", ponor)
                     okno.add(ponor.get_property("widget"))
                 else:
-                    okno.add(Gtk.Label(label="Safeer Media\nPredvajanje zvoka ali videa"))
+                    okno.add(Gtk.Label(label="Medijski center\nPredvajanje zvoka ali videa"))
                 self.add_window(okno)
                 self._medijski_predvajalnik_okno = okno
             self._medijski_predvajalnik.set_property("uri", naslov)
@@ -1197,7 +1197,7 @@ class SafeerOS(Gtk.Application):
             nastavitve.set_property("enable-javascript-markup", False)
             nastavitve.set_property("enable-webgl", False)
             pogled.connect("load-changed", self._medijski_nalozen)
-            okno = Gtk.ApplicationWindow(application=self, title="Safeer Media")
+            okno = Gtk.ApplicationWindow(application=self, title="Medijski center")
             okno.set_default_size(1100, 700)
             okno.set_transient_for(self.okno)
             okno.add(pogled)
