@@ -671,6 +671,12 @@ def fiksno_platno(okno: dict) -> Optional[Tuple[int, int]]:
     return w, h
 
 
+def _ze_urejeno(okno: dict, platno: Tuple[int, int]) -> bool:
+    """Okno ze lebdi v naravni velikosti (sway rect je v logicnih tockah, po merilu)."""
+    r = okno.get("rect") or {}
+    return okno.get("type") == "floating_con" and (int(r.get("width") or 0), int(r.get("height") or 0)) == platno
+
+
 def merilo_platna(sirina: int, visina: int, w: int, h: int) -> float:
     """Koliko povecati platno, da zapolni zaslon brez obrezovanja (sway zna ulomke po 1/120)."""
     if w <= 0 or h <= 0:
@@ -703,7 +709,7 @@ class DrugiZaslon:
         from core.link_fokus import Fokus
         self.fokus = Fokus(self)
         self._merilo = 1.0
-        self._urejena_platna: set = set()
+        self._urejena_platna: Dict[int, int] = {}
         self._opazovalec: Optional[subprocess.Popen] = None
 
     # ----------------------------------------------------------------- zmoznosti
@@ -783,7 +789,7 @@ class DrugiZaslon:
                     self._wayland, self._ipc = os.path.basename(novi[0]), ipc[0]
                     print("[drugi zaslon] tece (%s, %dx%d)" % (self._wayland, sirina, visina), flush=True)
                     self._merilo = 1.0
-                    self._urejena_platna = set()
+                    self._urejena_platna = {}
                     self._opazuj_okna()
                     return True
                 time.sleep(0.1)
@@ -795,7 +801,7 @@ class DrugiZaslon:
         if (sirina, visina) != (self.sirina, self.visina) and self.tece():
             self._msg(["output", IZHOD, "resolution", "%dx%d@60Hz" % (sirina, visina)])
             self.sirina, self.visina = sirina, visina
-            self._urejena_platna = set()
+            self._urejena_platna = {}
             self.uredi_platno()
 
     # ----------------------------------------------------------------- igre cez cel zaslon
@@ -850,10 +856,23 @@ class DrugiZaslon:
             if abs(merilo - self._merilo) > 1e-6:
                 self._msg(["output", IZHOD, "scale", "%.6f" % merilo])
                 self._merilo = merilo
-            if platno and okno.get("id") not in self._urejena_platna:
+            if platno and not _ze_urejeno(okno, platno):
                 self._msg(["[con_id=%d]" % int(okno["id"]), "floating enable, resize set %d %d, move position center"
                            % platno])
-                self._urejena_platna.add(okno.get("id"))
+                # Stara igra si okno pogosto takoj po prikazu sama poveca nazaj (na velikost, ki jo je
+                # dobila kot zavihek) - brez novega dogodka okna. Zato preverimo se nekajkrat.
+                if self._urejena_platna.get(okno.get("id"), 0) < 4:
+                    self._urejena_platna[okno.get("id")] = self._urejena_platna.get(okno.get("id"), 0) + 1
+                    for zamik in (0.4, 1.5, 4.0):
+                        t = threading.Timer(zamik, self._preveri_platno)
+                        t.daemon = True
+                        t.start()
+
+    def _preveri_platno(self) -> None:
+        try:
+            self.uredi_platno()
+        except Exception as e:
+            print("[drugi zaslon] platno: %s" % e, flush=True)
 
     def _msg(self, argumenti: List[str], vrsta: Optional[str] = None) -> str:
         ukaz = ["swaymsg"] + (["-t", vrsta] if vrsta else []) + argumenti
