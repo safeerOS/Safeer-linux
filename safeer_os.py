@@ -43,7 +43,7 @@ gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 
 from core import (os_datoteke, os_jbl, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
-                  os_mediji, os_spletne, os_stabilnost, os_zapiski, os_zvok)
+                  os_mediji, os_sporocila, os_spletne, os_stabilnost, os_zapiski, os_zvok)
 
 APP_ID = "io.github.memelandfaner.SafeerOS"
 
@@ -527,6 +527,7 @@ class SafeerOS(Gtk.Application):
         self.shramba = os_programi.Shramba()
         self.programi = os_programi.Programi(self.shramba)
         self.zapiski = os_zapiski.Zapiski(ZAPISKI_POT)
+        self.sporocila = os_sporocila.SporocilaOS()
         #: Scit: filtriranje DNS za ves racunalnik; ce je bil vklopljen, tece od zagona naprej.
         self.scit = os_scit.Scit(self.shramba)
         self.okno: Optional[Gtk.ApplicationWindow] = None
@@ -789,6 +790,10 @@ class SafeerOS(Gtk.Application):
             self.scit.koncaj()
         except Exception as e:  # noqa: BLE001
             print("[SafeerOS] scit:", e)
+        try:
+            self.sporocila.zapri()
+        except Exception:
+            pass
         self.quit()
 
     def _na_politiko(self, _pogled, odlocitev, vrsta) -> bool:
@@ -923,6 +928,7 @@ class SafeerOS(Gtk.Application):
                 str(a[2]) if len(a) > 2 else "",
                 bool(a[3]) if len(a) > 3 and a[3] is not None else None),
             "zapisekIzbrisi": lambda: self.zapiski.izbrisi(str(a[0]) if a else ""),
+            "sporocilaSeznam": lambda: self.sporocila.seznam(str(a[0]) if a else ""),
             "samozagon": lambda: self._samozagon(bool(a[0])) if a else je_samozagon(),
             "nazajVMint": lambda: self._nazaj_v_mint(bool(a[0]) if a else False),
         }
@@ -975,6 +981,14 @@ class SafeerOS(Gtk.Application):
             "jblVklop": lambda: os_jbl.vklopi(bool(a[0]) if a else False),
             "scit": self.scit.stanje,
             "scitVklop": lambda: self.scit.nastavi(bool(a[0]) if a else False),
+            "sporocilaDodaj": lambda: self.sporocila.dodaj_kanal(a[0] if a and isinstance(a[0], dict) else {}),
+            "sporocilaPoslji": lambda: self.sporocila.poslji(str(a[0]), str(a[1]), str(a[2])),
+            "sporocilaSinhroniziraj": self.sporocila.sinhroniziraj,
+            "sporocilaIsci": lambda: self.sporocila.isci(str(a[0]) if a else ""),
+            "sporocilaPogovor": lambda: self.sporocila.pogovor(str(a[0]), str(a[1])),
+            "sporocilaSkrivnost": lambda: self.sporocila.nastavi_skrivnost(str(a[0]), str(a[1])),
+            "sporocilaOdstrani": lambda: self.sporocila.odstrani_kanal(str(a[0])),
+            "sporocilaStreznik": lambda: self.sporocila.privzeta_streznika(str(a[0]) if a else ""),
         }
         if metoda in glavna:
             try:

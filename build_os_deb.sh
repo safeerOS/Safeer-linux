@@ -30,7 +30,7 @@ Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: ${ARCH}
-Depends: safeer-control (>= ${CONTROL_VERSION}), python3, python3-gi, python3-gi-cairo, gir1.2-gtk-3.0, gir1.2-webkit2-4.1, gir1.2-glib-2.0
+Depends: safeer-control (>= ${CONTROL_VERSION}), python3, python3-gi, python3-gi-cairo, gir1.2-gtk-3.0, gir1.2-webkit2-4.1, gir1.2-glib-2.0, gir1.2-secret-1
 Recommends: network-manager, pulseaudio-utils, policykit-1, xdg-utils, gir1.2-wnck-3.0, x11-utils
 Maintainer: Safeer <info@safeer.si>
 Homepage: https://safeer.si/os/

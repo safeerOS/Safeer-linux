@@ -70,6 +70,13 @@
     });
     if (program.ocena >= 70) return { vrsta: "programi", niz: q, zadetek: program.vnos };
 
+    var sporocilo = najboljsi(p.sporocila || p.osebe, q, function (v, n) {
+      var oseba = v.oseba || v;
+      return Math.max(oceni(oseba.ime, n), oceni((oseba.identitete || []).map(function (x) { return x[1]; }).join(" "), n),
+        oceni((v.pogovori || []).map(function (x) { return (x.zadeva || "") + " " + (x.zadnje_sporocilo || ""); }).join(" "), n));
+    });
+    if (sporocilo.ocena > 0) return { vrsta: "sporocila", niz: q, zadetek: sporocilo.vnos };
+
     var datoteka = najboljsi(p.datoteke, q);
     if (jePotAliKoncnica(q) || datoteka.ocena > 0) return { vrsta: "datoteke", niz: q, zadetek: datoteka.vnos };
 

@@ -51,5 +51,5 @@ def test_stranska_vrstica_ima_windowsov_vrstni_red():
     meni = re.search(r'<nav id="meni">(.*?)</nav>', html, re.DOTALL).group(1)
 
     assert re.findall(r'data-razdelek="([^"]+)"', meni) == [
-        "domov", "media", "naprave", "programi", "datoteke", "splet", "zapiski", "nastavitve"
+        "domov", "media", "naprave", "sporocila", "programi", "datoteke", "splet", "zapiski", "nastavitve"
     ]

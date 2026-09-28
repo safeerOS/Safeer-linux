@@ -819,6 +819,22 @@ class Hub:
             # Vticnica brez prijave (npr. po zamenjavi povezave): odjemalec to prepozna in se vrne.
             return self._potrditev(id_sporocila, prostor, "rejected", "Naprava ni povezana.", "naprava_ni_povezana")
 
+        # Safeer Chat uporablja isto ze avtenticirano/podpisano sejo Linka. Meja je
+        # bistveno nizja od splosne WebSocket meje, da klepet ne more izriniti nadzora.
+        if tip == "chat.send":
+            tovor = sporocilo.get("payload") if isinstance(sporocilo.get("payload"), dict) else {}
+            besedilo = str(tovor.get("text") or tovor.get("besedilo") or "")
+            if not besedilo or len(besedilo.encode("utf-8")) > 16 * 1024:
+                return self._potrditev(id_sporocila, "chat", "rejected", "Sporočilo je prazno ali preveliko.", "meja")
+        elif tip == "chat.list":
+            tovor = sporocilo.get("payload") if isinstance(sporocilo.get("payload"), dict) else {}
+            try:
+                meja = int(tovor.get("limit") or 50)
+            except (TypeError, ValueError):
+                meja = 0
+            if meja < 1 or meja > 200:
+                return self._potrditev(id_sporocila, "chat", "rejected", "Neveljavna omejitev seznama.", "meja")
+
         cilj = str(sporocilo.get("target") or "")
         if cilj and cilj != "all":
             if cilj == moj_id:
