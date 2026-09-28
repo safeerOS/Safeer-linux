@@ -569,7 +569,7 @@ class SafeerMintBrowser(Gtk.Window):
                             if cmd == "OPEN" and arg:
                                 GLib.idle_add(self.open_url_from_external, arg)
                             elif cmd == "FOCUS":
-                                GLib.idle_add(self.present)
+                                GLib.idle_add(self._dvigni_okno)
                         conn.sendall(b"OK\n")
                         conn.close()
                     except Exception:
@@ -580,9 +580,35 @@ class SafeerMintBrowser(Gtk.Window):
         except Exception as e:
             print(f"[IPC Socket] Opozorilo pri inicializaciji socketa: {e}")
 
+    def _dvigni_okno(self):
+        """Okno res pride v ospredje. Navaden present() Cinnamon/Muffin zaradi preprecevanja kraje fokusa
+        pogosto zavrne (brez casovnega zigosa uporabnikovega dejanja) - zavihek iz Safeer OS se je odprl
+        za celozaslonskim oknom OS in uporabnik ni videl nicesar."""
+        try:
+            self.deiconify()
+        except Exception:
+            pass
+        cas = 0
+        try:
+            gi.require_version("GdkX11", "3.0")
+            from gi.repository import GdkX11  # noqa: WPS433
+            okno = self.get_window()
+            if okno is not None and isinstance(okno, GdkX11.X11Window):
+                cas = GdkX11.x11_get_server_time(okno)
+        except Exception:
+            cas = 0
+        try:
+            if cas:
+                self.present_with_time(cas)
+            else:
+                self.present()
+        except Exception:
+            self.present()
+        return False
+
     def open_url_from_external(self, url):
         """Odpri povezavo iz zunanjega programa v novem zavihku (z varnostnim filtrom protokola)."""
-        self.present()
+        self._dvigni_okno()
         if not url:
             return
         url_clean = url.strip()
