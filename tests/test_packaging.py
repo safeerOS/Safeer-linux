@@ -10,6 +10,10 @@ from core import default_browser
 
 ROOT=Path(__file__).resolve().parents[1]
 
+
+# Moduli, ki so samo interni poskus in jih uradni paket namerno nima (uvoz je neobvezen).
+NAMERNO_IZPUSCENI={'os_jbl'}
+
 class PackagingTests(unittest.TestCase):
     def test_control_payload_can_actually_start(self):
         """Namesceni Safeer Control mora biti uvozljiv brez izvorne mape.
@@ -68,9 +72,14 @@ class PackagingTests(unittest.TestCase):
                     for m in vzorec.finditer(datoteka.read_text(encoding='utf-8')):
                         imena=[i.strip() for i in (m.group(1) or '').split(',') if i.strip()]+[g for g in m.group(2,3) if g]
                         for ime in imena:
+                            if ime in NAMERNO_IZPUSCENI:
+                                continue
                             if (ROOT/'core'/f'{ime}.py').exists() and not (lib/'core'/f'{ime}.py').exists():
                                 manjka.add(f'{datoteka.name} -> {ime}')
                 self.assertFalse(manjka,sorted(manjka))
+                # Interni poskusi (preklop vhoda JBL) ne smejo v uradni paket.
+                for ime in NAMERNO_IZPUSCENI:
+                    self.assertFalse((lib/'core'/f'{ime}.py').exists(),ime)
 
     def test_xdg_config_and_ipc_use_same_profile(self):
         with tempfile.TemporaryDirectory() as directory:

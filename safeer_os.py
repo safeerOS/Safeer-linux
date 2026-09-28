@@ -42,8 +42,20 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 
-from core import (os_datoteke, os_jbl, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
+from core import (os_datoteke, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
                   os_mediji, os_sporocila, os_spletne, os_stabilnost, os_zapiski, os_zvok)
+
+# Preklop vhoda zvocne vrstice JBL je samo interni poskus: uradni paket modula ne vsebuje
+# (packaging/install_os_payload.sh), zato ga uvozimo le, ce je prisoten (zagon iz repozitorija).
+# Uradna pot za zvocnike v omrezju je splosni DLNA.
+try:
+    from core import os_jbl  # noqa: E402
+except ImportError:
+    os_jbl = None
+
+
+def _jbl_vrstica(ime: str) -> bool:
+    return os_jbl is not None and os_jbl.je_vrstica(ime)
 
 APP_ID = "io.github.memelandfaner.SafeerOS"
 
@@ -262,7 +274,7 @@ def zvok_na_napravo(id_naprave: str) -> bool:
         return False
     prej = os_zvok._privzeto()[0]
     ok = control_dejanje("zvok-na-napravo", GLib.Variant("s", id_naprave))
-    if ok and naprava.get("platforma") == "tv" and os_jbl.je_vrstica(prej):
+    if ok and naprava.get("platforma") == "tv" and _jbl_vrstica(prej):
         os_jbl.preklopi("tv")
     return ok
 
@@ -274,7 +286,7 @@ def zvok_ustavi() -> bool:
         if not os_zvok.link_naprave()["zvok"]["naprava"]:
             break
         time.sleep(0.1)
-    if ok and os_jbl.je_vrstica(os_zvok._privzeto()[0]):
+    if ok and _jbl_vrstica(os_zvok._privzeto()[0]):
         os_jbl.preklopi("bluetooth")
     return ok
 
@@ -289,7 +301,7 @@ def zvok_izhod(ime: str) -> bool:
                 break
             time.sleep(0.1)
     ok = os_zvok.nastavi_izhod(ime)
-    if ok and os_jbl.je_vrstica(ime):
+    if ok and _jbl_vrstica(ime):
         os_jbl.preklopi("bluetooth")
     return ok
 
@@ -1027,8 +1039,8 @@ class SafeerOS(Gtk.Application):
             "zazeniNaNapravi": lambda: zazeni_na_napravi(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "odpriTukaj": lambda: odpri_tukaj(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "zvokUstavi": zvok_ustavi,
-            "jbl": lambda: os_jbl.stanje(True),
-            "jblVklop": lambda: os_jbl.vklopi(bool(a[0]) if a else False),
+            "jbl": lambda: os_jbl.stanje(True) if os_jbl else {"na_voljo": False},
+            "jblVklop": lambda: os_jbl.vklopi(bool(a[0]) if a else False) if os_jbl else {"na_voljo": False},
             "scit": self.scit.stanje,
             "scitVklop": lambda: self.scit.nastavi(bool(a[0]) if a else False),
             "sporocilaDodaj": lambda: self.sporocila.dodaj_kanal(a[0] if a and isinstance(a[0], dict) else {}),
