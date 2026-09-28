@@ -28,6 +28,8 @@ from core.link_mediji import PROFIL_PREDVAJALNIK, je_predvajalnik
 
 NAJVEC = 200
 IKONA_VELIKOST = 128
+# Varna meja za en odgovor apps.list (sporocila v Safeer Linku so omejena na 256 kB).
+NAJVEC_BAJTOV_KOSA = 190_000
 PREDPONA = "app:"
 
 # Kategorije, ki na televizorju nimajo smisla (nastavitve sistema, konzolna orodja).
@@ -212,6 +214,7 @@ class Programi:
         od = max(0, int(od or 0))
         kos = urejeni[od:od + koliko] if koliko else urejeni[od:]
         vnosi = []
+        velikost = 0
         for oznaka, v in kos:
             element = {"id": PREDPONA + oznaka, "name": v["ime"], "comment": v["opis"],
                        "group": v.get("skupina", PRIVZETA_SKUPINA)}
@@ -219,6 +222,13 @@ class Programi:
                 ikona = self._ikona(v["ikona"])
                 if ikona:
                     element["icon_png"] = ikona
+            teza = len(element.get("icon_png", "")) + len(element["name"]) + len(element["comment"]) + 120
+            # Sporocilo v Safeer Linku sme imeti najvec 256 kB: 50 programov s 128-px ikonami jih je imelo
+            # 418 kB in odgovor se je izgubil (na Windows so bile namesto ikon crke). Kos zakljucimo prej;
+            # odjemalec nadaljuje od offset + len(items).
+            if vnosi and velikost + teza > NAJVEC_BAJTOV_KOSA:
+                break
+            velikost += teza
             vnosi.append(element)
         return {"enabled": True, "items": vnosi, "total": skupaj, "offset": od}
 
