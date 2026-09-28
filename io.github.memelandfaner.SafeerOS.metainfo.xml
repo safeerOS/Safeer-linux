@@ -36,6 +36,7 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.4.5" date="2026-09-28"><description><p>New Messages section: email (IMAP/SMTP) and Chatwoot in one list with one conversation per person, and Safeer Chat between your own devices in Safeer Link – delivered later if a device is offline.</p></description></release>
     <release version="0.4.4" date="2026-09-28"><description><p>New side bar (Home, Media center, Safeer Link, Programs, Files, Web, Notes, Settings), smart search that opens web, files, programs or media in the right section, notes, the web inside Safeer OS, program icons from all devices, and games from another computer shown full screen. Safeer OS opens in a window; the new safeer-os-tema package makes it your desktop on Linux Mint.</p></description></release>
     <release version="0.4.3" date="2026-09-21"><description><p>The Shield never blocks system and Safeer updates and only accepts block lists from the server that was asked; lists are written safely to disk. Includes Safeer Control 2.1.1: the TV remote controls media players on the separate TV screen.</p></description></release>
     <release version="0.4.2" date="2026-09-21"><description><p>Fix: no more crash when listing open windows; the Linux Mint panel is always restored after an abnormal end and Safeer OS starts in safe mode after repeated crashes. The bar and the desktop follow a change of screen (laptop lid closed with a TV attached).</p></description></release>
