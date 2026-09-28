@@ -286,7 +286,7 @@ h2 .dodatno + .dodatno { margin-left: 14px; }
 .sporocila-vnos { display:flex; gap:10px; padding:14px; border-top:1px solid var(--rob); }
 .sporocila-vnos textarea { flex:1; resize:none; border:1px solid var(--rob); border-radius:12px; background:rgba(0,0,0,.18); padding:10px; outline:0; }
 .sporocila-vnos textarea:focus { border-color:var(--zelena); }
-#slojKanal .plosca { left:50%; top:50%; transform:translate(-50%,-50%); width:520px; max-width:calc(100vw - 32px); }
+#slojKanal .plosca, #slojKanalUredi .plosca { left:50%; top:50%; transform:translate(-50%,-50%); width:520px; max-width:calc(100vw - 32px); }
 .kanal-carovnik,.kanal-carovnik>div { display:flex; flex-direction:column; gap:12px; }
 .kanal-carovnik label span { display:block; color:var(--medlo); margin-bottom:6px; }
 .kanal-carovnik input,.kanal-carovnik select { width:100%; border:1px solid var(--rob); border-radius:10px; background:#111b27; padding:11px 12px; }
