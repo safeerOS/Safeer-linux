@@ -40,6 +40,9 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
 }
 
 #aplikacija { position: relative; display: grid; grid-template-columns: 300px 1fr; height: 100vh; }
+body.nacin-splet #aplikacija { display: block; }
+body.nacin-splet #stranska { width: 100%; height: 100vh; box-sizing: border-box; }
+body.nacin-splet #vsebina { display: none; }
 
 /* ------------------------------------------------------------------ levi meni */
 #stranska {

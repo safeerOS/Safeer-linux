@@ -152,6 +152,9 @@
   // ------------------------------------------------------------------ navigacija
   function pojdi(razdelek) {
     S.razdelek = razdelek;
+    // Gostitelj pokaze ali skrije desni vdelani brskalnik. Klic je idempotenten, zato
+    // tudi programaticni safeerOsPojdi vedno obnovi pravilno postavitev.
+    klic("razdelek", [razdelek]).catch(function () {});
     document.querySelectorAll("#meni button").forEach(function (b) {
       b.classList.toggle("izbran", b.getAttribute("data-razdelek") === razdelek);
     });
@@ -1947,9 +1950,9 @@
       }).catch(function (e) { obvesti(typeof e === "string" && e ? e : t("niUspelo")); });
     });
     $("kBrskalnik").addEventListener("click", function () {
-      var b = S.programi.find(function (p) { return p.id === "safeer-browser.desktop"; }) ||
-              S.programi.find(function (p) { return /safeer/i.test(p.id) && p.skupina === "splet"; });
-      if (b) zazeni(b); else klic("iskanjeSplet", [""]);
+      // Safeer Browser je jedro OS: vedno se odpre v tem oknu, tudi ce je namescen njegov
+      // samostojni .desktop vnos.
+      klic("splet", [""]);
     });
     $("gumbControl").addEventListener("click", function () {
       obvesti(t("odpiram", { ime: "Safeer Control" }));
