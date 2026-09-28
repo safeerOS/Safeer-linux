@@ -653,6 +653,32 @@ def ukaz_namestitve(stanje: dict) -> Optional[List[str]]:
 
 # ---------------------------------------------------------------------------------- sway
 
+def fiksno_platno(okno: dict) -> Optional[Tuple[int, int]]:
+    """Naravna velikost okna, ki riše na nespremenljivo platno (stare igre GLUT/SDL1 prek XWaylanda).
+
+    Tak program dobi okno cez cel zaslon, a slike ne raztegne: igra je bila v kotu, ostalo crno.
+    Prepoznamo ga po tem, da je okno X11 brez razreda WM_CLASS - vsak sodoben gradnik (GTK, Qt,
+    SDL2, Electron, brskalniki) ga nastavi, freeglut ga ne. Majhna okna (meniji, pogovorna okna) ne stejejo."""
+    if not isinstance(okno, dict) or okno.get("shell") != "xwayland":
+        return None
+    lastnosti = okno.get("window_properties") or {}
+    if lastnosti.get("class") or lastnosti.get("instance"):
+        return None
+    g = okno.get("geometry") or {}
+    w, h = int(g.get("width") or 0), int(g.get("height") or 0)
+    if w < 200 or h < 150:
+        return None
+    return w, h
+
+
+def merilo_platna(sirina: int, visina: int, w: int, h: int) -> float:
+    """Koliko povecati platno, da zapolni zaslon brez obrezovanja (sway zna ulomke po 1/120)."""
+    if w <= 0 or h <= 0:
+        return 1.0
+    m = min(sirina / w, visina / h, 6.0)
+    return max(1.0, round(m * 120) / 120)
+
+
 class DrugiZaslon:
     """Brezglavi sway kot drugi zaslon racunalnika, samo za televizor."""
 
@@ -676,6 +702,9 @@ class DrugiZaslon:
                             lambda: self._wayland if self.tece() else "")
         from core.link_fokus import Fokus
         self.fokus = Fokus(self)
+        self._merilo = 1.0
+        self._urejena_platna: set = set()
+        self._opazovalec: Optional[subprocess.Popen] = None
 
     # ----------------------------------------------------------------- zmoznosti
     @staticmethod
@@ -753,6 +782,9 @@ class DrugiZaslon:
                 if novi and ipc:
                     self._wayland, self._ipc = os.path.basename(novi[0]), ipc[0]
                     print("[drugi zaslon] tece (%s, %dx%d)" % (self._wayland, sirina, visina), flush=True)
+                    self._merilo = 1.0
+                    self._urejena_platna = set()
+                    self._opazuj_okna()
                     return True
                 time.sleep(0.1)
             print("[drugi zaslon] sway se ni zagnal", flush=True)
@@ -763,6 +795,65 @@ class DrugiZaslon:
         if (sirina, visina) != (self.sirina, self.visina) and self.tece():
             self._msg(["output", IZHOD, "resolution", "%dx%d@60Hz" % (sirina, visina)])
             self.sirina, self.visina = sirina, visina
+            self._urejena_platna = set()
+            self.uredi_platno()
+
+    # ----------------------------------------------------------------- igre cez cel zaslon
+    def _opazuj_okna(self) -> None:
+        """Ob vsakem novem/fokusiranem/zaprtem oknu preveri, ali je spredaj igra s fiksnim platnom."""
+        try:
+            self._opazovalec = subprocess.Popen(["swaymsg", "-t", "subscribe", "-m", '["window"]'],
+                                                env=self.okolje(), stdout=subprocess.PIPE,
+                                                stderr=subprocess.DEVNULL, text=True)
+        except Exception:
+            self._opazovalec = None
+            return
+        opazovalec = self._opazovalec
+
+        def tece() -> None:
+            for vrstica in opazovalec.stdout:
+                if '"change"' in vrstica and any(k in vrstica for k in ('"new"', '"focus"', '"close"')):
+                    try:
+                        self.uredi_platno()
+                    except Exception as e:  # opazovalec ne sme nikoli pasti
+                        print("[drugi zaslon] platno: %s" % e, flush=True)
+        threading.Thread(target=tece, name="safeer-sway-okna", daemon=True).start()
+
+    def _spredaj(self) -> Optional[dict]:
+        try:
+            drevo = json.loads(self._msg([], "get_tree") or "{}")
+        except ValueError:
+            return None
+        najden: List[dict] = []
+
+        def hodi(n):
+            if n.get("focused") and (n.get("pid") or n.get("window")):
+                najden.append(n)
+            for o in n.get("nodes", []) + n.get("floating_nodes", []):
+                hodi(o)
+        hodi(drevo)
+        return najden[0] if najden else None
+
+    def uredi_platno(self) -> None:
+        """Igra s fiksnim platnom (npr. Crack Attack) se na daljincu pokaze cez cel zaslon: izhod dobi
+        merilo, okno pa lebdi v svoji naravni velikosti na sredini - sway ga raztegne brez obrezovanja.
+        Zajem ostane enak (fizicna locljivost se ne spremeni), zato seja tece naprej. Ko je spredaj
+        navaden program, se merilo vrne na 1."""
+        if not self.tece():
+            return
+        with self._kljuc:
+            okno = self._spredaj()
+            platno = fiksno_platno(okno) if okno else None
+            merilo = merilo_platna(self.sirina, self.visina, *platno) if platno else 1.0
+            if okno is None and self._merilo != 1.0 and self.okna() > 0:
+                return   # trenutek brez fokusa med preklopom - ne utripaj
+            if abs(merilo - self._merilo) > 1e-6:
+                self._msg(["output", IZHOD, "scale", "%.6f" % merilo])
+                self._merilo = merilo
+            if platno and okno.get("id") not in self._urejena_platna:
+                self._msg(["[con_id=%d]" % int(okno["id"]), "floating enable, resize set %d %d, move position center"
+                           % platno])
+                self._urejena_platna.add(okno.get("id"))
 
     def _msg(self, argumenti: List[str], vrsta: Optional[str] = None) -> str:
         ukaz = ["swaymsg"] + (["-t", vrsta] if vrsta else []) + argumenti
