@@ -786,10 +786,10 @@ class SafeerControl(Gtk.Application):
             if r.get("ok") and (naprava.get("platforma") in ("windows", "linux") or naprava.get("vrsta") == "control"):
                 # Racunalnik zaslona ne potisne sam (kot telefon ali TV): program se odpre na njegovem
                 # namizju, tukaj pa odpremo oddaljeni zaslon tega namizja - z misko in tipkovnico.
-                def _odpri_gledalca() -> None:
+                def _pocakaj_in_upravljaj() -> None:
                     time.sleep(1.5)
                     self.upravljaj_racunalnik(id_cilja)
-                threading.Thread(target=_odpri_gledalca, name="safeer-odpri-tukaj", daemon=True).start()
+                threading.Thread(target=_pocakaj_in_upravljaj, name="safeer-odpri-tukaj", daemon=True).start()
                 return {"ok": True, "tu": True, "koda": "", "message": str(r.get("message") or "")}
             return {"ok": bool(r.get("ok")), "tu": podatki.get("stream") == "pending",
                     "koda": str(r.get("koda") or r.get("code") or ""),
