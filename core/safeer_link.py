@@ -1190,6 +1190,24 @@ class SafeerLink:
         elif vrsta == "control.command":
             # Daljinec Safeer Controla: ukaz izvede brskalnik, odgovor gre nazaj posiljatelju.
             self._prejmi_ukaz(sporocilo)
+        elif vrsta == "chat.send":
+            try:
+                from core.sporocila.safeer_chat import preveri_tovor
+                telo = preveri_tovor(sporocilo.get("payload") or {})
+                self._odziv("chat", {"vrsta": "sporocilo", "id": str(sporocilo.get("id") or ""),
+                    "od": str(sporocilo.get("sender") or ""), **telo})
+            except ValueError:
+                pass
+        elif vrsta == "chat.list":
+            # Zgodovina je lokalna pri adapterju; starejsi odjemalec varno odgovori s
+            # praznim seznamom, namesto da bi uvedel novo hrambo kljucev na Hubu.
+            if self.povezava is not None and sporocilo.get("sender"):
+                self.povezava.poslji({"id": str(int(time.time() * 1000)), "type": "chat.list.result",
+                    "target": str(sporocilo.get("sender")), "ref_id": str(sporocilo.get("id") or ""),
+                    "payload": {"messages": []}})
+        elif vrsta == "chat.list.result":
+            self._odziv("chat", {"vrsta": "seznam", "ref": str(sporocilo.get("ref_id") or ""),
+                                  "sporocila": (sporocilo.get("payload") or {}).get("messages") or []})
         elif vrsta in ("control.result", "control.ack"):
             self._ukaz_odziv(sporocilo)
 
