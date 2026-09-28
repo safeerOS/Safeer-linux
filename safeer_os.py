@@ -2,7 +2,7 @@
 """Safeer OS za racunalnik - preobleka cez Linux Mint.
 
 Isti Safeer OS kot na televizorju, le za racunalnik: celozaslonski domaci zaslon z levim menijem
-(Domov, Safeer Media, Programi, Datoteke, Naprave, Nastavitve), ki pokaze VSE, kar je ze na racunalniku -
+(Domov, Medijski center, Naprave, Programi, Datoteke, Splet, Zapiski, Nastavitve), ki pokaze VSE, kar je ze na racunalniku -
 programe iz menija, uporabnikove mape, nastavitve Minta - in doda Safeerjeve reci (Safeer Link,
 spletne aplikacije, iskanje po vsem hkrati).
 
@@ -43,7 +43,7 @@ gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 
 from core import (os_datoteke, os_jbl, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
-                  os_mediji, os_spletne, os_stabilnost, os_zvok)
+                  os_mediji, os_spletne, os_stabilnost, os_zapiski, os_zvok)
 
 APP_ID = "io.github.memelandfaner.SafeerOS"
 
@@ -60,6 +60,8 @@ RAZLICICA = _razlicica()
 CONTROL_NASTAVITVE = os.path.expanduser("~/.config/safeer-control/link.json")
 BRSKALNIK_NASTAVITVE = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
                                     "safeer-mint", "settings.json")
+ZAPISKI_POT = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
+                           "safeer-os", "zapiski.json")
 ISKALNIKI = {"google": "https://www.google.com/search?q=", "duckduckgo": "https://duckduckgo.com/?q=",
              "brave": "https://search.brave.com/search?q=", "startpage": "https://www.startpage.com/do/search?q=",
              "bing": "https://www.bing.com/search?q=", "ecosia": "https://www.ecosia.org/search?q="}
@@ -524,6 +526,7 @@ class SafeerOS(Gtk.Application):
         self.posnetek = posnetek
         self.shramba = os_programi.Shramba()
         self.programi = os_programi.Programi(self.shramba)
+        self.zapiski = os_zapiski.Zapiski(ZAPISKI_POT)
         #: Scit: filtriranje DNS za ves racunalnik; ce je bil vklopljen, tece od zagona naprej.
         self.scit = os_scit.Scit(self.shramba)
         self.okno: Optional[Gtk.ApplicationWindow] = None
@@ -912,6 +915,13 @@ class SafeerOS(Gtk.Application):
             "domov": lambda: self._domov(str(a[0]) if a else ""),
             "preklopiOkno": lambda: self._okno_dejanje(a[0] if a else 0, "preklopi"),
             "shraniSpletne": lambda: self._shrani_spletne(a[0] if a else []),
+            "zapiskiSeznam": lambda: self.zapiski.seznam(str(a[0]) if a else ""),
+            "zapisekDobi": lambda: self.zapiski.dobi(str(a[0]) if a else ""),
+            "zapisekShrani": lambda: self.zapiski.shrani(
+                str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "",
+                str(a[2]) if len(a) > 2 else "",
+                bool(a[3]) if len(a) > 3 and a[3] is not None else None),
+            "zapisekIzbrisi": lambda: self.zapiski.izbrisi(str(a[0]) if a else ""),
             "samozagon": lambda: self._samozagon(bool(a[0])) if a else je_samozagon(),
             "nazajVMint": lambda: self._nazaj_v_mint(bool(a[0]) if a else False),
         }

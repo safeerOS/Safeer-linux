@@ -16,10 +16,12 @@
     </div>
     <nav id="meni">
       <button data-razdelek="domov" class="izbran"><svg data-ikona="domov"></svg><span data-t="domov"></span></button>
-      <button data-razdelek="mediji"><svg data-ikona="video"></svg><span data-t="mediji"></span></button>
+      <button data-razdelek="media"><svg data-ikona="glasba"></svg><span data-t="mediji"></span></button>
+      <button data-razdelek="naprave"><svg data-ikona="povezava"></svg><span>Safeer Link</span></button>
       <button data-razdelek="programi"><svg data-ikona="programi"></svg><span data-t="programi"></span></button>
       <button data-razdelek="datoteke"><svg data-ikona="mapa"></svg><span data-t="datoteke"></span></button>
-      <button data-razdelek="naprave"><svg data-ikona="povezava"></svg><span data-t="naprave"></span></button>
+      <button data-razdelek="splet"><svg data-ikona="splet"></svg><span data-t="splet"></span></button>
+      <button data-razdelek="zapiski"><svg data-ikona="datoteka"></svg><span data-t="zapiski"></span></button>
       <button data-razdelek="nastavitve"><svg data-ikona="drsniki"></svg><span data-t="nastavitve"></span></button>
     </nav>
     <div class="stranska-dno">
@@ -56,7 +58,7 @@
         <p data-t="pozdravPod"></p>
         <div class="velike">
           <button class="velika" id="kBrskalnik"><svg data-ikona="splet"></svg><div><b data-t="brskalnik"></b><span data-t="brskalnikPod"></span></div><svg class="puscica" data-ikona="desno"></svg></button>
-          <button class="velika" data-pojdi="mediji"><svg data-ikona="video"></svg><div><b data-t="mediji"></b><span data-t="medijiPod"></span></div><svg class="puscica" data-ikona="desno"></svg></button>
+          <button class="velika" data-pojdi="media"><svg data-ikona="video"></svg><div><b data-t="mediji"></b><span data-t="medijiPod"></span></div><svg class="puscica" data-ikona="desno"></svg></button>
           <button class="velika" data-pojdi="datoteke"><svg data-ikona="mapa"></svg><div><b data-t="datoteke"></b><span data-t="datotekePod"></span></div><svg class="puscica" data-ikona="desno"></svg></button>
           <button class="velika" data-pojdi="naprave"><svg data-ikona="naprave"></svg><div><b data-t="naprave"></b><span id="kNapravePod" data-t="napravePodNov"></span></div><svg class="puscica" data-ikona="desno"></svg></button>
         </div>
@@ -90,7 +92,7 @@
       </section>
 
       <!-- SAFEER MEDIA -->
-      <section class="razdelek" id="r-mediji">
+      <section class="razdelek" id="r-media">
         <div class="media-glava">
           <div><h1 data-t="mediji"></h1><p data-t="medijiOpis"></p></div>
           <button class="gumb glavni" id="medijiDodaj"><svg data-ikona="plus"></svg><span data-t="dodajMedijskiVir"></span></button>
@@ -101,6 +103,35 @@
         <div class="media-prazno" id="mediaPrazno" hidden>
           <svg data-ikona="video"></svg><b data-t="niMedijev"></b><span data-t="niMedijevPod"></span>
           <button class="gumb" id="medijiDodajPrazno"><svg data-ikona="plus"></svg><span data-t="dodajMedijskiVir"></span></button>
+        </div>
+      </section>
+
+      <!-- ZAPISKI: lokalni zapiski z @-omembami datotek, programov in drugih zapiskov. -->
+      <section class="razdelek" id="r-zapiski">
+        <h1 data-t="zapiski"></h1>
+        <p data-t="zapiskiOpis"></p>
+        <div class="zapiski-postavitev">
+          <div class="zapiski-seznam">
+            <button class="gumb" id="zapisekNov" data-t="zapisekNov"></button>
+            <label class="media-iskanje"><svg data-ikona="isci"></svg><input id="zapiskiIskanje" type="search" data-ph="zapiskiIsci"></label>
+            <div id="zapiskiVrstice"></div>
+          </div>
+          <div class="zapisek-urejevalnik" id="zapisekUrejevalnik" hidden>
+            <div class="zapisek-glava">
+              <input id="zapisekNaslov" type="text" maxlength="160" data-ph="zapisekNaslov">
+              <button class="gumb" id="zapisekPogled" type="button" data-t="zapisekPogled"></button>
+              <button class="gumb" id="zapisekPripni" type="button" data-t="zapisekPripni"></button>
+              <button class="gumb" id="zapisekIzbrisi" type="button" data-t="zapisekIzbrisi"></button>
+            </div>
+            <textarea id="zapisekBesedilo" spellcheck="true" data-ph="zapisekPisi"></textarea>
+            <div class="zapisek-prikaz" id="zapisekPrikaz" hidden></div>
+            <div class="zapisek-omembe-okno" id="zapisekOmembeOkno" hidden></div>
+            <div class="zapisek-noga">
+              <div><h3 data-t="zapisekViri"></h3><div class="zapisek-cipi" id="zapisekViri"></div></div>
+              <div><h3 data-t="zapisekPovratne"></h3><div class="zapisek-cipi" id="zapisekPovratne"></div></div>
+              <span class="namig" id="zapisekStanje"></span>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -128,7 +159,7 @@
 
       <!-- NAPRAVE -->
       <section class="razdelek" id="r-naprave">
-        <h1 data-t="naprave"></h1>
+        <h1>Safeer Link</h1>
         <p data-t="napraveOpis"></p>
         <div class="panel">
           <h3><i class="pika siva" id="napravePika"></i><span id="napraveNaslov"></span></h3>
@@ -200,6 +231,23 @@
           <div class="zvok-glasnost" id="zvokGlasnostVhoda"></div>
         </div>
         <button class="stikalo napredno" id="gumbZvokNapredno" hidden><svg data-ikona="drsniki"></svg><div><span data-t="napredno"></span><small data-t="zvokNaprednoPod"></small></div></button>
+      </section>
+
+      <!-- SPLET: naslov ali iskanje se vedno odpre skozi Safeerjev vgrajeni pogled. -->
+      <section class="razdelek" id="r-splet">
+        <div class="splet-zacetek">
+          <div class="splet-oznaka"><i class="pika"></i> SAFEER BROWSER</div>
+          <h1 data-t="spletNaslov"></h1>
+          <p data-t="spletOpis"></p>
+          <form class="splet-iskalnik" id="spletIskalnik">
+            <svg data-ikona="isci"></svg>
+            <input id="spletVnos" type="text" autocomplete="off" spellcheck="false" data-ph="spletVnos">
+            <button class="gumb glavni" type="submit" data-t="spletIsci"></button>
+          </form>
+          <div class="splet-hitro-glava"><h2 data-t="spletneAplikacije"></h2><span data-t="spletOdpre"></span></div>
+          <div class="splet-hitro" id="spletneAplikacije"></div>
+          <div class="splet-zasebnost"><svg data-ikona="scit"></svg><span><b data-t="spletZascita"></b><small data-t="spletZascitaOpis"></small></span></div>
+        </div>
       </section>
 
       <!-- NASTAVITVE -->
