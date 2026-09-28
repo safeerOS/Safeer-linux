@@ -1,0 +1,4 @@
+Safeer-OS je izpeljanka teme Mint-Y iz projekta Linux Mint mint-themes
+(https://github.com/linuxmint/mint-themes, commit a022d8d99c3c33d9f1b0c823eeb3a89530f20ab7), licenca GPL-3+.
+Spremembe: barvna razlicica Safeer (poudarek #54d6a5, besedilo na poudarku #06231a), temno modre podlage,
+okvirji oken metacity-1 in manjsi dodatki za Cinnamon. Ustvari: packaging/tema/zgradi_temo.py

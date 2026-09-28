@@ -1,6 +1,10 @@
 Tema Safeer-OS (packaging/tema/Safeer-OS)
 
-gtk-3.0, gtk-4.0 in cinnamon so prekrivne datoteke Safeer, ki uvozijo teme Mint-Y (paket mint-themes).
-metacity-1 je prirejena iz Mint-Y (https://github.com/linuxmint/mint-themes),
-Copyright 2012-2014 Clement Lefebvre, licenca GPL-3.0-or-later. gtk-2.0 je v paketu povezava na
-/usr/share/themes/Mint-Y-Dark-Teal/gtk-2.0.
+Tema je izpeljanka teme Mint-Y iz projekta Linux Mint mint-themes
+(https://github.com/linuxmint/mint-themes), Copyright Clement Lefebvre in sodelavci,
+licenca GPL-3.0-or-later. Celotno obvestilo o avtorskih pravicah: Safeer-OS/COPYRIGHT.mint-themes.
+
+Tema je ustvarjena s packaging/tema/zgradi_temo.py iz Mintovih SASS virov (commit naveden v
+Safeer-OS/README): barvna razlicica Safeer, temne podlage Safeer OS, lastni okvirji oken (metacity-1,
+prav tako prirejeni iz Mint-Y) in manjsi dodatki za Cinnamon. Spremembe so pod isto licenco
+GPL-3.0-or-later. Tema ne potrebuje paketa mint-themes.

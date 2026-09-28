@@ -16,7 +16,6 @@ rm -rf "$ROOT"
 mkdir -p "$ROOT/DEBIAN" "$ROOT/usr/share/themes" "$ROOT/usr/bin" "$ROOT/etc/xdg/autostart" \
          "$ROOT/usr/share/applications" "$ROOT/usr/share/doc/safeer-os-tema"
 cp -a "$T/Safeer-OS" "$ROOT/usr/share/themes/"
-ln -s /usr/share/themes/Mint-Y-Dark-Teal/gtk-2.0 "$ROOT/usr/share/themes/Safeer-OS/gtk-2.0"
 install -m 755 "$T/safeer-os-tema" "$ROOT/usr/bin/safeer-os-tema"
 install -m 644 "$T/safeer-os-tema-autostart.desktop" "$ROOT/etc/xdg/autostart/safeer-os-tema.desktop"
 install -m 644 "$T/safeer-os-namizje.desktop" "$ROOT/usr/share/applications/safeer-os-namizje.desktop"
@@ -29,7 +28,7 @@ Version: ${VERSION}
 Section: x11
 Priority: optional
 Architecture: all
-Depends: safeer-os (>= ${VERSION}), mint-themes, libglib2.0-bin
+Depends: safeer-os (>= ${VERSION}), libglib2.0-bin
 Recommends: cinnamon
 Maintainer: Safeer <info@safeer.si>
 Homepage: https://safeer.si/os/
