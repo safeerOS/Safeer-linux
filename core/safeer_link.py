@@ -504,7 +504,9 @@ class SafeerLink:
 
     def povezi_v_ozadju(self) -> None:
         """Ob zagonu brskalnika: ce je racunalnik seznanjen, se poveze brez okna."""
-        if self._hub() and self._zeton() and self._odtis():
+        if link_hub_streznik.mesh_vklopljen() and self._clan_kroga():
+            self._v_ozadju(self._povezi)       # Link Mesh: lastni Hub in povezava nanj
+        elif self._hub() and self._zeton() and self._odtis():
             self._v_ozadju(self._povezi)
         elif self._clan_kroga():
             self._v_ozadju(self._poisci_hub)
@@ -766,7 +768,7 @@ class SafeerLink:
         `tiho` pomeni, da neuspeha ne javimo strani - med hitrim iskanjem bi uporabnik v treh
         sekundah dobil stiri sporocila »ni naprav«, ceprav iskanje se tece.
         """
-        if link_hub_streznik.mesh_vklopljen() and self._v_krogu():
+        if link_hub_streznik.mesh_vklopljen() and self._clan_kroga():
             # Link Mesh: povezemo se na SVOJ Hub; do drugih naprav nas pelje on (sosednje povezave).
             g = getattr(self, "_hub_gostitelj", None)
             p = self.povezava
@@ -1044,6 +1046,7 @@ class SafeerLink:
         self._odziv("stanje", None)
 
     def _povezi(self) -> None:
+        self._mesh_lastni_hub()
         with self._zaklep_povezave:
             uspelo = self._povezi_zaklenjeno()
         if uspelo or self._po_neuspehu:
@@ -1056,6 +1059,27 @@ class SafeerLink:
             self._poisci_hub()
         finally:
             self._po_neuspehu = False
+
+    def _mesh_lastni_hub(self) -> None:
+        """Link Mesh: racunalnik gosti SVOJ Hub in se nanj poveze - tudi ce je shranjen naslov televizorja.
+        Do drugih naprav nas pelje nas Hub (sosednje povezave), zato izpad televizorja ne podre nicesar."""
+        if not link_hub_streznik.mesh_vklopljen() or not self._clan_kroga():
+            return
+        try:
+            g = self._gostitelj()
+            if not g.gostimo():
+                g.preveri()
+            if not g.gostimo():
+                return
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerLink] mesh: lastnega Huba ni bilo mogoce zagnati:", e)
+            return
+        lokalni = "wss://127.0.0.1:%d%s" % (g.streznik.vrata, link_hub_streznik.POT_WS)
+        if self._hub() != lokalni or self._odtis() != g.streznik.odtis:
+            self.nastavitve.podatki["hub_url"] = lokalni
+            self.nastavitve.podatki["hub_fp"] = g.streznik.odtis
+            self.nastavitve.podatki.pop("control_token", None)
+            self.nastavitve.shrani()
 
     def _povezi_zaklenjeno(self) -> bool:
         naslov = self._hub()
