@@ -706,7 +706,7 @@
     S.mediaPredvajalnik = p;
     prikaziMediaBar();
     var ima = !!p.naslov;
-    var opis = !ima ? t("mediaSedajNamig") : p.stanje === "napaka" ? p.napaka :
+    var opis = !ima ? t("mediaSedajNamig") : p.stanje === "napaka" ? t("mediaNapaka_" + (p.napaka || "splosno")) :
       p.stanje === "ustavljeno" ? t("mediaUstavljeno") : p.stanje === "premor" ? t("mediaPremor") :
       p.vrsta === "tv" || p.vrsta === "radio" ? t("mediaVZivo") : t("mediaTaRacunalnik");
     $("mediaBarNaslov").textContent = ima ? p.naslov : t("mediaNicesar");
@@ -714,6 +714,10 @@
     $("mediaSedajNaslov").textContent = ima ? p.naslov : t("mediaNicesar");
     $("mediaSedajPod").textContent = opis;
     $("mediaSedajArt").textContent = p.vrsta === "tv" || p.vrsta === "video" ? "▶" : "♫";
+    $("mediaBarOdpri").textContent = $("mediaSedajArt").textContent;
+    // Tok v živo nima dolžine: drsnik in skupni čas skrijemo, ostane oznaka »V živo«.
+    var zivo = p.vrsta === "tv" || p.vrsta === "radio";
+    $("mediaBarNapredek").style.visibility = $("mediaBarTrajanje").style.visibility = zivo ? "hidden" : "";
     $("mediaBarPremor").textContent = p.stanje === "predvaja" ? "Ⅱ" : "▶";
     $("mediaBarPremor").disabled = !ima;
     $("mediaBarPrejsnja").disabled = !ima || p.indeks <= 0;
@@ -2469,7 +2473,10 @@
         return;
       }
       var v = document.activeElement;
-      if (v && (v.tagName === "INPUT" || v.tagName === "TEXTAREA")) return;
+      if (v && (v.tagName === "INPUT" || v.tagName === "TEXTAREA" || v.tagName === "SELECT" || v.isContentEditable)) return;
+      // Odprt obrazec (npr. »Dodaj postajo«) ne sme pošiljati tipk v iskanje za sabo.
+      var sloj = document.querySelector(".sloj.viden");
+      if (sloj && sloj.id !== "slojIskanje") return;
       if (e.ctrlKey || e.altKey || e.metaKey) return;
       if (e.key && e.key.length === 1 && e.key !== " ") {
         e.preventDefault();

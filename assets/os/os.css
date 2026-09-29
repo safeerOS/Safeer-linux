@@ -191,6 +191,9 @@ h2 .dodatno + .dodatno { margin-left: 14px; }
 .media-kicker { display:block; color:var(--zelena); font-size:11px; font-weight:800; letter-spacing:.16em; text-transform:uppercase; }
 .media-glava-dejanja { justify-content:flex-end; gap:8px; }
 .media-glava-dejanja .gumb { min-height:42px; padding:9px 12px; font-size:13px; white-space:nowrap; }
+.media-glava-dejanja .gumb:not(.glavni) { background:rgba(12,24,33,.72); border-color:rgba(132,190,176,.38); color:#e8f1ef; -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px); }
+.media-glava-dejanja .gumb:not(.glavni):hover { border-color:var(--zelena); background:rgba(18,40,44,.85); }
+.media-glava-dejanja .gumb svg { width:17px; height:17px; }
 .media-orodna { display:flex; align-items:center; gap:18px; margin-bottom:18px; }
 .media-kategorije { min-width:0; display:flex; flex:1; gap:3px; padding:4px; border:1px solid var(--rob); border-radius:14px; background:rgba(8,15,23,.6); overflow-x:auto; scrollbar-width:none; }
 .media-kategorije::-webkit-scrollbar { display:none; }
@@ -782,3 +785,13 @@ body.vrstica-skrcena:not(.nacin-splet) .znamka .skrci-vrstico { margin: 0; trans
 body.vrstica-skrcena:not(.nacin-splet) nav button { justify-content: center; padding: 14px 0; }
 body.vrstica-skrcena:not(.nacin-splet) .uporabnik { flex-direction: column; padding: 8px 4px; }
 @media (prefers-reduced-motion: no-preference) { #aplikacija { transition: grid-template-columns .18s ease; } }
+
+/* WebKitGTK privzeto riše <select> s svetlim gradnikom teme Mint: svetlo besedilo Safeer je bilo na belem nevidno.
+   Brez sistemskega videza + lastna puščica; seznam možnosti ostane berljiv v temni barvi. */
+select:not([multiple]) {
+  -webkit-appearance: none; appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%2354d6a5' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important; background-position: right 13px center !important;
+  padding-right: 36px !important; cursor: pointer;
+}
+select option { background: #132631; color: #e8f1ef; }

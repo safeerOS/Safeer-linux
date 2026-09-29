@@ -19,6 +19,32 @@ class Skladba:
     zacetek: int = 0
 
 
+#: Kode napak predvajanja; stran jih prevede (mediaNapaka_<koda>), okno predvajalnika uporabi NAPAKE.
+NAPAKE = {
+    "tok": "Tok ni dosegljiv. Preveri naslov in povezavo.",
+    "datoteka": "Datoteke ni mogoče prebrati.",
+    "format": "Tega zapisa ni mogoče predvajati (manjka kodek ali datoteka ni medij).",
+    "zascita": "Posnetek je zaščiten (DRM) in ga Safeer ne predvaja.",
+    "zacetek": "Predvajanja ni bilo mogoče začeti.",
+    "splosno": "Predvajanje se je ustavilo zaradi napake.",
+}
+
+
+def vrsta_napake(napaka, uri: str = "") -> str:
+    """GLib.Error iz GStreamerja -> ena od kod v NAPAKE."""
+    domena, koda = str(getattr(napaka, "domain", "") or ""), int(getattr(napaka, "code", 0) or 0)
+    omrezje = uri.startswith(("http://", "https://", "rtsp://", "rtmp://"))
+    if "stream" in domena and koda in (12, 13):          # GST_STREAM_ERROR_DECRYPT(_NOKEY)
+        return "zascita"
+    if "stream" in domena and koda in (4, 5, 6, 7, 9, 11):  # TYPE_NOT_FOUND, WRONG_TYPE, CODEC, DECODE, DEMUX, FORMAT
+        return "format"
+    if "missing-plugin" in str(napaka).lower() or "core" in domena and koda == 12:
+        return "format"
+    if "resource" in domena or omrezje:
+        return "tok" if omrezje else "datoteka"
+    return "splosno"
+
+
 def medij(uri: str, vrsta: str = "medij") -> Skladba:
     """Sprejme spletni tok ali obstoječo lokalno datoteko."""
     uri = str(uri or "").strip()
@@ -98,7 +124,7 @@ class Predvajalnik:
         rezultat = self.element.set_state(self.gst.State.PLAYING)
         self.stanje = "napaka" if rezultat == self.gst.StateChangeReturn.FAILURE else "predvaja"
         if self.stanje == "napaka":
-            self.napaka = "Predvajanja ni bilo mogoče začeti"
+            self.napaka = "zacetek"
         self.sprememba()
         return self.stanje == "predvaja"
 
@@ -183,8 +209,10 @@ class Predvajalnik:
         elif sporocilo.type == self.gst.MessageType.ASYNC_DONE:
             self.poskusi_nadaljevati()
         elif sporocilo.type == self.gst.MessageType.ERROR:
-            napaka, _razhroscevanje = sporocilo.parse_error()
-            self.napaka = str(napaka)
+            napaka, razhroscevanje = sporocilo.parse_error()
+            # Uporabnik vidi razumljivo, prevedeno sporočilo (koda); surovo napako GStreamerja damo v dnevnik.
+            print("[SafeerOS] predvajanje:", napaka, razhroscevanje or "", flush=True)
+            self.napaka = vrsta_napake(napaka, self.trenutna.uri if self.trenutna else "")
             self.element.set_state(self.gst.State.NULL)
             self.stanje = "napaka"
             self.sprememba()

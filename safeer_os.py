@@ -1423,8 +1423,13 @@ class SafeerOS(Gtk.Application):
                         self._medijski_css = css
                     except Exception as e:  # noqa: BLE001
                         print("[SafeerOS] slog predvajalnika:", e)
-                okno.set_default_size(960, 620)
+                # Na velikih zaslonih 960x620 deluje kot sličica; okno naj zavzame približno dve tretjini.
+                zaslon = self._zaslon()
+                g = zaslon.get_workarea() if zaslon else None
+                okno.set_default_size(max(960, int(g.width * 0.62)) if g else 960,
+                                      max(620, int(g.height * 0.7)) if g else 620)
                 okno.set_transient_for(self.okno)
+                okno.set_position(Gtk.WindowPosition.CENTER_ON_PARENT)
                 okno.connect("delete-event", lambda *a: (self._ustavi_neposredni_medij(), True)[1])
                 okno.connect("key-press-event", self._medijska_tipka)
                 postavitev = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -1432,8 +1437,12 @@ class SafeerOS(Gtk.Application):
                 ponor = Gst.ElementFactory.make("gtksink", "safeer-media-video")
                 if ponor is not None:
                     self._medijski_predvajalnik.element.set_property("video-sink", ponor)
-                    slika = ponor.get_property("widget")
+                    slika = Gtk.EventBox()
+                    slika.add(ponor.get_property("widget"))
                     slika.set_vexpand(True)
+                    # Dvojni klik na sliko preklopi cel zaslon (kot v VLC in mpv).
+                    slika.connect("button-press-event", lambda _w, d: d.type == Gdk.EventType._2BUTTON_PRESS and
+                                  self._medijski_cel_zaslon(okno))
                     postavitev.pack_start(slika, True, True, 0)
                 else:
                     slika = Gtk.Label(label="♫  Safeer Player")
@@ -1511,7 +1520,8 @@ class SafeerOS(Gtk.Application):
         naslov = servis.trenutna.naslov if servis.trenutna else "Nič se ne predvaja"
         if servis.trenutna and servis.trenutna.vrsta in ("tv", "radio"):
             naslov = "● V živo · " + naslov
-        self._medijski_napis.set_text(naslov + (" · " + servis.napaka if servis.napaka else ""))
+        self._medijski_napis.set_text(naslov + (" · " + os_predvajalnik.NAPAKE.get(servis.napaka, servis.napaka)
+                                                     if servis.napaka else ""))
         self._medijski_premor.set_label("▶ Nadaljuj" if servis.stanje == "premor" else "⏸ Premor")
         self._medijski_vrsta.set_text("Čakalna vrsta: " + "  ·  ".join(
             v.naslov for v in servis.vrsta[servis.indeks + 1:servis.indeks + 6]))
@@ -1551,6 +1561,13 @@ class SafeerOS(Gtk.Application):
         self._medijski_ukaz("skok", drsnik.get_value())
         return False
 
+    def _medijski_cel_zaslon(self, okno) -> bool:
+        if okno.get_window() and okno.get_window().get_state() & Gdk.WindowState.FULLSCREEN:
+            okno.unfullscreen()
+        else:
+            okno.fullscreen()
+        return True
+
     def _medijska_tipka(self, okno, dogodek) -> bool:
         tipka = Gdk.keyval_name(dogodek.keyval)
         if tipka == "space":
@@ -1558,12 +1575,10 @@ class SafeerOS(Gtk.Application):
         if tipka in ("Left", "Right") and self._medijski_predvajalnik:
             podatki = self._medijski_podatki()
             return self._medijski_ukaz("skok", podatki["pozicija"] + (-10 if tipka == "Left" else 10))
-        if tipka and tipka.lower() == "f":
-            if okno.get_window() and okno.get_window().get_state() & Gdk.WindowState.FULLSCREEN:
-                okno.unfullscreen()
-            else:
-                okno.fullscreen()
-            return True
+        if tipka and (tipka.lower() == "f" or tipka == "F11"):
+            return self._medijski_cel_zaslon(okno)
+        if tipka and tipka.lower() in ("n", "p") and not dogodek.state & Gdk.ModifierType.CONTROL_MASK:
+            return self._medijski_ukaz("naslednja" if tipka.lower() == "n" else "prejsnja")
         if tipka == "Escape" and okno.get_window() and okno.get_window().get_state() & Gdk.WindowState.FULLSCREEN:
             okno.unfullscreen()
             return True
