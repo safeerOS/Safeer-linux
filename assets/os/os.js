@@ -164,6 +164,9 @@
     // Multi-host: programi drugih naprav v Safeer Linku (id naprave -> seznam), izbrana naprava ("" = ta racunalnik).
     naprave: [], vseNaprave: [], programiNaprav: {}, nalagam: {}, naprava: "",
     povezava: { stanje: "nov", control: true }, spletne: null, nedavne: [], mediaFilter: "vse",
+    mediaLokalno: [], mediaTokovi: [], mediaMape: [], mediaOsvezuje: false, mediaPredvajalnik: null,
+    mediaOffset: 0, mediaHasMore: false, mediaRequest: 0,
+    mediaQueueKey: "", mediaDragging: false,
     programIskanje: "", mediaIskanje: "", napraveIskanje: "", datotekeIskanje: "", iskalneDatoteke: []
   };
   var PRIVZETE_SPLETNE = [
@@ -189,7 +192,8 @@
     if (razdelek === "sporocila") { naloziSporocila(); sporocilaZanka(); }
     if (razdelek === "nastavitve") { narisiNastavitve(); nalozScit(); scitZanka(); }
     if (razdelek === "programi") nalozNaprave();
-    if (razdelek === "media") narisiMedije();
+    if (razdelek === "media") naloziMedije();
+    prikaziMediaBar();
     if (razdelek === "splet") narisiSpletnoZacetno();
     if (razdelek === "zapiski") naloziZapiske(function (seznam) {
       if (!Z.aktivni && seznam.length) odpriZapisek(seznam[0].id);
@@ -499,59 +503,247 @@
 
   // ------------------------------------------------------------------ Safeer Media
   var MEDIA_KATEGORIJE = [
-    ["vse", "programi"], ["video", "video"], ["glasba", "glasba"],
-    ["radio", "radio"], ["videospoti", "video"]
+    ["vse", "programi"], ["glasba", "glasba"], ["video", "video"], ["filmi", "video"],
+    ["serije", "video"], ["tv", "video"], ["radio", "radio"], ["slike", "slika"]
   ];
+  var MEDIA_PREDLOGI = [
+    { ime: "Jamendo", url: "https://www.jamendo.com", vrsta: "glasba", obmocje: "world" },
+    { ime: "Free Music Archive", url: "https://freemusicarchive.org", vrsta: "glasba", obmocje: "world" },
+    { ime: "Radio Browser", url: "https://www.radio-browser.info", vrsta: "radio", obmocje: "world" },
+    { ime: "Blender Open Movies", url: "https://studio.blender.org/films/", vrsta: "filmi", obmocje: "world" },
+    { ime: "PeerTube", url: "https://joinpeertube.org", vrsta: "video", obmocje: "world" },
+    { ime: "NASA+", url: "https://plus.nasa.gov", vrsta: "serije", obmocje: "world" },
+    { ime: "NASA Live", url: "https://www.nasa.gov/live/", vrsta: "tv", obmocje: "world" },
+    { ime: "Euronews Live", url: "https://www.euronews.com/live", vrsta: "tv", obmocje: "world" },
+    { ime: "ARTE", url: "https://www.arte.tv/en/", vrsta: "serije", obmocje: "region" },
+    { ime: "RTV 365", url: "https://365.rtvslo.si", vrsta: "tv", obmocje: "region" }
+  ];
+  function naloziMedije(veckrat) {
+    if (!veckrat && most) klic("medijskeMape").then(function (mape) {
+      S.mediaMape = Array.isArray(mape) ? mape : [];
+      $("mediaOsvezi").disabled = !S.mediaMape.length || S.mediaOsvezuje;
+    }).catch(function () {});
+    if (!veckrat && most) klic("tokoviMedijev").then(function (vnosi) {
+      S.mediaTokovi = Array.isArray(vnosi) ? vnosi : [];
+      narisiMedije();
+    }).catch(function () {});
+    if (S.mediaFilter === "tv" || S.mediaFilter === "radio") {
+      S.mediaRequest++;
+      S.mediaLokalno = []; S.mediaHasMore = false;
+      narisiMedije();
+      if (!veckrat) klic("predvajalnikStanje").then(osveziPredvajalnik).catch(function () {});
+      return;
+    }
+    if (!veckrat) { S.mediaOffset = 0; S.mediaLokalno = []; S.mediaHasMore = false; }
+    narisiMedije();
+    if (!most) return;
+    var zahteva = ++S.mediaRequest;
+    klic("knjiznicaMedijev", [S.mediaFilter, S.mediaIskanje, S.mediaOffset]).then(function (seznam) {
+      if (zahteva !== S.mediaRequest) return;
+      seznam = Array.isArray(seznam) ? seznam : [];
+      S.mediaLokalno = veckrat ? S.mediaLokalno.concat(seznam) : seznam;
+      S.mediaOffset += seznam.length;
+      S.mediaHasMore = seznam.length === 120;
+      narisiMedije();
+    }).catch(function () {});
+    if (!veckrat) klic("predvajalnikStanje").then(osveziPredvajalnik).catch(function () {});
+  }
   function vrstaMedija(vnos) {
+    if (vnos.vrsta) return vnos.vrsta;
     var s = ((vnos.ime || "") + " " + (vnos.url || "") + " " + (vnos.id || "") + " " + (vnos.opis || "")).toLowerCase();
+    if (/rtv|live.?tv|televiz|nasa.*live|euronews|france.?24/.test(s)) return "tv";
     if (/radio|podcast|tunein|radioplayer/.test(s)) return "radio";
-    if (/videospot|music.?video|vevo|youtube|youtu\.be/.test(s)) return "videospoti";
     if (/glasb|music|spotify|deezer|soundcloud|rhythmbox|audacious|clementine/.test(s)) return "glasba";
-    return "video";
+    if (/serij|series|episode|arte|netflix/.test(s)) return "serije";
+    if (/video|youtube|youtu\.be|peertube|vlc|mpv|kodi/.test(s)) return "video";
+    return "";
   }
   function medijskiVnosi() {
     var vnosi = [];
     S.programi.filter(function (p) { return p.skupina === "predstavnost"; }).forEach(function (p) {
-      vnosi.push({ vrsta: vrstaMedija(p), program: p });
+      vnosi.push({ vrsta: vrstaMedija(p) || "video", program: p });
     });
     spletne().forEach(function (a, i) {
-      // Privzeta Gmail in Wikipedia sta spletni aplikaciji, ne medijska vira. Uporabnikovi drugi
-      // viri ostanejo v katalogu, ker so lahko poimenovani poljubno.
-      if (/gmail|mail\.google|wikipedia/i.test((a.ime || "") + " " + (a.url || ""))) return;
-      vnosi.push({ vrsta: vrstaMedija(a), spletna: a, indeks: i });
+      // Tuje spletne aplikacije ne zasedajo prostora v Medijskem centru.
+      var vrsta = vrstaMedija(a);
+      if (vrsta) vnosi.push({ vrsta: vrsta, spletna: a, indeks: i });
     });
     return vnosi;
+  }
+  function mediaUstreza(v, iskanje) {
+    return !iskanje || String(v.ime || "").toLocaleLowerCase().indexOf(iskanje) >= 0;
+  }
+  function mediaVrsta(v) { return t("media_" + v); }
+  function mediaKartica(v) {
+    var ovoj = el("article", "media-kartica" + (v.naVoljo ? "" : " nedosegljiva"));
+    var b = el("button", "media-kartica-odpri");
+    b.type = "button";
+    b.title = v.pot;
+    var nadaljuj = (v.vrsta === "filmi" || v.vrsta === "serije") &&
+      v.pozicija >= 15 && v.trajanje > v.pozicija + 20;
+    var napredek = nadaljuj ? '<span class="media-kartica-nadaljuj">' + ubezi(t("mediaNadaljuj")) +
+      ' · ' + casMedija(v.pozicija) + '</span><span class="media-kartica-merilo"><i style="width:' +
+      Math.min(100, Math.round(v.pozicija / v.trajanje * 100)) + '%"></i></span>' : '';
+    b.innerHTML = '<span class="media-kartica-art ' + ubezi(v.vrsta) + '">' + svg(v.vrsta === "glasba" ? "glasba" : v.vrsta === "slike" ? "slika" : "video") +
+      napredek +
+      '</span><span class="media-kartica-pod"><b>' + ubezi(v.ime) + '</b><small>' + ubezi(mediaVrsta(v.vrsta)) +
+      (v.naVoljo ? "" : " · " + ubezi(t("mediaManjka"))) + '</small></span>';
+    b.disabled = !v.naVoljo;
+    b.addEventListener("click", function () {
+      klic("odpriLokalniMedij", [v.pot]).then(function (ok) { if (!ok) obvesti(t("niUspelo")); })
+        .catch(function () { obvesti(t("niUspelo")); });
+    });
+    ovoj.appendChild(b);
+    var odstrani = el("button", "media-kartica-odstrani", svg("x"));
+    odstrani.type = "button"; odstrani.title = t("odstrani");
+    odstrani.addEventListener("click", function () {
+      klic("odstraniLokalniMedij", [v.pot]).then(function (ok) { if (ok) naloziMedije(); });
+    });
+    ovoj.appendChild(odstrani);
+    return ovoj;
+  }
+  function mediaVir(v) {
+    var x = v.program || v.spletna;
+    var b = el("button", "media-vir", '<span class="media-vir-znak">' + svg(v.vrsta === "glasba" ? "glasba" : v.vrsta === "radio" ? "radio" : "video") +
+      '</span><span><b>' + ubezi(x.ime) + '</b><small>' + ubezi(mediaVrsta(v.vrsta)) +
+      ' · ' + ubezi(v.program ? t("mediaLokalniProgram") : t("mediaSpletniVir")) + '</small></span>' + svg("desno"));
+    b.type = "button";
+    b.addEventListener("click", function () {
+      if (v.program) zazeni(v.program);
+      else klic("medij", [v.spletna.url]).catch(function () { obvesti(t("niUspelo")); });
+    });
+    return b;
+  }
+  function mediaTok(v) {
+    var ovoj = el("div", "media-tok");
+    var b = el("button", "media-vir", '<span class="media-vir-znak">' + svg(v.vrsta === "radio" ? "radio" : "video") +
+      '</span><span><b>' + ubezi(v.ime) + '</b><small>' + ubezi(mediaVrsta(v.vrsta)) + ' · ' + ubezi(t("mediaVZivo")) + '</small></span>');
+    b.type = "button"; b.title = v.url;
+    b.addEventListener("click", function () {
+      klic("odpriMedijskiTok", [v.url]).then(function (ok) { if (!ok) obvesti(t("niUspelo")); })
+        .catch(function () { obvesti(t("niUspelo")); });
+    });
+    ovoj.appendChild(b);
+    var odstrani = el("button", "media-tok-odstrani", svg("x"));
+    odstrani.type = "button"; odstrani.title = t("odstrani");
+    odstrani.addEventListener("click", function () {
+      klic("odstraniMedijskiTok", [v.url]).then(function (ok) { if (ok) naloziMedije(); });
+    });
+    ovoj.appendChild(odstrani);
+    return ovoj;
+  }
+  function mediaPredlog(v) {
+    var b = el("button", "media-predlog", '<span class="media-predlog-znak">' + svg(v.vrsta === "glasba" ? "glasba" : v.vrsta === "radio" ? "radio" : "video") +
+      '</span><b>' + ubezi(v.ime) + '</b><small>' + ubezi(v.obmocje === "world" ? t("mediaSvetovno") : t("mediaPoRegiji")) + '</small>');
+    b.type = "button";
+    b.addEventListener("click", function () { klic("splet", [v.url]).catch(function () { obvesti(t("niUspelo")); }); });
+    return b;
   }
   function narisiMedije() {
     var kategorije = $("mediaKategorije"), mreza = $("mediaMreza");
     if (!kategorije || !mreza) return;
-    var vsi = medijskiVnosi();
+    var vsi = medijskiVnosi(), lokalni = S.mediaLokalno;
     kategorije.innerHTML = "";
     MEDIA_KATEGORIJE.forEach(function (k) {
-      var n = k[0] === "vse" ? vsi.length : vsi.filter(function (v) { return v.vrsta === k[0]; }).length;
       var b = el("button", "media-kategorija" + (S.mediaFilter === k[0] ? " izbrana" : ""),
-        svg(k[1]) + '<div><b>' + ubezi(t("media_" + k[0])) + '</b><span>' + ubezi(t("media_" + k[0] + "_pod")) +
-        '</span></div><i>' + n + "</i>");
-      b.addEventListener("click", function () { S.mediaFilter = k[0]; narisiMedije(); });
+        svg(k[1]) + '<span>' + ubezi(t("media_" + k[0])) + '</span>');
+      b.type = "button"; b.setAttribute("role", "tab");
+      b.setAttribute("aria-selected", S.mediaFilter === k[0] ? "true" : "false");
+      b.addEventListener("click", function () { S.mediaFilter = k[0]; naloziMedije(); });
       kategorije.appendChild(b);
     });
-    var iskano = String(S.mediaIskanje || "").trim();
-    var prikaz = vsi.filter(function (v) {
-      var x = v.program || v.spletna || {};
-      return (S.mediaFilter === "vse" || v.vrsta === S.mediaFilter) &&
-        (!iskano || Math.max(SafeerIskanje.oceni(x.ime, iskano), SafeerIskanje.oceni(x.url, iskano),
-          SafeerIskanje.oceni(x.opis, iskano)) > 0);
-    });
+    var iskano = String(S.mediaIskanje || "").trim().toLocaleLowerCase();
+    var vrsta = S.mediaFilter;
+    var prikaz = lokalni.filter(function (v) { return (vrsta === "vse" || v.vrsta === vrsta ||
+      vrsta === "video" && (v.vrsta === "filmi" || v.vrsta === "serije")) && mediaUstreza(v, iskano); });
+    var viri = vsi.filter(function (v) { return (vrsta === "vse" || v.vrsta === vrsta) && mediaUstreza(v.program || v.spletna, iskano); });
+    var tokovi = S.mediaTokovi.filter(function (v) { return (vrsta === "vse" || v.vrsta === vrsta) && mediaUstreza(v, iskano); });
+    var dodani = spletne().map(function (v) { return kljucNaslova(v.url); });
+    var predlogi = MEDIA_PREDLOGI.filter(function (v) { return (vrsta === "vse" || v.vrsta === vrsta) && mediaUstreza(v, iskano) && dodani.indexOf(kljucNaslova(v.url)) < 0; });
     $("mediaStevec").textContent = prikaz.length ? String(prikaz.length) : "";
+    $("mediaNaslovZbirke").textContent = vrsta === "vse" ? t("mediaTvojaZbirka") : mediaVrsta(vrsta);
+    $("mediaHeroNaslov").textContent = vrsta === "vse" ? t("mediaHeroNaslov") : mediaVrsta(vrsta);
+    $("mediaHeroOpis").textContent = t(vrsta === "vse" ? "mediaHeroOpis" : "mediaHeroOpisIzbor");
+    var samoViri = vrsta === "tv" || vrsta === "radio";
+    $("mediaMreza").previousElementSibling.hidden = samoViri;
+    $("mediaMreza").hidden = samoViri;
     mreza.innerHTML = "";
-    prikaz.forEach(function (v) {
-      mreza.appendChild(v.program ? ploscicaPrograma(v.program, true) : ploscicaSpletne(v.spletna, v.indeks, true));
+    prikaz.forEach(function (v) { mreza.appendChild(mediaKartica(v)); });
+    $("mediaPrazno").hidden = samoViri || prikaz.length !== 0;
+    $("mediaVec").hidden = samoViri || !S.mediaHasMore;
+    $("mediaOsvezi").disabled = !S.mediaMape.length || S.mediaOsvezuje;
+    $("mediaPraznoNaslov").textContent = iskano ? t("niZadetkov") : t("mediaPraznoNaslov");
+    $("mediaPraznoOpis").textContent = iskano ? "" : t("mediaPraznoOpis");
+    $("medijiDodajPrazno").hidden = !!iskano;
+    var seznamTokov = $("mediaTokovi"); seznamTokov.innerHTML = "";
+    tokovi.forEach(function (v) { seznamTokov.appendChild(mediaTok(v)); });
+    $("mediaTokoviGlava").hidden = !tokovi.length;
+    seznamTokov.hidden = !tokovi.length;
+    var vrsticaVirov = $("mediaViri"); vrsticaVirov.innerHTML = "";
+    viri.forEach(function (v) { vrsticaVirov.appendChild(mediaVir(v)); });
+    $("mediaViri").previousElementSibling.hidden = !viri.length;
+    $("mediaViri").hidden = !viri.length;
+    var odkrij = $("mediaOdkrij"); odkrij.innerHTML = "";
+    predlogi.forEach(function (v) { odkrij.appendChild(mediaPredlog(v)); });
+    $("mediaOdkrij").previousElementSibling.hidden = !predlogi.length;
+    $("mediaOdkrij").hidden = !predlogi.length;
+    $("mediaHeroDejanje").onclick = function () { vrsta === "tv" || vrsta === "radio" ? $("medijiTok").click() : $("medijiMapa").click(); };
+    $("mediaHeroDejanje").querySelector("span").textContent = t(samoViri ? "dodajTok" : "dodajMapoMedijev");
+    osveziPredvajalnik(S.mediaPredvajalnik);
+  }
+  function casMedija(sekunde) {
+    sekunde = Math.max(0, Math.floor(Number(sekunde) || 0));
+    return Math.floor(sekunde / 60) + ":" + String(sekunde % 60).padStart(2, "0");
+  }
+  function prikaziMediaBar() {
+    var p = S.mediaPredvajalnik;
+    $("mediaPlayerBar").hidden = !(p && p.naslov && p.stanje !== "ustavljeno");
+  }
+  function osveziPredvajalnik(p) {
+    if (!p) return;
+    S.mediaPredvajalnik = p;
+    prikaziMediaBar();
+    var ima = !!p.naslov;
+    var opis = !ima ? t("mediaSedajNamig") : p.stanje === "napaka" ? p.napaka :
+      p.stanje === "ustavljeno" ? t("mediaUstavljeno") : p.stanje === "premor" ? t("mediaPremor") :
+      p.vrsta === "tv" || p.vrsta === "radio" ? t("mediaVZivo") : t("mediaTaRacunalnik");
+    $("mediaBarNaslov").textContent = ima ? p.naslov : t("mediaNicesar");
+    $("mediaBarVrsta").textContent = opis;
+    $("mediaSedajNaslov").textContent = ima ? p.naslov : t("mediaNicesar");
+    $("mediaSedajPod").textContent = opis;
+    $("mediaSedajArt").textContent = p.vrsta === "tv" || p.vrsta === "video" ? "▶" : "♫";
+    $("mediaBarPremor").textContent = p.stanje === "predvaja" ? "Ⅱ" : "▶";
+    $("mediaBarPremor").disabled = !ima;
+    $("mediaBarPrejsnja").disabled = !ima || p.indeks <= 0;
+    $("mediaBarNaslednja").disabled = !ima || p.indeks >= (p.skupaj || 0) - 1;
+    $("mediaBarUstavi").disabled = !ima || p.stanje === "ustavljeno";
+    $("mediaBarCas").textContent = p.vrsta === "tv" || p.vrsta === "radio" ? t("mediaVZivo") : casMedija(p.pozicija);
+    $("mediaBarTrajanje").textContent = p.vrsta === "tv" || p.vrsta === "radio" ? "" : casMedija(p.trajanje);
+    $("mediaBarNapredek").disabled = !p.trajanje || p.vrsta === "tv" || p.vrsta === "radio";
+    if (!S.mediaDragging)
+      $("mediaBarNapredek").value = p.trajanje ? Math.round(1000 * p.pozicija / p.trajanje) : 0;
+    $("mediaOdpriOkno").hidden = !ima || p.stanje === "ustavljeno" || p.vrsta === "radio";
+    var seznam = p.vrstaSeznam || [];
+    $("mediaCakalnaStevec").textContent = String(p.skupaj || seznam.length);
+    var podpis = p.indeks + "|" + (p.zacetniIndeks || 0) + "|" + seznam.map(function (v) { return v.naslov + v.vrsta; }).join("|");
+    if (podpis === S.mediaQueueKey) return;
+    S.mediaQueueKey = podpis;
+    var vrstaEl = $("mediaVrsta"); vrstaEl.innerHTML = "";
+    if (!seznam.length) vrstaEl.appendChild(el("p", "media-vrsta-prazna", ubezi(t("mediaVrstaPrazna"))));
+    seznam.forEach(function (v, i) {
+      var stevilka = i + (p.zacetniIndeks || 0);
+      var b = el("button", "media-vrsta-vnos" + (stevilka === p.indeks ? " izbran" : ""),
+        '<span class="media-vrsta-stevilka">' + (stevilka === p.indeks ? "♫" : String(stevilka + 1)) + '</span><span><b>' + ubezi(v.naslov) +
+        '</b><small>' + ubezi(v.vrsta === "tv" || v.vrsta === "radio" ? t("mediaVZivo") : t("mediaTaRacunalnik")) + '</small></span>');
+      b.addEventListener("click", function () { klic("predvajalnikUkaz", ["predvajaj", stevilka]); });
+      vrstaEl.appendChild(b);
     });
-    $("mediaPrazno").hidden = prikaz.length !== 0;
   }
   function odpriDodaj() {
     $("dodajIme").value = "";
     $("dodajNaslov").value = "";
+    $("dodajMedijskaVrstaPolje").hidden = S.razdelek !== "media";
+    $("dodajMedijskaVrsta").value = ["video", "glasba", "filmi", "serije", "tv", "radio"].indexOf(S.mediaFilter) >= 0 ? S.mediaFilter : "video";
     $("slojDodaj").classList.add("viden");
     setTimeout(function () { $("dodajIme").focus(); }, 30);
   }
@@ -1574,7 +1766,7 @@
   }
 
   // ------------------------------------------------------------------ iskanje
-  var iskanjeZamik = 0, iskanjeStevec = 0, iskanjeDatotekNiz = "", ciljnoDatotekeZamik = 0;
+  var iskanjeZamik = 0, iskanjeMedijiZamik = 0, iskanjeStevec = 0, iskanjeDatotekNiz = "", ciljnoDatotekeZamik = 0;
   function ujemanje(besedilo, niz) {
     return SafeerIskanje.oceni(besedilo, niz);
   }
@@ -1788,13 +1980,17 @@
   function isci() {
     var niz = $("iskanje").value.trim();
     var sloj = $("slojIskanje");
-    if (!niz) { sloj.classList.remove("viden"); return; }
+    clearTimeout(iskanjeZamik);
+    clearTimeout(iskanjeMedijiZamik);
+    if (!niz) { ++iskanjeStevec; sloj.classList.remove("viden"); return; }
     $("slojHitro").classList.remove("viden");
     $("slojNapajanje").classList.remove("viden");
     sloj.classList.add("viden");
     var n = niz.toLowerCase();
     var z = $("zadetki");
     z.innerHTML = "";
+    var mestoLokalnihMedijev = el("div", "skupina-zadetkov");
+    z.appendChild(mestoLokalnihMedijev);
     // Spletne aplikacije (ime, domena in kratice, npr. yt).
     var spletni = spletne().map(function (a) { return { a: a, ocena: SafeerIskanje.oceniSpletno(a, n) }; })
       .filter(function (x) { return x.ocena > 0; }).sort(function (a, b) { return b.ocena - a.ocena; }).slice(0, 5);
@@ -1878,9 +2074,36 @@
       izvediNamero(niz, { vrsta: "splet", razlog: "iskanje" });
     }));
 
-    clearTimeout(iskanjeZamik);
     var moj = ++iskanjeStevec;
     if (n.length >= 2) {
+      mestoLokalnihMedijev.appendChild(el("h4", "", ubezi(t("zMediji")) +
+        ' <span style="opacity:.6;letter-spacing:0;text-transform:none">' + ubezi(t("iscem")) + "</span>"));
+      iskanjeMedijiZamik = setTimeout(function () {
+        Promise.all([klic("knjiznicaMedijev", ["vse", niz, 0]), klic("tokoviMedijev")]).then(function (rezultati) {
+          if (moj !== iskanjeStevec) return;
+          mestoLokalnihMedijev.innerHTML = "";
+          var datoteke = (rezultati[0] || []).filter(function (v) { return v.naVoljo; }).slice(0, 6);
+          var tokovi = (rezultati[1] || []).filter(function (v) { return mediaUstreza(v, n); }).slice(0, 4);
+          if (!datoteke.length && !tokovi.length) return;
+          mestoLokalnihMedijev.appendChild(el("h4", "", ubezi(t("mediaMojaZbirka"))));
+          datoteke.forEach(function (v) {
+            mestoLokalnihMedijev.appendChild(zadetek(v.vrsta === "glasba" ? "glasba" : v.vrsta === "slike" ? "slika" : "video",
+              v.ime, mediaVrsta(v.vrsta), function () {
+                pojdi("media");
+                klic("odpriLokalniMedij", [v.pot]).then(function (ok) { if (!ok) obvesti(t("niUspelo")); })
+                  .catch(function () { obvesti(t("niUspelo")); });
+              }));
+          });
+          tokovi.forEach(function (v) {
+            mestoLokalnihMedijev.appendChild(zadetek(v.vrsta === "radio" ? "radio" : "video", v.ime,
+              mediaVrsta(v.vrsta), function () {
+                pojdi("media");
+                klic("odpriMedijskiTok", [v.url]).then(function (ok) { if (!ok) obvesti(t("niUspelo")); })
+                  .catch(function () { obvesti(t("niUspelo")); });
+              }));
+          });
+        }).catch(function () { if (moj === iskanjeStevec) mestoLokalnihMedijev.innerHTML = ""; });
+      }, 200);
       mestoDatotek.appendChild(el("h4", "", ubezi(t("zDatoteke")) + ' <span style="opacity:.6;letter-spacing:0;text-transform:none">' + ubezi(t("iscem")) + "</span>"));
       iskanjeZamik = setTimeout(function () {
         klic("isciDatoteke", [niz]).then(function (seznam) {
@@ -1919,6 +2142,13 @@
   window.safeerOsDogodek = function (vrsta, podatki) {
     if (vrsta === "stanje") narisiStanje(podatki);
     if (vrsta === "okna") narisiOkna(podatki);
+    if (vrsta === "predvajalnik") osveziPredvajalnik(podatki);
+    if (vrsta === "medijskaKnjiznica") naloziMedije();
+    if (vrsta === "medijskoOsvezevanje") {
+      S.mediaOsvezuje = !!podatki;
+      $("mediaOsvezi").disabled = S.mediaOsvezuje || !S.mediaMape.length;
+    }
+    if (vrsta === "medijskaNapaka") obvesti(t("niUspelo"));
     if (vrsta === "pojdi") window.safeerOsPojdi(podatki);
     if (vrsta === "fokus") {
       osveziOkna();
@@ -2138,12 +2368,57 @@
     }); });
     $("dodajPreklici").addEventListener("click", zapriSloje);
     $("medijiDodaj").addEventListener("click", odpriDodaj);
-    $("medijiDodajPrazno").addEventListener("click", odpriDodaj);
+    $("medijiMapa").addEventListener("click", function () {
+      klic("medijskaMapa").catch(function () { obvesti(t("niUspelo")); });
+    });
+    $("mediaOsvezi").addEventListener("click", function () {
+      S.mediaOsvezuje = true; this.disabled = true;
+      klic("osveziMedijskeMape").then(function (ok) {
+        if (!ok) { S.mediaOsvezuje = false; $("mediaOsvezi").disabled = !S.mediaMape.length; }
+      }).catch(function () { S.mediaOsvezuje = false; $("mediaOsvezi").disabled = !S.mediaMape.length; obvesti(t("niUspelo")); });
+    });
+    $("mediaVec").addEventListener("click", function () { naloziMedije(true); });
+    $("medijiLokalno").addEventListener("click", function () {
+      klic("lokalniMediji").catch(function () { obvesti(t("niUspelo")); });
+    });
+    $("medijiTok").addEventListener("click", function () {
+      $("mediaTokIme").value = ""; $("mediaTokUrl").value = "";
+      $("mediaTokVrsta").value = S.mediaFilter === "radio" ? "radio" : "tv";
+      $("slojMediaTok").classList.add("viden");
+      $("mediaTokIme").focus();
+    });
+    $("mediaTokPreklici").addEventListener("click", zapriSloje);
+    $("obrazecMediaTok").addEventListener("submit", function (e) {
+      e.preventDefault();
+      var ime = $("mediaTokIme").value.trim(), url = $("mediaTokUrl").value.trim();
+      if (!ime || !/^https?:\/\/[^\s]+$/i.test(url)) { obvesti(t("mediaNapacenTok")); return; }
+      klic("dodajMedijskiTok", [ime, url, $("mediaTokVrsta").value]).then(function (ok) {
+        if (ok) zapriSloje(); else obvesti(t("mediaNapacenTok"));
+      }).catch(function () { obvesti(t("mediaNapacenTok")); });
+    });
+    $("medijiDodajPrazno").addEventListener("click", function () { $("medijiMapa").click(); });
+    $("mediaBarOdpri").addEventListener("click", function () { klic("predvajalnikUkaz", ["odpri"]); });
+    $("mediaOdpriOkno").addEventListener("click", function () { klic("predvajalnikUkaz", ["odpri"]); });
+    [["mediaBarPremor", "premor"], ["mediaBarPrejsnja", "prejsnja"], ["mediaBarNaslednja", "naslednja"],
+      ["mediaBarUstavi", "ustavi"]].forEach(function (x) {
+      $(x[0]).addEventListener("click", function () { klic("predvajalnikUkaz", [x[1]]); });
+    });
+    $("mediaBarNapredek").addEventListener("change", function () {
+      var p = S.mediaPredvajalnik;
+      S.mediaDragging = false;
+      if (p && p.trajanje > 0 && p.vrsta !== "tv" && p.vrsta !== "radio")
+        klic("predvajalnikUkaz", ["skok", p.trajanje * Number(this.value) / 1000]);
+    });
+    $("mediaBarNapredek").addEventListener("pointerdown", function () { S.mediaDragging = true; });
+    $("mediaBarNapredek").addEventListener("pointerup", function () { S.mediaDragging = false; });
     $("programiIskanje").addEventListener("input", function () {
       S.programIskanje = this.value.trim(); S.skupina = "vse"; narisiPrograme();
     });
     $("mediaIskanje").addEventListener("input", function () {
       S.mediaIskanje = this.value.trim(); S.mediaFilter = "vse"; narisiMedije();
+      S.mediaRequest++;
+      clearTimeout(S.mediaIskanjeZamik);
+      S.mediaIskanjeZamik = setTimeout(function () { naloziMedije(); }, 180);
     });
     $("napraveIskanje").addEventListener("input", function () {
       S.napraveIskanje = this.value.trim(); narisiSeznamNaprav(S.povezava.stanje === "povezan");
@@ -2165,7 +2440,9 @@
         return;
       }
       var ime = $("dodajIme").value.trim() || new URL(naslov).hostname.replace(/^www\./, "");
-      shraniSpletne(spletne().concat([{ ime: ime.slice(0, 40), url: naslov }]).slice(0, 24));
+      var vnos = { ime: ime.slice(0, 40), url: naslov };
+      if (!$("dodajMedijskaVrstaPolje").hidden) vnos.vrsta = $("dodajMedijskaVrsta").value;
+      shraniSpletne(spletne().concat([vnos]).slice(0, 24));
       zapriSloje();
     });
     var iskanje = $("iskanje");

@@ -123,16 +123,48 @@
       <!-- SAFEER MEDIA -->
       <section class="razdelek" id="r-media">
         <div class="media-glava">
-          <div><h1 data-t="mediji"></h1><p data-t="medijiOpis"></p></div>
-          <button class="gumb glavni" id="medijiDodaj"><svg data-ikona="plus"></svg><span data-t="dodajMedijskiVir"></span></button>
+          <div><span class="media-kicker">SAFEER OS / MEDIA</span><h1 data-t="mediji"></h1><p data-t="medijiOpis"></p></div>
+          <div class="media-glava-dejanja">
+            <button class="gumb glavni" id="medijiMapa"><svg data-ikona="mapa"></svg><span data-t="dodajMapoMedijev"></span></button>
+            <button class="gumb" id="medijiLokalno"><span data-t="dodajLokalno"></span></button>
+            <button class="gumb" id="medijiTok"><span data-t="dodajTok"></span></button>
+            <button class="gumb" id="medijiDodaj"><svg data-ikona="plus"></svg><span data-t="dodajMedijskiVir"></span></button>
+          </div>
         </div>
-        <label class="razdelek-iskanje"><svg data-ikona="isci"></svg><input id="mediaIskanje" type="search" autocomplete="off" data-ph="isciMedije"></label>
-        <div class="media-kategorije" id="mediaKategorije"></div>
-        <h2><span data-t="medijskeAplikacije"></span><span class="media-stevec" id="mediaStevec"></span></h2>
-        <div class="mreza media-mreza" id="mediaMreza"></div>
-        <div class="media-prazno" id="mediaPrazno" hidden>
-          <svg data-ikona="video"></svg><b data-t="niMedijev"></b><span data-t="niMedijevPod"></span>
-          <button class="gumb" id="medijiDodajPrazno"><svg data-ikona="plus"></svg><span data-t="dodajMedijskiVir"></span></button>
+        <div class="media-orodna">
+          <div class="media-kategorije" id="mediaKategorije" role="tablist" aria-label="Media"></div>
+          <label class="razdelek-iskanje media-iskalnik"><svg data-ikona="isci"></svg><input id="mediaIskanje" type="search" autocomplete="off" data-ph="isciMedije"></label>
+        </div>
+        <div class="media-hero">
+          <div class="media-hero-vsebina">
+            <span class="media-kicker" data-t="mediaMojaZbirka"></span>
+            <h2 id="mediaHeroNaslov" data-t="mediaHeroNaslov"></h2>
+            <p id="mediaHeroOpis" data-t="mediaHeroOpis"></p>
+            <button class="gumb glavni" id="mediaHeroDejanje"><svg data-ikona="plus"></svg><span data-t="dodajMapoMedijev"></span></button>
+          </div>
+          <div class="media-hero-grafika" aria-hidden="true"><span class="media-orbita a"></span><span class="media-orbita b"></span><span class="media-orbita c"></span><span class="media-znak">♫</span></div>
+        </div>
+        <div class="media-postavitev">
+          <div class="media-glavni">
+            <div class="media-naslov-vrstice"><div><span class="media-kicker" data-t="mediaLokalno"></span><h2 id="mediaNaslovZbirke" data-t="mediaTvojaZbirka"></h2></div><div class="media-knjiznica-dejanja"><span class="media-stevec" id="mediaStevec"></span><button class="media-osvezi" id="mediaOsvezi" type="button" data-naslov="mediaOsvezi" aria-label="Refresh library" disabled><svg data-ikona="ponovno"></svg></button></div></div>
+            <div class="media-knjiznica" id="mediaMreza"></div>
+            <div class="media-prazno" id="mediaPrazno" hidden>
+              <div class="media-prazno-ikona"><svg data-ikona="glasba"></svg></div>
+              <b id="mediaPraznoNaslov" data-t="mediaPraznoNaslov"></b><span id="mediaPraznoOpis" data-t="mediaPraznoOpis"></span>
+              <button class="gumb" id="medijiDodajPrazno"><svg data-ikona="mapa"></svg><span data-t="dodajMapoMedijev"></span></button>
+            </div>
+            <button class="gumb media-vec" id="mediaVec" data-t="mediaNaloziVec" hidden></button>
+            <div class="media-naslov-vrstice media-tokovi-glava" id="mediaTokoviGlava" hidden><div><span class="media-kicker" data-t="mediaShranjeniTokovi"></span><h2 data-t="mediaTvojePostaje"></h2></div></div>
+            <div class="media-viri" id="mediaTokovi" hidden></div>
+            <div class="media-naslov-vrstice media-vire-glava"><div><span class="media-kicker" data-t="mediaPovezaniViri"></span><h2 data-t="mediaTvojiViri"></h2></div></div>
+            <div class="media-viri" id="mediaViri"></div>
+            <div class="media-naslov-vrstice media-odkrij-glava"><div><span class="media-kicker" data-t="mediaSvet"></span><h2 data-t="mediaOdkrij"></h2></div></div>
+            <div class="media-odkrij" id="mediaOdkrij"></div>
+          </div>
+          <aside class="media-desni">
+            <div class="media-sedaj"><span class="media-kicker" data-t="mediaSedaj"></span><div class="media-sedaj-art" id="mediaSedajArt">♫</div><h3 id="mediaSedajNaslov" data-t="mediaNicesar"></h3><p id="mediaSedajPod" data-t="mediaSedajNamig"></p><button class="gumb" id="mediaOdpriOkno" data-t="mediaOdpriVideo" hidden></button></div>
+            <div class="media-cakalna"><div class="media-cakalna-glava"><h3 data-t="mediaCakalna"></h3><span id="mediaCakalnaStevec"></span></div><div id="mediaVrsta" class="media-vrsta"></div></div>
+          </aside>
         </div>
       </section>
 
@@ -303,6 +335,20 @@
       </section>
     </div>
 
+    <div id="mediaPlayerBar" class="media-player-bar" hidden>
+      <button class="media-player-art" id="mediaBarOdpri" type="button" aria-label="Open player">♫</button>
+      <div class="media-player-meta"><b id="mediaBarNaslov"></b><span id="mediaBarVrsta"></span></div>
+      <div class="media-player-komande">
+        <button id="mediaBarPrejsnja" type="button" aria-label="Previous">⏮</button>
+        <button id="mediaBarPremor" type="button" aria-label="Pause">Ⅱ</button>
+        <button id="mediaBarNaslednja" type="button" aria-label="Next">⏭</button>
+      </div>
+      <span id="mediaBarCas" class="media-player-cas">0:00</span>
+      <input id="mediaBarNapredek" type="range" min="0" max="1000" value="0" aria-label="Playback position">
+      <span id="mediaBarTrajanje" class="media-player-cas">0:00</span>
+      <button id="mediaBarUstavi" class="media-player-stop" type="button" aria-label="Stop">■</button>
+    </div>
+
     <footer id="noga">
       <span><kbd data-t="tipkaKlik"></kbd><span data-t="odpri"></span></span>
       <span><kbd>Esc</kbd><span data-t="domov"></span></span>
@@ -324,8 +370,27 @@
     <h3 data-t="dodajSpletno"></h3>
     <input id="dodajIme" data-ph="imeAplikacije" maxlength="40">
     <input id="dodajNaslov" data-ph="naslovAplikacije" maxlength="300">
+    <label class="dodaj-medijska-vrsta" id="dodajMedijskaVrstaPolje" hidden><span data-t="mediaVrstaVira"></span>
+      <select id="dodajMedijskaVrsta">
+        <option value="video" data-t="media_video"></option><option value="glasba" data-t="media_glasba"></option>
+        <option value="filmi" data-t="media_filmi"></option><option value="serije" data-t="media_serije"></option>
+        <option value="tv" data-t="media_tv"></option><option value="radio" data-t="media_radio"></option>
+      </select>
+    </label>
     <p class="drobno" data-t="dodajNamig"></p>
     <div class="gumbi"><button type="button" class="gumb" id="dodajPreklici" data-t="preklici"></button><button type="submit" class="gumb glavni" data-t="dodaj"></button></div>
+  </form>
+</div>
+<!-- Uporabnikov neposredni TV ali radijski tok -->
+<div class="sloj" id="slojMediaTok"><div class="tancica"></div>
+  <form class="plosca media-tok-obrazec" id="obrazecMediaTok">
+    <span class="media-kicker">SAFEER MEDIA</span>
+    <h3 data-t="mediaDodajPostajo"></h3>
+    <p class="drobno" data-t="mediaTokNamig"></p>
+    <label><span data-t="mediaImePostaje"></span><input id="mediaTokIme" required maxlength="80" autocomplete="off" data-ph="mediaImePostaje"></label>
+    <label><span data-t="mediaVrstaPostaje"></span><select id="mediaTokVrsta"><option value="tv" data-t="media_tv"></option><option value="radio" data-t="media_radio"></option></select></label>
+    <label><span data-t="mediaNaslovToka"></span><input id="mediaTokUrl" type="url" required maxlength="2048" autocomplete="off" placeholder="https://example.org/live.m3u8"></label>
+    <div class="gumbi"><button type="button" class="gumb" id="mediaTokPreklici" data-t="preklici"></button><button class="gumb glavni" type="submit" data-t="mediaShraniPredvajaj"></button></div>
   </form>
 </div>
 <!-- Kanal: ponovni vnos gesla ali odstranitev -->

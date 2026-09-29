@@ -31,7 +31,7 @@ Section: utils
 Priority: optional
 Architecture: ${ARCH}
 Depends: safeer-control (>= ${CONTROL_VERSION}), python3, python3-gi, python3-gi-cairo, gir1.2-gtk-3.0, gir1.2-webkit2-4.1, gir1.2-glib-2.0, gir1.2-secret-1
-Recommends: network-manager, pulseaudio-utils, policykit-1, xdg-utils, gir1.2-wnck-3.0, x11-utils
+Recommends: network-manager, pulseaudio-utils, policykit-1, xdg-utils, gir1.2-wnck-3.0, x11-utils, gir1.2-gstreamer-1.0, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-libav, gstreamer1.0-gtk3
 Maintainer: Safeer <info@safeer.si>
 Homepage: https://safeer.si/os/
 Description: Safeer OS - your computer in your hands, on top of Linux Mint

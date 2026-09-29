@@ -8,6 +8,7 @@ class NivoMedijaTests(unittest.TestCase):
         for naslov in (
             "https://example.test/film.MP4?token=skrivnost",
             "https://radio.test/tok.m3u8#v-zivo",
+            "https://tv.test/prenos.mpd?token=abc",
             "http://example.test/pesem.mp3",
             "https://example.test/posnetek.webm",
             "https://example.test/zvok.ogg",
