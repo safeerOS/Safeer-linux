@@ -10,6 +10,7 @@ JEZIKI = ("sl", "en", "de", "es", "fr", "it")
 
 BESEDILA: dict[str, dict[str, str]] = {
     "sl": {
+        "deli_datoteko": "Izberi datoteko za deljenje", "izberi_mapo": "Izberi mapo za deljenje",
         "premik": "Premik po posnetku", "dodaj_datoteke": "Dodaj datoteke", "prejsnja": "Prejšnja",
         "naslednja": "Naslednja", "premor": "Premor", "nadaljuj": "Nadaljuj", "cel_zaslon": "Cel zaslon",
         "cakalna_vrsta": "Naslednje", "nic": "Nič se ne predvaja", "v_zivo": "V živo",
@@ -20,6 +21,7 @@ BESEDILA: dict[str, dict[str, str]] = {
         "zacetek": "Predvajanja ni bilo mogoče začeti.", "splosno": "Predvajanje se je ustavilo zaradi napake.",
     },
     "en": {
+        "deli_datoteko": "Choose a file to share", "izberi_mapo": "Choose a folder to share",
         "premik": "Seek", "dodaj_datoteke": "Add files", "prejsnja": "Previous", "naslednja": "Next",
         "premor": "Pause", "nadaljuj": "Resume", "cel_zaslon": "Full screen", "cakalna_vrsta": "Up next",
         "nic": "Nothing playing", "v_zivo": "Live", "dodaj_mapo": "Add media folder", "preklici": "Cancel",
@@ -29,6 +31,7 @@ BESEDILA: dict[str, dict[str, str]] = {
         "zacetek": "Playback couldn't start.", "splosno": "Playback stopped because of an error.",
     },
     "de": {
+        "deli_datoteko": "Datei zum Teilen wählen", "izberi_mapo": "Ordner zum Teilen wählen",
         "premik": "Spulen", "dodaj_datoteke": "Dateien hinzufügen", "prejsnja": "Zurück", "naslednja": "Weiter",
         "premor": "Pause", "nadaljuj": "Fortsetzen", "cel_zaslon": "Vollbild", "cakalna_vrsta": "Als Nächstes",
         "nic": "Keine Wiedergabe", "v_zivo": "Live", "dodaj_mapo": "Medienordner hinzufügen",
@@ -39,6 +42,7 @@ BESEDILA: dict[str, dict[str, str]] = {
         "zacetek": "Die Wiedergabe konnte nicht starten.", "splosno": "Die Wiedergabe wurde wegen eines Fehlers beendet.",
     },
     "es": {
+        "deli_datoteko": "Elige un archivo para compartir", "izberi_mapo": "Elige una carpeta para compartir",
         "premik": "Buscar", "dodaj_datoteke": "Añadir archivos", "prejsnja": "Anterior", "naslednja": "Siguiente",
         "premor": "Pausa", "nadaljuj": "Reanudar", "cel_zaslon": "Pantalla completa", "cakalna_vrsta": "A continuación",
         "nic": "No se reproduce nada", "v_zivo": "En directo", "dodaj_mapo": "Añadir carpeta multimedia",
@@ -49,6 +53,7 @@ BESEDILA: dict[str, dict[str, str]] = {
         "zacetek": "No se pudo iniciar la reproducción.", "splosno": "La reproducción se detuvo por un error.",
     },
     "fr": {
+        "deli_datoteko": "Choisir un fichier à partager", "izberi_mapo": "Choisir un dossier à partager",
         "premik": "Avancer", "dodaj_datoteke": "Ajouter des fichiers", "prejsnja": "Précédent", "naslednja": "Suivant",
         "premor": "Pause", "nadaljuj": "Reprendre", "cel_zaslon": "Plein écran", "cakalna_vrsta": "À suivre",
         "nic": "Aucune lecture", "v_zivo": "En direct", "dodaj_mapo": "Ajouter un dossier multimédia",
@@ -59,6 +64,7 @@ BESEDILA: dict[str, dict[str, str]] = {
         "zacetek": "La lecture n'a pas pu démarrer.", "splosno": "La lecture s'est arrêtée à cause d'une erreur.",
     },
     "it": {
+        "deli_datoteko": "Scegli un file da condividere", "izberi_mapo": "Scegli una cartella da condividere",
         "premik": "Scorri", "dodaj_datoteke": "Aggiungi file", "prejsnja": "Precedente", "naslednja": "Successivo",
         "premor": "Pausa", "nadaljuj": "Riprendi", "cel_zaslon": "Schermo intero", "cakalna_vrsta": "A seguire",
         "nic": "Nessuna riproduzione", "v_zivo": "In diretta", "dodaj_mapo": "Aggiungi cartella multimediale",

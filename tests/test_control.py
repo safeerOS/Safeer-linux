@@ -27,12 +27,29 @@ class ControlUkazi(unittest.TestCase):
         # pa tisto, kar je res pomembno: kar potrebuje uporabnikovo dovoljenje, brez njega ni na
         # voljo.
         dejanja = i["data"]["actions"]
-        self.assertEqual(dejanja, link_daljinec.DEJANJA_CONTROL + link_daljinec.DEJANJA_HOST)
+        # Magnet povezave z drugih naprav odpre Safeer OS - samo, ce je na tem racunalniku namescen.
+        self.assertEqual(dejanja, link_daljinec.DEJANJA_CONTROL + link_daljinec.DEJANJA_HOST
+                         + (link_daljinec.DEJANJA_MAGNET if link_daljinec._safeer_os() else []))
         for d in (link_daljinec.DEJANJA_DATOTEKE + link_daljinec.DEJANJA_PROGRAMI
                   + link_daljinec.DEJANJA_ZASLON):
             self.assertNotIn(d, dejanja)
         self.assertEqual(i["data"]["keys"], [])
         self.assertTrue(i["data"]["version"])
+
+    def test_magnet_odpre_safeer_os(self):
+        from unittest import mock
+        zagnani = []
+        with mock.patch.object(link_daljinec, "_safeer_os", lambda: "/usr/bin/safeer-os"), \
+                mock.patch("subprocess.Popen", lambda ukaz, **_k: zagnani.append(ukaz)):
+            i = self._izvedi("magnet.open", {"uri": "magnet:?xt=urn:btih:" + "a" * 40 + "&dn=Film"})
+            self.assertTrue(i["ok"])
+            self.assertEqual(zagnani[-1][:2], ["/usr/bin/safeer-os", "--magnet"])
+            # Karkoli drugega (ukaz, pot, spletni naslov) naprava ne more podtakniti.
+            for slab in ("--help", "https://x.si", "magnet:?xt=urn:btih:abc; rm -rf ~", ""):
+                self.assertFalse(self._izvedi("magnet.open", {"uri": slab})["ok"], slab)
+            self.assertEqual(len(zagnani), 1)
+        with mock.patch.object(link_daljinec, "_safeer_os", lambda: ""):
+            self.assertEqual(self._izvedi("magnet.open", {"uri": "magnet:?xt=urn:btih:" + "a" * 40})["code"], "ni_safeer_os")
 
     def test_odpri_samo_http(self):
         odprti = []

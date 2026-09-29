@@ -99,6 +99,30 @@ DEJANJA_DATOTEKE = ["files.list", "files.open"]
 DEJANJA_PROGRAMI = ["apps.list", "apps.launch", "apps.close", "apps.running"]
 DEJANJA_HOST = ["host.info"]
 DEJANJA_ZASLON = ["screen.start", "screen.stop", "screen.status"]
+#: Magnet povezava z druge naprave v krogu: odpre jo Safeer OS (Medijski center), ce je namescen.
+DEJANJA_MAGNET = ["magnet.open"]
+
+
+def _safeer_os() -> str:
+    """Zaganjalnik Safeer OS na tem racunalniku ali "" (Control je lahko namescen tudi brez njega)."""
+    import shutil
+    return shutil.which("safeer-os") or next((p for p in (os.path.expanduser("~/.local/bin/safeer-os"), "/usr/bin/safeer-os")
+                                               if os.path.isfile(p) and os.access(p, os.X_OK)), "")
+
+
+def odpri_magnet(uri: str) -> dict:
+    """Magnet z naprave v krogu zaupanja odpre Safeer OS; ukazov ali poti od naprave ne izvajamo."""
+    from core import os_torrent
+    m = os_torrent.razcleni_magnet(uri)
+    if m is None:
+        return izid(False, "To ni veljavna magnet povezava", koda="ni_magnet")
+    program = _safeer_os()
+    if not program:
+        return izid(False, "Safeer OS na tem računalniku ni nameščen", koda="ni_safeer_os")
+    import subprocess
+    subprocess.Popen([program, "--magnet", m["uri"]], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True)
+    return izid(True, "Odpiram v Safeer OS: " + (m["ime"] or m["hash"][:12]))
 
 
 def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], None],
@@ -132,6 +156,8 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
                 koncaj(izid(True, "Datoteka se odpira na računalniku"))
             else:
                 koncaj(izid(False, "Te datoteke ni mogoče odpreti", koda="ni_datoteke"))
+        elif d in DEJANJA_MAGNET:
+            koncaj(odpri_magnet(str(parametri.get("uri", "") or "")))
         elif d in DEJANJA_ZASLON:
             # Zaslon racunalnika na televizorju. Brez uporabnikovega dovoljenja v Controlu ne gre.
             if zaslon is None:
@@ -225,6 +251,7 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
         elif d == "status":
             s = {"app": "safeer-control-linux", "version": _razlicica_control(), "foreground": True,
                  "actions": DEJANJA_CONTROL + DEJANJA_HOST + (DEJANJA_DATOTEKE if datoteke is not None else [])
+                            + (DEJANJA_MAGNET if _safeer_os() else [])
                             + (DEJANJA_PROGRAMI if programi is not None and programi.vklopljeno else [])
                             + (DEJANJA_ZASLON if zaslon is not None and zaslon.na_voljo().get("dovoljeno") else []),
                  "keys": [], "title": "Safeer Control"}

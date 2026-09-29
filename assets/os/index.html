@@ -128,6 +128,7 @@
             <button class="gumb glavni" id="medijiMapa"><svg data-ikona="mapa"></svg><span data-t="dodajMapoMedijev"></span></button>
             <button class="gumb" id="medijiLokalno"><svg data-ikona="datoteka"></svg><span data-t="dodajLokalno"></span></button>
             <button class="gumb" id="medijiTok"><svg data-ikona="radio"></svg><span data-t="dodajTok"></span></button>
+            <button class="gumb" id="medijiMagnet"><svg data-ikona="povezava"></svg><span data-t="magnet"></span></button>
             <button class="gumb" id="medijiDodaj"><svg data-ikona="plus"></svg><span data-t="dodajMedijskiVir"></span></button>
           </div>
         </div>
@@ -398,6 +399,18 @@
     <p class="drobno" id="mediaNapravePot" data-t="mediaNapraveOpis"></p>
     <div class="media-mape-seznam media-naprave-seznam" id="mediaNapraveSeznam" aria-live="polite"></div>
     <div class="gumbi"><button type="button" class="gumb" id="mediaNapraveNazaj" data-t="mediaNapravaNazaj" hidden></button><button type="button" class="gumb" id="mediaNapraveZapri" data-t="zapri"></button></div>
+  </div>
+</div>
+<div class="sloj" id="slojMagnet"><div class="tancica"></div>
+  <div class="plosca media-mape-plosca magnet-plosca" role="dialog" aria-modal="true" aria-labelledby="magnetNaslov">
+    <span class="media-kicker">SAFEER MEDIA · MAGNET</span>
+    <h3 id="magnetNaslov" data-t="magnetNaslov"></h3>
+    <form class="magnet-vnos" id="magnetObrazec"><input id="magnetPolje" type="text" autocomplete="off" spellcheck="false" placeholder="magnet:?xt=urn:btih:…"><button type="submit" class="gumb glavni" id="magnetOdpri" data-t="magnetOdpri"></button></form>
+    <div class="magnet-vsebina" id="magnetVsebina" aria-live="polite"></div>
+    <h4 class="magnet-podnaslov" data-t="magnetPrenosi"></h4>
+    <div class="media-mape-seznam magnet-prenosi" id="magnetPrenosi"></div>
+    <p class="drobno magnet-opomba" data-t="magnetOpomba"></p>
+    <div class="gumbi"><button type="button" class="gumb" id="magnetDeliDatoteko" data-t="magnetDeliDatoteko"></button><button type="button" class="gumb" id="magnetDeliMapo" data-t="magnetDeliMapo"></button><button type="button" class="gumb" id="magnetPrivzeto" data-t="magnetPrivzeto" hidden></button><button type="button" class="gumb" id="magnetZapri" data-t="zapri"></button></div>
   </div>
 </div>
 <!-- Pregledovalnik slik -->

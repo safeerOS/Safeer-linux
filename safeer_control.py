@@ -712,6 +712,7 @@ class SafeerControl(Gtk.Application):
       <method name="Upravljaj"><arg type="s" name="naprava" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="Klepet"><arg type="s" name="naprava" direction="in"/><arg type="s" name="besedilo" direction="in"/><arg type="s" name="cas" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="KlepetNaprave"><arg type="s" name="json" direction="out"/></method>
+      <method name="Magnet"><arg type="s" name="naprava" direction="in"/><arg type="s" name="uri" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="Datoteke"><arg type="s" name="naprava" direction="in"/><arg type="s" name="mapa" direction="in"/><arg type="s" name="json" direction="out"/></method>
     </interface></node>"""
 
@@ -760,6 +761,13 @@ class SafeerControl(Gtk.Application):
             return {"ok": stanje in ("accepted", "queued"), "stanje": stanje}
         if metoda == "KlepetNaprave":
             return {"ok": True, "naprave": list(link.naprave_klepeta)}
+        if metoda == "Magnet":
+            # Magnet povezava na drugo napravo v Linku: tam se odpre v predvajalniku (magnet.open).
+            from core import os_torrent
+            m = os_torrent.razcleni_magnet(str(a[1]) if len(a) > 1 else "")
+            if m is None:
+                return {"ok": False, "koda": "ni_magnet"}
+            return link.ukaz_pocakaj(str(a[0]) if a else "", "magnet.open", {"uri": m["uri"]}, cas=15.0)
         if metoda == "Datoteke":
             # Deljene mape druge naprave (files.list) za Safeer Media: seznam + streznik (naslov, odtis, zeton).
             # Doda kljuc naprave iz kroga: z njim gre tok prek Global Linka, kadar naprave ni v tem omrezju.

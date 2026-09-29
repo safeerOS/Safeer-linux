@@ -63,6 +63,7 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "./safeer-control_$(cat packaging/VERSION_CONTROL)_all.deb" "./safeer-os_$(cat packaging/VERSION_OS)_all.deb"
           xvfb-run -a safeer-os --version | tee /dev/stderr | grep -Fx "Safeer OS $(cat packaging/VERSION_OS)"
           desktop-file-validate /usr/share/applications/safeer-os.desktop
+          desktop-file-validate /usr/share/applications/safeer-os.Magnet.desktop
           sudo apt-get remove -y safeer-os safeer-control
       - name: Safeer OS tema package (Safeer OS as the desktop over Linux Mint)
         # mint-themes obstaja samo v Linux Mint, zato tu paket ne namescamo - preverimo vsebino.

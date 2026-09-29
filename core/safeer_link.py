@@ -32,6 +32,12 @@ from gi.repository import Gdk, Gtk, WebKit2, GLib  # noqa: E402
 from core import link_deljenje, link_hub, link_hub_streznik, link_iskanje, link_krog, link_seja, link_tls  # noqa: E402
 
 
+def _magnet_na_voljo() -> bool:
+    """Ali ta racunalnik zna odpreti magnet povezavo z druge naprave (Safeer OS je namescen)."""
+    from core import link_daljinec
+    return bool(link_daljinec._safeer_os())
+
+
 def secrets_token() -> str:
     import secrets
     return secrets.token_urlsafe(9)
@@ -1101,7 +1107,9 @@ class SafeerLink:
             + (["apps"] if self.programi is not None and self.programi.vklopljeno else [])
             + (["desktop"] if self.zaslon is not None and self.zaslon.na_voljo().get("dovoljeno") else [])
             # Safeer Chat: sporocila sprejema Control (in jih vpise v Sporocila Safeer OS).
-            + (["chat"] if self.control else []),
+            + (["chat"] if self.control else [])
+            # Magnet povezave z drugih naprav odpre Safeer OS na tem racunalniku.
+            + (["magnet"] if self.control and _magnet_na_voljo() else []),
             # Protocol v1: programi racunalnika kot katalog aplikacij (samo, ce jih je uporabnik dovolil).
             katalog=(self.programi.katalog_v1 if self.programi is not None else None),
             # Nezaupan racunalnik (link_seja): samo zeton te prijave, brez kroga zaupanja.
