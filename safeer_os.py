@@ -1118,6 +1118,13 @@ class SafeerOS(Gtk.Application):
                 str(a[4]) if len(a) > 4 else ""),
             "predvajalnikStanje": self._medijski_podatki,
             "predvajalnikUkaz": lambda: self._medijski_ukaz(str(a[0]) if a else "", a[1] if len(a) > 1 else None),
+            "dvdPogoni": lambda: __import__("core.os_dvd", fromlist=["pogoni"]).pogoni(),
+            "dvdPredvajaj": lambda: self._predvajaj_disk(str(a[0]) if a else ""),
+            "dvdMeni": lambda: bool(self._medijski_predvajalnik and self._medijski_predvajalnik.navigacija(str(a[0]) if a else "meni")),
+            "predvajalnikPodnapisi": lambda: (self._medijski_predvajalnik.podnapisi() if self._medijski_predvajalnik
+                                              else {"moznosti": [], "izbran": "izklop"}),
+            "predvajalnikIzberiPodnapise": lambda: bool(self._medijski_predvajalnik and
+                                                        self._medijski_predvajalnik.izberi_podnapise(str(a[0]) if a else "")),
             "iskanjeSplet": lambda: self._splet(_iskalnik() + GLib.uri_escape_string(str(a[0] if a else ""), None, False)),
             "zapiskiSeznam": lambda: self.zapiski.seznam(str(a[0]) if a else ""),
             "zapisekDobi": lambda: self.zapiski.dobi(str(a[0]) if a else ""),
@@ -1489,6 +1496,12 @@ class SafeerOS(Gtk.Application):
             if self._medijski_predvajalnik is None:
                 self._medijski_predvajalnik = os_predvajalnik.Predvajalnik(
                     Gst, self._osvezi_medijski_predvajalnik, self._medijski_konec)
+                from core import podnapisi as _pn
+                self._medijski_predvajalnik.nastavitve_podnapisov = _pn.nalozi_nastavitve()
+                self._medijski_predvajalnik.shrani_podnapise = _pn.shrani_nastavitve
+                self._medijski_predvajalnik.jezik_sistema = _pn.jezik_sistema()
+                self._medijski_predvajalnik.pripravi_podnapis = _pn.pripravi
+                self._medijski_predvajalnik.v_glavni = lambda f: GLib.idle_add(f)
                 if not self._medijski_tik_zacet:
                     self._medijski_tik_zacet = True
                     GLib.timeout_add_seconds(1, self._medijski_tik)
@@ -1576,6 +1589,11 @@ class SafeerOS(Gtk.Application):
                 self._medijski_premor = Gtk.Button(label="⏸ " + self._mb("premor"))
                 self._medijski_premor.connect("clicked", lambda _g: self._medijski_ukaz("premor"))
                 gumbi.pack_start(self._medijski_premor, False, False, 0)
+                # Podnapisi (kot v VLC): izklop, vgrajeni tokovi in datoteke ob videu; tipka V jih preklaplja.
+                self._medijski_podnapisi = Gtk.Button(label="💬 " + self._mb("podnapisi"))
+                self._medijski_podnapisi.set_no_show_all(True)
+                self._medijski_podnapisi.connect("clicked", self._medijski_meni_podnapisov)
+                gumbi.pack_end(self._medijski_podnapisi, False, False, 0)
                 celozaslonsko = Gtk.Button(label="⛶ " + self._mb("cel_zaslon"))
                 celozaslonsko.connect("clicked", lambda _g: okno.unfullscreen() if okno.get_window() and
                                      okno.get_window().get_state() & Gdk.WindowState.FULLSCREEN else okno.fullscreen())
@@ -1632,8 +1650,48 @@ class SafeerOS(Gtk.Application):
         naprej = [v.naslov for v in servis.vrsta[servis.indeks + 1:servis.indeks + 6]]
         self._medijski_vrsta.set_text(self._mb("cakalna_vrsta") + ": " + "  ·  ".join(naprej) if naprej else "")
         podatki = self._medijski_podatki()
+        if getattr(self, "_medijski_podnapisi", None) is not None:
+            self._medijski_podnapisi.set_visible(bool(podatki.get("podnapisi")) and podatki.get("vrsta") == "video")
         self._osvezi_medijski_drsnik(podatki)
         self._dogodek("predvajalnik", podatki)
+
+    def _ime_podnapisa(self, m: dict) -> str:
+        from core import podnapisi as _pn
+        jezik = m.get("jezik") or ""
+        ime = _pn.ime_jezika(jezik, _jezik()) if jezik else ""
+        if m.get("vgrajeni"):
+            return " · ".join(x for x in (ime, self._mb("podnapisi_vgrajeni")) if x) or self._mb("podnapisi_v_videu")
+        return " · ".join(x for x in (ime, m.get("oznaka") or "") if x) or str(m.get("ime") or "")
+
+    def _medijski_meni_podnapisov(self, gumb) -> None:
+        servis = self._medijski_predvajalnik
+        if servis is None:
+            return
+        stanje = servis.podnapisi()
+        meni = Gtk.Menu()
+        skupina = None
+        for kljuc, napis in [("izklop", self._mb("podnapisi_izklop"))] + \
+                [(m["kljuc"], self._ime_podnapisa(m)) for m in stanje["moznosti"]]:
+            postavka = Gtk.RadioMenuItem.new_with_label_from_widget(skupina, napis)
+            skupina = skupina or postavka
+            postavka.set_active(kljuc == stanje["izbran"])
+            postavka.connect("activate", lambda p, k=kljuc: p.get_active() and servis.izberi_podnapise(k))
+            meni.append(postavka)
+        meni.show_all()
+        meni.attach_to_widget(gumb, None)
+        meni.popup_at_widget(gumb, Gdk.Gravity.NORTH_WEST, Gdk.Gravity.SOUTH_WEST, None)
+
+    def _medijski_naslednji_podnapisi(self) -> bool:
+        """Tipka V: izklop -> prvi -> drugi ... -> izklop (kot v VLC)."""
+        servis = self._medijski_predvajalnik
+        if servis is None:
+            return False
+        stanje = servis.podnapisi()
+        kljuci = ["izklop"] + [m["kljuc"] for m in stanje["moznosti"]]
+        if len(kljuci) < 2:
+            return False
+        i = kljuci.index(stanje["izbran"]) if stanje["izbran"] in kljuci else 0
+        return servis.izberi_podnapise(kljuci[(i + 1) % len(kljuci)])
 
     @staticmethod
     def _medijski_cas_besedilo(sekunde: float) -> str:
@@ -1681,11 +1739,21 @@ class SafeerOS(Gtk.Application):
 
     def _medijska_tipka(self, okno, dogodek) -> bool:
         tipka = Gdk.keyval_name(dogodek.keyval)
+        servis = self._medijski_predvajalnik
+        if servis is not None and servis.je_dvd():
+            # Meni DVD: puščice in Enter premikajo izbiro (v filmu jih disk prezre), M odpre meni diska.
+            ukaz = {"Up": "gor", "Down": "dol", "Return": "potrdi", "KP_Enter": "potrdi", "m": "meni", "M": "meni"}.get(tipka or "")
+            if ukaz:
+                return servis.navigacija(ukaz)
+            if tipka in ("Left", "Right"):
+                servis.navigacija("levo" if tipka == "Left" else "desno")
         if tipka == "space":
             return self._medijski_ukaz("premor")
         if tipka in ("Left", "Right") and self._medijski_predvajalnik:
             podatki = self._medijski_podatki()
             return self._medijski_ukaz("skok", podatki["pozicija"] + (-10 if tipka == "Left" else 10))
+        if tipka and tipka.lower() == "v" and not dogodek.state & Gdk.ModifierType.CONTROL_MASK:
+            return self._medijski_naslednji_podnapisi()
         if tipka and (tipka.lower() == "f" or tipka == "F11"):
             return self._medijski_cel_zaslon(okno)
         if tipka and tipka.lower() in ("n", "p") and not dogodek.state & Gdk.ModifierType.CONTROL_MASK:
@@ -1797,6 +1865,14 @@ class SafeerOS(Gtk.Application):
             return False
         return True
 
+    def _predvajaj_disk(self, naprava: str) -> bool:
+        """DVD v optičnem pogonu (samo naprave /dev/sr*, ki jih javi core/os_dvd.pogoni)."""
+        from core import os_dvd
+        if not any(p["naprava"] == naprava and p["vstavljen"] for p in os_dvd.pogoni()):
+            return False
+        ime = next((p["ime"] for p in os_dvd.pogoni() if p["naprava"] == naprava), "DVD")
+        return self._predvajaj_neposredno("dvd://" + naprava, vrsta="video", prikazi=True, ime=ime)
+
     def _medijska_knjiznica(self):
         if self._knjiznica_medijev is None:
             self._knjiznica_medijev = os_knjiznica.Knjiznica()
@@ -1816,6 +1892,18 @@ class SafeerOS(Gtk.Application):
             album = self._medijska_knjiznica().skladbe_iz_mape(pot)
             seznam = [os_predvajalnik.Skladba(GLib.filename_to_uri(s["pot"], None), s["ime"]) for s in album]
             zacni = next((i for i, s in enumerate(album) if s.get("izbrana")), 0)
+        if prikazi:
+            # Video z datotekami podnapisov ob njem (ista mapa ali podmapa Subs), kot pri VLC.
+            from core import podnapisi as _pn
+            podnapisi = tuple((GLib.filename_to_uri(p, None), os.path.basename(p)) + _pn.jezik(pot, p)
+                              for p in _pn.podnapisi_mape(pot))
+            seznam = [os_predvajalnik.Skladba(GLib.filename_to_uri(pot, None), vnos["ime"], "video",
+                                              zacetek=zacetek, podnapisi=podnapisi)]
+            zacni = 0
+        from core import os_dvd
+        if prikazi and os_dvd.je_dvd(pot):
+            # DVD (ISO ali VIDEO_TS): GStreamer ga odpre kot disk, z meniji; napredka ne nadaljujemo.
+            return self._predvajaj_neposredno(os_dvd.uri(pot), vrsta="video", prikazi=True, ime=vnos["ime"])
         return self._predvajaj_neposredno(GLib.filename_to_uri(pot, None),
                                          vrsta="video" if prikazi else "medij", prikazi=prikazi,
                                          ime=vnos["ime"], zacetek=zacetek, seznam=seznam, zacni=zacni)
@@ -1844,8 +1932,17 @@ class SafeerOS(Gtk.Application):
             if vir is None:
                 return False
             ime = os.path.splitext(str(v.get("name") or ""))[0] or str(v.get("name") or "")
+            podnapisi = []
+            for p in (v.get("subtitles") or [])[:24] if not zvok else []:
+                if not isinstance(p, dict):
+                    continue
+                vp = link_pretok.vir_iz_streznika(streznik, str(p.get("id") or ""), kljuc, "text/plain")
+                if vp is not None:
+                    podnapisi.append((link_pretok.pretok().dodaj(vp), str(p.get("name") or ""),
+                                      str(p.get("lang") or ""), str(p.get("label") or "")))
             seznam.append(os_predvajalnik.Skladba(link_pretok.pretok().dodaj(vir), ime,
-                                                  "medij" if zvok else "video", izvor=str(izvor or "")))
+                                                  "medij" if zvok else "video", izvor=str(izvor or ""),
+                                                  podnapisi=tuple(podnapisi)))
         return self._predvajaj_neposredno(seznam[zacni].uri, vrsta="medij" if zvok else "video",
                                          prikazi=not zvok, ime=seznam[zacni].naslov,
                                          seznam=seznam, zacni=zacni)
@@ -1884,8 +1981,16 @@ class SafeerOS(Gtk.Application):
             print("[SafeerOS] magnet tok:", e)
             return {"ok": False, "koda": "napaka"}
         video = os_torrent.vrsta_datoteke(ime) == "video"
+        podnapisi = []
+        if video:
+            try:
+                from core import podnapisi as _pn
+                for j, pot_p in os_torrent.torrenti().podnapisi_za(tid, i):
+                    podnapisi.append((os_torrent.torrenti().tok(tid, j), os.path.basename(pot_p)) + _pn.jezik(ime, pot_p))
+            except Exception as e:  # noqa: BLE001 - podnapisi niso nujni za predvajanje
+                print("[SafeerOS] magnet podnapisi:", e)
         skladba = os_predvajalnik.Skladba(url, os.path.splitext(os.path.basename(ime))[0] or ime,
-                                          "video" if video else "medij", izvor="Magnet")
+                                          "video" if video else "medij", izvor="Magnet", podnapisi=tuple(podnapisi))
         ok = self._predvajaj_neposredno(url, vrsta="video" if video else "medij", prikazi=video,
                                         ime=skladba.naslov, seznam=[skladba], zacni=0)
         return {"ok": bool(ok)}
@@ -1960,7 +2065,8 @@ class SafeerOS(Gtk.Application):
                     if not vrsta or vrsta == "slike":
                         continue
                     try:
-                        uri = GLib.filename_to_uri(pot, None)
+                        from core import os_dvd
+                        uri = os_dvd.uri(pot) if os_dvd.je_dvd(pot) else GLib.filename_to_uri(pot, None)
                         if self._medijski_predvajalnik is None:
                             self._predvajaj_neposredno(uri, prikazi=vrsta != "glasba")
                         else:

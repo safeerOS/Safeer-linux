@@ -10,6 +10,8 @@ JEZIKI = ("sl", "en", "de", "es", "fr", "it")
 
 BESEDILA: dict[str, dict[str, str]] = {
     "sl": {
+        "dvd": "Diska ni mogoče prebrati. Zaščitenih diskov (CSS) Safeer ne odklepa.",
+        "podnapisi": "Podnapisi", "podnapisi_izklop": "Izklopljeno", "podnapisi_vgrajeni": "Vgrajeni", "podnapisi_v_videu": "Podnapisi v videu",
         "deli_datoteko": "Izberi datoteko za deljenje", "izberi_mapo": "Izberi mapo za deljenje",
         "premik": "Premik po posnetku", "dodaj_datoteke": "Dodaj datoteke", "prejsnja": "Prejšnja",
         "naslednja": "Naslednja", "premor": "Premor", "nadaljuj": "Nadaljuj", "cel_zaslon": "Cel zaslon",
@@ -21,6 +23,8 @@ BESEDILA: dict[str, dict[str, str]] = {
         "zacetek": "Predvajanja ni bilo mogoče začeti.", "splosno": "Predvajanje se je ustavilo zaradi napake.",
     },
     "en": {
+        "dvd": "The disc can't be read. Safeer doesn't unlock protected (CSS) discs.",
+        "podnapisi": "Subtitles", "podnapisi_izklop": "Off", "podnapisi_vgrajeni": "Built-in", "podnapisi_v_videu": "Subtitles in the video",
         "deli_datoteko": "Choose a file to share", "izberi_mapo": "Choose a folder to share",
         "premik": "Seek", "dodaj_datoteke": "Add files", "prejsnja": "Previous", "naslednja": "Next",
         "premor": "Pause", "nadaljuj": "Resume", "cel_zaslon": "Full screen", "cakalna_vrsta": "Up next",
@@ -31,6 +35,8 @@ BESEDILA: dict[str, dict[str, str]] = {
         "zacetek": "Playback couldn't start.", "splosno": "Playback stopped because of an error.",
     },
     "de": {
+        "dvd": "Die Disc kann nicht gelesen werden. Geschützte Discs (CSS) entsperrt Safeer nicht.",
+        "podnapisi": "Untertitel", "podnapisi_izklop": "Aus", "podnapisi_vgrajeni": "Eingebettet", "podnapisi_v_videu": "Untertitel im Video",
         "deli_datoteko": "Datei zum Teilen wählen", "izberi_mapo": "Ordner zum Teilen wählen",
         "premik": "Spulen", "dodaj_datoteke": "Dateien hinzufügen", "prejsnja": "Zurück", "naslednja": "Weiter",
         "premor": "Pause", "nadaljuj": "Fortsetzen", "cel_zaslon": "Vollbild", "cakalna_vrsta": "Als Nächstes",
@@ -42,6 +48,8 @@ BESEDILA: dict[str, dict[str, str]] = {
         "zacetek": "Die Wiedergabe konnte nicht starten.", "splosno": "Die Wiedergabe wurde wegen eines Fehlers beendet.",
     },
     "es": {
+        "dvd": "No se puede leer el disco. Safeer no desbloquea discos protegidos (CSS).",
+        "podnapisi": "Subtítulos", "podnapisi_izklop": "Desactivados", "podnapisi_vgrajeni": "Integrados", "podnapisi_v_videu": "Subtítulos del vídeo",
         "deli_datoteko": "Elige un archivo para compartir", "izberi_mapo": "Elige una carpeta para compartir",
         "premik": "Buscar", "dodaj_datoteke": "Añadir archivos", "prejsnja": "Anterior", "naslednja": "Siguiente",
         "premor": "Pausa", "nadaljuj": "Reanudar", "cel_zaslon": "Pantalla completa", "cakalna_vrsta": "A continuación",
@@ -53,6 +61,8 @@ BESEDILA: dict[str, dict[str, str]] = {
         "zacetek": "No se pudo iniciar la reproducción.", "splosno": "La reproducción se detuvo por un error.",
     },
     "fr": {
+        "dvd": "Impossible de lire le disque. Safeer ne déverrouille pas les disques protégés (CSS).",
+        "podnapisi": "Sous-titres", "podnapisi_izklop": "Désactivés", "podnapisi_vgrajeni": "Intégrés", "podnapisi_v_videu": "Sous-titres de la vidéo",
         "deli_datoteko": "Choisir un fichier à partager", "izberi_mapo": "Choisir un dossier à partager",
         "premik": "Avancer", "dodaj_datoteke": "Ajouter des fichiers", "prejsnja": "Précédent", "naslednja": "Suivant",
         "premor": "Pause", "nadaljuj": "Reprendre", "cel_zaslon": "Plein écran", "cakalna_vrsta": "À suivre",
@@ -64,6 +74,8 @@ BESEDILA: dict[str, dict[str, str]] = {
         "zacetek": "La lecture n'a pas pu démarrer.", "splosno": "La lecture s'est arrêtée à cause d'une erreur.",
     },
     "it": {
+        "dvd": "Impossibile leggere il disco. Safeer non sblocca i dischi protetti (CSS).",
+        "podnapisi": "Sottotitoli", "podnapisi_izklop": "Disattivati", "podnapisi_vgrajeni": "Integrati", "podnapisi_v_videu": "Sottotitoli nel video",
         "deli_datoteko": "Scegli un file da condividere", "izberi_mapo": "Scegli una cartella da condividere",
         "premik": "Scorri", "dodaj_datoteke": "Aggiungi file", "prejsnja": "Precedente", "naslednja": "Successivo",
         "premor": "Pausa", "nadaljuj": "Riprendi", "cel_zaslon": "Schermo intero", "cakalna_vrsta": "A seguire",

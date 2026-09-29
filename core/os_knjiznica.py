@@ -24,6 +24,10 @@ NAJVEC_V_MAPI = 5000
 
 def vrsta_datoteke(pot: Path) -> str:
     koncnica = pot.suffix.lower()
+    # DVD brez zaščite: slika ISO z VIDEO_TS ali mapa diska (VIDEO_TS.IFO) je film (core/os_dvd.py).
+    if koncnica == ".iso" or pot.name.upper() == "VIDEO_TS.IFO":
+        from core import os_dvd
+        return "filmi" if os_dvd.je_dvd(str(pot)) else ""
     if koncnica in GLASBA:
         return "glasba"
     if koncnica in SLIKE:
@@ -35,6 +39,9 @@ def vrsta_datoteke(pot: Path) -> str:
 
 
 def naslov_datoteke(pot: Path) -> str:
+    if pot.suffix.lower() == ".iso" or pot.name.upper() == "VIDEO_TS.IFO":
+        from core import os_dvd
+        return os_dvd.naslov(str(pot))
     return re.sub(r"[._]+", " ", pot.stem).strip() or pot.name
 
 
