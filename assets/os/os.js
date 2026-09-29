@@ -704,7 +704,10 @@
   }
   function mediaPredlog(v) {
     var b = el("button", "media-predlog", '<span class="media-predlog-znak">' + svg(v.vrsta === "glasba" ? "glasba" : v.vrsta === "radio" ? "radio" : "video") +
-      '</span><b>' + ubezi(v.ime) + '</b><small>' + ubezi(v.obmocje === "world" ? t("mediaSvetovno") : t("mediaPoRegiji")) + '</small>');
+      '</span><b>' + ubezi(v.ime) + '</b><small>' + ubezi(t("mediaSpletnaStran")) + ' · ' +
+      ubezi(v.obmocje === "world" ? t("mediaSvetovno") : t("mediaPoRegiji")) + '</small>');
+    // Predlog odpre spletno stran ponudnika – ni neposredni tok in ne obljublja predvajanja brez pogojev ponudnika.
+    b.title = t("mediaSpletnaStranNamig");
     b.type = "button";
     b.addEventListener("click", function () { klic("splet", [v.url]).catch(function () { obvesti(t("niUspelo")); }); });
     return b;
