@@ -39,7 +39,7 @@ class KnjiznicaTests(unittest.TestCase):
             self.assertEqual(knjiznica.dodaj(poti), 3)
             self.assertEqual(len(knjiznica.seznam(meja=2)), 2)
             self.assertEqual(len(knjiznica.seznam(meja=2, odmik=2)), 1)
-            self.assertEqual([v["ime"] for v in knjiznica.seznam(iskanje="Polet")], ["Poletje", "Polet"])
+            self.assertEqual([v["ime"] for v in knjiznica.seznam(iskanje="Polet")], ["Polet", "Poletje"])
             sumnik = root / "Šuma.mp3"
             sumnik.write_bytes(b"demo")
             knjiznica.dodaj([sumnik])
@@ -109,10 +109,40 @@ class KnjiznicaTests(unittest.TestCase):
                 pot.touch()
             knjiznica = Knjiznica(koren / "baza.sqlite3")
             knjiznica.dodaj(poti + [drugje])
-            self.assertEqual([v["pot"] for v in knjiznica.skladbe_iz_mape(str(poti[1]))],
-                             [str(poti[1]), str(poti[2])])
+            album = knjiznica.skladbe_iz_mape(str(poti[1]))
+            self.assertEqual([v["pot"] for v in album], [str(p) for p in poti])
+            self.assertEqual([v["izbrana"] for v in album], [False, True, False])
+            # Zadnja skladba ima album pred sabo, da »nazaj« deluje.
+            self.assertEqual(len(knjiznica.skladbe_iz_mape(str(poti[2]))), 3)
             poti[2].unlink()
-            self.assertEqual(len(knjiznica.skladbe_iz_mape(str(poti[1]))), 1)
+            self.assertEqual(len(knjiznica.skladbe_iz_mape(str(poti[1]))), 2)
+
+    def test_seznam_je_abecedno_urejen_in_predvajanje_ga_ne_premesa(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            koren = Path(tmp)
+            poti = [koren / ime for ime in ("zz top.mp3", "Čuki.mp3", "abba.mp3")]
+            for pot in poti:
+                pot.touch()
+            knjiznica = Knjiznica(koren / "baza.sqlite3")
+            knjiznica.dodaj(poti)
+            knjiznica.predvajano(str(poti[0]))
+            self.assertEqual([Path(v["pot"]).name for v in knjiznica.seznam()],
+                             ["abba.mp3", "zz top.mp3", "Čuki.mp3"] if "Č".casefold() > "z" else
+                             ["abba.mp3", "Čuki.mp3", "zz top.mp3"])
+
+    def test_medijski_center_pokaze_samo_predvajalnike(self):
+        from core import os_programi
+        self.assertTrue(os_programi.je_predvajalnik(["AudioVideo", "Player", "Video", "TV"]))  # Celluloid
+        self.assertTrue(os_programi.je_predvajalnik(["Audio", "AudioVideo"], "Shortwave Listen to internet radio"))
+        self.assertFalse(os_programi.je_predvajalnik(["Graphics", "Photography", "Viewer"], "Pix"))
+        self.assertFalse(os_programi.je_predvajalnik(["Graphics", "Scanning"], "Document Scanner"))
+        self.assertFalse(os_programi.je_predvajalnik(["Utility", "RemoteAccess", "AudioVideo"], "Safeer Control"))
+        self.assertFalse(os_programi.je_predvajalnik(["AudioVideo", "Audio"], "Easy Effects Audio effects"))
+        with tempfile.TemporaryDirectory() as tmp:
+            pot = Path(tmp) / "vlc.desktop"
+            pot.write_text("[Desktop Entry]\nType=Application\nName=VLC\nExec=vlc\nCategories=AudioVideo;Player;\n")
+            vnos = os_programi.preberi_vnos(str(pot))
+            self.assertTrue(vnos["medij"])
 
     def test_osvezitev_izbrane_mape_najde_nove_datoteke(self):
         with tempfile.TemporaryDirectory() as tmp:

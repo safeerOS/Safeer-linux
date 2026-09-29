@@ -125,6 +125,16 @@ class PredvajalnikTests(unittest.TestCase):
         self.player._sporocilo(None, SimpleNamespace(type="eos"))
         self.assertEqual(self.player.trenutna.naslov, "Dve")
 
+    def test_album_zacne_pri_izbrani_in_zna_nazaj(self):
+        album = [Skladba("https://example.test/ena.mp3", "Ena"),
+                 Skladba("https://example.test/dve.mp3", "Dve")]
+        self.assertTrue(self.player.zamenjaj_vrsto(album, 1))
+        self.assertEqual(self.player.trenutna.naslov, "Dve")
+        self.assertFalse(self.player.naslednja())
+        self.assertTrue(self.player.prejsnja())
+        self.assertEqual(self.player.trenutna.naslov, "Ena")
+        self.assertFalse(self.player.zamenjaj_vrsto(album, 2))
+
 
 if __name__ == "__main__":
     unittest.main()

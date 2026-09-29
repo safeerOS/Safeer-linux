@@ -1387,7 +1387,7 @@ class SafeerOS(Gtk.Application):
         return Gst
 
     def _predvajaj_neposredno(self, naslov: str, vrsta: str = "medij", prikazi: bool = True,
-                             ime: str = "", zacetek: int = 0, seznam=None) -> bool:
+                             ime: str = "", zacetek: int = 0, seznam=None, zacni: int = 0) -> bool:
         """Neposredni medij doda v čakalno vrsto domačega predvajalnika."""
         self._pocisti_medijski_pogled()
         try:
@@ -1477,7 +1477,7 @@ class SafeerOS(Gtk.Application):
                 self.add_window(okno)
                 self._medijski_predvajalnik_okno = okno
             if seznam:
-                uspesno = self._medijski_predvajalnik.zamenjaj_vrsto(seznam)
+                uspesno = self._medijski_predvajalnik.zamenjaj_vrsto(seznam, zacni)
             else:
                 self._medijski_predvajalnik.dodaj(naslov, predvajaj=True, vrsta=vrsta,
                                                   naslov=ime, zacetek=zacetek)
@@ -1666,13 +1666,14 @@ class SafeerOS(Gtk.Application):
         self._medijska_knjiznica().predvajano(pot)
         prikazi = vnos["vrsta"] != "glasba"
         zacetek = vnos["pozicija"] if prikazi and vnos["pozicija"] >= 15 else 0
-        seznam = None
+        seznam, zacni = None, 0
         if vnos["vrsta"] == "glasba":
-            seznam = [os_predvajalnik.Skladba(GLib.filename_to_uri(s["pot"], None), s["ime"])
-                      for s in self._medijska_knjiznica().skladbe_iz_mape(pot)]
+            album = self._medijska_knjiznica().skladbe_iz_mape(pot)
+            seznam = [os_predvajalnik.Skladba(GLib.filename_to_uri(s["pot"], None), s["ime"]) for s in album]
+            zacni = next((i for i, s in enumerate(album) if s.get("izbrana")), 0)
         return self._predvajaj_neposredno(GLib.filename_to_uri(pot, None),
                                          vrsta="video" if prikazi else "medij", prikazi=prikazi,
-                                         ime=vnos["ime"], zacetek=zacetek, seznam=seznam)
+                                         ime=vnos["ime"], zacetek=zacetek, seznam=seznam, zacni=zacni)
 
     def _odstrani_lokalni_medij(self, pot: str) -> bool:
         if not self._medijska_knjiznica().dobi(pot):

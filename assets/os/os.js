@@ -551,7 +551,7 @@
   function vrstaMedija(vnos) {
     if (vnos.vrsta) return vnos.vrsta;
     var s = ((vnos.ime || "") + " " + (vnos.url || "") + " " + (vnos.id || "") + " " + (vnos.opis || "")).toLowerCase();
-    if (/rtv|live.?tv|televiz|nasa.*live|euronews|france.?24/.test(s)) return "tv";
+    if (/rtv|live.?tv|watch tv|televiz|nasa.*live|euronews|france.?24/.test(s)) return "tv";
     if (/radio|podcast|tunein|radioplayer/.test(s)) return "radio";
     if (/glasb|music|spotify|deezer|soundcloud|rhythmbox|audacious|clementine/.test(s)) return "glasba";
     if (/serij|series|episode|arte|netflix/.test(s)) return "serije";
@@ -560,8 +560,9 @@
   }
   function medijskiVnosi() {
     var vnosi = [];
-    S.programi.filter(function (p) { return p.skupina === "predstavnost"; }).forEach(function (p) {
-      vnosi.push({ vrsta: vrstaMedija(p) || "video", program: p });
+    // Samo predvajalniki (XDG Player/TV, radio); urejevalniki slik in skenerji ostanejo v Programih.
+    S.programi.filter(function (p) { return p.skupina === "predstavnost" && p.medij; }).forEach(function (p) {
+      vnosi.push({ vrsta: vrstaMedija(p) || (p.zvok ? "glasba" : "video"), program: p });
     });
     spletne().forEach(function (a, i) {
       // Tuje spletne aplikacije ne zasedajo prostora v Medijskem centru.
@@ -663,7 +664,8 @@
     $("mediaStevec").textContent = prikaz.length ? String(prikaz.length) : "";
     $("mediaNaslovZbirke").textContent = vrsta === "vse" ? t("mediaTvojaZbirka") : mediaVrsta(vrsta);
     $("mediaHeroNaslov").textContent = vrsta === "vse" ? t("mediaHeroNaslov") : mediaVrsta(vrsta);
-    $("mediaHeroOpis").textContent = t(vrsta === "vse" ? "mediaHeroOpis" : "mediaHeroOpisIzbor");
+    // Prazno stanje nagovarja k dodajanju mape samo, dokler zbirka nima ničesar.
+    $("mediaHeroOpis").textContent = t(vrsta === "vse" && !lokalni.length && !S.mediaMape.length ? "mediaHeroOpis" : "mediaHeroOpisIzbor");
     var samoViri = vrsta === "tv" || vrsta === "radio";
     $("mediaMreza").previousElementSibling.hidden = samoViri;
     $("mediaMreza").hidden = samoViri;
