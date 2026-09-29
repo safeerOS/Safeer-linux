@@ -139,6 +139,44 @@ def razvrsti_datoteke(datoteke: List[dict]) -> List[dict]:
     return izid
 
 
+_POSEL = None
+
+
+def _vezi_na_safeer(proces) -> None:
+    """Windows: rqbit v "posel" (Job Object), ki se zapre s Safeer OS - tudi ob sesutju ne ostane sirota."""
+    global _POSEL
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.CreateJobObjectW.restype = wintypes.HANDLE
+        k32.OpenProcess.restype = wintypes.HANDLE
+        if _POSEL is None:
+            posel = k32.CreateJobObjectW(None, None)
+
+            class _Osnovno(ctypes.Structure):
+                _fields_ = [("a", ctypes.c_int64), ("b", ctypes.c_int64), ("LimitFlags", wintypes.DWORD),
+                            ("c", ctypes.c_size_t), ("d", ctypes.c_size_t), ("e", wintypes.DWORD),
+                            ("f", ctypes.c_size_t), ("g", wintypes.DWORD), ("h", wintypes.DWORD)]
+
+            class _IoStevci(ctypes.Structure):
+                _fields_ = [("x", ctypes.c_uint64 * 6)]
+
+            class _Razsirjeno(ctypes.Structure):
+                _fields_ = [("osnovno", _Osnovno), ("io", _IoStevci), ("p1", ctypes.c_size_t), ("p2", ctypes.c_size_t),
+                            ("p3", ctypes.c_size_t), ("p4", ctypes.c_size_t)]
+            info = _Razsirjeno()
+            info.osnovno.LimitFlags = 0x2000          # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            k32.SetInformationJobObject(posel, 9, ctypes.byref(info), ctypes.sizeof(info))  # Extended limits
+            _POSEL = posel
+        rocaj = k32.OpenProcess(0x0101, False, proces.pid)   # PROCESS_SET_QUOTA | PROCESS_TERMINATE
+        if rocaj:
+            k32.AssignProcessToJobObject(_POSEL, rocaj)
+            k32.CloseHandle(rocaj)
+    except Exception as e:  # noqa: BLE001 - brez posla rqbit še vedno ustavimo ob običajnem izhodu
+        print("[SafeerOS] rqbit posel:", e, flush=True)
+
+
 def _podnapisi_k_videom(datoteke: List[dict], izbrane) -> set:
     """Indeksi podnapisov v torrentu, ki sodijo k izbranim videom (ista mapa ali podmapa Subs)."""
     from core import podnapisi as pn
@@ -342,6 +380,8 @@ class Torrenti:
                 dodatno["start_new_session"] = True
             self._proces = subprocess.Popen(ukaz, env=okolje, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                             stderr=subprocess.DEVNULL, **dodatno)
+            if sys.platform.startswith("win"):
+                _vezi_na_safeer(self._proces)
             for _ in range(100):
                 time.sleep(0.1)
                 if self._proces.poll() is not None:
