@@ -65,9 +65,20 @@ class PredvajalnikTests(unittest.TestCase):
         self.assertEqual(self.player.stanje, "premor")
         self.player.premor()
         self.assertEqual(self.player.stanje, "predvaja")
-        self.player._sporocilo(None, SimpleNamespace(type="error", parse_error=lambda: ("ni dekoderja", "")))
+        napaka = SimpleNamespace(domain="gst-stream-error-quark", code=6)
+        self.player._sporocilo(None, SimpleNamespace(type="error", parse_error=lambda: (napaka, "")))
         self.assertEqual(self.player.stanje, "napaka")
-        self.assertIn("dekoderja", self.player.napaka)
+        self.assertEqual(self.player.napaka, "format")
+
+    def test_napake_so_razumljive_kode(self):
+        from core.os_predvajalnik import vrsta_napake, NAPAKE
+        tok = SimpleNamespace(domain="gst-stream-error-quark", code=1)   # souphttpsrc: Internal data stream error
+        self.assertEqual(vrsta_napake(tok, "https://neobstaja.invalid/tok.mp3"), "tok")
+        self.assertEqual(vrsta_napake(SimpleNamespace(domain="gst-resource-error-quark", code=3), "file:///x.mp3"), "datoteka")
+        self.assertEqual(vrsta_napake(SimpleNamespace(domain="gst-stream-error-quark", code=13), "https://a/b"), "zascita")
+        self.assertEqual(vrsta_napake("x", "file:///x.mp3"), "splosno")
+        for koda in ("tok", "datoteka", "format", "zascita", "zacetek", "splosno"):
+            self.assertIn(koda, NAPAKE)
 
     def test_lokalni_uri_in_zavrnjene_sheme(self):
         with tempfile.TemporaryDirectory() as mapa:
