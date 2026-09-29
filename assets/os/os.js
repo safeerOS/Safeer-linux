@@ -787,9 +787,24 @@
     var izbire = [];
     r.datoteke.forEach(function (f) {
       var vrstica = el("div", "media-mapa");
-      var izbira = el("input"); izbira.type = "checkbox"; izbira.checked = !!f.izbrana; izbira.disabled = f.vrsta === "nevarno";
+      var izbira = el("input"); izbira.type = "checkbox"; izbira.checked = !!f.izbrana;
       izbira.setAttribute("aria-label", f.ime);
-      izbire.push({ f: f, el: izbira });
+      var zapis = { f: f, el: izbira, potrjena: false };
+      izbire.push(zapis);
+      // Morda program: privzeto ne. Prepoznava se lahko zmoti, zato uporabnik po opozorilu vseeno izbere.
+      if (f.vrsta === "nevarno") izbira.addEventListener("change", function () {
+        var staro = vrstica.nextSibling && vrstica.nextSibling.classList && vrstica.nextSibling.classList.contains("magnet-opozorilo") ? vrstica.nextSibling : null;
+        if (staro) staro.remove();
+        if (!izbira.checked) { zapis.potrjena = false; return; }
+        if (zapis.potrjena) return;
+        izbira.checked = false;
+        var o = el("div", "magnet-opozorilo", ubezi(t("magnetNevarnoOpis", { ime: f.ime.split("/").pop() })));
+        var d = el("div", "magnet-dejanja");
+        d.appendChild(magnetGumb(t("magnetVseeno"), function () { zapis.potrjena = true; izbira.checked = true; o.remove(); izbira.focus(); }));
+        d.appendChild(magnetGumb(t("preklici"), function () { o.remove(); izbira.focus(); }));
+        o.appendChild(d);
+        vrstica.parentNode.insertBefore(o, vrstica.nextSibling);
+      });
       vrstica.appendChild(izbira);
       vrstica.insertAdjacentHTML("beforeend", svg(magnetIkona(f.vrsta)) + '<div><b title="' + ubezi(f.ime) + '">' + ubezi(f.ime) +
         '</b><small>' + ubezi(velikostMedija(f.velikost)) + '</small></div>');
@@ -800,10 +815,11 @@
     v.appendChild(seznam);
     var dejanja = el("div", "magnet-dejanja");
     dejanja.appendChild(magnetGumb(t("magnetPrenesiIzbrane"), function (g) {
-      var izbrane = izbire.filter(function (x) { return x.el.checked && !x.el.disabled; }).map(function (x) { return x.f.i; });
+      var izbrane = izbire.filter(function (x) { return x.el.checked && (x.f.vrsta !== "nevarno" || x.potrjena); }).map(function (x) { return x.f.i; });
+      var potrjene = izbire.filter(function (x) { return x.potrjena && x.el.checked; }).map(function (x) { return x.f.i; });
       if (!izbrane.length) { obvesti(magnetNapaka("ni_izbranih")); return; }
       g.disabled = true;
-      klic("magnetDodaj", [r.uri, izbrane]).then(function (d) {
+      klic("magnetDodaj", [r.uri, izbrane, potrjene]).then(function (d) {
         g.disabled = false;
         obvesti(d && d.ok ? t("magnetPrenasam") : magnetNapaka(d && d.koda));
         magnetOsveziPrenose();

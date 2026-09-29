@@ -1186,7 +1186,8 @@ class SafeerOS(Gtk.Application):
             "magnetPrenesiProgram": self._magnet_prenesi_program,
             "magnetPreberi": lambda: _magnet_klic(lambda: os_torrent.torrenti().preberi(str(a[0]) if a else "")),
             "magnetDodaj": lambda: _magnet_klic(lambda: {"id": os_torrent.torrenti().dodaj(
-                str(a[0]) if a else "", [int(x) for x in (a[1] if len(a) > 1 and isinstance(a[1], list) else [])])}),
+                str(a[0]) if a else "", [int(x) for x in (a[1] if len(a) > 1 and isinstance(a[1], list) else [])],
+                [int(x) for x in (a[2] if len(a) > 2 and isinstance(a[2], list) else [])])}),
             "magnetSeznam": lambda: os_torrent.torrenti().seznam(),
             "magnetPremor": lambda: os_torrent.torrenti().premor(int(a[0])),
             "magnetNadaljuj": lambda: _magnet_klic(lambda: os_torrent.torrenti().nadaljuj(int(a[0]))),

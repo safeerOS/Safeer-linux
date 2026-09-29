@@ -33,7 +33,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Iterable, Callable, Dict, List, Optional, Tuple
 
 RQBIT_RAZLICICA = "9.0.1"
 #: Uradne izdaje (github.com/ikatson/rqbit/releases/tag/v9.0.1) in njihov SHA-256 iz GitHubovega "digest".
@@ -394,10 +394,15 @@ class Torrenti:
         return {"hash": str(podrobno.get("info_hash") or m["hash"]), "ime": str(podrobno.get("name") or m["ime"]),
                 "datoteke": datoteke, "sumljiv": sumljiv(datoteke), "uri": m["uri"]}
 
-    def dodaj(self, magnet: str, izbrane: List[int]) -> int:
-        """Začne prenos izbranih datotek (nevarnih nikoli); če torrent že teče, doda datoteke. Vrne id."""
+    def dodaj(self, magnet: str, izbrane: List[int], potrjene_nevarne: Iterable[int] = ()) -> int:
+        """Začne prenos izbranih datotek; če torrent že teče, doda datoteke. Vrne id.
+
+        Datoteko, ki je videti kot program, prenesemo samo, če jo je uporabnik po opozorilu izrecno
+        potrdil (potrjene_nevarne): prepoznava je samodejna in se lahko zmoti, odločitev je njegova.
+        Predvajamo je nikoli (tok() jo zavrne)."""
         opis = self.preberi(magnet)
-        dovoljene = {d["i"] for d in opis["datoteke"] if d["vrsta"] != "nevarno"}
+        potrjene = {int(i) for i in potrjene_nevarne}
+        dovoljene = {d["i"] for d in opis["datoteke"] if d["vrsta"] != "nevarno" or d["i"] in potrjene}
         izbrane = sorted({int(i) for i in izbrane} & dovoljene)
         if not izbrane:
             raise NapakaTorrenta("ni_izbranih")
