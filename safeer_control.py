@@ -712,6 +712,7 @@ class SafeerControl(Gtk.Application):
       <method name="Upravljaj"><arg type="s" name="naprava" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="Klepet"><arg type="s" name="naprava" direction="in"/><arg type="s" name="besedilo" direction="in"/><arg type="s" name="cas" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="KlepetNaprave"><arg type="s" name="json" direction="out"/></method>
+      <method name="Datoteke"><arg type="s" name="naprava" direction="in"/><arg type="s" name="mapa" direction="in"/><arg type="s" name="json" direction="out"/></method>
     </interface></node>"""
 
     def _izvozi_naprave(self) -> None:
@@ -759,6 +760,24 @@ class SafeerControl(Gtk.Application):
             return {"ok": stanje in ("accepted", "queued"), "stanje": stanje}
         if metoda == "KlepetNaprave":
             return {"ok": True, "naprave": list(link.naprave_klepeta)}
+        if metoda == "Datoteke":
+            # Deljene mape druge naprave (files.list) za Safeer Media: seznam + streznik (naslov, odtis, zeton).
+            # Doda kljuc naprave iz kroga: z njim gre tok prek Global Linka, kadar naprave ni v tem omrezju.
+            id_naprave = str(a[0]) if a else ""
+            r = link.ukaz_pocakaj(id_naprave, "files.list", {"folder": str(a[1]) if len(a) > 1 else ""}, cas=15.0)
+            if not r.get("ok"):
+                return {"ok": False, "koda": r.get("koda") or "napaka", "message": r.get("message") or ""}
+            d = r.get("data") or {}
+            try:
+                from core import link_krog
+                clan = link_krog.krog().clan_za_id(id_naprave) or {}
+            except Exception:
+                clan = {}
+            return {"ok": True, "items": d.get("items") if isinstance(d.get("items"), list) else [],
+                    "folder": str(d.get("folder") or ""), "shared": bool(d.get("shared", True)),
+                    "reason": str(d.get("reason") or ""),
+                    "server": d.get("server") if isinstance(d.get("server"), dict) else None,
+                    "kljuc": str(clan.get("kljuc") or "")}
         if metoda == "Aplikacije":
             id_naprave = str(a[0]) if a else ""
             # Po kosih (racunalnik daje najvec 60 z ikonami na sporocilo); Android vrne vse naenkrat.

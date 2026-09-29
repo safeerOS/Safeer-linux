@@ -408,6 +408,19 @@ def vse_naprave() -> list:
              "vrsta": n.get("vrsta", ""), "ta": bool(n.get("ta"))} for n in izid.get("naprave") or [] if n.get("id")]
 
 
+def naprave_z_datotekami() -> list:
+    """Druge naprave v Linku, ki delijo datoteke (zmoznost "files"): za Safeer Media -> Naprave."""
+    izid = _control_naprave("Seznam")
+    return [{"id": n.get("id", ""), "ime": n.get("ime", ""), "platforma": n.get("platforma", ""),
+             "vrsta": n.get("vrsta", "")}
+            for n in izid.get("naprave") or [] if n.get("id") and not n.get("ta") and "files" in (n.get("zmoznosti") or [])]
+
+
+def datoteke_naprave(id_naprave: str, mapa: str = "") -> dict:
+    """Mapa druge naprave (files.list prek Controla): vnosi, streznik za tok in kljuc naprave iz kroga."""
+    return _control_naprave("Datoteke", str(id_naprave or ""), str(mapa or ""))
+
+
 def preimenuj_napravo(id_naprave: str, ime: str) -> dict:
     """Novo ime naprave (tudi tega racunalnika) za vse naprave v Linku; hrani ga sredisce."""
     return _control_naprave("Preimenuj", str(id_naprave or ""), str(ime or ""))
@@ -1045,6 +1058,10 @@ class SafeerOS(Gtk.Application):
                 str(a[2]) if len(a) > 2 else ""),
             "odpriMedijskiTok": lambda: self._odpri_medijski_tok(str(a[0]) if a else ""),
             "odpriLokalniMedij": lambda: self._odpri_lokalni_medij(str(a[0]) if a else ""),
+            "predvajajZNaprave": lambda: self._predvajaj_z_naprave(
+                a[0] if a and isinstance(a[0], dict) else {}, str(a[1]) if len(a) > 1 else "",
+                a[2] if len(a) > 2 and isinstance(a[2], list) else [], int(a[3]) if len(a) > 3 else 0,
+                str(a[4]) if len(a) > 4 else ""),
             "predvajalnikStanje": self._medijski_podatki,
             "predvajalnikUkaz": lambda: self._medijski_ukaz(str(a[0]) if a else "", a[1] if len(a) > 1 else None),
             "iskanjeSplet": lambda: self._splet(_iskalnik() + GLib.uri_escape_string(str(a[0] if a else ""), None, False)),
@@ -1109,6 +1126,8 @@ class SafeerOS(Gtk.Application):
             "zvokNaNapravo": lambda: zvok_na_napravo(str(a[0]) if a else ""),
             "napraveSProgrami": naprave_s_programi,
             "vseNaprave": vse_naprave,
+            "napraveZDatotekami": naprave_z_datotekami,
+            "datotekeNaprave": lambda: datoteke_naprave(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "preimenujNapravo": lambda: preimenuj_napravo(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "upravljajRacunalnik": lambda: upravljaj_racunalnik(str(a[0]) if a else ""),
             "programiNaprave": lambda: programi_naprave(str(a[0]) if a else ""),
@@ -1513,7 +1532,9 @@ class SafeerOS(Gtk.Application):
         except Exception as e:  # noqa: BLE001
             print("[SafeerOS] neposredni medij:", e)
             self._ustavi_neposredni_medij()
-            return self._splet(naslov) if vrsta == "medij" and naslov.startswith(("http://", "https://")) else False
+            # Lokalni varni tok (127.0.0.1/m/<skrivnost>) ni spletna stran: ne v brskalnik in ne v zgodovino.
+            return self._splet(naslov) if vrsta == "medij" and naslov.startswith(("http://", "https://")) \
+                and not naslov.startswith("http://127.0.0.1:") else False
 
     def _ustavi_neposredni_medij(self) -> None:
         if self._medijski_predvajalnik is not None:
@@ -1727,6 +1748,36 @@ class SafeerOS(Gtk.Application):
         return self._predvajaj_neposredno(GLib.filename_to_uri(pot, None),
                                          vrsta="video" if prikazi else "medij", prikazi=prikazi,
                                          ime=vnos["ime"], zacetek=zacetek, seznam=seznam, zacni=zacni)
+
+    def _predvajaj_z_naprave(self, streznik: dict, kljuc: str, vnosi: list, zacni: int = 0, izvor: str = "") -> bool:
+        """Glasba ali video z druge naprave v Linku, sproti in brez prenosa na disk.
+
+        Predvajalnik dobi lokalni naslov 127.0.0.1 (core/link_pretok.py), ta pa bere z naprave po HTTPS s
+        pripetim potrdilom in zetonom - doma neposredno, zunaj doma prek Global Linka (kljuc iz kroga).
+        Glasba: vse skladbe mape v vrsti (album); video: samo izbrani posnetek, v oknu predvajalnika."""
+        from core import link_pretok
+        vnosi = [v for v in vnosi if isinstance(v, dict) and v.get("type") in ("audio", "video")]
+        if not vnosi:
+            return False
+        zacni = max(0, min(int(zacni or 0), len(vnosi) - 1))
+        izbran = vnosi[zacni]
+        zvok = izbran.get("type") == "audio"
+        if not zvok:
+            vnosi, zacni = [izbran], 0
+        elif any(v.get("type") != "audio" for v in vnosi):
+            vnosi = [v for v in vnosi if v.get("type") == "audio"]
+            zacni = vnosi.index(izbran)
+        seznam = []
+        for v in vnosi:
+            vir = link_pretok.vir_iz_streznika(streznik, str(v.get("id") or ""), kljuc, str(v.get("mime") or ""))
+            if vir is None:
+                return False
+            ime = os.path.splitext(str(v.get("name") or ""))[0] or str(v.get("name") or "")
+            seznam.append(os_predvajalnik.Skladba(link_pretok.pretok().dodaj(vir), ime,
+                                                  "medij" if zvok else "video", izvor=str(izvor or "")))
+        return self._predvajaj_neposredno(seznam[zacni].uri, vrsta="medij" if zvok else "video",
+                                         prikazi=not zvok, ime=seznam[zacni].naslov,
+                                         seznam=seznam, zacni=zacni)
 
     def _odstrani_lokalni_medij(self, pot: str) -> bool:
         if not self._medijska_knjiznica().dobi(pot):

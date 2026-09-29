@@ -805,6 +805,11 @@ select option { background: #132631; color: #e8f1ef; }
 .media-mapa b { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; }
 .media-mapa small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .media-mape-plosca .gumbi { display:flex; justify-content:flex-end; gap:10px; }
+.media-naprave-seznam { max-height:min(56vh, 520px); overflow:auto; }
+.media-naprave-plosca [hidden] { display:none !important; }
+.media-naprave-seznam .media-mapa { width:100%; text-align:left; color:inherit; font:inherit; cursor:pointer; }
+.media-naprave-seznam .media-mapa:hover, .media-naprave-seznam .media-mapa:focus-visible { border-color:var(--zelena); outline:none; }
+.media-naprave-seznam .media-mapa:disabled { cursor:default; opacity:.6; }
 .media-mapa small { color:var(--medlo); font-size:12px; }
 .media-mapa.nedosegljiva b { color:var(--medlo); }
 .media-mapa button { flex:none; height:34px; padding:0 12px; border-radius:9px; border:1px solid var(--rob); font-size:13px; }

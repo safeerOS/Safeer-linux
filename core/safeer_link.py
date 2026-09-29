@@ -727,6 +727,8 @@ class SafeerLink:
         if g is None:
             ime = "Safeer Control (" + link_hub._ime_naprave().split(".")[0] + ")"
             g = link_hub_streznik.HubGostitelj(poisci=self._poisci_tuj_hub, ime=ime)
+            # Deljene mape tudi prek Huba (/cast/d/): po Global Linku pride samo povezava do vrat Huba.
+            g.streznik.datoteke = lambda: getattr(self.datoteke, "streznik", None)
             self._hub_gostitelj = g
         return g
 
