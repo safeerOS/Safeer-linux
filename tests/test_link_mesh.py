@@ -306,6 +306,28 @@ class Klicanje(unittest.TestCase):
         izbrani = [h["id"] for h in m.kandidati([self.oglas("n-a")], zdaj=100.0 + self.link_mesh.VECJI_CAKA_S + 1)]
         self.assertEqual(izbrani, ["n-a"])
 
+    def test_zapomnjeni_naslov_brez_mdns(self):
+        import tempfile, os
+        pot = os.path.join(tempfile.mkdtemp(), "znani.json")
+        m = self.link_mesh.MeshPovezovalec(self.hub, "n-m", pot_znanih=pot, poisci=lambda: [])
+        m.zapomni("n-z", "192.168.0.220")          # samo IP iz dohodne povezave
+        m2 = self.link_mesh.MeshPovezovalec(lhs.Hub(odtis="bb" * 32, nas_id="n-m"), "n-m", pot_znanih=pot,
+                                            poisci=lambda: [])
+        self.assertEqual(m2._znani["n-z"]["naslov"], "wss://192.168.0.220:8990/cast/ws")
+        klicani = []
+        m2._klici = lambda h: klicani.append(h["id"])
+        import threading
+        stari = threading.Thread
+        class Takoj:
+            def __init__(self, target=None, args=(), **_k): self.t, self.a = target, args
+            def start(self): self.t(*self.a)
+        threading.Thread = Takoj
+        try:
+            m2.en_krog()
+        finally:
+            threading.Thread = stari
+        self.assertEqual(klicani, ["n-z"])
+
 
 if __name__ == "__main__":
     unittest.main()

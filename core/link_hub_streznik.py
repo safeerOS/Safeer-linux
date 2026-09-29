@@ -188,6 +188,9 @@ class Hub:
         self._sosedje: Dict[str, object] = {}
         self._sosed_naprave: Dict[str, set] = {}
         self._zadnji_mesh = ""
+        #: Klice se, ko sosed pride ali odide (id, naslov ali ""): MeshPovezovalec si zapomni naslov
+        #: in ob izgubi takoj poskusi znova.
+        self.ob_sosedu: Optional[Callable[[str, str], None]] = None
 
     # ------------------------------------------------------------------ prijava s podpisom
 
@@ -967,6 +970,11 @@ class Hub:
                 stara.zapri(1000, "podvojena sosednja povezava")
             except Exception:
                 pass
+        if self.ob_sosedu is not None:
+            try:
+                self.ob_sosedu(sosed_id, str(getattr(povezava, "naslov", "") or ""))
+            except Exception:
+                pass
         # Novemu sosedu takoj nase naprave in nas krog.
         self._objavi_sosedom(samo=povezava)
         try:
@@ -1005,6 +1013,11 @@ class Hub:
             self._sosedje.pop(sosed_id, None)
         if self._pocisti_soseda(sosed_id):
             self.objavi_naprave()
+        if self.ob_sosedu is not None:
+            try:
+                self.ob_sosedu(sosed_id, "")
+            except Exception:
+                pass
 
     def _sosedove_naprave(self, sosed_id: str, povezava, naprave: dict) -> None:
         novi: Dict[str, dict] = {}
@@ -1143,7 +1156,8 @@ class Hub:
             return None
         if tip == "mesh.trust":
             try:
-                spremenjeno = link_krog.krog().zdruzi(tovor)
+                # Nov clan, drug kljuc in umik samo s podpisom clana, ki ga ze poznamo.
+                spremenjeno = link_krog.krog().zdruzi(tovor, preveri_podpise=True)
             except Exception:
                 spremenjeno = False
             if spremenjeno:
@@ -2042,7 +2056,10 @@ class HubGostitelj:
                 if mesh_vklopljen() and self.nas_id and getattr(self.streznik, "hub", None) is not None:
                     from core import link_mesh
                     self.streznik.hub.nas_id = self.nas_id
-                    self.mesh = link_mesh.MeshPovezovalec(self.streznik.hub, self.nas_id, self.ime)
+                    import os
+                    self.mesh = link_mesh.MeshPovezovalec(
+                        self.streznik.hub, self.nas_id, self.ime,
+                        pot_znanih=os.path.join(link_krog._mapa_nastavitev(), "mesh-sosedje.json"))
                     self.mesh.zazeni()
                 return True
             if self.streznik.tece():

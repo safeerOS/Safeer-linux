@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import collections
 import json
+import os
 import threading
 import time
 from typing import Callable, Dict, List, Optional
@@ -23,7 +24,13 @@ from core import link_hub, link_krog, link_tls
 ISCI_VSAKIH_S = 15.0
 VECJI_CAKA_S = 40.0
 #: Srcni utrip sosednje povezave (streznik na drugi strani pinga sam; to je nasa stran).
-UTRIP_S = 25.0
+UTRIP_S = 10.0
+#: Po izgubi soseda poskusimo znova hitro (on se je morda le znova zagnal).
+PONOVNO_PO_S = 2.0
+#: Vrata Huba, kadar naslov soseda poznamo samo iz dohodne povezave (IP brez oglasa mDNS).
+PRIVZETA_VRATA = 8990
+#: Najvec zapomnjenih naslovov sosedov.
+NAJVEC_ZNANIH = 32
 #: Najvec cakajocih sporocil na sosednjo povezavo, preden jo zapremo (sosed ne bere).
 NAJVEC_V_VRSTI = 512
 
@@ -85,7 +92,7 @@ class MeshPovezovalec:
     """Poisce in vzdrzuje sosednje povezave nasega Huba."""
 
     def __init__(self, hub, nas_id: str, ime: str = "Safeer",
-                 poisci: Optional[Callable[[], List[dict]]] = None) -> None:
+                 poisci: Optional[Callable[[], List[dict]]] = None, pot_znanih: str = "") -> None:
         self.hub = hub
         self.nas_id = nas_id
         self.ime = ime
@@ -93,8 +100,14 @@ class MeshPovezovalec:
         self._klicem: set = set()
         self._prvic_videni: Dict[str, float] = {}
         self._ustavljen = threading.Event()
+        self._zbudi = threading.Event()
         self._zaklep = threading.Lock()
         self._nit: Optional[threading.Thread] = None
+        #: Zapomnjeni naslovi sosedov (id -> oglas): za naprave, ki jih mDNS ne vidi (pozarni zid,
+        #: izolacija), in za hiter ponovni priklop po ponovnem zagonu.
+        self._pot_znanih = pot_znanih
+        self._znani: Dict[str, dict] = self._nalozi_znane()
+        hub.ob_sosedu = self._ob_sosedu
 
     def zazeni(self) -> None:
         if self._nit is not None:
@@ -104,6 +117,55 @@ class MeshPovezovalec:
 
     def ustavi(self) -> None:
         self._ustavljen.set()
+        self._zbudi.set()
+
+    # -- zapomnjeni naslovi
+
+    def _nalozi_znane(self) -> Dict[str, dict]:
+        if not self._pot_znanih:
+            return {}
+        try:
+            with open(self._pot_znanih, encoding="utf-8") as d:
+                zapis = json.load(d)
+            return {str(k): v for k, v in zapis.items() if isinstance(v, dict) and str(v.get("naslov", "")).startswith("wss://")}
+        except Exception:
+            return {}
+
+    def _shrani_znane(self) -> None:
+        if not self._pot_znanih:
+            return
+        try:
+            os.makedirs(os.path.dirname(self._pot_znanih), exist_ok=True)
+            zacasna = self._pot_znanih + ".tmp"
+            with open(zacasna, "w", encoding="utf-8") as d:
+                json.dump(self._znani, d)
+            os.replace(zacasna, self._pot_znanih)
+        except Exception:
+            pass
+
+    def zapomni(self, hid: str, naslov: str) -> None:
+        """Naslov soseda si zapomnimo (iz oglasa ali dohodne povezave; IP brez vrat = privzeta vrata)."""
+        if not hid or hid == self.nas_id or not naslov:
+            return
+        if not naslov.startswith("wss://"):
+            naslov = "wss://%s:%d/cast/ws" % (naslov, PRIVZETA_VRATA)
+        with self._zaklep:
+            if self._znani.get(hid, {}).get("naslov") == naslov:
+                return
+            self._znani[hid] = {"id": hid, "naslov": naslov, "tls": True, "mesh": link_hub_streznik_mesh()}
+            while len(self._znani) > NAJVEC_ZNANIH:
+                self._znani.pop(next(iter(self._znani)))
+        self._shrani_znane()
+
+    def _ob_sosedu(self, hid: str, naslov: str) -> None:
+        if naslov:
+            # Naslov iz odhodne povezave je pravi (z vrati); iz dohodne je samo IP.
+            znan = self._znani.get(hid, {}).get("naslov", "")
+            if not (znan and naslov in znan):
+                self.zapomni(hid, naslov)
+            return
+        # Sosed je odsel: hitro poskusimo znova (morda se je le znova zagnal ali zamenjal omrezje).
+        threading.Timer(PONOVNO_PO_S, self._zbudi.set).start()
 
     def _zanka(self) -> None:
         self._ustavljen.wait(2.0)
@@ -112,7 +174,8 @@ class MeshPovezovalec:
                 self.en_krog()
             except Exception as e:  # noqa: BLE001
                 print("[SafeerLink] mesh:", e)
-            self._ustavljen.wait(ISCI_VSAKIH_S)
+            self._zbudi.wait(ISCI_VSAKIH_S)
+            self._zbudi.clear()
 
     def kandidati(self, oglasi: List[dict], zdaj: Optional[float] = None) -> List[dict]:
         """Oglasi Hubov, ki jih moramo zdaj poklicati (brez omrezja - preizkusljivo)."""
@@ -140,7 +203,15 @@ class MeshPovezovalec:
         return izbrani
 
     def en_krog(self) -> None:
-        for h in self.kandidati(self.poisci()):
+        oglasi = list(self.poisci() or [])
+        for h in oglasi:
+            if h.get("mesh") == link_hub_streznik_mesh() and h.get("tls"):
+                self.zapomni(str(h.get("id") or ""), str(h.get("naslov") or ""))
+        # Kogar mDNS ta hip ne vidi, poskusimo na zapomnjenem naslovu.
+        videni = {str(h.get("id") or "") for h in oglasi}
+        with self._zaklep:
+            oglasi += [dict(z) for hid, z in self._znani.items() if hid not in videni]
+        for h in self.kandidati(oglasi):
             with self._zaklep:
                 self._klicem.add(h["id"])
             threading.Thread(target=self._klici, args=(h,), name="safeer-mesh-klic", daemon=True).start()
@@ -175,7 +246,7 @@ class MeshPovezovalec:
         ws.poslji(json.dumps({"id": str(int(time.time() * 1000)), "type": "cast.register",
                               "payload": {"device_id": self.nas_id, "name": self.ime, "role": "hub",
                                           "capabilities": [link_hub_streznik_mesh()], "protocol": "1"}}))
-        povezava = OdhodnaSosednja(ws, naslov.split("//", 1)[-1].split(":", 1)[0])
+        povezava = OdhodnaSosednja(ws, naslov)
         if not self.hub.dodaj_soseda(hid, povezava, self.nas_id):
             povezava.zapri()
             return

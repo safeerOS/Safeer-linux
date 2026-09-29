@@ -87,6 +87,21 @@ def preveri_podpis(kljuc_b64: str, podatki: bytes, podpis_b64: str) -> bool:
     return link_kripto.preveri(der, podatki, podpis)
 
 
+def podatki_clana(device_id: str, kljuc: str, platforma: str, dodano: float, dodal: str) -> bytes:
+    """Kar podpise naprava, ki v krog doda drugo napravo (KrogZaupanja.podatkiClana).
+
+    Podpis je vezan na id, kljuc, platformo, cas in podpisnika, zato vnosa ni mogoce ne spremeniti
+    ne prestaviti k drugemu clanu. Brez njega bi lahko vsak, ki krog posreduje (npr. rele), vanj
+    podtaknil svoj kljuc - zato je podpis pogoj, kadar krog pride od naprave in ne od nasega huba.
+    """
+    return ("safeer-krog-clan-v1\n%s\n%s\n%s\n%.3f\n%s" % (device_id, kljuc, platforma or "", dodano, dodal or "")).encode("utf-8")
+
+
+def podatki_umika(device_id: str, umaknjeno: float, umaknil: str) -> bytes:
+    """Kar podpise naprava, ki clana umakne (KrogZaupanja.podatkiUmika)."""
+    return ("safeer-krog-umik-v1\n%s\n%.3f\n%s" % (device_id, umaknjeno, umaknil or "")).encode("utf-8")
+
+
 def podatki_za_podpis(odtis_huba: str, nonce: str, device_id: str) -> bytes:
     """Kar naprava podpise ob prijavi: vezano na odtis huba in enkratni izziv (HubUsmerjevalnik.podatkiZaPodpis)."""
     return f"safeer-link-auth\n{(odtis_huba or '').lower()}\n{nonce}\n{device_id}".encode("utf-8")
@@ -174,30 +189,124 @@ class Krog:
         with self._zaklep:
             return {
                 "v": 1,
-                "clani": {i: {"kljuc": c["kljuc"], "ime": c["ime"], "platforma": c["platforma"],
-                              "dodano": c["dodano"], "dodal": c["dodal"]} for i, c in sorted(self.clani.items())},
-                "umiki": {i: {"umaknjeno": u["umaknjeno"], "umaknil": u["umaknil"]} for i, u in sorted(self.umiki.items())},
+                "clani": {i: dict({"kljuc": c["kljuc"], "ime": c["ime"], "platforma": c["platforma"],
+                                   "dodano": c["dodano"], "dodal": c["dodal"]},
+                                  **({"imenovano": c["imenovano"]} if c.get("imenovano") else {}),
+                                  **({"podpis": c["podpis"]} if c.get("podpis") else {}))
+                            for i, c in sorted(self.clani.items())},
+                "umiki": {i: dict({"umaknjeno": u["umaknjeno"], "umaknil": u["umaknil"]},
+                                  **({"podpis": u["podpis"]} if u.get("podpis") else {}))
+                          for i, u in sorted(self.umiki.items())},
             }
 
     # -- pisanje
 
     def dodaj(self, device_id: str, kljuc: str, ime: str, platforma: str, dodal: str,
-              dodano: Optional[float] = None) -> bool:
+              dodano: Optional[float] = None, podpis: str = "") -> bool:
         if not device_id or not _veljaven_kljuc(kljuc):
             return False
-        return self.zdruzi({"clani": {device_id: {"kljuc": kljuc, "ime": ime, "platforma": platforma,
-                                                  "dodano": dodano if dodano is not None else time.time(),
-                                                  "dodal": dodal}}})
+        dodano = dodano if dodano is not None else time.time()
+        if not podpis and self._smo_mi(dodal):
+            # Vnos podpisemo s kljucem te naprave: tako ga druge naprave lahko preverijo tudi takrat,
+            # ko krog ne pride od huba, ampak od naprave ali prek releja.
+            try:
+                podpis = podpisi(podatki_clana(device_id, kljuc, platforma, dodano, dodal))
+            except Exception:
+                podpis = ""
+        vnos = {"kljuc": kljuc, "ime": ime, "platforma": platforma, "dodano": dodano, "dodal": dodal}
+        if podpis:
+            vnos["podpis"] = podpis
+        return self.zdruzi({"clani": {device_id: vnos}})
+
+    def _smo_mi(self, device_id: str) -> bool:
+        """Ali je ta id nasa naprava (isti kljuc)? Samo zase lahko podpisujemo."""
+        if not device_id:
+            return False
+        try:
+            nas = javni_kljuc_b64()
+        except Exception:
+            return False
+        c = self.clani.get(device_id)
+        if c and c.get("kljuc") == nas:
+            return True
+        return id_iz_kljuca(nas) == device_id[:DOLZINA_ID_IZ_KLJUCA]
 
     def umakni(self, device_id: str, kdo: str, ob: Optional[float] = None) -> bool:
         """Umakne clana (nadgrobnik ostane, da umik preide na vse naprave). Naprava, ki je ni v
         krogu, ne spremeni nicesar - sicer bi vsak tuj id pustil nadgrobnik."""
         if not self.je_clan(device_id):
             return False
-        return self.zdruzi({"umiki": {device_id: {"umaknjeno": ob if ob is not None else time.time(), "umaknil": kdo}}})
+        ob = ob if ob is not None else time.time()
+        umik = {"umaknjeno": ob, "umaknil": kdo}
+        if self._smo_mi(kdo):
+            try:
+                umik["podpis"] = podpisi(podatki_umika(device_id, ob, kdo))
+            except Exception:
+                pass
+        return self.zdruzi({"umiki": {device_id: umik}})
 
-    def zdruzi(self, tuj, shrani: bool = True) -> bool:
-        """Zdruzi tuj krog (dict ali JSON niz). Vrne True, ce se je nas krog spremenil."""
+    def preimenuj(self, device_id: str, ime: str, ob: Optional[float] = None) -> bool:
+        """Uporabnik je napravo poimenoval: samo ime in cas imena, dodano ostane (preimenovanje ne obudi umaknjene)."""
+        cisto = (ime or "").strip()[:64]
+        ob = time.time() if ob is None else ob
+        with self._zaklep:
+            c = self.clani.get(device_id)
+            if (not cisto or not c or not self._veljaven(c) or ob <= c.get("imenovano", 0.0)
+                    or (c["ime"] == cisto and c.get("imenovano"))):
+                return False
+            c["ime"], c["imenovano"] = cisto, ob
+            self._shrani()
+        return True
+
+    def zdruzi_imena(self, tuj) -> bool:
+        """Imena, ki jih ponudi naprava (trust.names): samo ime znanih, neumaknjenih clanov z ISTIM kljucem in
+        samo novejse. Nov clan, drug kljuc ali umik po tej poti ne pride (KrogZaupanja.zdruziImena)."""
+        if isinstance(tuj, str):
+            try:
+                tuj = json.loads(tuj)
+            except Exception:
+                return False
+        clani = (tuj or {}).get("clani") if isinstance(tuj, dict) else None
+        if not isinstance(clani, dict):
+            return False
+        meja = time.time() + 86400
+        spremenjeno = False
+        with self._zaklep:
+            for i, z in clani.items():
+                c = self.clani.get(i)
+                if not isinstance(z, dict) or not c or not self._veljaven(c):
+                    continue
+                try:
+                    ob = float(z.get("imenovano") or 0.0)
+                except (TypeError, ValueError):
+                    continue
+                ime = str(z.get("ime") or "").strip()[:64]
+                if str(z.get("kljuc") or "") != c["kljuc"] or not ime or ob <= c.get("imenovano", 0.0) or ob > meja:
+                    continue
+                c["ime"], c["imenovano"] = ime, ob
+                spremenjeno = True
+            if spremenjeno:
+                self._shrani()
+        return spremenjeno
+
+    def _kljuc_clana(self, device_id: str) -> str:
+        """Javni kljuc clana (tudi prek id-ja iz kljuca), ali prazno."""
+        c = self.clani.get(device_id)
+        if not c and je_id_iz_kljuca(device_id):
+            jedro = device_id[:DOLZINA_ID_IZ_KLJUCA]
+            for _i, d in self.clani.items():
+                if id_iz_kljuca(d["kljuc"]) == jedro:
+                    c = d
+                    break
+        return str((c or {}).get("kljuc") or "")
+
+    def zdruzi(self, tuj, shrani: bool = True, preveri_podpise: bool = False) -> bool:
+        """Zdruzi tuj krog (dict ali JSON niz). Vrne True, ce se je nas krog spremenil.
+
+        `preveri_podpise` velja za kroge, ki NE pridejo od nasega huba (naprava, rele, internet):
+        nov ali spremenjen clan in umik morata biti podpisana s kljucem tistega, ki ju je dodal, in
+        ta mora biti ze v nasem krogu. Tako tuja naprava ne more podtakniti svojega kljuca.
+        """
         if isinstance(tuj, str):
             try:
                 tuj = json.loads(tuj)
@@ -214,9 +323,13 @@ class Krog:
                     ob = float(u.get("umaknjeno"))
                 except (TypeError, ValueError):
                     continue
+                umaknil = str(u.get("umaknil") or "")
+                podpis = str(u.get("podpis") or "")
+                if preveri_podpise and not preveri_podpis(self._kljuc_clana(umaknil), podatki_umika(i, ob, umaknil), podpis):
+                    continue
                 obstojeci = self.umiki.get(i)
                 if obstojeci is None or obstojeci["umaknjeno"] < ob:
-                    self.umiki[i] = {"umaknjeno": ob, "umaknil": str(u.get("umaknil") or "")}
+                    self.umiki[i] = dict({"umaknjeno": ob, "umaknil": umaknil}, **({"podpis": podpis} if podpis else {}))
                     spremenjeno = True
             for i, c in (tuj.get("clani") or {}).items():
                 if not isinstance(c, dict) or not _veljaven_kljuc(str(c.get("kljuc") or "")):
@@ -225,16 +338,37 @@ class Krog:
                     dodano = float(c.get("dodano") or 0.0)
                 except (TypeError, ValueError):
                     dodano = 0.0
+                try:
+                    imenovano = float(c.get("imenovano") or 0.0)
+                except (TypeError, ValueError):
+                    imenovano = 0.0
                 nov = {"id": i, "kljuc": str(c["kljuc"]), "ime": str(c.get("ime") or i),
                        "platforma": str(c.get("platforma") or ""), "dodano": dodano,
-                       "dodal": str(c.get("dodal") or "")}
+                       "dodal": str(c.get("dodal") or ""), "imenovano": imenovano}
+                if c.get("podpis"):
+                    nov["podpis"] = str(c["podpis"])
                 obstojeci = self.clani.get(i)
+                if preveri_podpise and (obstojeci is None or obstojeci["kljuc"] != nov["kljuc"]):
+                    # Nov clan ali drug kljuc: samo s podpisom clana, ki ga je dodal in ga ze poznamo.
+                    if not preveri_podpis(self._kljuc_clana(nov["dodal"]),
+                                          podatki_clana(i, nov["kljuc"], nov["platforma"], dodano, nov["dodal"]),
+                                          str(nov.get("podpis") or "")):
+                        continue
                 if (obstojeci is None or obstojeci["dodano"] < dodano
                         or (obstojeci["dodano"] == dodano and obstojeci["kljuc"] != nov["kljuc"]
                             and obstojeci["kljuc"] < nov["kljuc"])):
+                    # Novejsi vnos iste naprave ne izgubi imena, ki ga je dal uporabnik (KrogZaupanja.zdruzi).
+                    if obstojeci is not None and obstojeci["kljuc"] == nov["kljuc"] \
+                            and obstojeci.get("imenovano", 0.0) > imenovano:
+                        nov["ime"], nov["imenovano"] = obstojeci["ime"], obstojeci["imenovano"]
                     self.clani[i] = nov
                     spremenjeno = True
-                elif obstojeci["kljuc"] == nov["kljuc"] and obstojeci["dodano"] == dodano and obstojeci["ime"] != nov["ime"]:
+                elif obstojeci["kljuc"] == nov["kljuc"] and imenovano > obstojeci.get("imenovano", 0.0) and nov["ime"]:
+                    obstojeci["ime"], obstojeci["imenovano"] = nov["ime"], imenovano
+                    spremenjeno = True
+                elif (obstojeci["kljuc"] == nov["kljuc"] and obstojeci["dodano"] == dodano and obstojeci["ime"] != nov["ime"]
+                      and not obstojeci.get("imenovano") and not imenovano):
+                    # Naprava je sama spremenila svoje ime (uporabnik je ni poimenoval): kot doslej.
                     obstojeci["ime"] = nov["ime"]
                     spremenjeno = True
             for i in list(self.umiki):

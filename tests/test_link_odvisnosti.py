@@ -87,7 +87,7 @@ class BrezNeobveznih(unittest.TestCase):
         print("brez zeroconfa najden Hub:", naslov)
         if naslov is None:
             self.skipTest("na tem racunalniku ne tece noben Hub (tako je v CI)")
-        self.assertTrue(naslov.startswith("ws://"))
+        self.assertTrue(naslov.startswith("wss://") or naslov.startswith("ws://"))   # nov Hub govori TLS
 
 
 class ZeroconfKadarJe(unittest.TestCase):
