@@ -904,16 +904,18 @@ class Hub:
         except Exception:
             return False
 
-    def _lokalne_json(self) -> List[dict]:
-        """Nase lokalne naprave za sosede: samo clani kroga, brez oddaljenih in brez casa zadnjega stika."""
-        seznam = []
+    def _lokalne_json(self) -> Dict[str, dict]:
+        """Nase lokalne naprave za sosede (id -> zapis): samo clani kroga, brez oddaljenih in brez casa
+        zadnjega stika. Oblika je ista kot na Androidu (HubUsmerjevalnik.lokalneZaSosede)."""
+        naprave = {}
         for n in self.povezane():
             if n.sosed or not self._je_clan(n.id):
                 continue
             zapis = n.json()
-            zapis.pop("last_seen", None)
-            seznam.append(zapis)
-        return sorted(seznam, key=lambda z: z["id"])
+            for polje in ("id", "last_seen", "port"):
+                zapis.pop(polje, None)
+            naprave[n.id] = zapis
+        return naprave
 
     def _mesh_naprave(self) -> str:
         return json.dumps({"type": "mesh.devices", "id": link_ws.nakljucni(8),
@@ -1004,12 +1006,14 @@ class Hub:
         if self._pocisti_soseda(sosed_id):
             self.objavi_naprave()
 
-    def _sosedove_naprave(self, sosed_id: str, povezava, naprave: list) -> None:
+    def _sosedove_naprave(self, sosed_id: str, povezava, naprave: dict) -> None:
         novi: Dict[str, dict] = {}
-        for z in (naprave if isinstance(naprave, list) else [])[:NAJVEC_NAPRAV]:
+        for did, z in list((naprave if isinstance(naprave, dict) else {}).items())[:NAJVEC_NAPRAV]:
             if not isinstance(z, dict):
                 continue
-            did = str(z.get("id") or "").strip()[:NAJVEC_IMENA]
+            did = str(did or "").strip()
+            if len(did) > NAJVEC_IMENA:
+                continue
             # Cez mejo Huba gredo samo clani kroga (sosed ne more pripeljati tujca) in nikoli mi sami.
             if did and did != self.nas_id and self._je_clan(did):
                 novi[did] = z
