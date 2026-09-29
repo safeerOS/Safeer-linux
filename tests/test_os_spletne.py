@@ -26,6 +26,15 @@ class SpletneAplikacije(unittest.TestCase):
             {"ime": "Krajevni vir", "url": "http://192.168.0.20:8096/"},
         ]), [{"ime": "Krajevni vir", "url": "http://192.168.0.20:8096"}])
 
+    def test_medijska_vrsta_ostane_shranjena_neznana_pa_ne(self):
+        self.assertEqual(os_spletne.pocisti([
+            {"ime": "Moja TV", "url": "https://example.com/live", "vrsta": "tv"},
+            {"ime": "Drugo", "url": "https://example.com/else", "vrsta": "neznano"},
+        ]), [
+            {"ime": "Moja TV", "url": "https://example.com/live", "vrsta": "tv"},
+            {"ime": "Drugo", "url": "https://example.com/else"},
+        ])
+
 
 if __name__ == "__main__":
     unittest.main()

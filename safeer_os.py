@@ -29,6 +29,7 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Optional
 
 KOREN = os.path.dirname(os.path.abspath(__file__))
@@ -42,8 +43,8 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 
-from core import (os_datoteke, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
-                  os_mediji, os_sporocila, os_spletne, os_stabilnost, os_zapiski, os_zvok)
+from core import (os_datoteke, os_knjiznica, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
+                  os_mediji, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost, os_zapiski, os_zvok)
 
 # Preklop vhoda zvocne vrstice JBL je samo interni poskus: uradni paket modula ne vsebuje
 # (packaging/install_os_payload.sh), zato ga uvozimo le, ce je prisoten (zagon iz repozitorija).
@@ -621,6 +622,17 @@ class SafeerOS(Gtk.Application):
         self._spletni = None
         self._glavna_postavitev = None
         self._spletni_nacin = False
+        self._medijski_napis = None
+        self._medijski_vrsta = None
+        self._medijski_premor = None
+        self._medijski_drsnik = None
+        self._medijski_cas = None
+        self._medijski_vlecem = False
+        self._medijski_css = None
+        self._knjiznica_medijev = None
+        self._medijski_tik_zacet = False
+        self._medijsko_osvezevanje = False
+        self._zadnji_medijski_napredek = None
 
     # ------------------------------------------------------------------ okno
     def do_activate(self) -> None:
@@ -857,6 +869,8 @@ class SafeerOS(Gtk.Application):
         self._koncano = True
         self._pocisti_medijski_pogled()
         self._ustavi_neposredni_medij()
+        if self._medijski_predvajalnik is not None:
+            self._medijski_predvajalnik.zapri()
         if self.namizje:
             vrni_mintov_pult(self.shramba)
         # Brez nasega razresevalnika bi racunalnik ostal brez DNS: nastavitev povrnemo.
@@ -1019,6 +1033,20 @@ class SafeerOS(Gtk.Application):
             "domov": lambda: self._domov(str(a[0]) if a else ""),
             "preklopiOkno": lambda: self._okno_dejanje(a[0] if a else 0, "preklopi"),
             "shraniSpletne": lambda: self._shrani_spletne(a[0] if a else []),
+            "splet": lambda: self._splet(str(a[0]) if a else ""),
+            "medij": lambda: self._medij(str(a[0]) if a else ""),
+            "lokalniMediji": self._medijski_dodaj_datoteke,
+            "medijskaMapa": self._medijski_dodaj_mapo,
+            "osveziMedijskeMape": self._medijski_osvezi_mape,
+            "medijskiTok": self._medijski_dodaj_tok,
+            "dodajMedijskiTok": lambda: self._shrani_medijski_tok(
+                str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "",
+                str(a[2]) if len(a) > 2 else ""),
+            "odpriMedijskiTok": lambda: self._odpri_medijski_tok(str(a[0]) if a else ""),
+            "odpriLokalniMedij": lambda: self._odpri_lokalni_medij(str(a[0]) if a else ""),
+            "predvajalnikStanje": self._medijski_podatki,
+            "predvajalnikUkaz": lambda: self._medijski_ukaz(str(a[0]) if a else "", a[1] if len(a) > 1 else None),
+            "iskanjeSplet": lambda: self._splet(_iskalnik() + GLib.uri_escape_string(str(a[0] if a else ""), None, False)),
             "zapiskiSeznam": lambda: self.zapiski.seznam(str(a[0]) if a else ""),
             "zapisekDobi": lambda: self.zapiski.dobi(str(a[0]) if a else ""),
             "zapisekShrani": lambda: self.zapiski.shrani(
@@ -1047,7 +1075,13 @@ class SafeerOS(Gtk.Application):
             "isciDatoteke": lambda: os_datoteke.isci(str(a[0]) if a else ""),
             "odpriDatoteko": lambda: os_datoteke.odpri(str(a[0]) if a else ""),
             "pokaziVMapi": lambda: os_datoteke.pokazi_v_mapi(str(a[0]) if a else ""),
-            "medij": lambda: self._medij(str(a[0]) if a else ""),
+            "medijskeMape": lambda: self._medijska_knjiznica().seznam_map(),
+            "tokoviMedijev": lambda: self._medijska_knjiznica().tokovi(),
+            "odstraniMedijskiTok": lambda: self._odstrani_medijski_tok(str(a[0]) if a else ""),
+            "knjiznicaMedijev": lambda: self._medijska_knjiznica().seznam(
+                str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "", 120,
+                int(a[2]) if len(a) > 2 else 0),
+            "odstraniLokalniMedij": lambda: self._odstrani_lokalni_medij(str(a[0]) if a else ""),
             "povezava": stanje_povezave,
             "zaupanje": lambda: nastavi_zaupanje(bool(a[0]) if a else False),
             "novaNaprava": lambda: control_dejanje("nova-naprava"),
@@ -1151,7 +1185,7 @@ class SafeerOS(Gtk.Application):
         return True
 
     def _shrani_spletne(self, seznam) -> list:
-        """Spletne aplikacije na domacem zaslonu: samo ime in naslov http(s), najvec 24."""
+        """Spletne aplikacije: ime, HTTP(S) naslov in neobvezna vrsta medija, največ 24."""
         cisti = os_spletne.pocisti(seznam)
         self.shramba.set("spletne", cisti)
         return cisti
@@ -1352,48 +1386,419 @@ class SafeerOS(Gtk.Application):
         Gst.init(None)
         return Gst
 
-    def _predvajaj_neposredno(self, naslov: str) -> bool:
-        """Neposredni medij predvaja GStreamerjev playbin, brez spletnega procesa."""
+    def _predvajaj_neposredno(self, naslov: str, vrsta: str = "medij", prikazi: bool = True,
+                             ime: str = "", zacetek: int = 0, seznam=None) -> bool:
+        """Neposredni medij doda v čakalno vrsto domačega predvajalnika."""
         self._pocisti_medijski_pogled()
         try:
+            self._shrani_medijski_napredek()
             Gst = self._medijski_gst or self._nalozi_gstreamer()
             self._medijski_gst = Gst
             if self._medijski_predvajalnik is None:
-                self._medijski_predvajalnik = Gst.ElementFactory.make("playbin", "safeer-media")
-            if self._medijski_predvajalnik is None:
-                raise RuntimeError("GStreamer playbin ni na voljo")
+                self._medijski_predvajalnik = os_predvajalnik.Predvajalnik(
+                    Gst, self._osvezi_medijski_predvajalnik, self._medijski_konec)
+                if not self._medijski_tik_zacet:
+                    self._medijski_tik_zacet = True
+                    GLib.timeout_add_seconds(1, self._medijski_tik)
             if self._medijski_predvajalnik_okno is None:
-                okno = Gtk.Window(title="Medijski center")
-                okno.set_default_size(960, 540)
+                okno = Gtk.Window(title="Safeer Player")
+                okno.get_style_context().add_class("safeer-player")
+                if self._medijski_css is None:
+                    try:
+                        css = Gtk.CssProvider()
+                        css.load_from_data(b"""
+                            window.safeer-player { background: #0c1821; color: #f0f4f3; }
+                            window.safeer-player label { color: #dbeee9; }
+                            window.safeer-player label.safeer-player-title { font-size: 18px; font-weight: 700; }
+                            window.safeer-player label.safeer-player-queue { color: #b0bdc4; }
+                            window.safeer-player button { background: #1a3339; color: #edfff7;
+                                border: 1px solid #3a6f65; border-radius: 10px; padding: 8px 13px; }
+                            window.safeer-player button:hover { background: #275248; border-color: #54d6a5; }
+                            window.safeer-player scale highlight { background: #54d6a5; }
+                            window.safeer-player scale slider { background: #54d6a5;
+                                min-width: 14px; min-height: 14px; }
+                        """)
+                        Gtk.StyleContext.add_provider_for_screen(
+                            Gdk.Screen.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+                        self._medijski_css = css
+                    except Exception as e:  # noqa: BLE001
+                        print("[SafeerOS] slog predvajalnika:", e)
+                okno.set_default_size(960, 620)
                 okno.set_transient_for(self.okno)
                 okno.connect("delete-event", lambda *a: (self._ustavi_neposredni_medij(), True)[1])
+                okno.connect("key-press-event", self._medijska_tipka)
+                postavitev = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+                postavitev.set_border_width(16)
                 ponor = Gst.ElementFactory.make("gtksink", "safeer-media-video")
                 if ponor is not None:
-                    self._medijski_predvajalnik.set_property("video-sink", ponor)
-                    okno.add(ponor.get_property("widget"))
+                    self._medijski_predvajalnik.element.set_property("video-sink", ponor)
+                    slika = ponor.get_property("widget")
+                    slika.set_vexpand(True)
+                    postavitev.pack_start(slika, True, True, 0)
                 else:
-                    okno.add(Gtk.Label(label="Medijski center\nPredvajanje zvoka ali videa"))
+                    slika = Gtk.Label(label="♫  Safeer Player")
+                    slika.set_vexpand(True)
+                    postavitev.pack_start(slika, True, True, 0)
+                self._medijski_napis = Gtk.Label(xalign=0)
+                self._medijski_napis.get_style_context().add_class("safeer-player-title")
+                postavitev.pack_start(self._medijski_napis, False, False, 0)
+                premik = Gtk.Box(spacing=10)
+                self._medijski_drsnik = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 1, 1)
+                self._medijski_drsnik.set_draw_value(False)
+                self._medijski_drsnik.set_hexpand(True)
+                self._medijski_drsnik.set_tooltip_text("Premik po posnetku")
+                self._medijski_drsnik.connect("change-value", self._medijski_premik)
+                self._medijski_drsnik.connect("button-press-event", self._medijski_zacni_premik)
+                self._medijski_drsnik.connect_after("button-release-event", self._medijski_spusti_premik)
+                premik.pack_start(self._medijski_drsnik, True, True, 0)
+                self._medijski_cas = Gtk.Label(label="0:00 / 0:00")
+                premik.pack_start(self._medijski_cas, False, False, 0)
+                postavitev.pack_start(premik, False, False, 0)
+                gumbi = Gtk.Box(spacing=8)
+                for napis_gumba, dejanje in (("＋ Dodaj datoteke", self._medijski_dodaj_datoteke),
+                                              ("⏮ Prejšnja", lambda: self._medijski_ukaz("prejsnja")),
+                                              ("⏭ Naslednja", lambda: self._medijski_ukaz("naslednja"))):
+                    gumb = Gtk.Button(label=napis_gumba)
+                    gumb.connect("clicked", lambda _g, ukaz=dejanje: ukaz())
+                    gumbi.pack_start(gumb, False, False, 0)
+                self._medijski_premor = Gtk.Button(label="⏸ Premor")
+                self._medijski_premor.connect("clicked", lambda _g: self._medijski_ukaz("premor"))
+                gumbi.pack_start(self._medijski_premor, False, False, 0)
+                celozaslonsko = Gtk.Button(label="⛶ Cel zaslon")
+                celozaslonsko.connect("clicked", lambda _g: okno.unfullscreen() if okno.get_window() and
+                                     okno.get_window().get_state() & Gdk.WindowState.FULLSCREEN else okno.fullscreen())
+                gumbi.pack_end(celozaslonsko, False, False, 0)
+                postavitev.pack_start(gumbi, False, False, 0)
+                self._medijski_vrsta = Gtk.Label(xalign=0)
+                self._medijski_vrsta.get_style_context().add_class("safeer-player-queue")
+                self._medijski_vrsta.set_line_wrap(True)
+                postavitev.pack_start(self._medijski_vrsta, False, False, 0)
+                okno.add(postavitev)
                 self.add_window(okno)
                 self._medijski_predvajalnik_okno = okno
-            self._medijski_predvajalnik.set_property("uri", naslov)
-            self._medijski_predvajalnik_okno.show_all()
-            self._medijski_predvajalnik_okno.present()
-            if self._medijski_predvajalnik.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
-                raise RuntimeError("GStreamer predvajanja ni mogel začeti")
-            return True
+            if seznam:
+                uspesno = self._medijski_predvajalnik.zamenjaj_vrsto(seznam)
+            else:
+                self._medijski_predvajalnik.dodaj(naslov, predvajaj=True, vrsta=vrsta,
+                                                  naslov=ime, zacetek=zacetek)
+                uspesno = self._medijski_predvajalnik.stanje != "napaka"
+            if prikazi:
+                self._medijski_predvajalnik_okno.show_all()
+                self._medijski_predvajalnik_okno.present()
+            else:
+                self._medijski_predvajalnik_okno.hide()
+            return uspesno
         except Exception as e:  # noqa: BLE001
             print("[SafeerOS] neposredni medij:", e)
             self._ustavi_neposredni_medij()
-            return self._splet(naslov)
+            return self._splet(naslov) if vrsta == "medij" and naslov.startswith(("http://", "https://")) else False
 
     def _ustavi_neposredni_medij(self) -> None:
-        if self._medijski_predvajalnik is not None and self._medijski_gst is not None:
+        if self._medijski_predvajalnik is not None:
             try:
-                self._medijski_predvajalnik.set_state(self._medijski_gst.State.NULL)
+                self._shrani_medijski_napredek()
+                self._medijski_predvajalnik.ustavi()
+                self._dogodek("medijskaKnjiznica", None)
             except Exception:
                 pass
         if self._medijski_predvajalnik_okno is not None:
             self._medijski_predvajalnik_okno.hide()
+
+    def _osvezi_medijski_predvajalnik(self) -> None:
+        servis = self._medijski_predvajalnik
+        if servis is None or self._medijski_napis is None:
+            return
+        naslov = servis.trenutna.naslov if servis.trenutna else "Nič se ne predvaja"
+        if servis.trenutna and servis.trenutna.vrsta in ("tv", "radio"):
+            naslov = "● V živo · " + naslov
+        self._medijski_napis.set_text(naslov + (" · " + servis.napaka if servis.napaka else ""))
+        self._medijski_premor.set_label("▶ Nadaljuj" if servis.stanje == "premor" else "⏸ Premor")
+        self._medijski_vrsta.set_text("Čakalna vrsta: " + "  ·  ".join(
+            v.naslov for v in servis.vrsta[servis.indeks + 1:servis.indeks + 6]))
+        podatki = self._medijski_podatki()
+        self._osvezi_medijski_drsnik(podatki)
+        self._dogodek("predvajalnik", podatki)
+
+    @staticmethod
+    def _medijski_cas_besedilo(sekunde: float) -> str:
+        sekunde = max(0, int(sekunde))
+        return f"{sekunde // 60}:{sekunde % 60:02d}"
+
+    def _osvezi_medijski_drsnik(self, podatki: dict) -> None:
+        if self._medijski_drsnik is None:
+            return
+        v_zivo = podatki["vrsta"] in ("tv", "radio")
+        dolzina = podatki["trajanje"]
+        self._medijski_drsnik.set_sensitive(not v_zivo and dolzina > 0)
+        self._medijski_drsnik.set_range(0, max(1, dolzina))
+        if not self._medijski_vlecem:
+            self._medijski_drsnik.set_value(min(dolzina, podatki["pozicija"]))
+        self._medijski_cas.set_text("● V živo" if v_zivo else
+                                   self._medijski_cas_besedilo(podatki["pozicija"]) + " / " +
+                                   self._medijski_cas_besedilo(dolzina))
+
+    def _medijski_premik(self, _drsnik, _vrsta_premika, vrednost) -> bool:
+        if not self._medijski_vlecem:
+            self._medijski_ukaz("skok", float(vrednost))
+        return False
+
+    def _medijski_zacni_premik(self, _drsnik, _dogodek) -> bool:
+        self._medijski_vlecem = True
+        return False
+
+    def _medijski_spusti_premik(self, drsnik, _dogodek) -> bool:
+        self._medijski_vlecem = False
+        self._medijski_ukaz("skok", drsnik.get_value())
+        return False
+
+    def _medijska_tipka(self, okno, dogodek) -> bool:
+        tipka = Gdk.keyval_name(dogodek.keyval)
+        if tipka == "space":
+            return self._medijski_ukaz("premor")
+        if tipka in ("Left", "Right") and self._medijski_predvajalnik:
+            podatki = self._medijski_podatki()
+            return self._medijski_ukaz("skok", podatki["pozicija"] + (-10 if tipka == "Left" else 10))
+        if tipka and tipka.lower() == "f":
+            if okno.get_window() and okno.get_window().get_state() & Gdk.WindowState.FULLSCREEN:
+                okno.unfullscreen()
+            else:
+                okno.fullscreen()
+            return True
+        if tipka == "Escape" and okno.get_window() and okno.get_window().get_state() & Gdk.WindowState.FULLSCREEN:
+            okno.unfullscreen()
+            return True
+        return False
+
+    def _medijski_tik(self) -> bool:
+        if self._koncano:
+            return False
+        if self._medijski_predvajalnik and self._medijski_predvajalnik.stanje == "predvaja":
+            self._medijski_predvajalnik.poskusi_nadaljevati()
+            podatki = self._medijski_podatki()
+            self._shrani_medijski_napredek(podatki)
+            self._osvezi_medijski_drsnik(podatki)
+            self._dogodek("predvajalnik", podatki)
+        return True
+
+    @staticmethod
+    def _pot_lokalnega_videa(uri: str) -> str:
+        if not uri.startswith("file://"):
+            return ""
+        pot = Gio.File.new_for_uri(uri).get_path() or ""
+        return pot if os_knjiznica.vrsta_datoteke(Path(pot)) in ("filmi", "serije") else ""
+
+    def _shrani_medijski_napredek(self, podatki=None) -> None:
+        servis = self._medijski_predvajalnik
+        if not servis or not servis.trenutna or servis.stanje not in ("predvaja", "premor"):
+            return
+        pot = self._pot_lokalnega_videa(servis.trenutna.uri)
+        if not pot:
+            return
+        podatki = podatki or servis.podatki()
+        pozicija, trajanje = podatki["pozicija"], podatki["trajanje"]
+        if pozicija < 15 or trajanje <= 0:
+            return
+        kljuc = (pot, int(pozicija) // 5)
+        if kljuc != self._zadnji_medijski_napredek:
+            self._medijska_knjiznica().shrani_napredek(pot, pozicija, trajanje)
+            self._zadnji_medijski_napredek = kljuc
+
+    def _medijski_konec(self, uri: str) -> None:
+        pot = self._pot_lokalnega_videa(uri)
+        if pot:
+            self._medijska_knjiznica().ponastavi_napredek(pot)
+            self._zadnji_medijski_napredek = None
+            self._dogodek("medijskaKnjiznica", None)
+
+    def _medijski_podatki(self) -> dict:
+        return self._medijski_predvajalnik.podatki() if self._medijski_predvajalnik else {
+            "stanje": "ustavljeno", "naslov": "", "vrsta": "", "indeks": -1,
+            "zacetniIndeks": 0, "skupaj": 0, "vrstaSeznam": [], "pozicija": 0, "trajanje": 0, "napaka": ""}
+
+    def _medijski_ukaz(self, ukaz: str, vrednost=None) -> bool:
+        servis = self._medijski_predvajalnik
+        if not servis:
+            return False
+        if ukaz in ("premor", "naslednja", "prejsnja", "ustavi", "predvajaj"):
+            self._shrani_medijski_napredek()
+            if ukaz in ("naslednja", "prejsnja", "ustavi", "predvajaj"):
+                self._dogodek("medijskaKnjiznica", None)
+        if ukaz == "premor":
+            servis.premor()
+        elif ukaz == "naslednja":
+            return servis.naslednja()
+        elif ukaz == "prejsnja":
+            return servis.prejsnja()
+        elif ukaz == "ustavi":
+            servis.ustavi()
+            self._dogodek("medijskaKnjiznica", None)
+        elif ukaz == "predvajaj" and type(vrednost) is int:
+            return servis.predvajaj(vrednost)
+        elif ukaz == "skok" and isinstance(vrednost, (float, int)):
+            if not servis.skok(vrednost):
+                return False
+            pot = self._pot_lokalnega_videa(servis.trenutna.uri) if servis.trenutna else ""
+            if pot:
+                if vrednost < 15:
+                    self._medijska_knjiznica().ponastavi_napredek(pot)
+                else:
+                    self._medijska_knjiznica().shrani_napredek(pot, vrednost, servis.trajanje())
+                self._zadnji_medijski_napredek = None
+            return True
+        elif ukaz == "odpri" and self._medijski_predvajalnik_okno:
+            self._medijski_predvajalnik_okno.show_all()
+            self._medijski_predvajalnik_okno.present()
+        else:
+            return False
+        return True
+
+    def _medijska_knjiznica(self):
+        if self._knjiznica_medijev is None:
+            self._knjiznica_medijev = os_knjiznica.Knjiznica()
+        return self._knjiznica_medijev
+
+    def _odpri_lokalni_medij(self, pot: str) -> bool:
+        vnos = self._medijska_knjiznica().dobi(pot)
+        if not vnos or not os.path.isfile(pot):
+            return False
+        if vnos["vrsta"] == "slike":
+            return os_datoteke.odpri(pot)
+        self._medijska_knjiznica().predvajano(pot)
+        prikazi = vnos["vrsta"] != "glasba"
+        zacetek = vnos["pozicija"] if prikazi and vnos["pozicija"] >= 15 else 0
+        seznam = None
+        if vnos["vrsta"] == "glasba":
+            seznam = [os_predvajalnik.Skladba(GLib.filename_to_uri(s["pot"], None), s["ime"])
+                      for s in self._medijska_knjiznica().skladbe_iz_mape(pot)]
+        return self._predvajaj_neposredno(GLib.filename_to_uri(pot, None),
+                                         vrsta="video" if prikazi else "medij", prikazi=prikazi,
+                                         ime=vnos["ime"], zacetek=zacetek, seznam=seznam)
+
+    def _odstrani_lokalni_medij(self, pot: str) -> bool:
+        if not self._medijska_knjiznica().dobi(pot):
+            return False
+        self._medijska_knjiznica().odstrani(pot)
+        self._dogodek("medijskaKnjiznica", None)
+        return True
+
+    def _odpri_medijski_tok(self, url: str) -> bool:
+        vnos = self._medijska_knjiznica().dobi_tok(url)
+        if not vnos:
+            return False
+        return self._predvajaj_neposredno(vnos["url"], vrsta=vnos["vrsta"],
+                                         prikazi=vnos["vrsta"] == "tv", ime=vnos["ime"])
+
+    def _odstrani_medijski_tok(self, url: str) -> bool:
+        odstranjen = self._medijska_knjiznica().odstrani_tok(url)
+        if odstranjen:
+            self._dogodek("medijskaKnjiznica", None)
+        return odstranjen
+
+    def _medijski_dodaj_datoteke(self) -> None:
+        dialog = Gtk.FileChooserDialog(title="Dodaj datoteke", transient_for=self._medijski_predvajalnik_okno or self.okno,
+                                       action=Gtk.FileChooserAction.OPEN)
+        dialog.add_buttons("Prekliči", Gtk.ResponseType.CANCEL, "Dodaj", Gtk.ResponseType.OK)
+        dialog.set_select_multiple(True)
+        try:
+            if dialog.run() == Gtk.ResponseType.OK:
+                poti = dialog.get_filenames()[:500]
+                self._medijska_knjiznica().dodaj(poti)
+                for pot in poti:
+                    vrsta = os_knjiznica.vrsta_datoteke(Path(pot))
+                    if not vrsta or vrsta == "slike":
+                        continue
+                    try:
+                        uri = GLib.filename_to_uri(pot, None)
+                        if self._medijski_predvajalnik is None:
+                            self._predvajaj_neposredno(uri, prikazi=vrsta != "glasba")
+                        else:
+                            self._medijski_predvajalnik.dodaj(uri)
+                    except ValueError as e:
+                        print("[SafeerOS] dodajanje medija:", e)
+                self._dogodek("medijskaKnjiznica", None)
+        finally:
+            dialog.destroy()
+
+    def _medijski_dodaj_mapo(self) -> bool:
+        dialog = Gtk.FileChooserDialog(title="Dodaj medijsko mapo", transient_for=self.okno,
+                                       action=Gtk.FileChooserAction.SELECT_FOLDER)
+        dialog.add_buttons("Prekliči", Gtk.ResponseType.CANCEL, "Dodaj", Gtk.ResponseType.OK)
+        try:
+            if dialog.run() != Gtk.ResponseType.OK:
+                return False
+            mapa = dialog.get_filename()
+        finally:
+            dialog.destroy()
+        knjiznica = self._medijska_knjiznica()
+
+        def uvozi():
+            try:
+                knjiznica.dodaj_mapo(mapa)
+                self._dogodek("medijskaKnjiznica", None)
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] medijska mapa:", e)
+                self._dogodek("medijskaNapaka", "")
+        threading.Thread(target=uvozi, daemon=True).start()
+        return True
+
+    def _medijski_osvezi_mape(self) -> bool:
+        if self._medijsko_osvezevanje or not self._medijska_knjiznica().seznam_map():
+            return False
+        self._medijsko_osvezevanje = True
+
+        def osvezi():
+            try:
+                self._medijska_knjiznica().osvezi_mape()
+                self._dogodek("medijskaKnjiznica", None)
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] osvežitev medijev:", e)
+                self._dogodek("medijskaNapaka", "")
+            finally:
+                self._medijsko_osvezevanje = False
+                self._dogodek("medijskoOsvezevanje", False)
+
+        threading.Thread(target=osvezi, daemon=True).start()
+        return True
+
+    def _medijski_dodaj_tok(self) -> bool:
+        """Uporabnikov neposredni tok shrani in predvaja v GStreamerju."""
+        dialog = Gtk.Dialog(title="Dodaj TV ali radijski tok", transient_for=self.okno, flags=Gtk.DialogFlags.MODAL)
+        dialog.add_buttons("Prekliči", Gtk.ResponseType.CANCEL, "Shrani in predvajaj", Gtk.ResponseType.OK)
+        polja = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        polja.set_border_width(12)
+        ime = Gtk.Entry()
+        ime.set_placeholder_text("Ime postaje")
+        polja.pack_start(ime, False, False, 0)
+        vrsta = Gtk.ComboBoxText()
+        vrsta.append("tv", "TV v živo")
+        vrsta.append("radio", "Radio")
+        vrsta.set_active_id("tv")
+        polja.pack_start(vrsta, False, False, 0)
+        vnos = Gtk.Entry()
+        vnos.set_placeholder_text("https://primer.si/kanal.m3u8")
+        vnos.set_width_chars(55)
+        polja.pack_start(vnos, False, False, 0)
+        dialog.get_content_area().pack_start(polja, False, False, 0)
+        dialog.show_all()
+        try:
+            if dialog.run() != Gtk.ResponseType.OK:
+                return False
+            naslov = vnos.get_text().strip()
+            ime_postaje = ime.get_text().strip()
+            vrsta_toka = vrsta.get_active_id()
+            return self._shrani_medijski_tok(ime_postaje, naslov, vrsta_toka)
+        except ValueError:
+            return False
+        finally:
+            dialog.destroy()
+
+    def _shrani_medijski_tok(self, ime: str, url: str, vrsta: str) -> bool:
+        os_predvajalnik.medij(url, vrsta)
+        self._medijska_knjiznica().dodaj_tok(ime, url, vrsta)
+        self._dogodek("medijskaKnjiznica", None)
+        if not self._odpri_medijski_tok(url):
+            self._dogodek("medijskaNapaka", "")
+        return True
 
     def _odpri_lahki_medijski_pogled(self, naslov: str) -> bool:
         """En WebKit brez JavaScripta; če ni medija, enkrat poskusi z JavaScriptom."""

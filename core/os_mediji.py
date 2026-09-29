@@ -4,7 +4,7 @@ from urllib.parse import urlsplit
 
 
 NEPOSREDNE_KONCNICE = frozenset({
-    ".mp4", ".m4v", ".m3u8", ".mp3", ".m4a", ".aac", ".flac", ".wav",
+    ".mp4", ".m4v", ".m3u8", ".mpd", ".ts", ".mp3", ".m4a", ".aac", ".flac", ".wav",
     ".webm", ".ogg", ".oga", ".ogv", ".opus", ".mov", ".mkv", ".avi",
 })
 

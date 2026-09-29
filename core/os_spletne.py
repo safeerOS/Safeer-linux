@@ -33,7 +33,7 @@ def normaliziraj_naslov(naslov: str) -> str:
 
 
 def pocisti(seznam, meja: int = 24) -> list[dict[str, str]]:
-    """Odstrani neveljavne in podvojene vnose, pri tem pa ohrani prvi uporabnikov vnos."""
+    """Odstrani neveljavne vnose; ohrani tudi preverjeno vrsto medijskega vira."""
     cisti: list[dict[str, str]] = []
     videni: set[str] = set()
     for vnos in seznam if isinstance(seznam, list) else []:
@@ -44,7 +44,11 @@ def pocisti(seznam, meja: int = 24) -> list[dict[str, str]]:
         if not ime or not naslov or naslov in videni:
             continue
         videni.add(naslov)
-        cisti.append({"ime": ime, "url": naslov})
+        cist = {"ime": ime, "url": naslov}
+        vrsta = str(vnos.get("vrsta", ""))
+        if vrsta in ("video", "glasba", "filmi", "serije", "tv", "radio"):
+            cist["vrsta"] = vrsta
+        cisti.append(cist)
         if len(cisti) >= meja:
             break
     return cisti
