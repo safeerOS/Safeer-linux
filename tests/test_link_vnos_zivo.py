@@ -6,6 +6,7 @@ Preskoci se, ce Control ni seznanjen ali na hubu ni tablice/telefona z daljincem
 """
 import threading
 import time
+import os
 import unittest
 
 from core import link_hub
@@ -15,6 +16,9 @@ from tests.test_link_naprave_zivo import naprave_na_hubu
 PLATFORME_Z_VNOSOM = ("tablet", "handheld")
 
 
+# Ta test na pravih napravah zazene programe / poslje dotike. Tece samo na izrecno zahtevo,
+# da navaden zagon testov ne zmoti druzinskih naprav (TV, tablica).
+@unittest.skipUnless(os.environ.get("SAFEER_ZIVE_NAPRAVE") == "1", "zivi test na napravah: SAFEER_ZIVE_NAPRAVE=1")
 class VnosVZivo(unittest.TestCase):
     def test_input_na_tablici(self):
         izbran = None

@@ -48,7 +48,7 @@ class Knjiznica:
         with self._baza() as baza:
             baza.execute("""CREATE TABLE IF NOT EXISTS mediji (
                 pot TEXT PRIMARY KEY, naslov TEXT NOT NULL, vrsta TEXT NOT NULL,
-                dodano INTEGER NOT NULL DEFAULT (unixepoch()), zadnjic INTEGER NOT NULL DEFAULT 0,
+                dodano INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)), zadnjic INTEGER NOT NULL DEFAULT 0,
                 pozicija INTEGER NOT NULL DEFAULT 0, trajanje INTEGER NOT NULL DEFAULT 0
             )""")
             stolpci = {v[1] for v in baza.execute("PRAGMA table_info(mediji)")}
@@ -59,10 +59,10 @@ class Knjiznica:
             baza.execute("""CREATE TABLE IF NOT EXISTS tokovi (
                 url TEXT PRIMARY KEY, ime TEXT NOT NULL, vrsta TEXT NOT NULL
                 CHECK(vrsta IN ('tv', 'radio')),
-                dodano INTEGER NOT NULL DEFAULT (unixepoch())
+                dodano INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER))
             )""")
             baza.execute("""CREATE TABLE IF NOT EXISTS mape (
-                pot TEXT PRIMARY KEY, dodano INTEGER NOT NULL DEFAULT (unixepoch())
+                pot TEXT PRIMARY KEY, dodano INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER))
             )""")
 
     @contextmanager
@@ -189,7 +189,7 @@ class Knjiznica:
 
     def predvajano(self, pot: str) -> None:
         with self._baza() as baza:
-            baza.execute("UPDATE mediji SET zadnjic=unixepoch() WHERE pot=?", (pot,))
+            baza.execute("UPDATE mediji SET zadnjic=CAST(strftime('%s','now') AS INTEGER) WHERE pot=?", (pot,))
 
     def dobi(self, pot: str) -> dict | None:
         with self._baza() as baza:

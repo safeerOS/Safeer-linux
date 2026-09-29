@@ -6,6 +6,7 @@ Tekoci Control se za trenutek odklopi (isti id) in sam vrne.
 """
 import threading
 import time
+import os
 import unittest
 
 from core import link_hub
@@ -13,6 +14,9 @@ from tests.test_link_krog_zivo import _seznanitve, posiljatelj
 from tests.test_link_naprave_zivo import naprave_na_hubu
 
 
+# Ta test na pravih napravah zazene programe / poslje dotike. Tece samo na izrecno zahtevo,
+# da navaden zagon testov ne zmoti druzinskih naprav (TV, tablica).
+@unittest.skipUnless(os.environ.get("SAFEER_ZIVE_NAPRAVE") == "1", "zivi test na napravah: SAFEER_ZIVE_NAPRAVE=1")
 class PretociVZivo(unittest.TestCase):
     def test_apps_launch_stream(self):
         izbran = None
