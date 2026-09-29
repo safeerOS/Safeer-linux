@@ -1173,7 +1173,7 @@
   }
 
   // ------------------------------------------------------------------ zvok
-  var zvokStanje = null, zvokCas = 0, zvokDotik = 0, zvokCaka = "";
+  var zvokStanje = null, zvokCas = 0, zvokDotik = 0, zvokCaka = "", zvokPotrdi = {};
   var IKONA_ZVOKA = { zvocniki: "zvok", slusalke: "slusalke", hdmi: "zaslon", bluetooth: "bluetooth", usb: "zvok", mikrofon: "mikrofon" };
   var jblStanje = null, jblZaposleno = false;
   function nalozJbl() {
@@ -1347,7 +1347,42 @@
       }
       l.appendChild(zvokVrstica(ikona, n.ime, "Safeer Link", tece, gumb));
     });
-    if (!link.naprave.length) l.appendChild(el("div", "prazno", ubezi(t(link.povezan ? "zvokBrezNaprav" : "zvokBrezLinka"))));
+    // Zvocniki v omrezju (DLNA, npr. JBL): enako kot naprave v Linku, zvok racunalnika gre nanje.
+    var zv = link.zvocnik || {}, naZvocniku = zv.naprava || "";
+    (link.zvocniki || []).forEach(function (n) {
+      var tece = naZvocniku === n.id, caka = zvokCaka === n.id && !tece, potrdi = zvokPotrdi[n.id];
+      var gumb;
+      if (tece) {
+        gumb = el("span", "dejanja");
+        gumb.appendChild(el("span", "znacka" + (zv.stanje === "tece" ? " tece" : ""), ubezi(t(zv.stanje === "tece" ? "zvokPredvaja" : "zvokPovezujem"))));
+        var ust = el("button", "gumb", ubezi(t("ustavi")));
+        ust.addEventListener("click", function (e) {
+          e.stopPropagation();
+          klic("zvokUstaviZvocnik").then(function () { zvokCaka = ""; obvesti(t("zvokNazaj")); setTimeout(nalozZvok, 600); });
+        });
+        gumb.appendChild(ust);
+      } else {
+        gumb = el("button", "gumb" + (caka ? "" : " glavni"),
+          ubezi(caka ? t("zvokPovezujem") : (potrdi ? t("zvokZvocnikPreklopi", { vir: potrdi }) : t("predvajajTukaj"))));
+        gumb.addEventListener("click", function (e) {
+          e.stopPropagation();
+          var soglasje = !!zvokPotrdi[n.id];
+          zvokCaka = n.id; delete zvokPotrdi[n.id];
+          narisiZvok(z);
+          klic("zvokNaZvocnik", [n.id, soglasje]).then(function (r) {
+            zvokCaka = "";
+            if (r && r.vir) { zvokPotrdi[n.id] = r.vir; obvesti(t("zvokZvocnikZaseden", { ime: n.ime, vir: r.vir })); }
+            else if (!r || !r.ok) obvesti(t("niUspelo"));
+            else obvesti(t("zvokNaNapravoZacet", { ime: n.ime }));
+            nalozZvok(); setTimeout(nalozZvok, 3000);
+          });
+        });
+      }
+      var pod = t("zvokZvocnik") + (n.model && n.model !== n.ime ? " · " + n.model : "");
+      l.appendChild(zvokVrstica("zvok", n.ime, pod, tece, gumb));
+    });
+    if (!link.naprave.length && !(link.zvocniki || []).length)
+      l.appendChild(el("div", "prazno", ubezi(t(link.povezan ? "zvokBrezNaprav" : "zvokBrezLinka"))));
     // Programi
     var p = $("zvokProgrami");
     p.innerHTML = "";

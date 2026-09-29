@@ -136,7 +136,7 @@ def izhodi() -> List[dict]:
     izhod = []
     for n in _json(["list", "sinks"]):
         ime = str(n.get("name") or "")
-        if not ime or ime == LINK_IZHOD:
+        if not ime or ime in (LINK_IZHOD, "safeer_zvocnik"):
             continue          # navidezni izhod Safeer Linka pokazemo kot napravo, ne kot kartico
         if not _dosegljiv(n) and ime != privzeti:
             continue          # HDMI brez prikljucenega zaslona ipd.

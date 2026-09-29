@@ -272,6 +272,8 @@ def zvok_na_napravo(id_naprave: str) -> bool:
     naprava = next((n for n in os_zvok.link_naprave()["naprave"] if n["id"] == id_naprave), None)
     if naprava is None:
         return False
+    if _ZVOCNIKI is not None and _ZVOCNIKI.opis()["naprava"]:
+        _ZVOCNIKI.ustavi()
     prej = os_zvok._privzeto()[0]
     ok = control_dejanje("zvok-na-napravo", GLib.Variant("s", id_naprave))
     if ok and naprava.get("platforma") == "tv" and _jbl_vrstica(prej):
@@ -291,9 +293,44 @@ def zvok_ustavi() -> bool:
     return ok
 
 
+# ---------------------------------------------------------------------- zvocniki v omrezju (DLNA)
+_ZVOCNIKI = None
+
+
+def zvocniki():
+    """Zvocniki v omrezju (core/zvok_na_zvocnik.py); ustvarimo ob prvi rabi, iskanje tece v ozadju."""
+    global _ZVOCNIKI
+    if _ZVOCNIKI is None:
+        from core import zvok_na_zvocnik
+        _ZVOCNIKI = zvok_na_zvocnik.Zvocniki()
+        import atexit
+        atexit.register(lambda: _ZVOCNIKI.ustavi())
+    return _ZVOCNIKI
+
+
+def zvok_stanje() -> dict:
+    stanje = os_zvok.stanje()
+    try:
+        z = zvocniki()
+        stanje["link"]["zvocniki"] = z.seznam()
+        stanje["link"]["zvocnik"] = z.opis()
+    except Exception as e:  # noqa: BLE001
+        print("[SafeerOS] zvocniki:", e)
+    return stanje
+
+
+def zvok_na_zvocnik(id_zvocnika: str, potrdi: bool = False) -> dict:
+    """Zvok racunalnika na zvocnik v omrezju; tekoco sejo na napravo v Linku najprej koncamo."""
+    if os_zvok.link_naprave()["zvok"]["naprava"]:
+        control_dejanje("zvok-ustavi")
+    return zvocniki().zacni(str(id_zvocnika or ""), bool(potrdi))
+
+
 def zvok_izhod(ime: str) -> bool:
     """Izbran izhod racunalnika. Ce zvok ta trenutek tece na napravo v Linku, ga Control najprej vrne
     (in navidezni izhod pospravi), sele nato nastavimo uporabnikovo izbiro - sicer bi jo prepisal."""
+    if _ZVOCNIKI is not None and _ZVOCNIKI.opis()["naprava"]:
+        _ZVOCNIKI.ustavi()
     if os_zvok.link_naprave()["zvok"]["naprava"]:
         control_dejanje("zvok-ustavi")
         for _ in range(30):
@@ -1020,7 +1057,10 @@ class SafeerOS(Gtk.Application):
             "omrezjeOdklopi": lambda: os_omrezje.odklopi(str(a[0]) if a else ""),
             "omrezjeAktiviraj": lambda: os_omrezje.aktiviraj(str(a[0]) if a else ""),
             "omrezjePozabi": lambda: os_omrezje.pozabi(str(a[0]) if a else ""),
-            "zvok": os_zvok.stanje,
+            "zvok": zvok_stanje,
+            "zvokNaZvocnik": lambda: zvok_na_zvocnik(str(a[0]) if a else "", bool(a[1]) if len(a) > 1 else False),
+            "zvokUstaviZvocnik": lambda: zvocniki().ustavi(),
+            "zvokIsciZvocnike": lambda: zvocniki().osvezi() or True,
             "zvokIzhod": lambda: zvok_izhod(str(a[0]) if a else ""),
             "zvokVhod": lambda: os_zvok.nastavi_vhod(str(a[0]) if a else ""),
             "zvokGlasnostIzhoda": lambda: os_zvok.glasnost_izhoda(str(a[0]), int(a[1])),
