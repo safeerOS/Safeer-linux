@@ -139,6 +139,24 @@ def razvrsti_datoteke(datoteke: List[dict]) -> List[dict]:
     return izid
 
 
+def _podnapisi_k_videom(datoteke: List[dict], izbrane) -> set:
+    """Indeksi podnapisov v torrentu, ki sodijo k izbranim videom (ista mapa ali podmapa Subs)."""
+    from core import podnapisi as pn
+    po_indeksu = {d["i"]: d for d in datoteke}
+    izid = set()
+    for i in izbrane:
+        video = po_indeksu.get(i)
+        if not video or video["vrsta"] != "video":
+            continue
+        mapa = video["ime"].replace("\\", "/").rpartition("/")[0]
+        predpona = mapa + "/" if mapa else ""
+        relativno = {d["ime"].replace("\\", "/")[len(predpona):]: d["i"] for d in datoteke
+                     if d["ime"].replace("\\", "/").startswith(predpona) and d["vrsta"] in ("video", "podnapisi")}
+        videov = sum(1 for r in relativno if "/" not in r and vrsta_datoteke(r) == "video")
+        izid |= {relativno[r] for r in pn.ujemajoci(video["ime"], list(relativno), videov == 1)}
+    return izid
+
+
 def sumljiv(datoteke: List[dict]) -> bool:
     """Torrent, ki se predstavlja kot film ali glasba, a nosi program: klasična past z zlonamerno kodo."""
     vrste = {d["vrsta"] for d in datoteke}
@@ -406,6 +424,8 @@ class Torrenti:
         izbrane = sorted({int(i) for i in izbrane} & dovoljene)
         if not izbrane:
             raise NapakaTorrenta("ni_izbranih")
+        # Podnapise, ki sodijo k izbranim videom, prenesemo zraven (majhni so) - predvajalnik jih ponudi sam.
+        izbrane = sorted(set(izbrane) | _podnapisi_k_videom(opis["datoteke"], izbrane))
         obstojeci = self._poisci(opis["hash"])
         if obstojeci is not None:
             tid, trenutne = obstojeci
@@ -547,9 +567,17 @@ class Torrenti:
             raise NapakaTorrenta("ni_predvajljivo")
         if not datoteke[int(i)].get("included"):
             vkljucene = [j for j, f in enumerate(datoteke) if f.get("included")] + [int(i)]
-            self._json("POST", "/torrents/%d/update_only_files" % int(tid),
-                       json.dumps({"only_files": sorted(set(vkljucene))}).encode(),
-                       glave={"Content-Type": "application/json"})
+            # rqbit med pripravo torrenta spremembo včasih zavrne (500): poskusimo še nekajkrat.
+            for poskus in range(5):
+                try:
+                    self._json("POST", "/torrents/%d/update_only_files" % int(tid),
+                               json.dumps({"only_files": sorted(set(vkljucene))}).encode(),
+                               glave={"Content-Type": "application/json"})
+                    break
+                except NapakaTorrenta:
+                    if poskus == 4:
+                        raise
+                    time.sleep(1)
         self._api("POST", "/torrents/%d/start" % int(tid))
         with self._zaklep:
             if self._streznik is None:
