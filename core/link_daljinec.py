@@ -120,7 +120,7 @@ def odpri_magnet(uri: str) -> dict:
     if not program:
         return izid(False, "Safeer OS na tem računalniku ni nameščen", koda="ni_safeer_os")
     import subprocess
-    subprocess.Popen([program, "--magnet", m["uri"]], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+    subprocess.Popen([program, "--magnet-naprava", m["uri"]], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                      stderr=subprocess.DEVNULL, start_new_session=True)
     return izid(True, "Odpiram v Safeer OS: " + (m["ime"] or m["hash"][:12]))
 

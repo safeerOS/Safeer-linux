@@ -1203,7 +1203,7 @@ class SafeerOS(Gtk.Application):
             "magnetPovezava": lambda: _magnet_klic(lambda: {"uri": os_torrent.torrenti().magnet(int(a[0]))}),
             "magnetNaNapravo": lambda: _control_naprave("Magnet", str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "magnetNaprave": naprave_za_magnet,
-            "magnetMapa": lambda: os_datoteke.odpri(str(a[0]) if a else os_torrent.mapa_prenosov()),
+            "magnetMapa": lambda: self._odpri_mapo_prenosov(str(a[0]) if a else ""),
             "magnetPrivzeto": lambda: magnet_privzeto(bool(a[0]) if a else None),
             "datotekeNaprave": lambda: datoteke_naprave(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "preimenujNapravo": lambda: preimenuj_napravo(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
@@ -1865,6 +1865,17 @@ class SafeerOS(Gtk.Application):
             return False
         return True
 
+    @staticmethod
+    def _odpri_mapo_prenosov(pot: str) -> bool:
+        """Odpre mapo prenosa (nikoli datoteke - ta bi lahko bila potrjen program) znotraj mape Prenosi/Safeer."""
+        koren = os.path.realpath(os_torrent.mapa_prenosov())
+        pot = os.path.realpath(pot or koren)
+        if not os.path.isdir(pot):
+            pot = os.path.dirname(pot)
+        if not os.path.isdir(pot) or not (pot == koren or pot.startswith(koren + os.sep)):
+            return False
+        return os_datoteke.odpri(pot)
+
     def _predvajaj_disk(self, naprava: str) -> bool:
         """DVD v optičnem pogonu (samo naprave /dev/sr*, ki jih javi core/os_dvd.pogoni)."""
         from core import os_dvd
@@ -1949,15 +1960,20 @@ class SafeerOS(Gtk.Application):
 
     # ------------------------------------------------------------------ magnet povezave
     def _odpri_magnet(self, uri: str) -> None:
-        """Magnet iz brskalnika ali z druge naprave: Medijski center pokaže vsebino in ponudi predvajanje."""
+        """Magnet iz brskalnika ali z druge naprave: Medijski center ga pokaže.
+
+        Samo ukaz z naprave v krogu ("naprava:" iz --magnet-naprava) se začne brati in predvajati sam;
+        povezava iz brskalnika ali druge aplikacije se ne dotakne omrežja, dokler uporabnik ne pritisne Odpri."""
+        samodejno = uri.startswith("naprava:")
+        uri = uri[len("naprava:"):] if samodejno else uri
         if os_torrent.razcleni_magnet(uri) is None:
             return
-        self._cakajoci_magnet = uri
+        self._cakajoci_magnet = {"uri": uri, "samodejno": samodejno}
         if self.okno is None:
             self.activate()
             return            # stran ga prevzame ob nalaganju (cakajociMagnet)
         self.okno.present()
-        self._dogodek("magnet", {"uri": uri})
+        self._dogodek("magnet", {"uri": uri, "samodejno": samodejno})
 
     @staticmethod
     def _kopiraj(besedilo: str) -> bool:
@@ -1967,9 +1983,9 @@ class SafeerOS(Gtk.Application):
         odlozisce.store()
         return True
 
-    def _vzemi_cakajoci_magnet(self) -> str:
-        uri, self._cakajoci_magnet = self._cakajoci_magnet, ""
-        return uri
+    def _vzemi_cakajoci_magnet(self) -> dict:
+        cakajoci, self._cakajoci_magnet = self._cakajoci_magnet, ""
+        return cakajoci or {}
 
     def _predvajaj_magnet(self, tid: int, i: int, ime: str) -> dict:
         """Datoteka torrenta v našem predvajalniku že med prenosom (lokalni tok z geslom na 127.0.0.1)."""
@@ -2286,14 +2302,19 @@ def main() -> int:
         print("Safeer OS", RAZLICICA)
         return 0
     magnet = ""
-    if "--magnet" in sys.argv[1:]:
+    zastavica = "--magnet-naprava" if "--magnet-naprava" in sys.argv[1:] else "--magnet"
+    if zastavica in sys.argv[1:]:
         # Magnet povezava (brskalnik, druga naprava v Linku): ce Safeer OS ze tece, jo preda njemu
         # (org.gtk.Actions) in konca - brez popravkov po sesutju, ki sodijo samo k pravemu zagonu.
-        i = sys.argv.index("--magnet")
+        # --magnet-naprava (samo ukaz z naprave v krogu, core/link_daljinec.py) sme predvajati takoj;
+        # --magnet (brskalnik, druge aplikacije) le pokaže povezavo - uporabnik pritisne Odpri.
+        i = sys.argv.index(zastavica)
         magnet = sys.argv[i + 1] if i + 1 < len(sys.argv) else ""
         if os_torrent.razcleni_magnet(magnet) is None:
             print("To ni veljavna magnet povezava.")
             return 2
+        if zastavica == "--magnet-naprava":
+            magnet = "naprava:" + magnet
         try:
             vodilo = Gio.bus_get_sync(Gio.BusType.SESSION, None)
             tece = vodilo.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",

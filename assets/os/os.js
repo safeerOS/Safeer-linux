@@ -740,7 +740,7 @@
     g.addEventListener("click", function (e) { e.stopPropagation(); dejanje(g); });
     return g;
   }
-  function odpriMagnet(uri) {
+  function odpriMagnet(uri, samodejno) {
     if (window.safeerOsPojdi && S.razdelek !== "media") window.safeerOsPojdi("media");
     $("slojMagnet").classList.add("viden");
     magnetSporocilo("");
@@ -751,7 +751,10 @@
       if (!$("slojMagnet").classList.contains("viden")) { clearInterval(S.magnet.casovnik); S.magnet.casovnik = 0; return; }
       magnetOsveziPrenose();
     }, 2000);
-    if (uri) preberiMagnet(uri, true); else $("magnetPolje").focus();
+    // Samo povezava z naprave v krogu se prebere in predvaja sama; iz brskalnika čaka na uporabnika.
+    if (uri && samodejno) preberiMagnet(uri, true);
+    else if (uri) { magnetSporocilo(t("magnetPritisniOdpri")); $("magnetOdpri").focus(); }
+    else $("magnetPolje").focus();
   }
   function zagotoviProgram() {
     return klic("magnetProgram").then(function (p) {
@@ -2523,7 +2526,7 @@
       $("mediaOsvezi").disabled = S.mediaOsvezuje || !S.mediaMape.length;
     }
     if (vrsta === "medijskaNapaka") obvesti(t("niUspelo"));
-    if (vrsta === "magnet") odpriMagnet(podatki && podatki.uri);
+    if (vrsta === "magnet") odpriMagnet(podatki && podatki.uri, podatki && podatki.samodejno === true);
     if (vrsta === "magnetProgram" && S.magnet.gumbPrograma)
       S.magnet.gumbPrograma.textContent = t("magnetProgramPrenasam", { odstotek: Math.floor(100 * podatki.n / (podatki.vse || 1)) });
     if (vrsta === "magnetDeljen") {
@@ -2780,7 +2783,7 @@
     $("magnetPrivzeto").addEventListener("click", function () {
       klic("magnetPrivzeto", [true]).then(function (je) { $("magnetPrivzeto").hidden = !!je; if (je) obvesti(t("magnetPrivzetoOk")); });
     });
-    klic("cakajociMagnet").then(function (uri) { if (uri) odpriMagnet(uri); }).catch(function () {});
+    klic("cakajociMagnet").then(function (c) { if (c && c.uri) odpriMagnet(c.uri, c.samodejno === true); }).catch(function () {});
     $("mediaNapraveZapri").addEventListener("click", zapriSloje);
     $("mediaNapraveNazaj").addEventListener("click", nazajMediaNaprave);
     $("mediaMapeDodaj").addEventListener("click", function () { zapriSloje(); $("medijiMapa").click(); });

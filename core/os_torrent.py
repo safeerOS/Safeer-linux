@@ -92,17 +92,43 @@ def razcleni_magnet(besedilo: str) -> Optional[dict]:
             break
     if not hash_:
         return None
-    sledilniki = [t for t in parametri.get("tr", []) if t.startswith(("udp://", "http://", "https://"))]
+    sledilniki = [t for t in parametri.get("tr", []) if _javen_sledilnik(t)][:20]
     ime = (parametri.get("dn") or [""])[0][:200]
-    return {"hash": hash_, "ime": ime, "sledilniki": sledilniki, "uri": uri}
+    # Motorju damo očiščeno povezavo: samo xt, dn in javni sledilniki. Brez x.pe/ws in brez sledilnikov v
+    # domačem omrežju - tuja povezava ne sme usmerjati zahtev na usmerjevalnik ali druge naprave doma.
+    xt = "urn:btih:" + hash_ if len(hash_) == 40 else next(x for x in parametri["xt"] if _BTMH.match(x))
+    cist = "magnet:?xt=" + xt + ("&dn=" + urllib.parse.quote(ime, safe="") if ime else "") + \
+        "".join("&tr=" + urllib.parse.quote(t, safe="") for t in sledilniki)
+    return {"hash": hash_, "ime": ime, "sledilniki": sledilniki, "uri": cist}
+
+
+def _javen_sledilnik(t: str) -> bool:
+    """Sledilnik udp/http/https na javnem naslovu (ne localhost, ne zasebno omrežje, ne .local)."""
+    import ipaddress
+    if not t.startswith(("udp://", "http://", "https://")):
+        return False
+    try:
+        gostitelj = (urllib.parse.urlsplit(t).hostname or "").lower().rstrip(".")
+    except ValueError:
+        return False
+    if not gostitelj or gostitelj == "localhost" or gostitelj.endswith((".localhost", ".local", ".lan", ".home",
+                                                                         ".internal", ".home.arpa")) or "." not in gostitelj:
+        return False
+    try:
+        ip = ipaddress.ip_address(gostitelj)
+    except ValueError:
+        return True
+    return ip.is_global
 
 
 def z_sledilniki(uri: str) -> str:
     """Magnet brez sledilnikov dobi nekaj zanesljivih (hitrejše iskanje); ostalih ne spreminjamo."""
     m = razcleni_magnet(uri)
-    if m is None or m["sledilniki"]:
+    if m is None:
         return uri
-    return uri + "".join("&tr=" + urllib.parse.quote(t, safe="") for t in SLEDILNIKI)
+    if m["sledilniki"]:
+        return m["uri"]
+    return m["uri"] + "".join("&tr=" + urllib.parse.quote(t, safe="") for t in SLEDILNIKI)
 
 
 def vrsta_datoteke(ime: str) -> str:
@@ -137,6 +163,33 @@ def razvrsti_datoteke(datoteke: List[dict]) -> List[dict]:
                      "predvajljivo": vrsta in ("video", "audio"),
                      "izbrana": vrsta in ("video", "audio", "podnapisi")})
     return izid
+
+
+def _ustavi_sirote(mapa_stanja: str, program: str) -> None:
+    """Ustavi rqbit iz prejšnjega zagona (datoteka rqbit.pid), a samo, če PID res pripada našemu programu."""
+    pot = os.path.join(mapa_stanja, "rqbit.pid")
+    try:
+        with open(pot) as d:
+            pid = int(d.read().strip())
+    except (OSError, ValueError):
+        return
+    try:
+        if sys.platform.startswith("win"):
+            return          # na Windows rqbit ustavi posel (Job Object) skupaj s Safeer OS
+        exe = os.path.realpath("/proc/%d/exe" % pid)
+        if exe == os.path.realpath(program):
+            import signal
+            os.kill(pid, signal.SIGTERM)
+            for _ in range(30):
+                time.sleep(0.1)
+                if not os.path.exists("/proc/%d" % pid):
+                    break
+    except OSError:
+        pass
+    try:
+        os.remove(pot)
+    except OSError:
+        pass
 
 
 _POSEL = None
@@ -189,7 +242,8 @@ def _podnapisi_k_videom(datoteke: List[dict], izbrane) -> set:
         mapa = video["ime"].replace("\\", "/").rpartition("/")[0]
         predpona = mapa + "/" if mapa else ""
         relativno = {d["ime"].replace("\\", "/")[len(predpona):]: d["i"] for d in datoteke
-                     if d["ime"].replace("\\", "/").startswith(predpona) and d["vrsta"] in ("video", "podnapisi")}
+                     if d["ime"].replace("\\", "/").startswith(predpona) and (d["vrsta"] == "video" or (
+                         d["vrsta"] == "podnapisi" and d.get("velikost", 0) <= pn.NAJVEC_BAJTOV))}
         videov = sum(1 for r in relativno if "/" not in r and vrsta_datoteke(r) == "video")
         izid |= {relativno[r] for r in pn.ujemajoci(video["ime"], list(relativno), videov == 1)}
     return izid
@@ -363,6 +417,8 @@ class Torrenti:
                 raise NapakaTorrenta("ni_programa")
             os.makedirs(self.mapa_prenosov, exist_ok=True)
             os.makedirs(self.mapa_stanja, exist_ok=True)
+            # rqbit, ki je ostal po sesutju Safeer OS, bi oddajal brez nadzora in si delil stanje z novim.
+            _ustavi_sirote(self.mapa_stanja, program)
             self.vrata = _prosta_vrata()
             self._geslo = secrets.token_urlsafe(24)
             okolje = dict(os.environ, RQBIT_HTTP_BASIC_AUTH_USERPASS="safeer:" + self._geslo)
@@ -382,6 +438,11 @@ class Torrenti:
                                             stderr=subprocess.DEVNULL, **dodatno)
             if sys.platform.startswith("win"):
                 _vezi_na_safeer(self._proces)
+            try:
+                with open(os.path.join(self.mapa_stanja, "rqbit.pid"), "w") as d:
+                    d.write(str(self._proces.pid))
+            except OSError:
+                pass
             for _ in range(100):
                 time.sleep(0.1)
                 if self._proces.poll() is not None:
@@ -395,6 +456,16 @@ class Torrenti:
             else:
                 self.ustavi()
                 raise NapakaTorrenta("program_ne_odgovori")
+            # API mora brez gesla zavrniti (401), sicer bi ga lahko uporabil vsak proces ali stran z 127.0.0.1.
+            geslo, self._geslo = self._geslo, ""
+            try:
+                koda, _ = self._api("GET", "/torrents", cas=3)
+            except OSError:
+                koda = 0
+            self._geslo = geslo
+            if koda != 401:
+                self.ustavi()
+                raise NapakaTorrenta("program_brez_gesla")
             if self._nadzor is None:
                 self._nadzor = threading.Thread(target=self._nadzoruj, name="safeer-torrent-nadzor", daemon=True)
                 self._nadzor.start()
@@ -589,7 +660,9 @@ class Torrenti:
         def pot(f: dict) -> str:
             deli = f.get("components")
             return "/".join(str(x) for x in deli) if isinstance(deli, list) and deli else str(f.get("name") or "")
-        poti = [pot(f) for f in datoteke]
+        # Prevelika "podnapisna" datoteka ni podnapis: ne prenašamo je in je ne ponudimo predvajalniku.
+        poti = [pot(f) if not (vrsta_datoteke(pot(f)) == "podnapisi" and int(f.get("length") or 0) > pn.NAJVEC_BAJTOV)
+                else "" for f in datoteke]
         if not 0 <= int(i) < len(poti):
             return []
         mapa = poti[int(i)].rpartition("/")[0]

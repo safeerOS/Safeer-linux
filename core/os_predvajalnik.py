@@ -167,7 +167,8 @@ class Predvajalnik:
         if self.vrsta[indeks].uri.startswith("dvd://"):
             # Zaščitenih diskov (CSS) ne predvajamo - tudi če ima sistem knjižnico, ki bi jih odklenila.
             from core import os_dvd
-            if os_dvd.je_zasciten(self.vrsta[indeks].uri):
+            # Samo izrecno preverjen disk brez zaščite; če preverba ne uspe (None), ne predvajamo.
+            if os_dvd.je_zasciten(self.vrsta[indeks].uri) is not False:
                 self.napaka = "dvd"
                 self.stanje = "napaka"
                 self.sprememba()
