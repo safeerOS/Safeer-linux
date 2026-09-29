@@ -623,6 +623,7 @@ class SafeerOS(Gtk.Application):
         self._glavna_postavitev = None
         self._spletni_nacin = False
         self._medijski_napis = None
+        self._medijski_sklad = None
         self._medijski_vrsta = None
         self._medijski_premor = None
         self._medijski_drsnik = None
@@ -1412,6 +1413,7 @@ class SafeerOS(Gtk.Application):
                             window.safeer-player label { color: #dbeee9; }
                             window.safeer-player label.safeer-player-title { font-size: 18px; font-weight: 700; }
                             window.safeer-player label.safeer-player-queue { color: #b0bdc4; }
+                            window.safeer-player label.safeer-player-note { font-size: 96px; color: #54d6a5; }
                             window.safeer-player button { background: #1a3339; color: #edfff7;
                                 border: 1px solid #3a6f65; border-radius: 10px; padding: 8px 13px; }
                             window.safeer-player button:hover { background: #275248; border-color: #54d6a5; }
@@ -1435,20 +1437,30 @@ class SafeerOS(Gtk.Application):
                 okno.connect("key-press-event", self._medijska_tipka)
                 postavitev = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
                 postavitev.set_border_width(16)
+                # Glasba nima slike: namesto črnega polja pokažemo znak in naslov (sklad preklopi ob osvežitvi).
+                self._medijski_sklad = Gtk.Stack()
+                self._medijski_sklad.set_vexpand(True)
+                self._medijski_sklad.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+                zvok = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, valign=Gtk.Align.CENTER)
+                znak = Gtk.Label(label="♫")
+                znak.get_style_context().add_class("safeer-player-note")
+                self._medijski_zvok_naslov = Gtk.Label()
+                self._medijski_zvok_naslov.get_style_context().add_class("safeer-player-title")
+                self._medijski_zvok_naslov.set_line_wrap(True)
+                self._medijski_zvok_naslov.set_justify(Gtk.Justification.CENTER)
+                zvok.pack_start(znak, False, False, 0)
+                zvok.pack_start(self._medijski_zvok_naslov, False, False, 0)
+                self._medijski_sklad.add_named(zvok, "zvok")
                 ponor = Gst.ElementFactory.make("gtksink", "safeer-media-video")
                 if ponor is not None:
                     self._medijski_predvajalnik.element.set_property("video-sink", ponor)
                     slika = Gtk.EventBox()
                     slika.add(ponor.get_property("widget"))
-                    slika.set_vexpand(True)
                     # Dvojni klik na sliko preklopi cel zaslon (kot v VLC in mpv).
                     slika.connect("button-press-event", lambda _w, d: d.type == Gdk.EventType._2BUTTON_PRESS and
                                   self._medijski_cel_zaslon(okno))
-                    postavitev.pack_start(slika, True, True, 0)
-                else:
-                    slika = Gtk.Label(label="♫  Safeer Player")
-                    slika.set_vexpand(True)
-                    postavitev.pack_start(slika, True, True, 0)
+                    self._medijski_sklad.add_named(slika, "slika")
+                postavitev.pack_start(self._medijski_sklad, True, True, 0)
                 self._medijski_napis = Gtk.Label(xalign=0)
                 self._medijski_napis.get_style_context().add_class("safeer-player-title")
                 postavitev.pack_start(self._medijski_napis, False, False, 0)
@@ -1524,6 +1536,7 @@ class SafeerOS(Gtk.Application):
         self._medijski_napis.set_text(naslov + (" · " + self._mb(servis.napaka)
                                                      if servis.napaka else ""))
         self._medijski_premor.set_label("▶ " + self._mb("nadaljuj") if servis.stanje == "premor" else "⏸ " + self._mb("premor"))
+        self._osvezi_medijski_sklad()
         naprej = [v.naslov for v in servis.vrsta[servis.indeks + 1:servis.indeks + 6]]
         self._medijski_vrsta.set_text(self._mb("cakalna_vrsta") + ": " + "  ·  ".join(naprej) if naprej else "")
         podatki = self._medijski_podatki()
@@ -1590,6 +1603,24 @@ class SafeerOS(Gtk.Application):
             return True
         return False
 
+    def _osvezi_medijski_sklad(self) -> None:
+        """Slika za video, glasbeni znak za zvok. Dokler playbin ne pozna tokov, odloči vrsta vnosa."""
+        servis = self._medijski_predvajalnik
+        if servis is None or self._medijski_sklad is None:
+            return
+        self._medijski_zvok_naslov.set_text(servis.trenutna.naslov if servis.trenutna else "")
+        try:
+            ok, pozicija = servis.element.query_position(servis.gst.Format.TIME)
+            znano = bool(ok and pozicija > 0)
+            ima_sliko = int(servis.element.get_property("n-video") or 0) > 0
+        except Exception:  # noqa: BLE001
+            znano, ima_sliko = False, False
+        if not znano:
+            ima_sliko = bool(servis.trenutna and servis.trenutna.vrsta in ("video", "tv"))
+        cilj = "slika" if ima_sliko and self._medijski_sklad.get_child_by_name("slika") else "zvok"
+        if self._medijski_sklad.get_visible_child_name() != cilj:
+            self._medijski_sklad.set_visible_child_name(cilj)
+
     def _medijski_tik(self) -> bool:
         if self._koncano:
             return False
@@ -1598,6 +1629,7 @@ class SafeerOS(Gtk.Application):
             podatki = self._medijski_podatki()
             self._shrani_medijski_napredek(podatki)
             self._osvezi_medijski_drsnik(podatki)
+            self._osvezi_medijski_sklad()
             self._dogodek("predvajalnik", podatki)
         return True
 

@@ -1,6 +1,7 @@
 /* Besedila Safeer OS za racunalnik: sl, en, de, es, fr, it (isti nabor kot drugje v Safeerju). */
 var BESEDILA_OS = {
   sl: {
+    mediaSpletnaStran:"Spletna stran", mediaSpletnaStranNamig:"Odpre spletno stran ponudnika. Predvajanje je po pogojih ponudnika.",
     zapri:"Zapri", mediaMape:"Medijske mape", mediaMapeOpis:"Mape, ki jih Safeer pregleduje. Odstranitev mapo samo skrije iz knjižnice – datoteke ostanejo na disku.", mediaMapeNi:"Nobena mapa še ni dodana.", mediaMapaVnosov:"{n} v knjižnici", mediaMapaNedosegljiva:"Trenutno ni dosegljiva (odklopljen disk?) – vnosi ostanejo", mediaMapaOdstranjena:"Mapa je odstranjena iz knjižnice. Datoteke so nedotaknjene.", mediaOdpriVAplikaciji:"Odpri v aplikaciji", mediaPrejsnjaSlika:"Prejšnja slika", mediaNaslednjaSlika:"Naslednja slika",
     mediaNapaka_tok:"Tok ni dosegljiv. Preveri naslov in povezavo.", mediaNapaka_datoteka:"Datoteke ni mogoče prebrati.", mediaNapaka_format:"Tega zapisa ni mogoče predvajati.", mediaNapaka_zascita:"Posnetek je zaščiten (DRM) in ga Safeer ne predvaja.", mediaNapaka_zacetek:"Predvajanja ni bilo mogoče začeti.", mediaNapaka_splosno:"Predvajanje se je ustavilo zaradi napake.",
     vrsticaSkrci: "Skrči stransko vrstico (Ctrl+B)", vrsticaRazsiri: "Razširi stransko vrstico (Ctrl+B)",
@@ -82,6 +83,7 @@ var BESEDILA_OS = {
     odstrani: "Odstrani", wifiIzklopljen: "Wi-Fi je izklopljen"
   },
   en: {
+    mediaSpletnaStran:"Website", mediaSpletnaStranNamig:"Opens the provider's website. Playback follows the provider's terms.",
     zapri:"Close", mediaMape:"Media folders", mediaMapeOpis:"Folders Safeer scans. Removing a folder only hides it from the library – your files stay on disk.", mediaMapeNi:"No folders added yet.", mediaMapaVnosov:"{n} in library", mediaMapaNedosegljiva:"Not available right now (disconnected drive?) – entries are kept", mediaMapaOdstranjena:"Folder removed from the library. Your files are untouched.", mediaOdpriVAplikaciji:"Open in app", mediaPrejsnjaSlika:"Previous image", mediaNaslednjaSlika:"Next image",
     mediaNapaka_tok:"Stream unreachable. Check the address and connection.", mediaNapaka_datoteka:"The file can't be read.", mediaNapaka_format:"This format can't be played.", mediaNapaka_zascita:"This recording is DRM-protected and Safeer doesn't play it.", mediaNapaka_zacetek:"Playback couldn't start.", mediaNapaka_splosno:"Playback stopped because of an error.",
     vrsticaSkrci: "Collapse sidebar (Ctrl+B)", vrsticaRazsiri: "Expand sidebar (Ctrl+B)",
@@ -163,6 +165,7 @@ var BESEDILA_OS = {
     odstrani: "Remove", wifiIzklopljen: "Wi-Fi is off"
   },
   de: {
+    mediaSpletnaStran:"Website", mediaSpletnaStranNamig:"Öffnet die Website des Anbieters. Die Wiedergabe richtet sich nach dessen Bedingungen.",
     zapri:"Schließen", mediaMape:"Medienordner", mediaMapeOpis:"Ordner, die Safeer durchsucht. Entfernen blendet den Ordner nur aus der Bibliothek aus – die Dateien bleiben erhalten.", mediaMapeNi:"Noch keine Ordner hinzugefügt.", mediaMapaVnosov:"{n} in der Bibliothek", mediaMapaNedosegljiva:"Derzeit nicht erreichbar (Laufwerk getrennt?) – Einträge bleiben", mediaMapaOdstranjena:"Ordner aus der Bibliothek entfernt. Deine Dateien sind unverändert.", mediaOdpriVAplikaciji:"In App öffnen", mediaPrejsnjaSlika:"Vorheriges Bild", mediaNaslednjaSlika:"Nächstes Bild",
     mediaNapaka_tok:"Stream nicht erreichbar. Adresse und Verbindung prüfen.", mediaNapaka_datoteka:"Die Datei kann nicht gelesen werden.", mediaNapaka_format:"Dieses Format kann nicht abgespielt werden.", mediaNapaka_zascita:"Die Aufnahme ist DRM-geschützt; Safeer spielt sie nicht ab.", mediaNapaka_zacetek:"Die Wiedergabe konnte nicht starten.", mediaNapaka_splosno:"Die Wiedergabe wurde wegen eines Fehlers beendet.",
     vrsticaSkrci: "Seitenleiste einklappen (Strg+B)", vrsticaRazsiri: "Seitenleiste ausklappen (Strg+B)",
@@ -244,6 +247,7 @@ var BESEDILA_OS = {
     odstrani: "Entfernen", wifiIzklopljen: "WLAN ist aus"
   },
   es: {
+    mediaSpletnaStran:"Sitio web", mediaSpletnaStranNamig:"Abre el sitio del proveedor. La reproducción depende de sus condiciones.",
     zapri:"Cerrar", mediaMape:"Carpetas multimedia", mediaMapeOpis:"Carpetas que Safeer analiza. Quitar una carpeta solo la oculta de la biblioteca: los archivos siguen en el disco.", mediaMapeNi:"Aún no hay carpetas.", mediaMapaVnosov:"{n} en la biblioteca", mediaMapaNedosegljiva:"No disponible ahora (¿disco desconectado?): se conservan las entradas", mediaMapaOdstranjena:"Carpeta quitada de la biblioteca. Tus archivos no se han tocado.", mediaOdpriVAplikaciji:"Abrir en la aplicación", mediaPrejsnjaSlika:"Imagen anterior", mediaNaslednjaSlika:"Imagen siguiente",
     mediaNapaka_tok:"No se puede acceder a la emisión. Revisa la dirección y la conexión.", mediaNapaka_datoteka:"No se puede leer el archivo.", mediaNapaka_format:"Este formato no se puede reproducir.", mediaNapaka_zascita:"La grabación está protegida con DRM y Safeer no la reproduce.", mediaNapaka_zacetek:"No se pudo iniciar la reproducción.", mediaNapaka_splosno:"La reproducción se detuvo por un error.",
     vrsticaSkrci: "Contraer barra lateral (Ctrl+B)", vrsticaRazsiri: "Expandir barra lateral (Ctrl+B)",
@@ -325,6 +329,7 @@ var BESEDILA_OS = {
     odstrani: "Quitar", wifiIzklopljen: "El Wi-Fi está apagado"
   },
   fr: {
+    mediaSpletnaStran:"Site web", mediaSpletnaStranNamig:"Ouvre le site du fournisseur. La lecture dépend de ses conditions.",
     zapri:"Fermer", mediaMape:"Dossiers multimédias", mediaMapeOpis:"Dossiers analysés par Safeer. Retirer un dossier le masque seulement de la bibliothèque : vos fichiers restent sur le disque.", mediaMapeNi:"Aucun dossier ajouté.", mediaMapaVnosov:"{n} dans la bibliothèque", mediaMapaNedosegljiva:"Indisponible pour le moment (disque déconnecté ?) – les entrées sont conservées", mediaMapaOdstranjena:"Dossier retiré de la bibliothèque. Vos fichiers sont intacts.", mediaOdpriVAplikaciji:"Ouvrir dans l'application", mediaPrejsnjaSlika:"Image précédente", mediaNaslednjaSlika:"Image suivante",
     mediaNapaka_tok:"Flux inaccessible. Vérifiez l'adresse et la connexion.", mediaNapaka_datoteka:"Impossible de lire le fichier.", mediaNapaka_format:"Ce format ne peut pas être lu.", mediaNapaka_zascita:"L'enregistrement est protégé par DRM ; Safeer ne le lit pas.", mediaNapaka_zacetek:"La lecture n'a pas pu démarrer.", mediaNapaka_splosno:"La lecture s'est arrêtée à cause d'une erreur.",
     vrsticaSkrci: "Réduire la barre latérale (Ctrl+B)", vrsticaRazsiri: "Développer la barre latérale (Ctrl+B)",
@@ -406,6 +411,7 @@ var BESEDILA_OS = {
     odstrani: "Retirer", wifiIzklopljen: "Le Wi-Fi est désactivé"
   },
   it: {
+    mediaSpletnaStran:"Sito web", mediaSpletnaStranNamig:"Apre il sito del fornitore. La riproduzione segue le sue condizioni.",
     zapri:"Chiudi", mediaMape:"Cartelle multimediali", mediaMapeOpis:"Cartelle analizzate da Safeer. Rimuovere una cartella la nasconde solo dalla libreria: i file restano sul disco.", mediaMapeNi:"Nessuna cartella aggiunta.", mediaMapaVnosov:"{n} nella libreria", mediaMapaNedosegljiva:"Non disponibile ora (disco scollegato?) – le voci restano", mediaMapaOdstranjena:"Cartella rimossa dalla libreria. I tuoi file sono intatti.", mediaOdpriVAplikaciji:"Apri nell'app", mediaPrejsnjaSlika:"Immagine precedente", mediaNaslednjaSlika:"Immagine successiva",
     mediaNapaka_tok:"Flusso non raggiungibile. Controlla l'indirizzo e la connessione.", mediaNapaka_datoteka:"Impossibile leggere il file.", mediaNapaka_format:"Questo formato non può essere riprodotto.", mediaNapaka_zascita:"La registrazione è protetta da DRM e Safeer non la riproduce.", mediaNapaka_zacetek:"Impossibile avviare la riproduzione.", mediaNapaka_splosno:"La riproduzione si è interrotta per un errore.",
     vrsticaSkrci: "Comprimi barra laterale (Ctrl+B)", vrsticaRazsiri: "Espandi barra laterale (Ctrl+B)",
