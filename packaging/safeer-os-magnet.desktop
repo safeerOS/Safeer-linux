@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Safeer Media (magnet)
+Name[sl]=Safeer Media (magnet)
+Comment=Play and download magnet links in Safeer Media
+Comment[sl]=Predvajaj in prenesi magnet povezave v Safeer Media
+Exec=safeer-os --magnet %u
+Icon=safeer-os
+Terminal=false
+NoDisplay=true
+MimeType=x-scheme-handler/magnet;
+Categories=AudioVideo;Network;

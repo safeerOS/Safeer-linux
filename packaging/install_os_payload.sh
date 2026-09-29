@@ -14,7 +14,7 @@ cp -a "$ROOT/safeer_os.py" "$LIB/"
 # identity, sessions, circle of trust, hub discovery, programs). tests/test_packaging.py installs this
 # payload and imports it without the source tree, so a missing module fails the test, not the user.
 # core/os_jbl.py (JBL input switching) is an internal experiment and is deliberately NOT shipped.
-for modul in os_datoteke os_knjiznica os_media_besedila os_mediji os_predvajalnik os_okna os_omrezje os_programi os_scit os_sistem os_sporocila os_spletne os_stabilnost os_zapiski os_zvok \
+for modul in os_datoteke os_knjiznica os_media_besedila os_mediji os_predvajalnik os_torrent os_okna os_omrezje os_programi os_scit os_sistem os_sporocila os_spletne os_stabilnost os_zapiski os_zvok \
              link_datoteke link_urejanje link_hub link_hub_streznik link_mesh link_rele link_pretok link_iskanje link_krog link_kripto link_mediji link_programi link_seja link_tls link_ws spake2 signed_feed threat_intel \
              os_splet ikone_strani dlna_zvocniki zvok_na_zvocnik adblock config bookmarks_importer doh_proxy filter_lists bank_guard; do
     cp -a "$ROOT/core/$modul.py" "$LIB/core/"
@@ -35,6 +35,8 @@ find "$LIB" -type f -exec chmod 644 {} +
 install -m755 "$ROOT/packaging/safeer-os-launcher" "$PREFIX/bin/safeer-os"
 install -Dm644 "$ROOT/LICENSE" "$PREFIX/share/doc/safeer-os/LICENSE"
 sed "s/^Icon=.*/Icon=$ID/" "$ROOT/packaging/safeer-os.desktop" > "$PREFIX/share/applications/$ID.desktop"
+# Magnet povezave (x-scheme-handler/magnet) odpre Safeer Media; vnos se v meniju ne kaze.
+sed "s/^Icon=.*/Icon=$ID/" "$ROOT/packaging/safeer-os-magnet.desktop" > "$PREFIX/share/applications/$ID.Magnet.desktop"
 sed "s|safeer-os.desktop|$ID.desktop|" "$ROOT/io.github.memelandfaner.SafeerOS.metainfo.xml" > "$PREFIX/share/metainfo/io.github.memelandfaner.SafeerOS.metainfo.xml"
 install -Dm644 "$ROOT/assets/os/znak.svg" "$PREFIX/share/icons/hicolor/scalable/apps/$ID.svg"
 install -m644 "$ROOT/assets/icon.png" "$PREFIX/share/pixmaps/$ID.png"

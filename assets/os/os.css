@@ -807,6 +807,24 @@ select option { background: #132631; color: #e8f1ef; }
 .media-mape-plosca .gumbi { display:flex; justify-content:flex-end; gap:10px; }
 .media-naprave-seznam { max-height:min(56vh, 520px); overflow:auto; }
 .media-naprave-plosca [hidden] { display:none !important; }
+.magnet-plosca { width:720px; max-height:calc(100vh - 48px); overflow:auto; }
+.magnet-plosca [hidden] { display:none !important; }
+.magnet-vnos { display:flex; gap:10px; margin:6px 0 12px; }
+.magnet-vnos input { flex:1; min-width:0; height:40px; padding:0 12px; border-radius:10px; border:1px solid var(--rob); background:rgba(255,255,255,.06); color:inherit; font:inherit; font-size:13px; }
+.magnet-vnos input:focus { outline:none; border-color:var(--zelena); }
+.magnet-podnaslov { margin:16px 0 8px; font-size:14px; color:var(--medlo); font-weight:600; }
+.magnet-opozorilo { padding:10px 12px; border-radius:10px; border:1px solid #e0a84a; background:rgba(224,168,74,.12); font-size:13px; margin-bottom:8px; }
+.magnet-vsebina .media-mapa, .magnet-prenosi .media-mapa { flex-wrap:wrap; }
+.magnet-vsebina .media-mapa input[type=checkbox] { width:18px; height:18px; flex:none; accent-color:var(--zelena); }
+.magnet-oznaka { flex:none; font-size:11px; padding:2px 8px; border-radius:99px; border:1px solid var(--rob); color:var(--medlo); }
+.magnet-oznaka.nevarno { border-color:#e05a4a; color:#f08a7e; }
+.magnet-plosca .media-mapa > .magnet-dejanja, .magnet-plosca .media-mapa > .magnet-merilo { flex:0 0 100%; }
+.magnet-merilo { flex-basis:100%; height:6px; border-radius:3px; background:rgba(255,255,255,.08); overflow:hidden; }
+.magnet-merilo i { display:block; height:100%; background:var(--zelena); }
+.magnet-dejanja { display:flex; flex-wrap:wrap; gap:8px; flex-basis:100%; }
+.magnet-dejanja button, .magnet-dejanja select { height:32px; padding:0 10px; border-radius:9px; border:1px solid var(--rob); background:rgba(255,255,255,.04); color:inherit; font:inherit; font-size:12px; }
+.magnet-dejanja button.vklopljen { border-color:var(--zelena); color:var(--zelena); }
+.magnet-povezava { flex-basis:100%; font-size:12px; word-break:break-all; color:var(--medlo); }
 .media-naprave-seznam .media-mapa { width:100%; text-align:left; color:inherit; font:inherit; cursor:pointer; }
 .media-naprave-seznam .media-mapa:hover, .media-naprave-seznam .media-mapa:focus-visible { border-color:var(--zelena); outline:none; }
 .media-naprave-seznam .media-mapa:disabled { cursor:default; opacity:.6; }

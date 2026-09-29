@@ -44,7 +44,8 @@ gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 
 from core import (os_datoteke, os_knjiznica, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
-                  os_media_besedila, os_mediji, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost, os_zapiski, os_zvok)
+                  os_media_besedila, os_mediji, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost, os_torrent,
+                  os_zapiski, os_zvok)
 
 # Preklop vhoda zvocne vrstice JBL je samo interni poskus: uradni paket modula ne vsebuje
 # (packaging/install_os_payload.sh), zato ga uvozimo le, ce je prisoten (zagon iz repozitorija).
@@ -408,6 +409,45 @@ def vse_naprave() -> list:
              "vrsta": n.get("vrsta", ""), "ta": bool(n.get("ta"))} for n in izid.get("naprave") or [] if n.get("id")]
 
 
+def _magnet_klic(delo) -> dict:
+    """Klic motorja za magnet: napaka gre strani kot kratka koda (prevede jo stran)."""
+    try:
+        izid = delo()
+        return dict(izid, ok=True) if isinstance(izid, dict) else {"ok": bool(izid)}
+    except os_torrent.NapakaTorrenta as e:
+        return {"ok": False, "koda": str(e)}
+    except Exception as e:  # noqa: BLE001
+        print("[SafeerOS] magnet:", e)
+        return {"ok": False, "koda": "napaka"}
+
+
+def naprave_za_magnet() -> list:
+    """Naprave v Linku, ki znajo odpreti magnet (zmoznost "magnet"): tja lahko pošljemo povezavo."""
+    izid = _control_naprave("Seznam")
+    return [{"id": n.get("id", ""), "ime": n.get("ime", ""), "platforma": n.get("platforma", "")}
+            for n in izid.get("naprave") or [] if n.get("id") and not n.get("ta") and "magnet" in (n.get("zmoznosti") or [])]
+
+
+def magnet_privzeto(nastavi: Optional[bool] = None) -> bool:
+    """Ali magnet povezave odpira Safeer OS (xdg-mime); z nastavi=True ga naredi za privzetega."""
+    # Ime vnosa je odvisno od namestitve (install_os_payload.sh: <ID>.Magnet.desktop; ID je "safeer-os" ali APP_ID).
+    mape = [os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")] + \
+        (os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":")
+    vnos = next((ime for ime in ("safeer-os.Magnet.desktop", APP_ID + ".Magnet.desktop")
+                 for m in mape if os.path.isfile(os.path.join(m, "applications", ime))), "")
+    if not vnos:
+        return False
+    try:
+        if nastavi:
+            subprocess.run(["xdg-mime", "default", vnos, "x-scheme-handler/magnet"], timeout=10, check=False,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        r = subprocess.run(["xdg-mime", "query", "default", "x-scheme-handler/magnet"], timeout=10,
+                           capture_output=True, text=True)
+        return r.stdout.strip() == vnos
+    except Exception:
+        return False
+
+
 def naprave_z_datotekami() -> list:
     """Druge naprave v Linku, ki delijo datoteke (zmoznost "files"): za Safeer Media -> Naprave."""
     izid = _control_naprave("Seznam")
@@ -647,6 +687,11 @@ class SafeerOS(Gtk.Application):
         self._medijski_tik_zacet = False
         self._medijsko_osvezevanje = False
         self._zadnji_medijski_napredek = None
+        #: Magnet povezava, ki caka, da se stran nalozi (zagon z --magnet ali dejanje, ko okna se ni).
+        self._cakajoci_magnet = ""
+        magnet = Gio.SimpleAction.new("magnet", GLib.VariantType.new("s"))
+        magnet.connect("activate", lambda _a, v: self._odpri_magnet(v.get_string() if v else ""))
+        self.add_action(magnet)
 
     # ------------------------------------------------------------------ okno
     def do_activate(self) -> None:
@@ -887,6 +932,10 @@ class SafeerOS(Gtk.Application):
             self._medijski_predvajalnik.zapri()
         if self.namizje:
             vrni_mintov_pult(self.shramba)
+        try:
+            os_torrent.torrenti().ustavi()        # rqbit ne ostane teči brez Safeer OS
+        except Exception:
+            pass
         # Brez nasega razresevalnika bi racunalnik ostal brez DNS: nastavitev povrnemo.
         try:
             self.scit.koncaj()
@@ -1058,6 +1107,11 @@ class SafeerOS(Gtk.Application):
                 str(a[2]) if len(a) > 2 else ""),
             "odpriMedijskiTok": lambda: self._odpri_medijski_tok(str(a[0]) if a else ""),
             "odpriLokalniMedij": lambda: self._odpri_lokalni_medij(str(a[0]) if a else ""),
+            "cakajociMagnet": self._vzemi_cakajoci_magnet,
+            "kopiraj": lambda: self._kopiraj(str(a[0]) if a else ""),
+            "magnetPredvajaj": lambda: self._predvajaj_magnet(int(a[0]) if a else -1, int(a[1]) if len(a) > 1 else -1,
+                                                             str(a[2]) if len(a) > 2 else ""),
+            "magnetIzDatoteke": lambda: self._magnet_iz_datoteke(bool(a[0]) if a else False),
             "predvajajZNaprave": lambda: self._predvajaj_z_naprave(
                 a[0] if a and isinstance(a[0], dict) else {}, str(a[1]) if len(a) > 1 else "",
                 a[2] if len(a) > 2 and isinstance(a[2], list) else [], int(a[3]) if len(a) > 3 else 0,
@@ -1127,6 +1181,22 @@ class SafeerOS(Gtk.Application):
             "napraveSProgrami": naprave_s_programi,
             "vseNaprave": vse_naprave,
             "napraveZDatotekami": naprave_z_datotekami,
+            "magnetProgram": lambda: {"na_voljo": os_torrent.program_na_voljo(), "podprto": bool(os_torrent.platforma()),
+                                      "mb": round((os_torrent.RQBIT_PAKETI.get(os_torrent.platforma()) or ("", "", 0))[2] / 1e6)},
+            "magnetPrenesiProgram": self._magnet_prenesi_program,
+            "magnetPreberi": lambda: _magnet_klic(lambda: os_torrent.torrenti().preberi(str(a[0]) if a else "")),
+            "magnetDodaj": lambda: _magnet_klic(lambda: {"id": os_torrent.torrenti().dodaj(
+                str(a[0]) if a else "", [int(x) for x in (a[1] if len(a) > 1 and isinstance(a[1], list) else [])])}),
+            "magnetSeznam": lambda: os_torrent.torrenti().seznam(),
+            "magnetPremor": lambda: os_torrent.torrenti().premor(int(a[0])),
+            "magnetNadaljuj": lambda: _magnet_klic(lambda: os_torrent.torrenti().nadaljuj(int(a[0]))),
+            "magnetOdstrani": lambda: os_torrent.torrenti().odstrani(int(a[0]), bool(a[1]) if len(a) > 1 else False),
+            "magnetDeliNaprej": lambda: os_torrent.torrenti().deli_naprej(str(a[0]), bool(a[1]) if len(a) > 1 else False) or True,
+            "magnetPovezava": lambda: _magnet_klic(lambda: {"uri": os_torrent.torrenti().magnet(int(a[0]))}),
+            "magnetNaNapravo": lambda: _control_naprave("Magnet", str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
+            "magnetNaprave": naprave_za_magnet,
+            "magnetMapa": lambda: os_datoteke.odpri(str(a[0]) if a else os_torrent.mapa_prenosov()),
+            "magnetPrivzeto": lambda: magnet_privzeto(bool(a[0]) if a else None),
             "datotekeNaprave": lambda: datoteke_naprave(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "preimenujNapravo": lambda: preimenuj_napravo(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "upravljajRacunalnik": lambda: upravljaj_racunalnik(str(a[0]) if a else ""),
@@ -1779,6 +1849,74 @@ class SafeerOS(Gtk.Application):
                                          prikazi=not zvok, ime=seznam[zacni].naslov,
                                          seznam=seznam, zacni=zacni)
 
+    # ------------------------------------------------------------------ magnet povezave
+    def _odpri_magnet(self, uri: str) -> None:
+        """Magnet iz brskalnika ali z druge naprave: Medijski center pokaže vsebino in ponudi predvajanje."""
+        if os_torrent.razcleni_magnet(uri) is None:
+            return
+        self._cakajoci_magnet = uri
+        if self.okno is None:
+            self.activate()
+            return            # stran ga prevzame ob nalaganju (cakajociMagnet)
+        self.okno.present()
+        self._dogodek("magnet", {"uri": uri})
+
+    @staticmethod
+    def _kopiraj(besedilo: str) -> bool:
+        """Besedilo v odložišče (npr. magnet povezava za deljenje z drugimi)."""
+        odlozisce = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+        odlozisce.set_text(besedilo[:8192], -1)
+        odlozisce.store()
+        return True
+
+    def _vzemi_cakajoci_magnet(self) -> str:
+        uri, self._cakajoci_magnet = self._cakajoci_magnet, ""
+        return uri
+
+    def _predvajaj_magnet(self, tid: int, i: int, ime: str) -> dict:
+        """Datoteka torrenta v našem predvajalniku že med prenosom (lokalni tok z geslom na 127.0.0.1)."""
+        try:
+            url = os_torrent.torrenti().tok(tid, i)
+        except os_torrent.NapakaTorrenta as e:
+            return {"ok": False, "koda": str(e)}
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] magnet tok:", e)
+            return {"ok": False, "koda": "napaka"}
+        video = os_torrent.vrsta_datoteke(ime) == "video"
+        skladba = os_predvajalnik.Skladba(url, os.path.splitext(os.path.basename(ime))[0] or ime,
+                                          "video" if video else "medij", izvor="Magnet")
+        ok = self._predvajaj_neposredno(url, vrsta="video" if video else "medij", prikazi=video,
+                                        ime=skladba.naslov, seznam=[skladba], zacni=0)
+        return {"ok": bool(ok)}
+
+    def _magnet_prenesi_program(self) -> dict:
+        """Enkratni prenos odprtokodnega rqbita (preverjen SHA-256); napredek gre na stran."""
+        if os_torrent.program_na_voljo():
+            return {"ok": True}
+        try:
+            os_torrent.prenesi_program(lambda n, vse: self._dogodek("magnetProgram", {"n": n, "vse": vse}))
+            return {"ok": True}
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] rqbit:", e)
+            return {"ok": False, "koda": "prenos_programa"}
+
+    def _magnet_iz_datoteke(self, mapa: bool) -> bool:
+        """Uporabnik izbere svojo datoteko ali mapo; iz nje nastane magnet, ki ga lahko pošlje ali deli."""
+        izbirnik = Gtk.FileChooserNative.new(
+            self._mb("izberi_mapo") if mapa else self._mb("deli_datoteko"), self.okno,
+            Gtk.FileChooserAction.SELECT_FOLDER if mapa else Gtk.FileChooserAction.OPEN, None, None)
+        izbirnik.set_current_folder(GLib.get_home_dir())
+        if izbirnik.run() != Gtk.ResponseType.ACCEPT:
+            return False
+        pot = izbirnik.get_filename() or ""
+
+        def delo() -> None:
+            izid = _magnet_klic(lambda: {"uri": os_torrent.torrenti().deli_datoteko(pot),
+                                         "ime": os.path.basename(pot)})
+            self._dogodek("magnetDeljen", izid)
+        threading.Thread(target=delo, name="safeer-magnet-deli", daemon=True).start()
+        return True
+
     def _odstrani_lokalni_medij(self, pot: str) -> bool:
         if not self._medijska_knjiznica().dobi(pot):
             return False
@@ -2040,6 +2178,27 @@ def main() -> int:
     if "--version" in sys.argv[1:]:
         print("Safeer OS", RAZLICICA)
         return 0
+    magnet = ""
+    if "--magnet" in sys.argv[1:]:
+        # Magnet povezava (brskalnik, druga naprava v Linku): ce Safeer OS ze tece, jo preda njemu
+        # (org.gtk.Actions) in konca - brez popravkov po sesutju, ki sodijo samo k pravemu zagonu.
+        i = sys.argv.index("--magnet")
+        magnet = sys.argv[i + 1] if i + 1 < len(sys.argv) else ""
+        if os_torrent.razcleni_magnet(magnet) is None:
+            print("To ni veljavna magnet povezava.")
+            return 2
+        try:
+            vodilo = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+            tece = vodilo.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+                                    "NameHasOwner", GLib.Variant("(s)", (APP_ID,)), GLib.VariantType("(b)"),
+                                    Gio.DBusCallFlags.NONE, 2000, None).unpack()[0]
+            if tece:
+                vodilo.call_sync(APP_ID, "/" + APP_ID.replace(".", "/"), "org.gtk.Actions", "Activate",
+                                 GLib.Variant("(sava{sv})", ("magnet", [GLib.Variant("s", magnet)], {})),
+                                 None, Gio.DBusCallFlags.NONE, 5000, None)
+                return 0
+        except Exception as e:  # noqa: BLE001 - Safeer OS ne tece: zazenemo ga z magnetom
+            print("[SafeerOS] magnet:", e)
     if "--vrni-mint" in sys.argv[1:] or "--restore-mint" in sys.argv[1:]:
         # Samo povrnitev Mintovega pulta, brez okna in brez WebKita: to poklice zaganjalnik, ko
         # odneha, in uporabnik iz terminala, ce bi Safeer OS kdaj pustil namizje brez pulta.
@@ -2065,7 +2224,8 @@ def main() -> int:
     if "--posnetek" in sys.argv[1:]:
         i = sys.argv.index("--posnetek")
         posnetek = sys.argv[i + 1] if i + 1 < len(sys.argv) else "/tmp/safeer-os.png"
-    app = SafeerOS(v_oknu="--okno" in sys.argv[1:], posnetek=posnetek, namizje="--namizje" in sys.argv[1:])
+    app = SafeerOS(v_oknu="--okno" in sys.argv[1:] or bool(magnet), posnetek=posnetek, namizje="--namizje" in sys.argv[1:])
+    app._cakajoci_magnet = magnet
     # Ce program tece brez tezav, zgodovina sesutij ni vec pomembna (sicer bi varni nacin ostal za vedno).
     GLib.timeout_add_seconds(120, lambda: (os_stabilnost.pozabi_sesutja("safeer-os"), False)[1])
     return app.run([sys.argv[0]])
