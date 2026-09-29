@@ -75,15 +75,15 @@ class Predvajalnik:
         else:
             self.sprememba()
 
-    def zamenjaj_vrsto(self, vnosi: list[Skladba]) -> bool:
-        """Začni nov album ali seznam; pred zamenjavo preveri vse vnose."""
-        if not vnosi or len(vnosi) > 500:
+    def zamenjaj_vrsto(self, vnosi: list[Skladba], zacni: int = 0) -> bool:
+        """Začni nov album ali seznam pri vnosu `zacni`; pred zamenjavo preveri vse vnose."""
+        if not vnosi or len(vnosi) > 500 or not 0 <= zacni < len(vnosi):
             return False
         preverjeni = [replace(medij(v.uri, v.vrsta), naslov=v.naslov[:80],
                              zacetek=max(0, int(v.zacetek))) for v in vnosi]
         self.vrsta = preverjeni
         self.indeks = -1
-        return self.predvajaj(0)
+        return self.predvajaj(zacni)
 
     def predvajaj(self, indeks: int) -> bool:
         if not 0 <= indeks < len(self.vrsta):

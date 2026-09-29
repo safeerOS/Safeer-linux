@@ -14,6 +14,7 @@ import configparser
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -32,6 +33,19 @@ SISTEM = {"Settings", "System", "DesktopSettings", "HardwareSettings", "PackageM
 SKUPINE = ("splet", "pisarna", "predstavnost", "igre", "ucenje", "programiranje", "orodja", "sistem", "drugo")
 #: Programi, ki so del Safeerja samega (Safeer OS ne ponuja sebe).
 IZPUSTI = {"safeer-os.desktop", "io.github.memelandfaner.SafeerOS.desktop"}
+
+
+#: Programi za Medijski center: predvajalniki po XDG ali programi za radio/glasbo/podcaste po opisu.
+PREDVAJALNIK = {"Player", "TV"}
+_MEDIJSKI_OPIS = re.compile(r"radio|podcast|music player|predvajalnik", re.I)
+
+
+def je_predvajalnik(kategorije, besedilo: str = "") -> bool:
+    """Ali program sodi v Medijski center (ne pa urejevalniki slik, skenerji, zvočni učinki ...)."""
+    nabor = set(kategorije or ())
+    if nabor & PREDVAJALNIK:
+        return True
+    return bool(nabor & {"Audio", "AudioVideo", "Video"}) and bool(_MEDIJSKI_OPIS.search(besedilo or ""))
 
 
 def skupina(kategorije) -> str:
@@ -93,6 +107,9 @@ def preberi_vnos(pot: str, namizja: Optional[List[str]] = None) -> Optional[dict
         "splosno": link_programi._vrednost(vnos, "GenericName").strip(),
         "ikona": (vnos.get("Icon", "") or "").strip(),
         "skupina": skupina(kategorije),
+        "medij": je_predvajalnik(kategorije, ime + " " + link_programi._vrednost(vnos, "Comment") + " " +
+                                 link_programi._vrednost(vnos, "GenericName")),
+        "zvok": "Audio" in kategorije and "Video" not in kategorije and "TV" not in kategorije,
         "kljucne": [k.strip() for k in kljucne if k.strip()][:12],
     }
 
@@ -177,6 +194,7 @@ class Programi:
             izhod.append({
                 "id": oznaka, "ime": v["ime"], "opis": v["opis"], "splosno": v["splosno"],
                 "skupina": v["skupina"], "kljucne": v["kljucne"],
+                "medij": bool(v.get("medij")), "zvok": bool(v.get("zvok")),
                 "ikona": ikone(v["ikona"]) if ikone else "",
                 "uporaba": int(u.get("n", 0) or 0), "zadnjic": float(u.get("t", 0) or 0),
                 "pripet": oznaka in pripeti,

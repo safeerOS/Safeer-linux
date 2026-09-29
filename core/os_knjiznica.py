@@ -136,7 +136,7 @@ class Knjiznica:
         where = " WHERE " + " AND ".join(pogoji) if pogoji else ""
         with self._baza() as baza:
             vrstice = baza.execute("SELECT pot, naslov, vrsta, zadnjic, pozicija, trajanje FROM mediji" + where +
-                                   " ORDER BY zadnjic DESC, dodano DESC, pot DESC LIMIT ? OFFSET ?",
+                                   " ORDER BY safeer_casefold(naslov), pot LIMIT ? OFFSET ?",
                                    (*vrednosti, meja, odmik)).fetchall()
         return [{"pot": p, "ime": n, "vrsta": v, "zadnjic": z, "pozicija": po,
                  "trajanje": tr, "naVoljo": Path(p).is_file()}
@@ -152,16 +152,21 @@ class Knjiznica:
         return {"pot": vnos[0], "ime": vnos[1], "vrsta": vnos[2],
                 "pozicija": vnos[3], "trajanje": vnos[4]} if vnos else None
 
-    def skladbe_iz_mape(self, pot: str, meja: int = 200) -> list[dict]:
-        """Izbrana skladba in naslednje indeksirane skladbe iz iste mape."""
+    def skladbe_iz_mape(self, pot: str, meja: int = 500) -> list[dict]:
+        """Vse indeksirane skladbe iz mape izbrane skladbe (album), urejene po naslovu.
+
+        Vrne celo mapo (do `meja` skladb okoli izbrane), da gumba naprej/nazaj delujeta
+        tudi pri zadnji ali prvi skladbi; kje začeti, pove `izbrana` pri izbrani skladbi."""
         mapa = Path(pot).parent
         with self._baza() as baza:
             vrstice = baza.execute("SELECT pot, naslov FROM mediji WHERE vrsta='glasba'").fetchall()
         skladbe = sorted(((p, naslov) for p, naslov in vrstice if Path(p).parent == mapa and Path(p).is_file()),
                          key=lambda v: (v[1].casefold(), v[0]))
+        meja = max(1, min(meja, 500))
         for indeks, (p, _) in enumerate(skladbe):
             if p == pot:
-                return [{"pot": p, "ime": naslov} for p, naslov in skladbe[indeks:indeks + max(1, min(meja, 500))]]
+                od = max(0, min(indeks - meja // 2, len(skladbe) - meja))
+                return [{"pot": p, "ime": naslov, "izbrana": p == pot} for p, naslov in skladbe[od:od + meja]]
         return []
 
     def shrani_napredek(self, pot: str, pozicija: float, trajanje: float) -> None:
