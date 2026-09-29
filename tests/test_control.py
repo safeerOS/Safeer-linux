@@ -43,7 +43,7 @@ class ControlUkazi(unittest.TestCase):
                 mock.patch("subprocess.Popen", lambda ukaz, **_k: zagnani.append(ukaz)):
             i = self._izvedi("magnet.open", {"uri": "magnet:?xt=urn:btih:" + "a" * 40 + "&dn=Film"})
             self.assertTrue(i["ok"])
-            self.assertEqual(zagnani[-1][:2], ["/usr/bin/safeer-os", "--magnet"])
+            self.assertEqual(zagnani[-1][:2], ["/usr/bin/safeer-os", "--magnet-naprava"])
             # Karkoli drugega (ukaz, pot, spletni naslov) naprava ne more podtakniti.
             for slab in ("--help", "https://x.si", "magnet:?xt=urn:btih:abc; rm -rf ~", ""):
                 self.assertFalse(self._izvedi("magnet.open", {"uri": slab})["ok"], slab)
