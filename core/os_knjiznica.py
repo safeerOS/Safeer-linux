@@ -116,8 +116,53 @@ class Knjiznica:
             return [v[0] for v in baza.execute("SELECT pot FROM mape ORDER BY dodano, pot")]
 
     def osvezi_mape(self) -> int:
-        """Po uporabnikovem ukazu poišče nove datoteke v prej izbranih mapah."""
-        return sum(self.dodaj_mapo(pot) for pot in self.seznam_map() if Path(pot).is_dir())
+        """Po uporabnikovem ukazu poišče nove datoteke v izbranih mapah in pozabi izbrisane.
+
+        Mapa, ki je trenutno ni (odklopljen disk), ostane nedotaknjena: njeni vnosi so le
+        označeni kot nedosegljivi, dokler se disk ne vrne."""
+        dodanih = 0
+        for pot in self.seznam_map():
+            koren = Path(pot)
+            if not koren.is_dir():
+                continue
+            dodanih += self.dodaj_mapo(koren)
+            predpona = str(koren).rstrip("/") + "/"
+            with self._baza() as baza:
+                poti = [v[0] for v in baza.execute("SELECT pot FROM mediji WHERE substr(pot, 1, ?) = ?",
+                                                     (len(predpona), predpona))]
+                izbrisane = [(p,) for p in poti if not Path(p).exists()]
+                if izbrisane:
+                    baza.executemany("DELETE FROM mediji WHERE pot=?", izbrisane)
+        return dodanih
+
+    def mape_podrobno(self) -> list[dict]:
+        """Izbrane mape za upravljanje: pot, število vnosov, ali je mapa dosegljiva."""
+        izhod = []
+        for pot in self.seznam_map():
+            predpona = pot.rstrip("/") + "/"
+            with self._baza() as baza:
+                stevilo = baza.execute("SELECT count(*) FROM mediji WHERE substr(pot, 1, ?) = ?",
+                                       (len(predpona), predpona)).fetchone()[0]
+            izhod.append({"pot": pot, "stevilo": stevilo, "naVoljo": Path(pot).is_dir()})
+        return izhod
+
+    def odstrani_mapo(self, pot: str) -> int | None:
+        """Mapo odstrani iz knjižnice skupaj z njenimi vnosi; datotek na disku se ne dotakne.
+
+        Vnosi, ki jih pokriva še druga izbrana mapa (nadmapa), ostanejo. Vrne število odstranjenih
+        vnosov ali None, če mapa ni bila izbrana."""
+        mape = self.seznam_map()
+        if pot not in mape:
+            return None
+        predpona = pot.rstrip("/") + "/"
+        ostale = [m.rstrip("/") + "/" for m in mape if m != pot]
+        with self._baza() as baza:
+            baza.execute("DELETE FROM mape WHERE pot=?", (pot,))
+            poti = [v[0] for v in baza.execute("SELECT pot FROM mediji WHERE substr(pot, 1, ?) = ?",
+                                                 (len(predpona), predpona))]
+            brisi = [(p,) for p in poti if not any(p.startswith(o) for o in ostale)]
+            baza.executemany("DELETE FROM mediji WHERE pot=?", brisi)
+        return len(brisi)
 
     def seznam(self, vrsta: str = "", iskanje: str = "", meja: int = 120, odmik: int = 0) -> list[dict]:
         if vrsta in ("tv", "radio"):

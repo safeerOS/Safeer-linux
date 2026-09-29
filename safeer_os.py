@@ -44,7 +44,7 @@ gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 
 from core import (os_datoteke, os_knjiznica, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
-                  os_mediji, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost, os_zapiski, os_zvok)
+                  os_media_besedila, os_mediji, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost, os_zapiski, os_zvok)
 
 # Preklop vhoda zvocne vrstice JBL je samo interni poskus: uradni paket modula ne vsebuje
 # (packaging/install_os_payload.sh), zato ga uvozimo le, ce je prisoten (zagon iz repozitorija).
@@ -1075,7 +1075,8 @@ class SafeerOS(Gtk.Application):
             "isciDatoteke": lambda: os_datoteke.isci(str(a[0]) if a else ""),
             "odpriDatoteko": lambda: os_datoteke.odpri(str(a[0]) if a else ""),
             "pokaziVMapi": lambda: os_datoteke.pokazi_v_mapi(str(a[0]) if a else ""),
-            "medijskeMape": lambda: self._medijska_knjiznica().seznam_map(),
+            "medijskeMape": lambda: self._medijska_knjiznica().mape_podrobno(),
+            "odstraniMedijskoMapo": lambda: self._odstrani_medijsko_mapo(str(a[0]) if a else ""),
             "tokoviMedijev": lambda: self._medijska_knjiznica().tokovi(),
             "odstraniMedijskiTok": lambda: self._odstrani_medijski_tok(str(a[0]) if a else ""),
             "knjiznicaMedijev": lambda: self._medijska_knjiznica().seznam(
@@ -1455,7 +1456,7 @@ class SafeerOS(Gtk.Application):
                 self._medijski_drsnik = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 1, 1)
                 self._medijski_drsnik.set_draw_value(False)
                 self._medijski_drsnik.set_hexpand(True)
-                self._medijski_drsnik.set_tooltip_text("Premik po posnetku")
+                self._medijski_drsnik.set_tooltip_text(self._mb("premik"))
                 self._medijski_drsnik.connect("change-value", self._medijski_premik)
                 self._medijski_drsnik.connect("button-press-event", self._medijski_zacni_premik)
                 self._medijski_drsnik.connect_after("button-release-event", self._medijski_spusti_premik)
@@ -1464,16 +1465,16 @@ class SafeerOS(Gtk.Application):
                 premik.pack_start(self._medijski_cas, False, False, 0)
                 postavitev.pack_start(premik, False, False, 0)
                 gumbi = Gtk.Box(spacing=8)
-                for napis_gumba, dejanje in (("＋ Dodaj datoteke", self._medijski_dodaj_datoteke),
-                                              ("⏮ Prejšnja", lambda: self._medijski_ukaz("prejsnja")),
-                                              ("⏭ Naslednja", lambda: self._medijski_ukaz("naslednja"))):
+                for napis_gumba, dejanje in (("＋ " + self._mb("dodaj_datoteke"), self._medijski_dodaj_datoteke),
+                                              ("⏮ " + self._mb("prejsnja"), lambda: self._medijski_ukaz("prejsnja")),
+                                              ("⏭ " + self._mb("naslednja"), lambda: self._medijski_ukaz("naslednja"))):
                     gumb = Gtk.Button(label=napis_gumba)
                     gumb.connect("clicked", lambda _g, ukaz=dejanje: ukaz())
                     gumbi.pack_start(gumb, False, False, 0)
-                self._medijski_premor = Gtk.Button(label="⏸ Premor")
+                self._medijski_premor = Gtk.Button(label="⏸ " + self._mb("premor"))
                 self._medijski_premor.connect("clicked", lambda _g: self._medijski_ukaz("premor"))
                 gumbi.pack_start(self._medijski_premor, False, False, 0)
-                celozaslonsko = Gtk.Button(label="⛶ Cel zaslon")
+                celozaslonsko = Gtk.Button(label="⛶ " + self._mb("cel_zaslon"))
                 celozaslonsko.connect("clicked", lambda _g: okno.unfullscreen() if okno.get_window() and
                                      okno.get_window().get_state() & Gdk.WindowState.FULLSCREEN else okno.fullscreen())
                 gumbi.pack_end(celozaslonsko, False, False, 0)
@@ -1517,14 +1518,14 @@ class SafeerOS(Gtk.Application):
         servis = self._medijski_predvajalnik
         if servis is None or self._medijski_napis is None:
             return
-        naslov = servis.trenutna.naslov if servis.trenutna else "Nič se ne predvaja"
+        naslov = servis.trenutna.naslov if servis.trenutna else self._mb("nic")
         if servis.trenutna and servis.trenutna.vrsta in ("tv", "radio"):
-            naslov = "● V živo · " + naslov
-        self._medijski_napis.set_text(naslov + (" · " + os_predvajalnik.NAPAKE.get(servis.napaka, servis.napaka)
+            naslov = "● " + self._mb("v_zivo") + " · " + naslov
+        self._medijski_napis.set_text(naslov + (" · " + self._mb(servis.napaka)
                                                      if servis.napaka else ""))
-        self._medijski_premor.set_label("▶ Nadaljuj" if servis.stanje == "premor" else "⏸ Premor")
-        self._medijski_vrsta.set_text("Čakalna vrsta: " + "  ·  ".join(
-            v.naslov for v in servis.vrsta[servis.indeks + 1:servis.indeks + 6]))
+        self._medijski_premor.set_label("▶ " + self._mb("nadaljuj") if servis.stanje == "premor" else "⏸ " + self._mb("premor"))
+        naprej = [v.naslov for v in servis.vrsta[servis.indeks + 1:servis.indeks + 6]]
+        self._medijski_vrsta.set_text(self._mb("cakalna_vrsta") + ": " + "  ·  ".join(naprej) if naprej else "")
         podatki = self._medijski_podatki()
         self._osvezi_medijski_drsnik(podatki)
         self._dogodek("predvajalnik", podatki)
@@ -1560,6 +1561,11 @@ class SafeerOS(Gtk.Application):
         self._medijski_vlecem = False
         self._medijski_ukaz("skok", drsnik.get_value())
         return False
+
+    @staticmethod
+    def _mb(kljuc: str) -> str:
+        """Napis GTK predvajalnika v jeziku vmesnika."""
+        return os_media_besedila.besedilo(kljuc, _jezik())
 
     def _medijski_cel_zaslon(self, okno) -> bool:
         if okno.get_window() and okno.get_window().get_state() & Gdk.WindowState.FULLSCREEN:
@@ -1704,6 +1710,13 @@ class SafeerOS(Gtk.Application):
         return self._predvajaj_neposredno(vnos["url"], vrsta=vnos["vrsta"],
                                          prikazi=vnos["vrsta"] == "tv", ime=vnos["ime"])
 
+    def _odstrani_medijsko_mapo(self, pot: str) -> bool:
+        """Mapo odstrani iz knjižnice (datoteke na disku ostanejo nedotaknjene)."""
+        odstranjena = self._medijska_knjiznica().odstrani_mapo(pot) is not None
+        if odstranjena:
+            self._dogodek("medijskaKnjiznica", None)
+        return odstranjena
+
     def _odstrani_medijski_tok(self, url: str) -> bool:
         odstranjen = self._medijska_knjiznica().odstrani_tok(url)
         if odstranjen:
@@ -1711,9 +1724,10 @@ class SafeerOS(Gtk.Application):
         return odstranjen
 
     def _medijski_dodaj_datoteke(self) -> None:
-        dialog = Gtk.FileChooserDialog(title="Dodaj datoteke", transient_for=self._medijski_predvajalnik_okno or self.okno,
+        dialog = Gtk.FileChooserDialog(title=self._mb("dodaj_datoteke"), transient_for=self._medijski_predvajalnik_okno or self.okno,
                                        action=Gtk.FileChooserAction.OPEN)
-        dialog.add_buttons("Prekliči", Gtk.ResponseType.CANCEL, "Dodaj", Gtk.ResponseType.OK)
+        dialog.add_buttons(self._mb("preklici"), Gtk.ResponseType.CANCEL, self._mb("dodaj"), Gtk.ResponseType.OK)
+        dialog.set_current_folder(GLib.get_home_dir())   # ne mapa programa (~/.local/lib/safeer-os)
         dialog.set_select_multiple(True)
         try:
             if dialog.run() == Gtk.ResponseType.OK:
@@ -1736,9 +1750,10 @@ class SafeerOS(Gtk.Application):
             dialog.destroy()
 
     def _medijski_dodaj_mapo(self) -> bool:
-        dialog = Gtk.FileChooserDialog(title="Dodaj medijsko mapo", transient_for=self.okno,
+        dialog = Gtk.FileChooserDialog(title=self._mb("dodaj_mapo"), transient_for=self.okno,
                                        action=Gtk.FileChooserAction.SELECT_FOLDER)
-        dialog.add_buttons("Prekliči", Gtk.ResponseType.CANCEL, "Dodaj", Gtk.ResponseType.OK)
+        dialog.add_buttons(self._mb("preklici"), Gtk.ResponseType.CANCEL, self._mb("dodaj"), Gtk.ResponseType.OK)
+        dialog.set_current_folder(GLib.get_home_dir())   # ne mapa programa (~/.local/lib/safeer-os)
         try:
             if dialog.run() != Gtk.ResponseType.OK:
                 return False

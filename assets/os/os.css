@@ -795,3 +795,37 @@ select:not([multiple]) {
   padding-right: 36px !important; cursor: pointer;
 }
 select option { background: #132631; color: #e8f1ef; }
+
+/* Medijske mape */
+.media-mape-plosca { left:50%; top:50%; transform:translate(-50%,-50%); width:560px; max-width:calc(100vw - 32px); }
+.media-mape-seznam { display:flex; flex-direction:column; gap:8px; max-height:50vh; overflow:auto; margin:14px 0 18px; }
+.media-mapa { display:flex; align-items:center; gap:12px; padding:10px 12px; border:1px solid var(--rob); border-radius:12px; background:rgba(255,255,255,.04); }
+.media-mapa svg { width:20px; height:20px; flex:none; color:var(--zelena); }
+.media-mapa div { min-width:0; flex:1; }
+.media-mapa b { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; }
+.media-mapa small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.media-mape-plosca .gumbi { display:flex; justify-content:flex-end; gap:10px; }
+.media-mapa small { color:var(--medlo); font-size:12px; }
+.media-mapa.nedosegljiva b { color:var(--medlo); }
+.media-mapa button { flex:none; height:34px; padding:0 12px; border-radius:9px; border:1px solid var(--rob); font-size:13px; }
+.media-mapa button:hover { border-color:#e06c6c; color:#ffb4b4; }
+/* Sličice slik v knjižnici */
+.media-kartica-art img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+/* Pregledovalnik slik */
+.galerija-tancica { background:rgba(3,6,10,.94) !important; }
+.galerija { position:absolute; inset:24px 90px 84px; margin:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; pointer-events:none; }
+.galerija img { max-width:100%; max-height:calc(100% - 40px); object-fit:contain; border-radius:6px; box-shadow:0 20px 60px rgba(0,0,0,.5); pointer-events:auto; cursor:zoom-in; }
+.galerija.povecano { inset:0; overflow:auto; display:block; pointer-events:auto; }
+.galerija.povecano img { max-width:none; max-height:none; cursor:zoom-out; }
+.galerija.povecano figcaption { display:none; }
+.galerija figcaption { display:flex; gap:12px; align-items:baseline; color:#dbe7e4; font-size:14px; }
+.galerija figcaption span { color:var(--medlo); font-size:12px; }
+.galerija-gumb { position:absolute; top:50%; transform:translateY(-50%); width:56px; height:56px; border-radius:50%; background:rgba(20,36,44,.82); border:1px solid rgba(132,190,176,.35); color:#e8f1ef; display:grid; place-items:center; }
+.galerija-gumb:hover:not(:disabled) { border-color:var(--zelena); }
+.galerija-gumb:disabled { opacity:.25; }
+.galerija-gumb svg { width:26px; height:26px; }
+.galerija-gumb.levo { left:18px; } .galerija-gumb.levo svg { transform:scaleX(-1); }
+.galerija-gumb.desno { right:18px; }
+.galerija-orodja { position:absolute; right:18px; bottom:18px; display:flex; gap:10px; align-items:center; }
+.galerija-zapri { width:44px; height:44px; border-radius:12px; background:rgba(20,36,44,.82); border:1px solid rgba(132,190,176,.35); display:grid; place-items:center; color:#e8f1ef; }
+.galerija-zapri svg { width:20px; height:20px; }
