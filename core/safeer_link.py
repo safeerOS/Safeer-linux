@@ -1674,7 +1674,9 @@ class SafeerLink:
                 "klepet": list(self.naprave_klepeta),
                 "cas": time.time(),
             }
-            zacasna = os.path.join(mapa, ".stanje.json")
+            # Vec niti hkrati (povezava, zvok, klepet): vsaka pise svojo zacasno datoteko, sicer ena
+            # druge zamenja in druga pade (ENOENT).
+            zacasna = os.path.join(mapa, ".stanje-%d.json" % threading.get_ident())
             with open(zacasna, "w", encoding="utf-8") as f:
                 json.dump(stanje, f, ensure_ascii=False)
             os.replace(zacasna, os.path.join(mapa, "stanje.json"))
