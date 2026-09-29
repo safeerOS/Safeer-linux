@@ -191,6 +191,15 @@ class Motor(unittest.TestCase):
         with self.assertRaises(ot.NapakaTorrenta):
             self.t.tok(0, 2)                             # program se ne predvaja nikoli
 
+    def test_morda_program_samo_s_potrditvijo(self):
+        # Prepoznava programov se lahko zmoti: po izrecni potrditvi uporabnika datoteko prenesemo,
+        # predvajamo pa je nikoli.
+        self.assertEqual(self.t.dodaj(MAGNET, [1, 2], potrjene_nevarne=[2]), 0)
+        dodaj = [z for z in LazniRqbit.zahteve if z[0] == "POST" and "only_files=" in z[1]]
+        self.assertIn("only_files=1,2&", dodaj[-1][1] + "&")
+        with self.assertRaises(ot.NapakaTorrenta):
+            self.t.tok(0, 2)
+
     def test_lastnih_datotek_ne_brisemo(self):
         self.assertTrue(self.t._v_prenosih(os.path.join(self.mapa, "Film")))
         self.assertTrue(self.t._v_prenosih("Film"))                  # relativno na mapo prenosov
