@@ -191,6 +191,12 @@ class Motor(unittest.TestCase):
         with self.assertRaises(ot.NapakaTorrenta):
             self.t.tok(0, 2)                             # program se ne predvaja nikoli
 
+    def test_podnapisi_iz_istega_torrenta(self):
+        self.s.dodan = True
+        self.assertEqual(self.t.podnapisi_za(0, 1), [(0, "Big Buck Bunny.en.srt")])
+        url = self.t.tok(0, 0)                            # podnapise sme predvajalnik prebrati
+        self.assertIn("/t/", url)
+
     def test_morda_program_samo_s_potrditvijo(self):
         # Prepoznava programov se lahko zmoti: po izrecni potrditvi uporabnika datoteko prenesemo,
         # predvajamo pa je nikoli.

@@ -521,12 +521,29 @@ class Torrenti:
 
     # -- tok za predvajalnik
 
+    def podnapisi_za(self, tid: int, i: int) -> List[Tuple[int, str]]:
+        """Podnapisi iz istega torrenta, ki sodijo k videu `i` (ista mapa ali podmapa Subs): [(indeks, pot)]."""
+        from core import podnapisi as pn
+        datoteke = self._json("GET", "/torrents/%d" % int(tid)).get("files") or []
+
+        def pot(f: dict) -> str:
+            deli = f.get("components")
+            return "/".join(str(x) for x in deli) if isinstance(deli, list) and deli else str(f.get("name") or "")
+        poti = [pot(f) for f in datoteke]
+        if not 0 <= int(i) < len(poti):
+            return []
+        mapa = poti[int(i)].rpartition("/")[0]
+        predpona = mapa + "/" if mapa else ""
+        relativno = {p[len(predpona):]: j for j, p in enumerate(poti) if p.startswith(predpona)}
+        videov = sum(1 for r in relativno if "/" not in r and vrsta_datoteke(r) == "video")
+        return [(relativno[r], predpona + r) for r in pn.ujemajoci(poti[int(i)], list(relativno), videov == 1)][:24]
+
     def tok(self, tid: int, i: int) -> str:
         """Lokalni naslov za predvajalnik: datoteka `i` torrenta `tid`, predvaja se že med prenosom."""
         self.zazeni()
         podrobno = self._json("GET", "/torrents/%d" % int(tid))
         datoteke = podrobno.get("files") or []
-        if not 0 <= int(i) < len(datoteke) or vrsta_datoteke(datoteke[int(i)].get("name", "")) not in ("video", "audio"):
+        if not 0 <= int(i) < len(datoteke) or vrsta_datoteke(datoteke[int(i)].get("name", "")) not in ("video", "audio", "podnapisi"):
             raise NapakaTorrenta("ni_predvajljivo")
         if not datoteke[int(i)].get("included"):
             vkljucene = [j for j, f in enumerate(datoteke) if f.get("included")] + [int(i)]

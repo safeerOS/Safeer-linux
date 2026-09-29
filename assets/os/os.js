@@ -519,6 +519,13 @@
     { ime: "RTV 365", url: "https://365.rtvslo.si", vrsta: "tv", obmocje: "region" }
   ];
   function naloziMedije(veckrat) {
+    // DVD v pogonu (brez zaščite): gumb se pokaže samo, kadar je disk vstavljen.
+    if (!veckrat && most) klic("dvdPogoni").then(function (pogoni) {
+      var disk = (Array.isArray(pogoni) ? pogoni : []).filter(function (p) { return p.vstavljen; })[0];
+      $("medijiDisk").hidden = !disk;
+      S.dvdPogon = disk ? disk.naprava : "";
+      if (disk) $("medijiDiskIme").textContent = t("predvajajDisk") + (disk.ime && disk.ime !== "DVD" ? " · " + disk.ime : "");
+    }).catch(function () {});
     if (!veckrat && most) klic("medijskeMape").then(function (mape) {
       S.mediaMape = Array.isArray(mape) ? mape : [];
       $("mediaOsvezi").disabled = !S.mediaMape.length || S.mediaOsvezuje;
@@ -2758,6 +2765,9 @@
     $("mediaMapeZapri").addEventListener("click", zapriSloje);
     $("mediaNapraveGumb").addEventListener("click", odpriMediaNaprave);
     $("medijiMagnet").addEventListener("click", function () { odpriMagnet(""); });
+    $("medijiDisk").addEventListener("click", function () {
+      if (S.dvdPogon) klic("dvdPredvajaj", [S.dvdPogon]).then(function (ok) { if (!ok) obvesti(t("mediaNapaka_dvd")); });
+    });
     $("magnetZapri").addEventListener("click", zapriSloje);
     $("magnetObrazec").addEventListener("submit", function (e) {
       e.preventDefault();

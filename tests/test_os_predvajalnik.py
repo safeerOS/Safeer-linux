@@ -26,6 +26,12 @@ class Element:
     def set_property(self, ime, vrednost):
         self.lastnosti[ime] = vrednost
 
+    def get_property(self, ime):
+        return self.lastnosti.get(ime, {"flags": 0x17, "n-text": 0, "current-text": -1}.get(ime))
+
+    def emit(self, _signal, _i):
+        return None
+
     def query_duration(self, _format):
         return True, 180_000_000_000
 
@@ -149,3 +155,87 @@ class PredvajalnikTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PodnapisiTests(unittest.TestCase):
+    def setUp(self):
+        self.element = Element()
+        self.gst = SimpleNamespace(ElementFactory=SimpleNamespace(make=lambda *_: self.element),
+                                   State=SimpleNamespace(NULL="null", PLAYING="playing", PAUSED="paused", READY="ready"),
+                                   StateChangeReturn=SimpleNamespace(FAILURE="failure"),
+                                   Format=SimpleNamespace(TIME="time"), SECOND=1_000_000_000,
+                                   CLOCK_TIME_NONE=2**64 - 1,
+                                   SeekFlags=SimpleNamespace(FLUSH=1, KEY_UNIT=2),
+                                   MessageType=SimpleNamespace(EOS="eos", ERROR="error", ASYNC_DONE="async_done"))
+        self.player = Predvajalnik(self.gst)
+        self.shranjeno = []
+        self.player.shrani_podnapise = self.shranjeno.append
+        self.player.jezik_sistema = "sl"
+
+    def video(self, *podnapisi):
+        return Skladba("https://example.test/film.mkv", "film", "video", podnapisi=tuple(podnapisi))
+
+    def test_edini_podnapis_se_vklopi_sam(self):
+        self.player.zamenjaj_vrsto([self.video(("https://example.test/film.srt", "film.srt", "", ""))])
+        self.assertEqual(self.element.lastnosti["suburi"], "https://example.test/film.srt")
+        self.assertTrue(self.element.lastnosti["flags"] & 4)
+        # Ko playbin pozna tokove, izbere dodano datoteko (zadnji tok besedila).
+        self.element.lastnosti["n-text"] = 2
+        self.player._sporocilo(None, SimpleNamespace(type="async_done"))
+        self.assertEqual(self.element.lastnosti["current-text"], 1)
+
+    def test_jezik_sistema_med_vec_podnapisi(self):
+        self.player.zamenjaj_vrsto([self.video(("https://e.test/a.srt", "film.en.srt", "en", ""),
+                                               ("https://e.test/b.srt", "film.sl.srt", "sl", ""))])
+        self.assertEqual(self.element.lastnosti["suburi"], "https://e.test/b.srt")
+
+    def test_izklop_velja_za_naslednje_videe(self):
+        self.player.zamenjaj_vrsto([self.video(("https://e.test/a.srt", "film.srt", "", ""))])
+        self.assertTrue(self.player.izberi_podnapise("izklop"))
+        self.assertFalse(self.element.lastnosti["flags"] & 4)
+        self.assertEqual(self.shranjeno[-1]["izklop"], True)
+        self.player.zamenjaj_vrsto([self.video(("https://e.test/c.srt", "drugi.srt", "", ""))])
+        self.assertIsNone(self.element.lastnosti["suburi"])
+        self.assertFalse(self.element.lastnosti["flags"] & 4)
+
+    def test_druga_datoteka_nadaljuje_na_istem_mestu(self):
+        self.player.zamenjaj_vrsto([self.video(("https://e.test/a.srt", "film.en.srt", "en", ""),
+                                               ("https://e.test/b.srt", "film.de.srt", "de", ""))])
+        self.assertTrue(self.player.izberi_podnapise("z:1"))
+        self.assertEqual(self.element.lastnosti["suburi"], "https://e.test/b.srt")
+        self.assertIn("ready", self.element.stanja)
+        self.assertEqual(self.player._cakaj_zacetek, 25)
+        self.assertEqual(self.shranjeno[-1], {"izklop": False, "jezik": "de"})
+        izbira = self.player.podnapisi()
+        self.assertEqual([m["kljuc"] for m in izbira["moznosti"]], ["z:0", "z:1"])
+
+    def test_nevaren_naslov_podnapisa_zavrnemo(self):
+        self.player.zamenjaj_vrsto([self.video(("javascript:alert(1)", "x.srt", "", ""))])
+        self.assertEqual(self.player.trenutna.podnapisi, ())
+
+    def test_podnapis_popravimo_pred_nalaganjem(self):
+        self.player.nit = False
+        self.player.pripravi_podnapis = lambda uri, ime: "file:///cache/" + ime
+        self.player.zamenjaj_vrsto([self.video(("http://127.0.0.1:9/t/x/film.srt", "film.srt", "", ""))])
+        self.assertEqual(self.element.lastnosti["suburi"], "file:///cache/film.srt")
+
+    def test_priprava_v_ozadju_nalozi_na_istem_mestu(self):
+        klici = []
+        self.player.v_glavni = lambda f: klici.append(f)
+        self.player.pripravi_podnapis = lambda uri, ime: "file:///cache/" + ime
+        import threading
+        dogodek = threading.Event()
+        izvirna = self.player._pripravi_v_ozadju
+
+        def sinhrono(uri, ime, indeks, k):
+            self.player._pripravljeni[uri] = self.player.pripravi_podnapis(uri, ime)
+            klici.append(lambda: self.player._podnapis_pripravljen(indeks, k))
+            dogodek.set()
+        self.player._pripravi_v_ozadju = sinhrono
+        self.player.zamenjaj_vrsto([self.video(("http://127.0.0.1:9/t/x/film.srt", "film.srt", "", ""))])
+        self.assertIsNone(self.element.lastnosti["suburi"])       # še ni pripravljen
+        klici.pop()()
+        self.assertEqual(self.element.lastnosti["suburi"], "file:///cache/film.srt")
+        self.assertIn("ready", self.element.stanja)
+        self.assertTrue(izvirna)
+

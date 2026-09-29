@@ -12,7 +12,7 @@ cp -a "$ROOT/safeer_control.py" "$LIB/"
 # link_zaslon (ta uvozi link_vnos) se namesceni Control sploh ne zazene: uvoz pade takoj.
 # Seznam varuje tests/test_packaging.py: namesti tovor in ga uvozi brez izvorne mape.
 for modul in link_daljinec link_datoteke link_deljenje link_gledalec link_urejanje link_fokus link_hub link_hub_streznik link_mesh link_rele link_pretok link_iskanje link_krog link_mediji link_plosek link_programi link_ws \
-             link_kripto link_seja link_sway link_tls link_vnos link_zaslon link_zvok os_sporocila os_stabilnost os_torrent safeer_link spake2; do
+             link_kripto link_seja link_sway link_tls link_vnos link_zaslon link_zvok os_sporocila os_stabilnost os_torrent podnapisi safeer_link spake2; do
     cp -a "$ROOT/core/$modul.py" "$LIB/core/"
 done
 [ -f "$ROOT/core/__init__.py" ] && cp -a "$ROOT/core/__init__.py" "$LIB/core/" || true
