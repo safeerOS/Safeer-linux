@@ -16,7 +16,7 @@ cp -a "$ROOT/safeer_os.py" "$LIB/"
 # core/os_jbl.py (JBL input switching) is an internal experiment and is deliberately NOT shipped.
 for modul in os_datoteke os_mediji os_okna os_omrezje os_programi os_scit os_sistem os_sporocila os_spletne os_stabilnost os_zapiski os_zvok \
              link_datoteke link_urejanje link_hub link_hub_streznik link_iskanje link_krog link_kripto link_mediji link_programi link_seja link_tls link_ws spake2 signed_feed threat_intel \
-             os_splet ikone_strani adblock config bookmarks_importer doh_proxy filter_lists bank_guard; do
+             os_splet ikone_strani dlna_zvocniki zvok_na_zvocnik adblock config bookmarks_importer doh_proxy filter_lists bank_guard; do
     cp -a "$ROOT/core/$modul.py" "$LIB/core/"
 done
 mkdir -p "$LIB/core/sporocila" && install -m 644 "$ROOT"/core/sporocila/*.py "$LIB/core/sporocila/"
