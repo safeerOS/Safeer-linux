@@ -17,6 +17,8 @@ class Skladba:
     naslov: str
     vrsta: str = "medij"
     zacetek: int = 0
+    #: Od kod je medij (ime naprave v Safeer Linku); prazno = ta racunalnik.
+    izvor: str = ""
 
 
 #: Kode napak predvajanja; stran jih prevede (mediaNapaka_<koda>), okno predvajalnika uporabi NAPAKE.
@@ -106,7 +108,7 @@ class Predvajalnik:
         if not vnosi or len(vnosi) > 500 or not 0 <= zacni < len(vnosi):
             return False
         preverjeni = [replace(medij(v.uri, v.vrsta), naslov=v.naslov[:80],
-                             zacetek=max(0, int(v.zacetek))) for v in vnosi]
+                             zacetek=max(0, int(v.zacetek)), izvor=str(v.izvor or "")[:80]) for v in vnosi]
         self.vrsta = preverjeni
         self.indeks = -1
         return self.predvajaj(zacni)
@@ -179,9 +181,11 @@ class Predvajalnik:
         zacetek = max(0, self.indeks - 2)
         return {"stanje": self.stanje, "naslov": self.trenutna.naslov if self.trenutna else "",
                 "vrsta": self.trenutna.vrsta if self.trenutna else "", "indeks": self.indeks,
+                "izvor": self.trenutna.izvor if self.trenutna else "",
                 "zacetniIndeks": zacetek,
                 "skupaj": len(self.vrsta),
-                "vrstaSeznam": [{"naslov": v.naslov, "vrsta": v.vrsta} for v in self.vrsta[zacetek:zacetek + 18]],
+                "vrstaSeznam": [{"naslov": v.naslov, "vrsta": v.vrsta, "izvor": v.izvor}
+                                for v in self.vrsta[zacetek:zacetek + 18]],
                 "pozicija": pozicija, "trajanje": dolzina, "napaka": self.napaka}
 
     def naslednja(self) -> bool:

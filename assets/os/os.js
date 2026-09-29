@@ -631,6 +631,91 @@
       seznam.appendChild(vrstica);
     });
   }
+  // ------------------------------------------------------------------ Safeer Media: z drugih naprav
+  // Naprave v Linku, ki delijo datoteke -> njihove mape -> glasba in video. Predvajanje takoj, brez
+  // prenosa: Safeer OS bere z naprave po šifrirani povezavi (doma neposredno, zunaj doma prek Global Linka).
+  S.mediaNaprava = null;   // {id, ime, pot:[{id, ime}], streznik, kljuc, vnosi}
+  function mediaNapraveSporocilo(besedilo) {
+    var seznam = $("mediaNapraveSeznam"); seznam.innerHTML = "";
+    seznam.appendChild(el("p", "drobno", ubezi(besedilo)));
+  }
+  function mediaNapraveVrstica(ikona, naslov, pod, dejanje) {
+    var b = el("button", "media-mapa", svg(ikona) + '<div><b>' + ubezi(naslov) + '</b>' +
+      (pod ? '<small>' + ubezi(pod) + '</small>' : '') + '</div>');
+    b.type = "button";
+    b.addEventListener("click", dejanje);
+    return b;
+  }
+  function mediaNapraveOsveziGlavo() {
+    var n = S.mediaNaprava;
+    $("mediaNapraveNazaj").hidden = !n;
+    $("mediaNapraveNaslov").textContent = n ? n.ime : t("mediaNaprave");
+    $("mediaNapravePot").textContent = n ? n.pot.map(function (p) { return p.ime; }).join(" / ") : t("mediaNapraveOpis");
+  }
+  function odpriMediaNaprave() {
+    S.mediaNaprava = null;
+    mediaNapraveOsveziGlavo();
+    $("slojMediaNaprave").classList.add("viden");
+    $("mediaNapraveZapri").focus();
+    mediaNapraveSporocilo(t("mediaNapravaNalagam"));
+    klic("napraveZDatotekami").then(function (naprave) {
+      if (S.mediaNaprava) return;
+      naprave = Array.isArray(naprave) ? naprave : [];
+      if (!naprave.length) { mediaNapraveSporocilo(t("mediaNapraveNi")); return; }
+      var seznam = $("mediaNapraveSeznam"); seznam.innerHTML = "";
+      naprave.forEach(function (n) {
+        seznam.appendChild(mediaNapraveVrstica("naprave", n.ime || n.id, "", function () {
+          S.mediaNaprava = { id: n.id, ime: n.ime || n.id, pot: [], streznik: null, kljuc: "", vnosi: [] };
+          naloziMapoNaprave("", n.ime || n.id);
+        }));
+      });
+    }).catch(function () { mediaNapraveSporocilo(t("mediaNapraveNi")); });
+  }
+  function naloziMapoNaprave(mapa, ime) {
+    var n = S.mediaNaprava; if (!n) return;
+    if (mapa || !n.pot.length) n.pot.push({ id: mapa, ime: ime });
+    mediaNapraveOsveziGlavo();
+    mediaNapraveSporocilo(t("mediaNapravaNalagam"));
+    var zahteva = n;
+    klic("datotekeNaprave", [n.id, mapa]).then(function (r) {
+      if (S.mediaNaprava !== zahteva) return;
+      if (!r || !r.ok) { mediaNapraveSporocilo(t("mediaNapravaNeOdgovori")); return; }
+      if (r.shared === false) { mediaNapraveSporocilo(t("mediaNapravaNeDeli")); return; }
+      if (r.server) { n.streznik = r.server; n.kljuc = r.kljuc || ""; }
+      // Samo mape, glasba in video (zbirka slik telefona/TV sem ne sodi).
+      var vnosi = (r.items || []).filter(function (v) {
+        return (v.type === "folder" && v.id !== "media:image") || v.type === "audio" || v.type === "video";
+      });
+      n.vnosi = vnosi.filter(function (v) { return v.type !== "folder"; });
+      if (!vnosi.length) { mediaNapraveSporocilo(t("mediaNapravaPrazno")); return; }
+      var seznam = $("mediaNapraveSeznam"); seznam.innerHTML = "";
+      vnosi.forEach(function (v) {
+        var ikona = v.type === "folder" ? "mapa" : v.type === "audio" ? "glasba" : "video";
+        var pod = v.type === "folder" ? "" : (v.size ? velikostMedija(v.size) : "");
+        seznam.appendChild(mediaNapraveVrstica(ikona, v.name || v.id, pod, function () {
+          if (v.type === "folder") { naloziMapoNaprave(v.id, v.name || v.id); return; }
+          if (!n.streznik) { obvesti(t("mediaNapravaNeOdgovori")); return; }
+          var i = n.vnosi.indexOf(v);
+          klic("predvajajZNaprave", [n.streznik, n.kljuc, n.vnosi, i, n.ime]).then(function (ok) {
+            if (!ok) { obvesti(t("niUspelo")); return; }
+            if (v.type === "video") zapriSloje();
+          }).catch(function () { obvesti(t("niUspelo")); });
+        }));
+      });
+    }).catch(function () { if (S.mediaNaprava === zahteva) mediaNapraveSporocilo(t("mediaNapravaNeOdgovori")); });
+  }
+  function nazajMediaNaprave() {
+    var n = S.mediaNaprava; if (!n) return;
+    n.pot.pop();
+    if (!n.pot.length) { odpriMediaNaprave(); return; }
+    var zadnja = n.pot.pop();
+    naloziMapoNaprave(zadnja.id, zadnja.ime);
+  }
+  function velikostMedija(b) {
+    if (b >= 1073741824) return (b / 1073741824).toFixed(1).replace(".", ",") + " GB";
+    if (b >= 1048576) return Math.round(b / 1048576) + " MB";
+    return Math.max(1, Math.round(b / 1024)) + " kB";
+  }
   function naloziMedijskeMape() {
     return klic("medijskeMape").then(function (mape) {
       S.mediaMape = Array.isArray(mape) ? mape : [];
@@ -780,7 +865,7 @@
     var ima = !!p.naslov;
     var opis = !ima ? t("mediaSedajNamig") : p.stanje === "napaka" ? t("mediaNapaka_" + (p.napaka || "splosno")) :
       p.stanje === "ustavljeno" ? t("mediaUstavljeno") : p.stanje === "premor" ? t("mediaPremor") :
-      p.vrsta === "tv" || p.vrsta === "radio" ? t("mediaVZivo") : t("mediaTaRacunalnik");
+      p.vrsta === "tv" || p.vrsta === "radio" ? t("mediaVZivo") : (p.izvor || t("mediaTaRacunalnik"));
     $("mediaBarNaslov").textContent = ima ? p.naslov : t("mediaNicesar");
     $("mediaBarVrsta").textContent = opis;
     $("mediaSedajNaslov").textContent = ima ? p.naslov : t("mediaNicesar");
@@ -812,7 +897,7 @@
       var stevilka = i + (p.zacetniIndeks || 0);
       var b = el("button", "media-vrsta-vnos" + (stevilka === p.indeks ? " izbran" : ""),
         '<span class="media-vrsta-stevilka">' + (stevilka === p.indeks ? "♫" : String(stevilka + 1)) + '</span><span><b>' + ubezi(v.naslov) +
-        '</b><small>' + ubezi(v.vrsta === "tv" || v.vrsta === "radio" ? t("mediaVZivo") : t("mediaTaRacunalnik")) + '</small></span>');
+        '</b><small>' + ubezi(v.vrsta === "tv" || v.vrsta === "radio" ? t("mediaVZivo") : (v.izvor || t("mediaTaRacunalnik"))) + '</small></span>');
       b.addEventListener("click", function () { klic("predvajalnikUkaz", ["predvajaj", stevilka]); });
       vrstaEl.appendChild(b);
     });
@@ -2455,6 +2540,9 @@
       $("mediaMapeZapri").focus();
     });
     $("mediaMapeZapri").addEventListener("click", zapriSloje);
+    $("mediaNapraveGumb").addEventListener("click", odpriMediaNaprave);
+    $("mediaNapraveZapri").addEventListener("click", zapriSloje);
+    $("mediaNapraveNazaj").addEventListener("click", nazajMediaNaprave);
     $("mediaMapeDodaj").addEventListener("click", function () { zapriSloje(); $("medijiMapa").click(); });
     $("galerijaZapri").addEventListener("click", zapriGalerijo);
     document.querySelector(".galerija-tancica").addEventListener("click", zapriGalerijo);

@@ -146,7 +146,7 @@
         </div>
         <div class="media-postavitev">
           <div class="media-glavni">
-            <div class="media-naslov-vrstice"><div><span class="media-kicker" data-t="mediaLokalno"></span><h2 id="mediaNaslovZbirke" data-t="mediaTvojaZbirka"></h2></div><div class="media-knjiznica-dejanja"><span class="media-stevec" id="mediaStevec"></span><button class="media-osvezi" id="mediaMapeGumb" type="button" data-naslov="mediaMape" aria-label="Folders"><svg data-ikona="mapa"></svg></button><button class="media-osvezi" id="mediaOsvezi" type="button" data-naslov="mediaOsvezi" aria-label="Refresh library" disabled><svg data-ikona="ponovno"></svg></button></div></div>
+            <div class="media-naslov-vrstice"><div><span class="media-kicker" data-t="mediaLokalno"></span><h2 id="mediaNaslovZbirke" data-t="mediaTvojaZbirka"></h2></div><div class="media-knjiznica-dejanja"><span class="media-stevec" id="mediaStevec"></span><button class="media-osvezi" id="mediaNapraveGumb" type="button" data-naslov="mediaNaprave" aria-label="Devices"><svg data-ikona="naprave"></svg></button><button class="media-osvezi" id="mediaMapeGumb" type="button" data-naslov="mediaMape" aria-label="Folders"><svg data-ikona="mapa"></svg></button><button class="media-osvezi" id="mediaOsvezi" type="button" data-naslov="mediaOsvezi" aria-label="Refresh library" disabled><svg data-ikona="ponovno"></svg></button></div></div>
             <div class="media-knjiznica" id="mediaMreza"></div>
             <div class="media-prazno" id="mediaPrazno" hidden>
               <div class="media-prazno-ikona"><svg data-ikona="glasba"></svg></div>
@@ -389,6 +389,15 @@
     <p class="drobno" data-t="mediaMapeOpis"></p>
     <div class="media-mape-seznam" id="mediaMapeSeznam"></div>
     <div class="gumbi"><button type="button" class="gumb" id="mediaMapeZapri" data-t="zapri"></button><button type="button" class="gumb glavni" id="mediaMapeDodaj"><svg data-ikona="mapa"></svg><span data-t="dodajMapoMedijev"></span></button></div>
+  </div>
+</div>
+<div class="sloj" id="slojMediaNaprave"><div class="tancica"></div>
+  <div class="plosca media-mape-plosca media-naprave-plosca" role="dialog" aria-modal="true" aria-labelledby="mediaNapraveNaslov">
+    <span class="media-kicker">SAFEER MEDIA · SAFEER LINK</span>
+    <h3 id="mediaNapraveNaslov" data-t="mediaNaprave"></h3>
+    <p class="drobno" id="mediaNapravePot" data-t="mediaNapraveOpis"></p>
+    <div class="media-mape-seznam media-naprave-seznam" id="mediaNapraveSeznam" aria-live="polite"></div>
+    <div class="gumbi"><button type="button" class="gumb" id="mediaNapraveNazaj" data-t="mediaNapravaNazaj" hidden></button><button type="button" class="gumb" id="mediaNapraveZapri" data-t="zapri"></button></div>
   </div>
 </div>
 <!-- Pregledovalnik slik -->
