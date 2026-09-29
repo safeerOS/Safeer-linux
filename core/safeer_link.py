@@ -766,6 +766,15 @@ class SafeerLink:
         `tiho` pomeni, da neuspeha ne javimo strani - med hitrim iskanjem bi uporabnik v treh
         sekundah dobil stiri sporocila »ni naprav«, ceprav iskanje se tece.
         """
+        if link_hub_streznik.mesh_vklopljen() and self._v_krogu():
+            # Link Mesh: povezemo se na SVOJ Hub; do drugih naprav nas pelje on (sosednje povezave).
+            g = getattr(self, "_hub_gostitelj", None)
+            p = self.povezava
+            if g is not None and g.gostimo() and p is not None and p.aktivna \
+                    and p.ws_naslov.startswith("wss://127.0.0.1:"):
+                return True
+            if self._prevzemi_gostovanje():
+                return True
         najden = self._poisci_tuj_hub()
         if not najden:
             # Huba ni nikjer: ce smo v krogu zaupanja, ga zazenemo sami.
