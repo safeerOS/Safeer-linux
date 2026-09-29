@@ -164,7 +164,7 @@
     // Multi-host: programi drugih naprav v Safeer Linku (id naprave -> seznam), izbrana naprava ("" = ta racunalnik).
     naprave: [], vseNaprave: [], programiNaprav: {}, nalagam: {}, naprava: "",
     povezava: { stanje: "nov", control: true }, spletne: null, nedavne: [], mediaFilter: "vse",
-    mediaLokalno: [], mediaTokovi: [], mediaMape: [], mediaOsvezuje: false, mediaPredvajalnik: null,
+    mediaLokalno: [], mediaTokovi: [], mediaMape: [], galerija: null, mediaOsvezuje: false, mediaPredvajalnik: null,
     mediaOffset: 0, mediaHasMore: false, mediaRequest: 0,
     mediaQueueKey: "", mediaDragging: false,
     programIskanje: "", mediaIskanje: "", napraveIskanje: "", datotekeIskanje: "", iskalneDatoteke: []
@@ -522,6 +522,7 @@
     if (!veckrat && most) klic("medijskeMape").then(function (mape) {
       S.mediaMape = Array.isArray(mape) ? mape : [];
       $("mediaOsvezi").disabled = !S.mediaMape.length || S.mediaOsvezuje;
+      if ($("slojMediaMape").classList.contains("viden")) narisiMedijskeMape();
     }).catch(function () {});
     if (!veckrat && most) klic("tokoviMedijev").then(function (vnosi) {
       S.mediaTokovi = Array.isArray(vnosi) ? vnosi : [];
@@ -575,6 +576,67 @@
     return !iskanje || String(v.ime || "").toLocaleLowerCase().indexOf(iskanje) >= 0;
   }
   function mediaVrsta(v) { return t("media_" + v); }
+  function datotekaUrl(pot) {
+    return "file://" + String(pot).split("/").map(encodeURIComponent).join("/");
+  }
+  // Pregledovalnik slik: celozaslonski sloj, puščice/tipke za naprej-nazaj, klik = povečava.
+  function odpriGalerijo(seznam, i) {
+    if (!seznam.length) return;
+    S.galerija = { seznam: seznam, i: i };
+    $("slojGalerija").classList.add("viden");
+    prikaziSliko();
+  }
+  function prikaziSliko() {
+    var g = S.galerija; if (!g) return;
+    var v = g.seznam[g.i];
+    document.querySelector(".galerija").classList.remove("povecano");
+    $("galerijaSlika").src = datotekaUrl(v.pot);
+    $("galerijaSlika").alt = v.ime;
+    $("galerijaNapis").textContent = v.ime;
+    $("galerijaStevec").textContent = (g.i + 1) + " / " + g.seznam.length;
+    $("galerijaNazaj").disabled = g.i <= 0;
+    $("galerijaNaprej").disabled = g.i >= g.seznam.length - 1;
+    // Sosednji sliki naložimo vnaprej, da je listanje takojšnje.
+    [g.i - 1, g.i + 1].forEach(function (j) { if (g.seznam[j]) new Image().src = datotekaUrl(g.seznam[j].pot); });
+  }
+  function premakniSliko(korak) {
+    var g = S.galerija; if (!g) return;
+    var j = g.i + korak;
+    if (j < 0 || j >= g.seznam.length) return;
+    g.i = j; prikaziSliko();
+  }
+  function zapriGalerijo() {
+    $("slojGalerija").classList.remove("viden");
+    $("galerijaSlika").removeAttribute("src");   // sprosti pomnilnik velike slike
+    S.galerija = null;
+  }
+  function narisiMedijskeMape() {
+    var seznam = $("mediaMapeSeznam"); seznam.innerHTML = "";
+    if (!S.mediaMape.length) { seznam.appendChild(el("p", "drobno", ubezi(t("mediaMapeNi")))); return; }
+    S.mediaMape.forEach(function (m) {
+      var vrstica = el("div", "media-mapa" + (m.naVoljo ? "" : " nedosegljiva"),
+        svg("mapa") + '<div title="' + ubezi(m.pot) + '"><b>' + ubezi(m.pot.replace(/\/+$/, "").split("/").pop() || m.pot) +
+        '</b><small>' + ubezi(m.pot) + ' · ' +
+        ubezi(m.naVoljo ? t("mediaMapaVnosov", { n: m.stevilo }) : t("mediaMapaNedosegljiva")) + '</small></div>');
+      var gumb = el("button", "", ubezi(t("odstrani"))); gumb.type = "button";
+      gumb.addEventListener("click", function () {
+        gumb.disabled = true;
+        klic("odstraniMedijskoMapo", [m.pot]).then(function (ok) {
+          if (!ok) { gumb.disabled = false; obvesti(t("niUspelo")); return; }
+          obvesti(t("mediaMapaOdstranjena"));
+          naloziMedijskeMape();
+        }).catch(function () { gumb.disabled = false; obvesti(t("niUspelo")); });
+      });
+      vrstica.appendChild(gumb);
+      seznam.appendChild(vrstica);
+    });
+  }
+  function naloziMedijskeMape() {
+    return klic("medijskeMape").then(function (mape) {
+      S.mediaMape = Array.isArray(mape) ? mape : [];
+      if ($("slojMediaMape").classList.contains("viden")) narisiMedijskeMape();
+    }).catch(function () {});
+  }
   function mediaKartica(v) {
     var ovoj = el("article", "media-kartica" + (v.naVoljo ? "" : " nedosegljiva"));
     var b = el("button", "media-kartica-odpri");
@@ -585,12 +647,19 @@
     var napredek = nadaljuj ? '<span class="media-kartica-nadaljuj">' + ubezi(t("mediaNadaljuj")) +
       ' · ' + casMedija(v.pozicija) + '</span><span class="media-kartica-merilo"><i style="width:' +
       Math.min(100, Math.round(v.pozicija / v.trajanje * 100)) + '%"></i></span>' : '';
+    // Slika v knjižnici pokaže sebe; nalaganje odložimo, dokler kartica ni na zaslonu.
+    var slicica = v.vrsta === "slike" && v.naVoljo ? '<img loading="lazy" decoding="async" alt="" src="' + ubezi(datotekaUrl(v.pot)) + '">' : "";
     b.innerHTML = '<span class="media-kartica-art ' + ubezi(v.vrsta) + '">' + svg(v.vrsta === "glasba" ? "glasba" : v.vrsta === "slike" ? "slika" : "video") +
-      napredek +
+      slicica + napredek +
       '</span><span class="media-kartica-pod"><b>' + ubezi(v.ime) + '</b><small>' + ubezi(mediaVrsta(v.vrsta)) +
       (v.naVoljo ? "" : " · " + ubezi(t("mediaManjka"))) + '</small></span>';
     b.disabled = !v.naVoljo;
     b.addEventListener("click", function () {
+      if (v.vrsta === "slike") {
+        var slike = S.mediaLokalno.filter(function (x) { return x.vrsta === "slike" && x.naVoljo; });
+        odpriGalerijo(slike, Math.max(0, slike.findIndex(function (x) { return x.pot === v.pot; })));
+        return;
+      }
       klic("odpriLokalniMedij", [v.pot]).then(function (ok) { if (!ok) obvesti(t("niUspelo")); })
         .catch(function () { obvesti(t("niUspelo")); });
     });
@@ -2140,6 +2209,7 @@
   }
 
   function zapriSloje() {
+    if (S.galerija) zapriGalerijo();
     document.querySelectorAll(".sloj").forEach(function (s) { s.classList.remove("viden"); });
     if ($("iskanje").value && document.activeElement !== $("iskanje")) $("iskanje").value = "";
   }
@@ -2377,6 +2447,30 @@
     $("medijiMapa").addEventListener("click", function () {
       klic("medijskaMapa").catch(function () { obvesti(t("niUspelo")); });
     });
+    $("mediaMapeGumb").addEventListener("click", function () {
+      narisiMedijskeMape(); $("slojMediaMape").classList.add("viden"); naloziMedijskeMape();
+      $("mediaMapeZapri").focus();
+    });
+    $("mediaMapeZapri").addEventListener("click", zapriSloje);
+    $("mediaMapeDodaj").addEventListener("click", function () { zapriSloje(); $("medijiMapa").click(); });
+    $("galerijaZapri").addEventListener("click", zapriGalerijo);
+    document.querySelector(".galerija-tancica").addEventListener("click", zapriGalerijo);
+    $("galerijaNazaj").addEventListener("click", function () { premakniSliko(-1); });
+    $("galerijaNaprej").addEventListener("click", function () { premakniSliko(1); });
+    $("galerijaSlika").addEventListener("click", function () { document.querySelector(".galerija").classList.toggle("povecano"); });
+    $("galerijaSlika").addEventListener("error", function () { if (S.galerija) $("galerijaNapis").textContent = t("mediaManjka"); });
+    $("galerijaOdpri").addEventListener("click", function () {
+      var g = S.galerija; if (!g) return;
+      klic("odpriLokalniMedij", [g.seznam[g.i].pot]).then(function (ok) { if (!ok) obvesti(t("niUspelo")); });
+    });
+    document.addEventListener("keydown", function (e) {
+      if (!S.galerija) return;
+      if (e.key === "ArrowLeft") { e.preventDefault(); premakniSliko(-1); }
+      else if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); premakniSliko(1); }
+      else if (e.key === "Home") { e.preventDefault(); S.galerija.i = 0; prikaziSliko(); }
+      else if (e.key === "End") { e.preventDefault(); S.galerija.i = S.galerija.seznam.length - 1; prikaziSliko(); }
+      else if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); zapriGalerijo(); }
+    }, true);
     $("mediaOsvezi").addEventListener("click", function () {
       S.mediaOsvezuje = true; this.disabled = true;
       klic("osveziMedijskeMape").then(function (ok) {

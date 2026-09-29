@@ -146,7 +146,7 @@
         </div>
         <div class="media-postavitev">
           <div class="media-glavni">
-            <div class="media-naslov-vrstice"><div><span class="media-kicker" data-t="mediaLokalno"></span><h2 id="mediaNaslovZbirke" data-t="mediaTvojaZbirka"></h2></div><div class="media-knjiznica-dejanja"><span class="media-stevec" id="mediaStevec"></span><button class="media-osvezi" id="mediaOsvezi" type="button" data-naslov="mediaOsvezi" aria-label="Refresh library" disabled><svg data-ikona="ponovno"></svg></button></div></div>
+            <div class="media-naslov-vrstice"><div><span class="media-kicker" data-t="mediaLokalno"></span><h2 id="mediaNaslovZbirke" data-t="mediaTvojaZbirka"></h2></div><div class="media-knjiznica-dejanja"><span class="media-stevec" id="mediaStevec"></span><button class="media-osvezi" id="mediaMapeGumb" type="button" data-naslov="mediaMape" aria-label="Folders"><svg data-ikona="mapa"></svg></button><button class="media-osvezi" id="mediaOsvezi" type="button" data-naslov="mediaOsvezi" aria-label="Refresh library" disabled><svg data-ikona="ponovno"></svg></button></div></div>
             <div class="media-knjiznica" id="mediaMreza"></div>
             <div class="media-prazno" id="mediaPrazno" hidden>
               <div class="media-prazno-ikona"><svg data-ikona="glasba"></svg></div>
@@ -380,6 +380,29 @@
     <p class="drobno" data-t="dodajNamig"></p>
     <div class="gumbi"><button type="button" class="gumb" id="dodajPreklici" data-t="preklici"></button><button type="submit" class="gumb glavni" data-t="dodaj"></button></div>
   </form>
+</div>
+<!-- Izbrane medijske mape: pregled in odstranitev (datoteke ostanejo na disku) -->
+<div class="sloj" id="slojMediaMape"><div class="tancica"></div>
+  <div class="plosca media-mape-plosca" role="dialog" aria-modal="true" aria-labelledby="mediaMapeNaslov">
+    <span class="media-kicker">SAFEER MEDIA</span>
+    <h3 id="mediaMapeNaslov" data-t="mediaMape"></h3>
+    <p class="drobno" data-t="mediaMapeOpis"></p>
+    <div class="media-mape-seznam" id="mediaMapeSeznam"></div>
+    <div class="gumbi"><button type="button" class="gumb" id="mediaMapeZapri" data-t="zapri"></button><button type="button" class="gumb glavni" id="mediaMapeDodaj"><svg data-ikona="mapa"></svg><span data-t="dodajMapoMedijev"></span></button></div>
+  </div>
+</div>
+<!-- Pregledovalnik slik -->
+<div class="sloj" id="slojGalerija" role="dialog" aria-modal="true" aria-label="Gallery"><div class="tancica galerija-tancica"></div>
+  <figure class="galerija">
+    <img id="galerijaSlika" alt="" decoding="async">
+    <figcaption><b id="galerijaNapis"></b><span id="galerijaStevec"></span></figcaption>
+  </figure>
+  <button class="galerija-gumb levo" id="galerijaNazaj" type="button" data-naslov="mediaPrejsnjaSlika" aria-label="Previous"><svg data-ikona="desno"></svg></button>
+  <button class="galerija-gumb desno" id="galerijaNaprej" type="button" data-naslov="mediaNaslednjaSlika" aria-label="Next"><svg data-ikona="desno"></svg></button>
+  <div class="galerija-orodja">
+    <button class="gumb" id="galerijaOdpri" type="button"><span data-t="mediaOdpriVAplikaciji"></span></button>
+    <button class="galerija-zapri" id="galerijaZapri" type="button" data-naslov="zapri" aria-label="Close"><svg data-ikona="x"></svg></button>
+  </div>
 </div>
 <!-- Uporabnikov neposredni TV ali radijski tok -->
 <div class="sloj" id="slojMediaTok"><div class="tancica"></div>

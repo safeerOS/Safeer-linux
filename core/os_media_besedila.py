@@ -1,0 +1,77 @@
+"""Besedila domačega GTK predvajalnika in dialogov Safeer Media v jezikih vmesnika Safeer OS.
+
+Stran (assets/os/besedila.js) ima svoje prevode; tu so samo napisi, ki jih riše GTK (okno
+predvajalnika, izbirniki map in datotek), da okno ne ostane slovensko v angleškem vmesniku.
+"""
+
+from __future__ import annotations
+
+JEZIKI = ("sl", "en", "de", "es", "fr", "it")
+
+BESEDILA: dict[str, dict[str, str]] = {
+    "sl": {
+        "premik": "Premik po posnetku", "dodaj_datoteke": "Dodaj datoteke", "prejsnja": "Prejšnja",
+        "naslednja": "Naslednja", "premor": "Premor", "nadaljuj": "Nadaljuj", "cel_zaslon": "Cel zaslon",
+        "cakalna_vrsta": "Naslednje", "nic": "Nič se ne predvaja", "v_zivo": "V živo",
+        "dodaj_mapo": "Dodaj medijsko mapo", "preklici": "Prekliči", "dodaj": "Dodaj",
+        "tok": "Tok ni dosegljiv. Preveri naslov in povezavo.", "datoteka": "Datoteke ni mogoče prebrati.",
+        "format": "Tega zapisa ni mogoče predvajati.",
+        "zascita": "Posnetek je zaščiten (DRM) in ga Safeer ne predvaja.",
+        "zacetek": "Predvajanja ni bilo mogoče začeti.", "splosno": "Predvajanje se je ustavilo zaradi napake.",
+    },
+    "en": {
+        "premik": "Seek", "dodaj_datoteke": "Add files", "prejsnja": "Previous", "naslednja": "Next",
+        "premor": "Pause", "nadaljuj": "Resume", "cel_zaslon": "Full screen", "cakalna_vrsta": "Up next",
+        "nic": "Nothing playing", "v_zivo": "Live", "dodaj_mapo": "Add media folder", "preklici": "Cancel",
+        "dodaj": "Add", "tok": "Stream unreachable. Check the address and connection.",
+        "datoteka": "The file can't be read.", "format": "This format can't be played.",
+        "zascita": "This recording is DRM-protected and Safeer doesn't play it.",
+        "zacetek": "Playback couldn't start.", "splosno": "Playback stopped because of an error.",
+    },
+    "de": {
+        "premik": "Spulen", "dodaj_datoteke": "Dateien hinzufügen", "prejsnja": "Zurück", "naslednja": "Weiter",
+        "premor": "Pause", "nadaljuj": "Fortsetzen", "cel_zaslon": "Vollbild", "cakalna_vrsta": "Als Nächstes",
+        "nic": "Keine Wiedergabe", "v_zivo": "Live", "dodaj_mapo": "Medienordner hinzufügen",
+        "preklici": "Abbrechen", "dodaj": "Hinzufügen",
+        "tok": "Stream nicht erreichbar. Adresse und Verbindung prüfen.",
+        "datoteka": "Die Datei kann nicht gelesen werden.", "format": "Dieses Format kann nicht abgespielt werden.",
+        "zascita": "Die Aufnahme ist DRM-geschützt; Safeer spielt sie nicht ab.",
+        "zacetek": "Die Wiedergabe konnte nicht starten.", "splosno": "Die Wiedergabe wurde wegen eines Fehlers beendet.",
+    },
+    "es": {
+        "premik": "Buscar", "dodaj_datoteke": "Añadir archivos", "prejsnja": "Anterior", "naslednja": "Siguiente",
+        "premor": "Pausa", "nadaljuj": "Reanudar", "cel_zaslon": "Pantalla completa", "cakalna_vrsta": "A continuación",
+        "nic": "No se reproduce nada", "v_zivo": "En directo", "dodaj_mapo": "Añadir carpeta multimedia",
+        "preklici": "Cancelar", "dodaj": "Añadir",
+        "tok": "No se puede acceder a la emisión. Revisa la dirección y la conexión.",
+        "datoteka": "No se puede leer el archivo.", "format": "Este formato no se puede reproducir.",
+        "zascita": "La grabación está protegida con DRM y Safeer no la reproduce.",
+        "zacetek": "No se pudo iniciar la reproducción.", "splosno": "La reproducción se detuvo por un error.",
+    },
+    "fr": {
+        "premik": "Avancer", "dodaj_datoteke": "Ajouter des fichiers", "prejsnja": "Précédent", "naslednja": "Suivant",
+        "premor": "Pause", "nadaljuj": "Reprendre", "cel_zaslon": "Plein écran", "cakalna_vrsta": "À suivre",
+        "nic": "Aucune lecture", "v_zivo": "En direct", "dodaj_mapo": "Ajouter un dossier multimédia",
+        "preklici": "Annuler", "dodaj": "Ajouter",
+        "tok": "Flux inaccessible. Vérifiez l'adresse et la connexion.",
+        "datoteka": "Impossible de lire le fichier.", "format": "Ce format ne peut pas être lu.",
+        "zascita": "L'enregistrement est protégé par DRM ; Safeer ne le lit pas.",
+        "zacetek": "La lecture n'a pas pu démarrer.", "splosno": "La lecture s'est arrêtée à cause d'une erreur.",
+    },
+    "it": {
+        "premik": "Scorri", "dodaj_datoteke": "Aggiungi file", "prejsnja": "Precedente", "naslednja": "Successivo",
+        "premor": "Pausa", "nadaljuj": "Riprendi", "cel_zaslon": "Schermo intero", "cakalna_vrsta": "A seguire",
+        "nic": "Nessuna riproduzione", "v_zivo": "In diretta", "dodaj_mapo": "Aggiungi cartella multimediale",
+        "preklici": "Annulla", "dodaj": "Aggiungi",
+        "tok": "Flusso non raggiungibile. Controlla l'indirizzo e la connessione.",
+        "datoteka": "Impossibile leggere il file.", "format": "Questo formato non può essere riprodotto.",
+        "zascita": "La registrazione è protetta da DRM e Safeer non la riproduce.",
+        "zacetek": "Impossibile avviare la riproduzione.", "splosno": "La riproduzione si è interrotta per un errore.",
+    },
+}
+
+
+def besedilo(kljuc: str, jezik: str = "en") -> str:
+    """Napis v jeziku vmesnika; neznan jezik ali ključ pade na angleščino (in nato na ključ)."""
+    jezik = (jezik or "en")[:2].lower()
+    return BESEDILA.get(jezik, BESEDILA["en"]).get(kljuc) or BESEDILA["en"].get(kljuc, kljuc)

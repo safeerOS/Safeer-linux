@@ -142,7 +142,46 @@ class KnjiznicaTests(unittest.TestCase):
             pot = Path(tmp) / "vlc.desktop"
             pot.write_text("[Desktop Entry]\nType=Application\nName=VLC\nExec=vlc\nCategories=AudioVideo;Player;\n")
             vnos = os_programi.preberi_vnos(str(pot))
+            from core import os_media_besedila as mb
+            self.assertEqual(mb.besedilo("premor", "de"), "Pause")
+            self.assertEqual(mb.besedilo("premor", "xx"), "Pause")
+            for jezik in mb.JEZIKI:
+                self.assertEqual(set(mb.BESEDILA[jezik]), set(mb.BESEDILA["en"]), jezik)
             self.assertTrue(vnos["medij"])
+
+    def test_odstranitev_mape_ne_brise_datotek_in_ohrani_nadmapo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            koren = Path(tmp)
+            (koren / "Glasba" / "Album").mkdir(parents=True)
+            a = koren / "Glasba" / "a.mp3"; b = koren / "Glasba" / "Album" / "b.mp3"
+            a.touch(); b.touch()
+            knjiznica = Knjiznica(koren / "baza.sqlite3")
+            knjiznica.dodaj_mapo(koren / "Glasba" / "Album")
+            knjiznica.dodaj_mapo(koren / "Glasba")
+            self.assertEqual(knjiznica.odstrani_mapo(str((koren / "Glasba" / "Album").resolve())), 0)  # b pokriva nadmapa
+            self.assertEqual(len(knjiznica.seznam()), 2)
+            self.assertEqual(knjiznica.odstrani_mapo(str((koren / "Glasba").resolve())), 2)
+            self.assertEqual(knjiznica.seznam(), [])
+            self.assertTrue(a.exists() and b.exists())
+            self.assertIsNone(knjiznica.odstrani_mapo("/ni/izbrana"))
+
+    def test_osvezitev_pozabi_izbrisane_a_ne_odklopljenega_diska(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            koren = Path(tmp)
+            (koren / "M").mkdir(); (koren / "Disk").mkdir()
+            ena = koren / "M" / "ena.mp3"; dve = koren / "M" / "dve.mp3"; disk = koren / "Disk" / "film.mkv"
+            for p in (ena, dve, disk):
+                p.touch()
+            knjiznica = Knjiznica(koren / "baza.sqlite3")
+            knjiznica.dodaj_mapo(koren / "M"); knjiznica.dodaj_mapo(koren / "Disk")
+            dve.unlink()
+            disk.unlink(); (koren / "Disk").rmdir()      # kot odklopljen disk
+            knjiznica.osvezi_mape()
+            imena = sorted(v["ime"] for v in knjiznica.seznam())
+            self.assertEqual(imena, ["ena", "film"])
+            mape = {Path(m["pot"]).name: m for m in knjiznica.mape_podrobno()}
+            self.assertEqual((mape["M"]["stevilo"], mape["M"]["naVoljo"]), (1, True))
+            self.assertEqual((mape["Disk"]["stevilo"], mape["Disk"]["naVoljo"]), (1, False))
 
     def test_osvezitev_izbrane_mape_najde_nove_datoteke(self):
         with tempfile.TemporaryDirectory() as tmp:
