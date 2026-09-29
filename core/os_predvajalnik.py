@@ -164,6 +164,14 @@ class Predvajalnik:
         self._cakaj_zacetek = self.vrsta[indeks].zacetek
         if self._cakaj_zacetek:
             self.vrsta[indeks] = replace(self.vrsta[indeks], zacetek=0)
+        if self.vrsta[indeks].uri.startswith("dvd://"):
+            # Zaščitenih diskov (CSS) ne predvajamo - tudi če ima sistem knjižnico, ki bi jih odklenila.
+            from core import os_dvd
+            if os_dvd.je_zasciten(self.vrsta[indeks].uri):
+                self.napaka = "dvd"
+                self.stanje = "napaka"
+                self.sprememba()
+                return False
         self.element.set_property("uri", self.vrsta[indeks].uri)
         self._pripravi_podnapise(self.vrsta[indeks])
         rezultat = self.element.set_state(self.gst.State.PLAYING)

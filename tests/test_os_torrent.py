@@ -174,7 +174,7 @@ class Motor(unittest.TestCase):
         tid = self.t.dodaj(MAGNET, [1, 2])
         self.assertEqual(tid, 0)
         dodaj = [z for z in LazniRqbit.zahteve if z[0] == "POST" and "only_files=" in z[1]]
-        self.assertIn("only_files=1&", dodaj[-1][1] + "&")
+        self.assertIn("only_files=0,1&", dodaj[-1][1] + "&")       # video + njegovi podnapisi, program ne
         self.assertIn(b"tr=", dodaj[-1][2])              # dodani sledilniki za hitrejše iskanje
         # Ponovno dodajanje istega magneta ne naredi novega torrenta, ampak doda datoteke.
         self.assertEqual(self.t.dodaj(MAGNET, [0]), 0)
@@ -202,7 +202,7 @@ class Motor(unittest.TestCase):
         # predvajamo pa je nikoli.
         self.assertEqual(self.t.dodaj(MAGNET, [1, 2], potrjene_nevarne=[2]), 0)
         dodaj = [z for z in LazniRqbit.zahteve if z[0] == "POST" and "only_files=" in z[1]]
-        self.assertIn("only_files=1,2&", dodaj[-1][1] + "&")
+        self.assertIn("only_files=0,1,2&", dodaj[-1][1] + "&")   # 0 = podnapisi k videu
         with self.assertRaises(ot.NapakaTorrenta):
             self.t.tok(0, 2)
 
