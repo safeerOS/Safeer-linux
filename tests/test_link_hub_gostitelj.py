@@ -4,7 +4,9 @@ Pravilo je namenoma zadrzano: gostimo samo, kadar drugega Huba ni. Televizor, ki
 sredisce kot doslej - posodobitev ne sme cez noc premakniti sredisca hise. Ko televizor ugasne,
 racunalnik prevzame; ko se vrne, se racunalnik umakne.
 """
+import os
 import unittest
+from unittest import mock
 
 from core import link_hub_streznik
 
@@ -81,12 +83,14 @@ class Gostitelj(unittest.TestCase):
         self.assertEqual(s.zagoni, 1, "Hub zaganjamo enkrat, ne ob vsakem pregledu")
         self.assertEqual(len(o.zacetki), 1)
 
+    @mock.patch.dict(os.environ, {"SAFEER_LINK_MESH": "0"})
     def test_ne_prevzame_ko_tv_tece(self):
         s, o = LazniStreznik(), LazniOglas()
         g = self._gostitelj(lambda: {"naslov": "wss://tv", "id": "tv1"}, s, o)
         self.assertFalse(g.preveri())
         self.assertEqual(s.zagoni, 0, "televizor, ki tece, ostane sredisce")
 
+    @mock.patch.dict(os.environ, {"SAFEER_LINK_MESH": "0"})
     def test_umakne_se_ko_se_tv_vrne(self):
         s, o = LazniStreznik(), LazniOglas()
         stanje = {"tv": None}
@@ -97,6 +101,16 @@ class Gostitelj(unittest.TestCase):
         self.assertFalse(g.gostimo())
         self.assertEqual(s.ustavitve, 1)
         self.assertEqual(o.konci, 1, "oglas mora ugasniti z Hubom")
+
+    @mock.patch.dict(os.environ, {"SAFEER_LINK_MESH": "1"})
+    def test_mesh_gosti_in_se_ne_umakne(self):
+        """Link Mesh: vsaka naprava je vozlisce - racunalnik gosti, tudi ko televizor tece."""
+        s, o = LazniStreznik(), LazniOglas()
+        g = self._gostitelj(lambda: {"naslov": "wss://tv", "id": "tv1"}, s, o)
+        self.assertTrue(g.preveri())
+        self.assertTrue(g.preveri())
+        self.assertEqual(s.zagoni, 1)
+        self.assertEqual(s.ustavitve, 0)
 
     def test_napaka_pri_iskanju_pomeni_gostimo(self):
         """Ce iskanja ni mogoce opraviti, je bolje gostiti kot pustiti hiso brez sredisca."""
