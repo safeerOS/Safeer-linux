@@ -82,7 +82,7 @@ class KnjiznicaTests(unittest.TestCase):
             with sqlite3.connect(pot_baze) as baza:
                 baza.execute("""CREATE TABLE mediji (
                     pot TEXT PRIMARY KEY, naslov TEXT NOT NULL, vrsta TEXT NOT NULL,
-                    dodano INTEGER NOT NULL DEFAULT (unixepoch()), zadnjic INTEGER NOT NULL DEFAULT 0)""")
+                    dodano INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)), zadnjic INTEGER NOT NULL DEFAULT 0)""")
             knjiznica = Knjiznica(pot_baze)
             film, pesem = root / "Film.mp4", root / "Pesem.mp3"
             film.touch(); pesem.touch()
@@ -194,6 +194,12 @@ class KnjiznicaTests(unittest.TestCase):
             (mapa / "Nova.mp3").touch()
             self.assertEqual(knjiznica.osvezi_mape(), 1)
             self.assertEqual(knjiznica.seznam("glasba")[0]["ime"], "Nova")
+
+
+    def test_ne_uporablja_unixepoch_ki_ga_sqlite_3_37_nima(self):
+        # Ubuntu 22.04 / Mint 21 ima SQLite 3.37.2; unixepoch() je sele od 3.38.
+        vir = (Path(__file__).resolve().parent.parent / "core" / "os_knjiznica.py").read_text(encoding="utf-8")
+        self.assertNotIn("unixepoch", vir)
 
 
 if __name__ == "__main__":
