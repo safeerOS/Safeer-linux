@@ -18,8 +18,8 @@ mkdir -p "$ROOT/DEBIAN" "$ROOT/usr/share/themes" "$ROOT/usr/bin" "$ROOT/usr/shar
          "$ROOT/usr/share/safeer-cinnamon/plank" "$ROOT/usr/share/backgrounds/safeer" \
          "$ROOT/usr/share/cinnamon-background-properties" "$ROOT/usr/share/doc/safeer-cinnamon"
 cp -a "$T/Safeer-Cinnamon" "$T/Safeer-Cinnamon-Kontrast" "$ROOT/usr/share/themes/"
-# Obrobe oken in GTK 2 prevzame od Mint-Y-Dark-Blue (vzdrzuje Linux Mint).
-ln -s /usr/share/themes/Mint-Y-Dark-Blue/metacity-1 "$ROOT/usr/share/themes/Safeer-Cinnamon/metacity-1"
+# Obrobe oken prevzame od Mint-Y (tako kot vse Mintove teme, tudi Mint-Y-Dark-Blue), GTK 2 od Mint-Y-Dark-Blue.
+ln -s /usr/share/themes/Mint-Y/metacity-1 "$ROOT/usr/share/themes/Safeer-Cinnamon/metacity-1"
 ln -s /usr/share/themes/Mint-Y-Dark-Blue/gtk-2.0 "$ROOT/usr/share/themes/Safeer-Cinnamon/gtk-2.0"
 install -m 755 "$T/safeer-cinnamon" "$ROOT/usr/bin/safeer-cinnamon"
 install -m 644 "$T/plank/dock.theme" "$ROOT/usr/share/safeer-cinnamon/plank/dock.theme"
