@@ -229,7 +229,7 @@
   var IKONE_VRST = {
     mapa: "M3 7h6l2 2h10v10H3z", slika: "M4 5h16v14H4z M8 14l3-3 5 5 M15 10h.01", video: "M4 6h12v12H4z M16 10l4-2v8l-4-2",
     zvok: "M9 18V6l10-2v12 M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0z", dokument: "M6 3h8l4 4v14H6z M14 3v4h4 M9 12h6 M9 16h6",
-    arhiv: "M5 4h14v16H5z M12 4v8", program: "M4 5h16v14H4z M8 10l3 2-3 2 M13 15h3", drugo: "M6 3h8l4 4v14H6z"
+    arhiv: "M5 4h14v16H5z M12 4v8", splet: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M3 12h18 M12 3c3 3 3 15 0 18 M12 3c-3 3-3 15 0 18", program: "M4 5h16v14H4z M8 10l3 2-3 2 M13 15h3", drugo: "M6 3h8l4 4v14H6z"
   };
   function ikonaVrste(vrsta) {
     var v = IKONE_VRST[vrsta] ? vrsta : "drugo";
@@ -798,7 +798,7 @@
         var b = el("button", "zadetek"); b.type = "button"; b.setAttribute("role", "option"); b.tabIndex = -1;
         var ime, pod = "", vir = "";
         if (v.vrsta === "splet") {
-          b.appendChild(ikonaVrste("drugo")); ime = t("isciVSpletu", { q: v.q }); pod = t("odpreVBrskalniku");
+          b.appendChild(ikonaVrste("splet")); ime = t("isciVSpletu", { q: v.q }); pod = t("odpreVBrskalniku");
         } else if (v.vrsta === "program") {
           appendIkona(b, v.p.ikona); ime = v.p.ime; pod = v.p.opis || ""; vir = t("taRacunalnik");
         } else if (v.vrsta === "prgNaprave") {
