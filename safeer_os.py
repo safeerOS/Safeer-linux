@@ -839,6 +839,13 @@ class SafeerOS(Gtk.Application):
         self.okno_delovna.set_size_request(g.width, g.height)
         self.okno_delovna.resize(g.width, g.height)
         self._preveri_robove()
+        # Dock Plank ne sledi spremembi locljivosti: safeer-cinnamon --dock ga postavi na novo (pocaka,
+        # da se zaslon ustali). Robove delovne povrsine potem popravi _preveri_robove (vsake 3 s).
+        try:
+            subprocess.Popen(["safeer-cinnamon", "--dock"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             start_new_session=True)
+        except OSError:
+            pass
 
     def _odpri_razdelek(self, razdelek: str) -> bool:
         """Iz delovne povrsine: odpre glavno okno Safeer OS na razdelku (npr. media)."""
