@@ -170,7 +170,7 @@ select option { background: #111c2b; color: var(--besedilo); }
 .seznam tbody tr { cursor: pointer; }
 .seznam tbody tr:hover, .seznam tbody tr:focus-visible { background: rgba(181, 216, 255, .08); }
 .seznam tbody tr[aria-selected="true"] { background: var(--izbrano); }
-.seznam .st-vrsta { width: 6.6em; } .seznam .st-lok { width: 22%; } .seznam .st-vel { width: 5.6em; text-align: right; } .seznam .st-cas { width: 6.6em; }
+.seznam .st-vrsta { width: 6.6em; } .seznam .st-lok { width: 22%; } .seznam .st-vel { width: 6.4em; text-align: right; } .seznam .st-cas { width: 6.6em; }
 .seznam td.st-vel { text-align: right; }
 .seznam td small { color: #99afc9; }
 .celica-ime { display: flex; align-items: center; gap: .45em; overflow: hidden; }
@@ -178,7 +178,7 @@ select option { background: #111c2b; color: var(--besedilo); }
 .ikona-vrste { flex: none; width: 1.35em; height: 1.35em; border-radius: 5px; display: inline-grid; place-items: center; color: #eaf2ff; }
 .ikona-vrste svg { width: .9em; height: .9em; }
 .v-mapa { background: #3b6fb0; } .v-slika { background: #2f8a6b; } .v-video { background: #b45058; } .v-zvok { background: #674da7; }
-.v-dokument { background: #2558ad; } .v-arhiv { background: #8a6a2f; } .v-program { background: #4a5a70; } .v-drugo { background: #4a5a70; }
+.v-dokument { background: #2558ad; } .v-splet { background: #26789a; } .v-arhiv { background: #8a6a2f; } .v-program { background: #4a5a70; } .v-drugo { background: #4a5a70; }
 
 .sporocilo { color: var(--tiho); font-size: .82em; margin: .8em .2em; }
 .sporocilo.napaka { color: var(--opozorilo); }
