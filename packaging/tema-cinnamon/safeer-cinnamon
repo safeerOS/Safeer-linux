@@ -2,22 +2,29 @@
 # ==============================================================================
 # Safeer Cinnamon - modra polprosojna tema za Linux Mint Cinnamon (paket safeer-cinnamon).
 #
-#   safeer-cinnamon                 vklopi temo, ozadje, pult zgoraj in dock spodaj
+#   safeer-cinnamon                 vklopi temo, ozadje, pult zgoraj, dock spodaj in delovno povrsino
 #                                   (prejsnje nastavitve si zapomni)
 #   safeer-cinnamon --izklopi       vrne vse, kot je bilo pred vklopom
 #   safeer-cinnamon --kontrast      neprosojne povrsine in mocnejse obrobe
 #   safeer-cinnamon --prosojno      nazaj na obicajni (polprosojni) videz
 #   safeer-cinnamon --vecji-tekst   besedilo 125 %   (--obicajen-tekst: nazaj)
 #   safeer-cinnamon --stanje        izpise, kaj je vklopljeno
+#   safeer-cinnamon --seja          ob prijavi: delovna povrsina Safeer OS (safeer-os --delovna)
 #
-# Samo uradne nastavitve Cinnamona (gsettings) in Planka (dconf); nic se ne namesti
-# in nic ne tece v ozadju razen docka Plank, ce je namescen.
+# Samo uradne nastavitve Cinnamona (gsettings) in Planka (dconf). V ozadju tecejo le dock Plank in
+# Safeer OS (delovna povrsina), ce sta namescena; --izklopi vrne vse.
 # ==============================================================================
 set -u
 
 MAPA="${XDG_CONFIG_HOME:-$HOME/.config}/safeer-cinnamon"
 PREJ="$MAPA/prej.txt"
-AUTOSTART="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/safeer-cinnamon-dock.desktop"
+AVTO="${XDG_CONFIG_HOME:-$HOME/.config}/autostart"
+AUTOSTART="$AVTO/safeer-cinnamon-dock.desktop"
+SEJA="$AVTO/safeer-cinnamon.desktop"
+VKLOPLJENO="$MAPA/vklopljeno"
+# Samozagon Safeer OS (cel zaslon) in seja safeer-os-tema bi se tepla z delovno povrsino: med vklopom ju
+# izklopimo z uporabnikovim preglasitvenim vnosom in ju ob izklopu vrnemo tocno tako, kot sta bila.
+TUJI_ZAGONI="safeer-os.desktop safeer-os-tema.desktop"
 PLANK_TEME="${XDG_DATA_HOME:-$HOME/.local/share}/plank/themes"
 SKUPNO="/usr/share/safeer-cinnamon"
 OZADJE="/usr/share/backgrounds/safeer/safeer-gore-3840x2160.png"
@@ -79,8 +86,35 @@ dock() {
     pgrep -x plank >/dev/null 2>&1 || (setsid plank >/dev/null 2>&1 &)
 }
 
+zagoni_izklopi() {
+    local ime
+    mkdir -p "$AVTO" "$MAPA/zagoni"
+    for ime in $TUJI_ZAGONI; do
+        [ -e "$MAPA/zagoni/$ime" ] || [ -e "$MAPA/zagoni/$ime.ni" ] && continue
+        if [ -f "$AVTO/$ime" ]; then cp -p "$AVTO/$ime" "$MAPA/zagoni/$ime"; else : > "$MAPA/zagoni/$ime.ni"; fi
+        printf '[Desktop Entry]\nType=Application\nName=%s\nHidden=true\nX-GNOME-Autostart-enabled=false\n' "$ime" > "$AVTO/$ime"
+    done
+}
+
+zagoni_vrni() {
+    local ime
+    for ime in $TUJI_ZAGONI; do
+        if [ -f "$MAPA/zagoni/$ime" ]; then mv -f "$MAPA/zagoni/$ime" "$AVTO/$ime"
+        elif [ -e "$MAPA/zagoni/$ime.ni" ]; then rm -f "$AVTO/$ime" "$MAPA/zagoni/$ime.ni"; fi
+    done
+}
+
+delovna() {
+    # Delovna povrsina (iskanje, datoteke, predvajalnik, programi naprav) je del Safeer OS.
+    command -v safeer-os >/dev/null 2>&1 || { echo "safeer-cinnamon: Safeer OS ni namescen - delovna povrsina preskocena."; return 0; }
+    zagoni_izklopi
+    printf '[Desktop Entry]\nType=Application\nName=Safeer Cinnamon\nExec=safeer-cinnamon --seja\nX-GNOME-Autostart-enabled=true\nX-GNOME-Autostart-Delay=2\nNoDisplay=true\n' > "$SEJA"
+    pgrep -f "safeer_os.py|/safeer-os( |$)" >/dev/null 2>&1 || (setsid safeer-os --delovna >/dev/null 2>&1 &)
+}
+
 vklopi() {
     zapomni
+    : > "$VKLOPLJENO"
     pisi org.cinnamon.desktop.interface:gtk-theme "'$TEMA'"
     pisi org.gnome.desktop.interface:gtk-theme "'$TEMA'"
     pisi org.gnome.desktop.interface:color-scheme "'prefer-dark'"
@@ -93,6 +127,7 @@ vklopi() {
     fi
     pult_zgoraj
     dock
+    delovna
 }
 
 izklopi() {
@@ -102,7 +137,11 @@ izklopi() {
         done < "$PREJ"
         rm -f "$PREJ"
     fi
-    rm -f "$AUTOSTART"
+    rm -f "$AUTOSTART" "$SEJA" "$VKLOPLJENO"
+    zagoni_vrni
+    rmdir "$MAPA/zagoni" 2>/dev/null || true
+    # Delovna povrsina (Safeer OS z --delovna) se konca cisto (SIGTERM -> Safeer OS pospravi za sabo).
+    pkill -TERM -f "safeer.*--delovna" >/dev/null 2>&1 || true
     pkill -x plank >/dev/null 2>&1 || true
     if command -v dconf >/dev/null 2>&1 && [ -f "$MAPA/plank-prej.ini" ]; then
         dconf reset -f "$PLANK_DOCK" 2>/dev/null || true
@@ -118,6 +157,7 @@ stanje() {
     echo "tekst:        $(beri org.cinnamon.desktop.interface:text-scaling-factor)"
     echo "pulti:        $(beri org.cinnamon:panels-enabled)"
     echo "dock:         $( [ -f "$AUTOSTART" ] && echo vklopljen || echo izklopljen)"
+    echo "delovna:      $( [ -f "$SEJA" ] && echo "ob prijavi (safeer-os --delovna)" || echo izklopljena)"
     echo "zapomnjeno:   $( [ -s "$PREJ" ] && echo "da ($PREJ)" || echo ne)"
 }
 
@@ -129,6 +169,7 @@ case "${1:-}" in
     --vecji-tekst)           zapomni; pisi org.cinnamon.desktop.interface:text-scaling-factor "1.25" ;;
     --obicajen-tekst)        pisi org.cinnamon.desktop.interface:text-scaling-factor "1.0" ;;
     --stanje|--status)       stanje ;;
-    -h|--help)               sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
+    --seja)                  [ -f "$VKLOPLJENO" ] && command -v safeer-os >/dev/null 2>&1 && exec safeer-os --delovna ;;
+    -h|--help)               sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//' ;;
     *) echo "safeer-cinnamon: neznana moznost $1 (--help)" >&2; exit 2 ;;
 esac

@@ -239,5 +239,5 @@ switch:checked slider {
   background-color: #0b1424;
 }
 
-/* Fokus s tipkovnico: obroc risje Mint-Y (GTK 3 nima :focus-visible), tukaj le v nasi barvi */
+/* Fokus s tipkovnico: obroc risje Mint-Y (GTK 3 ne pozna psevdo-razreda za fokus s tipkovnico), tukaj le v nasi barvi */
 * { outline-color: #9dceff; }
