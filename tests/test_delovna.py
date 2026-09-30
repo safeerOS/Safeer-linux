@@ -105,7 +105,8 @@ class TestTemaCinnamon(unittest.TestCase):
                              ' get) grep "^$2 $3 " "$DB" | cut -d" " -f3-;;\n set) grep -v "^$2 $3 " "$DB" > "$DB.t"; '
                              'echo "$2 $3 $4" >> "$DB.t"; mv "$DB.t" "$DB";;\nesac\n' % db,
                 "dconf": "#!/bin/sh\nexit 0\n", "pgrep": "#!/bin/sh\nexit 1\n", "pkill": "#!/bin/sh\nexit 0\n",
-                "setsid": "#!/bin/sh\nexit 0\n", "safeer-os": "#!/bin/sh\nexit 0\n",
+                "setsid": "#!/bin/sh\nexit 0\n", "safeer-os": "#!/bin/sh\nexit 0\n", "plank": "#!/bin/sh\nexit 0\n",
+                "xrandr": "#!/bin/sh\necho \"Screen 0: current 1920 x 1080\"\n", "sleep": "#!/bin/sh\nexit 0\n",
             }
             for ime, vsebina in lazno.items():
                 p = os.path.join(bin_, ime)
@@ -129,6 +130,9 @@ class TestTemaCinnamon(unittest.TestCase):
             self.assertIn("['1:0:top']", vmes)
             with open(zagon) as f:
                 self.assertIn("Hidden=true", f.read())
+            # Dock se ob prijavi zazene prek safeer-cinnamon --dock (pocaka na ustaljen zaslon), ne neposredno.
+            with open(os.path.join(dom, ".config", "autostart", "safeer-cinnamon-dock.desktop")) as f:
+                self.assertIn("Exec=safeer-cinnamon --dock", f.read())
             with open(tema_zagon) as f:
                 self.assertIn("Hidden=true", f.read())
             subprocess.run(["bash", skripta, "--vecji-tekst"], env=env, check=True, capture_output=True)
