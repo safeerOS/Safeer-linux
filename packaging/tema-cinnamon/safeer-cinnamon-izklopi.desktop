@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Restore previous look (Safeer Cinnamon off)
+Name[sl]=Vrni prejsnji videz (Safeer Cinnamon izklopi)
+Exec=safeer-cinnamon --izklopi
+Icon=edit-undo
+Categories=Settings;DesktopSettings;

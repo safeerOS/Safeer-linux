@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Safeer Cinnamon - modra polprosojna tema za Linux Mint Cinnamon (paket safeer-cinnamon).
+#
+#   safeer-cinnamon                 vklopi temo, ozadje, pult zgoraj in dock spodaj
+#                                   (prejsnje nastavitve si zapomni)
+#   safeer-cinnamon --izklopi       vrne vse, kot je bilo pred vklopom
+#   safeer-cinnamon --kontrast      neprosojne povrsine in mocnejse obrobe
+#   safeer-cinnamon --prosojno      nazaj na obicajni (polprosojni) videz
+#   safeer-cinnamon --vecji-tekst   besedilo 125 %   (--obicajen-tekst: nazaj)
+#   safeer-cinnamon --stanje        izpise, kaj je vklopljeno
+#
+# Samo uradne nastavitve Cinnamona (gsettings) in Planka (dconf); nic se ne namesti
+# in nic ne tece v ozadju razen docka Plank, ce je namescen.
+# ==============================================================================
+set -u
+
+MAPA="${XDG_CONFIG_HOME:-$HOME/.config}/safeer-cinnamon"
+PREJ="$MAPA/prej.txt"
+AUTOSTART="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/safeer-cinnamon-dock.desktop"
+PLANK_TEME="${XDG_DATA_HOME:-$HOME/.local/share}/plank/themes"
+SKUPNO="/usr/share/safeer-cinnamon"
+OZADJE="/usr/share/backgrounds/safeer/safeer-gore-3840x2160.png"
+TEMA="Safeer-Cinnamon"
+KONTRAST="Safeer-Cinnamon-Kontrast"
+PLANK_DOCK="/net/launchpad/plank/docks/dock1/"
+
+# Kljuci, ki jih vklop spremeni in izklop vrne (shema:kljuc).
+KLJUCI="org.cinnamon.desktop.interface:gtk-theme
+org.cinnamon.desktop.interface:icon-theme
+org.cinnamon.desktop.interface:text-scaling-factor
+org.cinnamon.desktop.wm.preferences:theme
+org.cinnamon.theme:name
+org.cinnamon.desktop.background:picture-uri
+org.cinnamon.desktop.background:picture-options
+org.cinnamon:panels-enabled
+org.gnome.desktop.interface:gtk-theme
+org.gnome.desktop.interface:color-scheme"
+
+obstaja() { gsettings list-keys "${1%%:*}" 2>/dev/null | grep -qx "${1#*:}"; }
+beri() { obstaja "$1" && gsettings get "${1%%:*}" "${1#*:}" 2>/dev/null; }
+pisi() { obstaja "$1" && gsettings set "${1%%:*}" "${1#*:}" "$2" >/dev/null 2>&1; return 0; }
+
+zapomni() {
+    mkdir -p "$MAPA"
+    [ -s "$PREJ" ] && return 0          # ze vklopljeno: ohrani izvirne nastavitve
+    : > "$PREJ"
+    while IFS= read -r k; do
+        v="$(beri "$k")" || continue
+        [ -n "$v" ] && printf '%s=%s\n' "$k" "$v" >> "$PREJ"
+    done <<< "$KLJUCI"
+    if command -v dconf >/dev/null 2>&1; then
+        dconf dump "$PLANK_DOCK" > "$MAPA/plank-prej.ini" 2>/dev/null || true
+    fi
+}
+
+# Pult premakni na vrh, ce je bil spodaj (ohrani vse ostale pulte in zaslone).
+pult_zgoraj() {
+    local v
+    v="$(beri org.cinnamon:panels-enabled)" || return 0
+    case "$v" in *":bottom"*) pisi org.cinnamon:panels-enabled "${v//:bottom/:top}" ;; esac
+}
+
+dock() {
+    command -v plank >/dev/null 2>&1 || { echo "safeer-cinnamon: Plank ni namescen - dock preskocen (sudo apt install plank)."; return 0; }
+    mkdir -p "$PLANK_TEME/$TEMA"
+    cp -f "$SKUPNO/plank/dock.theme" "$PLANK_TEME/$TEMA/dock.theme"
+    if command -v dconf >/dev/null 2>&1; then
+        dconf write "${PLANK_DOCK}theme" "'$TEMA'"
+        dconf write "${PLANK_DOCK}position" "'bottom'"
+        dconf write "${PLANK_DOCK}alignment" "'center'"
+        # 'none' = dock je vedno viden in si rezervira prostor: okna ga ne prekrijejo.
+        dconf write "${PLANK_DOCK}hide-mode" "'none'"
+        dconf write "${PLANK_DOCK}icon-size" "40"
+        dconf write "${PLANK_DOCK}zoom-enabled" "false"
+    fi
+    mkdir -p "$(dirname "$AUTOSTART")"
+    printf '[Desktop Entry]\nType=Application\nName=Safeer Cinnamon dock\nExec=plank\nX-GNOME-Autostart-enabled=true\nNoDisplay=true\n' > "$AUTOSTART"
+    pgrep -x plank >/dev/null 2>&1 || (setsid plank >/dev/null 2>&1 &)
+}
+
+vklopi() {
+    zapomni
+    pisi org.cinnamon.desktop.interface:gtk-theme "'$TEMA'"
+    pisi org.gnome.desktop.interface:gtk-theme "'$TEMA'"
+    pisi org.gnome.desktop.interface:color-scheme "'prefer-dark'"
+    pisi org.cinnamon.desktop.wm.preferences:theme "'$TEMA'"
+    pisi org.cinnamon.theme:name "'$TEMA'"
+    [ -d /usr/share/icons/Papirus-Dark ] && pisi org.cinnamon.desktop.interface:icon-theme "'Papirus-Dark'"
+    if [ -f "$OZADJE" ]; then
+        pisi org.cinnamon.desktop.background:picture-uri "'file://$OZADJE'"
+        pisi org.cinnamon.desktop.background:picture-options "'zoom'"
+    fi
+    pult_zgoraj
+    dock
+}
+
+izklopi() {
+    if [ -s "$PREJ" ]; then
+        while IFS= read -r vrstica; do
+            [ -n "$vrstica" ] && pisi "${vrstica%%=*}" "${vrstica#*=}"
+        done < "$PREJ"
+        rm -f "$PREJ"
+    fi
+    rm -f "$AUTOSTART"
+    pkill -x plank >/dev/null 2>&1 || true
+    if command -v dconf >/dev/null 2>&1 && [ -f "$MAPA/plank-prej.ini" ]; then
+        dconf reset -f "$PLANK_DOCK" 2>/dev/null || true
+        dconf load "$PLANK_DOCK" < "$MAPA/plank-prej.ini" 2>/dev/null || true
+        rm -f "$MAPA/plank-prej.ini"
+    fi
+    rm -rf "$PLANK_TEME/$TEMA"
+}
+
+stanje() {
+    echo "tema lupine:  $(beri org.cinnamon.theme:name)"
+    echo "GTK:          $(beri org.cinnamon.desktop.interface:gtk-theme)"
+    echo "tekst:        $(beri org.cinnamon.desktop.interface:text-scaling-factor)"
+    echo "pulti:        $(beri org.cinnamon:panels-enabled)"
+    echo "dock:         $( [ -f "$AUTOSTART" ] && echo vklopljen || echo izklopljen)"
+    echo "zapomnjeno:   $( [ -s "$PREJ" ] && echo "da ($PREJ)" || echo ne)"
+}
+
+case "${1:-}" in
+    ""|--vklopi|--on)        vklopi ;;
+    --izklopi|--off)         izklopi ;;
+    --kontrast)              zapomni; pisi org.cinnamon.theme:name "'$KONTRAST'" ;;
+    --prosojno)              pisi org.cinnamon.theme:name "'$TEMA'" ;;
+    --vecji-tekst)           zapomni; pisi org.cinnamon.desktop.interface:text-scaling-factor "1.25" ;;
+    --obicajen-tekst)        pisi org.cinnamon.desktop.interface:text-scaling-factor "1.0" ;;
+    --stanje|--status)       stanje ;;
+    -h|--help)               sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
+    *) echo "safeer-cinnamon: neznana moznost $1 (--help)" >&2; exit 2 ;;
+esac

@@ -1,0 +1,10 @@
+{
+  "cinnamon-theme": {
+    "name": "Safeer-Cinnamon-Kontrast",
+    "author": "Safeer (izpeljano iz CBlue, Bundy01)",
+    "version": "1.0",
+    "type": "custom",
+    "thumbnail": "thumbnail.png",
+    "url": "https://safeer.si/os/"
+  }
+}

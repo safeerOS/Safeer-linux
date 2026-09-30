@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE wallpapers SYSTEM "gnome-wp-list.dtd">
+<wallpapers>
+  <wallpaper deleted="false">
+    <name>Safeer - gore in jezero</name>
+    <filename>/usr/share/backgrounds/safeer/safeer-gore-3840x2160.png</filename>
+    <options>zoom</options>
+  </wallpaper>
+  <wallpaper deleted="false">
+    <name>Safeer - gore in jezero (vektorsko)</name>
+    <filename>/usr/share/backgrounds/safeer/safeer-gore-16-9.svg</filename>
+    <options>zoom</options>
+  </wallpaper>
+</wallpapers>

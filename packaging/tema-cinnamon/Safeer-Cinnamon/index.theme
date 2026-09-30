@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=X-GNOME-Metatheme
+Name=Safeer-Cinnamon
+Comment=Safeer Cinnamon - modra polprosojna tema za Linux Mint (po CBlue)
+Encoding=UTF-8
+
+[X-GNOME-Metatheme]
+GtkTheme=Safeer-Cinnamon
+MetacityTheme=Safeer-Cinnamon
+IconTheme=Papirus-Dark
+CursorTheme=DMZ-White
+ButtonLayout=:minimize,maximize,close

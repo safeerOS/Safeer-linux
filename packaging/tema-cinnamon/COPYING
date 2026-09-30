@@ -1,0 +1,17 @@
+Safeer Cinnamon (packaging/tema-cinnamon)
+Licenca: GPL-3.0-or-later (celotno besedilo: /usr/share/common-licenses/GPL-3).
+
+Izpeljano iz:
+- CBlue, tema za Cinnamon, avtor Bundy01 (po temi CBlack avtorja cloweling), GPL-3.0
+  https://cinnamon-spices.linuxmint.com/themes/view/CBlue
+  https://github.com/linuxmint/cinnamon-spices-themes/tree/master/CBlue
+  Iz CBlue: barvna smer (temno modra in modro-siva, polprosojnost, mehke obrobe) in
+  zgradba teme docka Plank (plank/dock.theme, prirejene barve in zaobljenost).
+- Mint-Y (paket mint-themes), Copyright Clement Lefebvre in Linux Mint, GPL-3.0-or-later
+  https://github.com/linuxmint/mint-themes
+  Cinnamon, GTK 3/4 in obrobe oken uvozijo Mint-Y-Dark-Blue iz sistema; tema doda le
+  prekrivne sloge. metacity-1 in gtk-2.0 sta v paketu povezavi na Mint-Y-Dark-Blue.
+
+Ozadje (ozadje/safeer-gore-16-9.svg in PNG iz njega): Safeer, del te teme, GPL-3.0-or-later.
+
+Tema je locen paket; programi Safeer (Apache-2.0) je ne vsebujejo in od nje niso odvisni.
