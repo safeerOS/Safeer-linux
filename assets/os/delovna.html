@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="sl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Safeer Cinnamon</title>
+<link rel="stylesheet" href="delovna.css">
+</head>
+<body>
+<!-- Delovna povrsina Safeer Cinnamon: iskanje zgoraj, levo predvajalnik + datoteke, desno programi naprav.
+     Vse vsebine pridejo iz Safeer OS (most window.SafeerOS) - brez izmisljenih podatkov. -->
+<header class="vrh">
+  <form class="iskanje" id="iskanje" role="search" autocomplete="off">
+    <svg class="ik" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z M20 20l-4-4"/></svg>
+    <input id="iskalnoPolje" type="search" data-ph="iskanjePh" aria-label="Išči" aria-controls="zadetki" aria-expanded="false" spellcheck="false">
+    <kbd class="namig" data-t="iskanjeNamig">Enter = splet</kbd>
+  </form>
+  <div class="vrh-orodja">
+    <button type="button" class="gumb-ikona" id="gumbPlosce" aria-haspopup="true" aria-expanded="false" data-naslov="plosceNaslov">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h7v14H4z M13 5h7v6h-7z M13 13h7v6h-7z"/></svg>
+    </button>
+    <div class="meni" id="meniPlosce" hidden>
+      <p class="meni-naslov" data-t="plosceNaslov">Plošče</p>
+      <label><input type="checkbox" data-plosca="mediji"> <span data-t="medijiNaslov">Medijski center</span></label>
+      <label><input type="checkbox" data-plosca="datoteke"> <span data-t="datotekeNaslov">Datoteke</span></label>
+      <label><input type="checkbox" data-plosca="programi"> <span data-t="programiNaslov">Programi naprav</span></label>
+      <hr>
+      <button type="button" id="gumbZamenjaj" data-t="zamenjajStrani">Zamenjaj levo in desno</button>
+      <button type="button" id="gumbPonastavi" data-t="ponastavi">Privzeta postavitev</button>
+      <hr>
+      <label><input type="checkbox" id="stikaloTekst"> <span data-t="vecjiTekst">Večje besedilo</span></label>
+      <label><input type="checkbox" id="stikaloProsojnost"> <span data-t="manjProsojnosti">Manj prosojnosti</span></label>
+    </div>
+  </div>
+  <div class="zadetki" id="zadetki" role="listbox" hidden></div>
+</header>
+
+<main class="postavitev" id="postavitev">
+  <div class="stolpec" id="stolpecA">
+    <section class="plosca mediji" id="ploscaMediji" data-plosca="mediji" aria-labelledby="nMediji">
+      <div class="glava">
+        <h2 id="nMediji" data-t="medijiNaslov">Medijski center</h2>
+        <div class="glava-desno">
+          <button type="button" class="cip" id="gumbMedijskiCenter" data-t="odpriMedijskiCenter">Odpri Medijski center</button>
+          <button type="button" class="gumb-ikona majhen" data-skrij="mediji" data-naslov="skrijPlosco"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12 M18 6L6 18"/></svg></button>
+        </div>
+      </div>
+      <div class="predvaja" id="predvaja">
+        <div class="ovitek" id="ovitek" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 18V6l10-2v12 M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0z M19 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"/></svg></div>
+        <div class="naslov-medija">
+          <b id="medijNaslov" data-t="niPredvajanja">Ni predvajanja</b>
+          <small id="medijPodnaslov" data-t="medijNavodilo">Izberi glasbo ali video v Datotekah ali v Medijskem centru.</small>
+          <div class="napredek" aria-hidden="true"><i id="medijNapredek"></i></div>
+        </div>
+        <div class="kontrole" id="kontrole">
+          <button type="button" class="gumb-ikona" data-ukaz="prejsnja" data-naslov="prejsnja"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5v14 M19 5L9 12l10 7z"/></svg></button>
+          <button type="button" class="gumb-ikona glavni" data-ukaz="premor" id="gumbPremor" data-naslov="premor"><svg viewBox="0 0 24 24" aria-hidden="true"><path id="ikonaPremor" d="M8 5v14l11-7z"/></svg></button>
+          <button type="button" class="gumb-ikona" data-ukaz="naslednja" data-naslov="naslednja"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 5v14 M5 5l10 7-10 7z"/></svg></button>
+        </div>
+      </div>
+    </section>
+
+    <div class="deli vodoravno" id="deliMediji" role="separator" aria-orientation="horizontal" tabindex="0" data-naslov="spremeniVelikost"></div>
+
+    <section class="plosca datoteke" id="ploscaDatoteke" data-plosca="datoteke" aria-labelledby="nDatoteke">
+      <div class="glava">
+        <h2 id="nDatoteke" data-t="datotekeNaslov">Datoteke</h2>
+        <div class="glava-desno">
+          <span class="stanje-naprave" id="datStanje"></span>
+          <button type="button" class="gumb-ikona majhen" data-skrij="datoteke" data-naslov="skrijPlosco"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12 M18 6L6 18"/></svg></button>
+        </div>
+      </div>
+      <div class="dat-telo">
+        <nav class="dat-stran" id="datStran" aria-label="Mape in naprave"></nav>
+        <div class="dat-glavno">
+          <div class="dat-orodja">
+            <ol class="drobtine" id="drobtine" aria-label="Pot"></ol>
+            <input type="search" class="filter" id="datFilter" data-ph="filterPh" aria-label="Filtriraj">
+            <select id="datVrsta" aria-label="Vrsta">
+              <option value="" data-t="vseVrste">Vse vrste</option>
+              <option value="dokument" data-t="vrstaDokument">Dokumenti</option>
+              <option value="slika" data-t="vrstaSlika">Slike</option>
+              <option value="video" data-t="vrstaVideo">Video</option>
+              <option value="zvok" data-t="vrstaZvok">Glasba</option>
+              <option value="mapa" data-t="vrstaMapa">Mape</option>
+            </select>
+          </div>
+          <table class="seznam" id="datSeznam">
+            <thead><tr>
+              <th scope="col"><button type="button" data-razvrsti="ime" data-t="stIme">Ime</button></th>
+              <th scope="col" class="st-vrsta"><button type="button" data-razvrsti="vrsta" data-t="stVrsta">Vrsta</button></th>
+              <th scope="col" class="st-lok" data-t="stLokacija">Lokacija</th>
+              <th scope="col" class="st-vel"><button type="button" data-razvrsti="velikost" data-t="stVelikost">Velikost</button></th>
+              <th scope="col" class="st-cas"><button type="button" data-razvrsti="spremenjeno" data-t="stSpremenjeno">Spremenjeno</button></th>
+            </tr></thead>
+            <tbody id="datVrstice"></tbody>
+          </table>
+          <p class="sporocilo" id="datSporocilo" hidden></p>
+          <div class="strani" id="datStrani"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="deli navpicno" id="deliStolpca" role="separator" aria-orientation="vertical" tabindex="0" data-naslov="spremeniVelikost"></div>
+
+  <div class="stolpec" id="stolpecB">
+    <section class="plosca programi" id="ploscaProgrami" data-plosca="programi" aria-labelledby="nProgrami">
+      <div class="glava">
+        <h2 id="nProgrami" data-t="programiNaslov">Programi naprav</h2>
+        <div class="glava-desno">
+          <select id="prgNaprava" aria-label="Naprava"></select>
+          <button type="button" class="gumb-ikona majhen" id="prgPogled" data-naslov="pogledSeznam"><svg viewBox="0 0 24 24" aria-hidden="true"><path id="ikonaPogled" d="M4 6h16 M4 12h16 M4 18h16"/></svg></button>
+          <button type="button" class="gumb-ikona majhen" data-skrij="programi" data-naslov="skrijPlosco"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12 M18 6L6 18"/></svg></button>
+        </div>
+      </div>
+      <div class="prg-orodja">
+        <div class="zavihki" id="prgKategorije" role="tablist"></div>
+        <input type="search" class="filter" id="prgFilter" data-ph="filterPrgPh" aria-label="Išči programe">
+        <select id="prgRazvrsti" aria-label="Razvrsti">
+          <option value="ime" data-t="razvrstiIme">Po imenu</option>
+          <option value="naprava" data-t="razvrstiNaprava">Po napravi</option>
+        </select>
+      </div>
+      <div class="prg-mreza" id="prgMreza" role="list"></div>
+      <p class="sporocilo" id="prgSporocilo" hidden></p>
+      <div class="strani" id="prgStrani"></div>
+    </section>
+  </div>
+</main>
+
+<div class="obvestilo" id="obvestilo" role="status" aria-live="polite" hidden></div>
+<div class="meni" id="meniPrograma" role="menu" hidden></div>
+
+<script src="delovna.js"></script>
+</body>
+</html>

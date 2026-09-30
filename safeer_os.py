@@ -632,7 +632,8 @@ def _ukaz_controla() -> Optional[list]:
 
 
 class SafeerOS(Gtk.Application):
-    def __init__(self, v_oknu: bool = False, posnetek: str = "", namizje: bool = False) -> None:
+    def __init__(self, v_oknu: bool = False, posnetek: str = "", namizje: bool = False,
+                 delovna: bool = False) -> None:
         zastavice = Gio.ApplicationFlags.NON_UNIQUE if posnetek else Gio.ApplicationFlags.FLAGS_NONE
         super().__init__(application_id=APP_ID, flags=zastavice)
         self.v_oknu = v_oknu
@@ -654,7 +655,17 @@ class SafeerOS(Gtk.Application):
         #: Namizni nacin: Safeer OS je namizje (spodaj, programi nad njim) s svojo vrstico namesto
         #: Mintovega pulta. Sicer navadno okno (--okno, posnetki).
         # --namizje (paket safeer-os-tema, ob prijavi) vedno zazene namizje; --okno (program v oknu) nikoli.
-        self.namizje = not v_oknu and not posnetek and (namizje or bool(self.shramba.get("celozaslonsko", True)))
+        self.namizje = not v_oknu and not posnetek and not delovna and (
+            namizje or bool(self.shramba.get("celozaslonsko", True)))
+        #: Safeer Cinnamon (paket safeer-cinnamon): delovna povrsina (iskanje, datoteke, predvajalnik,
+        #: programi naprav) kot ozadje pod okni; Mintov pult in dock ostaneta. Glavno okno Safeer OS se
+        #: odpre sele, ko ga uporabnik zazene (navadno okno).
+        self.delovna = bool(delovna) and not posnetek
+        if self.delovna:
+            self.v_oknu = True
+        self.okno_delovna: Optional[Gtk.Window] = None
+        self.pogled_delovna = None
+        self._robovi_delovne = None
         self.vrstica: Optional[Gtk.Window] = None
         self.pogledi: list = []
         self._okna_zamik = 0
@@ -695,6 +706,16 @@ class SafeerOS(Gtk.Application):
 
     # ------------------------------------------------------------------ okno
     def do_activate(self) -> None:
+        if self.delovna and self.okno_delovna is None:
+            # Prvi zagon z --delovna: samo delovna povrsina (glavno okno ob naslednji aktivaciji).
+            self._ustvari_delovno()
+            self._prvic = False
+            koncaj = Gio.SimpleAction.new("koncaj", None)
+            koncaj.connect("activate", lambda *a: self._koncaj())
+            self.add_action(koncaj)
+            for signal in (15, 1, 2):
+                GLib.unix_signal_add(GLib.PRIORITY_HIGH, signal, lambda *a: (self._koncaj(), False)[1])
+            return
         if self.okno is not None:
             self._domov()
             return
@@ -758,6 +779,90 @@ class SafeerOS(Gtk.Application):
         self.pogledi.append(pogled)
         return pogled
 
+    # ------------------------------------------------------------------ delovna povrsina (Safeer Cinnamon)
+    def _robovi(self) -> dict:
+        """Kaj od zaslona zasedajo pult in dock (workarea): stran pusti ta prostor prazen."""
+        zaslon = self._zaslon()
+        if zaslon is None:
+            return {"vrh": 0, "dno": 0, "levo": 0, "desno": 0}
+        g, w = zaslon.get_geometry(), zaslon.get_workarea()
+        return {"vrh": max(0, w.y - g.y), "levo": max(0, w.x - g.x),
+                "dno": max(0, (g.y + g.height) - (w.y + w.height)),
+                "desno": max(0, (g.x + g.width) - (w.x + w.width))}
+
+    def _ustvari_delovno(self) -> None:
+        """Okno delovne povrsine: cez cel zaslon, pod vsemi okni (kot namizje); vsebina se umakne pultu
+        in docku (robovi iz workarea), zato se nic ne prekriva."""
+        robovi = self._robovi()
+        self._robovi_delovne = robovi
+        pogled = self._nov_pogled("delovna.html?" + "&".join("%s=%d" % kv for kv in sorted(robovi.items())))
+        okno = Gtk.ApplicationWindow(application=self, title="Safeer Cinnamon")
+        okno.set_wmclass("safeer-cinnamon", "Safeer Cinnamon")
+        okno.set_icon_name("safeer-browser")
+        okno.set_type_hint(Gdk.WindowTypeHint.DESKTOP)
+        okno.set_decorated(False)
+        okno.set_skip_taskbar_hint(True)
+        okno.set_skip_pager_hint(True)
+        okno.set_keep_below(True)
+        zaslon = self._zaslon()
+        g = zaslon.get_geometry() if zaslon else None
+        if g is not None:
+            okno.move(g.x, g.y)
+            okno.set_default_size(g.width, g.height)
+            okno.set_size_request(g.width, g.height)
+        okno.add(pogled)
+        okno.connect("destroy", lambda *a: self._koncaj())
+        self.okno_delovna, self.pogled_delovna = okno, pogled
+        okno.show_all()
+        # Pult/dock se lahko pojavita sele po prijavi (Plank): robove preverimo se nekajkrat.
+        GLib.timeout_add_seconds(3, self._preveri_robove)
+        try:
+            Gdk.Screen.get_default().connect("monitors-changed", lambda *a: self._prestavi_delovno())
+        except Exception:
+            pass
+
+    def _preveri_robove(self) -> bool:
+        if self.okno_delovna is None:
+            return False
+        robovi = self._robovi()
+        if robovi != self._robovi_delovne:
+            self._robovi_delovne = robovi
+            self._dogodek("robovi", robovi)
+        return True
+
+    def _prestavi_delovno(self) -> None:
+        zaslon = self._zaslon()
+        if self.okno_delovna is None or zaslon is None:
+            return
+        g = zaslon.get_geometry()
+        self.okno_delovna.move(g.x, g.y)
+        self.okno_delovna.set_size_request(g.width, g.height)
+        self.okno_delovna.resize(g.width, g.height)
+        self._preveri_robove()
+
+    def _odpri_razdelek(self, razdelek: str) -> bool:
+        """Iz delovne povrsine: odpre glavno okno Safeer OS na razdelku (npr. media)."""
+        if self.okno is None:
+            self._ustvari_okno()
+            if razdelek:
+                GLib.timeout_add(1500, lambda: (self._dogodek("pojdi", razdelek), False)[1])
+            return True
+        return self._domov(razdelek)
+
+    def _odpri_v_brskalniku(self, niz: str) -> bool:
+        """Spletni zadetek iskanja v PRIVZETEM brskalniku (xdg): naslov http(s) ali iskanje z nastavljenim
+        iskalnikom brskalnika Safeer."""
+        niz = str(niz or "").strip()
+        if not niz:
+            return False
+        url = niz if niz.startswith(("http://", "https://")) else \
+            _iskalnik() + GLib.uri_escape_string(niz, None, False)
+        try:
+            return bool(Gio.AppInfo.launch_default_for_uri(url, None))
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] brskalnik:", e)
+            return False
+
     def _zaslon(self):
         try:
             d = Gdk.Display.get_default()
@@ -799,6 +904,10 @@ class SafeerOS(Gtk.Application):
         okno.add(postavitev)
         okno.connect("key-press-event", self._na_tipko)
         okno.connect("focus-in-event", lambda *a: (self._dogodek("fokus", None), False)[1])
+        if self.delovna:
+            # Ob delovni povrsini zapiranje glavnega okna samo skrije okno: Scit, predvajanje, prenosi in
+            # prijave v Spletu tecejo naprej; »Safeer OS« v meniju ga spet pokaze (do_activate -> _domov).
+            okno.connect("delete-event", lambda o, *_: (o.hide(), True)[1])
         okno.connect("destroy", lambda *a: self._koncaj())
         self.okno, self.pogled, self._glavna_postavitev = okno, pogled, postavitev
         okno.show_all()
@@ -1126,6 +1235,8 @@ class SafeerOS(Gtk.Application):
             "predvajalnikIzberiPodnapise": lambda: bool(self._medijski_predvajalnik and
                                                         self._medijski_predvajalnik.izberi_podnapise(str(a[0]) if a else "")),
             "iskanjeSplet": lambda: self._splet(_iskalnik() + GLib.uri_escape_string(str(a[0] if a else ""), None, False)),
+            "odpriVBrskalniku": lambda: self._odpri_v_brskalniku(str(a[0]) if a else ""),
+            "odpriRazdelek": lambda: self._odpri_razdelek(str(a[0]) if a else ""),
             "zapiskiSeznam": lambda: self.zapiski.seznam(str(a[0]) if a else ""),
             "zapisekDobi": lambda: self.zapiski.dobi(str(a[0]) if a else ""),
             "zapisekShrani": lambda: self.zapiski.shrani(
@@ -2352,7 +2463,13 @@ def main() -> int:
     if "--posnetek" in sys.argv[1:]:
         i = sys.argv.index("--posnetek")
         posnetek = sys.argv[i + 1] if i + 1 < len(sys.argv) else "/tmp/safeer-os.png"
-    app = SafeerOS(v_oknu="--okno" in sys.argv[1:] or bool(magnet), posnetek=posnetek, namizje="--namizje" in sys.argv[1:])
+    # Ob vklopljenem Safeer Cinnamon je namizje delovna povrsina: Safeer OS iz menija se odpre kot okno
+    # (ne cez cel zaslon in brez skrivanja Mintovega pulta).
+    cinnamon = os.path.isfile(os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),
+                                           "safeer-cinnamon", "vklopljeno"))
+    v_oknu = "--okno" in sys.argv[1:] or bool(magnet) or (cinnamon and "--namizje" not in sys.argv[1:])
+    app = SafeerOS(v_oknu=v_oknu, posnetek=posnetek, namizje="--namizje" in sys.argv[1:],
+                   delovna="--delovna" in sys.argv[1:])
     app._cakajoci_magnet = magnet
     # Ce program tece brez tezav, zgodovina sesutij ni vec pomembna (sicer bi varni nacin ostal za vedno).
     GLib.timeout_add_seconds(120, lambda: (os_stabilnost.pozabi_sesutja("safeer-os"), False)[1])
