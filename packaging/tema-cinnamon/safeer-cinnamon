@@ -24,7 +24,7 @@ SEJA="$AVTO/safeer-cinnamon.desktop"
 VKLOPLJENO="$MAPA/vklopljeno"
 # Samozagon Safeer OS (cel zaslon) in seja safeer-os-tema bi se tepla z delovno povrsino: med vklopom ju
 # izklopimo z uporabnikovim preglasitvenim vnosom in ju ob izklopu vrnemo tocno tako, kot sta bila.
-TUJI_ZAGONI="safeer-os.desktop safeer-os-tema.desktop"
+TUJI_ZAGONI="safeer-os.desktop safeer-os-tema.desktop safeer-tema.desktop"
 PLANK_TEME="${XDG_DATA_HOME:-$HOME/.local/share}/plank/themes"
 SKUPNO="/usr/share/safeer-cinnamon"
 OZADJE="/usr/share/backgrounds/safeer/safeer-gore-3840x2160.png"

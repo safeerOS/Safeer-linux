@@ -34,7 +34,9 @@
       prejsnja: "Prejšnja", premor: "Predvajaj / premor", naslednja: "Naslednja",
       predvaja: "Predvaja", vPremoru: "Premor", ustavljeno: "Ustavljeno", napakaPredvajanja: "Predvajanje ni uspelo",
       filterPh: "Filtriraj …", filterPrgPh: "Išči programe …", vseVrste: "Vse vrste", vrstaDokument: "Dokumenti",
-      vrstaSlika: "Slike", vrstaVideo: "Video", vrstaZvok: "Glasba", vrstaMapa: "Mape", vrstaArhiv: "Arhiv", vrstaProgram: "Program",
+      vrstaSlika: "Slike", vrstaVideo: "Video", vrstaZvok: "Glasba", vrstaMapa: "Mape",
+      en_mapa: "Mapa", en_dokument: "Dokument", en_slika: "Slika", en_video: "Video", en_zvok: "Zvok", en_arhiv: "Arhiv",
+      en_program: "Program", en_splet: "Splet", en_drugo: "Drugo",
       stIme: "Ime", stVrsta: "Vrsta", stLokacija: "Lokacija", stVelikost: "Velikost", stSpremenjeno: "Spremenjeno",
       pregled: "Pregled", nedavno: "Nedavno", priljubljeno: "Priljubljeno", mape: "Mape", naprave: "Naprave",
       taRacunalnik: "Ta računalnik", domov: "Domača mapa",
@@ -73,7 +75,9 @@
       prejsnja: "Previous", premor: "Play / pause", naslednja: "Next",
       predvaja: "Playing", vPremoru: "Paused", ustavljeno: "Stopped", napakaPredvajanja: "Playback failed",
       filterPh: "Filter …", filterPrgPh: "Search apps …", vseVrste: "All types", vrstaDokument: "Documents",
-      vrstaSlika: "Pictures", vrstaVideo: "Video", vrstaZvok: "Music", vrstaMapa: "Folders", vrstaArhiv: "Archive", vrstaProgram: "Program",
+      vrstaSlika: "Pictures", vrstaVideo: "Video", vrstaZvok: "Music", vrstaMapa: "Folders",
+      en_mapa: "Folder", en_dokument: "Document", en_slika: "Picture", en_video: "Video", en_zvok: "Audio", en_arhiv: "Archive",
+      en_program: "Program", en_splet: "Web", en_drugo: "Other",
       stIme: "Name", stVrsta: "Type", stLokacija: "Location", stVelikost: "Size", stSpremenjeno: "Modified",
       pregled: "Overview", nedavno: "Recent", priljubljeno: "Favourites", mape: "Folders", naprave: "Devices",
       taRacunalnik: "This computer", domov: "Home folder",
@@ -240,6 +244,25 @@
   function vrstaOddaljenega(type) {
     return type === "folder" ? "mapa" : type === "audio" ? "zvok" : type === "video" ? "video" : type === "image" ? "slika" : "drugo";
   }
+  // Barvna ploscica s prvo crko za program brez ikone - enako kot na glavni strani Safeer OS (os.js).
+  function barva(ime) {
+    var h = 0;
+    for (var i = 0; i < ime.length; i++) h = (h * 31 + ime.charCodeAt(i)) >>> 0;
+    var barve = ["#1f7a5c", "#2d5f9a", "#8a3d7a", "#a4492f", "#5a4aa0", "#2f7f8a", "#8a6d1f", "#3b6e2f"];
+    return barve[h % barve.length];
+  }
+  function crka(ime, razred) {
+    var c = el("span", (razred || "") + " crka", (String(ime || "?").trim().charAt(0) || "?").toUpperCase());
+    c.style.background = barva(String(ime || "?"));
+    c.setAttribute("aria-hidden", "true");
+    return c;
+  }
+  function slikaAliCrka(src, ime, razred) {
+    if (!src) return crka(ime, razred);
+    var img = el("img", razred || ""); img.alt = ""; img.src = src; img.loading = "lazy";
+    img.onerror = function () { img.replaceWith(crka(ime, razred)); };
+    return img;
+  }
   var casObvestila = 0;
   function obvesti(b) {
     var o = $("obvestilo"); o.textContent = b; o.hidden = false;
@@ -268,7 +291,7 @@
     if (!most) { document.body.classList.add("brez-mosta"); return; }
     klic("zacetek").then(function (z) {
       z = z || {};
-      if (BESEDILA[z.jezik]) { jezik = z.jezik; prevedi(); }
+      jezik = BESEDILA[z.jezik] ? z.jezik : "en"; prevedi();
       if (z.ozadje && !document.body.classList.contains("v-oknu")) {
         document.documentElement.style.setProperty("--ozadje-slika", 'url("' + z.ozadje + '")');
       }
@@ -307,7 +330,8 @@
         gumb(BESEDILA[jezik][m.vrsta] ? t(m.vrsta) : m.ime, { vrsta: "lokalno", pot: m.pot });
     });
     oznaka(t("naprave"));
-    gumb(t("taRacunalnik"), { vrsta: "lokalno", pot: Z.dom || "~" }, true);
+    // Ta racunalnik = cel datotecni sistem (kot »Racunalnik« v Nemu); domaca mapa je zgoraj med Mapami.
+    gumb(t("taRacunalnik"), { vrsta: "lokalno", pot: "/" }, true);
     D.naprave.forEach(function (n) { gumb(n.ime, { vrsta: "naprava", id: n.id, ime: n.ime, pot: [] }, true); });
     oznaciVir();
     if (!most) return;
@@ -326,7 +350,7 @@
   function oznaciVir() {
     document.querySelectorAll("#datStran button").forEach(function (g) {
       var v = g._vir, cur = D.vir;
-      var da = cur && (enakVir(v, cur) || (v.vrsta === "lokalno" && cur.vrsta === "lokalno" && cur.koren === v.pot && v.pot !== (Z.dom || "~")));
+      var da = cur && (enakVir(v, cur) || (v.vrsta === "lokalno" && cur.vrsta === "lokalno" && cur.koren === v.pot));
       g.setAttribute("aria-current", da ? "true" : "false");
     });
   }
@@ -380,7 +404,8 @@
   function drobtineLokalno(vir) {
     var koren = vir.koren || vir.pot, deli = [];
     var imeKorena = (Z.mape.filter(function (m) { return m.pot === koren; })[0] || {});
-    var imeK = imeKorena.vrsta === "HOME" ? t("domov") : (BESEDILA[jezik][imeKorena.vrsta] ? t(imeKorena.vrsta) : (koren.split("/").pop() || "/"));
+    var imeK = koren === "/" ? t("taRacunalnik") : imeKorena.vrsta === "HOME" ? t("domov")
+      : (BESEDILA[jezik][imeKorena.vrsta] ? t(imeKorena.vrsta) : (koren.split("/").pop() || "/"));
     deli.push({ ime: imeK, klik: function () { odpriVir({ vrsta: "lokalno", pot: koren, koren: koren }); } });
     if (vir.pot.indexOf(koren) === 0 && vir.pot !== koren) {
       var pot = koren;
@@ -463,7 +488,7 @@
     var td = el("td"), c = el("div", "celica-ime");
     c.appendChild(ikonaVrste(e.mapa ? "mapa" : e.vrsta)); c.appendChild(el("span", "", e.ime));
     td.appendChild(c); td.title = e.ime; tr.appendChild(td);
-    tr.appendChild(el("td", "st-vrsta", e.mapa ? t("vrstaMapa") : t({ dokument: "vrstaDokument", slika: "vrstaSlika", video: "vrstaVideo", zvok: "vrstaZvok", arhiv: "vrstaArhiv", program: "vrstaProgram" }[e.vrsta] || "kDrugo")));
+    tr.appendChild(el("td", "st-vrsta", t("en_" + (e.mapa ? "mapa" : (IKONE_VRST[e.vrsta] ? e.vrsta : "drugo")))));
     var lok = el("td", "st-lok");
     if (e.oddaljeno) { var o = el("span", "oznaka-vira oddaljeno", e.naprava); lok.appendChild(o); }
     else lok.textContent = e.pot ? stranskoBesedilo(e.pot.replace(/\/[^/]*$/, "")) : "";
@@ -602,9 +627,20 @@
       });
       P.programi = vsi; P.nedosegljive = ned; P.nalozeno = true;
       izrisiPrograme();
+      ponoviCeTreba();
     }).catch(function () {
       P.brezControla = true; P.nalozeno = true; P.programi = []; izrisiPrograme();
+      ponoviCeTreba();
     });
+  }
+  // Ob prijavi se Safeer Control (Link) lahko zazene sele za delovno povrsino: dokler ni naprav ali
+  // Controla, poskusimo znova (8 s, najvec 8-krat); ko se odzove, osvezimo tudi naprave v Datotekah.
+  var poskusiNaprav = 0, casPoskusa = 0;
+  function ponoviCeTreba() {
+    clearTimeout(casPoskusa);
+    if (!(P.brezControla || !P.naprave.length) || poskusiNaprav >= 8) return;
+    poskusiNaprav++;
+    casPoskusa = setTimeout(function () { zgradiStranDatotek(); naloziProgrameNaprav(); }, 8000);
   }
   function zgradiIzbiroNaprav() {
     var s = $("prgNaprava"), prej = s.value; s.innerHTML = "";
@@ -651,8 +687,8 @@
     var sp = $("prgSporocilo");
     var sporocila = [];
     if (!P.nalozeno) sporocila.push(t("nalagam"));
-    else if (P.brezControla && !P.programi.length) sporocila.push(t("brezControla"));
-    else if (!P.naprave.length && !P.programi.length) sporocila.push(t("niNaprav"));
+    else if (P.brezControla) sporocila.push(t("brezControla"));
+    else if (!P.naprave.length) sporocila.push(t("niNaprav"));
     P.nedosegljive.forEach(function (n) { sporocila.push(t("napravaNedosegljiva", { naprava: n })); });
     // Zmogljivost mreze brez pomikanja
     var r = mreza.getBoundingClientRect(), fs = parseFloat(getComputedStyle(mreza).fontSize) || 14;
@@ -675,13 +711,8 @@
   }
   function ploscicaPrograma(p) {
     var b = el("button", "program"); b.type = "button"; b.setAttribute("role", "listitem");
-    if (p.ikona) { var img = el("img"); img.alt = ""; img.src = p.ikona; img.loading = "lazy"; b.appendChild(img); }
-    else {
-      // Brez ikone z naprave: nevtralna ikona okna (ne izmisljamo logotipa programa).
-      var s = el("span", "brez-ikone");
-      s.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4z M4 9h16"/></svg>';
-      b.appendChild(s);
-    }
+    // Brez ikone z naprave: crka v barvi kot v Safeer OS (ne izmisljamo logotipa programa).
+    b.appendChild(slikaAliCrka(p.ikona, p.ime));
     b.appendChild(el("span", "ime", p.ime));
     b.appendChild(el("small", "", p.imeNaprave));
     if (N.priljubljeniPrg.indexOf(kljucPrograma(p)) >= 0) b.appendChild(el("span", "zvezda", "★"));
@@ -800,9 +831,9 @@
         if (v.vrsta === "splet") {
           b.appendChild(ikonaVrste("splet")); ime = t("isciVSpletu", { q: v.q }); pod = t("odpreVBrskalniku");
         } else if (v.vrsta === "program") {
-          appendIkona(b, v.p.ikona); ime = v.p.ime; pod = v.p.opis || ""; vir = t("taRacunalnik");
+          appendIkona(b, v.p.ikona, v.p.ime); ime = v.p.ime; pod = v.p.opis || ""; vir = t("taRacunalnik");
         } else if (v.vrsta === "prgNaprave") {
-          appendIkona(b, v.p.ikona); ime = v.p.ime; vir = v.p.imeNaprave;
+          appendIkona(b, v.p.ikona, v.p.ime); ime = v.p.ime; vir = v.p.imeNaprave;
         } else if (v.vrsta === "datoteka") {
           b.appendChild(ikonaVrste(v.d.mapa ? "mapa" : v.d.vrsta)); ime = v.d.ime; pod = stranskoBesedilo(v.d.pot); vir = t("taRacunalnik");
         } else {
@@ -820,9 +851,7 @@
     z.hidden = false; $("iskalnoPolje").setAttribute("aria-expanded", "true");
     oznaciZadetek();
   }
-  function appendIkona(b, src) {
-    if (src) { var i = el("img"); i.alt = ""; i.src = src; b.appendChild(i); } else b.appendChild(ikonaVrste("program"));
-  }
+  function appendIkona(b, src, ime) { b.appendChild(slikaAliCrka(src, ime || "?", "ikona-zadetka")); }
   function oznaciZadetek() {
     I.zadetki.forEach(function (b, i) { b.setAttribute("aria-selected", i === I.izbran ? "true" : "false"); });
     var b = I.zadetki[I.izbran]; if (b) b.scrollIntoView({ block: "nearest" });

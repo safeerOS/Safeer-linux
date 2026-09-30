@@ -84,7 +84,7 @@ svg { width: 1.3em; height: 1.3em; fill: none; stroke: currentColor; stroke-widt
 .zadetek[aria-selected="true"], .zadetek:hover { background: var(--izbrano); }
 .zadetek .ime { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .zadetek small { color: var(--tise); font-size: .78em; white-space: nowrap; }
-.zadetek img, .zadetek .ikona-vrste { width: 1.6em; height: 1.6em; flex: none; border-radius: 6px; }
+.zadetek img, .zadetek .ikona-vrste, .zadetek .crka { width: 1.6em; height: 1.6em; flex: none; border-radius: 6px; }
 .oznaka-vira { font-size: .7em; padding: .1em .55em; border-radius: 99px; border: 1px solid var(--obroba); color: var(--tiho); white-space: nowrap; }
 .oznaka-vira.oddaljeno { border-color: rgba(127, 224, 182, .45); color: var(--ok); }
 
@@ -198,13 +198,14 @@ select option { background: #111c2b; color: var(--besedilo); }
   padding: .5em .4em; text-align: center; border-radius: 12px; background: rgba(231, 242, 255, .045); border: 1px solid rgba(209, 228, 250, .1); cursor: pointer;
 }
 .program:hover, .program:focus-visible { background: rgba(104, 168, 229, .15); border-color: rgba(135, 194, 255, .35); }
-.program img, .program .brez-ikone { width: 2.6em; height: 2.6em; border-radius: 10px; object-fit: contain; }
-.program .brez-ikone { display: grid; place-items: center; background: linear-gradient(145deg, #3a5e8a, #24385d); color: #c2e1ff; }
+.program img, .program .crka { width: 2.6em; height: 2.6em; border-radius: 10px; object-fit: contain; }
+.crka { display: inline-grid; place-items: center; flex: none; color: #fff; font-weight: 700; font-size: 1.15em; }
+.zadetek .crka { font-size: .85em; border-radius: 6px; }
 .program .ime { font-size: .8em; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .program small { font-size: .7em; color: #91a7c3; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .program .zvezda { position: absolute; top: .35em; right: .45em; color: #ffd98a; font-size: .8em; }
 .seznam-pogled .program { flex-direction: row; justify-content: flex-start; gap: .7em; padding: .25em .7em; text-align: left; }
-.seznam-pogled .program img, .seznam-pogled .program .brez-ikone { width: 1.8em; height: 1.8em; }
+.seznam-pogled .program img, .seznam-pogled .program .crka { width: 1.8em; height: 1.8em; }
 .seznam-pogled .program .ime { flex: 1; font-size: .85em; }
 .seznam-pogled .program .zvezda { position: static; }
 
@@ -234,3 +235,4 @@ select option { background: #111c2b; color: var(--besedilo); }
 @media (max-width: 1400px) and (max-height: 820px) {
   body.vecji-tekst .seznam .st-vrsta { display: none; }
 }
+.stanje-naprave { font-size: .72em; color: var(--tise); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 16em; }

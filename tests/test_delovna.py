@@ -115,6 +115,10 @@ class TestTemaCinnamon(unittest.TestCase):
             zagon = os.path.join(dom, ".config", "autostart", "safeer-os.desktop")
             with open(zagon, "w") as f:
                 f.write("[Desktop Entry]\nName=Safeer OS\nExec=safeer-os\n")
+            # Starejsa namestitev teme Safeer OS ob prijavi vsili temo Safeer-OS: med vklopom mora biti izklopljena.
+            tema_zagon = os.path.join(dom, ".config", "autostart", "safeer-tema.desktop")
+            with open(tema_zagon, "w") as f:
+                f.write("[Desktop Entry]\nName=Safeer OS Tema\nExec=safeer-uveljavi-temo\n")
             env = dict(os.environ, PATH=bin_ + os.pathsep + os.environ.get("PATH", ""), HOME=dom,
                        XDG_CONFIG_HOME="", XDG_DATA_HOME="")
             skripta = os.path.join(TEMA, "safeer-cinnamon")
@@ -125,15 +129,31 @@ class TestTemaCinnamon(unittest.TestCase):
             self.assertIn("['1:0:top']", vmes)
             with open(zagon) as f:
                 self.assertIn("Hidden=true", f.read())
+            with open(tema_zagon) as f:
+                self.assertIn("Hidden=true", f.read())
             subprocess.run(["bash", skripta, "--vecji-tekst"], env=env, check=True, capture_output=True)
             subprocess.run(["bash", skripta, "--izklopi"], env=env, check=True, capture_output=True)
             with open(db) as f:
                 self.assertEqual(sorted(f.read().splitlines()), sorted(zacetno.splitlines()))
             with open(zagon) as f:
                 self.assertEqual(f.read(), "[Desktop Entry]\nName=Safeer OS\nExec=safeer-os\n")
-            self.assertEqual(sorted(os.listdir(os.path.join(dom, ".config", "autostart"))), ["safeer-os.desktop"])
+            with open(tema_zagon) as f:
+                self.assertEqual(f.read(), "[Desktop Entry]\nName=Safeer OS Tema\nExec=safeer-uveljavi-temo\n")
+            self.assertEqual(sorted(os.listdir(os.path.join(dom, ".config", "autostart"))),
+                             ["safeer-os.desktop", "safeer-tema.desktop"])
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+    @unittest.skipUnless(os.path.isdir("/usr/share/themes/Mint-Y-Dark-Blue"), "ni Linux Mint")
+    def test_povezave_na_mint_obstajajo(self):
+        # Mint-Y-Dark-Blue nima metacity-1 (Mint za obrobe vseh tem uporablja Mint-Y); povezava v prazno
+        # bi pokvarila obrobe oken.
+        skripta = beri("build_cinnamon_tema_deb.sh")
+        cilji = re.findall(r"^ln -s (\S+) ", skripta, flags=re.M)
+        self.assertTrue(cilji)
+        for c in cilji:
+            self.assertTrue(os.path.isdir(c), c)
+        self.assertTrue(os.path.isfile("/usr/share/themes/Mint-Y/metacity-1/metacity-theme-3.xml"))
 
     @unittest.skipUnless(shutil.which("dpkg-deb"), "dpkg-deb ni namescen")
     def test_paket(self):

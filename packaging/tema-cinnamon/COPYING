@@ -10,7 +10,7 @@ Izpeljano iz:
 - Mint-Y (paket mint-themes), Copyright Clement Lefebvre in Linux Mint, GPL-3.0-or-later
   https://github.com/linuxmint/mint-themes
   Cinnamon, GTK 3/4 in obrobe oken uvozijo Mint-Y-Dark-Blue iz sistema; tema doda le
-  prekrivne sloge. metacity-1 in gtk-2.0 sta v paketu povezavi na Mint-Y-Dark-Blue.
+  prekrivne sloge. metacity-1 je povezava na Mint-Y, gtk-2.0 na Mint-Y-Dark-Blue.
 
 Ozadje (ozadje/safeer-gore-16-9.svg in PNG iz njega): Safeer, del te teme, GPL-3.0-or-later.
 
