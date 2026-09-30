@@ -1,0 +1,33 @@
+@import url("/usr/share/themes/Mint-Y-Dark-Blue/gtk-4.0/gtk.css");
+
+@define-color accent_color #8ac7ff;
+@define-color accent_bg_color #8ac7ff;
+@define-color accent_fg_color #0b1424;
+
+@define-color window_bg_color #0e1727;
+@define-color window_fg_color #eaf2ff;
+@define-color view_bg_color #0f1a2a;
+@define-color view_fg_color #eaf2ff;
+@define-color headerbar_bg_color #111c2b;
+@define-color headerbar_fg_color #eaf2ff;
+@define-color headerbar_border_color rgba(138, 199, 255, 0.22);
+@define-color card_bg_color #132033;
+@define-color card_fg_color #eaf2ff;
+@define-color dialog_bg_color #111c2b;
+@define-color dialog_fg_color #eaf2ff;
+@define-color popover_bg_color #111c2b;
+@define-color popover_fg_color #eaf2ff;
+
+window, .background { background-color: #0e1727; color: #eaf2ff; }
+window.csd { border-radius: 12px; border: 1px solid rgba(138, 199, 255, 0.25); }
+headerbar { background: linear-gradient(180deg, #15233a, #0f1a2a); border-bottom: 1px solid rgba(138, 199, 255, 0.22); color: #eaf2ff; }
+headerbar:backdrop { background: #0d1626; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+.view, textview text { background-color: #0f1a2a; color: #eaf2ff; }
+selection, *:selected { background-color: #8ac7ff; color: #0b1424; }
+button.suggested-action { background-color: #8ac7ff; color: #0b1424; font-weight: 700; border-radius: 8px; }
+
+/* Jasno viden fokus s tipkovnico (dostopnost) */
+*:focus-visible {
+  outline: 2px solid #9dceff;
+  outline-offset: 1px;
+}

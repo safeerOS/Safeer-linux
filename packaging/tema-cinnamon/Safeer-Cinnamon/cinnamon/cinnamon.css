@@ -1,0 +1,213 @@
+/* ==========================================================================
+   Safeer Cinnamon - tema lupine Cinnamon (panel, meni, pojavna okna, OSD).
+
+   Osnova: Mint-Y-Dark-Blue (paket mint-themes, vzdrzuje Linux Mint), zato vsi
+   gradniki sledijo trenutni razlicici Cinnamona. Videz nad njo je izpeljan iz
+   teme CBlue (Bundy01, po CBlack avtorja cloweling; GPL-3.0): temno modra in
+   modro-siva paleta, polprosojne povrsine, mehke obrobe. Glej COPYING.
+
+   Paleta (enaka kot v skici Safeer Cinnamon in v Safeer OS):
+     povrsina      rgba(16, 26, 43, 0.82)   #101a2b
+     povrsina+     rgba(17, 28, 43, 0.92)   #111c2b
+     obroba        rgba(215, 234, 255, 0.22)
+     besedilo      #eaf2ff   tiho #afbed4
+     poudarek      #8ac7ff   izbrano rgba(104, 168, 229, 0.24)
+     fokus         #9dceff   povezano #7fe0b6
+   ========================================================================== */
+@import url("/usr/share/themes/Mint-Y-Dark-Blue/cinnamon/cinnamon.css");
+
+stage {
+  color: #eaf2ff;
+}
+
+/* ---- Panel ---------------------------------------------------------------- */
+.panel-top, .panel-bottom, .panel-left, .panel-right {
+  color: #eaf2ff;
+  background-color: rgba(16, 24, 39, 0.72);
+}
+.panel-top    { box-shadow: 0 1px rgba(183, 216, 255, 0.13); }
+.panel-bottom { box-shadow: 0 -1px rgba(183, 216, 255, 0.13); }
+.panel-left   { box-shadow: 1px 0 rgba(183, 216, 255, 0.13); }
+.panel-right  { box-shadow: -1px 0 rgba(183, 216, 255, 0.13); }
+
+.applet-box {
+  color: #d5e6fa;
+  border-radius: 8px;
+}
+.applet-box:hover, .applet-box:checked {
+  color: #ffffff;
+  background-color: rgba(104, 168, 229, 0.22);
+}
+.applet-label { color: #d5e6fa; }
+
+.window-list-item-box, .grouped-window-list-item-box {
+  color: rgba(234, 242, 255, 0.78);
+  border-radius: 8px;
+}
+.window-list-item-box:hover, .window-list-item-box:groupFocus,
+.grouped-window-list-item-box:hover {
+  color: #ffffff;
+  background-color: rgba(104, 168, 229, 0.20);
+}
+.window-list-item-box:active, .window-list-item-box:checked,
+.window-list-item-box:focus, .window-list-item-box:running,
+.grouped-window-list-item-box:active, .grouped-window-list-item-box:checked,
+.grouped-window-list-item-box:focus {
+  color: #ffffff;
+  border-color: #8ac7ff;
+  background-color: rgba(104, 168, 229, 0.26);
+}
+.window-list-item-box .progress, .grouped-window-list-item-box .progress {
+  background-color: rgba(138, 199, 255, 0.8);
+}
+.window-list-preview {
+  color: #eaf2ff;
+  background-color: rgba(17, 28, 43, 0.92);
+  border: 1px solid rgba(215, 234, 255, 0.22);
+  border-radius: 12px;
+}
+
+/* ---- Pojavni meniji ------------------------------------------------------- */
+.menu, .popup-sub-menu, .popup-combo-menu {
+  color: #eaf2ff;
+  background-color: rgba(17, 28, 43, 0.94);
+  border: 1px solid rgba(215, 234, 255, 0.22);
+}
+.menu { box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45); }
+.menu-top    { border-radius: 0 0 14px 14px; }
+.menu-bottom { border-radius: 14px 14px 0 0; }
+.menu-left   { border-radius: 0 14px 14px 0; }
+.menu-right  { border-radius: 14px 0 0 14px; }
+.popup-sub-menu { background-color: rgba(10, 18, 31, 0.60); border: none; }
+
+.popup-menu-item:active {
+  color: #ffffff;
+  background-color: rgba(104, 168, 229, 0.26);
+}
+.popup-menu-item:insensitive { color: rgba(234, 242, 255, 0.45); }
+.popup-separator-menu-item {
+  -gradient-start: rgba(215, 234, 255, 0.14);
+  -gradient-end: rgba(215, 234, 255, 0.14);
+}
+
+/* ---- Glavni meni (Menu) --------------------------------------------------- */
+.menu-favorites-box {
+  background-color: rgba(233, 243, 255, 0.05);
+  border: 1px solid rgba(215, 234, 255, 0.14);
+  border-radius: 14px;
+}
+.menu-favorites-button:hover,
+.menu-application-button-selected,
+.menu-category-button-selected,
+.menu-category-button:hover {
+  color: #ffffff;
+  background-color: rgba(104, 168, 229, 0.24);
+  border: 1px solid rgba(135, 194, 255, 0.35);
+  border-radius: 10px;
+}
+.menu-category-button-greyed { color: rgba(234, 242, 255, 0.42); }
+.menu-search-entry-icon { color: #afbed4; }
+
+/* ---- Vnosna polja v lupini (iskanje v meniju, zagon) ---------------------- */
+StEntry {
+  color: #eaf2ff;
+  selection-background-color: #68a8e5;
+  selected-color: #0b1424;
+  caret-color: #eaf2ff;
+  background-color: rgba(16, 26, 43, 0.85);
+  border: 1px solid rgba(215, 234, 255, 0.28);
+  border-radius: 10px;
+}
+StEntry:hover { border-color: rgba(215, 234, 255, 0.42); }
+StEntry:focus {
+  border: 2px solid #9dceff;
+  background-color: rgba(16, 26, 43, 0.95);
+}
+StEntry StLabel.hint-text { color: rgba(193, 208, 226, 0.75); }
+
+/* ---- Obvestila, koledar, OSD --------------------------------------------- */
+#notification {
+  color: #eaf2ff;
+  background-color: rgba(17, 28, 43, 0.94);
+  border: 1px solid rgba(215, 234, 255, 0.22);
+  border-radius: 14px;
+}
+.popup-menu #notification { border-radius: 10px; }
+
+.calendar-today, .calendar-today:focus {
+  color: #0b1424;
+  background-color: #8ac7ff;
+  border-radius: 99px;
+}
+.calendar-day-base:hover, .calendar-day-base:focus {
+  background-color: rgba(104, 168, 229, 0.24);
+}
+
+.workspace-switch-osd, .info-osd, .media-keys-osd {
+  color: #eaf2ff;
+  background-color: rgba(17, 28, 43, 0.90);
+  border: 1px solid rgba(215, 234, 255, 0.22);
+  border-radius: 16px;
+}
+.level { background-color: rgba(215, 234, 255, 0.18); border-radius: 99px; }
+.level-bar { background-color: #8ac7ff; border-radius: 99px; }
+
+/* ---- Alt+Tab, pogovorna okna, namizni gradniki --------------------------- */
+.switcher-list {
+  color: #eaf2ff;
+  background-color: rgba(17, 28, 43, 0.92);
+  border: 1px solid rgba(215, 234, 255, 0.22);
+  border-radius: 18px;
+}
+.switcher-list .item-box { border-radius: 12px; }
+.switcher-list .item-box:outlined { border: 1px solid #9dceff; }
+.switcher-list .item-box:selected {
+  background-color: rgba(104, 168, 229, 0.26);
+  border: 1px solid rgba(135, 194, 255, 0.45);
+}
+
+.dialog {
+  color: #eaf2ff;
+  background-color: rgba(17, 28, 43, 0.96);
+  border: 1px solid rgba(215, 234, 255, 0.24);
+}
+.dialog .dialog-button:default {
+  color: #0b1424;
+  background-color: #8ac7ff;
+  border-color: #8ac7ff;
+}
+
+.desklet-with-borders, .desklet-with-borders-and-header, .photoframe-box {
+  color: #eaf2ff;
+  background-color: rgba(17, 28, 43, 0.80);
+  border: 1px solid rgba(215, 234, 255, 0.22);
+  border-radius: 17px;
+}
+.desklet-with-borders-and-header { border-top-width: 0; border-radius: 0 0 17px 17px; }
+.desklet-header {
+  color: #eaf2ff;
+  background-color: rgba(12, 21, 36, 0.86);
+  border: 1px solid rgba(215, 234, 255, 0.22);
+  border-radius: 17px 17px 0 0;
+}
+.desklet-drag-placeholder {
+  border: 2px solid #8ac7ff;
+  background-color: rgba(138, 199, 255, 0.22);
+}
+
+.tile-preview, .tile-hud {
+  background-color: rgba(138, 199, 255, 0.20);
+  border: 1px solid #8ac7ff;
+  border-radius: 12px;
+}
+.tile-preview.snap, .tile-hud.snap { background-color: rgba(138, 199, 255, 0.40); }
+
+.expo-background { background-color: #0b1424; }
+
+/* ---- Namig (tooltip) ------------------------------------------------------ */
+#Tooltip {
+  color: #eaf2ff;
+  background-color: rgba(17, 28, 43, 0.96);
+  border: 1px solid rgba(215, 234, 255, 0.22);
+  border-radius: 8px;
+}

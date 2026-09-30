@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Safeer Cinnamon
+Name[sl]=Safeer Cinnamon
+Comment=Turn on the Safeer look: theme, wallpaper, top panel and dock
+Comment[sl]=Vklopi videz Safeer: temo, ozadje, pult zgoraj in dock
+Exec=safeer-cinnamon
+Icon=preferences-desktop-theme
+Categories=Settings;DesktopSettings;

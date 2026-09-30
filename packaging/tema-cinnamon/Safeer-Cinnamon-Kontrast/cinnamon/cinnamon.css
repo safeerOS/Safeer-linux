@@ -1,0 +1,24 @@
+/* Safeer Cinnamon - Kontrast: enak videz, a brez prosojnosti in z mocnejsimi obrobami
+   (za slabse vidne, projektorje in svetle prostore). Vklop: safeer-cinnamon --kontrast */
+@import url("/usr/share/themes/Safeer-Cinnamon/cinnamon/cinnamon.css");
+
+.panel-top, .panel-bottom, .panel-left, .panel-right { background-color: #0e1727; }
+.panel-top    { box-shadow: 0 1px rgba(215, 234, 255, 0.45); }
+.panel-bottom { box-shadow: 0 -1px rgba(215, 234, 255, 0.45); }
+.panel-left   { box-shadow: 1px 0 rgba(215, 234, 255, 0.45); }
+.panel-right  { box-shadow: -1px 0 rgba(215, 234, 255, 0.45); }
+
+.menu, .popup-sub-menu, .popup-combo-menu, #notification, .switcher-list, .dialog,
+.workspace-switch-osd, .info-osd, .media-keys-osd, .window-list-preview, #Tooltip,
+.desklet-with-borders, .desklet-with-borders-and-header, .desklet-header, .photoframe-box {
+  color: #ffffff;
+  background-color: #111c2b;
+  border: 1px solid rgba(215, 234, 255, 0.55);
+}
+.popup-sub-menu { background-color: #0c1524; border: none; }
+.popup-menu-item:active, .menu-application-button-selected, .menu-category-button-selected,
+.menu-category-button:hover, .menu-favorites-button:hover {
+  color: #0b1424;
+  background-color: #8ac7ff;
+}
+StEntry { background-color: #0c1524; border: 1px solid rgba(215, 234, 255, 0.6); }
