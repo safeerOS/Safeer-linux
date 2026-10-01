@@ -2250,6 +2250,8 @@ class SafeerOS(Gtk.Application):
                                        action=Gtk.FileChooserAction.SELECT_FOLDER)
         dialog.add_buttons(preklici or "Prekliči", Gtk.ResponseType.CANCEL, izberi or "Izberi", Gtk.ResponseType.OK)
         dialog.set_keep_above(True)
+        dialog.set_default_size(980, 640)
+        dialog.set_position(Gtk.WindowPosition.CENTER)
         zacetna = os.path.expanduser(zacetna or "~")
         dialog.set_current_folder(zacetna if os.path.isdir(zacetna) else GLib.get_home_dir())
         try:
