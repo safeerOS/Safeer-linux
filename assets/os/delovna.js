@@ -98,6 +98,12 @@
       prvNiNaprave: "Nobena naprava v Safeer Linku ta trenutek nima strojnega kodirnika za 1080p, dovolj prostora ali moči (baterija, zasedenost).",
       prvNapaka: "Pretvorba ni uspela ({koda}).",
       prvNeZna: "Nobena naprava v Safeer Linku ne zna prebrati tega videa (oblika ali ločljivost, npr. 4K HEVC). Izvirnik ostane nespremenjen.",
+      pretvoriMapo: "Pretvori videe v mapi za televizor …", prvSkNaslov: "Pretvarjanje videov – vse naprave pomagajo",
+      prvSkPoteka: "Pretvorjenih {opr} od {vseh}. Vsaka naprava pretvarja en video naenkrat in vzame naslednjega, ko konča – močnejša opravi več.",
+      prvSkKoncano: "Pretvorjenih {opr} od {vseh} videov.", prvSkNapake: "{n} videov ni bilo mogoče pretvoriti ({koda}).",
+      prvSkVprasaj: "Jih prenesem na ta računalnik, vsakega zraven izvirnika?", prvSkPrenesi: "Prenesi vse sem", prvSkPusti: "Pusti na napravah",
+      prvSkNazaj: "Prenašam pretvorjene videe na ta računalnik …", prvSkNaRacunalniku: "Pretvorjeni videi so zdaj zraven izvirnikov ({n}).",
+      prvSkPusceno: "Pretvorjeni videi ostanejo na napravah (Prenosi › Safeer Shramba).", prvSkDela: "pretvarja", prvSkNiVidea: "V tej mapi ni videov.",
       maloProstora: "Na računalniku je prostora le še {prosto}. Večje datoteke lahko shraniš na napravo v Safeer Linku – izvirnik izbrišeš šele, ko vidiš, kje je kopija.",
       pokaziNajvecje: "Pokaži največje datoteke",
       vSmetiOk: "»{ime}« je v Smeteh (obnoviš ga v Datotekah → Smeti).", ustvarjeno: "Ustvarjeno: {ime}",
@@ -180,6 +186,12 @@
       prvNiNaprave: "No device in Safeer Link has a 1080p hardware encoder, enough space or power right now (battery, busy).",
       prvNapaka: "Conversion failed ({koda}).",
       prvNeZna: "No device in Safeer Link can read this video (format or resolution, e.g. 4K HEVC). The original stays unchanged.",
+      pretvoriMapo: "Convert videos in folder for TV …", prvSkNaslov: "Converting videos – all devices help",
+      prvSkPoteka: "{opr} of {vseh} converted. Every device converts one video at a time and takes the next when done – the stronger one does more.",
+      prvSkKoncano: "{opr} of {vseh} videos converted.", prvSkNapake: "{n} videos could not be converted ({koda}).",
+      prvSkVprasaj: "Copy them to this computer, each next to its original?", prvSkPrenesi: "Copy all here", prvSkPusti: "Leave on devices",
+      prvSkNazaj: "Copying converted videos to this computer …", prvSkNaRacunalniku: "The converted videos are now next to the originals ({n}).",
+      prvSkPusceno: "The converted videos stay on the devices (Downloads › Safeer Shramba).", prvSkDela: "converting", prvSkNiVidea: "There are no videos in this folder.",
       maloProstora: "Only {prosto} left on this computer. You can store larger files on a device in Safeer Link – you delete the original only after you see where the copy is.",
       pokaziNajvecje: "Show largest files",
       vSmetiOk: "“{ime}” is in the Trash (restore it from Files → Trash).", ustvarjeno: "Created: {ime}",
@@ -667,6 +679,7 @@
       m.push([t("vSmeti"), function () { vSmeti(e); }]);
       if (!e.mapa) m.push([t("shraniNaNapravo"), function () { shraniNaNapravo(e); }]);
       if (!e.mapa && e.vrsta === "video") m.push([t("pretvori"), function () { pretvoriVideo(e); }]);
+      if (e.mapa) m.push([t("pretvoriMapo"), function () { pretvoriMapo(e); }]);
       m.push(["—"]);
       postavkeNovo(m, e.mapa ? e.pot : null);
     }
@@ -907,6 +920,84 @@
       klic("pretvorbaStanje", [id]).then(function (r) { if (r && r.ok) pokazi(r); else napaka(r); }).catch(function () { napaka(null); });
     }
     klic("pretvoriVideo", [e.pot]).then(function (r) {
+      if (!r || !r.ok) { napaka(r); return; }
+      id = r.id; pokazi(r);
+    }).catch(function () { napaka(null); });
+  }
+
+  // Zakon solidarnosti, korak 4 (sorazmerni delez): vse videe v mapi si razdelijo naprave, ki lahko pomagajo.
+  function pretvoriMapo(e) {
+    var ovoj = el("div", "meni"); ovoj.setAttribute("role", "dialog");
+    ovoj.style.cssText = "position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);max-width:36em;padding:1em 1.2em";
+    var naslov = el("p", "meni-naslov", t("prvSkNaslov"));
+    var besedilo = el("p", ""); besedilo.style.cssText = "margin:.6em 0";
+    var naprave = el("p", ""); naprave.style.cssText = "margin:.4em 0;opacity:.85;white-space:pre-line";
+    var vprasanje = el("p", ""); vprasanje.style.cssText = "margin:.6em 0;font-weight:600"; vprasanje.hidden = true;
+    var gumbi = el("div", ""); gumbi.style.cssText = "display:flex;gap:.6em;justify-content:flex-end;margin-top:.8em";
+    var gZapri = el("button", "", t("shrZapri")); gZapri.type = "button";
+    gZapri.addEventListener("click", zapri); gumbi.appendChild(gZapri);
+    [naslov, besedilo, naprave, vprasanje, gumbi].forEach(function (x) { ovoj.appendChild(x); });
+    document.body.appendChild(ovoj);
+    var id = null, casovnik = 0;
+    function zapri() { clearTimeout(casovnik); ovoj.remove(); }
+    function zamenjajGumbe(seznam) { gumbi.innerHTML = ""; seznam.forEach(function (g) { gumbi.appendChild(g); }); }
+    function koncaj(sporocilo) { besedilo.textContent = sporocilo; vprasanje.hidden = true; zamenjajGumbe([gZapri]); }
+    function napaka(r) {
+      var k = (r && (r.napaka || r.koda)) || "napaka";
+      koncaj(k === "ni_videov" ? t("prvSkNiVidea") : k === "ni_naprave" ? t("prvNiNaprave") : t("prvNapaka", { koda: k }));
+    }
+    function pokazi(r) {
+      var z = { opr: r.uspesno || 0, vseh: r.skupaj || 0 };
+      // Kdo koliko opravi (sorazmerni delez) in kaj kdo ta trenutek dela.
+      var vrstice = [], dela = {};
+      (r.opravila || []).forEach(function (o) {
+        if (o.naprava && ["prenasam", "pretvarjam", "shranjujem"].indexOf(o.stanje) >= 0) dela[o.naprava] = o.ime + " " + (o.odstotek || 0) + " %";
+      });
+      var imena = {};
+      Object.keys(r.po_napravah || {}).forEach(function (k) { imena[k] = 1; });
+      Object.keys(dela).forEach(function (k) { imena[k] = 1; });
+      Object.keys(imena).forEach(function (k) {
+        vrstice.push(k + ": " + ((r.po_napravah || {})[k] || 0) + (dela[k] ? " · " + t("prvSkDela") + " " + dela[k] : ""));
+      });
+      naprave.textContent = vrstice.join("\n");
+      if (r.nazaj === "prenasam") { besedilo.textContent = t("prvSkNazaj"); zamenjajGumbe([gZapri]); }
+      else if (r.nazaj === "koncano") {
+        var n = (r.opravila || []).filter(function (o) { return o.stanje === "na_racunalniku"; }).length;
+        koncaj(t("prvSkNaRacunalniku", { n: n })); if (D.vir) odpriVir(D.vir); return;
+      }
+      else if (r.koncano) {
+        var tekst = t("prvSkKoncano", z);
+        if (r.napake) {
+          var prva = (r.opravila || []).filter(function (o) { return o.stanje === "napaka"; })[0] || {};
+          tekst += " " + t("prvSkNapake", { n: r.napake, koda: prva.napaka || "" });
+        }
+        if (!r.uspesno) { koncaj(tekst); return; }
+        if ((r.opravila || []).some(function (o) { return o.stanje === "pusceno"; })) { koncaj(tekst + " " + t("prvSkPusceno")); return; }
+        besedilo.textContent = tekst;
+        vprasanje.textContent = t("prvSkVprasaj"); vprasanje.hidden = false;
+        var gPrenesi = el("button", "", t("prvSkPrenesi")); gPrenesi.type = "button";
+        var gPusti = el("button", "", t("prvSkPusti")); gPusti.type = "button";
+        gPrenesi.addEventListener("click", function () {
+          gPrenesi.disabled = true; gPusti.disabled = true; vprasanje.hidden = true;
+          klic("pretvorbaPrenesiSkupino", [id]).then(function (x) { if (!x || !x.ok) { napaka(x); return; } pokazi(x); osveziKasneje(); })
+            .catch(function () { napaka(null); });
+        });
+        gPusti.addEventListener("click", function () {
+          klic("pretvorbaPustiSkupino", [id]).then(function (x) { pokazi(x && x.ok ? x : r); }).catch(function () { napaka(null); });
+        });
+        zamenjajGumbe([gPusti, gPrenesi]);
+        try { gPrenesi.focus(); } catch (x) {}
+        return;
+      }
+      else besedilo.textContent = t("prvSkPoteka", z);
+      osveziKasneje();
+    }
+    function osveziKasneje() { clearTimeout(casovnik); casovnik = setTimeout(osvezi, 1500); }
+    function osvezi() {
+      klic("pretvorbaSkupina", [id]).then(function (r) { if (r && r.ok) pokazi(r); else napaka(r); }).catch(function () { napaka(null); });
+    }
+    besedilo.textContent = t("prvIscem", { ime: e.ime });
+    klic("pretvoriVec", [[e.pot]]).then(function (r) {
       if (!r || !r.ok) { napaka(r); return; }
       id = r.id; pokazi(r);
     }).catch(function () { napaka(null); });
