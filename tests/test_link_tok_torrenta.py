@@ -115,7 +115,7 @@ class TokTorrenta(unittest.TestCase):
 
     def test_tok_prek_racunalnika(self):
         t = _Torrenti(self.lokalni.server_address[1])
-        o = self.d.tok_torrenta(MAGNET, "tv-1", torrenti=t)
+        o = self.d.tok_torrenta(MAGNET, "tv-1", torrenti=t, zmogljivost=lambda m, v: "")
         self.assertEqual(t.dodane, [[1]])  # najvecji video, ne vzorec in nikoli program
         self.assertEqual((o["file"], o["name"]), (1, "film.mkv"))
         self.assertTrue(o["path"].startswith("/m/") and o["path"].endswith("/film.mkv"))
@@ -132,15 +132,15 @@ class TokTorrenta(unittest.TestCase):
         self.assertEqual(self._zahteva(o["path"], {"X-Safeer-Token": "x"})[0], 401)
         self.assertEqual(self._zahteva("/m/izmisljeno/film.mkv", z)[0], 404)
         # izbrana datoteka; program ne
-        self.assertEqual(self.d.tok_torrenta(MAGNET, "tv-1", datoteka=0, torrenti=t)["file"], 0)
+        self.assertEqual(self.d.tok_torrenta(MAGNET, "tv-1", datoteka=0, torrenti=t, zmogljivost=lambda m, v: "")["file"], 0)
         with self.assertRaises(os_torrent.NapakaTorrenta):
-            self.d.tok_torrenta(MAGNET, "tv-1", datoteka=2, torrenti=t)
+            self.d.tok_torrenta(MAGNET, "tv-1", datoteka=2, torrenti=t, zmogljivost=lambda m, v: "")
         with self.assertRaises(os_torrent.NapakaTorrenta):
             self.d.tok_torrenta("https://primer.si/x", "tv-1", torrenti=t)
 
     def test_prenosi_in_odstranitev(self):
         t = _Torrenti(self.lokalni.server_address[1])
-        o = self.d.tok_torrenta(MAGNET, "tv-1", torrenti=t)
+        o = self.d.tok_torrenta(MAGNET, "tv-1", torrenti=t, zmogljivost=lambda m, v: "")
         self.assertEqual(self.d.prenosi_za_naprave(t)["items"], [{"id": 7, "name": "Film", "size": 9100, "done": 4550,
                          "finished": False, "speed_mibs": 1.5, "magnet": MAGNET, "file": 1}])
         self.assertTrue(self.d.odstrani_prenos(7, t))
@@ -148,6 +148,18 @@ class TokTorrenta(unittest.TestCase):
         z = {"X-Safeer-Token": o["server"]["token"]}
         self.assertEqual(self._zahteva(o["path"], z)[0], 404)  # odstranjen tok ni vec dosegljiv
         self.assertFalse(self.d.odstrani_prenos(8, t))
+
+    def test_ne_preobremeni_racunalnika(self):
+        t = _Torrenti(self.lokalni.server_address[1])
+        for razlog in ("preobremenjen", "malo_pomnilnika", "ni_prostora"):
+            with self.assertRaises(os_torrent.NapakaTorrenta) as e:
+                self.d.tok_torrenta(MAGNET, "tv-1", torrenti=t, zmogljivost=lambda m, v, r=razlog: r)
+            self.assertEqual(str(e.exception), razlog)
+        self.assertEqual(t.dodane, [])  # nic ni zacelo prenasati
+        vprasano = []
+        self.d.tok_torrenta(MAGNET, "tv-1", torrenti=t, zmogljivost=lambda m, v: vprasano.append(v) or "")
+        self.assertEqual(vprasano, [9000])  # disk se preveri za velikost izbrane datoteke
+        self.assertEqual(link_datoteke.prosta_zmogljivost(self.mapa, 10 ** 18), "ni_prostora")
 
     def test_samo_lokalni_tokovi(self):
         with self.assertRaises(ValueError):
