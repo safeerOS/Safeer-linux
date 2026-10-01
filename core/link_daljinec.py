@@ -195,6 +195,14 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
 
             def delo() -> None:
                 # Branje metapodatkov traja tudi minuto: ne v niti vmesnika.
+                from core import os_torrent
+                if os_torrent.razcleni_magnet(uri) is None:
+                    koncaj(izid(False, "Torrenta ni mogoce pretakati", koda="ni_magnet"))
+                    return
+                stanje_pomoci = pomoc(baterija())
+                if not stanje_pomoci["lahko"]:
+                    koncaj(izid(False, "Racunalnik ta trenutek ne more pomagati", koda=str(stanje_pomoci["razlog"])))
+                    return
                 try:
                     podatki = datoteke.tok_torrenta(uri, posiljatelj, hub_url, f)
                     koncaj(izid(True, "Racunalnik pretaka: " + podatki["name"], podatki))
@@ -364,7 +372,73 @@ def podatki_hosta() -> dict:
     gpu = _graficna()
     if gpu:
         p["gpu"] = gpu
+    p["vrsta"] = "racunalnik"
+    bat = baterija()
+    if bat:
+        p["baterija"] = bat
+    p["pomoc"] = pomoc(bat)
     return p
+
+
+def baterija(koren: str = "/sys/class/power_supply") -> Dict[str, object]:
+    """Baterija prenosnika: raven in ali je na omrezju ({} pri namiznem racunalniku)."""
+    raven, polni, na_omrezju = -1, False, False
+    try:
+        for ime in sorted(os.listdir(koren)):
+            pot = os.path.join(koren, ime)
+            try:
+                with open(os.path.join(pot, "type"), encoding="utf-8") as d:
+                    vrsta = d.read().strip()
+            except OSError:
+                continue
+            if vrsta == "Mains":
+                try:
+                    with open(os.path.join(pot, "online"), encoding="utf-8") as d:
+                        na_omrezju = na_omrezju or d.read().strip() == "1"
+                except OSError:
+                    pass
+            elif vrsta == "Battery" and raven < 0:
+                try:
+                    with open(os.path.join(pot, "capacity"), encoding="utf-8") as d:
+                        raven = int(d.read().strip())
+                    with open(os.path.join(pot, "status"), encoding="utf-8") as d:
+                        polni = d.read().strip() in ("Charging", "Full")
+                except (OSError, ValueError):
+                    pass
+    except OSError:
+        return {}
+    if raven < 0:
+        return {}
+    return {"raven": raven, "polni": polni or na_omrezju}
+
+
+#: Zakon solidarnosti (enako kot na telefonu): na bateriji pomaga od 40 %, pod 30 % neha.
+VKLOP_BATERIJA = 40
+IZKLOP_BATERIJA = 30
+_POMAGA = {"zadnje": True}
+
+
+def pomoc(bat: Optional[Dict[str, object]] = None, zmogljivost=None) -> Dict[str, object]:
+    """Ali ta racunalnik ta trenutek sme prevzeti delo drugih naprav: {lahko, razlog}.
+    Razlogi: preobremenjen, malo_pomnilnika, ni_prostora (core/link_datoteke.py) ali baterija."""
+    try:
+        from core import link_datoteke
+        razlog = (zmogljivost or link_datoteke.prosta_zmogljivost)(os.path.expanduser("~"), 0)
+    except Exception:
+        razlog = ""
+    if razlog:
+        return {"lahko": False, "razlog": razlog}
+    if bat and not bat.get("polni"):
+        raven = int(bat.get("raven", 100))
+        if raven >= VKLOP_BATERIJA:
+            _POMAGA["zadnje"] = True
+        elif raven < IZKLOP_BATERIJA:
+            _POMAGA["zadnje"] = False
+        if not _POMAGA["zadnje"]:
+            return {"lahko": False, "razlog": "baterija"}
+    elif bat:
+        _POMAGA["zadnje"] = True
+    return {"lahko": True, "razlog": ""}
 
 
 def _graficna() -> Dict[str, object]:
