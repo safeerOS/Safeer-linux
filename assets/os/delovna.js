@@ -738,7 +738,7 @@
   function shraniNaNapravo(e) {
     var ovoj = el("div", "meni"); ovoj.setAttribute("role", "dialog");
     ovoj.style.cssText = "position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);max-width:34em;padding:1em 1.2em";
-    var naslov = el("p", "meni-naslov", t("shraniNaNapravo").replace(/ …$/, ""));
+    var naslov = el("p", "meni-naslov", t("shraniNaNapravo").replace(/\s\u2026$/, ""));
     var besedilo = el("p", "", t("shrPripravljam", { ime: e.ime })); besedilo.style.cssText = "margin:.6em 0";
     var vprasanje = el("p", ""); vprasanje.style.cssText = "margin:.6em 0;font-weight:600"; vprasanje.hidden = true;
     var gumbi = el("div", ""); gumbi.style.cssText = "display:flex;gap:.6em;justify-content:flex-end;margin-top:.8em";
