@@ -369,7 +369,11 @@ class Hub:
             if len(self._prijave) >= NAJVEC_CAKAJOCIH:
                 return None
             pair_id = link_ws.nakljucni(8)
-            koda = str(100000 + secrets.randbelow(900000))
+            # Ce je katera naprava v Linku ravno odprla »Poveži naprave«, ze kaze 6-mestno kodo: nova
+            # naprava se seznani prav z njo (enako kot sredisce na televizorju), uporabnik jo samo prepise.
+            self._pocisti_pridruzitve()
+            odprta = [v.get("pin") for v in self._pridruzitve.values() if v.get("pin")]
+            koda = odprta[-1] if odprta else str(100000 + secrets.randbelow(900000))
             self._prijave[pair_id] = {"device_id": device_id, "ime": ime, "pin": koda, "naslov": naslov,
                                       "nastala": self.ura(), "krogov": 0, "poskusov": 0, "spake": None}
         self._objavi_kodo("pair.code", {"pair_id": pair_id, "name": ime, "code": koda,
@@ -442,6 +446,9 @@ class Hub:
                     return None, "prevec_poskusov"
                 return None, "napacna_koda"
             zeton = self._nov_zeton(device_id, p["ime"])
+            # Koda z vabila je enkratna: po uspesni seznanitvi ne velja vec.
+            for k in [k for k, v in self._pridruzitve.items() if v.get("pin") == p["pin"]]:
+                self._pridruzitve.pop(k, None)
             self._koncaj_prijavo(pair_id)
             return zeton, None
 
@@ -456,9 +463,17 @@ class Hub:
                 self._pridruzitve.pop(next(iter(self._pridruzitve)), None)
             qr_id = link_ws.nakljucni(12)
             skrivnost = link_ws.nakljucni(16)
+            import secrets
             self._pridruzitve[qr_id] = {"odtis": hashlib.sha256(skrivnost.encode()).hexdigest(),
-                                        "nastala": self.ura(), "poskusov": 0}
+                                        "nastala": self.ura(), "poskusov": 0,
+                                        "pin": str(100000 + secrets.randbelow(900000))}
         return qr_id, skrivnost
+
+    def pin_pridruzitve(self, qr_id: str) -> str:
+        """6-mestna koda vabila (pokaze jo naprava, ki vabi; nova naprava jo vtipka)."""
+        with self._zaklep:
+            p = self._pridruzitve.get((qr_id or "").strip())
+            return str(p.get("pin") or "") if p else ""
 
     def _pocisti_pridruzitve(self) -> None:
         meja = self.ura() - PIN_VELJA_S
@@ -1656,7 +1671,11 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
                 if qr_id:
                     self._hub.preklici_pridruzitev(qr_id)
                 nov_id, skrivnost = self._hub.ustvari_pridruzitev()
+                pin = self._hub.pin_pridruzitve(nov_id)
+                # address: naslov sredisca v domacem omrezju. Naprava, ki vabi, se nanj lahko poveze
+                # prek 127.0.0.1 (svoj Hub) - tega naslova nova naprava ne sme dobiti v QR kodi.
                 self._odgovori(200, {"qr_id": nov_id, "secret": skrivnost, "fp": self._hub.odtis,
+                                     "pin": pin, "code": pin, "address": self._hub.naslov_za_qr,
                                      "expires_in_seconds": int(PIN_VELJA_S), "web_port": 0})
                 return
             if pot.endswith("/status"):

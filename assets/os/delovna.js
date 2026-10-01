@@ -993,7 +993,11 @@
 
     // Safeer Link, ozadje, dock
     $("gumbLink").addEventListener("click", function () {
-      klic("control").then(function (ok) { if (!ok) obvesti(t("brezControla")); }).catch(function () {});
+      // Povezan racunalnik: okno »Poveži naprave« (QR ALI 6-mestna koda). Nepovezan: prijavno okno
+      // (QR / vpis kode / brez povezave). Oboje v Safeer Controlu, nikoli samo ob prijavi.
+      var povezan = L.stanje && L.stanje.stanje === "povezan";
+      klic(povezan ? "novaNaprava" : "prijava").then(function (ok) { if (ok === false) obvesti(t("brezControla")); })
+        .catch(function () {});
       setTimeout(osveziLink, 8000);
     });
     $("gumbOzadje").addEventListener("click", function () { $("meniPlosce").hidden = true; klic("nastavitveOzadja"); });

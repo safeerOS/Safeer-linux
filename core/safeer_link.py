@@ -782,6 +782,8 @@ class SafeerLink:
             p = self.povezava
             if g is not None and g.gostimo() and p is not None and p.aktivna \
                     and p.ws_naslov.startswith("wss://127.0.0.1:"):
+                # Stran caka na odziv (gumb »Poveži«): brez njega bi ostala na »Iščem …«.
+                self._odziv("hub", {"najden": True, "naslov": p.ws_naslov, "gostimo": True})
                 return True
             if self._prevzemi_gostovanje():
                 return True
