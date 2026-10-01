@@ -159,7 +159,9 @@ class TokTorrenta(unittest.TestCase):
         vprasano = []
         self.d.tok_torrenta(MAGNET, "tv-1", torrenti=t, zmogljivost=lambda m, v: vprasano.append(v) or "")
         self.assertEqual(vprasano, [9000])  # disk se preveri za velikost izbrane datoteke
-        self.assertEqual(link_datoteke.prosta_zmogljivost(self.mapa, 10 ** 18), "ni_prostora")
+        # Pretakanje torrenta ne gleda obremenitve procesorja (racunalnik lahko medtem prevaja), disk pa vedno.
+        self.assertEqual(link_datoteke.zmogljivost_za_tok(self.mapa, 10 ** 18), "ni_prostora")
+        self.assertEqual(link_datoteke.prosta_zmogljivost(self.mapa, 10 ** 18, procesor=False), "ni_prostora")
 
     def test_samo_lokalni_tokovi(self):
         with self.assertRaises(ValueError):
