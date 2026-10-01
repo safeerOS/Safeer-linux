@@ -1650,7 +1650,8 @@
     } else if (stanje.tezava) {
       barva = "rumena";
       napis = t("tezava");
-    } else if (stanje.znan && stanje.seznanjen) {
+    } else if (stanje.znan && (stanje.seznanjen || stanje.vKrogu)) {
+      // Clan kroga zaupanja se prijavi s podpisom (Link Mesh): zetona nima, je pa povezan.
       barva = stanje.povezan ? "zelena" : "rumena";
       napis = stanje.povezan ? t("povezano") : t("povezujem");
     } else if (stanje.preseljen) {
@@ -1686,7 +1687,10 @@
     var tuSredisce = stanje.hubTece;
     var samoSredisce = false;
     var brezHuba = !tuSredisce && !stanje.znan && !stanje.preseljen;
-    var caka = !tuSredisce && stanje.znan && !stanje.seznanjen && !stanje.preseljen;
+    // »Poveži to napravo« (koda gostitelja) samo za napravo, ki je Hub se ne pozna. Clan kroga zaupanja
+    // (prijava s podpisom, Link Mesh - tudi z lastnim Hubom na 127.0.0.1) je ze povezan: sicer bi ga
+    // gumb seznanjal s samim sabo in koda se ne bi pokazala nikjer.
+    var caka = !tuSredisce && stanje.znan && !stanje.seznanjen && !stanje.vKrogu && !stanje.preseljen;
     pokazi("zaslonHubTu", tuSredisce);
     pokazi("zaslonBrezHuba", brezHuba);
     pokazi("zaslonPreseljen", !tuSredisce && stanje.preseljen);

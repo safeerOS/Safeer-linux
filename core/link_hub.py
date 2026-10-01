@@ -611,11 +611,18 @@ def povabi(ws_naslov: str, zeton: str, odtis: str, preklici: str = "") -> dict:
         return {"napaka": "ni_huba"}
     u = urlparse(ws_naslov)
     naslov = "%s:%d" % (u.hostname, u.port or 443)
+    gostitelj = u.hostname or ""
+    # Vabilo lastnega Huba (wss://127.0.0.1): v QR mora iti naslov v domacem omrezju, ki ga sporoci Hub,
+    # sicer bi telefon iskal sredisce na samem sebi.
+    domaci = str(odgovor.get("address") or "").strip()
+    if gostitelj in ("127.0.0.1", "localhost", "::1") and ":" in domaci and not domaci.startswith("127."):
+        naslov = domaci
+        gostitelj = domaci.rsplit(":", 1)[0]
     # Nova sredisca vrnejo isti PIN, ki pripada QR vabilu. Pri starem srediscu
     # polja ni; prazen niz strani pove, naj pokaze samo rocni vnos kode.
     pin = str(odgovor.get("pin") or odgovor.get("code") or "")
     return {"qr_id": qr_id, "velja": int(odgovor.get("expires_in_seconds") or 300), "pin": pin,
-            "povezava": povezava_vabila(u.hostname or "", int(odgovor.get("web_port") or 0), qr_id, skrivnost, fp, naslov)}
+            "povezava": povezava_vabila(gostitelj, int(odgovor.get("web_port") or 0), qr_id, skrivnost, fp, naslov)}
 
 
 def povezava_vabila(gostitelj: str, spletna_vrata: int, qr_id: str, skrivnost: str, fp: str, naslov: str) -> str:

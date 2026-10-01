@@ -275,6 +275,28 @@ class Seznanitev(unittest.TestCase):
         self.assertTrue(stanje["joined"])
         self.assertEqual(stanje["name"], "Tablica")
 
+    def test_koda_vabila_seznani_novo_napravo(self):
+        """»Poveži naprave« na racunalniku: vabilo ima 6-mestno kodo, nova naprava se seznani prav z njo
+        (vtipka jo s tega zaslona), po seznanitvi koda ne velja vec."""
+        qr_id, _skrivnost = self.hub.ustvari_pridruzitev()
+        koda = self.hub.pin_pridruzitve(qr_id)
+        self.assertRegex(koda, r"^[1-9][0-9]{5}$")
+        zacetek = self.hub.zacni_seznanitev("telefon-3", "Telefon")
+        pair_id = zacetek["pair_id"]
+        self.assertEqual(self.hub._prijave[pair_id]["pin"], koda)
+        odjemalec = Spake2.odjemalec(koda, "telefon-3", link_hub_streznik.IDENTITETA_HUBA,
+                                     self.odtis.encode(), pair_id.encode())
+        pa, _ca, napaka = self.hub.spake_korak1(pair_id, "telefon-3", odjemalec.sporocilo())
+        self.assertIsNone(napaka)
+        _kljuc, cb = odjemalec.zakljuci(pa)
+        zeton, napaka = self.hub.spake_korak2(pair_id, "telefon-3", cb)
+        self.assertIsNone(napaka)
+        self.assertTrue(zeton)
+        self.assertEqual(self.hub.pin_pridruzitve(qr_id), "")
+        # Naslednja naprava brez odprtega vabila dobi novo, nakljucno kodo.
+        drugi = self.hub.zacni_seznanitev("telefon-4", "Telefon 2")
+        self.assertNotEqual(self.hub._prijave[drugi["pair_id"]]["pin"], koda)
+
     def test_sorodni_program_dobi_svoj_zeton(self):
         with self.hub._zaklep:
             prvi = self.hub._nov_zeton("n-primer", "Safeer Browser")
