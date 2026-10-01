@@ -87,6 +87,9 @@
         <div class="dat-glavno">
           <div class="dat-orodja">
             <ol class="drobtine" id="drobtine" aria-label="Pot"></ol>
+            <button type="button" class="gumb-ikona majhen" id="gumbNovo" aria-haspopup="menu" data-naslov="novoNaslov">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14 M5 12h14"/></svg>
+            </button>
             <input type="search" class="filter" id="datFilter" data-ph="filterPh" aria-label="Filtriraj">
             <select id="datVrsta" aria-label="Vrsta">
               <option value="" data-t="vseVrste">Vse vrste</option>
@@ -143,6 +146,31 @@
 
 <div class="obvestilo" id="obvestilo" role="status" aria-live="polite" hidden></div>
 <div class="meni" id="meniPrograma" role="menu" hidden></div>
+
+<!-- Nova mapa / nova datoteka / preimenuj: ime in lokacija (kam), kot v Nemu, a z izbiro mape v istem oknu. -->
+<div class="ozadje-okna" id="oknoNovo" hidden>
+  <form class="okno-novo" id="obrazecNovo" role="dialog" aria-modal="true" aria-labelledby="novoNaslovOkna" autocomplete="off">
+    <h3 id="novoNaslovOkna"></h3>
+    <label class="polje-oznaka" for="novoIme" data-t="novoIme">Ime</label>
+    <input id="novoIme" type="text" spellcheck="false" required>
+    <div id="novoVrstaVrsta">
+      <label class="polje-oznaka" for="novoVrsta" data-t="novoVrsta">Vrsta</label>
+      <select id="novoVrsta"></select>
+    </div>
+    <div id="novoKjeVrsta">
+      <span class="polje-oznaka" data-t="novoKje">Kje</span>
+      <div class="kje">
+        <span class="kje-pot" id="novoKje"></span>
+        <button type="button" class="cip" id="novoSpremeni" data-t="novoSpremeni">Spremeni …</button>
+      </div>
+    </div>
+    <p class="sporocilo napaka" id="novoNapaka" hidden></p>
+    <div class="gumbi">
+      <button type="button" class="cip" id="novoPreklici" data-t="preklici">Prekliči</button>
+      <button type="submit" class="cip glavni-gumb" id="novoPotrdi"></button>
+    </div>
+  </form>
+</div>
 
 <script src="delovna.js"></script>
 </body>

@@ -254,3 +254,28 @@ select option { background: #111c2b; color: var(--besedilo); }
 .link-gumb.nepovezan .link-pika { background: var(--poudarek); }
 .meni-namig { margin: .3em .5em .2em; color: var(--tise); font-size: .78em; max-width: 17em; line-height: 1.35; }
 @media (max-height: 820px) { .zadetki { top: calc(3.1em + 8px); } }
+
+/* ---- Nova mapa / datoteka --------------------------------------------- */
+.ozadje-okna { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(4, 9, 18, .55); }
+.okno-novo {
+  width: min(32em, 90vw); display: flex; flex-direction: column; gap: .45em; padding: 1.2em 1.3em 1em;
+  background: rgba(14, 23, 39, .98); border: 1px solid var(--obroba-mocna); border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .55);
+}
+.okno-novo h3 { margin: 0 0 .3em; font-size: 1.05em; }
+.polje-oznaka { font-size: .75em; color: var(--tise); margin-top: .35em; display: block; }
+.okno-novo input[type=text], .okno-novo select {
+  width: 100%; font-size: .95em; padding: .5em .7em; border-radius: 10px; border: 1px solid var(--obroba);
+  background: rgba(234, 244, 255, .06); color: var(--besedilo);
+}
+.okno-novo select { border-radius: 10px; }
+.okno-novo input[type=text]:focus { outline: none; border-color: var(--fokus); }
+.kje { display: flex; align-items: center; gap: .6em; min-width: 0; }
+.kje-pot { flex: 1; min-width: 0; font-size: .85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: .45em .7em; border-radius: 10px; background: rgba(234, 244, 255, .04); border: 1px solid var(--tanka); }
+.okno-novo .gumbi { display: flex; justify-content: flex-end; gap: .5em; margin-top: .6em; }
+.okno-novo .cip { font-size: .85em; padding: .45em 1.1em; }
+.glavni-gumb { background: #8ac7ff !important; color: #0b1424 !important; border-color: #8ac7ff !important; font-weight: 600; }
+.seznam tbody tr.novo { animation: novo 1.6s ease-out; }
+@keyframes novo { from { background: rgba(127, 224, 182, .35); } to { background: transparent; } }
+.dat-glavno { position: relative; }
