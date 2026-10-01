@@ -59,6 +59,7 @@ class Ustvari(unittest.TestCase):
         finally:
             shutil.rmtree(izhod, ignore_errors=True)
 
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root sme pisati povsod (CI vsebnik)")
     def test_ni_dovoljenja(self):
         r = os_datoteke.ustvari_mapo("/", "safeer-preizkus")
         self.assertFalse(r["ok"])
