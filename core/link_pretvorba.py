@@ -22,8 +22,13 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Dict, List, Optional, Tuple
 from urllib.parse import quote, urlparse
 
-#: Naprava mora imeti prostor za izvirnik + pretvorjeni video + rezervo (enako kot Pretvorba.kt).
-REZERVA = 2 * 1024 * 1024 * 1024
+MB = 1024 * 1024
+
+
+def rezerva(skupaj: int) -> int:
+    """Prostor, ki ga naprava obdrzi zase poleg izvirnika in pretvorjenega videa (enako kot Pretvorba.kt):
+    10 % diska, najmanj 512 MB, najvec 2 GB - televizor s 5 GB diska tako se lahko pomaga."""
+    return min(2048 * MB, max(512 * MB, skupaj // 10)) if skupaj > 0 else 2048 * MB
 NAMIZNE = ("linux", "windows", "macos")
 VIDEO = (".mp4", ".mkv", ".avi", ".mov", ".webm", ".m4v", ".wmv", ".flv", ".ts", ".mpg", ".mpeg", ".3gp")
 
@@ -91,9 +96,10 @@ def _izlocitev(d: Optional[dict], velikost: int, oblika: Optional[dict]) -> str:
         return "ne sme pomagati (" + str((d.get("pomoc") or {}).get("razlog") or "") + ")"
     if not (d.get("gpu") or {}).get("strojno") or ocena_kodirnika(d)[0] < 1920:
         return "nima strojnega kodirnika H.264 za 1080p"
-    prosto = int((d.get("disk") or {}).get("prosto", -1))
-    if 0 <= prosto < 2 * velikost + REZERVA:
-        return "premalo prostora"
+    disk = d.get("disk") or {}
+    prosto = int(disk.get("prosto", -1))
+    if 0 <= prosto < 2 * velikost + rezerva(int(disk.get("skupaj") or 0)):
+        return f"premalo prostora ({prosto // 2**20} MB prosto)"
     if not zna_prebrati(d, oblika):
         return "ne zna prebrati " + str((oblika or {}).get("mime")) + " " + str((oblika or {}).get("width")) + "x" + \
             str((oblika or {}).get("height")) + " (dekodirniki: " + json.dumps((d.get("gpu") or {}).get("dekodirniki")) + ")"
@@ -107,7 +113,8 @@ def izberi_napravo(naprave: List[dict], vprasaj: Callable[[str, str, dict], dict
 
 
 def razvrsti_naprave(naprave: List[dict], vprasaj: Callable[[str, str, dict], dict],
-                     velikost: int, oblika: Optional[dict] = None) -> List[dict]:
+                     velikost: int, oblika: Optional[dict] = None,
+                     razlogi: Optional[Dict[str, str]] = None) -> List[dict]:
     """Naprave, ki zmorejo pretvorbo, od najboljsega strojnega kodirnika H.264 (vsaj 1080p) navzdol:
     smejo pomagati, imajo prostor in znajo prebrati izvirnik. Vse vprasamo hkrati (brez cakanja po vrsti)."""
     kandidati = [n for n in naprave if not n.get("ta") and "files" in (n.get("zmoznosti") or [])
@@ -129,7 +136,8 @@ def razvrsti_naprave(naprave: List[dict], vprasaj: Callable[[str, str, dict], di
     for n, d in zip(kandidati, podatki):
         razlog = _izlocitev(d, velikost, oblika)
         if razlog:
-            print(f"[Pretvorba] {n.get('ime') or n['id']}: {razlog}", flush=True)
+            if razlogi is not None:
+                razlogi[n.get("ime") or n["id"]] = razlog
             continue
         primerne.append((ocena_kodirnika(d), n))
     primerne.sort(key=lambda x: x[0], reverse=True)
@@ -168,11 +176,13 @@ class Opravilo:
         self.izhod_ime = ""
         self.izhod_velikost = 0
         self.lokalno = ""
+        self.razlogi: Dict[str, str] = {}   # zakaj katera naprava ni prisla v postev (diagnostika)
 
     def slovar(self) -> dict:
         return {"id": self.id, "ime": self.ime, "pot": self.pot, "velikost": self.velikost, "stanje": self.stanje,
                 "odstotek": self.odstotek, "napaka": self.napaka, "naprava": self.cilj_ime, "kje": self.kje,
-                "izhod": self.izhod_ime, "izhod_velikost": self.izhod_velikost, "lokalno": self.lokalno}
+                "izhod": self.izhod_ime, "izhod_velikost": self.izhod_velikost, "lokalno": self.lokalno,
+                "razlogi": self.razlogi}
 
 
 class Pretvorba:
@@ -246,7 +256,7 @@ class Pretvorba:
     def _pretvori(self, o: Opravilo) -> None:
         try:
             oblika = self._sonda(o.pot)
-            kandidati = razvrsti_naprave(self.naprave(), self.vprasaj, o.velikost, oblika)
+            kandidati = razvrsti_naprave(self.naprave(), self.vprasaj, o.velikost, oblika, o.razlogi)
             if not kandidati:
                 raise _Napaka("ne_zna_dekodirati" if oblika is not None and self._ena_bi_zmogla(o.velikost) else "ni_naprave")
             s = self.datoteke.streznik

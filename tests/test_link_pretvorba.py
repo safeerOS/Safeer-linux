@@ -41,7 +41,7 @@ class _Naprava:
     def ukaz(self, dejanje, p):
         if dejanje == "host.info":
             self.vprasan += 1
-            return {"ok": True, "data": {"disk": {"prosto": self.prosto}, "cpu": {"jedra": self.jedra},
+            return {"ok": True, "data": {"disk": {"prosto": self.prosto, "skupaj": getattr(self, "skupaj", 0)}, "cpu": {"jedra": self.jedra},
                                          "gpu": {"kodirniki": self.kod, "strojno": bool(self.kod),
                                                  "dekodirniki": self.dek},
                                          "pomoc": {"lahko": self.pomaga, "razlog": ""}}}
@@ -173,6 +173,16 @@ class PretvorbaVidea(unittest.TestCase):
         self.n["tablica"].dek = [{"vrsta": "hevc", "sirina": 1920, "visina": 1080}]
         r = self._pocakaj(self.p.zacni(self.pot)["id"])
         self.assertEqual((r["stanje"], r["naprava"]), ("koncano", "Tablica"))
+
+    def test_rezerva_po_velikosti_diska(self):
+        self.assertEqual(link_pretvorba.rezerva(5 * GB), 512 * 1024 ** 2)          # televizor
+        self.assertEqual(link_pretvorba.rezerva(64 * GB), 2 * GB)                  # tablica
+        self.assertEqual(link_pretvorba.rezerva(0), 2 * GB)                        # neznano: previdno
+        self.n = {"tv": _Naprava(kodirniki(4096), prosto=1800 * 1024 ** 2)}
+        self.n["tv"].skupaj = 5 * GB
+        self.naprave = [{"id": "tv", "ime": "TV", "zmoznosti": ["files"], "platforma": "tv"}]
+        r = self._pocakaj(self.p.zacni(self.pot)["id"])
+        self.assertEqual((r["stanje"], r["naprava"]), ("koncano", "TV"))
 
     def test_ime_in_prosta_pot(self):
         self.assertEqual(link_pretvorba.ime_pretvorjenega("Moj film.2024.mkv"), "Moj film.2024-1080p.mp4")
