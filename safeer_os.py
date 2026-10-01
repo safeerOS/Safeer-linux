@@ -67,7 +67,7 @@ def _razlicica() -> str:
         with open(os.path.join(KOREN, "packaging", "VERSION_OS"), encoding="utf-8") as d:
             return d.read().strip()
     except Exception:
-        return "0.4.9"
+        return "0.4.10"
 
 
 RAZLICICA = _razlicica()
