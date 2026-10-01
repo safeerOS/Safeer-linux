@@ -76,6 +76,17 @@ jobs:
           rm -rf build/tema-x && dpkg-deb -x "$T" build/tema-x
           bash -n build/tema-x/usr/bin/safeer-os-tema
           desktop-file-validate build/tema-x/etc/xdg/autostart/safeer-os-tema.desktop build/tema-x/usr/share/applications/*.desktop
+      - name: Safeer Cinnamon package (optional look for Linux Mint Cinnamon, GPL-3.0)
+        # Tudi ta zahteva mint-themes (samo Linux Mint): preverimo vsebino, licenco in ukaz safeer-cinnamon.
+        run: |
+          bash build_cinnamon_tema_deb.sh
+          C="safeer-cinnamon_$(cat packaging/VERSION_CINNAMON)_all.deb"
+          dpkg-deb -f "$C" Package Version Depends Recommends
+          dpkg-deb -c "$C" | grep -F ./usr/share/themes/Safeer-Cinnamon/cinnamon/cinnamon.css
+          dpkg-deb -c "$C" | grep -F ./usr/share/doc/safeer-cinnamon/copyright
+          rm -rf build/cin-x && dpkg-deb -x "$C" build/cin-x
+          bash -n build/cin-x/usr/bin/safeer-cinnamon
+          desktop-file-validate build/cin-x/usr/share/applications/*.desktop
       - name: AppImage
         run: |
           bash packaging/fetch_linuxdeploy.sh

@@ -36,7 +36,7 @@ Section: x11
 Priority: optional
 Architecture: all
 Depends: mint-themes, libglib2.0-bin
-Recommends: cinnamon, plank, papirus-icon-theme, dconf-cli
+Recommends: cinnamon, plank, papirus-icon-theme, dconf-cli, safeer-os
 Maintainer: Safeer <info@safeer.si>
 Homepage: https://safeer.si/os/
 Description: Safeer Cinnamon - a calm blue desktop look for Linux Mint
