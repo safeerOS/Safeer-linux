@@ -717,6 +717,10 @@ class SafeerControl(Gtk.Application):
       <method name="ShrambaStanje"><arg type="s" name="id" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="ShrambaIzbrisi"><arg type="s" name="id" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="ShrambaObdrzi"><arg type="s" name="id" direction="in"/><arg type="s" name="json" direction="out"/></method>
+      <method name="PretvorbaZacni"><arg type="s" name="pot" direction="in"/><arg type="s" name="json" direction="out"/></method>
+      <method name="PretvorbaStanje"><arg type="s" name="id" direction="in"/><arg type="s" name="json" direction="out"/></method>
+      <method name="PretvorbaPrenesi"><arg type="s" name="id" direction="in"/><arg type="s" name="json" direction="out"/></method>
+      <method name="PretvorbaPusti"><arg type="s" name="id" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="Datoteke"><arg type="s" name="naprava" direction="in"/><arg type="s" name="mapa" direction="in"/><arg type="s" name="json" direction="out"/></method>
     </interface></node>"""
 
@@ -768,6 +772,18 @@ class SafeerControl(Gtk.Application):
             if metoda == "ShrambaObdrzi":
                 return self.shramba.obdrzi(arg)
             return {"ok": False, "koda": "neznano"}
+        if metoda.startswith("Pretvorba"):
+            # Grafika: video pretvori naprava z najboljsim strojnim kodirnikom (core/link_pretvorba.py).
+            if getattr(self, "pretvorba", None) is None:
+                from core import link_pretvorba
+                self.pretvorba = link_pretvorba.Pretvorba(
+                    lambda: [dict(n, ta=n.get("id", "") == link._id()) for n in link.naprave],
+                    lambda i, d, p: link.ukaz_pocakaj(i, d, p, cas=20.0),
+                    self.datoteke, lambda: link._hub() or "")
+            arg = str(a[0]) if a else ""
+            dejanje = {"PretvorbaZacni": self.pretvorba.zacni, "PretvorbaStanje": self.pretvorba.stanje,
+                       "PretvorbaPrenesi": self.pretvorba.prenesi, "PretvorbaPusti": self.pretvorba.pusti}.get(metoda)
+            return dejanje(arg) if dejanje else {"ok": False, "koda": "neznano"}
         if metoda == "Preimenuj":
             # Ime hrani sredisce (/cast/devices/rename) in ga vidijo vse naprave; prazno vrne prvotno ime.
             if not (link._hub() and link._zeton() and link._odtis()):
