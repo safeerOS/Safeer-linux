@@ -199,15 +199,21 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
                 if os_torrent.razcleni_magnet(uri) is None:
                     koncaj(izid(False, "Torrenta ni mogoce pretakati", koda="ni_magnet"))
                     return
-                stanje_pomoci = pomoc(baterija())
+                # Pretakanje torrenta je delo omrezja in diska: obremenjen procesor (prevajanje, Safeer OS v
+                # ozadju) ni razlog za zavrnitev - tablica je 1. 10. 2026 med gradnjo aplikacije ostala brez filma.
+                from core import link_datoteke, os_stabilnost
+                stanje_pomoci = pomoc(baterija(), zmogljivost=link_datoteke.zmogljivost_za_tok)
                 if not stanje_pomoci["lahko"]:
+                    os_stabilnost.zapisi("safeer-control", f"magnet.stream za {posiljatelj}: zavrnjeno ({stanje_pomoci['razlog']})")
                     koncaj(izid(False, "Racunalnik ta trenutek ne more pomagati", koda=str(stanje_pomoci["razlog"])))
                     return
                 try:
                     podatki = datoteke.tok_torrenta(uri, posiljatelj, hub_url, f)
+                    os_stabilnost.zapisi("safeer-control", f"magnet.stream za {posiljatelj}: pretakam {podatki['name']}")
                     koncaj(izid(True, "Racunalnik pretaka: " + podatki["name"], podatki))
                 except Exception as e:  # noqa: BLE001 - napravi povemo kratko kodo
                     koda = str(e) if type(e).__name__ == "NapakaTorrenta" else "napaka"
+                    os_stabilnost.zapisi("safeer-control", f"magnet.stream za {posiljatelj}: napaka {koda} ({e})")
                     koncaj(izid(False, "Torrenta ni mogoce pretakati", koda=koda))
             threading.Thread(target=delo, name="safeer-magnet-tok", daemon=True).start()
         elif d in DEJANJA_ZASLON:
