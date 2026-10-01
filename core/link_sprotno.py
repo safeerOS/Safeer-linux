@@ -193,13 +193,14 @@ class Sprotno:
         return pot if pot and os.path.isfile(pot) else ""
 
     def vaapi(self) -> Optional[str]:
+        """Naprava za strojno kodiranje (Intel/AMD, kot link_zaslon.vaapi_naprava - brez uvoza, ker paket Safeer OS link_zaslon nima)."""
         if self._vaapi is not None:
             return self._vaapi()
-        try:
-            from core import link_zaslon
-            return link_zaslon.vaapi_naprava()
-        except Exception:  # noqa: BLE001
-            return None
+        for ime in ("renderD128", "renderD129"):
+            pot = os.path.join("/dev/dri", ime)
+            if os.path.exists(pot):
+                return pot
+        return None
 
     def kodirniki(self) -> dict:
         """Za host.info: {strojno, kodirniki:[{vrsta, sirina, visina}], dekodirniki:[...]} ali {} brez ffmpeg."""
