@@ -86,6 +86,9 @@
       shrNiNaprave: "Nobena naprava v Safeer Linku ta trenutek nima dovolj prostora ali ne more pomagati (baterija, zasedenost).",
       shrSpremenjena: "Datoteka se je medtem spremenila – izvirnika ne brišem. Shrani jo znova.",
       shrNapaka: "Shranjevanje na drugo napravo ni uspelo ({koda}).", shrZapri: "Zapri", shrPrenosi: "Prenosi",
+      najvecje: "Največje datoteke", niVelikih: "Ni datotek, večjih od 100 MB.",
+      maloProstora: "Na računalniku je prostora le še {prosto}. Večje datoteke lahko shraniš na napravo v Safeer Linku – izvirnik izbrišeš šele, ko vidiš, kje je kopija.",
+      pokaziNajvecje: "Pokaži največje datoteke",
       vSmetiOk: "»{ime}« je v Smeteh (obnoviš ga v Datotekah → Smeti).", ustvarjeno: "Ustvarjeno: {ime}",
       izberiMapoNaslov: "Kam naj ustvarim?", izberi: "Izberi", osvezi: "Osveži",
       nObstaja: "Datoteka s tem imenom tu že obstaja.", nIme: "Ime ne sme biti prazno, začeti s piko ali vsebovati »/«.",
@@ -154,6 +157,9 @@
       shrNiNaprave: "No device in Safeer Link has enough space right now or can help (battery, busy).",
       shrSpremenjena: "The file changed in the meantime – the original is not deleted. Store it again.",
       shrNapaka: "Storing on another device failed ({koda}).", shrZapri: "Close", shrPrenosi: "Downloads",
+      najvecje: "Largest files", niVelikih: "No files larger than 100 MB.",
+      maloProstora: "Only {prosto} left on this computer. You can store larger files on a device in Safeer Link – you delete the original only after you see where the copy is.",
+      pokaziNajvecje: "Show largest files",
       vSmetiOk: "“{ime}” is in the Trash (restore it from Files → Trash).", ustvarjeno: "Created: {ime}",
       izberiMapoNaslov: "Where should I create it?", izberi: "Select", osvezi: "Refresh",
       nObstaja: "A file with this name already exists here.", nIme: "The name can't be empty, start with a dot or contain “/”.",
@@ -355,6 +361,7 @@
       Z.spletne = Array.isArray(z.spletne) ? z.spletne : [];
       zgradiStranDatotek();
       odpriVir({ vrsta: "nedavno" });
+      preveriProstor();
       klic("predlogeDatotek").then(function (p) { predlogeDatotek = Array.isArray(p) ? p.slice(0, 12) : []; }).catch(function () {});
       naloziProgrameNaprav();
       medijZanka();
@@ -381,6 +388,7 @@
     oznaka(t("pregled"));
     gumb(t("nedavno"), { vrsta: "nedavno" });
     gumb(t("priljubljeno"), { vrsta: "priljubljeno" });
+    gumb(t("najvecje"), { vrsta: "najvecje" });
     oznaka(t("mape"));
     Z.mape.forEach(function (m) {
       if (m.vrsta === "HOME") gumb(t("domov"), { vrsta: "lokalno", pot: m.pot });
@@ -423,6 +431,10 @@
     function prispelo(fn) { return function (r) { if (st === D.zahteva) fn(r); }; }
     if (vir.vrsta === "nedavno") {
       klic("nedavne").then(prispelo(function (r) { nastaviVnose(r || [], t("niNedavnih")); drobtine([t("nedavno")]); }))
+        .catch(prispelo(function () { nastaviVnose([], t("niUspelo"), true); }));
+    } else if (vir.vrsta === "najvecje") {
+      // Za skupni prostor: najvecje datoteke v domaci mapi (pregled traja najvec 1,5 s, v ozadju).
+      klic("najvecjeDatoteke").then(prispelo(function (r) { nastaviVnose(r || [], t("niVelikih")); drobtine([t("najvecje")]); }))
         .catch(prispelo(function () { nastaviVnose([], t("niUspelo"), true); }));
     } else if (vir.vrsta === "priljubljeno") {
       nastaviVnose(N.priljubljeneDat.slice(), t("niPriljubljenih")); drobtine([t("priljubljeno")]);
@@ -501,6 +513,7 @@
       return true;
     });
     if (D.vir && D.vir.vrsta === "nedavno" && D.razvrsti === "ime" && D.smer === 1 && !D.rocno) return r; // nedavne: po casu
+    if (D.vir && D.vir.vrsta === "najvecje" && !D.rocno) return r; // najvecje: ze urejene po velikosti
     var k = D.razvrsti, s = D.smer;
     return r.sort(function (a, b) {
       if (a.mapa !== b.mapa) return a.mapa ? -1 : 1;
@@ -733,6 +746,22 @@
     }).catch(function () { $("novoPotrdi").disabled = false; var n = $("novoNapaka"); n.textContent = t("nSplosno"); n.hidden = false; });
   }
   // ------------------------------------------------------------------ SKUPNI PROSTOR (zakon solidarnosti)
+  /** Ko racunalniku zmanjkuje prostora, Datoteke same ponudijo shranjevanje na napravo v Linku. */
+  var opozoriloProstora = null;
+  function preveriProstor() {
+    klic("prostorDiska").then(function (p) {
+      if (opozoriloProstora) { opozoriloProstora.remove(); opozoriloProstora = null; }
+      if (!p || !p.malo) return;
+      var o = el("div", "dat-opozorilo"); o.setAttribute("role", "status"); opozoriloProstora = o;
+      o.style.cssText = "display:flex;gap:.8em;align-items:center;padding:.55em .8em;margin-bottom:.45em;border-radius:10px;background:rgba(255,190,90,.14);border:1px solid rgba(255,190,90,.45)";
+      var b = el("span", "", t("maloProstora", { prosto: velikost(p.prosto) })); b.style.flex = "1";
+      var g = el("button", "", t("pokaziNajvecje")); g.type = "button";
+      g.addEventListener("click", function () { odpriVir({ vrsta: "najvecje" }); });
+      o.appendChild(b); o.appendChild(g);
+      var glavno = document.querySelector(".dat-glavno"); if (glavno) glavno.insertBefore(o, glavno.firstChild);
+    }).catch(function () {});
+  }
+
   // Datoteko shrani naprava v Safeer Linku z najvec prostora. Izvirnik izbrise sele uporabnik,
   // ko vidi, na kateri napravi in v kateri mapi je preverjena kopija.
   function shraniNaNapravo(e) {
@@ -773,6 +802,7 @@
             if (!x || !x.ok) { napaka(x); return; }
             koncaj(t("shrIzbrisano", z));
             if (D.vir) odpriVir(D.vir);
+            preveriProstor();
           }).catch(function () { napaka(null); });
         });
         gObdrzi.addEventListener("click", function () {

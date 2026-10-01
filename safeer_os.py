@@ -1302,6 +1302,8 @@ class SafeerOS(Gtk.Application):
             "predlogeDatotek": os_datoteke.predloge,
             "preimenujDatoteko": lambda: os_datoteke.preimenuj(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "vSmeti": lambda: os_datoteke.v_smeti(str(a[0]) if a else ""),
+            "prostorDiska": lambda: os_datoteke.prostor(),
+            "najvecjeDatoteke": lambda: os_datoteke.najvecje(),
             "izberiMapo": lambda: self._izberi_mapo(*[str(x) for x in a[:4]]),
             "medijskeMape": lambda: self._medijska_knjiznica().mape_podrobno(),
             "odstraniMedijskoMapo": lambda: self._odstrani_medijsko_mapo(str(a[0]) if a else ""),

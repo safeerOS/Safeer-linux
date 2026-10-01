@@ -140,6 +140,58 @@ def isci(niz: str, dom: Optional[str] = None, rok: float = 1.5) -> List[dict]:
     return zadetki
 
 
+#: Malo prostora: manj kot 10 % diska ali manj kot 5 GB (kar nastopi prej).
+MALO_DELEZ = 0.10
+MALO_BAJTOV = 5 * 1024 ** 3
+#: Najmanjsa datoteka, ki jo ponudimo za shranjevanje na drugo napravo.
+NAJMANJ_VELIKA = 100 * 1024 ** 2
+
+
+def prostor(dom: Optional[str] = None) -> dict:
+    """Prostor na disku domace mape (takoj, brez pregledovanja): skupaj, prosto in ali ga je malo."""
+    try:
+        st = os.statvfs(dom or os.path.expanduser("~"))
+    except OSError:
+        return {"skupaj": 0, "prosto": -1, "malo": False}
+    skupaj, prosto = st.f_blocks * st.f_frsize, st.f_bavail * st.f_frsize
+    return {"skupaj": skupaj, "prosto": prosto, "malo": prosto < MALO_BAJTOV or (skupaj > 0 and prosto < skupaj * MALO_DELEZ)}
+
+
+def najvecje(dom: Optional[str] = None, koliko: int = 12, rok: float = 1.5) -> List[dict]:
+    """Najvecje datoteke v domaci mapi (vsaj 100 MB), za shranjevanje na drugo napravo v Linku.
+    Kot isci(): brez skritih map in map s programsko kodo, najvec `rok` sekund - brez opaznega zastoja."""
+    dom = dom or os.path.expanduser("~")
+    konec = time.monotonic() + rok
+    najdene: List[tuple] = []
+    vrsta = deque([dom])
+    while vrsta and time.monotonic() < konec:
+        mapa = vrsta.popleft()
+        try:
+            vnosi = list(os.scandir(mapa))
+        except OSError:
+            continue
+        for v in vnosi:
+            if v.name.startswith("."):
+                continue
+            try:
+                if v.is_dir(follow_symlinks=False):
+                    if v.name not in PRESKOCI:
+                        vrsta.append(v.path)
+                elif v.is_file(follow_symlinks=False):
+                    velikost = v.stat(follow_symlinks=False).st_size
+                    if velikost >= NAJMANJ_VELIKA:
+                        najdene.append((velikost, v.path, v.name))
+            except OSError:
+                continue
+    najdene.sort(reverse=True)
+    izid = []
+    for _, pot, ime in najdene[:koliko]:
+        e = _element(pot, ime)
+        if e is not None:
+            izid.append(e)
+    return izid
+
+
 def odpri(pot: str) -> bool:
     """Odpre datoteko s privzetim programom oz. mapo v Nemu."""
     pot = os.path.abspath(os.path.expanduser(str(pot or "")))
