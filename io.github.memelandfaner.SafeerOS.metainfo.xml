@@ -36,6 +36,7 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.4.13" date="2026-10-01"><description><p>Shared space in Safeer Link: when the computer runs low on disk space, Files shows the largest files and can store one on the device in Safeer Link with the most free space. The copy is verified; you see on which device and in which folder it is, and only then decide whether to delete the original.</p></description></release>
     <release version="0.4.12" date="2026-10-01"><description><p>The Safeer Link window shows every device's spare capacity and whether it can help. A film that is already fully downloaded on the computer is streamed straight from disk to the TV instead of being downloaded again.</p></description></release>
     <release version="0.4.11" date="2026-10-01"><description><p>Every device in Safeer Link now reports its spare capacity and whether it can help others right now. The computer helps only when it is not busy, has memory and disk space, and – on a laptop – is plugged in or has at least 40 % battery (it stops below 30 %).</p></description></release>
     <release version="0.4.10" date="2026-10-01"><description><p>Solidarity in Safeer Link: when a weaker device such as a TV opens a torrent from a Stremio add-on, this computer downloads it and streams it to the TV, so nothing is stored on the TV. The computer only takes on the job when it has spare capacity and disk space, and finished downloads can be removed from the TV's media center.</p></description></release>
