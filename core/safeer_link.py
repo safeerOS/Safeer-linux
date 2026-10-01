@@ -502,6 +502,9 @@ class SafeerLink:
         self.okno = None
         self.pogled = None
         self._prekini_qr()
+        # Koda »Poveži naprave« velja samo, dokler jo uporabnik vidi: zaprto okno je ne sme drzati odprte,
+        # sicer bi naprava, kamor vtipkas kodo z drugega zaslona (npr. TV), izbrala ta racunalnik.
+        self._prekini_vabilo()
         if self.ob_zaprtju is not None:
             try:
                 self.ob_zaprtju()
