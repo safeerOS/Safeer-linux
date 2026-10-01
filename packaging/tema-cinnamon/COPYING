@@ -12,6 +12,7 @@ Izpeljano iz:
   Cinnamon, GTK 3/4 in obrobe oken uvozijo Mint-Y-Dark-Blue iz sistema; tema doda le
   prekrivne sloge. metacity-1 je povezava na Mint-Y, gtk-2.0 na Mint-Y-Dark-Blue.
 
-Ozadje (ozadje/safeer-gore-16-9.svg in PNG iz njega): Safeer, del te teme, GPL-3.0-or-later.
+Ozadja (ozadje/: safeer-gore-16-9.svg in PNG iz njega; safeer-aurora/zora/globina.jpg, narisana s
+tools/ozadja_cinnamon.py): Safeer, del te teme, GPL-3.0-or-later.
 
 Tema je locen paket; programi Safeer (Apache-2.0) je ne vsebujejo in od nje niso odvisni.

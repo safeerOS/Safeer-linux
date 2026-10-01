@@ -10,11 +10,20 @@
 <!-- Delovna povrsina Safeer Cinnamon: iskanje zgoraj, levo predvajalnik + datoteke, desno programi naprav.
      Vse vsebine pridejo iz Safeer OS (most window.SafeerOS) - brez izmisljenih podatkov. -->
 <header class="vrh">
+  <div class="iskalnik">
   <form class="iskanje" id="iskanje" role="search" autocomplete="off">
     <svg class="ik" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z M20 20l-4-4"/></svg>
     <input id="iskalnoPolje" type="search" data-ph="iskanjePh" aria-label="Išči" aria-controls="zadetki" aria-expanded="false" spellcheck="false">
     <kbd class="namig" data-t="iskanjeNamig">Enter = splet</kbd>
   </form>
+  <div class="zadetki" id="zadetki" role="listbox" hidden></div>
+  <!-- Safeer Link: stanje na prvi pogled; prijavno okno se odpre samo na klik, nikoli samo ob prijavi. -->
+  <button type="button" class="link-gumb" id="gumbLink" hidden>
+    <span class="link-pika" aria-hidden="true"></span>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1 M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>
+    <span id="linkBesedilo">Safeer Link</span>
+  </button>
+  </div>
   <div class="vrh-orodja">
     <button type="button" class="gumb-ikona" id="gumbPlosce" aria-haspopup="true" aria-expanded="false" data-naslov="plosceNaslov">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h7v14H4z M13 5h7v6h-7z M13 13h7v6h-7z"/></svg>
@@ -30,9 +39,12 @@
       <hr>
       <label><input type="checkbox" id="stikaloTekst"> <span data-t="vecjiTekst">Večje besedilo</span></label>
       <label><input type="checkbox" id="stikaloProsojnost"> <span data-t="manjProsojnosti">Manj prosojnosti</span></label>
+      <hr>
+      <button type="button" id="gumbOzadje" data-t="spremeniOzadje">Spremeni ozadje …</button>
+      <button type="button" id="gumbDock" data-t="prilagodiDock">Prilagodi dock …</button>
+      <p class="meni-namig" data-t="dockNamig">Program dodaš v dock tako, da ga povlečeš iz menija; odstraniš ga tako, da ga povlečeš ven.</p>
     </div>
   </div>
-  <div class="zadetki" id="zadetki" role="listbox" hidden></div>
 </header>
 
 <main class="postavitev" id="postavitev">

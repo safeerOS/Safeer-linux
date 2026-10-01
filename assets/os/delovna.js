@@ -63,7 +63,12 @@
       zagonPoslan: "Ukaz poslan napravi {naprava}.",
       skSplet: "Splet", skProgrami: "Programi", skProgramiNaprav: "Programi naprav", skDatoteke: "Datoteke", skMediji: "Mediji",
       isciVSpletu: "Išči »{q}« v spletu", odpreVBrskalniku: "privzeti brskalnik", isciem: "Iščem …",
-      prostor: "{n} el."
+      prostor: "{n} el.",
+      spremeniOzadje: "Spremeni ozadje …", prilagodiDock: "Prilagodi dock …",
+      dockNamig: "Program dodaš v dock tako, da ga povlečeš iz menija; odstraniš ga tako, da ga povlečeš ven.",
+      linkPovezan: "Safeer Link · {n}", linkPovezanBrez: "Safeer Link · povezano",
+      linkPovezi: "Poveži se v Safeer Link", linkNaslov: "Safeer Link: tvoje naprave (odpre Safeer Control)",
+      naprav1: "1 naprava", naprav2: "2 napravi", naprav34: "{n} naprave", napravN: "{n} naprav"
     },
     en: {
       iskanjePh: "Search the web, apps, files and media …", iskanjeNamig: "Enter = web",
@@ -104,7 +109,12 @@
       zagonPoslan: "Sent to {naprava}.",
       skSplet: "Web", skProgrami: "Apps", skProgramiNaprav: "Apps on devices", skDatoteke: "Files", skMediji: "Media",
       isciVSpletu: "Search the web for “{q}”", odpreVBrskalniku: "default browser", isciem: "Searching …",
-      prostor: "{n} items"
+      prostor: "{n} items",
+      spremeniOzadje: "Change wallpaper …", prilagodiDock: "Customise dock …",
+      dockNamig: "Add an app to the dock by dragging it from the menu; drag it out to remove it.",
+      linkPovezan: "Safeer Link · {n}", linkPovezanBrez: "Safeer Link · connected",
+      linkPovezi: "Connect to Safeer Link", linkNaslov: "Safeer Link: your devices (opens Safeer Control)",
+      naprav1: "1 device", naprav2: "2 devices", naprav34: "{n} devices", napravN: "{n} devices"
     }
   };
   var jezik = "sl";
@@ -301,6 +311,7 @@
       odpriVir({ vrsta: "nedavno" });
       naloziProgrameNaprav();
       medijZanka();
+      osveziLink();
     }).catch(function () { zgradiStranDatotek(); });
   }
 
@@ -627,6 +638,7 @@
       });
       P.programi = vsi; P.nedosegljive = ned; P.nalozeno = true;
       izrisiPrograme();
+      izrisiLink();
       ponoviCeTreba();
     }).catch(function () {
       P.brezControla = true; P.nalozeno = true; P.programi = []; izrisiPrograme();
@@ -872,6 +884,37 @@
       .catch(function () { klic("iskanjeSplet", [q]); });
   }
 
+  // ------------------------------------------------------------------ SAFEER LINK (gumb pod iskalnikom)
+  // Samo prikaz stanja; prijavno okno (Safeer Control) se odpre izkljucno na klik uporabnika.
+  var L = { stanje: null, casovnik: 0 };
+  function steviloNaprav(n) {
+    var m100 = n % 100;
+    if (jezik !== "sl") return t(n === 1 ? "naprav1" : "napravN", { n: n });
+    if (m100 === 1) return t("naprav1");
+    if (m100 === 2) return t("naprav2");
+    if (m100 === 3 || m100 === 4) return t("naprav34", { n: n });
+    return t("napravN", { n: n });
+  }
+  function izrisiLink() {
+    var g = $("gumbLink"), p = L.stanje;
+    if (!p || !p.control) { g.hidden = true; return; }
+    var povezan = p.stanje === "povezan";
+    var ids = {};
+    P.naprave.concat(D.naprave).forEach(function (n) { if (n && n.id) ids[n.id] = 1; });
+    var n = Object.keys(ids).length;
+    g.hidden = false;
+    g.classList.toggle("povezan", povezan);
+    g.classList.toggle("nepovezan", !povezan);
+    $("linkBesedilo").textContent = povezan ? (n ? t("linkPovezan", { n: steviloNaprav(n) }) : t("linkPovezanBrez")) : t("linkPovezi");
+    g.title = t("linkNaslov");
+  }
+  function osveziLink() {
+    clearTimeout(L.casovnik);
+    if (!most) return;
+    klic("povezava").then(function (p) { L.stanje = p || null; izrisiLink(); }).catch(function () {});
+    L.casovnik = setTimeout(osveziLink, 60000);
+  }
+
   // ------------------------------------------------------------------ vezave
   var zadnjeOsvezevanje = Date.now();
   function vezi() {
@@ -948,6 +991,14 @@
       }
     });
 
+    // Safeer Link, ozadje, dock
+    $("gumbLink").addEventListener("click", function () {
+      klic("control").then(function (ok) { if (!ok) obvesti(t("brezControla")); }).catch(function () {});
+      setTimeout(osveziLink, 8000);
+    });
+    $("gumbOzadje").addEventListener("click", function () { $("meniPlosce").hidden = true; klic("nastavitveOzadja"); });
+    $("gumbDock").addEventListener("click", function () { $("meniPlosce").hidden = true; klic("nastavitveDocka"); });
+
     // Mediji
     document.querySelectorAll("#kontrole [data-ukaz]").forEach(function (b) {
       b.addEventListener("click", function () { klic("predvajalnikUkaz", [b.getAttribute("data-ukaz")]).then(medijOsvezi); });
@@ -961,10 +1012,14 @@
     // Dogodki iz Safeer OS (enako ime kot na glavni strani): osvezi, kar se je spremenilo.
     window.safeerOsDogodek = function (vrsta) {
       if (vrsta === "medijskaKnjiznica") medijOsvezi();
+      else if (vrsta === "ozadje") {
+        var u = arguments[1] || "";
+        document.documentElement.style.setProperty("--ozadje-slika", u ? 'url("' + u + '")' : "none");
+      }
       else if (vrsta === "robovi") { robovi(arguments[1] || {}); izrisiDatoteke(); izrisiPrograme(); }
       else if (vrsta === "fokus" && Date.now() - zadnjeOsvezevanje > 30000) {
         // Naprave v Linku se spreminjajo: ob vrnitvi v Safeer OS osvezimo najvec vsakih 30 s.
-        zadnjeOsvezevanje = Date.now(); zgradiStranDatotek(); naloziProgrameNaprav();
+        zadnjeOsvezevanje = Date.now(); zgradiStranDatotek(); naloziProgrameNaprav(); osveziLink();
       }
     };
   }

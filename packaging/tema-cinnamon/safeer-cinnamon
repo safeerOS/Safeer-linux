@@ -10,6 +10,7 @@
 #   safeer-cinnamon --vecji-tekst   besedilo 125 %   (--obicajen-tekst: nazaj)
 #   safeer-cinnamon --stanje        izpise, kaj je vklopljeno
 #   safeer-cinnamon --seja          ob prijavi: delovna povrsina Safeer OS (safeer-os --delovna)
+#   safeer-cinnamon --nastavitve-docka  odpre nastavitve docka (programe dodas tako, da jih povleces iz menija)
 #
 # Samo uradne nastavitve Cinnamona (gsettings) in Planka (dconf). V ozadju tecejo le dock Plank in
 # Safeer OS (delovna povrsina), ce sta namescena; --izklopi vrne vse.
@@ -27,7 +28,7 @@ VKLOPLJENO="$MAPA/vklopljeno"
 TUJI_ZAGONI="safeer-os.desktop safeer-os-tema.desktop safeer-tema.desktop"
 PLANK_TEME="${XDG_DATA_HOME:-$HOME/.local/share}/plank/themes"
 SKUPNO="/usr/share/safeer-cinnamon"
-OZADJE="/usr/share/backgrounds/safeer/safeer-gore-3840x2160.png"
+OZADJE="/usr/share/backgrounds/safeer/safeer-aurora.jpg"
 TEMA="Safeer-Cinnamon"
 KONTRAST="Safeer-Cinnamon-Kontrast"
 PLANK_DOCK="/net/launchpad/plank/docks/dock1/"
@@ -86,6 +87,41 @@ dock_zazeni() {
     (setsid plank >/dev/null 2>&1 &)
 }
 
+# Zacetni nabor programov v docku (namesto Plankovih nakljucnih privzetih). Le enkrat: kar uporabnik
+# potem doda (povleci iz menija) ali odstrani (povleci ven), ostane njegovo. Izklop vrne prejsnji nabor.
+NABOR_DOCKA="nemo safeer-browser org.x.editor io.github.celluloid_player.Celluloid org.gnome.Terminal mintinstall cinnamon-settings"
+LAUNCHERJI="${XDG_CONFIG_HOME:-$HOME/.config}/plank/dock1/launchers"
+
+najdi_program() {
+    local d
+    for d in "${XDG_DATA_HOME:-$HOME/.local/share}/applications" /usr/local/share/applications /usr/share/applications \
+             /var/lib/flatpak/exports/share/applications; do
+        [ -f "$d/$1.desktop" ] && { printf '%s\n' "$d/$1.desktop"; return 0; }
+    done
+    return 1
+}
+
+nabor_docka() {
+    [ -e "$MAPA/dock-nabor" ] && return 0
+    local ime pot seznam=""
+    if [ -d "$LAUNCHERJI" ]; then rm -rf "$MAPA/plank-launcherji-prej"; cp -a "$LAUNCHERJI" "$MAPA/plank-launcherji-prej"; fi
+    rm -rf "$LAUNCHERJI"; mkdir -p "$LAUNCHERJI"
+    for ime in $NABOR_DOCKA; do
+        pot="$(najdi_program "$ime")" || continue
+        printf '[PlankDockItemPreferences]\nLauncher=file://%s\n' "$pot" > "$LAUNCHERJI/$ime.dockitem"
+        seznam="$seznam${seznam:+, }'$ime.dockitem'"
+    done
+    command -v dconf >/dev/null 2>&1 && dconf write "${PLANK_DOCK}dock-items" "[$seznam]"
+    : > "$MAPA/dock-nabor"
+}
+
+nabor_docka_vrni() {
+    [ -e "$MAPA/dock-nabor" ] || return 0
+    rm -rf "$LAUNCHERJI"
+    [ -d "$MAPA/plank-launcherji-prej" ] && mv "$MAPA/plank-launcherji-prej" "$LAUNCHERJI"
+    rm -f "$MAPA/dock-nabor"
+}
+
 dock() {
     command -v plank >/dev/null 2>&1 || { echo "safeer-cinnamon: Plank ni namescen - dock preskocen (sudo apt install plank)."; return 0; }
     mkdir -p "$PLANK_TEME/$TEMA"
@@ -96,12 +132,17 @@ dock() {
         dconf write "${PLANK_DOCK}alignment" "'center'"
         # 'none' = dock je vedno viden in si rezervira prostor: okna ga ne prekrijejo.
         dconf write "${PLANK_DOCK}hide-mode" "'none'"
-        dconf write "${PLANK_DOCK}icon-size" "40"
+        dconf write "${PLANK_DOCK}icon-size" "48"
         dconf write "${PLANK_DOCK}zoom-enabled" "false"
+        # Poleg pripetih pokaze tudi odprte (nedavne) programe.
+        dconf write "${PLANK_DOCK}pinned-only" "false"
     fi
+    local novo=""
+    [ -e "$MAPA/dock-nabor" ] || novo=1
+    nabor_docka
     mkdir -p "$(dirname "$AUTOSTART")"
     printf '[Desktop Entry]\nType=Application\nName=Safeer Cinnamon dock\nExec=safeer-cinnamon --dock\nX-GNOME-Autostart-enabled=true\nNoDisplay=true\n' > "$AUTOSTART"
-    pgrep -x plank >/dev/null 2>&1 || dock_zazeni
+    if [ -n "$novo" ] || ! pgrep -x plank >/dev/null 2>&1; then dock_zazeni; fi
 }
 
 zagoni_izklopi() {
@@ -167,6 +208,7 @@ izklopi() {
         rm -f "$MAPA/plank-prej.ini"
     fi
     rm -rf "$PLANK_TEME/$TEMA"
+    nabor_docka_vrni
 }
 
 stanje() {
@@ -188,7 +230,8 @@ case "${1:-}" in
     --obicajen-tekst)        pisi org.cinnamon.desktop.interface:text-scaling-factor "1.0" ;;
     --stanje|--status)       stanje ;;
     --dock)                  [ -f "$VKLOPLJENO" ] && dock_zazeni ;;
+    --nastavitve-docka)      command -v plank >/dev/null 2>&1 && exec plank --preferences ;;
     --seja)                  [ -f "$VKLOPLJENO" ] && command -v safeer-os >/dev/null 2>&1 && exec safeer-os --delovna ;;
-    -h|--help)               sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//' ;;
+    -h|--help)               sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//' ;;
     *) echo "safeer-cinnamon: neznana moznost $1 (--help)" >&2; exit 2 ;;
 esac
