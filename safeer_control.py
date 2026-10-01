@@ -721,6 +721,10 @@ class SafeerControl(Gtk.Application):
       <method name="PretvorbaStanje"><arg type="s" name="id" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="PretvorbaPrenesi"><arg type="s" name="id" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="PretvorbaPusti"><arg type="s" name="id" direction="in"/><arg type="s" name="json" direction="out"/></method>
+      <method name="PretvorbaZacniVec"><arg type="s" name="poti" direction="in"/><arg type="s" name="json" direction="out"/></method>
+      <method name="PretvorbaSkupina"><arg type="s" name="id" direction="in"/><arg type="s" name="json" direction="out"/></method>
+      <method name="PretvorbaPrenesiSkupino"><arg type="s" name="id" direction="in"/><arg type="s" name="json" direction="out"/></method>
+      <method name="PretvorbaPustiSkupino"><arg type="s" name="id" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="Datoteke"><arg type="s" name="naprava" direction="in"/><arg type="s" name="mapa" direction="in"/><arg type="s" name="json" direction="out"/></method>
     </interface></node>"""
 
@@ -781,8 +785,18 @@ class SafeerControl(Gtk.Application):
                     lambda i, d, p: link.ukaz_pocakaj(i, d, p, cas=20.0),
                     self.datoteke, lambda: link._hub() or "")
             arg = str(a[0]) if a else ""
+            if metoda == "PretvorbaZacniVec":
+                # Seznam poti (datoteke ali mape) kot JSON - zakon solidarnosti, korak 4 (sorazmerni delez).
+                try:
+                    poti = json.loads(arg) if arg.startswith("[") else [arg]
+                except ValueError:
+                    poti = []
+                return self.pretvorba.zacni_vec([str(x) for x in poti if isinstance(x, str)])
             dejanje = {"PretvorbaZacni": self.pretvorba.zacni, "PretvorbaStanje": self.pretvorba.stanje,
-                       "PretvorbaPrenesi": self.pretvorba.prenesi, "PretvorbaPusti": self.pretvorba.pusti}.get(metoda)
+                       "PretvorbaPrenesi": self.pretvorba.prenesi, "PretvorbaPusti": self.pretvorba.pusti,
+                       "PretvorbaSkupina": self.pretvorba.stanje_skupine,
+                       "PretvorbaPrenesiSkupino": self.pretvorba.prenesi_skupino,
+                       "PretvorbaPustiSkupino": self.pretvorba.pusti_skupino}.get(metoda)
             return dejanje(arg) if dejanje else {"ok": False, "koda": "neznano"}
         if metoda == "Preimenuj":
             # Ime hrani sredisce (/cast/devices/rename) in ga vidijo vse naprave; prazno vrne prvotno ime.

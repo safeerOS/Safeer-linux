@@ -18,6 +18,7 @@ import subprocess
 import threading
 import time
 import uuid
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Dict, List, Optional, Tuple
 from urllib.parse import quote, urlparse
@@ -185,6 +186,37 @@ class Opravilo:
                 "razlogi": self.razlogi}
 
 
+class Skupina:
+    """Vec videov hkrati (zakon solidarnosti, korak 4: sorazmerni delez). Vsaka naprava, ki sme pomagati,
+    pretvarja en video naenkrat; ko konca, vzame naslednjega. Mocnejsa naprava zato sama opravi vec,
+    sibkejsa manj - nobena ni preobremenjena."""
+
+    def __init__(self, opravila: List[Opravilo]) -> None:
+        self.id = uuid.uuid4().hex
+        self.opravila = opravila
+        self.koncana = False      # vsa opravila so v koncnem stanju (koncano/napaka/...)
+        self.nazaj = ""           # "" | prenasam | koncano - prenos vseh pretvorjenih na ta racunalnik
+
+    def slovar(self) -> dict:
+        seznam = [o.slovar() for o in self.opravila]
+        po_napravah: Dict[str, int] = {}
+        for o in self.opravila:
+            if o.cilj_ime and o.stanje in KONCNA_USPESNA:
+                po_napravah[o.cilj_ime] = po_napravah.get(o.cilj_ime, 0) + 1
+        return {"id": self.id, "koncano": self.koncana, "nazaj": self.nazaj, "skupaj": len(seznam),
+                "uspesno": sum(1 for o in self.opravila if o.stanje in KONCNA_USPESNA),
+                "napake": sum(1 for o in self.opravila if o.stanje == "napaka"),
+                "po_napravah": po_napravah, "opravila": seznam}
+
+
+#: Stanja, v katerih je pretvorba uspela (video je pretvorjen, na napravi ali ze tu).
+KONCNA_USPESNA = ("koncano", "prenasam_nazaj", "na_racunalniku", "pusceno")
+#: Zavrnitve, pri katerih video poskusimo na drugi napravi (naprava medtem ne more, ne zna, nima prostora).
+PONOVI_DRUGJE = ("baterija", "varcevanje", "pregreto", "malo_pomnilnika", "preobremenjen", "ni_prostora", "sorodnik",
+                 "ne_zna_dekodirati", "naprava_ne_odgovori", "zavrnjeno")
+NAJVEC_POSKUSOV = 3
+
+
 class Pretvorba:
     """Pretvorbe videov na drugih napravah; klice jih Safeer OS prek Controla (D-Bus Naprave.Pretvorba*)."""
 
@@ -200,6 +232,12 @@ class Pretvorba:
         self._prenesi = prenesi or prenesi_z_naprave
         self._sonda = sonda
         self.opravila: Dict[str, Opravilo] = {}
+        self.skupine: Dict[str, Skupina] = {}
+        #: Naprave, ki ta trenutek pretvarjajo za ta racunalnik (en video na napravo - brez preobremenitve).
+        self.zasedene: Dict[str, str] = {}
+        self._zaklep = threading.Lock()
+        #: Izmerjena hitrost naprav (bajtov izvirnika na sekundo) - za pameten razpored zadnjih videov.
+        self.hitrosti: Dict[str, float] = {}
 
     def zacni(self, pot: str) -> dict:
         if not pot or not os.path.isfile(pot):
@@ -210,6 +248,144 @@ class Pretvorba:
         self.opravila[o.id] = o
         threading.Thread(target=self._pretvori, args=(o,), name="safeer-pretvorba", daemon=True).start()
         return {"ok": True, **o.slovar()}
+
+    # ------------------------------------------------------------------ vec videov (sorazmerni delez)
+
+    def zacni_vec(self, poti: List[str]) -> dict:
+        """Pretvori vec videov hkrati, razdeljeno med vse naprave, ki lahko pomagajo."""
+        videi = []
+        for p in poti:
+            if p and os.path.isdir(p):
+                videi += sorted(os.path.join(p, i) for i in os.listdir(p)
+                                if je_video(i) and not i.startswith(".") and "-1080p." not in i)
+            elif p and os.path.isfile(p) and je_video(p):
+                videi.append(p)
+        if not videi:
+            return {"ok": False, "koda": "ni_videov"}
+        g = Skupina([Opravilo(p) for p in videi[:200]])
+        for o in g.opravila:
+            self.opravila[o.id] = o
+        self.skupine[g.id] = g
+        threading.Thread(target=self._razdeli, args=(g,), name="safeer-pretvorba-skupina", daemon=True).start()
+        return {"ok": True, **g.slovar()}
+
+    def stanje_skupine(self, id_: str) -> dict:
+        g = self.skupine.get(id_)
+        return {"ok": True, **g.slovar()} if g else {"ok": False, "koda": "ni_skupine"}
+
+    def prenesi_skupino(self, id_: str) -> dict:
+        """Vse pretvorjene videe skupine shrani na ta racunalnik (vsakega zraven izvirnika)."""
+        g = self.skupine.get(id_)
+        if g is None:
+            return {"ok": False, "koda": "ni_skupine"}
+        g.nazaj = "prenasam"
+
+        def vsi():
+            for o in g.opravila:
+                if o.stanje == "koncano":
+                    o.stanje, o.odstotek = "prenasam_nazaj", 0
+                    self._nazaj(o)
+            g.nazaj = "koncano"
+        threading.Thread(target=vsi, name="safeer-pretvorba-skupina-nazaj", daemon=True).start()
+        return {"ok": True, **g.slovar()}
+
+    def pusti_skupino(self, id_: str) -> dict:
+        g = self.skupine.get(id_)
+        if g is None:
+            return {"ok": False, "koda": "ni_skupine"}
+        for o in g.opravila:
+            if o.stanje == "koncano":
+                o.stanje = "pusceno"
+        return {"ok": True, **g.slovar()}
+
+    def _razdeli(self, g: Skupina) -> None:
+        cakajo = deque(g.opravila)
+        poskusi: Dict[str, int] = {}
+        izkljucene: Dict[str, set] = {}
+        tecejo: Dict[str, threading.Thread] = {}
+
+        zacetki: Dict[str, float] = {}
+
+        def izvedi(o: Opravilo, n: dict, oblika: Optional[dict]) -> None:
+            zacetek = time.monotonic()
+            try:
+                self._pretvori(o, [n], oblika)
+                if o.stanje == "koncano" and o.velikost > 0:
+                    trajanje = max(0.01, time.monotonic() - zacetek)
+                    prej = self.hitrosti.get(n["id"])
+                    nova = o.velikost / trajanje
+                    self.hitrosti[n["id"]] = nova if prej is None else 0.5 * prej + 0.5 * nova
+            finally:
+                with self._zaklep:
+                    self.zasedene.pop(n["id"], None)
+
+        def cas_na(id_naprave: str, velikost: int) -> Optional[float]:
+            h = self.hitrosti.get(id_naprave)
+            return velikost / h if h else None
+
+        def raje_pocakaj(n: dict, velikost: int) -> bool:
+            """Ali bi zasedena hitrejsa naprava (koncala trenutni video + ta video) koncala prej kot prosta
+            pocasna? Takrat zadnjih videov ne damo pocasni napravi - uporabnik bi cakal nanjo."""
+            moj = cas_na(n["id"], velikost)
+            if moj is None:
+                return False
+            with self._zaklep:
+                zasedene = dict(self.zasedene)
+            for dev, oid in zasedene.items():
+                h = self.hitrosti.get(dev)
+                if not h:
+                    continue
+                x = self.opravila.get(oid)
+                ostane = max(0.0, (x.velikost if x else 0) / h - (time.monotonic() - zacetki.get(oid, time.monotonic())))
+                if ostane + velikost / h < 0.8 * moj:
+                    return True
+            return False
+
+        while cakajo or tecejo:
+            for oid, t in list(tecejo.items()):
+                if t.is_alive():
+                    continue
+                del tecejo[oid]
+                o = self.opravila[oid]
+                if o.stanje == "napaka" and o.napaka in PONOVI_DRUGJE and poskusi.get(oid, 0) < NAJVEC_POSKUSOV:
+                    izkljucene.setdefault(oid, set()).add(o.cilj)
+                    o.stanje, o.napaka, o.odstotek, o.cilj, o.cilj_ime = "isceno", "", 0, "", ""
+                    cakajo.append(o)
+            if cakajo:
+                o = cakajo[0]
+                with self._zaklep:
+                    zasedene = set(self.zasedene)
+                oblika = self._sonda(o.pot)
+                o.razlogi = {}
+                kandidati = [n for n in razvrsti_naprave(self.naprave(), self.vprasaj, o.velikost, oblika, o.razlogi)
+                             if n["id"] not in zasedene and n["id"] not in izkljucene.get(o.id, set())]
+                # Najprej naprava z najkrajsim izmerjenim casom za ta video; neizmerjene po oceni kodirnika.
+                kandidati.sort(key=lambda x: (cas_na(x["id"], o.velikost) is None, cas_na(x["id"], o.velikost) or 0.0))
+                if kandidati and raje_pocakaj(kandidati[0], o.velikost):
+                    kandidati = []
+                    zasedene = zasedene or {"_cakam"}
+                if kandidati:
+                    n = kandidati[0]
+                    cakajo.popleft()
+                    zacetki[o.id] = time.monotonic()
+                    poskusi[o.id] = poskusi.get(o.id, 0) + 1
+                    with self._zaklep:
+                        self.zasedene[n["id"]] = o.id
+                    o.cilj, o.cilj_ime = n["id"], n.get("ime") or n["id"]
+                    t = threading.Thread(target=izvedi, args=(o, n, oblika), name="safeer-pretvorba-del", daemon=True)
+                    tecejo[o.id] = t
+                    t.start()
+                    continue   # takoj poskusi dati naslednji video naslednji prosti napravi
+                if not tecejo and not zasedene:
+                    # Nobena naprava ne more (in nobena ne dela): preostali videi ne gredo nikamor.
+                    while cakajo:
+                        x = cakajo.popleft()
+                        x.stanje = "napaka"
+                        x.napaka = "ne_zna_dekodirati" if x.razlogi and all("ne zna prebrati" in r for r in x.razlogi.values()) \
+                            else "ni_naprave"
+                    break
+            time.sleep(self.cakaj)
+        g.koncana = True
 
     def _ena_bi_zmogla(self, velikost: int) -> bool:
         """Ali bi kaksna naprava pomagala, ce ne bi slo za obliko (za razumljivo sporocilo)."""
@@ -253,10 +429,11 @@ class Pretvorba:
         except Exception as e:  # noqa: BLE001
             o.napaka, o.stanje = str(e) or type(e).__name__, "koncano"
 
-    def _pretvori(self, o: Opravilo) -> None:
+    def _pretvori(self, o: Opravilo, kandidati: Optional[List[dict]] = None, oblika: Optional[dict] = None) -> None:
         try:
-            oblika = self._sonda(o.pot)
-            kandidati = razvrsti_naprave(self.naprave(), self.vprasaj, o.velikost, oblika, o.razlogi)
+            if kandidati is None:
+                oblika = self._sonda(o.pot)
+                kandidati = razvrsti_naprave(self.naprave(), self.vprasaj, o.velikost, oblika, o.razlogi)
             if not kandidati:
                 raise _Napaka("ne_zna_dekodirati" if oblika is not None and self._ena_bi_zmogla(o.velikost) else "ni_naprave")
             s = self.datoteke.streznik
