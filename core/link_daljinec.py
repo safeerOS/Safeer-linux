@@ -101,6 +101,8 @@ DEJANJA_HOST = ["host.info"]
 DEJANJA_ZASLON = ["screen.start", "screen.stop", "screen.status"]
 #: Magnet povezava z druge naprave v krogu: odpre jo Safeer OS (Medijski center), ce je namescen.
 DEJANJA_MAGNET = ["magnet.open"]
+#: Torrent prenasa in pretaka ta racunalnik, naprava (televizor) samo predvaja tok - nic ne shranjuje.
+DEJANJA_TOK_TORRENTA = ["magnet.stream", "magnet.list", "magnet.remove"]
 
 
 def _safeer_os() -> str:
@@ -158,6 +160,48 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
                 koncaj(izid(False, "Te datoteke ni mogoče odpreti", koda="ni_datoteke"))
         elif d in DEJANJA_MAGNET:
             koncaj(odpri_magnet(str(parametri.get("uri", "") or "")))
+        elif d in DEJANJA_TOK_TORRENTA:
+            if datoteke is None:
+                koncaj(izid(False, "Pretakanje tu ni na voljo", koda="ni_na_racunalniku"))
+                return
+            import threading
+            if d == "magnet.list":
+                def seznam() -> None:
+                    try:
+                        podatki = datoteke.prenosi_za_naprave()
+                        koncaj(izid(True, f"{len(podatki['items'])} prenosov", podatki))
+                    except Exception:  # noqa: BLE001
+                        koncaj(izid(True, "Ni prenosov", {"items": []}))
+                threading.Thread(target=seznam, name="safeer-magnet-seznam", daemon=True).start()
+                return
+            if d == "magnet.remove":
+                tid = parametri.get("id")
+                if not isinstance(tid, int) or isinstance(tid, bool):
+                    koncaj(izid(False, "Manjka prenos", koda="ni_prenosa"))
+                    return
+
+                def odstrani() -> None:
+                    try:
+                        ok = datoteke.odstrani_prenos(tid)
+                    except Exception:  # noqa: BLE001
+                        ok = False
+                    koncaj(izid(True, "Odstranjeno z računalnika") if ok
+                           else izid(False, "Tega prenosa ni mogoče odstraniti", koda="ni_prenosa"))
+                threading.Thread(target=odstrani, name="safeer-magnet-odstrani", daemon=True).start()
+                return
+            uri = str(parametri.get("uri", "") or "")
+            f = parametri.get("file")
+            f = int(f) if isinstance(f, (int, float)) and not isinstance(f, bool) else None
+
+            def delo() -> None:
+                # Branje metapodatkov traja tudi minuto: ne v niti vmesnika.
+                try:
+                    podatki = datoteke.tok_torrenta(uri, posiljatelj, hub_url, f)
+                    koncaj(izid(True, "Racunalnik pretaka: " + podatki["name"], podatki))
+                except Exception as e:  # noqa: BLE001 - napravi povemo kratko kodo
+                    koda = str(e) if type(e).__name__ == "NapakaTorrenta" else "napaka"
+                    koncaj(izid(False, "Torrenta ni mogoce pretakati", koda=koda))
+            threading.Thread(target=delo, name="safeer-magnet-tok", daemon=True).start()
         elif d in DEJANJA_ZASLON:
             # Zaslon racunalnika na televizorju. Brez uporabnikovega dovoljenja v Controlu ne gre.
             if zaslon is None:
@@ -250,7 +294,7 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
             koncaj(_glasnost(parametri))
         elif d == "status":
             s = {"app": "safeer-control-linux", "version": _razlicica_control(), "foreground": True,
-                 "actions": DEJANJA_CONTROL + DEJANJA_HOST + (DEJANJA_DATOTEKE if datoteke is not None else [])
+                 "actions": DEJANJA_CONTROL + DEJANJA_HOST + (DEJANJA_DATOTEKE + DEJANJA_TOK_TORRENTA if datoteke is not None else [])
                             + (DEJANJA_MAGNET if _safeer_os() else [])
                             + (DEJANJA_PROGRAMI if programi is not None and programi.vklopljeno else [])
                             + (DEJANJA_ZASLON if zaslon is not None and zaslon.na_voljo().get("dovoljeno") else []),

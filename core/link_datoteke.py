@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import http.client
 import http.server
 import json
 import mimetypes
@@ -336,6 +337,10 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
     def _datoteka(self, samo_glava: bool) -> None:
         streznik: StreznikDatotek = self.server.streznik  # type: ignore[attr-defined]
         u = urllib.parse.urlparse(self.path)
+        if u.path.startswith("/m/"):
+            # Torrent, ki ga za napravo (npr. televizor) prenasa in pretaka ta racunalnik.
+            posreduj_tok(self, streznik, u.path.split("/")[2] if len(u.path.split("/")) > 2 else "", samo_glava)
+            return
         if not u.path.startswith("/d/"):
             self._napaka(404, "ni take poti")
             return
@@ -415,6 +420,46 @@ def postrezi_datoteko(obravnava, streznik: "StreznikDatotek", oznaka: str, samo_
         pass
 
 
+def posreduj_tok(obravnava, streznik: "StreznikDatotek", skrivnost: str, samo_glava: bool) -> None:
+    """Tok torrenta, ki ga prenasa racunalnik, za napravo v krogu: zeton v glavi, `Range` gre naprej.
+
+    Naprava (televizor s sibkim pomnilnikom) tako nicesar ne prenasa in ne shranjuje: dobi le
+    sproten tok, kot pri spletnem videu. Lokalni tok (127.0.0.1) je dosegljiv samo prek tega
+    posrednika in samo s skrivnostjo, ki jo je racunalnik izdal za ta tok."""
+    z = obravnava.headers.get("X-Safeer-Token")
+    if not streznik.zeton_velja(z.strip() if z else None):
+        _napaka_http(obravnava, 401, "manjka ali napacen zeton")
+        return
+    cilj = streznik.lokalni_tok(skrivnost)
+    if cilj is None:
+        _napaka_http(obravnava, 404, "toka ni")
+        return
+    u = urllib.parse.urlparse(cilj)
+    glave = {"Range": obravnava.headers["Range"]} if obravnava.headers.get("Range") else {}
+    povezava = http.client.HTTPConnection(u.hostname or "127.0.0.1", u.port or 80, timeout=120)
+    try:
+        povezava.request("HEAD" if samo_glava else "GET", u.path, headers=glave)
+        r = povezava.getresponse()
+        obravnava.send_response(r.status)
+        for ime in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"):
+            if r.getheader(ime):
+                obravnava.send_header(ime, r.getheader(ime))
+        obravnava.send_header("Cache-Control", "no-store")
+        obravnava.send_header("Connection", "close")
+        obravnava.end_headers()
+        if samo_glava:
+            return
+        while True:
+            kos = r.read(VELIKOST_KOSA)
+            if not kos:
+                break
+            obravnava.wfile.write(kos)
+    except (BrokenPipeError, ConnectionResetError, OSError):
+        pass
+    finally:
+        povezava.close()
+
+
 class _Streznik(link_tls.RokovanjeVNiti, http.server.ThreadingHTTPServer):
     daemon_threads = True
     #: Predvajalnik, ki obstane (pavza), ne drzi niti v nedogled.
@@ -434,6 +479,8 @@ class StreznikDatotek:
         #: Ali je naprava umaknjena iz kroga zaupanja: njeni zetoni takoj prenehajo veljati (ne sele po 12 h).
         self.umaknjena = _umaknjena_iz_kroga
         self._streznik: Optional[_Streznik] = None
+        #: Torrenti, ki jih racunalnik pretaka napravam: skrivnost -> lokalni naslov toka (127.0.0.1).
+        self._tokovi: Dict[str, str] = {}
         self._nit: Optional[threading.Thread] = None
         self._kljucavnica = threading.Lock()
 
@@ -467,6 +514,7 @@ class StreznikDatotek:
             except Exception:
                 pass
         self._zetoni.clear()
+        self._tokovi.clear()
         self.vrata = 0
 
     def zeton_za(self, id_naprave: str, zdaj: Optional[float] = None) -> str:
@@ -510,6 +558,29 @@ class StreznikDatotek:
             for z in stari:
                 self._zetoni.pop(z, None)
         return len(stari)
+
+    def dodaj_tok(self, lokalni_url: str) -> str:
+        """Lokalni tok (samo 127.0.0.1) objavi za naprave z zetonom; vrne pot `/m/<skrivnost>/<ime>`."""
+        u = urllib.parse.urlparse(lokalni_url)
+        if u.scheme != "http" or u.hostname not in ("127.0.0.1", "localhost"):
+            raise ValueError("samo lokalni tok")
+        skrivnost = secrets.token_urlsafe(18)
+        with self._kljucavnica:
+            self._tokovi[skrivnost] = lokalni_url
+            while len(self._tokovi) > 64:
+                self._tokovi.pop(next(iter(self._tokovi)))
+        return "/m/%s/%s" % (skrivnost, u.path.rsplit("/", 1)[-1])
+
+    def pozabi_tokove(self) -> None:
+        with self._kljucavnica:
+            self._tokovi.clear()
+
+    def lokalni_tok(self, skrivnost: str) -> Optional[str]:
+        with self._kljucavnica:
+            for k, v in self._tokovi.items():
+                if hmac.compare_digest(k.encode(), str(skrivnost or "").encode()):
+                    return v
+        return None
 
     def osnova(self, naslov_racunalnika: str) -> str:
         return f"https://{naslov_racunalnika}:{self.vrata}"
@@ -636,6 +707,79 @@ class Datoteke:
                 "token": self.streznik.zeton_za(id_naprave or "naprava"),
             }
         return o
+
+
+    def tok_torrenta(self, uri: str, id_naprave: str, hub_url: str = "", datoteka: Optional[int] = None,
+                     torrenti=None) -> dict:
+        """`magnet.stream`: racunalnik prenasa torrent in ga pretaka napravi (televizorju), ki tako
+        nicesar ne shranjuje. Vrne {server, path, name, file} ali vrze os_torrent.NapakaTorrenta.
+
+        Izbere zahtevano datoteko ali najvecji video; programov (nevarno) nikoli ne predvaja."""
+        from core import os_torrent
+        if os_torrent.razcleni_magnet(uri) is None:
+            raise os_torrent.NapakaTorrenta("ni_magnet")
+        if torrenti is None:
+            if not os_torrent.program_na_voljo():
+                os_torrent.prenesi_program()
+            torrenti = torrenti_za_naprave()
+        torrenti.zazeni()
+        opis = torrenti.preberi(uri)
+        videi = [d for d in opis["datoteke"] if d.get("vrsta") == "video"]
+        if datoteka is not None:
+            izbrana = next((d for d in opis["datoteke"] if d["i"] == int(datoteka) and d.get("vrsta") in ("video", "audio")), None)
+        else:
+            izbrana = max(videi, key=lambda d: int(d.get("velikost") or 0)) if videi else None
+        if izbrana is None:
+            raise os_torrent.NapakaTorrenta("ni_predvajljivo")
+        tid = torrenti.dodaj(uri, [izbrana["i"]])
+        pot = self.streznik.dodaj_tok(torrenti.tok(tid, izbrana["i"]))
+        self.streznik.zazeni()
+        naslov = naslov_do_huba(hub_url) if hub_url else krajevni_naslov()
+        return {"server": {"base_url": self.streznik.osnova(naslov), "fp": self.streznik.odtis,
+                           "token": self.streznik.zeton_za(id_naprave or "naprava")},
+                "path": pot, "name": os.path.basename(str(izbrana.get("ime") or "")), "file": izbrana["i"],
+                "size": int(izbrana.get("velikost") or 0)}
+
+
+    def prenosi_za_naprave(self, torrenti=None) -> dict:
+        """`magnet.list`: kar racunalnik hrani za naprave (da jih uporabnik z medijskega centra odstrani)."""
+        torrenti = torrenti if torrenti is not None else torrenti_za_naprave()
+        izid = []
+        for t in torrenti.seznam():
+            videi = [d for d in t.get("datoteke") or [] if d.get("vkljucena") and d.get("vrsta") == "video"]
+            try:
+                magnet = torrenti.magnet(int(t["id"]))
+            except Exception:  # noqa: BLE001
+                magnet = ""
+            izid.append({"id": int(t["id"]), "name": t.get("ime") or "", "size": int(t.get("skupaj") or 0),
+                         "done": int(t.get("preneseno") or 0), "finished": bool(t.get("koncano")),
+                         "speed_mibs": t.get("hitrost_mibs") or 0, "magnet": magnet,
+                         "file": videi[0]["i"] if videi else None})
+        return {"items": izid}
+
+    def odstrani_prenos(self, tid: int, torrenti=None) -> bool:
+        """`magnet.remove`: torrent in njegove prenesene datoteke z racunalnika (samo iz mape prenosov za naprave)."""
+        torrenti = torrenti if torrenti is not None else torrenti_za_naprave()
+        if not torrenti.tece():
+            torrenti.seznam()   # zazene rqbit, ce ima shranjeno stanje
+        self.streznik.pozabi_tokove()
+        return torrenti.odstrani(int(tid), z_datotekami=True)
+
+
+_ZA_NAPRAVE = None
+_ZA_NAPRAVE_ZAKLEP = threading.Lock()
+
+
+def torrenti_za_naprave():
+    """Lasten rqbit za pomoc napravam: svoja mapa stanja (ne deli in ne ustavlja tistega v Safeer OS)
+    in svoja mapa Prejemi/Safeer/Za naprave, da je jasno, kaj je racunalnik prenesel za televizor."""
+    global _ZA_NAPRAVE
+    from core import os_torrent
+    with _ZA_NAPRAVE_ZAKLEP:
+        if _ZA_NAPRAVE is None:
+            _ZA_NAPRAVE = os_torrent.Torrenti(os.path.join(os_torrent.mapa_prenosov(), "Za naprave"),
+                                              os.path.join(os.path.dirname(os_torrent.mapa_stanja()), "stanje-naprave"))
+        return _ZA_NAPRAVE
 
 
 def krajevni_naslov() -> str:
