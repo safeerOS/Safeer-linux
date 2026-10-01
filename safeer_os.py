@@ -1354,6 +1354,11 @@ class SafeerOS(Gtk.Application):
             "magnetNaprave": naprave_za_magnet,
             "magnetMapa": lambda: self._odpri_mapo_prenosov(str(a[0]) if a else ""),
             "magnetPrivzeto": lambda: magnet_privzeto(bool(a[0]) if a else None),
+            # Skupni prostor: datoteko shrani naprava z najvec prostora; original izbrise sele uporabnik.
+            "shraniNaNapravo": lambda: _control_naprave("ShrambaZacni", str(a[0]) if a else ""),
+            "shrambaStanje": lambda: _control_naprave("ShrambaStanje", str(a[0]) if a else ""),
+            "shrambaIzbrisi": lambda: _control_naprave("ShrambaIzbrisi", str(a[0]) if a else ""),
+            "shrambaObdrzi": lambda: _control_naprave("ShrambaObdrzi", str(a[0]) if a else ""),
             "datotekeNaprave": lambda: datoteke_naprave(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "preimenujNapravo": lambda: preimenuj_napravo(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "upravljajRacunalnik": lambda: upravljaj_racunalnik(str(a[0]) if a else ""),
