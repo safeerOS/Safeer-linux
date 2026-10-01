@@ -315,6 +315,8 @@
     });
   }
   function zacni() {
+    // Gumb + ima samo aria-label: brskalnikov namig (title) bi prekril meni, ki se odpre pod njim.
+    var gn = $("gumbNovo"); if (gn) { gn.removeAttribute("data-naslov"); gn.setAttribute("aria-label", t("novoNaslov")); }
     var q = {};
     location.search.replace(/^\?/, "").split("&").forEach(function (d) { var x = d.split("="); if (x[0]) q[x[0]] = x[1]; });
     robovi(q);
@@ -630,6 +632,7 @@
   function postavkeNovo(m, vMapo) {
     var kam = vMapo || kamNovo();
     m.push([t("novaMapa"), function () { odpriOknoNovo({ nacin: "mapa", kam: kam }); }]);
+    m.push(["—"]);
     VRSTE_NOVIH.forEach(function (v) {
       m.push([t(v[1]), function () { odpriOknoNovo({ nacin: "datoteka", vrsta: v[0], kam: kam }); }]);
     });
@@ -678,7 +681,10 @@
   }
   function nastaviKje(pot) {
     NO.kam = pot;
-    $("novoKje").textContent = stranskoBesedilo(pot || "~");
+    var dom = (Z.dom || "").replace(/\/$/, "");
+    $("novoKje").textContent = !pot || pot === "~" || pot.replace(/\/$/, "") === dom ? t("domov")
+      : dom && pot.indexOf(dom + "/") === 0 ? t("domov") + " \u203a " + pot.slice(dom.length + 1).split("/").join(" \u203a ")
+      : pot;
     $("novoKje").title = pot || "";
   }
   function zapriOknoNovo() { $("oknoNovo").hidden = true; NO.nastavitve = null; }
@@ -1108,7 +1114,9 @@
     $("stikaloProsojnost").addEventListener("change", function () { N.manjProsojnosti = this.checked; shrani(); uveljaviPostavitev(); });
 
     // Nova mapa / datoteka: gumb +, desni klik na prazno, Ctrl+Shift+N, okno
-    $("gumbNovo").addEventListener("click", function () {
+    $("gumbNovo").addEventListener("click", function (ev) {
+      // Sicer bi splosni »klik drugam zapre meni« (document) meni takoj zaprl.
+      ev.stopPropagation();
       var r = this.getBoundingClientRect(); meniNovo(r.left, r.bottom + 4);
     });
     document.querySelector(".dat-glavno").addEventListener("contextmenu", function (ev) {
