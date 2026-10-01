@@ -1576,6 +1576,11 @@ class SafeerLink:
 
     def _ukaz(self, id_naprave: str = "", dejanje: str = "", parametri_json: str = "{}", ref: str = "") -> None:
         """Ukaz daljinca drugi napravi (control.command); odgovor pride kot odziv "ukaz" z istim ref."""
+        if dejanje == "host.info" and id_naprave and id_naprave == self._id():
+            # Moc tega racunalnika za seznam naprav: sredisce ukaza ne vrne posiljatelju, zato odgovorimo sami.
+            from core import link_daljinec
+            self._odziv("ukaz", {"ref": ref, "ok": True, "naprava": id_naprave, "data": link_daljinec.podatki_hosta()})
+            return
         povezava = self.povezava
         if povezava is None or not povezava.tece:
             self._odziv("ukaz", {"ref": ref, "ok": False, "message": "Ni povezave s Safeer Linkom."})

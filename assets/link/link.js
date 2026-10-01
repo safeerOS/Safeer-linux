@@ -109,6 +109,20 @@
       pavza: "Pavza",
       predvajaj: "Predvajaj",
       naprej10: "10 s",
+      mocPomaga: "✓ lahko pomaga",
+      mocNePomaga: "✗ ne pomaga – {razlog}",
+      mocJedra: "jedra: {n}",
+      mocRam: "RAM {v} prosto",
+      mocDisk: "disk {v} prosto",
+      mocBaterija: "baterija {n} %",
+      mocKodiranje: "strojno kodiranje videa",
+      mocR_baterija: "baterija pod 30 % (spet od 40 % ali na polnilcu)",
+      mocR_varcevanje: "varčevanje z energijo",
+      mocR_pregreto: "pregreta",
+      mocR_malo_pomnilnika: "zmanjkuje pomnilnika",
+      mocR_preobremenjen: "zelo zaseden",
+      mocR_ni_prostora: "premalo prostora",
+      novaNapravaGumb: "Poveži novo napravo",
       povezaneNaprave: "Povezane naprave",
       osvezi: "Osveži",
       povezujem: "Povezujem se …",
@@ -221,6 +235,20 @@
       pavza: "Pause",
       predvajaj: "Play",
       naprej10: "10 s",
+      mocPomaga: "✓ can help",
+      mocNePomaga: "✗ not helping – {razlog}",
+      mocJedra: "cores: {n}",
+      mocRam: "RAM {v} free",
+      mocDisk: "disk {v} free",
+      mocBaterija: "battery {n} %",
+      mocKodiranje: "hardware video encoding",
+      mocR_baterija: "battery below 30 % (again from 40 % or when charging)",
+      mocR_varcevanje: "battery saver",
+      mocR_pregreto: "too hot",
+      mocR_malo_pomnilnika: "low on memory",
+      mocR_preobremenjen: "very busy",
+      mocR_ni_prostora: "not enough space",
+      novaNapravaGumb: "Connect a new device",
       povezaneNaprave: "Connected devices",
       osvezi: "Refresh",
       povezujem: "Connecting …",
@@ -333,6 +361,20 @@
       pavza: "Pause",
       predvajaj: "Wiedergabe",
       naprej10: "10 s",
+      mocPomaga: "✓ kann helfen",
+      mocNePomaga: "✗ hilft nicht – {razlog}",
+      mocJedra: "Kerne: {n}",
+      mocRam: "RAM {v} frei",
+      mocDisk: "Speicher {v} frei",
+      mocBaterija: "Akku {n} %",
+      mocKodiranje: "Hardware-Videokodierung",
+      mocR_baterija: "Akku unter 30 % (wieder ab 40 % oder beim Laden)",
+      mocR_varcevanje: "Energiesparmodus",
+      mocR_pregreto: "zu heiß",
+      mocR_malo_pomnilnika: "wenig Arbeitsspeicher",
+      mocR_preobremenjen: "stark ausgelastet",
+      mocR_ni_prostora: "zu wenig Platz",
+      novaNapravaGumb: "Neues Gerät verbinden",
       povezaneNaprave: "Verbundene Geräte",
       osvezi: "Aktualisieren",
       povezujem: "Verbinde …",
@@ -445,6 +487,20 @@
       pavza: "Pausa",
       predvajaj: "Reproducir",
       naprej10: "10 s",
+      mocPomaga: "✓ puede ayudar",
+      mocNePomaga: "✗ no ayuda – {razlog}",
+      mocJedra: "núcleos: {n}",
+      mocRam: "RAM {v} libre",
+      mocDisk: "disco {v} libre",
+      mocBaterija: "batería {n} %",
+      mocKodiranje: "codificación de vídeo por hardware",
+      mocR_baterija: "batería por debajo del 30 % (de nuevo desde el 40 % o al cargar)",
+      mocR_varcevanje: "ahorro de batería",
+      mocR_pregreto: "demasiado caliente",
+      mocR_malo_pomnilnika: "poca memoria",
+      mocR_preobremenjen: "muy ocupado",
+      mocR_ni_prostora: "espacio insuficiente",
+      novaNapravaGumb: "Conectar un dispositivo nuevo",
       povezaneNaprave: "Dispositivos conectados",
       osvezi: "Actualizar",
       povezujem: "Conectando …",
@@ -557,6 +613,20 @@
       pavza: "Pause",
       predvajaj: "Lecture",
       naprej10: "10 s",
+      mocPomaga: "✓ peut aider",
+      mocNePomaga: "✗ n’aide pas – {razlog}",
+      mocJedra: "cœurs : {n}",
+      mocRam: "RAM {v} libre",
+      mocDisk: "disque {v} libre",
+      mocBaterija: "batterie {n} %",
+      mocKodiranje: "encodage vidéo matériel",
+      mocR_baterija: "batterie sous 30 % (de nouveau dès 40 % ou en charge)",
+      mocR_varcevanje: "économiseur de batterie",
+      mocR_pregreto: "trop chaud",
+      mocR_malo_pomnilnika: "mémoire faible",
+      mocR_preobremenjen: "très occupé",
+      mocR_ni_prostora: "pas assez d’espace",
+      novaNapravaGumb: "Connecter un nouvel appareil",
       povezaneNaprave: "Appareils connectés",
       osvezi: "Actualiser",
       povezujem: "Connexion …",
@@ -669,6 +739,20 @@
       pavza: "Pausa",
       predvajaj: "Riproduci",
       naprej10: "10 s",
+      mocPomaga: "✓ può aiutare",
+      mocNePomaga: "✗ non aiuta – {razlog}",
+      mocJedra: "core: {n}",
+      mocRam: "RAM {v} libera",
+      mocDisk: "disco {v} libero",
+      mocBaterija: "batteria {n} %",
+      mocKodiranje: "codifica video hardware",
+      mocR_baterija: "batteria sotto il 30 % (di nuovo dal 40 % o in carica)",
+      mocR_varcevanje: "risparmio energetico",
+      mocR_pregreto: "troppo caldo",
+      mocR_malo_pomnilnika: "poca memoria",
+      mocR_preobremenjen: "molto occupato",
+      mocR_ni_prostora: "spazio insufficiente",
+      novaNapravaGumb: "Collega un nuovo dispositivo",
       povezaneNaprave: "Dispositivi collegati",
       osvezi: "Aggiorna",
       povezujem: "Connessione …",
@@ -1598,7 +1682,7 @@
     return e;
   }
 
-  function vrstica(ikonaKljuc, ime, pod, znackaBesedilo, barva, obKliku) {
+  function vrstica(ikonaKljuc, ime, pod, znackaBesedilo, barva, obKliku, moc) {
     var li = document.createElement("li");
     if (obKliku) {
       li.className = "klikljiv";
@@ -1617,6 +1701,13 @@
     p.textContent = pod;
     telo.appendChild(i);
     telo.appendChild(p);
+    if (moc) {
+      // Zakon solidarnosti: ali naprava lahko pomaga in koliko proste moci ima (host.info).
+      var m = document.createElement("div");
+      m.className = "pod moc";
+      m.textContent = moc;
+      telo.appendChild(m);
+    }
 
     var z = document.createElement("span");
     z.className = "znacka" + (barva ? " " + barva : "");
@@ -1734,7 +1825,8 @@
       stanje.hubTece ? t("tuSredisce") : (stanje.povezan ? t("povezanaZLinkom") : t("povezujem")),
       t("taNaprava"),
       stanje.povezan ? "zivo" : "",
-      (znaDeliti && jaz) ? function () { odpriDeljenje(jaz, true); } : null
+      (znaDeliti && jaz) ? function () { odpriDeljenje(jaz, true); } : null,
+      (jaz && mocNaprave[jaz.id]) || ""
     ));
     // Vrstica "Safeer Link na naslovu ..." ima smisel le na napravi, ki se povezuje drugam;
     // ce Safeer Link tece tu, bi kazala 127.0.0.1 in podvajala glavo strani.
@@ -1769,11 +1861,51 @@
         prijaznoIme(n),
         pod,
         zasedena ? t("zasedenoKratko") : t("povezan"), zasedena ? "rumenaZnacka" : "zivo",
-        deljivo ? function () { odpriDeljenje(n); } : null));
+        deljivo ? function () { odpriDeljenje(n); } : null, mocNaprave[n.id] || ""));
     });
+    vprasajZaMoc(jaz ? druge.concat([jaz]) : druge);
 
     besedilo("opombaNaprave",
              (druge.length || stanje.televizor) ? "" : t("brezZaslonov"));
+  }
+
+  // ---- moc naprav (zakon solidarnosti): vsaka naprava pove, koliko lahko pomaga (ukaz host.info)
+  var mocNaprave = {};
+  var mocVprasano = {};
+
+  function velikostMoci(b) {
+    var gb = b / 1073741824;
+    if (gb >= 10) return Math.round(gb) + " GB";
+    if (gb >= 1) return gb.toFixed(1).replace(".", jezik === "en" ? "." : ",") + " GB";
+    return Math.round(b / 1048576) + " MB";
+  }
+
+  function mocKratko(p) {
+    var deli = [];
+    if (p.pomoc) deli.push(p.pomoc.lahko === false
+      ? t("mocNePomaga", { razlog: t("mocR_" + p.pomoc.razlog) || p.pomoc.razlog || "" }) : t("mocPomaga"));
+    if (p.cpu && p.cpu.jedra) deli.push(t("mocJedra", { n: p.cpu.jedra }));
+    if (p.ram && p.ram.prosto >= 0) deli.push(t("mocRam", { v: velikostMoci(p.ram.prosto) }));
+    if (p.disk && p.disk.prosto >= 0) deli.push(t("mocDisk", { v: velikostMoci(p.disk.prosto) }));
+    if (p.baterija && p.baterija.raven >= 0) deli.push(t("mocBaterija", { n: p.baterija.raven }) + (p.baterija.polni ? " ⚡" : ""));
+    if (p.gpu && p.gpu.strojno) deli.push(t("mocKodiranje"));
+    return deli.join(" · ");
+  }
+
+  // Moc se spreminja (baterija, obremenitev): na pol minute jo osvezimo za vse naprave v seznamu.
+  setInterval(function () {
+    if (stanje && stanje.naprave && stanje.naprave.length) vprasajZaMoc(stanje.naprave);
+  }, 30000);
+
+  function vprasajZaMoc(naprave) {
+    if (!most || !most.ukaz) return;
+    var zdaj = Date.now();
+    naprave.forEach(function (n) {
+      if ((n.zmoznosti || []).indexOf("remote") < 0 && (n.zmoznosti || []).indexOf("files") < 0) return;
+      if (zdaj - (mocVprasano[n.id] || 0) < 20000) return;
+      mocVprasano[n.id] = zdaj;
+      most.ukaz(n.id, "host.info", "{}", "moc-" + n.id);
+    });
   }
 
   function ikonaNapraveVSeznamu(naprava) {
@@ -2495,6 +2627,13 @@
           besedilo("opombaSeznanitev", t("niPotrjeno"));
         }
       } else if (vrsta === "ukaz") {
+        if (podatki && String(podatki.ref || "").indexOf("moc-") === 0) {
+          var idMoci = String(podatki.ref).slice(4);   // ref "moc-<id>"; napaka povezave nima posiljatelja
+          var kratko = (podatki.ok && podatki.data) ? mocKratko(podatki.data) : "";
+          if (!kratko) delete mocVprasano[idMoci];   // brez odgovora: vprasamo znova ob naslednjem risanju
+          if ((mocNaprave[idMoci] || "") !== kratko) { mocNaprave[idMoci] = kratko; narisiNaprave(); }
+          return;
+        }
         if (window.SafeerDaljinec) window.SafeerDaljinec.odziv(podatki);
       } else if (vrsta === "oddaljeniZaslon") {
         besedilo("opombaDeljenje", podatki && podatki.ok ? "" :
@@ -3071,6 +3210,7 @@
 
     naKlik("gumbOsvezi", poveziSe);
     // Okno Poveži naprave (QR ALI 6-mestna koda, kot na TV) odpre ta gumb v samem Controlu.
+    besedilo("gumbNovaNapravaCtl", "+ " + t("novaNapravaGumb"));
     if (most && most.zacniVabilo) pokazi("gumbNovaNapravaCtl", true);
     naKlik("gumbNovaNapravaCtl", function () {
       preklopiVabilo(true);
