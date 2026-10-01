@@ -469,6 +469,11 @@ class Hub:
                                         "pin": str(100000 + secrets.randbelow(900000))}
         return qr_id, skrivnost
 
+    def ima_odprto_kodo(self) -> bool:
+        with self._zaklep:
+            self._pocisti_pridruzitve()
+            return any(v.get("pin") for v in self._pridruzitve.values())
+
     def pin_pridruzitve(self, qr_id: str) -> str:
         """6-mestna koda vabila (pokaze jo naprava, ki vabi; nova naprava jo vtipka)."""
         with self._zaklep:
@@ -1543,7 +1548,7 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
         if pot in ("/cast/ticket", "/cast/pair/start", "/cast/pair/spake", "/cast/pair/finish",
                    "/cast/pair/cancel", "/cast/pair/sibling", "/cast/trust/enroll", "/cast/devices/leave",
                    "/cast/pair/qr/join", "/cast/pair/qr/invite", "/cast/pair/qr/invite/status",
-                   "/cast/pair/qr/invite/cancel",
+                   "/cast/pair/qr/invite/cancel", "/cast/pair/qr/odprto",
                    "/cast/pair/qr/start", "/cast/pair/qr/info", "/cast/pair/qr/approve",
                    "/cast/pair/qr/status", "/cast/pair/qr/cancel"):
             # Pot obstaja, a ne kot GET. Po tem naprava loci Safeer Hub od poljubnega streznika.
@@ -1650,6 +1655,11 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
                     self._napaka(400, "Manjka ali neveljaven javni ključ.", napaka)
                 return
             self._odgovori(200, odgovor)
+            return
+        if pot == "/cast/pair/qr/odprto":
+            # Ali ta naprava ravno kaze 6-mestno kodo: naprava, kamor jo uporabnik vtipka, po tem izbere
+            # pravo sredisce (z Link Mesh ima Hub vsaka naprava). Koda sama ne gre po omrezju.
+            self._odgovori(200, {"open": self._hub.ima_odprto_kodo()})
             return
         if pot == "/cast/pair/qr/join":
             telo = self._telo()

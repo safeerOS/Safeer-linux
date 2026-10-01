@@ -281,6 +281,7 @@ class Seznanitev(unittest.TestCase):
         qr_id, _skrivnost = self.hub.ustvari_pridruzitev()
         koda = self.hub.pin_pridruzitve(qr_id)
         self.assertRegex(koda, r"^[1-9][0-9]{5}$")
+        self.assertTrue(self.hub.ima_odprto_kodo())
         zacetek = self.hub.zacni_seznanitev("telefon-3", "Telefon")
         pair_id = zacetek["pair_id"]
         self.assertEqual(self.hub._prijave[pair_id]["pin"], koda)
@@ -293,6 +294,7 @@ class Seznanitev(unittest.TestCase):
         self.assertIsNone(napaka)
         self.assertTrue(zeton)
         self.assertEqual(self.hub.pin_pridruzitve(qr_id), "")
+        self.assertFalse(self.hub.ima_odprto_kodo())
         # Naslednja naprava brez odprtega vabila dobi novo, nakljucno kodo.
         drugi = self.hub.zacni_seznanitev("telefon-4", "Telefon 2")
         self.assertNotEqual(self.hub._prijave[drugi["pair_id"]]["pin"], koda)
