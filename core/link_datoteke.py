@@ -710,7 +710,7 @@ class Datoteke:
 
 
     def tok_torrenta(self, uri: str, id_naprave: str, hub_url: str = "", datoteka: Optional[int] = None,
-                     torrenti=None) -> dict:
+                     torrenti=None, zmogljivost=None) -> dict:
         """`magnet.stream`: racunalnik prenasa torrent in ga pretaka napravi (televizorju), ki tako
         nicesar ne shranjuje. Vrne {server, path, name, file} ali vrze os_torrent.NapakaTorrenta.
 
@@ -731,6 +731,12 @@ class Datoteke:
             izbrana = max(videi, key=lambda d: int(d.get("velikost") or 0)) if videi else None
         if izbrana is None:
             raise os_torrent.NapakaTorrenta("ni_predvajljivo")
+        # Solidarnost brez preobremenitve: racunalnik pomaga, kolikor zmore - ce je sam zaseden ali nima
+        # prostora, to pove in naprava vprasa naslednjega v Linku.
+        razlog = (zmogljivost or prosta_zmogljivost)(os.path.dirname(getattr(torrenti, "mapa_prenosov", "") or "") or os.path.expanduser("~"),
+                                                     int(izbrana.get("velikost") or 0))
+        if razlog:
+            raise os_torrent.NapakaTorrenta(razlog)
         tid = torrenti.dodaj(uri, [izbrana["i"]])
         pot = self.streznik.dodaj_tok(torrenti.tok(tid, izbrana["i"]))
         self.streznik.zazeni()
@@ -764,6 +770,38 @@ class Datoteke:
             torrenti.seznam()   # zazene rqbit, ce ima shranjeno stanje
         self.streznik.pozabi_tokove()
         return torrenti.odstrani(int(tid), z_datotekami=True)
+
+
+#: Meje, nad katerimi racunalnik ne prevzame novega dela za druge naprave (ostane odziven za uporabnika).
+NAJVEC_OBREMENITVE_NA_JEDRO = 0.85
+NAJMANJ_PROSTEGA_RAM = 512 * 1024 * 1024
+REZERVA_DISKA = 2 * 1024 * 1024 * 1024
+
+
+def prosta_zmogljivost(mapa: str, potrebno: int) -> str:
+    """"" ce racunalnik delo zmore brez preobremenitve, sicer kratek razlog (preobremenjen, malo_pomnilnika,
+    ni_prostora). Disk: velikost datoteke + rezerva, da uporabniku nikoli ne zapolnimo diska."""
+    try:
+        jedra = os.cpu_count() or 1
+        if os.getloadavg()[0] / jedra > NAJVEC_OBREMENITVE_NA_JEDRO:
+            return "preobremenjen"
+    except (OSError, AttributeError):
+        pass
+    try:
+        with open("/proc/meminfo", encoding="utf-8") as d:
+            for v in d:
+                if v.startswith("MemAvailable:") and int(v.split()[1]) * 1024 < NAJMANJ_PROSTEGA_RAM:
+                    return "malo_pomnilnika"
+    except (OSError, ValueError):
+        pass
+    try:
+        os.makedirs(mapa, exist_ok=True)
+        st = os.statvfs(mapa)
+        if st.f_bavail * st.f_frsize < potrebno + REZERVA_DISKA:
+            return "ni_prostora"
+    except (OSError, AttributeError):
+        pass
+    return ""
 
 
 _ZA_NAPRAVE = None
