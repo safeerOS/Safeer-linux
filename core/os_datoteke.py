@@ -1,7 +1,8 @@
 """Datoteke za Safeer OS na Linuxu: uporabnikove mape, pregled mape, iskanje in odpiranje.
 
 Datoteke odpira program, ki ga ima uporabnik v Mintu nastavljenega za to vrsto (xdg-open /
-Gio), mape pa Nemo, ce zeli vec, kot pokaze Safeer OS. Nic ne brise in ne premika.
+Gio), mape pa Nemo, ce zeli vec, kot pokaze Safeer OS. Ustvari mapo ali datoteko in preimenuje
+na uporabnikovo zahtevo; nicesar ne prepise, brisanje gre samo v Smeti.
 """
 
 from __future__ import annotations
@@ -165,3 +166,154 @@ def pokazi_v_mapi(pot: str) -> bool:
         return True
     except Exception:
         return False
+
+
+# ------------------------------------------------------------------ ustvarjanje (desni klik v Datotekah)
+# Kot v Nemu: nova mapa in nova datoteka (prazna, besedilna, dokument/preglednica/predstavitev
+# LibreOffice ali predloga iz mape Predloge). Nic obstojecega se ne prepise; brisanje gre v Smeti.
+
+#: Vrste novih datotek: kljuc -> (koncnica, MIME za ODF ali None).
+NOVE_VRSTE = {
+    "prazna": ("", None),
+    "besedilo": (".txt", None),
+    "dokument": (".odt", "application/vnd.oasis.opendocument.text"),
+    "preglednica": (".ods", "application/vnd.oasis.opendocument.spreadsheet"),
+    "predstavitev": (".odp", "application/vnd.oasis.opendocument.presentation"),
+}
+_ODF_TELO = {
+    "application/vnd.oasis.opendocument.text": "<office:text><text:p/></office:text>",
+    "application/vnd.oasis.opendocument.spreadsheet":
+        "<office:spreadsheet><table:table table:name=\"List1\"><table:table-row><table:table-cell/>"
+        "</table:table-row></table:table></office:spreadsheet>",
+    "application/vnd.oasis.opendocument.presentation":
+        "<office:presentation><draw:page draw:name=\"page1\"/></office:presentation>",
+}
+
+
+def _prosto_ime(mapa: str, ime: str) -> str:
+    """Ime, ki v mapi se ne obstaja: »Nova mapa«, »Nova mapa (2)« ..."""
+    koren, konc = os.path.splitext(ime) if not os.path.isdir(os.path.join(mapa, ime)) else (ime, "")
+    kandidat, n = ime, 2
+    while os.path.lexists(os.path.join(mapa, kandidat)):
+        kandidat = "%s (%d)%s" % (koren, n, konc)
+        n += 1
+    return kandidat
+
+
+def _preveri_mapo(mapa: str) -> str:
+    from core import link_urejanje
+    mapa = os.path.abspath(os.path.expanduser(str(mapa or "")))
+    if not os.path.isdir(mapa):
+        raise link_urejanje.NapakaUrejanja("ni_mape")
+    if not os.access(mapa, os.W_OK | os.X_OK):
+        raise link_urejanje.NapakaUrejanja("ni_dovoljenja")
+    return mapa
+
+
+def _odf(pot: str, mime: str) -> None:
+    import zipfile
+    ns = ('xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+          'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" '
+          'xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" '
+          'xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" office:version="1.3"')
+    vsebina = ('<?xml version="1.0" encoding="UTF-8"?><office:document-content %s><office:body>%s'
+               '</office:body></office:document-content>' % (ns, _ODF_TELO[mime]))
+    manifest = ('<?xml version="1.0" encoding="UTF-8"?><manifest:manifest '
+                'xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.3">'
+                '<manifest:file-entry manifest:full-path="/" manifest:media-type="%s"/>'
+                '<manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/>'
+                '</manifest:manifest>' % mime)
+    with zipfile.ZipFile(pot, "x") as z:
+        # mimetype mora biti prvi in nestisnjen (specifikacija ODF).
+        z.writestr(zipfile.ZipInfo("mimetype"), mime, compress_type=zipfile.ZIP_STORED)
+        z.writestr("META-INF/manifest.xml", manifest, compress_type=zipfile.ZIP_DEFLATED)
+        z.writestr("content.xml", vsebina, compress_type=zipfile.ZIP_DEFLATED)
+
+
+def predloge() -> List[dict]:
+    """Datoteke iz uporabnikove mape Predloge (XDG TEMPLATES) - kot »Ustvari nov dokument« v Nemu."""
+    mapa = ""
+    try:
+        r = subprocess.run(["xdg-user-dir", "TEMPLATES"], capture_output=True, text=True, timeout=3)
+        mapa = r.stdout.strip()
+    except Exception:
+        pass
+    if not mapa or mapa == os.path.expanduser("~") or not os.path.isdir(mapa):
+        return []
+    izid = []
+    for ime in sorted(os.listdir(mapa), key=str.lower)[:40]:
+        pot = os.path.join(mapa, ime)
+        if not ime.startswith(".") and os.path.isfile(pot):
+            izid.append({"ime": os.path.splitext(ime)[0], "pot": pot, "vrsta": vrsta_datoteke(ime)})
+    return izid
+
+
+def ustvari_mapo(mapa: str, ime: str) -> dict:
+    """{"ok", "pot"} ali {"ok": False, "napaka"}; obstojecega imena ne prepise (doda (2), (3) ...)."""
+    from core import link_urejanje
+    try:
+        mapa = _preveri_mapo(mapa)
+        ime = _prosto_ime(mapa, link_urejanje.varno_ime(ime or "Nova mapa"))
+        pot = os.path.join(mapa, ime)
+        os.mkdir(pot)
+        return {"ok": True, "pot": pot, "ime": ime}
+    except link_urejanje.NapakaUrejanja as e:
+        return {"ok": False, "napaka": str(e)}
+    except OSError:
+        return {"ok": False, "napaka": "ni_dovoljenja"}
+
+
+def ustvari_datoteko(mapa: str, ime: str, vrsta: str = "prazna", predloga: str = "") -> dict:
+    """Nova datoteka: prazna, besedilna, prazen dokument ODF ali kopija predloge iz mape Predloge."""
+    from core import link_urejanje
+    try:
+        mapa = _preveri_mapo(mapa)
+        ime = link_urejanje.varno_ime(ime or "Nova datoteka")
+        if predloga:
+            dovoljene = {p["pot"] for p in predloge()}
+            if predloga not in dovoljene:
+                raise link_urejanje.NapakaUrejanja("ni_predloge")
+            konc = os.path.splitext(predloga)[1]
+        else:
+            konc, mime = NOVE_VRSTE.get(vrsta, NOVE_VRSTE["prazna"])
+        if konc and not ime.lower().endswith(konc.lower()):
+            ime += konc
+        ime = _prosto_ime(mapa, ime)
+        pot = os.path.join(mapa, ime)
+        if predloga:
+            with open(predloga, "rb") as v, open(pot, "xb") as c:
+                shutil.copyfileobj(v, c)
+        elif mime:
+            _odf(pot, mime)
+        else:
+            with open(pot, "x", encoding="utf-8"):
+                pass
+        return {"ok": True, "pot": pot, "ime": ime}
+    except link_urejanje.NapakaUrejanja as e:
+        return {"ok": False, "napaka": str(e)}
+    except FileExistsError:
+        return {"ok": False, "napaka": "obstaja"}
+    except OSError:
+        return {"ok": False, "napaka": "ni_dovoljenja"}
+
+
+def preimenuj(pot: str, novo_ime: str) -> dict:
+    from core import link_urejanje
+    try:
+        nova = link_urejanje.preimenuj(os.path.abspath(os.path.expanduser(str(pot or ""))), novo_ime)
+        return {"ok": True, "pot": nova}
+    except link_urejanje.NapakaUrejanja as e:
+        return {"ok": False, "napaka": str(e)}
+
+
+def v_smeti(pot: str) -> dict:
+    """Nikoli trajno: v Smeti, od koder se datoteka obnovi (Nemo -> Smeti)."""
+    from core import link_urejanje
+    pot = os.path.abspath(os.path.expanduser(str(pot or "")))
+    if pot in ("/", os.path.expanduser("~")):
+        return {"ok": False, "napaka": "ni_dovoljeno"}
+    try:
+        link_urejanje.v_smeti(pot)
+        return {"ok": True}
+    except link_urejanje.NapakaUrejanja as e:
+        return {"ok": False, "napaka": str(e)}

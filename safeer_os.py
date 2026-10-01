@@ -1295,6 +1295,14 @@ class SafeerOS(Gtk.Application):
             "isciDatoteke": lambda: os_datoteke.isci(str(a[0]) if a else ""),
             "odpriDatoteko": lambda: os_datoteke.odpri(str(a[0]) if a else ""),
             "pokaziVMapi": lambda: os_datoteke.pokazi_v_mapi(str(a[0]) if a else ""),
+            "novaMapa": lambda: os_datoteke.ustvari_mapo(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
+            "novaDatoteka": lambda: os_datoteke.ustvari_datoteko(
+                str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "",
+                str(a[2]) if len(a) > 2 else "prazna", str(a[3]) if len(a) > 3 else ""),
+            "predlogeDatotek": os_datoteke.predloge,
+            "preimenujDatoteko": lambda: os_datoteke.preimenuj(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
+            "vSmeti": lambda: os_datoteke.v_smeti(str(a[0]) if a else ""),
+            "izberiMapo": lambda: self._izberi_mapo(*[str(x) for x in a[:4]]),
             "medijskeMape": lambda: self._medijska_knjiznica().mape_podrobno(),
             "odstraniMedijskoMapo": lambda: self._odstrani_medijsko_mapo(str(a[0]) if a else ""),
             "tokoviMedijev": lambda: self._medijska_knjiznica().tokovi(),
@@ -2231,6 +2239,21 @@ class SafeerOS(Gtk.Application):
                     except ValueError as e:
                         print("[SafeerOS] dodajanje medija:", e)
                 self._dogodek("medijskaKnjiznica", None)
+        finally:
+            dialog.destroy()
+
+    def _izberi_mapo(self, zacetna: str = "", naslov: str = "", preklici: str = "", izberi: str = "") -> str:
+        """Obicajno okno za izbiro mape (kam ustvariti novo mapo ali datoteko). '' ob preklicu.
+        Besedila poda stran v jeziku vmesnika."""
+        stars = self.okno_delovna if (self.okno is None or not self.okno.get_visible()) else self.okno
+        dialog = Gtk.FileChooserDialog(title=naslov or "Izberi mapo", transient_for=stars,
+                                       action=Gtk.FileChooserAction.SELECT_FOLDER)
+        dialog.add_buttons(preklici or "Prekliči", Gtk.ResponseType.CANCEL, izberi or "Izberi", Gtk.ResponseType.OK)
+        dialog.set_keep_above(True)
+        zacetna = os.path.expanduser(zacetna or "~")
+        dialog.set_current_folder(zacetna if os.path.isdir(zacetna) else GLib.get_home_dir())
+        try:
+            return (dialog.get_filename() or "") if dialog.run() == Gtk.ResponseType.OK else ""
         finally:
             dialog.destroy()
 

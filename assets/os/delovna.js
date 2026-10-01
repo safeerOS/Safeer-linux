@@ -68,7 +68,20 @@
       dockNamig: "Program dodaš v dock tako, da ga povlečeš iz menija; odstraniš ga tako, da ga povlečeš ven.",
       linkPovezan: "Safeer Link · {n}", linkPovezanBrez: "Safeer Link · povezano",
       linkPovezi: "Poveži se v Safeer Link", linkNaslov: "Safeer Link: tvoje naprave (odpre Safeer Control)",
-      naprav1: "1 naprava", naprav2: "2 napravi", naprav34: "{n} naprave", napravN: "{n} naprav"
+      naprav1: "1 naprava", naprav2: "2 napravi", naprav34: "{n} naprave", napravN: "{n} naprav",
+      novoNaslov: "Nova mapa ali datoteka", novaMapa: "Nova mapa …", novaDatoteka: "Nova datoteka",
+      vPrazna: "Prazna datoteka …", vBesedilo: "Besedilna datoteka …", vDokument: "Dokument …",
+      vPreglednica: "Preglednica …", vPredstavitev: "Predstavitev …", vPredloga: "Predloga: {ime} …",
+      oknoMapa: "Nova mapa", oknoDatoteka: "Nova datoteka", oknoPreimenuj: "Preimenuj",
+      privzetoMapa: "Nova mapa", privzetoDatoteka: "Nova datoteka", privzetoDokument: "Nov dokument",
+      privzetoPreglednica: "Nova preglednica", privzetoPredstavitev: "Nova predstavitev",
+      novoIme: "Ime", novoVrsta: "Vrsta", novoKje: "Kje", novoSpremeni: "Spremeni …", preklici: "Prekliči",
+      ustvari: "Ustvari", preimenuj: "Preimenuj", preimenujMeni: "Preimenuj …", vSmeti: "Premakni v Smeti",
+      vSmetiOk: "»{ime}« je v Smeteh (obnoviš ga v Datotekah → Smeti).", ustvarjeno: "Ustvarjeno: {ime}",
+      izberiMapoNaslov: "Kam naj ustvarim?", izberi: "Izberi", osvezi: "Osveži",
+      nObstaja: "Datoteka s tem imenom tu že obstaja.", nIme: "Ime ne sme biti prazno, začeti s piko ali vsebovati »/«.",
+      nDovoljenje: "V to mapo nimaš dovoljenja za pisanje. Izberi drugo.", nMapa: "Te mape ni več.",
+      nSmeti: "V Smeti ni šlo (morda nimaš dovoljenja).", nSplosno: "Ni uspelo."
     },
     en: {
       iskanjePh: "Search the web, apps, files and media …", iskanjeNamig: "Enter = web",
@@ -114,7 +127,20 @@
       dockNamig: "Add an app to the dock by dragging it from the menu; drag it out to remove it.",
       linkPovezan: "Safeer Link · {n}", linkPovezanBrez: "Safeer Link · connected",
       linkPovezi: "Connect to Safeer Link", linkNaslov: "Safeer Link: your devices (opens Safeer Control)",
-      naprav1: "1 device", naprav2: "2 devices", naprav34: "{n} devices", napravN: "{n} devices"
+      naprav1: "1 device", naprav2: "2 devices", naprav34: "{n} devices", napravN: "{n} devices",
+      novoNaslov: "New folder or file", novaMapa: "New folder …", novaDatoteka: "New file",
+      vPrazna: "Empty file …", vBesedilo: "Text file …", vDokument: "Document …",
+      vPreglednica: "Spreadsheet …", vPredstavitev: "Presentation …", vPredloga: "Template: {ime} …",
+      oknoMapa: "New folder", oknoDatoteka: "New file", oknoPreimenuj: "Rename",
+      privzetoMapa: "New folder", privzetoDatoteka: "New file", privzetoDokument: "New document",
+      privzetoPreglednica: "New spreadsheet", privzetoPredstavitev: "New presentation",
+      novoIme: "Name", novoVrsta: "Type", novoKje: "Where", novoSpremeni: "Change …", preklici: "Cancel",
+      ustvari: "Create", preimenuj: "Rename", preimenujMeni: "Rename …", vSmeti: "Move to Trash",
+      vSmetiOk: "“{ime}” is in the Trash (restore it from Files → Trash).", ustvarjeno: "Created: {ime}",
+      izberiMapoNaslov: "Where should I create it?", izberi: "Select", osvezi: "Refresh",
+      nObstaja: "A file with this name already exists here.", nIme: "The name can't be empty, start with a dot or contain “/”.",
+      nDovoljenje: "You can't write to this folder. Pick another one.", nMapa: "This folder no longer exists.",
+      nSmeti: "Couldn't move it to the Trash (maybe no permission).", nSplosno: "That didn't work."
     }
   };
   var jezik = "sl";
@@ -309,6 +335,7 @@
       Z.spletne = Array.isArray(z.spletne) ? z.spletne : [];
       zgradiStranDatotek();
       odpriVir({ vrsta: "nedavno" });
+      klic("predlogeDatotek").then(function (p) { predlogeDatotek = Array.isArray(p) ? p.slice(0, 12) : []; }).catch(function () {});
       naloziProgrameNaprav();
       medijZanka();
       osveziLink();
@@ -482,10 +509,21 @@
     var naStran = vrsticNaStran();
     tb.innerHTML = "";
     var strani = Math.max(1, Math.ceil(seznam.length / naStran));
+    var oznaci = -1;
+    if (D.oznaci) {
+      // Pravkar ustvarjen ali preimenovan vnos: pokazemo stran, kjer je, in ga oznacimo.
+      for (var oi = 0; oi < seznam.length; oi++) if (seznam[oi].ime === D.oznaci) { oznaci = oi; break; }
+      if (oznaci >= 0) { D.stran = Math.floor(oznaci / naStran); D.izbran = oznaci % naStran; }
+      D.oznaci = "";
+    }
     D.stran = Math.min(D.stran, strani - 1);
     var od = D.stran * naStran, do_ = Math.min(seznam.length, od + naStran);
     D.vidni = seznam.slice(od, do_);
-    D.vidni.forEach(function (e, i) { tb.appendChild(vrsticaDatoteke(e, i)); });
+    D.vidni.forEach(function (e, i) {
+      var vr = vrsticaDatoteke(e, i);
+      if (oznaci >= 0 && i === D.izbran) { vr.classList.add("novo"); setTimeout(function () { try { vr.focus(); } catch (x) {} }, 0); }
+      tb.appendChild(vr);
+    });
     if (!seznam.length && !D.napaka && D.vse !== null) datSporocilo(D.vse.length ? t("niZadetkov") : prazenOpis);
     else if (!D.napaka) datSporocilo("");
     ostraniStrani($("datStrani"), od, do_, seznam.length, strani, D.stran, function (s) { D.stran = s; D.izbran = -1; izrisiDatoteke(); });
@@ -518,6 +556,8 @@
       } else if (ev.key === "ContextMenu" || (ev.shiftKey && ev.key === "F10")) {
         ev.preventDefault(); var r = tr.getBoundingClientRect(); meniDatoteke(e, r.left + 40, r.bottom);
       } else if (ev.key === "Backspace") { ev.preventDefault(); gorVMapo(); }
+      else if (ev.key === "F2" && !e.oddaljeno) { ev.preventDefault(); odpriOknoNovo({ nacin: "preimenuj", pot: e.pot, ime: e.ime, mapa: e.mapa }); }
+      else if (ev.key === "Delete" && !e.oddaljeno) { ev.preventDefault(); vSmeti(e); }
     });
     tr.addEventListener("contextmenu", function (ev) { ev.preventDefault(); D.izbran = i; oznaciIzbrano(); meniDatoteke(e, ev.clientX, ev.clientY); });
     return tr;
@@ -567,8 +607,113 @@
                                      velikost: e.velikost || 0, spremenjeno: e.spremenjeno || 0 });
             N.priljubljeneDat = N.priljubljeneDat.slice(-60); shrani();
           }]);
+      m.push(["—"]);
+      m.push([t("preimenujMeni"), function () { odpriOknoNovo({ nacin: "preimenuj", pot: e.pot, ime: e.ime, mapa: e.mapa }); }]);
+      m.push([t("vSmeti"), function () { vSmeti(e); }]);
+      m.push(["—"]);
+      postavkeNovo(m, e.mapa ? e.pot : null);
     }
     pokaziMeni(m, x, y);
+  }
+
+  // ------------------------------------------------------------------ NOVA MAPA / DATOTEKA
+  var VRSTE_NOVIH = [["prazna", "vPrazna", "privzetoDatoteka"], ["besedilo", "vBesedilo", "privzetoDatoteka"],
+                     ["dokument", "vDokument", "privzetoDokument"], ["preglednica", "vPreglednica", "privzetoPreglednica"],
+                     ["predstavitev", "vPredstavitev", "privzetoPredstavitev"]];
+  var predlogeDatotek = [];
+  /** Privzeto mesto za novo: odprta krajevna mapa, sicer domaca mapa (Nedavno, Priljubljeno, naprava). */
+  function kamNovo() {
+    var v = D.vir;
+    if (v && v.vrsta === "lokalno" && v.pot) return v.pot;
+    return Z.dom || "~";
+  }
+  function postavkeNovo(m, vMapo) {
+    var kam = vMapo || kamNovo();
+    m.push([t("novaMapa"), function () { odpriOknoNovo({ nacin: "mapa", kam: kam }); }]);
+    VRSTE_NOVIH.forEach(function (v) {
+      m.push([t(v[1]), function () { odpriOknoNovo({ nacin: "datoteka", vrsta: v[0], kam: kam }); }]);
+    });
+    predlogeDatotek.forEach(function (p) {
+      m.push([t("vPredloga", { ime: p.ime }), function () { odpriOknoNovo({ nacin: "datoteka", vrsta: "predloga", predloga: p.pot, ime: p.ime, kam: kam }); }]);
+    });
+  }
+  function meniNovo(x, y) {
+    var m = [];
+    postavkeNovo(m, null);
+    m.push(["—"]);
+    m.push([t("osvezi"), function () { if (D.vir) odpriVir(D.vir); }]);
+    pokaziMeni(m, x, y);
+  }
+  var NO = { nastavitve: null };
+  function napakaNovo(koda) {
+    return t({ obstaja: "nObstaja", napacno_ime: "nIme", ni_dovoljenja: "nDovoljenje", ni_dovoljeno: "nDovoljenje",
+               ni_mape: "nMapa" }[koda] || "nSplosno");
+  }
+  function odpriOknoNovo(o) {
+    NO.nastavitve = o;
+    zapriMeni();
+    var preimenuj = o.nacin === "preimenuj";
+    $("novoNaslovOkna").textContent = t(preimenuj ? "oknoPreimenuj" : o.nacin === "mapa" ? "oknoMapa" : "oknoDatoteka");
+    $("novoPotrdi").textContent = t(preimenuj ? "preimenuj" : "ustvari");
+    $("novoKjeVrsta").hidden = preimenuj;
+    $("novoVrstaVrsta").hidden = o.nacin !== "datoteka";
+    var s = $("novoVrsta"); s.innerHTML = "";
+    if (o.nacin === "datoteka") {
+      VRSTE_NOVIH.forEach(function (v) { var op = el("option", "", t(v[1]).replace(/ \u2026$/, "")); op.value = v[0]; s.appendChild(op); });
+      predlogeDatotek.forEach(function (p) { var op = el("option", "", t("vPredloga", { ime: p.ime }).replace(/ \u2026$/, "")); op.value = "predloga:" + p.pot; s.appendChild(op); });
+      s.value = o.vrsta === "predloga" ? "predloga:" + o.predloga : (o.vrsta || "prazna");
+    }
+    var ime = preimenuj ? o.ime : o.nacin === "mapa" ? t("privzetoMapa")
+      : o.vrsta === "predloga" ? o.ime : t((VRSTE_NOVIH.filter(function (v) { return v[0] === o.vrsta; })[0] || VRSTE_NOVIH[0])[2]);
+    var polje = $("novoIme"); polje.value = ime;
+    nastaviKje(o.kam);
+    $("novoNapaka").hidden = true;
+    $("oknoNovo").hidden = false;
+    setTimeout(function () {
+      polje.focus();
+      // Kot v Nemu: oznaceno je ime brez koncnice, da ga uporabnik takoj prepise.
+      var konec = preimenuj && !o.mapa && ime.lastIndexOf(".") > 0 ? ime.lastIndexOf(".") : ime.length;
+      polje.setSelectionRange(0, konec);
+    }, 0);
+  }
+  function nastaviKje(pot) {
+    NO.kam = pot;
+    $("novoKje").textContent = stranskoBesedilo(pot || "~");
+    $("novoKje").title = pot || "";
+  }
+  function zapriOknoNovo() { $("oknoNovo").hidden = true; NO.nastavitve = null; }
+  function potrdiNovo() {
+    var o = NO.nastavitve; if (!o) return;
+    var ime = $("novoIme").value.trim();
+    var obljuba;
+    if (o.nacin === "preimenuj") obljuba = klic("preimenujDatoteko", [o.pot, ime]);
+    else if (o.nacin === "mapa") obljuba = klic("novaMapa", [NO.kam, ime]);
+    else {
+      var v = $("novoVrsta").value;
+      obljuba = v.indexOf("predloga:") === 0 ? klic("novaDatoteka", [NO.kam, ime, "prazna", v.slice(9)])
+        : klic("novaDatoteka", [NO.kam, ime, v, ""]);
+    }
+    $("novoPotrdi").disabled = true;
+    obljuba.then(function (r) {
+      $("novoPotrdi").disabled = false;
+      if (!r || !r.ok) { var n = $("novoNapaka"); n.textContent = napakaNovo(r && r.napaka); n.hidden = false; $("novoIme").focus(); return; }
+      zapriOknoNovo();
+      var nova = r.pot || "", mapa = nova.replace(/\/[^/]*$/, "") || "/", imeNovega = nova.split("/").pop();
+      if (o.nacin !== "preimenuj") obvesti(t("ustvarjeno", { ime: imeNovega }));
+      // Pokazemo mapo, kjer je nastalo, in vnos oznacimo (koren ohranimo, ce je mapa v njem).
+      var koren = D.vir && D.vir.vrsta === "lokalno" && D.vir.koren && (mapa + "/").indexOf(D.vir.koren.replace(/\/$/, "") + "/") === 0
+        ? D.vir.koren : mapa;
+      D.oznaci = imeNovega;
+      odpriVir({ vrsta: "lokalno", pot: mapa, koren: koren });
+    }).catch(function () { $("novoPotrdi").disabled = false; var n = $("novoNapaka"); n.textContent = t("nSplosno"); n.hidden = false; });
+  }
+  function vSmeti(e) {
+    klic("vSmeti", [e.pot]).then(function (r) {
+      if (!r || !r.ok) { obvesti(t("nSmeti")); return; }
+      N.priljubljeneDat = N.priljubljeneDat.filter(function (p) { return p.pot !== e.pot; }); shrani();
+      obvesti(t("vSmetiOk", { ime: e.ime }));
+      if (D.vir) odpriVir(D.vir);
+    }).catch(function () { obvesti(t("nSmeti")); });
   }
   function predogled(e) {
     if (!e || e.oddaljeno || e.mapa) return;
@@ -961,6 +1106,36 @@
     });
     $("stikaloTekst").addEventListener("change", function () { N.vecjiTekst = this.checked; shrani(); uveljaviPostavitev(); });
     $("stikaloProsojnost").addEventListener("change", function () { N.manjProsojnosti = this.checked; shrani(); uveljaviPostavitev(); });
+
+    // Nova mapa / datoteka: gumb +, desni klik na prazno, Ctrl+Shift+N, okno
+    $("gumbNovo").addEventListener("click", function () {
+      var r = this.getBoundingClientRect(); meniNovo(r.left, r.bottom + 4);
+    });
+    document.querySelector(".dat-glavno").addEventListener("contextmenu", function (ev) {
+      if (ev.target.closest("tbody tr") || ev.target.closest("input, select, button")) return;
+      ev.preventDefault(); meniNovo(ev.clientX, ev.clientY);
+    });
+    $("ploscaDatoteke").addEventListener("keydown", function (ev) {
+      if (ev.ctrlKey && ev.shiftKey && (ev.key === "N" || ev.key === "n")) { ev.preventDefault(); odpriOknoNovo({ nacin: "mapa", kam: kamNovo() }); }
+    });
+    $("obrazecNovo").addEventListener("submit", function (ev) { ev.preventDefault(); potrdiNovo(); });
+    $("novoPreklici").addEventListener("click", zapriOknoNovo);
+    $("oknoNovo").addEventListener("keydown", function (ev) { if (ev.key === "Escape") { ev.stopPropagation(); zapriOknoNovo(); } });
+    $("oknoNovo").addEventListener("mousedown", function (ev) { if (ev.target === this) zapriOknoNovo(); });
+    $("novoVrsta").addEventListener("change", function () {
+      // Ime sledi vrsti, dokler ga uporabnik ni spremenil sam.
+      var polje = $("novoIme"), prej = VRSTE_NOVIH.map(function (v) { return t(v[2]); });
+      if (prej.indexOf(polje.value) < 0 && predlogeDatotek.map(function (p) { return p.ime; }).indexOf(polje.value) < 0) return;
+      var v = this.value;
+      polje.value = v.indexOf("predloga:") === 0 ? (predlogeDatotek.filter(function (p) { return "predloga:" + p.pot === v; })[0] || {}).ime || polje.value
+        : t((VRSTE_NOVIH.filter(function (x) { return x[0] === v; })[0] || VRSTE_NOVIH[0])[2]);
+    });
+    $("novoSpremeni").addEventListener("click", function () {
+      klic("izberiMapo", [NO.kam || "~", t("izberiMapoNaslov"), t("preklici"), t("izberi")]).then(function (p) {
+        if (p) nastaviKje(p);
+        $("novoIme").focus();
+      }).catch(function () {});
+    });
 
     // Datoteke
     $("datFilter").addEventListener("input", function () { D.stran = 0; izrisiDatoteke(); });
