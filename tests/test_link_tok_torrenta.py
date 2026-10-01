@@ -187,3 +187,74 @@ class TokTorrenta(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _benc(v):
+    if isinstance(v, int):
+        return b"i%de" % v
+    if isinstance(v, bytes):
+        return b"%d:%s" % (len(v), v)
+    if isinstance(v, str):
+        return _benc(v.encode())
+    if isinstance(v, list):
+        return b"l" + b"".join(_benc(x) for x in v) + b"e"
+    return b"d" + b"".join(_benc(k) + _benc(v[k]) for k in sorted(v)) + b"e"
+
+
+class Nadzornik(unittest.TestCase):
+    """Ista vsebina se ne prenasa dvakrat: kar je na racunalniku ze v celoti, gre z diska."""
+
+    def setUp(self):
+        self.mapa = tempfile.mkdtemp(prefix="safeer-nadzornik-")
+        self.stanje = os.path.join(self.mapa, "stanje")
+        self.izhod = os.path.join(self.mapa, "Prejemi", "Film")
+        os.makedirs(self.stanje)
+        os.makedirs(self.izhod)
+        self.hash = "b" * 40
+        # dve datoteki: vzorec (10 B) in film (5000 B); kos 1024 B -> 5 kosov
+        with open(os.path.join(self.izhod, "vzorec.mp4"), "wb") as d:
+            d.write(b"v" * 10)
+        with open(os.path.join(self.izhod, "film.mkv"), "wb") as d:
+            d.write(VSEBINA[:5000])
+        info = {"name": "Film", "piece length": 1024, "pieces": b"x" * 100,
+                "files": [{"length": 10, "path": ["vzorec.mp4"]}, {"length": 5000, "path": ["film.mkv"]}]}
+        with open(os.path.join(self.stanje, self.hash + ".torrent"), "wb") as d:
+            d.write(_benc({"info": info}))
+        with open(os.path.join(self.stanje, "session.json"), "w") as d:
+            d.write('{"torrents": {"0": {"info_hash": "%s", "output_folder": "%s"}}}' % (self.hash, self.izhod))
+        self.d = link_datoteke.Datoteke([], tls_mapa=os.path.join(self.mapa, "tls"))
+
+    def tearDown(self):
+        self.d.ustavi()
+        shutil.rmtree(self.mapa, ignore_errors=True)
+
+    def _bitv(self, b):
+        with open(os.path.join(self.stanje, self.hash + ".bitv"), "wb") as d:
+            d.write(bytes(b))
+
+    def test_samo_v_celoti_preneseno(self):
+        self._bitv([0b11110000])     # zadnji kos manjka: film ni koncan, ceprav ima pravo velikost
+        self.assertEqual(link_datoteke.ze_preneseno(self.hash, None, [self.stanje]), ("", -1))
+        self._bitv([0b11111000])
+        pot, i = link_datoteke.ze_preneseno(self.hash, None, [self.stanje])
+        self.assertEqual((os.path.basename(pot), i), ("film.mkv", 1))   # najvecji video
+        self.assertEqual(link_datoteke.ze_preneseno("c" * 40, None, [self.stanje]), ("", -1))
+        self.assertEqual(link_datoteke.ze_preneseno("../x", None, [self.stanje]), ("", -1))
+
+    def test_tok_z_diska_brez_torrenta(self):
+        self._bitv([0b11111000])
+
+        class Ne:
+            def __getattr__(self, ime):
+                raise AssertionError("torrent se ne sme zagnati: " + ime)
+
+        o = self.d.tok_torrenta("magnet:?xt=urn:btih:" + self.hash, "tv-1", torrenti=Ne(), mape_stanja=[self.stanje])
+        self.assertTrue(o["local"])
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        p = http.client.HTTPSConnection("127.0.0.1", self.d.streznik.vrata, context=ctx, timeout=5)
+        p.request("GET", o["path"], headers={"X-Safeer-Token": o["server"]["token"], "Range": "bytes=0-99"})
+        r = p.getresponse()
+        self.assertEqual((r.status, r.read()), (206, VSEBINA[:100]))
+        p.close()
