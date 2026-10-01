@@ -48,6 +48,7 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.0.54" date="2026-10-01"><description><p>Packaged with Safeer OS 0.4.12 and Safeer Control 2.1.10. No changes to the browser itself.</p></description></release>
     <release version="1.0.53" date="2026-10-01"><description><p>Packaged with Safeer OS 0.4.11 and Safeer Control 2.1.9. No changes to the browser itself.</p></description></release>
     <release version="1.0.52" date="2026-10-01"><description><p>Packaged with Safeer OS 0.4.10 and Safeer Control 2.1.8. No changes to the browser itself.</p></description></release>
     <release version="1.0.51" date="2026-10-01"><description><p>Packaged with Safeer OS 0.4.9 and Safeer Control 2.1.7. No changes to the browser itself.</p></description></release>
