@@ -713,6 +713,10 @@ class SafeerControl(Gtk.Application):
       <method name="Klepet"><arg type="s" name="naprava" direction="in"/><arg type="s" name="besedilo" direction="in"/><arg type="s" name="cas" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="KlepetNaprave"><arg type="s" name="json" direction="out"/></method>
       <method name="Magnet"><arg type="s" name="naprava" direction="in"/><arg type="s" name="uri" direction="in"/><arg type="s" name="json" direction="out"/></method>
+      <method name="ShrambaZacni"><arg type="s" name="pot" direction="in"/><arg type="s" name="json" direction="out"/></method>
+      <method name="ShrambaStanje"><arg type="s" name="id" direction="in"/><arg type="s" name="json" direction="out"/></method>
+      <method name="ShrambaIzbrisi"><arg type="s" name="id" direction="in"/><arg type="s" name="json" direction="out"/></method>
+      <method name="ShrambaObdrzi"><arg type="s" name="id" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="Datoteke"><arg type="s" name="naprava" direction="in"/><arg type="s" name="mapa" direction="in"/><arg type="s" name="json" direction="out"/></method>
     </interface></node>"""
 
@@ -746,6 +750,24 @@ class SafeerControl(Gtk.Application):
                 {"id": n.get("id", ""), "ime": n.get("ime", ""), "zmoznosti": n.get("zmoznosti") or [],
                  "platforma": n.get("platforma", ""), "vrsta": n.get("vrsta", ""),
                  "ta": n.get("id", "") == link._id()} for n in link.naprave]}
+        if metoda.startswith("Shramba"):
+            # Skupni prostor: datoteka tega racunalnika na napravo z najvec prostora (core/link_shramba.py).
+            if getattr(self, "shramba", None) is None:
+                from core import link_shramba
+                self.shramba = link_shramba.Shramba(
+                    lambda: [dict(n, ta=n.get("id", "") == link._id()) for n in link.naprave],
+                    lambda i, d, p: link.ukaz_pocakaj(i, d, p, cas=20.0),
+                    self.datoteke, lambda: link._hub() or "")
+            arg = str(a[0]) if a else ""
+            if metoda == "ShrambaZacni":
+                return self.shramba.zacni(arg)
+            if metoda == "ShrambaStanje":
+                return self.shramba.stanje(arg)
+            if metoda == "ShrambaIzbrisi":
+                return self.shramba.izbrisi_original(arg)
+            if metoda == "ShrambaObdrzi":
+                return self.shramba.obdrzi(arg)
+            return {"ok": False, "koda": "neznano"}
         if metoda == "Preimenuj":
             # Ime hrani sredisce (/cast/devices/rename) in ga vidijo vse naprave; prazno vrne prvotno ime.
             if not (link._hub() and link._zeton() and link._odtis()):
