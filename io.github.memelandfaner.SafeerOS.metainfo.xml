@@ -36,6 +36,7 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.4.16" date="2026-10-02"><description><p>The computer now helps devices that cannot play a video: Safeer Control converts it on the fly (VAAPI or CPU) and streams it to them over Safeer Link.</p></description></release>
     <release version="0.4.15" date="2026-10-01"><description><p>Convert a whole folder for TV: every video gets its own device in Safeer Link, so several devices work at once and the folder is done sooner. The computer streams torrents to devices even while it is busy with other work.</p></description></release>
     <release version="0.4.14" date="2026-10-01"><description><p>Convert for TV: right click a video in Files and the device in Safeer Link with the best hardware encoder converts it to H.264 up to 1080p, a format every TV plays. The original stays unchanged; you choose whether to copy the converted video next to it or leave it on the device.</p></description></release>
     <release version="0.4.13" date="2026-10-01"><description><p>Shared space in Safeer Link: when the computer runs low on disk space, Files shows the largest files and can store one on the device in Safeer Link with the most free space. The copy is verified; you see on which device and in which folder it is, and only then decide whether to delete the original.</p></description></release>
