@@ -20,6 +20,7 @@ import http.server
 import json
 import mimetypes
 import os
+import re
 import secrets
 import shutil
 import socket
@@ -371,7 +372,11 @@ def postrezi_datoteko(obravnava, streznik: "StreznikDatotek", oznaka: str, samo_
     if r is None or not os.path.isfile(r[1]):
         _napaka_http(obravnava, 404, "datoteke ni")
         return
-    pot = r[1]
+    _poslji_datoteko(obravnava, r[1], samo_glava)
+
+
+def _poslji_datoteko(obravnava, pot: str, samo_glava: bool) -> None:
+    """Datoteka z diska s podporo za `Range` (zeton je ze preverjen)."""
     velikost = os.path.getsize(pot)
     vrsta = mimetypes.guess_type(pot)[0] or "application/octet-stream"
     zacetek, konec = 0, velikost - 1
@@ -433,6 +438,14 @@ def posreduj_tok(obravnava, streznik: "StreznikDatotek", skrivnost: str, samo_gl
     cilj = streznik.lokalni_tok(skrivnost)
     if cilj is None:
         _napaka_http(obravnava, 404, "toka ni")
+        return
+    if cilj.startswith("file://"):
+        # Film je na tem racunalniku ze v celoti (npr. prenesen v Safeer OS): postrezemo ga z diska.
+        pot = cilj[len("file://"):]
+        if not os.path.isfile(pot):
+            _napaka_http(obravnava, 404, "datoteke ni")
+            return
+        _poslji_datoteko(obravnava, pot, samo_glava)
         return
     u = urllib.parse.urlparse(cilj)
     glave = {"Range": obravnava.headers["Range"]} if obravnava.headers.get("Range") else {}
@@ -575,6 +588,18 @@ class StreznikDatotek:
         with self._kljucavnica:
             self._tokovi.clear()
 
+    def dodaj_datoteko_toka(self, pot: str) -> str:
+        """Ze preneseno datoteko (samo pot, ki jo poda racunalnik sam) objavi kot tok `/m/<skrivnost>/<ime>`."""
+        pot = os.path.realpath(pot)
+        if not os.path.isfile(pot):
+            raise ValueError("ni datoteke")
+        skrivnost = secrets.token_urlsafe(18)
+        with self._kljucavnica:
+            self._tokovi[skrivnost] = "file://" + pot
+            while len(self._tokovi) > 64:
+                self._tokovi.pop(next(iter(self._tokovi)))
+        return "/m/%s/%s" % (skrivnost, urllib.parse.quote(os.path.basename(pot)))
+
     def lokalni_tok(self, skrivnost: str) -> Optional[str]:
         with self._kljucavnica:
             for k, v in self._tokovi.items():
@@ -710,14 +735,25 @@ class Datoteke:
 
 
     def tok_torrenta(self, uri: str, id_naprave: str, hub_url: str = "", datoteka: Optional[int] = None,
-                     torrenti=None, zmogljivost=None) -> dict:
+                     torrenti=None, zmogljivost=None, mape_stanja=None) -> dict:
         """`magnet.stream`: racunalnik prenasa torrent in ga pretaka napravi (televizorju), ki tako
         nicesar ne shranjuje. Vrne {server, path, name, file} ali vrze os_torrent.NapakaTorrenta.
 
         Izbere zahtevano datoteko ali najvecji video; programov (nevarno) nikoli ne predvaja."""
         from core import os_torrent
-        if os_torrent.razcleni_magnet(uri) is None:
+        m = os_torrent.razcleni_magnet(uri)
+        if m is None:
             raise os_torrent.NapakaTorrenta("ni_magnet")
+        # Nadzornik: film, ki je na tem racunalniku ze v celoti prenesen (Safeer OS ali prej za drugo
+        # napravo), postrezemo takoj z diska - brez zagona torrenta in brez ponovnega prenosa.
+        obstojeca, indeks = ze_preneseno(m["hash"], datoteka, mape_stanja)
+        if obstojeca:
+            self.streznik.zazeni()
+            naslov = naslov_do_huba(hub_url) if hub_url else krajevni_naslov()
+            return {"server": {"base_url": self.streznik.osnova(naslov), "fp": self.streznik.odtis,
+                               "token": self.streznik.zeton_za(id_naprave or "naprava")},
+                    "path": self.streznik.dodaj_datoteko_toka(obstojeca), "name": os.path.basename(obstojeca),
+                    "file": indeks, "size": os.path.getsize(obstojeca), "local": True}
         if torrenti is None:
             if not os_torrent.program_na_voljo():
                 os_torrent.prenesi_program()
@@ -772,6 +808,83 @@ class Datoteke:
         return torrenti.odstrani(int(tid), z_datotekami=True)
 
 
+def _bdekodiraj(b: bytes, i: int = 0):
+    """Najmanjsi bencode bralnik (za .torrent iz stanja rqbit). Vrne (vrednost, naslednji indeks)."""
+    c = b[i:i + 1]
+    if c == b"i":
+        k = b.index(b"e", i)
+        return int(b[i + 1:k]), k + 1
+    if c == b"l":
+        i, izid = i + 1, []
+        while b[i:i + 1] != b"e":
+            v, i = _bdekodiraj(b, i)
+            izid.append(v)
+        return izid, i + 1
+    if c == b"d":
+        i, izid = i + 1, {}
+        while b[i:i + 1] != b"e":
+            k, i = _bdekodiraj(b, i)
+            v, i = _bdekodiraj(b, i)
+            izid[k] = v
+        return izid, i + 1
+    d = b.index(b":", i)
+    n = int(b[i:d])
+    return b[d + 1:d + 1 + n], d + 1 + n
+
+
+def ze_preneseno(hash_: str, indeks: Optional[int], mape_stanja=None) -> Tuple[str, int]:
+    """Nadzornik: pot do datoteke `indeks` torrenta `hash_`, ce jo je rqbit na tem racunalniku ze v celoti
+    prenesel (Safeer OS ali pomoc napravam), sicer "". indeks None = najvecji video. Vrne (pot, indeks). Odloca bitno polje kosov (<hash>.bitv), ne velikost
+    datoteke - rqbit datoteko vnaprej razsiri, zato velikost sama ne pove, da je prenos koncan."""
+    from core import os_torrent
+    if not re.fullmatch(r"[0-9a-fA-F]{40}", hash_ or ""):
+        return "", -1
+    hash_ = hash_.lower()
+    if mape_stanja is None:
+        osnova = os.path.dirname(os_torrent.mapa_stanja())
+        mape_stanja = [os_torrent.mapa_stanja(), os.path.join(osnova, "stanje-naprave")]
+    for mapa in mape_stanja:
+        try:
+            with open(os.path.join(mapa, "session.json"), encoding="utf-8") as d:
+                seja = json.load(d)
+            izhod = next((str(t.get("output_folder") or "") for t in (seja.get("torrents") or {}).values()
+                          if str(t.get("info_hash") or "").lower() == hash_), "")
+            if not izhod:
+                continue
+            with open(os.path.join(mapa, hash_ + ".torrent"), "rb") as d:
+                meta, _ = _bdekodiraj(d.read())
+            info = meta[b"info"]
+            dolzina_kosa = int(info[b"piece length"])
+            if b"files" in info:
+                datoteke = [(int(f[b"length"]), [x.decode("utf-8", "replace") for x in f[b"path"]]) for f in info[b"files"]]
+            else:
+                datoteke = [(int(info[b"length"]), [info[b"name"].decode("utf-8", "replace")])]
+            if indeks is None:
+                videi = [k for k, (_, deli) in enumerate(datoteke) if os_torrent.vrsta_datoteke(deli[-1]) == "video"]
+                if not videi:
+                    continue
+                izbran = max(videi, key=lambda k: datoteke[k][0])
+            else:
+                izbran = int(indeks)
+            if not 0 <= izbran < len(datoteke):
+                continue
+            zacetek = sum(d for d, _ in datoteke[:izbran])
+            dolzina, deli = datoteke[izbran]
+            if dolzina <= 0 or any(x in ("", ".", "..") or "/" in x for x in deli):
+                continue
+            with open(os.path.join(mapa, hash_ + ".bitv"), "rb") as d:
+                biti = d.read()
+            prvi, zadnji = zacetek // dolzina_kosa, (zacetek + dolzina - 1) // dolzina_kosa
+            if zadnji // 8 >= len(biti) or not all(biti[k // 8] & (0x80 >> (k % 8)) for k in range(prvi, zadnji + 1)):
+                continue
+            pot = os.path.join(izhod, *deli)
+            if os.path.isfile(pot) and os.path.getsize(pot) == dolzina:
+                return pot, izbran
+        except (OSError, ValueError, KeyError, TypeError, StopIteration):
+            continue
+    return "", -1
+
+
 #: Meje, nad katerimi racunalnik ne prevzame novega dela za druge naprave (ostane odziven za uporabnika).
 NAJVEC_OBREMENITVE_NA_JEDRO = 0.85
 NAJMANJ_PROSTEGA_RAM = 512 * 1024 * 1024
@@ -817,6 +930,9 @@ def torrenti_za_naprave():
         if _ZA_NAPRAVE is None:
             _ZA_NAPRAVE = os_torrent.Torrenti(os.path.join(os_torrent.mapa_prenosov(), "Za naprave"),
                                               os.path.join(os.path.dirname(os_torrent.mapa_stanja()), "stanje-naprave"))
+            # Ob izhodu Controla ustavimo tudi rqbit (sicer ostane do naslednjega zagona, ko ga pocisti _ustavi_sirote).
+            import atexit
+            atexit.register(_ZA_NAPRAVE.ustavi)
         return _ZA_NAPRAVE
 
 
