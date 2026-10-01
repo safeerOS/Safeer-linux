@@ -342,6 +342,14 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             # Torrent, ki ga za napravo (npr. televizor) prenasa in pretaka ta racunalnik.
             posreduj_tok(self, streznik, u.path.split("/")[2] if len(u.path.split("/")) > 2 else "", samo_glava)
             return
+        if u.path.startswith("/live/"):
+            # Sprotno pretvorjeni tok za napravo, ki izvirnika ne zna predvajati (link_sprotno): zeton kot pri datotekah.
+            if not streznik.zeton_velja(self._zeton()):
+                self._napaka(401, "manjka ali napacen zeton")
+                return
+            from core import link_sprotno
+            (getattr(streznik, "sprotno", None) or link_sprotno.sprotno()).postrezi(self, u.path[6:].split("/")[0], samo_glava)
+            return
         if not u.path.startswith("/d/"):
             self._napaka(404, "ni take poti")
             return

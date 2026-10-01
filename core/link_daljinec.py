@@ -103,6 +103,8 @@ DEJANJA_ZASLON = ["screen.start", "screen.stop", "screen.status"]
 DEJANJA_MAGNET = ["magnet.open"]
 #: Torrent prenasa in pretaka ta racunalnik, naprava (televizor) samo predvaja tok - nic ne shranjuje.
 DEJANJA_TOK_TORRENTA = ["magnet.stream", "magnet.list", "magnet.remove"]
+#: Sprotno pretvarjanje za napravo, ki videa ne zna predvajati (core/link_sprotno.py, isto kot Pretok.kt na Androidu).
+DEJANJA_PRETOK = ["video.stream", "video.stream_stop", "video.stream_status"]
 
 
 def _safeer_os() -> str:
@@ -252,6 +254,37 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
             # Kaj ima ta racunalnik (host): procesor, pomnilnik, prostor. Samo stevilke o zmogljivosti,
             # nic o vsebini - televizor mora vedeti, koliko moci ima na voljo.
             koncaj(izid(True, "Podatki o računalniku", podatki_hosta()))
+        elif d in DEJANJA_PRETOK:
+            if datoteke is None:
+                koncaj(izid(False, "Pretakanje tu ni na voljo", koda="ni_na_racunalniku"))
+                return
+            from core import link_sprotno
+            pr = link_sprotno.sprotno()
+            if d == "video.stream_stop":
+                koncaj(izid(pr.ustavi_ukaz(str(parametri.get("id") or "")), "Ustavljeno"))
+                return
+            if d == "video.stream_status":
+                st = pr.stanje(str(parametri.get("id") or ""))
+                koncaj(izid(st is not None, "Stanje toka", st or {}, koda="" if st is not None else "ni_opravila"))
+                return
+            # Pretvarjanje obremeni procesor ali grafiko: racunalnik pomaga, kadar sme (obremenitev, pomnilnik, baterija).
+            stanje_pomoci = pomoc(baterija())
+            if not stanje_pomoci["lahko"]:
+                koncaj(izid(False, "Racunalnik ta trenutek ne more pomagati", koda=str(stanje_pomoci["razlog"])))
+                return
+            import threading
+
+            def delo_pretok() -> None:
+                from core import os_stabilnost
+                try:
+                    podatki = pr.zacni(parametri, posiljatelj, datoteke.streznik)
+                    os_stabilnost.zapisi("safeer-control", f"video.stream za {posiljatelj}: pretvarjam {parametri.get('name')}")
+                    koncaj(izid(True, "Pretvarjam sproti", podatki))
+                except Exception as e:  # noqa: BLE001 - napravi povemo kratko kodo
+                    koda = str(e) if type(e).__name__ == "NapakaPretoka" else "napaka"
+                    os_stabilnost.zapisi("safeer-control", f"video.stream za {posiljatelj}: napaka {koda} ({e})")
+                    koncaj(izid(False, "Sprotno pretvarjanje ni mogoce", koda=koda))
+            threading.Thread(target=delo_pretok, name="safeer-pretok-ukaz", daemon=True).start()
         elif d == "apps.list":
             # Programi racunalnika za televizor; brez dovoljenja uporabnika vrne prazen seznam.
             if programi is None:
@@ -308,7 +341,7 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
             koncaj(_glasnost(parametri))
         elif d == "status":
             s = {"app": "safeer-control-linux", "version": _razlicica_control(), "foreground": True,
-                 "actions": DEJANJA_CONTROL + DEJANJA_HOST + (DEJANJA_DATOTEKE + DEJANJA_TOK_TORRENTA if datoteke is not None else [])
+                 "actions": DEJANJA_CONTROL + DEJANJA_HOST + (DEJANJA_DATOTEKE + DEJANJA_TOK_TORRENTA + DEJANJA_PRETOK if datoteke is not None else [])
                             + (DEJANJA_MAGNET if _safeer_os() else [])
                             + (DEJANJA_PROGRAMI if programi is not None and programi.vklopljeno else [])
                             + (DEJANJA_ZASLON if zaslon is not None and zaslon.na_voljo().get("dovoljeno") else []),
@@ -376,6 +409,12 @@ def podatki_hosta() -> dict:
         pass
     # Graficna kartica: od nje je odvisno, kako tekoca je slika racunalnika na televizorju
     gpu = _graficna()
+    # Kodirniki/dekodirniki za sprotno pretvarjanje (ffmpeg): naprave po tem izberejo pomocnika (SprotnaPomoc).
+    try:
+        from core import link_sprotno
+        gpu.update(link_sprotno.sprotno().kodirniki())
+    except Exception:
+        pass
     if gpu:
         p["gpu"] = gpu
     p["vrsta"] = "racunalnik"
