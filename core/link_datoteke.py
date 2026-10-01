@@ -769,7 +769,9 @@ class Datoteke:
             raise os_torrent.NapakaTorrenta("ni_predvajljivo")
         # Solidarnost brez preobremenitve: racunalnik pomaga, kolikor zmore - ce je sam zaseden ali nima
         # prostora, to pove in naprava vprasa naslednjega v Linku.
-        razlog = (zmogljivost or prosta_zmogljivost)(os.path.dirname(getattr(torrenti, "mapa_prenosov", "") or "") or os.path.expanduser("~"),
+        # Pretakanje torrenta je delo omrezja in diska, ne procesorja: racunalnik ga zmore tudi med prevajanjem
+        # (tablica 1. 10. 2026: med gradnjo aplikacije je dobila "preobremenjen" in filma ni bilo).
+        razlog = (zmogljivost or zmogljivost_za_tok)(os.path.dirname(getattr(torrenti, "mapa_prenosov", "") or "") or os.path.expanduser("~"),
                                                      int(izbrana.get("velikost") or 0))
         if razlog:
             raise os_torrent.NapakaTorrenta(razlog)
@@ -891,12 +893,13 @@ NAJMANJ_PROSTEGA_RAM = 512 * 1024 * 1024
 REZERVA_DISKA = 2 * 1024 * 1024 * 1024
 
 
-def prosta_zmogljivost(mapa: str, potrebno: int) -> str:
+def prosta_zmogljivost(mapa: str, potrebno: int, procesor: bool = True) -> str:
     """"" ce racunalnik delo zmore brez preobremenitve, sicer kratek razlog (preobremenjen, malo_pomnilnika,
-    ni_prostora). Disk: velikost datoteke + rezerva, da uporabniku nikoli ne zapolnimo diska."""
+    ni_prostora). Disk: velikost datoteke + rezerva, da uporabniku nikoli ne zapolnimo diska.
+    `procesor=False` preskoci obremenitev procesorja (delo, ki ga ne potrebuje: pretakanje torrenta)."""
     try:
         jedra = os.cpu_count() or 1
-        if os.getloadavg()[0] / jedra > NAJVEC_OBREMENITVE_NA_JEDRO:
+        if procesor and os.getloadavg()[0] / jedra > NAJVEC_OBREMENITVE_NA_JEDRO:
             return "preobremenjen"
     except (OSError, AttributeError):
         pass
@@ -915,6 +918,11 @@ def prosta_zmogljivost(mapa: str, potrebno: int) -> str:
     except (OSError, AttributeError):
         pass
     return ""
+
+
+def zmogljivost_za_tok(mapa: str, potrebno: int) -> str:
+    """Zmogljivost za pretakanje torrenta napravi: samo pomnilnik in disk, procesor ni pogoj."""
+    return prosta_zmogljivost(mapa, potrebno, procesor=False)
 
 
 _ZA_NAPRAVE = None
