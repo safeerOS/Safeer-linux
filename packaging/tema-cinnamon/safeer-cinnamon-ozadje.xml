@@ -2,13 +2,23 @@
 <!DOCTYPE wallpapers SYSTEM "gnome-wp-list.dtd">
 <wallpapers>
   <wallpaper deleted="false">
-    <name>Safeer - gore in jezero</name>
-    <filename>/usr/share/backgrounds/safeer/safeer-gore-3840x2160.png</filename>
+    <name>Safeer - Aurora</name>
+    <filename>/usr/share/backgrounds/safeer/safeer-aurora.jpg</filename>
     <options>zoom</options>
   </wallpaper>
   <wallpaper deleted="false">
-    <name>Safeer - gore in jezero (vektorsko)</name>
-    <filename>/usr/share/backgrounds/safeer/safeer-gore-16-9.svg</filename>
+    <name>Safeer - Zora nad jezerom</name>
+    <filename>/usr/share/backgrounds/safeer/safeer-zora.jpg</filename>
+    <options>zoom</options>
+  </wallpaper>
+  <wallpaper deleted="false">
+    <name>Safeer - Globina</name>
+    <filename>/usr/share/backgrounds/safeer/safeer-globina.jpg</filename>
+    <options>zoom</options>
+  </wallpaper>
+  <wallpaper deleted="false">
+    <name>Safeer - Gore in jezero</name>
+    <filename>/usr/share/backgrounds/safeer/safeer-gore-3840x2160.png</filename>
     <options>zoom</options>
   </wallpaper>
 </wallpapers>

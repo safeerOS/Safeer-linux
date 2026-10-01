@@ -113,6 +113,14 @@ class TestTemaCinnamon(unittest.TestCase):
                 with open(p, "w") as f:
                     f.write(vsebina)
                 os.chmod(p, os.stat(p).st_mode | stat.S_IEXEC)
+            apps = os.path.join(dom, ".local", "share", "applications")
+            os.makedirs(apps)
+            with open(os.path.join(apps, "org.gnome.Terminal.desktop"), "w") as f:
+                f.write("[Desktop Entry]\nName=Safeer OS\nExec=safeer-os\n")
+            star = os.path.join(dom, ".config", "plank", "dock1", "launchers")
+            os.makedirs(star)
+            with open(os.path.join(star, "star.dockitem"), "w") as f:
+                f.write("[PlankDockItemPreferences]\nLauncher=file:///usr/share/applications/x.desktop\n")
             zagon = os.path.join(dom, ".config", "autostart", "safeer-os.desktop")
             with open(zagon, "w") as f:
                 f.write("[Desktop Entry]\nName=Safeer OS\nExec=safeer-os\n")
@@ -130,6 +138,10 @@ class TestTemaCinnamon(unittest.TestCase):
             self.assertIn("['1:0:top']", vmes)
             with open(zagon) as f:
                 self.assertIn("Hidden=true", f.read())
+            # Zacetni nabor docka: Plankove privzete (tu: en star launcher) zamenja nas nabor, izklop jih vrne.
+            launcherji = os.path.join(dom, ".config", "plank", "dock1", "launchers")
+            self.assertTrue(os.path.isfile(os.path.join(launcherji, "org.gnome.Terminal.dockitem")))
+            self.assertFalse(os.path.exists(os.path.join(launcherji, "star.dockitem")))
             # Dock se ob prijavi zazene prek safeer-cinnamon --dock (pocaka na ustaljen zaslon), ne neposredno.
             with open(os.path.join(dom, ".config", "autostart", "safeer-cinnamon-dock.desktop")) as f:
                 self.assertIn("Exec=safeer-cinnamon --dock", f.read())
@@ -143,6 +155,7 @@ class TestTemaCinnamon(unittest.TestCase):
                 self.assertEqual(f.read(), "[Desktop Entry]\nName=Safeer OS\nExec=safeer-os\n")
             with open(tema_zagon) as f:
                 self.assertEqual(f.read(), "[Desktop Entry]\nName=Safeer OS Tema\nExec=safeer-uveljavi-temo\n")
+            self.assertEqual(os.listdir(star), ["star.dockitem"])
             self.assertEqual(sorted(os.listdir(os.path.join(dom, ".config", "autostart"))),
                              ["safeer-os.desktop", "safeer-tema.desktop"])
         finally:

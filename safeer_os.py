@@ -814,6 +814,13 @@ class SafeerOS(Gtk.Application):
         okno.connect("destroy", lambda *a: self._koncaj())
         self.okno_delovna, self.pogled_delovna = okno, pogled
         okno.show_all()
+        try:
+            vir = Gio.SettingsSchemaSource.get_default()
+            if vir is not None and vir.lookup("org.cinnamon.desktop.background", True) is not None:
+                self._nastavitve_ozadja = Gio.Settings.new("org.cinnamon.desktop.background")
+                self._nastavitve_ozadja.connect("changed::picture-uri", self._ozadje_spremenjeno)
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] ozadje:", e)
         # Pult/dock se lahko pojavita sele po prijavi (Plank): robove preverimo se nekajkrat.
         GLib.timeout_add_seconds(3, self._preveri_robove)
         try:
@@ -855,6 +862,20 @@ class SafeerOS(Gtk.Application):
                 GLib.timeout_add(1500, lambda: (self._dogodek("pojdi", razdelek), False)[1])
             return True
         return self._domov(razdelek)
+
+    @staticmethod
+    def _zazeni_orodje(ukaz: list) -> bool:
+        """Zazene sistemsko orodje (nastavitve docka, ozadja) loceno od Safeer OS."""
+        try:
+            subprocess.Popen(ukaz, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            return True
+        except OSError:
+            return False
+
+    def _ozadje_spremenjeno(self, *_a) -> None:
+        """Uporabnik je v Cinnamonu izbral novo ozadje: delovna povrsina ga prevzame takoj."""
+        ozadje = os_sistem.ozadje_namizja()
+        self._dogodek("ozadje", ("file://" + GLib.uri_escape_string(ozadje, "/", False)) if ozadje else "")
 
     def _odpri_v_brskalniku(self, niz: str) -> bool:
         """Spletni zadetek iskanja v PRIVZETEM brskalniku (xdg): naslov http(s) ali iskanje z nastavljenim
@@ -1244,6 +1265,8 @@ class SafeerOS(Gtk.Application):
             "iskanjeSplet": lambda: self._splet(_iskalnik() + GLib.uri_escape_string(str(a[0] if a else ""), None, False)),
             "odpriVBrskalniku": lambda: self._odpri_v_brskalniku(str(a[0]) if a else ""),
             "odpriRazdelek": lambda: self._odpri_razdelek(str(a[0]) if a else ""),
+            "nastavitveDocka": lambda: self._zazeni_orodje(["safeer-cinnamon", "--nastavitve-docka"]),
+            "nastavitveOzadja": lambda: self._zazeni_orodje(["cinnamon-settings", "backgrounds"]),
             "zapiskiSeznam": lambda: self.zapiski.seznam(str(a[0]) if a else ""),
             "zapisekDobi": lambda: self.zapiski.dobi(str(a[0]) if a else ""),
             "zapisekShrani": lambda: self.zapiski.shrani(
@@ -2478,6 +2501,15 @@ def main() -> int:
     app = SafeerOS(v_oknu=v_oknu, posnetek=posnetek, namizje="--namizje" in sys.argv[1:],
                    delovna="--delovna" in sys.argv[1:])
     app._cakajoci_magnet = magnet
+    if "--delovna" in sys.argv[1:]:
+        # Ze tece primerek Safeer OS (delovna povrsina ali okno): drugi zagon ob prijavi ali iz
+        # safeer-cinnamon ne sme odpreti glavnega okna (aktivacija bi ga), zato tiho koncamo.
+        try:
+            app.register(None)
+            if app.get_is_remote():
+                return 0
+        except Exception:  # noqa: BLE001
+            pass
     # Ce program tece brez tezav, zgodovina sesutij ni vec pomembna (sicer bi varni nacin ostal za vedno).
     GLib.timeout_add_seconds(120, lambda: (os_stabilnost.pozabi_sesutja("safeer-os"), False)[1])
     return app.run([sys.argv[0]])

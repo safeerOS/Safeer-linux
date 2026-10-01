@@ -57,7 +57,9 @@ svg { width: 1.3em; height: 1.3em; fill: none; stroke: currentColor; stroke-widt
 [hidden] { display: none !important; }
 
 /* ---- Iskanje ------------------------------------------------------------ */
-.vrh { position: relative; z-index: 10; display: flex; justify-content: center; align-items: center; }
+.vrh { position: relative; z-index: 10; display: flex; justify-content: center; align-items: flex-start; }
+.iskalnik { position: relative; width: min(48%, 760px); min-width: 320px; display: flex; flex-direction: column; align-items: center; gap: .55em; }
+.iskalnik .iskanje { width: 100%; min-width: 0; }
 .iskanje {
   width: min(48%, 760px); min-width: 320px;
   display: flex; align-items: center; gap: .8em;
@@ -73,8 +75,8 @@ svg { width: 1.3em; height: 1.3em; fill: none; stroke: currentColor; stroke-widt
 .vrh-orodja { position: absolute; right: 0; top: 50%; transform: translateY(-50%); }
 
 .zadetki {
-  position: absolute; z-index: 20; top: calc(100% + 8px); left: 50%; transform: translateX(-50%);
-  width: min(56%, 860px); min-width: 360px; max-height: 70vh; overflow: hidden;
+  position: absolute; z-index: 20; top: calc(3.6em + 8px); left: 50%; transform: translateX(-50%);
+  width: 112%; min-width: 360px; max-height: 70vh; overflow: hidden;
   background: var(--povrsina-mocna); border: 1px solid var(--obroba-mocna); border-radius: 16px;
   backdrop-filter: blur(22px); box-shadow: 0 18px 48px rgba(0, 0, 0, .5); padding: .5em;
   background-color: rgba(14, 23, 39, .96);
@@ -236,3 +238,19 @@ select option { background: #111c2b; color: var(--besedilo); }
   body.vecji-tekst .seznam .st-vrsta { display: none; }
 }
 .stanje-naprave { font-size: .72em; color: var(--tise); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 16em; }
+
+/* ---- Safeer Link (pod iskalnikom) ---------------------------------------- */
+.link-gumb {
+  display: inline-flex; align-items: center; gap: .5em; padding: .32em .95em .32em .8em;
+  font-size: .8em; color: #cfe2f8; cursor: pointer; border-radius: 99px;
+  background: rgba(16, 26, 43, .55); border: 1px solid var(--obroba); backdrop-filter: blur(var(--zamegli));
+  transition: background .15s, border-color .15s, color .15s;
+}
+.link-gumb:hover { background: rgba(104, 168, 229, .2); border-color: rgba(135, 194, 255, .5); color: #fff; }
+.link-gumb svg { width: 1.15em; height: 1.15em; }
+.link-pika { width: .5em; height: .5em; border-radius: 50%; background: var(--tise); flex: none; }
+.link-gumb.povezan .link-pika { background: var(--ok); box-shadow: 0 0 .5em rgba(127, 224, 182, .7); }
+.link-gumb.nepovezan { border-color: rgba(138, 199, 255, .45); color: #e7f3ff; }
+.link-gumb.nepovezan .link-pika { background: var(--poudarek); }
+.meni-namig { margin: .3em .5em .2em; color: var(--tise); font-size: .78em; max-width: 17em; line-height: 1.35; }
+@media (max-height: 820px) { .zadetki { top: calc(3.1em + 8px); } }

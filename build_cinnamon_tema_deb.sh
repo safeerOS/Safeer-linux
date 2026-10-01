@@ -23,7 +23,7 @@ ln -s /usr/share/themes/Mint-Y/metacity-1 "$ROOT/usr/share/themes/Safeer-Cinnamo
 ln -s /usr/share/themes/Mint-Y-Dark-Blue/gtk-2.0 "$ROOT/usr/share/themes/Safeer-Cinnamon/gtk-2.0"
 install -m 755 "$T/safeer-cinnamon" "$ROOT/usr/bin/safeer-cinnamon"
 install -m 644 "$T/plank/dock.theme" "$ROOT/usr/share/safeer-cinnamon/plank/dock.theme"
-install -m 644 "$T/ozadje/safeer-gore-3840x2160.png" "$T/ozadje/safeer-gore-16-9.svg" "$ROOT/usr/share/backgrounds/safeer/"
+install -m 644 "$T"/ozadje/*.jpg "$T/ozadje/safeer-gore-3840x2160.png" "$T/ozadje/safeer-gore-16-9.svg" "$ROOT/usr/share/backgrounds/safeer/"
 install -m 644 "$T/safeer-cinnamon-ozadje.xml" "$ROOT/usr/share/cinnamon-background-properties/safeer-cinnamon.xml"
 install -m 644 "$T/safeer-cinnamon-vklopi.desktop" "$ROOT/usr/share/applications/safeer-cinnamon.desktop"
 install -m 644 "$T/safeer-cinnamon-izklopi.desktop" "$ROOT/usr/share/applications/safeer-cinnamon-izklopi.desktop"
