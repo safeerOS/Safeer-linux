@@ -33,7 +33,9 @@ class Podpis(unittest.TestCase):
         self.assertFalse(link_krog.preveri_podpis(self.kljuc, drugi, self.podpis))
 
     def test_pokvarjen_podpis_pade(self):
-        pokvarjen = base64.b64encode(base64.b64decode(self.podpis)[:-1] + b"\x00").decode()
+        # zadnji bajt obrnemo (ne nastavimo na 0: ce bi bil ze 0, bi "pokvarjen" podpis ostal veljaven - test je obcasno padel)
+        surov = base64.b64decode(self.podpis)
+        pokvarjen = base64.b64encode(surov[:-1] + bytes([surov[-1] ^ 0x01])).decode()
         self.assertFalse(link_krog.preveri_podpis(self.kljuc, self.podatki, pokvarjen))
 
     def test_prazno_in_smeti_padeta_mirno(self):
