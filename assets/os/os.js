@@ -205,7 +205,7 @@
     if (razdelek === "datoteke" && !S.pot) odpriNedavne();
     if (razdelek === "naprave") { osveziPovezavo(); napraveZanka(); }
     if (razdelek === "sporocila") { naloziSporocila(); sporocilaZanka(); }
-    if (razdelek === "nastavitve") { narisiNastavitve(); nalozScit(); scitZanka(); }
+    if (razdelek === "nastavitve") { narisiNastavitve(); nalozScit(); scitZanka(); nalozPosodobitve(false); }
     if (razdelek === "programi") nalozNaprave();
     if (razdelek === "media") naloziMedije();
     prikaziMediaBar();
@@ -2132,6 +2132,62 @@
     obvesti(t("odpiram", { ime: n.ime }));
     klic("nastavitve", [n.modul]).then(function (ok) { if (!ok) obvesti(t("niUspelo")); });
   }
+  // ------------------------------------------------------------------ posodobitve (safeer.si/os/razlicice.json)
+  S.posodobitve = { stanje: null, zanka: 0 };
+  function narisiPosodobitve(st) {
+    S.posodobitve.stanje = st;
+    var naslov = $("posodobitveNaslov"), pod = $("posodobitvePod"), gumb = $("gumbPosodobi");
+    if (!naslov) return;
+    var p = st && st.posodabljanje;
+    if (p && p.tece) {
+      naslov.textContent = p.faza === "namescanje" ? t("posodobitevNamescam") : t("posodobitevPrenasam", { ime: p.sporocilo || "", odstotek: p.odstotek || 0 });
+      pod.textContent = "";
+      gumb.disabled = true;
+      return;
+    }
+    gumb.disabled = false;
+    if (p && p.faza === "koncano") { naslov.textContent = t("posodobitevKoncano", { opis: p.sporocilo || "" }); pod.textContent = ""; return; }
+    if (p && p.faza === "napaka" && p.sporocilo !== "prekinjeno") { naslov.textContent = t("posodobitevNapaka", { napaka: p.sporocilo || "" }); pod.textContent = t("posodobitevNajnovejsaPod"); return; }
+    if (st && st.nove && st.nove.length) {
+      naslov.textContent = t("posodobitevNaVoljo", { opis: st.opis });
+      pod.textContent = st.nacin === "deb" ? t("posodobitevNaVoljoPod") : (st.nacin === "flatpak" || st.nacin === "appimage") ? t("posodobitevNaVoljoFlatpak") : t("posodobitevRocnoPod");
+      return;
+    }
+    naslov.textContent = t("posodobitevNajnovejsa", { v: (st && st.nasa) || (S.zacetek && S.zacetek.razlicica) || "" });
+    pod.textContent = st && st.napaka ? t("posodobitevNapaka", { napaka: st.napaka }) : t("posodobitevNajnovejsaPod");
+  }
+  function nalozPosodobitve(vsiljeno) {
+    if (vsiljeno) { $("posodobitveNaslov").textContent = t("posodobitevPreverjam"); $("posodobitvePod").textContent = ""; }
+    klic("posodobitveStanje", [!!vsiljeno]).then(narisiPosodobitve, function () { narisiPosodobitve(S.posodobitve.stanje); });
+  }
+  function posodobitveZanka() {
+    if (S.posodobitve.zanka) return;
+    S.posodobitve.zanka = setInterval(function () {
+      klic("posodobitveStanje", [false]).then(function (st) {
+        narisiPosodobitve(st);
+        if (!(st.posodabljanje && st.posodabljanje.tece)) { clearInterval(S.posodobitve.zanka); S.posodobitve.zanka = 0; if (st.posodabljanje && st.posodabljanje.faza === "koncano") $("domPosodobitev").hidden = true; }
+      }).catch(function () {});
+    }, 1000);
+  }
+  function posodobi() {
+    var st = S.posodobitve.stanje;
+    if (!st || !st.nove || !st.nove.length) { nalozPosodobitve(true); return; }
+    if (st.nacin !== "deb" && st.nacin !== "flatpak" && st.nacin !== "appimage") { klic("splet", [st.stran || "https://safeer.si/os/"]); return; }
+    klic("posodobi").then(function (r) {
+      if (r && r.ok) { narisiPosodobitve({ nasa: st.nasa, nove: st.nove, opis: st.opis, nacin: st.nacin, posodabljanje: { tece: true, faza: "prenos", odstotek: 0, sporocilo: "" } }); posodobitveZanka(); }
+      else if (r && r.koda === "rocno") klic("splet", [r.stran || "https://safeer.si/os/"]);
+      else nalozPosodobitve(true);
+    }).catch(function () { obvesti(t("niUspelo")); });
+  }
+  function pokaziPosodobitevDoma(st) {
+    // Tiha opomba na domacem zaslonu, dokler uporabnik nove razlicice ne namesti (Nastavitve -> Posodobitve).
+    S.posodobitve.stanje = st;
+    var b = $("domPosodobitev");
+    if (!b) return;
+    b.hidden = !(st && st.nove && st.nove.length);
+    if (!b.hidden) $("domPosodobitevNaslov").textContent = t("posodobitevNaVoljo", { opis: st.opis });
+  }
+
   function narisiNastavitve() {
     kontrole($("hitreNastavitve"), false);
     $("stikaloCelozaslonsko").setAttribute("aria-checked", S.zacetek && S.zacetek.celozaslonsko ? "true" : "false");
@@ -2580,6 +2636,7 @@
       $("mediaOsvezi").disabled = S.mediaOsvezuje || !S.mediaMape.length;
     }
     if (vrsta === "medijskaNapaka") obvesti(t("niUspelo"));
+    if (vrsta === "posodobitev") pokaziPosodobitevDoma(podatki);
     if (vrsta === "magnet") odpriMagnet(podatki && podatki.uri, podatki && podatki.samodejno === true);
     if (vrsta === "magnetProgram" && S.magnet.gumbPrograma)
       S.magnet.gumbPrograma.textContent = t("magnetProgramPrenasam", { odstotek: Math.floor(100 * podatki.n / (podatki.vse || 1)) });
@@ -2729,6 +2786,8 @@
         b.setAttribute("aria-checked", zdaj ? "true" : "false");
       });
     });
+    $("gumbPosodobi").addEventListener("click", posodobi);
+    $("domPosodobitevGumb").addEventListener("click", function () { pojdi("nastavitve"); $("gumbPosodobi").focus(); });
     $("stikaloPredaja").addEventListener("click", function () {
       // "Predvajanje za druge naprave": Nadaljuj z druge naprave / Pošlji na napravo proti temu računalniku (nastavitev Controla).
       var b = $("stikaloPredaja"), nov = b.getAttribute("aria-checked") !== "true";
