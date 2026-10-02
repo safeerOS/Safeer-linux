@@ -1703,6 +1703,12 @@
         klic("utisaj").then(function () { setTimeout(osveziStanje, 200); });
       }));
     }
+    if (!kompaktno && cilj.id === "hitreNastavitve") {
+      // Racunalnik brez zvoka, svetlosti in Wi-Fi (namizni PC): prazen razdelek skrijemo skupaj z naslovom.
+      var prazno = !cilj.children.length, naslov = cilj.previousElementSibling;
+      cilj.hidden = prazno;
+      if (naslov && naslov.tagName === "H2") naslov.hidden = prazno;
+    }
     if (kompaktno) {
       cilj.appendChild(mreza);
       var vec = el("button", "gumb", svg("drsniki") + "<span>" + ubezi(t("nastavitve")) + "</span>");
@@ -2179,6 +2185,20 @@
       else if (r && r.koda === "rocno") klic("splet", [r.stran || "https://safeer.si/os/"]);
       else nalozPosodobitve(true);
     }).catch(function () { obvesti(t("niUspelo")); });
+  }
+  // Z domacega zaslona na gumb Posodobitve v Nastavitvah. Nastavitve se narisejo v vec korakih (teme, hitre
+  // nastavitve, brskalnik, viri), zato gumb v pogled premaknemo veckrat - sicer ga pozneje nalozena vsebina
+  // odrine in uporabnik pristane sredi strani brez gumba.
+  function naPosodobitve() {
+    pojdi("nastavitve");
+    [0, 250, 700, 1500].forEach(function (ms) {
+      setTimeout(function () {
+        var g = $("gumbPosodobi");
+        if (!g || S.razdelek !== "nastavitve") return;
+        if (ms === 0) { try { g.focus({ preventScroll: true }); } catch (e) { g.focus(); } }
+        g.scrollIntoView({ block: "center" });
+      }, ms);
+    });
   }
   function pokaziPosodobitevDoma(st) {
     // Tiha opomba na domacem zaslonu, dokler uporabnik nove razlicice ne namesti (Nastavitve -> Posodobitve).
@@ -2788,7 +2808,7 @@
       });
     });
     $("gumbPosodobi").addEventListener("click", posodobi);
-    $("domPosodobitevGumb").addEventListener("click", function () { pojdi("nastavitve"); $("gumbPosodobi").focus(); });
+    $("domPosodobitevGumb").addEventListener("click", naPosodobitve);
     $("stikaloPredaja").addEventListener("click", function () {
       // "Predvajanje za druge naprave": Nadaljuj z druge naprave / Pošlji na napravo proti temu računalniku (nastavitev Controla).
       var b = $("stikaloPredaja"), nov = b.getAttribute("aria-checked") !== "true";
