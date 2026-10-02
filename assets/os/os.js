@@ -1531,6 +1531,7 @@
     $("gumbOdjavaBesedilo").textContent = t(odjavaPotrjujem ? "odjavaPotrdi" : "odjaviRacunalnik");
     $("stikaloZaupaj").setAttribute("aria-checked", p.zaupana ? "true" : "false");
     $("zaupajPod").textContent = t(p.zaupana ? "zaupajDa" : "zaupajNe");
+    if (typeof p.predajanje === "boolean") $("stikaloPredaja").setAttribute("aria-checked", p.predajanje ? "true" : "false");
     $("domNapravaStanje").innerHTML = '<i class="pika' + (povezan ? "" : " siva") + '"></i><span>' +
       ubezi(t(povezan ? "povezanKratko" : "niPovezano")) + "</span>";
     $("domControl").hidden = !p.control;
@@ -2727,6 +2728,13 @@
         if (S.zacetek) S.zacetek.samozagon = !!zdaj;
         b.setAttribute("aria-checked", zdaj ? "true" : "false");
       });
+    });
+    $("stikaloPredaja").addEventListener("click", function () {
+      // "Predvajanje za druge naprave": Nadaljuj z druge naprave / Pošlji na napravo proti temu računalniku (nastavitev Controla).
+      var b = $("stikaloPredaja"), nov = b.getAttribute("aria-checked") !== "true";
+      b.setAttribute("aria-checked", nov ? "true" : "false");
+      if (S.povezava) S.povezava.predajanje = nov;
+      klic("predajanje", [nov]).then(function (zdaj) { b.setAttribute("aria-checked", zdaj ? "true" : "false"); }).catch(function () {});
     });
     $("stikaloZaupaj").addEventListener("click", function () {
       var b = $("stikaloZaupaj"), nov = b.getAttribute("aria-checked") !== "true";
