@@ -868,3 +868,6 @@ body.vrstica-skrcena:not(.nacin-splet) .skrij-vrstico span { display: none; }
 body.vrstica-skrita:not(.nacin-splet) #aplikacija { grid-template-columns: 1fr; }
 body.vrstica-skrita:not(.nacin-splet) #stranska { display: none; }
 body.vrstica-skrita:not(.nacin-splet) .rocaj-vrstice { display: block; }
+/* Nadaljuj z druge naprave: izbira "tukaj" / "tukaj in ustavi tam" pod ponudbo, ki igra */
+.media-predaja-izbira { display:flex; gap:8px; padding:4px 0 8px 32px; }
+.media-predaja-izbira .media-mapa { flex:1; }

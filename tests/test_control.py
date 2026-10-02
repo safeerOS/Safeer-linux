@@ -232,3 +232,85 @@ class ControlJezik(unittest.TestCase):
         os.environ["LANG"] = "pt_BR.UTF-8"
         n = self.m.Nastavitve(os.path.join(self.mapa, "control.json"))
         self.assertEqual(self.m.besedilo(n.get("ui_language"), "koncaj"), "Quit")
+
+
+class ControlPredaja(unittest.TestCase):
+    """D-Bus za Safeer OS: Predaja (vprasaj naprave), Prevzemi (igraj tu), Ponudi (poslji napravi) - z laznim Linkom."""
+
+    def _app(self):
+        try:
+            import safeer_control as sc
+        except ImportError as e:
+            self.skipTest(f"GTK ni na voljo: {e}")
+        from core import link_predvajanje
+
+        class Link:
+            def __init__(self):
+                self.naprave = [{"id": "n-jaz-control", "ime": "Jaz", "zmoznosti": ["remote"]},
+                                {"id": "n-tel", "ime": "Telefon", "zmoznosti": ["remote", "files"]},
+                                {"id": "n-tv", "ime": "TV", "zmoznosti": ["remote"]},
+                                {"id": "n-brez", "ime": "Brez", "zmoznosti": ["files"]}]
+                self.ukazi = []
+                self.odgovori = {}
+                self.predvajanje = link_predvajanje.Predvajanje(lambda: self.stanje, lambda: True, None, None, lambda: True)
+                self.stanje = {"stanje": "predvaja", "uri": "https://primer.si/film.mp4", "naslov": "Film", "vrsta": "video",
+                               "pozicija": 61, "trajanje": 100}
+
+            def _id(self):
+                return "n-jaz-control"
+
+            def _hub(self):
+                return ""
+
+            def ukaz_pocakaj(self, naprava, dejanje, parametri=None, cas=15.0):
+                self.ukazi.append((naprava, dejanje, parametri))
+                return self.odgovori.get((naprava, dejanje), {"ok": False, "koda": "cas"})
+
+        import types
+        # GObject razreda ne ustvarjamo (okno, D-Bus): metodo klicemo nad preprostim nadomestkom z istimi polji.
+        app = types.SimpleNamespace(link=Link(), datoteke=None, sprejete=[])
+        app.predaja_sprejmi = lambda: app.sprejete.append(app.link.predvajanje.vzemi_ponudbo())
+        app._naprave_metoda = lambda metoda, a: sc.SafeerControl._naprave_metoda(app, metoda, a)
+        return app
+
+    def test_predaja_vprasa_vse_z_daljincem(self):
+        app = self._app()
+        app.link.odgovori[("n-tv", "play.state")] = {"ok": True, "data": {"shared": True, "playing": True, "is_playing": True, "position_ms": 754000,
+                                                                          "duration_ms": 5400000, "item": {"id": "x", "naslov": "Sintel", "zvok": "https://a/b"}}}
+        app.link.odgovori[("n-tel", "play.state")] = {"ok": True, "data": {"shared": True, "playing": False, "last": True, "position_ms": 1000,
+                                                                           "duration_ms": 2000, "item": {"id": "y", "naslov": "Glasba", "zvok": "https://a/c"}}}
+        r = app._naprave_metoda("Predaja", [])
+        self.assertTrue(r["ok"])
+        self.assertEqual([p["naprava"]["id"] for p in r["ponudbe"]], ["n-tv", "n-tel"])  # najprej, kar igra
+        self.assertEqual(r["ponudbe"][0]["opis"], "Sintel (12:34)")
+        self.assertTrue(r["ponudbe"][0]["igra"] and not r["ponudbe"][1]["igra"] and r["ponudbe"][1]["nazadnje"])
+        vprasane = sorted(n for n, d, _ in app.link.ukazi if d == "play.state")
+        self.assertEqual(vprasane, ["n-tel", "n-tv"])  # ne sebe in ne naprave brez daljinca
+
+    def test_prevzemi_preda_safeer_os_in_po_zelji_ustavi_tam(self):
+        import json
+        app = self._app()
+        podatki = {"item": {"id": "x", "naslov": "Sintel", "zvok": "https://a/b", "video": True}, "position_ms": 5000, "duration_ms": 9000,
+                   "server": {"base_url": "https://192.168.0.5:4433", "fp": "ab", "token": "t"}}
+        r = app._naprave_metoda("Prevzemi", ["n-tv", json.dumps(podatki), "1"])
+        self.assertTrue(r["ok"])
+        self.assertIn(("n-tv", "play.stop", {}), app.link.ukazi)
+        # predaja_sprejmi gre prek GLib.idle_add: tu ga poklicemo sami
+        app.predaja_sprejmi()
+        self.assertEqual(app.sprejete[-1]["od_ime"], "TV")
+        self.assertEqual(app.sprejete[-1]["server"]["token"], "t")
+        r = app._naprave_metoda("Prevzemi", ["n-tv", "{}", "0"])
+        self.assertFalse(r["ok"])
+
+    def test_ponudi_poslje_play_offer_z_zetonom_za_cilj(self):
+        app = self._app()
+        app.link.odgovori[("n-tel", "play.offer")] = {"ok": True, "data": {"queued": True}}
+        r = app._naprave_metoda("Ponudi", ["n-tel"])
+        self.assertTrue(r["ok"])
+        naprava, dejanje, parametri = app.link.ukazi[-1]
+        self.assertEqual((naprava, dejanje), ("n-tel", "play.offer"))
+        self.assertEqual((parametri["item"]["naslov"], parametri["position_ms"], parametri["from"]), ("Film", 61000, "Jaz"))
+        app.link.odgovori[("n-tv", "play.offer")] = {"ok": False, "koda": "neznano_dejanje"}
+        self.assertEqual(app._naprave_metoda("Ponudi", ["n-tv"])["koda"], "stara")
+        app.link.stanje = {"stanje": "ustavljeno"}
+        self.assertEqual(app._naprave_metoda("Ponudi", ["n-tel"])["koda"], "ni_predvajanja")
