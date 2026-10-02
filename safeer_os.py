@@ -1323,7 +1323,7 @@ class SafeerOS(Gtk.Application):
                 if s["izid"] is None:
                     s["cas"] = time.time() - os_posodobitve.PREVERBA_S + 600   # cez 10 minut znova
         izid = s["izid"] or {"nove": [], "nacin": os_posodobitve.nacin_namestitve(), "stran": os_posodobitve.STRAN}
-        return {"nove": izid.get("nove") or [], "opis": os_posodobitve.opis(izid), "nacin": izid.get("nacin"),
+        return {"nove": izid.get("nove") or [], "opis": os_posodobitve.opis(izid), "nacin": izid.get("nacin"), "novo": izid.get("novo") or {},
                 "stran": izid.get("stran"), "nasa": RAZLICICA, "napaka": s["napaka"], "posodabljanje": self.posodabljanje.stanje()}
 
     def _posodobitve_tiho(self) -> bool:
