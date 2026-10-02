@@ -32,6 +32,10 @@ POT = "/io/github/memelandfaner/SafeerOS/predvajanje"
 VMESNIK = APP_ID + ".Predvajanje"
 
 VIDEO = (".mp4", ".m4v", ".mkv", ".webm", ".mov", ".avi", ".ogv", ".ts", ".mpg", ".mpeg", ".wmv", ".flv", ".3gp", ".m2ts")
+#: Vrste vnosov predvajalnikov (Linux os_predvajalnik, Windows Medijski center), ki so gotovo slika oz. gotovo zvok;
+#: "medij" (Linux: splosno) in neznane gredo po koncnici ali mime.
+VIDEO_VRSTE = ("video", "tv", "film", "serija", "filmi", "serije", "dvd")
+ZVOK_VRSTE = ("glasba", "radio", "podcast", "podkast", "zvok", "audio")
 
 
 def vnos(id_: str, naslov: str, zvok: str, video: bool, mime: str = "", radio: bool = False, kanal: str = "",
@@ -59,9 +63,9 @@ def pot_iz_uri(uri: str) -> str:
 
 
 def je_video(pot: str, vrsta: str = "", mime: str = "") -> bool:
-    if vrsta in ("video", "tv"):
+    if vrsta in VIDEO_VRSTE:
         return True
-    if vrsta in ("glasba", "radio"):
+    if vrsta in ZVOK_VRSTE:
         return False
     return mime.startswith("video/") or str(pot or "").lower().endswith(VIDEO)
 
@@ -112,7 +116,8 @@ def vnos_iz_stanja(st: dict, datoteke, posiljatelj: str, hub_url: str) -> Option
         if gostitelj in ("127.0.0.1", "localhost", "::1"):
             return None  # lokalni posrednik (tok z naprave, torrent, pretvorba) - naslov drugje ne pomeni nic
         v = vnos(uri, naslov or os.path.basename(urllib.parse.urlparse(uri).path) or uri, uri,
-                 vrsta in ("video", "tv"), "", radio=vrsta == "radio", kanal=naslov if vrsta == "tv" else "")
+                 je_video(urllib.parse.urlparse(uri).path, vrsta), "", radio=vrsta == "radio",
+                 kanal=naslov if vrsta == "tv" else "")
         return {"item": v}
     return None
 
