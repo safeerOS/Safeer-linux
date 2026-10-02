@@ -307,6 +307,12 @@ class ControlPredaja(unittest.TestCase):
         app.link.odgovori[("n-tel", "play.offer")] = {"ok": True, "data": {"queued": True}}
         r = app._naprave_metoda("Ponudi", ["n-tel"])
         self.assertTrue(r["ok"])
+        self.assertEqual(r["prikaz"], "")
+        # Android brez dovoljenja za obvestila: ponudba caka, uporabnik naj tam odpre Safeer OS.
+        app.link.odgovori[("n-tel", "play.offer")] = {"ok": True, "data": {"queued": True, "shown": "later"}}
+        self.assertEqual(app._naprave_metoda("Ponudi", ["n-tel"]), {"ok": True, "prikaz": "later"})
+        app.link.odgovori[("n-tel", "play.offer")] = {"ok": True, "data": {"queued": False, "reason": "izklopljeno"}}
+        self.assertEqual(app._naprave_metoda("Ponudi", ["n-tel"])["koda"], "izklopljeno")
         naprava, dejanje, parametri = app.link.ukazi[-1]
         self.assertEqual((naprava, dejanje), ("n-tel", "play.offer"))
         self.assertEqual((parametri["item"]["naslov"], parametri["position_ms"], parametri["from"]), ("Film", 61000, "Jaz"))

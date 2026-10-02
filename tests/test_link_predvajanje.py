@@ -222,7 +222,7 @@ class Ponudba(unittest.TestCase):
         o = self.p.ponudba("n-tablica", "Tablica", {"item": {"id": "media:video:5", "naslov": "Film", "zvok": "https://192.168.0.87:4433/d/media%3Avideo%3A5", "video": True},
                                                    "position_ms": 754000, "duration_ms": 5400000,
                                                    "server": {"base_url": "https://192.168.0.87:4433", "fp": "ab", "token": "t"}, "from": "Tablica"})
-        self.assertEqual(o, {"queued": True})
+        self.assertEqual(o, {"queued": True, "shown": "banner"})
         self.assertEqual(len(self.prikazane), 1)
         p = self.prikazane[0]
         self.assertEqual((p["od"], p["od_ime"], p["position_ms"], p["duration_ms"]), ("n-tablica", "Tablica", 754000, 5400000))
@@ -233,11 +233,11 @@ class Ponudba(unittest.TestCase):
     def test_ponudba_tretje_naprave_in_spleta(self):
         o = self.p.ponudba("n-tel", "", {"item": {"id": "share:0:Filmi/a.mkv", "naslov": "A", "zvok": "https://192.168.0.135:4433/d/x"},
                                         "server_device": "n-pc", "position_ms": 1000})
-        self.assertEqual(o, {"queued": True})
+        self.assertEqual(o, {"queued": True, "shown": "banner"})
         self.assertEqual(self.prikazane[-1]["server_device"], "n-pc")
         self.assertIsNone(self.prikazane[-1]["server"])
         o = self.p.ponudba("n-tel", "", {"item": {"id": "x", "naslov": "Tok", "zvok": "https://primer.si/a.m3u8", "kanal": "RTV"}})
-        self.assertEqual(o, {"queued": True})
+        self.assertEqual(o, {"queued": True, "shown": "banner"})
         self.assertEqual(self.prikazane[-1]["od_ime"], "n-tel")
 
     def test_neveljavna_ponudba_in_izklop(self):
@@ -279,5 +279,5 @@ class Ponudba(unittest.TestCase):
             if izidi:
                 break
             _t.sleep(0.1)
-        self.assertEqual(izidi[0]["data"], {"queued": True})
+        self.assertEqual(izidi[0]["data"], {"queued": True, "shown": "banner"})
         self.assertEqual(self.prikazane[-1]["od_ime"], "Tel")

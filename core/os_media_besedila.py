@@ -10,7 +10,7 @@ JEZIKI = ("sl", "en", "de", "es", "fr", "it")
 
 BESEDILA: dict[str, dict[str, str]] = {
     "sl": {
-        "poslji": "Pošlji na napravo", "poslano": "Poslano na {ime} – tam potrdi s Sprejmi.", "poslji_napaka": "{ime} ne odgovarja.", "poslji_stara": "{ime} tega še ne zna – tam posodobi Safeer OS.", "poslji_ni": "V Safeer Linku ni druge naprave.", "poslji_ni_deljeno": "Tega ni mogoče poslati (datoteka ni v deljeni mapi).", "poslji_izklopljeno": "{ime} ne sprejema predvajanja z drugih naprav.",
+        "poslji": "Pošlji na napravo", "poslano": "Poslano na {ime} – tam potrdi s Sprejmi.", "poslano_odpri": "Poslano na {ime} – obvestila so tam izklopljena, zato tam odpri Safeer OS in potrdi s Sprejmi.", "poslji_napaka": "{ime} ne odgovarja.", "poslji_stara": "{ime} tega še ne zna – tam posodobi Safeer OS.", "poslji_ni": "V Safeer Linku ni druge naprave.", "poslji_ni_deljeno": "Tega ni mogoče poslati (datoteka ni v deljeni mapi).", "poslji_izklopljeno": "{ime} ne sprejema predvajanja z drugih naprav.",
         "dvd": "Diska ni mogoče prebrati. Zaščitenih diskov (CSS) Safeer ne odklepa.",
         "podnapisi": "Podnapisi", "podnapisi_izklop": "Izklopljeno", "podnapisi_vgrajeni": "Vgrajeni", "podnapisi_v_videu": "Podnapisi v videu",
         "deli_datoteko": "Izberi datoteko za deljenje", "izberi_mapo": "Izberi mapo za deljenje",
@@ -24,7 +24,7 @@ BESEDILA: dict[str, dict[str, str]] = {
         "zacetek": "Predvajanja ni bilo mogoče začeti.", "splosno": "Predvajanje se je ustavilo zaradi napake.",
     },
     "en": {
-        "poslji": "Send to device", "poslano": "Sent to {ime} – confirm there with Accept.", "poslji_napaka": "{ime} is not answering.", "poslji_stara": "{ime} does not know this yet – update Safeer OS there.", "poslji_ni": "No other device in Safeer Link.", "poslji_ni_deljeno": "This cannot be sent (the file is not in a shared folder).", "poslji_izklopljeno": "{ime} does not accept playback from other devices.",
+        "poslji": "Send to device", "poslano": "Sent to {ime} – confirm there with Accept.", "poslano_odpri": "Sent to {ime} – notifications are off there, so open Safeer OS on that device and confirm with Accept.", "poslji_napaka": "{ime} is not answering.", "poslji_stara": "{ime} does not know this yet – update Safeer OS there.", "poslji_ni": "No other device in Safeer Link.", "poslji_ni_deljeno": "This cannot be sent (the file is not in a shared folder).", "poslji_izklopljeno": "{ime} does not accept playback from other devices.",
         "dvd": "The disc can't be read. Safeer doesn't unlock protected (CSS) discs.",
         "podnapisi": "Subtitles", "podnapisi_izklop": "Off", "podnapisi_vgrajeni": "Built-in", "podnapisi_v_videu": "Subtitles in the video",
         "deli_datoteko": "Choose a file to share", "izberi_mapo": "Choose a folder to share",
@@ -37,7 +37,7 @@ BESEDILA: dict[str, dict[str, str]] = {
         "zacetek": "Playback couldn't start.", "splosno": "Playback stopped because of an error.",
     },
     "de": {
-        "poslji": "An Gerät senden", "poslano": "An {ime} gesendet – dort mit Annehmen bestätigen.", "poslji_napaka": "{ime} antwortet nicht.", "poslji_stara": "{ime} kennt das noch nicht – dort Safeer OS aktualisieren.", "poslji_ni": "Kein anderes Gerät im Safeer Link.", "poslji_ni_deljeno": "Das kann nicht gesendet werden (Datei nicht in einem freigegebenen Ordner).", "poslji_izklopljeno": "{ime} nimmt keine Wiedergabe von anderen Geräten an.",
+        "poslji": "An Gerät senden", "poslano": "An {ime} gesendet – dort mit Annehmen bestätigen.", "poslano_odpri": "An {ime} gesendet – Benachrichtigungen sind dort aus; öffne dort Safeer OS und bestätige mit Annehmen.", "poslji_napaka": "{ime} antwortet nicht.", "poslji_stara": "{ime} kennt das noch nicht – dort Safeer OS aktualisieren.", "poslji_ni": "Kein anderes Gerät im Safeer Link.", "poslji_ni_deljeno": "Das kann nicht gesendet werden (Datei nicht in einem freigegebenen Ordner).", "poslji_izklopljeno": "{ime} nimmt keine Wiedergabe von anderen Geräten an.",
         "dvd": "Die Disc kann nicht gelesen werden. Geschützte Discs (CSS) entsperrt Safeer nicht.",
         "podnapisi": "Untertitel", "podnapisi_izklop": "Aus", "podnapisi_vgrajeni": "Eingebettet", "podnapisi_v_videu": "Untertitel im Video",
         "deli_datoteko": "Datei zum Teilen wählen", "izberi_mapo": "Ordner zum Teilen wählen",
@@ -51,7 +51,7 @@ BESEDILA: dict[str, dict[str, str]] = {
         "zacetek": "Die Wiedergabe konnte nicht starten.", "splosno": "Die Wiedergabe wurde wegen eines Fehlers beendet.",
     },
     "es": {
-        "poslji": "Enviar a un dispositivo", "poslano": "Enviado a {ime} – confirma allí con Aceptar.", "poslji_napaka": "{ime} no responde.", "poslji_stara": "{ime} aún no sabe hacerlo – actualiza Safeer OS allí.", "poslji_ni": "No hay otro dispositivo en Safeer Link.", "poslji_ni_deljeno": "No se puede enviar (el archivo no está en una carpeta compartida).", "poslji_izklopljeno": "{ime} no acepta reproducción desde otros dispositivos.",
+        "poslji": "Enviar a un dispositivo", "poslano": "Enviado a {ime} – confirma allí con Aceptar.", "poslano_odpri": "Enviado a {ime} – allí las notificaciones están desactivadas; abre Safeer OS en ese dispositivo y confirma con Aceptar.", "poslji_napaka": "{ime} no responde.", "poslji_stara": "{ime} aún no sabe hacerlo – actualiza Safeer OS allí.", "poslji_ni": "No hay otro dispositivo en Safeer Link.", "poslji_ni_deljeno": "No se puede enviar (el archivo no está en una carpeta compartida).", "poslji_izklopljeno": "{ime} no acepta reproducción desde otros dispositivos.",
         "dvd": "No se puede leer el disco. Safeer no desbloquea discos protegidos (CSS).",
         "podnapisi": "Subtítulos", "podnapisi_izklop": "Desactivados", "podnapisi_vgrajeni": "Integrados", "podnapisi_v_videu": "Subtítulos del vídeo",
         "deli_datoteko": "Elige un archivo para compartir", "izberi_mapo": "Elige una carpeta para compartir",
@@ -65,7 +65,7 @@ BESEDILA: dict[str, dict[str, str]] = {
         "zacetek": "No se pudo iniciar la reproducción.", "splosno": "La reproducción se detuvo por un error.",
     },
     "fr": {
-        "poslji": "Envoyer à un appareil", "poslano": "Envoyé à {ime} – confirme là-bas avec Accepter.", "poslji_napaka": "{ime} ne répond pas.", "poslji_stara": "{ime} ne sait pas encore le faire – mets à jour Safeer OS là-bas.", "poslji_ni": "Aucun autre appareil dans Safeer Link.", "poslji_ni_deljeno": "Impossible à envoyer (le fichier n'est pas dans un dossier partagé).", "poslji_izklopljeno": "{ime} n'accepte pas la lecture depuis d'autres appareils.",
+        "poslji": "Envoyer à un appareil", "poslano": "Envoyé à {ime} – confirme là-bas avec Accepter.", "poslano_odpri": "Envoyé à {ime} – les notifications y sont désactivées ; ouvre Safeer OS sur cet appareil et confirme avec Accepter.", "poslji_napaka": "{ime} ne répond pas.", "poslji_stara": "{ime} ne sait pas encore le faire – mets à jour Safeer OS là-bas.", "poslji_ni": "Aucun autre appareil dans Safeer Link.", "poslji_ni_deljeno": "Impossible à envoyer (le fichier n'est pas dans un dossier partagé).", "poslji_izklopljeno": "{ime} n'accepte pas la lecture depuis d'autres appareils.",
         "dvd": "Impossible de lire le disque. Safeer ne déverrouille pas les disques protégés (CSS).",
         "podnapisi": "Sous-titres", "podnapisi_izklop": "Désactivés", "podnapisi_vgrajeni": "Intégrés", "podnapisi_v_videu": "Sous-titres de la vidéo",
         "deli_datoteko": "Choisir un fichier à partager", "izberi_mapo": "Choisir un dossier à partager",
@@ -79,7 +79,7 @@ BESEDILA: dict[str, dict[str, str]] = {
         "zacetek": "La lecture n'a pas pu démarrer.", "splosno": "La lecture s'est arrêtée à cause d'une erreur.",
     },
     "it": {
-        "poslji": "Invia a un dispositivo", "poslano": "Inviato a {ime} – conferma lì con Accetta.", "poslji_napaka": "{ime} non risponde.", "poslji_stara": "{ime} non lo sa ancora fare – aggiorna Safeer OS lì.", "poslji_ni": "Nessun altro dispositivo in Safeer Link.", "poslji_ni_deljeno": "Non si può inviare (il file non è in una cartella condivisa).", "poslji_izklopljeno": "{ime} non accetta la riproduzione da altri dispositivi.",
+        "poslji": "Invia a un dispositivo", "poslano": "Inviato a {ime} – conferma lì con Accetta.", "poslano_odpri": "Inviato a {ime} – lì le notifiche sono disattivate; apri Safeer OS su quel dispositivo e conferma con Accetta.", "poslji_napaka": "{ime} non risponde.", "poslji_stara": "{ime} non lo sa ancora fare – aggiorna Safeer OS lì.", "poslji_ni": "Nessun altro dispositivo in Safeer Link.", "poslji_ni_deljeno": "Non si può inviare (il file non è in una cartella condivisa).", "poslji_izklopljeno": "{ime} non accetta la riproduzione da altri dispositivi.",
         "dvd": "Impossibile leggere il disco. Safeer non sblocca i dischi protetti (CSS).",
         "podnapisi": "Sottotitoli", "podnapisi_izklop": "Disattivati", "podnapisi_vgrajeni": "Integrati", "podnapisi_v_videu": "Sottotitoli nel video",
         "deli_datoteko": "Scegli un file da condividere", "izberi_mapo": "Scegli una cartella da condividere",

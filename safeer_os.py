@@ -2005,7 +2005,8 @@ class SafeerOS(Gtk.Application):
         def delo() -> None:
             r = _control_naprave("Ponudi", str(naprava.get("id") or ""))
             koda = str(r.get("koda") or "")
-            b = (self._mb("poslano") if r.get("ok") else
+            b = (self._mb("poslano_odpri") if r.get("ok") and r.get("prikaz") == "later" else
+                 self._mb("poslano") if r.get("ok") else
                  self._mb("poslji_stara") if koda == "stara" else
                  self._mb("poslji_ni_deljeno") if koda == "ni_deljeno" else
                  self._mb("poslji_izklopljeno") if koda == "izklopljeno" else self._mb("poslji_napaka")).replace("{ime}", ime)
