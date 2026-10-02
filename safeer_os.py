@@ -45,8 +45,8 @@ gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 
 from core import (os_datoteke, os_knjiznica, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
-                  os_media_besedila, os_mediji, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost, os_torrent,
-                  os_zapiski, os_zvok)
+                  os_media_besedila, os_mediji, os_posodobitve, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost,
+                  os_torrent, os_zapiski, os_zvok)
 
 # Preklop vhoda zvocne vrstice JBL je samo interni poskus: uradni paket modula ne vsebuje
 # (packaging/install_os_payload.sh), zato ga uvozimo le, ce je prisoten (zagon iz repozitorija).
@@ -689,6 +689,10 @@ class SafeerOS(Gtk.Application):
         self.sporocila.naprave_klepeta = lambda: _control_naprave("KlepetNaprave").get("naprave") or []
         #: Scit: filtriranje DNS za ves racunalnik; ce je bil vklopljen, tece od zagona naprej.
         self.scit = os_scit.Scit(self.shramba)
+        # Posodobitve s safeer.si: zadnja preverba (izid, cas) in tekoce posodabljanje (prenos + namestitev v niti).
+        self.posodobitve: dict = {"izid": None, "cas": 0.0, "napaka": ""}
+        self.posodabljanje = os_posodobitve.Posodabljanje()
+        GLib.timeout_add_seconds(90, self._posodobitve_tiho)
         self.okno: Optional[Gtk.ApplicationWindow] = None
         self.pogled: Optional[WebKit2.WebView] = None
         self._ikone: dict = {}
@@ -1295,6 +1299,79 @@ class SafeerOS(Gtk.Application):
             threading.Thread(target=lambda: self._dogodek("stanje", os_sistem.stanje()), daemon=True).start()
         return True
 
+    # ------------------------------------------------------------------ posodobitve (safeer.si/os/razlicice.json)
+    def _posodobitve_razlicice(self) -> dict:
+        r = {"safeer-os": RAZLICICA}
+        if os_posodobitve.nacin_namestitve() == "deb":
+            try:
+                v = subprocess.run(["dpkg-query", "-W", "-f=${Version}", "safeer-control"], capture_output=True, text=True, timeout=10).stdout.strip()
+                if v:
+                    r["safeer-control"] = v
+            except Exception:
+                pass
+        return r
+
+    def _posodobitve_stanje(self, vsiljeno: bool = False) -> dict:
+        """Stanje za vmesnik (v niti): izid zadnje preverbe (najvec 6 ur stare, ali sveze ob [vsiljeno]) + tekoce posodabljanje."""
+        s = self.posodobitve
+        if vsiljeno or s["izid"] is None or time.time() - s["cas"] > os_posodobitve.PREVERBA_S:
+            try:
+                s["izid"] = os_posodobitve.preveri("linux", self._posodobitve_razlicice())
+                s["cas"], s["napaka"] = time.time(), ""
+            except Exception as e:  # noqa: BLE001 - brez omrezja: ostane prejsnji izid
+                s["napaka"] = str(e)
+                if s["izid"] is None:
+                    s["cas"] = time.time() - os_posodobitve.PREVERBA_S + 600   # cez 10 minut znova
+        izid = s["izid"] or {"nove": [], "nacin": os_posodobitve.nacin_namestitve(), "stran": os_posodobitve.STRAN}
+        return {"nove": izid.get("nove") or [], "opis": os_posodobitve.opis(izid), "nacin": izid.get("nacin"),
+                "stran": izid.get("stran"), "nasa": RAZLICICA, "napaka": s["napaka"], "posodabljanje": self.posodabljanje.stanje()}
+
+    def _posodobitve_tiho(self) -> bool:
+        """Tiha preverba ob zagonu in nato na 6 ur; novo razlicico sporoci vmesniku (opomba na domacem zaslonu)."""
+        def delo() -> None:
+            st = self._posodobitve_stanje()
+            if st["nove"]:
+                self._dogodek("posodobitev", st)
+        threading.Thread(target=delo, name="safeer-posodobitve", daemon=True).start()
+        GLib.timeout_add_seconds(os_posodobitve.PREVERBA_S, self._posodobitve_tiho)
+        return False
+
+    def _posodobi(self) -> dict:
+        """Prenese nove pakete (SHA-256) in jih namesti: deb prek pkexec apt-get (geslo), flatpak brez gesla, AppImage se zamenja."""
+        st = self._posodobitve_stanje()
+        nove = [n for n in st["nove"] if n.get("datoteka")]
+        if not nove:
+            return {"ok": False, "koda": "ni_novih"}
+        nacin = st["nacin"]
+        if nacin not in ("deb", "flatpak", "appimage"):
+            return {"ok": False, "koda": "rocno", "stran": st["stran"]}
+
+        def delo(p: os_posodobitve.Posodabljanje) -> None:
+            mapa = os.path.join(GLib.get_user_cache_dir(), "safeer-os", "posodobitve")
+            datoteke = []
+            for n in nove:
+                for d in ([n["datoteka"]] + ([n["tema"]] if n.get("tema") else [])):
+                    ime = str(d["url"]).rsplit("/", 1)[-1]
+                    p.sporocilo = ime
+                    datoteke.append(os_posodobitve.prenesi(str(d["url"]), os.path.join(mapa, ime), str(d.get("sha256") or ""),
+                                                           int(d.get("velikost") or 0),
+                                                           lambda a, b: setattr(p, "odstotek", int(a * 100 / b) if b else 0),
+                                                           lambda: p.prekinjeno, agent="SafeerOS/" + RAZLICICA))
+            p.faza, p.odstotek = "namescanje", 100
+            r = os_posodobitve.namesti_linux(nacin, datoteke)
+            if r.returncode != 0:
+                p.faza, p.sporocilo = "napaka", (r.stderr or r.stdout or "").strip()[-300:] or "namestitev ni uspela"
+                return
+            for d in datoteke:
+                if nacin != "appimage":
+                    try:
+                        os.remove(d)
+                    except OSError:
+                        pass
+            self.posodobitve["izid"] = None   # naslednja preverba pove, da smo na najnovejsi
+            p.sporocilo = os_posodobitve.opis(st)
+        return {"ok": self.posodabljanje.zacni(delo)}
+
     # ------------------------------------------------------------------ posnetek (preverjanje)
     def _za_posnetek(self, pogled, dogodek) -> None:
         if dogodek != WebKit2.LoadEvent.FINISHED or self._posnetek_nacrtovan:
@@ -1450,6 +1527,8 @@ class SafeerOS(Gtk.Application):
         }
         # V ozadju (ukazi, ki lahko trajajo):
         ozadje = {
+            "posodobitveStanje": lambda: self._posodobitve_stanje(bool(a[0]) if a else False),
+            "posodobi": self._posodobi,
             "stanje": os_sistem.stanje,
             "glasnost": lambda: os_sistem.nastavi_glasnost(int(a[0])),
             "utisaj": os_sistem.preklopi_utisaj,
