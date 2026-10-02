@@ -2829,6 +2829,13 @@
     $("mediaMapeZapri").addEventListener("click", zapriSloje);
     $("mediaNapraveGumb").addEventListener("click", odpriMediaNaprave);
     $("medijiMagnet").addEventListener("click", function () { odpriMagnet(""); });
+    // "Nadaljuj z druge naprave" tudi iz glave Medijskega centra (kot na Windows): sloj naprav z odprtim seznamom ponudb.
+    $("medijiPredaja").addEventListener("click", function () {
+      S.mediaNaprava = null;
+      $("slojMediaNaprave").classList.add("viden");
+      $("mediaNapraveZapri").focus();
+      prikaziPredajo();
+    });
     $("medijiDisk").addEventListener("click", function () {
       if (S.dvdPogon) klic("dvdPredvajaj", [S.dvdPogon]).then(function (ok) { if (!ok) obvesti(t("mediaNapaka_dvd")); });
     });
