@@ -711,6 +711,11 @@ class SafeerOS(Gtk.Application):
         predvajaj = Gio.SimpleAction.new("predvajaj", GLib.VariantType.new("s"))
         predvajaj.connect("activate", lambda _a, v: self._predvajaj_datoteko(v.get_string() if v else ""))
         self.add_action(predvajaj)
+        #: "Poslji na napravo": sprejeta ponudba druge naprave (Control jo preda po Sprejmi), ki caka na okno.
+        self._cakajoca_ponudba = None
+        ponudba = Gio.SimpleAction.new("ponudba", GLib.VariantType.new("s"))
+        ponudba.connect("activate", lambda _a, v: self._predvajaj_ponudbo(v.get_string() if v else ""))
+        self.add_action(ponudba)
 
     def do_startup(self) -> None:
         Gtk.Application.do_startup(self)
@@ -783,7 +788,7 @@ class SafeerOS(Gtk.Application):
             self._domov()
             return
         self._ustvari_okno()
-        if self._cakajoca_datoteka:
+        if self._cakajoca_datoteka or self._cakajoca_ponudba:
             GLib.timeout_add(1500, self._predvajaj_cakajoco)
         if self.namizje:
             self._ustvari_vrstico()
@@ -923,6 +928,54 @@ class SafeerOS(Gtk.Application):
         pot, self._cakajoca_datoteka = self._cakajoca_datoteka, ""
         if pot:
             self._predvajaj_datoteko(pot)
+        ponudba, self._cakajoca_ponudba = self._cakajoca_ponudba, None
+        if ponudba:
+            self._predvajaj_ponudbo(ponudba)
+        return False
+
+    def _predvajaj_ponudbo(self, besedilo) -> bool:
+        """"Poslji na napravo": uporabnik je v obvestilu Controla pritisnil Sprejmi - predvajamo, kar je ponudila druga
+        naprava, pri isti sekundi: datoteko izvora prek njenega streznika (zeton za ta racunalnik), datoteko tretje
+        naprave z lastnim zetonom (Control: Datoteke z mapo datoteke), spletni tok s svojim naslovom."""
+        try:
+            p = json.loads(besedilo) if isinstance(besedilo, str) else besedilo
+        except Exception:  # noqa: BLE001
+            return False
+        if not isinstance(p, dict) or not isinstance(p.get("item"), dict):
+            return False
+        if self.okno is None:
+            self._cakajoca_ponudba = p
+            self._ustvari_okno()
+            GLib.timeout_add(1500, self._predvajaj_cakajoco)
+            return True
+        from core import link_predvajanje
+        item = p["item"]
+        naslov = str(item.get("naslov") or "")
+        video = bool(item.get("video"))
+        zacetek = max(0, int(p.get("position_ms") or 0) // 1000)
+        od = str(p.get("od") or "")
+        od_ime = str(p.get("od_ime") or od)
+        streznik = p.get("server") if isinstance(p.get("server"), dict) else None
+        naprava = str(p.get("server_device") or "")
+        kljuc = str(p.get("kljuc") or "")
+        oznaka = str(item.get("id") or "")
+        lokalna = str(p.get("lokalna_pot") or "")
+        if lokalna and os.path.isfile(lokalna):
+            # Datoteka tega racunalnika (Control jo je prepoznal): z diska, pri isti sekundi.
+            return self._predvajaj_neposredno(GLib.filename_to_uri(lokalna, None), vrsta="video" if video else "medij",
+                                             prikazi=video, ime=naslov or os_knjiznica.naslov_datoteke(Path(lokalna)), zacetek=zacetek)
+        if naprava and streznik is None:
+            # Datoteka tretje naprave (telefon, drug racunalnik): svoj zeton dobimo kot pri Datotekah (files.list z mapo).
+            r = _control_naprave("Datoteke", naprava, link_predvajanje.mapa_datoteke(oznaka))
+            streznik = r.get("server") if r.get("ok") and isinstance(r.get("server"), dict) else None
+            kljuc = str(r.get("kljuc") or kljuc)
+        if streznik is not None:
+            vnos = {"id": oznaka, "name": naslov or oznaka, "type": "video" if video else "audio", "mime": str(item.get("mime") or "")}
+            return self._predvajaj_z_naprave(streznik, kljuc, [vnos], 0, izvor=od_ime, naprava=naprava or od, zacetek=zacetek)
+        zvok = str(item.get("zvok") or "")
+        if zvok.startswith(("http://", "https://")):
+            vrsta = "tv" if item.get("kanal") else "radio" if item.get("radio") else "video" if video else "medij"
+            return self._predvajaj_neposredno(zvok, vrsta=vrsta, prikazi=video, ime=naslov or zvok, zacetek=zacetek)
         return False
 
     def _odpri_razdelek(self, razdelek: str) -> bool:
@@ -2174,7 +2227,7 @@ class SafeerOS(Gtk.Application):
                                          ime=vnos["ime"], zacetek=zacetek, seznam=seznam, zacni=zacni)
 
     def _predvajaj_z_naprave(self, streznik: dict, kljuc: str, vnosi: list, zacni: int = 0, izvor: str = "",
-                             naprava: str = "") -> bool:
+                             naprava: str = "", zacetek: int = 0) -> bool:
         """Glasba ali video z druge naprave v Linku, sproti in brez prenosa na disk.
 
         Predvajalnik dobi lokalni naslov 127.0.0.1 (core/link_pretok.py), ta pa bere z naprave po HTTPS s
@@ -2208,6 +2261,7 @@ class SafeerOS(Gtk.Application):
                                       str(p.get("lang") or ""), str(p.get("label") or "")))
             seznam.append(os_predvajalnik.Skladba(link_pretok.pretok().dodaj(vir), ime,
                                                   "medij" if zvok else "video", izvor=str(izvor or ""),
+                                                  zacetek=max(0, int(zacetek or 0)) if v is izbran else 0,
                                                   podnapisi=tuple(podnapisi), naprava=str(naprava or ""),
                                                   oznaka=str(v.get("id") or ""),
                                                   izvirnik=vir.base_url.rstrip("/") + "/d/" + urllib.parse.quote(vir.id_datoteke, safe="")))
@@ -2622,6 +2676,11 @@ def main() -> int:
                 return 0
         except Exception as e:  # noqa: BLE001 - Safeer OS ne tece: zazenemo ga z datoteko
             print("[SafeerOS] predvajaj:", e)
+    ponudba_json = ""
+    if "--ponudba" in sys.argv[1:]:
+        # Sprejeta ponudba "Poslji na napravo" (Safeer Control, ko Safeer OS se ne tece).
+        i = sys.argv.index("--ponudba")
+        ponudba_json = sys.argv[i + 1] if i + 1 < len(sys.argv) else ""
     if "--vrni-mint" in sys.argv[1:] or "--restore-mint" in sys.argv[1:]:
         # Samo povrnitev Mintovega pulta, brez okna in brez WebKita: to poklice zaganjalnik, ko
         # odneha, in uporabnik iz terminala, ce bi Safeer OS kdaj pustil namizje brez pulta.
@@ -2651,11 +2710,16 @@ def main() -> int:
     # (ne cez cel zaslon in brez skrivanja Mintovega pulta).
     cinnamon = os.path.isfile(os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),
                                            "safeer-cinnamon", "vklopljeno"))
-    v_oknu = "--okno" in sys.argv[1:] or bool(magnet) or bool(datoteka) or (cinnamon and "--namizje" not in sys.argv[1:])
+    v_oknu = "--okno" in sys.argv[1:] or bool(magnet) or bool(datoteka) or bool(ponudba_json) or (cinnamon and "--namizje" not in sys.argv[1:])
     app = SafeerOS(v_oknu=v_oknu, posnetek=posnetek, namizje="--namizje" in sys.argv[1:],
                    delovna="--delovna" in sys.argv[1:])
     app._cakajoci_magnet = magnet
     app._cakajoca_datoteka = datoteka
+    if ponudba_json:
+        try:
+            app._cakajoca_ponudba = json.loads(ponudba_json)
+        except Exception:  # noqa: BLE001
+            app._cakajoca_ponudba = None
     if "--delovna" in sys.argv[1:]:
         # Ze tece primerek Safeer OS (delovna povrsina ali okno): drugi zagon ob prijavi ali iz
         # safeer-cinnamon ne sme odpreti glavnega okna (aktivacija bi ga), zato tiho koncamo.

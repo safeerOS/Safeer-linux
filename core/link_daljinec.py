@@ -106,7 +106,7 @@ DEJANJA_TOK_TORRENTA = ["magnet.stream", "magnet.list", "magnet.remove"]
 #: Sprotno pretvarjanje za napravo, ki videa ne zna predvajati (core/link_sprotno.py, isto kot Pretok.kt na Androidu).
 DEJANJA_PRETOK = ["video.stream", "video.stream_stop", "video.stream_status"]
 #: »Nadaljuj z druge naprave«: racunalnik pove, kaj predvaja (core/link_predvajanje.py, isto kot Predaja.kt na Androidu).
-DEJANJA_PREDAJA = ["play.state", "play.stop"]
+DEJANJA_PREDAJA = ["play.state", "play.stop", "play.offer"]
 
 
 def _safeer_os() -> str:
@@ -264,6 +264,9 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
                 try:
                     if d == "play.stop":
                         koncaj(izid(True, "Premor", predvajanje.ustavi()))
+                    elif d == "play.offer":
+                        # "Poslji na napravo": ponudba caka na Sprejmi/Zavrni v tihem obvestilu (core/link_predvajanje.py).
+                        koncaj(izid(True, "Ponudba", predvajanje.ponudba(posiljatelj, str(parametri.get("from") or ""), parametri)))
                     else:
                         koncaj(izid(True, "Predvajanje", predvajanje.stanje(posiljatelj, hub_url)))
                 except Exception as e:  # noqa: BLE001
