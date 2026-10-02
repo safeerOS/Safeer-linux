@@ -924,6 +924,7 @@ class SafeerControl(Gtk.Application):
         if metoda == "Ponudi":
             # "Poslji na napravo" s tega racunalnika: kar Safeer OS igra, napravi (zeton streznika datotek za njo);
             # tam caka Sprejmi, tu igra naprej.
+            from core import link_predvajanje
             id_naprave = str(a[0]) if a else ""
             if link.predvajanje is None:
                 return {"ok": False, "koda": "ni_predvajanja"}
@@ -933,13 +934,7 @@ class SafeerControl(Gtk.Application):
             jaz = next((str(n.get("ime") or "") for n in link.naprave if n.get("id") == link._id()), "")
             parametri = {k: st[k] for k in ("item", "position_ms", "duration_ms", "server", "server_device") if k in st}
             parametri["from"] = jaz
-            r = link.ukaz_pocakaj(id_naprave, "play.offer", parametri, cas=8.0)
-            d = r.get("data") if isinstance(r.get("data"), dict) else {}
-            if r.get("ok") and d.get("queued"):
-                return {"ok": True}
-            if r.get("ok"):
-                return {"ok": False, "koda": str(d.get("reason") or "napaka")}
-            return {"ok": False, "koda": "stara" if str(r.get("code") or r.get("koda") or "") == "neznano_dejanje" else str(r.get("koda") or r.get("code") or "napaka")}
+            return link_predvajanje.izid_ponudbe(link.ukaz_pocakaj(id_naprave, "play.offer", parametri, cas=8.0))
         if metoda == "Aplikacije":
             id_naprave = str(a[0]) if a else ""
             # Po kosih (racunalnik daje najvec 60 z ikonami na sporocilo); Android vrne vse naenkrat.
