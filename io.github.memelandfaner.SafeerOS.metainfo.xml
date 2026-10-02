@@ -36,6 +36,7 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.4.24" date="2026-10-02"><description><p>Updates: the Settings section also tells what is new in the offered version.</p></description></release>
     <release version="0.4.23" date="2026-10-02"><description><p>Updates: Safeer OS checks safeer.si itself, shows a note on the home screen and installs a new version from Settings with one press (DEB via pkexec, Flatpak, AppImage).</p></description></release>
     <release version="0.4.22" date="2026-10-02"><description><p>"Playback for other devices" switch next to "Trust this computer" in Safeer Link; "Continue from another device" also as a button in the Media Centre header; the sender is told when the target cannot show a notification (Safeer Control 2.1.20).</p></description></release>
     <release version="0.4.21" date="2026-10-02"><description><p>Continue from another device on the computer (a card in the Media Centre asks your Link devices what they play or last watched) and Send to device from the player on the computer; the sender is told when the target has notifications switched off (Safeer Control 2.1.19).</p></description></release>
