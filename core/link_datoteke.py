@@ -429,7 +429,9 @@ def _poslji_datoteko(obravnava, pot: str, samo_glava: bool) -> None:
                     break
                 obravnava.wfile.write(kos)
                 ostane -= len(kos)
-    except (BrokenPipeError, ConnectionResetError):
+    except (BrokenPipeError, ConnectionResetError, ssl.SSLError, socket.timeout):
+        # Predvajalnik na napravi med predvajanjem zapira povezave sredi obsega (nov Range): ni napaka,
+        # prej je vsaka taka pustila sled v dnevniku (SSLEOFError).
         pass
 
 

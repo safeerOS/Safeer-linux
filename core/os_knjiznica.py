@@ -235,6 +235,18 @@ class Knjiznica:
         with self._baza() as baza:
             baza.execute("UPDATE mediji SET pozicija=0 WHERE pot=?", (pot,))
 
+    def zadnji_nedokoncan(self) -> dict | None:
+        """Nazadnje gledani film ali epizoda s shranjenim mestom - za »Nadaljuj z druge naprave«, ko tu nic ne igra
+        (racunalnik je film ugasnil pri 1:02, telefon nadaljuje). Samo datoteka, ki je se na disku."""
+        with self._baza() as baza:
+            vrstice = baza.execute("""SELECT pot, naslov, vrsta, zadnjic, pozicija, trajanje FROM mediji
+                WHERE pozicija > 0 AND trajanje > 0 AND vrsta IN ('filmi', 'serije')
+                ORDER BY zadnjic DESC LIMIT 5""").fetchall()
+        for p, n, v, z, po, tr in vrstice:
+            if Path(p).is_file():
+                return {"pot": p, "ime": n, "vrsta": v, "zadnjic": z, "pozicija": po, "trajanje": tr}
+        return None
+
     def odstrani(self, pot: str) -> None:
         with self._baza() as baza:
             baza.execute("DELETE FROM mediji WHERE pot=?", (pot,))

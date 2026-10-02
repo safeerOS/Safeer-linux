@@ -718,7 +718,7 @@
           if (v.type === "folder") { naloziMapoNaprave(v.id, v.name || v.id); return; }
           if (!n.streznik) { obvesti(t("mediaNapravaNeOdgovori")); return; }
           var i = n.vnosi.indexOf(v);
-          klic("predvajajZNaprave", [n.streznik, n.kljuc, n.vnosi, i, n.ime]).then(function (ok) {
+          klic("predvajajZNaprave", [n.streznik, n.kljuc, n.vnosi, i, n.ime, n.id]).then(function (ok) {
             if (!ok) { obvesti(t("niUspelo")); return; }
             if (v.type === "video") zapriSloje();
           }).catch(function () { obvesti(t("niUspelo")); });

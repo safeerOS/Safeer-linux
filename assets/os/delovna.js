@@ -645,7 +645,7 @@
       if (!v.streznik) { obvesti(t("napravaNeOdgovori")); return; }
       var predvajljivi = D.vse.filter(function (x) { return !x.mapa && (x.vrsta === "zvok" || x.vrsta === "video"); });
       var seznam = predvajljivi.map(function (x) { return x.izvirnik; });
-      klic("predvajajZNaprave", [v.streznik, v.kljuc, seznam, predvajljivi.indexOf(e), v.ime]).then(function (ok) {
+      klic("predvajajZNaprave", [v.streznik, v.kljuc, seznam, predvajljivi.indexOf(e), v.ime, v.id]).then(function (ok) {
         if (!ok) obvesti(t("niUspelo")); else medijOsvezi();
       }).catch(function () { obvesti(t("niUspelo")); });
       return;
