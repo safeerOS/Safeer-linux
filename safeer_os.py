@@ -1377,6 +1377,11 @@ class SafeerOS(Gtk.Application):
                 a[0] if a and isinstance(a[0], dict) else {}, str(a[1]) if len(a) > 1 else "",
                 a[2] if len(a) > 2 and isinstance(a[2], list) else [], int(a[3]) if len(a) > 3 else 0,
                 str(a[4]) if len(a) > 4 else "", str(a[5]) if len(a) > 5 else ""),
+            # "Nadaljuj z druge naprave" na tem racunalniku (Control vprasa naprave) in prevzem ponudbe (Control -> dejanje ponudba).
+            "predajaPoizvedi": lambda: _control_naprave("Predaja"),
+            "predajaPrevzemi": lambda: bool(_control_naprave("Prevzemi", str(a[0]) if a else "",
+                                                             json.dumps(a[1] if len(a) > 1 and isinstance(a[1], dict) else {}),
+                                                             "1" if len(a) > 2 and a[2] else "0").get("ok")),
             "predvajalnikStanje": self._medijski_podatki,
             "predvajalnikUkaz": lambda: self._medijski_ukaz(str(a[0]) if a else "", a[1] if len(a) > 1 else None),
             "dvdPogoni": lambda: __import__("core.os_dvd", fromlist=["pogoni"]).pogoni(),
@@ -1882,6 +1887,10 @@ class SafeerOS(Gtk.Application):
                 self._medijski_podnapisi.set_no_show_all(True)
                 self._medijski_podnapisi.connect("clicked", self._medijski_meni_podnapisov)
                 gumbi.pack_end(self._medijski_podnapisi, False, False, 0)
+                # "Poslji na napravo": kar igra tu, drugi napravi v Linku - tam caka tiho Sprejmi/Zavrni, tu igra naprej.
+                poslji = Gtk.Button(label="📤 " + self._mb("poslji"))
+                poslji.connect("clicked", self._medijski_poslji_meni)
+                gumbi.pack_end(poslji, False, False, 0)
                 celozaslonsko = Gtk.Button(label="⛶ " + self._mb("cel_zaslon"))
                 celozaslonsko.connect("clicked", lambda _g: okno.unfullscreen() if okno.get_window() and
                                      okno.get_window().get_state() & Gdk.WindowState.FULLSCREEN else okno.fullscreen())
@@ -1968,6 +1977,47 @@ class SafeerOS(Gtk.Application):
         meni.show_all()
         meni.attach_to_widget(gumb, None)
         meni.popup_at_widget(gumb, Gdk.Gravity.NORTH_WEST, Gdk.Gravity.SOUTH_WEST, None)
+
+    def _medijski_poslji_meni(self, gumb) -> None:
+        """Meni naprav v Linku (brez te); izbira poslje ponudbo prek Controla (Ponudi) in izid pokaze v napisu."""
+        def naprave() -> list:
+            r = _control_naprave("Seznam")
+            return [n for n in (r.get("naprave") or []) if not n.get("ta") and "remote" in (n.get("zmoznosti") or [])]
+
+        def pokazi(seznam: list) -> bool:
+            if not seznam:
+                self._medijski_obvestilo(self._mb("poslji_ni"))
+                return False
+            meni = Gtk.Menu()
+            for n in seznam:
+                postavka = Gtk.MenuItem(label=str(n.get("ime") or n.get("id") or ""))
+                postavka.connect("activate", lambda _p, nap=n: self._medijski_poslji(nap))
+                meni.append(postavka)
+            meni.show_all()
+            meni.attach_to_widget(gumb, None)
+            meni.popup_at_widget(gumb, Gdk.Gravity.NORTH_WEST, Gdk.Gravity.SOUTH_WEST, None)
+            return False
+        threading.Thread(target=lambda: GLib.idle_add(pokazi, naprave()), name="safeer-poslji-naprave", daemon=True).start()
+
+    def _medijski_poslji(self, naprava: dict) -> None:
+        ime = str(naprava.get("ime") or naprava.get("id") or "")
+
+        def delo() -> None:
+            r = _control_naprave("Ponudi", str(naprava.get("id") or ""))
+            koda = str(r.get("koda") or "")
+            b = (self._mb("poslano") if r.get("ok") else
+                 self._mb("poslji_stara") if koda == "stara" else
+                 self._mb("poslji_ni_deljeno") if koda == "ni_deljeno" else
+                 self._mb("poslji_izklopljeno") if koda == "izklopljeno" else self._mb("poslji_napaka")).replace("{ime}", ime)
+            GLib.idle_add(self._medijski_obvestilo, b)
+        threading.Thread(target=delo, name="safeer-poslji", daemon=True).start()
+
+    def _medijski_obvestilo(self, besedilo: str) -> bool:
+        """Kratko sporocilo v vrstici cakalne vrste okna predvajalnika (brez oken)."""
+        if self._medijski_vrsta is not None:
+            self._medijski_vrsta.set_text(besedilo)
+            GLib.timeout_add_seconds(6, lambda: (self._osvezi_medijski_predvajalnik(), False)[1])
+        return False
 
     def _medijski_naslednji_podnapisi(self) -> bool:
         """Tipka V: izklop -> prvi -> drugi ... -> izklop (kot v VLC)."""

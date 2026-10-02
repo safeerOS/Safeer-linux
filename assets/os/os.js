@@ -683,8 +683,10 @@
     klic("napraveZDatotekami").then(function (naprave) {
       if (S.mediaNaprava) return;
       naprave = Array.isArray(naprave) ? naprave : [];
-      if (!naprave.length) { mediaNapraveSporocilo(t("mediaNapraveNi")); return; }
       var seznam = $("mediaNapraveSeznam"); seznam.innerHTML = "";
+      // "Nadaljuj z druge naprave": kar druga naprava igra ali je nazadnje gledala, tu pri isti sekundi (na zahtevo).
+      seznam.appendChild(mediaNapraveVrstica("naprave", t("mediaPredaja"), t("mediaPredajaOpis"), prikaziPredajo));
+      if (!naprave.length) { seznam.appendChild(el("p", "drobno", ubezi(t("mediaNapraveNi")))); return; }
       naprave.forEach(function (n) {
         seznam.appendChild(mediaNapraveVrstica("naprave", n.ime || n.id, "", function () {
           S.mediaNaprava = { id: n.id, ime: n.ime || n.id, pot: [], streznik: null, kljuc: "", vnosi: [] };
@@ -692,6 +694,42 @@
         }));
       });
     }).catch(function () { mediaNapraveSporocilo(t("mediaNapraveNi")); });
+  }
+  function prikaziPredajo() {
+    // Vse naprave vprasamo hkrati (Control: play.state, 3 s); izvor igra naprej, razen ce uporabnik izbere "ustavi tam".
+    var zahteva = { id: "predaja", ime: t("mediaPredaja"), pot: [], streznik: null, kljuc: "", vnosi: [] };
+    S.mediaNaprava = zahteva;
+    mediaNapraveOsveziGlavo();
+    mediaNapraveSporocilo(t("mediaPredajaVprasam"));
+    klic("predajaPoizvedi").then(function (r) {
+      if (S.mediaNaprava !== zahteva) return;
+      var ponudbe = r && Array.isArray(r.ponudbe) ? r.ponudbe : [];
+      if (!ponudbe.length) { mediaNapraveSporocilo(t("mediaPredajaNic")); return; }
+      var seznam = $("mediaNapraveSeznam"); seznam.innerHTML = "";
+      ponudbe.forEach(function (p) {
+        var pod = p.opis + " · " + t(p.igra ? "mediaPredajaIgra" : "mediaPredajaNazadnje");
+        var vrstica = mediaNapraveVrstica("naprave", (p.naprava && p.naprava.ime) || "", pod, function () {
+          if (!p.igra) { prevzemiPredajo(p, false); return; }
+          // Izvor ne ustavi sam: uporabnik izbere, ali tam tece naprej (druga oseba gleda) ali se ustavi.
+          var izbira = el("div", "media-predaja-izbira");
+          var tukaj = el("button", "media-mapa", "<div><b>" + ubezi(t("mediaPredajaTukaj")) + "</b></div>"); tukaj.type = "button";
+          tukaj.addEventListener("click", function () { prevzemiPredajo(p, false); });
+          var ustavi = el("button", "media-mapa", "<div><b>" + ubezi(t("mediaPredajaTukajUstavi")) + "</b></div>"); ustavi.type = "button";
+          ustavi.addEventListener("click", function () { prevzemiPredajo(p, true); });
+          izbira.appendChild(tukaj); izbira.appendChild(ustavi);
+          if (vrstica.nextSibling && vrstica.nextSibling.className === "media-predaja-izbira") vrstica.parentNode.removeChild(vrstica.nextSibling);
+          else vrstica.parentNode.insertBefore(izbira, vrstica.nextSibling);
+        });
+        seznam.appendChild(vrstica);
+      });
+    }).catch(function () { if (S.mediaNaprava === zahteva) mediaNapraveSporocilo(t("mediaPredajaNapaka")); });
+  }
+  function prevzemiPredajo(p, ustaviTam) {
+    klic("predajaPrevzemi", [p.naprava.id, p.podatki, !!ustaviTam]).then(function (ok) {
+      if (!ok) { obvesti(t("mediaPredajaNapaka")); return; }
+      $("slojMediaNaprave").classList.remove("viden");
+      S.mediaNaprava = null;
+    }).catch(function () { obvesti(t("mediaPredajaNapaka")); });
   }
   function naloziMapoNaprave(mapa, ime) {
     var n = S.mediaNaprava; if (!n) return;

@@ -243,6 +243,9 @@ class Ponudba(unittest.TestCase):
     def test_neveljavna_ponudba_in_izklop(self):
         self.assertEqual(self.p.ponudba("n", "", {"item": {"id": "x", "zvok": "content://media/5"}}), {"queued": False, "reason": "ni_vnosa"})
         self.assertEqual(self.p.ponudba("n", "", {}), {"queued": False, "reason": "ni_vnosa"})
+        # datoteka naprave (share:/media:) brez streznika in brez id-ja naprave: zeton izvora tu ne velja
+        self.assertEqual(self.p.ponudba("n", "", {"item": {"id": "share:0:a.mkv", "zvok": "https://192.168.0.5:4433/d/share%3A0%3Aa.mkv"}}),
+                         {"queued": False, "reason": "ni_vnosa"})
         # streznik brez odtisa ali brez https ne steje
         self.p.ponudba("n", "", {"item": {"id": "x", "zvok": "https://1.2.3.4/d/x"}, "server": {"base_url": "http://1.2.3.4", "fp": "a", "token": "t"}})
         self.assertIsNone(self.prikazane[-1]["server"])
