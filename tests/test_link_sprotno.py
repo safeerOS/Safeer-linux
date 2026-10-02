@@ -29,7 +29,8 @@ class _Vir(http.server.BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
-        _Vir.zahteve.append((self.path, self.headers.get("Range"), self.headers.get("X-Safeer-Token")))
+        _Vir.zahteve.append((self.path, self.headers.get("Range"), self.headers.get("X-Safeer-Token"),
+                             self.headers.get("User-Agent"), self.headers.get("X-Safeer-Test")))
         a, b = 0, len(IZVIRNIK) - 1
         r = self.headers.get("Range")
         if r:
@@ -118,6 +119,22 @@ class Sprotno(unittest.TestCase):
         self.assertTrue(self.s.ustavi_ukaz(o["id"]))
         self.assertFalse(self.s.ustavi_ukaz(o["id"]))
         self.assertEqual(self._zahteva(pot, {"X-Safeer-Token": o["token"]})[0], 404)   # po ustavitvi toka ni vec
+
+    def test_glave_toka_gredo_izvirniku(self):
+        """Stremio proxyHeaders: pomocnik poslje glave toka izvirniku (UA toka namesto 'Safeer Control')."""
+        _Vir.zahteve.clear()
+        url = "http://127.0.0.1:%d/d/share:0:film.mkv" % self.vir.server_address[1]
+        o = self.s.zacni({"url": url, "name": "Film.mkv", "duration_ms": 1000, "size": 32768,
+                          "headers": {"User-Agent": "SafeerTest/1.0", "X-Safeer-Test": "da", "Range": "bytes=5-9",
+                                      "Zlo": "a\r\nb", "": "x"}}, "tv-1", self.d.streznik)
+        pot = "/live/" + o["url"].rsplit("/", 1)[1]
+        st, _gl, telo = self._zahteva(pot, {"X-Safeer-Token": o["token"]})
+        self.assertEqual(st, 200)
+        self.assertEqual(telo, IZVIRNIK)
+        self.assertTrue(all(r[3] == "SafeerTest/1.0" and r[4] == "da" for r in _Vir.zahteve), _Vir.zahteve)
+        self.assertTrue(any(r[1] == "bytes=0-99" for r in _Vir.zahteve))     # Range doloca bralec, ne glave toka
+        self.assertEqual(link_sprotno.glave_zahteve({"A": "b", "Host": "x", "C": "d\n"}), {"A": "b"})
+        self.s.ustavi_ukaz(o["id"])
 
     def test_zahteva_in_prostor(self):
         with self.assertRaises(link_sprotno.NapakaPretoka) as e:
