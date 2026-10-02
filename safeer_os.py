@@ -29,6 +29,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 from pathlib import Path
 from typing import Optional
 
@@ -194,6 +195,8 @@ def stanje_povezave() -> dict:
 
 CONTROL_ID = "io.github.memelandfaner.SafeerControl"
 CONTROL_POT = "/io/github/memelandfaner/SafeerControl"
+#: D-Bus tega procesa za Safeer Control: kaj domaci predvajalnik predvaja (core/link_predvajanje.py).
+PREDVAJANJE_POT = "/io/github/memelandfaner/SafeerOS/predvajanje"
 
 
 def nastavi_zaupanje(zaupaj: bool) -> bool:
@@ -703,6 +706,66 @@ class SafeerOS(Gtk.Application):
         magnet = Gio.SimpleAction.new("magnet", GLib.VariantType.new("s"))
         magnet.connect("activate", lambda _a, v: self._odpri_magnet(v.get_string() if v else ""))
         self.add_action(magnet)
+        #: Datoteka, ki caka na okno (zagon `safeer-os --predvajaj <pot>`, ko Safeer OS se ne tece).
+        self._cakajoca_datoteka = ""
+        predvajaj = Gio.SimpleAction.new("predvajaj", GLib.VariantType.new("s"))
+        predvajaj.connect("activate", lambda _a, v: self._predvajaj_datoteko(v.get_string() if v else ""))
+        self.add_action(predvajaj)
+
+    def do_startup(self) -> None:
+        Gtk.Application.do_startup(self)
+        self._izvozi_predvajanje()
+
+    # ------------------------------------------------------------------ D-Bus za Safeer Control: kaj predvajam
+    VMESNIK_PREDVAJANJE = """
+    <node><interface name="io.github.memelandfaner.SafeerOS.Predvajanje">
+      <method name="Stanje"><arg type="s" name="json" direction="out"/></method>
+      <method name="Premor"><arg type="s" name="json" direction="out"/></method>
+    </interface></node>"""
+
+    def _izvozi_predvajanje(self) -> None:
+        """»Nadaljuj z druge naprave«: Safeer Control (locen proces) prek tega vmesnika izve, kaj domaci predvajalnik
+        predvaja in pri kateri sekundi (ukaz `play.state` s telefona ali televizorja), in ga na izrecno zeljo
+        uporabnika na cilju ustavi (`play.stop`, samo pavza). Nic samodejnega in nic ne gre ven brez vprasanja
+        naprave v krogu zaupanja; datoteko dobi naprava le, ce je v mapi, ki jo Control deli."""
+        try:
+            vodilo = self.get_dbus_connection() or Gio.bus_get_sync(Gio.BusType.SESSION, None)
+            info = Gio.DBusNodeInfo.new_for_xml(self.VMESNIK_PREDVAJANJE)
+            vodilo.register_object(PREDVAJANJE_POT, info.interfaces[0], self._klic_predvajanje, None, None)
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] D-Bus Predvajanje:", e)
+
+    def _klic_predvajanje(self, _vodilo, _posiljatelj, _pot, _vmesnik, metoda, _parametri, klic) -> None:
+        # Tece na glavni niti (GStreamer je v tem procesu): klici so kratki, nic ne caka na omrezje.
+        try:
+            if metoda == "Stanje":
+                izid = self._predvajanje_za_control()
+            elif metoda == "Premor":
+                izid = self._predvajanje_premor()
+            else:
+                izid = {"ok": False, "message": "neznana metoda"}
+        except Exception as e:  # noqa: BLE001
+            izid = {"ok": False, "message": str(e)}
+        klic.return_value(GLib.Variant("(s)", (json.dumps(izid, ensure_ascii=True),)))
+
+    def _predvajanje_za_control(self) -> dict:
+        """Kaj igra (ali je v premoru) in kje: uri, naslov, vrsta, sekunde; datoteka z druge naprave v Linku ima
+        se id te naprave in svojo oznako tam (cilj si zeton pri njej dobi sam, kot pri Datotekah)."""
+        servis = self._medijski_predvajalnik
+        if servis is None or servis.trenutna is None or servis.stanje not in ("predvaja", "premor"):
+            return {"ok": True, "stanje": "ustavljeno"}
+        p = servis.podatki()
+        t = servis.trenutna
+        return {"ok": True, "stanje": p["stanje"], "uri": t.uri, "naslov": p["naslov"], "vrsta": p["vrsta"],
+                "pozicija": p["pozicija"], "trajanje": p["trajanje"], "izvor": p.get("izvor", ""),
+                "naprava": t.naprava, "oznaka": t.oznaka, "izvirnik": t.izvirnik}
+
+    def _predvajanje_premor(self) -> dict:
+        """`play.stop` z naprave, ki je predvajanje prevzela: tu samo premor (nic se ne izgubi, mesto se shrani)."""
+        servis = self._medijski_predvajalnik
+        if servis is None or servis.stanje != "predvaja":
+            return {"ok": True, "stopped": False}
+        return {"ok": True, "stopped": bool(self._medijski_ukaz("premor"))}
 
     # ------------------------------------------------------------------ okno
     def do_activate(self) -> None:
@@ -720,6 +783,8 @@ class SafeerOS(Gtk.Application):
             self._domov()
             return
         self._ustvari_okno()
+        if self._cakajoca_datoteka:
+            GLib.timeout_add(1500, self._predvajaj_cakajoco)
         if self.namizje:
             self._ustvari_vrstico()
             if VARNI_NACIN:
@@ -853,6 +918,12 @@ class SafeerOS(Gtk.Application):
                              start_new_session=True)
         except OSError:
             pass
+
+    def _predvajaj_cakajoco(self) -> bool:
+        pot, self._cakajoca_datoteka = self._cakajoca_datoteka, ""
+        if pot:
+            self._predvajaj_datoteko(pot)
+        return False
 
     def _odpri_razdelek(self, razdelek: str) -> bool:
         """Iz delovne povrsine: odpre glavno okno Safeer OS na razdelku (npr. media)."""
@@ -1252,7 +1323,7 @@ class SafeerOS(Gtk.Application):
             "predvajajZNaprave": lambda: self._predvajaj_z_naprave(
                 a[0] if a and isinstance(a[0], dict) else {}, str(a[1]) if len(a) > 1 else "",
                 a[2] if len(a) > 2 and isinstance(a[2], list) else [], int(a[3]) if len(a) > 3 else 0,
-                str(a[4]) if len(a) > 4 else ""),
+                str(a[4]) if len(a) > 4 else "", str(a[5]) if len(a) > 5 else ""),
             "predvajalnikStanje": self._medijski_podatki,
             "predvajalnikUkaz": lambda: self._medijski_ukaz(str(a[0]) if a else "", a[1] if len(a) > 1 else None),
             "dvdPogoni": lambda: __import__("core.os_dvd", fromlist=["pogoni"]).pogoni(),
@@ -2053,6 +2124,25 @@ class SafeerOS(Gtk.Application):
             self._knjiznica_medijev = os_knjiznica.Knjiznica()
         return self._knjiznica_medijev
 
+    def _predvajaj_datoteko(self, pot: str) -> bool:
+        """Video ali glasba z diska (`safeer-os --predvajaj <pot>` iz terminala ali zaganjalnika): iz knjiznice
+        z nadaljevanjem, kjer je uporabnik ostal, sicer neposredno v domacem predvajalniku."""
+        pot = os.path.realpath(str(pot or ""))
+        if not os.path.isfile(pot):
+            return False
+        if self.okno is None:
+            self._cakajoca_datoteka = pot
+            self._ustvari_okno()
+            GLib.timeout_add(1500, self._predvajaj_cakajoco)
+            return True
+        if self._odpri_lokalni_medij(pot):
+            return True
+        vrsta = os_knjiznica.vrsta_datoteke(Path(pot))
+        if vrsta not in ("filmi", "serije", "glasba"):
+            return False
+        return self._predvajaj_neposredno(GLib.filename_to_uri(pot, None), vrsta="video" if vrsta != "glasba" else "medij",
+                                         prikazi=vrsta != "glasba", ime=os_knjiznica.naslov_datoteke(Path(pot)))
+
     def _odpri_lokalni_medij(self, pot: str) -> bool:
         vnos = self._medijska_knjiznica().dobi(pot)
         if not vnos or not os.path.isfile(pot):
@@ -2083,7 +2173,8 @@ class SafeerOS(Gtk.Application):
                                          vrsta="video" if prikazi else "medij", prikazi=prikazi,
                                          ime=vnos["ime"], zacetek=zacetek, seznam=seznam, zacni=zacni)
 
-    def _predvajaj_z_naprave(self, streznik: dict, kljuc: str, vnosi: list, zacni: int = 0, izvor: str = "") -> bool:
+    def _predvajaj_z_naprave(self, streznik: dict, kljuc: str, vnosi: list, zacni: int = 0, izvor: str = "",
+                             naprava: str = "") -> bool:
         """Glasba ali video z druge naprave v Linku, sproti in brez prenosa na disk.
 
         Predvajalnik dobi lokalni naslov 127.0.0.1 (core/link_pretok.py), ta pa bere z naprave po HTTPS s
@@ -2117,7 +2208,9 @@ class SafeerOS(Gtk.Application):
                                       str(p.get("lang") or ""), str(p.get("label") or "")))
             seznam.append(os_predvajalnik.Skladba(link_pretok.pretok().dodaj(vir), ime,
                                                   "medij" if zvok else "video", izvor=str(izvor or ""),
-                                                  podnapisi=tuple(podnapisi)))
+                                                  podnapisi=tuple(podnapisi), naprava=str(naprava or ""),
+                                                  oznaka=str(v.get("id") or ""),
+                                                  izvirnik=vir.base_url.rstrip("/") + "/d/" + urllib.parse.quote(vir.id_datoteke, safe="")))
         return self._predvajaj_neposredno(seznam[zacni].uri, vrsta="medij" if zvok else "video",
                                          prikazi=not zvok, ime=seznam[zacni].naslov,
                                          seznam=seznam, zacni=zacni)
@@ -2508,6 +2601,27 @@ def main() -> int:
                 return 0
         except Exception as e:  # noqa: BLE001 - Safeer OS ne tece: zazenemo ga z magnetom
             print("[SafeerOS] magnet:", e)
+    datoteka = ""
+    if "--predvajaj" in sys.argv[1:]:
+        # Datoteka z diska: ce Safeer OS ze tece, jo preda njemu (org.gtk.Actions) in konca, sicer se zazene
+        # kot okno in jo predvaja, ko je okno pripravljeno.
+        i = sys.argv.index("--predvajaj")
+        datoteka = os.path.realpath(sys.argv[i + 1]) if i + 1 < len(sys.argv) else ""
+        if not os.path.isfile(datoteka):
+            print("Te datoteke ni.")
+            return 2
+        try:
+            vodilo = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+            tece = vodilo.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+                                    "NameHasOwner", GLib.Variant("(s)", (APP_ID,)), GLib.VariantType("(b)"),
+                                    Gio.DBusCallFlags.NONE, 2000, None).unpack()[0]
+            if tece:
+                vodilo.call_sync(APP_ID, "/" + APP_ID.replace(".", "/"), "org.gtk.Actions", "Activate",
+                                 GLib.Variant("(sava{sv})", ("predvajaj", [GLib.Variant("s", datoteka)], {})),
+                                 None, Gio.DBusCallFlags.NONE, 5000, None)
+                return 0
+        except Exception as e:  # noqa: BLE001 - Safeer OS ne tece: zazenemo ga z datoteko
+            print("[SafeerOS] predvajaj:", e)
     if "--vrni-mint" in sys.argv[1:] or "--restore-mint" in sys.argv[1:]:
         # Samo povrnitev Mintovega pulta, brez okna in brez WebKita: to poklice zaganjalnik, ko
         # odneha, in uporabnik iz terminala, ce bi Safeer OS kdaj pustil namizje brez pulta.
@@ -2537,10 +2651,11 @@ def main() -> int:
     # (ne cez cel zaslon in brez skrivanja Mintovega pulta).
     cinnamon = os.path.isfile(os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),
                                            "safeer-cinnamon", "vklopljeno"))
-    v_oknu = "--okno" in sys.argv[1:] or bool(magnet) or (cinnamon and "--namizje" not in sys.argv[1:])
+    v_oknu = "--okno" in sys.argv[1:] or bool(magnet) or bool(datoteka) or (cinnamon and "--namizje" not in sys.argv[1:])
     app = SafeerOS(v_oknu=v_oknu, posnetek=posnetek, namizje="--namizje" in sys.argv[1:],
                    delovna="--delovna" in sys.argv[1:])
     app._cakajoci_magnet = magnet
+    app._cakajoca_datoteka = datoteka
     if "--delovna" in sys.argv[1:]:
         # Ze tece primerek Safeer OS (delovna povrsina ali okno): drugi zagon ob prijavi ali iz
         # safeer-cinnamon ne sme odpreti glavnega okna (aktivacija bi ga), zato tiho koncamo.

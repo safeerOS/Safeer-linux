@@ -105,6 +105,8 @@ DEJANJA_MAGNET = ["magnet.open"]
 DEJANJA_TOK_TORRENTA = ["magnet.stream", "magnet.list", "magnet.remove"]
 #: Sprotno pretvarjanje za napravo, ki videa ne zna predvajati (core/link_sprotno.py, isto kot Pretok.kt na Androidu).
 DEJANJA_PRETOK = ["video.stream", "video.stream_stop", "video.stream_status"]
+#: »Nadaljuj z druge naprave«: racunalnik pove, kaj predvaja (core/link_predvajanje.py, isto kot Predaja.kt na Androidu).
+DEJANJA_PREDAJA = ["play.state", "play.stop"]
 
 
 def _safeer_os() -> str:
@@ -131,7 +133,7 @@ def odpri_magnet(uri: str) -> dict:
 
 def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], None],
                    koncaj: Callable[[dict], None], datoteke=None, posiljatelj: str = "",
-                   hub_url: str = "", programi=None, zaslon=None) -> None:
+                   hub_url: str = "", programi=None, zaslon=None, predvajanje=None) -> None:
     """Safeer Control (namizna aplikacija brez brskalnika): kar zna racunalnik brez brskalnika --
     glasnost, odpiranje strani v sistemskem brskalniku, stanje in seznam deljenih map
     (`files.list`, core/link_datoteke.py, ce je `datoteke` podan). Vse drugo vrne razumljivo napako."""
@@ -250,6 +252,23 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
                 koncaj(izid(False, str(e), koda="ni_programa" if type(e).__name__ == "ProgramaNi" else "ni_zajema"))
                 return
             koncaj(izid(True, "Zaslon se deli", seja))
+        elif d in DEJANJA_PREDAJA:
+            # Kaj racunalnik predvaja in kje (uporabnik je na telefonu izbral »Nadaljuj z druge naprave«).
+            # D-Bus do Safeer OS in zagon streznika datotek nista za glavno nit.
+            if predvajanje is None:
+                koncaj(izid(False, "Predvajanje tu ni na voljo", koda="ni_na_racunalniku"))
+                return
+            import threading
+
+            def delo_predaja() -> None:
+                try:
+                    if d == "play.stop":
+                        koncaj(izid(True, "Premor", predvajanje.ustavi()))
+                    else:
+                        koncaj(izid(True, "Predvajanje", predvajanje.stanje(posiljatelj, hub_url)))
+                except Exception as e:  # noqa: BLE001
+                    koncaj(izid(False, f"Ukaz ni uspel: {e}"))
+            threading.Thread(target=delo_predaja, name="safeer-predaja", daemon=True).start()
         elif d == "host.info":
             # Kaj ima ta racunalnik (host): procesor, pomnilnik, prostor. Samo stevilke o zmogljivosti,
             # nic o vsebini - televizor mora vedeti, koliko moci ima na voljo.
@@ -343,6 +362,7 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
             s = {"app": "safeer-control-linux", "version": _razlicica_control(), "foreground": True,
                  "actions": DEJANJA_CONTROL + DEJANJA_HOST + (DEJANJA_DATOTEKE + DEJANJA_TOK_TORRENTA + DEJANJA_PRETOK if datoteke is not None else [])
                             + (DEJANJA_MAGNET if _safeer_os() else [])
+                            + (DEJANJA_PREDAJA if predvajanje is not None else [])
                             + (DEJANJA_PROGRAMI if programi is not None and programi.vklopljeno else [])
                             + (DEJANJA_ZASLON if zaslon is not None and zaslon.na_voljo().get("dovoljeno") else []),
                  "keys": [], "title": "Safeer Control"}

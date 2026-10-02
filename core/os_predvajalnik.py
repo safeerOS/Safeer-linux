@@ -21,6 +21,12 @@ class Skladba:
     izvor: str = ""
     #: Podnapisi ob videu: ((uri, ime, jezik, oznaka), ...) - datoteke ob videu, z naprave ali iz torrenta.
     podnapisi: tuple = ()
+    #: Datoteka z druge naprave v Linku: id te naprave in oznaka datoteke na njej (za "Nadaljuj na drugi napravi":
+    #: cilj dobi svoj zeton pri tisti napravi, kot pri Datotekah). Prazno = ta racunalnik ali spletni tok.
+    naprava: str = ""
+    oznaka: str = ""
+    #: Naslov datoteke na tisti napravi (https://.../d/<oznaka>) - uri zgoraj je lokalni posrednik 127.0.0.1.
+    izvirnik: str = ""
 
 
 #: Kode napak predvajanja; stran jih prevede (mediaNapaka_<koda>), okno predvajalnika uporabi NAPAKE.
@@ -150,7 +156,9 @@ class Predvajalnik:
             return False
         preverjeni = [replace(medij(v.uri, v.vrsta), naslov=v.naslov[:80],
                              zacetek=max(0, int(v.zacetek)), izvor=str(v.izvor or "")[:80],
-                             podnapisi=_cisti_podnapisi(v.podnapisi)) for v in vnosi]
+                             podnapisi=_cisti_podnapisi(v.podnapisi),
+                             naprava=str(v.naprava or "")[:80], oznaka=str(v.oznaka or "")[:1024],
+                             izvirnik=str(v.izvirnik or "")[:2048]) for v in vnosi]
         self.vrsta = preverjeni
         self.indeks = -1
         return self.predvajaj(zacni)

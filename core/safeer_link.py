@@ -192,6 +192,8 @@ class SafeerLink:
         self.datoteke = None
         self.programi = None
         self.zaslon = None
+        # Safeer Control: kaj racunalnik predvaja, za »Nadaljuj z druge naprave« (core/link_predvajanje.Predvajanje).
+        self.predvajanje = None
         # Safeer Control: zvok racunalnika na napravi v Linku (core/link_zvok.ZvokNaNapravo).
         self.zvok = None
         # Ukazi drugim napravam, na katere kdo caka (Safeer OS prek D-Bus): ref -> (Event, odgovor).
@@ -1300,7 +1302,7 @@ class SafeerLink:
             if self.control:
                 link_daljinec.izvedi_control(dejanje, parametri, self.odpri_naslov, koncaj,
                                              datoteke=self.datoteke, posiljatelj=posiljatelj, hub_url=self._hub(),
-                                             programi=self.programi, zaslon=self.zaslon)
+                                             programi=self.programi, zaslon=self.zaslon, predvajanje=self.predvajanje)
                 return False
             if self.starsevsko is None:
                 koncaj(link_daljinec.izid(False, "Brskalnik ni odprt"))
