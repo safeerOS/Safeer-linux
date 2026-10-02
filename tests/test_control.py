@@ -317,6 +317,23 @@ class ControlPredaja(unittest.TestCase):
         sc.SafeerControl.nastavi_predvajanje_za_naprave(app, True)
         self.assertTrue(shramba["predvajanje_za_naprave"])
 
+    def test_posodobitve_razlicice_in_postavka_pladnja(self):
+        """Control preverja svojo razlicico (in Safeer OS, ce je paket); postavka v pladnju se pokaze le z novo razlicico."""
+        import safeer_control as sc
+        import types
+        app = types.SimpleNamespace(posodobitve_izid=None)
+        r = sc.SafeerControl._posodobitve_razlicice(app)
+        self.assertEqual(r.get("safeer-control"), sc.APP_VERSION)
+        prikazi = []
+        pladenj = types.SimpleNamespace(app=app, jezik="sl",
+                                        posodobi=types.SimpleNamespace(set_label=lambda b: prikazi.append(b), show=lambda: prikazi.append("show"),
+                                                                       hide=lambda: prikazi.append("hide")))
+        sc.Pladenj.osvezi_posodobitev(pladenj)
+        self.assertEqual(prikazi, ["hide"])
+        app.posodobitve_izid = {"nove": [{"ime": "Safeer Control", "razlicica": "2.1.23"}]}
+        sc.Pladenj.osvezi_posodobitev(pladenj)
+        self.assertEqual(prikazi[-2:], ["Posodobi: Safeer Control 2.1.23 …", "show"])
+
     def test_ponudi_poslje_play_offer_z_zetonom_za_cilj(self):
         app = self._app()
         app.link.odgovori[("n-tel", "play.offer")] = {"ok": True, "data": {"queued": True}}
