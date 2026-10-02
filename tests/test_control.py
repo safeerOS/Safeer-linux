@@ -302,6 +302,21 @@ class ControlPredaja(unittest.TestCase):
         r = app._naprave_metoda("Prevzemi", ["n-tv", "{}", "0"])
         self.assertFalse(r["ok"])
 
+    def test_stikalo_predvajanje_za_naprave_iz_safeer_os(self):
+        """Dejanje predvajanje-za-naprave (Safeer OS, poleg Zaupaj) zapise nastavitev in uskladi postavko v pladnju."""
+        import safeer_control as sc
+        import types
+        shramba = {}
+        klici = []
+        app = types.SimpleNamespace(nastavitve=types.SimpleNamespace(set=lambda k, v: shramba.__setitem__(k, v),
+                                                                     get=lambda k, d=None: shramba.get(k, d)),
+                                    pladenj=types.SimpleNamespace(osvezi_predvajanje=lambda: klici.append("osvezi")))
+        sc.SafeerControl.nastavi_predvajanje_za_naprave(app, False)
+        self.assertEqual((shramba, klici), ({"predvajanje_za_naprave": False}, ["osvezi"]))
+        app.pladenj = None
+        sc.SafeerControl.nastavi_predvajanje_za_naprave(app, True)
+        self.assertTrue(shramba["predvajanje_za_naprave"])
+
     def test_ponudi_poslje_play_offer_z_zetonom_za_cilj(self):
         app = self._app()
         app.link.odgovori[("n-tel", "play.offer")] = {"ok": True, "data": {"queued": True}}

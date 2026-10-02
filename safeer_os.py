@@ -73,6 +73,8 @@ def _razlicica() -> str:
 
 RAZLICICA = _razlicica()
 CONTROL_NASTAVITVE = os.path.expanduser("~/.config/safeer-control/link.json")
+#: Nastavitve Controla (pladenj: predvajanje_za_naprave, deljene mape ...), loceno od podatkov Linka v link.json.
+CONTROL_NASTAVITVE_PLADNJA = os.path.expanduser("~/.config/safeer-control/control.json")
 BRSKALNIK_NASTAVITVE = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
                                     "safeer-mint", "settings.json")
 ZAPISKI_POT = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
@@ -186,7 +188,8 @@ def stanje_povezave() -> dict:
         stanje = "brez"
     else:
         stanje = "nov"
-    izid = {"stanje": stanje, "control": bool(_ukaz_controla()), "zaupana": link_seja.zaupana(p), "hubi": []}
+    izid = {"stanje": stanje, "control": bool(_ukaz_controla()), "zaupana": link_seja.zaupana(p), "hubi": [],
+            "predajanje": bool(_nastavitve_pladnja().get("predvajanje_za_naprave", True))}
     if stanje != "povezan":
         # Nepovezan racunalnik: Naprave povedo, ali je v omrezju Safeer Link (in kateri), ali ga ni.
         izid["hubi"] = hubi_v_omrezju()
@@ -228,6 +231,41 @@ def nastavi_zaupanje(zaupaj: bool) -> bool:
         return True
     except Exception:
         return False
+
+
+def _nastavitve_pladnja() -> dict:
+    try:
+        with open(CONTROL_NASTAVITVE_PLADNJA, encoding="utf-8") as f:
+            p = json.load(f) or {}
+        return p if isinstance(p, dict) else {}
+    except Exception:
+        return {}
+
+
+def nastavi_predajanje(deli: bool) -> bool:
+    """»Predvajanje za druge naprave« (poleg Zaupaj): tekoci Control dobi vrednost prek D-Bus (drzi nastavitve v
+    pomnilniku in uskladi pladenj), sicer jo zapisemo v control.json sami - kot nastavi_zaupanje."""
+    try:
+        vodilo = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        if _control_na_vodilu(vodilo):
+            vodilo.call_sync(CONTROL_ID, CONTROL_POT, "org.gtk.Actions", "Activate",
+                             GLib.Variant("(sava{sv})", ("predvajanje-za-naprave", [GLib.Variant("b", bool(deli))], {})),
+                             None, Gio.DBusCallFlags.NONE, 3000, None)
+            return bool(deli)
+    except Exception as e:  # noqa: BLE001 - starejsi Control brez dejanja: zapisemo sami
+        print("[SafeerOS] predvajanje za naprave prek Controla:", e)
+    p = _nastavitve_pladnja()
+    p["predvajanje_za_naprave"] = bool(deli)
+    try:
+        os.makedirs(os.path.dirname(CONTROL_NASTAVITVE_PLADNJA), exist_ok=True)
+        zacasna = CONTROL_NASTAVITVE_PLADNJA + ".tmp"
+        with open(zacasna, "w", encoding="utf-8") as f:
+            json.dump(p, f, ensure_ascii=False, indent=2)
+        os.chmod(zacasna, 0o600)
+        os.replace(zacasna, CONTROL_NASTAVITVE_PLADNJA)
+        return bool(deli)
+    except Exception:
+        return not deli
 
 
 def _control_na_vodilu(vodilo) -> bool:
@@ -1444,6 +1482,7 @@ class SafeerOS(Gtk.Application):
             "odstraniLokalniMedij": lambda: self._odstrani_lokalni_medij(str(a[0]) if a else ""),
             "povezava": stanje_povezave,
             "zaupanje": lambda: nastavi_zaupanje(bool(a[0]) if a else False),
+            "predajanje": lambda: nastavi_predajanje(bool(a[0]) if a else False),
             "novaNaprava": lambda: control_dejanje("nova-naprava"),
             "odjava": lambda: control_dejanje("odjava"),
             "omrezje": lambda: os_omrezje.stanje(bool(a[0]) if a else False),

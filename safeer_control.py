@@ -328,6 +328,17 @@ class Pladenj:
     def _preklop_predvajanje(self, postavka: Gtk.CheckMenuItem) -> None:
         self.app.nastavitve.set("predvajanje_za_naprave", bool(postavka.get_active()))
 
+    def osvezi_predvajanje(self) -> None:
+        """Postavka v pladnju sledi stikalu v Safeer OS (brez ponovnega prozenja preklopa)."""
+        zelim = bool(self.app.nastavitve.get("predvajanje_za_naprave", True))
+        if self.predvajanje.get_active() == zelim:
+            return
+        self.predvajanje.handler_block(self._predvajanje_id)
+        try:
+            self.predvajanje.set_active(zelim)
+        finally:
+            self.predvajanje.handler_unblock(self._predvajanje_id)
+
     def _preklop(self, element) -> None:
         self.app.nastavi_samozagon(element.get_active())
 
@@ -697,6 +708,10 @@ class SafeerControl(Gtk.Application):
         zaupanje = Gio.SimpleAction.new("zaupanje", GLib.VariantType.new("b"))
         zaupanje.connect("activate", self._na_zaupanje)
         self.add_action(zaupanje)
+        # Safeer OS (stikalo »Predvajanje za druge naprave« poleg Zaupaj): isti kljuc kot postavka v pladnju.
+        predvajanje = Gio.SimpleAction.new("predvajanje-za-naprave", GLib.VariantType.new("b"))
+        predvajanje.connect("activate", lambda _d, v: self.nastavi_predvajanje_za_naprave(v.get_boolean()))
+        self.add_action(predvajanje)
         # Safeer OS: prijavno okno, »Poveži novo napravo« in »Odjavi ta računalnik«.
         for ime, klic in (("prijava", self.prijava_iz_os), ("nova-naprava", self.nova_naprava),
                           ("odjava", self.odjava), ("zvok-ustavi", self.zvok_ustavi)):
@@ -1131,6 +1146,12 @@ class SafeerControl(Gtk.Application):
             self.odpri_safeer_os()
             return False
         GLib.timeout_add(2500, nazaj)      # »Prijavljeno« ostane vidno, nato nazaj v Safeer OS
+
+    def nastavi_predvajanje_za_naprave(self, deli: bool) -> None:
+        """Ali druge naprave smejo vprasati, kaj tu igra, nadaljevati tam in poslati sem (play.state/stop/offer)."""
+        self.nastavitve.set("predvajanje_za_naprave", bool(deli))
+        if self.pladenj is not None:
+            self.pladenj.osvezi_predvajanje()
 
     def _na_zaupanje(self, _dejanje, vrednost) -> None:
         if self.link is None:
