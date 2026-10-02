@@ -127,6 +127,36 @@ class Zdruzevanje(unittest.TestCase):
         self.assertTrue(k.je_clan("pc-1"))
         self.assertNotIn("pc-1", k.json()["umiki"])
 
+    def test_pospravi_umakne_clane_brez_stika(self):
+        """Stara identiteta naprave (po ponovni namestitvi nov kljuc) brez stika 90 dni gre iz kroga; ziva ostane;
+        sorodnik (isti kljuc) zivega clana ostane, ceprav se sam ni oglasil; nase naprave ne umikamo."""
+        pot = os.path.join(self.mapa, "cfg", "krog.json")
+        k = link_krog.Krog(pot)
+        dan = 86400.0
+        zdaj = 1000.0 * dan
+        k.dodaj("n-stara", self.k1, "samsung", "phone", "n-stara", dodano=zdaj - 200 * dan)
+        k.dodaj("n-ziva", self.k2, "Safeer OS", "phone", "n-ziva", dodano=zdaj - 200 * dan)
+        k.dodaj("n-ziva-os", self.k2, "Safeer OS", "phone", "n-ziva", dodano=zdaj - 200 * dan)
+        k.dodaj("pc-mi", link_krog.javni_kljuc_b64(), "Mi", "linux", "pc-mi", dodano=zdaj - 200 * dan)
+        k.zabelezi_stik(["n-ziva", "n-neznana"], zdaj - 1 * dan)        # neznane ne belezimo
+        self.assertEqual(k.zadnji_stik("n-ziva-os"), zdaj - 1 * dan)     # sorodnik deli stik
+        self.assertEqual(k.zadnji_stik("n-stara"), zdaj - 200 * dan)
+        self.assertNotIn("n-neznana", k.stiki)
+        # Hub, ki sam ni videl nikogar 7 dni (ugasnjen racunalnik), ne pospravlja.
+        self.assertEqual(k.pospravi("pc-mi", zdaj + 30 * dan), [])
+        self.assertEqual(k.pospravi("pc-mi", zdaj), ["n-stara"])
+        self.assertFalse(k.je_clan("n-stara"))
+        self.assertTrue(k.je_clan("n-ziva") and k.je_clan("n-ziva-os") and k.je_clan("pc-mi"))
+        self.assertTrue(k.json()["umiki"]["n-stara"].get("podpis"), "umik je podpisan, da ga sosedje sprejmejo")
+        self.assertEqual(k.pospravi("pc-mi", zdaj), [])                   # drugic nic
+        # Stiki prezivijo ponovni zagon.
+        znova = link_krog.Krog(pot)
+        self.assertEqual(znova.zadnji_stik("n-ziva"), zdaj - 1 * dan)
+        # Nedavno imenovana naprava velja za zivo.
+        k.dodaj("n-tiha", self.k1, "Tiha", "tv", "pc-mi", dodano=zdaj - 200 * dan)
+        k.preimenuj("n-tiha", "Tiha nova", ob=zdaj - 5 * dan)
+        self.assertEqual(k.pospravi("pc-mi", zdaj), [])
+
     def test_umik_neznane_naprave_ne_spremeni_nicesar(self):
         k = link_krog.Krog()
         k.dodaj("tv-1", self.k1, "TV", "tv", "tv-1", dodano=100.0)
