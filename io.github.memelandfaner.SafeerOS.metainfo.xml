@@ -36,6 +36,7 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.4.19" date="2026-10-02"><description><p>Continue on another device: your phone or TV can ask what Safeer OS is playing on this computer and continue at the same second (files from shared folders only; Safeer Control 2.1.17). safeer-os --predvajaj opens a file in the player.</p></description></release>
     <release version="0.4.18" date="2026-10-02"><description><p>The trust circle tidies itself: a device unseen for 90 days is removed from the circle on all devices; sibling identities of live devices stay.</p></description></release>
     <release version="0.4.17" date="2026-10-02"><description><p>Safeer Control sends Stremio request headers along when it transcodes a stream for a device; a D-Bus call for any Safeer Link command (diagnostics).</p></description></release>
     <release version="0.4.16" date="2026-10-02"><description><p>The computer now helps devices that cannot play a video: Safeer Control converts it on the fly (VAAPI or CPU) and streams it to them over Safeer Link.</p></description></release>
