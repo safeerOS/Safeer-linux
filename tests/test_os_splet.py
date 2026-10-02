@@ -28,6 +28,13 @@ def test_most_sprejme_samo_navigacijo_http_in_dodajanje_bliznjice():
     assert razcleni_sporocilo({"action": "navigate", "url": "file:///etc/passwd"}) is None
     assert razcleni_sporocilo({"action": "open_sidebar", "service": "settings"}) is None
     assert razcleni_sporocilo("ni json") is None
+    # Odstranjevanje bliznjic z zacetne strani (tudi vgrajenih) in obnova privzetih.
+    assert razcleni_sporocilo({"action": "remove_portal", "url": "https://www.reddit.com"})["action"] == "remove_portal"
+    assert razcleni_sporocilo({"action": "remove_portal", "url": "file:///etc/passwd"}) is None
+    assert razcleni_sporocilo({"action": "reset_portals"}) == {"action": "reset_portals"}
+    from core.os_splet import kljuc_bliznjice
+    assert kljuc_bliznjice("https://www.Reddit.com/") == "reddit.com"
+    assert kljuc_bliznjice("http://365.rtvslo.si") == "365.rtvslo.si"
 
 
 def test_domaca_stran_je_samo_skupni_splet_html():

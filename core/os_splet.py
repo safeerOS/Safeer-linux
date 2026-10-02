@@ -97,6 +97,12 @@ def razcleni_sporocilo(vrednost) -> dict | None:
         return {"action": dejanje, "url": naslov} if naslov else None
     if dejanje == "open_sidebar" and vrednost.get("service") == "add_portal":
         return {"action": dejanje, "service": "add_portal"}
+    # Odstranitev bliznjice z zacetne strani (tudi vgrajene) in obnova privzetih: nic ni vsiljeno.
+    if dejanje == "remove_portal":
+        naslov = normalize_web_url(str(vrednost.get("url") or ""))
+        return {"action": dejanje, "url": naslov} if naslov else None
+    if dejanje == "reset_portals":
+        return {"action": dejanje}
     if dejanje in ("increment_ads", "increment_threats"):
         try:
             stevilo = max(0, min(int(vrednost.get("count", 1)), 100))
@@ -104,6 +110,12 @@ def razcleni_sporocilo(vrednost) -> dict | None:
             return None
         return {"action": dejanje, "count": stevilo}
     return None
+
+
+def kljuc_bliznjice(naslov: str) -> str:
+    """Kljuc bliznjice (enak kot v ui/splet.js): naslov brez sheme, www. in koncne posevnice, z malimi crkami."""
+    import re
+    return re.sub(r"^https?://(www\.)?", "", str(naslov or "").strip(), flags=re.I).rstrip("/").lower()
 
 
 def je_domaca_stran(naslov: str, koren: str) -> bool:
@@ -503,7 +515,11 @@ class VdelaniSplet:
         """Zacetna stran Splet: jezik, iskalnik in bliznjice z ikonami (manjkajoce se prenesejo v ozadju)."""
         from core import ikone_strani
         portali, manjkajo = ikone_strani.z_ikonami(self.config.get_portals())
-        stanje = {"language": self.jezik(), "engine": self.config.get("search_engine", "duckduckgo"), "portals": portali}
+        # Kdor je kdaj imel lastne bliznjice, mu vgrajenih ne vracamo, ko svoje odstrani (nic ni vsiljeno).
+        if portali and not self.config.get("splet_brez_privzetih", False): self.config.set("splet_brez_privzetih", True)
+        stanje = {"language": self.jezik(), "engine": self.config.get("search_engine", "duckduckgo"), "portals": portali,
+                  "hidden": list(self.config.get("splet_skrite_bliznjice", []) or []),
+                  "no_defaults": bool(self.config.get("splet_brez_privzetih", False))}
         pogled.run_javascript("window.safeerSpletInit(%s);" % json.dumps(stanje, ensure_ascii=True), None, None, None)
         if prenesi and manjkajo and not getattr(self, "_ikone_tecejo", False):
             self._ikone_tecejo = True
@@ -559,6 +575,16 @@ class VdelaniSplet:
             return
         if sporocilo["action"] == "navigate": self.odpri(sporocilo["url"], pogled)
         elif sporocilo["action"] == "open_sidebar": self._dodaj_portal()
+        elif sporocilo["action"] == "remove_portal":
+            # Lastno bliznjico izbrisemo, vgrajeno si zapomnimo kot odstranjeno (stran je ne pokaze vec).
+            self.config.delete_portal(sporocilo["url"])
+            for p in list(self.config.get_portals()):
+                if kljuc_bliznjice(p.get("url")) == kljuc_bliznjice(sporocilo["url"]): self.config.delete_portal(p.get("id"))
+            skrite = [k for k in (self.config.get("splet_skrite_bliznjice", []) or []) if k != kljuc_bliznjice(sporocilo["url"])]
+            self.config.set("splet_skrite_bliznjice", skrite + [kljuc_bliznjice(sporocilo["url"])])
+        elif sporocilo["action"] == "reset_portals":
+            self.config.set("splet_skrite_bliznjice", []); self.config.set("splet_brez_privzetih", False)
+            self._poslji_stanje(pogled, prenesi=False)
 
     def _dodaj_portal(self, *_):
         d = self.Gtk.Dialog(title=self._t("dodaj"), transient_for=self.stars, flags=self.Gtk.DialogFlags.MODAL)
@@ -570,7 +596,10 @@ class VdelaniSplet:
         d.get_content_area().add(mreza); d.show_all()
         if d.run() == self.Gtk.ResponseType.OK:
             naslov = normalize_web_url(url.get_text())
-            if naslov: self.config.add_portal(ime.get_text().strip() or urllib.parse.urlparse(naslov).hostname, naslov)
+            if naslov:
+                self.config.add_portal(ime.get_text().strip() or urllib.parse.urlparse(naslov).hostname, naslov)
+                # Znova dodana bliznjica ni vec med odstranjenimi.
+                self.config.set("splet_skrite_bliznjice", [k for k in (self.config.get("splet_skrite_bliznjice", []) or []) if k != kljuc_bliznjice(naslov)])
         d.destroy()
         p = self.trenutni()
         if p and je_domaca_stran(p.get_uri() or "", self.koren): p.reload()
