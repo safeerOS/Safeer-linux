@@ -55,16 +55,18 @@ from core.safeer_link import SafeerLink  # noqa: E402
 APP_ID = "io.github.memelandfaner.SafeerControl"
 CONTROL_POT = "/io/github/memelandfaner/SafeerControl"
 NASTAVITVE_MAPA = os.path.expanduser("~/.config/safeer-control")
+#: Safeer OS na tem racunalniku (D-Bus): sprejeta ponudba "Poslji na napravo" gre njemu.
+OS_ID = "io.github.memelandfaner.SafeerOS"
 SAMOZAGON_POT = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "autostart", "safeer-control.desktop")
 
 # Besedila pladnja v jezikih vmesnika (isti nabor kot Safeer Browser).
 BESEDILA = {
-    "sl": {"locen_namesti": "Namesti ločen zaslon za televizor …", "locen_posodobi": "Posodobi wf-recorder za ločen zaslon …", "locen_ni": "Ločen zaslon za televizor: wf-recorder je prestar", "locen_vprasanje": "Za ločen zaslon za televizor Safeer Control potrebuje pakete: {paketi}. Programi, ki jih zaženeš s televizorja, se bodo odprli na svojem zaslonu in ne bodo motili tvojega namizja.\n\nNamestim jih zdaj? Sistem te bo vprašal za geslo.", "locen_uspeh": "Ločen zaslon za televizor je pripravljen.", "locen_napaka": "Namestitev ni uspela. Programi s televizorja se še naprej odpirajo na namizju.", "locen_gumb": "Namesti", "odpri": "Odpri Safeer Control", "samozagon": "Zaženi ob prijavi", "mape": "Mape za televizor …", "programi": "Programi za televizor", "ves_disk": "Ves računalnik za televizor", "zaslon": "Zaslon za televizor", "predvajanje": "Predvajanje za druge naprave", "koncaj": "Končaj", "povezan": "Safeer Link: povezan", "ni": "Safeer Link: ni povezave"},
-    "en": {"locen_namesti": "Install the separate TV screen…", "locen_posodobi": "Update wf-recorder for the separate TV screen…", "locen_ni": "Separate TV screen: wf-recorder is too old", "locen_vprasanje": "For the separate TV screen Safeer Control needs these packages: {paketi}. Programs you start from the TV will open on their own screen and will not disturb your desktop.\n\nInstall them now? The system will ask for your password.", "locen_uspeh": "The separate TV screen is ready.", "locen_napaka": "Installation failed. Programs from the TV keep opening on your desktop.", "locen_gumb": "Install", "odpri": "Open Safeer Control", "samozagon": "Start at login", "mape": "Folders for the TV…", "programi": "Apps for the TV", "ves_disk": "Whole computer for the TV", "zaslon": "Screen for the TV", "predvajanje": "Playback for other devices", "koncaj": "Quit", "povezan": "Safeer Link: connected", "ni": "Safeer Link: not connected"},
-    "de": {"locen_namesti": "Separaten Bildschirm für den Fernseher installieren …", "locen_posodobi": "wf-recorder für den separaten Bildschirm aktualisieren …", "locen_ni": "Separater Bildschirm: wf-recorder ist zu alt", "locen_vprasanje": "Für den separaten Bildschirm braucht Safeer Control diese Pakete: {paketi}. Programme, die du vom Fernseher startest, öffnen sich auf einem eigenen Bildschirm und stören deinen Desktop nicht.\n\nJetzt installieren? Das System fragt nach deinem Passwort.", "locen_uspeh": "Der separate Bildschirm für den Fernseher ist bereit.", "locen_napaka": "Die Installation ist fehlgeschlagen. Programme vom Fernseher öffnen sich weiter auf dem Desktop.", "locen_gumb": "Installieren", "odpri": "Safeer Control öffnen", "samozagon": "Beim Anmelden starten", "mape": "Ordner für den Fernseher …", "programi": "Programme für den Fernseher", "ves_disk": "Ganzer Computer für den Fernseher", "zaslon": "Bildschirm für den Fernseher", "predvajanje": "Wiedergabe für andere Geräte", "koncaj": "Beenden", "povezan": "Safeer Link: verbunden", "ni": "Safeer Link: nicht verbunden"},
-    "es": {"locen_namesti": "Instalar la pantalla separada para el televisor…", "locen_posodobi": "Actualizar wf-recorder para la pantalla separada…", "locen_ni": "Pantalla separada: wf-recorder es demasiado antiguo", "locen_vprasanje": "Para la pantalla separada Safeer Control necesita estos paquetes: {paketi}. Los programas que abras desde el televisor se abrirán en su propia pantalla y no molestarán tu escritorio.\n\n¿Instalarlos ahora? El sistema te pedirá la contraseña.", "locen_uspeh": "La pantalla separada para el televisor está lista.", "locen_napaka": "La instalación ha fallado. Los programas del televisor seguirán abriéndose en el escritorio.", "locen_gumb": "Instalar", "odpri": "Abrir Safeer Control", "samozagon": "Iniciar al iniciar sesión", "mape": "Carpetas para el televisor…", "programi": "Programas para el televisor", "ves_disk": "Todo el ordenador para el televisor", "zaslon": "Pantalla para el televisor", "predvajanje": "Reproducción para otros dispositivos", "koncaj": "Salir", "povezan": "Safeer Link: conectado", "ni": "Safeer Link: sin conexión"},
-    "fr": {"locen_namesti": "Installer l'écran séparé pour le téléviseur…", "locen_posodobi": "Mettre à jour wf-recorder pour l'écran séparé…", "locen_ni": "Écran séparé : wf-recorder est trop ancien", "locen_vprasanje": "Pour l'écran séparé, Safeer Control a besoin de ces paquets : {paketi}. Les programmes lancés depuis le téléviseur s'ouvriront sur leur propre écran sans déranger ton bureau.\n\nLes installer maintenant ? Le système te demandera ton mot de passe.", "locen_uspeh": "L'écran séparé pour le téléviseur est prêt.", "locen_napaka": "L'installation a échoué. Les programmes du téléviseur continuent de s'ouvrir sur le bureau.", "locen_gumb": "Installer", "odpri": "Ouvrir Safeer Control", "samozagon": "Lancer à la connexion", "mape": "Dossiers pour le téléviseur…", "programi": "Programmes pour le téléviseur", "ves_disk": "Tout l'ordinateur pour le téléviseur", "zaslon": "Écran pour le téléviseur", "predvajanje": "Lecture pour les autres appareils", "koncaj": "Quitter", "povezan": "Safeer Link : connecté", "ni": "Safeer Link : non connecté"},
-    "it": {"locen_namesti": "Installa lo schermo separato per il televisore…", "locen_posodobi": "Aggiorna wf-recorder per lo schermo separato…", "locen_ni": "Schermo separato: wf-recorder è troppo vecchio", "locen_vprasanje": "Per lo schermo separato Safeer Control ha bisogno di questi pacchetti: {paketi}. I programmi avviati dal televisore si apriranno su un proprio schermo senza disturbare il tuo desktop.\n\nInstallarli ora? Il sistema ti chiederà la password.", "locen_uspeh": "Lo schermo separato per il televisore è pronto.", "locen_napaka": "L'installazione non è riuscita. I programmi dal televisore continuano ad aprirsi sul desktop.", "locen_gumb": "Installa", "odpri": "Apri Safeer Control", "samozagon": "Avvia all’accesso", "mape": "Cartelle per il televisore…", "programi": "Programmi per il televisore", "ves_disk": "Tutto il computer per il televisore", "zaslon": "Schermo per il televisore", "predvajanje": "Riproduzione per gli altri dispositivi", "koncaj": "Esci", "povezan": "Safeer Link: connesso", "ni": "Safeer Link: non connesso"},
+    "sl": {"locen_namesti": "Namesti ločen zaslon za televizor …", "locen_posodobi": "Posodobi wf-recorder za ločen zaslon …", "locen_ni": "Ločen zaslon za televizor: wf-recorder je prestar", "locen_vprasanje": "Za ločen zaslon za televizor Safeer Control potrebuje pakete: {paketi}. Programi, ki jih zaženeš s televizorja, se bodo odprli na svojem zaslonu in ne bodo motili tvojega namizja.\n\nNamestim jih zdaj? Sistem te bo vprašal za geslo.", "locen_uspeh": "Ločen zaslon za televizor je pripravljen.", "locen_napaka": "Namestitev ni uspela. Programi s televizorja se še naprej odpirajo na namizju.", "locen_gumb": "Namesti", "odpri": "Odpri Safeer Control", "samozagon": "Zaženi ob prijavi", "mape": "Mape za televizor …", "programi": "Programi za televizor", "ves_disk": "Ves računalnik za televizor", "zaslon": "Zaslon za televizor", "predvajanje": "Predvajanje za druge naprave", "ponudba_naslov": "Pošlji na napravo", "ponudba": "{naprava} ti pošilja: {kaj}", "sprejmi": "Sprejmi", "zavrni": "Zavrni", "koncaj": "Končaj", "povezan": "Safeer Link: povezan", "ni": "Safeer Link: ni povezave"},
+    "en": {"locen_namesti": "Install the separate TV screen…", "locen_posodobi": "Update wf-recorder for the separate TV screen…", "locen_ni": "Separate TV screen: wf-recorder is too old", "locen_vprasanje": "For the separate TV screen Safeer Control needs these packages: {paketi}. Programs you start from the TV will open on their own screen and will not disturb your desktop.\n\nInstall them now? The system will ask for your password.", "locen_uspeh": "The separate TV screen is ready.", "locen_napaka": "Installation failed. Programs from the TV keep opening on your desktop.", "locen_gumb": "Install", "odpri": "Open Safeer Control", "samozagon": "Start at login", "mape": "Folders for the TV…", "programi": "Apps for the TV", "ves_disk": "Whole computer for the TV", "zaslon": "Screen for the TV", "predvajanje": "Playback for other devices", "ponudba_naslov": "Send to device", "ponudba": "{naprava} is sending you: {kaj}", "sprejmi": "Accept", "zavrni": "Decline", "koncaj": "Quit", "povezan": "Safeer Link: connected", "ni": "Safeer Link: not connected"},
+    "de": {"locen_namesti": "Separaten Bildschirm für den Fernseher installieren …", "locen_posodobi": "wf-recorder für den separaten Bildschirm aktualisieren …", "locen_ni": "Separater Bildschirm: wf-recorder ist zu alt", "locen_vprasanje": "Für den separaten Bildschirm braucht Safeer Control diese Pakete: {paketi}. Programme, die du vom Fernseher startest, öffnen sich auf einem eigenen Bildschirm und stören deinen Desktop nicht.\n\nJetzt installieren? Das System fragt nach deinem Passwort.", "locen_uspeh": "Der separate Bildschirm für den Fernseher ist bereit.", "locen_napaka": "Die Installation ist fehlgeschlagen. Programme vom Fernseher öffnen sich weiter auf dem Desktop.", "locen_gumb": "Installieren", "odpri": "Safeer Control öffnen", "samozagon": "Beim Anmelden starten", "mape": "Ordner für den Fernseher …", "programi": "Programme für den Fernseher", "ves_disk": "Ganzer Computer für den Fernseher", "zaslon": "Bildschirm für den Fernseher", "predvajanje": "Wiedergabe für andere Geräte", "ponudba_naslov": "An Gerät senden", "ponudba": "{naprava} sendet dir: {kaj}", "sprejmi": "Annehmen", "zavrni": "Ablehnen", "koncaj": "Beenden", "povezan": "Safeer Link: verbunden", "ni": "Safeer Link: nicht verbunden"},
+    "es": {"locen_namesti": "Instalar la pantalla separada para el televisor…", "locen_posodobi": "Actualizar wf-recorder para la pantalla separada…", "locen_ni": "Pantalla separada: wf-recorder es demasiado antiguo", "locen_vprasanje": "Para la pantalla separada Safeer Control necesita estos paquetes: {paketi}. Los programas que abras desde el televisor se abrirán en su propia pantalla y no molestarán tu escritorio.\n\n¿Instalarlos ahora? El sistema te pedirá la contraseña.", "locen_uspeh": "La pantalla separada para el televisor está lista.", "locen_napaka": "La instalación ha fallado. Los programas del televisor seguirán abriéndose en el escritorio.", "locen_gumb": "Instalar", "odpri": "Abrir Safeer Control", "samozagon": "Iniciar al iniciar sesión", "mape": "Carpetas para el televisor…", "programi": "Programas para el televisor", "ves_disk": "Todo el ordenador para el televisor", "zaslon": "Pantalla para el televisor", "predvajanje": "Reproducción para otros dispositivos", "ponudba_naslov": "Enviar a un dispositivo", "ponudba": "{naprava} te envía: {kaj}", "sprejmi": "Aceptar", "zavrni": "Rechazar", "koncaj": "Salir", "povezan": "Safeer Link: conectado", "ni": "Safeer Link: sin conexión"},
+    "fr": {"locen_namesti": "Installer l'écran séparé pour le téléviseur…", "locen_posodobi": "Mettre à jour wf-recorder pour l'écran séparé…", "locen_ni": "Écran séparé : wf-recorder est trop ancien", "locen_vprasanje": "Pour l'écran séparé, Safeer Control a besoin de ces paquets : {paketi}. Les programmes lancés depuis le téléviseur s'ouvriront sur leur propre écran sans déranger ton bureau.\n\nLes installer maintenant ? Le système te demandera ton mot de passe.", "locen_uspeh": "L'écran séparé pour le téléviseur est prêt.", "locen_napaka": "L'installation a échoué. Les programmes du téléviseur continuent de s'ouvrir sur le bureau.", "locen_gumb": "Installer", "odpri": "Ouvrir Safeer Control", "samozagon": "Lancer à la connexion", "mape": "Dossiers pour le téléviseur…", "programi": "Programmes pour le téléviseur", "ves_disk": "Tout l'ordinateur pour le téléviseur", "zaslon": "Écran pour le téléviseur", "predvajanje": "Lecture pour les autres appareils", "ponudba_naslov": "Envoyer à un appareil", "ponudba": "{naprava} t'envoie : {kaj}", "sprejmi": "Accepter", "zavrni": "Refuser", "koncaj": "Quitter", "povezan": "Safeer Link : connecté", "ni": "Safeer Link : non connecté"},
+    "it": {"locen_namesti": "Installa lo schermo separato per il televisore…", "locen_posodobi": "Aggiorna wf-recorder per lo schermo separato…", "locen_ni": "Schermo separato: wf-recorder è troppo vecchio", "locen_vprasanje": "Per lo schermo separato Safeer Control ha bisogno di questi pacchetti: {paketi}. I programmi avviati dal televisore si apriranno su un proprio schermo senza disturbare il tuo desktop.\n\nInstallarli ora? Il sistema ti chiederà la password.", "locen_uspeh": "Lo schermo separato per il televisore è pronto.", "locen_napaka": "L'installazione non è riuscita. I programmi dal televisore continuano ad aprirsi sul desktop.", "locen_gumb": "Installa", "odpri": "Apri Safeer Control", "samozagon": "Avvia all’accesso", "mape": "Cartelle per il televisore…", "programi": "Programmi per il televisore", "ves_disk": "Tutto il computer per il televisore", "zaslon": "Schermo per il televisore", "predvajanje": "Riproduzione per gli altri dispositivi", "ponudba_naslov": "Invia a un dispositivo", "ponudba": "{naprava} ti invia: {kaj}", "sprejmi": "Accetta", "zavrni": "Rifiuta", "koncaj": "Esci", "povezan": "Safeer Link: connesso", "ni": "Safeer Link: non connesso"},
 }
 
 
@@ -705,6 +707,11 @@ class SafeerControl(Gtk.Application):
         zvok = Gio.SimpleAction.new("zvok-na-napravo", GLib.VariantType.new("s"))
         zvok.connect("activate", lambda _d, v: self.zvok_na_napravo(v.get_string()))
         self.add_action(zvok)
+        # "Poslji na napravo" z druge naprave: gumba Sprejmi/Zavrni v tihem obvestilu (pravila 28. 9.).
+        for ime, klic in (("predaja-sprejmi", self.predaja_sprejmi), ("predaja-zavrni", self.predaja_zavrni)):
+            dejanje = Gio.SimpleAction.new(ime, None)
+            dejanje.connect("activate", lambda _d, _v, k=klic: k())
+            self.add_action(dejanje)
         if self.ozadje:
             self.hold()  # brez okna bi se GApplication koncal; ikona v pladnju ga drzi
         self._izvozi_naprave()
@@ -931,6 +938,7 @@ class SafeerControl(Gtk.Application):
         from core import link_predvajanje
         self.link.predvajanje = link_predvajanje.za_control(
             self.datoteke, deli=lambda: bool(self.nastavitve.get("predvajanje_za_naprave", True)))
+        self.link.predvajanje.ob_ponudbi = lambda p: GLib.idle_add(self._pokazi_ponudbo, p)
         self.zvok.ob_spremembi = lambda _opis: self.link.zapisi_stanje_za_os() if self.link is not None else None
 
     # ------------------------------------------------------------------ Safeer OS
@@ -1198,6 +1206,125 @@ class SafeerControl(Gtk.Application):
                 self.drugi_zaslon.ustavi()
         except Exception:
             pass
+
+    # ------------------------------------------------------------------ "Poslji na napravo": ta racunalnik kot cilj
+    #: Pasica s ponudbo (majhno okno v kotu zaslona) - ena naenkrat.
+    _pasica_ponudbe = None
+    PASICA_S = 60
+
+    def _pokazi_ponudbo(self, p: dict) -> bool:
+        """Tiha pasica »Tablica ti posilja: Film (pri 12:34)« z gumboma Sprejmi/Zavrni v spodnjem desnem kotu: majhno
+        okno brez okvirja, ki ne vzame fokusa in ne odpre nicesar; po minuti se umakne (ponudba velja se 10 minut).
+        Lastno okno namesto namiznega obvestila: v Cinnamonu so obvestila lahko izklopljena (display-notifications
+        false) in uporabnik ponudbe sploh ne bi videl. Nic se ne predvaja in nic se ne ustavi, dokler ne pritisne Sprejmi."""
+        from core import link_predvajanje
+        self._umakni_pasico()
+        try:
+            jezik = self.nastavitve.get("ui_language")
+            ime = str(p.get("od_ime") or "")
+            if self.link is not None:
+                ime = next((str(n.get("ime") or "") for n in self.link.naprave if n.get("id") == p.get("od")), "") or ime
+            okno = Gtk.Window(type=Gtk.WindowType.TOPLEVEL, title=besedilo(jezik, "ponudba_naslov"))
+            okno.set_decorated(False)
+            okno.set_type_hint(Gdk.WindowTypeHint.NOTIFICATION)
+            okno.set_keep_above(True)
+            okno.set_accept_focus(False)
+            okno.set_skip_taskbar_hint(True)
+            okno.set_skip_pager_hint(True)
+            okno.set_resizable(False)
+            okno.set_border_width(14)
+            okno.get_style_context().add_class("safeer-pasica")
+            css = Gtk.CssProvider()
+            css.load_from_data(b"""
+                window.safeer-pasica { background: #0f1a26; color: #f0f4f3; border: 1px solid #26364a; border-radius: 12px; }
+                window.safeer-pasica label { color: #f0f4f3; }
+                window.safeer-pasica button { background: #152129; color: #f0f4f3; border: 1px solid #26364a; border-radius: 10px; padding: 6px 14px; }
+                window.safeer-pasica button:hover { border-color: #57d6ad; }
+            """)
+            Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            skatla = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            napis = Gtk.Label(label=besedilo(jezik, "ponudba").format(naprava=ime or p.get("od", ""), kaj=link_predvajanje.opis_ponudbe(p)))
+            napis.set_line_wrap(True)
+            napis.set_max_width_chars(44)
+            napis.set_xalign(0)
+            skatla.pack_start(napis, True, True, 0)
+            sprejmi = Gtk.Button(label=besedilo(jezik, "sprejmi"))
+            sprejmi.connect("clicked", lambda *_a: (self._umakni_pasico(), self.predaja_sprejmi()))
+            zavrni = Gtk.Button(label=besedilo(jezik, "zavrni"))
+            zavrni.connect("clicked", lambda *_a: (self._umakni_pasico(), self.predaja_zavrni()))
+            skatla.pack_start(sprejmi, False, False, 0)
+            skatla.pack_start(zavrni, False, False, 0)
+            okno.add(skatla)
+            okno.show_all()
+            # Spodnji desni kot glavnega zaslona (nad pultom): okno je ze narisano, zato poznamo njegovo velikost.
+            try:
+                zaslon = Gdk.Display.get_default()
+                g = (zaslon.get_primary_monitor() or zaslon.get_monitor(0)).get_workarea()
+                sirina, visina = okno.get_size()
+                okno.move(g.x + g.width - sirina - 24, g.y + g.height - visina - 24)
+            except Exception:  # noqa: BLE001
+                pass
+            self._pasica_ponudbe = okno
+            GLib.timeout_add_seconds(self.PASICA_S, lambda: (self._umakni_pasico(okno), False)[1])
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerControl] pasica ponudbe:", e)
+        return False
+
+    def _umakni_pasico(self, okno=None) -> None:
+        o = self._pasica_ponudbe
+        if o is None or (okno is not None and okno is not o):
+            return
+        self._pasica_ponudbe = None
+        try:
+            o.destroy()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def predaja_zavrni(self) -> None:
+        self._umakni_pasico()
+        if self.link is not None and self.link.predvajanje is not None:
+            self.link.predvajanje.zavrni_ponudbo()
+
+    def predaja_sprejmi(self) -> None:
+        """Sprejmi: ponudbo preda Safeer OS (tece -> dejanje `ponudba` prek D-Bus; sicer ga zazene z njo)."""
+        self._umakni_pasico()
+        pr = self.link.predvajanje if self.link is not None else None
+        p = pr.vzemi_ponudbo() if pr is not None else None
+        if p is None:
+            return
+        try:
+            from core import link_krog
+            clan = link_krog.krog().clan_za_id(str(p.get("server_device") or p.get("od") or "")) or {}
+            p["kljuc"] = str(clan.get("kljuc") or "")
+        except Exception:  # noqa: BLE001
+            p["kljuc"] = ""
+        if p.get("server_device") and p["server_device"] == self.link._id() and self.datoteke is not None:
+            # Datoteka tega racunalnika, ki se vraca (telefon jo je igral od tod): Safeer OS jo odpre kar z diska.
+            try:
+                r = self.datoteke.mape.razresi(str((p.get("item") or {}).get("id") or ""))
+                if r is not None and os.path.isfile(r[1]):
+                    p["lokalna_pot"] = r[1]
+            except Exception:  # noqa: BLE001
+                pass
+        podatki = json.dumps(p, ensure_ascii=True)
+        try:
+            vodilo = self.get_dbus_connection() or Gio.bus_get_sync(Gio.BusType.SESSION, None)
+            tece = vodilo.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "NameHasOwner",
+                                    GLib.Variant("(s)", (OS_ID,)), GLib.VariantType("(b)"), Gio.DBusCallFlags.NONE, 2000, None).unpack()[0]
+            if tece:
+                vodilo.call_sync(OS_ID, "/" + OS_ID.replace(".", "/"), "org.gtk.Actions", "Activate",
+                                 GLib.Variant("(sava{sv})", ("ponudba", [GLib.Variant("s", podatki)], {})),
+                                 None, Gio.DBusCallFlags.NONE, 5000, None)
+                return
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerControl] ponudba Safeer OS:", e)
+        from core import link_daljinec
+        program = link_daljinec._safeer_os()
+        if not program:
+            print("[SafeerControl] ponudba: Safeer OS ni namescen")
+            return
+        subprocess.Popen([program, "--ponudba", podatki], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
 
     def odpri_safeer_os(self) -> None:
         """»Nadaljuj brez povezave naprav« v prijavnem oknu: odpre Safeer OS na tem racunalniku, Control

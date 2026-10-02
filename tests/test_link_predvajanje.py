@@ -207,3 +207,74 @@ class Knjiznica(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Ponudba(unittest.TestCase):
+    """"Poslji na napravo": play.offer na racunalniku - ponudba caka, nic se ne predvaja samo."""
+
+    def setUp(self):
+        self.prikazane = []
+        self.p = link_predvajanje.Predvajanje(lambda: None, lambda: False, None, None, lambda: self.deli)
+        self.p.ob_ponudbi = self.prikazane.append
+        self.deli = True
+
+    def test_ponudba_z_datoteko_izvora(self):
+        o = self.p.ponudba("n-tablica", "Tablica", {"item": {"id": "media:video:5", "naslov": "Film", "zvok": "https://192.168.0.87:4433/d/media%3Avideo%3A5", "video": True},
+                                                   "position_ms": 754000, "duration_ms": 5400000,
+                                                   "server": {"base_url": "https://192.168.0.87:4433", "fp": "ab", "token": "t"}, "from": "Tablica"})
+        self.assertEqual(o, {"queued": True})
+        self.assertEqual(len(self.prikazane), 1)
+        p = self.prikazane[0]
+        self.assertEqual((p["od"], p["od_ime"], p["position_ms"], p["duration_ms"]), ("n-tablica", "Tablica", 754000, 5400000))
+        self.assertEqual(link_predvajanje.opis_ponudbe(p), "Film (12:34)")
+        self.assertIs(self.p.vzemi_ponudbo(), p)
+        self.assertIsNone(self.p.vzemi_ponudbo())
+
+    def test_ponudba_tretje_naprave_in_spleta(self):
+        o = self.p.ponudba("n-tel", "", {"item": {"id": "share:0:Filmi/a.mkv", "naslov": "A", "zvok": "https://192.168.0.135:4433/d/x"},
+                                        "server_device": "n-pc", "position_ms": 1000})
+        self.assertEqual(o, {"queued": True})
+        self.assertEqual(self.prikazane[-1]["server_device"], "n-pc")
+        self.assertIsNone(self.prikazane[-1]["server"])
+        o = self.p.ponudba("n-tel", "", {"item": {"id": "x", "naslov": "Tok", "zvok": "https://primer.si/a.m3u8", "kanal": "RTV"}})
+        self.assertEqual(o, {"queued": True})
+        self.assertEqual(self.prikazane[-1]["od_ime"], "n-tel")
+
+    def test_neveljavna_ponudba_in_izklop(self):
+        self.assertEqual(self.p.ponudba("n", "", {"item": {"id": "x", "zvok": "content://media/5"}}), {"queued": False, "reason": "ni_vnosa"})
+        self.assertEqual(self.p.ponudba("n", "", {}), {"queued": False, "reason": "ni_vnosa"})
+        # streznik brez odtisa ali brez https ne steje
+        self.p.ponudba("n", "", {"item": {"id": "x", "zvok": "https://1.2.3.4/d/x"}, "server": {"base_url": "http://1.2.3.4", "fp": "a", "token": "t"}})
+        self.assertIsNone(self.prikazane[-1]["server"])
+        self.deli = False
+        self.assertEqual(self.p.ponudba("n", "", {"item": {"id": "x", "zvok": "https://primer.si/a"}}), {"queued": False, "reason": "izklopljeno"})
+        self.assertEqual(len(self.prikazane), 1)  # neveljavne in izklopljene se ne pokazejo
+
+    def test_zavrni_in_potek(self):
+        self.p.ponudba("n", "", {"item": {"id": "x", "zvok": "https://primer.si/a"}})
+        self.p.zavrni_ponudbo()
+        self.assertIsNone(self.p.vzemi_ponudbo())
+        self.p.ponudba("n", "", {"item": {"id": "x", "zvok": "https://primer.si/a"}})
+        self.p.cakajoca["cas"] -= link_predvajanje.PONUDBA_VELJA_S + 1
+        self.assertIsNone(self.p.vzemi_ponudbo())
+
+    def test_mapa_datoteke(self):
+        m = link_predvajanje.mapa_datoteke
+        self.assertEqual(m("disk:/home/uporabnik/Filmi/a.mkv"), "disk:/home/uporabnik/Filmi")
+        self.assertEqual(m("disk:/a.mkv"), "disk:/")
+        self.assertEqual(m("share:1:Serije/e01.mkv"), "share:1:Serije")
+        self.assertEqual(m("share:0:film.mp4"), "share:0:")
+        self.assertEqual(m("media:video:17"), "video")
+        self.assertEqual(m("stremio|x"), "root")
+
+    def test_daljinec_play_offer(self):
+        izidi = []
+        link_daljinec.izvedi_control("play.offer", {"item": {"id": "x", "naslov": "A", "zvok": "https://primer.si/a"}, "from": "Tel"},
+                                     lambda _u: None, izidi.append, posiljatelj="n-tel", predvajanje=self.p)
+        import time as _t
+        for _ in range(50):
+            if izidi:
+                break
+            _t.sleep(0.1)
+        self.assertEqual(izidi[0]["data"], {"queued": True})
+        self.assertEqual(self.prikazane[-1]["od_ime"], "Tel")
