@@ -726,6 +726,7 @@ class SafeerControl(Gtk.Application):
       <method name="PretvorbaPrenesiSkupino"><arg type="s" name="id" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="PretvorbaPustiSkupino"><arg type="s" name="id" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="Datoteke"><arg type="s" name="naprava" direction="in"/><arg type="s" name="mapa" direction="in"/><arg type="s" name="json" direction="out"/></method>
+      <method name="Ukaz"><arg type="s" name="naprava" direction="in"/><arg type="s" name="dejanje" direction="in"/><arg type="s" name="parametri" direction="in"/><arg type="s" name="json" direction="out"/></method>
     </interface></node>"""
 
     def _izvozi_naprave(self) -> None:
@@ -838,6 +839,17 @@ class SafeerControl(Gtk.Application):
                     "reason": str(d.get("reason") or ""),
                     "server": d.get("server") if isinstance(d.get("server"), dict) else None,
                     "kljuc": str(clan.get("kljuc") or "")}
+        if metoda == "Ukaz":
+            # Poljuben ukaz Linka napravi s cakanjem na odgovor (Safeer OS, diagnostika: host.info, status ...).
+            id_naprave = str(a[0]) if a else ""
+            dejanje = str(a[1]) if len(a) > 1 else ""
+            try:
+                parametri = json.loads(str(a[2])) if len(a) > 2 and str(a[2]).strip() else {}
+            except Exception:
+                return {"ok": False, "koda": "napacna_zahteva", "message": "Parametri niso JSON."}
+            if not id_naprave or not dejanje or not isinstance(parametri, dict):
+                return {"ok": False, "koda": "napacna_zahteva", "message": "Manjka naprava ali dejanje."}
+            return link.ukaz_pocakaj(id_naprave, dejanje, parametri, cas=20.0)
         if metoda == "Aplikacije":
             id_naprave = str(a[0]) if a else ""
             # Po kosih (racunalnik daje najvec 60 z ikonami na sporocilo); Android vrne vse naenkrat.
