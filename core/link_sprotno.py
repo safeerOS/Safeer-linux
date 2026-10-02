@@ -70,13 +70,33 @@ def bitna_hitrost(velikost: int, trajanje_ms: int, sirina: int, visina: int) -> 
 
 # ----------------------------------------------------------------------------- krajevni posrednik vira
 
+def glave_zahteve(o) -> dict:
+    """Glave zahteve za izvirnik, kot jih poslje naprava (Stremio proxyHeaders): najvec 16, brez prelomov vrstic,
+    brez Range/Host/Content-Length (te doloca posrednik)."""
+    if not isinstance(o, dict):
+        return {}
+    glave = {}
+    for k, v in o.items():
+        k, v = str(k or ""), str(v if v is not None else "")
+        if not k or len(k) > 64 or len(v) > 2048 or any(c < " " for c in k) or "\r" in v or "\n" in v:
+            continue
+        if k.lower() in ("range", "host", "content-length"):
+            continue
+        glave[k] = v
+        if len(glave) >= 16:
+            break
+    return glave
+
+
 class _Vir:
     """Izvirnik: pripeto HTTPS (odtis + zeton) ali navaden HTTP; vsaka zahteva nova povezava (Range gre naprej)."""
 
-    def __init__(self, url: str, odtis: str, zeton: str) -> None:
+    def __init__(self, url: str, odtis: str, zeton: str, glave: Optional[dict] = None) -> None:
         self.url = url
         self.odtis = odtis
         self.zeton = zeton
+        #: Glave zahteve za izvirnik (Stremio behaviorHints.proxyHeaders): brez njih streznik toka vrne 403.
+        self.glave = dict(glave or {})
 
     def povezava(self) -> http.client.HTTPConnection:
         u = urllib.parse.urlparse(self.url)
@@ -110,12 +130,12 @@ class _Posrednik(http.server.BaseHTTPRequestHandler):
         if vir is None:
             self.send_response(404); self.send_header("Content-Length", "0"); self.end_headers()
             return
-        glave = {}
+        glave = {"User-Agent": "Safeer Control"}
+        glave.update(vir.glave)                      # glave toka (tudi svoj User-Agent) imajo prednost
         if vir.zeton:
             glave["X-Safeer-Token"] = vir.zeton
         if self.headers.get("Range"):
             glave["Range"] = self.headers["Range"]
-        glave["User-Agent"] = "Safeer Control"
         p = None
         try:
             p = vir.povezava()
@@ -238,6 +258,7 @@ class Sprotno:
         odtis = str(p.get("fp") or "")
         zeton = str(p.get("token") or "")
         ime = os.path.basename(str(p.get("name") or "")).strip()[:120] or "video"
+        glave = glave_zahteve(p.get("headers"))
         if not (url.startswith("https://") or url.startswith("http://")):
             raise NapakaPretoka("napacna_zahteva")
         if odtis and len(odtis) != 64:
@@ -272,7 +293,7 @@ class Sprotno:
         t = Tok(ime, os.path.join(self.mapa, uuid.uuid4().hex + ".mp4"))
         vrata = self._zazeni_posrednik()
         with self._kljucavnica:
-            self._viri[t.skrivnost] = _Vir(url, odtis, zeton)
+            self._viri[t.skrivnost] = _Vir(url, odtis, zeton, glave)
             self.tokovi[t.id] = t
             while len(self.tokovi) > NAJVEC_TOKOV:
                 star = next(iter(self.tokovi))
