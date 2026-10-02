@@ -36,25 +36,60 @@ class NapakaPretoka(Exception):
     """Kratka koda za napravo (napacna_zahteva, ni_ffmpeg, preobremenjen, ni_prostora, napaka)."""
 
 
+WINDOWS = os.name == "nt"
+
+
 def mapa_predpomnilnika() -> str:
+    if WINDOWS:
+        return os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "SafeerOS", "pretok")
     return os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "safeer-control", "pretok")
+
+
+def _disk(mapa: str):
+    """(skupaj, prosto) diska, na katerem je mapa (ali njen prvi obstojeci nadrejeni)."""
+    pot = mapa
+    while pot and not os.path.exists(pot):
+        nad = os.path.dirname(pot)
+        if nad == pot:
+            break
+        pot = nad
+    u = shutil.disk_usage(pot or os.sep)
+    return u.total, u.free
 
 
 def rezerva(mapa: str) -> int:
     """Prostor, ki ga racunalnik vedno obdrzi zase: 10 % diska, 512 MB-2 GB (kot Pretvorba na Androidu)."""
     try:
-        st = os.statvfs(mapa)
-        return max(512 * MB, min(2048 * MB, st.f_blocks * st.f_frsize // 10))
+        skupaj, _ = _disk(mapa)
+        return max(512 * MB, min(2048 * MB, skupaj // 10))
     except OSError:
         return 2048 * MB
 
 
 def prosto(mapa: str) -> int:
     try:
-        st = os.statvfs(mapa)
-        return st.f_bavail * st.f_frsize
+        return _disk(mapa)[1]
     except OSError:
         return -1
+
+
+def ffmpeg_windows() -> str:
+    """ffmpeg.exe na Windows: paket Safeer OS (LOCALAPPDATA/SafeerOS/ffmpeg, ffmpeg_win.py), winget, C:/ffmpeg."""
+    import glob
+    lokalno = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    kandidati = [os.path.join(lokalno, "SafeerOS", "ffmpeg", "bin", "ffmpeg.exe"),
+                 os.path.join(lokalno, "Microsoft", "WinGet", "Links", "ffmpeg.exe"),
+                 os.path.join("C:\\", "ffmpeg", "bin", "ffmpeg.exe")]
+    kandidati += glob.glob(os.path.join(lokalno, "Microsoft", "WinGet", "Packages", "*FFmpeg*", "*", "bin", "ffmpeg.exe"))
+    for k in kandidati:
+        if os.path.isfile(k):
+            return k
+    return ""
+
+
+#: Strojni kodirniki H.264, ki jih na Windows preizkusimo (nvenc/amf delujeta zanesljivo; QSV in MF "hw_encoding" na
+#: starih Intelovih gonilnikih dajeta pokvarjen izhod ali napako - preizkus 2. 10. 2026, i5-4590 + HD 4600).
+STROJNI_WINDOWS = ("h264_nvenc", "h264_amf")
 
 
 def bitna_hitrost(velikost: int, trajanje_ms: int, sirina: int, visina: int) -> int:
@@ -196,10 +231,14 @@ class Sprotno:
     """Vsi sprotni tokovi tega racunalnika (en pretvornik naenkrat) in krajevni posrednik za ffmpeg."""
 
     def __init__(self, mapa: Optional[str] = None, ffmpeg: Optional[str] = None,
-                 vaapi: Optional[Callable[[], Optional[str]]] = None) -> None:
+                 vaapi: Optional[Callable[[], Optional[str]]] = None,
+                 strojni: Optional[Callable[[], Optional[str]]] = None) -> None:
         self.mapa = mapa or mapa_predpomnilnika()
         self._ffmpeg = ffmpeg
         self._vaapi = vaapi
+        self._strojni = strojni          # Windows: ime strojnega kodirnika (h264_nvenc/h264_amf) ali None; preizkus se predpomni
+        self._strojni_predpomnjen: Optional[str] = None
+        self._strojni_preizkusen_za = ""
         self.tokovi: Dict[str, Tok] = {}
         self._viri: Dict[str, _Vir] = {}
         self._kljucavnica = threading.Lock()
@@ -209,8 +248,44 @@ class Sprotno:
     # ---- orodja
 
     def ffmpeg(self) -> str:
-        pot = self._ffmpeg or shutil.which("ffmpeg") or ""
+        pot = self._ffmpeg or shutil.which("ffmpeg") or (ffmpeg_windows() if WINDOWS else "") or ""
         return pot if pot and os.path.isfile(pot) else ""
+
+    def ffprobe(self) -> str:
+        f = self.ffmpeg()
+        ob = os.path.join(os.path.dirname(f), "ffprobe.exe" if WINDOWS else "ffprobe") if f else ""
+        return ob if ob and os.path.isfile(ob) else (shutil.which("ffprobe") or ob)
+
+    def programski_kodirnik(self) -> str:
+        """Kodirnik brez posebne strojne opreme: x264 (Linux) ali Media Foundation (Windows, v sistemu)."""
+        return "h264_mf" if WINDOWS else "libx264"
+
+    def strojni_kodirnik(self) -> Optional[str]:
+        """Windows: prvi od STROJNI_WINDOWS, ki dejansko kodira (kratek preizkus z lavfi; rezultat se predpomni za ta
+        ffmpeg). Linux: None (strojno je VAAPI, glej vaapi())."""
+        if self._strojni is not None:
+            return self._strojni()
+        if not WINDOWS:
+            return None
+        f = self.ffmpeg()
+        if not f:
+            return None
+        if self._strojni_preizkusen_za == f:
+            return self._strojni_predpomnjen
+        najden = None
+        for k in STROJNI_WINDOWS:
+            try:
+                r = subprocess.run([f, "-nostdin", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
+                                    "color=c=black:s=64x64:r=5", "-frames:v", "3", "-c:v", k, "-f", "null", "-"],
+                                   capture_output=True, timeout=25, creationflags=_BREZ_OKNA)
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+            if r.returncode == 0:
+                najden = k
+                break
+        self._strojni_predpomnjen, self._strojni_preizkusen_za = najden, f
+        _zapisi(f"sprotno: strojni kodirnik {najden or 'ni'} (ffmpeg {f})")
+        return najden
 
     def vaapi(self) -> Optional[str]:
         """Naprava za strojno kodiranje (Intel/AMD, kot link_zaslon.vaapi_naprava - brez uvoza, ker paket Safeer OS link_zaslon nima)."""
@@ -226,7 +301,7 @@ class Sprotno:
         """Za host.info: {strojno, kodirniki:[{vrsta, sirina, visina}], dekodirniki:[...]} ali {} brez ffmpeg."""
         if not self.ffmpeg():
             return {}
-        strojno = bool(self.vaapi())
+        strojno = bool(self.vaapi()) if not WINDOWS else bool(self.strojni_kodirnik())
         return {"strojno": strojno, "ffmpeg": True,
                 "kodirniki": [{"vrsta": "avc", "sirina": 4096, "visina": 2304}],
                 "dekodirniki": [{"vrsta": v, "sirina": 8192, "visina": 4320}
@@ -343,13 +418,16 @@ class Sprotno:
 
     # ---- ffmpeg
 
-    def ukaz(self, vhod: str, izhod: str, seek_ms: int, bitna: int, visina_vira: int, vaapi: Optional[str]) -> List[str]:
-        """Ukaz ffmpeg: strojno (VAAPI dekodiranje + kodiranje, CQP - edini nacin na Intelovem LP vhodu) ali x264.
+    def ukaz(self, vhod: str, izhod: str, seek_ms: int, bitna: int, visina_vira: int, vaapi: Optional[str],
+             kodirnik: str = "") -> List[str]:
+        """Ukaz ffmpeg: strojno (VAAPI dekodiranje + kodiranje, CQP - edini nacin na Intelovem LP vhodu; na Windows
+        h264_nvenc/h264_amf) ali programsko (x264; na Windows Media Foundation h264_mf, ki je v sistemu).
         Najvec 1080p, manjsega ne povecujemo; fragmentiran MP4 (2 s), da ga naprava bere sproti."""
         u = [self.ffmpeg(), "-nostdin", "-hide_banner", "-loglevel", "error", "-y"]
         if seek_ms > 0:
             u += ["-ss", f"{seek_ms / 1000:.3f}"]
         lestvica = visina_vira <= 0 or visina_vira > VISINA
+        kodirnik = kodirnik or self.programski_kodirnik()
         if vaapi:
             u += ["-hwaccel", "vaapi", "-hwaccel_device", vaapi, "-hwaccel_output_format", "vaapi", "-i", vhod]
             u += ["-vf", (f"scale_vaapi=w=-2:h={VISINA}:format=nv12" if lestvica else "scale_vaapi=format=nv12")]
@@ -358,11 +436,26 @@ class Sprotno:
             u += ["-i", vhod]
             if lestvica:
                 u += ["-vf", f"scale=-2:'min(ih,{VISINA})'"]
-            u += ["-c:v", "libx264", "-preset", "veryfast", "-profile:v", "high", "-pix_fmt", "yuv420p"]
-            if bitna > 0:
-                u += ["-b:v", str(bitna), "-maxrate", str(int(bitna * 1.5)), "-bufsize", str(bitna * 2)]
+            # Brez podatka o izvirniku: 5 Mb/s pri 1080p, 3 Mb/s pri 720p, 2 Mb/s manj (kot bitna_hitrost zgoraj).
+            privzeta = 5_000_000 if (visina_vira <= 0 or visina_vira >= 1080) else (3_000_000 if visina_vira >= 720 else 2_000_000)
+            if kodirnik == "libx264":
+                u += ["-c:v", "libx264", "-preset", "veryfast", "-profile:v", "high", "-pix_fmt", "yuv420p"]
+                if bitna > 0:
+                    u += ["-b:v", str(bitna), "-maxrate", str(int(bitna * 1.5)), "-bufsize", str(bitna * 2)]
+                else:
+                    u += ["-crf", "22"]
+            elif kodirnik == "h264_nvenc":
+                u += ["-c:v", "h264_nvenc", "-preset", "p4", "-profile:v", "high", "-pix_fmt", "yuv420p"]
+                u += (["-rc", "vbr", "-b:v", str(bitna), "-maxrate", str(int(bitna * 1.5)), "-bufsize", str(bitna * 2)]
+                      if bitna > 0 else ["-rc", "vbr", "-cq", "23", "-b:v", "0"])
+            elif kodirnik == "h264_amf":
+                u += ["-c:v", "h264_amf", "-quality", "speed", "-profile:v", "high", "-pix_fmt", "yuv420p"]
+                u += (["-rc", "vbr_peak", "-b:v", str(bitna), "-maxrate", str(int(bitna * 1.5))]
+                      if bitna > 0 else ["-rc", "cqp", "-qp_i", "23", "-qp_p", "23"])
             else:
-                u += ["-crf", "22"]
+                # Media Foundation (Windows): programski kodirnik sistema; strojnega (hw_encoding) ne uporabljamo.
+                u += ["-c:v", "h264_mf", "-rate_control", "cbr", "-b:v", str(bitna if bitna > 0 else privzeta),
+                      "-pix_fmt", "nv12"]
         u += ["-c:a", "aac", "-b:a", "160k", "-ac", "2", "-sn", "-dn", "-map", "0:v:0", "-map", "0:a:0?",
               "-f", "mp4", "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-frag_duration", "2000000", izhod]
         return u
@@ -372,23 +465,29 @@ class Sprotno:
             return False
         if pricakovano_ms <= 0:
             return True
-        ffprobe = shutil.which("ffprobe") or os.path.join(os.path.dirname(self.ffmpeg()), "ffprobe")
+        ffprobe = self.ffprobe()
         try:
             izpis = subprocess.run([ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", datoteka],
-                                   capture_output=True, text=True, timeout=15).stdout.strip()
+                                   capture_output=True, text=True, timeout=15, creationflags=_BREZ_OKNA).stdout.strip()
             return float(izpis) * 1000 >= pricakovano_ms * 0.95
         except (OSError, ValueError, subprocess.TimeoutExpired):
             return False
 
     def _pretvarjaj(self, t: Tok, vhod: str, seek_ms: int, bitna: int, visina_vira: int, pricakovano_ms: int = 0) -> None:
-        vaapi = self.vaapi()
-        for poskus, naprava in enumerate([vaapi, None] if vaapi else [None]):
+        # Poskusi: (vaapi naprava, ime kodirnika) - najprej strojno, nato programsko.
+        if WINDOWS:
+            strojni = self.strojni_kodirnik()
+            poskusi = ([(None, strojni)] if strojni else []) + [(None, self.programski_kodirnik())]
+        else:
+            vaapi = self.vaapi()
+            poskusi = ([(vaapi, "h264_vaapi")] if vaapi else []) + [(None, self.programski_kodirnik())]
+        for naprava, kodirnik in poskusi:
             if t.koncano:
                 return
-            t.strojno = naprava is not None
+            t.strojno = naprava is not None or kodirnik in STROJNI_WINDOWS
             try:
-                t.proces = subprocess.Popen(self.ukaz(vhod, t.datoteka, seek_ms, bitna, visina_vira, naprava),
-                                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                t.proces = subprocess.Popen(self.ukaz(vhod, t.datoteka, seek_ms, bitna, visina_vira, naprava, kodirnik),
+                                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=_BREZ_OKNA)
             except OSError as e:
                 t.napaka = "napaka"; t.koncano = True
                 _zapisi(f"pretok {t.ime}: ffmpeg se ni zagnal ({e})")
@@ -401,10 +500,10 @@ class Sprotno:
             # VAAPI ob koncu vira javi "Cannot allocate memory" (koda 244), ceprav je izhod cel: izhod stejemo za
             # uspeh, ce je dolg vsaj 95 % pricakovanega (ffprobe) ali - brez podatka o trajanju - vecji od 1 MB.
             if koda == 0 or self._cel(t.datoteka, velikost, pricakovano_ms):
-                _zapisi(f"pretok {t.ime}: koncan ({velikost} B, {'VAAPI' if naprava else 'x264'}, koda {koda})")
+                _zapisi(f"pretok {t.ime}: koncan ({velikost} B, {kodirnik}, koda {koda})")
                 t.koncano = True
                 return
-            _zapisi(f"pretok {t.ime}: {'VAAPI' if naprava else 'x264'} ni uspel (koda {koda}): {(err or b'').decode('utf-8', 'replace').strip()[:300]}")
+            _zapisi(f"pretok {t.ime}: {kodirnik} ni uspel (koda {koda}): {(err or b'').decode('utf-8', 'replace').strip()[:300]}")
             try:
                 os.remove(t.datoteka)
             except OSError:
@@ -499,12 +598,21 @@ class Sprotno:
                     self.ustavi(t)
 
 
+#: Podprocesi na Windows brez konzolnega okna (CREATE_NO_WINDOW); drugje 0.
+_BREZ_OKNA = 0x08000000 if WINDOWS else 0
+
+
 def _zapisi(besedilo: str) -> None:
     try:
         from core import os_stabilnost
         os_stabilnost.zapisi("safeer-control", besedilo)
     except Exception:  # noqa: BLE001
         pass
+    if WINDOWS:
+        try:
+            print("[SafeerSprotno] " + besedilo, flush=True)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 _SPROTNO: Optional[Sprotno] = None

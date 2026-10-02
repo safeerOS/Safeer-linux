@@ -164,6 +164,19 @@ class Sprotno(unittest.TestCase):
         self.assertEqual(u[u.index("-b:v") + 1], "5000000")
         self.assertIn("frag_keyframe+empty_moov+default_base_moof", u)
         self.assertEqual(u[-1], "/tmp/o.mp4")
+        # Windows: Media Foundation (programsko, v sistemu) in strojni nvenc/amf; brez podatka 5 Mb/s pri 1080p
+        u = self.s.ukaz("http://127.0.0.1:1/x", "o.mp4", 0, 0, 2160, None, "h264_mf")
+        self.assertIn("h264_mf", u)
+        self.assertEqual(u[u.index("-b:v") + 1], "5000000")
+        self.assertEqual(u[u.index("-rate_control") + 1], "cbr")
+        self.assertNotIn("-hw_encoding", u)
+        u = self.s.ukaz("http://127.0.0.1:1/x", "o.mp4", 0, 0, 720, None, "h264_mf")
+        self.assertEqual(u[u.index("-b:v") + 1], "3000000")
+        u = self.s.ukaz("http://127.0.0.1:1/x", "o.mp4", 0, 4_000_000, 2160, None, "h264_nvenc")
+        self.assertIn("h264_nvenc", u)
+        self.assertEqual(u[u.index("-b:v") + 1], "4000000")
+        self.assertIn("scale=-2:'min(ih,1080)'", u)
+        self.assertEqual(self.s.programski_kodirnik(), "h264_mf" if os.name == "nt" else "libx264")
 
     def test_bitna_hitrost_kot_android(self):
         # 4K HEVC 92 MB / 60 s = 12,3 Mb/s x 1,6 -> omejeno na 8 Mb/s pri 1080p
