@@ -1794,6 +1794,7 @@ class SafeerOS(Gtk.Application):
             "prilepiDatoteke": lambda: os_datoteke.prilepi(a[0] if a and isinstance(a[0], list) else [], str(a[1]) if len(a) > 1 else "",
                                                            bool(a[2]) if len(a) > 2 else False),
             "spusceneDatoteke": self._spuscene_datoteke,
+            "razveljaviDatoteke": lambda: os_datoteke.razveljavi(a[0] if a and isinstance(a[0], dict) else {}),
             "smeti": os_datoteke.smeti,
             "obnoviIzSmeti": lambda: os_datoteke.obnovi_iz_smeti(str(a[0]) if a else ""),
             "nosilci": os_datoteke.nosilci,

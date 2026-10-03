@@ -137,6 +137,9 @@
       pokaziNajvecje: "Pokaži največje datoteke",
       vSmetiOk: "»{ime}« je v Smeteh (obnoviš ga v Datotekah → Smeti).", ustvarjeno: "Ustvarjeno: {ime}",
       izberiMapoNaslov: "Kam naj ustvarim?", izberi: "Izberi", osvezi: "Osveži",
+      razveljavi: "Razveljavi", razveljavljeno: "Razveljavljeno.", nicZaRazveljaviti: "Ni česa razveljaviti.",
+      razveljavitevNiUspela: "Tega ni več mogoče razveljaviti (datoteka je bila medtem premaknjena ali je na njenem mestu druga).",
+      preimenovano: "Preimenovano: {ime}",
       nObstaja: "Datoteka s tem imenom tu že obstaja.", nIme: "Ime ne sme biti prazno, začeti s piko ali vsebovati »/«.",
       nDovoljenje: "V to mapo nimaš dovoljenja za pisanje. Izberi drugo.", nMapa: "Te mape ni več.",
       nSmeti: "V Smeti ni šlo (morda nimaš dovoljenja).", nSplosno: "Ni uspelo."
@@ -254,6 +257,9 @@
       pokaziNajvecje: "Show largest files",
       vSmetiOk: "“{ime}” is in the Trash (restore it from Files → Trash).", ustvarjeno: "Created: {ime}",
       izberiMapoNaslov: "Where should I create it?", izberi: "Select", osvezi: "Refresh",
+      razveljavi: "Undo", razveljavljeno: "Undone.", nicZaRazveljaviti: "Nothing to undo.",
+      razveljavitevNiUspela: "This can no longer be undone (the file was moved since, or another one is in its place).",
+      preimenovano: "Renamed: {ime}",
       nObstaja: "A file with this name already exists here.", nIme: "The name can't be empty, start with a dot or contain “/”.",
       nDovoljenje: "You can't write to this folder. Pick another one.", nMapa: "This folder no longer exists.",
       nSmeti: "Couldn't move it to the Trash (maybe no permission).", nSplosno: "That didn't work."
@@ -437,9 +443,15 @@
     return img;
   }
   var casObvestila = 0;
-  function obvesti(b) {
+  // dejanje: { ime, naredi } doda obvestilu gumb (Razveljavi); tako obvestilo ostane dlje, da ga je mogoce doseci.
+  function obvesti(b, dejanje) {
     var o = $("obvestilo"); o.textContent = b; o.hidden = false;
-    clearTimeout(casObvestila); casObvestila = setTimeout(function () { o.hidden = true; }, 4200);
+    if (dejanje) {
+      var g = el("button", "", dejanje.ime); g.type = "button";
+      g.addEventListener("click", function () { o.hidden = true; dejanje.naredi(); });
+      o.appendChild(g);
+    }
+    clearTimeout(casObvestila); casObvestila = setTimeout(function () { o.hidden = true; }, dejanje ? 9000 : 4200);
   }
   function stranskoBesedilo(p) { return p.replace(/^\/home\/[^/]+/, "~"); }
 
@@ -819,7 +831,7 @@
     }
     tr.addEventListener("keydown", function (ev) {
       if (ev.key === "Enter") { ev.preventDefault(); odpriVnos(e); }
-      else if (ev.key === " ") { ev.preventDefault(); predogled(e); }
+      else if (ev.key === " " && !(tipkano && Date.now() - tipkanoCas <= 900)) { ev.preventDefault(); predogled(e); }
       else if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
         ev.preventDefault();
         var n = i + (ev.key === "ArrowDown" ? 1 : -1), vr = $("datVrstice").rows;
@@ -837,9 +849,23 @@
       else if (ev.key === "Delete" && !e.oddaljeno && !e.smeti) { ev.preventDefault(); vSmetiVec(zaDejanje(e)); }
       else if (ev.ctrlKey && !ev.shiftKey && !ev.altKey && !e.oddaljeno && !e.smeti && (ev.key === "c" || ev.key === "C")) { ev.preventDefault(); vOdlozisceVec(zaDejanje(e), false); }
       else if (ev.ctrlKey && !ev.shiftKey && !ev.altKey && !e.oddaljeno && !e.smeti && (ev.key === "x" || ev.key === "X")) { ev.preventDefault(); vOdlozisceVec(zaDejanje(e), true); }
+      else if (ev.key.length === 1 && !ev.ctrlKey && !ev.altKey && !ev.metaKey && (ev.key !== " " || tipkano && Date.now() - tipkanoCas <= 900)) {
+        ev.preventDefault(); skociNaIme(ev.key);
+      }
     });
     tr.addEventListener("contextmenu", function (ev) { ev.preventDefault(); meniZaVrstico(e, i, ev.clientX, ev.clientY); });
     return tr;
+  }
+  // Tipkanje v seznamu skoci na prvo datoteko, ki se zacne z vtipkanim (tudi na drugi strani); premor zacne znova.
+  var tipkano = "", tipkanoCas = 0;
+  function skociNaIme(znak) {
+    var zdaj = Date.now();
+    tipkano = (zdaj - tipkanoCas > 900 ? "" : tipkano) + znak.toLocaleLowerCase(); tipkanoCas = zdaj;
+    var s = filtrirani();
+    for (var i = 0; i < s.length; i++) {
+      if (String(s[i].ime).toLocaleLowerCase().indexOf(tipkano) === 0) { D.oznaciVse = null; D.oznaci = s[i].ime; izrisiDatoteke(); return true; }
+    }
+    return false;
   }
   // Dejanje s tipkovnico velja za vse izbrane, ce je vrstica med njimi; sicer samo zanjo.
   function zaDejanje(e) {
@@ -877,13 +903,40 @@
     pokaziMeni(m, x, y);
   }
 
+  // ------------------------------------------------------------------ RAZVELJAVI
+  // Zadnja dejanja z datotekami (premik, kopija, v Smeti, preimenovanje, nova mapa ali datoteka) se dajo razveljaviti:
+  // z gumbom v obvestilu ali s Ctrl+Z. Zapis dejanja sestavimo iz odgovora Safeer OS; razveljavitev nikoli nicesar ne
+  // prepise in ne izbrise trajno (kopije in ustvarjeno gredo v Smeti).
+  var RZ = [];
+  function zapomniDejanje(zapis) {
+    if (!zapis || !((zapis.pari && zapis.pari.length) || (zapis.idji && zapis.idji.length))) return null;
+    RZ.push(zapis); if (RZ.length > 20) RZ.shift();
+    return { ime: t("razveljavi"), naredi: function () { razveljavi(zapis); } };
+  }
+  function razveljavi(zapis) {
+    zapis = zapis || RZ[RZ.length - 1];
+    if (!zapis) { obvesti(t("nicZaRazveljaviti")); return; }
+    RZ = RZ.filter(function (x) { return x !== zapis; });
+    klic("razveljaviDatoteke", [zapis]).then(function (r) {
+      r = r || {};
+      var n = r.narejeno || 0, ne = (r.napake || []).length;
+      obvesti(n && !ne ? t("razveljavljeno") : n ? t("delnoUspelo", { ok: n, ne: ne }) : t("razveljavitevNiUspela"));
+      // Po razveljavljenem premiku ali preimenovanju so datoteke spet na starem mestu: tam jih oznacimo.
+      if (n && (zapis.vrsta === "premik" || zapis.vrsta === "preimenovanje") && D.vir && D.vir.vrsta === "lokalno") {
+        var tu = zapis.pari.filter(function (p) { return p[0].replace(/\/[^/]*$/, "") === D.vir.pot; })
+          .map(function (p) { return p[0].split("/").pop(); });
+        if (tu.length) { D.oznaciVse = tu; D.oznaci = tu[0]; }
+      }
+      if (D.vir) odpriVir(D.vir);
+    }).catch(function () { obvesti(t("razveljavitevNiUspela")); });
+  }
+
   // ------------------------------------------------------------------ POVLECI IN SPUSTI
   // Izbrane datoteke v mapo: vlecenje znotraj Datotek jih PREMAKNE, z drzano tipko Ctrl KOPIRA (ev.ctrlKey je med
   // vlecenjem v WebKitGTK vedno true, zato beremo, kaj dovoli vir: s Ctrl samo kopiranje - samoKopija). VL.poti: kaj
   // vlecemo iz tega seznama (med vlecenjem podatkov ni mogoce brati). Datoteke iz drugega programa (Nemo, namizje) se
-  // v mapo KOPIRAJO: WebKitGTK
-  // strani njihovih poti ne pove (seznam naslovov je prazen), zato si jih zapomni Safeer OS - dogodek vleceneDatoteke
-  // pove, koliko jih je (VL.zunanje), ob spustu pa jih stran prevzame z metodo spusceneDatoteke.
+  // v mapo KOPIRAJO: WebKitGTK strani njihovih poti ne pove (seznam naslovov je prazen), zato si jih zapomni Safeer OS -
+  // dogodek vleceneDatoteke pove, koliko jih je (VL.zunanje), ob spustu pa jih stran prevzame z metodo spusceneDatoteke.
   // VL.sistemsko: vlecenje iz Datotek zacne Safeer OS kot pravo vlecenje namizja (X11).
   var VL = { poti: [], zunanje: 0, sistemsko: false };
   var VRSTA_VLECENJA = "application/x-safeer-datoteke";
@@ -957,10 +1010,11 @@
     klic("prilepiDatoteke", [poti, cilj, !!premakni]).then(function (r) {
       r = r || {};
       var narejeno = r.narejeno || [], napake = r.napake || [];
+      var nazaj = zapomniDejanje({ vrsta: premakni ? "premik" : "kopija", pari: r.pari || [] });
       if (narejeno.length && !napake.length) {
         obvesti(t(premakni ? "premaknjenoV" : "kopiranoV", { mapa: cilj.replace(/\/$/, "").split("/").pop() || "/",
-          ime: narejeno.length === 1 ? String(narejeno[0]).split("/").pop() : steviloElementov(narejeno.length) }));
-      } else if (narejeno.length) obvesti(t("delnoUspelo", { ok: narejeno.length, ne: napake.length }));
+          ime: narejeno.length === 1 ? String(narejeno[0]).split("/").pop() : steviloElementov(narejeno.length) }), nazaj);
+      } else if (narejeno.length) obvesti(t("delnoUspelo", { ok: narejeno.length, ne: napake.length }), nazaj);
       else {
         var koda = r.napaka || (napake[0] || {}).napaka || "";
         obvesti(BESEDILA[jezik]["prilepiNapaka_" + koda] ? t("prilepiNapaka_" + koda) : t("niUspelo"));
@@ -1024,8 +1078,9 @@
       r = r || {};
       var narejeno = r.narejeno || [], spodletele = r.napake || [];
       if (narejeno.length) {
-        if (spodletele.length) obvesti(t("delnoUspelo", { ok: narejeno.length, ne: spodletele.length }));
-        else obvesti(t(rezi ? "premaknjeno" : "prilepljeno", { ime: narejeno.length === 1 ? String(narejeno[0]).split("/").pop() : ime }));
+        var nazaj = zapomniDejanje({ vrsta: rezi ? "premik" : "kopija", pari: r.pari || [] });
+        if (spodletele.length) obvesti(t("delnoUspelo", { ok: narejeno.length, ne: spodletele.length }), nazaj);
+        else obvesti(t(rezi ? "premaknjeno" : "prilepljeno", { ime: narejeno.length === 1 ? String(narejeno[0]).split("/").pop() : ime }), nazaj);
         if (rezi) { O.poti = []; O.ime = ""; }
         D.oznaciVse = narejeno.map(function (p) { return String(p).split("/").pop(); });
         D.oznaci = D.oznaciVse[0];
@@ -1063,11 +1118,15 @@
     vnosi = vnosi.filter(function (e) { return e && e.pot && !e.oddaljeno && !e.smeti; });
     if (!vnosi.length) return;
     if (vnosi.length === 1) { vSmeti(vnosi[0]); return; }
-    zapored(vnosi, function (e) { return klic("vSmeti", [e.pot]); }).then(function (izidi) {
+    var idji = [];
+    zapored(vnosi, function (e) {
+      return klic("vSmeti", [e.pot]).then(function (r) { if (r && r.ok && r.id) idji.push(r.id); return r; });
+    }).then(function (izidi) {
       var ok = izidi.filter(Boolean).length, vSmeteh = {};
       vnosi.forEach(function (e, i) { if (izidi[i]) vSmeteh[e.pot] = true; });
       N.priljubljeneDat = N.priljubljeneDat.filter(function (p) { return !vSmeteh[p.pot]; }); shrani();
-      obvesti(ok === vnosi.length ? t("vSmetiVecOk", { ime: steviloElementov(ok) }) : ok ? t("delnoUspelo", { ok: ok, ne: vnosi.length - ok }) : t("nSmeti"));
+      obvesti(ok === vnosi.length ? t("vSmetiVecOk", { ime: steviloElementov(ok) }) : ok ? t("delnoUspelo", { ok: ok, ne: vnosi.length - ok }) : t("nSmeti"),
+              zapomniDejanje({ vrsta: "smeti", idji: idji }));
       if (D.vir) odpriVir(D.vir);
     });
   }
@@ -1190,6 +1249,7 @@
     var m = [];
     if (D.vir && D.vir.vrsta === "smeti") { pokaziMeni([[t("izprazniSmeti"), izprazniSmeti], [t("osvezi"), function () { odpriVir(D.vir); }]], x, y); return; }
     if (O.poti.length && D.vir && D.vir.vrsta === "lokalno") { m.push([t("prilepi"), function () { prilepi(null); }]); m.push(["—"]); }
+    if (RZ.length) { m.push([t("razveljavi"), function () { razveljavi(); }]); m.push(["—"]); }
     postavkeNovo(m, null);
     m.push(["—"]);
     m.push([t("osvezi"), function () { if (D.vir) odpriVir(D.vir); }]);
@@ -1253,7 +1313,8 @@
       if (!r || !r.ok) { var n = $("novoNapaka"); n.textContent = napakaNovo(r && r.napaka); n.hidden = false; $("novoIme").focus(); return; }
       zapriOknoNovo();
       var nova = r.pot || "", mapa = nova.replace(/\/[^/]*$/, "") || "/", imeNovega = nova.split("/").pop();
-      if (o.nacin !== "preimenuj") obvesti(t("ustvarjeno", { ime: imeNovega }));
+      if (o.nacin !== "preimenuj") obvesti(t("ustvarjeno", { ime: imeNovega }), zapomniDejanje({ vrsta: "novo", pari: [["", nova]] }));
+      else if (nova && nova !== o.pot) obvesti(t("preimenovano", { ime: imeNovega }), zapomniDejanje({ vrsta: "preimenovanje", pari: [[o.pot, nova]] }));
       // Pokazemo mapo, kjer je nastalo, in vnos oznacimo (koren ohranimo, ce je mapa v njem).
       var koren = D.vir && D.vir.vrsta === "lokalno" && D.vir.koren && (mapa + "/").indexOf(D.vir.koren.replace(/\/$/, "") + "/") === 0
         ? D.vir.koren : mapa;
@@ -1487,7 +1548,7 @@
     klic("vSmeti", [e.pot]).then(function (r) {
       if (!r || !r.ok) { obvesti(t("nSmeti")); return; }
       N.priljubljeneDat = N.priljubljeneDat.filter(function (p) { return p.pot !== e.pot; }); shrani();
-      obvesti(t("vSmetiOk", { ime: e.ime }));
+      obvesti(t("vSmetiOk", { ime: e.ime }), zapomniDejanje({ vrsta: "smeti", idji: r.id ? [r.id] : [] }));
       if (D.vir) odpriVir(D.vir);
     }).catch(function () { obvesti(t("nSmeti")); });
   }
@@ -2018,6 +2079,10 @@
       // Ctrl+A izbere vse v seznamu (tudi na drugih straneh); v polju za vnos ostane izbira besedila.
       else if (ev.ctrlKey && !ev.shiftKey && !ev.altKey && (ev.key === "a" || ev.key === "A") && !ev.target.closest("input, textarea, select")) {
         ev.preventDefault(); izberiVse(); oznaciIzbrano();
+      }
+      // Ctrl+Z razveljavi zadnje dejanje z datotekami (v polju za vnos ostane razveljavitev tipkanja).
+      else if (ev.ctrlKey && !ev.shiftKey && !ev.altKey && (ev.key === "z" || ev.key === "Z") && !ev.target.closest("input, textarea, select")) {
+        ev.preventDefault(); razveljavi();
       }
       // Ctrl+V prilepi v odprto mapo (v polju za vnos ostane navadno lepljenje besedila).
       else if (ev.ctrlKey && !ev.shiftKey && !ev.altKey && (ev.key === "v" || ev.key === "V") && O.poti.length &&

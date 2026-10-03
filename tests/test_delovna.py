@@ -141,6 +141,50 @@ assert.strictEqual(smiselnSpust(["/m/a", "/x/y"], "/m"), true);
 """
         subprocess.run(["node", "-e", koda], check=True)
 
+    @unittest.skipUnless(shutil.which("node"), "node ni namescen")
+    def test_tipkanje_skoci_na_ime(self):
+        """Tipkanje v seznamu izbere prvo datoteko, ki se zacne z vtipkanim; po premoru se zacne znova."""
+        js = self.js
+        blok = js[js.index('  var tipkano = "", tipkanoCas = 0;'):js.index("  // Dejanje s tipkovnico velja za vse izbrane")]
+        koda = """
+var assert = require("assert");
+var ura = 1000; Date.now = function () { return ura; };
+var vsi = ["Mapa", "poročilo.odt", "Pismo.txt", "pisarna", "u1.txt", "u3.txt"].map(function (i) { return { ime: i }; });
+var D = { oznaci: "", oznaciVse: ["staro"] }, izrisov = 0;
+function filtrirani() { return vsi; }
+function izrisiDatoteke() { izrisov++; }
+""" + blok + """
+assert.strictEqual(skociNaIme("p"), true); assert.strictEqual(D.oznaci, "poročilo.odt"); assert.strictEqual(D.oznaciVse, null);
+ura += 300; assert.strictEqual(skociNaIme("I"), true); assert.strictEqual(D.oznaci, "Pismo.txt");
+ura += 300; skociNaIme("s"); skociNaIme("a"); assert.strictEqual(D.oznaci, "pisarna");
+ura += 300; assert.strictEqual(skociNaIme("q"), false); assert.strictEqual(D.oznaci, "pisarna");
+ura += 2000; skociNaIme("u"); assert.strictEqual(D.oznaci, "u1.txt");
+ura += 100; skociNaIme("3"); assert.strictEqual(D.oznaci, "u3.txt");
+assert.strictEqual(izrisov, 6);
+"""
+        subprocess.run(["node", "-e", koda], check=True)
+
+    def test_razveljavi_v_datotekah(self):
+        """Premik, kopija, v Smeti, preimenovanje in novo se dajo razveljaviti: gumb v obvestilu in Ctrl+Z."""
+        js, py, css = self.js, beri("safeer_os.py"), beri("assets", "os", "delovna.css")
+        for kljuc in ("razveljavi", "razveljavljeno", "nicZaRazveljaviti", "razveljavitevNiUspela", "preimenovano"):
+            self.assertEqual(len(re.findall(r"\b%s: \"" % kljuc, js)), 2, "besedilo %s mora biti v obeh jezikih" % kljuc)
+        for niz in ('klic("razveljaviDatoteke", [zapis])',
+                    'zapomniDejanje({ vrsta: premakni ? "premik" : "kopija", pari: r.pari || [] })',
+                    'zapomniDejanje({ vrsta: rezi ? "premik" : "kopija", pari: r.pari || [] })',
+                    'zapomniDejanje({ vrsta: "smeti", idji: r.id ? [r.id] : [] })',
+                    'zapomniDejanje({ vrsta: "smeti", idji: idji })',
+                    'zapomniDejanje({ vrsta: "novo", pari: [["", nova]] })',
+                    'zapomniDejanje({ vrsta: "preimenovanje", pari: [[o.pot, nova]] })',
+                    '(ev.key === "z" || ev.key === "Z") && !ev.target.closest("input, textarea, select")',
+                    'if (RZ.length) { m.push([t("razveljavi"), function () { razveljavi(); }]); m.push(["—"]); }'):
+            self.assertIn(niz, js)
+        # Obvestilo z gumbom ostane dlje; prazno dejanje (npr. Smeti drugega nosilca brez id-ja) gumba ne dobi.
+        self.assertIn("}, dejanje ? 9000 : 4200);", js)
+        self.assertIn("if (!zapis || !((zapis.pari && zapis.pari.length) || (zapis.idji && zapis.idji.length))) return null;", js)
+        self.assertIn(".obvestilo button {", css)
+        self.assertIn('"razveljaviDatoteke": lambda: os_datoteke.razveljavi(a[0] if a and isinstance(a[0], dict) else {})', py)
+
     def test_izbira_vec_datotek_v_vmesniku(self):
         js, css = self.js, beri("assets", "os", "delovna.css")
         for niz in ("function meniVec(x, y)", "function vOdlozisceVec(vnosi, rezi)", "function vSmetiVec(vnosi)",
