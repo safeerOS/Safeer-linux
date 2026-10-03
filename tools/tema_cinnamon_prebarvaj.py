@@ -63,7 +63,8 @@ def _rgb(hex6: str) -> tuple:
 
 
 def je_siva(r: int, g: int, b: int) -> bool:
-    return max(r, g, b) - min(r, g, b) <= 6
+    # Tudi rahlo hladne sivine (Mint-Y 2.3 v lupini: #303036, #494951): razlika med kanali do 12.
+    return max(r, g, b) - min(r, g, b) <= 12
 
 
 def je_mintova_modra(r: int, g: int, b: int) -> bool:

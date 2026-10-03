@@ -34,3 +34,19 @@ StEntry { background-color: #0c1524; border: 1px solid rgba(215, 234, 255, 0.6);
   color: #0b1424;
   background-color: #8ac7ff;
 }
+
+/* Glavni meni v Cinnamonu 6.6 (appmenu-*): izbrano je temno na svetlo modri, kot v starem meniju. */
+.appmenu-application-button-selected, .appmenu-category-button-selected,
+.appmenu-category-button:hover, .appmenu-sidebar-button:hover {
+  color: #0b1424;
+  background-color: #8ac7ff;
+}
+.appmenu-application-button-selected .appmenu-application-button-description { color: #0b1424; }
+.appmenu-application-button-description { color: #d5e6fa; }
+.appmenu-sidebar { background-color: #0c1524; border-color: rgba(215, 234, 255, 0.55); }
+.appmenu-system-button, .appmenu-sidebar .appmenu-system-button {
+  background-color: #16253b;
+  border-color: rgba(215, 234, 255, 0.6);
+}
+.appmenu-system-button-shutdown, .appmenu-sidebar .appmenu-system-button-shutdown { background-color: #c01c28; }
+.appmenu-system-button-shutdown:hover, .appmenu-sidebar .appmenu-system-button-shutdown:hover { background-color: #d61f2d; }

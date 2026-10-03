@@ -1,5 +1,5 @@
 /* Safeer Cinnamon - cinnamon: Mintove sivine in modra v paleti Safeer.
-   SAMODEJNO: tools/tema_cinnamon_prebarvaj.py iz Mint-Y-Dark-Blue (mint-themes 2.1.8, 2.2.3, 2.3.2, 2.3.8, 2.4.2); 247 pravil.
+   SAMODEJNO: tools/tema_cinnamon_prebarvaj.py iz Mint-Y-Dark-Blue (mint-themes 2.1.8, 2.2.3, 2.3.2, 2.3.8, 2.4.2); 255 pravil.
    Ne urejaj rocno - rocna pravila so v cinnamon.css. Selektorji: Mint-Y (Linux Mint, GPL-3.0). */
 stage {
   color: #eef4ff;
@@ -87,6 +87,9 @@ StScrollBar StBin#trough {
 }
 StScrollBar StButton#vhandle, StScrollBar StButton#hhandle {
   background-color: #0d1626;
+}
+StScrollBar StButton#vhandle:hover, StScrollBar StButton#hhandle:hover {
+  background-color: #17253d;
 }
 StScrollBar StButton#vhandle:active, StScrollBar StButton#hhandle:active {
   background-color: #8ac7ff;
@@ -323,6 +326,9 @@ StScrollBar StButton#vhandle:active, StScrollBar StButton#hhandle:active {
   background-color: #0d1626;
   border: 1px solid #22344f;
 }
+.menu-favorites-button:hover {
+  background-color: #17253d;
+}
 .menu-application-button-selected {
   background-color: #0d1626;
   border: 1px solid #22344f;
@@ -348,17 +354,37 @@ StScrollBar StButton#vhandle:active, StScrollBar StButton#hhandle:active {
   background-color: #0d1626;
   border-color: #22344f;
 }
+.appmenu-sidebar .appmenu-system-button {
+  background-color: #1a2a45;
+}
+.appmenu-sidebar .appmenu-system-button-lock:hover {
+  background-color: #23375a;
+}
+.appmenu-sidebar .appmenu-system-button-logout:hover {
+  background-color: #23375a;
+}
 .appmenu-sidebar-button:hover {
+  background-color: #17253d;
   border-color: #22344f;
 }
 .appmenu-system-button {
   border: 1px solid #22344f;
+  background-color: #0f1929;
+}
+.appmenu-system-button-lock:hover {
+  background-color: #1a2a45;
+}
+.appmenu-system-button-logout:hover {
+  background-color: #1a2a45;
 }
 .appmenu-application-button-description {
   color: #8ea3c2;
 }
 .appmenu-application-button-selected {
   background-color: #0d1626;
+}
+.appmenu-category-button:hover {
+  background-color: #17253d;
 }
 .appmenu-category-button-selected {
   background-color: #0d1626;
@@ -421,6 +447,7 @@ StScrollBar StButton#vhandle:active, StScrollBar StButton#hhandle:active {
   color: #eef4ff;
 }
 .grouped-window-list-scrollbox-button:active {
+  background-color: #17253d;
   color: #eef4ff;
 }
 .sound-player > StBoxLayout:first-child StButton:small:hover {
@@ -468,6 +495,10 @@ StScrollBar StButton#vhandle:active, StScrollBar StButton#hhandle:active {
   background-color: #0d1626;
   color: #eef4ff;
 }
+.workspace-button:outlined:hover {
+  background-color: #17253d;
+  color: #0b1424;
+}
 .workspace-button:hover {
   background-color: #0d1626;
 }
@@ -510,6 +541,9 @@ StScrollBar StButton#vhandle:active, StScrollBar StButton#hhandle:active {
 .applet-cornerbar {
   background-color: #0d1626;
   border: 1px solid #22344f;
+}
+.applet-cornerbar-box:hover > .applet-cornerbar {
+  background-color: #1a2a45;
 }
 .desklet {
   color: #eef4ff;
@@ -565,6 +599,7 @@ StScrollBar StButton#vhandle:active, StScrollBar StButton#hhandle:active {
 .polkit-dialog-user-combo:hover {
   border: 1px solid #22344f;
   color: #eef4ff;
+  background-color: #0e1828;
 }
 .polkit-dialog-user-combo:insensitive {
   color: rgba(238, 244, 255, 0.5);
@@ -594,7 +629,7 @@ StScrollBar StButton#vhandle:active, StScrollBar StButton#hhandle:active {
 .dialog .dialog-button:hover {
   border: 1px solid #22344f;
   color: #eef4ff;
-  background-color: #192943;
+  background-color: #1a2a45;
 }
 .dialog .dialog-button:active {
   border: 1px solid #22344f;
@@ -715,13 +750,18 @@ StScrollBar StButton#vhandle:active, StScrollBar StButton#hhandle:active {
 }
 .vkeyboard-key:hover, .vkeyboard-key:checked {
   color: #eef4ff;
+  background-color: #0f1929;
   border: 1px solid #22344f;
+  box-shadow: inset 0 2px 4px rgba(15, 25, 41, 0.05);
 }
 .vkeyboard-key:active {
   background-color: #8ac7ff;
   border: 1px solid #8ac7ff;
   box-shadow: inset 0 2px 4px #8ac7ff;
   color: #0b1424;
+}
+.vkeyboard-key.shift-key-uppercase {
+  background-color: #2b4169;
 }
 .vkeyboard-key.enter-key {
   background-color: #8ac7ff;
@@ -737,7 +777,9 @@ StScrollBar StButton#vhandle:active, StScrollBar StButton#hhandle:active {
 }
 .vkeyboard-key.shift-key-lowercase:hover, .vkeyboard-key.shift-key-lowercase:checked, .vkeyboard-key.escape-key:hover, .vkeyboard-key.escape-key:checked, .vkeyboard-key.hide-key:hover, .vkeyboard-key.hide-key:checked, .vkeyboard-key.non-alpha-key:hover, .vkeyboard-key.non-alpha-key:checked {
   color: #eef4ff;
+  background-color: #0f1929;
   border: 1px solid #22344f;
+  box-shadow: inset 0 2px 4px rgba(15, 25, 41, 0.05);
 }
 .vkeyboard-key.shift-key-lowercase:active, .vkeyboard-key.escape-key:active, .vkeyboard-key.hide-key:active, .vkeyboard-key.non-alpha-key:active {
   background-color: #8ac7ff;
@@ -750,7 +792,12 @@ StScrollBar StButton#vhandle:active, StScrollBar StButton#hhandle:active {
 }
 .vkeyboard-key.modifier-key:hover, .vkeyboard-key.modifier-key:checked {
   color: #eef4ff;
+  background-color: #0f1929;
   border: 1px solid #22344f;
+  box-shadow: inset 0 2px 4px rgba(15, 25, 41, 0.05);
+}
+.vkeyboard-key.modifier-key:latched {
+  background-color: #2b4169;
 }
 .vkeyboard-subkeys {
   color: #eef4ff;
@@ -870,19 +917,6 @@ StScrollBar StButton#vhandle:active, StScrollBar StButton#hhandle:active {
 }
 .prompt-dialog-password-entry StIcon.peek-password, .run-dialog-entry StIcon.peek-password, #menu-search-entry StIcon.peek-password, .popup-menu #notification StEntry StIcon.peek-password {
   color: #eef4ff;
-}
-StScrollBar StButton#vhandle:hover, StScrollBar StButton#hhandle:hover {
-  background-color: #16243b;
-}
-.menu-favorites-button:hover {
-  background-color: #16243b;
-}
-.workspace-button:outlined:hover {
-  background-color: #16243b;
-  color: #0b1424;
-}
-.applet-cornerbar-box:hover > .applet-cornerbar {
-  background-color: #192943;
 }
 .sound-button, .modal-dialog-button-box .modal-dialog-button, .notification-button, .notification-icon-button, .popup-menu #notification .notification-button, .popup-menu #notification .notification-icon-button {
   background-color: #16243b;
