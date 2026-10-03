@@ -622,6 +622,41 @@ def od_vklopa(vklop: bool) -> dict:
     return dict(od_vklopa_stanje(), ok=ok)
 
 
+def videz_cinnamon() -> dict:
+    """Videz Safeer Cinnamon za delovno povrsino: ali je vklopljen ter ali veljata kontrast (brez prosojnosti) in
+    vecje besedilo. Stikali delovne povrsine upravljata ISTO nastavitev kot ukaz safeer-cinnamon (tema lupine in
+    programov, velikost besedila sistema) - prej je imela delovna povrsina svoji, ki se s sistemom nista ujemali."""
+    from shutil import which
+    mapa = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "safeer-cinnamon")
+    stanje = {"naVoljo": bool(which("safeer-cinnamon")) and os.path.exists(os.path.join(mapa, "vklopljeno")),
+              "kontrast": False, "vecjiTekst": False}
+    if not stanje["naVoljo"]:
+        return stanje
+    try:
+        vir = Gio.SettingsSchemaSource.get_default()
+        if vir is not None and vir.lookup("org.cinnamon.theme", True) is not None:
+            stanje["kontrast"] = "Kontrast" in Gio.Settings.new("org.cinnamon.theme").get_string("name")
+        if vir is not None and vir.lookup("org.cinnamon.desktop.interface", True) is not None:
+            povecava = Gio.Settings.new("org.cinnamon.desktop.interface").get_double("text-scaling-factor")
+            stanje["vecjiTekst"] = povecava >= 1.15
+    except Exception as e:  # noqa: BLE001
+        print("[SafeerOS] videz:", e)
+    return stanje
+
+
+def videz_cinnamon_nastavi(kaj: str, vklop: bool) -> dict:
+    """Stikalo delovne povrsine: kaj = "kontrast" | "tekst". Vrne stanje, kakrsno je po tem res."""
+    ukaz = {("kontrast", True): "--kontrast", ("kontrast", False): "--prosojno",
+            ("tekst", True): "--vecji-tekst", ("tekst", False): "--obicajen-tekst"}.get((kaj, bool(vklop)))
+    if ukaz and videz_cinnamon()["naVoljo"]:
+        try:
+            subprocess.run(["safeer-cinnamon", ukaz], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=30)
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] videz:", e)
+    return videz_cinnamon()
+
+
 SAMOZAGON = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
                          "autostart", "safeer-os.desktop")
 
@@ -1033,6 +1068,14 @@ class SafeerOS(Gtk.Application):
             if vir is not None and vir.lookup("org.cinnamon.desktop.background", True) is not None:
                 self._nastavitve_ozadja = Gio.Settings.new("org.cinnamon.desktop.background")
                 self._nastavitve_ozadja.connect("changed::picture-uri", self._ozadje_spremenjeno)
+            # Kontrast in velikost besedila se lahko spremenita tudi drugje (ukaz, nastavitve Cinnamona): stikali sledita.
+            if vir is not None and vir.lookup("org.cinnamon.theme", True) is not None:
+                self._nastavitve_teme = Gio.Settings.new("org.cinnamon.theme")
+                self._nastavitve_teme.connect("changed::name", lambda *_a: self._dogodek("videz", videz_cinnamon()))
+            if vir is not None and vir.lookup("org.cinnamon.desktop.interface", True) is not None:
+                self._nastavitve_vmesnika = Gio.Settings.new("org.cinnamon.desktop.interface")
+                self._nastavitve_vmesnika.connect("changed::text-scaling-factor",
+                                                  lambda *_a: self._dogodek("videz", videz_cinnamon()))
         except Exception as e:  # noqa: BLE001
             print("[SafeerOS] ozadje:", e)
         # Pult/dock se lahko pojavita sele po prijavi (Plank): robove preverimo se nekajkrat.
@@ -1737,6 +1780,8 @@ class SafeerOS(Gtk.Application):
             "odpriTukaj": lambda: odpri_tukaj(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "zvokUstavi": zvok_ustavi,
             "odVklopa": lambda: od_vklopa(bool(a[0])) if a else od_vklopa_stanje(),
+            "videzCinnamon": videz_cinnamon,
+            "videzCinnamonNastavi": lambda: videz_cinnamon_nastavi(str(a[0]) if a else "", bool(a[1]) if len(a) > 1 else False),
             "jbl": lambda: os_jbl.stanje(True) if os_jbl else {"na_voljo": False},
             "jblVklop": lambda: os_jbl.vklopi(bool(a[0]) if a else False) if os_jbl else {"na_voljo": False},
             "scit": self.scit.stanje,
@@ -1835,6 +1880,7 @@ class SafeerOS(Gtk.Application):
             "ime": GLib.get_real_name() if GLib.get_real_name() not in ("", "Unknown") else GLib.get_user_name(),
             "racunalnik": socket.gethostname(),
             "odVklopa": od_vklopa_stanje(),
+            "videz": videz_cinnamon(),
             "ozadje": ("file://" + GLib.uri_escape_string(ozadje, "/", False)) if ozadje else "",
             "razpolozljivo": os_sistem.razpolozljivo(),
             "mape": os_datoteke.uporabniske_mape(),
