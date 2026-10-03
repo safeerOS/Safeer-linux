@@ -102,7 +102,7 @@ DEJANJA_ZASLON = ["screen.start", "screen.stop", "screen.status"]
 #: Magnet povezava z druge naprave v krogu: odpre jo Safeer OS (Medijski center), ce je namescen.
 DEJANJA_MAGNET = ["magnet.open"]
 #: Torrent prenasa in pretaka ta racunalnik, naprava (televizor) samo predvaja tok - nic ne shranjuje.
-DEJANJA_TOK_TORRENTA = ["magnet.stream", "magnet.list", "magnet.remove"]
+DEJANJA_TOK_TORRENTA = ["magnet.stream", "magnet.list", "magnet.remove", "magnet.keep"]
 #: Sprotno pretvarjanje za napravo, ki videa ne zna predvajati (core/link_sprotno.py, isto kot Pretok.kt na Androidu).
 DEJANJA_PRETOK = ["video.stream", "video.stream_stop", "video.stream_status"]
 #: »Nadaljuj z druge naprave«: racunalnik pove, kaj predvaja (core/link_predvajanje.py, isto kot Predaja.kt na Androidu).
@@ -198,6 +198,22 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
                     koncaj(izid(True, "Odstranjeno z računalnika") if ok
                            else izid(False, "Tega prenosa ni mogoče odstraniti", koda="ni_prenosa"))
                 threading.Thread(target=odstrani, name="safeer-magnet-odstrani", daemon=True).start()
+                return
+            if d == "magnet.keep":
+                # »Obdrži«: prenos ne potece po 48 urah (odstrani ga samo uporabnik).
+                tid, drzi = parametri.get("id"), parametri.get("keep")
+                if not isinstance(tid, int) or isinstance(tid, bool) or not isinstance(drzi, bool):
+                    koncaj(izid(False, "Manjka prenos", koda="ni_prenosa"))
+                    return
+
+                def obdrzi() -> None:
+                    try:
+                        ok = datoteke.obdrzi_prenos(tid, drzi, id_naprave=posiljatelj)
+                    except Exception:  # noqa: BLE001
+                        ok = False
+                    koncaj(izid(True, "Prenos ostane na računalniku" if drzi else "Prenos ni več obdržan", {"keep": drzi}) if ok
+                           else izid(False, "Tega prenosa ni mogoče obdržati", koda="ni_prenosa"))
+                threading.Thread(target=obdrzi, name="safeer-magnet-obdrzi", daemon=True).start()
                 return
             uri = str(parametri.get("uri", "") or "")
             f = parametri.get("file")

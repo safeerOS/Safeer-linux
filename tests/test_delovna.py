@@ -54,6 +54,26 @@ class TestDelovnaStran(unittest.TestCase):
             koda = re.sub(r'"(?:\\.|[^"\\])*"', '""', vrstica.split("//")[0])
             self.assertIsNone(re.search(r"[^\x00-\x7f]", koda), vrstica.strip()[:80])
 
+    def test_programi_tega_racunalnika_in_priljubljeni(self):
+        # Lastnik, 3. 10. 2026: v Programih ni bilo tega racunalnika, zavihek Priljubljeni pa je bil skrit, dokler je
+        # bil prazen (zato ga uporabnik ni nasel), in »V brskalniku« je bil nastet med napravami.
+        js = self.js
+        self.assertIn('klic("programi")', js)
+        self.assertIn('naprava: "ta", imeNaprave: t("taRacunalnik")', js)
+        self.assertIn('ta.value = "ta"', js, "Ta racunalnik mora biti v izbiri naprav")
+        self.assertNotIn('w.value = "splet"', js, "spletne bliznjice niso naprava")
+        self.assertNotIn('k === "priljubljeni" && !N.priljubljeniPrg.length) return;', js,
+                         "zavihek Priljubljeni mora biti viden tudi prazen")
+        self.assertLess(js.index('"priljubljeni", "vse"'), js.index('"pisarna", "ustvarjanje"'))
+        self.assertIn("niPriljubljenihPrg", js)
+        self.assertEqual(js.count("niPriljubljenihPrg:"), 2, "navodilo mora biti v obeh jezikih")
+        # Zvezdica na ploscici doda program z enim klikom in ne sprozi zagona.
+        self.assertIn("e.stopPropagation(); preklopiPriljubljen(p);", js)
+        # Program tega racunalnika se zazene takoj (brez menija) in v iskanju ni podvojen.
+        self.assertIn("if (p.lokalni) { zazeniLokalni(p); return; }", js)
+        self.assertIn("return !p.lokalni && (p.ime", js)
+        self.assertIn(".program .zvezda.je", beri("assets", "os", "delovna.css"))
+
     def test_stran_je_v_paketu(self):
         self.assertIn('cp -a "$ROOT/assets/os"', beri("packaging", "install_os_payload.sh"))
 

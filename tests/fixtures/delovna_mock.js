@@ -27,7 +27,10 @@
     napraveSProgrami: [{ id: "tel", ime: "Telefon (demo)", platforma: "android" }, { id: "pc", ime: "Prenosnik (demo)", platforma: "windows" }, { id: "tv", ime: "TV (demo)", platforma: "android" }],
     programiNaprave: null,
     predvajalnikStanje: { stanje: "predvaja", naslov: "Pesem (demo)", izvor: "Ta računalnik", pozicija: 42, trajanje: 180 },
-    programi: [], isciDatoteke: [], knjiznicaMedijev: []
+    // Programi tega racunalnika (most "programi"): v Programih so pod »Ta računalnik«.
+    programi: ["Brskalnik|splet|#26789a", "Datoteke|orodja|#4a5a70", "Terminal|sistem|#39424f", "Predvajalnik|predstavnost|#674da7", "Pisarna|pisarna|#2558ad"]
+      .map(function (s, i) { var p = s.split("|"); return { id: "demo" + i + ".desktop", ime: p[0], opis: "", splosno: "", skupina: p[1], ikona: ikona(p[2]), skrit: false }; }),
+    zazeni: true, isciDatoteke: [], knjiznicaMedijev: []
   };
   window.SafeerOS = { klic: function (m, a) {
     if (m === "programiNaprave") {

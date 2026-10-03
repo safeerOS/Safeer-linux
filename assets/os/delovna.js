@@ -26,7 +26,7 @@
   var BESEDILA = {
     sl: {
       iskanjePh: "Išči po spletu, programih, datotekah in medijih …", iskanjeNamig: "Enter = splet",
-      plosceNaslov: "Plošče", medijiNaslov: "Medijski center", datotekeNaslov: "Datoteke", programiNaslov: "Programi naprav",
+      plosceNaslov: "Plošče", medijiNaslov: "Medijski center", datotekeNaslov: "Datoteke", programiNaslov: "Programi",
       zamenjajStrani: "Zamenjaj levo in desno", ponastavi: "Privzeta postavitev", vecjiTekst: "Večje besedilo",
       manjProsojnosti: "Manj prosojnosti", skrijPlosco: "Skrij ploščo", spremeniVelikost: "Povleci za spremembo velikosti (puščice s tipkovnico)",
       odpriMedijskiCenter: "Odpri Medijski center", niPredvajanja: "Ni predvajanja",
@@ -53,11 +53,12 @@
       niUspelo: "Ni uspelo.", strani: "{a}–{b} od {n}", nazaj: "‹", naprej: "›",
       kVse: "Vse", kPisarna: "Pisarna", kUstvarjanje: "Ustvarjanje", kMediji: "Mediji", kSplet: "Splet", kIgre: "Igre",
       kDrugo: "Drugo", kPriljubljeni: "★ Priljubljeni",
+      niPriljubljenihPrg: "Še nimaš priljubljenih programov. Klikni ☆ na programu in tukaj ga boš vedno hitro našel.",
       vseNaprave: "Vse naprave", razvrstiIme: "Po imenu", razvrstiNaprava: "Po napravi",
       pogledSeznam: "Seznam / mreža", spletnaAplikacija: "V brskalniku",
       odpriTukaj: "Odpri tukaj (zaslon naprave na tem računalniku)", zazeniNaNapravi: "Zaženi na napravi",
       kategorija: "Kategorija: {k}", popraviKategorijo: "Premakni v kategorijo",
-      niNaprav: "Ni povezanih naprav s programi. Napravo dodaš v Safeer Linku (Safeer Control).",
+      niNaprav: "Programi drugih naprav se pokažejo, ko napravo dodaš v Safeer Linku (Safeer Control).",
       niProgramov: "V tej kategoriji ni programov.", napravaNedosegljiva: "{naprava}: ni dosegljiva",
       brezControla: "Safeer Link (Safeer Control) ne teče, zato programi naprav niso na voljo.",
       zagonPoslan: "Ukaz poslan napravi {naprava}.",
@@ -114,7 +115,7 @@
     },
     en: {
       iskanjePh: "Search the web, apps, files and media …", iskanjeNamig: "Enter = web",
-      plosceNaslov: "Panels", medijiNaslov: "Media center", datotekeNaslov: "Files", programiNaslov: "Apps on your devices",
+      plosceNaslov: "Panels", medijiNaslov: "Media center", datotekeNaslov: "Files", programiNaslov: "Apps",
       zamenjajStrani: "Swap left and right", ponastavi: "Default layout", vecjiTekst: "Larger text",
       manjProsojnosti: "Less transparency", skrijPlosco: "Hide panel", spremeniVelikost: "Drag to resize (arrow keys work too)",
       odpriMedijskiCenter: "Open Media center", niPredvajanja: "Nothing playing",
@@ -141,11 +142,12 @@
       niUspelo: "That didn't work.", strani: "{a}–{b} of {n}", nazaj: "‹", naprej: "›",
       kVse: "All", kPisarna: "Office", kUstvarjanje: "Creative", kMediji: "Media", kSplet: "Web", kIgre: "Games",
       kDrugo: "Other", kPriljubljeni: "★ Favourites",
+      niPriljubljenihPrg: "No favourite apps yet. Click ☆ on an app and you will always find it here quickly.",
       vseNaprave: "All devices", razvrstiIme: "By name", razvrstiNaprava: "By device",
       pogledSeznam: "List / grid", spletnaAplikacija: "In the browser",
       odpriTukaj: "Open here (device screen on this computer)", zazeniNaNapravi: "Start on the device",
       kategorija: "Category: {k}", popraviKategorijo: "Move to category",
-      niNaprav: "No connected devices with apps. Add a device in Safeer Link (Safeer Control).",
+      niNaprav: "Apps from your other devices appear once you add a device in Safeer Link (Safeer Control).",
       niProgramov: "No apps in this category.", napravaNedosegljiva: "{naprava}: not reachable",
       brezControla: "Safeer Link (Safeer Control) isn't running, so apps on your devices aren't available.",
       zagonPoslan: "Sent to {naprava}.",
@@ -1045,8 +1047,11 @@
   }
 
   // ------------------------------------------------------------------ PROGRAMI NAPRAV
-  var P = { naprave: [], programi: [], nedosegljive: [], kategorija: "vse", stran: 0, brezControla: false, nalozeno: false };
-  var KATEGORIJE = ["vse", "priljubljeni", "pisarna", "ustvarjanje", "mediji", "splet", "igre", "drugo"];
+  // lokalni: programi tega racunalnika (most "programi"); oddaljeni: programi naprav v Linku. rocno: uporabnik je
+  // zavihek izbral sam, zato ga ne preklapljamo vec na Priljubljene.
+  var P = { naprave: [], programi: [], lokalni: [], oddaljeni: [], nedosegljive: [], kategorija: "vse", stran: 0,
+            brezControla: false, nalozeno: false, rocno: false };
+  var KATEGORIJE = ["priljubljeni", "vse", "pisarna", "ustvarjanje", "mediji", "splet", "igre", "drugo"];
   var IMENA_KATEGORIJ = { vse: "kVse", priljubljeni: "kPriljubljeni", pisarna: "kPisarna", ustvarjanje: "kUstvarjanje",
                           mediji: "kMediji", splet: "kSplet", igre: "kIgre", drugo: "kDrugo" };
   // Skupine iz metapodatkov (core/os_programi, Android paketi) -> kategorije kataloga; uporabnik lahko popravi.
@@ -1055,7 +1060,32 @@
   function kljucPrograma(p) { return p.naprava + ":" + p.id; }
   function kategorijaPrograma(p) { return N.kategorije[kljucPrograma(p)] || IZ_SKUPINE[p.skupina] || "drugo"; }
 
+  function jePriljubljen(p) { return N.priljubljeniPrg.indexOf(kljucPrograma(p)) >= 0; }
+  // Programi tega racunalnika so v istem seznamu kot programi naprav: uporabnik isce na enem mestu in si
+  // priljubljene izbere ne glede na to, kje program tece.
+  function sestaviPrograme() {
+    var vsi = P.lokalni.concat(P.oddaljeni);
+    // Spletne aplikacije, ki jih je uporabnik sam shranil v Safeer OS (potrjene bliznjice).
+    Z.spletne.forEach(function (s, i) {
+      if (!s || !s.url) return;
+      vsi.push({ id: "splet:" + i, ime: s.ime || s.url, naprava: "splet", imeNaprave: t("spletnaAplikacija"), skupina: "splet",
+                 ikona: s.ikona && /^(data:image\/|https:)/.test(s.ikona) ? s.ikona : "", url: s.url });
+    });
+    P.programi = vsi;
+    // Kdor ima priljubljene, jih vidi najprej (dokler zavihka ne izbere sam).
+    if (!P.rocno && P.kategorija === "vse" && vsi.some(jePriljubljen)) P.kategorija = "priljubljeni";
+    zgradiIzbiroNaprav();
+    izrisiPrograme();
+  }
   function naloziProgrameNaprav() {
+    // Ta racunalnik ne caka na naprave: njegovi programi so na voljo takoj, tudi ce Safeer Link ne tece.
+    klic("programi").then(function (s) {
+      P.lokalni = (Array.isArray(s) ? s : []).filter(function (p) { return p && p.id; }).map(function (p) {
+        return { id: String(p.id), ime: String(p.ime || p.id), opis: String(p.opis || p.splosno || ""), skupina: p.skupina || "drugo",
+                 ikona: p.ikona || "", naprava: "ta", imeNaprave: t("taRacunalnik"), platforma: "linux", lokalni: true };
+      });
+      sestaviPrograme();
+    }).catch(function () { /* brez seznama: ostanejo programi naprav */ });
     klic("napraveSProgrami").then(function (naprave) {
       P.naprave = Array.isArray(naprave) ? naprave.filter(function (n) { return n && n.id; }) : [];
       P.brezControla = false;
@@ -1071,18 +1101,12 @@
         if (x.r && x.r.ok) x.r.programi.forEach(function (p) { p.imeNaprave = x.n.ime; p.platforma = x.n.platforma; vsi.push(p); });
         else { ned.push(x.n.ime); if (x.r && x.r.koda === "ni_controla") P.brezControla = true; }
       });
-      // Spletne aplikacije, ki jih je uporabnik sam shranil v Safeer OS (potrjene bliznjice).
-      Z.spletne.forEach(function (s, i) {
-        if (!s || !s.url) return;
-        vsi.push({ id: "splet:" + i, ime: s.ime || s.url, naprava: "splet", imeNaprave: t("spletnaAplikacija"), skupina: "splet",
-                   ikona: s.ikona && /^(data:image\/|https:)/.test(s.ikona) ? s.ikona : "", url: s.url });
-      });
-      P.programi = vsi; P.nedosegljive = ned; P.nalozeno = true;
-      izrisiPrograme();
+      P.oddaljeni = vsi; P.nedosegljive = ned; P.nalozeno = true;
+      sestaviPrograme();
       izrisiLink();
       ponoviCeTreba();
     }).catch(function () {
-      P.brezControla = true; P.nalozeno = true; P.programi = []; izrisiPrograme();
+      P.brezControla = true; P.nalozeno = true; P.oddaljeni = []; sestaviPrograme();
       ponoviCeTreba();
     });
   }
@@ -1098,17 +1122,18 @@
   function zgradiIzbiroNaprav() {
     var s = $("prgNaprava"), prej = s.value; s.innerHTML = "";
     var o = el("option", "", t("vseNaprave")); o.value = ""; s.appendChild(o);
+    if (P.lokalni.length) { var ta = el("option", "", t("taRacunalnik")); ta.value = "ta"; s.appendChild(ta); }
     P.naprave.forEach(function (n) { var x = el("option", "", n.ime); x.value = n.id; s.appendChild(x); });
-    if (Z.spletne.length) { var w = el("option", "", t("spletnaAplikacija")); w.value = "splet"; s.appendChild(w); }
+    // Spletne bliznjice niso naprava: najdes jih pod Vse naprave in v kategoriji Splet.
     s.value = prej;
+    if (s.value !== prej) s.value = "";
   }
   function zgradiKategorije() {
     var z = $("prgKategorije"); z.innerHTML = "";
     KATEGORIJE.forEach(function (k) {
-      if (k === "priljubljeni" && !N.priljubljeniPrg.length) return;
       var b = el("button", "", t(IMENA_KATEGORIJ[k])); b.type = "button"; b.setAttribute("role", "tab");
       b.setAttribute("aria-selected", P.kategorija === k ? "true" : "false");
-      b.addEventListener("click", function () { P.kategorija = k; P.stran = 0; izrisiPrograme(); });
+      b.addEventListener("click", function () { P.kategorija = k; P.rocno = true; P.stran = 0; izrisiPrograme(); });
       z.appendChild(b);
     });
   }
@@ -1116,14 +1141,14 @@
     var q = ($("prgFilter").value || "").trim().toLowerCase(), nap = $("prgNaprava").value, k = P.kategorija;
     var r = P.programi.filter(function (p) {
       if (nap && p.naprava !== nap) return false;
-      if (k === "priljubljeni" && N.priljubljeniPrg.indexOf(kljucPrograma(p)) < 0) return false;
+      if (k === "priljubljeni" && !jePriljubljen(p)) return false;
       if (k !== "vse" && k !== "priljubljeni" && kategorijaPrograma(p) !== k) return false;
       if (q && (p.ime + " " + (p.opis || "")).toLowerCase().indexOf(q) < 0) return false;
       return true;
     });
     var po = $("prgRazvrsti").value;
     r.sort(function (a, b) {
-      var fa = N.priljubljeniPrg.indexOf(kljucPrograma(a)) >= 0, fb = N.priljubljeniPrg.indexOf(kljucPrograma(b)) >= 0;
+      var fa = jePriljubljen(a), fb = jePriljubljen(b);
       if (fa !== fb) return fa ? -1 : 1;
       if (po === "naprava" && a.imeNaprave !== b.imeNaprave) return a.imeNaprave.localeCompare(b.imeNaprave, jezik);
       return a.ime.localeCompare(b.ime, jezik, { sensitivity: "base" });
@@ -1141,7 +1166,7 @@
     var sporocila = [];
     if (!P.nalozeno) sporocila.push(t("nalagam"));
     else if (P.brezControla) sporocila.push(t("brezControla"));
-    else if (!P.naprave.length) sporocila.push(t("niNaprav"));
+    else if (!P.naprave.length && $("prgNaprava").value !== "ta") sporocila.push(t("niNaprav"));
     P.nedosegljive.forEach(function (n) { sporocila.push(t("napravaNedosegljiva", { naprava: n })); });
     // Zmogljivost mreze brez pomikanja
     var r = mreza.getBoundingClientRect(), fs = parseFloat(getComputedStyle(mreza).fontSize) || 14;
@@ -1157,7 +1182,10 @@
     var od = P.stran * naStran, do_ = Math.min(seznam.length, od + naStran);
     mreza.innerHTML = "";
     seznam.slice(od, do_).forEach(function (p) { mreza.appendChild(ploscicaPrograma(p)); });
-    if (P.nalozeno && P.programi.length && !seznam.length) sporocila.push(t("niProgramov"));
+    if (P.programi.length && !seznam.length) {
+      var brezPriljubljenih = P.kategorija === "priljubljeni" && !P.programi.some(jePriljubljen);
+      mreza.appendChild(el("p", "prazno", t(brezPriljubljenih ? "niPriljubljenihPrg" : "niProgramov")));
+    }
     sp.textContent = sporocila.join(" · "); sp.hidden = !sporocila.length;
     sp.classList.toggle("napaka", P.nedosegljive.length > 0 || P.brezControla);
     ostraniStrani($("prgStrani"), od, do_, seznam.length, strani, P.stran, function (s) { P.stran = s; izrisiPrograme(); });
@@ -1168,9 +1196,17 @@
     b.appendChild(slikaAliCrka(p.ikona, p.ime));
     b.appendChild(el("span", "ime", p.ime));
     b.appendChild(el("small", "", p.imeNaprave));
-    if (N.priljubljeniPrg.indexOf(kljucPrograma(p)) >= 0) b.appendChild(el("span", "zvezda", "★"));
+    var fav = jePriljubljen(p), z = el("span", "zvezda" + (fav ? " je" : ""), fav ? "★" : "☆");
+    z.setAttribute("role", "button"); z.title = t(fav ? "odstraniPriljubljeno" : "dodajPriljubljeno");
+    z.setAttribute("aria-label", z.title);
+    z.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); preklopiPriljubljen(p); });
+    b.appendChild(z);
     b.title = p.ime + " · " + p.imeNaprave + (p.opis ? "\n" + p.opis : "");
-    b.addEventListener("click", function (e) { var r = b.getBoundingClientRect(); meniPrograma(p, r.left + 12, r.bottom - 6, e); });
+    b.addEventListener("click", function (e) {
+      if (p.lokalni) { zazeniLokalni(p); return; }
+      if (p.naprava === "splet") { klic("splet", [p.url]); return; }
+      var r = b.getBoundingClientRect(); meniPrograma(p, r.left + 12, r.bottom - 6, e);
+    });
     b.addEventListener("contextmenu", function (e) { e.preventDefault(); meniPrograma(p, e.clientX, e.clientY, e); });
     return b;
   }
@@ -1178,16 +1214,13 @@
     var m = [];
     if (p.naprava === "splet") {
       m.push([t("odpri"), function () { klic("splet", [p.url]); }]);
+    } else if (p.lokalni) {
+      m.push([t("odpri"), function () { zazeniLokalni(p); }]);
     } else {
       m.push([t("odpriTukaj"), function () { zazeni("odpriTukaj", p); }]);
       m.push([t("zazeniNaNapravi"), function () { zazeni("zazeniNaNapravi", p); }]);
     }
-    var fav = N.priljubljeniPrg.indexOf(kljucPrograma(p)) >= 0;
-    m.push([fav ? t("odstraniPriljubljeno") : t("dodajPriljubljeno"), function () {
-      if (fav) N.priljubljeniPrg = N.priljubljeniPrg.filter(function (k) { return k !== kljucPrograma(p); });
-      else N.priljubljeniPrg.push(kljucPrograma(p));
-      shrani(); izrisiPrograme();
-    }]);
+    m.push([jePriljubljen(p) ? t("odstraniPriljubljeno") : t("dodajPriljubljeno"), function () { preklopiPriljubljen(p); }]);
     m.push(["—"]);
     m.push([t("kategorija", { k: t(IMENA_KATEGORIJ[kategorijaPrograma(p)]) }), null, true]);
     ["pisarna", "ustvarjanje", "mediji", "splet", "igre", "drugo"].forEach(function (k) {
@@ -1195,6 +1228,15 @@
       m.push(["  → " + t(IMENA_KATEGORIJ[k]), function () { N.kategorije[kljucPrograma(p)] = k; shrani(); izrisiPrograme(); }]);
     });
     pokaziMeni(m, x, y);
+  }
+  function preklopiPriljubljen(p) {
+    var k = kljucPrograma(p);
+    if (jePriljubljen(p)) N.priljubljeniPrg = N.priljubljeniPrg.filter(function (x) { return x !== k; });
+    else N.priljubljeniPrg.push(k);
+    shrani(); izrisiPrograme();
+  }
+  function zazeniLokalni(p) {
+    klic("zazeni", [p.id]).then(function (ok) { if (!ok) obvesti(t("niUspelo")); }).catch(function () { obvesti(t("niUspelo")); });
   }
   function zazeni(metoda, p) {
     klic(metoda, [p.naprava, p.id]).then(function (r) {
@@ -1255,7 +1297,7 @@
     var ql = q.toLowerCase();
     var skupine = [];
     // Programi naprav (ze nalozeni, potrjeni seznami)
-    var prg = P.programi.filter(function (p) { return (p.ime + " " + (p.opis || "")).toLowerCase().indexOf(ql) >= 0; }).slice(0, 6);
+    var prg = P.programi.filter(function (p) { return !p.lokalni && (p.ime + " " + (p.opis || "")).toLowerCase().indexOf(ql) >= 0; }).slice(0, 6);
     var cakaj = [
       klic("programi").then(function (s) {
         return (s || []).filter(function (p) { return !p.skrit && (p.ime + " " + (p.splosno || "") + " " + (p.kljucne || "")).toLowerCase().indexOf(ql) >= 0; }).slice(0, 5);

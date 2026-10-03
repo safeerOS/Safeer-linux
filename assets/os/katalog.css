@@ -166,3 +166,10 @@
 .kat-knjiznica-vrsta .kat-kartica .kat-meta span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kat-kartica .kat-odstrani.potrdi { width: auto; padding: 0 10px; border-radius: 13px; background: #b3261e; opacity: 1; font-size: 12px; font-weight: 700; }
 .kat-kartica.kat-caka { opacity: .55; pointer-events: none; }
+/* Izbris vira, ki je enak na vseh napravah v Linku: prvi klik vprasa. */
+.kat-vir .gumb-ikona.potrdi { width: auto; padding: 0 12px; border-radius: 12px; background: #b3261e; color: #fff; font-size: 12px; font-weight: 700; white-space: nowrap; }
+/* »Obdrži«: zaznamek v desnem zgornjem kotu plakata; pri obdrzanem prenosu je vedno viden. */
+.kat-kartica .kat-obdrzi { position: absolute; right: 9px; top: 9px; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; background: rgba(3,7,10,.86); color: #fff; opacity: 0; }
+.kat-kartica:hover .kat-obdrzi, .kat-kartica:focus-visible .kat-obdrzi, .kat-kartica .kat-obdrzi.je { opacity: 1; }
+.kat-kartica .kat-obdrzi.je, .kat-kartica .kat-obdrzi:hover { background: var(--zelena); color: #06110d; }
+.kat-knjiznica-vrsta .kat-kartica .kat-meta .kat-obdrzano { color: var(--zelena); }

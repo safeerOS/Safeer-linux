@@ -272,6 +272,8 @@ class Katalog:
                 # Film iz torrenta: branje torrenta traja - stran med tem pove, da ga pripravljamo.
                 self._mc.ob_pripravi_torrenta = lambda item: self.dogodek(
                     "mediaTorrent", {"naslov": str(item.get("naslov") or "")})
+                # Moji viri z drugih naprav v Linku (core/viri_sink.py): stran osvezi vire in katalog.
+                self._mc.ob_virih = lambda: self.dogodek("mediaViriUsklajeni", None)
             return self._mc
 
     def _drzava(self) -> str:
@@ -310,7 +312,7 @@ class Katalog:
         "mediaOdstraniSSeznama": "_odstrani_s_seznama", "mediaSeznamZamenjava": "_seznam_zamenjava",
         "mediaPredvajaj": "_predvajaj_vnos", "mediaYtUkaz": "_yt_ukaz", "mediaStanje": "_stanje",
         "mediaKnjiznica": "_knjiznica_seznam", "mediaKnjiznicaPredvajaj": "_knjiznica_predvajaj",
-        "mediaKnjiznicaOdstrani": "_knjiznica_odstrani",
+        "mediaKnjiznicaOdstrani": "_knjiznica_odstrani", "mediaKnjiznicaObdrzi": "_knjiznica_obdrzi",
     }
 
     @staticmethod
@@ -555,12 +557,15 @@ class Katalog:
         if vir is None:
             return {"napaka_koda": "napaka"}
         url = link_pretok.pretok().dodaj(vir)
+        # Podnapisi iz istega torrenta: naprava, ki film hrani, jih pretaka kot film (krog 85).
+        from . import knjiznica_kroga
+        podnapisi = tuple(knjiznica_kroga.podnapisi_toka(tok))
         ident = str(v.get("ref") or "") or "knjiznica:" + v["kljuc"]
         naslov = str(v.get("naslov") or "")
         self._yt = None
-        print("[SafeerMedia] pot=knjiznica vrsta=%s" % (v.get("vrsta") or ""), flush=True)
+        print("[SafeerMedia] pot=knjiznica vrsta=%s podnapisov=%d" % (v.get("vrsta") or "", len(podnapisi)), flush=True)
         zacetek = self.napredek_za(ident)
-        if not self._v_glavni_pocakaj(lambda: self._predvajaj(url, "video", naslov, zacetek, (), True)):
+        if not self._v_glavni_pocakaj(lambda: self._predvajaj(url, "video", naslov, zacetek, podnapisi, True)):
             return {"napaka_koda": "tok"}
         if len(self._predvajano) > 50:
             self._predvajano.clear()
@@ -569,6 +574,10 @@ class Katalog:
 
     def _knjiznica_odstrani(self, a: list) -> bool:
         return bool(self._knjiznica is not None and self._knjiznica.odstrani(self._niz(a, 0)))
+
+    def _knjiznica_obdrzi(self, a: list) -> bool:
+        """»Obdrži«: prenos ne potece po 48 urah (oznako hrani naprava, ki film hrani)."""
+        return bool(self._knjiznica is not None and self._knjiznica.obdrzi(self._niz(a, 0), bool(a[1]) if len(a) > 1 else True))
 
     def _v_glavni_pocakaj(self, delo: Callable[[], Any], cas: float = 12.0) -> Any:
         """Delo, ki potrebuje okno (Gtk), izvede v glavni niti in pocaka na izid."""
