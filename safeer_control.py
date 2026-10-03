@@ -45,7 +45,7 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 
-from core import link_datoteke, link_deljenje, link_hub, link_programi, link_sway, link_tls, link_zaslon, link_zvok  # noqa: E402
+from core import link_daljinec, link_datoteke, link_deljenje, link_hub, link_programi, link_sway, link_tls, link_zaslon, link_zvok  # noqa: E402
 from core import os_posodobitve, os_stabilnost  # noqa: E402
 from core.link_gledalec import (Gledalec, OKVIR_OBVESTILO, OKVIR_SLIKA,  # noqa: E402
                                 izberi_ponor, niz_cevovoda, preslikaj_tipko,
@@ -699,6 +699,11 @@ class SafeerControl(Gtk.Application):
         self.datoteke.ob_spremembi = lambda poti: self.nastavitve.set("deljene_mape", poti)
         # Kar racunalnik prenese za naprave (torrent prek magnet.stream) in tega 48 ur nihce ne predvaja, odstrani sam.
         link_datoteke.zazeni_ciscenje()
+        # Knjiznica kroga: film, ki ga je Safeer OS na tem racunalniku zaradi gledanja prenesel sam, vidijo in predvajajo
+        # tudi naprave (magnet.list); zasebnih naslovov med njimi ni.
+        from core import knjiznica_kroga
+        self.datoteke.gledanje = knjiznica_kroga.lokalni
+        self.datoteke.odstrani_gledanje = self._odstrani_gledanje
         # Programi racunalnika za televizor; privzeto izklopljeno ("programi_za_tv" v control.json).
         self.programi = link_programi.Programi(bool(self.nastavitve.get("programi_za_tv", False)))
         self.programi.ob_spremembi = lambda vklopljeno: self.nastavitve.set("programi_za_tv", bool(vklopljeno))
@@ -899,6 +904,8 @@ class SafeerControl(Gtk.Application):
                 return {"ok": False, "koda": "napacna_zahteva", "message": "Parametri niso JSON."}
             if not id_naprave or not dejanje or not isinstance(parametri, dict):
                 return {"ok": False, "koda": "napacna_zahteva", "message": "Manjka naprava ali dejanje."}
+            if id_naprave == link._id() and dejanje in link_daljinec.DEJANJA_TOK_TORRENTA:
+                return self._ukaz_tukaj(dejanje, parametri)
             return link.ukaz_pocakaj(id_naprave, dejanje, parametri, cas=20.0)
         if metoda == "Predaja":
             # "Nadaljuj z druge naprave" na tem racunalniku: vse naprave z daljincem vprasa hkrati (play.state, 3 s),
@@ -1003,6 +1010,39 @@ class SafeerControl(Gtk.Application):
                     "koda": str(r.get("koda") or r.get("code") or ""),
                     "message": str(r.get("message") or "")}
         return {"ok": False, "message": "neznana metoda"}
+
+    @staticmethod
+    def _odstrani_gledanje(hash_: str) -> bool:
+        """Naprava je s police odstranila film, ki ga je prenesel Safeer OS na tem racunalniku. Motor torrentov je
+        njegov: ce Safeer OS tece, film odstrani on (D-Bus); sicer ga odstranimo tukaj - motor zazenemo samo za to in
+        ga spet ustavimo."""
+        from core import knjiznica_kroga, link_predvajanje, os_torrent
+        if link_predvajanje.safeer_os_tece():
+            return link_predvajanje.odstrani_prenos_safeer_os(hash_)
+        motor = os_torrent.torrenti()
+        tekel = motor.tece()
+        try:
+            return knjiznica_kroga.odstrani_lokalnega(hash_, motor)
+        finally:
+            if not tekel and motor.tece():
+                motor.ustavi()
+
+    def _ukaz_tukaj(self, dejanje: str, parametri: dict) -> dict:
+        """Ukaz za prenose (magnet.list / magnet.stream / magnet.remove) temu racunalniku: polica »Na tvojih napravah« v
+        Safeer OS vprasa tudi Control na istem racunalniku. Izvedemo ga tukaj - sredisce bi ga zavrnilo (ista naprava)."""
+        konec, izid = threading.Event(), {}
+
+        def koncaj(r: dict) -> None:
+            izid.update(r if isinstance(r, dict) else {})
+            konec.set()
+        link = self.link
+        link_daljinec.izvedi_control(dejanje, parametri, lambda _naslov: None, koncaj, datoteke=self.datoteke,
+                                     posiljatelj=link._id(), hub_url=link._hub() or "")
+        # Klic D-Bus Safeer OS caka najvec minuto: tok, ki se pripravlja dlje, stran vprasa znova (koda "cas").
+        if not konec.wait(50.0 if dejanje == "magnet.stream" else 20.0):
+            return {"ok": False, "message": "Računalnik še pripravlja odgovor.", "koda": "cas", "data": {}}
+        return {"ok": bool(izid.get("ok")), "message": str(izid.get("message") or ""), "koda": str(izid.get("code") or ""),
+                "data": izid.get("data") if isinstance(izid.get("data"), dict) else {}}
 
     def _pripravi_link(self) -> None:
         nastavitve_linka = link_hub.Nastavitve(os.path.join(NASTAVITVE_MAPA, "link.json"))

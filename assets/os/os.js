@@ -2661,7 +2661,7 @@
               aktivni: null, zahteva: 0, timer: 0, kljuc: "", razvrsti: "", izklopljeni: {}, znaniViri: {},
               izklopljeniJeziki: {}, znaniJeziki: {}, seznami: [], seznam: null,
               vrsta: [], vrstaMesto: 0, vrstaZgodovina: [], izVrste: false,
-              igra: false, nalozen: false, zanri: null, zahtevaPredvajanja: 0 };
+              igra: false, nalozen: false, zanri: null, zahtevaPredvajanja: 0, knjiznica: [], zahtevaKnjiznice: 0 };
   // Kategorije Medijskega centra (zgoraj) -> vrsta v katalogu; slike so samo krajevne.
   var KAT_VRSTE = { vse: "vse", glasba: "glasba", video: "video", filmi: "film", serije: "serija", tv: "tv-v-zivo", radio: "radio", slike: "" };
   var KAT_FILMSKI_ZANRI = [["28", "katZanr_akcija"], ["878", "katZanr_scifi"], ["35", "katZanr_komedija"], ["27", "katZanr_grozljivka"],
@@ -2695,6 +2695,7 @@
     var izSeznama = !!kat.seznam;
     if (zanriEl) zanriEl.hidden = izSeznama || !skupinaZanrov(kat.filter);
     narisiSeznamePredvajanja();
+    narisiKnjiznico();
     // Odprt seznam predvajanja: mreža kaže njegove skladbe v vrstnem redu seznama (brez združevanja po izvajalcu).
     var list = izSeznama ? kat.seznam.vnosi.slice() : kat.katalog.slice();
     $("katPrazno").hidden = !!list.length || !kat.nalozen;
@@ -2780,6 +2781,81 @@
     if (izSeznama) { var str = $("mediaStranjevanje"); if (str) str.innerHTML = ""; } else narisiStranjevanje();
     // Dokler ima katalog vsebino, velika uvodna plošča ne odriva vsebine navzdol.
     $("r-media").classList.toggle("ima-katalog", list.length > 0);
+  }
+
+  // ---- polica »Na tvojih napravah«: kar je prenesla katera koli naprava v Safeer Linku (knjižnica kroga)
+  // Film predvaja naprava, ki ga hrani; zasebnih naslovov in prenosov brez naslova na polici ni (odloči jedro).
+  function knjiznicaVidna() {
+    return (kat.filter === "vse" || kat.filter === "video" || kat.filter === "film" || kat.filter === "serija") &&
+      !kat.query.trim() && !kat.seznam;
+  }
+  function naloziKnjiznico() {
+    if (!knjiznicaVidna()) { narisiKnjiznico(); return; }
+    var zahteva = ++kat.zahtevaKnjiznice;
+    klic("mediaKnjiznica").then(function (s) {
+      if (zahteva !== kat.zahtevaKnjiznice) return;
+      kat.knjiznica = s || []; narisiKnjiznico();
+    }, function () {});
+  }
+  function knjiznicaKje(x) { return x.naprava && x.naprava.tukaj ? t("knjiznicaTukaj") : ((x.naprava && x.naprava.ime) || ""); }
+  function narisiKnjiznico() {
+    var c = $("mediaKnjiznica"); if (!c) return; c.innerHTML = "";
+    var vnosi = knjiznicaVidna() ? (kat.knjiznica || []) : [];
+    c.hidden = !vnosi.length;
+    if (!vnosi.length) return;
+    c.appendChild(el("h3", "", ubezi(t("knjiznicaNaslov"))));
+    var vrsta = el("div", "kat-knjiznica-vrsta");
+    vnosi.forEach(function (x) {
+      var card = el("button", "kat-kartica"); card.type = "button";
+      var kje = knjiznicaKje(x);
+      card.setAttribute("aria-label", (x.naslov || "") + " — " + kje);
+      card.title = (x.naslov || "") + " · " + kje;
+      if (x.slika) {
+        var image = document.createElement("img"); image.alt = ""; image.loading = "lazy"; image.src = x.slika;
+        image.onerror = function () { image.replaceWith(el("span", "kat-brez-slike", svg("video"))); };
+        card.appendChild(image);
+      } else card.appendChild(el("span", "kat-brez-slike", svg("video")));
+      var data = el("span", "kat-podatki");
+      data.appendChild(el("b", "", ubezi(x.naslov || "")));
+      var meta = el("span", "kat-meta");
+      meta.appendChild(el("span", "", ubezi(kje)));
+      var stanje = x.koncano ? (x.velikost ? velikost(x.velikost) : "") : t("knjiznicaSePrenasa");
+      if (stanje) meta.appendChild(el("span", "", ubezi(stanje)));
+      data.appendChild(meta); card.appendChild(data);
+      // Odstranitev v dveh korakih (prvi klik vpraša), brez sistemskega okna – kot pri seznamih predvajanja.
+      var odstrani = el("span", "kat-odstrani", "✕"), potrjeno = false; odstrani.title = t("knjiznicaOdstrani");
+      odstrani.onclick = function (e) {
+        e.stopPropagation();
+        if (!potrjeno) { potrjeno = true; odstrani.classList.add("potrdi"); odstrani.textContent = t("knjiznicaOdstraniRes"); return; }
+        card.classList.add("kat-caka");
+        klic("mediaKnjiznicaOdstrani", [x.kljuc]).then(function (ok) {
+          if (!ok) { card.classList.remove("kat-caka"); obvesti(t("knjiznicaOdstraniNiUspelo")); return; }
+          kat.knjiznica = (kat.knjiznica || []).filter(function (y) { return y.kljuc !== x.kljuc; });
+          narisiKnjiznico(); obvesti(t("knjiznicaOdstranjeno"));
+        }, function () { card.classList.remove("kat-caka"); obvesti(t("knjiznicaOdstraniNiUspelo")); });
+      };
+      card.onmouseleave = function () { if (potrjeno) { potrjeno = false; odstrani.classList.remove("potrdi"); odstrani.textContent = "✕"; } };
+      card.appendChild(odstrani);
+      card.onclick = function () { predvajajIzKnjiznice(x); };
+      vrsta.appendChild(card);
+    });
+    c.appendChild(vrsta);
+  }
+  function predvajajIzKnjiznice(x) {
+    var zahteva = ++kat.zahtevaPredvajanja;
+    // Film, ki ni še v celoti na disku ali ga pretaka druga naprava, se ne začne v hipu: uporabnik vidi, da se pripravlja.
+    if (x.naprava && x.naprava.id !== "tukaj") obvesti(t("knjiznicaPripravljam", { ime: x.naslov || "", naprava: knjiznicaKje(x) }));
+    else if (!x.koncano) obvesti(t("mediaTorrentPripravljam", { ime: x.naslov || "" }));
+    klic("mediaKnjiznicaPredvajaj", [x.kljuc]).then(function (item) {
+      if (zahteva !== kat.zahtevaPredvajanja) return;
+      if (!item || item.napaka_koda || item.napaka) {
+        var koda = item && item.napaka_koda;
+        obvesti(t(koda === "ni_prostora" || koda === "malo_pomnilnika" ? "mediaNapaka_" + koda : "knjiznicaNiUspelo"));
+        if (koda === "ni_prenosa") naloziKnjiznico();       // prenosa ni več (odstranjen drugje): polica se osveži
+        return;
+      }
+      kat.vrsta = []; narisiVrsto();
+    }, function () { if (zahteva === kat.zahtevaPredvajanja) obvesti(t("knjiznicaNiUspelo")); });
   }
 
   // ---- seznami predvajanja
@@ -3149,6 +3225,7 @@
     $("katNaslov").textContent = kat.filter === "vse" ? t("katVseVsebine") : katOznaka(kat.filter);
     narisiZanre();
     naloziSeznamePredvajanja();
+    naloziKnjiznico();
     var zahteva = ++kat.zahteva;
     if (!kat.katalog.length) $("mediaPovzetek").textContent = t("katNalagam");
     klic("mediaKatalog", [kat.query, kat.filter, kat.genre, kat.page || 1, kat.razvrsti, Object.keys(kat.izklopljeni), false,
@@ -3420,6 +3497,8 @@
         }, function () {});
       }
     }
+    // Naprava v krogu je odstranila film, ki ga hrani ta računalnik: polica se osveži.
+    if (vrsta === "mediaKnjiznicaSpremenjena" && katVidno()) naloziKnjiznico();
     var zaAktivno = kat.aktivni && podatki && podatki.id === kat.aktivni.id;
     // Skladba je odigrana do konca (domači predvajalnik ali vgradni predvajalnik YouTuba): naslednja iz vrste.
     if (vrsta === "mediaKonec" && zaAktivno && !predvajajIzVrste(1)) skrijKatTrak();

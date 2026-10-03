@@ -46,7 +46,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 
 from core import (os_datoteke, os_katalog, os_knjiznica, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
                   os_media_besedila, os_mediji, os_posodobitve, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost,
-                  os_torrent, os_torrent_tok, os_zapiski, os_zvok)
+                  os_torrent, os_torrent_tok, os_zapiski, os_zvok, knjiznica_kroga)
 
 # Preklop vhoda zvocne vrstice JBL je samo interni poskus: uradni paket modula ne vsebuje
 # (packaging/install_os_payload.sh), zato ga uvozimo le, ce je prisoten (zagon iz repozitorija).
@@ -431,6 +431,22 @@ def _seznami_z_naprav(uskladi: Callable[[Callable[[dict], Optional[dict]]], bool
     return spremenjeno
 
 
+def _knjiznica() -> "knjiznica_kroga.Knjiznica":
+    """Polica »Na tvojih napravah« v Medijskem centru: naprave v Linku vprasa Safeer Control (Controla zaradi police
+    ne zaganjamo: ce ne tece, naprav v Linku ni - prenosi motorja Safeer OS na tem racunalniku so na polici vseeno)."""
+    def naprave() -> list:
+        try:
+            if not _control_na_vodilu(Gio.bus_get_sync(Gio.BusType.SESSION, None)):
+                return []
+        except Exception:  # noqa: BLE001
+            return []
+        return _control_naprave("Seznam").get("naprave") or []
+
+    def ukaz(id_naprave: str, dejanje: str, parametri: dict, _cas: float) -> dict:
+        return _control_naprave("Ukaz", id_naprave, dejanje, json.dumps(parametri or {}))
+    return knjiznica_kroga.Knjiznica(naprave, ukaz)
+
+
 def _control_naprave_koda(_metoda: str) -> str:
     """Control ni odgovoril s stanjem (ne tece ali stara razlicica brez klepeta)."""
     return "ni_controla"
@@ -809,6 +825,7 @@ class SafeerOS(Gtk.Application):
     <node><interface name="io.github.memelandfaner.SafeerOS.Predvajanje">
       <method name="Stanje"><arg type="s" name="json" direction="out"/></method>
       <method name="Premor"><arg type="s" name="json" direction="out"/></method>
+      <method name="OdstraniPrenos"><arg type="s" name="hash" direction="in"/><arg type="s" name="json" direction="out"/></method>
     </interface></node>"""
 
     def _izvozi_predvajanje(self) -> None:
@@ -825,6 +842,22 @@ class SafeerOS(Gtk.Application):
 
     def _klic_predvajanje(self, _vodilo, _posiljatelj, _pot, _vmesnik, metoda, _parametri, klic) -> None:
         # Tece na glavni niti (GStreamer je v tem procesu): klici so kratki, nic ne caka na omrezje.
+        if metoda == "OdstraniPrenos":
+            # Naprava v krogu je s police »Na tvojih napravah« odstranila film, ki ga hrani motor Safeer OS (Control
+            # zahtevo posreduje sem). Odstranitev govori z motorjem, zato v ozadju; odgovor, ko konca.
+            hash_ = str(_parametri.unpack()[0]) if _parametri is not None else ""
+
+            def odstrani() -> None:
+                try:
+                    ok = bool(knjiznica_kroga.odstrani_lokalnega(hash_))
+                except Exception as e:  # noqa: BLE001
+                    print("[SafeerOS] odstranitev prenosa:", e, flush=True)
+                    ok = False
+                klic.return_value(GLib.Variant("(s)", (json.dumps({"ok": ok}),)))
+                if ok:
+                    GLib.idle_add(lambda: (self._dogodek("mediaKnjiznicaSpremenjena", None), False)[1])
+            threading.Thread(target=odstrani, name="safeer-odstrani-prenos", daemon=True).start()
+            return
         try:
             if metoda == "Stanje":
                 izid = self._predvajanje_za_control()
@@ -2417,7 +2450,7 @@ class SafeerOS(Gtk.Application):
                 os.path.join(os_programi.MAPA_NASTAVITEV, "media"), self._dogodek, GLib.idle_add,
                 predvajaj=self._katalog_predvajaj, vdelano=self._odpri_lahki_medijski_pogled,
                 youtube=self._katalog_youtube, youtube_ukaz=self._katalog_youtube_ukaz,
-                jezik=_jezik, visina_zaslona=visina, uskladi_sezname=_seznami_z_naprav)
+                jezik=_jezik, visina_zaslona=visina, uskladi_sezname=_seznami_z_naprav, knjiznica=_knjiznica())
         return self._katalog
 
     def _katalog_predvajaj(self, uri: str, vrsta: str, ime: str, zacetek: int, podnapisi: tuple, prikazi: bool) -> bool:
