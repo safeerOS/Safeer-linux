@@ -454,6 +454,27 @@ class TestTemaCinnamon(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_vecje_besedilo_vrne_uporabnikovo_velikost(self):
+        """Kdor je imel ze pred vklopom 150 % (TV), mu stikalo "Vecje besedilo" ne sme dati 125 %: izklop stikala da
+        100 %, vklop vrne njegovih 150 %; izklop Safeer Cinnamon vrne velikost izpred vklopa."""
+        tmp = tempfile.mkdtemp()
+        try:
+            o = self._okolje(tmp)
+            subprocess.run(["gsettings", "set", "org.cinnamon.desktop.interface", "text-scaling-factor", "1.5"], env=o["env"], check=True)
+            self._ukaz(o, "--profil", "videz", "--ozadje", "ohrani")
+            self.assertEqual(self._vrednost(o, "org.cinnamon.desktop.interface", "text-scaling-factor"), "1.5")
+            self._ukaz(o, "--obicajen-tekst")
+            self.assertEqual(self._vrednost(o, "org.cinnamon.desktop.interface", "text-scaling-factor"), "1.0")
+            self._ukaz(o, "--vecji-tekst")
+            self.assertEqual(self._vrednost(o, "org.cinnamon.desktop.interface", "text-scaling-factor"), "1.5")
+            self._ukaz(o, "--vecji-tekst", "125")
+            self.assertEqual(self._vrednost(o, "org.cinnamon.desktop.interface", "text-scaling-factor"), "1.25")
+            self._ukaz(o, "--obicajen-tekst")
+            self._ukaz(o, "--izklopi")
+            self.assertEqual(self._vrednost(o, "org.cinnamon.desktop.interface", "text-scaling-factor"), "1.5")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_napacna_postavitev_nicesar_ne_spremeni(self):
         tmp = tempfile.mkdtemp()
         try:
