@@ -3458,6 +3458,8 @@
     if (vrsta === "medijskaNapaka") obvesti(t("niUspelo"));
     if (vrsta === "posodobitev") pokaziPosodobitevDoma(podatki);
     if (vrsta === "magnet") odpriMagnet(podatki && podatki.uri, podatki && podatki.samodejno === true);
+    // Film iz torrenta (dodatek): med branjem torrenta in prenosom zacetka uporabnik vidi, da se nekaj dogaja.
+    if (vrsta === "mediaTorrent") obvesti(t("mediaTorrentPripravljam", { ime: (podatki && podatki.naslov) || "" }));
     if (vrsta === "magnetProgram" && S.magnet.gumbPrograma)
       S.magnet.gumbPrograma.textContent = t("magnetProgramPrenasam", { odstotek: Math.floor(100 * podatki.n / (podatki.vse || 1)) });
     if (vrsta === "magnetDeljen") {
