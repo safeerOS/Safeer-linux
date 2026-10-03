@@ -1,0 +1,16 @@
+# Safeer Browser for Linux 1.0.83 · Safeer Control 2.1.39 · Safeer OS 0.4.41
+
+## Safeer OS 0.4.41
+
+- **The computer no longer falls asleep in the middle of a film.** While the Safeer player is playing, automatic sleep is held off; during video the screensaver, the lock screen and switching the screen off are held off too – as in any video player. Until now nothing held them: with Linux Mint's default settings the screensaver covered a film after 15 minutes without a key press. Pausing, the end of the film or closing the player releases the hold at once. Closing the lid and choosing Suspend work as always.
+- **Undo in Files.** Moving (also by drag and drop), copying, moving to the Trash, renaming and creating a folder or file can be undone – with the Undo button in the notification, with Ctrl+Z, or from the right-click menu of the empty area. Moved files go back where they came from, a renamed file gets its old name, trashed files are restored, copies and newly created items go to the Trash. Undo never overwrites anything and never deletes for good: if the old place is taken in the meantime, it says so and leaves everything as it is.
+- **Type to jump.** In the file list, typing the first letters of a name jumps to that file, also when it is on another page.
+- Renaming is now confirmed with a notification (with Undo).
+
+## Safeer Control 2.1.39
+
+- **The computer stays awake while another device is watching.** While a TV, phone or tablet in your Safeer Link is reading a file or a stream from this computer – a film from a torrent, a video converted on the fly, a file from a shared folder – the computer does not go to sleep on its own. Its screen may still switch off. Two and a half minutes after the last piece was sent, it is free to sleep again. Closing the lid and choosing Suspend work as always.
+
+Safeer Browser 1.0.83 has no changes of its own (same code, new number).
+
+Slovensko: **Računalnik ne zaspi več sredi filma.** Dokler Safeerjev predvajalnik predvaja, se samodejno spanje zadrži; med videom tudi ohranjevalnik zaslona, zaklep in ugašanje zaslona – kot v vsakem predvajalniku. Doslej jih ni zadrževalo nič: s privzetimi nastavitvami Linux Minta je ohranjevalnik po 15 minutah brez tipke prekril film. Premor, konec filma ali zaprt predvajalnik zadržanje takoj sprostijo; zaprt pokrov in ročno spanje delujeta kot vedno. **Safeer Control 2.1.39**: dokler televizor, telefon ali tablica iz tvojega Safeer Linka bere datoteko ali tok s tega računalnika (film iz torrenta, sproti pretvorjen video, datoteka iz deljene mape), računalnik ne zaspi sam; zaslon se sme ugasniti. Dve minuti in pol po zadnjem poslanem kosu sme spet zaspati. **Razveljavi v Datotekah**: premik (tudi s povleci in spusti), kopiranje, premik v Smeti, preimenovanje in nova mapa ali datoteka se dajo razveljaviti – z gumbom Razveljavi v obvestilu, s Ctrl+Z ali z desnim klikom na prazen del. Premaknjeno gre nazaj, od koder je prišlo, preimenovano dobi staro ime, izbrisano se obnovi iz Smeti, kopije in na novo ustvarjeno gredo v Smeti. Razveljavitev nikoli ničesar ne prepiše in ne izbriše trajno. **Tipkanje skoči na ime**: v seznamu datotek vtipkaš prve črke imena in izbrana je ta datoteka, tudi če je na drugi strani.
