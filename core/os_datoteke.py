@@ -106,12 +106,26 @@ PRESKOCI = {"node_modules", "__pycache__", "snap", "site-packages", "dist-packag
             "Applications", "go", "resources", "target", "vendor"}
 
 
+_POSEBNE_CRKE = str.maketrans({"đ": "d", "ł": "l", "ø": "o", "ß": "ss", "æ": "ae", "œ": "oe", "ı": "i"})
+
+
+def kljuc_imena(besedilo: str) -> str:
+    """Ime za primerjavo pri iskanju: male crke brez sumnikov in naglasov (č -> c, é -> e, đ -> d)."""
+    s = str(besedilo).lower()
+    if s.isascii():
+        return s
+    import unicodedata
+    s = unicodedata.normalize("NFKD", s.translate(_POSEBNE_CRKE))
+    return "".join(z for z in s if not unicodedata.combining(z))
+
+
 def isci(niz: str, dom: Optional[str] = None, rok: float = 1.5) -> List[dict]:
-    """Datoteke in mape v domaci mapi, katerih ime vsebuje niz: najprej plitve (po sirini),
-    brez skritih in brez map s programsko kodo; najvec 1,5 s."""
-    niz = str(niz or "").strip().lower()
-    if len(niz) < 2:
+    """Datoteke in mape v domaci mapi, katerih ime vsebuje vse besede niza (brez sumnikov): najprej plitve (po
+    sirini), brez skritih in brez map s programsko kodo; najvec 1,5 s. To je hoja po disku - Safeer OS isce z
+    indeksom (core/os_iskalnik.py), ta ostane za cas, ko indeksa se ni, in za tisto, kar vanj ni slo."""
+    if len(str(niz or "").strip()) < 2:
         return []
+    besede = kljuc_imena(niz).split()
     dom = dom or os.path.expanduser("~")
     konec = time.monotonic() + rok
     zadetki: List[dict] = []
@@ -131,7 +145,8 @@ def isci(niz: str, dom: Optional[str] = None, rok: float = 1.5) -> List[dict]:
                 continue
             if je_mapa and v.name not in PRESKOCI:
                 vrsta.append(v.path)
-            if niz in v.name.lower():
+            ime = kljuc_imena(v.name)
+            if all(b in ime for b in besede):
                 e = _element(v.path, v.name)
                 if e is not None:
                     zadetki.append(e)

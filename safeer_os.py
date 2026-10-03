@@ -47,7 +47,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 from core import (os_datoteke, os_katalog, os_knjiznica, os_oblak_igre, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
                   os_media_besedila, os_mediji, os_posodobitve, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost,
                   os_torrent, os_torrent_tok, os_zapiski, os_zvok, knjiznica_kroga)
-from core import budnost  # noqa: E402
+from core import budnost, os_iskalnik  # noqa: E402
 
 # Preklop vhoda zvocne vrstice JBL je samo interni poskus: uradni paket modula ne vsebuje
 # (packaging/install_os_payload.sh), zato ga uvozimo le, ce je prisoten (zagon iz repozitorija).
@@ -818,6 +818,9 @@ class SafeerOS(Gtk.Application):
         self._vlecene_poti: list = []
         #: Med predvajanjem racunalnik ne zaspi sam (glej _budnost_predvajanja).
         self._budnost = budnost.Budnost("Safeer OS")
+        # Indeks imen datotek za iskanje: zgradi se v ozadju kmalu po zagonu, da je ze prvo iskanje takojsnje.
+        if not posnetek:
+            GLib.timeout_add_seconds(12, lambda: (os_iskalnik.indeks().zgradi_v_ozadju(), False)[1])
         #: Naslovi datotek, ki jih uporabnik vlece IZ Datotek (pravo vlecenje namizja, glej _zacni_vlecenje).
         self._lastno_vlecenje: list = []
         self._lastno_ni_uspelo = False
@@ -1778,7 +1781,11 @@ class SafeerOS(Gtk.Application):
             "nastavitve": lambda: os_sistem.odpri_nastavitve(str(a[0]) if a else ""),
             "napajanje": lambda: os_sistem.napajanje(str(a[0]) if a else ""),
             "mapa": lambda: os_datoteke.preglej(str(a[0]) if a else "~"),
-            "isciDatoteke": lambda: os_datoteke.isci(str(a[0]) if a else ""),
+            # Iz indeksa v pomnilniku (takoj, po vsej globini); drugi parameter: koliko zadetkov (razdelek Datoteke vec).
+            "isciDatoteke": lambda: os_iskalnik.isci(
+                str(a[0]) if a else "",
+                min(300, max(1, int(a[1]))) if len(a) > 1 and isinstance(a[1], (int, float)) and not isinstance(a[1], bool)
+                else os_datoteke.NAJVEC_ZADETKOV),
             "odpriDatoteko": lambda: os_datoteke.odpri(str(a[0]) if a else ""),
             "pokaziVMapi": lambda: os_datoteke.pokazi_v_mapi(str(a[0]) if a else ""),
             "novaMapa": lambda: os_datoteke.ustvari_mapo(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
@@ -1926,13 +1933,20 @@ class SafeerOS(Gtk.Application):
         elif metoda in ozadje:
             def delo():
                 try:
-                    self._odgovori(pogled, id_, True, ozadje[metoda]())
+                    izid = ozadje[metoda]()
+                    if metoda in self.SPREMINJAJO_DATOTEKE:
+                        os_iskalnik.zastarel()      # naslednje iskanje naj indeks datotek obnovi
+                    self._odgovori(pogled, id_, True, izid)
                 except Exception as e:  # noqa: BLE001
                     print("[SafeerOS]", metoda, e)
                     self._odgovori(pogled, id_, False, str(e))
             threading.Thread(target=delo, daemon=True).start()
         else:
             self._odgovori(pogled, id_, False, "neznano")
+
+    #: Metode mostu, po katerih je indeks imen datotek (core/os_iskalnik.py) zastarel.
+    SPREMINJAJO_DATOTEKE = frozenset({"novaMapa", "novaDatoteka", "preimenujDatoteko", "vSmeti", "prilepiDatoteke",
+                                      "obnoviIzSmeti", "razveljaviDatoteke"})
 
     #: Besedila sistemskega okna za trajni izbris (naslov, opis, preklic, potrditev).
     BESEDILA_SMETI = {
