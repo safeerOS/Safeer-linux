@@ -282,13 +282,20 @@
     return n;
   }
   function shrani() { try { localStorage.setItem("safeer_delovna", JSON.stringify(N)); } catch (e) { /* ni shrambe */ } }
+  // Vecje besedilo in manj prosojnosti: ko je vklopljen Safeer Cinnamon, sta to nastavitvi SISTEMA (tema lupine in
+  // programov, velikost besedila) - stikali ju upravljata in jima sledita. Brez njega veljata samo za to stran.
+  var V = { naVoljo: false, kontrast: false, vecjiTekst: false };
+  function vecjiTekst() { return V.naVoljo ? !!V.vecjiTekst : !!N.vecjiTekst; }
+  function manjProsojnosti() { return V.naVoljo ? !!V.kontrast : !!N.manjProsojnosti; }
+  function nastaviVidez(v) { if (v && typeof v === "object") { V = v; uveljaviPostavitev(); } }
 
   function uveljaviPostavitev() {
     var root = document.documentElement.style;
     root.setProperty("--levo", String(Math.max(25, Math.min(75, N.levo))));
     root.setProperty("--medij", Math.max(92, N.medij) + "px");
-    document.body.classList.toggle("vecji-tekst", !!N.vecjiTekst);
-    document.body.classList.toggle("manj-prosojnosti", !!N.manjProsojnosti);
+    // Sistemska povecava besedila poveca tudi to stran (WebKit ji sledi): lastno povecanje bi se ji pristelo.
+    document.body.classList.toggle("vecji-tekst", !V.naVoljo && !!N.vecjiTekst);
+    document.body.classList.toggle("manj-prosojnosti", manjProsojnosti());
     ["mediji", "datoteke", "programi"].forEach(function (p) {
       var sk = N.skrite.indexOf(p) >= 0;
       document.querySelector('section[data-plosca="' + p + '"]').hidden = sk;
@@ -304,8 +311,8 @@
     p.classList.toggle("zamenjano", !!N.zamenjano);
     if (N.skrite.indexOf("datoteke") >= 0) $("ploscaMediji").style.flex = "1";
     else $("ploscaMediji").style.flex = "";
-    $("stikaloTekst").checked = !!N.vecjiTekst;
-    $("stikaloProsojnost").checked = !!N.manjProsojnosti;
+    $("stikaloTekst").checked = vecjiTekst();
+    $("stikaloProsojnost").checked = manjProsojnosti();
     requestAnimationFrame(function () { izrisiDatoteke(); izrisiPrograme(); });
   }
 
@@ -441,6 +448,7 @@
       if (z.ozadje && !document.body.classList.contains("v-oknu")) {
         document.documentElement.style.setProperty("--ozadje-slika", 'url("' + z.ozadje + '")');
       }
+      nastaviVidez(z.videz);
       Z.mape = z.mape || []; Z.dom = (Z.mape[0] && Z.mape[0].pot) || "";
       Z.spletne = Array.isArray(z.spletne) ? z.spletne : [];
       zgradiStranDatotek();
@@ -1714,8 +1722,14 @@
       N = JSON.parse(JSON.stringify(PRIVZETO)); Object.keys(ohrani).forEach(function (k) { N[k] = ohrani[k]; });
       shrani(); uveljaviPostavitev();
     });
-    $("stikaloTekst").addEventListener("change", function () { N.vecjiTekst = this.checked; shrani(); uveljaviPostavitev(); });
-    $("stikaloProsojnost").addEventListener("change", function () { N.manjProsojnosti = this.checked; shrani(); uveljaviPostavitev(); });
+    $("stikaloTekst").addEventListener("change", function () {
+      if (V.naVoljo) { klic("videzCinnamonNastavi", ["tekst", this.checked]).then(nastaviVidez).catch(uveljaviPostavitev); return; }
+      N.vecjiTekst = this.checked; shrani(); uveljaviPostavitev();
+    });
+    $("stikaloProsojnost").addEventListener("change", function () {
+      if (V.naVoljo) { klic("videzCinnamonNastavi", ["kontrast", this.checked]).then(nastaviVidez).catch(uveljaviPostavitev); return; }
+      N.manjProsojnosti = this.checked; shrani(); uveljaviPostavitev();
+    });
 
     // Nova mapa / datoteka: gumb +, desni klik na prazno, Ctrl+Shift+N, okno
     $("gumbNovo").addEventListener("click", function (ev) {
@@ -1811,6 +1825,7 @@
         document.documentElement.style.setProperty("--ozadje-slika", u ? 'url("' + u + '")' : "none");
       }
       else if (vrsta === "robovi") { robovi(arguments[1] || {}); izrisiDatoteke(); izrisiPrograme(); }
+      else if (vrsta === "videz") nastaviVidez(arguments[1]);
       else if (vrsta === "fokus" && Date.now() - zadnjeOsvezevanje > 30000) {
         // Naprave v Linku se spreminjajo: ob vrnitvi v Safeer OS osvezimo najvec vsakih 30 s.
         zadnjeOsvezevanje = Date.now(); zgradiStranDatotek(); naloziProgrameNaprav(); osveziLink();
