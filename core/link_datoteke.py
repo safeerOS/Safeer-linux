@@ -902,7 +902,7 @@ def ze_preneseno(hash_: str, indeks: Optional[int], mape_stanja=None) -> Tuple[s
                 continue
             zacetek = sum(d for d, _ in datoteke[:izbran])
             dolzina, deli = datoteke[izbran]
-            if dolzina <= 0 or any(x in ("", ".", "..") or "/" in x for x in deli):
+            if dolzina <= 0 or any(x in ("", ".", "..") or "/" in x or "\\" in x for x in deli):
                 continue
             with open(os.path.join(mapa, hash_ + ".bitv"), "rb") as d:
                 biti = d.read()
@@ -923,6 +923,35 @@ NAJMANJ_PROSTEGA_RAM = 512 * 1024 * 1024
 REZERVA_DISKA = 2 * 1024 * 1024 * 1024
 
 
+def prosti_pomnilnik() -> int:
+    """Prosti pomnilnik v bajtih ali -1, ce ga sistem ne pove (Linux: MemAvailable, Windows: GlobalMemoryStatusEx)."""
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            class _Stanje(ctypes.Structure):
+                _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                            ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                            ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                            ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                            ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+            stanje = _Stanje()
+            stanje.dwLength = ctypes.sizeof(stanje)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stanje)):
+                return int(stanje.ullAvailPhys)
+        except Exception:  # noqa: BLE001 - brez podatka raje pomagamo, kot zavrnemo
+            pass
+        return -1
+    try:
+        with open("/proc/meminfo", encoding="utf-8") as d:
+            for v in d:
+                if v.startswith("MemAvailable:"):
+                    return int(v.split()[1]) * 1024
+    except (OSError, ValueError):
+        pass
+    return -1
+
+
 def prosta_zmogljivost(mapa: str, potrebno: int, procesor: bool = True) -> str:
     """"" ce racunalnik delo zmore brez preobremenitve, sicer kratek razlog (preobremenjen, malo_pomnilnika,
     ni_prostora). Disk: velikost datoteke + rezerva, da uporabniku nikoli ne zapolnimo diska.
@@ -933,19 +962,16 @@ def prosta_zmogljivost(mapa: str, potrebno: int, procesor: bool = True) -> str:
             return "preobremenjen"
     except (OSError, AttributeError):
         pass
-    try:
-        with open("/proc/meminfo", encoding="utf-8") as d:
-            for v in d:
-                if v.startswith("MemAvailable:") and int(v.split()[1]) * 1024 < NAJMANJ_PROSTEGA_RAM:
-                    return "malo_pomnilnika"
-    except (OSError, ValueError):
-        pass
+    pomnilnik = prosti_pomnilnik()
+    if 0 <= pomnilnik < NAJMANJ_PROSTEGA_RAM:
+        return "malo_pomnilnika"
     try:
         os.makedirs(mapa, exist_ok=True)
-        st = os.statvfs(mapa)
-        if st.f_bavail * st.f_frsize < potrebno + REZERVA_DISKA:
+        # shutil.disk_usage dela na Linuxu in na Windows (os.statvfs na Windows ne obstaja - brez tega bi
+        # racunalnik z Windows sprejel film, ki nanj ne gre, in zapolnil disk).
+        if shutil.disk_usage(mapa).free < potrebno + REZERVA_DISKA:
             return "ni_prostora"
-    except (OSError, AttributeError):
+    except OSError:
         pass
     return ""
 
