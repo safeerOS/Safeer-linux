@@ -46,7 +46,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 
 from core import (os_datoteke, os_katalog, os_knjiznica, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
                   os_media_besedila, os_mediji, os_posodobitve, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost,
-                  os_torrent, os_zapiski, os_zvok)
+                  os_torrent, os_torrent_tok, os_zapiski, os_zvok)
 
 # Preklop vhoda zvocne vrstice JBL je samo interni poskus: uradni paket modula ne vsebuje
 # (packaging/install_os_payload.sh), zato ga uvozimo le, ce je prisoten (zagon iz repozitorija).
@@ -489,6 +489,16 @@ def _magnet_klic(delo) -> dict:
         return {"ok": False, "koda": "napaka"}
 
 
+def _magnet_dodaj(uri: str, izbrane: list, potrjene: list) -> int:
+    """Uporabnik je torrent dodal sam (Magnet povezave): ostane, dokler ga sam ne odstrani - tudi ce je prej nastal
+    kot prenos zaradi gledanja v Medijskem centru (tega po 48 urah brez predvajanja odstranimo sami)."""
+    tid = os_torrent.torrenti().dodaj(uri, izbrane, potrjene)
+    m = os_torrent.razcleni_magnet(uri)
+    if m is not None:
+        os_torrent_tok.obdrzi(m["hash"])
+    return tid
+
+
 def naprave_za_magnet() -> list:
     """Naprave v Linku, ki znajo odpreti magnet (zmoznost "magnet"): tja lahko pošljemo povezavo."""
     izid = _control_naprave("Seznam")
@@ -720,6 +730,8 @@ class SafeerOS(Gtk.Application):
         self.posodobitve: dict = {"izid": None, "cas": 0.0, "napaka": ""}
         self.posodabljanje = os_posodobitve.Posodabljanje()
         GLib.timeout_add_seconds(90, self._posodobitve_tiho)
+        # Prenosi zaradi gledanja (film iz torrenta v Medijskem centru), ki jih 48 ur nihce ni predvajal, se odstranijo sami.
+        os_torrent_tok.zazeni_ciscenje()
         self.okno: Optional[Gtk.ApplicationWindow] = None
         self.pogled: Optional[WebKit2.WebView] = None
         self._ikone: dict = {}
@@ -1621,7 +1633,7 @@ class SafeerOS(Gtk.Application):
                                       "mb": round((os_torrent.RQBIT_PAKETI.get(os_torrent.platforma()) or ("", "", 0))[2] / 1e6)},
             "magnetPrenesiProgram": self._magnet_prenesi_program,
             "magnetPreberi": lambda: _magnet_klic(lambda: os_torrent.torrenti().preberi(str(a[0]) if a else "")),
-            "magnetDodaj": lambda: _magnet_klic(lambda: {"id": os_torrent.torrenti().dodaj(
+            "magnetDodaj": lambda: _magnet_klic(lambda: {"id": _magnet_dodaj(
                 str(a[0]) if a else "", [int(x) for x in (a[1] if len(a) > 1 and isinstance(a[1], list) else [])],
                 [int(x) for x in (a[2] if len(a) > 2 and isinstance(a[2], list) else [])])}),
             "magnetSeznam": lambda: os_torrent.torrenti().seznam(),
