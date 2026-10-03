@@ -1,0 +1,263 @@
+#!/usr/bin/python3 -I
+"""Safeer od vklopa: zagonski zaslon (Plymouth) in prijavni zaslon (slick-greeter) v videzu Safeer.
+
+    od-vklopa vklopi | izklopi | stanje
+
+Tece kot root: klice ga `safeer-cinnamon --od-vklopa` prek pkexec, ob odstranitvi paketa pa prerm. Poti ne
+sprejema ne iz argumentov ne iz okolja. Pred prvo spremembo si zapomni, kaj je bilo, in `izklopi` vrne samo
+tisto, kar je spremenil sam (nastavitve prijavnega zaslona, ki jih je uporabnik medtem spremenil drugje,
+ostanejo). Linux Mint pod Safeerjem ostane cel: ce karkoli ne uspe, ostane prejsnji zagonski zaslon.
+"""
+import json
+import os
+import subprocess
+import sys
+
+STANJE = "/var/lib/safeer-cinnamon"
+GREETER_CONF = "/etc/lightdm/slick-greeter.conf"
+GREETERJI = ("/usr/sbin/slick-greeter", "/usr/bin/slick-greeter")
+TEMA = "/usr/share/plymouth/themes/safeer/safeer.plymouth"
+POVEZAVA = "/usr/share/plymouth/themes/default.plymouth"
+IME_ALTERNATIVE = "default.plymouth"
+PREDNOST = "150"                       # pod Mintovo (200): brez izrecne izbire ostane Mintov zaslon
+ALTERNATIVE = "/usr/bin/update-alternatives"
+INITRAMFS = "/usr/sbin/update-initramfs"
+#: Kljuci prijavnega zaslona, ki jih nastavi vklop (odsek [Greeter]).
+KLJUCI = {
+    "background": "/usr/share/backgrounds/safeer/safeer-aurora.jpg",
+    "background-color": "#0b1424",
+    "theme-name": "Safeer-Cinnamon",
+}
+ODSEK = "[Greeter]"
+
+
+# ---------------------------------------------------------------------- prijavni zaslon (slick-greeter.conf)
+def _odsek(vrstice):
+    """Meje odseka [Greeter]: (prva vrstica za glavo, prva vrstica naslednjega odseka) ali None."""
+    zacetek = None
+    for i, v in enumerate(vrstice):
+        s = v.strip()
+        if zacetek is None:
+            if s == ODSEK:
+                zacetek = i + 1
+        elif s.startswith("[") and s.endswith("]"):
+            return zacetek, i
+    return (zacetek, len(vrstice)) if zacetek is not None else None
+
+
+def _kljuc(vrstica):
+    s = vrstica.strip()
+    if not s or s[0] in "#;" or "=" not in s:
+        return None
+    return s.split("=", 1)[0].strip()
+
+
+def preberi_kljuce(besedilo, kljuci):
+    """Trenutne vrednosti kljucev v odseku [Greeter]; None, ce kljuca ni."""
+    vrstice = besedilo.splitlines()
+    meje = _odsek(vrstice)
+    izid = {k: None for k in kljuci}
+    if meje:
+        for v in vrstice[meje[0]:meje[1]]:
+            k = _kljuc(v)
+            if k in izid:
+                izid[k] = v.split("=", 1)[1].strip()
+    return izid
+
+
+def nastavi_kljuce(besedilo, vrednosti):
+    """Vrne besedilo z nastavljenimi kljuci v [Greeter]; vrednost None kljuc odstrani. Ostalo ostane nedotaknjeno."""
+    vrstice = besedilo.splitlines()
+    meje = _odsek(vrstice)
+    if meje is None:
+        if all(v is None for v in vrednosti.values()):
+            return besedilo
+        if vrstice and vrstice[-1].strip():
+            vrstice.append("")
+        vrstice.append(ODSEK)
+        meje = (len(vrstice), len(vrstice))
+    telo, opravljeni = [], set()
+    for v in vrstice[meje[0]:meje[1]]:
+        k = _kljuc(v)
+        if k in vrednosti:
+            if k not in opravljeni and vrednosti[k] is not None:
+                telo.append("%s=%s" % (k, vrednosti[k]))
+            opravljeni.add(k)
+        else:
+            telo.append(v)
+    konec = len(telo)
+    while konec > 0 and not telo[konec - 1].strip():      # nove kljuce dodamo pred prazne vrstice na koncu odseka
+        konec -= 1
+    novi = ["%s=%s" % (k, v) for k, v in vrednosti.items() if k not in opravljeni and v is not None]
+    telo[konec:konec] = novi
+    vse = vrstice[:meje[0]] + telo + vrstice[meje[1]:]
+    return "\n".join(vse) + "\n"
+
+
+def _brez_vsebine(besedilo):
+    """Ali v datoteki ni nicesar razen praznega odseka [Greeter] (potem je po izklopu ne pustimo za sabo)."""
+    return all(not v.strip() or v.strip() == ODSEK for v in besedilo.splitlines())
+
+
+def _pisi(pot, besedilo):
+    os.makedirs(os.path.dirname(pot), exist_ok=True)
+    zacasna = pot + ".safeer-novo"
+    with open(zacasna, "w", encoding="utf-8") as f:
+        f.write(besedilo)
+    os.chmod(zacasna, 0o644)
+    os.replace(zacasna, pot)
+
+
+def _beri(pot):
+    try:
+        with open(pot, encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+# ---------------------------------------------------------------------- zagonski zaslon (Plymouth)
+def _tek(ukaz):
+    """Zazene sistemski ukaz; vrne (koda, izpis)."""
+    try:
+        p = subprocess.run(ukaz, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=600,
+                           env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C"})
+        return p.returncode, p.stdout
+    except (OSError, subprocess.SubprocessError) as e:
+        return 1, str(e)
+
+
+def alternativa(tek=_tek):
+    """Stanje izbire zagonskega zaslona: {"status": "auto"|"manual", "value": pot} ali None, ce je sistem nima."""
+    koda, izpis = tek([ALTERNATIVE, "--query", IME_ALTERNATIVE])
+    if koda != 0:
+        return None
+    izid = {}
+    for v in izpis.splitlines():
+        if not v.strip():
+            break                                   # prvi blok opisuje izbiro, naslednji posamezne moznosti
+        if v.startswith("Status:"):
+            izid["status"] = v.split(":", 1)[1].strip()
+        elif v.startswith("Value:"):
+            izid["value"] = v.split(":", 1)[1].strip()
+    return izid if "status" in izid else None
+
+
+class OdVklopa:
+    def __init__(self, stanje=STANJE, conf=GREETER_CONF, tema=TEMA, tek=_tek, greeterji=GREETERJI, izpis=print):
+        self.stanje, self.conf, self.tema, self.tek, self.greeterji, self.izpis = stanje, conf, tema, tek, greeterji, izpis
+        self.prej = os.path.join(stanje, "od-vklopa.json")
+
+    def _ima_greeter(self):
+        return any(os.path.exists(p) for p in self.greeterji)
+
+    def _ima_plymouth(self):
+        return os.path.exists(ALTERNATIVE) and alternativa(self.tek) is not None
+
+    def vklopljeno(self):
+        return os.path.exists(self.prej)
+
+    def _initramfs(self):
+        if not os.path.exists(INITRAMFS):
+            return True
+        self.izpis("Pripravljam zagonski zaslon (lahko traja do minute) ...")
+        koda, izpis = self.tek([INITRAMFS, "-u"])
+        if koda != 0:
+            self.izpis("Zagonske slike ni bilo mogoce obnoviti:\n" + izpis.strip()[-400:])
+        return koda == 0
+
+    def vklopi(self):
+        if not os.path.isfile(self.tema):
+            self.izpis("Tema zagonskega zaslona Safeer ni namescena (%s)." % self.tema)
+            return 1
+        ima_greeter, ima_plymouth = self._ima_greeter(), self._ima_plymouth()
+        if not self.vklopljeno():                    # ze vklopljeno: ohrani izvirno stanje
+            besedilo = _beri(self.conf)
+            prej = {"greeter_datoteka": besedilo is not None,
+                    "greeter": preberi_kljuce(besedilo or "", KLJUCI) if ima_greeter else None,
+                    "plymouth": alternativa(self.tek) if ima_plymouth else None}
+            os.makedirs(self.stanje, exist_ok=True)
+            _pisi(self.prej, json.dumps(prej, ensure_ascii=False, indent=1) + "\n")
+        if ima_greeter:
+            _pisi(self.conf, nastavi_kljuce(_beri(self.conf) or "", KLJUCI))
+            self.izpis("Prijavni zaslon: videz Safeer.")
+        else:
+            self.izpis("Prijavni zaslon: ta sistem ne uporablja slick-greeter, zato ostane, kot je.")
+        if not ima_plymouth:
+            self.izpis("Zagonski zaslon: ta sistem nima Plymoutha, zato ostane, kot je.")
+            return 0
+        k1, i1 = self.tek([ALTERNATIVE, "--install", POVEZAVA, IME_ALTERNATIVE, self.tema, PREDNOST])
+        k2, i2 = self.tek([ALTERNATIVE, "--set", IME_ALTERNATIVE, self.tema]) if k1 == 0 else (1, i1)
+        if k2 != 0:
+            self.izpis("Zagonskega zaslona ni bilo mogoce izbrati:\n" + i2.strip()[-400:])
+            return 1
+        if not self._initramfs():
+            return 1
+        self.izpis("Zagonski zaslon: Safeer (vidis ga ob naslednjem zagonu).")
+        return 0
+
+    def izklopi(self):
+        if not self.vklopljeno():
+            self.izpis("Safeer od vklopa ni vklopljen.")
+            return 0
+        try:
+            prej = json.loads(_beri(self.prej) or "{}")
+        except ValueError:
+            prej = {}
+        koda = 0
+        if prej.get("greeter") is not None:
+            besedilo = _beri(self.conf)
+            if besedilo is not None:
+                # Vrnemo samo kljuce, ki so se vedno taki, kot jih je nastavil vklop; kar je uporabnik medtem
+                # spremenil v Mintovih nastavitvah prijavnega zaslona, je njegovo.
+                zdaj = preberi_kljuce(besedilo, KLJUCI)
+                vrni = {k: prej["greeter"].get(k) for k in KLJUCI if zdaj.get(k) == KLJUCI[k]}
+                novo = nastavi_kljuce(besedilo, vrni)
+                if not prej.get("greeter_datoteka") and _brez_vsebine(novo):
+                    os.remove(self.conf)
+                else:
+                    _pisi(self.conf, novo)
+            self.izpis("Prijavni zaslon: kot prej.")
+        p = prej.get("plymouth")
+        if p is not None:
+            self.tek([ALTERNATIVE, "--remove", IME_ALTERNATIVE, self.tema])
+            if p.get("status") == "manual" and p.get("value") and p["value"] != self.tema and os.path.exists(p["value"]):
+                k, i = self.tek([ALTERNATIVE, "--set", IME_ALTERNATIVE, p["value"]])
+            else:
+                k, i = self.tek([ALTERNATIVE, "--auto", IME_ALTERNATIVE])
+            if k != 0:
+                self.izpis("Prejsnjega zagonskega zaslona ni bilo mogoce izbrati:\n" + i.strip()[-400:])
+                koda = 1
+            elif not self._initramfs():
+                koda = 1
+            else:
+                self.izpis("Zagonski zaslon: kot prej.")
+        if koda == 0:
+            os.remove(self.prej)
+        return koda
+
+    def stanje_izpis(self):
+        zdaj = preberi_kljuce(_beri(self.conf) or "", KLJUCI)
+        a = alternativa(self.tek) or {}
+        self.izpis("od vklopa:        %s" % ("vklopljeno" if self.vklopljeno() else "izklopljeno"))
+        self.izpis("prijavni zaslon:  %s" % ("Safeer" if zdaj.get("theme-name") == KLJUCI["theme-name"] else "kot ga doloca sistem"))
+        self.izpis("zagonski zaslon:  %s" % ("Safeer" if a.get("value") == self.tema else (a.get("value") or "brez")))
+        return 0
+
+
+def main(argi):
+    dejanje = argi[1] if len(argi) == 2 else ""
+    o = OdVklopa()
+    if dejanje == "stanje":
+        return o.stanje_izpis()
+    if dejanje not in ("vklopi", "izklopi"):
+        print("uporaba: od-vklopa vklopi | izklopi | stanje", file=sys.stderr)
+        return 2
+    if os.geteuid() != 0:
+        print("od-vklopa: potrebne so skrbniske pravice (uporabi: safeer-cinnamon --od-vklopa).", file=sys.stderr)
+        return 1
+    return o.vklopi() if dejanje == "vklopi" else o.izklopi()
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

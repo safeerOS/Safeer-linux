@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Safeer from power-on (boot and login screen)
+Name[sl]=Safeer od vklopa (zagonski in prijavni zaslon)
+Comment=Show the Safeer look on the boot screen and the login screen; asks for the administrator password
+Comment[sl]=Videz Safeer na zagonskem in prijavnem zaslonu; vpraša za skrbniško geslo
+Exec=safeer-cinnamon --od-vklopa
+Icon=preferences-desktop-theme
+Categories=Settings;DesktopSettings;
