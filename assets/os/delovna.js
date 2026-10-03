@@ -66,6 +66,10 @@
       oblakRazlog_jedra: "premalo procesorskih jeder (potrebni {potrebno})", oblakRazlog_arhitektura: "potreben je 64-bitni procesor x86",
       oblakRazlog_flatpak: "Flatpak ni nameščen",
       kopiraj: "Kopiraj", izrezi: "Izreži", prilepi: "Prilepi", prilepiV: "Prilepi v to mapo", lastnosti: "Lastnosti",
+      kopirajN: "Kopiraj ({n})", izreziN: "Izreži ({n})", vSmetiN: "Premakni v Smeti ({n})", obnoviN: "Obnovi ({n})",
+      izbranoN: "Izbrano: {n}", pocistiIzbiro: "Prekliči izbiro", izberiVse: "Izberi vse",
+      delnoUspelo: "Narejeno: {ok}, ni uspelo: {ne}.", premaknjenoV: "Premaknjeno v »{mapa}«: {ime}", kopiranoV: "Kopirano v »{mapa}«: {ime}",
+      vSmetiVecOk: "V Smeteh: {ime} (obnoviš jih v Datotekah → Smeti).", obnovljenoN: "Obnovljeno: {ime}",
       kopirano: "Kopirano: {ime}. Prilepiš z desnim klikom ali Ctrl+V.", izrezano: "Izrezano: {ime}. Prilepiš z desnim klikom ali Ctrl+V.",
       kopiram: "Kopiram …", premikam: "Premikam …", prilepljeno: "Kopirano sem: {ime}", premaknjeno: "Premaknjeno sem: {ime}",
       prilepiNapaka_vase: "Mape ni mogoče kopirati vase.", prilepiNapaka_ni_prostora: "Na disku ni dovolj prostora.",
@@ -179,6 +183,10 @@
       oblakRazlog_jedra: "not enough processor cores ({potrebno} needed)", oblakRazlog_arhitektura: "a 64-bit x86 processor is needed",
       oblakRazlog_flatpak: "Flatpak is not installed",
       kopiraj: "Copy", izrezi: "Cut", prilepi: "Paste", prilepiV: "Paste into this folder", lastnosti: "Properties",
+      kopirajN: "Copy ({n})", izreziN: "Cut ({n})", vSmetiN: "Move to Trash ({n})", obnoviN: "Restore ({n})",
+      izbranoN: "Selected: {n}", pocistiIzbiro: "Clear selection", izberiVse: "Select all",
+      delnoUspelo: "Done: {ok}, failed: {ne}.", premaknjenoV: "Moved to “{mapa}”: {ime}", kopiranoV: "Copied to “{mapa}”: {ime}",
+      vSmetiVecOk: "In the Trash: {ime} (restore them from Files → Trash).", obnovljenoN: "Restored: {ime}",
       kopirano: "Copied: {ime}. Paste with right-click or Ctrl+V.", izrezano: "Cut: {ime}. Paste with right-click or Ctrl+V.",
       kopiram: "Copying…", premikam: "Moving…", prilepljeno: "Copied here: {ime}", premaknjeno: "Moved here: {ime}",
       prilepiNapaka_vase: "A folder cannot be copied into itself.", prilepiNapaka_ni_prostora: "Not enough space on the disk.",
@@ -343,26 +351,40 @@
   }
 
   // Premik plosce: povleci glavo programov na drugo stran (zamenja stolpca).
+  // Stolpec je cilj samo, dokler vlecemo plosco (vlecemPlosco = njen id): vlecenje datotek ga ne sme oznaciti.
+  var vlecemPlosco = "";
   function vleciGlavo() {
     document.querySelectorAll(".plosca .glava h2").forEach(function (h) {
       h.setAttribute("draggable", "true");
       h.addEventListener("dragstart", function (e) {
-        var pl = h.closest(".plosca"); pl.classList.add("vlecem");
+        var pl = h.closest(".plosca"); pl.classList.add("vlecem"); vlecemPlosco = pl.id;
         e.dataTransfer.setData("text/plain", pl.id); e.dataTransfer.effectAllowed = "move";
       });
       h.addEventListener("dragend", function () {
         document.querySelectorAll(".vlecem, .cilj").forEach(function (x) { x.classList.remove("vlecem"); x.classList.remove("cilj"); });
+        setTimeout(function () { vlecemPlosco = ""; }, 300);
       });
     });
     ["stolpecA", "stolpecB"].forEach(function (id) {
       var s = $(id);
-      s.addEventListener("dragover", function (e) { e.preventDefault(); s.classList.add("cilj"); });
+      s.addEventListener("dragover", function (e) { if (!vlecemPlosco) return; e.preventDefault(); s.classList.add("cilj"); });
       s.addEventListener("dragleave", function () { s.classList.remove("cilj"); });
       s.addEventListener("drop", function (e) {
+        if (!vlecemPlosco) return;
         e.preventDefault(); s.classList.remove("cilj");
-        var iz = document.getElementById(e.dataTransfer.getData("text/plain"));
+        var iz = document.getElementById(vlecemPlosco);
+        vlecemPlosco = "";
         if (iz && !s.contains(iz)) { N.zamenjano = !N.zamenjano; shrani(); uveljaviPostavitev(); }
       });
+    });
+    // Kar je spusceno mimo cilja (datoteka iz drugega programa), nima ucinka - kazalec to pove ze med vlecenjem.
+    document.addEventListener("dragover", function (e) {
+      if (e.defaultPrevented || vlecemPlosco || (e.target && e.target.closest && e.target.closest("input, textarea"))) return;
+      e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "none";
+    });
+    document.addEventListener("drop", function (e) {
+      if (e.defaultPrevented || (e.target && e.target.closest && e.target.closest("input, textarea"))) return;
+      e.preventDefault();
     });
   }
 
@@ -449,6 +471,7 @@
         document.documentElement.style.setProperty("--ozadje-slika", 'url("' + z.ozadje + '")');
       }
       nastaviVidez(z.videz);
+      VL.sistemsko = !!z.vlecenjeDatotek;
       Z.mape = z.mape || []; Z.dom = (Z.mape[0] && Z.mape[0].pot) || "";
       Z.spletne = Array.isArray(z.spletne) ? z.spletne : [];
       zgradiStranDatotek();
@@ -462,7 +485,51 @@
   }
 
   // ------------------------------------------------------------------ DATOTEKE
-  var D = { vir: null, vse: [], stran: 0, razvrsti: "ime", smer: 1, izbran: -1, naprave: [], nosilci: [], zahteva: 0 };
+  var D = { vir: null, vse: [], stran: 0, razvrsti: "ime", smer: 1, izbran: -1, naprave: [], nosilci: [], zahteva: 0,
+            izbrani: {}, sidro: "" };
+
+  // Izbira vec datotek: klik izbere eno, Ctrl+klik doda ali odvzame, Shift+klik (ali Shift+puscica) izbere obseg od
+  // zadnje izbrane - tudi cez strani -, Ctrl+A vse. D.izbrani: kljuc vnosa -> vnos; D.izbran ostane vrstica s fokusom.
+  function kljucVnosa(e) { return e.smeti ? "s:" + e.smeti : e.oddaljeno ? "o:" + e.id : "p:" + e.pot; }
+  function izbraniVnosi() { return Object.keys(D.izbrani).map(function (k) { return D.izbrani[k]; }); }
+  function jeIzbran(e) { return !!D.izbrani[kljucVnosa(e)]; }
+  function pocistiIzbiro() { D.izbrani = {}; D.sidro = ""; }
+  function izberiSamo(e) { D.izbrani = {}; D.sidro = kljucVnosa(e); D.izbrani[D.sidro] = e; }
+  function preklopiIzbiro(e) {
+    var k = kljucVnosa(e);
+    if (D.izbrani[k]) delete D.izbrani[k]; else D.izbrani[k] = e;
+    D.sidro = k;
+  }
+  function izberiObseg(e) {
+    var s = filtrirani(), a = -1, b = -1, k = kljucVnosa(e);
+    for (var i = 0; i < s.length; i++) { var ki = kljucVnosa(s[i]); if (ki === D.sidro) a = i; if (ki === k) b = i; }
+    if (a < 0 || b < 0) { izberiSamo(e); return; }
+    D.izbrani = {};
+    for (var j = Math.min(a, b); j <= Math.max(a, b); j++) D.izbrani[kljucVnosa(s[j])] = s[j];
+  }
+  function izberiVse() {
+    var s = filtrirani();
+    D.izbrani = {};
+    s.forEach(function (e) { D.izbrani[kljucVnosa(e)] = e; });
+    D.sidro = s.length ? kljucVnosa(s[0]) : "";
+  }
+  // Izbrani, s katerimi se da delati na tem racunalniku (ne v Smeteh in ne na drugi napravi).
+  function izbraniLokalni() { return izbraniVnosi().filter(function (e) { return e.pot && !e.oddaljeno && !e.smeti; }); }
+  function steviloElementov(n) {
+    if (jezik === "sl") {
+      var m = n % 100;
+      return n + " " + (m === 1 ? "element" : m === 2 ? "elementa" : (m === 3 || m === 4) ? "elementi" : "elementov");
+    }
+    return n + (n === 1 ? " item" : " items");
+  }
+  function prikaziIzbiro() {
+    var ovoj = $("datStrani"), stari = ovoj.querySelector(".izbira"), v = izbraniVnosi();
+    if (stari) stari.remove();
+    if (v.length < 2) return;
+    var skupaj = 0;
+    v.forEach(function (e) { if (!e.mapa) skupaj += e.velikost || 0; });
+    ovoj.insertBefore(el("span", "izbira", t("izbranoN", { n: steviloElementov(v.length) }) + (skupaj ? " · " + velikost(skupaj) : "")), ovoj.firstChild);
+  }
 
   function zgradiStranDatotek() {
     var s = $("datStran"); s.innerHTML = "";
@@ -474,6 +541,7 @@
       g.appendChild(el("span", "napis", ime));
       g._vir = vir;
       g.addEventListener("click", function () { odpriVir(vir); });
+      if (vir.vrsta === "lokalno") ciljSpusta(g, function () { return vir.pot; });
       s.appendChild(g);
       return g;
     }
@@ -544,7 +612,7 @@
   }
 
   function odpriVir(vir) {
-    D.vir = vir; D.stran = 0; D.izbran = -1; D.vse = [];
+    D.vir = vir; D.stran = 0; D.izbran = -1; D.vse = []; pocistiIzbiro();
     if (vir.vrsta === "lokalno" && !vir.koren) vir.koren = vir.pot;
     oznaciVir();
     datSporocilo(t("nalagam"));
@@ -678,8 +746,15 @@
     if (D.oznaci) {
       // Pravkar ustvarjen ali preimenovan vnos: pokazemo stran, kjer je, in ga oznacimo.
       for (var oi = 0; oi < seznam.length; oi++) if (seznam[oi].ime === D.oznaci) { oznaci = oi; break; }
-      if (oznaci >= 0) { D.stran = Math.floor(oznaci / naStran); D.izbran = oznaci % naStran; }
-      D.oznaci = "";
+      if (oznaci >= 0) {
+        D.stran = Math.floor(oznaci / naStran); D.izbran = oznaci % naStran;
+        // Pravkar prilepljeno ali ustvarjeno je izbrano (vec prilepljenih: vsi).
+        var nova = D.oznaciVse && D.oznaciVse.length ? D.oznaciVse : [D.oznaci];
+        pocistiIzbiro();
+        seznam.forEach(function (x) { if (nova.indexOf(x.ime) >= 0) D.izbrani[kljucVnosa(x)] = x; });
+        D.sidro = kljucVnosa(seznam[oznaci]);
+      }
+      D.oznaci = ""; D.oznaciVse = null;
     }
     D.stran = Math.min(D.stran, strani - 1);
     var od = D.stran * naStran, do_ = Math.min(seznam.length, od + naStran);
@@ -693,13 +768,14 @@
     if (!seznam.length && !D.napaka && D.vse !== null) datSporocilo(D.vse.length ? t("niZadetkov") : prazenOpis);
     else if (!D.napaka) datSporocilo("");
     ostraniStrani($("datStrani"), od, do_, seznam.length, strani, D.stran, function (s) { D.stran = s; D.izbran = -1; izrisiDatoteke(); });
+    prikaziIzbiro();
     document.querySelectorAll("#datSeznam th button").forEach(function (b) {
       if (b.getAttribute("data-razvrsti") === D.razvrsti && D.rocno) b.setAttribute("data-smer", D.smer > 0 ? "▲" : "▼");
       else b.removeAttribute("data-smer");
     });
   }
   function vrsticaDatoteke(e, i) {
-    var tr = el("tr"); tr.tabIndex = 0; tr.setAttribute("aria-selected", i === D.izbran ? "true" : "false");
+    var tr = el("tr"); tr.tabIndex = 0; tr.setAttribute("aria-selected", jeIzbran(e) ? "true" : "false");
     var td = el("td"), c = el("div", "celica-ime");
     var ik = ikonaVrste(e.mapa ? "mapa" : e.vrsta);
     if (e.pot && !e.oddaljeno && !e.smeti && (e.vrsta === "slika" || e.vrsta === "video")) ik.setAttribute("data-slicica", e.pot);
@@ -712,28 +788,189 @@
     tr.appendChild(lok);
     tr.appendChild(el("td", "st-vel", e.mapa ? "" : velikost(e.velikost)));
     tr.appendChild(el("td", "st-cas", cas(e.spremenjeno)));
-    tr.addEventListener("click", function () { D.izbran = i; oznaciIzbrano(); });
-    tr.addEventListener("dblclick", function () { odpriVnos(e); });
+    tr.addEventListener("click", function (ev) {
+      D.izbran = i;
+      if (ev.shiftKey) izberiObseg(e); else if (ev.ctrlKey || ev.metaKey) preklopiIzbiro(e); else izberiSamo(e);
+      oznaciIzbrano();
+    });
+    tr.addEventListener("dblclick", function (ev) { if (!ev.ctrlKey && !ev.shiftKey && !ev.metaKey) odpriVnos(e); });
+    // Povleci: izbrane datoteke (ali to vrstico) premaknes v mapo - vrstico mape ali mapo v stranskem seznamu.
+    if (e.pot && !e.oddaljeno && !e.smeti) {
+      tr.draggable = true;
+      tr.addEventListener("dragstart", function (ev) {
+        if (!jeIzbran(e)) { izberiSamo(e); D.izbran = i; oznaciIzbrano(); }
+        VL.poti = izbraniLokalni().map(function (x) { return x.pot; });
+        if (VL.sistemsko) {
+          // Pravo vlecenje namizja (zacne ga Safeer OS): datoteke sprejmejo tudi drugi programi - Nemo, brskalnik,
+          // posta. V Datotekah je spust se vedno premik (VL.poti); konec sporoci dogodek vlecenjeKoncano.
+          ev.preventDefault();
+          klic("zacniVlecenje", [VL.poti]).then(function (ok) { if (!ok) VL.poti = []; }, function () { VL.poti = []; });
+          return;
+        }
+        // Brez njega ostane vlecenje znotraj Datotek. Drugim programom ne ponudimo nicesar: WebKitGTK bi ob seznamu
+        // naslovov ponudil se spletno povezavo, iz katere Nemo naredi bliznjico namesto kopije.
+        ev.dataTransfer.effectAllowed = "move";
+        try { ev.dataTransfer.setData(VRSTA_VLECENJA, JSON.stringify(VL.poti)); } catch (x) { /* vlecenje deluje vseeno */ }
+      });
+      tr.addEventListener("dragend", function (ev) {
+        koncajVlecenje(!!(ev.dataTransfer && ev.dataTransfer.dropEffect && ev.dataTransfer.dropEffect !== "none"));
+      });
+      if (e.mapa) ciljSpusta(tr, function () { return e.pot; });
+    }
     tr.addEventListener("keydown", function (ev) {
       if (ev.key === "Enter") { ev.preventDefault(); odpriVnos(e); }
       else if (ev.key === " ") { ev.preventDefault(); predogled(e); }
       else if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
         ev.preventDefault();
         var n = i + (ev.key === "ArrowDown" ? 1 : -1), vr = $("datVrstice").rows;
-        if (n >= 0 && n < vr.length) { D.izbran = n; vr[n].focus(); oznaciIzbrano(); }
+        if (n >= 0 && n < vr.length) {
+          D.izbran = n;
+          // Shift razsiri izbiro do te vrstice, Ctrl premakne samo fokus, sicer je izbrana ta vrstica.
+          if (ev.shiftKey) izberiObseg(D.vidni[n]); else if (!ev.ctrlKey) izberiSamo(D.vidni[n]);
+          vr[n].focus(); oznaciIzbrano();
+        }
       } else if (ev.key === "ContextMenu" || (ev.shiftKey && ev.key === "F10")) {
-        ev.preventDefault(); var r = tr.getBoundingClientRect(); meniDatoteke(e, r.left + 40, r.bottom);
+        ev.preventDefault(); var r = tr.getBoundingClientRect(); meniZaVrstico(e, i, r.left + 40, r.bottom);
       } else if (ev.key === "Backspace") { ev.preventDefault(); gorVMapo(); }
+      else if (ev.key === "Escape" && Object.keys(D.izbrani).length) { pocistiIzbiro(); oznaciIzbrano(); }
       else if (ev.key === "F2" && !e.oddaljeno && !e.smeti) { ev.preventDefault(); odpriOknoNovo({ nacin: "preimenuj", pot: e.pot, ime: e.ime, mapa: e.mapa }); }
-      else if (ev.key === "Delete" && !e.oddaljeno && !e.smeti) { ev.preventDefault(); vSmeti(e); }
-      else if (ev.ctrlKey && !ev.shiftKey && !ev.altKey && !e.oddaljeno && !e.smeti && (ev.key === "c" || ev.key === "C")) { ev.preventDefault(); vOdlozisce(e, false); }
-      else if (ev.ctrlKey && !ev.shiftKey && !ev.altKey && !e.oddaljeno && !e.smeti && (ev.key === "x" || ev.key === "X")) { ev.preventDefault(); vOdlozisce(e, true); }
+      else if (ev.key === "Delete" && !e.oddaljeno && !e.smeti) { ev.preventDefault(); vSmetiVec(zaDejanje(e)); }
+      else if (ev.ctrlKey && !ev.shiftKey && !ev.altKey && !e.oddaljeno && !e.smeti && (ev.key === "c" || ev.key === "C")) { ev.preventDefault(); vOdlozisceVec(zaDejanje(e), false); }
+      else if (ev.ctrlKey && !ev.shiftKey && !ev.altKey && !e.oddaljeno && !e.smeti && (ev.key === "x" || ev.key === "X")) { ev.preventDefault(); vOdlozisceVec(zaDejanje(e), true); }
     });
-    tr.addEventListener("contextmenu", function (ev) { ev.preventDefault(); D.izbran = i; oznaciIzbrano(); meniDatoteke(e, ev.clientX, ev.clientY); });
+    tr.addEventListener("contextmenu", function (ev) { ev.preventDefault(); meniZaVrstico(e, i, ev.clientX, ev.clientY); });
     return tr;
   }
+  // Dejanje s tipkovnico velja za vse izbrane, ce je vrstica med njimi; sicer samo zanjo.
+  function zaDejanje(e) {
+    var lok = izbraniLokalni();
+    return jeIzbran(e) && lok.length > 1 ? lok : [e];
+  }
+  // Desni klik na izbrano vrstico ohrani izbiro (meni za vse izbrane), na neizbrano izbere samo njo.
+  function meniZaVrstico(e, i, x, y) {
+    D.izbran = i;
+    if (!jeIzbran(e)) izberiSamo(e);
+    oznaciIzbrano();
+    if (Object.keys(D.izbrani).length > 1) meniVec(x, y); else meniDatoteke(e, x, y);
+  }
   function oznaciIzbrano() {
-    Array.prototype.forEach.call($("datVrstice").rows, function (r, j) { r.setAttribute("aria-selected", j === D.izbran ? "true" : "false"); });
+    Array.prototype.forEach.call($("datVrstice").rows, function (r, j) {
+      r.setAttribute("aria-selected", D.vidni && D.vidni[j] && jeIzbran(D.vidni[j]) ? "true" : "false");
+    });
+    prikaziIzbiro();
+  }
+  function meniVec(x, y) {
+    var vsi = izbraniVnosi(), lok = izbraniLokalni(), m = [];
+    if (vsi.length && vsi.every(function (e) { return e.smeti; })) {
+      m.push([t("obnoviN", { n: steviloElementov(vsi.length) }), function () { obnoviIzSmetiVec(vsi); }]);
+      m.push(["—"]);
+      m.push([t("izprazniSmeti"), izprazniSmeti]);
+    } else if (lok.length) {
+      var koliko = steviloElementov(lok.length);
+      m.push([t("kopirajN", { n: koliko }), function () { vOdlozisceVec(lok, false); }]);
+      m.push([t("izreziN", { n: koliko }), function () { vOdlozisceVec(lok, true); }]);
+      if (O.poti.length && D.vir && D.vir.vrsta === "lokalno") m.push([t("prilepi"), function () { prilepi(null); }]);
+      m.push([t("vSmetiN", { n: koliko }), function () { vSmetiVec(lok); }]);
+      m.push(["—"]);
+    }
+    m.push([t("pocistiIzbiro"), function () { pocistiIzbiro(); oznaciIzbrano(); }]);
+    pokaziMeni(m, x, y);
+  }
+
+  // ------------------------------------------------------------------ POVLECI IN SPUSTI
+  // Izbrane datoteke v mapo: vlecenje znotraj Datotek jih PREMAKNE, z drzano tipko Ctrl KOPIRA (ev.ctrlKey je med
+  // vlecenjem v WebKitGTK vedno true, zato beremo, kaj dovoli vir: s Ctrl samo kopiranje - samoKopija). VL.poti: kaj
+  // vlecemo iz tega seznama (med vlecenjem podatkov ni mogoce brati). Datoteke iz drugega programa (Nemo, namizje) se
+  // v mapo KOPIRAJO: WebKitGTK
+  // strani njihovih poti ne pove (seznam naslovov je prazen), zato si jih zapomni Safeer OS - dogodek vleceneDatoteke
+  // pove, koliko jih je (VL.zunanje), ob spustu pa jih stran prevzame z metodo spusceneDatoteke.
+  // VL.sistemsko: vlecenje iz Datotek zacne Safeer OS kot pravo vlecenje namizja (X11).
+  var VL = { poti: [], zunanje: 0, sistemsko: false };
+  var VRSTA_VLECENJA = "application/x-safeer-datoteke";
+  function vrsteSpusta(ev) { return ev.dataTransfer && ev.dataTransfer.types ? Array.prototype.slice.call(ev.dataTransfer.types) : []; }
+  // Vlecenje iz tega seznama (ne iz drugega programa): pove ga nasa vrsta podatkov, med vlecenjem tudi VL.poti.
+  function jeNaseVlecenje(ev) { return VL.poti.length > 0 || vrsteSpusta(ev).indexOf(VRSTA_VLECENJA) >= 0; }
+  function samoKopija(ev) { return !!ev.dataTransfer && ev.dataTransfer.effectAllowed === "copy"; }
+  // Konec vlecenja iz Datotek. Nekateri pogoni ga sporocijo pred spustom, zato stanje pobrisemo z zamikom. Ce spusta
+  // nismo prevzeli mi (datoteke so sle v drug program, ki jih je morda premaknil), seznam osvezimo.
+  function koncajVlecenje(sprejeto) {
+    setTimeout(function () {
+      var zunaj = VL.poti.length > 0 && sprejeto;
+      VL.poti = []; pocistiCilje();
+      if (zunaj && D.vir && D.vir.vrsta === "lokalno") odpriVir(D.vir);
+    }, 700);
+  }
+  function pocistiCilje() {
+    Array.prototype.forEach.call(document.querySelectorAll(".spusti"), function (x) { x.classList.remove("spusti"); });
+  }
+  function jeZunanjeVlecenje(ev) {
+    if (VL.poti.length || !VL.zunanje) return false;
+    var vrste = vrsteSpusta(ev);
+    return vrste.indexOf("Files") >= 0 || vrste.indexOf("text/uri-list") >= 0;
+  }
+  function jeSpustDatotek(ev) { return jeNaseVlecenje(ev) || jeZunanjeVlecenje(ev); }
+  function potiIzSpusta(ev) {
+    if (VL.poti.length) return VL.poti.slice();
+    try {
+      var nase = JSON.parse(ev.dataTransfer.getData(VRSTA_VLECENJA) || "[]");
+      if (Array.isArray(nase) && nase.length) return nase.map(String);
+    } catch (x) { /* ni nase vlecenje */ }
+    return [];
+  }
+  // Ali je spust teh poti v mapo smiseln: ne v mapo, kjer ze so, ne mape vase.
+  function smiselnSpust(poti, cilj) {
+    return poti.some(function (p) { return p !== cilj && p.replace(/\/[^/]*$/, "") !== cilj && cilj.indexOf(p + "/") !== 0; });
+  }
+  function ciljSpusta(element, potCilja) {
+    element.addEventListener("dragover", function (ev) {
+      var cilj = potCilja();
+      if (!cilj || !jeSpustDatotek(ev)) return;
+      if (VL.poti.length && !smiselnSpust(VL.poti, cilj)) return;
+      ev.preventDefault(); ev.stopPropagation();
+      ev.dataTransfer.dropEffect = jeNaseVlecenje(ev) && !samoKopija(ev) ? "move" : "copy";
+      element.classList.add("spusti");
+    });
+    element.addEventListener("dragleave", function () { element.classList.remove("spusti"); });
+    element.addEventListener("drop", function (ev) {
+      var cilj = potCilja();
+      element.classList.remove("spusti");
+      if (!cilj || !jeSpustDatotek(ev)) return;
+      ev.preventDefault(); ev.stopPropagation();
+      function smiselne(poti) {
+        return poti.filter(function (p) { return p !== cilj && p.replace(/\/[^/]*$/, "") !== cilj && cilj.indexOf(p + "/") !== 0; });
+      }
+      if (jeNaseVlecenje(ev)) {
+        var poti = smiselne(potiIzSpusta(ev));
+        VL.poti = [];
+        if (poti.length) premakniAliKopiraj(poti, cilj, !samoKopija(ev));
+        return;
+      }
+      VL.zunanje = 0;
+      klic("spusceneDatoteke").then(function (zunanje) {
+        var z = smiselne((Array.isArray(zunanje) ? zunanje : []).map(String));
+        if (z.length) premakniAliKopiraj(z, cilj, false);
+      }, function () {});
+    });
+  }
+  function premakniAliKopiraj(poti, cilj, premakni) {
+    obvesti(t(premakni ? "premikam" : "kopiram"));
+    klic("prilepiDatoteke", [poti, cilj, !!premakni]).then(function (r) {
+      r = r || {};
+      var narejeno = r.narejeno || [], napake = r.napake || [];
+      if (narejeno.length && !napake.length) {
+        obvesti(t(premakni ? "premaknjenoV" : "kopiranoV", { mapa: cilj.replace(/\/$/, "").split("/").pop() || "/",
+          ime: narejeno.length === 1 ? String(narejeno[0]).split("/").pop() : steviloElementov(narejeno.length) }));
+      } else if (narejeno.length) obvesti(t("delnoUspelo", { ok: narejeno.length, ne: napake.length }));
+      else {
+        var koda = r.napaka || (napake[0] || {}).napaka || "";
+        obvesti(BESEDILA[jezik]["prilepiNapaka_" + koda] ? t("prilepiNapaka_" + koda) : t("niUspelo"));
+      }
+      // Kar je prislo v odprto mapo, je po osvezitvi izbrano.
+      if (narejeno.length && D.vir && D.vir.vrsta === "lokalno" && D.vir.pot === cilj) {
+        D.oznaciVse = narejeno.map(function (p) { return String(p).split("/").pop(); }); D.oznaci = D.oznaciVse[0];
+      }
+      if (D.vir) odpriVir(D.vir);
+    }).catch(function () { obvesti(t("niUspelo")); });
   }
   function gorVMapo() {
     var v = D.vir; if (!v) return;
@@ -771,9 +1008,13 @@
 
   // ------------------------------------------------------------------ ODLOZISCE, SMETI, LASTNOSTI
   var O = { poti: [], rezi: false, ime: "" };
-  function vOdlozisce(e, rezi) {
-    O.poti = [e.pot]; O.rezi = !!rezi; O.ime = e.ime;
-    obvesti(t(rezi ? "izrezano" : "kopirano", { ime: e.ime }));
+  function vOdlozisce(e, rezi) { vOdlozisceVec([e], rezi); }
+  function vOdlozisceVec(vnosi, rezi) {
+    vnosi = vnosi.filter(function (e) { return e && e.pot && !e.oddaljeno && !e.smeti; });
+    if (!vnosi.length) return;
+    O.poti = vnosi.map(function (e) { return e.pot; }); O.rezi = !!rezi;
+    O.ime = vnosi.length === 1 ? vnosi[0].ime : steviloElementov(vnosi.length);
+    obvesti(t(rezi ? "izrezano" : "kopirano", { ime: O.ime }));
   }
   function prilepi(vMapo) {
     if (!O.poti.length) return;
@@ -781,11 +1022,13 @@
     obvesti(t(rezi ? "premikam" : "kopiram"));
     klic("prilepiDatoteke", [O.poti, cilj, rezi]).then(function (r) {
       r = r || {};
-      var narejeno = r.narejeno || [];
+      var narejeno = r.narejeno || [], spodletele = r.napake || [];
       if (narejeno.length) {
-        obvesti(t(rezi ? "premaknjeno" : "prilepljeno", { ime: ime }));
+        if (spodletele.length) obvesti(t("delnoUspelo", { ok: narejeno.length, ne: spodletele.length }));
+        else obvesti(t(rezi ? "premaknjeno" : "prilepljeno", { ime: narejeno.length === 1 ? String(narejeno[0]).split("/").pop() : ime }));
         if (rezi) { O.poti = []; O.ime = ""; }
-        D.oznaci = String(narejeno[0]).split("/").pop();
+        D.oznaciVse = narejeno.map(function (p) { return String(p).split("/").pop(); });
+        D.oznaci = D.oznaciVse[0];
       } else {
         var koda = r.napaka || ((r.napake || [])[0] || {}).napaka || "";
         // Premik v mapo, kjer datoteka ze je, ni napaka: nic ni bilo treba narediti.
@@ -800,6 +1043,33 @@
       obvesti(r && r.ok ? t("obnovljeno", { ime: e.ime }) : t("niUspelo"));
       if (D.vir) odpriVir(D.vir);
     }).catch(function () { obvesti(t("niUspelo")); });
+  }
+  // Vec datotek zapored (ne hkrati): dve datoteki z istim imenom iz razlicnih map bi se v Smeteh sicer lahko stepli za ime.
+  function zapored(vnosi, dejanje) {
+    var izidi = [];
+    return vnosi.reduce(function (veriga, e) {
+      return veriga.then(function () { return dejanje(e); }).then(function (r) { izidi.push(!!(r && r.ok)); })
+        .catch(function () { izidi.push(false); });
+    }, Promise.resolve()).then(function () { return izidi; });
+  }
+  function obnoviIzSmetiVec(vnosi) {
+    zapored(vnosi, function (e) { return klic("obnoviIzSmeti", [e.smeti]); }).then(function (izidi) {
+      var ok = izidi.filter(Boolean).length;
+      obvesti(ok === vnosi.length ? t("obnovljenoN", { ime: steviloElementov(ok) }) : t("delnoUspelo", { ok: ok, ne: vnosi.length - ok }));
+      if (D.vir) odpriVir(D.vir);
+    });
+  }
+  function vSmetiVec(vnosi) {
+    vnosi = vnosi.filter(function (e) { return e && e.pot && !e.oddaljeno && !e.smeti; });
+    if (!vnosi.length) return;
+    if (vnosi.length === 1) { vSmeti(vnosi[0]); return; }
+    zapored(vnosi, function (e) { return klic("vSmeti", [e.pot]); }).then(function (izidi) {
+      var ok = izidi.filter(Boolean).length, vSmeteh = {};
+      vnosi.forEach(function (e, i) { if (izidi[i]) vSmeteh[e.pot] = true; });
+      N.priljubljeneDat = N.priljubljeneDat.filter(function (p) { return !vSmeteh[p.pot]; }); shrani();
+      obvesti(ok === vnosi.length ? t("vSmetiVecOk", { ime: steviloElementov(ok) }) : ok ? t("delnoUspelo", { ok: ok, ne: vnosi.length - ok }) : t("nSmeti"));
+      if (D.vir) odpriVir(D.vir);
+    });
   }
   function izprazniSmeti() {
     // Trajni izbris potrdi sistemsko okno Safeer OS (ne stran); odgovor pride, ko je konec.
@@ -1741,8 +2011,14 @@
       if (ev.target.closest("tbody tr") || ev.target.closest("input, select, button")) return;
       ev.preventDefault(); meniNovo(ev.clientX, ev.clientY);
     });
+    // Spust v prazen del seznama = v odprto mapo.
+    ciljSpusta(document.querySelector(".dat-glavno"), function () { return D.vir && D.vir.vrsta === "lokalno" ? D.vir.pot : ""; });
     $("ploscaDatoteke").addEventListener("keydown", function (ev) {
       if (ev.ctrlKey && ev.shiftKey && (ev.key === "N" || ev.key === "n")) { ev.preventDefault(); odpriOknoNovo({ nacin: "mapa", kam: kamNovo() }); }
+      // Ctrl+A izbere vse v seznamu (tudi na drugih straneh); v polju za vnos ostane izbira besedila.
+      else if (ev.ctrlKey && !ev.shiftKey && !ev.altKey && (ev.key === "a" || ev.key === "A") && !ev.target.closest("input, textarea, select")) {
+        ev.preventDefault(); izberiVse(); oznaciIzbrano();
+      }
       // Ctrl+V prilepi v odprto mapo (v polju za vnos ostane navadno lepljenje besedila).
       else if (ev.ctrlKey && !ev.shiftKey && !ev.altKey && (ev.key === "v" || ev.key === "V") && O.poti.length &&
                D.vir && D.vir.vrsta === "lokalno" && !ev.target.closest("input, textarea, select")) { ev.preventDefault(); prilepi(null); }
@@ -1826,6 +2102,8 @@
       }
       else if (vrsta === "robovi") { robovi(arguments[1] || {}); izrisiDatoteke(); izrisiPrograme(); }
       else if (vrsta === "videz") nastaviVidez(arguments[1]);
+      else if (vrsta === "vleceneDatoteke") { VL.zunanje = (arguments[1] && arguments[1].stevilo) || 0; if (!VL.zunanje) pocistiCilje(); }
+      else if (vrsta === "vlecenjeKoncano") koncajVlecenje(!!(arguments[1] && arguments[1].sprejeto));
       else if (vrsta === "fokus" && Date.now() - zadnjeOsvezevanje > 30000) {
         // Naprave v Linku se spreminjajo: ob vrnitvi v Safeer OS osvezimo najvec vsakih 30 s.
         zadnjeOsvezevanje = Date.now(); zgradiStranDatotek(); naloziProgrameNaprav(); osveziLink();

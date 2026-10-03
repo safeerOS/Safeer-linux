@@ -436,6 +436,43 @@ def prilepi(viri, cilj_mapa: str, premakni: bool = False) -> dict:
     return {"ok": bool(narejeno) or not napake, "narejeno": narejeno, "napake": napake}
 
 
+# ---------------------------------------------------------------------- vlecenje med programi (text/uri-list)
+def poti_iz_naslovov(naslovi) -> list:
+    """Poti datotek tega racunalnika iz seznama naslovov, ki ga program poslje ob vlecenju datotek (text/uri-list).
+    Kar ni datoteka tega racunalnika (http..., file://drug-racunalnik/...), izpade; najvec NAJVEC_NAENKRAT."""
+    import socket
+    import urllib.parse
+    tukaj = {"", "localhost", socket.gethostname().lower()}
+    poti: list = []
+    for naslov in list(naslovi or []):
+        try:
+            deli = urllib.parse.urlsplit(str(naslov).strip())
+        except ValueError:
+            continue
+        if deli.scheme.lower() != "file" or (deli.netloc or "").lower() not in tukaj:
+            continue
+        pot = urllib.parse.unquote(deli.path, errors="surrogateescape")
+        if not pot.startswith("/") or "\x00" in pot:
+            continue
+        pot = os.path.normpath(pot)
+        if pot not in poti:
+            poti.append(pot)
+        if len(poti) >= NAJVEC_NAENKRAT:
+            break
+    return poti
+
+
+def naslovi_iz_poti(poti) -> list:
+    """Naslovi file:// obstojecih datotek in map (za vlecenje v drug program); cesar ni, izpade."""
+    import urllib.parse
+    naslovi: list = []
+    for pot in list(poti or [])[:NAJVEC_NAENKRAT]:
+        pot = str(pot)
+        if os.path.isabs(pot) and os.path.lexists(pot):
+            naslovi.append("file://" + urllib.parse.quote(os.path.normpath(pot), safe="/", errors="surrogateescape"))
+    return naslovi
+
+
 # ---------------------------------------------------------------------- Smeti (specifikacija freedesktop, domaca)
 def _mapa_smeti() -> str:
     return os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "Trash")
