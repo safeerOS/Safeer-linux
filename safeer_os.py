@@ -824,6 +824,7 @@ class SafeerOS(Gtk.Application):
         self._knjiznica_medijev = None
         #: Katalog Medijskega centra (filmi, serije, glasba, radio, TV, seznami predvajanja): isto jedro kot na Windows.
         self._katalog = None
+        self._mpris = None                  # core/os_mpris.Mpris; False = ni uspelo (ne poskusamo znova)
         self._medijski_tik_zacet = False
         self._medijsko_osvezevanje = False
         self._zadnji_medijski_napredek = None
@@ -1625,8 +1626,6 @@ class SafeerOS(Gtk.Application):
             "samozagon": lambda: self._samozagon(bool(a[0])) if a else je_samozagon(),
             "nazajVMint": lambda: self._nazaj_v_mint(bool(a[0]) if a else False),
             "razdelek": lambda: self._razdelek(str(a[0]) if a else "domov"),
-            "splet": lambda: self._splet(str(a[0]) if a else ""),
-            "iskanjeSplet": lambda: self._splet(_iskalnik() + GLib.uri_escape_string(str(a[0] if a else ""), None, False)),
         }
         # V ozadju (ukazi, ki lahko trajajo):
         ozadje = {
@@ -2165,8 +2164,36 @@ class SafeerOS(Gtk.Application):
         if self._medijski_predvajalnik_okno is not None:
             self._medijski_predvajalnik_okno.hide()
 
+    def _mpris_podatki(self) -> dict:
+        """Stanje predvajalnika za sistem: kot za stran, z izvajalcem in sliko iz kataloga, ce ju ta pozna."""
+        p = dict(self._medijski_podatki())
+        servis = self._medijski_predvajalnik
+        vnos = (self._katalog.vnos_predvajanega(servis.trenutna.uri) if self._katalog is not None and servis
+                and servis.trenutna else None) or {}
+        p["izvajalec"] = vnos.get("izvajalec") or ""
+        p["slika"] = vnos.get("slika") or ""
+        # Skladba iz kataloga: naslednjo in prejsnjo vodi stran (vrsta, premesaj), zato sta na voljo tudi pri eni skladbi.
+        p["vrstaStrani"] = bool(vnos.get("zvok")) and servis is not None and len(servis.vrsta) <= 1 and p.get("vrsta") != "radio"
+        return p
+
+    def _mpris_osvezi(self) -> None:
+        """Sistemu (medijske tipke, slusalke, Cinnamonov zvocni applet) pove, kaj igra domaci predvajalnik."""
+        if self._mpris is False:
+            return
+        try:
+            if self._mpris is None:
+                from core import os_mpris
+                vodilo = self.get_dbus_connection() or Gio.bus_get_sync(Gio.BusType.SESSION, None)
+                self._mpris = os_mpris.Mpris(vodilo, self._mpris_podatki, self._medijski_ukaz)
+            self._mpris.osvezi()
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] MPRIS:", e, flush=True)
+            self._mpris = False
+
     def _osvezi_medijski_predvajalnik(self) -> None:
         servis = self._medijski_predvajalnik
+        if servis is not None:
+            self._mpris_osvezi()
         if servis is None or self._medijski_napis is None:
             return
         naslov = servis.trenutna.naslov if servis.trenutna else self._mb("nic")

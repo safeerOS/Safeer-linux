@@ -529,7 +529,9 @@ class Katalog:
                 return dict(item, native=True, napaka_koda="tok")
             if len(self._predvajano) > 50:
                 self._predvajano.clear()
-            self._predvajano[url] = {"id": str(item.get("id") or ident), "zvok": vrsta in ("medij", "radio"), "vrsta": vrsta}
+            # izvajalec in slika: za sistem (MPRIS - zvocni applet in medijske tipke pokazejo, kaj igra)
+            self._predvajano[url] = {"id": str(item.get("id") or ident), "zvok": vrsta in ("medij", "radio"), "vrsta": vrsta,
+                                     "izvajalec": str(item.get("izvajalec") or "")[:200], "slika": str(item.get("slika") or "")[:2048]}
             return dict(item, native=True, zvok=vrsta in ("medij", "radio"))
         if nacin == "vdelano":
             ok = self._v_glavni_pocakaj(lambda: self._vdelano(str(item.get("url") or "")))
