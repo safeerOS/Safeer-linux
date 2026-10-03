@@ -1411,6 +1411,21 @@
       b.addEventListener("click", function () { odpriMapo(m.pot); });
       seznam.appendChild(b);
     });
+    // Nosilci (USB kljuci, zunanji in drugi diski, omrezna mesta) so mape kot vse druge.
+    (S.nosilci || []).forEach(function (n) {
+      var g = el("button", S.pot === n.pot ? "izbran" : "", svg("arhiv") + "<span>" + ubezi(n.ime) + "</span>");
+      g.addEventListener("click", function () { odpriMapo(n.pot); });
+      seznam.appendChild(g);
+    });
+    if (!S.nosilciNalagam) {
+      S.nosilciNalagam = true;
+      klic("nosilci").then(function (n) {
+        var prej = JSON.stringify((S.nosilci || []).map(function (x) { return x.pot; }));
+        S.nosilci = Array.isArray(n) ? n.filter(function (x) { return x && x.pot; }) : [];
+        S.nosilciNalagam = false;
+        if (JSON.stringify(S.nosilci.map(function (x) { return x.pot; })) !== prej) narisiMape();
+      }, function () { S.nosilciNalagam = false; });
+    }
   }
   function odpriNedavne() {
     S.pot = "";
@@ -1483,7 +1498,21 @@
       v.innerHTML = "";
       if (r.napaka) { v.appendChild(el("div", "prazno", ubezi(t(r.napaka === "ni_dovoljenja" ? "niDovoljenja" : "prazno")))); return; }
       if (!r.elementi.length) { v.appendChild(el("div", "prazno", ubezi(t("prazno")))); return; }
-      r.elementi.forEach(function (e) { v.appendChild(vrsticaDatoteke(e, false)); });
+      // Velika mapa (do 5000 vnosov): vrstice dodajamo po delih, ko se uporabnik pomakne proti koncu - stran ostane odzivna.
+      var narisano = 0, KOS = 300, straza = el("div", "");
+      var opazovalec = new IntersectionObserver(function (z) {
+        if (!z[0].isIntersecting || S.pot !== r.pot) return;
+        dodajKos();
+        if (narisano < r.elementi.length) { opazovalec.unobserve(straza); opazovalec.observe(straza); }
+      }, { rootMargin: "800px" });
+      function dodajKos() {
+        r.elementi.slice(narisano, narisano + KOS).forEach(function (e) { v.insertBefore(vrsticaDatoteke(e, false), straza); });
+        narisano += KOS;
+        if (narisano >= r.elementi.length) { opazovalec.disconnect(); straza.remove(); }
+      }
+      v.appendChild(straza);
+      dodajKos();
+      if (narisano < r.elementi.length) opazovalec.observe(straza);
     }, function () {});
   }
   function narisiNedavneDomov() {

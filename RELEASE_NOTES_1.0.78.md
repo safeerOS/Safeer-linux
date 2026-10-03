@@ -1,0 +1,14 @@
+# Safeer Browser for Linux 1.0.78 · Safeer Control 2.1.34 · Safeer OS 0.4.36
+
+Files in Safeer OS were a viewer: you could open, create, rename and delete, but not copy or move, and a deleted file was out of sight. This release adds the everyday jobs to the Files panel on the Safeer Cinnamon desktop – without trying to replace Nemo.
+
+- **Copy, cut, paste.** Right-click a file or folder → Copy or Cut, then Paste in the folder you want (right-click on the empty area, or on a folder to paste into it). Ctrl+C, Ctrl+X and Ctrl+V work too. Nothing is ever overwritten: if the name is taken, the copy becomes “name (2)”. A folder cannot be copied into itself, and a copy that fails half-way is not left behind.
+- **Trash.** A new Trash entry shows what you deleted, where it was and when. Restore puts a file back where it was (and recreates the folder if it is gone). Empty Trash asks in a system window before anything is deleted for good – the page itself cannot skip that question.
+- **USB sticks and other drives.** Plugged-in drives, other disks and network places appear under Devices; hover shows the free space, right-click → Eject unmounts the drive and powers a USB stick down so it can be unplugged. The folder list of the full-screen Files section shows them too.
+- **Properties.** Type, size (for a folder, its contents), location, modification time, permissions and owner.
+- **Thumbnails.** Pictures and videos show a small preview instead of a generic icon. Safeer first uses the thumbnails your desktop already made (the shared thumbnail cache, where Nemo keeps video previews too) and scales pictures itself when there is none.
+- **Big folders.** A folder used to be cut at 600 items; the limit is now 5000, and the full-screen Files section adds rows as you scroll so it stays responsive.
+
+Safeer Browser 1.0.78 and Safeer Control 2.1.34 have no changes of their own (same code, new number).
+
+Slovensko: Datoteke v Safeer OS so bile ogledovalnik – odpri, ustvari, preimenuj, izbriši, ne pa kopiraj ali premakni, in izbrisane datoteke ni bilo več videti. Ta izdaja plošči Datoteke na namizju Safeer Cinnamon doda vsakdanja opravila (Nema ne nadomešča). **Kopiraj, izreži, prilepi** – desni klik na datoteko ali mapo → Kopiraj ali Izreži, nato Prilepi v želeni mapi (desni klik na prazno ali na mapo); delujejo tudi Ctrl+C, Ctrl+X in Ctrl+V. Nič se nikoli ne prepiše (zasedeno ime postane »ime (2)«), mape ni mogoče kopirati vase, napol narejena kopija ne ostane. **Smeti** – nov vnos pokaže, kaj si izbrisal, kje je bilo in kdaj; Obnovi vrne datoteko na njeno mesto, Izprazni Smeti pa pred trajnim izbrisom vpraša v sistemskem oknu. **USB ključi in drugi diski** so med Napravami (prosti prostor ob prehodu z miško, desni klik → Varno odstrani). **Lastnosti** – vrsta, velikost, mesto, čas spremembe, pravice in lastnik. **Sličice** slik in videov namesto splošne ikone. **Velike mape** – meja 600 vnosov je zdaj 5000.

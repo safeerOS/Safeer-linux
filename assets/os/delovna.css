@@ -177,6 +177,17 @@ select option { background: #111c2b; color: var(--besedilo); }
 .seznam td small { color: #99afc9; }
 .celica-ime { display: flex; align-items: center; gap: .45em; overflow: hidden; }
 .celica-ime span { overflow: hidden; text-overflow: ellipsis; }
+/* Slicica slike ali videa namesto splosne ikone (velikost ikone ostane, da se vrstice ne premikajo). */
+.celica-ime .ikona-vrste { position: relative; }
+.celica-ime .ikona-vrste .slicica { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 4px; opacity: 0; }
+.celica-ime .ikona-vrste.s-slicico .slicica { opacity: 1; }
+.celica-ime .ikona-vrste.s-slicico svg { visibility: hidden; }
+/* Lastnosti datoteke */
+.meni.lastnosti { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); min-width: 24em; max-width: 70vw; padding: 1em 1.1em; z-index: 40; }
+.lastnosti .lastnosti-ime { margin: .1em .5em .7em; font-size: 1.05em; font-weight: 600; overflow-wrap: anywhere; }
+.lastnosti dl { display: grid; grid-template-columns: max-content 1fr; gap: .35em 1.2em; margin: 0 .5em .9em; }
+.lastnosti dt { color: var(--tiho); }
+.lastnosti dd { margin: 0; overflow-wrap: anywhere; }
 .ikona-vrste { flex: none; width: 1.35em; height: 1.35em; border-radius: 5px; display: inline-grid; place-items: center; color: #eaf2ff; }
 .ikona-vrste svg { width: .9em; height: .9em; }
 .v-mapa { background: #3b6fb0; } .v-slika { background: #2f8a6b; } .v-video { background: #b45058; } .v-zvok { background: #674da7; }

@@ -30,7 +30,14 @@
     // Programi tega racunalnika (most "programi"): v Programih so pod »Ta računalnik«.
     programi: ["Brskalnik|splet|#26789a", "Datoteke|orodja|#4a5a70", "Terminal|sistem|#39424f", "Predvajalnik|predstavnost|#674da7", "Pisarna|pisarna|#2558ad"]
       .map(function (s, i) { var p = s.split("|"); return { id: "demo" + i + ".desktop", ime: p[0], opis: "", splosno: "", skupina: p[1], ikona: ikona(p[2]), skrit: false }; }),
-    zazeni: true, isciDatoteke: [], knjiznicaMedijev: []
+    zazeni: true, isciDatoteke: [], knjiznicaMedijev: [],
+    nosilci: [{ ime: "USB ključ (demo)", pot: "/media/demo/KLJUC", naprava: "/dev/sdx1", odstranljiv: true, velikost: 31000000000, prosto: 12000000000 }],
+    smeti: { skupaj: 2, elementi: [{ id: "Star osnutek.odt", ime: "Star osnutek.odt", pot: dom + "/.local/share/Trash/files/Star osnutek.odt", izvirna: dom + "/Dokumenti/Star osnutek.odt", izbrisano: zdaj - 7200, mapa: false, velikost: 52000, vrsta: "dokument" },
+      { id: "Stare slike", ime: "Stare slike", pot: dom + "/.local/share/Trash/files/Stare slike", izvirna: dom + "/Slike/Stare slike", izbrisano: zdaj - 86400, mapa: true, velikost: 0, vrsta: "mapa" }] },
+    lastnostiDatoteke: { ok: true, ime: "Porocilo projekta.odt", pot: dom + "/Dokumenti/Porocilo projekta.odt", mapa: false, vrsta: "dokument", mime: "application/vnd.oasis.opendocument.text",
+      velikost: 248000, spremenjeno: zdaj - 600, pravice: "-rw-r--r--", lastnik: "demo", pisljivo: true },
+    prilepiDatoteke: { ok: true, narejeno: [dom + "/Dokumenti/Porocilo projekta (2).odt"], napake: [] }, sliciceDatotek: {}, obnoviIzSmeti: { ok: true }, izvrziNosilec: { ok: true },
+    izprazniSmeti: { ok: true, potrjeno: false }
   };
   window.SafeerOS = { klic: function (m, a) {
     if (m === "programiNaprave") {
