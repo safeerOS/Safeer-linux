@@ -5,8 +5,8 @@ Comment=Safeer Cinnamon z neprosojnimi povrsinami in mocnejsimi obrobami
 Encoding=UTF-8
 
 [X-GNOME-Metatheme]
-GtkTheme=Safeer-Cinnamon
-MetacityTheme=Safeer-Cinnamon
+GtkTheme=Safeer-Cinnamon-Kontrast
+MetacityTheme=Safeer-Cinnamon-Kontrast
 IconTheme=Papirus-Dark
 CursorTheme=DMZ-White
 ButtonLayout=:minimize,maximize,close

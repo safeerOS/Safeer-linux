@@ -1,4 +1,6 @@
 @import url("/usr/share/themes/Mint-Y-Dark-Blue/gtk-3.0/gtk.css");
+/* Mintove sivine in modra v paleti Safeer (samodejno: tools/tema_cinnamon_prebarvaj.py). */
+@import url("prebarvano.css");
 
 /* ==========================================================================
    Safeer Cinnamon — GTK 3.0 (osnova Mint-Y-Dark-Blue, videz po CBlue)
@@ -34,8 +36,44 @@
 @define-color wm_bg_unfocused #0e1727;
 @define-color wm_title #eaf2ff;
 @define-color wm_title_unfocused #93a9c4;
-@define-color wm_border rgba(138, 199, 255, 0.25);
-@define-color wm_border_unfocused rgba(255, 255, 255, 0.08);
+@define-color wm_border #2f4760;
+@define-color wm_border_unfocused #212a38;
+@define-color wm_highlight #1a2a44;
+/* Gumbi v naslovni vrstici (obrobe oken rise Mint-Y, barve vzame od tu) */
+@define-color wm_button_close_bg #8ac7ff;
+@define-color wm_button_close_hover_bg #b1dbff;
+@define-color wm_button_close_active_bg #5fa3e6;
+@define-color wm_icon_close_bg #0b1424;
+@define-color wm_button_hover_bg #1e3250;
+@define-color wm_button_active_bg #2a4368;
+@define-color wm_icon_bg #afbed4;
+@define-color wm_icon_unfocused_bg #5d7190;
+@define-color wm_icon_hover_bg #eaf2ff;
+@define-color wm_icon_active_bg #ffffff;
+
+/* Imena brez predpone theme_ in barve neaktivnega okna: berejo jih obrobe oken in programi z lastnim CSS */
+@define-color fg_color #eaf2ff;
+@define-color text_color #eaf2ff;
+@define-color bg_color #111c2b;
+@define-color base_color #0e1727;
+@define-color selected_bg_color #8ac7ff;
+@define-color selected_fg_color #0b1424;
+@define-color insensitive_bg_color #101a2b;
+@define-color insensitive_fg_color rgba(234, 242, 255, 0.5);
+@define-color insensitive_base_color #0e1727;
+@define-color theme_unfocused_fg_color #eaf2ff;
+@define-color theme_unfocused_text_color #d5e6fa;
+@define-color theme_unfocused_bg_color #111c2b;
+@define-color theme_unfocused_base_color #0e1727;
+@define-color theme_unfocused_selected_bg_color #8ac7ff;
+@define-color theme_unfocused_selected_fg_color #0b1424;
+@define-color borders #22344f;
+@define-color unfocused_borders #1b2a41;
+@define-color placeholder_text_color #8fa3bf;
+@define-color content_view_bg #0f1a2a;
+@define-color warning_color #ffd27a;
+@define-color error_color #ff8f8f;
+@define-color success_color #7fe0b6;
 
 /* Okna in ozadja */
 window, .background {
@@ -238,6 +276,47 @@ switch:checked {
 switch:checked slider {
   background-color: #0b1424;
 }
+
+/* ---- Dopolnitve 1.2: gradniki, ki jih osnova rise s slikami ali pretemno ------------------------------- */
+/* Stikalo: zleb narise prebarvano.css (osnova ima celo stikalo kot sliko), drsnik tukaj. */
+switch slider {
+  min-width: 18px;
+  min-height: 18px;
+  margin: 3px;
+  border-radius: 9px;
+  background-color: #eaf2ff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+switch:checked slider { background-color: #0b1424; }
+row:selected switch slider, infobar switch slider { background-color: #8ac7ff; }
+
+/* Drsniki, napredek, nivo: viden zleb in drsnik (preslikana Mintova sivina je na temno modri podlagi pretemna). */
+scale trough, progressbar trough, levelbar trough {
+  background-color: rgba(215, 234, 255, 0.16);
+  border-color: transparent;
+}
+scale slider {
+  background-color: #eaf2ff;
+  border: 1px solid rgba(11, 20, 36, 0.5);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+scale slider:hover { background-color: #ffffff; }
+scale slider:disabled { background-color: #5d7190; }
+
+/* Okvirji in locila */
+frame > border, .frame, separator { border-color: rgba(215, 234, 255, 0.16); }
+separator { background-color: rgba(215, 234, 255, 0.14); }
+
+/* Namig (tooltip) in obvestilna vrstica */
+tooltip, tooltip.background {
+  background-color: #111c2b;
+  color: #eaf2ff;
+  border: 1px solid rgba(215, 234, 255, 0.24);
+  border-radius: 8px;
+}
+infobar.info, infobar.question { background-color: #132a45; color: #eaf2ff; }
+infobar.warning { background-color: #4a3a12; color: #fff3d6; }
+infobar.error { background-color: #4c1d24; color: #ffe3e6; }
 
 /* Fokus s tipkovnico: obroc risje Mint-Y (GTK 3 ne pozna psevdo-razreda za fokus s tipkovnico), tukaj le v nasi barvi */
 * { outline-color: #9dceff; }

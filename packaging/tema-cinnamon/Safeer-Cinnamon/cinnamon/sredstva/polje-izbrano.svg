@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Safeer Cinnamon (GPL-3.0): potrditveno polje, izbrano -->
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <rect x="1.5" y="1.5" width="13" height="13" rx="3" fill="#8ac7ff" stroke="#8ac7ff"/>
+  <path d="M4.3 8.3 L6.9 10.9 L11.8 5.4" fill="none" stroke="#0b1424" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

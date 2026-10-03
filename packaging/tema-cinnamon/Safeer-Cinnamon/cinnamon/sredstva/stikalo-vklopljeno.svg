@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Safeer Cinnamon (GPL-3.0): stikalo, vklopljeno -->
+<svg xmlns="http://www.w3.org/2000/svg" width="50" height="20" viewBox="0 0 50 20">
+  <rect x="5.5" y="0.5" width="39" height="19" rx="9.5" fill="#8ac7ff" stroke="#8ac7ff"/>
+  <circle cx="35" cy="10" r="6.5" fill="#0b1424"/>
+</svg>

@@ -1,0 +1,400 @@
+#!/usr/bin/python3
+"""Safeer Cinnamon: okno z izbiro postavitve in ozadja (safeer-cinnamon --izberi).
+
+Vklop je bil do razlicice 1.1 ena sama poteza: tema, pult na vrh, dock in delovna povrsina cez namizje. Kdor je zelel
+samo barve, je dobil nov namizni sistem. Tu uporabnik izbere, koliko Safeerja zeli; nic se ne spremeni, dokler ne
+pritisne Vklopi, in "Vrni prejsnji videz" vse povrne. Okno samo nicesar ne nastavlja - poklice ukaz safeer-cinnamon.
+"""
+import math
+import os
+import shutil
+import subprocess
+import sys
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+gi.require_version("GdkPixbuf", "2.0")
+from gi.repository import GLib  # noqa: E402
+
+# Ime programa doloci razred okna (WM_CLASS): po njem pult in dock okno povezeta z vnosom v meniju.
+GLib.set_prgname("safeer-cinnamon-izbira")
+from gi.repository import Gdk, GdkPixbuf, Gio, Gtk  # noqa: E402
+
+UKAZ = "safeer-cinnamon"
+OZADJA_MAPA = "/usr/share/backgrounds/safeer"
+OZADJA = (("aurora", "safeer-aurora.jpg"), ("zora", "safeer-zora.jpg"), ("globina", "safeer-globina.jpg"), ("gore", "safeer-gore-3840x2160.png"))
+PROFILI = ("videz", "dock", "delovna")
+
+BESEDILA = {
+    "sl": {
+        "naslov": "Izberi, koliko Safeerja želiš",
+        "podnaslov": "Nič se ne spremeni, dokler ne pritisneš {gumb}. Prejšnji videz lahko kadar koli vrneš.",
+        "videz": "Samo videz", "videz_opis": "Tema, ikone in ozadje. Pult, okna in ikone na namizju ostanejo, kjer so.",
+        "dock": "Videz in dock", "dock_opis": "Pult gre na vrh, spodaj je dock s pripetimi in odprtimi programi (seznama oken na pultu ni).",
+        "delovna": "Delovna površina", "delovna_opis": "Kot zgoraj, namesto ikon na namizju pa iskanje, mediji, datoteke in programi tvojih naprav.",
+        "ni_safeer_os": "Potrebuje Safeer OS (safeer.si/os).", "ni_planka": "Potrebuje program Plank.",
+        "ozadje": "Ozadje", "ohrani": "Moje ozadje", "prejsnje": "Moje ozadje", "trenutno": "Trenutno ozadje", "aurora": "Aurora", "zora": "Zora nad jezerom", "globina": "Globina", "gore": "Gore in jezero",
+        "vklopi": "Vklopi", "uporabi": "Uporabi", "preklici": "Prekliči", "vrni": "Vrni prejšnji videz",
+        "vklopljeno": "Zdaj vklopljeno: {profil}",
+    },
+    "en": {
+        "naslov": "Choose how much Safeer you want",
+        "podnaslov": "Nothing changes until you press {gumb}. You can restore the previous look at any time.",
+        "videz": "Look only", "videz_opis": "Theme, icons and wallpaper. The panel, windows and desktop icons stay where they are.",
+        "dock": "Look and dock", "dock_opis": "The panel moves to the top, with a dock for pinned and open apps at the bottom (no window list on the panel).",
+        "delovna": "Workspace", "delovna_opis": "As above, and instead of desktop icons: search, media, files and the apps on your devices.",
+        "ni_safeer_os": "Needs Safeer OS (safeer.si/os).", "ni_planka": "Needs the Plank program.",
+        "ozadje": "Wallpaper", "ohrani": "My wallpaper", "prejsnje": "My wallpaper", "trenutno": "Current wallpaper", "aurora": "Aurora", "zora": "Dawn over the lake", "globina": "Depth", "gore": "Mountains and lake",
+        "vklopi": "Turn on", "uporabi": "Apply", "preklici": "Cancel", "vrni": "Restore previous look",
+        "vklopljeno": "On now: {profil}",
+    },
+}
+
+SLOG = b"""
+.safeer-kartica { padding: 10px; border-radius: 14px; border: 2px solid alpha(currentColor, 0.18); background-image: none; }
+.safeer-kartica:checked { border-color: #8ac7ff; background-color: alpha(#8ac7ff, 0.12); }
+.safeer-kartica:focus { box-shadow: 0 0 0 2px alpha(#9dceff, 0.55); }
+.safeer-ozadje { padding: 4px; border-radius: 10px; border: 2px solid transparent; background-image: none; }
+.safeer-ozadje:checked { border-color: #8ac7ff; }
+.safeer-naslov { font-weight: bold; font-size: 1.25em; }
+.safeer-ime { font-weight: bold; }
+.safeer-tiho { opacity: 0.75; }
+"""
+
+
+def jezik() -> str:
+    """Jezik vmesnika po pravilih gettexta: LANGUAGE (prvi s seznama), nato LC_ALL, LC_MESSAGES, LANG."""
+    for ime in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
+        v = os.environ.get(ime, "").split(":")[0].strip()
+        if v and v.upper() not in ("C", "POSIX") and not v.upper().startswith("C."):
+            return "sl" if v.lower().startswith("sl") else "en"
+    return "en"
+
+
+def nastavitev(shema: str, kljuc: str) -> str:
+    """Vrednost nastavitve kot besedilo; prazno, ce sheme ali kljuca ni (ukaz tece tudi zunaj Cinnamona)."""
+    vir = Gio.SettingsSchemaSource.get_default()
+    s = vir.lookup(shema, True) if vir is not None else None
+    if s is None or not s.has_key(kljuc):
+        return ""
+    v = Gio.Settings.new(shema).get_value(kljuc)
+    return v.get_string() if v.get_type_string() == "s" else v.print_(False)
+
+
+def stanje() -> dict:
+    """Kaj je vklopljeno zdaj (iz datotek ukaza safeer-cinnamon) in kaj je na voljo."""
+    mapa = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "safeer-cinnamon")
+    avto = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "autostart")
+    profil = ""
+    if os.path.isfile(os.path.join(mapa, "vklopljeno")):
+        try:
+            with open(os.path.join(mapa, "profil"), encoding="utf-8") as f:
+                profil = f.readline().strip()
+        except OSError:
+            profil = ""
+        if profil not in PROFILI:
+            # Vklop pred razlicico 1.2: po tem, kaj je bilo takrat vklopljeno (enako kot ukaz).
+            profil = ("delovna" if os.path.isfile(os.path.join(avto, "safeer-cinnamon.desktop"))
+                      else "dock" if os.path.isfile(os.path.join(avto, "safeer-cinnamon-dock.desktop")) else "videz")
+    zadnje = ""
+    try:
+        with open(os.path.join(mapa, "zadnje-ozadje"), encoding="utf-8") as f:
+            zadnje = f.readline().strip().strip("'")
+    except OSError:
+        pass
+    trenutno = nastavitev("org.cinnamon.desktop.background", "picture-uri")
+    prejsnje = ""
+    try:
+        # Ozadje pred Safeer Cinnamon (ukaz si ga zapomni v prej.txt): "Moje ozadje" tudi po zamenjavi.
+        with open(os.path.join(mapa, "prej.txt"), encoding="utf-8") as f:
+            for vrstica in f:
+                if vrstica.startswith("org.cinnamon.desktop.background:picture-uri="):
+                    prejsnje = vrstica.split("=", 1)[1].strip().strip("'")
+    except OSError:
+        pass
+    pulti = nastavitev("org.cinnamon", "panels-enabled")
+    try:
+        # Postavitev dock je pult preselila na vrh: skica "Samo videz" kaze, kam se vrne.
+        with open(os.path.join(mapa, "pult-prej"), encoding="utf-8") as f:
+            pulti = f.readline().strip() or pulti
+    except OSError:
+        pass
+    return {"profil": profil, "zadnje": zadnje, "trenutno": trenutno, "prejsnje": prejsnje, "pult_zgoraj": ":top" in pulti and ":bottom" not in pulti,
+            "safeer_os": bool(shutil.which("safeer-os")), "plank": bool(shutil.which("plank"))}
+
+
+def pot_iz_uri(uri: str) -> str:
+    return Gio.File.new_for_uri(uri).get_path() or "" if uri.startswith("file://") else ""
+
+
+def safeerjevo(uri: str) -> str:
+    """Ime Safeerjevega ozadja (aurora ...), ce naslov kaze nanj; sicer prazno."""
+    pot = pot_iz_uri(uri.strip("'"))
+    if os.path.dirname(pot) != OZADJA_MAPA:
+        return ""
+    return next((ime for ime, dat in OZADJA if dat == os.path.basename(pot)), "")
+
+
+def zacetno_ozadje(s: dict) -> str:
+    """Katero ozadje je oznaceno ob odprtju: vklopljeno -> trenutno; prvic -> Aurora; ponovno -> zadnje s Safeerjem."""
+    if s["profil"]:
+        return safeerjevo(s["trenutno"]) or "ohrani"
+    if not s["zadnje"]:
+        return "aurora"
+    return safeerjevo(s["zadnje"]) or "ohrani"
+
+
+# ---------------------------------------------------------------------------- skica postavitve
+def zaobljen(cr, x, y, w, h, r):
+    r = min(r, w / 2, h / 2)
+    cr.new_sub_path()
+    cr.arc(x + w - r, y + r, r, -math.pi / 2, 0)
+    cr.arc(x + w - r, y + h - r, r, 0, math.pi / 2)
+    cr.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
+    cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
+    cr.close_path()
+
+
+def narisi_skico(cr, w, h, profil: str, pult_zgoraj: bool):
+    import cairo
+    zaobljen(cr, 0, 0, w, h, 10)
+    cr.clip()
+    preliv = cairo.LinearGradient(0, 0, 0, h)
+    preliv.add_color_stop_rgb(0, 0.10, 0.17, 0.30)
+    preliv.add_color_stop_rgb(0.62, 0.29, 0.33, 0.50)
+    preliv.add_color_stop_rgb(1, 0.06, 0.09, 0.15)
+    cr.set_source(preliv)
+    cr.paint()
+    # gore
+    cr.set_source_rgba(0.07, 0.11, 0.19, 0.85)
+    cr.move_to(0, h * 0.72)
+    for x, y in ((0.18, 0.50), (0.33, 0.62), (0.52, 0.42), (0.70, 0.60), (0.86, 0.48), (1.0, 0.66)):
+        cr.line_to(w * x, h * y)
+    cr.line_to(w, h)
+    cr.line_to(0, h)
+    cr.close_path()
+    cr.fill()
+
+    visina_pulta = 9
+    zgoraj = pult_zgoraj if profil == "videz" else True
+    y_pulta = 0 if zgoraj else h - visina_pulta
+    cr.set_source_rgba(0.06, 0.09, 0.15, 0.92)
+    cr.rectangle(0, y_pulta, w, visina_pulta)
+    cr.fill()
+    cr.set_source_rgba(0.54, 0.78, 1.0, 0.95)
+    zaobljen(cr, 4, y_pulta + 2, 5, 5, 1.5)
+    cr.fill()
+    cr.set_source_rgba(0.92, 0.95, 1.0, 0.55)
+    if profil == "videz":                                    # seznam oken ostane na pultu
+        for i in range(3):
+            zaobljen(cr, 14 + i * 20, y_pulta + 2, 16, 5, 1.5)
+            cr.fill()
+    zaobljen(cr, w - 22, y_pulta + 2.5, 18, 4, 1.5)          # ura in obvestila
+    cr.fill()
+    for i in range(3):
+        cr.arc(w - 30 - i * 7, y_pulta + 4.5, 1.6, 0, 2 * math.pi)
+        cr.fill()
+
+    if profil == "videz":
+        cr.set_source_rgba(0.92, 0.95, 1.0, 0.75)            # ikone na namizju ostanejo
+        zacetek = visina_pulta + 8 if zgoraj else 8
+        for i in range(3):
+            zaobljen(cr, 9, zacetek + i * 20, 12, 12, 3)
+            cr.fill()
+        return
+
+    sirina_docka, visina_docka = min(w * 0.46, 120), 15
+    x_docka, y_docka = (w - sirina_docka) / 2, h - visina_docka - 2
+    cr.set_source_rgba(0.07, 0.12, 0.20, 0.86)
+    zaobljen(cr, x_docka, y_docka, sirina_docka, visina_docka, 6)
+    cr.fill_preserve()
+    cr.set_source_rgba(0.84, 0.92, 1.0, 0.30)
+    cr.set_line_width(1)
+    cr.stroke()
+    barve = ((0.54, 0.78, 1.0), (0.50, 0.88, 0.71), (0.93, 0.72, 0.45), (0.80, 0.62, 0.95), (0.92, 0.95, 1.0))
+    korak = (sirina_docka - 12) / len(barve)
+    for i, (r, g, b) in enumerate(barve):
+        cr.set_source_rgba(r, g, b, 0.95)
+        zaobljen(cr, x_docka + 6 + i * korak + (korak - 9) / 2, y_docka + 3, 9, 9, 2.5)
+        cr.fill()
+
+    if profil == "delovna":
+        cr.set_source_rgba(0.07, 0.11, 0.18, 0.78)
+        zaobljen(cr, w * 0.24, visina_pulta + 7, w * 0.52, 11, 5.5)          # iskanje
+        cr.fill()
+        vrh, dno = visina_pulta + 25, y_docka - 6
+        zaobljen(cr, 8, vrh, w * 0.40, (dno - vrh) * 0.44, 6)               # mediji
+        cr.fill()
+        zaobljen(cr, 8, vrh + (dno - vrh) * 0.50, w * 0.40, (dno - vrh) * 0.50, 6)   # datoteke
+        cr.fill()
+        zaobljen(cr, w * 0.40 + 14, vrh, w - (w * 0.40 + 14) - 8, dno - vrh, 6)     # programi
+        cr.fill()
+        cr.set_source_rgba(0.92, 0.95, 1.0, 0.55)
+        for vrsta in range(3):
+            for stolpec in range(4):
+                zaobljen(cr, w * 0.40 + 22 + stolpec * 22, vrh + 8 + vrsta * 20, 13, 13, 3.5)
+                cr.fill()
+
+
+# ---------------------------------------------------------------------------- okno
+class Izbira(Gtk.Window):
+    def __init__(self):
+        super().__init__(title="Safeer Cinnamon")
+        self.t = BESEDILA[jezik()]
+        self.s = stanje()
+        self.set_icon_name("preferences-desktop-theme")
+        self.set_position(Gtk.WindowPosition.CENTER)
+        self.set_resizable(False)
+        self.set_border_width(18)
+        slog = Gtk.CssProvider()
+        slog.load_from_data(SLOG)
+        Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), slog, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+        gumb = self.t["uporabi"] if self.s["profil"] else self.t["vklopi"]
+        okvir = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        self.add(okvir)
+        naslov = Gtk.Label(label=self.t["naslov"], xalign=0)
+        naslov.get_style_context().add_class("safeer-naslov")
+        okvir.pack_start(naslov, False, False, 0)
+        pod = self.t["podnaslov"].format(gumb=gumb)
+        if self.s["profil"]:
+            pod = self.t["vklopljeno"].format(profil=self.t[self.s["profil"]]) + " · " + pod
+        podnaslov = Gtk.Label(label=pod, xalign=0, wrap=True, max_width_chars=90)
+        podnaslov.get_style_context().add_class("safeer-tiho")
+        okvir.pack_start(podnaslov, False, False, 0)
+
+        self.kartice = {}
+        vrsta = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12, homogeneous=True)
+        okvir.pack_start(vrsta, False, False, 0)
+        prva = None
+        for profil in PROFILI:
+            k = Gtk.RadioButton.new_from_widget(prva)
+            prva = prva or k
+            k.set_mode(False)
+            k.get_style_context().add_class("safeer-kartica")
+            vsebina = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            skica = Gtk.DrawingArea()
+            skica.set_size_request(236, 142)
+            skica.connect("draw", self._narisi, profil)
+            vsebina.pack_start(skica, False, False, 0)
+            ime = Gtk.Label(label=self.t[profil], xalign=0)
+            ime.get_style_context().add_class("safeer-ime")
+            vsebina.pack_start(ime, False, False, 0)
+            opis = self.t[profil + "_opis"]
+            manjka = ""
+            if profil != "videz" and not self.s["plank"]:
+                manjka = self.t["ni_planka"]
+            elif profil == "delovna" and not self.s["safeer_os"]:
+                manjka = self.t["ni_safeer_os"]
+            besedilo = Gtk.Label(label=opis + (" " + manjka if manjka else ""), xalign=0, yalign=0, wrap=True, max_width_chars=30)
+            besedilo.set_size_request(236, -1)
+            besedilo.get_style_context().add_class("safeer-tiho")
+            vsebina.pack_start(besedilo, True, True, 0)
+            k.add(vsebina)
+            k.set_sensitive(not manjka)
+            k.get_accessible().set_name(self.t[profil])
+            k.get_accessible().set_description(opis)
+            self.kartice[profil] = k
+            vrsta.pack_start(k, True, True, 0)
+        izbran = self.s["profil"] if self.s["profil"] in PROFILI and self.kartice[self.s["profil"]].get_sensitive() else "videz"
+        self.kartice[izbran].set_active(True)
+
+        oznaka = Gtk.Label(label=self.t["ozadje"], xalign=0)
+        oznaka.get_style_context().add_class("safeer-ime")
+        okvir.pack_start(oznaka, False, False, 0)
+        self.ozadja = {}
+        trak = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        okvir.pack_start(trak, False, False, 0)
+        prvo = None
+        moznosti = [(ime, os.path.join(OZADJA_MAPA, dat)) for ime, dat in OZADJA]
+        trenutno, prejsnje = self.s["trenutno"].strip("'"), self.s["prejsnje"]
+        napisi = dict(self.t)
+        if not safeerjevo(trenutno):
+            # Ozadje, ki je zdaj, je prva moznost; ce je to ze Safeerjevo, je ena od spodnjih (ne kazemo ga dvakrat).
+            moznosti.insert(0, ("ohrani", pot_iz_uri(trenutno)))
+        if self.s["profil"] and prejsnje and prejsnje != trenutno and not safeerjevo(prejsnje):
+            # Vklopljeno z drugim ozadjem: uporabnikovo ozadje izpred vklopa ostane na izbiro.
+            moznosti.insert(0, ("prejsnje", pot_iz_uri(prejsnje)))
+            napisi["ohrani"] = self.t["trenutno"]
+        for ime, pot in moznosti:
+            if ime != "ohrani" and not os.path.isfile(pot):
+                continue
+            g = Gtk.RadioButton.new_from_widget(prvo)
+            prvo = prvo or g
+            g.set_mode(False)
+            g.get_style_context().add_class("safeer-ozadje")
+            polje = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            slika = Gtk.Image()
+            try:
+                slika.set_from_pixbuf(GdkPixbuf.Pixbuf.new_from_file_at_scale(pot, 132, 74, False))
+            except Exception:  # noqa: BLE001 - brez slike (ozadje je barva ali datoteke ni vec) ostane ikona
+                slika.set_from_icon_name("preferences-desktop-wallpaper", Gtk.IconSize.DIALOG)
+                slika.set_size_request(132, 74)
+            polje.pack_start(slika, False, False, 0)
+            napis = Gtk.Label(label=napisi[ime])
+            napis.get_style_context().add_class("safeer-tiho")
+            polje.pack_start(napis, False, False, 0)
+            g.add(polje)
+            g.get_accessible().set_name(self.t["ozadje"] + ": " + napisi[ime])
+            self.ozadja[ime] = g
+            trak.pack_start(g, False, False, 0)
+        zacetno = self.ozadja.get(zacetno_ozadje(self.s)) or self.ozadja.get("ohrani") or next(iter(self.ozadja.values()), None)
+        if zacetno is not None:
+            zacetno.set_active(True)
+
+        gumbi = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        okvir.pack_start(gumbi, False, False, 0)
+        if self.s["profil"]:
+            vrni = Gtk.Button(label=self.t["vrni"])
+            vrni.connect("clicked", lambda *_: self._pozeni("--izklopi"))
+            gumbi.pack_start(vrni, False, False, 0)
+        potrdi = Gtk.Button(label=gumb)
+        potrdi.get_style_context().add_class("suggested-action")
+        potrdi.set_can_default(True)
+        potrdi.connect("clicked", self._potrdi)
+        gumbi.pack_end(potrdi, False, False, 0)
+        preklici = Gtk.Button(label=self.t["preklici"])
+        preklici.connect("clicked", lambda *_: self.close())
+        gumbi.pack_end(preklici, False, False, 0)
+        potrdi.grab_default()
+        # Fokus na izbrani kartici: puscici levo/desno zamenjata postavitev, Enter potrdi.
+        self.set_focus(self.kartice[izbran])
+        self.connect("key-press-event", lambda _o, d: self.close() if d.keyval == Gdk.KEY_Escape else None)
+        self.connect("destroy", Gtk.main_quit)
+
+    def _narisi(self, obmocje, cr, profil):
+        narisi_skico(cr, obmocje.get_allocated_width(), obmocje.get_allocated_height(), profil, self.s["pult_zgoraj"])
+        return False
+
+    def izbrano(self) -> tuple:
+        profil = next((p for p, k in self.kartice.items() if k.get_active()), "videz")
+        ozadje = next((o for o, g in self.ozadja.items() if g.get_active()), "ohrani")
+        if ozadje == safeerjevo(self.s["trenutno"]):
+            ozadje = "ohrani"                                   # ze nastavljeno: ne nastavljamo znova
+        return profil, ozadje
+
+    def _potrdi(self, *_):
+        profil, ozadje = self.izbrano()
+        self._pozeni("--profil", profil, "--ozadje", ozadje)
+
+    def _pozeni(self, *argumenti):
+        try:
+            subprocess.Popen([UKAZ, *argumenti], start_new_session=True, stdin=subprocess.DEVNULL)
+        except OSError as napaka:
+            print("safeer-cinnamon:", napaka, file=sys.stderr)
+        self.close()
+
+
+def main() -> int:
+    if not Gtk.init_check(sys.argv)[0]:
+        # Brez zaslona (terminal prek ssh ...): vklopi zadnjo izbrano postavitev, kot ukaz brez moznosti.
+        return subprocess.call([UKAZ])
+    Izbira().show_all()
+    Gtk.main()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

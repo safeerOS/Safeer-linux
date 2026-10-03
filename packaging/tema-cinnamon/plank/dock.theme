@@ -2,17 +2,17 @@
 
 [PlankTheme]
 #The roundness of the top corners.
-TopRoundness=15
+TopRoundness=12
 #The roundness of the bottom corners.
-BottomRoundness=15
+BottomRoundness=0
 #The thickness (in pixels) of lines drawn.
 LineWidth=1
 #The color (RGBA) of the outer stroke.
-OuterStrokeColor=212;;232;;255;;54
+OuterStrokeColor=212;;232;;255;;72
 #The starting color (RGBA) of the fill gradient.
-FillStartColor=18;;30;;52;;150
+FillStartColor=18;;30;;50;;232
 #The ending color (RGBA) of the fill gradient.
-FillEndColor=14;;24;;44;;140
+FillEndColor=13;;22;;38;;238
 #The color (RGBA) of the inner stroke.
 InnerStrokeColor=255;;255;;255;;14
 
@@ -56,10 +56,10 @@ GlowTime=10000
 #The time (in ms) of each pulse of the hidden-dock urgent glow.
 GlowPulseTime=2000
 #The hue-shift (-180 to 180) of the urgent indicator color.
-UrgentHueShift=150
+UrgentHueShift=0
 #The time (in ms) to move an item to its new position or its addition/removal to/from the dock.
 ItemMoveTime=450
 #Whether background and icons will unhide/hide with different speeds. The top-border of both will leave/hit the screen-edge at the same time.
 CascadeHide=true
 #The color (RGBA) of the badge displaying urgent count
-BadgeColor=0;;0;;0;;0
+BadgeColor=31;;111;;214;;255
