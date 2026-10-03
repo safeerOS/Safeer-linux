@@ -47,6 +47,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 from core import (os_datoteke, os_katalog, os_knjiznica, os_oblak_igre, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
                   os_media_besedila, os_mediji, os_posodobitve, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost,
                   os_torrent, os_torrent_tok, os_zapiski, os_zvok, knjiznica_kroga)
+from core import budnost  # noqa: E402
 
 # Preklop vhoda zvocne vrstice JBL je samo interni poskus: uradni paket modula ne vsebuje
 # (packaging/install_os_payload.sh), zato ga uvozimo le, ce je prisoten (zagon iz repozitorija).
@@ -815,6 +816,8 @@ class SafeerOS(Gtk.Application):
         #: Datoteke, ki jih uporabnik pravkar vlece v okno iz drugega programa (glej _na_vlecene_podatke).
         self._vleceno_kontekst = None
         self._vlecene_poti: list = []
+        #: Med predvajanjem racunalnik ne zaspi sam (glej _budnost_predvajanja).
+        self._budnost = budnost.Budnost("Safeer OS")
         #: Naslovi datotek, ki jih uporabnik vlece IZ Datotek (pravo vlecenje namizja, glej _zacni_vlecenje).
         self._lastno_vlecenje: list = []
         self._lastno_ni_uspelo = False
@@ -1383,6 +1386,10 @@ class SafeerOS(Gtk.Application):
         if self._koncano:
             return
         self._koncano = True
+        try:
+            self._budnost.sprosti_vse()
+        except Exception:  # noqa: BLE001
+            pass
         self._pocisti_medijski_pogled()
         self._ustavi_neposredni_medij()
         if self._medijski_predvajalnik is not None:
@@ -2557,21 +2564,39 @@ class SafeerOS(Gtk.Application):
         if servis is None or self._medijski_sklad is None:
             return
         self._medijski_zvok_naslov.set_text(servis.trenutna.naslov if servis.trenutna else "")
-        try:
-            ok, pozicija = servis.element.query_position(servis.gst.Format.TIME)
-            znano = bool(ok and pozicija > 0)
-            ima_sliko = int(servis.element.get_property("n-video") or 0) > 0
-        except Exception:  # noqa: BLE001
-            znano, ima_sliko = False, False
-        if not znano:
-            ima_sliko = bool(servis.trenutna and servis.trenutna.vrsta in ("video", "tv"))
-        cilj = "slika" if ima_sliko and self._medijski_sklad.get_child_by_name("slika") else "zvok"
+        cilj = "slika" if self._medij_ima_sliko() and self._medijski_sklad.get_child_by_name("slika") else "zvok"
         if self._medijski_sklad.get_visible_child_name() != cilj:
             self._medijski_sklad.set_visible_child_name(cilj)
+
+    def _medij_ima_sliko(self) -> bool:
+        """Ali ima to, kar predvajamo, sliko. Dokler playbin ne pozna tokov, odloci vrsta vnosa."""
+        servis = self._medijski_predvajalnik
+        if servis is None:
+            return False
+        try:
+            ok, pozicija = servis.element.query_position(servis.gst.Format.TIME)
+            if ok and pozicija > 0:
+                return int(servis.element.get_property("n-video") or 0) > 0
+        except Exception:  # noqa: BLE001
+            pass
+        return bool(servis.trenutna and servis.trenutna.vrsta in ("video", "tv"))
+
+    def _budnost_predvajanja(self) -> None:
+        """Med predvajanjem racunalnik ne zaspi sam; med videom se tudi ohranjevalnik ne vklopi in zaslon ne ugasne
+        (kot v vsakem predvajalniku). Premor, konec in napaka zadrzanje sprostijo. Zaprt pokrov deluje kot vedno."""
+        servis = self._medijski_predvajalnik
+        zastavice = 0
+        if servis is not None and servis.stanje == "predvaja":
+            zastavice = budnost.SPANJE | (budnost.ZASLON if self._medij_ima_sliko() else 0)
+        try:
+            self._budnost.nastavi("predvajanje", zastavice, "Safeer predvaja")
+        except Exception:  # noqa: BLE001 - predvajanje ne sme pasti zaradi vodila seje
+            pass
 
     def _medijski_tik(self) -> bool:
         if self._koncano:
             return False
+        self._budnost_predvajanja()
         if self._medijski_predvajalnik and self._medijski_predvajalnik.stanje == "predvaja":
             self._medijski_predvajalnik.poskusi_nadaljevati()
             podatki = self._medijski_podatki()

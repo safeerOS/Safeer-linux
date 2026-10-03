@@ -46,7 +46,7 @@ gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 
 from core import link_daljinec, link_datoteke, link_deljenje, link_hub, link_programi, link_sway, link_tls, link_zaslon, link_zvok  # noqa: E402
-from core import os_posodobitve, os_stabilnost  # noqa: E402
+from core import budnost, os_posodobitve, os_stabilnost  # noqa: E402
 from core.link_gledalec import (Gledalec, OKVIR_OBVESTILO, OKVIR_SLIKA,  # noqa: E402
                                 izberi_ponor, niz_cevovoda, preslikaj_tipko,
                                 preslikaj_tocko)
@@ -753,6 +753,17 @@ class SafeerControl(Gtk.Application):
         if self.ozadje:
             self.hold()  # brez okna bi se GApplication koncal; ikona v pladnju ga drzi
         self._izvozi_naprave()
+        # Dokler racunalnik posilja datoteko ali tok drugi napravi (ali zanjo sproti pretvarja), ne zaspi sam:
+        # sicer bi film na televizorju obstal sredi predvajanja. Zaprt pokrov in rocno spanje delujeta kot vedno.
+        self._budnost = budnost.Budnost("Safeer Control")
+        GLib.timeout_add_seconds(30, self._budnost_tik)
+
+    def _budnost_tik(self) -> bool:
+        try:
+            self._budnost.po_dejavnosti("pomoc", "Safeer pretaka na drugo napravo")
+        except Exception:  # noqa: BLE001
+            pass
+        return True
 
     # ------------------------------------------------------------------ D-Bus za Safeer OS: naprave in njihovi programi
     VMESNIK_NAPRAVE = """
