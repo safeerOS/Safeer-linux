@@ -745,7 +745,7 @@ class Datoteke:
 
 
     def tok_torrenta(self, uri: str, id_naprave: str, hub_url: str = "", datoteka: Optional[int] = None,
-                     torrenti=None, zmogljivost=None, mape_stanja=None) -> dict:
+                     torrenti=None, zmogljivost=None, mape_stanja=None, pot_rabe: Optional[str] = None) -> dict:
         """`magnet.stream`: racunalnik prenasa torrent in ga pretaka napravi (televizorju), ki tako
         nicesar ne shranjuje. Vrne {server, path, name, file} ali vrze os_torrent.NapakaTorrenta.
 
@@ -756,8 +756,12 @@ class Datoteke:
             raise os_torrent.NapakaTorrenta("ni_magnet")
         # Nadzornik: film, ki je na tem racunalniku ze v celoti prenesen (Safeer OS ali prej za drugo
         # napravo), postrezemo takoj z diska - brez zagona torrenta in brez ponovnega prenosa.
+        # Zapis o zadnji rabi (za samodejno ciscenje): v preizkusih z vstavljenimi torrenti samo, ce je pot podana.
+        if pot_rabe is None and torrenti is None and mape_stanja is None:
+            pot_rabe = privzeta_pot_rabe()
         obstojeca, indeks = ze_preneseno(m["hash"], datoteka, mape_stanja)
         if obstojeca:
+            zabelezi_rabo(m["hash"], pot_rabe)
             self.streznik.zazeni()
             naslov = naslov_do_huba(hub_url) if hub_url else krajevni_naslov()
             return {"server": {"base_url": self.streznik.osnova(naslov), "fp": self.streznik.odtis,
@@ -781,8 +785,19 @@ class Datoteke:
         # prostora, to pove in naprava vprasa naslednjega v Linku.
         # Pretakanje torrenta je delo omrezja in diska, ne procesorja: racunalnik ga zmore tudi med prevajanjem
         # (tablica 1. 10. 2026: med gradnjo aplikacije je dobila "preobremenjen" in filma ni bilo).
-        razlog = (zmogljivost or zmogljivost_za_tok)(os.path.dirname(getattr(torrenti, "mapa_prenosov", "") or "") or os.path.expanduser("~"),
-                                                     int(izbrana.get("velikost") or 0))
+        # Kar je racunalnik prenesel za naprave in tega 48 ur nihce ni predvajal, odstranimo (lastnik, 3. 10. 2026:
+        # "ce uporabnik torrenta ne uporablja vec, ga naprava samodejno odstrani"). Film, ki ga pravkar hocejo, ostane.
+        pot_rabe = pot_rabe or _pot_rabe_za(torrenti)
+        zabelezi_rabo(m["hash"], pot_rabe)
+        pocisti_neuporabljene(torrenti, pot_rabe)
+        mapa_diska = os.path.dirname(getattr(torrenti, "mapa_prenosov", "") or "") or os.path.expanduser("~")
+        preveri = zmogljivost or zmogljivost_za_tok
+        razlog = preveri(mapa_diska, int(izbrana.get("velikost") or 0))
+        if razlog == "ni_prostora":
+            # Prostor za nov film naredimo sami: najdlje neuporabljeni prenosi za naprave gredo prvi.
+            pocisti_neuporabljene(torrenti, pot_rabe, dovolj=lambda: preveri(mapa_diska, int(izbrana.get("velikost") or 0)) != "ni_prostora",
+                                  obdrzi=m["hash"])
+            razlog = preveri(mapa_diska, int(izbrana.get("velikost") or 0))
         if razlog:
             raise os_torrent.NapakaTorrenta(razlog)
         tid = torrenti.dodaj(uri, [izbrana["i"]])
@@ -795,11 +810,16 @@ class Datoteke:
                 "size": int(izbrana.get("velikost") or 0)}
 
 
-    def prenosi_za_naprave(self, torrenti=None) -> dict:
+    def prenosi_za_naprave(self, torrenti=None, pot_rabe: Optional[str] = None) -> dict:
         """`magnet.list`: kar racunalnik hrani za naprave (da jih uporabnik z medijskega centra odstrani)."""
         torrenti = torrenti if torrenti is not None else torrenti_za_naprave()
         izid = []
+        if not torrenti.tece():
+            torrenti.seznam()   # zazene rqbit, ce ima shranjeno stanje
+        odstranjeni = set(pocisti_neuporabljene(torrenti, pot_rabe))
         for t in torrenti.seznam():
+            if str(t.get("hash") or "").lower() in odstranjeni:
+                continue
             videi = [d for d in t.get("datoteke") or [] if d.get("vkljucena") and d.get("vrsta") == "video"]
             try:
                 magnet = torrenti.magnet(int(t["id"]))
@@ -933,6 +953,159 @@ def prosta_zmogljivost(mapa: str, potrebno: int, procesor: bool = True) -> str:
 def zmogljivost_za_tok(mapa: str, potrebno: int) -> str:
     """Zmogljivost za pretakanje torrenta napravi: samo pomnilnik in disk, procesor ni pogoj."""
     return prosta_zmogljivost(mapa, potrebno, procesor=False)
+
+
+# Samodejno ciscenje prenosov za naprave: po toliko casu brez predvajanja torrent in njegove datoteke izginejo.
+RABA_VELJA_S = 48 * 3600
+# Ob pomanjkanju prostora odstranimo tudi mlajse, a ne tistih, ki jih je kdo predvajal v zadnjih urah (film se tece).
+RABA_V_TEKU_S = 6 * 3600
+_RABA_ZAKLEP = threading.Lock()
+
+
+def privzeta_pot_rabe() -> str:
+    from core import os_torrent
+    return os.path.join(os.path.dirname(os_torrent.mapa_stanja()), "raba-naprave.json")
+
+
+def _pot_rabe_za(torrenti) -> str:
+    """Zapis o rabi stoji ob mapi stanja torrentov za naprave; brez nje (preizkus z nadomestkom) ga ni."""
+    stanje = str(getattr(torrenti, "mapa_stanja", "") or "")
+    return os.path.join(os.path.dirname(stanje), "raba-naprave.json") if stanje else ""
+
+
+def _beri_rabo(pot: str) -> dict:
+    try:
+        with open(pot, encoding="utf-8") as d:
+            raba = json.load(d)
+        return {str(k).lower(): float(v) for k, v in raba.items()} if isinstance(raba, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def _pisi_rabo(pot: str, raba: dict) -> None:
+    try:
+        os.makedirs(os.path.dirname(pot), exist_ok=True)
+        zacasna = pot + ".tmp"
+        with open(zacasna, "w", encoding="utf-8") as d:
+            json.dump(raba, d)
+        os.replace(zacasna, pot)
+    except OSError:
+        pass
+
+
+def zabelezi_rabo(hash_: str, pot: Optional[str] = None, zdaj: Optional[float] = None) -> None:
+    """Naprava je torrent pravkar zahtevala (magnet.stream): od zdaj tece rok do samodejne odstranitve."""
+    if not pot or not re.fullmatch(r"[0-9a-fA-F]{40}", hash_ or ""):
+        return
+    with _RABA_ZAKLEP:
+        raba = _beri_rabo(pot)
+        raba[hash_.lower()] = float(time.time() if zdaj is None else zdaj)
+        _pisi_rabo(pot, raba)
+
+
+def _hash_torrenta(torrenti, t: dict) -> str:
+    h = str(t.get("hash") or "").lower()
+    if re.fullmatch(r"[0-9a-f]{40}", h):
+        return h
+    try:
+        m = re.search(r"btih:([0-9a-fA-F]{40})", torrenti.magnet(int(t["id"])) or "")
+    except Exception:  # noqa: BLE001
+        m = None
+    return m.group(1).lower() if m else ""
+
+
+def pocisti_neuporabljene(torrenti, pot: Optional[str] = None, zdaj: Optional[float] = None,
+                          dovolj=None, obdrzi: str = "") -> List[str]:
+    """Odstrani prenose za naprave (torrent in datoteke), ki jih [RABA_VELJA_S] nihce ni predvajal. Vrne njihove hashe.
+
+    `dovolj` (klic brez argumentov -> bool): prostora zmanjkuje - dokler ne vrne True, gredo tudi mlajsi prenosi,
+    najdlje neuporabljeni prvi, a ne tisti, ki jih je kdo predvajal v zadnjih [RABA_V_TEKU_S], in ne `obdrzi`.
+    Torrent, ki ga se ne poznamo (prenesen pred to razlicico), dobi rok od zdaj. Uporabnikovih datotek, ki jih deli
+    (`lastna`), se ne dotikamo; rqbita samo zaradi ciscenja ne zaganjamo."""
+    pot = pot or _pot_rabe_za(torrenti)
+    if not pot:
+        return []
+    zdaj = float(time.time() if zdaj is None else zdaj)
+    try:
+        if not torrenti.tece():
+            return []
+        vsi = torrenti.seznam()
+    except Exception:  # noqa: BLE001
+        return []
+    odstranjeni: List[str] = []
+    with _RABA_ZAKLEP:
+        raba = _beri_rabo(pot)
+        spremenjeno = False
+        znani = []
+        for t in vsi:
+            h = _hash_torrenta(torrenti, t)
+            if not h or t.get("lastna"):
+                continue
+            if h not in raba:
+                raba[h] = zdaj
+                spremenjeno = True
+            znani.append((raba[h], h, t))
+
+        def odstrani(h: str, t: dict) -> bool:
+            try:
+                ok = bool(torrenti.odstrani(int(t["id"]), z_datotekami=True))
+            except Exception:  # noqa: BLE001
+                ok = False
+            if ok:
+                raba.pop(h, None)
+                odstranjeni.append(h)
+            return ok
+
+        for cas, h, t in sorted(znani):
+            if h != obdrzi.lower() and zdaj - cas > RABA_VELJA_S:
+                spremenjeno = odstrani(h, t) or spremenjeno
+        if dovolj is not None:
+            for cas, h, t in sorted(znani):
+                if dovolj():
+                    break
+                if h in odstranjeni or h == obdrzi.lower() or zdaj - cas < RABA_V_TEKU_S:
+                    continue
+                spremenjeno = odstrani(h, t) or spremenjeno
+        # Zapisi o torrentih, ki jih ni vec (uporabnik jih je odstranil sam), ne ostajajo.
+        zivi = {h for _, h, _ in znani} - set(odstranjeni)
+        for h in [h for h in raba if h not in zivi and h != obdrzi.lower()]:
+            if zdaj - raba[h] > RABA_VELJA_S:
+                raba.pop(h)
+                spremenjeno = True
+        if spremenjeno:
+            _pisi_rabo(pot, raba)
+    return odstranjeni
+
+
+_CISCENJE_TECE = False
+
+
+def zazeni_ciscenje(razmik_s: float = 3 * 3600, zamik_s: float = 180) -> None:
+    """Control: prenose za naprave pregleda kmalu po zagonu in nato vsake tri ure. Ce je rqbit ugasnjen in ima
+    shranjene prenose, ga za pregled prizge in potem spet ugasne (ne ostane v ozadju samo zaradi ciscenja)."""
+    global _CISCENJE_TECE
+    if _CISCENJE_TECE:
+        return
+    _CISCENJE_TECE = True
+
+    def zanka() -> None:
+        time.sleep(zamik_s)
+        while True:
+            try:
+                t = torrenti_za_naprave()
+                tekel = t.tece()
+                if not tekel:
+                    t.seznam()      # zazene rqbit le, ce ima shranjeno stanje
+                odstranjeni = pocisti_neuporabljene(t)
+                if odstranjeni:
+                    from core import os_stabilnost
+                    os_stabilnost.zapisi("safeer-control", f"prenosi za naprave: samodejno odstranjenih {len(odstranjeni)} (48 h brez predvajanja)")
+                if not tekel and t.tece():
+                    t.ustavi()
+            except Exception:  # noqa: BLE001
+                pass
+            time.sleep(razmik_s)
+    threading.Thread(target=zanka, name="safeer-ciscenje-prenosov", daemon=True).start()
 
 
 _ZA_NAPRAVE = None

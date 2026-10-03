@@ -697,6 +697,8 @@ class SafeerControl(Gtk.Application):
         self.datoteke = link_datoteke.Datoteke(mape if isinstance(mape, list) else [],
                                               ves_disk=bool(self.nastavitve.get("ves_disk_za_tv", False)))
         self.datoteke.ob_spremembi = lambda poti: self.nastavitve.set("deljene_mape", poti)
+        # Kar racunalnik prenese za naprave (torrent prek magnet.stream) in tega 48 ur nihce ne predvaja, odstrani sam.
+        link_datoteke.zazeni_ciscenje()
         # Programi racunalnika za televizor; privzeto izklopljeno ("programi_za_tv" v control.json).
         self.programi = link_programi.Programi(bool(self.nastavitve.get("programi_za_tv", False)))
         self.programi.ob_spremembi = lambda vklopljeno: self.nastavitve.set("programi_za_tv", bool(vklopljeno))
