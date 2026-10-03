@@ -49,7 +49,7 @@ class _Naprava:
         telo = c.getresponse().read()
         c.close()
         if self.pokvari:
-            telo = telo[:-1] + b"X"
+            telo = telo[:-1] + bytes([telo[-1] ^ 0xFF])    # zadnji bajt gotovo drugacen (b"X" je bil v 1 od 256 tekov enak)
         self.prejeto = telo
         o["done"] = len(telo)
         o["state"] = "koncano" if hashlib.sha256(telo).hexdigest() == p["sha256"] else "napaka"
