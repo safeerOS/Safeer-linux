@@ -107,6 +107,8 @@ DEJANJA_TOK_TORRENTA = ["magnet.stream", "magnet.list", "magnet.remove"]
 DEJANJA_PRETOK = ["video.stream", "video.stream_stop", "video.stream_status"]
 #: »Nadaljuj z druge naprave«: racunalnik pove, kaj predvaja (core/link_predvajanje.py, isto kot Predaja.kt na Androidu).
 DEJANJA_PREDAJA = ["play.state", "play.stop", "play.offer"]
+#: Seznami predvajanja Medijskega centra so enaki na vseh napravah v Linku (core/link_seznami.py; samo branje).
+DEJANJA_SEZNAMI = ["lists.get"]
 
 
 def _safeer_os() -> str:
@@ -162,6 +164,10 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
                 koncaj(izid(True, "Datoteka se odpira na računalniku"))
             else:
                 koncaj(izid(False, "Te datoteke ni mogoče odpreti", koda="ni_datoteke"))
+        elif d in DEJANJA_SEZNAMI:
+            # Samo branje seznamov iz mape Medijskega centra Safeer OS; napravo je v krog sprejel uporabnik.
+            from core import link_seznami
+            koncaj(izid(True, "Seznami predvajanja", link_seznami.izvoz(parametri)))
         elif d in DEJANJA_MAGNET:
             koncaj(odpri_magnet(str(parametri.get("uri", "") or "")))
         elif d in DEJANJA_TOK_TORRENTA:
@@ -364,7 +370,7 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
         elif d == "status":
             s = {"app": "safeer-control-linux", "version": _razlicica_control(), "foreground": True,
                  "actions": DEJANJA_CONTROL + DEJANJA_HOST + (DEJANJA_DATOTEKE + DEJANJA_TOK_TORRENTA + DEJANJA_PRETOK if datoteke is not None else [])
-                            + (DEJANJA_MAGNET if _safeer_os() else [])
+                            + (DEJANJA_MAGNET + DEJANJA_SEZNAMI if _safeer_os() else [])
                             + (DEJANJA_PREDAJA if predvajanje is not None else [])
                             + (DEJANJA_PROGRAMI if programi is not None and programi.vklopljeno else [])
                             + (DEJANJA_ZASLON if zaslon is not None and zaslon.na_voljo().get("dovoljeno") else []),

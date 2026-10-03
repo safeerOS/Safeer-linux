@@ -31,7 +31,7 @@ import threading
 import time
 import urllib.parse
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 KOREN = os.path.dirname(os.path.abspath(__file__))
 if KOREN not in sys.path:
@@ -44,7 +44,7 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 
-from core import (os_datoteke, os_knjiznica, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
+from core import (os_datoteke, os_katalog, os_knjiznica, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
                   os_media_besedila, os_mediji, os_posodobitve, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost,
                   os_torrent, os_zapiski, os_zvok)
 
@@ -68,7 +68,7 @@ def _razlicica() -> str:
         with open(os.path.join(KOREN, "packaging", "VERSION_OS"), encoding="utf-8") as d:
             return d.read().strip()
     except Exception:
-        return "0.4.27"
+        return "0.4.28"
 
 
 RAZLICICA = _razlicica()
@@ -402,6 +402,33 @@ def _control_naprave(metoda: str, *argumenti: str) -> dict:
     except Exception as e:  # noqa: BLE001
         print("[SafeerOS] naprave:", metoda, e)
         return {"ok": False, "koda": "napaka", "message": str(e)}
+
+
+def _seznami_z_naprav(uskladi: Callable[[Callable[[dict], Optional[dict]]], bool]) -> bool:
+    """Seznami predvajanja z drugih naprav v Safeer Linku (core/seznami_sink.py). Naprave vprasa Safeer Control
+    (`lists.get`, samo branje); `uskladi` je MediaCenter.seznami_uskladi. Klic iz delovne niti. Vrne True, ce se je
+    tukaj kaj spremenilo. Controla zaradi seznamov ne zaganjamo: ce ne tece, naprav v Linku tako ali tako ni."""
+    try:
+        if not _control_na_vodilu(Gio.bus_get_sync(Gio.BusType.SESSION, None)):
+            return False
+    except Exception:  # noqa: BLE001
+        return False
+    spremenjeno = False
+    for n in (_control_naprave("Seznam").get("naprave") or [])[:32]:
+        zmoznosti = n.get("zmoznosti") or []
+        # Samo naprave, ki same povedo, da znajo sezname ("lists"): starejsa razlicica dejanja ne pozna.
+        if n.get("ta") or not n.get("id") or "remote" not in zmoznosti or "lists" not in zmoznosti:
+            continue
+
+        def vprasaj(parametri: dict, _id: str = str(n["id"])) -> Optional[dict]:
+            r = _control_naprave("Ukaz", _id, "lists.get", json.dumps(parametri or {}))
+            return r.get("data") if r.get("ok") and isinstance(r.get("data"), dict) else None
+        try:
+            if uskladi(vprasaj):
+                spremenjeno = True
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] seznami z naprave:", e, flush=True)
+    return spremenjeno
 
 
 def _control_naprave_koda(_metoda: str) -> str:
@@ -740,6 +767,8 @@ class SafeerOS(Gtk.Application):
         self._medijski_vlecem = False
         self._medijski_css = None
         self._knjiznica_medijev = None
+        #: Katalog Medijskega centra (filmi, serije, glasba, radio, TV, seznami predvajanja): isto jedro kot na Windows.
+        self._katalog = None
         self._medijski_tik_zacet = False
         self._medijsko_osvezevanje = False
         self._zadnji_medijski_napredek = None
@@ -1233,6 +1262,8 @@ class SafeerOS(Gtk.Application):
         self._ustavi_neposredni_medij()
         if self._medijski_predvajalnik is not None:
             self._medijski_predvajalnik.zapri()
+        if self._katalog is not None:
+            self._katalog.zapri()
         if self.namizje:
             vrni_mintov_pult(self.shramba)
         try:
@@ -1638,7 +1669,16 @@ class SafeerOS(Gtk.Application):
             "sporocilaNaprave": self.sporocila.naprave_za_klepet,
             "sporocilaZacni": lambda: self.sporocila.zacni_klepet(str(a[0]), str(a[1]) if len(a) > 1 else ""),
         }
-        if metoda in glavna:
+        if self._katalog_most().pozna(metoda):
+            # Katalog Medijskega centra bere omrezje: vedno v ozadju; okno (predvajalnik) klice sam v glavni niti.
+            def delo_katalog():
+                try:
+                    self._odgovori(pogled, id_, True, self._katalog_most().izvedi(metoda, a))
+                except Exception as e:  # noqa: BLE001
+                    print("[SafeerOS]", metoda, e)
+                    self._odgovori(pogled, id_, False, str(e))
+            threading.Thread(target=delo_katalog, daemon=True).start()
+        elif metoda in glavna:
             try:
                 self._odgovori(pogled, id_, True, glavna[metoda]())
             except Exception as e:  # noqa: BLE001
@@ -2263,6 +2303,13 @@ class SafeerOS(Gtk.Application):
             return
         pot = self._pot_lokalnega_videa(servis.trenutna.uri)
         if not pot:
+            if self._katalog is not None and self._katalog.vnos_predvajanega(servis.trenutna.uri):
+                # Film ali epizoda iz kataloga: napredek hrani katalog (naslednjic nadaljuje, kjer je uporabnik ostal).
+                podatki = podatki or servis.podatki()
+                kljuc = (servis.trenutna.uri, int(podatki["pozicija"]) // 5)
+                if kljuc != self._zadnji_medijski_napredek:
+                    self._katalog.shrani_napredek(servis.trenutna.uri, podatki["pozicija"], podatki["trajanje"])
+                    self._zadnji_medijski_napredek = kljuc
             return
         podatki = podatki or servis.podatki()
         pozicija, trajanje = podatki["pozicija"], podatki["trajanje"]
@@ -2274,6 +2321,8 @@ class SafeerOS(Gtk.Application):
             self._zadnji_medijski_napredek = kljuc
 
     def _medijski_konec(self, uri: str) -> None:
+        if self._katalog is not None:
+            self._katalog.konec(uri)      # skladba iz kataloga: stran predvaja naslednjo iz svoje vrste
         pot = self._pot_lokalnega_videa(uri)
         if pot:
             self._medijska_knjiznica().ponastavi_napredek(pot)
@@ -2289,6 +2338,11 @@ class SafeerOS(Gtk.Application):
         servis = self._medijski_predvajalnik
         if not servis:
             return False
+        if ukaz in ("naslednja", "prejsnja") and self._katalog is not None and len(servis.vrsta) <= 1 and servis.trenutna \
+                and (self._katalog.vnos_predvajanega(servis.trenutna.uri) or {}).get("zvok"):
+            # Skladba iz kataloga: vrsto (naslednja, premesaj, ponovi) vodi stran - tipka ali daljinec gre njej.
+            self._dogodek("mediaVrstaUkaz", 1 if ukaz == "naslednja" else -1)
+            return True
         if ukaz in ("premor", "naslednja", "prejsnja", "ustavi", "predvajaj"):
             self._shrani_medijski_napredek()
             if ukaz in ("naslednja", "prejsnja", "ustavi", "predvajaj"):
@@ -2340,6 +2394,24 @@ class SafeerOS(Gtk.Application):
             return False
         ime = next((p["ime"] for p in os_dvd.pogoni() if p["naprava"] == naprava), "DVD")
         return self._predvajaj_neposredno("dvd://" + naprava, vrsta="video", prikazi=True, ime=ime)
+
+    def _katalog_most(self):
+        """Katalog Medijskega centra (core/os_katalog.py); ustvari se ob prvem klicu strani."""
+        if self._katalog is None:
+            zaslon = self._zaslon()
+            g = zaslon.get_geometry() if zaslon else None
+            visina = int(min(g.width, g.height) * (zaslon.get_scale_factor() if zaslon else 1)) if g else 1080
+            self._katalog = os_katalog.Katalog(
+                os.path.join(os_programi.MAPA_NASTAVITEV, "media"), self._dogodek, GLib.idle_add,
+                predvajaj=self._katalog_predvajaj, vdelano=self._odpri_lahki_medijski_pogled,
+                youtube=self._katalog_youtube, youtube_ukaz=self._katalog_youtube_ukaz,
+                jezik=_jezik, visina_zaslona=visina, uskladi_sezname=_seznami_z_naprav)
+        return self._katalog
+
+    def _katalog_predvajaj(self, uri: str, vrsta: str, ime: str, zacetek: int, podnapisi: tuple, prikazi: bool) -> bool:
+        """Tok ali datoteka iz kataloga v domacem predvajalniku (video v oknu, zvok brez okna)."""
+        seznam = [os_predvajalnik.Skladba(uri, ime, vrsta, zacetek=max(0, int(zacetek or 0)), podnapisi=podnapisi)]
+        return self._predvajaj_neposredno(uri, vrsta=vrsta, prikazi=prikazi, ime=ime, seznam=seznam, zacni=0)
 
     def _medijska_knjiznica(self):
         if self._knjiznica_medijev is None:
@@ -2675,35 +2747,120 @@ class SafeerOS(Gtk.Application):
     def _odpri_lahki_medijski_pogled(self, naslov: str) -> bool:
         """En WebKit brez JavaScripta; če ni medija, enkrat poskusi z JavaScriptom."""
         self._ustavi_neposredni_medij()
-        if self._medijski_pogled is None:
-            # Tuje strani v lastnem, zacasnem kontekstu s peskovnikom: nic piskotkov/podatkov Safeer OS in
-            # locen spletni proces, ki ga ob izhodu z vsebine izpraznemo.
-            kontekst = WebKit2.WebContext.new_ephemeral()
-            try:
-                kontekst.set_sandbox_enabled(True)
-            except Exception:
-                pass
-            kontekst.set_cache_model(WebKit2.CacheModel.DOCUMENT_VIEWER)
-            pogled = WebKit2.WebView.new_with_context(kontekst)
-            nastavitve = pogled.get_settings()
-            # Skripte strani izklopimo (markup), API skripte ostanejo - z njimi preverimo, ali je na strani video.
-            nastavitve.set_property("enable-javascript-markup", False)
-            nastavitve.set_property("enable-webgl", False)
-            pogled.connect("load-changed", self._medijski_nalozen)
-            okno = Gtk.ApplicationWindow(application=self, title="Medijski center")
-            okno.set_default_size(1100, 700)
-            okno.set_transient_for(self.okno)
-            okno.add(pogled)
-            okno.connect("delete-event", lambda *a: (self._pocisti_medijski_pogled(), True)[1])
-            self._medijski_pogled, self._medijski_okno = pogled, okno
+        self._ustvari_medijski_pogled()
+        self._zapusti_skladbo_youtube()
         self._medijski_rod += 1
         self._medijski_naslov = naslov
         self._medijski_js = False
         self._medijski_pogled.get_settings().set_property("enable-javascript-markup", False)
+        self._medijski_okno.set_title("Medijski center")
         self._medijski_pogled.load_uri(naslov)
         self._medijski_okno.show_all()
         self._medijski_okno.present()
         return True
+
+    def _ustvari_medijski_pogled(self) -> None:
+        if self._medijski_pogled is not None:
+            return
+        # Tuje strani v lastnem, zacasnem kontekstu s peskovnikom: nic piskotkov/podatkov Safeer OS in
+        # locen spletni proces, ki ga ob izhodu z vsebine izpraznemo.
+        kontekst = WebKit2.WebContext.new_ephemeral()
+        try:
+            kontekst.set_sandbox_enabled(True)
+        except Exception:
+            pass
+        kontekst.set_cache_model(WebKit2.CacheModel.DOCUMENT_VIEWER)
+        # Edino sporocilo, ki ga ta pogled sme poslati Safeer OS: stanje skladbe v vgradnem predvajalniku
+        # (igra, premor, konec, napaka). Mostu Safeer OS (safeerOs) tu ni.
+        upravitelj = WebKit2.UserContentManager()
+        upravitelj.register_script_message_handler("safeerSkladba")
+        upravitelj.connect("script-message-received::safeerSkladba", self._na_stanje_skladbe)
+        upravitelj.add_script(WebKit2.UserScript(
+            os_katalog.SKRIPT_SKLADBE, WebKit2.UserContentInjectedFrames.TOP_FRAME,
+            WebKit2.UserScriptInjectionTime.END, list(os_katalog.STRANI_SKRIPTA_SKLADBE), None))
+        lastnosti = {"web_context": kontekst, "user_content_manager": upravitelj}
+        if hasattr(WebKit2, "WebsitePolicies"):
+            # Medijski pogled odpre uporabnik zato, da nekaj predvaja: predvajanje se zacne brez dodatnega klika.
+            lastnosti["website_policies"] = WebKit2.WebsitePolicies(autoplay=WebKit2.AutoplayPolicy.ALLOW)
+        pogled = WebKit2.WebView(**lastnosti)
+        pogled.connect("decide-policy", self._medijski_odlocitev)
+        nastavitve = pogled.get_settings()
+        # Skripte strani izklopimo (markup), API skripte ostanejo - z njimi preverimo, ali je na strani video.
+        nastavitve.set_property("enable-javascript-markup", False)
+        nastavitve.set_property("enable-webgl", False)
+        pogled.connect("load-changed", self._medijski_nalozen)
+        okno = Gtk.ApplicationWindow(application=self, title="Medijski center")
+        okno.set_default_size(1100, 700)
+        okno.set_transient_for(self.okno)
+        okno.add(pogled)
+        okno.connect("delete-event", lambda *a: (self._pocisti_medijski_pogled(), True)[1])
+        self._medijski_pogled, self._medijski_okno = pogled, okno
+
+    # -- skladba s seznama predvajanja: vgradni predvajalnik YouTuba v lahkem pogledu (core/os_katalog.py)
+    def _katalog_youtube(self, naslov: str, ime: str) -> bool:
+        """Vgradni predvajalnik YouTuba v lahkem pogledu; stanje skladbe javi skript (os_katalog.SKRIPT_SKLADBE)."""
+        if not os_katalog.je_naslov_vgradnje(naslov):
+            return False
+        self._ustavi_neposredni_medij()
+        self._ustvari_medijski_pogled()
+        self._medijski_rod += 1
+        self._medijski_naslov = ""          # brez preverbe »ali je na strani video« (ta velja za tuje strani)
+        self._medijski_js = True
+        self._medijski_skladba = True
+        self._medijski_pogled.get_settings().set_property("enable-javascript-markup", True)
+        self._medijski_okno.set_title(ime or "Medijski center")
+        zahteva = WebKit2.URIRequest.new(naslov)
+        # YouTube vgradnjo dovoli samo znanemu izvoru; Safeer se predstavi enako kot na Windows.
+        zahteva.get_http_headers().append("Referer", os_katalog.IZVOR_VGRADNJE)
+        self._medijski_pogled.load_request(zahteva)
+        self._medijski_okno.show_all()
+        if not self._medijski_okno.is_active() and not getattr(self, "_medijski_skladba_videna", False):
+            self._medijski_okno.present()   # prvic okno pokazemo; naslednja skladba ga ne meče v ospredje
+        self._medijski_skladba_videna = True
+        return True
+
+    def _medijski_odlocitev(self, _pogled, odlocitev, vrsta) -> bool:
+        """Lahki pogled ne odpira novih oken; med skladbo klik na povezavo ne zapusti predvajalnika."""
+        if vrsta == WebKit2.PolicyDecisionType.NEW_WINDOW_ACTION:
+            odlocitev.ignore()
+            return True
+        if vrsta == WebKit2.PolicyDecisionType.NAVIGATION_ACTION and getattr(self, "_medijski_skladba", False):
+            try:
+                dejanje = odlocitev.get_navigation_action()
+                if (dejanje.get_navigation_type() == WebKit2.NavigationType.LINK_CLICKED
+                        and not os_katalog.je_naslov_vgradnje(dejanje.get_request().get_uri() or "")):
+                    odlocitev.ignore()
+                    return True
+            except Exception:  # noqa: BLE001
+                pass
+        return False
+
+    def _katalog_youtube_ukaz(self, ukaz: str) -> bool:
+        if not getattr(self, "_medijski_skladba", False) or self._medijski_pogled is None:
+            return False
+        if ukaz == "zapri":
+            self._pocisti_medijski_pogled()
+            return True
+        if ukaz not in ("playVideo", "pauseVideo"):
+            return False
+        self._medijski_pogled.evaluate_javascript("window.safeerUkaz && window.safeerUkaz(%s)" % json.dumps(ukaz),
+                                                  -1, None, None, None, None)
+        return True
+
+    def _na_stanje_skladbe(self, _upravitelj, rezultat) -> None:
+        if not getattr(self, "_medijski_skladba", False) or self._katalog is None:
+            return
+        try:
+            self._katalog.yt_sporocilo(rezultat.get_js_value().to_string())
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] stanje skladbe:", e)
+
+    def _zapusti_skladbo_youtube(self) -> None:
+        if getattr(self, "_medijski_skladba", False):
+            self._medijski_skladba = False
+            self._medijski_skladba_videna = False
+            if self._katalog is not None:
+                self._katalog.yt_zaprt()
 
     def _medijski_nalozen(self, pogled, dogodek) -> None:
         if dogodek != WebKit2.LoadEvent.FINISHED or not self._medijski_naslov:
@@ -2742,6 +2899,7 @@ class SafeerOS(Gtk.Application):
 
     def _pocisti_medijski_pogled(self) -> None:
         """Ob izhodu odstrani stran in njen predpomnilnik, pogled pa ohrani za naslednjič."""
+        self._zapusti_skladbo_youtube()
         self._medijski_rod += 1
         self._medijski_naslov = ""
         self._medijski_js = False

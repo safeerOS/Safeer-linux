@@ -2,9 +2,10 @@
 <html lang="sl">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'">
 <title>Safeer OS</title>
 <link rel="stylesheet" href="os.css">
+<link rel="stylesheet" href="katalog.css">
 </head>
 <body>
 <div id="ozadje"></div>
@@ -162,6 +163,42 @@
               <button class="gumb" id="medijiDodajPrazno"><svg data-ikona="mapa"></svg><span data-t="dodajMapoMedijev"></span></button>
             </div>
             <button class="gumb media-vec" id="mediaVec" data-t="mediaNaloziVec" hidden></button>
+            <!-- KATALOG: filmi, serije, glasba, radio, TV v živo, seznami predvajanja in dodatki (isto jedro kot Windows). -->
+            <div class="kat" id="katalog" hidden>
+              <div class="media-naslov-vrstice kat-glava">
+                <div><span class="media-kicker" data-t="katKicker"></span><h2 id="katNaslov"></h2></div>
+                <div class="kat-orodja">
+                  <label class="kat-razvrsti"><span data-t="katRazvrsti"></span><select id="mediaRazvrsti"></select></label>
+                  <div class="kat-filter-viri">
+                    <button class="gumb" id="mediaViriFilterGumb" type="button" aria-expanded="false" aria-controls="mediaViriFilter"></button>
+                    <div class="kat-viri-filter" id="mediaViriFilter" hidden>
+                      <div class="kat-viri-filter-seznam" id="mediaViriFilterSeznam"></div>
+                      <h4 class="kat-viri-filter-naslov" data-t="katJezikiNaslov"></h4>
+                      <div class="kat-viri-filter-seznam" id="mediaJezikiFilterSeznam"></div>
+                      <div class="kat-viri-filter-noga"><small data-t="katViriZacasno"></small><button class="gumb" id="mediaViriFilterPonastavi" type="button" data-t="katVklopiVse"></button></div>
+                    </div>
+                  </div>
+                  <button class="gumb" id="katDodatki" type="button"><svg data-ikona="plus"></svg><span data-t="katDodatki"></span></button>
+                </div>
+              </div>
+              <div class="kat-trak" id="mediaPredvajalnik" hidden>
+                <div class="kat-trak-besedilo"><small data-t="katPredvajaSe"></small><b id="mediaPredvajalnikNaslov"></b><span id="mediaPredvajalnikMeta"></span></div>
+                <div class="kat-trak-gumbi">
+                  <button class="gumb-ikona" id="mediaPremesaj" type="button" data-naslov="mediaPremesaj" hidden><svg viewBox="0 0 24 24"><path d="M16 4h4v4M4 20 20 4M20 16v4h-4M15 15l5 5M4 4l5 5"/></svg></button>
+                  <button class="gumb-ikona" id="mediaPrejsnja" type="button" data-naslov="mediaPrejsnja" hidden><svg viewBox="0 0 24 24"><path d="M6 5v14M19 5 9 12l10 7z"/></svg></button>
+                  <button class="kat-trak-premor" id="mediaKatPremor" type="button" data-naslov="katPremor">&#10074;&#10074;</button>
+                  <button class="gumb-ikona" id="mediaNaslednja" type="button" data-naslov="mediaNaslednja" hidden><svg viewBox="0 0 24 24"><path d="M18 5v14M5 5l10 7-10 7z"/></svg></button>
+                  <button class="gumb-ikona" id="mediaPonovi" type="button" data-naslov="mediaPonovi" hidden><svg viewBox="0 0 24 24"><path d="M17 2l3 3-3 3M4 11V9a4 4 0 0 1 4-4h12M7 22l-3-3 3-3M20 13v2a4 4 0 0 1-4 4H4"/></svg></button>
+                  <button class="gumb-ikona" id="mediaZapri" type="button" data-naslov="katUstavi"><svg data-ikona="x"></svg></button>
+                </div>
+              </div>
+              <div class="kat-zanri" id="mediaZanri" hidden></div>
+              <div class="kat-seznami" id="mediaSeznami" hidden></div>
+              <div class="kat-povzetek" id="mediaPovzetek"></div>
+              <div class="kat-katalog" id="katMreza"></div>
+              <div class="kat-stranjevanje" id="mediaStranjevanje"></div>
+              <p class="drobno kat-prazno" id="katPrazno" hidden data-t="katPrazno"></p>
+            </div>
             <div class="media-naslov-vrstice media-tokovi-glava" id="mediaTokoviGlava" hidden><div><span class="media-kicker" data-t="mediaShranjeniTokovi"></span><h2 data-t="mediaTvojePostaje"></h2></div></div>
             <div class="media-viri" id="mediaTokovi" hidden></div>
             <div class="media-naslov-vrstice media-vire-glava"><div><span class="media-kicker" data-t="mediaPovezaniViri"></span><h2 data-t="mediaTvojiViri"></h2></div></div>
@@ -501,6 +538,47 @@
       <button type="button" class="gumb" id="mintZaStalno" data-t="zaStalno"></button>
       <button type="button" class="gumb glavni" id="mintSamoTokrat" data-t="samoTokrat"></button>
     </div>
+  </div>
+</div>
+<!-- Katalog Medijskega centra: podrobnosti filma ali serije, meni »na seznam«, dodatki in viri. -->
+<div class="kat-podrobnosti" id="mediaPodrobnosti" hidden>
+  <div class="kat-podrobnosti-glava">
+    <button class="gumb" id="mediaPodrobnostiNazaj" type="button">← <span data-t="nazaj"></span></button>
+    <button class="gumb-ikona" id="mediaPodrobnostiZapri" type="button" data-naslov="zapri"><svg data-ikona="x"></svg></button>
+  </div>
+  <div class="kat-podrobnosti-junak" id="mediaPodrobnostiJunak"></div>
+  <section class="kat-kje-gledati" id="mediaWatchProviders" aria-live="polite"></section>
+  <h3 id="mediaSezoneNaslov"></h3><div class="kat-sezone" id="mediaSezone"></div>
+  <h3 id="mediaEpizodeNaslov"></h3><div class="kat-epizode" id="mediaEpizode"></div>
+</div>
+<div class="kat-seznam-meni" id="mediaSeznamMeni" hidden></div>
+<div class="sloj" id="slojKatViri"><div class="tancica"></div>
+  <div class="plosca kat-viri-plosca" role="dialog" aria-modal="true" aria-labelledby="katViriNaslov">
+    <span class="media-kicker">SAFEER MEDIA</span>
+    <h3 id="katViriNaslov" data-t="katDodatki"></h3>
+    <p class="drobno" data-t="katDodatkiOpis"></p>
+    <form class="kat-dodaj-vir kat-dodaj-streznik" id="mediaDodajStreznik">
+      <select id="mediaStreznikVrsta" aria-label="Vrsta">
+        <option value="stremio" data-t="katVrstaStremio"></option>
+        <option value="jellyfin">Jellyfin</option><option value="emby">Emby</option>
+        <option value="plex">Plex</option><option value="navidrome">Navidrome</option>
+        <option value="kodi" data-t="katVrstaKodi"></option><option value="tvheadend">TVHeadend</option>
+        <option value="dlna">DLNA / UPnP</option><option value="funkwhale">Funkwhale</option><option value="azuracast">AzuraCast</option>
+      </select>
+      <input id="mediaStreznikUrl" type="text" maxlength="1024" autocomplete="off" required>
+      <input id="mediaStreznikIme" type="text" maxlength="80" data-ph="katImeNeobvezno" autocomplete="off">
+      <input id="mediaStreznikUporabnik" type="text" maxlength="160" data-ph="katUporabnik" autocomplete="off" hidden>
+      <input id="mediaStreznikSkrivnost" type="password" maxlength="4096" data-ph="katGeslo" autocomplete="off" hidden>
+      <button class="gumb glavni" type="submit" data-t="katPovezi"></button>
+    </form>
+    <form class="kat-dodaj-vir" id="mediaDodajVir">
+      <input id="mediaVirUrl" type="text" maxlength="1024" data-ph="katNaslovVira" autocomplete="off">
+      <input id="mediaVirIme" type="text" maxlength="80" data-ph="katImeNeobvezno" autocomplete="off">
+      <button class="gumb" type="submit" data-t="katVirDodaj"></button>
+    </form>
+    <p class="drobno kat-vir-sporocilo" id="katVirSporocilo" aria-live="polite"></p>
+    <div class="kat-viri" id="katViri"></div>
+    <div class="gumbi"><button type="button" class="gumb" id="mediaOdkrijDlna" data-t="katOdkrijDlna"></button><button type="button" class="gumb" id="katViriZapri" data-t="zapri"></button></div>
   </div>
 </div>
 <div id="obvestilo"></div>

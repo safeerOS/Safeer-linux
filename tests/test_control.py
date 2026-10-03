@@ -27,9 +27,9 @@ class ControlUkazi(unittest.TestCase):
         # pa tisto, kar je res pomembno: kar potrebuje uporabnikovo dovoljenje, brez njega ni na
         # voljo.
         dejanja = i["data"]["actions"]
-        # Magnet povezave z drugih naprav odpre Safeer OS - samo, ce je na tem racunalniku namescen.
+        # Magnet povezave z drugih naprav odpre Safeer OS, seznami predvajanja so njegovi - samo, ce je namescen.
         self.assertEqual(dejanja, link_daljinec.DEJANJA_CONTROL + link_daljinec.DEJANJA_HOST
-                         + (link_daljinec.DEJANJA_MAGNET if link_daljinec._safeer_os() else []))
+                         + (link_daljinec.DEJANJA_MAGNET + link_daljinec.DEJANJA_SEZNAMI if link_daljinec._safeer_os() else []))
         for d in (link_daljinec.DEJANJA_DATOTEKE + link_daljinec.DEJANJA_PROGRAMI
                   + link_daljinec.DEJANJA_ZASLON):
             self.assertNotIn(d, dejanja)
