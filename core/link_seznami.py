@@ -46,6 +46,18 @@ def _izbrisani(koren: str) -> dict:
     return {str(k): int(v) for k, v in data.items() if isinstance(v, (int, float)) and v > 0}
 
 
+def _viri(koren: str) -> dict:
+    """Moji viri za druge naprave (core/viri_sink.py): zapis, ki ga Medijski center pripravi sam - zasebnih dodatkov
+    in cesar se ne pozna, v njem ni. Control ga samo prebere in preveri obliko."""
+    from core import viri_sink
+    data = _beri(os.path.join(koren, "viri_za_naprave.json"))
+    data = data if isinstance(data, dict) else {}
+    viri = [v for v in (data.get("sources") if isinstance(data.get("sources"), list) else [])[:viri_sink.NAJVEC_VIROV]
+            if viri_sink.cist_vir(v)]
+    return {"sources": [{k: v[k] for k in ("tip", "ime", "naslov", "cas") if k in v} for v in viri],
+            "sources_deleted": viri_sink.cisti_izbrisi(data.get("sources_deleted"))}
+
+
 def izvoz(parametri: Optional[dict] = None, koren: Optional[str] = None) -> dict:
     """Odgovor na `lists.get`: kazalo seznamov ({}) ali ena stran skladb seznama ({"ime", "od"})."""
     parametri = parametri if isinstance(parametri, dict) else {}
@@ -53,9 +65,9 @@ def izvoz(parametri: Optional[dict] = None, koren: Optional[str] = None) -> dict
     ime = str(parametri.get("ime") or "")
     vsi = _seznami(koren)
     if not ime:
-        return {"lists": [{"ime": x["ime"], "vir": x.get("vir") or "", "cas": int(x.get("cas") or 0),
-                           "stevilo": len(x["skladbe"])} for x in vsi],
-                "deleted": _izbrisani(koren)}
+        return dict({"lists": [{"ime": x["ime"], "vir": x.get("vir") or "", "cas": int(x.get("cas") or 0),
+                                "stevilo": len(x["skladbe"])} for x in vsi],
+                     "deleted": _izbrisani(koren)}, **_viri(koren))
     sz = next((x for x in vsi if x["ime"] == ime), None)
     if not sz:
         return {"ime": ime, "stevilo": 0, "skladbe": []}

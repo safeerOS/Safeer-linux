@@ -40,8 +40,22 @@ class IzvozTests(unittest.TestCase):
         self.assertEqual((stran["od"], len(stran["skladbe"]), stran["stevilo"]), (200, 30, 230))
         self.assertNotIn("interno", stran["skladbe"][0])           # naprej gredo samo znana polja
 
+    def test_control_pove_tudi_moje_vire_ki_jih_pripravi_medijski_center(self):
+        """Krog 85: vire za naprave zapise Medijski center (brez zasebnih dodatkov); Control jih samo prebere in preveri."""
+        with open(os.path.join(self.mapa.name, "viri_za_naprave.json"), "w", encoding="utf-8") as f:
+            json.dump({"sources": [{"tip": "stremio", "ime": "Dodatek", "naslov": "https://d.primer.si/manifest.json", "cas": 7, "zaseben": False},
+                                   {"tip": "kodi", "ime": "x", "naslov": "https://k.primer.si"}, "smeti",
+                                   {"tip": "url", "ime": "Podkast", "naslov": "https://p.primer.si/feed.xml", "cas": 0}],
+                       "sources_deleted": {"stremio|https://star.primer.si/manifest.json": 9, "kodi|x": 3, "url|https://b.si": "x"}}, f)
+        kazalo = link_seznami.izvoz({}, self.mapa.name)
+        self.assertEqual(kazalo["sources"], [{"tip": "stremio", "ime": "Dodatek", "naslov": "https://d.primer.si/manifest.json", "cas": 7},
+                                             {"tip": "url", "ime": "Podkast", "naslov": "https://p.primer.si/feed.xml", "cas": 0}])
+        self.assertEqual(kazalo["sources_deleted"], {"stremio|https://star.primer.si/manifest.json": 9})
+        self.assertNotIn("sources", link_seznami.izvoz({"ime": "Kratek"}, self.mapa.name))
+
     def test_brez_mape_ali_s_pokvarjeno_datoteko_je_kazalo_prazno(self):
-        self.assertEqual(link_seznami.izvoz({}, os.path.join(self.mapa.name, "ni")), {"lists": [], "deleted": {}})
+        self.assertEqual(link_seznami.izvoz({}, os.path.join(self.mapa.name, "ni")),
+                         {"lists": [], "deleted": {}, "sources": [], "sources_deleted": {}})
         with open(os.path.join(self.mapa.name, "seznami.json"), "w", encoding="utf-8") as f:
             f.write("{napol zapisano")
         self.assertEqual(link_seznami.izvoz({}, self.mapa.name)["lists"], [])

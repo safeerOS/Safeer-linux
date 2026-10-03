@@ -142,7 +142,7 @@ class TokTorrenta(unittest.TestCase):
         t = _Torrenti(self.lokalni.server_address[1])
         o = self.d.tok_torrenta(MAGNET, "tv-1", torrenti=t, zmogljivost=lambda m, v: "")
         self.assertEqual(self.d.prenosi_za_naprave(t)["items"], [{"id": 7, "name": "Film", "size": 9100, "done": 4550,
-                         "finished": False, "speed_mibs": 1.5, "magnet": MAGNET, "file": 1}])
+                         "finished": False, "speed_mibs": 1.5, "magnet": MAGNET, "file": 1, "keep": False}])
         self.assertTrue(self.d.odstrani_prenos(7, t))
         self.assertEqual(t.odstranjen, (7, True))  # z datotekami: na racunalniku ne ostane nic
         z = {"X-Safeer-Token": o["server"]["token"]}
@@ -260,8 +260,27 @@ class TokTorrenta(unittest.TestCase):
         self.assertEqual((izidi[-1]["ok"], izidi[-1]["code"]), (False, "ni_magnet"))
         link_daljinec.izvedi_control("magnet.remove", {"id": "x"}, lambda u: None, izidi.append, datoteke=self.d)
         self.assertEqual(izidi[-1]["code"], "ni_prenosa")
+        # »Obdrži« (krog 85): brez oznake prenosa ali brez true/false nic.
+        link_daljinec.izvedi_control("magnet.keep", {"id": 7}, lambda u: None, izidi.append, datoteke=self.d)
+        self.assertEqual(izidi[-1]["code"], "ni_prenosa")
+        link_daljinec.izvedi_control("magnet.keep", {"id": "x", "keep": True}, lambda u: None, izidi.append, datoteke=self.d)
+        self.assertEqual(izidi[-1]["code"], "ni_prenosa")
+        klici = []
+        d = link_datoteke.Datoteke([], tls_mapa=os.path.join(self.mapa, "tls"))
+        self.addCleanup(d.ustavi)
+        d.obdrzi_prenos = lambda tid, drzi, id_naprave="": klici.append((tid, drzi, id_naprave)) or tid == 7
+        for tid, pricakovano in ((7, True), (8, False)):
+            n = len(izidi)
+            link_daljinec.izvedi_control("magnet.keep", {"id": tid, "keep": True}, lambda u: None, izidi.append, datoteke=d, posiljatelj="tel-1")
+            for _ in range(50):
+                if len(izidi) > n:
+                    break
+                time.sleep(0.05)
+            self.assertEqual(izidi[-1]["ok"], pricakovano)
+        self.assertEqual(klici, [(7, True, "tel-1"), (8, True, "tel-1")])
+        self.assertEqual(izidi[-2]["data"], {"keep": True})
         link_daljinec.izvedi_control("status", {}, lambda u: None, izidi.append, datoteke=self.d)
-        self.assertTrue({"magnet.list", "magnet.remove"} <= set(izidi[-1]["data"]["actions"]))
+        self.assertTrue({"magnet.list", "magnet.remove", "magnet.keep"} <= set(izidi[-1]["data"]["actions"]))
 
 
 if __name__ == "__main__":

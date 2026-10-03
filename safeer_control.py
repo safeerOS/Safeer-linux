@@ -704,6 +704,7 @@ class SafeerControl(Gtk.Application):
         from core import knjiznica_kroga
         self.datoteke.gledanje = knjiznica_kroga.lokalni
         self.datoteke.odstrani_gledanje = self._odstrani_gledanje
+        self.datoteke.obdrzi_gledanje = knjiznica_kroga.nastavi_obdrzi
         # Programi racunalnika za televizor; privzeto izklopljeno ("programi_za_tv" v control.json).
         self.programi = link_programi.Programi(bool(self.nastavitve.get("programi_za_tv", False)))
         self.programi.ob_spremembi = lambda vklopljeno: self.nastavitve.set("programi_za_tv", bool(vklopljeno))
