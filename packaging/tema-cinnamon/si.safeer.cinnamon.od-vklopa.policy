@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<policyconfig>
+  <vendor>Safeer</vendor>
+  <vendor_url>https://safeer.si/os/</vendor_url>
+  <action id="si.safeer.cinnamon.od-vklopa">
+    <description>Change the boot and login screen look (Safeer Cinnamon)</description>
+    <description xml:lang="sl">Sprememba videza zagonskega in prijavnega zaslona (Safeer Cinnamon)</description>
+    <message>Authentication is required to change the look of the boot screen and the login screen.</message>
+    <message xml:lang="sl">Za spremembo videza zagonskega in prijavnega zaslona je potrebno skrbniško geslo.</message>
+    <icon_name>preferences-desktop-theme</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/safeer-cinnamon/od-vklopa</annotate>
+  </action>
+</policyconfig>

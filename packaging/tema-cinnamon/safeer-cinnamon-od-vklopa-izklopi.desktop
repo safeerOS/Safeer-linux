@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Restore the previous boot and login screen
+Name[sl]=Vrni prejšnji zagonski in prijavni zaslon
+Exec=safeer-cinnamon --od-vklopa-izklopi
+Icon=edit-undo
+Categories=Settings;DesktopSettings;

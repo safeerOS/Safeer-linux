@@ -595,6 +595,33 @@ def odpri_tukaj(id_naprave: str, app: str) -> dict:
     return _control_naprave("OdpriTukaj", str(id_naprave or ""), str(app or ""))
 
 
+#: »Safeer od vklopa« (zagonski in prijavni zaslon v videzu Safeer) je del paketa safeer-cinnamon: pomocnik s
+#: skrbniskimi pravicami si zapomni prejsnje stanje v /var/lib in ga ob izklopu vrne.
+OD_VKLOPA_POMOCNIK = "/usr/lib/safeer-cinnamon/od-vklopa"
+OD_VKLOPA_STANJE = "/var/lib/safeer-cinnamon/od-vklopa.json"
+
+
+def od_vklopa_stanje() -> dict:
+    """Ali je »Safeer od vklopa« na voljo (namescen paket s pomocnikom) in ali je vklopljen."""
+    from shutil import which
+    return {"na_voljo": os.access(OD_VKLOPA_POMOCNIK, os.X_OK) and bool(which("safeer-cinnamon")),
+            "vklopljeno": os.path.exists(OD_VKLOPA_STANJE)}
+
+
+def od_vklopa(vklop: bool) -> dict:
+    """Vklop ali izklop prek ukaza safeer-cinnamon: ta vprasa za skrbnisko geslo (pkexec) in uporabniku sam
+    sporoci izid. Vrne stanje, kakrsno je po tem res (brez gesla ostane, kot je bilo)."""
+    ok = False
+    if od_vklopa_stanje()["na_voljo"]:
+        try:
+            r = subprocess.run(["safeer-cinnamon", "--od-vklopa" if vklop else "--od-vklopa-izklopi"],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=900)
+            ok = r.returncode == 0
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] od vklopa:", e)
+    return dict(od_vklopa_stanje(), ok=ok)
+
+
 SAMOZAGON = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
                          "autostart", "safeer-os.desktop")
 
@@ -1699,6 +1726,7 @@ class SafeerOS(Gtk.Application):
             "zazeniNaNapravi": lambda: zazeni_na_napravi(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "odpriTukaj": lambda: odpri_tukaj(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "zvokUstavi": zvok_ustavi,
+            "odVklopa": lambda: od_vklopa(bool(a[0])) if a else od_vklopa_stanje(),
             "jbl": lambda: os_jbl.stanje(True) if os_jbl else {"na_voljo": False},
             "jblVklop": lambda: os_jbl.vklopi(bool(a[0]) if a else False) if os_jbl else {"na_voljo": False},
             "scit": self.scit.stanje,
@@ -1753,6 +1781,7 @@ class SafeerOS(Gtk.Application):
             "jezik": _jezik(),
             "ime": GLib.get_real_name() if GLib.get_real_name() not in ("", "Unknown") else GLib.get_user_name(),
             "racunalnik": socket.gethostname(),
+            "odVklopa": od_vklopa_stanje(),
             "ozadje": ("file://" + GLib.uri_escape_string(ozadje, "/", False)) if ozadje else "",
             "razpolozljivo": os_sistem.razpolozljivo(),
             "mape": os_datoteke.uporabniske_mape(),

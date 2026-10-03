@@ -438,6 +438,8 @@ h2 .dodatno + .dodatno { margin-left: 14px; }
   border: 1px solid var(--rob); text-align: left; width: 100%;
 }
 .stikalo:hover { border-color: var(--zelena); }
+.stikalo[aria-busy="true"] { opacity: .6; cursor: progress; }
+.stikalo[hidden] { display: none; }
 .stikalo svg { color: var(--zelena); }
 .stikalo div { flex: 1; }
 .stikalo small { display: block; color: var(--medlo); font-size: 14px; margin-top: 3px; }

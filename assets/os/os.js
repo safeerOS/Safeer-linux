@@ -2218,6 +2218,10 @@
     kontrole($("hitreNastavitve"), false);
     $("stikaloCelozaslonsko").setAttribute("aria-checked", S.zacetek && S.zacetek.celozaslonsko ? "true" : "false");
     $("stikaloSamozagon").setAttribute("aria-checked", S.zacetek && S.zacetek.samozagon ? "true" : "false");
+    // Safeer od vklopa (zagonski in prijavni zaslon): samo, ce je namescen paket safeer-cinnamon s pomocnikom.
+    var odVklopa = S.zacetek && S.zacetek.odVklopa;
+    $("stikaloOdVklopa").hidden = !(odVklopa && odVklopa.na_voljo);
+    $("stikaloOdVklopa").setAttribute("aria-checked", odVklopa && odVklopa.vklopljeno ? "true" : "false");
     var cilj = $("skupineNastavitev");
     cilj.innerHTML = "";
     seznamNastavitev().forEach(function (g) {
@@ -3714,6 +3718,18 @@
         if (S.zacetek) S.zacetek.samozagon = !!zdaj;
         b.setAttribute("aria-checked", zdaj ? "true" : "false");
       });
+    });
+    $("stikaloOdVklopa").addEventListener("click", function () {
+      // Spremembo naredi sistem po skrbniskem geslu (pkexec) in traja do minute: stikalo pokaze, kar je res obveljalo.
+      var b = $("stikaloOdVklopa");
+      if (b.getAttribute("aria-busy") === "true") return;
+      var nov = b.getAttribute("aria-checked") !== "true";
+      b.setAttribute("aria-busy", "true");
+      klic("odVklopa", [nov]).then(function (r) {
+        b.removeAttribute("aria-busy");
+        if (S.zacetek && r) S.zacetek.odVklopa = r;
+        b.setAttribute("aria-checked", r && r.vklopljeno ? "true" : "false");
+      }).catch(function () { b.removeAttribute("aria-busy"); });
     });
     $("gumbPosodobi").addEventListener("click", posodobi);
     $("domPosodobitevGumb").addEventListener("click", naPosodobitve);

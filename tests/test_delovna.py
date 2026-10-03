@@ -149,7 +149,7 @@ class TestTemaCinnamon(unittest.TestCase):
             with open(tema_zagon, "w") as f:
                 f.write("[Desktop Entry]\nName=Safeer OS Tema\nExec=safeer-uveljavi-temo\n")
             env = dict(os.environ, PATH=bin_ + os.pathsep + os.environ.get("PATH", ""), HOME=dom,
-                       XDG_CONFIG_HOME="", XDG_DATA_HOME="")
+                       XDG_CONFIG_HOME="", XDG_DATA_HOME="", SAFEER_CINNAMON_BREZ_SISTEMA="1")
             skripta = os.path.join(TEMA, "safeer-cinnamon")
             subprocess.run(["bash", skripta], env=env, check=True, capture_output=True)
             with open(db) as f:
