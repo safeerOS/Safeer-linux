@@ -1463,7 +1463,7 @@
       return;
     }
     v.appendChild(el("div", "prazno", ubezi(t("iscem"))));
-    klic("isciDatoteke", [S.datotekeIskanje]).then(function (seznam) {
+    klic("isciDatoteke", [S.datotekeIskanje, 200]).then(function (seznam) {
       if ($("datotekeIskanje").value.trim() !== S.datotekeIskanje) return;
       prikaziIskanjeDatotek(S.datotekeIskanje, seznam || []);
     }, function () { v.innerHTML = ""; v.appendChild(el("div", "prazno", ubezi(t("niZadetkov")))); });
