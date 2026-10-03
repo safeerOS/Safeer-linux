@@ -14,7 +14,7 @@ cp -a "$ROOT/safeer_os.py" "$LIB/"
 # identity, sessions, circle of trust, hub discovery, programs). tests/test_packaging.py installs this
 # payload and imports it without the source tree, so a missing module fails the test, not the user.
 # core/os_jbl.py (JBL input switching) is an internal experiment and is deliberately NOT shipped.
-for modul in os_datoteke os_knjiznica os_media_besedila os_mediji os_mpris os_posodobitve os_predvajalnik os_torrent os_torrent_tok podnapisi os_dvd os_okna os_omrezje os_programi os_scit os_sistem os_sporocila os_spletne os_stabilnost os_zapiski os_zvok \
+for modul in os_datoteke os_knjiznica os_media_besedila os_mediji os_mpris os_oblak_igre os_posodobitve os_predvajalnik os_torrent os_torrent_tok podnapisi os_dvd os_okna os_omrezje os_programi os_scit os_sistem os_sporocila os_spletne os_stabilnost os_zapiski os_zvok \
              link_datoteke link_urejanje link_hub link_hub_streznik link_mesh link_rele link_pretok link_sprotno link_predvajanje link_iskanje link_krog link_kripto link_mediji link_programi link_seja link_tls link_ws spake2 signed_feed threat_intel \
              os_katalog os_media knjiznica_kroga media_servers tok_izbira watch_providers zakoniti_viri uvoz_seznama seznami_sink viri_sink \
              os_splet ikone_strani dlna_zvocniki zvok_na_zvocnik adblock config bookmarks_importer doh_proxy filter_lists bank_guard; do

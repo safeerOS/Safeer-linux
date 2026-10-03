@@ -37,7 +37,10 @@
     lastnostiDatoteke: { ok: true, ime: "Porocilo projekta.odt", pot: dom + "/Dokumenti/Porocilo projekta.odt", mapa: false, vrsta: "dokument", mime: "application/vnd.oasis.opendocument.text",
       velikost: 248000, spremenjeno: zdaj - 600, pravice: "-rw-r--r--", lastnik: "demo", pisljivo: true },
     prilepiDatoteke: { ok: true, narejeno: [dom + "/Dokumenti/Porocilo projekta (2).odt"], napake: [] }, sliciceDatotek: {}, obnoviIzSmeti: { ok: true }, izvrziNosilec: { ok: true },
-    izprazniSmeti: { ok: true, potrjeno: false }
+    izprazniSmeti: { ok: true, potrjeno: false },
+    igreOblak: [{ id: "com.primer.oblak", ime: "Igre v oblaku (demo)", ponudnik: "Ponudnik (demo)", stran: "https://example.org/", namescen: false,
+      zdruzljivost: { stanje: "poskusi", razlogi: [{ koda: "osnova", sistem: "Linux Mint", osnova: "Ubuntu 24.04" }] } }],
+    igreOblakNamesti: { ok: true, id: "com.primer.oblak" }
   };
   window.SafeerOS = { klic: function (m, a) {
     if (m === "programiNaprave") {

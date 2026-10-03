@@ -44,7 +44,7 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 
-from core import (os_datoteke, os_katalog, os_knjiznica, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
+from core import (os_datoteke, os_katalog, os_knjiznica, os_oblak_igre, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
                   os_media_besedila, os_mediji, os_posodobitve, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost,
                   os_torrent, os_torrent_tok, os_zapiski, os_zvok, knjiznica_kroga)
 
@@ -1651,6 +1651,8 @@ class SafeerOS(Gtk.Application):
             "preimenujDatoteko": lambda: os_datoteke.preimenuj(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "vSmeti": lambda: os_datoteke.v_smeti(str(a[0]) if a else ""),
             "prostorDiska": lambda: os_datoteke.prostor(),
+            "igreOblak": lambda: os_oblak_igre.stanje(),
+            "igreOblakNamesti": lambda: os_oblak_igre.namesti(str(a[0]) if a else ""),
             "prilepiDatoteke": lambda: os_datoteke.prilepi(a[0] if a and isinstance(a[0], list) else [], str(a[1]) if len(a) > 1 else "",
                                                            bool(a[2]) if len(a) > 2 else False),
             "smeti": os_datoteke.smeti,
