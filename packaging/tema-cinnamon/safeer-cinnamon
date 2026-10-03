@@ -14,7 +14,8 @@
 #   safeer-cinnamon --izklopi       vrne vse, kot je bilo pred vklopom
 #   safeer-cinnamon --kontrast      neprosojne povrsine in mocnejse obrobe (lupina in programi)
 #   safeer-cinnamon --prosojno      nazaj na obicajni (polprosojni) videz
-#   safeer-cinnamon --vecji-tekst [125|150]   vecje besedilo   (--obicajen-tekst: nazaj)
+#   safeer-cinnamon --vecji-tekst [125|150]   vecje besedilo; brez stevilke 125 % oziroma tvoja vecja velikost
+#                                   izpred vklopa   (--obicajen-tekst: nazaj)
 #   safeer-cinnamon --stanje        izpise, kaj je vklopljeno
 #   safeer-cinnamon --seja          ob prijavi: delovna povrsina Safeer OS (safeer-os --delovna)
 #   safeer-cinnamon --nastavitve-docka  odpre nastavitve docka (programe dodas tako, da jih povleces iz menija)
@@ -220,8 +221,23 @@ seznam_oken_vrni() { seznam_oken vrni; rm -f "$SEZNAM_OKEN" "$MAPA/appleti-prej.
 # Velikost zaslona (logicne tocke): "SIRINA VISINA"; prazno, ce je ne poznamo.
 zaslon() { xrandr --current 2>/dev/null | sed -n 's/.*current \([0-9]*\) x \([0-9]*\).*/\1 \2/p' | head -n1; }
 
+# Merilo vmesnika (1 = obicajno, 2 = HiDPI), kot ga vidi GTK. Velikosti racunamo v logicnih tockah: 4K pri 200 %
+# je za uporabnika zaslon 1920 x 1080. Brez zaslona (ali v preizkusih ukaza) 1.
+merilo_zaslona() {
+    [ -n "$KOREN" ] && { echo 1; return 0; }
+    python3 - 2>/dev/null <<'PY' || echo 1
+import gi
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk
+zaslon = Gdk.Display.get_default()
+monitor = (zaslon.get_primary_monitor() or zaslon.get_monitor(0)) if zaslon is not None else None
+print(max(1, monitor.get_scale_factor()) if monitor is not None else 1)
+PY
+}
+
 # Velikost ikon docka sledi zaslonu in povecavi besedila (prej vedno 48): 36 na majhnem prenosniku, 44 pri 1080p,
-# 48 pri 1440p, 56 na 4K; z vecjim besedilom sorazmerno vec, najvec 64. $1 = visina zaslona, $2 = povecava (npr. 1.25).
+# 48 pri 1440p, 56 na 4K; z vecjim besedilom sorazmerno vec, najvec 64. $1 = logicna visina zaslona, $2 = povecava
+# besedila (npr. 1.25).
 velikost_ikon() {
     python3 - "${1:-1080}" "${2:-1.0}" <<'PY'
 import sys
@@ -301,8 +317,10 @@ dock_straza() {
 # prilagodimo samo vrednosti, ki so se take, kot smo jih nazadnje nastavili mi ($MAPA/dock-nastavljeno).
 dock_prilagodi() {
     command -v dconf >/dev/null 2>&1 || return 0
-    local z visina ikone skrivanje povecava stare_ikone="" staro_skrivanje="" zdaj
+    local z visina ikone skrivanje povecava stare_ikone="" staro_skrivanje="" zdaj merilo
     z="$(zaslon)"; visina="${z#* }"; [ -n "$visina" ] || visina=1080
+    merilo="$(merilo_zaslona)"
+    case "$merilo" in [2-9]) visina=$((visina / merilo)) ;; esac
     povecava="$(beri org.cinnamon.desktop.interface:text-scaling-factor)" || povecava=1.0
     ikone="$(velikost_ikon "$visina" "$povecava")"
     # Na majhnem zaslonu se dock umakne oknu, ki bi ga prekril (sicer vzame desetino visine); na velikem je vedno
@@ -661,7 +679,12 @@ kontrast() {      # $1 = da | ne
 
 tekst() {      # $1 = povecava (1.25, 1.5) ali "obicajen"
     local v="$1"
-    if [ "$v" = obicajen ]; then
+    if [ "$v" = vecji ]; then
+        zapomni
+        # Uporabnik, ki je imel vecje besedilo ze pred Safeer Cinnamon (npr. 150 % na TV), dobi nazaj svojo velikost.
+        v="$(vrednost_prej org.cinnamon.desktop.interface:text-scaling-factor)" || v=""
+        case "$v" in 1.[2-9]*|1.1[5-9]*|[2-9]*) ;; *) v="1.25" ;; esac
+    elif [ "$v" = obicajen ]; then
         # Nazaj na velikost pred Safeer Cinnamon (uporabnik je morda ze prej imel svojo drobno prilagoditev); ce je
         # bila ze takrat povecana, pa na 100 % - sicer stikalo "Vecje besedilo" ne bi imelo izklopa. Izklop Safeer
         # Cinnamon v vsakem primeru vrne velikost izpred vklopa.
@@ -715,7 +738,7 @@ case "${1:-}" in
     --izklopi|--off)         izklopi ;;
     --kontrast)              kontrast da ;;
     --prosojno)              kontrast ne ;;
-    --vecji-tekst)           case "${2:-125}" in 150) tekst 1.5 ;; *) tekst 1.25 ;; esac ;;
+    --vecji-tekst)           case "${2:-}" in 150) tekst 1.5 ;; 125) tekst 1.25 ;; *) tekst vecji ;; esac ;;
     --obicajen-tekst)        tekst obicajen ;;
     --stanje|--status)       stanje ;;
     --od-vklopa)             od_vklopa vklopi ;;
