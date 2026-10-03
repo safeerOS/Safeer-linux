@@ -36,6 +36,7 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.4.30" date="2026-10-03"><description><p>Films that add-ons offer as torrents now play in the Media Centre on the computer: the computer downloads the film and the player starts while it is still downloading. Asking again for a film that is already downloading no longer waits, Safeer OS and Safeer Control can use torrents at the same time, and a film also starts on a slow disk.</p></description></release>
     <release version="0.4.29" date="2026-10-03"><description><p>Packaged with Safeer Control 2.1.27: films the computer fetched for your TV, tablet or phone are removed automatically once nobody has played them for 48 hours, and Safeer Control no longer slowly accumulates background threads. No changes to Safeer OS itself.</p></description></release>
     <release version="0.4.28" date="2026-10-03"><description><p>Media Center: the same catalogue as on your other devices - films, series, music, radio and live TV with genres and search, Stremio add-ons and media servers, playlists from YouTube and Spotify. Playlists stay the same on all devices in your Safeer Link.</p></description></release>
     <release version="0.4.27" date="2026-10-02"><description><p>Web start page: remove any shortcut (built-in ones too) and restore the defaults; update offered from the Safeer Control tray menu.</p></description></release>
