@@ -74,6 +74,18 @@ class TestDelovnaStran(unittest.TestCase):
         self.assertIn("return !p.lokalni && (p.ime", js)
         self.assertIn(".program .zvezda.je", beri("assets", "os", "delovna.css"))
 
+    def test_most_nima_podvojenih_metod(self):
+        # V slovarju metod mostu je bil "splet" zapisan dvakrat (zadnji tiho prepise prvega). Ista metoda na dveh
+        # mestih pomeni, da se popravek na enem ne prime - zato vsak slovar v safeer_os.py pregledamo.
+        import ast
+        drevo = ast.parse(beri("safeer_os.py"))
+        podvojeni = []
+        for vozel in ast.walk(drevo):
+            if isinstance(vozel, ast.Dict):
+                kljuci = [k.value for k in vozel.keys if isinstance(k, ast.Constant) and isinstance(k.value, str)]
+                podvojeni += sorted({k for k in kljuci if kljuci.count(k) > 1})
+        self.assertEqual(podvojeni, [])
+
     def test_stran_je_v_paketu(self):
         self.assertIn('cp -a "$ROOT/assets/os"', beri("packaging", "install_os_payload.sh"))
 

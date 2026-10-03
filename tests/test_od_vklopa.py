@@ -92,9 +92,9 @@ class TestVklopIzklop(unittest.TestCase):
 
     def _o(self, alt, greeter=True):
         return M.OdVklopa(stanje=os.path.join(self.tmp, "stanje"), conf=self.conf, tema=self.tema, tek=alt,
-                          greeterji=(self.greeter,) if greeter else (), izpis=self.izpis.append)
+                          greeterji=(self.greeter,) if greeter else (), izpis=self.izpis.append,
+                          obstaja=lambda pot: True)      # preizkus ne sme biti odvisen od orodij na racunalniku
 
-    @unittest.skipUnless(os.path.exists(M.ALTERNATIVE), "ni update-alternatives")
     def test_brez_datoteke_vklop_izklop_ne_pusti_sledi(self):
         alt = Alternative()
         o = self._o(alt)
@@ -108,7 +108,6 @@ class TestVklopIzklop(unittest.TestCase):
         self.assertEqual((alt.status, alt.vrednost), ("auto", alt.samodejna))
         self.assertFalse(o.vklopljeno())
 
-    @unittest.skipUnless(os.path.exists(M.ALTERNATIVE), "ni update-alternatives")
     def test_izklop_vrne_prejsnje_in_pusti_uporabnikove_spremembe(self):
         os.makedirs(os.path.dirname(self.conf))
         izvirnik = "[Greeter]\nbackground=/x/moje.jpg\nshow-hostname=false\n"
@@ -131,15 +130,23 @@ class TestVklopIzklop(unittest.TestCase):
         self.assertIn("show-hostname=false", po)
         self.assertIn("theme-name=Mint-Y-Dark", po)
         self.assertNotIn("background-color", po)
-        if os.path.exists(rocna):
-            self.assertEqual((alt.status, alt.vrednost), ("manual", rocna))
+        # Rocno izbrano temo vrnemo le, ce se obstaja; sicer samodejna izbira sistema.
+        self.assertEqual((alt.status, alt.vrednost), ("manual", rocna) if os.path.exists(rocna) else ("auto", alt.samodejna))
 
-    @unittest.skipUnless(os.path.exists(M.ALTERNATIVE), "ni update-alternatives")
     def test_neuspel_initramfs_ne_pozabi_stanja(self):
         alt = Alternative(initramfs=1)
         o = self._o(alt)
         self.assertEqual(o.vklopi(), 1)
         self.assertTrue(o.vklopljeno(), "po neuspehu mora izklop se vedno znati vrniti prejsnje stanje")
+
+    def test_sistem_brez_plymoutha_in_greeterja_ostane_kot_je(self):
+        alt = Alternative()
+        o = M.OdVklopa(stanje=os.path.join(self.tmp, "stanje"), conf=self.conf, tema=self.tema, tek=alt, greeterji=(),
+                       izpis=self.izpis.append, obstaja=lambda pot: False)
+        self.assertEqual(o.vklopi(), 0)
+        self.assertFalse(os.path.exists(self.conf))
+        self.assertEqual(alt.klici, [])
+        self.assertEqual(o.izklopi(), 0)
 
     def test_brez_teme_nic_ne_spremeni(self):
         os.remove(self.tema)

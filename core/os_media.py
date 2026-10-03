@@ -3661,7 +3661,8 @@ def odpri(pot: str) -> bool:
 
 def _playerctl(*args: str) -> str:
     try:
-        result = subprocess.run(["playerctl", *args], capture_output=True, text=True,
+        # Svojega predvajalnika (core/os_mpris.py) tu ne beremo: to je pogled na DRUGE predvajalnike v sistemu.
+        result = subprocess.run(["playerctl", "--ignore-player=safeer", *args], capture_output=True, text=True,
                                 timeout=1.5, check=False)
         return result.stdout.strip() if result.returncode == 0 else ""
     except (OSError, subprocess.TimeoutExpired):
@@ -3695,6 +3696,6 @@ def ukaz(ime: str) -> bool:
     if not command:
         return False
     try:
-        return subprocess.run(["playerctl", command], timeout=1.5, check=False).returncode == 0
+        return subprocess.run(["playerctl", "--ignore-player=safeer", command], timeout=1.5, check=False).returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         return False

@@ -144,21 +144,23 @@ def alternativa(tek=_tek):
 
 
 class OdVklopa:
-    def __init__(self, stanje=STANJE, conf=GREETER_CONF, tema=TEMA, tek=_tek, greeterji=GREETERJI, izpis=print):
+    def __init__(self, stanje=STANJE, conf=GREETER_CONF, tema=TEMA, tek=_tek, greeterji=GREETERJI, izpis=print,
+                 obstaja=os.path.exists):
         self.stanje, self.conf, self.tema, self.tek, self.greeterji, self.izpis = stanje, conf, tema, tek, greeterji, izpis
+        self.obstaja = obstaja               # ali je sistemsko orodje namesceno (preizkusi ga nadomestijo)
         self.prej = os.path.join(stanje, "od-vklopa.json")
 
     def _ima_greeter(self):
         return any(os.path.exists(p) for p in self.greeterji)
 
     def _ima_plymouth(self):
-        return os.path.exists(ALTERNATIVE) and alternativa(self.tek) is not None
+        return self.obstaja(ALTERNATIVE) and alternativa(self.tek) is not None
 
     def vklopljeno(self):
         return os.path.exists(self.prej)
 
     def _initramfs(self):
-        if not os.path.exists(INITRAMFS):
+        if not self.obstaja(INITRAMFS):
             return True
         self.izpis("Pripravljam zagonski zaslon (lahko traja do minute) ...")
         koda, izpis = self.tek([INITRAMFS, "-u"])
