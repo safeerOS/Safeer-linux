@@ -269,6 +269,8 @@ class Katalog:
                 # Krajevne datoteke ima na Linuxu knjiznica Medijskega centra (core/os_knjiznica.py), zato tu brez map.
                 self._mc = os_media.MediaCenter(str(self.config_dir), roots=[], secret_encryptor=skrij, secret_decryptor=razkrij)
                 self._mc.visina_zaslona = self.visina_zaslona
+                # Pred predvajanjem preverimo, da prvi tok res odgovori (mrtva povezava ne sme biti prva).
+                self._mc.preveri_tokove = True
                 # Film iz torrenta: branje torrenta traja - stran med tem pove, da ga pripravljamo.
                 self._mc.ob_pripravi_torrenta = lambda item: self.dogodek(
                     "mediaTorrent", {"naslov": str(item.get("naslov") or "")})
