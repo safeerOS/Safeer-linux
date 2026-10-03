@@ -15,8 +15,23 @@ from core import link_hub, link_krog
 POT = os.path.expanduser("~/.config/safeer-control/link.json")
 
 
+def _prava_identiteta() -> bool:
+    """Zivi preizkusi smejo teci samo s PRAVO identiteto tega racunalnika.
+
+    Zeton seznanitve je v ~/.config/safeer-control/link.json, kljuc naprave pa v XDG_CONFIG_HOME/safeer-control/tls.
+    Ce preizkuse pozenemo z loceno konfiguracijo (XDG_CONFIG_HOME drugam), nastane NOV kljuc, zeton pa je pravi:
+    hub bi nov kljuc vpisal v krog zaupanja kot Control tega racunalnika in pravi Control bi izpadel iz Linka
+    (zgodilo se je 3. 10. 2026). Zato se v tem primeru zivi preizkusi preskocijo.
+    """
+    from core import link_datoteke
+    prava = os.path.join(os.path.expanduser("~/.config"), "safeer-control", "tls")
+    return os.path.realpath(link_datoteke.TLS_MAPA) == os.path.realpath(prava)
+
+
 def _seznanitve():
     """[(hub_url, zeton, odtis)]: trenutna in vse zapomnjene seznanitve Controla."""
+    if not _prava_identiteta():
+        return []
     try:
         with open(POT, "r", encoding="utf-8") as d:
             n = json.load(d) or {}
