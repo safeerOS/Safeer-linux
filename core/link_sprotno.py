@@ -25,6 +25,8 @@ import urllib.parse
 import uuid
 from typing import Callable, Dict, List, Optional
 
+from core import budnost
+
 MB = 1024 * 1024
 VISINA = 1080
 BREZ_BRALCA_S = 60.0
@@ -535,6 +537,7 @@ class Sprotno:
         try:
             while True:
                 t.zadnji_bralec = time.time()
+                budnost.dotik()      # naprava gleda sprotno pretvorjen tok: racunalnik medtem ne zaspi sam
                 dolzina = os.path.getsize(t.datoteka) if os.path.exists(t.datoteka) else 0
                 if dolzina > poslano:
                     with open(t.datoteka, "rb") as d:

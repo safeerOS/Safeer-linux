@@ -31,7 +31,7 @@ import time
 import urllib.parse
 from typing import Dict, List, Optional, Tuple
 
-from core import link_tls, link_urejanje
+from core import budnost, link_tls, link_urejanje
 
 NAJVEC_VNOSOV = 500
 NAJVEC_TELESA = 64 * 1024
@@ -429,6 +429,7 @@ def _poslji_datoteko(obravnava, pot: str, samo_glava: bool) -> None:
                     break
                 obravnava.wfile.write(kos)
                 ostane -= len(kos)
+                budnost.dotik()      # naprava bere datoteko: racunalnik medtem ne zaspi sam
     except (BrokenPipeError, ConnectionResetError, ssl.SSLError, socket.timeout):
         # Predvajalnik na napravi med predvajanjem zapira povezave sredi obsega (nov Range): ni napaka,
         # prej je vsaka taka pustila sled v dnevniku (SSLEOFError).
@@ -477,6 +478,7 @@ def posreduj_tok(obravnava, streznik: "StreznikDatotek", skrivnost: str, samo_gl
             if not kos:
                 break
             obravnava.wfile.write(kos)
+            budnost.dotik()          # naprava gleda tok: racunalnik medtem ne zaspi sam
     except (BrokenPipeError, ConnectionResetError, OSError):
         pass
     finally:
