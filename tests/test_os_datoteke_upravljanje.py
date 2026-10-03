@@ -188,6 +188,84 @@ class TestLastnostiInSlicice(Osnova):
         self.assertEqual(os.listdir(self.a).count("pokvarjena.jpg"), 1)
 
 
+class TestRazveljavi(Osnova):
+    """Razveljavi v Datotekah: vsako dejanje vrne, kar je potrebno za pot nazaj; nazaj nikoli nicesar ne prepise."""
+
+    def test_premik_gre_nazaj(self):
+        vir = self.pisi(os.path.join(self.a, "pismo.txt"), "vsebina")
+        r = D.prilepi([vir], self.b, True)
+        nova = os.path.join(self.b, "pismo.txt")
+        self.assertEqual(r["pari"], [[vir, nova]])
+        self.assertFalse(os.path.exists(vir))
+        nazaj = D.razveljavi({"vrsta": "premik", "pari": r["pari"]})
+        self.assertEqual((nazaj["ok"], nazaj["narejeno"], nazaj["napake"]), (True, 1, []))
+        self.assertTrue(os.path.exists(vir))
+        self.assertFalse(os.path.exists(nova))
+
+    def test_premik_nazaj_ne_prepise(self):
+        vir = self.pisi(os.path.join(self.a, "pismo.txt"), "staro")
+        r = D.prilepi([vir], self.b, True)
+        self.pisi(vir, "novo na starem mestu")
+        nazaj = D.razveljavi({"vrsta": "premik", "pari": r["pari"]})
+        self.assertFalse(nazaj["ok"])
+        self.assertEqual(nazaj["napake"], [{"pot": vir, "napaka": "obstaja"}])
+        with open(vir) as f:
+            self.assertEqual(f.read(), "novo na starem mestu")
+        with open(os.path.join(self.b, "pismo.txt")) as f:
+            self.assertEqual(f.read(), "staro")
+
+    def test_premik_nazaj_brez_datoteke_ali_mape(self):
+        vir = self.pisi(os.path.join(self.a, "pod", "pismo.txt"))
+        r = D.prilepi([vir], self.b, True)
+        shutil.rmtree(os.path.join(self.a, "pod"))
+        self.assertEqual(D.razveljavi({"vrsta": "premik", "pari": r["pari"]})["napake"], [{"pot": vir, "napaka": "ni_mape"}])
+        os.remove(os.path.join(self.b, "pismo.txt"))
+        self.assertEqual(D.razveljavi({"vrsta": "premik", "pari": r["pari"]})["napake"],
+                         [{"pot": os.path.join(self.b, "pismo.txt"), "napaka": "ni_datoteke"}])
+
+    def test_kopija_gre_v_smeti_izvirnik_ostane(self):
+        vir = self.pisi(os.path.join(self.a, "pismo.txt"))
+        mapa = os.path.join(self.a, "mapa")
+        self.pisi(os.path.join(mapa, "notri.txt"))
+        r = D.prilepi([vir, mapa], self.b)
+        self.assertEqual(len(r["pari"]), 2)
+        nazaj = D.razveljavi({"vrsta": "kopija", "pari": r["pari"]})
+        self.assertEqual((nazaj["ok"], nazaj["narejeno"]), (True, 2))
+        self.assertEqual(os.listdir(self.b), [])
+        self.assertTrue(os.path.exists(vir) and os.path.exists(os.path.join(mapa, "notri.txt")))
+        self.assertEqual(sorted(e["ime"] for e in D.smeti()["elementi"]), ["mapa", "pismo.txt"], "kopije so v Smeteh, ne izbrisane")
+
+    def test_v_smeti_vrne_id_in_obnovitev(self):
+        ena, dve = self.pisi(os.path.join(self.a, "ena.txt")), self.pisi(os.path.join(self.b, "ena.txt"), "druga")
+        idji = [D.v_smeti(ena)["id"], D.v_smeti(dve)["id"]]
+        self.assertTrue(all(idji) and idji[0] != idji[1], idji)
+        nazaj = D.razveljavi({"vrsta": "smeti", "idji": idji})
+        self.assertEqual((nazaj["ok"], nazaj["narejeno"]), (True, 2))
+        with open(dve) as f:
+            self.assertEqual(f.read(), "druga", "vsaka gre v svojo mapo")
+        self.assertTrue(os.path.exists(ena))
+        self.assertEqual(D.razveljavi({"vrsta": "smeti", "idji": idji})["narejeno"], 0, "drugic ni vec cesa obnoviti")
+
+    def test_preimenovanje_in_novo(self):
+        stara = self.pisi(os.path.join(self.a, "staro.txt"))
+        nova = D.preimenuj(stara, "novo.txt")["pot"]
+        self.assertTrue(D.razveljavi({"vrsta": "preimenovanje", "pari": [[stara, nova]]})["ok"])
+        self.assertEqual(os.listdir(self.a), ["staro.txt"])
+        mapa = D.ustvari_mapo(self.a, "Nova mapa")["pot"]
+        self.assertTrue(D.razveljavi({"vrsta": "novo", "pari": [["", mapa]]})["ok"])
+        self.assertEqual(os.listdir(self.a), ["staro.txt"])
+        self.assertEqual([e["ime"] for e in D.smeti()["elementi"]], ["Nova mapa"])
+
+    def test_napacen_zapis(self):
+        for zapis in (None, "premik", {}, {"vrsta": "izbrisi", "pari": [["/a", "/b"]]}):
+            self.assertEqual(D.razveljavi(zapis)["napaka"], "ni_zapisa")
+        dom = os.path.expanduser("~")
+        r = D.razveljavi({"vrsta": "premik", "pari": [[os.path.join(self.a, "x"), dom], ["", self.b], ["samo-eno"], 7]})
+        self.assertEqual((r["ok"], r["narejeno"]), (False, 0))
+        self.assertEqual([n["napaka"] for n in r["napake"]], ["ni_dovoljeno", "ni_dovoljeno"])
+        self.assertTrue(os.path.isdir(self.b))
+
+
 class TestVlecenje(Osnova):
     """Seznam naslovov (text/uri-list) ob vlecenju datotek med programi."""
 

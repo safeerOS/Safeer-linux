@@ -242,6 +242,8 @@ select option { background: #111c2b; color: var(--besedilo); }
 .meni label:hover, .meni button:hover, .meni button:focus-visible { background: var(--izbrano); }
 .meni hr { border: 0; border-top: 1px solid var(--tanka); margin: .35em 0; }
 .meni button:disabled { opacity: .45; cursor: default; }
+.obvestilo button { margin-left: .9em; padding: .2em .75em; border-radius: 8px; border: 1px solid rgba(138, 199, 255, .45); background: rgba(138, 199, 255, .16); cursor: pointer; }
+.obvestilo button:hover, .obvestilo button:focus-visible { background: rgba(138, 199, 255, .32); }
 /* Nad dockom in spodnjim pultom (--r-dno): na dnu zaslona bi obvestilo ostalo skrito za njima. */
 .obvestilo { position: fixed; left: 50%; bottom: calc(var(--r-dno, 0px) + 1.2em); transform: translateX(-50%); z-index: 40; padding: .6em 1.1em; border-radius: 12px; background: rgba(14, 23, 39, .97); border: 1px solid var(--obroba-mocna); font-size: .85em; max-width: 70vw; }
 

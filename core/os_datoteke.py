@@ -364,11 +364,39 @@ def v_smeti(pot: str) -> dict:
     pot = os.path.abspath(os.path.expanduser(str(pot or "")))
     if pot in ("/", os.path.expanduser("~")):
         return {"ok": False, "napaka": "ni_dovoljeno"}
+    zacetek = time.time()
     try:
         link_urejanje.v_smeti(pot)
-        return {"ok": True}
+        return {"ok": True, "id": _id_po_izbrisu(pot, zacetek)}
     except link_urejanje.NapakaUrejanja as e:
         return {"ok": False, "napaka": str(e)}
+
+
+def _id_po_izbrisu(pot: str, od: float) -> str:
+    """Ime, pod katerim je pravkar izbrisana datoteka v domacih Smeteh (za razveljavitev). Prazno, ce je tam ni:
+    datoteka z drugega nosilca gre v Smeti tistega nosilca."""
+    import urllib.parse
+    info = os.path.join(_mapa_smeti(), "info")
+    try:
+        imena = os.listdir(info)
+    except OSError:
+        return ""
+    najnovejsi, id_ = 0.0, ""
+    for ime in imena:
+        if not ime.endswith(".trashinfo"):
+            continue
+        opis = os.path.join(info, ime)
+        try:
+            cas = os.stat(opis).st_mtime
+            if cas < od - 2 or cas < najnovejsi:
+                continue
+            with open(opis, encoding="utf-8", errors="replace") as f:
+                for v in f:
+                    if v.startswith("Path=") and urllib.parse.unquote(v[5:].strip()) == pot:
+                        najnovejsi, id_ = cas, ime[:-len(".trashinfo")]
+        except OSError:
+            continue
+    return id_
 
 
 # ====================================================================== upravljanje (kopiraj, premakni, smeti, nosilci)
@@ -400,7 +428,7 @@ def prilepi(viri, cilj_mapa: str, premakni: bool = False) -> dict:
     if not seznam or len(seznam) > NAJVEC_NAENKRAT:
         return {"ok": False, "napaka": "prevec" if seznam else "ni_datoteke", "narejeno": [], "napake": []}
     dom = os.path.expanduser("~")
-    narejeno, napake = [], []
+    narejeno, napake, pari = [], [], []
     for vir in seznam:
         ime = os.path.basename(vir.rstrip(os.sep))
         if not os.path.lexists(vir):
@@ -425,6 +453,7 @@ def prilepi(viri, cilj_mapa: str, premakni: bool = False) -> dict:
             else:
                 shutil.copy2(vir, nova, follow_symlinks=False)
             narejeno.append(nova)
+            pari.append([vir, nova])
         except (OSError, shutil.Error) as e:
             # Napol narejene kopije ne pustimo za sabo (izvirnik je pri kopiranju nedotaknjen).
             if not premakni and os.path.lexists(nova):
@@ -433,7 +462,58 @@ def prilepi(viri, cilj_mapa: str, premakni: bool = False) -> dict:
                 except OSError:
                     pass
             napake.append({"pot": vir, "napaka": _koda_napake(e) if isinstance(e, OSError) else "napaka"})
-    return {"ok": bool(narejeno) or not napake, "narejeno": narejeno, "napake": napake}
+    # "pari": od kod kam (za razveljavitev: premik nazaj oziroma kopije v Smeti).
+    return {"ok": bool(narejeno) or not napake, "narejeno": narejeno, "napake": napake, "pari": pari}
+
+
+def razveljavi(zapis) -> dict:
+    """Razveljavi dejanje v Datotekah. `zapis` opise, kaj je bilo narejeno (sestavi ga stran iz odgovorov dejanj):
+        {"vrsta": "premik", "pari": [[od_kod, kam], ...]}         datoteke gredo nazaj, od koder so prisle
+        {"vrsta": "preimenovanje", "pari": [[staro, novo]]}       staro ime
+        {"vrsta": "kopija", "pari": [[izvirnik, kopija], ...]}    kopije gredo v Smeti, izvirniki ostanejo
+        {"vrsta": "novo", "pari": [["", ustvarjeno]]}             ustvarjeno gre v Smeti
+        {"vrsta": "smeti", "idji": [ime v Smeteh, ...]}           datoteke se obnovijo iz Smeti
+    Nikoli nicesar ne prepise (zasedeno mesto je napaka) in ne izbrise trajno. Vrne {"ok", "narejeno", "napake"}."""
+    if not isinstance(zapis, dict):
+        return {"ok": False, "napaka": "ni_zapisa", "narejeno": 0, "napake": []}
+    vrsta = str(zapis.get("vrsta") or "")
+    pari = [(os.path.abspath(str(p[0])) if p[0] else "", os.path.abspath(str(p[1])))
+            for p in (zapis.get("pari") or []) if isinstance(p, (list, tuple)) and len(p) == 2 and p[1]][:NAJVEC_NAENKRAT]
+    dom = os.path.expanduser("~")
+    narejeno, napake = 0, []
+    if vrsta == "smeti":
+        for id_ in list(zapis.get("idji") or [])[:NAJVEC_NAENKRAT]:
+            r = obnovi_iz_smeti(str(id_))
+            if r.get("ok"):
+                narejeno += 1
+            else:
+                napake.append({"pot": str(id_), "napaka": r.get("napaka") or "napaka"})
+    elif vrsta in ("premik", "preimenovanje"):
+        for nazaj, zdaj in pari:
+            if not os.path.lexists(zdaj):
+                napake.append({"pot": zdaj, "napaka": "ni_datoteke"})
+            elif not nazaj or nazaj in ("/", dom) or zdaj in ("/", dom):
+                napake.append({"pot": zdaj, "napaka": "ni_dovoljeno"})
+            elif os.path.lexists(nazaj):
+                napake.append({"pot": nazaj, "napaka": "obstaja"})
+            elif not os.path.isdir(os.path.dirname(nazaj)):
+                napake.append({"pot": nazaj, "napaka": "ni_mape"})
+            else:
+                try:
+                    shutil.move(zdaj, nazaj)
+                    narejeno += 1
+                except (OSError, shutil.Error) as e:
+                    napake.append({"pot": zdaj, "napaka": _koda_napake(e) if isinstance(e, OSError) else "napaka"})
+    elif vrsta in ("kopija", "novo"):
+        for _izvirnik, nastalo in pari:
+            r = v_smeti(nastalo)
+            if r.get("ok"):
+                narejeno += 1
+            else:
+                napake.append({"pot": nastalo, "napaka": r.get("napaka") or "napaka"})
+    else:
+        return {"ok": False, "napaka": "ni_zapisa", "narejeno": 0, "napake": []}
+    return {"ok": narejeno > 0 and not napake, "narejeno": narejeno, "napake": napake}
 
 
 # ---------------------------------------------------------------------- vlecenje med programi (text/uri-list)
