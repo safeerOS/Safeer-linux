@@ -260,3 +260,107 @@ class Nadzornik(unittest.TestCase):
         r = p.getresponse()
         self.assertEqual((r.status, r.read()), (206, VSEBINA[:100]))
         p.close()
+
+
+class _Prenosi:
+    """Nadomestek rqbit za ciscenje: seznam torrentov z hashi, odstranjevanje se belezi."""
+
+    def __init__(self, hashi, lastni=()):
+        self.vsi = [{"id": i + 1, "hash": h, "ime": "Film %d" % i, "lastna": h in lastni, "datoteke": []} for i, h in enumerate(hashi)]
+        self.odstranjeni = []
+        self.tece_ = True
+
+    def tece(self):
+        return self.tece_
+
+    def seznam(self):
+        return list(self.vsi)
+
+    def magnet(self, tid):
+        return "magnet:?xt=urn:btih:" + next(t["hash"] for t in self.vsi if t["id"] == tid)
+
+    def odstrani(self, tid, z_datotekami=False):
+        self.odstranjeni.append((tid, z_datotekami))
+        self.vsi = [t for t in self.vsi if t["id"] != tid]
+        return True
+
+
+class SamodejnoCiscenje(unittest.TestCase):
+    """Torrent za naprave, ki ga 48 h nihce ni predvajal, racunalnik odstrani sam (Matej, 3. 10. 2026)."""
+
+    def setUp(self):
+        self.mapa = tempfile.mkdtemp(prefix="safeer-raba-")
+        self.pot = os.path.join(self.mapa, "raba-naprave.json")
+        self.a, self.b, self.c = "a" * 40, "b" * 40, "c" * 40
+        self.ura = 1_000_000.0
+
+    def tearDown(self):
+        shutil.rmtree(self.mapa, ignore_errors=True)
+
+    def test_po_48_urah_brez_predvajanja(self):
+        t = _Prenosi([self.a, self.b, self.c])
+        link_datoteke.zabelezi_rabo(self.a, self.pot, self.ura - 49 * 3600)
+        link_datoteke.zabelezi_rabo(self.b, self.pot, self.ura - 47 * 3600)
+        # c je iz casa pred to razlicico (brez zapisa): rok mu tece od prvega pregleda, ne izgine takoj.
+        self.assertEqual(link_datoteke.pocisti_neuporabljene(t, self.pot, self.ura), [self.a])
+        self.assertEqual(t.odstranjeni, [(1, True)])       # z datotekami
+        self.assertEqual(link_datoteke.pocisti_neuporabljene(t, self.pot, self.ura + 2 * 3600), [self.b])
+        self.assertEqual(link_datoteke.pocisti_neuporabljene(t, self.pot, self.ura + 47 * 3600), [])
+        self.assertEqual(link_datoteke.pocisti_neuporabljene(t, self.pot, self.ura + 49 * 3600), [self.c])
+        self.assertEqual(t.vsi, [])
+
+    def test_ponovno_predvajanje_podaljsa_rok(self):
+        t = _Prenosi([self.a])
+        link_datoteke.zabelezi_rabo(self.a, self.pot, self.ura - 47 * 3600)
+        link_datoteke.zabelezi_rabo(self.a, self.pot, self.ura)            # naslednji vecer nadaljuje film
+        self.assertEqual(link_datoteke.pocisti_neuporabljene(t, self.pot, self.ura + 47 * 3600), [])
+        self.assertEqual(link_datoteke.pocisti_neuporabljene(t, self.pot, self.ura + 49 * 3600), [self.a])
+
+    def test_uporabnikovih_datotek_in_ugasnjenega_rqbita_se_ne_dotika(self):
+        t = _Prenosi([self.a, self.b], lastni=[self.a])
+        link_datoteke.zabelezi_rabo(self.a, self.pot, self.ura - 100 * 3600)
+        link_datoteke.zabelezi_rabo(self.b, self.pot, self.ura - 100 * 3600)
+        t.tece_ = False
+        self.assertEqual(link_datoteke.pocisti_neuporabljene(t, self.pot, self.ura), [])
+        t.tece_ = True
+        self.assertEqual(link_datoteke.pocisti_neuporabljene(t, self.pot, self.ura), [self.b])   # a deli uporabnik sam
+
+    def test_ob_pomanjkanju_prostora_najstarejsi_prvi(self):
+        t = _Prenosi([self.a, self.b, self.c])
+        link_datoteke.zabelezi_rabo(self.a, self.pot, self.ura - 20 * 3600)
+        link_datoteke.zabelezi_rabo(self.b, self.pot, self.ura - 30 * 3600)
+        link_datoteke.zabelezi_rabo(self.c, self.pot, self.ura - 1 * 3600)      # ta se predvaja: ostane
+        prosto = {"n": 0}
+
+        def dovolj():
+            return len(t.odstranjeni) >= prosto["n"]
+        prosto["n"] = 1
+        self.assertEqual(link_datoteke.pocisti_neuporabljene(t, self.pot, self.ura, dovolj=dovolj), [self.b])
+        prosto["n"] = 5      # prostora ni dovolj niti brez vseh: film v teku in zahtevani ostaneta
+        self.assertEqual(link_datoteke.pocisti_neuporabljene(t, self.pot, self.ura, dovolj=dovolj, obdrzi=self.c), [self.a])
+        self.assertEqual([x["hash"] for x in t.vsi], [self.c])
+
+    def test_tok_naredi_prostor_za_nov_film(self):
+        d = link_datoteke.Datoteke([], tls_mapa=os.path.join(self.mapa, "tls"))
+        try:
+            t = _Torrenti(1)
+            t.vsi = [{"id": 3, "hash": self.b, "lastna": False}]
+            t.odstranjeni = []
+            t.seznam = lambda: list(t.vsi)
+
+            def odstrani(tid, z_datotekami=False):
+                t.odstranjeni.append(tid)
+                t.vsi = []
+                return True
+            t.odstrani = odstrani
+            link_datoteke.zabelezi_rabo(self.b, self.pot, time.time() - 10 * 3600)
+            o = d.tok_torrenta(MAGNET, "tv-1", torrenti=t, pot_rabe=self.pot,
+                               zmogljivost=lambda m, v: "" if t.odstranjeni else "ni_prostora")
+            self.assertEqual((t.odstranjeni, o["file"]), ([3], 1))
+            # Brez podane poti (preizkusi z nadomestkom) se nic ne belezi in nic ne odstrani.
+            t.vsi = [{"id": 4, "hash": self.c, "lastna": False}]
+            with self.assertRaises(os_torrent.NapakaTorrenta):
+                d.tok_torrenta(MAGNET, "tv-1", torrenti=t, zmogljivost=lambda m, v: "ni_prostora")
+            self.assertEqual(t.odstranjeni, [3])
+        finally:
+            d.ustavi()
