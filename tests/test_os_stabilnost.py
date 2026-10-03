@@ -74,6 +74,64 @@ class Sled(unittest.TestCase):
         self.assertLess(os.path.getsize(os.path.join(pot, "dnevnik.log")), os_stabilnost.NAJVECJI_DNEVNIK)
 
 
+class EnPrimerek(unittest.TestCase):
+    """Zaklep enega primerka: drugi zagon Safeer Controla v ozadju se mora končati tiho.
+
+    4. 10. 2026: Safeer OS je ob zagonu Control zagnal dvakrat v 120 ms (dve niti); GApplication ob drugem zagonu
+    tekočemu primerku pošlje »activate« in ta odpre okno, čeprav sta oba zagona zahtevala ozadje."""
+
+    def setUp(self):
+        self.mapa = tempfile.mkdtemp(prefix="safeer-zaklep-")
+        self.okolje = mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": self.mapa})
+        self.okolje.start()
+
+    def tearDown(self):
+        self.okolje.stop()
+
+    def test_drugi_ne_dobi_zaklepa_dokler_prvi_zivi(self):
+        prvi = os_stabilnost.zakleni_primerek("safeer-control")
+        self.assertTrue(prvi)
+        self.assertIsNone(os_stabilnost.zakleni_primerek("safeer-control"))
+        self.assertTrue(os_stabilnost.zakleni_primerek("safeer-os"), "drug program ima svoj zaklep")
+        prvi.close()                                   # konec programa (ali sesutje) zaklep sprosti
+        tretji = os_stabilnost.zakleni_primerek("safeer-control")
+        self.assertTrue(tretji)
+        tretji.close()
+
+    def test_zaklep_drzi_tudi_drug_proces(self):
+        koda = ("import sys, time; sys.path.insert(0, %r); from core import os_stabilnost as s; "
+                "z = s.zakleni_primerek('safeer-control'); print('ima' if z else 'nima', flush=True); time.sleep(5)" % KOREN)
+        otrok = subprocess.Popen([sys.executable, "-c", koda], stdout=subprocess.PIPE, text=True)
+        try:
+            self.assertEqual(otrok.stdout.readline().strip(), "ima")
+            self.assertIsNone(os_stabilnost.zakleni_primerek("safeer-control"))
+        finally:
+            otrok.kill()
+            otrok.wait()
+        z = os_stabilnost.zakleni_primerek("safeer-control")      # ubit proces zaklepa ne pusti za sabo
+        self.assertTrue(z)
+        z.close()
+
+    def test_brez_mape_program_tece_kot_prej(self):
+        with mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": "/proc/ni-mogoce-ustvariti"}):
+            self.assertIs(os_stabilnost.zakleni_primerek("safeer-control"), False)
+
+    def test_control_in_safeer_os(self):
+        with open(os.path.join(KOREN, "safeer_control.py"), encoding="utf-8") as f:
+            control = f.read()
+        glavna = control[control.index("def main() -> int:"):]
+        self.assertIn('_ZAKLEP_PRIMERKA = os_stabilnost.zakleni_primerek("safeer-control")', glavna)
+        self.assertIn("if _ZAKLEP_PRIMERKA is None:\n        if ozadje or _pokazi_tekocega():\n            return 0", glavna)
+        self.assertLess(glavna.index("zakleni_primerek"), glavna.index("app = SafeerControl(ozadje=ozadje)"),
+                        "zaklep pred pripravo primerka (ta pospravi navidezne zvočne izhode)")
+        with open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8") as f:
+            vir = f.read()
+        telo = vir[vir.index("def _zagotovi_control(vodilo) -> bool:"):vir.index("def control_dejanje(")]
+        self.assertIn("with _ZAGON_CONTROLA:", telo)
+        self.assertLess(telo.index("with _ZAGON_CONTROLA:"), telo.index("subprocess.Popen("), "zagon samo pod zaklepom")
+        self.assertEqual(telo.count("_control_na_vodilu(vodilo)"), 3, "pred zaklepom, pod njim in med čakanjem")
+
+
 class Okna(unittest.TestCase):
     """Seznam oken ne sme biti nikoli razlog za sesutje."""
 
