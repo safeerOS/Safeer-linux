@@ -25,7 +25,7 @@
   // ------------------------------------------------------------------ besedila (SL, EN)
   var BESEDILA = {
     sl: {
-      iskanjePh: "Išči po spletu, programih, datotekah in medijih …", iskanjeNamig: "Enter = splet",
+      iskanjePh: "Išči po spletu, programih, datotekah in medijih …", iskanjeNamig: "Enter odpre označeno · Shift+Enter splet",
       plosceNaslov: "Plošče", medijiNaslov: "Medijski center", datotekeNaslov: "Datoteke", programiNaslov: "Programi",
       zamenjajStrani: "Zamenjaj levo in desno", ponastavi: "Privzeta postavitev", vecjiTekst: "Večje besedilo",
       manjProsojnosti: "Manj prosojnosti", skrijPlosco: "Skrij ploščo", spremeniVelikost: "Povleci za spremembo velikosti (puščice s tipkovnico)",
@@ -138,7 +138,7 @@
       nSmeti: "V Smeti ni šlo (morda nimaš dovoljenja).", nSplosno: "Ni uspelo."
     },
     en: {
-      iskanjePh: "Search the web, apps, files and media …", iskanjeNamig: "Enter = web",
+      iskanjePh: "Search the web, apps, files and media …", iskanjeNamig: "Enter opens the selection · Shift+Enter web",
       plosceNaslov: "Panels", medijiNaslov: "Media center", datotekeNaslov: "Files", programiNaslov: "Apps",
       zamenjajStrani: "Swap left and right", ponastavi: "Default layout", vecjiTekst: "Larger text",
       manjProsojnosti: "Less transparency", skrijPlosco: "Hide panel", spremeniVelikost: "Drag to resize (arrow keys work too)",
@@ -1527,21 +1527,39 @@
 
   // ------------------------------------------------------------------ ISKANJE
   var I = { st: 0, casovnik: 0, zadetki: [], izbran: -1 };
+  // Kako dobro se program ujema z iskanim: zacetek imena > zacetek besede > kjerkoli v imenu > opis ali kljucne besede.
+  function ocenaPrograma(p, ql) {
+    var ime = String(p.ime || "").toLowerCase();
+    if (ime.indexOf(ql) === 0) return 3;
+    if (ime.indexOf(" " + ql) >= 0 || ime.indexOf("-" + ql) >= 0) return 2;
+    return ime.indexOf(ql) >= 0 ? 1 : 0;
+  }
   function isci(q) {
     var st = ++I.st;
     q = q.trim();
-    if (!q) { skrijZadetke(); return; }
+    I.zadnji = q; I.rocno = false;
+    if (!q) { I.poEnter = false; I.caka = false; skrijZadetke(); return; }
     var ql = q.toLowerCase();
+    I.caka = true;
     var skupine = [];
     // Programi naprav (ze nalozeni, potrjeni seznami)
     var prg = P.programi.filter(function (p) { return !p.lokalni && (p.ime + " " + (p.opis || "")).toLowerCase().indexOf(ql) >= 0; }).slice(0, 6);
     var cakaj = [
       klic("programi").then(function (s) {
-        return (s || []).filter(function (p) { return !p.skrit && (p.ime + " " + (p.splosno || "") + " " + (p.kljucne || "")).toLowerCase().indexOf(ql) >= 0; }).slice(0, 5);
+        return (s || []).filter(function (p) { return !p.skrit && (p.ime + " " + (p.splosno || "") + " " + (p.kljucne || "")).toLowerCase().indexOf(ql) >= 0; })
+          .sort(function (a, b) { return (ocenaPrograma(b, ql) - ocenaPrograma(a, ql)) || ((b.uporaba || 0) - (a.uporaba || 0)); }).slice(0, 5);
       }).catch(function () { return []; }),
       q.length >= 2 ? klic("isciDatoteke", [q]).then(function (s) { return (s || []).slice(0, 6); }).catch(function () { return []; }) : Promise.resolve([]),
       q.length >= 2 ? klic("knjiznicaMedijev", ["", q, 0]).then(function (s) { return (s || []).slice(0, 5); }).catch(function () { return []; }) : Promise.resolve([])
     ];
+    // Enter, pritisnjen pred prihodom zadetkov: pocakamo samo na programe (hitro), ne na iskanje po disku.
+    cakaj[0].then(function (programi) {
+      if (st !== I.st) return;
+      I.caka = false;
+      if (!I.poEnter) return;
+      I.poEnter = false;
+      izberiZadetek(programi.length ? { vrsta: "program", p: programi[0] } : { vrsta: "splet", q: q });
+    });
     izrisiZadetke([{ naslov: t("skSplet"), vnosi: [{ vrsta: "splet", q: q }] }, { naslov: t("isciem"), vnosi: [] }]);
     Promise.all(cakaj).then(function (r) {
       if (st !== I.st) return;
@@ -1580,6 +1598,10 @@
         b._v = v; I.zadetki.push(b); z.appendChild(b);
       });
     });
+    // Na namizju Enter odpre program, ce se kateri ujema (kot meni Start); splet ostane prva vrstica in Shift+Enter.
+    if (!I.rocno) {
+      for (var pi = 0; pi < I.zadetki.length; pi++) if (I.zadetki[pi]._v.vrsta === "program") { I.izbran = pi; break; }
+    }
     z.hidden = false; $("iskalnoPolje").setAttribute("aria-expanded", "true");
     oznaciZadetek();
   }
@@ -1643,12 +1665,25 @@
     polje.addEventListener("keydown", function (e) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         if (!I.zadetki.length) return;
-        e.preventDefault(); I.izbran = (I.izbran + (e.key === "ArrowDown" ? 1 : -1) + I.zadetki.length) % I.zadetki.length; oznaciZadetek();
-      } else if (e.key === "Escape") { skrijZadetke(); polje.value = ""; }
+        e.preventDefault(); I.rocno = true; I.izbran = (I.izbran + (e.key === "ArrowDown" ? 1 : -1) + I.zadetki.length) % I.zadetki.length; oznaciZadetek();
+      } else if (e.key === "Escape") { skrijZadetke(); polje.value = ""; I.poEnter = false; }
+      else if (e.key === "Enter" && e.shiftKey) {
+        // Shift+Enter: vedno splet, tudi ce se ujema program.
+        e.preventDefault();
+        var niz = polje.value.trim(); if (!niz) return;
+        clearTimeout(I.casovnik); I.st++; I.poEnter = false;
+        izberiZadetek({ vrsta: "splet", q: niz });
+      }
     });
     $("iskanje").addEventListener("submit", function (e) {
       e.preventDefault();
       var q = polje.value.trim(); if (!q) return;
+      if (!I.rocno && (q !== I.zadnji || I.caka)) {
+        // Zadetki za ta niz se niso tu (hitro tipkanje + Enter): odloci, ko pridejo programi.
+        I.poEnter = true;
+        if (q !== I.zadnji) { clearTimeout(I.casovnik); isci(q); I.poEnter = true; }
+        return;
+      }
       var b = I.zadetki[I.izbran];
       izberiZadetek(b ? b._v : { vrsta: "splet", q: q });
     });

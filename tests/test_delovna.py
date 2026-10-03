@@ -87,6 +87,19 @@ class TestDelovnaStran(unittest.TestCase):
         self.assertIn('if (p.ponudnikOblaka) { meniOblaka(p, r.left + 12, r.bottom - 6); return; }', js)
         self.assertIn("function oznakaOblaka(ponudnik)", js)
 
+    def test_enter_v_iskanju_odpre_program(self):
+        """Na namizju Enter odpre program, ki se ujema (kot meni Start); splet je Shift+Enter. Hiter Enter pocaka na
+        programe (I.poEnter), da ne odpre spleta samo zato, ker zadetki se niso prisli."""
+        js, html = beri("assets", "os", "delovna.js"), beri("assets", "os", "delovna.html")
+        for niz in ("function ocenaPrograma(p, ql)", "I.poEnter = true", 'e.key === "Enter" && e.shiftKey',
+                    'izberiZadetek(programi.length ? { vrsta: "program", p: programi[0] } : { vrsta: "splet", q: q })',
+                    'if (I.zadetki[pi]._v.vrsta === "program") { I.izbran = pi; break; }'):
+            self.assertIn(niz, js)
+        self.assertIn("Shift+Enter splet", js)
+        self.assertIn("Shift+Enter web", js)
+        self.assertIn("Shift+Enter splet", html)
+        self.assertNotIn("Enter = splet", js + html)
+
     def test_most_nima_podvojenih_metod(self):
         # V slovarju metod mostu je bil "splet" zapisan dvakrat (zadnji tiho prepise prvega). Ista metoda na dveh
         # mestih pomeni, da se popravek na enem ne prime - zato vsak slovar v safeer_os.py pregledamo.
