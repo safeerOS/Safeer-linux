@@ -188,6 +188,27 @@ class TestLastnostiInSlicice(Osnova):
         self.assertEqual(os.listdir(self.a).count("pokvarjena.jpg"), 1)
 
 
+class TestVlecenje(Osnova):
+    """Seznam naslovov (text/uri-list) ob vlecenju datotek med programi."""
+
+    def test_poti_iz_naslovov(self):
+        naslovi = ["file:///tmp/a%20b.txt", "http://primer.si/x", "file://drug-racunalnik/x", "file://localhost/etc/hosts",
+                   "file:///home/u/%C4%8Dopi%C4%8D%20%231%3F.txt", "file:///tmp/a%20b.txt", "file:///tmp/../etc/./passwd",
+                   "ni naslov", "", None, "file:relativna"]
+        self.assertEqual(D.poti_iz_naslovov(naslovi),
+                         ["/tmp/a b.txt", "/etc/hosts", "/home/u/čopič #1?.txt", "/etc/passwd"])
+        self.assertEqual(D.poti_iz_naslovov(None), [])
+        self.assertEqual(len(D.poti_iz_naslovov(["file:///m/%d" % i for i in range(D.NAJVEC_NAENKRAT + 50)])),
+                         D.NAJVEC_NAENKRAT)
+
+    def test_naslovi_iz_poti(self):
+        pot = self.pisi(os.path.join(self.a, "čopič #1?.txt"))
+        naslovi = D.naslovi_iz_poti([pot, self.b, os.path.join(self.a, "ni-je"), "relativna.txt", ""])
+        self.assertEqual(naslovi, ["file://" + self.a + "/%C4%8Dopi%C4%8D%20%231%3F.txt", "file://" + self.b])
+        self.assertEqual(D.poti_iz_naslovov(naslovi), [pot, self.b], "tja in nazaj mora dati iste poti")
+        self.assertEqual(D.naslovi_iz_poti(None), [])
+
+
 class TestVelikaMapa(Osnova):
     def test_mapa_z_vec_kot_600_vnosi(self):
         for i in range(700):

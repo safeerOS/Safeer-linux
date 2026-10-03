@@ -121,7 +121,7 @@ svg { width: 1.3em; height: 1.3em; fill: none; stroke: currentColor; stroke-widt
 .plosca.mediji { flex: none; height: var(--medij); min-height: 6.4em; }
 .plosca.datoteke, .plosca.programi { flex: 1; }
 .glava { display: flex; align-items: center; justify-content: space-between; gap: .6em; margin-bottom: .5em; flex: none; }
-.glava h2 { margin: 0; font-size: 1em; font-weight: 700; letter-spacing: .01em; cursor: grab; user-select: none; }
+.glava h2 { margin: 0; font-size: 1em; font-weight: 700; letter-spacing: .01em; cursor: grab; user-select: none; -webkit-user-select: none; }
 .glava-desno { display: flex; align-items: center; gap: .4em; min-width: 0; }
 
 .gumb-ikona { display: inline-grid; place-items: center; width: 2.2em; height: 2.2em; border-radius: 10px; border: 1px solid transparent; background: transparent; cursor: pointer; color: var(--tiho); }
@@ -169,7 +169,11 @@ select option { background: #111c2b; color: var(--besedilo); }
 .seznam th button { border: 0; background: none; padding: 0; color: inherit; cursor: pointer; }
 .seznam th button[data-smer]::after { content: attr(data-smer); margin-left: .3em; }
 .seznam td { padding: .38em .45em; border-bottom: 1px solid rgba(213, 232, 250, .07); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #d7e3f2; }
-.seznam tbody tr { cursor: pointer; }
+.seznam tbody tr { cursor: pointer; user-select: none; -webkit-user-select: none; }
+/* Cilj spusta (mapa v seznamu, mapa v stranskem seznamu, odprta mapa) */
+.seznam tbody tr.spusti, .dat-stran button.spusti { outline: 2px dashed var(--fokus); outline-offset: -2px; background: rgba(138, 199, 255, .16); }
+.dat-glavno.spusti { outline: 2px dashed rgba(157, 206, 255, .55); outline-offset: -3px; border-radius: 10px; }
+.strani .izbira { margin-right: auto; color: #cfe6ff; }
 .seznam tbody tr:hover, .seznam tbody tr:focus-visible { background: rgba(181, 216, 255, .08); }
 .seznam tbody tr[aria-selected="true"] { background: var(--izbrano); }
 .seznam .st-vrsta { width: 6.6em; } .seznam .st-lok { width: 22%; } .seznam .st-vel { width: 6.4em; text-align: right; } .seznam .st-cas { width: 6.6em; }
@@ -238,7 +242,8 @@ select option { background: #111c2b; color: var(--besedilo); }
 .meni label:hover, .meni button:hover, .meni button:focus-visible { background: var(--izbrano); }
 .meni hr { border: 0; border-top: 1px solid var(--tanka); margin: .35em 0; }
 .meni button:disabled { opacity: .45; cursor: default; }
-.obvestilo { position: fixed; left: 50%; bottom: 1.2em; transform: translateX(-50%); z-index: 40; padding: .6em 1.1em; border-radius: 12px; background: rgba(14, 23, 39, .97); border: 1px solid var(--obroba-mocna); font-size: .85em; max-width: 70vw; }
+/* Nad dockom in spodnjim pultom (--r-dno): na dnu zaslona bi obvestilo ostalo skrito za njima. */
+.obvestilo { position: fixed; left: 50%; bottom: calc(var(--r-dno, 0px) + 1.2em); transform: translateX(-50%); z-index: 40; padding: .6em 1.1em; border-radius: 12px; background: rgba(14, 23, 39, .97); border: 1px solid var(--obroba-mocna); font-size: .85em; max-width: 70vw; }
 
 .plosca.vlecem { outline: 2px dashed var(--fokus); opacity: .85; }
 .stolpec.cilj { outline: 2px dashed rgba(157, 206, 255, .6); outline-offset: 4px; border-radius: var(--r-plosca); }

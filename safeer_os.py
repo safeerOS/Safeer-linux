@@ -812,6 +812,13 @@ class SafeerOS(Gtk.Application):
         os_torrent_tok.zazeni_ciscenje()
         self.okno: Optional[Gtk.ApplicationWindow] = None
         self.pogled: Optional[WebKit2.WebView] = None
+        #: Datoteke, ki jih uporabnik pravkar vlece v okno iz drugega programa (glej _na_vlecene_podatke).
+        self._vleceno_kontekst = None
+        self._vlecene_poti: list = []
+        #: Naslovi datotek, ki jih uporabnik vlece IZ Datotek (pravo vlecenje namizja, glej _zacni_vlecenje).
+        self._lastno_vlecenje: list = []
+        self._lastno_ni_uspelo = False
+        self._okna_vlecenja: list = []
         self._ikone: dict = {}
         self._prvic = True
         #: Namizni nacin: Safeer OS je namizje (spodaj, programi nad njim) s svojo vrstico namesto
@@ -1017,6 +1024,8 @@ class SafeerOS(Gtk.Application):
         pogled.set_background_color(barva)
         pogled.connect("decide-policy", self._na_politiko)
         pogled.connect("context-menu", lambda *a: True)   # brez »Reload / Inspect« v preobleki
+        if stran.startswith("delovna.html"):   # Datoteke na delovni povrsini sprejmejo datoteke iz drugih programov
+            pogled.connect("drag-data-received", self._na_vlecene_podatke)
         # Posnetek mora load-changed priklopiti PRED load_uri. Pri hitrem file:// nalaganju je bil
         # dogodek sicer lahko že mimo in preverjevalni zagon je ostal odprt za vedno.
         if self.posnetek:
@@ -1402,6 +1411,84 @@ class SafeerOS(Gtk.Application):
             pass
         self.quit()
 
+    def _na_vlecene_podatke(self, pogled, kontekst, _x, _y, podatki, _vrsta, _cas) -> None:
+        """Datoteke, ki jih uporabnik vlece v okno iz drugega programa (Nemo, namizje). WebKitGTK strani njihovih poti
+        ne pove, GTK pa jih pove nam (WebKit podatke zahteva ob vstopu vlecenja). Zapomnimo si jih; stran izve samo,
+        koliko jih je (dogodek vleceneDatoteke), in jih ob spustu prevzame z metodo spusceneDatoteke. Novo vlecenje
+        (drug kontekst) prejsnje pozabi - tudi ce ne prinasa datotek."""
+        try:
+            if kontekst is not self._vleceno_kontekst:
+                self._vleceno_kontekst, self._vlecene_poti = kontekst, []
+            poti = os_datoteke.poti_iz_naslovov(podatki.get_uris() or [])
+            if poti:
+                self._vlecene_poti = poti
+            self._js("window.safeerOsDogodek && window.safeerOsDogodek(\"vleceneDatoteke\", %s);"
+                     % json.dumps({"stevilo": len(self._vlecene_poti)}), pogled)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _vlecenje_na_voljo() -> bool:
+        """Vlecenje iz okna lahko sami zacnemo v X11. V Waylandu je za zacetek potreben dogodek miske, ki ga ima
+        WebKit, ne mi - tam ostane vlecenje znotraj strani."""
+        if os.environ.get("SAFEER_OS_BREZ_VLECENJA"):
+            return False
+        zaslon = Gdk.Display.get_default()
+        return zaslon is not None and not str(zaslon.get_name() or "").startswith("wayland")
+
+    def _zacni_vlecenje(self, pogled, poti) -> bool:
+        """Vlecenje datotek iz Datotek kot pravo vlecenje namizja. Vlecenje, ki ga zacne spletna stran, drugim
+        programom ne pove pravega: WebKitGTK ob seznamu naslovov vedno ponudi se _NETSCAPE_URL, Nemo pa ta cilj
+        postavi pred text/uri-list in iz njega naredi bliznjico (.desktop) namesto kopije. Tu ponudimo samo
+        standardni seznam naslovov datotek: Nemo datoteke kopira (s Shift premakne), sprejmejo jih tudi brskalnik,
+        posta in terminal. Kopiranje ali premik opravi ciljni program; mi ne brisemo nicesar."""
+        naslovi = os_datoteke.naslovi_iz_poti(poti if isinstance(poti, list) else [])
+        okno = pogled.get_toplevel() if pogled is not None else None
+        if not naslovi or not isinstance(okno, Gtk.Window) or not self._vlecenje_na_voljo():
+            return False
+        if okno not in self._okna_vlecenja:
+            self._okna_vlecenja.append(okno)
+            okno.connect("drag-data-get", self._na_vlecenje_daj)
+            okno.connect("drag-failed", self._na_vlecenje_ni_uspelo)
+            okno.connect("drag-end", self._na_vlecenje_konec, pogled)
+        cilji = Gtk.TargetList.new([])
+        cilji.add_uri_targets(0)
+        self._lastno_vlecenje, self._lastno_ni_uspelo = naslovi, False
+        try:
+            kontekst = okno.drag_begin_with_coordinates(
+                cilji, Gdk.DragAction.COPY | Gdk.DragAction.MOVE, 1, None, -1, -1)
+        except Exception:
+            kontekst = None
+        if kontekst is None:
+            self._lastno_vlecenje = []
+            return False
+        try:   # ikona ob kazalcu: vrsta prve datoteke
+            prva = os_datoteke.poti_iz_naslovov(naslovi[:1])[0]
+            vrsta = "inode/directory" if os.path.isdir(prva) else (Gio.content_type_guess(prva, None)[0] or "")
+            Gtk.drag_set_icon_gicon(kontekst, Gio.content_type_get_icon(vrsta) if vrsta
+                                    else Gio.ThemedIcon.new("text-x-generic"), 0, 0)
+        except Exception:
+            pass
+        return True
+
+    def _na_vlecenje_daj(self, _okno, _kontekst, podatki, _info, _cas) -> None:
+        podatki.set_uris(list(self._lastno_vlecenje))
+
+    def _na_vlecenje_ni_uspelo(self, _okno, _kontekst, _izid) -> bool:
+        self._lastno_ni_uspelo = True
+        return False
+
+    def _na_vlecenje_konec(self, _okno, _kontekst, pogled) -> None:
+        sprejeto = bool(self._lastno_vlecenje) and not self._lastno_ni_uspelo
+        self._lastno_vlecenje = []
+        self._js("window.safeerOsDogodek && window.safeerOsDogodek(\"vlecenjeKoncano\", %s);"
+                 % json.dumps({"sprejeto": sprejeto}), pogled)
+
+    def _spuscene_datoteke(self) -> list:
+        """Poti datotek, spuscenih iz drugega programa (enkrat: po prevzemu jih pozabimo)."""
+        poti, self._vlecene_poti = list(self._vlecene_poti), []
+        return poti
+
     def _na_politiko(self, _pogled, odlocitev, vrsta) -> bool:
         """Pogled sme prikazati samo stran Safeer OS (most ne sme k tuji strani)."""
         try:
@@ -1602,6 +1689,7 @@ class SafeerOS(Gtk.Application):
         # Na glavni niti (Gtk, ikone, okna):
         glavna = {
             "zacetek": self._zacetek,
+            "zacniVlecenje": lambda: self._zacni_vlecenje(pogled, a[0] if a else []),
             "programi": lambda: self.programi.seznam(self._ikona),
             "zazeni": lambda: self.programi.zazeni(str(a[0]) if a else "", self._zazeni_vnos),
             "pripni": lambda: self.programi.pripni(str(a[0]), bool(a[1]) if len(a) > 1 else True),
@@ -1698,6 +1786,7 @@ class SafeerOS(Gtk.Application):
             "igreOblakNamesti": lambda: os_oblak_igre.namesti(str(a[0]) if a else ""),
             "prilepiDatoteke": lambda: os_datoteke.prilepi(a[0] if a and isinstance(a[0], list) else [], str(a[1]) if len(a) > 1 else "",
                                                            bool(a[2]) if len(a) > 2 else False),
+            "spusceneDatoteke": self._spuscene_datoteke,
             "smeti": os_datoteke.smeti,
             "obnoviIzSmeti": lambda: os_datoteke.obnovi_iz_smeti(str(a[0]) if a else ""),
             "nosilci": os_datoteke.nosilci,
@@ -1881,6 +1970,7 @@ class SafeerOS(Gtk.Application):
             "racunalnik": socket.gethostname(),
             "odVklopa": od_vklopa_stanje(),
             "videz": videz_cinnamon(),
+            "vlecenjeDatotek": self._vlecenje_na_voljo(),
             "ozadje": ("file://" + GLib.uri_escape_string(ozadje, "/", False)) if ozadje else "",
             "razpolozljivo": os_sistem.razpolozljivo(),
             "mape": os_datoteke.uporabniske_mape(),

@@ -100,6 +100,96 @@ class TestDelovnaStran(unittest.TestCase):
         self.assertIn("Shift+Enter splet", html)
         self.assertNotIn("Enter = splet", js + html)
 
+    @unittest.skipUnless(shutil.which("node"), "node ni namescen")
+    def test_izbira_vec_datotek(self):
+        """Datoteke: klik izbere eno, Ctrl+klik doda ali odvzame, Shift+klik izbere obseg od zadnje izbrane, Ctrl+A vse;
+        dejanje na izbrani vrstici velja za vse izbrane, na neizbrani samo zanjo. Logiko pozenemo v node."""
+        js = self.js
+        pomozne = js[js.index("  function kljucVnosa(e)"):js.index("  function prikaziIzbiro()")]
+        dejanje = js[js.index("  function zaDejanje(e)"):js.index("  // Desni klik na izbrano vrstico")]
+        spust = js[js.index("  function smiselnSpust(poti, cilj)"):js.index("  function ciljSpusta(element, potCilja)")]
+        koda = """
+var assert = require("assert");
+var jezik = "sl";
+var vsi = ["a", "b", "c", "d", "e"].map(function (i) { return { ime: i, pot: "/m/" + i }; });
+vsi.push({ ime: "s", smeti: "smet.1" }, { ime: "t", oddaljeno: true, id: "n1" });
+var D = { izbrani: {}, sidro: "" };
+function filtrirani() { return vsi; }
+""" + pomozne + dejanje + spust + """
+function izbrana() { return izbraniVnosi().map(function (e) { return e.ime; }).sort().join(""); }
+izberiSamo(vsi[1]); assert.strictEqual(izbrana(), "b");
+preklopiIzbiro(vsi[3]); assert.strictEqual(izbrana(), "bd");
+preklopiIzbiro(vsi[1]); assert.strictEqual(izbrana(), "d");
+izberiSamo(vsi[1]); izberiObseg(vsi[3]); assert.strictEqual(izbrana(), "bcd");
+izberiObseg(vsi[0]); assert.strictEqual(izbrana(), "ab");
+D.sidro = "p:/ni"; izberiObseg(vsi[2]); assert.strictEqual(izbrana(), "c");
+izberiVse(); assert.strictEqual(izbraniVnosi().length, 7);
+assert.strictEqual(izbraniLokalni().length, 5);
+assert.strictEqual(zaDejanje(vsi[0]).length, 5);
+izberiSamo(vsi[0]); preklopiIzbiro(vsi[1]);
+assert.deepStrictEqual(zaDejanje(vsi[4]), [vsi[4]]);
+pocistiIzbiro(); assert.strictEqual(izbraniVnosi().length, 0); assert.strictEqual(D.sidro, "");
+assert.deepStrictEqual([1, 2, 3, 4, 5, 11, 101, 102, 104, 105].map(steviloElementov),
+  ["1 element", "2 elementa", "3 elementi", "4 elementi", "5 elementov", "11 elementov",
+   "101 element", "102 elementa", "104 elementi", "105 elementov"]);
+jezik = "en"; assert.deepStrictEqual([1, 2].map(steviloElementov), ["1 item", "2 items"]);
+assert.strictEqual(smiselnSpust(["/m/a"], "/m"), false);
+assert.strictEqual(smiselnSpust(["/m/a"], "/m/a"), false);
+assert.strictEqual(smiselnSpust(["/m/a"], "/m/a/b"), false);
+assert.strictEqual(smiselnSpust(["/m/a"], "/m/b"), true);
+assert.strictEqual(smiselnSpust(["/m/a", "/x/y"], "/m"), true);
+"""
+        subprocess.run(["node", "-e", koda], check=True)
+
+    def test_izbira_vec_datotek_v_vmesniku(self):
+        js, css = self.js, beri("assets", "os", "delovna.css")
+        for niz in ("function meniVec(x, y)", "function vOdlozisceVec(vnosi, rezi)", "function vSmetiVec(vnosi)",
+                    "function obnoviIzSmetiVec(vnosi)", "ev.preventDefault(); izberiVse(); oznaciIzbrano();",
+                    "if (ev.shiftKey) izberiObseg(e); else if (ev.ctrlKey || ev.metaKey) preklopiIzbiro(e); else izberiSamo(e);",
+                    'r.setAttribute("aria-selected", D.vidni && D.vidni[j] && jeIzbran(D.vidni[j]) ? "true" : "false");'):
+            self.assertIn(niz, js)
+        for kljuc in ("kopirajN", "izreziN", "vSmetiN", "obnoviN", "izbranoN", "pocistiIzbiro", "delnoUspelo",
+                      "premaknjenoV", "kopiranoV", "vSmetiVecOk", "obnovljenoN"):
+            self.assertEqual(len(re.findall(r"\b%s: \"" % kljuc, js)), 2, "besedilo %s mora biti v obeh jezikih" % kljuc)
+        # Vrstice in naslovi plosc se ne oznacijo kot besedilo (WebKitGTK potrebuje predpono).
+        self.assertIn(".seznam tbody tr { cursor: pointer; user-select: none; -webkit-user-select: none; }", css)
+        self.assertRegex(css, r"\.glava h2 \{[^}]*-webkit-user-select: none;")
+        self.assertIn(".seznam tbody tr.spusti", css)
+
+    def test_vlecenje_datotek_med_programi(self):
+        """V Datotekah je spust premik; datoteke iz drugega programa (Nemo) se kopirajo, njihove poti pa pove Safeer OS,
+        ker jih WebKitGTK strani ne. Vlecenje ven zacne Safeer OS kot pravo vlecenje namizja: vlecenje strani bi poleg
+        seznama naslovov ponudilo _NETSCAPE_URL, iz katerega Nemo naredi bliznjico (.desktop) namesto kopije."""
+        js, py = self.js, beri("safeer_os.py")
+        vrstica = js[js.index('      tr.addEventListener("dragstart"'):js.index('      if (e.mapa) ciljSpusta(tr')]
+        self.assertIn("if (VL.sistemsko) {", vrstica)
+        self.assertLess(vrstica.index("ev.preventDefault();"), vrstica.index('klic("zacniVlecenje", [VL.poti])'))
+        self.assertNotIn("text/uri-list", vrstica, "vlecenje strani ne sme ponuditi naslovov (Nemo naredi bliznjico)")
+        self.assertNotIn("text/plain", vrstica, "vlecenje strani ne sme ponuditi besedila (Nemo naredi datoteko z besedilom)")
+        spust = js[js.index("  function ciljSpusta(element, potCilja)"):js.index("  function premakniAliKopiraj(poti, cilj, premakni)")]
+        # Iz Datotek: premik; z drzanim Ctrl vir dovoli samo kopiranje (ev.ctrlKey je med vlecenjem vedno true).
+        self.assertIn("if (poti.length) premakniAliKopiraj(poti, cilj, !samoKopija(ev));", spust)
+        self.assertIn('function samoKopija(ev) { return !!ev.dataTransfer && ev.dataTransfer.effectAllowed === "copy"; }', js)
+        self.assertNotIn("ev.ctrlKey", spust)
+        self.assertIn('klic("spusceneDatoteke")', spust)
+        self.assertIn("if (z.length) premakniAliKopiraj(z, cilj, false);", spust)         # od drugod: kopija
+        self.assertIn('else if (vrsta === "vlecenjeKoncano") koncajVlecenje(', js)
+        self.assertIn("VL.sistemsko = !!z.vlecenjeDatotek;", js)
+        # Stolpec je cilj samo med premikanjem plosce; spust mimo cilja nima ucinka.
+        self.assertIn('s.addEventListener("dragover", function (e) { if (!vlecemPlosco) return;', js)
+        self.assertIn('e.dataTransfer.dropEffect = "none";', js)
+        # Safeer OS: poti si zapomni samo pogled delovne povrsine; ven ponudi samo standardni seznam naslovov.
+        self.assertIn('if stran.startswith("delovna.html"):', py)
+        self.assertIn('pogled.connect("drag-data-received", self._na_vlecene_podatke)', py)
+        zacni = py[py.index("    def _zacni_vlecenje(self, pogled, poti)"):py.index("    def _na_vlecenje_daj(")]
+        self.assertIn("cilji.add_uri_targets(0)", zacni)
+        self.assertIn("Gdk.DragAction.COPY | Gdk.DragAction.MOVE", zacni)
+        self.assertNotIn("cilji.add(", zacni, "samo text/uri-list - brez posebnih oblik")
+        self.assertNotIn('"drag-data-delete"', py, "po spustu ne brisemo nicesar: premik opravi ciljni program")
+        self.assertIn('"zacniVlecenje": lambda: self._zacni_vlecenje(pogled, a[0] if a else [])', py)
+        self.assertIn('"spusceneDatoteke": self._spuscene_datoteke', py)
+        self.assertIn('"vlecenjeDatotek": self._vlecenje_na_voljo()', py)
+
     def test_most_nima_podvojenih_metod(self):
         # V slovarju metod mostu je bil "splet" zapisan dvakrat (zadnji tiho prepise prvega). Ista metoda na dveh
         # mestih pomeni, da se popravek na enem ne prime - zato vsak slovar v safeer_os.py pregledamo.
