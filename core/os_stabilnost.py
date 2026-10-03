@@ -112,6 +112,28 @@ def pozabi_sesutja(ime_programa: str) -> None:
         _pisi_stanje(ime_programa, s)
 
 
+def zakleni_primerek(ime: str):
+    """Zaklep enega primerka programa (flock v XDG_RUNTIME_DIR). Vrne odprto datoteko - drzi jo do konca programa,
+    sprosti se sama, tudi ob sesutju -, None, ce program ze tece ali se pravkar zaganja, in False, ce zaklepa ni
+    mogoce preveriti (potem naj program ravna kot brez njega)."""
+    try:
+        import fcntl
+    except ImportError:
+        return False
+    mapa = os.environ.get("XDG_RUNTIME_DIR") or os.path.join(os.path.expanduser("~"), ".cache", ime)
+    try:
+        os.makedirs(mapa, exist_ok=True)
+        datoteka = open(os.path.join(mapa, ime + ".zaklep"), "a")  # noqa: SIM115 - odprta ostane do konca programa
+    except OSError:
+        return False
+    try:
+        fcntl.flock(datoteka, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return datoteka
+    except OSError:
+        datoteka.close()
+        return None
+
+
 def vkljuci(ime_programa: str = "safeer-os") -> str:
     """Vklopi zapisovanje sledi in dnevnik neujetih izjem. Vrne pot dnevnika sledi."""
     global _datoteka

@@ -1823,14 +1823,47 @@ class SafeerControl(Gtk.Application):
                 self.link.poslji_vnos("input.enable", {})
 
 
+#: Zaklep enega primerka (drzimo ga do konca programa).
+_ZAKLEP_PRIMERKA = None
+
+
+def _pokazi_tekocega(cakaj_s: float = 8.0) -> bool:
+    """Control ze tece: pokaze njegovo okno (org.freedesktop.Application.Activate). Ce se se zaganja, pocaka, da se
+    javi na vodilu. Vrne, ali je uspelo."""
+    try:
+        vodilo = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        konec = time.monotonic() + cakaj_s
+        while time.monotonic() < konec:
+            ima = vodilo.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "NameHasOwner",
+                                   GLib.Variant("(s)", (APP_ID,)), GLib.VariantType("(b)"),
+                                   Gio.DBusCallFlags.NONE, 2000, None).unpack()[0]
+            if ima:
+                vodilo.call_sync(APP_ID, CONTROL_POT, "org.freedesktop.Application", "Activate",
+                                 GLib.Variant("(a{sv})", ({},)), None, Gio.DBusCallFlags.NONE, 5000, None)
+                return True
+            time.sleep(0.25)
+    except Exception:  # noqa: BLE001 - brez vodila ali starejsi primerek: nadaljujemo po stari poti
+        pass
+    return False
+
+
 def main() -> int:
+    global _ZAKLEP_PRIMERKA
     if "--version" in sys.argv[1:]:
         print(f"Safeer Control {APP_VERSION}")
         return 0
+    ozadje = "--ozadje" in sys.argv[1:]
+    # En primerek. GApplication ob drugem zagonu tekocemu poslje »activate« in ta odpre okno - tudi ce je drugi zagon
+    # zahteval ozadje (Safeer OS in samozagon ob prijavi startata hkrati). Poleg tega bi drugi primerek se pred tem
+    # pospravil navidezne zvocne izhode tekocega. Zato: zagon v ozadju, ko Control ze tece, se konca tiho; zagon iz
+    # menija tekocemu samo pokaze okno.
+    _ZAKLEP_PRIMERKA = os_stabilnost.zakleni_primerek("safeer-control")
+    if _ZAKLEP_PRIMERKA is None:
+        if ozadje or _pokazi_tekocega():
+            return 0
     # Sled ob sesutju in dnevnik neujetih izjem (~/.cache/safeer-control/). Control tece ves dan v
     # ozadju; brez tega naprave samo izgubijo racunalnik in nihce ne ve, zakaj.
     os_stabilnost.vkljuci("safeer-control")
-    ozadje = "--ozadje" in sys.argv[1:]
     argv = [a for a in sys.argv if a != "--ozadje"]
     GLib.set_prgname("safeer-control")
     GLib.set_application_name("Safeer Control")

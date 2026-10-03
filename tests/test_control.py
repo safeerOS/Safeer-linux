@@ -234,6 +234,29 @@ class ControlJezik(unittest.TestCase):
         self.assertEqual(self.m.besedilo(n.get("ui_language"), "koncaj"), "Quit")
 
 
+class JezikSeje(unittest.TestCase):
+    """Safeer OS bere jezik seje po istem vrstnem redu kot Safeer Control (LANGUAGE, LC_ALL, LC_MESSAGES, LANG).
+
+    Prej je gledal samo LC_MESSAGES in LANG: v seji z LANGUAGE=sl in LANG=en_US je bil Safeer OS angleški, Control pa
+    slovenski (in obratno v preizkusnem zabojniku)."""
+
+    def test_safeer_os_po_vrstnem_redu_gettexta(self):
+        import json
+        from unittest import mock
+        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "safeer_os.py"), encoding="utf-8") as f:
+            vir = f.read()
+        prostor = {"os": os, "json": json, "BRSKALNIK_NASTAVITVE": "/ni/take/datoteke"}
+        exec(vir[vir.index("def _jezik() -> str:"):vir.index("def _ime_sistema() -> str:")], prostor)  # noqa: S102
+        for okolje, pricakovano in (({"LANGUAGE": "sl_SI:sl", "LANG": "en_US.UTF-8"}, "sl"),
+                                    ({"LANGUAGE": "en_US:en", "LC_ALL": "en_US.UTF-8", "LANG": "sl_SI.UTF-8"}, "en"),
+                                    ({"LC_ALL": "it_IT.UTF-8", "LC_MESSAGES": "fr_FR.UTF-8"}, "it"),
+                                    ({"LC_MESSAGES": "fr_FR.UTF-8", "LANG": "de_DE.UTF-8"}, "fr"),
+                                    ({"LANG": "de_DE.UTF-8"}, "de"), ({"LANG": "hr_HR.UTF-8"}, "en"), ({}, "en"),
+                                    ({"SAFEER_OS_JEZIK": "es", "LANG": "sl_SI.UTF-8"}, "es")):
+            with mock.patch.dict(os.environ, okolje, clear=True):
+                self.assertEqual(prostor["_jezik"](), pricakovano, okolje)
+
+
 class ControlPredaja(unittest.TestCase):
     """D-Bus za Safeer OS: Predaja (vprasaj naprave), Prevzemi (igraj tu), Ponudi (poslji napravi) - z laznim Linkom."""
 

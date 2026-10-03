@@ -117,8 +117,14 @@ def _jezik() -> str:
             return str(v)[:2]
     except Exception:
         pass
-    lang = (os.environ.get("LC_MESSAGES") or os.environ.get("LANG") or "en")[:2].lower()
-    return lang if lang in ("sl", "en", "de", "es", "fr", "it") else "en"
+    # Jezik seje po vrstnem redu gettexta - enako kot Safeer Control. Prej samo LC_MESSAGES/LANG: v seji z
+    # LANGUAGE=sl in LANG=en_US je bil Safeer OS angleski, Control pa slovenski.
+    for kljuc in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
+        vrednost = os.environ.get(kljuc, "")
+        if vrednost:
+            lang = vrednost.split(":")[0].replace("-", "_").split(".")[0].split("_")[0].strip().lower()[:2]
+            return lang if lang in ("sl", "en", "de", "es", "fr", "it") else "en"
+    return "en"
 
 
 def _ime_sistema() -> str:
@@ -275,20 +281,28 @@ def _control_na_vodilu(vodilo) -> bool:
                             Gio.DBusCallFlags.NONE, 2000, None).unpack()[0]
 
 
+#: Control zaganja ena nit naenkrat. Brez tega sta ga ob zagonu Safeer OS dve niti zagnali dvakrat v 120 ms, drugi
+#: zagon pa tekocemu primerku odpre okno (izmerjeno 4. 10. 2026).
+_ZAGON_CONTROLA = threading.Lock()
+
+
 def _zagotovi_control(vodilo) -> bool:
     """Control tece (na vodilu) - ce ne, ga zazenemo v ozadju (pladenj) in pocakamo, da se javi."""
     if _control_na_vodilu(vodilo):
         return True
-    ukaz = _ukaz_controla()
-    if not ukaz:
-        return False
-    subprocess.Popen(ukaz + ["--ozadje"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-    for _ in range(40):
-        time.sleep(0.25)
-        if _control_na_vodilu(vodilo):
-            time.sleep(0.5)
+    with _ZAGON_CONTROLA:
+        if _control_na_vodilu(vodilo):      # medtem ga je zagnala druga nit
             return True
-    return False
+        ukaz = _ukaz_controla()
+        if not ukaz:
+            return False
+        subprocess.Popen(ukaz + ["--ozadje"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        for _ in range(40):
+            time.sleep(0.25)
+            if _control_na_vodilu(vodilo):
+                time.sleep(0.5)
+                return True
+        return False
 
 
 def control_dejanje(ime: str, parameter: Optional["GLib.Variant"] = None) -> bool:
