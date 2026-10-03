@@ -7,6 +7,9 @@
 .gtkstyle-fallback {
   background-color: #0d1626;
 }
+.gtkstyle-fallback:hover {
+  background-color: #182740;
+}
 .gtkstyle-fallback:active {
   background-color: #080e17;
 }
@@ -121,7 +124,7 @@ button {
 }
 button:hover {
   border-color: #22344f;
-  background-color: #1e3050;
+  background-color: #17253d;
 }
 button:active, button:checked {
   border-color: #22344f;
@@ -211,7 +214,7 @@ button.destructive-action:disabled {
 }
 .inline-toolbar toolbutton > button:hover {
   border-color: #22344f;
-  background-color: #1e3050;
+  background-color: #17253d;
 }
 .inline-toolbar toolbutton > button:active, .inline-toolbar toolbutton > button:checked {
   border-color: #22344f;
@@ -325,11 +328,14 @@ headerbar.selection-mode button:disabled:active, headerbar.selection-mode button
 }
 .primary-toolbar entry, headerbar entry {
   border-color: rgba(215, 234, 255, 0.17);
-  background-color: rgba(45, 68, 108, 0.4);
+  background-color: rgba(37, 57, 94, 0.4);
 }
 .primary-toolbar entry:focus, headerbar entry:focus {
   border-color: #8ac7ff;
-  background-color: rgba(45, 68, 108, 0.4);
+  background-color: rgba(37, 57, 94, 0.4);
+}
+.primary-toolbar entry:disabled, headerbar entry:disabled {
+  background-color: rgba(37, 57, 94, 0.25);
 }
 .primary-toolbar entry selection:focus, headerbar entry selection:focus {
   background-color: #8ac7ff;
@@ -350,7 +356,7 @@ headerbar.selection-mode button:disabled:active, headerbar.selection-mode button
 }
 .primary-toolbar button:hover, headerbar button:hover {
   border-color: rgba(215, 234, 255, 0.17);
-  background-color: rgba(45, 68, 108, 0.4);
+  background-color: rgba(37, 57, 94, 0.4);
 }
 .primary-toolbar button:active, headerbar button:active, .primary-toolbar button:checked, headerbar button:checked {
   border-color: rgba(215, 234, 255, 0.17);
@@ -364,24 +370,24 @@ headerbar.selection-mode button:disabled:active, headerbar.selection-mode button
 }
 .primary-toolbar toolbar .linked:not(.vertical):not(.path-bar).stack-switcher > button, .primary-toolbar .linked:not(.vertical):not(.path-bar).stack-switcher > button, .primary-toolbar .inline-toolbar .linked:not(.vertical):not(.path-bar).stack-switcher > button, headerbar .linked:not(.vertical):not(.path-bar).stack-switcher > button, .primary-toolbar toolbar .linked:not(.vertical).path-bar > button, .primary-toolbar .linked:not(.vertical).path-bar > button, .primary-toolbar .inline-toolbar .linked:not(.vertical).path-bar > button, headerbar .linked:not(.vertical).path-bar > button {
   border-color: rgba(215, 234, 255, 0.17);
-  background-color: rgba(45, 68, 108, 0.4);
+  background-color: rgba(37, 57, 94, 0.4);
 }
 .primary-toolbar toolbar .linked:not(.vertical):not(.path-bar).stack-switcher > button:active, .primary-toolbar .linked:not(.vertical):not(.path-bar).stack-switcher > button:active, .primary-toolbar .inline-toolbar .linked:not(.vertical):not(.path-bar).stack-switcher > button:active, headerbar .linked:not(.vertical):not(.path-bar).stack-switcher > button:active, .primary-toolbar toolbar .linked:not(.vertical):not(.path-bar).stack-switcher > button:checked, .primary-toolbar .linked:not(.vertical):not(.path-bar).stack-switcher > button:checked, .primary-toolbar .inline-toolbar .linked:not(.vertical):not(.path-bar).stack-switcher > button:checked, headerbar .linked:not(.vertical):not(.path-bar).stack-switcher > button:checked, .primary-toolbar toolbar .linked:not(.vertical).path-bar > button:active, .primary-toolbar .linked:not(.vertical).path-bar > button:active, .primary-toolbar .inline-toolbar .linked:not(.vertical).path-bar > button:active, headerbar .linked:not(.vertical).path-bar > button:active, .primary-toolbar toolbar .linked:not(.vertical).path-bar > button:checked, .primary-toolbar .linked:not(.vertical).path-bar > button:checked, .primary-toolbar .inline-toolbar .linked:not(.vertical).path-bar > button:checked, headerbar .linked:not(.vertical).path-bar > button:checked {
   border-color: rgba(215, 234, 255, 0.17);
 }
 .primary-toolbar .linked:not(.vertical) entry:focus, headerbar .linked:not(.vertical) entry:focus {
   border-color: rgba(215, 234, 255, 0.17);
-  background-color: rgba(45, 68, 108, 0.4);
+  background-color: rgba(37, 57, 94, 0.4);
 }
 .primary-toolbar .linked:not(.vertical) entry + button:last-child, headerbar .linked:not(.vertical) entry + button:last-child {
   border-color: rgba(215, 234, 255, 0.17);
-  background-color: rgba(45, 68, 108, 0.4);
+  background-color: rgba(37, 57, 94, 0.4);
 }
 .primary-toolbar .linked:not(.vertical) entry + button:last-child:active, headerbar .linked:not(.vertical) entry + button:last-child:active, .primary-toolbar .linked:not(.vertical) entry + button:last-child:checked, headerbar .linked:not(.vertical) entry + button:last-child:checked {
   border-color: rgba(215, 234, 255, 0.17);
 }
 .primary-toolbar .linked:not(.vertical) entry + button:last-child:disabled, headerbar .linked:not(.vertical) entry + button:last-child:disabled {
-  background-color: rgba(45, 68, 108, 0.2);
+  background-color: rgba(37, 57, 94, 0.2);
   border-color: rgba(215, 234, 255, 0.17);
 }
 .primary-toolbar .linked:not(.vertical) entry + button:last-child:disabled:checked, headerbar .linked:not(.vertical) entry + button:last-child:disabled:checked {
@@ -397,21 +403,24 @@ headerbar.selection-mode button:disabled:active, headerbar.selection-mode button
 }
 .primary-toolbar combobox > .linked > button.combo, headerbar combobox > .linked > button.combo {
   border-color: rgba(215, 234, 255, 0.17);
-  background-color: rgba(45, 68, 108, 0.4);
+  background-color: rgba(37, 57, 94, 0.4);
 }
 .primary-toolbar combobox > .linked > button.combo:hover, headerbar combobox > .linked > button.combo:hover {
   border-color: #8ac7ff;
-  background-color: rgba(45, 68, 108, 0.4);
+  background-color: rgba(37, 57, 94, 0.4);
+}
+.primary-toolbar combobox > .linked > button.combo:disabled, headerbar combobox > .linked > button.combo:disabled {
+  background-color: rgba(37, 57, 94, 0.25);
 }
 .primary-toolbar progressbar trough, headerbar progressbar trough {
   background-color: rgba(6, 11, 19, 0.4);
 }
 .primary-toolbar scale slider, headerbar scale slider {
-  background-color: #16243b;
+  background-color: #0e1828;
   border-color: rgba(215, 234, 255, 0.29);
 }
 .primary-toolbar scale slider:hover, headerbar scale slider:hover {
-  background-color: #1e3050;
+  background-color: #182740;
   border-color: rgba(215, 234, 255, 0.29);
 }
 .primary-toolbar scale slider:active, headerbar scale slider:active {
@@ -1292,14 +1301,14 @@ colorswatch#add-color-button {
 }
 colorswatch#add-color-button:hover {
   border-color: #22344f;
-  background-color: #1e3050;
+  background-color: #17253d;
 }
 .content-view {
   background-color: #0e1727;
 }
 .scale-popup button:hover {
   border-color: #22344f;
-  background-color: #1e3050;
+  background-color: #17253d;
 }
 .keycap {
   background-color: #0e1727;
@@ -1316,7 +1325,7 @@ headerbar button.titlebutton, .titlebar button.titlebutton {
 }
 headerbar button.titlebutton:hover, .titlebar button.titlebutton:hover {
   border-color: rgba(215, 234, 255, 0.17);
-  background-color: rgba(45, 68, 108, 0.4);
+  background-color: rgba(37, 57, 94, 0.4);
 }
 headerbar button.titlebutton:active, headerbar button.titlebutton:checked, .titlebar button.titlebutton:active, .titlebar button.titlebutton:checked {
   border-color: rgba(215, 234, 255, 0.17);
@@ -1565,7 +1574,7 @@ devhelppanel entry:focus, symboltreepanel entry:focus {
 }
 .xreader-window .primary-toolbar .button.the-button-in-the-combobox {
   border-color: rgba(215, 234, 255, 0.17);
-  background-color: rgba(45, 68, 108, 0.4);
+  background-color: rgba(37, 57, 94, 0.4);
 }
 .documents-icon-bg {
   background-color: #8ac7ff;
@@ -1629,6 +1638,9 @@ SynapseGuiSelectionContainer *:selected, SynapseGuiViewVirgilio *:selected {
   color: #eef4ff;
   background-color: rgba(13, 22, 38, 0);
 }
+.gnome-panel-menu-bar button:hover:not(#tasklist-button), .mate-panel-menu-bar button:hover:not(#tasklist-button), .xfce4-panel.panel button:hover {
+  background-color: #182740;
+}
 .gnome-panel-menu-bar button:active:not(#tasklist-button), .mate-panel-menu-bar button:active:not(#tasklist-button), .xfce4-panel.panel button:active, .gnome-panel-menu-bar button:checked:not(#tasklist-button), .mate-panel-menu-bar button:checked:not(#tasklist-button), .xfce4-panel.panel button:checked {
   background-color: #8ac7ff;
   color: #0b1424;
@@ -1643,11 +1655,14 @@ MarlinViewWindow *:selected, MarlinViewWindow *:selected:focus {
 }
 .marlin-pathbar.pathbar {
   border-color: rgba(215, 234, 255, 0.17);
-  background-color: rgba(45, 68, 108, 0.4);
+  background-color: rgba(37, 57, 94, 0.4);
 }
 .marlin-pathbar.pathbar:focus {
   border-color: #8ac7ff;
-  background-color: rgba(45, 68, 108, 0.4);
+  background-color: rgba(37, 57, 94, 0.4);
+}
+.marlin-pathbar.pathbar:disabled {
+  background-color: rgba(37, 57, 94, 0.25);
 }
 .marlin-pathbar.pathbar:active, .marlin-pathbar.pathbar:checked {
   color: #8ac7ff;
@@ -1690,7 +1705,7 @@ EvWindow .content-view .view:selected, EvWindow .content-view iconview:selected,
 }
 #content_frame button:hover {
   border-color: #22344f;
-  background-color: #1e3050;
+  background-color: #17253d;
 }
 #content_frame button:active, #content_frame button:checked {
   border-color: #22344f;
@@ -1774,27 +1789,12 @@ list.content > row, list.content > row list > row {
 .windowhandle separator.sidebar:dir(ltr), .windowhandle separator.sidebar.left, .windowhandle separator.sidebar.left:dir(rtl), .windowhandle separator.sidebar:dir(rtl), .windowhandle separator.sidebar.right {
   background-color: #080e18;
 }
-.gtkstyle-fallback:hover {
-  background-color: #1e3050;
-}
-.primary-toolbar entry:disabled, headerbar entry:disabled {
-  background-color: rgba(45, 68, 108, 0.25);
-}
 .primary-toolbar toolbar .linked:not(.vertical):not(.path-bar).stack-switcher > button:hover, .primary-toolbar .linked:not(.vertical):not(.path-bar).stack-switcher > button:hover, .primary-toolbar .inline-toolbar .linked:not(.vertical):not(.path-bar).stack-switcher > button:hover, headerbar .linked:not(.vertical):not(.path-bar).stack-switcher > button:hover, .primary-toolbar toolbar .linked:not(.vertical).path-bar > button:hover, .primary-toolbar .linked:not(.vertical).path-bar > button:hover, .primary-toolbar .inline-toolbar .linked:not(.vertical).path-bar > button:hover, headerbar .linked:not(.vertical).path-bar > button:hover {
   background-color: rgba(99, 124, 162, 0.4);
 }
 .primary-toolbar .linked:not(.vertical) entry + button:last-child:hover, headerbar .linked:not(.vertical) entry + button:last-child:hover {
   background-color: rgba(99, 124, 162, 0.4);
 }
-.primary-toolbar combobox > .linked > button.combo:disabled, headerbar combobox > .linked > button.combo:disabled {
-  background-color: rgba(45, 68, 108, 0.25);
-}
 .xreader-window .primary-toolbar .button.the-button-in-the-combobox:hover {
   background-color: rgba(99, 124, 162, 0.4);
-}
-.gnome-panel-menu-bar button:hover:not(#tasklist-button), .mate-panel-menu-bar button:hover:not(#tasklist-button), .xfce4-panel.panel button:hover {
-  background-color: #182841;
-}
-.marlin-pathbar.pathbar:disabled {
-  background-color: rgba(45, 68, 108, 0.25);
 }
