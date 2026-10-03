@@ -53,6 +53,18 @@
       niUspelo: "Ni uspelo.", strani: "{a}–{b} od {n}", nazaj: "‹", naprej: "›",
       kVse: "Vse", kPisarna: "Pisarna", kUstvarjanje: "Ustvarjanje", kMediji: "Mediji", kSplet: "Splet", kIgre: "Igre",
       kDrugo: "Drugo", kPriljubljeni: "★ Priljubljeni",
+      kopiraj: "Kopiraj", izrezi: "Izreži", prilepi: "Prilepi", prilepiV: "Prilepi v to mapo", lastnosti: "Lastnosti",
+      kopirano: "Kopirano: {ime}. Prilepiš z desnim klikom ali Ctrl+V.", izrezano: "Izrezano: {ime}. Prilepiš z desnim klikom ali Ctrl+V.",
+      kopiram: "Kopiram …", premikam: "Premikam …", prilepljeno: "Kopirano sem: {ime}", premaknjeno: "Premaknjeno sem: {ime}",
+      prilepiNapaka_vase: "Mape ni mogoče kopirati vase.", prilepiNapaka_ni_prostora: "Na disku ni dovolj prostora.",
+      prilepiNapaka_ni_dovoljenja: "V to mapo ni mogoče pisati.", prilepiNapaka_ni_datoteke: "Izvirne datoteke ni več.",
+      prilepiNapaka_ni_dovoljeno: "Tega ni mogoče kopirati ali premakniti.", prilepiNapaka_ni_mape: "Ciljne mape ni več.",
+      smeti: "Smeti", praznoSmeti: "Smeti so prazne.", obnovi: "Obnovi", obnovljeno: "Obnovljeno: {ime}",
+      izprazniSmeti: "Izprazni Smeti …", smetiIzpraznjene: "Smeti so izpraznjene.",
+      izvrzi: "Varno odstrani", izvrzeno: "{ime} lahko odklopiš.", izvrziZaseden: "{ime} je še v uporabi. Zapri datoteke z njega in poskusi znova.",
+      prostoNa: "{prosto} prosto od {skupaj}",
+      lVrsta: "Vrsta", lVelikost: "Velikost", lKje: "Mesto", lSpremenjeno: "Spremenjeno", lPravice: "Pravice", lVsebuje: "Vsebuje",
+      lElementov: "{n} elementov", lPovezava: "Kaže na",
       niPriljubljenihPrg: "Še nimaš priljubljenih programov. Klikni ☆ na programu in tukaj ga boš vedno hitro našel.",
       vseNaprave: "Vse naprave", razvrstiIme: "Po imenu", razvrstiNaprava: "Po napravi",
       pogledSeznam: "Seznam / mreža", spletnaAplikacija: "V brskalniku",
@@ -142,6 +154,18 @@
       niUspelo: "That didn't work.", strani: "{a}–{b} of {n}", nazaj: "‹", naprej: "›",
       kVse: "All", kPisarna: "Office", kUstvarjanje: "Creative", kMediji: "Media", kSplet: "Web", kIgre: "Games",
       kDrugo: "Other", kPriljubljeni: "★ Favourites",
+      kopiraj: "Copy", izrezi: "Cut", prilepi: "Paste", prilepiV: "Paste into this folder", lastnosti: "Properties",
+      kopirano: "Copied: {ime}. Paste with right-click or Ctrl+V.", izrezano: "Cut: {ime}. Paste with right-click or Ctrl+V.",
+      kopiram: "Copying…", premikam: "Moving…", prilepljeno: "Copied here: {ime}", premaknjeno: "Moved here: {ime}",
+      prilepiNapaka_vase: "A folder cannot be copied into itself.", prilepiNapaka_ni_prostora: "Not enough space on the disk.",
+      prilepiNapaka_ni_dovoljenja: "This folder cannot be written to.", prilepiNapaka_ni_datoteke: "The original file is gone.",
+      prilepiNapaka_ni_dovoljeno: "This cannot be copied or moved.", prilepiNapaka_ni_mape: "The destination folder is gone.",
+      smeti: "Trash", praznoSmeti: "The Trash is empty.", obnovi: "Restore", obnovljeno: "Restored: {ime}",
+      izprazniSmeti: "Empty Trash…", smetiIzpraznjene: "The Trash has been emptied.",
+      izvrzi: "Eject", izvrzeno: "{ime} can be unplugged.", izvrziZaseden: "{ime} is still in use. Close its files and try again.",
+      prostoNa: "{prosto} free of {skupaj}",
+      lVrsta: "Type", lVelikost: "Size", lKje: "Location", lSpremenjeno: "Modified", lPravice: "Permissions", lVsebuje: "Contains",
+      lElementov: "{n} items", lPovezava: "Points to",
       niPriljubljenihPrg: "No favourite apps yet. Click ☆ on an app and you will always find it here quickly.",
       vseNaprave: "All devices", razvrstiIme: "By name", razvrstiNaprava: "By device",
       pogledSeznam: "List / grid", spletnaAplikacija: "In the browser",
@@ -406,7 +430,7 @@
   }
 
   // ------------------------------------------------------------------ DATOTEKE
-  var D = { vir: null, vse: [], stran: 0, razvrsti: "ime", smer: 1, izbran: -1, naprave: [], zahteva: 0 };
+  var D = { vir: null, vse: [], stran: 0, razvrsti: "ime", smer: 1, izbran: -1, naprave: [], nosilci: [], zahteva: 0 };
 
   function zgradiStranDatotek() {
     var s = $("datStran"); s.innerHTML = "";
@@ -425,6 +449,7 @@
     gumb(t("nedavno"), { vrsta: "nedavno" });
     gumb(t("priljubljeno"), { vrsta: "priljubljeno" });
     gumb(t("najvecje"), { vrsta: "najvecje" });
+    gumb(t("smeti"), { vrsta: "smeti" });
     oznaka(t("mape"));
     Z.mape.forEach(function (m) {
       if (m.vrsta === "HOME") gumb(t("domov"), { vrsta: "lokalno", pot: m.pot });
@@ -434,6 +459,15 @@
     oznaka(t("naprave"));
     // Ta racunalnik = cel datotecni sistem (kot »Racunalnik« v Nemu); domaca mapa je zgoraj med Mapami.
     gumb(t("taRacunalnik"), { vrsta: "lokalno", pot: "/" }, true);
+    // Nosilci (USB kljuci, zunanji in drugi diski, omrezna mesta): odpres jih kot mapo, desni klik = varno odstrani.
+    D.nosilci.forEach(function (n) {
+      var g = gumb(n.ime, { vrsta: "lokalno", pot: n.pot }, true);
+      g.title = n.velikost ? t("prostoNa", { prosto: velikost(n.prosto) || "0", skupaj: velikost(n.velikost) }) : n.pot;
+      if (n.naprava) g.addEventListener("contextmenu", function (ev) {
+        ev.preventDefault();
+        pokaziMeni([[t("odpri"), function () { odpriVir({ vrsta: "lokalno", pot: n.pot }); }], [t("izvrzi"), function () { izvrziNosilec(n); }]], ev.clientX, ev.clientY);
+      });
+    });
     D.naprave.forEach(function (n) { gumb(n.ime, { vrsta: "naprava", id: n.id, ime: n.ime, pot: [] }, true); });
     oznaciVir();
     if (!most) return;
@@ -442,6 +476,26 @@
       D.naprave = Array.isArray(naprave) ? naprave.filter(function (n) { return n && n.id; }) : [];
       if (JSON.stringify(D.naprave) !== prej) zgradiStranDatotek();
     }).catch(function () {});
+    osveziNosilce();
+  }
+  function osveziNosilce() {
+    if (!most) return;
+    klic("nosilci").then(function (nosilci) {
+      var prej = JSON.stringify(D.nosilci.map(function (n) { return n.pot; }));
+      var novi = Array.isArray(nosilci) ? nosilci.filter(function (n) { return n && n.pot; }) : [];
+      var spremenjeno = JSON.stringify(novi.map(function (n) { return n.pot; })) !== prej;
+      D.nosilci = novi;
+      if (spremenjeno) zgradiStranDatotek();
+    }).catch(function () {});
+  }
+  function izvrziNosilec(n) {
+    klic("izvrziNosilec", [n.pot]).then(function (r) {
+      if (r && r.ok) {
+        obvesti(t("izvrzeno", { ime: n.ime }));
+        if (D.vir && D.vir.vrsta === "lokalno" && String(D.vir.pot).indexOf(n.pot) === 0) odpriVir({ vrsta: "nedavno" });
+      } else obvesti(r && r.napaka === "zaseden" ? t("izvrziZaseden", { ime: n.ime }) : t("niUspelo"));
+      osveziNosilce();
+    }).catch(function () { obvesti(t("niUspelo")); });
   }
   function enakVir(a, b) {
     if (!a || !b || a.vrsta !== b.vrsta) return false;
@@ -474,6 +528,15 @@
         .catch(prispelo(function () { nastaviVnose([], t("niUspelo"), true); }));
     } else if (vir.vrsta === "priljubljeno") {
       nastaviVnose(N.priljubljeneDat.slice(), t("niPriljubljenih")); drobtine([t("priljubljeno")]);
+    } else if (vir.vrsta === "smeti") {
+      // Smeti: stolpec Lokacija pove, kje je datoteka bila, cas pa, kdaj je bila izbrisana.
+      klic("smeti").then(prispelo(function (r) {
+        var vnosi = ((r && r.elementi) || []).map(function (v) {
+          return { ime: v.ime, pot: v.izvirna || v.pot, mapa: !!v.mapa, vrsta: v.vrsta, velikost: v.velikost || 0,
+                   spremenjeno: v.izbrisano || 0, smeti: v.id };
+        });
+        nastaviVnose(vnosi, t("praznoSmeti")); drobtine([t("smeti")]);
+      })).catch(prispelo(function () { nastaviVnose([], t("niUspelo"), true); }));
     } else if (vir.vrsta === "lokalno") {
       klic("mapa", [vir.pot]).then(prispelo(function (r) {
         r = r || {};
@@ -550,6 +613,7 @@
     });
     if (D.vir && D.vir.vrsta === "nedavno" && D.razvrsti === "ime" && D.smer === 1 && !D.rocno) return r; // nedavne: po casu
     if (D.vir && D.vir.vrsta === "najvecje" && !D.rocno) return r; // najvecje: ze urejene po velikosti
+    if (D.vir && D.vir.vrsta === "smeti" && !D.rocno) return r; // smeti: nazadnje izbrisano najprej
     var k = D.razvrsti, s = D.smer;
     return r.sort(function (a, b) {
       if (a.mapa !== b.mapa) return a.mapa ? -1 : 1;
@@ -593,6 +657,7 @@
       if (oznaci >= 0 && i === D.izbran) { vr.classList.add("novo"); setTimeout(function () { try { vr.focus(); } catch (x) {} }, 0); }
       tb.appendChild(vr);
     });
+    naloziSlicice();
     if (!seznam.length && !D.napaka && D.vse !== null) datSporocilo(D.vse.length ? t("niZadetkov") : prazenOpis);
     else if (!D.napaka) datSporocilo("");
     ostraniStrani($("datStrani"), od, do_, seznam.length, strani, D.stran, function (s) { D.stran = s; D.izbran = -1; izrisiDatoteke(); });
@@ -604,7 +669,9 @@
   function vrsticaDatoteke(e, i) {
     var tr = el("tr"); tr.tabIndex = 0; tr.setAttribute("aria-selected", i === D.izbran ? "true" : "false");
     var td = el("td"), c = el("div", "celica-ime");
-    c.appendChild(ikonaVrste(e.mapa ? "mapa" : e.vrsta)); c.appendChild(el("span", "", e.ime));
+    var ik = ikonaVrste(e.mapa ? "mapa" : e.vrsta);
+    if (e.pot && !e.oddaljeno && !e.smeti && (e.vrsta === "slika" || e.vrsta === "video")) ik.setAttribute("data-slicica", e.pot);
+    c.appendChild(ik); c.appendChild(el("span", "", e.ime));
     td.appendChild(c); td.title = e.ime; tr.appendChild(td);
     tr.appendChild(el("td", "st-vrsta", t("en_" + (e.mapa ? "mapa" : (IKONE_VRST[e.vrsta] ? e.vrsta : "drugo")))));
     var lok = el("td", "st-lok");
@@ -625,8 +692,10 @@
       } else if (ev.key === "ContextMenu" || (ev.shiftKey && ev.key === "F10")) {
         ev.preventDefault(); var r = tr.getBoundingClientRect(); meniDatoteke(e, r.left + 40, r.bottom);
       } else if (ev.key === "Backspace") { ev.preventDefault(); gorVMapo(); }
-      else if (ev.key === "F2" && !e.oddaljeno) { ev.preventDefault(); odpriOknoNovo({ nacin: "preimenuj", pot: e.pot, ime: e.ime, mapa: e.mapa }); }
-      else if (ev.key === "Delete" && !e.oddaljeno) { ev.preventDefault(); vSmeti(e); }
+      else if (ev.key === "F2" && !e.oddaljeno && !e.smeti) { ev.preventDefault(); odpriOknoNovo({ nacin: "preimenuj", pot: e.pot, ime: e.ime, mapa: e.mapa }); }
+      else if (ev.key === "Delete" && !e.oddaljeno && !e.smeti) { ev.preventDefault(); vSmeti(e); }
+      else if (ev.ctrlKey && !ev.shiftKey && !ev.altKey && !e.oddaljeno && !e.smeti && (ev.key === "c" || ev.key === "C")) { ev.preventDefault(); vOdlozisce(e, false); }
+      else if (ev.ctrlKey && !ev.shiftKey && !ev.altKey && !e.oddaljeno && !e.smeti && (ev.key === "x" || ev.key === "X")) { ev.preventDefault(); vOdlozisce(e, true); }
     });
     tr.addEventListener("contextmenu", function (ev) { ev.preventDefault(); D.izbran = i; oznaciIzbrano(); meniDatoteke(e, ev.clientX, ev.clientY); });
     return tr;
@@ -639,7 +708,101 @@
     if (v.vrsta === "lokalno" && v.pot !== v.koren) odpriVir({ vrsta: "lokalno", pot: v.pot.replace(/\/[^/]+\/?$/, "") || "/", koren: v.koren });
     else if (v.vrsta === "naprava" && v.pot.length) { v.pot.pop(); odpriVir(v); }
   }
+  // Slicice za slike in videe v vidnih vrsticah (iz predpomnilnika namizja ali pomanjsane sproti, v ozadju).
+  var slicicePredpomnilnik = {}, sliciceZahteva = 0;
+  function vstaviSlicico(ikona, naslov) {
+    var img = el("img", "slicica"); img.alt = ""; img.loading = "lazy";
+    img.onerror = function () { img.remove(); };
+    img.onload = function () { ikona.classList.add("s-slicico"); };
+    img.src = naslov; ikona.appendChild(img);
+  }
+  function naloziSlicice() {
+    if (!most) return;
+    var ikone = Array.prototype.slice.call(document.querySelectorAll("#datVrstice [data-slicica]")), manjka = [];
+    ikone.forEach(function (ik) {
+      var pot = ik.getAttribute("data-slicica");
+      if (slicicePredpomnilnik[pot]) vstaviSlicico(ik, slicicePredpomnilnik[pot]);
+      else if (slicicePredpomnilnik[pot] !== "") manjka.push(pot);
+    });
+    if (!manjka.length) return;
+    var st = ++sliciceZahteva;
+    klic("sliciceDatotek", [manjka]).then(function (r) {
+      r = r || {};
+      manjka.forEach(function (pot) { slicicePredpomnilnik[pot] = r[pot] || ""; });
+      if (st !== sliciceZahteva) return;
+      Array.prototype.forEach.call(document.querySelectorAll("#datVrstice [data-slicica]"), function (ik) {
+        var naslov = slicicePredpomnilnik[ik.getAttribute("data-slicica")];
+        if (naslov && !ik.querySelector("img")) vstaviSlicico(ik, naslov);
+      });
+    }).catch(function () {});
+  }
+
+  // ------------------------------------------------------------------ ODLOZISCE, SMETI, LASTNOSTI
+  var O = { poti: [], rezi: false, ime: "" };
+  function vOdlozisce(e, rezi) {
+    O.poti = [e.pot]; O.rezi = !!rezi; O.ime = e.ime;
+    obvesti(t(rezi ? "izrezano" : "kopirano", { ime: e.ime }));
+  }
+  function prilepi(vMapo) {
+    if (!O.poti.length) return;
+    var cilj = vMapo || kamNovo(), rezi = O.rezi, ime = O.ime;
+    obvesti(t(rezi ? "premikam" : "kopiram"));
+    klic("prilepiDatoteke", [O.poti, cilj, rezi]).then(function (r) {
+      r = r || {};
+      var narejeno = r.narejeno || [];
+      if (narejeno.length) {
+        obvesti(t(rezi ? "premaknjeno" : "prilepljeno", { ime: ime }));
+        if (rezi) { O.poti = []; O.ime = ""; }
+        D.oznaci = String(narejeno[0]).split("/").pop();
+      } else {
+        var koda = r.napaka || ((r.napake || [])[0] || {}).napaka || "";
+        // Premik v mapo, kjer datoteka ze je, ni napaka: nic ni bilo treba narediti.
+        if (r.ok && !koda) obvesti(t("premaknjeno", { ime: ime }));
+        else obvesti(BESEDILA[jezik]["prilepiNapaka_" + koda] ? t("prilepiNapaka_" + koda) : t("niUspelo"));
+      }
+      if (D.vir) odpriVir(D.vir);
+    }).catch(function () { obvesti(t("niUspelo")); });
+  }
+  function obnoviIzSmeti(e) {
+    klic("obnoviIzSmeti", [e.smeti]).then(function (r) {
+      obvesti(r && r.ok ? t("obnovljeno", { ime: e.ime }) : t("niUspelo"));
+      if (D.vir) odpriVir(D.vir);
+    }).catch(function () { obvesti(t("niUspelo")); });
+  }
+  function izprazniSmeti() {
+    // Trajni izbris potrdi sistemsko okno Safeer OS (ne stran); odgovor pride, ko je konec.
+    klic("izprazniSmeti").then(function (r) {
+      if (r && r.potrjeno) obvesti(t("smetiIzpraznjene"));
+      if (D.vir && D.vir.vrsta === "smeti") odpriVir(D.vir);
+    }).catch(function () { obvesti(t("niUspelo")); });
+  }
+  function lastnosti(e) {
+    klic("lastnostiDatoteke", [e.pot]).then(function (l) {
+      if (!l || !l.ok) { obvesti(t("niUspelo")); return; }
+      var ovoj = el("div", "meni lastnosti"); ovoj.setAttribute("role", "dialog"); ovoj.setAttribute("aria-label", t("lastnosti"));
+      ovoj.appendChild(el("p", "meni-naslov", t("lastnosti")));
+      ovoj.appendChild(el("p", "lastnosti-ime", l.ime));
+      var dl = el("dl");
+      function vr(k, v) { if (v === "" || v == null) return; dl.appendChild(el("dt", "", k)); dl.appendChild(el("dd", "", String(v))); }
+      vr(t("lVrsta"), t("en_" + (l.mapa ? "mapa" : (IKONE_VRST[l.vrsta] ? l.vrsta : "drugo"))) + (l.mime && !l.mapa ? " · " + l.mime : ""));
+      vr(t("lVelikost"), velikost(l.velikost) || "0 kB");
+      if (l.mapa) vr(t("lVsebuje"), t("lElementov", { n: l.vsebuje || 0 }));
+      vr(t("lKje"), stranskoBesedilo(l.pot.replace(/\/[^/]*$/, "") || "/"));
+      vr(t("lSpremenjeno"), new Date(l.spremenjeno * 1000).toLocaleString(LOKALE[jezik] || "sl-SI"));
+      vr(t("lPravice"), l.pravice + " · " + l.lastnik);
+      if (l.povezava != null) vr(t("lPovezava"), l.povezava);
+      ovoj.appendChild(dl);
+      var g = el("button", "", t("zapri")); g.type = "button"; g.addEventListener("click", zapri);
+      ovoj.appendChild(g);
+      function zapri() { ovoj.remove(); document.removeEventListener("keydown", esc, true); }
+      function esc(ev) { if (ev.key === "Escape" || ev.key === "Enter") { ev.preventDefault(); zapri(); } }
+      document.addEventListener("keydown", esc, true);
+      document.body.appendChild(ovoj); g.focus();
+    }).catch(function () { obvesti(t("niUspelo")); });
+  }
+
   function odpriVnos(e) {
+    if (e.smeti) { var vrs = $("datVrstice").rows[D.izbran], rr = vrs ? vrs.getBoundingClientRect() : { left: 80, bottom: 200 }; meniDatoteke(e, rr.left + 40, rr.bottom); return; }
     if (e.oddaljeno) {
       var v = D.vir;
       if (e.mapa) { v.pot.push({ id: e.id, ime: e.ime }); odpriVir(v); return; }
@@ -662,6 +825,13 @@
   function jePriljubljena(e) { return N.priljubljeneDat.some(function (p) { return p.pot === e.pot; }); }
   function meniDatoteke(e, x, y) {
     var m = [];
+    if (e.smeti) {
+      m.push([t("obnovi"), function () { obnoviIzSmeti(e); }]);
+      m.push(["—"]);
+      m.push([t("izprazniSmeti"), izprazniSmeti]);
+      pokaziMeni(m, x, y);
+      return;
+    }
     m.push([t("odpri"), function () { odpriVnos(e); }]);
     if (!e.oddaljeno) {
       m.push([t("predogled"), function () { predogled(e); }, e.mapa]);
@@ -677,8 +847,12 @@
             N.priljubljeneDat = N.priljubljeneDat.slice(-60); shrani();
           }]);
       m.push(["—"]);
+      m.push([t("kopiraj"), function () { vOdlozisce(e, false); }]);
+      m.push([t("izrezi"), function () { vOdlozisce(e, true); }]);
+      if (O.poti.length) m.push([t(e.mapa ? "prilepiV" : "prilepi"), function () { prilepi(e.mapa ? e.pot : null); }]);
       m.push([t("preimenujMeni"), function () { odpriOknoNovo({ nacin: "preimenuj", pot: e.pot, ime: e.ime, mapa: e.mapa }); }]);
       m.push([t("vSmeti"), function () { vSmeti(e); }]);
+      m.push([t("lastnosti"), function () { lastnosti(e); }]);
       if (!e.mapa) m.push([t("shraniNaNapravo"), function () { shraniNaNapravo(e); }]);
       if (!e.mapa && e.vrsta === "video") m.push([t("pretvori"), function () { pretvoriVideo(e); }]);
       if (e.mapa) m.push([t("pretvoriMapo"), function () { pretvoriMapo(e); }]);
@@ -712,6 +886,8 @@
   }
   function meniNovo(x, y) {
     var m = [];
+    if (D.vir && D.vir.vrsta === "smeti") { pokaziMeni([[t("izprazniSmeti"), izprazniSmeti], [t("osvezi"), function () { odpriVir(D.vir); }]], x, y); return; }
+    if (O.poti.length && D.vir && D.vir.vrsta === "lokalno") { m.push([t("prilepi"), function () { prilepi(null); }]); m.push(["—"]); }
     postavkeNovo(m, null);
     m.push(["—"]);
     m.push([t("osvezi"), function () { if (D.vir) odpriVir(D.vir); }]);
@@ -1457,6 +1633,9 @@
     });
     $("ploscaDatoteke").addEventListener("keydown", function (ev) {
       if (ev.ctrlKey && ev.shiftKey && (ev.key === "N" || ev.key === "n")) { ev.preventDefault(); odpriOknoNovo({ nacin: "mapa", kam: kamNovo() }); }
+      // Ctrl+V prilepi v odprto mapo (v polju za vnos ostane navadno lepljenje besedila).
+      else if (ev.ctrlKey && !ev.shiftKey && !ev.altKey && (ev.key === "v" || ev.key === "V") && O.poti.length &&
+               D.vir && D.vir.vrsta === "lokalno" && !ev.target.closest("input, textarea, select")) { ev.preventDefault(); prilepi(null); }
     });
     $("obrazecNovo").addEventListener("submit", function (ev) { ev.preventDefault(); potrdiNovo(); });
     $("novoPreklici").addEventListener("click", zapriOknoNovo);

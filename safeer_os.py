@@ -1651,6 +1651,15 @@ class SafeerOS(Gtk.Application):
             "preimenujDatoteko": lambda: os_datoteke.preimenuj(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "vSmeti": lambda: os_datoteke.v_smeti(str(a[0]) if a else ""),
             "prostorDiska": lambda: os_datoteke.prostor(),
+            "prilepiDatoteke": lambda: os_datoteke.prilepi(a[0] if a and isinstance(a[0], list) else [], str(a[1]) if len(a) > 1 else "",
+                                                           bool(a[2]) if len(a) > 2 else False),
+            "smeti": os_datoteke.smeti,
+            "obnoviIzSmeti": lambda: os_datoteke.obnovi_iz_smeti(str(a[0]) if a else ""),
+            "nosilci": os_datoteke.nosilci,
+            "izvrziNosilec": lambda: os_datoteke.izvrzi(str(a[0]) if a else ""),
+            "lastnostiDatoteke": lambda: os_datoteke.lastnosti(str(a[0]) if a else ""),
+            "sliciceDatotek": lambda: {pot: GLib.filename_to_uri(s, None) for pot, s in
+                                       os_datoteke.slicice(a[0] if a and isinstance(a[0], list) else []).items()},
             "najvecjeDatoteke": lambda: os_datoteke.najvecje(),
             "izberiMapo": lambda: self._izberi_mapo(*[str(x) for x in a[:4]]),
             "medijskeMape": lambda: self._medijska_knjiznica().mape_podrobno(),
@@ -1741,6 +1750,20 @@ class SafeerOS(Gtk.Application):
             "sporocilaNaprave": self.sporocila.naprave_za_klepet,
             "sporocilaZacni": lambda: self.sporocila.zacni_klepet(str(a[0]), str(a[1]) if len(a) > 1 else ""),
         }
+        if metoda == "izprazniSmeti":
+            # Trajni izbris: potrditev v sistemskem oknu na glavni niti (stran je ne more preskociti), brisanje v ozadju.
+            if not self._potrdi_izpraznitev_smeti():
+                self._odgovori(pogled, id_, True, {"ok": True, "potrjeno": False})
+                return
+
+            def delo_smeti():
+                try:
+                    self._odgovori(pogled, id_, True, dict(os_datoteke.izprazni_smeti(), potrjeno=True))
+                except Exception as e:  # noqa: BLE001
+                    print("[SafeerOS] izprazni smeti:", e)
+                    self._odgovori(pogled, id_, False, str(e))
+            threading.Thread(target=delo_smeti, name="safeer-smeti", daemon=True).start()
+            return
         if self._katalog_most().pozna(metoda):
             # Katalog Medijskega centra bere omrezje: vedno v ozadju; okno (predvajalnik) klice sam v glavni niti.
             def delo_katalog():
@@ -1766,6 +1789,35 @@ class SafeerOS(Gtk.Application):
             threading.Thread(target=delo, daemon=True).start()
         else:
             self._odgovori(pogled, id_, False, "neznano")
+
+    #: Besedila sistemskega okna za trajni izbris (naslov, opis, preklic, potrditev).
+    BESEDILA_SMETI = {
+        "sl": ("Izpraznim Smeti?", "Elementov v Smeteh: {n}. Izbrisani bodo trajno in jih ne bo več mogoče obnoviti.", "Prekliči", "Izprazni Smeti"),
+        "en": ("Empty the Trash?", "Items in the Trash: {n}. They will be deleted permanently and cannot be restored.", "Cancel", "Empty Trash"),
+        "de": ("Papierkorb leeren?", "Elemente im Papierkorb: {n}. Sie werden endgültig gelöscht und können nicht wiederhergestellt werden.", "Abbrechen", "Papierkorb leeren"),
+        "es": ("¿Vaciar la papelera?", "Elementos en la papelera: {n}. Se eliminarán definitivamente y no se podrán recuperar.", "Cancelar", "Vaciar papelera"),
+        "fr": ("Vider la corbeille ?", "Éléments dans la corbeille : {n}. Ils seront supprimés définitivement et ne pourront pas être restaurés.", "Annuler", "Vider la corbeille"),
+        "it": ("Svuotare il cestino?", "Elementi nel cestino: {n}. Saranno eliminati definitivamente e non potranno essere ripristinati.", "Annulla", "Svuota cestino"),
+    }
+
+    def _potrdi_izpraznitev_smeti(self) -> bool:
+        """Vprasa v sistemskem (GTK) oknu; privzeti gumb je Preklici. Prazne Smeti: nic za vprasati."""
+        n = os_datoteke.smeti()["skupaj"]
+        if not n:
+            return False
+        naslov, opis, preklic, potrdi = self.BESEDILA_SMETI.get(_jezik(), self.BESEDILA_SMETI["en"])
+        okno = Gtk.MessageDialog(transient_for=self.get_active_window(), modal=True, message_type=Gtk.MessageType.WARNING,
+                                 buttons=Gtk.ButtonsType.NONE, text=naslov)
+        okno.format_secondary_text(opis.format(n=n))
+        okno.add_button(preklic, Gtk.ResponseType.CANCEL)
+        gumb = okno.add_button(potrdi, Gtk.ResponseType.OK)
+        gumb.get_style_context().add_class("destructive-action")
+        okno.set_default_response(Gtk.ResponseType.CANCEL)
+        okno.set_keep_above(True)
+        try:
+            return okno.run() == Gtk.ResponseType.OK
+        finally:
+            okno.destroy()
 
     # ------------------------------------------------------------------ dejanja
     def _zacetek(self) -> dict:
