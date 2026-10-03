@@ -84,8 +84,11 @@ jobs:
           dpkg-deb -f "$C" Package Version Depends Recommends
           dpkg-deb -c "$C" | grep -F ./usr/share/themes/Safeer-Cinnamon/cinnamon/cinnamon.css
           dpkg-deb -c "$C" | grep -F ./usr/share/doc/safeer-cinnamon/copyright
+          dpkg-deb -c "$C" | grep -F ./usr/share/themes/Safeer-Cinnamon-Kontrast/gtk-3.0/gtk.css
           rm -rf build/cin-x && dpkg-deb -x "$C" build/cin-x
           bash -n build/cin-x/usr/bin/safeer-cinnamon
+          # Okno z izbiro postavitve (GTK 3): prevede se in odpre brez napak v praznem zaslonu.
+          python3 -m py_compile build/cin-x/usr/lib/safeer-cinnamon/izbira
           desktop-file-validate build/cin-x/usr/share/applications/*.desktop
       - name: AppImage
         run: |

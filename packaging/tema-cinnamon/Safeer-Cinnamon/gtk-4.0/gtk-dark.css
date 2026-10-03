@@ -1,4 +1,6 @@
 @import url("/usr/share/themes/Mint-Y-Dark-Blue/gtk-4.0/gtk.css");
+/* Mintove sivine in modra v paleti Safeer (samodejno: tools/tema_cinnamon_prebarvaj.py). */
+@import url("prebarvano.css");
 
 @define-color accent_color #8ac7ff;
 @define-color accent_bg_color #8ac7ff;
@@ -18,6 +20,55 @@
 @define-color popover_bg_color #111c2b;
 @define-color popover_fg_color #eaf2ff;
 
+/* Osnovne barve teme (GTK 4 programi brez libadwaite jih berejo po teh imenih) */
+@define-color theme_base_color #0e1727;
+@define-color theme_text_color #eaf2ff;
+@define-color theme_bg_color #111c2b;
+@define-color theme_fg_color #eaf2ff;
+@define-color theme_selected_bg_color #8ac7ff;
+@define-color theme_selected_fg_color #0b1424;
+@define-color theme_unfocused_fg_color #eaf2ff;
+@define-color theme_unfocused_text_color #d5e6fa;
+@define-color theme_unfocused_bg_color #111c2b;
+@define-color theme_unfocused_base_color #0e1727;
+@define-color insensitive_bg_color #101a2b;
+@define-color insensitive_fg_color rgba(234, 242, 255, 0.5);
+@define-color insensitive_base_color #0e1727;
+@define-color borders #22344f;
+@define-color unfocused_borders #1b2a41;
+@define-color placeholder_text_color #8fa3bf;
+@define-color content_view_bg #0f1a2a;
+
+/* Poimenovane barve libadwaite: stranska vrstica, stanja, sence */
+@define-color sidebar_bg_color #0c1524;
+@define-color sidebar_fg_color #eaf2ff;
+@define-color sidebar_backdrop_color #0c1524;
+@define-color sidebar_shade_color rgba(0, 0, 0, 0.36);
+@define-color secondary_sidebar_bg_color #0e1727;
+@define-color secondary_sidebar_fg_color #eaf2ff;
+@define-color secondary_sidebar_backdrop_color #0e1727;
+@define-color secondary_sidebar_shade_color rgba(0, 0, 0, 0.36);
+@define-color headerbar_backdrop_color #0d1626;
+@define-color headerbar_shade_color rgba(0, 0, 0, 0.36);
+@define-color card_shade_color rgba(0, 0, 0, 0.36);
+@define-color popover_shade_color rgba(0, 0, 0, 0.36);
+@define-color shade_color rgba(0, 0, 0, 0.36);
+@define-color scrollbar_outline_color rgba(0, 0, 0, 0.5);
+@define-color thumbnail_bg_color #132033;
+@define-color thumbnail_fg_color #eaf2ff;
+@define-color destructive_color #ff8f8f;
+@define-color destructive_bg_color #c93c45;
+@define-color destructive_fg_color #ffffff;
+@define-color success_color #7fe0b6;
+@define-color success_bg_color #1f8a5f;
+@define-color success_fg_color #ffffff;
+@define-color warning_color #ffd27a;
+@define-color warning_bg_color #a8761a;
+@define-color warning_fg_color #ffffff;
+@define-color error_color #ff8f8f;
+@define-color error_bg_color #c93c45;
+@define-color error_fg_color #ffffff;
+
 window, .background { background-color: #0e1727; color: #eaf2ff; }
 window.csd { border-radius: 12px; border: 1px solid rgba(138, 199, 255, 0.25); }
 headerbar { background: linear-gradient(180deg, #15233a, #0f1a2a); border-bottom: 1px solid rgba(138, 199, 255, 0.22); color: #eaf2ff; }
@@ -25,6 +76,48 @@ headerbar:backdrop { background: #0d1626; border-bottom: 1px solid rgba(255, 255
 .view, textview text { background-color: #0f1a2a; color: #eaf2ff; }
 selection, *:selected { background-color: #8ac7ff; color: #0b1424; }
 button.suggested-action { background-color: #8ac7ff; color: #0b1424; font-weight: 700; border-radius: 8px; }
+
+/* ---- Dopolnitve 1.2: gradniki, ki jih osnova rise s slikami ali pretemno ------------------------------- */
+/* Stikalo: zleb narise prebarvano.css (osnova ima celo stikalo kot sliko), drsnik tukaj. */
+switch slider {
+  min-width: 18px;
+  min-height: 18px;
+  margin: 3px;
+  border-radius: 9px;
+  background-color: #eaf2ff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+switch:checked slider { background-color: #0b1424; }
+row:selected switch slider, infobar switch slider { background-color: #8ac7ff; }
+
+/* Drsniki, napredek, nivo: viden zleb in drsnik (preslikana Mintova sivina je na temno modri podlagi pretemna). */
+scale trough, progressbar trough, levelbar trough {
+  background-color: rgba(215, 234, 255, 0.16);
+  border-color: transparent;
+}
+scale slider {
+  background-image: none;
+  background-color: #eaf2ff;
+  border: 1px solid rgba(11, 20, 36, 0.5);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+scale slider:hover { background-color: #ffffff; }
+scale slider:disabled { background-color: #5d7190; }
+
+/* Okvirji in locila */
+frame > border, .frame, separator { border-color: rgba(215, 234, 255, 0.16); }
+separator { background-color: rgba(215, 234, 255, 0.14); }
+
+/* Namig (tooltip) in obvestilna vrstica */
+tooltip, tooltip.background {
+  background-color: #111c2b;
+  color: #eaf2ff;
+  border: 1px solid rgba(215, 234, 255, 0.24);
+  border-radius: 8px;
+}
+infobar.info, infobar.question { background-color: #132a45; color: #eaf2ff; }
+infobar.warning { background-color: #4a3a12; color: #fff3d6; }
+infobar.error { background-color: #4c1d24; color: #ffe3e6; }
 
 /* Jasno viden fokus s tipkovnico (dostopnost) */
 *:focus-visible {

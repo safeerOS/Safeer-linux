@@ -2,12 +2,19 @@
 # ==============================================================================
 # Safeer Cinnamon - modra polprosojna tema za Linux Mint Cinnamon (paket safeer-cinnamon).
 #
-#   safeer-cinnamon                 vklopi temo, ozadje, pult zgoraj, dock spodaj in delovno povrsino
-#                                   (prejsnje nastavitve si zapomni)
+#   safeer-cinnamon --izberi        okno z izbiro postavitve in ozadja (odpre ga "Safeer Cinnamon" v meniju)
+#   safeer-cinnamon --profil P [--ozadje O]
+#                                   vklopi postavitev P (prejsnje nastavitve si zapomni):
+#                                     videz    tema, ikone in ozadje; pult, okna in ikone na namizju ostanejo, kjer so
+#                                     dock     videz + pult zgoraj in dock spodaj (odprti programi so v docku)
+#                                     delovna  dock + delovna povrsina Safeer OS namesto ikon na namizju
+#                                   ozadje O: ohrani (kot je zdaj) | prejsnje (kot pred Safeer Cinnamon) |
+#                                             aurora | zora | globina | gore
+#   safeer-cinnamon                 vklopi zadnjo izbrano postavitev (prvic: videz)
 #   safeer-cinnamon --izklopi       vrne vse, kot je bilo pred vklopom
-#   safeer-cinnamon --kontrast      neprosojne povrsine in mocnejse obrobe
+#   safeer-cinnamon --kontrast      neprosojne povrsine in mocnejse obrobe (lupina in programi)
 #   safeer-cinnamon --prosojno      nazaj na obicajni (polprosojni) videz
-#   safeer-cinnamon --vecji-tekst   besedilo 125 %   (--obicajen-tekst: nazaj)
+#   safeer-cinnamon --vecji-tekst [125|150]   vecje besedilo   (--obicajen-tekst: nazaj)
 #   safeer-cinnamon --stanje        izpise, kaj je vklopljeno
 #   safeer-cinnamon --seja          ob prijavi: delovna povrsina Safeer OS (safeer-os --delovna)
 #   safeer-cinnamon --nastavitve-docka  odpre nastavitve docka (programe dodas tako, da jih povleces iz menija)
@@ -15,7 +22,7 @@
 #   safeer-cinnamon --od-vklopa-izklopi  vrne prejsnji zagonski in prijavni zaslon
 #
 # Samo uradne nastavitve Cinnamona (gsettings) in Planka (dconf). V ozadju tecejo le dock Plank in
-# Safeer OS (delovna povrsina), ce sta namescena; --izklopi vrne vse. Zagonski in prijavni zaslon sta
+# Safeer OS (delovna povrsina), ce ju postavitev vkljucuje; --izklopi vrne vse. Zagonski in prijavni zaslon sta
 # sistemska (veljata za vse uporabnike), zato ju spremeni samo --od-vklopa s skrbniskim geslom.
 # ==============================================================================
 set -u
@@ -26,17 +33,25 @@ AVTO="${XDG_CONFIG_HOME:-$HOME/.config}/autostart"
 AUTOSTART="$AVTO/safeer-cinnamon-dock.desktop"
 SEJA="$AVTO/safeer-cinnamon.desktop"
 VKLOPLJENO="$MAPA/vklopljeno"
+PROFIL_DAT="$MAPA/profil"
+ZADNJE_OZADJE="$MAPA/zadnje-ozadje"
+SEZNAM_OKEN="$MAPA/seznam-oken.txt"
 # Samozagon Safeer OS (cel zaslon) in seja safeer-os-tema bi se tepla z delovno povrsino: med vklopom ju
 # izklopimo z uporabnikovim preglasitvenim vnosom in ju ob izklopu vrnemo tocno tako, kot sta bila.
 TUJI_ZAGONI="safeer-os.desktop safeer-os-tema.desktop safeer-tema.desktop"
 PLANK_TEME="${XDG_DATA_HOME:-$HOME/.local/share}/plank/themes"
-SKUPNO="/usr/share/safeer-cinnamon"
-OZADJE="/usr/share/backgrounds/safeer/safeer-aurora.jpg"
+# Koren sistema (privzeto /): preizkusi ukaza ga preusmerijo v zacasno mapo.
+KOREN="${SAFEER_CINNAMON_KOREN:-}"
+SKUPNO="$KOREN/usr/share/safeer-cinnamon"
+OZADJA="$KOREN/usr/share/backgrounds/safeer"
 TEMA="Safeer-Cinnamon"
 KONTRAST="Safeer-Cinnamon-Kontrast"
 PLANK_DOCK="/net/launchpad/plank/docks/dock1/"
 POMOCNIK="/usr/lib/safeer-cinnamon/od-vklopa"
+IZBIRA="/usr/lib/safeer-cinnamon/izbira"
 OD_VKLOPA="/var/lib/safeer-cinnamon/od-vklopa.json"
+# Nastavitve appletov Cinnamona (pripeti programi seznama oken ...): Cinnamon jih ob odstranitvi appleta izbrise.
+SPICES="${XDG_CONFIG_HOME:-$HOME/.config}/cinnamon/spices"
 
 # Kljuci, ki jih vklop spremeni in izklop vrne (shema:kljuc).
 KLJUCI="org.cinnamon.desktop.interface:gtk-theme
@@ -46,6 +61,7 @@ org.cinnamon.desktop.wm.preferences:theme
 org.cinnamon.theme:name
 org.cinnamon.desktop.background:picture-uri
 org.cinnamon.desktop.background:picture-options
+org.cinnamon.desktop.background.slideshow:slideshow-enabled
 org.cinnamon:panels-enabled
 org.gnome.desktop.interface:gtk-theme
 org.gnome.desktop.interface:color-scheme"
@@ -65,53 +81,317 @@ zapomni() {
     if command -v dconf >/dev/null 2>&1; then
         dconf dump "$PLANK_DOCK" > "$MAPA/plank-prej.ini" 2>/dev/null || true
     fi
+    # Uporabnik je Plank morda uporabljal ze prej: ob izklopu docka mu ga pustimo teci.
+    if pgrep -x plank >/dev/null 2>&1; then : > "$MAPA/plank-je-tekel"; else rm -f "$MAPA/plank-je-tekel"; fi
 }
 
-# Pult premakni na vrh, ce je bil spodaj (ohrani vse ostale pulte in zaslone).
-pult_zgoraj() {
+# Izvirna vrednost kljuca (pred vklopom).
+vrednost_prej() {
+    [ -s "$PREJ" ] || return 1
     local v
-    v="$(beri org.cinnamon:panels-enabled)" || return 0
-    case "$v" in *":bottom"*) pisi org.cinnamon:panels-enabled "${v//:bottom/:top}" ;; esac
+    v="$(grep -m1 "^$1=" "$PREJ")" || return 1
+    printf '%s\n' "${v#*=}"
 }
 
-# Plank si ob zagonu zapomni velikost zaslona in se na kasnejso spremembo lodljivosti ne odzove
+# Katera postavitev je vklopljena: videz | dock | delovna; prazno = Safeer Cinnamon ni vklopljen.
+profil_trenutni() {
+    [ -f "$VKLOPLJENO" ] || return 0
+    if [ -s "$PROFIL_DAT" ]; then head -n1 "$PROFIL_DAT"; return 0; fi
+    # Vklop pred razlicico 1.2 (brez zapisa): po tem, kaj je bilo takrat vklopljeno.
+    if [ -f "$SEJA" ]; then echo delovna; elif [ -f "$AUTOSTART" ]; then echo dock; else echo videz; fi
+}
+
+# ---------------------------------------------------------------------------- pult in seznam oken
+# Pult premakni na vrh, ce je bil spodaj in zgoraj na istem zaslonu se ni pulta (ostali pulti ostanejo).
+pult_zgoraj() {
+    local v n
+    v="$(beri org.cinnamon:panels-enabled)" || return 0
+    n="$(python3 - "$v" <<'PY'
+import ast, sys
+try:
+    pulti = [str(p) for p in ast.literal_eval(sys.argv[1].replace("@as ", ""))]
+except Exception:
+    sys.exit(1)
+zgoraj = {p.split(":")[1] for p in pulti if p.endswith(":top") and p.count(":") >= 2}
+novi = [p[:-len("bottom")] + "top" if p.endswith(":bottom") and p.count(":") >= 2 and p.split(":")[1] not in zgoraj else p for p in pulti]
+print(repr(novi) if novi != pulti else "")
+PY
+)" || return 0
+    [ -n "$n" ] || return 0
+    [ -e "$MAPA/pult-prej" ] || printf '%s\n' "$v" > "$MAPA/pult-prej"
+    pisi org.cinnamon:panels-enabled "$n"
+}
+
+pult_vrni() {
+    [ -s "$MAPA/pult-prej" ] || { rm -f "$MAPA/pult-prej"; return 0; }
+    pisi org.cinnamon:panels-enabled "$(cat "$MAPA/pult-prej")"
+    rm -f "$MAPA/pult-prej"
+}
+
+# Vklop pred razlicico 1.2 ni zapisal postavitve, pult je vedno preselil na vrh in seznam oken pustil na njem (dva
+# seznama istih oken: pult in dock). Ob prvi prijavi po nadgradnji (ali ob prvi zamenjavi postavitve) zapisemo
+# postavitev in lego pulta izpred vklopa ter seznam oken umaknemo s pulta - kot pri novem vklopu.
+# $1 = "brez-seznama": seznam oken uredi klicatelj (zamenjava postavitve).
+nadgradi_postavitev() {
+    [ -f "$VKLOPLJENO" ] || return 0
+    [ -s "$PROFIL_DAT" ] && return 0
+    local p v
+    p="$(profil_trenutni)"
+    [ -n "$p" ] || return 0
+    printf '%s\n' "$p" > "$PROFIL_DAT"
+    [ "$p" = videz ] && return 0
+    if [ ! -e "$MAPA/pult-prej" ] && v="$(vrednost_prej org.cinnamon:panels-enabled)"; then printf '%s\n' "$v" > "$MAPA/pult-prej"; fi
+    [ "${1:-}" = "brez-seznama" ] && return 0
+    seznam_oken_skrij
+    dock_dodaj_pripete
+    return 0
+}
+
+# Dock kaze pripete in odprte programe, zato seznam oken na pultu postane odvec (dva seznama istih oken). Applet
+# umaknemo s pulta in si zapomnimo njegov vnos in nastavitve (pripeti programi) - seznam_oken_vrni ga vrne.
+seznam_oken() {
+    local v izid
+    v="$(beri org.cinnamon:enabled-applets)" || return 0
+    izid="$(python3 - "$1" "$v" "$SEZNAM_OKEN" "$SPICES" "$MAPA/appleti" "$MAPA/appleti-prej.txt" <<'PY'
+import ast, os, shutil, sys
+kaj, vrednost, zapis, spices, hramba, prej = sys.argv[1:7]
+OKNA = ("grouped-window-list@cinnamon.org", "window-list@cinnamon.org")
+try:
+    appleti = [str(a) for a in ast.literal_eval(vrednost.replace("@as ", ""))]
+except Exception:
+    sys.exit(1)
+
+def deli(a):
+    # "panel1:left:2:uuid:stevilka"; privzeta vrednost pred prvim zagonom Cinnamona je brez stevilke.
+    d = a.split(":")
+    return (d[3], d[4] if len(d) >= 5 else "") if len(d) >= 4 else ("", "")
+
+def je_seznam(a):
+    return deli(a)[0] in OKNA
+
+if kaj == "skrij":
+    okna = [a for a in appleti if je_seznam(a)]
+    if not okna:
+        sys.exit(0)
+    for a in okna:
+        uuid, st = deli(a)
+        vir = os.path.join(spices, uuid, st + ".json")
+        if st and os.path.isfile(vir):
+            os.makedirs(os.path.join(hramba, uuid), exist_ok=True)
+            shutil.copy2(vir, os.path.join(hramba, uuid, st + ".json"))
+    ze = set()
+    if os.path.isfile(zapis):
+        ze = {v.strip() for v in open(zapis, encoding="utf-8") if v.strip()}
+    with open(zapis, "a", encoding="utf-8") as f:
+        f.write("".join(a + "\n" for a in okna if a not in ze))
+    if not os.path.exists(prej):
+        with open(prej, "w", encoding="utf-8") as f:
+            f.write(repr(appleti) + "\n")
+    print(repr([a for a in appleti if a not in okna]))
+else:
+    shranjeni = [v.strip() for v in open(zapis, encoding="utf-8") if v.strip()] if os.path.isfile(zapis) else []
+    # Uporabnik je seznam oken medtem morda dodal sam: ne podvajamo.
+    if not shranjeni or any(je_seznam(a) for a in appleti):
+        sys.exit(0)
+    for a in shranjeni:
+        uuid, st = deli(a)
+        vir, cilj = os.path.join(hramba, uuid, st + ".json"), os.path.join(spices, uuid, st + ".json")
+        if st and os.path.isfile(vir) and not os.path.exists(cilj):
+            os.makedirs(os.path.dirname(cilj), exist_ok=True)
+            shutil.copy2(vir, cilj)
+    # Ce uporabnik appletov medtem ni spreminjal, vrnemo seznam tocno tak, kot je bil; sicer seznam oken dodamo.
+    try:
+        izvirni = [str(a) for a in ast.literal_eval(open(prej, encoding="utf-8").read().strip())]
+    except Exception:
+        izvirni = []
+    if izvirni and [a for a in izvirni if a not in shranjeni] == appleti:
+        print(repr(izvirni))
+    else:
+        print(repr(appleti + [a for a in shranjeni if a not in appleti]))
+PY
+)" || return 0
+    [ -n "$izid" ] && pisi org.cinnamon:enabled-applets "$izid"
+    return 0
+}
+seznam_oken_skrij() { mkdir -p "$MAPA"; seznam_oken skrij; }
+seznam_oken_vrni() { seznam_oken vrni; rm -f "$SEZNAM_OKEN" "$MAPA/appleti-prej.txt" "$MAPA/dock-pripeti-dodani"; rm -rf "$MAPA/appleti"; }
+
+# ---------------------------------------------------------------------------- dock (Plank)
+# Velikost zaslona (logicne tocke): "SIRINA VISINA"; prazno, ce je ne poznamo.
+zaslon() { xrandr --current 2>/dev/null | sed -n 's/.*current \([0-9]*\) x \([0-9]*\).*/\1 \2/p' | head -n1; }
+
+# Velikost ikon docka sledi zaslonu in povecavi besedila (prej vedno 48): 36 na majhnem prenosniku, 44 pri 1080p,
+# 48 pri 1440p, 56 na 4K; z vecjim besedilom sorazmerno vec, najvec 64. $1 = visina zaslona, $2 = povecava (npr. 1.25).
+velikost_ikon() {
+    python3 - "${1:-1080}" "${2:-1.0}" <<'PY'
+import sys
+try:
+    visina, povecava = int(sys.argv[1]), float(sys.argv[2])
+except ValueError:
+    visina, povecava = 1080, 1.0
+osnova = 36 if visina < 800 else 40 if visina < 1000 else 44 if visina < 1300 else 48 if visina < 1700 else 56
+print(max(32, min(64, int(round(osnova * max(1.0, min(povecava, 1.5)) / 4.0)) * 4)))
+PY
+}
+
+# Plank si ob zagonu zapomni velikost zaslona in se na kasnejso spremembo locljivosti ne odzove
 # (na TV je po prijavi 1920x1080 preskocil na 2560x1440: dock je ostal na sredini in rezerviral napacen
-# rob). Zato ga zazenemo sele, ko je velikost zaslona 3 s enaka, in znova ob vsaki spremembi zaslona
-# (to sprozi delovna povrsina Safeer OS).
+# rob). Zato ga ob prijavi zazenemo sele, ko je velikost zaslona 3 s enaka, in znova ob vsaki spremembi zaslona
+# (straza zaslona spodaj; v postavitvi delovna to sprozi Safeer OS). $1 = "takoj": brez cakanja (vklop iz okna).
 dock_zazeni() {
     command -v plank >/dev/null 2>&1 || return 0
     local prej="" zdaj stabilno=0 i
-    for i in $(seq 1 20); do
-        zdaj="$(xrandr --current 2>/dev/null | sed -n 's/.*current \([0-9]* x [0-9]*\).*/\1/p')"
-        if [ -n "$zdaj" ] && [ "$zdaj" = "$prej" ]; then stabilno=$((stabilno + 1)); else stabilno=0; fi
-        prej="$zdaj"
-        [ "$stabilno" -ge 3 ] && break
-        sleep 1
-    done
+    if [ "${1:-}" != "takoj" ]; then
+        for i in $(seq 1 20); do
+            zdaj="$(zaslon)"
+            if [ -n "$zdaj" ] && [ "$zdaj" = "$prej" ]; then stabilno=$((stabilno + 1)); else stabilno=0; fi
+            prej="$zdaj"
+            [ "$stabilno" -ge 3 ] && break
+            sleep 1
+        done
+    fi
+    # Tema docka je kopija v uporabnikovi mapi: po posodobitvi paketa jo osvezimo.
+    if [ -f "$SKUPNO/plank/dock.theme" ] && [ -d "$PLANK_TEME/$TEMA" ]; then
+        cp -f "$SKUPNO/plank/dock.theme" "$PLANK_TEME/$TEMA/dock.theme"
+    fi
+    dock_prilagodi
     pkill -x plank >/dev/null 2>&1 && sleep 0.5
     (setsid plank >/dev/null 2>&1 &)
 }
 
+# Straza zaslona za postavitev dock: ob spremembi velikosti zaslona (druga locljivost, priklop monitorja) dock
+# prilagodimo (velikost ikon, skrivanje) in ga postavimo na novo. En sam majhen proces xev (paket x11-utils, ki ga
+# ima vsak Mint); konca se s sejo ali ob izklopu docka. Brez xev dock ostane, kot je bil ob prijavi.
+STRAZA_PID="$MAPA/dock-straza.pid"
+
+straza_tece() {
+    local p
+    [ -s "$STRAZA_PID" ] || return 1
+    p="$(head -n1 "$STRAZA_PID")"
+    case "$p" in ""|*[!0-9]*) return 1 ;; esac
+    [ "$(cat "/proc/$p/comm" 2>/dev/null)" = "xev" ]
+}
+
+straza_ustavi() {
+    if straza_tece; then kill "$(head -n1 "$STRAZA_PID")" 2>/dev/null || true; fi
+    rm -f "$STRAZA_PID"
+}
+
+dock_straza() {
+    command -v xev >/dev/null 2>&1 || return 0
+    straza_tece && return 0
+    local zadnji zdaj vrstica
+    zadnji="$(zaslon)"
+    exec 3< <(exec xev -root -event randr 2>/dev/null)
+    echo "$!" > "$STRAZA_PID"
+    while IFS= read -r vrstica <&3; do
+        case "$vrstica" in RRScreenChangeNotify*) ;; *) continue ;; esac
+        [ -f "$AUTOSTART" ] || break
+        sleep 2
+        zdaj="$(zaslon)"
+        if [ -z "$zdaj" ] || [ "$zdaj" = "$zadnji" ]; then continue; fi
+        zadnji="$zdaj"
+        dock_zazeni
+    done
+    exec 3<&-
+    return 0
+}
+
+# Velikost ikon in skrivanje docka glede na zaslon. Kar je uporabnik v nastavitvah docka spremenil sam, ostane:
+# prilagodimo samo vrednosti, ki so se take, kot smo jih nazadnje nastavili mi ($MAPA/dock-nastavljeno).
+dock_prilagodi() {
+    command -v dconf >/dev/null 2>&1 || return 0
+    local z visina ikone skrivanje povecava stare_ikone="" staro_skrivanje="" zdaj
+    z="$(zaslon)"; visina="${z#* }"; [ -n "$visina" ] || visina=1080
+    povecava="$(beri org.cinnamon.desktop.interface:text-scaling-factor)" || povecava=1.0
+    ikone="$(velikost_ikon "$visina" "$povecava")"
+    # Na majhnem zaslonu se dock umakne oknu, ki bi ga prekril (sicer vzame desetino visine); na velikem je vedno
+    # viden in si rezervira prostor. Delovna povrsina racuna na rezerviran rob, zato tam ostane viden.
+    if [ "$visina" -lt 900 ] && [ "$(profil_trenutni)" != "delovna" ]; then skrivanje="intelligent"; else skrivanje="none"; fi
+    # Zapis: kaj smo nazadnje nastavili mi. Brez zapisa je dock iz razlicice pred 1.2 - velikost in skrivanje ostaneta
+    # uporabnikova ("uporabnik" se nikoli ne ujema z vrednostjo, zato ju ne spreminjamo vec).
+    [ -e "$MAPA/dock-nastavljeno" ] || printf 'ikone=uporabnik\nskrivanje=uporabnik\n' > "$MAPA/dock-nastavljeno"
+    stare_ikone="$(sed -n 's/^ikone=//p' "$MAPA/dock-nastavljeno")"
+    staro_skrivanje="$(sed -n 's/^skrivanje=//p' "$MAPA/dock-nastavljeno")"
+    zdaj="$(dconf read "${PLANK_DOCK}icon-size" 2>/dev/null)"
+    if [ -z "$stare_ikone" ] || [ "$zdaj" = "$stare_ikone" ]; then dconf write "${PLANK_DOCK}icon-size" "$ikone"; else ikone="uporabnik"; fi
+    zdaj="$(dconf read "${PLANK_DOCK}hide-mode" 2>/dev/null)"
+    if [ -z "$staro_skrivanje" ] || [ "$zdaj" = "'$staro_skrivanje'" ]; then dconf write "${PLANK_DOCK}hide-mode" "'$skrivanje'"; else skrivanje="uporabnik"; fi
+    printf 'ikone=%s\nskrivanje=%s\n' "$ikone" "$skrivanje" > "$MAPA/dock-nastavljeno"
+}
+
 # Zacetni nabor programov v docku (namesto Plankovih nakljucnih privzetih). Le enkrat: kar uporabnik
 # potem doda (povleci iz menija) ali odstrani (povleci ven), ostane njegovo. Izklop vrne prejsnji nabor.
-NABOR_DOCKA="nemo safeer-browser org.x.editor io.github.celluloid_player.Celluloid org.gnome.Terminal mintinstall cinnamon-settings"
+# Najprej programi, ki jih je imel uporabnik pripete na seznamu oken pulta (njegovi priljubljeni), sicer
+# upravljalnik datotek, brskalnik, Safeer OS in terminal. Nastavitve in namestitev programov sta v meniju.
+NABOR_DOCKA="nemo safeer-browser safeer-os org.gnome.Terminal"
 LAUNCHERJI="${XDG_CONFIG_HOME:-$HOME/.config}/plank/dock1/launchers"
 
 najdi_program() {
     local d
-    for d in "${XDG_DATA_HOME:-$HOME/.local/share}/applications" /usr/local/share/applications /usr/share/applications \
-             /var/lib/flatpak/exports/share/applications; do
+    for d in "${XDG_DATA_HOME:-$HOME/.local/share}/applications" "$KOREN/usr/local/share/applications" \
+             "$KOREN/usr/share/applications" "$KOREN/var/lib/flatpak/exports/share/applications"; do
         [ -f "$d/$1.desktop" ] && { printf '%s\n' "$d/$1.desktop"; return 0; }
     done
     return 1
 }
 
+# Programi, pripeti na seznam oken pulta (iz shranjenih nastavitev appleta), brez koncnice .desktop.
+pripeti_s_pulta() {
+    [ -d "$MAPA/appleti" ] || return 0
+    python3 - "$MAPA/appleti" <<'PY'
+import glob, json, os, sys
+videni = []
+for pot in sorted(glob.glob(os.path.join(sys.argv[1], "grouped-window-list@cinnamon.org", "*.json"))):
+    try:
+        v = json.load(open(pot, encoding="utf-8")).get("pinned-apps", {}).get("value") or []
+    except Exception:
+        continue
+    for ime in v:
+        ime = str(ime)
+        if ime.endswith(":flatpak"):                 # Cinnamon tako oznaci programe Flatpak
+            ime = ime[:-len(":flatpak")]
+        if ime.endswith(".desktop") and "/" not in ime and " " not in ime and ime[:-8] not in videni:
+            videni.append(ime[:-8])
+print(" ".join(videni[:24]))
+PY
+}
+
+# Programi, ki jih je imel uporabnik pripete na seznamu oken pulta, gredo z njim v dock, ce jih tam se ni (dock, ki ze
+# obstaja: nadgradnja z 1.1 ali vrnitev v postavitev). Enkrat ob umiku seznama oken - kar uporabnik potem iz docka
+# odstrani, ostane odstranjeno.
+dock_dodaj_pripete() {
+    [ -d "$MAPA/appleti" ] || return 0
+    [ -e "$MAPA/dock-pripeti-dodani" ] && return 0
+    command -v dconf >/dev/null 2>&1 || return 0
+    local ime pot seznam dodano=""
+    mkdir -p "$LAUNCHERJI"
+    for ime in $(pripeti_s_pulta); do
+        pot="$(najdi_program "$ime")" || continue
+        grep -qsF "/$ime.desktop" "$LAUNCHERJI"/*.dockitem && continue          # ze v docku
+        printf '[PlankDockItemPreferences]\nLauncher=file://%s\n' "$pot" > "$LAUNCHERJI/$ime.dockitem"
+        dodano="$dodano${dodano:+, }'$ime.dockitem'"
+    done
+    : > "$MAPA/dock-pripeti-dodani"
+    [ -n "$dodano" ] || return 0
+    seznam="$(dconf read "${PLANK_DOCK}dock-items" 2>/dev/null)"
+    case "$seznam" in
+        "[]"|"@as []"|"") seznam="[$dodano]" ;;
+        "["*"]")          seznam="${seznam%]}, $dodano]" ;;
+        *)                seznam="[$dodano]" ;;
+    esac
+    dconf write "${PLANK_DOCK}dock-items" "$seznam"
+}
+
 nabor_docka() {
     [ -e "$MAPA/dock-nabor" ] && return 0
-    local ime pot seznam=""
+    local ime pot seznam="" nabor
     if [ -d "$LAUNCHERJI" ]; then rm -rf "$MAPA/plank-launcherji-prej"; cp -a "$LAUNCHERJI" "$MAPA/plank-launcherji-prej"; fi
     rm -rf "$LAUNCHERJI"; mkdir -p "$LAUNCHERJI"
-    for ime in $NABOR_DOCKA; do
+    nabor="$(pripeti_s_pulta)"
+    [ -n "$nabor" ] && nabor="$nabor safeer-os" || nabor="$NABOR_DOCKA"
+    for ime in $nabor; do
+        [ -e "$LAUNCHERJI/$ime.dockitem" ] && continue
         pot="$(najdi_program "$ime")" || continue
         printf '[PlankDockItemPreferences]\nLauncher=file://%s\n' "$pot" > "$LAUNCHERJI/$ime.dockitem"
         seznam="$seznam${seznam:+, }'$ime.dockitem'"
@@ -131,25 +411,71 @@ dock() {
     command -v plank >/dev/null 2>&1 || { echo "safeer-cinnamon: Plank ni namescen - dock preskocen (sudo apt install plank)."; return 0; }
     mkdir -p "$PLANK_TEME/$TEMA"
     cp -f "$SKUPNO/plank/dock.theme" "$PLANK_TEME/$TEMA/dock.theme"
-    if command -v dconf >/dev/null 2>&1; then
-        dconf write "${PLANK_DOCK}theme" "'$TEMA'"
-        dconf write "${PLANK_DOCK}position" "'bottom'"
-        dconf write "${PLANK_DOCK}alignment" "'center'"
-        # 'none' = dock je vedno viden in si rezervira prostor: okna ga ne prekrijejo.
-        dconf write "${PLANK_DOCK}hide-mode" "'none'"
-        dconf write "${PLANK_DOCK}icon-size" "48"
-        dconf write "${PLANK_DOCK}zoom-enabled" "false"
-        # Poleg pripetih pokaze tudi odprte (nedavne) programe.
-        dconf write "${PLANK_DOCK}pinned-only" "false"
-    fi
     local novo=""
     [ -e "$MAPA/dock-nabor" ] || novo=1
-    nabor_docka
+    if [ -n "$novo" ] && [ -d "$MAPA/dock-nas" ] && command -v dconf >/dev/null 2>&1; then
+        # Vrnitev v postavitev z dockom: dock tak, kot ga je uporabnik pustil (programi, velikost, lega).
+        if [ -d "$LAUNCHERJI" ]; then rm -rf "$MAPA/plank-launcherji-prej"; cp -a "$LAUNCHERJI" "$MAPA/plank-launcherji-prej"; fi
+        rm -rf "$LAUNCHERJI"; mkdir -p "$(dirname "$LAUNCHERJI")"
+        if [ -d "$MAPA/dock-nas/launchers" ]; then cp -a "$MAPA/dock-nas/launchers" "$LAUNCHERJI"; else mkdir -p "$LAUNCHERJI"; fi
+        dconf reset -f "$PLANK_DOCK" 2>/dev/null || true
+        [ -f "$MAPA/dock-nas/plank.ini" ] && dconf load "$PLANK_DOCK" < "$MAPA/dock-nas/plank.ini" 2>/dev/null
+        [ -f "$MAPA/dock-nas/nastavljeno" ] && cp -f "$MAPA/dock-nas/nastavljeno" "$MAPA/dock-nastavljeno"
+        rm -rf "$MAPA/dock-nas"
+        : > "$MAPA/dock-nabor"
+        # Dock je tak, kot ga je uporabnik pustil: pripetih s pulta mu ne dodajamo znova (kar je odstranil, ostane).
+        : > "$MAPA/dock-pripeti-dodani"
+    else
+        # Privzete nastavitve samo ob prvem vklopu docka: kar uporabnik potem spremeni (lega, velikost), ostane.
+        if [ -n "$novo" ] && command -v dconf >/dev/null 2>&1; then
+            dconf write "${PLANK_DOCK}theme" "'$TEMA'"
+            dconf write "${PLANK_DOCK}position" "'bottom'"
+            dconf write "${PLANK_DOCK}alignment" "'center'"
+            dconf write "${PLANK_DOCK}zoom-enabled" "false"
+            # Poleg pripetih pokaze tudi odprte programe: dock je seznam oken (na pultu ga zato ni).
+            dconf write "${PLANK_DOCK}pinned-only" "false"
+        fi
+        # Nov dock: velikost ikon in skrivanje dolocimo po zaslonu (prazen zapis = se nic nastavljeno).
+        [ -n "$novo" ] && printf 'ikone=\nskrivanje=\n' > "$MAPA/dock-nastavljeno"
+        nabor_docka
+    fi
+    dock_dodaj_pripete
     mkdir -p "$(dirname "$AUTOSTART")"
     printf '[Desktop Entry]\nType=Application\nName=Safeer Cinnamon dock\nExec=safeer-cinnamon --dock\nX-GNOME-Autostart-enabled=true\nNoDisplay=true\n' > "$AUTOSTART"
-    if [ -n "$novo" ] || ! pgrep -x plank >/dev/null 2>&1; then dock_zazeni; fi
+    if [ -n "$novo" ] || ! pgrep -x plank >/dev/null 2>&1; then dock_zazeni takoj; else dock_prilagodi; fi
+    # V postavitvi delovna spremembe zaslona javi Safeer OS, sicer nasa straza.
+    if [ "$(profil_trenutni)" = dock ]; then (setsid "$0" --straza >/dev/null 2>&1 &); else straza_ustavi; fi
 }
 
+# Dock ugasnemo in Planku vrnemo uporabnikove nastavitve. $1 = "koncno": pozabimo tudi shranjeno stanje (izklop).
+dock_izklopi() {
+    local bil=""
+    [ -f "$AUTOSTART" ] && bil=1
+    straza_ustavi
+    if [ -n "$bil" ] && [ "${1:-}" != "koncno" ] && [ -e "$MAPA/dock-nabor" ] && command -v dconf >/dev/null 2>&1; then
+        # Zamenjava postavitve (ne izklop): dock si zapomnimo, da ga uporabnik ob vrnitvi dobi takega, kot ga je pustil.
+        rm -rf "$MAPA/dock-nas"; mkdir -p "$MAPA/dock-nas"
+        [ -d "$LAUNCHERJI" ] && cp -a "$LAUNCHERJI" "$MAPA/dock-nas/launchers"
+        dconf dump "$PLANK_DOCK" > "$MAPA/dock-nas/plank.ini" 2>/dev/null || true
+        [ -f "$MAPA/dock-nastavljeno" ] && cp -f "$MAPA/dock-nastavljeno" "$MAPA/dock-nas/nastavljeno"
+    fi
+    rm -f "$AUTOSTART" "$MAPA/dock-nastavljeno"
+    if [ -n "$bil" ] || [ "${1:-}" = "koncno" ]; then
+        pkill -x plank >/dev/null 2>&1 || true
+        if command -v dconf >/dev/null 2>&1 && [ -f "$MAPA/plank-prej.ini" ]; then
+            dconf reset -f "$PLANK_DOCK" 2>/dev/null || true
+            dconf load "$PLANK_DOCK" < "$MAPA/plank-prej.ini" 2>/dev/null || true
+        fi
+        rm -rf "$PLANK_TEME/$TEMA"
+        nabor_docka_vrni
+        # Kdor je Plank uporabljal ze pred Safeer Cinnamon, ga dobi nazaj s svojimi nastavitvami.
+        if [ -n "$bil" ] && [ -e "$MAPA/plank-je-tekel" ] && command -v plank >/dev/null 2>&1; then (setsid plank >/dev/null 2>&1 &); fi
+    fi
+    if [ "${1:-}" = "koncno" ]; then rm -f "$MAPA/plank-prej.ini" "$MAPA/plank-je-tekel"; rm -rf "$MAPA/dock-nas"; fi
+    return 0
+}
+
+# ---------------------------------------------------------------------------- delovna povrsina (Safeer OS)
 zagoni_izklopi() {
     local ime
     mkdir -p "$AVTO" "$MAPA/zagoni"
@@ -166,6 +492,7 @@ zagoni_vrni() {
         if [ -f "$MAPA/zagoni/$ime" ]; then mv -f "$MAPA/zagoni/$ime" "$AVTO/$ime"
         elif [ -e "$MAPA/zagoni/$ime.ni" ]; then rm -f "$AVTO/$ime" "$MAPA/zagoni/$ime.ni"; fi
     done
+    rmdir "$MAPA/zagoni" 2>/dev/null || true
 }
 
 delovna() {
@@ -174,6 +501,73 @@ delovna() {
     zagoni_izklopi
     printf '[Desktop Entry]\nType=Application\nName=Safeer Cinnamon\nExec=safeer-cinnamon --seja\nX-GNOME-Autostart-enabled=true\nX-GNOME-Autostart-Delay=2\nNoDisplay=true\n' > "$SEJA"
     pgrep -f "safeer_os.py|/safeer-os( |$)" >/dev/null 2>&1 || (setsid safeer-os --delovna >/dev/null 2>&1 &)
+}
+
+delovna_izklopi() {
+    local bila=""
+    [ -f "$SEJA" ] && bila=1
+    rm -f "$SEJA"
+    zagoni_vrni
+    # Delovna povrsina (Safeer OS z --delovna) se konca cisto (SIGTERM -> Safeer OS pospravi za sabo).
+    if [ -n "$bila" ] || [ "${1:-}" = "koncno" ]; then pkill -TERM -f "safeer.*--delovna" >/dev/null 2>&1 || true; fi
+    return 0
+}
+
+# ---------------------------------------------------------------------------- tema, ikone, ozadje
+ozadje_pot() {
+    case "$1" in
+        aurora)  echo "$OZADJA/safeer-aurora.jpg" ;;
+        zora)    echo "$OZADJA/safeer-zora.jpg" ;;
+        globina) echo "$OZADJA/safeer-globina.jpg" ;;
+        gore)    echo "$OZADJA/safeer-gore-3840x2160.png" ;;
+        *)       return 1 ;;
+    esac
+}
+
+nastavi_ozadje() {      # $1 = pot do slike
+    [ -f "$1" ] || return 0
+    # Diaprojekcija ozadij bi sliko takoj zamenjala: med Safeer Cinnamon je izklopljena (izklop jo vrne).
+    pisi org.cinnamon.desktop.background.slideshow:slideshow-enabled "false"
+    pisi org.cinnamon.desktop.background:picture-uri "'file://$1'"
+    pisi org.cinnamon.desktop.background:picture-options "'zoom'"
+}
+
+# $1 = izbira ozadja: ohrani | prejsnje | aurora | zora | globina | gore | "" (samodejno) ; $2 = 1, ce je bil Safeer Cinnamon ze vklopljen
+ozadje() {
+    local pot k v
+    case "$1" in
+        ohrani) return 0 ;;
+        prejsnje)
+            # Ozadje, ki ga je imel uporabnik pred Safeer Cinnamon (tema in postavitev ostaneta).
+            for k in org.cinnamon.desktop.background:picture-uri org.cinnamon.desktop.background:picture-options \
+                     org.cinnamon.desktop.background.slideshow:slideshow-enabled; do
+                v="$(vrednost_prej "$k")" && pisi "$k" "$v"
+            done
+            return 0 ;;
+        "")
+            [ -n "$2" ] && return 0                     # zamenjava postavitve: ozadje ostane, kot je
+            # Ponovni vklop: ozadje, ki ga je uporabnik imel nazadnje s Safeer Cinnamon; prvic Safeer Aurora.
+            if [ -s "$ZADNJE_OZADJE" ]; then
+                pot="$(sed -n "1s#^'file://\(.*\)'\$#\1#p" "$ZADNJE_OZADJE")"
+                [ -n "$pot" ] && [ -f "$pot" ] && { nastavi_ozadje "$pot"; return 0; }
+            fi
+            nastavi_ozadje "$OZADJA/safeer-aurora.jpg" ;;
+        *)  pot="$(ozadje_pot "$1")" && nastavi_ozadje "$pot" ;;
+    esac
+}
+
+tema() {
+    local gtk="$TEMA" lupina="$TEMA"
+    # Kontrast ostane vklopljen tudi ob zamenjavi postavitve.
+    case "$(beri org.cinnamon.theme:name)" in *"$KONTRAST"*) lupina="$KONTRAST"; [ -d "$KOREN/usr/share/themes/$KONTRAST/gtk-3.0" ] && gtk="$KONTRAST" ;; esac
+    pisi org.cinnamon.desktop.interface:gtk-theme "'$gtk'"
+    pisi org.gnome.desktop.interface:gtk-theme "'$gtk'"
+    pisi org.gnome.desktop.interface:color-scheme "'prefer-dark'"
+    pisi org.cinnamon.desktop.wm.preferences:theme "'$TEMA'"
+    pisi org.cinnamon.theme:name "'$lupina'"
+    # Ikone: Papirus (priporocen paket), sicer Mintove modre - mape naj ne ostanejo v barvi prejsnje teme.
+    if [ -d "$KOREN/usr/share/icons/Papirus-Dark" ]; then pisi org.cinnamon.desktop.interface:icon-theme "'Papirus-Dark'"
+    elif [ -d "$KOREN/usr/share/icons/Mint-Y-Blue" ]; then pisi org.cinnamon.desktop.interface:icon-theme "'Mint-Y-Blue'"; fi
 }
 
 # Povratna informacija tudi, ko ukaz tece iz menija (brez terminala).
@@ -204,50 +598,88 @@ od_vklopa() {
     return "$koda"
 }
 
+# ---------------------------------------------------------------------------- vklop, izklop
+# $1 = postavitev (videz | dock | delovna), $2 = ozadje (glej ozadje)
 vklopi() {
-    zapomni
-    : > "$VKLOPLJENO"
-    pisi org.cinnamon.desktop.interface:gtk-theme "'$TEMA'"
-    pisi org.gnome.desktop.interface:gtk-theme "'$TEMA'"
-    pisi org.gnome.desktop.interface:color-scheme "'prefer-dark'"
-    pisi org.cinnamon.desktop.wm.preferences:theme "'$TEMA'"
-    pisi org.cinnamon.theme:name "'$TEMA'"
-    [ -d /usr/share/icons/Papirus-Dark ] && pisi org.cinnamon.desktop.interface:icon-theme "'Papirus-Dark'"
-    if [ -f "$OZADJE" ]; then
-        pisi org.cinnamon.desktop.background:picture-uri "'file://$OZADJE'"
-        pisi org.cinnamon.desktop.background:picture-options "'zoom'"
+    local profil="$1" ze=""
+    # Cesar na tem racunalniku ni, ne vklapljamo na pol: brez docka bi pult zgoraj ostal brez seznama oken.
+    if [ "$profil" = delovna ] && ! command -v safeer-os >/dev/null 2>&1; then
+        echo "safeer-cinnamon: Safeer OS ni namescen - namesto delovne povrsine vklapljam postavitev dock."
+        profil=dock
     fi
-    pult_zgoraj
-    dock
-    delovna
+    if [ "$profil" != videz ] && ! command -v plank >/dev/null 2>&1; then
+        echo "safeer-cinnamon: Plank ni namescen (sudo apt install plank) - vklapljam samo videz, pult ostane, kjer je."
+        profil=videz
+    fi
+    [ -f "$VKLOPLJENO" ] && ze=1
+    zapomni
+    nadgradi_postavitev brez-seznama
+    : > "$VKLOPLJENO"
+    printf '%s\n' "$profil" > "$PROFIL_DAT"
+    tema
+    ozadje "${2:-}" "$ze"
+    case "$profil" in
+        videz)   delovna_izklopi; dock_izklopi; seznam_oken_vrni; pult_vrni ;;
+        dock)    delovna_izklopi; pult_zgoraj; seznam_oken_skrij; dock ;;
+        delovna) pult_zgoraj; seznam_oken_skrij; dock; delovna ;;
+    esac
 }
 
 izklopi() {
+    # Ozadje, ki ga je imel uporabnik s Safeer Cinnamon, si zapomnimo za naslednji vklop.
+    if [ -f "$VKLOPLJENO" ]; then
+        mkdir -p "$MAPA"
+        beri org.cinnamon.desktop.background:picture-uri > "$ZADNJE_OZADJE" 2>/dev/null || rm -f "$ZADNJE_OZADJE"
+    fi
     if [ -s "$PREJ" ]; then
         while IFS= read -r vrstica; do
             [ -n "$vrstica" ] && pisi "${vrstica%%=*}" "${vrstica#*=}"
         done < "$PREJ"
         rm -f "$PREJ"
     fi
-    rm -f "$AUTOSTART" "$SEJA" "$VKLOPLJENO"
-    zagoni_vrni
-    rmdir "$MAPA/zagoni" 2>/dev/null || true
-    # Delovna povrsina (Safeer OS z --delovna) se konca cisto (SIGTERM -> Safeer OS pospravi za sabo).
-    pkill -TERM -f "safeer.*--delovna" >/dev/null 2>&1 || true
-    pkill -x plank >/dev/null 2>&1 || true
-    if command -v dconf >/dev/null 2>&1 && [ -f "$MAPA/plank-prej.ini" ]; then
-        dconf reset -f "$PLANK_DOCK" 2>/dev/null || true
-        dconf load "$PLANK_DOCK" < "$MAPA/plank-prej.ini" 2>/dev/null || true
-        rm -f "$MAPA/plank-prej.ini"
-    fi
-    rm -rf "$PLANK_TEME/$TEMA"
-    nabor_docka_vrni
+    rm -f "$VKLOPLJENO" "$PROFIL_DAT" "$MAPA/pult-prej"
+    delovna_izklopi koncno
+    dock_izklopi koncno
+    seznam_oken_vrni
     # "Vrni prejsnji videz" vrne tudi zagonski in prijavni zaslon, ce ju je uporabnik vklopil.
     # (SAFEER_CINNAMON_BREZ_SISTEMA: preizkusi ukaza se sistemskih nastavitev ne dotikajo.)
     if [ -e "$OD_VKLOPA" ] && [ -z "${SAFEER_CINNAMON_BREZ_SISTEMA:-}" ]; then od_vklopa izklopi || true; fi
 }
 
+kontrast() {      # $1 = da | ne
+    local lupina="$TEMA" gtk="$TEMA"
+    if [ "$1" = da ]; then
+        zapomni
+        lupina="$KONTRAST"
+        # Tudi programi (GTK): neprosojne povrsine in mocnejse obrobe, ne samo lupina.
+        [ -d "$KOREN/usr/share/themes/$KONTRAST/gtk-3.0" ] && gtk="$KONTRAST"
+    fi
+    pisi org.cinnamon.theme:name "'$lupina'"
+    pisi org.cinnamon.desktop.interface:gtk-theme "'$gtk'"
+    pisi org.gnome.desktop.interface:gtk-theme "'$gtk'"
+}
+
+tekst() {      # $1 = povecava (1.25, 1.5) ali "obicajen"
+    local v="$1"
+    if [ "$v" = obicajen ]; then
+        # Nazaj na velikost pred Safeer Cinnamon (uporabnik je morda ze prej imel svojo drobno prilagoditev); ce je
+        # bila ze takrat povecana, pa na 100 % - sicer stikalo "Vecje besedilo" ne bi imelo izklopa. Izklop Safeer
+        # Cinnamon v vsakem primeru vrne velikost izpred vklopa.
+        v="$(vrednost_prej org.cinnamon.desktop.interface:text-scaling-factor)" || v="1.0"
+        case "$v" in 1.[2-9]*|1.1[5-9]*|[2-9]*) v="1.0" ;; esac
+    else
+        zapomni
+    fi
+    pisi org.cinnamon.desktop.interface:text-scaling-factor "$v"
+    # Ikone docka sledijo velikosti besedila.
+    [ -f "$AUTOSTART" ] && pgrep -x plank >/dev/null 2>&1 && dock_prilagodi
+    return 0
+}
+
 stanje() {
+    local p
+    p="$(profil_trenutni)"
+    echo "postavitev:   ${p:-izklopljeno}"
     echo "tema lupine:  $(beri org.cinnamon.theme:name)"
     echo "GTK:          $(beri org.cinnamon.desktop.interface:gtk-theme)"
     echo "tekst:        $(beri org.cinnamon.desktop.interface:text-scaling-factor)"
@@ -259,19 +691,43 @@ stanje() {
     return 0
 }
 
+# Postavitev in ozadje iz argumentov: --profil P [--ozadje O] (v poljubnem vrstnem redu).
+profil_iz_argumentov() {
+    local profil="" ozadje_="" 
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --profil) profil="${2:-}"; shift ;;
+            --ozadje) ozadje_="${2:-}"; shift ;;
+        esac
+        shift
+    done
+    # Samo --ozadje: postavitev ostane (ce Safeer Cinnamon se ni vklopljen: videz).
+    [ -n "$profil" ] || { profil="$(profil_trenutni)"; profil="${profil:-videz}"; }
+    case "$profil" in videz|dock|delovna) ;; *) echo "safeer-cinnamon: postavitev je videz, dock ali delovna (--help)" >&2; return 2 ;; esac
+    case "$ozadje_" in ""|ohrani|prejsnje|aurora|zora|globina|gore) ;; *) echo "safeer-cinnamon: ozadje je ohrani, prejsnje, aurora, zora, globina ali gore (--help)" >&2; return 2 ;; esac
+    vklopi "$profil" "$ozadje_"
+}
+
 case "${1:-}" in
-    ""|--vklopi|--on)        vklopi ;;
+    ""|--vklopi|--on)        p="$(profil_trenutni)"; vklopi "${p:-videz}" "" ;;
+    --profil|--ozadje)       profil_iz_argumentov "$@" || exit $? ;;
+    --izberi)                if [ -x "$IZBIRA" ]; then exec "$IZBIRA"; else p="$(profil_trenutni)"; vklopi "${p:-videz}" ""; fi ;;
     --izklopi|--off)         izklopi ;;
-    --kontrast)              zapomni; pisi org.cinnamon.theme:name "'$KONTRAST'" ;;
-    --prosojno)              pisi org.cinnamon.theme:name "'$TEMA'" ;;
-    --vecji-tekst)           zapomni; pisi org.cinnamon.desktop.interface:text-scaling-factor "1.25" ;;
-    --obicajen-tekst)        pisi org.cinnamon.desktop.interface:text-scaling-factor "1.0" ;;
+    --kontrast)              kontrast da ;;
+    --prosojno)              kontrast ne ;;
+    --vecji-tekst)           case "${2:-125}" in 150) tekst 1.5 ;; *) tekst 1.25 ;; esac ;;
+    --obicajen-tekst)        tekst obicajen ;;
     --stanje|--status)       stanje ;;
     --od-vklopa)             od_vklopa vklopi ;;
     --od-vklopa-izklopi)     od_vklopa izklopi ;;
-    --dock)                  [ -f "$VKLOPLJENO" ] && dock_zazeni ;;
+    --dock)                  if [ -f "$VKLOPLJENO" ] && [ -f "$AUTOSTART" ]; then
+                                 nadgradi_postavitev
+                                 dock_zazeni
+                                 [ "$(profil_trenutni)" = dock ] && dock_straza
+                             fi ;;
+    --straza)                [ -f "$VKLOPLJENO" ] && [ -f "$AUTOSTART" ] && dock_straza ;;
     --nastavitve-docka)      command -v plank >/dev/null 2>&1 && exec plank --preferences ;;
-    --seja)                  [ -f "$VKLOPLJENO" ] && command -v safeer-os >/dev/null 2>&1 && exec safeer-os --delovna ;;
-    -h|--help)               sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' ;;
+    --seja)                  [ -f "$VKLOPLJENO" ] && [ -f "$SEJA" ] && command -v safeer-os >/dev/null 2>&1 && exec safeer-os --delovna ;;
+    -h|--help)               awk 'NR > 2 && /^# ====/ { exit } NR > 2 { sub(/^# ?/, ""); print }' "$0" ;;
     *) echo "safeer-cinnamon: neznana moznost $1 (--help)" >&2; exit 2 ;;
 esac

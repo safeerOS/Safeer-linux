@@ -1,0 +1,78 @@
+/* Safeer Cinnamon - Kontrast (GTK 3): enak videz, a z belim besedilom, mocnejsimi obrobami, brez prosojnih
+   povrsin in z izrazitim fokusom (za slabse vidne, projektorje in svetle prostore).
+   Vklop: safeer-cinnamon --kontrast   (nazaj: safeer-cinnamon --prosojno) */
+@import url("/usr/share/themes/Safeer-Cinnamon/gtk-3.0/gtk.css");
+
+@define-color theme_fg_color #ffffff;
+@define-color theme_text_color #ffffff;
+@define-color fg_color #ffffff;
+@define-color text_color #ffffff;
+@define-color borders #7f93ad;
+@define-color unfocused_borders #5d7190;
+@define-color wm_title #ffffff;
+@define-color wm_border #7f93ad;
+@define-color wm_border_unfocused #5d7190;
+@define-color wm_icon_bg #ffffff;
+
+window, .background, .view, textview text, iconview, treeview.view { color: #ffffff; }
+label:disabled { color: #9fb1c9; }
+
+window.csd { border: 1px solid rgba(215, 234, 255, 0.55); }
+headerbar, .titlebar {
+  background: #111c2b;
+  color: #ffffff;
+  border-bottom: 1px solid rgba(215, 234, 255, 0.55);
+}
+headerbar:backdrop, .titlebar:backdrop { color: #d5e6fa; border-bottom: 1px solid rgba(215, 234, 255, 0.4); }
+
+button {
+  background-color: #16253b;
+  background-image: none;
+  border: 1px solid rgba(215, 234, 255, 0.6);
+  color: #ffffff;
+}
+button:hover { background-color: #1e3250; border-color: #8ac7ff; }
+button:active, button:checked,
+headerbar button:active, headerbar button:checked, .titlebar button:checked, stackswitcher button:checked,
+toolbar button:checked, actionbar button:checked {
+  background-color: #8ac7ff;
+  background-image: none;
+  border-color: #8ac7ff;
+  color: #0b1424;
+}
+button:disabled { background-color: #101a2b; border-color: rgba(215, 234, 255, 0.3); color: #9fb1c9; }
+button.suggested-action { background: #8ac7ff; color: #0b1424; }
+button.destructive-action { color: #ffffff; }
+
+entry, spinbutton {
+  background-color: #0c1524;
+  border: 1px solid rgba(215, 234, 255, 0.6);
+  color: #ffffff;
+}
+entry:focus { border-color: #8ac7ff; box-shadow: 0 0 0 2px #8ac7ff; }
+
+/* Izbrano: temno besedilo na svetlo modri (kontrast 9 : 1), povsod enako. */
+selection, *:selected, .view:selected, .view text:selected, iconview:selected,
+.sidebar row:selected, menuitem:hover, modelbutton:hover {
+  background-color: #8ac7ff;
+  color: #0b1424;
+}
+.sidebar row:selected { border-left: 3px solid #ffffff; }
+
+menu, .menu, popover.background {
+  background-color: #111c2b;
+  border: 1px solid rgba(215, 234, 255, 0.55);
+}
+.sidebar, placessidebar, stacksidebar { border-right: 1px solid rgba(215, 234, 255, 0.45); }
+notebook > header { border-bottom: 1px solid rgba(215, 234, 255, 0.5); }
+notebook > header tab { color: #d5e6fa; }
+notebook > header tab:checked { color: #ffffff; border-top: 3px solid #8ac7ff; }
+
+scrollbar slider { background-color: rgba(215, 234, 255, 0.6); min-width: 8px; min-height: 8px; }
+scale trough, progressbar trough, levelbar trough { background-color: rgba(215, 234, 255, 0.34); }
+frame > border, .frame, separator { border-color: rgba(215, 234, 255, 0.45); }
+separator { background-color: rgba(215, 234, 255, 0.4); }
+tooltip, tooltip.background { background-color: #0b1424; border: 1px solid rgba(215, 234, 255, 0.6); color: #ffffff; }
+
+/* Fokus s tipkovnico: poln bel obroc namesto tanke crtkane crte. */
+* { outline-color: #ffffff; outline-style: solid; outline-width: 2px; outline-offset: -2px; }

@@ -1,0 +1,52 @@
+/* Safeer Cinnamon - Kontrast (GTK 4): enak videz, a z belim besedilom, mocnejsimi obrobami in izrazitim fokusom.
+   Vklop: safeer-cinnamon --kontrast   (nazaj: safeer-cinnamon --prosojno) */
+@import url("/usr/share/themes/Safeer-Cinnamon/gtk-4.0/gtk.css");
+
+@define-color theme_fg_color #ffffff;
+@define-color theme_text_color #ffffff;
+@define-color window_fg_color #ffffff;
+@define-color view_fg_color #ffffff;
+@define-color headerbar_fg_color #ffffff;
+@define-color card_fg_color #ffffff;
+@define-color dialog_fg_color #ffffff;
+@define-color popover_fg_color #ffffff;
+@define-color sidebar_fg_color #ffffff;
+@define-color borders #7f93ad;
+@define-color headerbar_border_color rgba(215, 234, 255, 0.55);
+
+window, .background, .view, textview text { color: #ffffff; }
+label:disabled { color: #9fb1c9; }
+window.csd { border: 1px solid rgba(215, 234, 255, 0.55); }
+headerbar { background: #111c2b; color: #ffffff; border-bottom: 1px solid rgba(215, 234, 255, 0.55); }
+headerbar:backdrop { border-bottom: 1px solid rgba(215, 234, 255, 0.4); }
+
+button {
+  background-color: #16253b;
+  background-image: none;
+  border: 1px solid rgba(215, 234, 255, 0.6);
+  color: #ffffff;
+}
+button:hover { background-color: #1e3250; border-color: #8ac7ff; }
+button:active, button:checked,
+headerbar button:active, headerbar button:checked, stackswitcher button:checked, actionbar button:checked {
+  background-color: #8ac7ff;
+  background-image: none;
+  border-color: #8ac7ff;
+  color: #0b1424;
+}
+button:disabled { background-color: #101a2b; border-color: rgba(215, 234, 255, 0.3); color: #9fb1c9; }
+button.suggested-action { background: #8ac7ff; color: #0b1424; }
+
+entry, spinbutton { background-color: #0c1524; border: 1px solid rgba(215, 234, 255, 0.6); color: #ffffff; }
+selection, *:selected, modelbutton:hover {
+  background-color: #8ac7ff;
+  color: #0b1424;
+}
+popover > contents { background-color: #111c2b; border: 1px solid rgba(215, 234, 255, 0.55); }
+scrollbar slider { background-color: rgba(215, 234, 255, 0.6); min-width: 8px; min-height: 8px; }
+scale trough, progressbar trough, levelbar trough { background-color: rgba(215, 234, 255, 0.34); }
+frame, separator { border-color: rgba(215, 234, 255, 0.45); }
+separator { background-color: rgba(215, 234, 255, 0.4); }
+tooltip, tooltip.background { background-color: #0b1424; border: 1px solid rgba(215, 234, 255, 0.6); color: #ffffff; }
+
+*:focus-visible { outline: 2px solid #ffffff; outline-offset: 1px; }
