@@ -17,6 +17,7 @@ brez zaslona.
 from __future__ import annotations
 
 import json
+import mimetypes
 import os
 import re
 import secrets
@@ -26,7 +27,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from . import media_servers, os_media, zakoniti_viri
+from . import knjiznica_kroga, media_servers, os_media, zakoniti_viri
 
 #: Posnetek YouTube: natanko 11 znakov iz te abecede.
 YOUTUBE_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -237,7 +238,8 @@ class Katalog:
                  predvajaj: Callable[..., bool], vdelano: Callable[[str], bool], youtube: Callable[[str, str], bool],
                  youtube_ukaz: Callable[[str], bool],
                  jezik: Callable[[], str] = lambda: "sl", visina_zaslona: int = 1080,
-                 uskladi_sezname: Optional[Callable[[Callable], bool]] = None) -> None:
+                 uskladi_sezname: Optional[Callable[[Callable], bool]] = None,
+                 knjiznica: Optional[knjiznica_kroga.Knjiznica] = None) -> None:
         self.config_dir = Path(config_dir)
         self.dogodek = dogodek
         self.v_glavni = v_glavni
@@ -250,6 +252,8 @@ class Katalog:
         self.jezik = jezik
         self.visina_zaslona = int(visina_zaslona or 1080)
         self._uskladi_sezname = uskladi_sezname
+        #: Polica »Na tvojih napravah« (core/knjiznica_kroga.py); None = brez Linka (preizkusi).
+        self._knjiznica = knjiznica
         self._mc: Optional[os_media.MediaCenter] = None
         self._zaklep = threading.Lock()
         #: uri, ki ga igra domaci predvajalnik -> vnos kataloga (za napredek in "naslednja ob koncu").
@@ -305,6 +309,8 @@ class Katalog:
         "mediaOdstraniSeznam": "_odstrani_seznam", "mediaDodajNaSeznam": "_dodaj_na_seznam",
         "mediaOdstraniSSeznama": "_odstrani_s_seznama", "mediaSeznamZamenjava": "_seznam_zamenjava",
         "mediaPredvajaj": "_predvajaj_vnos", "mediaYtUkaz": "_yt_ukaz", "mediaStanje": "_stanje",
+        "mediaKnjiznica": "_knjiznica_seznam", "mediaKnjiznicaPredvajaj": "_knjiznica_predvajaj",
+        "mediaKnjiznicaOdstrani": "_knjiznica_odstrani",
     }
 
     @staticmethod
@@ -527,6 +533,42 @@ class Katalog:
             ok = self._v_glavni_pocakaj(lambda: self._vdelano(str(item.get("url") or "")))
             return dict(item, native=True) if ok else dict(item, native=True, napaka_koda="tok")
         return dict(item, napaka_koda="ni_toka")
+
+    # ------------------------------------------------------------------ polica »Na tvojih napravah« (knjiznica kroga)
+    def _knjiznica_seznam(self, _a: list) -> Any:
+        return self._knjiznica.seznam() if self._knjiznica is not None else []
+
+    def _knjiznica_predvajaj(self, a: list) -> Optional[dict]:
+        """Film s police: prenos motorja Safeer OS naravnost iz torrenta; film na drugi napravi pretaka naprava, ki ga
+        hrani - predvajalnik ga bere skozi lokalni pretok (pripeto potrdilo in zeton, core/link_pretok.py)."""
+        if self._knjiznica is None:
+            return None
+        r = self._knjiznica.predvajaj(self._niz(a, 0))
+        if not r.get("ok"):
+            return {"napaka_koda": str(r.get("koda") or "napaka")}
+        if r.get("tukaj"):
+            self.mc.knjiznica_vnos(r["tukaj"])
+            return self._predvajaj_vnos(["knjiznica:" + r["tukaj"]["kljuc"]])
+        from . import link_pretok
+        v, tok = r["vnos"], r["tok"]
+        vir = link_pretok.vir_toka(tok.get("server"), tok.get("path"), mimetypes.guess_type(str(tok.get("name") or ""))[0] or "")
+        if vir is None:
+            return {"napaka_koda": "napaka"}
+        url = link_pretok.pretok().dodaj(vir)
+        ident = str(v.get("ref") or "") or "knjiznica:" + v["kljuc"]
+        naslov = str(v.get("naslov") or "")
+        self._yt = None
+        print("[SafeerMedia] pot=knjiznica vrsta=%s" % (v.get("vrsta") or ""), flush=True)
+        zacetek = self.napredek_za(ident)
+        if not self._v_glavni_pocakaj(lambda: self._predvajaj(url, "video", naslov, zacetek, (), True)):
+            return {"napaka_koda": "tok"}
+        if len(self._predvajano) > 50:
+            self._predvajano.clear()
+        self._predvajano[url] = {"id": ident, "zvok": False, "vrsta": "video"}
+        return {"id": ident, "naslov": naslov, "native": True, "zvok": False}
+
+    def _knjiznica_odstrani(self, a: list) -> bool:
+        return bool(self._knjiznica is not None and self._knjiznica.odstrani(self._niz(a, 0)))
 
     def _v_glavni_pocakaj(self, delo: Callable[[], Any], cas: float = 12.0) -> Any:
         """Delo, ki potrebuje okno (Gtk), izvede v glavni niti in pocaka na izid."""

@@ -241,12 +241,107 @@ class MostKatalogaTests(unittest.TestCase):
         self.k.shrani_napredek("https://neznano.test/x.mp4", 100, 600)  # ni iz kataloga: nic
 
 
+class _LaznaKnjiznica:
+    """Namesto core/knjiznica_kroga.Knjiznica: vrne, kar bi vrnil Link."""
+
+    def __init__(self):
+        self.odgovor, self.odstranjeni = {"ok": False, "koda": "ni_prenosa"}, []
+
+    def seznam(self):
+        return [{"kljuc": "a" * 40, "naslov": "Film"}]
+
+    def predvajaj(self, kljuc):
+        return self.odgovor
+
+    def odstrani(self, kljuc):
+        self.odstranjeni.append(kljuc)
+        return True
+
+
+class PolicaTests(unittest.TestCase):
+    """Polica »Na tvojih napravah«: most do knjiznice kroga (seznam, predvajanje, odstranitev)."""
+
+    STREZNIK = {"base_url": "https://192.168.0.9:8443/", "fp": "AA", "token": "zeton"}
+
+    def setUp(self):
+        self.mapa = tempfile.TemporaryDirectory()
+        self.addCleanup(self.mapa.cleanup)
+        self.predvajano, self.knj = [], _LaznaKnjiznica()
+        self.k = K.Katalog(self.mapa.name, dogodek=lambda v, p: None, v_glavni=lambda delo: delo(),
+                           predvajaj=lambda *a: self.predvajano.append(a) or True, vdelano=lambda u: True,
+                           youtube=lambda u, n: True, youtube_ukaz=lambda u: True, knjiznica=self.knj)
+
+    def test_brez_linka_je_polica_prazna(self):
+        k = K.Katalog(self.mapa.name, dogodek=lambda v, p: None, v_glavni=lambda delo: delo(), predvajaj=lambda *a: True,
+                      vdelano=lambda u: True, youtube=lambda u, n: True, youtube_ukaz=lambda u: True)
+        self.assertEqual(k.izvedi("mediaKnjiznica", []), [])
+        self.assertIsNone(k.izvedi("mediaKnjiznicaPredvajaj", ["a" * 40]))
+        self.assertFalse(k.izvedi("mediaKnjiznicaOdstrani", ["a" * 40]))
+
+    def test_seznam_in_odstranitev_gresta_v_knjiznico(self):
+        self.assertEqual(self.k.izvedi("mediaKnjiznica", [])[0]["naslov"], "Film")
+        self.assertTrue(self.k.izvedi("mediaKnjiznicaOdstrani", ["a" * 40]))
+        self.assertEqual(self.knj.odstranjeni, ["a" * 40])
+
+    def test_film_z_druge_naprave_gre_skozi_lokalni_pretok_in_se_nadaljuje(self):
+        self.knj.odgovor = {"ok": True, "vnos": {"kljuc": "a" * 40, "naslov": "Film", "vrsta": "film", "ref": "stremio:s1:movie:tt1"},
+                            "tok": {"server": self.STREZNIK, "path": "/magnet/abcdef0123456789", "name": "Film.mkv"}}
+        r = self.k.izvedi("mediaKnjiznicaPredvajaj", ["a" * 40])
+        self.assertEqual((r["native"], r["id"], r["naslov"]), (True, "stremio:s1:movie:tt1", "Film"))
+        uri, vrsta, ime, zacetek, podnapisi, prikazi = self.predvajano[0]
+        self.assertRegex(uri, r"^http://127\.0\.0\.1:\d+/")       # predvajalnik bere lokalni naslov, ne naprave z zetonom
+        self.assertNotIn("zeton", uri)
+        self.assertEqual((vrsta, ime, zacetek, prikazi), ("video", "Film", 0, True))
+        self.k.shrani_napredek(uri, 300, 6000)
+        self.k.izvedi("mediaKnjiznicaPredvajaj", ["a" * 40])
+        self.assertEqual(self.predvajano[-1][3], 300)             # nadaljuje pod oznako izvirnega naslova
+        self.assertEqual(self.k.napredek_za("stremio:s1:movie:tt1"), 300)
+
+    def test_tok_ki_ni_tok_torrenta_se_ne_predvaja(self):
+        for streznik, pot in ((self.STREZNIK, "/d/disk:%2Fetc%2Fpasswd"), (dict(self.STREZNIK, base_url="https://8.8.8.8"), "/magnet/abcdef0123456789")):
+            self.knj.odgovor = {"ok": True, "vnos": {"kljuc": "a" * 40, "naslov": "Film", "vrsta": "film"}, "tok": {"server": streznik, "path": pot}}
+            self.assertEqual(self.k.izvedi("mediaKnjiznicaPredvajaj", ["a" * 40]), {"napaka_koda": "napaka"})
+        self.assertEqual(self.predvajano, [])
+
+    def test_napaka_naprave_je_kratka_koda(self):
+        self.knj.odgovor = {"ok": False, "koda": "ni_prostora"}
+        self.assertEqual(self.k.izvedi("mediaKnjiznicaPredvajaj", ["a" * 40]), {"napaka_koda": "ni_prostora"})
+
+    def test_prenos_tega_racunalnika_gre_naravnost_iz_torrenta(self):
+        class Mc:
+            def __init__(self):
+                self.vnosi = {}
+
+            def knjiznica_vnos(self, v):
+                self.vnosi["knjiznica:" + v["kljuc"]] = {"id": v.get("ref") or "knjiznica:" + v["kljuc"], "naslov": v["naslov"], "vrsta": "film",
+                                                         "url": "http://127.0.0.1:5555/t/x/Film.mkv"}
+
+            def resolve(self, ident):
+                return self.vnosi.get(ident)
+        self.k._mc = Mc()
+        self.knj.odgovor = {"ok": True, "tukaj": {"kljuc": "b" * 40, "naslov": "Moj film", "vrsta": "film", "ref": "r1"}}
+        r = self.k.izvedi("mediaKnjiznicaPredvajaj", ["b" * 40])
+        self.assertEqual((r["native"], r["id"]), (True, "r1"))
+        self.assertEqual(self.predvajano[0][:3], ("http://127.0.0.1:5555/t/x/Film.mkv", "video", "Moj film"))
+
+    def test_stran_ima_besedila_police_v_vseh_jezikih(self):
+        with open(os.path.join(KOREN, "assets", "os", "besedila.js"), encoding="utf-8") as f:
+            besedila = f.read()
+        with open(os.path.join(KOREN, "assets", "os", "os.js"), encoding="utf-8") as f:
+            kljuci = set(re.findall(r'\bt\("(knjiznica[A-Za-z0-9_]+)"', f.read()))
+        self.assertGreaterEqual(len(kljuci), 8)
+        for jezik in ("sl", "en", "de", "es", "fr", "it"):
+            bloki = "\n".join(re.findall(r"Object\.assign\(BESEDILA_OS\.%s, \{(.*?)\}\);" % jezik, besedila, re.S))
+            for kljuc in kljuci:
+                self.assertIn('"%s":' % kljuc, bloki, "%s manjka v %s" % (kljuc, jezik))
+
+
 class TovorTests(unittest.TestCase):
     def test_katalog_je_v_paketu(self):
         with open(os.path.join(KOREN, "packaging", "install_os_payload.sh"), encoding="utf-8") as f:
             tovor = f.read()
-        for modul in ("os_katalog", "os_media", "media_servers", "tok_izbira", "watch_providers", "zakoniti_viri",
-                      "uvoz_seznama", "seznami_sink"):
+        for modul in ("os_katalog", "os_media", "knjiznica_kroga", "media_servers", "tok_izbira", "watch_providers", "zakoniti_viri",
+                      "uvoz_seznama", "seznami_sink", "link_pretok"):
             self.assertRegex(tovor, r"\b%s\b" % modul)
         self.assertTrue(os.path.exists(os.path.join(KOREN, "assets", "os", "katalog.css")))
 
