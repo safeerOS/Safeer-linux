@@ -36,6 +36,7 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.4.28" date="2026-10-03"><description><p>Media Center: the same catalogue as on your other devices - films, series, music, radio and live TV with genres and search, Stremio add-ons and media servers, playlists from YouTube and Spotify. Playlists stay the same on all devices in your Safeer Link.</p></description></release>
     <release version="0.4.27" date="2026-10-02"><description><p>Web start page: remove any shortcut (built-in ones too) and restore the defaults; update offered from the Safeer Control tray menu.</p></description></release>
     <release version="0.4.25" date="2026-10-02"><description><p>Updates: Safeer Control offers the update from its tray menu too; the home banner jumps straight to the Updates button; an AppImage is replaced in place.</p></description></release>
     <release version="0.4.24" date="2026-10-02"><description><p>Updates: the Settings section also tells what is new in the offered version.</p></description></release>
