@@ -178,7 +178,7 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
             if d == "magnet.list":
                 def seznam() -> None:
                     try:
-                        podatki = datoteke.prenosi_za_naprave()
+                        podatki = datoteke.prenosi_za_naprave(id_naprave=posiljatelj)
                         koncaj(izid(True, f"{len(podatki['items'])} prenosov", podatki))
                     except Exception:  # noqa: BLE001
                         koncaj(izid(True, "Ni prenosov", {"items": []}))
@@ -218,7 +218,8 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
                     koncaj(izid(False, "Racunalnik ta trenutek ne more pomagati", koda=str(stanje_pomoci["razlog"])))
                     return
                 try:
-                    podatki = datoteke.tok_torrenta(uri, posiljatelj, hub_url, f)
+                    podatki = datoteke.tok_torrenta(uri, posiljatelj, hub_url, f,
+                                                    opis_naprave=link_datoteke.opis_iz_parametrov(parametri))
                     os_stabilnost.zapisi("safeer-control", f"magnet.stream za {posiljatelj}: pretakam {podatki['name']}")
                     koncaj(izid(True, "Racunalnik pretaka: " + podatki["name"], podatki))
                 except Exception as e:  # noqa: BLE001 - napravi povemo kratko kodo
