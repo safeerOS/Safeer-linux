@@ -53,6 +53,18 @@
       niUspelo: "Ni uspelo.", strani: "{a}–{b} od {n}", nazaj: "‹", naprej: "›",
       kVse: "Vse", kPisarna: "Pisarna", kUstvarjanje: "Ustvarjanje", kMediji: "Mediji", kSplet: "Splet", kIgre: "Igre",
       kDrugo: "Drugo", kPriljubljeni: "★ Priljubljeni",
+      oblak: "Oblak", oblakOpis: "Igre tečejo na strežnikih ponudnika {ponudnik}; potrebuješ njihov račun.",
+      oblakNamesti: "Namesti (uradni paket {ponudnik})", oblakVec: "Več o storitvi",
+      oblakNamescam: "Nameščam {ime} iz uradnega vira {ponudnik}. To lahko traja nekaj minut …",
+      oblakNamesceno: "{ime} je nameščen. Najdeš ga med Igrami.", oblakZeNamescam: "Namestitev že teče.",
+      oblakNapaka_vir: "Uradnega vira ni bilo mogoče dodati. Preveri povezavo z internetom.",
+      oblakNapaka_namestitev: "Namestitev ni uspela. Poskusi znova.", oblakNapaka_prostor: "Na disku ni dovolj prostora za namestitev.",
+      oblakNapaka_ni_zdruzljivo: "Ta računalnik ne izpolnjuje zahtev.",
+      oblakZdruzljivo: "Ta računalnik izpolnjuje zahteve.", oblakPoskusi: "Lahko poskusiš: {razlog}", oblakNe: "Ne bo delovalo: {razlog}",
+      oblakRazlog_osnova: "{sistem} ni na uradnem seznamu, a ima isto osnovo kot podprti {osnova}",
+      oblakRazlog_sistem: "{sistem} ni na uradnem seznamu ponudnika", oblakRazlog_ram: "premalo pomnilnika (potrebno {potrebno} GB)",
+      oblakRazlog_jedra: "premalo procesorskih jeder (potrebni {potrebno})", oblakRazlog_arhitektura: "potreben je 64-bitni procesor x86",
+      oblakRazlog_flatpak: "Flatpak ni nameščen",
       kopiraj: "Kopiraj", izrezi: "Izreži", prilepi: "Prilepi", prilepiV: "Prilepi v to mapo", lastnosti: "Lastnosti",
       kopirano: "Kopirano: {ime}. Prilepiš z desnim klikom ali Ctrl+V.", izrezano: "Izrezano: {ime}. Prilepiš z desnim klikom ali Ctrl+V.",
       kopiram: "Kopiram …", premikam: "Premikam …", prilepljeno: "Kopirano sem: {ime}", premaknjeno: "Premaknjeno sem: {ime}",
@@ -154,6 +166,18 @@
       niUspelo: "That didn't work.", strani: "{a}–{b} of {n}", nazaj: "‹", naprej: "›",
       kVse: "All", kPisarna: "Office", kUstvarjanje: "Creative", kMediji: "Media", kSplet: "Web", kIgre: "Games",
       kDrugo: "Other", kPriljubljeni: "★ Favourites",
+      oblak: "Cloud", oblakOpis: "Games run on {ponudnik} servers; you need an account with them.",
+      oblakNamesti: "Install (official {ponudnik} package)", oblakVec: "About the service",
+      oblakNamescam: "Installing {ime} from the official {ponudnik} source. This can take a few minutes…",
+      oblakNamesceno: "{ime} is installed. You will find it under Games.", oblakZeNamescam: "The installation is already running.",
+      oblakNapaka_vir: "The official source could not be added. Check your internet connection.",
+      oblakNapaka_namestitev: "The installation failed. Try again.", oblakNapaka_prostor: "Not enough disk space to install.",
+      oblakNapaka_ni_zdruzljivo: "This computer does not meet the requirements.",
+      oblakZdruzljivo: "This computer meets the requirements.", oblakPoskusi: "Worth a try: {razlog}", oblakNe: "Will not work: {razlog}",
+      oblakRazlog_osnova: "{sistem} is not on the official list, but shares its base with the supported {osnova}",
+      oblakRazlog_sistem: "{sistem} is not on the provider's official list", oblakRazlog_ram: "not enough memory ({potrebno} GB needed)",
+      oblakRazlog_jedra: "not enough processor cores ({potrebno} needed)", oblakRazlog_arhitektura: "a 64-bit x86 processor is needed",
+      oblakRazlog_flatpak: "Flatpak is not installed",
       kopiraj: "Copy", izrezi: "Cut", prilepi: "Paste", prilepiV: "Paste into this folder", lastnosti: "Properties",
       kopirano: "Copied: {ime}. Paste with right-click or Ctrl+V.", izrezano: "Cut: {ime}. Paste with right-click or Ctrl+V.",
       kopiram: "Copying…", premikam: "Moving…", prilepljeno: "Copied here: {ime}", premaknjeno: "Moved here: {ime}",
@@ -1225,8 +1249,9 @@
   // ------------------------------------------------------------------ PROGRAMI NAPRAV
   // lokalni: programi tega racunalnika (most "programi"); oddaljeni: programi naprav v Linku. rocno: uporabnik je
   // zavihek izbral sam, zato ga ne preklapljamo vec na Priljubljene.
-  var P = { naprave: [], programi: [], lokalni: [], oddaljeni: [], nedosegljive: [], kategorija: "vse", stran: 0,
-            brezControla: false, nalozeno: false, rocno: false };
+  // oblak: ponudniki iger v oblaku (most "igreOblak"); nenamesceni so med Igrami kot ploscica z gumbom Namesti.
+  var P = { naprave: [], programi: [], lokalni: [], oddaljeni: [], oblak: [], nedosegljive: [], kategorija: "vse", stran: 0,
+            brezControla: false, nalozeno: false, rocno: false, namescam: false };
   var KATEGORIJE = ["priljubljeni", "vse", "pisarna", "ustvarjanje", "mediji", "splet", "igre", "drugo"];
   var IMENA_KATEGORIJ = { vse: "kVse", priljubljeni: "kPriljubljeni", pisarna: "kPisarna", ustvarjanje: "kUstvarjanje",
                           mediji: "kMediji", splet: "kSplet", igre: "kIgre", drugo: "kDrugo" };
@@ -1237,6 +1262,8 @@
   function kategorijaPrograma(p) { return N.kategorije[kljucPrograma(p)] || IZ_SKUPINE[p.skupina] || "drugo"; }
 
   function jePriljubljen(p) { return N.priljubljeniPrg.indexOf(kljucPrograma(p)) >= 0; }
+  // Kje program tece: Ta racunalnik, ime naprave ali Oblak · ponudnik.
+  function oznakaOblaka(ponudnik) { return "☁ " + t("oblak") + " · " + ponudnik; }
   // Programi tega racunalnika so v istem seznamu kot programi naprav: uporabnik isce na enem mestu in si
   // priljubljene izbere ne glede na to, kje program tece.
   function sestaviPrograme() {
@@ -1246,6 +1273,12 @@
       if (!s || !s.url) return;
       vsi.push({ id: "splet:" + i, ime: s.ime || s.url, naprava: "splet", imeNaprave: t("spletnaAplikacija"), skupina: "splet",
                  ikona: s.ikona && /^(data:image\/|https:)/.test(s.ikona) ? s.ikona : "", url: s.url });
+    });
+    // Igre v oblaku, ki se niso namescene: ploscica pove, kje bi igra tekla, in ponudi namestitev iz uradnega vira.
+    P.oblak.forEach(function (o) {
+      if (!o || !o.id || o.namescen) return;
+      vsi.push({ id: "oblak:" + o.id, ime: o.ime, naprava: "oblak", imeNaprave: oznakaOblaka(o.ponudnik), skupina: "igre",
+                 ikona: "", ponudnikOblaka: o });
     });
     P.programi = vsi;
     // Kdor ima priljubljene, jih vidi najprej (dokler zavihka ne izbere sam).
@@ -1258,10 +1291,12 @@
     klic("programi").then(function (s) {
       P.lokalni = (Array.isArray(s) ? s : []).filter(function (p) { return p && p.id; }).map(function (p) {
         return { id: String(p.id), ime: String(p.ime || p.id), opis: String(p.opis || p.splosno || ""), skupina: p.skupina || "drugo",
-                 ikona: p.ikona || "", naprava: "ta", imeNaprave: t("taRacunalnik"), platforma: "linux", lokalni: true };
+                 ikona: p.ikona || "", naprava: "ta", imeNaprave: p.oblak ? oznakaOblaka(String(p.oblak)) : t("taRacunalnik"),
+                 platforma: "linux", lokalni: true };
       });
       sestaviPrograme();
     }).catch(function () { /* brez seznama: ostanejo programi naprav */ });
+    klic("igreOblak").then(function (s) { P.oblak = Array.isArray(s) ? s : []; sestaviPrograme(); }).catch(function () {});
     klic("napraveSProgrami").then(function (naprave) {
       P.naprave = Array.isArray(naprave) ? naprave.filter(function (n) { return n && n.id; }) : [];
       P.brezControla = false;
@@ -1367,7 +1402,7 @@
     ostraniStrani($("prgStrani"), od, do_, seznam.length, strani, P.stran, function (s) { P.stran = s; izrisiPrograme(); });
   }
   function ploscicaPrograma(p) {
-    var b = el("button", "program"); b.type = "button"; b.setAttribute("role", "listitem");
+    var b = el("button", "program" + (p.ponudnikOblaka ? " ponudba" : "")); b.type = "button"; b.setAttribute("role", "listitem");
     // Brez ikone z naprave: crka v barvi kot v Safeer OS (ne izmisljamo logotipa programa).
     b.appendChild(slikaAliCrka(p.ikona, p.ime));
     b.appendChild(el("span", "ime", p.ime));
@@ -1381,10 +1416,36 @@
     b.addEventListener("click", function (e) {
       if (p.lokalni) { zazeniLokalni(p); return; }
       if (p.naprava === "splet") { klic("splet", [p.url]); return; }
-      var r = b.getBoundingClientRect(); meniPrograma(p, r.left + 12, r.bottom - 6, e);
+      var r = b.getBoundingClientRect();
+      if (p.ponudnikOblaka) { meniOblaka(p, r.left + 12, r.bottom - 6); return; }
+      meniPrograma(p, r.left + 12, r.bottom - 6, e);
     });
-    b.addEventListener("contextmenu", function (e) { e.preventDefault(); meniPrograma(p, e.clientX, e.clientY, e); });
+    b.addEventListener("contextmenu", function (e) { e.preventDefault(); if (p.ponudnikOblaka) meniOblaka(p, e.clientX, e.clientY); else meniPrograma(p, e.clientX, e.clientY, e); });
     return b;
+  }
+  // Igra v oblaku, ki se ni namescena: kaj je, ali bo delovala, in namestitev iz ponudnikovega uradnega vira (samo na klik).
+  function razlogOblaka(z) {
+    var r = (z && z.razlogi && z.razlogi[0]) || null;
+    return r && BESEDILA[jezik]["oblakRazlog_" + r.koda] ? t("oblakRazlog_" + r.koda, r) : "";
+  }
+  function meniOblaka(p, x, y) {
+    var o = p.ponudnikOblaka, z = o.zdruzljivost || {}, m = [];
+    m.push([t("oblakOpis", { ponudnik: o.ponudnik }), null, true]);
+    m.push([z.stanje === "zdruzljivo" ? t("oblakZdruzljivo") : t(z.stanje === "ne" ? "oblakNe" : "oblakPoskusi", { razlog: razlogOblaka(z) }), null, true]);
+    m.push(["—"]);
+    m.push([t("oblakNamesti", { ponudnik: o.ponudnik }), function () { namestiOblak(o); }, z.stanje === "ne"]);
+    m.push([t("oblakVec"), function () { klic("splet", [o.stran]); }]);
+    pokaziMeni(m, x, y);
+  }
+  function namestiOblak(o) {
+    if (P.namescam) { obvesti(t("oblakZeNamescam")); return; }
+    P.namescam = true;
+    obvesti(t("oblakNamescam", { ime: o.ime, ponudnik: o.ponudnik }));
+    klic("igreOblakNamesti", [o.id]).then(function (r) {
+      P.namescam = false;
+      if (r && r.ok) { obvesti(t("oblakNamesceno", { ime: o.ime })); P.kategorija = "igre"; P.rocno = true; naloziProgrameNaprav(); }
+      else obvesti(BESEDILA[jezik]["oblakNapaka_" + (r && r.napaka)] ? t("oblakNapaka_" + r.napaka) : t("niUspelo"));
+    }).catch(function () { P.namescam = false; obvesti(t("niUspelo")); });
   }
   function meniPrograma(p, x, y) {
     var m = [];

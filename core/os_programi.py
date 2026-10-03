@@ -20,7 +20,7 @@ import subprocess
 import time
 from typing import Dict, List, Optional
 
-from core import link_programi
+from core import link_programi, os_oblak_igre
 
 NAJVEC = 400
 IKONA_VELIKOST = 96
@@ -191,9 +191,11 @@ class Programi:
         izhod = []
         for oznaka, v in sorted(vnosi.items(), key=lambda p: p[1]["ime"].lower()):
             u = uporaba.get(oznaka) or {}
+            # Igre v oblaku (core/os_oblak_igre.py): program tece na ponudnikovih streznikih - to mora biti vidno.
+            oblak = (os_oblak_igre.oblak_za(oznaka) or {}).get("ponudnik", "")
             izhod.append({
                 "id": oznaka, "ime": v["ime"], "opis": v["opis"], "splosno": v["splosno"],
-                "skupina": v["skupina"], "kljucne": v["kljucne"],
+                "skupina": "igre" if oblak else v["skupina"], "kljucne": v["kljucne"], "oblak": oblak,
                 "medij": bool(v.get("medij")), "zvok": bool(v.get("zvok")),
                 "ikona": ikone(v["ikona"]) if ikone else "",
                 "uporaba": int(u.get("n", 0) or 0), "zadnjic": float(u.get("t", 0) or 0),

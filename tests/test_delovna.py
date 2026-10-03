@@ -59,7 +59,7 @@ class TestDelovnaStran(unittest.TestCase):
         # bil prazen (zato ga uporabnik ni nasel), in »V brskalniku« je bil nastet med napravami.
         js = self.js
         self.assertIn('klic("programi")', js)
-        self.assertIn('naprava: "ta", imeNaprave: t("taRacunalnik")', js)
+        self.assertIn('naprava: "ta", imeNaprave: p.oblak ? oznakaOblaka(String(p.oblak)) : t("taRacunalnik")', js)
         self.assertIn('ta.value = "ta"', js, "Ta racunalnik mora biti v izbiri naprav")
         self.assertNotIn('w.value = "splet"', js, "spletne bliznjice niso naprava")
         self.assertNotIn('k === "priljubljeni" && !N.priljubljeniPrg.length) return;', js,
@@ -73,6 +73,19 @@ class TestDelovnaStran(unittest.TestCase):
         self.assertIn("if (p.lokalni) { zazeniLokalni(p); return; }", js)
         self.assertIn("return !p.lokalni && (p.ime", js)
         self.assertIn(".program .zvezda.je", beri("assets", "os", "delovna.css"))
+
+    def test_igre_v_oblaku_so_ponudba_ne_namestitev(self):
+        # Ponudnik iger v oblaku je med Igrami kot ploscica; namesti se samo na uporabnikov klik v meniju ploscice.
+        js = self.js
+        self.assertIn('klic("igreOblak")', js)
+        self.assertEqual(js.count('klic("igreOblakNamesti"'), 1)
+        self.assertIn("function namestiOblak(o)", js)
+        namesti = js[js.index("function namestiOblak(o)"):js.index("function meniPrograma(p, x, y)")]
+        self.assertIn('klic("igreOblakNamesti", [o.id])', namesti)
+        # Namestitev sprozi samo postavka menija - ne nalaganje strani in ne klik na ploscico.
+        self.assertEqual(js.count("namestiOblak(o)"), 2, "definicija in ena sama postavka menija")
+        self.assertIn('if (p.ponudnikOblaka) { meniOblaka(p, r.left + 12, r.bottom - 6); return; }', js)
+        self.assertIn("function oznakaOblaka(ponudnik)", js)
 
     def test_most_nima_podvojenih_metod(self):
         # V slovarju metod mostu je bil "splet" zapisan dvakrat (zadnji tiho prepise prvega). Ista metoda na dveh

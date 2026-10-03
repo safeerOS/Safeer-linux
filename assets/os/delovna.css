@@ -221,6 +221,9 @@ select option { background: #111c2b; color: var(--besedilo); }
 .program:hover .zvezda, .program:focus-visible .zvezda { opacity: 1; }
 .program .zvezda:hover { color: #ffd98a; background: rgba(255, 217, 138, .14); }
 .program .zvezda.je { color: #ffd98a; opacity: 1; }
+/* Igra v oblaku, ki se ni namescena: crtkan rob pove, da je to ponudba, ne namescen program. */
+.program.ponudba { border-style: dashed; }
+.program.ponudba .zvezda { display: none; }
 .prg-mreza .prazno { grid-column: 1 / -1; align-self: center; margin: 0; padding: 1em; text-align: center; color: #b7c9df; font-size: .85em; line-height: 1.5; }
 .seznam-pogled .program { flex-direction: row; justify-content: flex-start; gap: .7em; padding: .25em .7em; text-align: left; }
 .seznam-pogled .program img, .seznam-pogled .program .crka { width: 1.8em; height: 1.8em; }
