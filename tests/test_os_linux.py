@@ -325,8 +325,12 @@ class Stran(unittest.TestCase):
         for oznaka in set(re.findall(r'\$\("([\w]+)"\)', js)):
             self.assertIn('id="%s"' % oznaka, html, oznaka)
         besedila = _beri("assets", "os", "besedila.js")
-        bloki = re.split(r"\n  (sl|en|de|es|fr|it): \{", besedila)[1:]
+        glavni, _, dodatki = besedila.partition("\n};")
+        bloki = re.split(r"\n  (sl|en|de|es|fr|it): \{", glavni)[1:]
         jeziki = dict(zip(bloki[0::2], bloki[1::2]))
+        # Besedila, dodana za glavnim slovarjem (Object.assign po jezikih), veljajo enako: vsak kljuc v vseh jezikih.
+        for j, blok in re.findall(r"Object\.assign\(BESEDILA_OS\.(\w+), \{(.*?)\}\);", dodatki, re.S):
+            jeziki[j] += "\n" + blok
         self.assertEqual(sorted(jeziki), ["de", "en", "es", "fr", "it", "sl"])
         kljuci = {j: set(re.findall(r'(?:^|[\s{,])"?([\w-]+)"?:\s*"', v)) for j, v in jeziki.items()}
         for j in jeziki:
@@ -341,7 +345,8 @@ class Stran(unittest.TestCase):
 
     def test_most_metode(self):
         js = _beri("assets", "os", "os.js")
-        py = _beri("safeer_os.py")
+        # Metode kataloga Medijskega centra (media*) so v core/os_katalog.py (Katalog.METODE).
+        py = _beri("safeer_os.py") + _beri("core", "os_katalog.py")
         for metoda in set(re.findall(r'klic\("(\w+)"', js)):
             self.assertIn('"%s":' % metoda, py, metoda)
 

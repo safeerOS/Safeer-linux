@@ -1116,7 +1116,9 @@ class SafeerLink:
             # Safeer Chat: sporocila sprejema Control (in jih vpise v Sporocila Safeer OS).
             + (["chat"] if self.control else [])
             # Magnet povezave z drugih naprav odpre Safeer OS na tem racunalniku.
-            + (["magnet"] if self.control and _magnet_na_voljo() else []),
+            + (["magnet"] if self.control and _magnet_na_voljo() else [])
+            # Seznami predvajanja Medijskega centra (Safeer OS): Control jih drugim napravam da v branje (lists.get).
+            + (["lists"] if self.control and _magnet_na_voljo() else []),
             # Protocol v1: programi racunalnika kot katalog aplikacij (samo, ce jih je uporabnik dovolil).
             katalog=(self.programi.katalog_v1 if self.programi is not None else None),
             # Nezaupan racunalnik (link_seja): samo zeton te prijave, brez kroga zaupanja.

@@ -1,0 +1,158 @@
+/* Katalog Medijskega centra (Linux): mreza plakatov, zvrsti, seznami predvajanja, podrobnosti, dodatki in viri.
+   Pravila so prenesena iz Safeer OS za Windows (assets/os/os.css, razredi .media-*) in preimenovana v .kat-*,
+   da se ne mesajo z razredi krajevne knjiznice (.media-*) na tej strani. */
+:root { --vnos: #111b27; }
+[hidden].kat, .kat [hidden], .kat-podrobnosti[hidden], .kat-seznam-meni[hidden] { display: none !important; }
+.kat { margin: 6px 0 26px; }
+/* Brez krajevnih vsebin v izbrani kategoriji gre katalog pred prazno knjiznico; z vsebino kataloga uvodne plosce ni. */
+.media-glavni { display: flex; flex-direction: column; }
+#r-media.brez-krajevnega .kat { order: -1; }
+#r-media.ima-katalog .media-hero { display: none; }
+#r-media.ima-katalog.brez-krajevnega .media-prazno { display: none; }
+#r-media.ima-katalog.brez-krajevnega #mediaMreza, #r-media.ima-katalog.brez-krajevnega #mediaVec { display: none; }
+.kat-glava { align-items: flex-end; gap: 14px; flex-wrap: wrap; }
+.kat-orodja { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.kat-orodja .gumb { min-height: 42px; }
+.kat-trak { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 12px 0 4px; padding: 12px 16px;
+  border: 1px solid rgba(84,214,165,.4); border-radius: 16px; background: linear-gradient(135deg, rgba(84,214,165,.12), rgba(17,25,36,.78)); }
+.kat-trak-besedilo { min-width: 0; display: grid; gap: 2px; }
+.kat-trak-besedilo small { color: var(--zelena); font-weight: 700; letter-spacing: .08em; font-size: 11px; }
+.kat-trak-besedilo b, .kat-trak-besedilo span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kat-trak-besedilo span { color: var(--medlo); font-size: 13px; }
+.kat-trak-gumbi { display: flex; align-items: center; gap: 6px; flex: none; }
+.kat-trak-gumbi .gumb-ikona { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 10px; color: var(--medlo); }
+.kat-trak-gumbi .gumb-ikona svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.kat-trak-gumbi .gumb-ikona.vklopljen { color: var(--zelena); background: rgba(84,214,165,.14); }
+.kat-trak-premor { width: 44px; height: 44px; border-radius: 50%; background: var(--zelena); color: #06110d; font-size: 15px; font-weight: 800; }
+.kat-kartica .kat-odstrani, .kat-kartica .kat-na-seznam { position: absolute; top: 8px; left: 8px; width: 28px; height: 28px; display: grid; place-items: center;
+  border-radius: 50%; background: rgba(3,7,10,.82); color: #fff; font-size: 14px; opacity: 0; transition: opacity .15s ease; }
+.kat-kartica:hover .kat-odstrani, .kat-kartica:focus-visible .kat-odstrani, .kat-kartica:hover .kat-na-seznam, .kat-kartica:focus-visible .kat-na-seznam { opacity: 1; }
+.kat-kartica .kat-odstrani:hover { background: var(--rdeca); }
+.kat-kartica .kat-na-seznam:hover { background: var(--zelena); color: #06110d; }
+.kat-seznam-meni { position: fixed; z-index: 60; display: flex; flex-direction: column; gap: 8px; width: min(320px, 86vw); max-height: 60vh; overflow: auto;
+  padding: 14px; background: var(--vnos); border: 1px solid rgba(84,214,165,.4); border-radius: 14px; box-shadow: 0 22px 60px rgba(0,0,0,.6); }
+.kat-seznam-meni b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kat-seznam-meni .gumb { justify-content: flex-start; }
+.kat-seznam-meni form { display: flex; gap: 8px; }
+.kat-seznam-meni input { flex: 1; min-width: 0; height: 40px; padding: 0 12px; border: 1px solid var(--rob); border-radius: 10px; background: rgba(255,255,255,.06); color: inherit; outline: 0; }
+.kat-seznam-meni input:focus { border-color: var(--zelena); }
+.kat-prazno { margin: 18px 0; }
+.kat-predvajaj-film { padding: 14px 28px; font-size: 18px; margin-top: 12px; }
+.kat-viri-plosca { width: min(860px, 92vw); max-height: 88vh; overflow: auto; }
+.kat-dodaj-streznik [hidden] { display: none; }
+.kat-vir-sporocilo { min-height: 20px; }
+.kat-vir-sporocilo .gumb { margin-top: 8px; }
+.kat-katalog .prazno, .kat-epizode .prazno { color: var(--medlo); padding: 14px 0; }
+@media (max-width: 900px) {
+  .kat-dodaj-vir { grid-template-columns: 1fr; }
+  .kat-epizoda { grid-template-columns: 110px minmax(0,1fr); }
+  .kat-epizoda>img { width: 110px; height: 62px; }
+  .kat-epizoda .gumb { grid-column: 1 / -1; }
+  .kat-podrobnosti-junak { grid-template-columns: 100px minmax(0,1fr); }
+  .kat-podrobnosti-junak>img { width: 100px; height: 150px; }
+}
+.kat-napaka { max-width:680px;margin:18px auto;padding:18px 22px;border:1px solid rgba(235,87,87,.45);border-radius:14px;background:rgba(235,87,87,.09);text-align:center;font-weight:650;color:var(--rdeca) }
+.kat-napaka.kat-opozorilo { border-color:rgba(84,214,165,.35);background:rgba(84,214,165,.08);color:var(--besedilo);font-weight:550 }
+.kat-zanri { display:flex;gap:8px;overflow-x:auto;padding:8px 0 5px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.16) transparent }
+.kat-zanri button, .kat-sezone button { flex:none;padding:8px 14px;border:1px solid var(--rob);border-radius:999px;background:rgba(255,255,255,.035);color:var(--medlo);font-weight:650 }
+.kat-zanri button:hover, .kat-zanri button.izbran, .kat-sezone button:hover, .kat-sezone button.izbran { color:#06110d;background:var(--zelena);border-color:var(--zelena);box-shadow:0 0 22px rgba(84,214,165,.24) }
+.kat-povzetek { min-height:24px;margin:12px 0;color:var(--medlo);font-size:14px }
+.kat-katalog { display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:14px }
+.kat-kartica { position:relative;min-height:270px;padding:0;overflow:hidden;border:1px solid var(--rob);border-radius:16px;background:var(--kartica);text-align:left }
+.kat-kartica:hover, .kat-kartica:focus-visible { border-color:var(--zelena);transform:translateY(-3px);outline:0;box-shadow:0 16px 34px rgba(0,0,0,.32) }
+.kat-kartica img { display:block;width:100%;height:220px;object-fit:cover;background:#111923 }
+.kat-kartica .kat-brez-slike { height:220px;display:grid;place-items:center;background:linear-gradient(135deg,#13242a,#101722) }
+.kat-kartica .kat-brez-slike svg { width:44px;height:44px;color:var(--zelena) }
+.kat-kartica .kat-podatki { display:block;padding:12px }
+.kat-kartica b { display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis }
+.kat-kartica .kat-meta { display:flex;justify-content:space-between;gap:8px;margin-top:5px;color:var(--medlo);font-size:11px;text-transform:uppercase }
+.kat-kartica .kat-kakovost, .kat-kartica .kat-ocena { position:absolute;top:9px;padding:4px 7px;border-radius:7px;background:rgba(3,7,10,.86);font-size:11px;font-weight:750 }
+.kat-kartica .kat-kakovost { right:9px;color:var(--zelena) }
+.kat-kartica .kat-ocena { left:9px;color:#ffd466 }
+.kat-podrobnosti { position:fixed;inset:18px;z-index:40;overflow:auto;padding:22px 26px 38px;border:1px solid rgba(84,214,165,.4);border-radius:22px;background:radial-gradient(circle at 90% 0,rgba(56,189,248,.15),transparent 36%),#081018;box-shadow:0 28px 90px rgba(0,0,0,.8) }
+.kat-podrobnosti-glava { position:sticky;top:-22px;z-index:2;display:flex;justify-content:space-between;align-items:center;padding:14px 0;background:rgba(8,16,24,.94);backdrop-filter:blur(12px) }
+.kat-podrobnosti-junak { display:grid;grid-template-columns:150px minmax(0,1fr);gap:24px;align-items:center;max-width:1000px;margin:10px 0 24px }
+.kat-podrobnosti-junak>img { width:150px;height:220px;object-fit:cover;border-radius:16px;border:1px solid var(--rob) }
+.kat-podrobnosti-junak h2 { margin:0 0 8px;font-size:34px }
+.kat-podrobnosti-junak p { max-width:75ch;color:var(--medlo);line-height:1.55 }
+.kat-podrobnosti-junak .kat-detail-meta { color:var(--zelena);font-weight:700 }
+.kat-sezone { display:flex;flex-wrap:wrap;gap:9px;margin:10px 0 24px }
+.kat-epizode { display:flex;flex-direction:column;gap:10px }
+.kat-epizoda { display:grid;grid-template-columns:170px minmax(0,1fr) auto;gap:16px;align-items:center;padding:12px;border:1px solid var(--rob);border-radius:15px;background:rgba(255,255,255,.035) }
+.kat-epizoda:hover { border-color:var(--zelena) }
+.kat-epizoda>img { width:170px;height:96px;object-fit:cover;border-radius:10px }
+.kat-epizoda-info b, .kat-epizoda-info small { display:block }
+.kat-epizoda-info small { margin-top:4px;color:var(--zelena) }
+.kat-epizoda-info p { margin:6px 0 0;color:var(--medlo);font-size:13px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden }
+.kat-dodaj-vir { display:grid;grid-template-columns:minmax(170px,.7fr) minmax(220px,1.3fr) minmax(130px,.6fr) auto;gap:10px;margin:14px 0 6px }
+/* Spletni vir ima samo naslov, ime in gumb: naslov dobi sirino. */
+@media (min-width: 901px) { #mediaDodajVir { grid-template-columns:minmax(260px,1.9fr) minmax(130px,.7fr) auto } }
+.kat-dodaj-vir input { min-width:0;height:44px;padding:0 13px;border:1px solid var(--rob);border-radius:11px;background:rgba(255,255,255,.06);outline:0 }
+.kat-dodaj-vir select { height:44px;padding:0 10px;border:1px solid var(--rob);border-radius:11px;background:var(--vnos);color:var(--besedilo);font:inherit;font-size:14px;outline:0;color-scheme:dark }
+.kat-dodaj-vir input:focus { border-color:var(--zelena) }
+.kat-viri { display:flex;flex-direction:column;gap:7px;margin-top:12px }
+.kat-vir { display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--rob);border-radius:12px;background:var(--kartica) }
+.kat-vir>svg { color:var(--zelena) }
+.kat-vir div { flex:1;min-width:0 }
+.kat-vir b, .kat-vir small { display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis }
+.kat-vir small { color:var(--medlo) }
+.kat-vir .kat-vir-napaka { color:var(--rdeca) }
+.kat-vir .gumb-ikona { width:36px;height:36px;display:grid;place-items:center;border-radius:9px;color:var(--medlo) }
+.kat-vir .gumb-ikona:hover { background:rgba(255,255,255,.07);color:var(--zelena) }
+.kat-kje-gledati { margin:20px 0 24px;padding:16px 18px;background:rgba(15,23,34,.72);border:1px solid var(--rob);border-radius:14px }
+.kat-kje-gledati h3 { margin:0 0 12px }
+.kat-kje-gledati-skupina { margin:14px 0 }
+.kat-kje-gledati-skupina h4 { margin:0 0 8px;color:var(--medlo);font-size:14px }
+.kat-ponudniki { display:flex;flex-wrap:wrap;gap:10px }
+.kat-ponudnik { display:flex;align-items:center;gap:9px;min-height:42px;padding:6px 12px;color:var(--besedilo);background:rgba(255,255,255,.05);border:1px solid var(--rob);border-radius:10px;cursor:pointer }
+.kat-ponudnik:hover { border-color:var(--zelena) }
+.kat-ponudnik img { width:28px;height:28px;object-fit:contain;border-radius:6px }
+.kat-kje-gledati-vira { margin:12px 0 0;color:var(--medlo);font-size:12px }
+.kat-kartica { transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease }
+.kat-kartica:focus-visible { box-shadow:0 0 0 3px rgba(84,214,165,.24),0 16px 34px rgba(0,0,0,.32) }
+.kat-stranjevanje { display: flex; align-items: center; justify-content: center; gap: 16px; margin: 28px 0 16px; padding: 16px; }
+.kat-stranjevanje .stran-info { font-weight: 600; font-size: 15px; color: var(--zelena); padding: 6px 16px; border-radius: 999px; background: rgba(84, 214, 165, 0.1); border: 1px solid rgba(84, 214, 165, 0.3); }
+.kat-stranjevanje button { min-height: 42px; padding: 0 20px; border-radius: 12px; }
+.kat-stranjevanje button:disabled { opacity: 0.4; cursor: not-allowed; }
+.kat-skupina { grid-column: 1 / -1; margin: 18px 0 2px; color: var(--medlo); font-size: 15px; }
+.kat-razvrsti { display:flex;align-items:center;gap:8px;color:var(--medlo);font-size:13px }
+.kat-razvrsti select { height:42px;padding:0 12px;color:var(--besedilo);background:var(--vnos);border:1px solid var(--rob);border-radius:11px }
+.kat-razvrsti select:focus { outline:0;border-color:var(--zelena) }
+.kat-filter-viri { position:relative }
+.kat-filter-viri>.gumb.aktiven { border-color:var(--zelena);color:var(--zelena) }
+.kat-viri-filter { position:absolute;right:0;top:calc(100% + 8px);z-index:50;width:min(360px,86vw);max-height:60vh;overflow:auto;padding:14px;background:var(--vnos);border:1px solid rgba(84,214,165,.4);border-radius:14px;box-shadow:0 22px 60px rgba(0,0,0,.6) }
+.kat-viri-filter label { display:flex;align-items:flex-start;gap:10px;padding:8px 6px;border-radius:9px;cursor:pointer }
+.kat-viri-filter label:hover { background:rgba(255,255,255,.05) }
+.kat-viri-filter label b, .kat-viri-filter label small { display:block }
+.kat-viri-filter label small { color:var(--medlo);font-size:12px }
+.kat-viri-filter input[type=checkbox] { margin-top:3px;accent-color:var(--zelena) }
+.kat-viri-filter-lokalno { border-bottom:1px solid var(--rob);margin-bottom:6px;padding-bottom:12px!important }
+.kat-viri-filter-seznam.onemogoceno { opacity:.45;pointer-events:none }
+.kat-viri-filter-noga { display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;padding-top:10px;border-top:1px solid var(--rob) }
+.kat-viri-filter-noga small { color:var(--medlo);font-size:12px }
+.kat-viri-filter-naslov { margin:12px 6px 4px;padding-top:10px;border-top:1px solid var(--rob);color:var(--medlo);font-size:12px;text-transform:uppercase;letter-spacing:.04em }
+.kat-seznami { margin: 14px 0 4px; }
+.kat-seznami h3 { margin: 0 0 10px; font-size: 16px; }
+.kat-seznami-vrsta { display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch; }
+.kat-seznam-kartica { display: flex; align-items: center; gap: 12px; min-width: 220px; max-width: 320px; padding: 8px 14px 8px 8px; border: 1px solid var(--rob); border-radius: 14px; background: var(--kartica); text-align: left; }
+.kat-seznam-kartica:hover, .kat-seznam-kartica:focus-visible { border-color: var(--zelena); outline: 0; }
+.kat-seznam-kartica img, .kat-seznam-kartica .kat-brez-slike { width: 56px; height: 56px; border-radius: 10px; object-fit: cover; flex: none; display: grid; place-items: center; background: linear-gradient(135deg,#13242a,#101722); }
+.kat-seznam-kartica .kat-brez-slike svg { width: 26px; height: 26px; color: var(--zelena); }
+.kat-seznam-kartica b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 210px; }
+.kat-seznam-kartica small { color: var(--medlo); }
+.kat-seznam-uvoz { display: flex; gap: 8px; align-items: center; flex: 1 1 320px; min-width: 280px; }
+.kat-seznam-uvoz input { flex: 1; min-width: 0; height: 44px; padding: 0 14px; border: 1px solid var(--rob); border-radius: 12px; background: var(--kartica); color: inherit; }
+.kat-seznam-uvoz input:focus { border-color: var(--zelena); outline: 0; }
+.kat-seznam-glava { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.kat-seznam-glava h3 { margin: 0; font-size: 20px; }
+.kat-seznam-glava small { color: var(--medlo); flex: 1; }
+.kat-seznam-meni { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; padding: 10px 12px; border: 1px solid var(--rob); border-radius: 12px; background: var(--kartica); }
+.kat-seznam-meni input { height: 40px; min-width: 200px; padding: 0 12px; border: 1px solid var(--rob); border-radius: 10px; background: transparent; color: inherit; }
+.kat-kartica .kat-odstrani { position: absolute; left: 9px; top: 9px; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; background: rgba(3,7,10,.86); color: #fff; font-size: 14px; opacity: 0; }
+.kat-kartica:hover .kat-odstrani, .kat-kartica:focus-visible .kat-odstrani { opacity: 1; }
+.kat-kartica .kat-odstrani:hover { background: #b3261e; }
+.kat-viri-plosca { left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: calc(100vw - 32px); }
+.kat-viri-plosca .gumbi { display: flex; justify-content: space-between; gap: 10px; margin-top: 16px; }
+.kat-viri-plosca h3 { margin: 4px 0 6px; }
+.kat-predvajaj-film { align-self: flex-start; }
+.kat-podrobnosti-junak h2 { color: var(--besedilo); text-transform: none; letter-spacing: -.01em; }
