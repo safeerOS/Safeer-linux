@@ -87,6 +87,18 @@ class Osnova(unittest.TestCase):
         self.strezniki.append(s)
         return s
 
+    def nacin_izpad(self, **nastavitve):
+        """Vklopi nacin »izpad« in pocaka, da zanka sonde opravi svoj prvi krog. Brez tega se njen izid (domaci
+        internet dela) lahko vrine med izrecna kroga preizkusa in ponastavi stetje zaporednih enakih izidov -
+        preizkus bi bil odvisen od hitrosti racunalnika (padel tek v CI, 4. 10. 2026). Naslednji krog zanke pride
+        sele cez SONDA_DELA_S, torej po koncu preizkusa."""
+        pred = self.sonda.preverjeno
+        izid = self.u.nastavi(nacin="izpad", **nastavitve)
+        self.assertTrue(_pocakaj(lambda: self.sonda.preverjeno > pred), "zanka sonde ni opravila prvega kroga")
+        with self.sonda._zaklep:        # prvi krog je do konca presojen
+            pass
+        return izid
+
     def povezi(self):
         c = socket.create_connection(("127.0.0.1", self.u.posrednik.vrata), timeout=5)
         c.settimeout(8)
@@ -234,7 +246,7 @@ class IzbiraPoti(Osnova):
 
     def test_izpad_dokler_domaci_internet_dela_gre_neposredno(self):
         s = self.streznik()
-        self.u.nastavi(nacin="izpad", sistemski=True)
+        self.nacin_izpad(sistemski=True)
         c, odgovor = self.socks5("127.0.0.1", s.vrata, ime=False)
         self.assertEqual(odgovor[:2], b"\x05\x00")
         c.sendall(b"doma")
@@ -246,7 +258,7 @@ class IzbiraPoti(Osnova):
 
     def test_izpad_preklopi_na_telefon_in_nazaj(self):
         s = self.streznik()
-        self.u.nastavi(nacin="izpad", sistemski=True)
+        self.nacin_izpad(sistemski=True)
         self.fiksna["dela"] = False
         self.sonda.preveri()
         self.assertTrue(self.sonda.dela, "en neuspel krog se ni izpad")
@@ -276,7 +288,7 @@ class IzbiraPoti(Osnova):
     def test_prva_povezava_ob_izpadu_gre_ze_skozi_telefon(self):
         """Sonda izpada se ni opazila, neposredna povezava pa pade: ta ista povezava mora skozi telefon."""
         s = self.streznik()
-        self.u.nastavi(nacin="izpad")
+        self.nacin_izpad()
         self.fiksna["dela"] = False
         izvirna = socket.create_connection
 
@@ -297,7 +309,7 @@ class IzbiraPoti(Osnova):
         self.assertTrue(self.u.prek_telefona)
 
     def test_napaka_cilja_ob_delujocem_internetu_ni_izpad(self):
-        self.u.nastavi(nacin="izpad")
+        self.nacin_izpad()
         prost = socket.socket()
         prost.bind(("127.0.0.1", 0))
         vrata = prost.getsockname()[1]
@@ -309,16 +321,20 @@ class IzbiraPoti(Osnova):
 
     def test_brez_telefona_ni_preklopa(self):
         self.naprave[:] = [n for n in self.naprave if n["id"] != "tel"]
-        self.u.nastavi(nacin="izpad", sistemski=True)
+        s = self.streznik()
+        self.nacin_izpad(sistemski=True)
         self.fiksna["dela"] = False
         self.sonda.preveri()
         self.sonda.preveri()
+        self.assertFalse(self.sonda.dela)
         self.assertFalse(self.u.prek_telefona, "brez telefona ni kam preklopiti")
         time.sleep(0.2)
         self.assertNotIn("vklopi", [k[0] for k in self.sistemski.klici])
-        _c, odgovor = self.socks5("example.org", 443)
+        # Domaci internet ne dela in telefona ni: povezava se zavrne (ne gre neposredno in ne obvisi).
+        _c, odgovor = self.socks5("127.0.0.1", s.vrata, ime=False)
         self.assertEqual(odgovor[:2], b"\x05\x03")
         self.assertEqual(self.u.stanje()["napaka"], "ni_telefona")
+        self.assertEqual(self.ponudnik.odprtih_skupaj, 0)
 
     def test_izbran_telefon_ki_ga_ni_se_ne_zamenja_z_drugim(self):
         self.naprave.append({"id": "tel2", "ime": "Drugi telefon", "zmoznosti": ["internet.gateway"]})
