@@ -6,9 +6,10 @@ import re
 import threading
 import time
 import unicodedata
+import urllib.error
 import urllib.parse
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait as _pocakaj_na, TimeoutError as FuturesTimeout
 from typing import Any
 
 # Vgrajeni PeerTube strezniki z urejeno vsebino. peertube.tv in peertube.uno sta 27. 9. 2026 med najbolj
@@ -136,6 +137,12 @@ def zvrsti_za(vrsta: str) -> list[dict]:
     return [{"id": kljuc, "ime": v[0]} for kljuc, v in GLASBENE_ZVRSTI.items() if v[indeks]]
 _TTL = 30 * 60
 _TIMEOUT = 10
+#: Seznam videov enega streznika PeerTube: zdrav odgovori v manj kot sekundi, na pocasnega katalog ne caka dlje.
+_TIMEOUT_SEZNAM = 5
+#: Streznik, ki pocasi odpove, toliko casa preskakujemo (uporabnik nanj ne caka); nato ga vprasamo v ozadju.
+_PREMOR_STREZNIKA = 5 * 60
+#: Ko prvi streznik odgovori z videi, imajo ostali se toliko sekund; pozni odgovori ostanejo za naslednji pogled.
+_PO_PRVEM_S = 1.5
 
 
 def _norm(value: Any) -> str:
@@ -151,16 +158,63 @@ class ZakonitiViri:
         self._clock = clock
         self._cache: dict[str, tuple[float, Any]] = {}
         self._lock = threading.RLock()
+        #: Streznik -> do kdaj ga preskakujemo, ker ni odgovoril (uporabnik nanj ne caka znova in znova).
+        self._nedosegljivi: dict[str, float] = {}
+        self._preverjam: set[str] = set()
+        #: Napaka, na katero smo cakali vsaj toliko sekund, steje kot »streznik ne odgovarja«.
+        self._pocasi_s = 3.0
 
-    def _json(self, url: str) -> Any:
+    def _json(self, url: str, timeout: float = _TIMEOUT) -> Any:
+        host = (urllib.parse.urlsplit(url).hostname or "").lower()
+        with self._lock:
+            do = self._nedosegljivi.get(host)
+        if do is not None:
+            if self._clock() >= do:
+                self._preveri_v_ozadju(host, url, timeout)
+            raise OSError("streznik %s trenutno ne odgovarja" % host)
+        return self._zahtevaj(url, timeout, host)
+
+    def _zahtevaj(self, url: str, timeout: float, host: str) -> Any:
         request = urllib.request.Request(url, headers={
             "User-Agent": "SafeerOS/1.0 (+https://safeer.si)",
             "Accept": "application/json",
         })
-        with self._opener(request, timeout=_TIMEOUT) as response:
-            if getattr(response, "status", 200) != 200:
-                raise OSError("HTTP %s" % response.status)
-            return json.loads(response.read(5 * 1024 * 1024 + 1).decode("utf-8"))
+        zacetek = time.monotonic()
+        try:
+            with self._opener(request, timeout=timeout) as response:
+                status = getattr(response, "status", 200)
+                telo = response.read(5 * 1024 * 1024 + 1) if status == 200 else b""
+        except urllib.error.HTTPError:
+            with self._lock:
+                self._nedosegljivi.pop(host, None)      # streznik je odgovoril (z napako): ni nedosegljiv
+            raise
+        except OSError:
+            if time.monotonic() - zacetek >= self._pocasi_s:
+                with self._lock:
+                    self._nedosegljivi[host] = self._clock() + _PREMOR_STREZNIKA
+            raise
+        with self._lock:
+            self._nedosegljivi.pop(host, None)
+        if status != 200:
+            raise OSError("HTTP %s" % status)
+        return json.loads(telo.decode("utf-8"))
+
+    def _preveri_v_ozadju(self, host: str, url: str, timeout: float) -> None:
+        """Premor streznika je potekel: vprasamo ga znova, a ne v klicu, na katerega caka uporabnik."""
+        with self._lock:
+            if host in self._preverjam:
+                return
+            self._preverjam.add(host)
+
+        def delo() -> None:
+            try:
+                self._zahtevaj(url, timeout, host)      # uspeh streznik vrne v rabo, pocasen neuspeh premor podaljsa
+            except Exception:  # noqa: BLE001
+                pass
+            finally:
+                with self._lock:
+                    self._preverjam.discard(host)
+        threading.Thread(target=delo, name="safeer-vir-preverjanje", daemon=True).start()
 
     def _cached(self, key: str, fn):
         now = self._clock()
@@ -239,7 +293,7 @@ class ZakonitiViri:
     def _peer_rows(self, host: str, endpoint: str, category: str) -> list[dict]:
         key = "pt:%s:%s" % (host, endpoint)
         def fetch():
-            data = self._json("https://%s%s" % (host, endpoint))
+            data = self._json("https://%s%s" % (host, endpoint), _TIMEOUT_SEZNAM)
             rows = data.get("data", []) if isinstance(data, dict) else []
             return [item for row in rows if (item := self._peertube_video(row, host, category))]
         return self._cached(key, fetch)
@@ -299,11 +353,24 @@ class ZakonitiViri:
                   ("Najbolj gledani", "/api/v1/videos?sort=-views&count=%s&nsfw=false&isLocal=true" % stevilo),
                   ("Nedavno", "/api/v1/videos?sort=-publishedAt&count=%s&nsfw=false&isLocal=true" % stevilo))
         jobs = [(host, label, path) for label, path in routes for host in hosts]
-        with ThreadPoolExecutor(max_workers=min(15, len(jobs))) as pool:
-            futures = [pool.submit(self._peer_rows, host, path, label) for host, label, path in jobs]
-            for future in futures:
-                try: result.extend(future.result())
-                except Exception: pass
+        pool = ThreadPoolExecutor(max_workers=min(15, len(jobs)))
+        futures = [pool.submit(self._peer_rows, host, path, label) for host, label, path in jobs]
+        # Na zadnji, pocasni streznik katalog ne caka: po prvem odgovoru z videi imajo ostali se _PO_PRVEM_S. Kar pride
+        # pozneje, ostane v predpomnilniku za naslednji pogled. Dokler ni odgovoril nihce, cakamo vse (do roka zahteve).
+        cakajo, rok, konec = set(futures), None, time.monotonic() + _TIMEOUT_SEZNAM + 1
+        while cakajo:
+            do = konec if rok is None else min(konec, rok)
+            koncani, cakajo = _pocakaj_na(cakajo, timeout=max(0.0, do - time.monotonic()), return_when=FIRST_COMPLETED)
+            if not koncani:
+                break
+            if rok is None and any(f.exception() is None and f.result() for f in koncani):
+                rok = time.monotonic() + _PO_PRVEM_S
+        pool.shutdown(wait=False)
+        for future in futures:
+            if not future.done():
+                continue
+            try: result.extend(future.result())
+            except Exception: pass
         unique = {}
         for item in result:
             unique.setdefault(item["id"], item)
