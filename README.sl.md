@@ -49,13 +49,13 @@ imeti za privzetega, je tu `safeer --set-default`.
 
 ## Namestitev
 
-[![Izdaja](https://img.shields.io/badge/Release-v1.0.88-2dd4bf?style=flat-square)](../../releases/tag/v1.0.88)
+[![Izdaja](https://img.shields.io/badge/Release-v1.0.89-2dd4bf?style=flat-square)](../../releases/tag/v1.0.89)
 
-Zadnja izdaja: **v1.0.88** — [opombe izdaje in prenosi](../../releases/tag/v1.0.88)
+Zadnja izdaja: **v1.0.89** — [opombe izdaje in prenosi](../../releases/tag/v1.0.89)
 
 ```bash
 # Debian, Ubuntu, Linux Mint
-sudo apt install ./safeer-browser_1.0.88_all.deb
+sudo apt install ./safeer-browser_1.0.89_all.deb
 ```
 
 
