@@ -155,3 +155,36 @@ class PackagingTests(unittest.TestCase):
                     result=subprocess.run([shell,'-c',body.replace('/usr/bin/','/nonexistent/').replace('/usr/sbin/','/nonexistent/'),name,action],
                                           env={'PATH':directory},capture_output=True,text=True)
                     self.assertEqual(result.returncode,0,(name,action,result.stderr))
+
+
+class MintInstallTests(unittest.TestCase):
+    """Posel `mint` v CI (tools/mint_namestitev): paketi .deb se namestijo, zazenejo in odstranijo na Linux Mintu."""
+    MAPA=ROOT/'tools/mint_namestitev'
+
+    def test_scripts_parse(self):
+        for ime in ('preizkus.sh','v_vsebniku.sh'):
+            with self.subTest(skripta=ime):
+                subprocess.run(['bash','-n',str(self.MAPA/ime)],check=True)
+
+    def test_every_deb_we_build_is_installed_and_removed_on_mint(self):
+        """Nov paket .deb ne sme mimo preizkusa: vsak `Package:` iz skript build_*deb.sh mora biti v njem."""
+        zgrajeni=set()
+        for skripta in ROOT.glob('build_*deb.sh'):
+            zgrajeni|=set(re.findall(r'^Package: (\S+)$',skripta.read_text(),re.M))
+        self.assertGreaterEqual(len(zgrajeni),5,zgrajeni)
+        preizkus=(self.MAPA/'v_vsebniku.sh').read_text()
+        odstranjeni=set(re.search(r'apt-get remove ([^>\n]*)',preizkus).group(1).split())
+        for paket in sorted(zgrajeni):
+            with self.subTest(paket=paket):
+                self.assertIn("paket '%s_*_all.deb'"%paket,preizkus)
+                self.assertIn(paket,odstranjeni)
+
+    def test_release_waits_for_the_mint_job(self):
+        """Izdaja (posel release) ne sme nastati, ce namestitev na Linux Mintu pade."""
+        potek=(ROOT/'.github/workflows/linux-packages.yml').read_text()
+        self.assertIn('\n  mint:\n',potek)
+        self.assertIn('tools/mint_namestitev/preizkus.sh',potek)
+        izdaja=potek.split('\n  release:\n',1)[1]
+        potrebe=re.search(r'^    needs: \[([^\]]+)\]$',izdaja,re.M)
+        self.assertIsNotNone(potrebe)
+        self.assertIn('mint',[p.strip() for p in potrebe.group(1).split(',')])

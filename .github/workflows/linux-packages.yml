@@ -112,6 +112,42 @@ jobs:
           path: |
             *.deb
             dist/*.AppImage
+  mint:
+    # The packages are installed, started and removed on real Linux Mint - the way a user does it. The build job
+    # installs them on Ubuntu 22.04, where the two look packages cannot be installed at all (mint-themes exists
+    # only in Linux Mint) and dependencies are resolved by another repository than the user's. This job takes the
+    # very files that go into the release (tools/mint_namestitev).
+    needs: deb-appimage
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        mint: ['22', '22.3']
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v8
+        with:
+          name: deb-appimage
+          path: paketi
+      - name: Unprivileged user namespaces as on Linux Mint
+        # Linux Mint turns Ubuntu's restriction off (/etc/sysctl.d/20-apparmor-mint.conf). The container shares the
+        # kernel of the runner, where the restriction may be on; the WebKit sandbox of a normal user needs them.
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - name: Packages of the last published release (for the upgrade test)
+        # An upgrade is the path of every existing user: Safeer OS installs it by itself. On a tag build the new
+        # release is not published yet, so "latest" is the release that users have now.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p prejsnji
+          gh release download --repo "$GITHUB_REPOSITORY" --pattern '*.deb' --dir prejsnji \
+            || echo "No published release found: only a fresh installation is tested."
+          ls -l prejsnji
+      - name: Install, upgrade, start and remove all packages on Linux Mint ${{ matrix.mint }}
+        run: bash tools/mint_namestitev/preizkus.sh "linuxmintd/mint${{ matrix.mint }}-amd64" paketi prejsnji
   flatpak:
     runs-on: ubuntu-24.04
     steps:
@@ -158,7 +194,7 @@ jobs:
         run: bash tools/scit_lab/lab.sh preizkus
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [deb-appimage, flatpak, scit-lab]
+    needs: [deb-appimage, flatpak, scit-lab, mint]
     runs-on: ubuntu-24.04
     concurrency:
       group: release-${{ github.ref_name }}
