@@ -154,10 +154,14 @@ def _izberi(datoteke: List[dict], indeks: Optional[int], ime: str) -> Optional[d
 
 
 def pripravi(hash_: str, indeks: Optional[int] = None, ime: str = "", sledilniki: Iterable[str] = (),
-             torrenti=None, zmogljivost=None, mape_stanja=None, pot: Optional[str] = None) -> dict:
+             torrenti=None, zmogljivost=None, mape_stanja=None, pot: Optional[str] = None,
+             motor_napredek=None, motor_preklic=None) -> dict:
     """Tok za predvajalnik: {url, ime, indeks, velikost, podnapisi[, pot]} ali os_torrent.NapakaTorrenta(koda).
 
-    Kode: ni_magnet, ni_predvajljivo, ni_prostora, malo_pomnilnika in kode motorja (npr. metapodatkov ni)."""
+    Kode: ni_magnet, ni_predvajljivo, ni_prostora, malo_pomnilnika, motor (predvajalnega programa ni bilo mogoce
+    prenesti), preklicano (uporabnik je njegov prenos preklical) in kode motorja (npr. metapodatkov ni).
+
+    `motor_napredek(preneseno, vse)` in `motor_preklic` (threading.Event) veljata za enkratni prenos programa rqbit."""
     uri = magnet(hash_, ime, sledilniki)
     if not uri or os_torrent.razcleni_magnet(uri) is None:
         raise os_torrent.NapakaTorrenta("ni_magnet")
@@ -180,7 +184,12 @@ def pripravi(hash_: str, indeks: Optional[int] = None, ime: str = "", sledilniki
                 "velikost": os.path.getsize(obstojeca), "podnapisi": []}
     if torrenti is None:
         if not os_torrent.program_na_voljo():
-            os_torrent.prenesi_program()
+            try:
+                os_torrent.prenesi_program(motor_napredek, preklic=motor_preklic)
+            except os_torrent.NapakaTorrenta:
+                raise
+            except Exception as napaka:  # noqa: BLE001 - ni interneta, streznik ne odgovarja, SHA-256 se ne ujema
+                raise os_torrent.NapakaTorrenta("motor") from napaka
         torrenti = os_torrent.torrenti()
     torrenti.zazeni()
     opis = torrenti.preberi(uri)

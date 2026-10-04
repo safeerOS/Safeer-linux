@@ -1481,6 +1481,19 @@ class MediaCenter:
     #: Najvec toliko casa iscemo tok med torrenti (branje metapodatkov slabo podprtega torrenta traja).
     TORRENT_ROK_S = 60.0
 
+    def _motor(self) -> dict:
+        """Argumenta za enkratni prenos predvajalnega programa (napredek, preklic), ce ju je lupina nastavila; nov
+        poskus predvajanja pocisti prejsnji preklic."""
+        dodatno = {}
+        napredek = getattr(self, "ob_prenosu_motorja", None)
+        preklic = getattr(self, "preklic_motorja", None)
+        if napredek is not None:
+            dodatno["motor_napredek"] = napredek
+        if preklic is not None:
+            preklic.clear()
+            dodatno["motor_preklic"] = preklic
+        return dodatno
+
     def _razresi_torrent(self, item: dict, tokovi: list) -> dict:
         """Naslov, ki ga ponujajo samo torrenti: najboljsi torrent za to napravo prenasa motor Safeer OS, predvajalnik
         dobi lokalni tok ze med prenosom (core/os_torrent_tok.py). Brez toka: kratka koda napake, naslova ne skrijemo."""
@@ -1494,13 +1507,17 @@ class MediaCenter:
                 pass
         zacetek = time.monotonic()
         koda = "tok"
+        # Enkratni prenos predvajalnega programa: stran kaze napredek in ga lahko preklice (core/os_katalog.py).
+        motor = self._motor()
         for i, t in enumerate(urejeni[:3]):
             if i and time.monotonic() - zacetek > self.TORRENT_ROK_S:
                 break
             try:
-                tok = os_torrent_tok.pripravi(str(t["hash"]), t.get("indeks"), str(t.get("ime") or ""), t.get("sledilniki") or ())
+                tok = os_torrent_tok.pripravi(str(t["hash"]), t.get("indeks"), str(t.get("ime") or ""), t.get("sledilniki") or (),
+                                              **motor)
             except os_torrent.NapakaTorrenta as napaka:
-                if str(napaka) in ("ni_prostora", "malo_pomnilnika"):
+                # Brez programa ali po preklicu naslednji torrent ne pomaga (in bi program prenasal znova).
+                if str(napaka) in ("ni_prostora", "malo_pomnilnika", "motor", "preklicano"):
                     koda = str(napaka)
                     break
                 continue
@@ -1568,9 +1585,9 @@ class MediaCenter:
     def _razresi_knjiznico(self, item: dict) -> dict:
         hash_, _, datoteka = str(item.get("url") or "")[len("knjiznica:"):].partition("|")
         try:
-            tok = os_torrent_tok.pripravi(hash_, int(datoteka) if datoteka.isdigit() else None)
+            tok = os_torrent_tok.pripravi(hash_, int(datoteka) if datoteka.isdigit() else None, **self._motor())
         except os_torrent.NapakaTorrenta as napaka:
-            return dict(item, napaka_koda=str(napaka) if str(napaka) in ("ni_prostora", "malo_pomnilnika") else "tok")
+            return dict(item, napaka_koda=str(napaka) if str(napaka) in ("ni_prostora", "malo_pomnilnika", "motor", "preklicano") else "tok")
         except Exception:
             return dict(item, napaka_koda="tok")
         resolved = dict(item, url=tok["url"], torrent=True, stevilo_razlicic=1,

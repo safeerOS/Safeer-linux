@@ -6,6 +6,7 @@ import os
 import shutil
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -245,6 +246,65 @@ class MedijskiCenter(unittest.TestCase):
         self.assertNotIn("napaka_koda", r)
         self.assertEqual(len(obvestila), 1)
         self.assertFalse(self.mc.znano_ni_na_voljo(it))
+
+    def test_prenos_predvajalnega_programa_je_viden_in_preklicljiv(self):
+        """Prvi film iz torrenta: lupina dobi napredek prenosa programa in ga lahko preklice. Brez programa (ni
+        interneta) ali po preklicu Safeer ne poskusa z naslednjim torrentom - program bi prenasal znova."""
+        klici = []
+
+        def pripravi(hash_, indeks=None, ime="", sledilniki=(), motor_napredek=None, motor_preklic=None):
+            klici.append((hash_, motor_napredek, motor_preklic, motor_preklic.is_set()))
+            raise os_torrent.NapakaTorrenta(koda[0])
+
+        napredek = lambda n, vse: None  # noqa: E731
+        preklic = threading.Event()
+        preklic.set()                      # ostanek prejsnjega preklica: nov poskus ga pocisti
+        self.mc.ob_prenosu_motorja = napredek
+        self.mc.preklic_motorja = preklic
+        it = self.mc.movie_item(11, "Film ena")
+        for koda in (["motor"], ["preklicano"]):
+            del klici[:]
+            with mock.patch.object(tt, "pripravi", pripravi):
+                r = self.mc.resolve(it["id"])
+            self.assertEqual(r.get("napaka_koda"), koda[0])
+            self.assertEqual(klici, [(H1, napredek, preklic, False)], "en sam poskus, z napredkom in preklicem")
+            preklic.set()
+
+    def test_brez_programa_pove_zakaj(self):
+        with mock.patch.object(os_torrent, "program_na_voljo", lambda: False), \
+                mock.patch.object(tt.link_datoteke, "ze_preneseno", lambda *a, **k: ("", None)):
+            for izjema, koda in ((OSError("ni omrezja"), "motor"), (RuntimeError("SHA-256"), "motor"),
+                                 (os_torrent.NapakaTorrenta("preklicano"), "preklicano")):
+                prejeto = []
+
+                def prenesi(napredek=None, preklic=None, _izjema=izjema):
+                    prejeto.append((napredek, preklic))
+                    raise _izjema
+                with mock.patch.object(os_torrent, "prenesi_program", prenesi), self.assertRaises(os_torrent.NapakaTorrenta) as n:
+                    tt.pripravi(H1, motor_napredek="napredek", motor_preklic="preklic")
+                self.assertEqual(str(n.exception), koda)
+                self.assertEqual(prejeto, [("napredek", "preklic")])
+
+    def test_katalog_poslje_napredek_in_sprejme_preklic(self):
+        from core import os_katalog
+        vir = open(os_katalog.__file__, encoding="utf-8").read()
+        self.assertIn('"mediaMotorPreklici": "_motor_preklici"', vir)
+        self.assertIn("self._mc.ob_prenosu_motorja = self._motor_napredek", vir)
+        dogodki = []
+        k = os_katalog.Katalog.__new__(os_katalog.Katalog)
+        k.dogodek = lambda vrsta, podatki: dogodki.append((vrsta, podatki))
+        k._motor_odstotek = -1
+        for n in (0, 100, 150, 1000, 1005, 28696960):
+            k._motor_napredek(n, 28696960)
+        self.assertEqual([d[1]["n"] for d in dogodki], [0, 28696960], "dogodek po odstotkih, ne po kosih")
+        self.assertEqual(dogodki[-1], ("mediaMotor", {"n": 28696960, "vse": 28696960}))
+        koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        js = open(os.path.join(koren, "assets", "os", "os.js"), encoding="utf-8").read()
+        self.assertIn('if (vrsta === "mediaMotor" && podatki) motorNapredek(podatki);', js)
+        self.assertIn('klic("mediaMotorPreklici")', js)
+        besedila = open(os.path.join(koren, "assets", "os", "besedila.js"), encoding="utf-8").read()
+        for kljuc in ("mediaMotorPrenasam", "mediaNapaka_motor", "mediaNapaka_preklicano"):
+            self.assertEqual(besedila.count('"%s": "' % kljuc), 6, kljuc)
 
     def test_neposredni_tok_ima_prednost(self):
         it = self.mc.movie_item(12, "Film dva")

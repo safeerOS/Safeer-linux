@@ -84,6 +84,19 @@ class Program(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     ot.prenesi_program(odpri=lambda *_a, **_k: Odgovor(b"zlonamerno" + vsebina[10:]))
                 self.assertFalse(os.path.exists(pot) or os.path.exists(pot + ".part"))
+                # Uporabnik prenos preklice: delna datoteka se odstrani, programa ni, napaka pove zakaj.
+                preklic = threading.Event()
+                napredek = []
+
+                def ob_napredku(n, vse):
+                    napredek.append((n, vse))
+                    preklic.set()
+                with mock.patch.object(ot, "KOS", 100), self.assertRaises(ot.NapakaTorrenta) as napaka:
+                    ot.prenesi_program(ob_napredku, odpri=lambda *_a, **_k: Odgovor(vsebina), preklic=preklic)
+                self.assertEqual(str(napaka.exception), "preklicano")
+                self.assertEqual(napredek, [(100, len(vsebina))], "po preklicu se ne bere naprej")
+                self.assertFalse(os.path.exists(pot) or os.path.exists(pot + ".part"))
+                self.assertFalse(ot.program_na_voljo())
         finally:
             shutil.rmtree(mapa, ignore_errors=True)
 
