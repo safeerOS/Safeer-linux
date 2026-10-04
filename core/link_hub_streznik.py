@@ -2305,7 +2305,8 @@ class HubStreznik:
         self._nit: Optional[threading.Thread] = None
         self._zaklep = threading.Lock()
         #: Obrambni mehanizem: zivi dlje kot streznik (zapora velja tudi po ponovnem zagonu sredisca v istem procesu).
-        self.obramba = link_obramba.Obramba(ob_zapori=self._ob_zapori, ob_napadu=self._ob_napadu)
+        self.obramba = link_obramba.Obramba(ob_zapori=self._ob_zapori, ob_napadu=self._ob_napadu,
+                                            ob_opozorilu=self._ob_opozorilu)
         #: Povratna klica za vmesnik: (vir, trajanje_s, razlog) in (seznam virov).
         self.ob_zapori: Optional[Callable[[str, float, str], None]] = None
         self.ob_napadu: Optional[Callable[[List[str]], None]] = None
@@ -2313,9 +2314,22 @@ class HubStreznik:
     def tece(self) -> bool:
         return self._streznik is not None
 
+    @staticmethod
+    def _sestava(teze: dict) -> str:
+        return ", ".join("%s %d" % (k, v) for k, v in sorted(teze.items(), key=lambda kv: -kv[1]))
+
+    def _ob_opozorilu(self, vir: str, vsota: int, teze: dict) -> None:
+        """Vir je na polovici praga: samo v dnevnik (ce je to uporabnikova naprava, se tu vidi, kaj pocne)."""
+        print("[SafeerLink] obramba: %s na %d od %d (%s)" % (vir, vsota, link_obramba.PRAG, self._sestava(teze)), flush=True)
+
     def _ob_zapori(self, vir: str, trajanje_s: float, razlog: str) -> None:
-        logging.getLogger("safeer.link").warning("obramba: vir %s zaprt za %d s (%s)", vir, int(trajanje_s), razlog)
-        print("[SafeerLink] obramba: %s zaprt za %d min (%s)" % (vir, int(trajanje_s // 60), razlog), flush=True)
+        sestava = ""
+        try:
+            sestava = self._sestava(next((z["sestava"] for z in self.obramba.stanje()["zaprti"] if z["vir"] == vir), {}))
+        except Exception:
+            pass
+        logging.getLogger("safeer.link").warning("obramba: vir %s zaprt za %d s (%s)", vir, int(trajanje_s), sestava or razlog)
+        print("[SafeerLink] obramba: %s zaprt za %d min (%s)" % (vir, int(trajanje_s // 60), sestava or razlog), flush=True)
         ime = ""
         try:
             ime = self.hub.ime_po_naslovu(vir) if self.hub is not None else ""

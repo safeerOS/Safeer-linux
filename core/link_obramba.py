@@ -48,6 +48,10 @@ ZAUPANJE_S = 600.0
 #: Najvec virov v spominu (najstarejsi nezaprti izpadejo) in dogodkov na vir.
 NAJVEC_VIROV = 1024
 NAJVEC_DOGODKOV = 1024
+#: Opozorilo v dnevnik, ko vir doseze polovico praga (najvec enkrat na OPOZORILO_VSAKIH_S): tako se lazni preplah
+#: prave naprave vidi, se preden je zaprta.
+OPOZORILO_PRAG = PRAG // 2
+OPOZORILO_VSAKIH_S = 600.0
 #: Napad: toliko razlicnih virov zaprtih v NAPAD_OKNO_S ali isti vir zaprt tolikokrat.
 NAPAD_VIROV = 3
 NAPAD_PONOVITEV = 3
@@ -63,7 +67,7 @@ def je_ta_naprava(vir: str) -> bool:
 
 
 class _Vir:
-    __slots__ = ("dogodki", "zaprt_do", "ponovitev", "zadnja_zapora", "zaupan_do", "razlog")
+    __slots__ = ("dogodki", "zaprt_do", "ponovitev", "zadnja_zapora", "zaupan_do", "razlog", "sestava", "opozorjen")
 
     def __init__(self) -> None:
         self.dogodki: Deque[Tuple[float, int, str]] = deque(maxlen=NAJVEC_DOGODKOV)
@@ -72,6 +76,8 @@ class _Vir:
         self.zadnja_zapora = 0.0
         self.zaupan_do = 0.0
         self.razlog = ""
+        self.sestava: Dict[str, int] = {}
+        self.opozorjen = -1e18
 
 
 class Obramba:
@@ -81,10 +87,13 @@ class Obramba:
                  ob_zapori: Optional[Callable[[str, float, str], None]] = None,
                  ob_napadu: Optional[Callable[[List[str]], None]] = None,
                  izvzet: Callable[[str], bool] = je_ta_naprava,
-                 zaupan: Optional[Callable[[str], bool]] = None) -> None:
+                 zaupan: Optional[Callable[[str], bool]] = None,
+                 ob_opozorilu: Optional[Callable[[str, int, Dict[str, int]], None]] = None) -> None:
         self.ura = ura
         self.ob_zapori = ob_zapori
         self.ob_napadu = ob_napadu
+        #: (vir, vsota tez, sestava po vrstah) - vir je na polovici praga; samo za dnevnik.
+        self.ob_opozorilu = ob_opozorilu
         self.izvzet = izvzet
         #: Zaupanje od zunaj: ali ima vir pri sredisci odprto povezavo (prijavljena naprava, sosednje sredisce).
         #: Klice se zunaj zaklepa (sme vzeti zaklep sredisca).
@@ -155,7 +164,8 @@ class Obramba:
         """Za vmesnik in dnevnik: zaprti viri (naslov, se sekund, razlog, katera zapora po vrsti), stevilo zavrnjenih."""
         with self._zaklep:
             zdaj = self.ura()
-            zaprti = [{"vir": ime, "se_s": int(v.zaprt_do - zdaj), "razlog": v.razlog, "zapora": v.ponovitev}
+            zaprti = [{"vir": ime, "se_s": int(v.zaprt_do - zdaj), "razlog": v.razlog, "zapora": v.ponovitev,
+                       "sestava": dict(v.sestava)}
                       for ime, v in self._viri.items() if v.zaprt_do > zdaj]
             return {"zaprti": zaprti, "zavrnjenih": self._zavrnjenih,
                     "napad": zdaj - self._napad_javljen < NAPAD_OKNO_S}
@@ -201,13 +211,20 @@ class Obramba:
     def _oceni(self, vir: str, v: _Vir, zdaj: float) -> list:
         while v.dogodki and v.dogodki[0][0] <= zdaj - OKNO_S:
             v.dogodki.popleft()
-        if sum(d[1] for d in v.dogodki) < PRAG:
+        vsota = sum(d[1] for d in v.dogodki)
+        if vsota < OPOZORILO_PRAG:
             return []
-        # Razlog = vrsta z najvecjo skupno tezo (kaj je vir v resnici pocel).
         teze: Dict[str, int] = {}
         for _, teza, vrsta in v.dogodki:
             teze[vrsta] = teze.get(vrsta, 0) + teza
+        if vsota < PRAG:
+            if zdaj - v.opozorjen < OPOZORILO_VSAKIH_S:
+                return []
+            v.opozorjen = zdaj
+            return [("opozorilo", vir, vsota, teze)]
+        # Razlog = vrsta z najvecjo skupno tezo (kaj je vir v resnici pocel).
         v.razlog = max(teze, key=lambda k: teze[k])
+        v.sestava = teze
         if zdaj - v.zadnja_zapora > POZABI_PONOVITVE_S:
             v.ponovitev = 0
         trajanje = min(NAJDALJSA_ZAPORA_S, ZAPORA_S * (2 ** v.ponovitev))
@@ -230,6 +247,8 @@ class Obramba:
                     self.ob_zapori(o[1], o[2], o[3])
                 elif o[0] == "napad" and self.ob_napadu is not None:
                     self.ob_napadu(o[1])
+                elif o[0] == "opozorilo" and self.ob_opozorilu is not None:
+                    self.ob_opozorilu(o[1], o[2], o[3])
             except Exception:
                 pass
 

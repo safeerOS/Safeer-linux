@@ -54,6 +54,26 @@ class Pravila(unittest.TestCase):
         self.assertTrue(self.o.dovoli(A))
         self.assertEqual(self.o.stanje()["zaprti"], [])
 
+    def test_opozorilo_na_polovici_praga(self):
+        """V dnevniku se vidi, kaj pocne naprava, ki se pragu bliza - preden je zaprta (lazni preplah prave naprave)."""
+        opozorila = []
+        o = Obramba(ura=self.ura, ob_opozorilu=lambda *a: opozorila.append(a), ob_zapori=lambda *a: self.zapore.append(a))
+        for _ in range(9):
+            o.dogodek(A, "brez_zaupanja")
+        self.assertEqual(opozorila, [])
+        o.dogodek(A, "brez_zaupanja")
+        o.dogodek(A, "tipanje")
+        self.assertEqual(opozorila, [(A, 200, {"brez_zaupanja": 200})], "eno opozorilo, ne ob vsakem dogodku")
+        self.ura.t += link_obramba.OPOZORILO_VSAKIH_S + 1
+        for _ in range(11):
+            o.dogodek(A, "brez_zaupanja")
+        self.assertEqual(len(opozorila), 2)
+        self.assertEqual(self.zapore, [])
+        # Ob zapori je sestava v stanju.
+        for _ in range(10):
+            o.dogodek(A, "brez_zaupanja")
+        self.assertEqual(o.stanje()["zaprti"][0]["sestava"], {"brez_zaupanja": 400})
+
     def test_stari_dogodki_ne_stejejo(self):
         for _ in range(15):
             self.o.dogodek(A, "brez_zaupanja")
