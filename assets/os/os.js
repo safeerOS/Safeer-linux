@@ -1896,6 +1896,9 @@
     clearInterval(scitCas);
     scitCas = setInterval(function () {
       if (S.razdelek !== "nastavitve") { clearInterval(scitCas); return; }
+      // Seznam nazadnje blokiranih naj ne skoci izpod kazalca ali izbranega gumba (»Dovoli« bi zadel napacno domeno).
+      var blok = $("blokScit");
+      if (blok && blok.querySelector(".scit-zadnje:hover, .scit-zadnje button:focus")) return;
       if (!scitZaposleno) nalozScit();
     }, 5000);
   }
@@ -1906,7 +1909,7 @@
     if (!s) return;
     var pod;
     if (scitZaposleno) pod = t("scitPripravljam");
-    else if (!s.mozno) pod = t("scitNiMozno");
+    else if (!s.mozno) pod = t(s.razlog === "lastni_dns" ? "scitNapaka_lastni_dns" : "scitNiMozno");
     else if (s.napaka) pod = t("scitNapaka_" + s.napaka);
     else if (s.vklop && s.tece) pod = s.domen ? t("scitTece", { n: s.blokiranih, p: s.poizvedb, d: s.domen }) : t("scitSeznami");
     else pod = t("scitOpis");
@@ -1924,12 +1927,53 @@
     }, pod);
     if (!s.mozno) st.classList.add("onemogoceno");
     c.appendChild(st);
+    function poScitu(r) { if (r) scitStanje = r; narisiScit(); }
+    if (s.vklop && s.tece) {
+      // Premor: ko stran ali program brez blokirane domene ne dela, uporabniku ni treba izklopiti celega Scita.
+      var pr = el("div", "scit-zadnje scit-premor");
+      var gp = el("button", "", ubezi(t(s.premor > 0 ? "scitNadaljuj" : "scitPremor")));
+      gp.type = "button";
+      gp.addEventListener("click", function () { klic("scitPremor", [s.premor > 0 ? 0 : 15]).then(poScitu, function () {}); });
+      pr.appendChild(gp);
+      if (s.premor > 0) pr.appendChild(el("span", "", ubezi(t("scitPremorTece", { n: Math.ceil(s.premor / 60) }))));
+      c.appendChild(pr);
+    }
     if (s.vklop && s.tece && s.zadnje && s.zadnje.length) {
       var z = el("div", "scit-zadnje", "<b>" + ubezi(t("scitZadnje")) + "</b>");
       s.zadnje.slice(0, 6).forEach(function (x) {
-        z.appendChild(el("span", "", ubezi(x.ime) + " <i>" + ubezi(t("scitKat_" + x.kategorija)) + "</i>"));
+        var vr = el("span", "", ubezi(x.ime) + " <i>" + ubezi(t("scitKat_" + x.kategorija)) + "</i> ");
+        // Dovoli: izjema za to domeno in njene poddomene (odstrani se spodaj, med dovoljenimi).
+        var gd = el("button", "", ubezi(t("scitDovoli")));
+        gd.type = "button";
+        gd.addEventListener("click", function () {
+          // Lazna stran, zlonamerna koda ...: en sam klik je premalo.
+          if (x.kategorija !== "oglasi" && !gd.dataset.potrdi) {
+            gd.dataset.potrdi = "1";
+            gd.textContent = t("scitDovoliRes");
+            gd.classList.add("nevarno");
+            return;
+          }
+          klic("scitDovoli", [x.ime, true]).then(function (r) {
+            if (r && (r.izjeme || []).indexOf(x.ime) >= 0) obvesti(t("scitDovoljeno", { ime: x.ime }));
+            poScitu(r);
+          }, function () {});
+        });
+        vr.appendChild(gd);
+        z.appendChild(vr);
       });
       c.appendChild(z);
+    }
+    if (s.izjeme && s.izjeme.length) {
+      var iz = el("div", "scit-zadnje", "<b>" + ubezi(t("scitIzjeme")) + "</b>");
+      s.izjeme.forEach(function (d) {
+        var vi = el("span", "", ubezi(d) + " ");
+        var go = el("button", "", ubezi(t("scitBlokirajSpet")));
+        go.type = "button";
+        go.addEventListener("click", function () { klic("scitDovoli", [d, false]).then(poScitu, function () {}); });
+        vi.appendChild(go);
+        iz.appendChild(vi);
+      });
+      c.appendChild(iz);
     }
   }
   function nalozZvok() {

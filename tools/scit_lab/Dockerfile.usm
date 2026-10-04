@@ -1,0 +1,3 @@
+# »Usmerjevalnik« za preizkus Scita: dnsmasq (DHCP + DNS z dnevnikom poizvedb).
+FROM alpine:3
+RUN apk add --no-cache dnsmasq
