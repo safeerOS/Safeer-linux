@@ -361,7 +361,9 @@ class Katalog:
             self._niz(a, 0), self._niz(a, 1, "vse"), self._niz(a, 2), stran,
             ob_osvezitvi=lambda _kljuc, rezultat: self.dogodek("mediaKatalogOsvezen", prikazi(rezultat)),
             razvrsti=self._niz(a, 4), izklopljeni=izklopljeni, samo_lokalno=False,
-            izklopljeni_jeziki=izklopljeni_jeziki))
+            izklopljeni_jeziki=izklopljeni_jeziki,
+            # Izbran jezik vsebine (poleg zvrsti); neznana koda v jedru ne velja.
+            jezik=self._niz(a, 8)[:8]))
 
     def _isci_predpomnilnik(self, a: list) -> Any:
         return self.mc.isci_v_predpomnilniku(self._niz(a, 0), 8)
