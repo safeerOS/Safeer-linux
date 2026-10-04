@@ -456,6 +456,78 @@ class VrnitevDns(unittest.TestCase):
         self.assertFalse(os_scit.nekdo_poslusa(1))
 
 
+class Flatpak(unittest.TestCase):
+    """V peskovniku Flatpak sistemska orodja tecejo na gostitelju (flatpak-spawn --host). Dvoje je tam drugace:
+    pkcheck v peskovniku ne obstaja (in nas PID gostitelju nic ne pomeni), /tmp pa je zaseben."""
+
+    def test_dovoljenje_vprasamo_na_gostitelju(self):
+        s = Sistem([(["flatpak-spawn"], (0, ""))])
+        with Zamenjave(_zazeni=s, v_flatpaku=lambda: True, PRAVILO_POT="/ni/te/poti.rules"):
+            self.assertTrue(os_scit.pravilo_namesceno())
+        self.assertEqual(s.klici, [["flatpak-spawn", "--host", "sh", "-c", 'exec pkcheck --action-id "$0" --process $$',
+                                    "org.freedesktop.resolve1.set-dns-servers"]])
+        s = Sistem([(["flatpak-spawn"], (2, ""))])
+        with Zamenjave(_zazeni=s, v_flatpaku=lambda: True, PRAVILO_POT="/ni/te/poti.rules"):
+            self.assertFalse(os_scit.pravilo_namesceno())
+
+    def test_pravilo_iz_mape_ki_jo_vidi_gostitelj(self):
+        klici = []
+
+        def zazeni(ukaz, cas=8.0):
+            klici.append(list(ukaz))
+            if ukaz[0] == "pkexec":
+                self.assertTrue(os.path.isfile(ukaz[-2]), "datoteka mora obstajati, ko jo `install` bere")
+                with open(ukaz[-2], encoding="utf-8") as f:
+                    self.assertIn("org.freedesktop.resolve1.set-dns-servers", f.read())
+            return 0, ""
+        with tempfile.TemporaryDirectory() as m:
+            okolje = {"XDG_CACHE_HOME": os.path.join(m, "cache"), "XDG_CONFIG_HOME": os.path.join(m, "config")}
+            stare = {k: os.environ.get(k) for k in okolje}
+            os.environ.update(okolje)
+            izvirni_which = os_scit.shutil.which
+            os_scit.shutil.which = lambda ime: "/app/host-bin/" + ime
+            try:
+                with Zamenjave(_zazeni=zazeni, v_flatpaku=lambda: True, PRAVILO_POT="/ni/te/poti.rules"):
+                    self.assertTrue(os_scit.namesti_pravilo())
+            finally:
+                os_scit.shutil.which = izvirni_which
+                for k, v in stare.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+            pkexec = [k for k in klici if k[0] == "pkexec"][0]
+            self.assertEqual(pkexec[:8], ["pkexec", "install", "-m", "644", "-o", "root", "-g", "root"])
+            self.assertTrue(pkexec[-2].startswith(os.path.join(m, "cache") + os.sep), "ne v /tmp, ki je v peskovniku zaseben")
+            self.assertFalse(os.path.exists(pkexec[-2]), "zacasna datoteka se pospravi")
+            self.assertTrue(os.path.isfile(os.path.join(m, "config", "safeer-os", "scit-pravilo")))
+
+    def test_nastavitve_gostitelja_beremo_na_gostitelju(self):
+        """Zrcalo /etc/resolv.conf v peskovniku zamuja, nsswitch.conf pa je tam od runtime-a: oboje preberemo zunaj."""
+        s = Sistem([(["flatpak-spawn", "--host", "cat", "/etc/nsswitch.conf"], (0, "hosts: files dns\n")),
+                    (["flatpak-spawn", "--host", "cat", "/etc/resolv.conf"], (0, "search .\n"))])
+        with Zamenjave(_zazeni=s, v_flatpaku=lambda: True):
+            self.assertFalse(os_scit.programi_uporabljajo_resolved(), "gostitelj ima svoj streznik DNS")
+        self.assertEqual(len(s.klici), 2)
+        s = Sistem([(["flatpak-spawn", "--host", "cat", "/etc/nsswitch.conf"], (0, "hosts: files dns\n")),
+                    (["flatpak-spawn", "--host", "cat", "/etc/resolv.conf"], (0, "nameserver 127.0.0.53\nsearch lan\n"))])
+        with Zamenjave(_zazeni=s, v_flatpaku=lambda: True):
+            self.assertTrue(os_scit.programi_uporabljajo_resolved())
+        with Zamenjave(_zazeni=Sistem([(["flatpak-spawn"], (1, ""))]), v_flatpaku=lambda: True):
+            self.assertFalse(os_scit.programi_uporabljajo_resolved(), "ce gostitelja ne moremo vprasati, se DNS ne dotikamo")
+
+    def test_zunaj_peskovnika_kot_prej(self):
+        s = Sistem([(["pkcheck"], (0, ""))])
+        izvirni_which = os_scit.shutil.which
+        os_scit.shutil.which = lambda ime: "/usr/bin/" + ime
+        try:
+            with Zamenjave(_zazeni=s, v_flatpaku=lambda: False, PRAVILO_POT="/ni/te/poti.rules"):
+                self.assertTrue(os_scit.pravilo_namesceno())
+        finally:
+            os_scit.shutil.which = izvirni_which
+        self.assertEqual(s.klici, [["pkcheck", "--action-id", "org.freedesktop.resolve1.set-dns-servers", "--process", str(os.getpid())]])
+
+
 class LastniDns(unittest.TestCase):
     """Racunalnik, kjer programi ne sprasujejo systemd-resolved (Pi-hole, AdGuard Home ...): Scit tam ne more
     filtrirati; z nastavitvijo v resolved bi celo zaobsel uporabnikov filter. Zato se DNS ne dotakne in to pove."""
@@ -678,7 +750,7 @@ class UporabiTest(unittest.TestCase):
         self.assertEqual(o[:4], b"\x00\x77\x81\x80")
 
     def test_straza_in_delovna(self):
-        self.assertIsInstance(os_scit.znak_dns(), int)
+        self.assertEqual(len(os_scit.znak_dns()), 2)
         koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         with open(os.path.join(koren, "safeer_os.py"), encoding="utf-8") as f:
             vir = f.read()

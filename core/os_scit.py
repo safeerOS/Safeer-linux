@@ -600,20 +600,29 @@ def programi_uporabljajo_resolved(resolv_conf: str = "/etc/resolv.conf", nsswitc
     Kjer ni tako - racunalnik ima svoj streznik DNS (Pi-hole, AdGuard Home, dnsmasq; `DNSStubListener=no`) ali
     resolv.conf pise kdo drug - nasa nastavitev v systemd-resolved ne bi filtrirala nicesar. Se huje: resolved bi v
     resolv.conf zapisal streznik usmerjevalnika in s tem zaobsel uporabnikov lastni filter."""
-    try:
-        with open(nsswitch, encoding="utf-8", errors="replace") as f:
-            for v in f:
-                deli = v.split("#", 1)[0].split()
-                if deli and deli[0] == "hosts:" and "resolve" in deli[1:]:
-                    return True
-    except OSError:
-        pass
-    try:
-        with open(resolv_conf, encoding="utf-8", errors="replace") as f:
-            strezniki = [d[1] for d in (v.split("#", 1)[0].split() for v in f) if len(d) > 1 and d[0] == "nameserver"]
-    except OSError:
+    for v in (vsebina_gostitelja(nsswitch) or "").splitlines():
+        deli = v.split("#", 1)[0].split()
+        if deli and deli[0] == "hosts:" and "resolve" in deli[1:]:
+            return True
+    besedilo = vsebina_gostitelja(resolv_conf)
+    if besedilo is None:
         return False
+    strezniki = [d[1] for d in (v.split("#", 1)[0].split() for v in besedilo.splitlines()) if len(d) > 1 and d[0] == "nameserver"]
     return bool(strezniki) and all(s in ("127.0.0.53", "127.0.0.54") for s in strezniki)
+
+
+def vsebina_gostitelja(pot: str) -> Optional[str]:
+    """Vsebina sistemske datoteke; None, ce je ni. V peskovniku Flatpak jo preberemo na gostitelju: /etc/resolv.conf je
+    tam zrcalo, ki zamuja (in po menjavi simbolne povezave lahko ostane staro), /etc/nsswitch.conf pa pripada
+    runtime-u, ne racunalniku."""
+    if v_flatpaku():
+        koda, izpis = _zazeni(["flatpak-spawn", "--host", "cat", pot])
+        return izpis if koda == 0 else None
+    try:
+        with open(pot, encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return None
 
 
 def razlog_nemoznosti() -> str:
@@ -661,12 +670,15 @@ PREGLED_S = 20.0
 UTRIP_S = 2.0
 
 
-def znak_dns() -> int:
-    """Cas zadnje spremembe nastavitev DNS v systemd-resolved (0, ce datoteke ni)."""
-    try:
-        return os.stat(RESOLV_UPLINK).st_mtime_ns
-    except OSError:
-        return 0
+def znak_dns() -> Tuple[int, int]:
+    """Casa zadnje spremembe nastavitev DNS: datoteka systemd-resolved in /etc/resolv.conf (0, ce datoteke ni). V
+    peskovniku Flatpak prve ni; druga je tam zrcalo gostiteljeve in se ob menjavi omrezja prav tako spremeni."""
+    def cas(pot: str) -> int:
+        try:
+            return os.stat(pot).st_mtime_ns
+        except OSError:
+            return 0
+    return cas(RESOLV_UPLINK), cas("/etc/resolv.conf")
 
 
 def nekdo_poslusa(vrata: int) -> bool:
@@ -709,20 +721,32 @@ def trenutni_streznik(vmesnik: str) -> str:
     return m.group(1) if m else ""
 
 
+AKCIJA_DNS = "org.freedesktop.resolve1.set-dns-servers"
+
+
+def v_flatpaku() -> bool:
+    """Safeer OS tece v peskovniku Flatpak: sistemska orodja klice na gostitelju (packaging/flatpak_host_wrappers.sh)."""
+    return bool(os.environ.get("FLATPAK_ID")) or os.path.exists("/.flatpak-info")
+
+
 def pravilo_namesceno() -> bool:
     """Ali smemo nastaviti DNS brez gesla. Mape /etc/polkit-1/rules.d uporabnik ne more brati (0750
     root:polkitd), zato pravila ne iscemo po datoteki, ampak polkit vprasamo naravnost (pkcheck brez
     interakcije: 0 = dovoljeno, sicer bi zahteval geslo)."""
     try:
         with open(PRAVILO_POT, encoding="utf-8") as f:
-            if "org.freedesktop.resolve1.set-dns-servers" in f.read():
+            if AKCIJA_DNS in f.read():
                 return True
     except OSError:
         pass
+    if v_flatpaku():
+        # V peskovniku pkcheck ne obstaja, nas PID pa gostitelju nic ne pomeni: polkit vprasamo na gostitelju, za
+        # lupino, ki jo tam - v isti seji - zazene flatpak-spawn (exec: pkcheck dobi njen PID).
+        return _zazeni(["flatpak-spawn", "--host", "sh", "-c", 'exec pkcheck --action-id "$0" --process $$', AKCIJA_DNS],
+                       cas=10.0)[0] == 0
     if shutil.which("pkcheck") is None:
         return False
-    koda, _ = _zazeni(["pkcheck", "--action-id", "org.freedesktop.resolve1.set-dns-servers",
-                       "--process", str(os.getpid())], cas=10.0)
+    koda, _ = _zazeni(["pkcheck", "--action-id", AKCIJA_DNS, "--process", str(os.getpid())], cas=10.0)
     return koda == 0
 
 
@@ -737,7 +761,16 @@ def namesti_pravilo() -> bool:
         return True
     if shutil.which("pkexec") is None:
         return False
-    with tempfile.NamedTemporaryFile("w", suffix=".rules", delete=False, encoding="utf-8") as f:
+    # V peskovniku Flatpak je /tmp zaseben - `install` na gostitelju datoteke tam ne bi nasel. Predpomnilnik
+    # programa (~/.var/app/<id>/cache) je na isti poti viden tudi gostitelju.
+    mapa = None
+    if v_flatpaku():
+        mapa = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+        try:
+            os.makedirs(mapa, exist_ok=True)
+        except OSError:
+            return False
+    with tempfile.NamedTemporaryFile("w", suffix=".rules", delete=False, encoding="utf-8", dir=mapa) as f:
         f.write(PRAVILO)
         zacasna = f.name
     try:

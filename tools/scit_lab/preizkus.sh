@@ -90,7 +90,7 @@ je "resolved spet sprasuje nas" "$(trenutni)" '^127\.0\.0\.1:535[4-7]$'
 
 echo "== menjava omrezja (NetworkManager poslje svoje streznike)"
 docker exec scit-odj bash -c 'nmcli con down lab >/dev/null; nmcli con up lab >/dev/null'
-sleep 6
+sleep 8
 je "straza v nekaj sekundah vrne nas razresevalnik" "$(dns)" "$NAS"
 je "in blokira" "$(ime $BLOK)" '^$'
 

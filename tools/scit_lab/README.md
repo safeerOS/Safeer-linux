@@ -20,8 +20,21 @@ Ročno: `lab.sh gor`, `lab.sh gonilnik`, `lab.sh u vklop`, `lab.sh dns`, `lab.sh
 `lab.sh u izklop`, `lab.sh dol`. Privzeto ne potrebuje interneta (blokirana je preizkusna domena
 `preizkus.example`); s `PRAVI_SEZNAMI=1` gonilnik prenese prave sezname.
 
-Potrebuje Docker z dovoljenjem za `--privileged` (systemd v vsebniku). Gonilnik teče kot root, zato pravila
-polkit ne preizkuša – to je preverjeno posebej (`pkcheck`).
+Potrebuje Docker z dovoljenjem za `--privileged` (systemd v vsebniku). Gonilnik teče kot root: pravilo polkit se
+res namesti (`pkexec install`), ne preizkusi pa se, ali velja za navadnega uporabnika – to je preverjeno posebej
+(`pkcheck` v pravi seji).
+
+### Tudi v peskovniku Flatpak
+
+```
+NACIN=flatpak PAKET=/pot/Safeer-OS-X-x86_64.flatpak tools/scit_lab/lab.sh preizkus
+```
+
+Gonilnik teče v pravem peskovniku nameščenega paketa (koda iz repozitorija, sistemska orodja prek
+`flatpak-spawn --host`, kot v paketu). Runtime `org.gnome.Platform` se vzame iz `/var/lib/flatpak` gostitelja
+(samo branje), zato mora biti tam nameščen. V peskovniku je drugače troje – in vse troje je bilo narobe:
+`/tmp` je zaseben (začasna datoteka s pravilom polkit mora biti v predpomnilniku programa), `pkcheck` ne obstaja
+(polkit vprašamo na gostitelju), `/etc/resolv.conf` pa je zrcalo, ki zamuja (nastavitve gostitelja beremo zunaj).
 
 ## Kaj preizkus varuje
 
