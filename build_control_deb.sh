@@ -51,6 +51,22 @@ fi
 if [ -x /usr/bin/gtk-update-icon-cache ]; then
     /usr/bin/gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
 fi
+# Byte-compile once, as root. A user cannot write into /usr/lib, so without this Python would compile every
+# module again at each start. If it fails, the program still runs from source.
+if [ -x /usr/bin/python3 ]; then
+    /usr/bin/python3 -m compileall -q /usr/lib/safeer-control >/dev/null 2>&1 || true
+fi
+exit 0
+EOF2
+cat << 'EOF2' > "$BUILD_ROOT/DEBIAN/prerm"
+#!/bin/sh
+# dpkg runs maintainer scripts with /bin/sh (dash): POSIX options only.
+set -eu
+# Remove the byte-code that postinst compiled (and what Python wrote when the program was run as root). dpkg does
+# not know these files; with them it would leave /usr/lib/safeer-control behind after removal.
+if [ -d /usr/lib/safeer-control ] && [ -x /usr/bin/find ]; then
+    /usr/bin/find /usr/lib/safeer-control -depth \( -name '*.pyc' -o -name __pycache__ \) -delete 2>/dev/null || true
+fi
 exit 0
 EOF2
 cat << 'EOF2' > "$BUILD_ROOT/DEBIAN/postrm"
@@ -66,10 +82,10 @@ if [ "${1:-}" = "remove" ] || [ "${1:-}" = "purge" ]; then
 fi
 exit 0
 EOF2
-chmod 755 "$BUILD_ROOT/DEBIAN/postinst" "$BUILD_ROOT/DEBIAN/postrm"
+chmod 755 "$BUILD_ROOT/DEBIAN/postinst" "$BUILD_ROOT/DEBIAN/prerm" "$BUILD_ROOT/DEBIAN/postrm"
 find "$BUILD_ROOT" -type d -exec chmod 755 {} +
 chmod 755 "$BUILD_ROOT/usr/bin/safeer-control" "$BUILD_ROOT/usr/bin/safeerctl"
-for script in "$BUILD_ROOT/DEBIAN/postinst" "$BUILD_ROOT/DEBIAN/postrm"; do
+for script in "$BUILD_ROOT/DEBIAN/postinst" "$BUILD_ROOT/DEBIAN/prerm" "$BUILD_ROOT/DEBIAN/postrm"; do
     if command -v dash >/dev/null 2>&1; then dash -n "$script"; else sh -n "$script"; fi
 done
 
