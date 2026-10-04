@@ -29,7 +29,7 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gtk, WebKit2, GLib  # noqa: E402
 
-from core import link_deljenje, link_hub, link_hub_streznik, link_iskanje, link_krog, link_seja, link_tls  # noqa: E402
+from core import link_deljenje, link_hub, link_hub_streznik, link_iskanje, link_krog, link_mesh, link_seja, link_tls  # noqa: E402
 
 
 def _magnet_na_voljo() -> bool:
@@ -1379,8 +1379,15 @@ class SafeerLink:
             odtis = str(telo.get("sha256", "") or "")
             if not pot:
                 return
+            posiljatelj = str(sporocilo.get("sender", "") or "")
+
             def prenesi():
-                cilj, razlog = link_deljenje.prevzemi_datoteko(self._hub(), self._odtis() or "", pot, ime, odtis)
+                # Link Mesh: datoteka caka pri sredisci POSILJATELJA (pot v sporocilu je relativna nanj), ne pri nasem.
+                naslov, pripet = self._hub(), self._odtis() or ""
+                sredisce, _koda = self._sredisce_naprave(posiljatelj)
+                if sredisce is not None:
+                    naslov, pripet = sredisce
+                cilj, razlog = link_deljenje.prevzemi_datoteko(naslov, pripet, pot, ime, odtis)
                 if cilj:
                     self._odziv("prejeto", {"vrsta": "datoteka", "od": od, "ime": os.path.basename(cilj),
                                             "mapa": os.path.dirname(cilj)})
@@ -1473,11 +1480,14 @@ class SafeerLink:
         cisto = (besedilo or "").strip()
         if not cisto:
             return
-        if not (self._hub() and self._zeton() and self._odtis()):
+        # Zeton za HTTP: zeton seznanitve ali sejni zeton s podpisom (racunalnik, ki je sam sredisce, zetona
+        # seznanitve nima - doslej je tu takoj odgovoril »Hub ni znan«).
+        zeton = self._zeton_http() if (self._hub() and self._odtis()) else None
+        if not zeton:
             self._odziv("napaka", {"koda": "hub_ni_znan", "sporocilo": "Hub ni znan."})
             return
         self._deljenje("besedilo", "posiljam", id_naprave)
-        ok, n = link_deljenje.poslji_besedilo(self._hub(), self._zeton() or "", self._odtis() or "",
+        ok, n = link_deljenje.poslji_besedilo(self._hub(), zeton, self._odtis() or "",
                                               self._id(), id_naprave, cisto)
         if ok:
             self._deljenje("besedilo", "poslano", id_naprave)
@@ -1485,7 +1495,7 @@ class SafeerLink:
             self._deljenje("besedilo", "napaka", id_naprave, sporocilo=n["sporocilo"], koda=n["koda"], zasedena_od=n["zasedenaOd"])
 
     def _izberi_datoteko(self, id_naprave: str = "") -> None:
-        if not (self._hub() and self._zeton() and self._odtis()):
+        if not (self._hub() and self._odtis() and (self._zeton() or self._v_krogu())):
             self._odziv("napaka", {"koda": "hub_ni_znan", "sporocilo": "Hub ni znan."})
             return
         okno = Gtk.FileChooserDialog(title="Pošlji datoteko — Safeer Link", transient_for=self.okno or self.starsevsko,
@@ -1533,12 +1543,46 @@ class SafeerLink:
             return
         self._odziv_mape()
 
+    def poslji_datoteko_napravi(self, id_naprave: str, pot: str,
+                                napredek: Optional[Callable[[int], None]] = None) -> Tuple[bool, Dict[str, str]]:
+        """Datoteko odda sredisci za napravo (PUT /cast/file); sredisce pove cilju, ta jo prevzame in preveri.
+        Vrne (uspeh, napaka). Klic caka do konca oddaje - vedno iz delovne niti."""
+        if not (self._hub() and self._odtis()):
+            return False, {"sporocilo": "Hub ni znan.", "koda": "hub_ni_znan", "zasedenaOd": ""}
+        # Link Mesh: naprava ima svoje sredisce in datoteko prevzame pri NJEM - zato jo oddamo tja (prijava s
+        # podpisom, kot sosednja povezava). Pri nasem sredisci ostane samo naprava, ki je prijavljena neposredno nanj.
+        sredisce, koda = self._sredisce_naprave(id_naprave)
+        if koda:
+            return False, {"sporocilo": link_deljenje.SPOROCILA_SREDISCA.get(koda, koda), "koda": koda, "zasedenaOd": ""}
+        if sredisce is not None:
+            naslov, odtis = sredisce
+            nas_id = getattr(getattr(self, "_hub_gostitelj", None), "nas_id", "") or self._id()
+            seja = link_hub.seja_s_podpisom(naslov, nas_id, odtis, self._ime())
+            if not seja:
+                koda = "sredisce_naprave_ni_dosegljivo"
+                return False, {"sporocilo": link_deljenje.SPOROCILA_SREDISCA[koda], "koda": koda, "zasedenaOd": ""}
+            return link_deljenje.poslji_datoteko(naslov, seja, odtis, nas_id, id_naprave, pot, napredek=napredek)
+        zeton = self._zeton_http()
+        if not zeton:
+            return False, {"sporocilo": "Hub ni znan.", "koda": "hub_ni_znan", "zasedenaOd": ""}
+        return link_deljenje.poslji_datoteko(self._hub(), zeton, self._odtis() or "", self._id(), id_naprave, pot,
+                                             napredek=napredek)
+
+    def _sredisce_naprave(self, id_naprave: str) -> tuple:
+        """Sredisce druge naprave, kadar to ni nase: ((naslov, odtis), "") | (None, "") | (None, koda)."""
+        g = getattr(self, "_hub_gostitelj", None)
+        hub = getattr(getattr(g, "streznik", None), "hub", None) if g is not None else None
+        try:
+            return link_mesh.sredisce_naprave(hub, getattr(g, "mesh", None), id_naprave)
+        except Exception as e:  # noqa: BLE001 - brez tega podatka ravnamo kot doslej (lastno sredisce)
+            print("[SafeerLink] sredisce naprave:", e)
+            return None, ""
+
     def _poslji_datoteko(self, id_naprave: str, pot: str) -> None:
         ime = os.path.basename(pot)
         self._deljenje("datoteka", "posiljam", id_naprave, ime, odstotek=0)
-        ok, n = link_deljenje.poslji_datoteko(
-            self._hub(), self._zeton() or "", self._odtis() or "", self._id(), id_naprave, pot,
-            napredek=lambda o: self._deljenje("datoteka", "posiljam", id_naprave, ime, odstotek=o))
+        ok, n = self.poslji_datoteko_napravi(
+            id_naprave, pot, napredek=lambda o: self._deljenje("datoteka", "posiljam", id_naprave, ime, odstotek=o))
         if ok:
             self._deljenje("datoteka", "poslano", id_naprave, ime, odstotek=100)
         else:

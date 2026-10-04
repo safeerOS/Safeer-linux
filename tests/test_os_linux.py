@@ -417,3 +417,30 @@ class PreimenovanjeNaprav(unittest.TestCase):
             b = f.read()
         for kljuc in ("seznamNaprav", "preimenuj:", "shraniIme", "vnesiIme", "preimenovano", "napPreimenovanje", "preimenujNamig", "plat_tv", "plat_web"):
             self.assertEqual(b.count(kljuc + ("" if kljuc.endswith(":") else ":")), 6, kljuc)
+
+    def test_posiljanje_datotek_napravi(self):
+        """Most za »Poslji na napravo« v Datotekah: cilji so naprave z zmoznostjo "file" (brez tega racunalnika),
+        oddaja gre prek Controla; starejsi Control, ki metode se nima, dobi svojo kodo."""
+        import safeer_os
+        naprave = [{"id": "tv", "ime": "TV", "platforma": "tv", "vrsta": "screen", "zmoznosti": ["file", "files"]},
+                   {"id": "ura", "ime": "Ura", "platforma": "wear", "zmoznosti": ["remote"]},
+                   {"id": "jaz", "ime": "Jaz", "platforma": "linux", "ta": True, "zmoznosti": ["file"]}]
+        with mock.patch.object(safeer_os, "_control_naprave", return_value={"ok": True, "naprave": naprave}):
+            self.assertEqual(safeer_os.naprave_za_posiljanje(),
+                             [{"id": "tv", "ime": "TV", "platforma": "tv", "vrsta": "screen"}])
+        with mock.patch.object(safeer_os, "_control_naprave", return_value={"ok": False, "koda": "ni_controla"}):
+            self.assertEqual(safeer_os.naprave_za_posiljanje(), [])
+        koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(koren, "safeer_os.py"), encoding="utf-8") as f:
+            os_py = f.read()
+        self.assertIn('"napraveZaPosiljanje": naprave_za_posiljanje', os_py)
+        self.assertIn('"Poslji", str(a[0]) if a else ""', os_py)
+        self.assertIn('"posljiStanje": lambda: _control_naprave("PosljiStanje", str(a[0]) if a else "")', os_py)
+        # Neznana metoda na vodilu = tece starejsi Control.
+        with mock.patch.object(safeer_os, "_zagotovi_control", return_value=True), \
+                mock.patch.object(safeer_os.Gio, "bus_get_sync") as vodilo:
+            vodilo.return_value.call_sync.side_effect = Exception(
+                "GDBus.Error:org.freedesktop.DBus.Error.UnknownMethod: No such method “Poslji”")
+            self.assertEqual(safeer_os._control_naprave("Poslji", "tv", "[]"), {"ok": False, "koda": "stari_control"})
+            vodilo.return_value.call_sync.side_effect = Exception("Timeout was reached")
+            self.assertEqual(safeer_os._control_naprave("Seznam")["koda"], "napaka")

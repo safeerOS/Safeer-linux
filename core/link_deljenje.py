@@ -39,11 +39,23 @@ def _osnova(ws_naslov: str) -> str:
     return f"https://{u.netloc}"
 
 
+#: Razlogi, zakaj datoteke ni mogoce oddati sredisci druge naprave (core/link_mesh.sredisce_naprave).
+SPOROCILA_SREDISCA = {
+    "naprava_pri_drugem_srediscu": "Naprava je povezana prek drugega središča; datoteke ji od tu ni mogoče poslati.",
+    "sredisce_naprave_ni_dosegljivo": "Naprava v tem omrežju ni dosegljiva.",
+}
+
+
 def napaka_huba(koda: int, odgovor: dict) -> Dict[str, str]:
     """Stabilna koda napake in - pri zasedeni napravi - kdo z njo deli (kot na telefonu)."""
+    oznaka = odgovor.get("koda") or odgovor.get("error_code") or ""
+    if koda in (405, 501) or (koda == 404 and oznaka in ("", "ni_poti")):
+        # Sredisce te poti nima: racunalnik s Safeerjem pred 2.1.45 (deljenje je znal samo Hub na Androidu).
+        return {"sporocilo": "Središče tega še ne zna; posodobi Safeer na napravi, ki je središče.",
+                "koda": "sredisce_ne_zna", "zasedenaOd": ""}
     return {
         "sporocilo": odgovor.get("napaka") or odgovor.get("error") or f"Hub je odgovoril {koda}",
-        "koda": odgovor.get("koda") or odgovor.get("error_code") or "",
+        "koda": oznaka,
         "zasedenaOd": odgovor.get("busy_by_name") or odgovor.get("busy_by") or "",
     }
 
@@ -105,18 +117,30 @@ def poslji_datoteko(ws_naslov: str, zeton: str, odtis: str, moj_id: str, cilj: s
         povezava.endheaders()
         poslano = 0
         zadnji = -1
+        prekinjeno: Optional[Exception] = None
         with open(pot, "rb") as f:
             while True:
                 kos = f.read(KOS)
                 if not kos:
                     break
-                povezava.send(kos)
+                try:
+                    povezava.send(kos)
+                except OSError as e:
+                    # Sredisce je oddajo zavrnilo in zaprlo povezavo, se preden smo poslali vse (cilj ni povezan, ni
+                    # prostora ...): razlog je morda ze v odgovoru - spodaj ga poskusimo prebrati.
+                    prekinjeno = e
+                    break
                 poslano += len(kos)
                 odst = int(poslano * 100 / velikost) if velikost else 100
                 if napredek and odst != zadnji:
                     zadnji = odst
                     napredek(odst)
-        odgovor = povezava.getresponse()
+        try:
+            odgovor = povezava.getresponse()
+        except Exception:
+            if prekinjeno is not None:
+                raise prekinjeno
+            raise
         telo = odgovor.read().decode("utf-8", "replace")
         try:
             j = json.loads(telo) if telo else {}

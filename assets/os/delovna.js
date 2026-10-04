@@ -99,6 +99,21 @@
       odpreSafeerOs: "odpre Safeer OS",
       skNaprave: "Naprave", napravaDatoteke: "datoteke na napravi", napravaProgrami: "programi naprave",
       isciVMedijih: "Poišči »{q}« v Medijskem centru", odpreMedijski: "filmi, serije, glasba, radio",
+      posljiNaNapravo: "Pošlji na napravo …", posNiNaprav: "V Safeer Linku ni naprave, ki bi sprejela datoteko.",
+      posPosiljam: "Pošiljam napravi {naprava}: {ime} … {odst} %",
+      posPosiljamN: "Pošiljam napravi {naprava} ({k} od {n}): {ime} … {odst} %",
+      posPoslano: "Poslano napravi {naprava}: {ime}", posPoslanoN: "Poslano napravi {naprava}: {n}", posMapeNe: " Mape niso poslane.",
+      posNapaka: "Pošiljanje napravi {naprava} ni uspelo: {razlog}.",
+      posN_naprava_ni_povezana: "naprava ni povezana",
+      posN_sredisce_ne_zna: "središče tega še ne zna – posodobi Safeer na napravi, ki je središče",
+      posN_naprava_pri_drugem_srediscu: "naprava je povezana prek drugega središča",
+      posN_stari_control: "Safeer Control je treba zagnati znova (teče starejša različica)",
+      posN_ni_controla: "Safeer Control ne teče", posN_hub_ni_znan: "ta računalnik ni povezan v Safeer Link",
+      posN_samo_mape: "map ni mogoče poslati, samo datoteke", posN_prevec_datotek: "preveč datotek naenkrat (največ {najvec})",
+      posN_prevelika: "datoteka je večja od 4 GB", posN_ni_prostora: "ni dovolj prostora za datoteko",
+      posN_naprava_zasedena: "z napravo trenutno deli druga naprava", posN_ni_datoteke: "datoteke ni več",
+      posN_naprava_ni_seznanjena: "ta računalnik pri središču ni prijavljen",
+      posN_sredisce_naprave_ni_dosegljivo: "naprava v tem omrežju ni dosegljiva", posN_posiljanje_ni_uspelo: "povezava je bila prekinjena",
       isciVSpletu: "Išči »{q}« v spletu", odpreVBrskalniku: "privzeti brskalnik", isciem: "Iščem …",
       prostor: "{n} el.",
       spremeniOzadje: "Spremeni ozadje …", prilagodiDock: "Prilagodi dock …",
@@ -227,6 +242,21 @@
       odpreSafeerOs: "opens Safeer OS",
       skNaprave: "Devices", napravaDatoteke: "files on the device", napravaProgrami: "apps on the device",
       isciVMedijih: "Find “{q}” in the Media Centre", odpreMedijski: "films, series, music, radio",
+      posljiNaNapravo: "Send to a device …", posNiNaprav: "No device in Safeer Link can receive a file.",
+      posPosiljam: "Sending “{ime}” to {naprava} … {odst} %",
+      posPosiljamN: "Sending to {naprava}: {k} of {n} · “{ime}” … {odst} %",
+      posPoslano: "Sent to {naprava}: {ime}", posPoslanoN: "Sent to {naprava}: {n}", posMapeNe: " Folders were not sent.",
+      posNapaka: "Sending to {naprava} failed: {razlog}.",
+      posN_naprava_ni_povezana: "the device is not connected",
+      posN_sredisce_ne_zna: "the hub cannot do this yet – update Safeer on the device that is the hub",
+      posN_naprava_pri_drugem_srediscu: "the device is connected through another hub",
+      posN_stari_control: "Safeer Control has to be restarted (an older version is running)",
+      posN_ni_controla: "Safeer Control is not running", posN_hub_ni_znan: "this computer is not connected to Safeer Link",
+      posN_samo_mape: "folders cannot be sent, only files", posN_prevec_datotek: "too many files at once (at most {najvec})",
+      posN_prevelika: "the file is larger than 4 GB", posN_ni_prostora: "not enough space for the file",
+      posN_naprava_zasedena: "another device is sharing with that device right now", posN_ni_datoteke: "the file is gone",
+      posN_naprava_ni_seznanjena: "this computer is not signed in at the hub",
+      posN_sredisce_naprave_ni_dosegljivo: "the device cannot be reached on this network", posN_posiljanje_ni_uspelo: "the connection was interrupted",
       isciVSpletu: "Search the web for “{q}”", odpreVBrskalniku: "default browser", isciem: "Searching …",
       prostor: "{n} items",
       spremeniOzadje: "Change wallpaper …", prilagodiDock: "Customise dock …",
@@ -514,8 +544,10 @@
   }
 
   // ------------------------------------------------------------------ DATOTEKE
-  var D = { vir: null, vse: [], stran: 0, razvrsti: "ime", smer: 1, izbran: -1, naprave: [], nosilci: [], zahteva: 0,
-            izbrani: {}, sidro: "" };
+  // D.naprave: naprave, ki delijo svoje datoteke (odpres jih); D.sprejmejo: naprave, ki sprejmejo datoteko (cilj
+  // spusta in »Poslji na napravo«).
+  var D = { vir: null, vse: [], stran: 0, razvrsti: "ime", smer: 1, izbran: -1, naprave: [], sprejmejo: [], nosilci: [],
+            zahteva: 0, izbrani: {}, sidro: "" };
 
   // Izbira vec datotek: klik izbere eno, Ctrl+klik doda ali odvzame, Shift+klik (ali Shift+puscica) izbere obseg od
   // zadnje izbrane - tudi cez strani -, Ctrl+A vse. D.izbrani: kljuc vnosa -> vnos; D.izbran ostane vrstica s fokusom.
@@ -597,13 +629,27 @@
         pokaziMeni([[t("odpri"), function () { odpriVir({ vrsta: "lokalno", pot: n.pot }); }], [t("izvrzi"), function () { izvrziNosilec(n); }]], ev.clientX, ev.clientY);
       });
     });
-    D.naprave.forEach(function (n) { gumb(n.ime, { vrsta: "naprava", id: n.id, ime: n.ime, pot: [] }, true); });
+    // Naprave v Linku: klik pokaze njihove datoteke; na napravo, ki sprejme datoteko, lahko datoteke spustis (= poslji).
+    var nastete = {};
+    function gumbNaprave(n) {
+      if (nastete[n.id]) return;
+      nastete[n.id] = 1;
+      var g = gumb(n.ime, { vrsta: "naprava", id: n.id, ime: n.ime, pot: [] }, true);
+      if (D.sprejmejo.some(function (x) { return x.id === n.id; })) ciljPosiljanja(g, n);
+    }
+    D.naprave.forEach(gumbNaprave);
+    D.sprejmejo.forEach(gumbNaprave);
     oznaciVir();
     if (!most) return;
     klic("napraveZDatotekami").then(function (naprave) {
       var prej = JSON.stringify(D.naprave);
       D.naprave = Array.isArray(naprave) ? naprave.filter(function (n) { return n && n.id; }) : [];
       if (JSON.stringify(D.naprave) !== prej) zgradiStranDatotek();
+    }).catch(function () {});
+    klic("napraveZaPosiljanje").then(function (naprave) {
+      var prej = JSON.stringify(D.sprejmejo);
+      D.sprejmejo = Array.isArray(naprave) ? naprave.filter(function (n) { return n && n.id; }) : [];
+      if (JSON.stringify(D.sprejmejo) !== prej) zgradiStranDatotek();
     }).catch(function () {});
     osveziNosilce();
   }
@@ -918,6 +964,8 @@
       m.push([t("izreziN", { n: koliko }), function () { vOdlozisceVec(lok, true); }]);
       if (O.poti.length && D.vir && D.vir.vrsta === "lokalno") m.push([t("prilepi"), function () { prilepi(null); }]);
       m.push([t("vSmetiN", { n: koliko }), function () { vSmetiVec(lok); }]);
+      var samoDatoteke = lok.filter(function (e) { return !e.mapa; });
+      if (samoDatoteke.length) m.push([t("posljiNaNapravo"), function () { izberiNapravoInPoslji(samoDatoteke.map(function (e) { return e.pot; })); }]);
       m.push(["—"]);
     }
     m.push([t("pocistiIzbiro"), function () { pocistiIzbiro(); oznaciIzbrano(); }]);
@@ -1025,6 +1073,109 @@
         if (z.length) premakniAliKopiraj(z, cilj, false);
       }, function () {});
     });
+  }
+  // Spust na napravo v stranskem seznamu = poslji. Datoteke ostanejo, kjer so (nic se ne premakne).
+  function ciljPosiljanja(element, naprava) {
+    element.title = t("posljiNaNapravo").replace(/\s\u2026$/, "") + ": " + naprava.ime;
+    element.addEventListener("dragover", function (ev) {
+      if (!jeSpustDatotek(ev)) return;
+      ev.preventDefault(); ev.stopPropagation();
+      // Vlecenje iz Datotek dovoli samo premik (effectAllowed); spust mora izbrati dovoljen ucinek, sicer ga ni.
+      ev.dataTransfer.dropEffect = ev.dataTransfer.effectAllowed === "move" ? "move" : "copy";
+      element.classList.add("spusti");
+    });
+    element.addEventListener("dragleave", function () { element.classList.remove("spusti"); });
+    element.addEventListener("drop", function (ev) {
+      element.classList.remove("spusti");
+      if (!jeSpustDatotek(ev)) return;
+      ev.preventDefault(); ev.stopPropagation();
+      if (jeNaseVlecenje(ev)) {
+        var poti = potiIzSpusta(ev);
+        VL.poti = [];
+        posljiNaNapravo(naprava, poti);
+        return;
+      }
+      VL.zunanje = 0;
+      klic("spusceneDatoteke").then(function (zunanje) {
+        posljiNaNapravo(naprava, (Array.isArray(zunanje) ? zunanje : []).map(String));
+      }, function () {});
+    });
+  }
+  // Razlog neuspeha v jeziku strani; neznana koda pokaze sporocilo Controla.
+  function razlogPosiljanja(r) {
+    var k = "posN_" + ((r && r.koda) || "");
+    if ((BESEDILA[jezik] && BESEDILA[jezik][k]) || BESEDILA.en[k]) return t(k, { najvec: (r && r.najvec) || "" });
+    return (r && (r.sporocilo || r.message || r.koda)) || t("niUspelo");
+  }
+  function besediloPosiljanja(r, naprava) {
+    var ime = r.naprava || naprava.ime;
+    if (r.stanje === "posiljam") {
+      return r.datotek > 1 ? t("posPosiljamN", { naprava: ime, k: Math.min(r.datotek, (r.poslanih || 0) + 1), n: r.datotek, ime: r.ime, odst: r.odstotek || 0 })
+                           : t("posPosiljam", { naprava: ime, ime: r.ime, odst: r.odstotek || 0 });
+    }
+    if (r.stanje === "poslano") {
+      return (r.datotek > 1 ? t("posPoslanoN", { naprava: ime, n: steviloElementov(r.datotek) }) : t("posPoslano", { naprava: ime, ime: r.ime })) +
+        (r.mape ? t("posMapeNe") : "");
+    }
+    return t("posNapaka", { naprava: ime, razlog: razlogPosiljanja(r) });
+  }
+  // Datoteke odda Safeer Control (isto kot »Poslji datoteko« v njem); tu spremljamo napredek do konca.
+  function posljiNaNapravo(naprava, poti) {
+    poti = (poti || []).filter(Boolean);
+    if (!poti.length) return;
+    obvesti(t("posPosiljam", { naprava: naprava.ime, ime: poti[0].split("/").pop(), odst: 0 }));
+    klic("posljiNapravi", [naprava.id, poti]).then(function (r) {
+      if (!r || !r.ok) { obvesti(t("posNapaka", { naprava: naprava.ime, razlog: razlogPosiljanja(r) })); return; }
+      obvesti(besediloPosiljanja(r, naprava));
+      if (r.stanje === "posiljam") spremljajPosiljanje(r.id, naprava);
+    }).catch(function () { obvesti(t("posNapaka", { naprava: naprava.ime, razlog: t("niUspelo") })); });
+  }
+  function spremljajPosiljanje(id, naprava) {
+    var brezOdgovora = 0;
+    function korak() {
+      klic("posljiStanje", [id]).then(function (r) {
+        if (!r || !r.ok) {
+          if (++brezOdgovora > 5) { obvesti(t("posNapaka", { naprava: naprava.ime, razlog: razlogPosiljanja(r) })); return; }
+          setTimeout(korak, 1000); return;
+        }
+        brezOdgovora = 0;
+        obvesti(besediloPosiljanja(r, naprava));
+        if (r.stanje === "posiljam") setTimeout(korak, 600);
+      }).catch(function () {
+        if (++brezOdgovora > 5) { obvesti(t("posNapaka", { naprava: naprava.ime, razlog: t("niUspelo") })); return; }
+        setTimeout(korak, 1000);
+      });
+    }
+    setTimeout(korak, 400);
+  }
+  // »Poslji na napravo …« iz menija: izbira naprave, ki sprejme datoteko.
+  function izberiNapravoInPoslji(poti) {
+    poti = (poti || []).filter(Boolean);
+    if (!poti.length) return;
+    klic("napraveZaPosiljanje").then(function (naprave) {
+      naprave = (Array.isArray(naprave) ? naprave : []).filter(function (n) { return n && n.id; });
+      if (!naprave.length) { obvesti(t("posNiNaprav")); return; }
+      var naslov = t("posljiNaNapravo").replace(/\s\u2026$/, "");
+      var ovoj = el("div", "meni lastnosti odpri-z"); ovoj.setAttribute("role", "dialog"); ovoj.setAttribute("aria-label", naslov);
+      ovoj.appendChild(el("p", "meni-naslov", naslov));
+      ovoj.appendChild(el("p", "lastnosti-ime", poti.length > 1 ? t("izbranoN", { n: steviloElementov(poti.length) }) : poti[0].split("/").pop()));
+      var seznam = el("div", "odpri-z-seznam");
+      function zapri() { ovoj.remove(); document.removeEventListener("keydown", esc, true); }
+      function esc(ev) { if (ev.key === "Escape") { ev.preventDefault(); zapri(); } }
+      naprave.forEach(function (n) {
+        var b = el("button"); b.type = "button";
+        b.appendChild(ikonaVrste("naprava"));
+        b.appendChild(el("span", "ime", n.ime));
+        b.addEventListener("click", function () { zapri(); posljiNaNapravo(n, poti); });
+        seznam.appendChild(b);
+      });
+      ovoj.appendChild(seznam);
+      var g = el("button", "zapri", t("zapri")); g.type = "button"; g.addEventListener("click", zapri);
+      ovoj.appendChild(g);
+      document.addEventListener("keydown", esc, true);
+      document.body.appendChild(ovoj);
+      seznam.querySelector("button").focus();
+    }).catch(function () { obvesti(t("niUspelo")); });
   }
   function premakniAliKopiraj(poti, cilj, premakni) {
     obvesti(t(premakni ? "premikam" : "kopiram"));
@@ -1298,6 +1449,7 @@
       m.push([t("preimenujMeni"), function () { odpriOknoNovo({ nacin: "preimenuj", pot: e.pot, ime: e.ime, mapa: e.mapa }); }]);
       m.push([t("vSmeti"), function () { vSmeti(e); }]);
       m.push([t("lastnosti"), function () { lastnosti(e); }]);
+      if (!e.mapa) m.push([t("posljiNaNapravo"), function () { izberiNapravoInPoslji([e.pot]); }]);
       if (!e.mapa) m.push([t("shraniNaNapravo"), function () { shraniNaNapravo(e); }]);
       if (!e.mapa && e.vrsta === "video") m.push([t("pretvori"), function () { pretvoriVideo(e); }]);
       if (e.mapa) m.push([t("pretvoriMapo"), function () { pretvoriMapo(e); }]);

@@ -35,13 +35,19 @@ import time
 from typing import Callable, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
 
-from core import link_krog, link_tls, link_ws
+from core import link_hub_deljenje, link_krog, link_tls, link_ws
 
 #: Vrata Huba. Najprej privzeta (naprave jih poznajo tudi brez mDNS), sicer katerakoli prosta.
 PRIVZETA_VRATA = 8990
 POT_WS = "/cast/ws"
 #: Deljene datoteke prek Huba (tok in prenos tudi prek Global Linka).
 POT_DATOTEKE = "/cast/d/"
+#: Deljenje med napravami (core/link_hub_deljenje.py): besedilo, oddaja datoteke in njen prevzem.
+POT_BESEDILO = "/cast/share/text"
+POT_ODDAJA = "/cast/file"
+POT_PREVZEM = "/cast/file/"
+#: Toliko neprebranega telesa se preberemo in zavrzemo, da odjemalec dobi odgovor z napako; pri vecjem zapremo.
+NAJVEC_ZAVRZENEGA = 64 * 1024 * 1024
 
 NAJVEC_NAPRAV = 32
 NAJVEC_IMENA = 64
@@ -203,6 +209,8 @@ class Hub:
         #: Klice se, ko sosed pride ali odide (id, naslov ali ""): MeshPovezovalec si zapomni naslov
         #: in ob izgubi takoj poskusi znova.
         self.ob_sosedu: Optional[Callable[[str, str], None]] = None
+        #: Datoteke na poti od posiljatelja do cilja (PUT /cast/file -> share.file -> GET /cast/file/<id>).
+        self.deljenje = link_hub_deljenje.Deljenje(ura=ura)
 
     # ------------------------------------------------------------------ prijava s podpisom
 
@@ -800,6 +808,54 @@ class Hub:
     def _ime_naprave(self, device_id: str) -> str:
         n = self.najdi(device_id)
         return n.ime if n is not None and n.ime else device_id
+
+    # ------------------------------------------------------------------ deljenje (besedilo, datoteka)
+
+    def cilj_deljenja(self, cilj: str, posiljatelj: str, datoteka: bool = False) -> Optional[tuple]:
+        """None, ce cilj lahko dobi deljenje; sicer (koda HTTP, sporocilo, oznaka)."""
+        if not cilj:
+            return 400, "Manjka target.", "manjka_target"
+        if cilj == posiljatelj:
+            return 400, "Naprava ne more deliti sama s sabo.", "isti_naprava"
+        naprava = self.najdi(cilj)
+        if naprava is None or naprava.povezava is None:
+            return 404, "Ciljna naprava ni povezana.", "naprava_ni_povezana"
+        if datoteka and naprava.sosed:
+            # Cilj datoteko prevzame pri SVOJEM sredisci (pot v share.file je relativna), ta pa je pri nas.
+            return 409, "Ciljna naprava je povezana prek drugega središča; datoteke ji od tu ni mogoče poslati.", \
+                "naprava_pri_drugem_srediscu"
+        return None
+
+    def posreduj_deljenje(self, tip: str, posiljatelj: str, cilj: str, tovor: dict, ime_posiljatelja: str = "") -> bool:
+        """Sporocilo deljenja ciljni napravi - enako, kot ga poslje Hub na Androidu (posredujDeljenje)."""
+        naprava = self.najdi(cilj)
+        if naprava is None or naprava.povezava is None:
+            return False
+        ime = self._ime_naprave(posiljatelj)
+        sporocilo = {"id": "hub-" + link_ws.nakljucni(8), "type": tip, "target": cilj, "sender": posiljatelj,
+                     "sender_name": ime if ime != posiljatelj or not ime_posiljatelja else ime_posiljatelja,
+                     "timestamp": self.ura(), "payload": tovor}
+        try:
+            return naprava.povezava.poslji(json.dumps(sporocilo, ensure_ascii=False)) is not False
+        except Exception:
+            return False
+
+    def deli_besedilo(self, zeton: str, cilj: str, besedilo: str) -> tuple:
+        """POST /cast/share/text. Vrne (koda HTTP, odgovor)."""
+        lastnik = self.naprava_zetona(zeton)
+        if not lastnik:
+            return 401, link_hub_deljenje.napaka("Naprava ni seznanjena.", "naprava_ni_seznanjena")
+        posiljatelj, ime = lastnik
+        cilj = str(cilj or "").strip()[:NAJVEC_IMENA]
+        besedilo = str(besedilo or "")[:link_hub_deljenje.NAJVEC_BESEDILA]
+        if cilj and not besedilo.strip():
+            return 400, link_hub_deljenje.napaka("Besedilo je prazno.", "prazno_besedilo")
+        zavrnjeno = self.cilj_deljenja(cilj, posiljatelj)
+        if zavrnjeno is not None:
+            return zavrnjeno[0], link_hub_deljenje.napaka(zavrnjeno[1], zavrnjeno[2])
+        if not self.posreduj_deljenje("share.text", posiljatelj, cilj, {"text": besedilo}, ime):
+            return 404, link_hub_deljenje.napaka("Ciljna naprava ni povezana.", "naprava_ni_povezana")
+        return 200, {"sent": True}
 
     def steviloCakajocihKlepetov(self, cilj: str) -> int:  # noqa: N802 (enako ime kot na Androidu)
         with self._klepet_zaklep:
@@ -1560,6 +1616,9 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
         if pot.startswith(POT_DATOTEKE):
             self._datoteka(pot, samo_glava=False)
             return
+        if pot.startswith(POT_PREVZEM):
+            self._prevzem_datoteke(pot)
+            return
         if pot in ("/cast/devices", "/cast/trust/ring"):
             # Seznam naprav in krog zaupanja (kljuci, imena, kdo je koga dodal) dobijo samo prijavljene
             # naprave, po WebSocketu (cast.devices, trust.update). Po HTTP ju ta Hub ne daje nikomur:
@@ -1571,7 +1630,7 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
                    "/cast/pair/qr/join", "/cast/pair/qr/invite", "/cast/pair/qr/invite/status",
                    "/cast/pair/qr/invite/cancel", "/cast/pair/qr/odprto",
                    "/cast/pair/qr/start", "/cast/pair/qr/info", "/cast/pair/qr/approve",
-                   "/cast/pair/qr/status", "/cast/pair/qr/cancel"):
+                   "/cast/pair/qr/status", "/cast/pair/qr/cancel", POT_BESEDILO, POT_ODDAJA):
             # Pot obstaja, a ne kot GET. Po tem naprava loci Safeer Hub od poljubnega streznika.
             self._napaka(405, "Ta način za to pot ni dovoljen.", "metoda_ni_dovoljena")
             return
@@ -1605,11 +1664,117 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
         from core import link_datoteke
         link_datoteke.postrezi_datoteko(self, streznik, unquote(pot[len(POT_DATOTEKE):]), samo_glava)
 
+    # ------------------------------------------------------------------ deljenje: datoteka
+    def _prevzem_datoteke(self, pot: str) -> None:
+        """GET /cast/file/<id>?k=<kljuc>: ciljna naprava prevzame datoteko, ki ji jo je napovedal share.file."""
+        zaloga = self._hub.deljenje
+        kljuc = (parse_qs(urlparse(self.path).query).get("k") or [""])[0]
+        d = zaloga.najdi(pot[len(POT_PREVZEM):].split("/")[0], kljuc)
+        if d is None:
+            self._odgovori(404, link_hub_deljenje.napaka("Te datoteke ni.", "ni_datoteke"))
+            return
+        if not zaloga.zacni_prevzem():
+            self._odgovori(503, link_hub_deljenje.napaka("Preveč hkratnih prenosov.", "prevec_prenosov"))
+            return
+        cela = False
+        try:
+            with open(d.pot, "rb") as vhod:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(d.velikost))
+                self.send_header("x-safeer-sha256", d.sha256)
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.close_connection = True
+                poslano = 0
+                while True:
+                    kos = vhod.read(link_hub_deljenje.KOS)
+                    if not kos:
+                        break
+                    self.wfile.write(kos)
+                    poslano += len(kos)
+                self.wfile.flush()
+                cela = poslano == d.velikost
+        except Exception:  # noqa: BLE001 - cilj je prekinil prevzem; datoteka pocaka na nov poskus
+            self.close_connection = True
+        finally:
+            zaloga.koncaj_prevzem(d, cela)
+
+    def _zavrzi_telo(self) -> None:
+        """Pred odgovorom z napako: majhno telo preberemo (odjemalec ga se posilja), pri velikem zapremo povezavo."""
+        try:
+            dolzina = int(self.headers.get("Content-Length") or 0)
+        except Exception:
+            dolzina = -1
+        if dolzina < 0 or dolzina > NAJVEC_ZAVRZENEGA:
+            self.close_connection = True
+            return
+        try:
+            ostalo = dolzina
+            while ostalo > 0:
+                kos = self.rfile.read(min(link_hub_deljenje.KOS, ostalo))
+                if not kos:
+                    break
+                ostalo -= len(kos)
+        except Exception:
+            self.close_connection = True
+
+    def do_PUT(self) -> None:
+        """PUT /cast/file?name=&target=: naprava odda datoteko za drugo napravo; cilju pove Hub (share.file)."""
+        u = urlparse(self.path)
+        if not self._je_krajevni():
+            self._zavrzi_telo()
+            self._napaka(403, "Safeer Link deluje samo v krajevnem omrežju.", "samo_krajevno")
+            return
+        if u.path != POT_ODDAJA:
+            self._zavrzi_telo()
+            self._napaka(404, "Ni te poti.", "ni_poti")
+            return
+        hub = self._hub
+        lastnik = hub.naprava_zetona(self.headers.get("X-Safeer-Token") or "")
+        if not lastnik:
+            self._zavrzi_telo()
+            self._odgovori(401, link_hub_deljenje.napaka("Naprava ni seznanjena.", "naprava_ni_seznanjena"))
+            return
+        posiljatelj, ime_posiljatelja = lastnik
+        q = parse_qs(u.query)
+        ime = link_hub_deljenje.varno_ime((q.get("name") or [""])[0])
+        cilj = (q.get("target") or [""])[0].strip()[:NAJVEC_IMENA]
+        try:
+            dolzina = int(self.headers.get("Content-Length") or -1)
+        except Exception:
+            dolzina = -1
+        zavrnjeno = hub.cilj_deljenja(cilj, posiljatelj, datoteka=True) if cilj else None
+        if zavrnjeno is not None:
+            self._zavrzi_telo()
+            self._odgovori(zavrnjeno[0], link_hub_deljenje.napaka(zavrnjeno[1], zavrnjeno[2]))
+            return
+        vnaprej = hub.deljenje.preveri(ime, cilj, dolzina)
+        if vnaprej is not None:
+            self._zavrzi_telo()
+            self._odgovori(vnaprej[0], vnaprej[1])
+            return
+        koda, odgovor, d = hub.deljenje.sprejmi(self.rfile, dolzina, ime, cilj, posiljatelj,
+                                               self.headers.get("x-safeer-sha256") or "")
+        if d is None:
+            self.close_connection = True      # telo morda ni prebrano do konca
+        else:
+            # Ce je cilj medtem odsel, datoteka pocaka na Hubu (eno uro); posiljatelj je svoje opravil.
+            hub.posreduj_deljenje("share.file", posiljatelj, cilj, d.tovor(), ime_posiljatelja)
+        self._odgovori(koda, odgovor)
+
     # ------------------------------------------------------------------ POST
     def do_POST(self) -> None:
         pot = urlparse(self.path).path
         if not self._je_krajevni():
             self._napaka(403, "Safeer Link deluje samo v krajevnem omrežju.", "samo_krajevno")
+            return
+        if pot == POT_BESEDILO:
+            telo = self._telo()
+            koda, odgovor = self._hub.deli_besedilo(self.headers.get("X-Safeer-Token") or "",
+                                                    str(telo.get("target") or ""), str(telo.get("text") or ""))
+            self._odgovori(koda, odgovor)
             return
         if pot == "/cast/auth/challenge":
             telo = self._telo()
@@ -2032,17 +2197,27 @@ class HubStreznik:
 
     def _pospravljanje(self) -> None:
         """Enkrat na dan (prvic uro po zagonu) pospravi krog (Hub.pospravi_krog); tece, dokler tece streznik."""
-        cakaj = 3600.0
+        do_kroga = 3600.0
         while True:
-            time.sleep(cakaj)
+            # Vsakih deset minut: neprevzete deljene datoteke (veljajo eno uro) ne ostajajo na disku.
+            time.sleep(600.0)
+            do_kroga -= 600.0
             with self._zaklep:
                 if self._streznik is None:
                     return
+                hub = self.hub
+            try:
+                if hub is not None:
+                    hub.deljenje.pocisti()
+            except Exception:
+                pass
+            if do_kroga > 0:
+                continue
             try:
                 self.hub.pospravi_krog()
             except Exception:
                 pass
-            cakaj = 86400.0
+            do_kroga = 86400.0
 
     def ustavi(self) -> None:
         with self._zaklep:
@@ -2058,6 +2233,11 @@ class HubStreznik:
             try:
                 streznik.shutdown()
                 streznik.server_close()
+            except Exception:
+                pass
+            try:
+                if self.hub is not None:
+                    self.hub.deljenje.izprazni()
             except Exception:
                 pass
         self.vrata = 0

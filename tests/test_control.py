@@ -375,3 +375,42 @@ class ControlPredaja(unittest.TestCase):
         self.assertEqual(app._naprave_metoda("Ponudi", ["n-tv"])["koda"], "stara")
         app.link.stanje = {"stanje": "ustavljeno"}
         self.assertEqual(app._naprave_metoda("Ponudi", ["n-tel"])["koda"], "ni_predvajanja")
+
+    def test_poslji_odda_datoteke_izbrani_napravi(self):
+        """D-Bus Poslji/PosljiStanje (Datoteke Safeer OS: povleci na napravo): vsaka datoteka gre po isti poti kot
+        »Poslji datoteko« v Controlu, stran bere napredek."""
+        import json
+        import time
+        import safeer_control as sc
+        app = self._app()
+        oddano = []
+
+        def oddaj(naprava, pot, napredek=None):
+            oddano.append((naprava, os.path.basename(pot)))
+            if napredek:
+                napredek(100)
+            return True, {}
+
+        app.link.poslji_datoteko_napravi = oddaj
+        with tempfile.TemporaryDirectory() as mapa:
+            poti = []
+            for ime in ("a.txt", "b.txt"):
+                poti.append(os.path.join(mapa, ime))
+                with open(poti[-1], "w") as f:
+                    f.write(ime)
+            r = app._naprave_metoda("Poslji", ["n-tel", json.dumps(poti + [mapa])])
+            self.assertTrue(r["ok"], r)
+            self.assertEqual((r["naprava"], r["datotek"], r["mape"]), ("Telefon", 2, 1))
+            for _ in range(200):
+                s = app._naprave_metoda("PosljiStanje", [r["id"]])
+                if s["stanje"] != "posiljam":
+                    break
+                time.sleep(0.01)
+            self.assertEqual((s["stanje"], s["poslanih"], s["odstotek"]), ("poslano", 2, 100))
+            self.assertEqual(oddano, [("n-tel", "a.txt"), ("n-tel", "b.txt")])
+            self.assertEqual(app._naprave_metoda("Poslji", ["n-tel", "to ni json"])["koda"], "ni_datoteke")
+            self.assertEqual(app._naprave_metoda("Poslji", ["", json.dumps(poti)])["koda"], "ni_naprave")
+        self.assertEqual(app._naprave_metoda("PosljiStanje", ["neznan"]), {"ok": False, "koda": "ni_posiljke"})
+        for metoda in ('<method name="Poslji"><arg type="s" name="naprava" direction="in"/><arg type="s" name="poti" direction="in"/>',
+                       '<method name="PosljiStanje"><arg type="s" name="id" direction="in"/>'):
+            self.assertIn(metoda, sc.SafeerControl.VMESNIK_NAPRAVE)

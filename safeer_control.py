@@ -794,6 +794,8 @@ class SafeerControl(Gtk.Application):
       <method name="Predaja"><arg type="s" name="json" direction="out"/></method>
       <method name="Prevzemi"><arg type="s" name="naprava" direction="in"/><arg type="s" name="podatki" direction="in"/><arg type="s" name="ustavi_tam" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="Ponudi"><arg type="s" name="naprava" direction="in"/><arg type="s" name="json" direction="out"/></method>
+      <method name="Poslji"><arg type="s" name="naprava" direction="in"/><arg type="s" name="poti" direction="in"/><arg type="s" name="json" direction="out"/></method>
+      <method name="PosljiStanje"><arg type="s" name="id" direction="in"/><arg type="s" name="json" direction="out"/></method>
     </interface></node>"""
 
     def _izvozi_naprave(self) -> None:
@@ -972,6 +974,20 @@ class SafeerControl(Gtk.Application):
             link.predvajanje.cakajoca = p
             GLib.idle_add(self.predaja_sprejmi)
             return {"ok": True}
+        if metoda in ("Poslji", "PosljiStanje"):
+            # Datoteke iz Datotek Safeer OS na izbrano napravo (povleci na napravo, »Poslji na napravo«).
+            if getattr(self, "posiljanje", None) is None:
+                from core import link_posiljanje
+                self.posiljanje = link_posiljanje.Posiljanje(
+                    link.poslji_datoteko_napravi,
+                    lambda i: next((str(n.get("ime") or "") for n in link.naprave if n.get("id") == i), ""))
+            if metoda == "PosljiStanje":
+                return self.posiljanje.stanje(str(a[0]) if a else "")
+            try:
+                poti = json.loads(str(a[1])) if len(a) > 1 else []
+            except ValueError:
+                poti = []
+            return self.posiljanje.zacni(str(a[0]) if a else "", [str(p) for p in poti] if isinstance(poti, list) else [])
         if metoda == "Ponudi":
             # "Poslji na napravo" s tega racunalnika: kar Safeer OS igra, napravi (zeton streznika datotek za njo);
             # tam caka Sprejmi, tu igra naprej.
