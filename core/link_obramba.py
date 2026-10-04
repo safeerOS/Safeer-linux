@@ -32,6 +32,7 @@ TEZE: Dict[str, int] = {
     "tipanje": 10,          # pot, ki je sredisce nima, ali okvarjena zahteva
     "brez_zaupanja": 20,    # zavrnjen podpis, vstopnica ali zeton; koda QR, ki je ni (20 na minuto)
     "okvir": 20,            # pokvarjen okvir WebSocket
+    "poskus_kode": 20,      # en krog SPAKE2 = en poskus kode (prijava ima pet krogov)
     "seznanitev": 40,       # napacna koda, prevec poskusov, zacetek prijave s kodo QR (10 na minuto)
     "zacetek_seznanitve": 100,  # zacetek seznanitve s kodo: uporabniku pokaze obvestilo (cetrti v minuti zapre vir)
 }
@@ -263,6 +264,8 @@ VRSTA_PO_NAPAKI: Dict[str, str] = {
     "qr_ne_obstaja": "brez_zaupanja", "prijava_ne_obstaja": "brez_zaupanja",
     "napacna_koda": "seznanitev", "prevec_poskusov": "seznanitev", "prevec_prijav": "seznanitev",
     "neveljavna_tocka": "seznanitev",
+    # Varovalka je povezovanje s kodo zaprla: kdor vseeno sprasuje, tipa (uporabnikova nova naprava vprasa enkrat).
+    "seznanitev_zaprta": "tipanje",
 }
 
 

@@ -863,6 +863,12 @@ class SafeerLink:
                 self._odziv("napaka", {"koda": "seznanitev_ni_stekla",
                                        "sporocilo": "Seznanitve ni bilo mogoče začeti."})
                 return
+            if zacetek.get("napaka") == "seznanitev_zaprta":
+                self._odziv("napaka", {"koda": "seznanitev_zaprta",
+                                       "sporocilo": "Povezovanje s kodo je na tisti napravi začasno zaprto, ker je "
+                                                    "nekdo ugibal kodo. Na njej odpri »Poveži naprave« ali uporabi "
+                                                    "kodo QR."})
+                return
             if zacetek.get("napaka"):
                 # Hub brez TLS ali s starim postopkom bi kodo prejel po omrezju.
                 self._odziv("napaka", {"koda": "hub_star",
