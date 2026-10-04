@@ -80,7 +80,7 @@ python3 packaging/check_version.py
 
 The smoke test uses temporary settings, opens the actual Safeer window and checks WebKit renders local HTML. It requires a graphical display. It does not use a real browsing profile. Use `xvfb-run -a` on CI where supported.
 
-The workflow builds all formats, uploads artifacts and makes **draft** tagged releases. Complete these acceptance checks before publishing:
+The workflow builds all formats, uploads artifacts and makes **draft** tagged releases. A published release is final: the workflow never replaces its files (builds are not bit-for-bit reproducible, and the checksums of the tested files are in the update manifest on safeer.si), and publishing a release does not start a build. Complete these acceptance checks before publishing:
 
 - Test .deb install/upgrade/uninstall in a disposable Mint/Ubuntu system.
 - Test installed Flatpak, not only `flatpak build`: nested runtime sandboxes require an installed app.
