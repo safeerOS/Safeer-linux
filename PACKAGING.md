@@ -84,7 +84,7 @@ The smoke test uses temporary settings, opens the actual Safeer window and check
 
 The workflow builds all formats, uploads artifacts and makes **draft** tagged releases. A published release is final: the workflow never replaces its files (builds are not bit-for-bit reproducible, and the checksums of the tested files are in the update manifest on safeer.si), and publishing a release does not start a build. Complete these acceptance checks before publishing:
 
-- Test .deb install/upgrade/uninstall in a disposable Mint/Ubuntu system.
+- .deb installation, upgrade, start and removal are tested by the workflow itself: the `mint` job (`tools/mint_namestitev`) installs the last published release on Linux Mint 22 and 22.3, upgrades it to the very files of the new release with the command Safeer OS itself uses, starts Safeer OS as a normal user and checks that nothing is left after removal; the release job requires it. Still by hand: the desktop itself (the Cinnamon look, the panel, the workspace).
 - Test installed Flatpak, not only `flatpak build`: nested runtime sandboxes require an installed app.
 - Verify launcher name/icon, network HTTPS, download and portal-selected save/upload, clipboard, external URI confirmation, sound, microphone and camera behavior on X11 and Wayland.
 - Close and reopen: cookies/settings survive; no cross-format profile corruption.
