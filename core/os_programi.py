@@ -157,10 +157,14 @@ class Programi:
         self._vnosi: Dict[str, dict] = {}
 
     # ------------------------------------------------------------------ seznam
+    def mape(self) -> List[str]:
+        """Mape z zaganjalniki (.desktop), iz katerih je seznam - iste spremlja [NadzorProgramov]."""
+        return list(self._mape if self._mape is not None else link_programi._mape_vnosov())
+
     def preberi(self) -> Dict[str, dict]:
         najdeni: Dict[str, dict] = {}
         videna = set()
-        for mapa in (self._mape if self._mape is not None else link_programi._mape_vnosov()):
+        for mapa in self.mape():
             try:
                 imena = sorted(os.listdir(mapa))
             except OSError:
@@ -270,6 +274,79 @@ class Programi:
 
 
 # ---------------------------------------------------------------------- ikone
+class NadzorProgramov:
+    """Pove, ko se na racunalniku namesti ali odstrani program: v mapi z zaganjalniki se pojavi ali izgine vnos
+    .desktop. Stran, ki kaze seznam programov, ga takrat prebere znova (4. 10. 2026: program, namescen ob odprti
+    delovni povrsini, se v plosci Programi ni pokazal do ponovnega zagona).
+
+    Namestitev paketa sprozi vec sprememb zapored (zacasne datoteke upravljalnika paketov), zato pride eno obvestilo,
+    [zamik_ms] po zadnji spremembi. Tece v glavni zanki GLib (ustvari se v njeni niti)."""
+
+    def __init__(self, mape: List[str], ob_spremembi, zamik_ms: int = 1500) -> None:
+        self._mape = list(mape)
+        self._ob_spremembi = ob_spremembi
+        self._zamik_ms = zamik_ms
+        self._nadzori: list = []
+        self._casovnik = 0
+
+    def zacni(self) -> int:
+        """Zacne spremljati; vrne stevilo map, ki jih spremlja (0 = brez GLib ali brez map)."""
+        if self._nadzori:
+            return len(self._nadzori)
+        try:
+            from gi.repository import Gio
+        except Exception:  # noqa: BLE001
+            return 0
+        for mapa in self._mape:
+            try:
+                nadzor = Gio.File.new_for_path(mapa).monitor_directory(Gio.FileMonitorFlags.NONE, None)
+                nadzor.connect("changed", self._sprememba)
+                self._nadzori.append(nadzor)
+            except Exception:  # noqa: BLE001
+                continue
+        return len(self._nadzori)
+
+    @staticmethod
+    def zadeva(ime: str) -> bool:
+        """Ali sprememba datoteke s tem imenom lahko spremeni seznam programov (vnos .desktop, tudi zacasni)."""
+        return ".desktop" in (ime or "")
+
+    def _sprememba(self, _nadzor, datoteka, _druga, _vrsta) -> None:
+        try:
+            ime = datoteka.get_basename() or ""
+        except Exception:  # noqa: BLE001
+            ime = ""
+        if not self.zadeva(ime):
+            return
+        from gi.repository import GLib
+        if self._casovnik:
+            GLib.source_remove(self._casovnik)
+        self._casovnik = GLib.timeout_add(self._zamik_ms, self._poslji)
+
+    def _poslji(self) -> bool:
+        self._casovnik = 0
+        try:
+            self._ob_spremembi()
+        except Exception:  # noqa: BLE001
+            pass
+        return False
+
+    def koncaj(self) -> None:
+        for nadzor in self._nadzori:
+            try:
+                nadzor.cancel()
+            except Exception:  # noqa: BLE001
+                pass
+        self._nadzori = []
+        if self._casovnik:
+            try:
+                from gi.repository import GLib
+                GLib.source_remove(self._casovnik)
+            except Exception:  # noqa: BLE001
+                pass
+            self._casovnik = 0
+
+
 def pot_ikone(ime: str, velikost: int = IKONA_VELIKOST) -> str:
     """Ikona programa kot PNG v predpomnilniku; vrne pot ali ''. Klicati na glavni niti (Gtk)."""
     if not ime:

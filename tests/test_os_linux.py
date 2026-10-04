@@ -2,6 +2,7 @@
 import os
 import re
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -70,6 +71,48 @@ class Programi(unittest.TestCase):
         z = next(x for x in self.p.seznam() if x["id"] == oznaka)
         self.assertEqual((z["pripet"], z["skrit"]), (True, False))
         self.assertEqual(self.p.skrij_domov("../zlo.desktop"), [])
+
+    def test_nadzor_javi_namestitev_programa(self):
+        """Program, namescen med delovanjem: eno obvestilo po zadnji spremembi; druge datoteke ne stejejo."""
+        self.assertEqual(self.p.mape(), [self.mapa])
+        self.assertTrue(os_programi.NadzorProgramov.zadeva("a.desktop") and os_programi.NadzorProgramov.zadeva("a.desktop.dpkg-new"))
+        self.assertFalse(os_programi.NadzorProgramov.zadeva("mimeinfo.cache") or os_programi.NadzorProgramov.zadeva(""))
+        try:
+            import gi
+            gi.require_version("Gio", "2.0")
+            from gi.repository import GLib
+        except Exception:  # noqa: BLE001
+            self.skipTest("brez GLib")
+        klici = []
+        nadzor = os_programi.NadzorProgramov(self.p.mape(), lambda: klici.append(len(self.p.seznam())), zamik_ms=150)
+        self.assertEqual(nadzor.zacni(), 1)
+        self.assertEqual(nadzor.zacni(), 1, "drugi klic ne podvoji nadzora")
+        kontekst = GLib.MainContext.default()
+
+        def vrti(sekund, do=lambda: False):
+            konec = time.monotonic() + sekund
+            while time.monotonic() < konec and not do():
+                kontekst.iteration(False)
+                time.sleep(0.01)
+
+        try:
+            _pisi(os.path.join(self.mapa, "mimeinfo.cache"), "x")            # ni zaganjalnik
+            vrti(0.6)
+            self.assertEqual(klici, [])
+            # Upravljalnik paketov: zacasna datoteka, nato pravo ime - vec sprememb zapored, eno obvestilo.
+            _vnos(self.mapa, "photosuite.desktop.dpkg-new", "Name=PhotoSuite\nExec=photosuite\n")
+            os.rename(os.path.join(self.mapa, "photosuite.desktop.dpkg-new"), os.path.join(self.mapa, "photosuite.desktop"))
+            vrti(3.0, lambda: bool(klici))
+            vrti(0.5)
+            self.assertEqual(klici, [4], "eno obvestilo, in takrat je novi program ze v seznamu")
+            os.remove(os.path.join(self.mapa, "photosuite.desktop"))
+            vrti(3.0, lambda: len(klici) > 1)
+            self.assertEqual(klici, [4, 3], "odstranitev programa")
+        finally:
+            nadzor.koncaj()
+        _vnos(self.mapa, "pozneje.desktop", "Name=Pozneje\nExec=pozneje\n")
+        vrti(0.6)
+        self.assertEqual(len(klici), 2, "po koncu nadzora ni obvestil")
 
     def test_pripenjanje_se_shrani(self):
         self.p.pripni("firefox.desktop", True)

@@ -3832,6 +3832,8 @@
     if (vrsta === "okna") narisiOkna(podatki);
     if (vrsta === "predvajalnik") osveziPredvajalnik(podatki);
     if (vrsta === "medijskaKnjiznica") naloziMedije();
+    // Program namescen ali odstranjen (Safeer OS spremlja mape z zaganjalniki): seznam preberemo znova.
+    if (vrsta === "programi") nalozPrograme();
     if (vrsta === "medijskoOsvezevanje") {
       S.mediaOsvezuje = !!podatki;
       $("mediaOsvezi").disabled = S.mediaOsvezuje || !S.mediaMape.length;
