@@ -416,6 +416,9 @@ def _control_naprave(metoda: str, *argumenti: str) -> dict:
         return izid if isinstance(izid, dict) else {"ok": False}
     except Exception as e:  # noqa: BLE001
         print("[SafeerOS] naprave:", metoda, e)
+        if "UnknownMethod" in str(e) or "No such method" in str(e):
+            # Tece starejsi Safeer Control (posodobljen paket, a se nezagnan znova): metode se nima.
+            return {"ok": False, "koda": "stari_control"}
         return {"ok": False, "koda": "napaka", "message": str(e)}
 
 
@@ -563,6 +566,14 @@ def naprave_z_datotekami() -> list:
     return [{"id": n.get("id", ""), "ime": n.get("ime", ""), "platforma": n.get("platforma", ""),
              "vrsta": n.get("vrsta", "")}
             for n in izid.get("naprave") or [] if n.get("id") and not n.get("ta") and "files" in (n.get("zmoznosti") or [])]
+
+
+def naprave_za_posiljanje() -> list:
+    """Druge naprave v Linku, ki sprejmejo datoteko (zmoznost "file"): cilji za »Poslji na napravo« v Datotekah."""
+    izid = _control_naprave("Seznam")
+    return [{"id": n.get("id", ""), "ime": n.get("ime", ""), "platforma": n.get("platforma", ""),
+             "vrsta": n.get("vrsta", "")}
+            for n in izid.get("naprave") or [] if n.get("id") and not n.get("ta") and "file" in (n.get("zmoznosti") or [])]
 
 
 def datoteke_naprave(id_naprave: str, mapa: str = "") -> dict:
@@ -1886,6 +1897,12 @@ class SafeerOS(Gtk.Application):
             "magnetPrivzeto": lambda: magnet_privzeto(bool(a[0]) if a else None),
             # Skupni prostor: datoteko shrani naprava z najvec prostora; original izbrise sele uporabnik.
             "shraniNaNapravo": lambda: _control_naprave("ShrambaZacni", str(a[0]) if a else ""),
+            # Datoteke na izbrano napravo (povleci na napravo, »Poslji na napravo«): odda jih Safeer Control.
+            "napraveZaPosiljanje": naprave_za_posiljanje,
+            "posljiNapravi": lambda: _control_naprave(
+                "Poslji", str(a[0]) if a else "",
+                json.dumps([str(x) for x in (a[1] if len(a) > 1 and isinstance(a[1], list) else [])][:200])),
+            "posljiStanje": lambda: _control_naprave("PosljiStanje", str(a[0]) if a else ""),
             "shrambaStanje": lambda: _control_naprave("ShrambaStanje", str(a[0]) if a else ""),
             "shrambaIzbrisi": lambda: _control_naprave("ShrambaIzbrisi", str(a[0]) if a else ""),
             "shrambaObdrzi": lambda: _control_naprave("ShrambaObdrzi", str(a[0]) if a else ""),

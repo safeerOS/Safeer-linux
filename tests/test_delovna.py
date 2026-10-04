@@ -242,6 +242,62 @@ assert.strictEqual(privzetiZadetek([splet, { vrsta: "naprava", poImenu: false },
         self.assertIn('if (besede.length && !ujemaVse(p.ime + " " + (p.opis || ""), besede)) return false;', js)
         self.assertIn(".v-naprava {", beri("assets", "os", "delovna.css"))
 
+    def test_poslji_na_napravo(self):
+        """Datoteke na napravo v Linku: spust na napravo v stranskem seznamu in »Poslji na napravo …« v meniju. Odda jih
+        Safeer Control; datoteke ostanejo, kjer so."""
+        js = self.js
+        # Cilj spusta je samo naprava, ki sprejme datoteko; seznam pride iz Controla.
+        self.assertIn('klic("napraveZaPosiljanje")', js)
+        self.assertIn('if (D.sprejmejo.some(function (x) { return x.id === n.id; })) ciljPosiljanja(g, n);', js)
+        # Vlecenje iz Datotek dovoli samo premik: spust na napravo mora izbrati dovoljen ucinek, a nicesar ne premakne.
+        blok = js[js.index("  function ciljPosiljanja(element, naprava) {"):js.index("  // Razlog neuspeha v jeziku strani")]
+        self.assertIn('ev.dataTransfer.dropEffect = ev.dataTransfer.effectAllowed === "move" ? "move" : "copy";', blok)
+        self.assertIn("posljiNaNapravo(naprava, poti);", blok)
+        self.assertNotIn("premakniAliKopiraj", blok)
+        self.assertNotIn("prilepiDatoteke", blok)
+        # Meni: ena datoteka in izbira vec datotek (mape niso poslane).
+        self.assertIn('if (!e.mapa) m.push([t("posljiNaNapravo"), function () { izberiNapravoInPoslji([e.pot]); }]);', js)
+        self.assertIn('var samoDatoteke = lok.filter(function (e) { return !e.mapa; });', js)
+        self.assertIn('klic("posljiNapravi", [naprava.id, poti])', js)
+        self.assertIn('klic("posljiStanje", [id])', js)
+        for kljuc in ("posljiNaNapravo", "posNiNaprav", "posPosiljam", "posPosiljamN", "posPoslano", "posPoslanoN", "posMapeNe",
+                      "posNapaka", "posN_naprava_ni_povezana", "posN_sredisce_ne_zna", "posN_naprava_pri_drugem_srediscu",
+                      "posN_stari_control", "posN_ni_controla", "posN_hub_ni_znan", "posN_samo_mape", "posN_prevec_datotek",
+                      "posN_prevelika", "posN_ni_prostora", "posN_naprava_zasedena", "posN_ni_datoteke",
+                      "posN_naprava_ni_seznanjena", "posN_sredisce_naprave_ni_dosegljivo", "posN_posiljanje_ni_uspelo"):
+            self.assertEqual(js.count(kljuc + ': "'), 2, kljuc)
+
+    @unittest.skipUnless(shutil.which("node"), "node ni namescen")
+    def test_besedilo_posiljanja(self):
+        """Napredek, konec in razlog neuspeha: znana koda v jeziku strani, neznana s sporocilom Controla."""
+        js = self.js
+        blok = js[js.index("  // Razlog neuspeha v jeziku strani"):js.index("  // Datoteke odda Safeer Control")]
+        koda = """
+var assert = require("assert");
+var jezik = "sl";
+var BESEDILA = { sl: { posN_naprava_ni_povezana: "naprava ni povezana", posN_prevec_datotek: "prevec ({najvec})" }, en: { posN_stari_control: "restart" } };
+function t(k, z) { var b = BESEDILA.sl[k] || BESEDILA.en[k] || k; Object.keys(z || {}).forEach(function (x) { b = b.split("{" + x + "}").join(z[x]); }); return b + (BESEDILA.sl[k] || BESEDILA.en[k] ? "" : JSON.stringify(z || {})); }
+function steviloElementov(n) { return n + " el."; }
+""" + blok + """
+var tv = { id: "tv1", ime: "Televizor" };
+assert.strictEqual(razlogPosiljanja({ koda: "naprava_ni_povezana" }), "naprava ni povezana");
+assert.strictEqual(razlogPosiljanja({ koda: "prevec_datotek", najvec: 100 }), "prevec (100)");
+assert.strictEqual(razlogPosiljanja({ koda: "stari_control" }), "restart", "prevod iz anglescine, ce ga v jeziku ni");
+assert.strictEqual(razlogPosiljanja({ koda: "nekaj_novega", sporocilo: "Hub je odgovoril 500" }), "Hub je odgovoril 500");
+assert.strictEqual(razlogPosiljanja({ koda: "nekaj_novega" }), "nekaj_novega");
+assert.ok(razlogPosiljanja(null).indexOf("niUspelo") === 0);
+assert.strictEqual(besediloPosiljanja({ stanje: "posiljam", datotek: 1, ime: "a.txt", odstotek: 42 }, tv),
+                   'posPosiljam{"naprava":"Televizor","ime":"a.txt","odst":42}');
+assert.strictEqual(besediloPosiljanja({ stanje: "posiljam", datotek: 3, poslanih: 1, ime: "b.txt", odstotek: 50, naprava: "Dnevna" }, tv),
+                   'posPosiljamN{"naprava":"Dnevna","k":2,"n":3,"ime":"b.txt","odst":50}');
+assert.strictEqual(besediloPosiljanja({ stanje: "posiljam", datotek: 3, poslanih: 3, ime: "c.txt" }, tv).indexOf('"k":3,"n":3') > 0, true);
+assert.strictEqual(besediloPosiljanja({ stanje: "poslano", datotek: 1, ime: "a.txt" }, tv), 'posPoslano{"naprava":"Televizor","ime":"a.txt"}');
+assert.strictEqual(besediloPosiljanja({ stanje: "poslano", datotek: 3, mape: 1 }, tv), 'posPoslanoN{"naprava":"Televizor","n":"3 el."}posMapeNe{}');
+assert.strictEqual(besediloPosiljanja({ stanje: "napaka", koda: "naprava_ni_povezana" }, tv),
+                   'posNapaka{"naprava":"Televizor","razlog":"naprava ni povezana"}');
+"""
+        subprocess.run(["node", "-e", koda], check=True)
+
     @unittest.skipUnless(shutil.which("node"), "node ni namescen")
     def test_tipkanje_skoci_na_ime(self):
         """Tipkanje v seznamu izbere prvo datoteko, ki se zacne z vtipkanim; po premoru se zacne znova."""
