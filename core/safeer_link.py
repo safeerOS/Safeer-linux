@@ -1480,19 +1480,28 @@ class SafeerLink:
         cisto = (besedilo or "").strip()
         if not cisto:
             return
-        # Zeton za HTTP: zeton seznanitve ali sejni zeton s podpisom (racunalnik, ki je sam sredisce, zetona
-        # seznanitve nima - doslej je tu takoj odgovoril »Hub ni znan«).
-        zeton = self._zeton_http() if (self._hub() and self._odtis()) else None
-        if not zeton:
+        if not (self._hub() and self._odtis()):
             self._odziv("napaka", {"koda": "hub_ni_znan", "sporocilo": "Hub ni znan."})
             return
         self._deljenje("besedilo", "posiljam", id_naprave)
-        ok, n = link_deljenje.poslji_besedilo(self._hub(), zeton, self._odtis() or "",
-                                              self._id(), id_naprave, cisto)
+        ok, n = self.poslji_besedilo_napravi(id_naprave, cisto)
         if ok:
             self._deljenje("besedilo", "poslano", id_naprave)
         else:
             self._deljenje("besedilo", "napaka", id_naprave, sporocilo=n["sporocilo"], koda=n["koda"], zasedena_od=n["zasedenaOd"])
+
+    def poslji_besedilo_napravi(self, id_naprave: str, besedilo: str) -> Tuple[bool, Dict[str, str]]:
+        """Besedilo ali povezava napravi prek sredisca (POST /cast/share/text; cez sosednja sredisca gre kot
+        sporocilo). Vrne (uspeh, napaka). Klic caka na odgovor sredisca - vedno iz delovne niti."""
+        cisto = (besedilo or "").strip()
+        if not cisto:
+            return False, {"sporocilo": "Besedilo je prazno.", "koda": "prazno_besedilo", "zasedenaOd": ""}
+        # Zeton za HTTP: zeton seznanitve ali sejni zeton s podpisom (racunalnik, ki je sam sredisce, zetona
+        # seznanitve nima - do 2.1.44 je tu takoj odgovoril »Hub ni znan«).
+        zeton = self._zeton_http() if (self._hub() and self._odtis()) else None
+        if not zeton:
+            return False, {"sporocilo": "Hub ni znan.", "koda": "hub_ni_znan", "zasedenaOd": ""}
+        return link_deljenje.poslji_besedilo(self._hub(), zeton, self._odtis() or "", self._id(), id_naprave, cisto)
 
     def _izberi_datoteko(self, id_naprave: str = "") -> None:
         if not (self._hub() and self._odtis() and (self._zeton() or self._v_krogu())):
@@ -1613,10 +1622,11 @@ class SafeerLink:
             self.deljenje_zaslona.ustavi()
 
     def _preimenuj_napravo(self, id_naprave: str = "", ime: str = "") -> None:
-        if not (self._hub() and self._zeton() and self._odtis()):
+        zeton = self._zeton_http() if (self._hub() and self._odtis()) else None
+        if not zeton:
             self._odziv("napaka", {"koda": "hub_ni_znan", "sporocilo": "Hub ni znan."})
             return
-        ok, novo, n = link_deljenje.preimenuj_napravo(self._hub(), self._zeton() or "", self._odtis() or "", id_naprave, ime)
+        ok, novo, n = link_deljenje.preimenuj_napravo(self._hub(), zeton, self._odtis() or "", id_naprave, ime)
         if ok:
             self._odziv("preimenovano", {"id": id_naprave, "ime": novo})
         else:

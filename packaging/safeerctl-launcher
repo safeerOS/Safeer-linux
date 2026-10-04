@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# safeerctl - Safeer Link from the command line. Resolves the Safeer Control payload next to this launcher
+# (same rule as the safeer-control launcher) and runs safeerctl.py from it.
+PRG="$0"
+while [ -h "$PRG" ]; do
+    link="$(readlink "$PRG")"
+    case "$link" in
+        /*) PRG="$link" ;;
+        *) PRG="$(dirname "$PRG")/$link" ;;
+    esac
+done
+BIN_DIR="$(cd "$(dirname "$PRG")" && pwd)"
+APP_DIR="$(cd "$BIN_DIR/../lib/safeer-control" && pwd)" || {
+    echo "safeerctl: Safeer Control payload not found next to launcher." >&2
+    exit 3
+}
+exec "${PYTHON:-python3}" "$APP_DIR/safeerctl.py" "$@"

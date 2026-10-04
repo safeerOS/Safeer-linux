@@ -88,7 +88,9 @@ zamenjal datoteke v sami izdaji.
 
 **Safeer Control** — spremljevalna namizna aplikacija, ki ta računalnik poveže s telefonom ali
 televizorjem Safeer prek tvojega omrežja — je v isti izdaji kot
-`safeer-control_<verzija>_all.deb` in brskalnika ne potrebuje.
+`safeer-control_<verzija>_all.deb` in brskalnika ne potrebuje. Prinese tudi `safeerctl`, Safeer Link
+iz ukazne vrstice (`safeerctl devices`, `safeerctl send datoteka --to NAPRAVA`, `--json` za skripte):
+glej [docs/SAFEERCTL.md](docs/SAFEERCTL.md).
 
 ## Zahteve
 

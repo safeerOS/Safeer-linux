@@ -29,6 +29,7 @@ import http.server
 import json
 import os
 import logging
+import re
 import ssl
 import threading
 import time
@@ -44,6 +45,8 @@ POT_WS = "/cast/ws"
 POT_DATOTEKE = "/cast/d/"
 #: Deljenje med napravami (core/link_hub_deljenje.py): besedilo, oddaja datoteke in njen prevzem.
 POT_BESEDILO = "/cast/share/text"
+#: Ime, ki ga napravi da uporabnik (zivi v krogu zaupanja, vidijo ga vse naprave).
+POT_PREIMENUJ = "/cast/devices/rename"
 POT_ODDAJA = "/cast/file"
 POT_PREVZEM = "/cast/file/"
 #: Toliko neprebranega telesa se preberemo in zavrzemo, da odjemalec dobi odgovor z napako; pri vecjem zapremo.
@@ -840,6 +843,36 @@ class Hub:
         except Exception:
             return False
 
+    def preimenuj_napravo(self, zeton: str, device_id: str, ime: str) -> tuple:
+        """POST /cast/devices/rename: ime, ki ga je napravi dal uporabnik. Zivi v krogu zaupanja in ga vidijo vse
+        naprave (kot HubUsmerjevalnik.preimenuj na Androidu); prazno ime vrne tisto, ki ga naprava pove o sebi.
+        Preimenujemo vse clane z istim kljucem (brskalnik in Safeer Control na isti napravi). Vrne (koda, odgovor)."""
+        if not self.naprava_zetona(zeton):
+            return 401, link_hub_deljenje.napaka("Naprava ni seznanjena.", "naprava_ni_seznanjena")
+        device_id = str(device_id or "").strip()[:NAJVEC_IMENA]
+        if not device_id:
+            return 400, link_hub_deljenje.napaka("Manjka device_id.", "manjka_device_id")
+        fizicna = self.naprava_iz_kljuca(device_id)
+        if not fizicna:
+            return 404, link_hub_deljenje.napaka("Naprava ni v krogu zaupanja.", "naprava_ni_v_krogu")
+        cisto = re.sub(r"[\x00-\x1f<>]", "", str(ime or "")).strip()[:NAJVEC_IMENA]
+        krog = link_krog.krog()
+        spremenjeno = False
+        for cid, c in krog.json().get("clani", {}).items():
+            try:
+                if link_krog.id_iz_kljuca(str(c.get("kljuc") or "")) != fizicna:
+                    continue
+            except Exception:
+                continue
+            naprava = self.najdi(cid)
+            novo = cisto or (naprava.ime if naprava is not None and naprava.ime else "") or str(c.get("ime") or "")
+            if novo and novo != c.get("ime"):
+                # Novejse ime zmaga pri zdruzevanju krogov na vseh napravah (tudi ob zamaknjeni uri).
+                spremenjeno = krog.preimenuj(cid, novo, max(time.time(), float(c.get("imenovano") or 0.0) + 0.001)) or spremenjeno
+        if spremenjeno:
+            self._po_spremembi_kroga()
+        return 200, {"id": device_id, "name": self.ime_v_krogu(device_id) or self._ime_naprave(device_id)}
+
     def deli_besedilo(self, zeton: str, cilj: str, besedilo: str) -> tuple:
         """POST /cast/share/text. Vrne (koda HTTP, odgovor)."""
         lastnik = self.naprava_zetona(zeton)
@@ -1630,7 +1663,7 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
                    "/cast/pair/qr/join", "/cast/pair/qr/invite", "/cast/pair/qr/invite/status",
                    "/cast/pair/qr/invite/cancel", "/cast/pair/qr/odprto",
                    "/cast/pair/qr/start", "/cast/pair/qr/info", "/cast/pair/qr/approve",
-                   "/cast/pair/qr/status", "/cast/pair/qr/cancel", POT_BESEDILO, POT_ODDAJA):
+                   "/cast/pair/qr/status", "/cast/pair/qr/cancel", POT_BESEDILO, POT_ODDAJA, POT_PREIMENUJ):
             # Pot obstaja, a ne kot GET. Po tem naprava loci Safeer Hub od poljubnega streznika.
             self._napaka(405, "Ta način za to pot ni dovoljen.", "metoda_ni_dovoljena")
             return
@@ -1769,6 +1802,12 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
         pot = urlparse(self.path).path
         if not self._je_krajevni():
             self._napaka(403, "Safeer Link deluje samo v krajevnem omrežju.", "samo_krajevno")
+            return
+        if pot == POT_PREIMENUJ:
+            telo = self._telo()
+            koda, odgovor = self._hub.preimenuj_napravo(self.headers.get("X-Safeer-Token") or "",
+                                                        str(telo.get("device_id") or ""), str(telo.get("name") or ""))
+            self._odgovori(koda, odgovor)
             return
         if pot == POT_BESEDILO:
             telo = self._telo()

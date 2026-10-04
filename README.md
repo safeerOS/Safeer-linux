@@ -89,7 +89,9 @@ against someone who can replace files in the release itself.
 
 **Safeer Control** — the companion desktop app that pairs this computer with a Safeer phone or
 television over your own network — ships as `safeer-control_<version>_all.deb` in the same
-release and does not require the browser.
+release and does not require the browser. It also brings `safeerctl`, Safeer Link from the command
+line (`safeerctl devices`, `safeerctl send file --to DEVICE`, `--json` for scripts): see
+[docs/SAFEERCTL.md](docs/SAFEERCTL.md).
 
 ## Requirements
 

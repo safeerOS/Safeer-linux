@@ -23,4 +23,9 @@ if [ "${1:-}" = "--control" ]; then
     shift
     exec "$APPDIR/usr/bin/safeer-control" "$@"
 fi
+# "--ctl" runs safeerctl: Safeer Link from the command line (talks to the Safeer Control that is running).
+if [ "${1:-}" = "--ctl" ]; then
+    shift
+    exec "$APPDIR/usr/bin/safeerctl" "$@"
+fi
 exec "$APPDIR/usr/bin/safeer-os" "$@"
