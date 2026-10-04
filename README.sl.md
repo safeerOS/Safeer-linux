@@ -49,13 +49,13 @@ imeti za privzetega, je tu `safeer --set-default`.
 
 ## Namestitev
 
-[![Izdaja](https://img.shields.io/badge/Release-v1.0.90-2dd4bf?style=flat-square)](../../releases/tag/v1.0.90)
+[![Izdaja](https://img.shields.io/badge/Release-v1.0.91-2dd4bf?style=flat-square)](../../releases/tag/v1.0.91)
 
-Zadnja izdaja: **v1.0.90** — [opombe izdaje in prenosi](../../releases/tag/v1.0.90)
+Zadnja izdaja: **v1.0.91** — [opombe izdaje in prenosi](../../releases/tag/v1.0.91)
 
 ```bash
 # Debian, Ubuntu, Linux Mint
-sudo apt install ./safeer-browser_1.0.90_all.deb
+sudo apt install ./safeer-browser_1.0.91_all.deb
 ```
 
 
@@ -90,7 +90,9 @@ zamenjal datoteke v sami izdaji.
 televizorjem Safeer prek tvojega omrežja — je v isti izdaji kot
 `safeer-control_<verzija>_all.deb` in brskalnika ne potrebuje. Prinese tudi `safeerctl`, Safeer Link
 iz ukazne vrstice (`safeerctl devices`, `safeerctl send datoteka --to NAPRAVA`, `--json` za skripte):
-glej [docs/SAFEERCTL.md](docs/SAFEERCTL.md).
+glej [docs/SAFEERCTL.md](docs/SAFEERCTL.md). S telefonom s Safeer OS Mobile lahko internet tega računalnika
+ob izpadu domače povezave teče skozi telefon — brez dostopne točke: glej
+[docs/INTERNET-GATEWAY.md](docs/INTERNET-GATEWAY.md).
 
 ## Zahteve
 

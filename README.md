@@ -50,13 +50,13 @@ you want it.
 
 ## Install
 
-[![Release](https://img.shields.io/badge/Release-v1.0.90-2dd4bf?style=flat-square)](../../releases/tag/v1.0.90)
+[![Release](https://img.shields.io/badge/Release-v1.0.91-2dd4bf?style=flat-square)](../../releases/tag/v1.0.91)
 
-Latest release: **v1.0.90** — [release notes and downloads](../../releases/tag/v1.0.90)
+Latest release: **v1.0.91** — [release notes and downloads](../../releases/tag/v1.0.91)
 
 ```bash
 # Debian, Ubuntu, Linux Mint
-sudo apt install ./safeer-browser_1.0.90_all.deb
+sudo apt install ./safeer-browser_1.0.91_all.deb
 ```
 
 
@@ -91,7 +91,9 @@ against someone who can replace files in the release itself.
 television over your own network — ships as `safeer-control_<version>_all.deb` in the same
 release and does not require the browser. It also brings `safeerctl`, Safeer Link from the command
 line (`safeerctl devices`, `safeerctl send file --to DEVICE`, `--json` for scripts): see
-[docs/SAFEERCTL.md](docs/SAFEERCTL.md).
+[docs/SAFEERCTL.md](docs/SAFEERCTL.md). With a phone running Safeer OS Mobile it can also send this
+computer's internet through the phone while the home connection is down — no hotspot needed: see
+[docs/INTERNET-GATEWAY.md](docs/INTERNET-GATEWAY.md).
 
 ## Requirements
 
