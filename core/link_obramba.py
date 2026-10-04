@@ -9,8 +9,9 @@ Pravila (docs/LINK-DEFENCE.md):
 - vsak sovrazen dogodek ima tezo; ko vsota tez enega vira v zadnji minuti doseze PRAG, je vir zaprt. Zapora je tiha:
   povezava se zapre takoj po sprejemu - brez rokovanja TLS, brez potrdila, brez odgovora;
 - zapora traja ZAPORA_S, ob vsaki ponovitvi dvakrat dlje (do NAJDALJSA_ZAPORA_S);
-- vir, ki se je pravkar izkazal kot clan kroga (veljaven podpis, vstopnica ali zeton), je zaupan: gole povezave se mu
-  ne stejejo (telefon, ki lista mapo s slikami, jih odpre na stotine), sovrazni dogodki pa stejejo polovico;
+- vir, ki se je pravkar izkazal kot clan kroga (veljaven podpis, vstopnica ali zeton) ali ima pri sredisci odprto
+  povezavo, je zaupan: gole povezave se mu ne stejejo (telefon, ki lista mapo s slikami, jih odpre na stotine),
+  sovrazni dogodki pa stejejo polovico;
 - ta naprava sama (127.0.0.1, ::1) ni nikoli zaprta: od tam prihajajo lastni programi in kanali Global Linka;
 - vec zaprtih virov v kratkem casu ali vir, ki se po zapori vraca, je napad: sredisce ga sporoci (ob_napadu).
 
@@ -79,11 +80,15 @@ class Obramba:
     def __init__(self, ura: Callable[[], float] = time.monotonic,
                  ob_zapori: Optional[Callable[[str, float, str], None]] = None,
                  ob_napadu: Optional[Callable[[List[str]], None]] = None,
-                 izvzet: Callable[[str], bool] = je_ta_naprava) -> None:
+                 izvzet: Callable[[str], bool] = je_ta_naprava,
+                 zaupan: Optional[Callable[[str], bool]] = None) -> None:
         self.ura = ura
         self.ob_zapori = ob_zapori
         self.ob_napadu = ob_napadu
         self.izvzet = izvzet
+        #: Zaupanje od zunaj: ali ima vir pri sredisci odprto povezavo (prijavljena naprava, sosednje sredisce).
+        #: Klice se zunaj zaklepa (sme vzeti zaklep sredisca).
+        self.zaupan = zaupan
         self._viri: "OrderedDict[str, _Vir]" = OrderedDict()
         self._zaklep = threading.Lock()
         self._zavrnjenih = 0
@@ -97,13 +102,14 @@ class Obramba:
         if not vir or self.izvzet(vir):
             return True
         obvestila = []
+        povezan = self._povezan(vir)
         with self._zaklep:
             zdaj = self.ura()
             v = self._vir(vir, zdaj)
             if v.zaprt_do > zdaj:
                 self._zavrnjenih += 1
                 return False
-            if v.zaupan_do <= zdaj:
+            if v.zaupan_do <= zdaj and not povezan:
                 v.dogodki.append((zdaj, TEZE["povezava"], "povezava"))
                 obvestila = self._oceni(vir, v, zdaj)
             dovoljen = v.zaprt_do <= zdaj
@@ -114,13 +120,14 @@ class Obramba:
         """Sovrazen dogodek vira (kljuc iz TEZE; neznana vrsta steje kot tipanje)."""
         if not vir or self.izvzet(vir):
             return
+        povezan = self._povezan(vir)
         with self._zaklep:
             zdaj = self.ura()
             v = self._vir(vir, zdaj)
             if v.zaprt_do > zdaj:
                 return
             teza = TEZE.get(vrsta, 10)
-            if v.zaupan_do > zdaj:
+            if v.zaupan_do > zdaj or povezan:
                 teza //= 2
             v.dogodki.append((zdaj, teza, vrsta))
             obvestila = self._oceni(vir, v, zdaj)
@@ -165,6 +172,14 @@ class Obramba:
             return True
 
     # ------------------------------------------------------------------ notranje
+
+    def _povezan(self, vir: str) -> bool:
+        if self.zaupan is None:
+            return False
+        try:
+            return bool(self.zaupan(vir))
+        except Exception:
+            return False
 
     def _vir(self, vir: str, zdaj: float) -> _Vir:
         v = self._viri.get(vir)

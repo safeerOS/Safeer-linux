@@ -44,8 +44,9 @@ source is blocked.
 * It lasts **10 minutes**, twice as long at every repetition (up to one hour); a day without a block resets the
   count.
 * **A source that has just proved to be a member of the circle** (valid signature, ticket or token) is trusted for
-  10 minutes: plain connections are not counted for it (a phone that browses a folder of pictures opens hundreds),
-  hostile events count half.
+  10 minutes, and a source with an open connection to the hub (a signed-in device, a neighbouring hub) for as long
+  as it stays connected: plain connections are not counted for it (a phone that browses a folder of pictures opens
+  hundreds), hostile events count half.
 * **The device itself** (127.0.0.1, ::1) is never blocked: its own programs and the channels of Global Link arrive
   from there.
 * What is *not* hostile: HTTP 405 (it is part of how devices recognise a hub), 409 and 503 (state, not attack).

@@ -756,6 +756,26 @@ class Hub:
                     return i
         return None
 
+    def ima_povezavo_z(self, naslov: str) -> bool:
+        """Ali ima naprava ali sosednje sredisce s tega naslova pri nas odprto povezavo (prijava z vstopnico je uspela).
+        Tak vir je za obrambo zaupan, dokler je povezan."""
+        if not naslov:
+            return False
+        with self._zaklep:
+            if any(n.povezava is not None and not n.sosed and n.naslov == naslov for n in self._naprave.values()):
+                return True
+            for p in self._sosedje.values():
+                n = str(getattr(p, "naslov", "") or "")
+                if n == naslov:
+                    return True
+                if "://" in n:        # odhodna sosednja povezava nosi naslov sredisca (wss://ip:vrata/cast/ws)
+                    try:
+                        if urlparse(n).hostname == naslov:
+                            return True
+                    except Exception:
+                        pass
+        return False
+
     def ime_po_naslovu(self, naslov: str) -> str:
         """Ime naprave, ki jo sredisce pozna s tega naslova (zadnja videna), ali ''. Za obvestilo obrambe."""
         if not naslov:
@@ -1733,6 +1753,12 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
         if streznik is None:
             self._napaka(404, "Ta naprava ne deli datotek.", "ni_datotek")
             return
+        # Zeton preveri postrezi_datoteko; obramba mora izvedeti izid (odgovor ne gre skozi _odgovori).
+        z = (self.headers.get("X-Safeer-Token") or "").strip()
+        if z and streznik.zeton_velja(z):
+            self._zaupaj()
+        else:
+            self._sovrazno("brez_zaupanja")
         from urllib.parse import unquote
         from core import link_datoteke
         link_datoteke.postrezi_datoteko(self, streznik, unquote(pot[len(POT_DATOTEKE):]), samo_glava)
@@ -2378,6 +2404,7 @@ class HubStreznik:
             streznik.socket = ctx.wrap_socket(streznik.socket, server_side=True, do_handshake_on_connect=False)
             streznik.hub = self.hub          # type: ignore[attr-defined]
             streznik.obramba = self.obramba
+            self.obramba.zaupan = self.hub.ima_povezavo_z
             streznik.datoteke = lambda: self.datoteke() if callable(self.datoteke) else self.datoteke  # type: ignore[attr-defined]
             self.vrata = streznik.server_address[1]
             try:
