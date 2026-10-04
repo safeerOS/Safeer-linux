@@ -1508,6 +1508,10 @@ class Hub:
             self._osvezi(moj_id)
             if tip.endswith(".result") or tip.endswith(".ack"):
                 return None          # odgovorov in potrditev Hub ne potrjuje
+            if prostor == "internet":
+                # Tokovi Safeer Internet Gatewaya: potrditev za vsak kos bi podvojila promet in polnila vrsto
+                # posiljatelja. Potrjujeta si napravi sami (internet.window); Hub javi samo zavrnitev.
+                return None
             return self._potrditev(id_sporocila, prostor, "accepted")
 
         if tip == "trust.names":

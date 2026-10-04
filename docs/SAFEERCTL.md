@@ -13,6 +13,10 @@ safeerctl run APP --on DEVICE             start an app on the device
 safeerctl send FILE... --to DEVICE        send files to the device
 safeerctl text TEXT --to DEVICE           send text or a link to the device
 safeerctl rename DEVICE NAME              rename the device for every device in Safeer Link
+safeerctl internet                        internet through a phone in Safeer Link: status
+safeerctl internet mode off|failover|always [--via DEVICE] [--system-proxy on|off]
+safeerctl internet test [--via DEVICE] [--path mobile|wifi|any]
+safeerctl internet env                    proxy variables for this shell
 ```
 
 `DEVICE` is the id or the name. A unique part of the name is enough; case and diacritics do not matter
@@ -70,6 +74,40 @@ describe yet.
 
 Other successful answers: `apps` → `{"apps": [{"id", "name", "group"}]}`, `run` → `{"app": {…}}`,
 `text` and `rename` → `{"id", "name"}`.
+
+## Internet through a phone
+
+A phone with Safeer OS Mobile can lend its internet to this computer over Safeer Link — no hotspot, the
+phone opens each connection itself on its mobile network. Safeer Control runs a local proxy for it
+(`docs/INTERNET-GATEWAY.md` has the protocol and the limits).
+
+```
+safeerctl internet mode failover          use the phone only while the home internet is down
+safeerctl internet mode always --via "Phone"
+safeerctl internet mode off
+safeerctl internet test                   one real request through the phone: which network, which public address
+eval "$(safeerctl internet env)"          this shell's programs use the proxy (curl, git, apt …)
+```
+
+The phone has to allow this computer once; the question appears on the phone the first time the computer
+asks. While traffic goes through the phone Safeer sets the desktop's system proxy and restores it afterwards
+(`--system-proxy off` turns that off). Destinations in the home network always go directly.
+
+```
+$ safeerctl internet --json
+{"ok": true, "nacin": "izpad", "telefon": "n-…", "prek_telefona": false,
+ "posrednik": {"tece": true, "naslov": "127.0.0.1", "vrata": 47890}, "fiksna": {"dela": true},
+ "poraba": {"danes": 0, "mesec": 0}, "sistemski": {"vklopljen": true, "podprt": true, "nastavljen": false},
+ "ponudnik": {"protocol": 2, "enabled": true, "permission": "allowed", "cellular": {"allowed": true, …}}}
+
+$ safeerctl internet test --json
+{"ok": true, "vrsta_poti": "cellular", "naslov_prek_telefona": "…", "naslov_neposredno": "…", "druga_pot": true,
+ "odprto_ms": 180, "skupaj_ms": 420}
+```
+
+`nacin` is `izklopljeno`, `izpad` (failover) or `vedno` (always). A failed `test` carries the phone's reason
+in `code`: `permission_required`, `denied`, `disabled`, `no_mobile`, `mobile_off`, `roaming`, `limit`,
+`old_provider` (the phone runs a Safeer OS older than 0.5.47) and so on.
 
 ## Exit codes
 

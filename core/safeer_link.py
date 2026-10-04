@@ -206,6 +206,11 @@ class SafeerLink:
         self.nastavitve = nastavitve if nastavitve is not None else link_hub.Nastavitve()
         self.povezava: Optional[link_hub.Povezava] = None
         self.naprave: List[dict] = []
+        # Vsi vnosi sredisca pred zdruzevanjem sorodnih: Safeer Internet Gateway cilja tocno tisti id, ki deli internet.
+        self.naprave_vse: List[dict] = []
+        # Safeer Control: internet prek telefona (core/link_internet.py, core/link_internet_posrednik.py).
+        self.internet = None
+        self.internet_upravitelj = None
         self.okno: Optional[Gtk.Window] = None
         self.pogled: Optional[WebKit2.WebView] = None
         self._seznanjanje = False
@@ -1151,6 +1156,9 @@ class SafeerLink:
     def _na_stanje_povezave(self, povezan: bool) -> None:
         self._odziv("povezava", povezan)
         self.zapisi_stanje_za_os()
+        if not povezan and self.internet is not None:
+            # Brez Linka tokovi skozi telefon nimajo kam.
+            self.internet.povezava_izgubljena()
         if self.ob_povezavi is not None:
             try:
                 self.ob_povezavi(povezan)
@@ -1187,6 +1195,11 @@ class SafeerLink:
 
     def _na_sporocilo_huba(self, sporocilo: dict) -> None:
         vrsta = sporocilo.get("type")
+        if isinstance(vrsta, str) and vrsta.startswith("internet."):
+            # Tokovi Safeer Internet Gatewaya: veliko sporocil, obdelajo se takoj na tej (bralni) niti.
+            if self.internet is not None:
+                self.internet.obdelaj(sporocilo)
+            return
         if vrsta == "cast.devices":
             naprave = []
             for d in sporocilo.get("devices") or []:
@@ -1206,6 +1219,7 @@ class SafeerLink:
                     "naprava": d.get("device") or "",
                 })
             self.naprave = _zdruzi_sorodne_naprave(naprave)
+            self.naprave_vse = naprave
             self.naprave_klepeta = self._naprave_za_klepet(naprave)
             self._odziv("naprave", self.naprave)
             zvok = self.zvok
@@ -1213,6 +1227,9 @@ class SafeerLink:
                 # Naprava, ki je predvajala zvok racunalnika, je izginila iz Linka: zvok nazaj.
                 self._v_ozadju(zvok.ustavi)
             self.zapisi_stanje_za_os()
+            if self.internet_upravitelj is not None:
+                # Telefon, ki deli internet, je prisel ali odsel.
+                self._v_ozadju(self.internet_upravitelj.osvezi)
         elif vrsta == "cast.status":
             telo = sporocilo.get("payload") or {}
             self._odziv("predvajanje", {

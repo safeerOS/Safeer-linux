@@ -881,3 +881,11 @@ body.vrstica-skrita:not(.nacin-splet) .rocaj-vrstice { display: block; }
 /* Nadaljuj z druge naprave: izbira "tukaj" / "tukaj in ustavi tam" pod ponudbo, ki igra */
 .media-predaja-izbira { display:flex; gap:8px; padding:4px 0 8px 32px; }
 .media-predaja-izbira .media-mapa { flex:1; }
+/* Internet prek telefona (razdelek Omrezne povezave) */
+#blokInternet { margin-top: 30px; }
+#blokInternet .drobno { margin: 0 0 12px; max-width: 78ch; }
+#blokInternet .filtri { margin: 0 0 10px; }
+#blokInternet .namig { color: var(--medlo); font-size: 14px; line-height: 1.5; margin: 0 0 14px; max-width: 78ch; }
+#blokInternet .hitre { margin-top: 14px; }
+#blokInternet .gumbi-naprav { margin-top: 14px; }
+#blokInternet #internetIzid { margin: 12px 0 0; color: var(--besedilo, inherit); }

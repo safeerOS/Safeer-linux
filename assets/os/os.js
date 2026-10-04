@@ -60,6 +60,7 @@
     slusalke: "M4 15v-3a8 8 0 0 1 16 0v3 M4 15h3v5H5a1 1 0 0 1-1-1z M20 15h-3v5h2a1 1 0 0 0 1-1z",
     mikrofon: "M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z M5 11a7 7 0 0 0 14 0 M12 18v3"
     ,sporocila: "M4 5h16v11H9l-5 4z M8 9h8 M8 12h6"
+    ,telefon: "M8 3h8a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z M11 18h2"
   };
   function svg(ime) {
     return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + (IK[ime] || IK.datoteka) + '"/></svg>';
@@ -242,7 +243,7 @@
     if (razdelek === "zapiski") naloziZapiske(function (seznam) {
       if (!Z.aktivni && seznam.length) odpriZapisek(seznam[0].id);
     });
-    if (razdelek === "omrezje") nalozOmrezje(false);
+    if (razdelek === "omrezje") { nalozOmrezje(false); nalozInternet(false); internetZanka(); }
     if (razdelek === "zvok") { nalozZvok(); zvokZanka(); if (!jblStanje) nalozJbl(); }
   }
   window.safeerOsPojdi = function (kam) {
@@ -1809,6 +1810,146 @@
   }
   function narisiHitro() { kontrole($("hitro"), true); }
   function odpriHitro() { zapriSloje(); narisiHitro(); $("slojHitro").classList.add("viden"); osveziStanje(); }
+
+  // ------------------------------------------------------------------ internet prek telefona (Safeer Internet Gateway)
+  // Promet tega racunalnika gre skozi telefon v Safeer Linku. Vse naredi Safeer Control (posrednik, preklop ob
+  // izpadu); tu so samo nastavitve in stanje. Telefon mora racunalniku uporabo dovoliti - vprasanje se pokaze na njem.
+  var internetS = null, internetCas = 0, internetPreizkusa = false;
+  function nalozInternet(vprasaj) {
+    klic("internetStanje", [!!vprasaj]).then(function (s) {
+      var prvic = !internetS;
+      internetS = s || null;
+      narisiInternet();
+      // Prvi prikaz je iz tega, kar Control ze ve (takoj); nato telefon vprasamo, kaj dovoli.
+      if (prvic && !vprasaj && s && s.ok !== false && s.telefon) nalozInternet(true);
+    }, function () {});
+  }
+  function internetZanka() {
+    clearInterval(internetCas);
+    internetCas = setInterval(function () {
+      if (S.razdelek !== "omrezje") { clearInterval(internetCas); return; }
+      if (!internetPreizkusa) nalozInternet(false);
+    }, 5000);
+  }
+  function internetNastavi(sprememba) {
+    klic("internetNastavi", [sprememba]).then(function (s) {
+      if (s && s.nacin) {
+        internetS = s;
+        narisiInternet();
+        // Telefon se enkrat vprasamo: ob prvem vklopu se na njem pokaze vprasanje za dovoljenje.
+        setTimeout(function () { nalozInternet(true); }, 500);
+      } else {
+        obvesti(t("intNiUspelo"));
+        nalozInternet(false);
+      }
+    }, function () { obvesti(t("intNiUspelo")); });
+  }
+  /** [kljuc besedila, ali je v redu] za izbrani telefon. */
+  function internetDovoljenje(s) {
+    var p = s.ponudnik;
+    if (!p) return [s.brez_odgovora ? "intDov_stari" : "intDov_caka", false];
+    if (p.enabled === false) return ["intDov_disabled", false];
+    var d = String(p.permission || "allowed");
+    if (["allowed", "pending", "denied", "not_trusted"].indexOf(d) < 0) d = "caka";
+    return ["intDov_" + d, d === "allowed"];
+  }
+  function internetVrstica(ikona, ime, pod, dobro) {
+    return el("div", "vrstica", svg(ikona) + '<span class="ime">' + ubezi(ime) + '</span><span class="pod">' +
+      (dobro == null ? "" : '<i class="pika' + (dobro ? "" : " siva") + '"></i> ') + ubezi(pod) + "</span>");
+  }
+  function narisiInternet() {
+    var blok = $("blokInternet"), s = internetS;
+    if (!blok) return;
+    // Starejsi Safeer Control (brez te zmoznosti) ali napaka: plosce ne kazemo.
+    if (!s || (s.ok === false && s.koda !== "ni_controla")) { blok.hidden = true; return; }
+    blok.hidden = false;
+    var nacini = $("internetNacin"), vrstice = $("internetVrstice"), stikala = $("internetStikala"), namig = $("internetNamig");
+    var gumb = $("gumbInternetPreizkus");
+    nacini.innerHTML = ""; vrstice.innerHTML = ""; stikala.innerHTML = "";
+    if (s.ok === false) {
+      // Safeer Control ne tece: Linka ni, telefona ne vidimo. Ponudimo zagon.
+      namig.textContent = t("intNiControla"); namig.hidden = false;
+      gumb.hidden = true; $("internetIzid").hidden = true;
+      var z = el("button", "gumb", ubezi(t("intZazeni")));
+      z.addEventListener("click", function () { z.disabled = true; internetNastavi({}); });
+      stikala.appendChild(z);
+      return;
+    }
+    ["izklopljeno", "izpad", "vedno"].forEach(function (n) {
+      var b = el("button", s.nacin === n ? "izbran" : "", ubezi(t("intNacin_" + n)));
+      b.type = "button";
+      b.addEventListener("click", function () { if (s.nacin !== n) internetNastavi({ nacin: n }); });
+      nacini.appendChild(b);
+    });
+    var telefoni = s.telefoni || [];
+    namig.textContent = telefoni.length ? t("intNacinPod_" + s.nacin) : t("intNiTelefona");
+    namig.hidden = false;
+    telefoni.forEach(function (tel) {
+      var izbran = tel.id === s.telefon;
+      var dov = izbran ? internetDovoljenje(s) : null;
+      var v = internetVrstica("telefon", tel.ime || tel.id, izbran ? t(dov[0]) : "", izbran ? dov[1] : null);
+      if (!izbran) {
+        var desno = el("span", "dejanja");
+        var g = el("button", "gumb", ubezi(t("intUporabi")));
+        g.addEventListener("click", function () { internetNastavi({ naprava: tel.id }); });
+        desno.appendChild(g);
+        v.appendChild(desno);
+      }
+      vrstice.appendChild(v);
+    });
+    var vklopljeno = s.nacin !== "izklopljeno";
+    if (vklopljeno) {
+      // »Skozi telefon« sele, ko telefon to res dovoli; do takrat povezave skozi njega ne uspejo.
+      var sme = !!s.telefon && internetDovoljenje(s)[1];
+      var zdaj = !s.telefon ? "intZdaj_brez" : (!s.prek_telefona ? "intZdaj_doma" : (sme ? "intZdaj_telefon" : "intZdaj_ne"));
+      vrstice.appendChild(internetVrstica("povezava", t("intZdaj"), t(zdaj), !!s.prek_telefona && sme));
+    }
+    var por = s.poraba || {};
+    if (vklopljeno || por.mesec) {
+      vrstice.appendChild(internetVrstica("disk", t("intPoraba"),
+        t("intPorabaVrednost", { danes: velikost(por.danes || 0), mesec: velikost(por.mesec || 0) }), null));
+    }
+    var mob = s.ponudnik && s.ponudnik.cellular;
+    if (mob && s.telefon) {
+      var besedilo = mob.allowed === false ? t("intMobilniIzklop")
+        : t("intPorabaVrednost", { danes: velikost(mob.used_today || 0), mesec: velikost(mob.used_month || 0) }) +
+          (mob.limit_bytes ? t("intMobilniOd", { omejitev: velikost(mob.limit_bytes) }) : "");
+      vrstice.appendChild(internetVrstica("telefon", t("intMobilni"), besedilo, null));
+    }
+    var pos = s.posrednik || {}, naslov = (pos.naslov || "127.0.0.1") + ":" + (pos.vrata || "");
+    if (vklopljeno && pos.tece) {
+      vrstice.appendChild(internetVrstica("program", t("intPosrednik"), t("intPosrednikPod", { naslov: naslov }), null));
+    }
+    var sis = s.sistemski || {};
+    if (!vklopljeno) {
+      // Izklopljeno: sistema se ne dotikamo, stikala ne kazemo.
+    } else if (sis.podprt) {
+      stikala.appendChild(stikalo("intSistemski", "drsniki", !!sis.vklopljen, function (v) { internetNastavi({ sistemski: v }); },
+        t("intSistemskiPod")));
+    } else if (pos.tece) {
+      stikala.appendChild(el("p", "namig", ubezi(t("intSistemskiNi", { naslov: naslov }))));
+    }
+    gumb.hidden = !s.telefon;
+  }
+  function internetPreizkus() {
+    if (internetPreizkusa) return;
+    internetPreizkusa = true;
+    var izid = $("internetIzid");
+    izid.hidden = false;
+    izid.textContent = t("intPreizkusam");
+    var konec = function (besedilo) { internetPreizkusa = false; izid.textContent = besedilo; nalozInternet(false); };
+    klic("internetPreizkus", []).then(function (r) {
+      if (r && r.ok) {
+        var kljucPoti = "intPot_" + (r.vrsta_poti || "other");
+        var pot = t(kljucPoti) === kljucPoti ? t("intPot_other") : t(kljucPoti);
+        konec(t("intPreizkusOk", { pot: pot, naslov: r.naslov_prek_telefona || "?", ms: r.skupaj_ms || 0 }) +
+          (r.naslov_neposredno ? " " + t(r.druga_pot ? "intPreizkusDruga" : "intPreizkusIsta") : ""));
+      } else {
+        var k = "intRazlog_" + ((r && r.koda) || "napaka");
+        konec(t("intPreizkusNi", { razlog: t(k) === k ? t("intRazlog_napaka") : t(k) }));
+      }
+    }, function () { konec(t("intPreizkusNi", { razlog: t("intRazlog_napaka") })); });
+  }
 
   // ------------------------------------------------------------------ omrezje
   var omrezjeGeslo = "", omrezjePozabi = "", omrezjeZaposleno = false;
@@ -3884,6 +4025,7 @@
       klic("wifi", [nov]).then(function () { setTimeout(function () { nalozOmrezje(true); }, 1500); });
     });
     $("gumbOmrezjeOsvezi").addEventListener("click", function () { nalozOmrezje(true); });
+    $("gumbInternetPreizkus").addEventListener("click", internetPreizkus);
     $("gumbOmrezjeNazaj").addEventListener("click", function () { pojdi("nastavitve"); });
     $("gumbOmrezjeNapredno").addEventListener("click", function () {
       obvesti(t("odpiram", { ime: t("napredno") }));

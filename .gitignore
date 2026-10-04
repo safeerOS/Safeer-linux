@@ -33,6 +33,7 @@ tests/*
 !tests/live_obremenitev.py
 !tests/login_runtime.py
 !tests/network_runtime.py
+!tests/pomoc_internet.py
 !tests/stability_runtime.py
 !tests/youtube_live.py
 !tests/youtube_startup.py
