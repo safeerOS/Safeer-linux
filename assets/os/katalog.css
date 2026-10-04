@@ -54,6 +54,13 @@
 .kat-napaka { max-width:680px;margin:18px auto;padding:18px 22px;border:1px solid rgba(235,87,87,.45);border-radius:14px;background:rgba(235,87,87,.09);text-align:center;font-weight:650;color:var(--rdeca) }
 .kat-napaka.kat-opozorilo { border-color:rgba(84,214,165,.35);background:rgba(84,214,165,.08);color:var(--besedilo);font-weight:550 }
 .kat-zanri { display:flex;gap:8px;overflow-x:auto;padding:8px 0 5px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.16) transparent }
+/* Izbira jezika vsebine stoji pred zvrstmi (pri Videu, kjer zvrsti ni, sama). */
+.kat-zanri-vrstica { display:flex;align-items:center;gap:10px;min-width:0 }
+.kat-zanri-vrstica .kat-zanri { flex:1 1 auto;min-width:0 }
+.kat-jezik { flex:none;padding:8px 0 5px }
+.kat-jezik select { height:38px;max-width:240px;padding:0 12px;border:1px solid var(--rob);border-radius:999px;background:var(--vnos);color:var(--besedilo);font-weight:650 }
+.kat-jezik select:focus { outline:0;border-color:var(--zelena) }
+.kat-jezik.izbran select { color:var(--zelena);border-color:var(--zelena) }
 .kat-zanri button, .kat-sezone button { flex:none;padding:8px 14px;border:1px solid var(--rob);border-radius:999px;background:rgba(255,255,255,.035);color:var(--medlo);font-weight:650 }
 .kat-zanri button:hover, .kat-zanri button.izbran, .kat-sezone button:hover, .kat-sezone button.izbran { color:#06110d;background:var(--zelena);border-color:var(--zelena);box-shadow:0 0 22px rgba(84,214,165,.24) }
 .kat-povzetek { min-height:24px;margin:12px 0;color:var(--medlo);font-size:14px }

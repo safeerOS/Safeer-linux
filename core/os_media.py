@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
 from . import zakoniti_viri
+from . import izvirni_jezik
 from . import media_servers
 from . import tok_izbira
 from . import os_torrent, os_torrent_tok
@@ -1094,6 +1095,11 @@ def merge_duplicates(items: Iterable[dict]) -> list[dict]:
         for field in ("imdb_id", "tmdb_id", "leto", "slika", "opis", "izvajalec"):
             if not best.get(field):
                 best[field] = next((item.get(field) for item in variants if item.get(field)), best.get(field))
+        # Jezik vsebine pove le kateri od virov (TMDB, PeerTube ...): zdruzena kartica ga obdrzi.
+        if not best.get("jezik"):
+            jezik_razlicice = next((item.get("jezik") for item in variants if item.get("jezik")), "")
+            if jezik_razlicice:
+                best["jezik"] = jezik_razlicice
 
         scope = _id_scope(best)
         imdb = next((_imdb_id(item.get("imdb_id")) for item in variants if _imdb_id(item.get("imdb_id"))), "")
@@ -1171,6 +1177,8 @@ class MediaCenter:
         self._ping_cache: dict[str, tuple[float, float]] = {}
         self._ping_lock = threading.Lock()
         self._zakoniti_viri = zakoniti_viri.ZakonitiViri()
+        #: Izvirni jezik naslovov z id-jem IMDb (Wikidata) za izbiro jezika vsebine; predpomnilnik je ob nastavitvah.
+        self._izvirni_jeziki = izvirni_jezik.IzvirniJeziki(str(self.config_dir / "izvirni-jeziki.tsv"))
         self._secret_encryptor = secret_encryptor or _dpapi_protect
         self._secret_decryptor = secret_decryptor or _dpapi_unprotect
         self._server_cache: dict[str, tuple[float, list[dict]]] = {}
@@ -1248,12 +1256,16 @@ class MediaCenter:
 
     def kljuc_kataloga(self, query: str = "", kind: str = "vse", genre: str = "", page: int = 1,
                        razvrsti: str = "", izklopljeni: Iterable[str] = (), samo_lokalno: bool = False,
-                       izklopljeni_jeziki: Iterable[str] = ()) -> str:
+                       izklopljeni_jeziki: Iterable[str] = (), jezik: str = "") -> str:
         # Prvi element je razlicica oblike pogleda: ob spremembi vrstnega reda stari pogledi ne veljajo.
-        return json.dumps(["v5", _text(query, 120).casefold(), kind or "vse", _text(genre, 20),
-                           max(1, int(page or 1)), self.izbrana_drzava or "auto", razvrsti or "",
-                           sorted({str(x) for x in (izklopljeni or []) if x}), bool(samo_lokalno),
-                           sorted({str(x) for x in (izklopljeni_jeziki or []) if x})], ensure_ascii=False)
+        kljuc = ["v5", _text(query, 120).casefold(), kind or "vse", _text(genre, 20),
+                 max(1, int(page or 1)), self.izbrana_drzava or "auto", razvrsti or "",
+                 sorted({str(x) for x in (izklopljeni or []) if x}), bool(samo_lokalno),
+                 sorted({str(x) for x in (izklopljeni_jeziki or []) if x})]
+        if jezik in izvirni_jezik.KODE:
+            # Izbran jezik vsebine je svoj pogled; brez izbire ostane kljuc tak kot prej (shranjeni pogledi veljajo).
+            kljuc.append("jezik:" + jezik)
+        return json.dumps(kljuc, ensure_ascii=False)
 
     def _zapomni_katalog(self, kljuc: str, rezultat: dict) -> None:
         shranjeno = {k: v for k, v in rezultat.items() if k not in ("viri", "mape", "kljuc", "iz_predpomnilnika", "osvezujem")}
@@ -1264,7 +1276,7 @@ class MediaCenter:
 
     def catalog_hitro(self, query: str = "", kind: str = "vse", genre: str = "", page: int = 1,
                       ob_osvezitvi=None, razvrsti: str = "", izklopljeni: Iterable[str] = (),
-                      samo_lokalno: bool = False, izklopljeni_jeziki: Iterable[str] = ()) -> dict:
+                      samo_lokalno: bool = False, izklopljeni_jeziki: Iterable[str] = (), jezik: str = "") -> dict:
         """Katalog najprej iz predpomnilnika (takoj), nato sveze v ozadju.
 
         ob_osvezitvi(kljuc, rezultat) se poklice samo, ce se je vsebina v ozadju res spremenila.
@@ -1273,6 +1285,8 @@ class MediaCenter:
         izklopljeni = sorted({str(x) for x in (izklopljeni or []) if x})
         moznosti = {"razvrsti": razvrsti or "", "izklopljeni": izklopljeni, "samo_lokalno": bool(samo_lokalno),
                     "izklopljeni_jeziki": sorted({str(x) for x in (izklopljeni_jeziki or []) if x})}
+        if jezik in izvirni_jezik.KODE:
+            moznosti["jezik"] = jezik
         kljuc = self.kljuc_kataloga(query, kind, genre, page, **moznosti)
         if samo_lokalno:
             # Krajevne datoteke so takoj na voljo: brez predpomnilnika (vedno sveze).
@@ -2991,19 +3005,57 @@ class MediaCenter:
     RAZVRSTITVE = ("", "novo", "staro", "az", "za")
 
     @staticmethod
-    def _tmdb_razvrstitev(razvrsti: str, media_type: str) -> dict:
+    def _tmdb_razvrstitev(razvrsti: str, media_type: str, jezik: str = "") -> dict:
         datum = "first_air_date" if media_type == "tv" else "primary_release_date"
         ime = "name" if media_type == "tv" else "title"
-        # Prag glasov: brez njega bi na vrhu stali neznani ali se neizdani naslovi.
+        # Prag glasov: brez njega bi na vrhu stali neznani ali se neizdani naslovi. Pri izbranem jeziku (razen
+        # anglescine) je naslovov malo: z visokim pragom bi npr. slovenski filmi izpadli skoraj vsi.
+        def prag(n: int) -> int:
+            return 10 if jezik and jezik != "en" else n
         return {
-            "novo": {"sort_by": datum + ".desc", datum + ".lte": _date.today().isoformat(), "vote_count.gte": 50},
-            "staro": {"sort_by": datum + ".asc", "vote_count.gte": 200},
-            "az": {"sort_by": ime + ".asc", "vote_count.gte": 300},
-            "za": {"sort_by": ime + ".desc", "vote_count.gte": 300},
+            "novo": {"sort_by": datum + ".desc", datum + ".lte": _date.today().isoformat(), "vote_count.gte": prag(50)},
+            "staro": {"sort_by": datum + ".asc", "vote_count.gte": prag(200)},
+            "az": {"sort_by": ime + ".asc", "vote_count.gte": prag(300)},
+            "za": {"sort_by": ime + ".desc", "vote_count.gte": prag(300)},
         }.get(razvrsti, {})
 
+    def _tmdb_po_jeziku(self, kind: str, genre: str, page: int, razvrsti: str, jezik: str) -> tuple[list[dict], int]:
+        """Katalog TMDB v izbranem izvirnem jeziku. TMDB po jeziku izbira samo v /discover (film ali serija posebej);
+        pri »vse« vprasamo oboje in kartice izmenjujemo. Kode, pod katerimi TMDB vodi isti jezik (srbohrvascina,
+        kantonscina, bokmal), gredo zraven."""
+        media_type = "tv" if kind == "serija" else "movie" if kind == "film" else "all"
+        vrste = ["movie", "tv"] if media_type == "all" and not genre else ["tv" if media_type == "tv" else "movie"]
+        osnova: dict[str, Any] = {"page": max(1, min(int(page or 1), 500)),
+                                  "with_original_language": "|".join(izvirni_jezik.kode_vira(jezik))}
+        if genre:
+            osnova["with_genres"] = genre
+        skupine, strani = [], 1
+        for vrsta in vrste:
+            params = dict(osnova)
+            # Brez izbrane razvrstitve po priljubljenosti; prag glasov je isti, kot ga zahteva kartica (_tmdb_vnos).
+            params.update(self._tmdb_razvrstitev(razvrsti, vrsta, jezik) or {"sort_by": "popularity.desc", "vote_count.gte": 10})
+            try:
+                resp = self._tmdb(f"/discover/{vrsta}", params)
+            except Exception:
+                continue
+            strani = max(strani, min(int(resp.get("total_pages") or 1), 500))
+            skupina = []
+            for row in resp.get("results", []):
+                if not isinstance(row, dict):
+                    continue
+                item = self._tmdb_vnos(dict(row, media_type=vrsta), {})
+                if item and (kind in ("", "vse") or item["vrsta"] == kind):
+                    skupina.append(item)
+            skupine.append(skupina)
+        najdeno: list[dict] = []
+        for i in range(max((len(s) for s in skupine), default=0)):
+            najdeno.extend(s[i] for s in skupine if i < len(s))
+        return najdeno, strani
+
     def _tmdb_catalog(self, data: dict, query: str, kind: str, genre: str, page: int,
-                      razvrsti: str = "") -> tuple[list[dict], int]:
+                      razvrsti: str = "", jezik: str = "") -> tuple[list[dict], int]:
+        if jezik and not query:
+            return self._tmdb_po_jeziku(kind, genre, page, razvrsti, jezik)
         source = {}
         media_type = "tv" if kind == "serija" else "movie" if kind == "film" else "all"
         current_page = max(1, min(int(page or 1), 500))
@@ -3093,9 +3145,40 @@ class MediaCenter:
             return items
         return [x for x in items if str(x.get("jezik") or "") not in izklopljeni_jeziki]
 
+    def _samo_jezik(self, items: list[dict], jezik: str) -> list[dict]:
+        """Izbran jezik vsebine (poleg zvrsti): ostane, kar je v tem jeziku. Jezik pove vir (TMDB, PeerTube, Jamendo,
+        javna last, radio); za naslove z id-jem IMDb brez jezika vprasamo Wikidato (core/izvirni_jezik.py). Vnos,
+        katerega jezika ne poznamo, se med izbiro ne kaze - izbira »slovenscina« ne sme kazati filmov, za katere ne
+        vemo, v katerem jeziku so. Naslovov iz zasebnih dodatkov ne sprasujemo: kar pride iz njih, ostane tu.
+        Klic iz delovne niti (omrezje)."""
+        vprasaj: list[str] = []
+        for x in items:
+            if x.get("jezik") or not izvirni_jezik.veljaven_imdb(x.get("imdb_id")):
+                continue
+            dodatek = x.get("stremio") if isinstance(x.get("stremio"), dict) else None
+            if dodatek and self._koren_zaseben(str(dodatek.get("koren") or "")) is not False:
+                continue
+            vprasaj.append(x["imdb_id"])
+        try:
+            znani = self._izvirni_jeziki.jeziki(vprasaj) if vprasaj else {}
+        except Exception:
+            znani = {}
+        vprasani = set(vprasaj)
+        izid = []
+        for x in items:
+            lastni = str(x.get("jezik") or "")
+            if lastni:
+                if izvirni_jezik.ustreza(lastni, jezik):
+                    izid.append(x)
+            elif x.get("imdb_id") in vprasani and jezik in znani.get(x["imdb_id"], ()):
+                izid.append(dict(x, jezik=jezik))
+        return izid
+
     def catalog(self, query: str = "", kind: str = "vse", genre: str = "", page: int = 1,
                 razvrsti: str = "", izklopljeni: Iterable[str] = (), samo_lokalno: bool = False,
-                izklopljeni_jeziki: Iterable[str] = ()) -> dict:
+                izklopljeni_jeziki: Iterable[str] = (), jezik: str = "") -> dict:
+        """`jezik` (koda iz izvirni_jezik.KODE): izbran jezik vsebine - katalog pokaze samo vsebino v njem."""
+        jezik = jezik if jezik in izvirni_jezik.KODE else ""
         izklopljeni_jeziki = {str(x) for x in (izklopljeni_jeziki or []) if x}
         razvrsti = razvrsti if razvrsti in self.RAZVRSTITVE else ""
         izklopljeni = {str(x) for x in (izklopljeni or []) if x}
@@ -3123,14 +3206,14 @@ class MediaCenter:
         embed_ids = {str(provider.get("id") or host) for provider, _parsed, host in self._embed_viri(data)}
         tmdb_izklopljen = bool(embed_ids) and embed_ids <= izklopljeni
         dynamic, tmdb_pages = ([], 1) if (glasbena or tmdb_izklopljen) else (
-            self._tmdb_catalog(data, _text(query, 120), kind, _text(genre, 20), page_num, razvrsti)
+            self._tmdb_catalog(data, _text(query, 120), kind, _text(genre, 20), page_num, razvrsti, jezik)
             if self._ima_embed_vir(data) else ([], 1))
         # Javni katalogi imajo svoj 30-minutni cache in se napake posameznega API-ja
         # ne smejo prenesti v glavni katalog.
         configured_hosts = [str(source.get("url") or "") for source in data.get("viri", [])
                             if isinstance(source, dict) and source.get("url")]
-        lawful = (self._zakoniti_viri.get(_text(query, 120), configured_hosts, _text(genre, 20)) if glasbena
-                  else self._zakoniti_viri.get(_text(query, 120), configured_hosts))
+        lawful = (self._zakoniti_viri.get(_text(query, 120), configured_hosts, _text(genre, 20), jezik) if glasbena
+                  else self._zakoniti_viri.get(_text(query, 120), configured_hosts, "", jezik))
         if glasbena:
             # Pri zvrsti pokazemo samo zadetke te zvrsti, ne tudi krajevnih datotek in osebnih virov.
             local, remote = [], []
@@ -3207,6 +3290,8 @@ class MediaCenter:
                     0 if media_servers.ujema_iskanje({"naslov": it.get("naslov")}, query) else 1,
                     0 if str(it.get("url")) in moji else 1))
         merged = self._filtriraj_jezike(merged, izklopljeni_jeziki)
+        if jezik:
+            merged = self._samo_jezik(merged, jezik)
         merged = self._razvrsti_vnose(merged, razvrsti)
         tmdb_strani = (self._ima_embed_vir(data) and not tmdb_izklopljen and tmdb_pages > 1
                        and kind in ("", "vse", "film", "serija"))

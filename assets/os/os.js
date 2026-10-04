@@ -3026,13 +3026,19 @@
   // medijskem pogledu; ob koncu skladbe safeer_os.py pošlje dogodek »mediaKonec« in stran iz vrste izbere naslednjo.
   var kat = { katalog: [], viri: [], filter: "vse", genre: "", query: "", page: 1, skupaj_strani: 1, skupaj: null,
               aktivni: null, zahteva: 0, timer: 0, kljuc: "", razvrsti: "", izklopljeni: {}, znaniViri: {},
-              izklopljeniJeziki: {}, znaniJeziki: {}, seznami: [], seznam: null,
+              izklopljeniJeziki: {}, znaniJeziki: {}, jezikVsebine: "", jezikiZa: null, seznami: [], seznam: null,
               vrsta: [], vrstaMesto: 0, vrstaZgodovina: [], izVrste: false,
               igra: false, nalozen: false, zanri: null, zahtevaPredvajanja: 0, knjiznica: [], zahtevaKnjiznice: 0 };
   // Kategorije Medijskega centra (zgoraj) -> vrsta v katalogu; slike so samo krajevne.
   var KAT_VRSTE = { vse: "vse", glasba: "glasba", video: "video", filmi: "film", serije: "serija", tv: "tv-v-zivo", radio: "radio", slike: "" };
   var KAT_FILMSKI_ZANRI = [["28", "katZanr_akcija"], ["878", "katZanr_scifi"], ["35", "katZanr_komedija"], ["27", "katZanr_grozljivka"],
                            ["18", "katZanr_drama"], ["53", "katZanr_triler"], ["16", "katZanr_animirani"], ["10749", "katZanr_romantika"]];
+  // Jezik vsebine (izbira poleg zvrsti): isti seznam kot core/izvirni_jezik.py - enakost varuje preizkus.
+  var KAT_JEZIKI = ["sl", "en", "de", "fr", "es", "it", "pt", "hr", "sr", "bs", "mk", "ru", "pl", "cs", "sk", "hu", "nl", "sv", "da",
+                    "no", "fi", "is", "tr", "el", "ro", "bg", "sq", "uk", "ja", "ko", "zh", "hi", "ta", "te", "th", "ar", "he", "fa"];
+  function jezikVelja(filter) { return filter === "vse" || filter === "film" || filter === "serija" || filter === "video" || filter === "glasba"; }
+  // Izbrani jezik vsebine za pogled, ki ga katalog kaze ("" = vsi jeziki ali pogled brez te izbire).
+  function izbranJezik() { return !kat.seznam && jezikVelja(kat.filter) ? (kat.jezikVsebine || "") : ""; }
   function katIkona(vrsta) { return vrsta === "glasba" || vrsta === "podcast" ? "glasba" : vrsta === "radio" ? "radio" : "video"; }
   function katOznaka(vrsta) {
     var k = { glasba: "media_glasba", video: "media_video", radio: "media_radio", "tv-v-zivo": "media_tv", serija: "media_serije",
@@ -3061,11 +3067,14 @@
     var zanriEl = $("mediaZanri");
     var izSeznama = !!kat.seznam;
     if (zanriEl) zanriEl.hidden = izSeznama || !skupinaZanrov(kat.filter);
+    narisiJezikVsebine();
     narisiSeznamePredvajanja();
     narisiKnjiznico();
     // Odprt seznam predvajanja: mreža kaže njegove skladbe v vrstnem redu seznama (brez združevanja po izvajalcu).
     var list = izSeznama ? kat.seznam.vnosi.slice() : kat.katalog.slice();
     $("katPrazno").hidden = !!list.length || !kat.nalozen;
+    // Prazen katalog pri izbranem jeziku: povemo, da je prazno zaradi izbire (ne »ni zadetkov«).
+    $("katPrazno").textContent = izbranJezik() ? t("katPraznoJezik", { jezik: imeJezika(kat.jezikVsebine, true) }) : t("katPrazno");
     $("mediaPovzetek").textContent = izSeznama || !kat.nalozen ? "" :
       t("katZadetkov", { n: kat.skupaj != null ? kat.skupaj : list.length }) +
       (kat.skupaj_strani > 1 ? " · " + t("katStran", { a: kat.page, b: kat.skupaj_strani }) : "");
@@ -3146,8 +3155,10 @@
       mreza.appendChild(card);
     });
     if (izSeznama) { var str = $("mediaStranjevanje"); if (str) str.innerHTML = ""; } else narisiStranjevanje();
-    // Dokler ima katalog vsebino, velika uvodna plošča ne odriva vsebine navzdol.
-    $("r-media").classList.toggle("ima-katalog", list.length > 0);
+    // Dokler ima katalog vsebino, velika uvodna plošča ne odriva vsebine navzdol. Med nalaganjem (druga kategorija,
+    // drug jezik) postavitev ostane, kot je bila - sicer se plošča za hip pokaže in katalog skoči navzdol in nazaj.
+    // Pri izbranem jeziku brez zadetkov plošče ni: prazno je zaradi izbire, ne zato, ker uporabnik nima vsebine.
+    if (kat.nalozen || list.length) $("r-media").classList.toggle("ima-katalog", list.length > 0 || !!izbranJezik());
   }
 
   // ---- polica »Na tvojih napravah«: kar je prenesla katera koli naprava v Safeer Linku (knjižnica kroga)
@@ -3555,10 +3566,30 @@
     });
     ((response && response.viri) || []).forEach(function (v) { if (v.id) kat.znaniViri[v.id] = v.ime || v.id; });
   }
-  function imeJezika(koda) {
+  // vStavku: ime, kot ga pise jezik vmesnika (slovensko z malo zacetnico, nemsko z veliko); sicer za seznam z veliko.
+  function imeJezika(koda, vStavku) {
     try { var ime = new Intl.DisplayNames([LOKALE[jezik] || "sl-SI"], { type: "language" }).of(koda);
-          return ime ? ime.charAt(0).toLocaleUpperCase() + ime.slice(1) : koda; }
+          return !ime ? koda : vStavku ? ime : ime.charAt(0).toLocaleUpperCase() + ime.slice(1); }
     catch (_) { return koda; }
+  }
+  // Izbira jezika vsebine: »Vsi jeziki«, nato jezik vmesnika in anglescina, ostali po abecedi (imena v jeziku
+  // vmesnika). Kaze se pri Vse, Filmi, Serije, Video in Glasba; izbira ostane, dokler je Safeer OS odprt.
+  function narisiJezikVsebine() {
+    var polje = $("mediaJezikPolje"), izbira = $("mediaJezik"); if (!polje || !izbira) return;
+    polje.hidden = !!kat.seznam || !jezikVelja(kat.filter);
+    if (kat.jezikiZa !== jezik) {
+      kat.jezikiZa = jezik;
+      var prvi = [jezik, "en"].filter(function (k, i, vsi) { return KAT_JEZIKI.indexOf(k) >= 0 && vsi.indexOf(k) === i; });
+      var ostali = KAT_JEZIKI.filter(function (k) { return prvi.indexOf(k) < 0; })
+        .sort(function (a, b) { return imeJezika(a).localeCompare(imeJezika(b), LOKALE[jezik] || "sl-SI"); });
+      izbira.innerHTML = "";
+      izbira.add(new Option(t("katVsiJeziki"), ""));
+      prvi.concat(ostali).forEach(function (k) { izbira.add(new Option(imeJezika(k), k)); });
+      izbira.setAttribute("aria-label", t("katJezikVsebine"));
+      izbira.title = t("katJezikVsebine");
+    }
+    izbira.value = kat.jezikVsebine || "";
+    polje.classList.toggle("izbran", !!kat.jezikVsebine);
   }
   function osveziGumbViri() {
     var gumb = $("mediaViriFilterGumb"); if (!gumb) return;
@@ -3614,7 +3645,7 @@
     var zahteva = ++kat.zahteva;
     if (!kat.katalog.length) $("mediaPovzetek").textContent = t("katNalagam");
     klic("mediaKatalog", [kat.query, kat.filter, kat.genre, kat.page || 1, kat.razvrsti, Object.keys(kat.izklopljeni), false,
-                          Object.keys(kat.izklopljeniJeziki)]).then(function (response) {
+                          Object.keys(kat.izklopljeniJeziki), izbranJezik()]).then(function (response) {
       if (zahteva !== kat.zahteva) return;
       prevzemiKatalog(response);
     }, function () { if (zahteva === kat.zahteva) { kat.katalog = []; kat.nalozen = true; narisiKatalog(); } });
@@ -3782,6 +3813,12 @@
   function poveziKatalog() {
     var ob = function (id, dogodek, fn) { var e = $(id); if (e) e.addEventListener(dogodek, fn); };
     ob("mediaRazvrsti", "change", function () { kat.razvrsti = this.value; kat.page = 1; naloziKatalog(); });
+    ob("mediaJezik", "change", function () {
+      kat.jezikVsebine = this.value; kat.page = 1;
+      // Drug jezik: kartice prejsnjega takoj izginejo (jezik naslovov iz dodatkov se prvic poisce - to lahko traja).
+      kat.katalog = []; kat.nalozen = false; kat.skupaj = null; kat.skupaj_strani = 1;
+      narisiKatalog(); naloziKatalog();
+    });
     ob("mediaViriFilterGumb", "click", function (event) {
       event.stopPropagation();
       var plosca = $("mediaViriFilter"), odpri = plosca.hidden;
@@ -3867,6 +3904,7 @@
       if (!r.options[i]) r.add(new Option("", o[0]));
       r.options[i].textContent = t(o[1]);
     });
+    kat.jezikiZa = null; narisiJezikVsebine();      // imena jezikov v novem jeziku vmesnika
     osveziGumbViri(); katPrilagodiObrazec();
   }
   function katDogodek(vrsta, podatki) {

@@ -244,10 +244,14 @@ class ZakonitiViri:
             return [item for row in rows if (item := self._peertube_video(row, host, category))]
         return self._cached(key, fetch)
 
-    def _search_video(self, query: str, hosts: list[str]) -> list[dict]:
+    def _search_video(self, query: str, hosts: list[str], jezik: str = "") -> list[dict]:
         if not query:
             return []
-        encoded = urllib.parse.urlencode({"search": query, "sort": "-match", "nsfw": "false", "count": 30})
+        iskanje = {"search": query, "sort": "-match", "nsfw": "false", "count": 30}
+        if jezik:
+            # PeerTube vrne videe v tem jeziku IN videe s podnapisi v njem; tocno izbere katalog (os_media).
+            iskanje["languageOneOf"] = jezik
+        encoded = urllib.parse.urlencode(iskanje)
         def fetch():
             result = []
             try:
@@ -264,7 +268,7 @@ class ZakonitiViri:
                 pass
             if not result:
                 def server_search(host):
-                    path = "/api/v1/search/videos?" + urllib.parse.urlencode({"search": query, "sort": "-match", "nsfw": "false", "count": 20})
+                    path = "/api/v1/search/videos?" + urllib.parse.urlencode(dict(iskanje, count=20))
                     return self._peer_rows(host, path, "Iskanje")
                 with ThreadPoolExecutor(max_workers=min(8, len(hosts))) as pool:
                     futures = [pool.submit(server_search, host) for host in hosts]
@@ -280,16 +284,20 @@ class ZakonitiViri:
             if terms:
                 result = [item for item in result if all(term in _norm(" ".join((item["naslov"], item["izvajalec"], item["opis"]))) for term in terms)]
             return result[:40]
-        return self._cached("pt-search:" + query.casefold(), fetch)
+        return self._cached("pt-search:" + query.casefold() + ("|" + jezik if jezik else ""), fetch)
 
-    def videos(self, query: str = "", configured_hosts: list[str] | None = None) -> list[dict]:
+    def videos(self, query: str = "", configured_hosts: list[str] | None = None, jezik: str = "") -> list[dict]:
+        """`jezik` (koda ISO 639-1): izbran jezik vsebine - strezniki ze sami izberejo videe v njem."""
+        jezik = jezik if re.fullmatch(r"[a-z]{2}", jezik or "") else ""
         hosts = self._video_hosts(configured_hosts or [])
         if query:
-            return self._search_video(query, hosts)
+            return self._search_video(query, hosts, jezik)
         result = []
-        routes = (("trending", "/api/v1/videos?sort=-trending&count=18&nsfw=false&isLocal=true"),
-                  ("Najbolj gledani", "/api/v1/videos?sort=-views&count=18&nsfw=false&isLocal=true"),
-                  ("Nedavno", "/api/v1/videos?sort=-publishedAt&count=18&nsfw=false&isLocal=true"))
+        # Izbran jezik: izbor je ozji, zato vprasamo za vec zadetkov.
+        stevilo = "40&languageOneOf=" + jezik if jezik else "18"
+        routes = (("trending", "/api/v1/videos?sort=-trending&count=%s&nsfw=false&isLocal=true" % stevilo),
+                  ("Najbolj gledani", "/api/v1/videos?sort=-views&count=%s&nsfw=false&isLocal=true" % stevilo),
+                  ("Nedavno", "/api/v1/videos?sort=-publishedAt&count=%s&nsfw=false&isLocal=true" % stevilo))
         jobs = [(host, label, path) for label, path in routes for host in hosts]
         with ThreadPoolExecutor(max_workers=min(15, len(jobs))) as pool:
             futures = [pool.submit(self._peer_rows, host, path, label) for host, label, path in jobs]
@@ -351,33 +359,44 @@ class ZakonitiViri:
 
     @staticmethod
     def _track(row: dict) -> dict:
-        return {"id": "jamendo:" + str(row.get("id")), "naslov": row.get("name", ""), "vrsta": "glasba",
+        vnos = {"id": "jamendo:" + str(row.get("id")), "naslov": row.get("name", ""), "vrsta": "glasba",
                 "izvajalec": row.get("artist_name", ""), "url": row.get("audio", ""),
                 "slika": row.get("image") or row.get("album_image", ""),
                 "zunanja_povezava": row.get("shorturl") or row.get("shareurl", ""),
                 "vir": "Jamendo", "opis": "Jamendo · " + str(row.get("artist_name", ""))}
+        # Jezik besedila skladbe (musicinfo); instrumentalne ga nimajo.
+        info = row.get("musicinfo") if isinstance(row.get("musicinfo"), dict) else {}
+        jezik = str(info.get("lang") or "")
+        if re.fullmatch(r"[a-z]{2}", jezik):
+            vnos["jezik"] = jezik
+        return vnos
 
-    def music(self, query: str = "", zvrst: str = "") -> list[dict]:
+    def music(self, query: str = "", zvrst: str = "", jezik: str = "") -> list[dict]:
+        """`jezik` (koda ISO 639-1): izbran jezik vsebine - Jamendo izbere skladbe z besedilom v njem."""
         oznaka = GLASBENE_ZVRSTI.get(zvrst, ("", "", ""))[1]
         if zvrst and not oznaka:
             return []
+        dodatno = {"include": "musicinfo"}
+        if re.fullmatch(r"[a-z]{2}", jezik or ""):
+            dodatno["lang"] = jezik
         if oznaka and not query:
             # Jamendo pri nekaterih oznakah obcasno vrne prazno z `tags`; takrat poskusimo `fuzzytags`.
-            zadetki = self._jamendo("tracks/", {"order": "popularity_total", "limit": 48, "audioformat": "mp32", "tags": oznaka})
-            return zadetki or self._jamendo("tracks/", {"order": "popularity_total", "limit": 48, "audioformat": "mp32",
-                                                         "fuzzytags": oznaka})
+            zadetki = self._jamendo("tracks/", dict({"order": "popularity_total", "limit": 48, "audioformat": "mp32",
+                                                     "tags": oznaka}, **dodatno))
+            return zadetki or self._jamendo("tracks/", dict({"order": "popularity_total", "limit": 48, "audioformat": "mp32",
+                                                              "fuzzytags": oznaka}, **dodatno))
         if not query:
-            return self._jamendo("tracks/", {"order": "popularity_total", "limit": 36, "audioformat": "mp32"})
+            return self._jamendo("tracks/", dict({"order": "popularity_total", "limit": 36, "audioformat": "mp32"}, **dodatno))
         def fetch():
             artists = self._json("https://api.jamendo.com/v3.0/artists/?" + urllib.parse.urlencode({
                 "namesearch": query, "order": "popularity_total", "limit": 8,
                 "client_id": JAMENDO_CLIENT_ID, "format": "json"}))
             selected = artists.get("results", [])[:6]
             with ThreadPoolExecutor(max_workers=max(1, len(selected))) as pool:
-                return [track for rows in pool.map(lambda artist: self._jamendo("tracks/", {
+                return [track for rows in pool.map(lambda artist: self._jamendo("tracks/", dict({
                     "artist_id": artist.get("id"), "order": "popularity_total", "limit": 8,
-                    "audioformat": "mp32"}), selected) for track in rows]
-        return self._cached("jam-search:" + query.casefold(), fetch)
+                    "audioformat": "mp32"}, **dodatno)), selected) for track in rows]
+        return self._cached("jam-search:" + query.casefold() + ("|" + dodatno["lang"] if "lang" in dodatno else ""), fetch)
 
     def radio(self, query: str = "", zvrst: str = "") -> list[dict]:
         ime, _, oznaka = GLASBENE_ZVRSTI.get(zvrst, ("", "", ""))
@@ -559,12 +578,14 @@ class ZakonitiViri:
 
         return self._cached("archive-pd:" + iskanje.casefold(), fetch)
 
-    def get(self, query: str = "", configured_hosts: list[str] | None = None, zvrst: str = "") -> list[dict]:
+    def get(self, query: str = "", configured_hosts: list[str] | None = None, zvrst: str = "", jezik: str = "") -> list[dict]:
+        """`jezik`: izbran jezik vsebine. PeerTube in Jamendo izbereta ze sama; pri radiu in javni lasti jezik pove
+        vnos. Tocno izbiro (in vnose brez znanega jezika) opravi katalog."""
         if zvrst:
             # Glasbena zvrst velja samo za glasbo in radio (video nima teh zvrsti).
-            tasks = ((self.music, (query, zvrst)), (self.radio, (query, zvrst)))
+            tasks = ((self.music, (query, zvrst, jezik)), (self.radio, (query, zvrst)))
         else:
-            tasks = ((self.videos, (query, configured_hosts)), (self.music, (query,)), (self.radio, (query,)),
+            tasks = ((self.videos, (query, configured_hosts, jezik)), (self.music, (query, "", jezik)), (self.radio, (query,)),
                      (self.javna_last, (query,)))
         with ThreadPoolExecutor(max_workers=4) as pool:
             futures = [pool.submit(fn, *args) for fn, args in tasks]
