@@ -10,6 +10,10 @@
     safeerctl send DATOTEKA... --to NAPRAVA poslji datoteke napravi
     safeerctl text BESEDILO --to NAPRAVA    poslji besedilo ali povezavo napravi
     safeerctl rename NAPRAVA IME            preimenuj napravo (za vse naprave v Linku)
+    safeerctl internet [status]             internet prek telefona v Safeer Linku: stanje
+    safeerctl internet mode off|failover|always [--via NAPRAVA] [--system-proxy on|off]
+    safeerctl internet test [--via NAPRAVA] resnicna zahteva skozi telefon (pove, po katerem omrezju je sla)
+    safeerctl internet env                  spremenljivke okolja za programe v tej lupini (eval "$(safeerctl internet env)")
 
 Vsak ukaz pozna --json (pred ukazom ali za njim): strojno berljiv izpis za skripte in agente. NAPRAVA je id ali ime (dovolj je enolicen del
 imena, brez sumnikov in velikih crk).
@@ -62,6 +66,41 @@ BESEDILA = {
         "procesor": "procesor", "pomnilnik": "pomnilnik", "prostor": "prostor", "baterija": "baterija", "sistem": "sistem",
         "grafika": "grafika", "pomoc": "sme pomagati", "da": "da", "ne": "ne", "prosto": "prosto", "jeder": "jeder",
         "obremenitev": "obremenitev", "polni": "se polni",
+        "i_nacin": "način", "i_telefon": "telefon", "i_doma": "domači internet", "i_zdaj": "zdaj", "i_posrednik": "posrednik",
+        "i_sistemski": "sistemski posrednik", "i_poraba": "skozi telefon", "i_mobilni": "mobilni podatki telefona",
+        "i_izklopljeno": "izklopljeno", "i_izpad": "ob izpadu domačega interneta", "i_vedno": "vedno skozi telefon",
+        "i_dela": "dela", "i_ne_dela": "ne dela", "i_neposredno": "neposredno", "i_prek": "skozi telefon",
+        "i_ni_telefona": "v Safeer Linku ni telefona, ki deli internet",
+        "i_dovoljeno": "dovoljeno", "i_caka": "čaka – na telefonu odpri Safeer OS in dovoli ta računalnik", "i_zavrnjeno": "telefon je ta računalnik zavrnil",
+        "i_ne_deli": "deljenje je na telefonu izklopljeno", "i_stari": "na telefonu je starejši Safeer OS (posodobi ga)",
+        "i_neznano": "telefon še ni odgovoril",
+        "i_vklopljen": "vklopljen", "i_nastavljen": "vklopljen (zdaj nastavljen)", "i_izklopljen": "izklopljen",
+        "i_ni_podprt": "to namizje ga ne podpira", "i_ne_tece": "ne teče",
+        "i_danes": "danes", "i_mesec": "ta mesec", "i_od": "od", "i_brez_omejitve": "brez omejitve",
+        "i_test_ok": "Deluje: zahteva je šla skozi telefon ({pot}), javni naslov {naslov}{drzava}. {ms} ms, {bajtov}.",
+        "i_test_druga": "Javni naslov tega računalnika je drugačen ({naslov}) – promet res zapusti telefon po drugi poti.",
+        "i_test_ista": "Javni naslov je enak kot neposredno ({naslov}): telefon je zahtevo poslal po istem omrežju kot ta računalnik.",
+        "i_test_brez": "Neposredno ta računalnik zdaj nima interneta.",
+        "i_pot_cellular": "mobilno omrežje", "i_pot_wifi": "Wi-Fi telefona", "i_pot_ethernet": "žično omrežje telefona",
+        "i_pot_vpn": "VPN telefona", "i_pot_other": "drugo omrežje telefona",
+        "i_nastavljeno": "Nastavljeno: {nacin}.",
+        "i_env_ne_tece": "Posrednik ne teče (način je izklopljen). Vklopi ga: safeerctl internet mode failover",
+        "r_ni_telefona": "v Safeer Linku ni telefona, ki deli internet (na telefonu: Nastavitve › Internet prek Safeer Linka)",
+        "r_old_provider": "na telefonu je starejši Safeer OS; posodobi ga",
+        "r_disabled": "deljenje interneta je na telefonu izklopljeno",
+        "r_permission_required": "na telefonu odpri Safeer OS in dovoli temu računalniku uporabo interneta",
+        "r_denied": "telefon je temu računalniku uporabo interneta zavrnil",
+        "r_not_trusted": "telefon temu računalniku ne zaupa (ni v istem Safeer Linku)",
+        "r_no_path": "telefon zdaj nima interneta", "r_mobile_off": "mobilni podatki na telefonu niso dovoljeni za deljenje",
+        "r_no_mobile": "telefon nima mobilnega omrežja (kartica SIM, mobilni podatki)",
+        "r_roaming": "telefon gostuje v tujem omrežju, deljenje v gostovanju ni dovoljeno",
+        "r_limit": "mesečna omejitev mobilnih podatkov na telefonu je dosežena",
+        "r_busy": "telefon ima odprtih preveč povezav", "r_busy_local": "odprtih je preveč povezav",
+        "r_private_destination": "cilj je v zasebnem omrežju", "r_port_blocked": "ta vrata telefon ne posreduje",
+        "r_dns_failed": "imena strežnika ni bilo mogoče razrešiti", "r_connect_failed": "strežnik se ni odzval",
+        "r_timeout": "telefon ni odgovoril pravočasno", "r_link": "telefon ni dosegljiv v Safeer Linku",
+        "r_sistemski": "sistemskega posrednika ni bilo mogoče nastaviti", "r_vrata": "posrednik ni dobil vrat",
+        "r_ni_na_voljo": "Safeer Control še ni pripravljen", "r_napacna_zahteva": "napačna zahteva",
     },
     "en": {
         "ni_controla": "Safeer Control is not running. Start it (safeer-control --ozadje) and try again.",
@@ -82,6 +121,41 @@ BESEDILA = {
         "procesor": "processor", "pomnilnik": "memory", "prostor": "storage", "baterija": "battery", "sistem": "system",
         "grafika": "graphics", "pomoc": "may help", "da": "yes", "ne": "no", "prosto": "free", "jeder": "cores",
         "obremenitev": "load", "polni": "charging",
+        "i_nacin": "mode", "i_telefon": "phone", "i_doma": "home internet", "i_zdaj": "now", "i_posrednik": "proxy",
+        "i_sistemski": "system proxy", "i_poraba": "through the phone", "i_mobilni": "phone's mobile data",
+        "i_izklopljeno": "off", "i_izpad": "when home internet is down", "i_vedno": "always through the phone",
+        "i_dela": "works", "i_ne_dela": "down", "i_neposredno": "direct", "i_prek": "through the phone",
+        "i_ni_telefona": "no phone in Safeer Link shares its internet",
+        "i_dovoljeno": "allowed", "i_caka": "waiting – open Safeer OS on the phone and allow this computer", "i_zavrnjeno": "the phone refused this computer",
+        "i_ne_deli": "sharing is switched off on the phone", "i_stari": "the phone runs an older Safeer OS (update it)",
+        "i_neznano": "the phone has not answered yet",
+        "i_vklopljen": "on", "i_nastavljen": "on (set right now)", "i_izklopljen": "off",
+        "i_ni_podprt": "not supported on this desktop", "i_ne_tece": "not running",
+        "i_danes": "today", "i_mesec": "this month", "i_od": "of", "i_brez_omejitve": "no limit",
+        "i_test_ok": "Works: the request went through the phone ({pot}), public address {naslov}{drzava}. {ms} ms, {bajtov}.",
+        "i_test_druga": "This computer's own public address is different ({naslov}) - the traffic really leaves the phone another way.",
+        "i_test_ista": "The public address is the same as direct ({naslov}): the phone sent the request over the same network as this computer.",
+        "i_test_brez": "This computer has no direct internet right now.",
+        "i_pot_cellular": "mobile network", "i_pot_wifi": "the phone's Wi-Fi", "i_pot_ethernet": "the phone's wired network",
+        "i_pot_vpn": "the phone's VPN", "i_pot_other": "another network of the phone",
+        "i_nastavljeno": "Set: {nacin}.",
+        "i_env_ne_tece": "The proxy is not running (the mode is off). Turn it on: safeerctl internet mode failover",
+        "r_ni_telefona": "no phone in Safeer Link shares its internet (on the phone: Settings › Internet over Safeer Link)",
+        "r_old_provider": "the phone runs an older Safeer OS; update it",
+        "r_disabled": "internet sharing is switched off on the phone",
+        "r_permission_required": "open Safeer OS on the phone and allow this computer to use its internet",
+        "r_denied": "the phone refused to share its internet with this computer",
+        "r_not_trusted": "the phone does not trust this computer (not in the same Safeer Link)",
+        "r_no_path": "the phone has no internet right now", "r_mobile_off": "mobile data is not allowed for sharing on the phone",
+        "r_no_mobile": "the phone has no mobile network (SIM card, mobile data)",
+        "r_roaming": "the phone is roaming and sharing while roaming is not allowed",
+        "r_limit": "the phone's monthly mobile data limit is reached",
+        "r_busy": "the phone has too many open connections", "r_busy_local": "too many open connections",
+        "r_private_destination": "the destination is in a private network", "r_port_blocked": "the phone does not forward this port",
+        "r_dns_failed": "the server name could not be resolved", "r_connect_failed": "the server did not respond",
+        "r_timeout": "the phone did not answer in time", "r_link": "the phone is not reachable in Safeer Link",
+        "r_sistemski": "the system proxy could not be set", "r_vrata": "the proxy could not get a port",
+        "r_ni_na_voljo": "Safeer Control is not ready yet", "r_napacna_zahteva": "bad request",
     },
 }
 
@@ -362,6 +436,108 @@ def ukaz_rename(a, klic, izpis) -> int:
     return IZHOD_OK
 
 
+# ---------------------------------------------------------------------- internet prek telefona
+
+NACINI_INTERNETA = {"off": "izklopljeno", "failover": "izpad", "always": "vedno"}
+
+
+def razlog_interneta(koda: str) -> str:
+    b = t("r_" + str(koda or ""))
+    return str(koda or "?") if b.startswith("r_") else b
+
+
+def _dovoljenje(stanje: dict) -> str:
+    p = stanje.get("ponudnik")
+    if not stanje.get("telefon"):
+        return t("i_ni_telefona")
+    if not isinstance(p, dict):
+        return t("i_stari") if stanje.get("napaka") == "old_provider" or stanje.get("brez_odgovora") else t("i_neznano")
+    if not p.get("enabled", True):
+        return t("i_ne_deli")
+    return {"allowed": t("i_dovoljeno"), "pending": t("i_caka"), "denied": t("i_zavrnjeno")}.get(str(p.get("permission")), t("i_neznano"))
+
+
+def _izpis_stanja_interneta(s: dict) -> str:
+    nacin = {"izklopljeno": t("i_izklopljeno"), "izpad": t("i_izpad"), "vedno": t("i_vedno")}.get(s.get("nacin"), str(s.get("nacin")))
+    ime = next((x.get("ime") or x.get("id") for x in s.get("telefoni") or [] if x.get("id") == s.get("telefon")), "")
+    vrstice = [[t("i_nacin"), nacin],
+               [t("i_telefon"), (ime + " – " if ime else "") + _dovoljenje(s)]]
+    if s.get("nacin") == "izpad":
+        vrstice.append([t("i_doma"), t("i_dela") if (s.get("fiksna") or {}).get("dela") else t("i_ne_dela")])
+    if s.get("nacin") != "izklopljeno":
+        vrstice.append([t("i_zdaj"), t("i_prek") if s.get("prek_telefona") else t("i_neposredno")])
+    p = s.get("posrednik") or {}
+    vrstice.append([t("i_posrednik"), "%s:%s (SOCKS5, HTTP)" % (p.get("naslov"), p.get("vrata")) if p.get("tece") else t("i_ne_tece")])
+    sis = s.get("sistemski") or {}
+    vrstice.append([t("i_sistemski"), t("i_ni_podprt") if not sis.get("podprt") else
+                    t("i_nastavljen") if sis.get("nastavljen") else t("i_vklopljen") if sis.get("vklopljen") else t("i_izklopljen")])
+    por = s.get("poraba") or {}
+    vrstice.append([t("i_poraba"), "%s %s · %s %s" % (t("i_danes"), velikost(por.get("danes", 0)), t("i_mesec"), velikost(por.get("mesec", 0)))])
+    mob = (s.get("ponudnik") or {}).get("cellular") if isinstance(s.get("ponudnik"), dict) else None
+    if isinstance(mob, dict):
+        meja = mob.get("limit_bytes") or 0
+        vrstice.append([t("i_mobilni"), "%s %s · %s %s %s" % (
+            t("i_danes"), velikost(mob.get("used_today", 0)), t("i_mesec"), velikost(mob.get("used_month", 0)),
+            (t("i_od") + " " + velikost(meja)) if meja else "(" + t("i_brez_omejitve") + ")")])
+    if s.get("napaka"):
+        vrstice.append(["!", razlog_interneta(s["napaka"])])
+    return tabela(vrstice)
+
+
+def ukaz_internet(a, klic, izpis) -> int:
+    dejanje = a.dejanje or "status"
+    if dejanje == "status":
+        s = klic("Internet", "stanje", json.dumps({"vprasaj": True}))
+        if not s.get("ok"):
+            raise Napaka(t("ni_uspelo", razlog=razlog_interneta(s.get("koda"))), IZHOD_NEUSPEH, str(s.get("koda") or "napaka"))
+        izpis(json.dumps(s, ensure_ascii=False) if a.json else _izpis_stanja_interneta(s))
+        return IZHOD_OK
+    if dejanje == "mode":
+        if a.vrednost not in NACINI_INTERNETA:
+            raise Napaka("mode: off | failover | always", IZHOD_RABA, "raba")
+        p = {"nacin": NACINI_INTERNETA[a.vrednost]}
+        if a.via is not None:
+            p["naprava"] = najdi_napravo(naprave(klic), a.via)["id"] if a.via else ""
+        if a.system_proxy is not None:
+            p["sistemski"] = a.system_proxy == "on"
+        s = klic("Internet", "nastavi", json.dumps(p))
+        if not s.get("ok"):
+            raise Napaka(t("ni_uspelo", razlog=razlog_interneta(s.get("koda"))), IZHOD_NEUSPEH, str(s.get("koda") or "napaka"))
+        izpis(json.dumps(s, ensure_ascii=False) if a.json else _izpis_stanja_interneta(s))
+        return IZHOD_OK
+    if dejanje == "test":
+        p = {"pot": a.path or "", "stari": bool(a.legacy)}
+        if a.via:
+            p["naprava"] = najdi_napravo(naprave(klic), a.via)["id"]
+        s = klic("Internet", "preizkus", json.dumps(p))
+        if a.json:
+            izpis(json.dumps(s, ensure_ascii=False))
+            return IZHOD_OK if s.get("ok") else IZHOD_NEUSPEH
+        if not s.get("ok"):
+            raise Napaka(t("ni_uspelo", razlog=razlog_interneta(s.get("koda"))), IZHOD_NEUSPEH, str(s.get("koda") or "napaka"))
+        pot = t("i_pot_" + (str(s.get("vrsta_poti") or "other")))
+        izpis(t("i_test_ok", pot=pot if not pot.startswith("i_pot_") else str(s.get("vrsta_poti") or "?"),
+                naslov=s.get("naslov_prek_telefona") or "?", drzava=(", " + s["drzava"]) if s.get("drzava") else "",
+                ms=s.get("skupaj_ms", "?"), bajtov=velikost(s.get("bajtov", 0))))
+        if not s.get("naslov_neposredno"):
+            izpis(t("i_test_brez"))
+        else:
+            izpis(t("i_test_druga" if s.get("druga_pot") else "i_test_ista", naslov=s["naslov_neposredno"]))
+        return IZHOD_OK
+    if dejanje == "env":
+        s = klic("Internet", "okolje", "{}")
+        if not s.get("ok"):
+            raise Napaka(t("ni_uspelo", razlog=razlog_interneta(s.get("koda"))), IZHOD_NEUSPEH, str(s.get("koda") or "napaka"))
+        if a.json:
+            izpis(json.dumps(s, ensure_ascii=False))
+            return IZHOD_OK
+        if not s.get("tece"):
+            raise Napaka(t("i_env_ne_tece"), IZHOD_NEUSPEH, "ne_tece")
+        izpis("\n".join("export %s=%s" % (k, v) for k, v in sorted((s.get("okolje") or {}).items())))
+        return IZHOD_OK
+    raise Napaka("internet: status | mode | test | env", IZHOD_RABA, "raba")
+
+
 # ---------------------------------------------------------------------- vhod
 
 def razclenjevalnik() -> argparse.ArgumentParser:
@@ -398,6 +574,15 @@ def razclenjevalnik() -> argparse.ArgumentParser:
     u.add_argument("naprava", metavar="DEVICE")
     u.add_argument("ime", metavar="NAME")
     u.set_defaults(f=ukaz_rename)
+    u = ukazi.add_parser("internet", parents=[skupno], help="internet through a phone in Safeer Link: status, mode, test, env")
+    u.add_argument("dejanje", metavar="ACTION", nargs="?", choices=["status", "mode", "test", "env"],
+                   help="status (default) | mode off|failover|always | test | env")
+    u.add_argument("vrednost", metavar="VALUE", nargs="?", help="for mode: off, failover or always")
+    u.add_argument("--via", metavar="DEVICE", help="the phone to use (default: the first one that shares its internet)")
+    u.add_argument("--system-proxy", choices=["on", "off"], help="for mode: set the desktop proxy while traffic goes through the phone")
+    u.add_argument("--path", choices=["mobile", "any", "wifi"], help="for test: which network of the phone (default: the configured one)")
+    u.add_argument("--legacy", action="store_true", help="for test: also try a phone with an older Safeer OS (diagnostics)")
+    u.set_defaults(f=ukaz_internet)
     return p
 
 

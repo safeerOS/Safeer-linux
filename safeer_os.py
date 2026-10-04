@@ -422,6 +422,32 @@ def _control_naprave(metoda: str, *argumenti: str) -> dict:
         return {"ok": False, "koda": "napaka", "message": str(e)}
 
 
+def internet_prek_telefona(ukaz: str, parametri: Optional[dict] = None, zazeni: bool = True) -> dict:
+    """Internet prek telefona v Safeer Linku: nastavitve in stanje ima Safeer Control (D-Bus Naprave.Internet).
+
+    `zazeni=False`: samo, ce Control ze tece - zaradi prikaza stanja ga ne zaganjamo. Parametre precistimo tu:
+    stran sme nastaviti samo nacin, telefon, pot in sistemski posrednik."""
+    if not zazeni:
+        try:
+            if not _control_na_vodilu(Gio.bus_get_sync(Gio.BusType.SESSION, None)):
+                return {"ok": False, "koda": "ni_controla"}
+        except Exception:  # noqa: BLE001
+            return {"ok": False, "koda": "ni_controla"}
+    p = parametri if isinstance(parametri, dict) else {}
+    cisto: dict = {}
+    if ukaz == "stanje":
+        cisto["vprasaj"] = bool(p.get("vprasaj"))
+    elif ukaz == "nastavi":
+        for kljuc in ("nacin", "naprava", "pot"):
+            if isinstance(p.get(kljuc), str):
+                cisto[kljuc] = p[kljuc][:96]
+        if isinstance(p.get("sistemski"), bool):
+            cisto["sistemski"] = p["sistemski"]
+    elif ukaz != "preizkus":
+        return {"ok": False, "koda": "napacna_zahteva"}
+    return _control_naprave("Internet", ukaz, json.dumps(cisto))
+
+
 def _seznami_z_naprav(uskladi: Callable[[Callable[[dict], Optional[dict]]], bool]) -> bool:
     """Seznami predvajanja z drugih naprav v Safeer Linku (core/seznami_sink.py). Naprave vprasa Safeer Control
     (`lists.get`, samo branje); `uskladi` je MediaCenter.seznami_uskladi. Klic iz delovne niti. Vrne True, ce se je
@@ -1857,6 +1883,10 @@ class SafeerOS(Gtk.Application):
             "novaNaprava": lambda: control_dejanje("nova-naprava"),
             "odjava": lambda: control_dejanje("odjava"),
             "omrezje": lambda: os_omrezje.stanje(bool(a[0]) if a else False),
+            # Internet prek telefona v Safeer Linku (Safeer Control). Stanje Controla ne zaganja; nastavitev in preizkus ga.
+            "internetStanje": lambda: internet_prek_telefona("stanje", {"vprasaj": bool(a[0]) if a else False}, zazeni=False),
+            "internetNastavi": lambda: internet_prek_telefona("nastavi", a[0] if a and isinstance(a[0], dict) else {}),
+            "internetPreizkus": lambda: internet_prek_telefona("preizkus"),
             "omrezjePovezi": lambda: os_omrezje.povezi(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "omrezjeOdklopi": lambda: os_omrezje.odklopi(str(a[0]) if a else ""),
             "omrezjeAktiviraj": lambda: os_omrezje.aktiviraj(str(a[0]) if a else ""),

@@ -47,6 +47,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 
 from core import link_daljinec, link_datoteke, link_deljenje, link_hub, link_programi, link_sway, link_tls, link_zaslon, link_zvok  # noqa: E402
 from core import budnost, os_posodobitve, os_stabilnost  # noqa: E402
+from core import link_internet, link_internet_posrednik, sistemski_posrednik  # noqa: E402
 from core.link_gledalec import (Gledalec, OKVIR_OBVESTILO, OKVIR_SLIKA,  # noqa: E402
                                 izberi_ponor, niz_cevovoda, preslikaj_tipko,
                                 preslikaj_tocko)
@@ -797,6 +798,7 @@ class SafeerControl(Gtk.Application):
       <method name="Poslji"><arg type="s" name="naprava" direction="in"/><arg type="s" name="poti" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="PosljiStanje"><arg type="s" name="id" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="Besedilo"><arg type="s" name="naprava" direction="in"/><arg type="s" name="besedilo" direction="in"/><arg type="s" name="json" direction="out"/></method>
+      <method name="Internet"><arg type="s" name="ukaz" direction="in"/><arg type="s" name="parametri" direction="in"/><arg type="s" name="json" direction="out"/></method>
     </interface></node>"""
 
     def _izvozi_naprave(self) -> None:
@@ -981,6 +983,15 @@ class SafeerControl(Gtk.Application):
             link.predvajanje.cakajoca = p
             GLib.idle_add(self.predaja_sprejmi)
             return {"ok": True}
+        if metoda == "Internet":
+            # Internet prek telefona (Safeer OS, safeerctl internet): stanje, nastavitve, preizkus.
+            try:
+                parametri = json.loads(str(a[1])) if len(a) > 1 and str(a[1]).strip() else {}
+            except ValueError:
+                return {"ok": False, "koda": "napacna_zahteva"}
+            if not isinstance(parametri, dict):
+                return {"ok": False, "koda": "napacna_zahteva"}
+            return self._internet_metoda(str(a[0]) if a else "", parametri)
         if metoda == "Besedilo":
             # Besedilo ali povezava napravi (safeerctl text): isto kot »Poslji besedilo« v Controlu.
             ok, n = link.poslji_besedilo_napravi(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "")
@@ -1121,6 +1132,74 @@ class SafeerControl(Gtk.Application):
             self.datoteke, deli=lambda: bool(self.nastavitve.get("predvajanje_za_naprave", True)))
         self.link.predvajanje.ob_ponudbi = lambda p: GLib.idle_add(self._pokazi_ponudbo, p)
         self.zvok.ob_spremembi = lambda _opis: self.link.zapisi_stanje_za_os() if self.link is not None else None
+        self._pripravi_internet()
+
+    # ------------------------------------------------------------------ internet prek telefona (Safeer Internet Gateway)
+    internet = None
+
+    #: Obvestili ob preklopu (nacin »ob izpadu«): naslov, besedilo.
+    OBVESTILA_INTERNETA = {
+        "sl": {"prek_telefona": ("Domači internet ne dela", "Safeer zdaj uporablja mobilni internet naprave {telefon}."),
+               "nazaj_doma": ("Domači internet spet dela", "Safeer ne uporablja več mobilnega interneta telefona.")},
+        "en": {"prek_telefona": ("Home internet is down", "Safeer now uses the mobile internet of {telefon}."),
+               "nazaj_doma": ("Home internet is back", "Safeer no longer uses the phone's mobile internet.")},
+        "de": {"prek_telefona": ("Heim-Internet ausgefallen", "Safeer nutzt jetzt das mobile Internet von {telefon}."),
+               "nazaj_doma": ("Heim-Internet funktioniert wieder", "Safeer nutzt das mobile Internet des Telefons nicht mehr.")},
+        "es": {"prek_telefona": ("Internet de casa no funciona", "Safeer usa ahora el internet móvil de {telefon}."),
+               "nazaj_doma": ("Internet de casa vuelve a funcionar", "Safeer ya no usa el internet móvil del teléfono.")},
+        "fr": {"prek_telefona": ("Internet de la maison est en panne", "Safeer utilise maintenant l'internet mobile de {telefon}."),
+               "nazaj_doma": ("Internet de la maison fonctionne à nouveau", "Safeer n'utilise plus l'internet mobile du téléphone.")},
+        "it": {"prek_telefona": ("Internet di casa non funziona", "Safeer ora usa l'internet mobile di {telefon}."),
+               "nazaj_doma": ("Internet di casa funziona di nuovo", "Safeer non usa più l'internet mobile del telefono.")},
+    }
+
+    def _pripravi_internet(self) -> None:
+        """Tokovi skozi telefon v Linku in krajevni posrednik. Privzeto izklopljeno; vklopi uporabnik."""
+        link = self.link
+        link.internet = link_internet.InternetPrekLinka(
+            lambda s: bool(link.povezava is not None and link.povezava.poslji(s)))
+        self.internet = link_internet_posrednik.InternetUpravitelj(
+            link.internet, lambda: link.naprave_vse, os.path.join(NASTAVITVE_MAPA, "internet.json"),
+            sistemski=sistemski_posrednik.SistemskiPosrednik(os.path.join(NASTAVITVE_MAPA, "sistemski-posrednik.json")),
+            obvesti=self._obvestilo_interneta)
+        link.internet_upravitelj = self.internet
+        # Zagon (sistemski posrednik po sesutju, posrednik, sonda) klice gsettings: ne na glavni niti.
+        threading.Thread(target=self.internet.zazeni, name="safeer-internet-zagon", daemon=True).start()
+
+    def _obvestilo_interneta(self, koda: str, podatki: dict) -> None:
+        import shutil
+        if not shutil.which("notify-send"):
+            return
+        jezik = self.link._jezik() if self.link is not None else "en"
+        besedila = self.OBVESTILA_INTERNETA.get(jezik) or self.OBVESTILA_INTERNETA["en"]
+        if koda not in besedila:
+            return
+        naslov, besedilo = besedila[koda]
+        try:
+            subprocess.Popen(["notify-send", "-a", "Safeer Control", "-i", "safeer-control", naslov,
+                              besedilo.format(telefon=str(podatki.get("telefon") or "?"))],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _internet_metoda(self, ukaz: str, p: dict) -> dict:
+        """D-Bus `Internet(ukaz, parametri)`: stanje | nastavi | preizkus | okolje."""
+        u = self.internet
+        if u is None:
+            return {"ok": False, "koda": "ni_na_voljo"}
+        if ukaz == "stanje":
+            return u.stanje(vprasaj=bool(p.get("vprasaj")))
+        if ukaz == "nastavi":
+            nacin, naprava, pot, sistemski = p.get("nacin"), p.get("naprava"), p.get("pot"), p.get("sistemski")
+            if any(x is not None and not isinstance(x, str) for x in (nacin, naprava, pot)) or \
+                    (sistemski is not None and not isinstance(sistemski, bool)):
+                return {"ok": False, "koda": "napacna_zahteva"}
+            return u.nastavi(nacin=nacin, naprava=naprava, sistemski=sistemski, pot=pot)
+        if ukaz == "preizkus":
+            return u.preizkus(str(p.get("naprava") or ""), str(p.get("pot") or ""), bool(p.get("stari")))
+        if ukaz == "okolje":
+            return {"ok": True, "okolje": u.okolje(), "tece": u.posrednik.tece}
+        return {"ok": False, "koda": "napacna_zahteva"}
 
     # ------------------------------------------------------------------ Safeer OS
     _iz_os = False
@@ -1377,6 +1456,12 @@ class SafeerControl(Gtk.Application):
         try:
             if self.link is not None and self.link.povezava is not None:
                 self.link.povezava.zapri()
+        except Exception:
+            pass
+        try:
+            # Sistemski posrednik namizja se vrne na prejsnje vrednosti, tokovi skozi telefon se zaprejo.
+            if self.internet is not None:
+                self.internet.ustavi()
         except Exception:
             pass
         try:
