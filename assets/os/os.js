@@ -148,9 +148,37 @@
   function obvesti(besedilo) {
     var o = $("obvestilo");
     o.textContent = besedilo;
+    o.classList.remove("z-gumbom");
     o.classList.add("viden");
     clearTimeout(obvestiloCas);
     obvestiloCas = setTimeout(function () { o.classList.remove("viden"); }, 2600);
+  }
+  // Prvi film iz torrenta: Safeer enkrat prenese odprtokodni predvajalni program. To je viden korak - z napredkom
+  // in moznostjo preklica -, ne tiho cakanje.
+  function motorNapredek(p) {
+    var o = $("obvestilo"), odstotek = Math.floor(100 * (p.n || 0) / (p.vse || 1));
+    var besedilo = t("mediaMotorPrenasam", { mb: Math.round((p.vse || 0) / 1048576), odstotek: odstotek });
+    var vrstica = o.classList.contains("z-gumbom") ? o.querySelector("span") : null;
+    if (odstotek >= 100) {
+      o.textContent = besedilo;
+      o.classList.remove("z-gumbom");
+    } else if (vrstica) {
+      vrstica.textContent = besedilo;       // gumb ostane isti: klik ne sme pasti med dvema dogodkoma napredka
+    } else {
+      o.textContent = "";
+      o.appendChild(el("span", "", ubezi(besedilo)));
+      var g = el("button", "", ubezi(t("preklici")));
+      g.type = "button";
+      g.addEventListener("click", function () {
+        klic("mediaMotorPreklici").then(function () {}, function () {});
+        o.classList.remove("viden", "z-gumbom");
+      });
+      o.appendChild(g);
+      o.classList.add("z-gumbom");
+    }
+    o.classList.add("viden");
+    clearTimeout(obvestiloCas);
+    obvestiloCas = setTimeout(function () { o.classList.remove("viden", "z-gumbom"); }, odstotek < 100 ? 20000 : 2600);
   }
   // Barvna ploscica s prvo crko (program brez ikone, spletna aplikacija).
   function barva(ime) {
@@ -3643,6 +3671,7 @@
     if (vrsta === "magnet") odpriMagnet(podatki && podatki.uri, podatki && podatki.samodejno === true);
     // Film iz torrenta (dodatek): med branjem torrenta in prenosom zacetka uporabnik vidi, da se nekaj dogaja.
     if (vrsta === "mediaTorrent") obvesti(t("mediaTorrentPripravljam", { ime: (podatki && podatki.naslov) || "" }));
+    if (vrsta === "mediaMotor" && podatki) motorNapredek(podatki);
     if (vrsta === "magnetProgram" && S.magnet.gumbPrograma)
       S.magnet.gumbPrograma.textContent = t("magnetProgramPrenasam", { odstotek: Math.floor(100 * podatki.n / (podatki.vse || 1)) });
     if (vrsta === "magnetDeljen") {

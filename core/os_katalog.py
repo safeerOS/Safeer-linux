@@ -260,6 +260,7 @@ class Katalog:
         self._predvajano: dict[str, dict] = {}
         self._seznami_usklajeni = 0.0
         self._seznami_usklajujem = False
+        self._motor_odstotek = -1
 
     # ------------------------------------------------------------------ jedro
     @property
@@ -274,9 +275,24 @@ class Katalog:
                 # Film iz torrenta: branje torrenta traja - stran med tem pove, da ga pripravljamo.
                 self._mc.ob_pripravi_torrenta = lambda item: self.dogodek(
                     "mediaTorrent", {"naslov": str(item.get("naslov") or "")})
+                # Prvi film iz torrenta: enkratni prenos predvajalnega programa je viden in ga je mogoce preklicati.
+                self._mc.preklic_motorja = threading.Event()
+                self._mc.ob_prenosu_motorja = self._motor_napredek
                 # Moji viri z drugih naprav v Linku (core/viri_sink.py): stran osvezi vire in katalog.
                 self._mc.ob_virih = lambda: self.dogodek("mediaViriUsklajeni", None)
             return self._mc
+
+    def _motor_napredek(self, preneseno: int, vse: int) -> None:
+        odstotek = int(100 * preneseno / (vse or 1))
+        if odstotek != self._motor_odstotek:          # stran dobi dogodek po odstotkih, ne po kosih
+            self._motor_odstotek = odstotek
+            self.dogodek("mediaMotor", {"n": int(preneseno), "vse": int(vse)})
+
+    def _motor_preklici(self, a: list) -> bool:
+        preklic = getattr(self.mc, "preklic_motorja", None)
+        if preklic is not None:
+            preklic.set()
+        return True
 
     def _drzava(self) -> str:
         return str(self._nastavitve().get("media_watch_country") or "auto")
@@ -315,6 +331,7 @@ class Katalog:
         "mediaPredvajaj": "_predvajaj_vnos", "mediaYtUkaz": "_yt_ukaz", "mediaStanje": "_stanje",
         "mediaKnjiznica": "_knjiznica_seznam", "mediaKnjiznicaPredvajaj": "_knjiznica_predvajaj",
         "mediaKnjiznicaOdstrani": "_knjiznica_odstrani", "mediaKnjiznicaObdrzi": "_knjiznica_obdrzi",
+        "mediaMotorPreklici": "_motor_preklici",
     }
 
     @staticmethod

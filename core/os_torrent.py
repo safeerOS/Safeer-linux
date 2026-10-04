@@ -326,8 +326,10 @@ def program_na_voljo() -> bool:
 
 
 def prenesi_program(napredek: Optional[Callable[[int, int], None]] = None,
-                    odpri: Callable = urllib.request.urlopen) -> str:
-    """Prenese rqbit za to platformo z uradne izdaje in preveri SHA-256. Vrne pot ali dvigne napako."""
+                    odpri: Callable = urllib.request.urlopen, preklic=None) -> str:
+    """Prenese rqbit za to platformo z uradne izdaje in preveri SHA-256. Vrne pot ali dvigne napako.
+
+    `preklic` (threading.Event): uporabnik je prenos preklical - delna datoteka se odstrani, NapakaTorrenta("preklicano")."""
     paket = RQBIT_PAKETI.get(platforma())
     if not paket:
         raise RuntimeError("Ta platforma ni podprta")
@@ -339,8 +341,12 @@ def prenesi_program(napredek: Optional[Callable[[int, int], None]] = None,
     prebrano = 0
     zahteva = urllib.request.Request(RQBIT_URL.format(razlicica=RQBIT_RAZLICICA, ime=ime),
                                      headers={"User-Agent": "Safeer/1.0"})
+    preklicano = False
     with odpri(zahteva, timeout=60) as odgovor, open(zacasna, "wb") as d:
         while True:
+            if preklic is not None and preklic.is_set():
+                preklicano = True
+                break
             kos = odgovor.read(KOS)
             if not kos:
                 break
@@ -351,6 +357,9 @@ def prenesi_program(napredek: Optional[Callable[[int, int], None]] = None,
             d.write(kos)
             if napredek:
                 napredek(prebrano, velikost)
+    if preklicano:
+        os.remove(zacasna)
+        raise NapakaTorrenta("preklicano")
     if prebrano != velikost or h.hexdigest() != pricakovan:
         os.remove(zacasna)
         raise RuntimeError("Preneseni program se ne ujema z uradno izdajo (SHA-256)")
