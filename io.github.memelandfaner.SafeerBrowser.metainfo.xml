@@ -48,6 +48,7 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.0.93" date="2026-10-04"><description><p>Packaged with Safeer OS 0.4.51 and Safeer Control 2.1.49. The .deb package compiles byte-code when it is installed (faster start) and leaves nothing behind when it is removed. No changes to the browser itself.</p></description></release>
     <release version="1.0.92" date="2026-10-04"><description><p>Packaged with Safeer OS 0.4.50 and Safeer Control 2.1.48. No changes to the browser itself.</p></description></release>
     <release version="1.0.91" date="2026-10-04"><description><p>Packaged with Safeer OS 0.4.49 and Safeer Control 2.1.47. No changes to the browser itself.</p></description></release>
     <release version="1.0.90" date="2026-10-04"><description><p>Packaged with Safeer OS 0.4.48 and Safeer Control 2.1.46. No changes to the browser itself.</p></description></release>
