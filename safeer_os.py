@@ -1748,6 +1748,28 @@ class SafeerOS(Gtk.Application):
                 print("[SafeerOS] nadzor programov:", e)
         return self.programi.seznam(self._ikona)
 
+    def _spremljaj_mapo(self, pogled, kaj: str) -> bool:
+        """Stran pove, kateri pogled Datotek kaze (pot mape, »@nedavno«, »@smeti«; prazno = nobenega). Ko se tam kaj
+        spremeni - tudi zaradi drugega programa -, odprte strani dobijo dogodek »datoteke« in seznam preberejo
+        znova; ob priklopu ali odklopu nosilca dogodek »nosilci«."""
+        nadzor = getattr(self, "_nadzor_map", None)
+        if nadzor is None:
+            nadzor = self._nadzor_map = os_datoteke.NadzorMap(
+                lambda spremenjen: self._dogodek("datoteke", {"pot": spremenjen}),
+                lambda: self._dogodek("nosilci", None))
+            try:
+                # Seznam nedavnih vodi GTK in spremembo javi sam (datoteka, odprta ali shranjena v drugem programu).
+                Gtk.RecentManager.get_default().connect(
+                    "changed", lambda *_a: nadzor.zunanja(os_datoteke.NadzorMap.NEDAVNO))
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] nadzor nedavnih:", e)
+        try:
+            nadzor.obdrzi({id(p) for p in self.pogledi})
+            return nadzor.spremljaj(id(pogled), kaj)
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] nadzor map:", e)
+            return False
+
     def _dogodek(self, vrsta: str, podatki) -> None:
         def naredi():
             self._js("window.safeerOsDogodek && window.safeerOsDogodek(%s, %s);" % (
@@ -1766,6 +1788,7 @@ class SafeerOS(Gtk.Application):
             "zacetek": self._zacetek,
             "zacniVlecenje": lambda: self._zacni_vlecenje(pogled, a[0] if a else []),
             "programi": self._seznam_programov,
+            "spremljajMapo": lambda: self._spremljaj_mapo(pogled, str(a[0]) if a else ""),
             "zazeni": lambda: self.programi.zazeni(str(a[0]) if a else "", self._zazeni_vnos),
             "odpriZ": lambda: os_odpri_z.odpri_z(a[0] if a and isinstance(a[0], list) else [], str(a[1]) if len(a) > 1 else "",
                                                  bool(a[2]) if len(a) > 2 else False, self._zazeni_vnos_z),

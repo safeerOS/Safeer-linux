@@ -686,10 +686,64 @@
     });
   }
 
+  // Safeer OS spremlja pogled, ki ga plosca kaze: ko se v mapi (med nedavnimi, v Smeteh) kaj spremeni - tudi zaradi
+  // drugega programa (prenos, Nemo, datoteka z druge naprave) -, pride dogodek »datoteke« in seznam preberemo znova.
+  function pogledVira(vir) {
+    return !vir ? "" : vir.vrsta === "lokalno" ? vir.pot : vir.vrsta === "nedavno" ? "@nedavno" : vir.vrsta === "smeti" ? "@smeti" : "";
+  }
+  function spremljajVir(vir) { if (most) klic("spremljajMapo", [pogledVira(vir)]).catch(function () {}); }
+  function vnosiSmeti(r) {
+    return ((r && r.elementi) || []).map(function (v) {
+      return { ime: v.ime, pot: v.izvirna || v.pot, mapa: !!v.mapa, vrsta: v.vrsta, velikost: v.velikost || 0,
+               spremenjeno: v.izbrisano || 0, smeti: v.id };
+    });
+  }
+  function odtisVnosov(vnosi) {
+    return (vnosi || []).map(function (e) {
+      return kljucVnosa(e) + "|" + (e.ime || "") + "|" + (e.velikost || 0) + "|" + Math.round(e.spremenjeno || 0);
+    }).join("\n");
+  }
+  // Tiha osvezitev: brez »Nalagam«, stran, izbira in fokus ostanejo. Ce se ni nic spremenilo, nicesar ne prerisemo.
+  var tihoCaka = 0;
+  function osveziVirTiho() {
+    var vir = D.vir;
+    if (!vir || !most || !pogledVira(vir)) return;
+    // Med vlecenjem datotek seznama ne prerisemo (vrstica, ki jo uporabnik drzi, bi izginila): poskusimo malo pozneje.
+    if (VL.poti.length) { clearTimeout(tihoCaka); tihoCaka = setTimeout(osveziVirTiho, 1200); return; }
+    var st = D.zahteva;
+    var branje = vir.vrsta === "lokalno" ? klic("mapa", [vir.pot]) : vir.vrsta === "nedavno" ? klic("nedavne") : klic("smeti");
+    branje.then(function (r) {
+      if (st !== D.zahteva || D.vir !== vir) return;                 // uporabnik je medtem odprl kaj drugega
+      var vnosi;
+      if (vir.vrsta === "lokalno") {
+        if (!r || r.napaka) { odpriVir(vir); return; }                 // mape ni vec: obicajno odprtje pokaze stanje
+        vnosi = r.elementi || [];
+      } else if (vir.vrsta === "nedavno") vnosi = r || [];
+      else vnosi = vnosiSmeti(r);
+      if (!D.napaka && odtisVnosov(vnosi) === odtisVnosov(D.vse)) return;
+      var vFokusu = document.activeElement && document.activeElement.closest ? document.activeElement.closest("#datVrstice tr") : null;
+      var mesto = vFokusu ? vFokusu.sectionRowIndex : -1;
+      var kljucFokusa = mesto >= 0 && D.vidni && D.vidni[mesto] ? kljucVnosa(D.vidni[mesto]) : "";
+      var izbrani = {};
+      vnosi.forEach(function (e) { var k = kljucVnosa(e); if (D.izbrani[k]) izbrani[k] = e; });
+      D.izbrani = izbrani;
+      if (D.sidro && !izbrani[D.sidro]) D.sidro = "";
+      D.vse = vnosi; D.napaka = false;
+      izrisiDatoteke();
+      if (mesto >= 0) {
+        var vrstice = $("datVrstice").rows, novo = -1;
+        for (var i = 0; i < (D.vidni || []).length; i++) if (kljucVnosa(D.vidni[i]) === kljucFokusa) { novo = i; break; }
+        if (novo < 0) novo = Math.min(mesto, vrstice.length - 1);
+        if (novo >= 0 && vrstice[novo]) { D.izbran = novo; try { vrstice[novo].focus(); } catch (x) {} }
+      }
+    }).catch(function () {});
+  }
+
   function odpriVir(vir) {
     D.vir = vir; D.stran = 0; D.izbran = -1; D.vse = []; pocistiIzbiro();
     if (vir.vrsta === "lokalno" && !vir.koren) vir.koren = vir.pot;
     oznaciVir();
+    spremljajVir(vir);
     datSporocilo(t("nalagam"));
     $("datStanje").textContent = "";
     var st = ++D.zahteva;
@@ -706,17 +760,17 @@
     } else if (vir.vrsta === "smeti") {
       // Smeti: stolpec Lokacija pove, kje je datoteka bila, cas pa, kdaj je bila izbrisana.
       klic("smeti").then(prispelo(function (r) {
-        var vnosi = ((r && r.elementi) || []).map(function (v) {
-          return { ime: v.ime, pot: v.izvirna || v.pot, mapa: !!v.mapa, vrsta: v.vrsta, velikost: v.velikost || 0,
-                   spremenjeno: v.izbrisano || 0, smeti: v.id };
-        });
-        nastaviVnose(vnosi, t("praznoSmeti")); drobtine([t("smeti")]);
+        nastaviVnose(vnosiSmeti(r), t("praznoSmeti")); drobtine([t("smeti")]);
       })).catch(prispelo(function () { nastaviVnose([], t("niUspelo"), true); }));
     } else if (vir.vrsta === "lokalno") {
       klic("mapa", [vir.pot]).then(prispelo(function (r) {
         r = r || {};
         if (r.napaka) { nastaviVnose([], r.napaka === "ni_dovoljenja" ? t("niDovoljenja") : t("niMape"), true); }
-        else { vir.pot = r.pot || vir.pot; nastaviVnose(r.elementi || [], t("praznaMapa")); }
+        else {
+          // Safeer OS vrne pravo pot mape (npr. brez koncne posevnice): spremljamo to.
+          if (r.pot && r.pot !== vir.pot) { vir.pot = r.pot; spremljajVir(vir); }
+          nastaviVnose(r.elementi || [], t("praznaMapa"));
+        }
         drobtineLokalno(vir);
       })).catch(prispelo(function () { nastaviVnose([], t("niUspelo"), true); }));
     } else if (vir.vrsta === "naprava") {
@@ -2510,6 +2564,9 @@
       else if (vrsta === "vleceneDatoteke") { VL.zunanje = (arguments[1] && arguments[1].stevilo) || 0; if (!VL.zunanje) pocistiCilje(); }
       else if (vrsta === "vlecenjeKoncano") koncajVlecenje(!!(arguments[1] && arguments[1].sprejeto));
       else if (vrsta === "programi") naloziLokalnePrograme();     // program namescen ali odstranjen
+      // Prikazana mapa (nedavne, Smeti) se je spremenila zunaj Safeer OS; nosilec priklopljen ali odklopljen.
+      else if (vrsta === "datoteke") { if (arguments[1] && arguments[1].pot === pogledVira(D.vir)) osveziVirTiho(); }
+      else if (vrsta === "nosilci") osveziNosilce();
       else if (vrsta === "fokus" && Date.now() - zadnjeOsvezevanje > 30000) {
         // Naprave v Linku se spreminjajo: ob vrnitvi v Safeer OS osvezimo najvec vsakih 30 s.
         zadnjeOsvezevanje = Date.now(); zgradiStranDatotek(); naloziProgrameNaprav(); osveziLink();
