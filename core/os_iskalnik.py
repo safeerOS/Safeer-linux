@@ -32,6 +32,8 @@ ROK_GRADNJE_S = 120.0
 NAJVEC_GLOBINA = 14
 #: Koliko ujemanj ocenimo pri eni poizvedbi (pogosta črka se ujema povsod).
 NAJVEC_KANDIDATOV = 4000
+#: Prvo raven uporabnikovih map (Prejemi, Namizje ...) ob iskanju pogledamo v živo; v zelo polni mapi največ toliko vnosov.
+NAJVEC_V_MAPI_V_ZIVO = 5000
 
 #: Prvo iskanje počaka na indeks največ toliko (majhna domača mapa je prehojena v delčku sekunde); sicer hoja po disku.
 CAKAJ_PRVI_INDEKS_S = 1.5
@@ -53,6 +55,7 @@ class Indeks:
         self._gradi = False
         self._konec_gradnje = threading.Event()
         self.zgrajen = 0.0          # time.monotonic() konca zadnje gradnje
+        self.zgrajen_ura = 0.0      # time.time() začetka zadnje gradnje: kar je novejše, v indeksu morda ni
         self.zastarel_ob = 0.0      # time.monotonic() zadnje znane spremembe (Safeer je kaj premaknil)
         self.nepopoln = False       # gradnja se je ustavila pri meji vnosov ali časa
         self.vnosov = 0
@@ -101,7 +104,7 @@ class Indeks:
 
     def zgradi(self) -> int:
         """Prehodi drevo po širini (plitve datoteke najprej - če zmanjka prostora, ostanejo te) in zamenja indeks."""
-        zacetek = time.monotonic()
+        zacetek, zacetek_ura = time.monotonic(), time.time()
         try:
             naprava = os.stat(self.koren).st_dev
         except OSError:
@@ -154,7 +157,7 @@ class Indeks:
             if obdelanih % 200 == 0:
                 time.sleep(0)          # prepusti izvajanje vmesniku (GIL)
         self._podatki = (bytes(kljuci), zac_k, bytes(imena), zac_i, mapa_vnosa, bytes(je_mapa), mape, bytes(globine))
-        self.vnosov, self.nepopoln, self.zgrajen = n, nepopoln, time.monotonic()
+        self.vnosov, self.nepopoln, self.zgrajen, self.zgrajen_ura = n, nepopoln, time.monotonic(), zacetek_ura
         return n
 
     # ------------------------------------------------------------------ iskanje
@@ -223,6 +226,50 @@ def zastarel() -> None:
         _indeks.zastarel()
 
 
+def _sveze(niz: str, idx: Indeks, ze: set) -> List[Tuple[float, dict]]:
+    """Datoteke in mape, ki so se na prvi ravni uporabnikovih map (domača mapa, Namizje, Dokumenti, Prejemi ...)
+    pojavile po gradnji indeksa - prenos, ki se je pravkar končal v brskalniku, posnetek zaslona, datoteka z druge
+    naprave. Indeks se obnavlja največ na STAROST_S; brez tega take datoteke iskanje do takrat ne bi našlo, čeprav
+    je v mapi vidna. Vrne (ocena, vnos) za zadetke, ki jih v `ze` (poti iz indeksa) še ni."""
+    besede = [b for b in kljuc(niz).split() if b]
+    if not besede or not idx.zgrajen_ura:
+        return []
+    glavna = max(besede, key=len).encode("utf-8", "surrogateescape")
+    cela = kljuc(niz).strip().encode("utf-8", "surrogateescape")
+    od = idx.zgrajen_ura - 2.0
+    najdeni: List[Tuple[float, dict]] = []
+    for m in os_datoteke.uporabniske_mape(idx.koren):
+        mapa = os.path.abspath(m["pot"])
+        if mapa != idx.koren and not mapa.startswith(idx.koren.rstrip(os.sep) + os.sep):
+            continue                                    # mapa zunaj domače (drug disk): indeks je ne pokriva
+        globina = 0 if mapa == idx.koren else len(os.path.relpath(mapa, idx.koren).split(os.sep))
+        try:
+            with os.scandir(mapa) as vsebina:
+                for stevec, v in enumerate(vsebina):
+                    if stevec >= NAJVEC_V_MAPI_V_ZIVO:
+                        break
+                    ime = v.name
+                    if ime.startswith(".") or "\n" in ime or v.path in ze:
+                        continue
+                    ime_k = kljuc(ime)
+                    if not all(b in ime_k for b in besede):
+                        continue
+                    try:
+                        st = v.stat(follow_symlinks=False)
+                    except OSError:
+                        continue
+                    if max(st.st_mtime, st.st_ctime) < od:       # ctime: tudi datoteka, premaknjena sem s starim datumom
+                        continue
+                    e = os_datoteke._element(v.path, ime)
+                    if e is None:
+                        continue
+                    ime_b = ime_k.encode("utf-8", "surrogateescape")
+                    najdeni.append((Indeks._ocena(ime_b, ime_b.find(glavna), glavna, cela, globina, 1 if e["mapa"] else 0), e))
+        except OSError:
+            continue
+    return najdeni
+
+
 def isci(niz: str, meja: int = os_datoteke.NAJVEC_ZADETKOV) -> List[dict]:
     """Datoteke in mape v domači mapi po imenu - enaka oblika kot os_datoteke.isci. Iz indeksa, ko je pripravljen;
     prvo iskanje (in kar v indeks ni šlo) odgovori hoja po disku, indeks pa se medtem gradi v ozadju."""
@@ -242,6 +289,11 @@ def isci(niz: str, meja: int = os_datoteke.NAJVEC_ZADETKOV) -> List[dict]:
         e = os_datoteke._element(pot, ime)
         if e is not None:
             ocenjeni.append((ocena + svezina(zdaj - float(e.get("spremenjeno") or 0)), mesto, e))
+    # Kar je drug program pravkar shranil v uporabnikove mape (prenos, posnetek zaslona), indeks še ne pozna.
+    sveze = _sveze(niz, idx, {e["pot"] for _ocena, _mesto, e in ocenjeni})
+    if sveze:
+        idx.zastarel()                                  # indeks se obnovi v ozadju (ob naslednjem iskanju)
+        ocenjeni.extend((ocena + svezina(zdaj - float(e.get("spremenjeno") or 0)), -1, e) for ocena, e in sveze)
     if not ocenjeni and idx.nepopoln:
         return os_datoteke.isci(niz, idx.koren)             # indeks ni zajel vsega: poskusi še hoja po disku
     ocenjeni.sort(key=lambda o: (-o[0], o[1]))

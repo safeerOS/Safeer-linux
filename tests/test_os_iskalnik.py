@@ -150,8 +150,8 @@ class TestIskanje(Osnova):
         stara = self.pisi("stara.txt")
         I.indeks().zgradi()
         os.remove(stara)
-        self.pisi("nova stara.txt")
-        self.assertEqual(I.isci("stara"), [])                 # izbrisane ni več, nove indeks še ne pozna
+        self.pisi("globoko", "mapa", "nova stara.txt")
+        self.assertEqual(I.isci("stara"), [])                 # izbrisane ni več, nove (globoko v podmapi) indeks še ne pozna
         self.assertFalse(I.indeks().star())
         I.zastarel()                                          # Safeer je sam nekaj spremenil
         self.assertFalse(I.indeks().star(), "takoj po gradnji ne gradimo znova")
@@ -161,6 +161,47 @@ class TestIskanje(Osnova):
         self.assertEqual([e["ime"] for e in I.isci("stara")], ["nova stara.txt"])
         I.indeks().zgrajen -= I.STAROST_S + 1                 # star indeks se obnovi tudi brez znane spremembe
         self.assertTrue(I.indeks().star())
+
+    def test_pravkar_prenesena_datoteka_je_najdena_takoj(self):
+        """Datoteko, ki jo je drug program pravkar shranil v Prejemi ali domačo mapo, iskanje najde brez obnove indeksa."""
+        os.makedirs(os.path.join(self.dom, ".config"))
+        with open(os.path.join(self.dom, ".config", "user-dirs.dirs"), "w", encoding="utf-8") as f:
+            f.write('XDG_DOWNLOAD_DIR="$HOME/Prejemi"\nXDG_DESKTOP_DIR="$HOME/Namizje"\n')
+        os.makedirs(os.path.join(self.dom, "Prejemi"))
+        os.makedirs(os.path.join(self.dom, "Namizje"))
+        stari = self.pisi("Prejemi", "racun-stari.pdf", starost_dni=40)
+        okolje = os.environ.get("XDG_CONFIG_HOME")
+        os.environ["XDG_CONFIG_HOME"] = os.path.join(self.dom, ".config")
+        try:
+            idx = I.indeks()
+            idx.zgradi()
+            self.assertEqual([e["pot"] for e in I.isci("racun")], [stari])
+            self.assertFalse(idx.zastarel_ob > idx.zgrajen)
+            prenos = self.pisi("Prejemi", "Račun 2026.pdf")           # drug program (brskalnik) - Safeer zanj ne ve
+            posnetek = self.pisi("Namizje", "racun posnetek.png")
+            doma = self.pisi("racun-doma.txt")
+            self.pisi("Prejemi", ".racun.pdf.part")                   # skrita začasna datoteka
+            globoko = self.pisi("Prejemi", "arhiv", "racun-globoko.pdf")
+            najdeni = [e["pot"] for e in I.isci("racun")]
+            self.assertEqual(set(najdeni), {stari, prenos, posnetek, doma}, "nove na prvi ravni takoj; skrite in globoke ne")
+            self.assertEqual(len(najdeni), len(set(najdeni)), "brez podvojitev")
+            self.assertLess(najdeni.index(prenos), najdeni.index(stari), "pravkar prenesena je pred staro")
+            self.assertEqual([e["pot"] for e in I.isci("2026 racun")], [prenos])          # več besed, brez šumnikov
+            # Najdena nova datoteka označi indeks za starega: po obnovi je v njem tudi globoka.
+            self.assertTrue(idx.zastarel_ob > idx.zgrajen)
+            idx.zgrajen -= I.NAJMANJ_MED_GRADNJAMA_S + 1
+            self.assertTrue(idx.star())
+            idx.zgradi()
+            self.assertEqual(set(e["pot"] for e in I.isci("racun")), {stari, prenos, posnetek, doma, globoko})
+            self.assertEqual(len(I.isci("racun")), 5, "po obnovi brez podvojitev")
+            # Stara datoteka, ki je v indeksu, se ne podvoji; premaknjena s starim datumom je najdena (ctime).
+            premaknjena = self.pisi("Prejemi", "racun-premaknjen.pdf", starost_dni=300)
+            self.assertIn(premaknjena, [e["pot"] for e in I.isci("racun")])
+        finally:
+            if okolje is None:
+                os.environ.pop("XDG_CONFIG_HOME", None)
+            else:
+                os.environ["XDG_CONFIG_HOME"] = okolje
 
     def test_nedavno_spremenjena_je_prej(self):
         self.pisi("zapisnik a.txt", starost_dni=400)          # krajše ime bi bilo sicer prvo
