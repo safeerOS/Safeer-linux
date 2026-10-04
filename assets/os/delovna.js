@@ -48,6 +48,9 @@
       napravaNeDeli: "Naprava ne deli datotek. Na njej v Safeer Linku vklopi deljenje datotek.",
       napravaOsvezeno: "osveženo ob {cas}", oddaljeno: "na napravi {naprava}",
       odpri: "Odpri", pokaziVMapi: "Pokaži v mapi", dodajPriljubljeno: "Dodaj med priljubljene",
+      odpriZ: "Odpri z …", privzetProgram: "privzeto", drugProgram: "Drug program …",
+      vednoSTem: "Vedno odpri to vrsto datotek s tem programom", niProgramaZaVrsto: "Za to vrsto datotek ni nastavljenega programa.",
+      odslejZ: "Od zdaj se ta vrsta datotek odpira s programom {ime}.",
       odstraniPriljubljeno: "Odstrani iz priljubljenih", predogled: "Predogled", zapri: "Zapri",
       odpiramNaNapravi: "Z naprave predvajam le glasbo in video. Druge datoteke odpri na sami napravi.",
       niUspelo: "Ni uspelo.", strani: "{a}–{b} od {n}", nazaj: "‹", naprej: "›",
@@ -168,6 +171,9 @@
       napravaNeDeli: "The device doesn't share files. Turn on file sharing for it in Safeer Link.",
       napravaOsvezeno: "refreshed at {cas}", oddaljeno: "on {naprava}",
       odpri: "Open", pokaziVMapi: "Show in folder", dodajPriljubljeno: "Add to favourites",
+      odpriZ: "Open with …", privzetProgram: "default", drugProgram: "Another program …",
+      vednoSTem: "Always open this type of file with this program", niProgramaZaVrsto: "No program is set up for this type of file.",
+      odslejZ: "From now on this type of file opens with {ime}.",
       odstraniPriljubljeno: "Remove from favourites", predogled: "Preview", zapri: "Close",
       odpiramNaNapravi: "From a device I can only play music and video. Open other files on the device itself.",
       niUspelo: "That didn't work.", strani: "{a}–{b} of {n}", nazaj: "‹", naprej: "›",
@@ -893,6 +899,10 @@
       m.push([t("izprazniSmeti"), izprazniSmeti]);
     } else if (lok.length) {
       var koliko = steviloElementov(lok.length);
+      if (lok.every(function (e) { return !e.mapa; })) {
+        m.push([t("odpriZ"), function () { odpriZ(lok[0], lok.map(function (e) { return e.pot; })); }]);
+        m.push(["—"]);
+      }
       m.push([t("kopirajN", { n: koliko }), function () { vOdlozisceVec(lok, false); }]);
       m.push([t("izreziN", { n: koliko }), function () { vOdlozisceVec(lok, true); }]);
       if (O.poti.length && D.vir && D.vir.vrsta === "lokalno") m.push([t("prilepi"), function () { prilepi(null); }]);
@@ -1162,6 +1172,68 @@
     }).catch(function () { obvesti(t("niUspelo")); });
   }
 
+  // »Odpri z ...«: programi, ki so se v namizju prijavili za to vrsto datoteke (privzeti prvi), »Drug program ...«
+  // pokaze vse iz menija. Kljukica nastavi izbrani program za privzetega - v vsem namizju, ne samo v Safeer OS.
+  function odpriZ(e, poti) {
+    poti = poti && poti.length ? poti : [e.pot];
+    klic("programiZaDatoteko", [poti[0]]).then(function (r) {
+      if (!r || !r.ok) { obvesti(t("niUspelo")); return; }
+      var ovoj = el("div", "meni lastnosti odpri-z"); ovoj.setAttribute("role", "dialog"); ovoj.setAttribute("aria-label", t("odpriZ"));
+      ovoj.appendChild(el("p", "meni-naslov", t("odpriZ")));
+      ovoj.appendChild(el("p", "lastnosti-ime", poti.length > 1 ? t("izbranoN", { n: steviloElementov(poti.length) }) : e.ime));
+      var seznam = el("div", "odpri-z-seznam"), vedno = null;
+      function zapri() { ovoj.remove(); document.removeEventListener("keydown", esc, true); }
+      function esc(ev) { if (ev.key === "Escape") { ev.preventDefault(); zapri(); } }
+      function izberi(p) {
+        var trajno = !!(vedno && vedno.checked);
+        zapri();
+        klic("odpriZ", [poti, p.id, trajno]).then(function (o) {
+          if (!o || !o.ok) obvesti(t("niUspelo"));
+          else if (o.privzet) obvesti(t("odslejZ", { ime: p.ime }));
+        }).catch(function () { obvesti(t("niUspelo")); });
+      }
+      function napolni(programi) {
+        seznam.textContent = "";
+        if (!programi.length) seznam.appendChild(el("p", "prazno", t("niProgramaZaVrsto")));
+        programi.forEach(function (p) {
+          var b = el("button"); b.type = "button";
+          var znan = P.lokalni.filter(function (x) { return x.id === p.id; })[0];
+          b.appendChild(slikaAliCrka(znan ? znan.ikona : "", p.ime));
+          b.appendChild(el("span", "ime", p.ime));
+          if (p.privzet) b.appendChild(el("span", "privzet", t("privzetProgram")));
+          b.addEventListener("click", function () { izberi(p); });
+          seznam.appendChild(b);
+        });
+      }
+      napolni(r.programi || []);
+      ovoj.appendChild(seznam);
+      var drug = el("button", "drug", t("drugProgram")); drug.type = "button";
+      drug.addEventListener("click", function () {
+        var privzeti = (r.programi || []).filter(function (p) { return p.privzet; })[0];
+        drug.disabled = true;
+        // Samo programi, ki znajo sprejeti datoteko (brez nastavitev namizja ipd.).
+        klic("programiZaOdpiranje").then(function (vsi) {
+          napolni((Array.isArray(vsi) ? vsi : []).map(function (p) {
+            return { id: String(p.id), ime: String(p.ime || p.id), privzet: !!privzeti && privzeti.id === p.id };
+          }));
+          drug.remove();
+          var prvi = seznam.querySelector("button"); if (prvi) prvi.focus();
+        }).catch(function () { drug.disabled = false; obvesti(t("niUspelo")); });
+      });
+      ovoj.appendChild(drug);
+      if (r.vrsta) {
+        var l = el("label", "odpri-z-vedno"); vedno = el("input"); vedno.type = "checkbox";
+        l.appendChild(vedno); l.appendChild(el("span", "", t("vednoSTem")));
+        ovoj.appendChild(l);
+      }
+      var g = el("button", "zapri", t("zapri")); g.type = "button"; g.addEventListener("click", zapri);
+      ovoj.appendChild(g);
+      document.addEventListener("keydown", esc, true);
+      document.body.appendChild(ovoj);
+      (seznam.querySelector("button") || g).focus();
+    }).catch(function () { obvesti(t("niUspelo")); });
+  }
+
   function odpriVnos(e) {
     if (e.smeti) { var vrs = $("datVrstice").rows[D.izbran], rr = vrs ? vrs.getBoundingClientRect() : { left: 80, bottom: 200 }; meniDatoteke(e, rr.left + 40, rr.bottom); return; }
     if (e.oddaljeno) {
@@ -1195,6 +1267,7 @@
     }
     m.push([t("odpri"), function () { odpriVnos(e); }]);
     if (!e.oddaljeno) {
+      m.push([t("odpriZ"), function () { odpriZ(e); }]);
       m.push([t("predogled"), function () { predogled(e); }, e.mapa]);
       m.push([t("pokaziVMapi"), function () { klic("pokaziVMapi", [e.pot]); }]);
       m.push(jePriljubljena(e)

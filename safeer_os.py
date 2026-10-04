@@ -47,7 +47,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 from core import (os_datoteke, os_katalog, os_knjiznica, os_oblak_igre, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
                   os_media_besedila, os_mediji, os_posodobitve, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost,
                   os_torrent, os_torrent_tok, os_zapiski, os_zvok, knjiznica_kroga)
-from core import budnost, os_iskalnik  # noqa: E402
+from core import budnost, os_iskalnik, os_odpri_z  # noqa: E402
 
 # Preklop vhoda zvocne vrstice JBL je samo interni poskus: uradni paket modula ne vsebuje
 # (packaging/install_os_payload.sh), zato ga uvozimo le, ce je prisoten (zagon iz repozitorija).
@@ -1719,6 +1719,8 @@ class SafeerOS(Gtk.Application):
             "zacniVlecenje": lambda: self._zacni_vlecenje(pogled, a[0] if a else []),
             "programi": lambda: self.programi.seznam(self._ikona),
             "zazeni": lambda: self.programi.zazeni(str(a[0]) if a else "", self._zazeni_vnos),
+            "odpriZ": lambda: os_odpri_z.odpri_z(a[0] if a and isinstance(a[0], list) else [], str(a[1]) if len(a) > 1 else "",
+                                                 bool(a[2]) if len(a) > 2 else False, self._zazeni_vnos_z),
             "pripni": lambda: self.programi.pripni(str(a[0]), bool(a[1]) if len(a) > 1 else True),
             "skrijDomov": lambda: self.programi.skrij_domov(str(a[0]), bool(a[1]) if len(a) > 1 else True),
             "nedavnePozabi": lambda: self._nedavne_pozabi(str(a[0]) if a else ""),
@@ -1824,6 +1826,8 @@ class SafeerOS(Gtk.Application):
             "nosilci": os_datoteke.nosilci,
             "izvrziNosilec": lambda: os_datoteke.izvrzi(str(a[0]) if a else ""),
             "lastnostiDatoteke": lambda: os_datoteke.lastnosti(str(a[0]) if a else ""),
+            "programiZaDatoteko": lambda: os_odpri_z.programi_za(str(a[0]) if a else ""),
+            "programiZaOdpiranje": os_odpri_z.vsi_programi,
             "sliciceDatotek": lambda: {pot: GLib.filename_to_uri(s, None) for pot, s in
                                        os_datoteke.slicice(a[0] if a and isinstance(a[0], list) else []).items()},
             "najvecjeDatoteke": lambda: os_datoteke.najvecje(),
@@ -2051,12 +2055,17 @@ class SafeerOS(Gtk.Application):
         return self._ikone[ime]
 
     def _zazeni_vnos(self, pot: str) -> bool:
+        return self._zazeni_vnos_z(pot, [])
+
+    def _zazeni_vnos_z(self, pot: str, datoteke: list) -> bool:
+        """Zazene program iz menija, po zelji z datotekami (»Odpri z ...«) - z okoljem namizja, da novo okno pride
+        v ospredje."""
         info = Gio.DesktopAppInfo.new_from_filename(pot)
         if info is None:
             return False
         kontekst = Gdk.Display.get_default().get_app_launch_context()
         kontekst.set_timestamp(Gtk.get_current_event_time() or Gdk.CURRENT_TIME)
-        return bool(info.launch([], kontekst))
+        return bool(info.launch([Gio.File.new_for_path(d) for d in datoteke], kontekst))
 
     def _nedavne(self) -> list:
         izhod = []

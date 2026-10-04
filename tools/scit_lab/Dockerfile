@@ -4,7 +4,7 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
  && apt-get install -y --no-install-recommends systemd systemd-sysv systemd-resolved dbus network-manager polkitd \
-      python3 python3-cryptography iproute2 iputils-ping dnsutils curl ca-certificates udev \
+      python3 python3-cryptography iproute2 iputils-ping dnsutils curl ca-certificates udev pkexec flatpak \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
 # NetworkManager naj upravlja ethernet (namizni Mint ima isto prazno datoteko) in veth vsebnika.
 RUN : > /etc/NetworkManager/conf.d/10-globally-managed-devices.conf \

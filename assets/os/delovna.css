@@ -191,6 +191,14 @@ select option { background: #111c2b; color: var(--besedilo); }
 .lastnosti .lastnosti-ime { margin: .1em .5em .7em; font-size: 1.05em; font-weight: 600; overflow-wrap: anywhere; }
 .lastnosti dl { display: grid; grid-template-columns: max-content 1fr; gap: .35em 1.2em; margin: 0 .5em .9em; }
 .lastnosti dt { color: var(--tiho); }
+.odpri-z .odpri-z-seznam { max-height: min(21em, 50vh); overflow-y: auto; margin: 0 0 .4em; }
+.odpri-z .odpri-z-seznam img, .odpri-z .odpri-z-seznam .crka { width: 1.6em; height: 1.6em; flex: none; border-radius: 6px; display: inline-grid; place-items: center; font-weight: 600; }
+.odpri-z .odpri-z-seznam .ime { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.odpri-z .privzet { margin-left: auto; color: var(--tise); font-size: .8em; white-space: nowrap; }
+.odpri-z .prazno { margin: .3em .5em .8em; color: var(--tiho); }
+.odpri-z .drug { color: var(--tiho); }
+.odpri-z .odpri-z-vedno { margin-top: .3em; border-top: 1px solid var(--tanka); border-radius: 0; padding-top: .6em; }
+.odpri-z .odpri-z-vedno input { flex: none; }
 .lastnosti dd { margin: 0; overflow-wrap: anywhere; }
 .ikona-vrste { flex: none; width: 1.35em; height: 1.35em; border-radius: 5px; display: inline-grid; place-items: center; color: #eaf2ff; }
 .ikona-vrste svg { width: .9em; height: .9em; }

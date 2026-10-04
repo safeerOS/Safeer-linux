@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Gonilnik za preizkus Scita brez vmesnika (v vsebniku scit-odj, kot root).
 
-Ukazi po FIFO /tmp/scit.cmd (ena vrstica = en ukaz), odgovori kot vrstice JSON v /tmp/scit.log:
+Ukazi po FIFO scit.cmd (ena vrstica = en ukaz), odgovori kot vrstice JSON v scit.log - oboje v /tmp oziroma v mapi
+iz SCIT_LAB_MAPA:
   vklop | izklop | zagon (kot ob zagonu Safeer OS) | koncaj (kot ob izhodu) | stanje
   dovoli IME | blokiraj IME | premor MINUT | izhod (konec brez pospravljanja = sesutje)
 
@@ -58,7 +59,8 @@ def kratko(s):
 
 
 def main():
-    cmd, dnevnik = "/tmp/scit.cmd", "/tmp/scit.log"
+    mapa = os.environ.get("SCIT_LAB_MAPA", "/tmp")       # v peskovniku Flatpak je /tmp zaseben: tam mapa v domu
+    cmd, dnevnik = os.path.join(mapa, "scit.cmd"), os.path.join(mapa, "scit.log")
     if not os.path.exists(cmd):
         os.mkfifo(cmd)
     scit = os_scit.Scit(Shramba("/var/tmp/scit-shramba.json"), mapa="/var/tmp/scit-podatki")
