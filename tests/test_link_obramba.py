@@ -125,6 +125,46 @@ class Pravila(unittest.TestCase):
                 break
         self.assertTrue(self.o.zaprt(B))
 
+    def test_povezana_naprava_je_zaupana_dokler_je_povezana(self):
+        """Prijava je bila pred urami, povezava WebSocket je se odprta: listanje mape s slikami ni poplava."""
+        povezani = {A}
+        o = Obramba(ura=self.ura, ob_zapori=lambda *a: self.zapore.append(a), zaupan=lambda vir: vir in povezani)
+        self.ura.t += 6 * 3600
+        for _ in range(5000):
+            self.assertTrue(o.dovoli(A))
+        for _ in range(39):
+            o.dogodek(A, "brez_zaupanja")           # polovicna teza
+        self.assertFalse(o.zaprt(A))
+        # Ko povezave ni vec, velja kot vsak drug vir.
+        povezani.clear()
+        for _ in range(1000):
+            if not o.dovoli(A):
+                break
+        self.assertTrue(o.zaprt(A))
+        # Pokvarjen povratni klic ne podre sredisca in ne podari zaupanja.
+        o2 = Obramba(ura=self.ura, zaupan=lambda vir: 1 / 0)
+        for _ in range(1000):
+            if not o2.dovoli(B):
+                break
+        self.assertTrue(o2.zaprt(B))
+
+    def test_sredisce_ve_kdo_je_povezan(self):
+        hub = link_hub_streznik.Hub(odtis="ab" * 32, nas_id="n-racunalnik")
+        self.assertFalse(hub.ima_povezavo_z(A))
+        tv = link_hub_streznik.Naprava("tv1", "Televizor", "receiver", [], A)
+        tv.povezava = object()
+        odklopljena = link_hub_streznik.Naprava("tab", "Tablica", "receiver", [], B)
+        with hub._zaklep:
+            hub._naprave["tv1"] = tv
+            hub._naprave["tab"] = odklopljena
+            hub._sosedje["n-sosed"] = mock.Mock(naslov="wss://192.168.0.70:8990/cast/ws")
+            hub._sosedje["n-dohodni"] = mock.Mock(naslov="192.168.0.71")
+        self.assertTrue(hub.ima_povezavo_z(A))
+        self.assertFalse(hub.ima_povezavo_z(B), "naprava brez odprte povezave ni povezana")
+        self.assertTrue(hub.ima_povezavo_z("192.168.0.70"), "odhodna sosednja povezava")
+        self.assertTrue(hub.ima_povezavo_z("192.168.0.71"), "dohodna sosednja povezava")
+        self.assertFalse(hub.ima_povezavo_z(""))
+
     def test_ta_naprava_ni_nikoli_zaprta(self):
         for vir in ("127.0.0.1", "127.0.0.53", "::1", "::ffff:127.0.0.1", ""):
             for _ in range(500):
