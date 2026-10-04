@@ -984,6 +984,9 @@ class SafeerOS(Gtk.Application):
             # Prvi zagon z --delovna: samo delovna povrsina (glavno okno ob naslednji aktivaciji).
             self._ustvari_delovno()
             self._prvic = False
+            if not self.posnetek:
+                # Scit, ki ga je uporabnik vklopil, varuje tudi, kadar Safeer OS tece kot delovna povrsina.
+                self.scit.zacni_ce_vklopljen()
             koncaj = Gio.SimpleAction.new("koncaj", None)
             koncaj.connect("activate", lambda *a: self._koncaj())
             self.add_action(koncaj)
@@ -1904,6 +1907,8 @@ class SafeerOS(Gtk.Application):
             "jblVklop": lambda: os_jbl.vklopi(bool(a[0]) if a else False) if os_jbl else {"na_voljo": False},
             "scit": self.scit.stanje,
             "scitVklop": lambda: self.scit.nastavi(bool(a[0]) if a else False),
+            "scitDovoli": lambda: self.scit.dovoli(str(a[0]) if a else "", bool(a[1]) if len(a) > 1 else True),
+            "scitPremor": lambda: self.scit.premor(a[0] if a and isinstance(a[0], (int, float)) and not isinstance(a[0], bool) else 0),
             "sporocilaDodaj": lambda: self.sporocila.dodaj_kanal(a[0] if a and isinstance(a[0], dict) else {}),
             "sporocilaPoslji": lambda: self.sporocila.poslji(str(a[0]), str(a[1]), str(a[2])),
             "sporocilaSinhroniziraj": self.sporocila.sinhroniziraj,

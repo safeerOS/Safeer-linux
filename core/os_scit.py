@@ -9,8 +9,14 @@ usmerjevalnik (NetworkManager). Nic ne gre v oblak, noben tuj streznik ne vidi p
 Da racunalnik ta razresevalnik uporablja, Safeer OS systemd-resolved za povezano omrezje pove:
 »DNS je 127.0.0.1:<vrata>« (resolvectl). To je sistemska nastavitev in polkit zanjo zahteva geslo;
 zato ob prvem vklopu enkrat (pkexec) namestimo pravilo polkit, ki skrbniku dovoli te tri klice brez
-gesla - kot namestitev programa: geslo enkrat, potem dela samo. Ob izklopu se nastavitev povrne
-(resolvectl revert); ob zagonu Safeer OS se, ce je Scit vklopljen, uporabi znova.
+gesla - kot namestitev programa: geslo enkrat, potem dela samo. Ob izklopu vmesnik spet dobi streznike,
+ki jih je dolocil NetworkManager; ob zagonu Safeer OS se, ce je Scit vklopljen, uporabi znova.
+
+Spreminjamo SAMO seznam streznikov DNS vmesnika. Iskalnih domen (»lan«), privzete poti in nastavitev VPN se
+ne dotikamo. Kjer programi imen ne razresujejo prek systemd-resolved (lasten streznik DNS, npr. Pi-hole),
+Scit ne more filtrirati in se nastavitev ne dotakne (glej `razlog_nemoznosti`).
+
+Vse to je preverjeno na pravem systemd-resolved + NetworkManager: `tools/scit_lab` (dva vsebnika Docker).
 
 Nabor domen je urejeno polje 64-bitnih zgoscenk (blake2b) - pol milijona domen v nekaj MB, iskanje z
 bisekcijo; shranjen je na disku, da je ob zagonu takoj tu. Seznami se osvezujejo v ozadju (pogojni GET).
@@ -21,6 +27,7 @@ from __future__ import annotations
 
 import bisect
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -64,6 +71,8 @@ VIRI: Tuple[Tuple[str, str, str], ...] = (
     ("si-cert", "https://www.cert.si/misp/rpz/last.txt", "phishing"),
 )
 KATEGORIJE = ("oglasi", "groznje", "prevare", "malware", "phishing", "botnet")
+#: Premor ustavi samo to kategorijo (oglasi in sledenje); vse druge so nevarne strani in ostanejo blokirane.
+KATEGORIJA_PREMORA = "oglasi"
 KATEGORIJA_SEZNAMA_GROZNJ = {"botnet_c2": "botnet", "malware": "malware", "phishing": "phishing", "scam": "prevare"}
 NAJVEC_BAJTOV = 24 * 1024 * 1024
 NAJMANJ_DOMEN = 1000
@@ -79,6 +88,18 @@ POSODOBITVE = ("archive.ubuntu.com", "security.ubuntu.com", "ports.ubuntu.com", 
                "packages.linuxmint.com", "deb.debian.org", "security.debian.org", "flathub.org",
                "github.com", "api.github.com", "objects.githubusercontent.com",
                "release-assets.githubusercontent.com")
+
+
+#: Najvec domen, ki jih uporabnik dovoli sam (izjeme), in najdaljsi premor Scita.
+NAJVEC_IZJEM = 200
+NAJDALJSI_PREMOR_MIN = 60
+_DOMENA = re.compile(r"^(?=.{4,253}$)[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?(\.[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?)+$")
+
+
+def cista_domena(besedilo) -> str:
+    """Ime domene z malimi crkami in brez pike na koncu; '' ce to ni ime domene."""
+    d = str(besedilo or "").strip().lower().rstrip(".")
+    return d if _DOMENA.match(d) else ""
 
 
 def je_posodobitev(ime: str) -> bool:
@@ -133,17 +154,46 @@ def odgovor_zavrnjeno(paket: bytes) -> bytes:
     return glava + paket[12:konec]
 
 
+def _vrednosti_nmcli(izpis: str) -> List[str]:
+    """Vrednosti iz `nmcli -g`: vec vrednosti istega polja loci » | «, dvopicja naslovov IPv6 so ubezana (\\:)."""
+    return [v.strip().replace("\\:", ":") for v in izpis.replace("|", "\n").splitlines() if v.strip()]
+
+
 def upstream_strezniki(vmesnik: str) -> List[str]:
-    """Strezniki DNS, ki jih je za ta vmesnik dal usmerjevalnik (NetworkManager), ne glede na to, kaj je
-    trenutno nastavljeno v systemd-resolved."""
-    koda, izpis = _zazeni(["nmcli", "-g", "IP4.DNS", "device", "show", vmesnik])
-    strezniki = []
-    if koda == 0:
-        for v in izpis.replace("|", "\n").splitlines():
-            v = v.strip()
-            if re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}", v) and not v.startswith("127."):
-                strezniki.append(v)
+    """Strezniki DNS, ki jih je za ta vmesnik dolocil NetworkManager (DHCP, oglas usmerjevalnika ali rocna
+    nastavitev), IPv4 in IPv6 - ne glede na to, kaj je trenutno nastavljeno v systemd-resolved."""
+    koda, izpis = _zazeni(["nmcli", "-g", "IP4.DNS,IP6.DNS", "device", "show", vmesnik])
+    strezniki: List[str] = []
+    for v in _vrednosti_nmcli(izpis) if koda == 0 else []:
+        try:
+            naslov = ipaddress.ip_address(v)
+        except ValueError:
+            continue
+        if not naslov.is_loopback and not naslov.is_unspecified and v not in strezniki:
+            strezniki.append(v)
     return strezniki
+
+
+def za_vticnico(streznik: str, vmesnik: str) -> str:
+    """Naslov za nase posredovanje: povezavno-lokalni IPv6 (fe80::) potrebuje se ime vmesnika."""
+    try:
+        if ":" in streznik and ipaddress.ip_address(streznik).is_link_local:
+            return streznik + "%" + vmesnik
+    except ValueError:
+        pass
+    return streznik
+
+
+def nm_domene(vmesnik: str) -> List[str]:
+    """Iskalne domene, ki jih je za vmesnik dolocil NetworkManager (iz DHCP ali nastavitev povezave)."""
+    koda, izpis = _zazeni(["nmcli", "-g", "IP4.DOMAIN,IP6.DOMAIN,IP4.SEARCHES,IP6.SEARCHES", "device", "show", vmesnik])
+    if koda != 0:     # starejsi NetworkManager polja SEARCHES ne pozna
+        koda, izpis = _zazeni(["nmcli", "-g", "IP4.DOMAIN,IP6.DOMAIN", "device", "show", vmesnik])
+    domene: List[str] = []
+    for v in _vrednosti_nmcli(izpis) if koda == 0 else []:
+        if re.fullmatch(r"~?[A-Za-z0-9._-]{1,253}", v) and v not in domene:
+            domene.append(v)
+    return domene
 
 
 class Razresevalnik:
@@ -213,10 +263,12 @@ class Razresevalnik:
                         s.sendall(struct.pack("!H", len(paket)) + paket)
                         glava = self._preberi(s, 2)
                         return self._preberi(s, struct.unpack("!H", glava)[0])
-                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                druzina = socket.AF_INET6 if ":" in streznik else socket.AF_INET
+                cilj = socket.getaddrinfo(streznik, 53, druzina, socket.SOCK_DGRAM, 0, socket.AI_NUMERICHOST)[0][4]
+                s = socket.socket(druzina, socket.SOCK_DGRAM)
                 s.settimeout(CAS_UPSTREAM)
                 try:
-                    s.sendto(paket, (streznik, 53))
+                    s.sendto(paket, cilj)
                     odgovor, _ = s.recvfrom(4096)
                 finally:
                     s.close()
@@ -541,9 +593,111 @@ def vmesniki_povezani() -> List[str]:
     return izhod
 
 
+def programi_uporabljajo_resolved(resolv_conf: str = "/etc/resolv.conf", nsswitch: str = "/etc/nsswitch.conf") -> bool:
+    """Ali programi imena res razresujejo prek systemd-resolved: v /etc/resolv.conf je samo njegov posrednik
+    (127.0.0.53 ali .54) ali pa je v nsswitch.conf modul »resolve«.
+
+    Kjer ni tako - racunalnik ima svoj streznik DNS (Pi-hole, AdGuard Home, dnsmasq; `DNSStubListener=no`) ali
+    resolv.conf pise kdo drug - nasa nastavitev v systemd-resolved ne bi filtrirala nicesar. Se huje: resolved bi v
+    resolv.conf zapisal streznik usmerjevalnika in s tem zaobsel uporabnikov lastni filter."""
+    try:
+        with open(nsswitch, encoding="utf-8", errors="replace") as f:
+            for v in f:
+                deli = v.split("#", 1)[0].split()
+                if deli and deli[0] == "hosts:" and "resolve" in deli[1:]:
+                    return True
+    except OSError:
+        pass
+    try:
+        with open(resolv_conf, encoding="utf-8", errors="replace") as f:
+            strezniki = [d[1] for d in (v.split("#", 1)[0].split() for v in f) if len(d) > 1 and d[0] == "nameserver"]
+    except OSError:
+        return False
+    return bool(strezniki) and all(s in ("127.0.0.53", "127.0.0.54") for s in strezniki)
+
+
+def razlog_nemoznosti() -> str:
+    """'' = Scit lahko dela; 'ni_resolved' = ni systemd-resolved ali NetworkManagerja; 'lastni_dns' = programi
+    sprasujejo drug streznik DNS (ne systemd-resolved)."""
+    if shutil.which("resolvectl") is None or shutil.which("nmcli") is None or \
+            _zazeni(["systemctl", "is-active", "systemd-resolved"])[1].strip() != "active":
+        return "ni_resolved"
+    if not programi_uporabljajo_resolved():
+        return "lastni_dns"
+    return ""
+
+
 def dns_vmesnika(vmesnik: str) -> str:
     koda, izpis = _zazeni(["resolvectl", "dns", vmesnik])
     return izpis.split(":", 1)[1].strip() if koda == 0 and ":" in izpis else ""
+
+
+def domene_vmesnika(vmesnik: str) -> List[str]:
+    koda, izpis = _zazeni(["resolvectl", "domain", vmesnik])
+    return izpis.split(":", 1)[1].split() if koda == 0 and ":" in izpis else []
+
+
+def uredi_domene(vmesnik: str) -> None:
+    """Iskalne domene vmesnika naj bodo taksne, kot jih je dolocil NetworkManager. Razlicice do 0.4.42 so jih
+    zamenjale z usmerjevalno domeno »~.« (kratka domaca imena, npr. »nas«, se potem niso razresila), ob izklopu pa z
+    `resolvectl revert` pobrisale; kdor posodobi sredi seje, ima na vmesniku se to stanje - tu ga popravimo."""
+    trenutne = domene_vmesnika(vmesnik)
+    if trenutne and trenutne != ["~."]:
+        return
+    zelene = nm_domene(vmesnik)
+    if zelene != trenutne:
+        _zazeni(NASTAVI + ["domain", vmesnik] + (zelene or [""]), cas=30.0)
+
+
+#: Klici, ki spreminjajo nastavitve. resolvectl bi brez dovoljenja odprl okno za geslo (zastavice
+#: --no-ask-password systemd 255 se ne pozna) - ob zagonu, ob izhodu ali iz straze vsakih 20 s. Zato jih klicemo
+#: samo, kadar `pravilo_namesceno()` (polkit vprasan brez interakcije) pove, da smemo.
+NASTAVI = ["resolvectl"]
+
+
+#: To datoteko systemd-resolved zapise na novo ob vsaki spremembi streznikov DNS kateregakoli vmesnika.
+RESOLV_UPLINK = "/run/systemd/resolve/resolv.conf"
+PREGLED_S = 20.0
+UTRIP_S = 2.0
+
+
+def znak_dns() -> int:
+    """Cas zadnje spremembe nastavitev DNS v systemd-resolved (0, ce datoteke ni)."""
+    try:
+        return os.stat(RESOLV_UPLINK).st_mtime_ns
+    except OSError:
+        return 0
+
+
+def nekdo_poslusa(vrata: int) -> bool:
+    """Ali na nasih vratih tece razresevalnik (tega ali drugega prijavljenega uporabnika)."""
+    try:
+        with socket.create_connection((NASLOV, vrata), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
+def tuj_scit(dns: str, nasa_vrata: int) -> bool:
+    """Prvi streznik vmesnika je delujoc razresevalnik Scita na DRUGIH vratih - torej Scit drugega prijavljenega
+    uporabnika. Tak vmesnik je ze varovan; ce bi ga prepisali, bi ga njegova straza prepisala nazaj, in tako v nedogled."""
+    m = re.fullmatch(re.escape(NASLOV) + r":(\d+)", (dns.split() or [""])[0])
+    return bool(m) and int(m.group(1)) != nasa_vrata and int(m.group(1)) in VRATA and nekdo_poslusa(int(m.group(1)))
+
+
+def je_ostanek(vmesnik: str) -> bool:
+    """Vmesnik je v stanju, ki ga je za sabo pustil Scit: brez streznikov DNS (stari `resolvectl revert`) ali z nasim
+    streznikom na prvem mestu, na katerem nihce vec ne poslusa (sesutje)."""
+    deli = dns_vmesnika(vmesnik).split()
+    if not deli:
+        return True
+    m = re.fullmatch(re.escape(NASLOV) + r":(\d+)", deli[0])
+    return bool(m) and int(m.group(1)) in VRATA and not nekdo_poslusa(int(m.group(1)))
+
+
+def izprazni_predpomnilnik() -> None:
+    """systemd-resolved razresena imena hrani; po spremembi (vklop, izjema, premor) naj vprasa znova."""
+    _zazeni(["resolvectl", "flush-caches"], cas=10.0)
 
 
 def trenutni_streznik(vmesnik: str) -> str:
@@ -608,15 +762,33 @@ def namesti_pravilo() -> bool:
 def usmeri(vmesnik: str, vrata: int, rezerva: Optional[List[str]] = None) -> bool:
     """DNS vmesnika: nas razresevalnik prvi, strezniki usmerjevalnika za njim kot rezerva. Rezerva je
     nujna: Docker in podobni bereta /run/systemd/resolve/resolv.conf, kjer resolved nas 127.0.0.1 izpusti
-    (loopback brez vrat) - brez rezerve bi vsebniki ostali brez DNS. resolved uporablja prvi streznik,
-    na rezervo preide sele, ce nas ne odgovori; straza ga vrne nazaj."""
-    ok1, _ = _zazeni(["resolvectl", "dns", vmesnik, "%s:%d" % (NASLOV, vrata)] + list(rezerva or []), cas=30.0)
-    ok2, _ = _zazeni(["resolvectl", "domain", vmesnik, "~."], cas=30.0)
-    return ok1 == 0 and ok2 == 0
+    (loopback brez vrat) - brez rezerve bi vsebniki ostali brez DNS; in ce Safeer OS nenadoma ugasne, DNS dela
+    naprej. resolved uporablja nas streznik, na rezervo preide sele, ce nas ne odgovori; straza ga vrne nazaj.
+
+    V DVEH korakih: systemd-resolved obdrzi streznik, ki ga trenutno uporablja, ce je ta tudi na novem seznamu.
+    »Nas + usmerjevalnik« v enem koraku bi ga zato pustil pri usmerjevalniku in Scit ne bi dobil nobene poizvedbe.
+    Najprej torej samo nas (prejsnji streznik odpade), sele potem nas z rezervo (nas ostane trenutni).
+
+    Iskalnih domen in privzete poti se ne dotikamo."""
+    nas = "%s:%d" % (NASLOV, vrata)
+    if _zazeni(NASTAVI + ["dns", vmesnik, nas], cas=30.0)[0] != 0:
+        return False
+    if rezerva:
+        _zazeni(NASTAVI + ["dns", vmesnik, nas] + list(rezerva), cas=30.0)
+    return True
 
 
 def povrni(vmesnik: str) -> bool:
-    return _zazeni(["resolvectl", "revert", vmesnik], cas=30.0)[0] == 0
+    """Vmesniku vrne streznike DNS, ki jih je dolocil NetworkManager.
+
+    Samo `resolvectl revert` NI dovolj: pobrise tudi streznike, ki jih je systemd-resolved dobil od NetworkManagerja,
+    ta pa jih znova poslje sele ob naslednji povezavi - racunalnik bi do takrat ostal brez DNS."""
+    strezniki = upstream_strezniki(vmesnik)
+    if not strezniki:
+        return _zazeni(NASTAVI + ["revert", vmesnik], cas=30.0)[0] == 0
+    ok = _zazeni(NASTAVI + ["dns", vmesnik] + strezniki, cas=30.0)[0] == 0
+    uredi_domene(vmesnik)
+    return ok
 
 
 # ---------------------------------------------------------------------- Scit
@@ -631,40 +803,141 @@ class Scit:
         self.napaka = ""
         self._straza: Optional[threading.Thread] = None
         self._kljuc = threading.Lock()
+        #: Domene, ki jih je uporabnik dovolil sam (veljajo tudi za poddomene), in konec premora (time.monotonic).
+        self._izjeme: Tuple[str, ...] = tuple(self._preberi_izjeme())
+        self._premor_do = 0.0
+
+    def _preberi_izjeme(self) -> List[str]:
+        shranjene = self.shramba.get("scit_izjeme", [])
+        izid: List[str] = []
+        for d in shranjene if isinstance(shranjene, list) else []:
+            cista = cista_domena(d)
+            if cista and cista not in izid:
+                izid.append(cista)
+        return izid[:NAJVEC_IZJEM]
+
+    def _kategorija(self, ime: str) -> Optional[str]:
+        """Kar razresevalnik vprasa za vsako ime. Uporabnikovih izjem ne blokiramo; med premorom ne blokiramo
+        oglasov in sledilcev (to je tisto, zaradi cesar kaksna stran ne dela) - nevarne strani ostanejo blokirane."""
+        if self._izjeme and any(ime == d or ime.endswith("." + d) for d in self._izjeme):
+            return None
+        kategorija = self.seznami.kategorija(ime) if self.seznami is not None else None
+        if kategorija == KATEGORIJA_PREMORA and self._premor_do and time.monotonic() < self._premor_do:
+            return None
+        return kategorija
+
+    def dovoli(self, domena, dovoli: bool = True) -> dict:
+        """Uporabnik dovoli domeno, ki jo je Scit pravkar blokiral (izjema velja tudi za poddomene), ali izjemo
+        odstrani. Dovoliti je mogoce samo ime s seznama nazadnje blokiranih: stran ne more vnaprej dovoliti poljubne
+        domene."""
+        d = cista_domena(domena)
+        izjeme = list(self._izjeme)
+        r = self.razresevalnik
+        if d and dovoli:
+            nedavne = {z["ime"] for z in (r.zadnje if r is not None else [])}
+            if d in nedavne and d not in izjeme and len(izjeme) < NAJVEC_IZJEM:
+                izjeme.append(d)
+                with r._kljuc:
+                    r.zadnje = [z for z in r.zadnje if z["ime"] != d and not z["ime"].endswith("." + d)]
+        elif d and not dovoli and d in izjeme:
+            izjeme.remove(d)
+        if tuple(izjeme) != self._izjeme:
+            self._izjeme = tuple(izjeme)
+            self.shramba.set("scit_izjeme", izjeme)
+            self._osvezi_predpomnilnik()
+        return self.stanje()
+
+    def premor(self, minut) -> dict:
+        """Premor: Scit toliko minut (najvec 60) ne blokira oglasov in sledilcev, potem nadaljuje sam; 0 nadaljuje
+        takoj. Nevarne strani ostanejo blokirane tudi med premorom."""
+        try:
+            m = max(0.0, min(float(minut), float(NAJDALJSI_PREMOR_MIN)))
+        except (TypeError, ValueError):
+            m = 0.0
+        self._premor_do = konec = time.monotonic() + m * 60.0 if m > 0 else 0.0
+        if m > 0:
+            # Ko premor potece, naj imena, razresena med premorom, ne ostanejo v predpomnilniku.
+            casovnik = threading.Timer(m * 60.0 + 0.2, self._po_premoru, args=(konec,))
+            casovnik.daemon = True
+            casovnik.start()
+        self._osvezi_predpomnilnik()
+        return self.stanje()
+
+    def _po_premoru(self, konec: float) -> None:
+        if self._premor_do == konec:      # premor ni bil medtem koncan ali nastavljen na novo
+            self._premor_do = 0.0
+            self._osvezi_predpomnilnik()
+
+    def _osvezi_predpomnilnik(self) -> None:
+        r = self.razresevalnik
+        if r is not None and r.vrata:
+            izprazni_predpomnilnik()
+
+    def premor_se(self) -> int:
+        """Koliko sekund premora je se ostalo (0 = Scit blokira)."""
+        ostane = self._premor_do - time.monotonic() if self._premor_do else 0.0
+        return int(ostane) + 1 if ostane > 0 else 0
 
     @property
     def vklopljen(self) -> bool:
         return bool(self.shramba.get("scit", False))
 
     def mozno(self) -> bool:
-        return shutil.which("resolvectl") is not None and shutil.which("nmcli") is not None and \
-            _zazeni(["systemctl", "is-active", "systemd-resolved"])[1].strip() == "active"
+        return not razlog_nemoznosti()
 
     def stanje(self) -> dict:
         r = self.razresevalnik
-        s = {"vklop": self.vklopljen, "mozno": self.mozno(), "tece": bool(r and r.vrata), "napaka": self.napaka,
+        razlog = razlog_nemoznosti()
+        if not razlog and self.napaka in ("ni_resolved", "lastni_dns"):
+            self.napaka = ""      # razmere so se medtem spremenile (npr. /etc/resolv.conf spet kaze na resolved)
+        s = {"vklop": self.vklopljen, "mozno": not razlog, "razlog": razlog, "tece": bool(r and r.vrata), "napaka": self.napaka,
              "vmesniki": list(self.vmesniki), "strezniki": list(self.strezniki), "blokiranih": r.blokiranih if r else 0,
              "poizvedb": r.poizvedb if r else 0, "zadnje": list(r.zadnje) if r else [],
-             "pravilo": pravilo_namesceno(), "domen": 0, "pravil": 0}
+             "pravilo": pravilo_namesceno(), "domen": 0, "pravil": 0,
+             "izjeme": list(self._izjeme), "premor": self.premor_se()}
         if self.seznami is not None:
             s.update(self.seznami.stanje())
         return s
 
     def zacni_ce_vklopljen(self) -> None:
-        """Ob zagonu Safeer OS: Scit, ki je bil vklopljen, tece naprej (brez gesla - pravilo je namesceno)."""
+        """Ob zagonu Safeer OS: Scit, ki je bil vklopljen, tece naprej (brez gesla - pravilo je namesceno). Kadar je
+        izklopljen, samo pospravi, kar je morda ostalo za starejso razlicico ali po sesutju."""
+        threading.Thread(target=self._zagon, name="safeer-scit-zagon", daemon=True).start()
+
+    def _zagon(self) -> None:
+        # Kjer Scit ne more filtrirati (npr. uporabnik je medtem namestil svoj streznik DNS), se DNS ne dotikamo.
+        if not self.mozno():
+            return
         if self.vklopljen:
-            threading.Thread(target=self._zazeni, name="safeer-scit-zagon", daemon=True).start()
+            self._zazeni()
+        else:
+            self.pospravi_ostanke()
+
+    def pospravi_ostanke(self) -> List[str]:
+        """Vmesnikom, ki jih je Scit pustil brez delujocega DNS, vrne streznike NetworkManagerja. Samo kadar smemo
+        nastavljati brez gesla (pravilo polkit = Scit je bil na tem racunalniku ze vklopljen)."""
+        popravljeni: List[str] = []
+        try:
+            for v in vmesniki_povezani():
+                if upstream_strezniki(v) and je_ostanek(v) and pravilo_namesceno() and povrni(v):
+                    popravljeni.append(v)
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] scit: ostanki:", e)
+        return popravljeni
 
     def nastavi(self, vklop: bool) -> dict:
         self.napaka = ""
         if vklop:
-            if not self.mozno():
-                self.napaka = "ni_resolved"
+            razlog = razlog_nemoznosti()
+            if razlog:
+                self.napaka = razlog
                 return self.stanje()
             if not namesti_pravilo():
                 self.napaka = "pravilo"
                 return self.stanje()
-            if self._zazeni():
+            self._zazeni()
+            if self.napaka in ("", "ni_omrezja"):
+                # Brez omrezja ob vklopu nastavitev vseeno velja: straza zacne filtrirati, ko se racunalnik poveze.
                 self.shramba.set("scit", True)
         else:
             self.shramba.set("scit", False)
@@ -677,14 +950,12 @@ class Scit:
                 self.seznami = Seznami(self.mapa)
             self.seznami.zazeni()
             if self.razresevalnik is None:
-                self.razresevalnik = Razresevalnik(self.seznami.kategorija, lambda: self.strezniki)
+                self.razresevalnik = Razresevalnik(self._kategorija, lambda: self.strezniki)
             vrata = self.razresevalnik.zazeni()
             if not vrata:
                 self.napaka = "vrata"
                 return False
             self._uporabi()
-            if not self.vmesniki:
-                self.napaka = "ni_omrezja"
             if self._straza is None:
                 self._straza = threading.Thread(target=self._strazi, name="safeer-scit-straza", daemon=True)
                 self._straza.start()
@@ -698,38 +969,81 @@ class Scit:
             return
         cilj = "%s:%d" % (NASLOV, r.vrata)
         povezani = vmesniki_povezani()
+        lastni = {v: upstream_strezniki(v) for v in povezani}
         strezniki: List[str] = []
         for v in povezani:
-            lastni = upstream_strezniki(v)
-            for s in lastni:
+            for s in lastni[v]:
+                s = za_vticnico(s, v)
                 if s not in strezniki:
                     strezniki.append(s)
-            # Nastavimo (znova), ce nas ni na prvem mestu ali ce je resolved presel na rezervo.
-            if not dns_vmesnika(v).startswith(cilj) or (self.vmesniki and trenutni_streznik(v) not in ("", cilj, NASLOV)):
-                if usmeri(v, r.vrata, lastni) and v not in self.vmesniki:
-                    self.vmesniki.append(v)
-            elif v not in self.vmesniki:
-                self.vmesniki.append(v)
-        self.vmesniki = [v for v in self.vmesniki if v in povezani]
+        # Kam posredujemo, mora biti znano, PREDEN resolved poslje prvo poizvedbo: brez odgovora bi takoj presel na
+        # rezervo in Scit zaobsel.
         self.strezniki = strezniki or ["1.1.1.1", "9.9.9.9"]
+        novo = zavrnjeno = tuje = False
+        smemo: Optional[bool] = None
+        for v in povezani:
+            dns = dns_vmesnika(v)
+            if tuj_scit(dns, r.vrata):
+                tuje = True          # varuje ga Scit drugega prijavljenega uporabnika: ne tekmujemo z njim
+                if v in self.vmesniki:
+                    self.vmesniki.remove(v)
+                continue
+            # Nastavimo (znova), ce nas ni na prvem mestu (NetworkManager je po novi povezavi poslal svoje) ali ce
+            # je resolved presel na rezervo (nas razresevalnik mu ni odgovoril pravocasno).
+            if not dns.startswith(cilj) or trenutni_streznik(v) not in ("", cilj, NASLOV):
+                if smemo is None:
+                    smemo = pravilo_namesceno()
+                if not smemo or not usmeri(v, r.vrata, lastni[v]):
+                    zavrnjeno = True
+                    if v in self.vmesniki:
+                        self.vmesniki.remove(v)
+                    continue
+                novo = True
+            if v not in self.vmesniki:
+                self.vmesniki.append(v)
+                if smemo is None:
+                    smemo = pravilo_namesceno()
+                if smemo:
+                    uredi_domene(v)
+        self.vmesniki = [v for v in self.vmesniki if v in povezani]
+        if self.vmesniki or tuje:
+            if self.napaka in ("ni_omrezja", "pravilo"):
+                self.napaka = ""
+        else:
+            # Povezan vmesnik, ki ga ne smemo nastaviti = ni dovoljenja (pravilo polkit); sicer ni omrezja.
+            self.napaka = "pravilo" if zavrnjeno else "ni_omrezja"
+        if novo:
+            izprazni_predpomnilnik()     # ze razresena (zdaj blokirana) imena naj ne ostanejo v predpomnilniku
 
     def _strazi(self) -> None:
         jaz = threading.current_thread()
+        zadnjic, znak = time.monotonic(), znak_dns()
         while self._straza is jaz:
-            time.sleep(20)
+            time.sleep(UTRIP_S)
             if self._straza is not jaz or not self.vklopljen or self.razresevalnik is None or not self.razresevalnik.vrata:
                 return
+            # Sprememba omrezja (NetworkManager je vmesniku poslal svoje streznike) se pozna takoj; prehod resolved na
+            # rezervo pa datoteke ne spremeni, zato redni pregled ostane.
+            # Znak preberemo PRED pregledom: kar se spremeni med njim ali po njem (NetworkManager po ponovnem
+            # zagonu resolved poslje svoje streznike z zamikom), sprozi se en pregled ob naslednjem utripu.
+            nov_znak = znak_dns()
+            if nov_znak == znak and time.monotonic() - zadnjic < PREGLED_S:
+                continue
             try:
                 with self._kljuc:
                     self._uporabi()
             except Exception:
                 pass
+            zadnjic, znak = time.monotonic(), nov_znak
 
     def _ustavi(self) -> None:
         with self._kljuc:
             self._straza = None
-            for v in list(self.vmesniki):
-                povrni(v)
+            # Brez dovoljenja (pravilo polkit je kdo odstranil) ne sprasujemo za geslo: DNS dela naprej prek rezerve,
+            # NetworkManager pa ob naslednji povezavi nastavi svoje.
+            if self.vmesniki and pravilo_namesceno():
+                for v in list(self.vmesniki):
+                    povrni(v)
             self.vmesniki = []
             if self.razresevalnik is not None:
                 self.razresevalnik.ustavi()
