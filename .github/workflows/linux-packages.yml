@@ -129,13 +129,30 @@ jobs:
           flatpak install --user --noninteractive --bundle dist/Safeer-OS-*.flatpak
           dbus-run-session -- xvfb-run -a flatpak run io.github.memelandfaner.SafeerOS --version | tee /dev/stderr | grep -Fx "Safeer OS $(cat packaging/VERSION_OS)"
           dbus-run-session -- xvfb-run -a flatpak run --command=safeer-control io.github.memelandfaner.SafeerOS --version | tee /dev/stderr | grep -Fx "Safeer Control $(cat packaging/VERSION_CONTROL)"
+      - name: Shield inside the sandbox of the package that was just built
+        # Scit v peskovniku Flatpak, s kodo samega paketa, na pravem systemd-resolved + NetworkManager (tools/scit_lab).
+        run: |
+          bash tools/scit_lab/lab.sh zgradi
+          NACIN=flatpak FLATPAK_GOSTITELJA="$HOME/.local/share/flatpak" KODA_V_PESKOVNIKU=/app/lib/safeer-os \
+            PAKET="$(ls "$PWD"/dist/Safeer-OS-*.flatpak)" bash tools/scit_lab/lab.sh preizkus
       - uses: actions/upload-artifact@v7
         with:
           name: flatpak
           path: dist/*.flatpak
+  scit-lab:
+    # Scit spreminja sistemsko nastavitev DNS. Enotni testi ne vidijo, kako se systemd-resolved in NetworkManager
+    # obnasata v resnici - in prav tam so bile napake do Safeer OS 0.4.42 (izklop je pustil racunalnik brez DNS).
+    # Ta posel zato Scit pozene na pravih: dva vsebnika, »usmerjevalnik« in »racunalnik« (tools/scit_lab).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the lab images
+        run: bash tools/scit_lab/lab.sh zgradi
+      - name: Shield against a real systemd-resolved and NetworkManager
+        run: bash tools/scit_lab/lab.sh preizkus
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [deb-appimage, flatpak]
+    needs: [deb-appimage, flatpak, scit-lab]
     runs-on: ubuntu-24.04
     concurrency:
       group: release-${{ github.ref_name }}

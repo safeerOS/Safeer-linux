@@ -10,6 +10,9 @@ Dva vsebnika Docker v svojem omrežju (omrežja gostitelja se nič ne dotakne):
 - **računalnik** (`scit-odj`): systemd, systemd-resolved, NetworkManager in polkit kot na namiznem Linux Mintu 22;
   koda iz tega repozitorija je priklopljena na `/repo`, Ščit poganja gonilnik `lab_scit.py` (brez vmesnika).
 
+Oba načina tečeta v CI (`.github/workflows/linux-packages.yml`: posel `scit-lab` in korak v poslu `flatpak`);
+brez zelenega preizkusa izdaja ne nastane.
+
 ```
 tools/scit_lab/lab.sh zgradi      # enkrat
 tools/scit_lab/lab.sh preizkus    # cel samodejni preizkus; izhodna koda = število napak
@@ -31,8 +34,10 @@ NACIN=flatpak PAKET=/pot/Safeer-OS-X-x86_64.flatpak tools/scit_lab/lab.sh preizk
 ```
 
 Gonilnik teče v pravem peskovniku nameščenega paketa (koda iz repozitorija, sistemska orodja prek
-`flatpak-spawn --host`, kot v paketu). Runtime `org.gnome.Platform` se vzame iz `/var/lib/flatpak` gostitelja
-(samo branje), zato mora biti tam nameščen. V peskovniku je drugače troje – in vse troje je bilo narobe:
+`flatpak-spawn --host`, kot v paketu). Runtime `org.gnome.Platform` se vzame iz namestitve Flatpak gostitelja
+(samo branje): `FLATPAK_GOSTITELJA`, privzeto `/var/lib/flatpak`; uporabniška je `~/.local/share/flatpak`.
+S `KODA_V_PESKOVNIKU=/app/lib/safeer-os` se namesto kode iz repozitorija preizkusi koda samega paketa – tako teče
+v CI pred vsako izdajo. V peskovniku je drugače troje – in vse troje je bilo narobe:
 `/tmp` je zaseben (začasna datoteka s pravilom polkit mora biti v predpomnilniku programa), `pkcheck` ne obstaja
 (polkit vprašamo na gostitelju), `/etc/resolv.conf` pa je zrcalo, ki zamuja (nastavitve gostitelja beremo zunaj).
 

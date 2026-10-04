@@ -12,7 +12,9 @@
 #   lab.sh preizkus      cel samodejni preizkus (preizkus.sh)
 #
 # NACIN=flatpak PAKET=/pot/Safeer-OS-X-x86_64.flatpak: gonilnik tece v pravem peskovniku Flatpak (sistemska orodja prek
-# flatpak-spawn --host, kot v paketu). Runtime org.gnome.Platform se vzame iz /var/lib/flatpak gostitelja (samo branje).
+# flatpak-spawn --host, kot v paketu). Runtime org.gnome.Platform se vzame iz namestitve Flatpak gostitelja (samo
+# branje): FLATPAK_GOSTITELJA, privzeto /var/lib/flatpak (uporabniska je ~/.local/share/flatpak).
+# KODA_V_PESKOVNIKU=/app/lib/safeer-os: namesto kode iz repozitorija preizkusi kodo samega paketa.
 set -u
 LAB="$(cd "$(dirname "$0")" && pwd)"
 KODA="${KODA:-$(cd "$LAB/../.." && pwd)}"
@@ -35,7 +37,7 @@ case "${1:-}" in
         --address=/nevarno.example/172.31.95.68 >/dev/null
     DODATNO=()
     if [ "${NACIN:-}" = flatpak ]; then
-      DODATNO=(-v /var/lib/flatpak:/var/lib/flatpak:ro -v "${PAKET:?PAKET=pot do Safeer-OS-...flatpak}":/paket.flatpak:ro)
+      DODATNO=(-v "${FLATPAK_GOSTITELJA:-/var/lib/flatpak}":/var/lib/flatpak:ro -v "${PAKET:?PAKET=pot do Safeer-OS-...flatpak}":/paket.flatpak:ro)
     fi
     docker run -d --name scit-odj --hostname scit-odj --privileged --cgroupns=private --tmpfs /run --tmpfs /run/lock --tmpfs /tmp \
       --network scit95 --ip 172.31.95.10 -v "$KODA":/repo:ro -e PRAVI_SEZNAMI="${PRAVI_SEZNAMI:-0}" "${DODATNO[@]}" safeer-scit-lab >/dev/null
@@ -59,7 +61,7 @@ case "${1:-}" in
     if [ "${NACIN:-}" = flatpak ]; then
       docker exec scit-odj bash -c "$SEJA; flatpak kill $FLATPAK_APP 2>/dev/null; sleep 0.5; rm -f $MAPA/scit.cmd; : > $MAPA/scit.log
         (setsid nohup flatpak run --filesystem=/repo:ro --env=SCIT_LAB_MAPA=$MAPA --env=PRAVI_SEZNAMI=${PRAVI_SEZNAMI:-0} --command=sh $FLATPAK_APP \
-           -c 'PATH=/app/host-bin:\$PATH exec python3 /repo/tools/scit_lab/lab_scit.py /repo' >$MAPA/gonilnik.log 2>&1 &)
+           -c 'PATH=/app/host-bin:\$PATH exec python3 /repo/tools/scit_lab/lab_scit.py ${KODA_V_PESKOVNIKU:-/repo}' >$MAPA/gonilnik.log 2>&1 &)
         for i in \$(seq 1 60); do [ -s $MAPA/scit.log ] && break; sleep 0.25; done; tail -1 $MAPA/scit.log; tail -3 $MAPA/gonilnik.log"
     else
       docker exec -e PRAVI_SEZNAMI="${PRAVI_SEZNAMI:-0}" scit-odj bash -c '[ -f /tmp/gonilnik.pid ] && kill "$(cat /tmp/gonilnik.pid)" 2>/dev/null
