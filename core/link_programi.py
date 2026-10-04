@@ -76,7 +76,8 @@ def skupina(kategorije) -> str:
 IZPUSTI_OZNAKE = {"safeer-control.desktop"}
 
 
-def _mape_vnosov() -> List[str]:
+def _kandidati_map() -> List[str]:
+    """Vse mape, v katerih so lahko zaganjalniki - tudi tiste, ki jih (se) ni."""
     doma = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
     sistem = os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share"
     mape = [os.path.join(doma, "applications")]
@@ -87,12 +88,16 @@ def _mape_vnosov() -> List[str]:
     mape.append("/var/lib/flatpak/exports/share/applications")
     mape.append(os.path.join(doma, "flatpak/exports/share/applications"))
     mape.append("/var/lib/snapd/desktop/applications")
-    vidne: List[str] = []
+    vse: List[str] = []
     for m in mape:
         p = os.path.realpath(m)
-        if p not in vidne and os.path.isdir(p):
-            vidne.append(p)
-    return vidne
+        if p not in vse:
+            vse.append(p)
+    return vse
+
+
+def _mape_vnosov() -> List[str]:
+    return [m for m in _kandidati_map() if os.path.isdir(m)]
 
 
 def _jezik() -> List[str]:

@@ -1741,7 +1741,7 @@ class SafeerOS(Gtk.Application):
         """Programi tega racunalnika za stran. Ob prvem klicu zacne spremljati mape z zaganjalniki: ko se program
         namesti ali odstrani, odprte strani dobijo dogodek »programi« in seznam preberejo znova."""
         if getattr(self, "_nadzor_programov", None) is None:
-            self._nadzor_programov = os_programi.NadzorProgramov(self.programi.mape(), lambda: self._dogodek("programi", None))
+            self._nadzor_programov = os_programi.NadzorProgramov(self.programi.kandidati, lambda: self._dogodek("programi", None))
             try:
                 self._nadzor_programov.zacni()
             except Exception as e:  # noqa: BLE001

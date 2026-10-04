@@ -18,7 +18,7 @@ import re
 import shutil
 import subprocess
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from core import link_programi, os_oblak_igre
 
@@ -161,6 +161,10 @@ class Programi:
         """Mape z zaganjalniki (.desktop), iz katerih je seznam - iste spremlja [NadzorProgramov]."""
         return list(self._mape if self._mape is not None else link_programi._mape_vnosov())
 
+    def kandidati(self) -> List[str]:
+        """Mape, v katerih so lahko zaganjalniki - tudi tiste, ki jih se ni (prvi program Flatpak jo sele ustvari)."""
+        return list(self._mape if self._mape is not None else link_programi._kandidati_map())
+
     def preberi(self) -> Dict[str, dict]:
         najdeni: Dict[str, dict] = {}
         videna = set()
@@ -280,48 +284,116 @@ class NadzorProgramov:
     delovni povrsini, se v plosci Programi ni pokazal do ponovnega zagona).
 
     Namestitev paketa sprozi vec sprememb zapored (zacasne datoteke upravljalnika paketov), zato pride eno obvestilo,
-    [zamik_ms] po zadnji spremembi. Tece v glavni zanki GLib (ustvari se v njeni niti)."""
+    [zamik_ms] po zadnji spremembi. Tece v glavni zanki GLib (ustvari se v njeni niti).
 
-    def __init__(self, mape: List[str], ob_spremembi, zamik_ms: int = 1500) -> None:
-        self._mape = list(mape)
+    Mapa z zaganjalniki, ki je ob zagonu se ni (prvi program Flatpak na svezem racunalniku, prvi zaganjalnik v
+    ~/.local/share/applications), ne sme ostati spregledana: namesto nje spremljamo najblizjo obstojeco nadrejeno
+    mapo in, ko manjkajoca nastane, zacnemo spremljati njo. [mape] je zato seznam kandidatov ali funkcija, ki ga vrne."""
+
+    #: Po nastanku cakane mape pocakamo trenutek (namestitev ustvari vec map zapored), nato nadzor preuredimo.
+    ZAMIK_MAP_MS = 300
+
+    def __init__(self, mape, ob_spremembi, zamik_ms: int = 1500) -> None:
+        self._mape = mape if callable(mape) else (lambda seznam=list(mape): seznam)
         self._ob_spremembi = ob_spremembi
         self._zamik_ms = zamik_ms
         self._nadzori: list = []
+        self._spremljane: List[str] = []          # mape z zaganjalniki, ki jih spremljamo
+        self._cakane: Dict[str, set] = {}         # obstojeca nadrejena mapa -> imena podmap, na katere cakamo
         self._casovnik = 0
+        self._casovnik_map = 0
+
+    @staticmethod
+    def razporedi(mape: List[str], obstaja=os.path.isdir) -> Tuple[List[str], Dict[str, set]]:
+        """Kaj spremljati: (mape z zaganjalniki, ki obstajajo; obstojeca nadrejena mapa -> imena podmap, ki jih se
+        ni in vodijo do mape z zaganjalniki). Brez GLib - za preizkus."""
+        spremljane: List[str] = []
+        cakane: Dict[str, set] = {}
+        for mapa in mape:
+            mapa = os.path.abspath(mapa)
+            if obstaja(mapa):
+                if mapa not in spremljane:
+                    spremljane.append(mapa)
+                continue
+            otrok, nadrejena = mapa, os.path.dirname(mapa)
+            while nadrejena != otrok and not obstaja(nadrejena):
+                otrok, nadrejena = nadrejena, os.path.dirname(nadrejena)
+            if nadrejena != otrok:
+                cakane.setdefault(nadrejena, set()).add(os.path.basename(otrok))
+        return spremljane, cakane
 
     def zacni(self) -> int:
-        """Zacne spremljati; vrne stevilo map, ki jih spremlja (0 = brez GLib ali brez map)."""
+        """Zacne spremljati; vrne stevilo map z zaganjalniki, ki jih spremlja (0 = brez GLib ali se nobene mape)."""
         if self._nadzori:
-            return len(self._nadzori)
+            return len(self._spremljane)
         try:
             from gi.repository import Gio
         except Exception:  # noqa: BLE001
             return 0
-        for mapa in self._mape:
-            try:
-                nadzor = Gio.File.new_for_path(mapa).monitor_directory(Gio.FileMonitorFlags.NONE, None)
-                nadzor.connect("changed", self._sprememba)
-                self._nadzori.append(nadzor)
-            except Exception:  # noqa: BLE001
-                continue
-        return len(self._nadzori)
+        # Mapa lahko nastane med razporejanjem in nastavitvijo nadzora: po nastavitvi pogledamo se enkrat.
+        for _ in range(4):
+            spremljane, cakane = self.razporedi(self._mape())
+            self._ustavi_nadzore()
+            for mapa, obdelava in ([(m, self._sprememba) for m in spremljane]
+                                   + [(m, self._sprememba_nadrejene) for m in cakane]):
+                try:
+                    nadzor = Gio.File.new_for_path(mapa).monitor_directory(Gio.FileMonitorFlags.NONE, None)
+                    nadzor.connect("changed", obdelava)
+                    self._nadzori.append(nadzor)
+                except Exception:  # noqa: BLE001
+                    continue
+            self._spremljane, self._cakane = spremljane, cakane
+            if self.razporedi(self._mape()) == (spremljane, cakane):
+                break
+        return len(self._spremljane)
 
     @staticmethod
     def zadeva(ime: str) -> bool:
         """Ali sprememba datoteke s tem imenom lahko spremeni seznam programov (vnos .desktop, tudi zacasni)."""
         return ".desktop" in (ime or "")
 
+    def _nacrtuj(self) -> None:
+        from gi.repository import GLib
+        if self._casovnik:
+            GLib.source_remove(self._casovnik)
+        self._casovnik = GLib.timeout_add(self._zamik_ms, self._poslji)
+
     def _sprememba(self, _nadzor, datoteka, _druga, _vrsta) -> None:
         try:
             ime = datoteka.get_basename() or ""
         except Exception:  # noqa: BLE001
             ime = ""
-        if not self.zadeva(ime):
+        if self.zadeva(ime):
+            self._nacrtuj()
+
+    def _sprememba_nadrejene(self, _nadzor, datoteka, _druga, _vrsta) -> None:
+        """V nadrejeni mapi se je nekaj spremenilo: zanima nas samo nastanek podmape, na katero cakamo (v
+        ~/.local/share se datoteke spreminjajo ves cas)."""
+        try:
+            ime = datoteka.get_basename() or ""
+            mapa = datoteka.get_parent().get_path() or ""
+        except Exception:  # noqa: BLE001
+            return
+        if ime not in self._cakane.get(mapa, ()):
             return
         from gi.repository import GLib
-        if self._casovnik:
-            GLib.source_remove(self._casovnik)
-        self._casovnik = GLib.timeout_add(self._zamik_ms, self._poslji)
+        if self._casovnik_map:
+            GLib.source_remove(self._casovnik_map)
+        self._casovnik_map = GLib.timeout_add(self.ZAMIK_MAP_MS, self._preuredi)
+
+    def _preuredi(self) -> bool:
+        """Cakana mapa je nastala: nadzor postavimo znova (zdaj spremljamo njo ali naslednjo na poti)."""
+        self._casovnik_map = 0
+        prej = set(self._spremljane)
+        self._ustavi_nadzore()
+        try:
+            self.zacni()
+        except Exception:  # noqa: BLE001
+            return False
+        if set(self._spremljane) - prej:
+            # Nova mapa z zaganjalniki: program, zaradi katerega je nastala, je lahko ze v njej.
+            self._nacrtuj()
+        return False
 
     def _poslji(self) -> bool:
         self._casovnik = 0
@@ -331,20 +403,25 @@ class NadzorProgramov:
             pass
         return False
 
-    def koncaj(self) -> None:
+    def _ustavi_nadzore(self) -> None:
         for nadzor in self._nadzori:
             try:
                 nadzor.cancel()
             except Exception:  # noqa: BLE001
                 pass
         self._nadzori = []
-        if self._casovnik:
-            try:
-                from gi.repository import GLib
-                GLib.source_remove(self._casovnik)
-            except Exception:  # noqa: BLE001
-                pass
-            self._casovnik = 0
+
+    def koncaj(self) -> None:
+        self._ustavi_nadzore()
+        self._spremljane, self._cakane = [], {}
+        for ime in ("_casovnik", "_casovnik_map"):
+            if getattr(self, ime):
+                try:
+                    from gi.repository import GLib
+                    GLib.source_remove(getattr(self, ime))
+                except Exception:  # noqa: BLE001
+                    pass
+                setattr(self, ime, 0)
 
 
 def pot_ikone(ime: str, velikost: int = IKONA_VELIKOST) -> str:

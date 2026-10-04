@@ -114,6 +114,67 @@ class Programi(unittest.TestCase):
         vrti(0.6)
         self.assertEqual(len(klici), 2, "po koncu nadzora ni obvestil")
 
+    def test_nadzor_razporedi_mape_ki_jih_se_ni(self):
+        """Za mapo z zaganjalniki, ki je se ni, spremljamo najblizjo obstojeco nadrejeno mapo."""
+        obstojece = {"/usr/share/applications", "/var/lib", "/home/a/.local/share", "/home/a/.local/share/applications", "/"}
+        spremljane, cakane = os_programi.NadzorProgramov.razporedi(
+            ["/home/a/.local/share/applications", "/usr/share/applications", "/usr/share/applications",
+             "/var/lib/flatpak/exports/share/applications", "/home/a/.local/share/flatpak/exports/share/applications",
+             "/var/lib/snapd/desktop/applications"], obstaja=lambda m: m in obstojece)
+        self.assertEqual(spremljane, ["/home/a/.local/share/applications", "/usr/share/applications"])
+        self.assertEqual(cakane, {"/var/lib": {"flatpak", "snapd"}, "/home/a/.local/share": {"flatpak"}})
+        # Kandidati so vse mape; seznam za branje ostane samo obstojece.
+        self.assertEqual(self.p.kandidati(), [self.mapa])
+        from core import link_programi
+        koren = os.path.realpath(self.tmp.name)
+        with mock.patch.dict(os.environ, {"XDG_DATA_HOME": os.path.join(koren, "doma"), "XDG_DATA_DIRS": koren}):
+            kandidati = link_programi._kandidati_map()
+            self.assertIn(os.path.join(koren, "doma", "applications"), kandidati)
+            self.assertIn(os.path.join(koren, "doma", "flatpak", "exports", "share", "applications"), kandidati)
+            self.assertEqual(len(kandidati), len(set(kandidati)))
+            self.assertEqual([m for m in link_programi._mape_vnosov() if m.startswith(koren)],
+                             [os.path.join(koren, "applications")])
+
+    def test_nadzor_opazi_prvi_program_v_mapi_ki_je_se_ni(self):
+        """Prvi program Flatpak na svezem racunalniku: mape z zaganjalniki se ni, nastane z namestitvijo."""
+        try:
+            import gi
+            gi.require_version("Gio", "2.0")
+            from gi.repository import GLib
+        except Exception:  # noqa: BLE001
+            self.skipTest("brez GLib")
+        koren = os.path.join(self.tmp.name, "var-lib")
+        os.makedirs(koren)
+        nova = os.path.join(koren, "flatpak", "exports", "share", "applications")
+        programi = os_programi.Programi(self.shramba, mape=[self.mapa, nova], namizja=["X-Cinnamon"])
+        self.assertEqual(programi.kandidati(), [self.mapa, nova])
+        klici = []
+        nadzor = os_programi.NadzorProgramov(programi.kandidati, lambda: klici.append(len(programi.seznam())), zamik_ms=150)
+        self.assertEqual(nadzor.zacni(), 1, "spremlja obstojeco mapo; nove se ni")
+        kontekst = GLib.MainContext.default()
+
+        def vrti(sekund, do=lambda: False):
+            konec = time.monotonic() + sekund
+            while time.monotonic() < konec and not do():
+                kontekst.iteration(False)
+                time.sleep(0.01)
+
+        try:
+            _pisi(os.path.join(koren, "nekaj-drugega"), "x")                    # tuja sprememba v nadrejeni mapi
+            vrti(0.8)
+            self.assertEqual(klici, [])
+            os.makedirs(nova)                                                   # namestitev ustvari mape ...
+            _vnos(nova, "org.primer.Risar.desktop", "Name=Risar\nExec=flatpak run org.primer.Risar\n")   # ... in zaganjalnik
+            vrti(4.0, lambda: bool(klici))
+            vrti(0.5)
+            self.assertEqual(klici, [4], "prvi program v novi mapi je v seznamu, eno obvestilo")
+            self.assertEqual(nadzor.zacni(), 2, "nova mapa je zdaj spremljana")
+            _vnos(nova, "org.primer.Drugi.desktop", "Name=Drugi\nExec=flatpak run org.primer.Drugi\n")
+            vrti(3.0, lambda: len(klici) > 1)
+            self.assertEqual(klici, [4, 5], "naslednji program v novi mapi")
+        finally:
+            nadzor.koncaj()
+
     def test_pripenjanje_se_shrani(self):
         self.p.pripni("firefox.desktop", True)
         self.p.pripni("ne-obstaja.desktop", True)

@@ -78,7 +78,8 @@ class TestDelovnaStran(unittest.TestCase):
         """Program, namescen ob odprti delovni povrsini, se mora pokazati brez ponovnega zagona (4. 10. 2026)."""
         py = beri("safeer_os.py")
         self.assertIn('"programi": self._seznam_programov', py)
-        self.assertIn('os_programi.NadzorProgramov(self.programi.mape(), lambda: self._dogodek("programi", None))', py)
+        # Nadzor dobi kandidate kot funkcijo: tudi mapo z zaganjalniki, ki je ob zagonu se ni (prvi program Flatpak).
+        self.assertIn('os_programi.NadzorProgramov(self.programi.kandidati, lambda: self._dogodek("programi", None))', py)
         # Obe strani, ki kazeta seznam programov, se odzoveta na dogodek.
         self.assertIn('vrsta === "programi") naloziLokalnePrograme()', self.js)
         self.assertIn('if (vrsta === "programi") nalozPrograme();', beri("assets", "os", "os.js"))
