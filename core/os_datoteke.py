@@ -16,6 +16,8 @@ import time
 from collections import deque
 from typing import List, Optional
 
+from core.iskalni_kljuc import kljuc as kljuc_imena  # isti kljuc kot zapiski in medijska knjiznica
+
 NAJVEC_V_MAPI = 5000
 NAJVEC_ZADETKOV = 60
 
@@ -104,19 +106,6 @@ def preglej(pot: str, skrite: bool = False) -> dict:
 #: Mape, v katerih so datoteke programov, ne uporabnikove (iskanje jih preskoci).
 PRESKOCI = {"node_modules", "__pycache__", "snap", "site-packages", "dist-packages", "venv", ".venv", "build", "dist",
             "Applications", "go", "resources", "target", "vendor"}
-
-
-_POSEBNE_CRKE = str.maketrans({"đ": "d", "ł": "l", "ø": "o", "ß": "ss", "æ": "ae", "œ": "oe", "ı": "i"})
-
-
-def kljuc_imena(besedilo: str) -> str:
-    """Ime za primerjavo pri iskanju: male crke brez sumnikov in naglasov (č -> c, é -> e, đ -> d)."""
-    s = str(besedilo).lower()
-    if s.isascii():
-        return s
-    import unicodedata
-    s = unicodedata.normalize("NFKD", s.translate(_POSEBNE_CRKE))
-    return "".join(z for z in s if not unicodedata.combining(z))
 
 
 def isci(niz: str, dom: Optional[str] = None, rok: float = 1.5) -> List[dict]:

@@ -44,6 +44,12 @@ class KnjiznicaTests(unittest.TestCase):
             sumnik.write_bytes(b"demo")
             knjiznica.dodaj([sumnik])
             self.assertEqual(knjiznica.seznam(iskanje="šum")[0]["ime"], "Šuma")
+            # Brez sumnikov in z vec besedami v poljubnem vrstnem redu (kot iskanje datotek in zapiskov).
+            self.assertEqual(knjiznica.seznam(iskanje="suma")[0]["ime"], "Šuma")
+            self.assertEqual(knjiznica.seznam(iskanje="SUM")[0]["ime"], "Šuma")
+            self.assertEqual([v["ime"] for v in knjiznica.seznam(iskanje="je POLET")], ["Poletje"])
+            self.assertEqual(knjiznica.seznam(iskanje="polet zima"), [])
+            self.assertEqual(len(knjiznica.seznam(iskanje="   ")), 4)
             poti[0].unlink()
             self.assertFalse(knjiznica.dobi(str(poti[0])) is None)
             self.assertFalse(next(v for v in knjiznica.seznam() if v["ime"] == "Polet")["naVoljo"])

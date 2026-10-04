@@ -14,6 +14,8 @@ import threading
 import time
 from typing import Optional
 
+from core.iskalni_kljuc import kljuc as kljuc_iskanja
+
 NAJVEC_ZAPISKOV = 2000
 NAJVEC_BESEDILA = 200_000
 NAJVEC_NASLOVA = 160
@@ -76,10 +78,13 @@ class Zapiski:
     def seznam(self, iskano: str = "") -> list[dict]:
         with self._kljuc:
             zapiski = self._nalozi()["zapiski"]
-        if iskano:
-            igla = str(iskano).casefold()
-            zapiski = [z for z in zapiski
-                       if igla in (z.get("naslov", "") + "\n" + z.get("besedilo", "")).casefold()]
+        besede = kljuc_iskanja(iskano).split() if iskano else []
+        if besede:
+            # Brez sumnikov in velikih crk; vec besed v poljubnem vrstnem redu, ujemati se morajo vse.
+            def ujema(z: dict) -> bool:
+                seno = kljuc_iskanja(z.get("naslov", "") + "\n" + z.get("besedilo", ""))
+                return all(b in seno for b in besede)
+            zapiski = [z for z in zapiski if ujema(z)]
         zapiski = sorted(zapiski, key=lambda z: (not z.get("pripet"), -int(z.get("spremenjeno") or 0)))
         return [self._povzetek(z) for z in zapiski]
 

@@ -1,7 +1,7 @@
 "use strict";
 
 const assert = require("assert");
-const { nameraIskanja } = require("../assets/os/iskanje.js");
+const { nameraIskanja, brezNaglasa, ujemaBesede } = require("../assets/os/iskanje.js");
 
 const podatki = {
   spletne: [
@@ -27,5 +27,13 @@ assert.strictEqual(nameraIskanja("películas", podatki).vrsta, "media");
 assert.strictEqual(nameraIskanja("televizor", podatki).vrsta, "naprave");
 assert.strictEqual(nameraIskanja("Ana Novak", podatki).vrsta, "sporocila");
 assert.strictEqual(nameraIskanja("vreme jutri", podatki).razlog, "iskanje");
+
+// Brez sumnikov in posebnih crk (ista tabela kot v Pythonu), vec besed v poljubnem vrstnem redu.
+assert.strictEqual(brezNaglasa("Ščit Đorđe Łódź Søren Straße"), "scit dorde lodz soren strasse");
+assert.ok(ujemaBesede("Žur na morju 2026.mp4", "zur"));
+assert.ok(ujemaBesede("Žur na morju 2026.mp4", "MORJU žur"));
+assert.ok(!ujemaBesede("Žur na morju 2026.mp4", "zur hribi"));
+assert.ok(ujemaBesede("karkoli", ""), "prazen niz ustreza vsemu");
+assert.ok(ujemaBesede("karkoli", "   "));
 
 console.log("pametno iskanje: OK");

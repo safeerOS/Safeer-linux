@@ -7,9 +7,18 @@
 }(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
 
+  // Crke, ki jih razstavitev NFD ne loci na osnovo in naglas (ista tabela kot core/os_datoteke.py).
+  var POSEBNE_CRKE = { "\u0111": "d", "\u0142": "l", "\u00f8": "o", "\u00df": "ss", "\u00e6": "ae", "\u0153": "oe", "\u0131": "i" };
   function brezNaglasa(vrednost) {
-    var s = String(vrednost == null ? "" : vrednost).toLowerCase();
+    var s = String(vrednost == null ? "" : vrednost).toLowerCase()
+      .replace(/[\u0111\u0142\u00f8\u00df\u00e6\u0153\u0131]/g, function (z) { return POSEBNE_CRKE[z]; });
     return typeof s.normalize === "function" ? s.normalize("NFD").replace(/[\u0300-\u036f]/g, "") : s;
+  }
+  // Vse besede iskanega niza so v besedilu (brez sumnikov in velikih crk, v poljubnem vrstnem redu) - ista pravila kot
+  // iskanje datotek, knjiznice in zapiskov. Prazen niz ustreza vsemu.
+  function ujemaBesede(besedilo, niz) {
+    var b = brezNaglasa(besedilo);
+    return brezNaglasa(niz).split(/\s+/).filter(Boolean).every(function (x) { return b.indexOf(x) >= 0; });
   }
 
   function oceni(besedilo, niz) {
@@ -93,6 +102,7 @@
 
   return {
     brezNaglasa: brezNaglasa,
+    ujemaBesede: ujemaBesede,
     oceni: oceni,
     oceniSpletno: oceniSpletno,
     jeNaslov: jeNaslov,

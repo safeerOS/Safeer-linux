@@ -262,7 +262,28 @@
     if (kam === "hitro") { odpriHitro(); return; }
     if (kam === "napajanje") { odpriNapajanje(); return; }
     if (kam === "mint") { odpriMint(); return; }
+    if (kam.indexOf("mediji:") === 0) {
+      // Z delovne povrsine: Medijski center z iskanjem po tem nizu (krajevna knjiznica in katalog).
+      var iskano = kam.slice(7).trim();
+      S.mediaIskanje = iskano; $("mediaIskanje").value = iskano; S.mediaFilter = "vse";
+      pojdi("media"); narisiMedije();
+      return;
+    }
+    if (kam.indexOf("zapisek:") === 0) {
+      // Zadetek iskanja na delovni povrsini: Zapiski pri tem zapisku (seznam zato ne odpre prvega).
+      Z.aktivni = { id: kam.slice(8) };
+      pojdi("zapiski");
+      odpriZapisek(kam.slice(8));
+      return;
+    }
+    // Iskanje na delovni povrsini odpre razdelek tudi pri dolocenem bloku (npr. »nastavitve#blokScit«).
+    var sidro = "";
+    if (kam.indexOf("#") > 0) { sidro = kam.slice(kam.indexOf("#") + 1); kam = kam.slice(0, kam.indexOf("#")); }
     pojdi(kam);
+    if (/^blok[A-Za-z]+$/.test(sidro)) setTimeout(function () {
+      var blok = $(sidro);
+      if (blok) blok.scrollIntoView({ block: "center" });
+    }, 400);
   };
 
   // ------------------------------------------------------------------ ura in pozdrav
@@ -623,8 +644,10 @@
     });
     return vnosi;
   }
+  // Ista pravila kot knjiznica (core/os_knjiznica.py): brez sumnikov, vec besed. Sicer bi stran zavrgla zadetke,
+  // ki jih je knjiznica nasla (»zur« -> »Žur«).
   function mediaUstreza(v, iskanje) {
-    return !iskanje || String(v.ime || "").toLocaleLowerCase().indexOf(iskanje) >= 0;
+    return SafeerIskanje.ujemaBesede((v && v.ime) || "", iskanje);
   }
   function mediaVrsta(v) { return t("media_" + v); }
   function datotekaUrl(pot) {
