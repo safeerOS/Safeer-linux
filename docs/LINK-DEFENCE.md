@@ -47,6 +47,8 @@ source is blocked.
   no certificate, no answer.
 * It lasts **10 minutes**, twice as long at every repetition (up to one hour); a day without a block resets the
   count.
+* A block refuses **new** connections. A connection the source already has open stays: it proved membership of the
+  circle when it was opened (seen on real devices — two phones stayed neighbours while one was blocked).
 * **A source that has just proved to be a member of the circle** (valid signature, ticket or token) is trusted for
   10 minutes, and a source with an open connection to the hub (a signed-in device, a neighbouring hub) for as long
   as it stays connected: plain connections are not counted for it (a phone that browses a folder of pictures opens
@@ -61,8 +63,8 @@ source is blocked.
 * **Attack:** three different sources blocked within 30 minutes, or the same source blocked for the third time.
 
 The user is told: a notification says which address was stopped, why and for how long, and that their own devices
-keep working; an attack gets its own notification. Both are also written to the log. If the hub knows a device at
-that address, the notification names it and says to connect it again afterwards — then it is most likely the
+keep working; an attack gets its own notification. Both are also written to the log. If the hub knows a device or a
+neighbouring hub at that address, the notification names it and says to connect it again afterwards — then it is most likely the
 user's own device with a broken sign-in, not a stranger. There is no list of blocked sources in the interface yet;
 a block ends by itself. On a TV the notification is not visible (the log has it).
 

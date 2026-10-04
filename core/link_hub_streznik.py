@@ -820,28 +820,34 @@ class Hub:
         with self._zaklep:
             if any(n.povezava is not None and not n.sosed and n.naslov == naslov for n in self._naprave.values()):
                 return True
-            for p in self._sosedje.values():
-                n = str(getattr(p, "naslov", "") or "")
-                if n == naslov:
-                    return True
-                if "://" in n:        # odhodna sosednja povezava nosi naslov sredisca (wss://ip:vrata/cast/ws)
-                    try:
-                        if urlparse(n).hostname == naslov:
-                            return True
-                    except Exception:
-                        pass
-        return False
+            return bool(self._sosed_na_naslovu(naslov))
+
+    def _sosed_na_naslovu(self, naslov: str) -> str:
+        """Klice se pod kljucavnico: id sosednjega sredisca (Link Mesh), ki je povezano s tega naslova, ali ''."""
+        for sosed_id, p in self._sosedje.items():
+            n = str(getattr(p, "naslov", "") or "")
+            if n == naslov:
+                return sosed_id
+            if "://" in n:        # odhodna sosednja povezava nosi naslov sredisca (wss://ip:vrata/cast/ws)
+                try:
+                    if urlparse(n).hostname == naslov:
+                        return sosed_id
+                except Exception:
+                    pass
+        return ""
 
     def ime_po_naslovu(self, naslov: str) -> str:
-        """Ime naprave, ki jo sredisce pozna s tega naslova (zadnja videna), ali ''. Za obvestilo obrambe."""
+        """Ime naprave ali sosednjega sredisca, ki ga sredisce pozna s tega naslova, ali ''. Za obvestilo obrambe."""
         if not naslov:
             return ""
         with self._zaklep:
             znane = [n for n in self._naprave.values() if n.naslov == naslov and not n.sosed]
-        if not znane:
-            return ""
-        n = max(znane, key=lambda x: x.zadnjic)
-        return self.ime_v_krogu(n.id) or n.ime or ""
+            sosed = "" if znane else self._sosed_na_naslovu(naslov)
+        if znane:
+            n = max(znane, key=lambda x: x.zadnjic)
+            return self.ime_v_krogu(n.id) or n.ime or ""
+        # Sosednje sredisce ni v registru naprav: ime ima krog zaupanja.
+        return (self.ime_v_krogu(sosed) or "") if sosed else ""
 
     @staticmethod
     def naprava_iz_kljuca(device_id: str) -> Optional[str]:
