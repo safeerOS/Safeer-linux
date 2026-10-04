@@ -756,6 +756,17 @@ class Hub:
                     return i
         return None
 
+    def ime_po_naslovu(self, naslov: str) -> str:
+        """Ime naprave, ki jo sredisce pozna s tega naslova (zadnja videna), ali ''. Za obvestilo obrambe."""
+        if not naslov:
+            return ""
+        with self._zaklep:
+            znane = [n for n in self._naprave.values() if n.naslov == naslov and not n.sosed]
+        if not znane:
+            return ""
+        n = max(znane, key=lambda x: x.zadnjic)
+        return self.ime_v_krogu(n.id) or n.ime or ""
+
     @staticmethod
     def naprava_iz_kljuca(device_id: str) -> Optional[str]:
         """Fizicna naprava za id: id iz kljuca (n-<16 hex>) njenega clana v krogu (HubUsmerjevalnik.napravaIzKljuca).
@@ -2187,9 +2198,19 @@ def _obvestilo(naslov: str, besedilo: str, cas_ms: int = 15000) -> None:
     threading.Thread(target=poslji, name="safeer-obvestilo", daemon=True).start()
 
 
-def besedilo_zapore(vir: str, trajanje_s: float, razlog: str, slovensko: bool) -> tuple:
-    """(naslov, besedilo) obvestila ob zapori vira - loceno, da je preizkusljivo."""
+def besedilo_zapore(vir: str, trajanje_s: float, razlog: str, slovensko: bool, ime: str = "") -> tuple:
+    """(naslov, besedilo) obvestila ob zapori vira - loceno, da je preizkusljivo. `ime`: naprava, ki jo sredisce pozna
+    s tega naslova - potem je to najbrz uporabnikova naprava s pokvarjeno prijavo, ne tujec."""
     minut = max(1, int(round(trajanje_s / 60.0)))
+    ime = " ".join(str(ime or "").split())[:40]
+    if ime:
+        if slovensko:
+            return ("Safeer Link: naprava ustavljena",
+                    "»%s« (%s) se prijavlja narobe. Za %d min je ne poslušam. Če je tvoja, jo potem v Safeer Linku poveži znova."
+                    % (ime, vir, minut))
+        return ("Safeer Link: device stopped",
+                "\u201c%s\u201d (%s) keeps signing in incorrectly. I will not listen to it for %d min. If it is yours, connect it again in Safeer Link afterwards."
+                % (ime, vir, minut))
     if slovensko:
         kaj = {"seznanitev": "je ugibala kodo za povezavo", "zacetek_seznanitve": "se je vsiljevala v Safeer Link",
                "brez_zaupanja": "se je prijavljala brez dovoljenja",
@@ -2269,7 +2290,12 @@ class HubStreznik:
     def _ob_zapori(self, vir: str, trajanje_s: float, razlog: str) -> None:
         logging.getLogger("safeer.link").warning("obramba: vir %s zaprt za %d s (%s)", vir, int(trajanje_s), razlog)
         print("[SafeerLink] obramba: %s zaprt za %d min (%s)" % (vir, int(trajanje_s // 60), razlog), flush=True)
-        _obvestilo(*besedilo_zapore(vir, trajanje_s, razlog, _slovensko()))
+        ime = ""
+        try:
+            ime = self.hub.ime_po_naslovu(vir) if self.hub is not None else ""
+        except Exception:
+            pass
+        _obvestilo(*besedilo_zapore(vir, trajanje_s, razlog, _slovensko(), ime))
         if self.ob_zapori is not None:
             try:
                 self.ob_zapori(vir, trajanje_s, razlog)

@@ -54,7 +54,10 @@ source is blocked.
 * **Attack:** three different sources blocked within 30 minutes, or the same source blocked for the third time.
 
 The user is told: a desktop notification says which address was stopped, why and for how long, and that their own
-devices keep working; an attack gets its own notification. Both are also written to the log.
+devices keep working; an attack gets its own notification. Both are also written to the log. If the hub knows a
+device at that address, the notification names it and says to connect it again afterwards — then it is most
+likely the user's own device with a broken sign-in, not a stranger. There is no list of blocked sources in the
+interface yet; a block ends by itself.
 
 Guessing the six-digit pairing code: before, five guesses per sign-in and as many sign-ins as the attacker liked.
 Now a sign-in with its five wrong codes and the start of the next one block the source: about 15 guesses in the

@@ -201,6 +201,23 @@ class Pravila(unittest.TestCase):
             for sl in (True, False):
                 self.assertTrue(all(link_hub_streznik.besedilo_zapore(A, 600.0, razlog, sl)))
         self.assertIn(B, link_hub_streznik.besedilo_napada([A, B], True)[1])
+        # Naprava, ki jo sredisce pozna s tega naslova: ime in kaj narediti (najbrz je uporabnikova).
+        _, besedilo = link_hub_streznik.besedilo_zapore(A, 600.0, "brez_zaupanja", True, "Tablica  v\nkuhinji")
+        self.assertIn("»Tablica v kuhinji« (%s)" % A, besedilo)
+        self.assertIn("poveži znova", besedilo)
+        self.assertIn("connect it again", link_hub_streznik.besedilo_zapore(A, 600.0, "brez_zaupanja", False, "Tablet")[1])
+
+    def test_ime_naprave_po_naslovu(self):
+        hub = link_hub_streznik.Hub(odtis="ab" * 32, nas_id="n-racunalnik")
+        self.assertEqual(hub.ime_po_naslovu(A), "")
+        with hub._zaklep:
+            hub._naprave["tv1"] = link_hub_streznik.Naprava("tv1", "Televizor", "receiver", [], A)
+            pri_sosedu = link_hub_streznik.Naprava("tab", "Tablica", "receiver", [], A)
+            pri_sosedu.sosed = "n-drugi"
+            hub._naprave["tab"] = pri_sosedu
+        self.assertEqual(hub.ime_po_naslovu(A), "Televizor")
+        self.assertEqual(hub.ime_po_naslovu(B), "")
+        self.assertEqual(hub.ime_po_naslovu(""), "")
         # Jezik seje: LANGUAGE ima prednost pred LC_ALL (tako kot v Controlu); C in POSIX nista jezik.
         for okolje, pricakovano in (({"LANGUAGE": "sl_SI:sl", "LC_ALL": "en_US.UTF-8"}, True), ({"LANG": "sl_SI.UTF-8"}, True),
                                     ({"LC_ALL": "C", "LANG": "sl_SI.UTF-8"}, True), ({"LANG": "en_US.UTF-8"}, False), ({}, False)):
