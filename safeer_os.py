@@ -1737,6 +1737,17 @@ class SafeerOS(Gtk.Application):
             return False
         GLib.idle_add(naredi)
 
+    def _seznam_programov(self) -> list:
+        """Programi tega racunalnika za stran. Ob prvem klicu zacne spremljati mape z zaganjalniki: ko se program
+        namesti ali odstrani, odprte strani dobijo dogodek »programi« in seznam preberejo znova."""
+        if getattr(self, "_nadzor_programov", None) is None:
+            self._nadzor_programov = os_programi.NadzorProgramov(self.programi.mape(), lambda: self._dogodek("programi", None))
+            try:
+                self._nadzor_programov.zacni()
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] nadzor programov:", e)
+        return self.programi.seznam(self._ikona)
+
     def _dogodek(self, vrsta: str, podatki) -> None:
         def naredi():
             self._js("window.safeerOsDogodek && window.safeerOsDogodek(%s, %s);" % (
@@ -1754,7 +1765,7 @@ class SafeerOS(Gtk.Application):
         glavna = {
             "zacetek": self._zacetek,
             "zacniVlecenje": lambda: self._zacni_vlecenje(pogled, a[0] if a else []),
-            "programi": lambda: self.programi.seznam(self._ikona),
+            "programi": self._seznam_programov,
             "zazeni": lambda: self.programi.zazeni(str(a[0]) if a else "", self._zazeni_vnos),
             "odpriZ": lambda: os_odpri_z.odpri_z(a[0] if a and isinstance(a[0], list) else [], str(a[1]) if len(a) > 1 else "",
                                                  bool(a[2]) if len(a) > 2 else False, self._zazeni_vnos_z),

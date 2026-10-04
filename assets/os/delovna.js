@@ -1861,9 +1861,13 @@
     zgradiIzbiroNaprav();
     izrisiPrograme();
   }
-  function naloziProgrameNaprav() {
-    // Ta racunalnik ne caka na naprave: njegovi programi so na voljo takoj, tudi ce Safeer Link ne tece.
-    klic("programi").then(function (s) {
+  // Programi tega racunalnika (hitro, brez naprav). Seznam se spreminja: program, namescen ob odprti delovni
+  // povrsini, se je prej pokazal sele po ponovnem zagonu (4. 10. 2026). Zdaj ga preberemo znova ob dogodku
+  // »programi« (Safeer OS spremlja mape z zaganjalniki) in, za vsak primer, ko uporabnik isce v plosci.
+  var lokalniOb = 0;
+  function naloziLokalnePrograme() {
+    lokalniOb = Date.now();
+    return klic("programi").then(function (s) {
       P.lokalni = (Array.isArray(s) ? s : []).filter(function (p) { return p && p.id; }).map(function (p) {
         return { id: String(p.id), ime: String(p.ime || p.id), opis: String(p.opis || p.splosno || ""), skupina: p.skupina || "drugo",
                  ikona: p.ikona || "", naprava: "ta", imeNaprave: p.oblak ? oznakaOblaka(String(p.oblak)) : t("taRacunalnik"),
@@ -1871,6 +1875,10 @@
       });
       sestaviPrograme();
     }).catch(function () { /* brez seznama: ostanejo programi naprav */ });
+  }
+  function naloziProgrameNaprav() {
+    // Ta racunalnik ne caka na naprave: njegovi programi so na voljo takoj, tudi ce Safeer Link ne tece.
+    naloziLokalnePrograme();
     klic("igreOblak").then(function (s) { P.oblak = Array.isArray(s) ? s : []; sestaviPrograme(); }).catch(function () {});
     klic("napraveSProgrami").then(function (naprave) {
       P.naprave = Array.isArray(naprave) ? naprave.filter(function (n) { return n && n.id; }) : [];
@@ -2453,7 +2461,11 @@
     });
 
     // Programi
-    $("prgFilter").addEventListener("input", function () { P.stran = 0; izrisiPrograme(); });
+    $("prgFilter").addEventListener("input", function () {
+      P.stran = 0; izrisiPrograme();
+      // Kdor isce program, ki ga je pravkar namestil, ga mora najti: seznam preberemo znova (najvec na 5 s).
+      if (Date.now() - lokalniOb > 5000) naloziLokalnePrograme();
+    });
     $("prgNaprava").addEventListener("change", function () { P.stran = 0; izrisiPrograme(); });
     $("prgRazvrsti").addEventListener("change", function () { izrisiPrograme(); });
     $("prgPogled").addEventListener("click", function () { N.pogled = N.pogled === "seznam" ? "mreza" : "seznam"; shrani(); P.stran = 0; izrisiPrograme(); });
@@ -2497,6 +2509,7 @@
       else if (vrsta === "videz") nastaviVidez(arguments[1]);
       else if (vrsta === "vleceneDatoteke") { VL.zunanje = (arguments[1] && arguments[1].stevilo) || 0; if (!VL.zunanje) pocistiCilje(); }
       else if (vrsta === "vlecenjeKoncano") koncajVlecenje(!!(arguments[1] && arguments[1].sprejeto));
+      else if (vrsta === "programi") naloziLokalnePrograme();     // program namescen ali odstranjen
       else if (vrsta === "fokus" && Date.now() - zadnjeOsvezevanje > 30000) {
         // Naprave v Linku se spreminjajo: ob vrnitvi v Safeer OS osvezimo najvec vsakih 30 s.
         zadnjeOsvezevanje = Date.now(); zgradiStranDatotek(); naloziProgrameNaprav(); osveziLink();

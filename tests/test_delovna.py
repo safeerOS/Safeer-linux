@@ -74,6 +74,23 @@ class TestDelovnaStran(unittest.TestCase):
         self.assertIn("return !p.lokalni && ujemaZadetek(p.ime", js)
         self.assertIn(".program .zvezda.je", beri("assets", "os", "delovna.css"))
 
+    def test_plosca_programi_se_osvezi_ob_namestitvi(self):
+        """Program, namescen ob odprti delovni povrsini, se mora pokazati brez ponovnega zagona (4. 10. 2026)."""
+        py = beri("safeer_os.py")
+        self.assertIn('"programi": self._seznam_programov', py)
+        self.assertIn('os_programi.NadzorProgramov(self.programi.mape(), lambda: self._dogodek("programi", None))', py)
+        # Obe strani, ki kazeta seznam programov, se odzoveta na dogodek.
+        self.assertIn('vrsta === "programi") naloziLokalnePrograme()', self.js)
+        self.assertIn('if (vrsta === "programi") nalozPrograme();', beri("assets", "os", "os.js"))
+        # Rezerva brez dogodka (npr. peskovnik): iskanje v plosci prebere seznam znova, a ne ob vsaki crki.
+        polje = self.js.split('$("prgFilter").addEventListener("input"', 1)[1].split("});", 1)[0]
+        self.assertIn("naloziLokalnePrograme()", polje)
+        self.assertIn("lokalniOb > 5000", polje)
+        # Osvezitev programov tega racunalnika ne sprasuje naprav znova.
+        lokalni = self.js.split("function naloziLokalnePrograme()", 1)[1].split("function naloziProgrameNaprav()", 1)[0]
+        self.assertNotIn("napraveSProgrami", lokalni)
+        self.assertNotIn("programiNaprave", lokalni)
+
     def test_igre_v_oblaku_so_ponudba_ne_namestitev(self):
         # Ponudnik iger v oblaku je med Igrami kot ploscica; namesti se samo na uporabnikov klik v meniju ploscice.
         js = self.js
