@@ -32,6 +32,13 @@ def test_zapiski_iskanje_po_naslovu_in_besedilu():
 
         assert [z["id"] for z in zapiski.seznam("NAKUP")] == [prvi["id"]]
         assert [z["id"] for z in zapiski.seznam("orion")] == [drugi["id"]]
+        # Brez sumnikov in velikih crk; vec besed v poljubnem vrstnem redu, ujemati se morajo vse.
+        tretji = zapiski.shrani("", "Šoping lista", "Čebula, žemlje in đumbir")
+        assert [z["id"] for z in zapiski.seznam("soping")] == [tretji["id"]]
+        assert [z["id"] for z in zapiski.seznam("ZEMLJE cebula")] == [tretji["id"]]
+        assert [z["id"] for z in zapiski.seznam("dumbir")] == [tretji["id"]]
+        assert zapiski.seznam("cebula orion") == []
+        assert len(zapiski.seznam("   ")) == 3
 
 
 def test_zapisek_izbrisi():

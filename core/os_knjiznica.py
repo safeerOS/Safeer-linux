@@ -14,6 +14,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from core.iskalni_kljuc import kljuc as kljuc_imena
+
 
 GLASBA = frozenset({".mp3", ".m4a", ".aac", ".flac", ".wav", ".ogg", ".oga", ".opus", ".wma"})
 VIDEO = frozenset({".mp4", ".m4v", ".mkv", ".webm", ".mov", ".avi", ".ogv", ".ts"})
@@ -76,6 +78,7 @@ class Knjiznica:
     def _baza(self):
         baza = sqlite3.connect(self.pot, timeout=5)
         baza.create_function("safeer_casefold", 1, lambda s: str(s or "").casefold(), deterministic=True)
+        baza.create_function("safeer_kljuc", 1, lambda s: kljuc_imena(s or ""), deterministic=True)
         try:
             with baza:
                 yield baza
@@ -182,9 +185,10 @@ class Knjiznica:
         elif vrsta in ("glasba", "filmi", "serije", "slike"):
             pogoji.append("vrsta = ?")
             vrednosti.append(vrsta)
-        if iskanje:
-            pogoji.append("instr(safeer_casefold(naslov), ?) > 0")
-            vrednosti.append(str(iskanje)[:100].casefold())
+        # Brez sumnikov in velikih crk; vec besed v poljubnem vrstnem redu, ujemati se morajo vse (kot iskanje datotek).
+        for beseda in kljuc_imena(str(iskanje or "")[:100]).split()[:8]:
+            pogoji.append("instr(safeer_kljuc(naslov), ?) > 0")
+            vrednosti.append(beseda)
         where = " WHERE " + " AND ".join(pogoji) if pogoji else ""
         with self._baza() as baza:
             vrstice = baza.execute("SELECT pot, naslov, vrsta, zadnjic, pozicija, trajanje FROM mediji" + where +

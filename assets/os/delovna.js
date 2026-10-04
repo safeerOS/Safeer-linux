@@ -94,6 +94,11 @@
       brezControla: "Safeer Link (Safeer Control) ne teče, zato programi naprav niso na voljo.",
       zagonPoslan: "Ukaz poslan napravi {naprava}.",
       skSplet: "Splet", skProgrami: "Programi", skProgramiNaprav: "Programi naprav", skDatoteke: "Datoteke", skMediji: "Mediji",
+      skZapiski: "Zapiski", skSafeer: "Safeer OS", ciljMedia: "Medijski center", ciljNaprave: "Naprave (Safeer Link)", ciljScit: "Ščit – zaščita za ves računalnik",
+      ciljNastavitve: "Nastavitve Safeer OS", ciljZapiski: "Zapiski", ciljSporocila: "Sporočila", ciljSplet: "Splet v Safeer OS",
+      odpreSafeerOs: "odpre Safeer OS",
+      skNaprave: "Naprave", napravaDatoteke: "datoteke na napravi", napravaProgrami: "programi naprave",
+      isciVMedijih: "Poišči »{q}« v Medijskem centru", odpreMedijski: "filmi, serije, glasba, radio",
       isciVSpletu: "Išči »{q}« v spletu", odpreVBrskalniku: "privzeti brskalnik", isciem: "Iščem …",
       prostor: "{n} el.",
       spremeniOzadje: "Spremeni ozadje …", prilagodiDock: "Prilagodi dock …",
@@ -217,6 +222,11 @@
       brezControla: "Safeer Link (Safeer Control) isn't running, so apps on your devices aren't available.",
       zagonPoslan: "Sent to {naprava}.",
       skSplet: "Web", skProgrami: "Apps", skProgramiNaprav: "Apps on devices", skDatoteke: "Files", skMediji: "Media",
+      skZapiski: "Notes", skSafeer: "Safeer OS", ciljMedia: "Media Centre", ciljNaprave: "Devices (Safeer Link)", ciljScit: "Shield – protection for the whole computer",
+      ciljNastavitve: "Safeer OS settings", ciljZapiski: "Notes", ciljSporocila: "Messages", ciljSplet: "Web in Safeer OS",
+      odpreSafeerOs: "opens Safeer OS",
+      skNaprave: "Devices", napravaDatoteke: "files on the device", napravaProgrami: "apps on the device",
+      isciVMedijih: "Find “{q}” in the Media Centre", odpreMedijski: "films, series, music, radio",
       isciVSpletu: "Search the web for “{q}”", odpreVBrskalniku: "default browser", isciem: "Searching …",
       prostor: "{n} items",
       spremeniOzadje: "Change wallpaper …", prilagodiDock: "Customise dock …",
@@ -418,7 +428,8 @@
   var IKONE_VRST = {
     mapa: "M3 7h6l2 2h10v10H3z", slika: "M4 5h16v14H4z M8 14l3-3 5 5 M15 10h.01", video: "M4 6h12v12H4z M16 10l4-2v8l-4-2",
     zvok: "M9 18V6l10-2v12 M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0z", dokument: "M6 3h8l4 4v14H6z M14 3v4h4 M9 12h6 M9 16h6",
-    arhiv: "M5 4h14v16H5z M12 4v8", splet: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M3 12h18 M12 3c3 3 3 15 0 18 M12 3c-3 3-3 15 0 18", program: "M4 5h16v14H4z M8 10l3 2-3 2 M13 15h3", drugo: "M6 3h8l4 4v14H6z"
+    arhiv: "M5 4h14v16H5z M12 4v8", splet: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M3 12h18 M12 3c3 3 3 15 0 18 M12 3c-3 3-3 15 0 18", program: "M4 5h16v14H4z M8 10l3 2-3 2 M13 15h3",
+    naprava: "M8 3h8a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z M11 18h2", drugo: "M6 3h8l4 4v14H6z"
   };
   function ikonaVrste(vrsta) {
     var v = IKONE_VRST[vrsta] ? vrsta : "drugo";
@@ -723,9 +734,9 @@
     izrisiDatoteke();
   }
   function filtrirani() {
-    var q = ($("datFilter").value || "").trim().toLowerCase(), v = $("datVrsta").value;
+    var besede = kljucIskanja($("datFilter").value).split(/\s+/).filter(Boolean), v = $("datVrsta").value;
     var r = D.vse.filter(function (e) {
-      if (q && String(e.ime).toLowerCase().indexOf(q) < 0) return false;
+      if (besede.length && !ujemaVse(e.ime, besede)) return false;
       if (v && (v === "mapa" ? !e.mapa : e.vrsta !== v)) return false;
       return true;
     });
@@ -866,10 +877,10 @@
   var tipkano = "", tipkanoCas = 0;
   function skociNaIme(znak) {
     var zdaj = Date.now();
-    tipkano = (zdaj - tipkanoCas > 900 ? "" : tipkano) + znak.toLocaleLowerCase(); tipkanoCas = zdaj;
+    tipkano = (zdaj - tipkanoCas > 900 ? "" : tipkano) + kljucIskanja(znak); tipkanoCas = zdaj;
     var s = filtrirani();
     for (var i = 0; i < s.length; i++) {
-      if (String(s[i].ime).toLocaleLowerCase().indexOf(tipkano) === 0) { D.oznaciVse = null; D.oznaci = s[i].ime; izrisiDatoteke(); return true; }
+      if (kljucIskanja(s[i].ime).indexOf(tipkano) === 0) { D.oznaciVse = null; D.oznaci = s[i].ime; izrisiDatoteke(); return true; }
     }
     return false;
   }
@@ -1761,12 +1772,12 @@
     });
   }
   function programiFiltrirani() {
-    var q = ($("prgFilter").value || "").trim().toLowerCase(), nap = $("prgNaprava").value, k = P.kategorija;
+    var besede = kljucIskanja($("prgFilter").value).split(/\s+/).filter(Boolean), nap = $("prgNaprava").value, k = P.kategorija;
     var r = P.programi.filter(function (p) {
       if (nap && p.naprava !== nap) return false;
       if (k === "priljubljeni" && !jePriljubljen(p)) return false;
       if (k !== "vse" && k !== "priljubljeni" && kategorijaPrograma(p) !== k) return false;
-      if (q && (p.ime + " " + (p.opis || "")).toLowerCase().indexOf(q) < 0) return false;
+      if (besede.length && !ujemaVse(p.ime + " " + (p.opis || ""), besede)) return false;
       return true;
     });
     var po = $("prgRazvrsti").value;
@@ -1941,28 +1952,93 @@
   var I = { st: 0, casovnik: 0, zadetki: [], izbran: -1 };
   // Kako dobro se program ujema z iskanim: zacetek imena > zacetek besede > kjerkoli v imenu > opis ali kljucne besede.
   function ocenaPrograma(p, ql) {
-    var ime = String(p.ime || "").toLowerCase();
+    var ime = kljucIskanja(p.ime);
     if (ime.indexOf(ql) === 0) return 3;
     if (ime.indexOf(" " + ql) >= 0 || ime.indexOf("-" + ql) >= 0) return 2;
     return ime.indexOf(ql) >= 0 ? 1 : 0;
+  }
+  // Iskanje ne gleda na sumnike in velike crke (kot iskanje datotek, core/os_iskalnik.py); vec besed je lahko v
+  // poljubnem vrstnem redu, ujemati se morajo vse.
+  function kljucIskanja(s) {
+    return String(s || "").toLowerCase().replace(/[\u0111\u0142\u00f8\u00df\u00e6\u0153\u0131]/g, function (z) { return POSEBNE_CRKE[z]; })
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  }
+  // Crke, ki jih razstavitev NFD ne loci na osnovo in naglas (ista tabela kot core/os_datoteke.py in iskanje.js).
+  var POSEBNE_CRKE = { "\u0111": "d", "\u0142": "l", "\u00f8": "o", "\u00df": "ss", "\u00e6": "ae", "\u0153": "oe", "\u0131": "i" };
+  function ujemaVse(besedilo, besede) {
+    var k = kljucIskanja(besedilo);
+    return besede.every(function (b) { return k.indexOf(b) >= 0; });
+  }
+  // Za zadetke iskanja (programi, Safeer OS, naprave): besede brez locil; kratka beseda (1-2 crki) se mora ujemati z
+  // zacetkom besede - »tv« ne najde »nastaviTVe« -, daljsa kjerkoli (»office« najde LibreOffice).
+  function besedeIskanja(q) {
+    return kljucIskanja(q).replace(/[^\p{L}\p{N}]+/gu, " ").trim().split(" ").filter(Boolean);
+  }
+  function ujemaZadetek(besedilo, besede) {
+    var k = " " + kljucIskanja(besedilo).replace(/[^\p{L}\p{N}]+/gu, " ");
+    return besede.length > 0 && besede.every(function (b) { return k.indexOf(b.length < 3 ? " " + b : b) >= 0; });
+  }
+  // Safeer OS sam: razdelki glavnega okna in Scit. [cilj za odpriRazdelek, kljuc imena, kljucne besede brez sumnikov].
+  var SAFEER_CILJI = [
+    ["media", "ciljMedia", "medijski center filmi serije glasba radio tv televizija video katalog media centre movies series music"],
+    ["naprave", "ciljNaprave", "safeer link naprave telefon televizor tablica povezi qr koda devices phone tablet pair"],
+    ["nastavitve#blokScit", "ciljScit", "scit zascita dns oglasi sledilci blokiranje premor dovoli shield ads trackers protection block"],
+    ["nastavitve", "ciljNastavitve", "nastavitve safeer os posodobitve samozagon celozaslonsko settings updates"],
+    ["zapiski", "ciljZapiski", "zapiski belezke opombe notes"],
+    ["sporocila", "ciljSporocila", "sporocila posta klepet messages mail chat"],
+    ["splet", "ciljSplet", "splet brskalnik zaznamki web browser"]
+  ];
+  function safeerCilji(besede) {
+    return SAFEER_CILJI.filter(function (c) { return ujemaZadetek(t(c[1]) + " " + c[2], besede); })
+      .map(function (c) { return { vrsta: "safeer", cilj: c[0], ime: t(c[1]) }; }).slice(0, 4);
+  }
+  // Naprave iz Safeer Linka, po imenu ali po vrsti (»telefon«, »tv«). Zadetek pokaze datoteke naprave tu, v plosci
+  // Datoteke; naprava, ki datotek ne deli, pokaze svoje programe v plosci Programi.
+  var BESEDE_NAPRAV = { tv: "tv televizor televizija television", phone: "telefon mobitel phone", tablet: "tablica tablet",
+                        windows: "windows racunalnik computer pc", linux: "linux racunalnik computer pc", mac: "mac racunalnik computer" };
+  function napraveZaIskanje(besede) {
+    var videne = {}, vse = [];
+    function dodaj(n, datoteke) {
+      if (!n || !n.id || videne[n.id]) return;
+      videne[n.id] = 1; vse.push({ vrsta: "naprava", n: n, datoteke: datoteke, poImenu: ujemaZadetek(n.ime, besede) });
+    }
+    D.naprave.forEach(function (n) { dodaj(n, true); });
+    P.naprave.forEach(function (n) { dodaj(n, false); });
+    return vse.filter(function (v) {
+      return v.poImenu || ujemaZadetek(v.n.ime + " " + (BESEDE_NAPRAV[v.n.platforma] || v.n.platforma || ""), besede);
+    }).slice(0, 4);
+  }
+  // Kateri zadetek odpre Enter, ce uporabnik ni izbral sam: prvi program (kot meni Start), sicer Safeer OS, sicer
+  // naprava, najdena po imenu. Naprava, najdena samo po vrsti (»telefon«), Enterja ne prevzame - ostane splet.
+  var RANG_ZADETKA = { program: 3, safeer: 2, naprava: 1 };
+  function privzetiZadetek(vnosi) {
+    var prvi = 0, rang = 0;
+    vnosi.forEach(function (v, i) {
+      var r = v.vrsta === "naprava" && !v.poImenu ? 0 : (RANG_ZADETKA[v.vrsta] || 0);
+      if (r > rang) { rang = r; prvi = i; }
+    });
+    return prvi;
   }
   function isci(q) {
     var st = ++I.st;
     q = q.trim();
     I.zadnji = q; I.rocno = false;
     if (!q) { I.poEnter = false; I.caka = false; skrijZadetke(); return; }
-    var ql = q.toLowerCase();
+    var ql = kljucIskanja(q), besede = besedeIskanja(q);
     I.caka = true;
     var skupine = [];
     // Programi naprav (ze nalozeni, potrjeni seznami)
-    var prg = P.programi.filter(function (p) { return !p.lokalni && (p.ime + " " + (p.opis || "")).toLowerCase().indexOf(ql) >= 0; }).slice(0, 6);
+    var prg = P.programi.filter(function (p) { return !p.lokalni && ujemaZadetek(p.ime + " " + (p.opis || ""), besede); }).slice(0, 6);
+    var safeer = q.length >= 2 ? safeerCilji(besede) : [];
+    var naprave = q.length >= 2 ? napraveZaIskanje(besede) : [];
     var cakaj = [
       klic("programi").then(function (s) {
-        return (s || []).filter(function (p) { return !p.skrit && (p.ime + " " + (p.splosno || "") + " " + (p.kljucne || "")).toLowerCase().indexOf(ql) >= 0; })
+        return (s || []).filter(function (p) { return !p.skrit && ujemaZadetek(p.ime + " " + (p.splosno || "") + " " + (p.kljucne || ""), besede); })
           .sort(function (a, b) { return (ocenaPrograma(b, ql) - ocenaPrograma(a, ql)) || ((b.uporaba || 0) - (a.uporaba || 0)); }).slice(0, 5);
       }).catch(function () { return []; }),
       q.length >= 2 ? klic("isciDatoteke", [q]).then(function (s) { return (s || []).slice(0, 6); }).catch(function () { return []; }) : Promise.resolve([]),
-      q.length >= 2 ? klic("knjiznicaMedijev", ["", q, 0]).then(function (s) { return (s || []).slice(0, 5); }).catch(function () { return []; }) : Promise.resolve([])
+      q.length >= 2 ? klic("knjiznicaMedijev", ["", q, 0]).then(function (s) { return (s || []).slice(0, 5); }).catch(function () { return []; }) : Promise.resolve([]),
+      q.length >= 2 ? klic("zapiskiSeznam", [q]).then(function (s) { return (s || []).slice(0, 4); }).catch(function () { return []; }) : Promise.resolve([])
     ];
     // Enter, pritisnjen pred prihodom zadetkov: pocakamo samo na programe (hitro), ne na iskanje po disku.
     cakaj[0].then(function (programi) {
@@ -1970,16 +2046,24 @@
       I.caka = false;
       if (!I.poEnter) return;
       I.poEnter = false;
-      izberiZadetek(programi.length ? { vrsta: "program", p: programi[0] } : { vrsta: "splet", q: q });
+      var napravaPoImenu = naprave.filter(function (v) { return v.poImenu; })[0];
+      izberiZadetek(programi.length ? { vrsta: "program", p: programi[0] } : safeer.length ? safeer[0] : napravaPoImenu || { vrsta: "splet", q: q });
     });
     izrisiZadetke([{ naslov: t("skSplet"), vnosi: [{ vrsta: "splet", q: q }] }, { naslov: t("isciem"), vnosi: [] }]);
     Promise.all(cakaj).then(function (r) {
       if (st !== I.st) return;
       skupine.push({ naslov: t("skSplet"), vnosi: [{ vrsta: "splet", q: q }] });
       if (r[0].length) skupine.push({ naslov: t("skProgrami"), vnosi: r[0].map(function (p) { return { vrsta: "program", p: p }; }) });
+      if (safeer.length) skupine.push({ naslov: t("skSafeer"), vnosi: safeer });
+      if (naprave.length) skupine.push({ naslov: t("skNaprave"), vnosi: naprave });
       if (prg.length) skupine.push({ naslov: t("skProgramiNaprav"), vnosi: prg.map(function (p) { return { vrsta: "prgNaprave", p: p }; }) });
       if (r[1].length) skupine.push({ naslov: t("skDatoteke"), vnosi: r[1].map(function (d) { return { vrsta: "datoteka", d: d }; }) });
-      if (r[2].length) skupine.push({ naslov: t("skMediji"), vnosi: r[2].map(function (d) { return { vrsta: "medij", d: d }; }) });
+      if (r[3].length) skupine.push({ naslov: t("skZapiski"), vnosi: r[3].map(function (z) { return { vrsta: "zapisek", z: z }; }) });
+      // Mediji: zadetki iz krajevne knjiznice, na koncu pa pot v Medijski center. Katalog isce sele tam - med
+      // tipkanjem na namizju virov ne sprasujemo in naslovov iz kataloga ne kazemo.
+      var mediji = r[2].map(function (d) { return { vrsta: "medij", d: d }; });
+      if (q.length >= 2) mediji.push({ vrsta: "mediji", q: q });
+      if (mediji.length) skupine.push({ naslov: t("skMediji"), vnosi: mediji });
       izrisiZadetke(skupine);
     });
   }
@@ -1996,6 +2080,14 @@
           appendIkona(b, v.p.ikona, v.p.ime); ime = v.p.ime; pod = v.p.opis || ""; vir = t("taRacunalnik");
         } else if (v.vrsta === "prgNaprave") {
           appendIkona(b, v.p.ikona, v.p.ime); ime = v.p.ime; vir = v.p.imeNaprave;
+        } else if (v.vrsta === "safeer") {
+          b.appendChild(ikonaVrste("program")); ime = v.ime; pod = t("odpreSafeerOs");
+        } else if (v.vrsta === "zapisek") {
+          b.appendChild(ikonaVrste("dokument")); ime = v.z.naslov; pod = v.z.odlomek || "";
+        } else if (v.vrsta === "naprava") {
+          b.appendChild(ikonaVrste("naprava")); ime = v.n.ime; pod = t(v.datoteke ? "napravaDatoteke" : "napravaProgrami"); vir = "Safeer Link";
+        } else if (v.vrsta === "mediji") {
+          b.appendChild(ikonaVrste("video")); ime = t("isciVMedijih", { q: v.q }); pod = t("odpreMedijski");
         } else if (v.vrsta === "datoteka") {
           b.appendChild(ikonaVrste(v.d.mapa ? "mapa" : v.d.vrsta)); ime = v.d.ime; pod = stranskoBesedilo(v.d.pot); vir = t("taRacunalnik");
         } else {
@@ -2004,16 +2096,14 @@
         }
         b.appendChild(el("span", "ime", ime));
         if (pod) b.appendChild(el("small", "", pod));
-        if (vir) b.appendChild(el("span", "oznaka-vira" + (v.vrsta === "prgNaprave" ? " oddaljeno" : ""), vir));
+        if (vir) b.appendChild(el("span", "oznaka-vira" + (v.vrsta === "prgNaprave" || v.vrsta === "naprava" ? " oddaljeno" : ""), vir));
         b.addEventListener("click", function () { izberiZadetek(v); });
         b.addEventListener("mouseenter", function () { I.izbran = I.zadetki.indexOf(b); oznaciZadetek(); });
         b._v = v; I.zadetki.push(b); z.appendChild(b);
       });
     });
     // Na namizju Enter odpre program, ce se kateri ujema (kot meni Start); splet ostane prva vrstica in Shift+Enter.
-    if (!I.rocno) {
-      for (var pi = 0; pi < I.zadetki.length; pi++) if (I.zadetki[pi]._v.vrsta === "program") { I.izbran = pi; break; }
-    }
+    if (!I.rocno) I.izbran = privzetiZadetek(I.zadetki.map(function (b) { return b._v; }));
     z.hidden = false; $("iskalnoPolje").setAttribute("aria-expanded", "true");
     oznaciZadetek();
   }
@@ -2028,9 +2118,22 @@
     if (v.vrsta === "splet") odpriSplet(v.q);
     else if (v.vrsta === "program") klic("zazeni", [v.p.id]);
     else if (v.vrsta === "prgNaprave") { var r = $("iskalnoPolje").getBoundingClientRect(); meniPrograma(v.p, r.left, r.bottom + 6); }
+    else if (v.vrsta === "safeer") klic("odpriRazdelek", [v.cilj]);
+    else if (v.vrsta === "zapisek") klic("odpriRazdelek", ["zapisek:" + v.z.id]);
+    else if (v.vrsta === "naprava") odpriNapravo(v);
+    else if (v.vrsta === "mediji") klic("odpriRazdelek", ["mediji:" + v.q]);
     else if (v.vrsta === "datoteka") odpriVnos(v.d);
     else if (v.vrsta === "medij") klic("odpriLokalniMedij", [v.d.pot]).then(function (ok) { if (ok) medijOsvezi(); else obvesti(t("niUspelo")); });
     $("iskalnoPolje").value = "";
+  }
+  function odpriNapravo(v) {
+    if (v.datoteke) {
+      if (N.skrite.indexOf("datoteke") >= 0) nastaviSkrito("datoteke", false);
+      odpriVir({ vrsta: "naprava", id: v.n.id, ime: v.n.ime, pot: [] });
+    } else {
+      if (N.skrite.indexOf("programi") >= 0) nastaviSkrito("programi", false);
+      $("prgNaprava").value = v.n.id; P.kategorija = "vse"; P.rocno = true; P.stran = 0; izrisiPrograme();
+    }
   }
   function odpriSplet(q) {
     // Spletni zadetek odpre privzeti brskalnik; starejsi Safeer OS brez te metode odpre vdelani Splet.

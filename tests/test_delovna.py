@@ -71,7 +71,7 @@ class TestDelovnaStran(unittest.TestCase):
         self.assertIn("e.stopPropagation(); preklopiPriljubljen(p);", js)
         # Program tega racunalnika se zazene takoj (brez menija) in v iskanju ni podvojen.
         self.assertIn("if (p.lokalni) { zazeniLokalni(p); return; }", js)
-        self.assertIn("return !p.lokalni && (p.ime", js)
+        self.assertIn("return !p.lokalni && ujemaZadetek(p.ime", js)
         self.assertIn(".program .zvezda.je", beri("assets", "os", "delovna.css"))
 
     def test_igre_v_oblaku_so_ponudba_ne_namestitev(self):
@@ -92,8 +92,8 @@ class TestDelovnaStran(unittest.TestCase):
         programe (I.poEnter), da ne odpre spleta samo zato, ker zadetki se niso prisli."""
         js, html = beri("assets", "os", "delovna.js"), beri("assets", "os", "delovna.html")
         for niz in ("function ocenaPrograma(p, ql)", "I.poEnter = true", 'e.key === "Enter" && e.shiftKey',
-                    'izberiZadetek(programi.length ? { vrsta: "program", p: programi[0] } : { vrsta: "splet", q: q })',
-                    'if (I.zadetki[pi]._v.vrsta === "program") { I.izbran = pi; break; }'):
+                    'izberiZadetek(programi.length ? { vrsta: "program", p: programi[0] } : safeer.length ? safeer[0] : napravaPoImenu || { vrsta: "splet", q: q })',
+                    'if (!I.rocno) I.izbran = privzetiZadetek(I.zadetki.map(function (b) { return b._v; }));'):
             self.assertIn(niz, js)
         self.assertIn("Shift+Enter splet", js)
         self.assertIn("Shift+Enter web", js)
@@ -142,14 +142,116 @@ assert.strictEqual(smiselnSpust(["/m/a", "/x/y"], "/m"), true);
         subprocess.run(["node", "-e", koda], check=True)
 
     @unittest.skipUnless(shutil.which("node"), "node ni namescen")
+    def test_iskanje_brez_sumnikov_in_safeer_os(self):
+        """Iskanje na delovni povrsini ne gleda na sumnike (kot iskanje datotek), vec besed je lahko v poljubnem
+        vrstnem redu, in najde tudi Safeer OS sam: razdelke glavnega okna in Scit."""
+        js = self.js
+        blok = js[js.index("  function ocenaPrograma(p, ql) {"):js.index("  function isci(q) {")]
+        koda = """
+var assert = require("assert");
+var BES = { ciljMedia: "Medijski center", ciljNaprave: "Naprave (Safeer Link)", ciljScit: "Ščit – zaščita za ves računalnik",
+            ciljNastavitve: "Nastavitve Safeer OS", ciljZapiski: "Zapiski", ciljSporocila: "Sporočila", ciljSplet: "Splet v Safeer OS" };
+function t(k) { return BES[k] || k; }
+var D = { naprave: [{ id: "a", ime: "Dnevna soba", platforma: "tv" }, { id: "b", ime: "Lastnikov telefon", platforma: "phone" }] };
+var P = { naprave: [{ id: "b", ime: "Lastnikov telefon", platforma: "phone" }, { id: "c", ime: "Pisarna", platforma: "windows" }] };
+""" + blok + """
+function b(q) { return besedeIskanja(q); }
+// Kratka beseda samo na zacetku besede, daljsa kjerkoli; locila ne stejejo.
+assert.deepStrictEqual(besedeIskanja("  Wi-Fi, C++ "), ["wi", "fi", "c"]);
+assert.deepStrictEqual(besedeIskanja("++ ?"), []);
+assert.ok(!ujemaZadetek("Sistemske nastavitve", b("tv")), "»tv« ni v »nastaviTVe«");
+assert.ok(!ujemaZadetek("Razširitve", b("tv")));
+assert.ok(ujemaZadetek("TV-Browser", b("tv")));
+assert.ok(ujemaZadetek("Moj TV", b("tv")));
+assert.ok(ujemaZadetek("LibreOffice Writer", b("office")), "daljsa beseda kjerkoli");
+assert.ok(ujemaZadetek("Omrežje Wi-Fi", b("wi-fi")));
+assert.ok(ujemaZadetek("Zvočne nastavitve", b("NASTAV zvoč")));
+assert.ok(!ujemaZadetek("Karkoli", []), "brez besed ni zadetka");
+assert.ok(ujemaZadetek("GIMP", b("g")) && !ujemaZadetek("Slike", b("k")));
+assert.strictEqual(kljucIskanja("Ščit ŽIVJO đak Straße"), "scit zivjo dak strasse");
+assert.strictEqual(kljucIskanja("Łódź Søren Æsop"), "lodz soren aesop");
+assert.ok(ujemaVse("Zvočne nastavitve", b("zvocne")));
+assert.ok(ujemaVse("Zvočne nastavitve", b("NASTAV zvoč")), "vec besed, poljuben vrstni red");
+assert.ok(!ujemaVse("Zvočne nastavitve", b("zvocne tiskalnik")), "ujemati se morajo vse besede");
+assert.strictEqual(ocenaPrograma({ ime: "Ščitnik" }, "scit"), 3);
+assert.strictEqual(ocenaPrograma({ ime: "Moj Ščitnik" }, "scit"), 2);
+assert.strictEqual(ocenaPrograma({ ime: "Zaščita" }, "scit"), 1);
+assert.strictEqual(ocenaPrograma({ ime: "Urejevalnik" }, "scit"), 0);
+// Safeer OS sam
+assert.deepStrictEqual(safeerCilji(b("scit")).map(function (c) { return c.cilj; }), ["nastavitve#blokScit"]);
+assert.deepStrictEqual(safeerCilji(b("ščit"))[0], { vrsta: "safeer", cilj: "nastavitve#blokScit", ime: "Ščit – zaščita za ves računalnik" });
+assert.strictEqual(safeerCilji(b("oglasi"))[0].cilj, "nastavitve#blokScit");
+assert.strictEqual(safeerCilji(b("filmi"))[0].cilj, "media");
+assert.strictEqual(safeerCilji(b("telefon"))[0].cilj, "naprave");
+assert.strictEqual(safeerCilji(b("posodobitve"))[0].cilj, "nastavitve");
+assert.strictEqual(safeerCilji(b("shield"))[0].cilj, "nastavitve#blokScit");
+assert.deepStrictEqual(safeerCilji(b("xyzq")), []);
+assert.deepStrictEqual(safeerCilji(b("tv")).map(function (c) { return c.cilj; }), ["media"], "»tv« ni Nastavitve");
+assert.deepStrictEqual(napraveZaIskanje(b("tv")).map(function (v) { return v.n.id; }), ["a"]);
+assert.ok(safeerCilji(b("safeer")).length <= 4, "najvec stirje");
+// Naprave iz Safeer Linka: po imenu ali po vrsti; naprava z datotekami pokaze datoteke, sicer programe
+var n = napraveZaIskanje(b("dnevna"));
+assert.deepStrictEqual(n.map(function (v) { return [v.n.id, v.datoteke, v.poImenu]; }), [["a", true, true]]);
+n = napraveZaIskanje(b("televizor"));
+assert.deepStrictEqual(n.map(function (v) { return [v.n.id, v.poImenu]; }), [["a", false]], "po vrsti naprave");
+assert.deepStrictEqual(napraveZaIskanje(b("telefon")).map(function (v) { return v.n.id; }), ["b"], "ista naprava samo enkrat");
+assert.strictEqual(napraveZaIskanje(b("telefon"))[0].datoteke, true, "kdor deli datoteke, pokaze datoteke");
+assert.strictEqual(napraveZaIskanje(b("pisarna"))[0].datoteke, false, "brez datotek: programi");
+assert.strictEqual(napraveZaIskanje(b("racunalnik"))[0].n.id, "c");
+assert.deepStrictEqual(napraveZaIskanje(b("xyzq")), []);
+assert.deepStrictEqual(napraveZaIskanje(b("dnevna telefon")), [], "vse besede na isti napravi");
+// Enter brez izbire: program > Safeer OS > naprava po imenu; sicer prva vrstica (splet)
+var splet = { vrsta: "splet" }, prog = { vrsta: "program" }, saf = { vrsta: "safeer" };
+assert.strictEqual(privzetiZadetek([splet]), 0);
+assert.strictEqual(privzetiZadetek([splet, saf, { vrsta: "naprava", poImenu: true }, prog, prog]), 3, "prvi program");
+assert.strictEqual(privzetiZadetek([splet, saf, { vrsta: "naprava", poImenu: true }]), 1);
+assert.strictEqual(privzetiZadetek([splet, { vrsta: "naprava", poImenu: true }, { vrsta: "datoteka" }]), 1);
+assert.strictEqual(privzetiZadetek([splet, { vrsta: "naprava", poImenu: false }, { vrsta: "datoteka" }, { vrsta: "mediji" }]), 0,
+                   "naprava po vrsti, datoteka in pot v Medijski center Enterja ne prevzamejo");
+"""
+        subprocess.run(["node", "-e", koda], check=True)
+        # Cilji so razdelki, ki jih glavno okno pozna; sidro bloka mora na strani obstajati.
+        html = beri("assets", "os", "index.html")
+        import re
+        for cilj in re.findall(r'\["([a-z]+(?:#blok[A-Za-z]+)?)", "cilj[A-Za-z]+",', js):
+            razdelek, _, sidro = cilj.partition("#")
+            self.assertIn('data-razdelek="%s"' % razdelek, html, cilj)
+            if sidro:
+                self.assertIn('id="%s"' % sidro, html, cilj)
+        self.assertIn('else if (v.vrsta === "safeer") klic("odpriRazdelek", [v.cilj]);', js)
+        # Zapiski: zadetek odpre Zapiske pri tem zapisku.
+        self.assertIn('klic("zapiskiSeznam", [q])', js)
+        self.assertIn('else if (v.vrsta === "zapisek") klic("odpriRazdelek", ["zapisek:" + v.z.id]);', js)
+        self.assertIn('if (kam.indexOf("zapisek:") === 0) {', beri("assets", "os", "os.js"))
+        self.assertEqual(js.count('skZapiski: "'), 2)
+        os_js = beri("assets", "os", "os.js")
+        self.assertIn('if (/^blok[A-Za-z]+$/.test(sidro)) setTimeout(function () {', os_js)
+        for kljuc in ("skSafeer", "ciljMedia", "ciljNaprave", "ciljScit", "ciljNastavitve", "ciljZapiski", "ciljSporocila", "ciljSplet", "odpreSafeerOs",
+                      "skNaprave", "napravaDatoteke", "napravaProgrami", "isciVMedijih", "odpreMedijski"):
+            self.assertEqual(js.count(kljuc + ': "'), 2, kljuc)
+        # Naprava odpre svoje datoteke (ali programe) na delovni povrsini; mediji vodijo v Medijski center z iskanim nizom.
+        self.assertIn('else if (v.vrsta === "naprava") odpriNapravo(v);', js)
+        self.assertIn('odpriVir({ vrsta: "naprava", id: v.n.id, ime: v.n.ime, pot: [] });', js)
+        self.assertIn('else if (v.vrsta === "mediji") klic("odpriRazdelek", ["mediji:" + v.q]);', js)
+        self.assertIn('if (kam.indexOf("mediji:") === 0) {', os_js)
+        # Katalog se med tipkanjem na namizju ne sprasuje (vsaka crka bi sla k virom) in naslovov iz njega ne kazemo.
+        self.assertNotIn("mediaKatalog", js)
+        self.assertNotIn("mediaIsciPredpomnilnik", js)
+        # Filtra v ploscah uporabljata ista pravila kot iskanje.
+        self.assertIn('if (besede.length && !ujemaVse(e.ime, besede)) return false;', js)
+        self.assertIn('if (besede.length && !ujemaVse(p.ime + " " + (p.opis || ""), besede)) return false;', js)
+        self.assertIn(".v-naprava {", beri("assets", "os", "delovna.css"))
+
+    @unittest.skipUnless(shutil.which("node"), "node ni namescen")
     def test_tipkanje_skoci_na_ime(self):
         """Tipkanje v seznamu izbere prvo datoteko, ki se zacne z vtipkanim; po premoru se zacne znova."""
         js = self.js
         blok = js[js.index('  var tipkano = "", tipkanoCas = 0;'):js.index("  // Dejanje s tipkovnico velja za vse izbrane")]
+        blok = js[js.index("  function kljucIskanja(s) {"):js.index("  function ujemaVse(besedilo, besede) {")] + blok
         koda = """
 var assert = require("assert");
 var ura = 1000; Date.now = function () { return ura; };
-var vsi = ["Mapa", "poročilo.odt", "Pismo.txt", "pisarna", "u1.txt", "u3.txt"].map(function (i) { return { ime: i }; });
+var vsi = ["Mapa", "poročilo.odt", "Pismo.txt", "pisarna", "u1.txt", "u3.txt", "Čaj.txt", "Žaga.txt"].map(function (i) { return { ime: i }; });
 var D = { oznaci: "", oznaciVse: ["staro"] }, izrisov = 0;
 function filtrirani() { return vsi; }
 function izrisiDatoteke() { izrisov++; }
@@ -160,7 +262,11 @@ ura += 300; skociNaIme("s"); skociNaIme("a"); assert.strictEqual(D.oznaci, "pisa
 ura += 300; assert.strictEqual(skociNaIme("q"), false); assert.strictEqual(D.oznaci, "pisarna");
 ura += 2000; skociNaIme("u"); assert.strictEqual(D.oznaci, "u1.txt");
 ura += 100; skociNaIme("3"); assert.strictEqual(D.oznaci, "u3.txt");
-assert.strictEqual(izrisov, 6);
+// Brez sumnikov: »c« najde Čaj, »ž« in »z« najdeta Žago.
+ura += 2000; skociNaIme("c"); assert.strictEqual(D.oznaci, "Čaj.txt");
+ura += 2000; skociNaIme("z"); assert.strictEqual(D.oznaci, "Žaga.txt");
+ura += 2000; skociNaIme("Ž"); assert.strictEqual(D.oznaci, "Žaga.txt");
+assert.strictEqual(izrisov, 9);
 """
         subprocess.run(["node", "-e", koda], check=True)
 
