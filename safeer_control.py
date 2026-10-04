@@ -796,6 +796,7 @@ class SafeerControl(Gtk.Application):
       <method name="Ponudi"><arg type="s" name="naprava" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="Poslji"><arg type="s" name="naprava" direction="in"/><arg type="s" name="poti" direction="in"/><arg type="s" name="json" direction="out"/></method>
       <method name="PosljiStanje"><arg type="s" name="id" direction="in"/><arg type="s" name="json" direction="out"/></method>
+      <method name="Besedilo"><arg type="s" name="naprava" direction="in"/><arg type="s" name="besedilo" direction="in"/><arg type="s" name="json" direction="out"/></method>
     </interface></node>"""
 
     def _izvozi_naprave(self) -> None:
@@ -870,11 +871,14 @@ class SafeerControl(Gtk.Application):
             return dejanje(arg) if dejanje else {"ok": False, "koda": "neznano"}
         if metoda == "Preimenuj":
             # Ime hrani sredisce (/cast/devices/rename) in ga vidijo vse naprave; prazno vrne prvotno ime.
-            if not (link._hub() and link._zeton() and link._odtis()):
+            # Zeton za HTTP: zeton seznanitve ali sejni zeton s podpisom (racunalnik kot lastno sredisce prvega nima).
+            zeton = link._zeton_http() if (link._hub() and link._odtis()) else None
+            if not zeton:
                 return {"ok": False, "koda": "hub_ni_znan"}
-            ok, novo, n = link_deljenje.preimenuj_napravo(link._hub(), link._zeton() or "", link._odtis() or "",
+            ok, novo, n = link_deljenje.preimenuj_napravo(link._hub(), zeton, link._odtis() or "",
                                                           str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "")
-            return {"ok": bool(ok), "ime": novo, "message": "" if ok else n.get("sporocilo", "")}
+            return {"ok": bool(ok), "ime": novo, "koda": "" if ok else n.get("koda", ""),
+                    "message": "" if ok else n.get("sporocilo", "")}
         if metoda == "Upravljaj":
             return self.upravljaj_racunalnik(str(a[0]) if a else "")
         if metoda == "Klepet":
@@ -920,6 +924,9 @@ class SafeerControl(Gtk.Application):
                 return {"ok": False, "koda": "napacna_zahteva", "message": "Manjka naprava ali dejanje."}
             if id_naprave == link._id() and dejanje in link_daljinec.DEJANJA_TOK_TORRENTA:
                 return self._ukaz_tukaj(dejanje, parametri)
+            if id_naprave == link._id() and dejanje == "host.info":
+                # Ta racunalnik o sebi (safeerctl info): sredisce bi ukaz samemu sebi zavrnilo (»ista naprava«).
+                return {"ok": True, "data": link_daljinec.podatki_hosta()}
             return link.ukaz_pocakaj(id_naprave, dejanje, parametri, cas=20.0)
         if metoda == "Predaja":
             # "Nadaljuj z druge naprave" na tem racunalniku: vse naprave z daljincem vprasa hkrati (play.state, 3 s),
@@ -974,6 +981,10 @@ class SafeerControl(Gtk.Application):
             link.predvajanje.cakajoca = p
             GLib.idle_add(self.predaja_sprejmi)
             return {"ok": True}
+        if metoda == "Besedilo":
+            # Besedilo ali povezava napravi (safeerctl text): isto kot »Poslji besedilo« v Controlu.
+            ok, n = link.poslji_besedilo_napravi(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "")
+            return {"ok": True} if ok else {"ok": False, "koda": n.get("koda", ""), "message": n.get("sporocilo", "")}
         if metoda in ("Poslji", "PosljiStanje"):
             # Datoteke iz Datotek Safeer OS na izbrano napravo (povleci na napravo, »Poslji na napravo«).
             if getattr(self, "posiljanje", None) is None:

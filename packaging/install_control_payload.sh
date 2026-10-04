@@ -7,11 +7,11 @@ PREFIX="${1:?Usage: install_control_payload.sh DESTINATION_PREFIX}"
 ID="safeer-control"
 LIB="$PREFIX/lib/safeer-control"
 mkdir -p "$PREFIX/bin" "$LIB/core" "$LIB/assets" "$LIB/packaging" "$PREFIX/share/applications" "$PREFIX/share/pixmaps"
-cp -a "$ROOT/safeer_control.py" "$LIB/"
+cp -a "$ROOT/safeer_control.py" "$ROOT/safeerctl.py" "$LIB/"
 # Vsi moduli core, ki jih safeer_control.py uvozi - tudi posredno. Brez link_programi in
 # link_zaslon (ta uvozi link_vnos) se namesceni Control sploh ne zazene: uvoz pade takoj.
 # Seznam varuje tests/test_packaging.py: namesti tovor in ga uvozi brez izvorne mape.
-for modul in budnost link_daljinec link_datoteke link_shramba link_pretvorba link_deljenje link_gledalec link_urejanje link_fokus link_hub link_hub_streznik link_hub_deljenje link_posiljanje link_mesh link_rele link_pretok link_sprotno link_predvajanje link_seznami viri_sink knjiznica_kroga os_torrent_tok os_posodobitve link_iskanje link_krog link_mediji link_plosek link_programi link_ws \
+for modul in budnost link_daljinec link_datoteke link_shramba link_pretvorba link_deljenje link_gledalec link_urejanje link_fokus link_hub link_hub_streznik link_hub_deljenje link_posiljanje link_zmoznosti link_mesh link_rele link_pretok link_sprotno link_predvajanje link_seznami viri_sink knjiznica_kroga os_torrent_tok os_posodobitve link_iskanje link_krog link_mediji link_plosek link_programi link_ws \
              link_kripto link_seja link_sway link_tls link_vnos link_zaslon link_zvok os_dvd iskalni_kljuc os_knjiznica os_sporocila os_stabilnost os_torrent podnapisi safeer_link spake2; do
     cp -a "$ROOT/core/$modul.py" "$LIB/core/"
 done
@@ -27,6 +27,8 @@ find "$LIB" -name '*.pyc' -delete
 find "$LIB" -type d -exec chmod 755 {} +
 find "$LIB" -type f -exec chmod 644 {} +
 install -m755 "$ROOT/packaging/safeer-control-launcher" "$PREFIX/bin/safeer-control"
+# safeerctl: Safeer Link iz ukazne vrstice (govori s Controlom, ki tece v ozadju).
+install -m755 "$ROOT/packaging/safeerctl-launcher" "$PREFIX/bin/safeerctl"
 install -Dm644 "$ROOT/LICENSE" "$PREFIX/share/doc/safeer-control/LICENSE"
 install -m644 "$ROOT/packaging/safeer-control.desktop" "$PREFIX/share/applications/$ID.desktop"
 install -m644 "$ROOT/assets/icon.png" "$PREFIX/share/pixmaps/$ID.png"

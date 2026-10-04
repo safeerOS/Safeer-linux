@@ -1704,10 +1704,16 @@
       if (iskano) fokusPrvegaV("seznamNaprav");
     }, function () {});
   }
+  // Zakaj imena ni bilo mogoce shraniti: znano kodo povemo z besedo (napIme_<koda>), neznana ostane pri splosnem.
+  function razlogImena(r) {
+    var kljuc = "napIme_" + String((r && r.koda) || "");
+    var b = t(kljuc);
+    return b === kljuc ? "" : " " + b;
+  }
   function shraniIme(id, ime) {
     klic("preimenujNapravo", [id, ime]).then(function (r) {
       preimenujem = null;
-      obvesti(t(r && r.ok ? "preimenovano" : "napPreimenovanje"));
+      obvesti(r && r.ok ? t("preimenovano") : t("napPreimenovanje") + razlogImena(r));
       narisiSeznamNaprav(true);
       nalozNaprave();
     }, function () { obvesti(t("napPreimenovanje")); });

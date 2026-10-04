@@ -55,6 +55,8 @@ jobs:
           bash build_control_deb.sh
           sudo apt-get install -y "./safeer-control_$(cat packaging/VERSION_CONTROL)_all.deb"
           xvfb-run -a safeer-control --version | tee /dev/stderr | grep -Fx "Safeer Control $(cat packaging/VERSION_CONTROL)"
+          # safeerctl (Safeer Link from the command line) ships in the same package.
+          safeerctl --version | tee /dev/stderr | grep -Fx "safeerctl $(cat packaging/VERSION_CONTROL)"
           desktop-file-validate /usr/share/applications/safeer-control.desktop
           sudo apt-get remove -y safeer-control
       - name: Safeer OS package (shell over the desktop; depends on safeer-control)
@@ -101,6 +103,7 @@ jobs:
           chmod +x dist/Safeer-OS-*.AppImage
           APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a dist/Safeer-OS-*.AppImage --version | tee /dev/stderr | grep -Fx "Safeer OS $(cat packaging/VERSION_OS)"
           APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a dist/Safeer-OS-*.AppImage --control --version | tee /dev/stderr | grep -Fx "Safeer Control $(cat packaging/VERSION_CONTROL)"
+          APPIMAGE_EXTRACT_AND_RUN=1 dist/Safeer-OS-*.AppImage --ctl --version | tee /dev/stderr | grep -Fx "safeerctl $(cat packaging/VERSION_CONTROL)"
       - uses: actions/upload-artifact@v7
         with:
           name: deb-appimage
@@ -129,6 +132,7 @@ jobs:
           flatpak install --user --noninteractive --bundle dist/Safeer-OS-*.flatpak
           dbus-run-session -- xvfb-run -a flatpak run io.github.memelandfaner.SafeerOS --version | tee /dev/stderr | grep -Fx "Safeer OS $(cat packaging/VERSION_OS)"
           dbus-run-session -- xvfb-run -a flatpak run --command=safeer-control io.github.memelandfaner.SafeerOS --version | tee /dev/stderr | grep -Fx "Safeer Control $(cat packaging/VERSION_CONTROL)"
+          dbus-run-session -- flatpak run --command=safeerctl io.github.memelandfaner.SafeerOS --version | tee /dev/stderr | grep -Fx "safeerctl $(cat packaging/VERSION_CONTROL)"
       - name: Shield inside the sandbox of the package that was just built
         # Scit v peskovniku Flatpak, s kodo samega paketa, na pravem systemd-resolved + NetworkManager (tools/scit_lab).
         run: |

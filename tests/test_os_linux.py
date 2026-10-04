@@ -343,6 +343,18 @@ class Stran(unittest.TestCase):
         for o in os_sistem.ORODJA:
             self.assertIn("o_" + o, kljuci["sl"])
 
+    def test_preimenovanje_naprave_pove_razlog(self):
+        js = _beri("assets", "os", "os.js")
+        besedila = _beri("assets", "os", "besedila.js")
+        self.assertIn('t("napPreimenovanje") + razlogImena(r)', js)
+        self.assertIn('var kljuc = "napIme_" + String((r && r.koda) || "");', js)
+        # Kode, ki jih pri preimenovanju vrneta Safeer OS (_control_naprave) in Safeer Control (Preimenuj, napaka_huba).
+        for koda in ("stari_control", "ni_controla", "hub_ni_znan", "sredisce_ne_zna", "naprava_ni_v_krogu", "naprava_ni_seznanjena"):
+            self.assertEqual(besedila.count('"napIme_%s":' % koda), 6, koda)
+        self.assertIn('return {"ok": False, "koda": "stari_control"}', _beri("safeer_os.py"))
+        control = _beri("safeer_control.py")
+        self.assertIn('"koda": "" if ok else n.get("koda", "")', control)
+
     def test_most_metode(self):
         js = _beri("assets", "os", "os.js")
         # Metode kataloga Medijskega centra (media*) so v core/os_katalog.py (Katalog.METODE).
