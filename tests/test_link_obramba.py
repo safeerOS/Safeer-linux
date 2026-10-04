@@ -296,6 +296,99 @@ class Pravila(unittest.TestCase):
                 self.assertEqual(link_hub_streznik._slovensko(), pricakovano, okolje)
 
 
+class GumbiNaObvestilu(unittest.TestCase):
+    """Izhod v sili: gumb »Sprosti« in »Odpri povezovanje s kodo« na obvestilu (dejanje po D-Busu)."""
+
+    def setUp(self):
+        self.obvestila = []
+        p = mock.patch.object(link_hub_streznik, "_obvestilo", lambda *a, **k: self.obvestila.append((a, k)))
+        p.start()
+        self.addCleanup(p.stop)
+        p = mock.patch.dict(os.environ, {"LANGUAGE": "sl_SI:sl"})
+        p.start()
+        self.addCleanup(p.stop)
+        self.s = link_hub_streznik.HubStreznik(tls_mapa="/ni/pomembno")
+        self.s.obramba.izvzet = lambda vir: False
+
+    def test_sprosti_na_obvestilu_o_zapori(self):
+        for _ in range(20):
+            self.s.obramba.dogodek(A, "brez_zaupanja")
+        self.assertTrue(self.s.obramba.zaprt(A))
+        (naslov, _besedilo), k = self.obvestila[-1]
+        self.assertEqual(naslov, "Safeer Link: naprava ustavljena")
+        kljuc, napis, klic = k["dejanja"][0]
+        self.assertEqual((kljuc, napis), ("sprosti", "Sprosti"))
+        klic()
+        self.assertFalse(self.s.obramba.zaprt(A))
+        self.assertTrue(self.s.obramba.dovoli(A))
+        (naslov, besedilo), k = self.obvestila[-1]
+        self.assertEqual((naslov, besedilo), ("Safeer Link: naprava sproščena", "192.168.0.66 je sproščena. Spet se lahko poveže."))
+        self.assertNotIn("dejanja", k)
+        # Drugi pritisk (vir ni vec zaprt) ne naredi nicesar in ne obvesti znova.
+        stevilo = len(self.obvestila)
+        klic()
+        self.assertEqual(len(self.obvestila), stevilo)
+
+    def test_odpri_na_obvestilu_o_zapori_kode(self):
+        self.s.hub = link_hub_streznik.Hub(odtis="ab" * 32)
+        self.s.hub.ob_zapori_kode = self.s._ob_zapori_kode
+        self.assertFalse(self.s.odpri_povezovanje_s_kodo(), "ni zaprto: ni kaj odpreti")
+        for _ in range(20):
+            self.s.hub.varovalka.poskus(A)
+        self.assertTrue(self.s.hub.varovalka.zaprto())
+        (naslov, _besedilo), k = self.obvestila[-1]
+        self.assertEqual(naslov, "Safeer Link: povezovanje s kodo je zaprto")
+        kljuc, napis, klic = k["dejanja"][0]
+        self.assertEqual((kljuc, napis), ("odpri", "Odpri povezovanje s kodo"))
+        klic()
+        self.assertFalse(self.s.hub.varovalka.zaprto())
+        self.assertEqual(self.s.hub.varovalka.stanje()["meja_poskusov"], 5, "po zapori velja manjsa meja")
+        self.assertEqual(self.obvestila[-1][0][0], "Safeer Link: povezovanje s kodo je odprto")
+        self.assertIn("pair_id", self.s.hub.zacni_seznanitev("telefon", "Telefon", B))
+
+    def test_signal_obvestilnega_streznika_izvede_dejanje_enkrat(self):
+        klici = []
+        link_hub_streznik._zapomni_dejanja(41, {"sprosti": lambda: klici.append("sprosti")})
+        link_hub_streznik._zapomni_dejanja(42, {"odpri": lambda: klici.append("odpri")})
+        signal = lambda ime, *p: link_hub_streznik._ob_signalu_obvestila(  # noqa: E731
+            None, "", "", "", ime, mock.Mock(unpack=lambda: p))
+        signal("ActionInvoked", 41, "neznan")      # neznan gumb: nic; obvestilo je s tem porabljeno
+        signal("ActionInvoked", 41, "sprosti")
+        self.assertEqual(klici, [])
+        # Oblacek obvestila izgine (NotificationClosed), obvestilo z gumbom pa ostane v pladnju: gumb mora delati.
+        signal("NotificationClosed", 42, 1)
+        signal("ActionInvoked", 42, "odpri")
+        self.assertEqual(klici, ["odpri"])
+        link_hub_streznik._zapomni_dejanja(43, {"sprosti": lambda: klici.append("sprosti")})
+        signal("ActionInvoked", 43, "sprosti")
+        signal("ActionInvoked", 43, "sprosti")
+        self.assertEqual(klici, ["odpri", "sprosti"])
+        # Dejanje, ki pade, ne podre glavne zanke.
+        link_hub_streznik._zapomni_dejanja(44, {"x": lambda: 1 / 0})
+        signal("ActionInvoked", 44, "x")
+        # Spomin je omejen.
+        for i in range(100, 100 + 3 * link_hub_streznik.NAJVEC_OBVESTIL_Z_GUMBI):
+            link_hub_streznik._zapomni_dejanja(i, {"a": lambda: None})
+        self.assertLessEqual(len(link_hub_streznik._dejanja), link_hub_streznik.NAJVEC_OBVESTIL_Z_GUMBI)
+
+    def test_narocilo_na_signal_drzi_povezavo_z_vodilom(self):
+        """Gio.bus_get_sync vrne skupno povezavo, ki se zapre, ko jo spusti zadnji lastnik - z njo izgine narocilo na
+        signal in gumb je mrtev (videno v Cinnamonu: pritisk je obvestilo zaprl, zgodilo pa se ni nic)."""
+        vodilo = mock.Mock()
+        with mock.patch.object(link_hub_streznik, "_dejanja_narocena", False), \
+                mock.patch.object(link_hub_streznik, "_vodilo_dejanj", None):
+            link_hub_streznik._naroci_dejanja(vodilo)
+            self.assertIs(link_hub_streznik._vodilo_dejanj, vodilo)
+            link_hub_streznik._naroci_dejanja(vodilo)
+            self.assertEqual(vodilo.signal_subscribe.call_count, 1, "narocilo je eno na proces")
+            self.assertEqual(vodilo.signal_subscribe.call_args[0][2], "ActionInvoked")
+
+    def test_besedila(self):
+        self.assertEqual(link_hub_streznik.besedilo_sprostitve("»Tablica« (192.168.0.87)", False),
+                         ("Safeer Link: device released", "»Tablica« (192.168.0.87) is released. It can connect again."))
+        self.assertEqual(link_hub_streznik.besedilo_odprtja_kode(False)[0], "Safeer Link: pairing by code is open")
+
+
 class SredisceVZivo(unittest.TestCase):
     """Pravo sredisce na zanki. Zanka je sicer izvzeta - tu jo stejemo, da lahko napademo sami sebe."""
 

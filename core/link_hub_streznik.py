@@ -2268,24 +2268,88 @@ def _slovensko() -> bool:
     return False
 
 
-def _obvestilo_dbus(naslov: str, besedilo: str, cas_ms: int) -> bool:
-    """Obvestilo po D-Busu (org.freedesktop.Notifications): brez orodja notify-send, ki ga paket ne zahteva."""
+#: Gumbi na obvestilih: stevilka obvestila -> {kljuc dejanja: klic}. Pritisk sporoci obvestilni streznik s signalom
+#: ActionInvoked; poslusamo ga enkrat na proces (v glavni zanki GLib - program brez nje gumbov nima).
+_dejanja: Dict[int, Dict[str, Callable[[], None]]] = {}
+_dejanja_zaklep = threading.Lock()
+_dejanja_narocena = False
+#: Povezava z vodilom seje, na kateri poslusamo pritiske gumbov. Drzimo jo, dokler proces zivi: Gio.bus_get_sync vrne
+#: skupno povezavo, ki se zapre, ko jo spusti zadnji lastnik - z njo bi tiho izginilo tudi narocilo na signal.
+_vodilo_dejanj = None
+NAJVEC_OBVESTIL_Z_GUMBI = 32
+
+
+def _zapomni_dejanja(stevilka: int, klici: Dict[str, Callable[[], None]]) -> None:
+    with _dejanja_zaklep:
+        while len(_dejanja) >= NAJVEC_OBVESTIL_Z_GUMBI:
+            _dejanja.pop(next(iter(_dejanja)), None)
+        _dejanja[int(stevilka)] = dict(klici)
+
+
+def _ob_signalu_obvestila(_vodilo, _posiljatelj, _pot, _vmesnik, signal, parametri, *_ostalo) -> None:
+    """ActionInvoked(stevilka, kljuc): izvede dejanje gumba.
+
+    Signala NotificationClosed ne poslusamo: namizje ga poslje ze, ko oblacek obvestila izgine, obvestilo pa z
+    gumbom ostane v pladnju - gumb bi bil takrat mrtev (videno v Cinnamonu). Gumbi se pozabijo ob pritisku ali ko jih
+    izrine novejse obvestilo; pritisk na gumb stare zapore ne naredi nicesar (vir ni vec zaprt).
+    """
+    if signal != "ActionInvoked":
+        return
+    try:
+        stevilka, kljuc = parametri.unpack()
+    except Exception:
+        return
+    with _dejanja_zaklep:
+        klici = _dejanja.pop(int(stevilka), None)
+    klic = (klici or {}).get(str(kljuc))
+    if klic is None:
+        return
+    try:
+        klic()
+    except Exception as e:  # noqa: BLE001 - gumb obvestila ne sme podreti glavne zanke
+        print("[SafeerLink] dejanje obvestila ni uspelo:", e, flush=True)
+
+
+def _naroci_dejanja(vodilo) -> None:
+    global _dejanja_narocena, _vodilo_dejanj
+    if _dejanja_narocena:
+        return
+    from gi.repository import Gio
+    vodilo.signal_subscribe("org.freedesktop.Notifications", "org.freedesktop.Notifications", "ActionInvoked",
+                            "/org/freedesktop/Notifications", None, Gio.DBusSignalFlags.NONE, _ob_signalu_obvestila)
+    _vodilo_dejanj = vodilo
+    _dejanja_narocena = True
+
+
+def _obvestilo_dbus(naslov: str, besedilo: str, cas_ms: int, dejanja: Optional[list] = None) -> bool:
+    """Obvestilo po D-Busu (org.freedesktop.Notifications): brez orodja notify-send, ki ga paket ne zahteva.
+
+    `dejanja`: [(kljuc, napis, klic)] - gumbi na obvestilu."""
     try:
         from gi.repository import Gio, GLib
         vodilo = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-        vodilo.call_sync("org.freedesktop.Notifications", "/org/freedesktop/Notifications",
-                         "org.freedesktop.Notifications", "Notify",
-                         GLib.Variant("(susssasa{sv}i)", ("Safeer Control", 0, "safeer-control", naslov, besedilo, [], {}, int(cas_ms))),
-                         GLib.VariantType("(u)"), Gio.DBusCallFlags.NONE, 3000, None)
+        gumbi: List[str] = []
+        for kljuc, napis, _klic in dejanja or []:
+            gumbi += [str(kljuc), str(napis)]
+        if gumbi:
+            _naroci_dejanja(vodilo)
+        odgovor = vodilo.call_sync("org.freedesktop.Notifications", "/org/freedesktop/Notifications",
+                                   "org.freedesktop.Notifications", "Notify",
+                                   GLib.Variant("(susssasa{sv}i)", ("Safeer Control", 0, "safeer-control", naslov, besedilo, gumbi, {}, int(cas_ms))),
+                                   GLib.VariantType("(u)"), Gio.DBusCallFlags.NONE, 3000, None)
+        if gumbi:
+            _zapomni_dejanja(int(odgovor.unpack()[0]), {str(kljuc): klic for kljuc, _napis, klic in dejanja or []})
         return True
     except Exception:
         return False
 
 
-def _obvestilo(naslov: str, besedilo: str, cas_ms: int = 15000) -> None:
-    """Obvestilo namizja; sredisce tece v ozadju, uporabnik drugace ne izve. V svoji niti: sredisce ne caka nanj."""
+def _obvestilo(naslov: str, besedilo: str, cas_ms: int = 15000, dejanja: Optional[list] = None) -> None:
+    """Obvestilo namizja; sredisce tece v ozadju, uporabnik drugace ne izve. V svoji niti: sredisce ne caka nanj.
+
+    `dejanja`: [(kljuc, napis, klic)] - gumbi (samo po D-Busu; notify-send jih nima)."""
     def poslji() -> None:
-        if _obvestilo_dbus(naslov, besedilo, cas_ms):
+        if _obvestilo_dbus(naslov, besedilo, cas_ms, dejanja):
             return
         import shutil
         import subprocess
@@ -2363,6 +2427,20 @@ def besedilo_zapore_kode(dogodek: dict, slovensko: bool, imena: Optional[dict] =
     return ("Safeer Link: pairing by code is closed",
             "%s%s. Pairing by code is closed for %s. To add a device, open \u201cConnect devices\u201d on one of "
             "your devices, or use the QR code. Your devices keep working." % (kaj, od_kod, trajanje))
+
+
+def besedilo_sprostitve(kdo: str, slovensko: bool) -> tuple:
+    """(naslov, besedilo) potrditve, ko uporabnik ustavljeno napravo sprosti z gumbom na obvestilu."""
+    kdo = " ".join(str(kdo or "").split())[:60]
+    if slovensko:
+        return ("Safeer Link: naprava sproščena", "%s je sproščena. Spet se lahko poveže." % kdo)
+    return ("Safeer Link: device released", "%s is released. It can connect again." % kdo)
+
+
+def besedilo_odprtja_kode(slovensko: bool) -> tuple:
+    if slovensko:
+        return ("Safeer Link: povezovanje s kodo je odprto", "Povezovanje s kodo je spet odprto. Naslednja zapora bo daljša.")
+    return ("Safeer Link: pairing by code is open", "Pairing by code is open again. The next closure will last longer.")
 
 
 def besedilo_napada(viri: list, slovensko: bool) -> tuple:
@@ -2450,12 +2528,32 @@ class HubStreznik:
             ime = self.hub.ime_po_naslovu(vir) if self.hub is not None else ""
         except Exception:
             pass
-        _obvestilo(*besedilo_zapore(vir, trajanje_s, razlog, _slovensko(), ime))
+        slovensko = _slovensko()
+        _obvestilo(*besedilo_zapore(vir, trajanje_s, razlog, slovensko, ime),
+                   dejanja=[("sprosti", "Sprosti" if slovensko else "Release", lambda: self.sprosti_vir(vir, ime))])
         if self.ob_zapori is not None:
             try:
                 self.ob_zapori(vir, trajanje_s, razlog)
             except Exception:
                 pass
+
+    def sprosti_vir(self, vir: str, ime: str = "") -> bool:
+        """Uporabnik je ustavljeno napravo sprostil sam (gumb na obvestilu)."""
+        sproscen = self.obramba.sprosti(vir)
+        print("[SafeerLink] obramba: %s %s" % (vir, "sproščen (uporabnik)" if sproscen else "ni bil zaprt"), flush=True)
+        if sproscen:
+            _obvestilo(*besedilo_sprostitve("»%s« (%s)" % (ime, vir) if ime else vir, _slovensko()))
+        return sproscen
+
+    def odpri_povezovanje_s_kodo(self) -> bool:
+        """Uporabnik je povezovanje s kodo odprl sam (gumb na obvestilu). Stetje ponovitev ostane."""
+        hub = self.hub
+        if hub is None or not hub.varovalka.zaprto():
+            return False
+        hub.varovalka.odpri()
+        print("[SafeerLink] varovalka: povezovanje s kodo odprto (uporabnik)", flush=True)
+        _obvestilo(*besedilo_odprtja_kode(_slovensko()))
+        return True
 
     def _ob_zapori_kode(self, dogodek: dict) -> None:
         """Varovalka je zaprla povezovanje s kodo (skupna meja, ne po viru)."""
@@ -2470,7 +2568,9 @@ class HubStreznik:
                 imena[vir] = self.hub.ime_po_naslovu(vir) if self.hub is not None else ""
             except Exception:
                 pass
-        _obvestilo(*besedilo_zapore_kode(dogodek, _slovensko(), imena), cas_ms=60000)
+        slovensko = _slovensko()
+        _obvestilo(*besedilo_zapore_kode(dogodek, slovensko, imena), cas_ms=60000,
+                   dejanja=[("odpri", "Odpri povezovanje s kodo" if slovensko else "Open pairing by code", self.odpri_povezovanje_s_kodo)])
         if self.ob_zapori_kode is not None:
             try:
                 self.ob_zapori_kode(dogodek)
