@@ -858,3 +858,205 @@ def slicice(poti, rok: float = 4.0) -> dict:
         if s:
             izid[str(pot)] = s
     return izid
+
+
+# ---------------------------------------------------------------------- spremembe v prikazanem pogledu
+class NadzorMap:
+    """Pove, ko se v pogledu Datotek, ki ga stran kaze, kaj spremeni - tudi ce to naredi drug program (prenos iz
+    brskalnika, Nemo, datoteka z druge naprave): datoteka se pojavi, izgine, preimenuje ali raste. Stran pove, kaj
+    kaze ([spremljaj]), ob obvestilu pa seznam prebere znova (4. 10. 2026: prej se je mapa prebrala samo ob odprtju).
+
+    Pogled je pot mape, [NEDAVNO] ali [SMETI]. Nova, izbrisana ali preimenovana datoteka pride do strani v manj kot
+    sekundi; datoteka, ki raste (prenos), osvezi velikost najvec na nekaj sekund; razpakiranje arhiva (tisoce
+    sprememb) najvec enkrat na sekundo. Zraven javi priklop in odklop nosilcev (USB kljuc, disk).
+
+    Tece v glavni zanki GLib (klici iz njene niti); brez GLib ne naredi nicesar."""
+
+    NEDAVNO, SMETI = "@nedavno", "@smeti"
+    _NOSILCI = "@nosilci"
+    HITRO_MS = 400          # nova, izbrisana ali preimenovana datoteka
+    POCASI_MS = 2500        # datoteka se spreminja (prenos raste)
+    NAJMANJ_MED_MS = 1000   # med dvema obvestiloma za isti pogled
+    NOSILCI_MS = 600        # priklop nosilca sprozi vec signalov zapored
+
+    def __init__(self, ob_spremembi, ob_nosilcih=None) -> None:
+        self._ob_spremembi = ob_spremembi       # ob_spremembi(pogled)
+        self._ob_nosilcih = ob_nosilcih         # ob_nosilcih()
+        self._pogledi: dict = {}                # kljuc strani -> pogled
+        self._nadzori: dict = {}                # pogled -> [nadzor Gio, ...]
+        self._casovniki: dict = {}              # pogled -> (vir GLib, rok v ms)
+        self._zadnje: dict = {}                 # pogled -> cas zadnjega obvestila v ms
+        self._nosilci = None
+        self._nosilci_povezave: list = []
+
+    @staticmethod
+    def veljaven(pogled) -> str:
+        """Pogled, ki ga smemo spremljati: NEDAVNO, SMETI ali absolutna pot obstojece mape; sicer prazno."""
+        pogled = str(pogled or "")
+        if pogled in (NadzorMap.NEDAVNO, NadzorMap.SMETI):
+            return pogled
+        if pogled.startswith("/") and "\0" not in pogled and os.path.isdir(pogled):
+            return os.path.abspath(pogled)
+        return ""
+
+    @staticmethod
+    def hitrost(vrsta: str, ime: str, drugo: str = "") -> int:
+        """Kako hitro javiti dogodek nadzora: HITRO_MS, POCASI_MS ali 0 (seznama ne zadeva). `vrsta` je ime dogodka
+        Gio (created, deleted, renamed, moved-in, moved-out, changed, changes-done-hint, attribute-changed ...);
+        `drugo` je novo ime pri preimenovanju."""
+        if not any(x and not x.startswith(".") for x in (ime, drugo)):
+            return 0                    # skritih datotek seznam ne kaze (zacasne datoteke programov)
+        if vrsta in ("created", "deleted", "renamed", "moved-in", "moved-out", "moved"):
+            return NadzorMap.HITRO_MS
+        if vrsta in ("changed", "changes-done-hint"):
+            return NadzorMap.POCASI_MS
+        return 0
+
+    @staticmethod
+    def _mape_smeti() -> list:
+        """Mapa z datotekami v Smeteh in mapi nad njo: Smeti na svezem racunalniku se ni, nastane ob prvem brisanju.
+        [(mapa, ime, ki nas v njej zanima ali "" = vse)]."""
+        koren = _mapa_smeti()
+        return [(os.path.join(koren, "files"), ""), (koren, "files"), (os.path.dirname(koren), os.path.basename(koren))]
+
+    def spremljaj(self, kljuc, pogled) -> bool:
+        """Stran [kljuc] zdaj kaze [pogled] (prazno = nic, kar bi spremljali). Vrne, ali pogled spremljamo."""
+        pogled = self.veljaven(pogled)
+        if pogled:
+            self._pogledi[kljuc] = pogled
+        else:
+            self._pogledi.pop(kljuc, None)
+        self._uskladi()
+        return bool(pogled) and (pogled == self.NEDAVNO or bool(self._nadzori.get(pogled)))
+
+    def obdrzi(self, kljuci) -> None:
+        """Strani, ki jih ni vec (zaprto okno), ne spremljamo naprej."""
+        for kljuc in [k for k in self._pogledi if k not in kljuci]:
+            self._pogledi.pop(kljuc, None)
+
+    def pogledi(self) -> list:
+        return sorted(set(self._pogledi.values()))
+
+    def zunanja(self, pogled: str) -> None:
+        """Spremembo pogleda je javil nekdo drug (seznam nedavnih vodi GTK)."""
+        if pogled in self._pogledi.values():
+            self._nacrtuj(pogled, self.HITRO_MS)
+
+    def _postavi(self, pogled: str) -> list:
+        from gi.repository import Gio
+        mape = self._mape_smeti() if pogled == self.SMETI else [(pogled, "")]
+        nadzori = []
+        for mapa, samo_ime in mape:
+            if not os.path.isdir(mapa):
+                continue
+            try:
+                nadzor = Gio.File.new_for_path(mapa).monitor_directory(Gio.FileMonitorFlags.WATCH_MOVES, None)
+                nadzor.connect("changed", self._sprememba, pogled, samo_ime)
+                nadzori.append(nadzor)
+            except Exception:  # noqa: BLE001
+                continue
+        return nadzori
+
+    @staticmethod
+    def _ustavi(nadzori) -> None:
+        for nadzor in nadzori or []:
+            try:
+                nadzor.cancel()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _uskladi(self) -> None:
+        try:
+            from gi.repository import Gio  # noqa: F401
+        except Exception:  # noqa: BLE001
+            return
+        zeleni = set(self._pogledi.values())
+        for pogled in [p for p in self._nadzori if p not in zeleni]:
+            self._ustavi(self._nadzori.pop(pogled))
+            self._preklici(pogled)
+        for pogled in zeleni:
+            if pogled != self.NEDAVNO and pogled not in self._nadzori:
+                self._nadzori[pogled] = self._postavi(pogled)
+        self._zacni_nosilce()
+
+    def _sprememba(self, _nadzor, datoteka, druga, vrsta, pogled, samo_ime) -> None:
+        try:
+            ime = datoteka.get_basename() or ""
+            drugo = (druga.get_basename() or "") if druga is not None else ""
+            vrsta = vrsta.value_nick
+        except Exception:  # noqa: BLE001
+            return
+        if samo_ime:
+            # Mapa nad Smetmi: zanima nas samo nastanek mape Smeti.
+            if samo_ime in (ime, drugo) and vrsta in ("created", "moved-in", "renamed"):
+                self._nacrtuj(pogled, self.HITRO_MS)
+            return
+        zamik = self.hitrost(vrsta, ime, drugo)
+        if zamik:
+            self._nacrtuj(pogled, zamik)
+
+    def _nacrtuj(self, pogled: str, zamik_ms: int) -> None:
+        from gi.repository import GLib
+        zdaj = GLib.get_monotonic_time() // 1000
+        rok = max(zdaj + zamik_ms, self._zadnje.get(pogled, 0) + self.NAJMANJ_MED_MS)
+        obstojeci = self._casovniki.get(pogled)
+        if obstojeci:
+            if obstojeci[1] <= rok:
+                return                  # ze nacrtovano prej ali ob istem casu
+            GLib.source_remove(obstojeci[0])
+        self._casovniki[pogled] = (GLib.timeout_add(max(1, rok - zdaj), self._poslji, pogled), rok)
+
+    def _preklici(self, pogled: str) -> None:
+        obstojeci = self._casovniki.pop(pogled, None)
+        if obstojeci:
+            try:
+                from gi.repository import GLib
+                GLib.source_remove(obstojeci[0])
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _poslji(self, pogled: str) -> bool:
+        self._casovniki.pop(pogled, None)
+        try:
+            from gi.repository import GLib
+            self._zadnje[pogled] = GLib.get_monotonic_time() // 1000
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            if pogled == self._NOSILCI:
+                if self._ob_nosilcih is not None:
+                    self._ob_nosilcih()
+            elif pogled in self._pogledi.values():
+                if pogled == self.SMETI:
+                    # Mapa Smeti je morda pravkar nastala: nadzor postavimo znova (zdaj neposredno nanjo).
+                    self._ustavi(self._nadzori.get(pogled))
+                    self._nadzori[pogled] = self._postavi(pogled)
+                self._ob_spremembi(pogled)
+        except Exception:  # noqa: BLE001
+            pass
+        return False
+
+    def _zacni_nosilce(self) -> None:
+        if self._nosilci is not None or self._ob_nosilcih is None:
+            return
+        try:
+            from gi.repository import Gio
+            self._nosilci = Gio.VolumeMonitor.get()
+            for signal in ("mount-added", "mount-removed", "volume-added", "volume-removed"):
+                self._nosilci_povezave.append(self._nosilci.connect(signal, lambda *_a: self._nacrtuj(self._NOSILCI, self.NOSILCI_MS)))
+        except Exception:  # noqa: BLE001
+            self._nosilci = False
+
+    def koncaj(self) -> None:
+        for pogled in list(self._nadzori):
+            self._ustavi(self._nadzori.pop(pogled))
+        for pogled in list(self._casovniki):
+            self._preklici(pogled)
+        self._pogledi = {}
+        if self._nosilci:
+            for povezava in self._nosilci_povezave:
+                try:
+                    self._nosilci.disconnect(povezava)
+                except Exception:  # noqa: BLE001
+                    pass
+        self._nosilci, self._nosilci_povezave = None, []

@@ -245,6 +245,9 @@
     });
     if (razdelek === "omrezje") { nalozOmrezje(false); nalozInternet(false); internetZanka(); }
     if (razdelek === "zvok") { nalozZvok(); zvokZanka(); if (!jblStanje) nalozJbl(); }
+    // Vrnitev v Datoteke z odprto mapo: med tem je nismo spremljali, zato jo tiho preberemo znova.
+    if (razdelek === "datoteke" && S.pot && S.datPogled === "mapa") odpriMapo(S.pot, true);
+    spremljajDatoteke();
   }
   window.safeerOsPojdi = function (kam) {
     kam = String(kam || "");
@@ -1420,11 +1423,13 @@
   }
   var IKONA_VRSTE = { mapa: "mapa", slika: "slika", video: "video", zvok: "glasba", dokument: "dokument",
                       arhiv: "arhiv", program: "program", drugo: "datoteka" };
+  function podatkiDatoteke(d) { return (d.mapa ? "" : velikost(d.velikost || 0) + " · ") + datum(d.spremenjeno || d.cas); }
   function vrsticaDatoteke(d, zPotjo, nedavna) {
     var b = el("button", "vrstica");
+    b.setAttribute("data-pot", d.pot || "");
     b.innerHTML = svg(IKONA_VRSTE[d.vrsta] || "datoteka") + '<span class="ime">' + ubezi(d.ime) + "</span>" +
       (zPotjo ? '<span class="pod pot">' + ubezi(skrajsajPot(d.pot.replace(/\/[^\/]*$/, "") || "/")) + "</span>" : "") +
-      '<span class="pod">' + (d.mapa ? "" : ubezi(velikost(d.velikost || 0)) + " · ") + ubezi(datum(d.spremenjeno || d.cas)) + "</span>";
+      '<span class="pod podatki">' + ubezi(podatkiDatoteke(d)) + "</span>";
     b.addEventListener("click", function () {
       if (d.mapa) { pojdi("datoteke"); odpriMapo(d.pot); }
       else { obvesti(t("odpiram", { ime: d.ime })); klic("odpriDatoteko", [d.pot]); }
@@ -1444,6 +1449,71 @@
   function osveziNedavne() {
     narisiNedavneDomov();
     if (S.razdelek === "datoteke" && !S.pot) odpriNedavne();
+  }
+  // Safeer OS spremlja, kar razdelek Datoteke kaze (mapo ali nedavne; na domacem zaslonu nedavne): sprememba drugega
+  // programa (prenos, Nemo, datoteka z druge naprave) pride kot dogodek »datoteke« in seznam preberemo znova.
+  function spremljajDatoteke() {
+    var kaj = S.razdelek === "datoteke" ? (S.datPogled === "mapa" ? S.pot : S.datPogled === "nedavne" ? "@nedavno" : "")
+      : S.razdelek === "domov" ? "@nedavno" : "";
+    if (kaj === S.spremljano) return;
+    S.spremljano = kaj;
+    klic("spremljajMapo", [kaj]).catch(function () {});
+  }
+  function datotekeSpremenjene(pogled) {
+    if (pogled === "@nedavno") {
+      if (S.razdelek === "domov") narisiNedavneDomov();
+      else if (S.razdelek === "datoteke" && S.datPogled === "nedavne") odpriNedavne(true);
+    } else if (S.razdelek === "datoteke" && S.datPogled === "mapa" && pogled === S.pot) odpriMapo(S.pot, true);
+  }
+  function odtisDatotek(seznam) {
+    return (seznam || []).map(function (e) {
+      return (e.pot || "") + "|" + (e.velikost || 0) + "|" + Math.round(e.spremenjeno || e.cas || 0);
+    }).join("\n");
+  }
+  // Ista mapa z istimi datotekami, spremenile so se le velikosti ali casi (datoteka se prenasa): popravimo samo
+  // besedilo teh vrstic. Stari vnosi dobijo nove vrednosti (iz njih se risejo tudi vrstice, ki se niso narisane).
+  function posodobiVrstice(stari, novi) {
+    if (!stari || stari.length !== novi.length) return false;
+    for (var i = 0; i < novi.length; i++) if (stari[i].pot !== novi[i].pot || stari[i].mapa !== novi[i].mapa) return false;
+    var spremenjeni = {};
+    for (var j = 0; j < novi.length; j++) {
+      if (stari[j].velikost !== novi[j].velikost || stari[j].spremenjeno !== novi[j].spremenjeno) {
+        stari[j].velikost = novi[j].velikost; stari[j].spremenjeno = novi[j].spremenjeno;
+        spremenjeni[novi[j].pot] = stari[j];
+      }
+    }
+    Array.prototype.forEach.call($("vsebinaMape").querySelectorAll("button.vrstica"), function (v) {
+      var d = spremenjeni[v.getAttribute("data-pot")], polje = d && v.querySelector(".podatki");
+      if (polje) polje.textContent = podatkiDatoteke(d);
+    });
+    return true;
+  }
+  // Po tihi osvezitvi: iste vrstice ostanejo na istem mestu zaslona (tudi ce se je nad njimi kaj pojavilo ali je izginilo),
+  // in vrstica, ki je imela fokus, ga dobi nazaj.
+  function poTihiOsvezitvi(prej) {
+    var drsnik = $("vsebina"), vrstice = $("vsebinaMape").querySelectorAll("button.vrstica"), sidro = null, vFokusu = null;
+    for (var i = 0; i < vrstice.length && (!sidro || !vFokusu); i++) {
+      var pot = vrstice[i].getAttribute("data-pot");
+      if (prej.sidro && pot === prej.sidro) sidro = vrstice[i];
+      if (prej.pot && pot === prej.pot) vFokusu = vrstice[i];
+    }
+    if (drsnik) {
+      drsnik.scrollTop = prej.odmik;
+      if (sidro) drsnik.scrollTop += sidro.getBoundingClientRect().top - prej.sidroVrh;
+    }
+    if (vFokusu) { try { vFokusu.focus({ preventScroll: true }); } catch (x) {} }
+  }
+  function stanjePredOsvezitvijo() {
+    var drsnik = $("vsebina"), vrh = drsnik ? drsnik.getBoundingClientRect().top : 0;
+    var v = document.activeElement && document.activeElement.closest ? document.activeElement.closest("#vsebinaMape button.vrstica") : null;
+    var stanje = { odmik: drsnik ? drsnik.scrollTop : 0, pot: v ? v.getAttribute("data-pot") : "", sidro: "", sidroVrh: 0 };
+    // Sidro: prva vrstica, ki je (vsaj delno) vidna.
+    var vrstice = $("vsebinaMape").querySelectorAll("button.vrstica");
+    for (var i = 0; i < vrstice.length; i++) {
+      var r = vrstice[i].getBoundingClientRect();
+      if (r.bottom > vrh) { stanje.sidro = vrstice[i].getAttribute("data-pot") || ""; stanje.sidroVrh = r.top; break; }
+    }
+    return stanje;
   }
   function pocistiNedavne() {
     klic("nedavnePocisti").then(function () { obvesti(t("seznamPocisten")); osveziNedavne(); });
@@ -1479,28 +1549,38 @@
       }, function () { S.nosilciNalagam = false; });
     }
   }
-  function odpriNedavne() {
-    S.pot = "";
-    narisiMape();
-    var dr = $("drobtine");
-    dr.innerHTML = "";
-    dr.appendChild(el("button", "", ubezi(t("nedavno"))));
-    var desnoN = el("div", "desno");
-    var poc = el("button", "gumb", svg("x") + "<span>" + ubezi(t("pocistiSeznam")) + "</span>");
-    poc.addEventListener("click", pocistiNedavne);
-    desnoN.appendChild(poc);
-    dr.appendChild(desnoN);
+  // tiho = seznam nedavnih se je spremenil zunaj Safeer OS: preberemo ga znova, drsnik in fokus ostaneta.
+  function odpriNedavne(tiho) {
+    tiho = tiho === true;               // klik na gumb poda dogodek, ne zastavice
+    var prej = tiho ? stanjePredOsvezitvijo() : null;
+    if (!tiho) {
+      S.pot = ""; S.datPogled = "nedavne";
+      spremljajDatoteke();
+      narisiMape();
+      var dr = $("drobtine");
+      dr.innerHTML = "";
+      dr.appendChild(el("button", "", ubezi(t("nedavno"))));
+      var desnoN = el("div", "desno");
+      var poc = el("button", "gumb", svg("x") + "<span>" + ubezi(t("pocistiSeznam")) + "</span>");
+      poc.addEventListener("click", pocistiNedavne);
+      desnoN.appendChild(poc);
+      dr.appendChild(desnoN);
+    }
     klic("nedavne").then(function (seznam) {
+      if (S.datPogled !== "nedavne") return;
+      if (tiho && odtisDatotek(seznam) === odtisDatotek(S.nedavne)) return;     // nic novega: brez prerisovanja
       S.nedavne = seznam || [];
       var v = $("vsebinaMape");
       v.innerHTML = "";
       if (!S.nedavne.length) { v.appendChild(el("div", "prazno", ubezi(t("prazno")))); return; }
       S.nedavne.forEach(function (d) { v.appendChild(vrsticaDatoteke(d, true, true)); });
+      if (prej) poTihiOsvezitvi(prej);
     }, function () {});
   }
   function prikaziIskanjeDatotek(niz, znani) {
     S.datotekeIskanje = String(niz || "").trim();
-    S.pot = "";
+    S.pot = ""; S.datPogled = "iskanje";
+    spremljajDatoteke();
     narisiMape();
     var dr = $("drobtine");
     dr.innerHTML = "";
@@ -1520,10 +1600,18 @@
       prikaziIskanjeDatotek(S.datotekeIskanje, seznam || []);
     }, function () { v.innerHTML = ""; v.appendChild(el("div", "prazno", ubezi(t("niZadetkov")))); });
   }
-  function odpriMapo(pot) {
+  // tiho = mapa se je spremenila zunaj Safeer OS: preberemo jo znova, drsnik in fokus ostaneta; brez spremembe nic.
+  function odpriMapo(pot, tiho) {
+    tiho = tiho === true;
     klic("mapa", [pot]).then(function (r) {
-      S.pot = r.pot;
-      narisiMape();
+      if (tiho && (S.razdelek !== "datoteke" || S.datPogled !== "mapa" || S.pot !== r.pot)) return;
+      if (tiho && !r.napaka && odtisDatotek(r.elementi) === S.mapaOdtis) return;
+      if (tiho && !r.napaka && posodobiVrstice(S.mapaElementi, r.elementi)) { S.mapaOdtis = odtisDatotek(r.elementi); return; }
+      var prej = tiho ? stanjePredOsvezitvijo() : null, prejNarisano = tiho ? (S.mapaNarisano || 0) : 0;
+      S.pot = r.pot; S.datPogled = "mapa"; S.mapaOdtis = r.napaka ? "" : odtisDatotek(r.elementi); S.mapaNarisano = 0;
+      S.mapaElementi = r.napaka ? null : r.elementi;
+      spremljajDatoteke();
+      if (!tiho) narisiMape();
       var dr = $("drobtine");
       dr.innerHTML = "";
       var d = dom();
@@ -1560,11 +1648,15 @@
       function dodajKos() {
         r.elementi.slice(narisano, narisano + KOS).forEach(function (e) { v.insertBefore(vrsticaDatoteke(e, false), straza); });
         narisano += KOS;
+        S.mapaNarisano = Math.min(narisano, r.elementi.length);
         if (narisano >= r.elementi.length) { opazovalec.disconnect(); straza.remove(); }
       }
       v.appendChild(straza);
       dodajKos();
+      // Tiha osvezitev: narisemo toliko vrstic, kot jih je bilo (uporabnik je morda globoko v veliki mapi).
+      while (narisano < r.elementi.length && narisano < prejNarisano) dodajKos();
       if (narisano < r.elementi.length) opazovalec.observe(straza);
+      if (prej) poTihiOsvezitvi(prej);
     }, function () {});
   }
   function narisiNedavneDomov() {
@@ -3834,6 +3926,9 @@
     if (vrsta === "medijskaKnjiznica") naloziMedije();
     // Program namescen ali odstranjen (Safeer OS spremlja mape z zaganjalniki): seznam preberemo znova.
     if (vrsta === "programi") nalozPrograme();
+    // Prikazana mapa ali seznam nedavnih se je spremenil zunaj Safeer OS; nosilec priklopljen ali odklopljen.
+    if (vrsta === "datoteke" && podatki) datotekeSpremenjene(podatki.pot);
+    if (vrsta === "nosilci" && S.razdelek === "datoteke") narisiMape();
     if (vrsta === "medijskoOsvezevanje") {
       S.mediaOsvezuje = !!podatki;
       $("mediaOsvezi").disabled = S.mediaOsvezuje || !S.mediaMape.length;
@@ -4292,6 +4387,7 @@
       osveziStanje();
       osveziOkna();
       narisiNedavneDomov();
+      spremljajDatoteke();          // nedavne na domacem zaslonu (ali odprti razdelek Datoteke) se osvezijo same
       klic("sporocilaSeznam").then(function (p) {
         S.sporocilaSkupine = p.skupine || []; S.sporocilaKanali = p.kanali || [];
       });

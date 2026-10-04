@@ -92,6 +92,47 @@ class TestDelovnaStran(unittest.TestCase):
         self.assertNotIn("napraveSProgrami", lokalni)
         self.assertNotIn("programiNaprave", lokalni)
 
+    def test_datoteke_se_osvezijo_ob_spremembi_drugega_programa(self):
+        """Mapa, nedavne in Smeti se preberejo znova, ko jih spremeni drug program (Matej, 4. 10. 2026)."""
+        py = beri("safeer_os.py")
+        self.assertIn('"spremljajMapo": lambda: self._spremljaj_mapo(pogled, str(a[0]) if a else "")', py)
+        self.assertIn('self._dogodek("datoteke", {"pot": spremenjen})', py)
+        self.assertIn('self._dogodek("nosilci", None)', py)
+        self.assertIn("Gtk.RecentManager.get_default().connect(", py)
+        # Plosca Datoteke na delovni povrsini: pove, kaj kaze, in se na dogodek odzove s tiho osvezitvijo.
+        odpri = self.js.split("  function odpriVir(vir) {", 1)[1].split("  function drobtine(", 1)[0]
+        self.assertIn("spremljajVir(vir);", odpri)
+        self.assertIn('vrsta === "datoteke") { if (arguments[1] && arguments[1].pot === pogledVira(D.vir)) osveziVirTiho(); }', self.js)
+        self.assertIn('vrsta === "nosilci") osveziNosilce();', self.js)
+        tiho = self.js.split("  function osveziVirTiho() {", 1)[1].split("  function odpriVir(vir) {", 1)[0]
+        # Tiha osvezitev ne ponastavi strani in izbire, ne kaze »Nalagam« in brez spremembe nicesar ne prerise.
+        for prepovedano in ("D.stran = 0", "pocistiIzbiro()", 't("nalagam")'):
+            self.assertNotIn(prepovedano, tiho)
+        self.assertIn("odtisVnosov(vnosi) === odtisVnosov(D.vse)", tiho)
+        self.assertIn("VL.poti.length", tiho, "med vlecenjem seznama ne prerisemo")
+        # Okno Safeer OS: razdelek Datoteke in nedavne na domacem zaslonu.
+        os_js = beri("assets", "os", "os.js")
+        self.assertIn('if (vrsta === "datoteke" && podatki) datotekeSpremenjene(podatki.pot);', os_js)
+        self.assertIn('if (vrsta === "nosilci" && S.razdelek === "datoteke") narisiMape();', os_js)
+        self.assertIn('klic("spremljajMapo", [kaj])', os_js)
+        # Ze od zagona (domaci zaslon kaze nedavne), ne sele po prvi menjavi razdelka.
+        zagon = os_js.split("  function zacni() {", 1)[1]
+        self.assertIn("narisiNedavneDomov();\n      spremljajDatoteke();", zagon)
+        spremenjene = os_js.split("  function datotekeSpremenjene(pogled) {", 1)[1].split("  function odtisDatotek(", 1)[0]
+        self.assertIn("odpriMapo(S.pot, true)", spremenjene)
+        self.assertIn("odpriNedavne(true)", spremenjene)
+        mapa = os_js.split("  function odpriMapo(pot, tiho) {", 1)[1].split("  function narisiNedavneDomov()", 1)[0]
+        self.assertIn("if (tiho && !r.napaka && odtisDatotek(r.elementi) === S.mapaOdtis) return;", mapa)
+        self.assertIn("if (prej) poTihiOsvezitvi(prej);", mapa)
+        # Datoteka, ki se prenasa: popravi se samo njena vrstica, seznam se ne prerise.
+        self.assertIn("if (tiho && !r.napaka && posodobiVrstice(S.mapaElementi, r.elementi)) { S.mapaOdtis = odtisDatotek(r.elementi); return; }", mapa)
+        vrstice = os_js.split("  function posodobiVrstice(stari, novi) {", 1)[1].split("  // Po tihi osvezitvi", 1)[0]
+        self.assertIn("if (stari[i].pot !== novi[i].pot || stari[i].mapa !== novi[i].mapa) return false;", vrstice)
+        self.assertIn('polje.textContent = podatkiDatoteke(d);', vrstice)
+        # Iste vrstice ostanejo na istem mestu zaslona: sidro je prva vidna vrstica.
+        sidro = os_js.split("  function poTihiOsvezitvi(prej) {", 1)[1].split("  function stanjePredOsvezitvijo() {", 1)[0]
+        self.assertIn("drsnik.scrollTop += sidro.getBoundingClientRect().top - prej.sidroVrh;", sidro)
+
     def test_igre_v_oblaku_so_ponudba_ne_namestitev(self):
         # Ponudnik iger v oblaku je med Igrami kot ploscica; namesti se samo na uporabnikov klik v meniju ploscice.
         js = self.js

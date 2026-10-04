@@ -285,6 +285,162 @@ class Datoteke(unittest.TestCase):
             self.assertEqual([z["ime"] for z in os_datoteke.isci("POROC", dom)], ["porocilo.odt"])
             self.assertEqual(os_datoteke.isci("p", dom), [])
 
+    def test_nadzor_map_pravila(self):
+        """Kaj je sprememba seznama: nova, izbrisana, preimenovana datoteka takoj; rast pocasneje; skrite nic."""
+        n = os_datoteke.NadzorMap
+        self.assertEqual(n.hitrost("created", "a.txt"), n.HITRO_MS)
+        self.assertEqual(n.hitrost("deleted", "a.txt"), n.HITRO_MS)
+        self.assertEqual(n.hitrost("moved-in", "a.txt"), n.HITRO_MS)
+        self.assertEqual(n.hitrost("moved-out", "a.txt"), n.HITRO_MS)
+        # Prenos se konca s preimenovanjem zacasne datoteke v pravo ime - tudi, ce je bila zacasna skrita.
+        self.assertEqual(n.hitrost("renamed", ".film.mkv.part", "film.mkv"), n.HITRO_MS)
+        self.assertEqual(n.hitrost("changed", "film.mkv"), n.POCASI_MS)
+        self.assertEqual(n.hitrost("changes-done-hint", "film.mkv"), n.POCASI_MS)
+        self.assertLess(n.HITRO_MS, n.POCASI_MS)
+        for vrsta, ime, drugo in (("created", ".goutputstream-X1", ""), ("renamed", ".a", ".b"), ("created", "", ""),
+                                  ("attribute-changed", "a.txt", ""), ("unmounted", "a", "")):
+            self.assertEqual(n.hitrost(vrsta, ime, drugo), 0, (vrsta, ime, drugo))
+        with tempfile.TemporaryDirectory() as dom:
+            self.assertEqual(n.veljaven(dom + "/"), os.path.abspath(dom))
+            for slab in (os.path.join(dom, "ni"), "relativna/pot", "", None, "@nosilci", "~"):
+                self.assertEqual(n.veljaven(slab), "", slab)
+        self.assertEqual((n.veljaven("@nedavno"), n.veljaven("@smeti")), ("@nedavno", "@smeti"))
+
+    def test_nadzor_map_javi_spremembo_drugega_programa(self):
+        """Datoteka, ki jo v prikazano mapo doda, preimenuje ali izbrise drug program (Matej, 4. 10. 2026)."""
+        try:
+            import gi
+            gi.require_version("Gio", "2.0")
+            from gi.repository import GLib
+        except Exception:  # noqa: BLE001
+            self.skipTest("brez GLib")
+        n = os_datoteke.NadzorMap
+        kontekst = GLib.MainContext.default()
+
+        def vrti(sekund, do=lambda: False):
+            konec = time.monotonic() + sekund
+            while time.monotonic() < konec and not do():
+                kontekst.iteration(False)
+                time.sleep(0.01)
+
+        with tempfile.TemporaryDirectory() as dom, mock.patch.object(n, "HITRO_MS", 100), \
+                mock.patch.object(n, "POCASI_MS", 500), mock.patch.object(n, "NAJMANJ_MED_MS", 200):
+            dom = os.path.realpath(dom)
+            mapa, druga = os.path.join(dom, "Prejemi"), os.path.join(dom, "Dokumenti")
+            os.makedirs(mapa)
+            os.makedirs(druga)
+            klici = []
+            nadzor = n(klici.append, lambda: None)
+            try:
+                self.assertFalse(nadzor.spremljaj("okno", os.path.join(dom, "ni-mape")))
+                self.assertTrue(nadzor.spremljaj("okno", mapa + "/"))
+                self.assertEqual(nadzor.pogledi(), [mapa])
+
+                def po(dejanje, sporocilo):
+                    """Po dejanju mora priti (vsaj eno) novo obvestilo za prikazano mapo."""
+                    vrti(1.2)                                    # pozni dogodki prejsnjega dejanja
+                    prej = len(klici)
+                    dejanje()
+                    vrti(4.0, lambda: len(klici) > prej)
+                    self.assertGreater(len(klici), prej, sporocilo)
+                    self.assertEqual(set(klici[prej:]), {mapa}, sporocilo)
+
+                _pisi(os.path.join(mapa, ".zacasna"), "x")       # skrita datoteka: seznam je ne kaze
+                vrti(0.8)
+                self.assertEqual(klici, [])
+                po(lambda: _pisi(os.path.join(mapa, "film.mkv.part"), "x"), "prenos se zacne")
+
+                def raste():
+                    for _ in range(5):
+                        with open(os.path.join(mapa, "film.mkv.part"), "a", encoding="utf-8") as f:
+                            f.write("x" * 1000)
+                        vrti(0.03)
+                po(raste, "datoteka raste")
+                po(lambda: os.rename(os.path.join(mapa, "film.mkv.part"), os.path.join(mapa, "film.mkv")), "prenos koncan")
+                po(lambda: os.remove(os.path.join(mapa, "film.mkv")), "datoteka izbrisana")
+                po(lambda: os.makedirs(os.path.join(mapa, "Nova mapa")), "nova mapa")
+
+                # Razpakiranje arhiva: veliko datotek zapored - obvestil je malo (najvec eno na NAJMANJ_MED_MS).
+                vrti(1.2)
+                prej = len(klici)
+                for i in range(60):
+                    _pisi(os.path.join(mapa, "kos-%02d.txt" % i), "x")
+                    vrti(0.01)
+                vrti(1.5)
+                self.assertTrue(1 <= len(klici) - prej <= 8, len(klici) - prej)
+
+                # Druga stran kaze isto mapo; prva odpre drugo mapo: prvo se vedno spremljamo zaradi druge strani.
+                self.assertTrue(nadzor.spremljaj("delovna", mapa))
+                self.assertTrue(nadzor.spremljaj("okno", druga))
+                self.assertEqual(nadzor.pogledi(), sorted([mapa, druga]))
+                po(lambda: _pisi(os.path.join(mapa, "se-ena.txt"), "x"), "mapo kaze se druga stran")
+                # Nobena stran je ne kaze vec: obvestil zanjo ni.
+                self.assertTrue(nadzor.spremljaj("delovna", "@nedavno"))
+                vrti(1.2)
+                prej = len(klici)
+                _pisi(os.path.join(mapa, "nihce-ne-gleda.txt"), "x")
+                vrti(1.0)
+                self.assertEqual(klici[prej:], [])
+                _pisi(os.path.join(druga, "pismo.odt"), "x")
+                vrti(4.0, lambda: len(klici) > prej)
+                self.assertEqual(set(klici[prej:]), {druga})
+                # Seznam nedavnih vodi GTK: spremembo javi zunanji klic, in samo, ce ga katera stran kaze.
+                vrti(1.2)
+                prej = len(klici)
+                nadzor.zunanja("@nedavno")
+                nadzor.zunanja("@smeti")
+                vrti(3.0, lambda: len(klici) > prej)
+                vrti(0.6)
+                self.assertEqual(klici[prej:], ["@nedavno"])
+                # Zaprto okno: njegovega pogleda ne spremljamo vec.
+                nadzor.obdrzi({"delovna"})
+                nadzor.spremljaj("delovna", "@nedavno")
+                self.assertEqual(nadzor.pogledi(), ["@nedavno"])
+            finally:
+                nadzor.koncaj()
+            prej = len(klici)
+            _pisi(os.path.join(druga, "po-koncu.txt"), "x")
+            vrti(0.8)
+            self.assertEqual(klici[prej:], [], "po koncu nadzora ni obvestil")
+
+    def test_nadzor_map_smeti_ki_jih_se_ni(self):
+        """Smeti na svezem racunalniku se ni: nastanejo ob prvem brisanju (v drugem programu) - tudi to opazimo."""
+        try:
+            import gi
+            gi.require_version("Gio", "2.0")
+            from gi.repository import GLib
+        except Exception:  # noqa: BLE001
+            self.skipTest("brez GLib")
+        n = os_datoteke.NadzorMap
+        kontekst = GLib.MainContext.default()
+
+        def vrti(sekund, do=lambda: False):
+            konec = time.monotonic() + sekund
+            while time.monotonic() < konec and not do():
+                kontekst.iteration(False)
+                time.sleep(0.01)
+
+        with tempfile.TemporaryDirectory() as dom, mock.patch.object(n, "HITRO_MS", 100), \
+                mock.patch.object(n, "NAJMANJ_MED_MS", 200), \
+                mock.patch.dict(os.environ, {"XDG_DATA_HOME": os.path.realpath(dom)}):
+            dom = os.path.realpath(dom)
+            klici = []
+            nadzor = n(klici.append)
+            try:
+                self.assertTrue(nadzor.spremljaj("delovna", "@smeti"))
+                datoteke = os.path.join(dom, "Trash", "files")
+                os.makedirs(datoteke)
+                _pisi(os.path.join(datoteke, "izbrisano.txt"), "x")
+                vrti(4.0, lambda: bool(klici))
+                self.assertEqual(set(klici), {"@smeti"})
+                vrti(1.0)
+                prej = len(klici)
+                _pisi(os.path.join(datoteke, "se-eno.txt"), "x")       # mapa Smeti je zdaj spremljana neposredno
+                vrti(4.0, lambda: len(klici) > prej)
+                self.assertGreater(len(klici), prej)
+            finally:
+                nadzor.koncaj()
+
 
 def _vol(p):
     return {"front-left": {"value_percent": "%d%%" % p}, "front-right": {"value_percent": "%d%%" % p}}
