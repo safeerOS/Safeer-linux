@@ -66,9 +66,28 @@ if [ -x /usr/sbin/update-alternatives ] || [ -x /usr/bin/update-alternatives ]; 
     update-alternatives --install /usr/bin/gnome-www-browser gnome-www-browser /usr/bin/safeer 40 || true
 fi
 
+# Byte-compile once, as root. A user cannot write into /usr/lib, so without this Python would compile every
+# module again at each start. If it fails, the program still runs from source.
+if [ -x /usr/bin/python3 ]; then
+    /usr/bin/python3 -m compileall -q /usr/lib/safeer-browser >/dev/null 2>&1 || true
+fi
+
 exit 0
 EOF
 chmod 755 "$BUILD_ROOT/DEBIAN/postinst"
+
+cat << 'EOF' > "$BUILD_ROOT/DEBIAN/prerm"
+#!/bin/sh
+# dpkg runs maintainer scripts with /bin/sh (dash): POSIX options only.
+set -eu
+# Remove the byte-code that postinst compiled (and what Python wrote when the program was run as root). dpkg does
+# not know these files; with them it would leave /usr/lib/safeer-browser behind after removal.
+if [ -d /usr/lib/safeer-browser ] && [ -x /usr/bin/find ]; then
+    /usr/bin/find /usr/lib/safeer-browser -depth \( -name '*.pyc' -o -name __pycache__ \) -delete 2>/dev/null || true
+fi
+exit 0
+EOF
+chmod 755 "$BUILD_ROOT/DEBIAN/prerm"
 
 cat << 'EOF' > "$BUILD_ROOT/DEBIAN/postrm"
 #!/bin/sh
@@ -97,11 +116,12 @@ find "$BUILD_ROOT" -type d -exec chmod 755 {} +
 chmod 755 "$BUILD_ROOT/DEBIAN"
 chmod 644 "$BUILD_ROOT/DEBIAN/control"
 chmod 755 "$BUILD_ROOT/DEBIAN/postinst"
+chmod 755 "$BUILD_ROOT/DEBIAN/prerm"
 chmod 755 "$BUILD_ROOT/DEBIAN/postrm"
 chmod 755 "$BUILD_ROOT/usr/bin/safeer"
 
 # Maintainer scripts must be valid for dash, which dpkg uses as /bin/sh.
-for script in "$BUILD_ROOT/DEBIAN/postinst" "$BUILD_ROOT/DEBIAN/postrm"; do
+for script in "$BUILD_ROOT/DEBIAN/postinst" "$BUILD_ROOT/DEBIAN/prerm" "$BUILD_ROOT/DEBIAN/postrm"; do
     if command -v dash >/dev/null 2>&1; then dash -n "$script"; else sh -n "$script"; fi
     if grep -q pipefail "$script"; then echo "pipefail is not supported by /bin/sh: $script" >&2; exit 1; fi
 done

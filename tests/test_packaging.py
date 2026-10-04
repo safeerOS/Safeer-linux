@@ -109,10 +109,41 @@ class PackagingTests(unittest.TestCase):
             with self.subTest(builder=builder):
                 self._preveri_skripte(builder)
 
-    def _preveri_skripte(self, builder):
+    PROGRAM_DIRS=(('build_deb.sh','/usr/lib/safeer-browser'),('build_control_deb.sh','/usr/lib/safeer-control'),
+                  ('build_os_deb.sh','/usr/lib/safeer-os'))
+
+    def test_packages_compile_bytecode_and_clean_it_up(self):
+        """Uporabnik v /usr/lib ne more pisati: brez prevoda ob namestitvi Python ob vsakem zagonu znova prevede vse
+        module. Kar postinst prevede, mora prerm odstraniti - sicer dpkg po odstranitvi pusti mapo programa (najdeno
+        s preizkusom namestitve na Linux Mintu, 4. 10. 2026)."""
+        for builder,lib in self.PROGRAM_DIRS:
+            with self.subTest(builder=builder):
+                scripts=dict(self._skripte(builder))
+                self.assertIn('/usr/bin/python3 -m compileall -q %s '%lib,scripts['postinst'])
+                self.assertIn('/usr/bin/find %s -depth '%lib,scripts['prerm'])
+                # prerm res pobrise bajtno kodo - in samo njo.
+                with tempfile.TemporaryDirectory() as directory:
+                    mapa=Path(directory)/'program'
+                    (mapa/'core/__pycache__').mkdir(parents=True)
+                    (mapa/'__pycache__').mkdir()
+                    (mapa/'core/a.py').write_text('x=1\n')
+                    (mapa/'assets').mkdir()
+                    (mapa/'assets/stran.html').write_text('<p>')
+                    for pyc in ('core/__pycache__/a.cpython-312.pyc','__pycache__/b.cpython-310.pyc','core/c.pyc'):
+                        (mapa/pyc).write_bytes(b'x')
+                    self.assertEqual(scripts['prerm'].count(lib),3)
+                    for action in ('remove','upgrade'):
+                        subprocess.run(['sh','-c',scripts['prerm'].replace(lib,str(mapa)),'prerm',action],check=True)
+                    self.assertEqual(sorted(str(p.relative_to(mapa)) for p in mapa.rglob('*')),
+                                     ['assets','assets/stran.html','core','core/a.py'])
+
+    def _skripte(self, builder):
         text=(ROOT/builder).read_text()
-        scripts=re.findall(r"cat << 'EOF2?' > \"\$BUILD_ROOT/DEBIAN/(post(?:inst|rm))\"\n(.*?)\nEOF2?\n",text,re.S)
-        self.assertEqual({name for name,_ in scripts},{'postinst','postrm'})
+        return re.findall(r"cat << 'EOF2?' > \"\$BUILD_ROOT/DEBIAN/(postinst|prerm|postrm)\"\n(.*?)\nEOF2?\n",text,re.S)
+
+    def _preveri_skripte(self, builder):
+        scripts=self._skripte(builder)
+        self.assertEqual({name for name,_ in scripts},{'postinst','prerm','postrm'})
         shell=shutil.which('dash') or shutil.which('sh')
         for name,body in scripts:
             self.assertTrue(body.startswith('#!/bin/sh\n'),name)

@@ -13,6 +13,8 @@ sudo apt install ./safeer-browser_1.0.92_all.deb
 
 The existing source tarball is retained. Builds no longer copy into neighbouring website repositories. Native package upgrades continue using the existing `~/.config/safeer-mint` profile unless XDG_CONFIG_HOME is explicitly set. Existing alternatives registration and removal scripts are retained.
 
+The `.deb` packages of the browser, Safeer Control and Safeer OS compile the Python byte-code in `postinst` (`python3 -m compileall` on the program folder): a user cannot write into `/usr/lib`, so without it Python would compile every module again at each start. `prerm` removes the byte-code again — on removal and before an upgrade — because dpkg does not know these files and would otherwise leave the program folder behind. AppImage and Flatpak ship the code read-only and are unchanged.
+
 ## Flatpak
 
 ```sh
