@@ -278,6 +278,17 @@ class Pravila(unittest.TestCase):
         self.assertEqual(hub.ime_po_naslovu(A), "Televizor")
         self.assertEqual(hub.ime_po_naslovu(B), "")
         self.assertEqual(hub.ime_po_naslovu(""), "")
+        # Sosednje sredisce (Link Mesh) ni v registru naprav: ime ima krog zaupanja. Najdeno na pravi napravi -
+        # telefon, ki je sosed, je bil ustavljen z obvestilom brez imena.
+        with hub._zaklep:
+            hub._sosedje["n-404fedf2ed258fd9"] = mock.Mock(naslov="wss://192.168.0.70:8990/cast/ws")
+            hub._sosedje["n-dohodni"] = mock.Mock(naslov="192.168.0.71")
+        imena = {"n-404fedf2ed258fd9": "Telefon v kuhinji", "n-dohodni": "Tablica"}
+        with mock.patch.object(link_hub_streznik.Hub, "ime_v_krogu", staticmethod(lambda device_id: imena.get(device_id))):
+            self.assertEqual(hub.ime_po_naslovu("192.168.0.70"), "Telefon v kuhinji")
+            self.assertEqual(hub.ime_po_naslovu("192.168.0.71"), "Tablica")
+            self.assertEqual(hub.ime_po_naslovu(A), "Televizor", "naprava v registru ima prednost")
+            self.assertEqual(hub.ime_po_naslovu("192.168.0.72"), "")
         # Jezik seje: LANGUAGE ima prednost pred LC_ALL (tako kot v Controlu); C in POSIX nista jezik.
         for okolje, pricakovano in (({"LANGUAGE": "sl_SI:sl", "LC_ALL": "en_US.UTF-8"}, True), ({"LANG": "sl_SI.UTF-8"}, True),
                                     ({"LC_ALL": "C", "LANG": "sl_SI.UTF-8"}, True), ({"LANG": "en_US.UTF-8"}, False), ({}, False)):
