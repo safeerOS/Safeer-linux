@@ -374,7 +374,7 @@ IDENTITETA_HUBA = "safeer-link-hub"
 
 
 def zacni_seznanitev(ws_naslov: str, device_id: str, ime: str) -> Optional[dict]:
-    """Odpre prijavo na Hubu. Vrne {"pair_id", "nacin", "hub_id", "odtis"} ali None.
+    """Odpre prijavo na Hubu. Vrne {"pair_id", "nacin", "hub_id", "odtis"}, {"napaka": ...} ali None.
 
     Samo prek TLS: odtis potrdila, ki ga vidimo zdaj, se vplete v seznanitev, zato ga
     napadalec v sredini ne more zamenjati, ne da bi seznanitev padla. Kode Hub ne
@@ -385,6 +385,9 @@ def zacni_seznanitev(ws_naslov: str, device_id: str, ime: str) -> Optional[dict]
         return {"napaka": "hub_brez_tls"}
     koda, odgovor, videni = link_tls.zahteva(osnova + "/cast/pair/start",
                                              {"device_id": device_id, "name": ime})
+    if koda == 429 and str(odgovor.get("code") or "") == "seznanitev_zaprta":
+        # Sredisce je povezovanje s kodo zaprlo (nekdo je ugibal kodo): uporabniku povemo, kaj naj naredi.
+        return {"napaka": "seznanitev_zaprta"}
     if koda != 200 or not videni:
         return None
     pair_id = str(odgovor.get("pair_id", "") or "")

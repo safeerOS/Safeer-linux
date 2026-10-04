@@ -36,7 +36,7 @@ import time
 from typing import Callable, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
 
-from core import link_hub_deljenje, link_krog, link_obramba, link_tls, link_ws
+from core import link_hub_deljenje, link_krog, link_obramba, link_tls, link_varovalka, link_ws
 
 #: Vrata Huba. Najprej privzeta (naprave jih poznajo tudi brez mDNS), sicer katerakoli prosta.
 PRIVZETA_VRATA = 8990
@@ -65,6 +65,9 @@ RAZLICICA_PROTOKOLA = "1"
 IDENTITETA_HUBA = "safeer-link-hub"
 #: Seznanitev s kodo (kot HubUsmerjevalnik): koda velja 5 minut, najvec 5 napak, najvec 8 cakajocih.
 PIN_VELJA_S = 300.0
+#: Odgovor napravi, ki zeli zaceti prijavo s kodo, ko jo je varovalka zaprla.
+BESEDILO_KODA_ZAPRTA = ("Povezovanje s kodo je začasno zaprto, ker je nekdo ugibal kodo. Na napravi v Safeer Linku "
+                        "odpri »Poveži naprave« ali uporabi kodo QR.")
 NAJVEC_POSKUSOV = 5
 NAJVEC_CAKAJOCIH = 8
 #: Zeton iz seznanitve je samo za prvo prijavo in vpis kljuca v krog; potem naprava pride s podpisom.
@@ -178,7 +181,7 @@ class Hub:
     """
 
     def __init__(self, odtis: str = "", nas_id: str = "", ura: Callable[[], float] = _zdaj,
-                 pot_zetonov: str = "") -> None:
+                 pot_zetonov: str = "", pot_varovalke: str = "") -> None:
         self.odtis = (odtis or "").lower()
         self.nas_id = nas_id
         self.ura = ura
@@ -200,6 +203,12 @@ class Hub:
         #: Zetoni seznanitve prezivijo ponovni zagon (naprava, ki kljuca se ni vpisala, ne ostane zunaj).
         self._pot_zetonov = pot_zetonov
         self._nalozi_zetone()
+        #: Varovalka kode: skupna (ne po viru) omejitev ugibanja 6-mestne kode; stanje prezivi ponovni zagon.
+        self._pot_varovalke = pot_varovalke
+        self.varovalka = link_varovalka.VarovalkaKode(ura=ura, stanje=self._nalozi_varovalko(),
+                                                      shrani=self._shrani_varovalko, ob_zapori=self._zapora_kode)
+        #: Povezovanje s kodo se je zaprlo (dogodek varovalke): racunalnik pokaze obvestilo.
+        self.ob_zapori_kode: Optional[Callable[[dict], None]] = None
         self.ob_spremembi: Optional[Callable[[], None]] = None
         #: Nova naprava caka na kodo: (ime naprave, koda) - racunalnik pokaze obvestilo.
         self.ob_kodi: Optional[Callable[[str, str], None]] = None
@@ -322,6 +331,44 @@ class Hub:
         except Exception:
             pass
 
+    def _nalozi_varovalko(self) -> Optional[dict]:
+        if not self._pot_varovalke:
+            return None
+        try:
+            with open(self._pot_varovalke, encoding="utf-8") as d:
+                stanje = json.load(d)
+            return stanje if isinstance(stanje, dict) else None
+        except Exception:
+            return None
+
+    def _shrani_varovalko(self, stanje: dict) -> None:
+        """Datoteka je samo za uporabnika (0600), kot zetoni."""
+        if not self._pot_varovalke:
+            return
+        import os
+        os.makedirs(os.path.dirname(self._pot_varovalke), exist_ok=True)
+        zacasna = self._pot_varovalke + ".tmp"
+        with open(os.open(zacasna, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as d:
+            json.dump(stanje, d)
+        os.replace(zacasna, self._pot_varovalke)
+
+    def _odprte_kode(self) -> set:
+        """Klice se pod kljucavnico: kode vabil, ki jih je odprla naprava v Linku (»Poveži naprave«)."""
+        self._pocisti_pridruzitve()
+        return {v.get("pin") for v in self._pridruzitve.values() if v.get("pin")}
+
+    def _zapora_kode(self, dogodek: dict) -> None:
+        """Varovalka je zaprla povezovanje s kodo: cakajoce prijave brez vabila padejo, kode na zaslonih ugasnejo."""
+        with self._zaklep:
+            odprte = self._odprte_kode()
+            for pair_id in [k for k, p in self._prijave.items() if p.get("pin") not in odprte]:
+                self._koncaj_prijavo(pair_id)
+        if self.ob_zapori_kode is not None:
+            try:
+                self.ob_zapori_kode(dogodek)
+            except Exception:
+                pass
+
     def _pocisti_prijave(self) -> None:
         meja = self.ura() - PIN_VELJA_S
         for k in [k for k, p in self._prijave.items() if p["nastala"] < meja]:
@@ -367,7 +414,9 @@ class Hub:
                     pass
 
     def zacni_seznanitev(self, device_id: str, ime: str, naslov: str = "") -> Optional[dict]:
-        """Nova naprava se zeli pridruziti. Kode ne vrnemo njej - pokazejo jo naprave v Linku."""
+        """Nova naprava se zeli pridruziti. Kode ne vrnemo njej - pokazejo jo naprave v Linku.
+
+        None = prevec cakajocih prijav; {"napaka": "seznanitev_zaprta"} = varovalka je povezovanje s kodo zaprla."""
         device_id = (device_id or "").strip()[:NAJVEC_IMENA]
         ime = (ime or "").strip()[:NAJVEC_IMENA] or device_id
         if not device_id:
@@ -384,6 +433,8 @@ class Hub:
             # naprava se seznani prav z njo (enako kot sredisce na televizorju), uporabnik jo samo prepise.
             self._pocisti_pridruzitve()
             odprta = [v.get("pin") for v in self._pridruzitve.values() if v.get("pin")]
+            if not self.varovalka.zacetek(naslov, bool(odprta)):
+                return {"napaka": "seznanitev_zaprta"}
             koda = odprta[-1] if odprta else str(100000 + secrets.randbelow(900000))
             self._prijave[pair_id] = {"device_id": device_id, "ime": ime, "pin": koda, "naslov": naslov,
                                       "nastala": self.ura(), "krogov": 0, "poskusov": 0, "spake": None}
@@ -430,6 +481,10 @@ class Hub:
             if p["krogov"] > NAJVEC_POSKUSOV:
                 self._koncaj_prijavo(pair_id)
                 return None, None, "prevec_poskusov"
+            # En krog naprave pove, ali je njena koda prava: to JE poskus kode in steje v skupno mejo.
+            if not self.varovalka.poskus(str(p.get("naslov") or ""), p["pin"] in self._odprte_kode()):
+                self._koncaj_prijavo(pair_id)
+                return None, None, "seznanitev_zaprta"
             try:
                 s = Spake2.streznik(p["pin"], IDENTITETA_HUBA, device_id, self.odtis.encode("utf-8"),
                                     pair_id.encode("utf-8"))
@@ -457,6 +512,7 @@ class Hub:
                     return None, "prevec_poskusov"
                 return None, "napacna_koda"
             zeton = self._nov_zeton(device_id, p["ime"])
+            self.varovalka.uspeh(str(p.get("naslov") or ""))
             # Koda z vabila je enkratna: po uspesni seznanitvi ne velja vec.
             for k in [k for k, v in self._pridruzitve.items() if v.get("pin") == p["pin"]]:
                 self._pridruzitve.pop(k, None)
@@ -2072,6 +2128,9 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             if odgovor is None:
                 self._napaka(429, "Preveč čakajočih prijav; poskusite čez nekaj minut.", "prevec_prijav")
                 return
+            if odgovor.get("napaka") == "seznanitev_zaprta":
+                self._napaka(429, BESEDILO_KODA_ZAPRTA, "seznanitev_zaprta")
+                return
             # Vsak zacetek uporabniku pokaze obvestilo s kodo: cetrti v minuti vir zapre.
             self._sovrazno("zacetek_seznanitve")
             self._odgovori(200, odgovor)
@@ -2094,6 +2153,7 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
                      "prijava_ne_obstaja": (404, "Prijava je potekla. Začnite znova."),
                      "neveljavna_tocka": (400, "Neveljavno sporočilo."),
                      "napacna_koda": (401, "Koda ni pravilna."),
+                     "seznanitev_zaprta": (429, BESEDILO_KODA_ZAPRTA),
                      "manjka_korak": (409, "Najprej pošljite pb.")}
         if pot == "/cast/pair/spake":
             pa, ca, napaka = self._hub.spake_korak1(pair_id, device_id, podatki)
@@ -2101,6 +2161,8 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
                 koda, besedilo = sporocila.get(napaka or "", (409, "Seznanitev ni mogoča."))
                 self._napaka(koda, besedilo, napaka or "seznanitev_ni_mogoca")
                 return
+            # Odgovor napravi pove, ali je njena koda prava (potrditev sredisca): vsak krog je poskus kode.
+            self._sovrazno("poskus_kode")
             self._odgovori(200, {"pa": pa.hex(), "ca": ca.hex()})
             return
         zeton, napaka = self._hub.spake_korak2(pair_id, device_id, podatki)
@@ -2178,10 +2240,17 @@ def _je_krajevni_naslov(naslov: str) -> bool:
         or nizko.startswith("feb") or nizko.startswith("fc") or nizko.startswith("fd")
 
 
+def besedilo_kode(ime: str, koda: str, slovensko: bool) -> tuple:
+    """(naslov, besedilo) obvestila s kodo za novo napravo - loceno, da je preizkusljivo."""
+    ime = " ".join(str(ime or "").split())[:40]
+    if slovensko:
+        return ("Safeer Link: nova naprava", "%s se želi povezati. Vpiši kodo %s %s" % (ime, koda[:3], koda[3:]))
+    return ("Safeer Link: new device", "%s wants to connect. Enter the code %s %s" % (ime, koda[:3], koda[3:]))
+
+
 def _obvestilo_kode(ime: str, koda: str) -> None:
     """Koda za novo napravo tudi na racunalniku (Link je lahko brez televizorja)."""
-    _obvestilo("Safeer Link: nova naprava", "%s se želi povezati. Vpiši kodo %s %s" % (ime, koda[:3], koda[3:]),
-               cas_ms=int(PIN_VELJA_S * 1000))
+    _obvestilo(*besedilo_kode(ime, koda, _slovensko()), cas_ms=int(PIN_VELJA_S * 1000))
 
 
 def _slovensko() -> bool:
@@ -2239,17 +2308,55 @@ def besedilo_zapore(vir: str, trajanje_s: float, razlog: str, slovensko: bool, i
                 % (ime, vir, minut))
     if slovensko:
         kaj = {"seznanitev": "je ugibala kodo za povezavo", "zacetek_seznanitve": "se je vsiljevala v Safeer Link",
+               "poskus_kode": "je ugibala kodo za povezavo",
                "brez_zaupanja": "se je prijavljala brez dovoljenja",
                "povezava": "je odpirala preveč povezav", "rokovanje": "je tipala vrata Safeer Linka",
                "tipanje": "je tipala po Safeer Linku", "okvir": "je pošiljala pokvarjena sporočila"}.get(razlog, "se je vedla sumljivo")
         return ("Safeer Link: naprava ustavljena",
                 "Naprava z naslova %s %s. Za %d min je ne poslušam več. Tvoje naprave delajo naprej." % (vir, kaj, minut))
     kaj = {"seznanitev": "was guessing the pairing code", "zacetek_seznanitve": "kept asking to join Safeer Link",
+           "poskus_kode": "was guessing the pairing code",
            "brez_zaupanja": "kept signing in without permission",
            "povezava": "was opening too many connections", "rokovanje": "was probing the Safeer Link port",
            "tipanje": "was probing Safeer Link", "okvir": "was sending broken messages"}.get(razlog, "behaved suspiciously")
     return ("Safeer Link: device stopped",
             "The device at %s %s. I will not listen to it for %d min. Your devices keep working." % (vir, kaj, minut))
+
+
+def _trajanje(sekund: float, slovensko: bool) -> str:
+    """»1 uro«, »1 dan«, »7 dni« (tozilnik) oziroma »1 hour«, »1 day«, »7 days«."""
+    ur = max(1, int(round(sekund / 3600.0)))
+    if ur < 24:
+        if slovensko:
+            return "%d %s" % (ur, "uro" if ur == 1 else "uri" if ur == 2 else "ure" if ur in (3, 4) else "ur")
+        return "%d %s" % (ur, "hour" if ur == 1 else "hours")
+    dni = max(1, int(round(ur / 24.0)))
+    if slovensko:
+        return "%d %s" % (dni, "dan" if dni == 1 else "dneva" if dni == 2 else "dni")
+    return "%d %s" % (dni, "day" if dni == 1 else "days")
+
+
+def besedilo_zapore_kode(dogodek: dict, slovensko: bool, imena: Optional[dict] = None) -> tuple:
+    """(naslov, besedilo) obvestila, ko varovalka zapre povezovanje s kodo. `imena`: naslov -> ime naprave, ki jo
+    sredisce pozna s tega naslova."""
+    trajanje = _trajanje(float(dogodek.get("trajanje_s") or 0.0), slovensko)
+    viri = []
+    for vir, _stevilo in (dogodek.get("viri") or [])[:3]:
+        ime = " ".join(str((imena or {}).get(vir) or "").split())[:40]
+        viri.append("%s (%s)" % (ime, vir) if ime else str(vir))
+    if slovensko:
+        kaj = "Nekdo je ugibal kodo za povezavo" if dogodek.get("razlog") == "kode" \
+            else "Nekdo je znova in znova začenjal povezovanje"
+        od_kod = (" (%s)" % ", ".join(viri)) if viri else ""
+        return ("Safeer Link: povezovanje s kodo je zaprto",
+                "%s%s. Povezovanje s kodo je zaprto za %s. Novo napravo povežeš tako, da na eni od svojih naprav "
+                "odpreš »Poveži naprave«, ali s kodo QR. Tvoje naprave delajo naprej." % (kaj, od_kod, trajanje))
+    kaj = "Someone was guessing the pairing code" if dogodek.get("razlog") == "kode" \
+        else "Someone kept starting to pair over and over"
+    od_kod = (" (%s)" % ", ".join(viri)) if viri else ""
+    return ("Safeer Link: pairing by code is closed",
+            "%s%s. Pairing by code is closed for %s. To add a device, open \u201cConnect devices\u201d on one of "
+            "your devices, or use the QR code. Your devices keep working." % (kaj, od_kod, trajanje))
 
 
 def besedilo_napada(viri: list, slovensko: bool) -> tuple:
@@ -2310,6 +2417,8 @@ class HubStreznik:
         #: Povratna klica za vmesnik: (vir, trajanje_s, razlog) in (seznam virov).
         self.ob_zapori: Optional[Callable[[str, float, str], None]] = None
         self.ob_napadu: Optional[Callable[[List[str]], None]] = None
+        #: Varovalka je zaprla povezovanje s kodo (dogodek link_varovalka).
+        self.ob_zapori_kode: Optional[Callable[[dict], None]] = None
 
     def tece(self) -> bool:
         return self._streznik is not None
@@ -2339,6 +2448,26 @@ class HubStreznik:
         if self.ob_zapori is not None:
             try:
                 self.ob_zapori(vir, trajanje_s, razlog)
+            except Exception:
+                pass
+
+    def _ob_zapori_kode(self, dogodek: dict) -> None:
+        """Varovalka je zaprla povezovanje s kodo (skupna meja, ne po viru)."""
+        viri = [str(v) for v, _n in (dogodek.get("viri") or [])]
+        logging.getLogger("safeer.link").warning("varovalka: povezovanje s kodo zaprto za %d s (%s; viri: %s)",
+                                                 int(dogodek.get("trajanje_s") or 0), dogodek.get("razlog"), ", ".join(viri))
+        print("[SafeerLink] varovalka: povezovanje s kodo zaprto za %d min (%s; viri: %s)"
+              % (int((dogodek.get("trajanje_s") or 0) // 60), dogodek.get("razlog"), ", ".join(viri) or "-"), flush=True)
+        imena = {}
+        for vir in viri:
+            try:
+                imena[vir] = self.hub.ime_po_naslovu(vir) if self.hub is not None else ""
+            except Exception:
+                pass
+        _obvestilo(*besedilo_zapore_kode(dogodek, _slovensko(), imena), cas_ms=60000)
+        if self.ob_zapori_kode is not None:
+            try:
+                self.ob_zapori_kode(dogodek)
             except Exception:
                 pass
 
@@ -2393,8 +2522,10 @@ class HubStreznik:
                 pass
             import os
             self.hub = Hub(odtis=self.odtis, nas_id=nas_id,
-                           pot_zetonov=os.path.join(link_krog._mapa_nastavitev(), "hub-zetoni.json"))
+                           pot_zetonov=os.path.join(link_krog._mapa_nastavitev(), "hub-zetoni.json"),
+                           pot_varovalke=os.path.join(link_krog._mapa_nastavitev(), "hub-varovalka.json"))
             self.hub.ob_kodi = _obvestilo_kode
+            self.hub.ob_zapori_kode = self._ob_zapori_kode
             streznik = None
             # Privzeta vrata naprave poznajo tudi brez mDNS; ce so zasedena, vzamemo katerakoli.
             for vrata in (PRIVZETA_VRATA, 0):
