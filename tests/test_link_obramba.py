@@ -1,0 +1,335 @@
+"""Obrambni mehanizem sredisca (core/link_obramba.py): stetje sovraznih dogodkov po viru, zapora, napad.
+
+Prvi del je cista logika z lazno uro. Drugi del je pravo sredisce na zanki (TLS, HTTP): napadalec z napacnimi zetoni
+je zaprt in ne dobi vec niti rokovanja, clan kroga pa dela naprej, tudi ce odpre na stotine povezav.
+"""
+import os
+import socket
+import tempfile
+import unittest
+from unittest import mock
+
+from core import link_hub, link_hub_streznik, link_krog, link_obramba, link_tls
+from core.link_obramba import Obramba
+
+A, B, C = "192.168.0.66", "192.168.0.67", "192.168.0.68"
+
+
+class Ura:
+    def __init__(self):
+        self.t = 1000.0
+
+    def __call__(self):
+        return self.t
+
+
+class Pravila(unittest.TestCase):
+    def setUp(self):
+        self.ura = Ura()
+        self.zapore, self.napadi = [], []
+        self.o = Obramba(ura=self.ura, ob_zapori=lambda *a: self.zapore.append(a), ob_napadu=self.napadi.append)
+
+    def _do_zapore(self, vir, vrsta="brez_zaupanja"):
+        for _ in range(200):
+            if self.o.zaprt(vir):
+                return
+            self.o.dogodek(vir, vrsta)
+        self.fail("vir ni bil zaprt")
+
+    def test_prag_zapre_vir(self):
+        for _ in range(19):
+            self.o.dogodek(A, "brez_zaupanja")
+        self.assertTrue(self.o.dovoli(A))
+        self.assertEqual(self.zapore, [])
+        self.o.dogodek(A, "brez_zaupanja")
+        self.assertEqual(self.zapore, [(A, link_obramba.ZAPORA_S, "brez_zaupanja")])
+        self.assertFalse(self.o.dovoli(A))
+        self.assertTrue(self.o.zaprt(A))
+        self.assertTrue(self.o.dovoli(B), "zapora velja za vir, ne za vse")
+        stanje = self.o.stanje()
+        self.assertEqual([(z["vir"], z["razlog"], z["zapora"]) for z in stanje["zaprti"]], [(A, "brez_zaupanja", 1)])
+        self.assertEqual(stanje["zavrnjenih"], 1)
+        # Po izteku zapore je vir spet sprejet.
+        self.ura.t += link_obramba.ZAPORA_S + 1
+        self.assertTrue(self.o.dovoli(A))
+        self.assertEqual(self.o.stanje()["zaprti"], [])
+
+    def test_stari_dogodki_ne_stejejo(self):
+        for _ in range(15):
+            self.o.dogodek(A, "brez_zaupanja")
+        self.ura.t += link_obramba.OKNO_S + 1
+        for _ in range(15):
+            self.o.dogodek(A, "brez_zaupanja")
+        self.assertFalse(self.o.zaprt(A))
+
+    def test_legitimna_naprava_ni_nikoli_zaprta(self):
+        """Naprava, ki se prijavlja pod napacnim id-jem ali je bila umaknjena iz kroga: vsakih 15 s povezava za
+        potrdilo, izziv z odgovorom 401 in se iskanje po golem HTTP (neuspelo rokovanje). Tako lahko dela ves dan."""
+        for _ in range(4 * 60 * 24):
+            self.assertTrue(self.o.dovoli(A))
+            self.o.dogodek(A, "brez_zaupanja")
+            self.assertTrue(self.o.dovoli(A))
+            self.o.dogodek(A, "rokovanje")
+            self.ura.t += 15
+        self.assertEqual(self.zapore, [])
+
+    def test_ugibanje_kode_je_zaprto_hitro(self):
+        """Sestmestna koda: pet poskusov na prijavo. Brez zapore bi napadalec prijave samo ponavljal."""
+        poskusov = 0
+        while not self.o.zaprt(A):
+            self.o.dogodek(A, "seznanitev")
+            poskusov += 1
+        self.assertEqual(poskusov, 10)
+        self.assertEqual(self.zapore[0][2], "seznanitev")
+
+    def test_zapora_se_ob_ponovitvi_podvoji(self):
+        trajanja = []
+        for _ in range(5):
+            self._do_zapore(A)
+            trajanja.append(self.zapore[-1][1])
+            self.ura.t += self.zapore[-1][1] + 1
+        self.assertEqual(trajanja, [600.0, 1200.0, 2400.0, 3600.0, 3600.0])
+        # Po dnevu miru se stetje ponovitev zacne znova.
+        self.ura.t += link_obramba.POZABI_PONOVITVE_S + 1
+        self._do_zapore(A)
+        self.assertEqual(self.zapore[-1][1], 600.0)
+
+    def test_poplava_povezav(self):
+        sprejetih = 0
+        for _ in range(1000):
+            if not self.o.dovoli(A):
+                break
+            sprejetih += 1
+        self.assertEqual(sprejetih, 399)
+        self.assertEqual(self.zapore, [(A, 600.0, "povezava")])
+
+    def test_zaupan_vir(self):
+        # Telefon, ki lista mapo s slikami: na stotine povezav. Prijavil se je s podpisom - ni poplava.
+        for _ in range(300):
+            self.o.dovoli(A)
+        self.o.zaupaj(A)
+        for _ in range(5000):
+            self.assertTrue(self.o.dovoli(A))
+        self.assertEqual(self.zapore, [])
+        # Sovrazni dogodki zaupanega vira stejejo polovico (prag pri 40 namesto 20 zavrnitvah).
+        for _ in range(39):
+            self.o.dogodek(A, "brez_zaupanja")
+        self.assertFalse(self.o.zaprt(A))
+        self.o.dogodek(A, "brez_zaupanja")
+        self.assertTrue(self.o.zaprt(A), "tudi zaupan vir ne sme ugibati brez konca")
+        # Zaupanje potece.
+        self.o.zaupaj(B)
+        self.ura.t += link_obramba.ZAUPANJE_S + 1
+        for _ in range(1000):
+            if not self.o.dovoli(B):
+                break
+        self.assertTrue(self.o.zaprt(B))
+
+    def test_ta_naprava_ni_nikoli_zaprta(self):
+        for vir in ("127.0.0.1", "127.0.0.53", "::1", "::ffff:127.0.0.1", ""):
+            for _ in range(500):
+                self.o.dogodek(vir, "seznanitev")
+                self.assertTrue(self.o.dovoli(vir), vir)
+        self.assertEqual(self.zapore, [])
+        self.assertFalse(link_obramba.je_ta_naprava("192.168.0.1"))
+        self.assertFalse(link_obramba.je_ta_naprava("::ffff:192.168.0.1"))
+
+    def test_napad_vec_virov(self):
+        self._do_zapore(A)
+        self._do_zapore(B)
+        self.assertEqual(self.napadi, [])
+        self._do_zapore(C)
+        self.assertEqual(self.napadi, [[A, B, C]])
+        self.assertTrue(self.o.stanje()["napad"])
+        # Isti napad se ne javlja znova ob vsakem novem viru.
+        self._do_zapore("192.168.0.69")
+        self.assertEqual(len(self.napadi), 1)
+        self.ura.t += link_obramba.NAPAD_OKNO_S + 1
+        self.assertFalse(self.o.stanje()["napad"])
+
+    def test_napad_vztrajen_vir(self):
+        for _ in range(2):
+            self._do_zapore(A)
+            self.ura.t += self.zapore[-1][1] + 1
+        self.assertEqual(self.napadi, [])
+        self._do_zapore(A)
+        self.assertEqual(self.napadi, [[A]])
+
+    def test_spomin_je_omejen_in_zaprti_ostanejo(self):
+        self._do_zapore(A)
+        for i in range(link_obramba.NAJVEC_VIROV + 200):
+            self.o.dogodek("10.%d.%d.%d" % (i >> 16 & 255, i >> 8 & 255, i & 255), "tipanje")
+        self.assertLessEqual(len(self.o._viri), link_obramba.NAJVEC_VIROV)
+        self.assertTrue(self.o.zaprt(A), "zaprt vir ne sme izpasti iz spomina")
+
+    def test_sprosti(self):
+        self._do_zapore(A)
+        self.assertTrue(self.o.sprosti(A))
+        self.assertTrue(self.o.dovoli(A))
+        self.assertFalse(self.o.sprosti(A))
+        self.assertFalse(self.o.sprosti("192.168.9.9"))
+
+    def test_povratni_klic_ne_podre_sredisca(self):
+        o = Obramba(ura=self.ura, ob_zapori=lambda *a: 1 / 0)
+        for _ in range(30):
+            o.dogodek(A, "brez_zaupanja")
+        self.assertTrue(o.zaprt(A))
+
+    def test_vrsta_napake(self):
+        v = link_obramba.vrsta_napake
+        self.assertEqual(v(401, "ni_v_krogu"), "brez_zaupanja")
+        self.assertEqual(v(401, "napacna_koda"), "seznanitev")
+        self.assertEqual(v(429, "prevec_poskusov"), "seznanitev")
+        self.assertEqual(v(404, "ni_poti"), "tipanje")
+        # 405 je del prepoznave sredisca (link_hub.je_hub), 409 in 503 sta stanje - niso sovrazni.
+        self.assertEqual(v(405, "metoda_ni_dovoljena"), "")
+        self.assertEqual(v(409, "manjka_korak"), "")
+        self.assertEqual(v(503, "prevec_prenosov"), "")
+        self.assertEqual(v(200, "ni_poti"), "")
+        self.assertTrue(set(link_obramba.VRSTA_PO_NAPAKI.values()) <= set(link_obramba.TEZE))
+
+    def test_besedilo_obvestila(self):
+        naslov, besedilo = link_hub_streznik.besedilo_zapore(A, 600.0, "seznanitev", True)
+        self.assertIn("Safeer Link", naslov)
+        self.assertIn(A, besedilo)
+        self.assertIn("10 min", besedilo)
+        self.assertIn("kodo", besedilo)
+        naslov, besedilo = link_hub_streznik.besedilo_zapore(A, 1200.0, "povezava", False)
+        self.assertIn(A, besedilo)
+        self.assertIn("20 min", besedilo)
+        for razlog in list(link_obramba.TEZE) + ["nekaj_novega"]:
+            for sl in (True, False):
+                self.assertTrue(all(link_hub_streznik.besedilo_zapore(A, 600.0, razlog, sl)))
+        self.assertIn(B, link_hub_streznik.besedilo_napada([A, B], True)[1])
+        # Jezik seje: LANGUAGE ima prednost pred LC_ALL (tako kot v Controlu); C in POSIX nista jezik.
+        for okolje, pricakovano in (({"LANGUAGE": "sl_SI:sl", "LC_ALL": "en_US.UTF-8"}, True), ({"LANG": "sl_SI.UTF-8"}, True),
+                                    ({"LC_ALL": "C", "LANG": "sl_SI.UTF-8"}, True), ({"LANG": "en_US.UTF-8"}, False), ({}, False)):
+            with mock.patch.dict(os.environ, okolje, clear=True):
+                self.assertEqual(link_hub_streznik._slovensko(), pricakovano, okolje)
+
+
+class SredisceVZivo(unittest.TestCase):
+    """Pravo sredisce na zanki. Zanka je sicer izvzeta - tu jo stejemo, da lahko napademo sami sebe."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mapa = tempfile.TemporaryDirectory()
+        cls.popravki = [
+            mock.patch.object(link_krog, "_mapa_nastavitev", return_value=cls.mapa.name),
+            # Na razvojnem racunalniku ze tece sredisce na privzetih vratih: preizkus zazene svoje na drugih.
+            mock.patch.object(link_hub_streznik.HubStreznik, "_ze_gosti_lokalno", staticmethod(lambda: False)),
+            mock.patch.dict(os.environ, {"SAFEER_HUB_DRUGI": "1"}),
+            mock.patch.object(link_hub_streznik, "_obvestilo", lambda *a, **k: None),
+        ]
+        for p in cls.popravki:
+            p.start()
+        cls.streznik = link_hub_streznik.HubStreznik(tls_mapa=os.path.join(cls.mapa.name, "tls"))
+        cls.streznik.obramba.izvzet = lambda vir: False
+        if not cls.streznik.zazeni():
+            for p in reversed(cls.popravki):
+                p.stop()
+            cls.mapa.cleanup()
+            raise unittest.SkipTest("sredisca ni bilo mogoce zagnati")
+        cls.osnova = "https://127.0.0.1:%d" % cls.streznik.vrata
+        cls.odtis = cls.streznik.odtis
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.streznik.ustavi()
+        for p in reversed(cls.popravki):
+            p.stop()
+        cls.mapa.cleanup()
+
+    def setUp(self):
+        self.zapore = []
+        self.streznik.ob_zapori = lambda *a: self.zapore.append(a)
+        self.streznik.obramba.sprosti("127.0.0.1")
+        with self.streznik.obramba._zaklep:
+            self.streznik.obramba._viri.clear()
+
+    def _zeton(self, zeton="ni-pravi"):
+        return link_tls.zahteva(self.osnova + "/cast/ticket", {}, zeton, timeout=5.0, pripeti=self.odtis)[0]
+
+    def test_prepoznava_sredisca_ni_sovrazna(self):
+        for _ in range(12):
+            self.assertTrue(link_hub.je_hub(self.osnova, odtis=self.odtis))
+        self.assertEqual(self.zapore, [])
+        self.assertFalse(self.streznik.obramba.zaprt("127.0.0.1"))
+
+    def test_napacni_zetoni_zaprejo_vir_in_ta_ne_dobi_vec_niti_rokovanja(self):
+        kode = []
+        for _ in range(40):
+            kode.append(self._zeton())
+            if self.zapore:
+                break
+        # 20 (zavrnjen zeton) + 1 (povezava) na poskus: devetnajst jih dobi odgovor, dvajseta povezava je ze zaprta.
+        self.assertEqual(kode, [401] * 19 + [0])
+        self.assertEqual([(z[0], z[2]) for z in self.zapore], [("127.0.0.1", "brez_zaupanja")])
+        # Zaprt vir: povezava se zapre pred rokovanjem TLS - ni odgovora, ni potrdila.
+        self.assertEqual(self._zeton(), 0)
+        self.assertEqual(link_tls.potrdilo_huba("wss://127.0.0.1:%d/cast/ws" % self.streznik.vrata, timeout=2.0), ("", ""))
+        self.assertFalse(link_hub.je_hub(self.osnova, odtis=self.odtis))
+        self.assertGreaterEqual(self.streznik.obramba.stanje()["zavrnjenih"], 3)
+        # Uporabnik vir sprosti: sredisce spet odgovarja.
+        self.assertTrue(self.streznik.obramba.sprosti("127.0.0.1"))
+        self.assertEqual(self._zeton(), 401)
+
+    def test_tipanje_vrat_brez_tls(self):
+        """Pregledovalnik vrat: povezava brez rokovanja TLS. Vsaka steje 11; zapora ob sedemintrideseti."""
+        import time
+        for i in range(60):
+            try:
+                v = socket.create_connection(("127.0.0.1", self.streznik.vrata), timeout=2.0)
+                v.sendall(b"GET / HTTP/1.0\r\n\r\n")
+                v.close()
+            except OSError:
+                pass
+            # Rokovanje pade v delovni niti streznika: pocakamo, da je presteto.
+            for _ in range(300):
+                if self.zapore:
+                    break
+                with self.streznik.obramba._zaklep:
+                    v_ = self.streznik.obramba._viri.get("127.0.0.1")
+                    presteto = sum(1 for d in v_.dogodki if d[2] == "rokovanje") if v_ else 0
+                if presteto >= i + 1:
+                    break
+                time.sleep(0.01)
+            if self.zapore:
+                break
+        self.assertEqual([(z[0], z[2]) for z in self.zapore], [("127.0.0.1", "rokovanje")])
+        self.assertEqual(i + 1, 37)
+
+    def test_clan_kroga_dela_naprej(self):
+        """Veljaven podpis naredi vir zaupan: stotine povezav niso poplava."""
+        clan = {"kljuc": link_krog.javni_kljuc_b64(), "ime": "Preizkus", "platforma": "linux"}
+        lazni = mock.MagicMock()
+        lazni.clan_za_id.return_value = clan
+        lazni.json.return_value = {"v": 1, "clani": {}, "umiki": {}}
+        naslov = "wss://127.0.0.1:%d%s" % (self.streznik.vrata, link_hub_streznik.POT_WS)
+        with mock.patch.object(link_krog, "krog", return_value=lazni), \
+                mock.patch.object(link_krog, "lahko_s_podpisom", return_value=True):
+            vstopnica, _ = link_hub.vzemi_vstopnico_s_podpisom(naslov, "n-0123456789abcdef", self.odtis, "Preizkus")
+        self.assertTrue(vstopnica, "prijava s podpisom mora uspeti")
+        for _ in range(450):
+            self.assertTrue(self.streznik.obramba.dovoli("127.0.0.1"))
+        self.assertEqual(link_tls.zahteva(self.osnova + "/cast/health", timeout=5.0, pripeti=self.odtis)[0], 200)
+        self.assertEqual(self.zapore, [])
+
+    def test_zacetek_seznanitve_steje(self):
+        """Vsak zacetek seznanitve uporabniku pokaze obvestilo s kodo: napadalec ga ne sme sproziti brez konca."""
+        kode = []
+        for i in range(30):
+            koda, _, _ = link_tls.zahteva(self.osnova + "/cast/pair/start", {"device_id": "x-%d" % i, "name": "Napadalec"},
+                                          timeout=5.0, pripeti=self.odtis)
+            kode.append(koda)
+            if self.zapore:
+                break
+        # Trije zacetki dobijo kodo (tri obvestila), cetrti vir zapre.
+        self.assertEqual(kode, [200, 200, 200, 200])
+        self.assertEqual(self.zapore[0][2], "zacetek_seznanitve")
+        self.assertEqual(link_tls.zahteva(self.osnova + "/cast/pair/start", {"device_id": "x", "name": "N"},
+                                          timeout=3.0, pripeti=self.odtis)[0], 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

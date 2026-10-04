@@ -36,7 +36,7 @@ import time
 from typing import Callable, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
 
-from core import link_hub_deljenje, link_krog, link_tls, link_ws
+from core import link_hub_deljenje, link_krog, link_obramba, link_tls, link_ws
 
 #: Vrata Huba. Najprej privzeta (naprave jih poznajo tudi brez mDNS), sicer katerakoli prosta.
 PRIVZETA_VRATA = 8990
@@ -1621,6 +1621,31 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             self.wfile.write(podatki)
         except Exception:
             pass
+        if koda >= 400:
+            self._sovrazno(link_obramba.vrsta_napake(koda, str(telo.get("error_code") or telo.get("code") or "")))
+
+    # ------------------------------------------------------------------ obramba
+    def _vir(self) -> str:
+        return self.client_address[0] if self.client_address else ""
+
+    def _sovrazno(self, vrsta: str) -> None:
+        """Sovrazen dogodek tega vira (core/link_obramba): zavrnjen podpis, tipanje poti, ugibanje kode ..."""
+        obramba = getattr(self.server, "obramba", None)
+        if obramba is not None and vrsta:
+            obramba.dogodek(self._vir(), vrsta)
+
+    def _zaupaj(self) -> None:
+        """Vir se je izkazal kot clan kroga (veljaven podpis, vstopnica ali zeton)."""
+        obramba = getattr(self.server, "obramba", None)
+        if obramba is not None:
+            obramba.zaupaj(self._vir())
+
+    def _lastnik_zetona(self):
+        """Naprava, ki ji pripada zeton v glavi (id, ime), ali None. Veljaven zeton pomeni zaupan vir."""
+        lastnik = self._hub.naprava_zetona(self.headers.get("X-Safeer-Token") or "")
+        if lastnik:
+            self._zaupaj()
+        return lastnik
 
     def _napaka(self, koda: int, sporocilo: str, oznaka: str) -> None:
         self._odgovori(koda, {"error": sporocilo, "error_code": oznaka, "detail": sporocilo, "code": oznaka})
@@ -1769,7 +1794,7 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             self._napaka(404, "Ni te poti.", "ni_poti")
             return
         hub = self._hub
-        lastnik = hub.naprava_zetona(self.headers.get("X-Safeer-Token") or "")
+        lastnik = self._lastnik_zetona()
         if not lastnik:
             self._zavrzi_telo()
             self._odgovori(401, link_hub_deljenje.napaka("Naprava ni seznanjena.", "naprava_ni_seznanjena"))
@@ -1845,6 +1870,7 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
                 # 401 pomeni: te naprave (s tem kljucem) v krogu nimamo. Odjemalec to razume.
                 self._napaka(401, "Naprave ni v krogu zaupanja.", "ni_v_krogu")
                 return
+            self._zaupaj()
             self._odgovori(200, odgovor)
             return
         if pot == "/cast/ticket":
@@ -1853,6 +1879,7 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             if odgovor is None:
                 self._napaka(401, "Naprava ni seznanjena.", "naprava_ni_seznanjena")
                 return
+            self._zaupaj()
             self._odgovori(200, odgovor)
             return
         if pot == "/cast/pair/sibling":
@@ -1901,7 +1928,7 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             self._odgovori(200, {"approved": True, "token": zeton, "hub_id": IDENTITETA_HUBA, "fp": self._hub.odtis})
             return
         if pot in ("/cast/pair/qr/invite", "/cast/pair/qr/invite/status", "/cast/pair/qr/invite/cancel"):
-            if not self._hub.naprava_zetona(self.headers.get("X-Safeer-Token") or ""):
+            if not self._lastnik_zetona():
                 self._napaka(401, "Naprava ni seznanjena.", "naprava_ni_seznanjena")
                 return
             telo = self._telo()
@@ -1937,6 +1964,7 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
                 koda = 429 if napaka == "prevec_prijav" else 400
                 self._napaka(koda, "Prijava ni mogoča.", napaka or "napaka")
                 return
+            self._sovrazno("seznanitev")
             self._odgovori(200, {
                 "qr_id": qr_id,
                 "hub_id": IDENTITETA_HUBA,
@@ -1945,7 +1973,7 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             })
             return
         if pot in ("/cast/pair/qr/info", "/cast/pair/qr/approve"):
-            odobril = self._hub.naprava_zetona(self.headers.get("X-Safeer-Token") or "")
+            odobril = self._lastnik_zetona()
             if not odobril:
                 self._napaka(401, "Naprava ni seznanjena.", "naprava_ni_seznanjena")
                 return
@@ -2007,6 +2035,8 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             if odgovor is None:
                 self._napaka(429, "Preveč čakajočih prijav; poskusite čez nekaj minut.", "prevec_prijav")
                 return
+            # Vsak zacetek uporabniku pokaze obvestilo s kodo: cetrti v minuti vir zapre.
+            self._sovrazno("zacetek_seznanitve")
             self._odgovori(200, odgovor)
             return
         if not pair_id or not device_id:
@@ -2054,6 +2084,7 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
         if not device_id:
             self._napaka(401, "Neveljavna ali potekla vstopnica.", "ni_vstopnice")
             return
+        self._zaupaj()
         try:
             self.wfile.write(link_ws.odgovor_rokovanja(link_ws.kljuc_iz_glav(glave)))
             self.wfile.flush()
@@ -2111,23 +2142,93 @@ def _je_krajevni_naslov(naslov: str) -> bool:
 
 
 def _obvestilo_kode(ime: str, koda: str) -> None:
-    """Koda za novo napravo tudi na racunalniku (Link je lahko brez televizorja). Brez notify-send nic."""
-    import shutil
-    import subprocess
-    if not shutil.which("notify-send"):
-        return
+    """Koda za novo napravo tudi na racunalniku (Link je lahko brez televizorja)."""
+    _obvestilo("Safeer Link: nova naprava", "%s se želi povezati. Vpiši kodo %s %s" % (ime, koda[:3], koda[3:]),
+               cas_ms=int(PIN_VELJA_S * 1000))
+
+
+def _slovensko() -> bool:
+    """Jezik seje po istem vrstnem redu kot Control (LANGUAGE, LC_ALL, LC_MESSAGES, LANG)."""
+    for kljuc in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
+        vrednost = (os.environ.get(kljuc) or "").strip().lower()
+        if vrednost and vrednost not in ("c", "posix"):
+            return vrednost.startswith("sl")
+    return False
+
+
+def _obvestilo_dbus(naslov: str, besedilo: str, cas_ms: int) -> bool:
+    """Obvestilo po D-Busu (org.freedesktop.Notifications): brez orodja notify-send, ki ga paket ne zahteva."""
     try:
-        subprocess.Popen(["notify-send", "-a", "Safeer Control", "-i", "safeer-control", "-t", str(int(PIN_VELJA_S * 1000)),
-                          "Safeer Link: nova naprava",
-                          "%s se želi povezati. Vpiši kodo %s %s" % (ime, koda[:3], koda[3:])],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        from gi.repository import Gio, GLib
+        vodilo = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        vodilo.call_sync("org.freedesktop.Notifications", "/org/freedesktop/Notifications",
+                         "org.freedesktop.Notifications", "Notify",
+                         GLib.Variant("(susssasa{sv}i)", ("Safeer Control", 0, "safeer-control", naslov, besedilo, [], {}, int(cas_ms))),
+                         GLib.VariantType("(u)"), Gio.DBusCallFlags.NONE, 3000, None)
+        return True
     except Exception:
-        pass
+        return False
+
+
+def _obvestilo(naslov: str, besedilo: str, cas_ms: int = 15000) -> None:
+    """Obvestilo namizja; sredisce tece v ozadju, uporabnik drugace ne izve. V svoji niti: sredisce ne caka nanj."""
+    def poslji() -> None:
+        if _obvestilo_dbus(naslov, besedilo, cas_ms):
+            return
+        import shutil
+        import subprocess
+        if not shutil.which("notify-send"):
+            return
+        try:
+            subprocess.Popen(["notify-send", "-a", "Safeer Control", "-i", "safeer-control", "-t", str(int(cas_ms)), naslov, besedilo],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+    threading.Thread(target=poslji, name="safeer-obvestilo", daemon=True).start()
+
+
+def besedilo_zapore(vir: str, trajanje_s: float, razlog: str, slovensko: bool) -> tuple:
+    """(naslov, besedilo) obvestila ob zapori vira - loceno, da je preizkusljivo."""
+    minut = max(1, int(round(trajanje_s / 60.0)))
+    if slovensko:
+        kaj = {"seznanitev": "je ugibala kodo za povezavo", "zacetek_seznanitve": "se je vsiljevala v Safeer Link",
+               "brez_zaupanja": "se je prijavljala brez dovoljenja",
+               "povezava": "je odpirala preveč povezav", "rokovanje": "je tipala vrata Safeer Linka",
+               "tipanje": "je tipala po Safeer Linku", "okvir": "je pošiljala pokvarjena sporočila"}.get(razlog, "se je vedla sumljivo")
+        return ("Safeer Link: naprava ustavljena",
+                "Naprava z naslova %s %s. Za %d min je ne poslušam več. Tvoje naprave delajo naprej." % (vir, kaj, minut))
+    kaj = {"seznanitev": "was guessing the pairing code", "zacetek_seznanitve": "kept asking to join Safeer Link",
+           "brez_zaupanja": "kept signing in without permission",
+           "povezava": "was opening too many connections", "rokovanje": "was probing the Safeer Link port",
+           "tipanje": "was probing Safeer Link", "okvir": "was sending broken messages"}.get(razlog, "behaved suspiciously")
+    return ("Safeer Link: device stopped",
+            "The device at %s %s. I will not listen to it for %d min. Your devices keep working." % (vir, kaj, minut))
+
+
+def besedilo_napada(viri: list, slovensko: bool) -> tuple:
+    if slovensko:
+        return ("Safeer Link: napad v domačem omrežju",
+                "Ustavljene naprave: %s. Preveri, kdo je v tvojem omrežju (gostje, neznane naprave)." % ", ".join(viri[:6]))
+    return ("Safeer Link: attack in the home network",
+            "Stopped devices: %s. Check who is in your network (guests, unknown devices)." % ", ".join(viri[:6]))
 
 
 class _Streznik(link_tls.RokovanjeVNiti, http.server.ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+    #: Obrambni mehanizem (core/link_obramba.Obramba) ali None.
+    obramba = None
+
+    def verify_request(self, request, client_address) -> bool:
+        """Zaprt vir ne pride niti do rokovanja TLS: povezava se zapre brez potrdila in brez odgovora."""
+        obramba = self.obramba
+        if obramba is None:
+            return True
+        return obramba.dovoli(client_address[0] if client_address else "")
+
+    def ob_neuspelem_rokovanju(self, client_address) -> None:
+        if self.obramba is not None:
+            self.obramba.dogodek(client_address[0] if client_address else "", "rokovanje")
 
     def handle_error(self, request, client_address) -> None:
         """Naprava, ki prekine povezavo, ni napaka Huba in ne sodi v uporabnikov terminal.
@@ -2156,9 +2257,34 @@ class HubStreznik:
         self._streznik: Optional[_Streznik] = None
         self._nit: Optional[threading.Thread] = None
         self._zaklep = threading.Lock()
+        #: Obrambni mehanizem: zivi dlje kot streznik (zapora velja tudi po ponovnem zagonu sredisca v istem procesu).
+        self.obramba = link_obramba.Obramba(ob_zapori=self._ob_zapori, ob_napadu=self._ob_napadu)
+        #: Povratna klica za vmesnik: (vir, trajanje_s, razlog) in (seznam virov).
+        self.ob_zapori: Optional[Callable[[str, float, str], None]] = None
+        self.ob_napadu: Optional[Callable[[List[str]], None]] = None
 
     def tece(self) -> bool:
         return self._streznik is not None
+
+    def _ob_zapori(self, vir: str, trajanje_s: float, razlog: str) -> None:
+        logging.getLogger("safeer.link").warning("obramba: vir %s zaprt za %d s (%s)", vir, int(trajanje_s), razlog)
+        print("[SafeerLink] obramba: %s zaprt za %d min (%s)" % (vir, int(trajanje_s // 60), razlog), flush=True)
+        _obvestilo(*besedilo_zapore(vir, trajanje_s, razlog, _slovensko()))
+        if self.ob_zapori is not None:
+            try:
+                self.ob_zapori(vir, trajanje_s, razlog)
+            except Exception:
+                pass
+
+    def _ob_napadu(self, viri: List[str]) -> None:
+        logging.getLogger("safeer.link").warning("obramba: napad, zaprti viri: %s", ", ".join(viri))
+        print("[SafeerLink] obramba: NAPAD - zaprti viri: %s" % ", ".join(viri), flush=True)
+        _obvestilo(*besedilo_napada(viri, _slovensko()), cas_ms=60000)
+        if self.ob_napadu is not None:
+            try:
+                self.ob_napadu(viri)
+            except Exception:
+                pass
 
     @staticmethod
     def _ze_gosti_lokalno() -> bool:
@@ -2225,6 +2351,7 @@ class HubStreznik:
                 return False
             streznik.socket = ctx.wrap_socket(streznik.socket, server_side=True, do_handshake_on_connect=False)
             streznik.hub = self.hub          # type: ignore[attr-defined]
+            streznik.obramba = self.obramba
             streznik.datoteke = lambda: self.datoteke() if callable(self.datoteke) else self.datoteke  # type: ignore[attr-defined]
             self.vrata = streznik.server_address[1]
             try:
