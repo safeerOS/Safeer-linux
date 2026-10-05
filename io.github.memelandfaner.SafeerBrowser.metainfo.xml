@@ -48,6 +48,7 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.0.99" date="2026-10-05"><description><p>Packaged with Safeer OS 0.4.57 and Safeer Control 2.1.55: the screen of one computer can be shown on another computer, and the screen of a phone or tablet opens on the computer.</p></description></release>
     <release version="1.0.98" date="2026-10-05"><description><p>Packaged with Safeer OS 0.4.56 and Safeer Control 2.1.54: a file sent from another computer arrives, and sharing the screen of the computer with a phone, tablet or TV works again.</p></description></release>
     <release version="1.0.97" date="2026-10-05"><description><p>Packaged with Safeer OS 0.4.55 and Safeer Control 2.1.53: after it starts, the computer is back in Safeer Link sooner, it tells other devices every address it has on the home network, and the remote screen tries each of them.</p></description></release>
     <release version="1.0.96" date="2026-10-05"><description><p>Packaged with Safeer OS 0.4.54 and Safeer Control 2.1.52: the screen of this computer opens from a phone, tablet or TV again, a remote screen no longer drops while the mouse moves, and a stuck screen-sharing session no longer blocks the next one.</p></description></release>
