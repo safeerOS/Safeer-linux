@@ -1,5 +1,6 @@
 """Protocol v1: model naprave, ki ga racunalnik pove v cast.register (core/link_hub.model_naprave_v1)."""
 import base64
+import os
 import sys
 import unittest
 
@@ -10,7 +11,7 @@ class ModelNapraveV1(unittest.TestCase):
     def test_control_in_brskalnik(self):
         c = link_hub.model_naprave_v1("pc-abc-control")
         self.assertEqual(c["protocol"], "1.0")
-        self.assertEqual(c["platform"], "linux")
+        self.assertEqual(c["platform"], "windows" if os.name == "nt" else "linux")
         self.assertEqual(c["kind"], "control")
         b = link_hub.model_naprave_v1("pc-abc")
         self.assertEqual(b["kind"], "computer")

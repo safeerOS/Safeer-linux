@@ -6,6 +6,8 @@ from unittest import mock
 from core import link_hub
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#: Preizkus z oznako bere vmesnik Safeer Controla za Linux; v repozitoriju Safeer OS za Windows (isto jedro) ga ni.
+JE_CONTROL_ZA_LINUX = os.path.isfile(os.path.join(KOREN, "core", "safeer_link.py"))
 HUB = "wss://192.168.0.77:8990/cast/ws"
 
 
@@ -57,6 +59,7 @@ class Vabilo(unittest.TestCase):
         with mock.patch.object(link_hub, "_zahteva", lambda *a, **k: (404, {})):
             self.assertFalse(link_hub.odidi(HUB, "z", "f"))
 
+    @unittest.skipUnless(JE_CONTROL_ZA_LINUX, "vmesnik Safeer Controla za Linux")
     def test_stran_in_control(self):
         html = _beri("assets", "link", "index.html")
         js = _beri("assets", "link", "link.js")

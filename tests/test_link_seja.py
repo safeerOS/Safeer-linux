@@ -8,6 +8,8 @@ from unittest import mock
 from core import link_seja
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#: Preizkus z oznako bere vmesnik Safeer Controla za Linux; v repozitoriju Safeer OS za Windows (isto jedro) ga ni.
+JE_CONTROL_ZA_LINUX = os.path.isfile(os.path.join(KOREN, "core", "safeer_link.py"))
 POVEZAN = {"control_token": "saf_x", "hub_fp": "f" * 64, "hub_url": "wss://h:8990/cast/ws",
            "seznanitve": {"f" * 64: {"token": "saf_x"}}}
 
@@ -18,6 +20,7 @@ def _beri(*deli):
 
 
 class Seja(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "seja prijave se bere iz /proc in logind (Linux)")
     def test_seja(self):
         with tempfile.TemporaryDirectory() as proc:
             os.makedirs(os.path.join(proc, "sys/kernel/random"))
@@ -68,6 +71,7 @@ class Seja(unittest.TestCase):
         p = {"brez_povezave": True}          # stari zapis: prijavno okno se pokaze znova
         self.assertTrue(link_seja.pocisti(p, "A"))
 
+    @unittest.skipUnless(JE_CONTROL_ZA_LINUX, "vmesnik Safeer Controla za Linux")
     def test_prijavno_okno_ima_zaupanje(self):
         html = _beri("assets", "link", "index.html")
         js = _beri("assets", "link", "link.js")
