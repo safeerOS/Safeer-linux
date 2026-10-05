@@ -1119,6 +1119,7 @@ class SafeerControl(Gtk.Application):
             ob_zaprtju=self.ob_zaprtju_okna,
             zapri_deljeni_zaslon=self._zapri_gledalca,
             odpri_oddaljeni_zaslon=self.upravljaj_racunalnik,
+            odpri_zaslon=self._odpri_gledalca,
         )
         self.link.ob_povezavi = self._na_povezavo
         self.link.ob_brez_povezave = self.odpri_safeer_os
