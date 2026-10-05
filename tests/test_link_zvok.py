@@ -81,6 +81,38 @@ class ZvokNaNapravo(unittest.TestCase):
         self.assertEqual(self.z.opis()["naprava"], "")
         self.assertIn("tece", self.spremembe)
 
+    def test_naprava_ki_ne_bere_ne_drzi_zvoka(self):
+        """Naprava izgine brez slovesa (povezava ostane, bere pa ne vec): zvok se mora vrniti na racunalnik."""
+        import time
+        mock.patch.object(link_zvok, "ukaz_zajema", lambda vir, ff: [
+            sys.executable, "-c", "import sys\nkos = bytes(65536)\nwhile True:\n    sys.stdout.buffer.write(kos)"]).start()
+        mock.patch.object(link_zvok, "ROK_PISANJA_S", 0.5, create=True).start()
+        self.addCleanup(self.z.ustavi)
+        p = self.z.zacni("tv-1", "TV")
+        s = self._povezi(p)
+        self.addCleanup(s.close)
+        vrstica = b""
+        while not vrstica.endswith(b"\n"):
+            vrstica += s.recv(1)
+        self.assertEqual(len(self._beri(s, 5)), 5)           # zvok tece ...
+        konec = time.monotonic() + 8                         # ... nato naprava ne bere vec
+        while time.monotonic() < konec and not self.obnovljeno:
+            time.sleep(0.05)
+        self.assertTrue(self.obnovljeno, "naprava ne bere, zvok pa se ni vrnil na racunalnik")
+        self.assertEqual(self.z.opis()["naprava"], "")
+
+    def test_pozdrav_z_ne_ascii_znaki_ne_podre_seje(self):
+        """Tuj pozdrav z znaki zunaj ASCII je le zavrnjen; prava naprava se se vedno lahko poveze."""
+        p = self.z.zacni("tv-1", "TV")
+        s = self._povezi(p, zeton="ponarejen-\u010d\u0161\u017e")
+        self.assertEqual(self._beri(s, 1), b"")
+        s.close()
+        self.assertEqual(self.z.opis()["naprava"], "tv-1")
+        s = self._povezi(p)
+        self.assertTrue(self._beri(s, 1))
+        s.close()
+        self.z.ustavi()
+
     def test_napacen_zeton_ne_dobi_nicesar(self):
         p = self.z.zacni("tv-1", "TV")
         s = self._povezi(p, zeton="ponarejen")
