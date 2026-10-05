@@ -166,7 +166,8 @@ class SafeerLink:
                  control: bool = False,
                  ob_zaprtju: Optional[Callable[[], None]] = None,
                  zapri_deljeni_zaslon: Optional[Callable[[], None]] = None,
-                 odpri_oddaljeni_zaslon: Optional[Callable[[str], dict]] = None) -> None:
+                 odpri_oddaljeni_zaslon: Optional[Callable[[str], dict]] = None,
+                 odpri_zaslon: Optional[Callable[[str], None]] = None) -> None:
         self.starsevsko = starsevsko
         # Safeer Control: ista stran in isti Link, a brez brskalnika (svoja identiteta in shramba,
         # okno je glavno okno programa, prejete strani odpre sistemski brskalnik).
@@ -174,6 +175,8 @@ class SafeerLink:
         self.ob_zaprtju = ob_zaprtju
         self.zapri_deljeni_zaslon = zapri_deljeni_zaslon
         self.odpri_oddaljeni_zaslon = odpri_oddaljeni_zaslon
+        # Kdo odpre stran gledalca deljenega zaslona (Safeer Control: svoje okno). Brez tega jo odpre odpri_naslov.
+        self.odpri_zaslon = odpri_zaslon
         self._identiteta = identiteta
         self.config = config
         self.trenutna_stran = trenutna_stran
@@ -1379,16 +1382,21 @@ class SafeerLink:
         elif vrsta == "share.screen":
             dejanje = str(telo.get("action", "") or "")
             if dejanje == "start":
-                self.gledani_zaslon = str(sporocilo.get("sender", "") or "")
-                self.gledani_zaslon_id = str(telo.get("id", "") or "")
+                posiljatelj = str(sporocilo.get("sender", "") or "")
+                id_deljenja = str(telo.get("id", "") or "")
+                self.gledani_zaslon = posiljatelj
+                self.gledani_zaslon_id = id_deljenja
                 pot = str(telo.get("path", "") or "")
-                url = (link_hub._osnova(self._hub()) + pot) if pot.startswith("/") else str(telo.get("url", "") or "")
                 # Novejse naprave posljejo odtis izrecno; pri starejsih je sporocilo prislo po
                 # ze pripeti povezavi z istim Hubom, zato uporabimo njen pripeti odtis.
                 odtis = str(telo.get("fp") or telo.get("fingerprint") or telo.get("odtis")
                             or sporocilo.get("fp") or sporocilo.get("fingerprint") or self._odtis() or "")
-                if url.startswith("https://") and odtis:
-                    self._v_ozadju(lambda: self._odpri_zaslon_s_huba(url, odtis))
+                if pot.startswith("/"):
+                    self._v_ozadju(lambda: self._odpri_deljeni_zaslon(posiljatelj, id_deljenja, pot, odtis))
+                else:
+                    url = str(telo.get("url", "") or "")
+                    if url.startswith("https://") and odtis:
+                        self._v_ozadju(lambda: self._odpri_zaslon_s_huba(url, odtis))
             elif dejanje == "stop":
                 id_deljenja = str(telo.get("id", "") or "")
                 if not self.gledani_zaslon_id or not id_deljenja or id_deljenja == self.gledani_zaslon_id:
@@ -1421,6 +1429,22 @@ class SafeerLink:
                     GLib.idle_add(self._obvesti, "📁 " + od, f"Datoteke {ime} ni bilo mogoče prevzeti: {razlog}")
             self._v_ozadju(prenesi)
 
+    def _odpri_deljeni_zaslon(self, posiljatelj: str, id_deljenja: str, pot: str, odtis: str) -> None:
+        """Stran gledalca je pri sredisci, ki je deljenje sprejelo: nasem (racunalnik ga zacne pri nas -
+        docs/LINK-MESH.md, pravilo 9) ali posiljateljevem (telefon ga zacne pri svojem, sporocilo je prislo cez
+        sosede). Vprasamo po vrsti, kot pri prejeti datoteki. Caka na omrezje - vedno v ozadju."""
+        sredisca = [(self._hub(), odtis)]
+        sredisce, _koda = self._sredisce_naprave(posiljatelj)
+        if sredisce is not None:
+            sredisca.append(sredisce)
+        url, odtis_sredisca = link_deljenje.gledalec_pri_srediscih(sredisca, pot)
+        if not url:
+            print("[SafeerLink] Deljeni zaslon: strani gledalca ni pri nobenem sredisci (deljenje je morda ze koncano).")
+            return
+        if self.gledani_zaslon_id != id_deljenja:
+            return          # deljenje se je med iskanjem koncalo (ali se je zacelo drugo): okna ne odpiramo
+        self._odpri_zaslon_s_huba(url, odtis_sredisca)
+
     def _odpri_zaslon_s_huba(self, url: str, odtis: str) -> None:
         """Stran gledalca prihaja s Huba (https, samopodpisano): brskalniku najprej povemo, da
         temu potrdilu - in samo temu - zaupa, potem odpremo zavihek."""
@@ -1435,7 +1459,7 @@ class SafeerLink:
             print(f"[SafeerLink] Potrdila Huba ni bilo mogoče dovoliti: {e}")
         def odpri():
             try:
-                self.odpri_naslov(url)
+                (getattr(self, "odpri_zaslon", None) or self.odpri_naslov)(url)
             except Exception as e:  # noqa: BLE001
                 print(f"[SafeerLink] Zaslona ni bilo mogoče odpreti: {e}")
             return False
@@ -1631,8 +1655,8 @@ class SafeerLink:
             return link_hub.seja_s_podpisom(naslov, nas_id, odtis, self._ime()), nas_id
 
         def lastno() -> tuple:
-            if g is not None and g.gostimo() and (self._hub() or "").startswith("wss://127.0.0.1:"):
-                return None, "zaslon_ni_na_voljo"    # sredisce racunalnika zaslona ne posreduje
+            # Naprava brez svojega sredisca: pokaze ji ga sredisce, na katero smo prijavljeni - tudi nase (od
+            # kroga 109 zaslon posreduje tudi sredisce racunalnika).
             zeton = self._zeton_http()
             if not zeton:
                 return None, "hub_ni_znan"
