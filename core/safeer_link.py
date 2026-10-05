@@ -1406,12 +1406,13 @@ class SafeerLink:
             posiljatelj = str(sporocilo.get("sender", "") or "")
 
             def prenesi():
-                # Link Mesh: datoteka caka pri sredisci POSILJATELJA (pot v sporocilu je relativna nanj), ne pri nasem.
-                naslov, pripet = self._hub(), self._odtis() or ""
+                # Pot v sporocilu je relativna na sredisce, ki je datoteko sprejelo: nase (racunalnik jo odda nam)
+                # ali posiljateljevo (oddal jo je svojemu, sporocilo je prislo cez sosede). Vprasamo po vrsti.
+                sredisca = [(self._hub(), self._odtis() or "")]
                 sredisce, _koda = self._sredisce_naprave(posiljatelj)
                 if sredisce is not None:
-                    naslov, pripet = sredisce
-                cilj, razlog = link_deljenje.prevzemi_datoteko(naslov, pripet, pot, ime, odtis)
+                    sredisca.append(sredisce)
+                cilj, razlog = link_deljenje.prevzemi_pri_srediscih(sredisca, pot, ime, odtis)
                 if cilj:
                     self._odziv("prejeto", {"vrsta": "datoteka", "od": od, "ime": os.path.basename(cilj),
                                             "mapa": os.path.dirname(cilj)})

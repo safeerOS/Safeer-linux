@@ -195,6 +195,31 @@ def enolicna_pot(mapa: str, ime: str) -> str:
 def prevzemi_datoteko(ws_naslov: str, odtis: str, pot_huba: str, ime: str, pricakovan_odtis: str,
                       mapa: Optional[str] = None) -> Tuple[Optional[str], str]:
     """Prenese datoteko s Huba v mapo prenosov. Vrne (pot, "") ali (None, razlog)."""
+    cilj, razlog, _koda = _prevzemi(ws_naslov, odtis, pot_huba, ime, pricakovan_odtis, mapa)
+    return cilj, razlog
+
+
+def prevzemi_pri_srediscih(sredisca, pot_huba: str, ime: str, pricakovan_odtis: str,
+                           mapa: Optional[str] = None) -> Tuple[Optional[str], str]:
+    """Datoteko prevzame pri prvem sredisci s seznama [(naslov, odtis), ...], ki jo ima. Vrne kot prevzemi_datoteko.
+
+    Pot v `share.file` je relativna na sredisce, ki je datoteko sprejelo - to pa je lahko nase (posiljatelj jo je
+    oddal nam; tako delajo racunalniki) ali posiljateljevo (oddal jo je svojemu, sporocilo je prislo cez sosede).
+    Iz sporocila se tega ne vidi, zato vprasamo po vrsti. Naslednje sredisce pride na vrsto samo, ce prejsnje
+    odgovori, da te datoteke nima (404); vsaka druga napaka je koncna (ni prostora, napacen odtis, ni povezave)."""
+    razlog = "Središče ni znano."
+    for naslov, odtis in sredisca:
+        if not naslov or not odtis:
+            continue
+        cilj, razlog, koda = _prevzemi(naslov, odtis, pot_huba, ime, pricakovan_odtis, mapa)
+        if cilj or koda != 404:
+            return cilj, razlog
+    return None, razlog
+
+
+def _prevzemi(ws_naslov: str, odtis: str, pot_huba: str, ime: str, pricakovan_odtis: str,
+              mapa: Optional[str] = None) -> Tuple[Optional[str], str, int]:
+    """(pot, "", 200) ali (None, razlog, koda HTTP sredisca); koda 0 = do odgovora ni prislo ali prenos ni uspel."""
     u = urlparse(ws_naslov)
     gostitelj, vrata = u.hostname or "127.0.0.1", u.port or 443
     cilj = enolicna_pot(mapa or mapa_prenosov(), varno_ime(ime))
@@ -203,7 +228,7 @@ def prevzemi_datoteko(ws_naslov: str, odtis: str, pot_huba: str, ime: str, prica
         povezava.request("GET", pot_huba)
         odgovor = povezava.getresponse()
         if odgovor.status != 200:
-            return None, f"Hub je odgovoril {odgovor.status}"
+            return None, f"Hub je odgovoril {odgovor.status}", int(odgovor.status)
         h = hashlib.sha256()
         with open(cilj, "wb") as f:
             while True:
@@ -218,14 +243,14 @@ def prevzemi_datoteko(ws_naslov: str, odtis: str, pot_huba: str, ime: str, prica
                 os.remove(cilj)
             except OSError:
                 pass
-            return None, "prstni odtis se ne ujema"
-        return cilj, ""
+            return None, "prstni odtis se ne ujema", 0
+        return cilj, "", 200
     except Exception as e:  # noqa: BLE001
         try:
             os.remove(cilj)
         except OSError:
             pass
-        return None, str(e)
+        return None, str(e), 0
     finally:
         try:
             povezava.close()
