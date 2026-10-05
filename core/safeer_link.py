@@ -1622,9 +1622,29 @@ class SafeerLink:
         else:
             self._deljenje("datoteka", "napaka", id_naprave, ime, n["sporocilo"], koda=n["koda"], zasedena_od=n["zasedenaOd"])
 
+    def _sredisce_za_zaslon(self, id_naprave: str) -> tuple:
+        """Sredisce, ki napravi pokaze nas zaslon (link_deljenje.sredisce_za_zaslon). Caka na omrezje."""
+        g = getattr(self, "_hub_gostitelj", None)
+        nas_id = getattr(g, "nas_id", "") or self._id()
+
+        def seja(naslov: str, odtis: str) -> tuple:
+            return link_hub.seja_s_podpisom(naslov, nas_id, odtis, self._ime()), nas_id
+
+        def lastno() -> tuple:
+            if g is not None and g.gostimo() and (self._hub() or "").startswith("wss://127.0.0.1:"):
+                return None, "zaslon_ni_na_voljo"    # sredisce racunalnika zaslona ne posreduje
+            zeton = self._zeton_http()
+            if not zeton:
+                return None, "hub_ni_znan"
+            return (self._hub(), zeton, self._odtis() or "", self._id()), ""
+
+        return link_deljenje.sredisce_za_zaslon(self._sredisce_naprave, seja, lastno, id_naprave)
+
     def _zacni_deljenje_zaslona(self, id_naprave: str = "", ime_naprave: str = "") -> None:
-        if not (self._hub() and self._zeton() and self._odtis()):
-            self._odziv("napaka", {"koda": "hub_ni_znan", "sporocilo": "Hub ni znan."})
+        # Zetona seznanitve tu ne zahtevamo: Control z lastnim srediscem ga nima, sejo dobi v delovni niti.
+        if not (self._hub() and self._odtis()):
+            self._deljenje("zaslon", "napaka", id_naprave, ime_naprave,
+                           link_deljenje.SPOROCILA_ZASLONA["hub_ni_znan"], koda="hub_ni_znan")
             return
         na_voljo, razlog = link_deljenje.DeljenjeZaslona.zajem_na_voljo()
         if not na_voljo:
@@ -1634,7 +1654,8 @@ class SafeerLink:
             self.deljenje_zaslona.ustavi()
         d = link_deljenje.DeljenjeZaslona(self._hub(), self._zeton() or "", self._odtis() or "",
                                           self._id(), id_naprave, ime_naprave,
-                                          ob_spremembi=self._na_spremembo_zaslona)
+                                          ob_spremembi=self._na_spremembo_zaslona,
+                                          sredisce=lambda: self._sredisce_za_zaslon(id_naprave))
         self.deljenje_zaslona = d
         d.zacni()
 
