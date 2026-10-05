@@ -30,7 +30,9 @@ import json
 import os
 import logging
 import re
+import socket
 import ssl
+import sys
 import threading
 import time
 from typing import Callable, Dict, List, Optional
@@ -759,6 +761,22 @@ class Hub:
         meja = self.ura() - PIN_VELJA_S
         for k in [k for k, p in self._qr_prijave.items() if p["nastala"] < meja]:
             self._qr_prijave.pop(k, None)
+
+    def zeton_lastne_naprave(self, device_id: str, ime: str = "") -> Optional[str]:
+        """Zeton za napravo, ki to sredisce gosti v ISTEM procesu (Safeer OS za Windows in njegovo sredisce).
+
+        Ni pot HTTP: kdor lahko poklice to metodo, ze tece v nasem procesu. Seznanitev s kodo (SPAKE2) med dvema
+        koncema istega procesa zato ne varuje nicesar, traja pa (izmerjeno 5. 10. 2026 na testnem Windows)
+        2,6-4,8 s ob vsakem zagonu. Prejsnje zetone iste naprave zamenja: zagon za zagonom bi sicer iz shrambe
+        (NAJVEC_ZETONOV) izrinil zetone drugih naprav.
+        """
+        device_id = (device_id or "").strip()[:NAJVEC_IMENA]
+        if not device_id:
+            return None
+        with self._zaklep:
+            for z in [z for z, vnos in self._zetoni.items() if vnos[0] == device_id]:
+                self._zetoni.pop(z, None)
+            return self._nov_zeton(device_id, (ime or device_id).strip()[:NAJVEC_IMENA])
 
     def naprava_zetona(self, zeton: str) -> Optional[tuple]:
         """(device_id, ime) za zeton iz seznanitve, ali None."""
@@ -2364,17 +2382,40 @@ def besedilo_kode(ime: str, koda: str, slovensko: bool) -> tuple:
     return ("Safeer Link: new device", "%s wants to connect. Enter the code %s %s" % (ime, koda[:3], koda[3:]))
 
 
+#: Program z oknom (Safeer OS za Windows) se tu prijavi, da kodo nove naprave pokaze sam: fn(ime, koda).
+POSLUSALCI_KODE: List[Callable[[str, str], None]] = []
+#: Jezik obvestil, kadar ga doloca program (Safeer OS za Windows ima svoj jezik vmesnika): "sl", "en" ...;
+#: None = jezik seje oziroma sistema.
+JEZIK_OBVESTIL: Optional[str] = None
+
+
 def _obvestilo_kode(ime: str, koda: str) -> None:
-    """Koda za novo napravo tudi na racunalniku (Link je lahko brez televizorja)."""
+    """Koda za novo napravo tudi na racunalniku (Link je lahko brez televizorja): najprej v odprtih oknih programa
+    (poslusalci), nato obvestilo namizja."""
+    for poslusalec in list(POSLUSALCI_KODE):
+        try:
+            poslusalec(ime, koda)
+        except Exception:
+            pass
     _obvestilo(*besedilo_kode(ime, koda, _slovensko()), cas_ms=int(PIN_VELJA_S * 1000))
 
 
 def _slovensko() -> bool:
-    """Jezik seje po istem vrstnem redu kot Control (LANGUAGE, LC_ALL, LC_MESSAGES, LANG)."""
+    """Jezik obvestil: ki ga je nastavil program (JEZIK_OBVESTIL), sicer jezik seje po istem vrstnem redu kot Control
+    (LANGUAGE, LC_ALL, LC_MESSAGES, LANG), na Windows jezik prikaza."""
+    if JEZIK_OBVESTIL:
+        return str(JEZIK_OBVESTIL).strip().lower().startswith("sl")
     for kljuc in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
         vrednost = (os.environ.get(kljuc) or "").strip().lower()
         if vrednost and vrednost not in ("c", "posix"):
             return vrednost.startswith("sl")
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            # Primarni jezik prikaza Windows: spodnjih 10 bitov oznake jezika; 0x24 = slovenscina.
+            return (int(ctypes.windll.kernel32.GetUserDefaultUILanguage()) & 0x3FF) == 0x24
+        except Exception:
+            return False
     return False
 
 
@@ -2454,11 +2495,37 @@ def _obvestilo_dbus(naslov: str, besedilo: str, cas_ms: int, dejanja: Optional[l
         return False
 
 
+def _obvestilo_windows(naslov: str, besedilo: str) -> bool:
+    """Obvestilo v kotu zaslona na Windows (PowerShell, brez dodatnih modulov). Besedilo gre v okolje, ne v ukaz."""
+    import subprocess
+    from xml.sax.saxutils import escape
+    xml = ("<toast duration='long'><visual><binding template='ToastGeneric'><text>%s</text><text>%s</text>"
+           "</binding></visual></toast>") % (escape(naslov), escape(besedilo))
+    skripta = (
+        "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType=WindowsRuntime] | Out-Null;"
+        "[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType=WindowsRuntime] | Out-Null;"
+        "$x = New-Object Windows.Data.Xml.Dom.XmlDocument; $x.LoadXml($env:SAFEER_TOAST);"
+        "$app = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe';"
+        "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($app).Show("
+        "[Windows.UI.Notifications.ToastNotification]::new($x))"
+    )
+    try:
+        subprocess.Popen(["powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", skripta],
+                         env=dict(os.environ, SAFEER_TOAST=xml), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return True
+    except Exception:
+        return False
+
+
 def _obvestilo(naslov: str, besedilo: str, cas_ms: int = 15000, dejanja: Optional[list] = None) -> None:
     """Obvestilo namizja; sredisce tece v ozadju, uporabnik drugace ne izve. V svoji niti: sredisce ne caka nanj.
 
-    `dejanja`: [(kljuc, napis, klic)] - gumbi (samo po D-Busu; notify-send jih nima)."""
+    `dejanja`: [(kljuc, napis, klic)] - gumbi (samo po D-Busu; notify-send in obvestilo Windows jih nimata)."""
     def poslji() -> None:
+        if sys.platform == "win32":
+            _obvestilo_windows(naslov, besedilo)
+            return
         if _obvestilo_dbus(naslov, besedilo, cas_ms, dejanja):
             return
         import shutil
@@ -2561,9 +2628,28 @@ def besedilo_napada(viri: list, slovensko: bool) -> tuple:
             "Stopped devices: %s. Check who is in your network (guests, unknown devices)." % ", ".join(viri[:6]))
 
 
+def nastavitve_vticnika(sistem: str = os.name) -> tuple:
+    """(deli naslov [SO_REUSEADDR], izkljucna raba [SO_EXCLUSIVEADDRUSE]) za vticnik sredisca na danem sistemu.
+
+    Linux: SO_REUSEADDR pomeni samo, da vrata dobimo tudi takoj po ponovnem zagonu (stare povezave v TIME_WAIT jih ne
+    drzijo); na vrata, kjer kdo poslusa, se ne da vezati. Windows: ista nastavitev pomeni, da si vrata DELIMO z drugim
+    procesom - vezava na 8990 je uspela, ceprav jih je drzal drug program (izmerjeno 5. 10. 2026), povezave pa je
+    dobival tisti. Tam zato brez deljenja in z izkljucno rabo, ki tudi drugim prepreci, da bi se vezali na nasa vrata.
+    """
+    windows = sistem == "nt"
+    return (not windows), windows
+
+
 class _Streznik(link_tls.RokovanjeVNiti, http.server.ThreadingHTTPServer):
     daemon_threads = True
-    allow_reuse_address = True
+    allow_reuse_address = nastavitve_vticnika()[0]
+
+    def server_bind(self) -> None:
+        izkljucno = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
+        if nastavitve_vticnika()[1] and izkljucno is not None:
+            self.socket.setsockopt(socket.SOL_SOCKET, izkljucno, 1)
+        super().server_bind()
+
     #: Obrambni mehanizem (core/link_obramba.Obramba) ali None.
     obramba = None
 
@@ -2708,7 +2794,6 @@ class HubStreznik:
         v.settimeout(0.3)
         try:
             v.connect(("127.0.0.1", PRIVZETA_VRATA))
-            return True
         except OSError:
             return False
         finally:
@@ -2716,6 +2801,9 @@ class HubStreznik:
                 v.close()
             except Exception:
                 pass
+        # Nekdo poslusa. Ce to dokazano NI Safeer Hub (drug program na istih vratih), gostimo na drugih vratih;
+        # prej je tak program gostovanje preprecil in racunalnik je ostal brez sredisca.
+        return not ni_safeer_hub(PRIVZETA_VRATA)
 
     def zazeni(self) -> bool:
         with self._zaklep:
@@ -2914,6 +3002,56 @@ class Oglas:
             zc.close()
         except Exception:
             pass
+
+
+def ni_safeer_hub(vrata: int = PRIVZETA_VRATA, timeout: float = 1.5, gostitelj: str = "127.0.0.1") -> bool:
+    """True samo, kadar na vratih DOKAZANO poslusa nekaj, kar ni Safeer Hub: ne govori TLS ali na pot zdravja ne
+    odgovori kot sredisce. Ob dvomu (nihce ne poslusa, ne odgovori pravocasno, prekine) False - lahko je nase
+    sredisce, ki se ravno zaganja ali je zasedeno."""
+    import socket as _s
+    try:
+        surov = _s.create_connection((gostitelj, vrata), timeout=timeout)
+    except OSError:
+        return False
+    tls = None
+    try:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        try:
+            tls = ctx.wrap_socket(surov)
+        except (ssl.SSLEOFError, ssl.SSLZeroReturnError):
+            return False                 # zaprl med rokovanjem: ne vemo
+        except ssl.SSLError:
+            return True                  # ne govori TLS: drug program
+        except OSError:
+            return False                 # cas ali prekinitev: ne vemo
+        glava = b""
+        try:
+            tls.settimeout(timeout)
+            tls.sendall(b"GET /cast/health HTTP/1.1\r\nHost: 127.0.0.1\r\nAccept: application/json\r\n"
+                        b"Connection: close\r\n\r\n")
+            while b"\r\n" not in glava and len(glava) < 4096:
+                kos = tls.recv(1024)
+                if not kos:
+                    break
+                glava += kos
+        except OSError:
+            return False
+        prva = glava.split(b"\r\n", 1)[0].split()
+        if not glava:
+            return False                 # brez odgovora: ne vemo
+        if len(prva) < 2 or not prva[0].startswith(b"HTTP/"):
+            return True                  # odgovoril je, a ne s HTTP
+        # Sredisce na pot zdravja odgovori 200; 401/403 sta se vedno sredisce (zahteva zeton, zapora vira).
+        return prva[1] not in (b"200", b"401", b"403")
+    finally:
+        for v in (tls, surov):
+            try:
+                if v is not None:
+                    v.close()
+            except Exception:
+                pass
 
 
 def _na_privzetih_vratih_ze_tece_hub(timeout: float = 1.5) -> bool:
