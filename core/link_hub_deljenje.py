@@ -37,8 +37,11 @@ NAJVEC_IMENA_DATOTEKE = 180
 KOS = 64 * 1024
 
 
-def privzeta_mapa() -> str:
-    """Zacasna mapa za datoteke, ki cakajo na prevzem: predpomnilnik uporabnika, ne /tmp (tam bi jih videli drugi)."""
+def privzeta_mapa(windows: Optional[bool] = None) -> str:
+    """Zacasna mapa za datoteke, ki cakajo na prevzem: predpomnilnik uporabnika, ne /tmp (tam bi jih videli drugi).
+    Na Windows mapa programa v profilu uporabnika (kot predpomnilnik pretoka, link_sprotno.mapa_predpomnilnika)."""
+    if (os.name == "nt") if windows is None else windows:
+        return os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "SafeerOS", "deljenje")
     osnova = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
     return os.path.join(osnova, "safeer-link", "deljenje")
 

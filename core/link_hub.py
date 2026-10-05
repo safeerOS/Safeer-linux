@@ -214,13 +214,20 @@ def poisci_hube_mdns(cas: float = 2.0) -> List[dict]:
             id_h = lastnosti.get(b"id") or lastnosti.get("id") or b""
             if isinstance(id_h, bytes):
                 id_h = id_h.decode("utf-8", "replace")
+            prio = lastnosti.get(b"prio") or lastnosti.get("prio") or b""
+            if isinstance(prio, bytes):
+                prio = prio.decode("utf-8", "replace")
+            try:
+                prio = max(0, min(1000, int(str(prio).strip())))
+            except ValueError:
+                prio = 0     # starejsi hub brez prioritete steje kot najnizja (kot na Androidu)
             mesh = lastnosti.get(b"mesh") or lastnosti.get("mesh") or b""
             if isinstance(mesh, bytes):
                 mesh = mesh.decode("utf-8", "replace")
             naslov = f"{shema}://{naslovi[0]}:{info.port}{pot}"
             if all(n["naslov"] != naslov for n in najdeno):
                 najdeno.append({"naslov": naslov, "fp": str(fp).lower(), "tls": str(tls) == "1", "ime": str(ime_h),
-                                "id": str(id_h), "mesh": str(mesh)})
+                                "id": str(id_h), "prio": prio, "mesh": str(mesh)})
 
         def update_service(self, zc, vrsta, ime):
             pass
@@ -632,6 +639,9 @@ def povabi(ws_naslov: str, zeton: str, odtis: str, preklici: str = "") -> dict:
     # Nova sredisca vrnejo isti PIN, ki pripada QR vabilu. Pri starem srediscu
     # polja ni; prazen niz strani pove, naj pokaze samo rocni vnos kode.
     pin = str(odgovor.get("pin") or odgovor.get("code") or "")
+    pin = "".join(znak for znak in pin if znak.isdigit())
+    if len(pin) != 6:
+        pin = ""
     return {"qr_id": qr_id, "velja": int(odgovor.get("expires_in_seconds") or 300), "pin": pin,
             "povezava": povezava_vabila(gostitelj, int(odgovor.get("web_port") or 0), qr_id, skrivnost, fp, naslov)}
 
@@ -1020,6 +1030,7 @@ class Povezava:
         # prezivi tudi zamenjavo huba. Ce hub kroga se ne pozna (starejsi hub: 404) ali nas v
         # njem nima, gre po stari poti z zetonom.
         s_podpisom = False
+        koda = 0
         try:
             # Tudi ce je nas kljuc v krogu pod starim id-jem: hub nov id sam vpise kot alias.
             s_podpisom = self.v_krog and link_krog.lahko_s_podpisom(self.device_id)
@@ -1029,6 +1040,13 @@ class Povezava:
             vstopnica, koda = vzemi_vstopnico_s_podpisom(self.ws_naslov, self.device_id, self.odtis, self.ime)
             if vstopnica:
                 self.prijava_s_podpisom = True
+        if not vstopnica and not self.zeton and s_podpisom:
+            # Podpis ni uspel, zetona pa nimamo: druge poti ni. Zavrnitev je samo izrecen 401/403 (hub nas v krogu
+            # nima). Neuspel podpis zaradi casa (hub se ravno zaganja, rele zamudi, prevec prijav) ni zavrnitev:
+            # prej smo takrat poskusili se s praznim zetonom, dobili 401 in klicatelj (safeer_link._pozabi_zeton)
+            # je izbrisal odtis - naprava je ostala brez povezave, dokler je kdo ni povezal znova.
+            self.zavrnjena = koda in (401, 403)
+            return False
         if not vstopnica:
             self.prijava_s_podpisom = False
             vstopnica, koda = vzemi_vstopnico_s_kodo(self.ws_naslov, self.zeton, self.odtis)
@@ -1092,6 +1110,12 @@ class Povezava:
         except Exception:
             odjemalec.zapri()
             return False
+        # Imena naprav iz nasega kroga (dana na drugem hubu): hub vzame samo imena znanih clanov.
+        try:
+            odjemalec.poslji(json.dumps({"id": str(int(time.time() * 1000)), "type": "trust.names",
+                                         "payload": link_krog.krog().json()}))
+        except Exception:
+            pass
 
         self.odjemalec = odjemalec
         self.tece = True
