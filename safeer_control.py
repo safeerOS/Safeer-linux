@@ -1815,6 +1815,8 @@ class SafeerControl(Gtk.Application):
     # Okno gledalca: dotik, poteg in tipke z miske in tipkovnice gredo na napravo, katere zaslon gledamo
     # (Safeer Vnos na tablici). Slika je v <img id="zaslon"> z object-fit: contain; koordinate
     # preracunamo v delez prave slike, da sirina okna ali crni robovi ne zamaknejo dotika.
+    # Stran gledalca s sredisca na Androidu ima na sliki SVOJE poslusalce miske (dotik poslje sama, prek
+    # sredisca). Dogodek zato ustavimo v fazi zajema (stopPropagation), sicer gre en klik na napravo dvakrat.
     GLEDALEC_VNOS_JS = r"""
 (function () {
   function poslji(d, p) {
@@ -1836,10 +1838,13 @@ class SafeerControl(Gtk.Application):
     if (!img || e.button !== 0) return;
     zacetek = delez(img, e.clientX, e.clientY); cas = Date.now();
     e.preventDefault();
+    e.stopPropagation();
   }, true);
   document.addEventListener("mouseup", function (e) {
     var img = document.getElementById("zaslon");
-    if (!img || !zacetek || e.button !== 0) return;
+    if (!img || e.button !== 0) return;
+    e.stopPropagation();
+    if (!zacetek) return;
     var konec = delez(img, e.clientX, e.clientY) || zacetek;
     var trajanje = Math.max(60, Math.min(1500, Date.now() - cas));
     if (Math.abs(konec.x - zacetek.x) + Math.abs(konec.y - zacetek.y) > 0.02) {
