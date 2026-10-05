@@ -1256,6 +1256,12 @@ class SafeerControl(Gtk.Application):
         naprava = next((n for n in self.link.naprave if n.get("id") == id_naprave), None)
         if naprava is None:
             return {"ok": False, "message": "Naprava ni vec povezana."}
+        if not str(naprava.get("naslov") or "").strip():
+            # Slika gre neposredno z naprave. Brez njenega naslova (dosegljiva je samo prek Global Linka) je ne
+            # prosimo: naprava bi zaman odprla vrata in cakala na nas.
+            return {"ok": False, "koda": "ni_naslova",
+                    "message": "%s zdaj ni dosegljiv neposredno. Slika zaslona deluje samo v istem omrežju (doma), "
+                               "prek Global Linka ne." % str(naprava.get("ime") or id_naprave)}
         odgovor = self.link.ukaz_pocakaj(id_naprave, "screen.start",
                                          {"quality": "srednja", "screen": "desktop"}, cas=15.0)
         if not odgovor.get("ok"):

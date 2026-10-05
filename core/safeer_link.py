@@ -1214,7 +1214,8 @@ class SafeerLink:
                     "ime": d.get("name", ""),
                     "vloga": d.get("role", "receiver"),
                     "zmoznosti": d.get("capabilities") or [],
-                    "naslov": d.get("ip") or "",
+                    # Zanka od Huba, ki tece drugje, je naslov TISTEGA Huba (link_hub_streznik.naslov_za_povezavo).
+                    "naslov": link_hub_streznik.naslov_za_povezavo(d.get("ip"), self._hub()),
                     # Protocol v1 (prazno pri napravah 0.2): platforma, vrsta in katalog aplikacij.
                     "platforma": d.get("platform") or "",
                     "vrsta": d.get("kind") or "",
