@@ -25,6 +25,10 @@ NAJVECJI_OKVIR = 8 * 1024 * 1024
 #: Najdlje sme posiljanje enega dogodka vnosa cakati. Vnos posilja glavna zanka okna: ce naprava ne bere vec, okno
 #: ne sme obstati do omejitve branja. Dogodek ima nekaj deset bajtov; kdor ga v tem casu ne vzame, ga ni vec.
 ROK_VNOSA_S = 3.0
+#: Najvec naslovov, ki jih gledalec poskusi za eno sejo, in cas za vsakega, kadar jih je vec. Naprava po
+#: `screen.start` caka 30 s; stirje poskusi po 4 s se izidejo z rezervo.
+NAJVEC_KANDIDATOV = 4
+CAS_KANDIDATA_S = 4.0
 
 
 def izberi_ponor(je_na_voljo: Callable[[str], bool]) -> str:
@@ -75,6 +79,37 @@ def normalen_odtis(odtis: str) -> str:
     if len(cist) != 64:
         raise NapakaGledalca("Neveljaven odtis potrdila.")
     return cist
+
+
+def _naslov_naprave(naslov: str) -> bool:
+    """Ali je `naslov` iz odgovora naprave naslov IPv4, na katerem jo ima smisel iskati: stiri desetiska stevila
+    brez vodilnih nicel; zanka (127.x), 0.x ter skupinski in rezervirani naslovi (224 in vec) odpadejo. Ime
+    gostitelja ni naslov - gledalec zaradi odgovora naprave ne sprasuje DNS."""
+    deli = naslov.split(".")
+    if len(deli) != 4:
+        return False
+    for d in deli:
+        if not (d.isascii() and d.isdigit()) or len(d) > 3 or (len(d) > 1 and d[0] == "0"):
+            return False
+    stevila = [int(d) for d in deli]
+    return max(stevila) <= 255 and stevila[0] not in (0, 127) and stevila[0] < 224
+
+
+def kandidati_naslovov(naslov: str, hosts=None) -> list:
+    """Naslovi, na katerih gledalec isce napravo: najprej naslov iz seznama naprav Safeer Linka, nato tisti, ki
+    jih je naprava sama nastela v odgovoru na `screen.start` (`hosts`). Vsak samo enkrat, najvec
+    NAJVEC_KANDIDATOV (docs/LINK-MESH.md, pravilo 8)."""
+    izid = []
+    prvi = str(naslov or "").strip()
+    if prvi:
+        izid.append(prvi)
+    for h in hosts if isinstance(hosts, (list, tuple)) else ():
+        if len(izid) >= NAJVEC_KANDIDATOV:
+            break
+        h = h.strip() if isinstance(h, str) else ""
+        if h and h not in izid and _naslov_naprave(h):
+            izid.append(h)
+    return izid[:NAJVEC_KANDIDATOV]
 
 
 def razcleni_odgovor(odgovor: dict) -> dict:
@@ -163,8 +198,10 @@ class Gledalec:
     """Ena TLS seja oddaljenega zaslona."""
 
     def __init__(self, naslov: str, seja: dict, cas_povezave: float = 8.0) -> None:
-        self.naslov = str(naslov or "")
         self.seja = razcleni_odgovor(seja)
+        #: Naslovi, ki jih povezi() poskusi po vrsti; `naslov` je po povezavi tisti, ki je uspel.
+        self.kandidati = kandidati_naslovov(naslov, self.seja.get("hosts"))
+        self.naslov = self.kandidati[0] if self.kandidati else ""
         self.cas_povezave = cas_povezave
         #: Povezava TLS, ovita za dve niti (core/link_vticnik.py); None, dokler seja ne tece.
         self.vticnica = None
@@ -182,19 +219,51 @@ class Gledalec:
             raise NapakaGledalca("Streznik ni vrnil veljavne glave.")
         return bytes(zbrano)
 
-    def povezi(self) -> Glava:
-        if not self.naslov:
-            raise NapakaGledalca("Naprava nima omreznega naslova.")
-        surova = socket.create_connection((self.naslov, self.seja["port"]), self.cas_povezave)
-        surova.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        kontekst = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        kontekst.check_hostname = False
-        kontekst.verify_mode = ssl.CERT_NONE
+    def _odpri(self, naslov: str, cas: float):
+        """TCP in TLS do enega naslova; vrne povezavo samo, ce se odtis potrdila ujema z odtisom seje. Zeton
+        gre na pot sele po tem - naprava na napacnem naslovu ga ne vidi."""
+        surova = socket.create_connection((naslov, self.seja["port"]), cas)
         try:
-            varna = kontekst.wrap_socket(surova, server_hostname=self.naslov)
+            surova.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            kontekst = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            kontekst.check_hostname = False
+            kontekst.verify_mode = ssl.CERT_NONE
+            varna = kontekst.wrap_socket(surova, server_hostname=naslov)
             dejanski = hashlib.sha256(varna.getpeercert(binary_form=True)).hexdigest()
             if dejanski != self.seja["fp"]:
                 raise NapakaGledalca("Odtis potrdila se ne ujema.")
+            # Rokovanje je mimo: od tu velja cas cele seje, ne krajsi cas enega poskusa.
+            varna.settimeout(self.cas_povezave)
+            return surova, varna
+        except Exception:
+            try:
+                surova.close()
+            except OSError:
+                pass
+            raise
+
+    def povezi(self) -> Glava:
+        if not self.kandidati:
+            raise NapakaGledalca("Naprava nima omreznega naslova.")
+        # En naslov dobi ves cas; vec naslovov si ga razdeli, da napacen prvi ne porabi cakanja naprave.
+        cas = self.cas_povezave if len(self.kandidati) == 1 else min(self.cas_povezave, CAS_KANDIDATA_S)
+        surova = varna = None
+        zadnja: Optional[Exception] = None
+        for naslov in self.kandidati:
+            try:
+                surova, varna = self._odpri(naslov, cas)
+            except NapakaGledalca as e:
+                zadnja = e                  # na tem naslovu je druga naprava (drug odtis): naslednji
+                continue
+            except (OSError, ValueError):
+                # Uporabnik naj vidi razumljiv stavek, ne sistemske napake ("timed out", "[Errno 113] ...").
+                zadnja = NapakaGledalca("Naprave ni bilo mogoče doseči. Preveri, ali sta obe napravi v istem omrežju.")
+                continue
+            self.naslov = naslov
+            break
+        if varna is None:
+            raise zadnja or NapakaGledalca("Naprava nima omreznega naslova.")
+        try:
             varna.sendall(("SAFEER-ZASLON " + self.seja["token"] + "\n").encode("utf-8"))
             podatki = json.loads(self._vrstica(varna).decode("utf-8"))
             if not isinstance(podatki, dict):
