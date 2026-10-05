@@ -214,6 +214,59 @@ class Streznik(unittest.TestCase):
         except ValueError:
             return o.status, telo
 
+    def test_preveliko_telo_dobi_odgovor_tudi_ce_ga_odjemalec_se_posilja(self):
+        """Streznik zavrne preveliko telo, se preden ga prebere. Ce bi povezavo takoj zaprl, bi sistem neprebrane
+        podatke zavrnil (RST) in odjemalec namesto »413« videl prekinjeno povezavo - pod obremenitvijo je tako
+        padel test_zeton_in_meje (SSLEOFError)."""
+        import socket
+        import time
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        dolzina = link_datoteke.NAJVEC_TELESA + 1
+        for _poskus in range(3):
+            s = ctx.wrap_socket(socket.create_connection(("127.0.0.1", self.d.streznik.vrata), 5))
+            try:
+                s.sendall(("POST /d/share:0:film.mp4 HTTP/1.1\r\nHost: x\r\nX-Safeer-Token: %s\r\n"
+                           "Content-Type: application/json\r\nContent-Length: %d\r\n\r\n" % (self.zeton, dolzina)).encode())
+                s.sendall(b"x" * (dolzina // 2))
+                time.sleep(0.3)                     # streznik je medtem ze odgovoril 413
+                s.sendall(b"x" * (dolzina - dolzina // 2))
+                odgovor = b""
+                while True:
+                    kos = s.recv(4096)
+                    if not kos:
+                        break
+                    odgovor += kos
+            finally:
+                s.close()
+            self.assertIn(b" 413 ", odgovor.split(b"\r\n", 1)[0])
+            self.assertIn(b"predolgo telo", odgovor)
+
+    def test_zavrzeno_telo_je_omejeno_po_casu(self):
+        # Odjemalec, ki napove veliko telo in ga ne poslje, streznika ne zadrzi: odgovor pride, povezava se zapre.
+        import socket
+        import time
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        s = ctx.wrap_socket(socket.create_connection(("127.0.0.1", self.d.streznik.vrata), 5))
+        try:
+            zacetek = time.monotonic()
+            s.sendall(("POST /d/share:0:film.mp4 HTTP/1.1\r\nHost: x\r\nX-Safeer-Token: %s\r\n"
+                       "Content-Length: 99999999\r\n\r\n" % self.zeton).encode())
+            odgovor = b""
+            while True:
+                kos = s.recv(4096)
+                if not kos:
+                    break
+                odgovor += kos
+            trajalo = time.monotonic() - zacetek
+        finally:
+            s.close()
+        self.assertIn(b" 413 ", odgovor.split(b"\r\n", 1)[0])
+        self.assertLess(trajalo, 3.0, "povezava mora biti zaprta v roku")
+
     def test_edit_v_seznamu(self):
         self.assertTrue(self.edit)
         self.assertNotIn("edit", self.d.seznam("", "tv-1") or {"edit": None}) if False else None
