@@ -3,6 +3,7 @@
 Prvi del je cista logika z lazno uro. Drugi del je pravo sredisce na zanki (TLS, HTTP): napadalec z napacnimi zetoni
 je zaprt in ne dobi vec niti rokovanja, clan kroga pa dela naprej, tudi ce odpre na stotine povezav.
 """
+import importlib.util
 import os
 import socket
 import tempfile
@@ -371,6 +372,7 @@ class GumbiNaObvestilu(unittest.TestCase):
             link_hub_streznik._zapomni_dejanja(i, {"a": lambda: None})
         self.assertLessEqual(len(link_hub_streznik._dejanja), link_hub_streznik.NAJVEC_OBVESTIL_Z_GUMBI)
 
+    @unittest.skipUnless(importlib.util.find_spec("gi"), "gumbi na obvestilu gredo po D-Bus (gi), ki ga tu ni")
     def test_narocilo_na_signal_drzi_povezavo_z_vodilom(self):
         """Gio.bus_get_sync vrne skupno povezavo, ki se zapre, ko jo spusti zadnji lastnik - z njo izgine narocilo na
         signal in gumb je mrtev (videno v Cinnamonu: pritisk je obvestilo zaprl, zgodilo pa se ni nic)."""

@@ -6,20 +6,23 @@ import base64
 import json
 import os
 import shutil
-import subprocess
 import tempfile
 import time
 import unittest
 from unittest import mock
 
-from core import link_hub_streznik, link_krog
+from core import link_hub_streznik, link_kripto, link_krog
+
+KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#: Preizkus z oznako bere Safeer Control za Linux; v repozitoriju Safeer OS za Windows (isto jedro) ga ni.
+JE_CONTROL_ZA_LINUX = os.path.isfile(os.path.join(KOREN, "safeer_control.py"))
 
 
 def _javni(mapa: str, ime: str) -> str:
+    """Javni kljuc nove naprave (SPKI DER v base64): s knjiznico jedra, kot program - tudi brez programa openssl."""
     pot = os.path.join(mapa, ime + ".pem")
-    subprocess.run(["openssl", "ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", pot], check=True, capture_output=True)
-    der = subprocess.run(["openssl", "pkey", "-in", pot, "-pubout", "-outform", "DER"], check=True, capture_output=True).stdout
-    return base64.b64encode(der).decode("ascii")
+    link_kripto.ustvari_kljuc_in_potrdilo(pot, os.path.join(mapa, ime + "-potrdilo.pem"), ime)
+    return base64.b64encode(link_kripto.javni_kljuc_der(pot)).decode("ascii")
 
 
 class LaznaPovezava:
@@ -99,13 +102,15 @@ class Preimenovanje(unittest.TestCase):
         self.assertNotIn("\x07", ime)
         self.assertLessEqual(len(ime), link_hub_streznik.NAJVEC_IMENA)
 
-    def test_pot_obstaja_in_control_uporablja_zeton_za_http(self):
-        koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        with open(os.path.join(koren, "core", "link_hub_streznik.py"), encoding="utf-8") as f:
+    def test_pot_obstaja(self):
+        with open(os.path.join(KOREN, "core", "link_hub_streznik.py"), encoding="utf-8") as f:
             hub = f.read()
         self.assertIn("if pot == POT_PREIMENUJ:", hub)
         self.assertEqual(link_hub_streznik.POT_PREIMENUJ, "/cast/devices/rename")
-        with open(os.path.join(koren, "safeer_control.py"), encoding="utf-8") as f:
+
+    @unittest.skipUnless(JE_CONTROL_ZA_LINUX, "Safeer Control za Linux")
+    def test_control_uporablja_zeton_za_http(self):
+        with open(os.path.join(KOREN, "safeer_control.py"), encoding="utf-8") as f:
             control = f.read()
         blok = control[control.index('if metoda == "Preimenuj":'):control.index('if metoda == "Upravljaj":')]
         self.assertIn("link._zeton_http()", blok)

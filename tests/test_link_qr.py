@@ -8,6 +8,8 @@ from unittest import mock
 from core import link_hub
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#: Preizkus z oznako bere vmesnik Safeer Controla za Linux; v repozitoriju Safeer OS za Windows (isto jedro) ga ni.
+JE_CONTROL_ZA_LINUX = os.path.isfile(os.path.join(KOREN, "core", "safeer_link.py"))
 
 
 class QrPrijava(unittest.TestCase):
@@ -60,6 +62,7 @@ class QrPrijava(unittest.TestCase):
         if os.environ.get("SAFEER_QR_IZPIS"):
             print(svg)
 
+    @unittest.skipUnless(JE_CONTROL_ZA_LINUX, "vmesnik Safeer Controla za Linux")
     def test_stran_ima_prijavno_okno(self):
         html = open(os.path.join(KOREN, "assets", "link", "index.html"), encoding="utf-8").read()
         js = open(os.path.join(KOREN, "assets", "link", "link.js"), encoding="utf-8").read()

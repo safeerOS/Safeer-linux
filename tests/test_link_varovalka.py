@@ -328,7 +328,8 @@ class SredisceInKoda(unittest.TestCase):
             hub = link_hub_streznik.Hub(odtis=self.odtis, ura=self.ura, pot_varovalke=pot)
             for i in range(link_varovalka.POSKUSOV):
                 hub.varovalka.poskus(A)
-            self.assertEqual(stat.S_IMODE(os.stat(pot).st_mode), 0o600)
+            if os.name != "nt":      # dovoljenja POSIX; na Windows datoteke v profilu varuje ACL uporabnika
+                self.assertEqual(stat.S_IMODE(os.stat(pot).st_mode), 0o600)
             self.ura.t += 120
             drugi = link_hub_streznik.Hub(odtis=self.odtis, ura=self.ura, pot_varovalke=pot)
             self.assertEqual(drugi.zacni_seznanitev("telefon", "Telefon", B), {"napaka": "seznanitev_zaprta"})

@@ -20,8 +20,9 @@ class Nastavitve(unittest.TestCase):
             pot = os.path.join(mapa, "link.json")
             n = link_hub.Nastavitve(pot)
             n.set("control_token", "zeton-za-preizkus")
-            self.assertEqual(oct(os.stat(pot).st_mode)[-3:], "600",
-                             "zeton ne sme biti berljiv drugim uporabnikom")
+            if os.name != "nt":      # dovoljenja POSIX; na Windows datoteke v profilu varuje ACL uporabnika
+                self.assertEqual(oct(os.stat(pot).st_mode)[-3:], "600",
+                                 "zeton ne sme biti berljiv drugim uporabnikom")
             znova = link_hub.Nastavitve(pot)
             self.assertEqual(znova.get("control_token"), "zeton-za-preizkus")
 

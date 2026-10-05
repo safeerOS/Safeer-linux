@@ -55,8 +55,9 @@ class Zaloga(unittest.TestCase):
         self.assertEqual((odgovor["name"], odgovor["size"], odgovor["for_host"]), ("Račun 2026.pdf", 16, False))
         self.assertEqual(odgovor["sha256"], hashlib.sha256(b"vsebina datoteke").hexdigest())
         self.assertTrue(os.path.isfile(d.pot))
-        self.assertEqual(stat.S_IMODE(os.stat(d.pot).st_mode), 0o600, "datoteko sme brati samo uporabnik")
-        self.assertEqual(stat.S_IMODE(os.stat(os.path.dirname(d.pot)).st_mode), 0o700)
+        if os.name != "nt":      # dovoljenja POSIX; na Windows datoteke v profilu varuje ACL uporabnika
+            self.assertEqual(stat.S_IMODE(os.stat(d.pot).st_mode), 0o600, "datoteko sme brati samo uporabnik")
+            self.assertEqual(stat.S_IMODE(os.stat(os.path.dirname(d.pot)).st_mode), 0o700)
         self.assertEqual(d.tovor(), {"id": d.id, "name": "Račun 2026.pdf", "size": 16, "path": "/cast/file/%s?k=%s" % (d.id, d.kljuc),
                                      "sha256": d.sha256, "for_host": False})
         self.assertIsNone(self.z.najdi(d.id, "napacen"))
