@@ -133,6 +133,16 @@ def odpri_magnet(uri: str) -> dict:
     return izid(True, "Odpiram v Safeer OS: " + (m["ime"] or m["hash"][:12]))
 
 
+def _lastni_naslovi(hub_url: str) -> list:
+    """Naslovi tega racunalnika za odgovor na `screen.start` (docs/LINK-MESH.md, pravilo 8). Gledalec jih
+    poskusi poleg naslova iz seznama naprav; brez njih seja dela kot prej."""
+    try:
+        from core.link_zvok import lastni_naslovi
+        return [str(n) for n in lastni_naslovi(hub_url)][:4]
+    except Exception:  # noqa: BLE001 - naslovi so dodatek, seja zaradi njih ne sme pasti
+        return []
+
+
 def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], None],
                    koncaj: Callable[[dict], None], datoteke=None, posiljatelj: str = "",
                    hub_url: str = "", programi=None, zaslon=None, predvajanje=None) -> None:
@@ -274,7 +284,7 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
                 # ProgramaNi: televizor je hotel program, ki ga ni vec - pove to in gre domov.
                 koncaj(izid(False, str(e), koda="ni_programa" if type(e).__name__ == "ProgramaNi" else "ni_zajema"))
                 return
-            koncaj(izid(True, "Zaslon se deli", seja))
+            koncaj(izid(True, "Zaslon se deli", {**seja, "hosts": _lastni_naslovi(hub_url)}))
         elif d in DEJANJA_PREDAJA:
             # Kaj racunalnik predvaja in kje (uporabnik je na telefonu izbral »Nadaljuj z druge naprave«).
             # D-Bus do Safeer OS in zagon streznika datotek nista za glavno nit.
