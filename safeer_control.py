@@ -543,9 +543,11 @@ class OddaljeniGledalec(Gtk.Window):
         return False
 
     def _ustavi_pretok(self) -> None:
-        if self.gledalec is not None:
-            self.gledalec.zapri()
-            self.gledalec = None
+        # Najprej pozabimo sejo, sele nato jo zapremo: bralna nit se ob zaprtju zbudi z napako in jo pokaze
+        # samo, ce je seja se »nasa«. V obratnem vrstnem redu bi ob »Povezi znova« lahko pokazala napako stare seje.
+        gledalec, self.gledalec = self.gledalec, None
+        if gledalec is not None:
+            gledalec.zapri()
         if self.pipeline is not None and self.Gst is not None:
             self.pipeline.set_state(self.Gst.State.NULL)
             self.pipeline = None

@@ -15,11 +15,16 @@ import threading
 from dataclasses import dataclass
 from typing import Callable, Iterator, Optional, Tuple
 
+from core import link_vticnik
+
 
 OKVIR_SLIKA = 1
 OKVIR_ZVOK = 2
 OKVIR_OBVESTILO = 3
 NAJVECJI_OKVIR = 8 * 1024 * 1024
+#: Najdlje sme posiljanje enega dogodka vnosa cakati. Vnos posilja glavna zanka okna: ce naprava ne bere vec, okno
+#: ne sme obstati do omejitve branja. Dogodek ima nekaj deset bajtov; kdor ga v tem casu ne vzame, ga ni vec.
+ROK_VNOSA_S = 3.0
 
 
 def izberi_ponor(je_na_voljo: Callable[[str], bool]) -> str:
@@ -161,7 +166,8 @@ class Gledalec:
         self.naslov = str(naslov or "")
         self.seja = razcleni_odgovor(seja)
         self.cas_povezave = cas_povezave
-        self.vticnica: Optional[ssl.SSLSocket] = None
+        #: Povezava TLS, ovita za dve niti (core/link_vticnik.py); None, dokler seja ne tece.
+        self.vticnica = None
         self._pisanje = threading.Lock()
 
     @staticmethod
@@ -193,7 +199,14 @@ class Gledalec:
             podatki = json.loads(self._vrstica(varna).decode("utf-8"))
             if not isinstance(podatki, dict):
                 raise ValueError
-            self.vticnica = varna
+            # Okvirje bere ena nit, vnos (miska, tipke) posilja druga - glavna zanka okna. Vticnica TLS s
+            # casovno omejitvijo tega sama ne prenese: bralni niti lazno javi konec povezave. Izmerjeno v krogu
+            # 106 pri 125 dogodkih vnosa na sekundo: prava seja (zajem zaslona, 60 kosov/s) se je prekinila po
+            # 212 s, seja z napravo iz preizkusa (60 okvirjev po 20 KB/s) po 6 do 91 s.
+            vticnica = link_vticnik.zavaruj(varna)
+            if isinstance(vticnica, link_vticnik.VarnaTls):
+                vticnica.nastavi_rok_pisanja(ROK_VNOSA_S)
+            self.vticnica = vticnica
             return Glava(max(1, int(podatki.get("w", 1920))), max(1, int(podatki.get("h", 1080))),
                          max(1, int(podatki.get("fps", 30))), podatki)
         except Exception:
@@ -218,18 +231,26 @@ class Gledalec:
     def _preberi_natanko(vticnica, koliko: int) -> bytes:
         deli = bytearray()
         while len(deli) < koliko:
-            kos = vticnica.recv(koliko - len(deli))
+            try:
+                kos = vticnica.recv(koliko - len(deli))
+            except socket.timeout:
+                # Slika tece ves cas (tudi mirno namizje); tisina, daljsa od omejitve, pomeni, da naprave ni vec.
+                raise NapakaGledalca("Naprava se ne odziva.") from None
+            except OSError:
+                # Uporabnik naj vidi razumljiv stavek, ne sistemske napake ("[Errno 104] Connection reset by peer").
+                raise NapakaGledalca("Povezava z napravo je bila prekinjena.") from None
             if not kos:
                 raise NapakaGledalca("Povezava z napravo je bila prekinjena.")
             deli.extend(kos)
         return bytes(deli)
 
     def poslji(self, dogodek: dict) -> None:
-        if self.vticnica is None:
+        vticnica = self.vticnica             # zapri() iz druge niti jo lahko medtem odstrani
+        if vticnica is None:
             return
         vrstica = json.dumps(dogodek, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n"
         with self._pisanje:
-            self.vticnica.sendall(vrstica)
+            vticnica.sendall(vrstica)
 
     def zapri(self) -> None:
         vticnica, self.vticnica = self.vticnica, None
