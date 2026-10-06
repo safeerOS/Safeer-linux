@@ -143,6 +143,41 @@ class Pretok(unittest.TestCase):
         finally:
             p.ustavi()
 
+    def test_naprava_brez_domacega_naslova(self):
+        # Telefon na mobilnih podatkih: v opisu streznika je naslov iz dokumentacijskega obsega (192.0.2.1).
+        # Neposrednega poskusa ni (uporabnik ne caka 2,5 s na nekaj, kar ne more uspeti) - takoj prek Huba.
+        hub_vrata = self.hub.vrata
+        _odtis, kljuc = link_tls.potrdilo_huba("wss://127.0.0.1:%d/" % hub_vrata)
+        vprasani = []
+
+        def potrdilo(naslov, rok):
+            vprasani.append(naslov)
+            return link_tls.potrdilo_huba(naslov, timeout=rok)
+
+        class Rele:
+            vrata = hub_vrata
+            def zapri(self): pass
+        p = link_pretok.LokalniPretok(rele_za=lambda cilj: Rele(), potrdilo=potrdilo)
+        try:
+            zdoma = dict(self.streznik, base_url="https://192.0.2.1:40123", hub=2)
+            vir = link_pretok.vir_iz_streznika(zdoma, "share:0:pesem.mp3", kljuc=kljuc)
+            self.assertIsNotNone(vir)
+            zacetek = time.time()
+            koda, _g, telo = _beri(p.dodaj(vir), {"Range": "bytes=0-99"})
+            self.assertEqual((koda, telo), (206, self.podatki[:100]))
+            self.assertLess(time.time() - zacetek, link_pretok.NEPOSREDNO_CAKAJ_S)
+            self.assertTrue(p.pot(vir).rele)
+            self.assertEqual(vprasani, ["wss://127.0.0.1:%d/" % hub_vrata])
+            # Brez kljuca iz kroga do take naprave ni poti (in tudi tu ni neposrednega poskusa).
+            brez = link_pretok.vir_iz_streznika(zdoma, "share:0:pesem.mp3")
+            self.assertEqual(_beri(p.dodaj(brez))[0], 502)
+            self.assertEqual(len(vprasani), 1)
+        finally:
+            p.ustavi()
+        self.assertTrue(link_pretok.brez_omrezja("192.0.2.1"))
+        for drug in ("10.20.30.40", "192.0.3.1", "10.0.0.1", "primer.si", ""):
+            self.assertFalse(link_pretok.brez_omrezja(drug), drug)
+
     def test_hub_brez_datotek(self):
         self.hub.datoteke = None
         try:
@@ -170,7 +205,7 @@ class Pretok(unittest.TestCase):
         self.assertIsNone(link_pretok.vir_iz_streznika({"base_url": "https://x:1", "fp": "", "token": "t"}, "id"))
         self.assertIsNone(link_pretok.vir_iz_streznika({"base_url": "https://x:1", "fp": "a", "token": ""}, "id"))
         # Samo naslovi v domacem omrezju (naprava racunalnika ne pošlje na internet) ...
-        dobri = {"base_url": "https://192.168.0.77:40000", "fp": "a", "token": "t"}
+        dobri = {"base_url": "https://10.20.30.40:40000", "fp": "a", "token": "t"}
         self.assertIsNotNone(link_pretok.vir_iz_streznika(dobri, "id"))
         for osnova in ("https://8.8.8.8:443", "https://primer.si:443", "https://[2001:4860::1]:443"):
             self.assertIsNone(link_pretok.vir_iz_streznika(dict(dobri, base_url=osnova), "id"), osnova)

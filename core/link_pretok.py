@@ -37,6 +37,10 @@ NAJVEC_VIROV = 512
 POT_VELJA_S = 60.0
 #: Kratek poskus neposredne povezave: doma odgovori v nekaj ms, zunaj doma pa sploh ne.
 NEPOSREDNO_CAKAJ_S = 2.5
+#: Naslov iz dokumentacijskega obsega (RFC 5737), na katerem ni nikogar. Naprava brez naslova v domacem omrezju
+#: (telefon na mobilnih podatkih) ga da v opis svojega streznika datotek: do nje se pride samo prek njenega Huba
+#: (Global Link), zato neposrednega poskusa sploh ne delamo - uporabnik ne caka na nekaj, kar ne more uspeti.
+OBSEG_BREZ_OMREZJA = ipaddress.ip_network("192.0.2.0/24")
 #: Glave odgovora, ki jih predvajalnik potrebuje (vse druge ostanejo pri napravi).
 GLAVE_NAPREJ = ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "Last-Modified", "ETag")
 
@@ -54,6 +58,14 @@ class Vir:
     pot: str = ""
 
 
+def brez_omrezja(gostitelj: str) -> bool:
+    """Ali je to naslov naprave brez domacega omrezja (OBSEG_BREZ_OMREZJA): pot do nje je samo prek Huba."""
+    try:
+        return ipaddress.ip_address(str(gostitelj or "")) in OBSEG_BREZ_OMREZJA
+    except ValueError:
+        return False
+
+
 def vir_iz_streznika(streznik: dict, id_datoteke: str, kljuc: str = "", mime: str = "") -> Optional[Vir]:
     """Vir iz polja `server` odgovora na `files.list`; None, ce streznik ni HTTPS s pripetim odtisom
     na naslovu v domacem omrezju (naprava ne more poslati racunalnika nekam na internet)."""
@@ -68,7 +80,7 @@ def vir_iz_streznika(streznik: dict, id_datoteke: str, kljuc: str = "", mime: st
         ip = ipaddress.ip_address(urllib.parse.urlparse(osnova).hostname or "")
     except ValueError:
         return None
-    if not (ip.is_private or ip.is_link_local or ip.is_loopback):
+    if not (ip.is_private or ip.is_link_local or ip.is_loopback or ip in OBSEG_BREZ_OMREZJA):
         return None
     # Vrsta gre v glavo odgovora: samo "vrsta/podvrsta", brez presledkov in novih vrstic.
     mime = str(mime or "")
@@ -176,7 +188,8 @@ class LokalniPretok:
         gostitelj, vrata = u.hostname or "", u.port or 443
         # Neposredno samo, ce na tem naslovu res odgovori ta naprava (pripet odtis): zunaj doma je na
         # istem zasebnem naslovu lahko cisto druga naprava.
-        if gostitelj and self._potrdilo("wss://%s:%d/" % (gostitelj, vrata), NEPOSREDNO_CAKAJ_S)[0] == vir.odtis:
+        if (gostitelj and not brez_omrezja(gostitelj)
+                and self._potrdilo("wss://%s:%d/" % (gostitelj, vrata), NEPOSREDNO_CAKAJ_S)[0] == vir.odtis):
             p = _Pot(gostitelj, vrata, "/d/", vir.odtis, False, zdaj + POT_VELJA_S)
         else:
             p = self._pot_prek_releja(vir, zdaj)
