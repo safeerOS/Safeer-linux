@@ -16,6 +16,7 @@ import unittest
 from unittest import mock
 
 from core import link_deljenje
+from dostop_za_preizkus import setUpModule, tearDownModule  # noqa: E402,F401 - naprave v teh preizkusih so v ozjem krogu
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #: Zaledje Safeer Controla za Linux (GTK); v repozitoriju Safeer OS za Windows ga ni.

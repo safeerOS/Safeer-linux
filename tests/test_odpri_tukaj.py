@@ -5,6 +5,7 @@ from unittest import mock
 
 import safeer_control
 from core import safeer_link
+from dostop_za_preizkus import setUpModule, tearDownModule  # noqa: E402,F401 - naprave v teh preizkusih so v ozjem krogu
 
 
 class _LinkZaUkaz:
