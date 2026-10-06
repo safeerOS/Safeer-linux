@@ -36,6 +36,7 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.4.59" date="2026-10-06"><description><p>From this computer to a device that is away from home (Global Link): when the hub of a device is not on this network it is reached through the relay, with the same trust (the key in the certificate must be the key of the circle member). A device without a home network address is read through its hub at once, without a direct attempt that cannot succeed.</p></description></release>
     <release version="0.4.58" date="2026-10-06"><description><p>Away from home (Global Link) works like at home: the hub of this computer now serves everything its file server serves - files, thumbnails for videos and pictures, renaming, moving and deleting, and streams - with the same token and the same rules.</p></description></release>
     <release version="0.4.57" date="2026-10-05"><description><p>The screen of one computer can be shown on another computer: the hub of a computer now relays a shared screen. The screen of a phone or tablet opens on the computer instead of an error page. Sharing ends when nobody is watching, and the sender is told why.</p></description></release>
     <release version="0.4.56" date="2026-10-05"><description><p>A file sent from another computer arrives in the downloads folder. Sharing the screen of this computer with a phone, tablet or TV works again: it starts at the hub of the device that shows it. Two computers in the same network no longer advertise their hub under the same name.</p></description></release>
