@@ -521,8 +521,8 @@ def postrezi_slicico(obravnava, streznik: "StreznikDatotek", oznaka: str, samo_g
     if samo_glava:
         return
     try:
+        # Slicica je drobna zahteva med brskanjem: budnosti racunalnika ne podaljsuje (to delata datoteka in tok).
         obravnava.wfile.write(slicica)
-        budnost.dotik()
     except (BrokenPipeError, ConnectionResetError, ssl.SSLError, socket.timeout):
         pass
 
