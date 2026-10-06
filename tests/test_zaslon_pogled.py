@@ -145,6 +145,32 @@ class Seja(unittest.TestCase):
         self.assertLessEqual(seja["width"], 1920)
         self.assertLessEqual(seja["height"], 1080)
 
+    def test_naprava_med_sejo_izbere_vecjo_vsebino(self):
+        poslano = []
+        odjemalec = types.SimpleNamespace(sendall=poslano.append)
+        self.z.zacni("fon", "najvisja", "apps", pogled={"w": 2340, "h": 1080, "density": 3.0, "kind": "phone"})
+        self.assertEqual(self.z.drugi.merila[-1], 2.0)
+        self.z._nastavi_merilo(odjemalec, {"vrsta": "merilo", "merilo": 2.5})
+        self.assertEqual(self.z.drugi.merila[-1], 2.5)
+        self.assertIn(b'"merilo": 2.5', poslano[-1])
+        self.assertEqual(poslano[-1][0], link_zaslon.OKVIR_OBVESTILO)
+        self.z._nastavi_merilo(odjemalec, {"vrsta": "merilo", "merilo": 1.3})          # na cetrtine navzdol
+        self.assertEqual(self.z.drugi.merila[-1], 1.25)
+        self.z._nastavi_merilo(odjemalec, {"vrsta": "merilo", "merilo": 99})           # najvec 3
+        self.assertEqual(self.z.drugi.merila[-1], 3.0)
+        stevilo = len(self.z.drugi.merila)
+        for slabo in (None, "x", 0, -2, float("nan"), float("inf")):
+            self.z._nastavi_merilo(odjemalec, {"vrsta": "merilo", "merilo": slabo})
+        self.assertEqual(len(self.z.drugi.merila), stevilo)                              # nesmisel ne spremeni nicesar
+
+    def test_merilo_pravega_zaslona_se_ne_spreminja(self):
+        poslano = []
+        odjemalec = types.SimpleNamespace(sendall=poslano.append)
+        self.z.zacni("fon", "najvisja", "desktop", pogled={"w": 2340, "h": 1080, "density": 3.0, "kind": "phone"})
+        self.z._nastavi_merilo(odjemalec, {"vrsta": "merilo", "merilo": 2.0})
+        self.assertEqual(self.z.drugi.merila, [])
+        self.assertEqual(poslano, [])
+
     def test_ukaz_screen_start_preda_povrsino(self):
         klici = []
 

@@ -724,6 +724,22 @@ class Zaslon:
         except (OSError, ssl.SSLError, ValueError):
             pass
 
+    def _nastavi_merilo(self, odjemalec, dogodek: dict) -> None:
+        """Naprava hoce vecje ali manjse gumbe programov na locenem zaslonu (meni seje). Slika, ki jo posiljamo,
+        ostane enako velika in seja tece naprej. Na pravem zaslonu (cilj `desktop`) dogodek nima ucinka."""
+        drugi = self.drugi
+        if self._cilj != "apps" or drugi is None or not hasattr(drugi, "osnovno_merilo"):
+            return
+        try:
+            zeljeno = float(dogodek.get("merilo"))
+        except (TypeError, ValueError):
+            return
+        if not math.isfinite(zeljeno) or zeljeno <= 0:
+            return
+        merilo = merilo_za_gledalca({"scale": zeljeno}, self._izvor)
+        drugi.osnovno_merilo(merilo)
+        self._obvesti(odjemalec, {"merilo": merilo})
+
     def _fokus(self):
         drugi = getattr(self._vnos, "drugi", None)
         return getattr(drugi, "fokus", None) if self._cilj == "apps" else None
@@ -785,6 +801,9 @@ class Zaslon:
                         dogodek = self._v_zaslon(dogodek)
                     if isinstance(dogodek, dict) and dogodek.get("vrsta") == "medij":
                         self._medij(odjemalec, dogodek)
+                        continue
+                    if isinstance(dogodek, dict) and dogodek.get("vrsta") == "merilo":
+                        self._nastavi_merilo(odjemalec, dogodek)
                         continue
                     tipkovnica = self._odpre_tipkovnico(dogodek)
                     f = self._fokus()
