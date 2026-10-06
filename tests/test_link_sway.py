@@ -107,6 +107,15 @@ class Zajem(unittest.TestCase):
                          ["bindsym Mod1+Tab fullscreen disable, focus right"])
         self.assertIn("xwayland enable", k)
 
+    def test_konfiguracija_dotik_zadene_tudi_v_igri(self):
+        """Igra cez cel zaslon ne sme zakleniti kazalca (dotik bi zgresil), navidezne naprave pa ostanejo na sedezu."""
+        vrstice = link_sway._konfiguracija(1236, 576).splitlines()
+        self.assertIn("seat seat0 pointer_constraint disable", vrstice)
+        self.assertIn("seat seat0 fallback true", vrstice)
+        # Najprej sedez obdrzi naprave, sele nato ostale nastavitve sedeza.
+        self.assertLess(vrstice.index("seat seat0 fallback true"),
+                        vrstice.index("seat seat0 pointer_constraint disable"))
+
 
 class Izbira(unittest.TestCase):
     def test_kateri_zaslon(self):
