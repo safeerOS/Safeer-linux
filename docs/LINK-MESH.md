@@ -97,6 +97,22 @@ računalnik, ki je ves čas prižgan. Hub je ena točka odpovedi in ena točka, 
    Zaupanje je isto kot pri sosednji povezavi: ključ v potrdilu huba mora biti ključ člana kroga
    (`link_mesh.sredisce_naprave`).
 
+10. **Zdoma kot doma: kar naprava streže neposredno, streže tudi njen hub** (6. 10. 2026). Rele (Global
+    Link) pripelje samo do vrat huba. Hub zato pod `/cast` streže vse poti strežnika datotek svoje naprave
+    z istim žetonom (`X-Safeer-Token`) in istimi pravili: `/cast/d/<id>` (GET, HEAD in urejanje s POST),
+    `/cast/thumb/<id>`, sprotni tok `/cast/live/<id>` in tok torrenta (`/cast/m/…` na računalniku,
+    `/cast/magnet/…` na Androidu). Da hub to zna, pove `server.hub = 2` v odgovoru `files.list`; brez tega
+    polja (starejši Safeer) naprava zdoma ponudi samo branje datotek. Urejanje gre vedno po eni sami poti
+    (preimenovanje ali brisanje se ne sme izvesti dvakrat).
+
+    **Zaslon računalnika** gre po isti poti: gledalec v `screen.start` pošlje `relay: true`, računalnik pot
+    potrdi (`relay: true` v odgovoru), gledalec pa pride do huba z `GET /cast/desktop`
+    (`Upgrade: safeer-desktop`, žeton seje v glavi `X-Safeer-Desktop`). Po odgovoru `101` hub povezavo preda
+    seji (`Zaslon.prevzemi`) in po njej teče isti pretok kot po neposredni: ista kakovost slike, zvok in vnos
+    nazaj – kakovosti zaradi poti ne nižamo. Gledalec poskusi obe poti hkrati; neposredna ima 0,3 s
+    prednosti, zato doma zmaga, preden se rele sploh odpre, zdoma pa nihče ne čaka na naslove domačega
+    omrežja. Seja dobi natanko enega gledalca: drugi in tisti z napačnim žetonom dobita 404.
+
 ## Sporočila (novo)
 
 ```
