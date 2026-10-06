@@ -11,6 +11,7 @@ from unittest import mock
 
 from core import link_hub_streznik, link_krog
 from core.spake2 import Spake2
+from dostop_za_preizkus import setUpModule, tearDownModule  # noqa: E402,F401 - naprave v teh preizkusih so v ozjem krogu
 
 
 class LaznaPovezava:

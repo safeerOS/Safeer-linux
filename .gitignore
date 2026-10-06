@@ -26,6 +26,7 @@ dist/
 tests/*
 !tests/test_*.py
 !tests/conftest.py
+!tests/dostop_za_preizkus.py
 !tests/test_*.js
 !tests/README.md
 !tests/fixtures/

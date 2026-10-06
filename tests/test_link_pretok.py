@@ -14,6 +14,7 @@ KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, KOREN)
 
 from core import link_datoteke, link_hub_streznik, link_pretok, link_tls  # noqa: E402
+from dostop_za_preizkus import setUpModule, tearDownModule  # noqa: E402,F401 - naprave v teh preizkusih so v ozjem krogu
 
 
 def _beri(url, glave=None):
