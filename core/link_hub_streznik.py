@@ -55,6 +55,8 @@ POT_PREVZEM = "/cast/file/"
 POT_ZASLON_START = "/cast/share/screen/start"
 POT_ZASLON_STOP = "/cast/share/screen/stop"
 POT_ZASLON = "/cast/screen/"
+#: Slika zaslona TEGA racunalnika za gledalca, ki je zdoma (Global Link pripelje samo do vrat Huba).
+POT_NAMIZJE = "/cast/desktop"
 #: Toliko neprebranega telesa se preberemo in zavrzemo, da odjemalec dobi odgovor z napako; pri vecjem zapremo.
 NAJVEC_ZAVRZENEGA = 64 * 1024 * 1024
 
@@ -1954,11 +1956,14 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             # Samo stevila, nikoli imena naprav: to je preverba, da tu res tece Safeer Hub.
             self._odgovori(200, self._hub.zdravje())
             return
-        if pot.startswith(POT_DATOTEKE):
+        if self._je_pot_datotek(pot):
             self._datoteka(pot, samo_glava=False)
             return
         if pot.startswith(POT_PREVZEM):
             self._prevzem_datoteke(pot)
+            return
+        if pot == POT_NAMIZJE:
+            self._namizje()
             return
         if pot.startswith(POT_ZASLON):
             self._gledalec_zaslona(pot)
@@ -1983,7 +1988,7 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
 
     def do_HEAD(self) -> None:
         pot = urlparse(self.path).path
-        if self._je_krajevni() and pot.startswith(POT_DATOTEKE):
+        if self._je_krajevni() and self._je_pot_datotek(pot):
             self._datoteka(pot, samo_glava=True)
             return
         # HEAD nima telesa (HTTP/1.1).
@@ -1992,28 +1997,77 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
         self.send_header("Connection", "close")
         self.end_headers()
 
-    def _datoteka(self, pot: str, samo_glava: bool) -> None:
-        """Deljena datoteka prek Huba (Global Link: rele pripelje samo do vrat Huba). Isti zeton in
-        ista pravila kot streznik datotek (core/link_datoteke.postrezi_datoteko)."""
+    @staticmethod
+    def _je_pot_datotek(pot: str) -> bool:
+        """Pot streznika datotek pod /cast: /cast/d/, /cast/thumb/, /cast/m/, /cast/live/."""
+        if not pot.startswith("/cast/"):
+            return False
+        from core import link_datoteke
+        return link_datoteke.je_pot_streznika(pot[5:])
+
+    def _streznik_datotek(self):
+        """Streznik datotek te naprave za zahtevo (tisti, ki pozna zeton) ali None; obrambi pove izid."""
         dobi = getattr(self.server, "datoteke", None)
         streznik = dobi() if callable(dobi) else None
+        z = (self.headers.get("X-Safeer-Token") or "").strip()
         if isinstance(streznik, (list, tuple)):
             # Vec streznikov (npr. Windows: loceno za omejen dostop in za cel disk): tisti, ki pozna zeton.
-            z = (self.headers.get("X-Safeer-Token") or "").strip()
             streznik = next((s for s in streznik if s is not None and s.zeton_velja(z)), None) or \
                 next((s for s in streznik if s is not None), None)
         if streznik is None:
             self._napaka(404, "Ta naprava ne deli datotek.", "ni_datotek")
-            return
-        # Zeton preveri postrezi_datoteko; obramba mora izvedeti izid (odgovor ne gre skozi _odgovori).
-        z = (self.headers.get("X-Safeer-Token") or "").strip()
+            return None
         if z and streznik.zeton_velja(z):
             self._zaupaj()
         else:
             self._sovrazno("brez_zaupanja")
-        from urllib.parse import unquote
+        return streznik
+
+    def _uredi_datoteko(self, pot: str) -> None:
+        """POST /cast/d/<id>: urejanje datoteke prek Huba (Global Link) - isti zeton in ista pravila kot doma."""
+        streznik = self._streznik_datotek()
+        if streznik is None:
+            return
         from core import link_datoteke
-        link_datoteke.postrezi_datoteko(self, streznik, unquote(pot[len(POT_DATOTEKE):]), samo_glava)
+        self.close_connection = True
+        link_datoteke.uredi_pot(self, streznik, pot[5:])
+
+    def _datoteka(self, pot: str, samo_glava: bool) -> None:
+        """Pot streznika datotek prek Huba (Global Link: rele pripelje samo do vrat Huba). Isti zeton in ista
+        pravila kot doma (core/link_datoteke.postrezi_pot): datoteka, slicica, tok torrenta, sprotni tok."""
+        streznik = self._streznik_datotek()
+        if streznik is None:
+            return
+        from core import link_datoteke
+        link_datoteke.postrezi_pot(self, streznik, pot[5:], samo_glava)
+
+    # ------------------------------------------------------------------ zaslon tega racunalnika prek Huba
+    def _namizje(self) -> None:
+        """GET /cast/desktop (Upgrade: safeer-desktop): slika zaslona TEGA racunalnika za gledalca, ki je zdoma.
+
+        Po Global Linku rele pripelje samo do vrat Huba; do vrat seje zaslona (core/link_zaslon) zdoma ni poti.
+        Gledalec zato pride sem z zetonom seje iz odgovora na `screen.start` (glava X-Safeer-Desktop). Po odgovoru
+        101 povezavo prevzame seja zaslona: po njej tece isti pretok kot po neposredni povezavi (glava JSON,
+        okvirji, vnos nazaj). Rele vidi samo sifrirane bajte - TLS je do tega Huba, s pripetim odtisom.
+        """
+        dobi = getattr(self.server, "zaslon", None)
+        zaslon = dobi() if callable(dobi) else None
+        zeton = (self.headers.get("X-Safeer-Desktop") or "").strip()
+        if zaslon is None or not hasattr(zaslon, "prevzemi") or not zeton or not zaslon.caka(zeton):
+            self._napaka(404, "Seje zaslona s tem žetonom ni.", "ni_seje")
+            return
+        if (self.headers.get("Upgrade") or "").strip().lower() != "safeer-desktop":
+            self._napaka(400, "Manjka nadgradnja povezave.", "ni_nadgradnje")
+            return
+        self._zaupaj()
+        try:
+            self.wfile.write(b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: safeer-desktop\r\n"
+                             b"Connection: Upgrade\r\n\r\n")
+            self.wfile.flush()
+        except Exception:
+            return
+        self.close_connection = True          # po seji te povezave ni mogoce uporabiti znova
+        zaslon.prevzemi(self.connection, zeton)
 
     # ------------------------------------------------------------------ deljenje: datoteka
     def _prevzem_datoteke(self, pot: str) -> None:
@@ -2231,6 +2285,9 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
         pot = urlparse(self.path).path
         if not self._je_krajevni():
             self._napaka(403, "Safeer Link deluje samo v krajevnem omrežju.", "samo_krajevno")
+            return
+        if pot.startswith(POT_DATOTEKE):
+            self._uredi_datoteko(pot)
             return
         if pot == POT_PREIMENUJ:
             telo = self._telo()
@@ -2874,6 +2931,9 @@ class HubStreznik:
         #: Streznik datotek (core/link_datoteke.StreznikDatotek ali funkcija, ki ga vrne) za tok prek
         #: Huba (/cast/d/<id>); None = ta naprava datotek ne deli.
         self.datoteke = None
+        #: Deljenje zaslona tega racunalnika (core/link_zaslon.Zaslon ali funkcija, ki ga vrne) za sliko prek
+        #: Huba (/cast/desktop); None = ta naprava zaslona ne deli.
+        self.zaslon = None
         self._streznik: Optional[_Streznik] = None
         self._nit: Optional[threading.Thread] = None
         self._zaklep = threading.Lock()
@@ -3041,6 +3101,7 @@ class HubStreznik:
             streznik.obramba = self.obramba
             self.obramba.zaupan = self.hub.ima_povezavo_z
             streznik.datoteke = lambda: self.datoteke() if callable(self.datoteke) else self.datoteke  # type: ignore[attr-defined]
+            streznik.zaslon = lambda: self.zaslon() if callable(self.zaslon) else self.zaslon  # type: ignore[attr-defined]
             self.vrata = streznik.server_address[1]
             try:
                 self.hub.naslov_za_qr = "%s:%d" % (_krajevni_ip(), self.vrata)

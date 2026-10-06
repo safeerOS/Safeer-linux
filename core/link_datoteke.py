@@ -13,8 +13,10 @@ izbrane mape (simbolne povezave navzven ne pridejo skozi), skrite datoteke se ne
 
 from __future__ import annotations
 
+import collections
 import hashlib
 import hmac
+import io
 import http.client
 import http.server
 import json
@@ -206,7 +208,8 @@ class DeljeneMape:
                 rel = os.path.relpath(os.path.realpath(cela), koren).replace(os.sep, "/")
                 if rel.startswith(".."):
                     continue  # simbolna povezava ven iz deljene mape
-                v = {"id": f"share:{i}:{rel}", "name": ime, "type": "folder" if mapa else vrsta_datoteke(ime)}
+                v = {"id": f"share:{i}:{rel}", "name": ime, "type": "folder" if mapa else vrsta_datoteke(ime),
+                     "modified": int(os.path.getmtime(cela))}
                 if not mapa:
                     v["size"] = os.path.getsize(cela)
                     v["mime"] = mimetypes.guess_type(ime)[0] or "application/octet-stream"
@@ -237,7 +240,7 @@ class DeljeneMape:
                 if not mapa and not os.path.isfile(cela):
                     continue
                 v = {"id": "disk:" + os.path.realpath(cela), "name": ime,
-                     "type": "folder" if mapa else vrsta_datoteke(ime)}
+                     "type": "folder" if mapa else vrsta_datoteke(ime), "modified": int(os.path.getmtime(cela))}
                 if not mapa:
                     v["size"] = os.path.getsize(cela)
                     v["mime"] = mimetypes.guess_type(ime)[0] or "application/octet-stream"
@@ -296,36 +299,16 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
         """Urejanje datoteke z naprave: `{"op": "delete"|"rename"|"move"|"rotate", ...}` z istim zetonom kot prenos."""
         streznik: StreznikDatotek = self.server.streznik  # type: ignore[attr-defined]
         u = urllib.parse.urlparse(self.path)
-        if not u.path.startswith("/d/"):
-            self._napaka(404, "ni take poti")
-            return
-        if not streznik.zeton_velja(self._zeton()):
-            self._napaka(401, "manjka ali napacen zeton")
-            return
         try:
             dolzina = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             dolzina = -1
-        if dolzina < 0 or dolzina > NAJVEC_TELESA:
+        if u.path.startswith("/d/") and streznik.zeton_velja(self._zeton()) and (dolzina < 0 or dolzina > NAJVEC_TELESA):
+            # Preveliko telo: odgovor mora priti do naprave, zato preberemo in zavrzemo, kar se posilja.
             self._napaka(413, "predolgo telo")
             self._zavrzi_telo(dolzina)
             return
-        try:
-            zahteva = json.loads(self.rfile.read(dolzina).decode("utf-8") or "{}")
-            if not isinstance(zahteva, dict):
-                raise ValueError
-        except (ValueError, UnicodeDecodeError):
-            self._napaka(400, "telo ni JSON")
-            return
-        oznaka = urllib.parse.unquote(u.path[3:])
-        koda, odgovor = streznik.uredi(oznaka, zahteva)
-        telo = json.dumps(odgovor).encode("utf-8")
-        self.send_response(koda)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(telo)))
-        self.send_header("Connection", "close")
-        self.end_headers()
-        self.wfile.write(telo)
+        uredi_pot(self, streznik, u.path)
 
     def _zavrzi_telo(self, dolzina: int, najvec: int = 4 * NAJVEC_TELESA, rok_s: float = 1.0) -> None:
         """Po zavrnitvi prevelikega telesa prebere in zavrze, kar odjemalec se posilja - najvec `najvec` bajtov in
@@ -354,23 +337,7 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
 
     def _datoteka(self, samo_glava: bool) -> None:
         streznik: StreznikDatotek = self.server.streznik  # type: ignore[attr-defined]
-        u = urllib.parse.urlparse(self.path)
-        if u.path.startswith("/m/"):
-            # Torrent, ki ga za napravo (npr. televizor) prenasa in pretaka ta racunalnik.
-            posreduj_tok(self, streznik, u.path.split("/")[2] if len(u.path.split("/")) > 2 else "", samo_glava)
-            return
-        if u.path.startswith("/live/"):
-            # Sprotno pretvorjeni tok za napravo, ki izvirnika ne zna predvajati (link_sprotno): zeton kot pri datotekah.
-            if not streznik.zeton_velja(self._zeton()):
-                self._napaka(401, "manjka ali napacen zeton")
-                return
-            from core import link_sprotno
-            (getattr(streznik, "sprotno", None) or link_sprotno.sprotno()).postrezi(self, u.path[6:].split("/")[0], samo_glava)
-            return
-        if not u.path.startswith("/d/"):
-            self._napaka(404, "ni take poti")
-            return
-        postrezi_datoteko(self, streznik, urllib.parse.unquote(u.path[3:]), samo_glava)
+        postrezi_pot(self, streznik, urllib.parse.urlparse(self.path).path, samo_glava)
 
 
 def _napaka_http(obravnava, koda: int, besedilo: str) -> None:
@@ -451,6 +418,182 @@ def _poslji_datoteko(obravnava, pot: str, samo_glava: bool) -> None:
         # Predvajalnik na napravi med predvajanjem zapira povezave sredi obsega (nov Range): ni napaka,
         # prej je vsaka taka pustila sled v dnevniku (SSLEOFError).
         pass
+
+
+# ------------------------------------------------------------------ slicice
+#: Slicica za mrezni pogled na napravah: daljsa stranica v tockah (dovolj za ploscico na televizorju, da je ni treba
+#: povecevati), kakovost JPEG in koliko slicic drzimo v pomnilniku.
+SLICICA_ROB = 512
+SLICICA_KAKOVOST = 85
+NAJVEC_SLICIC = 300
+#: Najvec hkratnih slicic iz videa (ffmpeg): mapa s sto videi ne sme zasesti vseh jeder.
+_SLICICE_VIDEA = threading.BoundedSemaphore(2)
+_slicice: "collections.OrderedDict[tuple, bytes]" = collections.OrderedDict()
+_slicice_kljuc = threading.Lock()
+
+
+def _slicica_slike(pot: str, rob: int) -> Optional[bytes]:
+    try:
+        from PIL import Image, ImageOps
+    except Exception:  # noqa: BLE001 - brez Pillow slicic slik ni; naprava si pomaga sama
+        return None
+    try:
+        with Image.open(pot) as im:
+            try:
+                im.draft("RGB", (rob * 2, rob * 2))      # JPEG se dekodira ze pomanjsan
+            except Exception:  # noqa: BLE001
+                pass
+            im = ImageOps.exif_transpose(im)             # pokoncna fotografija ostane pokoncna
+            im.thumbnail((rob, rob))
+            if im.mode not in ("RGB", "L"):
+                im = im.convert("RGB")
+            izhod = io.BytesIO()
+            im.save(izhod, "JPEG", quality=SLICICA_KAKOVOST)
+            return izhod.getvalue()
+    except Exception:  # noqa: BLE001 - pokvarjena ali nepodprta slika: slicice ni
+        return None
+
+
+def _slicica_videa(pot: str, rob: int) -> Optional[bytes]:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return None
+    with _SLICICE_VIDEA:
+        # Slika s tretje sekunde (zacetek je pogosto crn); krajsi posnetek da prvo sliko.
+        for zamik in ("3", "0"):
+            try:
+                r = subprocess.run(
+                    [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-ss", zamik, "-i", pot,
+                     "-frames:v", "1", "-vf", "scale='min(%d,iw)':-2" % rob, "-f", "image2pipe",
+                     "-vcodec", "mjpeg", "-q:v", "4", "-"],
+                    stdin=subprocess.DEVNULL, capture_output=True, timeout=15)
+            except Exception:  # noqa: BLE001 - ffmpeg obstane ali ga ni mogoce zagnati
+                return None
+            if r.returncode == 0 and len(r.stdout) > 200:
+                return r.stdout
+    return None
+
+
+def naredi_slicico(pot: str, rob: int = SLICICA_ROB) -> Optional[bytes]:
+    """Pomanjsan JPEG slike (Pillow, obrnjen po EXIF) ali slike iz videa (ffmpeg). None, kadar slicice ni mogoce
+    narediti - naprava takrat pokaze ikono ali si sliko prenese sama. Slicica se naredi enkrat za isto datoteko
+    (pot, cas spremembe, velikost) in ostane v pomnilniku."""
+    try:
+        s = os.stat(pot)
+    except OSError:
+        return None
+    kljuc = (pot, int(s.st_mtime), s.st_size, rob)
+    with _slicice_kljuc:
+        znana = _slicice.get(kljuc)
+        if znana is not None:
+            _slicice.move_to_end(kljuc)
+            return znana
+    vrsta = vrsta_datoteke(pot)
+    slicica = _slicica_slike(pot, rob) if vrsta == "image" else _slicica_videa(pot, rob) if vrsta == "video" else None
+    if slicica:
+        with _slicice_kljuc:
+            _slicice[kljuc] = slicica
+            while len(_slicice) > NAJVEC_SLICIC:
+                _slicice.popitem(last=False)
+    return slicica
+
+
+def postrezi_slicico(obravnava, streznik: "StreznikDatotek", oznaka: str, samo_glava: bool) -> None:
+    """Slicica slike ali videa iz deljene mape (`/thumb/<id>`, prek Huba `/cast/thumb/<id>`), z istim zetonom kot
+    datoteka. 404, kadar slicice ni mogoce narediti."""
+    z = obravnava.headers.get("X-Safeer-Token")
+    if not streznik.zeton_velja(z.strip() if z else None):
+        _napaka_http(obravnava, 401, "manjka ali napacen zeton")
+        return
+    r = streznik.mape.razresi(oznaka)
+    if r is None or not os.path.isfile(r[1]):
+        _napaka_http(obravnava, 404, "datoteke ni")
+        return
+    slicica = naredi_slicico(r[1])
+    if not slicica:
+        _napaka_http(obravnava, 404, "slicice ni")
+        return
+    obravnava.send_response(200)
+    obravnava.send_header("Content-Type", "image/jpeg")
+    obravnava.send_header("Content-Length", str(len(slicica)))
+    obravnava.send_header("Cache-Control", "private, max-age=0")
+    obravnava.end_headers()
+    if samo_glava:
+        return
+    try:
+        obravnava.wfile.write(slicica)
+        budnost.dotik()
+    except (BrokenPipeError, ConnectionResetError, ssl.SSLError, socket.timeout):
+        pass
+
+
+# ------------------------------------------------------------------ ena vrata za streznik datotek in Hub
+#: Poti streznika datotek. Hub jih streze pod /cast (Global Link pripelje samo do vrat Huba), zato mora biti
+#: seznam en sam: kar dela doma, dela zdoma.
+POTI_STREZNIKA = ("/d/", "/thumb/", "/m/", "/live/")
+
+
+def je_pot_streznika(pot: str) -> bool:
+    return any(pot.startswith(p) for p in POTI_STREZNIKA)
+
+
+def postrezi_pot(obravnava, streznik: "StreznikDatotek", pot: str, samo_glava: bool) -> None:
+    """GET/HEAD katerekoli poti streznika datotek (`pot` brez /cast): datoteka, slicica, tok torrenta, sprotni tok."""
+    if pot.startswith("/m/"):
+        # Torrent, ki ga za napravo (npr. televizor) prenasa in pretaka ta racunalnik.
+        deli = pot.split("/")
+        posreduj_tok(obravnava, streznik, deli[2] if len(deli) > 2 else "", samo_glava)
+        return
+    if pot.startswith("/live/"):
+        # Sprotno pretvorjeni tok za napravo, ki izvirnika ne zna predvajati (link_sprotno): zeton kot pri datotekah.
+        z = obravnava.headers.get("X-Safeer-Token")
+        if not streznik.zeton_velja(z.strip() if z else None):
+            _napaka_http(obravnava, 401, "manjka ali napacen zeton")
+            return
+        from core import link_sprotno
+        (getattr(streznik, "sprotno", None) or link_sprotno.sprotno()).postrezi(obravnava, pot[6:].split("/")[0], samo_glava)
+        return
+    if pot.startswith("/thumb/"):
+        postrezi_slicico(obravnava, streznik, urllib.parse.unquote(pot[7:]), samo_glava)
+        return
+    if not pot.startswith("/d/"):
+        _napaka_http(obravnava, 404, "ni take poti")
+        return
+    postrezi_datoteko(obravnava, streznik, urllib.parse.unquote(pot[3:]), samo_glava)
+
+
+def uredi_pot(obravnava, streznik: "StreznikDatotek", pot: str) -> None:
+    """POST `/d/<id>` (prek Huba `/cast/d/<id>`): urejanje datoteke z naprave - `{"op": "delete"|"rename"|"move"|"rotate",
+    ...}` z istim zetonom kot prenos."""
+    if not pot.startswith("/d/"):
+        _napaka_http(obravnava, 404, "ni take poti")
+        return
+    z = obravnava.headers.get("X-Safeer-Token")
+    if not streznik.zeton_velja(z.strip() if z else None):
+        _napaka_http(obravnava, 401, "manjka ali napacen zeton")
+        return
+    try:
+        dolzina = int(obravnava.headers.get("Content-Length") or 0)
+    except ValueError:
+        dolzina = -1
+    if dolzina < 0 or dolzina > NAJVEC_TELESA:
+        _napaka_http(obravnava, 413, "predolgo telo")
+        return
+    try:
+        zahteva = json.loads(obravnava.rfile.read(dolzina).decode("utf-8") or "{}")
+        if not isinstance(zahteva, dict):
+            raise ValueError
+    except (ValueError, UnicodeDecodeError):
+        _napaka_http(obravnava, 400, "telo ni JSON")
+        return
+    koda, odgovor = streznik.uredi(urllib.parse.unquote(pot[3:]), zahteva)
+    telo = json.dumps(odgovor).encode("utf-8")
+    obravnava.send_response(koda)
+    obravnava.send_header("Content-Type", "application/json")
+    obravnava.send_header("Content-Length", str(len(telo)))
+    obravnava.send_header("Connection", "close")
+    obravnava.end_headers()
+    obravnava.wfile.write(telo)
 
 
 def posreduj_tok(obravnava, streznik: "StreznikDatotek", skrivnost: str, samo_glava: bool) -> None:
@@ -771,6 +914,9 @@ class Datoteke:
                 "base_url": self.streznik.osnova(naslov),
                 "fp": self.streznik.odtis,
                 "token": self.streznik.zeton_za(id_naprave or "naprava"),
+                # Hub tega racunalnika streze iste poti pod /cast (Global Link): urejanje, slicice, tokovi.
+                # Starejsi Control tega polja nima - naprava zdoma takrat ponudi samo branje.
+                "hub": 2,
             }
         return o
 

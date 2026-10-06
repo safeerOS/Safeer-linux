@@ -748,6 +748,8 @@ class SafeerLink:
             g = link_hub_streznik.HubGostitelj(poisci=self._poisci_tuj_hub, ime=ime)
             # Deljene mape tudi prek Huba (/cast/d/): po Global Linku pride samo povezava do vrat Huba.
             g.streznik.datoteke = lambda: getattr(self.datoteke, "streznik", None)
+            # Slika zaslona tudi prek Huba (/cast/desktop), za gledalca, ki je zdoma.
+            g.streznik.zaslon = lambda: self.zaslon
             self._hub_gostitelj = g
         return g
 
