@@ -267,6 +267,144 @@ class Seja(unittest.TestCase):
             self.assertEqual(klici[-1], {"kodek": "h264", "gop": 0})
 
 
+class LazniGledalec:
+    """Povezava gledalca: zapomni si, kar racunalnik poslje; vnosa ne posilja."""
+
+    def __init__(self):
+        self.poslano = []
+
+    def sendall(self, b):
+        self.poslano.append(bytes(b))
+
+    def settimeout(self, t):
+        pass
+
+    def recv(self, n):
+        return b""
+
+    def shutdown(self, kako):
+        pass
+
+    def close(self):
+        pass
+
+    def glava(self):
+        return __import__("json").loads(self.poslano[0].decode("utf-8"))
+
+
+class LazniZajem:
+    """Zajem, ki takoj konca (brez slike); belezi se samo ukaz."""
+    returncode = -15
+
+    def __init__(self):
+        self.stdout = types.SimpleNamespace(read=lambda n: b"", close=lambda: None)
+
+    def poll(self):
+        return self.returncode
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+    def terminate(self):
+        pass
+
+    def kill(self):
+        pass
+
+
+class KodekPoPoti(unittest.TestCase):
+    """HEVC samo gledalcu, ki pride prek Huba (Global Link); v domacem omrezju H.264."""
+
+    def test_pravilo(self):
+        self.assertEqual(link_zaslon.kodek_za_pot("hevc", True), "hevc")
+        self.assertEqual(link_zaslon.kodek_za_pot("hevc", False), "h264")
+        self.assertEqual(link_zaslon.kodek_za_pot("h264", True), "h264")
+        self.assertEqual(link_zaslon.kodek_za_pot("h264", False), "h264")
+
+    def _seja(self, prek_huba, kodeki, omrezje=""):
+        """Seja za namizje do trenutka, ko se gledalec poveze: vrne (glava toka, ukaz zajema)."""
+        os.environ.setdefault("DISPLAY", ":0")
+        z = link_zaslon.Zaslon(vklopljeno=True, ffmpeg="/bin/true")
+        klic = {}
+        z._streci = lambda *a: klic.setdefault("a", a)          # nit seje: samo zapomni si, s cim bi tekla
+        zagnano = []
+
+        def popen(ukaz, **kw):
+            zagnano.append(list(ukaz))
+            return LazniZajem()
+        gledalec = LazniGledalec()
+        import threading
+        try:
+            with mock.patch.object(link_zaslon, "hevc_mozen", return_value=True), \
+                    mock.patch.object(link_zaslon, "vaapi_naprava", return_value="/dev/dri/renderD128"), \
+                    mock.patch.object(link_zaslon, "privzeti_monitor", return_value=None):
+                seja = z.zacni("fon", "najvisja", "desktop", kodeki=kodeki, zmoznosti=["gop"], omrezje=omrezje)
+                z._nit.join(timeout=2)
+                z._sprejmi = lambda posluh, ctx: (gledalec, threading.Event() if prek_huba else None)
+                with mock.patch.object(link_zaslon.subprocess, "Popen", popen), mock.patch("builtins.print"):
+                    link_zaslon.Zaslon._streci(z, *klic["a"])
+        finally:
+            z.ustavi()
+        return seja, gledalec.glava(), zagnano[0]
+
+    def test_prek_huba_hevc(self):
+        seja, glava, ukaz = self._seja(True, ["hevc", "h264"])
+        self.assertEqual((seja["codec"], glava["kodek"]), ("hevc", "hevc"))
+        self.assertIn("hevc_vaapi", ukaz)
+        self.assertEqual(ukaz[ukaz.index("-g") + 1], "600")
+        # zdoma brez podatka o omrezju: stopnja za obicajno povezavo 4G
+        self.assertEqual(ukaz[ukaz.index("-qp") + 1], "20")
+        self.assertEqual((glava["qp"], glava["kakovost"]), (20, "mobilna"))
+
+    def test_kakovost_po_omrezju_gledalca(self):
+        for omrezje, qp, stopnja in (("4g", "20", "mobilna"), ("wifi", "20", "mobilna"), ("ethernet", "20", "mobilna"),
+                                     ("celicno", "20", "mobilna"), ("5g", "18", "visoka"), ("5G", "18", "visoka")):
+            _seja, glava, ukaz = self._seja(True, ["hevc", "h264"], omrezje)
+            self.assertEqual(ukaz[ukaz.index("-qp") + 1], qp, omrezje)
+            self.assertEqual((glava["qp"], glava["kakovost"], glava["fps"]), (int(qp), stopnja, 60), omrezje)
+        # doma omrezje gledalca ne spremeni nicesar: najvisja kakovost
+        for omrezje in ("4g", "5g", "wifi", ""):
+            _seja, glava, ukaz = self._seja(False, ["hevc", "h264"], omrezje)
+            self.assertEqual(ukaz[ukaz.index("-qp") + 1], "16", omrezje)
+            self.assertEqual((glava["qp"], glava["kakovost"]), (16, "najvisja"), omrezje)
+
+    def test_pravilo_kakovosti(self):
+        k = link_zaslon.kakovost_za_pot
+        self.assertEqual(k("najvisja", False, "4g"), "najvisja")
+        self.assertEqual(k("najvisja", True, ""), "mobilna")
+        self.assertEqual(k("najvisja", True, "4g"), "mobilna")
+        self.assertEqual(k("najvisja", True, "5g"), "visoka")
+        self.assertEqual(k("visoka", True, "4g"), "mobilna")
+        self.assertEqual(k("visoka", True, "5g"), "visoka")
+        # nikoli vec, kot je naprava zahtevala
+        self.assertEqual(k("srednja", True, "5g"), "srednja")
+        self.assertEqual(k("nizka", True, "4g"), "nizka")
+        self.assertEqual(k("mobilna", True, "5g"), "mobilna")
+        # neznana stopnja je privzeta (najvisja)
+        self.assertEqual(k("ni-take", False, ""), "najvisja")
+        self.assertEqual(k("ni-take", True, ""), "mobilna")
+        # stopnje so urejene po podatkih; vse so v seznamu
+        self.assertEqual(set(link_zaslon.VRSTNI_RED_KAKOVOSTI), set(link_zaslon.KAKOVOSTI))
+        qp = [link_zaslon.KAKOVOSTI[x]["qp"] for x in link_zaslon.VRSTNI_RED_KAKOVOSTI]
+        self.assertEqual(qp, sorted(qp, reverse=True))
+        self.assertEqual(link_zaslon.KAKOVOSTI["mobilna"]["fps"], 60)
+
+    def test_neposredno_h264_z_isto_skupino_slik(self):
+        seja, glava, ukaz = self._seja(False, ["hevc", "h264"])
+        self.assertEqual(seja["codec"], "hevc")                 # dogovor; velja glava toka
+        self.assertEqual(glava["kodek"], "h264")
+        self.assertIn("h264_vaapi", ukaz)
+        self.assertNotIn("hevc_vaapi", ukaz)
+        self.assertEqual(ukaz[ukaz.index("-g") + 1], "600")     # dolga skupina slik ostane
+        self.assertEqual(ukaz[ukaz.index("-qp") + 1], "16")     # kakovost ostane
+
+    def test_naprava_brez_hevc_ostane_kot_je(self):
+        for prek_huba in (True, False):
+            seja, glava, ukaz = self._seja(prek_huba, ["h264"])
+            self.assertEqual((seja["codec"], glava["kodek"]), ("h264", "h264"))
+            self.assertIn("h264_vaapi", ukaz)
+
+
 class UkazZaslona(unittest.TestCase):
     def test_codecs_pridejo_do_seje(self):
         klici = []
@@ -289,6 +427,12 @@ class UkazZaslona(unittest.TestCase):
         self.assertTrue(all(i.get("ok") for i in izidi), izidi)
         self.assertEqual(klici[0], {"kodeki": ["hevc", "h264"], "zmoznosti": ["gop"]})
         self.assertEqual(klici[1], {})                                 # neveljaven seznam se ne preda
+        link_daljinec.izvedi_control("screen.start", {"screen": "apps", "net": "4g"},
+                                     lambda u: None, izidi.append, zaslon=Zaslon(), posiljatelj="fon")
+        link_daljinec.izvedi_control("screen.start", {"screen": "apps", "net": 5},
+                                     lambda u: None, izidi.append, zaslon=Zaslon(), posiljatelj="fon")
+        self.assertEqual(klici[2], {"omrezje": "4g"})
+        self.assertEqual(klici[3], {})                                 # omrezje mora biti besedilo
 
 
 if __name__ == "__main__":

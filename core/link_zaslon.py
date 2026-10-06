@@ -74,6 +74,8 @@ NAJVEC_SIRINA, NAJVEC_VISINA = 1920, 1080
 KAKOVOSTI = {
     "nizka": {"fps": 30, "bitrate": "4M", "qp": 26, "sirina": 1280, "visina": 720},
     "srednja": {"fps": 30, "bitrate": "8M", "qp": 20, "sirina": 1920, "visina": 1080},
+    # Gledalec zdoma na obicajni povezavi 4G (kakovost_za_pot): polnih 60 slik/s, manj podatkov.
+    "mobilna": {"fps": 60, "bitrate": "8M", "qp": 20, "sirina": 1920, "visina": 1080},
     "visoka": {"fps": 60, "bitrate": "16M", "qp": 18, "sirina": 1920, "visina": 1080},
     "najvisja": {"fps": 60, "bitrate": "24M", "qp": 16, "sirina": 1920, "visina": 1080},
 }
@@ -82,6 +84,26 @@ KAKOVOSTI = {
 # Nizje stopnje ostajajo v dogovoru zato, da se bo mogoce samodejno umakniti, kadar povezava ali
 # racunalnik tega ne bosta zmogla - ne zato, da bi uporabnik izbiral.
 PRIVZETA_KAKOVOST = "najvisja"
+#: Stopnje od najmanj do najvec podatkov.
+VRSTNI_RED_KAKOVOSTI = ("nizka", "srednja", "mobilna", "visoka", "najvisja")
+#: Gledalec zdoma (prek Huba, Global Link): mera je obicajna povezava 4G, na 5G stopnjo vise. Doma (neposredno) ostane
+#: zahtevana stopnja - domace omrezje je praviloma hitrejse. Kljuc je omrezje, ki ga pove naprava (`net`).
+KAKOVOST_ZDOMA = {"5g": "visoka"}
+KAKOVOST_ZDOMA_PRIVZETO = "mobilna"
+
+
+def kakovost_za_pot(kakovost: str, prek_huba: bool, omrezje: str = "") -> str:
+    """Stopnja kakovosti glede na pot, po kateri je gledalec prisel, in na njegovo omrezje.
+
+    Neposredno (domace omrezje): zahtevana stopnja. Prek Huba (zdoma): najvec stopnja za omrezje gledalca - 5G
+    »visoka«, vse drugo (4G, Wi-Fi ali kabel v tujem omrezju, neznano, starejsa naprava) »mobilna«. Nikoli vec, kot
+    je naprava zahtevala."""
+    if kakovost not in KAKOVOSTI:
+        kakovost = PRIVZETA_KAKOVOST
+    if not prek_huba:
+        return kakovost
+    meja = KAKOVOST_ZDOMA.get(str(omrezje or "").strip().lower(), KAKOVOST_ZDOMA_PRIVZETO)
+    return kakovost if VRSTNI_RED_KAKOVOSTI.index(kakovost) <= VRSTNI_RED_KAKOVOSTI.index(meja) else meja
 #: Kako pogosto seja, ki caka gledalca, pogleda, ali ji je povezavo predal Hub.
 PREVERI_PREVZETE_S = 0.2
 
@@ -228,6 +250,13 @@ def izberi_kodek(zeleni, hevc) -> str:
     return "h264"
 
 
+def kodek_za_pot(kodek: str, prek_huba: bool) -> str:
+    """Kodek glede na pot, po kateri je gledalec prisel. HEVC samo prek Huba (Global Link, zdoma): tam steje vsak
+    megabit. V domacem omrezju pasovne sirine ne manjka, dekoder H.264 pa je na vseh napravah preverjen brez zamika -
+    dekoder HEVC televizorja slike oddaja v sunkih (izmerjeno 6. 10. 2026)."""
+    return kodek if (kodek != "hevc" or prek_huba) else "h264"
+
+
 def vaapi_naprava() -> Optional[str]:
     """Naprava za strojno kodiranje (Intel/AMD); None, kadar je ni."""
     for ime in ("renderD128", "renderD129"):
@@ -361,6 +390,10 @@ class Zaslon:
         self._zeton = ""
         self._naprava = ""
         self._kakovost = PRIVZETA_KAKOVOST
+        #: Omrezje gledalca, kot ga pove sam (`net` v screen.start): wifi, ethernet, 5g, 4g ... ali prazno.
+        self._omrezje = ""
+        #: Ali zajem kodira graficna kartica (kvantizator); programski kodirnik ima namesto njega bitno hitrost.
+        self._strojno = False
         self._slika: Dict[str, int] = {}
         #: Stevec sej: straza osirotelih programov ve, ali se je medtem zacela nova seja.
         self._seja_st = 0
@@ -448,13 +481,15 @@ class Zaslon:
         return cilj == "apps" or self.drugi.okna() > 0
 
     def zacni(self, id_naprave: str, kakovost: str = PRIVZETA_KAKOVOST, cilj: str = "",
-              prek_huba: bool = False, pogled: Optional[dict] = None, zmoznosti=None, kodeki=None) -> dict:
+              prek_huba: bool = False, pogled: Optional[dict] = None, zmoznosti=None, kodeki=None,
+              omrezje: str = "") -> dict:
         """Pripravi sejo: odpre TLS vrata in caka televizor. Zajem se zacne sele, ko se ta javi.
 
         `pogled`: povrsina naprave, ki gleda (`view` iz `screen.start`). Loceni zaslon dobi njeno obliko in
         velikost; pravega zaslona racunalnika ne spreminjamo nikoli.
-        `prek_huba`: gledalec je zdoma in pride po Global Linku do vrat Huba (pot `/cast/desktop`), ne na vrata
-        seje. Slika in zvok sta ista kot doma - kakovosti zaradi poti ne nizamo."""
+        `prek_huba`: gledalec zna po sliko tudi do vrat Huba (pot `/cast/desktop`, Global Link). Po kateri poti res
+        pride, vemo sele ob povezavi: takrat izberemo kodek (kodek_za_pot) in stopnjo (kakovost_za_pot).
+        `omrezje`: omrezje naprave, ki gleda (`net`: wifi, ethernet, 5g, 4g ...); po njem je umerjena kakovost zdoma."""
         if not self.vklopljeno:
             raise RuntimeError("Deljenje zaslona ni vklopljeno")
         if not self.ffmpeg:
@@ -506,6 +541,7 @@ class Zaslon:
             self._povezan = False
             self._prek_huba = bool(prek_huba)
             self._zmoznosti = {str(z) for z in (zmoznosti or []) if isinstance(z, str)}
+            self._omrezje = str(omrezje or "")[:16]
             # Dolga skupina slik samo gledalcu, ki enot ne izpusca; HEVC samo, ce ga naprava hoce in racunalnik zmore.
             gop = int(k["fps"]) * GOP_DOLG_S if "gop" in self._zmoznosti else 0
             dodatki = {}
@@ -521,6 +557,15 @@ class Zaslon:
                 if gop:
                     dodatki["gop"] = gop
                 ukaz = self.drugi.ukaz_zajema(int(k["fps"]), int(k["qp"]), str(k["bitrate"]), **dodatki)
+                self._strojno = bool(graficna)
+
+                def sestavi(kodek, raven, _osnova=dict(dodatki)):
+                    # Isti zajem z drugim kodekom ali stopnjo - za pot, po kateri gledalec v resnici pride
+                    # (kodek_za_pot, kakovost_za_pot). Sestavimo ga sele, ce bo treba.
+                    d = {x: y for x, y in _osnova.items() if x != "kodek"}
+                    if kodek != "h264":
+                        d["kodek"] = kodek
+                    return self.drugi.ukaz_zajema(int(raven["fps"]), int(raven["qp"]), str(raven["bitrate"]), **d)
             else:
                 self._cilj = "desktop"
                 self._okolje_zajema = None
@@ -531,7 +576,13 @@ class Zaslon:
                 ukaz = ukaz_ffmpeg(display, sirina, visina, izvor[0], izvor[1], int(k["fps"]),
                                    str(k["bitrate"]), vaapi, self.ffmpeg, int(k["qp"]),
                                    kodek=self._kodek, gop=gop)
-            self._nit = threading.Thread(target=self._streci, args=(posluh, ctx, ukaz, seja_st),
+                self._strojno = bool(vaapi)
+
+                def sestavi(kodek, raven):
+                    return ukaz_ffmpeg(display, sirina, visina, izvor[0], izvor[1], int(raven["fps"]),
+                                       str(raven["bitrate"]), vaapi, self.ffmpeg, int(raven["qp"]),
+                                       kodek=kodek, gop=gop)
+            self._nit = threading.Thread(target=self._streci, args=(posluh, ctx, ukaz, seja_st, sestavi),
                                          name="safeer-zaslon", daemon=True)
             self._nit.start()
         return {"port": self.vrata, "fp": self.odtis, "token": self._zeton, "v": 2,
@@ -636,7 +687,8 @@ class Zaslon:
                 konec.set()                 # za sejo, ki je ni vec: Hub povezavo zapre
         return None
 
-    def _streci(self, posluh: socket.socket, ctx: ssl.SSLContext, ukaz: List[str], seja: int) -> None:
+    def _streci(self, posluh: socket.socket, ctx: ssl.SSLContext, ukaz: List[str], seja: int,
+                sestavi=None) -> None:
         odjemalec = None
         konec_prevzete = None
         slika = zvok = None
@@ -645,8 +697,20 @@ class Zaslon:
             if sprejet is None:
                 return
             odjemalec, konec_prevzete = sprejet
+            # Sele zdaj vemo, po kateri poti je gledalec prisel. Doma (neposredno): zahtevana kakovost in H.264.
+            # Zdoma (prek Huba): kakovost za omrezje gledalca (kakovost_za_pot) in HEVC, ce je dogovorjen
+            # (kodek_za_pot). Kodek, kvantizator in stopnjo pove glava toka.
+            prek = konec_prevzete is not None
+            kodek_seje, raven_ime = self._kodek, self._kakovost
+            kodek_poti = kodek_za_pot(kodek_seje, prek)
+            raven_poti = kakovost_za_pot(raven_ime, prek, self._omrezje)
+            if sestavi is not None and (kodek_poti, raven_poti) != (kodek_seje, raven_ime) \
+                    and int(KAKOVOSTI[raven_poti]["fps"]) == int(self._slika["fps"]):
+                ukaz = sestavi(kodek_poti, KAKOVOSTI[raven_poti])
+                kodek_seje, raven_ime = kodek_poti, raven_poti
             glava = {"v": 2, "w": self._slika["width"], "h": self._slika["height"],
-                     "fps": self._slika["fps"], "kodek": self._kodek,
+                     "fps": self._slika["fps"], "kodek": kodek_seje,
+                     "qp": int(KAKOVOSTI[raven_ime]["qp"]) if self._strojno else 0, "kakovost": raven_ime,
                      "zvok": {"hz": ZVOK_HZ, "kanali": ZVOK_KANALI, "oblika": "s16le"} if self._zvok_vir else None,
                      "vnos": self._vnos.mozno, "plosek": self._plosek.mozno()}
             odjemalec.sendall((json.dumps(glava) + "\n").encode("utf-8"))
@@ -668,7 +732,8 @@ class Zaslon:
                 self._proces = slika
                 self._odjemalec = odjemalec
                 self._povezan = True
-                kodek_seje = self._kodek
+                self._kodek = kodek_seje
+                self._kakovost = raven_ime
                 prebrano = [0, False]       # bajtov slike in ali je bila v toku ze kaka enota NAL
                 niti.append(threading.Thread(target=self._crpaj,
                                              args=(slika, OKVIR_SLIKA, odjemalec, 32 * 1024, prebrano),

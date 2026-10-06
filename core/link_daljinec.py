@@ -281,7 +281,8 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
             cilj = str(parametri.get("screen", "") or "").strip().lower()
             dodatno = {}
             if parametri.get("relay"):
-                # Gledalec je zdoma: po sliko pride prek Huba (Global Link). Kakovost in zvok sta ista kot doma.
+                # Gledalec zna po sliko tudi do Huba (Global Link, zdoma). Ce res pride po tej poti, dobi kakovost,
+                # umerjeno na obicajno povezavo 4G (link_zaslon.kakovost_za_pot); doma ostane najvisja.
                 dodatno["prek_huba"] = True
             if isinstance(parametri.get("view"), dict):
                 # Povrsina naprave, ki gleda: loceni zaslon dobi njeno obliko (pravi zaslon ostane, kot je).
@@ -289,6 +290,9 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
             if isinstance(parametri.get("codecs"), list):
                 # Kodeki slike, ki jih naprava strojno dekodira, po njeni prednosti (npr. ["hevc", "h264"]).
                 dodatno["kodeki"] = [str(k)[:16] for k in parametri["codecs"][:8] if isinstance(k, str)]
+            if isinstance(parametri.get("net"), str):
+                # Omrezje naprave (wifi, ethernet, 5g, 4g ...): zdoma je po njem umerjena kakovost.
+                dodatno["omrezje"] = parametri["net"][:16]
             if isinstance(parametri.get("caps"), list):
                 # Kaj naprava zna (npr. "handoff": preklop na namizje, kadar je program odprt tam).
                 dodatno["zmoznosti"] = [str(z)[:32] for z in parametri["caps"][:16] if isinstance(z, str)]
