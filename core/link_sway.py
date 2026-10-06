@@ -21,6 +21,7 @@ import array
 import glob
 import json
 import os
+import secrets
 import shlex
 import shutil
 import signal
@@ -591,6 +592,97 @@ def _pidi_na_namizju() -> Optional[set]:
     return pidi
 
 
+#: Toliko casa po zagonu ne sodimo, ali se je program odprl: proces se sele rojeva. Izjema: rod zagona smo ze
+#: videli ziv (`_opazuj_zagon`) - potem je njegov konec zanesljiv tudi prej.
+ZAGON_NAJMANJ_S = 2.0
+#: Kako pogosto ta cas gledamo, ali je rod zagona zazivel.
+ZAGON_OPAZUJ_S = 0.1
+#: Konec rodu potrdimo z drugim pogledom: proces, ki se ravno zamenjuje (exec), za hip nima ne ukazne vrstice ne okolja.
+ZAGON_POTRDI_S = 0.05
+#: Oznaka zagona: v ukazni vrstici lupine, ki program zazene, in v okolju vsega njegovega rodu.
+ZAGON_SPREMENLJIVKA = "SAFEER_ZAGON"
+
+
+def zivi_zagon(zeton: str, proc: str = "/proc") -> bool:
+    """Ali se tece kak proces tega uporabnika iz zagona z oznako `zeton` (tudi odcepljeni otroci in vsebniki).
+
+    Kadar tega ne moremo ugotoviti, vrnemo True: raje cakamo, kot da program, ki se sele odpira, razglasimo za
+    koncanega."""
+    if not zeton:
+        return False
+    iskano = ("%s=%s" % (ZAGON_SPREMENLJIVKA, zeton)).encode("ascii")
+    jaz = os.getuid()
+    try:
+        vnosi = os.listdir(proc)
+    except OSError:
+        return True
+    for vnos in vnosi:
+        if not vnos.isdigit():
+            continue
+        pot = os.path.join(proc, vnos)
+        try:
+            if os.stat(pot).st_uid != jaz:
+                continue
+        except OSError:
+            continue
+        for ime in ("cmdline", "environ"):
+            try:
+                with open(os.path.join(pot, ime), "rb") as f:
+                    if iskano in f.read():
+                        return True
+            except OSError:
+                continue
+    return False
+
+
+def razberi_okna(izpis: str) -> List[dict]:
+    """Izpis `wmctrl -lpx` v seznam oken: [{"id", "pid", "razred"}] (razred z malimi crkami, npr. `gimp.gimp`)."""
+    okna: List[dict] = []
+    for vrstica in izpis.splitlines():
+        deli = vrstica.split(None, 4)
+        if len(deli) < 4 or not deli[2].lstrip("-").isdigit():
+            continue
+        okna.append({"id": deli[0], "pid": int(deli[2]), "razred": deli[3].lower()})
+    return okna
+
+
+def _okna_namizja() -> Optional[List[dict]]:
+    """Okna na namizju racunalnika (X); None, kadar tega ne moremo ugotoviti."""
+    if not os.environ.get("DISPLAY") or not shutil.which("wmctrl"):
+        return None
+    try:
+        r = subprocess.run(["wmctrl", "-lpx"], capture_output=True, text=True, timeout=5)
+    except Exception:
+        return None
+    return razberi_okna(r.stdout) if r.returncode == 0 else None
+
+
+def _ujema_razred(razred: str, kandidati) -> bool:
+    """Razred okna (`primerek.razred`) proti imenom programa: cel, eden od delov ali z imenom na zacetku/koncu."""
+    razred = str(razred or "").lower()
+    for k in kandidati or ():
+        k = str(k or "").strip().lower()
+        if len(k) < 3:
+            continue
+        if razred == k or razred.startswith(k + ".") or razred.endswith("." + k):
+            return True
+    return False
+
+
+def okno_programa(okna: List[dict], pidi, razredi, nova=None) -> str:
+    """Id okna na namizju, ki pripada programu: po procesu ali po razredu okna. Okna, ki so nastala ob tem zagonu
+    (`nova`), imajo prednost; med enakovrednimi zadnje (najnovejse). Prazno, ce takega okna ni."""
+    pidi = set(pidi or ())
+    moja = [o for o in okna if o.get("pid") in pidi or _ujema_razred(o.get("razred", ""), razredi)]
+    if not moja:
+        return ""
+    if nova:
+        sveza = [o for o in moja if o.get("id") in nova]
+        if sveza:
+            return str(sveza[-1]["id"])
+    return str(moja[-1]["id"])
+
+
 PAKETI = {"sway": "sway", "swaymsg": "sway", "wf-recorder": "wf-recorder", "wtype": "wtype"}
 _WF: Optional[Dict[str, bool]] = None
 
@@ -721,6 +813,8 @@ class DrugiZaslon:
         self._osnova = 1.0
         self._urejena_platna: Dict[int, int] = {}
         self._opazovalec: Optional[subprocess.Popen] = None
+        #: Zadnji zagon programa: oznaka, cas, okna namizja pred zagonom in opis programa (link_programi).
+        self._zagon: Optional[dict] = None
 
     # ----------------------------------------------------------------- zmoznosti
     @staticmethod
@@ -905,8 +999,11 @@ class DrugiZaslon:
         except Exception:
             return ""
 
-    def zazeni_program(self, argv: List[str]) -> bool:
-        """Zazene program na drugem zaslonu. argv pride iz nasega seznama programov, ne s televizorja."""
+    def zazeni_program(self, argv: List[str], opis: Optional[dict] = None) -> bool:
+        """Zazene program na drugem zaslonu. argv pride iz nasega seznama programov, ne s televizorja.
+
+        `opis` (link_programi): ime programa ter kako prepoznamo njegove procese in okna - za primer, ko se program
+        ne odpre tu, ampak preda besedo oknu, ki je ze odprto na namizju racunalnika (program ene same instance)."""
         if not argv or not self.zazeni(self.sirina, self.visina):
             return False
         self._zadnji_zagon = time.monotonic()
@@ -915,8 +1012,74 @@ class DrugiZaslon:
         # z daljincem pa jo potrebuje. Velja samo za ta zagon.
         if _ime_brskalnika(argv[0]) and "--force-renderer-accessibility" not in argv:
             argv.insert(1, "--force-renderer-accessibility")
-        izid = self._msg(["exec", shlex.join(argv)])
-        return '"success": true' in izid
+        zeton = secrets.token_hex(6)
+        okna_pred = _okna_namizja()
+        # Oznaka zagona je v ukazni vrstici lupine (sway pozene `sh -c`) in v okolju programa in njegovih otrok.
+        izid = self._msg(["exec", "%s=%s %s" % (ZAGON_SPREMENLJIVKA, zeton, shlex.join(argv))])
+        uspeh = '"success": true' in izid
+        self._zagon = dict(opis or {}, zeton=zeton, cas=time.monotonic(),
+                           okna_pred=None if okna_pred is None else {o["id"] for o in okna_pred}) if uspeh else None
+        if uspeh:
+            threading.Thread(target=self._opazuj_zagon, args=(self._zagon,), name="safeer-zagon", daemon=True).start()
+        return uspeh
+
+    def _opazuj_zagon(self, z: dict) -> None:
+        """Opazi, da je rod zagona zazivel. Sway ukaz `exec` izvede z zamikom, zato »ne tece« tik po zagonu se ne
+        pomeni »je koncal«; ko smo rod enkrat videli ziv, pa je njegov konec zanesljiv tudi pred ZAGON_NAJMANJ_S.
+        Program ene same instance (preda besedo ze odprtemu oknu in konca) tako prepoznamo v sekundi namesto v treh."""
+        rok = z["cas"] + ZAGON_NAJMANJ_S
+        while self._zagon is z and time.monotonic() < rok:
+            if zivi_zagon(z["zeton"]):
+                z["videl"] = True
+                return
+            time.sleep(ZAGON_OPAZUJ_S)
+
+    def izid_zagona(self) -> str:
+        """Kaj se je zgodilo z zadnjim zagonom, kadar na drugem zaslonu NI okna (to preveri klicatelj):
+        "" = se zaganja ali ne vemo; "koncan" = njegov rod je koncal brez okna; "na_namizju" = program ima okno
+        na namizju racunalnika (bil je ze odprt in je zagon samo predal besedo, ali pa se je odprl tam)."""
+        z = self._zagon
+        if not z or not z.get("zeton"):
+            return ""
+        if not z.get("videl") and time.monotonic() - z["cas"] < ZAGON_NAJMANJ_S:
+            return ""
+        if zivi_zagon(z["zeton"]):
+            z["videl"] = True
+            return ""
+        time.sleep(ZAGON_POTRDI_S)
+        if zivi_zagon(z["zeton"]):
+            return ""
+        okna = _okna_namizja()
+        if okna:
+            pidi = set()
+            najdi = z.get("pidi")
+            if callable(najdi):
+                try:
+                    pidi = set(najdi())
+                except Exception:
+                    pidi = set()
+            pred = z.get("okna_pred")
+            nova = None if pred is None else {o["id"] for o in okna} - pred
+            okno = okno_programa(okna, pidi, z.get("razredi") or [], nova)
+            if okno:
+                z["okno"] = okno
+                return "na_namizju"
+        return "koncan"
+
+    def opis_zagona(self) -> dict:
+        """Ime zadnjega zagnanega programa za napravo, ki gleda ({"name": ...}); prazno, ce ga ne poznamo."""
+        ime = str((self._zagon or {}).get("ime") or "")
+        return {"name": ime[:80]} if ime else {}
+
+    def pokazi_na_namizju(self) -> bool:
+        """Okno programa, ki se je namesto tu odprl (ali je ze bil odprt) na namizju, postavi v ospredje."""
+        okno = str((self._zagon or {}).get("okno") or "")
+        if not okno or not shutil.which("wmctrl"):
+            return False
+        try:
+            return subprocess.run(["wmctrl", "-ia", okno], capture_output=True, timeout=5).returncode == 0
+        except Exception:
+            return False
 
     def pokazi(self, pidi: List[int]) -> bool:
         """Postavi v ospredje okno enega od teh procesov, ce je na drugem zaslonu."""
@@ -985,17 +1148,23 @@ class DrugiZaslon:
         return drevo.count('"pid":')
 
     # ----------------------------------------------------------------- slika in zvok
-    def ukaz_zajema(self, fps: int, qp: int, bitrate: str) -> List[str]:
-        """Gol H.264 (Annex-B) na stdout, kot ga pricakuje link_zaslon; vsak kader, tudi brez sprememb."""
+    def ukaz_zajema(self, fps: int, qp: int, bitrate: str, kodek: str = "h264", gop: int = 0) -> List[str]:
+        """Gol H.264 ali HEVC (Annex-B) na stdout, kot ga pricakuje link_zaslon; vsak kader, tudi brez sprememb.
+
+        `kodek`: "hevc" samo strojno (VAAPI); brez graficne kartice vedno H.264. `gop`: razmik kljucnih slik v
+        slikah; 0 = vsako sekundo (starejsi gledalec)."""
         z = wf_zmoznosti()
-        u = ["wf-recorder", "-o", IZHOD] + (["-D"] if z["no_damage"] else []) + \
-            (["-r", str(max(1, fps))] if z["framerate"] else []) + ["-m", "h264", "-f", "/dev/stdout"]
         gpu = self.graficna()
+        hevc = kodek == "hevc" and bool(gpu)
+        skupina = gop if gop > 0 else max(1, fps)
+        u = ["wf-recorder", "-o", IZHOD] + (["-D"] if z["no_damage"] else []) + \
+            (["-r", str(max(1, fps))] if z["framerate"] else []) + ["-m", "hevc" if hevc else "h264", "-f", "/dev/stdout"]
         if gpu:
-            parametri = ["rc_mode=CQP", "qp=%d" % qp, "profile=high", "bf=0", "g=%d" % max(1, fps)]
-            u += ["-c", "h264_vaapi", "-d", gpu]
+            parametri = ["rc_mode=CQP", "qp=%d" % qp, "profile=%s" % ("main" if hevc else "high"), "bf=0",
+                         "g=%d" % skupina]
+            u += ["-c", "hevc_vaapi" if hevc else "h264_vaapi", "-d", gpu]
         else:
-            parametri = ["preset=veryfast", "tune=zerolatency", "b=%s" % bitrate, "bf=0", "g=%d" % max(1, fps)]
+            parametri = ["preset=veryfast", "tune=zerolatency", "b=%s" % bitrate, "bf=0", "g=%d" % skupina]
             u += ["-c", "libx264", "-x", "yuv420p"]
         if z["codec_param"]:
             for p in parametri:

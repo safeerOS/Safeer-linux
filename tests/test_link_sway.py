@@ -27,8 +27,9 @@ class LazniDrugi:
     def pokazi(self, pidi):
         return False
 
-    def zazeni_program(self, argv):
+    def zazeni_program(self, argv, opis=None):
         self.zagnani.append(list(argv))
+        self.opisi = getattr(self, "opisi", []) + [opis]
         return True
 
     def velikost(self, s, v):
@@ -141,6 +142,11 @@ class Izbira(unittest.TestCase):
         self.assertTrue(p.zazeni("app:urejevalnik.desktop"))
         self.assertEqual(p.drugi.zagnani, [["/usr/bin/urejevalnik", "--novo", "Moja mapa"]])
         self.assertEqual(p.drugi.zadnja_skupina, p._vnosi["urejevalnik.desktop"]["skupina"])
+        # Loceni zaslon dobi opis programa: po njem prepozna okno, ce se program odpre (ali je ze odprt) na namizju.
+        opis = p.drugi.opisi[0]
+        self.assertEqual((opis["oznaka"], opis["ime"]), ("app:urejevalnik.desktop", "Urejevalnik"))
+        self.assertEqual(opis["razredi"], ["urejevalnik"])
+        self.assertEqual(opis["pidi"](), [])                 # tak program ne tece
         # neznan program ne gre nikamor
         self.assertFalse(p.zazeni("app:ni.desktop"))
         self.assertEqual(len(p.drugi.zagnani), 1)
