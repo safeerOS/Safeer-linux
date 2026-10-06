@@ -48,6 +48,7 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.0.102" date="2026-10-06"><description><p>Packaged with Safeer OS 0.4.60 and Safeer Control 2.1.58: programs opened from a phone, tablet or TV run on a separate screen shaped like the screen of that device, so the picture fills it without black bars.</p></description></release>
     <release version="1.0.101" date="2026-10-06"><description><p>Packaged with Safeer OS 0.4.59 and Safeer Control 2.1.57: from this computer to a device that is away from home (Global Link) - a file sent from the computer now reaches a phone on mobile data, and files of a device without a home network are read through its hub at once.</p></description></release>
     <release version="1.0.100" date="2026-10-06"><description><p>Packaged with Safeer OS 0.4.58 and Safeer Control 2.1.56: away from home (Global Link) the screen of this computer reaches your phone, tablet or TV in the same quality and with sound, files can be renamed, moved and deleted, and the grid shows thumbnails for videos and pictures.</p></description></release>
     <release version="1.0.99" date="2026-10-05"><description><p>Packaged with Safeer OS 0.4.57 and Safeer Control 2.1.55: the screen of one computer can be shown on another computer, and the screen of a phone or tablet opens on the computer.</p></description></release>
