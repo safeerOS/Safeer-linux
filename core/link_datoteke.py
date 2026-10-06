@@ -55,6 +55,29 @@ def _umaknjena_iz_kroga(id_naprave: str) -> bool:
         return False
 
 
+def _sme_naprava(id_naprave: str, zmoznost: str) -> bool:
+    """Ali je napravi na tem racunalniku odprta zmoznost (core/link_dostop); napaka pomeni ne."""
+    try:
+        from core import link_dostop
+        return link_dostop.sme(id_naprave, zmoznost)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _jedro_naprave(id_naprave: str) -> str:
+    try:
+        from core import link_dostop
+        return link_dostop.jedro(id_naprave)
+    except Exception:  # noqa: BLE001
+        return id_naprave
+
+
+#: Zmoznost, ki jo mora imeti naprava za datoteke deljenih map (prenos, slicice, urejanje).
+ZMOZNOST_DATOTEKE = "d"
+#: Najvec toliko izrecno poslanih datotek hkrati (najstarejse izpadejo).
+NAJVEC_IZRECNIH = 512
+
+
 def _zeton_zivi(izdan: float, rabljen: float, zdaj: float) -> bool:
     return zdaj - rabljen < ZETON_VELJA_S and zdaj - izdan < NAJDLJE_S
 TLS_MAPA = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "safeer-control", "tls")
@@ -357,7 +380,7 @@ def postrezi_datoteko(obravnava, streznik: "StreznikDatotek", oznaka: str, samo_
     Isto za lastni streznik datotek (/d/<id>) in za Hub (/cast/d/<id>), prek katerega gre tok tudi
     po Global Linku: rele prinese samo povezavo do vrat Huba."""
     z = obravnava.headers.get("X-Safeer-Token")
-    if not streznik.zeton_velja(z.strip() if z else None):
+    if not streznik.zeton_velja(z.strip() if z else None, zmoznost=ZMOZNOST_DATOTEKE, oznaka=oznaka):
         _napaka_http(obravnava, 401, "manjka ali napacen zeton")
         return
     r = streznik.mape.razresi(oznaka)
@@ -502,7 +525,7 @@ def postrezi_slicico(obravnava, streznik: "StreznikDatotek", oznaka: str, samo_g
     """Slicica slike ali videa iz deljene mape (`/thumb/<id>`, prek Huba `/cast/thumb/<id>`), z istim zetonom kot
     datoteka. 404, kadar slicice ni mogoce narediti."""
     z = obravnava.headers.get("X-Safeer-Token")
-    if not streznik.zeton_velja(z.strip() if z else None):
+    if not streznik.zeton_velja(z.strip() if z else None, zmoznost=ZMOZNOST_DATOTEKE, oznaka=oznaka):
         _napaka_http(obravnava, 401, "manjka ali napacen zeton")
         return
     r = streznik.mape.razresi(oznaka)
@@ -569,7 +592,8 @@ def uredi_pot(obravnava, streznik: "StreznikDatotek", pot: str) -> None:
         _napaka_http(obravnava, 404, "ni take poti")
         return
     z = obravnava.headers.get("X-Safeer-Token")
-    if not streznik.zeton_velja(z.strip() if z else None):
+    # Urejanje (brisanje, preimenovanje, premik) samo z odprtimi datotekami - izrecno poslana datoteka je samo za branje.
+    if not streznik.zeton_velja(z.strip() if z else None, zmoznost=ZMOZNOST_DATOTEKE):
         _napaka_http(obravnava, 401, "manjka ali napacen zeton")
         return
     try:
@@ -669,6 +693,11 @@ class StreznikDatotek:
         self._zetoni: Dict[str, Tuple[str, float, float]] = {}   # zeton -> (id naprave, izdan, zadnja raba)
         #: Ali je naprava umaknjena iz kroga zaupanja: njeni zetoni takoj prenehajo veljati (ne sele po 12 h).
         self.umaknjena = _umaknjena_iz_kroga
+        #: Ali je napravi odprta zmoznost na tem racunalniku (core/link_dostop); preizkusi ga zamenjajo.
+        self.sme = _sme_naprava
+        #: Kar je uporabnik TEGA racunalnika napravi sam poslal ali kar naprava z odprtim predvajalnikom nadaljuje:
+        #: (jedro naprave, oznaka datoteke) -> do kdaj. Ta ena datoteka je napravi dosegljiva tudi brez odprtih datotek.
+        self._izrecno: Dict[Tuple[str, str], float] = {}
         self._streznik: Optional[_Streznik] = None
         #: Torrenti, ki jih racunalnik pretaka napravam: skrivnost -> lokalni naslov toka (127.0.0.1).
         self._tokovi: Dict[str, str] = {}
@@ -727,20 +756,55 @@ class StreznikDatotek:
                 self._zetoni.pop(min(self._zetoni, key=lambda k: self._zetoni[k][2]), None)
             return z
 
-    def zeton_velja(self, zeton: Optional[str], zdaj: Optional[float] = None) -> bool:
+    def zeton_velja(self, zeton: Optional[str], zdaj: Optional[float] = None, zmoznost: Optional[str] = None,
+                    oznaka: Optional[str] = None) -> bool:
+        """Ali zeton velja. Z `zmoznost` tudi, ali ima naprava zetona to zmoznost na tem racunalniku SE ZDAJ odprto
+        (dostop, ki ga uporabnik vzame, neha veljati takoj, ne sele ob izteku zetona) - ali pa ji je bila prav ta
+        datoteka (`oznaka`) izrecno poslana. Brez `zmoznost` se preveri samo zeton (tokovi z lastno skrivnostjo)."""
         # Primerjava v stalnem casu: iz casa odgovora se ne da uganiti, koliko znakov se ujema.
         if not zeton:
             return False
         zdaj = time.monotonic() if zdaj is None else zdaj
+        naprava: Optional[str] = None
+        najden = ""
         with self._kljucavnica:
             for z, (n, izdan, rabljen) in list(self._zetoni.items()):
                 if hmac.compare_digest(zeton.encode(), z.encode()) and _zeton_zivi(izdan, rabljen, zdaj):
                     if self.umaknjena(n):
                         self._zetoni.pop(z, None)
                         return False
-                    self._zetoni[z] = (n, izdan, zdaj)
-                    return True
-        return False
+                    naprava, najden = n, z
+                    break
+        if naprava is None:
+            return False
+        if zmoznost is not None and not self.sme(naprava, zmoznost) and not self.izrecno_dovoljena(naprava, oznaka, zdaj):
+            return False
+        with self._kljucavnica:
+            v = self._zetoni.get(najden)
+            if v is not None:
+                self._zetoni[najden] = (v[0], v[1], zdaj)
+        return True
+
+    def dovoli_izrecno(self, id_naprave: str, oznaka: str, zdaj: Optional[float] = None) -> None:
+        """Ta datoteka je napravi dosegljiva tudi brez odprtih datotek: uporabnik tega racunalnika ji jo je sam
+        poslal ali pa jo naprava z odprtim predvajalnikom nadaljuje. Velja, dokler bi veljal zeton."""
+        if not id_naprave or not oznaka:
+            return
+        zdaj = time.monotonic() if zdaj is None else zdaj
+        with self._kljucavnica:
+            for k in [k for k, rok in self._izrecno.items() if rok <= zdaj]:
+                self._izrecno.pop(k, None)
+            self._izrecno[(_jedro_naprave(id_naprave), oznaka)] = zdaj + NAJDLJE_S
+            while len(self._izrecno) > NAJVEC_IZRECNIH:
+                self._izrecno.pop(min(self._izrecno, key=lambda k: self._izrecno[k]), None)
+
+    def izrecno_dovoljena(self, id_naprave: str, oznaka: Optional[str], zdaj: Optional[float] = None) -> bool:
+        if not id_naprave or not oznaka:
+            return False
+        zdaj = time.monotonic() if zdaj is None else zdaj
+        with self._kljucavnica:
+            rok = self._izrecno.get((_jedro_naprave(id_naprave), oznaka))
+        return rok is not None and zdaj < rok
 
     def preklici(self, id_naprave: str) -> int:
         """Preklice vse zetone naprave (npr. ko ji vzamemo dostop do celega diska). Vrne stevilo."""

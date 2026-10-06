@@ -1348,10 +1348,17 @@ class Povezava:
         })
 
     def poslji_sync(self, kategorija: str, razlicica: int, vsebina: dict) -> bool:
+        # `allow`: sredisce sme usklajevanje posredovati samo napravam iz ozjega kroga tega racunalnika.
+        try:
+            from core import link_dostop
+            smejo = sorted(link_dostop.naprave_z(link_dostop.VSE))
+        except Exception:  # noqa: BLE001 - brez zapisa nihce (varna stran)
+            smejo = []
         return self.poslji({
             "id": str(int(time.time() * 1000)),
             "type": "sync.data",
             "target": "all",
+            "allow": smejo,
             "payload": {
                 "category": kategorija,
                 "version": razlicica,

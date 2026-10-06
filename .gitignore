@@ -25,6 +25,7 @@ dist/
 # dnevniki in posnetki vsebujejo naslove naprav in ostanejo samo na razvojnem racunalniku.
 tests/*
 !tests/test_*.py
+!tests/conftest.py
 !tests/test_*.js
 !tests/README.md
 !tests/fixtures/

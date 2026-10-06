@@ -212,6 +212,15 @@
         <input class="vnosImena" id="vnosImena" type="text" maxlength="64" />
         <button class="drugotni tanek" id="gumbShraniIme" data-t="shraniIme">Shrani ime</button>
       </div>
+      <!-- Dostop te naprave do TEGA racunalnika (ozji krog): stiri stikala, privzeto nic; shrani se takoj. -->
+      <div class="dostopBlok" id="dostopBlok" hidden>
+        <p class="dostopNaslov" data-t="dostopNaslov">Kaj sme ta naprava na tem računalniku</p>
+        <label class="dostopVrstica"><input type="checkbox" id="dostop_d"><span><b data-t="dostopDatoteke">Datoteke</b><small data-t="dostopDatotekeOpis">Deljene mape tega računalnika.</small></span></label>
+        <label class="dostopVrstica"><input type="checkbox" id="dostop_p"><span><b data-t="dostopProgrami">Programi</b><small data-t="dostopProgramiOpis">Seznam programov in njihov zagon.</small></span></label>
+        <label class="dostopVrstica"><input type="checkbox" id="dostop_v"><span><b data-t="dostopPredvajalnik">Predvajalnik</b><small data-t="dostopPredvajalnikOpis">Kaj predvajam, nadaljevanje predvajanja in vsebina, ki se tu odpre sama.</small></span></label>
+        <label class="dostopVrstica"><input type="checkbox" id="dostop_z"><span><b data-t="dostopZaslon">Zaslon in upravljanje</b><small data-t="dostopZaslonOpis">Ogled zaslona, miška in tipkovnica.</small></span></label>
+        <p class="pojasnilo drobno" id="dostopOpomba"></p>
+      </div>
       <button class="glavni" id="gumbDaljinec" hidden><svg viewBox="0 0 24 24" aria-hidden="true" style="width:18px;height:18px;margin-right:6px"><path d="M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z M12 6v.1 M10 11h4 M12 9v4 M10 17h4"/></svg><span data-t="daljinec">Daljinec</span></button>
       <button class="glavni" id="gumbUpravljajRacunalnik" hidden><svg viewBox="0 0 24 24" aria-hidden="true" style="width:18px;height:18px;margin-right:6px"><path d="M3 4h18v13H3z M8 21h8 M12 17v4"/></svg><span data-t="upravljajRacunalnik">Upravljaj ta računalnik</span></button>
       <!-- Blizajnica na zaslon: Safeer OS in Safeer brskalnik na televizorju z enim klikom. -->

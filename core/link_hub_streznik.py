@@ -38,7 +38,7 @@ import time
 from typing import Callable, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
 
-from core import link_hub_deljenje, link_krog, link_obramba, link_tls, link_varovalka, link_ws
+from core import link_dostop, link_hub_deljenje, link_krog, link_obramba, link_tls, link_varovalka, link_ws
 
 #: Vrata Huba. Najprej privzeta (naprave jih poznajo tudi brez mDNS), sicer katerakoli prosta.
 PRIVZETA_VRATA = 8990
@@ -96,6 +96,18 @@ NAJVEC_MESH_SPOROCILO = 1024 * 1024
 #: Safeer Chat: najvec cakajocih sporocil na napravo in koliko casa pocakajo.
 KLEPET_NA_NAPRAVO = 100
 KLEPET_ZIVLJENJE_S = 7 * 24 * 3600.0
+
+
+#: Oddaje brez cilja, ki nosijo zasebno stanje naprave, in kaj mora imeti prejemnik odprto pri izvoru: kaj naprava
+#: predvaja (cast.status) in usklajevanje (sync.*).
+OMEJENE_ODDAJE = {"cast.status": link_dostop.PREDVAJALNIK, "sync.data": link_dostop.VSE, "sync.request": link_dostop.VSE}
+
+
+def _jedro_naprave(device_id: str) -> str:
+    try:
+        return link_dostop.jedro(device_id)
+    except Exception:  # noqa: BLE001
+        return device_id
 
 
 def _zdaj() -> float:
@@ -236,8 +248,12 @@ class Naprava:
             zapis["version"] = self.razlicica
         if self.prioriteta:
             zapis["priority"] = self.prioriteta
-        if self.aplikacije:
-            zapis["apps"] = self.aplikacije
+        # Seznam naprav dobi VSAKA naprava v Linku, zato gre iz kataloga naprej samo, ali ima naprava Safeer OS ali
+        # Safeer brskalnik (po tem se odloca »Odpri na zaslonu«). Imena drugih programov da naprava sama - tistim,
+        # ki jim jih je njen uporabnik odprl (apps.list).
+        safeer = {k: v for k, v in self.aplikacije.items() if str(k).startswith("si.safeer.")} if self.aplikacije else {}
+        if safeer:
+            zapis["apps"] = safeer
         return zapis
 
 
@@ -1841,16 +1857,30 @@ class Hub:
                 self.objavi_naprave()
             return self._potrditev(id_sporocila, "apps", "accepted")
 
-        # Brez cilja (ali target=all): vsem drugim.
+        # Brez cilja (ali target=all): vsem drugim. Izjema sta stanje predvajanja in usklajevanje: nosita zasebno stanje
+        # naprave, zato gresta samo napravam, ki jih navede izvor (`allow`) - gl. link_dostop.prejemniki.
         sporocilo["sender"] = moj_id
+        smejo = self._prejemniki_oddaje(tip, sporocilo, moj_id)
         besedilo = json.dumps(sporocilo, ensure_ascii=False)
         for n in self.povezane():
-            if n.id != moj_id and n.povezava is not None:
+            if n.id != moj_id and n.povezava is not None and (smejo is None or _jedro_naprave(n.id) in smejo):
                 n.povezava.poslji(besedilo)
         self._osvezi(moj_id)
         if tip.endswith(".result") or tip.endswith(".ack"):
             return None
         return self._potrditev(id_sporocila, prostor, "accepted")
+
+    def _prejemniki_oddaje(self, tip: str, sporocilo: dict, moj_id: str) -> Optional[set]:
+        """Jedra naprav, ki smejo dobiti oddajo brez cilja; None = vse (oddaja ni zasebna). Polje `allow` je namenjeno
+        srediscu in ne gre naprej."""
+        zahteva = OMEJENE_ODDAJE.get(tip)
+        if zahteva is None:
+            return None
+        navedeni = sporocilo.pop("allow", None)
+        try:
+            return link_dostop.prejemniki(navedeni, moj_id, zahteva)
+        except Exception:  # noqa: BLE001 - brez zapisa samo izvor sam (varna stran)
+            return {_jedro_naprave(moj_id)}
 
     def _osvezi(self, device_id: str) -> None:
         with self._zaklep:
