@@ -48,6 +48,7 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.0.104" date="2026-10-06"><description><p>Packaged with Safeer OS 0.4.62 and Safeer Control 2.1.60: the screen of the computer on a phone, tablet or TV uses far less data for the same picture, and a program that is already open on the desktop is shown there. No changes in browsing.</p></description></release>
     <release version="1.0.103" date="2026-10-06"><description><p>Packaged with Safeer OS 0.4.61 and Safeer Control 2.1.59: in full-screen games opened from a phone or tablet, a tap now hits the button. No changes in browsing.</p></description></release>
     <release version="1.0.102" date="2026-10-06"><description><p>Packaged with Safeer OS 0.4.60 and Safeer Control 2.1.58: programs opened from a phone, tablet or TV run on a separate screen shaped like the screen of that device, so the picture fills it without black bars.</p></description></release>
     <release version="1.0.101" date="2026-10-06"><description><p>Packaged with Safeer OS 0.4.59 and Safeer Control 2.1.57: from this computer to a device that is away from home (Global Link) - a file sent from the computer now reaches a phone on mobile data, and files of a device without a home network are read through its hub at once.</p></description></release>
