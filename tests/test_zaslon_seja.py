@@ -9,6 +9,9 @@ Kaj mora veljati (krog 106):
 - televizor, ki ne bere vec, seje ne drzi v nedogled (omejitev pisanja), in zataknjena stara seja ne ustavi nove;
 - konec stare seje ne podre nove;
 - kdor pride z napacnim zetonom ali brez TLS, seje ne podre.
+
+Krog 113: gledalec, ki je zdoma, pride do seje prek vrat Huba (pot /cast/desktop, Global Link) - isti pretok v
+isti kakovosti in z zvokom kot doma; napacen zeton pri Hubu ne dobi nicesar in seje ne podre.
 """
 import json
 import os
@@ -21,8 +24,9 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
-from core import link_datoteke, link_zaslon
+from core import link_datoteke, link_hub_streznik, link_zaslon
 
 LAZNI_FFMPEG = '''#!/usr/bin/env python3
 import os, sys, time
@@ -59,8 +63,11 @@ class _LazniVnos:
 class _Televizor:
     """Odjemalec seje. `beri = False` pomeni televizor, ki je obstal: povezava ostane, bere pa ne vec."""
 
-    def __init__(self, seja: dict, vnos_na_s: float = 0.0, zeton=None) -> None:
-        self.vrata = seja["port"]
+    def __init__(self, seja: dict, vnos_na_s: float = 0.0, zeton=None, hub_vrata: int = 0) -> None:
+        #: `hub_vrata`: gledalec zdoma - povezava gre na vrata Huba in se z zahtevo HTTP nadgradi v pretok.
+        self.prek_huba = bool(hub_vrata)
+        self.odgovor_huba = ""
+        self.vrata = hub_vrata or seja["port"]
         self.zeton = seja["token"] if zeton is None else zeton
         self.vnos_na_s = vnos_na_s
         self.glava = None
@@ -97,7 +104,21 @@ class _Televizor:
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
             s = ctx.wrap_socket(socket.create_connection(("127.0.0.1", self.vrata), timeout=8))
-            s.sendall(("SAFEER-ZASLON %s\n" % self.zeton).encode())
+            if self.prek_huba:
+                s.sendall(("GET /cast/desktop HTTP/1.1\r\nHost: safeer\r\nConnection: Upgrade\r\n"
+                           "Upgrade: safeer-desktop\r\nX-Safeer-Desktop: %s\r\n\r\n" % self.zeton).encode())
+                glava_http = b""
+                while not glava_http.endswith(b"\r\n\r\n") and len(glava_http) < 4096:
+                    znak = s.recv(1)
+                    if not znak:
+                        self.konec_toka = True
+                        return
+                    glava_http += znak
+                self.odgovor_huba = glava_http.split(b"\r\n", 1)[0].decode("ascii", "replace")
+                if " 101 " not in self.odgovor_huba:
+                    return
+            else:
+                s.sendall(("SAFEER-ZASLON %s\n" % self.zeton).encode())
             vrstica = b""
             while not vrstica.endswith(b"\n"):
                 znak = s.recv(1)
@@ -312,6 +333,95 @@ class TujaPovezava(_Osnova):
         tv = self.televizor(seja)
         self.assertTrue(tv.povezan.wait(8), "po povezavi brez TLS pravi televizor ne pride vec do seje")
         self.assertTrue(_pocakaj(lambda: tv.okvirjev[1] > 20), "slika ni stekla")
+
+
+class PrekHuba(_Osnova):
+    """Gledalec zdoma: do seje pride prek vrat Huba (Global Link pripelje samo do njih), ne na vrata seje."""
+
+    def setUp(self):
+        super().setUp()
+        self.hub = link_hub_streznik.HubStreznik(tls_mapa=os.path.join(self.mapa, "tls"))
+        self.hub._ze_gosti_lokalno = staticmethod(lambda: False)
+        self.hub.zaslon = lambda: self.z
+        with mock.patch.object(link_hub_streznik, "PRIVZETA_VRATA", 0):
+            self.assertTrue(self.hub.zazeni())
+
+    def tearDown(self):
+        super().tearDown()
+        self.hub.ustavi()
+
+    def zacni_prek_huba(self) -> dict:
+        seja = self.z.zacni("tv-test", prek_huba=True)
+        self.vnos = _LazniVnos()
+        self.z._vnos = self.vnos
+        return seja
+
+    def test_slika_in_vnos_prek_huba(self):
+        # Kakovosti zaradi poti prek Huba ne nizamo: ista slika, iste slike na sekundo in isti zvok kot doma.
+        doma = self.z.zacni("tv-test", "najvisja")
+        seja = self.z.zacni("tv-test", "najvisja", prek_huba=True)
+        self.vnos = _LazniVnos()
+        self.z._vnos = self.vnos
+        self.assertIs(seja["relay"], True)
+        for kljuc in ("quality", "width", "height", "fps", "audio", "codec"):
+            self.assertEqual(seja[kljuc], doma[kljuc], "prek Huba se %s ne sme razlikovati od seje doma" % kljuc)
+        self.assertEqual(seja["quality"], "najvisja")
+        tv = self.televizor(seja, vnos_na_s=200, hub_vrata=self.hub.vrata)
+        self.assertTrue(tv.povezan.wait(8), "gledalec prek Huba se ni povezal (%s)" % tv.odgovor_huba)
+        self.assertIn(" 101 ", tv.odgovor_huba)
+        self.assertEqual(tv.glava["v"], 2)
+        self.assertEqual(tv.glava["fps"], doma["fps"])
+        self.assertEqual(tv.glava["zvok"] is None, doma["audio"] is None)
+        self.assertTrue(_pocakaj(lambda: tv.okvirjev[1] > 100), "slika prek Huba ni stekla (%d okvirjev)" % tv.okvirjev[1])
+        if doma["audio"] is not None:
+            self.assertTrue(_pocakaj(lambda: tv.okvirjev[2] > 10), "zvok prek Huba ne tece (%d okvirjev)" % tv.okvirjev[2])
+        self.assertTrue(_pocakaj(lambda: self.vnos.stevilo > 50), "vnos prek Huba ne pride (%d)" % self.vnos.stevilo)
+        self.assertEqual(tv.napaka, "")
+        self.assertTrue(self.z.stanje()["povezan"])
+        # Konec seje na racunalniku: gledalec dobi konec toka, nit Huba se vrne (naslednja seja spet dela).
+        self.z.ustavi()
+        self.assertTrue(_pocakaj(lambda: tv.konec_toka or tv.koncan.is_set(), 6.0), "gledalec po koncu seje ne dobi konca toka")
+        tv2 = self.televizor(self.zacni_prek_huba(), hub_vrata=self.hub.vrata)
+        self.assertTrue(tv2.povezan.wait(8), "druga seja prek Huba se ni povezala (%s)" % tv2.odgovor_huba)
+        self.assertTrue(_pocakaj(lambda: tv2.okvirjev[1] > 20), "druga seja prek Huba nima slike")
+
+    def test_napacen_zeton_pri_hubu_ne_dobi_nicesar_in_ne_podre_seje(self):
+        seja = self.zacni_prek_huba()
+        tuj = self.televizor(seja, zeton="napacen-zeton", hub_vrata=self.hub.vrata)
+        self.assertTrue(tuj.koncan.wait(8))
+        self.assertIn(" 404 ", tuj.odgovor_huba)
+        self.assertIsNone(tuj.glava)
+        tv = self.televizor(seja, hub_vrata=self.hub.vrata)
+        self.assertTrue(tv.povezan.wait(8), "po tuji zahtevi pravi gledalec ne pride vec do seje (%s)" % tv.odgovor_huba)
+        self.assertTrue(_pocakaj(lambda: tv.okvirjev[1] > 20), "slika ni stekla")
+
+    def test_brez_seje_hub_odgovori_404(self):
+        tuj = self.televizor({"port": 0, "token": "karkoli"}, hub_vrata=self.hub.vrata)
+        self.assertTrue(tuj.koncan.wait(8))
+        self.assertIn(" 404 ", tuj.odgovor_huba)
+
+    def test_drugi_gledalec_med_sejo_ne_dobi_nicesar(self):
+        seja = self.zacni_prek_huba()
+        tv = self.televizor(seja, hub_vrata=self.hub.vrata)
+        self.assertTrue(tv.povezan.wait(8))
+        self.assertTrue(_pocakaj(lambda: self.z.stanje()["povezan"]))
+        drugi = self.televizor(seja, hub_vrata=self.hub.vrata)
+        self.assertTrue(drugi.koncan.wait(8))
+        self.assertIn(" 404 ", drugi.odgovor_huba, "zeton seje, ki ze tece, ne odpre druge povezave")
+        self.assertFalse(tv.konec_toka)
+
+    def test_seja_za_gledalca_zdoma_sprejme_tudi_neposredno_povezavo(self):
+        # Preizkus »tudi doma prek interneta« in vrnitev domov sredi dneva: vrata seje ostanejo odprta.
+        tv = self.televizor(self.zacni_prek_huba())
+        self.assertTrue(tv.povezan.wait(8))
+        self.assertTrue(_pocakaj(lambda: tv.okvirjev[1] > 20), "slika ni stekla")
+
+
+class NavadnaSejaOstaneKotPrej(_Osnova):
+    def test_odgovor_brez_releja_in_z_izbrano_kakovostjo(self):
+        seja = self.z.zacni("tv-test", "srednja")
+        self.assertIs(seja["relay"], False)
+        self.assertEqual(seja["quality"], "srednja")
 
 
 if __name__ == "__main__":

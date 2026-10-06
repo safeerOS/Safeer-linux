@@ -78,6 +78,8 @@ KAKOVOSTI = {
 # Nizje stopnje ostajajo v dogovoru zato, da se bo mogoce samodejno umakniti, kadar povezava ali
 # racunalnik tega ne bosta zmogla - ne zato, da bi uporabnik izbiral.
 PRIVZETA_KAKOVOST = "najvisja"
+#: Kako pogosto seja, ki caka gledalca, pogleda, ali ji je povezavo predal Hub.
+PREVERI_PREVZETE_S = 0.2
 
 
 def _zaslon_geometrija(display: str) -> Optional[tuple]:
@@ -237,6 +239,10 @@ class Zaslon:
         self._nit: Optional[threading.Thread] = None
         #: Povezava televizorja v tekoci seji (ovita, core/link_vticnik.py); ustavi() jo zapre in s tem zbudi niti seje.
         self._odjemalec = None
+        #: Povezave gledalcev, ki jih je sprejel Hub (Global Link) in cakajo, da jih seja prevzame:
+        #: (vticnica, dogodek konca seje, stevilka seje).
+        self._prevzeti: list = []
+        self._prek_huba = False
         self._vnos = Vnos()
         # Navidezni igralni plosek racunalnika: nastane sele, ko televizor res poslje plosek.
         self._plosek = Plosek()
@@ -304,8 +310,12 @@ class Zaslon:
             return False
         return cilj == "apps" or self.drugi.okna() > 0
 
-    def zacni(self, id_naprave: str, kakovost: str = PRIVZETA_KAKOVOST, cilj: str = "") -> dict:
-        """Pripravi sejo: odpre TLS vrata in caka televizor. Zajem se zacne sele, ko se ta javi."""
+    def zacni(self, id_naprave: str, kakovost: str = PRIVZETA_KAKOVOST, cilj: str = "",
+              prek_huba: bool = False) -> dict:
+        """Pripravi sejo: odpre TLS vrata in caka televizor. Zajem se zacne sele, ko se ta javi.
+
+        `prek_huba`: gledalec je zdoma in pride po Global Linku do vrat Huba (pot `/cast/desktop`), ne na vrata
+        seje. Slika in zvok sta ista kot doma - kakovosti zaradi poti ne nizamo."""
         if not self.vklopljeno:
             raise RuntimeError("Deljenje zaslona ni vklopljeno")
         if not self.ffmpeg:
@@ -349,6 +359,7 @@ class Zaslon:
             self._posluh = posluh
             self._tece_od = time.time()
             self._povezan = False
+            self._prek_huba = bool(prek_huba)
             if na_drugem:
                 self._cilj = "apps"
                 self._zvok_vir = self.drugi.zvok_vir()
@@ -375,7 +386,9 @@ class Zaslon:
                 "focus": self._cilj == "apps" and hasattr(self.drugi, "fokus"),
                 # Predvajalnik: televizor ga upravlja kot predvajalnik in narise svoj pas za predvajanje.
                 "profile": getattr(self.drugi, "zadnji_profil", "") if self._cilj == "apps" else "",
-                "media": self._cilj == "apps" and hasattr(self.drugi, "mediji")}
+                "media": self._cilj == "apps" and hasattr(self.drugi, "mediji"),
+                # Gledalec sme po sliko prek Huba (Global Link); starejsi Control tega polja nima.
+                "relay": bool(prek_huba)}
 
     @staticmethod
     def _prilagodi(izvor, najvec_sirina, najvec_visina) -> tuple:
@@ -392,8 +405,20 @@ class Zaslon:
         sejo koncala: kdorkoli v omrezju je lahko deljenje zaslona preprecil.)"""
         konec = time.monotonic() + CAKANJE_S
         while time.monotonic() < konec:
-            posluh.settimeout(max(0.1, konec - time.monotonic()))
-            surov, _ = posluh.accept()
+            # Gledalec zdoma ne pride na ta vrata, ampak do Huba; povezavo, ki jo je Hub ze sprejel (TLS z istim
+            # potrdilom) in nadgradil, dobimo tu - zeton je preveril prevzemi().
+            prevzet = self._vzemi_prevzetega()
+            if prevzet is not None:
+                try:
+                    link_vticnik.brez_zamika(prevzet[0])
+                except Exception:  # noqa: BLE001 - nastavitev vticnice je dodatek
+                    pass
+                return prevzet
+            posluh.settimeout(max(0.05, min(PREVERI_PREVZETE_S, konec - time.monotonic())))
+            try:
+                surov, _ = posluh.accept()
+            except socket.timeout:
+                continue
             odjemalec = None
             try:
                 surov.settimeout(ROKOVANJE_S)
@@ -404,19 +429,61 @@ class Zaslon:
                 zeton = self._zeton
                 if zeton and pozdrav.startswith("SAFEER-ZASLON ") and secrets.compare_digest(
                         pozdrav.split(" ", 1)[1].strip().encode("utf-8"), zeton.encode("utf-8")):
-                    return odjemalec
+                    return odjemalec, None
             except (OSError, ssl.SSLError, ValueError):
                 pass
             _zapri(odjemalec if odjemalec is not None else surov)
         return None
 
+    # ------------------------------------------------------------------ gledalec prek Huba (Global Link)
+
+    def caka(self, zeton: str) -> bool:
+        """Ali seja s tem zetonom caka gledalca. Hub vprasa, preden povezavo nadgradi."""
+        z = self._zeton
+        if not z or not zeton or self._posluh is None or self._povezan:
+            return False
+        return secrets.compare_digest(str(zeton).encode("utf-8"), z.encode("utf-8"))
+
+    def prevzemi(self, odjemalec, zeton: str) -> bool:
+        """Povezavo gledalca, ki je prisla do Huba (Global Link), preda cakajoci seji in se vrne, ko se seja konca.
+
+        Hub je povezavo ze nadgradil (101); od tu tece po njej isti pretok kot po neposredni: glava JSON, okvirji,
+        vnos nazaj. False: seje s tem zetonom ni (vec) - klicatelj povezavo zapre."""
+        if not self.caka(zeton):
+            return False
+        konec = threading.Event()
+        with self._kljucavnica:
+            self._prevzeti.append((odjemalec, konec, self._seja_st))
+        rok = time.monotonic() + CAKANJE_S + 5
+        while not konec.wait(0.5):
+            with self._kljucavnica:
+                se_caka = any(p[0] is odjemalec for p in self._prevzeti)
+                # Seja povezavo vzame v nekaj desetinkah sekunde. Ce je ne (medtem ustavljena), ne visimo.
+                # Enako, ce je sejo medtem dobil drug gledalec.
+                if se_caka and (self._posluh is None or self._povezan or time.monotonic() > rok):
+                    self._prevzeti = [p for p in self._prevzeti if p[0] is not odjemalec]
+                    return False
+        return True
+
+    def _vzemi_prevzetega(self):
+        """Povezava, ki jo je Hub predal tej seji: (vticnica, dogodek konca) ali None."""
+        with self._kljucavnica:
+            while self._prevzeti:
+                odjemalec, konec, seja = self._prevzeti.pop(0)
+                if seja == self._seja_st:
+                    return odjemalec, konec
+                konec.set()                 # za sejo, ki je ni vec: Hub povezavo zapre
+        return None
+
     def _streci(self, posluh: socket.socket, ctx: ssl.SSLContext, ukaz: List[str], seja: int) -> None:
         odjemalec = None
+        konec_prevzete = None
         slika = zvok = None
         try:
-            odjemalec = self._sprejmi(posluh, ctx)
-            if odjemalec is None:
+            sprejet = self._sprejmi(posluh, ctx)
+            if sprejet is None:
                 return
+            odjemalec, konec_prevzete = sprejet
             glava = {"v": 2, "w": self._slika["width"], "h": self._slika["height"],
                      "fps": self._slika["fps"],
                      "zvok": {"hz": ZVOK_HZ, "kanali": ZVOK_KANALI, "oblika": "s16le"} if self._zvok_vir else None,
@@ -470,6 +537,8 @@ class Zaslon:
             # Najprej shutdown: druge niti (zvok, vnos) drzijo vticnico in sam close televizorju
             # ne bi poslal konca - ta bi gledal zamrznjeno sliko.
             _zapri(odjemalec)
+            if konec_prevzete is not None:
+                konec_prevzete.set()        # nit Huba, ki je povezavo predala, se vrne
             _koncaj(slika)
             _koncaj(zvok)
             # Seja pospravi samo za sabo. Ce se je medtem zacela nova (televizor se je povezal znova), je ta nit
@@ -728,6 +797,7 @@ class Zaslon:
             if seja is not None and self._seja_st != seja:
                 return
             proces, zvocni, posluh, odjemalec = self._proces, self._zvocni, self._posluh, self._odjemalec
+            prevzeti, self._prevzeti = self._prevzeti, []
             self._proces = None
             self._zvocni = None
             self._posluh = None
@@ -736,6 +806,8 @@ class Zaslon:
             self._zeton = ""
             self.vrata = 0
             self._tece_od = 0.0
+        for _vticnica, dogodek, _seja in prevzeti:
+            dogodek.set()                   # povezave, ki jih seja ni vec prevzela: Hub jih zapre
         self._vnos.sprosti_vse()
         self._plosek.zapri()
         for p in (proces, zvocni):
