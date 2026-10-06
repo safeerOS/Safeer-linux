@@ -94,9 +94,23 @@ class Merilo(unittest.TestCase):
         m = link_zaslon.merilo_za_gledalca
         self.assertEqual(m({"density": 3.0, "scale": 1.5}, (2340, 1080)), 1.5)
         self.assertEqual(m({"density": 3.0, "scale": 1.6}, (2340, 1080)), 1.5)     # na cetrtine navzdol
-        self.assertEqual(m({"density": 3.0, "scale": 9}, (2340, 1080)), 3.0)
+        self.assertEqual(m({"density": 3.0, "scale": 9}, (2340, 1080)), 2.0)       # najvec, kar pusti 540 tock
+        self.assertEqual(m({"density": 3.0, "scale": 9}, (3840, 2160)), 3.0)
+        self.assertEqual(m({"density": 1.5, "scale": 1.25}, (1236, 576)), 1.0)     # majhen zaslon: ni prostora
+        self.assertEqual(m({"density": 1.5, "scale": 2}, (1920, 1200)), 2.0)       # tablica: uporabnik sme povecati
         self.assertEqual(m({"density": 3.0, "scale": 0.4, "kind": "tv"}, (1920, 1080)), 1.0)
         self.assertEqual(m({"density": 3.0, "scale": 2, "kind": "tv"}, (1920, 1080)), 2.0)   # uporabnik je izbral
+
+    def test_najvecje_merilo(self):
+        n = link_zaslon.najvecje_merilo
+        self.assertEqual(n((2340, 1080)), 2.0)
+        self.assertEqual(n((1236, 576)), 1.0)
+        self.assertEqual(n((1920, 1200)), 2.0)
+        self.assertEqual(n((2560, 1440)), 2.5)
+        self.assertEqual(n((3840, 2160)), 3.0)
+        self.assertEqual(n((1080, 2340)), 2.0)                                   # pokoncno: krajsa stranica
+        self.assertEqual(n((640, 360)), 1.0)
+        self.assertEqual(n(("x", 1)), 1.0)
 
 
 class Seja(unittest.TestCase):
@@ -114,6 +128,7 @@ class Seja(unittest.TestCase):
         self.assertEqual((seja["width"], seja["height"]), (2340, 1080))
         self.assertEqual(seja["screen"], "apps")
         self.assertEqual(seja["scale"], 2.0)
+        self.assertEqual(seja["scale_max"], 2.0)
         self.assertEqual(seja["fps"], 60)                       # kakovost ostane, spremeni se samo oblika
         self.assertEqual(self.z.drugi.velikosti[-1], (2340, 1080))
         self.assertEqual(self.z.drugi.merila[-1], 2.0)
@@ -150,14 +165,15 @@ class Seja(unittest.TestCase):
         odjemalec = types.SimpleNamespace(sendall=poslano.append)
         self.z.zacni("fon", "najvisja", "apps", pogled={"w": 2340, "h": 1080, "density": 3.0, "kind": "phone"})
         self.assertEqual(self.z.drugi.merila[-1], 2.0)
-        self.z._nastavi_merilo(odjemalec, {"vrsta": "merilo", "merilo": 2.5})
-        self.assertEqual(self.z.drugi.merila[-1], 2.5)
-        self.assertIn(b'"merilo": 2.5', poslano[-1])
+        self.z._nastavi_merilo(odjemalec, {"vrsta": "merilo", "merilo": 1.5})
+        self.assertEqual(self.z.drugi.merila[-1], 1.5)
+        self.assertIn(b'"merilo": 1.5', poslano[-1])
+        self.assertIn(b'"najvec": 2.0', poslano[-1])
         self.assertEqual(poslano[-1][0], link_zaslon.OKVIR_OBVESTILO)
         self.z._nastavi_merilo(odjemalec, {"vrsta": "merilo", "merilo": 1.3})          # na cetrtine navzdol
         self.assertEqual(self.z.drugi.merila[-1], 1.25)
-        self.z._nastavi_merilo(odjemalec, {"vrsta": "merilo", "merilo": 99})           # najvec 3
-        self.assertEqual(self.z.drugi.merila[-1], 3.0)
+        self.z._nastavi_merilo(odjemalec, {"vrsta": "merilo", "merilo": 99})           # najvec, kar pusti 540 tock
+        self.assertEqual(self.z.drugi.merila[-1], 2.0)
         stevilo = len(self.z.drugi.merila)
         for slabo in (None, "x", 0, -2, float("nan"), float("inf")):
             self.z._nastavi_merilo(odjemalec, {"vrsta": "merilo", "merilo": slabo})

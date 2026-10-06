@@ -113,13 +113,26 @@ def velikost_za_gledalca(pogled, privzeto: tuple) -> tuple:
     return (w // 2 * 2, h // 2 * 2)
 
 
+def najvecje_merilo(velikost: tuple) -> float:
+    """Najvecje merilo locenega zaslona te velikosti: programom mora po krajsi stranici ostati vsaj
+    POGLED_NAJMANJ_NAVIDEZNO navideznih tock, sicer okna z najmanjso velikostjo niso vec cela (drsenja ni).
+    Na cetrtine navzdol, med 1 in POGLED_NAJVECJE_MERILO."""
+    try:
+        kratka = min(int(velikost[0]), int(velikost[1]))
+    except (TypeError, ValueError, IndexError):
+        return 1.0
+    m = math.floor(kratka / float(POGLED_NAJMANJ_NAVIDEZNO) * 4 + 1e-9) / 4
+    return max(1.0, min(POGLED_NAJVECJE_MERILO, m))
+
+
 def merilo_za_gledalca(pogled, velikost: tuple) -> float:
     """Merilo izhoda locenega zaslona (sway `output scale`) za napravo, ki gleda.
 
     Namizni program na gostem zaslonu telefona ima drobne gumbe. Merilo jih poveca, ne da bi se spremenila slika,
     ki jo posiljamo (fizicna locljivost ostane): gostota naprave / 1,5, a najvec toliko, da programom po krajsi
     stranici ostane vsaj POGLED_NAJMANJ_NAVIDEZNO navideznih tock. Na cetrtine navzdol, med 1 in 3. Televizor
-    (gledamo ga od dalec, a ima 1920x1080 za namizje) ostane pri 1. Naprava sme merilo povedati sama (`scale`).
+    (gledamo ga od dalec, a ima 1920x1080 za namizje) ostane pri 1. Naprava sme merilo povedati sama (`scale`,
+    izbira uporabnika) - tudi zanj velja meja prostora (najvecje_merilo).
     """
     if not isinstance(pogled, dict):
         return 1.0
@@ -131,8 +144,10 @@ def merilo_za_gledalca(pogled, velikost: tuple) -> float:
             return 0.0
         return v if math.isfinite(v) and v > 0 else 0.0
 
+    najvec = najvecje_merilo(velikost)
+
     def na_cetrtine(m: float) -> float:
-        return max(1.0, min(POGLED_NAJVECJE_MERILO, math.floor(m * 4 + 1e-9) / 4))
+        return max(1.0, min(najvec, math.floor(m * 4 + 1e-9) / 4))
 
     izrecno = stevilo("scale")
     if izrecno:
@@ -140,8 +155,7 @@ def merilo_za_gledalca(pogled, velikost: tuple) -> float:
     gostota = stevilo("density")
     if not gostota or str(pogled.get("kind") or "").strip().lower() == "tv":
         return 1.0
-    kratka = min(int(velikost[0]), int(velikost[1]))
-    return na_cetrtine(min(gostota / POGLED_GOSTOTA_ENA, kratka / float(POGLED_NAJMANJ_NAVIDEZNO)))
+    return na_cetrtine(gostota / POGLED_GOSTOTA_ENA)
 
 
 def _zaslon_geometrija(display: str) -> Optional[tuple]:
@@ -460,7 +474,8 @@ class Zaslon:
                 # Gledalec sme po sliko prek Huba (Global Link); starejsi Control tega polja nima.
                 "relay": bool(prek_huba),
                 # Merilo locenega zaslona (1 = brez): slika je enako velika, programi so narisani vecje.
-                "scale": merilo}
+                # `scale_max`: do kod sme uporabnik vsebino povecati, da programi se ostanejo celi.
+                "scale": merilo, "scale_max": najvecje_merilo(izvor) if na_drugem else 1.0}
 
     @staticmethod
     def _prilagodi(izvor, najvec_sirina, najvec_visina) -> tuple:
@@ -738,7 +753,7 @@ class Zaslon:
             return
         merilo = merilo_za_gledalca({"scale": zeljeno}, self._izvor)
         drugi.osnovno_merilo(merilo)
-        self._obvesti(odjemalec, {"merilo": merilo})
+        self._obvesti(odjemalec, {"merilo": merilo, "najvec": najvecje_merilo(self._izvor)})
 
     def _fokus(self):
         drugi = getattr(self._vnos, "drugi", None)
