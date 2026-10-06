@@ -36,7 +36,7 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
-    <release version="0.4.62" date="2026-10-06"><description><p>Released together with Safeer Control 2.1.60 (the screen of the computer on a phone, tablet or TV uses far less data for the same picture; a program that is already open on the desktop is shown there). No changes in Safeer OS itself.</p></description></release>
+    <release version="0.4.62" date="2026-10-06"><description><p>Released together with Safeer Control 2.1.60 (the screen of the computer on a phone, tablet or TV uses far less data - at home the picture stays as it was, away from home quality is tuned to an ordinary 4G connection; a program that is already open on the desktop is shown there). No changes in Safeer OS itself.</p></description></release>
     <release version="0.4.61" date="2026-10-06"><description><p>Released together with Safeer Control 2.1.59 (in full-screen games opened from a phone or tablet, a tap now hits the button). No changes in Safeer OS itself.</p></description></release>
     <release version="0.4.60" date="2026-10-06"><description><p>Released together with Safeer Control 2.1.58 (programs from this computer fill the screen of the phone, tablet or TV that shows them). No changes in Safeer OS itself.</p></description></release>
     <release version="0.4.59" date="2026-10-06"><description><p>From this computer to a device that is away from home (Global Link): when the hub of a device is not on this network it is reached through the relay, with the same trust (the key in the certificate must be the key of the circle member). A device without a home network address is read through its hub at once, without a direct attempt that cannot succeed.</p></description></release>
