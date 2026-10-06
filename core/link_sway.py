@@ -709,6 +709,8 @@ class DrugiZaslon:
         from core.link_fokus import Fokus
         self.fokus = Fokus(self)
         self._merilo = 1.0
+        #: Merilo za navadne programe (po napravi, ki gleda); igra s fiksnim platnom ima svoje.
+        self._osnova = 1.0
         self._urejena_platna: Dict[int, int] = {}
         self._opazovalec: Optional[subprocess.Popen] = None
 
@@ -789,6 +791,7 @@ class DrugiZaslon:
                     self._wayland, self._ipc = os.path.basename(novi[0]), ipc[0]
                     print("[drugi zaslon] tece (%s, %dx%d)" % (self._wayland, sirina, visina), flush=True)
                     self._merilo = 1.0
+                    self._osnova = 1.0
                     self._urejena_platna = {}
                     self._opazuj_okna()
                     return True
@@ -801,6 +804,18 @@ class DrugiZaslon:
         if (sirina, visina) != (self.sirina, self.visina) and self.tece():
             self._msg(["output", IZHOD, "resolution", "%dx%d@60Hz" % (sirina, visina)])
             self.sirina, self.visina = sirina, visina
+            self._urejena_platna = {}
+            self.uredi_platno()
+
+    def osnovno_merilo(self, merilo: float) -> None:
+        """Merilo izhoda za navadne programe: naprava z gostim majhnim zaslonom (telefon) dobi vecje gumbe.
+        Fizicna locljivost in s tem slika, ki jo posiljamo, ostaneta enaki - programi so le narisani vecje."""
+        try:
+            merilo = min(3.0, max(1.0, float(merilo)))
+        except (TypeError, ValueError):
+            merilo = 1.0
+        if abs(merilo - self._osnova) > 1e-6:
+            self._osnova = merilo
             self._urejena_platna = {}
             self.uredi_platno()
 
@@ -844,14 +859,14 @@ class DrugiZaslon:
         """Igra s fiksnim platnom (npr. Crack Attack) se na daljincu pokaze cez cel zaslon: izhod dobi
         merilo, okno pa lebdi v svoji naravni velikosti na sredini - sway ga raztegne brez obrezovanja.
         Zajem ostane enak (fizicna locljivost se ne spremeni), zato seja tece naprej. Ko je spredaj
-        navaden program, se merilo vrne na 1."""
+        navaden program, se merilo vrne na osnovno (1 ali merilo naprave, ki gleda - osnovno_merilo)."""
         if not self.tece():
             return
         with self._kljuc:
             okno = self._spredaj()
             platno = fiksno_platno(okno) if okno else None
-            merilo = merilo_platna(self.sirina, self.visina, *platno) if platno else 1.0
-            if okno is None and self._merilo != 1.0 and self.okna() > 0:
+            merilo = merilo_platna(self.sirina, self.visina, *platno) if platno else self._osnova
+            if okno is None and self._merilo != self._osnova and self.okna() > 0:
                 return   # trenutek brez fokusa med preklopom - ne utripaj
             if abs(merilo - self._merilo) > 1e-6:
                 self._msg(["output", IZHOD, "scale", "%.6f" % merilo])
