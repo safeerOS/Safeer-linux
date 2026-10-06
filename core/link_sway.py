@@ -102,6 +102,14 @@ def _konfiguracija(sirina: int, visina: int) -> str:
         "client.focused_inactive #101418 #101418 #101418 #101418 #101418",
         "client.unfocused #101418 #101418 #101418 #101418 #101418",
         "seat seat0 xcursor_theme Adwaita 32",
+        # Navidezna miska in tipkovnica morata ostati na sedezu tudi, ce sedez dobi se kak ukaz: sway naprave,
+        # ki niso izrecno pripete, sicer odklopi (izmerjeno: po ukazu `seat seat0 ...` med tekom vnosa ni bilo vec).
+        "seat seat0 fallback true",
+        # Program si kazalca ne sme zakleniti. Igra cez cel zaslon s skritim kazalcem (SFML/SDL prek XWaylanda)
+        # ga sicer ujame in sway po zaklepu absolutnega premika ne izvede vec: dotik na telefonu ali tablici
+        # pride do igre kot relativni premik od zaklenjene lege in zgresi gumb. Relativni premiki (daljinec,
+        # plosek) do programa pridejo tudi brez zaklepa.
+        "seat seat0 pointer_constraint disable",
         "font pango:Sans 1",
         # Edina bliznjica: preklop med programi (daljinec: meni seje -> Naslednji program).
         # Celozaslonski program (igra) bi sicer zakril ostale, zato ga ob preklopu pomanjsamo v zavihek.
