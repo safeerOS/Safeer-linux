@@ -264,6 +264,15 @@ class MeshPovezovalec:
                 self._znani.pop(next(iter(self._znani)))
         self._shrani_znane()
 
+    def naslov_prek_releja(self, hid: str) -> str:
+        """Naslov sosednjega sredisca prek Global Linka: krajevni konec releja (wss://127.0.0.1:vrata/cast/ws) ali
+        '' (Global Link je izklopljen ali sosed ni clan kroga s kljucem). Skozenj tece TLS do sosedovega
+        sredisca; zaupanje da kljuc v njegovem potrdilu, kot pri neposredni povezavi."""
+        if not global_link_vklopljen():
+            return ""
+        rele = self._rele(str(hid or ""))
+        return "wss://127.0.0.1:%d/cast/ws" % rele.vrata if rele is not None else ""
+
     def naslov_soseda(self, hid: str) -> str:
         """Naslov (wss://ip:vrata/cast/ws) sosednjega sredisca, kot ga poznamo iz oglasa ali povezave; '' = ne poznamo."""
         with self._zaklep:
@@ -437,11 +446,14 @@ class MeshPovezovalec:
 
 
 def sredisce_naprave(hub, mesh, id_naprave: str, potrdilo: Optional[Callable] = None,
-                     clan_za_id: Optional[Callable] = None) -> tuple:
+                     clan_za_id: Optional[Callable] = None, dosegljiv: Optional[Callable] = None) -> tuple:
     """Sredisce, pri katerem je prijavljena druga naprava, kadar to NI nase (Link Mesh: vsaka naprava ima svoje).
 
     Datoteke ne grejo cez sosede kot sporocila: pot v `share.file` je relativna na sredisce, ki je datoteko sprejelo.
     Zato jo posiljatelj odda sredisci ciljne naprave, prejemnik pa jo prevzame pri sredisci posiljatelja.
+
+    Soseda, ki ga v tem omrezju ni (naprava je zdoma), dosezemo prek Global Linka: naslov je takrat krajevni konec
+    releja do NJEGOVEGA sredisca (`mesh.naslov_prek_releja`); skozenj tece TLS do soseda, zato velja isto zaupanje.
 
     Vrne ((naslov, odtis), "")  - naprava je pri sosedu, ki ga dosezemo in nosi kljuc clana kroga;
          (None, "")             - naprava je pri nasem sredisci (ali sredisca ne gostimo mi);
@@ -457,15 +469,48 @@ def sredisce_naprave(hub, mesh, id_naprave: str, potrdilo: Optional[Callable] = 
     if getattr(naprava, "posredno", False) or mesh is None:
         return None, "naprava_pri_drugem_srediscu"
     naslov = mesh.naslov_soseda(hid)
-    if not naslov or _je_zanka(naslov):
+    if naslov and _je_zanka(naslov):
+        naslov = ""                     # zapomnjen 127.x ni naslov soseda (star konec releja)
+    prek = getattr(mesh, "naslov_prek_releja", None)
+    rele = str(prek(hid) or "") if callable(prek) else ""
+    if not naslov and not rele:
         return None, "naprava_pri_drugem_srediscu"
     clan = (clan_za_id or link_krog.krog().clan_za_id)(hid)
     if not clan or not clan.get("kljuc"):
         return None, "sredisce_naprave_ni_dosegljivo"
-    odtis, kljuc = (potrdilo or link_tls.potrdilo_huba)(naslov)
-    if not odtis or not kljuc or kljuc != clan.get("kljuc"):
-        return None, "sredisce_naprave_ni_dosegljivo"
-    return (naslov, odtis), ""
+    kandidati = [n for n in (naslov, rele) if n]
+    if naslov and rele:
+        # Kratek poskus pove, ali je sosed v tem omrezju. Ce ga ni (naprava je zdoma), gremo naravnost prek
+        # releja - brez cakanja na rok povezave na naslov, na katerem ga ni.
+        if dosegljiv is None:
+            dosegljiv = _tcp_dosegljiv if potrdilo is None else (lambda _n: True)
+        if not dosegljiv(naslov):
+            kandidati = [rele]
+    for n in kandidati:
+        odtis, kljuc = (potrdilo or link_tls.potrdilo_huba)(n)
+        if odtis and kljuc and kljuc == clan.get("kljuc"):
+            return (n, odtis), ""
+    return None, "sredisce_naprave_ni_dosegljivo"
+
+
+#: Toliko casa ima sosed v istem omrezju, da sprejme povezavo; kdor ne odgovori, je zdoma (gremo prek releja).
+SONDA_SOSEDA_S = 0.7
+
+
+def _tcp_dosegljiv(naslov: str, rok_s: float = SONDA_SOSEDA_S) -> bool:
+    """Kratek poskus povezave TCP na naslov sosednjega sredisca (brez podatkov in brez TLS)."""
+    import socket
+    from urllib.parse import urlparse
+    u = urlparse(naslov)
+    try:
+        s = socket.create_connection((u.hostname or "", u.port or 443), rok_s)
+    except (OSError, ValueError):
+        return False
+    try:
+        s.close()
+    except OSError:
+        pass
+    return True
 
 
 def brez_neposredne() -> set:
