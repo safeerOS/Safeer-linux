@@ -54,6 +54,9 @@ class ProgramaNi(RuntimeError):
 PRAZNO_PO_ZAPRTJU_S, PRAZNO_OD_ZACETKA_S = 1.5, 30.0
 #: Zvok: surov PCM, ker je najpreprostejsi in brez zakasnitve (1,5 Mb/s je v domacem omrezju nic).
 ZVOK_HZ, ZVOK_KANALI = 48000, 2
+#: Toliko zaporednih popolnoma tihih koscev zvoka (po 10 ms) se posljemo, preden utihnemo: kratek premor med
+#: zvokoma ostane v toku (predvajalnik naprave ne zaide v prazno), dolga tisina pa ne stane nic.
+ZVOK_REP_TISINE = 30
 #: Kolikor casa cakamo, da se televizor javi, preden sejo zavrzemo.
 CAKANJE_S = 30
 #: Toliko casa ima, kdor se poveze, za rokovanje TLS in pozdrav; kdor obstane, ne sme zadrzati televizorja.
@@ -174,6 +177,57 @@ def _zaslon_geometrija(display: str) -> Optional[tuple]:
     return None
 
 
+#: Kljucna slika: starejsi gledalec jo potrebuje vsako sekundo (enoto, ki jo izpusti, popravi sele ona). Gledalec, ki
+#: enot ne izpusca (`caps: ["gop"]`), dobi dolgo skupino: povezava je zanesljiva, kljucna slika pa je pri mirni sliki
+#: skoraj ves promet.
+GOP_DOLG_S = 10
+_HEVC: Dict[str, bool] = {}
+#: Kljuc v `_HEVC`: zajem s HEVC je na tem racunalniku ze odpovedal (`hevc_odpovedal`).
+_HEVC_ODPOVED = "odpoved"
+#: Zacetna koda enote NAL (Annex-B): brez nje v toku zajema ni bilo nobene slike.
+ZACETEK_NAL = b"\x00\x00\x01"
+
+
+def hevc_odpovedal() -> None:
+    """Zajem s HEVC je koncal sam in brez ene same slike: do ponovnega zagona Controla ostanemo pri H.264."""
+    _HEVC[_HEVC_ODPOVED] = True
+
+
+def hevc_mozen(ffmpeg: str, vaapi: Optional[str]) -> bool:
+    """Ali ta racunalnik HEVC res strojno kodira: enkraten kratek preizkus z ffmpeg, izid si zapomnimo.
+
+    Seznam kodirnikov ni dovolj - `hevc_vaapi` je v ffmpeg tudi tam, kjer ga graficna kartica ali gonilnik ne zmoreta.
+    """
+    if not ffmpeg or not vaapi or _HEVC.get(_HEVC_ODPOVED):
+        return False
+    kljuc = "%s|%s" % (ffmpeg, vaapi)
+    if kljuc not in _HEVC:
+        try:
+            r = subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-vaapi_device", vaapi,
+                                "-f", "lavfi", "-i", "color=black:size=320x240:rate=30", "-frames:v", "3",
+                                "-vf", "format=nv12,hwupload", "-c:v", "hevc_vaapi", "-rc_mode", "CQP", "-qp", "24",
+                                "-bf", "0", "-f", "null", "-"], capture_output=True, timeout=20,
+                               stdin=subprocess.DEVNULL)
+            _HEVC[kljuc] = r.returncode == 0
+        except Exception:  # noqa: BLE001 - brez preizkusa ostanemo pri H.264
+            _HEVC[kljuc] = False
+    return _HEVC[kljuc]
+
+
+def izberi_kodek(zeleni, hevc) -> str:
+    """Kodek slike za sejo: prvi s seznama naprave (`codecs` v `screen.start`), ki ga znamo. Brez seznama (starejsa
+    naprava) ali brez strojnega HEVC na racunalniku ostane H.264. `hevc` je klic, ki pove, ali racunalnik HEVC zmore -
+    poklicemo ga samo, ce naprava HEVC res hoce (preizkus kodirnika stane cas)."""
+    if isinstance(zeleni, (list, tuple)):
+        for k in zeleni[:8]:
+            k = str(k).strip().lower()
+            if k == "hevc" and (hevc() if callable(hevc) else bool(hevc)):
+                return "hevc"
+            if k == "h264":
+                return "h264"
+    return "h264"
+
+
 def vaapi_naprava() -> Optional[str]:
     """Naprava za strojno kodiranje (Intel/AMD); None, kadar je ni."""
     for ime in ("renderD128", "renderD129"):
@@ -185,11 +239,14 @@ def vaapi_naprava() -> Optional[str]:
 
 def ukaz_ffmpeg(display: str, sirina: int, visina: int, izvor_sirina: int, izvor_visina: int,
                 fps: int, bitrate: str, vaapi: Optional[str], ffmpeg: str = "ffmpeg",
-                qp: int = 24) -> List[str]:
+                qp: int = 24, kodek: str = "h264", gop: int = 0) -> List[str]:
     """Ukaz za zajem in kodiranje. Strojno (VAAPI), ce je mogoce, sicer x264 brez zamika.
 
+    `kodek`: "hevc" samo strojno (pri istem kvantizatorju manj bajtov); brez VAAPI vedno H.264.
+    `gop`: razmik kljucnih slik v slikah; 0 = vsako sekundo (starejsi gledalec).
     Locen od zagona, da ga je mogoce preveriti v testu brez kamere in zaslona.
     """
+    hevc = kodek == "hevc" and bool(vaapi)
     u = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin",
          "-f", "x11grab", "-draw_mouse", "1", "-framerate", str(fps),
          "-video_size", f"{izvor_sirina}x{izvor_visina}", "-i", display]
@@ -211,7 +268,7 @@ def ukaz_ffmpeg(display: str, sirina: int, visina: int, izvor_sirina: int, izvor
         # in vsi padejo), obenem pa ga zna vsak - zato kakovost dolocimo s kvantizatorjem.
         u += ["-vaapi_device", vaapi,
               "-vf", f"{filter_lestvica}format=nv12,hwupload",
-              "-c:v", "h264_vaapi", "-profile:v", "high",
+              "-c:v", "hevc_vaapi" if hevc else "h264_vaapi", "-profile:v", "main" if hevc else "high",
               "-rc_mode", "CQP", "-qp", str(qp)]
     else:
         u += ["-vf", f"{filter_lestvica}format=yuv420p",
@@ -219,8 +276,8 @@ def ukaz_ffmpeg(display: str, sirina: int, visina: int, izvor_sirina: int, izvor
               "-b:v", bitrate, "-maxrate", bitrate, "-bufsize", "1M"]
     # Brez B-slik in z rednim kljucnim okvirjem: televizor se lahko prikljuci hitro,
     # izguba paketa pa se popravi v eni sekundi.
-    u += ["-g", str(max(1, fps)), "-bf", "0", "-flags", "+low_delay",
-          "-f", "h264", "-"]
+    u += ["-g", str(gop if gop > 0 else max(1, fps)), "-bf", "0", "-flags", "+low_delay",
+          "-f", "hevc" if hevc else "h264", "-"]
     return u
 
 
@@ -319,6 +376,10 @@ class Zaslon:
         #: (vticnica, dogodek konca seje, stevilka seje).
         self._prevzeti: list = []
         self._prek_huba = False
+        #: Kaj zna naprava, ki gleda (`caps` v `screen.start`), npr. "handoff": preklop na namizje, kadar je program tam.
+        self._zmoznosti: set = set()
+        #: Kodek slike tekoce seje ("h264" ali "hevc").
+        self._kodek = "h264"
         self._vnos = Vnos()
         # Navidezni igralni plosek racunalnika: nastane sele, ko televizor res poslje plosek.
         self._plosek = Plosek()
@@ -387,7 +448,7 @@ class Zaslon:
         return cilj == "apps" or self.drugi.okna() > 0
 
     def zacni(self, id_naprave: str, kakovost: str = PRIVZETA_KAKOVOST, cilj: str = "",
-              prek_huba: bool = False, pogled: Optional[dict] = None) -> dict:
+              prek_huba: bool = False, pogled: Optional[dict] = None, zmoznosti=None, kodeki=None) -> dict:
         """Pripravi sejo: odpre TLS vrata in caka televizor. Zajem se zacne sele, ko se ta javi.
 
         `pogled`: povrsina naprave, ki gleda (`view` iz `screen.start`). Loceni zaslon dobi njeno obliko in
@@ -444,24 +505,37 @@ class Zaslon:
             self._tece_od = time.time()
             self._povezan = False
             self._prek_huba = bool(prek_huba)
+            self._zmoznosti = {str(z) for z in (zmoznosti or []) if isinstance(z, str)}
+            # Dolga skupina slik samo gledalcu, ki enot ne izpusca; HEVC samo, ce ga naprava hoce in racunalnik zmore.
+            gop = int(k["fps"]) * GOP_DOLG_S if "gop" in self._zmoznosti else 0
+            dodatki = {}
             if na_drugem:
                 self._cilj = "apps"
                 self._zvok_vir = self.drugi.zvok_vir()
                 self._vnos = self.drugi.vnos
                 self._okolje_zajema = self.drugi.okolje()
-                ukaz = self.drugi.ukaz_zajema(int(k["fps"]), int(k["qp"]), str(k["bitrate"]))
+                graficna = self.drugi.graficna() if hasattr(self.drugi, "graficna") else None
+                self._kodek = izberi_kodek(kodeki, lambda: hevc_mozen(self.ffmpeg, graficna))
+                if self._kodek != "h264":
+                    dodatki["kodek"] = self._kodek
+                if gop:
+                    dodatki["gop"] = gop
+                ukaz = self.drugi.ukaz_zajema(int(k["fps"]), int(k["qp"]), str(k["bitrate"]), **dodatki)
             else:
                 self._cilj = "desktop"
                 self._okolje_zajema = None
                 self._zvok_vir = privzeti_monitor()
                 self._vnos = Vnos(display=display)
+                vaapi = vaapi_naprava()
+                self._kodek = izberi_kodek(kodeki, lambda: hevc_mozen(self.ffmpeg, vaapi))
                 ukaz = ukaz_ffmpeg(display, sirina, visina, izvor[0], izvor[1], int(k["fps"]),
-                                   str(k["bitrate"]), vaapi_naprava(), self.ffmpeg, int(k["qp"]))
+                                   str(k["bitrate"]), vaapi, self.ffmpeg, int(k["qp"]),
+                                   kodek=self._kodek, gop=gop)
             self._nit = threading.Thread(target=self._streci, args=(posluh, ctx, ukaz, seja_st),
                                          name="safeer-zaslon", daemon=True)
             self._nit.start()
         return {"port": self.vrata, "fp": self.odtis, "token": self._zeton, "v": 2,
-                "codec": "h264", **self._slika, "quality": self._kakovost,
+                "codec": self._kodek, **self._slika, "quality": self._kakovost,
                 "audio": {"hz": ZVOK_HZ, "channels": ZVOK_KANALI, "format": "s16le"} if self._zvok_vir else None,
                 "input": self._vnos.mozno, "gamepad": self._plosek.mozno(), "screen": self._cilj,
                 # Igra: puscice daljinca morajo biti puscice, ne miska.
@@ -572,7 +646,7 @@ class Zaslon:
                 return
             odjemalec, konec_prevzete = sprejet
             glava = {"v": 2, "w": self._slika["width"], "h": self._slika["height"],
-                     "fps": self._slika["fps"],
+                     "fps": self._slika["fps"], "kodek": self._kodek,
                      "zvok": {"hz": ZVOK_HZ, "kanali": ZVOK_KANALI, "oblika": "s16le"} if self._zvok_vir else None,
                      "vnos": self._vnos.mozno, "plosek": self._plosek.mozno()}
             odjemalec.sendall((json.dumps(glava) + "\n").encode("utf-8"))
@@ -594,7 +668,10 @@ class Zaslon:
                 self._proces = slika
                 self._odjemalec = odjemalec
                 self._povezan = True
-                niti.append(threading.Thread(target=self._crpaj, args=(slika, OKVIR_SLIKA, odjemalec, 32 * 1024),
+                kodek_seje = self._kodek
+                prebrano = [0, False]       # bajtov slike in ali je bila v toku ze kaka enota NAL
+                niti.append(threading.Thread(target=self._crpaj,
+                                             args=(slika, OKVIR_SLIKA, odjemalec, 32 * 1024, prebrano),
                                              name="safeer-zaslon-slika", daemon=True))
                 if self._zvok_vir:
                     try:
@@ -618,6 +695,7 @@ class Zaslon:
             for n in niti:
                 n.start()
             niti[0].join()          # dokler tece slika, tece seja
+            self._preveri_hevc(slika, kodek_seje, prebrano)
         except (OSError, ssl.SSLError, ValueError):
             pass
         finally:
@@ -682,41 +760,108 @@ class Zaslon:
         videl = False
         zacetek = time.monotonic()
         prazno_od: Optional[float] = None
+        povedal_caka = False
         while self._proces is slika and slika.poll() is None:
-            time.sleep(0.5)
+            # Dokler okna se ni, gledamo pogosteje: »Odpiram ...« in preklop na namizje naj ne cakata po nepotrebnem.
+            time.sleep(0.5 if videl else 0.25)
             zdaj = time.monotonic()
             if self.drugi.okna() > 0:
+                if not videl and povedal_caka:
+                    self._obvesti(odjemalec, {"program": "odprt"})
                 videl, prazno_od = True, None
                 continue
             prazno_od = zdaj if prazno_od is None else prazno_od
+            podatki: dict = {}
             if videl and zdaj - prazno_od >= PRAZNO_PO_ZAPRTJU_S:
                 razlog = "zaprto"
             elif not videl and zdaj - zacetek >= PRAZNO_OD_ZACETKA_S:
                 razlog = "ni_okna"
+            elif not videl:
+                izid = self._izid_zagona()
+                if izid == "na_namizju" and "handoff" in self._zmoznosti:
+                    # Program je odprt na namizju racunalnika (ena sama instanca): naprava preklopi tja.
+                    razlog, podatki = "na_namizju", self._opis_zagona()
+                elif izid:
+                    # Rod zagona je koncal brez okna: uporabnik ne gleda pol minute praznega zaslona.
+                    razlog = "ni_okna"
+                else:
+                    if not povedal_caka:
+                        povedal_caka = True
+                        self._obvesti(odjemalec, dict({"program": "caka"}, **self._opis_zagona()))
+                    continue
             else:
                 continue
             if self._proces is not slika:
                 return
             try:
-                odjemalec.sendall(_okvir(OKVIR_OBVESTILO, json.dumps({"konec": razlog}).encode("utf-8")))
+                odjemalec.sendall(_okvir(OKVIR_OBVESTILO,
+                                         json.dumps(dict({"konec": razlog}, **podatki)).encode("utf-8")))
             except (OSError, ssl.SSLError, ValueError):
                 pass
             print("[zaslon] drugi zaslon je prazen (%s), seja koncana" % razlog, flush=True)
             self.ustavi()
             return
 
-    def _crpaj(self, proces: subprocess.Popen, vrsta: int, odjemalec, kos: int) -> None:
+    def _izid_zagona(self) -> str:
+        """Izid zadnjega zagona na locenem zaslonu ("" | "koncan" | "na_namizju"); napaka pomeni »ne vemo«."""
+        drugi = self.drugi
+        if drugi is None or not hasattr(drugi, "izid_zagona"):
+            return ""
+        try:
+            return str(drugi.izid_zagona() or "")
+        except Exception:  # noqa: BLE001 - straza praznega zaslona ne sme pasti
+            return ""
+
+    def _opis_zagona(self) -> dict:
+        drugi = self.drugi
+        if drugi is None or not hasattr(drugi, "opis_zagona"):
+            return {}
+        try:
+            return dict(drugi.opis_zagona() or {})
+        except Exception:  # noqa: BLE001
+            return {}
+
+    @staticmethod
+    def _preveri_hevc(slika: subprocess.Popen, kodek: str, prebrano) -> None:
+        """Zajem s HEVC, ki konca SAM in brez ene same enote NAL, na tem racunalniku ne deluje (kratek preizkus z
+        ffmpeg je sicer uspel): do ponovnega zagona Controla ostanemo pri H.264. Naprava sejo zahteva znova sama.
+        Zajem, ki smo ga ustavili mi (konec seje), ima negativno kodo izhoda in ne steje."""
+        if kodek != "hevc" or prebrano[1]:
+            return
+        try:
+            koda = slika.wait(timeout=1.0)
+        except Exception:  # noqa: BLE001 - zajem se tece: to ni odpoved kodirnika
+            return
+        if isinstance(koda, int) and koda >= 0:
+            hevc_odpovedal()
+            print("[zaslon] zajem s HEVC ni dal slike (koda %d): do ponovnega zagona ostanemo pri H.264" % koda,
+                  flush=True)
+
+    def _crpaj(self, proces: subprocess.Popen, vrsta: int, odjemalec, kos: int, prebrano=None) -> None:
         """Bere en vir (slika ali zvok) in ga v okvirjih poslje televizorju. Vsak okvir je en `sendall`
         na oviti vticnici, ta pa jamci, da se okvirja dveh virov nikoli ne prepleteta.
 
         Kljucavnica za pisanje je tako del povezave in ne vec del tega objekta: prej je pisanje stare seje, ki je
         obstalo (televizor je izginil brez slovesa), drzalo kljucavnico tudi novi seji - televizor se je povezal
         znova, slike pa ni dobil, dokler jedro stare povezave ni opustilo."""
+        tihih = 0
         try:
             while True:
                 podatki = proces.stdout.read(kos)
                 if not podatki:
                     break
+                if prebrano is not None:
+                    prebrano[0] += len(podatki)
+                    if not prebrano[1] and ZACETEK_NAL in podatki:
+                        prebrano[1] = True
+                if vrsta == OKVIR_ZVOK:
+                    # Popolna tisina (sami nicelni bajti): po kratkem repu je ne posiljamo - 1,5 Mb/s za nic.
+                    if podatki.count(0) == len(podatki):
+                        tihih += 1
+                        if tihih > ZVOK_REP_TISINE:
+                            continue
+                    else:
+                        tihih = 0
                 odjemalec.sendall(_okvir(vrsta, podatki))
         except (OSError, ssl.SSLError, ValueError, AttributeError):
             pass

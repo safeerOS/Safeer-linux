@@ -119,6 +119,25 @@ def _vrednost(vnos: configparser.SectionProxy, kljuc: str) -> str:
     return vnos.get(kljuc, "") or ""
 
 
+def razredi_okna(ime_vnosa: str, razred: str, ukaz: List[str]) -> List[str]:
+    """Imena, po katerih prepoznamo okno programa na namizju (razred okna X): StartupWMClass iz vnosa, ime vnosa
+    brez `.desktop` in ime izvrsljive datoteke. Z malimi crkami, brez ponovitev."""
+    kandidati = [str(razred or ""), str(ime_vnosa or "")[:-len(".desktop")] if str(ime_vnosa or "").endswith(".desktop")
+                 else str(ime_vnosa or "")]
+    for del_ in ukaz or []:
+        osnova = os.path.basename(str(del_))
+        if osnova.startswith("-") or "=" in osnova or osnova in Programi._LUPINE or osnova in ("flatpak", "snap", "run"):
+            continue
+        kandidati.append(osnova)
+        break
+    izid: List[str] = []
+    for k in kandidati:
+        k = k.strip().lower()
+        if k and k not in izid:
+            izid.append(k)
+    return izid
+
+
 class Programi:
     """Namizni vnosi racunalnika; brez dovoljenja uporabnika prazno."""
 
@@ -200,7 +219,8 @@ class Programi:
             return None
         return {"pot": pot, "ime": ime, "opis": _vrednost(vnos, "Comment").strip(),
                 "ikona": (vnos.get("Icon", "") or "").strip(), "skupina": skupina(kategorije),
-                "predvajalnik": je_predvajalnik(kategorije)}
+                "predvajalnik": je_predvajalnik(kategorije),
+                "razred": (vnos.get("StartupWMClass", "") or "").strip()}
 
     # ------------------------------------------------------------------ za Safeer Link
     def seznam(self, z_ikonami: bool = True, od: int = 0, koliko: int = 0) -> dict:
@@ -279,10 +299,15 @@ class Programi:
             # Predvajalnik: televizor ga upravlja kot predvajalnik (OK pavza, levo/desno previjanje).
             self.drugi.zadnji_profil = PROFIL_PREDVAJALNIK if vnos.get("predvajalnik") else ""
             # Ce program na drugem zaslonu ze tece, ga samo pokazemo - drugo okno bi bilo odvec.
-            if self.drugi.pokazi(self._procesi(self._iskani_vzorci(ime))):
+            vzorci = self._iskani_vzorci(ime)
+            if self.drugi.pokazi(self._procesi(vzorci)):
                 return True
             ukaz = self._ukaz_vnosa(ime)
-            if ukaz and self.drugi.zazeni_program(ukaz):
+            # Program ene same instance, ki je ze odprt na namizju (aplikacija Electron, brskalnik ...), se tu ne
+            # odpre: zagon samo preda besedo odprtemu oknu. Po tem opisu loceni zaslon prepozna njegove procese in okno.
+            opis = {"oznaka": PREDPONA + ime, "ime": vnos["ime"], "pidi": lambda: self._procesi(vzorci),
+                    "razredi": razredi_okna(ime, vnos.get("razred", ""), ukaz)}
+            if ukaz and self.drugi.zazeni_program(ukaz, opis=opis):
                 return True
         for ukaz in (["gio", "launch", pot], ["gtk-launch", ime]):
             if shutil.which(ukaz[0]) is None:

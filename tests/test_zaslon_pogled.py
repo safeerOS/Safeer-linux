@@ -234,5 +234,49 @@ class DrugiZaslonMerilo(unittest.TestCase):
         self.assertEqual(ukazi[-1], ["output", link_sway.IZHOD, "scale", "1.000000"])
 
 
+class TisinaSeNePosilja(unittest.TestCase):
+    """Zvok je surov PCM; popolna tisina po kratkem repu ne gre vec po omrezju, slika pa vedno."""
+
+    class _Vir:
+        def __init__(self, kosi):
+            self._kosi = list(kosi)
+            self.stdout = self
+
+        def read(self, n):
+            return self._kosi.pop(0) if self._kosi else b""
+
+    class _Odjemalec:
+        def __init__(self):
+            self.okvirji = []
+
+        def sendall(self, b):
+            self.okvirji.append(b)
+
+    def _poslji(self, vrsta, kosi):
+        z = link_zaslon.Zaslon(vklopljeno=True)
+        o = self._Odjemalec()
+        z._crpaj(self._Vir(kosi), vrsta, o, 1920)
+        return o.okvirji
+
+    def test_dolga_tisina_utihne_po_repu(self):
+        tih, glasen = bytes(1920), b"\x01\x00" * 960
+        rep = link_zaslon.ZVOK_REP_TISINE
+        poslano = self._poslji(link_zaslon.OKVIR_ZVOK, [glasen] + [tih] * (rep + 50) + [glasen, tih])
+        # glasen + rep tisine + glasen + en tih kos (nov rep se steje od zacetka)
+        self.assertEqual(len(poslano), 1 + rep + 1 + 1)
+        self.assertEqual(poslano[0][5:], glasen)
+        self.assertEqual(poslano[rep + 1][5:], glasen)
+
+    def test_zvok_ostane_bit_za_bitom(self):
+        kosi = [bytes([i % 251 + 1]) * 1920 for i in range(40)]
+        poslano = self._poslji(link_zaslon.OKVIR_ZVOK, kosi)
+        self.assertEqual([p[5:] for p in poslano], kosi)
+
+    def test_slika_gre_vedno(self):
+        """Tudi kos slike iz samih nicel (ni tisina, ampak podatki) gre naprej."""
+        kosi = [bytes(64)] * (link_zaslon.ZVOK_REP_TISINE + 20)
+        self.assertEqual(len(self._poslji(link_zaslon.OKVIR_SLIKA, kosi)), len(kosi))
+
+
 if __name__ == "__main__":
     unittest.main()

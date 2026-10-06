@@ -286,12 +286,25 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
             if isinstance(parametri.get("view"), dict):
                 # Povrsina naprave, ki gleda: loceni zaslon dobi njeno obliko (pravi zaslon ostane, kot je).
                 dodatno["pogled"] = parametri["view"]
+            if isinstance(parametri.get("codecs"), list):
+                # Kodeki slike, ki jih naprava strojno dekodira, po njeni prednosti (npr. ["hevc", "h264"]).
+                dodatno["kodeki"] = [str(k)[:16] for k in parametri["codecs"][:8] if isinstance(k, str)]
+            if isinstance(parametri.get("caps"), list):
+                # Kaj naprava zna (npr. "handoff": preklop na namizje, kadar je program odprt tam).
+                dodatno["zmoznosti"] = [str(z)[:32] for z in parametri["caps"][:16] if isinstance(z, str)]
             try:
                 seja = zaslon.zacni(posiljatelj, kakovost, cilj, **dodatno)
             except RuntimeError as e:
                 # ProgramaNi: televizor je hotel program, ki ga ni vec - pove to in gre domov.
                 koncaj(izid(False, str(e), koda="ni_programa" if type(e).__name__ == "ProgramaNi" else "ni_zajema"))
                 return
+            if parametri.get("handoff") and seja.get("screen") == "desktop":
+                # Naprava je preklopila na namizje, ker se je program odprl (ali je ze bil odprt) tam: njegovo okno
+                # postavimo v ospredje. wmctrl ni za nit vmesnika.
+                drugi = getattr(zaslon, "drugi", None)
+                if drugi is not None and hasattr(drugi, "pokazi_na_namizju"):
+                    import threading
+                    threading.Thread(target=drugi.pokazi_na_namizju, name="safeer-okno-namizje", daemon=True).start()
             koncaj(izid(True, "Zaslon se deli", {**seja, "hosts": _lastni_naslovi(hub_url)}))
         elif d in DEJANJA_PREDAJA:
             # Kaj racunalnik predvaja in kje (uporabnik je na telefonu izbral »Nadaljuj z druge naprave«).
