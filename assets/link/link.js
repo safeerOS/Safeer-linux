@@ -909,6 +909,20 @@
       oddaljeniPovezujem: "Čakam na dovoljenje računalnika …",
       ospredjeOpis: "Da se Safeer odpre sam, ko mu s telefona pošlješ stran ali ukaz, mu enkrat dovoli prekrivanje drugih aplikacij.",
       ospredjeDovoli: "Dovoli",
+      dostopNaslov: "Kaj sme ta naprava na tem računalniku",
+      dostopDatoteke: "Datoteke",
+      dostopDatotekeOpis: "Deljene mape tega računalnika.",
+      dostopProgrami: "Programi",
+      dostopProgramiOpis: "Seznam programov in njihov zagon.",
+      dostopPredvajalnik: "Predvajalnik",
+      dostopPredvajalnikOpis: "Kaj predvajam, nadaljevanje predvajanja in vsebina, ki se tu odpre sama.",
+      dostopZaslon: "Zaslon in upravljanje",
+      dostopZaslonOpis: "Ogled zaslona, miška in tipkovnica.",
+      dostopBrez: "Brez dostopa: naprava samo pomaga pri povezavi in ti lahko kaj pošlje.",
+      dostopShranjeno: "Shranjeno.",
+      dostopPoln: "poln dostop",
+      dostopDelni: "delni dostop",
+      dostopSamoPomaga: "samo pomaga",
       zapriDeljenje: "Zapri"
     },
     en: {
@@ -964,6 +978,20 @@
       daljinec: "Remote control",
       ospredjeOpis: "So that Safeer opens by itself when your phone sends it a page or a command, allow it once to appear over other apps.",
       ospredjeDovoli: "Allow",
+      dostopNaslov: "What this device may do on this computer",
+      dostopDatoteke: "Files",
+      dostopDatotekeOpis: "Shared folders of this computer.",
+      dostopProgrami: "Apps",
+      dostopProgramiOpis: "The list of apps and starting them.",
+      dostopPredvajalnik: "Player",
+      dostopPredvajalnikOpis: "What I am playing, continuing playback and content that opens here by itself.",
+      dostopZaslon: "Screen and control",
+      dostopZaslonOpis: "Viewing the screen, mouse and keyboard.",
+      dostopBrez: "No access: the device only helps with the connection and can send you things.",
+      dostopShranjeno: "Saved.",
+      dostopPoln: "full access",
+      dostopDelni: "partial access",
+      dostopSamoPomaga: "helps only",
       zapriDeljenje: "Close"
     },
     de: {
@@ -1012,6 +1040,20 @@
       daljinec: "Fernbedienung",
       ospredjeOpis: "Damit sich Safeer von selbst öffnet, wenn das Telefon eine Seite oder einen Befehl schickt, erlaube ihm einmal, über anderen Apps zu erscheinen.",
       ospredjeDovoli: "Erlauben",
+      dostopNaslov: "Was dieses Gerät auf diesem Computer darf",
+      dostopDatoteke: "Dateien",
+      dostopDatotekeOpis: "Freigegebene Ordner dieses Computers.",
+      dostopProgrami: "Programme",
+      dostopProgramiOpis: "Programmliste und Starten von Programmen.",
+      dostopPredvajalnik: "Player",
+      dostopPredvajalnikOpis: "Was ich abspiele, Fortsetzen der Wiedergabe und Inhalte, die sich hier von selbst öffnen.",
+      dostopZaslon: "Bildschirm und Steuerung",
+      dostopZaslonOpis: "Bildschirm ansehen, Maus und Tastatur.",
+      dostopBrez: "Kein Zugriff: Das Gerät hilft nur bei der Verbindung und kann dir etwas senden.",
+      dostopShranjeno: "Gespeichert.",
+      dostopPoln: "voller Zugriff",
+      dostopDelni: "teilweiser Zugriff",
+      dostopSamoPomaga: "hilft nur",
       zapriDeljenje: "Schließen"
     },
     es: {
@@ -1060,6 +1102,20 @@
       daljinec: "Mando a distancia",
       ospredjeOpis: "Para que Safeer se abra solo cuando el teléfono le envíe una página o un comando, permítele una vez aparecer sobre otras apps.",
       ospredjeDovoli: "Permitir",
+      dostopNaslov: "Qué puede hacer este dispositivo en este ordenador",
+      dostopDatoteke: "Archivos",
+      dostopDatotekeOpis: "Carpetas compartidas de este ordenador.",
+      dostopProgrami: "Programas",
+      dostopProgramiOpis: "La lista de programas y su inicio.",
+      dostopPredvajalnik: "Reproductor",
+      dostopPredvajalnikOpis: "Lo que reproduzco, continuar la reproducción y contenido que se abre aquí solo.",
+      dostopZaslon: "Pantalla y control",
+      dostopZaslonOpis: "Ver la pantalla, ratón y teclado.",
+      dostopBrez: "Sin acceso: el dispositivo solo ayuda con la conexión y puede enviarte cosas.",
+      dostopShranjeno: "Guardado.",
+      dostopPoln: "acceso completo",
+      dostopDelni: "acceso parcial",
+      dostopSamoPomaga: "solo ayuda",
       zapriDeljenje: "Cerrar"
     },
     fr: {
@@ -1108,6 +1164,20 @@
       daljinec: "Télécommande",
       ospredjeOpis: "Pour que Safeer s'ouvre tout seul quand le téléphone lui envoie une page ou une commande, autorisez-le une fois à s'afficher par-dessus les autres applis.",
       ospredjeDovoli: "Autoriser",
+      dostopNaslov: "Ce que cet appareil peut faire sur cet ordinateur",
+      dostopDatoteke: "Fichiers",
+      dostopDatotekeOpis: "Dossiers partagés de cet ordinateur.",
+      dostopProgrami: "Programmes",
+      dostopProgramiOpis: "La liste des programmes et leur lancement.",
+      dostopPredvajalnik: "Lecteur",
+      dostopPredvajalnikOpis: "Ce que je lis, la reprise de la lecture et le contenu qui s'ouvre ici tout seul.",
+      dostopZaslon: "Écran et contrôle",
+      dostopZaslonOpis: "Voir l'écran, souris et clavier.",
+      dostopBrez: "Aucun accès : l'appareil aide seulement à la connexion et peut vous envoyer des choses.",
+      dostopShranjeno: "Enregistré.",
+      dostopPoln: "accès complet",
+      dostopDelni: "accès partiel",
+      dostopSamoPomaga: "aide seulement",
       zapriDeljenje: "Fermer"
     },
     it: {
@@ -1156,6 +1226,20 @@
       daljinec: "Telecomando",
       ospredjeOpis: "Perché Safeer si apra da solo quando il telefono gli invia una pagina o un comando, consentigli una volta di apparire sopra le altre app.",
       ospredjeDovoli: "Consenti",
+      dostopNaslov: "Cosa può fare questo dispositivo su questo computer",
+      dostopDatoteke: "File",
+      dostopDatotekeOpis: "Cartelle condivise di questo computer.",
+      dostopProgrami: "Programmi",
+      dostopProgramiOpis: "L'elenco dei programmi e il loro avvio.",
+      dostopPredvajalnik: "Lettore",
+      dostopPredvajalnikOpis: "Cosa sto riproducendo, continuare la riproduzione e contenuti che si aprono qui da soli.",
+      dostopZaslon: "Schermo e controllo",
+      dostopZaslonOpis: "Vedere lo schermo, mouse e tastiera.",
+      dostopBrez: "Nessun accesso: il dispositivo aiuta solo con la connessione e può inviarti qualcosa.",
+      dostopShranjeno: "Salvato.",
+      dostopPoln: "accesso completo",
+      dostopDelni: "accesso parziale",
+      dostopSamoPomaga: "aiuta soltanto",
       zapriDeljenje: "Chiudi"
     }
   };
@@ -1887,6 +1971,8 @@
       var pod = zasedena ? t("zasedenoDeli", { ime: n.zasedenaOdIme || n.zasedenaOd })
         : (deljivo ? t(jeNamizje() ? "deliKlik" : "deliDotik") : (jeZaslon ? t("zaslon") : t("naprava")));
       if (!zasedena && n.naslov && sorodniki[n.naslov]) pod = t("istaNaprava", { ime: "Safeer OS" }) + " · " + pod;
+      // Ali ima naprava dostop do tega racunalnika, je vidno ze v seznamu (druge programe tega racunalnika izpustimo).
+      if (znaDostop(n)) pod = opisDostopa(n) + " · " + pod;
       seznam.appendChild(vrstica(
         (jeZaslon && !n.platforma) ? "tv" : ikonaNapraveVSeznamu(n),
         prijaznoIme(n),
@@ -2824,6 +2910,7 @@
     pokazi("deljenjeBesedilo", false);
     pokazi("gumbPosljiNaNapravo", false);
     pokazi("preimenujBlok", false);
+    pokaziDostop(naprava);
     // Daljinec: napravo, ki javi zmoznost "remote", je mogoce upravljati (Safeer Control).
     var znaDaljinec = !samoIme && !!(most && most.ukaz) && ((naprava.zmoznosti || []).indexOf("remote") >= 0) && !!window.SafeerDaljinec;
     pokazi("gumbDaljinec", znaDaljinec);
@@ -2860,6 +2947,44 @@
         try { if (prvi) prvi.focus(); } catch (e) {}
       }, 60);
     }
+  }
+
+  // ---- Dostop naprave do TEGA racunalnika (ozji krog). Seznanitev v Safeer Link ni dovoljenje za vsebine: brez
+  // stikal naprava samo pomaga pri povezavi. Stikala zna samo racunalnik (most.nastaviDostop); shrani se takoj.
+  var DOSTOP_CRKE = ["d", "p", "v", "z"];
+
+  function znaDostop(naprava) {
+    return !!(most && most.nastaviDostop) && !!naprava && naprava.id !== stanje.idNaprave && !naprava.jaz;
+  }
+
+  function opisDostopa(naprava) {
+    var ima = String(naprava.dostop || "");
+    return ima.length >= DOSTOP_CRKE.length ? t("dostopPoln") : (ima ? t("dostopDelni") : t("dostopSamoPomaga"));
+  }
+
+  function pokaziDostop(naprava) {
+    var zna = znaDostop(naprava);
+    pokazi("dostopBlok", zna);
+    if (!zna) return;
+    var ima = String(naprava.dostop || "");
+    for (var i = 0; i < DOSTOP_CRKE.length; i++) {
+      var s = el("dostop_" + DOSTOP_CRKE[i]);
+      if (s) s.checked = ima.indexOf(DOSTOP_CRKE[i]) >= 0;
+    }
+    besedilo("dostopOpomba", ima ? "" : t("dostopBrez"));
+  }
+
+  function shraniDostop() {
+    var n = deljenje.naprava;
+    if (!znaDostop(n)) return;
+    var crke = "";
+    for (var i = 0; i < DOSTOP_CRKE.length; i++) {
+      var s = el("dostop_" + DOSTOP_CRKE[i]);
+      if (s && s.checked) crke += DOSTOP_CRKE[i];
+    }
+    n.dostop = crke;
+    besedilo("dostopOpomba", crke ? t("dostopShranjeno") : t("dostopBrez"));
+    most.nastaviDostop(n.id, crke);
   }
 
   function zapriDeljenje() {
@@ -3052,6 +3177,10 @@
     naKlik("gumbPosljiNaNapravo", posljiNaNapravo);
     naKlik("gumbPreimenuj", odpriPreimenovanje);
     naKlik("gumbOdstrani", odstraniNapravo);
+    for (var di = 0; di < DOSTOP_CRKE.length; di++) {
+      var stikalo = el("dostop_" + DOSTOP_CRKE[di]);
+      if (stikalo) stikalo.addEventListener("change", shraniDostop);
+    }
     naKlik("gumbShraniIme", shraniIme);
     var vnosImena = el("vnosImena");
     if (vnosImena) vnosImena.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); shraniIme(); } });

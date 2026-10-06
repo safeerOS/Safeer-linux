@@ -158,12 +158,18 @@ class Usmerjanje(unittest.TestCase):
         self.assertIsNotNone(self.tv.zadnje("sync.data"))
         self.assertIsNone(self.pc.zadnje("sync.data"), "posiljatelj sam sebi ne posilja")
 
-    def test_katalog_aplikacij_se_objavi(self):
+    def test_katalog_aplikacij_v_seznamu_samo_paketi_safeer(self):
+        # Seznam naprav dobi vsaka naprava v Linku: iz kataloga gre naprej samo, ali ima naprava Safeer aplikacije.
+        # Imena drugih programov da naprava sama, komur jih odpre (apps.list).
         self.hub.obdelaj(self.tv, json.dumps(
-            {"id": "a1", "type": "apps.announce", "payload": {"apps": {"x": {"name": "X"}}}}))
+            {"id": "a1", "type": "apps.announce", "payload": {"apps": {"x": {"name": "X"}, "si.safeer.os": {"name": "Safeer OS"}}}}))
         seznam = self.pc.zadnje("cast.devices")
         tv = [d for d in seznam["devices"] if d["id"] == "tv1"][0]
-        self.assertEqual(tv["apps"], {"x": {"name": "X"}})
+        self.assertEqual(tv["apps"], {"si.safeer.os": {"name": "Safeer OS"}})
+        self.hub.obdelaj(self.tv, json.dumps(
+            {"id": "a2", "type": "apps.announce", "payload": {"apps": {"x": {"name": "X"}}}}))
+        tv = [d for d in self.pc.zadnje("cast.devices")["devices"] if d["id"] == "tv1"][0]
+        self.assertNotIn("apps", tv)
 
 
 class PrijavaSPodpisom(unittest.TestCase):

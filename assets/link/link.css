@@ -310,6 +310,38 @@ button:focus, .seznam li:focus {
 }
 
 
+/* Dostop naprave do tega racunalnika: stiri stikala z opisom. */
+.dostopBlok {
+  margin: 12px 0 4px;
+  padding: 12px 14px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+}
+.dostopNaslov {
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+.dostopVrstica {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 0;
+  cursor: pointer;
+}
+.dostopVrstica input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  flex: none;
+}
+.dostopVrstica span {
+  display: flex;
+  flex-direction: column;
+}
+.dostopVrstica small {
+  opacity: .7;
+}
+
 /* Vklop in izklop stojita drug ob drugem: obe moznosti sta vidni hkrati, da ni treba
    iskati, kje se stvar ugasne. */
 .stikaloVrstica {

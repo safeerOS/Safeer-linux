@@ -92,6 +92,11 @@ def vnos_datoteke(datoteke, pot: str, naslov: str, posiljatelj: str, hub_url: st
     if not oznaka or datoteke.mape.razresi(oznaka) is None:
         return None
     s = streznik_za(datoteke, posiljatelj, hub_url)
+    # Prav ta datoteka je napravi dosegljiva tudi brez odprtih datotek: do sem pride samo naprava z odprtim
+    # predvajalnikom (play.state) ali naprava, ki ji uporabnik tega racunalnika vsebino sam poslje.
+    dovoli = getattr(datoteke.streznik, "dovoli_izrecno", None)
+    if dovoli is not None:
+        dovoli(posiljatelj, oznaka)
     url = s["base_url"] + "/d/" + urllib.parse.quote(oznaka, safe="")
     mime = mimetypes.guess_type(pot)[0] or ""
     ime = naslov or os.path.splitext(os.path.basename(pot))[0]

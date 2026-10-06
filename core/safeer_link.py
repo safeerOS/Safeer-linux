@@ -29,7 +29,7 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gtk, WebKit2, GLib  # noqa: E402
 
-from core import link_deljenje, link_hub, link_hub_streznik, link_iskanje, link_krog, link_mesh, link_seja, link_tls  # noqa: E402
+from core import link_deljenje, link_dostop, link_hub, link_hub_streznik, link_iskanje, link_krog, link_mesh, link_seja, link_tls  # noqa: E402
 
 
 def _magnet_na_voljo() -> bool:
@@ -72,6 +72,15 @@ def _zdruzi_sorodne_naprave(naprave: List[dict]) -> List[dict]:
         videno.add(kljuc)
         koncni.append(najboljsi[kljuc])
     return koncni
+
+
+def _dostop_naprave(id_naprave: str) -> dict:
+    """{"dostop": crke, "jaz": ali je to ta racunalnik} za seznam naprav; napaka ne sme podreti seznama."""
+    try:
+        return {"dostop": link_dostop.v_niz(link_dostop.zmoznosti(id_naprave)),
+                "jaz": bool(link_dostop.je_ta_naprava(id_naprave))}
+    except Exception:  # noqa: BLE001
+        return {"dostop": "", "jaz": False}
 
 
 KATEGORIJA_ZAZNAMKI = "bookmarks"
@@ -138,6 +147,7 @@ MOST_JS = """
     koncajDeljenjeZaslona: function () { poslji("koncajDeljenjeZaslona"); },
     deljenjeZaslonaStanje: function () { return JSON.stringify(window.__safeerLink.deljenje || {tece: false}); },
     preimenujNapravo: function (id, ime) { poslji("preimenujNapravo", [id, String(ime || "")]); },
+    nastaviDostop: function (id, crke) { poslji("nastaviDostop", [id, String(crke || "")]); },
     vzdevki: function () { return JSON.stringify(window.__safeerLink.vzdevki || {}); },
     shraniVzdevek: function (id, ime) {
       var v = window.__safeerLink.vzdevki || {};
@@ -621,6 +631,7 @@ class SafeerLink:
             "upravljajRacunalnik": lambda: self._v_ozadju(lambda: self._upravljaj_racunalnik(*argumenti[:1])),
             "koncajDeljenjeZaslona": lambda: self._koncaj_deljenje_zaslona(),
             "preimenujNapravo": lambda: self._v_ozadju(lambda: self._preimenuj_napravo(*argumenti[:2])),
+            "nastaviDostop": lambda: self._nastavi_dostop(*argumenti[:2]),
             "shraniVzdevek": lambda: self._shrani_vzdevek(*argumenti[:2]),
             "pozabiNapravo": lambda: self._v_ozadju(self._pozabi_napravo),
             "potrdiNovNaslov": lambda: self._v_ozadju(self._potrdi_nov_naslov),
@@ -1135,8 +1146,9 @@ class SafeerLink:
             + (["magnet"] if self.control and _magnet_na_voljo() else [])
             # Seznami predvajanja Medijskega centra (Safeer OS): Control jih drugim napravam da v branje (lists.get).
             + (["lists"] if self.control and _magnet_na_voljo() else []),
-            # Protocol v1: programi racunalnika kot katalog aplikacij (samo, ce jih je uporabnik dovolil).
-            katalog=(self.programi.katalog_v1 if self.programi is not None else None),
+            # Kataloga programov v prijavi ni vec: seznam naprav dobi VSAKA naprava v Linku, imena programov pa sme
+            # videti samo naprava, ki ji je uporabnik tu odprl programe (apps.list, core/link_dostop).
+            katalog=None,
             # Nezaupan racunalnik (link_seja): samo zeton te prijave, brez kroga zaupanja.
             v_krog=self._zaupana(),
         )
@@ -1229,6 +1241,8 @@ class SafeerLink:
                     # kljuc v krogu zaupanja. Zdruzevanje spodaj prepreci podvojene vrstice za
                     # eno napravo z vec id-ji (npr. tablica: Safeer OS + zaslon).
                     "naprava": d.get("device") or "",
+                    # Kaj je tej napravi odprto na TEM racunalniku (crke d p v z; prazno = samo pomaga pri povezavi).
+                    **_dostop_naprave(str(d.get("id") or "")),
                 })
             self.naprave = _zdruzi_sorodne_naprave(naprave)
             self.naprave_vse = naprave
@@ -1253,7 +1267,11 @@ class SafeerLink:
                 "trajanje": telo.get("duration", 0.0),
             })
         elif vrsta == "sync.data":
-            self._prejmi_zaznamke(sporocilo.get("payload") or {})
+            # Usklajevanje (zaznamki) sprejmemo samo od naprave iz ozjega kroga tega racunalnika.
+            if link_dostop.sme_sporocilo(str(sporocilo.get("sender") or ""), "sync.data"):
+                self._prejmi_zaznamke(sporocilo.get("payload") or {})
+            else:
+                link_dostop.zabelezi(str(sporocilo.get("sender") or ""), "sync.data")
         elif vrsta == "pair.code":
             # Nova naprava caka na kodo. Pokazemo jo v Controlu in z istim sistemskim
             # obvestilom kot lokalno sredisce; neveljavne kode nikoli ne prikazemo.
@@ -1329,6 +1347,13 @@ class SafeerLink:
                 except Exception as e:  # noqa: BLE001
                     print(f"[SafeerLink] Odgovora na ukaz ni bilo mogoče poslati: {e}")
 
+        if not link_dostop.sme_dejanje(posiljatelj, dejanje):
+            # Naprava je v Safeer Linku (pomaga pri povezavi), a ji uporabnik tega na TEM racunalniku ni odprl:
+            # zavrne racunalnik sam, ne glede na to, kaj druga naprava kaze ali skriva.
+            link_dostop.zabelezi(posiljatelj, dejanje)
+            koncaj(link_dostop.zavrnitev(dejanje))
+            return
+
         def izvedi() -> bool:
             if self.control:
                 link_daljinec.izvedi_control(dejanje, parametri, self.odpri_naslov, koncaj,
@@ -1351,6 +1376,10 @@ class SafeerLink:
         telo = sporocilo.get("payload") or {}
         url = str(telo.get("url", "") or "").strip()
         sprejeto = url.startswith("http://") or url.startswith("https://")
+        if sprejeto and not link_dostop.sme_sporocilo(str(sporocilo.get("sender") or ""), "cast.url"):
+            # Stran se tu odpre sama, zato samo od naprave, ki ji je uporabnik odprl predvajalnik.
+            link_dostop.zabelezi(str(sporocilo.get("sender") or ""), "cast.url")
+            sprejeto = False
         povezava = self.povezava
         if povezava is not None:
             try:
@@ -1383,6 +1412,11 @@ class SafeerLink:
             GLib.idle_add(self._pokazi_besedilo, od, besedilo)
         elif vrsta == "share.screen":
             dejanje = str(telo.get("action", "") or "")
+            if dejanje == "start" and not link_dostop.sme_sporocilo(str(sporocilo.get("sender", "") or ""), "share.screen", "start"):
+                # Zaslon druge naprave se tu odpre sam (z moznostjo upravljanja), zato samo od naprave, ki ji je
+                # uporabnik odprl zaslon in upravljanje.
+                link_dostop.zabelezi(str(sporocilo.get("sender", "") or ""), "share.screen")
+                return
             if dejanje == "start":
                 posiljatelj = str(sporocilo.get("sender", "") or "")
                 id_deljenja = str(telo.get("id", "") or "")
@@ -1692,6 +1726,22 @@ class SafeerLink:
     def _koncaj_deljenje_zaslona(self) -> None:
         if self.deljenje_zaslona is not None:
             self.deljenje_zaslona.ustavi()
+
+    def _nastavi_dostop(self, id_naprave: str = "", crke: str = "") -> None:
+        """Uporabnik je v oknu Safeer Link napravi dolocil, kaj ji ta racunalnik odpre (core/link_dostop)."""
+        id_naprave = str(id_naprave or "")
+        try:
+            ok = link_dostop.nastavi(id_naprave, link_dostop.iz_niza(str(crke or "")))
+            jedro = link_dostop.jedro(id_naprave)
+            for seznam in (self.naprave, getattr(self, "naprave_vse", None)):
+                for n in seznam or []:
+                    if link_dostop.jedro(str(n.get("id") or "")) == jedro:
+                        n.update(_dostop_naprave(str(n.get("id") or "")))
+        except Exception as e:  # noqa: BLE001
+            print(f"[SafeerLink] Dostopa ni bilo mogoče shraniti: {e}")
+            ok = False
+        self._odziv("naprave", self.naprave)
+        self._odziv("dostop", {"id": id_naprave, "ok": bool(ok), **_dostop_naprave(id_naprave)})
 
     def _preimenuj_napravo(self, id_naprave: str = "", ime: str = "") -> None:
         zeton = self._zeton_http() if (self._hub() and self._odtis()) else None
