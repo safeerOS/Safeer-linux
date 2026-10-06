@@ -36,6 +36,7 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.4.58" date="2026-10-06"><description><p>Away from home (Global Link) works like at home: the hub of this computer now serves everything its file server serves - files, thumbnails for videos and pictures, renaming, moving and deleting, and streams - with the same token and the same rules.</p></description></release>
     <release version="0.4.57" date="2026-10-05"><description><p>The screen of one computer can be shown on another computer: the hub of a computer now relays a shared screen. The screen of a phone or tablet opens on the computer instead of an error page. Sharing ends when nobody is watching, and the sender is told why.</p></description></release>
     <release version="0.4.56" date="2026-10-05"><description><p>A file sent from another computer arrives in the downloads folder. Sharing the screen of this computer with a phone, tablet or TV works again: it starts at the hub of the device that shows it. Two computers in the same network no longer advertise their hub under the same name.</p></description></release>
     <release version="0.4.55" date="2026-10-05"><description><p>After it starts, the computer is back in Safeer Link sooner: it calls the devices it knows instead of waiting to be found. It tells other devices every address it has on the home network (sound on a device, screen of the computer), and the remote screen tries each of them.</p></description></release>
