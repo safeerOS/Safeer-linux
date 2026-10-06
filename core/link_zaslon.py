@@ -19,6 +19,7 @@ obljubljamo.
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import socket
@@ -80,6 +81,67 @@ KAKOVOSTI = {
 PRIVZETA_KAKOVOST = "najvisja"
 #: Kako pogosto seja, ki caka gledalca, pogleda, ali ji je povezavo predal Hub.
 PREVERI_PREVZETE_S = 0.2
+
+
+#: Meje locenega zaslona, kadar ga oblikujemo po napravi, ki gleda (tocke; daljsa in krajsa stranica).
+POGLED_NAJMANJ = (640, 360)
+POGLED_NAJVEC = (3840, 2160)
+#: Toliko navideznih tock po krajsi stranici mora programom ostati tudi pri najvecjem merilu (okna, pogovorna okna).
+POGLED_NAJMANJ_NAVIDEZNO = 540
+#: Gostota zaslona (Android density), pri kateri so gumbi namiznih programov ravno prav veliki brez merila.
+POGLED_GOSTOTA_ENA = 1.5
+POGLED_NAJVECJE_MERILO = 3.0
+
+
+def velikost_za_gledalca(pogled, privzeto: tuple) -> tuple:
+    """Velikost locenega zaslona po povrsini, na kateri bo slika (`view` v `screen.start`: w, h v tockah).
+
+    Loceni zaslon je navidezen: naredimo ga natanko v obliki in velikosti zaslona naprave, ki gleda - programi
+    zapolnijo cel zaslon, brez crnih robov in brez prevzorcenja. Pravi zaslon racunalnika se ne spremeni.
+    Brez podatka (starejsa naprava) ali z nesmiselnim podatkom velja `privzeto`. Stranici sta sodi (H.264).
+    """
+    if not isinstance(pogled, dict):
+        return privzeto
+    try:
+        w, h = int(pogled.get("w") or 0), int(pogled.get("h") or 0)
+    except (TypeError, ValueError):
+        return privzeto
+    dolga, kratka = max(w, h), min(w, h)
+    if (dolga < POGLED_NAJMANJ[0] or kratka < POGLED_NAJMANJ[1]
+            or dolga > POGLED_NAJVEC[0] or kratka > POGLED_NAJVEC[1]):
+        return privzeto
+    return (w // 2 * 2, h // 2 * 2)
+
+
+def merilo_za_gledalca(pogled, velikost: tuple) -> float:
+    """Merilo izhoda locenega zaslona (sway `output scale`) za napravo, ki gleda.
+
+    Namizni program na gostem zaslonu telefona ima drobne gumbe. Merilo jih poveca, ne da bi se spremenila slika,
+    ki jo posiljamo (fizicna locljivost ostane): gostota naprave / 1,5, a najvec toliko, da programom po krajsi
+    stranici ostane vsaj POGLED_NAJMANJ_NAVIDEZNO navideznih tock. Na cetrtine navzdol, med 1 in 3. Televizor
+    (gledamo ga od dalec, a ima 1920x1080 za namizje) ostane pri 1. Naprava sme merilo povedati sama (`scale`).
+    """
+    if not isinstance(pogled, dict):
+        return 1.0
+
+    def stevilo(kljuc: str) -> float:
+        try:
+            v = float(pogled.get(kljuc) or 0)
+        except (TypeError, ValueError):
+            return 0.0
+        return v if math.isfinite(v) and v > 0 else 0.0
+
+    def na_cetrtine(m: float) -> float:
+        return max(1.0, min(POGLED_NAJVECJE_MERILO, math.floor(m * 4 + 1e-9) / 4))
+
+    izrecno = stevilo("scale")
+    if izrecno:
+        return na_cetrtine(izrecno)
+    gostota = stevilo("density")
+    if not gostota or str(pogled.get("kind") or "").strip().lower() == "tv":
+        return 1.0
+    kratka = min(int(velikost[0]), int(velikost[1]))
+    return na_cetrtine(min(gostota / POGLED_GOSTOTA_ENA, kratka / float(POGLED_NAJMANJ_NAVIDEZNO)))
 
 
 def _zaslon_geometrija(display: str) -> Optional[tuple]:
@@ -311,9 +373,11 @@ class Zaslon:
         return cilj == "apps" or self.drugi.okna() > 0
 
     def zacni(self, id_naprave: str, kakovost: str = PRIVZETA_KAKOVOST, cilj: str = "",
-              prek_huba: bool = False) -> dict:
+              prek_huba: bool = False, pogled: Optional[dict] = None) -> dict:
         """Pripravi sejo: odpre TLS vrata in caka televizor. Zajem se zacne sele, ko se ta javi.
 
+        `pogled`: povrsina naprave, ki gleda (`view` iz `screen.start`). Loceni zaslon dobi njeno obliko in
+        velikost; pravega zaslona racunalnika ne spreminjamo nikoli.
         `prek_huba`: gledalec je zdoma in pride po Global Linku do vrat Huba (pot `/cast/desktop`), ne na vrata
         seje. Slika in zvok sta ista kot doma - kakovosti zaradi poti ne nizamo."""
         if not self.vklopljeno:
@@ -333,13 +397,19 @@ class Zaslon:
             raise ProgramaNi("Program na racunalniku ni vec odprt")
         self.ustavi()
         na_drugem = self._na_drugem(cilj)
+        merilo = 1.0
         if na_drugem:
-            # Drugi zaslon je natanko tako velik, kot ga televizor dobi: brez prevzorcenja.
-            izvor = (k["sirina"], k["visina"])
+            # Drugi zaslon je natanko tako velik, kot ga naprava prikaze: brez prevzorcenja in brez crnih robov.
+            # Naprava, ki pove svojo povrsino, dobi zaslon v svoji obliki; starejsa velikost iz kakovosti.
+            izvor = velikost_za_gledalca(pogled, (k["sirina"], k["visina"]))
             self.drugi.velikost(*izvor)
+            merilo = merilo_za_gledalca(pogled, izvor)
+            if hasattr(self.drugi, "osnovno_merilo"):
+                self.drugi.osnovno_merilo(merilo)
+            sirina, visina = int(izvor[0]), int(izvor[1])
         else:
             izvor = _zaslon_geometrija(display) or (NAJVEC_SIRINA, NAJVEC_VISINA)
-        sirina, visina = self._prilagodi(izvor, k["sirina"], k["visina"])
+            sirina, visina = self._prilagodi(izvor, k["sirina"], k["visina"])
         with self._kljucavnica:
             self._kakovost = kakovost if kakovost in KAKOVOSTI else PRIVZETA_KAKOVOST
             self._naprava = id_naprave
@@ -388,7 +458,9 @@ class Zaslon:
                 "profile": getattr(self.drugi, "zadnji_profil", "") if self._cilj == "apps" else "",
                 "media": self._cilj == "apps" and hasattr(self.drugi, "mediji"),
                 # Gledalec sme po sliko prek Huba (Global Link); starejsi Control tega polja nima.
-                "relay": bool(prek_huba)}
+                "relay": bool(prek_huba),
+                # Merilo locenega zaslona (1 = brez): slika je enako velika, programi so narisani vecje.
+                "scale": merilo}
 
     @staticmethod
     def _prilagodi(izvor, najvec_sirina, najvec_visina) -> tuple:

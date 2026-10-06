@@ -279,12 +279,15 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
                 return
             kakovost = str(parametri.get("quality", "") or "srednja")
             cilj = str(parametri.get("screen", "") or "").strip().lower()
+            dodatno = {}
+            if parametri.get("relay"):
+                # Gledalec je zdoma: po sliko pride prek Huba (Global Link). Kakovost in zvok sta ista kot doma.
+                dodatno["prek_huba"] = True
+            if isinstance(parametri.get("view"), dict):
+                # Povrsina naprave, ki gleda: loceni zaslon dobi njeno obliko (pravi zaslon ostane, kot je).
+                dodatno["pogled"] = parametri["view"]
             try:
-                if parametri.get("relay"):
-                    # Gledalec je zdoma: po sliko pride prek Huba (Global Link). Kakovost in zvok sta ista kot doma.
-                    seja = zaslon.zacni(posiljatelj, kakovost, cilj, prek_huba=True)
-                else:
-                    seja = zaslon.zacni(posiljatelj, kakovost, cilj)
+                seja = zaslon.zacni(posiljatelj, kakovost, cilj, **dodatno)
             except RuntimeError as e:
                 # ProgramaNi: televizor je hotel program, ki ga ni vec - pove to in gre domov.
                 koncaj(izid(False, str(e), koda="ni_programa" if type(e).__name__ == "ProgramaNi" else "ni_zajema"))
