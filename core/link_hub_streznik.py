@@ -104,11 +104,12 @@ OMEJENE_ODDAJE = {"cast.status": link_dostop.PREDVAJALNIK, "sync.data": link_dos
 
 
 def _jedro_naprave(device_id: str) -> str:
-    """Oznaka, pod katero je v krogu drug kljuc (prazno jedro), ostane pri sebi - v nobenem seznamu prejemnikov je ni."""
+    """Jedro naprave za sezname prejemnikov (link_dostop.kljuc_shrambe). Oznaka, pod katero je v krogu drug kljuc,
+    dobi kljuc, ki ni enak nobenemu jedru - v nobenem seznamu prejemnikov je ni."""
     try:
-        return link_dostop.jedro(device_id) or device_id
+        return link_dostop.kljuc_shrambe(device_id)
     except Exception:  # noqa: BLE001
-        return device_id
+        return "brez-jedra:" + str(device_id or "")
 
 
 def _zdaj() -> float:

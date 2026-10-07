@@ -1218,7 +1218,7 @@ class SafeerLink:
 
     def _na_sporocilo_huba(self, sporocilo: dict) -> None:
         vrsta = sporocilo.get("type")
-        if vrsta in link_e2e.ZASCITENI_TIPI and not sporocilo.get("_zascita"):
+        if isinstance(vrsta, str) and vrsta in link_e2e.ZASCITENI_TIPI and not sporocilo.get("_zascita"):
             # Naprava, ki zascito od naprave do naprave zna (ali ta racunalnik sam), teh sporocil ne posilja
             # nezascitenih. Kar pride tako v njenem imenu, ni od nje - ali pa ga je na poti kdo razgalil.
             posiljatelj = str(sporocilo.get("sender") or "")
@@ -1802,7 +1802,7 @@ class SafeerLink:
         except Exception:
             parametri = {}
         poslano = povezava.poslji({
-            "id": ref or str(int(time.time() * 1000)),
+            "id": ref or "%d-%s" % (int(time.time() * 1000), secrets_token()[:6]),
             "type": "control.command",
             "target": id_naprave,
             "payload": {"action": dejanje, "params": parametri},
@@ -1818,7 +1818,7 @@ class SafeerLink:
         if not cilj or povezava is None or not povezava.tece or not dejanje.startswith("input."):
             return False
         return povezava.poslji({
-            "id": "vnos-" + str(int(time.time() * 1000)),
+            "id": "vnos-%d-%s" % (int(time.time() * 1000), secrets_token()[:6]),
             "type": "control.command",
             "target": cilj,
             "payload": {"action": dejanje, "params": parametri if isinstance(parametri, dict) else {}},
@@ -1929,7 +1929,7 @@ class SafeerLink:
             zvok.ustavi()
             return False
         poslano = povezava.poslji({
-            "id": "zvok-" + str(int(time.time() * 1000)),
+            "id": "zvok-%d-%s" % (int(time.time() * 1000), secrets_token()[:6]),
             "type": "control.command",
             "target": id_naprave,
             "payload": {"action": "audio.play", "params": parametri},
@@ -1946,7 +1946,7 @@ class SafeerLink:
         naprava = zvok.naprava
         imel = zvok.ustavi()
         if naprava and povezava is not None and povezava.tece:
-            povezava.poslji({"id": "zvok-stop-" + str(int(time.time() * 1000)), "type": "control.command",
+            povezava.poslji({"id": "zvok-stop-%d-%s" % (int(time.time() * 1000), secrets_token()[:6]), "type": "control.command",
                              "target": naprava, "payload": {"action": "audio.stop", "params": {}}})
         return imel
 

@@ -11,6 +11,7 @@ import json
 import unittest
 
 from core import link_e2e, link_krog
+from dostop_za_preizkus import setUpModule, tearDownModule  # noqa: F401 - zapis dovoljenj v zacasni datoteki
 
 try:
     from cryptography.hazmat.primitives import hashes, serialization
@@ -227,26 +228,36 @@ class Seja(unittest.TestCase):
         self.assertEqual(b.prejeta[-1][0]["payload"]["od"], "a2")
         self.assertEqual(a.prejeta[-1][0]["payload"]["od"], "b2")
 
-    def test_po_ponovnem_zagonu_prejemnika_se_dogovor_ponovi_in_ukaz_pride(self):
+    def test_po_ponovnem_zagonu_prejemnika_ukaz_ne_gre_dvakrat_naslednji_pa_pride(self):
+        zavrnjena = []
+        self.a.upravitelj._ob_zavrnitvi = lambda s, besedilo, koda: zavrnjena.append((s["id"], koda))
         self.a.upravitelj.poslji(self.b.id, UKAZ)
         self.b.upravitelj.pozabi_vse()                           # b se je znova zagnal: sej ne pozna vec
         self.b.prejeta.clear()
         drugi = {"id": "u2", "type": "control.command", "payload": {"action": "apps.list"}}
-        self.assertTrue(self.a.upravitelj.poslji(self.b.id, drugi))
-        self.assertEqual([s for s, _o, _j in self.b.prejeta], [drugi])
+        self.assertTrue(self.a.upravitelj.poslji(self.b.id, drugi))     # gre po seji, ki je b ne pozna vec ...
+        self.assertEqual(self.b.prejeta, [])                             # ... in se NE poslje se enkrat
+        self.assertEqual(zavrnjena, [("u2", "ni_seje")])                 # klicatelj izve takoj
+        self.assertFalse(self.a.upravitelj.ima_sejo(self.b.id))
+        tretji = {"id": "u3", "type": "control.command", "payload": {"action": "apps.list"}}
+        self.assertTrue(self.a.upravitelj.poslji(self.b.id, tretji))    # naslednji ukaz: nov dogovor
+        self.assertEqual([s for s, _o, _j in self.b.prejeta], [tretji])
         self.assertEqual(sum(1 for s in self.o.videno if '"data.offer"' in s), 2)
         self.assertEqual(sum(1 for s in self.o.videno if '"data.error"' in s), 1)
 
-    def test_star_ukaz_se_po_izgubljeni_seji_ne_ponovi(self):
+    def test_po_izgubljeni_seji_se_zavrnitev_javi_samo_za_sveza_sporocila(self):
+        zavrnjena = []
+        self.a.upravitelj._ob_zavrnitvi = lambda s, besedilo, koda: zavrnjena.append(s["id"])
         self.a.upravitelj.poslji(self.b.id, UKAZ)
         self.b.upravitelj.pozabi_vse()
         self.b.prejeta.clear()
         o = self.o
         o.takoj = False
         self.a.upravitelj.poslji(self.b.id, {"id": "u2", "type": "control.command", "payload": {}})
-        self.a.zdaj += link_e2e.PONOVI_MLAJSE_OD_S + 1          # odgovor »ni seje« pride prepozno
+        self.a.zdaj += link_e2e.NEPOTRJENA_VELJAJO_S + 1        # obvestilo »ni seje« pride pozno: klicatelj je ze obupal
         o.dostavi_vse()
-        self.assertEqual(self.b.prejeta, [])
+        self.assertEqual((self.b.prejeta, zavrnjena), ([], []))
+        self.assertFalse(self.a.upravitelj.ima_sejo(self.b.id))
 
     def test_dogovor_brez_odgovora_se_zacne_znova_stari_ukazi_odpadejo(self):
         o = _Omrezje(takoj=False)
@@ -574,13 +585,16 @@ class OdjemalecLinka(unittest.TestCase):
             moj_id=lambda: p.device_id, poslji=p._poslji_surovo,
             podpisi=lambda b: base64.b64encode(zasebni.sign(b, ec.ECDSA(hashes.SHA256()))).decode(),
             kljuc_za=lambda i: self.kljuci.get(i), preveri=link_krog.preveri_podpis, id_iz_kljuca=link_krog.id_iz_kljuca,
-            ob_sporocilu=p._zasciteno_sporocilo, ob_seji=p.seje.append, ob_zavrnitvi=p._zasciteno_zavrnjeno)
+            ob_sporocilu=p._zasciteno_sporocilo, ob_seji=p.seje.append, ob_zavrnitvi=p._zasciteno_zavrnjeno,
+            ob_sprejemu=p._zasciteno_sprejeto)
         self.sredisce.povezave[p.device_id] = p
         self.kljuci[p.device_id] = kljuc
         return p
 
     def setUp(self):
         from unittest import mock
+        from core import link_hub
+        link_hub._VPRASANJA.clear()             # zapis vprasanj je skupen programu: vsak preizkus zacne s praznim
         self.sredisce, self.kljuci = _LaznoSredisce(), {}
         self.a = self._povezava("-control")
         self.b = self._povezava("-os")
@@ -638,30 +652,37 @@ class OdjemalecLinka(unittest.TestCase):
         self.sredisce.tok()
         self.assertEqual(len(self.sredisce.videno), 2)
 
-    def test_dokaz_kljuca_najvec_enkrat_na_minuto_in_ne_za_ze_preverjene(self):
+    def test_dokaz_kljuca_najvec_enkrat_na_minuto_in_ne_ob_seji(self):
         from unittest import mock
         from core import link_hub
-        self.kljuci.pop(self.a.device_id)        # b nasega kljuca nima: ponudbe ne more preveriti in ne odgovori
+        kljuc_a = self.kljuci.pop(self.a.device_id)        # b nasega kljuca nima: ponudbo zavrne (»ni_kljuca«)
         ura = [1000.0]
         with mock.patch.object(link_hub.time, "monotonic", lambda: ura[0]):
             self.a._dokazi_kljuce()
             self.sredisce.tok()
-            self.assertEqual([json.loads(s)["type"] for s in self.sredisce.videno], ["data.offer"])
+            self.assertEqual([json.loads(s)["type"] for s in self.sredisce.videno], ["data.offer", "data.error"])
             ura[0] += 30
             self.a._dokazi_kljuce()
-            self.assertEqual(len(self.sredisce.videno), 1)                      # prezgodaj
+            self.assertEqual(len(self.sredisce.videno), 2)                      # prezgodaj
             ura[0] += link_hub.DOKAZ_KLJUCA_NAJVEC_NA_S
-            self.a._zascita.pozabi(self.b.device_id)      # upravitelj v preizkusu ima pravo uro: stari dogovor je zanj se svez
+            self.kljuci[self.a.device_id] = kljuc_a                             # b nas zdaj pozna
             self.a._dokazi_kljuce()
-            self.assertEqual(len(self.sredisce.videno), 2)                      # po minuti nov poskus
+            self.sredisce.tok()
+            self.assertEqual([json.loads(s)["type"] for s in self.sredisce.videno][2:], ["data.offer", "data.answer"])
+            self.assertEqual(self.a.seje, [self.b.device_id[:18]])
             ura[0] += 2 * link_hub.DOKAZ_KLJUCA_NAJVEC_NA_S
-            with mock.patch("core.link_dostop.zahteva_zascito", lambda device_id: True):
-                self.a._dokazi_kljuce()
-            self.assertEqual(len(self.sredisce.videno), 2)                      # ze preverjena: nic
+            self.a._dokazi_kljuce()
+            self.assertEqual(len(self.sredisce.videno), 4)                      # seja je: novega dogovora ni ...
+            self.assertEqual(self.a.seje, [self.b.device_id[:18]] * 2)          # ... jedro pa se javi znova (zapis)
+            self.a._zascita.pozabi(self.b.device_id)                            # seje ni vec
             self.a._zapomni_zmoznosti([{"id": self.b.device_id, "capabilities": ["remote"]}])
             ura[0] += 2 * link_hub.DOKAZ_KLJUCA_NAJVEC_NA_S
             self.a._dokazi_kljuce()
-            self.assertEqual(len(self.sredisce.videno), 2)                      # zascite ne prijavi: nic
+            self.assertEqual(len(self.sredisce.videno), 4)                      # zascite ne prijavi: nic
+            self.a._zapomni_zmoznosti([{"id": self.b.device_id, "capabilities": ["remote", link_e2e.ZMOZNOST]}])
+            with mock.patch("core.link_dostop.zahteva_zascito", lambda device_id: True):
+                self.a._dokazi_kljuce()                                         # kljuc je ze dokazala, a seje ni: nov dogovor
+            self.assertEqual(len(self.sredisce.videno), 5)
 
     def test_po_zasciteni_poti_gre_samo_dogovorjeni_nabor_tipov(self):
         """Naprava ne more po zasciteni poti poslati sporocila, ki ga sicer poslje samo sredisce."""
@@ -712,7 +733,7 @@ class OdjemalecLinka(unittest.TestCase):
     def test_ukaz_ki_ni_sel_ne_pusti_zapisa_o_vprasanju(self):
         self.kljuci.pop(self.b.device_id)
         self.assertFalse(self.a.poslji({"id": "u7", "type": "control.command", "target": self.b.device_id, "payload": {}}))
-        self.assertEqual(self.a._vprasanja, {})
+        self.assertNotIn("u7", self.a._vprasanja)
 
     def test_stari_napravi_in_drugim_tipom_kot_prej(self):
         self.a.poslji({"id": "u1", "type": "control.command", "target": "stara-naprava", "payload": {"action": "status"}})
@@ -788,6 +809,292 @@ class OdjemalecLinka(unittest.TestCase):
         self.assertTrue(umaknjen.umakni(moja.device_id, "preizkus", 2000.0))
         with mock.patch("core.link_krog.krog", lambda: umaknjen):
             self.assertIsNone(link_hub.kljuc_naprave_za_zascito(moja.device_id))
+
+
+@unittest.skipUnless(KRIPTO, "ni python3-cryptography")
+class PregledPredIzdajo(unittest.TestCase):
+    """Napake, ki jih je nasel neodvisni pregled pred izdajo (7. 10. 2026). Vsak preizkus je najprej padel."""
+
+    def setUp(self):
+        self.o = _Omrezje()
+        self.a = _Naprava(self.o, "-control")
+        self.b = _Naprava(self.o, "-os")
+        self.a.pozna(self.b)
+        self.b.pozna(self.a)
+
+    def _ponudba(self, od: "_Naprava", za: "_Naprava", session_id: str) -> dict:
+        """Veljavno podpisana ponudba naprave `od` z izbrano oznako seje (to lahko naredi vsaka naprava v krogu)."""
+        _zasebni, epk = link_e2e.nov_par()
+        nonce = base64.b64encode(b"n" * 16).decode()
+        sig = base64.b64encode(od.zasebni.sign(link_e2e.podatki_ponudbe(session_id, od.id, za.id, nonce, epk),
+                                               ec.ECDSA(hashes.SHA256()))).decode()
+        return {"id": "x", "type": "data.offer", "sender": od.id, "target": za.id,
+                "payload": {"session_id": session_id, "purpose": "link", "v": 2, "from": od.id, "to": za.id,
+                            "nonce": nonce, "epk": epk, "sig": sig}}
+
+    def test_ponarejeno_obvestilo_ni_seje_ne_ponovi_izvedenega_ukaza(self):
+        """Sredisce v imenu b sporoci »seje ni«, ceprav je b ukaz ze izvedel: ukaz se NE sme izvesti se enkrat."""
+        self.assertTrue(self.a.upravitelj.poslji(self.b.id, UKAZ))
+        self.assertEqual(len(self.b.prejeta), 1)
+        kos = next(json.loads(s) for s in self.o.videno if '"data.chunk"' in s)
+        for _ in range(3):          # tudi veckrat zapored
+            sid = next(json.loads(s) for s in reversed(self.o.videno) if '"data.chunk"' in s)["payload"]["session_id"]
+            self.a.upravitelj.prejmi({"id": "e", "type": "data.error", "sender": self.b.id,
+                                      "payload": {"session_id": sid, "code": "ni_seje", "seq": 0}})
+        self.assertEqual(kos["payload"]["seq"], 0)
+        self.assertEqual(len(self.b.prejeta), 1, "ukaz se je po ponarejenem obvestilu izvedel znova")
+
+    def test_ponudba_z_oznako_nasega_cakajocega_dogovora_ne_preusmeri_posiljanja(self):
+        """a caka na odgovor b (oznaka seje S je v ponudbi vidna srediscu); c poslje svojo ponudbo z isto S.
+        Sporocilo, ki ga a potem poslje napravi c, ne sme priti do b."""
+        o = _Omrezje(takoj=False)
+        a, b, c = _Naprava(o, "-control"), _Naprava(o, "-os"), _Naprava(o, "-tv")
+        a.pozna(b, c)
+        b.pozna(a)
+        c.pozna(a)
+        self.assertTrue(a.upravitelj.poslji(b.id, {"type": "control.command", "payload": {"za": "b"}}))
+        sid = o.cakajo[0]["payload"]["session_id"]
+        a.upravitelj.prejmi(self._ponudba(c, a, sid))
+        o.dostavi_vse()
+        self.assertEqual([s["payload"]["za"] for s, _od, _j in b.prejeta], ["b"])
+        a.upravitelj.poslji(c.id, {"type": "control.command", "payload": {"za": "c"}})
+        o.dostavi_vse()
+        self.assertEqual([s["payload"]["za"] for s, _od, _j in b.prejeta], ["b"], "sporocilo za c je dobila naprava b")
+
+    def test_po_obvestilu_ni_seje_klicatelj_izve_in_naslednji_ukaz_pride(self):
+        zavrnjena = []
+        self.a.upravitelj._ob_zavrnitvi = lambda s, besedilo, koda: zavrnjena.append((s.get("id"), koda))
+        self.a.upravitelj.poslji(self.b.id, UKAZ)
+        sid = next(json.loads(s) for s in self.o.videno if '"data.chunk"' in s)["payload"]["session_id"]
+        self.a.upravitelj.prejmi({"type": "data.error", "sender": self.b.id,
+                                  "payload": {"session_id": sid, "code": "ni_seje", "seq": 0}})
+        self.assertEqual(zavrnjena, [("u1", "ni_seje")])
+        self.assertFalse(self.a.upravitelj.ima_sejo(self.b.id))
+        tretji = {"id": "u3", "type": "control.command", "payload": {}}
+        self.assertTrue(self.a.upravitelj.poslji(self.b.id, tretji))
+        self.assertEqual([s["id"] for s, _o, _j in self.b.prejeta], ["u1", "u3"])
+
+    def test_obvestilo_druge_naprave_ali_z_drugo_kodo_seje_ne_zavrze(self):
+        c = _Naprava(self.o, "-tv")
+        self.a.upravitelj.poslji(self.b.id, UKAZ)
+        sid = next(json.loads(s) for s in self.o.videno if '"data.chunk"' in s)["payload"]["session_id"]
+        self.a.upravitelj.prejmi({"type": "data.error", "sender": c.id,
+                                  "payload": {"session_id": sid, "code": "ni_seje", "seq": 0}})
+        self.a.upravitelj.prejmi({"type": "data.error", "sender": self.b.id,
+                                  "payload": {"session_id": sid, "code": "ni_kljuca", "seq": 0}})
+        self.assertTrue(self.a.upravitelj.ima_sejo(self.b.id))
+
+    def test_sporocilo_ki_je_predolgo_cakalo_na_dogovor_ne_gre(self):
+        o = _Omrezje(takoj=False)
+        a, b = _Naprava(o, "-control"), _Naprava(o, "-os")
+        a.pozna(b)
+        b.pozna(a)
+        zavrnjena = []
+        a.upravitelj._ob_zavrnitvi = lambda s, besedilo, koda: zavrnjena.append((s.get("id"), koda))
+        a.upravitelj.poslji(b.id, UKAZ)
+        a.zdaj += link_e2e.V_VRSTI_VELJA_S + 1          # sredisce je odgovor zadrzalo
+        o.dostavi_vse()
+        self.assertEqual(b.prejeta, [])
+        self.assertEqual(zavrnjena, [("u1", "cas")])
+        self.assertTrue(a.upravitelj.ima_sejo(b.id))    # seja je nastala; novi ukazi gredo
+        a.upravitelj.poslji(b.id, {"id": "u2", "type": "control.command", "payload": {}})
+        o.dostavi_vse()
+        self.assertEqual([s["id"] for s, _o, _j in b.prejeta], ["u2"])
+
+    def test_prepozen_odgovor_ne_ustvari_seje(self):
+        o = _Omrezje(takoj=False)
+        a, b = _Naprava(o, "-control"), _Naprava(o, "-os")
+        a.pozna(b)
+        b.pozna(a)
+        self.assertTrue(a.upravitelj.dogovori_se(b.id))
+        a.zdaj += link_e2e.DOGOVOR_VELJA_S + 1
+        o.dostavi_vse()
+        self.assertFalse(a.upravitelj.ima_sejo(b.id))
+        self.assertEqual(a.seje, [])
+
+    def test_seja_s_poteklim_rokom_tudi_pri_prejemu_ne_velja(self):
+        self.a.upravitelj.poslji(self.b.id, UKAZ)
+        self.b.prejeta.clear()
+        self.b.zdaj += link_e2e.SEJA_VELJA_S + 1
+        self.a.upravitelj.poslji(self.b.id, {"id": "u2", "type": "control.command", "payload": {}})
+        self.assertEqual(self.b.prejeta, [])
+        self.assertEqual(sum(1 for s in self.o.videno if '"data.error"' in s), 1)
+
+    def test_naprava_odstranjena_iz_kroga_izgubi_sejo(self):
+        self.a.upravitelj.poslji(self.b.id, UKAZ)
+        self.b.prejeta.clear()
+        del self.b.krog[self.a.id]                  # uporabnik je napravo a na napravi b odstranil iz Linka
+        self.a.upravitelj.poslji(self.b.id, {"id": "u2", "type": "control.command", "payload": {}})
+        self.assertEqual(self.b.prejeta, [])
+        self.assertFalse(self.b.upravitelj.ima_sejo(self.a.id))
+        self.assertFalse(self.b.upravitelj.poslji(self.a.id, {"type": "control.result", "payload": {}}))
+
+    def test_seja_ne_velja_ko_je_pod_oznako_v_krogu_drug_kljuc(self):
+        c = _Naprava(self.o, "-tv")
+        self.a.upravitelj.poslji(self.b.id, UKAZ)
+        self.b.prejeta.clear()
+        self.b.krog[self.a.id] = c.kljuc            # pod oznako a je zdaj drug kljuc
+        self.a.upravitelj.poslji(self.b.id, {"id": "u2", "type": "control.command", "payload": {}})
+        self.assertEqual(self.b.prejeta, [])
+
+    def test_nobeno_sporocilo_ne_vrze_izjeme(self):
+        self.a.upravitelj.poslji(self.b.id, UKAZ)
+        sid = next(json.loads(s) for s in self.o.videno if '"data.chunk"' in s)["payload"]["session_id"]
+        cudna = [
+            {"type": ["data.chunk"], "payload": {}},
+            {"type": {"a": 1}},
+            {"type": "data.offer", "sender": ["x"], "payload": {"purpose": "link", "session_id": ["x"], "from": {"a": 1},
+                                                              "to": 5, "nonce": None, "epk": 1.5, "sig": [], "v": 2}},
+            {"type": "data.offer", "sender": self.a.id,
+             "payload": {"purpose": "link", "v": 2, "session_id": "\ud800", "from": self.a.id, "to": self.b.id,
+                         "nonce": "\ud800", "epk": "\ud800", "sig": "\ud800"}},
+            {"type": "data.answer", "sender": self.b.id, "payload": {"purpose": "link", "session_id": {"x": 1}, "from": [], "to": None}},
+            {"type": "data.chunk", "sender": self.a.id, "payload": {"session_id": sid, "seq": "1", "m": [], "i": {}, "n": None, "data": 7}},
+            {"type": "data.chunk", "sender": self.a.id, "payload": {"session_id": sid, "seq": 10 ** 30, "m": 0, "i": 0, "n": 1, "data": "AAAA"}},
+            {"type": "data.chunk", "sender": self.a.id, "payload": {"session_id": sid, "seq": 5, "m": 0, "i": 0, "n": 1,
+                                                                  "data": base64.b64encode(b"x" * (link_e2e.DOLZINA_DELA + 17)).decode()}},
+            {"type": "data.error", "sender": self.a.id, "payload": {"session_id": [sid], "code": ["ni_seje"], "seq": "x"}},
+            {"type": "data.ack", "ref_id": ["e2e-x"], "status": {}},
+            {"type": "data.chunk", "payload": "niz"},
+        ]
+        for s in cudna:
+            self.assertIn(self.b.upravitelj.prejmi(s), (True, False), s)
+        self.assertEqual(len(self.b.prejeta), 1)
+        self.assertTrue(self.b.upravitelj.ima_sejo(self.a.id))
+
+    def test_notranje_sporocilo_s_tipom_ki_ni_niz_in_napaka_v_obdelavi(self):
+        self.a.upravitelj.poslji(self.b.id, UKAZ)
+        self.b.prejeta.clear()
+        self.assertTrue(self.a.upravitelj.poslji(self.b.id, {"type": ["control.command"], "payload": {}}))
+        self.assertTrue(self.a.upravitelj.poslji(self.b.id, {"type": None}))
+        self.assertEqual(self.b.prejeta, [])
+
+        def pade(sporocilo, od, jedro):
+            raise RuntimeError("napaka v obdelavi")
+        self.b.upravitelj._ob_sporocilu = pade
+        self.assertTrue(self.a.upravitelj.poslji(self.b.id, UKAZ))       # napaka pri prejemniku ne sme vreci izjeme
+        self.assertTrue(self.b.upravitelj.ima_sejo(self.a.id))
+
+    def test_ponovljena_stara_ponudba_po_ponovnem_zagonu_se_razresi(self):
+        """b se znova zazene, sredisce mu ponovi staro ponudbo naprave a: b ima potem pod ISTO oznako sejo z drugim
+        kljucem. Ko a poslje po svoji seji, b nepotrjeno sejo zavrze in to pove - naslednji ukaz pride."""
+        self.a.upravitelj.poslji(self.b.id, UKAZ)
+        ponudba = next(json.loads(s) for s in self.o.videno if '"data.offer"' in s)
+        self.b.upravitelj.pozabi_vse()
+        self.b.prejeta.clear()
+        self.b.upravitelj.prejmi(ponudba)
+        self.a.upravitelj.poslji(self.b.id, {"id": "u2", "type": "control.command", "payload": {}})
+        self.assertEqual(self.b.prejeta, [])
+        self.assertFalse(self.b.upravitelj.ima_sejo(self.a.id))
+        self.assertFalse(self.a.upravitelj.ima_sejo(self.b.id))
+        self.a.upravitelj.poslji(self.b.id, {"id": "u3", "type": "control.command", "payload": {}})
+        self.assertEqual([s["id"] for s, _o, _j in self.b.prejeta], ["u3"])
+
+    def test_ponovljene_ponudbe_ne_izrinejo_delujoce_seje(self):
+        from unittest import mock
+        c, d = _Naprava(self.o, "-tv"), _Naprava(self.o, "-tablica")
+        self.b.pozna(c, d)
+        self.a.upravitelj.poslji(self.b.id, UKAZ)                  # seja a-b; na b jo potrdi prvi kos
+        with mock.patch.object(link_e2e, "NAJVEC_SEJ", 2):
+            self.b.upravitelj.prejmi(self._ponudba(c, self.b, "S-c"))      # nepotrjena seja iz ponudbe
+            self.b.upravitelj.prejmi(self._ponudba(d, self.b, "S-d"))      # prostor naredi nepotrjena, ne delujoca
+        self.assertTrue(self.b.upravitelj.ima_sejo(self.a.id))
+        self.assertEqual(sorted(s.tuj_id for s in self.b.upravitelj._seje.values()), sorted([self.a.id, d.id]))
+
+    def test_nedokoncanih_sporocil_je_omejeno(self):
+        o = _Omrezje(takoj=False)
+        a, b = _Naprava(o, "-control"), _Naprava(o, "-os")
+        a.pozna(b)
+        b.pozna(a)
+        a.upravitelj.poslji(b.id, UKAZ)
+        o.dostavi_vse()
+        dolgo = {"type": "control.result", "payload": {"data": "x" * (link_e2e.DOLZINA_DELA + 10)}}      # dva dela
+        for _ in range(link_e2e.NAJVEC_NEDOKONCANIH + 2):
+            a.upravitelj.poslji(b.id, dolgo)
+        prvi_deli = [s for s in o.cakajo if s["payload"]["i"] == 0]
+        o.cakajo.clear()
+        for s in prvi_deli:
+            b.upravitelj.prejmi(s)                      # drugi deli nikoli ne pridejo
+        seja = b.upravitelj._seje[a.upravitelj._za[b.id]]
+        self.assertEqual(len(seja.deli), link_e2e.NAJVEC_NEDOKONCANIH)
+
+    def test_naprava_ki_nas_nima_v_krogu_to_pove_takoj(self):
+        tuja = _Naprava(self.o, "-os").pozna(self.b)       # tuja pozna b, b tuje ne
+        zavrnjena = []
+        tuja.upravitelj._ob_zavrnitvi = lambda s, besedilo, koda: zavrnjena.append((s.get("id"), koda))
+        self.assertTrue(tuja.upravitelj.poslji(self.b.id, UKAZ))
+        self.assertEqual(self.b.prejeta, [])
+        self.assertEqual(zavrnjena, [("u1", "ni_kljuca")])
+        self.assertEqual([json.loads(s)["type"] for s in self.o.videno], ["data.offer", "data.error"])
+
+
+@unittest.skipUnless(KRIPTO, "ni python3-cryptography")
+class OdjemalecPoPregledu(unittest.TestCase):
+    """core/link_hub.Povezava po neodvisnem pregledu (ista lazna pot kot v OdjemalecLinka)."""
+    _povezava = OdjemalecLinka._povezava
+    setUp = OdjemalecLinka.setUp
+
+    def _seznam(self):
+        return {"id": "1", "type": "cast.devices", "devices": [
+            {"id": self.a.device_id, "capabilities": ["remote", link_e2e.ZMOZNOST]},
+            {"id": self.b.device_id, "capabilities": ["remote", link_e2e.ZMOZNOST]}]}
+
+    def test_nezasciten_odgovor_brez_posiljatelja_ne_velja(self):
+        self.a.odjemalec.vrsta.append(json.dumps({"id": "r1", "type": "control.result", "ref_id": "neznan", "payload": {"ok": True}}))
+        self.a.odjemalec.vrsta.append(json.dumps({"id": "r2", "type": "control.result", "ref_id": "neznan",
+                                                  "sender": "stara-naprava", "payload": {"ok": True}}))
+        self.sredisce.tok()
+        self.assertEqual([s["id"] for s in self.a.prejeto], ["r2"])
+
+    def test_zapis_o_vprasanju_prezivi_novo_povezavo(self):
+        self.assertTrue(self.a.poslji({"id": "u1", "type": "control.command", "target": self.b.device_id, "payload": {}}))
+        self.sredisce.tok()
+        nova = self._povezava("-znova")         # nov objekt povezave v istem programu (ponovna povezava s srediscem)
+        nova.odjemalec.vrsta.append(json.dumps({"id": "r0", "type": "control.result", "ref_id": "u1",
+                                                "sender": "stara-naprava", "payload": {"ok": True, "data": {"items": ["ponaredek"]}}}))
+        self.sredisce.tok()
+        self.assertEqual(nova.prejeto, [])
+
+    def test_sprejem_sredisca_pride_kot_potrditev_ukaza(self):
+        self.a.poslji({"id": "u1", "type": "control.command", "target": self.b.device_id, "payload": {}})
+        self.sredisce.tok()
+        kos = next(json.loads(s) for s in self.sredisce.videno if '"data.chunk"' in s)
+        self.a.odjemalec.vrsta.append(json.dumps({"id": "9", "type": "data.ack", "ref_id": kos["id"], "status": "accepted"}))
+        self.sredisce.tok()
+        self.assertEqual([(s["type"], s["ref_id"], s["status"]) for s in self.a.prejeto],
+                         [("control.ack", "u1", "accepted")])
+
+    def test_napaka_pri_enem_sporocilu_ne_prekine_branja(self):
+        prejeta = []
+
+        def obdelaj(sporocilo):
+            if sporocilo.get("id") == "pade":
+                raise RuntimeError("napaka v obdelavi")
+            prejeta.append(sporocilo.get("id"))
+        self.a.ob_sporocilu = obdelaj
+        for s in ({"id": "pade", "type": "share.text"}, {"id": "t", "type": ["x"]}, {"id": "ok", "type": "share.text"}):
+            self.a.odjemalec.vrsta.append(json.dumps(s))
+        self.a.tece = True
+        self.a._poslusaj()                      # EN klic prebere vsa tri sporocila
+        self.a.odjemalec = self.a._lazni
+        self.assertEqual(prejeta, ["t", "ok"])
+        self.assertEqual(self.a._lazni.vrsta, [])
+
+    def test_program_po_ponovnem_zagonu_sam_obnovi_seje(self):
+        """b se znova zazene (sej ne pozna vec, a ima se staro). Ob prvem seznamu naprav b sam zacne dogovor, zato
+        naslednji ukaz naprave a pride po novi seji - brez »ni seje« in brez izgubljenega ukaza."""
+        self.a.odjemalec.vrsta.append(json.dumps(self._seznam()))
+        self.sredisce.tok()
+        self.assertEqual([json.loads(s)["type"] for s in self.sredisce.videno], ["data.offer", "data.answer"])
+        self.b._zascita.pozabi_vse()
+        self.b._dokazi_kljucev.clear()
+        self.b.odjemalec.vrsta.append(json.dumps(self._seznam()))
+        self.sredisce.tok()
+        self.assertEqual([json.loads(s)["type"] for s in self.sredisce.videno][2:], ["data.offer", "data.answer"])
+        self.assertTrue(self.a.poslji({"id": "u1", "type": "control.command", "target": self.b.device_id, "payload": {}}))
+        self.sredisce.tok()
+        self.assertEqual([s["id"] for s in self.b.prejeto if s.get("type") == "control.command"], ["u1"])
+        self.assertFalse(any('"data.error"' in s for s in self.sredisce.videno))
 
 
 if __name__ == "__main__":

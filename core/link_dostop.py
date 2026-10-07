@@ -213,14 +213,23 @@ def _id_iz_kljuca(kljuc: str) -> str:
 
 
 def _shrani(zapis: Dict[str, Set[str]], podedovano_ob: Optional[float] = None) -> None:
+    global _zascita
     pot = _pot()
+    try:
+        with open(pot, "r", encoding="utf-8") as d:
+            na_disku = json.load(d)
+    except Exception:  # noqa: BLE001
+        na_disku = None
     stari_ob = podedovano_ob
     if stari_ob is None:
         try:
-            with open(pot, "r", encoding="utf-8") as d:
-                stari_ob = float((json.load(d) or {}).get("podedovano_ob") or 0.0)
+            stari_ob = float((na_disku or {}).get("podedovano_ob") or 0.0) if na_disku is not None else time.time()
         except Exception:  # noqa: BLE001
             stari_ob = time.time()
+    # Zapis »zascita« samo raste in ga pisejo vsi programi tega racunalnika (Control, brskalnik, Safeer OS): kar je
+    # medtem vpisal drug program, mora ostati.
+    if isinstance(na_disku, dict):
+        _zascita = _zascita | {str(j) for j in (na_disku.get("zascita") or []) if isinstance(j, str) and je_id_iz_kljuca(j)}
     os.makedirs(os.path.dirname(pot), exist_ok=True)
     zacasna = pot + ".tmp"
     with open(zacasna, "w", encoding="utf-8") as d:
@@ -281,6 +290,19 @@ def jedro(device_id: str) -> str:
         except Exception:  # noqa: BLE001
             return None
     return jedro_iz(device_id, kljuc, _id_iz_kljuca)
+
+
+#: Predpona kljuca shrambe za oznako brez jedra (glej kljuc_shrambe).
+BREZ_JEDRA = "brez-jedra:"
+
+
+def kljuc_shrambe(device_id: str) -> str:
+    """Kljuc, pod katerim shrambe (izrecno poslane datoteke, seznami prejemnikov oddaj) vodijo napravo: njeno jedro.
+    Oznaka, pod katero je v krogu DRUG kljuc, jedra nima. Dobi kljuc, ki ne more biti enak jedru ali oznaki nobene
+    druge naprave - tudi kadar je taka oznaka kar golo jedro prave naprave (`n-<16 hex>`): kar je shranjeno za pravo
+    napravo, zanjo ne velja."""
+    j = jedro(device_id)
+    return j if j else BREZ_JEDRA + str(device_id or "")
 
 
 def je_ta_naprava(device_id: str) -> bool:
@@ -441,8 +463,9 @@ def prejemniki(navedeni, posiljatelj: str, zahteva: str = VSE) -> Set[str]:
             izid.add(nas)
     else:
         izid = set()
-    izid.add(jedro(posiljatelj) or posiljatelj)
+    izid.add(kljuc_shrambe(posiljatelj))
     izid.discard("")
+    izid.discard(BREZ_JEDRA)
     return izid
 
 

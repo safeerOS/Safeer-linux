@@ -27,8 +27,12 @@ Sporocilo (v obe smeri, vsaka smer s svojim kljucem in stevcem):
                                     aad = "safeer-link-e2e-msg-v1\\n<session_id>\\n<smer>\\n<seq>\\n<m>\\n<i>\\n<n>")
     Cistopis je JSON notranjega sporocila ({type, id, ref_id, payload ...}); dolgo sporocilo gre v vec delih
     (m = stevilka sporocila, i = del, n = stevilo delov). seq mora v vsaki smeri strogo narascati.
-    data.error   {session_id, code:"ni_seje", seq}  - prejemnik seje ne pozna (znova se je zagnal): posiljatelj se
-                 dogovori znova in se nepotrjena zadnja sporocila poslje se enkrat.
+    data.error   {session_id, code:"ni_seje", seq}  - prejemnik seje ne pozna (znova se je zagnal). Posiljatelj sejo
+                 zavrze, klicatelju javi zavrnitev svezih sporocil in se ob naslednjem sporocilu dogovori znova.
+                 Sporocila NE poslje se enkrat: obvestilo ni podpisano, sredisce bi z njim sicer doseglo, da se ze
+                 izveden ukaz izvede znova. Vsako notranje sporocilo se sifrira natanko enkrat.
+                 {session_id, code:"ni_kljuca"}  - prejemnik ponudbe ne more preveriti, ker posiljatelja nima v svojem
+                 krogu: dogovor ne more uspeti, klicatelj izve takoj.
     data.ack     potrditev SREDISCA za nase sporocilo prenosa (ref_id "e2e-..."). Zavrnitev (naprave ni v Linku ...)
                  prevedemo v zavrnitev notranjega sporocila, da klicatelj izve takoj in ne caka na iztek casa; sprejem
                  sporocila (ne ponudbe dogovora) javimo kot sprejem notranjega sporocila.
@@ -66,13 +70,18 @@ IZHODNA_VELJAJO_S = 30.0          # potrditev sredisca pride v milisekundah; po 
 # base64 in ovojnico meri ~64 KiB, sporocilo, ki je doslej slo v enem kosu (do 256 KiB), pa tudi v delih ostane pod vrsto.
 DOLZINA_DELA = 48 * 1024
 NAJVEC_DELOV = 24                 # najvec ~1,1 MiB za eno notranje sporocilo (vec, kot je slo doslej nezasciteno)
-DOGOVOR_CAKA_S = 8.0              # po tem casu brez odgovora se dogovor zacne znova
+DOGOVOR_CAKA_S = 8.0              # po tem casu brez odgovora se ob naslednjem sporocilu dogovor zacne znova
+DOGOVOR_VELJA_S = 60.0            # po tem casu cakajocega dogovora ni vec (pozen odgovor ne ustvari seje)
+V_VRSTI_VELJA_S = DOGOVOR_CAKA_S  # sporocilo, ki je na dogovor cakalo dlje, ne gre vec: klicatelj je ze javil napako
 NAJVEC_V_VRSTI = 64               # sporocil, ki cakajo na dogovor z eno napravo
+NAJVEC_DOGOVOROV = 64             # cakajocih dogovorov hkrati (po eden na napravo)
 SEJA_VELJA_S = 12 * 3600.0
 NAJVEC_SEJ = 256
-HRANI_ZADNJIH = 16                # zadnja poslana sporocila za ponovitev po "ni_seje"
-PONOVI_MLAJSE_OD_S = 5.0          # starejsega ukaza ne ponavljamo: uporabnik ga je ze opustil ali ponovil sam
+HRANI_ZADNJIH = 16                # zadnja poslana sporocila: po "ni_seje" jih javimo klicatelju kot zavrnjena
+NEPOTRJENA_VELJAJO_S = 5.0        # starejsih ne javljamo: klicatelj je zanje ze dobil odgovor ali iztek casa
 NEDOKONCANA_VELJAJO_S = 30.0
+NAJVEC_NEDOKONCANIH = 4           # sporocil v vec delih, ki jih ena seja sestavlja hkrati
+NAJVEC_OZNAKE = 128               # najdaljsa oznaka naprave v dogovoru
 
 
 class Napaka(Exception):
@@ -202,6 +211,10 @@ class Seja:
     kljuci: Kljuci
     jedro: str                      # jedro naprave iz PREVERJENEGA kljuca (na to se veze dostop)
     nastala: float
+    # Ali je druga stran dokazala, da kljuc seje ima ZDAJ. Seja, ki smo jo zaceli mi, je potrjena z odgovorom (podpis
+    # veze nas svezi nonce). Seja iz prejete ponudbe se ne - ponudbo lahko sredisce ponovi; potrdi jo sele prvi kos, ki
+    # se pod njenim kljucem desifrira.
+    potrjena: bool = True
     seq_ven: int = 0
     st_sporocila: int = 0
     zadnji_noter: int = -1
@@ -225,7 +238,7 @@ class _Dogovor:
     epk: str
     nonce: str
     zacet: float
-    vrsta: List[dict] = field(default_factory=list)
+    vrsta: List[Tuple[float, dict]] = field(default_factory=list)       # (kdaj je sporocilo prislo v vrsto, sporocilo)
 
 
 class Upravitelj:
@@ -239,7 +252,8 @@ class Upravitelj:
     id_iz_kljuca  -> jedro naprave iz kljuca (n-<16 hex>)
     ob_sporocilu  -> (notranje sporocilo, id posiljatelja, jedro iz preverjenega kljuca): sporocilo je prislo zasciteno
     ob_seji       -> (jedro): z napravo je vzpostavljena preverjena seja (klicatelj si zapomni, da naprava zascito zna)
-    ob_zavrnitvi  -> (notranje sporocilo, besedilo, koda): sredisce sporocila ni moglo dostaviti (naprave ni v Linku ...)
+    ob_zavrnitvi  -> (notranje sporocilo, besedilo, koda): sporocilo do naprave ni prislo ali ga ta ni mogla sprejeti
+                     (naprave ni v Linku, seje ne pozna vec, nasega kljuca nima, dogovor je trajal predolgo)
     ob_sprejemu   -> (notranje sporocilo): sredisce je sporocilo sprejelo v posredovanje ciljni napravi
     """
 
@@ -261,7 +275,7 @@ class Upravitelj:
         self._ob_sprejemu = ob_sprejemu
         self._ura = ura
         # oznaka sporocila prenosa -> (cas, ali je ponudba dogovora, notranja sporocila, ki jih nosi ali nanj cakajo)
-        self._izhodna: Dict[str, Tuple[float, bool, List[dict]]] = {}
+        self._izhodna: Dict[str, Tuple[float, bool, list]] = {}
         self._zaklep = threading.RLock()
         self._seje: Dict[str, Seja] = {}            # session_id -> seja
         self._za: Dict[str, str] = {}               # id druge naprave -> session_id seje, po kateri posiljamo
@@ -278,6 +292,16 @@ class Upravitelj:
             s = self._seja_za(tuj_id)
             return s.jedro if s is not None else ""
 
+    def znova_javi_sejo(self, tuj_id: str) -> bool:
+        """Ce z napravo imamo sejo, klicatelju se enkrat sporoci njeno jedro (`ob_seji`) in vrne True. Zapis o tem, katere
+        naprave zascito znajo, pise vec programov iste naprave - ce se je kateri vpis izgubil, ga klicatelj tako obnovi."""
+        with self._zaklep:
+            s = self._seja_za(tuj_id)
+        if s is None:
+            return False
+        self._javi_sejo(s)
+        return True
+
     def dogovori_se(self, tuj_id: str) -> bool:
         """Zacne dogovor z napravo, ne da bi zanjo imeli sporocilo: napravi si dokazeta kljuc, se preden je poslan prvi
         ukaz (klicatelj si prek `ob_seji` zapomni, da naprava zascito zna). True: seja ze obstaja ali je dogovor na poti."""
@@ -291,24 +315,42 @@ class Upravitelj:
                 return True
             return self._zacni_dogovor(tuj_id, [])
 
+    def _velja_se(self, s: Seja) -> bool:
+        """Seja velja, dokler ji ni potekel rok IN dokler je kljuc, s katerim se je naprava izkazala, se veljaven clan
+        nasega kroga. Naprava, ki jo uporabnik odstrani iz Linka, tako izgubi tudi ze vzpostavljeno sejo."""
+        if self._ura() - s.nastala > SEJA_VELJA_S:
+            return False
+        try:
+            kljuc = self._kljuc_za(s.tuj_id)
+            return bool(kljuc) and self._id_iz_kljuca(kljuc) == s.jedro
+        except Exception:  # noqa: BLE001
+            return False
+
     def _seja_za(self, tuj_id: str) -> Optional[Seja]:
         sid = self._za.get(tuj_id)
         s = self._seje.get(sid) if sid else None
-        if s is not None and self._ura() - s.nastala > SEJA_VELJA_S:
+        if s is None or s.tuj_id != tuj_id:
+            # Kazalec brez seje ali na sejo DRUGE naprave ne velja (seja pripada napravi, s katero je bila dogovorjena).
+            if sid:
+                self._za.pop(tuj_id, None)
+            return None
+        if not self._velja_se(s):
             self._odstrani(s)
             return None
         return s
 
     def _odstrani(self, s: Seja) -> None:
-        self._seje.pop(s.session_id, None)
-        if self._za.get(s.tuj_id) == s.session_id:
-            self._za.pop(s.tuj_id, None)
+        if self._seje.get(s.session_id) is s:
+            self._seje.pop(s.session_id, None)
+        for tuj_id in [t for t, sid in self._za.items() if sid == s.session_id]:
+            self._za.pop(tuj_id, None)
 
     def pozabi(self, tuj_id: str) -> None:
         """Naprava je odsla ali se zamenjala: njene seje in cakajoci dogovor ne veljajo vec."""
         with self._zaklep:
             for s in [s for s in self._seje.values() if s.tuj_id == tuj_id]:
                 self._odstrani(s)
+            self._za.pop(tuj_id, None)
             self._dogovori.pop(tuj_id, None)
 
     def pozabi_vse(self) -> None:
@@ -328,17 +370,18 @@ class Upravitelj:
             s = self._seja_za(tuj_id)
             if s is not None:
                 return self._poslji_po_seji(s, sporocilo)
+            zdaj = self._ura()
             d = self._dogovori.get(tuj_id)
-            if d is not None and self._ura() - d.zacet <= DOGOVOR_CAKA_S:
+            if d is not None and zdaj - d.zacet <= DOGOVOR_CAKA_S:
                 if len(d.vrsta) >= NAJVEC_V_VRSTI:
                     return False
-                d.vrsta.append(sporocilo)
+                d.vrsta.append((zdaj, sporocilo))
                 return True
             # Dogovora se ni ali pa nanj cakamo predolgo: zacnemo znova. Kar je cakalo na starega, zavrzemo - ukaz, ki bi
             # se izvedel cez vec sekund, je slabsi od ukaza, ki se ne izvede (klicatelj je medtem ze javil napako).
-            return self._zacni_dogovor(tuj_id, [sporocilo])
+            return self._zacni_dogovor(tuj_id, [(zdaj, sporocilo)])
 
-    def _zacni_dogovor(self, tuj_id: str, vrsta: List[dict]) -> bool:
+    def _zacni_dogovor(self, tuj_id: str, vrsta: List[Tuple[float, dict]]) -> bool:
         if not self._kljuc_za(tuj_id):
             return False            # naprave ni v nasem krogu: nimamo s cim preveriti njenega odgovora
         moj = self._moj_id()
@@ -353,7 +396,12 @@ class Upravitelj:
             return False
         if not podpis:
             return False
-        dogovor = _Dogovor(session_id, tuj_id, zasebni, epk, nonce, self._ura(), vrsta[-NAJVEC_V_VRSTI:])
+        zdaj = self._ura()
+        for star in [t for t, d in self._dogovori.items() if zdaj - d.zacet > DOGOVOR_VELJA_S]:
+            self._dogovori.pop(star, None)
+        while len(self._dogovori) >= NAJVEC_DOGOVOROV and tuj_id not in self._dogovori:
+            self._dogovori.pop(min(self._dogovori, key=lambda t: self._dogovori[t].zacet), None)
+        dogovor = _Dogovor(session_id, tuj_id, zasebni, epk, nonce, zdaj, vrsta[-NAJVEC_V_VRSTI:])
         self._dogovori[tuj_id] = dogovor
         self._zapomni_izhodno(PREDPONA_OZNAK + session_id[:10], dogovor.vrsta, dogovor=True)
         ok = self._poslji({"id": PREDPONA_OZNAK + session_id[:10], "type": "data.offer", "target": tuj_id,
@@ -364,7 +412,9 @@ class Upravitelj:
             self._dogovori.pop(tuj_id, None)
         return ok
 
-    def _poslji_po_seji(self, s: Seja, sporocilo: dict, zapomni: bool = True) -> bool:
+    def _poslji_po_seji(self, s: Seja, sporocilo: dict) -> bool:
+        """Sporocilo sifrira in poslje. Vsako notranje sporocilo gre skozi to funkcijo NATANKO ENKRAT - ponovnega
+        posiljanja ni (glej _prejmi_napako), zato ga prejemnik ne more dobiti dvakrat."""
         try:
             cistopis = json.dumps(sporocilo, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         except Exception:  # noqa: BLE001
@@ -377,12 +427,11 @@ class Upravitelj:
         s.st_sporocila += 1
         prvi = s.seq_ven
         s.seq_ven += len(deli)
-        # Zapomnimo si PRED posiljanjem: odgovor »ni seje« lahko pride, se preden se posiljanje vrne.
-        if zapomni:
-            zdaj = self._ura()
-            s.zadnja[:] = [z for z in s.zadnja if zdaj - z[1] <= PONOVI_MLAJSE_OD_S]
-            s.zadnja.append((prvi, zdaj, sporocilo))
-            del s.zadnja[:-HRANI_ZADNJIH]
+        # Zapomnimo si PRED posiljanjem: obvestilo »ni seje« lahko pride, se preden se posiljanje vrne.
+        zdaj = self._ura()
+        s.zadnja[:] = [z for z in s.zadnja if zdaj - z[1] <= NEPOTRJENA_VELJAJO_S]
+        s.zadnja.append((prvi, zdaj, sporocilo))
+        del s.zadnja[:-HRANI_ZADNJIH]
         self._zapomni_izhodno("%s%s-%d" % (PREDPONA_OZNAK, s.session_id[:8], prvi), [sporocilo])
         for i, kos in enumerate(deli):
             seq = prvi + i
@@ -393,7 +442,7 @@ class Upravitelj:
                 return False
         return True
 
-    def _zapomni_izhodno(self, oznaka: str, notranja: List[dict], dogovor: bool = False) -> None:
+    def _zapomni_izhodno(self, oznaka: str, notranja: list, dogovor: bool = False) -> None:
         zdaj = self._ura()
         for stara in [o for o, v in self._izhodna.items() if zdaj - v[0] > IZHODNA_VELJAJO_S]:
             self._izhodna.pop(stara, None)
@@ -401,21 +450,32 @@ class Upravitelj:
         while len(self._izhodna) > NAJVEC_IZHODNIH:
             self._izhodna.pop(next(iter(self._izhodna)))
 
+    def _zavrni(self, sporocila: List[dict], besedilo: str, koda: str) -> None:
+        """Klicatelju javi, da ta sporocila do naprave niso prisla (klice se ZUNAJ zaklepa)."""
+        if self._ob_zavrnitvi is None:
+            return
+        for sporocilo in sporocila:
+            try:
+                self._ob_zavrnitvi(sporocilo, besedilo, koda)
+            except Exception:  # noqa: BLE001
+                pass
+
     # ------------------------------------------------------------------ prejem
 
     def _prejmi_potrditev(self, sporocilo: dict) -> bool:
         """Potrditev sredisca za nase sporocilo prenosa. Sprejeto: notranje sporocilo je na poti - javimo sprejem (za
         ponudbo dogovora nic: sporocila se cakajo na odgovor naprave). Zavrnjeno: notranja sporocila, ki jih je nosilo
         ali so nanj cakala, javimo klicatelju kot zavrnjena."""
-        oznaka = str(sporocilo.get("ref_id") or "")
+        oznaka = _niz(sporocilo.get("ref_id"))
         if not oznaka.startswith(PREDPONA_OZNAK) or sporocilo.get("sender"):
             return False
-        stanje = str(sporocilo.get("status") or "")
+        stanje = _niz(sporocilo.get("status"))
         with self._zaklep:
             vnos = self._izhodna.pop(oznaka, None)
             if vnos is None:
                 return True
-            je_dogovor, notranja = vnos[1], list(vnos[2])
+            je_dogovor = vnos[1]
+            notranja = [n[1] if isinstance(n, tuple) else n for n in vnos[2]]
             if stanje not in ("accepted", "queued"):
                 for tuj_id, d in list(self._dogovori.items()):
                     if PREDPONA_OZNAK + d.session_id[:10] == oznaka:
@@ -428,46 +488,50 @@ class Upravitelj:
                     except Exception:  # noqa: BLE001
                         pass
             return True
-        if self._ob_zavrnitvi is not None:
-            for n in notranja:
-                try:
-                    self._ob_zavrnitvi(n, str(sporocilo.get("error") or ""), str(sporocilo.get("error_code") or ""))
-                except Exception:  # noqa: BLE001
-                    pass
+        self._zavrni(notranja, _niz(sporocilo.get("error")), _niz(sporocilo.get("error_code")))
         return True
 
     def prejmi(self, sporocilo: dict) -> bool:
         """Obdela prejeto data.offer / data.answer / data.chunk / data.error z namenom "link" in potrditev sredisca
         (data.ack) za nasa sporocila prenosa. True: sporocilo je bilo nase (klicatelj ga ne obravnava naprej); False:
-        ni del zascite Linka (npr. prenos datoteke)."""
-        tip = str(sporocilo.get("type") or "")
-        if tip == "data.ack":
-            return self._prejmi_potrditev(sporocilo)
-        if tip not in TIPI_PRENOSA:
+        ni del zascite Linka (npr. prenos datoteke). Nikoli ne vrze izjeme: karkoli pride po omrezju, sme sporocilo
+        kvecjemu zavreci, ne pa prekiniti povezave s srediscem."""
+        tip = sporocilo.get("type")
+        if not isinstance(tip, str):
             return False
-        tovor = sporocilo.get("payload")
-        if not isinstance(tovor, dict):
+        try:
+            if tip == "data.ack":
+                return self._prejmi_potrditev(sporocilo)
+            if tip not in TIPI_PRENOSA:
+                return False
+            tovor = sporocilo.get("payload")
+            if not isinstance(tovor, dict):
+                return False
+        except Exception:  # noqa: BLE001
             return False
-        posiljatelj = str(sporocilo.get("sender") or "")
+        posiljatelj = _niz(sporocilo.get("sender"))
         try:
             if tip == "data.offer":
-                if str(tovor.get("purpose") or "") != NAMEN:
+                if tovor.get("purpose") != NAMEN:
                     return False
                 self._prejmi_ponudbo(tovor, posiljatelj)
                 return True
             if tip == "data.answer":
-                if str(tovor.get("purpose") or "") != NAMEN:
+                if tovor.get("purpose") != NAMEN:
                     return False
                 self._prejmi_odgovor(tovor, posiljatelj)
                 return True
-            sid = str(tovor.get("session_id") or "")
+            sid = _niz(tovor.get("session_id"))
             if tip == "data.chunk":
                 with self._zaklep:
                     s = self._seje.get(sid)
+                    if s is not None and not self._velja_se(s):
+                        self._odstrani(s)       # rok je potekel ali pa naprave ni vec v krogu: kot da seje ni
+                        s = None
                 if s is None:
-                    if "m" not in tovor:
+                    if _celo(tovor.get("m"), -1) < 0:
                         return False            # kos drugega prenosa (datoteka), ne nase seje
-                    self._javi_ni_seje(posiljatelj, sid, tovor.get("seq"))
+                    self._javi_napako(posiljatelj, sid, "ni_seje", tovor.get("seq"))
                     return True
                 self._prejmi_kos(s, tovor, posiljatelj)
                 return True
@@ -476,29 +540,31 @@ class Upravitelj:
         except Napaka as e:
             print("[SafeerE2E] zavrnjeno (%s od %s): %s" % (tip, _zakrij(posiljatelj), e), flush=True)
             return True
+        except Exception as e:  # noqa: BLE001 - nepricakovana oblika ali napaka v obdelavi: sporocilo zavrzemo
+            print("[SafeerE2E] sporocila ni bilo mogoce obdelati (%s od %s): %s"
+                  % (tip, _zakrij(posiljatelj), type(e).__name__), flush=True)
+            return True
         return False
-
-    def _kljuc_ali_napaka(self, tuj_id: str) -> str:
-        kljuc = self._kljuc_za(tuj_id)
-        if not kljuc:
-            raise Napaka("naprave ni v krogu zaupanja")
-        return kljuc
 
     def _prejmi_ponudbo(self, t: dict, posiljatelj: str) -> None:
         if not na_voljo():
             raise Napaka("kriptografija ni na voljo")
-        session_id, od_id, do_id = str(t.get("session_id") or ""), str(t.get("from") or ""), str(t.get("to") or "")
-        nonce, epk, sig = str(t.get("nonce") or ""), str(t.get("epk") or ""), str(t.get("sig") or "")
+        session_id, od_id, do_id = _niz(t.get("session_id")), _niz(t.get("from")), _niz(t.get("to"))
+        nonce, epk, sig = _niz(t.get("nonce")), _niz(t.get("epk")), _niz(t.get("sig"))
         moj = self._moj_id()
         if not (session_id and od_id and nonce and epk and sig) or _celo(t.get("v")) != RAZLICICA:
             raise Napaka("ponudbi manjka polje ali ima drugo razlicico")
-        if len(session_id) > 64 or len(nonce) > 64 or len(epk) > 400:
+        if len(session_id) > 64 or len(nonce) > 64 or len(epk) > 400 or len(sig) > 400 or len(od_id) > NAJVEC_OZNAKE:
             raise Napaka("ponudba ima predolgo polje")
         if do_id != moj:
             raise Napaka("ponudba ni namenjena temu programu")
         if posiljatelj and posiljatelj != od_id:
             raise Napaka("posiljatelj sredisca se ne ujema s podpisano ponudbo")
-        kljuc = self._kljuc_ali_napaka(od_id)
+        kljuc = self._kljuc_za(od_id)
+        if not kljuc:
+            # Posiljatelj naj izve takoj (sicer njegov ukaz tiho caka na iztek casa): dogovor z nami ne more uspeti.
+            self._javi_napako(posiljatelj or od_id, session_id, "ni_kljuca")
+            raise Napaka("naprave ni v krogu zaupanja")
         if not self._preveri(kljuc, podatki_ponudbe(session_id, od_id, do_id, nonce, epk), sig):
             raise Napaka("podpis ponudbe se ne ujema s kljucem naprave v krogu")
         zasebni, moj_epk = nov_par()
@@ -507,51 +573,70 @@ class Upravitelj:
         if not podpis:
             raise Napaka("odgovora ni bilo mogoce podpisati")
         kljuci = izpelji(ecdh(zasebni, epk), session_id, nonce, moj_nonce, od_id, moj)
-        seja = Seja(session_id, moj, od_id, "b", kljuci, self._id_iz_kljuca(kljuc), self._ura())
+        seja = Seja(session_id, moj, od_id, "b", kljuci, self._id_iz_kljuca(kljuc), self._ura(), potrjena=False)
         with self._zaklep:
-            if session_id in self._seje:
-                raise Napaka("seja s to oznako ze obstaja")
+            # Oznako seje izbere posiljatelj ponudbe in je srediscu vidna: ne sme se ujeti z nobeno naso sejo ne z
+            # dogovorom, ki ga ravno cakamo (sicer bi odgovor nanj sejo pod to oznako zamenjal).
+            if session_id in self._seje or any(d.session_id == session_id for d in self._dogovori.values()):
+                raise Napaka("seja s to oznako ze obstaja ali jo ravno dogovarjamo")
             self._omeji_seje()
             self._seje[session_id] = seja
+            # Odgovor gre ven PRED kazalcem posiljanja: druga nit po tej seji ne sme poslati nicesar, dokler odgovor
+            # ni na poti (druga stran bi kos dobila pred odgovorom in javila, da seje ne pozna).
+            self._poslji({"id": "e2e-" + session_id[:10] + "-o", "type": "data.answer", "target": od_id,
+                          "payload": {"session_id": session_id, "purpose": NAMEN, "v": RAZLICICA, "from": moj, "to": od_id,
+                                      "offer_nonce": nonce, "nonce": moj_nonce, "epk": moj_epk,
+                                      "ts": round(time.time(), 3), "sig": podpis}})
             # Po tej seji tudi posiljamo, razen ce ravno cakamo na odgovor na SVOJO ponudbo (takrat velja nasa).
             if od_id not in self._dogovori:
                 self._za[od_id] = session_id
-        self._poslji({"id": "e2e-" + session_id[:10] + "-o", "type": "data.answer", "target": od_id,
-                      "payload": {"session_id": session_id, "purpose": NAMEN, "v": RAZLICICA, "from": moj, "to": od_id,
-                                  "offer_nonce": nonce, "nonce": moj_nonce, "epk": moj_epk,
-                                  "ts": round(time.time(), 3), "sig": podpis}})
         self._javi_sejo(seja)
 
     def _prejmi_odgovor(self, t: dict, posiljatelj: str) -> None:
-        session_id, od_id, do_id = str(t.get("session_id") or ""), str(t.get("from") or ""), str(t.get("to") or "")
-        nonce, epk, sig = str(t.get("nonce") or ""), str(t.get("epk") or ""), str(t.get("sig") or "")
+        session_id, od_id, do_id = _niz(t.get("session_id")), _niz(t.get("from")), _niz(t.get("to"))
+        nonce, epk, sig = _niz(t.get("nonce")), _niz(t.get("epk")), _niz(t.get("sig"))
         with self._zaklep:
             d = self._dogovori.get(od_id)
             if d is None or d.session_id != session_id:
                 raise Napaka("odgovor ne pripada dogovoru, ki ga cakamo")
+            if self._ura() - d.zacet > DOGOVOR_VELJA_S:
+                self._dogovori.pop(od_id, None)
+                raise Napaka("odgovor je prisel prepozno")
         moj = self._moj_id()
-        if not (nonce and epk and sig) or do_id != moj or len(nonce) > 64 or len(epk) > 400:
+        if not (nonce and epk and sig) or do_id != moj or len(nonce) > 64 or len(epk) > 400 or len(sig) > 400:
             raise Napaka("odgovoru manjka polje ali ni namenjen temu programu")
         if posiljatelj and posiljatelj != od_id:
             raise Napaka("posiljatelj sredisca se ne ujema s podpisanim odgovorom")
-        if str(t.get("offer_nonce") or "") != d.nonce:
+        if _niz(t.get("offer_nonce")) != d.nonce:
             raise Napaka("odgovor ne veze nase ponudbe")
-        kljuc = self._kljuc_ali_napaka(od_id)
+        kljuc = self._kljuc_za(od_id)
+        if not kljuc:
+            raise Napaka("naprave ni v krogu zaupanja")
         if not self._preveri(kljuc, podatki_odgovora(session_id, od_id, moj, d.nonce, nonce, d.epk, epk), sig):
             raise Napaka("podpis odgovora se ne ujema s kljucem naprave v krogu")
         kljuci = izpelji(ecdh(d.zasebni, epk), session_id, d.nonce, nonce, moj, od_id)
-        seja = Seja(session_id, moj, od_id, "a", kljuci, self._id_iz_kljuca(kljuc), self._ura())
+        seja = Seja(session_id, moj, od_id, "a", kljuci, self._id_iz_kljuca(kljuc), self._ura(), potrjena=True)
+        zastarela: List[dict] = []
         with self._zaklep:
             if self._dogovori.get(od_id) is not d:
                 raise Napaka("dogovor se je medtem zamenjal")
+            if session_id in self._seje:
+                raise Napaka("seja s to oznako ze obstaja")
             self._dogovori.pop(od_id, None)
             self._izhodna.pop(PREDPONA_OZNAK + session_id[:10], None)
             self._omeji_seje()
             self._seje[session_id] = seja
             self._za[od_id] = session_id
             vrsta, d.vrsta = d.vrsta, []
-            for sporocilo in vrsta:
-                self._poslji_po_seji(seja, sporocilo)
+            zdaj = self._ura()
+            for cas, sporocilo in vrsta:
+                # Sporocilo, ki je na dogovor cakalo predolgo (sredisce je odgovor zadrzalo), ne gre vec: ukaz, ki bi se
+                # izvedel z zamudo, je slabsi od ukaza, ki se ne izvede.
+                if zdaj - cas > V_VRSTI_VELJA_S:
+                    zastarela.append(sporocilo)
+                else:
+                    self._poslji_po_seji(seja, sporocilo)
+        self._zavrni(zastarela, "Naprava ni odgovorila pravočasno. Poskusi znova.", "cas")
         self._javi_sejo(seja)
 
     def _javi_sejo(self, seja: Seja) -> None:
@@ -562,11 +647,14 @@ class Upravitelj:
                 pass
 
     def _omeji_seje(self) -> None:
+        """Naredi prostor za novo sejo. Najprej izpadejo seje, ki jim je potekel rok, potem NEPOTRJENE (nastanejo iz
+        prejetih ponudb, tudi ponovljenih - z njimi nihce ne sme izriniti seje, ki res deluje), sele nato najstarejse."""
         zdaj = self._ura()
         for s in [s for s in self._seje.values() if zdaj - s.nastala > SEJA_VELJA_S]:
             self._odstrani(s)
         while len(self._seje) >= NAJVEC_SEJ:
-            self._odstrani(min(self._seje.values(), key=lambda s: s.nastala))
+            nepotrjene = [s for s in self._seje.values() if not s.potrjena]
+            self._odstrani(min(nepotrjene or list(self._seje.values()), key=lambda s: s.nastala))
 
     def _prejmi_kos(self, s: Seja, t: dict, posiljatelj: str) -> None:
         if posiljatelj and posiljatelj != s.tuj_id:
@@ -574,66 +662,109 @@ class Upravitelj:
         seq, m, i, n = _celo(t.get("seq")), _celo(t.get("m")), _celo(t.get("i")), _celo(t.get("n"))
         if seq < 0 or n < 1 or n > NAJVEC_DELOV or i < 0 or i >= n or m < 0:
             raise Napaka("neveljavna delitev sporocila")
-        sifropis = _iz_b64(str(t.get("data") or ""), "data")
+        sifropis = _iz_b64(_niz(t.get("data")), "data")
+        if len(sifropis) > DOLZINA_DELA + 16:
+            raise Napaka("kos je daljsi od dogovorjenega")
         kljuc, predpona = s.kljuci.smer(s.smer_noter)
+        neujemanje = False
+        cistopis: Optional[bytes] = None
         with self._zaklep:
+            if self._seje.get(s.session_id) is not s:
+                raise Napaka("seja je bila medtem zavrzena")
             if seq <= s.zadnji_noter:
                 raise Napaka("stevec se ponavlja ali gre nazaj")
-            kos = desifriraj(kljuc, predpona, seq, sifropis, aad(s.session_id, s.smer_noter, seq, m, i, n))
-            s.zadnji_noter = seq
-            zdaj = self._ura()
-            for stari in [k for k, v in s.deli.items() if zdaj - v[0] > NEDOKONCANA_VELJAJO_S]:
-                s.deli.pop(stari, None)
-            if n == 1:
-                cistopis: Optional[bytes] = kos
-            else:
-                _cas, _n, zbrani = s.deli.setdefault(m, (zdaj, n, {}))
-                if _n != n:
+            try:
+                kos = desifriraj(kljuc, predpona, seq, sifropis, aad(s.session_id, s.smer_noter, seq, m, i, n))
+            except Napaka:
+                if s.potrjena:
+                    raise           # seja deluje; pokvarjen ali podtaknjen kos zavrzemo, seja ostane
+                # Seja iz ponudbe, ki je druga stran se ni potrdila, in ze prvi kos se ne desifrira: kljuca se ne
+                # ujemata (ponudbo je kdo ponovil ali pa ima druga stran pod to oznako drugo sejo). Zavrzemo jo in to
+                # povemo, da se druga stran dogovori znova - sicer bi obe molce zavracali vse.
+                self._odstrani(s)
+                neujemanje = True
+                kos = b""
+            if not neujemanje:
+                s.zadnji_noter = seq
+                s.potrjena = True
+                zdaj = self._ura()
+                for stari in [k for k, v in s.deli.items() if zdaj - v[0] > NEDOKONCANA_VELJAJO_S]:
+                    s.deli.pop(stari, None)
+                if n == 1:
+                    cistopis = kos
+                else:
+                    if m not in s.deli:
+                        while len(s.deli) >= NAJVEC_NEDOKONCANIH:
+                            s.deli.pop(min(s.deli, key=lambda k: s.deli[k][0]), None)
+                    _cas, _n, zbrani = s.deli.setdefault(m, (zdaj, n, {}))
+                    if _n != n:
+                        s.deli.pop(m, None)
+                        raise Napaka("deli sporocila se ne ujemajo")
+                    zbrani[i] = kos
+                    if len(zbrani) < n:
+                        return
                     s.deli.pop(m, None)
-                    raise Napaka("deli sporocila se ne ujemajo")
-                zbrani[i] = kos
-                if len(zbrani) < n:
-                    return
-                s.deli.pop(m, None)
-                cistopis = b"".join(zbrani[j] for j in range(n))
+                    cistopis = b"".join(zbrani[j] for j in range(n))
+        if neujemanje:
+            self._javi_napako(posiljatelj or s.tuj_id, s.session_id, "ni_seje", seq)
+            raise Napaka("nepotrjena seja se s posiljateljevo ne ujema - zavrzena")
         try:
-            notranje = json.loads(cistopis.decode("utf-8"))
+            notranje = json.loads(cistopis.decode("utf-8"))  # type: ignore[union-attr]
         except Exception as e:  # noqa: BLE001
             raise Napaka("notranje sporocilo ni JSON") from e
-        if not isinstance(notranje, dict) or str(notranje.get("type") or "") in TIPI_PRENOSA:
+        if not isinstance(notranje, dict) or not isinstance(notranje.get("type"), str) or notranje["type"] in TIPI_PRENOSA:
             raise Napaka("neveljavno notranje sporocilo")
         self._ob_sporocilu(notranje, s.tuj_id, s.jedro)
 
-    def _javi_ni_seje(self, cilj: str, session_id: str, seq: object) -> None:
+    def _javi_napako(self, cilj: str, session_id: str, koda: str, seq: object = None) -> None:
         if not cilj or not session_id:
             return
-        self._poslji({"id": "e2e-err-" + session_id[:8], "type": "data.error", "target": cilj,
-                      "payload": {"session_id": session_id[:64], "code": "ni_seje", "seq": _celo(seq)}})
+        tovor: Dict[str, object] = {"session_id": session_id[:64], "code": koda}
+        if seq is not None:
+            tovor["seq"] = _celo(seq)
+        self._poslji({"id": "e2e-err-" + session_id[:8], "type": "data.error", "target": cilj, "payload": tovor})
 
     def _prejmi_napako(self, t: dict, posiljatelj: str) -> bool:
-        """Druga naprava seje ne pozna vec. Sporocilo ni podpisano (kdor ga ponaredi, doseze le nov dogovor), zato
-        naredimo samo to: sejo zavrzemo, se dogovorimo znova in sveza nepotrjena sporocila posljemo se enkrat."""
-        sid = str(t.get("session_id") or "")
+        """Druga naprava seje ne pozna vec (»ni_seje«) ali pa nasega kljuca nima v krogu (»ni_kljuca«). Obvestilo NI
+        podpisano - lahko ga je poslalo tudi sredisce. Zato z njim dosezemo samo to, kar sredisce doseze ze s tem, da
+        sporocila zavrze: sejo (ali cakajoci dogovor) opustimo in klicatelju javimo, da sveza sporocila niso prisla.
+        Sporocil NE posljemo se enkrat - prejemnik jih je morda ze izvedel, in ponovitev bi jih izvedla znova."""
+        sid, koda = _niz(t.get("session_id")), _niz(t.get("code"))
+        zavrnjena: List[dict] = []
+        besedilo = ""
         with self._zaklep:
             s = self._seje.get(sid)
             if s is None:
-                return any(d.session_id == sid for d in self._dogovori.values())
-            if posiljatelj and posiljatelj != s.tuj_id:
-                return True
-            if str(t.get("code") or "") != "ni_seje":
-                return True
-            od = _celo(t.get("seq"))
-            zdaj = self._ura()
-            ponovi = [sp for prvi, cas, sp in s.zadnja if prvi >= od >= 0 and zdaj - cas <= PONOVI_MLAJSE_OD_S]
-            self._odstrani(s)
-            if ponovi and s.tuj_id not in self._dogovori:
-                self._zacni_dogovor(s.tuj_id, ponovi)
+                d = next((d for d in self._dogovori.values() if d.session_id == sid), None)
+                if d is None:
+                    return False
+                if (posiljatelj and posiljatelj != d.tuj_id) or koda != "ni_kljuca":
+                    return True
+                if self._dogovori.get(d.tuj_id) is d:
+                    self._dogovori.pop(d.tuj_id, None)
+                self._izhodna.pop(PREDPONA_OZNAK + sid[:10], None)
+                zavrnjena, d.vrsta = [sp for _cas, sp in d.vrsta], []
+                besedilo = "Naprava te naprave nima v svojem krogu zaupanja."
+            else:
+                if (posiljatelj and posiljatelj != s.tuj_id) or koda != "ni_seje":
+                    return True
+                od = _celo(t.get("seq"))
+                zdaj = self._ura()
+                zavrnjena = [sp for prvi, cas, sp in s.zadnja if prvi >= od >= 0 and zdaj - cas <= NEPOTRJENA_VELJAJO_S]
+                self._odstrani(s)
+                besedilo = "Naprava je sejo zaščite izgubila. Poskusi znova."
+        self._zavrni(zavrnjena, besedilo, koda)
         return True
 
 
 def _celo(vrednost: object, privzeto: int = -1) -> int:
     """Celo stevilo iz polja sporocila; karkoli drugega (niz, None, decimalka, bool) da `privzeto`."""
     return vrednost if isinstance(vrednost, int) and not isinstance(vrednost, bool) else privzeto
+
+
+def _niz(vrednost: object) -> str:
+    """Niz iz polja sporocila; karkoli drugega (None, stevilo, seznam, slovar) da prazen niz."""
+    return vrednost if isinstance(vrednost, str) else ""
 
 
 def _zakrij(device_id: str) -> str:

@@ -65,13 +65,13 @@ def _sme_naprava(id_naprave: str, zmoznost: str) -> bool:
 
 
 def _jedro_naprave(id_naprave: str) -> str:
-    """Kljuc shrambe izrecnih dovoljenj. Oznaka, pod katero je v krogu drug kljuc (prazno jedro), ostane pri sebi:
-    dovoljenje zanjo ne sme veljati za nobeno drugo tako oznako."""
+    """Kljuc shrambe izrecnih dovoljenj (link_dostop.kljuc_shrambe): jedro naprave; oznaka, pod katero je v krogu
+    drug kljuc, dobi kljuc, ki ni enak nobenemu jedru - dovoljenje prave naprave zanjo ne velja in obratno."""
     try:
         from core import link_dostop
-        return link_dostop.jedro(id_naprave) or id_naprave
+        return link_dostop.kljuc_shrambe(id_naprave)
     except Exception:  # noqa: BLE001
-        return id_naprave
+        return "brez-jedra:" + str(id_naprave or "")
 
 
 #: Zmoznost, ki jo mora imeti naprava za datoteke deljenih map (prenos, slicice, urejanje).
