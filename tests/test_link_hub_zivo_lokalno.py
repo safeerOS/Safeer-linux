@@ -37,6 +37,8 @@ class HubVZivo(unittest.TestCase):
         """Krog, ki vsako napravo prepozna po nasem kljucu (podpisujemo z istim kljucem)."""
         lazni = mock.MagicMock()
         lazni.clan_za_id.return_value = self.clan
+        lazni.clan.return_value = self.clan
+        lazni.kljuc_za_jedro.return_value = self.clan["kljuc"]     # zascita od naprave do naprave isce kljuc po jedru
         lazni.json.return_value = {"v": 1, "clani": {}, "umiki": {}}
         return mock.patch.object(link_krog, "krog", return_value=lazni)
 
@@ -67,8 +69,12 @@ class HubVZivo(unittest.TestCase):
             prejeto_b = []
             dogodek_b = threading.Event()
             potrditve_a = []
-            a = self._povezava("n-aaaaaaaaaaaaaaaa", "Racunalnik")
-            b = self._povezava("n-bbbbbbbbbbbbbbbb", "Tablica")
+            # Oznaki sta izpeljani iz kljuca, s katerim se »napravi« podpiseta (dva programa iste naprave, kot Safeer
+            # Control in Safeer OS): oznaka iz kljuca, pod katero bi bil v krogu DRUG kljuc, ne dobi nicesar.
+            jedro = link_krog.id_iz_kljuca(self.clan["kljuc"])
+            id_a, id_b = jedro + "-racunalnik", jedro + "-tablica"
+            a = self._povezava(id_a, "Racunalnik")
+            b = self._povezava(id_b, "Tablica")
             potrjeno_a = threading.Event()
 
             def na_a(s):
@@ -90,13 +96,15 @@ class HubVZivo(unittest.TestCase):
                 try:
                     time.sleep(0.6)
                     self.assertTrue(a.poslji({"id": "u1", "type": "control.command",
-                                              "target": "n-bbbbbbbbbbbbbbbb",
+                                              "target": id_b,
                                               "payload": {"action": "status"}}))
                     self.assertTrue(dogodek_b.wait(5), "ukaz mora priti do druge naprave")
                     self.assertTrue(potrjeno_a.wait(5), "posiljatelj mora dobiti potrditev")
                     ukaz = [s for s in prejeto_b if s.get("type") == "control.command"][-1]
-                    self.assertEqual(ukaz["sender"], "n-aaaaaaaaaaaaaaaa", "Hub vpise posiljatelja")
+                    self.assertEqual(ukaz["sender"], id_a, "posiljatelj je program, ki je ukaz poslal")
                     self.assertEqual(ukaz["payload"]["action"], "status")
+                    # Oba programa zascito znata: ukaz je prisel po seji, posiljatelja je potrdil kljuc.
+                    self.assertEqual(ukaz.get("_zascita"), jedro, "ukaz med programoma z zascito mora priti zasciten")
                     potrditev = [s for s in potrditve_a if s.get("type") == "control.ack"]
                     self.assertTrue(potrditev and potrditev[-1]["status"] == "accepted", potrditve_a)
                     # Seznam naprav mora imeti obe

@@ -253,22 +253,50 @@ class PodobnaOznaka(_Osnova):
     def test_oznaka_z_drugim_kljucem_ne_deli_shrambe_z_drugo_tako_oznako(self):
         """Prazno jedro ne sme postati skupni kljuc: izrecno poslana datoteka in prejemniki oddaje ostanejo pri oznaki."""
         from core import link_hub_streznik
-        self.assertEqual(link_datoteke._jedro_naprave(A + "-x"), A + "-x")
+        brez = link_dostop.BREZ_JEDRA               # kljuc shrambe oznake brez jedra ni enak nobenemu jedru
+        self.assertEqual(link_datoteke._jedro_naprave(A + "-x"), brez + A + "-x")
         self.assertEqual(link_datoteke._jedro_naprave(A + "-os"), A)
-        self.assertEqual(link_hub_streznik._jedro_naprave(JAZ + "-x"), JAZ + "-x")
+        self.assertEqual(link_hub_streznik._jedro_naprave(JAZ + "-x"), brez + JAZ + "-x")
         s = link_datoteke.StreznikDatotek(mock.Mock())
         s.umaknjena = lambda n: False
         s.dovoli_izrecno(A + "-x", "film-1")
         self.assertTrue(s.izrecno_dovoljena(A + "-x", "film-1"))
         self.assertFalse(s.izrecno_dovoljena(JAZ + "-x", "film-1"))       # druga oznaka s praznim jedrom
         self.assertFalse(s.izrecno_dovoljena(A, "film-1"))               # prava naprava A tega ni dobila
-        self.assertEqual(link_dostop.prejemniki(None, A + "-x", link_dostop.VSE), {A + "-x"})
+        self.assertEqual(link_dostop.prejemniki(None, A + "-x", link_dostop.VSE), {brez + A + "-x"})
         self.assertEqual(link_dostop.prejemniki(["", B], S, link_dostop.VSE), {B, S})       # praznega jedra ni v seznamu
+        self.assertEqual(link_dostop.prejemniki([], "", link_dostop.VSE), set())            # izvor brez oznake: nihce
 
     def test_vnos_z_oznako_tega_racunalnika_in_tujim_kljucem_ni_ta_racunalnik(self):
         self.assertFalse(link_dostop.je_ta_naprava(JAZ + "-x"))
         self.assertEqual(link_dostop.zmoznosti(JAZ + "-x"), set())
         self.assertTrue(link_dostop.je_ta_naprava(JAZ + "-control"))
+
+
+class GoloJedroSTujimKljucem(_Osnova):
+    """Vnos, katerega oznaka je kar GOLO jedro druge naprave, kljuc pa tuj (neodvisni pregled 7. 10. 2026): kljuc
+    shrambe take oznake ne sme biti enak jedru prave naprave - sicer bi dobila, kar je bilo izrecno poslano pravi."""
+    clani = ({"id": A, "kljuc": "KB", "dodano": 1.0},)
+
+    def test_kljuc_shrambe_ni_jedro_prave_naprave(self):
+        self.assertEqual(link_dostop.jedro(A), "")                             # pod oznako A je v krogu drug kljuc
+        self.assertEqual(link_dostop.jedro(A + "-os"), A)                      # program prave naprave A
+        self.assertEqual(link_dostop.kljuc_shrambe(A), link_dostop.BREZ_JEDRA + A)
+        self.assertEqual(link_dostop.kljuc_shrambe(A + "-os"), A)
+        self.assertNotEqual(link_datoteke._jedro_naprave(A), link_datoteke._jedro_naprave(A + "-os"))
+        self.assertNotEqual(link_hub_streznik._jedro_naprave(A), A)
+
+    def test_izrecno_poslana_datoteka_prave_naprave_ne_velja_za_vnos_s_tujim_kljucem(self):
+        s = link_datoteke.StreznikDatotek(mock.Mock())
+        s.umaknjena = lambda n: False
+        s.dovoli_izrecno(A + "-os", "film-1")                                  # poslano pravi napravi
+        self.assertTrue(s.izrecno_dovoljena(A + "-os", "film-1"))
+        self.assertFalse(s.izrecno_dovoljena(A, "film-1"))                     # oznaka z golim jedrom in tujim kljucem
+
+    def test_vnos_s_tujim_kljucem_ni_med_prejemniki_za_jedro_prave_naprave(self):
+        smejo = link_dostop.prejemniki([A], S, link_dostop.VSE)                # izvor navede jedro prave naprave A
+        self.assertIn(link_hub_streznik._jedro_naprave(A + "-os"), smejo)      # njen program oddajo dobi
+        self.assertNotIn(link_hub_streznik._jedro_naprave(A), smejo)           # vnos z golim jedrom in tujim kljucem ne
 
 
 class PrviZagon(_Osnova):
