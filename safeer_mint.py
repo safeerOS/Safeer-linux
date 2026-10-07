@@ -78,10 +78,15 @@ from core.tab_monitor import TabMonitor, describe as describe_load
 from core.tab_lifecycle import dejanje_zavihka, izberi_za_sprostitev, pomnilnik
 from core import processes_page
 from core import userscripts as uporabniske_skripte
+from core import odlozisce_varuh
+from core import ozadje_strani
+
+#: Ozadje pogleda pod našimi stranmi; pod spletnimi je belo (core/ozadje_strani.py).
+TEMNO_OZADJE = "#101814"
 
 # Use WebKitGTK's maintained browser identity consistently across redirects.
 USER_AGENT = None
-APP_VERSION = "1.0.107"
+APP_VERSION = "1.0.108"
 
 
 # ---------------------------------------------------------------- crtne ikone
@@ -3481,10 +3486,11 @@ class SafeerMintBrowser(Gtk.Window):
         self.webview_container.pack_start(self.webview_stack, True, True, 0)
 
     def setup_webview_settings(self, webview):
-        # Set dark canvas background color instantly to eliminate white flashbang on load
-        dark_bg = Gdk.RGBA()
-        dark_bg.parse("#101814")
-        webview.set_background_color(dark_bg)
+        # Ctrl+C brez izbranega besedila ne sme izprazniti odložišča (WebKitGTK od 2.48).
+        odlozisce_varuh.dodaj(WebKit2, webview.get_user_content_manager())
+        # Dark canvas under our own pages (no white flash on start), white under web pages. White has to be set before
+        # the page's document exists, otherwise a page with a dark colour scheme turns white on white (core/ozadje_strani).
+        ozadje_strani.prikljuci(Gdk, WebKit2, webview, os.path.join(BASE_DIR, "ui"), TEMNO_OZADJE)
 
         try:
             def_zoom = float(self.config.get("default_zoom", 1.0))

@@ -224,6 +224,7 @@
   // ------------------------------------------------------------------ navigacija
   function pojdi(razdelek) {
     S.razdelek = razdelek;
+    zapriMeniSporocila();
     // Gostitelj pokaze ali skrije desni vdelani brskalnik. Klic je idempotenten, zato
     // tudi programaticni safeerOsPojdi vedno obnovi pravilno postavitev.
     klic("razdelek", [razdelek]).catch(function () {});
@@ -2751,16 +2752,137 @@
     $("sporocilaNaslov").textContent = oseba.ime + " · " + ((pogovor.kanal || {}).ime || "");
     var vnos = $("sporocilaBesedilo"), gumb = $("sporocilaVnos").querySelector("button");
     vnos.disabled = false; gumb.disabled = false;
-    naloziVsebinoPogovora(pogovor);
+    naloziVsebinoPogovora(pogovor, true);
   }
-  function naloziVsebinoPogovora(pogovor) {
+  /* ---- Sporocila: kopiranje ----------------------------------------------------------------------------------
+     Besedilo sporocila se da oznaciti z misko in kopirati (Ctrl+C); desni klik, tipka Meni ali Shift+F10 na mehurcku
+     odpre meni (Kopiraj izbrano / Kopiraj sporocilo / Odpri povezavo). Do Safeer OS 0.4.65 je bila vsa stran
+     neizberljiva (user-select: none), sistemski meni pogleda je izklopljen, svojega menija pa mehurcek ni imel -
+     sporocila ni bilo mogoce kopirati. */
+  // Podpis sporocila: po njem ob osvezitvi pogovora vemo, ali je ze narisani mehurcek se pravi.
+  function podpisSporocila(s) {
+    return String(s.id == null ? "" : s.id) + "\u0001" + (s.smer || "") + "\u0001" + (s.cas || "") + "\u0001" + (s.besedilo || "");
+  }
+  // Osvezitev odprtega pogovora: mehurcki, ki so ze na zaslonu, ostanejo isti elementi (izbor besedila in meni se ne
+  // podreta). Pogovor kaze zadnjih 50 sporocil, zato lahko z vrha kaksno odpade, na dnu pa pridejo nova.
+  // Vrne [koliko mehurckov z vrha odstraniti, od katerega novega sporocila dodajati] ali null = narisi vse znova.
+  function premikSporocil(stari, novi) {
+    if (!stari || !stari.length || !novi.length) return null;
+    for (var k = 0; k < stari.length; k++) {
+      var n = stari.length - k, enako = n <= novi.length;
+      for (var i = 0; enako && i < n; i++) if (stari[k + i] !== novi[i]) enako = false;
+      if (enako) return [k, n];
+    }
+    return null;
+  }
+  // Sporocilo je ena sama spletna povezava: meni ponudi se »Odpri povezavo« (kot Safeer OS na telefonu).
+  function povezavaSporocila(besedilo) {
+    var b = String(besedilo == null ? "" : besedilo).trim();
+    return b.length <= 2048 && /^https?:\/\/[^\s<>"'`]+$/i.test(b) ? b : "";
+  }
+  // Postavke menija mehurcka: [kljuc besedila, dejanje, podatek].
+  function postavkeMenijaSporocila(besedilo, izbrano) {
+    var p = [], url = povezavaSporocila(besedilo);
+    if (izbrano && izbrano !== besedilo) p.push(["sporKopirajIzbrano", "kopiraj", izbrano]);
+    if (besedilo) p.push(["sporKopiraj", "kopiraj", besedilo]);
+    if (url) p.push(["sporOdpriPovezavo", "odpri", url]);
+    return p;
+  }
+  function mehurcekSporocila(s) {
+    var m = el("div", "mehurcek " + (s.smer === "ven" ? "ven" : "noter")), b = el("span", "mehurcek-besedilo");
+    m._besedilo = s.besedilo || ""; m._podpis = podpisSporocila(s); m.tabIndex = -1;
+    b.textContent = m._besedilo;
+    m.appendChild(b); m.appendChild(el("time", "", ubezi(kratekCas(s.cas))));
+    return m;
+  }
+  // Besedilo, oznaceno znotraj pogovora ("" = nic ali izbor drugje na strani).
+  function izbranoVSporocilih() {
+    var izbor = window.getSelection ? window.getSelection() : null, cilj = $("sporocilaVsebina");
+    if (!izbor || izbor.isCollapsed || !izbor.rangeCount || !cilj) return "";
+    if (!cilj.contains(izbor.anchorNode) || !cilj.contains(izbor.focusNode)) return "";
+    var b = String(izbor);
+    return b.trim() ? b : "";
+  }
+  function kopirajBesedilo(besedilo) {
+    if (!besedilo) return;
+    klic("kopiraj", [besedilo]).then(function (ok) { obvesti(t(ok === false ? "sporNiKopirano" : "sporKopirano")); },
+      function () { obvesti(t("sporNiKopirano")); });
+  }
+  var meniSporocilaOb = 0;
+  function zapriMeniSporocila() {
+    var m = $("sporocilaMeni");
+    if (!m || m.hidden) return false;
+    m.hidden = true; m.innerHTML = ""; m._za = null;
+    return true;
+  }
+  function pokaziMeniSporocila(mehurcek, x, y, sTipkovnico) {
+    var m = $("sporocilaMeni"); if (!m || !mehurcek) return;
+    var postavke = postavkeMenijaSporocila(mehurcek._besedilo || "", izbranoVSporocilih());
+    m.innerHTML = ""; m._za = mehurcek; meniSporocilaOb = Date.now();
+    if (!postavke.length) { m.hidden = true; return; }
+    postavke.forEach(function (p) {
+      var g = el("button", "", ubezi(t(p[0]))); g.type = "button"; g.setAttribute("role", "menuitem");
+      // Pritisk na postavko ne sme podreti izbora v sporocilu, dokler dejanje ni izvedeno.
+      g.addEventListener("mousedown", function (e) { e.preventDefault(); });
+      g.addEventListener("click", function () {
+        // S tipkovnico je fokus na postavki, ki z menijem izgine: vrnemo ga na sporocilo (sicer pade na telo strani
+        // in puscice ne hodijo vec po sporocilih). Z misko fokusa ne premikamo - izbor cez vec sporocil ostane.
+        var za = m._za, sTipk = m.contains(document.activeElement);
+        zapriMeniSporocila();
+        if (sTipk) fokusNaMehurcek(null, za);
+        if (p[1] === "odpri") klic("splet", [p[2]]).catch(function () { obvesti(t("niUspelo")); });
+        else kopirajBesedilo(p[2]);
+      });
+      m.appendChild(g);
+    });
+    m.hidden = false;
+    m.style.left = Math.max(8, Math.min(window.innerWidth - m.offsetWidth - 8, x)) + "px";
+    m.style.top = Math.max(8, Math.min(window.innerHeight - m.offsetHeight - 8, y)) + "px";
+    if (sTipkovnico && m.firstChild) m.firstChild.focus();
+  }
+  // Fokus na sporocilo s tipkovnico: premaknemo samo seznam sporocil. Brskalnikov focus() visok mehurcek sredini
+  // in pri tem premakne tudi celo stran (glava Safeer OS je sla delno z zaslona) - zato brez njegovega pomika.
+  function fokusNaMehurcek(cilj, m) {
+    if (!m || !m.focus) return;
+    // Po kliku z misko brskalnik obrobe fokusa (:focus-visible) ne pokaze vec, zato jo oznacimo sami.
+    if (m.classList) m.classList.add("fokus-tipke");
+    m.focus({ preventScroll: true });
+    if (!cilj || !m.getBoundingClientRect) return;
+    var rc = cilj.getBoundingClientRect(), rm = m.getBoundingClientRect();
+    if (rm.top < rc.top) cilj.scrollTop -= rc.top - rm.top + 8;
+    else if (rm.bottom > rc.bottom) cilj.scrollTop += Math.max(0, Math.min(rm.top - rc.top - 8, rm.bottom - rc.bottom + 8));
+  }
+  // Tab pride na zadnje sporocilo (med sporocili puscici gor/dol), ne na vsako posebej.
+  function uskladiTabMehurckov(cilj) {
+    var zadnji = cilj.lastElementChild;
+    Array.prototype.forEach.call(cilj.children, function (m) { m.tabIndex = m === zadnji ? 0 : -1; });
+  }
+  // odpiranje = uporabnik je pogovor odprl sam (klik, poslano sporocilo): pogled gre na zadnje sporocilo.
+  function naloziVsebinoPogovora(pogovor, odpiranje) {
     klic("sporocilaPogovor", [pogovor.kanal_id, pogovor.id]).then(function (seznam) {
       if (S.sporocilaAktivni !== pogovor) return;   // uporabnik je medtem odprl drug pogovor
-      var cilj = $("sporocilaVsebina"); cilj.innerHTML = "";
-      (seznam || []).forEach(function (s) {
-        var m = el("div", "mehurcek " + (s.smer === "ven" ? "ven" : "noter"));
-        m.textContent = s.besedilo || ""; m.appendChild(el("time", "", ubezi(kratekCas(s.cas)))); cilj.appendChild(m);
-      }); cilj.scrollTop = cilj.scrollHeight;
+      seznam = seznam || [];
+      var cilj = $("sporocilaVsebina"), meni = $("sporocilaMeni"), kljuc = pogovor.kanal_id + "\u0001" + pogovor.id, i;
+      var stari = cilj._kljuc === kljuc ? Array.prototype.map.call(cilj.children, function (m) { return m._podpis; }) : null;
+      var premik = premikSporocil(stari, seznam.map(podpisSporocila));
+      if (!premik) {
+        // Drug pogovor ali spremenjena starejsa sporocila: narisemo vse in pokazemo zadnje sporocilo.
+        zapriMeniSporocila(); cilj.innerHTML = ""; cilj._kljuc = kljuc;
+        seznam.forEach(function (s) { cilj.appendChild(mehurcekSporocila(s)); });
+        cilj.scrollTop = cilj.scrollHeight;
+      } else {
+        var naDnu = cilj.scrollHeight - cilj.scrollTop - cilj.clientHeight < 60, visina = cilj.scrollHeight;
+        for (i = 0; i < premik[0]; i++) {
+          if (meni && meni._za === cilj.firstChild) zapriMeniSporocila();
+          cilj.removeChild(cilj.firstChild);
+        }
+        if (premik[0]) cilj.scrollTop = Math.max(0, cilj.scrollTop - (visina - cilj.scrollHeight));
+        for (i = premik[1]; i < seznam.length; i++) cilj.appendChild(mehurcekSporocila(seznam[i]));
+        // Novo sporocilo pomakne pogled samo, ce uporabnik bere zadnja sporocila in nicesar ne oznacuje ali izbira v meniju.
+        if (premik[1] < seznam.length && naDnu && !izbranoVSporocilih() && (!meni || meni.hidden)) cilj.scrollTop = cilj.scrollHeight;
+      }
+      if (odpiranje) cilj.scrollTop = cilj.scrollHeight;
+      uskladiTabMehurckov(cilj);
       if (pogovor.neprebrano) { pogovor.neprebrano = 0; naloziSporocila(); }
     });
   }
@@ -3014,6 +3136,7 @@
 
   function zapriSloje() {
     if (S.galerija) zapriGalerijo();
+    zapriMeniSporocila();
     document.querySelectorAll(".sloj").forEach(function (s) { s.classList.remove("viden"); });
     if ($("iskanje").value && document.activeElement !== $("iskanje")) $("iskanje").value = "";
   }
@@ -3176,14 +3299,32 @@
     }, function () {});
   }
   function knjiznicaKje(x) { return x.naprava && x.naprava.tukaj ? t("knjiznicaTukaj") : ((x.naprava && x.naprava.ime) || ""); }
+  // »Na tvojih napravah« je mreza kot katalog (ne polica, ki bi jo bilo treba pomikati v desno): dve vrstici;
+  // ce je vsebine vec, zadnje mesto zasede »Pokaži vse«. Stolpec je sirok najmanj 145, razmik 14 (katalog.css).
+  function knjiznicaNaVrsto(sirina) {
+    var s = Number(sirina) || 0;
+    return s > 0 ? Math.max(1, Math.floor((s + 14) / (145 + 14))) : 6;
+  }
+  function knjiznicaVidnih(stevilo, naVrsto, vse) {
+    var mest = Math.max(1, naVrsto) * 2;
+    return (vse || stevilo <= mest) ? stevilo : Math.max(1, mest - 1);
+  }
   function narisiKnjiznico() {
     var c = $("mediaKnjiznica"); if (!c) return; c.innerHTML = "";
     var vnosi = knjiznicaVidna() ? (kat.knjiznica || []) : [];
     c.hidden = !vnosi.length;
     if (!vnosi.length) return;
-    c.appendChild(el("h3", "", ubezi(t("knjiznicaNaslov"))));
+    var glava = el("div", "kat-knjiznica-glava"); glava.appendChild(el("h3", "", ubezi(t("knjiznicaNaslov"))));
+    c.appendChild(glava);
     var vrsta = el("div", "kat-knjiznica-vrsta");
-    vnosi.forEach(function (x) {
+    c.appendChild(vrsta);                               // najprej v stran, da ima sirino
+    var naVrsto = knjiznicaNaVrsto(vrsta.clientWidth), vidnih = knjiznicaVidnih(vnosi.length, naVrsto, kat.knjiznicaVse);
+    if (kat.knjiznicaVse && vnosi.length > naVrsto * 2) {
+      var manj = el("button", "", ubezi(t("knjiznicaPokaziManj"))); manj.type = "button";
+      manj.onclick = function () { kat.knjiznicaVse = false; narisiKnjiznico(); };
+      glava.appendChild(manj);
+    }
+    vnosi.slice(0, vidnih).forEach(function (x) {
       var card = el("button", "kat-kartica"); card.type = "button";
       var kje = knjiznicaKje(x);
       card.setAttribute("aria-label", (x.naslov || "") + " — " + kje);
@@ -3235,8 +3376,19 @@
       card.onclick = function () { predvajajIzKnjiznice(x); };
       vrsta.appendChild(card);
     });
-    c.appendChild(vrsta);
+    if (vidnih < vnosi.length) {
+      var vse = el("button", "kat-kartica kat-vse", "<span>" + ubezi(t("knjiznicaPokaziVse")) + "</span><small>" + vnosi.length + "</small>");
+      vse.type = "button";
+      vse.onclick = function () { kat.knjiznicaVse = true; narisiKnjiznico(); };
+      vrsta.appendChild(vse);
+    }
   }
+  // Sirina okna doloca, koliko plakatov gre v dve vrstici.
+  var zamikKnjiznice = 0;
+  window.addEventListener("resize", function () {
+    clearTimeout(zamikKnjiznice);
+    zamikKnjiznice = setTimeout(function () { if (!kat.knjiznicaVse && kat.knjiznica && kat.knjiznica.length) narisiKnjiznico(); }, 200);
+  });
   function predvajajIzKnjiznice(x) {
     var zahteva = ++kat.zahtevaPredvajanja;
     // Film, ki ni še v celoti na disku ali ga pretaka druga naprava, se ne začne v hipu: uporabnik vidi, da se pripravlja.
@@ -3972,6 +4124,9 @@
       $("mediaOsvezi").disabled = S.mediaOsvezuje || !S.mediaMape.length;
     }
     if (vrsta === "medijskaNapaka") obvesti(t("niUspelo"));
+    // Vgrajeni brskalnik se ne da varno zagnati (sistem ne dovoli peskovnika): povemo zakaj, lupina tece naprej.
+    if (vrsta === "spletBrezPeskovnika") obvesti(t("spletBrezPeskovnika"));
+    if (vrsta === "medijBrezPeskovnika") obvesti(t("medijBrezPeskovnika"));
     if (vrsta === "posodobitev") pokaziPosodobitevDoma(podatki);
     if (vrsta === "magnet") odpriMagnet(podatki && podatki.uri, podatki && podatki.samodejno === true);
     // Film iz torrenta (dodatek): med branjem torrenta in prenosom zacetka uporabnik vidi, da se nekaj dogaja.
@@ -4047,6 +4202,60 @@
     $("sporocilaBesedilo").addEventListener("keydown", function (e) {
       if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $("sporocilaVnos").requestSubmit(); }
     });
+    // Sporocila: desni klik ali tipka Meni odpre meni mehurcka; Ctrl+C brez izbora kopira celo sporocilo.
+    $("sporocilaVsebina").addEventListener("contextmenu", function (e) {
+      var m = e.target && e.target.closest ? e.target.closest(".mehurcek") : null;
+      if (!m) return;
+      e.preventDefault();
+      // Tipka Meni je meni ze odprla (keydown spodaj): istega dogodka ne obdelamo dvakrat.
+      if (Date.now() - meniSporocilaOb < 200 && $("sporocilaMeni")._za === m && !$("sporocilaMeni").hidden) return;
+      pokaziMeniSporocila(m, e.clientX, e.clientY, false);
+    });
+    $("sporocilaVsebina").addEventListener("keydown", function (e) {
+      var m = e.target && e.target.closest ? e.target.closest(".mehurcek") : null;
+      if (!m) return;
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === "c" || e.key === "C")) {
+        // Z izborom kopira brskalnik sam (dogodek copy spodaj); brez izbora gre v odlozisce celo sporocilo.
+        if (!izbranoVSporocilih()) { e.preventDefault(); kopirajBesedilo(m._besedilo || ""); }
+      } else if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+        e.preventDefault();
+        var r = m.getBoundingClientRect();
+        pokaziMeniSporocila(m, r.left + 16, r.bottom - 6, true);
+      } else if ((e.key === "ArrowUp" || e.key === "ArrowDown") && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
+        var sosed = e.key === "ArrowUp" ? m.previousElementSibling : m.nextElementSibling;
+        if (sosed) { e.preventDefault(); fokusNaMehurcek($("sporocilaVsebina"), sosed); }
+      }
+    });
+    $("sporocilaVsebina").addEventListener("focusout", function (e) {
+      if (e.target && e.target.classList) e.target.classList.remove("fokus-tipke");
+    });
+    $("sporocilaVsebina").addEventListener("scroll", zapriMeniSporocila);
+    $("sporocilaMeni").addEventListener("keydown", function (e) {
+      if (e.key === "Tab") { zapriMeniSporocila(); return; }
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      var gumbi = Array.prototype.slice.call(this.querySelectorAll("button")), i = gumbi.indexOf(document.activeElement);
+      e.preventDefault(); e.stopPropagation();
+      if (!gumbi.length) return;
+      var dol = e.key === "ArrowDown";
+      gumbi[i < 0 ? (dol ? 0 : gumbi.length - 1) : (i + (dol ? 1 : gumbi.length - 1)) % gumbi.length].focus();
+    });
+    document.addEventListener("copy", function () { if (izbranoVSporocilih()) obvesti(t("sporKopirano")); });
+    // Klik drugam, Esc, drugo okno ali sprememba velikosti zapre meni mehurcka.
+    document.addEventListener("mousedown", function (e) {
+      var cilj = e.target && e.target.closest ? e.target : null;
+      if (cilj && cilj.closest("#sporocilaMeni")) return;
+      zapriMeniSporocila();
+      // Desni klik na sporocilo ne sme podreti izbora cez vec sporocil: pritisk bi fokus prestavil na kliknjeni mehurcek,
+      // brskalnik pa ob tem pocisti izbor, ki se ne zacne v njem. Meni (contextmenu) pride kot prej.
+      if (e.button === 2 && cilj && cilj.closest(".mehurcek") && izbranoVSporocilih()) e.preventDefault();
+    }, true);
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape") return;
+      var za = $("sporocilaMeni")._za;
+      if (zapriMeniSporocila()) { e.preventDefault(); e.stopImmediatePropagation(); fokusNaMehurcek(null, za); }
+    }, true);
+    window.addEventListener("blur", zapriMeniSporocila);
+    window.addEventListener("resize", zapriMeniSporocila);
     $("sporocilaFiltri").querySelectorAll("button").forEach(function (b) {
       b.addEventListener("click", function () {
         S.sporocilaFilter = b.getAttribute("data-kanal-vrsta") || "";

@@ -53,9 +53,10 @@
 }
 .kat-napaka { max-width:680px;margin:18px auto;padding:18px 22px;border:1px solid rgba(235,87,87,.45);border-radius:14px;background:rgba(235,87,87,.09);text-align:center;font-weight:650;color:var(--rdeca) }
 .kat-napaka.kat-opozorilo { border-color:rgba(84,214,165,.35);background:rgba(84,214,165,.08);color:var(--besedilo);font-weight:550 }
-.kat-zanri { display:flex;gap:8px;overflow-x:auto;padding:8px 0 5px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.16) transparent }
+/* Zvrsti se prelomijo v vec vrstic: nicesar v medijskem centru ni treba pomikati v desno. */
+.kat-zanri { display:flex;flex-wrap:wrap;gap:8px;padding:8px 0 5px }
 /* Izbira jezika vsebine stoji pred zvrstmi (pri Videu, kjer zvrsti ni, sama). */
-.kat-zanri-vrstica { display:flex;align-items:center;gap:10px;min-width:0 }
+.kat-zanri-vrstica { display:flex;align-items:flex-start;gap:10px;min-width:0 }
 .kat-zanri-vrstica .kat-zanri { flex:1 1 auto;min-width:0 }
 .kat-jezik { flex:none;padding:8px 0 5px }
 .kat-jezik select { height:38px;max-width:240px;padding:0 12px;border:1px solid var(--rob);border-radius:999px;background:var(--vnos);color:var(--besedilo);font-weight:650 }
@@ -163,11 +164,18 @@
 .kat-viri-plosca h3 { margin: 4px 0 6px; }
 .kat-predvajaj-film { align-self: flex-start; }
 .kat-podrobnosti-junak h2 { color: var(--besedilo); text-transform: none; letter-spacing: -.01em; }
-/* Polica »Na tvojih napravah«: kar je prenesla katera koli naprava v Safeer Linku (plakati v eni vrsti). */
+/* »Na tvojih napravah«: kar je prenesla katera koli naprava v Safeer Linku. Mreza kot katalog (do 0.4.65 polica,
+   ki jo je bilo treba pomikati v desno); dve vrstici, vec odpre »Pokaži vse«. */
 .kat-knjiznica { margin: 14px 0 6px; }
 .kat-knjiznica h3 { margin: 0 0 10px; font-size: 16px; }
-.kat-knjiznica-vrsta { display: flex; gap: 14px; overflow-x: auto; padding: 5px 2px 12px; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.16) transparent; }
-.kat-knjiznica-vrsta .kat-kartica { flex: 0 0 150px; width: 150px; }
+.kat-knjiznica-vrsta { display: grid; grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); gap: 14px; padding: 5px 2px 12px; }
+.kat-knjiznica-vrsta .kat-kartica { width: auto; }
+.kat-knjiznica-glava { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; }
+.kat-knjiznica-glava h3 { margin: 0; }
+.kat-knjiznica-glava button { padding: 6px 10px; border-radius: 10px; color: var(--zelena); font-size: 14px; font-weight: 650; }
+.kat-knjiznica-glava button:hover, .kat-knjiznica-glava button:focus-visible { background: rgba(84,214,165,.12); outline: 0; }
+.kat-kartica.kat-vse { display: grid; place-items: center; align-content: center; gap: 8px; padding: 12px; text-align: center; color: var(--zelena); font-weight: 700; }
+.kat-kartica.kat-vse small { color: var(--medlo); font-weight: 500; }
 /* Pod naslovom v dveh vrsticah: naprava, ki film hrani, in velikost (ali da se se prenasa) - ime naprave ni odrezano na par crk. */
 .kat-knjiznica-vrsta .kat-kartica .kat-meta { display: flex; flex-direction: column; align-items: stretch; gap: 2px; text-transform: none; font-size: 12px; }
 .kat-knjiznica-vrsta .kat-kartica .kat-meta span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

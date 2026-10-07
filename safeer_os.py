@@ -47,7 +47,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 from core import (os_datoteke, os_katalog, os_knjiznica, os_oblak_igre, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
                   os_media_besedila, os_mediji, os_posodobitve, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost,
                   os_torrent, os_torrent_tok, os_zapiski, os_zvok, knjiznica_kroga)
-from core import budnost, os_iskalnik, os_odpri_z  # noqa: E402
+from core import budnost, odlozisce_varuh, os_iskalnik, os_odpri_z  # noqa: E402
 
 # Preklop vhoda zvocne vrstice JBL je samo interni poskus: uradni paket modula ne vsebuje
 # (packaging/install_os_payload.sh), zato ga uvozimo le, ce je prisoten (zagon iz repozitorija).
@@ -73,6 +73,8 @@ def _razlicica() -> str:
 
 
 RAZLICICA = _razlicica()
+# Najvec znakov, ki jih stran sme dati v odlozisce z enim klicem (sporocilo, povezava).
+NAJVEC_KOPIJE = 1_000_000
 CONTROL_NASTAVITVE = os.path.expanduser("~/.config/safeer-control/link.json")
 #: Nastavitve Controla (pladenj: predvajanje_za_naprave, deljene mape ...), loceno od podatkov Linka v link.json.
 CONTROL_NASTAVITVE_PLADNJA = os.path.expanduser("~/.config/safeer-control/control.json")
@@ -928,6 +930,7 @@ class SafeerOS(Gtk.Application):
         # Splet je del istega okna. Ustvarimo ga sele ob prvem obisku in ga med razdelki samo skrijemo,
         # zato zavihki, prijave in zgodovina ostanejo zivi.
         self._spletni = None
+        self._peskovnik_dela = None   # None = še ni preverjeno (core.os_splet.peskovnik_dela, enkrat na zagon)
         self._glavna_postavitev = None
         self._spletni_nacin = False
         self._medijski_napis = None
@@ -1083,6 +1086,7 @@ class SafeerOS(Gtk.Application):
         upravitelj.add_script(WebKit2.UserScript(
             MOST_JS, WebKit2.UserContentInjectedFrames.TOP_FRAME,
             WebKit2.UserScriptInjectionTime.START, None, None))
+        odlozisce_varuh.dodaj(WebKit2, upravitelj)   # Ctrl+C brez izbora ne sme izprazniti odložišča
         pogled = WebKit2.WebView.new_with_user_content_manager(upravitelj)
         upravitelj.connect("script-message-received::safeerOs", lambda _u, r: self._na_sporocilo(pogled, r))
         n = pogled.get_settings()
@@ -2237,22 +2241,42 @@ class SafeerOS(Gtk.Application):
         """Odpre naslov v zavihku znotraj glavnega okna; brez procesa ali dodatnega okna."""
         if naslov and not naslov.startswith(("http://", "https://")):
             return False
-        self._pokazi_spletni_nacin()
+        if not self._pokazi_spletni_nacin():
+            return False
         return self._spletni.odpri(naslov) if naslov else True
 
-    def _ustvari_spletni(self) -> None:
+    def _peskovnik_na_voljo(self) -> bool:
+        """Ali se WebKitov peskovnik da zagnati (core.os_splet.peskovnik_dela; preverjeno enkrat na zagon). Brez njega
+        Safeer OS ne ustvari NOBENEGA pogleda za tujo vsebino - ne vgrajenega brskalnika ne lahkega medijskega pogleda:
+        WebKit bi ob prvem takem pogledu ubil ves Safeer OS."""
+        if self._peskovnik_dela is None:
+            from core.os_splet import peskovnik_dela
+            self._peskovnik_dela = bool(peskovnik_dela())
+            if not self._peskovnik_dela:
+                print("[Safeer OS] peskovnika (bubblewrap) ni mogoče zagnati - vgrajeni brskalnik in spletni "
+                      "predvajalnik sta izklopljena")
+        return self._peskovnik_dela
+
+    def _ustvari_spletni(self) -> bool:
+        """Ustvari vgrajeni brskalnik (ob prvem odpiranju Spleta). False: peskovnika ni mogoče zagnati - brskalnika
+        ne ustvarimo (WebKit bi sicer ubil ves Safeer OS), uporabnik dobi pojasnilo."""
         if self._spletni is not None:
-            return
+            return True
         from core.os_splet import VdelaniSplet
+        if not self._peskovnik_na_voljo():
+            self._dogodek("spletBrezPeskovnika", True)
+            return False
         self._spletni = VdelaniSplet(Gtk, Gdk, Gio, GLib, WebKit2, KOREN, _jezik, stanje_povezave,
                                      self._splet_v_zapisek, self.okno)
         self._glavna_postavitev.pack_start(self._spletni.gradnik, True, True, 0)
         self._spletni.gradnik.set_no_show_all(True)
         self._spletni.gradnik.hide()
+        return True
 
     def _pokazi_spletni_nacin(self) -> bool:
         """Najprej izmeri #stranska, sele nato doda nacin-splet in zozi HTML lupino."""
-        self._ustvari_spletni()
+        if not self._ustvari_spletni():
+            return False
         self._spletni_nacin = True
         koda = (
             "(function(){var s=document.getElementById('stranska'),b=document.body;"
@@ -2288,9 +2312,19 @@ class SafeerOS(Gtk.Application):
             self._uskladi_sirino_spleta()
             self._spletni.gradnik.set_no_show_all(False)
             self._spletni.gradnik.show_all()
+            # Lupina se je zožila, brskalnik je dobil svoj del okna. Brez izrecnega izrisa je ob prvem odpiranju iz
+            # drugega razdelka del orodne vrstice brskalnika ostal neizrisan (videli so se ostanki lupine), dokler
+            # se ni spremenila velikost okna. Izmerjeno v preizkusni seji brez sestavljalnika, 7. 10. 2026.
+            GLib.timeout_add(60, self._izrisi_okno)
+            GLib.timeout_add(450, self._izrisi_okno)
 
         self.pogled.evaluate_javascript(koda, -1, None, None, None, izmerjeno)
         return True
+
+    def _izrisi_okno(self) -> bool:
+        if self.okno is not None:
+            self.okno.queue_draw()
+        return False
 
     def _uskladi_sirino_spleta(self, *_):
         if not self._spletni_nacin or self._spletni is None or self.okno is None:
@@ -2988,9 +3022,15 @@ class SafeerOS(Gtk.Application):
 
     @staticmethod
     def _kopiraj(besedilo: str) -> bool:
-        """Besedilo v odložišče (npr. magnet povezava za deljenje z drugimi)."""
+        """Besedilo v odložišče (magnet povezava, sporočilo ali izbrani del sporočila).
+
+        Prazno besedilo odložišča ne izprazni. Do 0.4.65 je bila meja 8192 znakov (dovolj za povezavo, premalo za dolgo
+        e-sporočilo - konec je tiho manjkal)."""
+        besedilo = str(besedilo or "")[:NAJVEC_KOPIJE]
+        if not besedilo:
+            return False
         odlozisce = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
-        odlozisce.set_text(besedilo[:8192], -1)
+        odlozisce.set_text(besedilo, -1)
         odlozisce.store()
         return True
 
@@ -3205,8 +3245,9 @@ class SafeerOS(Gtk.Application):
 
     def _odpri_lahki_medijski_pogled(self, naslov: str) -> bool:
         """En WebKit brez JavaScripta; če ni medija, enkrat poskusi z JavaScriptom."""
+        if not self._ustvari_medijski_pogled():
+            return False          # brez peskovnika: kar že igra, igra naprej; uporabnik je dobil pojasnilo
         self._ustavi_neposredni_medij()
-        self._ustvari_medijski_pogled()
         self._zapusti_skladbo_youtube()
         self._medijski_rod += 1
         self._medijski_naslov = naslov
@@ -3218,9 +3259,14 @@ class SafeerOS(Gtk.Application):
         self._medijski_okno.present()
         return True
 
-    def _ustvari_medijski_pogled(self) -> None:
+    def _ustvari_medijski_pogled(self) -> bool:
+        """Lahki pogled za vdelano stran ali vgradni predvajalnik. False: peskovnika ni mogoče zagnati - pogleda ne
+        ustvarimo (glej _peskovnik_na_voljo), uporabnik dobi pojasnilo."""
         if self._medijski_pogled is not None:
-            return
+            return True
+        if not self._peskovnik_na_voljo():
+            self._dogodek("medijBrezPeskovnika", True)
+            return False
         # Tuje strani v lastnem, zacasnem kontekstu s peskovnikom: nic piskotkov/podatkov Safeer OS in
         # locen spletni proces, ki ga ob izhodu z vsebine izpraznemo.
         kontekst = WebKit2.WebContext.new_ephemeral()
@@ -3237,6 +3283,7 @@ class SafeerOS(Gtk.Application):
         upravitelj.add_script(WebKit2.UserScript(
             os_katalog.SKRIPT_SKLADBE, WebKit2.UserContentInjectedFrames.TOP_FRAME,
             WebKit2.UserScriptInjectionTime.END, list(os_katalog.STRANI_SKRIPTA_SKLADBE), None))
+        odlozisce_varuh.dodaj(WebKit2, upravitelj)
         lastnosti = {"web_context": kontekst, "user_content_manager": upravitelj}
         if hasattr(WebKit2, "WebsitePolicies"):
             # Medijski pogled odpre uporabnik zato, da nekaj predvaja: predvajanje se zacne brez dodatnega klika.
@@ -3254,14 +3301,16 @@ class SafeerOS(Gtk.Application):
         okno.add(pogled)
         okno.connect("delete-event", lambda *a: (self._pocisti_medijski_pogled(), True)[1])
         self._medijski_pogled, self._medijski_okno = pogled, okno
+        return True
 
     # -- skladba s seznama predvajanja: vgradni predvajalnik YouTuba v lahkem pogledu (core/os_katalog.py)
     def _katalog_youtube(self, naslov: str, ime: str) -> bool:
         """Vgradni predvajalnik YouTuba v lahkem pogledu; stanje skladbe javi skript (os_katalog.SKRIPT_SKLADBE)."""
         if not os_katalog.je_naslov_vgradnje(naslov):
             return False
+        if not self._ustvari_medijski_pogled():
+            return False          # brez peskovnika (glej _odpri_lahki_medijski_pogled)
         self._ustavi_neposredni_medij()
-        self._ustvari_medijski_pogled()
         self._medijski_rod += 1
         self._medijski_naslov = ""          # brez preverbe »ali je na strani video« (ta velja za tuje strani)
         self._medijski_js = True
