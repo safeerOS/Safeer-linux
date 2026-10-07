@@ -494,6 +494,16 @@ class VdelaniSplet:
         if not normalen: return False
         pogled.load_uri(normalen); return True
 
+    def odpri_povezavo(self, naslov: str) -> bool:
+        """Povezava od drugod (sporočilo): strani, ki jo ima uporabnik odprto, ne zamenja. V zavihku z našo začetno
+        stranjo se odpre tam, sicer v novem zavihku."""
+        normalen = normalize_web_url(naslov)
+        if not normalen: return False
+        pogled = self.trenutni()
+        if pogled is not None and ozadje_strani.nasa_stran(pogled.get_uri() or "", os.path.join(self.koren, "ui")):
+            pogled.load_uri(normalen); return True
+        self.nov_zavihek(normalen); return True
+
     def _vnesi_naslov(self, vnos):
         besedilo = vnos.get_text().strip()
         naslov = normalize_web_url(besedilo)

@@ -859,6 +859,10 @@ def _ukaz_controla() -> Optional[list]:
     return None
 
 
+#: Po negativnem izidu preverbe peskovnika jo ponovimo šele čez toliko sekund (glej SafeerOS._peskovnik_na_voljo).
+PESKOVNIK_PONOVNO_S = 30.0
+
+
 class SafeerOS(Gtk.Application):
     def __init__(self, v_oknu: bool = False, posnetek: str = "", namizje: bool = False,
                  delovna: bool = False) -> None:
@@ -930,7 +934,8 @@ class SafeerOS(Gtk.Application):
         # Splet je del istega okna. Ustvarimo ga sele ob prvem obisku in ga med razdelki samo skrijemo,
         # zato zavihki, prijave in zgodovina ostanejo zivi.
         self._spletni = None
-        self._peskovnik_dela = None   # None = še ni preverjeno (core.os_splet.peskovnik_dela, enkrat na zagon)
+        self._peskovnik_dela = None   # None = še ni preverjeno (core.os_splet.peskovnik_dela)
+        self._peskovnik_preverjen = 0.0   # kdaj (time.monotonic) je bil nazadnje preverjen
         self._glavna_postavitev = None
         self._spletni_nacin = False
         self._medijski_napis = None
@@ -1829,7 +1834,7 @@ class SafeerOS(Gtk.Application):
             "domov": lambda: self._domov(str(a[0]) if a else ""),
             "preklopiOkno": lambda: self._okno_dejanje(a[0] if a else 0, "preklopi"),
             "shraniSpletne": lambda: self._shrani_spletne(a[0] if a else []),
-            "splet": lambda: self._splet(str(a[0]) if a else ""),
+            "splet": lambda: self._splet(str(a[0]) if a else "", len(a) > 1 and a[1] is True),
             "medij": lambda: self._medij(str(a[0]) if a else ""),
             "lokalniMediji": self._medijski_dodaj_datoteke,
             "medijskaMapa": self._medijski_dodaj_mapo,
@@ -2237,24 +2242,40 @@ class SafeerOS(Gtk.Application):
             self.okno.iconify()
         return True
 
-    def _splet(self, naslov: str) -> bool:
-        """Odpre naslov v zavihku znotraj glavnega okna; brez procesa ali dodatnega okna."""
-        if naslov and not naslov.startswith(("http://", "https://")):
-            return False
+    def _splet(self, naslov: str, nov_zavihek: bool = False) -> bool:
+        """Odpre naslov v zavihku znotraj glavnega okna; brez procesa ali dodatnega okna.
+
+        Samo http in https (velikost črk v shemi ni pomembna - telefonske tipkovnice pišejo »Https://«). Naslov, ki ga
+        brskalnik ne bi odprl, zavrnemo, PREDEN lupino zožimo v način Splet. nov_zavihek: povezava od drugod
+        (sporočilo) ne zamenja strani, ki jo ima uporabnik odprto v brskalniku."""
+        if naslov:
+            from core.config import normalize_web_url
+            if not naslov.lower().startswith(("http://", "https://")) or not normalize_web_url(naslov):
+                return False
         if not self._pokazi_spletni_nacin():
             return False
-        return self._spletni.odpri(naslov) if naslov else True
+        if not naslov:
+            return True
+        return self._spletni.odpri_povezavo(naslov) if nov_zavihek else self._spletni.odpri(naslov)
 
     def _peskovnik_na_voljo(self) -> bool:
-        """Ali se WebKitov peskovnik da zagnati (core.os_splet.peskovnik_dela; preverjeno enkrat na zagon). Brez njega
-        Safeer OS ne ustvari NOBENEGA pogleda za tujo vsebino - ne vgrajenega brskalnika ne lahkega medijskega pogleda:
-        WebKit bi ob prvem takem pogledu ubil ves Safeer OS."""
-        if self._peskovnik_dela is None:
-            from core.os_splet import peskovnik_dela
-            self._peskovnik_dela = bool(peskovnik_dela())
-            if not self._peskovnik_dela:
-                print("[Safeer OS] peskovnika (bubblewrap) ni mogoče zagnati - vgrajeni brskalnik in spletni "
-                      "predvajalnik sta izklopljena")
+        """Ali se WebKitov peskovnik da zagnati (core.os_splet.peskovnik_dela). Brez njega Safeer OS ne ustvari
+        NOBENEGA pogleda za tujo vsebino - ne vgrajenega brskalnika ne lahkega medijskega pogleda: WebKit bi ob prvem
+        takem pogledu ubil ves Safeer OS.
+
+        Pozitiven izid velja do konca teka. Negativen velja PESKOVNIK_PONOVNO_S sekund: ena prehodna napaka preverbe
+        (pod obremenitvijo poteče) ne sme izklopiti Spleta do ponovnega zagona lupine, preverba (teče v glavni niti)
+        pa tudi ne ob vsakem kliku."""
+        if self._peskovnik_dela:
+            return True
+        if self._peskovnik_dela is False and time.monotonic() - self._peskovnik_preverjen < PESKOVNIK_PONOVNO_S:
+            return False
+        from core.os_splet import peskovnik_dela
+        self._peskovnik_dela = bool(peskovnik_dela())
+        self._peskovnik_preverjen = time.monotonic()
+        if not self._peskovnik_dela:
+            print("[Safeer OS] peskovnika (bubblewrap) ni mogoče zagnati - vgrajeni brskalnik in spletni "
+                  "predvajalnik sta izklopljena")
         return self._peskovnik_dela
 
     def _ustvari_spletni(self) -> bool:

@@ -92,6 +92,27 @@ class Lupina(unittest.TestCase):
         lazna._dogodek.assert_called_with("spletBrezPeskovnika", True)      # uporabnik izve, zakaj
         lazna.pogled.evaluate_javascript.assert_not_called()                 # lupina ostane v svojem razdelku
 
+    def test_negativen_izid_ni_dokoncen(self):
+        # Ena prehodna napaka preverbe (pod obremenitvijo poteče, razcep procesa odpove) ne sme izklopiti Spleta do
+        # ponovnega zagona lupine: negativen izid velja pol minute, pozitiven do konca teka.
+        lazna = self._lazna()
+        ura = [1000.0]
+        with mock.patch.object(os_splet, "peskovnik_dela", side_effect=[False, True]) as preverba, \
+                mock.patch.object(os_splet, "VdelaniSplet") as brskalnik, \
+                mock.patch.object(self.os_.time, "monotonic", side_effect=lambda: ura[0]):
+            self.assertFalse(self.os_.SafeerOS._ustvari_spletni(lazna))
+            ura[0] += self.os_.PESKOVNIK_PONOVNO_S - 1
+            self.assertFalse(self.os_.SafeerOS._ustvari_spletni(lazna))      # še velja: preverba ne teče ob vsakem kliku
+            self.assertEqual(preverba.call_count, 1)
+            ura[0] += 2
+            self.assertTrue(self.os_.SafeerOS._ustvari_spletni(lazna))       # nov poskus uspe
+            self.assertEqual(preverba.call_count, 2)
+            lazna._spletni = None
+            ura[0] += 3600
+            self.assertTrue(self.os_.SafeerOS._ustvari_spletni(lazna))       # pozitiven izid velja do konca teka
+            self.assertEqual(preverba.call_count, 2)
+        self.assertEqual(brskalnik.call_count, 2)
+
     def test_s_peskovnikom_se_brskalnik_ustvari(self):
         lazna = self._lazna()
         with mock.patch.object(os_splet, "peskovnik_dela", return_value=True), \
@@ -113,7 +134,7 @@ class Lupina(unittest.TestCase):
         lazna.okno.queue_draw.assert_called_once()
 
     def test_stran_pove_zakaj(self):
-        self.assertIn('if (vrsta === "spletBrezPeskovnika") obvesti(t("spletBrezPeskovnika"));', beri("assets", "os", "os.js"))
+        self.assertIn('if (vrsta === "spletBrezPeskovnika" || vrsta === "medijBrezPeskovnika") { brezPeskovnikaOb = Date.now(); obvesti(t(vrsta)); }', beri("assets", "os", "os.js"))
         besedila = beri("assets", "os", "besedila.js")
         for jezik in ("sl", "en", "de", "es", "fr", "it"):
             self.assertRegex(besedila, r'Object\.assign\(BESEDILA_OS\.%s, \{[^\n]*"spletBrezPeskovnika": "[^"]{20,}"' % jezik, jezik)
@@ -174,7 +195,11 @@ class MedijskiPogled(unittest.TestCase):
         lazna._dogodek.assert_not_called()
 
     def test_stran_pove_zakaj(self):
-        self.assertIn('if (vrsta === "medijBrezPeskovnika") obvesti(t("medijBrezPeskovnika"));', beri("assets", "os", "os.js"))
+        js = beri("assets", "os", "os.js")
+        self.assertIn('if (vrsta === "spletBrezPeskovnika" || vrsta === "medijBrezPeskovnika") { brezPeskovnikaOb = Date.now(); obvesti(t(vrsta)); }', js)
+        # Splosna napaka predvajanja pojasnila ne sme prekriti (obvestilo je eno samo; zadnje zamenja prejsnje).
+        self.assertIn('if (item.napaka_koda) { if (!(item.napaka_koda === "tok" && pravkarBrezPeskovnika())) '
+                      'obvesti(t("mediaNapaka_" + item.napaka_koda)); return; }', js)
         besedila = beri("assets", "os", "besedila.js")
         for jezik in ("sl", "en", "de", "es", "fr", "it"):
             self.assertRegex(besedila, r'Object\.assign\(BESEDILA_OS\.%s, \{[^\n]*"medijBrezPeskovnika": "[^"]{20,}"' % jezik, jezik)

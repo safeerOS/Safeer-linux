@@ -122,6 +122,46 @@ o._izbor = { type: "None", rangeCount: 0, isCollapsed: true, toString: function 
 assert.strictEqual(o.poslji().defaultPrevented, true);                        // izjema ne podre varuha
 """)
 
+    def test_izbor_v_skritem_delu_strani(self):
+        # Izmerjeno 7. 10. 2026 na 2.52.6: besedilo je izbrano, nato se del strani z njim skrije (display: none).
+        # Izbor ostane type=Range, njegovo besedilo je prazno, obseg nima nobenega narisanega pravokotnika - Kopiraj
+        # je odlozisce izpraznil. (Safeer OS: oznaceno besedilo sporocila, nato drug razdelek in Ctrl+C.)
+        self._node(r"""
+var o = zazeni(Okno());
+function obseg(pravokotnikov, strnjen) {
+  return { collapsed: !!strnjen, getClientRects: function () { return new Array(pravokotnikov); } };
+}
+function izbor(besedilo, obsegi) {
+  return { type: "Range", rangeCount: obsegi.length, isCollapsed: false,
+           getRangeAt: function (i) { return obsegi[i]; }, toString: function () { return besedilo; } };
+}
+o._izbor = izbor("", [obseg(0)]);
+assert.strictEqual(o.poslji().defaultPrevented, true, "skrit izbor: ni kaj kopirati");
+o._izbor = izbor("", [obseg(0), obseg(0, true)]);
+assert.strictEqual(o.poslji().defaultPrevented, true);
+// Izbor brez besedila, a z narisano vsebino (izbrana slika): kopira brskalnik.
+o._izbor = izbor("", [obseg(1)]);
+assert.strictEqual(o.poslji().defaultPrevented, false);
+o._izbor = izbor("", [obseg(0), obseg(2)]);
+assert.strictEqual(o.poslji().defaultPrevented, false);
+// Besedilo izbora odloca pred obsegi (izbor v senci nima svojih pravokotnikov navzven).
+o._izbor = izbor("besedilo", [obseg(0)]);
+assert.strictEqual(o.poslji().defaultPrevented, false);
+// Skrit izbor, fokus pa v polju za vnos: polje ima svoj izbor, ki ga od tu ne vidimo.
+o._izbor = izbor("", [obseg(0)]);
+o._dok.activeElement = el("INPUT", { type: "text" });
+assert.strictEqual(o.poslji().defaultPrevented, false);
+o._dok.activeElement = el("BODY");
+// Kjer obsegov ni mogoce pregledati, ne ugibamo: velja, kar izbor pove o sebi.
+o._izbor = { type: "Range", rangeCount: 1, isCollapsed: false, getRangeAt: function () { throw new Error("ni obsega"); } };
+assert.strictEqual(o.poslji().defaultPrevented, false);
+o._izbor = { type: "Range", rangeCount: 1, isCollapsed: false,
+             getRangeAt: function () { return { collapsed: false, getClientRects: function () { throw new Error("ni izrisa"); } }; } };
+assert.strictEqual(o.poslji().defaultPrevented, false);
+o._izbor = { type: "Range", rangeCount: 0, isCollapsed: false, getRangeAt: function () { return null; } };
+assert.strictEqual(o.poslji().defaultPrevented, false);
+""")
+
     def test_senca(self):
         self._node(r"""
 var o = zazeni(Okno());

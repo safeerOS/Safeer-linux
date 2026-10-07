@@ -3490,7 +3490,8 @@ class SafeerMintBrowser(Gtk.Window):
         odlozisce_varuh.dodaj(WebKit2, webview.get_user_content_manager())
         # Dark canvas under our own pages (no white flash on start), white under web pages. White has to be set before
         # the page's document exists, otherwise a page with a dark colour scheme turns white on white (core/ozadje_strani).
-        ozadje_strani.prikljuci(Gdk, WebKit2, webview, os.path.join(BASE_DIR, "ui"), TEMNO_OZADJE)
+        ozadje_strani.prikljuci(Gdk, WebKit2, webview, os.path.join(BASE_DIR, "ui"), TEMNO_OZADJE,
+                                nasa=je_nasa_notranja_stran)
 
         try:
             def_zoom = float(self.config.get("default_zoom", 1.0))

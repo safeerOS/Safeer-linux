@@ -60,6 +60,17 @@ class Barva(unittest.TestCase):
         self.assertEqual(self.barva("file://" + self.ui + "/../drugje.html"), ozadje_strani.BELO)
         self.assertEqual(self.barva("file://" + self.ui + "-ponaredek/stran.html"), ozadje_strani.BELO)
 
+    def test_notranje_strani_programa(self):
+        # Safeer Browser ima strani na svoji shemi (safeer://procesi). Tudi te so naše: brez belega bliska pod njimi.
+        def nasa(naslov):
+            return naslov.startswith("safeer://")
+        self.assertEqual(ozadje_strani.barva("safeer://procesi", self.ui, "#0a141c", nasa), "#0a141c")
+        self.assertEqual(ozadje_strani.barva("https://example.org/", self.ui, "#0a141c", nasa), ozadje_strani.BELO)
+        self.assertEqual(ozadje_strani.barva("file://" + self.ui + "/home.html", self.ui, "#0a141c", nasa), "#0a141c")
+        self.assertEqual(ozadje_strani.barva("safeer://procesi", self.ui, "#0a141c"), ozadje_strani.BELO)   # brez pravila
+        # Pravilo, ki odpove, ne podre nalaganja: stran šteje za splet.
+        self.assertEqual(ozadje_strani.barva("safeer://procesi", self.ui, "#0a141c", lambda n: 1 / 0), ozadje_strani.BELO)
+
     def test_uskladi_nastavi_barvo_pogleda(self):
         Gdk, pogled = mock.MagicMock(), Pogled()
         pogled.get_uri.return_value = "https://example.org/"
@@ -154,6 +165,26 @@ class Zgodaj(unittest.TestCase):
         poslusalci["load-changed"](pogled, W.LoadEvent.COMMITTED)
         self.assertEqual(barve(Gdk), [self.TEMNA])
 
+    def test_notranja_stran_programa_ostane_temna(self):
+        Gdk, W, pogled = mock.MagicMock(), mock.MagicMock(), Pogled("")
+        ozadje_strani.prikljuci(Gdk, W, pogled, self.UI, self.TEMNA, nasa=lambda n: n.startswith("safeer://"))
+        poslusalci = {k.args[0]: k.args[1] for k in pogled.connect.call_args_list}
+        odlocitev = mock.MagicMock()
+        odlocitev.get_navigation_action.return_value.get_request.return_value.get_uri.return_value = "safeer://procesi"
+        poslusalci["decide-policy"](pogled, odlocitev, W.PolicyDecisionType.NAVIGATION_ACTION)
+        pogled.get_uri.return_value = "safeer://procesi"
+        poslusalci["load-changed"](pogled, W.LoadEvent.STARTED)
+        poslusalci["load-changed"](pogled, W.LoadEvent.COMMITTED)
+        self.assertEqual(barve(Gdk), [self.TEMNA], "pod notranjo stranjo ni bele osnove")
+        # S spleta nazaj na notranjo stran: temno, ko je prikazana.
+        pogled.get_uri.return_value = "https://example.org/"
+        poslusalci["load-changed"](pogled, W.LoadEvent.STARTED)
+        pogled.get_uri.return_value = "safeer://procesi"
+        poslusalci["load-changed"](pogled, W.LoadEvent.STARTED)
+        self.assertEqual(barve(Gdk), [self.TEMNA, ozadje_strani.BELO])
+        poslusalci["load-changed"](pogled, W.LoadEvent.COMMITTED)
+        self.assertEqual(barve(Gdk), [self.TEMNA, ozadje_strani.BELO, self.TEMNA])
+
     def test_zasilna_pot_ob_prikazu(self):
         # Če zgodnja nastavitev ni tekla (pogled brez priklopa), COMMITTED še vedno poskrbi za navadno stran brez ozadja.
         Gdk, pogled = mock.MagicMock(), Pogled("https://example.org/")
@@ -172,7 +203,9 @@ class Vgradnja(unittest.TestCase):
 
     def test_safeer_browser(self):
         s = beri("safeer_mint.py")
-        self.assertIn('ozadje_strani.prikljuci(Gdk, WebKit2, webview, os.path.join(BASE_DIR, "ui"), TEMNO_OZADJE)', s)
+        # Notranje strani na shemi safeer:// (safeer://procesi) so naše - pravilo jih pozna prek je_nasa_notranja_stran.
+        self.assertIn('ozadje_strani.prikljuci(Gdk, WebKit2, webview, os.path.join(BASE_DIR, "ui"), TEMNO_OZADJE,\n'
+                      '                                nasa=je_nasa_notranja_stran)', s)
         self.assertNotIn("ozadje_strani.uskladi(", s)
         # setup_webview_settings teče pred priklopom on_decide_policy (zavihki in stranska vrstica).
         nastavitev = s.index("        self.setup_webview_settings(wv)")

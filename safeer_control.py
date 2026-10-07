@@ -388,6 +388,13 @@ def parametri_konca_gledanja(gledani_zaslon: str) -> Optional[dict]:
     return {"stream": True} if gledani_zaslon else None
 
 
+def naprave_konca_gledanja(prikazana: str, gledana: str) -> list:
+    """Katerim napravam ob zaprtju okna povemo, naj nehajo deliti zaslon: tisti, ki jo okno kaže, in tisti, ki jo Link
+    šteje za gledano. Običajno je to ista naprava; različni sta, če se strani novega deljenja ni dalo odpreti - okno še
+    kaže prejšnjo, nova pa deli v prazno."""
+    return [naprava for naprava in dict.fromkeys((str(prikazana or ""), str(gledana or ""))) if naprava]
+
+
 class OddaljeniGledalec(Gtk.Window):
     """GTK3 gledalec H.264, ki tece v istem procesu kot Safeer Control."""
 
@@ -701,6 +708,7 @@ class SafeerControl(Gtk.Application):
         self.nastavitve = Nastavitve(os.path.join(NASTAVITVE_MAPA, "control.json"))
         self.web_context = WebKit2.WebContext.get_default()
         self.gledalec: Optional[Gtk.Window] = None
+        self._gledalec_naprava = ""          # naprava, katere zaslon okno gledalca trenutno kaže
         self._oddaljeni_gledalec: Optional[OddaljeniGledalec] = None
         # --ozadje: brez okna, z ikono v pladnju; okno se odpre iz pladnja ali ob ponovnem zagonu iz menija.
         self.ozadje = ozadje
@@ -1467,6 +1475,12 @@ class SafeerControl(Gtk.Application):
     def koncaj_brez_izhoda(self) -> None:
         """Pospravi povezavo, deljene mape in zaslon (ob izhodu in pred zagonom nove razlicice)."""
         try:
+            # Okno z zaslonom druge naprave je še odprto: naprava naj neha deliti, preden zapremo povezavo.
+            if self.gledalec is not None:
+                self._konec_gledanja(pocakaj=1.0)
+        except Exception:
+            pass
+        try:
             oddaljeni = self._oddaljeni_gledalec
             if oddaljeni is not None:
                 oddaljeni.zapri(sporoci_stop=False)
@@ -1925,23 +1939,52 @@ class SafeerControl(Gtk.Application):
         pogled = self.gledalec.get_child()
         pogled.load_uri(url)
         self.gledalec.present()
+        # Okno je eno samo. Link napravo, katere deljenje se odpira, šteje za gledano že od začetka deljenja; okno jo
+        # kaže šele od tu. Če je prej kazalo drugo napravo, ta izve, da je ne gledamo več (sicer deli v prazno).
+        link = self.link
+        nova = str(getattr(link, "gledani_zaslon", "") or "") if link is not None else ""
+        prej, self._gledalec_naprava = self._gledalec_naprava, nova
+        if prej and nova and prej != nova:
+            self._povej_konec_gledanja([prej])
 
-    def _konec_gledanja(self) -> None:
+    def _konec_gledanja(self, pocakaj: float = 0.0) -> None:
         """Uporabnik je zaprl okno z zaslonom druge naprave: naprava naj neha deliti zaslon (ukaz `apps.close`); če je
         sejo odprl »Odpri tukaj«, aplikacijo sama umakne z zaslona. Do 2.1.63 naprava ni izvedela ničesar: zaslon je
-        delila naprej in igra je igrala naprej (izmerjeno 7. 10. 2026)."""
+        delila naprej in igra je igrala naprej (izmerjeno 7. 10. 2026). pocakaj: koliko sekund največ počakati, da ukaz
+        odide (izhod iz programa - povezava se takoj zatem zapre)."""
         link = self.link
-        cilj = str(getattr(link, "gledani_zaslon", "") or "") if link is not None else ""
-        parametri = parametri_konca_gledanja(cilj)
-        if parametri is None:
+        prikazana, self._gledalec_naprava = self._gledalec_naprava, ""
+        if link is None:
+            return
+        cilji = naprave_konca_gledanja(prikazana, getattr(link, "gledani_zaslon", ""))
+        if not cilji:
             return
         link.gledani_zaslon = ""
         link.gledani_zaslon_id = ""
-        threading.Thread(target=lambda: link.ukaz_pocakaj(cilj, "apps.close", parametri, cas=5.0),
-                         name="safeer-konec-gledanja", daemon=True).start()
+        self._povej_konec_gledanja(cilji, pocakaj)
+
+    def _povej_konec_gledanja(self, cilji: list, pocakaj: float = 0.0) -> None:
+        """Napravam pove, da njihovega zaslona ne gledamo več (`apps.close` s `stream: true`), vsaki v svoji niti -
+        odgovor čakamo do 5 s in naprava, ki ne odgovori, ne sme zadržati druge."""
+        link = self.link
+        if link is None:
+            return
+        niti = []
+        for cilj in cilji:
+            parametri = parametri_konca_gledanja(cilj)
+            if parametri is None:
+                continue
+            nit = threading.Thread(target=lambda c=cilj, p=parametri: link.ukaz_pocakaj(c, "apps.close", p, cas=5.0),
+                                   name="safeer-konec-gledanja", daemon=True)
+            nit.start()
+            niti.append(nit)
+        if pocakaj > 0:
+            for nit in niti:
+                nit.join(pocakaj / max(1, len(niti)))
 
     def _zapri_gledalca(self) -> None:
         """Ob koncu share.screen odstrani zadnjo sliko in zapri samo vgrajeni gledalec."""
+        self._gledalec_naprava = ""
         if self.gledalec is None:
             return
         okno = self.gledalec
@@ -1963,6 +2006,10 @@ class SafeerControl(Gtk.Application):
         except Exception:
             return
         if self.link is not None and dejanje.startswith("input."):
+            # Dotiki iz okna gredo samo napravi, ki jo okno kaže. Link drugo napravo šteje za gledano že od začetka
+            # njenega deljenja - če se njena stran ne odpre, okno še kaže prejšnjo in dotik na njeni sliki ni za novo.
+            if self._gledalec_naprava and str(getattr(self.link, "gledani_zaslon", "") or "") != self._gledalec_naprava:
+                return
             self.link.poslji_vnos(dejanje, parametri)
 
     def _odziv_vnosa(self, odziv: dict) -> None:

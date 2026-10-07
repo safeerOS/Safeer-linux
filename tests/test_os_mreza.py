@@ -46,15 +46,33 @@ class Slog(unittest.TestCase):
 class Logika(unittest.TestCase):
     def setUp(self):
         js = beri("assets", "os", "os.js")
-        self.koda = js[js.index("  function knjiznicaNaVrsto(sirina)"):js.index("  function narisiKnjiznico()")]
+        self.koda = js[js.index("  function knjiznicaNaVrsto(sirina)"):js.index("  function narisiKnjiznico(")]
 
     def test_dve_vrstici_in_pokazi_vse(self):
         subprocess.run(["node", "-e", 'var assert = require("assert");\n' + self.koda + r"""
-// Koliko plakatov gre v vrsto (stolpec najmanj 145, razmik 14) - enako kot mreza kataloga.
+// Racun iz sirine mreze (rezerva): stolpec najmanj 145, razmik 14, mreza ima levo in desno 2 px roba (katalog.css).
+// Izmerjeno v WebKitGTK (7. 10. 2026): mreza, siroka 304..307 px, ima EN stolpec, 940 px pet - prejsnji racun je roba
+// spregledal in v takih pasovih nastel stolpec vec (tri vrstice namesto dveh).
 assert.strictEqual(knjiznicaNaVrsto(145), 1);
 assert.strictEqual(knjiznicaNaVrsto(303), 1);
-assert.strictEqual(knjiznicaNaVrsto(304), 2);
-assert.strictEqual(knjiznicaNaVrsto(940), 6);
+assert.strictEqual(knjiznicaNaVrsto(307), 1);
+assert.strictEqual(knjiznicaNaVrsto(308), 2);
+assert.strictEqual(knjiznicaNaVrsto(466), 2);
+assert.strictEqual(knjiznicaNaVrsto(467), 3);
+assert.strictEqual(knjiznicaNaVrsto(940), 5);
+assert.strictEqual(knjiznicaNaVrsto(944), 6);
+// Stevilo stolpcev pove brskalnik (izracunani slog mreze); racun velja, kadar ga ne pove (razdelek se ni prikazan).
+var slog = "";
+var window = { getComputedStyle: function () { if (slog === "napaka") throw new Error("ni sloga"); return { gridTemplateColumns: slog }; } };
+slog = "150.5px 150.5px 150.5px";
+assert.strictEqual(knjiznicaStolpcev({ clientWidth: 940 }), 3, "velja slog, ne racun");
+slog = "145px";
+assert.strictEqual(knjiznicaStolpcev({ clientWidth: 940 }), 1);
+["none", "", "repeat(auto-fill, minmax(145px, 1fr))", "napaka"].forEach(function (x) {
+  slog = x;
+  assert.strictEqual(knjiznicaStolpcev({ clientWidth: 940 }), 5, "rezerva: " + x);
+  assert.strictEqual(knjiznicaStolpcev({ clientWidth: 0 }), 6, "sirina se ni znana: " + x);
+});
 assert.strictEqual(knjiznicaNaVrsto(0), 6, "sirina se ni znana (razdelek se ni prikazan): privzetih 6, ne 1");
 assert.strictEqual(knjiznicaNaVrsto(undefined), 6);
 // Dve vrstici; ce je vsebine vec, zadnje mesto zasede »Pokaži vse«.
@@ -82,8 +100,11 @@ class Stran(unittest.TestCase):
 
     def test_risanje_uporablja_pravilo(self):
         js = beri("assets", "os", "os.js")
-        telo = js[js.index("  function narisiKnjiznico()"):js.index("  function predvajajIzKnjiznice(")]
-        self.assertIn("knjiznicaVidnih(vnosi.length, naVrsto, kat.knjiznicaVse)", telo)
+        telo = js[js.index("  function narisiKnjiznico("):js.index("  function predvajajIzKnjiznice(")]
+        self.assertIn("var naVrsto = knjiznicaStolpcev(vrsta), vidnih = knjiznicaVidnih(vnosi.length, naVrsto, kat.knjiznicaVse);", telo)
+        # Ko se plakati narisejo, stran lahko dobi drsnik in mreza izgubi stolpec: se en ris, a samo en.
+        self.assertIn("if (!znova && !kat.knjiznicaVse && knjiznicaStolpcev(vrsta) !== naVrsto) narisiKnjiznico(true);", telo)
+        self.assertEqual(js.count("narisiKnjiznico(true)"), 1)
         self.assertIn("vnosi.slice(0, vidnih).forEach(", telo)
         self.assertIn('t("knjiznicaPokaziVse")', telo)
 

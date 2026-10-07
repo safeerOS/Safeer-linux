@@ -1117,7 +1117,7 @@
     // Predlog odpre spletno stran ponudnika – ni neposredni tok in ne obljublja predvajanja brez pogojev ponudnika.
     b.title = t("mediaSpletnaStranNamig");
     b.type = "button";
-    b.addEventListener("click", function () { klic("splet", [v.url]).catch(function () { obvesti(t("niUspelo")); }); });
+    b.addEventListener("click", function () { odpriVSpletu(v.url); });
     return b;
   }
   function narisiMedije() {
@@ -1239,9 +1239,19 @@
   }
 
   // ------------------------------------------------------------------ splet
-  function odpriSplet(naslov, ime) {
-    klic("splet", [naslov]).catch(function () { obvesti(t("niUspelo")); });
+  var brezPeskovnikaOb = 0;   // kdaj je gostitelj nazadnje pojasnil, da vsebine brez peskovnika ne odpre
+  function pravkarBrezPeskovnika() { return Date.now() - brezPeskovnikaOb < 3000; }
+  /* Odpre naslov v vgrajenem brskalniku; obljuba pove, ali se je odprl. Kadar se ne, uporabnik to izve: do Safeer OS
+     0.4.65 je klik ostal brez odziva, ce je gostitelj naslov zavrnil (odgovor false ni napaka obljube).
+     novZavihek: stran, ki jo ima uporabnik odprto v brskalniku, ostane (povezava iz sporocila). */
+  function odpriVSpletu(naslov, novZavihek) {
+    return klic("splet", novZavihek ? [naslov, true] : [naslov]).then(function (ok) {
+      // Pojasnilo o peskovniku je gostitelj pravkar poslal sam (dogodek spletBrezPeskovnika): splosno ga ne prekrije.
+      if (ok === false && !pravkarBrezPeskovnika()) obvesti(t("niUspelo"));
+      return ok !== false;
+    }, function () { obvesti(t("niUspelo")); return false; });
   }
+  function odpriSplet(naslov, ime) { odpriVSpletu(naslov); }
   function narisiSpletnoZacetno() {
     var cilj = $("spletneAplikacije");
     if (!cilj) return;
@@ -2763,29 +2773,32 @@
   function podpisSporocila(s) {
     return String(s.id == null ? "" : s.id) + "\u0001" + (s.smer || "") + "\u0001" + (s.cas || "") + "\u0001" + (s.besedilo || "");
   }
-  // Osvezitev odprtega pogovora: mehurcki, ki so ze na zaslonu, ostanejo isti elementi (izbor besedila in meni se ne
-  // podreta). Pogovor kaze zadnjih 50 sporocil, zato lahko z vrha kaksno odpade, na dnu pa pridejo nova.
-  // Vrne [koliko mehurckov z vrha odstraniti, od katerega novega sporocila dodajati] ali null = narisi vse znova.
-  function premikSporocil(stari, novi) {
-    if (!stari || !stari.length || !novi.length) return null;
-    for (var k = 0; k < stari.length; k++) {
-      var n = stari.length - k, enako = n <= novi.length;
-      for (var i = 0; enako && i < n; i++) if (stari[k + i] !== novi[i]) enako = false;
-      if (enako) return [k, n];
-    }
-    return null;
-  }
   // Sporocilo je ena sama spletna povezava: meni ponudi se »Odpri povezavo« (kot Safeer OS na telefonu).
+  // Besedilo pride od drugod (e-posta, klepet, druga naprava), zato ponudimo samo naslov, pri katerem uporabnik vidi,
+  // kam vodi - meni ob postavki pokaze gostitelja, kot ga razume brskalnik:
+  //   - samo http in https (velikost crk v shemi ni pomembna: telefonske tipkovnice pisejo »Https://«);
+  //   - brez uporabniskega imena ali gesla pred gostiteljem (https://banka.example@drugje.example/ vodi na drugje.example);
+  //   - brez posevnice nazaj, nevidnih znakov in znakov za smer pisanja (naslov bi se bral drugace, kot ga razume brskalnik).
+  // Vrne { naslov, gostitelj } - naslov v obliki, kot ga je razclenil brskalnik - ali null.
+  var SPOR_NEVIDNI_ZNAKI = /[\u0000-\u0020\u007f-\u00a0\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180f\u2000-\u200f\u2028-\u202f\u205f-\u206f\u3000\u3164\ufe00-\ufe0f\ufeff\uffa0\ufff0-\uffff]|\ud834[\udd73-\udd7a]|\udb40[\udc00-\uddef]/;
   function povezavaSporocila(besedilo) {
-    var b = String(besedilo == null ? "" : besedilo).trim();
-    return b.length <= 2048 && /^https?:\/\/[^\s<>"'`]+$/i.test(b) ? b : "";
+    var b = String(besedilo == null ? "" : besedilo).trim(), u;
+    if (!b || b.length > 2048 || !/^https?:\/\/[^\s<>"'`\\]+$/i.test(b) || SPOR_NEVIDNI_ZNAKI.test(b)) return null;
+    try { u = new URL(b); } catch (e) { return null; }
+    if ((u.protocol !== "http:" && u.protocol !== "https:") || !u.hostname || u.username || u.password) return null;
+    return { naslov: u.href, gostitelj: u.host };
   }
-  // Postavke menija mehurcka: [kljuc besedila, dejanje, podatek].
+  // Gostitelj za napis v meniju: pri zelo dolgem ostane viden konec (domena), ne zacetek, ki ga doloca posiljatelj.
+  function gostiteljZaNapis(g) {
+    g = String(g || "");
+    return g.length > 40 ? "…" + g.slice(g.length - 39) : g;
+  }
+  // Postavke menija mehurcka: [kljuc besedila, dejanje, podatek, dodatek k napisu].
   function postavkeMenijaSporocila(besedilo, izbrano) {
     var p = [], url = povezavaSporocila(besedilo);
     if (izbrano && izbrano !== besedilo) p.push(["sporKopirajIzbrano", "kopiraj", izbrano]);
     if (besedilo) p.push(["sporKopiraj", "kopiraj", besedilo]);
-    if (url) p.push(["sporOdpriPovezavo", "odpri", url]);
+    if (url) p.push(["sporOdpriPovezavo", "odpri", url.naslov, gostiteljZaNapis(url.gostitelj)]);
     return p;
   }
   function mehurcekSporocila(s) {
@@ -2808,6 +2821,15 @@
     klic("kopiraj", [besedilo]).then(function (ok) { obvesti(t(ok === false ? "sporNiKopirano" : "sporKopirano")); },
       function () { obvesti(t("sporNiKopirano")); });
   }
+  // »Odpri povezavo«: v vgrajenem brskalniku, v novem zavihku (stran, ki jo ima uporabnik tam odprto, ostane).
+  function odpriPovezavoSporocila(naslov) {
+    return odpriVSpletu(naslov, true).then(function (odprto) {
+      // Brskalnik zdaj prekriva vsebino. Dokler bi stran mislila, da je odprt razdelek Sporocila, bi ga zanka
+      // osvezevala naprej in nova sporocila odprtega pogovora oznacila kot prebrana, ne da bi jih uporabnik videl.
+      if (odprto) S.razdelek = "splet";
+      return odprto;
+    });
+  }
   var meniSporocilaOb = 0;
   function zapriMeniSporocila() {
     var m = $("sporocilaMeni");
@@ -2821,7 +2843,7 @@
     m.innerHTML = ""; m._za = mehurcek; meniSporocilaOb = Date.now();
     if (!postavke.length) { m.hidden = true; return; }
     postavke.forEach(function (p) {
-      var g = el("button", "", ubezi(t(p[0]))); g.type = "button"; g.setAttribute("role", "menuitem");
+      var g = el("button", "", ubezi(t(p[0]) + (p[3] ? " · " + p[3] : ""))); g.type = "button"; g.setAttribute("role", "menuitem");
       // Pritisk na postavko ne sme podreti izbora v sporocilu, dokler dejanje ni izvedeno.
       g.addEventListener("mousedown", function (e) { e.preventDefault(); });
       g.addEventListener("click", function () {
@@ -2830,7 +2852,7 @@
         var za = m._za, sTipk = m.contains(document.activeElement);
         zapriMeniSporocila();
         if (sTipk) fokusNaMehurcek(null, za);
-        if (p[1] === "odpri") klic("splet", [p[2]]).catch(function () { obvesti(t("niUspelo")); });
+        if (p[1] === "odpri") odpriPovezavoSporocila(p[2]);
         else kopirajBesedilo(p[2]);
       });
       m.appendChild(g);
@@ -2857,31 +2879,88 @@
     var zadnji = cilj.lastElementChild;
     Array.prototype.forEach.call(cilj.children, function (m) { m.tabIndex = m === zadnji ? 0 : -1; });
   }
+  // Kaj od narisanega ostane: mehurcki z enakim podpisom ostanejo ISTI elementi (izbor besedila in meni se ne podreta),
+  // novi se naredijo, odvecni odpadejo. Pogovor kaze zadnjih 50 sporocil: z vrha lahko kaksno odpade, na dnu pridejo
+  // nova, pozno dostavljeno sporocilo (cakalo je v vrsti) pa se po casu uvrsti vmes.
+  function nacrtMehurckov(cilj, seznam) {
+    var stari = Object.create(null), novi = [], odvec = [];
+    Array.prototype.forEach.call(cilj.children, function (m) { (stari[m._podpis] = stari[m._podpis] || []).push(m); });
+    seznam.forEach(function (s) {
+      var isti = stari[podpisSporocila(s)];
+      novi.push(isti && isti.length ? isti.shift() : mehurcekSporocila(s));
+    });
+    Object.keys(stari).forEach(function (k) { odvec = odvec.concat(stari[k]); });
+    return { novi: novi, odvec: odvec };
+  }
+  function enakiMehurcki(cilj, novi) {
+    if (cilj.children.length !== novi.length) return false;
+    for (var i = 0; i < novi.length; i++) if (cilj.children[i] !== novi[i]) return false;
+    return true;
+  }
+  // Sidro pogleda: prvi mehurcek, ki sega v vidni del seznama in po osvezitvi ostane. Ko se vsebina nad njim spremeni
+  // (z vrha odpade staro sporocilo, vmes se uvrsti pozno dostavljeno), ga vrnemo na isto mesto. Racunamo iz polozaja na
+  // zaslonu, ne iz visin: brskalnik pomik ob krajsanju vsebine omeji sam, zato bi odstranjeno visino sicer odsteli dvakrat.
+  function sidroSporocil(cilj, ostane) {
+    var vrh = cilj.getBoundingClientRect().top, i, m, r;
+    for (i = 0; i < cilj.children.length; i++) {
+      m = cilj.children[i];
+      if (!ostane(m)) continue;
+      r = m.getBoundingClientRect();
+      if (r.bottom > vrh) return { m: m, odmik: r.top - vrh };
+    }
+    return null;
+  }
+  var sporocilaLastenPomikOb = 0;      // kdaj smo pomik seznama nazadnje popravili sami (dogodek scroll pride za tem)
+  function vrniSidroSporocil(cilj, sidro) {
+    if (!sidro || sidro.m.parentNode !== cilj) return;
+    var premik = sidro.m.getBoundingClientRect().top - cilj.getBoundingClientRect().top - sidro.odmik;
+    if (Math.abs(premik) >= 1) { sporocilaLastenPomikOb = Date.now(); cilj.scrollTop += premik; }
+  }
+  // Pomik seznama zapre meni sporocila - razen kadar smo pomik pravkar popravili sami: sporocilo z menijem je ostalo na
+  // istem mestu, uporabnik pa sredi izbire.
+  function obPomikuSporocil() {
+    if (Date.now() - sporocilaLastenPomikOb > 150) zapriMeniSporocila();
+  }
+  var sporocilaZahteva = 0, sporocilaNaDno = "";
   // odpiranje = uporabnik je pogovor odprl sam (klik, poslano sporocilo): pogled gre na zadnje sporocilo.
   function naloziVsebinoPogovora(pogovor, odpiranje) {
+    var kljuc = pogovor.kanal_id + "\u0001" + pogovor.id, zahteva = ++sporocilaZahteva;
+    // Velja do prvega izrisa TEGA pogovora, tudi ce ga narise odgovor na poznejso zahtevo: po poslanem sporocilu
+    // osvezitev seznama pogovor zahteva se enkrat (brez »odpiranje«), odgovor na prvo zahtevo pa se zavrze.
+    if (odpiranje) sporocilaNaDno = kljuc;
     klic("sporocilaPogovor", [pogovor.kanal_id, pogovor.id]).then(function (seznam) {
-      if (S.sporocilaAktivni !== pogovor) return;   // uporabnik je medtem odprl drug pogovor
+      // Uporabnik je medtem odprl drug pogovor, ali pa je za tega ze poslana novejsa zahteva (odgovori ne pridejo
+      // nujno v vrstnem redu zahtev - starejsi ne sme povoziti novejsega).
+      if (S.sporocilaAktivni !== pogovor || zahteva !== sporocilaZahteva) return;
       seznam = seznam || [];
-      var cilj = $("sporocilaVsebina"), meni = $("sporocilaMeni"), kljuc = pogovor.kanal_id + "\u0001" + pogovor.id, i;
-      var stari = cilj._kljuc === kljuc ? Array.prototype.map.call(cilj.children, function (m) { return m._podpis; }) : null;
-      var premik = premikSporocil(stari, seznam.map(podpisSporocila));
-      if (!premik) {
-        // Drug pogovor ali spremenjena starejsa sporocila: narisemo vse in pokazemo zadnje sporocilo.
+      var cilj = $("sporocilaVsebina"), meni = $("sporocilaMeni"), i;
+      var naDno = sporocilaNaDno === kljuc;
+      if (naDno) sporocilaNaDno = "";
+      if (cilj._kljuc !== kljuc || !cilj.children.length) {
+        // Drug pogovor: narisemo vse in pokazemo zadnje sporocilo.
         zapriMeniSporocila(); cilj.innerHTML = ""; cilj._kljuc = kljuc;
         seznam.forEach(function (s) { cilj.appendChild(mehurcekSporocila(s)); });
-        cilj.scrollTop = cilj.scrollHeight;
+        naDno = true;
       } else {
-        var naDnu = cilj.scrollHeight - cilj.scrollTop - cilj.clientHeight < 60, visina = cilj.scrollHeight;
-        for (i = 0; i < premik[0]; i++) {
-          if (meni && meni._za === cilj.firstChild) zapriMeniSporocila();
-          cilj.removeChild(cilj.firstChild);
+        var nacrt = nacrtMehurckov(cilj, seznam);
+        if (!enakiMehurcki(cilj, nacrt.novi)) {
+          var naDnu = cilj.scrollHeight - cilj.scrollTop - cilj.clientHeight < 60;
+          var sidro = naDno ? null : sidroSporocil(cilj, function (m) { return nacrt.odvec.indexOf(m) < 0; });
+          nacrt.odvec.forEach(function (m) {
+            if (meni && meni._za === m) zapriMeniSporocila();
+            cilj.removeChild(m);
+          });
+          // Mehurcki, ki ostanejo, so ze v pravem medsebojnem redu (seznam je urejen po casu): vstavijo se samo novi.
+          for (i = 0; i < nacrt.novi.length; i++) {
+            if (cilj.children[i] !== nacrt.novi[i]) cilj.insertBefore(nacrt.novi[i], cilj.children[i] || null);
+          }
+          // Sprememba pomakne pogled na zadnje sporocilo samo, ce uporabnik bere zadnja sporocila in nicesar ne
+          // oznacuje ali izbira v meniju; sicer ostane to, kar bere, na istem mestu.
+          if (naDnu && !izbranoVSporocilih() && (!meni || meni.hidden)) naDno = true;
+          else vrniSidroSporocil(cilj, sidro);
         }
-        if (premik[0]) cilj.scrollTop = Math.max(0, cilj.scrollTop - (visina - cilj.scrollHeight));
-        for (i = premik[1]; i < seznam.length; i++) cilj.appendChild(mehurcekSporocila(seznam[i]));
-        // Novo sporocilo pomakne pogled samo, ce uporabnik bere zadnja sporocila in nicesar ne oznacuje ali izbira v meniju.
-        if (premik[1] < seznam.length && naDnu && !izbranoVSporocilih() && (!meni || meni.hidden)) cilj.scrollTop = cilj.scrollHeight;
       }
-      if (odpiranje) cilj.scrollTop = cilj.scrollHeight;
+      if (naDno) cilj.scrollTop = cilj.scrollHeight;
       uskladiTabMehurckov(cilj);
       if (pogovor.neprebrano) { pogovor.neprebrano = 0; naloziSporocila(); }
     });
@@ -3169,7 +3248,7 @@
     return k ? t(k) : (vrsta === "podcast" ? "Podcast" : t("media_filmi"));
   }
   function katVidno() { return S.razdelek === "media"; }
-  function katSplet(url) { if (url) klic("splet", [url]).catch(function () { obvesti(t("niUspelo")); }); }
+  function katSplet(url) { if (url) odpriVSpletu(url); }
 
   function narisiStranjevanje() {
     var c = $("mediaStranjevanje"); if (!c) return; c.innerHTML = "";
@@ -3300,16 +3379,26 @@
   }
   function knjiznicaKje(x) { return x.naprava && x.naprava.tukaj ? t("knjiznicaTukaj") : ((x.naprava && x.naprava.ime) || ""); }
   // »Na tvojih napravah« je mreza kot katalog (ne polica, ki bi jo bilo treba pomikati v desno): dve vrstici;
-  // ce je vsebine vec, zadnje mesto zasede »Pokaži vse«. Stolpec je sirok najmanj 145, razmik 14 (katalog.css).
+  // ce je vsebine vec, zadnje mesto zasede »Pokaži vse«. Koliko stolpcev ima mreza, pove brskalnik (slog z auto-fill
+  // pozna stolpce tudi v prazni mrezi). Racun iz sirine je rezerva, kadar sloga se ni (razdelek ni prikazan): stolpec
+  // je sirok najmanj 145, razmik 14, mreza ima levo in desno 2 px roba (katalog.css).
   function knjiznicaNaVrsto(sirina) {
     var s = Number(sirina) || 0;
-    return s > 0 ? Math.max(1, Math.floor((s + 14) / (145 + 14))) : 6;
+    return s > 0 ? Math.max(1, Math.floor((s - 4 + 14) / (145 + 14))) : 6;
+  }
+  function knjiznicaStolpcev(vrsta) {
+    var n = 0;
+    try {
+      n = String(window.getComputedStyle(vrsta).gridTemplateColumns || "").split(/\s+/)
+        .filter(function (x) { return /px$/.test(x); }).length;
+    } catch (e) { n = 0; }
+    return n > 0 ? n : knjiznicaNaVrsto(vrsta.clientWidth);
   }
   function knjiznicaVidnih(stevilo, naVrsto, vse) {
     var mest = Math.max(1, naVrsto) * 2;
     return (vse || stevilo <= mest) ? stevilo : Math.max(1, mest - 1);
   }
-  function narisiKnjiznico() {
+  function narisiKnjiznico(znova) {
     var c = $("mediaKnjiznica"); if (!c) return; c.innerHTML = "";
     var vnosi = knjiznicaVidna() ? (kat.knjiznica || []) : [];
     c.hidden = !vnosi.length;
@@ -3318,7 +3407,7 @@
     c.appendChild(glava);
     var vrsta = el("div", "kat-knjiznica-vrsta");
     c.appendChild(vrsta);                               // najprej v stran, da ima sirino
-    var naVrsto = knjiznicaNaVrsto(vrsta.clientWidth), vidnih = knjiznicaVidnih(vnosi.length, naVrsto, kat.knjiznicaVse);
+    var naVrsto = knjiznicaStolpcev(vrsta), vidnih = knjiznicaVidnih(vnosi.length, naVrsto, kat.knjiznicaVse);
     if (kat.knjiznicaVse && vnosi.length > naVrsto * 2) {
       var manj = el("button", "", ubezi(t("knjiznicaPokaziManj"))); manj.type = "button";
       manj.onclick = function () { kat.knjiznicaVse = false; narisiKnjiznico(); };
@@ -3382,6 +3471,8 @@
       vse.onclick = function () { kat.knjiznicaVse = true; narisiKnjiznico(); };
       vrsta.appendChild(vse);
     }
+    // Ko se plakati narisejo, stran lahko dobi drsnik in mreza se zozi za stolpec: narisemo se enkrat (samo enkrat).
+    if (!znova && !kat.knjiznicaVse && knjiznicaStolpcev(vrsta) !== naVrsto) narisiKnjiznico(true);
   }
   // Sirina okna doloca, koliko plakatov gre v dve vrstici.
   var zamikKnjiznice = 0;
@@ -3665,7 +3756,8 @@
         }
         return;
       }
-      if (item.napaka_koda) { obvesti(t("mediaNapaka_" + item.napaka_koda)); return; }
+      // Pojasnilo, da predvajalnika brez peskovnika ni, je gostitelj pravkar poslal sam: splosna napaka ga ne prekrije.
+      if (item.napaka_koda) { if (!(item.napaka_koda === "tok" && pravkarBrezPeskovnika())) obvesti(t("mediaNapaka_" + item.napaka_koda)); return; }
       if (item.napaka) { obvesti(item.napaka); return; }
       if (item.sporocilo) { obvesti(item.sporocilo); return; }
       // »stran« ob predvajljivem toku je le izvor (npr. stran filma v arhivu); v Splet gre samo, kar nima toka.
@@ -4124,9 +4216,9 @@
       $("mediaOsvezi").disabled = S.mediaOsvezuje || !S.mediaMape.length;
     }
     if (vrsta === "medijskaNapaka") obvesti(t("niUspelo"));
-    // Vgrajeni brskalnik se ne da varno zagnati (sistem ne dovoli peskovnika): povemo zakaj, lupina tece naprej.
-    if (vrsta === "spletBrezPeskovnika") obvesti(t("spletBrezPeskovnika"));
-    if (vrsta === "medijBrezPeskovnika") obvesti(t("medijBrezPeskovnika"));
+    // Vsebine brez peskovnika ne odpremo (sistem ga ne dovoli): povemo zakaj, lupina tece naprej. Cas si zapomnimo,
+    // da splosno obvestilo o napaki tega pojasnila ne prekrije.
+    if (vrsta === "spletBrezPeskovnika" || vrsta === "medijBrezPeskovnika") { brezPeskovnikaOb = Date.now(); obvesti(t(vrsta)); }
     if (vrsta === "posodobitev") pokaziPosodobitevDoma(podatki);
     if (vrsta === "magnet") odpriMagnet(podatki && podatki.uri, podatki && podatki.samodejno === true);
     // Film iz torrenta (dodatek): med branjem torrenta in prenosom zacetka uporabnik vidi, da se nekaj dogaja.
@@ -4229,7 +4321,7 @@
     $("sporocilaVsebina").addEventListener("focusout", function (e) {
       if (e.target && e.target.classList) e.target.classList.remove("fokus-tipke");
     });
-    $("sporocilaVsebina").addEventListener("scroll", zapriMeniSporocila);
+    $("sporocilaVsebina").addEventListener("scroll", obPomikuSporocil);
     $("sporocilaMeni").addEventListener("keydown", function (e) {
       if (e.key === "Tab") { zapriMeniSporocila(); return; }
       if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
