@@ -203,9 +203,11 @@ class Vgradnja(unittest.TestCase):
 
     def test_safeer_browser(self):
         s = beri("safeer_mint.py")
-        # Notranje strani na shemi safeer:// (safeer://procesi) so naše - pravilo jih pozna prek je_nasa_notranja_stran.
+        # Stran Procesi (safeer://procesi) riše svoje temno ozadje: pod njo ostane temna osnova. Druge strani sheme
+        # safeer:// svojega ozadja nimajo (nadomestna stran) - pod njimi je belo kot pod spletom, sicer bi bile temne
+        # s črnim besedilom. Kaj je_stran_procesov pozna, preverja tests/test_js_most.py.
         self.assertIn('ozadje_strani.prikljuci(Gdk, WebKit2, webview, os.path.join(BASE_DIR, "ui"), TEMNO_OZADJE,\n'
-                      '                                nasa=je_nasa_notranja_stran)', s)
+                      '                                nasa=je_stran_procesov)', s)
         self.assertNotIn("ozadje_strani.uskladi(", s)
         # setup_webview_settings teče pred priklopom on_decide_policy (zavihki in stranska vrstica).
         nastavitev = s.index("        self.setup_webview_settings(wv)")

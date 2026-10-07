@@ -128,8 +128,15 @@ assert.strictEqual(o.poslji().defaultPrevented, true);                        //
         # je odlozisce izpraznil. (Safeer OS: oznaceno besedilo sporocila, nato drug razdelek in Ctrl+C.)
         self._node(r"""
 var o = zazeni(Okno());
-function obseg(pravokotnikov, strnjen) {
-  return { collapsed: !!strnjen, getClientRects: function () { return new Array(pravokotnikov); } };
+// Vozel v nenarisanem delu strani (display: none) nima okvirjev; besedilni vozel vprasamo po njegovem elementu.
+function vozel(narisan) {
+  return { nodeType: 3, parentElement: { nodeType: 1, getClientRects: function () { return new Array(narisan ? 1 : 0); } } };
+}
+function obseg(pravokotnikov, strnjen, meje) {
+  meje = meje || { narisan: false };
+  return { collapsed: !!strnjen, getClientRects: function () { return new Array(pravokotnikov); },
+           startContainer: vozel(meje.zacetek != null ? meje.zacetek : meje.narisan),
+           endContainer: vozel(meje.konec != null ? meje.konec : meje.narisan) };
 }
 function izbor(besedilo, obsegi) {
   return { type: "Range", rangeCount: obsegi.length, isCollapsed: false,
@@ -144,6 +151,19 @@ o._izbor = izbor("", [obseg(1)]);
 assert.strictEqual(o.poslji().defaultPrevented, false);
 o._izbor = izbor("", [obseg(0), obseg(2)]);
 assert.strictEqual(o.poslji().defaultPrevented, false);
+// Obseg brez svojih pravokotnikov, katerega meja je v NARISANEM delu strani (ovoj z display: contents okrog slike, ki
+// ga je izbrala skripta strani): to ni skrit izbor - kopira brskalnik.
+o._izbor = izbor("", [obseg(0, false, { narisan: true })]);
+assert.strictEqual(o.poslji().defaultPrevented, false);
+o._izbor = izbor("", [obseg(0, false, { zacetek: true, konec: false })]);
+assert.strictEqual(o.poslji().defaultPrevented, false);
+o._izbor = izbor("", [obseg(0, false, { zacetek: false, konec: true })]);
+assert.strictEqual(o.poslji().defaultPrevented, false);
+// Meja je element sam (ne besedilni vozel).
+o._izbor = izbor("", [{ collapsed: false, getClientRects: function () { return []; },
+  startContainer: { nodeType: 1, getClientRects: function () { return []; } },
+  endContainer: { nodeType: 1, getClientRects: function () { return []; } } }]);
+assert.strictEqual(o.poslji().defaultPrevented, true);
 // Besedilo izbora odloca pred obsegi (izbor v senci nima svojih pravokotnikov navzven).
 o._izbor = izbor("besedilo", [obseg(0)]);
 assert.strictEqual(o.poslji().defaultPrevented, false);
