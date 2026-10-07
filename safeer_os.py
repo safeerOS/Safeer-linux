@@ -748,6 +748,24 @@ def nastavi_samozagon(vklop: bool) -> bool:
         return False
 
 
+def uredi_samozagon_ob_zagonu(shramba) -> bool:
+    """Safeer OS se ob prijavi zazene samo, ce je uporabnik to SAM vklopil v Nastavitvah (»Zaženi ob prijavi v
+    računalnik«). Do razlicice 0.4.64 si je program zagon ob prijavi ob prvem odprtju vklopil sam.
+
+    Enkratna selitev: kjer je vklopljen, uporabnik pa ga ni izbral s stikalom (zapisa `samozagon_izbral` se ni), ga
+    izklopimo - vnos ostane, izklopljen. Potem velja samo stikalo. Vrne True, ce je bil ob tem izklopljen."""
+    if shramba.get("samozagon_izbral") is not None:
+        return False
+    izklopljen = False
+    if je_samozagon():
+        izklopljen = nastavi_samozagon(False)
+        if not izklopljen:
+            return False                # vnosa ni bilo mogoce zapisati: poskusimo ob naslednjem zagonu
+    shramba.set("samozagon", False)
+    shramba.set("samozagon_izbral", False)
+    return izklopljen
+
+
 # ---------------------------------------------------------------------- Mintov pult
 #: Visina Safeerjeve vrstice spodaj (tocke GDK). Programi se z najvecjim oknom ustavijo nad njo.
 VISINA_VRSTICE = 64
@@ -1024,6 +1042,7 @@ class SafeerOS(Gtk.Application):
             if not self.posnetek:
                 # Scit, ki ga je uporabnik vklopil, varuje tudi, kadar Safeer OS tece kot delovna povrsina.
                 self.scit.zacni_ce_vklopljen()
+                uredi_samozagon_ob_zagonu(self.shramba)
             koncaj = Gio.SimpleAction.new("koncaj", None)
             koncaj.connect("activate", lambda *a: self._koncaj())
             self.add_action(koncaj)
@@ -1051,10 +1070,9 @@ class SafeerOS(Gtk.Application):
         if self._prvic and not self.posnetek:
             self._prvic = False
             self.scit.zacni_ce_vklopljen()
-            if self.shramba.get("samozagon") is None:
-                # Kdor odpre Safeer OS, ga dobi tudi ob naslednji prijavi; izklop je v Nastavitvah,
-                # v »Nazaj v Linux Mint« in v Mintovih Zagonskih programih.
-                self.shramba.set("samozagon", nastavi_samozagon(True))
+            # Zagona ob prijavi program NE vklopi sam (prej ga je ob prvem odprtju): vklopi ga samo uporabnik s
+            # stikalom v Nastavitvah. Kjer ga je vklopila starejsa razlicica, ga tu enkrat izklopimo.
+            uredi_samozagon_ob_zagonu(self.shramba)
             # Brez prijavnega okna ob zagonu: Safeer OS dela takoj, naprave uporabnik poveze v Napravah,
             # kadar hoce (tam vidi, ali je v omrezju Safeer Link, in dobi navodila, ce ga ni).
 
@@ -2113,6 +2131,7 @@ class SafeerOS(Gtk.Application):
         ok = nastavi_samozagon(vklop)
         if ok:
             self.shramba.set("samozagon", bool(vklop))
+            self.shramba.set("samozagon_izbral", True)      # izbira uporabnika: selitev ob zagonu je ne spreminja vec
         return je_samozagon()
 
     def _nazaj_v_mint(self, za_stalno: bool) -> bool:
