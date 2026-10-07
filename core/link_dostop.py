@@ -9,7 +9,9 @@ Prej je bila vsaka seznanjena naprava enakovredna in stikala (mape, programi, za
 Link: telefon druge osebe, dodan v Link, je takoj dobil vse, kar racunalnik deli (izmerjeno 6. 10. 2026).
 
 Zapis (dostop.json v mapi nastavitev, 0600; berejo ga Control, brskalnik in sredisce na tem racunalniku):
-  {"v": 1, "podedovano_ob": 1791300000.0, "naprave": {"n-<16 hex>": "dpvz"}}
+  {"v": 1, "podedovano_ob": 1791300000.0, "naprave": {"n-<16 hex>": "dpvz"}, "zascita": ["n-<16 hex>"]}
+»zascita«: naprave, ki so s tem racunalnikom ze vzpostavile zascito od naprave do naprave (core/link_e2e). Od take
+naprave nezascitenega ukaza ne sprejmemo vec - sicer bi se kdorkoli z njeno oznako predstavil kot starejsa razlicica.
 Crke: d = datoteke, p = programi, v = predvajalnik, z = zaslon in upravljanje. Naprava brez zapisa nima dostopa.
 Ob prvem zagonu z dovoljenji se enkrat vpisejo naprave, ki so bile z racunalnikom v krogu ze prej (`podedovani`);
 pozneje se nic vec ne podeduje - nov vnos v krogu s starim datumom dostopa ne dobi.
@@ -105,17 +107,24 @@ def je_id_iz_kljuca(device_id: str) -> bool:
 
 
 def jedro_iz(device_id: str, kljuc_clana: Callable[[str], Optional[str]], id_iz_kljuca: Callable[[str], str]) -> str:
-    """Stalna oznaka naprave ne glede na id, pod katerim se javi: id iz kljuca (`n-<16 hex>`) brez pripone sorodnika
-    (`-os`, `-control` ...). Star id se prevede prek kljuca v krogu; naprava, ki je krog ne pozna, ostane pri svojem
-    id-ju (zanjo ni zapisa, torej nima dostopa)."""
+    """Stalna oznaka naprave ne glede na id, pod katerim se javi. Odloca KLJUC, pod katerim je naprava v krogu:
+
+    - id iz kljuca (`n-<16 hex>`, po zelji s pripono sorodnika `-os`, `-control` ...) da svoje jedro - RAZEN ce je pod
+      tem id-jem v krogu vpisan drug kljuc. Tak vnos je videti kot druga naprava, a to ni (izmerjeno 7. 10. 2026: krog ga
+      je sprejel in preverba dostopa mu je dala dostop posnemane naprave); dobi prazno jedro, torej nic.
+    - star id se prevede prek kljuca v krogu; naprava, ki je krog ne pozna, ostane pri svojem id-ju (zanjo ni zapisa,
+      torej nima dostopa)."""
     device_id = str(device_id or "")
-    if je_id_iz_kljuca(device_id):
-        return device_id[:DOLZINA_JEDRA]
     try:
         kljuc = kljuc_clana(device_id)
-        return id_iz_kljuca(kljuc) if kljuc else device_id
+        jedro_kljuca = id_iz_kljuca(kljuc) if kljuc else ""
     except Exception:  # noqa: BLE001 - pokvarjen kljuc ne sme odpreti nicesar
-        return device_id
+        return ""
+    if je_id_iz_kljuca(device_id):
+        if jedro_kljuca and jedro_kljuca != device_id[:DOLZINA_JEDRA]:
+            return ""
+        return device_id[:DOLZINA_JEDRA]
+    return jedro_kljuca or device_id
 
 
 def podedovani(clani: Iterable[dict], lastni_kljuc: Optional[str], id_iz_kljuca: Callable[[str], str],
@@ -172,6 +181,7 @@ def zavrnitev(dejanje: str) -> dict:
 
 _zaklep = threading.RLock()
 _zapis: Optional[Dict[str, Set[str]]] = None
+_zascita: Set[str] = set()
 _prebrano_mtime = -1.0
 _prebrana_pot = ""
 _pot_preglasena: Optional[str] = None
@@ -214,14 +224,15 @@ def _shrani(zapis: Dict[str, Set[str]], podedovano_ob: Optional[float] = None) -
     os.makedirs(os.path.dirname(pot), exist_ok=True)
     zacasna = pot + ".tmp"
     with open(zacasna, "w", encoding="utf-8") as d:
-        json.dump({"v": 1, "podedovano_ob": stari_ob, "naprave": {k: v_niz(v) for k, v in sorted(zapis.items())}}, d, indent=1)
+        json.dump({"v": 1, "podedovano_ob": stari_ob, "naprave": {k: v_niz(v) for k, v in sorted(zapis.items())},
+                   "zascita": sorted(_zascita)}, d, indent=1)
     os.chmod(zacasna, 0o600)
     os.replace(zacasna, pot)
 
 
 def _nalozen() -> Dict[str, Set[str]]:
     """Zapis dovoljenj; znova prebran, ce ga je spremenil drug program na tem racunalniku (Control, brskalnik)."""
-    global _zapis, _prebrano_mtime, _prebrana_pot
+    global _zapis, _prebrano_mtime, _prebrana_pot, _zascita
     with _zaklep:
         pot = _pot()
         try:
@@ -231,6 +242,7 @@ def _nalozen() -> Dict[str, Set[str]]:
         if _zapis is not None and mtime == _prebrano_mtime and pot == _prebrana_pot:
             return _zapis
         _prebrana_pot = pot
+        _zascita = set()
         if mtime < 0:
             # Prvi zagon z dovoljenji: dosedanje naprave obdrzijo, kar so imele (vse); pozneje dodane zacnejo brez dostopa.
             try:
@@ -254,6 +266,7 @@ def _nalozen() -> Dict[str, Set[str]]:
                 surovo = json.load(d) or {}
             for kljuc, crke in (surovo.get("naprave") or {}).items():
                 zapis[str(kljuc)] = iz_niza(str(crke))
+            _zascita = {str(j) for j in (surovo.get("zascita") or []) if isinstance(j, str) and je_id_iz_kljuca(j)}
         except Exception:  # noqa: BLE001 - pokvarjen zapis: nihce nima dostopa (varna stran), uporabnik ga odpre znova
             zapis = {}
         _zapis, _prebrano_mtime = zapis, mtime
@@ -293,15 +306,82 @@ def zmoznosti(device_id: str) -> Set[str]:
 
 
 def sme(device_id: str, zahteva: str) -> bool:
+    """Ali je napravi z to oznako odprto `zahteva` (za zeton streznika datotek, seznam naprav in oddaje sredisca -
+    povsod, kjer ne presojamo posameznega sporocila)."""
     return zahteva == PROSTO or sme_z(zmoznosti(device_id), zahteva)
 
 
-def sme_dejanje(device_id: str, dejanje: str) -> bool:
-    return sme(device_id, zahteva_dejanja(dejanje))
+def zmoznosti_jedra(jedro_naprave: str) -> Set[str]:
+    """Kaj je odprto napravi s tem jedrom (jedro pride iz PREVERJENEGA kljuca - core/link_e2e)."""
+    if not jedro_naprave:
+        return set()
+    if jedro_naprave == lastno_jedro():
+        return set(VSE_ZMOZNOSTI)
+    return set(_nalozen().get(jedro_naprave) or ())
 
 
-def sme_sporocilo(device_id: str, tip: str, dejanje: str = "") -> bool:
-    return sme(device_id, zahteva_sporocila(tip, dejanje))
+def zna_zascito(jedro_naprave: str) -> bool:
+    """Ali je naprava s tem jedrom ze kdaj vzpostavila zascito s tem racunalnikom (ali pa je to ta racunalnik sam -
+    njegovi programi jo znajo vedno, kadar je kriptografija na voljo)."""
+    if not jedro_naprave:
+        return False
+    _nalozen()
+    if jedro_naprave in _zascita:
+        return True
+    if jedro_naprave == lastno_jedro():
+        try:
+            from core import link_e2e
+            return link_e2e.na_voljo()
+        except Exception:  # noqa: BLE001
+            return False
+    return False
+
+
+def zahteva_zascito(device_id: str) -> bool:
+    """Ali od naprave s to oznako sprejmemo samo zascitena sporocila (ker vemo, da jih zna poslati)."""
+    return zna_zascito(jedro(device_id))
+
+
+def zabelezi_zascito(jedro_naprave: str) -> None:
+    """Z napravo je vzpostavljena preverjena seja: odslej od nje (in v njenem imenu) ne sprejmemo nezascitenega."""
+    global _prebrano_mtime
+    if not je_id_iz_kljuca(jedro_naprave) or len(jedro_naprave) != DOLZINA_JEDRA:
+        return
+    with _zaklep:
+        zapis = _nalozen()
+        if jedro_naprave in _zascita or jedro_naprave == lastno_jedro():
+            return
+        _zascita.add(jedro_naprave)
+        try:
+            _shrani(zapis)
+            _prebrano_mtime = os.stat(_pot()).st_mtime
+        except OSError:
+            pass
+        print("[SafeerLink] naprava %s…%s je dokazala kljuc: odslej od nje samo zasciteni ukazi"
+              % (jedro_naprave[:2], jedro_naprave[-4:]), flush=True)
+
+
+def _sme_posiljatelj(device_id: str, zahteva: str, zascita: Optional[str], zascitljivo: bool) -> bool:
+    if zahteva == PROSTO:
+        return True
+    if zascita:
+        return sme_z(zmoznosti_jedra(str(zascita)), zahteva)
+    if zascitljivo and zahteva_zascito(device_id):
+        return False
+    return sme_z(zmoznosti(device_id), zahteva)
+
+
+def sme_dejanje(device_id: str, dejanje: str, zascita: Optional[str] = None) -> bool:
+    """Ali sme posiljatelj izvesti ukaz. `zascita` je jedro iz preverjenega kljuca, kadar je sporocilo prislo zasciteno;
+    brez nje velja oznaka, ki jo je vpisalo sredisce - a samo za napravo, ki zascite (se) ne zna."""
+    return _sme_posiljatelj(device_id, zahteva_dejanja(dejanje), zascita, True)
+
+
+def sme_sporocilo(device_id: str, tip: str, dejanje: str = "", zascita: Optional[str] = None) -> bool:
+    """Kot sme_dejanje, za sporocila, ki niso ukaz. Pravilo »od naprave z zascito samo zasciteno« velja za tipe, ki jih
+    naprave z zascito res posiljajo zascitene (link_e2e.ZASCITENI_TIPI); usklajevanje in zaslon gresta se po starem."""
+    from core import link_e2e
+    return _sme_posiljatelj(device_id, zahteva_sporocila(tip, dejanje), zascita, tip in link_e2e.ZASCITENI_TIPI)
 
 
 def nastavi(device_id: str, dano: Iterable[str]) -> bool:
@@ -309,9 +389,12 @@ def nastavi(device_id: str, dano: Iterable[str]) -> bool:
     if not device_id or je_ta_naprava(device_id):
         return False
     global _zapis, _prebrano_mtime, _prebrana_pot
+    j = jedro(device_id)
+    if not j:
+        return False
     with _zaklep:
         zapis = dict(_nalozen())
-        zapis[jedro(device_id)] = iz_niza(v_niz(dano))
+        zapis[j] = iz_niza(v_niz(dano))
         _shrani(zapis)
         _zapis = zapis
         try:
@@ -358,7 +441,8 @@ def prejemniki(navedeni, posiljatelj: str, zahteva: str = VSE) -> Set[str]:
             izid.add(nas)
     else:
         izid = set()
-    izid.add(jedro(posiljatelj))
+    izid.add(jedro(posiljatelj) or posiljatelj)
+    izid.discard("")
     return izid
 
 
@@ -386,6 +470,6 @@ def zabelezi(posiljatelj: str, kaj: str, zdaj: Optional[float] = None) -> None:
 
 def _za_preizkus(pot: Optional[str]) -> None:
     """Preizkusi: zapis v zacasni datoteki (None vrne pravo pot)."""
-    global _pot_preglasena, _zapis, _prebrano_mtime
+    global _pot_preglasena, _zapis, _prebrano_mtime, _zascita
     with _zaklep:
-        _pot_preglasena, _zapis, _prebrano_mtime = pot, None, -1.0
+        _pot_preglasena, _zapis, _prebrano_mtime, _zascita = pot, None, -1.0, set()

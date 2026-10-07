@@ -29,7 +29,7 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gtk, WebKit2, GLib  # noqa: E402
 
-from core import link_deljenje, link_dostop, link_hub, link_hub_streznik, link_iskanje, link_krog, link_mesh, link_seja, link_tls  # noqa: E402
+from core import link_deljenje, link_dostop, link_e2e, link_hub, link_hub_streznik, link_iskanje, link_krog, link_mesh, link_seja, link_tls  # noqa: E402
 
 
 def _magnet_na_voljo() -> bool:
@@ -1218,6 +1218,15 @@ class SafeerLink:
 
     def _na_sporocilo_huba(self, sporocilo: dict) -> None:
         vrsta = sporocilo.get("type")
+        if vrsta in link_e2e.ZASCITENI_TIPI and not sporocilo.get("_zascita"):
+            # Naprava, ki zascito od naprave do naprave zna (ali ta racunalnik sam), teh sporocil ne posilja
+            # nezascitenih. Kar pride tako v njenem imenu, ni od nje - ali pa ga je na poti kdo razgalil.
+            posiljatelj = str(sporocilo.get("sender") or "")
+            if posiljatelj and link_dostop.zahteva_zascito(posiljatelj):
+                link_dostop.zabelezi(posiljatelj, f"{vrsta} brez zascite")
+                if vrsta == "control.command":
+                    self._zavrni_nezasciten_ukaz(sporocilo, posiljatelj)
+                return
         if isinstance(vrsta, str) and vrsta.startswith("internet."):
             # Tokovi Safeer Internet Gatewaya: veliko sporocil, obdelajo se takoj na tej (bralni) niti.
             if self.internet is not None:
@@ -1268,7 +1277,8 @@ class SafeerLink:
             })
         elif vrsta == "sync.data":
             # Usklajevanje (zaznamki) sprejmemo samo od naprave iz ozjega kroga tega racunalnika.
-            if link_dostop.sme_sporocilo(str(sporocilo.get("sender") or ""), "sync.data"):
+            if link_dostop.sme_sporocilo(str(sporocilo.get("sender") or ""), "sync.data",
+                                         zascita=sporocilo.get("_zascita")):
                 self._prejmi_zaznamke(sporocilo.get("payload") or {})
             else:
                 link_dostop.zabelezi(str(sporocilo.get("sender") or ""), "sync.data")
@@ -1331,6 +1341,25 @@ class SafeerLink:
         elif vrsta in ("control.result", "control.ack"):
             self._ukaz_odziv(sporocilo)
 
+    def _zavrni_nezasciten_ukaz(self, sporocilo: dict, posiljatelj: str) -> None:
+        """Odgovor na ukaz, ki je prisel brez zascite v imenu naprave, ki zascito zna. Gre NEZASCITEN tistemu, ki je
+        ukaz poslal (oznaka sredisca): starejsi program iste naprave (isti kljuc, se brez zascite) tako dobi sporocilo
+        »posodobi Safeer« namesto izteka casa. Zavrnitev ne nosi nobene vsebine; ponarejevalec iz nje izve le to, kar
+        naprava ze prijavlja srediscu - da zascito zahteva."""
+        from core import link_daljinec
+        povezava = self.povezava
+        if povezava is None:
+            return
+        telo = sporocilo.get("payload") or {}
+        dejanje = str(telo.get("action", "") or "") if isinstance(telo, dict) else ""
+        try:
+            povezava.poslji_nezasciteno(link_daljinec.sporocilo_izida(
+                posiljatelj, str(sporocilo.get("id", "") or ""), dejanje,
+                {"ok": False, "message": "Ukaz ni prišel zaščiten. Posodobi Safeer na napravi, ki ga pošilja.",
+                 "code": "zascita"}))
+        except Exception:  # noqa: BLE001
+            pass
+
     def _prejmi_ukaz(self, sporocilo: dict) -> None:
         from core import link_daljinec
         posiljatelj = str(sporocilo.get("sender", "") or "")
@@ -1347,7 +1376,7 @@ class SafeerLink:
                 except Exception as e:  # noqa: BLE001
                     print(f"[SafeerLink] Odgovora na ukaz ni bilo mogoče poslati: {e}")
 
-        if not link_dostop.sme_dejanje(posiljatelj, dejanje):
+        if not link_dostop.sme_dejanje(posiljatelj, dejanje, zascita=sporocilo.get("_zascita")):
             # Naprava je v Safeer Linku (pomaga pri povezavi), a ji uporabnik tega na TEM racunalniku ni odprl:
             # zavrne racunalnik sam, ne glede na to, kaj druga naprava kaze ali skriva.
             link_dostop.zabelezi(posiljatelj, dejanje)
@@ -1376,7 +1405,8 @@ class SafeerLink:
         telo = sporocilo.get("payload") or {}
         url = str(telo.get("url", "") or "").strip()
         sprejeto = url.startswith("http://") or url.startswith("https://")
-        if sprejeto and not link_dostop.sme_sporocilo(str(sporocilo.get("sender") or ""), "cast.url"):
+        if sprejeto and not link_dostop.sme_sporocilo(str(sporocilo.get("sender") or ""), "cast.url",
+                                                      zascita=sporocilo.get("_zascita")):
             # Stran se tu odpre sama, zato samo od naprave, ki ji je uporabnik odprl predvajalnik.
             link_dostop.zabelezi(str(sporocilo.get("sender") or ""), "cast.url")
             sprejeto = False

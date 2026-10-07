@@ -65,9 +65,11 @@ def _sme_naprava(id_naprave: str, zmoznost: str) -> bool:
 
 
 def _jedro_naprave(id_naprave: str) -> str:
+    """Kljuc shrambe izrecnih dovoljenj. Oznaka, pod katero je v krogu drug kljuc (prazno jedro), ostane pri sebi:
+    dovoljenje zanjo ne sme veljati za nobeno drugo tako oznako."""
     try:
         from core import link_dostop
-        return link_dostop.jedro(id_naprave)
+        return link_dostop.jedro(id_naprave) or id_naprave
     except Exception:  # noqa: BLE001
         return id_naprave
 

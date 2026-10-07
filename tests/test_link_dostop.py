@@ -151,10 +151,19 @@ class Zapis(_Osnova):
         self.assertTrue(link_dostop.sme_sporocilo(A, "sync.data"))
 
     def test_ta_racunalnik_ima_vse_in_se_ga_ne_da_nastaviti(self):
-        self.assertTrue(link_dostop.sme_dejanje(JAZ + "-control", "files.list"))
+        self.assertTrue(link_dostop.sme_dejanje(JAZ + "-control", "files.list", zascita=JAZ))
         self.assertTrue(link_dostop.je_ta_naprava(JAZ))
         self.assertFalse(link_dostop.nastavi(JAZ, ""))
         self.assertTrue(link_dostop.sme_sporocilo(JAZ + "-os", "sync.data"))
+        self.assertEqual(link_dostop.zmoznosti(JAZ + "-control"), set(link_dostop.VSE_ZMOZNOSTI))
+
+    def test_oznaka_tega_racunalnika_brez_zascite_ni_dovolj_za_ukaz(self):
+        """Programi tega racunalnika zascito znajo: kdor se z njegovo oznako javi brez nje, ni ta racunalnik."""
+        with mock.patch("core.link_e2e.na_voljo", return_value=True):
+            self.assertFalse(link_dostop.sme_dejanje(JAZ + "-control", "files.list"))
+            self.assertFalse(link_dostop.sme_sporocilo(JAZ + "-x", "cast.url"))
+        with mock.patch("core.link_e2e.na_voljo", return_value=False):       # brez kriptografije zascite ni: kot doslej
+            self.assertTrue(link_dostop.sme_dejanje(JAZ + "-control", "files.list"))
 
     def test_zapis_je_samo_za_lastnika_in_prezivi_ponovni_zagon(self):
         link_dostop.nastavi(B, "p")
@@ -181,6 +190,85 @@ class Zapis(_Osnova):
         # starejsi izvor iz ozjega kroga: ozjemu krogu tega racunalnika in programom na njem
         link_dostop.nastavi(S, "dpvz")
         self.assertEqual(link_dostop.prejemniki(None, S, link_dostop.VSE), {A, S, JAZ})
+
+
+class Zascita(_Osnova):
+    """Zascita od naprave do naprave (core/link_e2e): dostop se veze na preverjen kljuc; naprava, ki zascito zna, se
+    brez nje ne more vec javiti - tudi nihce v njenem imenu."""
+
+    def test_po_vzpostavljeni_zasciti_nezascitenega_ukaza_ne_sprejmemo(self):
+        link_dostop.nastavi(A, "dp")
+        self.assertTrue(link_dostop.sme_dejanje(A + "-os", "files.list"))               # starejsa razlicica: po oznaki
+        link_dostop.zabelezi_zascito(A)
+        self.assertTrue(link_dostop.zahteva_zascito(A + "-os"))
+        self.assertFalse(link_dostop.sme_dejanje(A + "-os", "files.list"))              # isto brez zascite: ne vec
+        self.assertTrue(link_dostop.sme_dejanje(A + "-os", "files.list", zascita=A))    # zasciteno: po kljucu
+        self.assertFalse(link_dostop.sme_dejanje(A + "-os", "screen.start", zascita=A))  # zascita ni dovoljenje
+        self.assertFalse(link_dostop.sme_sporocilo(A + "-os", "cast.url"))
+        self.assertTrue(link_dostop.sme_dejanje(A + "-os", "play.offer"))               # prosto ostane prosto
+        self.assertTrue(link_dostop.sme(A + "-os", link_dostop.DATOTEKE))               # zeton streznika datotek
+
+    def test_usklajevanje_in_zaslon_gresta_se_po_starem(self):
+        link_dostop.nastavi(A, "dpvz")
+        link_dostop.zabelezi_zascito(A)
+        self.assertTrue(link_dostop.sme_sporocilo(A + "-os", "sync.data"))
+        self.assertTrue(link_dostop.sme_sporocilo(A + "-os", "share.screen", "start"))
+
+    def test_zascita_odloca_po_kljucu_ne_po_oznaki(self):
+        link_dostop.nastavi(A, "dpvz")
+        self.assertFalse(link_dostop.sme_dejanje(A + "-os", "files.list", zascita=B))   # oznaka A, kljuc B
+        self.assertTrue(link_dostop.sme_dejanje(B, "files.list", zascita=A))            # oznaka B, kljuc A
+        self.assertEqual(link_dostop.zmoznosti_jedra(""), set())
+        self.assertEqual(link_dostop.zmoznosti_jedra(JAZ), set(link_dostop.VSE_ZMOZNOSTI))
+
+    def test_zapis_zascite_prezivi_ponovni_zagon_in_spremembo_dostopa(self):
+        link_dostop.zabelezi_zascito(A)
+        link_dostop.nastavi(B, "p")
+        pot = link_dostop._pot()
+        link_dostop._za_preizkus(pot)
+        self.assertTrue(link_dostop.zna_zascito(A))
+        self.assertFalse(link_dostop.zna_zascito(B))
+        with open(pot, encoding="utf-8") as d:
+            self.assertEqual(json.load(d)["zascita"], [A])
+
+    def test_zabelezi_se_samo_jedro_iz_kljuca(self):
+        for neveljavno in (A + "-os", "karkoli", "", "n-12345"):
+            link_dostop.zabelezi_zascito(neveljavno)
+        self.assertFalse(link_dostop.zna_zascito(A))
+        self.assertFalse(link_dostop.zna_zascito(""))
+
+
+class PodobnaOznaka(_Osnova):
+    """Izmerjeno 7. 10. 2026: krog sprejme vnos z oznako, ki je videti kot oznaka druge naprave, a z drugim kljucem."""
+    clani = ({"id": A + "-x", "kljuc": "KB", "dodano": 1.0}, {"id": JAZ + "-x", "kljuc": "KB", "dodano": 1.0})
+
+    def test_vnos_z_oznako_druge_naprave_in_svojim_kljucem_ne_dobi_njenega_dostopa(self):
+        link_dostop.nastavi(A, "dpvz")
+        self.assertEqual(link_dostop.jedro(A + "-x"), "")
+        self.assertEqual(link_dostop.zmoznosti(A + "-x"), set())
+        self.assertFalse(link_dostop.sme_dejanje(A + "-x", "files.list"))
+        self.assertTrue(link_dostop.sme_dejanje(A + "-os", "files.list"))       # prava naprava A
+        self.assertFalse(link_dostop.nastavi(A + "-x", "dpvz"))
+
+    def test_oznaka_z_drugim_kljucem_ne_deli_shrambe_z_drugo_tako_oznako(self):
+        """Prazno jedro ne sme postati skupni kljuc: izrecno poslana datoteka in prejemniki oddaje ostanejo pri oznaki."""
+        from core import link_hub_streznik
+        self.assertEqual(link_datoteke._jedro_naprave(A + "-x"), A + "-x")
+        self.assertEqual(link_datoteke._jedro_naprave(A + "-os"), A)
+        self.assertEqual(link_hub_streznik._jedro_naprave(JAZ + "-x"), JAZ + "-x")
+        s = link_datoteke.StreznikDatotek(mock.Mock())
+        s.umaknjena = lambda n: False
+        s.dovoli_izrecno(A + "-x", "film-1")
+        self.assertTrue(s.izrecno_dovoljena(A + "-x", "film-1"))
+        self.assertFalse(s.izrecno_dovoljena(JAZ + "-x", "film-1"))       # druga oznaka s praznim jedrom
+        self.assertFalse(s.izrecno_dovoljena(A, "film-1"))               # prava naprava A tega ni dobila
+        self.assertEqual(link_dostop.prejemniki(None, A + "-x", link_dostop.VSE), {A + "-x"})
+        self.assertEqual(link_dostop.prejemniki(["", B], S, link_dostop.VSE), {B, S})       # praznega jedra ni v seznamu
+
+    def test_vnos_z_oznako_tega_racunalnika_in_tujim_kljucem_ni_ta_racunalnik(self):
+        self.assertFalse(link_dostop.je_ta_naprava(JAZ + "-x"))
+        self.assertEqual(link_dostop.zmoznosti(JAZ + "-x"), set())
+        self.assertTrue(link_dostop.je_ta_naprava(JAZ + "-control"))
 
 
 class PrviZagon(_Osnova):
@@ -248,6 +336,8 @@ class RacunalnikZavrneSam(_Osnova):
         self.poslano = []
         self.link.povezava = mock.Mock()
         self.link.povezava.poslji = lambda s: self.poslano.append(s) or True
+        self.nezasciteno = []
+        self.link.povezava.poslji_nezasciteno = lambda s: self.nezasciteno.append(s) or True
         self.link.control = True
         self.link.gledani_zaslon = ""
         self.link.gledani_zaslon_id = ""
@@ -315,6 +405,44 @@ class RacunalnikZavrneSam(_Osnova):
         self.link._prejmi_zaznamke.assert_not_called()
         self.link._na_sporocilo_huba({"type": "sync.data", "sender": A, "payload": {"category": "bookmarks"}})
         self.link._prejmi_zaznamke.assert_called_once()
+
+    def test_nezasciten_ukaz_v_imenu_naprave_z_zascito_se_ne_izvede(self):
+        """Naprava A ima poln dostop in zascito zna. Ukaz z njeno oznako, ki pride brez zascite, ni njen."""
+        link_dostop.zabelezi_zascito(A)
+        self._ukaz(A + "-os", "files.list")
+        self.idle_add.assert_not_called()
+        # Zavrnitev gre nezascitena tistemu, ki je ukaz poslal (starejsi program iste naprave jo tako lahko prebere);
+        # po zasciteni poti ne gre nic.
+        self.assertEqual(self.poslano, [])
+        self.assertEqual(len(self.nezasciteno), 1)
+        o = self.nezasciteno[0]
+        self.assertEqual((o["type"], o["target"], o["ref_id"], o["payload"]["code"]), ("control.result", A + "-os", "u1", "zascita"))
+        self.assertEqual(set(o["payload"]) - {"ok", "message", "code", "action"}, set())      # brez vsebine
+        self.link._na_sporocilo_huba({"id": "c1", "type": "cast.url", "sender": A, "payload": {"url": "https://primer.si/"}})
+        self.link._na_sporocilo_huba({"id": "r1", "type": "control.result", "sender": A, "ref_id": "x", "payload": {"ok": True}})
+        self.link._na_sporocilo_huba({"id": "h1", "type": "handoff.request", "sender": A, "payload": {"url": "https://primer.si/"}})
+        self.idle_add.assert_not_called()
+        self.assertEqual(self.odzivi, [])
+        self.assertEqual((self.poslano, len(self.nezasciteno)), ([], 1))   # strani in odgovora brez zascite niti ne potrdimo
+
+    def test_zasciten_ukaz_velja_po_kljucu(self):
+        link_dostop.zabelezi_zascito(A)
+        self.poslano.clear()
+        self.link._na_sporocilo_huba({"id": "u1", "type": "control.command", "sender": A + "-os", "_zascita": A,
+                                      "payload": {"action": "files.list", "params": {}}})
+        self.idle_add.assert_called_once()
+        self.assertEqual(self.poslano, [])
+        # Zascita dokaze kljuc, ne dovoljenja: naprava B z zascito, a brez dostopa, je zavrnjena kot prej.
+        self.idle_add.reset_mock()
+        self.link._na_sporocilo_huba({"id": "u2", "type": "control.command", "sender": B, "_zascita": B,
+                                      "payload": {"action": "files.list", "params": {}}})
+        self.idle_add.assert_not_called()
+        self.assertFalse(self.poslano[0]["payload"]["data"]["shared"])
+        # Oznaka naprave A, kljuc naprave B: velja kljuc.
+        self.idle_add.reset_mock()
+        self.link._na_sporocilo_huba({"id": "u3", "type": "control.command", "sender": A, "_zascita": B,
+                                      "payload": {"action": "apps.launch", "params": {}}})
+        self.idle_add.assert_not_called()
 
     def test_zaslon_druge_naprave_se_ne_odpre_sam(self):
         start = {"action": "start", "id": "z1", "path": "/cast/screen/z1", "fp": "ab"}
