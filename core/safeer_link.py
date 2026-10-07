@@ -30,6 +30,7 @@ gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gtk, WebKit2, GLib  # noqa: E402
 
 from core import link_deljenje, link_dostop, link_e2e, link_hub, link_hub_streznik, link_iskanje, link_krog, link_mesh, link_seja, link_tls  # noqa: E402
+from core import odlozisce_varuh  # noqa: E402
 
 
 def _magnet_na_voljo() -> bool:
@@ -439,6 +440,7 @@ class SafeerLink:
             WebKit2.UserScriptInjectionTime.START,
             None, None,
         ))
+        odlozisce_varuh.dodaj(WebKit2, upravitelj)
 
         pogled = WebKit2.WebView.new_with_user_content_manager(upravitelj)
         nastavitve = pogled.get_settings()

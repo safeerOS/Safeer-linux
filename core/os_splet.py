@@ -9,10 +9,12 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
+import subprocess
 import urllib.parse
 from pathlib import Path
 
-from core import adblock
+from core import adblock, odlozisce_varuh, ozadje_strani
 from core.config import ConfigManager, SEARCH_ENGINES, normalize_web_url
 from core.doh_proxy import get_doh_proxy
 from core.filter_lists import FILTER_ID
@@ -75,6 +77,32 @@ _DODATNA = {
 }
 for _jezik, _vrednosti in _DODATNA.items():
     BESEDILA[_jezik].update(dict(zip(("dovoljenje", "zavrni", "dovoli", "iskalnik", "adblock", "doh"), _vrednosti)))
+
+
+#: Ozadje pogleda pod našimi stranmi (pod spletnimi je belo, glej core/ozadje_strani.py).
+TEMNO_OZADJE = "#0a141c"
+
+
+def peskovnik_dela(zazeni=None, kje=None, obstaja=None, okolje=None) -> bool:
+    """Ali se WebKitov peskovnik (bubblewrap) na tem sistemu lahko zažene?
+
+    Kjer jedro ne dovoli uporabniških imenskih prostorov (zabojniki, nekatera utrjena jedra), WebKit ob prvem
+    pogledu s peskovnikom ubije CEL proces (»Failed to fully launch dbus-proxy«) - v Safeer OS bi klik na Splet
+    podrl lupino. Zato to preverimo prej, v ločenem procesu. V Flatpaku WebKit uporabi flatpak-spawn, z
+    WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 pa peskovnika sploh ne zažene: tam ni česa preverjati.
+    """
+    zazeni, kje = zazeni or subprocess.run, kje or shutil.which
+    obstaja, okolje = obstaja or os.path.exists, os.environ if okolje is None else okolje
+    if obstaja("/.flatpak-info") or okolje.get("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS") == "1":
+        return True
+    bwrap = kje("bwrap")
+    if not bwrap or not kje("xdg-dbus-proxy"):
+        return False
+    try:
+        return zazeni([bwrap, "--unshare-all", "--ro-bind", "/", "/", "true"], stdin=subprocess.DEVNULL,
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=8).returncode == 0
+    except Exception:
+        return False
 
 
 def besedila(jezik: str) -> dict:
@@ -381,6 +409,7 @@ class VdelaniSplet:
         upravitelj = pogled.get_user_content_manager()
         upravitelj.register_script_message_handler("safeer")
         upravitelj.connect("script-message-received::safeer", lambda _u, r: self._sporocilo(pogled, r))
+        odlozisce_varuh.dodaj(W, upravitelj)   # tudi na prijavnih straneh: nicesar ne spreminja, le varuje odlozisce
         izvzemi = adblock.AUTH_SCRIPT_EXCLUSIONS
         if self.config.get("gpc_dnt_enabled", True): self._skripta(upravitelj, adblock.GPC_AND_DNT_SCRIPT, izloceni=izvzemi)
         self._skripta(upravitelj, adblock.YOUTUBE_ADBLOCK_SCRIPT, dovoljeni=["*://*.youtube.com/*", "*://youtube.com/*"], izloceni=izvzemi)
@@ -400,7 +429,8 @@ class VdelaniSplet:
             nastavitve.set_enable_page_cache(False); nastavitve.set_enable_encrypted_media(True)
         except Exception:
             pass
-        barva = self.Gdk.RGBA(); barva.parse("#0a141c"); pogled.set_background_color(barva)
+        # Temno pod našo začetno stranjo, belo pod spletom - belo mora biti nastavljeno, preden dokument strani nastane.
+        ozadje_strani.prikljuci(self.Gdk, W, pogled, os.path.join(self.koren, "ui"), TEMNO_OZADJE)
         pogled.connect("decide-policy", self._politika)
         pogled.connect("create", lambda p, a: self._novo_okno(p, a))
         pogled.connect("load-changed", self._nalozen)

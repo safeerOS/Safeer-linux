@@ -46,7 +46,7 @@ gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 
 from core import link_daljinec, link_datoteke, link_deljenje, link_hub, link_programi, link_sway, link_tls, link_zaslon, link_zvok  # noqa: E402
-from core import budnost, os_posodobitve, os_stabilnost  # noqa: E402
+from core import budnost, odlozisce_varuh, os_posodobitve, os_stabilnost  # noqa: E402
 from core import link_internet, link_internet_posrednik, sistemski_posrednik  # noqa: E402
 from core.link_gledalec import (Gledalec, OKVIR_OBVESTILO, OKVIR_SLIKA,  # noqa: E402
                                 izberi_ponor, niz_cevovoda, preslikaj_tipko,
@@ -375,6 +375,17 @@ class Pladenj:
         self.samozagon.handler_block(self._preklop_id)
         self.samozagon.set_active(Samozagon.je_vklopljen())
         self.samozagon.handler_unblock(self._preklop_id)
+
+
+def parametri_konca_gledanja(gledani_zaslon: str) -> Optional[dict]:
+    """Parametri ukaza `apps.close`, ko uporabnik zapre okno z zaslonom druge naprave. None: nikogar ne gledamo.
+
+    Ukaz pove samo »tega zaslona ne gledam več«. Ali je bila aplikacija odprta z »Odpri tukaj« in jo je treba umakniti
+    z zaslona, ve naprava iz svojega zapisa seje deljenja. Računalnik tega ne trdi: njegov zapis bi lahko zastaral
+    (soglasje na napravi ni bilo dano, naprava je pozneje zaslon delila sama) in naprava bi šla na domači zaslon
+    uporabniku pod prsti.
+    """
+    return {"stream": True} if gledani_zaslon else None
 
 
 class OddaljeniGledalec(Gtk.Window):
@@ -1889,6 +1900,7 @@ class SafeerControl(Gtk.Application):
                 WebKit2.UserScriptInjectionTime.END,
                 None, None,
             ))
+            odlozisce_varuh.dodaj(WebKit2, upravitelj)
             pogled = WebKit2.WebView(web_context=self.web_context, user_content_manager=upravitelj)
             nastavitve = pogled.get_settings()
             nastavitve.set_property("enable-developer-extras", False)
@@ -1897,7 +1909,12 @@ class SafeerControl(Gtk.Application):
             okno.add(pogled)
 
             def zaprto(*_a):
+                # Uporabnik je okno zaprl sam: self.gledalec je še to okno. Kadar deljenje konča naprava,
+                # _zapri_gledalca gledalca odstrani prej - takrat napravi ne pošiljamo ničesar.
+                uporabnik = self.gledalec is okno
                 self.gledalec = None
+                if uporabnik:
+                    self._konec_gledanja()
             okno.connect("destroy", zaprto)
             self.add_window(okno)
             self.gledalec = okno
@@ -1908,6 +1925,20 @@ class SafeerControl(Gtk.Application):
         pogled = self.gledalec.get_child()
         pogled.load_uri(url)
         self.gledalec.present()
+
+    def _konec_gledanja(self) -> None:
+        """Uporabnik je zaprl okno z zaslonom druge naprave: naprava naj neha deliti zaslon (ukaz `apps.close`); če je
+        sejo odprl »Odpri tukaj«, aplikacijo sama umakne z zaslona. Do 2.1.63 naprava ni izvedela ničesar: zaslon je
+        delila naprej in igra je igrala naprej (izmerjeno 7. 10. 2026)."""
+        link = self.link
+        cilj = str(getattr(link, "gledani_zaslon", "") or "") if link is not None else ""
+        parametri = parametri_konca_gledanja(cilj)
+        if parametri is None:
+            return
+        link.gledani_zaslon = ""
+        link.gledani_zaslon_id = ""
+        threading.Thread(target=lambda: link.ukaz_pocakaj(cilj, "apps.close", parametri, cas=5.0),
+                         name="safeer-konec-gledanja", daemon=True).start()
 
     def _zapri_gledalca(self) -> None:
         """Ob koncu share.screen odstrani zadnjo sliko in zapri samo vgrajeni gledalec."""
