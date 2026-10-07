@@ -1,3 +1,5 @@
+> **Not published.** Version 1.0.106 (Safeer Control 2.1.62, Safeer OS 0.4.64) was tagged on 7 October 2026 but held back: a second independent pre-release review found further defects in the protection code. The fixed release is 1.0.107 – see `RELEASE_NOTES_1.0.107.md`. The text below describes the code as it was at the tag `v1.0.106`.
+
 # Safeer Browser for Linux 1.0.106 · Safeer Control 2.1.62 · Safeer OS 0.4.64
 
 ## Security: commands between devices are signed with the device key and encrypted from device to device (Safeer Control 2.1.62)

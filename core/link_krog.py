@@ -115,14 +115,24 @@ def id_iz_kljuca(kljuc_b64: str) -> str:
 DOLZINA_ID_IZ_KLJUCA = 18
 
 
+#: Pripona programa za jedrom (`-control`, `-os` ...): samo te znake.
+_PRIPONA_ID = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+NAJVEC_ID = 128
+
+
 def je_id_iz_kljuca(device_id: str) -> bool:
-    """Ali je id izpeljan iz kljuca (`n-<16 hex>`, po zelji s pripono `-control` ...)."""
-    if len(device_id) < DOLZINA_ID_IZ_KLJUCA or not device_id.startswith("n-"):
+    """Ali je id izpeljan iz kljuca: `n-<16 hex>`, po zelji s pripono programa (`-control`, `-os` ...).
+
+    Pripona sme imeti samo crke, stevke, piko, podcrtaj in vezaj. Id z drugimi znaki (presledek, prelom vrstice ...)
+    NI id iz kljuca in kljuca po jedru ne dobi: z njim je sredisce sejo zascite ene naprave prevezalo na drugo (drugi
+    neodvisni pregled, 7. 10. 2026)."""
+    if not isinstance(device_id, str) or not (DOLZINA_ID_IZ_KLJUCA <= len(device_id) <= NAJVEC_ID):
         return False
-    jedro = device_id[2:DOLZINA_ID_IZ_KLJUCA]
-    if any(z not in "0123456789abcdef" for z in jedro):
+    if not device_id.startswith("n-") or any(z not in "0123456789abcdef" for z in device_id[2:DOLZINA_ID_IZ_KLJUCA]):
         return False
-    return len(device_id) == DOLZINA_ID_IZ_KLJUCA or device_id[DOLZINA_ID_IZ_KLJUCA] == "-"
+    if len(device_id) == DOLZINA_ID_IZ_KLJUCA:
+        return True
+    return device_id[DOLZINA_ID_IZ_KLJUCA] == "-" and all(z in _PRIPONA_ID for z in device_id[DOLZINA_ID_IZ_KLJUCA + 1:])
 
 
 # ------------------------------------------------------------------ krog

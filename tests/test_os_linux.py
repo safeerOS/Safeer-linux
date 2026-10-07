@@ -663,6 +663,68 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class Samozagon(unittest.TestCase):
+    """Safeer OS se ob prijavi v racunalnik zazene samo, ce je uporabnik to SAM vklopil v Nastavitvah. Do razlicice
+    0.4.64 si je program zagon ob prijavi ob prvem odprtju vklopil sam (uporabnik ga je lahko le naknadno izklopil)."""
+
+    def setUp(self):
+        import safeer_os
+        self.os_ = safeer_os
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.vnos = os.path.join(self.tmp.name, "autostart", "safeer-os.desktop")
+        p = mock.patch.object(safeer_os, "SAMOZAGON", self.vnos)
+        p.start()
+        self.addCleanup(p.stop)
+        self.shramba = os_programi.Shramba(os.path.join(self.tmp.name, "os.json"))
+
+    def _odpri(self, **polja):
+        """Zagon programa do prvega odprtja (do_activate) na laznem programu - brez zaslona, signalov in oken."""
+        lazni = mock.Mock()
+        lazni.delovna, lazni.okno, lazni.okno_delovna, lazni.namizje = False, None, None, False
+        lazni._cakajoca_datoteka, lazni._cakajoca_ponudba = "", None
+        lazni._prvic, lazni.posnetek, lazni.shramba = True, "", self.shramba
+        for ime, vrednost in polja.items():
+            setattr(lazni, ime, vrednost)
+        with mock.patch.object(self.os_, "GLib"), mock.patch.object(self.os_, "Gio"):
+            self.os_.SafeerOS.do_activate(lazni)
+        return lazni
+
+    def test_prvo_odprtje_zagona_ob_prijavi_ne_vklopi(self):
+        lazni = self._odpri()
+        lazni._ustvari_okno.assert_called_once()
+        self.assertFalse(self.os_.je_samozagon())
+        self.assertFalse(os.path.exists(self.vnos))            # program sam ne zapise nicesar
+
+    def test_samodejno_vklopljen_zagon_ob_prijavi_se_ob_posodobitvi_enkrat_izklopi(self):
+        """Stanje po starejsi razlicici: zagon ob prijavi je vklopil program. Prvi zagon nove razlicice ga izklopi;
+        ko ga uporabnik potem v Nastavitvah vklopi sam, ostane vklopljen."""
+        self.assertTrue(self.os_.nastavi_samozagon(True))
+        self.shramba.set("samozagon", True)
+        self._odpri()
+        self.assertFalse(self.os_.je_samozagon())
+        self.assertTrue(os.path.exists(self.vnos))             # vnos ostane, izklopljen (preglasi tudi sistemskega)
+        lazni = mock.Mock()
+        lazni.shramba = self.shramba
+        self.assertTrue(self.os_.SafeerOS._samozagon(lazni, True))     # stikalo v Nastavitvah
+        self._odpri()
+        self._odpri(delovna=True)
+        self.assertTrue(self.os_.je_samozagon())
+
+    def test_tudi_ob_zagonu_kot_delovna_povrsina(self):
+        self.assertTrue(self.os_.nastavi_samozagon(True))
+        self.shramba.set("samozagon", True)
+        lazni = self._odpri(delovna=True)
+        lazni._ustvari_delovno.assert_called_once()
+        self.assertFalse(self.os_.je_samozagon())
+
+    def test_preverjevalni_zagon_ne_spreminja_nicesar(self):
+        self.assertTrue(self.os_.nastavi_samozagon(True))
+        self.shramba.set("samozagon", True)
+        self._odpri(posnetek="/tmp/ni.png")
+        self.assertTrue(self.os_.je_samozagon())
+
+
 class PreimenovanjeNaprav(unittest.TestCase):
     """Ime naprave hrani sredisce in ga vidijo vse naprave: Safeer OS ga spremeni prek Controla (D-Bus Preimenuj)."""
 

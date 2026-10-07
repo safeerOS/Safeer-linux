@@ -15,17 +15,45 @@ naprave nezascitenega ukaza ne sprejmemo vec - sicer bi se kdorkoli z njeno ozna
 Crke: d = datoteke, p = programi, v = predvajalnik, z = zaslon in upravljanje. Naprava brez zapisa nima dostopa.
 Ob prvem zagonu z dovoljenji se enkrat vpisejo naprave, ki so bile z racunalnikom v krogu ze prej (`podedovani`);
 pozneje se nic vec ne podeduje - nov vnos v krogu s starim datumom dostopa ne dobi.
+
+Zapis pise VEC programov tega racunalnika hkrati (ko naprava dokaze kljuc, to zabelezi vsak program, ki jo vidi). Zato je
+vsako pisanje en korak pod zaklepom datoteke: stanje z diska -> sprememba -> zapis v svojo zacasno datoteko -> zamenjava
+(glej _spremeni). Prej je vsak program pisal stanje iz svojega pomnilnika v skupno `dostop.json.tmp`: izmerjeno
+7. 10. 2026 sta dva programa pri socasnem pisanju padla (FileNotFoundError) in spremembe so se izgubljale.
+
+Varna stran ob napakah (peti neodvisni pregled, 7. 10. 2026):
+- Zapisa NI (prvi zagon): dosedanje naprave podedujejo. Zapis JE, a ga ni mogoce pregledati ali prebrati (pravice,
+  napaka diska): dostopa nima nihce, nicesar ne pisemo (NapakaBranja) - »ne vem« ni »ni«. Prej je program ob taki
+  napaki veljaven zapis zamenjal s praznim ali pa v pomnilniku znova podedoval.
+- Starejsi program na istem racunalniku polja »zascita« ne pozna in ga ob svojem pisanju izpusti: ta program ga ob
+  naslednji potrditvi seje vrne na disk (zabelezi_zascito).
+- Na zaklep datoteke cakamo najvec ZAKLEP_CAKA_S: zamrznjen program, ki ga drzi, ne sme ustaviti tega.
+- Tik pred zamenjavo datoteke preverimo, da je zapis se tak, kot smo ga prebrali; ce ga je vmes spremenil drug program
+  (pisal je brez zaklepa ali pa smo brez zaklepa mi), preberemo znova in spremembo ponovimo. Brez tega je program, ki je
+  zaklep predolgo drzal, povozil spremembo drugega - tudi odvzem dostopa (sesti pregled, 7. 10. 2026).
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import tempfile
 import threading
 import time
-from typing import Callable, Dict, Iterable, List, Optional, Set
+from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 #: 6. 10. 2026 00:00:00 UTC. Naprave, ki so bile s to napravo v krogu ze prej, ob uvedbi dovoljenj obdrzijo dostop.
 MEJA_PODEDOVANJA = 1_791_244_800.0
+#: Najdlje toliko cakamo na zaklep zapisa, ki ga drzi drug program; potem pisemo brez zaklepa (zamenjava je en korak).
+ZAKLEP_CAKA_S = 2.0
+#: Po zapisu, ki ni uspel, popravila zapisa »zascita« toliko casa ne poskusamo znova (glej zabelezi_zascito).
+POPRAVILO_PO_NEUSPEHU_S = 60.0
+#: Kolikokrat preberemo znova, ce se zapis med pripravo nasega spremeni; zadnjic pisemo brez preverbe (da se konca).
+NAJVEC_POSKUSOV_ZAPISA = 4
+
+
+class NapakaBranja(OSError):
+    """Zapis dovoljenj obstaja, a ga trenutno ni mogoce pregledati ali prebrati. Ne beremo, ne pisemo, nihce nima dostopa."""
 
 DATOTEKE, PROGRAMI, PREDVAJALNIK, ZASLON = "d", "p", "v", "z"
 VSE_ZMOZNOSTI = frozenset((DATOTEKE, PROGRAMI, PREDVAJALNIK, ZASLON))
@@ -98,12 +126,20 @@ def v_niz(dano: Iterable[str]) -> str:
 DOLZINA_JEDRA = 18
 
 
+_PRIPONA_OZNAKE = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+NAJVEC_OZNAKE = 128
+
+
 def je_id_iz_kljuca(device_id: str) -> bool:
-    if len(device_id) < DOLZINA_JEDRA or not device_id.startswith("n-"):
+    """Oznaka iz kljuca: `n-<16 hex>`, po zelji s pripono programa iz crk, stevk, pike, podcrtaja in vezaja (isto
+    pravilo kot link_krog.je_id_iz_kljuca). Oznaka z drugimi znaki ni oznaka iz kljuca."""
+    if not isinstance(device_id, str) or not (DOLZINA_JEDRA <= len(device_id) <= NAJVEC_OZNAKE):
         return False
-    if any(z not in "0123456789abcdef" for z in device_id[2:DOLZINA_JEDRA]):
+    if not device_id.startswith("n-") or any(z not in "0123456789abcdef" for z in device_id[2:DOLZINA_JEDRA]):
         return False
-    return len(device_id) == DOLZINA_JEDRA or device_id[DOLZINA_JEDRA] == "-"
+    if len(device_id) == DOLZINA_JEDRA:
+        return True
+    return device_id[DOLZINA_JEDRA] == "-" and all(z in _PRIPONA_OZNAKE for z in device_id[DOLZINA_JEDRA + 1:])
 
 
 def jedro_iz(device_id: str, kljuc_clana: Callable[[str], Optional[str]], id_iz_kljuca: Callable[[str], str]) -> str:
@@ -182,9 +218,15 @@ def zavrnitev(dejanje: str) -> dict:
 _zaklep = threading.RLock()
 _zapis: Optional[Dict[str, Set[str]]] = None
 _zascita: Set[str] = set()
-_prebrano_mtime = -1.0
+#: Po cem prepoznamo, da je zapis na disku spremenil drug program: (cas spremembe v ns, stevilka datoteke, velikost).
+#: Samo cas ni dovolj - dva zapisa v istem trenutku imata lahko isti cas; vsak zapis pa je nova datoteka.
+_prebran_odtis: Optional[Tuple[int, int, int]] = None
 _prebrana_pot = ""
 _pot_preglasena: Optional[str] = None
+#: Kar je bilo v polju »zascita« na disku, ko smo ga nazadnje prebrali ali zapisali (v pomnilniku je lahko vec).
+_zascita_disk: Set[str] = set()
+#: Kdaj (time.monotonic) zapis nazadnje ni uspel; None = zadnji je uspel.
+_zapis_spodletel_ob: Optional[float] = None
 
 
 def _pot() -> str:
@@ -212,74 +254,204 @@ def _id_iz_kljuca(kljuc: str) -> str:
     return link_krog.id_iz_kljuca(kljuc)
 
 
-def _shrani(zapis: Dict[str, Set[str]], podedovano_ob: Optional[float] = None) -> None:
-    global _zascita
-    pot = _pot()
+def _odtis_zapisa(pot: str) -> Optional[Tuple[int, int, int]]:
+    """Odtis zapisa na disku ali None, ce zapisa NI. Vsaka druga napaka (pravice, disk) vrze NapakaBranja."""
+    try:
+        st = os.stat(pot)
+    except FileNotFoundError:
+        return None
+    except OSError as e:
+        raise NapakaBranja(e.errno, "zapisa dovoljenj ni mogoce pregledati") from e
+    return (st.st_mtime_ns, st.st_ino, st.st_size)
+
+
+@contextlib.contextmanager
+def _zaklenjen_zapis(pot: str):
+    """Zaklep zapisa med PROGRAMI tega racunalnika. Zaklep je svoja datoteka ob zapisu (zapis sam se ob vsakem pisanju
+    zamenja z novo datoteko). Kjer zaklepa ni (ni fcntl, datoteke ni mogoce odpreti), ostane zaklep v programu -
+    slabse, a zapis mora delovati."""
+    rocaj = None
+    try:
+        try:
+            import fcntl
+            rocaj = os.open(pot + ".lock", os.O_RDWR | os.O_CREAT, 0o600)
+            # Brez cakanja v jedru: program, ki zaklep drzi in stoji (zamrznjen, v razhroscevalniku), bi nas sicer
+            # ustavil za vedno - in z nami vse preverbe dostopa. Po ZAKLEP_CAKA_S pisemo brez zaklepa (pred zamenjavo
+            # datoteke se vedno preverimo, da je zapis nespremenjen - glej _spremeni).
+            rok = time.monotonic() + ZAKLEP_CAKA_S
+            while True:
+                try:
+                    fcntl.flock(rocaj, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= rok:
+                        break
+                    time.sleep(0.01)
+                except OSError:
+                    break       # zaklepanje tu ni mogoce (datotecni sistem ga ne podpira): ne cakamo
+        except Exception:  # noqa: BLE001
+            pass
+        yield
+    finally:
+        if rocaj is not None:
+            try:
+                os.close(rocaj)         # zaprtje zaklep sprosti
+            except OSError:
+                pass
+
+
+def _z_diska(pot: str) -> Tuple[str, Dict[str, Set[str]], Set[str], float]:
+    """Zapis na disku: (stanje, naprave, zascita, podedovano_ob). Stanje je "ok", "ni" (datoteke ni), "napaka"
+    (datoteka je, a je ni mogoce prebrati - pravice, disk) ali "pokvarjen" (vsebina ni pravilen zapis); razen pri "ok"
+    sta naprave in zascita prazna."""
     try:
         with open(pot, "r", encoding="utf-8") as d:
-            na_disku = json.load(d)
-    except Exception:  # noqa: BLE001
-        na_disku = None
-    stari_ob = podedovano_ob
-    if stari_ob is None:
+            besedilo = d.read()
+    except FileNotFoundError:
+        return "ni", {}, set(), 0.0
+    except OSError:
+        return "napaka", {}, set(), 0.0
+    except ValueError:
+        return "pokvarjen", {}, set(), 0.0
+    try:
+        surovo = json.loads(besedilo) or {}
+        naprave = {str(k): iz_niza(str(crke)) for k, crke in (surovo.get("naprave") or {}).items()}
+        zascita = {str(j) for j in (surovo.get("zascita") or []) if isinstance(j, str) and je_id_iz_kljuca(j)}
         try:
-            stari_ob = float((na_disku or {}).get("podedovano_ob") or 0.0) if na_disku is not None else time.time()
-        except Exception:  # noqa: BLE001
-            stari_ob = time.time()
-    # Zapis »zascita« samo raste in ga pisejo vsi programi tega racunalnika (Control, brskalnik, Safeer OS): kar je
-    # medtem vpisal drug program, mora ostati.
-    if isinstance(na_disku, dict):
-        _zascita = _zascita | {str(j) for j in (na_disku.get("zascita") or []) if isinstance(j, str) and je_id_iz_kljuca(j)}
-    os.makedirs(os.path.dirname(pot), exist_ok=True)
-    zacasna = pot + ".tmp"
-    with open(zacasna, "w", encoding="utf-8") as d:
-        json.dump({"v": 1, "podedovano_ob": stari_ob, "naprave": {k: v_niz(v) for k, v in sorted(zapis.items())},
-                   "zascita": sorted(_zascita)}, d, indent=1)
-    os.chmod(zacasna, 0o600)
-    os.replace(zacasna, pot)
+            ob = float(surovo.get("podedovano_ob") or 0.0)
+        except (TypeError, ValueError):
+            ob = 0.0
+        return "ok", naprave, zascita, ob
+    except Exception:  # noqa: BLE001
+        return "pokvarjen", {}, set(), 0.0
+
+
+_NE_PREVERJAJ = object()
+
+
+def _na_disk(pot: str, naprave: Dict[str, Set[str]], zascita: Set[str], podedovano_ob: float,
+             pricakovan: object = _NE_PREVERJAJ) -> Optional[Tuple[int, int, int]]:
+    """Zapis v SVOJO zacasno datoteko (0600) in zamenjava: nikoli pol zapisa, nikoli datoteka, ki bi jo hkrati pisal
+    drug program. Vrne odtis novega zapisa (zamenjava ohrani stevilko datoteke, cas in velikost zacasne datoteke).
+
+    `pricakovan` je odtis zapisa, kot smo ga prebrali (None = zapisa ni bilo): ce je zapis tik pred zamenjavo drugacen,
+    ga je vmes spremenil drug program - NE zamenjamo in vrnemo None (klicatelj prebere znova in spremembo ponovi)."""
+    rocaj, zacasna = tempfile.mkstemp(prefix=os.path.basename(pot) + ".", suffix=".tmp", dir=os.path.dirname(pot))
+    try:
+        with os.fdopen(rocaj, "w", encoding="utf-8") as d:
+            json.dump({"v": 1, "podedovano_ob": podedovano_ob, "naprave": {k: v_niz(v) for k, v in sorted(naprave.items())},
+                       "zascita": sorted(zascita)}, d, indent=1)
+            d.flush()
+            os.fchmod(d.fileno(), 0o600)
+            os.fsync(d.fileno())
+            st = os.fstat(d.fileno())
+        if pricakovan is not _NE_PREVERJAJ and _odtis_zapisa(pot) != pricakovan:
+            os.unlink(zacasna)
+            return None
+        os.replace(zacasna, pot)
+        return (st.st_mtime_ns, st.st_ino, st.st_size)
+    except BaseException:
+        try:
+            os.unlink(zacasna)
+        except OSError:
+            pass
+        raise
+
+
+def _podedovane_naprave() -> Dict[str, Set[str]]:
+    """Prvi zagon z dovoljenji: dosedanje naprave obdrzijo, kar so imele (vse); pozneje dodane zacnejo brez dostopa."""
+    try:
+        k = _krog()
+        with k._zaklep:
+            clani = [dict(c) for c in k.clani.values() if k._veljaven(c)]
+        stari = podedovani(clani, _lastni_kljuc(), _id_iz_kljuca)
+    except Exception:  # noqa: BLE001 - brez kroga ni podedovanih
+        stari = set()
+    return {j: set(VSE_ZMOZNOSTI) for j in stari}
+
+
+def _spremeni(sprememba: Callable[[Dict[str, Set[str]], Set[str]], None]) -> Dict[str, Set[str]]:
+    """Branje-sprememba-zapis kot en korak, pod zaklepom programa IN datoteke. `sprememba(naprave, zascita)` spremeni
+    oba na mestu. Izhodisce je vedno stanje z DISKA - spremembe drugih programov ostanejo. Zapis »zascita« samo raste:
+    kar ima ta program v pomnilniku, gre zraven (tudi kadar je zapis na disku pokvarjen ali ga je pisal starejsi
+    program, ki zascite ne pozna). Ce zapisa se ni, je to prvi zagon z dovoljenji (podedovane naprave); pokvarjen
+    zapis pomeni, da nima dostopa nihce (varna stran). Zapisa, ki ga ni mogoce PREBRATI, ne prepisemo: NapakaBranja.
+    Vrne nove naprave in posodobi stanje v pomnilniku."""
+    global _zapis, _zascita, _prebran_odtis, _prebrana_pot, _zascita_disk, _zapis_spodletel_ob
+    with _zaklep:
+        pot = _pot()
+        try:
+            os.makedirs(os.path.dirname(pot), exist_ok=True)
+            with _zaklenjen_zapis(pot):
+                for poskus in range(NAJVEC_POSKUSOV_ZAPISA):
+                    odtis_prej = _odtis_zapisa(pot)
+                    stanje, naprave, zascita, ob = _z_diska(pot)
+                    if stanje == "napaka":
+                        raise NapakaBranja(5, "zapisa dovoljenj ni mogoce prebrati - ne prepisemo ga")
+                    if stanje == "ni":
+                        naprave, ob = _podedovane_naprave(), time.time()
+                    elif stanje == "pokvarjen":
+                        ob = time.time()
+                    if pot == _prebrana_pot:
+                        zascita |= _zascita
+                    sprememba(naprave, zascita)
+                    # Zamenjamo samo, ce je zapis se tak, kot smo ga prebrali (zadnji poskus brez preverbe, da se konca).
+                    zadnji = poskus == NAJVEC_POSKUSOV_ZAPISA - 1
+                    odtis = _na_disk(pot, naprave, zascita, ob, _NE_PREVERJAJ if zadnji else odtis_prej)
+                    if odtis is not None:
+                        break
+        except OSError:
+            _zapis_spodletel_ob = time.monotonic()
+            raise
+        _zapis, _zascita, _prebran_odtis, _prebrana_pot = naprave, zascita, odtis, pot
+        _zascita_disk, _zapis_spodletel_ob = set(zascita), None
+        return naprave
 
 
 def _nalozen() -> Dict[str, Set[str]]:
     """Zapis dovoljenj; znova prebran, ce ga je spremenil drug program na tem racunalniku (Control, brskalnik)."""
-    global _zapis, _prebrano_mtime, _prebrana_pot, _zascita
+    global _zapis, _prebran_odtis, _prebrana_pot, _zascita, _zascita_disk
     with _zaklep:
         pot = _pot()
+        if pot != _prebrana_pot:
+            # Drug zapis (preizkusi): kar smo vedeli za prejsnjega, zanj ne velja.
+            _zascita, _zascita_disk, _zapis, _prebran_odtis, _prebrana_pot = set(), set(), None, None, pot
         try:
-            mtime = os.stat(pot).st_mtime
+            odtis = _odtis_zapisa(pot)
         except OSError:
-            mtime = -1.0
-        if _zapis is not None and mtime == _prebrano_mtime and pot == _prebrana_pot:
+            # Zapis je, a ga ni mogoce niti pregledati: dostopa nima nihce, nicesar ne pisemo in si ne zapomnimo
+            # (naslednji klic poskusi znova). To NI prvi zagon - podedovanega dostopa ni.
+            _zapis, _prebran_odtis = None, None
+            return {}
+        if _zapis is not None and odtis == _prebran_odtis:
             return _zapis
-        _prebrana_pot = pot
-        _zascita = set()
-        if mtime < 0:
-            # Prvi zagon z dovoljenji: dosedanje naprave obdrzijo, kar so imele (vse); pozneje dodane zacnejo brez dostopa.
+        if odtis is None:
+            # Zapisa (se) ni: prvi zagon z dovoljenji. Pod zaklepom datoteke - ce ga je medtem ustvaril drug program,
+            # se samo prebere.
             try:
-                k = _krog()
-                with k._zaklep:
-                    clani = [dict(c) for c in k.clani.values() if k._veljaven(c)]
-                stari = podedovani(clani, _lastni_kljuc(), _id_iz_kljuca)
-            except Exception:  # noqa: BLE001 - brez kroga ni podedovanih
-                stari = set()
-            zapis = {j: set(VSE_ZMOZNOSTI) for j in stari}
-            try:
-                _shrani(zapis, time.time())
-                mtime = os.stat(pot).st_mtime
+                return _spremeni(lambda naprave, zascita: None)
+            except NapakaBranja:
+                _zapis, _prebran_odtis = None, None     # zapis se je pojavil, a ni berljiv: nihce (glej zgoraj)
+                return {}
             except OSError:
-                pass
-            _zapis, _prebrano_mtime = zapis, mtime
-            return zapis
-        zapis = {}
-        try:
-            with open(pot, "r", encoding="utf-8") as d:
-                surovo = json.load(d) or {}
-            for kljuc, crke in (surovo.get("naprave") or {}).items():
-                zapis[str(kljuc)] = iz_niza(str(crke))
-            _zascita = {str(j) for j in (surovo.get("zascita") or []) if isinstance(j, str) and je_id_iz_kljuca(j)}
-        except Exception:  # noqa: BLE001 - pokvarjen zapis: nihce nima dostopa (varna stran), uporabnik ga odpre znova
-            zapis = {}
-        _zapis, _prebrano_mtime = zapis, mtime
-        return zapis
+                zapis = _podedovane_naprave()      # zapisa res ni in ustvariti se ga ne da: velja vsaj v tem programu
+                _zapis, _prebran_odtis = zapis, None
+                _zascita_disk = set()              # na disku ni nicesar: zapis »zascita« se vrne ob prvi priloznosti
+                return zapis
+        stanje, naprave, zascita, _ob = _z_diska(pot)
+        if stanje == "napaka":
+            _zapis, _prebran_odtis = None, None         # ni berljiv: nihce, brez pisanja, naslednjic znova
+            return {}
+        if stanje == "ok":
+            _zascita = _zascita | zascita
+            _zascita_disk = set(zascita)
+        else:
+            # Pokvarjen zapis: nihce nima dostopa (varna stran), uporabnik ga odpre znova. Kar ta program ze ve o
+            # napravah z dokazanim kljucem, OSTANE: pokvarjen zapis ne sme ugasniti pravila »samo zasciteno«.
+            naprave = {}
+            _zascita_disk = set()
+        _zapis, _prebran_odtis = naprave, odtis
+        return naprave
 
 
 def jedro(device_id: str) -> str:
@@ -360,27 +532,43 @@ def zna_zascito(jedro_naprave: str) -> bool:
 
 
 def zahteva_zascito(device_id: str) -> bool:
-    """Ali od naprave s to oznako sprejmemo samo zascitena sporocila (ker vemo, da jih zna poslati)."""
+    """Ali od naprave s to oznako sprejmemo samo zascitena sporocila (ker vemo, da jih zna poslati) - in ji zascitene
+    tipe tudi posiljamo samo zasciteno.
+
+    Pri oznaki iz kljuca odloca jedro iz OBLIKE oznake, ne vnos v krogu: vnos s to oznako in DRUGIM kljucem (podtakne
+    ga lahko clan ali sredisce, novejsi vnos krog sprejme) da prazno jedro in je prej zahtevo ugasnil - odgovori taki
+    napravi so potem sli nezasciteni (drugi neodvisni pregled, 7. 10. 2026)."""
+    device_id = str(device_id or "")
+    if je_id_iz_kljuca(device_id) and zna_zascito(device_id[:DOLZINA_JEDRA]):
+        return True
     return zna_zascito(jedro(device_id))
 
 
 def zabelezi_zascito(jedro_naprave: str) -> None:
     """Z napravo je vzpostavljena preverjena seja: odslej od nje (in v njenem imenu) ne sprejmemo nezascitenega."""
-    global _prebrano_mtime
     if not je_id_iz_kljuca(jedro_naprave) or len(jedro_naprave) != DOLZINA_JEDRA:
         return
     with _zaklep:
-        zapis = _nalozen()
-        if jedro_naprave in _zascita or jedro_naprave == lastno_jedro():
+        _nalozen()
+        if jedro_naprave == lastno_jedro():
             return
-        _zascita.add(jedro_naprave)
+        nova = jedro_naprave not in _zascita
+        if not nova:
+            # V tem programu ze velja. Na disku je lahko ni vec: starejsi program na istem racunalniku polja »zascita«
+            # ne pozna in ga ob svojem pisanju izpusti - po ponovnem zagonu bi ta program od naprave spet sprejel
+            # nezascitene ukaze. Zato ga vrnemo (klic pride ob vsakem seznamu naprav); po neuspelem zapisu ne takoj znova.
+            if jedro_naprave in _zascita_disk:
+                return
+            if _zapis_spodletel_ob is not None and time.monotonic() - _zapis_spodletel_ob < POPRAVILO_PO_NEUSPEHU_S:
+                return
+        _zascita.add(jedro_naprave)         # v tem programu velja takoj, tudi ce zapis ne uspe
         try:
-            _shrani(zapis)
-            _prebrano_mtime = os.stat(_pot()).st_mtime
+            _spremeni(lambda naprave, zascita: zascita.add(jedro_naprave))
         except OSError:
             pass
-        print("[SafeerLink] naprava %s…%s je dokazala kljuc: odslej od nje samo zasciteni ukazi"
-              % (jedro_naprave[:2], jedro_naprave[-4:]), flush=True)
+        if nova:
+            print("[SafeerLink] naprava %s…%s je dokazala kljuc: odslej od nje samo zasciteni ukazi"
+                  % (jedro_naprave[:2], jedro_naprave[-4:]), flush=True)
 
 
 def _sme_posiljatelj(device_id: str, zahteva: str, zascita: Optional[str], zascitljivo: bool) -> bool:
@@ -410,19 +598,19 @@ def nastavi(device_id: str, dano: Iterable[str]) -> bool:
     """Uporabnik je napravi dolocil dostop; prazen nabor = brez dostopa (naprava samo pomaga pri povezavi)."""
     if not device_id or je_ta_naprava(device_id):
         return False
-    global _zapis, _prebrano_mtime, _prebrana_pot
     j = jedro(device_id)
     if not j:
         return False
+    nabor = iz_niza(v_niz(dano))
+
+    def sprememba(naprave: Dict[str, Set[str]], zascita: Set[str]) -> None:
+        naprave[j] = nabor
     with _zaklep:
-        zapis = dict(_nalozen())
-        zapis[j] = iz_niza(v_niz(dano))
-        _shrani(zapis)
-        _zapis = zapis
+        _nalozen()                      # prvi zagon (podedovane naprave) se zgodi pred prvo spremembo
         try:
-            _prebrano_mtime = os.stat(_pot()).st_mtime
+            _spremeni(sprememba)
         except OSError:
-            _prebrano_mtime = -1.0
+            return False                # zapisa ni mogoce prebrati ali zapisati: spremembe ni (klicatelj to pove)
     return True
 
 
@@ -493,6 +681,7 @@ def zabelezi(posiljatelj: str, kaj: str, zdaj: Optional[float] = None) -> None:
 
 def _za_preizkus(pot: Optional[str]) -> None:
     """Preizkusi: zapis v zacasni datoteki (None vrne pravo pot)."""
-    global _pot_preglasena, _zapis, _prebrano_mtime, _zascita
+    global _pot_preglasena, _zapis, _prebran_odtis, _prebrana_pot, _zascita, _zascita_disk, _zapis_spodletel_ob
     with _zaklep:
-        _pot_preglasena, _zapis, _prebrano_mtime, _zascita = pot, None, -1.0, set()
+        _pot_preglasena, _zapis, _prebran_odtis, _prebrana_pot, _zascita = pot, None, None, "", set()
+        _zascita_disk, _zapis_spodletel_ob = set(), None

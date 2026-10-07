@@ -39,15 +39,21 @@ def izid(ok: bool, sporocilo: str, podatki: Optional[dict] = None, koda: str = "
     return d
 
 
+#: Odgovor ponovi oznako ukaza in ime dejanja. Oboje pride od posiljatelja ukaza: ponovimo samo toliko, kolikor sta
+#: dolga v nasih programih (odgovor ne sme biti nacin, da kdo z dolgim ukazom dobi dolg odgovor in poln pomnilnik).
+NAJVEC_PONOVLJENE_OZNAKE = 128
+NAJVEC_PONOVLJENEGA_DEJANJA = 64
+
+
 def sporocilo_izida(cilj: str, ref_id: str, dejanje: str, izid_: dict) -> dict:
     """`control.result`, ki gre prek sredisca nazaj posiljatelju ukaza."""
     telo = dict(izid_)
-    telo["action"] = dejanje
+    telo["action"] = str(dejanje or "")[:NAJVEC_PONOVLJENEGA_DEJANJA]
     return {
         "id": str(uuid.uuid4()),
         "type": "control.result",
         "target": cilj,
-        "ref_id": ref_id,
+        "ref_id": str(ref_id or "")[:NAJVEC_PONOVLJENE_OZNAKE],
         "payload": telo,
     }
 

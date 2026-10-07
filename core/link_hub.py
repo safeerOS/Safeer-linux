@@ -53,7 +53,16 @@ NAJVECJE_SPOROCILO = 1024 * 1024
 BRALNI_TIMEOUT = 70.0
 SONDA_VSAKIH_UTRIPOV = 4          # vsak 4. ping (~100 s) preveri, da smo na hubu se prijavljeni
 DOKAZ_KLJUCA_NAJVEC_NA_S = 60.0   # dogovor zascite z napravo, s katero nimamo seje: najvec en poskus na minuto
+# Seznam naprav pise sredisce. Z dolgim seznamom ali z veliko oznakami iste naprave (isto jedro, izmisljene pripone) ne
+# sme sproziti veliko podpisov s kljucem naprave na bralni niti (drugi neodvisni pregled, 7. 10. 2026).
+NAJVEC_NAPRAV_V_SEZNAMU = 512     # toliko naprav iz seznama si zapomnimo (zmoznosti)
+NAJVEC_DOKAZOV_NA_SEZNAM = 16     # najvec dogovorov zascite, ki jih sprozi en seznam naprav
+NAJVEC_DOKAZOV_NA_JEDRO = 4       # najvec dogovorov na minuto z oznakami ene naprave (jedra)
+NAJVEC_ZAPISOV_DOKAZOV = 512      # zapisov o zadnjem poskusu
 VPRASANJE_VELJA_S = 300.0         # kako dolgo za zasciten ukaz pricakujemo odgovor iz iste seje (ukazi potecejo prej)
+# Oznaka sporocila (id, ref_id) je kratka (nasi programi: do ~50 znakov). Daljse ne sprejmemo: odgovor ali potrditev
+# oznako ukaza ponovi, z zelo dolgo pa je naprava brez pravic polnila pomnilnik prejemnika (cetrti pregled, 7. 10. 2026).
+NAJVEC_OZNAKE_SPOROCILA = 128
 NAJVEC_VPRASANJ = 4096
 #: Ukazi, ki so sli zasciteni: oznaka ukaza -> (oznaka naprave, ki smo jo vprasali, kdaj). Skupno vsem povezavam tega
 #: programa: zapis mora preziveti ponovno povezavo s srediscem (nov objekt Povezava), sicer bi nezasciten odgovor na
@@ -983,6 +992,36 @@ def model_naprave_v1(device_id: str) -> dict:
 # Povezava z Hubom v svoji niti
 # ----------------------------------------------------------------------
 
+#: Oznaka sporocila je lahko tudi stevilo (nasi programi posiljajo niz): celo do te velikosti ali obicajna decimalka.
+NAJVECJE_STEVILO_OZNAKE = 2 ** 63
+
+
+def _predolga_oznaka(sporocilo: dict) -> bool:
+    """Ali ima sporocilo oznako (`id`, `ref_id`), ki je ne sprejmemo. Tako sporocilo zavrzemo.
+
+    Oznako programi ponavljajo v odgovorih in potrditvah, zato sme biti samo: niz do NAJVEC_OZNAKE_SPOROCILA znakov,
+    obicajno stevilo ali nic (polja ni, null). Seznam, slovar, logicna vrednost ali ogromno stevilo na tem mestu bi se
+    ponovilo v poljubni velikosti (peti neodvisni pregled, 7. 10. 2026)."""
+    for polje in ("id", "ref_id"):
+        vrednost = sporocilo.get(polje)
+        if vrednost is None:
+            continue
+        if isinstance(vrednost, str):
+            if len(vrednost) > NAJVEC_OZNAKE_SPOROCILA:
+                return True
+        elif isinstance(vrednost, bool):
+            return True
+        elif isinstance(vrednost, int):
+            if abs(vrednost) >= NAJVECJE_STEVILO_OZNAKE:
+                return True
+        elif isinstance(vrednost, float):
+            if vrednost != vrednost or abs(vrednost) >= NAJVECJE_STEVILO_OZNAKE:
+                return True
+        else:
+            return True
+    return False
+
+
 def _zasciteni_tipi() -> frozenset:
     from core import link_e2e
     return link_e2e.ZASCITENI_TIPI
@@ -993,6 +1032,17 @@ def _zmoznost_zascite() -> str:
     return link_e2e.ZMOZNOST
 
 
+def _ura() -> float:
+    """Ura za roke zascite (zapis vprasanj, dokaz kljuca): tece tudi med spanjem racunalnika (link_e2e.ura_sistema)."""
+    from core import link_e2e
+    return link_e2e.ura_sistema()
+
+
+def _jedro_oznake(device_id: str) -> str:
+    """Naprava, ki ji oznaka pripada, za stetje poskusov: jedro oznake iz kljuca, sicer oznaka sama."""
+    return device_id[:link_krog.DOLZINA_ID_IZ_KLJUCA] if link_krog.je_id_iz_kljuca(device_id) else device_id
+
+
 def kljuc_naprave_za_zascito(device_id: str) -> Optional[str]:
     """Javni kljuc naprave iz NASEGA kroga zaupanja, s katerim preverimo njen podpis v dogovoru zascite. Oznaka iz kljuca
     (`n-<16 hex>...`) je vezana na kljuc: velja samo kljuc, ki da njeno jedro - vzamemo ga, kjerkoli v krogu je (vnos
@@ -1000,6 +1050,9 @@ def kljuc_naprave_za_zascito(device_id: str) -> Optional[str]:
     podtakniti niti sredisce, od katerega dobivamo krog, in s takim vnosom pravi napravi zascite ne more onemogociti.
     Stara oznaka (ni iz kljuca) ima kljuc svojega vnosa; njeno jedro je potem jedro TEGA kljuca."""
     try:
+        from core import link_e2e
+        if not link_e2e.veljavna_oznaka(device_id):
+            return None             # oznaka, ki ne sme v podpisane bajte dogovora: zanjo kljuca ni
         krog = link_krog.krog()
         if link_krog.je_id_iz_kljuca(device_id):
             return krog.kljuc_za_jedro(device_id[:link_krog.DOLZINA_ID_IZ_KLJUCA])
@@ -1323,9 +1376,20 @@ class Povezava:
                     break
                 try:
                     sporocilo = json.loads(besedilo)
-                except json.JSONDecodeError:
+                except (ValueError, RecursionError):
+                    # Tudi predolgo stevilo (ValueError) in pregloboko gnezdenje (RecursionError): sporocilo zavrzemo,
+                    # povezava s srediscem ostane.
                     continue
+                if not isinstance(sporocilo, dict) or _predolga_oznaka(sporocilo):
+                    continue        # sporocilo Linka je slovar s kratko oznako; drugo ne gre ne zasciti ne programu
+                zascita = self._zascita
+                if zascita is not None:
+                    # Kar predolgo caka na dogovor, klicatelj izve ob vsakem prejetem sporocilu - ne sele, ko spet kaj
+                    # poslje (cistopis cakajocega sporocila sicer ostane v pomnilniku).
+                    zascita.pospravi()
                 if isinstance(sporocilo, dict) and str(sporocilo.get("ref_id") or "").startswith(SONDA_PREDPONA):
+                    if sporocilo.get("sender"):
+                        continue        # potrditev sonde poslje sredisce samo (brez posiljatelja), ne naprava
                     if sporocilo.get("error_code") == "naprava_ni_povezana":
                         # Hub nas ne vodi vec (druga povezava iste naprave je prisla in odsla): vticnico
                         # zapremo, zanka se prijavi znova.
@@ -1402,7 +1466,7 @@ class Povezava:
         return self._poslji_surovo(sporocilo)
 
     def _zapomni_vprasanje(self, oznaka: str, cilj: str) -> None:
-        zdaj = time.monotonic()
+        zdaj = _ura()
         with self._zaklep_vprasanj:
             if len(self._vprasanja) >= NAJVEC_VPRASANJ // 2:
                 for stara in [o for o, v in self._vprasanja.items() if zdaj - v[1] > VPRASANJE_VELJA_S]:
@@ -1419,7 +1483,7 @@ class Povezava:
         naprava), velja pravilo posiljatelja (link_dostop.zahteva_zascito) kot za druga sporocila."""
         with self._zaklep_vprasanj:
             vprasanje = self._vprasanja.get(str(sporocilo.get("ref_id") or ""))
-        if vprasanje is None or time.monotonic() - vprasanje[1] > VPRASANJE_VELJA_S:
+        if vprasanje is None or _ura() - vprasanje[1] > VPRASANJE_VELJA_S:
             # Zapisa ni: ukaz ni sel zasciten (starejsa naprava) ali pa je zapis ze potekel. Zasciten odgovor je pristen
             # (posiljatelja mu je vpisala seja). Nezasciten mora imeti vsaj posiljatelja, ki ga vpise sredisce - odgovor
             # brez njega ni prisel od nobene naprave.
@@ -1470,10 +1534,18 @@ class Povezava:
         return self._zascita
 
     def _zapomni_zmoznosti(self, naprave) -> None:
+        """Zmoznosti naprav iz seznama sredisca. Vnos z oznako, ki ne more biti oznaka naprave (krmilni znaki,
+        predolga), se prezre - zanjo zascite ni; seznam in zmoznosti imajo mejo."""
+        from core import link_e2e
         zmoznosti = {}
         for d in naprave if isinstance(naprave, list) else []:
-            if isinstance(d, dict) and d.get("id"):
-                zmoznosti[str(d["id"])] = frozenset(str(z) for z in (d.get("capabilities") or []) if isinstance(z, str))
+            if len(zmoznosti) >= NAJVEC_NAPRAV_V_SEZNAMU:
+                break
+            if not isinstance(d, dict) or not link_e2e.veljavna_oznaka(d.get("id")):
+                continue
+            z = d.get("capabilities")
+            zmoznosti[d["id"]] = frozenset(x for x in (z if isinstance(z, list) else [])[:64]
+                                           if isinstance(x, str) and len(x) <= 64)
         self._zmoznosti_naprav = zmoznosti
 
     def _dokazi_kljuce(self) -> None:
@@ -1487,12 +1559,18 @@ class Povezava:
         zascita = self._upravitelj_zascite()
         if zascita is None:
             return
-        zdaj = time.monotonic()
+        zdaj = _ura()
         znane = self._zmoznosti_naprav
         # Zapis o zadnjem poskusu zavrzemo po casu, ne takrat, ko naprava izgine s seznama: seznam pise sredisce in z
         # izmenicnim skrivanjem naprave ne sme doseci, da se dogovor (podpis s kljucem naprave) zacenja znova in znova.
         for stara in [i for i, kdaj in self._dokazi_kljucev.items() if zdaj - kdaj > 10 * DOKAZ_KLJUCA_NAJVEC_NA_S]:
             self._dokazi_kljucev.pop(stara, None)
+        # Koliko dogovorov smo v zadnji minuti zaceli z oznakami posamezne naprave (jedra).
+        nedavni: Dict[str, int] = {}
+        for i, kdaj in self._dokazi_kljucev.items():
+            if zdaj - kdaj < DOKAZ_KLJUCA_NAJVEC_NA_S:
+                nedavni[_jedro_oznake(i)] = nedavni.get(_jedro_oznake(i), 0) + 1
+        zaceti = 0
         for device_id, zmoznosti in list(znane.items()):
             if device_id == self.device_id or _zmoznost_zascite() not in zmoznosti:
                 continue
@@ -1501,9 +1579,23 @@ class Povezava:
                     # Seja je. Zapis »zascita« pisejo vsi programi tega racunalnika v isto datoteko: ce se je kateri
                     # vpis izgubil, ga upravitelj ob tem vpise znova (ze vpisano se samo preveri).
                     continue
+                if not zascita.pozna_kljuc(device_id):
+                    # Naprave ni v nasem krogu (ali oznaka ni veljavna): dogovor ne more uspeti. Taka naprava ne porabi
+                    # ne dogovorov tega seznama ne zapisa o poskusih - sicer bi sredisce z izmisljenimi napravami
+                    # prave odrinilo od dokaza kljuca (tretji pregled, 7. 10. 2026).
+                    continue
                 if zdaj - self._dokazi_kljucev.get(device_id, -DOKAZ_KLJUCA_NAJVEC_NA_S) < DOKAZ_KLJUCA_NAJVEC_NA_S:
                     continue
+                if zaceti >= NAJVEC_DOKAZOV_NA_SEZNAM:
+                    continue        # naprej samo se obnavljamo zapis za naprave, s katerimi seja je (zgoraj)
+                jedro = _jedro_oznake(device_id)
+                if nedavni.get(jedro, 0) >= NAJVEC_DOKAZOV_NA_JEDRO:
+                    continue
+                if device_id not in self._dokazi_kljucev and len(self._dokazi_kljucev) >= NAJVEC_ZAPISOV_DOKAZOV:
+                    continue
                 self._dokazi_kljucev[device_id] = zdaj
+                nedavni[jedro] = nedavni.get(jedro, 0) + 1
+                zaceti += 1
                 zascita.dogovori_se(device_id)
             except Exception:  # noqa: BLE001
                 continue
@@ -1515,9 +1607,16 @@ class Povezava:
             return True
         try:
             from core import link_dostop
-            return link_dostop.zahteva_zascito(cilj)
+            if link_dostop.zahteva_zascito(cilj):
+                return True
+            # Ziva preverjena seja s to oznako: naprava zascito ocitno zna, tudi ce jo sredisce v seznamu zamolci in
+            # zapis »zascita« zanjo ne odgovori (drugi neodvisni pregled, 7. 10. 2026).
+            zascita = self._zascita
+            return zascita is not None and zascita.ima_sejo(cilj)
         except Exception:  # noqa: BLE001
-            return False
+            # Ce se ne da ugotoviti (zapis dovoljenj se ne prebere ...), velja varna stran: sporocilo gre samo
+            # zasciteno ali pa ne gre - nikoli nezasciteno napravi, ki je kljuc morda ze dokazala.
+            return True
 
     def _zasciteno_zavrnjeno(self, notranje: dict, napaka: str, koda: str) -> None:
         """Sredisce zascitenega sporocila ni moglo dostaviti (naprave ni v Linku ...): klicatelj dobi enako zavrnitev,
@@ -1545,6 +1644,9 @@ class Povezava:
         tip = notranje.get("type")
         if not isinstance(tip, str) or tip not in _zasciteni_tipi():
             print("[SafeerLink] zasciteno sporocilo nedogovorjenega tipa zavrzeno", flush=True)
+            return
+        if _predolga_oznaka(notranje):
+            print("[SafeerLink] zasciteno sporocilo z neveljavno oznako zavrzeno", flush=True)
             return
         notranje.pop("target", None)
         notranje["sender"] = od
