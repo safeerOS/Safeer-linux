@@ -52,6 +52,9 @@ NAJVECJE_SPOROCILO = 1024 * 1024
 # ping pogosteje od tega, zato tisina pomeni, da Huba res ni vec.
 BRALNI_TIMEOUT = 70.0
 SONDA_VSAKIH_UTRIPOV = 4          # vsak 4. ping (~100 s) preveri, da smo na hubu se prijavljeni
+DOKAZ_KLJUCA_NAJVEC_NA_S = 60.0   # dogovor zascite z napravo, ki kljuca se ni dokazala: najvec en poskus na minuto
+VPRASANJE_VELJA_S = 300.0         # kako dolgo za zasciten ukaz pricakujemo odgovor iz iste seje (ukazi potecejo prej)
+NAJVEC_VPRASANJ = 512
 SONDA_PREDPONA = "sonda-prijave-"
 PING_VSAKIH = 25.0
 ZAMIKI_PONOVNEGA_POSKUSA = (2.0, 5.0, 10.0, 20.0, 40.0, 60.0)
@@ -975,6 +978,32 @@ def model_naprave_v1(device_id: str) -> dict:
 # Povezava z Hubom v svoji niti
 # ----------------------------------------------------------------------
 
+def _zasciteni_tipi() -> frozenset:
+    from core import link_e2e
+    return link_e2e.ZASCITENI_TIPI
+
+
+def _zmoznost_zascite() -> str:
+    from core import link_e2e
+    return link_e2e.ZMOZNOST
+
+
+def kljuc_naprave_za_zascito(device_id: str) -> Optional[str]:
+    """Javni kljuc naprave iz NASEGA kroga zaupanja, s katerim preverimo njen podpis v dogovoru zascite. Oznaka iz kljuca
+    (`n-<16 hex>...`) je vezana na kljuc: velja samo kljuc, ki da njeno jedro - vzamemo ga, kjerkoli v krogu je (vnos
+    naprave same, sorodnika ali stare oznake). Vnos s to oznako in DRUGIM kljucem ne steje: tujega kljuca tako ne more
+    podtakniti niti sredisce, od katerega dobivamo krog, in s takim vnosom pravi napravi zascite ne more onemogociti.
+    Stara oznaka (ni iz kljuca) ima kljuc svojega vnosa; njeno jedro je potem jedro TEGA kljuca."""
+    try:
+        krog = link_krog.krog()
+        if link_krog.je_id_iz_kljuca(device_id):
+            return krog.kljuc_za_jedro(device_id[:link_krog.DOLZINA_ID_IZ_KLJUCA])
+        clan = krog.clan(device_id)
+        return str((clan or {}).get("kljuc") or "") or None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 class Povezava:
     """Odpre povezavo s Hubom in v svoji niti posluša sporočila.
 
@@ -1012,6 +1041,14 @@ class Povezava:
         self.tece = False
         self.ob_sporocilu: Optional[Callable[[dict], None]] = None
         self.ob_stanju: Optional[Callable[[bool], None]] = None
+        # Zascita ukazov od naprave do naprave (core/link_e2e): upravitelj sej nastane ob prvi rabi; zmoznosti naprav
+        # iz zadnjega seznama sredisca povedo, katera naprava zascito zna.
+        self._zascita = None
+        self._zmoznosti_naprav: Dict[str, frozenset] = {}
+        self._dokazi_kljucev: Dict[str, float] = {}     # oznaka naprave -> kdaj smo nazadnje zaceli dogovor z njo
+        # Ukazi, ki so sli zasciteni: oznaka ukaza -> (oznaka naprave, ki smo jo vprasali, kdaj). Glej velja_odgovor.
+        self._vprasanja: Dict[str, Tuple[str, float]] = {}
+        self._zaklep_vprasanj = threading.Lock()
         # Zapiranje je namerno dejanje; vse drugo je izpad, po katerem se vrnemo.
         self._ustavljen = False
         self._budilka = threading.Event()
@@ -1104,6 +1141,8 @@ class Povezava:
         for z in self.dodatne_zmoznosti:
             if z not in zmoznosti:
                 zmoznosti.append(z)
+        if self._upravitelj_zascite() is not None:
+            zmoznosti.append("e2e1")        # link_e2e.ZMOZNOST; zapisano z besedo, da ga preizkus registra zmoznosti vidi
         prijava["payload"]["capabilities"] = zmoznosti
         try:
             odjemalec.poslji(json.dumps(prijava))
@@ -1230,8 +1269,8 @@ class Povezava:
                 if utrip % SONDA_VSAKIH_UTRIPOV == 0:
                     # Ali nas hub sploh se vodi kot prijavljene? Ukaz sami sebi: prijavljeni dobimo
                     # zavrnitev isti_naprava, osirotela vticnica pa naprava_ni_povezana (glej _poslusaj).
-                    self.poslji({"id": SONDA_PREDPONA + str(int(time.time() * 1000)), "type": "control.command",
-                                 "target": self.device_id, "payload": {"action": "status", "params": {}}})
+                    self._poslji_surovo({"id": SONDA_PREDPONA + str(int(time.time() * 1000)), "type": "control.command",
+                                         "target": self.device_id, "payload": {"action": "status", "params": {}}})
 
     def _zanka(self) -> None:
         """Poslusa in se po izpadu sama vrne. Konca samo, ko klicatelj zapre."""
@@ -1295,6 +1334,21 @@ class Povezava:
                     except Exception:
                         pass
                     continue
+                if isinstance(sporocilo, dict):
+                    # Oznako zascite vpisemo samo sami (spodaj, za sporocilo iz preverjene seje): kar pride po omrezju z
+                    # njo, jo izgubi.
+                    sporocilo.pop("_zascita", None)
+                    tip = sporocilo.get("type")
+                    if tip == "cast.devices":
+                        self._zapomni_zmoznosti(sporocilo.get("devices"))
+                        self._dokazi_kljuce()
+                    elif isinstance(tip, str) and tip.startswith("data."):
+                        zascita = self._upravitelj_zascite()
+                        if zascita is not None and zascita.prejmi(sporocilo):
+                            continue
+                    elif tip == "control.result" and not self.velja_odgovor(sporocilo):
+                        print("[SafeerLink] odgovor na zasciten ukaz ni prisel iz seje vprasane naprave - zavrzen", flush=True)
+                        continue
                 if self.ob_sporocilu:
                     self.ob_sporocilu(sporocilo)
         except Exception as e:  # noqa: BLE001
@@ -1312,6 +1366,56 @@ class Povezava:
                     pass
 
     def poslji(self, sporocilo: dict) -> bool:
+        """Poslje sporocilo srediscu. Ukaz, odgovor nanj, stran in nadzor predvajanja gredo napravi, ki zascito zna,
+        samo zasciteno (core/link_e2e) - ce zascite ni mogoce vzpostaviti, sporocilo NE gre (nezascitenega nadomestka
+        ni: prejemnik bi ga zavrnil, sredisce pa prebralo)."""
+        cilj = str(sporocilo.get("target") or "")
+        if cilj and cilj != "all" and cilj != self.device_id and sporocilo.get("type") in _zasciteni_tipi():
+            zascita = self._upravitelj_zascite()
+            if zascita is not None and self._naprava_zna_zascito(cilj):
+                notranje = {k: v for k, v in sporocilo.items() if k not in ("target", "allow", "_zascita")}
+                if not self.tece or self.odjemalec is None:
+                    return False
+                # Zapomnimo si PRED posiljanjem: odgovor lahko pride, se preden se posiljanje vrne.
+                oznaka = str(sporocilo.get("id") or "")
+                ukaz = bool(oznaka) and sporocilo.get("type") == "control.command"
+                if ukaz:
+                    self._zapomni_vprasanje(oznaka, cilj)
+                poslano = bool(zascita.poslji(cilj, notranje))
+                if not poslano and ukaz:
+                    with self._zaklep_vprasanj:
+                        self._vprasanja.pop(oznaka, None)
+                return poslano
+        return self._poslji_surovo(sporocilo)
+
+    def _zapomni_vprasanje(self, oznaka: str, cilj: str) -> None:
+        zdaj = time.monotonic()
+        with self._zaklep_vprasanj:
+            if len(self._vprasanja) >= NAJVEC_VPRASANJ // 2:
+                for stara in [o for o, v in self._vprasanja.items() if zdaj - v[1] > VPRASANJE_VELJA_S]:
+                    self._vprasanja.pop(stara, None)
+            while len(self._vprasanja) >= NAJVEC_VPRASANJ:
+                self._vprasanja.pop(min(self._vprasanja, key=lambda o: self._vprasanja[o][1]), None)
+            self._vprasanja[oznaka] = (cilj, zdaj)
+
+    def velja_odgovor(self, sporocilo: dict) -> bool:
+        """Ali odgovor na ukaz (`control.result`) velja. Na ukaz, ki je sel zasciten, velja samo odgovor iz preverjene
+        seje naprave, ki smo jo vprasali: oznako posiljatelja takemu sporocilu vpise zascita (oznaka seje, katere kljuc je
+        preverjen), ne sredisce. Odgovor, ki pride nezasciten ali iz seje druge naprave, ni njen - tudi ce mu je sredisce
+        vpisalo oznako naprave, ki zascite ne zna, ali oznake sploh ni. Za ukaze, ki niso sli zasciteni (starejsa
+        naprava), velja pravilo posiljatelja (link_dostop.zahteva_zascito) kot za druga sporocila."""
+        with self._zaklep_vprasanj:
+            vprasanje = self._vprasanja.get(str(sporocilo.get("ref_id") or ""))
+        if vprasanje is None or time.monotonic() - vprasanje[1] > VPRASANJE_VELJA_S:
+            return True
+        return bool(sporocilo.get("_zascita")) and sporocilo.get("sender") == vprasanje[0]
+
+    def poslji_nezasciteno(self, sporocilo: dict) -> bool:
+        """Samo za zavrnitev ukaza, ki je prisel brez zascite: odgovor gre tistemu, ki ga je poslal, po isti poti.
+        Vsebine ne nosi (glej SafeerLink._zavrni_nezasciten_ukaz)."""
+        return self._poslji_surovo(sporocilo)
+
+    def _poslji_surovo(self, sporocilo: dict) -> bool:
         if not self.tece or self.odjemalec is None:
             return False
         try:
@@ -1319,6 +1423,110 @@ class Povezava:
             return True
         except Exception:
             return False
+
+    # ------------------------------------------------------------------ zascita od naprave do naprave
+
+    def _upravitelj_zascite(self):
+        """Upravitelj sej zascite ali None (racunalnik brez kljuca v krogu, brez kriptografije). Seje prezivijo ponovno
+        povezavo s srediscem: so med programoma, ne med programom in srediscem."""
+        if self._zascita is not None:
+            return self._zascita
+        if not self.v_krog:
+            return None
+        try:
+            from core import link_dostop, link_e2e
+            if not link_e2e.na_voljo():
+                return None
+            self._zascita = link_e2e.Upravitelj(
+                moj_id=lambda: self.device_id,
+                poslji=self._poslji_surovo,
+                podpisi=link_krog.podpisi,
+                kljuc_za=kljuc_naprave_za_zascito,
+                preveri=link_krog.preveri_podpis,
+                id_iz_kljuca=link_krog.id_iz_kljuca,
+                ob_sporocilu=self._zasciteno_sporocilo,
+                ob_seji=link_dostop.zabelezi_zascito,
+                ob_zavrnitvi=self._zasciteno_zavrnjeno)
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerLink] zascita od naprave do naprave ni na voljo: %s" % type(e).__name__, flush=True)
+            self._zascita = None
+        return self._zascita
+
+    def _zapomni_zmoznosti(self, naprave) -> None:
+        zmoznosti = {}
+        for d in naprave if isinstance(naprave, list) else []:
+            if isinstance(d, dict) and d.get("id"):
+                zmoznosti[str(d["id"])] = frozenset(str(z) for z in (d.get("capabilities") or []) if isinstance(z, str))
+        self._zmoznosti_naprav = zmoznosti
+
+    def _dokazi_kljuce(self) -> None:
+        """Z napravami, ki zascito prijavijo, a je s tem racunalnikom se niso vzpostavile, se dogovorimo takoj - ne sele
+        ob prvem ukazu. Po dogovoru obe strani vesta (link_dostop.zabelezi_zascito), da od druge nezascitenega ukaza ne
+        sprejmeta vec: oznake naprave, ki zascito zna, potem ne more uporabiti nihce brez njenega kljuca. Seznam naprav
+        pise sredisce, zato mu tu ne verjamemo nicesar - dogovor uspe samo z napravo, ki se podpise s kljucem iz kroga.
+        Najvec en poskus na napravo na minuto (naprava, ki nasega kljuca nima v krogu, ne odgovori)."""
+        zascita = self._upravitelj_zascite()
+        if zascita is None:
+            return
+        try:
+            from core import link_dostop
+        except Exception:  # noqa: BLE001
+            return
+        zdaj = time.monotonic()
+        znane = self._zmoznosti_naprav
+        for stara in [i for i in self._dokazi_kljucev if i not in znane]:
+            self._dokazi_kljucev.pop(stara, None)
+        for device_id, zmoznosti in list(znane.items()):
+            if device_id == self.device_id or _zmoznost_zascite() not in zmoznosti:
+                continue
+            if zdaj - self._dokazi_kljucev.get(device_id, -DOKAZ_KLJUCA_NAJVEC_NA_S) < DOKAZ_KLJUCA_NAJVEC_NA_S:
+                continue
+            try:
+                if link_dostop.zahteva_zascito(device_id) or zascita.ima_sejo(device_id):
+                    continue
+                self._dokazi_kljucev[device_id] = zdaj
+                zascita.dogovori_se(device_id)
+            except Exception:  # noqa: BLE001
+                continue
+
+    def _naprava_zna_zascito(self, cilj: str) -> bool:
+        """Naprava zascito prijavi srediscu (zmoznost) ali pa jo je s tem racunalnikom ze vzpostavila. Drugo je
+        pomembno, ker seznam naprav pise sredisce: s crtanjem zmoznosti nas ne sme pripraviti do nezascitenega ukaza."""
+        if _zmoznost_zascite() in self._zmoznosti_naprav.get(cilj, ()):
+            return True
+        try:
+            from core import link_dostop
+            return link_dostop.zahteva_zascito(cilj)
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _zasciteno_zavrnjeno(self, notranje: dict, napaka: str, koda: str) -> None:
+        """Sredisce zascitenega sporocila ni moglo dostaviti (naprave ni v Linku ...): klicatelj dobi enako zavrnitev,
+        kot bi jo za nezasciteno sporocilo (npr. control.ack), da ne caka na iztek casa."""
+        tip = str(notranje.get("type") or "")
+        if not self.ob_sporocilu or "." not in tip or tip.endswith(".result") or tip.endswith(".ack"):
+            return
+        self.ob_sporocilu({"id": str(int(time.time() * 1000)), "type": tip.split(".", 1)[0] + ".ack",
+                           "ref_id": str(notranje.get("id") or ""), "status": "rejected",
+                           "error": napaka, "error_code": koda})
+
+    def _zasciteno_sporocilo(self, notranje: dict, od: str, jedro: str) -> None:
+        """Sporocilo iz preverjene seje: posiljatelj je naprava, ki je dokazala kljuc z jedrom `jedro`. Naprej gre samo
+        dogovorjeni nabor tipov: sporocil, ki jih sicer poslje samo sredisce (seznam naprav, krog zaupanja, koda za
+        seznanitev), naprava po zasciteni poti ne more poslati - tako kot ji jih sredisce ne posreduje po nezasciteni."""
+        tip = notranje.get("type")
+        if tip not in _zasciteni_tipi():
+            print("[SafeerLink] zasciteno sporocilo nedogovorjenega tipa zavrzeno", flush=True)
+            return
+        notranje.pop("target", None)
+        notranje["sender"] = od
+        notranje.pop("sender_name", None)       # ime za prikaz doloci program iz seznama naprav, ne sporocilo samo
+        notranje["_zascita"] = jedro
+        if tip == "control.result" and not self.velja_odgovor(notranje):
+            print("[SafeerLink] odgovor na zasciten ukaz je prisel od druge naprave, kot smo jo vprasali - zavrzen", flush=True)
+            return
+        if self.ob_sporocilu:
+            self.ob_sporocilu(notranje)
 
     def objavi_katalog(self, katalog: dict) -> bool:
         """Protocol v1: naknadno objavi (ali izprazni) katalog aplikacij brez ponovne prijave."""

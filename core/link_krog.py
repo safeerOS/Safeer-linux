@@ -245,6 +245,21 @@ class Krog:
                     return dict(c)
         return None
 
+    def kljuc_za_jedro(self, jedro: str) -> Optional[str]:
+        """Javni kljuc veljavnega clana, ki da to jedro (`n-<16 hex>`), ali None. Isce po VSEH vnosih: oznaka iz kljuca
+        je vezana na kljuc, zato ni pomembno, pod katero oznako je vpisan (naprava sama, sorodnik, stara oznaka) - in
+        vnos z oznako tega jedra, a z drugim kljucem, pravega ne more zasenciti."""
+        if not je_id_iz_kljuca(jedro) or len(jedro) != DOLZINA_ID_IZ_KLJUCA:
+            return None
+        with self._zaklep:
+            for c in self.clani.values():
+                try:
+                    if self._veljaven(c) and c.get("kljuc") and id_iz_kljuca(c["kljuc"]) == jedro:
+                        return str(c["kljuc"])
+                except Exception:  # noqa: BLE001 - pokvarjen vnos preskocimo
+                    continue
+        return None
+
     def je_umaknjen(self, device_id: str) -> bool:
         """Ali je naprava izrecno umaknjena iz kroga (nadgrobnik je novejsi od vpisa).
 

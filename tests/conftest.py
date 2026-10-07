@@ -20,6 +20,8 @@ def _dostop_naprav(tmp_path, monkeypatch, request):
         from core import link_hub_streznik
         monkeypatch.setattr(link_dostop, "zmoznosti",
                             lambda device_id: set(link_dostop.VSE_ZMOZNOSTI) if device_id else set())
+        # Izmisljene naprave ne znajo zascite od naprave do naprave (pravilo »samo zasciteno« bi sicer bralo pravi krog).
+        monkeypatch.setattr(link_dostop, "zahteva_zascito", lambda device_id: False)
         monkeypatch.setattr(link_hub_streznik, "OMEJENE_ODDAJE", {})
     yield
     link_dostop._za_preizkus(None)

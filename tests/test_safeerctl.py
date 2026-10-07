@@ -308,11 +308,15 @@ class RegisterZmoznosti(unittest.TestCase):
         for pot in ("core/link_hub.py", "core/safeer_link.py"):
             with open(os.path.join(KOREN, pot), encoding="utf-8") as f:
                 vir = f.read()
-            for blok in re.findall(r'zmoznosti = \[([^\]]*)\]', vir) + re.findall(r'\+ \(\[("[a-z.]+")\] if', vir) + \
-                    re.findall(r'dodatne_zmoznosti=\(\[("[a-z.]+")\]', vir) + re.findall(r'zmoznosti\.append\(("[a-z.]+")\)', vir):
-                oglasene.update(re.findall(r'"([a-z.]+)"', blok))
+            for blok in re.findall(r'zmoznosti = \[([^\]]*)\]', vir) + re.findall(r'\+ \(\[("[a-z0-9.]+")\] if', vir) + \
+                    re.findall(r'dodatne_zmoznosti=\(\[("[a-z0-9.]+")\]', vir) + re.findall(r'zmoznosti\.append\(("[a-z0-9.]+")\)', vir):
+                oglasene.update(re.findall(r'"([a-z0-9.]+)"', blok))
         self.assertGreaterEqual(len(oglasene), 9, oglasene)
         self.assertEqual(sorted(oglasene - set(link_zmoznosti.ZMOZNOSTI)), [])
+        # Zascita od naprave do naprave: ime zmoznosti je del protokola (isto v cast/E2e.kt na Androidu).
+        from core import link_e2e
+        self.assertEqual(link_e2e.ZMOZNOST, "e2e1")
+        self.assertIn("e2e1", oglasene)
 
     def test_opis_in_vrstni_red(self):
         self.assertEqual(link_zmoznosti.opis("file"), "sprejme datoteko")

@@ -25,6 +25,8 @@ def setUpModule():
     link_dostop._za_preizkus(os.path.join(_mapa, "dostop.json"))
     for cilj, ime, vrednost in (
             (link_dostop, "zmoznosti", lambda device_id: set(link_dostop.VSE_ZMOZNOSTI) if device_id else set()),
+            # Izmisljene naprave ne znajo zascite od naprave do naprave (pravilo bi sicer bralo pravi krog).
+            (link_dostop, "zahteva_zascito", lambda device_id: False),
             (link_hub_streznik, "OMEJENE_ODDAJE", {})):
         popravek = mock.patch.object(cilj, ime, vrednost)
         popravek.start()

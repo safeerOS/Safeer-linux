@@ -104,8 +104,9 @@ OMEJENE_ODDAJE = {"cast.status": link_dostop.PREDVAJALNIK, "sync.data": link_dos
 
 
 def _jedro_naprave(device_id: str) -> str:
+    """Oznaka, pod katero je v krogu drug kljuc (prazno jedro), ostane pri sebi - v nobenem seznamu prejemnikov je ni."""
     try:
-        return link_dostop.jedro(device_id)
+        return link_dostop.jedro(device_id) or device_id
     except Exception:  # noqa: BLE001
         return device_id
 

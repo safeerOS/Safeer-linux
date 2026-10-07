@@ -33,6 +33,8 @@ ZMOZNOSTI: Dict[str, Tuple[str, str]] = {
     "lists": ("usklajuje sezname predvajanja", "syncs playlists"),
     "sync": ("usklajuje zaznamke", "syncs bookmarks"),
     "internet.gateway": ("deli svojo internetno povezavo", "shares its internet connection"),
+    "e2e1": ("ukaze in odgovore sprejema in pošilja zaščitene od naprave do naprave",
+             "commands and their answers are protected device to device"),
 }
 
 
