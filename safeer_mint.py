@@ -174,6 +174,13 @@ def je_nasa_notranja_stran(url: str) -> bool:
         return False
 
 
+def je_stran_procesov(url: str) -> bool:
+    """Notranja stran Procesi (safeer://procesi). Riše svoje temno ozadje, zato pod njo ostane temna osnova pogleda;
+    druge strani sheme safeer:// (nadomestna stran) svojega ozadja nimajo in pri osnovi pogleda štejejo kot splet."""
+    u = (url or "").strip()
+    return u == "safeer://procesi" or u.startswith("safeer://procesi?")
+
+
 def je_lokalni_dokument(url: str) -> bool:
     """PDF z diska (file://.../ime.pdf), ki res obstaja: odpre se v vgrajenem pregledovalniku.
 
@@ -3491,7 +3498,7 @@ class SafeerMintBrowser(Gtk.Window):
         # Dark canvas under our own pages (no white flash on start), white under web pages. White has to be set before
         # the page's document exists, otherwise a page with a dark colour scheme turns white on white (core/ozadje_strani).
         ozadje_strani.prikljuci(Gdk, WebKit2, webview, os.path.join(BASE_DIR, "ui"), TEMNO_OZADJE,
-                                nasa=je_nasa_notranja_stran)
+                                nasa=je_stran_procesov)
 
         try:
             def_zoom = float(self.config.get("default_zoom", 1.0))

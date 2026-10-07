@@ -73,6 +73,38 @@ assert.strictEqual(knjiznicaStolpcev({ clientWidth: 940 }), 1);
   assert.strictEqual(knjiznicaStolpcev({ clientWidth: 940 }), 5, "rezerva: " + x);
   assert.strictEqual(knjiznicaStolpcev({ clientWidth: 0 }), 6, "sirina se ni znana: " + x);
 });
+// Sirina mreze se spremeni tudi brez spremembe okna (stran dobi drsnik, ko se pod knjiznico narise katalog): ce se
+// stevilo stolpcev pri tem spremeni, se knjiznica narise znova.
+var opazovalci = [], risov = 0, kat = { knjiznicaVse: false };
+function ResizeObserver(f) { this.f = f; this.cilji = []; opazovalci.push(this); }
+ResizeObserver.prototype.observe = function (e) { this.cilji.push(e); };
+ResizeObserver.prototype.disconnect = function () { this.odklopljen = true; };
+function narisiKnjiznico() { risov++; }
+var mreza = { clientWidth: 470 };
+slog = "150px 150px 150px";
+opazujKnjiznico(mreza, 3);
+assert.strictEqual(opazovalci.length, 1);
+assert.deepStrictEqual(opazovalci[0].cilji, [mreza]);
+opazovalci[0].f();
+assert.strictEqual(risov, 0, "stevilo stolpcev je enako: nic");
+slog = "225px 225px";                                  // stran je dobila drsnik, mreza ima stolpec manj
+opazovalci[0].f();
+assert.strictEqual(risov, 1);
+// Varovalka: stran, ki bi z drsnikom nihala, ne sme vrteti risanja (najvec trije risi v sekundi).
+for (var k = 0; k < 10; k++) opazovalci[0].f();
+assert.strictEqual(risov, 3);
+// Nov ris: prejsnji opazovalec se odklopi.
+opazujKnjiznico({ clientWidth: 470 }, 2);
+assert.ok(opazovalci[0].odklopljen && opazovalci.length === 2);
+// »Pokaži vse«: stevilo stolpcev ni pomembno, ne opazujemo.
+kat.knjiznicaVse = true;
+opazujKnjiznico(mreza, 3);
+assert.ok(opazovalci[1].odklopljen && opazovalci.length === 2);
+kat.knjiznicaVse = false;
+// Pogon brez ResizeObserver: brez napake.
+ResizeObserver = undefined;
+opazujKnjiznico(mreza, 3);
+assert.strictEqual(opazovalci.length, 2);
 assert.strictEqual(knjiznicaNaVrsto(0), 6, "sirina se ni znana (razdelek se ni prikazan): privzetih 6, ne 1");
 assert.strictEqual(knjiznicaNaVrsto(undefined), 6);
 // Dve vrstici; ce je vsebine vec, zadnje mesto zasede »Pokaži vse«.
@@ -102,9 +134,9 @@ class Stran(unittest.TestCase):
         js = beri("assets", "os", "os.js")
         telo = js[js.index("  function narisiKnjiznico("):js.index("  function predvajajIzKnjiznice(")]
         self.assertIn("var naVrsto = knjiznicaStolpcev(vrsta), vidnih = knjiznicaVidnih(vnosi.length, naVrsto, kat.knjiznicaVse);", telo)
-        # Ko se plakati narisejo, stran lahko dobi drsnik in mreza izgubi stolpec: se en ris, a samo en.
-        self.assertIn("if (!znova && !kat.knjiznicaVse && knjiznicaStolpcev(vrsta) !== naVrsto) narisiKnjiznico(true);", telo)
-        self.assertEqual(js.count("narisiKnjiznico(true)"), 1)
+        # Stran dobi drsnik sele, ko se pod knjiznico narise katalog: stevilo stolpcev spremlja opazovalec sirine.
+        self.assertIn("    opazujKnjiznico(vrsta, naVrsto);\n  }\n", telo)
+        self.assertNotIn("narisiKnjiznico(true)", js)
         self.assertIn("vnosi.slice(0, vidnih).forEach(", telo)
         self.assertIn('t("knjiznicaPokaziVse")', telo)
 

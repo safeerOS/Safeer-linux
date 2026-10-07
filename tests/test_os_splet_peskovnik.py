@@ -198,6 +198,8 @@ class MedijskiPogled(unittest.TestCase):
         js = beri("assets", "os", "os.js")
         self.assertIn('if (vrsta === "spletBrezPeskovnika" || vrsta === "medijBrezPeskovnika") { brezPeskovnikaOb = Date.now(); obvesti(t(vrsta)); }', js)
         # Splosna napaka predvajanja pojasnila ne sme prekriti (obvestilo je eno samo; zadnje zamenja prejsnje).
+        # Dogodek in odgovor prideta drug za drugim; okno ene sekunde je dovolj in ne pogoltne napake naslednje izbire.
+        self.assertIn("function pravkarBrezPeskovnika() { return Date.now() - brezPeskovnikaOb < 1000; }", js)
         self.assertIn('if (item.napaka_koda) { if (!(item.napaka_koda === "tok" && pravkarBrezPeskovnika())) '
                       'obvesti(t("mediaNapaka_" + item.napaka_koda)); return; }', js)
         besedila = beri("assets", "os", "besedila.js")

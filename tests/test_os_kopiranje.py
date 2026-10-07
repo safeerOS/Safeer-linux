@@ -85,6 +85,8 @@ class Stran(unittest.TestCase):
                     'document.addEventListener("copy"',                           # potrditev »Kopirano«
                     '$("sporocilaVsebina").addEventListener("scroll", obPomikuSporocil);',  # pomik zapre meni (nas popravek ne)
                     'if (p[1] === "odpri") odpriPovezavoSporocila(p[2]);',           # povezava: nov zavihek, razdelek Splet
+                    # vrnitev v razdelek: nova sporocila odprtega pogovora se pokazejo
+                    'if (razdelek === "sporocila") { sporocilaVrnitev = true; naloziSporocila(); sporocilaZanka(); }',
                     'naloziVsebinoPogovora(pogovor, true);',                         # odpiranje: pogled na zadnje sporocilo
                     'klic("kopiraj", [besedilo])'):
             self.assertIn(niz, js, niz)
@@ -140,10 +142,12 @@ var obvestila = [], klici = [], osvezitev = 0, izbor = null, odgovor = [];
 var izidi = {}, rocno = null;
 function obvesti(b) { obvestila.push(b); }
 function naloziSporocila() { osvezitev++; }
+function narisiSporocila() {}
 function klic(m, a) {
   klici.push([m, a]);
   if (m === "sporocilaPogovor") {
     if (rocno) return new Promise(function (r) { rocno.push(r); });
+    if (odgovor instanceof Error) return Promise.reject(odgovor);
     return Promise.resolve(odgovor);
   }
   if (izidi[m] instanceof Error) return Promise.reject(izidi[m]);
@@ -184,13 +188,14 @@ function oznaci(m) { izbor = { isCollapsed: false, rangeCount: 1, anchorNode: m,
         self.ciste = js[js.index("  function podpisSporocila(s)"):js.index("  function mehurcekSporocila(s)")]
         self.risanje = js[js.index("  function mehurcekSporocila(s)"):js.index("  /* Po osvezitvi seznama")]
         self.splet = js[js.index("  var brezPeskovnikaOb = 0;"):js.index("  function odpriSplet(naslov, ime)")]
+        self.usklajevanje = js[js.index("  /* Po osvezitvi seznama"):js.index("  var sporocilaCasovnik = 0;")]
 
     def _node(self, koda):
         subprocess.run(["node", "-e", koda], check=True, timeout=60)
 
     def _stran(self, koda, model=False):
         self._node('var assert = require("assert");\n' + self.LAZNI_DOM + self.splet + self.ciste + self.risanje
-                   + (self.MODEL_POMIKA if model else "")
+                   + self.usklajevanje + (self.MODEL_POMIKA if model else "")
                    + "(async function () {\n" + koda + "\n})().catch(function (e) { console.error(e); process.exit(1); });\n")
 
     def test_podpis(self):
@@ -308,7 +313,10 @@ assert.deepStrictEqual(povezavaSporocila("https://@a.example/x"), { naslov: "htt
 // Dolg gostitelj: v napisu ostane viden KONEC (domena), ne zacetek, ki ga doloca posiljatelj.
 var dolg = "www.banka.example." + new Array(8).join("abcdefgh.") + "drugje.example";
 var napis = postavkeMenijaSporocila("https://" + dolg + "/", "")[1][3];
-assert.ok(napis.length <= 40 && napis[0] === "…" && /drugje\.example$/.test(napis), napis);
+assert.ok(napis.length === 48 && napis[0] === "…" && /drugje\.example$/.test(napis), napis);
+// Naslov IPv6 z vrati (do 47 znakov) ostane cel.
+assert.strictEqual(postavkeMenijaSporocila("https://[2001:db8:1111:2222:3333:4444:5555:6666]:8443/", "")[1][3],
+  "[2001:db8:1111:2222:3333:4444:5555:6666]:8443");
 assert.strictEqual(gostiteljZaNapis("a.example"), "a.example");
 """)
 
@@ -336,9 +344,17 @@ assert.deepStrictEqual(obvestila, ["niUspelo"]);
 obvestila.length = 0; brezPeskovnikaOb = Date.now();
 assert.strictEqual(await odpriPovezavoSporocila("https://a.example/"), false);
 assert.deepStrictEqual(obvestila, []);
-brezPeskovnikaOb = Date.now() - 60000;
+brezPeskovnikaOb = Date.now() - 1500;
 await odpriPovezavoSporocila("https://a.example/");
-assert.deepStrictEqual(obvestila, ["niUspelo"], "staro pojasnilo ne utisa poznejse napake");
+assert.deepStrictEqual(obvestila, ["niUspelo"], "pojasnilo, starejse od sekunde, ne utisa poznejse napake");
+
+// Uporabnik je med odpiranjem ze odsel drugam (klik v vrstici): razdelka mu ne spreminjamo.
+obvestila.length = 0; izidi.splet = true; S.razdelek = "sporocila";
+var odpiranje = odpriPovezavoSporocila("https://a.example/");
+S.razdelek = "domov";
+assert.strictEqual(await odpiranje, true);
+assert.strictEqual(S.razdelek, "domov");
+S.razdelek = "sporocila"; izidi.splet = false;
 
 // Most odpove.
 obvestila.length = 0; izidi.splet = new Error("ni mostu");
@@ -593,6 +609,71 @@ rocno[0]([s(1, "prvo")]); await cakaj();              // zapozneli odgovor na st
 assert.strictEqual(cilj.children.length, 2, "novo sporocilo ne izgine z zaslona");
 assert.strictEqual(cilj.children[1]._besedilo, "novo");
 """)
+
+    def test_vrnitev_v_razdelek_pokaze_nova_sporocila(self):
+        """Uporabnik se vrne v Sporocila (iz brskalnika ali drugega razdelka), v odprtem pogovoru ga caka novo
+        sporocilo. Branje pogovora sporocilo oznaci kot prebrano, zato ga mora uporabnik tudi videti: ob vrnitvi gre
+        pogled na zadnje sporocilo. Osvezitev v ozadju (uporabnik je ves cas v razdelku) pogleda ne premika."""
+        self._stran(r"""
+var p = { kanal_id: "k", id: "p1", cas: "c1", zadnje_sporocilo: "sporocilo 10" }, seznam = [], i;
+for (i = 1; i <= 10; i++) seznam.push(s(i, "sporocilo " + i));
+S.sporocilaAktivni = p; odgovor = seznam.slice();
+naloziVsebinoPogovora(p, true); await cakaj();
+cilj.scrollTop = 0;                                   // pogled ni na koncu (bral je starejsa ali ga je brskalnik ponastavil)
+function seznamZ(pogovor) { S.sporocilaSkupine = [{ oseba: { ime: "Oseba" }, pogovori: [pogovor] }]; }
+
+// Vrnitev: novo neprebrano sporocilo se pokaze.
+var nov = { kanal_id: "k", id: "p1", cas: "c2", zadnje_sporocilo: "novo", neprebrano: 1 };
+seznamZ(nov); odgovor = seznam.concat([s(11, "novo")]);
+sporocilaVrnitev = true;                              // to naredi pojdi("sporocila")
+uskladiOdprtPogovor(); await cakaj();
+assert.strictEqual(S.sporocilaAktivni, nov);
+assert.strictEqual(cilj.children[cilj.children.length - 1]._besedilo, "novo");
+assert.strictEqual(cilj.scrollTop, cilj.scrollHeight - cilj.clientHeight, "novo sporocilo je vidno");
+assert.strictEqual(sporocilaVrnitev, false, "velja za eno osvezitev");
+
+// Osvezitev v ozadju: pogled ostane, kjer uporabnik bere.
+cilj.scrollTop = 0;
+var nov2 = { kanal_id: "k", id: "p1", cas: "c3", zadnje_sporocilo: "se eno", neprebrano: 1 };
+seznamZ(nov2); odgovor = odgovor.concat([s(12, "se eno")]);
+uskladiOdprtPogovor(); await cakaj();
+assert.strictEqual(cilj.children.length, 12);
+assert.strictEqual(cilj.scrollTop, 0, "osvezitev v ozadju pogleda ne premakne");
+
+// Vrnitev brez novega sporocila: nic se ne nalaga in nic ne premakne; zastavica se vseeno porabi.
+var klicev = klici.length;
+sporocilaVrnitev = true;
+uskladiOdprtPogovor(); await cakaj();
+assert.strictEqual(klici.length, klicev);
+assert.strictEqual(sporocilaVrnitev, false);
+assert.strictEqual(cilj.scrollTop, 0);
+
+// Vrnitev, sprememba pa ni novo neprebrano sporocilo (npr. poslano z druge naprave): pogled ostane.
+sporocilaVrnitev = true;
+var nov3 = { kanal_id: "k", id: "p1", cas: "c4", zadnje_sporocilo: "moje", neprebrano: 0 };
+seznamZ(nov3); odgovor = odgovor.concat([s(13, "moje", "ven")]);
+uskladiOdprtPogovor(); await cakaj();
+assert.strictEqual(cilj.children.length, 13);
+assert.strictEqual(cilj.scrollTop, 0);
+""", model=True)
+
+    def test_napaka_mostu_ne_pusti_zastavice(self):
+        """Zahteva po pogovoru odpove: »pogled na zadnje sporocilo« ne sme ostati v zraku in ob naslednji osvezitvi v
+        ozadju premakniti pogleda."""
+        self._stran(r"""
+var p = { kanal_id: "k", id: "p1" }, seznam = [], i;
+for (i = 1; i <= 10; i++) seznam.push(s(i, "sporocilo " + i));
+S.sporocilaAktivni = p; odgovor = seznam.slice();
+naloziVsebinoPogovora(p, true); await cakaj();
+cilj.scrollTop = 0;
+odgovor = new Error("most ne odgovori");
+naloziVsebinoPogovora(p, true); await cakaj();       // uporabnik klikne pogovor, zahteva odpove
+assert.strictEqual(cilj.children.length, 10, "na zaslonu ostane, kar je bilo");
+odgovor = seznam.concat([s(11, "novo")]);
+naloziVsebinoPogovora(p); await cakaj();             // naslednja osvezitev v ozadju
+assert.strictEqual(cilj.children.length, 11);
+assert.strictEqual(cilj.scrollTop, 0, "osvezitev v ozadju pogleda ne premakne");
+""", model=True)
 
     def test_meni_s_tipkovnico_vrne_fokus(self):
         """Dejanje menija, sprozeno s tipkovnico, vrne fokus na sporocilo (prej je padel na telo strani)."""

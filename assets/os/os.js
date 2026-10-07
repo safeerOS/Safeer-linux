@@ -235,7 +235,7 @@
     $("vsebina").scrollTop = 0;
     if (razdelek === "datoteke" && !S.pot) odpriNedavne();
     if (razdelek === "naprave") { osveziPovezavo(); napraveZanka(); }
-    if (razdelek === "sporocila") { naloziSporocila(); sporocilaZanka(); }
+    if (razdelek === "sporocila") { sporocilaVrnitev = true; naloziSporocila(); sporocilaZanka(); }
     if (razdelek === "nastavitve") { narisiNastavitve(); nalozScit(); scitZanka(); nalozPosodobitve(false); }
     if (razdelek === "programi") nalozNaprave();
     if (razdelek === "media") naloziMedije();
@@ -1240,7 +1240,7 @@
 
   // ------------------------------------------------------------------ splet
   var brezPeskovnikaOb = 0;   // kdaj je gostitelj nazadnje pojasnil, da vsebine brez peskovnika ne odpre
-  function pravkarBrezPeskovnika() { return Date.now() - brezPeskovnikaOb < 3000; }
+  function pravkarBrezPeskovnika() { return Date.now() - brezPeskovnikaOb < 1000; }
   /* Odpre naslov v vgrajenem brskalniku; obljuba pove, ali se je odprl. Kadar se ne, uporabnik to izve: do Safeer OS
      0.4.65 je klik ostal brez odziva, ce je gostitelj naslov zavrnil (odgovor false ni napaka obljube).
      novZavihek: stran, ki jo ima uporabnik odprto v brskalniku, ostane (povezava iz sporocila). */
@@ -2791,7 +2791,7 @@
   // Gostitelj za napis v meniju: pri zelo dolgem ostane viden konec (domena), ne zacetek, ki ga doloca posiljatelj.
   function gostiteljZaNapis(g) {
     g = String(g || "");
-    return g.length > 40 ? "…" + g.slice(g.length - 39) : g;
+    return g.length > 48 ? "…" + g.slice(g.length - 47) : g;
   }
   // Postavke menija mehurcka: [kljuc besedila, dejanje, podatek, dodatek k napisu].
   function postavkeMenijaSporocila(besedilo, izbrano) {
@@ -2826,7 +2826,8 @@
     return odpriVSpletu(naslov, true).then(function (odprto) {
       // Brskalnik zdaj prekriva vsebino. Dokler bi stran mislila, da je odprt razdelek Sporocila, bi ga zanka
       // osvezevala naprej in nova sporocila odprtega pogovora oznacila kot prebrana, ne da bi jih uporabnik videl.
-      if (odprto) S.razdelek = "splet";
+      // (Samo ce je uporabnik se v Sporocilih: medtem je lahko ze kliknil drug razdelek.)
+      if (odprto && S.razdelek === "sporocila") S.razdelek = "splet";
       return odprto;
     });
   }
@@ -2963,11 +2964,16 @@
       if (naDno) cilj.scrollTop = cilj.scrollHeight;
       uskladiTabMehurckov(cilj);
       if (pogovor.neprebrano) { pogovor.neprebrano = 0; naloziSporocila(); }
+    }, function () {
+      // Zahteva je odpovedala: »pogled na zadnje sporocilo« ne caka na naslednjo osvezitev v ozadju.
+      if (zahteva === sporocilaZahteva && sporocilaNaDno === kljuc) sporocilaNaDno = "";
     });
   }
   /* Po osvezitvi seznama: odprt pogovor dobi nova sporocila, izginul (odstranjen kanal) se zapre.
      Prej je desna stran ostala na starem stanju, dokler pogovora nisi znova odprl. */
+  var sporocilaVrnitev = false;      // uporabnik se je pravkar vrnil v razdelek Sporocila (pojdi)
   function uskladiOdprtPogovor() {
+    var vrnitev = sporocilaVrnitev; sporocilaVrnitev = false;
     var a = S.sporocilaAktivni; if (!a) return;
     var nov = null;
     S.sporocilaSkupine.forEach(function (s) {
@@ -2982,7 +2988,9 @@
       return;
     }
     if (nov.cas !== a.cas || nov.zadnje_sporocilo !== a.zadnje_sporocilo) {
-      S.sporocilaAktivni = nov; narisiSporocila(); naloziVsebinoPogovora(nov);
+      // Ob vrnitvi v razdelek pokazemo nova sporocila odprtega pogovora: branje pogovora jih oznaci kot prebrana, zato
+      // jih mora uporabnik tudi videti. Osvezitev v ozadju pogleda ne premika.
+      S.sporocilaAktivni = nov; narisiSporocila(); naloziVsebinoPogovora(nov, vrnitev && Number(nov.neprebrano) > 0);
     }
   }
   var sporocilaCasovnik = 0;
@@ -3398,7 +3406,25 @@
     var mest = Math.max(1, naVrsto) * 2;
     return (vse || stevilo <= mest) ? stevilo : Math.max(1, mest - 1);
   }
-  function narisiKnjiznico(znova) {
+  // Sirina mreze se spremeni tudi brez spremembe okna: stran dobi drsnik, ko se pod knjiznico narise katalog (ta pride
+  // na vrsto ZA knjiznico), ali pa razdelek sele postane viden. Ce se pri tem spremeni stevilo stolpcev, knjiznico
+  // narisemo znova, da ostaneta dve vrstici.
+  var opazovalecKnjiznice = null, risiKnjiznice = [];
+  function opazujKnjiznico(vrsta, naVrsto) {
+    if (opazovalecKnjiznice) { opazovalecKnjiznice.disconnect(); opazovalecKnjiznice = null; }
+    if (kat.knjiznicaVse || typeof ResizeObserver !== "function") return;
+    opazovalecKnjiznice = new ResizeObserver(function () {
+      if (kat.knjiznicaVse || knjiznicaStolpcev(vrsta) === naVrsto) return;
+      // Varovalka: stran, ki bi z drsnikom nihala, ne sme vrteti risanja (najvec trije risi v sekundi).
+      var zdaj = Date.now();
+      risiKnjiznice = risiKnjiznice.filter(function (cas) { return zdaj - cas < 1000; });
+      if (risiKnjiznice.length >= 3) return;
+      risiKnjiznice.push(zdaj);
+      narisiKnjiznico();
+    });
+    opazovalecKnjiznice.observe(vrsta);
+  }
+  function narisiKnjiznico() {
     var c = $("mediaKnjiznica"); if (!c) return; c.innerHTML = "";
     var vnosi = knjiznicaVidna() ? (kat.knjiznica || []) : [];
     c.hidden = !vnosi.length;
@@ -3471,8 +3497,7 @@
       vse.onclick = function () { kat.knjiznicaVse = true; narisiKnjiznico(); };
       vrsta.appendChild(vse);
     }
-    // Ko se plakati narisejo, stran lahko dobi drsnik in mreza se zozi za stolpec: narisemo se enkrat (samo enkrat).
-    if (!znova && !kat.knjiznicaVse && knjiznicaStolpcev(vrsta) !== naVrsto) narisiKnjiznico(true);
+    opazujKnjiznico(vrsta, naVrsto);
   }
   // Sirina okna doloca, koliko plakatov gre v dve vrstici.
   var zamikKnjiznice = 0;

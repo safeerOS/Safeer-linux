@@ -1191,15 +1191,15 @@ def is_ad_domain(url: str) -> bool:
 
 
 FORCE_DARK_MODE_CSS = """
-/* 🌙 Safeer Browser - Smart Universal Dark Mode Engine */
-/* The filter also inverts the root element's own background (measured on WebKitGTK 2.52.6), so the background has
-   to be WHITE before the filter to be dark after it (#222222), and the page's colour scheme has to be light: default
-   text is then black before the filter and light (#dddddd) after it. With the earlier #121212 a page without a
-   background of its own came out light grey with light text, and a page with a dark colour scheme came out light. */
+/* Safeer Browser - forced dark mode. The filter inverts everything the page paints, including the root element's
+   background and the view's base colour under it (measured on WebKitGTK 2.52.6). The page therefore keeps its OWN
+   background and colour scheme: a light page comes out dark with light text; a page without a background takes the
+   view's white base (core/ozadje_strani.py) and comes out dark as well. Do not give the root element a background or
+   a colour scheme here: a forced background made pages unreadable whenever their own text colour did not match it
+   (tests/test_prisilni_temni_nacin.py). This text is also placed inside a JavaScript template literal
+   (inject_dark_mode_js): no backticks, no dollar-brace, no backslashes. */
 html {
     filter: invert(90%) hue-rotate(180deg) contrast(92%) !important;
-    background-color: #ffffff !important;
-    color-scheme: light !important;
 }
 /* Re-invert media elements so photos, videos, and icons maintain true natural colors */
 img, video, canvas, svg, picture, iframe, [style*="background-image"], [role="img"] {

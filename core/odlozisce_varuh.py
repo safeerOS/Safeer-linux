@@ -45,15 +45,22 @@ SKRIPTA = r"""(function () {
   }
   // Besedilo izbora pove resnico tudi tam, kjer vrsta in obseg ne (izbor v senci je navzven videti strnjen).
   function imaBesedilo(s) { try { return String(s) !== ""; } catch (x) { return false; } }
-  // Izbor, ki ga ni kaj kopirati: brez besedila in brez cesarkoli narisanega. Tak ostane v delu strani, ki se je
-  // medtem skril (izmerjeno na 2.52.6: type=Range, besedilo prazno; Kopiraj je odlozisce izpraznil). Izbor brez
-  // besedila z narisano vsebino (slika) ni tak. Kjer obsegov ne moremo pregledati, ne ugibamo.
+  // Vozel v delu strani, ki ni narisan (display: none): njegov element nima nobenega okvirja.
+  function nenarisan(vozel) {
+    var e = vozel && vozel.nodeType === 1 ? vozel : (vozel ? vozel.parentElement : null);
+    return !!e && e.getClientRects().length === 0;
+  }
+  // Izbor, ki ga ni kaj kopirati: brez besedila, brez cesarkoli narisanega in z obema mejama v nenarisanem delu strani.
+  // Tak ostane v delu strani, ki se je medtem skril (izmerjeno na 2.52.6: type=Range, besedilo prazno; Kopiraj je
+  // odlozisce izpraznil). Izbor brez besedila z narisano vsebino (slika) ni tak, prav tako ne obseg, ki ga je okrog
+  // narisane vsebine postavila skripta strani. Kjer obsegov ne moremo pregledati, ne ugibamo.
   function izborBrezVsebine(s) {
     try {
       if (String(s) !== "" || !(s.rangeCount > 0)) return false;
       for (var i = 0; i < s.rangeCount; i++) {
         var r = s.getRangeAt(i);
-        if (!r.collapsed && r.getClientRects().length > 0) return false;
+        if (r.collapsed) continue;
+        if (r.getClientRects().length > 0 || !nenarisan(r.startContainer) || !nenarisan(r.endContainer)) return false;
       }
       return true;
     } catch (x) { return false; }

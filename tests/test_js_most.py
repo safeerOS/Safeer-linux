@@ -28,6 +28,14 @@ class NasaStran(unittest.TestCase):
         self.assertTrue(safeer_mint.je_nasa_notranja_stran("safeer://home"))
         self.assertTrue(safeer_mint.je_nasa_notranja_stran("safeer://procesi"))
 
+    def test_stran_procesov(self):
+        # Edina stran sheme safeer://, ki riše svoje (temno) ozadje; pod njo ostane temna osnova pogleda.
+        self.assertTrue(safeer_mint.je_stran_procesov("safeer://procesi"))
+        self.assertTrue(safeer_mint.je_stran_procesov("safeer://procesi?zavihek=3"))
+        for naslov in ("safeer://home", "safeer://procesi-drugo", "safeer://drugo", "https://example.com/safeer://procesi",
+                       "file:///tmp/procesi", "", None):
+            self.assertFalse(safeer_mint.je_stran_procesov(naslov), naslov)
+
     def test_tuja_datoteka_s_podnizom_ui_ni_nasa(self):
         self.assertFalse(safeer_mint.je_nasa_notranja_stran("file:///tmp/ui/phishing.html"))
         self.assertFalse(safeer_mint.je_nasa_notranja_stran("file:///home/uporabnik/ui/x.html"))
