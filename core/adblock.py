@@ -1192,9 +1192,14 @@ def is_ad_domain(url: str) -> bool:
 
 FORCE_DARK_MODE_CSS = """
 /* 🌙 Safeer Browser - Smart Universal Dark Mode Engine */
+/* The filter also inverts the root element's own background (measured on WebKitGTK 2.52.6), so the background has
+   to be WHITE before the filter to be dark after it (#222222), and the page's colour scheme has to be light: default
+   text is then black before the filter and light (#dddddd) after it. With the earlier #121212 a page without a
+   background of its own came out light grey with light text, and a page with a dark colour scheme came out light. */
 html {
     filter: invert(90%) hue-rotate(180deg) contrast(92%) !important;
-    background-color: #121212 !important;
+    background-color: #ffffff !important;
+    color-scheme: light !important;
 }
 /* Re-invert media elements so photos, videos, and icons maintain true natural colors */
 img, video, canvas, svg, picture, iframe, [style*="background-image"], [role="img"] {

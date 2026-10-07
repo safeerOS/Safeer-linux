@@ -11,7 +11,8 @@ napake se zato nič ne spremeni.
 
 Strani, ki dogodek `copy` obdelajo same (preglednice, risalniki), delujejo kot prej: varuh pride na vrsto za
 njihovimi poslušalci in se umakne, če so privzeto dejanje že preklicale. Kjer ne more zanesljivo vedeti, ali je
-kaj izbrano (polje za vnos, element z morda zaprto senco, samostojna slika), ne naredi ničesar.
+kaj izbrano (polje za vnos, element z morda zaprto senco, samostojna slika), ne naredi ničesar. Izbor, ki je ostal v
+skritem delu strani (brez besedila in brez česarkoli narisanega), šteje kot »nič izbranega«.
 
 Teče v svojem svetu skript: stran ga ne vidi in mu ne more podtakniti svojih funkcij.
 """
@@ -44,12 +45,25 @@ SKRIPTA = r"""(function () {
   }
   // Besedilo izbora pove resnico tudi tam, kjer vrsta in obseg ne (izbor v senci je navzven videti strnjen).
   function imaBesedilo(s) { try { return String(s) !== ""; } catch (x) { return false; } }
+  // Izbor, ki ga ni kaj kopirati: brez besedila in brez cesarkoli narisanega. Tak ostane v delu strani, ki se je
+  // medtem skril (izmerjeno na 2.52.6: type=Range, besedilo prazno; Kopiraj je odlozisce izpraznil). Izbor brez
+  // besedila z narisano vsebino (slika) ni tak. Kjer obsegov ne moremo pregledati, ne ugibamo.
+  function izborBrezVsebine(s) {
+    try {
+      if (String(s) !== "" || !(s.rangeCount > 0)) return false;
+      for (var i = 0; i < s.rangeCount; i++) {
+        var r = s.getRangeAt(i);
+        if (!r.collapsed && r.getClientRects().length > 0) return false;
+      }
+      return true;
+    } catch (x) { return false; }
+  }
   function niKajKopirati(e) {
     if (e.defaultPrevented) return false;
     if (document.designMode === "on") return false;
     if (String(document.contentType || "").indexOf("image/") === 0) return false;
     var s = window.getSelection ? window.getSelection() : null;
-    if (s && (s.type === "Range" || (s.rangeCount > 0 && !s.isCollapsed) || imaBesedilo(s))) return false;
+    if (s && (s.type === "Range" || (s.rangeCount > 0 && !s.isCollapsed) || imaBesedilo(s)) && !izborBrezVsebine(s)) return false;
     var a = aktiven(), pot = e.composedPath ? e.composedPath() : [];
     if (vUrejanju(a) || vUrejanju(e.target) || vUrejanju(pot[0])) return false;
     if (mordaZaprtaSenca(a) || mordaZaprtaSenca(e.target)) return false;
