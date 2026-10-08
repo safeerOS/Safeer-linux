@@ -48,6 +48,7 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.0.111" date="2026-10-08"><description><p>Packaged with Safeer OS 0.4.69 and Safeer Control 2.1.67. The counter of blocked ads and threats is gone (start page, toolbar shield, shield dialog); blocking itself is unchanged.</p></description></release>
     <release version="1.0.110" date="2026-10-08"><description><p>Packaged with Safeer OS 0.4.68 and Safeer Control 2.1.66. DNS-over-HTTPS now also resolves IPv6-only sites (AAAA) and refuses local-network targets unless you allow them in a new setting; the leftover per-site ad-block recipe is removed; release notes moved to docs/releases.</p></description></release>
     <release version="1.0.109" date="2026-10-08"><description><p>Packaged with Safeer OS 0.4.67 and Safeer Control 2.1.65. Security release (independent code review, 8 October 2026): signed, fresh, anti-rollback update checks with a mandatory checksum over HTTPS; DoH answers must match the question; the start page makes no third-party request for shortcut icons; device pairing uses the full certificate fingerprint. No change to browsing.</p></description></release>
     <release version="1.0.108" date="2026-10-07"><description><p>Packaged with Safeer OS 0.4.66 and Safeer Control 2.1.64. Pressing Ctrl+C with nothing selected no longer empties the clipboard (the system web engine, WebKitGTK 2.48 and newer, wrote an empty clipboard). A page that sets no background of its own is readable again: the view under web pages is white, not dark.</p></description></release>

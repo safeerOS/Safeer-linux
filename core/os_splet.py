@@ -677,8 +677,7 @@ class VdelaniSplet:
         return True
 
     def _osvezi_scit(self):
-        n = int(self.config.get("total_ads_blocked", 0)) + int(self.config.get("total_threats_blocked", 0))
-        self.scit.set_tooltip_text(self._t("blokirano", count=n))
+        pass  # stevca ni vec; namig gumba ostane "scit"
 
     def _preveri_bank_stran(self, pogled, uri):
         if not uri.startswith(("http://", "https://")) or adblock.is_real_bank_host(uri): return
