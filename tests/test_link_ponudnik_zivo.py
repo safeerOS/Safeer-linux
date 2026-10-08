@@ -17,7 +17,9 @@ from core import link_hub
 from tests.test_link_krog_zivo import _seznanitve, posiljatelj
 from tests.test_link_naprave_zivo import naprave_na_hubu
 
-KATALOG = {"app:preizkus-safeer.desktop": {"name": "Preizkus Safeer", "kind": "linux"}}
+# Hub v seznamu naprav (/cast/devices) pokaze samo Safeerjeve aplikacije (id si.safeer.*): tuji programi so po načrtu skriti
+# (ac67589 v Android-tv, dostop po napravah). Preizkus zato prijavi id s tem predpono.
+KATALOG = {"si.safeer.preizkus": {"name": "Preizkus Safeer", "kind": "linux"}}
 
 
 class PonudnikVZivo(unittest.TestCase):

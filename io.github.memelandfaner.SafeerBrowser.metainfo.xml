@@ -48,6 +48,7 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.0.113" date="2026-10-08"><description><p>Packaged with Safeer OS 0.4.71 and Safeer Control 2.1.69. Stronger protection against ad-blocker detection (hidden bait checks, tracking pixels, ad-tag checks); blocking itself is unchanged.</p></description></release>
     <release version="1.0.112" date="2026-10-08"><description><p>Packaged with Safeer OS 0.4.70 and Safeer Control 2.1.68. Web pages can no longer detect the built-in ad blocker (general protection, no per-site rules); blocking itself is unchanged.</p></description></release>
     <release version="1.0.111" date="2026-10-08"><description><p>Packaged with Safeer OS 0.4.69 and Safeer Control 2.1.67. The counter of blocked ads and threats is gone (start page, toolbar shield, shield dialog); blocking itself is unchanged.</p></description></release>
     <release version="1.0.110" date="2026-10-08"><description><p>Packaged with Safeer OS 0.4.68 and Safeer Control 2.1.66. DNS-over-HTTPS now also resolves IPv6-only sites (AAAA) and refuses local-network targets unless you allow them in a new setting; the leftover per-site ad-block recipe is removed; release notes moved to docs/releases.</p></description></release>
