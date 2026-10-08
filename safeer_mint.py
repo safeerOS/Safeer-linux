@@ -88,7 +88,7 @@ TEMNO_OZADJE = "#101814"
 
 # Use WebKitGTK's maintained browser identity consistently across redirects.
 USER_AGENT = None
-APP_VERSION = "1.0.113"
+APP_VERSION = "1.0.114"
 
 
 # ---------------------------------------------------------------- crtne ikone
