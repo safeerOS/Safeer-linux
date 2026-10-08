@@ -216,6 +216,16 @@ PONOVI_DRUGJE = ("baterija", "varcevanje", "pregreto", "malo_pomnilnika", "preob
                  "ne_zna_dekodirati", "naprava_ne_odgovori", "zavrnjeno")
 NAJVEC_POSKUSOV = 3
 
+# Napaka, ki jo naprava sporoci kot besedilo: ce je vzrok omrezni (naprava ne doseze racunalnika, cas potekel),
+# ni krivo video ali naprava za ta video, zato naj delo prevzame druga naprava (zakon solidarnosti).
+OMREZNE_NAPAKE = ("failed to connect", "connection refused", "connection reset", "timed out", "timeout",
+                  "unable to resolve", "unreachable", "no route to host", "econnrefused", "ehostunreach")
+
+
+def razvrsti_napako_naprave(besedilo: str) -> str:
+    nizka = besedilo.lower()
+    return "naprava_ne_odgovori" if any(k in nizka for k in OMREZNE_NAPAKE) else besedilo
+
 
 class Pretvorba:
     """Pretvorbe videov na drugih napravah; klice jih Safeer OS prek Controla (D-Bus Naprave.Pretvorba*)."""
@@ -476,7 +486,7 @@ class Pretvorba:
                     o.stanje = "koncano"
                     return
                 if faza == "napaka":
-                    raise _Napaka(str(d.get("error") or "napaka"))
+                    raise _Napaka(razvrsti_napako_naprave(str(d.get("error") or "napaka")))
                 if faza in ("prenasam", "pretvarjam", "shranjujem"):
                     o.stanje = faza
         except _Napaka as e:
