@@ -224,7 +224,12 @@ OMREZNE_NAPAKE = ("failed to connect", "connection refused", "connection reset",
 
 def razvrsti_napako_naprave(besedilo: str) -> str:
     nizka = besedilo.lower()
-    return "naprava_ne_odgovori" if any(k in nizka for k in OMREZNE_NAPAKE) else besedilo
+    if any(k in nizka for k in OMREZNE_NAPAKE):
+        return "naprava_ne_odgovori"
+    # Dekodirnik te naprave videa ne zna (ali ga ni mogel zagnati): druga naprava ga morda zna.
+    if "error_code_decod" in nizka or "decoder_init_failed" in nizka or "decoding_format_unsupported" in nizka:
+        return "ne_zna_dekodirati"
+    return besedilo
 
 
 class Pretvorba:
