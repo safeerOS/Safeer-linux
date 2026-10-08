@@ -213,7 +213,8 @@ class VdelaniSplet:
                 return
             if self.config.get("doh_enabled", True) and self.config.get("doh_provider", "cloudflare") != "disabled":
                 doh = get_doh_proxy(provider=self.config.get("doh_provider", "cloudflare"),
-                                    custom_url=self.config.get("custom_doh_url", "https://1.1.1.1/dns-query"), enabled=True)
+                                    custom_url=self.config.get("custom_doh_url", "https://1.1.1.1/dns-query"), enabled=True,
+                                    lokalno=bool(self.config.get("doh_lokalno_omrezje", False)))
                 if doh and doh.actual_port > 0:
                     p = W.NetworkProxySettings.new("http://127.0.0.1:%d" % doh.actual_port, izjeme)
                     self.kontekst.set_network_proxy_settings(W.NetworkProxyMode.CUSTOM, p)

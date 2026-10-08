@@ -10,7 +10,7 @@ page's markup. Everything works by what a page *is* — its markup, its stream f
 request pattern — not by who publishes it.
 
 This is not style. It is the promise the product makes: your sites work, not just ours. A
-build guard enforces it and will fail your build. If a site is broken, the right patch is a
+build guard (`tests/test_brez_receptov_za_strani.py`) enforces it and will fail your build. The only standing exception is YouTube, whose own player and ad pipeline are a product feature, not a fix for one page. If a site is broken, the right patch is a
 generic rule that fixes that whole class of sites, and a test that proves it.
 
 Bookmarks, start-page tiles and voice shortcuts are not adaptations — those are just entries

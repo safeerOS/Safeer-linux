@@ -97,6 +97,30 @@ def je_javni_naslov(naslov: str) -> bool:
     return True
 
 
+#: Domace omrezje, ki ga uporabnik lahko izrecno dovoli (stikalo »dovoli lokalno omrezje«). Povratni, povezavno-lokalni
+#: (metapodatki oblaka), vecvrstni, rezervirani in nedolocen naslov NISO med njimi in ostanejo zavrnjeni.
+_DOMACE_MREZE = tuple(ipaddress.ip_network(n) for n in
+                      ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "fc00::/7"))
+
+
+def je_dovoljen_cilj(naslov: str, dovoli_lokalno: bool = False) -> bool:
+    """Javni naslov, ali (le ce je uporabnik dovolil lokalno omrezje) naslov v domacem omrezju.
+
+    Ime, ki ga javni razreševalnik prevede v domaci naslov, je sicer znak napada (DNS rebinding); pri lastnem DoH
+    (Pi-hole, usmerjevalnik) pa je to pricakovano - zato izrecno stikalo, privzeto izklopljeno."""
+    if je_javni_naslov(naslov):
+        return True
+    if not dovoli_lokalno:
+        return False
+    try:
+        ip = ipaddress.ip_address(str(naslov).strip().strip("[]"))
+    except ValueError:
+        return False
+    if ip.version == 6 and getattr(ip, "ipv4_mapped", None) is not None:
+        ip = ip.ipv4_mapped
+    return any(ip.version == n.version and ip in n for n in _DOMACE_MREZE)
+
+
 #: Imena, ki jih javni DNS ne pozna in vodijo v notranja omrezja (tudi metapodatki oblaka).
 NOTRANJA_IMENA = ("localhost", ".localhost", ".local", ".internal", ".home.arpa", ".lan")
 
@@ -215,12 +239,12 @@ class DoHResolver:
                 event.set()
 
     @staticmethod
-    def _build_dns_wire_query(hostname: str) -> bytes:
-        """Poizvedba tipa A. ID je 0, kot priporoca RFC 8484 (DoH), odgovor pa preverimo po imenu.
+    def _build_dns_wire_query(hostname: str, qtype: int = 1) -> bytes:
+        """Poizvedba tipa A (qtype 1) ali AAAA (28). ID je 0, kot priporoca RFC 8484 (DoH), odgovor pa preverimo po imenu.
 
         Ime mora biti ze v obliki ASCII (IDNA, "xn--"): cesar ni mogoce zapisati, zavrnemo (ValueError),
         namesto da bi tiho izpustili znake in vprasali za drugo ime."""
-        return b"\x00\x00\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00" + DoHResolver._ime_v_zapis(hostname) + b"\x00\x01\x00\x01"
+        return b"\x00\x00\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00" + DoHResolver._ime_v_zapis(hostname) + qtype.to_bytes(2, "big") + b"\x00\x01"
 
     @staticmethod
     def _ime_v_zapis(hostname: str) -> bytes:
@@ -277,14 +301,14 @@ class DoHResolver:
         return b".".join(oznake), (konec if konec >= 0 else idx)
 
     @staticmethod
-    def _parse_dns_wire_response(data: bytes, hostname: str) -> Tuple[Optional[str], int]:
-        """IPv4 naslov iz odgovora - samo ce je odgovor res na nase vprasanje (ID 0, isto ime, tip A) in samo iz zapisa A,
+    def _parse_dns_wire_response(data: bytes, hostname: str, qtype: int = 1) -> Tuple[Optional[str], int]:
+        """IPv4 (qtype 1) ali IPv6 (qtype 28) naslov iz odgovora - samo ce je odgovor res na nase vprasanje (ID 0, isto ime, tip A/AAAA) in samo iz zapisa A,
         katerega lastnik je vprasano ime ali ime v verigi CNAME od njega naprej (zunanji pregled kode 8. 10. 2026: prej je
         vrnil prvi zapis A ne glede na lastnika, kazalec sredi imena pa je odgovor podrl)."""
         if len(data) < 12 or not data[2] & 0x80 or data[2] & 0x02 or data[3] & 0x0f:
             return None, 300
         try:
-            vprasanje = DoHResolver._ime_v_zapis(hostname) + b"\x00\x01\x00\x01"
+            vprasanje = DoHResolver._ime_v_zapis(hostname) + qtype.to_bytes(2, "big") + b"\x00\x01"
         except ValueError:
             return None, 300
         # Odgovor mora ponoviti nase vprasanje: en vnos, isto ime (velikost crk ni pomembna), tip A.
@@ -308,8 +332,10 @@ class DoHResolver:
                 idx += 10
                 if idx + rdlength > len(data):
                     return None, 300
-                if rclass == 1 and rtype == 1 and rdlength == 4:
+                if rclass == 1 and rtype == 1 and rdlength == 4 and qtype == 1:
                     naslovi.setdefault(lastnik, (".".join(str(b) for b in data[idx:idx + 4]), ttl))
+                elif rclass == 1 and rtype == 28 and rdlength == 16 and qtype == 28:
+                    naslovi.setdefault(lastnik, (str(ipaddress.IPv6Address(bytes(data[idx:idx + 16]))), ttl))
                 elif rclass == 1 and rtype == 5:
                     cilj, _ = DoHResolver._preberi_ime(data, idx)
                     cname.setdefault(lastnik, (cilj, ttl))
@@ -329,6 +355,15 @@ class DoHResolver:
         return None, 300
 
     def _query_doh(self, hostname: str, timeout: float) -> Tuple[Optional[str], int]:
+        """Najprej A. Samo ce je strezniku uspelo odgovoriti in zapisa A ni (ttl != 15: ne gre za napako prenosa), vprasamo se
+        za AAAA: strani samo z IPv6 se tako odprejo, namesto da bi padle s tihim 502."""
+        ip, ttl = self._poizvedba(hostname, timeout, 1)
+        if ip or ttl == 15:
+            return ip, ttl
+        ip6, ttl6 = self._poizvedba(hostname, timeout, 28)
+        return (ip6, ttl6) if ip6 else (None, ttl)
+
+    def _poizvedba(self, hostname: str, timeout: float, qtype: int = 1) -> Tuple[Optional[str], int]:
         if self.provider == "custom":
             base_url = self.custom_url
         else:
@@ -351,7 +386,7 @@ class DoHResolver:
             session.set_timeout(max(1, math.ceil(timeout)))
             message = Soup.Message.new("POST", base_url)
             message.set_flags(Soup.MessageFlags.NO_REDIRECT)
-            message.set_request_body_from_bytes("application/dns-message", GLib.Bytes.new(self._build_dns_wire_query(hostname)))
+            message.set_request_body_from_bytes("application/dns-message", GLib.Bytes.new(self._build_dns_wire_query(hostname, qtype)))
             message.get_request_headers().append("Accept", "application/dns-message")
             stream = session.send(message, None)
             try:
@@ -367,7 +402,7 @@ class DoHResolver:
                     data.extend(chunk)
                 if len(data) > 65535:
                     return None, 15
-                return self._parse_dns_wire_response(bytes(data), hostname)
+                return self._parse_dns_wire_response(bytes(data), hostname, qtype)
             finally:
                 stream.close(None)
         except Exception:
@@ -384,8 +419,9 @@ class LocalDoHProxy:
     oblaka ne vzpostavi.
     """
 
-    def __init__(self, resolver: DoHResolver, bind_host: str = "127.0.0.1", port: int = 0):
+    def __init__(self, resolver: DoHResolver, bind_host: str = "127.0.0.1", port: int = 0, dovoli_lokalno: bool = False):
         self.resolver = resolver
+        self.dovoli_lokalno = bool(dovoli_lokalno)
         self.bind_host = bind_host
         self.requested_port = port
         self.actual_port = 0
@@ -460,6 +496,32 @@ class LocalDoHProxy:
         except Exception:
             pass
 
+    @staticmethod
+    def _napaka_502(client_sock: socket.socket, besedilo: str):
+        """Razumljiv odgovor namesto praznega 502 (besedilo je ASCII, brez vsebine iz zahtevka)."""
+        telo = ("Safeer: " + besedilo).encode("ascii", errors="replace")
+        try:
+            client_sock.sendall(b"HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain; charset=us-ascii\r\n"
+                                b"Content-Length: " + str(len(telo)).encode() + b"\r\nConnection: close\r\n\r\n" + telo)
+        except Exception:
+            pass
+        try:
+            client_sock.close()
+        except Exception:
+            pass
+
+    def _vzpostavi_povezavo(self, client_sock: socket.socket, naslov: str, vrata: int) -> Optional[socket.socket]:
+        """Povezava na razresen naslov; pri neuspehu (npr. stran samo z IPv6, omrezje pa IPv6 nima) razumljiva napaka."""
+        try:
+            return socket.create_connection((naslov, vrata), timeout=10.0)
+        except OSError:
+            if ":" in naslov:
+                self._napaka_502(client_sock, "Ta stran je dosegljiva samo prek IPv6, vase omrezje pa IPv6 ne omogoca. / "
+                                              "This site is reachable only over IPv6, and your network does not provide it.")
+            else:
+                self._napaka_502(client_sock, "Povezava s streznikom ni uspela. / Could not connect to the server.")
+            return None
+
     def _pripravi_cilj(self, client_sock: socket.socket, host: str, port: int) -> Optional[str]:
         """
         Razreši ime prek DoH in preveri, ali je cilj sploh dovoljen.
@@ -471,17 +533,10 @@ class LocalDoHProxy:
 
         resolved_ip = self.resolver.resolve(host)
         if not resolved_ip:
-            try:
-                client_sock.sendall(b"HTTP/1.1 502 Bad Gateway\r\n\r\nSafeer DoH: Razresevanje domene ni uspelo.")
-            except Exception:
-                pass
-            try:
-                client_sock.close()
-            except Exception:
-                pass
+            self._napaka_502(client_sock, "Razresevanje domene ni uspelo (DNS). / The domain could not be resolved (DNS).")
             return None
 
-        if not je_javni_naslov(resolved_ip):
+        if not je_dovoljen_cilj(resolved_ip, self.dovoli_lokalno):
             self._zavrni(client_sock, b"Safeer: povezava v lokalno omrezje je zavrnjena.")
             return None
 
@@ -525,7 +580,9 @@ class LocalDoHProxy:
                 if not resolved_ip:
                     return
 
-                remote_sock = socket.create_connection((resolved_ip, port), timeout=10.0)
+                remote_sock = self._vzpostavi_povezavo(client_sock, resolved_ip, port)
+                if remote_sock is None:
+                    return
                 with self._socket_lock:
                     self._sockets.add(remote_sock)
                 if not self.is_running:
@@ -557,7 +614,9 @@ class LocalDoHProxy:
                 if not resolved_ip:
                     return
 
-                remote_sock = socket.create_connection((resolved_ip, port), timeout=10.0)
+                remote_sock = self._vzpostavi_povezavo(client_sock, resolved_ip, port)
+                if remote_sock is None:
+                    return
                 with self._socket_lock:
                     self._sockets.add(remote_sock)
                 if not self.is_running:
@@ -624,7 +683,8 @@ _global_proxy: Optional[LocalDoHProxy] = None
 _proxy_lock = threading.Lock()
 
 
-def get_doh_proxy(provider: str = "cloudflare", custom_url: str = "", enabled: bool = True) -> Optional[LocalDoHProxy]:
+def get_doh_proxy(provider: str = "cloudflare", custom_url: str = "", enabled: bool = True,
+                  lokalno: bool = False) -> Optional[LocalDoHProxy]:
     """Pridobi ali inicializira globalni primerek DoH posrednika."""
     global _global_resolver, _global_proxy
     with _proxy_lock:
@@ -640,7 +700,9 @@ def get_doh_proxy(provider: str = "cloudflare", custom_url: str = "", enabled: b
             _global_resolver.set_provider(provider, custom_url)
 
         if _global_proxy is None:
-            _global_proxy = LocalDoHProxy(_global_resolver)
+            _global_proxy = LocalDoHProxy(_global_resolver, dovoli_lokalno=lokalno)
             _global_proxy.start()
+        else:
+            _global_proxy.dovoli_lokalno = bool(lokalno)
 
         return _global_proxy
