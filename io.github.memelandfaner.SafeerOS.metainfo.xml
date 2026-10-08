@@ -36,6 +36,7 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.4.70" date="2026-10-08"><description><p>Packaged with Safeer Control 2.1.68. Web pages can no longer detect the built-in ad blocker; blocking itself is unchanged.</p></description></release>
     <release version="0.4.69" date="2026-10-08"><description><p>Packaged with Safeer Control 2.1.67. The counter of blocked ads and threats is gone from the shield tooltip; blocking itself is unchanged.</p></description></release>
     <release version="0.4.68" date="2026-10-08"><description><p>Packaged with Safeer Control 2.1.66. DNS-over-HTTPS also resolves IPv6-only sites and refuses local-network targets unless allowed in a new setting.</p></description></release>
     <release version="0.4.67" date="2026-10-08"><description><p>Security release (independent code review, 8 October 2026). Packaged with Safeer Control 2.1.65. The in-app update check now trusts the version list only when it is genuine (signed), fresh and not a downgrade (anti-rollback); the checksum is mandatory and everything goes over HTTPS. Browsing the whole computer no longer exposes system directories such as /proc or /etc. DoH answers must match the question. The ad and threat shield counter can no longer be inflated by a page. The start page makes no third-party request for shortcut icons. Device pairing uses the full certificate fingerprint.</p></description></release>
