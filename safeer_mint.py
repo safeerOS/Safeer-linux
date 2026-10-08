@@ -47,7 +47,6 @@ from core.i18n import t, set_language, get_current_language, SUPPORTED_LANGUAGES
 from core.adblock import (
     YOUTUBE_ADBLOCK_SCRIPT,
     YOUTUBE_KEEP_WATCHING_SCRIPT,
-    HOOKSHOT_INSERTS_SCRIPT,
     ADGUARD_PROTECTION_SCRIPT,
     GENERIC_COSMETIC_SCRIPT,
     STEVEC_MOST,
@@ -89,7 +88,7 @@ TEMNO_OZADJE = "#101814"
 
 # Use WebKitGTK's maintained browser identity consistently across redirects.
 USER_AGENT = None
-APP_VERSION = "1.0.109"
+APP_VERSION = "1.0.110"
 
 
 # ---------------------------------------------------------------- crtne ikone
@@ -738,7 +737,8 @@ class SafeerMintBrowser(Gtk.Window):
             if proxy_mode == "disabled":
                 if doh_enabled and doh_provider != "disabled":
                     # Vgrajen lokalni DoH posrednik
-                    doh_proxy = get_doh_proxy(provider=doh_provider, custom_url=custom_doh_url, enabled=True)
+                    doh_proxy = get_doh_proxy(provider=doh_provider, custom_url=custom_doh_url, enabled=True,
+                                              lokalno=bool(self.config.get("doh_lokalno_omrezje", False)))
                     if doh_proxy and doh_proxy.actual_port > 0:
                         local_proxy_url = f"http://127.0.0.1:{doh_proxy.actual_port}"
                         proxy_settings = WebKit2.NetworkProxySettings.new(local_proxy_url, ignore_hosts)
@@ -3154,6 +3154,16 @@ class SafeerMintBrowser(Gtk.Window):
         card_doh.pack_start(combo_doh, False, False, 0)
         card_doh.pack_start(entry_custom_doh, False, False, 2)
 
+        doh_lokalno_check = Gtk.CheckButton(label=t('doh_lokalno_lbl'))
+        doh_lokalno_check.set_active(bool(self.config.get("doh_lokalno_omrezje", False)))
+
+        def on_doh_lokalno(btn):
+            self.config.set("doh_lokalno_omrezje", btn.get_active())
+            self.setup_network_security_and_proxy()
+
+        doh_lokalno_check.connect("toggled", on_doh_lokalno)
+        card_doh.pack_start(doh_lokalno_check, False, False, 0)
+
         tab2_box.pack_start(card_doh, False, False, 0)
 
         # Kartica 2.3: Šifriran tunel / Proxy
@@ -4654,15 +4664,6 @@ class SafeerMintBrowser(Gtk.Window):
             WebKit2.UserScriptInjectionTime.START,
             ["*://*.youtube.com/*", "*://youtube.com/*"],
             AUTH_SCRIPT_EXCLUSIONS + ["*://accounts.youtube.com/*"]
-        ))
-
-        # 2.0.2. Push Square / Nintendo Life / Pure Xbox / Time Extension ad inserts
-        content_mgr.add_script(WebKit2.UserScript(
-            HOOKSHOT_INSERTS_SCRIPT,
-            WebKit2.UserContentInjectedFrames.TOP_FRAME,
-            WebKit2.UserScriptInjectionTime.START,
-            [f"*://{d}/*" for site in ("pushsquare.com", "nintendolife.com", "purexbox.com", "timeextension.com", "digitalfoundry.net") for d in (site, "*." + site)],
-            None
         ))
 
         # 2.1. Vgrajena AdGuard Zaščitna razširitev (Anti-Adblock Defuser & Cosmetic Rules)

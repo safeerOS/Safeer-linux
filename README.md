@@ -30,8 +30,11 @@ links, no telemetry. DuckDuckGo is the default search engine.
 
 **Encrypted DNS** over HTTPS with working HTTP/2, and no silent fallback to plaintext DNS when
 it fails. Providers reached by name (Quad9, AdGuard) have their own server address looked up
-once through the system resolver; Cloudflare and Google are reached by IP. Lookups are IPv4
-(A records) for now.
+once through the system resolver; Cloudflare and Google are reached by IP. Lookups ask for an IPv4 address (A record) first and
+fall back to IPv6 (AAAA) only when a site has no A record; a site that is IPv6-only and cannot be reached
+over your network says so instead of failing silently. Names that a custom DoH server (Pi-hole, router)
+resolves to home-network addresses are refused unless you turn on "Allow the local network" in the
+privacy settings; loopback and cloud-metadata addresses stay refused either way.
 
 **Background playback.** Music and podcasts keep playing when you switch tabs, at a CPU cost
 low enough that a laptop stays quiet.
@@ -50,13 +53,13 @@ you want it.
 
 ## Install
 
-[![Release](https://img.shields.io/badge/Release-v1.0.109-2dd4bf?style=flat-square)](../../releases/tag/v1.0.109)
+[![Release](https://img.shields.io/badge/Release-v1.0.110-2dd4bf?style=flat-square)](../../releases/tag/v1.0.110)
 
-Latest release: **v1.0.109** — [release notes and downloads](../../releases/tag/v1.0.109)
+Latest release: **v1.0.110** — [release notes and downloads](../../releases/tag/v1.0.110)
 
 ```bash
 # Debian, Ubuntu, Linux Mint
-sudo apt install ./safeer-browser_1.0.109_all.deb
+sudo apt install ./safeer-browser_1.0.110_all.deb
 ```
 
 
