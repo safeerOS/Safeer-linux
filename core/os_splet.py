@@ -131,12 +131,8 @@ def razcleni_sporocilo(vrednost) -> dict | None:
         return {"action": dejanje, "url": naslov} if naslov else None
     if dejanje == "reset_portals":
         return {"action": dejanje}
-    if dejanje in ("increment_ads", "increment_threats"):
-        try:
-            stevilo = max(0, min(int(vrednost.get("count", 1)), 100))
-        except (TypeError, ValueError):
-            return None
-        return {"action": dejanje, "count": stevilo}
+    # increment_ads/increment_threats ne gresta vec skozi glavni rokovalnik (stran bi napihnila stevec):
+    # steje jih samo kozmeticna skripta v locenem svetu prek adblock.preveri_stevec (glej _stevec).
     return None
 
 
@@ -409,13 +405,19 @@ class VdelaniSplet:
         upravitelj = pogled.get_user_content_manager()
         upravitelj.register_script_message_handler("safeer")
         upravitelj.connect("script-message-received::safeer", lambda _u, r: self._sporocilo(pogled, r))
+        # Stevec scita v locenem svetu: stran v glavnem svetu tega rokovalnika ne doseze.
+        upravitelj.register_script_message_handler_in_world(adblock.STEVEC_MOST, adblock.STEVEC_SVET)
+        upravitelj.connect("script-message-received::" + adblock.STEVEC_MOST, lambda _u, r: self._stevec(r))
         odlozisce_varuh.dodaj(W, upravitelj)   # tudi na prijavnih straneh: nicesar ne spreminja, le varuje odlozisce
         izvzemi = adblock.AUTH_SCRIPT_EXCLUSIONS
         if self.config.get("gpc_dnt_enabled", True): self._skripta(upravitelj, adblock.GPC_AND_DNT_SCRIPT, izloceni=izvzemi)
         self._skripta(upravitelj, adblock.YOUTUBE_ADBLOCK_SCRIPT, dovoljeni=["*://*.youtube.com/*", "*://youtube.com/*"], izloceni=izvzemi)
         self._skripta(upravitelj, adblock.YOUTUBE_KEEP_WATCHING_SCRIPT, dovoljeni=["*://*.youtube.com/*", "*://youtube.com/*"], izloceni=izvzemi)
         if self.config.get("adguard_protection_enabled", True): self._skripta(upravitelj, adblock.ADGUARD_PROTECTION_SCRIPT, izloceni=izvzemi)
-        self._skripta(upravitelj, adblock.GENERIC_COSMETIC_SCRIPT, W.UserScriptInjectionTime.END, izloceni=izvzemi)
+        # Kozmeticna skripta (cist DOM) v locenem svetu: lahko skrije oglase in posilja stevec, stran je ne vidi.
+        upravitelj.add_script(W.UserScript.new_for_world(
+            adblock.GENERIC_COSMETIC_SCRIPT, W.UserContentInjectedFrames.ALL_FRAMES,
+            W.UserScriptInjectionTime.END, adblock.STEVEC_SVET, None, izvzemi))
         self._skripta(upravitelj, adblock.ANTI_CLICKJACKING_SCRIPT, W.UserScriptInjectionTime.END, izloceni=izvzemi + ["file://*"])
         self._skripta(upravitelj, adblock.TAB_THROTTLER_SCRIPT, izloceni=izvzemi)
         nastavitve = pogled.get_settings()
@@ -625,6 +627,20 @@ class VdelaniSplet:
         elif sporocilo["action"] == "reset_portals":
             self.config.set("splet_skrite_bliznjice", []); self.config.set("splet_brez_privzetih", False)
             self._poslji_stanje(pogled, prenesi=False)
+
+    def _stevec(self, rezultat):
+        """Stevec scita iz kozmeticne skripte (loceni svet). Samo increment; stevilo omejeno."""
+        try:
+            s = adblock.preveri_stevec(json.loads(rezultat.get_js_value().to_json(0)))
+        except Exception:
+            s = None
+        if not s:
+            return
+        if s["action"] == "increment_ads":
+            self.config.increment_ads_blocked(s["count"])
+        else:
+            self.config.increment_threats_blocked(s["count"])
+        self._osvezi_scit()
 
     def _dodaj_portal(self, *_):
         d = self.Gtk.Dialog(title=self._t("dodaj"), transient_for=self.stars, flags=self.Gtk.DialogFlags.MODAL)

@@ -50,6 +50,9 @@ from core.adblock import (
     HOOKSHOT_INSERTS_SCRIPT,
     ADGUARD_PROTECTION_SCRIPT,
     GENERIC_COSMETIC_SCRIPT,
+    STEVEC_MOST,
+    STEVEC_SVET,
+    preveri_stevec,
     GPC_AND_DNT_SCRIPT,
     ANTI_CLICKJACKING_SCRIPT,
     TAB_THROTTLER_SCRIPT,
@@ -86,7 +89,7 @@ TEMNO_OZADJE = "#101814"
 
 # Use WebKitGTK's maintained browser identity consistently across redirects.
 USER_AGENT = None
-APP_VERSION = "1.0.108"
+APP_VERSION = "1.0.109"
 
 
 # ---------------------------------------------------------------- crtne ikone
@@ -4616,6 +4619,11 @@ class SafeerMintBrowser(Gtk.Window):
         # sicer bi lahko poljubna stran sprozila dejanja nasega vmesnika.
         content_mgr.connect("script-message-received::safeer",
                             lambda cm, res, posiljatelj=wv: self.on_js_message(cm, res, posiljatelj))
+        # Stevec scita v locenem svetu (STEVEC_SVET): stran v glavnem svetu tega rokovalnika ne doseze,
+        # zato stevca ne more napihniti (pregled 8. 10. 2026).
+        content_mgr.register_script_message_handler_in_world(STEVEC_MOST, STEVEC_SVET)
+        content_mgr.connect("script-message-received::" + STEVEC_MOST,
+                            lambda cm, res: self.on_stevec_message(res))
         self.apply_content_filter(wv)  # 📜 EasyList, once compiled
 
         # 1. Global Privacy Control (GPC) & Do Not Track (DNT) W3C Engine
@@ -4670,11 +4678,12 @@ class SafeerMintBrowser(Gtk.Window):
             )
             content_mgr.add_script(adg_script)
 
-        # 3. Cosmetic script
-        gen_script = WebKit2.UserScript(
+        # 3. Cosmetic script - v locenem svetu (cist DOM): skrije oglase in posilja stevec, stran ga ne vidi.
+        gen_script = WebKit2.UserScript.new_for_world(
             GENERIC_COSMETIC_SCRIPT,
             WebKit2.UserContentInjectedFrames.ALL_FRAMES,
             WebKit2.UserScriptInjectionTime.END,
+            STEVEC_SVET,
             None,
             AUTH_SCRIPT_EXCLUSIONS + ["*://*.google.com/*", "*://*.google.si/*", "*://*.facebook.com/*", "*://*.messenger.com/*", "*://*.banka.si/*"]
         )
@@ -7077,6 +7086,20 @@ console.log("Safeer skripta teče na:", window.location.href);
         dialog.run()
         dialog.destroy()
 
+    def on_stevec_message(self, js_result):
+        """Stevec scita iz kozmeticne skripte v locenem svetu. Samo increment; stevilo omejeno (preveri_stevec)."""
+        try:
+            s = preveri_stevec(json.loads(js_result.get_js_value().to_json(0)))
+        except Exception:
+            s = None
+        if not s:
+            return
+        if s["action"] == "increment_ads":
+            self.config.increment_ads_blocked(s["count"])
+        else:
+            self.config.increment_threats_blocked(s["count"])
+        self.update_shield_button_label()
+
     def on_gm_message(self, content_mgr, js_result):
         """
         Shramba uporabniške skripte (GM_setValue, GM_deleteValue).
@@ -7142,18 +7165,10 @@ console.log("Safeer skripta teče na:", window.location.href);
                 self.config.set("language", lang)
                 set_language(lang)
                 self.update_ui_language()
-            elif action == "increment_ads":
-                # Poslje ga nas vbrizgani skript na vsaki strani, zato izvora ne
-                # zahtevamo; vrednost omejimo, da stevca ni mogoce napihniti.
-                count = max(0, min(int(data.get("count", 1)), 100))
-                if count:
-                    self.config.increment_ads_blocked(count)
-                    self.update_shield_button_label()
-            elif action == "increment_threats":
-                count = max(0, min(int(data.get("count", 1)), 100))
-                if count:
-                    self.config.increment_threats_blocked(count)
-                    self.update_shield_button_label()
+            elif action in ("increment_ads", "increment_threats"):
+                # Stevec scita gre samo skozi loceni svet (on_stevec_message); tu ga ne sprejmemo vec,
+                # da ga stran ne more napihniti (pregled 8. 10. 2026).
+                return
             elif action == "set_default_browser":
                 self.set_as_default_browser(show_dialog=True)
             elif action == "open_sidebar":

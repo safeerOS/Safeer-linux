@@ -138,16 +138,24 @@ class Most(unittest.TestCase):
         pogled = self.poslji(okno, {"action": "navigate", "url": "javascript:alert(1)"}, domaca)
         self.assertEqual(pogled.nalozeni, [], "tudi nasa stran ne sme na javascript:")
 
-    def test_stevec_oglasov_dela_z_vsake_strani(self):
-        """Poslje ga nas vbrizgani skript, zato ga ne smemo zavrniti."""
+    def test_glavni_rokovalnik_ne_steje_oglasov(self):
+        """Zunanji pregled 8. 10. 2026: increment prek glavnega rokovalnika (dosegljivega vsaki strani) ne sme steti -
+        sicer bi poljubna stran napihnila stevec."""
         okno = self.okno()
         self.poslji(okno, {"action": "increment_ads", "count": 3}, "https://24ur.com/")
-        okno.config.increment_ads_blocked.assert_called_once_with(3)
+        self.poslji(okno, {"action": "increment_threats", "count": 3}, "file://" + os.path.join(safeer_mint.BASE_DIR, "ui", "home.html"))
+        okno.config.increment_ads_blocked.assert_not_called()
+        okno.config.increment_threats_blocked.assert_not_called()
 
-    def test_stevca_ni_mogoce_napihniti(self):
+    def test_stevec_prek_locenega_sveta(self):
+        """Stevec steje samo kozmeticna skripta v locenem svetu (on_stevec_message), s preverjenim in omejenim stevilom."""
         okno = self.okno()
-        self.poslji(okno, {"action": "increment_ads", "count": 10 ** 9}, "https://zlo.example/")
-        okno.config.increment_ads_blocked.assert_called_once_with(100)
+        safeer_mint.SafeerMintBrowser.on_stevec_message(okno, LaznoSporocilo({"action": "increment_ads", "count": 3}))
+        okno.config.increment_ads_blocked.assert_called_once_with(3)
+        safeer_mint.SafeerMintBrowser.on_stevec_message(okno, LaznoSporocilo({"action": "increment_ads", "count": 10 ** 9}))
+        okno.config.increment_ads_blocked.assert_called_with(100)
+        safeer_mint.SafeerMintBrowser.on_stevec_message(okno, LaznoSporocilo({"action": "navigate", "url": "https://zlo.example/"}))
+        self.assertEqual(okno.config.increment_ads_blocked.call_count, 2)
 
     def test_brez_posiljatelja_zaupna_dejanja_ne_gredo(self):
         """Ce izvora ne moremo ugotoviti, zaupnega dejanja ne izvedemo."""

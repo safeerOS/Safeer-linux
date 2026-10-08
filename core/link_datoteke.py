@@ -107,6 +107,27 @@ def _skrita(pot: str) -> bool:
     return any(del_.startswith(".") for del_ in pot.replace(os.sep, "/").split("/") if del_)
 
 
+#: Sistemska drevesa (jedro, naprave, procesi, nastavitve sistema, skrbnikova mapa): v njih ni nicesar za uporabnika, so
+#: pa okolja procesov z zetoni (/proc/<pid>/environ), vticnice in nastavitve. Ne dajemo jih nobeni napravi - ne pri
+#: »vsem disku« ne v deljeni mapi (tudi ce uporabnik deli /). Zunanji pregled kode 8. 10. 2026: seznam korena jih je
+#: skril, oznaka disk:/proc/self/environ pa je veljala.
+SISTEMSKA_DREVESA = frozenset({"proc", "sys", "dev", "run", "etc", "root", "lost+found"})
+
+
+def _sistemska(pot: str) -> bool:
+    """Ali je razresena absolutna pot v sistemskem drevesu ([SISTEMSKA_DREVESA]); koren / sam ni."""
+    deli = [d for d in str(pot).replace(os.sep, "/").split("/") if d]
+    return bool(deli) and deli[0] in SISTEMSKA_DREVESA
+
+
+def _realna(pot: str) -> Optional[str]:
+    """os.path.realpath brez izjeme: pot, ki je ni mogoce razresiti (npr. /proc/1/root brez pravic), ne velja."""
+    try:
+        return os.path.realpath(pot)
+    except (OSError, ValueError):
+        return None
+
+
 class DeljeneMape:
     """Izbrane mape (absolutne poti) in navidezne oznake.
 
@@ -115,8 +136,8 @@ class DeljeneMape:
     televizor brez te izbire vidi natanko tiste mape, ki mu jih je uporabnik dal.
     """
 
-    #: Mape, ki na korenu niso za uporabnika (jedro, naprave) in jih ne kazemo.
-    SISTEMSKE = {"proc", "sys", "dev", "run", "lost+found"}
+    #: Mape, ki na korenu niso za uporabnika (jedro, naprave, nastavitve sistema) in jih ne kazemo ne dajemo.
+    SISTEMSKE = SISTEMSKA_DREVESA
 
     def __init__(self, poti: Optional[List[str]] = None, ves_disk: bool = False) -> None:
         self.poti: List[str] = []
@@ -150,8 +171,8 @@ class DeljeneMape:
         if oznaka.startswith("disk:"):
             if not self.ves_disk:
                 return None
-            pot = os.path.realpath(oznaka[len("disk:"):] or "/")
-            if _skrita(pot):
+            pot = _realna(oznaka[len("disk:"):] or "/")
+            if pot is None or _skrita(pot) or _sistemska(pot):
                 return None
             return (-1, pot) if os.path.exists(pot) else None
         deli = str(oznaka or "").split(":", 2)
@@ -163,10 +184,14 @@ class DeljeneMape:
         except (ValueError, IndexError):
             return None
         rel = deli[2].replace("\\", "/").lstrip("/")
-        pot = os.path.realpath(os.path.join(koren, rel)) if rel else koren
+        pot = _realna(os.path.join(koren, rel)) if rel else koren
+        if pot is None:
+            return None
         if pot != koren and not pot.startswith(koren + os.sep):
             return None
         if pot != koren and _skrita(os.path.relpath(pot, koren)):
+            return None
+        if _sistemska(pot):
             return None
         return (i, pot) if os.path.exists(pot) else None
 
@@ -230,7 +255,10 @@ class DeljeneMape:
                 mapa = os.path.isdir(cela)
                 if not mapa and not os.path.isfile(cela):
                     continue
-                rel = os.path.relpath(os.path.realpath(cela), koren).replace(os.sep, "/")
+                realna = os.path.realpath(cela)
+                if _sistemska(realna):
+                    continue  # /proc, /etc ... (deljen koren ali povezava tja)
+                rel = os.path.relpath(realna, koren).replace(os.sep, "/")
                 if rel.startswith(".."):
                     continue  # simbolna povezava ven iz deljene mape
                 v = {"id": f"share:{i}:{rel}", "name": ime, "type": "folder" if mapa else vrsta_datoteke(ime),
@@ -264,7 +292,10 @@ class DeljeneMape:
                 mapa = os.path.isdir(cela)
                 if not mapa and not os.path.isfile(cela):
                     continue
-                v = {"id": "disk:" + os.path.realpath(cela), "name": ime,
+                realna = os.path.realpath(cela)
+                if _skrita(realna) or _sistemska(realna):
+                    continue  # povezava v skrito mapo ali sistemsko drevo: oznaka ne bi veljala
+                v = {"id": "disk:" + realna, "name": ime,
                      "type": "folder" if mapa else vrsta_datoteke(ime), "modified": int(os.path.getmtime(cela))}
                 if not mapa:
                     v["size"] = os.path.getsize(cela)

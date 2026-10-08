@@ -267,6 +267,57 @@ class OdgovorDoH(unittest.TestCase):
     def test_odgovor_z_drugim_id_je_zavrnjen(self):
         self.assertIsNone(self.R._parse_dns_wire_response(self.odgovor("banka.si", b"\x12\x34"), "banka.si")[0])
 
+    # --- Zunanji pregled kode 8. 10. 2026: ime lastnika zapisa A se mora ujemati z vprasanjem (ali z verigo CNAME), kazalci
+    #     DNS (RFC 1035 4.1.4) tudi sredi imena.
+
+    @staticmethod
+    def _glava(odgovorov):
+        return b"\x00\x00\x81\x80\x00\x01" + odgovorov.to_bytes(2, "big") + b"\x00\x00\x00\x00"
+
+    def _sporocilo(self, vprasanje, zapisi):
+        """zapisi: seznam funkcij (zdajsnji_bajti -> bajti zapisa), da lahko kazalci kazejo na ze zapisane dele."""
+        m = bytearray(self._glava(len(zapisi)) + self.R._ime_v_zapis(vprasanje) + b"\x00\x01\x00\x01")
+        for z in zapisi:
+            m += z(bytes(m))
+        return bytes(m)
+
+    @staticmethod
+    def _rr(lastnik, tip, ttl, rdata):
+        return lastnik + tip.to_bytes(2, "big") + b"\x00\x01" + ttl.to_bytes(4, "big") + len(rdata).to_bytes(2, "big") + rdata
+
+    def test_a_za_tuje_ime_v_odgovoru_je_zavrnjen(self):
+        # Vprasanje banka.si, odgovor »evil.test A 9.9.9.9« (ime zapisano v celoti, brez kazalca): prej je vrnilo 9.9.9.9.
+        m = self._sporocilo("banka.si", [lambda _: self._rr(self.R._ime_v_zapis("evil.test"), 1, 300, bytes([9, 9, 9, 9]))])
+        self.assertIsNone(self.R._parse_dns_wire_response(m, "banka.si")[0])
+
+    def test_kazalec_sredi_imena(self):
+        # »www« + kazalec na »example.com« iz vprasanja (odmik 16): veljaven odgovor, prej None (stran se ni nalozila).
+        m = self._sporocilo("www.example.com", [lambda _: self._rr(b"\x03www\xc0\x10", 1, 120, bytes([93, 184, 215, 14]))])
+        self.assertEqual(self.R._parse_dns_wire_response(m, "www.example.com"), ("93.184.215.14", 120))
+
+    def test_veriga_cname(self):
+        cname_rdata = self.R._ime_v_zapis("cdn.example.net")
+
+        def a_za_cdn(dosedanje):
+            odmik = dosedanje.index(cname_rdata)            # kazalec na ime v podatkih zapisa CNAME
+            return self._rr(bytes([0xC0 | (odmik >> 8), odmik & 0xFF]), 1, 60, bytes([203, 0, 113, 7]))
+        m = self._sporocilo("www.example.com", [lambda _: self._rr(b"\xc0\x0c", 5, 300, cname_rdata), a_za_cdn])
+        self.assertEqual(self.R._parse_dns_wire_response(m, "www.example.com"), ("203.0.113.7", 60))
+
+    def test_cname_drugam_in_a_za_tretje_ime(self):
+        m = self._sporocilo("www.example.com", [
+            lambda _: self._rr(b"\xc0\x0c", 5, 300, self.R._ime_v_zapis("x.example.net")),
+            lambda _: self._rr(self.R._ime_v_zapis("evil.test"), 1, 300, bytes([9, 9, 9, 9]))])
+        self.assertIsNone(self.R._parse_dns_wire_response(m, "www.example.com")[0])
+
+    def test_zanka_in_kazalec_ven(self):
+        zanka = self._sporocilo("a.si", [lambda d: self._rr(bytes([0xC0 | (len(d) >> 8), len(d) & 0xFF]), 1, 300, bytes([1, 2, 3, 4]))])
+        self.assertIsNone(self.R._parse_dns_wire_response(zanka, "a.si")[0])
+        ven = self._sporocilo("a.si", [lambda _: self._rr(b"\xff\xff", 1, 300, bytes([1, 2, 3, 4]))])
+        self.assertIsNone(self.R._parse_dns_wire_response(ven, "a.si")[0])
+        prekratek = self._sporocilo("a.si", [lambda _: self._rr(b"\xc0\x0c", 1, 300, bytes([1, 2, 3, 4]))])[:-2]
+        self.assertIsNone(self.R._parse_dns_wire_response(prekratek, "a.si")[0])
+
     def test_ne_ascii_ime_ni_tiho_skrajsano(self):
         # Prej je "раураl.com" postal ".com" (znaki so izpadli); zdaj poizvedbe sploh ni.
         for ime in ("раураl.com", "a..b", "x" * 64 + ".si"):

@@ -86,6 +86,38 @@ class CelDisk(unittest.TestCase):
             self.assertIsNone(self.m.razresi("disk:" + os.path.join(self.mapa, rel)), rel)
         self.assertIsNotNone(self.m.razresi("disk:" + os.path.join(self.mapa, "Slike/a.jpg")))
 
+    def test_sistemska_drevesa_niso_dosegljiva(self):
+        # Zunanji pregled 8. 10. 2026: seznam korena je /proc, /sys, /dev in /run skril, razresi() pa jih je sprejel -
+        # /proc/self/environ je okolje procesa (zetoni). Zdaj ne velja nobena pot pod sistemskimi drevesi.
+        for oznaka in ("disk:/proc/self/environ", "disk:/proc", "disk:/sys/kernel", "disk:/dev/null", "disk:/run",
+                       "disk:/etc/passwd", "disk:/etc", "disk:/root", "disk:/proc/1/root/etc", "disk:/../proc/self/environ",
+                       "disk://proc/self/environ"):
+            self.assertIsNone(self.m.razresi(oznaka), oznaka)
+        self.assertIsNone(self.m.seznam("disk:/proc"))
+        self.assertIsNone(self.m.seznam("disk:/etc"))
+        imena = [v["name"] for v in self.m.seznam("disk:/") or []]
+        for ime in ("proc", "sys", "dev", "run", "etc", "root"):
+            self.assertNotIn(ime, imena)
+        self.assertIsNotNone(self.m.razresi("disk:/"))           # koren sam ostane (brskanje se zacne tam)
+
+    def test_povezava_v_sistemsko_drevo(self):
+        # Simbolna povezava v navadni mapi, ki kaze v /proc ali v skrito mapo: ni na seznamu in je ni mogoce odpreti.
+        os.symlink("/proc/self", os.path.join(self.mapa, "Slike", "proces"))
+        self.assertIsNone(self.m.razresi("disk:" + os.path.join(self.mapa, "Slike", "proces", "environ")))
+        imena = [v["name"] for v in self.m.seznam("disk:" + os.path.join(self.mapa, "Slike")) or []]
+        self.assertNotIn("proces", imena)
+        self.assertNotIn("kljuci", imena)                        # povezava na .ssh
+        self.assertIn("a.jpg", imena)
+
+    def test_deljena_mapa_ne_odpre_sistemskih_dreves(self):
+        # Tudi uporabnik, ki deli koren (/), ne da /proc in /etc.
+        m = link_datoteke.DeljeneMape(["/"])
+        self.assertIsNone(m.razresi("share:0:proc/self/environ"))
+        self.assertIsNone(m.razresi("share:0:etc/passwd"))
+        imena = [v["name"] for v in m.seznam("share:0:") or []]
+        self.assertNotIn("proc", imena)
+        self.assertNotIn("etc", imena)
+
 
 class Streznik(unittest.TestCase):
     @classmethod

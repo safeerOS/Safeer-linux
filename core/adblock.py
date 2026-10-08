@@ -270,8 +270,8 @@ YOUTUBE_ADBLOCK_SCRIPT = """
         for (var o = 0; o < adOverlays.length; o++) {
             try { adOverlays[o].remove(); removedOverlays++; } catch(e) {}
         }
-        if (removedOverlays > 0 && window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer) {
-            try { window.webkit.messageHandlers.safeer.postMessage({ action: 'increment_ads', count: removedOverlays }); } catch(_) {}
+        if (removedOverlays > 0 && window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer_stevec) {
+            try { window.webkit.messageHandlers.safeer_stevec.postMessage({ action: 'increment_ads', count: removedOverlays }); } catch(_) {}
         }
 
         var dismissBtns = document.querySelectorAll(
@@ -513,8 +513,8 @@ ADGUARD_PROTECTION_SCRIPT = PAGE_TASK_SCHEDULER_JS + """
         var w = defuseAntiAdblockWalls() || 0;
         var c = cleanAdguardCosmetics() || 0;
         var total = w + c;
-        if (total > 0 && window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer) {
-            try { window.webkit.messageHandlers.safeer.postMessage({ action: 'increment_ads', count: total }); } catch(_) {}
+        if (total > 0 && window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer_stevec) {
+            try { window.webkit.messageHandlers.safeer_stevec.postMessage({ action: 'increment_ads', count: total }); } catch(_) {}
         }
     }
 
@@ -556,8 +556,8 @@ GENERIC_COSMETIC_SCRIPT = PAGE_TASK_SCHEDULER_JS + """
         for (var i = 0; i < ads.length; i++) {
             try { ads[i].remove(); count++; } catch(e) {}
         }
-        if (count > 0 && window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer) {
-            try { window.webkit.messageHandlers.safeer.postMessage({ action: 'increment_ads', count: count }); } catch(_) {}
+        if (count > 0 && window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.safeer_stevec) {
+            try { window.webkit.messageHandlers.safeer_stevec.postMessage({ action: 'increment_ads', count: count }); } catch(_) {}
         }
     }
 
@@ -1474,6 +1474,26 @@ YOUTUBE_KEEP_WATCHING_SCRIPT = r"""
 
 # Push Square, Nintendo Life, Pure Xbox, Time Extension: hide empty ad inserts and the
 # "Please disable adblock or subscribe" placeholder (EasyList: ##.insert, ##.insert-label, ##.item-insert).
+# Rokovalnik in loceni svet za stevec scita: kozmeticna skripta (cist DOM) tece v tem svetu in sem posilja koliko
+# oglasov je skrila; stran v glavnem svetu tega rokovalnika ne doseze, zato stevca ne more napihniti (pregled 8. 10. 2026).
+STEVEC_MOST = "safeer_stevec"
+STEVEC_SVET = "safeer-zascita"
+
+
+def preveri_stevec(vrednost) -> "Optional[dict]":
+    """Sporocilo stevca scita: samo increment_ads/increment_threats, stevilo omejeno na 0..100. Sicer None."""
+    if not isinstance(vrednost, dict):
+        return None
+    dejanje = vrednost.get("action")
+    if dejanje not in ("increment_ads", "increment_threats"):
+        return None
+    try:
+        stevilo = max(0, min(int(vrednost.get("count", 1)), 100))
+    except (TypeError, ValueError):
+        return None
+    return {"action": dejanje, "count": stevilo} if stevilo else None
+
+
 HOOKSHOT_INSERTS_SCRIPT = r"""
 /* Safeer: remove empty ad inserts and the "Please disable adblock or subscribe" placeholders
    on Hookshot Media sites (Push Square, Nintendo Life, Pure Xbox, Time Extension). */
