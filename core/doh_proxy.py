@@ -238,8 +238,49 @@ class DoHResolver:
         return bytes(zapis)
 
     @staticmethod
+    def _preberi_ime(data: bytes, idx: int) -> Tuple[bytes, int]:
+        """Ime v sporocilu DNS po RFC 1035 4.1.4: oznake in kazalci, tudi kazalec sredi imena (»www« + kazalec).
+
+        Vrne (ime z malimi crkami, oznake locene s piko; indeks takoj za imenom na mestu zapisa). Zanka kazalcev, kazalec
+        izven sporocila, rezervirana oznaka ali ime, daljse od 255 bajtov, je napaka (ValueError)."""
+        oznake = []
+        konec = -1
+        skokov = 0
+        dolzina = 1
+        while True:
+            if idx >= len(data):
+                raise ValueError("ime presega sporocilo")
+            n = data[idx]
+            if n == 0:
+                idx += 1
+                break
+            if n & 0xC0 == 0xC0:
+                if idx + 1 >= len(data):
+                    raise ValueError("kazalec presega sporocilo")
+                if konec < 0:
+                    konec = idx + 2
+                skokov += 1
+                kazalec = ((n & 0x3F) << 8) | data[idx + 1]
+                if skokov > 32 or kazalec >= len(data):
+                    raise ValueError("zanka ali kazalec izven sporocila")
+                idx = kazalec
+                continue
+            if n & 0xC0:
+                raise ValueError("rezervirana oblika oznake")
+            if idx + 1 + n > len(data):
+                raise ValueError("oznaka presega sporocilo")
+            dolzina += n + 1
+            if dolzina > 255:
+                raise ValueError("predolgo ime")
+            oznake.append(bytes(data[idx + 1:idx + 1 + n]).lower())
+            idx += 1 + n
+        return b".".join(oznake), (konec if konec >= 0 else idx)
+
+    @staticmethod
     def _parse_dns_wire_response(data: bytes, hostname: str) -> Tuple[Optional[str], int]:
-        """IPv4 naslov iz odgovora - samo ce je odgovor res na nase vprasanje (ID 0, isto ime, tip A)."""
+        """IPv4 naslov iz odgovora - samo ce je odgovor res na nase vprasanje (ID 0, isto ime, tip A) in samo iz zapisa A,
+        katerega lastnik je vprasano ime ali ime v verigi CNAME od njega naprej (zunanji pregled kode 8. 10. 2026: prej je
+        vrnil prvi zapis A ne glede na lastnika, kazalec sredi imena pa je odgovor podrl)."""
         if len(data) < 12 or not data[2] & 0x80 or data[2] & 0x02 or data[3] & 0x0f:
             return None, 300
         try:
@@ -250,33 +291,40 @@ class DoHResolver:
         if (data[0:2] != b"\x00\x00" or int.from_bytes(data[4:6], "big") != 1
                 or data[12:12 + len(vprasanje)].lower() != vprasanje.lower()):
             return None, 300
+        ime = str(hostname).strip().rstrip(".").lower().encode("ascii")
         try:
             ancount = int.from_bytes(data[6:8], "big")
-            if ancount == 0:
-                return None, 300
-
             idx = 12 + len(vprasanje)
+            naslovi = {}   # lastnik -> (ip, ttl), prvi zapis A za lastnika
+            cname = {}     # lastnik -> (cilj, ttl)
             for _ in range(ancount):
-                if idx >= len(data):
-                    break
-                if data[idx] >= 192:
-                    idx += 2
-                else:
-                    while idx < len(data) and data[idx] != 0:
-                        idx += 1 + data[idx]
-                    if idx < len(data) and data[idx] == 0:
-                        idx += 1
+                lastnik, idx = DoHResolver._preberi_ime(data, idx)
                 if idx + 10 > len(data):
-                    break
-                rtype = int.from_bytes(data[idx:idx+2], "big")
-                ttl = int.from_bytes(data[idx+4:idx+8], "big")
-                rdlength = int.from_bytes(data[idx+8:idx+10], "big")
+                    return None, 300
+                rtype = int.from_bytes(data[idx:idx + 2], "big")
+                rclass = int.from_bytes(data[idx + 2:idx + 4], "big")
+                ttl = int.from_bytes(data[idx + 4:idx + 8], "big")
+                rdlength = int.from_bytes(data[idx + 8:idx + 10], "big")
                 idx += 10
-                if rtype == 1 and rdlength == 4 and idx + 4 <= len(data):
-                    ip = f"{data[idx]}.{data[idx+1]}.{data[idx+2]}.{data[idx+3]}"
-                    return ip, ttl
+                if idx + rdlength > len(data):
+                    return None, 300
+                if rclass == 1 and rtype == 1 and rdlength == 4:
+                    naslovi.setdefault(lastnik, (".".join(str(b) for b in data[idx:idx + 4]), ttl))
+                elif rclass == 1 and rtype == 5:
+                    cilj, _ = DoHResolver._preberi_ime(data, idx)
+                    cname.setdefault(lastnik, (cilj, ttl))
                 idx += rdlength
-        except Exception:
+            # Veriga od vprasanega imena: najvec 8 CNAME, TTL najkrajsi v verigi.
+            trenutno, najmanj = ime, None
+            for _ in range(9):
+                if trenutno in naslovi:
+                    ip, ttl = naslovi[trenutno]
+                    return ip, ttl if najmanj is None else min(ttl, najmanj)
+                if trenutno not in cname:
+                    break
+                trenutno, ttl = cname[trenutno]
+                najmanj = ttl if najmanj is None else min(ttl, najmanj)
+        except (ValueError, IndexError):
             pass
         return None, 300
 

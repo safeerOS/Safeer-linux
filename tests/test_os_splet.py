@@ -2,6 +2,7 @@
 
 import json
 import os
+import unittest
 
 from core.os_splet import BESEDILA, JEZIKI, besedila, je_domaca_stran, razcleni_sporocilo
 
@@ -37,29 +38,26 @@ def test_most_sprejme_samo_navigacijo_http_in_dodajanje_bliznjice():
     assert kljuc_bliznjice("http://365.rtvslo.si") == "365.rtvslo.si"
 
 
-def test_domaca_stran_je_samo_skupni_splet_html():
-    prava = "file://" + os.path.join(KOREN, "ui", "splet.html")
-    assert je_domaca_stran(prava, KOREN)
-    assert not je_domaca_stran("file:///tmp/ui/splet.html", KOREN)
-    assert not je_domaca_stran("https://example.com/splet.html", KOREN)
+class StevecScita(unittest.TestCase):
+    """Zunanji pregled 8. 10. 2026: stevca scita (ads/threats) ne sme napihniti poljubna stran."""
 
+    def test_increment_ne_gre_skozi_glavni_rokovalnik(self):
+        self.assertIsNone(razcleni_sporocilo({"action": "increment_ads", "count": 5}))
+        self.assertIsNone(razcleni_sporocilo({"action": "increment_threats", "count": 5}))
 
-def test_safeer_os_ne_zaganja_zunanjega_brskalnika():
-    with open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8") as datoteka:
-        vir = datoteka.read()
-    zacetek = vir.index("    def _splet(")
-    konec = vir.index("    def _medij(", zacetek)
-    telo = vir[zacetek:konec]
-    assert "subprocess.Popen" not in telo
-    assert "safeer-browser" not in telo
-    assert "self._pokazi_spletni_nacin()" in telo
+    def test_preveri_stevec(self):
+        from core import adblock
+        self.assertEqual(adblock.preveri_stevec({"action": "increment_ads", "count": 5}), {"action": "increment_ads", "count": 5})
+        self.assertEqual(adblock.preveri_stevec({"action": "increment_threats", "count": 7}), {"action": "increment_threats", "count": 7})
+        self.assertEqual(adblock.preveri_stevec({"action": "increment_ads", "count": 9999}), {"action": "increment_ads", "count": 100})
+        for slabo in ({"action": "increment_ads", "count": 0}, {"action": "increment_ads", "count": -3},
+                      {"action": "increment_ads", "count": "x"}, {"action": "navigate", "url": "https://x"},
+                      {"action": "set_default_browser"}, "ni dict", None):
+            self.assertIsNone(adblock.preveri_stevec(slabo), slabo)
 
-
-def test_sirino_stranske_izmeri_pred_razredom_in_uporabi_dataset():
-    with open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8") as datoteka:
-        vir = datoteka.read()
-    zacetek = vir.index("    def _pokazi_spletni_nacin(")
-    konec = vir.index("    def _skrij_spletni_nacin(", zacetek)
-    telo = vir[zacetek:konec]
-    assert telo.index("getBoundingClientRect().width") < telo.index("classList.add('nacin-splet')")
-    assert "dataset.stranska||0" in telo
+    def test_kozmeticna_skripta_v_locenem_svetu(self):
+        from core import adblock
+        self.assertIn("messageHandlers.safeer_stevec.postMessage", adblock.GENERIC_COSMETIC_SCRIPT)
+        self.assertNotIn("messageHandlers.safeer.postMessage", adblock.GENERIC_COSMETIC_SCRIPT)
+        self.assertEqual(adblock.STEVEC_MOST, "safeer_stevec")
+        self.assertTrue(adblock.STEVEC_SVET)

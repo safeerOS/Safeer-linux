@@ -441,9 +441,13 @@ function renderPortals() {
       } catch (e) {}
     }
 
-    if (domain && domain.includes('.')) {
+    // Ikono pokazemo samo iz lastnega vira bliznjice; NIKOLI je ne poizvedujemo pri tretji osebi (prej je bil
+    // za vsako domeno klican zunanji ponudnik ikon - puscanje). Brez lastne ikone pokazemo splosno oznako.
+    const lastnaIkona = (typeof portal.favicon === 'string' && /^(data:|safeer:|file:|blob:)/i.test(portal.favicon.trim()))
+      ? portal.favicon.trim() : '';
+    if (lastnaIkona) {
       const img = document.createElement('img');
-      img.src = portal.favicon || `https://icons.duckduckgo.com/ip3/${domain}.ico`;
+      img.src = lastnaIkona;
       img.alt = '';
       img.className = 'portal-favicon';
       img.style.width = '24px';
