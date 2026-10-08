@@ -163,6 +163,12 @@ class OmrezneNapake(unittest.TestCase):
         self.assertEqual(n, "naprava_ne_odgovori")
         self.assertIn(n, link_pretvorba.PONOVI_DRUGJE)
 
+    def test_napaka_dekodirnika_gre_na_drugo_napravo(self):
+        # Izmerjeno 8. 10. 2026: televizor HEVC 1080p/1440p, OnePlus MPEG-2.
+        for b in ("pretvorba ni uspela: ERROR_CODE_DECODING_FAILED", "ERROR_CODE_DECODER_INIT_FAILED",
+                  "ERROR_CODE_DECODING_FORMAT_UNSUPPORTED"):
+            self.assertEqual(link_pretvorba.razvrsti_napako_naprave(b), "ne_zna_dekodirati")
+
     def test_druge_napake_ostanejo(self):
         self.assertEqual(link_pretvorba.razvrsti_napako_naprave("ne_zna_dekodirati"), "ne_zna_dekodirati")
         self.assertEqual(link_pretvorba.razvrsti_napako_naprave("napaka kodirnika 7"), "napaka kodirnika 7")
