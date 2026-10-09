@@ -31,8 +31,9 @@ KOS = 16 * 1024
 UA = "SafeerLink/1.0"
 #: Topla povezava (vnaprej odprt TLS do releja) se drzi, dokler je bila v tem casu zeljena ali uporabljena.
 TOPLA_ZELJA_S = 600.0
-#: Najdaljsa starost tople povezave; prej jo zamenjamo z novo (Cloudflare jo lahko zapre tudi sam - to opazimo).
-TOPLA_STAROST_S = 300.0
+#: Najdaljsa starost tople povezave. Izmerjeno 9. 10. 2026 (lastnikov PC, rele_topla.py zivljenje): Cloudflare povezavo
+#: TLS, po kateri ni prisla nobena zahteva, zapre po 10-15 s (3/3). Zato jo zamenjamo z novo ze prej.
+TOPLA_STAROST_S = 8.0
 
 
 # ------------------------------------------------------------------ podpis zahtev (kot worker.mjs)
@@ -217,16 +218,26 @@ class BrezOdgovora(ConnectionError):
     """Rele na zahtevo ni odgovoril niti z enim bajtom (povezava je bila mrtva): ponovitev na novi je varna."""
 
 
-def _nova_tls(gostitelj: str = GOSTITELJ, rok_s: float = 15.0) -> ssl.SSLSocket:
-    """Nova povezava TLS do releja (preverjeno potrdilo)."""
+def _nova_tls(gostitelj: str = GOSTITELJ, rok_s: float = 15.0, kontekst: Optional[ssl.SSLContext] = None,
+              seja: Optional[ssl.SSLSession] = None) -> ssl.SSLSocket:
+    """Nova povezava TLS do releja (preverjeno potrdilo). `seja`: obnova prejsnje seje TLS istega `kontekst`."""
     surovi = socket.create_connection((gostitelj, 443), timeout=rok_s)
     # Skozi kanal tece TLS Safeer Linka v majhnih kosih (sporocila, potrditve tokov): vsak naj gre takoj.
     link_vticnik.brez_zamika(surovi)
     try:
-        return ssl.create_default_context().wrap_socket(surovi, server_hostname=gostitelj)
+        return (kontekst or ssl.create_default_context()).wrap_socket(surovi, server_hostname=gostitelj, session=seja)
     except Exception:
         surovi.close()
         raise
+
+
+def _seja_za_obnovo(s) -> Optional[ssl.SSLSession]:
+    """Seja TLS, s katero lahko naslednjo povezavo obnovimo (TLS 1.3: le, ce je ze prisla vstopnica)."""
+    try:
+        seja = s.session
+        return seja if seja is not None and seja.has_ticket else None
+    except (AttributeError, ValueError, OSError):
+        return None
 
 
 def _mirna(s) -> bool:
@@ -255,12 +266,17 @@ class TopleTls:
     """Ena vnaprej odprta povezava TLS do releja, da nov kanal ne caka na TCP in TLS (~2 obhoda, ~100 ms).
 
     Na rele ne posljemo nicesar, dokler povezave ne vzamemo, zato ne steje v kvoto Workerja. Drzimo jo le,
-    dokler jo kdo zeli (`zelim`, `vzemi`) - po TOPLA_ZELJA_S brez zelje je ne obnavljamo vec.
+    dokler jo kdo zeli (`zelim`, `vzemi`) - po TOPLA_ZELJA_S brez zelje je ne obnavljamo vec. Ker jo Cloudflare
+    brez zahteve zapre po 10-15 s, jo vsakih TOPLA_STAROST_S zamenjamo z novo; ta obnovi sejo TLS prejsnje
+    (krajse rokovanje, brez verige potrdil).
     """
 
     def __init__(self, gostitelj: str = GOSTITELJ, rok_s: float = 15.0,
                  nova: Optional[Callable[[], ssl.SSLSocket]] = None) -> None:
-        self._nova = nova or (lambda: _nova_tls(gostitelj, rok_s))
+        self._gostitelj, self._rok_s = gostitelj, rok_s
+        self._kontekst: Optional[ssl.SSLContext] = None
+        self._seja: Optional[ssl.SSLSession] = None
+        self._nova = nova or self._odpri
         self._zaklep = threading.Lock()
         self._budilka: Optional[tuple] = None
         self._s: Optional[ssl.SSLSocket] = None
@@ -284,11 +300,24 @@ class TopleTls:
                 self._nit.start()
         self._zbudi()
 
+    def _odpri(self) -> ssl.SSLSocket:
+        """Nova povezava z istim kontekstom TLS; ce imamo sejo prejsnje povezave, jo obnovimo."""
+        if self._kontekst is None:
+            self._kontekst = ssl.create_default_context()
+        return _nova_tls(self._gostitelj, self._rok_s, self._kontekst, self._seja)
+
+    def _shrani_sejo(self, s) -> None:
+        seja = _seja_za_obnovo(s)
+        if seja is not None:
+            self._seja = seja
+
     def vzemi(self) -> Optional[ssl.SSLSocket]:
         """Topla povezava ali None (je ni ali ni vec ziva); takoj zacne pripravljati naslednjo."""
         with self._zaklep:
             s, self._s = self._s, None
             starost = time.monotonic() - self._odprta
+        if s is not None:
+            self._shrani_sejo(s)
         self.zelim()
         if s is None:
             return None
@@ -352,18 +381,20 @@ class TopleTls:
                 if nova is not None:
                     _zapri_tiho(nova)
                 continue
-            ostane = TOPLA_STAROST_S - (time.monotonic() - odprta)
+            starost = time.monotonic() - odprta
+            ostane = TOPLA_STAROST_S - starost
             if ostane > 0 and ziva:
                 self._pocakaj(s, max(0.01, min(ostane, zelja_ostane, 60.0)))
                 continue
-            # Prestara ali jo je rele zaprl: odstranimo jo (ce je medtem ni ze vzel `vzemi`).
+            # Prestara (redna zamenjava) ali jo je rele zaprl: odstranimo jo (ce je medtem ni ze vzel `vzemi`).
             with self._zaklep:
                 if self._s is not s:
                     continue
                 self._s = None
+            self._shrani_sejo(s)
             _zapri_tiho(s)
-            if time.monotonic() - odprta < 60.0:
-                # Rele zapira hitro: ne obnavljamo vsakih nekaj sekund (vsaka nova je ~5 kB rokovanja).
+            if not ziva and starost < TOPLA_STAROST_S:
+                # Rele jo je zaprl prej, kot smo jo hoteli zamenjati: ne odpiramo takoj nove (premor se podvaja).
                 self._ne_pred = time.monotonic() + cakaj
                 cakaj = min(cakaj * 2, 300.0)
             else:
@@ -491,7 +522,6 @@ class AgentHuba:
                     ws.zapri()
                     return
                 ws.besedilo("ping")
-                _topla.zelim()
                 if time.time() - zadnja_objava > OBJAVA_VSAKIH_S:
                     self.objavi()
                     zadnja_objava = time.time()
@@ -509,8 +539,9 @@ class AgentHuba:
             try:
                 self.objavi()
                 ws = WsOdjemalec("/v1/listen", podpisane_glave("GET", "/v1/listen"))
+                # Toplo povezavo hub drzi le TOPLA_ZELJA_S po zadnjem kanalu (odpri_kanal -> vzemi): prvi kanal po
+                # mirovanju je hladen, naslednji (npr. zaslon po povezavi v mrezo) gredo brez TCP in TLS.
                 self._ws, self.stanje, cakaj = ws, "povezan", 5
-                _topla.zelim()      # naslednji kanal brez TCP in TLS do releja
                 self.dnevnik("[Global Link] hub je dosegljiv prek link.safeer.si")
                 threading.Thread(target=self._vzdrzuj, args=(ws,), name="safeer-global-link-ping", daemon=True).start()
                 try:

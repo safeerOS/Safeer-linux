@@ -339,3 +339,24 @@ class ToplaPovezava(unittest.TestCase):
             self.assertTrue(self._pocakaj(lambda: topla._nit is None, 3.0), "nit se po poteku zelje ni ustavila")
         self.assertIsNone(topla._s)
         self.assertEqual(rele.povezav, 1)
+
+    def test_redna_zamenjava_brez_premora_in_z_obnovo_seje(self):
+        """Cloudflare zapre povezavo brez zahteve po 10-15 s: bazen jo zamenja prej, brez premora, z obnovo seje TLS."""
+        self._rele()
+        topla = self._topla()
+        odprte = []
+        nova = topla._nova
+        topla._nova = lambda: odprte.append(nova()) or odprte[-1]
+        with mock.patch.object(link_rele, "TOPLA_STAROST_S", 0.3):
+            topla.zelim()
+            # Brez premora (ta bi bil vsaj 5 s) v ~2 s nastane vec zaporednih povezav.
+            self.assertTrue(self._pocakaj(lambda: len(odprte) >= 4, 4.0),
+                            "redna zamenjava je cakala kot po zgodnjem zaprtju (%d povezav)" % len(odprte))
+            self.assertEqual(topla._ne_pred, 0.0)
+            # Prva je polno rokovanje, naslednje obnovijo sejo prejsnje (vstopnico TLS 1.3 prebere _mirna).
+            self.assertFalse(odprte[0].session_reused)
+            self.assertTrue(any(s.session_reused for s in odprte[1:]), "nobena zamenjava ni obnovila seje TLS")
+            ws = link_rele.odpri_kanal("/v1/listen", lambda: {"X-Preizkus": "1"}, topla)
+        self.addCleanup(ws.sprosti)
+        ws.poslji(b"po zamenjavi")
+        self.assertEqual(ws.prejmi(), (0x2, b"po zamenjavi"))
