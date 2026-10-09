@@ -1704,8 +1704,17 @@
     $("napraveNaslov").textContent = t(povezan ? "povezanNaslov" : (p.stanje === "brez" ? "brezNaslov" : "novNaslov"));
     // Nepovezan racunalnik: povemo, ali je v omrezju Safeer Link (in kateri) - uporabnik takoj ve, kaj sledi.
     var hubi = p.hubi || [];
-    $("napraveBesedilo").textContent = !p.control ? t("niControla") : povezan ? t("povezanOpis") :
+    // Paket deb brez Safeer Control: ponudimo namestitev (na klik; Naprave in enkratna kartica na Domov).
+    var namesti = !p.control && !!p.namesti_control;
+    $("napraveBesedilo").textContent = !p.control ? t("niControla") + (namesti ? " " + t("niControlaNamesti") : "") : povezan ? t("povezanOpis") :
       (hubi.length ? t("novOpisHub", { ime: hubi[0].ime }) : (p.hubi ? t("novOpisBrezHuba") : t("novOpis")));
+    $("gumbNamestiControl").hidden = !namesti;
+    if (!namesti) $("napraveNamestitev").hidden = true;      // Control je tu: uspeh je povedalo obvestilo
+    $("domNamestiControl").hidden = !(namesti && S.zacetek && S.zacetek.karticaControl);
+    if (namesti && !S.namestitevControla.stanje && most) {
+      S.namestitevControla.stanje = {};
+      klic("namestitevControla").then(function (st) { narisiNamestitevControla(st); if (st && st.tece) namestitevControlaZanka(); }, function () {});
+    }
     var namig = $("napraveNamig");
     namig.hidden = povezan || !p.control || hubi.length > 0 || !p.hubi;
     namig.textContent = t("napraveNamig");
@@ -1728,6 +1737,72 @@
     $("domControl").querySelector("svg").innerHTML = '<path d="' + IK[povezan ? "naprave" : "qr"] + '"/>';
     var sp = $("stanjePovezava");
     sp.innerHTML = '<i class="pika' + (povezan ? "" : " siva") + '"></i><span>' + ubezi(povezan ? t("povezano") : t("brezNaprav")) + "</span>";
+  }
+
+  // ------------------------------------------------------------------ namestitev Safeer Control (paket deb)
+  // Paket safeer-os Control le priporoca (dvoklik v Mintu bere samo odvisnosti). Namesti ga Safeer OS na klik: podpisan
+  // seznam s safeer.si, SHA-256, geslo (pkexec apt-get). Nikoli samodejno. Kartica na Domov je enkratna.
+  S.namestitevControla = { stanje: null, zanka: 0 };
+  function besediloNamestitveControla(st) {
+    if (!st || !st.faza) return "";
+    if (st.tece) {
+      if (st.faza === "namescanje") return t("ctrlNamescam");
+      if (st.faza === "zaganjam") return t("ctrlZaganjam");
+      return t("ctrlPrenasam", { odstotek: st.odstotek || 0 });
+    }
+    if (st.faza === "koncano") return t("ctrlKoncano");
+    if (st.faza !== "napaka") return "";
+    var kljuc = "ctrlNapaka_" + String(st.koda || "napaka");
+    var b = t(kljuc);
+    return b === kljuc ? t("ctrlNapaka_napaka") : b;
+  }
+  function narisiNamestitevControla(st) {
+    S.namestitevControla.stanje = st || {};
+    var tece = !!(st && st.tece), napaka = !!(st && !st.tece && st.faza === "napaka");
+    var besedilo = besediloNamestitveControla(st);
+    var n = $("napraveNamestitev");
+    n.hidden = !besedilo;
+    n.textContent = besedilo;
+    n.classList.toggle("napaka", napaka);
+    var gumb = t(napaka ? "ctrlPoskusiZnova" : "namestiControl");
+    $("gumbNamestiControl").disabled = tece;
+    $("gumbNamestiControlBesedilo").textContent = gumb;
+    $("domNamestiControlGumb").disabled = tece;
+    $("domNamestiControlBesedilo").textContent = gumb;
+    var pod = $("domNamestiControlPod");
+    pod.textContent = besedilo || t("namestiControlKarticaPod");
+    pod.classList.toggle("napaka", napaka);
+  }
+  function namestitevControlaZanka() {
+    if (S.namestitevControla.zanka) return;
+    S.namestitevControla.zanka = setInterval(function () {
+      klic("namestitevControla").then(function (st) {
+        narisiNamestitevControla(st);
+        if (st && st.tece) return;
+        clearInterval(S.namestitevControla.zanka);
+        S.namestitevControla.zanka = 0;
+        if (st && st.faza === "koncano") {
+          // Control je namescen in zagnan: Naprave pokazejo obicajno povezovanje (QR / koda), kartica se ne vrne.
+          obvesti(t("ctrlKoncano"));
+          if (S.zacetek) S.zacetek.karticaControl = false;
+          klic("karticaControl", [true]).catch(function () {});
+          osveziPovezavo();
+        }
+      }).catch(function () {});
+    }, 1000);
+  }
+  function namestiControl() {
+    klic("namestiControl").then(function (r) {
+      if (r && r.ok) { narisiNamestitevControla({ tece: true, faza: "prenos", odstotek: 0 }); namestitevControlaZanka(); }
+      else if (r && r.koda === "rocno") klic("splet", [r.stran || "https://safeer.si/control/"]);
+      else if (r && r.koda === "tece") obvesti(t("ctrlTece"));
+      else osveziPovezavo();      // ze_namescen: Naprave se osvezijo
+    }).catch(function () { obvesti(t("niUspelo")); });
+  }
+  function zapriKarticoControl() {
+    $("domNamestiControl").hidden = true;
+    if (S.zacetek) S.zacetek.karticaControl = false;
+    klic("karticaControl", [true]).catch(function () {});
   }
 
   // Naprave v Linku s preimenovanjem: ime hrani sredisce, zato ga vidijo vse naprave (telefon, TV, tablica).
@@ -4431,6 +4506,9 @@
       });
     });
     $("domControl").addEventListener("click", function () { $("gumbControl").click(); });
+    $("gumbNamestiControl").addEventListener("click", namestiControl);
+    $("domNamestiControlGumb").addEventListener("click", namestiControl);
+    $("domNamestiControlZapri").addEventListener("click", zapriKarticoControl);
     $("gumbStanje").addEventListener("click", function () {
       if ($("slojHitro").classList.contains("viden")) zapriSloje(); else odpriHitro();
     });

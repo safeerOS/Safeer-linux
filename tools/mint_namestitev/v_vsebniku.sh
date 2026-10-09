@@ -15,10 +15,53 @@ OS="$(paket 'safeer-os_*_all.deb')"
 TEMA="$(paket 'safeer-os-tema_*_all.deb')"
 CINNAMON="$(paket 'safeer-cinnamon_*_all.deb')"
 
-echo "== 1. namestitev (odvisnosti razresi apt iz skladisc Minta in Ubuntuja)"
+# Safeer OS izrise stran kot navaden uporabnik (WebKit s peskovnikom) in shrani posnetek; prazna stran ali izjema = napaka.
+preveri_zagon() {
+  local posnetek="$1" dnevnik="$2"
+  rm -f "$posnetek"
+  # Brez upravljalnika oken cel zaslon ne velja (okno ostane 200 x 200), zato velikost okna povemo sami.
+  su preizkus -c "cd ~ && SAFEER_OS_OKNO=1280x800 dbus-run-session -- xvfb-run -a -s '-screen 0 1280x800x24' timeout 120 safeer-os --posnetek $posnetek" >"$dnevnik" 2>&1 \
+    || { tail -30 "$dnevnik"; echo "NAPAKA: Safeer OS se ni zagnal"; exit 1; }
+  python3 - "$posnetek" <<'PY'
+import struct, sys
+d = open(sys.argv[1], "rb").read()
+assert d[:8] == b"\x89PNG\r\n\x1a\n", "posnetek ni PNG"
+sirina, visina = struct.unpack(">II", d[16:24])
+print("posnetek: %d x %d, %d kB" % (sirina, visina, len(d) // 1024))
+# Prazna (enobarvna) stran bi bila le nekaj kB.
+assert sirina >= 800 and visina >= 500 and len(d) > 20_000, "stran se ni izrisala"
+PY
+  if grep -q "Traceback" "$dnevnik"; then tail -30 "$dnevnik"; echo "NAPAKA: izjema ob zagonu"; exit 1; fi
+}
+# Linux Mint dovoli uporabniske imenske prostore (/etc/sysctl.d/20-apparmor-mint.conf), Ubuntu jih omejuje. Nastavitev
+# je v jedru gostitelja, zato je tu ne spreminjamo - povemo pa, ce ni taka kot na Mintu (peskovnik se potem ne zazene).
+if [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = "1" ]; then
+  echo "OPOZORILO: gostitelj omejuje uporabniske imenske prostore, Linux Mint jih ne."
+  echo "           Na gostitelju: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0"
+fi
+
+echo "== 0. dvoklik (Captain/GDebi) in Safeer OS sam, na cistem sistemu"
 apt-get update -q >/dev/null
-# Orodja preizkusa - niso odvisnosti paketov.
-apt-get install -y -q --no-install-recommends xvfb xauth dbus-x11 desktop-file-utils >/dev/null
+# Orodja preizkusa - niso odvisnosti paketov. python3-apt: z njim paket ob dvokliku preverita Captain in GDebi.
+apt-get install -y -q --no-install-recommends xvfb xauth dbus-x11 desktop-file-utils python3-apt >/dev/null
+# Captain in GDebi bereta samo Depends/Pre-Depends: vsaka odvisnost mora biti v skladiscih Minta in Ubuntuja, sicer je
+# gumb Namesti siv (tako je padel safeer-os 0.4.75 z odvisnostjo od safeer-control, ki ni v nobenem skladiscu).
+python3 /dvojni_klik.py "$BRSKALNIK" "$CONTROL" "$OS" "$CINNAMON" || { echo "NAPAKA: paketa ni mogoce namestiti z dvoklikom"; exit 1; }
+# Safeer OS SAM, brez Safeer Control: pot uporabnika, ki dvoklikne samo safeer-os. Control je le priporocen; apt
+# priporocenega paketa, ki ga ni v skladiscih, ne zahteva (na suho, s priporocenimi).
+apt-get install -s -q "$OS" >/tmp/os-sam-suho.log 2>&1 || { tail -30 /tmp/os-sam-suho.log; echo "NAPAKA: apt zavrne safeer-os brez safeer-control"; exit 1; }
+if grep -q "^Inst safeer-control" /tmp/os-sam-suho.log; then echo "NAPAKA: safeer-control ne bi smel priti zraven"; exit 1; fi
+apt-get install -y -q --no-install-recommends "$OS" >/tmp/os-sam.log 2>&1 || { tail -40 /tmp/os-sam.log; echo "NAPAKA: namestitev safeer-os brez safeer-control"; exit 1; }
+[ ! -e /usr/bin/safeer-control ] || { echo "NAPAKA: safeer-control je namescen - to ni preizkus brez njega"; exit 1; }
+xvfb-run -a safeer-os --version | tee /dev/stderr | grep -Fxq "Safeer OS $(razlicica "$OS")"
+useradd -m preizkus
+preveri_zagon /tmp/safeer-os-sam.png /tmp/zagon-sam.log
+# Paket videza je odvisen od safeer-os: z dvoklikom gre sele, ko je Safeer OS namescen (tako ga opise tudi stran).
+python3 /dvojni_klik.py "$TEMA" || { echo "NAPAKA: safeer-os-tema ni mogoce namestiti z dvoklikom po Safeer OS"; exit 1; }
+apt-get purge -y -q safeer-os >/tmp/os-sam-odstranitev.log 2>&1 || { tail -30 /tmp/os-sam-odstranitev.log; echo "NAPAKA: odstranitev safeer-os"; exit 1; }
+[ ! -e /usr/lib/safeer-os ] && [ ! -e /usr/bin/safeer-os ] || { echo "NAPAKA: po odstranitvi safeer-os je ostal"; exit 1; }
+
+echo "== 1. namestitev (odvisnosti razresi apt iz skladisc Minta in Ubuntuja)"
 # Priporocenih paketov ne namescamo: pri uporabniku so ze tam (namizje Cinnamon), tu bi jih bilo vec sto.
 if ls /prejsnji/safeer-*_all.deb >/dev/null 2>&1; then
   echo "   najprej prejsnja izdaja: $(cd /prejsnji && echo safeer-*_all.deb)"
@@ -28,7 +71,7 @@ if ls /prejsnji/safeer-*_all.deb >/dev/null 2>&1; then
   xvfb-run -a safeer --version >/dev/null
   xvfb-run -a safeer-control --version >/dev/null
   xvfb-run -a safeer-os --version >/dev/null
-  echo "   nato posodobitev z ukazom, s katerim jo namesti Safeer OS (apt-get install --allow-downgrades)"
+  echo "   nato posodobitev z apt-get install (Safeer OS: pkexec apt-get install -y, brez --allow-downgrades)"
 fi
 # --reinstall: tudi kadar ima prejsnja izdaja isto stevilko (veja pred novo stevilko razlicice), se namestijo novi paketi.
 apt-get install -y -q --allow-downgrades --reinstall --no-install-recommends "$BRSKALNIK" "$CONTROL" "$OS" "$TEMA" "$CINNAMON" >/tmp/namestitev.log 2>&1 \
@@ -53,27 +96,7 @@ desktop-file-validate /usr/share/applications/safeer-browser.desktop /usr/share/
   /usr/share/applications/safeer-os.desktop /usr/share/applications/safeer-os.Magnet.desktop
 
 echo "== 4. Safeer OS se zazene in izrise stran (navaden uporabnik, WebKit s peskovnikom)"
-# Linux Mint dovoli uporabniske imenske prostore (/etc/sysctl.d/20-apparmor-mint.conf), Ubuntu jih omejuje. Nastavitev
-# je v jedru gostitelja, zato je tu ne spreminjamo - povemo pa, ce ni taka kot na Mintu (peskovnik se potem ne zazene).
-if [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = "1" ]; then
-  echo "OPOZORILO: gostitelj omejuje uporabniske imenske prostore, Linux Mint jih ne."
-  echo "           Na gostitelju: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0"
-fi
-useradd -m preizkus
-rm -f /tmp/safeer-os.png
-# Brez upravljalnika oken cel zaslon ne velja (okno ostane 200 x 200), zato velikost okna povemo sami.
-su preizkus -c 'cd ~ && SAFEER_OS_OKNO=1280x800 dbus-run-session -- xvfb-run -a -s "-screen 0 1280x800x24" timeout 120 safeer-os --posnetek /tmp/safeer-os.png' >/tmp/zagon.log 2>&1 \
-  || { tail -30 /tmp/zagon.log; echo "NAPAKA: Safeer OS se ni zagnal"; exit 1; }
-python3 - <<'PY'
-import struct, sys
-d = open("/tmp/safeer-os.png", "rb").read()
-assert d[:8] == b"\x89PNG\r\n\x1a\n", "posnetek ni PNG"
-sirina, visina = struct.unpack(">II", d[16:24])
-print("posnetek: %d x %d, %d kB" % (sirina, visina, len(d) // 1024))
-# Prazna (enobarvna) stran bi bila le nekaj kB.
-assert sirina >= 800 and visina >= 500 and len(d) > 20_000, "stran se ni izrisala"
-PY
-if grep -q "Traceback" /tmp/zagon.log; then tail -30 /tmp/zagon.log; echo "NAPAKA: izjema ob zagonu"; exit 1; fi
+preveri_zagon /tmp/safeer-os.png /tmp/zagon.log
 
 echo "== 5. ukaza videza delujeta"
 bash -n /usr/bin/safeer-os-tema

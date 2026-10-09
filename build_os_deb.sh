@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Safeer OS (Linux) — Debian / Ubuntu / Linux Mint .deb Package Builder
-# Produces safeer-os_<version>_all.deb. Depends on safeer-control (Safeer Link, devices, D-Bus).
+# Produces safeer-os_<version>_all.deb. Only RECOMMENDS safeer-control (Safeer Link, devices, D-Bus): Safeer OS runs
+# without it (Link and devices off) and installs it itself on the user's click (Naprave -> Namesti Safeer Control).
+# Captain/GDebi (double-click) read only Depends/Pre-Depends, so a Depends on a package from no repository made
+# safeer-os uninstallable by double-click. No Breaks on safeer-control either: python-apt ignores it in the check
+# and dpkg would refuse only during the install.
 # ==============================================================================
 set -euo pipefail
 
@@ -30,8 +34,8 @@ Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: ${ARCH}
-Depends: safeer-control (>= ${CONTROL_VERSION}), python3, python3-gi, python3-gi-cairo, gir1.2-gtk-3.0, gir1.2-webkit2-4.1, gir1.2-glib-2.0, gir1.2-secret-1
-Recommends: network-manager, pulseaudio-utils, policykit-1, xdg-utils, gir1.2-wnck-3.0, x11-utils, gir1.2-gstreamer-1.0, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-libav, gstreamer1.0-gtk3
+Depends: python3, python3-gi, python3-gi-cairo, gir1.2-gtk-3.0, gir1.2-webkit2-4.1, gir1.2-glib-2.0, gir1.2-secret-1
+Recommends: safeer-control (>= ${CONTROL_VERSION}), network-manager, pulseaudio-utils, policykit-1, xdg-utils, gir1.2-wnck-3.0, x11-utils, gir1.2-gstreamer-1.0, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-libav, gstreamer1.0-gtk3
 Maintainer: Safeer <info@safeer.si>
 Homepage: https://safeer.si/os/
 Description: Safeer OS - your computer in your hands, on top of Linux Mint

@@ -104,6 +104,31 @@ class PackagingTests(unittest.TestCase):
             self.assertEqual(output,[str(prefix/'lib/safeer-browser/safeer_mint.py'),'https://example.com/a b'])
             subprocess.run(['desktop-file-validate',str(prefix/'share/applications/safeer-browser.desktop')],check=True)
 
+    def _polja_control(self, builder):
+        """Polja datoteke DEBIAN/control iz skripte build_*deb.sh (heredoc pred postinst)."""
+        text=(ROOT/builder).read_text()
+        blok=re.search(r'cat << EOF2 > "\$BUILD_ROOT/DEBIAN/control"\n(.*?)\nEOF2\n',text,re.S)
+        self.assertIsNotNone(blok,builder)
+        return dict(re.findall(r'^([A-Za-z-]+): (.*)$',blok.group(1),re.M))
+
+    def test_safeer_os_only_recommends_safeer_control(self):
+        """Dvoklik v Mintu (Captain, GDebi = python-apt DebPackage.check) bere samo Depends in Pre-Depends: odvisnost od
+        safeer-control, ki ni v nobenem skladiscu, je safeer-os 0.4.75 naredila nenamestljiv (»Odvisnost ni razresena«).
+        Safeer OS dela brez Controla in ga namesti sam, zato je Control samo priporocen - brez Breaks/Conflicts, ki
+        jih python-apt ob preverbi ne bere (dpkg bi zavrnil sele med namestitvijo)."""
+        polja=self._polja_control('build_os_deb.sh')
+        self.assertEqual(polja['Package'],'safeer-os')
+        for polje in ('Depends','Pre-Depends','Breaks','Conflicts','Replaces','Provides'):
+            self.assertNotIn('safeer-control',polja.get(polje,''),polje)
+        priporoceni=[p.strip() for p in polja['Recommends'].split(',')]
+        self.assertIn('safeer-control (>= ${CONTROL_VERSION})',priporoceni)
+        self.assertIn('CONTROL_VERSION="$(cat "$DIR/packaging/VERSION_CONTROL")"',(ROOT/'build_os_deb.sh').read_text())
+        # Kar Safeer OS res potrebuje za zagon, ostane v Depends (vse iz skladisc).
+        for odvisnost in ('python3','python3-gi','gir1.2-gtk-3.0','gir1.2-webkit2-4.1'):
+            self.assertIn(odvisnost,[p.strip() for p in polja['Depends'].split(',')])
+        # Paket videza mora ostati odvisen od Safeer OS (zazene `safeer-os --namizje`).
+        self.assertRegex((ROOT/'build_os_tema_deb.sh').read_text(),r'(?m)^Depends: safeer-os \(>= \$\{VERSION\}\)')
+
     def test_debian_maintainer_scripts_are_posix_sh(self):
         for builder in ('build_deb.sh','build_control_deb.sh','build_os_deb.sh'):
             with self.subTest(builder=builder):
@@ -165,6 +190,57 @@ class MintInstallTests(unittest.TestCase):
         for ime in ('preizkus.sh','v_vsebniku.sh'):
             with self.subTest(skripta=ime):
                 subprocess.run(['bash','-n',str(self.MAPA/ime)],check=True)
+        pot=self.MAPA/'dvojni_klik.py'
+        compile(pot.read_text(),str(pot),'exec')
+
+    def test_double_click_check_and_safeer_os_alone(self):
+        """Pred skupno namestitvijo: vsak paket gre skozi preverbo dvoklika (python-apt, kot Captain in GDebi) na cistem
+        sistemu, safeer-os se namesti SAM (brez safeer-control), se zazene in odstrani; paket videza po Safeer OS."""
+        preizkus=(self.MAPA/'v_vsebniku.sh').read_text()
+        self.assertIn('-v "$TU/dvojni_klik.py:/dvojni_klik.py:ro"',(self.MAPA/'preizkus.sh').read_text())
+        skupna=preizkus.index('apt-get install -y -q --allow-downgrades --reinstall')
+        prejsnja=preizkus.index('/prejsnji/safeer-*_all.deb >/tmp/prejsnja.log')
+        klik=preizkus.index('python3 /dvojni_klik.py "$BRSKALNIK" "$CONTROL" "$OS" "$CINNAMON"')
+        sam=preizkus.index('apt-get install -y -q --no-install-recommends "$OS" >/tmp/os-sam.log')
+        self.assertIn('python3-apt',preizkus[:klik])
+        self.assertLess(klik,sam)
+        self.assertLess(sam,prejsnja)
+        self.assertLess(prejsnja,skupna)
+        odsek=preizkus[sam:prejsnja]
+        for korak in ('[ ! -e /usr/bin/safeer-control ]','safeer-os --version','preveri_zagon /tmp/safeer-os-sam.png',
+                      'python3 /dvojni_klik.py "$TEMA"','apt-get purge -y -q safeer-os'):
+            self.assertIn(korak,odsek)
+        self.assertIn('apt-get install -s -q "$OS"',preizkus[:sam])
+        # Obstojeci zagon po skupni namestitvi ostane.
+        self.assertIn('preveri_zagon /tmp/safeer-os.png /tmp/zagon.log',preizkus[skupna:])
+
+    def test_double_click_script(self):
+        """dvojni_klik.py: izhodna koda 1 in razlog (kot ga pokaze Captain), ce paketa ni mogoce namestiti z dvoklikom."""
+        import importlib.util, io, types
+        from contextlib import redirect_stdout
+        spec=importlib.util.spec_from_file_location('dvojni_klik',self.MAPA/'dvojni_klik.py')
+        modul=importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(modul)
+        predpomnilniki=[]
+
+        class Paket:
+            def __init__(self,pot,cache=None):
+                predpomnilniki.append(cache)
+                self.pot=pot
+                self._failure_string='' if pot.endswith('dobro.deb') else 'Dependency is not satisfiable: safeer-control (>= 2.1.73)\n'
+
+            def check(self):
+                return not self._failure_string
+
+        lazni_apt=types.SimpleNamespace(Cache=object,debfile=types.SimpleNamespace(DebPackage=Paket))
+        izpis=io.StringIO()
+        with redirect_stdout(izpis):
+            self.assertEqual(modul.main(['/p/dobro.deb'],lazni_apt),0)
+            self.assertEqual(modul.main(['/p/dobro.deb','/p/safeer-os.deb'],lazni_apt),1)
+            self.assertEqual(modul.main([],lazni_apt),2)
+        self.assertIn('NAPAKA  /p/safeer-os.deb: Dependency is not satisfiable: safeer-control (>= 2.1.73)',izpis.getvalue())
+        self.assertEqual(len(predpomnilniki),3)
+        self.assertEqual(len({id(c) for c in predpomnilniki}),3)     # svez predpomnilnik za vsak paket
 
     def test_every_deb_we_build_is_installed_and_removed_on_mint(self):
         """Nov paket .deb ne sme mimo preizkusa: vsak `Package:` iz skript build_*deb.sh mora biti v njem."""
@@ -178,6 +254,17 @@ class MintInstallTests(unittest.TestCase):
             with self.subTest(paket=paket):
                 self.assertIn("paket '%s_*_all.deb'"%paket,preizkus)
                 self.assertIn(paket,odstranjeni)
+
+    def test_ci_installs_safeer_os_alone(self):
+        """Tudi posel deb-appimage namesti safeer-os sam (brez safeer-control) in preveri polja paketa."""
+        potek=(ROOT/'.github/workflows/linux-packages.yml').read_text()
+        korak=potek.split('- name: Safeer OS package',1)[1].split('\n      - name:',1)[0]
+        sam=korak.index('apt-get install -y --no-install-recommends "$OS_DEB"')
+        skupaj=korak.index('"./safeer-control_$(cat packaging/VERSION_CONTROL)_all.deb" "$OS_DEB"')
+        self.assertLess(sam,skupaj)
+        self.assertIn('test ! -e /usr/bin/safeer-control',korak[sam:skupaj])
+        self.assertIn('safeer-os --version',korak[sam:skupaj])
+        self.assertIn('Depends Pre-Depends Breaks | grep -q safeer-control',korak)
 
     def test_release_waits_for_the_mint_job(self):
         """Izdaja (posel release) ne sme nastati, ce namestitev na Linux Mintu pade."""

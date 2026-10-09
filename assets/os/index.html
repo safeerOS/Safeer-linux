@@ -64,6 +64,15 @@
         <div class="hitre" id="domPosodobitev" hidden>
           <button class="stikalo" id="domPosodobitevGumb"><svg data-ikona="ponovno"></svg><div><span id="domPosodobitevNaslov"></span><small data-t="posodobitevDomPod"></small></div></button>
         </div>
+        <!-- Enkratna kartica: paket deb brez Safeer Control (namesti ga na klik; zaprta se ne vrne) -->
+        <div class="hitre" id="domNamestiControl" hidden>
+          <div class="stikalo kartica-control">
+            <svg data-ikona="naprave"></svg>
+            <div><span data-t="namestiControlKartica"></span><small id="domNamestiControlPod" data-t="namestiControlKarticaPod"></small></div>
+            <button class="gumb glavni" id="domNamestiControlGumb"><span id="domNamestiControlBesedilo" data-t="namestiControl"></span></button>
+            <button class="gumb-ikona" id="domNamestiControlZapri" data-naslov="namestiControlZapri"><svg data-ikona="x"></svg></button>
+          </div>
+        </div>
         <div class="velike">
           <button class="velika" id="kBrskalnik"><svg data-ikona="splet"></svg><div><b data-t="brskalnik"></b><span data-t="brskalnikPod"></span></div><svg class="puscica" data-ikona="desno"></svg></button>
           <button class="velika" data-pojdi="media"><svg data-ikona="video"></svg><div><b data-t="mediji"></b><span data-t="medijiPod"></span></div><svg class="puscica" data-ikona="desno"></svg></button>
@@ -279,7 +288,9 @@
           <h3><i class="pika siva" id="napravePika"></i><span id="napraveNaslov"></span></h3>
           <p id="napraveBesedilo"></p>
           <p class="namig" id="napraveNamig" hidden></p>
+          <p class="namig" id="napraveNamestitev" hidden></p>
           <div class="gumbi-naprav">
+            <button class="gumb glavni" id="gumbNamestiControl" hidden><svg data-ikona="plus"></svg><span id="gumbNamestiControlBesedilo" data-t="namestiControl"></span></button>
             <button class="gumb glavni" id="gumbControl"><svg data-ikona="qr"></svg><span id="gumbControlBesedilo"></span></button>
             <button class="gumb" id="gumbOdjava" hidden><svg data-ikona="odjava"></svg><span id="gumbOdjavaBesedilo"></span></button>
           </div>

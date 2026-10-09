@@ -61,10 +61,21 @@ jobs:
           safeerctl --version | tee /dev/stderr | grep -Fx "safeerctl $(cat packaging/VERSION_CONTROL)"
           desktop-file-validate /usr/share/applications/safeer-control.desktop
           sudo apt-get remove -y safeer-control
-      - name: Safeer OS package (shell over the desktop; depends on safeer-control)
+      - name: Safeer OS package (shell over the desktop; recommends safeer-control, runs without it)
         run: |
           bash build_os_deb.sh
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "./safeer-control_$(cat packaging/VERSION_CONTROL)_all.deb" "./safeer-os_$(cat packaging/VERSION_OS)_all.deb"
+          OS_DEB="./safeer-os_$(cat packaging/VERSION_OS)_all.deb"
+          # A double-click (Captain/GDebi) reads only Depends: safeer-control is in no repository, so it may only be recommended.
+          if dpkg-deb -f "$OS_DEB" Depends Pre-Depends Breaks | grep -q safeer-control; then echo "safeer-control must not be in Depends/Breaks"; exit 1; fi
+          dpkg-deb -f "$OS_DEB" Recommends | grep -F "safeer-control (>= $(cat packaging/VERSION_CONTROL))"
+          # Safeer OS alone, without Safeer Control (the user who double-clicks only safeer-os).
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$OS_DEB"
+          test ! -e /usr/bin/safeer-control
+          xvfb-run -a safeer-os --version | tee /dev/stderr | grep -Fx "Safeer OS $(cat packaging/VERSION_OS)"
+          sudo apt-get purge -y safeer-os
+          test ! -e /usr/lib/safeer-os
+          # Both together, as the website's terminal command does.
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "./safeer-control_$(cat packaging/VERSION_CONTROL)_all.deb" "$OS_DEB"
           xvfb-run -a safeer-os --version | tee /dev/stderr | grep -Fx "Safeer OS $(cat packaging/VERSION_OS)"
           desktop-file-validate /usr/share/applications/safeer-os.desktop
           desktop-file-validate /usr/share/applications/safeer-os.Magnet.desktop

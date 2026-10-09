@@ -101,7 +101,7 @@ class Razlicice(unittest.TestCase):
         self.assertFalse(op.novejsa("", "0.4.22"))
 
     def test_preveri_linux_deb(self):
-        i = op.preveri("linux", {"safeer-os": "0.4.22", "safeer-control": "2.1.21"}, MANIFEST, nacin="deb")
+        i = op.preveri("linux", {"safeer-os": "0.4.22", "safeer-control": "2.1.21"}, MANIFEST, nacin="deb", tema=True)
         self.assertEqual([n["kljuc"] for n in i["nove"]], ["safeer-os"])
         n = i["nove"][0]
         self.assertEqual((n["ime"], n["nasa"], n["razlicica"], n["datoteka"]["url"].rsplit("/", 1)[1]), ("Safeer OS", "0.4.22", "0.4.23", "safeer-os_0.4.23_all.deb"))
@@ -142,9 +142,71 @@ class Razlicice(unittest.TestCase):
         """Paket videza gre v isti apt-get: ce njegov vnos ni veljaven, programa ne namestimo napol (samo stran)."""
         m = json.loads(json.dumps(MANIFEST))
         m["linux"]["safeer-os"]["tema_deb"]["sha256"] = ""
-        n = op.preveri("linux", {"safeer-os": "0.4.22"}, m, nacin="deb")["nove"][0]
+        n = op.preveri("linux", {"safeer-os": "0.4.22"}, m, nacin="deb", tema=True)["nove"][0]
         self.assertIsNone(n["datoteka"])
         self.assertNotIn("tema", n)
+        # Kdor paketa videza nima, ga ne dobi - in neveljaven vnos zanj ne ustavi posodobitve Safeer OS.
+        n = op.preveri("linux", {"safeer-os": "0.4.22"}, m, nacin="deb", tema=False)["nove"][0]
+        self.assertEqual(n["datoteka"]["url"].rsplit("/", 1)[1], "safeer-os_0.4.23_all.deb")
+        self.assertNotIn("tema", n)
+
+    def test_tema_samo_ce_je_namescena(self):
+        """safeer-os-tema je izbira uporabnika (ob prijavi preklopi namizje v Safeer OS): posodobitev Safeer OS ga doda
+        samo, ce je paket ze namescen (dpkg 'install ok installed') - prej ga je dobil vsak uporabnik paketa deb."""
+        for namescena, pricakovano in (("0.4.22", True), ("", False)):
+            with self.subTest(namescena=namescena), \
+                    mock.patch.object(op, "namescena_razlicica", return_value=namescena) as dpkg:
+                n = op.preveri("linux", {"safeer-os": "0.4.22"}, MANIFEST, nacin="deb")["nove"][0]
+                dpkg.assert_called_once_with("safeer-os-tema")
+                self.assertEqual("tema" in n, pricakovano)
+                self.assertEqual(n["datoteka"]["url"].rsplit("/", 1)[1], "safeer-os_0.4.23_all.deb")
+        # Brez paketa deb (Flatpak, AppImage) ali brez nove razlicice dpkg sploh ne vprasamo.
+        with mock.patch.object(op, "namescena_razlicica", side_effect=AssertionError("dpkg ni potreben")):
+            op.preveri("linux", {"safeer-os": "0.4.22"}, MANIFEST, nacin="flatpak")
+            op.preveri("linux", {"safeer-os": "0.4.23"}, MANIFEST, nacin="deb")
+            op.preveri("linux", {"safeer-os": "0.4.22"}, MANIFEST, nacin="deb", tema=True)
+
+    def test_manjkajoci_control_se_ponudi_iz_podpisanega_seznama(self):
+        """Namestitev manjkajocega Controla (Safeer OS -> Naprave) gre po isti poti: {'safeer-control': '0'} vrne vnos
+        deb s SHA-256 iz podpisanega seznama, brez paketa videza; brez veljavnega vnosa ni namestitve v programu."""
+        i = op.preveri("linux", {"safeer-control": "0"}, MANIFEST, nacin="deb", tema=False)
+        self.assertEqual(len(i["nove"]), 1)
+        n = i["nove"][0]
+        self.assertEqual((n["kljuc"], n["nasa"], n["razlicica"]), ("safeer-control", "0", "2.1.21"))
+        self.assertEqual(n["datoteka"], MANIFEST["linux"]["safeer-control"]["deb"])
+        self.assertNotIn("tema", n)
+        for slabo in ({"sha256": ""}, {"url": "http://safeer.si/os/safeer-control_2.1.21_all.deb"}):
+            m = json.loads(json.dumps(MANIFEST))
+            m["linux"]["safeer-control"]["deb"].update(slabo)
+            self.assertIsNone(op.preveri("linux", {"safeer-control": "0"}, m, nacin="deb", tema=False)["nove"][0]["datoteka"])
+
+
+class NamescenPaket(unittest.TestCase):
+    """dpkg-query: namescen je samo paket s stanjem 'install ok installed' ('ii'). Odstranjen paket z ostanki
+    nastavitev ('rc') se vedno izpise razlicico - ne sme veljati za namescenega (sicer ga posodobitev vrne nazaj)."""
+
+    def _izpis(self, stdout="", izjema=None):
+        def zazeni(ukaz, **moznosti):
+            self.ukaz = ukaz
+            if izjema is not None:
+                raise izjema
+            return mock.Mock(stdout=stdout, returncode=0 if stdout else 1)
+        with mock.patch.object(op.subprocess, "run", side_effect=zazeni):
+            return op.namescena_razlicica("safeer-control")
+
+    def test_stanja(self):
+        self.assertEqual(self._izpis("install ok installed|2.1.73\n"), "2.1.73")
+        self.assertEqual(self.ukaz[:2], ["dpkg-query", "-W"])
+        self.assertIn("${Status}", self.ukaz[2])
+        self.assertEqual(self.ukaz[-1], "safeer-control")
+        self.assertEqual(self._izpis("deinstall ok config-files|2.1.73\n"), "")     # rc: odstranjen, ostale nastavitve
+        self.assertEqual(self._izpis("install ok half-configured|2.1.73\n"), "")
+        self.assertEqual(self._izpis("install ok unpacked|2.1.73\n"), "")
+        self.assertEqual(self._izpis("deinstall ok installed|2.1.73\n"), "")
+        self.assertEqual(self._izpis(""), "")                                         # paketa dpkg ne pozna
+        self.assertEqual(self._izpis("install ok installed|\n"), "")
+        self.assertEqual(self._izpis(izjema=FileNotFoundError("dpkg-query")), "")    # ni dpkg
+        self.assertEqual(self._izpis(izjema=op.subprocess.TimeoutExpired("dpkg-query", 10)), "")
 
 
 @unittest.skipIf(Ed25519PrivateKey is None, "brez python3-cryptography")

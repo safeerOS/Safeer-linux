@@ -58,9 +58,11 @@ AppImages do not automatically register a permanent desktop launcher. Use deskto
 
 Safeer OS is a full-screen shell over the desktop (programs, files, devices, network, sound, Shield) that talks to Safeer Control over D-Bus and starts it when needed. Its payload is `packaging/install_os_payload.sh` (version `packaging/VERSION_OS`); `tests/test_packaging.py` installs it and imports it without the source tree.
 
+The `safeer-os` .deb only **recommends** `safeer-control` (no Depends, no Breaks). Safeer OS runs without Control: local features work, Safeer Link and devices are off, and the Devices page (plus a one-time card on Home) offers **Namesti Safeer Control**. That button installs Control through the same path as in-app updates: the Ed25519-signed, fresh `razlicice.json`, https only, the mandatory SHA-256 from the signed list, then `pkexec apt-get install -y` (password), and starts Control right away. It is never automatic and exists only for the .deb (AppImage and Flatpak already contain Control). The reason: Linux Mint's double-click installers (Captain, GDebi) check only `Depends`/`Pre-Depends` with python-apt, so a Depends on a package that is in no repository made `safeer-os` impossible to install by double-click. The Mint CI job (`tools/mint_namestitev`) runs that same check (`DebPackage.check()`) on every built .deb and installs `safeer-os` alone.
+
 ```sh
 bash build_control_deb.sh && bash build_os_deb.sh
-sudo apt install ./safeer-control_2.1.73_all.deb ./safeer-os_0.4.75_all.deb      # .deb: safeer-os depends on safeer-control
+sudo apt install ./safeer-control_2.1.73_all.deb ./safeer-os_0.4.75_all.deb      # .deb: both at once (safeer-os alone also installs)
 sudo apt install ./safeer-os-tema_0.4.75_all.deb                                  # Linux Mint: Safeer OS as the desktop (theme + start at login)
 LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_os_appimage.sh   # Safeer-OS-<version>-x86_64.AppImage (Safeer OS + Control; `--control` starts Control)
 bash packaging/build_os_flatpak.sh                                                        # Safeer-OS-<version>-x86_64.flatpak (io.github.memelandfaner.SafeerOS)

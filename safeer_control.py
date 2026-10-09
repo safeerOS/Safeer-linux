@@ -1680,12 +1680,10 @@ class SafeerControl(Gtk.Application):
     def _posodobitve_razlicice(self) -> dict:
         """Kar Control lahko posodobi sam: sebe in - ce je Safeer OS namescen kot paket - tudi njega (isti pkexec apt-get)."""
         r = {"safeer-control": APP_VERSION} if APP_VERSION else {}
-        try:
-            v = subprocess.run(["dpkg-query", "-W", "-f=${Version}", "safeer-os"], capture_output=True, text=True, timeout=10).stdout.strip()
-            if v:
-                r["safeer-os"] = v
-        except Exception:
-            pass
+        # Samo res namescen paket ('ii'): odstranjen Safeer OS z ostanki nastavitev ('rc') se ne sme vrniti s posodobitvijo.
+        v = os_posodobitve.namescena_razlicica("safeer-os")
+        if v:
+            r["safeer-os"] = v
         return r
 
     def _posodobitve_preveri(self) -> bool:

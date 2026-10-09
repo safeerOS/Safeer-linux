@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Safeer OS (Linux) payload: the Safeer OS shell for the desktop (safeer_os.py, its core modules and
-# the page in assets/os). It talks to Safeer Control over D-Bus and starts it when needed, so a
-# package built from this payload depends on the Safeer Control payload (deb: safeer-control;
-# AppImage and Flatpak: both payloads in one bundle).
+# the page in assets/os). It talks to Safeer Control over D-Bus and starts it when needed. It runs
+# without Control too (Safeer Link and devices off), so the deb only recommends safeer-control and
+# offers to install it in the app (Naprave -> Namesti Safeer Control); AppImage and Flatpak carry
+# both payloads in one bundle.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PREFIX="${1:?Usage: install_os_payload.sh DESTINATION_PREFIX [desktop-id]}"
