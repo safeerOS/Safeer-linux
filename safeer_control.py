@@ -1509,7 +1509,8 @@ class SafeerControl(Gtk.Application):
         except Exception:
             pass
         try:
-            self.zaslon.ustavi()
+            # Seja zapise povzetek meritev sele, ko se crpalka ustavi: kratko jo pocakamo, da ob izhodu ni izgubljen.
+            self.zaslon.ustavi(pocakaj_s=2.0)
             if self.drugi_zaslon is not None:
                 self.drugi_zaslon.ustavi()
         except Exception:

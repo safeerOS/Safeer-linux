@@ -1074,7 +1074,8 @@ class Zaslon:
         obstalo (televizor je izginil brez slovesa), drzalo kljucavnico tudi novi seji - televizor se je povezal
         znova, slike pa ni dobil, dokler jedro stare povezave ni opustilo.
 
-        `merilo` (core/link_zaslon_meritve.Meritve): vsak sendall izmerimo - koliko bajtov in koliko casa je cakal."""
+        `merilo` (core/link_zaslon_meritve.Meritve): vsak sendall izmerimo - koliko bajtov in koliko casa je cakal;
+        zacni_pisanje pred njim, da je zastoj viden, medtem ko traja."""
         tihih = 0
         try:
             while True:
@@ -1097,12 +1098,21 @@ class Zaslon:
                 if merilo is None:
                     odjemalec.sendall(okvir)
                     continue
-                zacetek = time.monotonic()
-                odjemalec.sendall(okvir)
                 try:
-                    merilo.poslano(vrsta, len(okvir), time.monotonic() - zacetek)
+                    merilo.zacni_pisanje(vrsta)     # zastoj je v meritvah viden, medtem ko traja
                 except Exception:  # noqa: BLE001 - meritev ne sme ustaviti slike
                     pass
+                zacetek = time.monotonic()
+                predano = 0
+                try:
+                    odjemalec.sendall(okvir)
+                    predano = len(okvir)
+                finally:
+                    # Tudi pisanje, ki pade (rok pisanja), je cakalo: steje v zasedenost, bajtov pa nima.
+                    try:
+                        merilo.poslano(vrsta, predano, time.monotonic() - zacetek)
+                    except Exception:  # noqa: BLE001 - meritev ne sme ustaviti slike
+                        pass
         except (OSError, ssl.SSLError, ValueError, AttributeError):
             pass
 
@@ -1327,14 +1337,19 @@ class Zaslon:
             return self._plosek.os(str(dogodek.get("os", "") or ""), dogodek.get("vrednost"))
         return False
 
-    def ustavi(self, seja: Optional[int] = None) -> None:
+    def ustavi(self, seja: Optional[int] = None, pocakaj_s: float = 0.0) -> None:
         """Konca zajem in zapre vrata; zeton takoj ne velja vec.
 
         Nit seje, ki pospravlja za sabo, poda svojo stevilko `seja`: ce se je medtem zacela nova seja, klic ne
-        naredi nicesar (sicer bi konec stare seje ustavil novo)."""
+        naredi nicesar (sicer bi konec stare seje ustavil novo).
+
+        Nit seje konca sama (povzetek meritev zapise sele, ko se crpalka ustavi). `pocakaj_s` > 0 jo pocaka najvec
+        toliko - ob izhodu programa, da povzetek zadnje seje ni izgubljen. Privzeto ne caka nihce (nova seja,
+        izklop, screen.stop); nit seje sama sebe nikoli."""
         with self._kljucavnica:
             if seja is not None and self._seja_st != seja:
                 return
+            nit = self._nit
             proces, zvocni, posluh, odjemalec = self._proces, self._zvocni, self._posluh, self._odjemalec
             prevzeti, self._prevzeti = self._prevzeti, []
             self._proces = None
@@ -1364,6 +1379,8 @@ class Zaslon:
                 posluh.close()
             except Exception:
                 pass
+        if pocakaj_s > 0 and nit is not None and nit is not threading.current_thread():
+            nit.join(pocakaj_s)
 
 
 __all__ = ["Zaslon", "ukaz_ffmpeg", "vaapi_naprava", "KAKOVOSTI", "PRIVZETA_KAKOVOST"]

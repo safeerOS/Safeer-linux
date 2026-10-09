@@ -4,6 +4,7 @@ Preverjamo izracune, na katerih bodo stale meje naslednjih faz: zasedenost in hi
 (en skok Wi-Fi ne steje), osnova v oknu 300 s, cakanje tudi pri popolnem zastoju, pozni pingi, dostava proti
 oddaji iz ure in bajtov gledalca ter povzetek seje.
 """
+import json
 import threading
 import time
 import unittest
@@ -59,6 +60,39 @@ class Posiljanje(_Osnova):
         p = self.m.posnetek()
         self.assertEqual(p["zasedenost"], 1.0)
         self.assertEqual(p["najdaljse_pisanje_ms"], 4000.0)
+
+    def test_zastoj_je_viden_medtem_ko_traja(self):
+        """Crpalka 10 s pise 20 okvirjev po 32 KiB na sekundo (sendall 5 ms), nato en sendall obvisi 4 s (zastoj
+        Wi-Fi). Med zastojem mora posnetek kazati polno zasedenost, ne prazne slike; po njem so v povzetku stiri
+        zasedene sekunde in ne ena."""
+        zacetek = self.ura.t
+        for i in range(200):
+            self.ura.t = zacetek + i * 0.05
+            self.m.zacni_pisanje(lzm.SLIKA)
+            self.ura.t += 0.005
+            self.m.poslano(lzm.SLIKA, 32 * 1024, 0.005)
+        self.assertAlmostEqual(self.m.posnetek()["zasedenost"], 0.1, places=3)
+        self.ura.t = zacetek + 10.0
+        self.m.zacni_pisanje(lzm.SLIKA)
+        self.m.zacni_pisanje(lzm.ZVOK)                   # zvok caka za isto vticnico
+        self.ura.t = zacetek + 12.0
+        p = self.m.posnetek()
+        self.assertEqual(p["zasedenost"], 1.0, "med zastojem crpalka ni prosta")
+        self.assertEqual(p["najdaljse_pisanje_ms"], 2000.0)
+        self.assertEqual(p["poslano_mbps"], 0.0)
+        # Seja, ki se konca sredi zastoja: tudi cas pisanja, ki se traja, je v povzetku.
+        self.ura.t = zacetek + 12.5
+        self.assertEqual(self.m.povzetek()["zasedenost_p90"], 1.0)
+        self.ura.t = zacetek + 14.0
+        self.m.poslano(lzm.ZVOK, 1925, 4.0)
+        self.m.poslano(lzm.SLIKA, 32 * 1024, 4.0)
+        p = self.m.posnetek()
+        self.assertEqual((p["zasedenost"], p["najdaljse_pisanje_ms"]), (1.0, 4000.0))
+        self.assertEqual([round(z, 3) for z in self.m._sek_zasedeno[9:14]], [0.1, 1.0, 1.0, 1.0, 1.0])
+        self.assertEqual(self.m.povzetek()["zasedenost_p90"], 1.0)
+        # Pisanje je koncano: v naslednji sekundi je crpalka prosta.
+        self.ura.t = zacetek + 15.5
+        self.assertEqual(self.m.posnetek()["zasedenost"], 0.0)
 
     def test_tcp(self):
         self.m.tcp(None)                                 # vticnica ni TCP: nic se ne spremeni
@@ -184,6 +218,33 @@ class DostavaInOddaja(_Osnova):
         g = self.m.posnetek()["gledalec"]
         self.assertEqual(g, {"fps": 59.8, "mbps": 4.12, "dek": 12.0, "zastoji": 0.0, "izpusceno": 0.0,
                              "pot": "neposredno", "rok_ms": 87.0})
+
+    def test_tuje_vrednosti_ne_pokvarijo_meritev(self):
+        """Odmev je tuj (pokvarjen ali sovrazen gledalec): ogromno celo stevilo, deljenje s skoraj nic in vrednosti
+        zunaj razpona ne smejo dvigniti izjeme sredi odmeva niti spraviti neskoncnosti v posnetek ali v povzetek."""
+        ogromno = 10 ** 400                              # json.loads ga da kot int; float() pade z OverflowError
+        self.assertEqual(self.ping(10, r=ogromno, b=0, fps=ogromno, zastoji=ogromno, rok=ogromno), 10.0)
+        self.assertIsNone(self.m.pong({"vrsta": "rtt", "n": ogromno}, self.ura.t))
+        self.ping(10, r=0, b=0)
+        self.ping(10, r=1e-200, b=1e300)                 # dr skoraj nic: dostava bi bila neskoncna
+        self.ping(10, r=-5.0, b=-1.0)
+        for _ in range(3):
+            self.ping(10, zastoji=1.7e308, izpusceno=-1, fps=5000, mbps=1e9, dek=-3)
+        p = self.m.posnetek()
+        self.assertIsNone(p["dostava_mbps"])
+        self.assertEqual(p["gledalec"], {})
+        self.assertEqual(p["odmevov"], 7)
+        povzetek = self.m.povzetek()
+        self.assertIsNone(povzetek["zastoji_na_min"])
+        json.dumps(p, allow_nan=False)
+        json.dumps(povzetek, allow_nan=False)
+        # Pravi odmevi za tem se stejejo kot prej.
+        self.ping(10, r=1000.0, b=0, fps=59.8, zastoji=1)
+        self.ping(10, r=1500.0, b=250_000, zastoji=0)
+        p = self.m.posnetek()
+        self.assertAlmostEqual(p["dostava_mbps"], 4.0)
+        self.assertEqual((p["gledalec"]["fps"], p["gledalec"]["zastoji"]), (59.8, 0.0))
+        self.assertEqual(self.m.povzetek()["zastoji_na_min"], 30.0)
 
 
 class Povzetek(_Osnova):
