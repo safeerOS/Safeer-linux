@@ -12,4 +12,4 @@ Terminal=false
 Categories=AudioVideo;Player;
 Keywords=Safeer;media;player;films;series;music;radio;TV;
 Keywords[sl]=Safeer;mediji;predvajalnik;filmi;serije;glasba;radio;TV;
-StartupWMClass=safeer-player
+StartupWMClass=safeer-os.Player

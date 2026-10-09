@@ -236,7 +236,7 @@ class Okno(_Lupina):
         self.assertIn("okno.set_wmclass(*WMCLASS_PREDVAJALNIKA)", telo)
         self.assertIn('("predvajalnik", "1")', telo)
         self.assertIn('okno.connect("delete-event", self._zapri_predvajalnik)', telo)
-        self.assertEqual(self.os_.WMCLASS_PREDVAJALNIKA, ("safeer-player", "Safeer Player"))
+        self.assertEqual(self.os_.WMCLASS_PREDVAJALNIKA, ("safeer-os.Player", "Safeer Player"))
         # Glavno okno ostane, kot je bilo: ista stran, isto ime za upravitelja oken.
         glavno = vir[vir.index("def _ustvari_okno"):vir.index("def _ustvari_vrstico")]
         self.assertIn('self._nov_pogled("index.html" + ("?namizje=1" if self.namizje else ""))', glavno)

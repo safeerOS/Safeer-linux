@@ -867,8 +867,16 @@ PESKOVNIK_PONOVNO_S = 30.0
 #: Ukazna zastavica za okno Safeer Player (Medijski center v svojem oknu); --predvajaj <datoteka> je nekaj drugega.
 ZASTAVICE_PREDVAJALNIKA = ("--predvajalnik", "--player")
 #: Ime okna Safeer Player za upravitelja oken (WM_CLASS): po njem ga pult zdruzi z vnosom »Safeer Player«
-#: (StartupWMClass v packaging/safeer-player.desktop) in ne z glavnim oknom Safeer OS.
-WMCLASS_PREDVAJALNIKA = ("safeer-player", "Safeer Player")
+#: (StartupWMClass v packaging/safeer-player.desktop) in ne z glavnim oknom Safeer OS. Ime je ID vnosa v paketu
+#: (safeer-os.Player.desktop), ne »safeer-player«: tako je imenovan lastnikov lokalni prototip
+#: (~/.local/share/applications/safeer-player.desktop) in Cinnamon bi okno lahko pripel k njemu.
+WMCLASS_PREDVAJALNIKA = ("safeer-os.Player", "Safeer Player")
+
+
+def _cas_dogodka() -> int:
+    """Cas za present_with_time, ko ni dogodka GDK (klic z delovne povrsine, D-Bus): milisekunde od zagona, kot jih
+    steje streznik X - 32-bitno, zato po 49,7 dneh zacne znova (sicer OverflowError in okno ne pride naprej)."""
+    return Gtk.get_current_event_time() or (int(GLib.get_monotonic_time() / 1000) & 0xFFFFFFFF)
 
 
 def zagon_predvajalnika(argumenti) -> bool:
@@ -900,6 +908,20 @@ def _predaj_tekocemu(dejanje: str, vrednost: str) -> bool:
                          GLib.Variant("(sava{sv})", (dejanje, [GLib.Variant("s", vrednost)], {})),
                          None, Gio.DBusCallFlags.NONE, 5000, None)
     return bool(tece)
+
+
+def _predaj_ce_oddaljen(app, dejanje: str, vrednost=None) -> bool:
+    """Atomarna predaja: app se prijavi na vodilo; ce ime ze ima drug proces (tudi tak, ki je zacel hkrati - dvojni
+    klik, zasedeni Safeer OS), mu preda dejanje in vrne True. Navadna aktivacija bi namen izgubila: primarni proces bi
+    odprl glavno okno. Napako vodila dobi klicatelj kot izjemo."""
+    app.register(None)
+    if not app.get_is_remote():
+        return False
+    app.activate_action(dejanje, vrednost)
+    povezava = app.get_dbus_connection()
+    if povezava is not None:
+        povezava.flush_sync(None)     # sporocilo mora oditi, preden se ta proces konca
+    return True
 
 
 class SafeerOS(Gtk.Application):
@@ -963,6 +985,11 @@ class SafeerOS(Gtk.Application):
         self._zacni_s_predvajalnikom = bool(predvajalnik)
         #: Pogled, ki je nazadnje zacel predvajanje iz kataloga: vrsto skladb vodi samo on (glej _dogodek).
         self._katalog_pogled = None
+        #: Pogled, ki je nazadnje zahteval predvajanje (KLICI_PREDVAJANJA): okno z videom in lahki medijski pogled sta
+        #: nad njegovim oknom (glej _stars_medija). None: zahteva brez strani (D-Bus, druga naprava).
+        self._medijski_klicatelj = None
+        #: Pogled, ki je odprl lahki medijski pogled: ce strani brez videa ni mogoce predvajati, gre tja nazaj.
+        self._lahki_klicatelj = None
         self.vrstica: Optional[Gtk.Window] = None
         self.pogledi: list = []
         self._okna_zamik = 0
@@ -1019,6 +1046,10 @@ class SafeerOS(Gtk.Application):
         predvajalnik_okno = Gio.SimpleAction.new("predvajalnik", GLib.VariantType.new("s"))
         predvajalnik_okno.connect("activate", lambda _a, v: self._odpri_predvajalnik(v.get_string() if v else ""))
         self.add_action(predvajalnik_okno)
+        #: `safeer-os --delovna` (safeer-cinnamon), ko Safeer OS ze tece brez delovne povrsine (glej _vklopi_delovno).
+        delovna_povrsina = Gio.SimpleAction.new("delovna", None)
+        delovna_povrsina.connect("activate", lambda *_a: self._vklopi_delovno())
+        self.add_action(delovna_povrsina)
 
     def do_startup(self) -> None:
         Gtk.Application.do_startup(self)
@@ -1145,6 +1176,23 @@ class SafeerOS(Gtk.Application):
         self.add_action(koncaj)
         for signal in (15, 1, 2):     # SIGTERM (odjava), SIGHUP, SIGINT: Mintov pult vrnemo
             GLib.unix_signal_add(GLib.PRIORITY_HIGH, signal, lambda *a: (self._koncaj(), False)[1])
+
+    def _vklopi_delovno(self) -> bool:
+        """`safeer-os --delovna` (safeer-cinnamon ob prijavi ali ob vklopu teme), ko Safeer OS ze tece kot Safeer Player
+        ali okno iz menija: delovna povrsina se odpre v tem procesu (prej je drugi zagon tiho koncal in tema je ostala
+        brez nje do naslednje prijave). Glavno okno odslej ob zapiranju samo skrije (_zapri_glavno). Kjer delovna
+        povrsina ze je ali tece celozaslonski Safeer OS (namizje), se ne zgodi nic - kot prej."""
+        if self.okno_delovna is not None or self.namizje or self.posnetek:
+            return False
+        self.delovna, self.v_oknu = True, True
+        self._ustvari_delovno()
+        if self._prvic:
+            # Kot ob zagonu z --delovna; ce je glavno okno ze odprto, sta Scit in zagon ob prijavi ze urejena.
+            self._prvic = False
+            self.scit.zacni_ce_vklopljen()
+            uredi_samozagon_ob_zagonu(self.shramba)
+        self._povezi_koncanje()
+        return True
 
     def _nov_pogled(self, stran: str) -> WebKit2.WebView:
         """WebKit z mostom do tega procesa; odgovori gredo nazaj v isti pogled."""
@@ -1288,9 +1336,10 @@ class SafeerOS(Gtk.Application):
             return False
         if not isinstance(p, dict) or not isinstance(p.get("item"), dict):
             return False
-        if self.okno is None:
+        self._medijski_klicatelj = None      # ponudba z druge naprave: okno z videom nad Medijskim centrom (_stars_medija)
+        if self.okno is None and self.okno_predvajalnik is None:
             self._cakajoca_ponudba = p
-            self._ustvari_okno()
+            self._odpri_medijsko_okno()
             GLib.timeout_add(1500, self._predvajaj_cakajoco)
             return True
         from core import link_predvajanje
@@ -1940,11 +1989,13 @@ class SafeerOS(Gtk.Application):
     #: Dogodki vrste skladb iz kataloga (konec, naslednja/prejsnja, vgradni predvajalnik): vrsto vodi stran.
     DOGODKI_VRSTE = frozenset({"mediaKonec", "mediaVrstaUkaz", "mediaYt", "mediaYtZaprt", "mediaYtNapaka"})
 
-    def _dogodek(self, vrsta: str, podatki) -> None:
-        # Medijski center je lahko odprt dvakrat (glavno okno in Safeer Player): dogodke vrste skladb dobi samo stran,
-        # ki je predvajanje zacela, sicer bi ob koncu skladbe vsaka zacela svojo naslednjo.
-        lastnik = self._katalog_pogled if vrsta in self.DOGODKI_VRSTE else None
-        pogled = lastnik if lastnik is not None and any(p is lastnik for p in self.pogledi) else None
+    def _dogodek(self, vrsta: str, podatki, pogled=None) -> None:
+        """Dogodek strani: vsem pogledom ali samo [pogled]. Medijski center je lahko odprt dvakrat (glavno okno in
+        Safeer Player): dogodke vrste skladb dobi samo stran, ki je predvajanje zacela, sicer bi ob koncu skladbe vsaka
+        zacela svojo naslednjo."""
+        if pogled is None:
+            lastnik = self._katalog_pogled if vrsta in self.DOGODKI_VRSTE else None
+            pogled = lastnik if lastnik is not None and any(p is lastnik for p in self.pogledi) else None
 
         def naredi():
             self._js("window.safeerOsDogodek && window.safeerOsDogodek(%s, %s);" % (
@@ -3099,9 +3150,10 @@ class SafeerOS(Gtk.Application):
         pot = os.path.realpath(str(pot or ""))
         if not os.path.isfile(pot):
             return False
-        if self.okno is None:
+        self._medijski_klicatelj = None
+        if self.okno is None and self.okno_predvajalnik is None:
             self._cakajoca_datoteka = pot
-            self._ustvari_okno()
+            self._odpri_medijsko_okno()
             GLib.timeout_add(1500, self._predvajaj_cakajoco)
             return True
         if self._odpri_lokalni_medij(pot):
@@ -3195,12 +3247,22 @@ class SafeerOS(Gtk.Application):
         uri = uri[len("naprava:"):] if samodejno else uri
         if os_torrent.razcleni_magnet(uri) is None:
             return
-        self._cakajoci_magnet = {"uri": uri, "samodejno": samodejno}
+        magnet = {"uri": uri, "samodejno": samodejno}
+        if self._medijski_cilj() == "predvajalnik":
+            # Ob delovni povrsini (ali ko je odprt samo Safeer Player) magnet pokaze Safeer Player, ne cele lupine.
+            if self.okno_predvajalnik is None:
+                self._cakajoci_magnet = dict(magnet, predvajalnik=True)
+                self._odpri_predvajalnik()
+                return        # stran Safeer Playerja ga prevzame ob nalaganju (cakajociMagnet)
+            self._odpri_predvajalnik()
+            self._dogodek("magnet", magnet, self.pogled_predvajalnik)
+            return
+        self._cakajoci_magnet = magnet
         if self.okno is None:
             self.activate()
             return            # stran ga prevzame ob nalaganju (cakajociMagnet)
         self.okno.present()
-        self._dogodek("magnet", {"uri": uri, "samodejno": samodejno})
+        self._dogodek("magnet", magnet, self.pogled)     # samo glavnemu oknu: Safeer Player ga ne odpre se enkrat
 
     @staticmethod
     def _kopiraj(besedilo: str) -> bool:
@@ -3216,9 +3278,19 @@ class SafeerOS(Gtk.Application):
         odlozisce.store()
         return True
 
-    def _vzemi_cakajoci_magnet(self) -> dict:
-        cakajoci, self._cakajoci_magnet = self._cakajoci_magnet, ""
-        return cakajoci or {}
+    def _vzemi_cakajoci_magnet(self, pogled=None) -> dict:
+        """Magnet, ki caka na stran (zagon z --magnet ali magnet, preden je bilo okno). Dobi ga samo stran, ki ji je
+        namenjen (Safeer Player ali glavno okno), sicer bi ga pokazali obe ali napacna."""
+        cakajoci = self._cakajoci_magnet
+        if isinstance(cakajoci, str):
+            # Zagon `safeer-os --magnet[-naprava]` (main): niz z »naprava:« spredaj, kot pri dejanju »magnet«.
+            samodejno = cakajoci.startswith("naprava:")
+            cakajoci = {"uri": cakajoci[len("naprava:"):] if samodejno else cakajoci, "samodejno": samodejno} \
+                if cakajoci else {}
+        if not cakajoci or bool(cakajoci.get("predvajalnik")) != (pogled is not None and pogled is self.pogled_predvajalnik):
+            return {}
+        self._cakajoci_magnet = ""
+        return {"uri": cakajoci["uri"], "samodejno": bool(cakajoci.get("samodejno"))}
 
     def _predvajaj_magnet(self, tid: int, i: int, ime: str) -> dict:
         """Datoteka torrenta v našem predvajalniku že med prenosom (lokalni tok z geslom na 127.0.0.1)."""
