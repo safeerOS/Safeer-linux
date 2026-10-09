@@ -579,7 +579,8 @@ class PomanjsavaNaGraficni(unittest.TestCase):
 
     def test_ukaz_pomanjsa_na_graficni(self):
         u = link_zaslon.ukaz_ffmpeg(":0", 1920, 1080, 2560, 1440, 60, "8M", self.VAAPI, qp=18, kodek="hevc", gpu=True)
-        self.assertEqual(self._vf(u), "hwupload,scale_vaapi=1920:1080:format=nv12")
+        # mode=default: hq (privzeto v ffmpeg >= 6) je bil na Intel iHD za besedilo 3 dB slabsi.
+        self.assertEqual(self._vf(u), "hwupload,scale_vaapi=1920:1080:format=nv12:mode=default")
         self.assertNotIn("lanczos", " ".join(u))
         self.assertEqual(u[u.index("-c:v") + 1], "hevc_vaapi")
         self.assertEqual(u[u.index("-qp") + 1], "18")
@@ -615,7 +616,7 @@ class PomanjsavaNaGraficni(unittest.TestCase):
         self.assertEqual(len(klici), 1)
         ukaz = " ".join(klici[0])
         self.assertIn("format=bgr0", ukaz)                              # kot x11grab
-        self.assertIn("hwupload,scale_vaapi=", ukaz)
+        self.assertIn("hwupload,scale_vaapi=320:180:format=nv12:mode=default", ukaz)   # kot v seji
         self.assertEqual(klici[0][-3:], ["-f", "null", "-"])
 
     def test_napaka_pomeni_procesor(self):
