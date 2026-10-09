@@ -1283,7 +1283,7 @@ class SafeerControl(Gtk.Application):
                     "message": "%s zdaj ni dosegljiv neposredno. Slika zaslona deluje samo v istem omrežju (doma), "
                                "prek Global Linka ne." % str(naprava.get("ime") or id_naprave)}
         odgovor = self.link.ukaz_pocakaj(id_naprave, "screen.start",
-                                         {"quality": "srednja", "screen": "desktop"}, cas=15.0)
+                                         {"quality": "visoka", "screen": "desktop"}, cas=15.0)
         if not odgovor.get("ok"):
             # Sporocilo ciljne naprave mora ostati nespremenjeno (tudi zavrnitev dovoljenja).
             return {"ok": False, "message": str(odgovor.get("message") or "Naprava je zahtevo zavrnila."),
