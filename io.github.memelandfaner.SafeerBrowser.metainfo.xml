@@ -48,6 +48,7 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.0.117" date="2026-10-09"><description><p>Packaged with Safeer OS 0.4.75 and Safeer Control 2.1.73. When another device takes over a shared computer screen, Safeer Control says so in a sentence. Firefox no longer bypasses the Shield DNS filter with its own DNS over HTTPS.</p></description></release>
     <release version="1.0.116" date="2026-10-09"><description><p>Packaged with Safeer OS 0.4.74 and Safeer Control 2.1.72. The remote computer screen now asks for 60 frames per second (with Safeer OS for Windows 1.0.47: about 59 instead of 29).</p></description></release>
     <release version="1.0.115" date="2026-10-08"><description><p>Packaged with Safeer OS 0.4.73 and Safeer Control 2.1.71. Sites that replace the Google ad library (googletag) while loading no longer conclude that an ad blocker is active; blocking itself is unchanged.</p></description></release>
     <release version="1.0.114" date="2026-10-08"><description><p>Packaged with Safeer OS 0.4.72 and Safeer Control 2.1.70. Stronger protection against ad-blocker detection; the solidarity circle now hands a job to another device when a helper device drops off the network or its video decoder fails.</p></description></release>
