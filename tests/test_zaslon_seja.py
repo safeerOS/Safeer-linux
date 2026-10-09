@@ -61,15 +61,29 @@ class _LazniVnos:
 
 
 class _Televizor:
-    """Odjemalec seje. `beri = False` pomeni televizor, ki je obstal: povezava ostane, bere pa ne vec."""
+    """Odjemalec seje. `beri = False` pomeni televizor, ki je obstal: povezava ostane, bere pa ne vec.
 
-    def __init__(self, seja: dict, vnos_na_s: float = 0.0, zeton=None, hub_vrata: int = 0) -> None:
+    `zmoznosti`: kaj gledalec zna (kot `caps` v screen.start). `odmev`: gledalec z 'rtt' vrne vsak ping v obvestilu
+    (vrstica {"vrsta":"rtt",...}) - a samo, ce mu je glava toka to potrdila - po `zamik_s` sekundah."""
+
+    def __init__(self, seja: dict, vnos_na_s: float = 0.0, zeton=None, hub_vrata: int = 0,
+                 zmoznosti=(), odmev: bool = False, zamik_s: float = 0.0) -> None:
         #: `hub_vrata`: gledalec zdoma - povezava gre na vrata Huba in se z zahtevo HTTP nadgradi v pretok.
         self.prek_huba = bool(hub_vrata)
         self.odgovor_huba = ""
         self.vrata = hub_vrata or seja["port"]
         self.zeton = seja["token"] if zeton is None else zeton
         self.vnos_na_s = vnos_na_s
+        self.zmoznosti = set(zmoznosti)
+        self.odmev = odmev
+        self.zamik_s = zamik_s
+        #: Telesa obvestil (okvir vrste 3) in pingi v njih; odmevi, ki cakajo na svoj cas: (kdaj, vrstica).
+        self.obvestila = []
+        self.pingi = []
+        self.odmevi = []
+        self.odmevov = 0
+        #: Bajti toka po glavi (z glavami okvirjev) - kot `b` v odmevu gledalca.
+        self.bajtov = 0
         self.glava = None
         self.okvirjev = {1: 0, 2: 0, 3: 0}
         self.poslanih = 0
@@ -92,10 +106,31 @@ class _Televizor:
                 return
             telo = bytes(zbrano[5:5 + dolzina])
             del zbrano[:5 + dolzina]
+            self.bajtov += 5 + dolzina
             if vrsta in (1, 2) and telo.count(0) != len(telo):
                 self.napaka = "pokvarjeno telo okvirja vrste %d" % vrsta
                 return
             self.okvirjev[vrsta] += 1
+            if vrsta == 3:
+                self._obvestilo(telo)
+
+    def _obvestilo(self, telo: bytes) -> None:
+        try:
+            obvestilo = json.loads(telo)
+        except ValueError:
+            self.napaka = "obvestilo ni JSON: %r" % telo[:60]
+            return
+        self.obvestila.append(obvestilo)
+        ping = obvestilo.get("rtt") if isinstance(obvestilo, dict) else None
+        if not isinstance(ping, dict):
+            return
+        self.pingi.append(ping)
+        if self.odmev and "rtt" in self.zmoznosti and (self.glava or {}).get("rtt"):
+            odgovor = {"vrsta": "rtt", "n": ping["n"], "t": ping["t"], "r": int(time.monotonic() * 1000),
+                       "b": self.bajtov, "fps": 59.8, "mbps": 4.12, "dek": 12, "zastoji": 0, "izpusceno": 0}
+            if not self.odmevov and not self.odmevi:
+                odgovor.update(pot="neposredno", rok=42)
+            self.odmevi.append((time.monotonic() + self.zamik_s, (json.dumps(odgovor) + "\n").encode()))
 
     def _teci(self) -> None:
         s = None
@@ -131,18 +166,24 @@ class _Televizor:
             s.setblocking(False)
             zbrano = bytearray()
             caka = b""
+            caka_odmev = False
             naslednji = time.monotonic()
             while not self.ustavi.is_set() and not self.napaka:
                 zdaj = time.monotonic()
+                if not caka and self.odmevi and self.odmevi[0][0] <= zdaj:
+                    caka, caka_odmev = self.odmevi.pop(0)[1], True
                 if self.vnos_na_s and not caka and zdaj >= naslednji:
-                    caka = b'{"vrsta":"premik","dx":1,"dy":0}\n'
+                    caka, caka_odmev = b'{"vrsta":"premik","dx":1,"dy":0}\n', False
                     naslednji = max(naslednji + 1.0 / self.vnos_na_s, zdaj - 0.01)
                 if caka:
                     try:
                         poslano = s.send(caka)
                         caka = caka[poslano:]
                         if not caka:
-                            self.poslanih += 1
+                            if caka_odmev:
+                                self.odmevov += 1
+                            else:
+                                self.poslanih += 1
                     except (ssl.SSLWantWriteError, ssl.SSLWantReadError):
                         pass
                 if self.beri:
@@ -159,6 +200,8 @@ class _Televizor:
                 cakaj = 0.05
                 if self.vnos_na_s:
                     cakaj = max(0.0, min(cakaj, naslednji - time.monotonic()))
+                if self.odmevi:
+                    cakaj = max(0.0, min(cakaj, self.odmevi[0][0] - time.monotonic()))
                 select.select([s] if self.beri else [], [s] if caka else [], [], cakaj)
         except (OSError, ssl.SSLError, ValueError):
             if not self.ustavi.is_set():
@@ -200,8 +243,13 @@ class _Osnova(unittest.TestCase):
         with open(self.ffmpeg, "w", encoding="utf-8") as d:
             d.write(LAZNI_FFMPEG)
         os.chmod(self.ffmpeg, os.stat(self.ffmpeg).st_mode | stat.S_IXUSR)
-        self._okolje = {k: os.environ.get(k) for k in ("DISPLAY", "SAFEER_LAZNI_FFMPEG_RAZMIK_S", "SAFEER_LAZNI_FFMPEG_KOS")}
+        self._okolje = {k: os.environ.get(k) for k in ("DISPLAY", "SAFEER_LAZNI_FFMPEG_RAZMIK_S", "SAFEER_LAZNI_FFMPEG_KOS",
+                                                       "SAFEER_ZASLON_MERITVE", "SAFEER_ZASLON_RTT")}
         os.environ.setdefault("DISPLAY", ":0")
+        # Povzetki sej gredo v zacasno datoteko, nikoli v uporabnikove nastavitve.
+        self.povzetki = os.path.join(self.mapa, "meritve", "zaslon-seje.jsonl")
+        os.environ["SAFEER_ZASLON_MERITVE"] = self.povzetki
+        os.environ.pop("SAFEER_ZASLON_RTT", None)
         if self.HITRO:
             os.environ["SAFEER_LAZNI_FFMPEG_RAZMIK_S"] = "0"
             os.environ["SAFEER_LAZNI_FFMPEG_KOS"] = "32768"
@@ -219,8 +267,9 @@ class _Osnova(unittest.TestCase):
                 os.environ[k] = v
         shutil.rmtree(self.mapa, ignore_errors=True)
 
-    def zacni(self) -> dict:
-        seja = self.z.zacni("tv-test")
+    def zacni(self, zmoznosti=None) -> dict:
+        """Seja za televizor; `zmoznosti` so `caps` iz screen.start (brez njih kot starejsi televizor)."""
+        seja = self.z.zacni("tv-test", zmoznosti=list(zmoznosti)) if zmoznosti is not None else self.z.zacni("tv-test")
         self.vnos = _LazniVnos()
         self.z._vnos = self.vnos            # pred povezavo televizorja: noben dogodek ne pride do pravega vnosa
         return seja
@@ -415,6 +464,151 @@ class PrekHuba(_Osnova):
         tv = self.televizor(self.zacni_prek_huba())
         self.assertTrue(tv.povezan.wait(8))
         self.assertTrue(_pocakaj(lambda: tv.okvirjev[1] > 20), "slika ni stekla")
+
+
+class MeritveSeje(_Osnova):
+    """1. faza (meritve): seja meri, nic ne spremeni. Ping v toku dobi samo gledalec, ki ga zna (caps 'rtt') in mu ga
+    glava potrdi; starejsi gledalec dobi iste bajte kot doslej."""
+
+    def _meritve(self) -> dict:
+        return self.z.stanje().get("meritve") or {}
+
+    def test_brez_zmoznosti_ni_utripa(self):
+        tv = self.televizor(self.zacni(), odmev=True)
+        self.assertTrue(tv.povezan.wait(8))
+        time.sleep(2.0)
+        self.assertNotIn("rtt", tv.glava)
+        self.assertNotIn("kodirnik", tv.glava)
+        self.assertEqual(tv.okvirjev[3], 0, "starejsi gledalec ne sme dobiti nobenega novega okvirja")
+        self.assertGreater(tv.okvirjev[1], 20)
+        self.assertEqual(tv.napaka, "")
+
+    def test_stikalo_izklopi_utrip(self):
+        os.environ["SAFEER_ZASLON_RTT"] = "0"
+        tv = self.televizor(self.zacni(["handoff", "gop", "rtt"]), zmoznosti=("rtt",), odmev=True)
+        self.assertTrue(tv.povezan.wait(8))
+        time.sleep(1.2)
+        self.assertNotIn("rtt", tv.glava)
+        self.assertEqual(tv.okvirjev[3], 0)
+
+    def test_utrip_z_zmoznostjo(self):
+        tv = self.televizor(self.zacni(["handoff", "gop", "rtt"]), zmoznosti=("handoff", "gop", "rtt"))
+        self.assertTrue(tv.povezan.wait(8))
+        self.assertIs(tv.glava.get("rtt"), True)
+        self.assertIn(tv.glava.get("kodirnik"), ("vaapi", "x264"))
+        time.sleep(2.0)
+        self.assertGreaterEqual(len(tv.pingi), 3, "ping vsake pol sekunde")
+        self.assertEqual(tv.napaka, "")
+        for ping in tv.pingi:
+            self.assertEqual(sorted(ping), ["n", "t", "z"])
+        self.assertEqual([p["n"] for p in tv.pingi], list(range(1, len(tv.pingi) + 1)))
+
+    def test_rtt_izmerjen(self):
+        tv = self.televizor(self.zacni(["rtt"]), zmoznosti=("rtt",), odmev=True, zamik_s=0.05)
+        self.assertTrue(tv.povezan.wait(8))
+        self.assertTrue(_pocakaj(lambda: self._meritve().get("rtt_ms") is not None, 5.0), "odmeva ni")
+        m = self._meritve()
+        self.assertGreaterEqual(m["rtt_ms"], 50)
+        self.assertLess(m["rtt_ms"], 1000)
+        self.assertEqual(m["gledalec"].get("pot"), "neposredno")
+        self.assertEqual(m["gledalec"].get("fps"), 59.8)
+        self.assertEqual(self.vnos.stevilo, 0, "odmev ni dogodek vnosa")
+        self.assertEqual(self.z.stanje()["vnosov"], 0)
+        self.assertIn(self.z.stanje()["kodirnik"], ("vaapi", "x264"))
+        # Naslednji pingi nosijo zadnji zamik (`z`) za prikaz na gledalcu.
+        self.assertTrue(_pocakaj(lambda: any(p["z"] >= 50 for p in tv.pingi), 3.0))
+        self.assertEqual(tv.napaka, "")
+
+    def test_gledalec_ki_ne_odgovarja(self):
+        tv = self.televizor(self.zacni(["rtt"]), zmoznosti=("rtt",), odmev=False)
+        self.assertTrue(tv.povezan.wait(8))
+        self.assertTrue(_pocakaj(lambda: len(tv.pingi) >= 2, 4.0))
+        prej = self._meritve()["odprt_ping_ms"]
+        time.sleep(1.0)
+        m = self._meritve()
+        self.assertGreater(m["odprt_ping_ms"], prej)
+        self.assertGreater(m["pingov"], 2)
+        self.assertIsNone(m["rtt_ms"])
+        self.assertIsNone(m["cakanje_eff_ms"])
+        self.assertFalse(tv.konec_toka, "gledalec, ki ne odgovarja, ostane povezan (1. faza samo meri)")
+        self.assertEqual(tv.napaka, "")
+        self.assertTrue(self.z.stanje()["povezan"])
+
+    def test_meritve_v_stanju(self):
+        seja = self.zacni()
+        self.assertNotIn("meritve", self.z.stanje(), "brez gledalca ni meritev")
+        tv = self.televizor(seja)
+        self.assertTrue(tv.povezan.wait(8))
+        self.assertTrue(_pocakaj(lambda: (self._meritve().get("poslano_mbps") or 0) > 0, 5.0))
+        m = self._meritve()
+        self.assertGreaterEqual(m["zasedenost"], 0.0)
+        self.assertLessEqual(m["zasedenost"], 1.0)
+        self.assertEqual(m["pot"], "neposredno")
+        self.z.ustavi()
+        self.assertNotIn("meritve", self.z.stanje())
+
+    def test_povzetek_seje(self):
+        tv = self.televizor(self.zacni())
+        self.assertTrue(tv.povezan.wait(8))
+        self.assertTrue(_pocakaj(lambda: tv.okvirjev[1] > 20), "slika ni stekla")
+        time.sleep(1.2)
+        self.assertFalse(os.path.exists(self.povzetki), "povzetek je sele ob koncu seje")
+        self.z.ustavi()
+
+        def vrstice():
+            try:
+                with open(self.povzetki, encoding="utf-8") as d:
+                    return d.read().splitlines()
+            except OSError:
+                return []
+        self.assertTrue(_pocakaj(lambda: len(vrstice()) >= 1, 6.0), "po koncu seje ni povzetka")
+        time.sleep(0.3)
+        self.assertEqual(len(vrstice()), 1)
+        povzetek = json.loads(vrstice()[0])
+        for kljuc in ("pot", "kodek", "kakovost", "trajanje_s", "kodirnik", "mbps_p50", "rtt_p50_ms"):
+            self.assertIn(kljuc, povzetek)
+        self.assertEqual((povzetek["pot"], povzetek["kodek"]), ("neposredno", "h264"))
+        self.assertEqual(povzetek["kakovost"], link_zaslon.PRIVZETA_KAKOVOST)
+        self.assertGreaterEqual(povzetek["trajanje_s"], 1.0)
+        self.assertGreater(povzetek["mbps_p50"], 0)
+        self.assertGreater(povzetek["slika_mb"], 0)
+
+    def test_seja_brez_slike_ni_v_zbirki(self):
+        """Zajem, ki ne da nobene slike: povzetek gre v dnevnik, v zbirko meritev pa ne (pokvaril bi porazdelitve)."""
+        z = link_zaslon.Zaslon(tls_mapa=os.path.join(self.mapa, "tls"), vklopljeno=True, ffmpeg="/bin/true")
+        self.addCleanup(z.ustavi)
+        seja = z.zacni("tv-test")
+        tv = self.televizor(seja)
+        self.assertTrue(tv.povezan.wait(8))
+        self.assertTrue(_pocakaj(lambda: not z.stanje()["tece"], 6.0), "seja brez slike se ni koncala")
+        time.sleep(0.3)
+        self.assertFalse(os.path.exists(self.povzetki))
+
+
+class PovzetkiSej(unittest.TestCase):
+    def test_zamenjava_nad_mejo_in_napaka_diska(self):
+        mapa = tempfile.mkdtemp(prefix="safeer-povzetki-")
+        try:
+            pot = os.path.join(mapa, "meritve", "zaslon-seje.jsonl")
+            with mock.patch.object(link_zaslon, "POVZETKI_NAJVEC_B", 100):
+                for i in range(4):
+                    link_zaslon.zapisi_povzetek({"seja": i, "polnilo": "x" * 40}, pot)
+            with open(pot, encoding="utf-8") as d:
+                zdaj = [json.loads(v)["seja"] for v in d]
+            with open(pot + ".1", encoding="utf-8") as d:
+                prej = [json.loads(v)["seja"] for v in d]
+            # Vrstica ima ~60 B: pred tretjo je datoteka nad mejo (120 B) in gre v .1.
+            self.assertEqual((prej, zdaj), ([0, 1], [2, 3]))
+            # Mapa, v katero ni mogoce pisati: brez napake.
+            link_zaslon.zapisi_povzetek({"seja": 9}, os.path.join(pot, "ni-mapa", "x.jsonl"))
+        finally:
+            shutil.rmtree(mapa, ignore_errors=True)
+
+    def test_pot_iz_okolja(self):
+        with mock.patch.dict(os.environ, {"SAFEER_ZASLON_MERITVE": "/tmp/x/seje.jsonl"}):
+            self.assertEqual(link_zaslon.pot_povzetkov(), "/tmp/x/seje.jsonl")
+        with mock.patch.dict(os.environ, {"SAFEER_ZASLON_MERITVE": ""}):
+            self.assertTrue(link_zaslon.pot_povzetkov().endswith(os.path.join("meritve", "zaslon-seje.jsonl")))
 
 
 class NavadnaSejaOstaneKotPrej(_Osnova):
