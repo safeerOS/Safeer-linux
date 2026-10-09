@@ -1705,9 +1705,16 @@ class SafeerControl(Gtk.Application):
     def posodobi_iz_pladnja(self) -> None:
         """Prenese pakete (SHA-256) in jih namesti prek pkexec apt-get; majhno okno kaze napredek in izid."""
         izid = self.posodobitve_izid or {}
-        nove = [n for n in izid.get("nove") or [] if n.get("datoteka")]
-        if not nove or self.posodabljanje.tece():
+        if not izid.get("nove") or self.posodabljanje.tece():
             return
+        # Izid je lahko star do 6 ur: Safeer OS ali paket videza, odstranjen po preverbi, se ob kliku ne vrne.
+        nove = os_posodobitve.za_namestitev(izid.get("nove") or [], "deb", "safeer-control")
+        if not nove:
+            self.posodobitve_izid = None
+            if self.pladenj is not None:
+                self.pladenj.osvezi_posodobitev()
+            return
+        izid = dict(izid, nove=nove)
         jezik = self.nastavitve.get("ui_language")
         okno = Gtk.Window(title=besedilo(jezik, "posodobi_naslov"))
         okno.set_default_size(420, 120)

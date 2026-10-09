@@ -357,6 +357,62 @@ class ControlPredaja(unittest.TestCase):
         sc.Pladenj.osvezi_posodobitev(pladenj)
         self.assertEqual(prikazi[-2:], ["Posodobi: Safeer Control 2.1.23 …", "show"])
 
+    def test_posodobitev_iz_pladnja_ob_kliku_znova_preveri_namescene_pakete(self):
+        """Izid preverbe v pladnju je star do 6 ur: Safeer OS ali paket videza, odstranjen po preverbi, se ob kliku
+        »Posodobi« ne vrne (Control posodobi samo sebe in to, kar je se res namesceno)."""
+        from unittest import mock
+        import types
+        import safeer_control as sc
+        from core import os_posodobitve as op
+
+        def deb(ime):
+            return {"url": "https://safeer.si/os/" + ime, "sha256": "a" * 64, "velikost": 1}
+        izid = {"nove": [{"kljuc": "safeer-control", "ime": "Safeer Control", "nasa": "2.1.73", "razlicica": "2.1.80",
+                          "datoteka": deb("safeer-control_2.1.80_all.deb")},
+                         {"kljuc": "safeer-os", "ime": "Safeer OS", "nasa": "0.4.75", "razlicica": "0.4.80",
+                          "datoteka": deb("safeer-os_0.4.80_all.deb"), "tema": deb("safeer-os-tema_0.4.80_all.deb")}]}
+        namestitve = []
+
+        def prenesi(url, cilj, *_a, **_k):
+            os.makedirs(os.path.dirname(cilj), exist_ok=True)
+            with open(cilj, "wb") as f:
+                f.write(b"deb")
+            return cilj
+
+        def namesti(nacin, poti):
+            namestitve.append((nacin, [os.path.basename(p) for p in poti]))
+            return subprocess.CompletedProcess(["pkexec"], 0, "", "")
+        with tempfile.TemporaryDirectory() as tmp:
+            glib = mock.MagicMock()
+            glib.get_user_cache_dir.return_value = tmp
+            for namesceni, pricakovano in (({}, ["safeer-control_2.1.80_all.deb"]),
+                                           ({"safeer-os": "0.4.75"}, ["safeer-control_2.1.80_all.deb", "safeer-os_0.4.80_all.deb"]),
+                                           ({"safeer-os": "0.4.75", "safeer-os-tema": "0.4.75"},
+                                            ["safeer-control_2.1.80_all.deb", "safeer-os_0.4.80_all.deb", "safeer-os-tema_0.4.80_all.deb"])):
+                with self.subTest(namesceni=sorted(namesceni)), \
+                        mock.patch.object(sc, "Gtk"), mock.patch.object(sc, "GLib", glib), \
+                        mock.patch.object(op, "namescena_razlicica", side_effect=lambda paket: namesceni.get(paket, "")), \
+                        mock.patch.object(op, "prenesi", side_effect=prenesi), \
+                        mock.patch.object(op, "namesti_linux", side_effect=namesti):
+                    namestitve.clear()
+                    app = types.SimpleNamespace(posodobitve_izid=izid, posodabljanje=op.Posodabljanje(), pladenj=None,
+                                                nastavitve=types.SimpleNamespace(get=lambda k, d=None: "sl"))
+                    sc.SafeerControl.posodobi_iz_pladnja(app)
+                    app.posodabljanje.nit.join(10)
+                    self.assertEqual(app.posodabljanje.faza, "koncano")
+                    self.assertEqual(namestitve, [("deb", pricakovano)])
+            # Control je medtem posodobil Safeer OS, tega pa ni vec: nic za namestiti, postavka v pladnju izgine.
+            with mock.patch.object(sc, "Gtk") as gtk, \
+                    mock.patch.object(op, "namescena_razlicica", side_effect=lambda paket: {"safeer-control": "2.1.80"}.get(paket, "")):
+                pladenj = mock.Mock()
+                app = types.SimpleNamespace(posodobitve_izid=izid, posodabljanje=op.Posodabljanje(), pladenj=pladenj,
+                                            nastavitve=types.SimpleNamespace(get=lambda k, d=None: "sl"))
+                sc.SafeerControl.posodobi_iz_pladnja(app)
+                self.assertIsNone(app.posodabljanje.nit)
+                self.assertIsNone(app.posodobitve_izid)
+                pladenj.osvezi_posodobitev.assert_called_once_with()
+                gtk.Window.assert_not_called()
+
     def test_ponudi_poslje_play_offer_z_zetonom_za_cilj(self):
         app = self._app()
         app.link.odgovori[("n-tel", "play.offer")] = {"ok": True, "data": {"queued": True}}

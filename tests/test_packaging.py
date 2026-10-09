@@ -208,9 +208,22 @@ class MintInstallTests(unittest.TestCase):
         self.assertLess(prejsnja,skupna)
         odsek=preizkus[sam:prejsnja]
         for korak in ('[ ! -e /usr/bin/safeer-control ]','safeer-os --version','preveri_zagon /tmp/safeer-os-sam.png',
-                      'python3 /dvojni_klik.py "$TEMA"','apt-get purge -y -q safeer-os'):
+                      'python3 /dvojni_klik.py "$TEMA"','apt-get purge -y -q safeer-control safeer-os'):
             self.assertIn(korak,odsek)
         self.assertIn('apt-get install -s -q "$OS"',preizkus[:sam])
+        # »Namesti Safeer Control« v Safeer OS: Control CEZ samega Safeer OS z ukazom namestitve v programu
+        # (namesti_linux brez pkexec, brez drugih zastavic), nato Control dela, Safeer OS ostane, nic ni odstranjeno.
+        cez=odsek.index('apt-get install -y -q "$CONTROL" >/tmp/control-cez-os.log')
+        self.assertLess(odsek.index('python3 /dvojni_klik.py "$TEMA"'),cez)
+        self.assertLess(cez,odsek.index('apt-get purge -y -q safeer-control safeer-os'))
+        po=odsek[cez:odsek.index('apt-get purge')]
+        for korak in ('0 to remove','safeer-control --version','for p in safeer-os safeer-control',"'${Status}'",
+                      '"install ok installed"'):
+            self.assertIn(korak,po)
+        from core import os_posodobitve
+        with patch.object(os_posodobitve.subprocess,'run') as zagon:
+            os_posodobitve.namesti_linux('deb',['/tmp/safeer-control.deb'])
+        self.assertEqual(zagon.call_args[0][0],['pkexec','apt-get','install','-y','/tmp/safeer-control.deb'])
         # Obstojeci zagon po skupni namestitvi ostane.
         self.assertIn('preveri_zagon /tmp/safeer-os.png /tmp/zagon.log',preizkus[skupna:])
 

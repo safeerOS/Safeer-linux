@@ -1709,6 +1709,7 @@
     $("napraveBesedilo").textContent = !p.control ? t("niControla") + (namesti ? " " + t("niControlaNamesti") : "") : povezan ? t("povezanOpis") :
       (hubi.length ? t("novOpisHub", { ime: hubi[0].ime }) : (p.hubi ? t("novOpisBrezHuba") : t("novOpis")));
     $("gumbNamestiControl").hidden = !namesti;
+    $("gumbNamestiControlStran").hidden = !(namesti && ctrlStran(S.namestitevControla.stanje));
     if (!namesti) $("napraveNamestitev").hidden = true;      // Control je tu: uspeh je povedalo obvestilo
     $("domNamestiControl").hidden = !(namesti && S.zacetek && S.zacetek.karticaControl);
     if (namesti && !S.namestitevControla.stanje && most) {
@@ -1743,6 +1744,12 @@
   // Paket safeer-os Control le priporoca (dvoklik v Mintu bere samo odvisnosti). Namesti ga Safeer OS na klik: podpisan
   // seznam s safeer.si, SHA-256, geslo (pkexec apt-get). Nikoli samodejno. Kartica na Domov je enkratna.
   S.namestitevControla = { stanje: null, zanka: 0 };
+  // Napake, ki jih ponovni poskus ne popravi (seznam s safeer.si ni preverljiv, v njem ni paketa, apt-get ne gre):
+  // poleg »Poskusi znova« se gumb, ki odpre safeer.si/control (rocna namestitev).
+  var CTRL_STRAN_KODE = ["podpis", "ni_paketa", "apt"];
+  function ctrlStran(st) {
+    return !!(st && !st.tece && st.faza === "napaka" && CTRL_STRAN_KODE.indexOf(String(st.koda || "")) >= 0);
+  }
   function besediloNamestitveControla(st) {
     if (!st || !st.faza) return "";
     if (st.tece) {
@@ -1765,6 +1772,9 @@
     n.textContent = besedilo;
     n.classList.toggle("napaka", napaka);
     var gumb = t(napaka ? "ctrlPoskusiZnova" : "namestiControl");
+    var stran = ctrlStran(st);
+    $("gumbNamestiControlStran").hidden = !stran || $("gumbNamestiControl").hidden;
+    $("domNamestiControlStran").hidden = !stran;
     $("gumbNamestiControl").disabled = tece;
     $("gumbNamestiControlBesedilo").textContent = gumb;
     $("domNamestiControlGumb").disabled = tece;
@@ -1798,6 +1808,9 @@
       else if (r && r.koda === "tece") obvesti(t("ctrlTece"));
       else osveziPovezavo();      // ze_namescen: Naprave se osvezijo
     }).catch(function () { obvesti(t("niUspelo")); });
+  }
+  function odpriStranControl() {
+    klic("splet", [(S.namestitevControla.stanje && S.namestitevControla.stanje.stran) || "https://safeer.si/control/"]);
   }
   function zapriKarticoControl() {
     $("domNamestiControl").hidden = true;
@@ -4509,6 +4522,8 @@
     $("gumbNamestiControl").addEventListener("click", namestiControl);
     $("domNamestiControlGumb").addEventListener("click", namestiControl);
     $("domNamestiControlZapri").addEventListener("click", zapriKarticoControl);
+    $("gumbNamestiControlStran").addEventListener("click", odpriStranControl);
+    $("domNamestiControlStran").addEventListener("click", odpriStranControl);
     $("gumbStanje").addEventListener("click", function () {
       if ($("slojHitro").classList.contains("viden")) zapriSloje(); else odpriHitro();
     });

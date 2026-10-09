@@ -671,7 +671,7 @@ div.vrstica { cursor: default; }
 /* Namestitev manjkajocega Safeer Control (paket deb): gumb v Napravah in enkratna kartica na Domov. Atribut hidden
    sam ne skrije elementa z lastnim display (.gumb, .hitre): brez Controla tudi "Povezi naprave", "Odjavi" in "Zaupaj"
    zares izginejo, prazna opomba o posodobitvi nad kartico pa tudi. */
-#gumbNamestiControl[hidden], #domNamestiControl[hidden], #napraveNamestitev[hidden],
+#gumbNamestiControl[hidden], #domNamestiControl[hidden], #napraveNamestitev[hidden], #gumbNamestiControlStran[hidden], #domNamestiControlStran[hidden],
 #gumbControl[hidden], #gumbOdjava[hidden], #domControl[hidden], #blokZaupanje[hidden], #domPosodobitev[hidden] { display: none; }
 #domNamestiControl { margin: 14px 0; }
 .kartica-control { grid-column: 1 / -1; }

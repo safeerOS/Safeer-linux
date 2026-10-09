@@ -1700,10 +1700,12 @@ class SafeerOS(Gtk.Application):
     def _posodobi(self) -> dict:
         """Prenese nove pakete (SHA-256) in jih namesti: deb prek pkexec apt-get (geslo), flatpak brez gesla, AppImage se zamenja."""
         st = self._posodobitve_stanje()
-        nove = [n for n in st["nove"] if n.get("datoteka")]
-        if not nove:
-            return {"ok": False, "koda": "ni_novih"}
         nacin = st["nacin"]
+        # Izid je lahko star do 6 ur: odstranjen paket (Control, paket videza) se ob kliku ne sme vrniti.
+        nove = os_posodobitve.za_namestitev(st["nove"], nacin, "safeer-os")
+        if not nove:
+            self.posodobitve["izid"] = None   # vmesnik takoj preveri znova (stari izid ne velja vec)
+            return {"ok": False, "koda": "ni_novih"}
         if nacin not in ("deb", "flatpak", "appimage"):
             return {"ok": False, "koda": "rocno", "stran": st["stran"]}
         if self.namescanje_controla.tece():
@@ -1732,7 +1734,7 @@ class SafeerOS(Gtk.Application):
                     except OSError:
                         pass
             self.posodobitve["izid"] = None   # naslednja preverba pove, da smo na najnovejsi
-            p.sporocilo = os_posodobitve.opis(st)
+            p.sporocilo = os_posodobitve.opis({"nove": nove})
         return {"ok": self.posodabljanje.zacni(delo)}
 
     # ------------------------------------------------------------------ namestitev manjkajocega Safeer Control (deb)
@@ -1804,9 +1806,10 @@ class SafeerOS(Gtk.Application):
 
     def _namesti_control_stanje(self) -> dict:
         """Tekoca namestitev Safeer Control za vmesnik: faza (prenos | namescanje | zaganjam | koncano | napaka),
-        odstotek, koda napake (besedila ctrlNapaka_<koda>) in tece."""
+        odstotek, koda napake (besedila ctrlNapaka_<koda>), tece in stran (rocna namestitev: ob napakah podpis,
+        ni_paketa in apt vmesnik poleg »Poskusi znova« ponudi gumb, ki jo odpre)."""
         p = self.namescanje_controla
-        return dict(p.stanje(), koda=getattr(p, "koda", ""), podrobnosti=getattr(p, "podrobnosti", ""))
+        return dict(p.stanje(), koda=getattr(p, "koda", ""), podrobnosti=getattr(p, "podrobnosti", ""), stran=STRAN_CONTROL)
 
     def _kartica_control(self, zapri: bool = False) -> bool:
         """Enkratna kartica »Namesti Safeer Control« na Domov: ali jo se pokazemo. Ko jo uporabnik zapre (ali Control

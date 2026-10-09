@@ -58,8 +58,20 @@ useradd -m preizkus
 preveri_zagon /tmp/safeer-os-sam.png /tmp/zagon-sam.log
 # Paket videza je odvisen od safeer-os: z dvoklikom gre sele, ko je Safeer OS namescen (tako ga opise tudi stran).
 python3 /dvojni_klik.py "$TEMA" || { echo "NAPAKA: safeer-os-tema ni mogoce namestiti z dvoklikom po Safeer OS"; exit 1; }
-apt-get purge -y -q safeer-os >/tmp/os-sam-odstranitev.log 2>&1 || { tail -30 /tmp/os-sam-odstranitev.log; echo "NAPAKA: odstranitev safeer-os"; exit 1; }
-[ ! -e /usr/lib/safeer-os ] && [ ! -e /usr/bin/safeer-os ] || { echo "NAPAKA: po odstranitvi safeer-os je ostal"; exit 1; }
+# »Namesti Safeer Control« v Safeer OS: Control pride CEZ samega Safeer OS z natanko ukazom namestitve v programu
+# (core/os_posodobitve.namesti_linux: pkexec apt-get install -y <paket>; tu brez pkexec, brez drugih zastavic, s
+# privzetimi priporocenimi). Control mora delati, Safeer OS pa ostati namescen (apt ne sme nicesar odstraniti).
+apt-get install -y -q "$CONTROL" >/tmp/control-cez-os.log 2>&1 || { tail -40 /tmp/control-cez-os.log; echo "NAPAKA: namestitev safeer-control cez safeer-os"; exit 1; }
+grep -Eq "^[0-9]+ upgraded, [0-9]+ newly installed, 0 to remove" /tmp/control-cez-os.log \
+  || { tail -40 /tmp/control-cez-os.log; echo "NAPAKA: namestitev safeer-control je kaj odstranila"; exit 1; }
+xvfb-run -a safeer-control --version | tee /dev/stderr | grep -Fxq "Safeer Control $(razlicica "$CONTROL")"
+for p in safeer-os safeer-control; do
+  [ "$(dpkg-query -W -f '${Status}' "$p")" = "install ok installed" ] || { echo "NAPAKA: $p po namestitvi Controla ni namescen"; exit 1; }
+done
+apt-get purge -y -q safeer-control safeer-os >/tmp/os-sam-odstranitev.log 2>&1 || { tail -30 /tmp/os-sam-odstranitev.log; echo "NAPAKA: odstranitev safeer-os in safeer-control"; exit 1; }
+for ostanek in /usr/lib/safeer-os /usr/bin/safeer-os /usr/lib/safeer-control /usr/bin/safeer-control /usr/bin/safeerctl; do
+  [ ! -e "$ostanek" ] || { echo "NAPAKA: po odstranitvi je ostalo $ostanek"; exit 1; }
+done
 
 echo "== 1. namestitev (odvisnosti razresi apt iz skladisc Minta in Ubuntuja)"
 # Priporocenih paketov ne namescamo: pri uporabniku so ze tam (namizje Cinnamon), tu bi jih bilo vec sto.

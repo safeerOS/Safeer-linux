@@ -16,8 +16,11 @@ Koraki (`v_vsebniku.sh`; prva napaka konča preizkus z izhodno kodo, ki ni 0):
    mora biti v skladiščih Minta in Ubuntuja. `safeer-os-tema` je odvisen od `safeer-os`, zato pride na vrsto, ko je
    Safeer OS nameščen. Nato **Safeer OS sam**, brez Safeer Control (ta je le priporočen): `apt-get install` na suho
    s priporočenimi (Control ne sme priti zraven), namestitev, `safeer-os --version`, zagon kot navaden uporabnik
-   (posnetek strani, brez izjeme) in odstranitev. Ta korak bi ujel napako 0.4.75, ko se safeer-os z dvoklikom ni dal
-   namestiti (»Odvisnost ni razrešena: safeer-control«);
+   (posnetek strani, brez izjeme). Nato **Control čez samega Safeer OS**, kot ga namesti gumb »Namesti Safeer
+   Control«: natanko ukaz namestitve v programu (`apt-get install -y <paket>`, le brez `pkexec`, brez drugih
+   zastavic), `safeer-control --version`, Safeer OS ostane nameščen (apt ne odstrani ničesar); na koncu odstranitev
+   obeh. Ta korak bi ujel napako 0.4.75, ko se safeer-os z dvoklikom ni dal namestiti (»Odvisnost ni razrešena:
+   safeer-control«);
 1. namestitev vseh petih paketov z `apt-get install` (odvisnosti iz skladišč). Če je podana mapa s paketi zadnje
    objavljene izdaje, se najprej namesti ta, programi se zaženejo kot root (najslabši primer: v mapah programov
    ostane njihova bajtna koda), nato pridejo novi paketi čeznjo z `apt-get install`, kot posodobitev namesti Safeer OS

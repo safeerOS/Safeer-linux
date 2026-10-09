@@ -6,6 +6,7 @@ Linka in naprav) in ga na klik uporabnika namesti sam - po isti podpisani poti k
 """
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -20,7 +21,7 @@ KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MANIFEST = {
     "android": {},
     "linux": {"safeer-os": {"razlicica": "0.4.80", "deb": {"url": "https://safeer.si/os/safeer-os_0.4.80_all.deb", "sha256": "a" * 64, "velikost": 1},
-                            "tema_deb": {"url": "https://safeer.si/os/safeer-os-tema_0.4.80_all.deb", "sha256": "b" * 64, "velikost": 1}},
+                            "tema_namescena_deb": {"url": "https://safeer.si/os/safeer-os-tema_0.4.80_all.deb", "sha256": "b" * 64, "velikost": 1}},
               "safeer-control": {"razlicica": "2.1.80", "deb": {"url": "https://safeer.si/os/safeer-control_2.1.80_all.deb",
                                                                 "sha256": "c" * 64, "velikost": 545430}}},
     "stran": "https://safeer.si/os/",
@@ -186,6 +187,36 @@ class NamestiControl(unittest.TestCase):
             konec.set()
             lazna.namescanje_controla.nit.join(5)
 
+    def test_posodobitev_ob_kliku_znova_preveri_namescene_pakete(self):
+        """Izid tihe preverbe je star do 6 ur. Paket videza in Control, odstranjena po preverbi, ob kliku »Posodobi«
+        ne gresta v apt-get (paket videza bi ob naslednji prijavi spet preklopil namizje v Safeer OS)."""
+        izid = op.preveri("linux", {"safeer-os": "0.4.75", "safeer-control": "2.1.73"}, MANIFEST, nacin="deb", tema=True)
+        self.assertEqual([("tema" in n, n["kljuc"]) for n in izid["nove"]], [(True, "safeer-os"), (False, "safeer-control")])
+        for namesceni, pricakovano in (
+                ({"safeer-os": "0.4.75"}, ["safeer-os_0.4.80_all.deb"]),
+                ({"safeer-os": "0.4.75", "safeer-os-tema": "0.4.75", "safeer-control": "2.1.73"},
+                 ["safeer-os_0.4.80_all.deb", "safeer-os-tema_0.4.80_all.deb", "safeer-control_2.1.80_all.deb"])):
+            with self.subTest(namesceni=sorted(namesceni)):
+                self.namestitve.clear()
+                self.m["namescena_razlicica"].side_effect = lambda paket: namesceni.get(paket, "")
+                lazna = self._lazna()
+                lazna._posodobitve_stanje.return_value = {"nove": izid["nove"], "nacin": "deb", "stran": MANIFEST["stran"]}
+                self.assertEqual(self.os_.SafeerOS._posodobi(lazna), {"ok": True})
+                lazna.posodabljanje.nit.join(10)
+                self.assertEqual(lazna.posodabljanje.faza, "koncano")
+                self.assertEqual(len(self.namestitve), 1)
+                nacin, poti, _ = self.namestitve[0]
+                self.assertEqual((nacin, [os.path.basename(p) for p in poti]), ("deb", pricakovano))
+        self.assertEqual(lazna.posodabljanje.sporocilo, "Safeer OS 0.4.80, Safeer Control 2.1.80")
+        # Nic vec za namestiti (Safeer OS je medtem ze posodobljen): nic ne prenasamo, izid se zavrze.
+        self.namestitve.clear()
+        self.m["namescena_razlicica"].side_effect = lambda paket: {"safeer-os": "0.4.80"}.get(paket, "")
+        lazna = self._lazna()
+        lazna._posodobitve_stanje.return_value = {"nove": izid["nove"], "nacin": "deb", "stran": MANIFEST["stran"]}
+        self.assertEqual(self.os_.SafeerOS._posodobi(lazna), {"ok": False, "koda": "ni_novih"})
+        self.assertIsNone(lazna.posodobitve["izid"])
+        self.assertEqual(self.namestitve, [])
+
     def test_koda_napake_apt(self):
         k = self.os_.koda_napake_apt
         self.assertEqual(k(subprocess.CompletedProcess([], 126, "", "")), "preklicano")
@@ -238,6 +269,69 @@ class KarticaControl(unittest.TestCase):
         self.assertIn('$("gumbNamestiControl").addEventListener("click", namestiControl);', js)
         self.assertIn('$("domNamestiControlGumb").addEventListener("click", namestiControl);', js)
         self.assertEqual(re.findall(r"(?<!function )\bnamestiControl\(", js), [])
+
+
+@unittest.skipUnless(shutil.which("node"), "node ni namescen")
+class GumbStran(unittest.TestCase):
+    """Napake, ki jih ponovni poskus ne popravi (podpis, ni_paketa, apt): poleg »Poskusi znova« na kartici in v
+    Napravah se gumb, ki odpre safeer.si/control - besedilo napake jo omenja, uporabnik pa naj ima kaj klikniti."""
+
+    def test_gumb_stran_ob_napakah_brez_ponovnega_poskusa(self):
+        js = _beri("assets", "os", "os.js")
+        blok = js[js.index("  S.namestitevControla = { stanje: null, zanka: 0 };"):js.index("  // Naprave v Linku s preimenovanjem")]
+        koda = r"""
+var assert = require("assert");
+function El() { this.hidden = true; this.disabled = false; this.textContent = ""; var r = {};
+  this.classList = { toggle: function (x, v) { if (v) r[x] = 1; else delete r[x]; } }; }
+var vozli = {};
+["napraveNamestitev", "gumbNamestiControl", "gumbNamestiControlBesedilo", "gumbNamestiControlStran", "domNamestiControlGumb",
+ "domNamestiControlBesedilo", "domNamestiControlStran", "domNamestiControlPod", "domNamestiControl"].forEach(function (id) { vozli[id] = new El(); });
+function $(id) { return vozli[id]; }
+function t(k) { return k; }
+var klici = [];
+function klic(m, a) { klici.push([m, a]); return Promise.resolve(true); }
+function obvesti() {}
+function osveziPovezavo() {}
+var S = {};
+""" + blok + r"""
+vozli.gumbNamestiControl.hidden = false;
+["podpis", "ni_paketa", "apt"].forEach(function (koda) {
+  narisiNamestitevControla({ faza: "napaka", koda: koda, tece: false, stran: "https://safeer.si/control/" });
+  assert.strictEqual(vozli.gumbNamestiControlStran.hidden, false, koda);
+  assert.strictEqual(vozli.domNamestiControlStran.hidden, false, koda);
+  assert.strictEqual(vozli.gumbNamestiControlBesedilo.textContent, "ctrlPoskusiZnova", koda);
+});
+["zaklenjeno", "preklicano", "omrezje", "sha256", "prekinjeno"].forEach(function (koda) {
+  narisiNamestitevControla({ faza: "napaka", koda: koda, tece: false });
+  assert.strictEqual(vozli.gumbNamestiControlStran.hidden, true, koda);
+  assert.strictEqual(vozli.domNamestiControlStran.hidden, true, koda);
+});
+narisiNamestitevControla({ faza: "napaka", koda: "apt", tece: false, stran: "https://safeer.si/control/" });
+narisiNamestitevControla({ faza: "prenos", tece: true, odstotek: 0 });          // »Poskusi znova«: gumb strani izgine
+assert.strictEqual(vozli.domNamestiControlStran.hidden, true);
+narisiNamestitevControla({ faza: "napaka", koda: "podpis", tece: false, stran: "https://safeer.si/control/" });
+odpriStranControl();
+assert.deepStrictEqual(klici, [["splet", ["https://safeer.si/control/"]]]);
+// Naprave brez gumba »Namesti« (Control je medtem tu): tudi gumba strani ni.
+vozli.gumbNamestiControl.hidden = true;
+narisiNamestitevControla({ faza: "napaka", koda: "apt", tece: false });
+assert.strictEqual(vozli.gumbNamestiControlStran.hidden, true);
+"""
+        subprocess.run(["node", "-e", koda], check=True, timeout=60)
+
+    def test_vmesnik_in_stanje(self):
+        import safeer_os
+        html = _beri("assets", "os", "index.html")
+        js = _beri("assets", "os", "os.js")
+        for oznaka in ('id="gumbNamestiControlStran" hidden', 'id="domNamestiControlStran" hidden'):
+            self.assertIn(oznaka, html)
+        for kljuc in ('$("gumbNamestiControlStran").addEventListener("click", odpriStranControl);',
+                      '$("domNamestiControlStran").addEventListener("click", odpriStranControl);'):
+            self.assertIn(kljuc, js)
+        self.assertEqual(_beri("assets", "os", "besedila.js").count('"ctrlOdpriStran":'), 6)
+        lazna = mock.MagicMock()
+        lazna.namescanje_controla = op.Posodabljanje()
+        self.assertEqual(safeer_os.SafeerOS._namesti_control_stanje(lazna)["stran"], "https://safeer.si/control/")
 
 
 class PosodobitveRazlicice(unittest.TestCase):
