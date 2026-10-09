@@ -36,6 +36,7 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.4.74" date="2026-10-09"><description><p>Packaged with Safeer Control 2.1.72. Remote computer screen at 60 frames per second.</p></description></release>
     <release version="0.4.73" date="2026-10-08"><description><p>Packaged with Safeer Control 2.1.71. Stronger protection against ad-blocker detection (replaced Google ad library); blocking itself is unchanged.</p></description></release>
     <release version="0.4.72" date="2026-10-08"><description><p>Packaged with Safeer Control 2.1.70. Stronger protection against ad-blocker detection; the solidarity circle retries on another device after network or decoder errors.</p></description></release>
     <release version="0.4.71" date="2026-10-08"><description><p>Packaged with Safeer Control 2.1.69. Stronger protection against ad-blocker detection; blocking itself is unchanged.</p></description></release>
