@@ -22,7 +22,7 @@ import threading
 import time
 from typing import Callable, Dict, List, Optional
 
-from core import link_hub, link_krog, link_tls
+from core import link_hub, link_krog, link_pot, link_tls, link_vticnik
 
 #: Kako pogosto iscemo sosede in kdaj vecji id klice sam.
 ISCI_VSAKIH_S = 15.0
@@ -42,6 +42,12 @@ RELE_PO_NEUSPEHIH = 2
 #: Premor po neuspelem klicu prek releja (raste do NAJDALJSI_PREMOR_RELEJA_S): varuje dnevno kvoto releja.
 PREMOR_RELEJA_S = 60.0
 NAJDALJSI_PREMOR_RELEJA_S = 600.0
+#: Meritev poti dohodnih sosednjih povezav (link_ws.Povezava.izmeri): najvec tako pogosto v domacem omrezju in prek
+#: releja. Odhodne povezave merijo v svojem utripu (UTRIP_S).
+IZMERI_LAN_S = 30.0
+IZMERI_RELE_S = 60.0
+#: Kako pogosto zapisemo meritve poti sosedov (vrstica na soseda v dnevnik in mesh-poti.json).
+POROCILO_POTI_S = 300.0
 
 #: En agent Global Linka na proces (vec MeshPovezovalcev bi se na releju izrinjalo); vrata trenutnega Huba.
 _agent = None
@@ -59,6 +65,13 @@ class OdhodnaSosednja:
         self._vrsta: collections.deque = collections.deque()
         self._ima = threading.Event()
         self._zaprta = False
+        #: Meritev poti do soseda (zamik, nihanje, izgube) iz srcnega utripa. Samo opazovanje: zaradi nje
+        #: povezave ne zapremo (to je sele 4. faza).
+        self.meritev = link_pot.MeritevPoti("rele" if _je_zanka(naslov) else "lan")
+        try:
+            ws.ob_pongu = self.meritev.pong
+        except Exception:  # noqa: BLE001 - odjemalec brez tega (stari, lazni) ostane brez meritve
+            pass
         threading.Thread(target=self._pisi, name="safeer-mesh-pisec", daemon=True).start()
 
     def poslji(self, besedilo: str) -> bool:
@@ -78,7 +91,7 @@ class OdhodnaSosednja:
             self._ima.wait(UTRIP_S)
             self._ima.clear()
             if not self._vrsta:
-                if not self._zaprta and not self.ws.ping():
+                if not self._zaprta and not self._utrip():
                     self.zapri()
                 continue
             while self._vrsta and not self._zaprta:
@@ -88,6 +101,18 @@ class OdhodnaSosednja:
                 except Exception:
                     self.zapri()
                     return
+
+    def _utrip(self) -> bool:
+        """Srcni utrip ob mirovanju (kot doslej), ping pa nosi zaporedno stevilko in cas (link_pot.paket): sosed
+        ga vrne v pongu in tako dobimo zamik poti. Vrne False, ce povezave ni vec."""
+        tovor = b""
+        try:
+            self.meritev.preveri()
+            self.meritev.tcp(link_vticnik.tcp_info(getattr(self.ws, "vticnik", None)))
+            tovor = self.meritev.sonda(zaseden=bool(self._vrsta))
+        except Exception:  # noqa: BLE001 - brez meritve gre utrip kot prej
+            pass
+        return self.ws.ping(tovor)
 
     def zapri(self, *_a, **_k) -> None:
         if self._zaprta:
@@ -136,6 +161,11 @@ class MeshPovezovalec:
         self._neuspehi: Dict[str, int] = {}
         self._premor_releja: Dict[str, tuple] = {}
         self._releji: Dict[str, object] = {}
+        #: Meritve poti: kdaj je bila katera dohodna povezava nazadnje izmerjena (id -> (povezava, cas)) in kam ter
+        #: kdaj zapisemo porocilo (mesh-poti.json ob zapomnjenih sosedih; brez te poti samo dnevnik).
+        self._izmerjeno: Dict[str, tuple] = {}
+        self._pot_poti = os.path.join(os.path.dirname(pot_znanih), "mesh-poti.json") if pot_znanih else ""
+        self._porocilo_poti_ob = time.monotonic()
         hub.ob_sosedu = self._ob_sosedu
 
     def zazeni(self) -> None:
@@ -349,6 +379,57 @@ class MeshPovezovalec:
             threading.Thread(target=self._klici, args=(h,), name="safeer-mesh-klic", daemon=True).start()
         # Prednost po zagonu velja en krog: kogar takrat nismo dosegli, ga caka obicajno pravilo.
         self._po_zagonu.clear()
+        try:
+            self.izmeri_poti()
+        except Exception as e:  # noqa: BLE001 - meritev je samo opazovanje
+            print("[SafeerLink] mesh: meritev poti:", e)
+
+    # -- meritve poti (core/link_pot.py; samo opazovanje)
+
+    def izmeri_poti(self, zdaj: Optional[float] = None) -> None:
+        """Dohodne sosednje povezave izmerimo sami (ping s tovorom): najvec vsakih IZMERI_LAN_S v domacem omrezju in
+        IZMERI_RELE_S prek releja. Odhodne merijo v svojem utripu. Vsakih POROCILO_POTI_S vrstica na soseda v dnevnik
+        in mesh-poti.json. Nobene povezave zaradi meritve ne zapremo."""
+        zdaj = time.monotonic() if zdaj is None else zdaj
+        povezave = getattr(self.hub, "povezave_sosedov", None)
+        povezave = povezave() if callable(povezave) else {}
+        for hid, p in povezave.items():
+            if isinstance(p, OdhodnaSosednja) or not callable(getattr(p, "izmeri", None)):
+                continue
+            meritev = getattr(p, "meritev", None)
+            pot = getattr(meritev, "pot", "") or link_pot.pot_naslova(str(getattr(p, "naslov", "") or ""))
+            razmik = IZMERI_RELE_S if pot == "rele" else IZMERI_LAN_S
+            prej = self._izmerjeno.get(hid)
+            if prej is not None and prej[0] is p and zdaj - prej[1] < razmik:
+                continue
+            self._izmerjeno[hid] = (p, zdaj)
+            try:
+                p.izmeri()
+            except Exception:  # noqa: BLE001
+                pass
+        for hid in [h for h in self._izmerjeno if h not in povezave]:
+            del self._izmerjeno[hid]
+        if zdaj - self._porocilo_poti_ob >= POROCILO_POTI_S:
+            self._porocilo_poti_ob = zdaj
+            self._porocaj_poti()
+
+    def _porocaj_poti(self) -> None:
+        poti = getattr(self.hub, "poti_sosedov", None)
+        poti = poti() if callable(poti) else {}
+        for hid, s in sorted(poti.items()):
+            print("[SafeerLink] mesh: pot do %s: %s, zamik %s ms (najmanj %s, nihanje %s), izgube %s/%s%s"
+                  % (hid, s.get("pot"), s.get("rtt_ms"), s.get("min_ms"), s.get("jitter_ms"), s.get("izgube"),
+                     s.get("sond"), "" if s.get("odgovoril") else ", se ni odgovoril"), flush=True)
+        if not self._pot_poti:
+            return
+        try:
+            os.makedirs(os.path.dirname(self._pot_poti), exist_ok=True)
+            zacasna = self._pot_poti + ".tmp"
+            with open(zacasna, "w", encoding="utf-8") as d:
+                json.dump({"cas": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "sosedje": poti}, d)
+            os.replace(zacasna, self._pot_poti)
+        except Exception:
+            pass
 
     def _klici(self, h: dict) -> None:
         hid = str(h["id"])

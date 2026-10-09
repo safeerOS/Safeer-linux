@@ -1325,6 +1325,27 @@ class Hub:
         with self._zaklep:
             return sorted(self._sosedje)
 
+    def povezave_sosedov(self) -> Dict[str, object]:
+        """Sosednje povezave (id -> povezava), kopija: Link Mesh jih obcasno izmeri (MeshPovezovalec.en_krog)."""
+        with self._zaklep:
+            return dict(self._sosedje)
+
+    def poti_sosedov(self) -> Dict[str, dict]:
+        """Meritve poti sosednjih povezav (core/link_pot.py): id -> zamik, nihanje, izgube, pot (lan/rele) in kdo je
+        povezavo odprl. Samo povezave, ki meritev ze imajo (odhodne vedno, dohodne po prvem izmeri())."""
+        with self._zaklep:
+            sosedje = list(self._sosedje.items())
+        izid: Dict[str, dict] = {}
+        for hid, p in sosedje:
+            meritev = getattr(p, "meritev", None)
+            if meritev is None or not hasattr(meritev, "stanje"):
+                continue
+            try:
+                izid[hid] = dict(meritev.stanje(), zacel=getattr(p, "podatki", {}).get("zacel"))
+            except Exception:  # noqa: BLE001 - meritev je samo opazovanje
+                continue
+        return izid
+
     def _sosed_povezave(self, povezava) -> str:
         with self._zaklep:
             for sid, p in self._sosedje.items():

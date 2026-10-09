@@ -673,6 +673,157 @@ class GlobalLinkMesh(unittest.TestCase):
             self.assertEqual(zagnani[0].k["vrata"](), 0)     # Hub ustavljen: agent ne sprejema kanalov
 
 
+class LazniWs:
+    """Odjemalec WebSocket odhodne sosednje povezave: pingi se zabelezijo, nic ne gre v omrezje."""
+
+    def __init__(self):
+        self.pingi = []
+        self.poslano = []
+        self.zaprt = False
+        self.ob_pongu = None
+        self.vticnik = None
+
+    def ping(self, podatki=b""):
+        self.pingi.append(bytes(podatki))
+        return not self.zaprt
+
+    def poslji(self, besedilo):
+        self.poslano.append(besedilo)
+
+    def zapri(self):
+        self.zaprt = True
+
+
+def _pocakaj(pogoj, rok=3.0):
+    import time
+    konec = time.monotonic() + rok
+    while not pogoj() and time.monotonic() < konec:
+        time.sleep(0.005)
+    return pogoj()
+
+
+class MeritevPotiSosedov(unittest.TestCase):
+    """Utrip sosednje povezave nosi zaporedno stevilko in cas (core/link_pot.py); 1. faza samo meri, nic ne zapre."""
+
+    def setUp(self):
+        from core import link_mesh
+        self.link_mesh = link_mesh
+        krog = mock.MagicMock()
+        krog.json.return_value = {"v": 1, "clani": {}, "umiki": {}}
+        krog.clan_za_id.side_effect = lambda i: {"kljuc": "k-" + i}
+        self._krog = mock.patch.object(link_mesh.link_krog, "krog", return_value=krog)
+        self._krog.start()
+        self._utrip = mock.patch.object(link_mesh, "UTRIP_S", 0.02)
+        self._utrip.start()
+        self.hub = lhs.Hub(odtis="aa" * 32, nas_id="n-m")
+        self.sosedje = []
+
+    def tearDown(self):
+        for s in self.sosedje:
+            s.zapri()
+        self._utrip.stop()
+        self._krog.stop()
+
+    def odhodna(self, naslov):
+        s = self.link_mesh.OdhodnaSosednja(LazniWs(), naslov)
+        self.sosedje.append(s)
+        return s
+
+    def test_utrip_nosi_cas_in_meri_rtt(self):
+        from core import link_pot
+        s = self.odhodna("wss://192.168.0.77:8990/cast/ws")
+        ws = s.ws
+        self.assertTrue(_pocakaj(lambda: len(ws.pingi) >= 2), "utrip ob mirovanju se vedno tece")
+        sonde = [link_pot.razpakiraj(p) for p in ws.pingi[:2]]
+        self.assertTrue(all(sonde), "ping nosi 12 bajtov '>IQ'")
+        self.assertEqual(sonde[1][0], sonde[0][0] + 1)
+        self.assertGreaterEqual(sonde[1][1], sonde[0][1])
+        self.assertIsNone(s.meritev.rtt_ms)
+        ws.ob_pongu(ws.pingi[-1])                   # bralna nit WsOdjemalca dobi pong s tem tovorom
+        self.assertIsNotNone(s.meritev.rtt_ms)
+        self.assertEqual(s.meritev.pot, "lan")
+        # Sosed nato ne odgovarja vec: sonde so zgresene, povezave pa 1. faza ne zapre.
+        zamik = [0.0]
+        prava = s.meritev.ura
+        s.meritev.ura = lambda: prava() + zamik[0]
+        for _ in range(4):
+            zamik[0] += 6.0
+            n = len(ws.pingi)
+            self.assertTrue(_pocakaj(lambda: len(ws.pingi) > n + 1))
+        self.assertGreaterEqual(s.meritev.zaporedno_brez, 3)
+        self.assertTrue(s.meritev.mrtva)
+        self.assertFalse(s.zaprta)
+        self.assertFalse(ws.zaprt)
+        # Sporocila gredo kot prej (utrip je samo ob mirovanju).
+        self.assertTrue(s.poslji('{"type":"x"}'))
+        self.assertTrue(_pocakaj(lambda: ws.poslano == ['{"type":"x"}']))
+
+    def test_poti_sosedov_loci_lan_in_rele(self):
+        import socket
+        from core import link_ws
+        lan = self.odhodna("wss://192.168.0.77:8990/cast/ws")
+        rele = self.odhodna("wss://127.0.0.1:41234/cast/ws")
+        a, b = socket.socketpair()
+        self.addCleanup(a.close)
+        self.addCleanup(b.close)
+        dohodna = link_ws.Povezava(a, "127.0.0.1", lambda _p, _s: None)
+        self.assertTrue(self.hub.dodaj_soseda("n-lan", lan, "n-m"))
+        self.assertTrue(self.hub.dodaj_soseda("n-rele", rele, "n-m"))
+        self.assertTrue(self.hub.dodaj_soseda("n-dohodna", dohodna, "n-dohodna"))
+        poti = self.hub.poti_sosedov()
+        self.assertEqual(sorted(poti), ["n-lan", "n-rele"], "dohodna povezava se nima meritve")
+        self.assertEqual(poti["n-lan"]["pot"], "lan")
+        self.assertEqual(poti["n-rele"]["pot"], "rele")
+        self.assertEqual(poti["n-lan"]["zacel"], "n-m")
+        for kljuc in ("rtt_ms", "min_ms", "jitter_ms", "izgube", "zaporedno_brez", "odgovoril"):
+            self.assertIn(kljuc, poti["n-rele"])
+        dohodna.izmeri()
+        poti = self.hub.poti_sosedov()
+        self.assertEqual(poti["n-dohodna"]["pot"], "rele")
+        self.assertEqual(poti["n-dohodna"]["zacel"], "n-dohodna")
+
+    def test_en_krog_izmeri_dohodne_najvec_vsakih_30_s(self):
+        import os
+        import socket
+        import tempfile
+        from core import link_ws
+        pot = os.path.join(tempfile.mkdtemp(), "mesh-sosedje.json")
+        m = self.link_mesh.MeshPovezovalec(self.hub, "n-m", pot_znanih=pot, poisci=lambda: [])
+        m._porocilo_poti_ob = 1000.0                      # porocilo sele po POROCILO_POTI_S od tu
+        izmerjene = []
+
+        class Dohodna(link_ws.Povezava):
+            def izmeri(self):
+                izmerjene.append(self.naslov)
+                return super().izmeri()
+
+        povezave = []
+        for naslov in ("192.168.0.50", "127.0.0.1"):
+            a, b = socket.socketpair()
+            self.addCleanup(a.close)
+            self.addCleanup(b.close)
+            povezave.append(Dohodna(a, naslov, lambda _p, _s: None))
+        self.hub.dodaj_soseda("n-a", povezave[0], "n-a")
+        self.hub.dodaj_soseda("n-b", povezave[1], "n-b")
+        self.hub.dodaj_soseda("n-z", self.odhodna("wss://192.168.0.9:8990/cast/ws"), "n-m")
+        with mock.patch("builtins.print"):
+            m.izmeri_poti(zdaj=1000.0)
+            self.assertEqual(sorted(izmerjene), ["127.0.0.1", "192.168.0.50"], "odhodna se meri v svojem utripu")
+            m.izmeri_poti(zdaj=1029.0)
+            self.assertEqual(len(izmerjene), 2)
+            m.izmeri_poti(zdaj=1031.0)                    # domace omrezje: po 30 s
+            self.assertEqual(sorted(izmerjene), ["127.0.0.1", "192.168.0.50", "192.168.0.50"])
+            m.izmeri_poti(zdaj=1061.0)                    # rele: po 60 s
+            self.assertEqual(izmerjene.count("127.0.0.1"), 2)
+            self.assertFalse(os.path.exists(os.path.join(os.path.dirname(pot), "mesh-poti.json")))
+            m.izmeri_poti(zdaj=1000.0 + self.link_mesh.POROCILO_POTI_S)
+        with open(os.path.join(os.path.dirname(pot), "mesh-poti.json"), encoding="utf-8") as d:
+            zapis = json.load(d)
+        self.assertEqual(sorted(zapis["sosedje"]), ["n-a", "n-b", "n-z"])
+        self.assertEqual(zapis["sosedje"]["n-b"]["pot"], "rele")
+        self.assertFalse(any(p.zaprta for p in povezave), "meritev nobene povezave ne zapre")
+
+
 class ReleCev(unittest.TestCase):
     """Kanal releja: vticnici se sprostita sele, ko obe niti koncata (sicer TLS bere tuje bajte)."""
 

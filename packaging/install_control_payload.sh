@@ -11,7 +11,7 @@ cp -a "$ROOT/safeer_control.py" "$ROOT/safeerctl.py" "$LIB/"
 # Vsi moduli core, ki jih safeer_control.py uvozi - tudi posredno. Brez link_programi in
 # link_zaslon (ta uvozi link_vnos) se namesceni Control sploh ne zazene: uvoz pade takoj.
 # Seznam varuje tests/test_packaging.py: namesti tovor in ga uvozi brez izvorne mape.
-for modul in budnost link_daljinec link_datoteke link_shramba link_pretvorba link_deljenje link_gledalec link_urejanje link_fokus link_hub link_hub_streznik link_obramba link_varovalka link_hub_deljenje link_posiljanje link_zmoznosti link_mesh link_rele link_pretok link_sprotno link_predvajanje link_seznami viri_sink knjiznica_kroga os_torrent_tok os_posodobitve signed_feed link_iskanje link_krog link_dostop link_e2e link_mediji link_plosek link_programi link_ws link_vticnik sistemski_posrednik link_internet_posrednik link_internet \
+for modul in budnost link_daljinec link_datoteke link_shramba link_pretvorba link_deljenje link_gledalec link_urejanje link_fokus link_hub link_hub_streznik link_obramba link_varovalka link_hub_deljenje link_posiljanje link_zmoznosti link_mesh link_rele link_pretok link_sprotno link_predvajanje link_seznami viri_sink knjiznica_kroga os_torrent_tok os_posodobitve signed_feed link_iskanje link_krog link_dostop link_e2e link_mediji link_plosek link_programi link_ws link_vticnik link_pot sistemski_posrednik link_internet_posrednik link_internet \
              link_kripto link_seja link_sway link_tls link_vnos link_zaslon link_zaslon_meritve link_zvok os_dvd iskalni_kljuc os_knjiznica os_sporocila os_stabilnost os_torrent podnapisi safeer_link spake2 odlozisce_varuh; do
     cp -a "$ROOT/core/$modul.py" "$LIB/core/"
 done
