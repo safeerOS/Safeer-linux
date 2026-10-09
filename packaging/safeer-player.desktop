@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=Safeer Player
+Name[sl]=Safeer Player
+GenericName=Media Player
+GenericName[sl]=Predvajalnik medijev
+Comment=Films, series, music, radio and TV – the Safeer OS Media Centre in its own window
+Comment[sl]=Filmi, serije, glasba, radio in TV – Medijski center Safeer OS v svojem oknu
+Exec=safeer-os --predvajalnik
+Icon=safeer-os.Player
+Terminal=false
+Categories=AudioVideo;Player;
+Keywords=Safeer;media;player;films;series;music;radio;TV;
+Keywords[sl]=Safeer;mediji;predvajalnik;filmi;serije;glasba;radio;TV;
+StartupWMClass=safeer-player
