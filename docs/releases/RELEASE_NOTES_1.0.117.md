@@ -3,3 +3,5 @@
 **Firefox stays behind the Shield.** Firefox may switch on its own DNS over HTTPS and then resolve ad and dangerous domains past the Shield filter. Before doing so it checks the canary domain `use-application-dns.net`; the Shield now answers that the name does not exist, so Firefox keeps using the filtered system DNS (unless you switched DNS over HTTPS on yourself). This is not counted as a blocked ad.
 
 **Clear message when a screen is taken over.** A computer shares its screen with one device at a time. When another device opens it, Safeer Control now shows the computer's sentence (for example "Another device is now viewing the screen.") instead of the bare code.
+
+**Shield keeps answering.** If an app gave up on a DNS question before the Shield answered, the Shield's listener could stop on Windows (error 10054) and every lookup then waited about a second and went around the filter. The listener now carries on; Linux gets the same safeguard.
