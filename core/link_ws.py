@@ -112,6 +112,8 @@ class Povezava:
         self._medpomnilnik = b""
         #: Meritev poti (core/link_pot.MeritevPoti); nastane ob prvem izmeri() - samo na sosednjih povezavah.
         self.meritev = None
+        #: Sonda meritve, ki se caka v izhodni vrsti (natanko ta objekt), ali None. Ne steje v meje vrste.
+        self._sonda: Optional[bytes] = None
 
     # ------------------------------------------------------------------ meritev poti
 
@@ -119,6 +121,8 @@ class Povezava:
         """Poslje sondo za meritev poti: ping s 12-bajtnim tovorom, ki ga druga stran vrne v pongu.
 
         Gre skozi isto izhodno vrsto kot sporocila; sonda, ki caka za njimi, ne steje v najmanjsi zamik.
+        Meritev povezave nikoli ne zapre: sonda ne steje v meje vrste (gluha naprava izpade natanko tako kot pred
+        meritvijo), v vrsti pa je najvec ena - dokler prejsnja caka, nove ne dodamo.
         Pri prvem klicu nastane meritev (pot iz naslova druge strani: zanka = rele). Vrne False, ce je zaprta."""
         if self._zaprta:
             return False
@@ -128,8 +132,15 @@ class Povezava:
         meritev.preveri()
         meritev.tcp(link_vticnik.tcp_info(self.vticnik))
         with self._zaklep:
-            zaseden = bool(self._vrsta)
-        return self._v_vrsto(okvir(OPKODA_PING, meritev.sonda(zaseden=zaseden)))
+            if self._zaprta:
+                return False
+            if self._sonda is not None:
+                return True                 # prejsnja sonda se caka za sporocili: ostane edina
+            surovo = okvir(OPKODA_PING, meritev.sonda(zaseden=bool(self._vrsta)))
+            self._sonda = surovo
+            self._vrsta.append(surovo)
+        self._ima_kaj.set()
+        return True
 
     # ------------------------------------------------------------------ pisanje
 
@@ -140,10 +151,12 @@ class Povezava:
         with self._zaklep:
             if self._zaprta:
                 return False
-            if len(self._vrsta) >= NAJVEC_V_VRSTI or self._bajtov + len(surovo) > NAJVEC_BAJTOV_V_VRSTI:
+            # Sonda meritve (izmeri) ne steje: zaradi meritve povezava ne izpade niti en okvir prej.
+            v_vrsti = len(self._vrsta) - (self._sonda is not None)
+            if v_vrsti >= NAJVEC_V_VRSTI or self._bajtov + len(surovo) > NAJVEC_BAJTOV_V_VRSTI:
                 # Naprava ne bere. Ce bi cakali nanjo, bi zadrzala vse ostale.
                 print("[SafeerHub] naprava ne bere (%s): v vrsti %d okvirjev, %d B - povezavo zapiram"
-                      % (self.podatki.get("id") or self.naslov, len(self._vrsta), self._bajtov), flush=True)
+                      % (self.podatki.get("id") or self.naslov, v_vrsti, self._bajtov), flush=True)
                 self._zaprta = True
                 self._ima_kaj.set()
                 try:
@@ -166,7 +179,10 @@ class Povezava:
                         return
                     continue
                 surovo = self._vrsta.popleft()
-                self._bajtov -= len(surovo)
+                if surovo is self._sonda:
+                    self._sonda = None      # sonda ni stela v _bajtov; naslednji izmeri() sme poslati novo
+                else:
+                    self._bajtov -= len(surovo)
             try:
                 self.vticnik.sendall(surovo)
             except Exception as e:  # noqa: BLE001

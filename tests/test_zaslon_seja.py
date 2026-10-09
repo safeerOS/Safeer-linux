@@ -259,7 +259,12 @@ class _Osnova(unittest.TestCase):
     def tearDown(self):
         for t in self.televizorji:
             t.zapri()
-        self.z.ustavi()
+        # Nit seje zapise povzetek (in z njim mapo meritve/) sele po ustavi(): brez cakanja bi ga zapisala v ze
+        # pobrisano zacasno mapo in jo s tem ustvarila znova - vsak preizkus bi pustil mapo v /tmp.
+        self.z.ustavi(pocakaj_s=5.0)
+        for n in threading.enumerate():
+            if n.name == "safeer-zaslon":
+                n.join(5.0)             # tudi stara seja, ki jo je zamenjala nova (StaraInNovaSeja)
         for k, v in self._okolje.items():
             if v is None:
                 os.environ.pop(k, None)
@@ -553,7 +558,8 @@ class MeritveSeje(_Osnova):
         self.assertTrue(_pocakaj(lambda: tv.okvirjev[1] > 20), "slika ni stekla")
         time.sleep(1.2)
         self.assertFalse(os.path.exists(self.povzetki), "povzetek je sele ob koncu seje")
-        self.z.ustavi()
+        # ustavi(pocakaj_s) se vrne sele, ko je povzetek zapisan (izhod programa, tearDown) - brez cakanja na datoteko.
+        self.z.ustavi(pocakaj_s=6.0)
 
         def vrstice():
             try:
@@ -561,7 +567,7 @@ class MeritveSeje(_Osnova):
                     return d.read().splitlines()
             except OSError:
                 return []
-        self.assertTrue(_pocakaj(lambda: len(vrstice()) >= 1, 6.0), "po koncu seje ni povzetka")
+        self.assertEqual(len(vrstice()), 1, "ustavi(pocakaj_s) se je vrnil pred povzetkom seje")
         time.sleep(0.3)
         self.assertEqual(len(vrstice()), 1)
         povzetek = json.loads(vrstice()[0])

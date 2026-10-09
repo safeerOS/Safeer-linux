@@ -137,14 +137,18 @@ class MeritevPoti:
         return paket(seq, _us(t))
 
     def pong(self, podatki, t: Optional[float] = None) -> Optional[float]:
-        """Pong s tovorom nase sonde: vrne izmerjeni zamik v ms. Neznano, podvojeno ali prepozno (ze steto kot
-        zgresena) ter prazen ali tuj tovor ne spremeni nicesar in vrne None."""
+        """Pong s tovorom nase sonde: vrne izmerjeni zamik v ms. Neznano, podvojeno ali prepozno ter prazen ali tuj
+        tovor ne spremeni zamika in vrne None.
+
+        Prepozen (po ROK) je zgresen, tudi ce ga preveri() se ni prestel: zgresena pomeni »brez odgovora v ROK«, ne
+        glede na to, kdaj pogledamo. Vecsekundni zamik bi sicer napihnil EWMA in nihanje ter z njima ROK."""
         r = razpakiraj(podatki)
         if r is None:
             return None
         t = self.ura() if t is None else float(t)
         seq, t_us = r
         with self._zaklep:
+            self._preveri(t)
             odprta = self._odprti.get(seq)
             if odprta is None or odprta[1] != t_us:
                 return None
@@ -167,14 +171,17 @@ class MeritevPoti:
     def preveri(self, t: Optional[float] = None) -> int:
         """Sonde brez odgovora dlje od ROK so zgresene. Vrne, koliko jih je zgresenih na novo."""
         t = self.ura() if t is None else float(t)
-        novih = 0
         with self._zaklep:
-            rok = self.rok_s()
-            for seq in [s for s, o in self._odprti.items() if t - o[0] >= rok]:
-                del self._odprti[seq]
-                self._zgresena()
-                novih += 1
-        return novih
+            return self._preveri(t)
+
+    def _preveri(self, t: float) -> int:
+        """Klice se pod kljucavnico."""
+        rok = self.rok_s()
+        zgresene = [s for s, o in self._odprti.items() if t - o[0] >= rok]
+        for seq in zgresene:
+            del self._odprti[seq]
+            self._zgresena()
+        return len(zgresene)
 
     def _zgresena(self) -> None:
         """Klice se pod kljucavnico."""

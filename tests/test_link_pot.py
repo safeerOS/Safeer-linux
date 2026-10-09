@@ -105,6 +105,35 @@ class Izgube(_Osnova):
         self.assertEqual((self.m.izgube, self.m.zaporedno_brez), (1, 1))
         self.assertIsNone(self.m.pong(tovor), "pong po roku je ze stet kot zgresen")
 
+    def test_pozen_pong_pred_preveri_je_zgresen(self):
+        """Pong po ROK je zgresen, tudi ce preveri() (ob naslednji sondi) se ni tekel: ni vzorec zamika."""
+        for _ in range(3):
+            self.sonda(100)
+            self.ura.t += 1.0
+        prej = self.m.stanje()
+        tovor = self.sonda()
+        self.ura.t += 9.0                                    # zacasen zastoj releja: pong pride po 9 s
+        self.assertIsNone(self.m.pong(tovor))
+        s = self.m.stanje()
+        self.assertEqual((s["rtt_ms"], s["jitter_ms"], s["min_ms"]), (prej["rtt_ms"], prej["jitter_ms"], prej["min_ms"]))
+        self.assertEqual((s["izgube"], s["zaporedno_brez"], s["odprtih"]), (1, 1, 0))
+        self.assertEqual(self.m.rok_s(), link_pot.ROK_NAJMANJ_S)
+        self.assertEqual(self.m.preveri(), 0, "ze steta kot zgresena")
+        # Pong tik pred rokom je se vzorec.
+        tovor = self.sonda()
+        self.ura.t += 4.9
+        self.assertAlmostEqual(self.m.pong(tovor), 4900.0)
+        self.assertEqual(self.m.zaporedno_brez, 0)
+
+    def test_pozen_pong_presteje_tudi_starejse_zgresene(self):
+        stara = self.sonda()
+        self.ura.t += 1.0
+        nova = self.sonda()
+        self.ura.t += 4.5                                    # stara: 5,5 s (zgresena), nova: 4,5 s (pravocasna)
+        self.assertAlmostEqual(self.m.pong(nova), 4500.0)
+        self.assertEqual((self.m.izgube, self.m.stanje()["odprtih"]), (1, 0))
+        self.assertIsNone(self.m.pong(stara))
+
     def test_rok_je_stirikratnik_pocasne_poti(self):
         self.sonda(2000)                                     # rele cez pol sveta: rok = max(5 s, 4 * 2 s)
         self.assertEqual(self.m.rok_s(), 8.0)

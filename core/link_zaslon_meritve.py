@@ -8,8 +8,9 @@ vrednosti, ki jih ne razume (`n`, `t`). V 1. fazi samo merimo - slika, poti in r
 
 Brez gledalca (deluje z vsakim, tudi s starejsim televizorjem in z Windows):
   poslano_mbps, zvok_mbps   bajti, predani sendall v zadnji sekundi (slika, zvok)
-  zasedenost                delez casa, ko crpalka slike caka v sendall (zadnja sekunda)
-  najdaljse_pisanje_ms      najdaljsi posamezni sendall v zadnji sekundi
+  zasedenost                delez casa, ko crpalka slike caka v sendall (zadnja sekunda; sendall, ki se traja, steje
+                            sproti - zacni_pisanje)
+  najdaljse_pisanje_ms      najdaljsi posamezni sendall v zadnji sekundi (tudi tisti, ki se traja)
   neposlano_b, tcp_rtt_ms, delez_retrans
                             iz TCP_INFO (link_vticnik.tcp_info). Pomenijo kaj samo na neposredni povezavi: prek Huba
                             je vticnica zanka do AgentHuba (pot 'hub'), tam steje le neposlano_b.
@@ -57,15 +58,35 @@ NAJVEC_VZORCEV = 20000
 NAJVEC_SEKUND = 24 * 3600
 
 
-def _stevilo(v) -> Optional[float]:
-    """Koncno stevilo ali None (vrednosti gledalca so tuje: karkoli drugega pade)."""
+#: Smiselni razponi vrednosti gledalca (na sekundo oz. v ms); vrednost zunaj razpona pade, kot da je ni.
+RAZPONI_GLEDALCA = {"fps": (0.0, 1000.0), "mbps": (0.0, 100_000.0), "dek": (0.0, 60_000.0),
+                    "zastoji": (0.0, 10_000.0), "izpusceno": (0.0, 10_000.0), "rok": (0.0, 600_000.0)}
+
+
+def _stevilo(v, najmanj: Optional[float] = None, najvec: Optional[float] = None) -> Optional[float]:
+    """Koncno stevilo (v razponu najmanj..najvec, ce je podan) ali None (vrednosti gledalca so tuje: karkoli drugega,
+    tudi ogromno celo stevilo iz JSON, pade)."""
     if isinstance(v, bool):
         return None
     try:
         x = float(v)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
-    return x if math.isfinite(x) else None
+    if not math.isfinite(x):
+        return None
+    if (najmanj is not None and x < najmanj) or (najvec is not None and x > najvec):
+        return None
+    return x
+
+
+def _hitrost_mbps(bajtov: float, ms: float) -> Optional[float]:
+    """Mb/s iz bajtov v `ms` milisekundah; None, ce rezultat ni koncno stevilo v razponu gledalcevih mbps (tuje
+    vrednosti gledalca: deljenje s skoraj nic ne sme dati neskoncne ali nesmiselne hitrosti)."""
+    try:
+        x = bajtov * 8.0 / (ms / 1000.0) / 1e6
+    except (ZeroDivisionError, OverflowError):
+        return None
+    return x if math.isfinite(x) and 0.0 <= x <= RAZPONI_GLEDALCA["mbps"][1] else None
 
 
 def _percentil(vrednosti, p: float) -> Optional[float]:
@@ -93,6 +114,8 @@ class Meritve:
         self._zacetek = ura()
         #: Pisanja zadnje sekunde: (konec, vrsta, bajtov, cakal_s).
         self._pisanja: collections.deque = collections.deque()
+        #: Pisanje, ki se traja (zacni_pisanje, se brez poslano): vrsta -> cas zacetka. Zastoj je viden, ko traja.
+        self._pise: dict = {}
         #: Vsi bajti, predani sendall (za oddajo med pingoma), in bajti slike v celi seji.
         self._skupaj = 0
         self._slika_skupaj = 0
@@ -124,11 +147,23 @@ class Meritve:
 
     # ------------------------------------------------------------------ posiljanje (crpalki)
 
+    def zacni_pisanje(self, vrsta: int) -> None:
+        """Crpalka zacenja sendall (klice se PRED njim): dokler ne pride poslano(), je pisanje v teku - posnetek() ga
+        steje v zasedenost in najdaljse pisanje sproti, tudi ce obvisi za vec sekund."""
+        zdaj = self._ura()
+        with self._zaklep:
+            if vrsta in (SLIKA, ZVOK):
+                self._pise[vrsta] = zdaj
+
     def poslano(self, vrsta: int, bajtov: int, cakal_s: float) -> None:
-        """Crpalka je predala `bajtov` (cel okvir) sendall, ki je trajal `cakal_s`. Klice se po sendall."""
+        """Crpalka je predala `bajtov` (cel okvir) sendall, ki je trajal `cakal_s`. Klice se po sendall.
+
+        Cas pisanja slike se razdeli po vseh sekundah, ki jih je pokrilo (od zdaj - cakal_s do zdaj): 4 s zastoja so
+        stiri zasedene sekunde, ne ena (povzetek jo omeji na 1,0) - sicer bi zasedenost_p90 zastoje skrila."""
         zdaj = self._ura()
         cakal_s = max(0.0, float(cakal_s))
         with self._zaklep:
+            self._pise.pop(vrsta, None)
             self._skupaj += int(bajtov)
             if vrsta not in (SLIKA, ZVOK):
                 return
@@ -139,12 +174,25 @@ class Meritve:
             i = int(max(0.0, zdaj - self._zacetek))
             if i < NAJVEC_SEKUND:
                 if len(self._sek_bajtov) <= i:
-                    dodaj = i + 1 - len(self._sek_bajtov)
-                    self._sek_bajtov.extend([0] * dodaj)
-                    self._sek_zasedeno.extend([0.0] * dodaj)
+                    self._sek_bajtov.extend([0] * (i + 1 - len(self._sek_bajtov)))
                 self._sek_bajtov[i] += int(bajtov)
-                if vrsta == SLIKA:
-                    self._sek_zasedeno[i] += cakal_s
+            if vrsta == SLIKA:
+                self._razdeli(self._sek_zasedeno, zdaj - cakal_s, zdaj)
+
+    def _razdeli(self, sekunde: list, od: float, do: float) -> None:
+        """Interval pisanja [od, do] (nasa ura) razdeli po sekundah seje v `sekunde`. Klice se pod kljucavnico."""
+        od = max(od, self._zacetek)
+        if do <= od:
+            return
+        prva = int(od - self._zacetek)
+        zadnja = min(int(do - self._zacetek), NAJVEC_SEKUND - 1)
+        if len(sekunde) <= zadnja:
+            sekunde.extend([0.0] * (zadnja + 1 - len(sekunde)))
+        for i in range(prva, zadnja + 1):
+            zacetek = self._zacetek + i
+            delez = min(do, zacetek + 1.0) - max(od, zacetek)
+            if delez > 0:
+                sekunde[i] += delez
 
     def _pocisti_pisanja(self, zdaj: float) -> None:
         while self._pisanja and self._pisanja[0][0] < zdaj - OKNO_S:
@@ -211,21 +259,25 @@ class Meritve:
             osnova = min(r for _, r in self._osnova)
             cakanje = max(0.0, statistics.median(self._zadnji3) - osnova)
             self._cakanje_vzorci.append(cakanje)
-            r, b = _stevilo(dogodek.get("r")), _stevilo(dogodek.get("b"))
+            r, b = _stevilo(dogodek.get("r"), 0.0), _stevilo(dogodek.get("b"), 0.0)
             if r is not None and b is not None:
                 prej = self._prejsnji
                 if prej is not None:
                     dr, db = r - prej[0], b - prej[1]
                     dt, ds = odprt[0] - prej[2], odprt[1] - prej[3]
                     if dr > 0 and db >= 0:
-                        self._dostava = db * 8.0 / (dr / 1000.0) / 1e6
-                        if cakanje > max(ZAGOZDENO_MS, osnova):
-                            self._kapaciteta.append((float(t), self._dostava))
+                        dostava = _hitrost_mbps(db, dr)
+                        if dostava is not None:
+                            self._dostava = dostava
+                            if cakanje > max(ZAGOZDENO_MS, osnova):
+                                self._kapaciteta.append((float(t), dostava))
                     if dt > 0 and ds >= 0:
-                        self._oddaja = ds * 8.0 / (dt / 1000.0) / 1e6
+                        oddaja = _hitrost_mbps(ds, dt)
+                        if oddaja is not None:
+                            self._oddaja = oddaja
                 self._prejsnji = (r, b, odprt[0], odprt[1])
             for kljuc in ("fps", "mbps", "dek", "zastoji", "izpusceno"):
-                v = _stevilo(dogodek.get(kljuc))
+                v = _stevilo(dogodek.get(kljuc), *RAZPONI_GLEDALCA[kljuc])
                 if v is not None:
                     self._gledalec[kljuc] = v
                     if kljuc == "zastoji":
@@ -233,7 +285,7 @@ class Meritve:
             pot = dogodek.get("pot")
             if isinstance(pot, str) and pot:
                 self._gledalec["pot"] = pot[:16]
-            rok = _stevilo(dogodek.get("rok"))
+            rok = _stevilo(dogodek.get("rok"), *RAZPONI_GLEDALCA["rok"])
             if rok is not None:
                 self._gledalec["rok_ms"] = rok
             return rtt
@@ -280,6 +332,11 @@ class Meritve:
                     zasedeno += max(0.0, min(konec, zdaj) - max(konec - cakal, od))
                 else:
                     zvok += bajtov
+            # Pisanje, ki se traja: zastoj je viden, medtem ko traja (ne sele, ko se sendall vrne).
+            for vrsta, zacel in self._pise.items():
+                najdaljse = max(najdaljse, zdaj - zacel)
+                if vrsta == SLIKA:
+                    zasedeno += max(0.0, zdaj - max(zacel, od))
             osnova = min((r for _, r in self._osnova), default=None)
             med3 = statistics.median(self._zadnji3) if self._zadnji3 else None
             odprt = (zdaj * 1000.0 - min(o[0] for o in self._odprti.values())) if self._odprti else 0.0
@@ -320,7 +377,11 @@ class Meritve:
             # Samo cele sekunde (zadnja je nepopolna); sekunda brez pisanja je 0 Mb/s.
             celih = min(int(trajanje), NAJVEC_SEKUND)
             sek_bajtov = (self._sek_bajtov + [0] * max(0, celih - len(self._sek_bajtov)))[:celih]
-            sek_zasedeno = (self._sek_zasedeno + [0.0] * max(0, celih - len(self._sek_zasedeno)))[:celih]
+            sek_zasedeno = list(self._sek_zasedeno)
+            if SLIKA in self._pise:
+                # Seja se konca sredi pisanja slike (zastoj do konca): tudi ta cas je zaseden.
+                self._razdeli(sek_zasedeno, self._pise[SLIKA], zdaj)
+            sek_zasedeno = (sek_zasedeno + [0.0] * max(0, celih - len(sek_zasedeno)))[:celih]
             mbps = [b * 8.0 / 1e6 for b in sek_bajtov]
             zasedenost = [min(1.0, z) for z in sek_zasedeno]
             rtt = list(self._rtt_vzorci)

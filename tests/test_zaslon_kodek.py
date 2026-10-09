@@ -200,6 +200,31 @@ class OdpovedZajema(unittest.TestCase):
                                                    types.SimpleNamespace(sendall=poslano.append), 1920, merilo=Pade())
         self.assertEqual(len(poslano), 2)
 
+    def test_crpalka_pove_zacetek_pisanja(self):
+        """Zastoj mora biti v meritvah viden, medtem ko traja: merilo izve za zacetek vsakega sendall. Pisanje, ki
+        pade (rok pisanja), se vseeno konca - brez bajtov, s casom cakanja."""
+        dogodki = []
+
+        class Merilo:
+            def zacni_pisanje(self, vrsta):
+                dogodki.append(("zacni", vrsta))
+
+            def poslano(self, vrsta, bajtov, _cakal_s):
+                dogodki.append(("poslano", vrsta, bajtov))
+
+        def sendall(b):
+            dogodki.append(("sendall", len(b)))
+            if len(dogodki) > 4:
+                raise OSError("rok pisanja")
+
+        kosi = [bytes(10), bytes(10), bytes(10), b""]
+        proces = types.SimpleNamespace(stdout=types.SimpleNamespace(read=lambda n: kosi.pop(0)))
+        slika = link_zaslon.OKVIR_SLIKA
+        link_zaslon.Zaslon(vklopljeno=True)._crpaj(proces, slika, types.SimpleNamespace(sendall=sendall), 32 * 1024,
+                                                   None, merilo=Merilo())
+        self.assertEqual(dogodki, [("zacni", slika), ("sendall", 15), ("poslano", slika, 15),
+                                   ("zacni", slika), ("sendall", 15), ("poslano", slika, 0)])
+
 
 class DiagnozaKodirnika(unittest.TestCase):
     """tools/preveri-kodirnik.py: kratki preizkusi na vsaki napravi, izid kot JSON (brez prave graficne kartice)."""
