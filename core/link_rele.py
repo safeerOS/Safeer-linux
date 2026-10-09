@@ -12,6 +12,7 @@ import base64
 import hashlib
 import json
 import os
+import select
 import socket
 import ssl
 import struct
@@ -28,6 +29,10 @@ PING_VSAKIH_S = 30
 KOS = 16 * 1024
 #: Cloudflare (Browser Integrity Check) zavrne privzeti "Python-urllib" z 403; Safeer se predstavi z imenom.
 UA = "SafeerLink/1.0"
+#: Topla povezava (vnaprej odprt TLS do releja) se drzi, dokler je bila v tem casu zeljena ali uporabljena.
+TOPLA_ZELJA_S = 600.0
+#: Najdaljsa starost tople povezave; prej jo zamenjamo z novo (Cloudflare jo lahko zapre tudi sam - to opazimo).
+TOPLA_STAROST_S = 300.0
 
 
 # ------------------------------------------------------------------ podpis zahtev (kot worker.mjs)
@@ -80,11 +85,11 @@ def _maskiraj(podatki: bytes, maska: bytes) -> bytes:
 class WsOdjemalec:
     """WebSocket prek TLS (preverjeno potrdilo link.safeer.si) z dvojiskimi okvirji."""
 
-    def __init__(self, pot: str, glave: dict, gostitelj: str = GOSTITELJ, rok_s: float = 15.0) -> None:
-        surovi = socket.create_connection((gostitelj, 443), timeout=rok_s)
-        # Skozi kanal tece TLS Safeer Linka v majhnih kosih (sporocila, potrditve tokov): vsak naj gre takoj.
-        link_vticnik.brez_zamika(surovi)
-        self.s = ssl.create_default_context().wrap_socket(surovi, server_hostname=gostitelj)
+    def __init__(self, pot: str, glave: dict, gostitelj: str = GOSTITELJ, rok_s: float = 15.0,
+                 tls: Optional[ssl.SSLSocket] = None) -> None:
+        """`tls`: ze odprta povezava TLS do releja (topla); brez nje odpremo novo."""
+        self.s = tls if tls is not None else _nova_tls(gostitelj, rok_s)
+        self.s.settimeout(rok_s)
         try:
             self._rokovanje(pot, glave, gostitelj)
         except Exception:
@@ -101,15 +106,20 @@ class WsOdjemalec:
         zahteva = [f"GET {pot} HTTP/1.1", f"Host: {gostitelj}", f"User-Agent: {UA}", "Upgrade: websocket", "Connection: Upgrade",
                    f"Sec-WebSocket-Key: {kljuc}", "Sec-WebSocket-Version: 13"]
         zahteva += [f"{k}: {v}" for k, v in glave.items()]
-        self.s.sendall(("\r\n".join(zahteva) + "\r\n\r\n").encode())
         odgovor = b""
-        while b"\r\n\r\n" not in odgovor:
-            kos = self.s.recv(4096)
-            if not kos:
-                raise ConnectionError("rele je zaprl povezavo")
-            odgovor += kos
-            if len(odgovor) > 16384:
-                raise ConnectionError("predolga glava")
+        try:
+            self.s.sendall(("\r\n".join(zahteva) + "\r\n\r\n").encode())
+            while b"\r\n\r\n" not in odgovor:
+                kos = self.s.recv(4096)
+                if not kos:
+                    raise ConnectionError("rele je zaprl povezavo")
+                odgovor += kos
+                if len(odgovor) > 16384:
+                    raise ConnectionError("predolga glava")
+        except (OSError, ConnectionError) as e:
+            if not odgovor:
+                raise BrezOdgovora(str(e) or type(e).__name__) from e
+            raise
         glava, _, self._ostanek = odgovor.partition(b"\r\n\r\n")
         vrstica = glava.split(b"\r\n", 1)[0].decode(errors="replace")
         if " 101 " not in vrstica + " ":
@@ -203,6 +213,188 @@ class WsOdjemalec:
             pass
 
 
+class BrezOdgovora(ConnectionError):
+    """Rele na zahtevo ni odgovoril niti z enim bajtom (povezava je bila mrtva): ponovitev na novi je varna."""
+
+
+def _nova_tls(gostitelj: str = GOSTITELJ, rok_s: float = 15.0) -> ssl.SSLSocket:
+    """Nova povezava TLS do releja (preverjeno potrdilo)."""
+    surovi = socket.create_connection((gostitelj, 443), timeout=rok_s)
+    # Skozi kanal tece TLS Safeer Linka v majhnih kosih (sporocila, potrditve tokov): vsak naj gre takoj.
+    link_vticnik.brez_zamika(surovi)
+    try:
+        return ssl.create_default_context().wrap_socket(surovi, server_hostname=gostitelj)
+    except Exception:
+        surovi.close()
+        raise
+
+
+def _mirna(s) -> bool:
+    """Neuporabljena povezava je ziva, ce rele ni poslal ne podatkov ne zaprtja.
+
+    Berljiva je lahko tudi samo zaradi notranjih zapisov TLS 1.3 (vstopnica seje po rokovanju): te prebere
+    recv brez cakanja in javi SSLWantReadError - povezava je ziva."""
+    try:
+        berljiva, _, _ = select.select([s], [], [], 0)
+        if not berljiva and not s.pending():
+            return True
+        rok = s.gettimeout()
+        s.settimeout(0)
+        try:
+            s.recv(1)
+            return False            # podatki ali konec (b"") na neuporabljeni povezavi: ni za kanal
+        except ssl.SSLWantReadError:
+            return True
+        finally:
+            s.settimeout(rok)
+    except (OSError, ValueError):
+        return False
+
+
+class TopleTls:
+    """Ena vnaprej odprta povezava TLS do releja, da nov kanal ne caka na TCP in TLS (~2 obhoda, ~100 ms).
+
+    Na rele ne posljemo nicesar, dokler povezave ne vzamemo, zato ne steje v kvoto Workerja. Drzimo jo le,
+    dokler jo kdo zeli (`zelim`, `vzemi`) - po TOPLA_ZELJA_S brez zelje je ne obnavljamo vec.
+    """
+
+    def __init__(self, gostitelj: str = GOSTITELJ, rok_s: float = 15.0,
+                 nova: Optional[Callable[[], ssl.SSLSocket]] = None) -> None:
+        self._nova = nova or (lambda: _nova_tls(gostitelj, rok_s))
+        self._zaklep = threading.Lock()
+        self._budilka: Optional[tuple] = None
+        self._s: Optional[ssl.SSLSocket] = None
+        self._odprta = 0.0
+        self._zelja = 0.0
+        self._nit: Optional[threading.Thread] = None
+        self._ustavljena = False
+        self._ne_pred = 0.0         # premor po neuspehu ali hitrem zaprtju: nove povezave ne prej
+
+    def zelim(self) -> None:
+        """Naj bo topla povezava pripravljena (in ostane, dokler zelja ne potece)."""
+        with self._zaklep:
+            self._zelja = time.monotonic()
+            if self._ustavljena:
+                return
+            if self._budilka is None:
+                self._budilka = socket.socketpair()
+                self._budilka[0].setblocking(False)
+            if self._nit is None:
+                self._nit = threading.Thread(target=self._teci, name="safeer-rele-topla", daemon=True)
+                self._nit.start()
+        self._zbudi()
+
+    def vzemi(self) -> Optional[ssl.SSLSocket]:
+        """Topla povezava ali None (je ni ali ni vec ziva); takoj zacne pripravljati naslednjo."""
+        with self._zaklep:
+            s, self._s = self._s, None
+            starost = time.monotonic() - self._odprta
+        self.zelim()
+        if s is None:
+            return None
+        if starost > TOPLA_STAROST_S or not _mirna(s):
+            _zapri_tiho(s)
+            return None
+        return s
+
+    def ustavi(self) -> None:
+        with self._zaklep:
+            self._ustavljena = True
+            s, self._s = self._s, None
+        self._zbudi()
+        if s is not None:
+            _zapri_tiho(s)
+
+    def _zbudi(self) -> None:
+        try:
+            self._budilka[1].send(b"z")
+        except (OSError, TypeError, AttributeError):
+            pass
+
+    def _pocakaj(self, s, cas: float) -> None:
+        """Do `cas` sekund ali do zbujanja ali do berljive `s` (rele jo je zaprl)."""
+        bralni = [self._budilka[0]] + ([s] if s is not None else [])
+        try:
+            select.select(bralni, [], [], cas)
+        except (OSError, ValueError):
+            time.sleep(min(cas, 0.05))      # `s` je med tem vzel in zaprl nekdo drug
+        try:
+            while self._budilka[0].recv(64):
+                pass
+        except OSError:
+            pass
+
+    def _teci(self) -> None:
+        cakaj = 5.0
+        while True:
+            with self._zaklep:
+                if self._ustavljena or time.monotonic() - self._zelja > TOPLA_ZELJA_S:
+                    s, self._s, self._nit = self._s, None, None
+                    break
+                s, odprta = self._s, self._odprta
+                zelja_ostane = TOPLA_ZELJA_S - (time.monotonic() - self._zelja)
+                # Pod zaklepom: ko jo `vzemi` odnese, je ta nit ne bere vec (TLS ne prenese dveh bralcev).
+                ziva = s is not None and _mirna(s)
+            if s is None:
+                premor = self._ne_pred - time.monotonic()
+                if premor > 0:
+                    self._pocakaj(None, min(premor, max(0.01, zelja_ostane)))
+                    continue
+                try:
+                    nova = self._nova()
+                except Exception:
+                    self._ne_pred = time.monotonic() + cakaj
+                    cakaj = min(cakaj * 2, 300.0)
+                    continue
+                with self._zaklep:
+                    if not self._ustavljena:
+                        nova, self._s, self._odprta = None, nova, time.monotonic()
+                if nova is not None:
+                    _zapri_tiho(nova)
+                continue
+            ostane = TOPLA_STAROST_S - (time.monotonic() - odprta)
+            if ostane > 0 and ziva:
+                self._pocakaj(s, max(0.01, min(ostane, zelja_ostane, 60.0)))
+                continue
+            # Prestara ali jo je rele zaprl: odstranimo jo (ce je medtem ni ze vzel `vzemi`).
+            with self._zaklep:
+                if self._s is not s:
+                    continue
+                self._s = None
+            _zapri_tiho(s)
+            if time.monotonic() - odprta < 60.0:
+                # Rele zapira hitro: ne obnavljamo vsakih nekaj sekund (vsaka nova je ~5 kB rokovanja).
+                self._ne_pred = time.monotonic() + cakaj
+                cakaj = min(cakaj * 2, 300.0)
+            else:
+                cakaj = 5.0
+        if s is not None:
+            _zapri_tiho(s)
+
+
+def _zapri_tiho(s) -> None:
+    try:
+        s.close()
+    except Exception:
+        pass
+
+
+#: Skupna topla povezava procesa (agent huba in vsi LokalniRele gredo na isti rele).
+_topla = TopleTls()
+
+
+def odpri_kanal(pot: str, glave: Callable[[], dict], topla: Optional[TopleTls] = None) -> WsOdjemalec:
+    """WebSocket do releja: najprej po topli povezavi; ce je bila mrtva (brez odgovora), po novi."""
+    topla = _topla if topla is None else topla
+    s = topla.vzemi()
+    if s is not None:
+        try:
+            return WsOdjemalec(pot, glave(), tls=s)
+        except BrezOdgovora:
+            pass
+    return WsOdjemalec(pot, glave())
+
+
 def _ustavi(s: socket.socket) -> None:
     try:
         s.shutdown(socket.SHUT_RDWR)
@@ -279,7 +471,7 @@ class AgentHuba:
         try:
             tcp = socket.create_connection(("127.0.0.1", self.vrata()), timeout=10)
             tcp.settimeout(None)
-            ws = WsOdjemalec(pot, podpisane_glave("GET", pot))
+            ws = odpri_kanal(pot, lambda: podpisane_glave("GET", pot))
         except Exception as e:
             self.dnevnik(f"[Global Link] kanala ni bilo mogoce odpreti: {e}")
             if tcp is not None:
@@ -299,6 +491,7 @@ class AgentHuba:
                     ws.zapri()
                     return
                 ws.besedilo("ping")
+                _topla.zelim()
                 if time.time() - zadnja_objava > OBJAVA_VSAKIH_S:
                     self.objavi()
                     zadnja_objava = time.time()
@@ -317,6 +510,7 @@ class AgentHuba:
                 self.objavi()
                 ws = WsOdjemalec("/v1/listen", podpisane_glave("GET", "/v1/listen"))
                 self._ws, self.stanje, cakaj = ws, "povezan", 5
+                _topla.zelim()      # naslednji kanal brez TCP in TLS do releja
                 self.dnevnik("[Global Link] hub je dosegljiv prek link.safeer.si")
                 threading.Thread(target=self._vzdrzuj, args=(ws,), name="safeer-global-link-ping", daemon=True).start()
                 try:
@@ -403,7 +597,7 @@ class LokalniRele:
         pot = f"/v1/connect?to={self.cilj}&kanal={kanal}"
         ws = None
         try:
-            ws = WsOdjemalec(pot, podpisane_glave("GET", pot, kljuc=self.kljuc, podpisi=self.podpisi))
+            ws = odpri_kanal(pot, lambda: podpisane_glave("GET", pot, kljuc=self.kljuc, podpisi=self.podpisi))
             ws.s.settimeout(20)
             op, podatki = ws.prejmi()
             if op != 0x1 or podatki != b"ready":
