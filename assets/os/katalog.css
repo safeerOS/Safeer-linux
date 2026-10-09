@@ -2,7 +2,6 @@
    Pravila so prenesena iz Safeer OS za Windows (assets/os/os.css, razredi .media-*) in preimenovana v .kat-*,
    da se ne mesajo z razredi krajevne knjiznice (.media-*) na tej strani. */
 :root { --vnos: #111b27; }
-[hidden].kat, .kat [hidden], .kat-podrobnosti[hidden], .kat-seznam-meni[hidden] { display: none !important; }
 .kat { margin: 6px 0 26px; }
 /* Brez krajevnih vsebin v izbrani kategoriji gre katalog pred prazno knjiznico; z vsebino kataloga uvodne plosce ni. */
 .media-glavni { display: flex; flex-direction: column; }
@@ -39,7 +38,6 @@
 .kat-prazno { margin: 18px 0; }
 .kat-predvajaj-film { padding: 14px 28px; font-size: 18px; margin-top: 12px; }
 .kat-viri-plosca { width: min(860px, 92vw); max-height: 88vh; overflow: auto; }
-.kat-dodaj-streznik [hidden] { display: none; }
 .kat-vir-sporocilo { min-height: 20px; }
 .kat-vir-sporocilo .gumb { margin-top: 8px; }
 .kat-katalog .prazno, .kat-epizode .prazno { color: var(--medlo); padding: 14px 0; }

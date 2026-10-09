@@ -66,7 +66,8 @@ class Slog(unittest.TestCase):
     def test_meni_mehurcka(self):
         meni = _pravilo(self.css, ".spor-meni")
         self.assertIn("position: fixed", meni)
-        self.assertIn("display: none", _pravilo(self.css, ".spor-meni[hidden]"))
+        # Skrit meni skrije splosno pravilo [hidden] (velja za vse elemente, tudi z display v razredu).
+        self.assertIn("display: none !important", _pravilo(self.css, "[hidden]"))
 
 
 class Stran(unittest.TestCase):
