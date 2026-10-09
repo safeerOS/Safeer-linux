@@ -547,7 +547,9 @@ class OddaljeniGledalec(Gtk.Window):
                     elif vrsta == OKVIR_OBVESTILO:
                         obvestilo = json.loads(telo.decode("utf-8"))
                         if obvestilo.get("konec"):
-                            raise RuntimeError(str(obvestilo.get("konec")))
+                            # Racunalnik pove tudi z besedami, zakaj je konec (npr. »prevzeto«: zaslon zdaj gleda
+                            # druga naprava) - uporabnik naj vidi stavek, ne oznake.
+                            raise RuntimeError(str(obvestilo.get("sporocilo") or obvestilo.get("konec")))
             except Exception as e:  # noqa: BLE001
                 if not self.zaprto and gledalec is not None and self.gledalec is gledalec:
                     GLib.idle_add(self._pokazi_napako, str(e))
