@@ -26,7 +26,7 @@ import struct
 import threading
 from typing import Callable, Deque, Optional
 
-from core import link_vticnik
+from core import link_pot, link_vticnik
 
 CAROBNI_NIZ = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
@@ -110,6 +110,26 @@ class Povezava:
         self._zaprta = False
         self._pisec: Optional[threading.Thread] = None
         self._medpomnilnik = b""
+        #: Meritev poti (core/link_pot.MeritevPoti); nastane ob prvem izmeri() - samo na sosednjih povezavah.
+        self.meritev = None
+
+    # ------------------------------------------------------------------ meritev poti
+
+    def izmeri(self) -> bool:
+        """Poslje sondo za meritev poti: ping s 12-bajtnim tovorom, ki ga druga stran vrne v pongu.
+
+        Gre skozi isto izhodno vrsto kot sporocila; sonda, ki caka za njimi, ne steje v najmanjsi zamik.
+        Pri prvem klicu nastane meritev (pot iz naslova druge strani: zanka = rele). Vrne False, ce je zaprta."""
+        if self._zaprta:
+            return False
+        meritev = self.meritev
+        if meritev is None:
+            meritev = self.meritev = link_pot.MeritevPoti(link_pot.pot_naslova(self.naslov))
+        meritev.preveri()
+        meritev.tcp(link_vticnik.tcp_info(self.vticnik))
+        with self._zaklep:
+            zaseden = bool(self._vrsta)
+        return self._v_vrsto(okvir(OPKODA_PING, meritev.sonda(zaseden=zaseden)))
 
     # ------------------------------------------------------------------ pisanje
 
@@ -217,6 +237,12 @@ class Povezava:
                     self._v_vrsto(okvir(OPKODA_PONG, telo))
                     continue
                 if opkoda == OPKODA_PONG:
+                    meritev = self.meritev
+                    if meritev is not None:
+                        try:
+                            meritev.pong(telo)
+                        except Exception:  # noqa: BLE001 - meritev ne sme ustaviti branja
+                            pass
                     continue
                 if opkoda != OPKODA_NADALJEVANJE:
                     zbrana_opkoda = opkoda

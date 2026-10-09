@@ -753,6 +753,8 @@ class WsOdjemalec:
         self._deli: List[bytes] = []
         self._vrsta_sporocila = 0
         self._zaklep = threading.Lock()
+        #: Klice se s tovorom vsakega ponga (bralna nit), npr. meritev poti soseda (core/link_pot.py); None = nic.
+        self.ob_pongu: Optional[Callable[[bytes], None]] = None
 
     def odpri(self) -> None:
         u = urlparse(self.naslov)
@@ -897,6 +899,12 @@ class WsOdjemalec:
                 self._pong(telo)
                 continue
             if vrsta == 0xA:  # pong na nas ping
+                ob_pongu = self.ob_pongu
+                if ob_pongu is not None:
+                    try:
+                        ob_pongu(telo)
+                    except Exception:  # noqa: BLE001 - meritev ne sme ustaviti branja
+                        pass
                 continue
 
             if vrsta in (0x1, 0x2):
@@ -919,15 +927,19 @@ class WsOdjemalec:
                     return b"".join(deli).decode("utf-8", "replace")
                 # binarnega ne razumemo; mirno spregledamo
 
-    def ping(self) -> bool:
-        """Poslje ping. Vrne False, ce povezave ni vec -- to je nas srcni utrip."""
+    def ping(self, podatki: bytes = b"") -> bool:
+        """Poslje ping. Vrne False, ce povezave ni vec -- to je nas srcni utrip.
+
+        `podatki`: tovor (najvec 125 bajtov, meja nadzornega okvirja), ki ga druga stran vrne v pongu - npr.
+        zaporedna stevilka in cas za meritev poti (core/link_pot.py). Brez njega je okvir enak kot doslej."""
         s = self.vticnik
         if s is None:
             return False
+        tovor = bytes(podatki or b"")[:125]
         maska = os.urandom(4)
         try:
             with self._zaklep:
-                s.sendall(bytes([0x89, 0x80]) + maska)
+                s.sendall(bytes([0x89, 0x80 | len(tovor)]) + maska + _maskiraj(tovor, maska))
             return True
         except Exception:
             return False

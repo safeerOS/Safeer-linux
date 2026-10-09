@@ -218,3 +218,64 @@ class VabiloLastnegaHuba(unittest.TestCase):
         with mock.patch.object(lh, "_zahteva", return_value=(200, odgovor)):
             v = lh.povabi("wss://192.168.0.77:8990/cast/ws", "z", "ab")
         self.assertIn("a=192.168.0.77:8990", v["povezava"])
+
+
+class PingSTovorom(unittest.TestCase):
+    """Utrip s tovorom (meritev poti soseda, core/link_pot.py): ping nosi do 125 maskiranih bajtov, pong gre v ob_pongu."""
+
+    def setUp(self):
+        import socket
+        self.a, self.b = socket.socketpair()
+        self.b.settimeout(2)
+        self.o = link_hub.WsOdjemalec("ws://127.0.0.1:1/cast/ws")
+        self.o.vticnik = self.a
+
+    def tearDown(self):
+        self.a.close()
+        self.b.close()
+
+    def _okvir(self) -> tuple:
+        glava = self.b.recv(2)
+        maska = self.b.recv(4) if glava[1] & 0x80 else b""
+        dolzina = glava[1] & 0x7F
+        telo = self.b.recv(dolzina) if dolzina else b""
+        return glava, maska, link_hub._maskiraj(telo, maska) if maska else telo
+
+    def test_ping_s_tovorom_in_pong(self):
+        self.assertTrue(self.o.ping(b"abc"))
+        glava, maska, telo = self._okvir()
+        self.assertEqual(glava[0], 0x89)                    # FIN + ping
+        self.assertTrue(glava[1] & 0x80, "odjemalec mora maskirati")
+        self.assertEqual(glava[1] & 0x7F, 3)
+        self.assertEqual(len(maska), 4)
+        self.assertEqual(telo, b"abc")
+        # Brez tovora je okvir tak kot doslej: prazen maskiran ping.
+        self.assertTrue(self.o.ping())
+        glava, maska, telo = self._okvir()
+        self.assertEqual((glava[0], glava[1], len(maska), telo), (0x89, 0x80, 4, b""))
+        # Tovor nad mejo nadzornega okvirja se odreze.
+        self.assertTrue(self.o.ping(bytes(200)))
+        glava, _maska, telo = self._okvir()
+        self.assertEqual((glava[1] & 0x7F, len(telo)), (125, 125))
+        # Pong (nemaskiran, kot ga poslje streznik) gre z odmaskiranim tovorom v ob_pongu; prejmi bere naprej.
+        prejeti = []
+        self.o.ob_pongu = prejeti.append
+        self.b.sendall(bytes([0x8A, 12]) + b"dvanajst-baj" + bytes([0x81, 4]) + b"nato")
+        self.assertEqual(self.o.prejmi(), "nato")
+        self.assertEqual(prejeti, [b"dvanajst-baj"])
+        # Maskiran pong (npr. od drugega odjemalca) pride odmaskiran.
+        maska = b"\x01\x02\x03\x04"
+        self.b.sendall(bytes([0x8A, 0x80 | 3]) + maska + link_hub._maskiraj(b"xyz", maska) + bytes([0x81, 2]) + b"ok")
+        self.assertEqual(self.o.prejmi(), "ok")
+        self.assertEqual(prejeti, [b"dvanajst-baj", b"xyz"])
+
+    def test_napaka_v_ob_pongu_ne_ustavi_branja(self):
+        def pade(_t):
+            raise RuntimeError("meritev")
+        self.o.ob_pongu = pade
+        self.b.sendall(bytes([0x8A, 0]) + bytes([0x81, 2]) + b"ok")
+        self.assertEqual(self.o.prejmi(), "ok")
+
+    def test_ping_brez_povezave(self):
+        self.o.vticnik = None
+        self.assertFalse(self.o.ping(b"abc"))
