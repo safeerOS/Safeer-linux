@@ -300,6 +300,8 @@ def hevc_mozen(ffmpeg: str, vaapi: Optional[str]) -> bool:
 #: ze odpovedal (`gpu_odpovedal`).
 _GPU: Dict[str, bool] = {}
 _GPU_ODPOVED = "odpoved"
+#: Pomanjsava na graficni (enaka v preizkusu in v seji): izmerjeno 10. 10. 2026 - glej ukaz_ffmpeg.
+SCALE_VAAPI = "scale_vaapi={sirina}:{visina}:format=nv12:mode=default"
 
 
 def gpu_vklopljena() -> bool:
@@ -326,7 +328,7 @@ def gpu_lestvica_mozna(ffmpeg: str, vaapi: Optional[str]) -> bool:
         try:
             r = subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-vaapi_device", vaapi,
                                 "-f", "lavfi", "-i", "color=black:size=640x360:rate=30,format=bgr0", "-frames:v", "3",
-                                "-vf", "hwupload,scale_vaapi=320:180:format=nv12", "-c:v", "h264_vaapi",
+                                "-vf", "hwupload," + SCALE_VAAPI.format(sirina=320, visina=180), "-c:v", "h264_vaapi",
                                 "-rc_mode", "CQP", "-qp", "24", "-bf", "0", "-f", "null", "-"],
                                capture_output=True, timeout=20, stdin=subprocess.DEVNULL)
             _GPU[kljuc] = r.returncode == 0
@@ -458,10 +460,12 @@ def ukaz_ffmpeg(display: str, sirina: int, visina: int, izvor_sirina: int, izvor
         # in vsi padejo), obenem pa ga zna vsak - zato kakovost dolocimo s kvantizatorjem.
         #
         # Pomanjsava na procesorju (lanczos) je bila pri 2560x1440 -> 1080p vecina dela ffmpeg (346 % CPU). Graficna
-        # sliko pretvori in pomanjsa sama (74 % CPU); scale_vaapi je v ffmpeg >= 6 privzeto v nacinu hq. Kjer slike
-        # ne pomanjsamo, ostane pretvorba na procesorju - tam je poceni in izmerjena.
+        # sliko pretvori in pomanjsa sama (74 % CPU). Nacin `default` (algoritem izbere gonilnik) izrecno: ffmpeg >= 6
+        # brez njega vzame `hq`, ta pa je bil na Intel iHD za besedilo 3 dB slabsi (PSNR svetlosti 34,3 proti 37,4 dB;
+        # lanczos 37,5 dB), barve pa so enake kot s procesorjem (55 dB). Kjer slike ne pomanjsamo, ostane pretvorba na
+        # procesorju - tam je poceni in izmerjena.
         if gpu and lestvica:
-            filter_slike = f"hwupload,scale_vaapi={sirina}:{visina}:format=nv12"
+            filter_slike = f"hwupload,{SCALE_VAAPI.format(sirina=sirina, visina=visina)}"
         else:
             filter_slike = f"{filter_lestvica}format=nv12,hwupload"
         u += ["-vaapi_device", vaapi,
