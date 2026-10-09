@@ -163,6 +163,87 @@ class OdpovedZajema(unittest.TestCase):
                                                    types.SimpleNamespace(sendall=poslano.append), 32 * 1024, prebrano)
         self.assertEqual(prebrano, [17, False])
 
+    def test_crpalka_meri_cas_pisanja(self):
+        """`merilo` (meritve seje) dobi vsak sendall: vrsto, bajte celega okvirja in koliko casa je pisanje cakalo."""
+        import time
+        kosi = [b"\x00\x00\x00\x01\x65" + bytes(95), bytes(20), b""]
+        proces = types.SimpleNamespace(stdout=types.SimpleNamespace(read=lambda n: kosi.pop(0)))
+        poslano = []
+
+        def pocasi(b):
+            time.sleep(0.03)
+            poslano.append(b)
+
+        class Merilo:
+            def __init__(self):
+                self.klici = []
+
+            def poslano(self, vrsta, bajtov, cakal_s):
+                self.klici.append((vrsta, bajtov, cakal_s))
+
+        merilo = Merilo()
+        link_zaslon.Zaslon(vklopljeno=True)._crpaj(proces, link_zaslon.OKVIR_SLIKA,
+                                                   types.SimpleNamespace(sendall=pocasi), 32 * 1024, None,
+                                                   merilo=merilo)
+        self.assertEqual(len(poslano), 2)
+        self.assertEqual([(v, b) for v, b, _ in merilo.klici], [(link_zaslon.OKVIR_SLIKA, 105), (link_zaslon.OKVIR_SLIKA, 25)])
+        self.assertTrue(all(0.025 <= c < 1.0 for _, _, c in merilo.klici), merilo.klici)
+
+        # Merilo, ki pade, slike ne ustavi.
+        kosi = [bytes(10), bytes(10), b""]
+        poslano.clear()
+
+        class Pade:
+            def poslano(self, *_a):
+                raise RuntimeError("meritev")
+        link_zaslon.Zaslon(vklopljeno=True)._crpaj(proces, link_zaslon.OKVIR_ZVOK,
+                                                   types.SimpleNamespace(sendall=poslano.append), 1920, merilo=Pade())
+        self.assertEqual(len(poslano), 2)
+
+
+class DiagnozaKodirnika(unittest.TestCase):
+    """tools/preveri-kodirnik.py: kratki preizkusi na vsaki napravi, izid kot JSON (brez prave graficne kartice)."""
+
+    def test_vsak_preizkus_na_vsaki_napravi(self):
+        ukazi = []
+
+        def zazeni(ukaz, **_k):
+            ukazi.append(ukaz)
+            # Gonilnik zna samo CQP (kot iHD brez HuC): bitna hitrost pade.
+            ok = "VBR" not in ukaz and "CBR" not in ukaz
+            return subprocess.CompletedProcess(ukaz, 0 if ok else 1, b"", b"" if ok else b"No usable RC mode\n")
+
+        izid = link_zaslon.diagnoza_kodirnika("ffmpeg", ["/dev/dri/renderD128", "/dev/dri/renderD129"], zazeni=zazeni)
+        self.assertEqual(len(ukazi), 2 * len(link_zaslon.PREIZKUSI_KODIRNIKA))
+        d = izid["naprave"]["/dev/dri/renderD128"]
+        self.assertEqual(sorted(d), sorted(["h264_cqp", "h264_cqp_async_depth_1", "h264_cqp_aud", "h264_vbr_4M",
+                                            "h264_cbr_4M", "hevc_cqp"]))
+        self.assertTrue(d["h264_cqp"]["ok"])
+        self.assertTrue(d["h264_cqp_async_depth_1"]["ok"])
+        self.assertFalse(d["h264_vbr_4M"]["ok"])
+        self.assertIn("RC mode", d["h264_vbr_4M"]["napaka"])
+        for ukaz in ukazi:
+            self.assertIn("-frames:v", ukaz)
+            self.assertEqual(ukaz[ukaz.index("-frames:v") + 1], "3")
+        self.assertTrue(any("-async_depth" in u for u in ukazi))
+        self.assertTrue(any("-aud" in u for u in ukazi))
+        self.assertTrue(any("huc" in n for n in izid["namigi"]))
+
+    def test_brez_ffmpeg_ali_naprave(self):
+        with mock.patch.object(link_zaslon.shutil, "which", return_value=None):
+            self.assertIn("napaka", link_zaslon.diagnoza_kodirnika(None, []))
+        izid = link_zaslon.diagnoza_kodirnika("ffmpeg", [], zazeni=lambda *a, **k: self.fail("brez naprave ni preizkusa"))
+        self.assertEqual(izid["naprave"], {})
+
+    def test_kodirnik_ukaza(self):
+        u = link_zaslon.ukaz_ffmpeg(":0", 1920, 1080, 1920, 1080, 60, "24M", "/dev/dri/renderD128", qp=16)
+        self.assertEqual(link_zaslon.kodirnik_ukaza(u), "h264_vaapi")
+        self.assertEqual(link_zaslon.vrsta_kodirnika("h264_vaapi"), "vaapi")
+        u = link_zaslon.ukaz_ffmpeg(":0", 1920, 1080, 1920, 1080, 60, "24M", None)
+        self.assertEqual(link_zaslon.kodirnik_ukaza(u), "libx264")
+        self.assertEqual(link_zaslon.vrsta_kodirnika("libx264"), "x264")
+        self.assertEqual(link_zaslon.kodirnik_ukaza(["/bin/true"], strojno=True), "h264_vaapi")
+
 
 class Ukazi(unittest.TestCase):
     def setUp(self):

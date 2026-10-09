@@ -30,7 +30,7 @@ import threading
 import time
 from typing import Dict, List, Optional
 
-from core import link_vticnik
+from core import link_vticnik, link_zaslon_meritve
 from core.link_datoteke import TLS_MAPA, zagotovi_potrdilo
 from core.link_mediji import dogodek_v_tipko
 from core.link_plosek import Plosek
@@ -106,6 +106,66 @@ def kakovost_za_pot(kakovost: str, prek_huba: bool, omrezje: str = "") -> str:
     return kakovost if VRSTNI_RED_KAKOVOSTI.index(kakovost) <= VRSTNI_RED_KAKOVOSTI.index(meja) else meja
 #: Kako pogosto seja, ki caka gledalca, pogleda, ali ji je povezavo predal Hub.
 PREVERI_PREVZETE_S = 0.2
+
+# Meritve seje (core/link_zaslon_meritve.py; 1. faza: samo merimo, slika, poti in roki ostanejo).
+#: Ping gledalcu, ki zna 'rtt' (caps v screen.start; glava toka to potrdi z "rtt": true).
+UTRIP_S = 0.5
+#: Nit meritev: TCP_INFO vticnice seje enkrat na sekundo, vrstica v dnevnik vsakih 10 s. Na vticnico ne pise nikoli.
+MERITVE_S = 1.0
+MERITVE_DNEVNIK_S = 10.0
+#: Povzetek vsake seje gre v dnevnik, seje s sliko pa se kot ena vrstica JSON v
+#: <link_hub.NASTAVITVE_MAPA>/meritve/zaslon-seje.jsonl; SAFEER_ZASLON_MERITVE pove drugo pot.
+#: Nad 1 MiB datoteko zamenjamo (stara gre v .1).
+POVZETKI_NAJVEC_B = 1024 * 1024
+
+
+def rtt_vklopljen() -> bool:
+    """Ping v toku slike je privzeto vklopljen (za gledalca, ki ga zna); SAFEER_ZASLON_RTT=0 ga izklopi."""
+    return os.environ.get("SAFEER_ZASLON_RTT", "1").strip() != "0"
+
+
+def pot_povzetkov() -> str:
+    """Datoteka s povzetki sej: SAFEER_ZASLON_MERITVE ali <NASTAVITVE_MAPA>/meritve/zaslon-seje.jsonl."""
+    pot = os.environ.get("SAFEER_ZASLON_MERITVE", "").strip()
+    if pot:
+        return pot
+    from core import link_hub
+    return os.path.join(link_hub.NASTAVITVE_MAPA, "meritve", "zaslon-seje.jsonl")
+
+
+def zapisi_povzetek(povzetek: dict, pot: Optional[str] = None) -> None:
+    """Doda vrstico JSON v datoteko povzetkov; nad POVZETKI_NAJVEC_B jo prej zamenja (.1). Napaka diska ni napaka seje."""
+    pot = pot or pot_povzetkov()
+    try:
+        mapa = os.path.dirname(pot)
+        if mapa:
+            os.makedirs(mapa, exist_ok=True)
+        try:
+            if os.path.getsize(pot) > POVZETKI_NAJVEC_B:
+                os.replace(pot, pot + ".1")
+        except OSError:
+            pass
+        with open(pot, "a", encoding="utf-8") as d:
+            d.write(json.dumps(povzetek, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+#: Kodirniki v ukazu zajema (ffmpeg -c:v ..., wf-recorder -c ...).
+_KODIRNIKI = ("h264_vaapi", "hevc_vaapi", "libx264")
+
+
+def kodirnik_ukaza(ukaz, strojno: bool = False) -> str:
+    """Kodirnik, ki ga ukaz zajema res uporabi (h264_vaapi, hevc_vaapi, libx264); brez njega po `strojno`."""
+    for del_ukaza in ukaz or ():
+        if del_ukaza in _KODIRNIKI:
+            return del_ukaza
+    return "h264_vaapi" if strojno else "libx264"
+
+
+def vrsta_kodirnika(kodirnik: str) -> str:
+    """'vaapi' (graficna kartica) ali 'x264' (procesor) - kot ga pove glava toka."""
+    return "vaapi" if kodirnik.endswith("_vaapi") else "x264"
 
 
 #: Meje locenega zaslona, kadar ga oblikujemo po napravi, ki gleda (tocke; daljsa in krajsa stranica).
@@ -234,6 +294,62 @@ def hevc_mozen(ffmpeg: str, vaapi: Optional[str]) -> bool:
         except Exception:  # noqa: BLE001 - brez preizkusa ostanemo pri H.264
             _HEVC[kljuc] = False
     return _HEVC[kljuc]
+
+
+#: Preizkusi diagnoze kodirnika (tools/preveri-kodirnik.py): ime -> kodirnik in njegove moznosti. Prvi je danasnji
+#: nacin seje; ostali povedo, kaj bi gonilnik se zmogel (-async_depth, -aud, bitna hitrost namesto kvantizatorja).
+PREIZKUSI_KODIRNIKA = (
+    ("h264_cqp", ["-c:v", "h264_vaapi", "-profile:v", "high", "-rc_mode", "CQP", "-qp", "24"]),
+    ("h264_cqp_async_depth_1", ["-c:v", "h264_vaapi", "-profile:v", "high", "-rc_mode", "CQP", "-qp", "24",
+                                "-async_depth", "1"]),
+    ("h264_cqp_aud", ["-c:v", "h264_vaapi", "-profile:v", "high", "-rc_mode", "CQP", "-qp", "24", "-aud", "1"]),
+    ("h264_vbr_4M", ["-c:v", "h264_vaapi", "-profile:v", "high", "-rc_mode", "VBR", "-b:v", "4M"]),
+    ("h264_cbr_4M", ["-c:v", "h264_vaapi", "-profile:v", "high", "-rc_mode", "CBR", "-b:v", "4M"]),
+    ("hevc_cqp", ["-c:v", "hevc_vaapi", "-profile:v", "main", "-rc_mode", "CQP", "-qp", "24"]),
+)
+
+
+def naprave_vaapi() -> List[str]:
+    """Vse naprave za strojno kodiranje (/dev/dri/renderD*), do katerih ima ta uporabnik dostop."""
+    try:
+        imena = sorted(i for i in os.listdir("/dev/dri") if i.startswith("renderD"))
+    except OSError:
+        return []
+    return [os.path.join("/dev/dri", i) for i in imena if os.access(os.path.join("/dev/dri", i), os.R_OK | os.W_OK)]
+
+
+def diagnoza_kodirnika(ffmpeg: Optional[str] = None, naprave: Optional[List[str]] = None,
+                       zazeni=subprocess.run) -> dict:
+    """Kaj strojni kodirnik tega racunalnika res zmore: na vsaki dostopni napravi kratek preizkus (3 slike lavfi,
+    kot hevc_mozen) za vsak nacin iz PREIZKUSI_KODIRNIKA. Samo za orodje tools/preveri-kodirnik.py - aplikacija
+    tega ne klice. Izid: {"ffmpeg", "naprave": {pot: {preizkus: {"ok", "napaka"}}}, "namigi"}."""
+    ffmpeg = ffmpeg or shutil.which("ffmpeg") or ""
+    naprave = naprave_vaapi() if naprave is None else list(naprave)
+    izid: dict = {"ffmpeg": ffmpeg, "naprave": {}, "namigi": [
+        "vainfo --display drm --device /dev/dri/renderD128 | grep -iE 'h264|hevc'",
+        "sudo dmesg | grep -iE 'huc|guc'",
+        "sudo cat /sys/kernel/debug/dri/0/gt0/uc/huc_info  (pot se lahko razlikuje)"]}
+    if not ffmpeg:
+        izid["napaka"] = "ffmpeg ni namescen"
+        return izid
+    if not naprave:
+        izid["napaka"] = "ni dostopne naprave /dev/dri/renderD*"
+    for naprava in naprave:
+        preizkusi = {}
+        for ime, moznosti in PREIZKUSI_KODIRNIKA:
+            ukaz = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-vaapi_device", naprava,
+                    "-f", "lavfi", "-i", "color=black:size=320x240:rate=30", "-frames:v", "3",
+                    "-vf", "format=nv12,hwupload"] + moznosti + ["-bf", "0", "-f", "null", "-"]
+            try:
+                r = zazeni(ukaz, capture_output=True, timeout=20, stdin=subprocess.DEVNULL)
+                napaka = (r.stderr or b"")
+                if isinstance(napaka, bytes):
+                    napaka = napaka.decode("utf-8", "replace")
+                preizkusi[ime] = {"ok": r.returncode == 0, "napaka": napaka.strip()[-300:]}
+            except Exception as e:  # noqa: BLE001 - diagnoza pove napako, ne pade
+                preizkusi[ime] = {"ok": False, "napaka": "%s: %s" % (type(e).__name__, e)}
+        izid["naprave"][naprava] = preizkusi
+    return izid
 
 
 def izberi_kodek(zeleni, hevc) -> str:
@@ -424,6 +540,8 @@ class Zaslon:
         self._vnosov = 0
         self._tece_od = 0.0
         self._povezan = False
+        #: Meritve tekoce seje (core/link_zaslon_meritve.Meritve) ali None, dokler gledalec ni povezan.
+        self._meritve: Optional[link_zaslon_meritve.Meritve] = None
         self._kljucavnica = threading.Lock()
 
     # ------------------------------------------------------------------ stanje
@@ -454,6 +572,11 @@ class Zaslon:
         if self._tece_od:
             s["sekund"] = int(time.time() - self._tece_od)
         s["vnosov"] = self._vnosov
+        meritve = self._meritve
+        if meritve is not None and self._povezan:
+            # Med sejo: meritve in kodirnik, ki ga zajem res uporablja (screen.status jih pokaze).
+            s["meritve"] = meritve.posnetek()
+            s["kodirnik"] = meritve.opis.get("kodirnik")
         return s
 
     # ------------------------------------------------------------------ zagon
@@ -692,6 +815,11 @@ class Zaslon:
         odjemalec = None
         konec_prevzete = None
         slika = zvok = None
+        meritve = None
+        #: Konec seje za niti utripa in meritev (finally ga nastavi).
+        konec_seje = threading.Event()
+        steklo = False
+        pot_meritev = ""
         try:
             sprejet = self._sprejmi(posluh, ctx)
             if sprejet is None:
@@ -708,11 +836,23 @@ class Zaslon:
                     and int(KAKOVOSTI[raven_poti]["fps"]) == int(self._slika["fps"]):
                 ukaz = sestavi(kodek_poti, KAKOVOSTI[raven_poti])
                 kodek_seje, raven_ime = kodek_poti, raven_poti
+            kodirnik = kodirnik_ukaza(ukaz, self._strojno)
+            meritve = link_zaslon_meritve.Meritve(pot="hub" if prek else "neposredno", kodek=kodek_seje,
+                                                  kakovost=raven_ime, kodirnik=vrsta_kodirnika(kodirnik))
+            meritve.opis["zaslon"] = self._cilj
+            # Kam gre povzetek, velja ob zacetku seje (konec seje je v drugi niti, morda po spremembi okolja).
+            pot_meritev = pot_povzetkov()
+            # Ping v toku samo gledalcu, ki ga zna (caps 'rtt'); glava mu to potrdi. Starejsi gledalec dobi iste
+            # bajte kot doslej.
+            utrip = "rtt" in self._zmoznosti and rtt_vklopljen()
             glava = {"v": 2, "w": self._slika["width"], "h": self._slika["height"],
                      "fps": self._slika["fps"], "kodek": kodek_seje,
                      "qp": int(KAKOVOSTI[raven_ime]["qp"]) if self._strojno else 0, "kakovost": raven_ime,
                      "zvok": {"hz": ZVOK_HZ, "kanali": ZVOK_KANALI, "oblika": "s16le"} if self._zvok_vir else None,
                      "vnos": self._vnos.mozno, "plosek": self._plosek.mozno()}
+            if utrip:
+                glava["rtt"] = True
+                glava["kodirnik"] = vrsta_kodirnika(kodirnik)
             odjemalec.sendall((json.dumps(glava) + "\n").encode("utf-8"))
             odjemalec.settimeout(None)
             # Sliko in zvok piseta dve niti, vnos bere tretja: vticnica TLS tega sama ne prenese
@@ -734,9 +874,11 @@ class Zaslon:
                 self._povezan = True
                 self._kodek = kodek_seje
                 self._kakovost = raven_ime
+                self._meritve = meritve
                 prebrano = [0, False]       # bajtov slike in ali je bila v toku ze kaka enota NAL
                 niti.append(threading.Thread(target=self._crpaj,
                                              args=(slika, OKVIR_SLIKA, odjemalec, 32 * 1024, prebrano),
+                                             kwargs={"merilo": meritve},
                                              name="safeer-zaslon-slika", daemon=True))
                 if self._zvok_vir:
                     try:
@@ -745,12 +887,22 @@ class Zaslon:
                         self._zvocni = zvok
                         # Zvok beremo v majhnih koscih (10 ms), da ne caka za veliko sliko.
                         niti.append(threading.Thread(target=self._crpaj, args=(zvok, OKVIR_ZVOK, odjemalec, 1920),
+                                                     kwargs={"merilo": meritve},
                                                      name="safeer-zaslon-zvok", daemon=True))
                     except Exception:
                         zvok = self._zvocni = None
+            print("[zaslon] seja: kodirnik %s, kodek %s, kakovost %s, %dx%d@%d, pot %s%s"
+                  % (kodirnik, kodek_seje, raven_ime, self._slika["width"], self._slika["height"], self._slika["fps"],
+                     meritve.opis["pot"], ", ping v toku" if utrip else ""), flush=True)
             # Vnos tece nazaj po isti povezavi; brati ga moramo sproti, sicer se vticnica zamasi.
-            niti.append(threading.Thread(target=self._beri_vnos, args=(odjemalec,),
+            niti.append(threading.Thread(target=self._beri_vnos, args=(odjemalec,), kwargs={"meritve": meritve},
                                          name="safeer-zaslon-vnos", daemon=True))
+            # Meritve: TCP_INFO in dnevnik (vedno; na vticnico ne pise), ping samo gledalcu, ki ga zna.
+            niti.append(threading.Thread(target=self._meri, args=(odjemalec, meritve, konec_seje),
+                                         name="safeer-zaslon-meritve", daemon=True))
+            if utrip:
+                niti.append(threading.Thread(target=self._utrip, args=(odjemalec, meritve, konec_seje),
+                                             name="safeer-zaslon-utrip", daemon=True))
             if self._cilj == "apps" and self.drugi is not None:
                 niti.append(threading.Thread(target=self._strazi_prazno, args=(odjemalec, slika),
                                              name="safeer-zaslon-prazno", daemon=True))
@@ -759,11 +911,14 @@ class Zaslon:
                                                  name="safeer-zaslon-medij", daemon=True))
             for n in niti:
                 n.start()
+            steklo = True
             niti[0].join()          # dokler tece slika, tece seja
             self._preveri_hevc(slika, kodek_seje, prebrano)
         except (OSError, ssl.SSLError, ValueError):
             pass
         finally:
+            konec_seje.set()                # niti utripa in meritev nehajo
+            povzetek = self._povzetek(meritve) if steklo else None
             # Najprej shutdown: druge niti (zvok, vnos) drzijo vticnico in sam close televizorju
             # ne bi poslal konca - ta bi gledal zamrznjeno sliko.
             _zapri(odjemalec)
@@ -771,12 +926,20 @@ class Zaslon:
                 konec_prevzete.set()        # nit Huba, ki je povezavo predala, se vrne
             _koncaj(slika)
             _koncaj(zvok)
+            if povzetek is not None:
+                print("[zaslon] povzetek seje: %s" % json.dumps(povzetek, ensure_ascii=False), flush=True)
+                # V zbirko meritev samo seje, v katerih je slika res tekla: seja brez ene same slike (zajem ni
+                # stekel, gledalec je odsel takoj) ni meritev poti in bi pokvarila porazdelitve.
+                if meritve.bajtov_slike() > 0:
+                    zapisi_povzetek(povzetek, pot_meritev)
             # Seja pospravi samo za sabo. Ce se je medtem zacela nova (televizor se je povezal znova), je ta nit
             # prej ustavila in podrla tudi njo: ustavi() ne loci, cigav je zajem, ki ga konca.
             with self._kljucavnica:
                 moja = self._seja_st == seja
                 if self._odjemalec is odjemalec:
                     self._odjemalec = None
+                if self._meritve is meritve:
+                    self._meritve = None
             if moja:
                 if self._cilj == "apps" and self.drugi is not None:
                     self._strazi_osirotele(seja)
@@ -902,13 +1065,16 @@ class Zaslon:
             print("[zaslon] zajem s HEVC ni dal slike (koda %d): do ponovnega zagona ostanemo pri H.264" % koda,
                   flush=True)
 
-    def _crpaj(self, proces: subprocess.Popen, vrsta: int, odjemalec, kos: int, prebrano=None) -> None:
+    def _crpaj(self, proces: subprocess.Popen, vrsta: int, odjemalec, kos: int, prebrano=None,
+               merilo=None) -> None:
         """Bere en vir (slika ali zvok) in ga v okvirjih poslje televizorju. Vsak okvir je en `sendall`
         na oviti vticnici, ta pa jamci, da se okvirja dveh virov nikoli ne prepleteta.
 
         Kljucavnica za pisanje je tako del povezave in ne vec del tega objekta: prej je pisanje stare seje, ki je
         obstalo (televizor je izginil brez slovesa), drzalo kljucavnico tudi novi seji - televizor se je povezal
-        znova, slike pa ni dobil, dokler jedro stare povezave ni opustilo."""
+        znova, slike pa ni dobil, dokler jedro stare povezave ni opustilo.
+
+        `merilo` (core/link_zaslon_meritve.Meritve): vsak sendall izmerimo - koliko bajtov in koliko casa je cakal."""
         tihih = 0
         try:
             while True:
@@ -927,7 +1093,16 @@ class Zaslon:
                             continue
                     else:
                         tihih = 0
-                odjemalec.sendall(_okvir(vrsta, podatki))
+                okvir = _okvir(vrsta, podatki)
+                if merilo is None:
+                    odjemalec.sendall(okvir)
+                    continue
+                zacetek = time.monotonic()
+                odjemalec.sendall(okvir)
+                try:
+                    merilo.poslano(vrsta, len(okvir), time.monotonic() - zacetek)
+                except Exception:  # noqa: BLE001 - meritev ne sme ustaviti slike
+                    pass
         except (OSError, ssl.SSLError, ValueError, AttributeError):
             pass
 
@@ -948,6 +1123,44 @@ class Zaslon:
             odjemalec.sendall(_okvir(OKVIR_OBVESTILO, json.dumps(podatki).encode("utf-8")))
         except (OSError, ssl.SSLError, ValueError):
             pass
+
+    # ------------------------------------------------------------------ meritve seje (1. faza: samo merimo)
+
+    def _utrip(self, odjemalec, meritve, konec: threading.Event) -> None:
+        """Nit 'safeer-zaslon-utrip' (samo gledalcu, ki zna 'rtt' in mu je glava to potrdila): vsakih UTRIP_S ping
+        v obvestilu {"rtt": {"n", "t", "z"}}. Cas zabelezimo PRED pisanjem: ping, ki obtici za vrsto, ze caka.
+        `t` je nasa monotona ura v ms (gledalec ga samo vrne), `z` zadnji izmerjeni zamik za prikaz na gledalcu."""
+        n = 0
+        while not konec.is_set():
+            n += 1
+            t = int(time.monotonic() * 1000)
+            meritve.ping_poslan(n, t)
+            self._obvesti(odjemalec, {"rtt": {"n": n, "t": t, "z": meritve.zadnji_rtt()}})
+            if konec.wait(UTRIP_S):
+                return
+
+    def _meri(self, odjemalec, meritve, konec: threading.Event) -> None:
+        """Nit 'safeer-zaslon-meritve': enkrat na sekundo TCP_INFO vticnice seje, vsakih MERITVE_DNEVNIK_S vrstica
+        v dnevnik. Na vticnico ne pise nikoli (bralni klic jedra, mimo TLS)."""
+        dnevnik = time.monotonic()
+        while not konec.wait(MERITVE_S):
+            try:
+                meritve.tcp(link_vticnik.tcp_info(odjemalec))
+                if time.monotonic() - dnevnik >= MERITVE_DNEVNIK_S:
+                    dnevnik = time.monotonic()
+                    print("[zaslon] meritve: %s" % link_zaslon_meritve.opis_posnetka(meritve.posnetek()), flush=True)
+            except Exception:  # noqa: BLE001 - meritve ne smejo podreti seje
+                pass
+
+    @staticmethod
+    def _povzetek(meritve) -> Optional[dict]:
+        """Vrstica za zaslon-seje.jsonl ob koncu seje (cas konca in povzetek meritev) ali None."""
+        if meritve is None:
+            return None
+        try:
+            return dict({"cas": time.strftime("%Y-%m-%dT%H:%M:%S%z")}, **meritve.povzetek())
+        except Exception:  # noqa: BLE001 - povzetek je samo opazovanje
+            return None
 
     def _nastavi_merilo(self, odjemalec, dogodek: dict) -> None:
         """Naprava hoce vecje ali manjse gumbe programov na locenem zaslonu (meni seje). Slika, ki jo posiljamo,
@@ -1005,8 +1218,11 @@ class Zaslon:
                 and f.tocka is not None:
             self._obvesti(odjemalec, {"kazalec": [int(f.tocka[0]), int(f.tocka[1])]})
 
-    def _beri_vnos(self, odjemalec) -> None:
-        """Dogodki televizorja (ena vrstica JSON na dogodek). Kar ni na seznamu dovoljenega, pade."""
+    def _beri_vnos(self, odjemalec, meritve=None) -> None:
+        """Dogodki televizorja (ena vrstica JSON na dogodek). Kar ni na seznamu dovoljenega, pade.
+
+        Odmev pinga ({"vrsta": "rtt", ...}) gre v `meritve` seje (core/link_zaslon_meritve.py) - nikoli do vnosa,
+        plosecka ali stevca vnosov."""
         ostanek = b""
         try:
             while True:
@@ -1021,6 +1237,13 @@ class Zaslon:
                     try:
                         dogodek = json.loads(vrstica.decode("utf-8", "replace"))
                     except ValueError:
+                        continue
+                    if isinstance(dogodek, dict) and dogodek.get("vrsta") == "rtt":
+                        if meritve is not None:
+                            try:
+                                meritve.pong(dogodek, time.monotonic())
+                            except Exception:  # noqa: BLE001 - meritev ne sme ustaviti vnosa
+                                pass
                         continue
                     if isinstance(dogodek, dict) and dogodek.get("vrsta") == "tocka":
                         dogodek = self._v_zaslon(dogodek)

@@ -35,6 +35,7 @@ from __future__ import annotations
 import select
 import socket
 import ssl
+import struct
 import threading
 import time
 from typing import Optional
@@ -204,3 +205,56 @@ def brez_zamika(vticnik) -> None:
         vticnik.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     except (OSError, AttributeError, ValueError):
         pass
+
+
+#: struct tcp_info (Linux): polje -> (odmik, oblika). Odmiki preverjeni na jedru 6.18 (struktura ima 280 B).
+#: rtt, rttvar in min_rtt so v mikrosekundah, delivery_rate v bajtih na sekundo.
+_TCP_INFO_POLJA = (
+    ("state", 0, "B"), ("rtt_us", 68, "I"), ("rttvar_us", 72, "I"), ("snd_cwnd", 80, "I"),
+    ("total_retrans", 100, "I"), ("segs_out", 136, "I"), ("neposlano", 144, "I"), ("min_rtt_us", 148, "I"),
+    ("data_segs_out", 156, "I"), ("delivery_rate", 160, "Q"), ("bytes_sent", 200, "Q"),
+    ("bytes_retrans", 208, "Q"))
+_TCP_INFO_DOLZINA = 280
+#: Brez teh bajtov (do vkljucno total_retrans) meritev nima smisla.
+_TCP_INFO_NAJMANJ = 104
+
+
+def tcp_info(vticnik) -> Optional[dict]:
+    """Stanje povezave TCP po jedru (TCP_INFO): zamik, okno, ponovitve, bajti, ki se cakajo v jedru.
+
+    Samo branje (getsockopt) - na povezavi ne spremeni nicesar. Deluje tudi na VarnaTls (getsockopt gre na
+    ovito vticnico). Razclenimo samo polja, ki jih vrnjena dolzina res pokrije (starejse jedro vrne manj).
+    None: vticnica ni TCP (npr. AF_UNIX), sistem TCP_INFO ne pozna, buffer je prekratek ali napaka."""
+    opcija = getattr(socket, "TCP_INFO", None)
+    if opcija is None:
+        return None
+    try:
+        if getattr(vticnik, "family", None) not in (socket.AF_INET, socket.AF_INET6):
+            return None
+        surovo = vticnik.getsockopt(socket.IPPROTO_TCP, opcija, _TCP_INFO_DOLZINA)
+    except (OSError, AttributeError, ValueError, TypeError):
+        return None
+    if not isinstance(surovo, (bytes, bytearray)) or len(surovo) < _TCP_INFO_NAJMANJ:
+        return None
+    izid = {}
+    for ime, odmik, oblika in _TCP_INFO_POLJA:
+        konec = odmik + struct.calcsize("=" + oblika)
+        if konec <= len(surovo):
+            izid[ime] = struct.unpack_from("=" + oblika, surovo, odmik)[0]
+    return izid
+
+
+def delez_retrans(prej: Optional[dict], zdaj: Optional[dict]) -> Optional[float]:
+    """Delez ponovno poslanega med dvema meritvama tcp_info: d(bytes_retrans)/d(bytes_sent).
+
+    Kjer bajtov ni (starejse jedro), d(total_retrans)/d(data_segs_out). Nikoli segs_out: ta steje tudi gole
+    potrditve (izmerjeno: segs_out 14, data_segs_out 12) in bi delez umetno znizal. None: ni podatkov ali prometa."""
+    if not prej or not zdaj:
+        return None
+    for stevec, imenovalec in (("bytes_retrans", "bytes_sent"), ("total_retrans", "data_segs_out")):
+        if all(k in prej and k in zdaj for k in (stevec, imenovalec)):
+            d_imen = zdaj[imenovalec] - prej[imenovalec]
+            if d_imen <= 0:
+                return None
+            return max(0.0, min(1.0, (zdaj[stevec] - prej[stevec]) / float(d_imen)))
+    return None

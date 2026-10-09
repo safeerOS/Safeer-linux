@@ -269,6 +269,82 @@ class Ovijanje(unittest.TestCase):
             b.close()
 
 
+@unittest.skipUnless(hasattr(socket, "TCP_INFO"), "TCP_INFO je samo na Linuxu")
+class StanjeTcp(unittest.TestCase):
+    """tcp_info(): samo branje stanja jedra (meritve seje zaslona in poti soseda)."""
+
+    def test_tcp_info_na_zanki(self):
+        posluh = socket.socket()
+        posluh.bind(("127.0.0.1", 0))
+        posluh.listen(1)
+        a = socket.create_connection(posluh.getsockname(), timeout=5)
+        b, _ = posluh.accept()
+        posluh.close()
+        try:
+            prej = link_vticnik.tcp_info(a)
+            a.sendall(b"x" * 200000)
+            prejeto = 0
+            b.settimeout(5)
+            while prejeto < 200000:
+                prejeto += len(b.recv(65536))
+            zdaj = link_vticnik.tcp_info(a)
+            for info in (prej, zdaj):
+                self.assertIsNotNone(info)
+                self.assertEqual(info["state"], 1)                      # TCP_ESTABLISHED
+                self.assertGreaterEqual(info["rtt_us"], 0)
+                self.assertGreaterEqual(info["neposlano"], 0)
+                # segs_out steje tudi gole potrditve, data_segs_out samo podatke.
+                self.assertLessEqual(info["data_segs_out"], info["segs_out"])
+            self.assertGreaterEqual(zdaj["bytes_sent"] - prej["bytes_sent"], 200000)
+            # Delez iz bajtov (ne iz segmentov); na zanki ni izgub.
+            self.assertEqual(link_vticnik.delez_retrans(prej, zdaj), 0.0)
+            self.assertEqual(link_vticnik.delez_retrans({"bytes_sent": 1000, "bytes_retrans": 0, "segs_out": 10},
+                                                        {"bytes_sent": 3000, "bytes_retrans": 100, "segs_out": 90}),
+                             0.05)
+            self.assertEqual(link_vticnik.delez_retrans({"total_retrans": 0, "data_segs_out": 10},
+                                                        {"total_retrans": 2, "data_segs_out": 50}), 0.05)
+            self.assertIsNone(link_vticnik.delez_retrans(zdaj, zdaj), "brez prometa delez ni znan")
+            self.assertIsNone(link_vticnik.delez_retrans(None, zdaj))
+        finally:
+            a.close()
+            b.close()
+
+    def test_tcp_info_skozi_varno_tls(self):
+        mapa = tempfile.mkdtemp(prefix="safeer-vticnik-tcp-")
+        try:
+            try:
+                a, b = _par_tls(mapa)
+            except Exception as e:  # noqa: BLE001 - brez orodja za potrdilo testa ni mogoce izvesti
+                self.skipTest("potrdila ni mogoce ustvariti: %s" % e)
+            a.settimeout(5.0)
+            va, vb = link_vticnik.zavaruj(a), link_vticnik.zavaruj(b)
+            try:
+                self.assertIsInstance(va, link_vticnik.VarnaTls)
+                va.sendall(b"pozdrav")
+                self.assertEqual(vb.recv(64), b"pozdrav")
+                info = link_vticnik.tcp_info(va)
+                self.assertIsNotNone(info)
+                self.assertEqual(info["state"], 1)
+                self.assertGreater(info["bytes_sent"], 0)
+            finally:
+                va.close()
+                vb.close()
+        finally:
+            shutil.rmtree(mapa, ignore_errors=True)
+
+    def test_brez_tcp_vrne_none(self):
+        a, b = socket.socketpair()
+        try:
+            self.assertIsNone(link_vticnik.tcp_info(a))
+        finally:
+            a.close()
+            b.close()
+        self.assertIsNone(link_vticnik.tcp_info(object()))
+        zaprta = socket.socket()
+        zaprta.close()
+        self.assertIsNone(link_vticnik.tcp_info(zaprta))
+
+
 def _okvir_streznika(telo: bytes, opkoda: int = 0x1, zadnji: bool = True) -> bytes:
     glava = bytes([(0x80 if zadnji else 0) | opkoda])
     if len(telo) < 126:
