@@ -71,6 +71,17 @@ class TestPlayerGTK(unittest.TestCase):
 
             okno.destroy()
 
+    def test_ustavi(self):
+        with patch("core.os_knjiznica.Knjiznica.seznam", return_value=[]):
+            okno = os_player_gtk.SafeerPlayerOkno()
+            if okno.predvajalnik is not None:
+                okno.predvajalnik.ustavi = MagicMock()
+                okno.ustavi()
+                okno.predvajalnik.ustavi.assert_called_once()
+            self.assertEqual(okno.sklad.get_visible_child_name(), "knjiznica")
+            self.assertEqual(okno.btn_premor.get_label(), "▶")
+            okno.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()

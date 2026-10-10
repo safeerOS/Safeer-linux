@@ -1489,9 +1489,12 @@ class SafeerOS(Gtk.Application):
             okno.set_icon_name("safeer-browser")
 
     def _zapri_predvajalnik(self, okno, *_a) -> bool:
-        """Zapiranje okna Safeer Player. Ob delovni povrsini ali glavnem oknu se okno samo skrije: predvajanje tece
-        naprej (tudi vrsta skladb iz kataloga, ki jo vodi njegova stran), mini predvajalnik ga kaze, naslednji klic
-        okno takoj vrne. Samostojni Safeer Player (zagon iz menija brez Safeer OS) se zapre kot vsak predvajalnik."""
+        """Zapiranje okna Safeer Player. Ob kliku na X se predvajalnik popolnoma ustavi."""
+        if hasattr(okno, "ustavi"):
+            try:
+                okno.ustavi()
+            except Exception:
+                pass
         if self.okno_delovna is not None or self.okno is not None:
             okno.hide()
             return True

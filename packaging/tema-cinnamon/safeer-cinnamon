@@ -636,6 +636,19 @@ nastavi_globalno_bliznjico('Safeer Iskanje', 'safeer-os --iskanje', ['<Super>spa
 " 2>/dev/null || true
 }
 
+namizje_ikone() {
+    local d vnos="/usr/share/applications/safeer-os.Player.desktop"
+    [ -f "$vnos" ] || return 0
+    for d in "$(xdg-user-dir DESKTOP 2>/dev/null || echo)" "$HOME/Namizje" "$HOME/Desktop"; do
+        [ -d "$d" ] || continue
+        if [ ! -f "$d/safeer-player.desktop" ] && [ ! -f "$d/safeer-os.Player.desktop" ]; then
+            cp "$vnos" "$d/safeer-player.desktop" 2>/dev/null || continue
+            chmod +x "$d/safeer-player.desktop" 2>/dev/null || true
+            gio set "$d/safeer-player.desktop" metadata::trusted true 2>/dev/null || true
+        fi
+    done
+}
+
 # ---------------------------------------------------------------------------- vklop, izklop
 # $1 = postavitev (videz | dock | delovna), $2 = ozadje (glej ozadje)
 vklopi() {
@@ -657,6 +670,7 @@ vklopi() {
     tema
     ozadje "${2:-}" "$ze"
     bliznjica_iskanja
+    namizje_ikone
     case "$profil" in
         videz)   delovna_izklopi; dock_izklopi; seznam_oken_vrni; pult_vrni ;;
         dock)    delovna_izklopi; pult_zgoraj; seznam_oken_skrij; dock ;;

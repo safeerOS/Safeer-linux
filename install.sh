@@ -91,6 +91,11 @@ for d in "$HOME/Namizje" "$HOME/Desktop"; do
         cp "$DESKTOP_DIR/safeer-browser.desktop" "$d/safeer-browser.desktop"
         chmod +x "$d/safeer-browser.desktop"
         gio set "$d/safeer-browser.desktop" metadata::trusted true 2>/dev/null || true
+        if [[ -f "$DIR/packaging/safeer-player.desktop" ]]; then
+            cp "$DIR/packaging/safeer-player.desktop" "$d/safeer-player.desktop"
+            chmod +x "$d/safeer-player.desktop"
+            gio set "$d/safeer-player.desktop" metadata::trusted true 2>/dev/null || true
+        fi
     fi
 done
 
