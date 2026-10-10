@@ -262,7 +262,7 @@ class ViriVJeziku(unittest.TestCase):
         self.viri.radio = lambda *a: klici.append(("radio", a)) or []
         self.viri.javna_last = lambda *a: klici.append(("javna_last", a)) or []
         self.viri.get("", ["h"], "", "sl")
-        self.assertEqual(dict(klici), {"videos": ("", ["h"], "sl"), "music": ("", "", "sl"), "radio": ("",), "javna_last": ("",)})
+        self.assertEqual(dict(klici), {"videos": ("", ["h"], "sl"), "music": ("", "", "sl"), "radio": ("",), "javna_last": ("", "sl", "")})
         klici.clear()
         self.viri.get("", None, "rock", "sl")
         self.assertEqual(dict(klici), {"music": ("", "rock", "sl"), "radio": ("", "rock")})
