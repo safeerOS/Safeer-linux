@@ -1,27 +1,26 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Safeer Cinnamon Desktop — Unified Debian .deb Package Builder (Prototip)
+# Safeer Cinnamon Desktop — Unified Debian .deb Package Builder + Transitional Packages
 # Combines Safeer OS, Safeer Control, Safeer Player, and Cinnamon Theme into ONE package.
-# Package: safeer-cinnamon-desktop_<version>_all.deb
+# Main package: safeer-cinnamon-desktop_0.5.0_all.deb
+# Transitional packages: safeer-os_0.5.0_all.deb, safeer-control_2.2.0_all.deb, etc.
 # ==============================================================================
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PKG_NAME="safeer-cinnamon-desktop"
-VERSION_OS="$(cat "$DIR/packaging/VERSION_OS")"
-VERSION="${VERSION_OS}"
+VERSION="0.5.0"
 ARCH="all"
 OUT_DIR="$(cd "$DIR/.." && pwd)"
 DEB_PACKAGE="${PKG_NAME}_${VERSION}_${ARCH}.deb"
 
-STAGE="$DIR/build/stage-unified"
 BUILD_ROOT="$DIR/build/deb-unified"
 
 echo "=========================================================="
-echo "📦 Gradnja enotnega Debian paketa: $DEB_PACKAGE"
+echo "📦 Gradnja enotnega Debian paketa: $DEB_PACKAGE (v$VERSION)"
 echo "=========================================================="
 
-rm -rf "$STAGE" "$BUILD_ROOT"
+rm -rf "$BUILD_ROOT"
 mkdir -p "$BUILD_ROOT/DEBIAN"
 
 # 1. Namestitev Safeer Control tovora
@@ -59,20 +58,21 @@ sed -i 's|^Exec=safeer-os|Exec=/usr/bin/safeer-os|' "$BUILD_ROOT/usr/share/appli
 sed -i 's|^Exec=safeer-control|Exec=/usr/bin/safeer-control|' "$BUILD_ROOT/usr/share/applications/safeer-control.desktop" 2>/dev/null || true
 
 # Generiranje DEBIAN/control z zamenjavo starih paketov (Replaces/Breaks/Provides)
+# Opomba: mint-themes premaknjen v Recommends / alternativno odvisnost zaradi Ubuntu Cinnamon združljivosti.
 cat << EOF2 > "$BUILD_ROOT/DEBIAN/control"
 Package: ${PKG_NAME}
 Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: ${ARCH}
-Replaces: safeer-os, safeer-control, safeer-os-tema, safeer-cinnamon
+Replaces: safeer-os (<< 0.5.0), safeer-control (<< 2.2.0), safeer-os-tema (<< 0.5.0), safeer-cinnamon (<< 1.3.0)
 Breaks: safeer-os (<< 0.5.0), safeer-control (<< 2.2.0), safeer-os-tema (<< 0.5.0), safeer-cinnamon (<< 1.3.0)
 Provides: safeer-os, safeer-control, safeer-os-tema, safeer-cinnamon
-Depends: python3, python3-cryptography, python3-gi, python3-gi-cairo, gir1.2-gtk-3.0, gir1.2-webkit2-4.1, gir1.2-soup-3.0, gir1.2-glib-2.0, gir1.2-secret-1, gir1.2-gstreamer-1.0, gir1.2-atspi-2.0, gstreamer1.0-gtk3, gstreamer1.0-libav, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-base, python3-qrcode, mint-themes, dconf-cli
-Recommends: network-manager, pulseaudio-utils, policykit-1, xdg-utils, gir1.2-wnck-3.0, x11-utils, cinnamon, plank, python3-pil
+Depends: python3, python3-cryptography, python3-gi, python3-gi-cairo, gir1.2-gtk-3.0, gir1.2-webkit2-4.1, gir1.2-soup-3.0, gir1.2-glib-2.0, gir1.2-secret-1, gir1.2-gstreamer-1.0, gir1.2-atspi-2.0, gstreamer1.0-gtk3, gstreamer1.0-libav, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-base, python3-qrcode, dconf-cli
+Recommends: mint-themes | yaru-theme-gtk, network-manager, pulseaudio-utils, policykit-1, xdg-utils, gir1.2-wnck-3.0, x11-utils, cinnamon, plank, python3-pil
 Maintainer: Safeer <info@safeer.si>
 Homepage: https://safeer.si/os/
-Description: Safeer Desktop Environment on Linux Mint Cinnamon
+Description: Safeer Desktop Environment on Linux Mint & Ubuntu Cinnamon
  Unified package containing Safeer OS, Safeer Control, Safeer Player, and the
  Safeer Cinnamon theme into one sovereign desktop experience.
 EOF2
@@ -131,3 +131,45 @@ done
 echo "🔨 Izdelava enotnega paketa z dpkg-deb..."
 dpkg-deb --build --root-owner-group "$BUILD_ROOT" "$OUT_DIR/$DEB_PACKAGE"
 echo "✅ Paket uspešno zgrajen: $OUT_DIR/$DEB_PACKAGE"
+
+# ==============================================================================
+# Gradnja PREHODNIH PAKETOV (Transitional Dummy Packages)
+# ==============================================================================
+zgradi_prehodni() {
+    local p_ime="$1"
+    local p_ver="$2"
+    local p_root="$DIR/build/deb-prehodni-$p_ime"
+    local p_deb="${p_ime}_${p_ver}_all.deb"
+
+    rm -rf "$p_root"
+    mkdir -p "$p_root/DEBIAN"
+
+    cat << EOF > "$p_root/DEBIAN/control"
+Package: ${p_ime}
+Version: ${p_ver}
+Section: oldlibs
+Priority: optional
+Architecture: all
+Depends: safeer-cinnamon-desktop (>= ${VERSION})
+Maintainer: Safeer <info@safeer.si>
+Description: Transitional dummy package for ${p_ime} -> safeer-cinnamon-desktop
+ This is a transitional dummy package to automatically upgrade existing installs
+ of ${p_ime} to the unified safeer-cinnamon-desktop package. It can be safely removed.
+EOF
+    chmod 644 "$p_root/DEBIAN/control"
+
+    cat << 'EOF' > "$p_root/DEBIAN/postinst"
+#!/bin/sh
+set -eu
+exit 0
+EOF
+    chmod 755 "$p_root/DEBIAN/postinst"
+
+    dpkg-deb --build --root-owner-group "$p_root" "$OUT_DIR/$p_deb"
+    echo "✅ Prehodni paket zgrajen: $OUT_DIR/$p_deb"
+}
+
+zgradi_prehodni "safeer-os" "0.5.0"
+zgradi_prehodni "safeer-control" "2.2.0"
+zgradi_prehodni "safeer-os-tema" "0.5.0"
+zgradi_prehodni "safeer-cinnamon" "1.3.0"
