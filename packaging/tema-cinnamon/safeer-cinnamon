@@ -342,14 +342,18 @@ dock_prilagodi() {
 # potem doda (povleci iz menija) ali odstrani (povleci ven), ostane njegovo. Izklop vrne prejsnji nabor.
 # Najprej programi, ki jih je imel uporabnik pripete na seznamu oken pulta (njegovi priljubljeni), sicer
 # upravljalnik datotek, brskalnik, Safeer OS in terminal. Nastavitve in namestitev programov sta v meniju.
-NABOR_DOCKA="nemo safeer-browser safeer-os org.gnome.Terminal"
+NABOR_DOCKA="nemo safeer-browser safeer-player safeer-os org.gnome.Terminal"
 LAUNCHERJI="${XDG_CONFIG_HOME:-$HOME/.config}/plank/dock1/launchers"
 
 najdi_program() {
-    local d
+    local d imena="$1"
+    [ "$1" = "safeer-player" ] && imena="safeer-player safeer-os.Player"
+    [ "$1" = "safeer-os.Player" ] && imena="safeer-os.Player safeer-player"
     for d in "${XDG_DATA_HOME:-$HOME/.local/share}/applications" "$KOREN/usr/local/share/applications" \
              "$KOREN/usr/share/applications" "$KOREN/var/lib/flatpak/exports/share/applications"; do
-        [ -f "$d/$1.desktop" ] && { printf '%s\n' "$d/$1.desktop"; return 0; }
+        for ime in $imena; do
+            [ -f "$d/$ime.desktop" ] && { printf '%s\n' "$d/$ime.desktop"; return 0; }
+        done
     done
     return 1
 }
@@ -386,7 +390,7 @@ dock_dodaj_pripete() {
     mkdir -p "$LAUNCHERJI"
     for ime in $(pripeti_s_pulta); do
         pot="$(najdi_program "$ime")" || continue
-        grep -qsF "/$ime.desktop" "$LAUNCHERJI"/*.dockitem && continue          # ze v docku
+        grep -qsF "/$(basename "$pot")" "$LAUNCHERJI"/*.dockitem && continue          # ze v docku
         printf '[PlankDockItemPreferences]\nLauncher=file://%s\n' "$pot" > "$LAUNCHERJI/$ime.dockitem"
         dodano="$dodano${dodano:+, }'$ime.dockitem'"
     done
@@ -407,7 +411,7 @@ nabor_docka() {
     if [ -d "$LAUNCHERJI" ]; then rm -rf "$MAPA/plank-launcherji-prej"; cp -a "$LAUNCHERJI" "$MAPA/plank-launcherji-prej"; fi
     rm -rf "$LAUNCHERJI"; mkdir -p "$LAUNCHERJI"
     nabor="$(pripeti_s_pulta)"
-    [ -n "$nabor" ] && nabor="$nabor safeer-os" || nabor="$NABOR_DOCKA"
+    [ -n "$nabor" ] && nabor="$nabor safeer-player safeer-os" || nabor="$NABOR_DOCKA"
     for ime in $nabor; do
         [ -e "$LAUNCHERJI/$ime.dockitem" ] && continue
         pot="$(najdi_program "$ime")" || continue
@@ -616,6 +620,22 @@ od_vklopa() {
     return "$koda"
 }
 
+bliznjica_iskanja() {
+    command -v python3 >/dev/null 2>&1 || return 0
+    python3 -c "
+import sys
+try:
+    from core.os_cinnamon_tipke import nastavi_globalno_bliznjico
+except ImportError:
+    sys.path.insert(0, '/usr/lib/safeer-os')
+    try:
+        from core.os_cinnamon_tipke import nastavi_globalno_bliznjico
+    except ImportError:
+        sys.exit(0)
+nastavi_globalno_bliznjico('Safeer Iskanje', 'safeer-os --iskanje', ['<Super>space'])
+" 2>/dev/null || true
+}
+
 # ---------------------------------------------------------------------------- vklop, izklop
 # $1 = postavitev (videz | dock | delovna), $2 = ozadje (glej ozadje)
 vklopi() {
@@ -636,6 +656,7 @@ vklopi() {
     printf '%s\n' "$profil" > "$PROFIL_DAT"
     tema
     ozadje "${2:-}" "$ze"
+    bliznjica_iskanja
     case "$profil" in
         videz)   delovna_izklopi; dock_izklopi; seznam_oken_vrni; pult_vrni ;;
         dock)    delovna_izklopi; pult_zgoraj; seznam_oken_skrij; dock ;;
@@ -750,7 +771,8 @@ case "${1:-}" in
                              fi ;;
     --straza)                [ -f "$VKLOPLJENO" ] && [ -f "$AUTOSTART" ] && dock_straza ;;
     --nastavitve-docka)      command -v plank >/dev/null 2>&1 && exec plank --preferences ;;
-    --seja)                  [ -f "$VKLOPLJENO" ] && [ -f "$SEJA" ] && command -v safeer-os >/dev/null 2>&1 && exec safeer-os --delovna ;;
+    --bliznjice)             bliznjica_iskanja ;;
+    --seja)                  bliznjica_iskanja; [ -f "$VKLOPLJENO" ] && [ -f "$SEJA" ] && command -v safeer-os >/dev/null 2>&1 && exec safeer-os --delovna ;;
     -h|--help)               awk 'NR > 2 && /^# ====/ { exit } NR > 2 { sub(/^# ?/, ""); print }' "$0" ;;
     *) echo "safeer-cinnamon: neznana moznost $1 (--help)" >&2; exit 2 ;;
 esac
