@@ -753,12 +753,20 @@ class SafeerPlayerOkno(Gtk.Window):
                 return True
         return False
 
-    def _ob_zapiranju(self, widget, event) -> bool:
-        if self.predvajalnik:
+    def ustavi(self) -> None:
+        """Popolnoma ustavi predvajanje in vrne predvajalnik v mirovanje."""
+        if self.predvajalnik is not None:
             try:
-                self.predvajalnik.element.set_state(Gst.State.NULL)
-            except Exception:
-                pass
+                self.predvajalnik.ustavi()
+            except Exception as e:
+                print("[SafeerPlayerGTK] Napaka ob ustavitvi:", e)
+        if hasattr(self, "btn_premor"):
+            self.btn_premor.set_label("▶")
+        if hasattr(self, "sklad"):
+            self.sklad.set_visible_child_name("knjiznica")
+
+    def _ob_zapiranju(self, widget, event) -> bool:
+        self.ustavi()
         return False
 
 
