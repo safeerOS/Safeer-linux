@@ -933,20 +933,18 @@ class SafeerOS(Gtk.Application):
         self.posnetek = posnetek
         self.shramba = os_programi.Shramba()
         self.programi = os_programi.Programi(self.shramba)
-        self.zapiski = os_zapiski.Zapiski(ZAPISKI_POT)
-        self.sporocila = os_sporocila.SporocilaOS()
-        # Safeer Chat gre po Linku, ki ga drzi Safeer Control (D-Bus).
-        self.sporocila.poslji_klepet = lambda n, b, c: _control_naprave("Klepet", n, b, c).get("stanje") \
-            or _control_naprave_koda("Klepet")
-        self.sporocila.naprave_klepeta = lambda: _control_naprave("KlepetNaprave").get("naprave") or []
-        #: Scit: filtriranje DNS za ves racunalnik; ce je bil vklopljen, tece od zagona naprej.
-        self.scit = os_scit.Scit(self.shramba)
-        # Posodobitve s safeer.si: zadnja preverba (izid, cas) in tekoce posodabljanje (prenos + namestitev v niti).
+        self._zapiski = None
+        self._sporocila = None
+        self._scit = None
         self.posodobitve: dict = {"izid": None, "cas": 0.0, "napaka": ""}
-        self.posodabljanje = os_posodobitve.Posodabljanje()
-        GLib.timeout_add_seconds(90, self._posodobitve_tiho)
-        # Prenosi zaradi gledanja (film iz torrenta v Medijskem centru), ki jih 48 ur nihce ni predvajal, se odstranijo sami.
-        os_torrent_tok.zazeni_ciscenje()
+        self._posodabljanje = None
+        if not predvajalnik:
+            # Polna lupina Safeer OS zažene ozadje takoj
+            _ = self.scit
+            _ = self.posodabljanje
+            GLib.timeout_add_seconds(90, self._posodobitve_tiho)
+            # Prenosi zaradi gledanja (film iz torrenta v Medijskem centru), ki jih 48 ur nihce ni predvajal, se odstranijo sami.
+            os_torrent_tok.zazeni_ciscenje()
         self.okno: Optional[Gtk.ApplicationWindow] = None
         self.pogled: Optional[WebKit2.WebView] = None
         #: Datoteke, ki jih uporabnik pravkar vlece v okno iz drugega programa (glej _na_vlecene_podatke).
@@ -955,7 +953,7 @@ class SafeerOS(Gtk.Application):
         #: Med predvajanjem racunalnik ne zaspi sam (glej _budnost_predvajanja).
         self._budnost = budnost.Budnost("Safeer OS")
         # Indeks imen datotek za iskanje: zgradi se v ozadju kmalu po zagonu, da je ze prvo iskanje takojsnje.
-        if not posnetek:
+        if not posnetek and not predvajalnik:
             GLib.timeout_add_seconds(12, lambda: (os_iskalnik.indeks().zgradi_v_ozadju(), False)[1])
         #: Naslovi datotek, ki jih uporabnik vlece IZ Datotek (pravo vlecenje namizja, glej _zacni_vlecenje).
         self._lastno_vlecenje: list = []
@@ -1050,6 +1048,53 @@ class SafeerOS(Gtk.Application):
         delovna_povrsina = Gio.SimpleAction.new("delovna", None)
         delovna_povrsina.connect("activate", lambda *_a: self._vklopi_delovno())
         self.add_action(delovna_povrsina)
+        #: `safeer-os --iskanje`, ko Safeer OS ze tece: priklice iskalnik (Spotlight).
+        iskanje_dejanje = Gio.SimpleAction.new("iskanje", GLib.VariantType.new("s"))
+        iskanje_dejanje.connect("activate", lambda _a, v: self._odpri_iskanje(v.get_string() if v else ""))
+        self.add_action(iskanje_dejanje)
+
+    @property
+    def zapiski(self):
+        if self._zapiski is None:
+            self._zapiski = os_zapiski.Zapiski(ZAPISKI_POT)
+        return self._zapiski
+
+    @zapiski.setter
+    def zapiski(self, v):
+        self._zapiski = v
+
+    @property
+    def sporocila(self):
+        if self._sporocila is None:
+            self._sporocila = os_sporocila.SporocilaOS()
+            self._sporocila.poslji_klepet = lambda n, b, c: _control_naprave("Klepet", n, b, c).get("stanje") \
+                or _control_naprave_koda("Klepet")
+            self._sporocila.naprave_klepeta = lambda: _control_naprave("KlepetNaprave").get("naprave") or []
+        return self._sporocila
+
+    @sporocila.setter
+    def sporocila(self, v):
+        self._sporocila = v
+
+    @property
+    def scit(self):
+        if self._scit is None:
+            self._scit = os_scit.Scit(self.shramba)
+        return self._scit
+
+    @scit.setter
+    def scit(self, v):
+        self._scit = v
+
+    @property
+    def posodabljanje(self):
+        if self._posodabljanje is None:
+            self._posodabljanje = os_posodobitve.Posodabljanje()
+        return self._posodabljanje
+
+    @posodabljanje.setter
+    def posodabljanje(self, v):
+        self._posodabljanje = v
 
     def do_startup(self) -> None:
         Gtk.Application.do_startup(self)
@@ -1139,7 +1184,11 @@ class SafeerOS(Gtk.Application):
             # Zagon s --predvajalnik (meni »Safeer Player«, Safeer OS se ne tece): samo okno Safeer Player. Glavno okno
             # odpre naslednja aktivacija (meni »Safeer OS«); Scit in zagon ob prijavi sodita k lupini, zato ju tu ne.
             self._zacni_s_predvajalnikom = False
-            self._odpri_predvajalnik()
+            iskanje = getattr(self, "_iskanje_predvajalnika", "")
+            if isinstance(iskanje, str) and iskanje:
+                self._odpri_predvajalnik(iskanje)
+            else:
+                self._odpri_predvajalnik()
             self._povezi_koncanje()
             return
         if self.okno is not None:
@@ -1385,6 +1434,22 @@ class SafeerOS(Gtk.Application):
                 GLib.timeout_add(1500, lambda: (self._dogodek("pojdi", razdelek), False)[1])
             return True
         return self._domov(razdelek)
+
+    # ------------------------------------------------------------------ Safeer Iskanje (Spotlight)
+    def _odpri_iskanje(self, iskanje: str = "") -> bool:
+        """Safeer Iskanje (Spotlight): priklice iskalnik v glavnem oknu ali delovni povrsini."""
+        iskanje = str(iskanje or "").strip()
+        cas = Gtk.get_current_event_time() or int(GLib.get_monotonic_time() / 1000)
+        if self.okno is not None:
+            self.okno.deiconify()
+            self.okno.present_with_time(cas)
+            self._js("window.safeerOsIskanje && window.safeerOsIskanje(%s);" % json.dumps(iskanje), self.pogled)
+            return True
+        if self.okno_delovna is not None and self.pogled_delovna is not None:
+            self._js("window.safeerOsIskanje && window.safeerOsIskanje(%s);" % json.dumps(iskanje), self.pogled_delovna)
+            return True
+        self._ustvari_okno()
+        return True
 
     # ------------------------------------------------------------------ Safeer Player (Medijski center v svojem oknu)
     def _odpri_predvajalnik(self, iskanje: str = "") -> bool:
@@ -1674,14 +1739,16 @@ class SafeerOS(Gtk.Application):
         except Exception:
             pass
         # Brez nasega razresevalnika bi racunalnik ostal brez DNS: nastavitev povrnemo.
-        try:
-            self.scit.koncaj()
-        except Exception as e:  # noqa: BLE001
-            print("[SafeerOS] scit:", e)
-        try:
-            self.sporocila.zapri()
-        except Exception:
-            pass
+        if getattr(self, "_scit", None) is not None:
+            try:
+                self._scit.koncaj()
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] scit:", e)
+        if getattr(self, "_sporocila", None) is not None:
+            try:
+                self._sporocila.zapri()
+            except Exception:
+                pass
         try:
             if self._spletni is not None:
                 self._spletni.koncaj()
@@ -3753,14 +3820,30 @@ def main() -> int:
         except Exception as e:  # noqa: BLE001 - Safeer OS ne tece: zazenemo ga z datoteko
             print("[SafeerOS] predvajaj:", e)
     predvajalnik = zagon_predvajalnika(sys.argv[1:])
-    if predvajalnik and "--posnetek" not in sys.argv[1:]:
-        # Safeer Player (meni, zaganjalnik): ce Safeer OS ze tece (delovna povrsina, okno), odpre okno Safeer Player
-        # v njem in konca - predvajanje, mini predvajalnik delovne povrsine in Safeer Link ostanejo eni.
+    iskanje_predvajalnik = ""
+    if predvajalnik:
+        for flag in ZASTAVICE_PREDVAJALNIKA:
+            if flag in sys.argv[1:]:
+                idx = sys.argv.index(flag)
+                if idx + 1 < len(sys.argv) and not sys.argv[idx + 1].startswith("-"):
+                    iskanje_predvajalnik = sys.argv[idx + 1]
+                break
+        if "--posnetek" not in sys.argv[1:]:
+            # Safeer Player (meni, zaganjalnik): ce Safeer OS ze tece (delovna povrsina, okno), odpre okno Safeer Player
+            # v njem in konca - predvajanje, mini predvajalnik delovne povrsine in Safeer Link ostanejo eni.
+            try:
+                if _predaj_tekocemu("predvajalnik", iskanje_predvajalnik):
+                    return 0
+            except Exception as e:  # noqa: BLE001 - Safeer OS ne tece: zazenemo ga kot Safeer Player
+                print("[SafeerOS] predvajalnik:", e)
+    if "--iskanje" in sys.argv[1:]:
+        i = sys.argv.index("--iskanje")
+        iskani_niz = sys.argv[i + 1] if i + 1 < len(sys.argv) and not sys.argv[i + 1].startswith("-") else ""
         try:
-            if _predaj_tekocemu("predvajalnik", ""):
+            if _predaj_tekocemu("iskanje", iskani_niz):
                 return 0
-        except Exception as e:  # noqa: BLE001 - Safeer OS ne tece: zazenemo ga kot Safeer Player
-            print("[SafeerOS] predvajalnik:", e)
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] iskanje:", e)
     ponudba_json = ""
     if "--ponudba" in sys.argv[1:]:
         # Sprejeta ponudba "Poslji na napravo" (Safeer Control, ko Safeer OS se ne tece).
@@ -3800,6 +3883,8 @@ def main() -> int:
         or (cinnamon and "--namizje" not in sys.argv[1:])
     app = SafeerOS(v_oknu=v_oknu, posnetek=posnetek, namizje="--namizje" in sys.argv[1:],
                    delovna="--delovna" in sys.argv[1:], predvajalnik=predvajalnik)
+    if predvajalnik and iskanje_predvajalnik:
+        app._iskanje_predvajalnika = iskanje_predvajalnik
     app._cakajoci_magnet = magnet
     app._cakajoca_datoteka = datoteka
     if ponudba_json:
