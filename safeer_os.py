@@ -1185,10 +1185,14 @@ class SafeerOS(Gtk.Application):
             # odpre naslednja aktivacija (meni »Safeer OS«); Scit in zagon ob prijavi sodita k lupini, zato ju tu ne.
             self._zacni_s_predvajalnikom = False
             iskanje = getattr(self, "_iskanje_predvajalnika", "")
-            if isinstance(iskanje, str) and iskanje:
+            if isinstance(iskanje, str) and iskanje and not os.path.isfile(iskanje):
                 self._odpri_predvajalnik(iskanje)
             else:
                 self._odpri_predvajalnik()
+            cakajoca = self._cakajoca_datoteka or (iskanje if isinstance(iskanje, str) and os.path.isfile(iskanje) else "")
+            if cakajoca and self.okno_predvajalnik:
+                self._cakajoca_datoteka = ""
+                GLib.timeout_add(300, lambda pot=cakajoca: (self.okno_predvajalnik.predvajaj_pot(pot), False)[1])
             self._povezi_koncanje()
             return
         if self.okno is not None:
