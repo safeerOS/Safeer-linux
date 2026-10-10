@@ -296,6 +296,52 @@ def hevc_mozen(ffmpeg: str, vaapi: Optional[str]) -> bool:
     return _HEVC[kljuc]
 
 
+#: Izid preizkusa `gpu_lestvica_mozna` po (ffmpeg, naprava); kljuc `_GPU_ODPOVED`: zajem s pomanjsavo na graficni je
+#: ze odpovedal (`gpu_odpovedal`).
+_GPU: Dict[str, bool] = {}
+_GPU_ODPOVED = "odpoved"
+#: Pomanjsava na graficni (enaka v preizkusu in v seji): izmerjeno 10. 10. 2026 - glej ukaz_ffmpeg.
+SCALE_VAAPI = "scale_vaapi={sirina}:{visina}:format=nv12:mode=default"
+
+
+def gpu_vklopljena() -> bool:
+    """Pomanjsava slike na graficni kartici je privzeto vklopljena; SAFEER_ZASLON_GPU=0 jo izklopi (stara pot)."""
+    return os.environ.get("SAFEER_ZASLON_GPU", "1").strip() != "0"
+
+
+def gpu_odpovedal() -> None:
+    """Zajem s pomanjsavo na graficni je koncal sam in brez slike: do ponovnega zagona Controla pomanjsa procesor."""
+    _GPU[_GPU_ODPOVED] = True
+
+
+def gpu_lestvica_mozna(ffmpeg: str, vaapi: Optional[str]) -> bool:
+    """Ali zna graficna kartica sliko zaslona sama pretvoriti in pomanjsati (hwupload,scale_vaapi): enkraten kratek
+    preizkus z ffmpeg na enaki obliki slike, kot jo da x11grab (bgr0); izid si zapomnimo.
+
+    Izmerjeno 10. 10. 2026 (Intel iHD, 2560x1440 -> 1080p, hevc_vaapi qp18): ffmpeg 74 % CPU namesto 346 % z lanczos
+    na procesorju, mirno namizje 0,34 Mbit/s. Na drugih gonilnikih nalaganje bgr0 na graficno morda ne gre - zato
+    preizkus in sicer stara pot."""
+    if not ffmpeg or not vaapi or _GPU.get(_GPU_ODPOVED) or not gpu_vklopljena():
+        return False
+    kljuc = "%s|%s" % (ffmpeg, vaapi)
+    if kljuc not in _GPU:
+        try:
+            r = subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-vaapi_device", vaapi,
+                                "-f", "lavfi", "-i", "color=black:size=640x360:rate=30,format=bgr0", "-frames:v", "3",
+                                "-vf", "hwupload," + SCALE_VAAPI.format(sirina=320, visina=180), "-c:v", "h264_vaapi",
+                                "-rc_mode", "CQP", "-qp", "24", "-bf", "0", "-f", "null", "-"],
+                               capture_output=True, timeout=20, stdin=subprocess.DEVNULL)
+            _GPU[kljuc] = r.returncode == 0
+        except Exception:  # noqa: BLE001 - brez preizkusa ostane pomanjsava na procesorju
+            _GPU[kljuc] = False
+    return _GPU[kljuc]
+
+
+def ukaz_pomanjsa_gpu(ukaz) -> bool:
+    """Ali ukaz zajema sliko pomanjsa na graficni kartici (scale_vaapi)."""
+    return any("scale_vaapi" in str(d) for d in ukaz or ())
+
+
 #: Preizkusi diagnoze kodirnika (tools/preveri-kodirnik.py): ime -> kodirnik in njegove moznosti. Prvi je danasnji
 #: nacin seje; ostali povedo, kaj bi gonilnik se zmogel (-async_depth, -aud, bitna hitrost namesto kvantizatorja).
 PREIZKUSI_KODIRNIKA = (
@@ -384,11 +430,12 @@ def vaapi_naprava() -> Optional[str]:
 
 def ukaz_ffmpeg(display: str, sirina: int, visina: int, izvor_sirina: int, izvor_visina: int,
                 fps: int, bitrate: str, vaapi: Optional[str], ffmpeg: str = "ffmpeg",
-                qp: int = 24, kodek: str = "h264", gop: int = 0) -> List[str]:
+                qp: int = 24, kodek: str = "h264", gop: int = 0, gpu: bool = False) -> List[str]:
     """Ukaz za zajem in kodiranje. Strojno (VAAPI), ce je mogoce, sicer x264 brez zamika.
 
     `kodek`: "hevc" samo strojno (pri istem kvantizatorju manj bajtov); brez VAAPI vedno H.264.
     `gop`: razmik kljucnih slik v slikah; 0 = vsako sekundo (starejsi gledalec).
+    `gpu`: sliko, ki jo je treba pomanjsati, pretvori in pomanjsa graficna kartica (gpu_lestvica_mozna), ne procesor.
     Locen od zagona, da ga je mogoce preveriti v testu brez kamere in zaslona.
     """
     hevc = kodek == "hevc" and bool(vaapi)
@@ -411,8 +458,18 @@ def ukaz_ffmpeg(display: str, sirina: int, visina: int, izvor_sirina: int, izvor
         # drugih racunalnikih pa lahko gonilnik izbere boljso pot, ce mu je ne zvezemo.
         # CQP je edini nacin hitrosti, ki ga ta gonilnik zna (CBR, VBR, ICQ in QVBR so preizkuseni
         # in vsi padejo), obenem pa ga zna vsak - zato kakovost dolocimo s kvantizatorjem.
+        #
+        # Pomanjsava na procesorju (lanczos) je bila pri 2560x1440 -> 1080p vecina dela ffmpeg (346 % CPU). Graficna
+        # sliko pretvori in pomanjsa sama (74 % CPU). Nacin `default` (algoritem izbere gonilnik) izrecno: ffmpeg >= 6
+        # brez njega vzame `hq`, ta pa je bil na Intel iHD za besedilo 3 dB slabsi (PSNR svetlosti 34,3 proti 37,4 dB;
+        # lanczos 37,5 dB), barve pa so enake kot s procesorjem (55 dB). Kjer slike ne pomanjsamo, ostane pretvorba na
+        # procesorju - tam je poceni in izmerjena.
+        if gpu and lestvica:
+            filter_slike = f"hwupload,{SCALE_VAAPI.format(sirina=sirina, visina=visina)}"
+        else:
+            filter_slike = f"{filter_lestvica}format=nv12,hwupload"
         u += ["-vaapi_device", vaapi,
-              "-vf", f"{filter_lestvica}format=nv12,hwupload",
+              "-vf", filter_slike,
               "-c:v", "hevc_vaapi" if hevc else "h264_vaapi", "-profile:v", "main" if hevc else "high",
               "-rc_mode", "CQP", "-qp", str(qp)]
     else:
@@ -696,15 +753,17 @@ class Zaslon:
                 self._vnos = Vnos(display=display)
                 vaapi = vaapi_naprava()
                 self._kodek = izberi_kodek(kodeki, lambda: hevc_mozen(self.ffmpeg, vaapi))
+                # Preizkus graficne samo, kadar sliko res pomanjsamo (sicer ga ne potrebujemo).
+                gpu = (sirina, visina) != tuple(izvor[:2]) and gpu_lestvica_mozna(self.ffmpeg, vaapi)
                 ukaz = ukaz_ffmpeg(display, sirina, visina, izvor[0], izvor[1], int(k["fps"]),
                                    str(k["bitrate"]), vaapi, self.ffmpeg, int(k["qp"]),
-                                   kodek=self._kodek, gop=gop)
+                                   kodek=self._kodek, gop=gop, gpu=gpu)
                 self._strojno = bool(vaapi)
 
                 def sestavi(kodek, raven):
                     return ukaz_ffmpeg(display, sirina, visina, izvor[0], izvor[1], int(raven["fps"]),
                                        str(raven["bitrate"]), vaapi, self.ffmpeg, int(raven["qp"]),
-                                       kodek=kodek, gop=gop)
+                                       kodek=kodek, gop=gop, gpu=gpu)
             self._nit = threading.Thread(target=self._streci, args=(posluh, ctx, ukaz, seja_st, sestavi),
                                          name="safeer-zaslon", daemon=True)
             self._nit.start()
@@ -840,6 +899,7 @@ class Zaslon:
             meritve = link_zaslon_meritve.Meritve(pot="hub" if prek else "neposredno", kodek=kodek_seje,
                                                   kakovost=raven_ime, kodirnik=vrsta_kodirnika(kodirnik))
             meritve.opis["zaslon"] = self._cilj
+            meritve.opis["lestvica"] = "gpu" if ukaz_pomanjsa_gpu(ukaz) else "cpu"
             # Kam gre povzetek, velja ob zacetku seje (konec seje je v drugi niti, morda po spremembi okolja).
             pot_meritev = pot_povzetkov()
             # Ping v toku samo gledalcu, ki ga zna (caps 'rtt'); glava mu to potrdi. Starejsi gledalec dobi iste
@@ -891,9 +951,10 @@ class Zaslon:
                                                      name="safeer-zaslon-zvok", daemon=True))
                     except Exception:
                         zvok = self._zvocni = None
-            print("[zaslon] seja: kodirnik %s, kodek %s, kakovost %s, %dx%d@%d, pot %s%s"
+            print("[zaslon] seja: kodirnik %s, kodek %s, kakovost %s, %dx%d@%d, pot %s%s%s"
                   % (kodirnik, kodek_seje, raven_ime, self._slika["width"], self._slika["height"], self._slika["fps"],
-                     meritve.opis["pot"], ", ping v toku" if utrip else ""), flush=True)
+                     meritve.opis["pot"], ", ping v toku" if utrip else "",
+                     ", pomanjsa graficna" if ukaz_pomanjsa_gpu(ukaz) else ""), flush=True)
             # Vnos tece nazaj po isti povezavi; brati ga moramo sproti, sicer se vticnica zamasi.
             niti.append(threading.Thread(target=self._beri_vnos, args=(odjemalec,), kwargs={"meritve": meritve},
                                          name="safeer-zaslon-vnos", daemon=True))
@@ -914,6 +975,7 @@ class Zaslon:
             steklo = True
             niti[0].join()          # dokler tece slika, tece seja
             self._preveri_hevc(slika, kodek_seje, prebrano)
+            self._preveri_gpu(slika, ukaz, prebrano)
         except (OSError, ssl.SSLError, ValueError):
             pass
         finally:
@@ -1050,20 +1112,41 @@ class Zaslon:
             return {}
 
     @staticmethod
+    def _koda_odpovedi(slika: subprocess.Popen, prebrano) -> Optional[int]:
+        """Koda izhoda zajema, ki je koncal SAM in brez ene same enote NAL; None, ce je slika tekla, ce zajem se tece
+        ali ce smo ga ustavili mi (konec seje: negativna koda)."""
+        if prebrano[1]:
+            return None
+        try:
+            koda = slika.wait(timeout=1.0)
+        except Exception:  # noqa: BLE001 - zajem se tece: to ni odpoved kodirnika
+            return None
+        return koda if isinstance(koda, int) and koda >= 0 else None
+
+    @staticmethod
     def _preveri_hevc(slika: subprocess.Popen, kodek: str, prebrano) -> None:
         """Zajem s HEVC, ki konca SAM in brez ene same enote NAL, na tem racunalniku ne deluje (kratek preizkus z
         ffmpeg je sicer uspel): do ponovnega zagona Controla ostanemo pri H.264. Naprava sejo zahteva znova sama.
         Zajem, ki smo ga ustavili mi (konec seje), ima negativno kodo izhoda in ne steje."""
-        if kodek != "hevc" or prebrano[1]:
+        if kodek != "hevc":
             return
-        try:
-            koda = slika.wait(timeout=1.0)
-        except Exception:  # noqa: BLE001 - zajem se tece: to ni odpoved kodirnika
-            return
-        if isinstance(koda, int) and koda >= 0:
+        koda = Zaslon._koda_odpovedi(slika, prebrano)
+        if koda is not None:
             hevc_odpovedal()
             print("[zaslon] zajem s HEVC ni dal slike (koda %d): do ponovnega zagona ostanemo pri H.264" % koda,
                   flush=True)
+
+    @staticmethod
+    def _preveri_gpu(slika: subprocess.Popen, ukaz, prebrano) -> None:
+        """Kot _preveri_hevc za pomanjsavo na graficni: zajem s scale_vaapi, ki konca sam in brez slike - do ponovnega
+        zagona Controla sliko pomanjsa procesor (stara pot). Ce je hkrati HEVC, padeta oba: varneje ob dvomu."""
+        if not ukaz_pomanjsa_gpu(ukaz):
+            return
+        koda = Zaslon._koda_odpovedi(slika, prebrano)
+        if koda is not None:
+            gpu_odpovedal()
+            print("[zaslon] zajem s pomanjsavo na graficni ni dal slike (koda %d): do ponovnega zagona pomanjsa "
+                  "procesor" % koda, flush=True)
 
     def _crpaj(self, proces: subprocess.Popen, vrsta: int, odjemalec, kos: int, prebrano=None,
                merilo=None) -> None:
