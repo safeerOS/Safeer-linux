@@ -9,7 +9,7 @@ import threading
 import time
 import unittest
 
-from core import link_ws
+from core import link_pot, link_ws
 
 
 def _maskiran(opkoda: int, telo: bytes, maska: bytes = b"\x01\x02\x03\x04") -> bytes:
@@ -112,6 +112,35 @@ class Okvirji(unittest.TestCase):
         self.assertEqual(glava[0] & 0x0F, link_ws.OPKODA_PONG)
         self.assertEqual(self.b.recv(glava[1] & 0x7F), b"zivjo")
 
+    def test_izmeri_poslje_ping_s_tovorom(self):
+        """Meritev poti dohodne sosednje povezave: ping z 12-bajtnim tovorom, pong z njim da zamik."""
+        self.assertIsNone(self.p.meritev)
+        self.assertTrue(self.p.izmeri())
+        self.assertIsNotNone(self.p.meritev)
+        self.assertEqual(self.p.meritev.pot, "rele", "naslov 127.0.0.1 je krajevni konec releja")
+        self.b.settimeout(2)
+        glava = self.b.recv(2)
+        self.assertEqual(glava[0], 0x80 | link_ws.OPKODA_PING)
+        self.assertFalse(glava[1] & 0x80, "streznik ne sme maskirati")
+        self.assertEqual(glava[1] & 0x7F, 12)
+        tovor = self.b.recv(12)
+        self.assertIsNotNone(link_pot.razpakiraj(tovor))
+        self.assertIsNone(self.p.meritev.rtt_ms)
+        time.sleep(0.02)
+        self.b.sendall(_maskiran(link_ws.OPKODA_PONG, tovor))
+        konec = time.time() + 2
+        while self.p.meritev.rtt_ms is None and time.time() < konec:
+            time.sleep(0.01)
+        self.assertIsNotNone(self.p.meritev.rtt_ms, "pong s tovorom mora dati zamik")
+        self.assertGreaterEqual(self.p.meritev.rtt_ms, 15.0)
+        self.assertTrue(self.p.meritev.odgovoril)
+        # Pong brez tovora (odgovor na utrip tisine) meritve ne spremeni.
+        self.b.sendall(_maskiran(link_ws.OPKODA_PONG, b""))
+        self.b.sendall(_maskiran(link_ws.OPKODA_BESEDILO, b"za njim"))
+        self._pocakaj()
+        self.assertEqual(self.prejeto, ["za njim"])
+        self.assertEqual(self.p.meritev.odgovorov, 1)
+
     def test_zaprtje_odjemalca_konca_zanko(self):
         self.b.sendall(_maskiran(link_ws.OPKODA_ZAPRI, b"\x03\xe8"))
         self.assertTrue(self.koncano.wait(2))
@@ -150,6 +179,67 @@ class GluhaNaprava(unittest.TestCase):
                     v.close()
                 except Exception:
                     pass
+
+
+class SondaNeZapre(unittest.TestCase):
+    """Meritev poti (izmeri) povezave nikoli ne zapre: sonda ne steje v meje izhodne vrste, gluha naprava pa izpade
+    natanko po istem stevilu sporocil kot pred meritvijo. Pisec ne tece (zanka_branja ni zagnana): vrsta se ne prazni."""
+
+    def setUp(self):
+        self.a, self.b = socket.socketpair()
+        self.p = link_ws.Povezava(self.a, "192.168.0.50", lambda _p, _s: None)
+
+    def tearDown(self):
+        self.p.zapri()
+        for v in (self.a, self.b):
+            try:
+                v.close()
+            except Exception:
+                pass
+
+    def test_sonda_na_polno_vrsto_ne_zapre(self):
+        for _ in range(link_ws.NAJVEC_V_VRSTI):
+            self.assertTrue(self.p.poslji("x"))
+        self.assertTrue(self.p.izmeri(), "sonda na polno vrsto ne sme zapreti povezave")
+        self.assertFalse(self.p.zaprta)
+        self.assertEqual(self.p.meritev.stanje()["odprtih"], 1)
+        # Dokler prejsnja sonda caka, nove ne dodamo: vrsta zaradi meritve ne raste.
+        self.assertTrue(self.p.izmeri())
+        self.assertEqual(len(self.p._vrsta), link_ws.NAJVEC_V_VRSTI + 1)
+        self.assertEqual(self.p.meritev.stanje()["odprtih"], 1)
+        # Naslednje pravo sporocilo jo zapre - kot pred meritvijo.
+        self.assertFalse(self.p.poslji("x"))
+        self.assertTrue(self.p.zaprta)
+
+    def test_sonda_ne_vzame_mesta_sporocilu(self):
+        for _ in range(link_ws.NAJVEC_V_VRSTI - 1):
+            self.assertTrue(self.p.poslji("x"))
+        self.assertTrue(self.p.izmeri())
+        self.assertTrue(self.p.poslji("x"), "64. sporocilo je smelo v vrsto tudi pred meritvijo")
+        self.assertFalse(self.p.zaprta)
+        self.assertFalse(self.p.poslji("x"))
+        self.assertTrue(self.p.zaprta)
+
+    def test_sonda_ne_steje_v_bajte(self):
+        velika = "x" * (link_ws.NAJVEC_BAJTOV_V_VRSTI - 10)      # okvir z glavo (10 B) natanko napolni mejo bajtov
+        self.assertTrue(self.p.poslji(velika))
+        self.assertTrue(self.p.izmeri())
+        self.assertFalse(self.p.zaprta, "sonda (14 B) nad mejo bajtov ne sme zapreti povezave")
+
+    def test_po_odposlani_sondi_gre_nova(self):
+        nit = threading.Thread(target=self.p.zanka_branja, daemon=True)
+        nit.start()
+        self.b.settimeout(2)
+        for _ in range(2):
+            self.assertTrue(self.p.izmeri())
+            glava = self.b.recv(2)
+            self.assertEqual((glava[0], glava[1]), (0x80 | link_ws.OPKODA_PING, 12))
+            self.assertIsNotNone(link_pot.razpakiraj(self.b.recv(12)))
+        self.assertEqual(self.p.meritev.sond, 2)
+        self.assertTrue(self.p.poslji("za sondama"))
+        glava = self.b.recv(2)
+        self.assertEqual(self.b.recv(glava[1] & 0x7F), b"za sondama")
+        self.assertEqual(self.p._bajtov, 0, "sonda ne sme pokvariti stetja bajtov v vrsti")
 
 
 if __name__ == "__main__":

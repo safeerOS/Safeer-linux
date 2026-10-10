@@ -163,6 +163,112 @@ class OdpovedZajema(unittest.TestCase):
                                                    types.SimpleNamespace(sendall=poslano.append), 32 * 1024, prebrano)
         self.assertEqual(prebrano, [17, False])
 
+    def test_crpalka_meri_cas_pisanja(self):
+        """`merilo` (meritve seje) dobi vsak sendall: vrsto, bajte celega okvirja in koliko casa je pisanje cakalo."""
+        import time
+        kosi = [b"\x00\x00\x00\x01\x65" + bytes(95), bytes(20), b""]
+        proces = types.SimpleNamespace(stdout=types.SimpleNamespace(read=lambda n: kosi.pop(0)))
+        poslano = []
+
+        def pocasi(b):
+            time.sleep(0.03)
+            poslano.append(b)
+
+        class Merilo:
+            def __init__(self):
+                self.klici = []
+
+            def poslano(self, vrsta, bajtov, cakal_s):
+                self.klici.append((vrsta, bajtov, cakal_s))
+
+        merilo = Merilo()
+        link_zaslon.Zaslon(vklopljeno=True)._crpaj(proces, link_zaslon.OKVIR_SLIKA,
+                                                   types.SimpleNamespace(sendall=pocasi), 32 * 1024, None,
+                                                   merilo=merilo)
+        self.assertEqual(len(poslano), 2)
+        self.assertEqual([(v, b) for v, b, _ in merilo.klici], [(link_zaslon.OKVIR_SLIKA, 105), (link_zaslon.OKVIR_SLIKA, 25)])
+        self.assertTrue(all(0.025 <= c < 1.0 for _, _, c in merilo.klici), merilo.klici)
+
+        # Merilo, ki pade, slike ne ustavi.
+        kosi = [bytes(10), bytes(10), b""]
+        poslano.clear()
+
+        class Pade:
+            def poslano(self, *_a):
+                raise RuntimeError("meritev")
+        link_zaslon.Zaslon(vklopljeno=True)._crpaj(proces, link_zaslon.OKVIR_ZVOK,
+                                                   types.SimpleNamespace(sendall=poslano.append), 1920, merilo=Pade())
+        self.assertEqual(len(poslano), 2)
+
+    def test_crpalka_pove_zacetek_pisanja(self):
+        """Zastoj mora biti v meritvah viden, medtem ko traja: merilo izve za zacetek vsakega sendall. Pisanje, ki
+        pade (rok pisanja), se vseeno konca - brez bajtov, s casom cakanja."""
+        dogodki = []
+
+        class Merilo:
+            def zacni_pisanje(self, vrsta):
+                dogodki.append(("zacni", vrsta))
+
+            def poslano(self, vrsta, bajtov, _cakal_s):
+                dogodki.append(("poslano", vrsta, bajtov))
+
+        def sendall(b):
+            dogodki.append(("sendall", len(b)))
+            if len(dogodki) > 4:
+                raise OSError("rok pisanja")
+
+        kosi = [bytes(10), bytes(10), bytes(10), b""]
+        proces = types.SimpleNamespace(stdout=types.SimpleNamespace(read=lambda n: kosi.pop(0)))
+        slika = link_zaslon.OKVIR_SLIKA
+        link_zaslon.Zaslon(vklopljeno=True)._crpaj(proces, slika, types.SimpleNamespace(sendall=sendall), 32 * 1024,
+                                                   None, merilo=Merilo())
+        self.assertEqual(dogodki, [("zacni", slika), ("sendall", 15), ("poslano", slika, 15),
+                                   ("zacni", slika), ("sendall", 15), ("poslano", slika, 0)])
+
+
+class DiagnozaKodirnika(unittest.TestCase):
+    """tools/preveri-kodirnik.py: kratki preizkusi na vsaki napravi, izid kot JSON (brez prave graficne kartice)."""
+
+    def test_vsak_preizkus_na_vsaki_napravi(self):
+        ukazi = []
+
+        def zazeni(ukaz, **_k):
+            ukazi.append(ukaz)
+            # Gonilnik zna samo CQP (kot iHD brez HuC): bitna hitrost pade.
+            ok = "VBR" not in ukaz and "CBR" not in ukaz
+            return subprocess.CompletedProcess(ukaz, 0 if ok else 1, b"", b"" if ok else b"No usable RC mode\n")
+
+        izid = link_zaslon.diagnoza_kodirnika("ffmpeg", ["/dev/dri/renderD128", "/dev/dri/renderD129"], zazeni=zazeni)
+        self.assertEqual(len(ukazi), 2 * len(link_zaslon.PREIZKUSI_KODIRNIKA))
+        d = izid["naprave"]["/dev/dri/renderD128"]
+        self.assertEqual(sorted(d), sorted(["h264_cqp", "h264_cqp_async_depth_1", "h264_cqp_aud", "h264_vbr_4M",
+                                            "h264_cbr_4M", "hevc_cqp"]))
+        self.assertTrue(d["h264_cqp"]["ok"])
+        self.assertTrue(d["h264_cqp_async_depth_1"]["ok"])
+        self.assertFalse(d["h264_vbr_4M"]["ok"])
+        self.assertIn("RC mode", d["h264_vbr_4M"]["napaka"])
+        for ukaz in ukazi:
+            self.assertIn("-frames:v", ukaz)
+            self.assertEqual(ukaz[ukaz.index("-frames:v") + 1], "3")
+        self.assertTrue(any("-async_depth" in u for u in ukazi))
+        self.assertTrue(any("-aud" in u for u in ukazi))
+        self.assertTrue(any("huc" in n for n in izid["namigi"]))
+
+    def test_brez_ffmpeg_ali_naprave(self):
+        with mock.patch.object(link_zaslon.shutil, "which", return_value=None):
+            self.assertIn("napaka", link_zaslon.diagnoza_kodirnika(None, []))
+        izid = link_zaslon.diagnoza_kodirnika("ffmpeg", [], zazeni=lambda *a, **k: self.fail("brez naprave ni preizkusa"))
+        self.assertEqual(izid["naprave"], {})
+
+    def test_kodirnik_ukaza(self):
+        u = link_zaslon.ukaz_ffmpeg(":0", 1920, 1080, 1920, 1080, 60, "24M", "/dev/dri/renderD128", qp=16)
+        self.assertEqual(link_zaslon.kodirnik_ukaza(u), "h264_vaapi")
+        self.assertEqual(link_zaslon.vrsta_kodirnika("h264_vaapi"), "vaapi")
+        u = link_zaslon.ukaz_ffmpeg(":0", 1920, 1080, 1920, 1080, 60, "24M", None)
+        self.assertEqual(link_zaslon.kodirnik_ukaza(u), "libx264")
+        self.assertEqual(link_zaslon.vrsta_kodirnika("libx264"), "x264")
+        self.assertEqual(link_zaslon.kodirnik_ukaza(["/bin/true"], strojno=True), "h264_vaapi")
+
 
 class Ukazi(unittest.TestCase):
     def setUp(self):
@@ -258,13 +364,35 @@ class Seja(unittest.TestCase):
             return ["/bin/true"]
         with mock.patch.object(link_zaslon, "hevc_mozen", return_value=True), \
                 mock.patch.object(link_zaslon, "ukaz_ffmpeg", ukaz), \
+                mock.patch.object(link_zaslon, "_zaslon_geometrija", return_value=(1920, 1080)), \
+                mock.patch.object(link_zaslon, "gpu_lestvica_mozna",
+                                  side_effect=AssertionError("brez pomanjsave preizkus ni potreben")), \
                 mock.patch.object(link_zaslon, "vaapi_naprava", return_value="/dev/dri/renderD128"):
             seja = self.z.zacni("fon", "najvisja", "desktop", kodeki=["hevc", "h264"], zmoznosti=["gop"])
             self.assertEqual(seja["codec"], "hevc")
-            self.assertEqual(klici[-1], {"kodek": "hevc", "gop": 600})
+            self.assertEqual(klici[-1], {"kodek": "hevc", "gop": 600, "gpu": False})
             seja = self.z.zacni("tv", "najvisja", "desktop")
             self.assertEqual(seja["codec"], "h264")
-            self.assertEqual(klici[-1], {"kodek": "h264", "gop": 0})
+            self.assertEqual(klici[-1], {"kodek": "h264", "gop": 0, "gpu": False})
+
+    def test_vecji_zaslon_pomanjsa_graficna(self):
+        """F2: zaslon 2560x1440 -> 1080p pomanjsa graficna, ce preizkus uspe; sicer procesor kot prej."""
+        klici = []
+
+        def ukaz(*a, **kw):
+            klici.append((a, kw))
+            return ["/bin/true"]
+        for mozna in (True, False):
+            with mock.patch.object(link_zaslon, "hevc_mozen", return_value=False), \
+                    mock.patch.object(link_zaslon, "ukaz_ffmpeg", ukaz), \
+                    mock.patch.object(link_zaslon, "_zaslon_geometrija", return_value=(2560, 1440)), \
+                    mock.patch.object(link_zaslon, "gpu_lestvica_mozna", return_value=mozna), \
+                    mock.patch.object(link_zaslon, "vaapi_naprava", return_value="/dev/dri/renderD128"):
+                self.z.zacni("fon", "najvisja", "desktop", zmoznosti=["gop"])
+            a, kw = klici[-1]
+            self.assertEqual(a[3:5], (2560, 1440))
+            self.assertNotEqual(a[1:3], (2560, 1440))
+            self.assertEqual(kw["gpu"], mozna)
 
 
 class LazniGledalec:
@@ -433,6 +561,89 @@ class UkazZaslona(unittest.TestCase):
                                      lambda u: None, izidi.append, zaslon=Zaslon(), posiljatelj="fon")
         self.assertEqual(klici[2], {"omrezje": "4g"})
         self.assertEqual(klici[3], {})                                 # omrezje mora biti besedilo
+
+
+class PomanjsavaNaGraficni(unittest.TestCase):
+    """F2: sliko, ki jo je treba pomanjsati, pretvori in pomanjsa graficna (hwupload,scale_vaapi), ne lanczos."""
+
+    VAAPI = "/dev/dri/renderD128"
+
+    def setUp(self):
+        link_zaslon._GPU.clear()
+
+    def tearDown(self):
+        link_zaslon._GPU.clear()
+
+    def _vf(self, u):
+        return u[u.index("-vf") + 1]
+
+    def test_ukaz_pomanjsa_na_graficni(self):
+        u = link_zaslon.ukaz_ffmpeg(":0", 1920, 1080, 2560, 1440, 60, "8M", self.VAAPI, qp=18, kodek="hevc", gpu=True)
+        # mode=default: hq (privzeto v ffmpeg >= 6) je bil na Intel iHD za besedilo 3 dB slabsi.
+        self.assertEqual(self._vf(u), "hwupload,scale_vaapi=1920:1080:format=nv12:mode=default")
+        self.assertNotIn("lanczos", " ".join(u))
+        self.assertEqual(u[u.index("-c:v") + 1], "hevc_vaapi")
+        self.assertEqual(u[u.index("-qp") + 1], "18")
+        self.assertTrue(link_zaslon.ukaz_pomanjsa_gpu(u))
+
+    def test_brez_pomanjsave_ali_brez_graficne_ostane_stara_pot(self):
+        enako = link_zaslon.ukaz_ffmpeg(":0", 1920, 1080, 1920, 1080, 60, "8M", self.VAAPI, gpu=True)
+        self.assertEqual(self._vf(enako), "format=nv12,hwupload")
+        self.assertFalse(link_zaslon.ukaz_pomanjsa_gpu(enako))
+        procesor = link_zaslon.ukaz_ffmpeg(":0", 1920, 1080, 2560, 1440, 60, "8M", None, gpu=True)
+        self.assertIn("libx264", procesor)
+        self.assertNotIn("scale_vaapi", " ".join(procesor))
+        prej = link_zaslon.ukaz_ffmpeg(":0", 1920, 1080, 2560, 1440, 60, "8M", self.VAAPI)
+        self.assertEqual(self._vf(prej), "scale=1920:1080:flags=lanczos,format=nv12,hwupload")
+
+    def test_preizkus_brez_graficne_ali_izklopljen_se_ne_zazene(self):
+        with mock.patch.object(link_zaslon.subprocess, "run", side_effect=AssertionError("ne sme zagnati")):
+            self.assertFalse(link_zaslon.gpu_lestvica_mozna("ffmpeg", None))
+            self.assertFalse(link_zaslon.gpu_lestvica_mozna("", self.VAAPI))
+            with mock.patch.dict(os.environ, {"SAFEER_ZASLON_GPU": "0"}):
+                self.assertFalse(link_zaslon.gpu_lestvica_mozna("ffmpeg", self.VAAPI))
+
+    def test_preizkus_na_obliki_x11grab_in_izid_si_zapomni(self):
+        klici = []
+
+        def tek(ukaz, **kw):
+            klici.append(ukaz)
+            return subprocess.CompletedProcess(ukaz, 0, b"", b"")
+        with mock.patch.object(link_zaslon.subprocess, "run", tek), mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("SAFEER_ZASLON_GPU", None)
+            self.assertTrue(link_zaslon.gpu_lestvica_mozna("ffmpeg", self.VAAPI))
+            self.assertTrue(link_zaslon.gpu_lestvica_mozna("ffmpeg", self.VAAPI))
+        self.assertEqual(len(klici), 1)
+        ukaz = " ".join(klici[0])
+        self.assertIn("format=bgr0", ukaz)                              # kot x11grab
+        self.assertIn("hwupload,scale_vaapi=320:180:format=nv12:mode=default", ukaz)   # kot v seji
+        self.assertEqual(klici[0][-3:], ["-f", "null", "-"])
+
+    def test_napaka_pomeni_procesor(self):
+        with mock.patch.object(link_zaslon.subprocess, "run",
+                               return_value=subprocess.CompletedProcess([], 1, b"", b"Failed to upload frame")):
+            self.assertFalse(link_zaslon.gpu_lestvica_mozna("ffmpeg", self.VAAPI))
+        with mock.patch.object(link_zaslon.subprocess, "run", side_effect=OSError("ni ffmpeg")):
+            self.assertFalse(link_zaslon.gpu_lestvica_mozna("ffmpeg", "/dev/dri/renderD129"))
+
+    def test_zajem_brez_slike_vrne_procesor(self):
+        def mozna():
+            with mock.patch.object(link_zaslon.subprocess, "run",
+                                   return_value=subprocess.CompletedProcess([], 0, b"", b"")):
+                return link_zaslon.gpu_lestvica_mozna("ffmpeg", self.VAAPI)
+        gpu = link_zaslon.ukaz_ffmpeg(":0", 1920, 1080, 2560, 1440, 60, "8M", self.VAAPI, gpu=True)
+        cpu = link_zaslon.ukaz_ffmpeg(":0", 1920, 1080, 2560, 1440, 60, "8M", self.VAAPI)
+
+        def proces(koda):
+            return types.SimpleNamespace(wait=lambda timeout=None: koda)
+        self.assertTrue(mozna())
+        link_zaslon.Zaslon._preveri_gpu(proces(0), gpu, [50000, True])     # slika je tekla
+        link_zaslon.Zaslon._preveri_gpu(proces(-15), gpu, [0, False])      # ustavili smo ga mi
+        link_zaslon.Zaslon._preveri_gpu(proces(1), cpu, [0, False])        # ni pomanjsave na graficni
+        self.assertTrue(mozna())
+        with mock.patch("builtins.print"):
+            link_zaslon.Zaslon._preveri_gpu(proces(1), gpu, [0, False])
+        self.assertFalse(mozna())
 
 
 if __name__ == "__main__":
