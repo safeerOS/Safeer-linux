@@ -60,6 +60,19 @@ window.safeer-player {
     font-size: 96px;
     color: #54d6a5;
 }
+/* Teme (Mint-Y, Adwaita) risejo gumbe z background-image: brez tega ostanejo gumbi svetli in napisi nevidni. */
+.safeer-player button, .safeer-player combobox button, .safeer-player entry {
+    background-image: none;
+    text-shadow: none;
+    box-shadow: none;
+}
+.safeer-player button label, .safeer-player combobox button label {
+    color: inherit;
+}
+.safeer-player combobox button, .safeer-player menu, .safeer-player .menu {
+    background-color: #1a3339;
+    color: #edfff7;
+}
 .safeer-player button {
     background-color: #1a3339;
     color: #edfff7;
@@ -126,6 +139,14 @@ window.safeer-player {
 """
 
 
+def _gumb_z_ikono(ikona: str, napis: str = "") -> Gtk.Button:
+    """Gumb s simbolno ikono teme (emoji v napisih se brez pisave z emoji izrisejo kot kvadratki)."""
+    gumb = Gtk.Button(label=napis) if napis else Gtk.Button()
+    gumb.set_image(Gtk.Image.new_from_icon_name(ikona, Gtk.IconSize.BUTTON))
+    gumb.set_always_show_image(True)
+    return gumb
+
+
 def _format_cas(sekunde: float | int) -> str:
     s = max(0, int(sekunde or 0))
     m, sec = divmod(s, 60)
@@ -170,6 +191,10 @@ class SafeerPlayerOkno(Gtk.Window):
                 print("[SafeerPlayerGTK] Napaka pri inicializaciji predvajalnika:", e)
 
         self.izbrana_kategorija = ""
+        #: "zbirka" (krajevne datoteke) ali "katalog" (spletni katalog - isti kot Medijski center na strani).
+        self.nacin = "zbirka"
+        self.katalog_pogled = None
+        self._casovnik_obvestila = 0
         self.trenutno_iskanje = str(iskanje or "").strip()
         self._v_premikanju_drsnika = False
 
@@ -243,6 +268,18 @@ class SafeerPlayerOkno(Gtk.Window):
         kicker_box.pack_start(naslov_lbl, False, False, 0)
         glava_box.pack_start(kicker_box, False, False, 0)
 
+        # Moja zbirka | Katalog
+        nacin_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        nacin_box.get_style_context().add_class("vrstica-orodna")
+        self.btn_zbirka = Gtk.Button(label="Moja zbirka")
+        self.btn_zbirka.connect("clicked", lambda *_: self.preklopi_nacin("zbirka"))
+        self.btn_katalog = Gtk.Button(label="Katalog")
+        self.btn_katalog.connect("clicked", lambda *_: self.preklopi_nacin("katalog"))
+        self.btn_zbirka.get_style_context().add_class("kategorija-izbrana")
+        nacin_box.pack_start(self.btn_zbirka, False, False, 0)
+        nacin_box.pack_start(self.btn_katalog, False, False, 0)
+        glava_box.pack_start(nacin_box, False, False, 8)
+
         # Kategorije
         kat_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         kat_box.get_style_context().add_class("vrstica-orodna")
@@ -257,6 +294,7 @@ class SafeerPlayerOkno(Gtk.Window):
             kat_box.pack_start(btn, False, False, 0)
             self.kat_gumbi[k_id] = btn
         glava_box.pack_start(kat_box, False, False, 8)
+        self.kat_box = kat_box
 
         # Iskalnik
         self.isci_entry = Gtk.SearchEntry()
@@ -268,15 +306,22 @@ class SafeerPlayerOkno(Gtk.Window):
         glava_box.pack_start(self.isci_entry, False, False, 4)
 
         # Gumbi za dejanja
-        dodaj_mapo_btn = Gtk.Button(label="＋ Mapa")
+        dodaj_mapo_btn = _gumb_z_ikono("folder-new-symbolic", "Mapa")
         dodaj_mapo_btn.connect("clicked", self._dialog_dodaj_mapo)
         glava_box.pack_end(dodaj_mapo_btn, False, False, 0)
 
-        odpri_dat_btn = Gtk.Button(label="📁 Datoteka")
+        odpri_dat_btn = _gumb_z_ikono("document-open-symbolic", "Datoteka")
         odpri_dat_btn.connect("clicked", self._dialog_odpri_datoteko)
         glava_box.pack_end(odpri_dat_btn, False, False, 0)
 
         glavni_box.pack_start(glava_box, False, False, 0)
+
+        # Kratko obvestilo (odpiranje, vsebina ni na voljo ...) - izgine samo.
+        self.obvestilo = Gtk.Label(label="", xalign=0)
+        self.obvestilo.get_style_context().add_class("medlo")
+        self.obvestilo.set_margin_start(16)
+        self.obvestilo.set_no_show_all(True)
+        glavni_box.pack_start(self.obvestilo, False, False, 0)
 
         # 2. Glavno območje (Stack: knjižnica / predvajanje)
         self.sklad = Gtk.Stack()
@@ -377,7 +422,7 @@ class SafeerPlayerOkno(Gtk.Window):
         sredina_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         gumbi_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8, halign=Gtk.Align.CENTER)
 
-        self.btn_prejsnja = Gtk.Button(label="⏮")
+        self.btn_prejsnja = _gumb_z_ikono("media-skip-backward-symbolic")
         self.btn_prejsnja.connect("clicked", lambda *_: self._ukaz("prejsnja"))
         gumbi_box.pack_start(self.btn_prejsnja, False, False, 0)
 
@@ -386,11 +431,11 @@ class SafeerPlayerOkno(Gtk.Window):
         self.btn_premor.connect("clicked", lambda *_: self._ukaz("premor"))
         gumbi_box.pack_start(self.btn_premor, False, False, 0)
 
-        self.btn_naslednja = Gtk.Button(label="⏭")
+        self.btn_naslednja = _gumb_z_ikono("media-skip-forward-symbolic")
         self.btn_naslednja.connect("clicked", lambda *_: self._ukaz("naslednja"))
         gumbi_box.pack_start(self.btn_naslednja, False, False, 0)
 
-        self.btn_ustavi = Gtk.Button(label="■")
+        self.btn_ustavi = _gumb_z_ikono("media-playback-stop-symbolic")
         self.btn_ustavi.connect("clicked", lambda *_: self._ukaz("ustavi"))
         gumbi_box.pack_start(self.btn_ustavi, False, False, 0)
 
@@ -419,17 +464,17 @@ class SafeerPlayerOkno(Gtk.Window):
 
         # Desno: Dodatne kontrole (podnapisi, celozaslonski način, preklop pogledov)
         desno_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, halign=Gtk.Align.END)
-        self.btn_podnapisi = Gtk.Button(label="💬")
+        self.btn_podnapisi = _gumb_z_ikono("media-view-subtitles-symbolic")
         self.btn_podnapisi.set_tooltip_text("Podnapisi [V]")
         self.btn_podnapisi.connect("clicked", lambda *_: self._cikel_podnapisov())
         desno_box.pack_start(self.btn_podnapisi, False, False, 0)
 
-        self.btn_fullscreen = Gtk.Button(label="⛶")
+        self.btn_fullscreen = _gumb_z_ikono("view-fullscreen-symbolic")
         self.btn_fullscreen.set_tooltip_text("Celoten zaslon [F11 / F]")
         self.btn_fullscreen.connect("clicked", lambda *_: self._preklopi_fullscreen())
         desno_box.pack_start(self.btn_fullscreen, False, False, 0)
 
-        self.btn_pogled = Gtk.Button(label="☰ Zbirka")
+        self.btn_pogled = Gtk.Button(label="Nazaj na izbiro")
         self.btn_pogled.connect("clicked", lambda *_: self._preklopi_pogled())
         desno_box.pack_start(self.btn_pogled, False, False, 0)
 
@@ -506,6 +551,9 @@ class SafeerPlayerOkno(Gtk.Window):
 
     def _ob_spremembi_iskanja(self, entry):
         self.trenutno_iskanje = entry.get_text().strip()
+        if self.nacin == "katalog" and self.katalog_pogled is not None:
+            self.katalog_pogled.isci(self.trenutno_iskanje)
+            return
         self.osvezi_zbirko()
 
     def _dialog_dodaj_mapo(self, *_):
@@ -539,13 +587,14 @@ class SafeerPlayerOkno(Gtk.Window):
 
     # ------------------------------------------------------------------ Predvajanje
 
-    def predvajaj_pot(self, pot: str, naslov: str = "", vrsta: str = "medij") -> bool:
+    def predvajaj_pot(self, pot: str, naslov: str = "", vrsta: str = "medij", zacetek: int = 0,
+                      podnapisi: tuple = ()) -> bool:
         if self.predvajalnik is None:
             return False
         if not pot:
             return False
 
-        if pot.startswith(("http://", "https://", "dvd://")):
+        if pot.startswith(("http://", "https://", "dvd://", "file:")):
             uri = pot
         else:
             uri = Path(pot).resolve().as_uri()
@@ -553,14 +602,15 @@ class SafeerPlayerOkno(Gtk.Window):
         if not naslov:
             naslov = Path(pot).stem if not pot.startswith("http") else pot
 
-        if vrsta == "medij":
-            vrsta = os_knjiznica.vrsta_datoteke(Path(pot)) if not pot.startswith("http") else "medij"
+        if vrsta == "medij" and not pot.startswith(("http", "file:")):
+            vrsta = os_knjiznica.vrsta_datoteke(Path(pot))
 
         self.sklad.set_visible_child_name("predvajanje")
-        self.btn_pogled.set_label("☰ Zbirka")
+        self.btn_pogled.set_label("Nazaj na izbiro")
 
         skladba = os_predvajalnik.medij(uri, vrsta=vrsta if vrsta in ("video", "tv", "radio") else "medij")
-        skladba = os_predvajalnik.replace(skladba, naslov=naslov)
+        skladba = os_predvajalnik.replace(skladba, naslov=naslov, zacetek=max(0, int(zacetek or 0)),
+                                          podnapisi=tuple(podnapisi or ()))
         self.predvajalnik.zamenjaj_vrsto([skladba], zacni=0)
 
         # Preklop video/zvok sklada
@@ -675,13 +725,53 @@ class SafeerPlayerOkno(Gtk.Window):
         else:
             self.fullscreen()
 
+    def _pogled_brskanja(self) -> str:
+        return "katalog" if self.nacin == "katalog" and self.katalog_pogled is not None else "knjiznica"
+
     def _preklopi_pogled(self):
-        if self.sklad.get_visible_child_name() == "knjiznica":
+        if self.sklad.get_visible_child_name() != "predvajanje":
             self.sklad.set_visible_child_name("predvajanje")
-            self.btn_pogled.set_label("☰ Zbirka")
+            self.btn_pogled.set_label("Nazaj na izbiro")
         else:
-            self.sklad.set_visible_child_name("knjiznica")
-            self.btn_pogled.set_label("🎬 Predvajalnik")
+            self.sklad.set_visible_child_name(self._pogled_brskanja())
+            self.btn_pogled.set_label("Predvajalnik")
+
+    # ------------------------------------------------------------------ Spletni katalog
+
+    def preklopi_nacin(self, nacin: str) -> None:
+        """Moja zbirka (datoteke na disku) ali Katalog (spletni viri - isti kot Medijski center v Safeer OS).
+        Katalog se ustvari ob prvem odprtju: zagon predvajalnika ga ne caka."""
+        self.nacin = "katalog" if nacin == "katalog" else "zbirka"
+        for gumb, izbran in ((self.btn_zbirka, self.nacin == "zbirka"), (self.btn_katalog, self.nacin == "katalog")):
+            ctx = gumb.get_style_context()
+            (ctx.add_class if izbran else ctx.remove_class)("kategorija-izbrana")
+        self.kat_box.set_visible(self.nacin == "zbirka")
+        if self.nacin == "katalog" and self.katalog_pogled is None:
+            from core import os_player_gtk_katalog
+            self.katalog_pogled = os_player_gtk_katalog.KatalogPogled(
+                predvajaj=self._predvajaj_iz_kataloga, sporocilo=self.obvesti)
+            self.sklad.add_named(self.katalog_pogled, "katalog")
+            self.katalog_pogled.show_all()
+            self.katalog_pogled.iskanje = self.trenutno_iskanje
+            self.katalog_pogled.nalozi()
+        self.sklad.set_visible_child_name(self._pogled_brskanja())
+        self.btn_pogled.set_label("Predvajalnik")
+
+    def _predvajaj_iz_kataloga(self, uri: str, vrsta: str, ime: str, zacetek: int = 0, podnapisi: tuple = ()) -> bool:
+        # Katalog: "video"/"tv" se kaze v oknu, "medij"/"radio" je zvok.
+        return self.predvajaj_pot(uri, naslov=ime, vrsta=vrsta or "medij", zacetek=zacetek, podnapisi=podnapisi)
+
+    def obvesti(self, besedilo: str, sekund: int = 6) -> None:
+        self.obvestilo.set_text(str(besedilo or ""))
+        self.obvestilo.set_visible(bool(besedilo))
+        if self._casovnik_obvestila:
+            GLib.source_remove(self._casovnik_obvestila)
+
+        def skrij():
+            self._casovnik_obvestila = 0
+            self.obvestilo.set_visible(False)
+            return False
+        self._casovnik_obvestila = GLib.timeout_add_seconds(sekund, skrij)
 
     def _ob_kliku_videa(self, widget, event):
         if event.type == Gdk.EventType._2BUTTON_PRESS:
@@ -763,7 +853,9 @@ class SafeerPlayerOkno(Gtk.Window):
         if hasattr(self, "btn_premor"):
             self.btn_premor.set_label("▶")
         if hasattr(self, "sklad"):
-            self.sklad.set_visible_child_name("knjiznica")
+            self.sklad.set_visible_child_name(self._pogled_brskanja())
+        if self.katalog_pogled is not None:
+            self.katalog_pogled.ustavi()
 
     def _ob_zapiranju(self, widget, event) -> bool:
         self.ustavi()

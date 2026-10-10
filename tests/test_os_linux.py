@@ -640,7 +640,7 @@ class Stran(unittest.TestCase):
         self.assertIn('id="blokScit"', html)
         self.assertIn('stikalo("scitStikalo", "scit"', js)
         self.assertIn('klic("scitVklop", [v])', js)
-        for k in ('"scit": self.scit.stanje', '"scitVklop"', "self.scit.zacni_ce_vklopljen()", "self.scit.koncaj()"):
+        for k in ('"scit": self.scit.stanje', '"scitVklop"', "self.scit.zacni_ce_vklopljen()", "self._scit.koncaj()"):  # scit je lenoben: ob koncu samo, ce je bil ustvarjen
             self.assertIn(k, py, k)
         besedila = _beri("assets", "os", "besedila.js")
         for k in ("scitNapaka_pravilo", "scitNapaka_ni_resolved", "scitNapaka_vrata", "scitNapaka_ni_omrezja"):
