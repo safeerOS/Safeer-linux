@@ -247,6 +247,44 @@ class DostavaInOddaja(_Osnova):
         self.assertEqual(self.m.povzetek()["zastoji_na_min"], 30.0)
 
 
+class ZastojiGledalca(_Osnova):
+    """Trajanje zastojev in razredi (novejsi gledalec); starejsi gledalec brez teh polj deluje kot prej."""
+
+    NOVA = ("zastoj_ms_na_min", "zastoji_100_na_min", "zastoji_250_na_min", "zastoji_kljucna_na_min")
+
+    def test_novejsi_gledalec(self):
+        # Dve sekundi: v prvi en zastoj 120 ms ob kljucni sliki, v drugi dva (60 ms in 300 ms).
+        self.ping(10, fps=58.0, zastoji=1, zastoj_ms=120, zastoji_100=1, zastoji_250=0, zastoji_kljucna=1)
+        self.ping(10, fps=57.0, zastoji=2, zastoj_ms=360, zastoji_100=1, zastoji_250=1, zastoji_kljucna=0)
+        p = self.m.povzetek()
+        self.assertEqual(p["zastoji_na_min"], 90.0)
+        self.assertEqual(p["zastoj_ms_na_min"], 60.0 * (120 + 360) / 2)
+        self.assertEqual(p["zastoji_100_na_min"], 60.0)
+        self.assertEqual(p["zastoji_250_na_min"], 30.0)
+        self.assertEqual(p["zastoji_kljucna_na_min"], 30.0)
+        # Posnetek za prikaz se ne spremeni: nova polja niso v slovarju gledalca.
+        self.assertEqual(set(self.m.posnetek()["gledalec"]), {"fps", "zastoji"})
+        json.dumps(p, allow_nan=False)
+
+    def test_starejsi_gledalec_kot_prej(self):
+        self.ping(10, fps=59.8, zastoji=1, izpusceno=0)
+        self.ping(10, fps=59.8, zastoji=0, izpusceno=0)
+        p = self.m.povzetek()
+        self.assertEqual(p["zastoji_na_min"], 30.0)
+        for kljuc in self.NOVA:
+            self.assertIn(kljuc, p)
+            self.assertIsNone(p[kljuc])
+
+    def test_tuje_vrednosti_padejo(self):
+        ogromno = 10 ** 400
+        self.ping(10, zastoj_ms=ogromno, zastoji_100=-1, zastoji_250="x", zastoji_kljucna=float("nan"))
+        self.ping(10, zastoj_ms=1e9, zastoji_100=True)
+        p = self.m.povzetek()
+        for kljuc in self.NOVA:
+            self.assertIsNone(p[kljuc])
+        json.dumps(p, allow_nan=False)
+
+
 class Povzetek(_Osnova):
     def test_polja_p50_p90(self):
         for i in range(20):

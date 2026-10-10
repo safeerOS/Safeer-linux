@@ -27,6 +27,11 @@ Z gledalcem, ki zna 'rtt' (caps v screen.start, nato "rtt": true v glavi):
   oddaja_mbps               nasa hitrost med istima pingoma
   kapaciteta_mbps           najvecja dostava med zagozdenostjo v zadnjih 60 s
   gledalec                  fps, mbps, dek, zastoji, izpusceno iz odmeva; prvi odmev nosi se pot in rok
+Zastoji gledalca (novejsi gledalec; starejsi teh polj ne poslje in so v povzetku None): zastoj je presledek > 50 ms
+med zaporednima slikama na izhodu dekoderja (Android-tv ZaslonUtrip.ZASTOJ_MS); vsak odmev nosi zadnjo zaprto sekundo.
+  zastoj_ms                 skupno trajanje zastojev v tej sekundi (cel presledek, ms)
+  zastoji_100, zastoji_250  zastoji, daljsi od 100 ms oz. 250 ms
+  zastoji_kljucna           zastoji, ki jih je koncala kljucna slika (velika slika prek releja, daljse dekodiranje)
 """
 
 from __future__ import annotations
@@ -60,7 +65,12 @@ NAJVEC_SEKUND = 24 * 3600
 
 #: Smiselni razponi vrednosti gledalca (na sekundo oz. v ms); vrednost zunaj razpona pade, kot da je ni.
 RAZPONI_GLEDALCA = {"fps": (0.0, 1000.0), "mbps": (0.0, 100_000.0), "dek": (0.0, 60_000.0),
-                    "zastoji": (0.0, 10_000.0), "izpusceno": (0.0, 10_000.0), "rok": (0.0, 600_000.0)}
+                    "zastoji": (0.0, 10_000.0), "izpusceno": (0.0, 10_000.0), "rok": (0.0, 600_000.0),
+                    "zastoj_ms": (0.0, 600_000.0), "zastoji_100": (0.0, 10_000.0), "zastoji_250": (0.0, 10_000.0),
+                    "zastoji_kljucna": (0.0, 10_000.0)}
+#: Polja zastojev iz odmeva (novejsi gledalec) -> ime v povzetku seje (na minuto, kot zastoji_na_min).
+ZASTOJI_GLEDALCA = {"zastoj_ms": "zastoj_ms_na_min", "zastoji_100": "zastoji_100_na_min",
+                    "zastoji_250": "zastoji_250_na_min", "zastoji_kljucna": "zastoji_kljucna_na_min"}
 
 
 def _stevilo(v, najmanj: Optional[float] = None, najvec: Optional[float] = None) -> Optional[float]:
@@ -136,6 +146,8 @@ class Meritve:
         self._rtt_vzorci: collections.deque = collections.deque(maxlen=NAJVEC_VZORCEV)
         self._cakanje_vzorci: collections.deque = collections.deque(maxlen=NAJVEC_VZORCEV)
         self._zastoji: collections.deque = collections.deque(maxlen=NAJVEC_VZORCEV)
+        #: Polje odmeva (ZASTOJI_GLEDALCA) -> vzorci na odmev; prazno pri starejsem gledalcu.
+        self._zastoji_vec = {k: collections.deque(maxlen=NAJVEC_VZORCEV) for k in ZASTOJI_GLEDALCA}
         self._odmevov = 0
         #: Prejsnji odmev z r in b: (r, b, t_tx_ms, nasih bajtov ob pingu).
         self._prejsnji: Optional[tuple] = None
@@ -282,6 +294,10 @@ class Meritve:
                     self._gledalec[kljuc] = v
                     if kljuc == "zastoji":
                         self._zastoji.append(v)
+            for kljuc, vzorci in self._zastoji_vec.items():
+                v = _stevilo(dogodek.get(kljuc), *RAZPONI_GLEDALCA[kljuc])
+                if v is not None:
+                    vzorci.append(v)
             pot = dogodek.get("pot")
             if isinstance(pot, str) and pot:
                 self._gledalec["pot"] = pot[:16]
@@ -394,6 +410,8 @@ class Meritve:
                 "cakanje_p90_ms": _z(_percentil(self._cakanje_vzorci, 90)),
                 "zasedenost_p90": _z(_percentil(zasedenost, 90), 3),
                 "zastoji_na_min": _z(60.0 * sum(self._zastoji) / len(self._zastoji)) if self._zastoji else None,
+                **{ime: _z(60.0 * sum(self._zastoji_vec[k]) / len(self._zastoji_vec[k])) if self._zastoji_vec[k]
+                   else None for k, ime in ZASTOJI_GLEDALCA.items()},
                 "pozni": self._pozni, "pingov": self._pingov, "odmevov": self._odmevov,
                 "delez_retrans": _z(delez, 4),
             })
