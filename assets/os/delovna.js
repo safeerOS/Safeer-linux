@@ -96,7 +96,7 @@
       skSplet: "Splet", skProgrami: "Programi", skProgramiNaprav: "Programi naprav", skDatoteke: "Datoteke", skMediji: "Mediji",
       skZapiski: "Zapiski", skSafeer: "Safeer OS", ciljMedia: "Medijski center", ciljNaprave: "Naprave (Safeer Link)", ciljScit: "Ščit – zaščita za ves računalnik",
       ciljNastavitve: "Nastavitve Safeer OS", ciljZapiski: "Zapiski", ciljSporocila: "Sporočila", ciljSplet: "Splet v Safeer OS",
-      odpreSafeerOs: "odpre Safeer OS",
+      odpreSafeerOs: "odpre Safeer OS", odprePredvajalnik: "odpre Safeer Player",
       skNaprave: "Naprave", napravaDatoteke: "datoteke na napravi", napravaProgrami: "programi naprave",
       isciVMedijih: "Poišči »{q}« v Medijskem centru", odpreMedijski: "filmi, serije, glasba, radio",
       posljiNaNapravo: "Pošlji na napravo …", posNiNaprav: "V Safeer Linku ni naprave, ki bi sprejela datoteko.",
@@ -239,7 +239,7 @@
       skSplet: "Web", skProgrami: "Apps", skProgramiNaprav: "Apps on devices", skDatoteke: "Files", skMediji: "Media",
       skZapiski: "Notes", skSafeer: "Safeer OS", ciljMedia: "Media Centre", ciljNaprave: "Devices (Safeer Link)", ciljScit: "Shield – protection for the whole computer",
       ciljNastavitve: "Safeer OS settings", ciljZapiski: "Notes", ciljSporocila: "Messages", ciljSplet: "Web in Safeer OS",
-      odpreSafeerOs: "opens Safeer OS",
+      odpreSafeerOs: "opens Safeer OS", odprePredvajalnik: "opens Safeer Player",
       skNaprave: "Devices", napravaDatoteke: "files on the device", napravaProgrami: "apps on the device",
       isciVMedijih: "Find “{q}” in the Media Centre", odpreMedijski: "films, series, music, radio",
       posljiNaNapravo: "Send to a device …", posNiNaprav: "No device in Safeer Link can receive a file.",
@@ -2192,7 +2192,8 @@
     var k = " " + kljucIskanja(besedilo).replace(/[^\p{L}\p{N}]+/gu, " ");
     return besede.length > 0 && besede.every(function (b) { return k.indexOf(b.length < 3 ? " " + b : b) >= 0; });
   }
-  // Safeer OS sam: razdelki glavnega okna in Scit. [cilj za odpriRazdelek, kljuc imena, kljucne besede brez sumnikov].
+  // Safeer OS sam: razdelki glavnega okna in Scit (media v oknu Safeer Player). [cilj za odpriRazdelek, kljuc imena,
+  // kljucne besede brez sumnikov].
   var SAFEER_CILJI = [
     ["media", "ciljMedia", "medijski center filmi serije glasba radio tv televizija video katalog media centre movies series music"],
     ["naprave", "ciljNaprave", "safeer link naprave telefon televizor tablica povezi qr koda devices phone tablet pair"],
@@ -2295,7 +2296,8 @@
         } else if (v.vrsta === "prgNaprave") {
           appendIkona(b, v.p.ikona, v.p.ime); ime = v.p.ime; vir = v.p.imeNaprave;
         } else if (v.vrsta === "safeer") {
-          b.appendChild(ikonaVrste("program")); ime = v.ime; pod = t("odpreSafeerOs");
+          // Medijski center se odpre v svojem oknu Safeer Player (safeer_os.py _odpri_razdelek), ostalo v Safeer OS.
+          b.appendChild(ikonaVrste("program")); ime = v.ime; pod = t(v.cilj === "media" ? "odprePredvajalnik" : "odpreSafeerOs");
         } else if (v.vrsta === "zapisek") {
           b.appendChild(ikonaVrste("dokument")); ime = v.z.naslov; pod = v.z.odlomek || "";
         } else if (v.vrsta === "naprava") {
@@ -2546,6 +2548,7 @@
     document.querySelectorAll("#kontrole [data-ukaz]").forEach(function (b) {
       b.addEventListener("click", function () { klic("predvajalnikUkaz", [b.getAttribute("data-ukaz")]).then(medijOsvezi); });
     });
+    // »media« odpre Medijski center v svojem oknu Safeer Player, ne cele lupine Safeer OS (safeer_os.py _odpri_razdelek).
     $("gumbMedijskiCenter").addEventListener("click", function () { klic("odpriRazdelek", ["media"]).catch(function () {}); });
 
     // Velikost okna: prerazporedi strani (brez pomikanja)

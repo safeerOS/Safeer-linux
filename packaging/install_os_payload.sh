@@ -40,6 +40,10 @@ install -Dm644 "$ROOT/LICENSE" "$PREFIX/share/doc/safeer-os/LICENSE"
 sed "s/^Icon=.*/Icon=$ID/" "$ROOT/packaging/safeer-os.desktop" > "$PREFIX/share/applications/$ID.desktop"
 # Magnet povezave (x-scheme-handler/magnet) odpre Safeer Media; vnos se v meniju ne kaze.
 sed "s/^Icon=.*/Icon=$ID/" "$ROOT/packaging/safeer-os-magnet.desktop" > "$PREFIX/share/applications/$ID.Magnet.desktop"
+# Safeer Player (Medijski center v svojem oknu, `safeer-os --predvajalnik`) je v meniju svoj program s svojo ikono.
+# Ime z ID-jem spredaj: Flatpak izvozi samo vnose in ikone, ki se zacnejo z ID-jem programa.
+sed "s/^Icon=.*/Icon=$ID.Player/" "$ROOT/packaging/safeer-player.desktop" > "$PREFIX/share/applications/$ID.Player.desktop"
+install -Dm644 "$ROOT/assets/os/predvajalnik.svg" "$PREFIX/share/icons/hicolor/scalable/apps/$ID.Player.svg"
 sed "s|safeer-os.desktop|$ID.desktop|" "$ROOT/io.github.memelandfaner.SafeerOS.metainfo.xml" > "$PREFIX/share/metainfo/io.github.memelandfaner.SafeerOS.metainfo.xml"
 install -Dm644 "$ROOT/assets/os/znak.svg" "$PREFIX/share/icons/hicolor/scalable/apps/$ID.svg"
 install -m644 "$ROOT/assets/icon.png" "$PREFIX/share/pixmaps/$ID.png"

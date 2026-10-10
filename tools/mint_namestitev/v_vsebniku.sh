@@ -50,7 +50,8 @@ xvfb-run -a safeer-os --version | tee /dev/stderr | grep -Fxq "Safeer OS $(razli
 
 echo "== 3. zaganjalniki v meniju"
 desktop-file-validate /usr/share/applications/safeer-browser.desktop /usr/share/applications/safeer-control.desktop \
-  /usr/share/applications/safeer-os.desktop /usr/share/applications/safeer-os.Magnet.desktop
+  /usr/share/applications/safeer-os.desktop /usr/share/applications/safeer-os.Magnet.desktop \
+  /usr/share/applications/safeer-os.Player.desktop
 
 echo "== 4. Safeer OS se zazene in izrise stran (navaden uporabnik, WebKit s peskovnikom)"
 # Linux Mint dovoli uporabniske imenske prostore (/etc/sysctl.d/20-apparmor-mint.conf), Ubuntu jih omejuje. Nastavitev
