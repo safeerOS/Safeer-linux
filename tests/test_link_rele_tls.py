@@ -22,30 +22,57 @@ _GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
 class _Rele:
-    def __init__(self, mapa: str) -> None:
+    """Krajevni rele: sprejme vec povezav; `nacini[i]` doloci vedenje i-te povezave.
+
+    "odmev" (privzeto): rokovanje WebSocket, nato vsak okvir vrne; "molk": prebere zahtevo in zapre brez
+    odgovora; "403": zahtevo zavrne; "zapri": takoj po TLS zapre (rele zapre neuporabljeno povezavo).
+    """
+
+    def __init__(self, mapa: str, nacini=None) -> None:
         kljuc, potrdilo, _ = link_datoteke.zagotovi_potrdilo(mapa)
         self.ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         self.ctx.load_cert_chain(potrdilo, kljuc)
         self.posluh = socket.socket()
         self.posluh.bind(("127.0.0.1", 0))
-        self.posluh.listen(1)
+        self.posluh.listen(8)
         self.vrata = self.posluh.getsockname()[1]
+        self.nacini = list(nacini or [])
         self.napaka = ""
         self.okvirjev = 0
-        self.nit = threading.Thread(target=self._teci, daemon=True)
+        self.povezav = 0
+        self.zahtev = []        # (zaporedna stevilka povezave, prva vrstica zahteve)
+        self.nit = threading.Thread(target=self._sprejemaj, daemon=True)
         self.nit.start()
 
-    def _teci(self) -> None:
+    def _sprejemaj(self) -> None:
+        while True:
+            try:
+                surov, _ = self.posluh.accept()
+            except OSError:
+                return
+            st = self.povezav
+            self.povezav += 1
+            nacin = self.nacini[st] if st < len(self.nacini) else "odmev"
+            threading.Thread(target=self._teci, args=(surov, st, nacin), daemon=True).start()
+
+    def _teci(self, surov, st: int, nacin: str) -> None:
         s = None
         try:
-            surov, _ = self.posluh.accept()
             s = self.ctx.wrap_socket(surov, server_side=True)
+            if nacin == "zapri":
+                return
             zahteva = b""
             while b"\r\n\r\n" not in zahteva:
                 kos = s.recv(4096)
                 if not kos:
                     return
                 zahteva += kos
+            self.zahtev.append((st, zahteva.split(b"\r\n", 1)[0].decode()))
+            if nacin == "molk":
+                return
+            if nacin == "403":
+                s.sendall(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
+                return
             kljuc = re.search(rb"Sec-WebSocket-Key: (\S+)", zahteva).group(1).decode()
             sprejem = base64.b64encode(hashlib.sha1((kljuc + _GUID).encode()).digest()).decode()
             s.sendall(("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
@@ -75,23 +102,35 @@ class _Rele:
                     return
                 self.okvirjev += 1
                 s.sendall(link_ws.okvir(b0 & 0x0F, telo))
-        except ConnectionError:
+        except (ConnectionError, ssl.SSLError):
             pass
         except Exception as e:  # noqa: BLE001
             self.napaka = "%s: %s" % (type(e).__name__, e)
         finally:
-            if s is not None:
-                try:
-                    s.close()
-                except OSError:
-                    pass
+            for v in (s, surov):
+                if v is not None:
+                    try:
+                        v.close()
+                    except OSError:
+                        pass
 
     def zapri(self) -> None:
+        try:
+            self.posluh.shutdown(socket.SHUT_RDWR)      # zbudi accept() (sam close ga na Linuxu ne)
+        except OSError:
+            pass
         try:
             self.posluh.close()
         except OSError:
             pass
         self.nit.join(5)
+
+
+def _kontekst_preizkusa():
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
 
 
 class OdjemalecReleja(unittest.TestCase):
@@ -200,3 +239,124 @@ class OdjemalecReleja(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ToplaPovezava(unittest.TestCase):
+    """Nov kanal gre po vnaprej odprti povezavi TLS (brez TCP in TLS rokovanja); mrtva se zamenja z novo."""
+
+    def _rele(self, nacini=None) -> _Rele:
+        self.mapa = tempfile.mkdtemp(prefix="safeer-rele-")
+        self.addCleanup(shutil.rmtree, self.mapa, True)
+        try:
+            rele = _Rele(self.mapa, nacini)
+        except Exception as e:  # noqa: BLE001
+            self.skipTest("potrdila ni mogoce ustvariti: %s" % e)
+        self.addCleanup(rele.zapri)
+        prava = socket.create_connection
+        for zamenjava in (mock.patch.object(link_rele.ssl, "create_default_context", _kontekst_preizkusa),
+                          mock.patch.object(link_rele.socket, "create_connection",
+                                            lambda naslov, timeout=None: prava(("127.0.0.1", rele.vrata), timeout=timeout))):
+            zamenjava.start()
+            self.addCleanup(zamenjava.stop)
+        return rele
+
+    def _topla(self) -> link_rele.TopleTls:
+        topla = link_rele.TopleTls(gostitelj="127.0.0.1", rok_s=5.0)
+        self.addCleanup(topla.ustavi)
+        return topla
+
+    @staticmethod
+    def _pocakaj(pogoj, rok: float = 5.0) -> bool:
+        konec = time.monotonic() + rok
+        while time.monotonic() < konec:
+            if pogoj():
+                return True
+            time.sleep(0.02)
+        return pogoj()
+
+    def test_kanal_po_topli_povezavi(self):
+        rele = self._rele()
+        topla = self._topla()
+        topla.zelim()
+        self.assertTrue(self._pocakaj(lambda: topla._s is not None), "topla povezava ni nastala")
+        self.assertEqual(rele.povezav, 1)
+        self.assertEqual(rele.zahtev, [], "topla povezava ne sme poslati zahteve, dokler je ne uporabimo")
+        ws = link_rele.odpri_kanal("/v1/listen", lambda: {"X-Preizkus": "1"}, topla)
+        self.addCleanup(ws.sprosti)
+        self.assertEqual(rele.zahtev[0][0], 0, "kanal ni sel po topli povezavi")
+        ws.poslji(b"zivjo")
+        self.assertEqual(ws.prejmi(), (0x2, b"zivjo"))
+        # Naslednja topla se pripravi takoj (za naslednji kanal).
+        self.assertTrue(self._pocakaj(lambda: topla._s is not None and rele.povezav == 2))
+
+    def test_mrtva_topla_se_zamenja_z_novo(self):
+        rele = self._rele(["molk"])
+        topla = self._topla()
+        topla.zelim()
+        self.assertTrue(self._pocakaj(lambda: topla._s is not None))
+        ws = link_rele.odpri_kanal("/v1/listen", lambda: {"X-Preizkus": "1"}, topla)
+        self.addCleanup(ws.sprosti)
+        self.assertEqual([st for st, _ in rele.zahtev][:1], [0])
+        self.assertNotEqual(rele.zahtev[-1][0], 0, "po mrtvi topli ni bilo nove povezave")
+        ws.poslji(b"naprej")
+        self.assertEqual(ws.prejmi(), (0x2, b"naprej"))
+
+    def test_zavrnitve_ne_ponovi(self):
+        rele = self._rele(["403", "403", "403"])
+        topla = self._topla()
+        topla.zelim()
+        self.assertTrue(self._pocakaj(lambda: topla._s is not None))
+        with self.assertRaises(ConnectionError) as napaka:
+            link_rele.odpri_kanal("/v1/connect?to=x&kanal=y", lambda: {"X-Preizkus": "1"}, topla)
+        self.assertNotIsInstance(napaka.exception, link_rele.BrezOdgovora)
+        self.assertIn("403", str(napaka.exception))
+        self.assertEqual(len(rele.zahtev), 1, "zavrnjeno zahtevo je poslal dvakrat")
+
+    def test_povezave_ki_jo_rele_zapre_ne_ponudi(self):
+        rele = self._rele(["zapri", "zapri"])
+        topla = self._topla()
+        odprte = []
+        nova = topla._nova
+        topla._nova = lambda: odprte.append(nova()) or odprte[-1]
+        topla.zelim()
+        # Nit zazna zaprtje in nastavi premor pred naslednjo povezavo.
+        self.assertTrue(self._pocakaj(lambda: topla._ne_pred > 0), "zaprtja ni zaznal")
+        self.assertIsNone(topla._s)
+        self.assertFalse(link_rele._mirna(odprte[0]))
+        # Rele je zaprl takoj: nove ne odpre prej kot po premoru (tudi ce ga kdo zbudi).
+        topla.zelim()
+        time.sleep(0.3)
+        self.assertEqual(rele.povezav, 1)
+        self.assertIsNone(topla.vzemi())
+
+    def test_brez_zelje_se_ne_obnavlja(self):
+        rele = self._rele()
+        topla = self._topla()
+        with mock.patch.object(link_rele, "TOPLA_ZELJA_S", 0.2):
+            topla.zelim()
+            self.assertTrue(self._pocakaj(lambda: topla._s is not None))
+            topla._zbudi()
+            self.assertTrue(self._pocakaj(lambda: topla._nit is None, 3.0), "nit se po poteku zelje ni ustavila")
+        self.assertIsNone(topla._s)
+        self.assertEqual(rele.povezav, 1)
+
+    def test_redna_zamenjava_brez_premora_in_z_obnovo_seje(self):
+        """Cloudflare zapre povezavo brez zahteve po 10-15 s: bazen jo zamenja prej, brez premora, z obnovo seje TLS."""
+        self._rele()
+        topla = self._topla()
+        odprte = []
+        nova = topla._nova
+        topla._nova = lambda: odprte.append(nova()) or odprte[-1]
+        with mock.patch.object(link_rele, "TOPLA_STAROST_S", 0.3):
+            topla.zelim()
+            # Brez premora (ta bi bil vsaj 5 s) v ~2 s nastane vec zaporednih povezav.
+            self.assertTrue(self._pocakaj(lambda: len(odprte) >= 4, 4.0),
+                            "redna zamenjava je cakala kot po zgodnjem zaprtju (%d povezav)" % len(odprte))
+            self.assertEqual(topla._ne_pred, 0.0)
+            # Prva je polno rokovanje, naslednje obnovijo sejo prejsnje (vstopnico TLS 1.3 prebere _mirna).
+            self.assertFalse(odprte[0].session_reused)
+            self.assertTrue(any(s.session_reused for s in odprte[1:]), "nobena zamenjava ni obnovila seje TLS")
+            ws = link_rele.odpri_kanal("/v1/listen", lambda: {"X-Preizkus": "1"}, topla)
+        self.addCleanup(ws.sprosti)
+        ws.poslji(b"po zamenjavi")
+        self.assertEqual(ws.prejmi(), (0x2, b"po zamenjavi"))
