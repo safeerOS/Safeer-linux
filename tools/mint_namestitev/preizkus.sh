@@ -17,4 +17,5 @@ PAKETI="$(cd "${2:-.}" && pwd)"
 TU="$(cd "$(dirname "$0")" && pwd)"
 PREJSNJI=()
 if [ -n "${3:-}" ] && ls "$3"/*.deb >/dev/null 2>&1; then PREJSNJI=(-v "$(cd "$3" && pwd):/prejsnji:ro"); fi
-docker run --rm --privileged -v "$PAKETI:/paketi:ro" "${PREJSNJI[@]}" -v "$TU/v_vsebniku.sh:/v_vsebniku.sh:ro" "$SLIKA" bash /v_vsebniku.sh
+docker run --rm --privileged -v "$PAKETI:/paketi:ro" "${PREJSNJI[@]}" -v "$TU/v_vsebniku.sh:/v_vsebniku.sh:ro" \
+  -v "$TU/dvojni_klik.py:/dvojni_klik.py:ro" "$SLIKA" bash /v_vsebniku.sh

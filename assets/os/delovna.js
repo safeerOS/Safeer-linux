@@ -92,6 +92,8 @@
       niNaprav: "Programi drugih naprav se pokažejo, ko napravo dodaš v Safeer Linku (Safeer Control).",
       niProgramov: "V tej kategoriji ni programov.", napravaNedosegljiva: "{naprava}: ni dosegljiva",
       brezControla: "Safeer Link (Safeer Control) ne teče, zato programi naprav niso na voljo.",
+      brezControlaNamesti: "Safeer Control ni nameščen, zato programi naprav niso na voljo. Namestiš ga v Safeer OS (Naprave).",
+      linkNamesti: "Namesti Safeer Control", linkNamestiNaslov: "Safeer Link potrebuje Safeer Control: odpre Naprave v Safeer OS",
       zagonPoslan: "Ukaz poslan napravi {naprava}.",
       skSplet: "Splet", skProgrami: "Programi", skProgramiNaprav: "Programi naprav", skDatoteke: "Datoteke", skMediji: "Mediji",
       skZapiski: "Zapiski", skSafeer: "Safeer OS", ciljMedia: "Medijski center", ciljNaprave: "Naprave (Safeer Link)", ciljScit: "Ščit – zaščita za ves računalnik",
@@ -235,6 +237,8 @@
       niNaprav: "Apps from your other devices appear once you add a device in Safeer Link (Safeer Control).",
       niProgramov: "No apps in this category.", napravaNedosegljiva: "{naprava}: not reachable",
       brezControla: "Safeer Link (Safeer Control) isn't running, so apps on your devices aren't available.",
+      brezControlaNamesti: "Safeer Control isn't installed, so apps on your devices aren't available. Install it in Safeer OS (Devices).",
+      linkNamesti: "Install Safeer Control", linkNamestiNaslov: "Safeer Link needs Safeer Control: opens Devices in Safeer OS",
       zagonPoslan: "Sent to {naprava}.",
       skSplet: "Web", skProgrami: "Apps", skProgramiNaprav: "Apps on devices", skDatoteke: "Files", skMediji: "Media",
       skZapiski: "Notes", skSafeer: "Safeer OS", ciljMedia: "Media Centre", ciljNaprave: "Devices (Safeer Link)", ciljScit: "Shield – protection for the whole computer",
@@ -2013,7 +2017,7 @@
     var sp = $("prgSporocilo");
     var sporocila = [];
     if (!P.nalozeno) sporocila.push(t("nalagam"));
-    else if (P.brezControla) sporocila.push(t("brezControla"));
+    else if (P.brezControla) sporocila.push(t(L.stanje && L.stanje.namesti_control ? "brezControlaNamesti" : "brezControla"));
     else if (!P.naprave.length && $("prgNaprava").value !== "ta") sporocila.push(t("niNaprav"));
     P.nedosegljive.forEach(function (n) { sporocila.push(t("napravaNedosegljiva", { naprava: n })); });
     // Zmogljivost mreze brez pomikanja
@@ -2368,6 +2372,15 @@
   }
   function izrisiLink() {
     var g = $("gumbLink"), p = L.stanje;
+    if (p && !p.control && p.namesti_control) {
+      // Paket deb brez Safeer Control: gumb vodi v Naprave v Safeer OS, kjer ga uporabnik namesti (geslo).
+      g.hidden = false;
+      g.classList.remove("povezan");
+      g.classList.add("nepovezan");
+      $("linkBesedilo").textContent = t("linkNamesti");
+      g.title = t("linkNamestiNaslov");
+      return;
+    }
     if (!p || !p.control) { g.hidden = true; return; }
     var povezan = p.stanje === "povezan";
     var ids = {};
@@ -2534,6 +2547,7 @@
     $("gumbLink").addEventListener("click", function () {
       // Povezan racunalnik: okno »Poveži naprave« (QR ALI 6-mestna koda). Nepovezan: prijavno okno
       // (QR / vpis kode / brez povezave). Oboje v Safeer Controlu, nikoli samo ob prijavi.
+      if (L.stanje && !L.stanje.control && L.stanje.namesti_control) { klic("odpriRazdelek", ["naprave"]).catch(function () {}); return; }
       var povezan = L.stanje && L.stanje.stanje === "povezan";
       klic(povezan ? "novaNaprava" : "prijava").then(function (ok) { if (ok === false) obvesti(t("brezControla")); })
         .catch(function () {});

@@ -29,6 +29,12 @@ MANIFEST = os.environ.get("SAFEER_MANIFEST_URL") or "https://safeer.si/os/razlic
 STRAN = "https://safeer.si/os/"
 PREVERBA_S = 6 * 3600
 IMENA = {"safeer-os": "Safeer OS", "safeer-control": "Safeer Control", "safeer-browser": "Safeer Browser"}
+# Paket videza (safeer-os-tema) v razlicice.json (linux.safeer-os): gre s posodobitvijo samo, ce je ze namescen.
+# NE "tema_deb": Safeer OS <= 0.4.75 in Control <= 2.1.73 vnos "tema_deb" dodata VSAKI posodobitvi paketa deb (tudi
+# kdor paketa videza ni izbral - ob naslednji prijavi bi se mu namizje preklopilo v Safeer OS), zato ga seznam ne sme
+# vec vsebovati. Novi kljuc stari odjemalci prezrejo in posodobijo samo program (stari paket videza ostane veljaven:
+# Depends: safeer-os (>= svoja razlicica)).
+TEMA_DEB = "tema_namescena_deb"
 # Javni kljuci Ed25519 za podpis razlicice.json (zasebni kljuc je samo na racunalniku, ki gradi stran safeer.si).
 # Kontekst loci ta podpis od podpisov seznamov grozenj (core/signed_feed.py), tudi ce bi bil kljuc isti.
 KLJUCI: Dict[str, str] = {"safeer-razlicice-2026-10": "yx7oxoDdoscufSxSOLf9JuDo0uIajPsUNmUjJEqUVjE="}
@@ -228,6 +234,23 @@ def nacin_namestitve() -> str:
     return "neznano"
 
 
+def namescena_razlicica(paket: str) -> str:
+    """Razlicica paketa, ki je v dpkg res namescen (Status 'install ok installed', kratko 'ii'), sicer "".
+
+    Odstranjen paket, ki so mu ostale nastavitve (stanje 'rc' = 'deinstall ok config-files'), dpkg-query se vedno
+    izpise z razlicico (preizkuseno na Ubuntu 24.04, 9. 10. 2026) - tak paket ni namescen. Brez dpkg: ""."""
+    try:
+        izpis = subprocess.run(["dpkg-query", "-W", "-f=${Status}|${Version}\\n", paket],
+                               capture_output=True, text=True, timeout=10).stdout
+    except Exception:  # noqa: BLE001 - ni dpkg, casovna omejitev: paket za nas ni namescen
+        return ""
+    for vrstica in (izpis or "").splitlines():
+        stanje, _, razlicica = vrstica.partition("|")
+        if stanje.strip() == "install ok installed" and razlicica.strip():
+            return razlicica.strip()
+    return ""
+
+
 def _vnos_datoteke(paket: dict, nacin: str) -> Optional[dict]:
     """Datoteka za namestitev v programu ali None (nova razlicica brez nje: vmesnik odpre stran)."""
     if nacin == "windows":
@@ -237,11 +260,16 @@ def _vnos_datoteke(paket: dict, nacin: str) -> Optional[dict]:
     return d if veljavna_datoteka(d) else None
 
 
-def preveri(platforma: str, razlicice: Dict[str, str], manifest: Optional[dict] = None, nacin: Optional[str] = None) -> dict:
+def preveri(platforma: str, razlicice: Dict[str, str], manifest: Optional[dict] = None, nacin: Optional[str] = None,
+            tema: Optional[bool] = None) -> dict:
     """Primerja nase razlicice ({"safeer-os": "0.4.22", "safeer-control": "2.1.20"}) z manifestom.
 
     Vrne {"nove": [{"kljuc", "ime", "nasa", "razlicica", "datoteka": {url, sha256, velikost} ali None, "tema": {...}}],
           "nacin": deb|flatpak|appimage|windows|neznano, "stran": url, "preverjeno": cas}. Brez omrezja vrze izjemo.
+
+    Paket videza (safeer-os-tema, vnos TEMA_DEB) gre z novim safeer-os samo, ce je ze namescen: kdor ga ni izbral,
+    ga s posodobitvijo ne dobi (sicer ob naslednji prijavi preklopi namizje v Safeer OS). [tema] None = vprasaj dpkg.
+    Stari vnos "tema_deb" prezremo (glej TEMA_DEB).
     """
     m = manifest if manifest is not None else prenesi_manifest()
     nacin = nacin or ("windows" if platforma == "windows" else nacin_namestitve())
@@ -253,15 +281,46 @@ def preveri(platforma: str, razlicice: Dict[str, str], manifest: Optional[dict] 
             continue
         vnos = {"kljuc": kljuc, "ime": IMENA.get(kljuc, kljuc), "nasa": nasa, "razlicica": str(paket.get("razlicica")),
                 "datoteka": _vnos_datoteke(paket, nacin)}
-        if kljuc == "safeer-os" and nacin == "deb" and "tema_deb" in paket:
-            if veljavna_datoteka(paket["tema_deb"]):
-                vnos["tema"] = paket["tema_deb"]
+        if kljuc == "safeer-os" and nacin == "deb" and TEMA_DEB in paket:
+            if tema is None:
+                tema = bool(namescena_razlicica("safeer-os-tema"))
+            if not tema:
+                nove.append(vnos)
+                continue
+            if veljavna_datoteka(paket[TEMA_DEB]):
+                vnos["tema"] = paket[TEMA_DEB]
             else:
                 vnos["datoteka"] = None   # paket videza gre v isti apt-get: brez veljavnega vnosa nic napol (samo stran)
         nove.append(vnos)
     novo = skupina.get("novo") if isinstance(skupina.get("novo"), dict) else {}
     return {"nove": nove, "nacin": nacin, "stran": str(m.get("stran") or STRAN), "preverjeno": int(time.time()),
             "novo": {k: str(v) for k, v in novo.items() if isinstance(v, str)}}
+
+
+def za_namestitev(nove: List[dict], nacin: str, lastni: str) -> List[dict]:
+    """Vnosi izida preverbe, ki jih ob kliku »Posodobi« res namestimo (izid je lahko star do PREVERBA_S).
+
+    Pravili iz preveri() veljata ob kliku, ne le ob preverbi: paket, ki ga je uporabnik po preverbi odstranil (ali ima
+    zdaj samo ostanke nastavitev 'rc'), se s posodobitvijo ne vrne, paket videza (safeer-os-tema) pa gre zraven samo,
+    ce je se namescen. Izpade tudi paket, ki ga je medtem ze posodobil drug program (apt-get brez znizanja bi sicer
+    padel). Tekoci program [lastni] ostane, tudi ce ga dpkg ne pozna. Samo deb: drugi nacini nimajo dpkg."""
+    izbrani: List[dict] = []
+    tema: Optional[bool] = None
+    for n in nove:
+        if not n.get("datoteka"):
+            continue
+        if nacin == "deb":
+            kljuc = str(n.get("kljuc") or "")
+            v = namescena_razlicica(kljuc)
+            if (v and not novejsa(str(n.get("razlicica") or ""), v)) or (not v and kljuc != lastni):
+                continue
+            if n.get("tema"):
+                if tema is None:
+                    tema = bool(namescena_razlicica("safeer-os-tema"))
+                if not tema:
+                    n = {k: x for k, x in n.items() if k != "tema"}
+        izbrani.append(n)
+    return izbrani
 
 
 def opis(izid: dict) -> str:

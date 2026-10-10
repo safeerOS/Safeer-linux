@@ -15,9 +15,12 @@ Zagon:
   safeer_os.py --okno          v oknu (za preizkus ob drugem delu)
   safeer_os.py --posnetek P    izrise stran, shrani posnetek v P (PNG) in konca (preverjanje)
 
-Prvi zagon: ce racunalnik se ni v Safeer Linku in uporabnik ni izbral »Nadaljuj brez povezave
-naprav«, Safeer OS odpre prijavno okno Safeer Control (QR / 6-mestna koda / brez povezave).
-Naprave lahko uporabnik kadarkoli poveze v razdelku Naprave.
+Prvi zagon: brez prijavnega okna. Naprave uporabnik poveze, ko sam zeli, v razdelku Naprave (prijavno okno
+Safeer Control: QR / 6-mestna koda / brez povezave).
+
+Safeer Control (Safeer Link, naprave) je za paket deb samo priporocen: Safeer OS dela tudi brez njega (brez Linka
+in naprav), v Napravah in na enkratni kartici na Domov pa ga ponudi namestiti - na klik uporabnika, po isti
+podpisani poti kot posodobitve (glej SafeerOS._namesti_control). AppImage in Flatpak ga imata v sebi.
 """
 
 from __future__ import annotations
@@ -197,7 +200,10 @@ def stanje_povezave() -> dict:
         stanje = "brez"
     else:
         stanje = "nov"
-    izid = {"stanje": stanje, "control": bool(_ukaz_controla()), "zaupana": link_seja.zaupana(p), "hubi": [],
+    control = bool(_ukaz_controla())
+    izid = {"stanje": stanje, "control": control, "zaupana": link_seja.zaupana(p), "hubi": [],
+            # Paket deb brez Controla: Naprave (in enkratna kartica na Domov) ponudijo »Namesti Safeer Control«.
+            "namesti_control": not control and os_posodobitve.nacin_namestitve() == "deb",
             "predajanje": bool(_nastavitve_pladnja().get("predvajanje_za_naprave", True))}
     if stanje != "povezan":
         # Nepovezan racunalnik: Naprave povedo, ali je v omrezju Safeer Link (in kateri), ali ga ni.
@@ -859,6 +865,35 @@ def _ukaz_controla() -> Optional[list]:
     return None
 
 
+#: Stran s prenosom Safeer Control, kadar ga Safeer OS ne namesti sam (ni paket deb).
+STRAN_CONTROL = "https://safeer.si/control/"
+#: Zaklepi dpkg/apt. Poti se ne prevajajo (pkexec ohrani LANG, zato je apt lahko v slovenscini).
+_ZAKLEPI_APT = ("/var/lib/dpkg/lock", "/var/lib/dpkg/)", "/var/lib/apt/lists/lock", "/var/cache/apt/archives/lock",
+                "Could not get lock", "dpkg frontend lock")
+
+
+def koda_napake_apt(r) -> str:
+    """Kratka koda za vmesnik iz izida `pkexec apt-get install` (besedila ctrlNapaka_<koda> v besedila.js).
+
+    pkexec: 126 = uporabnik je okno za geslo zaprl, 127 = overitev ni uspela. Zaklenjen dpkg pomeni, da sistem
+    ravno namesca posodobitve (Mintov Upravitelj posodobitev) - poskusi cez minuto."""
+    if r.returncode in (126, 127):
+        return "preklicano"
+    izpis = (r.stderr or "") + "\n" + (r.stdout or "")
+    if any(z in izpis for z in _ZAKLEPI_APT):
+        return "zaklenjeno"
+    return "apt"
+
+
+def _zazeni_control_po_namestitvi() -> bool:
+    """Pravkar namescen Control zazenemo v ozadju (pladenj, Link): Safeer OS ga najde na PATH, brez odjave."""
+    try:
+        return _zagotovi_control(Gio.bus_get_sync(Gio.BusType.SESSION, None))
+    except Exception as e:  # noqa: BLE001 - Control je namescen; zazene se ob prvem dejanju ali naslednji prijavi
+        print("[SafeerOS] zagon Safeer Control po namestitvi:", e)
+        return False
+
+
 #: Po negativnem izidu preverbe peskovnika jo ponovimo šele čez toliko sekund (glej SafeerOS._peskovnik_na_voljo).
 PESKOVNIK_PONOVNO_S = 30.0
 
@@ -883,6 +918,8 @@ class SafeerOS(Gtk.Application):
         # Posodobitve s safeer.si: zadnja preverba (izid, cas) in tekoce posodabljanje (prenos + namestitev v niti).
         self.posodobitve: dict = {"izid": None, "cas": 0.0, "napaka": ""}
         self.posodabljanje = os_posodobitve.Posodabljanje()
+        #: Namestitev manjkajocega Safeer Control (paket deb, na klik v Napravah ali na kartici Domov) - svoje stanje.
+        self.namescanje_controla = os_posodobitve.Posodabljanje()
         GLib.timeout_add_seconds(90, self._posodobitve_tiho)
         # Prenosi zaradi gledanja (film iz torrenta v Medijskem centru), ki jih 48 ur nihce ni predvajal, se odstranijo sami.
         os_torrent_tok.zazeni_ciscenje()
@@ -1628,12 +1665,11 @@ class SafeerOS(Gtk.Application):
     def _posodobitve_razlicice(self) -> dict:
         r = {"safeer-os": RAZLICICA}
         if os_posodobitve.nacin_namestitve() == "deb":
-            try:
-                v = subprocess.run(["dpkg-query", "-W", "-f=${Version}", "safeer-control"], capture_output=True, text=True, timeout=10).stdout.strip()
-                if v:
-                    r["safeer-control"] = v
-            except Exception:
-                pass
+            # Samo res namescen paket ('ii'): odstranjen Control z ostanki nastavitev ('rc') dpkg-query se izpise z
+            # razlicico - posodobitev bi ga sicer tiho namestila nazaj. Manjkajoci Control namesti _namesti_control.
+            v = os_posodobitve.namescena_razlicica("safeer-control")
+            if v:
+                r["safeer-control"] = v
         return r
 
     def _posodobitve_stanje(self, vsiljeno: bool = False) -> dict:
@@ -1664,12 +1700,16 @@ class SafeerOS(Gtk.Application):
     def _posodobi(self) -> dict:
         """Prenese nove pakete (SHA-256) in jih namesti: deb prek pkexec apt-get (geslo), flatpak brez gesla, AppImage se zamenja."""
         st = self._posodobitve_stanje()
-        nove = [n for n in st["nove"] if n.get("datoteka")]
-        if not nove:
-            return {"ok": False, "koda": "ni_novih"}
         nacin = st["nacin"]
+        # Izid je lahko star do 6 ur: odstranjen paket (Control, paket videza) se ob kliku ne sme vrniti.
+        nove = os_posodobitve.za_namestitev(st["nove"], nacin, "safeer-os")
+        if not nove:
+            self.posodobitve["izid"] = None   # vmesnik takoj preveri znova (stari izid ne velja vec)
+            return {"ok": False, "koda": "ni_novih"}
         if nacin not in ("deb", "flatpak", "appimage"):
             return {"ok": False, "koda": "rocno", "stran": st["stran"]}
+        if self.namescanje_controla.tece():
+            return {"ok": False, "koda": "tece"}     # dva apt-get hkrati: drugi bi naletel na zaklenjen dpkg
 
         def delo(p: os_posodobitve.Posodabljanje) -> None:
             mapa = os.path.join(GLib.get_user_cache_dir(), "safeer-os", "posodobitve")
@@ -1694,8 +1734,89 @@ class SafeerOS(Gtk.Application):
                     except OSError:
                         pass
             self.posodobitve["izid"] = None   # naslednja preverba pove, da smo na najnovejsi
-            p.sporocilo = os_posodobitve.opis(st)
+            p.sporocilo = os_posodobitve.opis({"nove": nove})
         return {"ok": self.posodabljanje.zacni(delo)}
+
+    # ------------------------------------------------------------------ namestitev manjkajocega Safeer Control (deb)
+    def _namesti_control(self) -> dict:
+        """»Namesti Safeer Control« (Naprave, kartica na Domov): samo na klik uporabnika, nikoli samodejno.
+
+        Paket safeer-os Control le priporoca (dvoklik v Mintu bere samo Depends), zato ga ponudimo tu - po isti poti
+        kot posodobitve: podpisan (Ed25519) in svez seznam razlicic s safeer.si, samo https, obvezen SHA-256 iz
+        podpisanega seznama, nato pkexec apt-get install -y (geslo; apt doda odvisnosti iz skladisc), brez znizanja
+        razlicice. Zraven ne gre nic drugega (ne paket videza ne posodobitev Safeer OS). Samo za paket deb: AppImage
+        in Flatpak imata Control v sebi. Po namestitvi Control takoj zazenemo - Link dela brez odjave."""
+        if _ukaz_controla():
+            return {"ok": False, "koda": "ze_namescen"}
+        if os_posodobitve.nacin_namestitve() != "deb":
+            return {"ok": False, "koda": "rocno", "stran": STRAN_CONTROL}
+        if os_posodobitve.namescena_razlicica("safeer-control"):
+            return {"ok": False, "koda": "ze_namescen"}       # namescen paket (morda novejsi): nikoli cez njega
+        stanje = self.namescanje_controla
+        if self.posodabljanje.tece() or stanje.tece():
+            return {"ok": False, "koda": "tece"}
+        stanje.koda = stanje.podrobnosti = ""
+
+        def napaka(p: os_posodobitve.Posodabljanje, koda: str, podrobnosti: str = "") -> None:
+            p.faza, p.sporocilo, p.koda, p.podrobnosti = "napaka", koda, koda, str(podrobnosti or "")[-300:]
+            print("[SafeerOS] namestitev Safeer Control:", koda, podrobnosti)
+
+        def delo(p: os_posodobitve.Posodabljanje) -> None:
+            try:
+                izid = os_posodobitve.preveri("linux", {"safeer-control": "0"}, nacin="deb", tema=False)
+            except (os_posodobitve.NapakaPodpisa, os_posodobitve.NapakaSvezine) as e:
+                return napaka(p, "podpis", str(e))
+            except Exception as e:  # noqa: BLE001 - brez omrezja, safeer.si ni dosegljiv
+                return napaka(p, "omrezje", str(e))
+            vnos = next((n for n in izid.get("nove") or [] if n.get("kljuc") == "safeer-control"), None)
+            d = (vnos or {}).get("datoteka")
+            if not d:
+                return napaka(p, "ni_paketa")     # seznam brez veljavnega paketa deb (url https + SHA-256)
+            ime = str(d["url"]).rsplit("/", 1)[-1]
+            p.sporocilo = ime
+            mapa = os.path.join(GLib.get_user_cache_dir(), "safeer-os", "posodobitve")
+            try:
+                pot = os_posodobitve.prenesi(str(d["url"]), os.path.join(mapa, ime), str(d.get("sha256") or ""),
+                                             int(d.get("velikost") or 0),
+                                             lambda a, b: setattr(p, "odstotek", int(a * 100 / b) if b else 0),
+                                             lambda: p.prekinjeno, agent="SafeerOS/" + RAZLICICA)
+            except InterruptedError:
+                return napaka(p, "prekinjeno")
+            except ValueError as e:
+                # Neujemanje s SHA-256 iz podpisanega seznama: prenesi je datoteko ze zavrgel, namestitve ni.
+                return napaka(p, "sha256" if "SHA-256" in str(e) else "napaka", str(e))
+            except Exception as e:  # noqa: BLE001 - omrezje (urllib) ali disk
+                return napaka(p, "omrezje", str(e))
+            p.faza, p.odstotek = "namescanje", 100
+            try:
+                r = os_posodobitve.namesti_linux("deb", [pot])
+            except Exception as e:  # noqa: BLE001 - ni pkexec, casovna omejitev
+                return napaka(p, "apt", str(e))
+            finally:
+                try:
+                    os.remove(pot)
+                except OSError:
+                    pass
+            if r.returncode != 0:
+                return napaka(p, koda_napake_apt(r), (r.stderr or r.stdout or "").strip())
+            self.posodobitve["izid"] = None   # naslednja preverba vidi namescen Control (in njegove posodobitve)
+            p.faza, p.sporocilo = "zaganjam", str((vnos or {}).get("razlicica") or "")
+            _zazeni_control_po_namestitvi()
+        return {"ok": stanje.zacni(delo)}
+
+    def _namesti_control_stanje(self) -> dict:
+        """Tekoca namestitev Safeer Control za vmesnik: faza (prenos | namescanje | zaganjam | koncano | napaka),
+        odstotek, koda napake (besedila ctrlNapaka_<koda>), tece in stran (rocna namestitev: ob napakah podpis,
+        ni_paketa in apt vmesnik poleg »Poskusi znova« ponudi gumb, ki jo odpre)."""
+        p = self.namescanje_controla
+        return dict(p.stanje(), koda=getattr(p, "koda", ""), podrobnosti=getattr(p, "podrobnosti", ""), stran=STRAN_CONTROL)
+
+    def _kartica_control(self, zapri: bool = False) -> bool:
+        """Enkratna kartica »Namesti Safeer Control« na Domov: ali jo se pokazemo. Ko jo uporabnik zapre (ali Control
+        z nje namesti), si to zapomnimo v os.json in se ne vrne vec - Naprave gumb ponujajo se naprej."""
+        if zapri:
+            self.shramba.set("kartica_control_zaprta", True)
+        return not self.shramba.get("kartica_control_zaprta", False)
 
     # ------------------------------------------------------------------ posnetek (preverjanje)
     def _za_posnetek(self, pogled, dogodek) -> None:
@@ -1830,6 +1951,7 @@ class SafeerOS(Gtk.Application):
             "namizje": self._namizje,
             "celozaslonsko": lambda: self._celozaslonsko(bool(a[0]) if a else True),
             "control": lambda: self._odpri_control(),
+            "karticaControl": lambda: self._kartica_control(bool(a[0]) if a else False),
             "prijava": lambda: self._prijava(),
             "domov": lambda: self._domov(str(a[0]) if a else ""),
             "preklopiOkno": lambda: self._okno_dejanje(a[0] if a else 0, "preklopi"),
@@ -1889,6 +2011,8 @@ class SafeerOS(Gtk.Application):
         ozadje = {
             "posodobitveStanje": lambda: self._posodobitve_stanje(bool(a[0]) if a else False),
             "posodobi": self._posodobi,
+            "namestiControl": self._namesti_control,
+            "namestitevControla": self._namesti_control_stanje,
             "stanje": os_sistem.stanje,
             "glasnost": lambda: os_sistem.nastavi_glasnost(int(a[0])),
             "utisaj": os_sistem.preklopi_utisaj,
@@ -2134,6 +2258,7 @@ class SafeerOS(Gtk.Application):
             "sistem": _ime_sistema(),
             "samozagon": je_samozagon(),
             "povezava": stanje_povezave(),
+            "karticaControl": self._kartica_control(),
         }
 
     def _samozagon(self, vklop: bool) -> bool:

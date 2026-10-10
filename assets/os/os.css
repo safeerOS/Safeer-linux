@@ -668,6 +668,19 @@ body.namizje #noga { display: none; }
 .stikalo.napredno { margin-top: 24px; max-width: 540px; }
 div.vrstica { cursor: default; }
 .gumbi-naprav { display: flex; gap: 10px; flex-wrap: wrap; }
+/* Namestitev manjkajocega Safeer Control (paket deb): gumb v Napravah in enkratna kartica na Domov. Atribut hidden
+   sam ne skrije elementa z lastnim display (.gumb, .hitre): brez Controla tudi "Povezi naprave", "Odjavi" in "Zaupaj"
+   zares izginejo, prazna opomba o posodobitvi nad kartico pa tudi. */
+#gumbNamestiControl[hidden], #domNamestiControl[hidden], #napraveNamestitev[hidden], #gumbNamestiControlStran[hidden], #domNamestiControlStran[hidden],
+#gumbControl[hidden], #gumbOdjava[hidden], #domControl[hidden], #blokZaupanje[hidden], #domPosodobitev[hidden] { display: none; }
+#domNamestiControl { margin: 14px 0; }
+.kartica-control { grid-column: 1 / -1; }
+.kartica-control:hover { border-color: var(--rob); }
+.kartica-control .gumb { flex: none; }
+.kartica-control .gumb[disabled], #gumbNamestiControl[disabled] { opacity: .6; cursor: progress; }
+.kartica-control .gumb-ikona { flex: none; width: 36px; height: 36px; }
+.kartica-control .gumb-ikona svg { color: var(--medlo); width: 18px; height: 18px; }
+#napraveNamestitev.napaka, #domNamestiControlPod.napaka { color: var(--rdeca); }
 .gumb.opozorilo { border-color: var(--rdeca); color: #ffb3b3; }
 
 /* Zvok */
