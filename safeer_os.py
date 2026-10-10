@@ -1453,46 +1453,25 @@ class SafeerOS(Gtk.Application):
 
     # ------------------------------------------------------------------ Safeer Player (Medijski center v svojem oknu)
     def _odpri_predvajalnik(self, iskanje: str = "") -> bool:
-        """Safeer Player: Medijski center v svojem oknu, brez stranske vrstice in glave Safeer OS. Stran je ista
-        (index.html?predvajalnik=1 pokaze samo razdelek media), most in predvajalnik sta ista kot v glavnem oknu. Ce
-        okno ze obstaja (tudi skrito), pride v ospredje; iskani niz gre v iskanje Medijskega centra."""
+        """Safeer Player: domači GTK 3 Medijski center v svojem oknu (brez WebKita)."""
         iskanje = str(iskanje or "").strip()
         if self.okno_predvajalnik is None:
             self._ustvari_predvajalnik(iskanje)
             return True
-        if iskanje:
-            self._js("window.safeerOsPojdi && window.safeerOsPojdi(%s);" % json.dumps("mediji:" + iskanje),
-                     self.pogled_predvajalnik)
+        if iskanje and hasattr(self.okno_predvajalnik, "isci_entry"):
+            self.okno_predvajalnik.isci_entry.set_text(iskanje)
         cas = Gtk.get_current_event_time() or int(GLib.get_monotonic_time() / 1000)
         self.okno_predvajalnik.deiconify()
         self.okno_predvajalnik.present_with_time(cas)
         return True
 
     def _ustvari_predvajalnik(self, iskanje: str = "") -> None:
-        # Jezik v naslovu strani: Medijski center se pokaze takoj, brez cakanja na »zacetek« (glej os.js zacni).
-        stran = "index.html?" + urllib.parse.urlencode(
-            [("predvajalnik", "1"), ("jezik", _jezik())] + ([("iskanje", iskanje)] if iskanje else []),
-            quote_via=urllib.parse.quote)
-        pogled = self._nov_pogled(stran)
-        okno = Gtk.ApplicationWindow(application=self, title="Safeer Player")
-        # Svoja skupina in ikona v pultu (ne »Safeer OS«): WM_CLASS se ujema s StartupWMClass vnosa Safeer Player.
-        okno.set_wmclass(*WMCLASS_PREDVAJALNIKA)
-        self._ikona_predvajalnika(okno)
-        velikost = _velikost_okna(os.environ.get("SAFEER_OS_OKNO", "")) if self.posnetek else None
-        if velikost:
-            okno.set_default_size(*velikost)
-        else:
-            zaslon = self._zaslon()
-            g = zaslon.get_workarea() if zaslon else None
-            okno.set_default_size(min(1440, int(g.width * 0.9)) if g else 1280,
-                                  min(900, int(g.height * 0.9)) if g else 800)
-            okno.set_position(Gtk.WindowPosition.CENTER)
-        okno.add(pogled)
+        from core import os_player_gtk
+        okno = os_player_gtk.SafeerPlayerOkno(app=self, iskanje=iskanje)
         okno.connect("delete-event", self._zapri_predvajalnik)
-        self.okno_predvajalnik, self.pogled_predvajalnik = okno, pogled
+        self.okno_predvajalnik, self.pogled_predvajalnik = okno, None
         okno.show_all()
         if self.posnetek and self.okno is None:
-            # Kot pri glavnem oknu: posnetek mora nastati tudi, ce WebKit konca nalaganja ne javi.
             GLib.timeout_add(8000 + int(os.environ.get("SAFEER_OS_POSNETEK_ZAMIK", "0") or 0), self._rezervni_posnetek)
 
     @staticmethod
