@@ -56,6 +56,12 @@ install -m 644 "$T_OS/safeer-os-tema-autostart.desktop" "$BUILD_ROOT/etc/xdg/aut
 # Popravek poti Exec v .desktop datotekah
 sed -i 's|^Exec=safeer-os|Exec=/usr/bin/safeer-os|' "$BUILD_ROOT/usr/share/applications/safeer-os.desktop" 2>/dev/null || true
 sed -i 's|^Exec=safeer-control|Exec=/usr/bin/safeer-control|' "$BUILD_ROOT/usr/share/applications/safeer-control.desktop" 2>/dev/null || true
+# Odločitev lastnika: v meniju je natanko EN vnos (Safeer OS), Safeer Control okno je dostopno iz Safeer OS
+if grep -q '^NoDisplay=' "$BUILD_ROOT/usr/share/applications/safeer-control.desktop" 2>/dev/null; then
+    sed -i 's|^NoDisplay=.*|NoDisplay=true|' "$BUILD_ROOT/usr/share/applications/safeer-control.desktop"
+else
+    echo "NoDisplay=true" >> "$BUILD_ROOT/usr/share/applications/safeer-control.desktop"
+fi
 
 # Generiranje DEBIAN/control z zamenjavo starih paketov (Replaces/Breaks/Provides)
 # Opomba: mint-themes premaknjen v Recommends / alternativno odvisnost zaradi Ubuntu Cinnamon združljivosti.
