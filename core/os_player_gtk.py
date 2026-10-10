@@ -208,16 +208,21 @@ class SafeerPlayerOkno(Gtk.Window):
     def _iniciiraj_video_ponor(self):
         if self.predvajalnik is None or Gst is None:
             return
-        for ime in ("gtkglsink", "gtksink"):
+        for opis, sink_ime in [
+            ("glupload ! gtkglsink name=safeersink", "safeersink"),
+            ("videoconvert ! gtksink name=safeersink", "safeersink"),
+        ]:
             try:
-                ponor = Gst.ElementFactory.make(ime, "safeer-gtk-sink")
-                if ponor is not None:
-                    widget = ponor.get_property("widget")
-                    if widget is not None:
-                        self._video_ponor = ponor
-                        self._video_widget = widget
-                        self.predvajalnik.element.set_property("video-sink", ponor)
-                        break
+                bin_elem = Gst.parse_bin_from_description(opis, True)
+                if bin_elem is not None:
+                    sink = bin_elem.get_by_name(sink_ime)
+                    if sink is not None:
+                        widget = sink.get_property("widget")
+                        if widget is not None:
+                            self._video_ponor = bin_elem
+                            self._video_widget = widget
+                            self.predvajalnik.element.set_property("video-sink", bin_elem)
+                            break
             except Exception:
                 continue
 
