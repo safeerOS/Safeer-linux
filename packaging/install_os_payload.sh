@@ -16,7 +16,7 @@ cp -a "$ROOT/safeer_os.py" "$LIB/"
 # core/os_jbl.py (JBL input switching) is an internal experiment and is deliberately NOT shipped.
 # Lazy imports count too: core/os_splet.py is imported only when the user opens Splet, and it needs
 # filter_lists -> webkit_filters. tests/test_tovor_uvozi.py walks every import in the payload.
-for modul in budnost iskalni_kljuc os_datoteke os_iskalnik os_odpri_z os_knjiznica os_media_besedila os_mediji os_mpris os_oblak_igre os_posodobitve os_predvajalnik os_torrent os_torrent_tok podnapisi os_dvd os_okna os_omrezje os_programi os_scit os_sistem os_sporocila os_spletne os_stabilnost os_zapiski os_zvok \
+for modul in budnost iskalni_kljuc os_cinnamon_tipke os_datoteke os_iskalnik os_odpri_z os_knjiznica os_media_besedila os_mediji os_mpris os_oblak_igre os_posodobitve os_predvajalnik os_torrent os_torrent_tok podnapisi os_dvd os_okna os_omrezje os_programi os_scit os_sistem os_sporocila os_spletne os_stabilnost os_zapiski os_zvok \
              link_datoteke link_urejanje link_hub link_hub_streznik link_obramba link_varovalka link_hub_deljenje link_mesh link_rele link_pretok link_sprotno link_predvajanje link_iskanje link_krog link_dostop link_e2e link_kripto link_mediji link_programi link_seja link_tls link_ws link_vticnik link_pot spake2 signed_feed threat_intel \
              os_katalog os_media knjiznica_kroga media_servers tok_izbira watch_providers zakoniti_viri izvirni_jezik uvoz_seznama seznami_sink viri_sink \
              os_splet ikone_strani dlna_zvocniki zvok_na_zvocnik adblock config bookmarks_importer doh_proxy filter_lists webkit_filters bank_guard odlozisce_varuh ozadje_strani; do
