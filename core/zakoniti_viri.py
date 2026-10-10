@@ -24,6 +24,9 @@ _PEERTUBE_SUMLJIVO = re.compile(
 # Filmi v javni lasti z Internet Archive: samo vnosi z izrecno licenco javne lasti (CC PD / CC0).
 # Zbirka feature_films vsebuje tudi uporabniske nalozbe, zato brez licence ne prikazemo nicesar.
 ARCHIVE_PD_QUERY = "collection:feature_films AND mediatype:movies AND licenseurl:*publicdomain*"
+#: Filmske zvrsti Medijskega centra (id TMDB, kot v assets/os/os.js KAT_FILMSKI_ZANRI) -> predmet (subject) v Internet Archive.
+ARCHIVE_ZVRSTI = {"28": "action", "878": "science fiction", "35": "comedy", "27": "horror", "18": "drama",
+                  "53": "thriller", "16": "animation", "10749": "romance"}
 _ARCHIVE_SUMLJIVO = re.compile(r"torrent|\b(?:dvd|br|web|hd|bd)?rip\b|\bhdcam\b|\bx26[45]\b|\bxvid\b|\bcam\b", re.I)
 # Jezik vsebine kot koda ISO 639-1 (za filter jezikov); sprejme kode, angleska in slovenska imena.
 _JEZIKI = {
@@ -605,10 +608,23 @@ class ZakonitiViri:
         return dict(item, url=url, mime="video/mp4", locljivost=visina, kakovost="%dp" % visina,
                     stran="https://archive.org/details/" + urllib.parse.quote(str(item.get("archive_id")), safe=""))
 
-    def javna_last(self, query: str = "") -> list[dict]:
-        """Filmi v javni lasti (Internet Archive); tocno datoteko MP4 poiscemo ob kliku (resolve_archive)."""
+    @staticmethod
+    def _archive_jezik(jezik: str) -> str:
+        """Pogoj za polje `language` v Internet Archive (npr. en -> "English" OR "eng"); "" = brez pogoja."""
+        # Kode in angleska imena (Internet Archive), ne slovenska (»anglescina«).
+        imena = sorted(k for k, v in _JEZIKI.items() if v == jezik and k.isascii() and len(k) > 2 and not k.endswith("scina"))
+        return " AND language:(%s)" % " OR ".join('"%s"' % ime for ime in imena) if imena else ""
+
+    def javna_last(self, query: str = "", jezik: str = "", zvrst: str = "") -> list[dict]:
+        """Filmi v javni lasti (Internet Archive); tocno datoteko MP4 poiscemo ob kliku (resolve_archive).
+        `jezik` (ISO 639-1) in `zvrst` (id filmske zvrsti) izbere ze Internet Archive: vecina filmov v javni lasti nima
+        jezika v podatkih, zato izbira jezika po prejetih zadetkih ni pustila skoraj nicesar (»V tem jeziku tukaj ni
+        vsebine«, lastnik 10. 10. 2026), zvrst pa se ni upostevala."""
         iskanje = re.sub(r"[^\w\s-]", " ", query or "", flags=re.UNICODE).strip()
-        q = ARCHIVE_PD_QUERY + (" AND title:(%s)" % iskanje if iskanje else "")
+        jezik = jezik if re.fullmatch(r"[a-z]{2}", jezik or "") else ""
+        predmet = ARCHIVE_ZVRSTI.get(str(zvrst or ""), "")
+        q = (ARCHIVE_PD_QUERY + (" AND title:(%s)" % iskanje if iskanje else "") + (self._archive_jezik(jezik) if jezik else "")
+             + (' AND subject:("%s")' % predmet if predmet else ""))
         url = "https://archive.org/advancedsearch.php?" + urllib.parse.urlencode(
             [("q", q), ("fl[]", "identifier"), ("fl[]", "title"), ("fl[]", "year"), ("fl[]", "description"), ("fl[]", "format"), ("fl[]", "language"),
              ("sort[]", "downloads desc"), ("rows", "40"), ("output", "json")])
@@ -639,13 +655,15 @@ class ZakonitiViri:
                     "slika": "https://archive.org/services/img/" + urllib.parse.quote(ident, safe=""),
                     "opis": re.sub(r"<[^>]+>", " ", opis)[:600],
                     "vir": "Internet Archive · javna last", "vir_id": "archive-javna-last", "skupina": "Javna last",
-                    "jezik": jezik_koda(v.get("language")),
+                    # Internet Archive je izbral po jeziku: zadetek brez jezika v podatkih je v izbranem jeziku.
+                    "jezik": jezik_koda(v.get("language")) or jezik,
                 })
             return out
 
-        return self._cached("archive-pd:" + iskanje.casefold(), fetch)
+        return self._cached("archive-pd:" + iskanje.casefold() + (("|" + jezik) if jezik else "") + (("|z" + predmet) if predmet else ""), fetch)
 
-    def get(self, query: str = "", configured_hosts: list[str] | None = None, zvrst: str = "", jezik: str = "") -> list[dict]:
+    def get(self, query: str = "", configured_hosts: list[str] | None = None, zvrst: str = "", jezik: str = "",
+            filmska_zvrst: str = "") -> list[dict]:
         """`jezik`: izbran jezik vsebine. PeerTube in Jamendo izbereta ze sama; pri radiu in javni lasti jezik pove
         vnos. Tocno izbiro (in vnose brez znanega jezika) opravi katalog."""
         if zvrst:
@@ -653,7 +671,7 @@ class ZakonitiViri:
             tasks = ((self.music, (query, zvrst, jezik)), (self.radio, (query, zvrst)))
         else:
             tasks = ((self.videos, (query, configured_hosts, jezik)), (self.music, (query, "", jezik)), (self.radio, (query,)),
-                     (self.javna_last, (query,)))
+                     (self.javna_last, (query, jezik, filmska_zvrst)))
         with ThreadPoolExecutor(max_workers=4) as pool:
             futures = [pool.submit(fn, *args) for fn, args in tasks]
             results = []

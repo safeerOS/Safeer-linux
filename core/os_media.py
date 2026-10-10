@@ -3213,7 +3213,8 @@ class MediaCenter:
         configured_hosts = [str(source.get("url") or "") for source in data.get("viri", [])
                             if isinstance(source, dict) and source.get("url")]
         lawful = (self._zakoniti_viri.get(_text(query, 120), configured_hosts, _text(genre, 20), jezik) if glasbena
-                  else self._zakoniti_viri.get(_text(query, 120), configured_hosts, "", jezik))
+                  else self._zakoniti_viri.get(_text(query, 120), configured_hosts, "", jezik,
+                                               filmska_zvrst=_text(genre, 20) if kind in ("film", "vse") else ""))
         if glasbena:
             # Pri zvrsti pokazemo samo zadetke te zvrsti, ne tudi krajevnih datotek in osebnih virov.
             local, remote = [], []
