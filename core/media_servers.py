@@ -504,6 +504,40 @@ def stremio_vrsta(tip: str) -> str:
     return "video"
 
 
+_GLASBENO_IME = re.compile(r"(^|[^a-z])(music|musik|musica|musique|muzika|glasba|glasbeni|songs?|concerts?|koncerti?|"
+                           r"lastfm|last fm|vevo|karaoke|soundcloud|videospoti?)([^a-z]|$)")
+
+
+def glasbeno_ime(ime: str) -> bool:
+    """Ime dodatka ali kataloga pove, da je vsebina glasba (»Flix-Music«, »Top Music«, »Koncerti«) - enako kot
+    OsPravila.glasbenoIme na Androidu."""
+    t = "".join(c for c in unicodedata.normalize("NFD", str(ime or "").lower()) if not unicodedata.combining(c))
+    return bool(_GLASBENO_IME.search(t))
+
+
+def stremio_vrsta_kataloga(tip: str, ime_dodatka: str = "", ime_kataloga: str = "") -> str:
+    """Razred kataloga: po tipu, razen kadar ime dodatka ali kataloga pove, da je glasba - glasbeni dodatek, ki se
+    oglasa kot filmi ali drug video (npr. skladbe kot »movie«), sodi pod Glasbo, ne med filme (Stremio.razredKataloga
+    na Androidu; lastnik, 11. 10. 2026: skladbe z isto naslovnico albuma so bile med filmi videti kot podvojene)."""
+    vrsta = stremio_vrsta(tip)
+    if vrsta in ("film", "serija", "video") and (glasbeno_ime(ime_dodatka) or glasbeno_ime(ime_kataloga)):
+        return "glasba"
+    return vrsta
+
+
+def _stremio_izvajalec(meta: dict) -> str:
+    """Izvajalec glasbenega vnosa: artist/author, prvi igralec ali reziser (kot Stremio.kt na Androidu)."""
+    for k in ("artist", "author"):
+        v = meta.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()[:120]
+    for k in ("cast", "director"):
+        v = meta.get(k)
+        if isinstance(v, list) and v and isinstance(v[0], str) and v[0].strip():
+            return v[0].strip()[:120]
+    return ""
+
+
 def _stremio_ujema(ime: str, iskano: str) -> bool:
     """Vse iskane besede so v imenu (brez razlikovanja velikih crk in naglasov: "sport" najde "Šport TV")."""
     def cisto(t: str) -> str:
@@ -573,7 +607,7 @@ def _stremio_items(base: str, server: dict, query: str) -> list[dict]:
         tip, ident = str(katalog.get("type") or ""), str(katalog.get("id") or "")
         if not tip or not ident:
             continue
-        vrsta = stremio_vrsta(tip)
+        vrsta = stremio_vrsta_kataloga(tip, manifest.get("name") or "", katalog.get("name") or "")
         dodatno = [e.get("name") for e in (katalog.get("extra") or []) if isinstance(e, dict)] + list(katalog.get("extraSupported") or [])
         obvezen = any(isinstance(e, dict) and e.get("isRequired") for e in (katalog.get("extra") or []))
         # Katalog kanalov, postaj ali glasbe brez lastnega iskanja (vecina dodatkov TV v zivo) preiscemo sami po imenu.
@@ -604,6 +638,8 @@ def _stremio_items(base: str, server: dict, query: str) -> list[dict]:
                              "imdb_id": mid if mid.startswith("tt") else "", "vir": server["ime"],
                              "stremio": {"koren": koren, "tip": tip, "id": mid},
                              "skupina": katalog.get("name") or manifest.get("name") or ""})
+            if vrsta == "glasba":
+                rezultat[-1]["izvajalec"] = _stremio_izvajalec(meta)
     return rezultat
 
 

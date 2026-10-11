@@ -342,3 +342,16 @@ select option { background: #111c2b; color: var(--besedilo); }
 .seznam tbody tr.novo { animation: novo 1.6s ease-out; }
 @keyframes novo { from { background: rgba(127, 224, 182, .35); } to { background: transparent; } }
 .dat-glavno { position: relative; }
+
+/* Skrite plosce: polje pod iskanjem, vsaka plosca se vrne z enim klikom (lastnik, 11. 10. 2026). */
+.skrite-plosce { display: flex; flex-wrap: wrap; justify-content: center; gap: .5em; }
+.skrite-plosce[hidden] { display: none; }
+.skrita-plosca {
+  display: inline-flex; align-items: center; gap: .55em; padding: .5em 1.1em .5em .9em;
+  font: inherit; font-size: .85em; color: #e3eefb; cursor: pointer; border-radius: 14px;
+  background: rgba(16, 26, 43, .55); border: 1px solid var(--obroba); backdrop-filter: blur(var(--zamegli));
+  transition: background .15s, border-color .15s, color .15s, transform .15s;
+}
+.skrita-plosca svg { width: 1.15em; height: 1.15em; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.skrita-plosca:hover, .skrita-plosca:focus-visible { background: rgba(104, 168, 229, .22); border-color: rgba(135, 194, 255, .55); color: #fff; transform: translateY(-1px); outline: none; }
+.postavitev.vse-skrito { visibility: hidden; }

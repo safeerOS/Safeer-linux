@@ -29,7 +29,7 @@
       iskanjePh: "Išči po spletu, programih, datotekah in medijih …", iskanjeNamig: "Enter odpre označeno · Shift+Enter splet",
       plosceNaslov: "Plošče", medijiNaslov: "Medijski center", datotekeNaslov: "Datoteke", programiNaslov: "Programi",
       zamenjajStrani: "Zamenjaj levo in desno", ponastavi: "Privzeta postavitev", vecjiTekst: "Večje besedilo",
-      manjProsojnosti: "Manj prosojnosti", skrijPlosco: "Skrij ploščo", spremeniVelikost: "Povleci za spremembo velikosti (puščice s tipkovnico)",
+      manjProsojnosti: "Manj prosojnosti", skrijPlosco: "Skrij ploščo", pokaziPlosco: "Pokaži ploščo {ime}", spremeniVelikost: "Povleci za spremembo velikosti (puščice s tipkovnico)",
       odpriMedijskiCenter: "Odpri Medijski center", niPredvajanja: "Ni predvajanja",
       medijNavodilo: "Izberi glasbo ali video v Datotekah ali v Medijskem centru.",
       prejsnja: "Prejšnja", premor: "Predvajaj / premor", naslednja: "Naslednja",
@@ -224,7 +224,7 @@
       iskanjePh: "Search the web, apps, files and media …", iskanjeNamig: "Enter opens the selection · Shift+Enter web",
       plosceNaslov: "Panels", medijiNaslov: "Media center", datotekeNaslov: "Files", programiNaslov: "Apps",
       zamenjajStrani: "Swap left and right", ponastavi: "Default layout", vecjiTekst: "Larger text",
-      manjProsojnosti: "Less transparency", skrijPlosco: "Hide panel", spremeniVelikost: "Drag to resize (arrow keys work too)",
+      manjProsojnosti: "Less transparency", skrijPlosco: "Hide panel", pokaziPlosco: "Show the {ime} panel", spremeniVelikost: "Drag to resize (arrow keys work too)",
       odpriMedijskiCenter: "Open Media center", niPredvajanja: "Nothing playing",
       medijNavodilo: "Pick music or a video in Files or in the Media center.",
       prejsnja: "Previous", premor: "Play / pause", naslednja: "Next",
@@ -467,12 +467,14 @@
       if (cb) cb.checked = !sk;
     });
     $("deliMediji").hidden = N.skrite.indexOf("mediji") >= 0 || N.skrite.indexOf("datoteke") >= 0;
+    narisiSkritePlosce();
     var aPrazen = N.skrite.indexOf("mediji") >= 0 && N.skrite.indexOf("datoteke") >= 0;
     var bPrazen = N.skrite.indexOf("programi") >= 0;
     var p = $("postavitev");
     p.classList.toggle("samo-a", bPrazen && !aPrazen);
     p.classList.toggle("samo-b", aPrazen && !bPrazen);
     p.classList.toggle("zamenjano", !!N.zamenjano);
+    p.classList.toggle("vse-skrito", aPrazen && bPrazen);
     if (N.skrite.indexOf("datoteke") >= 0) $("ploscaMediji").style.flex = "1";
     else $("ploscaMediji").style.flex = "";
     $("stikaloTekst").checked = vecjiTekst();
@@ -3364,11 +3366,35 @@
       }
     };
   }
+  // Skrij vedno deluje, tudi pri zadnji plosci (prej je bil gumb tam brez ucinka - lastnik, 11. 10. 2026): skrite
+  // plosce so v polju pod iskanjem in se vrnejo z enim klikom; ozadje namizja ostane cisto.
   function nastaviSkrito(p, skrij) {
     N.skrite = N.skrite.filter(function (x) { return x !== p; });
     if (skrij) N.skrite.push(p);
-    if (N.skrite.length >= 3) N.skrite = N.skrite.filter(function (x) { return x !== p; }); // vsaj ena plosca ostane
     shrani(); uveljaviPostavitev();
+  }
+  var PLOSCE = [["mediji", "medijiNaslov", "M9 18V5l12-2v13 M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0z M21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"],
+                ["datoteke", "datotekeNaslov", "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"],
+                ["programi", "programiNaslov", "M4 4h6v6H4z M14 4h6v6h-6z M4 14h6v6H4z M14 14h6v6h-6z"]];
+  function narisiSkritePlosce() {
+    var polje = $("skritePlosce");
+    if (!polje) return;
+    polje.textContent = "";
+    PLOSCE.forEach(function (pl) {
+      if (N.skrite.indexOf(pl[0]) < 0) return;
+      var ime = t(pl[1]);
+      var b = el("button", "skrita-plosca");
+      b.type = "button";
+      b.setAttribute("aria-label", t("pokaziPlosco", { ime: ime }));
+      b.title = t("pokaziPlosco", { ime: ime });
+      var ns = "http://www.w3.org/2000/svg", svg = document.createElementNS(ns, "svg"), pot = document.createElementNS(ns, "path");
+      svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("aria-hidden", "true"); pot.setAttribute("d", pl[2]);
+      svg.appendChild(pot); b.appendChild(svg);
+      b.appendChild(document.createTextNode(ime));
+      b.addEventListener("click", function () { nastaviSkrito(pl[0], false); });
+      polje.appendChild(b);
+    });
+    polje.hidden = !polje.childNodes.length;
   }
 
   window.SafeerDelovna = { osvezi: function () { zgradiStranDatotek(); naloziProgrameNaprav(); medijOsvezi(); } };
