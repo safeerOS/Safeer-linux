@@ -151,7 +151,7 @@
     // V nacinu za kavc se kazalec skrije, ko miska miruje (kot pri predvajalnikih); ob premiku se takoj vrne.
     if (kavc()) skrijKazalec = setTimeout(function () { html.classList.remove("kavc-miska"); }, 4000);
   }
-  var zadnjiX = -1, zadnjiY = -1;
+  var zadnjiX = -1, zadnjiY = -1, spremenjeno = 0;
   document.addEventListener("mousemove", function (e) {
     if (Math.abs(e.clientX - zadnjiX) + Math.abs(e.clientY - zadnjiY) < 3) return;   // drobni tresljaji niso premik
     zadnjiX = e.clientX; zadnjiY = e.clientY;
@@ -159,7 +159,8 @@
   }, { passive: true });
   // V nacinu za kavc izbor sledi miski: gumb pod kazalcem dobi okvir izbora, puscica gre od tam naprej.
   document.addEventListener("mouseover", function (e) {
-    if (!kavc() || !html.classList.contains("kavc-miska")) return;
+    // Ob spremembi velikosti (vklop nacina, cel zaslon) brskalnik javi mouseover brez premika miske - to ni izbira.
+    if (!kavc() || !html.classList.contains("kavc-miska") || Date.now() - spremenjeno < 800) return;
     var el = e.target && e.target.closest ? e.target.closest(IZBIRNO) : null;
     if (el && viden(el) && el !== document.activeElement && !vPolju(document.activeElement)) {
       try { el.focus({ preventScroll: true }); } catch (x) { /* ni mogoce */ }
@@ -212,6 +213,7 @@
   function nastaviKavc(vklop) {
     vklop = !!vklop;
     if (vklop === kavc()) { napisGumba(vklop); return; }
+    spremenjeno = Date.now();
     html.classList.toggle("kavc", vklop);
     try { localStorage.setItem(KLJUC, vklop ? "1" : "0"); } catch (e) { /* ni shrambe */ }
     napisGumba(vklop);
