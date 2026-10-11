@@ -72,6 +72,17 @@
     v.sort(function (x, y) { var a = x.getBoundingClientRect(), b = y.getBoundingClientRect(); return (a.top - b.top) || (a.left - b.left); });
     return v[0] || vsi[0] || null;
   }
+  // Zadnji izbor na strani (ne v oknu): ko se okno ali podrobnosti zaprejo, se izbor vrne tja, od koder smo prisli.
+  var zadnjiNaStrani = null;
+  document.addEventListener("focusin", function (e) {
+    if (e.target && e.target !== document.body && obmocje() === document.body) zadnjiNaStrani = e.target;
+  });
+  function vrniIzbor() {
+    setTimeout(function () {
+      var zdaj = document.activeElement;
+      if ((!zdaj || zdaj === document.body || !viden(zdaj)) && zadnjiNaStrani && viden(zadnjiNaStrani)) izberi(zadnjiNaStrani);
+    }, 120);
+  }
   function izberi(el) {
     if (!el) return;
     try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
@@ -92,6 +103,7 @@
     // Escape ze zna zapreti okna in podrobnosti (os.js): posljemo ga strani, kot da bi ga pritisnil uporabnik.
     var cilj = document.activeElement && document.activeElement !== document.body ? document.activeElement : document;
     cilj.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true, cancelable: true }));
+    vrniIzbor();
   }
 
   // ------------------------------------------------------------------ tipke
@@ -113,6 +125,7 @@
     if (aktivno() && (e.key === "BrowserBack" || e.key === "GoBack" || (e.key === "Backspace" && !vPolju(el)))) {
       e.preventDefault(); nazaj(); return;
     }
+    if (e.key === "Escape" && aktivno()) vrniIzbor();
     var smer = SMERI[e.key];
     if (!smer || e.defaultPrevented || e.shiftKey || !aktivno()) return;
     if (vPolju(el)) {
@@ -204,7 +217,11 @@
     napisGumba(vklop);
     // Cel zaslon naredi Safeer OS (okno GTK): Escape tako ostane tipka Nazaj in ne zapusti celega zaslona.
     klic("kavcCelZaslon", [vklop]);
-    if (vklop) setTimeout(function () { if (!document.activeElement || document.activeElement === document.body) premakni("dol"); }, 300);
+    // Ob vklopu je izbrana prva vsebina (kartica kataloga ali knjiznice), ne gumb v glavi.
+    if (vklop) setTimeout(function () {
+      var prva = Array.prototype.filter.call(document.querySelectorAll(".kat-kartica, .media-kartica-odpri, .media-skladba-odpri"), viden)[0];
+      if (prva) izberi(prva); else premakni("dol");
+    }, 300);
   }
   function zacni() {
     var g = document.getElementById("medijiKavc");
