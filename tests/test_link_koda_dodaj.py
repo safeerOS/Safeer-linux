@@ -1,8 +1,9 @@
-"""»Dodaj napravo« -> »Vnesi kodo z druge naprave« v Safeer Controlu: odziv na kodo pride do uporabnika.
+"""Seznanitev s kodo naprave na strani Safeer Linka (Safeer Control).
 
-11. 10. 2026 (lastnik): po vnosu kode je okno ostalo pri »Checking …« / »Preverjam …«. Zaledje je odgovorilo
-(kodaNiSprejeta ali seznanitev), stran pa je odziv zapisala samo v polje prijavnega okna ali skritega dela okna.
-Preizkus stran zares pozene (ogrodje iz test_link_stran_dogodki), vtipka kodo in poslje odziv zaledja.
+11. 10. 2026 (lastnik): »vsaka naprava se lahko spari z vsako napravo« - z vpisom kode druge naprave ALI s prikazom
+svoje 6-mestne kode. Prej je »Vpiši kodo z druge naprave« v oknu povezanih naprav poskusil prijaviti TO napravo in
+obvisel pri »Preverjam …«; prijavno okno svoje kode ni kazalo. Preizkus stran zares pozene (ogrodje iz
+test_link_stran_dogodki), vtipka kodo in poslje odzive zaledja.
 """
 import json
 import shutil
@@ -36,7 +37,7 @@ OGRODJE = osnova.OGRODJE.replace(
     "  else if (korak[0] === '__vnesi') { const e = el(korak[1]); (e.__poslusalci.focus || []).forEach(f => f({}));"
     " e.value = korak[2]; (e.__poslusalci.keydown || []).forEach(f => f({ key: 'Enter', preventDefault() {} })); }",
 ).replace(
-    "const BERI = ['opombaDeljenje',", "const BERI = ['opombaDodajKoda', 'dodajVnosKode', 'opombaDeljenje',"
+    "const BERI = ['opombaDeljenje',", "const BERI = ['opombaDodajKoda', 'dodajVnosKode', 'prijavaKodaTe', 'prijavaKodaTeBlok', 'opombaDeljenje',"
 ).replace(
     "console.log(JSON.stringify({ napake: okno.__napake, slike: slike }));",
     "console.log(JSON.stringify({ napake: okno.__napake, slike: slike, klici: okno.__klici }));",
@@ -58,21 +59,40 @@ def _stran(koraki):
 
 @unittest.skipUnless(shutil.which("node"), "node ni namescen")
 class KodaVDodajNapravo(unittest.TestCase):
-    def test_vnos_poslje_kodo(self):
-        p = _stran([["__vnesi", "dodajVnosKode", "725038"]])
-        self.assertIn(["potrdiKodo", "725038"], p["klici"])
+    def test_vnos_dovoli_drugo_napravo(self):
+        p = _stran([["__vnesi", "dodajVnosKode", "725 038"]])
+        self.assertIn(["odobriKodo", "725038"], p["klici"])
+        self.assertFalse(any(k[0] in ("potrdiKodo", "seznani") for k in p["klici"]),
+                         "naprava v Linku se ne prijavlja znova: %r" % p["klici"])
         self.assertEqual(p["slike"][0]["opombaDodajKoda"]["besedilo"], "Preverjam …")
 
-    def test_zavrnjena_koda_ne_ostane_pri_preverjam(self):
-        for razlog in ("prijava_ne_obstaja", "napacna_koda", "prevec_poskusov"):
-            p = _stran([["__vnesi", "dodajVnosKode", "725038"], ["kodaNiSprejeta", {"razlog": razlog}]])
-            napis = p["slike"][1]["opombaDodajKoda"]["besedilo"]
-            self.assertTrue(napis, razlog)
-            self.assertNotEqual(napis, "Preverjam …", razlog)
+    def test_izidi(self):
+        primeri = [({"ok": True, "ime": "Televizor"}, "Dovoljeno: Televizor se zdaj poveže."),
+                   ({"ok": True, "ime": ""}, "Dovoljeno: naprava se zdaj poveže."),
+                   ({"ok": False, "razlog": "qr_ne_obstaja"}, "Ta koda ne velja"),
+                   ({"ok": False, "razlog": "prevec_poskusov"}, "Preveč napačnih kod"),
+                   ({"ok": False, "razlog": "ista_naprava"}, "To je koda te naprave"),
+                   ({"ok": False, "razlog": "ni_seznanjena"}, "še ni v Safeer Linku"),
+                   ({"ok": False, "razlog": "ni_huba"}, "se ne oglasi")]
+        for izid, napis in primeri:
+            p = _stran([["__vnesi", "dodajVnosKode", "725038"], ["kodaOdobrena", izid]])
+            self.assertIn(napis, p["slike"][1]["opombaDodajKoda"]["besedilo"], izid)
             self.assertEqual(p["slike"][1]["dodajVnosKode"]["vrednost"], "", "vnos je prazen za novo kodo")
 
-    def test_uspeh_in_nepotrjena(self):
-        p = _stran([["__vnesi", "dodajVnosKode", "725038"], ["seznanitev", True]])
-        self.assertNotIn(p["slike"][1]["opombaDodajKoda"]["besedilo"], ("", "Preverjam …"))
-        p = _stran([["__vnesi", "dodajVnosKode", "725038"], ["seznanitev", False]])
-        self.assertEqual(p["slike"][1]["opombaDodajKoda"]["besedilo"], "Koda ni bila potrjena. Poskusi znova.")
+    def test_kratka_koda(self):
+        p = _stran([["__vnesi", "dodajVnosKode", "12"]])
+        self.assertFalse(any(k[0] == "odobriKodo" for k in p["klici"]))
+        self.assertTrue(p["slike"][0]["opombaDodajKoda"]["besedilo"])
+
+
+@unittest.skipUnless(shutil.which("node"), "node ni namescen")
+class LastnaKodaVPrijavi(unittest.TestCase):
+    def test_qr_pokaze_kodo_te_naprave(self):
+        p = _stran([["qr", {"svg": "<svg></svg>", "velja": 300, "koda": "123456"}]])
+        self.assertEqual(p["slike"][0]["prijavaKodaTe"]["besedilo"], "123 456")
+        self.assertFalse(p["slike"][0]["prijavaKodaTeBlok"]["skrit"])
+
+    def test_brez_kode_ali_napaka(self):
+        p = _stran([["qr", {"svg": "<svg></svg>", "velja": 300}], ["qr", {"napaka": "ni_huba"}]])
+        self.assertTrue(p["slike"][0]["prijavaKodaTeBlok"]["skrit"], "star Hub ali brez kode: blok skrit")
+        self.assertTrue(p["slike"][1]["prijavaKodaTeBlok"]["skrit"])

@@ -497,9 +497,14 @@ def zacni_qr(ws_naslov: str, device_id: str, ime: str, platforma: str = PLATFORM
         return {"napaka": "hub_brez_tls"}
     skrivnost = secrets.token_hex(16)
     prevzem = secrets.token_hex(24)
+    # Ista prijava ima se 6-mestno kodo te naprave: kdor nima kamere, jo vpise na napravi v Linku (»Vpiši kodo
+    # z druge naprave«). Hub dobi samo njen SHA-256; dovoli jo lahko samo ze seznanjena naprava, Hub pa omeji
+    # ugibanje (NAJVEC_KODA_NAPAK na minuto). Skrivnost QR ostane dolga - aplikacije na telefonu jo preverjajo.
+    koda_naprave = "%06d" % secrets.randbelow(1000000)
     koda, odgovor, videni = link_tls.zahteva(osnova + "/cast/pair/qr/start", {
         "device_id": device_id, "name": ime, "platform": platforma,
-        "secret_sha256": hashlib.sha256(skrivnost.encode("utf-8")).hexdigest(), "poll_secret": prevzem})
+        "secret_sha256": hashlib.sha256(skrivnost.encode("utf-8")).hexdigest(), "poll_secret": prevzem,
+        "code_sha256": hashlib.sha256(koda_naprave.encode("utf-8")).hexdigest()})
     if koda == 404 or koda == 405:
         return {"napaka": "hub_star"}
     if koda != 200 or not videni:
@@ -513,7 +518,7 @@ def zacni_qr(ws_naslov: str, device_id: str, ime: str, platforma: str = PLATFORM
     u = urlparse(ws_naslov)
     naslov = "%s:%d" % (u.hostname, u.port or 443)
     return {
-        "qr_id": qr_id, "odtis": odtis, "skrivnost": skrivnost, "prevzem": prevzem, "naslov": naslov,
+        "qr_id": qr_id, "odtis": odtis, "skrivnost": skrivnost, "koda": koda_naprave, "prevzem": prevzem, "naslov": naslov,
         "povezava": QR_POVEZAVA.format(qr_id=qr_id, skrivnost=skrivnost, odtis=odtis[:QR_ODTIS_ZNAKOV], naslov=naslov),
         "velja": int(odgovor.get("expires_in_seconds", 300) or 300),
     }
@@ -533,6 +538,31 @@ def stanje_qr(ws_naslov: str, prijava: dict, device_id: str) -> Tuple[Optional[s
     if odgovor.get("approved") and isinstance(zeton, str) and zeton:
         return zeton, ""
     return None, "caka"
+
+
+def odobri_kodo(ws_naslov: str, zeton: str, odtis: str, koda: str) -> dict:
+    """Clan Linka dovoli napravo, ki kaze svojo 6-mestno kodo (prijava s QR kodo, brez skeniranja).
+    Vrne {"ok": True, "ime": ...} ali {"ok": False, "razlog": "qr_ne_obstaja" | "prevec_poskusov" |
+    "ista_naprava" | "ni_seznanjena" | "ni_huba"}. Star Hub kode brez qr_id ne pozna: odgovori kot za neznano kodo."""
+    koda = "".join(z for z in str(koda or "") if z.isdigit())
+    if len(koda) != 6:
+        return {"ok": False, "razlog": "qr_ne_obstaja"}
+    st, odgovor = _zahteva(_osnova(ws_naslov) + "/cast/pair/qr/approve", {"qr_id": "", "secret": koda},
+                           zeton=zeton, odtis=odtis)
+    if st == 200 and odgovor.get("approved"):
+        return {"ok": True, "ime": str(odgovor.get("name") or "")}
+    razlog = str(odgovor.get("code") or odgovor.get("koda") or "") if isinstance(odgovor, dict) else ""
+    if st in (401, 403):
+        razlog = "ni_seznanjena"
+    elif st == 429:
+        razlog = "prevec_poskusov"
+    elif st == 409:
+        razlog = "ista_naprava" if razlog == "ista_naprava" else (razlog or "qr_ne_obstaja")
+    elif st in (400, 404):
+        razlog = "qr_ne_obstaja"
+    elif st != 200:
+        razlog = "ni_huba"
+    return {"ok": False, "razlog": razlog or "qr_ne_obstaja"}
 
 
 def preklici_qr(ws_naslov: str, prijava: dict, device_id: str) -> None:

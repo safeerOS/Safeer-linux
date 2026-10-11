@@ -1447,6 +1447,17 @@
       "vabiloPinOpis": "Na napravi, ki se pridružuje, odpri Safeer → Povezane naprave → Pridruži se. Koda se pokaže tukaj – prepiši jo tja.",
       "vabiloPinVelja": "Velja 5 minut · vnesite na novi napravi",
       "vabiloVpisiGumb": "Vpiši kodo z druge naprave",
+      "vabiloVpisiOpis": "Druga naprava kaže svojo 6-mestno kodo (prijava v Safeer Control ali Safeer OS)? Vpiši jo tukaj in jo dovoli.",
+      "vabiloDovoli": "Dovoli",
+      "kodaDovoljena": "Dovoljeno: {ime} se zdaj poveže.",
+      "kodaDovoljenaBrezImena": "Dovoljeno: naprava se zdaj poveže.",
+      "kodaNeVelja": "Ta koda ne velja ali je potekla. Preveri kodo na napravi, ki se prijavlja. Če je naprava s Safeer Linkom (npr. televizor) stara, jo posodobi.",
+      "kodaPrevec": "Preveč napačnih kod. Počakaj minuto in poskusi znova.",
+      "kodaIstaNaprava": "To je koda te naprave – vpiši jo na drugi napravi.",
+      "kodaNiSeznanjena": "Ta naprava še ni v Safeer Linku, zato ne more dovoliti drugih.",
+      "kodaNiHuba": "Safeer Link se ne oglasi. Poskusi znova.",
+      "prijavaKodaTe": "ali na napravi v Safeer Linku vpiši kodo te naprave:",
+      "prijavaKodaTeOpis": "Povezane naprave → Poveži naprave → Vpiši kodo z druge naprave",
       "vabiloPridruzen": "✓ {ime} je povezan.",
       "vabiloHubStar": "Središče je treba posodobiti, da lahko pokaže kodo tukaj. Kodo najdeš tudi na središču (Naprave → Poveži novo napravo).",
       "vabiloNapaka": "Kode ni bilo mogoče pripraviti. Poskusi znova.",
@@ -1463,6 +1474,17 @@
       "vabiloPinOpis": "On the joining device open Safeer → Connected devices → Join. The code appears here – type it there.",
       "vabiloPinVelja": "Valid for 5 minutes · enter on joining device",
       "vabiloVpisiGumb": "Enter code from another device",
+      "vabiloVpisiOpis": "Is another device showing its own 6-digit code (sign-in to Safeer Control or Safeer OS)? Type it here to let it in.",
+      "vabiloDovoli": "Allow",
+      "kodaDovoljena": "Allowed: {ime} is connecting now.",
+      "kodaDovoljenaBrezImena": "Allowed: the device is connecting now.",
+      "kodaNeVelja": "This code is not valid or has expired. Check the code on the device that is signing in. If the Safeer Link device (e.g. the TV) is out of date, update it.",
+      "kodaPrevec": "Too many wrong codes. Wait a minute and try again.",
+      "kodaIstaNaprava": "This is this device's own code – type it on another device.",
+      "kodaNiSeznanjena": "This device is not in Safeer Link yet, so it cannot let others in.",
+      "kodaNiHuba": "Safeer Link does not respond. Try again.",
+      "prijavaKodaTe": "or type this device's code on a device in Safeer Link:",
+      "prijavaKodaTeOpis": "Connected devices → Connect devices → Enter code from another device",
       "vabiloPridruzen": "✓ {ime} is connected.",
       "vabiloHubStar": "The hub needs an update to show the code here. You'll also find the code on the hub (Devices → Connect a new device).",
       "vabiloNapaka": "The code could not be prepared. Try again.",
@@ -1479,6 +1501,17 @@
       "vabiloPinOpis": "Öffne auf dem beitretenden Gerät Safeer → Verbundene Geräte → Beitreten. Der Code erscheint hier – gib ihn dort ein.",
       "vabiloPinVelja": "Gültig für 5 Minuten · auf beitretendem Gerät eingeben",
       "vabiloVpisiGumb": "Code von anderem Gerät eingeben",
+      "vabiloVpisiOpis": "Zeigt ein anderes Gerät seinen eigenen 6-stelligen Code (Anmeldung bei Safeer Control oder Safeer OS)? Gib ihn hier ein und lass es zu.",
+      "vabiloDovoli": "Zulassen",
+      "kodaDovoljena": "Zugelassen: {ime} verbindet sich jetzt.",
+      "kodaDovoljenaBrezImena": "Zugelassen: das Gerät verbindet sich jetzt.",
+      "kodaNeVelja": "Dieser Code ist ungültig oder abgelaufen. Prüfe den Code auf dem Gerät, das sich anmeldet. Ist das Gerät mit Safeer Link (z. B. der Fernseher) veraltet, aktualisiere es.",
+      "kodaPrevec": "Zu viele falsche Codes. Warte eine Minute und versuche es erneut.",
+      "kodaIstaNaprava": "Das ist der Code dieses Geräts – gib ihn auf einem anderen Gerät ein.",
+      "kodaNiSeznanjena": "Dieses Gerät ist noch nicht in Safeer Link und kann keine anderen zulassen.",
+      "kodaNiHuba": "Safeer Link antwortet nicht. Versuche es erneut.",
+      "prijavaKodaTe": "oder gib den Code dieses Geräts auf einem Gerät in Safeer Link ein:",
+      "prijavaKodaTeOpis": "Verbundene Geräte → Geräte verbinden → Code von anderem Gerät eingeben",
       "vabiloPridruzen": "✓ {ime} ist verbunden.",
       "vabiloHubStar": "Die Zentrale muss aktualisiert werden, um den Code hier zu zeigen. Den Code findest du auch auf der Zentrale (Geräte → Neues Gerät verbinden).",
       "vabiloNapaka": "Der Code konnte nicht erstellt werden. Versuche es erneut.",
@@ -1495,6 +1528,17 @@
       "vabiloPinOpis": "En el dispositivo que se une abre Safeer → Dispositivos conectados → Unirse. El código aparece aquí: escríbelo allí.",
       "vabiloPinVelja": "Válido durante 5 minutos · introducir en el nuevo dispositivo",
       "vabiloVpisiGumb": "Introducir código de otro dispositivo",
+      "vabiloVpisiOpis": "¿Otro dispositivo muestra su propio código de 6 cifras (inicio de sesión en Safeer Control o Safeer OS)? Escríbelo aquí para permitirlo.",
+      "vabiloDovoli": "Permitir",
+      "kodaDovoljena": "Permitido: {ime} se está conectando.",
+      "kodaDovoljenaBrezImena": "Permitido: el dispositivo se está conectando.",
+      "kodaNeVelja": "Este código no es válido o ha caducado. Comprueba el código en el dispositivo que inicia sesión. Si el dispositivo con Safeer Link (p. ej. el televisor) está desactualizado, actualízalo.",
+      "kodaPrevec": "Demasiados códigos erróneos. Espera un minuto e inténtalo de nuevo.",
+      "kodaIstaNaprava": "Este es el código de este dispositivo: escríbelo en otro dispositivo.",
+      "kodaNiSeznanjena": "Este dispositivo aún no está en Safeer Link, así que no puede permitir otros.",
+      "kodaNiHuba": "Safeer Link no responde. Inténtalo de nuevo.",
+      "prijavaKodaTe": "o escribe el código de este dispositivo en un dispositivo de Safeer Link:",
+      "prijavaKodaTeOpis": "Dispositivos conectados → Conectar dispositivos → Introducir código de otro dispositivo",
       "vabiloPridruzen": "✓ {ime} está conectado.",
       "vabiloHubStar": "Hay que actualizar el centro para mostrar el código aquí. También encontrarás el código en el centro (Dispositivos → Conectar un dispositivo nuevo).",
       "vabiloNapaka": "No se ha podido preparar el código. Inténtalo de nuevo.",
@@ -1511,6 +1555,17 @@
       "vabiloPinOpis": "Sur l'appareil qui rejoint, ouvre Safeer → Appareils connectés → Rejoindre. Le code apparaît ici – saisis-le là-bas.",
       "vabiloPinVelja": "Valable 5 minutes · saisir sur le nouvel appareil",
       "vabiloVpisiGumb": "Saisir le code d'un autre appareil",
+      "vabiloVpisiOpis": "Un autre appareil affiche son propre code à 6 chiffres (connexion à Safeer Control ou Safeer OS) ? Saisis-le ici pour l'autoriser.",
+      "vabiloDovoli": "Autoriser",
+      "kodaDovoljena": "Autorisé : {ime} se connecte maintenant.",
+      "kodaDovoljenaBrezImena": "Autorisé : l'appareil se connecte maintenant.",
+      "kodaNeVelja": "Ce code n'est pas valide ou a expiré. Vérifie le code sur l'appareil qui se connecte. Si l'appareil avec Safeer Link (p. ex. le téléviseur) n'est pas à jour, mets-le à jour.",
+      "kodaPrevec": "Trop de codes erronés. Attends une minute et réessaie.",
+      "kodaIstaNaprava": "C'est le code de cet appareil – saisis-le sur un autre appareil.",
+      "kodaNiSeznanjena": "Cet appareil n'est pas encore dans Safeer Link et ne peut donc pas en autoriser d'autres.",
+      "kodaNiHuba": "Safeer Link ne répond pas. Réessaie.",
+      "prijavaKodaTe": "ou saisis le code de cet appareil sur un appareil de Safeer Link :",
+      "prijavaKodaTeOpis": "Appareils connectés → Connecter des appareils → Saisir le code d'un autre appareil",
       "vabiloPridruzen": "✓ {ime} est connecté.",
       "vabiloHubStar": "Le centre doit être mis à jour pour afficher le code ici. Tu trouveras aussi le code sur le centre (Appareils → Connecter un nouvel appareil).",
       "vabiloNapaka": "Impossible de préparer le code. Réessaie.",
@@ -1527,6 +1582,17 @@
       "vabiloPinOpis": "Sul dispositivo che si unisce apri Safeer → Dispositivi connessi → Unisciti. Il codice appare qui: digitalo lì.",
       "vabiloPinVelja": "Valido per 5 minuti · inserire sul nuovo dispositivo",
       "vabiloVpisiGumb": "Inserisci codice da un altro dispositivo",
+      "vabiloVpisiOpis": "Un altro dispositivo mostra il proprio codice a 6 cifre (accesso a Safeer Control o Safeer OS)? Inseriscilo qui per consentirlo.",
+      "vabiloDovoli": "Consenti",
+      "kodaDovoljena": "Consentito: {ime} si sta collegando.",
+      "kodaDovoljenaBrezImena": "Consentito: il dispositivo si sta collegando.",
+      "kodaNeVelja": "Questo codice non è valido o è scaduto. Controlla il codice sul dispositivo che sta accedendo. Se il dispositivo con Safeer Link (ad es. il televisore) non è aggiornato, aggiornalo.",
+      "kodaPrevec": "Troppi codici errati. Attendi un minuto e riprova.",
+      "kodaIstaNaprava": "Questo è il codice di questo dispositivo: inseriscilo su un altro dispositivo.",
+      "kodaNiSeznanjena": "Questo dispositivo non è ancora in Safeer Link, quindi non può consentirne altri.",
+      "kodaNiHuba": "Safeer Link non risponde. Riprova.",
+      "prijavaKodaTe": "oppure inserisci il codice di questo dispositivo su un dispositivo in Safeer Link:",
+      "prijavaKodaTeOpis": "Dispositivi connessi → Collega dispositivi → Inserisci codice da un altro dispositivo",
       "vabiloPridruzen": "✓ {ime} è collegato.",
       "vabiloHubStar": "L'hub va aggiornato per mostrare il codice qui. Trovi il codice anche sull'hub (Dispositivi → Collega un nuovo dispositivo).",
       "vabiloNapaka": "Impossibile preparare il codice. Riprova.",
@@ -2459,8 +2525,7 @@
   // Prijavno okno (Safeer Control / Safeer OS na racunalniku)
   // ----------------------------------------------------------------
 
-  // opomba: kam gre odziv na vneseno kodo (prijavno okno ali »Dodaj napravo« v oknu povezanih naprav).
-  var prijava = { qr: false, koda: false, krogNeuspel: false, cakalnik: null, ponovno: null, opomba: "", preverjanje: null };
+  var prijava = { qr: false, koda: false, krogNeuspel: false, cakalnik: null, ponovno: null, preverjanje: null };
 
   /**
    * Control, ki ni povezan (ne z zetonom ne s krogom zaupanja) in sredisce ne tece tu. Clan kroga
@@ -2591,11 +2656,13 @@
       okvir.classList.remove("prazno");
       okvir.innerHTML = String(podatki.svg).replace(/^<\?xml[^>]*>\s*/, "");
       besedilo("opombaQr", t("prijavaQrOsvezi"));
+      narisiKodoTe(podatki.koda);
       pokazi("gumbQrZnova", false);
       return;
     }
     okvir.innerHTML = "";
     okvir.classList.add("prazno");
+    narisiKodoTe("");
     var n = (podatki && podatki.napaka) || "";
     prijava.qr = false;
     if (!n) {
@@ -2612,9 +2679,39 @@
     }
   }
 
+  /** Lastna 6-mestna koda te naprave (ista prijava kot QR): vpise se na napravi, ki je ze v Linku. */
+  function narisiKodoTe(koda) {
+    koda = String(koda || "").replace(/\D/g, "");
+    pokazi("prijavaKodaTeBlok", koda.length === 6);
+    besedilo("prijavaKodaTe", koda.length === 6 ? koda.slice(0, 3) + " " + koda.slice(3) : "");
+  }
+
+  /** »Vpiši kodo z druge naprave« na napravi v Linku: dovoli napravo, ki kaze svojo kodo. */
+  var dovoljujem = null;
+  function dovoliKodo() {
+    var vnos = el("dodajVnosKode");
+    var koda = vnos ? String(vnos.value || "").replace(/\D/g, "") : "";
+    if (koda.length !== 6) { besedilo("opombaDodajKoda", t("prijavaKodaSestMest")); if (vnos) try { vnos.focus(); } catch (e) {} return; }
+    if (dovoljujem || !most || !most.odobriKodo) return;
+    besedilo("opombaDodajKoda", t("prijavaPreverjam"));
+    dovoljujem = setTimeout(function () { dovoljujem = null; besedilo("opombaDodajKoda", t("kodaNiHuba")); }, 30000);
+    most.odobriKodo(koda);
+  }
+  function koncajDovoljevanje(izid) {
+    if (dovoljujem) { clearTimeout(dovoljujem); dovoljujem = null; }
+    var r = (izid && izid.razlog) || "";
+    if (izid && izid.ok) {
+      besedilo("opombaDodajKoda", izid.ime ? t("kodaDovoljena", { ime: izid.ime }) : t("kodaDovoljenaBrezImena"));
+    } else {
+      besedilo("opombaDodajKoda", t(r === "prevec_poskusov" ? "kodaPrevec" : r === "ista_naprava" ? "kodaIstaNaprava"
+        : r === "ni_seznanjena" ? "kodaNiSeznanjena" : r === "ni_huba" ? "kodaNiHuba" : "kodaNeVelja"));
+    }
+    var vnos = el("dodajVnosKode");
+    if (vnos) { vnos.value = ""; try { vnos.focus(); } catch (e) {} }
+  }
+
   /** Klik v polje za kodo: sredisce pokaze kodo (seznanitev s kodo, SPAKE2). */
   function zacniKodo(opombaId) {
-    if (opombaId) prijava.opomba = opombaId;
     if (prijava.koda || !most) return;
     prijava.koda = true;
     besedilo(opombaId || "opombaPrijavaKoda", t("iscem"));
@@ -2632,7 +2729,6 @@
       if (!prijava.koda) zacniKodo(opombaId);
       return;
     }
-    prijava.opomba = opombaId;
     besedilo(opombaId, t("prijavaPreverjam"));
     // Odgovor pride vedno (kodaNiSprejeta ali seznanitev); ce ga zaradi omrezja ni, uporabnik ne ostane pri
     // »Preverjam …« za vedno.
@@ -2644,8 +2740,6 @@
     }, 30000);
     if (most) most.potrdiKodo(koda);
   }
-  /** Odziv na kodo v oknu povezanih naprav (»Dodaj napravo« -> »Vnesi kodo z druge naprave«). */
-  function jeDodajKoda() { return prijava.opomba === "opombaDodajKoda"; }
   function koncajPreverjanje() { if (prijava.preverjanje) { clearTimeout(prijava.preverjanje); prijava.preverjanje = null; } }
 
   /** Ali je iskanje sprozil gumb za povezavo; takrat gremo naprej brez novega klika. */
@@ -2714,9 +2808,6 @@
       } else if (vrsta === "nacin") {
         // Nov Hub: kodo pokaze gostitelj, uporabnik jo prepise sem.
         // Starejsi Hub: kodo pokazemo mi, potrdi se na gostitelju.
-        if (jeDodajKoda())
-          besedilo("opombaDodajKoda", podatki && podatki.nacin === "koda_na_gostitelju" ? t("prijavaKodaNaSredisce")
-            : t("potrdiKodo") + " " + String((podatki && podatki.koda) || ""));
         var gs = el("gumbSeznani");
         if (gs) gs.disabled = true;
         if (podatki && podatki.nacin === "koda_na_gostitelju") {
@@ -2738,13 +2829,6 @@
         var razlog = (podatki && podatki.razlog) || "napacna_koda";
         var kljucNapake = razlog === "prevec_poskusov" ? "napPrevecPoskusov"
           : (razlog === "prijava_ne_obstaja" ? "napPrijavaPotekla" : "napNapacnaKoda");
-        if (jeDodajKoda()) {
-          // Do 2.1.76 je odziv sel v skrito polje drugega okna in uporabnik je ostal pri »Preverjam …«.
-          besedilo("opombaDodajKoda", t(kljucNapake));
-          if (razlog === "prevec_poskusov" || razlog === "prijava_ne_obstaja") prijava.koda = false;
-          var vd = el("dodajVnosKode");
-          if (vd) { vd.value = ""; try { vd.focus(); } catch (e) {} }
-        }
         besedilo("opombaSeznanitev", t(kljucNapake));
         if (razlog === "prevec_poskusov" || razlog === "prijava_ne_obstaja") {
           pokazi("vnosKodeBlok", false);
@@ -2755,13 +2839,11 @@
           var v2 = el("vnosKode");
           if (v2) { v2.value = ""; try { v2.focus(); } catch (e) {} }
         }
+      } else if (vrsta === "kodaOdobrena") {
+        koncajDovoljevanje(podatki);
       } else if (vrsta === "seznanitev") {
         koncajPreverjanje();
         if (podatki && jePrijavnoOkno()) besedilo("opombaPrijavaKoda", t("prijavaUspela"));
-        if (jeDodajKoda()) {
-          besedilo("opombaDodajKoda", t(podatki ? "prijavaUspela" : "niPotrjeno"));
-          prijava.koda = false;
-        }
         var gumb = el("gumbSeznani");
         if (gumb) gumb.disabled = false;
         if (podatki) {
@@ -3315,7 +3397,7 @@
         zacniKodo();
       } else posljiKodo();
     });
-    naKlik("gumbDodajKoda", function () { posljiKodo("dodajVnosKode", "opombaDodajKoda"); });
+    naKlik("gumbDodajKoda", dovoliKodo);
     naKlik("gumbPoveziNaprave", function () {
       if (most && most.poveziNaprave) most.poveziNaprave();
     });
@@ -3358,14 +3440,13 @@
     }
     var vnosDodaj = el("dodajVnosKode");
     if (vnosDodaj) {
-      vnosDodaj.addEventListener("focus", function () { zacniKodo("opombaDodajKoda"); });
       vnosDodaj.addEventListener("input", function () {
         var cisto = String(vnosDodaj.value || "").replace(/\D/g, "").slice(0, 6);
         if (cisto !== vnosDodaj.value) vnosDodaj.value = cisto;
-        if (cisto.length === 6) posljiKodo("dodajVnosKode", "opombaDodajKoda");
+        if (cisto.length === 6) dovoliKodo();
       });
       vnosDodaj.addEventListener("keydown", function (e) {
-        if (e.key === "Enter") posljiKodo("dodajVnosKode", "opombaDodajKoda");
+        if (e.key === "Enter") dovoliKodo();
       });
     }
 

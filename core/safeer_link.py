@@ -120,6 +120,7 @@ MOST_JS = """
     poisciHub: function () { poslji("poisciHub"); },
     seznani: function () { poslji("seznani"); },
     potrdiKodo: function (koda) { poslji("potrdiKodo", [String(koda || "")]); },
+    odobriKodo: function (koda) { poslji("odobriKodo", [String(koda || "")]); },
     prekiniSeznanitev: function () { poslji("prekiniSeznanitev"); },
     zacniQr: function () { poslji("zacniQr"); },
     prekiniQr: function () { poslji("prekiniQr"); },
@@ -617,6 +618,7 @@ class SafeerLink:
             "nadaljujBrezPovezave": lambda: self._nadaljuj_brez_povezave(),
             "nastaviZaupanje": lambda: self.nastavi_zaupanje(bool(argumenti[0]) if argumenti else False),
             "zacniVabilo": lambda: self._v_ozadju(self._zacni_vabilo),
+            "odobriKodo": lambda: self._v_ozadju(lambda: self._odobri_kodo(str(argumenti[0]) if argumenti else "")),
             "prekiniVabilo": lambda: self._prekini_vabilo(),
             "poveziNaprave": lambda: self._povezi_naprave(),
             "poveziSe": lambda: self._v_ozadju(self._povezi),
@@ -960,7 +962,8 @@ class SafeerLink:
             return
         svg = link_hub.qr_svg(prijava["povezava"])
         self._qr = prijava
-        self._odziv("qr", {"svg": svg, "velja": prijava["velja"]})
+        # Ista prijava ima tudi 6-mestno kodo: kdor nima kamere, jo vpise na napravi v Linku.
+        self._odziv("qr", {"svg": svg, "velja": prijava["velja"], "koda": prijava.get("koda", "")})
         konec = time.time() + max(30, int(prijava["velja"]) - 20)
         while rod == self._qr_rod:
             time.sleep(1.5)
@@ -1004,6 +1007,21 @@ class SafeerLink:
         if self._v_krogu():
             return link_hub.seja_s_podpisom(self._hub(), self._id(), self._odtis() or "", self._ime())
         return None
+
+    def _odobri_kodo(self, koda: str) -> None:
+        """»Vpiši kodo z druge naprave«: ta naprava je v Linku in dovoli napravo, ki kaze svojo 6-mestno kodo
+        (prijavno okno Safeer Controla, Safeer OS na telefonu ali TV). Izid gre na stran kot »kodaOdobrena«."""
+        naslov, odtis = self._hub(), self._odtis() or ""
+        zeton = self._zeton_http() if naslov else None
+        if not naslov or not zeton:
+            self._odziv("kodaOdobrena", {"ok": False, "razlog": "ni_seznanjena"})
+            return
+        try:
+            izid = link_hub.odobri_kodo(naslov, zeton, odtis, koda)
+        except Exception as e:  # noqa: BLE001 - stran mora vedno dobiti odgovor
+            print(f"[SafeerLink] kode ni bilo mogoce potrditi: {e}")
+            izid = {"ok": False, "razlog": "ni_huba"}
+        self._odziv("kodaOdobrena", izid)
 
     def _zacni_vabilo(self) -> None:
         """QR koda, s katero se nov telefon ali tablica pridruzi Safeer Linku (kot na televizorju).
