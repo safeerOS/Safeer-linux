@@ -342,8 +342,9 @@ dock_prilagodi() {
 # potem doda (povleci iz menija) ali odstrani (povleci ven), ostane njegovo. Izklop vrne prejsnji nabor.
 # Najprej programi, ki jih je imel uporabnik pripete na seznamu oken pulta (njegovi priljubljeni), sicer
 # upravljalnik datotek, brskalnik, Safeer OS in terminal. Nastavitve in namestitev programov sta v meniju.
-# Kot pri lastniku (11. 10. 2026), brez programov drugih ponudnikov; manjkajoci se preskocijo (najdi_program).
-NABOR_DOCKA="nemo safeer-browser org.x.editor io.github.celluloid_player.Celluloid org.gnome.Terminal mintinstall cinnamon-settings"
+# Kot pri lastniku (11. 10. 2026) in Safeer OS (lastnik »da«), brez programov drugih ponudnikov; manjkajoci se
+# preskocijo (najdi_program).
+NABOR_DOCKA="nemo safeer-browser safeer-os org.x.editor io.github.celluloid_player.Celluloid org.gnome.Terminal mintinstall cinnamon-settings"
 LAUNCHERJI="${XDG_CONFIG_HOME:-$HOME/.config}/plank/dock1/launchers"
 
 najdi_program() {
