@@ -244,7 +244,9 @@ class _Osnova(unittest.TestCase):
             d.write(LAZNI_FFMPEG)
         os.chmod(self.ffmpeg, os.stat(self.ffmpeg).st_mode | stat.S_IXUSR)
         self._okolje = {k: os.environ.get(k) for k in ("DISPLAY", "SAFEER_LAZNI_FFMPEG_RAZMIK_S", "SAFEER_LAZNI_FFMPEG_KOS",
-                                                       "SAFEER_ZASLON_MERITVE", "SAFEER_ZASLON_RTT")}
+                                                       "SAFEER_ZASLON_MERITVE", "SAFEER_ZASLON_RTT", "SAFEER_ZASLON_GPU")}
+        # Lazni ffmpeg ne zna preizkusa graficne (gpu_lestvica_mozna): na racunalniku z VAAPI bi preizkus cakal nanj.
+        os.environ["SAFEER_ZASLON_GPU"] = "0"
         os.environ.setdefault("DISPLAY", ":0")
         # Povzetki sej gredo v zacasno datoteko, nikoli v uporabnikove nastavitve.
         self.povzetki = os.path.join(self.mapa, "meritve", "zaslon-seje.jsonl")
