@@ -14,7 +14,7 @@ import subprocess
 import urllib.parse
 from pathlib import Path
 
-from core import adblock, odlozisce_varuh, ozadje_strani
+from core import adblock, drm, odlozisce_varuh, ozadje_strani
 from core.config import ConfigManager, SEARCH_ENGINES, normalize_web_url
 from core.doh_proxy import get_doh_proxy
 from core.filter_lists import FILTER_ID
@@ -412,6 +412,10 @@ class VdelaniSplet:
         upravitelj.register_script_message_handler_in_world(adblock.STEVEC_MOST, adblock.STEVEC_SVET)
         upravitelj.connect("script-message-received::" + adblock.STEVEC_MOST, lambda _u, r: self._stevec(r))
         odlozisce_varuh.dodaj(W, upravitelj)   # tudi na prijavnih straneh: nicesar ne spreminja, le varuje odlozisce
+        # Widevine (Netflix, Disney+ ...): stran se odpre v namescenem brskalniku z Widevine (core/drm.py).
+        if getattr(self, "_drm", None) is None:
+            self._drm = drm.Preusmeritev()
+        drm.prikljuci(W, pogled, self._drm, lambda: str(self.jezik() if callable(self.jezik) else self.jezik or "sl"))
         izvzemi = adblock.AUTH_SCRIPT_EXCLUSIONS
         if self.config.get("gpc_dnt_enabled", True): self._skripta(upravitelj, adblock.GPC_AND_DNT_SCRIPT, izloceni=izvzemi)
         self._skripta(upravitelj, adblock.YOUTUBE_ADBLOCK_SCRIPT, dovoljeni=["*://*.youtube.com/*", "*://youtube.com/*"], izloceni=izvzemi)

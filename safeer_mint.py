@@ -44,6 +44,7 @@ from core.runtime_safety import install_main_thread_gc, collect_closed_views
 from core.config import CONFIG_DIR, ConfigManager, SEARCH_ENGINES, normalize_web_url
 from core.doh_proxy import get_doh_proxy, DOH_PROVIDERS
 from core.i18n import t, set_language, get_current_language, SUPPORTED_LANGUAGES
+from core import drm
 from core.adblock import (
     YOUTUBE_ADBLOCK_SCRIPT,
     YOUTUBE_KEEP_WATCHING_SCRIPT,
@@ -4624,6 +4625,10 @@ class SafeerMintBrowser(Gtk.Window):
         content_mgr.register_script_message_handler_in_world(STEVEC_MOST, STEVEC_SVET)
         content_mgr.connect("script-message-received::" + STEVEC_MOST,
                             lambda cm, res: self.on_stevec_message(res))
+        # Widevine (Netflix, Disney+ ...): WebKitGTK ga nima - stran se odpre v brskalniku z Widevine (core/drm.py).
+        if getattr(self, "_drm_preusmeritev", None) is None:
+            self._drm_preusmeritev = drm.Preusmeritev()
+        drm.prikljuci(WebKit2, wv, self._drm_preusmeritev, lambda: str(get_current_language() or "sl"))
         self.apply_content_filter(wv)  # 📜 EasyList, once compiled
 
         # 1. Global Privacy Control (GPC) & Do Not Track (DNT) W3C Engine
