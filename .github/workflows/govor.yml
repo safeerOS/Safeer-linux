@@ -23,7 +23,7 @@ jobs:
         run: |
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates git cmake g++ make curl binutils
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Zgradi
         run: bash tools/govor/zgradi.sh ${{ matrix.razlicica }} izhod
       - name: Preizkus (model tiny, posnetek iz whisper.cpp)
