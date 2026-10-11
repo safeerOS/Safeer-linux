@@ -1508,11 +1508,21 @@ class MediaCenter:
             dodatno["motor_preklic"] = preklic
         return dodatno
 
+    @staticmethod
+    def _jezik_zvoka(item: dict) -> dict:
+        """Zeleni jezik zvoka za izbiro toka (lastnik, 10. 10. 2026): film v anglescini, slovenski film v slovenscini.
+        Glasba in radio: brez (jezik zvoka tam ni izbira toka)."""
+        if str(item.get("vrsta") or "") not in ("film", "serija", "video", "vse", ""):
+            return {}
+        izvirni = str(item.get("jezik") or "")[:2]
+        return {"zelen_jezik": tok_izbira.zeleni_jezik(izvirni), "izvirni": izvirni}
+
     def _razresi_torrent(self, item: dict, tokovi: list) -> dict:
         """Naslov, ki ga ponujajo samo torrenti: najboljsi torrent za to napravo prenasa motor Safeer OS, predvajalnik
         dobi lokalni tok ze med prenosom (core/os_torrent_tok.py). Brez toka: kratka koda napake, naslova ne skrijemo."""
         urejeni = tok_izbira.uredi(tokovi, lambda t: str(t.get("opis") or "%s %s" % (t.get("vir", ""), t.get("kakovost", ""))),
-                                   tok_izbira.Zmoznosti(visina=int(getattr(self, "visina_zaslona", 0) or 1080)))
+                                   tok_izbira.Zmoznosti(visina=int(getattr(self, "visina_zaslona", 0) or 1080)),
+                                   **self._jezik_zvoka(item))
         obvesti = getattr(self, "ob_pripravi_torrenta", None)
         if obvesti is not None:
             try:
@@ -3564,7 +3574,7 @@ class MediaCenter:
             # na prvo mesto (_zivi_naprej) - uporabnik ne caka na vir, ki ne dela.
             neposredni = tok_izbira.uredi(neposredni, lambda t: str(t.get("opis") or "%s %s" % (t.get("vir", ""), t.get("kakovost", ""))),
                                           tok_izbira.Zmoznosti(visina=int(getattr(self, "visina_zaslona", 0) or 1080)),
-                                          naslov=lambda t: str(t.get("url") or ""))
+                                          naslov=lambda t: str(t.get("url") or ""), **self._jezik_zvoka(item))
             neposredni = self._zivi_naprej(neposredni)
             drugi_http = [v for v in (item.get("razlicice") or []) if isinstance(v, dict)
                           and str(v.get("url") or "").startswith(("http://", "https://"))]
