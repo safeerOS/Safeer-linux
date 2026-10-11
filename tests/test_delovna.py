@@ -313,7 +313,10 @@ assert.strictEqual(privzetiZadetek([splet, { vrsta: "zapisek", z: { naslov: "Nak
         self.assertIn('if (kam.indexOf("mediji:") === 0) {', os_js)
         # Lastnik, 11. 10. 2026: lupa isce tudi po katalogu Medijskega centra - med tipkanjem samo v predpomnilniku na
         # disku (vsaka crka ne sme iti k virom po omrezju), film/serija odpre Medijski center, glasba/radio se predvaja.
-        self.assertNotIn('klic("mediaKatalog"', js)
+        # Glavna lupa med tipkanjem ne sprasuje virov po omrezju; to sme samo iskanje v predvajalniku (medijIsci), ki
+        # isce izrecno po medijih in pocaka, da uporabnik neha tipkati (lastnik, 11. 10. 2026).
+        lupa = js.replace(js[js.index("  function medijIsci(q) {"):js.index("  function narisiMedijZadetke(q) {")], "")
+        self.assertNotIn('klic("mediaKatalog"', lupa)
         self.assertIn('q.length >= 3 ? klic("mediaIsciPredpomnilnik", [q])', js)
         self.assertIn('else if (v.vrsta === "katalog") odpriIzKataloga(v.k);', js)
         self.assertIn('klic("odpriRazdelek", ["mediji:" + (k.naslov || "")]);', js)
