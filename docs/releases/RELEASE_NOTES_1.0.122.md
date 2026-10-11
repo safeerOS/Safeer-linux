@@ -1,4 +1,4 @@
-# Safeer Browser for Linux 1.0.121 · Safeer Control 2.1.77 · Safeer OS 0.4.79
+# Safeer Browser for Linux 1.0.122 · Safeer Control 2.1.77 · Safeer OS 0.4.79
 
 **One search box for everything.** The search box at the top of the desktop finds programs, settings tools (display, sound, network, power …), files, notes, devices in Safeer Link and titles from the Media Center. It understands what you are looking for: a web address goes to the web, a program opens, a file with a matching name opens. Web results open in a panel on the desktop, with everything the browser can do. Words in other forms still match (»nastavitve zaslona« finds Display).
 
@@ -10,6 +10,6 @@
 
 **Safeer Player.** The Media Center opens in its own window and fills the screen when you search.
 
-**Calmer look.** Safeer OS and Safeer Control use the blue desktop theme by default; the dock sits on the right edge and hides itself.
+**Calmer look.** Safeer OS and Safeer Control use the blue desktop theme by default. Safeer Cinnamon 1.2.2: the dock sits on the right edge and hides itself.
 
 **Connecting devices.** Every device can connect to every device with its own 6-digit code. A code is always typed on another device, never on the one that shows it. A computer that restarts Safeer Control stays connected to the Safeer Link it was paired with.
