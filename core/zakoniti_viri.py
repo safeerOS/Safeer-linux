@@ -500,6 +500,14 @@ class ZakonitiViri:
             # TuneIn (neuradni OPML vmesnik; uporabo je izrecno dovolil lastnik izdelka): pri iskanju zadetki,
             # sicer postaje v blizini. Ce vmesnik ne odgovori, se tiho izpusti.
             try:
+                if query:
+                    # Kot pri spletnem iskalniku: najprej domace postaje (TuneIn »v blizini« po IP naslovu), ki se z
+                    # iskanim ujemajo - »rock radio« pri lastniku najprej Rock Radio Si in Radio 1 Rock, ne nemske.
+                    besede = [b for b in _norm(query).split() if len(b) > 1]
+                    blizu = [p for p in self.tunein("") if besede and all(b in _norm(p.get("naslov", "")) for b in besede)]
+                    fraza = _norm(query).strip()
+                    blizu.sort(key=lambda p: 0 if fraza in _norm(p.get("naslov", "")) else 1)
+                    result = blizu + result
                 result += self.tunein(query)
             except Exception:
                 pass

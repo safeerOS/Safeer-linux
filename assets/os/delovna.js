@@ -2807,8 +2807,8 @@
         var vsi = deli.lokalno.map(function (d) { return { lokalno: true, d: d }; }).concat(katalog);
         vsi.forEach(function (z, i) {
           var jeRadio = !z.lokalno && (z.k.vrsta === "radio" || radio.indexOf(z.k) >= 0);
-          var celo = zeliRadio && jeRadio && (z.k.naslov || "").toLocaleLowerCase(jezik).indexOf(q.toLocaleLowerCase(jezik)) >= 0;
-          z.o = (celo ? -2 : zeliRadio && jeRadio ? -1 : medijOcena(z, jeRadio ? qRadio : q)) * 1000 + i;
+          // Postaje v vrstnem redu, ki ga da streznik (domace postaje prve, kot pri spletnem iskalniku).
+          z.o = (zeliRadio && jeRadio ? -1 : medijOcena(z, jeRadio ? qRadio : q)) * 1000 + i;
         });
         var dobri = vsi.filter(function (z) { return z.o < 2000; });
         // Zadetek sredi besede pokazemo le, ce boljsih ni dovolj.
@@ -2819,7 +2819,7 @@
       klic("knjiznicaMedijev", ["", q, 0]).then(function (s) { deli.lokalno = (s || []).slice(0, 4); zdruzi(); }).catch(function () {});
       klic("mediaIsciPredpomnilnik", [q]).then(function (s) { deli.hitro = s || []; zdruzi(); }).catch(function () {});
       var rok = setTimeout(function () { if (zahteva === MI.zahteva && !konec) { konec = true; zdruzi(); } }, 20000);
-      var radioKonec = klic("mediaKatalog", [qRadio, "radio", "", 1, "", [], false, [], ""]).then(function (r) {
+      var radioKonec = klic("mediaKatalog", [q, "radio", "", 1, "", [], false, [], ""]).then(function (r) {
         deli.radio = ((r && r.vnosi) || []).slice(0, 10); zdruzi();
       }).catch(function () {});
       klic("mediaKatalog", [q, "vse", "", 1, "", [], false, [], ""]).then(function (r) {
