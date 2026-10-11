@@ -2773,7 +2773,7 @@
   // zaigrata v predvajalniku na namizju, film in serija se odpreta v Safeer Playerju (odpriIzKataloga).
   var MI = { cas: null, zahteva: 0, zadetki: [] };
   // Zadetki pridejo po delih: najprej ta racunalnik in predpomnilnik kataloga (takoj, brez omrezja), nato sveze iskanje
-  // po virih. Ne cakamo na najpocasnejsi vir: kar je, je takoj vidno; po 12 s iskanja po virih ne cakamo vec.
+  // po virih. Ne cakamo na najpocasnejsi vir: kar je, je takoj vidno; po 20 s iskanja po virih ne cakamo vec.
   // Vrstni red: naslov, ki se z iskanim zacne (beseda), pred zadetkom sredi besede (»rock« ne najde najprej »Brockovich«).
   function medijOcena(z, q) {
     var naslov = z.lokalno ? (z.d.naslov || z.d.ime || "") : (z.k.naslov || ""), izv = z.lokalno ? "" : (z.k.izvajalec || "");
@@ -2817,12 +2817,12 @@
       }
       klic("knjiznicaMedijev", ["", q, 0]).then(function (s) { deli.lokalno = (s || []).slice(0, 4); zdruzi(); }).catch(function () {});
       klic("mediaIsciPredpomnilnik", [q]).then(function (s) { deli.hitro = s || []; zdruzi(); }).catch(function () {});
-      var rok = setTimeout(function () { if (zahteva === MI.zahteva && !konec) { konec = true; zdruzi(); } }, 12000);
+      var rok = setTimeout(function () { if (zahteva === MI.zahteva && !konec) { konec = true; zdruzi(); } }, 20000);
       var radioKonec = klic("mediaKatalog", [qRadio, "radio", "", 1, "", [], false, [], ""]).then(function (r) {
         deli.radio = ((r && r.vnosi) || []).slice(0, 10); zdruzi();
       }).catch(function () {});
       klic("mediaKatalog", [q, "vse", "", 1, "", [], false, [], ""]).then(function (r) {
-        deli.sveze = ((r && r.vnosi) || []).slice(0, 20);
+        deli.sveze = ((r && r.vnosi) || []).slice(0, 20); zdruzi();
       }).catch(function () {}).then(function () { return radioKonec; }).then(function () { clearTimeout(rok); konec = true; zdruzi(); });
     }, 350);
   }

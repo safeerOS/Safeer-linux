@@ -486,7 +486,7 @@ class ZakonitiViri:
                 for streznik in ("de1", "de2", "fi1", "nl1", "at1"):
                     try:
                         rows = self._json("https://%s.api.radio-browser.info/json/stations/search?%s"
-                                          % (streznik, urllib.parse.urlencode(params)))
+                                          % (streznik, urllib.parse.urlencode(params)), 4)
                         break
                     except Exception as e:  # noqa: BLE001
                         napaka = e
