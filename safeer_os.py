@@ -2883,16 +2883,16 @@ class SafeerOS(Gtk.Application):
                     try:
                         css = Gtk.CssProvider()
                         css.load_from_data(b"""
-                            window.safeer-player { background: #0c1821; color: #f0f4f3; }
-                            window.safeer-player label { color: #dbeee9; }
+                            window.safeer-player { background: #0b1424; color: #eaf2ff; }
+                            window.safeer-player label { color: #eaf2ff; }
                             window.safeer-player label.safeer-player-title { font-size: 18px; font-weight: 700; }
-                            window.safeer-player label.safeer-player-queue { color: #b0bdc4; }
-                            window.safeer-player label.safeer-player-note { font-size: 96px; color: #54d6a5; }
-                            window.safeer-player button { background: #1a3339; color: #edfff7;
-                                border: 1px solid #3a6f65; border-radius: 10px; padding: 8px 13px; }
-                            window.safeer-player button:hover { background: #275248; border-color: #54d6a5; }
-                            window.safeer-player scale highlight { background: #54d6a5; }
-                            window.safeer-player scale slider { background: #54d6a5;
+                            window.safeer-player label.safeer-player-queue { color: #afbed4; }
+                            window.safeer-player label.safeer-player-note { font-size: 96px; color: #8ac7ff; }
+                            window.safeer-player button { background: #16233a; color: #eaf2ff;
+                                border: 1px solid rgba(211,229,255,.23); border-radius: 10px; padding: 8px 13px; }
+                            window.safeer-player button:hover { background: #243e63; border-color: #8ac7ff; }
+                            window.safeer-player scale highlight { background: #8ac7ff; }
+                            window.safeer-player scale slider { background: #8ac7ff;
                                 min-width: 14px; min-height: 14px; }
                         """)
                         Gtk.StyleContext.add_provider_for_screen(
