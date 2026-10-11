@@ -58,6 +58,17 @@
       kDrugo: "Drugo", kPriljubljeni: "★ Priljubljeni",
       oblak: "Oblak", oblakOpis: "Igre tečejo na strežnikih ponudnika {ponudnik}; potrebuješ njihov račun.",
       oblakNamesti: "Namesti (uradni paket {ponudnik})", oblakVec: "Več o storitvi",
+      ppGumb: "Namesti programe …", ppNaslov: "Od kod želiš nameščati programe?",
+      ppUvod: "Izberi ponudnika programov. Safeer nobenega ne priporoča – po abecedi so, nič ni privzeto.",
+      ppOdpri: "Odpri", ppNamesti: "Namesti", ppNamescam: "Nameščam …", ppVec: "Več", ppNamesceno: "nameščeno",
+      ppGeslo: "vpraša za geslo", ppKoncano: "{ime} je nameščen.", ppNapaka: "{ime} se ni namestil.",
+      ppPreklicano: "Namestitev je preklicana.", ppPrazno: "Seznama ponudnikov ni bilo mogoče prebrati.",
+      ppIme_gnome_software: "GNOME Programi", ppIme_mintinstall: "Upravitelj programov",
+      ppOpis_bazaar: "Programi iz Flathuba.", ppOpis_discover: "KDE-jev center programov (paketi sistema in Flatpak).",
+      ppOpis_gearlever: "Programi AppImage: namesti, posodablja in pospravi.",
+      ppOpis_gnome_software: "GNOME-ov center programov (paketi sistema in Flatpak).",
+      ppOpis_snap_store: "Programi Snap. Linux Mint ima Snap izklopljen namenoma; vklopiš ga lahko sam.",
+      ppOpis_mintinstall: "Center programov Linux Mint (paketi sistema in Flathub).",
       oblakNamescam: "Nameščam {ime} iz uradnega vira {ponudnik}. To lahko traja nekaj minut …",
       oblakNamesceno: "{ime} je nameščen. Najdeš ga med Igrami.", oblakZeNamescam: "Namestitev že teče.",
       oblakNapaka_vir: "Uradnega vira ni bilo mogoče dodati. Preveri povezavo z internetom.",
@@ -208,6 +219,17 @@
       kDrugo: "Other", kPriljubljeni: "★ Favourites",
       oblak: "Cloud", oblakOpis: "Games run on {ponudnik} servers; you need an account with them.",
       oblakNamesti: "Install (official {ponudnik} package)", oblakVec: "About the service",
+      ppGumb: "Install apps …", ppNaslov: "Where do you want to install apps from?",
+      ppUvod: "Choose an app provider. Safeer recommends none – they are in alphabetical order, nothing is the default.",
+      ppOdpri: "Open", ppNamesti: "Install", ppNamescam: "Installing …", ppVec: "More", ppNamesceno: "installed",
+      ppGeslo: "asks for a password", ppKoncano: "{ime} is installed.", ppNapaka: "{ime} was not installed.",
+      ppPreklicano: "Installation cancelled.", ppPrazno: "The list of providers could not be read.",
+      ppIme_gnome_software: "GNOME Software", ppIme_mintinstall: "Software Manager",
+      ppOpis_bazaar: "Apps from Flathub.", ppOpis_discover: "KDE's software center (system packages and Flatpak).",
+      ppOpis_gearlever: "AppImage apps: install, update and tidy up.",
+      ppOpis_gnome_software: "GNOME's software center (system packages and Flatpak).",
+      ppOpis_snap_store: "Snap apps. Linux Mint turns Snap off on purpose; you can turn it on yourself.",
+      ppOpis_mintinstall: "The Linux Mint software center (system packages and Flathub).",
       oblakNamescam: "Installing {ime} from the official {ponudnik} source. This can take a few minutes…",
       oblakNamesceno: "{ime} is installed. You will find it under Games.", oblakZeNamescam: "The installation is already running.",
       oblakNapaka_vir: "The official source could not be added. Check your internet connection.",
@@ -2170,6 +2192,54 @@
     m.push([t("oblakVec"), function () { klic("splet", [o.stran]); }]);
     pokaziMeni(m, x, y);
   }
+  // Ponudniki programov (core/os_ponudniki_programov.py): uporabnik izbere, od kod namesca programe. Po abecedi
+  // prikazanega imena, brez priporocila; namescenega odpre, Snap samo razlozi (Mint ga ima izklopljenega).
+  function ponudnikiProgramov() {
+    var ovoj = el("div", "meni"); ovoj.setAttribute("role", "dialog"); ovoj.setAttribute("aria-label", t("ppNaslov"));
+    ovoj.style.cssText = "position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(36em,92vw);max-height:86vh;overflow:auto;padding:1em 1.2em";
+    ovoj.appendChild(el("p", "meni-naslov", t("ppNaslov")));
+    var uvod = el("p", "", t("ppUvod")); uvod.style.cssText = "margin:.4em 0 .8em;opacity:.8"; ovoj.appendChild(uvod);
+    var seznam = el("div", ""); ovoj.appendChild(seznam);
+    var gumbi = el("div", "");
+    gumbi.style.cssText = "display:flex;justify-content:flex-end;margin-top:.6em;padding-top:.5em;border-top:1px solid rgba(127,127,127,.25)";
+    var gZapri = el("button", "", t("shrZapri")); gZapri.type = "button"; gZapri.style.width = "auto";
+    gZapri.addEventListener("click", zapri); gumbi.appendChild(gZapri); ovoj.appendChild(gumbi);
+    document.body.appendChild(ovoj);
+    function zapri() { ovoj.remove(); document.removeEventListener("keydown", esc, true); }
+    function esc(ev) { if (ev.key === "Escape") { ev.preventDefault(); zapri(); } }
+    document.addEventListener("keydown", esc, true);
+    function kljuc(id) { return String(id).replace(/-/g, "_"); }
+    function ime(p) { return BESEDILA[jezik]["ppIme_" + kljuc(p.id)] ? t("ppIme_" + kljuc(p.id)) : p.ime; }
+    function izrisi(vsi) {
+      seznam.innerHTML = "";
+      if (!vsi.length) { seznam.appendChild(el("p", "", t("ppPrazno"))); return; }
+      vsi.slice().sort(function (a, b) { return ime(a).localeCompare(ime(b)); }).forEach(function (p) {
+        var vrsta = el("div", ""); vrsta.style.cssText = "display:flex;align-items:center;gap:.8em;padding:.45em 0;border-bottom:1px solid rgba(127,127,127,.12)";
+        var besedilo = el("div", ""); besedilo.style.cssText = "flex:1;min-width:0";
+        var naslov = el("div", "", ime(p) + (p.namescen ? " · " + t("ppNamesceno") : "")); naslov.style.fontWeight = "600";
+        var opis = el("div", "", t("ppOpis_" + kljuc(p.id)) + (p.namestljiv && p.vrsta === "apt" ? " (" + t("ppGeslo") + ")" : ""));
+        opis.style.cssText = "font-size:.9em;opacity:.75";
+        besedilo.appendChild(naslov); besedilo.appendChild(opis);
+        var g = el("button", "", p.namescen ? t("ppOdpri") : p.vrsta === "snap" ? t("ppVec") : t("ppNamesti"));
+        g.type = "button"; g.style.cssText = "width:auto;flex:none;border:1px solid var(--obroba-mocna)";
+        if (!p.namescen && p.vrsta !== "snap" && !p.namestljiv) g.disabled = true;
+        g.addEventListener("click", function () {
+          if (p.namescen) { klic("ponudnikOdpri", [p.id]); zapri(); return; }
+          if (p.vrsta === "snap") { klic("splet", [p.stran]); zapri(); return; }
+          g.disabled = true; g.textContent = t("ppNamescam");
+          klic("ponudnikNamesti", [p.id]).then(function (r) {
+            if (r && r.ok) { obvesti(t("ppKoncano", { ime: ime(p) })); osvezi(); naloziProgrameNaprav(); }
+            else { obvesti(r && r.napaka === "preklicano" ? t("ppPreklicano") : t("ppNapaka", { ime: ime(p) })); osvezi(); }
+          }).catch(function () { obvesti(t("ppNapaka", { ime: ime(p) })); osvezi(); });
+        });
+        vrsta.appendChild(besedilo); vrsta.appendChild(g); seznam.appendChild(vrsta);
+      });
+      var prvi = seznam.querySelector("button:not([disabled])"); if (prvi) try { prvi.focus(); } catch (x) {}
+    }
+    function osvezi() { klic("ponudnikiProgramov").then(function (s) { izrisi(Array.isArray(s) ? s : []); }).catch(function () { izrisi([]); }); }
+    osvezi();
+  }
+
   function namestiOblak(o) {
     if (P.namescam) { obvesti(t("oblakZeNamescam")); return; }
     P.namescam = true;
@@ -2618,6 +2688,7 @@
     });
     $("prgNaprava").addEventListener("change", function () { P.stran = 0; izrisiPrograme(); });
     $("prgRazvrsti").addEventListener("change", function () { izrisiPrograme(); });
+    $("prgNamesti").addEventListener("click", ponudnikiProgramov);
     $("prgPogled").addEventListener("click", function () { N.pogled = N.pogled === "seznam" ? "mreza" : "seznam"; shrani(); P.stran = 0; izrisiPrograme(); });
     $("ploscaProgrami").addEventListener("keydown", function (e) {
       if (e.key === "PageDown" || e.key === "PageUp") {
