@@ -26,7 +26,7 @@
   var BESEDILA = {
     sl: {
       mikrofonNaslov: "Išči z glasom", govorPoslusam: "Poslušam … povej, kaj iščeš", govorPrepoznavam: "Prepoznavam …", govorTisina: "Nisem slišal ničesar. Pritisni mikrofon in povej znova.", govorNiPodprto: "Iskanje z glasom na tem računalniku ni na voljo.", govorMikrofon: "Mikrofona ni mogoče odpreti.", govorNapaka: "Prepoznava govora ni uspela.", govorNamestiNaslov: "Iskanje z glasom", govorNamestiOpis: "Govor se prepozna na tem računalniku – nič ne gre na splet. Za to je treba enkrat prenesti prepoznavo govora ({mb} MB).", govorPrenesi: "Prenesi", govorNeZdaj: "Ne zdaj", govorPrenasam: "Prenašam prepoznavo govora … {o} %", govorPrekini: "Prekini", govorPrenosNapaka: "Prenos ni uspel. Poskusi znova.", govorPreklici: "Prekliči", govorKoncaj: "Končaj",
-      iskanjePh: "Išči po spletu, programih, datotekah in medijih …", iskanjeNamig: "Enter odpre označeno · Shift+Enter splet",
+      iskanjePh: "Išči po spletu, programih, datotekah in medijih …", iskanjePhKratko: "Išči programe, datoteke, splet …", iskanjePhKrajse: "Išči programe in splet …", iskanjePhNajkrajse: "Išči …", iskanjeNamig: "Enter odpre označeno · Shift+Enter splet",
       plosceNaslov: "Plošče", medijiNaslov: "Medijski center", datotekeNaslov: "Datoteke", programiNaslov: "Programi",
       zamenjajStrani: "Zamenjaj levo in desno", ponastavi: "Privzeta postavitev", vecjiTekst: "Večje besedilo", velikostBesedila: "Velikost besedila", tekst200: "200 % – za ogled od daleč",
       manjProsojnosti: "Manj prosojnosti", skrijPlosco: "Skrij ploščo", pokaziPlosco: "Pokaži ploščo {ime}", spremeniVelikost: "Povleci za spremembo velikosti (puščice s tipkovnico)",
@@ -223,7 +223,7 @@
     },
     en: {
       mikrofonNaslov: "Search by voice", govorPoslusam: "Listening … say what you are looking for", govorPrepoznavam: "Recognising …", govorTisina: "I did not hear anything. Press the microphone and speak again.", govorNiPodprto: "Voice search is not available on this computer.", govorMikrofon: "The microphone cannot be opened.", govorNapaka: "Speech recognition failed.", govorNamestiNaslov: "Search by voice", govorNamestiOpis: "Speech is recognised on this computer – nothing goes to the internet. Speech recognition has to be downloaded once ({mb} MB).", govorPrenesi: "Download", govorNeZdaj: "Not now", govorPrenasam: "Downloading speech recognition … {o} %", govorPrekini: "Cancel", govorPrenosNapaka: "The download failed. Try again.", govorPreklici: "Cancel", govorKoncaj: "Done",
-      iskanjePh: "Search the web, apps, files and media …", iskanjeNamig: "Enter opens the selection · Shift+Enter web",
+      iskanjePh: "Search the web, apps, files and media …", iskanjePhKratko: "Search apps, files, web …", iskanjePhKrajse: "Search apps and web …", iskanjePhNajkrajse: "Search …", iskanjeNamig: "Enter opens the selection · Shift+Enter web",
       plosceNaslov: "Panels", medijiNaslov: "Media center", datotekeNaslov: "Files", programiNaslov: "Apps",
       zamenjajStrani: "Swap left and right", ponastavi: "Default layout", vecjiTekst: "Larger text", velikostBesedila: "Text size", tekst200: "200 % – for viewing from afar",
       manjProsojnosti: "Less transparency", skrijPlosco: "Hide panel", pokaziPlosco: "Show the {ime} panel", spremeniVelikost: "Drag to resize (arrow keys work too)",
@@ -427,10 +427,35 @@
     if (z) Object.keys(z).forEach(function (x) { b = b.split("{" + x + "}").join(z[x]); });
     return b;
   }
+  // Namig v polju se nikoli ne odreze: ce dolgo besedilo ne gre v polje (velika pisava, ozko okno),
+  // vzamemo krajso razlicico (<kljuc>Kratko, <kljuc>Krajse, <kljuc>Najkrajse), ki je cela vidna.
+  var phMerilo = null;
+  function phSirina(e, besedilo) {
+    phMerilo = phMerilo || document.createElement("canvas").getContext("2d");
+    var cs = getComputedStyle(e);
+    phMerilo.font = cs.fontStyle + " " + cs.fontWeight + " " + cs.fontSize + " " + cs.fontFamily;
+    return phMerilo.measureText(besedilo).width;
+  }
+  function phPrilagodi(e) {
+    var k = e.getAttribute("data-ph"), moznosti = [t(k)];
+    [k + "Kratko", k + "Krajse", k + "Najkrajse"].forEach(function (x) { var b = t(x); if (b !== x) moznosti.push(b); });
+    var cs = getComputedStyle(e), fs = parseFloat(cs.fontSize) || 14;
+    var prostor = e.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0) - (e.type === "search" ? 1.2 * fs : 0);
+    var izbrano = moznosti[moznosti.length - 1];
+    if (prostor > 0) {
+      for (var i = 0; i < moznosti.length; i++) { if (phSirina(e, moznosti[i]) <= prostor) { izbrano = moznosti[i]; break; } }
+    } else izbrano = moznosti[0];
+    e.placeholder = izbrano;
+  }
+  function opazujPh(e) {
+    if (e._phOpazovan || typeof ResizeObserver === "undefined") return;
+    e._phOpazovan = true;
+    new ResizeObserver(function () { if (!e.getAttribute("data-ph-zaklenjen")) phPrilagodi(e); }).observe(e);
+  }
   function prevedi() {
     document.documentElement.lang = jezik;
     document.querySelectorAll("[data-t]").forEach(function (e) { e.textContent = t(e.getAttribute("data-t")); });
-    document.querySelectorAll("[data-ph]").forEach(function (e) { e.placeholder = t(e.getAttribute("data-ph")); });
+    document.querySelectorAll("[data-ph]").forEach(function (e) { phPrilagodi(e); opazujPh(e); });
     document.querySelectorAll("[data-naslov]").forEach(function (e) {
       e.title = t(e.getAttribute("data-naslov")); e.setAttribute("aria-label", e.title);
     });
@@ -3139,7 +3164,8 @@
     g.classList.toggle("poslusam", v === "poslusam");
     g.classList.toggle("prepoznavam", v === "prepoznavam");
     if (v === "poslusam") { polje.value = ""; skrijZadetke(); polje.focus(); }
-    polje.placeholder = v === "poslusam" ? t("govorPoslusam") : v === "prepoznavam" ? t("govorPrepoznavam") : t("iskanjePh");
+    if (v === "poslusam" || v === "prepoznavam") { polje.setAttribute("data-ph-zaklenjen", "1"); polje.placeholder = t(v === "poslusam" ? "govorPoslusam" : "govorPrepoznavam"); }
+    else { polje.removeAttribute("data-ph-zaklenjen"); phPrilagodi(polje); }
     if (v === "namescam") prikaziPrenosGovora(d.odstotek || 0);
     else if (v === "namesceno") { skrijZadetke(); zacniPoslusati(); }
     else if (v === "besedilo") {
