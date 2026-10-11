@@ -102,14 +102,14 @@
       posljiNaNapravo: "Pošlji na napravo …", posNiNaprav: "V Safeer Linku ni naprave, ki bi sprejela datoteko.",
       posPosiljam: "Pošiljam napravi {naprava}: {ime} … {odst} %",
       posPosiljamN: "Pošiljam napravi {naprava} ({k} od {n}): {ime} … {odst} %",
-      posPoslano: "Poslano napravi {naprava}: {ime}", posPoslanoN: "Poslano napravi {naprava}: {n}", posMapeNe: " Mape niso poslane.",
+      posPoslano: "Poslano napravi {naprava}: {ime}", posPoslanoN: "Poslano napravi {naprava}: {n}", 
       posNapaka: "Pošiljanje napravi {naprava} ni uspelo: {razlog}.",
       posN_naprava_ni_povezana: "naprava ni povezana",
       posN_sredisce_ne_zna: "središče tega še ne zna – posodobi Safeer na napravi, ki je središče",
       posN_naprava_pri_drugem_srediscu: "naprava je povezana prek drugega središča",
       posN_stari_control: "Safeer Control je treba zagnati znova (teče starejša različica)",
       posN_ni_controla: "Safeer Control ne teče", posN_hub_ni_znan: "ta računalnik ni povezan v Safeer Link",
-      posN_samo_mape: "map ni mogoče poslati, samo datoteke", posN_prevec_datotek: "preveč datotek naenkrat (največ {najvec})",
+      posN_prazna_mapa: "mapa je prazna", posN_prevec_datotek: "preveč datotek naenkrat (največ {najvec})",
       posN_prevelika: "datoteka je večja od 4 GB", posN_ni_prostora: "ni dovolj prostora za datoteko",
       posN_naprava_zasedena: "z napravo trenutno deli druga naprava", posN_ni_datoteke: "datoteke ni več",
       posN_naprava_ni_seznanjena: "ta računalnik pri središču ni prijavljen",
@@ -245,14 +245,14 @@
       posljiNaNapravo: "Send to a device …", posNiNaprav: "No device in Safeer Link can receive a file.",
       posPosiljam: "Sending “{ime}” to {naprava} … {odst} %",
       posPosiljamN: "Sending to {naprava}: {k} of {n} · “{ime}” … {odst} %",
-      posPoslano: "Sent to {naprava}: {ime}", posPoslanoN: "Sent to {naprava}: {n}", posMapeNe: " Folders were not sent.",
+      posPoslano: "Sent to {naprava}: {ime}", posPoslanoN: "Sent to {naprava}: {n}", 
       posNapaka: "Sending to {naprava} failed: {razlog}.",
       posN_naprava_ni_povezana: "the device is not connected",
       posN_sredisce_ne_zna: "the hub cannot do this yet – update Safeer on the device that is the hub",
       posN_naprava_pri_drugem_srediscu: "the device is connected through another hub",
       posN_stari_control: "Safeer Control has to be restarted (an older version is running)",
       posN_ni_controla: "Safeer Control is not running", posN_hub_ni_znan: "this computer is not connected to Safeer Link",
-      posN_samo_mape: "folders cannot be sent, only files", posN_prevec_datotek: "too many files at once (at most {najvec})",
+      posN_prazna_mapa: "the folder is empty", posN_prevec_datotek: "too many files at once (at most {najvec})",
       posN_prevelika: "the file is larger than 4 GB", posN_ni_prostora: "not enough space for the file",
       posN_naprava_zasedena: "another device is sharing with that device right now", posN_ni_datoteke: "the file is gone",
       posN_naprava_ni_seznanjena: "this computer is not signed in at the hub",
@@ -1169,7 +1169,7 @@
     }
     if (r.stanje === "poslano") {
       return (r.datotek > 1 ? t("posPoslanoN", { naprava: ime, n: steviloElementov(r.datotek) }) : t("posPoslano", { naprava: ime, ime: r.ime })) +
-        (r.mape ? t("posMapeNe") : "");
+        "";
     }
     return t("posNapaka", { naprava: ime, razlog: razlogPosiljanja(r) });
   }

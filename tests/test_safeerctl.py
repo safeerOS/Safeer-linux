@@ -199,7 +199,7 @@ class Posiljanje(Osnova):
         self.assertEqual((metoda, naprava), ("Poslji", "n-tv"))
         self.assertEqual(json.loads(poti), [os.path.abspath("a.txt"), os.path.expanduser("~/b.txt")])
         self.assertEqual(vmes, ["Pošiljam napravi Dnevna soba: a.txt … 0 %", "Pošiljam napravi Dnevna soba: b.txt … 60 %"])
-        self.assertEqual(self.izpisi, ["Poslano napravi Dnevna soba: 2 (mape niso poslane)"])
+        self.assertEqual(self.izpisi, ["Poslano napravi Dnevna soba: 2"])
 
     def test_napaka_med_posiljanjem(self):
         self.c.odgovori["Poslji"] = {"ok": True, "id": "p1", "stanje": "posiljam", "ime": "a.txt"}
@@ -214,7 +214,8 @@ class Posiljanje(Osnova):
         self.assertEqual(self.napake[-1], "Ni uspelo: samo_mape")
         self.c.odgovori["Poslji"] = {"ok": True, "id": "p", "stanje": "poslano", "datotek": 1, "poslanih": 1, "mape": 0}
         self.assertEqual(self.zazeni("send", "a.txt", "--to", "n-tv", "--json"), 0)
-        self.assertEqual(self.json(), {"ok": True, "id": "n-tv", "name": "Dnevna soba", "files": 1, "sent": 1, "skipped_folders": 0})
+        self.assertEqual(self.json(), {"ok": True, "id": "n-tv", "name": "Dnevna soba", "files": 1, "sent": 1, "folders": 0,
+                                       "skipped_folders": 0})
 
     def test_naprava_brez_zmoznosti(self):
         self.assertEqual(self.zazeni("send", "a.txt", "--to", "pisarna"), 1)

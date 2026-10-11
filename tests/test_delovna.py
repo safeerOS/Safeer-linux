@@ -319,9 +319,9 @@ assert.strictEqual(privzetiZadetek([splet, { vrsta: "naprava", poImenu: false },
         self.assertIn('var samoDatoteke = lok.filter(function (e) { return !e.mapa; });', js)
         self.assertIn('klic("posljiNapravi", [naprava.id, poti])', js)
         self.assertIn('klic("posljiStanje", [id])', js)
-        for kljuc in ("posljiNaNapravo", "posNiNaprav", "posPosiljam", "posPosiljamN", "posPoslano", "posPoslanoN", "posMapeNe",
+        for kljuc in ("posljiNaNapravo", "posNiNaprav", "posPosiljam", "posPosiljamN", "posPoslano", "posPoslanoN",
                       "posNapaka", "posN_naprava_ni_povezana", "posN_sredisce_ne_zna", "posN_naprava_pri_drugem_srediscu",
-                      "posN_stari_control", "posN_ni_controla", "posN_hub_ni_znan", "posN_samo_mape", "posN_prevec_datotek",
+                      "posN_stari_control", "posN_ni_controla", "posN_hub_ni_znan", "posN_prazna_mapa", "posN_prevec_datotek",
                       "posN_prevelika", "posN_ni_prostora", "posN_naprava_zasedena", "posN_ni_datoteke",
                       "posN_naprava_ni_seznanjena", "posN_sredisce_naprave_ni_dosegljivo", "posN_posiljanje_ni_uspelo"):
             self.assertEqual(js.count(kljuc + ': "'), 2, kljuc)
@@ -351,7 +351,8 @@ assert.strictEqual(besediloPosiljanja({ stanje: "posiljam", datotek: 3, poslanih
                    'posPosiljamN{"naprava":"Dnevna","k":2,"n":3,"ime":"b.txt","odst":50}');
 assert.strictEqual(besediloPosiljanja({ stanje: "posiljam", datotek: 3, poslanih: 3, ime: "c.txt" }, tv).indexOf('"k":3,"n":3') > 0, true);
 assert.strictEqual(besediloPosiljanja({ stanje: "poslano", datotek: 1, ime: "a.txt" }, tv), 'posPoslano{"naprava":"Televizor","ime":"a.txt"}');
-assert.strictEqual(besediloPosiljanja({ stanje: "poslano", datotek: 3, mape: 1 }, tv), 'posPoslanoN{"naprava":"Televizor","n":"3 el."}posMapeNe{}');
+// Mape gredo zdaj cele (z vso vsebino): ni vec opombe »mape niso poslane«.
+assert.strictEqual(besediloPosiljanja({ stanje: "poslano", datotek: 3, mape: 1 }, tv), 'posPoslanoN{"naprava":"Televizor","n":"3 el."}');
 assert.strictEqual(besediloPosiljanja({ stanje: "napaka", koda: "naprava_ni_povezana" }, tv),
                    'posNapaka{"naprava":"Televizor","razlog":"naprava ni povezana"}');
 """
