@@ -24,7 +24,7 @@ class NamizjeTv(unittest.TestCase):
     def test_velikost_besedila_do_200(self):
         html, py, sc = _beri("assets/os/delovna.html"), _beri("safeer_os.py"), _beri("packaging/tema-cinnamon/safeer-cinnamon")
         self.assertIn('<option value="200"', html)
-        self.assertIn("int(vklop) in (100, 125, 150, 175, 200)", py)
+        self.assertIn("int(vklop) in (100, 125, 150, 160, 175, 200)", py)
         self.assertIn('stanje["tekstOdstotek"]', py)
         self.assertIn("200) tekst 2.0 ;; 175) tekst 1.75 ;;", sc)
 

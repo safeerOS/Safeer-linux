@@ -742,7 +742,7 @@ def videz_cinnamon_nastavi(kaj: str, vklop) -> dict:
     """Stikalo delovne povrsine: kaj = "kontrast" | "tekst". Pri besedilu je vklop lahko odstotek (100, 125, 150, 175,
     200 - 200 % za ogled od dalec, npr. TV s kavca). Vrne stanje, kakrsno je po tem res."""
     dodatno: list = []
-    if kaj == "tekst" and not isinstance(vklop, bool) and str(vklop).isdigit() and int(vklop) in (100, 125, 150, 175, 200):
+    if kaj == "tekst" and not isinstance(vklop, bool) and str(vklop).isdigit() and int(vklop) in (100, 125, 150, 160, 175, 200):
         ukaz = "--obicajen-tekst" if int(vklop) == 100 else "--vecji-tekst"
         dodatno = [] if int(vklop) == 100 else [str(int(vklop))]
     else:
