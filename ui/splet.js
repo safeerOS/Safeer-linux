@@ -98,9 +98,9 @@
       '<path d="M140 120 q70 30 140 0" fill="none" stroke="#4fa3e8" stroke-width="3" opacity=".45"/>' +
       '<g fill="#fff" opacity=".75"><circle cx="40" cy="30" r="1.4"/><circle cx="90" cy="70" r="1"/><circle cx="150" cy="24" r="1.2"/><circle cx="60" cy="120" r="1"/><circle cx="360" cy="40" r="1.3"/></g>',
     teh: '<rect width="400" height="200" fill="#07231f"/>' +
-      '<g fill="none" stroke="#57d6ad" stroke-width="2" opacity=".55"><path d="M0 60 H120 L150 90 H260 L290 60 H400"/><path d="M0 140 H90 L120 110 H220 L250 140 H400"/><path d="M200 0 V60 M200 140 V200"/></g>' +
-      '<g fill="#57d6ad"><circle cx="150" cy="90" r="5"/><circle cx="260" cy="90" r="5"/><circle cx="120" cy="110" r="5"/><circle cx="250" cy="140" r="5"/></g>' +
-      '<rect x="165" y="75" width="70" height="50" rx="8" fill="#0d3a33" stroke="#57d6ad" stroke-width="2"/>',
+      '<g fill="none" stroke="#8ac7ff" stroke-width="2" opacity=".55"><path d="M0 60 H120 L150 90 H260 L290 60 H400"/><path d="M0 140 H90 L120 110 H220 L250 140 H400"/><path d="M200 0 V60 M200 140 V200"/></g>' +
+      '<g fill="#8ac7ff"><circle cx="150" cy="90" r="5"/><circle cx="260" cy="90" r="5"/><circle cx="120" cy="110" r="5"/><circle cx="250" cy="140" r="5"/></g>' +
+      '<rect x="165" y="75" width="70" height="50" rx="8" fill="#12304d" stroke="#8ac7ff" stroke-width="2"/>',
     zna: '<rect width="400" height="200" fill="#0b0a1f"/>' +
       '<g fill="#fff"><circle cx="30" cy="40" r="1.2"/><circle cx="120" cy="20" r="1"/><circle cx="210" cy="60" r="1.4"/><circle cx="340" cy="30" r="1.1"/><circle cx="380" cy="150" r="1"/><circle cx="60" cy="170" r="1.2"/><circle cx="160" cy="150" r=".9"/></g>' +
       '<circle cx="250" cy="110" r="52" fill="#d9965b"/><ellipse cx="250" cy="110" rx="95" ry="20" fill="none" stroke="#f3d3a5" stroke-width="5" transform="rotate(-18 250 110)"/>',

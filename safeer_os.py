@@ -1653,12 +1653,12 @@ class SafeerOS(Gtk.Application):
         zaslon = self._zaslon()
         g = zaslon.get_workarea() if zaslon else None
         x0, y0, sirina, visina = (g.x, g.y, g.width, g.height) if g else (0, 0, 1280, 800)
-        vrh = max(48, int(float(vrh or 0)) + 10)
-        sirina_okna, visina_okna = int(sirina * 0.74), max(320, int(visina - vrh - 24))
-        okno.set_default_size(sirina_okna, visina_okna)
-        okno.resize(sirina_okna, visina_okna)
-        okno.move(x0 + (sirina - sirina_okna) // 2, y0 + vrh)
+        # Lastnik, 11. 10. 2026: Splet se odpre cez cel zaslon (kot Safeer Player) - pult in dock ostaneta vidna.
+        okno.set_default_size(sirina, visina)
+        okno.resize(sirina, visina)
+        okno.move(x0, y0)
         okno.show_all()
+        okno.maximize()
         self._spletni_namizje.odpri(url)
         cas = _cas_dogodka(okno)
         gdk_okno = okno.get_window()

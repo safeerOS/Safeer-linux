@@ -80,7 +80,7 @@ for _jezik, _vrednosti in _DODATNA.items():
 
 
 #: Ozadje pogleda pod našimi stranmi (pod spletnimi je belo, glej core/ozadje_strani.py).
-TEMNO_OZADJE = "#0a141c"
+TEMNO_OZADJE = "#0b1424"
 
 
 def peskovnik_dela(zazeni=None, kje=None, obstaja=None, okolje=None) -> bool:
@@ -285,27 +285,29 @@ class VdelaniSplet:
         self.osvezi_povezavo()
 
     def _css(self) -> None:
+        # Barve namizja Safeer OS (delovna.css): ozadje #0b1424, kartice #101a2b/#16233a, poudarek #8ac7ff - Splet je del
+        # celotne teme (lastnik, 11. 10. 2026), ne zelen kot samostojni Safeer Browser.
         css = b"""
-        #safeer-splet { background: #0a141c; color: #f2f7f5; }
-        #splet-zavihki { background: #0a141c; min-height: 52px; }
-        .splet-tab { background: #0d1a23; color: #c5d3cf; border: 1px solid rgba(181,220,209,.12);
+        #safeer-splet { background: #0b1424; color: #eaf2ff; }
+        #splet-zavihki { background: #0b1424; min-height: 52px; }
+        .splet-tab { background: #101a2b; color: #c3d4ea; border: 1px solid rgba(211,229,255,.14);
           border-bottom: 0; border-radius: 12px 12px 0 0; padding: 8px 12px; margin-top: 8px; min-width: 180px; }
-        .splet-tab-aktiven { background: #13252f; color: #f2f7f5; border-color: rgba(87,214,173,.55);
-          border-top: 2px solid #57D6AD; }
-        .splet-tab button, .new-tab, .nav, .address-action, #splet-meni { background: transparent; color: #f2f7f5;
+        .splet-tab-aktiven { background: #16233a; color: #eaf2ff; border-color: rgba(138,199,255,.55);
+          border-top: 2px solid #8ac7ff; }
+        .splet-tab button, .new-tab, .nav, .address-action, #splet-meni { background: transparent; color: #eaf2ff;
           border: 0; box-shadow: none; text-shadow: none; }
         .new-tab { font-size: 24px; padding: 5px 10px; }
-        #splet-povezava { color: #e5efec; border: 1px solid rgba(87,214,173,.55); border-radius: 14px;
-          padding: 5px 14px; margin-top: 8px; margin-bottom: 8px; background: rgba(87,214,173,.08); }
-        #splet-orodja { background: #0a141c; padding: 6px 14px 8px; }
-        .nav { font-size: 20px; padding: 6px 9px; border-radius: 10px; color: #e2e8f0; }
-        .nav image, .address-action image, #splet-meni image { color: #e2e8f0; }
-        .nav:hover, .address-action:hover, #splet-meni:hover { background: #162731; }
-        #splet-naslov { background: #0c1820; border: 2px solid rgba(87,214,173,.55); border-radius: 20px; padding: 2px 6px; }
-        #splet-vnos { background: transparent; color: #f2f7f5; border: 0; box-shadow: none; font-size: 16px; padding: 10px 4px; }
-        #splet-vnos selection { background: #287b67; }
-        menu { background: #13222b; color: #f2f7f5; border: 1px solid #32444d; }
-        menuitem:hover { background: #26404a; }
+        #splet-povezava { color: #e3ecf7; border: 1px solid rgba(138,199,255,.55); border-radius: 14px;
+          padding: 5px 14px; margin-top: 8px; margin-bottom: 8px; background: rgba(138,199,255,.08); }
+        #splet-orodja { background: #0b1424; padding: 6px 14px 8px; }
+        .nav { font-size: 20px; padding: 6px 9px; border-radius: 10px; color: #e2eaf6; }
+        .nav image, .address-action image, #splet-meni image { color: #e2eaf6; }
+        .nav:hover, .address-action:hover, #splet-meni:hover { background: rgba(104,168,229,.20); }
+        #splet-naslov { background: #101a2b; border: 2px solid rgba(138,199,255,.55); border-radius: 20px; padding: 2px 6px; }
+        #splet-vnos { background: transparent; color: #eaf2ff; border: 0; box-shadow: none; font-size: 16px; padding: 10px 4px; }
+        #splet-vnos selection { background: #2b5b8c; }
+        menu { background: #101a2b; color: #eaf2ff; border: 1px solid rgba(211,229,255,.23); }
+        menuitem:hover { background: rgba(104,168,229,.20); }
         """
         ponudnik = self.Gtk.CssProvider()
         ponudnik.load_from_data(css)
