@@ -46,7 +46,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 
 from core import (os_datoteke, os_katalog, os_knjiznica, os_oblak_igre, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
                   os_media_besedila, os_mediji, os_posodobitve, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost,
-                  os_torrent, os_torrent_tok, os_zapiski, os_zvok, knjiznica_kroga, os_ponudniki_programov)
+                  os_torrent, os_torrent_tok, os_zapiski, os_zvok, knjiznica_kroga, os_ponudniki_programov, os_github_programi)
 from core import budnost, odlozisce_varuh, os_iskalnik, os_odpri_z, os_pretvorba_datotek  # noqa: E402
 
 # Preklop vhoda zvocne vrstice JBL je samo interni poskus: uradni paket modula ne vsebuje
@@ -1918,6 +1918,14 @@ class SafeerOS(Gtk.Application):
             "ponudnikiProgramov": lambda: os_ponudniki_programov.stanje(),
             "ponudnikNamesti": lambda: os_ponudniki_programov.namesti(str(a[0]) if a else ""),
             "ponudnikOdpri": lambda: os_ponudniki_programov.odpri(str(a[0]) if a else ""),
+            "ponudnikPodrobnosti": lambda: os_ponudniki_programov.podrobnosti(str(a[0]) if a else ""),
+            "viriProgramov": lambda: os_ponudniki_programov.viri(),
+            "virPodrobnosti": lambda: os_ponudniki_programov.podrobnosti_vira(str(a[0]) if a else ""),
+            "dodajVir": lambda: os_ponudniki_programov.dodaj_vir(str(a[0]) if a else ""),
+            "githubIsci": lambda: os_github_programi.isci(str(a[0]) if a else ""),
+            "githubIzdaje": lambda: os_github_programi.izdaje(str(a[0]) if a else ""),
+            "githubShrani": lambda: os_github_programi.prenosi().zacni(*[str(x) for x in (list(a) + ["", "", "", ""])[:4]]),
+            "githubStanje": lambda: os_github_programi.prenosi().stanje(str(a[0]) if a else ""),
             "prilepiDatoteke": lambda: os_datoteke.prilepi(a[0] if a and isinstance(a[0], list) else [], str(a[1]) if len(a) > 1 else "",
                                                            bool(a[2]) if len(a) > 2 else False),
             "spusceneDatoteke": self._spuscene_datoteke,
