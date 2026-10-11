@@ -873,10 +873,24 @@ ZASTAVICE_PREDVAJALNIKA = ("--predvajalnik", "--player")
 WMCLASS_PREDVAJALNIKA = ("safeer-os.Player", "Safeer Player")
 
 
-def _cas_dogodka() -> int:
-    """Cas za present_with_time, ko ni dogodka GDK (klic z delovne povrsine, D-Bus): milisekunde od zagona, kot jih
-    steje streznik X - 32-bitno, zato po 49,7 dneh zacne znova (sicer OverflowError in okno ne pride naprej)."""
-    return Gtk.get_current_event_time() or (int(GLib.get_monotonic_time() / 1000) & 0xFFFFFFFF)
+def _cas_dogodka(okno=None) -> int:
+    """Cas za present_with_time, ko ni dogodka GDK (predaja iz menija, ukazne vrstice ali D-Bus). Najprej cas
+    streznika X za dano okno (GdkX11): ta je vedno novejsi od zadnjega klika v oknu v ospredju, zato upravljalnik oken
+    (Muffin) okno res pokaze, namesto da ga le oznaci z »zahteva pozornost«. Rezerva: milisekunde od zagona -
+    32-bitno, zato po 49,7 dneh zacne znova (sicer OverflowError in okno ne pride naprej)."""
+    cas = Gtk.get_current_event_time()
+    if cas:
+        return cas
+    try:
+        gdk_okno = okno.get_window() if okno is not None else None
+        if gdk_okno is not None:
+            gi.require_version("GdkX11", "3.0")
+            from gi.repository import GdkX11
+            if isinstance(gdk_okno, GdkX11.X11Window):
+                return GdkX11.x11_get_server_time(gdk_okno) & 0xFFFFFFFF
+    except (ImportError, ValueError, TypeError, AttributeError):
+        pass
+    return int(GLib.get_monotonic_time() / 1000) & 0xFFFFFFFF
 
 
 def zagon_predvajalnika(argumenti) -> bool:
@@ -896,6 +910,13 @@ def razdelek_predvajalnika(razdelek: str) -> Optional[str]:
     return None
 
 
+def _podatki_zagona() -> dict:
+    """Podatki platforme za predajo tekocemu procesu: oznaka zagona iz menija (DESKTOP_STARTUP_ID). GtkApplication jo
+    uporabi pri present(), zato okno pride v ospredje in vrtavka ob kazalcu se ustavi."""
+    oznaka = os.environ.get("DESKTOP_STARTUP_ID", "")
+    return {"desktop-startup-id": GLib.Variant("s", oznaka)} if oznaka else {}
+
+
 def _predaj_tekocemu(dejanje: str, vrednost: str) -> bool:
     """Ce Safeer OS ze tece (delovna povrsina, okno), mu preda dejanje (org.gtk.Actions) in vrne True; sicer False in
     klicatelj zazene nov primerek. Napako vodila (ni seje D-Bus) dobi klicatelj kot izjemo."""
@@ -905,7 +926,7 @@ def _predaj_tekocemu(dejanje: str, vrednost: str) -> bool:
                             Gio.DBusCallFlags.NONE, 2000, None).unpack()[0]
     if tece:
         vodilo.call_sync(APP_ID, "/" + APP_ID.replace(".", "/"), "org.gtk.Actions", "Activate",
-                         GLib.Variant("(sava{sv})", (dejanje, [GLib.Variant("s", vrednost)], {})),
+                         GLib.Variant("(sava{sv})", (dejanje, [GLib.Variant("s", vrednost)], _podatki_zagona())),
                          None, Gio.DBusCallFlags.NONE, 5000, None)
     return bool(tece)
 
@@ -1398,8 +1419,13 @@ class SafeerOS(Gtk.Application):
         if iskanje:
             self._js("window.safeerOsPojdi && window.safeerOsPojdi(%s);" % json.dumps("mediji:" + iskanje),
                      self.pogled_predvajalnik)
-        cas = Gtk.get_current_event_time() or int(GLib.get_monotonic_time() / 1000)
-        self.okno_predvajalnik.deiconify()
+        # Okno, ki ga je uporabnik zaprl (upravljalnik oken ga je umaknil, mi smo ga skrili), GTK ob ponovnem prikazu
+        # ne oznaci s casom - Muffin ga potem le oznaci z »zahteva pozornost« in ostane za drugim oknom (izmerjeno
+        # 11. 10. 2026). Zato cas uporabe nastavimo sami, pred prikazom.
+        cas = _cas_dogodka(self.okno_predvajalnik)
+        gdk_okno = self.okno_predvajalnik.get_window()
+        if gdk_okno is not None and hasattr(gdk_okno, "set_user_time"):
+            gdk_okno.set_user_time(cas)
         self.okno_predvajalnik.present_with_time(cas)
         return True
 

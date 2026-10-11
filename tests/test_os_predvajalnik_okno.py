@@ -259,7 +259,8 @@ class Okno(_Lupina):
             gtk.get_current_event_time.return_value = 1234
             self.SafeerOS._odpri_predvajalnik(lazna, "Pink Floyd")
         lazna._ustvari_predvajalnik.assert_not_called()
-        lazna.okno_predvajalnik.deiconify.assert_called_once_with()
+        # Zaprto ali pomanjsano okno: cas uporabe pred prikazom (present ga tudi razsiri iz pomanjsanega stanja).
+        lazna.okno_predvajalnik.get_window.return_value.set_user_time.assert_called_once_with(1234)
         lazna.okno_predvajalnik.present_with_time.assert_called_once_with(1234)
         koda, pogled = lazna._js.call_args.args
         self.assertIs(pogled, lazna.pogled_predvajalnik, "glavno okno ne sme dobiti ukaza za Safeer Player")
@@ -541,3 +542,38 @@ class Paket(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VOspredjeTest(unittest.TestCase):
+    """Ponovno odprt Safeer Player mora priti v ospredje (11. 10. 2026: z monotonim casom ga je Muffin le oznacil z
+    »zahteva pozornost« in je ostal za drugim oknom)."""
+
+    def setUp(self):
+        koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(koren, "safeer_os.py"), encoding="utf-8") as f:
+            self.vir = f.read()
+
+    def test_ponovno_odpiranje_uporabi_cas_streznika_x(self):
+        odpri = self.vir[self.vir.index("def _odpri_predvajalnik("):self.vir.index("def _ustvari_predvajalnik(")]
+        self.assertIn("_cas_dogodka(self.okno_predvajalnik)", odpri)
+        self.assertLess(odpri.index("set_user_time(cas)"), odpri.index("present_with_time(cas)"))
+        self.assertNotIn("get_monotonic_time", odpri)
+        cas = self.vir[self.vir.index("def _cas_dogodka("):self.vir.index("def _podatki_zagona(")]
+        self.assertIn("x11_get_server_time", cas)
+        self.assertIn("& 0xFFFFFFFF", cas)
+
+    def test_predaja_poslje_oznako_zagona(self):
+        import safeer_os
+        with mock.patch.dict(os.environ, {"DESKTOP_STARTUP_ID": "safeer_TIME123"}):
+            podatki = safeer_os._podatki_zagona()
+        self.assertEqual(podatki["desktop-startup-id"].unpack(), "safeer_TIME123")
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("DESKTOP_STARTUP_ID", None)
+            self.assertEqual(safeer_os._podatki_zagona(), {})
+        self.assertIn("_podatki_zagona()", self.vir[self.vir.index("def _predaj_tekocemu("):])
+
+    def test_cas_brez_okna_je_32_biten(self):
+        import safeer_os
+        cas = safeer_os._cas_dogodka(None)
+        self.assertGreaterEqual(cas, 0)
+        self.assertLessEqual(cas, 0xFFFFFFFF)
