@@ -731,18 +731,25 @@ def videz_cinnamon() -> dict:
         if vir is not None and vir.lookup("org.cinnamon.desktop.interface", True) is not None:
             povecava = Gio.Settings.new("org.cinnamon.desktop.interface").get_double("text-scaling-factor")
             stanje["vecjiTekst"] = povecava >= 1.15
+            stanje["tekstOdstotek"] = int(round(povecava * 100))
     except Exception as e:  # noqa: BLE001
         print("[SafeerOS] videz:", e)
     return stanje
 
 
-def videz_cinnamon_nastavi(kaj: str, vklop: bool) -> dict:
-    """Stikalo delovne povrsine: kaj = "kontrast" | "tekst". Vrne stanje, kakrsno je po tem res."""
-    ukaz = {("kontrast", True): "--kontrast", ("kontrast", False): "--prosojno",
-            ("tekst", True): "--vecji-tekst", ("tekst", False): "--obicajen-tekst"}.get((kaj, bool(vklop)))
+def videz_cinnamon_nastavi(kaj: str, vklop) -> dict:
+    """Stikalo delovne povrsine: kaj = "kontrast" | "tekst". Pri besedilu je vklop lahko odstotek (100, 125, 150, 175,
+    200 - 200 % za ogled od dalec, npr. TV s kavca). Vrne stanje, kakrsno je po tem res."""
+    dodatno: list = []
+    if kaj == "tekst" and not isinstance(vklop, bool) and str(vklop).isdigit() and int(vklop) in (100, 125, 150, 175, 200):
+        ukaz = "--obicajen-tekst" if int(vklop) == 100 else "--vecji-tekst"
+        dodatno = [] if int(vklop) == 100 else [str(int(vklop))]
+    else:
+        ukaz = {("kontrast", True): "--kontrast", ("kontrast", False): "--prosojno",
+                ("tekst", True): "--vecji-tekst", ("tekst", False): "--obicajen-tekst"}.get((kaj, bool(vklop)))
     if ukaz and videz_cinnamon()["naVoljo"]:
         try:
-            subprocess.run(["safeer-cinnamon", ukaz], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            subprocess.run(["safeer-cinnamon", ukaz, *dodatno], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                            stderr=subprocess.DEVNULL, timeout=30)
         except Exception as e:  # noqa: BLE001
             print("[SafeerOS] videz:", e)
@@ -2489,7 +2496,7 @@ class SafeerOS(Gtk.Application):
             "zvokUstavi": zvok_ustavi,
             "odVklopa": lambda: od_vklopa(bool(a[0])) if a else od_vklopa_stanje(),
             "videzCinnamon": videz_cinnamon,
-            "videzCinnamonNastavi": lambda: videz_cinnamon_nastavi(str(a[0]) if a else "", bool(a[1]) if len(a) > 1 else False),
+            "videzCinnamonNastavi": lambda: videz_cinnamon_nastavi(str(a[0]) if a else "", a[1] if len(a) > 1 else False),
             "jbl": lambda: os_jbl.stanje(True) if os_jbl else {"na_voljo": False},
             "jblVklop": lambda: os_jbl.vklopi(bool(a[0]) if a else False) if os_jbl else {"na_voljo": False},
             "scit": self.scit.stanje,

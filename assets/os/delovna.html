@@ -53,7 +53,13 @@
       <button type="button" id="gumbZamenjaj" data-t="zamenjajStrani">Zamenjaj levo in desno</button>
       <button type="button" id="gumbPonastavi" data-t="ponastavi">Privzeta postavitev</button>
       <hr>
-      <label><input type="checkbox" id="stikaloTekst"> <span data-t="vecjiTekst">Večje besedilo</span></label>
+      <label id="vrsticaTekst"><input type="checkbox" id="stikaloTekst"> <span data-t="vecjiTekst">Večje besedilo</span></label>
+      <!-- Safeer Cinnamon: velikost besedila za ves sistem, tudi za ogled od daleč (TV, 3 m - lastnik, 11. 10. 2026). -->
+      <label class="meni-izbira" id="vrsticaVelikost" hidden><span data-t="velikostBesedila">Velikost besedila</span>
+        <select id="izbiraTeksta">
+          <option value="100">100 %</option><option value="125">125 %</option><option value="150">150 %</option>
+          <option value="175">175 %</option><option value="200" data-t="tekst200">200 % – za ogled od daleč</option>
+        </select></label>
       <label><input type="checkbox" id="stikaloProsojnost"> <span data-t="manjProsojnosti">Manj prosojnosti</span></label>
       <hr>
       <button type="button" id="gumbOzadje" data-t="spremeniOzadje">Spremeni ozadje …</button>
@@ -86,6 +92,13 @@
           <button type="button" class="gumb-ikona" data-ukaz="naslednja" data-naslov="naslednja"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 5v14 M5 5l10 7-10 7z"/></svg></button>
         </div>
       </div>
+      <!-- Iskanje v predvajalniku (lastnik, 11. 10. 2026): glasba, radio, filmi in serije iz vseh virov brez odpiranja
+           Medijskega centra. Glasba in radio zaigrata tukaj, film ali serija se odpre v Safeer Playerju. -->
+      <form class="medij-iskanje" id="medijIskanje" role="search" autocomplete="off">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z M20 20l-4-4"/></svg>
+        <input id="medijIskanjePolje" type="search" data-ph="medijIskanjePh" spellcheck="false" aria-controls="medijZadetki">
+      </form>
+      <div class="medij-zadetki" id="medijZadetki" role="listbox" hidden></div>
     </section>
 
     <div class="deli vodoravno" id="deliMediji" role="separator" aria-orientation="horizontal" tabindex="0" data-naslov="spremeniVelikost"></div>
@@ -140,6 +153,8 @@
       <div class="glava">
         <h2 id="nProgrami" data-t="programiNaslov">Programi</h2>
         <div class="glava-desno">
+          <!-- Iskanje programov v isti vrstici kot izbira naprave (lastnik, 11. 10. 2026). -->
+          <input type="search" class="filter" id="prgFilter" data-ph="filterPrgPh" aria-label="Išči programe">
           <select id="prgNaprava" aria-label="Naprava"></select>
           <button type="button" class="gumb-ikona majhen" id="prgNamesti" data-naslov="ppGumb"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11 M7 10l5 5 5-5 M5 20h14"/></svg></button>
           <button type="button" class="gumb-ikona majhen" id="prgPogled" data-naslov="pogledSeznam"><svg viewBox="0 0 24 24" aria-hidden="true"><path id="ikonaPogled" d="M4 6h16 M4 12h16 M4 18h16"/></svg></button>
@@ -148,7 +163,6 @@
       </div>
       <div class="prg-orodja">
         <div class="zavihki" id="prgKategorije" role="tablist"></div>
-        <input type="search" class="filter" id="prgFilter" data-ph="filterPrgPh" aria-label="Išči programe">
         <select id="prgRazvrsti" aria-label="Razvrsti">
           <option value="ime" data-t="razvrstiIme">Po imenu</option>
           <option value="naprava" data-t="razvrstiNaprava">Po napravi</option>

@@ -28,10 +28,12 @@
       mikrofonNaslov: "Išči z glasom", govorPoslusam: "Poslušam … povej, kaj iščeš", govorPrepoznavam: "Prepoznavam …", govorTisina: "Nisem slišal ničesar. Pritisni mikrofon in povej znova.", govorNiPodprto: "Iskanje z glasom na tem računalniku ni na voljo.", govorMikrofon: "Mikrofona ni mogoče odpreti.", govorNapaka: "Prepoznava govora ni uspela.", govorNamestiNaslov: "Iskanje z glasom", govorNamestiOpis: "Govor se prepozna na tem računalniku – nič ne gre na splet. Za to je treba enkrat prenesti prepoznavo govora ({mb} MB).", govorPrenesi: "Prenesi", govorNeZdaj: "Ne zdaj", govorPrenasam: "Prenašam prepoznavo govora … {o} %", govorPrekini: "Prekini", govorPrenosNapaka: "Prenos ni uspel. Poskusi znova.", govorPreklici: "Prekliči", govorKoncaj: "Končaj",
       iskanjePh: "Išči po spletu, programih, datotekah in medijih …", iskanjeNamig: "Enter odpre označeno · Shift+Enter splet",
       plosceNaslov: "Plošče", medijiNaslov: "Medijski center", datotekeNaslov: "Datoteke", programiNaslov: "Programi",
-      zamenjajStrani: "Zamenjaj levo in desno", ponastavi: "Privzeta postavitev", vecjiTekst: "Večje besedilo",
+      zamenjajStrani: "Zamenjaj levo in desno", ponastavi: "Privzeta postavitev", vecjiTekst: "Večje besedilo", velikostBesedila: "Velikost besedila", tekst200: "200 % – za ogled od daleč",
       manjProsojnosti: "Manj prosojnosti", skrijPlosco: "Skrij ploščo", pokaziPlosco: "Pokaži ploščo {ime}", spremeniVelikost: "Povleci za spremembo velikosti (puščice s tipkovnico)",
       odpriMedijskiCenter: "Odpri Medijski center", niPredvajanja: "Ni predvajanja",
       medijNavodilo: "Izberi glasbo ali video v Datotekah ali v Medijskem centru.",
+      medijIskanjePh: "Išči glasbo, radio, filme in serije …", medijIskanjeVse: "Vsi zadetki za »{q}« v Medijskem centru",
+      medijIskanjeIscem: "Iščem …", medijIskanjeNic: "Ni zadetkov.", medijTaRacunalnik: "Ta računalnik",
       prejsnja: "Prejšnja", premor: "Predvajaj / premor", naslednja: "Naslednja",
       predvaja: "Predvaja", vPremoru: "Premor", ustavljeno: "Ustavljeno", napakaPredvajanja: "Predvajanje ni uspelo",
       filterPh: "Filtriraj …", filterPrgPh: "Išči programe …", vseVrste: "Vse vrste", vrstaDokument: "Dokumenti",
@@ -223,10 +225,12 @@
       mikrofonNaslov: "Search by voice", govorPoslusam: "Listening … say what you are looking for", govorPrepoznavam: "Recognising …", govorTisina: "I did not hear anything. Press the microphone and speak again.", govorNiPodprto: "Voice search is not available on this computer.", govorMikrofon: "The microphone cannot be opened.", govorNapaka: "Speech recognition failed.", govorNamestiNaslov: "Search by voice", govorNamestiOpis: "Speech is recognised on this computer – nothing goes to the internet. Speech recognition has to be downloaded once ({mb} MB).", govorPrenesi: "Download", govorNeZdaj: "Not now", govorPrenasam: "Downloading speech recognition … {o} %", govorPrekini: "Cancel", govorPrenosNapaka: "The download failed. Try again.", govorPreklici: "Cancel", govorKoncaj: "Done",
       iskanjePh: "Search the web, apps, files and media …", iskanjeNamig: "Enter opens the selection · Shift+Enter web",
       plosceNaslov: "Panels", medijiNaslov: "Media center", datotekeNaslov: "Files", programiNaslov: "Apps",
-      zamenjajStrani: "Swap left and right", ponastavi: "Default layout", vecjiTekst: "Larger text",
+      zamenjajStrani: "Swap left and right", ponastavi: "Default layout", vecjiTekst: "Larger text", velikostBesedila: "Text size", tekst200: "200 % – for viewing from afar",
       manjProsojnosti: "Less transparency", skrijPlosco: "Hide panel", pokaziPlosco: "Show the {ime} panel", spremeniVelikost: "Drag to resize (arrow keys work too)",
       odpriMedijskiCenter: "Open Media center", niPredvajanja: "Nothing playing",
       medijNavodilo: "Pick music or a video in Files or in the Media center.",
+      medijIskanjePh: "Search music, radio, films and series …", medijIskanjeVse: "All results for “{q}” in the Media center",
+      medijIskanjeIscem: "Searching …", medijIskanjeNic: "Nothing found.", medijTaRacunalnik: "This computer",
       prejsnja: "Previous", premor: "Play / pause", naslednja: "Next",
       predvaja: "Playing", vPremoru: "Paused", ustavljeno: "Stopped", napakaPredvajanja: "Playback failed",
       filterPh: "Filter …", filterPrgPh: "Search apps …", vseVrste: "All types", vrstaDokument: "Documents",
@@ -478,6 +482,13 @@
     if (N.skrite.indexOf("datoteke") >= 0) $("ploscaMediji").style.flex = "1";
     else $("ploscaMediji").style.flex = "";
     $("stikaloTekst").checked = vecjiTekst();
+    // S Safeer Cinnamon izbira velikosti (ves sistem); brez njega stikalo velja samo za to stran.
+    $("vrsticaVelikost").hidden = !V.naVoljo; $("vrsticaTekst").hidden = !!V.naVoljo;
+    if (V.naVoljo) {
+      var o = Number(V.tekstOdstotek) || 100, izb = $("izbiraTeksta"), najblizja = "100";
+      Array.prototype.forEach.call(izb.options, function (x) { if (Math.abs(Number(x.value) - o) < Math.abs(Number(najblizja) - o)) najblizja = x.value; });
+      izb.value = najblizja;
+    }
     $("stikaloProsojnost").checked = manjProsojnosti();
     requestAnimationFrame(function () { izrisiDatoteke(); izrisiPrograme(); });
   }
@@ -629,6 +640,7 @@
     delilnik($("deliMediji"), false);
     vleciGlavo();
     vezi();
+    poveziMedijIskanje();
     if (!most) { document.body.classList.add("brez-mosta"); return; }
     klic("zacetek").then(function (z) {
       z = z || {};
@@ -2618,6 +2630,83 @@
     if (document.hidden || N.skrite.indexOf("mediji") >= 0) { M.casovnik = setTimeout(medijZanka, 4000); return; }
     medijOsvezi().then(function () { M.casovnik = setTimeout(medijZanka, M.zadnje && M.zadnje.stanje === "predvaja" ? 1000 : 3000); });
   }
+  // ------------------------------------------------------------------ iskanje v predvajalniku
+  // Vsi viri Medijskega centra (dodatki, Jamendo, radio, TV, ta racunalnik) brez odpiranja okna: glasba in radio
+  // zaigrata v predvajalniku na namizju, film in serija se odpreta v Safeer Playerju (odpriIzKataloga).
+  var MI = { cas: null, zahteva: 0, zadetki: [] };
+  function medijIsci(q) {
+    var polje = $("medijZadetki");
+    q = String(q || "").trim();
+    clearTimeout(MI.cas);
+    if (q.length < 2) { polje.hidden = true; polje.textContent = ""; MI.zadetki = []; return; }
+    MI.cas = setTimeout(function () {
+      var zahteva = ++MI.zahteva;
+      polje.hidden = false; polje.textContent = "";
+      polje.appendChild(el("p", "medij-zadetki-stanje", t("medijIskanjeIscem")));
+      Promise.all([
+        klic("knjiznicaMedijev", ["", q, 0]).then(function (s) { return (s || []).slice(0, 4); }).catch(function () { return []; }),
+        klic("mediaKatalog", [q, "vse", "", 1, "", [], false, [], ""]).then(function (r) {
+          return ((r && r.vnosi) || []).slice(0, 8);
+        }).catch(function () { return []; })
+      ]).then(function (izid) {
+        if (zahteva !== MI.zahteva) return;
+        MI.zadetki = izid[0].map(function (d) { return { lokalno: true, d: d }; })
+          .concat(izid[1].map(function (k) { return { k: k }; }));
+        narisiMedijZadetke(q);
+      });
+    }, 350);
+  }
+  function narisiMedijZadetke(q) {
+    var polje = $("medijZadetki");
+    polje.textContent = "";
+    if (!MI.zadetki.length) polje.appendChild(el("p", "medij-zadetki-stanje", t("medijIskanjeNic")));
+    MI.zadetki.forEach(function (z, i) {
+      var b = el("button", "medij-zadetek"); b.type = "button"; b.setAttribute("role", "option");
+      var slika = z.k && z.k.slika;
+      var znak = el("span", "medij-zadetek-znak");
+      if (slika) { var img = document.createElement("img"); img.alt = ""; img.loading = "lazy"; img.src = slika; img.onerror = function () { img.remove(); }; znak.appendChild(img); }
+      b.appendChild(znak);
+      var besedilo = el("span", "medij-zadetek-besedilo");
+      besedilo.appendChild(el("b", "", z.lokalno ? (z.d.naslov || z.d.ime || "") : (z.k.naslov || "")));
+      var pod = z.lokalno ? t("medijTaRacunalnik") : [z.k.izvajalec, z.k.vir].filter(Boolean).join(" · ");
+      besedilo.appendChild(el("small", "", pod));
+      b.appendChild(besedilo);
+      b.addEventListener("click", function () { medijIzberi(i); });
+      polje.appendChild(b);
+    });
+    var vse = el("button", "medij-zadetek vse", t("medijIskanjeVse", { q: q })); vse.type = "button";
+    vse.addEventListener("click", function () { klic("odpriRazdelek", ["mediji:" + q]); medijIskanjePocisti(); });
+    polje.appendChild(vse);
+    polje.hidden = false;
+  }
+  function medijIzberi(i) {
+    var z = MI.zadetki[i];
+    if (!z) return;
+    if (z.lokalno) {
+      klic("odpriLokalniMedij", [z.d.pot]).then(function (ok) { if (ok) medijOsvezi(); else obvesti(t("niUspelo")); });
+    } else odpriIzKataloga(z.k);
+    medijIskanjePocisti();
+  }
+  function medijIskanjePocisti() {
+    $("medijIskanjePolje").value = ""; $("medijZadetki").hidden = true; $("medijZadetki").textContent = ""; MI.zadetki = [];
+  }
+  function poveziMedijIskanje() {
+    var polje = $("medijIskanjePolje"), obrazec = $("medijIskanje");
+    if (!polje || !obrazec) return;
+    polje.addEventListener("input", function () { medijIsci(polje.value); });
+    obrazec.addEventListener("submit", function (e) { e.preventDefault(); if (MI.zadetki.length) medijIzberi(0); });
+    polje.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); medijIskanjePocisti(); polje.blur(); }
+      else if (e.key === "ArrowDown") { var prvi = document.querySelector("#medijZadetki .medij-zadetek"); if (prvi) { e.preventDefault(); prvi.focus(); } }
+    });
+    $("medijZadetki").addEventListener("keydown", function (e) {
+      var vsi = Array.prototype.slice.call(this.querySelectorAll(".medij-zadetek")), i = vsi.indexOf(document.activeElement);
+      if (e.key === "ArrowDown" && i < vsi.length - 1) { e.preventDefault(); vsi[i + 1].focus(); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); if (i > 0) vsi[i - 1].focus(); else polje.focus(); }
+      else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); medijIskanjePocisti(); }
+    });
+  }
+
   function medijOsvezi() {
     return klic("predvajalnikStanje").then(function (p) { M.zadnje = p || {}; izrisiMedij(); }).catch(function () {});
   }
@@ -3234,6 +3323,9 @@
     $("stikaloTekst").addEventListener("change", function () {
       if (V.naVoljo) { klic("videzCinnamonNastavi", ["tekst", this.checked]).then(nastaviVidez).catch(uveljaviPostavitev); return; }
       N.vecjiTekst = this.checked; shrani(); uveljaviPostavitev();
+    });
+    $("izbiraTeksta").addEventListener("change", function () {
+      klic("videzCinnamonNastavi", ["tekst", Number(this.value)]).then(nastaviVidez).catch(uveljaviPostavitev);
     });
     $("stikaloProsojnost").addEventListener("change", function () {
       if (V.naVoljo) { klic("videzCinnamonNastavi", ["kontrast", this.checked]).then(nastaviVidez).catch(uveljaviPostavitev); return; }

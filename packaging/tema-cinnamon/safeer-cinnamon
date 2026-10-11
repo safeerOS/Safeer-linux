@@ -14,7 +14,7 @@
 #   safeer-cinnamon --izklopi       vrne vse, kot je bilo pred vklopom
 #   safeer-cinnamon --kontrast      neprosojne povrsine in mocnejse obrobe (lupina in programi)
 #   safeer-cinnamon --prosojno      nazaj na obicajni (polprosojni) videz
-#   safeer-cinnamon --vecji-tekst [125|150]   vecje besedilo; brez stevilke 125 % oziroma tvoja vecja velikost
+#   safeer-cinnamon --vecji-tekst [125|150|175|200]   vecje besedilo (200 % za ogled od dalec); brez stevilke 125 %
 #                                   izpred vklopa   (--obicajen-tekst: nazaj)
 #   safeer-cinnamon --stanje        izpise, kaj je vklopljeno
 #   safeer-cinnamon --seja          ob prijavi: delovna povrsina Safeer OS (safeer-os --delovna)
@@ -742,7 +742,7 @@ case "${1:-}" in
     --izklopi|--off)         izklopi ;;
     --kontrast)              kontrast da ;;
     --prosojno)              kontrast ne ;;
-    --vecji-tekst)           case "${2:-}" in 150) tekst 1.5 ;; 125) tekst 1.25 ;; *) tekst vecji ;; esac ;;
+    --vecji-tekst)           case "${2:-}" in 200) tekst 2.0 ;; 175) tekst 1.75 ;; 150) tekst 1.5 ;; 125) tekst 1.25 ;; *) tekst vecji ;; esac ;;
     --obicajen-tekst)        tekst obicajen ;;
     --stanje|--status)       stanje ;;
     --od-vklopa)             od_vklopa vklopi ;;

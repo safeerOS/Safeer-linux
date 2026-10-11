@@ -146,7 +146,8 @@ svg { width: 1.3em; height: 1.3em; fill: none; stroke: currentColor; stroke-widt
   box-shadow: 0 13px 35px rgba(0, 0, 0, .28); backdrop-filter: blur(var(--zamegli));
   padding: .85em 1em; overflow: hidden;
 }
-.plosca.mediji { flex: none; height: var(--medij); min-height: 6.4em; }
+/* Visina po vsebini (predvajalnik + iskanje + zadetki); vlecenje delilnika doloci najmanjso visino. */
+.plosca.mediji { flex: none; height: auto; min-height: max(6.4em, var(--medij)); max-height: 75%; overflow: hidden; display: flex; flex-direction: column; }
 .plosca.datoteke, .plosca.programi { flex: 1; }
 .glava { display: flex; align-items: center; justify-content: space-between; gap: .6em; margin-bottom: .5em; flex: none; }
 .glava h2 { margin: 0; font-size: 1em; font-weight: 700; letter-spacing: .01em; cursor: grab; user-select: none; -webkit-user-select: none; }
@@ -242,7 +243,12 @@ select option { background: #111c2b; color: var(--besedilo); }
 
 /* ---- Programi ---------------------------------------------------------- */
 .prg-orodja { display: flex; align-items: center; gap: .5em; margin-bottom: .6em; flex: none; flex-wrap: wrap; }
-.zavihki { display: flex; gap: .35em; flex: 1 1 22em; min-width: 0; flex-wrap: wrap; }
+/* Kategorije v eni vrstici (lastnik, 11. 10. 2026: »Igre« in »Drugo« ne v svoji vrstici); iskanje in razvrstitev
+   pod njimi. Ce je vrstica prekratka (vecje besedilo), se kategorije pomikajo vodoravno. */
+.zavihki { display: flex; gap: .35em; flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.zavihki::-webkit-scrollbar { display: none; }
+.prg-orodja { flex-wrap: nowrap; }
+.programi .glava-desno #prgFilter { flex: 1 1 9em; width: auto; min-width: 6em; max-width: 14em; }
 .zavihki button { font-size: .75em; padding: .32em .8em; border: 1px solid rgba(185, 214, 245, .17); border-radius: 99px; color: #b7c9df; background: transparent; cursor: pointer; white-space: nowrap; }
 .zavihki button[aria-selected="true"] { background: rgba(95, 158, 220, .23); color: #e7f4ff; border-color: rgba(135, 194, 255, .47); }
 .prg-mreza { flex: 1; min-height: 0; display: grid; gap: .6em; grid-template-columns: repeat(var(--stolpci, 4), minmax(0, 1fr)); grid-auto-rows: var(--vrstica, 7.4em); align-content: start; }
@@ -355,3 +361,28 @@ select option { background: #111c2b; color: var(--besedilo); }
 .skrita-plosca svg { width: 1.15em; height: 1.15em; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .skrita-plosca:hover, .skrita-plosca:focus-visible { background: rgba(104, 168, 229, .22); border-color: rgba(135, 194, 255, .55); color: #fff; transform: translateY(-1px); outline: none; }
 .postavitev.vse-skrito { visibility: hidden; }
+
+/* Izbira velikosti besedila v meniju plosc. */
+.meni-izbira { display: flex; align-items: center; justify-content: space-between; gap: .8em; }
+.meni-izbira select { font: inherit; font-size: .9em; }
+
+/* Iskanje v predvajalniku na namizju: zadetki iz vseh virov Medijskega centra brez odpiranja okna. */
+.medij-iskanje { display: flex; align-items: center; gap: .55em; margin-top: .7em; padding: .4em .8em; border-radius: 99px;
+  border: 1px solid var(--tanka); background: rgba(234, 244, 255, .05); flex: none; }
+.medij-iskanje:focus-within { border-color: rgba(135, 194, 255, .55); background: rgba(234, 244, 255, .09); }
+.medij-iskanje svg { width: 1em; height: 1em; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; opacity: .75; }
+.medij-iskanje input { flex: 1; min-width: 0; font: inherit; font-size: .9em; color: inherit; background: transparent; border: 0; outline: 0; }
+.medij-zadetki { margin-top: .5em; display: flex; flex-direction: column; gap: .15em; max-height: 22em; overflow-y: auto; flex: none; }
+.medij-zadetki[hidden] { display: none; }
+.medij-zadetek { display: flex; align-items: center; gap: .7em; padding: .35em .5em; border-radius: var(--r-mal, 10px); border: 1px solid transparent;
+  background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.medij-zadetek:hover, .medij-zadetek:focus-visible { background: rgba(104, 168, 229, .16); border-color: rgba(135, 194, 255, .35); outline: 0; }
+.medij-zadetek-znak { flex: none; width: 2.4em; height: 2.4em; border-radius: .5em; overflow: hidden;
+  background: linear-gradient(135deg, rgba(104, 168, 229, .45), rgba(63, 112, 168, .35)); }
+.medij-zadetek-znak img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.medij-zadetek-besedilo { min-width: 0; display: flex; flex-direction: column; }
+.medij-zadetek-besedilo b, .medij-zadetek-besedilo small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.medij-zadetek-besedilo b { font-size: .9em; }
+.medij-zadetek-besedilo small { font-size: .75em; opacity: .7; }
+.medij-zadetek.vse { justify-content: center; font-size: .82em; color: #9fd0ff; }
+.medij-zadetki-stanje { margin: .3em .5em; font-size: .8em; opacity: .7; }
