@@ -520,11 +520,33 @@ def ujema_iskanje(item: dict, iskano: str) -> bool:
 
 
 def _stremio_koren(url: str) -> str:
-    """Naslov dodatka brez /manifest.json (uporabnik pogosto prilepi celoten naslov manifesta)."""
+    """Naslov dodatka brez /manifest.json in brez /configure (uporabnik pogosto prilepi celoten naslov manifesta ali
+    naslov strani z nastavitvami dodatka; manifest je vedno v korenu, kot na Androidu - MedijskiViri.preveriDodatek)."""
     url = url.strip()
     if url.startswith("stremio://"):
         url = "https://" + url[len("stremio://"):]
-    return re.sub(r"/manifest\.json$", "", url.rstrip("/"))
+    url = re.sub(r"/manifest\.json$", "", url.rstrip("/"))
+    return re.sub(r"/configure$", "", url)
+
+
+def stremio_naslov_dodatka(url: str) -> str:
+    """Povezava »Install« (stremio://...), naslov manifesta ali korena -> https://.../manifest.json; "" ce to ne more
+    biti dodatek: samo https (http samo v domacem omrezju), z gostiteljem, brez prijavnih podatkov in parametrov."""
+    url = str(url or "").strip()[:1024]
+    if not url or any(c.isspace() for c in url):
+        return ""
+    if url.startswith("stremio://"):
+        url = "https://" + url[len("stremio://"):]
+    try:
+        d = urllib.parse.urlsplit(url)
+        gostitelj = d.hostname or ""
+    except ValueError:
+        return ""
+    if not gostitelj or d.username or d.password or d.query or d.fragment:
+        return ""
+    if not (d.scheme == "https" or (d.scheme == "http" and je_domace_omrezje(gostitelj))):
+        return ""
+    return _stremio_koren(url) + "/manifest.json"
 
 
 def stremio_manifest(url: str) -> dict:

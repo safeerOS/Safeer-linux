@@ -68,6 +68,7 @@ jobs:
           xvfb-run -a safeer-os --version | tee /dev/stderr | grep -Fx "Safeer OS $(cat packaging/VERSION_OS)"
           desktop-file-validate /usr/share/applications/safeer-os.desktop
           desktop-file-validate /usr/share/applications/safeer-os.Magnet.desktop
+          desktop-file-validate /usr/share/applications/safeer-os.Stremio.desktop
           desktop-file-validate /usr/share/applications/safeer-os.Player.desktop
           test -f /usr/share/icons/hicolor/scalable/apps/safeer-os.Player.svg
           sudo apt-get remove -y safeer-os safeer-control

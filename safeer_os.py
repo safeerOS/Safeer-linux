@@ -49,6 +49,7 @@ from core import (os_datoteke, os_govor, os_katalog, os_knjiznica, os_lupa, os_o
                   os_media_besedila, os_mediji, os_posodobitve, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost,
                   os_torrent, os_torrent_tok, os_zapiski, os_zvok, knjiznica_kroga, os_ponudniki_programov, os_github_programi)
 from core import budnost, odlozisce_varuh, os_iskalnik, os_odpri_z, os_pretvorba_datotek  # noqa: E402
+from core import media_servers  # noqa: E402
 
 # Preklop vhoda zvocne vrstice JBL je samo interni poskus: uradni paket modula ne vsebuje
 # (packaging/install_os_payload.sh), zato ga uvozimo le, ce je prisoten (zagon iz repozitorija).
@@ -589,6 +590,26 @@ def magnet_privzeto(nastavi: Optional[bool] = None) -> bool:
         return False
 
 
+def stremio_privzeto() -> str:
+    """Povezave »Install« (stremio://) odpira Safeer OS, ce jih ne odpira se nihce (npr. aplikacija Stremio): tako
+    gumb na strani z dodatki deluje tudi v drugem brskalniku. Obstojece izbire ne spremenimo. Vrne privzeti vnos."""
+    mape = [os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")] + \
+        (os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":")
+    vnos = next((ime for ime in ("safeer-os.Stremio.desktop", APP_ID + ".Stremio.desktop")
+                 for m in mape if os.path.isfile(os.path.join(m, "applications", ime))), "")
+    try:
+        r = subprocess.run(["xdg-mime", "query", "default", "x-scheme-handler/stremio"], timeout=10,
+                           capture_output=True, text=True)
+        zdaj = r.stdout.strip()
+        if not zdaj and vnos:
+            subprocess.run(["xdg-mime", "default", vnos, "x-scheme-handler/stremio"], timeout=10, check=False,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return vnos
+        return zdaj
+    except Exception:
+        return ""
+
+
 def naprave_z_datotekami() -> list:
     """Druge naprave v Linku, ki delijo datoteke (zmoznost "files"): za Safeer Media -> Naprave."""
     izid = _control_naprave("Seznam")
@@ -1082,6 +1103,8 @@ class SafeerOS(Gtk.Application):
         self._zadnji_medijski_napredek = None
         #: Magnet povezava, ki caka, da se stran nalozi (zagon z --magnet ali dejanje, ko okna se ni).
         self._cakajoci_magnet = ""
+        #: Dodatek Stremio (povezava »Install«), ki caka, da se stran Safeer Playerja nalozi (cakajociStremio).
+        self._cakajoci_stremio = ""
         magnet = Gio.SimpleAction.new("magnet", GLib.VariantType.new("s"))
         magnet.connect("activate", lambda _a, v: self._odpri_magnet(v.get_string() if v else ""))
         self.add_action(magnet)
@@ -1107,6 +1130,10 @@ class SafeerOS(Gtk.Application):
         isci = Gio.SimpleAction.new("isci", GLib.VariantType.new("s"))
         isci.connect("activate", lambda _a, v: self._isci_od_drugod(v.get_string() if v else ""))
         self.add_action(isci)
+        #: `safeer-os --stremio <naslov>` (gumb »Install« na strani z dodatki, x-scheme-handler/stremio): Safeer Player.
+        stremio = Gio.SimpleAction.new("stremio", GLib.VariantType.new("s"))
+        stremio.connect("activate", lambda _a, v: self._odpri_stremio_dodatek(v.get_string() if v else ""))
+        self.add_action(stremio)
         #: `safeer-os --delovna` (safeer-cinnamon), ko Safeer OS ze tece brez delovne povrsine (glej _vklopi_delovno).
         delovna_povrsina = Gio.SimpleAction.new("delovna", None)
         delovna_povrsina.connect("activate", lambda *_a: self._vklopi_delovno())
@@ -1115,6 +1142,7 @@ class SafeerOS(Gtk.Application):
     def do_startup(self) -> None:
         Gtk.Application.do_startup(self)
         self._izvozi_predvajanje()
+        threading.Thread(target=stremio_privzeto, name="safeer-stremio-privzeto", daemon=True).start()
 
     # ------------------------------------------------------------------ D-Bus za Safeer Control: kaj predvajam
     VMESNIK_PREDVAJANJE = """
@@ -1575,7 +1603,8 @@ class SafeerOS(Gtk.Application):
             Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), css,
                                                      Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
             self._spletni_namizje = VdelaniSplet(Gtk, Gdk, Gio, GLib, WebKit2, KOREN, _jezik, stanje_povezave,
-                                                 self._splet_v_zapisek, self.okno_delovna)
+                                                 self._splet_v_zapisek, self.okno_delovna,
+                                                 stremio_dodatek=self._odpri_stremio_dodatek)
             plosca = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
             plosca.set_name("splet-namizje")
             glava = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -2255,6 +2284,8 @@ class SafeerOS(Gtk.Application):
             "odpriMedijskiTok": lambda: self._odpri_medijski_tok(str(a[0]) if a else ""),
             "odpriLokalniMedij": lambda: self._odpri_lokalni_medij(str(a[0]) if a else ""),
             "cakajociMagnet": self._vzemi_cakajoci_magnet,
+            "cakajociStremio": self._vzemi_cakajoci_stremio,
+            "odlozisceBesedilo": self._odlozisce_besedilo,
             "kopiraj": lambda: self._kopiraj(str(a[0]) if a else ""),
             "magnetPredvajaj": lambda: self._predvajaj_magnet(int(a[0]) if a else -1, int(a[1]) if len(a) > 1 else -1,
                                                              str(a[2]) if len(a) > 2 else ""),
@@ -2737,7 +2768,8 @@ class SafeerOS(Gtk.Application):
             self._dogodek("spletBrezPeskovnika", True)
             return False
         self._spletni = VdelaniSplet(Gtk, Gdk, Gio, GLib, WebKit2, KOREN, _jezik, stanje_povezave,
-                                     self._splet_v_zapisek, self.okno)
+                                     self._splet_v_zapisek, self.okno,
+                                     stremio_dodatek=self._odpri_stremio_dodatek)
         self._glavna_postavitev.pack_start(self._spletni.gradnik, True, True, 0)
         self._spletni.gradnik.set_no_show_all(True)
         self._spletni.gradnik.hide()
@@ -3519,6 +3551,30 @@ class SafeerOS(Gtk.Application):
         odlozisce.store()
         return True
 
+    def _odpri_stremio_dodatek(self, naslov: str) -> bool:
+        """Gumb »Install« dodatka Stremio (stremio://...) iz Spleta, brskalnika ali druge aplikacije: Safeer Player odpre
+        okno Dodatki z naslovom dodatka. Doda se sele, ko uporabnik pritisne Poveži (dodatek se tedaj preveri)."""
+        url = media_servers.stremio_naslov_dodatka(naslov)
+        if not url:
+            return False
+        if self.okno_predvajalnik is None:
+            self._cakajoci_stremio = url
+            self._odpri_predvajalnik()
+            return True       # stran Safeer Playerja ga prevzame ob nalaganju (cakajociStremio)
+        self._odpri_predvajalnik()
+        self._dogodek("stremioDodatek", {"url": url}, self.pogled_predvajalnik)
+        return True
+
+    def _vzemi_cakajoci_stremio(self) -> dict:
+        url, self._cakajoci_stremio = self._cakajoci_stremio, ""
+        return {"url": url} if url else {}
+
+    @staticmethod
+    def _odlozisce_besedilo() -> str:
+        """Gumb Prilepi v oknu Dodatki: besedilo iz odlozisca (samo na klik uporabnika, najvec 1024 znakov)."""
+        besedilo = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).wait_for_text() or ""
+        return besedilo.strip()[:1024]
+
     def _vzemi_cakajoci_magnet(self, pogled=None) -> dict:
         """Magnet, ki caka na stran (zagon z --magnet ali magnet, preden je bilo okno). Dobi ga samo stran, ki ji je
         namenjen (Safeer Player ali glavno okno), sicer bi ga pokazali obe ali napacna."""
@@ -3998,6 +4054,21 @@ def main() -> int:
         except Exception as e:  # noqa: BLE001
             print("[SafeerOS] isci:", e)
             return 3
+    stremio_url = ""
+    if "--stremio" in sys.argv[1:]:
+        # Gumb »Install« na strani z dodatki Stremio (x-scheme-handler/stremio): preda tekocemu Safeer OS, sicer zazene
+        # Safeer Player, ki pokaze okno Dodatki. Nic se ne doda brez uporabnika.
+        i = sys.argv.index("--stremio")
+        stremio_url = media_servers.stremio_naslov_dodatka(sys.argv[i + 1] if i + 1 < len(sys.argv) else "")
+        if not stremio_url:
+            print("To ni naslov dodatka Stremio.")
+            return 2
+        try:
+            if _predaj_tekocemu("stremio", stremio_url):
+                return 0
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] stremio:", e)
+        sys.argv = [sys.argv[0], "--predvajalnik"]
     datoteka = ""
     if "--predvajaj" in sys.argv[1:]:
         # Datoteka z diska: ce Safeer OS ze tece, jo preda njemu (org.gtk.Actions) in konca, sicer se zazene
@@ -4061,6 +4132,7 @@ def main() -> int:
     app = SafeerOS(v_oknu=v_oknu, posnetek=posnetek, namizje="--namizje" in sys.argv[1:],
                    delovna="--delovna" in sys.argv[1:], predvajalnik=predvajalnik)
     app._cakajoci_magnet = magnet
+    app._cakajoci_stremio = stremio_url
     app._cakajoca_datoteka = datoteka
     if ponudba_json:
         try:

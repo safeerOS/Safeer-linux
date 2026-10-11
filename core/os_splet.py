@@ -154,11 +154,13 @@ class VdelaniSplet:
     """GTK gradnik z zavihki; namenoma ni okno in zato ne more zapustiti Safeer OS."""
 
     def __init__(self, Gtk, Gdk, Gio, GLib, WebKit2, koren: str, jezik, stanje_povezave,
-                 odpri_zapisek=None, stars=None):
+                 odpri_zapisek=None, stars=None, stremio_dodatek=None):
         self.Gtk, self.Gdk, self.Gio, self.GLib, self.WebKit2 = Gtk, Gdk, Gio, GLib, WebKit2
         self.koren, self.jezik = koren, jezik
         self.stanje_povezave, self.odpri_zapisek = stanje_povezave, odpri_zapisek
         self.stars = stars
+        #: Gumb »Install« dodatka Stremio (povezava stremio://...): Safeer Player pokaze dodatek in vprasa (kot Android).
+        self.stremio_dodatek = stremio_dodatek
         self.config = ConfigManager()
         self.zavihki, self.aktivni, self._stevec = [], None, 0
         self.filter, self.filter_store, self.filter_agent = None, None, None
@@ -520,6 +522,12 @@ class VdelaniSplet:
         if vrsta not in (W.PolicyDecisionType.NAVIGATION_ACTION, W.PolicyDecisionType.NEW_WINDOW_ACTION): return False
         try:
             dejanje = odlocitev.get_navigation_action(); zahteva = dejanje.get_request(); naslov = zahteva.get_uri() or ""
+            if naslov.lower().startswith("stremio://"):
+                # Stran sama ne doda nicesar: dodatek se doda sele, ko uporabnik v Safeer Playerju pritisne Poveži.
+                odlocitev.ignore()
+                if self.stremio_dodatek is not None:
+                    self.GLib.idle_add(lambda: self.stremio_dodatek(naslov) and False)
+                return True
             if vrsta == W.PolicyDecisionType.NEW_WINDOW_ACTION:
                 odlocitev.ignore(); self.nov_zavihek(naslov); return True
             if naslov.startswith(("file://", "about:blank")):

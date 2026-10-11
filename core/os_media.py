@@ -2067,6 +2067,10 @@ class MediaCenter:
         url = _text(url, 1024)
         if url.startswith("stremio://"):
             url = "https://" + url[len("stremio://"):]
+        if provider == "stremio":
+            # En zapis za isti dodatek: koren + /manifest.json, ne glede na to, ali je uporabnik prilepil koren,
+            # manifest, stran /configure ali povezavo »Install« (stremio://).
+            url = media_servers.stremio_naslov_dodatka(url) or url
         parsed = urllib.parse.urlsplit(url)
         username = _text(username, 160)
         secret = str(secret or "")
@@ -2108,8 +2112,12 @@ class MediaCenter:
         with self._lock:
             data = self._load()
             sources = data.setdefault("osebni_strezniki", [])
-            if any(item.get("id") == source_id for item in sources):
-                return {"ok": False, "napaka": "Ta strežnik je že dodan."}
+            if any(item.get("id") == source_id or (
+                    provider == "stremio" and item.get("ponudnik") == "stremio"
+                    and media_servers._stremio_koren(str(item.get("url") or "")) == media_servers._stremio_koren(base))
+                   for item in sources):
+                napaka = "Ta dodatek je že dodan." if provider == "stremio" else "Ta strežnik je že dodan."
+                return {"ok": False, "napaka": napaka, "sporocilo": napaka, "podvojen": True}
             if provider == "stremio":
                 self._vir_dodan(source, viri_sink.STREMIO, base, prevzet)
             sources.append(source)

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Safeer Media (Stremio add-on)
+Name[sl]=Safeer Media (dodatek Stremio)
+Comment=Add a Stremio add-on to Safeer Media
+Comment[sl]=Dodaj dodatek Stremio v Safeer Media
+Exec=safeer-os --stremio %u
+Icon=safeer-os
+Terminal=false
+NoDisplay=true
+MimeType=x-scheme-handler/stremio;
+Categories=AudioVideo;Network;

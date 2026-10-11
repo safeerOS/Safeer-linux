@@ -40,6 +40,8 @@ install -Dm644 "$ROOT/LICENSE" "$PREFIX/share/doc/safeer-os/LICENSE"
 sed "s/^Icon=.*/Icon=$ID/" "$ROOT/packaging/safeer-os.desktop" > "$PREFIX/share/applications/$ID.desktop"
 # Magnet povezave (x-scheme-handler/magnet) odpre Safeer Media; vnos se v meniju ne kaze.
 sed "s/^Icon=.*/Icon=$ID/" "$ROOT/packaging/safeer-os-magnet.desktop" > "$PREFIX/share/applications/$ID.Magnet.desktop"
+# Gumb »Install« dodatkov Stremio (x-scheme-handler/stremio) odpre okno Dodatki v Safeer Media; vnos se v meniju ne kaze.
+sed "s/^Icon=.*/Icon=$ID/" "$ROOT/packaging/safeer-os-stremio.desktop" > "$PREFIX/share/applications/$ID.Stremio.desktop"
 # Safeer Player (Medijski center v svojem oknu, `safeer-os --predvajalnik`) je v meniju svoj program s svojo ikono.
 # Ime z ID-jem spredaj: Flatpak izvozi samo vnose in ikone, ki se zacnejo z ID-jem programa.
 sed "s/^Icon=.*/Icon=$ID.Player/" "$ROOT/packaging/safeer-player.desktop" > "$PREFIX/share/applications/$ID.Player.desktop"

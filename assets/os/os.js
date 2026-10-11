@@ -4093,6 +4093,33 @@
     naloziKatViri();
     $("mediaStreznikUrl").focus();
   }
+  // Gumb "Install" na strani z dodatki Stremio (stremio://): okno Dodatki z naslovom dodatka; doda se sele na Poveži.
+  function pokaziStremioDodatek(url) {
+    if (!url) return;
+    odpriKatViri();
+    $("mediaStreznikVrsta").value = "stremio";
+    katPrilagodiObrazec();
+    $("mediaStreznikUrl").value = url;
+    var gostitelj = url;
+    try { gostitelj = new URL(url).hostname; } catch (e) { /* naslov ostane, kot je */ }
+    $("katVirSporocilo").textContent = t("katStremioPotrdi", { gostitelj: gostitelj });
+    var gumb = document.querySelector("#mediaDodajStreznik button[type=submit]");
+    if (gumb) gumb.focus();
+  }
+  // Prilepi: naslov iz odlozisca (samo na klik); naslov dodatka Stremio izbere vrsto Dodatek Stremio.
+  function katPrilepi() {
+    klic("odlozisceBesedilo").then(function (besedilo) {
+      besedilo = String(besedilo || "").trim();
+      if (!besedilo) { $("katVirSporocilo").textContent = t("katOdloziscePrazno"); return; }
+      if (/^stremio:\/\//i.test(besedilo) || /\/manifest\.json$|\/configure\/?$/i.test(besedilo)) {
+        $("mediaStreznikVrsta").value = "stremio";
+        katPrilagodiObrazec();
+      }
+      $("mediaStreznikUrl").value = besedilo;
+      $("katVirSporocilo").textContent = "";
+      $("mediaStreznikUrl").focus();
+    }).catch(function () { $("katVirSporocilo").textContent = t("katOdloziscePrazno"); });
+  }
   function katPrilagodiObrazec() {
     // Dodatek in DLNA nimata prijave; polji za uporabnika in geslo pokažemo samo strežnikom, ki ju potrebujejo.
     var p = $("mediaStreznikVrsta").value, brez = p === "stremio" || p === "dlna";
@@ -4128,6 +4155,7 @@
     ob("mediaZapri", "click", ustaviKatPredvajanje);
     ob("katDodatki", "click", odpriKatViri);
     ob("katViriZapri", "click", zapriSloje);
+    ob("katPrilepi", "click", katPrilepi);
     ob("mediaStreznikVrsta", "change", katPrilagodiObrazec);
     ob("mediaDodajStreznik", "submit", function (event) {
       event.preventDefault();
@@ -4266,6 +4294,7 @@
     if (vrsta === "spletBrezPeskovnika" || vrsta === "medijBrezPeskovnika") { brezPeskovnikaOb = Date.now(); obvesti(t(vrsta)); }
     if (vrsta === "posodobitev") pokaziPosodobitevDoma(podatki);
     // Magnet z druge naprave ali iz brskalnika prevzame glavno okno (kot prej); Safeer Player ga ne odpre se enkrat.
+    if (vrsta === "stremioDodatek" && PREDVAJALNIK) pokaziStremioDodatek(podatki && podatki.url);
     if (vrsta === "magnet" && !PREDVAJALNIK) odpriMagnet(podatki && podatki.uri, podatki && podatki.samodejno === true);
     // Film iz torrenta (dodatek): med branjem torrenta in prenosom zacetka uporabnik vidi, da se nekaj dogaja.
     if (vrsta === "mediaTorrent") obvesti(t("mediaTorrentPripravljam", { ime: (podatki && podatki.naslov) || "" }));
@@ -4612,6 +4641,8 @@
     $("magnetPrivzeto").addEventListener("click", function () {
       klic("magnetPrivzeto", [true]).then(function (je) { $("magnetPrivzeto").hidden = !!je; if (je) obvesti(t("magnetPrivzetoOk")); });
     });
+    if (PREDVAJALNIK)       // dodatek Stremio (gumb "Install"), ki je cakal na Safeer Player
+      klic("cakajociStremio").then(function (c) { if (c && c.url) pokaziStremioDodatek(c.url); }).catch(function () {});
     if (!PREDVAJALNIK)      // cakajoci magnet je za glavno okno, ki ga Safeer OS prav zanj odpira
       klic("cakajociMagnet").then(function (c) { if (c && c.uri) odpriMagnet(c.uri, c.samodejno === true); }).catch(function () {});
     $("mediaNapraveZapri").addEventListener("click", zapriSloje);
