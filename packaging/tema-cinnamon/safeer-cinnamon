@@ -9,7 +9,7 @@
 #                                     dock     videz + pult zgoraj in dock spodaj (odprti programi so v docku)
 #                                     delovna  dock + delovna povrsina Safeer OS namesto ikon na namizju
 #                                   ozadje O: ohrani (kot je zdaj) | prejsnje (kot pred Safeer Cinnamon) |
-#                                             aurora | zora | globina | gore
+#                                             jezero | aurora | zora | globina | gore
 #   safeer-cinnamon                 vklopi zadnjo izbrano postavitev (prvic: videz)
 #   safeer-cinnamon --izklopi       vrne vse, kot je bilo pred vklopom
 #   safeer-cinnamon --kontrast      neprosojne povrsine in mocnejse obrobe (lupina in programi)
@@ -544,6 +544,7 @@ delovna_izklopi() {
 # ---------------------------------------------------------------------------- tema, ikone, ozadje
 ozadje_pot() {
     case "$1" in
+        jezero)  echo "$OZADJA/safeer-jezero.jpg" ;;
         aurora)  echo "$OZADJA/safeer-aurora.jpg" ;;
         zora)    echo "$OZADJA/safeer-zora.jpg" ;;
         globina) echo "$OZADJA/safeer-globina.jpg" ;;
@@ -560,7 +561,7 @@ nastavi_ozadje() {      # $1 = pot do slike
     pisi org.cinnamon.desktop.background:picture-options "'zoom'"
 }
 
-# $1 = izbira ozadja: ohrani | prejsnje | aurora | zora | globina | gore | "" (samodejno) ; $2 = 1, ce je bil Safeer Cinnamon ze vklopljen
+# $1 = izbira ozadja: ohrani | prejsnje | jezero | aurora | zora | globina | gore | "" (samodejno) ; $2 = 1, ce je bil Safeer Cinnamon ze vklopljen
 ozadje() {
     local pot k v
     case "$1" in
@@ -574,12 +575,13 @@ ozadje() {
             return 0 ;;
         "")
             [ -n "$2" ] && return 0                     # zamenjava postavitve: ozadje ostane, kot je
-            # Ponovni vklop: ozadje, ki ga je uporabnik imel nazadnje s Safeer Cinnamon; prvic Safeer Aurora.
+            # Ponovni vklop: ozadje, ki ga je uporabnik imel nazadnje s Safeer Cinnamon; prvic gore in jezero (kot na TV).
             if [ -s "$ZADNJE_OZADJE" ]; then
                 pot="$(sed -n "1s#^'file://\(.*\)'\$#\1#p" "$ZADNJE_OZADJE")"
                 [ -n "$pot" ] && [ -f "$pot" ] && { nastavi_ozadje "$pot"; return 0; }
             fi
-            nastavi_ozadje "$OZADJA/safeer-aurora.jpg" ;;
+            # Prvic: fotografija gore in jezero - isto ozadje kot Safeer OS na TV in tablici (naprave so usklajene).
+            nastavi_ozadje "$OZADJA/safeer-jezero.jpg" ;;
         *)  pot="$(ozadje_pot "$1")" && nastavi_ozadje "$pot" ;;
     esac
 }
@@ -737,7 +739,7 @@ profil_iz_argumentov() {
     # Samo --ozadje: postavitev ostane (ce Safeer Cinnamon se ni vklopljen: videz).
     [ -n "$profil" ] || { profil="$(profil_trenutni)"; profil="${profil:-videz}"; }
     case "$profil" in videz|dock|delovna) ;; *) echo "safeer-cinnamon: postavitev je videz, dock ali delovna (--help)" >&2; return 2 ;; esac
-    case "$ozadje_" in ""|ohrani|prejsnje|aurora|zora|globina|gore) ;; *) echo "safeer-cinnamon: ozadje je ohrani, prejsnje, aurora, zora, globina ali gore (--help)" >&2; return 2 ;; esac
+    case "$ozadje_" in ""|ohrani|prejsnje|jezero|aurora|zora|globina|gore) ;; *) echo "safeer-cinnamon: ozadje je ohrani, prejsnje, jezero, aurora, zora, globina ali gore (--help)" >&2; return 2 ;; esac
     vklopi "$profil" "$ozadje_"
 }
 

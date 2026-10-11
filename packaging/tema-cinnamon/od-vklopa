@@ -24,7 +24,7 @@ ALTERNATIVE = "/usr/bin/update-alternatives"
 INITRAMFS = "/usr/sbin/update-initramfs"
 #: Kljuci prijavnega zaslona, ki jih nastavi vklop (odsek [Greeter]).
 KLJUCI = {
-    "background": "/usr/share/backgrounds/safeer/safeer-aurora.jpg",
+    "background": "/usr/share/backgrounds/safeer/safeer-jezero.jpg",
     "background-color": "#0b1424",
     "theme-name": "Safeer-Cinnamon",
 }

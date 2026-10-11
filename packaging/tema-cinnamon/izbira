@@ -24,7 +24,7 @@ from gi.repository import Gdk, GdkPixbuf, Gio, Gtk  # noqa: E402
 
 UKAZ = "safeer-cinnamon"
 OZADJA_MAPA = "/usr/share/backgrounds/safeer"
-OZADJA = (("aurora", "safeer-aurora.jpg"), ("zora", "safeer-zora.jpg"), ("globina", "safeer-globina.jpg"), ("gore", "safeer-gore-3840x2160.png"))
+OZADJA = (("jezero", "safeer-jezero.jpg"), ("aurora", "safeer-aurora.jpg"), ("zora", "safeer-zora.jpg"), ("globina", "safeer-globina.jpg"), ("gore", "safeer-gore-3840x2160.png"))
 PROFILI = ("videz", "dock", "delovna")
 
 BESEDILA = {
@@ -35,7 +35,7 @@ BESEDILA = {
         "dock": "Videz in dock", "dock_opis": "Pult gre na vrh, spodaj je dock s pripetimi in odprtimi programi (seznama oken na pultu ni).",
         "delovna": "Delovna površina", "delovna_opis": "Kot zgoraj, namesto ikon na namizju pa iskanje, mediji, datoteke in programi tvojih naprav.",
         "ni_safeer_os": "Potrebuje Safeer OS (safeer.si/os).", "ni_planka": "Potrebuje program Plank.",
-        "ozadje": "Ozadje", "ohrani": "Moje ozadje", "prejsnje": "Moje ozadje", "trenutno": "Trenutno ozadje", "aurora": "Aurora", "zora": "Zora nad jezerom", "globina": "Globina", "gore": "Gore in jezero",
+        "ozadje": "Ozadje", "ohrani": "Moje ozadje", "prejsnje": "Moje ozadje", "trenutno": "Trenutno ozadje", "jezero": "Gore in jezero (kot na TV)", "aurora": "Aurora", "zora": "Zora nad jezerom", "globina": "Globina", "gore": "Gore in jezero (risba)",
         "vklopi": "Vklopi", "uporabi": "Uporabi", "preklici": "Prekliči", "vrni": "Vrni prejšnji videz",
         "vklopljeno": "Zdaj vklopljeno: {profil}",
     },
@@ -46,7 +46,7 @@ BESEDILA = {
         "dock": "Look and dock", "dock_opis": "The panel moves to the top, with a dock for pinned and open apps at the bottom (no window list on the panel).",
         "delovna": "Workspace", "delovna_opis": "As above, and instead of desktop icons: search, media, files and the apps on your devices.",
         "ni_safeer_os": "Needs Safeer OS (safeer.si/os).", "ni_planka": "Needs the Plank program.",
-        "ozadje": "Wallpaper", "ohrani": "My wallpaper", "prejsnje": "My wallpaper", "trenutno": "Current wallpaper", "aurora": "Aurora", "zora": "Dawn over the lake", "globina": "Depth", "gore": "Mountains and lake",
+        "ozadje": "Wallpaper", "ohrani": "My wallpaper", "prejsnje": "My wallpaper", "trenutno": "Current wallpaper", "jezero": "Mountains and lake (as on TV)", "aurora": "Aurora", "zora": "Dawn over the lake", "globina": "Depth", "gore": "Mountains and lake (drawing)",
         "vklopi": "Turn on", "uporabi": "Apply", "preklici": "Cancel", "vrni": "Restore previous look",
         "vklopljeno": "On now: {profil}",
     },
@@ -138,11 +138,11 @@ def safeerjevo(uri: str) -> str:
 
 
 def zacetno_ozadje(s: dict) -> str:
-    """Katero ozadje je oznaceno ob odprtju: vklopljeno -> trenutno; prvic -> Aurora; ponovno -> zadnje s Safeerjem."""
+    """Katero ozadje je oznaceno ob odprtju: vklopljeno -> trenutno; prvic -> gore in jezero (kot na TV); ponovno -> zadnje s Safeerjem."""
     if s["profil"]:
         return safeerjevo(s["trenutno"]) or "ohrani"
     if not s["zadnje"]:
-        return "aurora"
+        return "jezero"
     return safeerjevo(s["zadnje"]) or "ohrani"
 
 

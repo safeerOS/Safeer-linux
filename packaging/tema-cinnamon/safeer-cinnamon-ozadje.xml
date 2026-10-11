@@ -2,6 +2,11 @@
 <!DOCTYPE wallpapers SYSTEM "gnome-wp-list.dtd">
 <wallpapers>
   <wallpaper deleted="false">
+    <name>Safeer - Gore in jezero (kot na TV)</name>
+    <filename>/usr/share/backgrounds/safeer/safeer-jezero.jpg</filename>
+    <options>zoom</options>
+  </wallpaper>
+  <wallpaper deleted="false">
     <name>Safeer - Aurora</name>
     <filename>/usr/share/backgrounds/safeer/safeer-aurora.jpg</filename>
     <options>zoom</options>
@@ -17,7 +22,7 @@
     <options>zoom</options>
   </wallpaper>
   <wallpaper deleted="false">
-    <name>Safeer - Gore in jezero</name>
+    <name>Safeer - Gore in jezero (risba)</name>
     <filename>/usr/share/backgrounds/safeer/safeer-gore-3840x2160.png</filename>
     <options>zoom</options>
   </wallpaper>

@@ -600,7 +600,7 @@ class TestTemaCinnamon(unittest.TestCase):
             os.chmod(p, os.stat(p).st_mode | stat.S_IEXEC)
         # Koren sistema: ozadja, tema docka, tema Kontrast za GTK, ikone Papirus in nekaj programov.
         os.makedirs(os.path.join(koren, "usr", "share", "backgrounds", "safeer"))
-        for ime in ("safeer-aurora.jpg", "safeer-zora.jpg"):
+        for ime in ("safeer-jezero.jpg", "safeer-aurora.jpg", "safeer-zora.jpg"):
             shutil.copyfile(os.path.join(TEMA, "ozadje", ime), os.path.join(koren, "usr", "share", "backgrounds", "safeer", ime))
         os.makedirs(os.path.join(koren, "usr", "share", "safeer-cinnamon", "plank"))
         shutil.copyfile(os.path.join(TEMA, "plank", "dock.theme"), os.path.join(koren, "usr", "share", "safeer-cinnamon", "plank", "dock.theme"))
@@ -674,7 +674,7 @@ class TestTemaCinnamon(unittest.TestCase):
             self.assertEqual(self._vrednost(o, "org.cinnamon.desktop.interface", "icon-theme"), "'Papirus-Dark'")
             self.assertEqual(self._vrednost(o, "org.cinnamon", "panels-enabled"), "['1:0:bottom']")
             self.assertEqual(self._vrednost(o, "org.cinnamon", "enabled-applets"), self.APPLETI)
-            self.assertIn("safeer-aurora.jpg", self._vrednost(o, "org.cinnamon.desktop.background", "picture-uri"))
+            self.assertIn("safeer-jezero.jpg", self._vrednost(o, "org.cinnamon.desktop.background", "picture-uri"))
             # Diaprojekcija bi ozadje takoj zamenjala.
             self.assertEqual(self._vrednost(o, "org.cinnamon.desktop.background.slideshow", "slideshow-enabled"), "false")
             self.assertEqual(sorted(os.listdir(o["avto"])), ["safeer-os.desktop", "safeer-tema.desktop"])
@@ -682,7 +682,7 @@ class TestTemaCinnamon(unittest.TestCase):
                 self.assertNotIn("Hidden=true", f.read())
             self.assertEqual(os.listdir(o["launcherji"]), ["star.dockitem"])
             self.assertIn("postavitev:   videz", self._ukaz(o, "--stanje"))
-            # Uporabnik izbere drugo ozadje; po izklopu in ponovnem vklopu ga dobi nazaj (ne spet Aurore).
+            # Uporabnik izbere drugo ozadje; po izklopu in ponovnem vklopu ga dobi nazaj (ne spet privzetega).
             self._ukaz(o, "--ozadje", "zora")
             self.assertIn("postavitev:   videz", self._ukaz(o, "--stanje"))
             self._ukaz(o, "--izklopi")
