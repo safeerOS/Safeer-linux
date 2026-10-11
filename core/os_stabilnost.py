@@ -164,3 +164,71 @@ def vkljuci(ime_programa: str = "safeer-os") -> str:
     except Exception:  # noqa: BLE001
         pass
     return pot
+
+
+# ---------------------------------------------------------------------------- padec spletnega procesa
+#: Najvec toliko samodejnih ponovnih nalaganj enega pogleda v OKNO_SESUTIJ_S; potem pogled ostane, kot je
+#: (vec ponovitev bi pomenilo zanko sesutij, ki jo bolje vidi uporabnik kot procesor).
+NAJVEC_OBNOV = 3
+
+
+class ObnovaPogleda:
+    """Ponovno nalozi pogled WebKit, ko njegov spletni proces pade (sesutje ali OOM).
+
+    Stresni preizkus 12. 10. 2026 (naloga #77): jedro je zaradi pomanjkanja pomnilnika ubilo WebKitWebProcess
+    delovne povrsine; Python je tekel naprej, namizje pa je ostalo prazno do ponovnega zagona Safeer OS.
+    WebKit v tem primeru javi `web-process-terminated` - tu na to odgovorimo z reload (kot brskalnik).
+    """
+
+    def __init__(self, ime_programa: str, ime_strani: str, zakasnitev_ms: int = 400, ura=None):
+        import time
+        self.ime_programa, self.ime_strani = ime_programa, ime_strani
+        self.zakasnitev_ms = zakasnitev_ms
+        self._ura = ura or time.monotonic
+        self._obnove: list = []
+
+    def odlocitev(self, razlog: str) -> bool:
+        """Ali naj pogled ponovno nalozimo (in zabelezi)."""
+        if razlog == "api":            # program je proces koncal sam (npr. sprosti_zavihke) - ni napaka
+            return False
+        zdaj = self._ura()
+        self._obnove = [t for t in self._obnove if zdaj - t < OKNO_SESUTIJ_S]
+        if len(self._obnove) >= NAJVEC_OBNOV:
+            zapisi(self.ime_programa, "spletni proces (%s) je padel (%s); prevec obnov v %d min - brez ponovnega nalaganja"
+                   % (self.ime_strani, razlog, OKNO_SESUTIJ_S // 60))
+            return False
+        self._obnove.append(zdaj)
+        zapisi(self.ime_programa, "spletni proces (%s) je padel (%s); stran nalozena znova (%d/%d)"
+               % (self.ime_strani, razlog, len(self._obnove), NAJVEC_OBNOV))
+        return True
+
+
+def razlog_padca(WebKit2, razlog) -> str:
+    """WebProcessTerminationReason v kratko besedo: sesutje | pomnilnik | api."""
+    R = getattr(WebKit2, "WebProcessTerminationReason", None)
+    if R is not None:
+        if razlog == getattr(R, "EXCEEDED_MEMORY_LIMIT", object()):
+            return "pomnilnik"
+        if razlog == getattr(R, "TERMINATED_BY_API", object()):
+            return "api"
+    return "sesutje"
+
+
+def obnovi_ob_padcu(WebKit2, GLib, pogled, ime_programa: str, ime_strani: str) -> Optional[ObnovaPogleda]:
+    """Prikljuci obnovo na pogled. Brez signala (zelo star WebKit) ne naredi nicesar."""
+    obnova = ObnovaPogleda(ime_programa, ime_strani)
+
+    def ob_padcu(p, razlog):
+        if obnova.odlocitev(razlog_padca(WebKit2, razlog)):
+            def znova():
+                try:
+                    p.reload()
+                except Exception:  # noqa: BLE001 - pogled je ze unicen
+                    pass
+                return False
+            GLib.timeout_add(obnova.zakasnitev_ms, znova)
+    try:
+        pogled.connect("web-process-terminated", ob_padcu)
+    except TypeError:
+        return None
+    return obnova

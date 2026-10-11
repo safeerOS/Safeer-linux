@@ -14,7 +14,7 @@ import subprocess
 import urllib.parse
 from pathlib import Path
 
-from core import adblock, drm, odlozisce_varuh, ozadje_strani
+from core import adblock, drm, odlozisce_varuh, os_stabilnost, ozadje_strani
 from core.config import ConfigManager, SEARCH_ENGINES, normalize_web_url
 from core.doh_proxy import get_doh_proxy
 from core.filter_lists import FILTER_ID
@@ -442,6 +442,8 @@ class VdelaniSplet:
     def _nov_pogled(self):
         W = self.WebKit2
         pogled = W.WebView.new_with_context(self.kontekst)
+        # Padec spletnega procesa (sesutje strani, pomanjkanje pomnilnika): zavihek se nalozi znova, kot v brskalniku.
+        os_stabilnost.obnovi_ob_padcu(W, self.GLib, pogled, "safeer-os", "splet")
         upravitelj = pogled.get_user_content_manager()
         upravitelj.register_script_message_handler("safeer")
         upravitelj.connect("script-message-received::safeer", lambda _u, r: self._sporocilo(pogled, r))

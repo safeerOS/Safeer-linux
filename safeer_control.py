@@ -1958,6 +1958,7 @@ class SafeerControl(Gtk.Application):
             ))
             odlozisce_varuh.dodaj(WebKit2, upravitelj)
             pogled = WebKit2.WebView(web_context=self.web_context, user_content_manager=upravitelj)
+            os_stabilnost.obnovi_ob_padcu(WebKit2, GLib, pogled, "safeer-control", "gledalec")
             nastavitve = pogled.get_settings()
             nastavitve.set_property("enable-developer-extras", False)
             okno = Gtk.Window(title="Safeer Control — zaslon")

@@ -1325,6 +1325,8 @@ class SafeerOS(Gtk.Application):
         barva.parse("#090d15")
         pogled.set_background_color(barva)
         pogled.connect("decide-policy", self._na_politiko)
+        # Ce spletni proces pade (sesutje, pomanjkanje pomnilnika), se stran nalozi znova - sicer ostane prazno namizje.
+        os_stabilnost.obnovi_ob_padcu(WebKit2, GLib, pogled, "safeer-os", stran.split("?", 1)[0])
         pogled.connect("context-menu", lambda *a: True)   # brez »Reload / Inspect« v preobleki
         if stran.startswith("delovna.html"):   # Datoteke na delovni povrsini sprejmejo datoteke iz drugih programov
             pogled.connect("drag-data-received", self._na_vlecene_podatke)
