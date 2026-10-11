@@ -561,7 +561,8 @@ class ZakonitiViri:
                         else:
                             vrste.append(el)
             zberi((self._json(url) or {}).get("body"))
-            return [v for v in (self._tunein_vnos(r, skupina) for r in vrste) if v][:40]
+            # V blizini cel seznam (po abecedi; Rock Radio Si je bil pri lastniku 80. in ga omejitev 40 ni pustila).
+            return [v for v in (self._tunein_vnos(r, skupina) for r in vrste) if v][:40 if query else 150]
         return self._cached(kljuc, fetch)
 
     def resolve_tunein(self, item: dict) -> dict | None:
