@@ -154,7 +154,7 @@ class TestDelovnaStran(unittest.TestCase):
         js, html = beri("assets", "os", "delovna.js"), beri("assets", "os", "delovna.html")
         for niz in ("function ocenaPrograma(p, ql)", "I.poEnter = true", 'e.key === "Enter" && e.shiftKey',
                     'izberiZadetek(programi.length ? { vrsta: "program", p: programi[0] } : nastPoImenu ? { vrsta: "program", p: nastPoImenu } :',
-                    'if (!I.rocno) I.izbran = privzetiZadetek(I.zadetki.map(function (b) { return b._v; }), I.zadnji);'):
+                    'if (!I.rocno) I.izbran = privzetiZadetek(I.zadetki.map(function (b) { return b._v; }), I.zadnji, I.nauceno);'):
             self.assertIn(niz, js)
         self.assertIn("Shift+Enter splet", js)
         self.assertIn("Shift+Enter web", js)

@@ -45,7 +45,7 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 
-from core import (os_datoteke, os_katalog, os_knjiznica, os_oblak_igre, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
+from core import (os_datoteke, os_katalog, os_knjiznica, os_lupa, os_oblak_igre, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
                   os_media_besedila, os_mediji, os_posodobitve, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost,
                   os_torrent, os_torrent_tok, os_zapiski, os_zvok, knjiznica_kroga, os_ponudniki_programov, os_github_programi)
 from core import budnost, odlozisce_varuh, os_iskalnik, os_odpri_z, os_pretvorba_datotek  # noqa: E402
@@ -965,6 +965,7 @@ class SafeerOS(Gtk.Application):
         self.shramba = os_programi.Shramba()
         self.programi = os_programi.Programi(self.shramba)
         self.zapiski = os_zapiski.Zapiski(ZAPISKI_POT)
+        self.lupa = os_lupa.Ucenje()
         self.sporocila = os_sporocila.SporocilaOS()
         # Safeer Chat gre po Linku, ki ga drzi Safeer Control (D-Bus).
         self.sporocila.poslji_klepet = lambda n, b, c: _control_naprave("Klepet", n, b, c).get("stanje") \
@@ -2231,6 +2232,9 @@ class SafeerOS(Gtk.Application):
             "odpriRazdelek": lambda: self._odpri_razdelek(str(a[0]) if a else ""),
             "nastavitveDocka": lambda: self._zazeni_orodje(["safeer-cinnamon", "--nastavitve-docka"]),
             "nastavitveOzadja": lambda: self._zazeni_orodje(["cinnamon-settings", "backgrounds"]),
+            "lupaUcenje": self.lupa.podatki,
+            "lupaZapomni": lambda: self.lupa.zapomni(*(list(a or [])[:3])),
+            "lupaPozabi": self.lupa.pozabi,
             "zapiskiSeznam": lambda: self.zapiski.seznam(str(a[0]) if a else ""),
             "zapisekDobi": lambda: self.zapiski.dobi(str(a[0]) if a else ""),
             "zapisekShrani": lambda: self.zapiski.shrani(

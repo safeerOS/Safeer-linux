@@ -619,6 +619,7 @@
     location.search.replace(/^\?/, "").split("&").forEach(function (d) { var x = d.split("="); if (x[0]) q[x[0]] = x[1]; });
     robovi(q);
     prevedi();
+    klic("lupaUcenje").then(function (p) { U.izbire = (p && p.izbire) || []; }).catch(function () {});
     uveljaviPostavitev();
     delilnik($("deliStolpca"), true);
     delilnik($("deliMediji"), false);
@@ -2695,12 +2696,57 @@
      razdelek Safeer OS ali naprava po imenu; sicer splet (prva vrstica). Ocene so iz skupnega iskanje.js
      (SafeerIskanje.oceni: enako 100, zacetek 70, beseda 50, del 30) - ista pravila kot iskanje v Safeer OS. */
   var PRAG_IMENA = 70;
+  /* Ucenje lupe (core/os_lupa.py, samo na tem racunalniku): izbire [niz, kljuc zadetka, cas, prvi]. Za iskani niz dobi
+     zadetek oceno iz prejsnjih izbir z enakim ali podobnim nizom (eden je zacetek drugega; enak niz steje dvojno),
+     novejse stejejo vec (polovica po 30 dneh). Zadetek z oceno vsaj PRAG_UCENJA lupa ponudi prvega. */
+  var U = { izbire: [] };
+  var POL_ZIVLJENJA = 30 * 86400, PRAG_UCENJA = 0.5, NAJVEC_IZBIR = 500;
+  function kljucZadetka(v) {
+    switch (v && v.vrsta) {
+      case "splet": return "splet";
+      case "program": return "program:" + v.p.id;
+      case "prgNaprave": return "prgNaprave:" + (v.p.imeNaprave || "") + ":" + v.p.id;
+      case "safeer": return "safeer:" + v.cilj;
+      case "naprava": return "naprava:" + v.n.id;
+      case "datoteka": case "medij": return v.vrsta + ":" + (v.d.pot || v.d.id || v.d.ime || "");
+      case "zapisek": return "zapisek:" + v.z.id;
+      case "katalog": return "katalog:" + v.k.id;
+      case "mediji": return "mediji";
+    }
+    return "";
+  }
+  function nizUcenja(q) { return kljucIskanja(q).replace(/\s+/g, " ").trim(); }
+  function naucenaOcena(ql, zdaj) {
+    var ocene = {};
+    zdaj = zdaj || Date.now() / 1000;
+    if (!ql) return ocene;
+    U.izbire.forEach(function (z) {
+      var niz = z[0], enak = niz === ql;
+      if (!enak && !(niz.length >= 2 && (niz.indexOf(ql) === 0 || ql.indexOf(niz) === 0))) return;
+      var utez = Math.pow(0.5, Math.max(0, zdaj - z[2]) / POL_ZIVLJENJA) * (enak ? 2 : 1);
+      ocene[z[1]] = (ocene[z[1]] || 0) + utez;
+    });
+    return ocene;
+  }
+  // Seznam po naucenem (stabilno: pri enaki oceni ostane dosedanji vrstni red).
+  function poUcenju(seznam, N, kljuc) {
+    return seznam.map(function (x, i) { return [N[kljuc(x)] || 0, i, x]; })
+      .sort(function (a, b) { return (b[0] - a[0]) || (a[1] - b[1]); }).map(function (y) { return y[2]; });
+  }
+  function najboljNauceni(vnosi, N) {
+    var naj = -1, najO = 0;
+    vnosi.forEach(function (v, i) { var o = N[kljucZadetka(v)] || 0; if (o > najO) { najO = o; naj = i; } });
+    return najO >= PRAG_UCENJA ? naj : -1;
+  }
   function imeVnosa(v) {
     if (v.vrsta === "datoteka" || v.vrsta === "medij") return v.d.naslov || v.d.ime || "";
     if (v.vrsta === "zapisek") return v.z.naslov || "";
     return "";
   }
-  function privzetiZadetek(vnosi, q) {
+  function privzetiZadetek(vnosi, q, N) {
+    // Kar je uporabnik za tak niz ze izbral, je prvo (tudi splet - ce je takrat izbral splet).
+    var nauceni = N ? najboljNauceni(vnosi, N) : -1;
+    if (nauceni >= 0) return nauceni;
     var I_ = typeof SafeerIskanje !== "undefined" ? SafeerIskanje : null;
     if (I_ && q && I_.jeNaslov(q)) return 0;
     var prvi = 0, rang = 0;
@@ -2721,6 +2767,8 @@
     I.zadnji = q; I.rocno = false;
     if (!q) { I.poEnter = false; I.caka = false; skrijZadetke(); return; }
     var ql = kljucIskanja(q), besede = besedeIskanja(q);
+    var nauceno = naucenaOcena(nizUcenja(q));
+    I.nauceno = nauceno;
     I.caka = true;
     var skupine = [];
     // Programi naprav (ze nalozeni, potrjeni seznami)
@@ -2731,7 +2779,10 @@
       klic("programi").then(function (s) {
         // Programi in orodja za nastavitve sistema (Cinnamon, Mint) - vsaka skupina do 5 zadetkov.
         var vsi = (s || []).filter(function (p) { return !p.skrit && ujemaZadetek(p.ime + " " + (p.splosno || "") + " " + (p.kljucne || []).join(" "), besede); })
-          .sort(function (a, b) { return (ocenaPrograma(b, ql) - ocenaPrograma(a, ql)) || ((b.uporaba || 0) - (a.uporaba || 0)); });
+          .sort(function (a, b) {
+            return ((nauceno["program:" + b.id] || 0) - (nauceno["program:" + a.id] || 0)) ||
+              (ocenaPrograma(b, ql) - ocenaPrograma(a, ql)) || ((b.uporaba || 0) - (a.uporaba || 0));
+          });
         var programi = vsi.filter(function (p) { return !p.nastavitev; }).slice(0, 5);
         programi.nastavitve = vsi.filter(function (p) { return p.nastavitev; }).slice(0, 5);
         return programi;
@@ -2759,6 +2810,10 @@
         var nast = programi.nastavitve || [];
         // Enter brez izbire: program, sicer nastavitev, katere ime se z nizom zacne, sicer Safeer OS ali naprava.
         var nastPoImenu = nast.filter(function (p) { return ocenaPrograma(p, ql) >= 2; })[0];
+        var kandidati = programi.concat(nast).map(function (p) { return { vrsta: "program", p: p }; }).concat(safeer, naprave);
+        var nauceni = najboljNauceni(kandidati, nauceno);
+        if (nauceni >= 0) { I.privzetiV = kandidati[nauceni]; izberiZadetek(kandidati[nauceni]); return; }
+        I.privzetiV = programi.length ? { vrsta: "program", p: programi[0] } : nastPoImenu ? { vrsta: "program", p: nastPoImenu } : null;
         izberiZadetek(programi.length ? { vrsta: "program", p: programi[0] } : nastPoImenu ? { vrsta: "program", p: nastPoImenu } :
           safeer.length ? safeer[0] : napravaPoImenu || { vrsta: "splet", q: q });
       });
@@ -2773,12 +2828,12 @@
       if (safeer.length) skupine.push({ naslov: t("skSafeer"), vnosi: safeer });
       if (naprave.length) skupine.push({ naslov: t("skNaprave"), vnosi: naprave });
       if (prg.length) skupine.push({ naslov: t("skProgramiNaprav"), vnosi: prg.map(function (p) { return { vrsta: "prgNaprave", p: p }; }) });
-      if (r[1].length) skupine.push({ naslov: t("skDatoteke"), vnosi: r[1].map(function (d) { return { vrsta: "datoteka", d: d }; }) });
-      if (r[3].length) skupine.push({ naslov: t("skZapiski"), vnosi: r[3].map(function (z) { return { vrsta: "zapisek", z: z }; }) });
+      if (r[1].length) skupine.push({ naslov: t("skDatoteke"), vnosi: poUcenju(r[1].map(function (d) { return { vrsta: "datoteka", d: d }; }), nauceno, kljucZadetka) });
+      if (r[3].length) skupine.push({ naslov: t("skZapiski"), vnosi: poUcenju(r[3].map(function (z) { return { vrsta: "zapisek", z: z }; }), nauceno, kljucZadetka) });
       // Mediji: zadetki iz krajevne knjiznice, na koncu pa pot v Medijski center. Katalog isce sele tam - med
       // tipkanjem na namizju virov ne sprasujemo in naslovov iz kataloga ne kazemo.
-      var mediji = r[2].map(function (d) { return { vrsta: "medij", d: d }; })
-        .concat(r[4].map(function (k) { return { vrsta: "katalog", k: k }; }));
+      var mediji = poUcenju(r[2].map(function (d) { return { vrsta: "medij", d: d }; })
+        .concat(r[4].map(function (k) { return { vrsta: "katalog", k: k }; })), nauceno, kljucZadetka);
       if (q.length >= 2) mediji.push({ vrsta: "mediji", q: q });
       if (mediji.length) skupine.push({ naslov: t("skMediji"), vnosi: mediji });
       izrisiZadetke(skupine);
@@ -2832,7 +2887,8 @@
       });
     });
     // Na namizju Enter odpre program, ce se kateri ujema (kot meni Start); splet ostane prva vrstica in Shift+Enter.
-    if (!I.rocno) I.izbran = privzetiZadetek(I.zadetki.map(function (b) { return b._v; }), I.zadnji);
+    if (!I.rocno) I.izbran = privzetiZadetek(I.zadetki.map(function (b) { return b._v; }), I.zadnji, I.nauceno);
+    I.privzetiV = I.zadetki[I.izbran] ? I.zadetki[I.izbran]._v : null;
     z.hidden = false; $("iskalnoPolje").setAttribute("aria-expanded", "true");
     oznaciZadetek();
   }
@@ -2842,7 +2898,17 @@
     var b = I.zadetki[I.izbran]; if (b) b.scrollIntoView({ block: "nearest" });
   }
   function skrijZadetke() { $("zadetki").hidden = true; $("iskalnoPolje").setAttribute("aria-expanded", "false"); I.zadetki = []; }
+  // Izbira gre v ucenje lupe; »prvi« pove, ali je bil to zadetek, ki ga je lupa ponudila prvega (merilo uspeha).
+  function zapomniIzbiro(v) {
+    var ql = nizUcenja(I.zadnji || ""), k = kljucZadetka(v);
+    if (!ql || !k) return;
+    var prvi = !!I.privzetiV && kljucZadetka(I.privzetiV) === k;
+    U.izbire.push([ql, k, Math.round(Date.now() / 1000), prvi]);
+    if (U.izbire.length > NAJVEC_IZBIR) U.izbire.shift();
+    klic("lupaZapomni", [ql, k, prvi]).catch(function () {});
+  }
   function izberiZadetek(v) {
+    zapomniIzbiro(v);
     skrijZadetke();
     if (v.vrsta === "splet") odpriSplet(v.q);
     else if (v.vrsta === "program") klic("zazeni", [v.p.id]);
