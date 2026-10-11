@@ -418,37 +418,56 @@ def verify_bundle(bundle_bytes: bytes, manifest: Manifest, trusted_keys: dict) -
 # --------------------------------------------------------------------------------------------------
 
 class ThreatIndex:
-    """Constant-time lookups for the four rule kinds. Immutable after construction."""
+    """Lookups for the four rule kinds in compact sorted arrays of 64-bit keyed hashes (about 9 bytes per rule instead
+    of ~600 in Python dicts and strings - 208 000 rules took 126 MiB on 11 Oct 2026). Immutable after construction.
+    A false match needs a 64-bit collision (~1e-14 per lookup at this size)."""
+
+    _KATEGORIJE = ("botnet_c2", "malware", "phishing", "scam", "tracker", "ads")
 
     def __init__(self, rules=()):
-        self._suffix = {}
-        self._hosts = {}
-        self._urls = {}
+        from array import array
+        zbirke = {"d": {}, "h": {}, "u": {}}
         for value, kind, category, _source in rules:
             if kind == "domain":
-                node = self._suffix
-                for label in reversed(value.split(".")):
-                    node = node.setdefault(label, {})
-                node["\0"] = _more_severe(node.get("\0"), category)
+                vrsta = "d"
             elif kind in ("hostname", "ipv4", "ipv6"):
-                self._hosts[value] = _more_severe(self._hosts.get(value), category)
+                vrsta = "h"
             elif kind == "url":
-                self._urls[value] = _more_severe(self._urls.get(value), category)
+                vrsta = "u"
+            else:
+                continue
+            k = _kljuc(vrsta, value)
+            zbirke[vrsta][k] = _more_severe(zbirke[vrsta].get(k), category)
+        self._kljuci, self._kategorije = {}, {}
+        for vrsta, d in zbirke.items():
+            urejeno = sorted(d)
+            self._kljuci[vrsta] = array("Q", urejeno)
+            self._kategorije[vrsta] = bytes(self._KATEGORIJE.index(d[k]) if d[k] in self._KATEGORIJE else 255
+                                            for k in urejeno)
+        self._ima_url = len(self._kljuci["u"]) > 0
         self.size = len(rules)
+
+    def _najdi(self, vrsta: str, value: str):
+        from bisect import bisect_left
+        kljuci = self._kljuci[vrsta]
+        if not kljuci:
+            return None
+        k = _kljuc(vrsta, value)
+        i = bisect_left(kljuci, k)
+        if i < len(kljuci) and kljuci[i] == k:
+            c = self._kategorije[vrsta][i]
+            return self._KATEGORIJE[c] if c < len(self._KATEGORIJE) else None
+        return None
 
     def match_host(self, host: str):
         """Considers every rule covering the host; the most severe category wins."""
         host = _normalize_host(host)
         if not host:
             return None
-        best = self._hosts.get(host)
-        node = self._suffix
-        for label in reversed(host.split(".")):
-            node = node.get(label)
-            if node is None:
-                break
-            if "\0" in node:
-                best = _more_severe(best, node["\0"])
+        best = self._najdi("h", host)
+        oznake = host.split(".")
+        for i in range(len(oznake)):
+            best = _more_severe(best, self._najdi("d", ".".join(oznake[i:])))
         return best
 
     def match_url(self, url: str):
@@ -465,7 +484,7 @@ class ThreatIndex:
         except ValueError:
             return None
         best = self.match_host(host)
-        if not self._urls or parts.scheme not in ("http", "https"):
+        if not self._ima_url or parts.scheme not in ("http", "https"):
             return best
         normalized = _normalize_host(host)
         if not normalized:
@@ -474,7 +493,17 @@ class ThreatIndex:
         if port is not None and not ((parts.scheme == "http" and port == 80) or (parts.scheme == "https" and port == 443)):
             netloc = f"{netloc}:{port}"
         key = f"{parts.scheme}://{netloc}{parts.path or '/'}" + (f"?{parts.query}" if parts.query else "")
-        return _more_severe(best, self._urls.get(key))
+        return _more_severe(best, self._najdi("u", key))
+
+
+def _brez_pravil(bundle):
+    """Bundle za pomnilnik: pravila so ze v kompaktnem indeksu, seznam (~100 MiB) ne ostane v RAM-u."""
+    from dataclasses import replace
+    return replace(bundle, rules=())
+
+
+def _kljuc(vrsta: str, value: str) -> int:
+    return int.from_bytes(hashlib.blake2b((vrsta + ":" + value).encode("utf-8"), digest_size=8).digest(), "big")
 
 
 def _more_severe(current, candidate):
@@ -593,8 +622,8 @@ class SignedFeedStore:
             self.last_error = f"stored feed unavailable: {exc}"
             return False
         with self._lock:
-            self.bundle = bundle
             self.index = ThreatIndex(bundle.rules)
+            self.bundle = _brez_pravil(bundle)
         return True
 
     def _install(self, manifest: Manifest, manifest_bytes: bytes, bundle_bytes: bytes) -> None:
@@ -627,7 +656,7 @@ class SignedFeedStore:
                 index = ThreatIndex(bundle.rules)
                 self._install(manifest, manifest_bytes, bundle_bytes)
                 with self._lock:
-                    self.bundle = bundle
+                    self.bundle = _brez_pravil(bundle)
                     self.index = index
                 self.last_error = ""
                 return True

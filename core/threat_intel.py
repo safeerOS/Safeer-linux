@@ -44,6 +44,17 @@ def _load_feed_module():
     return module
 
 
+def _vrni_pomnilnik() -> None:
+    """Preverjanje paketa (JSON z 200 000 pravili) pusti za sabo prazne strani: vrnemo jih sistemu."""
+    try:
+        import ctypes
+        import gc
+        gc.collect()
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:  # noqa: BLE001 - drug sistem (Windows): nic
+        pass
+
+
 def default_data_dir(app_dir_name: str) -> Path:
     if os.name == "nt":
         base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~\\AppData\\Local")
@@ -103,6 +114,7 @@ class ThreatIntelService:
             pass
         finally:
             self.loaded.set()
+            _vrni_pomnilnik()
         if self._stop.wait(self.first_delay):
             return
         while not self._stop.is_set():
@@ -129,7 +141,7 @@ class ThreatIntelService:
         return {
             "enabled": self.enabled,
             "version": bundle.manifest.version if bundle else 0,
-            "rules": len(bundle.rules) if bundle else 0,
+            "rules": self.store.index.size if bundle else 0,
             "expires_at": bundle.manifest.expires_at.strftime("%Y-%m-%dT%H:%M:%SZ") if bundle else "",
             "last_error": self.store.last_error,
         }

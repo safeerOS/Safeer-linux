@@ -56,3 +56,22 @@ class FilterBrezPretvorbe(unittest.TestCase):
         a.start(); a.loaded.wait(5); a.stop()
         self.assertEqual(klici, [], "preveden seznam se ob zagonu ne pretvarja znova")
         self.assertEqual(a.list_sha256, a.saved_sha256())
+
+
+class KompaktenIndeks(unittest.TestCase):
+    def test_enako_kot_prej(self):
+        from core import signed_feed as f
+        i = f.ThreatIndex([("zlo.example", "domain", "phishing", 0), ("sub.zlo.example", "domain", "malware", 0),
+                           ("gost.example", "hostname", "botnet_c2", 0), ("https://ok.example/pot", "url", "phishing", 0),
+                           ("1.2.3.4", "ipv4", "malware", 0)])
+        self.assertEqual(i.match_host("zlo.example"), "phishing")
+        self.assertEqual(i.match_host("a.b.zlo.example"), "phishing")
+        self.assertEqual(i.match_host("x.sub.zlo.example"), "malware")       # huje zmaga
+        self.assertEqual(i.match_host("gost.example"), "botnet_c2")
+        self.assertIsNone(i.match_host("x.gost.example"))                     # hostname ni domena
+        self.assertIsNone(i.match_host("dobro.example"))
+        self.assertEqual(i.match_host("1.2.3.4"), "malware")
+        self.assertEqual(i.match_url("https://ok.example/pot"), "phishing")
+        self.assertIsNone(i.match_url("https://ok.example/drugo"))
+        self.assertEqual(i.match_url("https://WWW.zlo.example/x"), "phishing")
+        self.assertEqual(i.size, 5)
