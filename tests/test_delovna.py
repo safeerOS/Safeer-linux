@@ -38,7 +38,9 @@ class TestDelovnaStran(unittest.TestCase):
         py = beri("safeer_os.py")
         metode = set(re.findall(r'klic\("([A-Za-z]+)"', self.js))
         self.assertTrue(metode, "ni najdenih klicev mostu")
-        manjka = sorted(m for m in metode if '"%s":' % m not in py)
+        # Klici kataloga Medijskega centra gredo skozi os_katalog.Katalog.METODE (most jih preda katalogu).
+        katalog = beri("core", "os_katalog.py")
+        manjka = sorted(m for m in metode if '"%s":' % m not in py and '"%s":' % m not in katalog)
         self.assertEqual(manjka, [], "delovna.js klice metode, ki jih safeer_os.py nima: %s" % manjka)
 
     def test_brez_demonstracijskih_podatkov(self):
@@ -151,7 +153,7 @@ class TestDelovnaStran(unittest.TestCase):
         programe (I.poEnter), da ne odpre spleta samo zato, ker zadetki se niso prisli."""
         js, html = beri("assets", "os", "delovna.js"), beri("assets", "os", "delovna.html")
         for niz in ("function ocenaPrograma(p, ql)", "I.poEnter = true", 'e.key === "Enter" && e.shiftKey',
-                    'izberiZadetek(programi.length ? { vrsta: "program", p: programi[0] } : safeer.length ? safeer[0] : napravaPoImenu || { vrsta: "splet", q: q })',
+                    'izberiZadetek(programi.length ? { vrsta: "program", p: programi[0] } : nastPoImenu ? { vrsta: "program", p: nastPoImenu } :',
                     'if (!I.rocno) I.izbran = privzetiZadetek(I.zadetki.map(function (b) { return b._v; }), I.zadnji);'):
             self.assertIn(niz, js)
         self.assertIn("Shift+Enter splet", js)
@@ -304,9 +306,17 @@ assert.strictEqual(privzetiZadetek([splet, { vrsta: "zapisek", z: { naslov: "Nak
         self.assertIn('odpriVir({ vrsta: "naprava", id: v.n.id, ime: v.n.ime, pot: [] });', js)
         self.assertIn('else if (v.vrsta === "mediji") klic("odpriRazdelek", ["mediji:" + v.q]);', js)
         self.assertIn('if (kam.indexOf("mediji:") === 0) {', os_js)
-        # Katalog se med tipkanjem na namizju ne sprasuje (vsaka crka bi sla k virom) in naslovov iz njega ne kazemo.
-        self.assertNotIn("mediaKatalog", js)
-        self.assertNotIn("mediaIsciPredpomnilnik", js)
+        # Lastnik, 11. 10. 2026: lupa isce tudi po katalogu Medijskega centra - med tipkanjem samo v predpomnilniku na
+        # disku (vsaka crka ne sme iti k virom po omrezju), film/serija odpre Medijski center, glasba/radio se predvaja.
+        self.assertNotIn('klic("mediaKatalog"', js)
+        self.assertIn('q.length >= 3 ? klic("mediaIsciPredpomnilnik", [q])', js)
+        self.assertIn('else if (v.vrsta === "katalog") odpriIzKataloga(v.k);', js)
+        self.assertIn('klic("odpriRazdelek", ["mediji:" + (k.naslov || "")]);', js)
+        self.assertIn('klic("mediaPredvajaj", [k.id])', js)
+        # Lastnik, 11. 10. 2026: lupa najde tudi orodja za nastavitve sistema, v svoji skupini »Nastavitve«.
+        self.assertEqual(js.count('skNastavitve: "'), 2)
+        self.assertIn('programi.nastavitve = vsi.filter(function (p) { return p.nastavitev; }).slice(0, 5);', js)
+        self.assertIn('skupine.push({ naslov: t("skNastavitve")', js)
         # Filtra v ploscah uporabljata ista pravila kot iskanje.
         self.assertIn('if (besede.length && !ujemaVse(e.ime, besede)) return false;', js)
         self.assertIn('if (besede.length && !ujemaVse(p.ime + " " + (p.opis || ""), besede)) return false;', js)

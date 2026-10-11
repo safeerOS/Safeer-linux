@@ -1618,10 +1618,14 @@ class SafeerOS(Gtk.Application):
         if naslov.startswith(("http://", "https://")) and self._odpri_v_brskalniku(naslov):
             self._skrij_splet_na_namizju()
 
-    def _tipka_splet_na_namizju(self, _w, dogodek) -> bool:
-        if Gdk.keyval_name(dogodek.keyval) == "Escape":
-            return self._skrij_splet_na_namizju()
-        return False
+    def _tipka_splet_na_namizju(self, okno, dogodek) -> bool:
+        """Esc najprej dobi stran (izhod iz celozaslonskega videa, zapiranje okenca na strani). WebKit tipko poslje
+        strani in, ce je stran ne porabi, jo poslje oknu znova - sele takrat Esc skrije okno Splet."""
+        if Gdk.keyval_name(dogodek.keyval) != "Escape":
+            return False
+        if okno.propagate_key_event(dogodek):
+            return True
+        return self._skrij_splet_na_namizju()
 
     def _odpri_v_brskalniku(self, niz: str) -> bool:
         """Spletni zadetek iskanja v PRIVZETEM brskalniku (xdg): naslov http(s) ali iskanje z nastavljenim
