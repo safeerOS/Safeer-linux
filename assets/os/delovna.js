@@ -25,6 +25,7 @@
   // ------------------------------------------------------------------ besedila (SL, EN)
   var BESEDILA = {
     sl: {
+      mikrofonNaslov: "Išči z glasom", govorPoslusam: "Poslušam … povej, kaj iščeš", govorPrepoznavam: "Prepoznavam …", govorTisina: "Nisem slišal ničesar. Pritisni mikrofon in povej znova.", govorNiPodprto: "Iskanje z glasom na tem računalniku ni na voljo.", govorMikrofon: "Mikrofona ni mogoče odpreti.", govorNapaka: "Prepoznava govora ni uspela.", govorNamestiNaslov: "Iskanje z glasom", govorNamestiOpis: "Govor se prepozna na tem računalniku – nič ne gre na splet. Za to je treba enkrat prenesti prepoznavo govora ({mb} MB).", govorPrenesi: "Prenesi", govorNeZdaj: "Ne zdaj", govorPrenasam: "Prenašam prepoznavo govora … {o} %", govorPrekini: "Prekini", govorPrenosNapaka: "Prenos ni uspel. Poskusi znova.",
       iskanjePh: "Išči po spletu, programih, datotekah in medijih …", iskanjeNamig: "Enter odpre označeno · Shift+Enter splet",
       plosceNaslov: "Plošče", medijiNaslov: "Medijski center", datotekeNaslov: "Datoteke", programiNaslov: "Programi",
       zamenjajStrani: "Zamenjaj levo in desno", ponastavi: "Privzeta postavitev", vecjiTekst: "Večje besedilo",
@@ -219,6 +220,7 @@
       nSmeti: "V Smeti ni šlo (morda nimaš dovoljenja).", nSplosno: "Ni uspelo."
     },
     en: {
+      mikrofonNaslov: "Search by voice", govorPoslusam: "Listening … say what you are looking for", govorPrepoznavam: "Recognising …", govorTisina: "I did not hear anything. Press the microphone and speak again.", govorNiPodprto: "Voice search is not available on this computer.", govorMikrofon: "The microphone cannot be opened.", govorNapaka: "Speech recognition failed.", govorNamestiNaslov: "Search by voice", govorNamestiOpis: "Speech is recognised on this computer – nothing goes to the internet. Speech recognition has to be downloaded once ({mb} MB).", govorPrenesi: "Download", govorNeZdaj: "Not now", govorPrenasam: "Downloading speech recognition … {o} %", govorPrekini: "Cancel", govorPrenosNapaka: "The download failed. Try again.",
       iskanjePh: "Search the web, apps, files and media …", iskanjeNamig: "Enter opens the selection · Shift+Enter web",
       plosceNaslov: "Panels", medijiNaslov: "Media center", datotekeNaslov: "Files", programiNaslov: "Apps",
       zamenjajStrani: "Swap left and right", ponastavi: "Default layout", vecjiTekst: "Larger text",
@@ -2898,6 +2900,69 @@
     var b = I.zadetki[I.izbran]; if (b) b.scrollIntoView({ block: "nearest" });
   }
   function skrijZadetke() { $("zadetki").hidden = true; $("iskalnoPolje").setAttribute("aria-expanded", "false"); I.zadetki = []; }
+  /* Iskanje z glasom (core/os_govor.py, na tem racunalniku). Prvi pritisk: ce prepoznave se ni, jo ponudimo prenesti
+     (velikost pove Safeer OS); sicer poslusamo. Med poslusanjem drugi pritisk konca govor, Esc ga preklice.
+     Prepoznano besedilo gre v polje in se isce kot natipkano - nic se ne odpre samo od sebe. */
+  var G = { stanje: "" };
+  function mikrofonKlik() {
+    if (G.stanje === "poslusam") { klic("govorUstavi"); return; }
+    if (G.stanje === "prepoznavam" || G.stanje === "namescam") return;
+    klic("govorStanje").then(function (s) {
+      if (!s || !s.podprto) obvesti(t("govorNiPodprto"));
+      else if (s.namescam) prikaziPrenosGovora(0);
+      else if (!s.namesceno) ponudiPrenosGovora(s.prenos || 0);
+      else zacniPoslusati();
+    }).catch(function () { obvesti(t("govorNiPodprto")); });
+  }
+  function zacniPoslusati() {
+    klic("govorPoslusaj").then(function (ok) { if (!ok) obvesti(t("govorNapaka")); }).catch(function () { obvesti(t("govorNapaka")); });
+  }
+  function plosaGovora(naslov, opis) {
+    var z = $("zadetki"); z.innerHTML = ""; I.zadetki = [];
+    var p = el("div", "govor-plosca");
+    p.appendChild(el("p", "govor-naslov", naslov));
+    if (opis) p.appendChild(el("p", "govor-opis", opis));
+    z.appendChild(p); z.hidden = false; $("iskalnoPolje").setAttribute("aria-expanded", "true");
+    return p;
+  }
+  function gumbGovora(gumbi, besedilo, glavni, fn) {
+    var g = el("button", "cip" + (glavni ? " glavni-gumb" : ""), besedilo); g.type = "button";
+    g.addEventListener("click", fn); gumbi.appendChild(g); return g;
+  }
+  function ponudiPrenosGovora(bajtov) {
+    var p = plosaGovora(t("govorNamestiNaslov"), t("govorNamestiOpis", { mb: Math.max(1, Math.round(bajtov / 1e6)) }));
+    var gumbi = el("div", "gumbi"); p.appendChild(gumbi);
+    gumbGovora(gumbi, t("govorNeZdaj"), false, skrijZadetke);
+    gumbGovora(gumbi, t("govorPrenesi"), true, function () {
+      klic("govorNamesti").then(function (ok) { if (ok) prikaziPrenosGovora(0); else { skrijZadetke(); obvesti(t("govorNiPodprto")); } });
+    }).focus();
+  }
+  function prikaziPrenosGovora(odstotek) {
+    G.stanje = "namescam";
+    var p = plosaGovora(t("govorPrenasam", { o: odstotek }));
+    var vrstica = document.createElement("progress"); vrstica.max = 100; vrstica.value = odstotek; p.appendChild(vrstica);
+    var gumbi = el("div", "gumbi"); p.appendChild(gumbi);
+    gumbGovora(gumbi, t("govorPrekini"), false, function () { klic("govorPrekliciNamestitev"); });
+  }
+  function govorDogodek(d) {
+    var g = $("gumbMikrofon"), polje = $("iskalnoPolje"), v = d.vrsta;
+    G.stanje = (v === "poslusam" || v === "prepoznavam" || v === "namescam") ? v : "";
+    g.classList.toggle("poslusam", v === "poslusam");
+    g.classList.toggle("prepoznavam", v === "prepoznavam");
+    if (v === "poslusam") { polje.value = ""; skrijZadetke(); polje.focus(); }
+    polje.placeholder = v === "poslusam" ? t("govorPoslusam") : v === "prepoznavam" ? t("govorPrepoznavam") : t("iskanjePh");
+    if (v === "namescam") prikaziPrenosGovora(d.odstotek || 0);
+    else if (v === "namesceno") { skrijZadetke(); zacniPoslusati(); }
+    else if (v === "besedilo") {
+      if (d.besedilo) { polje.value = d.besedilo; polje.focus(); clearTimeout(I.casovnik); isci(d.besedilo); }
+      else obvesti(t("govorTisina"));
+    }
+    else if (v === "tisina") obvesti(t("govorTisina"));
+    else if (v === "napaka") {
+      skrijZadetke();
+      if (d.razlog !== "preklicano") obvesti(t(d.razlog === "mikrofon" ? "govorMikrofon" : d.razlog === "prenos" ? "govorPrenosNapaka" : "govorNapaka"));
+    }
+  }
   // Izbira gre v ucenje lupe; »prvi« pove, ali je bil to zadetek, ki ga je lupa ponudila prvega (merilo uspeha).
   function zapomniIzbiro(v) {
     var ql = nizUcenja(I.zadnji || ""), k = kljucZadetka(v);
@@ -2985,12 +3050,18 @@
   var zadnjeOsvezevanje = Date.now();
   function vezi() {
     var polje = $("iskalnoPolje");
+    var mik = $("gumbMikrofon");
+    mik.setAttribute("aria-label", t("mikrofonNaslov")); mik.title = t("mikrofonNaslov");
+    mik.addEventListener("click", mikrofonKlik);
     polje.addEventListener("input", function () { clearTimeout(I.casovnik); var q = polje.value; I.casovnik = setTimeout(function () { isci(q); }, 220); });
     polje.addEventListener("keydown", function (e) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         if (!I.zadetki.length) return;
         e.preventDefault(); I.rocno = true; I.izbran = (I.izbran + (e.key === "ArrowDown" ? 1 : -1) + I.zadetki.length) % I.zadetki.length; oznaciZadetek();
-      } else if (e.key === "Escape") { skrijZadetke(); polje.value = ""; I.poEnter = false; }
+      } else if (e.key === "Escape") {
+        if (G.stanje === "poslusam" || G.stanje === "prepoznavam") klic("govorPreklici");
+        skrijZadetke(); polje.value = ""; I.poEnter = false;
+      }
       else if (e.key === "Enter" && e.shiftKey) {
         // Shift+Enter: vedno splet, tudi ce se ujema program.
         e.preventDefault();
@@ -3154,6 +3225,7 @@
     // Dogodki iz Safeer OS (enako ime kot na glavni strani): osvezi, kar se je spremenilo.
     window.safeerOsDogodek = function (vrsta) {
       if (vrsta === "medijskaKnjiznica") medijOsvezi();
+      else if (vrsta === "govor") govorDogodek(arguments[1] || {});
       else if (vrsta === "ozadje") {
         var u = arguments[1] || "";
         document.documentElement.style.setProperty("--ozadje-slika", u ? 'url("' + u + '")' : "none");

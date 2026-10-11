@@ -45,7 +45,7 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 
-from core import (os_datoteke, os_katalog, os_knjiznica, os_lupa, os_oblak_igre, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
+from core import (os_datoteke, os_govor, os_katalog, os_knjiznica, os_lupa, os_oblak_igre, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
                   os_media_besedila, os_mediji, os_posodobitve, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost,
                   os_torrent, os_torrent_tok, os_zapiski, os_zvok, knjiznica_kroga, os_ponudniki_programov, os_github_programi)
 from core import budnost, odlozisce_varuh, os_iskalnik, os_odpri_z, os_pretvorba_datotek  # noqa: E402
@@ -966,6 +966,7 @@ class SafeerOS(Gtk.Application):
         self.programi = os_programi.Programi(self.shramba)
         self.zapiski = os_zapiski.Zapiski(ZAPISKI_POT)
         self.lupa = os_lupa.Ucenje()
+        self.govor = os_govor.Govor()
         self.sporocila = os_sporocila.SporocilaOS()
         # Safeer Chat gre po Linku, ki ga drzi Safeer Control (D-Bus).
         self.sporocila.poslji_klepet = lambda n, b, c: _control_naprave("Klepet", n, b, c).get("stanje") \
@@ -2146,6 +2147,10 @@ class SafeerOS(Gtk.Application):
     #: Dogodki vrste skladb iz kataloga (konec, naslednja/prejsnja, vgradni predvajalnik): vrsto vodi stran.
     DOGODKI_VRSTE = frozenset({"mediaKonec", "mediaVrstaUkaz", "mediaYt", "mediaYtZaprt", "mediaYtNapaka"})
 
+    def _govor_dogodek(self, vrsta: str, podatki: dict) -> None:
+        """Iz niti govora: stanje (poslusam, prepoznavam, besedilo, ...) gre na namizje."""
+        self._dogodek("govor", dict(podatki or {}, vrsta=vrsta), self.pogled_delovna)
+
     def _dogodek(self, vrsta: str, podatki, pogled=None) -> None:
         """Dogodek strani: vsem pogledom ali samo [pogled]. Medijski center je lahko odprt dvakrat (glavno okno in
         Safeer Player): dogodke vrste skladb dobi samo stran, ki je predvajanje zacela, sicer bi ob koncu skladbe vsaka
@@ -2235,6 +2240,13 @@ class SafeerOS(Gtk.Application):
             "lupaUcenje": self.lupa.podatki,
             "lupaZapomni": lambda: self.lupa.zapomni(*(list(a or [])[:3])),
             "lupaPozabi": self.lupa.pozabi,
+            # Govor v lupi (core/os_govor.py): prepoznava na tem racunalniku; dogodki gredo strani kot »govor«.
+            "govorStanje": self.govor.stanje,
+            "govorNamesti": lambda: self.govor.namesti(self._govor_dogodek),
+            "govorPrekliciNamestitev": self.govor.preklici_namestitev,
+            "govorPoslusaj": lambda: self.govor.poslusaj(_jezik(), self._govor_dogodek),
+            "govorUstavi": self.govor.ustavi,
+            "govorPreklici": self.govor.preklici,
             "zapiskiSeznam": lambda: self.zapiski.seznam(str(a[0]) if a else ""),
             "zapisekDobi": lambda: self.zapiski.dobi(str(a[0]) if a else ""),
             "zapisekShrani": lambda: self.zapiski.shrani(
