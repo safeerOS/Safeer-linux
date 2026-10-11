@@ -47,7 +47,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 from core import (os_datoteke, os_katalog, os_knjiznica, os_oblak_igre, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
                   os_media_besedila, os_mediji, os_posodobitve, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost,
                   os_torrent, os_torrent_tok, os_zapiski, os_zvok, knjiznica_kroga)
-from core import budnost, odlozisce_varuh, os_iskalnik, os_odpri_z  # noqa: E402
+from core import budnost, odlozisce_varuh, os_iskalnik, os_odpri_z, os_pretvorba_datotek  # noqa: E402
 
 # Preklop vhoda zvocne vrstice JBL je samo interni poskus: uradni paket modula ne vsebuje
 # (packaging/install_os_payload.sh), zato ga uvozimo le, ce je prisoten (zagon iz repozitorija).
@@ -1997,6 +1997,11 @@ class SafeerOS(Gtk.Application):
             "shrambaStanje": lambda: _control_naprave("ShrambaStanje", str(a[0]) if a else ""),
             "shrambaIzbrisi": lambda: _control_naprave("ShrambaIzbrisi", str(a[0]) if a else ""),
             "shrambaObdrzi": lambda: _control_naprave("ShrambaObdrzi", str(a[0]) if a else ""),
+            # Slika, zvok, dokument: pretvorba na tem racunalniku (ImageMagick, ffmpeg, LibreOffice), brez spleta.
+            "pretvorbaMoznosti": lambda: os_pretvorba_datotek.moznosti(str(a[0]) if a else ""),
+            "pretvoriDatoteko": lambda: os_pretvorba_datotek.pretvorbe().zacni(str(a[0]) if a else "",
+                                                                              str(a[1]) if len(a) > 1 else ""),
+            "pretvorbaDatotekeStanje": lambda: os_pretvorba_datotek.pretvorbe().stanje(str(a[0]) if a else ""),
             "pretvoriVideo": lambda: _control_naprave("PretvorbaZacni", str(a[0]) if a else ""),
             "pretvorbaStanje": lambda: _control_naprave("PretvorbaStanje", str(a[0]) if a else ""),
             "pretvorbaPrenesi": lambda: _control_naprave("PretvorbaPrenesi", str(a[0]) if a else ""),

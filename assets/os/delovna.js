@@ -139,6 +139,10 @@
       shrSpremenjena: "Datoteka se je medtem spremenila – izvirnika ne brišem. Shrani jo znova.",
       shrNapaka: "Shranjevanje na drugo napravo ni uspelo ({koda}).", shrZapri: "Zapri", shrPrenosi: "Prenosi",
       najvecje: "Največje datoteke", niVelikih: "Ni datotek, večjih od 100 MB.",
+      pretvoriV: "Pretvori v …", ptdNaslov: "Pretvori »{ime}«", ptdIzberi: "V katero obliko? Izvirnik ostane.",
+      ptdPretvarjam: "Pretvarjam »{ime}« v {cilj} …", ptdKoncano: "Shranjeno ob izvirniku: {izhod} ({velikost}).",
+      ptdNapaka: "Pretvorba ni uspela ({koda}).", ptdNiOrodja: "Za to vrsto datotek manjka program: {orodje}.",
+      ptdNiMogoce: "Te datoteke ni mogoče pretvoriti.",
       pretvori: "Pretvori za televizor (1080p) …", prvIscem: "Iščem napravo z najboljšim strojnim kodirnikom za »{ime}« …",
       prvPrenasam: "Naprava {naprava} prenaša »{ime}« … {odst} %", prvPretvarjam: "Naprava {naprava} pretvarja »{ime}« … {odst} %",
       prvShranjujem: "Naprava {naprava} shranjuje pretvorjeni video …", prvKoncanoNaslov: "Video je pretvorjen",
@@ -282,6 +286,10 @@
       shrSpremenjena: "The file changed in the meantime – the original is not deleted. Store it again.",
       shrNapaka: "Storing on another device failed ({koda}).", shrZapri: "Close", shrPrenosi: "Downloads",
       najvecje: "Largest files", niVelikih: "No files larger than 100 MB.",
+      pretvoriV: "Convert to …", ptdNaslov: "Convert “{ime}”", ptdIzberi: "Which format? The original stays.",
+      ptdPretvarjam: "Converting “{ime}” to {cilj} …", ptdKoncano: "Saved next to the original: {izhod} ({velikost}).",
+      ptdNapaka: "Conversion failed ({koda}).", ptdNiOrodja: "A program for this kind of file is missing: {orodje}.",
+      ptdNiMogoce: "This file cannot be converted.",
       pretvori: "Convert for TV (1080p) …", prvIscem: "Looking for the device with the best hardware encoder for “{ime}” …",
       prvPrenasam: "{naprava} is fetching “{ime}” … {odst} %", prvPretvarjam: "{naprava} is converting “{ime}” … {odst} %",
       prvShranjujem: "{naprava} is saving the converted video …", prvKoncanoNaslov: "The video is converted",
@@ -1506,6 +1514,8 @@
       if (!e.mapa) m.push([t("posljiNaNapravo"), function () { izberiNapravoInPoslji([e.pot]); }]);
       if (!e.mapa) m.push([t("shraniNaNapravo"), function () { shraniNaNapravo(e); }]);
       if (!e.mapa && e.vrsta === "video") m.push([t("pretvori"), function () { pretvoriVideo(e); }]);
+      if (!e.mapa && (e.vrsta === "slika" || e.vrsta === "zvok" || e.vrsta === "dokument"))
+        m.push([t("pretvoriV"), function () { pretvoriDatoteko(e); }]);
       if (e.mapa) m.push([t("pretvoriMapo"), function () { pretvoriMapo(e); }]);
       m.push(["—"]);
       postavkeNovo(m, e.mapa ? e.pot : null);
@@ -1688,6 +1698,59 @@
     klic("shraniNaNapravo", [e.pot]).then(function (r) {
       if (!r || !r.ok) { napaka(r); return; }
       id = r.id; pokazi(r);
+    }).catch(function () { napaka(null); });
+  }
+
+  // Pretvorba slike, zvoka ali dokumenta na tem racunalniku (core/os_pretvorba_datotek.py): izbira oblike,
+  // napredek, rezultat ob izvirniku. Nic ne gre na splet.
+  function pretvoriDatoteko(e) {
+    var ovoj = el("div", "meni"); ovoj.setAttribute("role", "dialog");
+    ovoj.style.cssText = "position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);max-width:34em;padding:1em 1.2em";
+    var naslov = el("p", "meni-naslov", t("ptdNaslov", { ime: e.ime }));
+    var besedilo = el("p", "", t("ptdIzberi")); besedilo.style.cssText = "margin:.6em 0";
+    var oblike = el("div", ""); oblike.style.cssText = "display:flex;flex-wrap:wrap;gap:.5em;margin:.4em 0";
+    var gumbi = el("div", ""); gumbi.style.cssText = "display:flex;gap:.6em;justify-content:flex-end;margin-top:.8em";
+    var gZapri = el("button", "", t("shrZapri")); gZapri.type = "button";
+    gZapri.addEventListener("click", zapri); gumbi.appendChild(gZapri);
+    [naslov, besedilo, oblike, gumbi].forEach(function (x) { ovoj.appendChild(x); });
+    document.body.appendChild(ovoj);
+    var casovnik = 0;
+    function zapri() { clearTimeout(casovnik); ovoj.remove(); }
+    var ORODJA = { slika: "ImageMagick", zvok: "ffmpeg", besedilo: "LibreOffice", preglednica: "LibreOffice", predstavitev: "LibreOffice" };
+    function napaka(r) {
+      var k = (r && r.koda) || "napaka";
+      oblike.innerHTML = "";
+      besedilo.textContent = k === "ni_orodja" ? t("ptdNiOrodja", { orodje: ORODJA[r.skupina] || "?" })
+        : k === "ni_mogoce" ? t("ptdNiMogoce") : t("ptdNapaka", { koda: k });
+    }
+    function spremljaj(id, cilj) {
+      klic("pretvorbaDatotekeStanje", [id]).then(function (r) {
+        if (!r || !r.ok) { napaka(r); return; }
+        if (r.stanje === "koncano") {
+          besedilo.textContent = t("ptdKoncano", { izhod: r.izhod, velikost: velikost(r.velikost || 0) });
+          if (D.vir) odpriVir(D.vir);
+          try { gZapri.focus(); } catch (x) {}
+          return;
+        }
+        if (r.stanje === "napaka") { napaka(r); return; }
+        casovnik = setTimeout(function () { spremljaj(id, cilj); }, 700);
+      }).catch(function () { napaka(null); });
+    }
+    klic("pretvorbaMoznosti", [e.pot]).then(function (m) {
+      if (!m || !m.cilji || !m.cilji.length) { napaka({ koda: "ni_mogoce" }); return; }
+      if (!m.orodje) { napaka({ koda: "ni_orodja", skupina: m.skupina }); return; }
+      m.cilji.forEach(function (c, i) {
+        var g = el("button", "", c.toUpperCase()); g.type = "button";
+        g.addEventListener("click", function () {
+          oblike.innerHTML = ""; besedilo.textContent = t("ptdPretvarjam", { ime: e.ime, cilj: c.toUpperCase() });
+          klic("pretvoriDatoteko", [e.pot, c]).then(function (r) {
+            if (!r || !r.ok) { napaka(r); return; }
+            spremljaj(r.id, c);
+          }).catch(function () { napaka(null); });
+        });
+        oblike.appendChild(g);
+        if (i === 0) { try { g.focus(); } catch (x) {} }
+      });
     }).catch(function () { napaka(null); });
   }
 
