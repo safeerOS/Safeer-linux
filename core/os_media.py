@@ -3176,6 +3176,9 @@ class MediaCenter:
         return [x for x in items if str(x.get("jezik") or "") not in izklopljeni_jeziki]
 
     def _samo_jezik(self, items: list[dict], jezik: str) -> list[dict]:
+        return self._po_jeziku(items, jezik)[0]
+
+    def _po_jeziku(self, items: list[dict], jezik: str) -> tuple:
         """Izbran jezik vsebine (poleg zvrsti): ostane, kar je v tem jeziku. Jezik pove vir (TMDB, PeerTube, Jamendo,
         javna last, radio); za naslove z id-jem IMDb brez jezika vprasamo Wikidato (core/izvirni_jezik.py). Vnos,
         katerega jezika ne poznamo, se med izbiro ne kaze - izbira »slovenscina« ne sme kazati filmov, za katere ne
@@ -3194,7 +3197,7 @@ class MediaCenter:
         except Exception:
             znani = {}
         vprasani = set(vprasaj)
-        izid = []
+        izid, neznani = [], []
         for x in items:
             lastni = str(x.get("jezik") or "")
             if lastni:
@@ -3202,7 +3205,11 @@ class MediaCenter:
                     izid.append(x)
             elif x.get("imdb_id") in vprasani and jezik in znani.get(x["imdb_id"], ()):
                 izid.append(dict(x, jezik=jezik))
-        return izid
+            elif not (x.get("imdb_id") in vprasani and znani.get(x["imdb_id"])):
+                # Jezika ne pove ne vir ne Wikidata (npr. dodatek brez id-jev IMDb): ne trdimo, da je v izbranem
+                # jeziku, a ga tudi ne skrijemo - pride za vsebino v izbranem jeziku, pod »Jezik ni znan«.
+                neznani.append(dict(x, jezik_neznan=True))
+        return izid, neznani
 
     def catalog(self, query: str = "", kind: str = "vse", genre: str = "", page: int = 1,
                 razvrsti: str = "", izklopljeni: Iterable[str] = (), samo_lokalno: bool = False,
@@ -3322,8 +3329,12 @@ class MediaCenter:
                     0 if str(it.get("url")) in moji else 1))
         merged = self._filtriraj_jezike(merged, izklopljeni_jeziki)
         if jezik:
-            merged = self._samo_jezik(merged, jezik)
-        merged = self._razvrsti_vnose(merged, razvrsti)
+            # Lastnik, 11. 10. 2026: izbira jezika (npr. anglescina) je pokazala 0 filmov, ker dodatek jezika ne pove.
+            # Najprej vsebina v izbranem jeziku, nato tista z neznanim jezikom - nic ne izgine brez razloga.
+            v_jeziku, neznan = self._po_jeziku(merged, jezik)
+            merged = self._razvrsti_vnose(v_jeziku, razvrsti) + self._razvrsti_vnose(neznan, razvrsti)
+        else:
+            merged = self._razvrsti_vnose(merged, razvrsti)
         tmdb_strani = (self._ima_embed_vir(data) and not tmdb_izklopljen and tmdb_pages > 1
                        and kind in ("", "vse", "film", "serija"))
         total_pages = tmdb_pages if tmdb_strani else max(1, math.ceil(len(merged) / NA_STRAN))

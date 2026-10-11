@@ -188,3 +188,8 @@
 .kat-kartica:hover .kat-obdrzi, .kat-kartica:focus-visible .kat-obdrzi, .kat-kartica .kat-obdrzi.je { opacity: 1; }
 .kat-kartica .kat-obdrzi.je, .kat-kartica .kat-obdrzi:hover { background: var(--zelena); color: #060b11; }
 .kat-knjiznica-vrsta .kat-kartica .kat-meta .kat-obdrzano { color: var(--zelena); }
+
+/* Izbran jezik: vsebina, katere jezika vir ne pove, pride za vsebino v izbranem jeziku (lastnik, 11. 10. 2026). */
+.kat-jezik-neznan { grid-column: 1 / -1; margin: 14px 0 2px; }
+.kat-jezik-neznan h3 { margin: 0 0 2px; font-size: 16px; }
+.kat-jezik-neznan p { margin: 0; }

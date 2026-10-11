@@ -58,11 +58,13 @@ class KatalogVJeziku(unittest.TestCase):
             center = self._center(td, self.VIDEI)
             self.assertEqual(sorted(x["naslov"] for x in center.catalog("", "video")["vnosi"]), ["A", "B", "C"])
             fr = center.catalog("", "video", jezik="fr")
-            self.assertEqual([x["naslov"] for x in fr["vnosi"]], ["A"])
-            self.assertEqual(fr["skupaj"], 1)
-            self.assertEqual([x["naslov"] for x in center.catalog("", "video", jezik="en")["vnosi"]], ["B"])
-            # Vnos z neznanim jezikom se med izbiro ne kaze; jezik brez vsebine da prazen katalog (ne vsega).
-            self.assertEqual(center.catalog("", "video", jezik="sl")["vnosi"], [])
+            # Lastnik, 11. 10. 2026: vsebina brez znanega jezika ne izgine - pride za izbranim jezikom, oznacena.
+            self.assertEqual([x["naslov"] for x in fr["vnosi"] if not x.get("jezik_neznan")], ["A"])
+            self.assertEqual([x["naslov"] for x in fr["vnosi"] if x.get("jezik_neznan")], ["C"])
+            self.assertFalse(fr["vnosi"][0].get("jezik_neznan"))
+            self.assertEqual([x["naslov"] for x in center.catalog("", "video", jezik="en")["vnosi"] if not x.get("jezik_neznan")], ["B"])
+            # Jezik brez vsebine: nic v izbranem jeziku, vnos z neznanim jezikom ostane oznacen (ne vse in ne nic).
+            self.assertEqual([x["naslov"] for x in center.catalog("", "video", jezik="sl")["vnosi"]], ["C"])
             # Koda, ki je izbira ne ponuja, ne velja (katalog je tak kot brez izbire).
             self.assertEqual(len(center.catalog("", "video", jezik="xx")["vnosi"]), 3)
             self.assertEqual(len(center.catalog("", "video", jezik="'; DROP")["vnosi"]), 3)
@@ -82,7 +84,8 @@ class KatalogVJeziku(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             center = self._center(td, (), osebni)
             sl = center.catalog("", "film", jezik="sl")
-            self.assertEqual([x["naslov"] for x in sl["vnosi"]], ["Kekec"])
+            self.assertEqual([x["naslov"] for x in sl["vnosi"] if not x.get("jezik_neznan")], ["Kekec"])
+            self.assertTrue(all(x.get("jezik_neznan") for x in sl["vnosi"][1:]))
             self.assertEqual(sl["vnosi"][0]["jezik"], "sl")
             # Wikidato vprasamo samo za javne id-je naslovov iz javnih dodatkov: zasebni (in dodatek, za katerega
             # se ne vemo, ali je zaseben) ostane na racunalniku.
@@ -90,14 +93,16 @@ class KatalogVJeziku(unittest.TestCase):
             self.assertEqual(sorted(vprasani), ["tt0043703", "tt0054407", "tt0111161"])
             # Jugoslovanski film je pod hrvascino, srbscino in bosanscino.
             for koda in ("hr", "sr", "bs"):
-                self.assertEqual([x["naslov"] for x in center.catalog("", "film", jezik=koda)["vnosi"]], ["Signali nad mestom"], koda)
+                self.assertEqual([x["naslov"] for x in center.catalog("", "film", jezik=koda)["vnosi"] if not x.get("jezik_neznan")],
+                                 ["Signali nad mestom"], koda)
             # Brez izbire Wikidate ne sprasujemo.
             prej = len(center._izvirni_jeziki.vprasani)
             self.assertEqual(len(center.catalog("", "film")["vnosi"]), 6)
             self.assertEqual(len(center._izvirni_jeziki.vprasani), prej)
-            # Izpad Wikidate ne podre kataloga: naslovi z neznanim jezikom se ne pokazejo.
+            # Izpad Wikidate ne podre kataloga: nic ni v izbranem jeziku, naslovi so pod »Jezik ni znan«.
             center._izvirni_jeziki.jeziki = lambda idji: (_ for _ in ()).throw(OSError("ni omrezja"))
-            self.assertEqual(center.catalog("", "film", jezik="sl")["vnosi"], [])
+            izpad = center.catalog("", "film", jezik="sl")["vnosi"]
+            self.assertTrue(izpad and all(x.get("jezik_neznan") for x in izpad))
 
     def test_jezik_vira_velja_tudi_za_sorodne_kode(self):
         filmi = ({"naslov": "Tko pjeva zlo ne misli", "vrsta": "film", "url": "https://t/1", "vir": "V", "jezik": "sh"},
@@ -124,13 +129,13 @@ class KatalogVJeziku(unittest.TestCase):
             self.assertEqual(z_jezikom, brez + ["jezik:fr"])
             self.assertEqual(json.loads(center.kljuc_kataloga("", "video", jezik="xx")), brez)
             prvi = center.catalog_hitro("", "video", jezik="fr")
-            self.assertEqual([x["naslov"] for x in prvi["vnosi"]], ["A"])
+            self.assertEqual([x["naslov"] for x in prvi["vnosi"] if not x.get("jezik_neznan")], ["A"])
             self.assertFalse(prvi["iz_predpomnilnika"])
             drugi = center.catalog_hitro("", "video", jezik="fr")
             self.assertTrue(drugi["iz_predpomnilnika"])
-            self.assertEqual([x["naslov"] for x in drugi["vnosi"]], ["A"])
+            self.assertEqual([x["naslov"] for x in drugi["vnosi"] if not x.get("jezik_neznan")], ["A"])
             # Drug jezik in brez jezika sta druga pogleda.
-            self.assertEqual([x["naslov"] for x in center.catalog_hitro("", "video", jezik="en")["vnosi"]], ["B"])
+            self.assertEqual([x["naslov"] for x in center.catalog_hitro("", "video", jezik="en")["vnosi"] if not x.get("jezik_neznan")], ["B"])
             self.assertEqual(len(center.catalog_hitro("", "video")["vnosi"]), 3)
 
 

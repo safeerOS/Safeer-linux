@@ -3378,8 +3378,16 @@
       return (a.skupina || a.izvajalec || "").localeCompare(b.skupina || b.izvajalec || "");
     });
     kat.prikazano = list;       // vrsta predvajanja sledi vrstnemu redu, ki ga uporabnik vidi
-    var zadnjaSkupina = "";
+    var zadnjaSkupina = "", neznanOznacen = false;
     list.forEach(function (x) {
+      // Izbran jezik: najprej vsebina v njem, nato vsebina, katere jezika vir ne pove (core/os_media._samo_jezik).
+      if (x.jezik_neznan && !neznanOznacen) {
+        neznanOznacen = true;
+        var g = el("div", "kat-jezik-neznan");
+        g.appendChild(el("h3", "", ubezi(t("katJezikNeznan"))));
+        g.appendChild(el("p", "drobno", ubezi(t("katJezikNeznanOpis"))));
+        mreza.appendChild(g);
+      }
       var skupina = izSeznama ? "" : (x.skupina || (kat.filter === "glasba" ? x.izvajalec : ""));
       if (zdruzi && skupina && skupina !== zadnjaSkupina) {
         zadnjaSkupina = skupina;
