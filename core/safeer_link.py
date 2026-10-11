@@ -1072,10 +1072,42 @@ class SafeerLink:
             return
         try:
             izid = link_hub.odobri_kodo(naslov, zeton, odtis, koda)
+            if not izid.get("ok") and izid.get("razlog") == "qr_ne_obstaja":
+                # Ni koda naprave, ki se prijavlja: morda je koda povabila druge naprave (njeno sredisce kaze
+                # »Poveži naprave«). Kot na Androidu se ji pridruzimo s to kodo (SPAKE2).
+                izid = self._pridruzi_s_kodo_povabila(koda) or izid
         except Exception as e:  # noqa: BLE001 - stran mora vedno dobiti odgovor
             print(f"[SafeerLink] kode ni bilo mogoce potrditi: {e}")
             izid = {"ok": False, "razlog": "ni_huba"}
         self._odziv("kodaOdobrena", izid)
+
+    def _pridruzi_s_kodo_povabila(self, koda: str) -> Optional[dict]:
+        """Sredisce v domacem omrezju, ki kaze kodo povabila: pridruzimo se mu z vpisano kodo. None, ce takega
+        sredisca ni (koda potem ni veljavna nikjer)."""
+        from urllib.parse import urlparse
+        lastni = urlparse(self._hub() or "")
+        for h in link_hub.poisci_hube_mdns(1.5):
+            n = str(h.get("naslov") or "")
+            u = urlparse(n)
+            if not h.get("tls") or (u.hostname, u.port) == (lastni.hostname, lastni.port):
+                continue
+            if link_hub.ima_odprto_kodo(n) is not True:
+                continue
+            prijava = link_hub.zacni_seznanitev(n, self._id(), self._ime())
+            if not prijava or prijava.get("napaka"):
+                continue
+            zeton, razlog = link_hub.potrdi_kodo(n, prijava, self._id(), koda)
+            if not zeton:
+                return {"ok": False, "razlog": "prevec_poskusov" if razlog == "prevec_poskusov" else "qr_ne_obstaja"}
+            self.nastavitve.podatki["hub_url"] = n
+            self.nastavitve.podatki["control_token"] = zeton
+            self.nastavitve.podatki["hub_fp"] = str(prijava.get("odtis", ""))
+            link_seja.po_prijavi(self.nastavitve.podatki, self._zaupaj_ob_prijavi)
+            self._zapomni_seznanitev()
+            self.nastavitve.shrani()
+            self._povezi()
+            return {"ok": True, "ime": str(h.get("ime") or "")}
+        return None
 
     def _zacni_vabilo(self) -> None:
         """QR koda, s katero se nov telefon ali tablica pridruzi Safeer Linku (kot na televizorju).

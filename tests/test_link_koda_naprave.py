@@ -227,3 +227,50 @@ class VecHubov(unittest.TestCase):
         # Prijava pri prvem Hubu je preklicana: koda tam ne velja vec.
         zeton_a = self.a.hub._nov_zeton("n-tablica", "Tablica")
         self.assertEqual(link_hub.odobri_kodo(self.na, zeton_a, self.a.odtis, koda)["razlog"], "qr_ne_obstaja")
+
+
+class KodaPovabila(unittest.TestCase):
+    """Clan Linka vpise kodo, ki jo kaze DRUGA naprava v »Poveži naprave« (povabilo njenega sredisca, npr. nov
+    telefon): to ni koda naprave, ki se prijavlja, zato se clan tej napravi pridruzi (kot na Androidu)."""
+
+    @classmethod
+    def setUpClass(cls):
+        (cls.a, cls.b), cls.pospravi = _zacasni_hubi(2)
+        pot = link_hub_streznik.POT_WS
+        cls.na = "wss://127.0.0.1:%d%s" % (cls.a.vrata, pot)
+        cls.nb = "wss://127.0.0.1:%d%s" % (cls.b.vrata, pot)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.pospravi()
+
+    def test_clan_se_pridruzi_s_kodo_povabila(self):
+        from core import safeer_link
+        qr_id, _s = self.b.hub.ustvari_pridruzitev()
+        pin = self.b.hub.pin_pridruzitve(qr_id)
+        self.assertTrue(link_hub.ima_odprto_kodo(self.nb))
+        self.assertFalse(link_hub.ima_odprto_kodo(self.na))
+        link = safeer_link.SafeerLink.__new__(safeer_link.SafeerLink)
+        odzivi = []
+        link._odziv = lambda v, p: odzivi.append((v, p))
+        zeton_a = self.a.hub._nov_zeton("n-racunalnik", "Racunalnik")
+        link._hub = lambda: self.na
+        link._odtis = lambda: self.a.odtis
+        link._zeton_http = lambda: zeton_a
+        link._id = lambda: "n-racunalnik"
+        link._ime = lambda: "Racunalnik"
+        link.nastavitve = mock.MagicMock()
+        link.nastavitve.podatki = {}
+        link._zapomni_seznanitev = lambda: None
+        link._povezi = lambda: None
+        link._zaupaj_ob_prijavi = False
+        hubi = [{"naslov": self.na, "tls": True, "ime": "A"}, {"naslov": self.nb, "tls": True, "ime": "Nov telefon"}]
+        with mock.patch.object(safeer_link.link_hub, "poisci_hube_mdns", return_value=hubi), \
+                mock.patch.object(safeer_link.link_seja, "po_prijavi"):
+            napacna = "%06d" % ((int(pin) + 1) % 1000000)
+            link._odobri_kodo(napacna)
+            self.assertEqual(odzivi[-1], ("kodaOdobrena", {"ok": False, "razlog": "qr_ne_obstaja"}))
+            link._odobri_kodo(pin)
+        self.assertEqual(odzivi[-1], ("kodaOdobrena", {"ok": True, "ime": "Nov telefon"}))
+        self.assertEqual(link.nastavitve.podatki["hub_url"], self.nb)
+        self.assertEqual(self.b.hub.naprava_zetona(link.nastavitve.podatki["control_token"])[0], "n-racunalnik")

@@ -541,6 +541,17 @@ def stanje_qr(ws_naslov: str, prijava: dict, device_id: str) -> Tuple[Optional[s
     return None, "caka"
 
 
+def ima_odprto_kodo(ws_naslov: str) -> Optional[bool]:
+    """Ali to sredisce ravno kaze 6-mestno kodo povabila (»Poveži naprave«)? None: ne ve (star Hub, napaka)."""
+    try:
+        st, odgovor = _zahteva(_osnova(ws_naslov) + "/cast/pair/qr/odprto", {}, timeout=3.0)
+    except Exception:
+        return None
+    if st != 200 or not isinstance(odgovor, dict) or "open" not in odgovor:
+        return None
+    return bool(odgovor.get("open"))
+
+
 def odobri_kodo(ws_naslov: str, zeton: str, odtis: str, koda: str) -> dict:
     """Clan Linka dovoli napravo, ki kaze svojo 6-mestno kodo (prijava s QR kodo, brez skeniranja).
     Vrne {"ok": True, "ime": ...} ali {"ok": False, "razlog": "qr_ne_obstaja" | "prevec_poskusov" |
