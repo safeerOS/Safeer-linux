@@ -2099,6 +2099,12 @@ class MediaCenter:
                 razlog = "Dodatka ni bilo mogoče prebrati; preveri naslov manifest.json."
             if razlog:
                 return {"ok": False, "napaka": razlog, "sporocilo": razlog}
+        if provider == "stremio" and not _text(name, 80):
+            # Brez imena: ime iz manifesta (»Torrentio«, ne gostitelj), kot v Stremiu in na Androidu.
+            try:
+                name = str(media_servers.stremio_manifest(base).get("name") or "")
+            except Exception:
+                name = ""
         source_id = "streznik-" + hashlib.sha256((provider + base + username).encode()).hexdigest()[:16]
         source = {"id": source_id, "vrsta": "streznik", "ponudnik": provider,
                   "ime": _text(name, 80) or urllib.parse.urlsplit(base).hostname,

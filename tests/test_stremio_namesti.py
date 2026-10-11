@@ -47,7 +47,7 @@ class DodajanjeEnkrat(unittest.TestCase):
         self.mc = os_media.MediaCenter(self.tmp, roots=[], secret_encryptor=lambda s: s, secret_decryptor=lambda s: s)
         for p in (mock.patch.object(media_servers, "stremio_preveri", lambda base: ""),
                   mock.patch.object(media_servers, "authenticate", lambda *a, **k: {}),
-                  mock.patch.object(media_servers, "stremio_manifest", lambda url: {"id": "x", "resources": ["stream"]})):
+                  mock.patch.object(media_servers, "stremio_manifest", lambda url: {"id": "x", "name": "Preizkusni dodatek", "resources": ["stream"]})):
             p.start()
             self.addCleanup(p.stop)
 
@@ -55,6 +55,7 @@ class DodajanjeEnkrat(unittest.TestCase):
         r = self.mc.add_server("stremio", "", "stremio://d.primer.si/abc/manifest.json", "", "")
         self.assertTrue(r["ok"], r)
         self.assertEqual(r["vir"]["url"], "https://d.primer.si/abc/manifest.json")
+        self.assertEqual(r["vir"]["ime"], "Preizkusni dodatek")
         for drug in ("https://d.primer.si/abc/configure", "https://d.primer.si/abc", "https://d.primer.si/abc/manifest.json"):
             r2 = self.mc.add_server("stremio", "", drug, "", "")
             self.assertFalse(r2["ok"], drug)
