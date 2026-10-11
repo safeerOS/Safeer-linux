@@ -1693,11 +1693,10 @@ class SafeerOS(Gtk.Application):
     def _sprosti_splet_na_namizju(self) -> bool:
         self._sprosti_splet_id = 0
         okno = self._plosca_spleta
-        if okno is None or okno.get_visible():
+        if okno is None or okno.get_visible() or self._spletni_namizje is None:
             return False
-        self._plosca_spleta = None
-        self._spletni_namizje = None
-        okno.destroy()
+        # Okno in Splet ostaneta (en kontekst, en omrezni proces); zaprejo se samo zavihki s spletnim procesom.
+        self._spletni_namizje.sprosti_zavihke()
         pomnilnik.obrezuj()
         return False
 

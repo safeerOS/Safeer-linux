@@ -479,6 +479,18 @@ class VdelaniSplet:
         self.skatla_zavihkov.remove(z["dogodek"]); self.sklad.remove(pogled); pogled.destroy()
         self.izberi(self.zavihki[max(0, indeks - 1)]["pogled"])
 
+    def sprosti_zavihke(self) -> None:
+        """Zapre vse zavihke (spletni proces se konca in vrne pomnilnik); naslednji odpri() naredi nov zavihek.
+        Objekt in kontekst ostaneta - ponovno ustvarjanje celega Spleta bi pustilo staro (casovnik, kontekst)."""
+        for z in list(self.zavihki):
+            try:
+                self.skatla_zavihkov.remove(z["dogodek"]); self.sklad.remove(z["pogled"])
+                z["pogled"].destroy(); z["dogodek"].destroy()
+            except Exception:  # noqa: BLE001
+                pass
+        self.zavihki = []
+        self.aktivni = None
+
     def izberi(self, pogled):
         self.aktivni = pogled; self.sklad.set_visible_child(pogled)
         for z in self.zavihki:
@@ -500,7 +512,11 @@ class VdelaniSplet:
 
     def odpri(self, naslov: str = "", pogled=None):
         pogled = pogled or self.trenutni()
-        if pogled is None: return False
+        if pogled is None:
+            if self.zavihki:
+                return False
+            self.nov_zavihek(naslov)        # po sprosti_zavihke(): prvi zavihek na novo
+            return True
         if not naslov: pogled.load_uri(self.domaci_uri()); return True
         normalen = normalize_web_url(naslov)
         if not normalen: return False
