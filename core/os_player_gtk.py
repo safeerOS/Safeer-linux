@@ -273,6 +273,9 @@ class SafeerPlayerOkno(Gtk.Window):
         #: Prostor za katalog (filmi, serije, glasba, radio, TV) - isti katalog kot na strani.
         self.katalog_mesto = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
         glavni.pack_start(self.katalog_mesto, False, False, 0)
+        from core import os_player_gtk_katalog
+        self.katalog = os_player_gtk_katalog.KatalogBlok(self)
+        self.katalog_mesto.pack_start(self.katalog, False, False, 0)
         glavni.pack_start(self._zgradi_tokove(), False, False, 0)
 
         sredina.pack_start(self._zgradi_desni(), False, False, 0)
@@ -618,6 +621,16 @@ class SafeerPlayerOkno(Gtk.Window):
             self.blok_tokov.show_all()
         else:
             self.blok_tokov.hide()
+        # Brez krajevnih vsebin v izbrani kategoriji gre katalog pred prazno knjiznico (kot »brez-krajevnega« na
+        # strani), sicer bi ga prazna plosca odrivala navzdol.
+        mesto_knjiznice = self.glavni.child_get_property(self.blok_knjiznice, "position")
+        mesto_kataloga = self.glavni.child_get_property(self.katalog_mesto, "position")
+        if (samo_viri or not prikaz) != (mesto_kataloga < mesto_knjiznice):
+            # reorder_child najprej odstrani: na mestu knjiznice pride katalog pred njo ali (ce je bil pred njo) za njo.
+            self.glavni.reorder_child(self.katalog_mesto, mesto_knjiznice)
+        # Katalog sledi isti izbiri kot knjiznica (uskladiKatalog na strani).
+        if getattr(self, "katalog", None) is not None:
+            self.katalog.uskladi(self.filter, self.iskanje)
 
     def _kartica(self, v: dict, prikaz: list) -> Gtk.Widget:
         """Kot mediaKartica na strani: slika ali ikona, »Nadaljuj« z napredkom, ime, vrsta, odstrani."""
@@ -938,6 +951,10 @@ class SafeerPlayerOkno(Gtk.Window):
         GLib.idle_add(lambda: (pokazi(), False)[1])
 
     # ------------------------------------------------------------------ predvajalnik
+    def odpri_splet(self, naslov: str) -> None:
+        """Vsebina, ki jo ponudnik daje samo na svoji strani: odpre jo Splet v Safeer OS (kot katSplet na strani)."""
+        self.klic("odpriVBrskalniku", [naslov], lambda ok: ok or self._ni_uspelo(), self._ni_uspelo)
+
     def ukaz(self, ukaz: str, vrednost=None) -> None:
         self.klic("predvajalnikUkaz", [ukaz] + ([vrednost] if vrednost is not None else []))
 

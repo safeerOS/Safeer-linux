@@ -306,7 +306,7 @@ class KatalogBlok(Gtk.Box):
             art.add_overlay(z)
             art.set_overlay_pass_through(z, True)
         if x.get("slika"):
-            self._plakat(art, str(x["slika"]))
+            self._plakat(art, str(x["slika"]), ikona)
         telo.pack_start(art, False, False, 0)
         pod = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         pod.get_style_context().add_class("kartica-pod")
@@ -325,7 +325,7 @@ class KatalogBlok(Gtk.Box):
         g.connect("clicked", lambda *_: self.izberi(x))
         return g
 
-    def _plakat(self, art: Gtk.Overlay, url: str) -> None:
+    def _plakat(self, art: Gtk.Overlay, url: str, ikona=None) -> None:
         def gotovo(_url, podatki, rod):
             if podatki:
                 GLib.idle_add(pokazi, podatki, rod)
@@ -349,7 +349,10 @@ class KatalogBlok(Gtk.Box):
             slika = Gtk.Image.new_from_pixbuf(pb)
             art.add_overlay(slika)
             art.set_overlay_pass_through(slika, True)
+            # Plakat pod znacko (kakovost, ocena), ikona vrste pa izgine - kot na strani.
             art.reorder_overlay(slika, 0)
+            if ikona is not None:
+                ikona.hide()
             slika.show()
             return False
         self.plakati.zahtevaj(url, gotovo)
