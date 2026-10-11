@@ -2,14 +2,15 @@
    Barve so iste kot v Safeerju: temna podlaga, zelena poteza. */
 
 :root {
-  --ozadje: #090d15;
-  --plosca: #111924;
-  --ploscaSvetla: #151e2a;
-  --crta: #29333d;
-  --besedilo: #f0f4f3;
-  --medlo: #b0bdc4;
-  --zelena: #54d6a5;
-  --zelenaTemna: #06231a;
+  --ok: #7fe0b6;           /* stanje »deluje« ostane zeleno (kot --ok na namizju) */
+  --ozadje: #0b1424;
+  --plosca: #101a2b;
+  --ploscaSvetla: #16233a;
+  --crta: #26354d;
+  --besedilo: #eaf2ff;
+  --medlo: #afbed4;
+  --zelena: #8ac7ff;
+  --zelenaTemna: #0b1424;
   --rumena: #f5b642;
   --siva: #5c6b80;
   --rdeca: #f87171;
@@ -64,7 +65,7 @@ body { padding-bottom: 28px; }
 }
 
 .pika.zelena {
-  background: var(--zelena);
+  background: var(--ok);
   box-shadow: 0 0 0 3px rgba(16, 185, 129, .2);
 }
 
@@ -573,7 +574,7 @@ body.namizje[data-razdelek="sync"] #zaslonPovezan .panel[data-razdelek="sync"]:n
 /* ---------- povezovanje naprav, enako kot na televizorju ---------- */
 
 .vabiloOkno {
-  --zelena: #3ddc97;
+  --zelena: #3d87dc;
   text-align: center;
   padding: 4px 0 12px;
 }
