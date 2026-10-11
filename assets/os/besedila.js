@@ -606,3 +606,9 @@ Object.assign(BESEDILA_OS.de, {"katPrilepi": "Einfügen", "katStremioPotrdi": "S
 Object.assign(BESEDILA_OS.es, {"katPrilepi": "Pegar", "katStremioPotrdi": "Complemento de Stremio de {gostitelj}. Pulsa Conectar para comprobarlo y añadirlo.", "katOdloziscePrazno": "El portapapeles está vacío: copia la dirección del complemento y pulsa Pegar."});
 Object.assign(BESEDILA_OS.fr, {"katPrilepi": "Coller", "katStremioPotrdi": "Extension Stremio de {gostitelj}. Appuie sur Connecter pour la vérifier et l’ajouter.", "katOdloziscePrazno": "Le presse-papiers est vide : copie l’adresse de l’extension et appuie sur Coller."});
 Object.assign(BESEDILA_OS.it, {"katPrilepi": "Incolla", "katStremioPotrdi": "Componente aggiuntivo Stremio da {gostitelj}. Premi Collega per verificarlo e aggiungerlo.", "katOdloziscePrazno": "Gli appunti sono vuoti: copia l’indirizzo del componente e premi Incolla."});
+Object.assign(BESEDILA_OS.sl, {"mediaVseSkladbe": "Vse skladbe ({n})"});
+Object.assign(BESEDILA_OS.en, {"mediaVseSkladbe": "All songs ({n})"});
+Object.assign(BESEDILA_OS.de, {"mediaVseSkladbe": "Alle Titel ({n})"});
+Object.assign(BESEDILA_OS.es, {"mediaVseSkladbe": "Todas las canciones ({n})"});
+Object.assign(BESEDILA_OS.fr, {"mediaVseSkladbe": "Tous les titres ({n})"});
+Object.assign(BESEDILA_OS.it, {"mediaVseSkladbe": "Tutti i brani ({n})"});

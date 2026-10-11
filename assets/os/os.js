@@ -1092,6 +1092,34 @@
     ovoj.appendChild(odstrani);
     return ovoj;
   }
+  // Skladba z diska: ime datoteke je pogosto »Izvajalec - Naslov«. Velik naslov, izvajalec pod njim.
+  function mediaSkladbaImena(ime) {
+    var cisto = String(ime || "").replace(/\.[a-z0-9]{2,4}$/i, "").replace(/_/g, " ").trim();
+    var m = cisto.match(/^(.{1,80}?)\s+[-\u2013\u2014]\s+(.+)$/);
+    return m ? { naslov: m[2].trim(), izvajalec: m[1].trim() } : { naslov: cisto, izvajalec: "" };
+  }
+  // Glasba z diska kot vrstica (ne velika kartica z enako ikono za vsako skladbo - lastnik, 11. 10. 2026).
+  function mediaSkladba(v) {
+    var imena = mediaSkladbaImena(v.ime);
+    var ovoj = el("article", "media-skladba" + (v.naVoljo ? "" : " nedosegljiva"));
+    var b = el("button", "media-skladba-odpri",
+      '<span class="media-skladba-znak">' + svg("glasba") + '</span><span class="media-skladba-besedilo"><b>' + ubezi(imena.naslov) +
+      '</b><small>' + ubezi(imena.izvajalec || mediaVrsta(v.vrsta)) + (v.naVoljo ? "" : " · " + ubezi(t("mediaManjka"))) + '</small></span>' +
+      (v.trajanje ? '<span class="media-skladba-cas">' + casMedija(v.trajanje) + '</span>' : ""));
+    b.type = "button"; b.title = v.pot; b.disabled = !v.naVoljo;
+    b.addEventListener("click", function () {
+      klic("odpriLokalniMedij", [v.pot]).then(function (ok) { if (!ok) obvesti(t("niUspelo")); })
+        .catch(function () { obvesti(t("niUspelo")); });
+    });
+    ovoj.appendChild(b);
+    var odstrani = el("button", "media-kartica-odstrani", svg("x"));
+    odstrani.type = "button"; odstrani.title = t("odstrani");
+    odstrani.addEventListener("click", function () {
+      klic("odstraniLokalniMedij", [v.pot]).then(function (ok) { if (ok) naloziMedije(); });
+    });
+    ovoj.appendChild(odstrani);
+    return ovoj;
+  }
   function mediaVir(v) {
     var x = v.program || v.spletna;
     var b = el("button", "media-vir", '<span class="media-vir-znak">' + svg(v.vrsta === "glasba" ? "glasba" : v.vrsta === "radio" ? "radio" : "video") +
@@ -1162,7 +1190,21 @@
     $("mediaMreza").previousElementSibling.hidden = samoViri;
     $("mediaMreza").hidden = samoViri;
     mreza.innerHTML = "";
-    prikaz.forEach(function (v) { mreza.appendChild(mediaKartica(v)); });
+    // Filmi, serije in slike kot kartice; glasba kot seznam skladb. V »Vse« najvec 8 skladb, ostale so v Glasbi.
+    var skladbe = prikaz.filter(function (v) { return v.vrsta === "glasba"; });
+    prikaz.forEach(function (v) { if (v.vrsta !== "glasba") mreza.appendChild(mediaKartica(v)); });
+    if (skladbe.length) {
+      var seznamSkladb = el("div", "media-skladbe");
+      var omejeno = vrsta === "vse" && skladbe.length > 8;
+      (omejeno ? skladbe.slice(0, 8) : skladbe).forEach(function (v) { seznamSkladb.appendChild(mediaSkladba(v)); });
+      if (omejeno) {
+        var vse = el("button", "media-skladbe-vse", ubezi(t("mediaVseSkladbe", { n: skladbe.length })) + svg("desno"));
+        vse.type = "button";
+        vse.addEventListener("click", function () { S.mediaFilter = "glasba"; naloziMedije(); });
+        seznamSkladb.appendChild(vse);
+      }
+      mreza.appendChild(seznamSkladb);
+    }
     $("mediaPrazno").hidden = samoViri || prikaz.length !== 0;
     $("mediaVec").hidden = samoViri || !S.mediaHasMore;
     $("mediaOsvezi").disabled = !S.mediaMape.length || S.mediaOsvezuje;

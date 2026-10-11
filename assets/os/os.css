@@ -906,3 +906,24 @@ body.predvajalnik #vsebina { padding-top: 30px; }
 #blokInternet .hitre { margin-top: 14px; }
 #blokInternet .gumbi-naprav { margin-top: 14px; }
 #blokInternet #internetIzid { margin: 12px 0 0; color: var(--besedilo, inherit); }
+
+/* Glasba z diska kot seznam skladb (lastnik, 11. 10. 2026): naslov, izvajalec, trajanje - brez velikih kartic z isto ikono. */
+.media-skladbe { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 6px 14px; }
+.media-skladba { position: relative; min-width: 0; }
+.media-skladba-odpri { width: 100%; display: flex; align-items: center; gap: 12px; padding: 8px 40px 8px 8px; border-radius: 12px;
+  background: rgba(255, 255, 255, .04); border: 1px solid transparent; color: inherit; text-align: left; cursor: pointer; }
+.media-skladba-odpri:hover, .media-skladba-odpri:focus-visible { background: rgba(138, 199, 255, .12); border-color: rgba(138, 199, 255, .35); outline: 0; }
+.media-skladba-znak { flex: none; width: 40px; height: 40px; display: grid; place-items: center; border-radius: 9px;
+  background: linear-gradient(135deg, rgba(104, 168, 229, .45), rgba(63, 112, 168, .35)); }
+.media-skladba-znak svg { width: 20px; height: 20px; }
+.media-skladba-besedilo { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.media-skladba-besedilo b, .media-skladba-besedilo small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.media-skladba-besedilo small { opacity: .7; font-size: 12px; }
+.media-skladba-cas { flex: none; font-size: 12px; opacity: .6; font-variant-numeric: tabular-nums; }
+.media-skladba .media-kartica-odstrani { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); }
+.media-skladba.nedosegljiva { opacity: .55; }
+.media-skladbe-vse { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px; border-radius: 12px;
+  color: var(--zelena, #8ac7ff); font-weight: 650; background: transparent; border: 1px dashed rgba(138, 199, 255, .35); cursor: pointer; }
+.media-skladbe-vse svg { width: 16px; height: 16px; }
+.media-skladbe-vse:hover, .media-skladbe-vse:focus-visible { background: rgba(138, 199, 255, .1); outline: 0; }
+.media-skladba:hover .media-kartica-odstrani, .media-skladba:focus-within .media-kartica-odstrani { opacity: 1; }
