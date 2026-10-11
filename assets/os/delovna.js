@@ -2782,10 +2782,15 @@
     [/ en (la |mi )?(tele|television|tv)$/, ["tv"]], [/ en (el |mi )?(ordenador|computador|computadora|pc|portatil)$/, PC],
     [/ en (la |mi )?tableta$/, ["tablet"]], [/ en (el |mi )?(movil|telefono|celular)$/, ["phone"]],
     [/ n(a|o) (tv|televisao|televisor)$/, ["tv"]], [/ no (computador|pc|portatil)$/, PC],
-    [/ no tablet$/, ["tablet"]], [/ no (telemovel|celular|telefone)$/, ["phone"]]
+    [/ no tablet$/, ["tablet"]], [/ no (telemovel|celular|telefone)$/, ["phone"]],
+    [/ sur (la |ma )?(tele|television|tv)$/, ["tv"]], [/ sur (lordinateur|mon ordinateur|le pc|mon pc)$/, PC],
+    [/ sur (la |ma )?tablette$/, ["tablet"]], [/ sur (le |mon )?(telephone|portable|mobile)$/, ["phone"]],
+    [/ (sulla|in) (tv|televisione)$/, ["tv"]], [/ sul (computer|pc)$/, PC],
+    [/ sul tablet$/, ["tablet"]], [/ sul (telefono|cellulare)$/, ["phone"]]
   ];
   var GLAGOLI_PRIKAZA = ["prikazi", "pokazi", "predvajaj", "odpri", "zavrti", "show", "play", "open", "put", "zeige", "spiele",
-                         "offne", "muestra", "reproduce", "pon", "abre", "mostra", "reproduz", "toca", "passa"];
+                         "offne", "muestra", "reproduce", "pon", "abre", "mostra", "reproduz", "toca", "passa",
+                         "montre", "joue", "ouvre", "lance", "riproduci", "apri", "metti"];
   function ciljMedija(q) {
     var besede = String(q || "").trim().split(/\s+/).filter(Boolean);
     var k = " " + besede.map(function (b) { return kljucIskanja(b).replace(/[^\p{L}\p{N}]+/gu, ""); }).join(" ");

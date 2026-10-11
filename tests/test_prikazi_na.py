@@ -40,6 +40,9 @@ assert.deepStrictEqual(c("zeige Sintel auf dem Fernseher"), ["Sintel", "tv"]);
 assert.deepStrictEqual(c("pon Sintel en la tele"), ["Sintel", "tv"]);
 assert.deepStrictEqual(c("mostra Sintel na TV"), ["Sintel", "tv"]);
 assert.deepStrictEqual(c("abre Sintel no computador"), ["Sintel", "windows,linux,mac"]);
+assert.deepStrictEqual(c("montre Sintel sur la télé"), ["Sintel", "tv"]);
+assert.deepStrictEqual(c("riproduci Sintel sulla TV"), ["Sintel", "tv"]);
+assert.deepStrictEqual(c("ouvre Sintel sur l'ordinateur"), ["Sintel", "windows,linux,mac"]);
 assert.deepStrictEqual(c("prikaži na TV"), ["", "tv"], "brez naslova: lupa ne prikaze nicesar");
 assert.strictEqual(ciljMedija("nastavitve zaslona"), null);
 assert.strictEqual(ciljMedija("Tvornica"), null);
@@ -91,6 +94,9 @@ class TestMediaOpen(unittest.TestCase):
         self.assertIn('if "--medij-naprava" in sys.argv[1:]:', py)
         self.assertIn('Gio.SimpleAction.new("medij", GLib.VariantType.new("s"))', py)
         self.assertIn("self._odpri_predvajalnik(naslov)", py)
+        # Iskanje v Medijskem centru (lupa, glas z druge naprave) odpre okno na celem zaslonu.
+        self.assertIn("            okno.maximize()         # iskanje (lupa, glas z druge naprave)", py)
+        self.assertIn("            self.okno_predvajalnik.maximize()", py)
 
 
 if __name__ == "__main__":

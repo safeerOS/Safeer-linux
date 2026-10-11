@@ -1463,6 +1463,8 @@ class SafeerOS(Gtk.Application):
         if iskanje:
             self._js("window.safeerOsPojdi && window.safeerOsPojdi(%s);" % json.dumps("mediji:" + iskanje),
                      self.pogled_predvajalnik)
+            # Lastnik, 11. 10. 2026: ko iscemo v Medijskem centru, je na celem zaslonu.
+            self.okno_predvajalnik.maximize()
         # Okno, ki ga je uporabnik zaprl (upravljalnik oken ga je umaknil, mi smo ga skrili), GTK ob ponovnem prikazu
         # ne oznaci s casom - Muffin ga potem le oznaci z »zahteva pozornost« in ostane za drugim oknom (izmerjeno
         # 11. 10. 2026). Zato cas uporabe nastavimo sami, pred prikazom.
@@ -1495,6 +1497,8 @@ class SafeerOS(Gtk.Application):
         okno.add(pogled)
         okno.connect("delete-event", self._zapri_predvajalnik)
         self.okno_predvajalnik, self.pogled_predvajalnik = okno, pogled
+        if iskanje and not self.posnetek:
+            okno.maximize()         # iskanje (lupa, glas z druge naprave): Medijski center na celem zaslonu
         okno.show_all()
         if self.posnetek and self.okno is None:
             # Kot pri glavnem oknu: posnetek mora nastati tudi, ce WebKit konca nalaganja ne javi.
