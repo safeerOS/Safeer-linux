@@ -2,9 +2,11 @@
 
 Safeer nima svoje trgovine s programi in ne doloca ene same: seznam je po abecedi in brez priporocila, nic ni
 privzeto. Ponudnik se namesti iz uradnega vira na uporabnikov klik - Flatpak iz Flathuba za tega uporabnika (brez
-gesla) ali paket iz Mintovih/Ubuntujevih skladisc prek `pkexec apt-get install` (polkit vprasa za geslo). Snap Store je
-na seznamu, a ga Safeer ne vklaplja: Linux Mint ima Snap izklopljen namenoma (/etc/apt/preferences.d/nosnap.pref),
-odlocitev, ali ga vklopi, je uporabnikova. Ukazi so nespremenljivi: kaj se namesti, pride iz PONUDNIKI, nikoli s strani.
+gesla) ali paket iz Mintovih/Ubuntujevih skladisc prek `pkexec apt-get install` (polkit vprasa za geslo). Snap Store
+uporabnik omogoci z eno izbiro: Mintovo zaporo (/etc/apt/preferences.d/nosnap.pref) odstranimo, namestimo snapd in Snap
+Store - vse po potrditvi, kjer vidi vsak korak (lastnik: »uporabnika ne omejujemo, ima popoln nadzor«). Uporabnik lahko
+doda tudi svoje vire (Flatpak repozitorij ali PPA). Ukazi so nespremenljivi ali strogo preverjeni (vir); nic s strani
+ne gre v lupino.
 """
 from __future__ import annotations
 
@@ -46,6 +48,11 @@ def _ponudnik(id_: str) -> Optional[dict]:
     return next((p for p in PONUDNIKI if p["id"] == str(id_ or "")), None)
 
 
+#: Omogocanje Snapa v enem koraku z geslom (nespremenljivo besedilo, brez vnosa uporabnika).
+SNAP_SKRIPTA = ("rm -f /etc/apt/preferences.d/nosnap.pref && apt-get update -qq && apt-get install -y snapd && "
+                "snap wait system seed.loaded && snap install snap-store")
+
+
 def _apt_namescen(paket: str, tek: Callable) -> bool:
     koda, izpis = tek(["dpkg-query", "-W", "-f=${Status}", paket], 20)
     return koda == 0 and "install ok installed" in izpis
@@ -69,7 +76,7 @@ def stanje(tek: Callable = _tek, najdi: Callable = shutil.which, nosnap: Optiona
     izid = []
     for p in PONUDNIKI:
         n = namescen(p, tek, najdi)
-        mozno = p["vrsta"] == "flatpak" and bool(najdi("flatpak")) or p["vrsta"] == "apt" and bool(najdi("pkexec"))
+        mozno = p["vrsta"] == "flatpak" and bool(najdi("flatpak")) or p["vrsta"] in ("apt", "snap") and bool(najdi("pkexec"))
         izid.append({"id": p["id"], "ime": p["ime"], "vrsta": p["vrsta"], "stran": p["stran"], "namescen": n,
                      "namestljiv": bool(mozno) and not n, "snap_blokiran": p["vrsta"] == "snap" and blokiran})
     return izid
@@ -153,7 +160,16 @@ def podrobnosti(id_: str, tek: Callable = _tek, najdi: Callable = shutil.which, 
                 bajti += int(deli[2])
         return {"ok": True, "vrsta": "apt", "vir": "Linux Mint / Ubuntu", "za": "sistem", "geslo": True,
                 "paketi": paketi, "prenos_mb": round(bajti / 1048576, 1), "samodejno": samodejne_posodobitve("apt", tek, obstaja)}
-    return {"ok": False, "napaka": "snap"}
+    if p["vrsta"] == "snap":
+        koraki = []
+        if obstaja(NOSNAP):
+            koraki.append("nosnap")
+        if not najdi("snap"):
+            koraki.append("snapd")
+        koraki.append("snap-store")
+        return {"ok": True, "vrsta": "snap", "vir": "Snapcraft (Canonical)", "za": "sistem", "geslo": True,
+                "koraki": koraki, "paketi": [{"ime": "snapd"}, {"ime": "snap-store"}], "prenos_mb": 0, "samodejno": True}
+    return {"ok": False, "napaka": "ni_podatkov"}
 
 
 def namesti(id_: str, tek: Callable = _tek, najdi: Callable = shutil.which) -> dict:
@@ -162,7 +178,12 @@ def namesti(id_: str, tek: Callable = _tek, najdi: Callable = shutil.which) -> d
     if p is None:
         return {"ok": False, "napaka": "ni_ponudnika"}
     if p["vrsta"] == "snap":
-        return {"ok": False, "napaka": "snap"}
+        if not najdi("pkexec"):
+            return {"ok": False, "napaka": "ni_pkexec"}
+        koda, izpis = tek(["pkexec", "sh", "-c", SNAP_SKRIPTA], 3600)
+        if koda in (126, 127):
+            return {"ok": False, "napaka": "preklicano"}
+        return {"ok": True, "id": p["id"]} if koda == 0 else {"ok": False, "napaka": "namestitev", "podrobnosti": izpis.strip()[-300:]}
     if p["vrsta"] == "flatpak":
         if not najdi("flatpak"):
             return {"ok": False, "napaka": "ni_flatpak"}
@@ -186,11 +207,96 @@ def namesti(id_: str, tek: Callable = _tek, najdi: Callable = shutil.which) -> d
 def odpri(id_: str, popen: Callable = subprocess.Popen) -> bool:
     """Zazene namescenega ponudnika (ukaz iz PONUDNIKI)."""
     p = _ponudnik(id_)
-    if p is None or p["vrsta"] == "snap":
+    if p is None:
         return False
-    ukaz = ["flatpak", "run", p["flatpak"]] if p["vrsta"] == "flatpak" else p["ukaz"]
+    ukaz = ["flatpak", "run", p["flatpak"]] if p["vrsta"] == "flatpak" else ["snap-store"] if p["vrsta"] == "snap" else p["ukaz"]
     try:
         popen(ukaz, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         return True
     except OSError:
         return False
+
+
+# ---------------------------------------------------------------------- viri (Flatpak repozitoriji in PPA)
+import re as _re
+
+_PPA = _re.compile(r"^ppa:[a-z0-9][a-z0-9.+_-]{0,60}/[a-z0-9][a-z0-9.+_-]{0,60}$")
+_FLATPAKREPO = _re.compile(r"^https://[A-Za-z0-9.-]+(?::\d+)?/[A-Za-z0-9._~%/+-]*\.flatpakrepo$")
+
+
+def vrsta_vira(niz: str) -> str:
+    """'ppa', 'flatpak' ali '' (neveljavno). Samo strogo preverjeni zapisi - nic drugega ne gre v ukaz."""
+    n = str(niz or "").strip()
+    if _PPA.match(n):
+        return "ppa"
+    if _FLATPAKREPO.match(n):
+        return "flatpak"
+    return ""
+
+
+def ime_flatpak_vira(url: str) -> str:
+    osnova = url.rsplit("/", 1)[-1][: -len(".flatpakrepo")]
+    return _re.sub(r"[^A-Za-z0-9_-]", "-", osnova)[:40] or "vir"
+
+
+def viri(tek: Callable = _tek, mapa: str = "/etc/apt/sources.list.d") -> dict:
+    """Viri programov na tem racunalniku: Flatpak repozitoriji (sistem in uporabnik) in PPA-ji."""
+    flatpak = []
+    koda, izpis = tek(["flatpak", "remotes", "--columns=name,url,options"], 20)
+    if koda == 0:
+        for v in izpis.splitlines():
+            d = v.split("\t")
+            if len(d) >= 2 and d[0].strip():
+                flatpak.append({"ime": d[0].strip(), "url": d[1].strip(), "za": "uporabnik" if "user" in (d[2] if len(d) > 2 else "") else "sistem"})
+    ppa = set()
+    apt = []
+    try:
+        for ime in sorted(os.listdir(mapa)):
+            if not (ime.endswith(".list") or ime.endswith(".sources")):
+                continue
+            with open(os.path.join(mapa, ime), encoding="utf-8", errors="replace") as f:
+                besedilo = f.read()
+            for m in _re.finditer(r"^\s*deb\s+(?:\[[^\]]*\]\s+)?(\S+)\s+(\S+)", besedilo, _re.M):
+                if "launchpad" not in m.group(1):
+                    vnos = {"url": m.group(1), "izdaja": m.group(2)}
+                    if vnos not in apt:
+                        apt.append(vnos)
+    except OSError:
+        pass
+    try:
+        for ime in sorted(os.listdir(mapa)):
+            if not (ime.endswith(".list") or ime.endswith(".sources")):
+                continue
+            with open(os.path.join(mapa, ime), encoding="utf-8", errors="replace") as f:
+                for m in _re.finditer(r"ppa\.launchpad(?:content)?\.net/([a-z0-9.+_-]+)/([a-z0-9.+_-]+)", f.read()):
+                    ppa.add("ppa:%s/%s" % m.groups())
+    except OSError:
+        pass
+    return {"flatpak": flatpak, "ppa": sorted(ppa), "apt": apt}
+
+
+def podrobnosti_vira(niz: str) -> dict:
+    v = vrsta_vira(niz)
+    if not v:
+        return {"ok": False, "napaka": "neveljaven"}
+    if v == "ppa":
+        return {"ok": True, "vrsta": "ppa", "vir": niz.strip(), "za": "sistem", "geslo": True}
+    return {"ok": True, "vrsta": "flatpak", "vir": niz.strip(), "ime": ime_flatpak_vira(niz.strip()), "za": "uporabnik", "geslo": False}
+
+
+def dodaj_vir(niz: str, tek: Callable = _tek, najdi: Callable = shutil.which) -> dict:
+    """Doda vir na uporabnikovo izrecno potrditev. PPA: pkexec add-apt-repository; Flatpak: --user, brez gesla."""
+    d = podrobnosti_vira(niz)
+    if not d["ok"]:
+        return d
+    if d["vrsta"] == "ppa":
+        if not najdi("pkexec") or not najdi("add-apt-repository"):
+            return {"ok": False, "napaka": "ni_orodja"}
+        koda, izpis = tek(["pkexec", "add-apt-repository", "-y", d["vir"]], 600)
+    else:
+        if not najdi("flatpak"):
+            return {"ok": False, "napaka": "ni_flatpak"}
+        koda, izpis = tek(["flatpak", "remote-add", "--user", "--if-not-exists", d["ime"], d["vir"]], 120)
+    if koda in (126, 127) and d["vrsta"] == "ppa":
+        return {"ok": False, "napaka": "preklicano"}
+    return {"ok": koda == 0, "napaka": "" if koda == 0 else "vir", "podrobnosti": izpis.strip()[-300:]}

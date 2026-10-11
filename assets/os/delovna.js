@@ -67,8 +67,31 @@
       ppOpis_bazaar: "Programi iz Flathuba.", ppOpis_discover: "KDE-jev center programov (paketi sistema in Flatpak).",
       ppOpis_gearlever: "Programi AppImage: namesti, posodablja in pospravi.",
       ppOpis_gnome_software: "GNOME-ov center programov (paketi sistema in Flatpak).",
-      ppOpis_snap_store: "Programi Snap. Linux Mint ima Snap izklopljen namenoma; vklopiš ga lahko sam.",
+      ppOpis_snap_store: "Programi Snap. Linux Mint ima Snap izklopljen; z »Omogoči« ga vklopiš (vidiš vsak korak).",
       ppOpis_mintinstall: "Center programov Linux Mint (paketi sistema in Flathub).",
+      ppZavihekPonudniki: "Ponudniki", ppZavihekViri: "Viri", ppZavihekGithub: "GitHub", ppOmogoci: "Omogoči",
+      ppKorak_nosnap: "Odstrani Mintovo zaporo Snapa (/etc/apt/preferences.d/nosnap.pref)", ppKorak_snapd: "Namesti paket snapd",
+      ppKorak_snap_store: "Namesti Snap Store",
+      ppVirSnap: "Vir: Snapcraft (Canonical) · za ves računalnik · sistem vpraša za geslo",
+      ppPosSnap: "Posodobitve: Snap programe posodablja sam (lastnost Snapa). Zadržiš jih z ukazom »snap refresh --hold«.",
+      ppViriUvod: "Viri, iz katerih se na tem računalniku nameščajo programi. Dodaš lahko svojega: PPA ali repozitorij Flatpak.",
+      ppViriPh: "ppa:ime/ppa ali https://…/vir.flatpakrepo", ppViriDodaj: "Dodaj vir", ppViriPrazno: "Ni virov.",
+      ppViriNeveljaven: "To ni PPA (ppa:ime/ppa) ali naslov https://…/ime.flatpakrepo.",
+      ppViriPpa: "Dodan bo PPA {vir} za ves računalnik · sistem vpraša za geslo.",
+      ppViriFlatpak: "Dodan bo repozitorij Flatpak »{ime}« ({vir}) · samo za tvojega uporabnika · brez gesla.",
+      ppViriOpozorilo: "Safeer programov iz tega vira ne preverja. Dodaj samo vir, ki mu zaupaš.",
+      ppViriDodan: "Vir je dodan.", ppViriNapaka: "Vira ni bilo mogoče dodati.",
+      ppZaUporabnika: "za tvojega uporabnika", ppZaSistem: "za ves računalnik",
+      ppGhUvod: "Javni repozitoriji na GitHubu in datoteke njihovih izdaj. Shraniš jih v mapo, ki jo izbereš; Safeer jih ne preverja in ne namesti sam.",
+      ppGhMapa: "Shrani v: {pot}", ppGhSpremeni: "Spremeni …", ppGhIzberiMapo: "Kam shranim programe in datoteke?",
+      ppGhIsciPh: "Išči repozitorij (npr. localsend)", ppGhIsci: "Išči", ppGhIscem: "Iščem …", ppGhNic: "Ni zadetkov.",
+      ppGhIzdaje: "Izdaje", ppGhNazaj: "Rezultati", ppGhBrezIzdaj: "Ta repozitorij nima izdaj.", ppGhBrezDatotek: "Brez datotek.",
+      ppGhPredizdaja: "predizdaja", ppGhArhiviran: "arhiviran", ppGhPrenosov: "{n}× preneseno", ppGhShrani: "Shrani",
+      ppGhShranjujem: "Shranjujem …", ppGhShranjeno: "Shranjeno: {ime}", ppGhNiMape: "V izbrano mapo ni mogoče pisati.",
+      ppGhZaTa: "za ta računalnik", ppAptVir: "skladišče paketov · za ves računalnik",
+      ppGhShranjenoPreverjeno: "Shranjeno in preverjeno (SHA-256 z GitHuba): {ime}",
+      ppGhKontrolna: "Prenesena datoteka se ne ujema s SHA-256 z GitHuba, zato je nisem shranil.",
+      ppGhNapaka: "GitHub zdaj ne odgovarja. Poskusi pozneje.", ppGhOmejitev: "GitHub omejuje število iskanj brez prijave. Poskusi čez minuto.",
       ppPreverjam: "Preverjam, kaj se bo namestilo …", ppKajSe: "Namestilo se bo:", ppOkolje: "okolje, ki ga program potrebuje",
       ppVirFlatpak: "Vir: Flathub · samo za tvojega uporabnika · brez gesla · prenos {mb} MB",
       ppVirApt: "Vir: skladišča {vir} · za ves računalnik · sistem vpraša za geslo · prenos {mb} MB",
@@ -234,8 +257,31 @@
       ppOpis_bazaar: "Apps from Flathub.", ppOpis_discover: "KDE's software center (system packages and Flatpak).",
       ppOpis_gearlever: "AppImage apps: install, update and tidy up.",
       ppOpis_gnome_software: "GNOME's software center (system packages and Flatpak).",
-      ppOpis_snap_store: "Snap apps. Linux Mint turns Snap off on purpose; you can turn it on yourself.",
+      ppOpis_snap_store: "Snap apps. Linux Mint turns Snap off; “Enable” turns it on (you see every step).",
       ppOpis_mintinstall: "The Linux Mint software center (system packages and Flathub).",
+      ppZavihekPonudniki: "Providers", ppZavihekViri: "Sources", ppZavihekGithub: "GitHub", ppOmogoci: "Enable",
+      ppKorak_nosnap: "Remove Mint's Snap block (/etc/apt/preferences.d/nosnap.pref)", ppKorak_snapd: "Install the snapd package",
+      ppKorak_snap_store: "Install Snap Store",
+      ppVirSnap: "Source: Snapcraft (Canonical) · for the whole computer · the system asks for a password",
+      ppPosSnap: "Updates: Snap updates its apps by itself (a property of Snap). You can hold them with “snap refresh --hold”.",
+      ppViriUvod: "Sources this computer installs programs from. You can add your own: a PPA or a Flatpak repository.",
+      ppViriPh: "ppa:name/ppa or https://…/source.flatpakrepo", ppViriDodaj: "Add source", ppViriPrazno: "No sources.",
+      ppViriNeveljaven: "That is not a PPA (ppa:name/ppa) or an https://…/name.flatpakrepo address.",
+      ppViriPpa: "The PPA {vir} will be added for the whole computer · the system asks for a password.",
+      ppViriFlatpak: "The Flatpak repository “{ime}” ({vir}) will be added · for your user only · no password.",
+      ppViriOpozorilo: "Safeer does not check programs from this source. Add only a source you trust.",
+      ppViriDodan: "The source is added.", ppViriNapaka: "The source could not be added.",
+      ppZaUporabnika: "for your user", ppZaSistem: "for the whole computer",
+      ppGhUvod: "Public GitHub repositories and the files of their releases. Save them to a folder you choose; Safeer does not check or install them by itself.",
+      ppGhMapa: "Save to: {pot}", ppGhSpremeni: "Change …", ppGhIzberiMapo: "Where should programs and files be saved?",
+      ppGhIsciPh: "Search repositories (e.g. localsend)", ppGhIsci: "Search", ppGhIscem: "Searching …", ppGhNic: "No results.",
+      ppGhIzdaje: "Releases", ppGhNazaj: "Results", ppGhBrezIzdaj: "This repository has no releases.", ppGhBrezDatotek: "No files.",
+      ppGhPredizdaja: "pre-release", ppGhArhiviran: "archived", ppGhPrenosov: "{n} downloads", ppGhShrani: "Save",
+      ppGhShranjujem: "Saving …", ppGhShranjeno: "Saved: {ime}", ppGhNiMape: "The chosen folder cannot be written to.",
+      ppGhZaTa: "for this computer", ppAptVir: "package repository · for the whole computer",
+      ppGhShranjenoPreverjeno: "Saved and verified (SHA-256 from GitHub): {ime}",
+      ppGhKontrolna: "The downloaded file does not match GitHub's SHA-256, so it was not kept.",
+      ppGhNapaka: "GitHub is not answering right now. Try again later.", ppGhOmejitev: "GitHub limits searches without signing in. Try again in a minute.",
       ppPreverjam: "Checking what will be installed …", ppKajSe: "This will be installed:", ppOkolje: "runtime the program needs",
       ppVirFlatpak: "Source: Flathub · for your user only · no password · download {mb} MB",
       ppVirApt: "Source: {vir} repositories · for the whole computer · the system asks for a password · download {mb} MB",
@@ -2204,78 +2250,248 @@
     m.push([t("oblakVec"), function () { klic("splet", [o.stran]); }]);
     pokaziMeni(m, x, y);
   }
-  // Ponudniki programov (core/os_ponudniki_programov.py): uporabnik izbere, od kod namesca programe. Po abecedi
-  // prikazanega imena, brez priporocila; namescenega odpre, Snap samo razlozi (Mint ga ima izklopljenega).
+  // Ponudniki programov (core/os_ponudniki_programov.py, core/os_github_programi.py): uporabnik izbere, od kod namesca
+  // programe. Trije zavihki: Ponudniki (po abecedi, brez priporocila), Viri (Flatpak repozitoriji, PPA - doda svoje) in
+  // GitHub (javni repozitoriji in datoteke izdaj, shrani v mapo, ki jo izbere sam). Nic se ne namesti brez potrditve, v
+  // kateri uporabnik vidi, kaj natanko, od kod, koliko in kako se bo posodabljalo (lastnik, 11. 10. 2026).
   function ponudnikiProgramov() {
     var ovoj = el("div", "meni"); ovoj.setAttribute("role", "dialog"); ovoj.setAttribute("aria-label", t("ppNaslov"));
-    ovoj.style.cssText = "position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(36em,92vw);max-height:86vh;overflow:auto;padding:1em 1.2em";
+    // Pritrjen zgoraj (ne na sredini): ko se vsebina spremeni, okno ne poskoci pod kazalcem.
+    ovoj.style.cssText = "position:fixed;left:50%;top:6vh;transform:translateX(-50%);width:min(40em,94vw);max-height:88vh;overflow:auto;padding:1em 1.2em";
     ovoj.appendChild(el("p", "meni-naslov", t("ppNaslov")));
-    var uvod = el("p", "", t("ppUvod")); uvod.style.cssText = "margin:.4em 0 .8em;opacity:.8"; ovoj.appendChild(uvod);
-    var seznam = el("div", ""); ovoj.appendChild(seznam);
+    var zavihki = el("div", ""); zavihki.style.cssText = "display:flex;gap:.4em;margin:.3em 0 .6em";
+    var vsebina = el("div", "");
     var gumbi = el("div", "");
     gumbi.style.cssText = "display:flex;justify-content:flex-end;margin-top:.6em;padding-top:.5em;border-top:1px solid rgba(127,127,127,.25)";
     var gZapri = el("button", "", t("shrZapri")); gZapri.type = "button"; gZapri.style.width = "auto";
-    gZapri.addEventListener("click", zapri); gumbi.appendChild(gZapri); ovoj.appendChild(gumbi);
+    gZapri.addEventListener("click", zapri); gumbi.appendChild(gZapri);
+    [zavihki, vsebina, gumbi].forEach(function (x) { ovoj.appendChild(x); });
     document.body.appendChild(ovoj);
-    function zapri() { ovoj.remove(); document.removeEventListener("keydown", esc, true); }
+    var casovnik = 0;
+    function zapri() { clearTimeout(casovnik); ovoj.remove(); document.removeEventListener("keydown", esc, true); }
     function esc(ev) { if (ev.key === "Escape") { ev.preventDefault(); zapri(); } }
     document.addEventListener("keydown", esc, true);
+    function stevilo(v) { return String(v || 0).replace(".", jezik === "sl" ? "," : "."); }
+    function gumb(besedilo, glavni) {
+      var g = el("button", "", besedilo); g.type = "button";
+      g.style.cssText = "width:auto;flex:none" + (glavni ? ";border:1px solid var(--obroba-mocna)" : "");
+      return g;
+    }
+    function vrsticaZ(naslovBesedilo, opisBesedilo) {
+      var vrsta = el("div", ""); vrsta.style.cssText = "display:flex;align-items:center;flex-wrap:wrap;gap:.8em;padding:.45em 0;border-bottom:1px solid rgba(127,127,127,.12)";
+      var b = el("div", ""); b.style.cssText = "flex:1;min-width:0";
+      var n = el("div", "", naslovBesedilo); n.style.cssText = "font-weight:600;overflow-wrap:anywhere";
+      b.appendChild(n);
+      if (opisBesedilo) { var o = el("div", "", opisBesedilo); o.style.cssText = "font-size:.9em;opacity:.75;overflow-wrap:anywhere"; b.appendChild(o); }
+      vrsta.appendChild(b);
+      return vrsta;
+    }
+    // Okvir za potrditev: vrstice besedila, seznam, gumba Preklici / potrdi.
+    function potrditev(vrsta, vrstice, seznam, potrdiBesedilo, naPotrdi, naPreklic) {
+      var okvir = el("div", ""); okvir.style.cssText = "flex-basis:100%;margin:.2em 0;padding:.6em .7em;border:1px solid var(--obroba-mocna);border-radius:8px;font-size:.9em";
+      if (seznam && seznam.length) {
+        okvir.appendChild(el("div", "", t("ppKajSe")));
+        var ul = el("ul", ""); ul.style.cssText = "margin:.3em 0 .4em 1.2em;padding:0";
+        seznam.forEach(function (x) { ul.appendChild(el("li", "", x)); });
+        okvir.appendChild(ul);
+      }
+      vrstice.forEach(function (x) { var d = el("div", "", x); d.style.marginTop = ".25em"; okvir.appendChild(d); });
+      var vg = el("div", ""); vg.style.cssText = "display:flex;gap:.6em;justify-content:flex-end;margin-top:.5em";
+      var gP = gumb(t("ppPreklici")), gO = gumb(potrdiBesedilo, true);
+      vg.appendChild(gP); vg.appendChild(gO); okvir.appendChild(vg); vrsta.appendChild(okvir);
+      gP.addEventListener("click", function () { okvir.remove(); if (naPreklic) naPreklic(); });
+      gO.addEventListener("click", function () { gO.disabled = true; gP.disabled = true; naPotrdi(); });
+      try { gO.focus(); } catch (x) {}
+      return okvir;
+    }
+    var ZAVIHKI = [["ponudniki", "ppZavihekPonudniki"], ["viri", "ppZavihekViri"], ["github", "ppZavihekGithub"]];
+    var trenutni = "ponudniki";
+    ZAVIHKI.forEach(function (z) {
+      var g = gumb(t(z[1])); g.setAttribute("role", "tab"); g.setAttribute("data-zavihek", z[0]);
+      g.addEventListener("click", function () { odpriZavihek(z[0]); });
+      zavihki.appendChild(g);
+    });
+    function odpriZavihek(k) {
+      trenutni = k; clearTimeout(casovnik);
+      zavihki.querySelectorAll("button").forEach(function (b) {
+        var izbran = b.getAttribute("data-zavihek") === k;
+        b.setAttribute("aria-selected", izbran ? "true" : "false");
+        b.style.border = izbran ? "1px solid var(--obroba-mocna)" : "1px solid transparent";
+        b.style.fontWeight = izbran ? "600" : "400";
+      });
+      vsebina.innerHTML = "";
+      if (k === "ponudniki") zavihekPonudniki(); else if (k === "viri") zavihekViri(); else zavihekGithub();
+    }
+
+    // ---------------------------------------------------------------- Ponudniki
     function kljuc(id) { return String(id).replace(/-/g, "_"); }
     function ime(p) { return BESEDILA[jezik]["ppIme_" + kljuc(p.id)] ? t("ppIme_" + kljuc(p.id)) : p.ime; }
-    function izrisi(vsi) {
-      seznam.innerHTML = "";
-      if (!vsi.length) { seznam.appendChild(el("p", "", t("ppPrazno"))); return; }
-      vsi.slice().sort(function (a, b) { return ime(a).localeCompare(ime(b)); }).forEach(function (p) {
-        var vrsta = el("div", ""); vrsta.style.cssText = "display:flex;align-items:center;gap:.8em;padding:.45em 0;border-bottom:1px solid rgba(127,127,127,.12)";
-        var besedilo = el("div", ""); besedilo.style.cssText = "flex:1;min-width:0";
-        var naslov = el("div", "", ime(p) + (p.namescen ? " · " + t("ppNamesceno") : "")); naslov.style.fontWeight = "600";
-        var opis = el("div", "", t("ppOpis_" + kljuc(p.id)) + (p.namestljiv && p.vrsta === "apt" ? " (" + t("ppGeslo") + ")" : ""));
-        opis.style.cssText = "font-size:.9em;opacity:.75";
-        besedilo.appendChild(naslov); besedilo.appendChild(opis);
-        var g = el("button", "", p.namescen ? t("ppOdpri") : p.vrsta === "snap" ? t("ppVec") : t("ppNamesti"));
-        g.type = "button"; g.style.cssText = "width:auto;flex:none;border:1px solid var(--obroba-mocna)";
-        if (!p.namescen && p.vrsta !== "snap" && !p.namestljiv) g.disabled = true;
-        g.addEventListener("click", function () {
-          if (p.namescen) { klic("ponudnikOdpri", [p.id]); zapri(); return; }
-          if (p.vrsta === "snap") { klic("splet", [p.stran]); zapri(); return; }
-          // Najprej pokazemo, kaj natanko se bo namestilo, od kod in koliko; namestitev sele po potrditvi.
-          g.disabled = true; g.textContent = t("ppPreverjam");
-          klic("ponudnikPodrobnosti", [p.id]).then(function (d) {
-            if (!d || !d.ok) { obvesti(t("ppNiPodatkov")); osvezi(); return; }
-            var okvir = el("div", ""); okvir.style.cssText = "flex-basis:100%;margin:.4em 0 .2em;padding:.6em .7em;border:1px solid var(--obroba-mocna);border-radius:8px;font-size:.9em";
-            okvir.appendChild(el("div", "", t("ppKajSe")));
-            var ul = el("ul", ""); ul.style.cssText = "margin:.3em 0 .4em 1.2em;padding:0";
-            (d.paketi || []).forEach(function (x) {
-              ul.appendChild(el("li", "", x.ime + (x.razlicica ? " " + x.razlicica : "") + (x.okolje ? " – " + t("ppOkolje") : "")
-                + (x.prenos_mb ? " (" + String(x.prenos_mb).replace(".", jezik === "sl" ? "," : ".") + " MB)" : "")));
-            });
-            okvir.appendChild(ul);
-            var mb = String(d.prenos_mb || 0).replace(".", jezik === "sl" ? "," : ".");
-            okvir.appendChild(el("div", "", d.vrsta === "flatpak" ? t("ppVirFlatpak", { mb: mb }) : t("ppVirApt", { vir: d.vir, mb: mb })));
-            var pos = el("div", "", t(d.samodejno ? "ppPosSamo" : "ppPosRocno")); pos.style.marginTop = ".3em"; okvir.appendChild(pos);
-            var vrstaG = el("div", ""); vrstaG.style.cssText = "display:flex;gap:.6em;justify-content:flex-end;margin-top:.5em";
-            var gPreklici = el("button", "", t("ppPreklici")); gPreklici.type = "button"; gPreklici.style.width = "auto";
-            var gPotrdi = el("button", "", t("ppPotrdi")); gPotrdi.type = "button"; gPotrdi.style.cssText = "width:auto;border:1px solid var(--obroba-mocna)";
-            vrstaG.appendChild(gPreklici); vrstaG.appendChild(gPotrdi); okvir.appendChild(vrstaG);
-            vrsta.style.flexWrap = "wrap"; vrsta.appendChild(okvir); g.hidden = true;
-            gPreklici.addEventListener("click", function () { osvezi(); });
-            gPotrdi.addEventListener("click", function () { gPotrdi.disabled = true; gPreklici.disabled = true; namestiPotrjeno(); });
-            try { gPotrdi.focus(); } catch (x) {}
-          }).catch(function () { obvesti(t("ppNiPodatkov")); osvezi(); });
+    function zavihekPonudniki() {
+      var uvod = el("p", "", t("ppUvod")); uvod.style.cssText = "margin:.2em 0 .6em;opacity:.8"; vsebina.appendChild(uvod);
+      var seznam = el("div", ""); vsebina.appendChild(seznam);
+      function izrisi(vsi) {
+        seznam.innerHTML = "";
+        if (!vsi.length) { seznam.appendChild(el("p", "", t("ppPrazno"))); return; }
+        vsi.slice().sort(function (a, b) { return ime(a).localeCompare(ime(b)); }).forEach(function (p) {
+          var vrsta = vrsticaZ(ime(p) + (p.namescen ? " · " + t("ppNamesceno") : ""),
+            t("ppOpis_" + kljuc(p.id)) + (p.namestljiv && p.vrsta === "apt" ? " (" + t("ppGeslo") + ")" : ""));
+          var g = gumb(p.namescen ? t("ppOdpri") : p.vrsta === "snap" ? t("ppOmogoci") : t("ppNamesti"), true);
+          if (!p.namescen && !p.namestljiv) g.disabled = true;
+          g.addEventListener("click", function () {
+            if (p.namescen) { klic("ponudnikOdpri", [p.id]); zapri(); return; }
+            g.disabled = true; g.textContent = t("ppPreverjam");
+            klic("ponudnikPodrobnosti", [p.id]).then(function (d) {
+              if (!d || !d.ok) { obvesti(t("ppNiPodatkov")); osvezi(); return; }
+              var seznamPaketov, vrstice;
+              if (d.vrsta === "snap") {
+                seznamPaketov = (d.koraki || []).map(function (k) { return t("ppKorak_" + kljuc(k)); });
+                vrstice = [t("ppVirSnap"), t("ppPosSnap")];
+              } else {
+                seznamPaketov = (d.paketi || []).map(function (x) {
+                  return x.ime + (x.razlicica ? " " + x.razlicica : "") + (x.okolje ? " – " + t("ppOkolje") : "") + (x.prenos_mb ? " (" + stevilo(x.prenos_mb) + " MB)" : "");
+                });
+                vrstice = [d.vrsta === "flatpak" ? t("ppVirFlatpak", { mb: stevilo(d.prenos_mb) }) : t("ppVirApt", { vir: d.vir, mb: stevilo(d.prenos_mb) }),
+                           t(d.samodejno ? "ppPosSamo" : "ppPosRocno")];
+              }
+              g.hidden = true;
+              potrditev(vrsta, vrstice, seznamPaketov, d.vrsta === "snap" ? t("ppOmogoci") : t("ppPotrdi"), function () {
+                g.hidden = false; g.textContent = t("ppNamescam");
+                klic("ponudnikNamesti", [p.id]).then(function (r) {
+                  if (r && r.ok) { obvesti(t("ppKoncano", { ime: ime(p) })); osvezi(); naloziProgrameNaprav(); }
+                  else { obvesti(r && r.napaka === "preklicano" ? t("ppPreklicano") : t("ppNapaka", { ime: ime(p) })); osvezi(); }
+                }).catch(function () { obvesti(t("ppNapaka", { ime: ime(p) })); osvezi(); });
+              }, osvezi);
+            }).catch(function () { obvesti(t("ppNiPodatkov")); osvezi(); });
+          });
+          vrsta.appendChild(g); seznam.appendChild(vrsta);
         });
-        function namestiPotrjeno() {
-          g.textContent = t("ppNamescam");
-          klic("ponudnikNamesti", [p.id]).then(function (r) {
-            if (r && r.ok) { obvesti(t("ppKoncano", { ime: ime(p) })); osvezi(); naloziProgrameNaprav(); }
-            else { obvesti(r && r.napaka === "preklicano" ? t("ppPreklicano") : t("ppNapaka", { ime: ime(p) })); osvezi(); }
-          }).catch(function () { obvesti(t("ppNapaka", { ime: ime(p) })); osvezi(); });
-        }
-        vrsta.appendChild(besedilo); vrsta.appendChild(g); seznam.appendChild(vrsta);
-      });
-      var prvi = seznam.querySelector("button:not([disabled])"); if (prvi) try { prvi.focus(); } catch (x) {}
+      }
+      function osvezi() { klic("ponudnikiProgramov").then(function (s) { izrisi(Array.isArray(s) ? s : []); }).catch(function () { izrisi([]); }); }
+      osvezi();
     }
-    function osvezi() { klic("ponudnikiProgramov").then(function (s) { izrisi(Array.isArray(s) ? s : []); }).catch(function () { izrisi([]); }); }
-    osvezi();
+
+    // ---------------------------------------------------------------- Viri
+    function zavihekViri() {
+      var uvod = el("p", "", t("ppViriUvod")); uvod.style.cssText = "margin:.2em 0 .6em;opacity:.8"; vsebina.appendChild(uvod);
+      var seznam = el("div", ""); vsebina.appendChild(seznam);
+      var vnos = el("div", ""); vnos.style.cssText = "display:flex;gap:.6em;align-items:center;flex-wrap:wrap;margin-top:.7em";
+      var polje = el("input", "filter"); polje.type = "text"; polje.placeholder = t("ppViriPh"); polje.style.cssText = "flex:1;min-width:14em";
+      var gDodaj = gumb(t("ppViriDodaj"), true);
+      vnos.appendChild(polje); vnos.appendChild(gDodaj); vsebina.appendChild(vnos);
+      function izrisi(v) {
+        seznam.innerHTML = "";
+        (v.flatpak || []).forEach(function (x) { seznam.appendChild(vrsticaZ(x.ime + " · Flatpak", x.url + " · " + t(x.za === "uporabnik" ? "ppZaUporabnika" : "ppZaSistem"))); });
+        (v.ppa || []).forEach(function (x) { seznam.appendChild(vrsticaZ(x + " · PPA", t("ppZaSistem"))); });
+        (v.apt || []).forEach(function (x) { seznam.appendChild(vrsticaZ(x.url.replace(/^https?:\/\//, "") + " · " + x.izdaja, t("ppAptVir"))); });
+        if (!seznam.children.length) seznam.appendChild(el("p", "", t("ppViriPrazno")));
+      }
+      function osvezi() { klic("viriProgramov").then(function (v) { izrisi(v || {}); }).catch(function () { izrisi({}); }); }
+      gDodaj.addEventListener("click", function () {
+        var niz = (polje.value || "").trim();
+        klic("virPodrobnosti", [niz]).then(function (d) {
+          if (!d || !d.ok) { obvesti(t("ppViriNeveljaven")); return; }
+          gDodaj.disabled = true;
+          var vrstice = [d.vrsta === "ppa" ? t("ppViriPpa", { vir: d.vir }) : t("ppViriFlatpak", { vir: d.vir, ime: d.ime }), t("ppViriOpozorilo")];
+          potrditev(vnos, vrstice, null, t("ppViriDodaj"), function () {
+            klic("dodajVir", [niz]).then(function (r) {
+              gDodaj.disabled = false;
+              if (r && r.ok) { obvesti(t("ppViriDodan")); polje.value = ""; osvezi(); }
+              else obvesti(r && r.napaka === "preklicano" ? t("ppPreklicano") : t("ppViriNapaka"));
+              vnos.querySelectorAll("div").forEach(function (o) { if (o.parentNode === vnos) o.remove(); });
+            }).catch(function () { gDodaj.disabled = false; obvesti(t("ppViriNapaka")); });
+          }, function () { gDodaj.disabled = false; });
+        });
+      });
+      osvezi();
+    }
+
+    // ---------------------------------------------------------------- GitHub
+    function privzetaMapa() {
+      var m = (Z.mape || []).filter(function (x) { return x.vrsta === "DOWNLOAD"; })[0];
+      return N.mapaProgramov || (m && m.pot) || Z.dom || "~";
+    }
+    function zavihekGithub() {
+      var uvod = el("p", "", t("ppGhUvod")); uvod.style.cssText = "margin:.2em 0 .6em;opacity:.8"; vsebina.appendChild(uvod);
+      var mapaVrsta = el("div", ""); mapaVrsta.style.cssText = "display:flex;gap:.6em;align-items:center;margin-bottom:.6em";
+      var mapaBesedilo = el("div", ""); mapaBesedilo.style.cssText = "flex:1;min-width:0;overflow-wrap:anywhere";
+      var gMapa = gumb(t("ppGhSpremeni"));
+      mapaVrsta.appendChild(mapaBesedilo); mapaVrsta.appendChild(gMapa); vsebina.appendChild(mapaVrsta);
+      function narisiMapo() { mapaBesedilo.textContent = t("ppGhMapa", { pot: stranskoBesedilo(privzetaMapa()) }); }
+      narisiMapo();
+      gMapa.addEventListener("click", function () {
+        klic("izberiMapo", [privzetaMapa(), t("ppGhIzberiMapo"), t("preklici"), t("izberi")]).then(function (p) {
+          if (p) { N.mapaProgramov = p; shrani(); narisiMapo(); }
+        });
+      });
+      var iskanje = el("div", ""); iskanje.style.cssText = "display:flex;gap:.6em;align-items:center";
+      var polje = el("input", "filter"); polje.type = "search"; polje.placeholder = t("ppGhIsciPh"); polje.style.cssText = "flex:1;min-width:12em";
+      var gIsci = gumb(t("ppGhIsci"), true);
+      iskanje.appendChild(polje); iskanje.appendChild(gIsci); vsebina.appendChild(iskanje);
+      var rezultati = el("div", ""); rezultati.style.marginTop = ".5em"; vsebina.appendChild(rezultati);
+      function napaka(r) { rezultati.innerHTML = ""; rezultati.appendChild(el("p", "", t(r && r.napaka === "omejitev" ? "ppGhOmejitev" : "ppGhNapaka"))); }
+      function isci() {
+        var niz = (polje.value || "").trim(); if (!niz) return;
+        rezultati.innerHTML = ""; rezultati.appendChild(el("p", "", t("ppGhIscem")));
+        klic("githubIsci", [niz]).then(function (r) {
+          if (!r || !r.ok) { napaka(r); return; }
+          rezultati.innerHTML = "";
+          if (!r.repozitoriji.length) { rezultati.appendChild(el("p", "", t("ppGhNic"))); return; }
+          r.repozitoriji.forEach(function (x) {
+            var opis = [x.opis, "★ " + x.zvezdice, x.licenca, x.posodobljeno, x.arhiviran ? t("ppGhArhiviran") : ""].filter(Boolean).join(" · ");
+            var vrsta = vrsticaZ(x.repo, opis);
+            var g = gumb(t("ppGhIzdaje"), true);
+            g.addEventListener("click", function () { izdaje(x.repo); });
+            vrsta.appendChild(g); rezultati.appendChild(vrsta);
+          });
+        }).catch(function () { napaka(null); });
+      }
+      function izdaje(repo) {
+        rezultati.innerHTML = ""; rezultati.appendChild(el("p", "", t("ppGhIscem")));
+        klic("githubIzdaje", [repo]).then(function (r) {
+          if (!r || !r.ok) { napaka(r); return; }
+          rezultati.innerHTML = "";
+          var nazaj = gumb("← " + t("ppGhNazaj")); nazaj.addEventListener("click", isci); rezultati.appendChild(nazaj);
+          var naslov = el("p", "", repo); naslov.style.cssText = "font-weight:600;margin:.5em 0 .2em"; rezultati.appendChild(naslov);
+          if (!r.izdaje.length) { rezultati.appendChild(el("p", "", t("ppGhBrezIzdaj"))); return; }
+          r.izdaje.forEach(function (iz) {
+            var h = el("div", "", iz.ime + " · " + iz.datum + (iz.predizdaja ? " · " + t("ppGhPredizdaja") : ""));
+            h.style.cssText = "margin:.7em 0 .2em;opacity:.85"; rezultati.appendChild(h);
+            if (!iz.datoteke.length) { rezultati.appendChild(el("p", "", t("ppGhBrezDatotek"))); return; }
+            iz.datoteke.forEach(function (d) {
+              var vrsta = vrsticaZ(d.ime, stevilo(d.mb) + " MB · " + t("ppGhPrenosov", { n: d.prenosi })
+                + (d.nas ? " · " + t("ppGhZaTa") : d.linux ? " · Linux" : "") + (d.sha256 ? " · SHA-256" : ""));
+              var g = gumb(t("ppGhShrani"), true), shranjenaPot = "";
+              g.addEventListener("click", function () {
+                if (shranjenaPot) { klic("pokaziVMapi", [shranjenaPot]); return; }
+                g.disabled = true; g.textContent = t("ppGhShranjujem");
+                klic("githubShrani", [d.url, d.ime, privzetaMapa(), d.sha256 || ""]).then(function (z) {
+                  if (!z || !z.ok) { g.disabled = false; g.textContent = t("ppGhShrani"); obvesti(t(z && z.koda === "mapa" ? "ppGhNiMape" : "ppGhNapaka")); return; }
+                  (function spremljaj() {
+                    klic("githubStanje", [z.id]).then(function (s) {
+                      if (!s || !s.ok || s.stanje === "napaka") {
+                        g.disabled = false; g.textContent = t("ppGhShrani");
+                        obvesti(t(s && s.koda === "kontrolna" ? "ppGhKontrolna" : "ppGhNapaka")); return;
+                      }
+                      if (s.stanje === "koncano") {
+                        g.disabled = false; g.textContent = t("pokaziVMapi"); shranjenaPot = s.pot;
+                        obvesti(t(s.preverjeno ? "ppGhShranjenoPreverjeno" : "ppGhShranjeno", { ime: s.ime })); return;
+                      }
+                      g.textContent = s.skupaj ? Math.round(100 * s.prebrano / s.skupaj) + " %" : stevilo(Math.round(s.prebrano / 104857.6) / 10) + " MB";
+                      casovnik = setTimeout(spremljaj, 500);
+                    }).catch(function () { g.disabled = false; g.textContent = t("ppGhShrani"); });
+                  })();
+                }).catch(function () { g.disabled = false; g.textContent = t("ppGhShrani"); });
+              });
+              vrsta.appendChild(g); rezultati.appendChild(vrsta);
+            });
+          });
+        }).catch(function () { napaka(null); });
+      }
+      gIsci.addEventListener("click", isci);
+      polje.addEventListener("keydown", function (ev) { if (ev.key === "Enter") { ev.preventDefault(); isci(); } });
+      try { polje.focus(); } catch (x) {}
+    }
+    odpriZavihek("ponudniki");
   }
 
   function namestiOblak(o) {

@@ -39,12 +39,13 @@ class Pravila(unittest.TestCase):
     def test_stanje_namescen_in_namestljiv(self):
         tek = Zapis({"flatpak info it.mijorus.gearlever": (0, ""),
                      "dpkg-query -W -f=${Status} mintinstall": (0, "install ok installed")})
-        s = {x["id"]: x for x in p.stanje(tek, vse_je, nosnap=True)}
+        brez_snapa = lambda ime: None if ime in ("snap", "snap-store") else vse_je(ime)
+        s = {x["id"]: x for x in p.stanje(tek, brez_snapa, nosnap=True)}
         self.assertTrue(s["gearlever"]["namescen"])
         self.assertFalse(s["gearlever"]["namestljiv"])
         self.assertTrue(s["mintinstall"]["namescen"])
         self.assertTrue(s["bazaar"]["namestljiv"])
-        self.assertFalse(s["snap-store"]["namestljiv"])
+        self.assertTrue(s["snap-store"]["namestljiv"])
         self.assertTrue(s["snap-store"]["snap_blokiran"])
 
     def test_brez_flatpak_in_pkexec_ni_namestljivo(self):
@@ -64,18 +65,44 @@ class Pravila(unittest.TestCase):
         self.assertEqual(tek.ukazi[0], ["pkexec", "apt-get", "install", "-y", "gnome-software", "gnome-software-plugin-flatpak"])
         self.assertEqual(p.namesti("gnome-software", Zapis({"pkexec": (126, "")}), vse_je)["napaka"], "preklicano")
 
-    def test_snap_in_neznan_se_ne_namestita(self):
+    def test_snap_omogoci_z_enim_geslom_in_neznan_ne(self):
+        tek = Zapis({"pkexec sh -c": (0, "")})
+        self.assertTrue(p.namesti("snap-store", tek, vse_je)["ok"])
+        self.assertEqual(tek.ukazi, [["pkexec", "sh", "-c", p.SNAP_SKRIPTA]])
+        self.assertIn("nosnap.pref", p.SNAP_SKRIPTA)
+        d = p.podrobnosti("snap-store", Zapis(), nic, obstaja=lambda pot: True)
+        self.assertEqual(d["koraki"], ["nosnap", "snapd", "snap-store"])
         tek = Zapis()
-        self.assertEqual(p.namesti("snap-store", tek, vse_je)["napaka"], "snap")
         self.assertEqual(p.namesti("rm -rf /", tek, vse_je)["napaka"], "ni_ponudnika")
         self.assertEqual(tek.ukazi, [])
+
+    def test_viri_strogo_preverjeni(self):
+        self.assertEqual(p.vrsta_vira("ppa:mozillateam/ppa"), "ppa")
+        self.assertEqual(p.vrsta_vira("https://dl.flathub.org/repo/flathub.flatpakrepo"), "flatpak")
+        for slab in ("ppa:a/b; rm -rf /", "ppa:a/b c", "http://x.org/a.flatpakrepo", "https://x.org/a.flatpakref", "--help", ""):
+            self.assertEqual(p.vrsta_vira(slab), "", slab)
+        tek = Zapis({"flatpak remote-add": (0, "")})
+        self.assertTrue(p.dodaj_vir("https://dl.flathub.org/repo/flathub.flatpakrepo", tek, vse_je)["ok"])
+        self.assertEqual(tek.ukazi[0], ["flatpak", "remote-add", "--user", "--if-not-exists", "flathub", "https://dl.flathub.org/repo/flathub.flatpakrepo"])
+        tek = Zapis({"pkexec add-apt-repository": (126, "")})
+        self.assertEqual(p.dodaj_vir("ppa:mozillateam/ppa", tek, vse_je)["napaka"], "preklicano")
+        self.assertEqual(tek.ukazi[0], ["pkexec", "add-apt-repository", "-y", "ppa:mozillateam/ppa"])
+
+    def test_viri_seznam(self):
+        import tempfile, os as _os
+        with tempfile.TemporaryDirectory() as t:
+            open(_os.path.join(t, "mozilla.list"), "w").write("deb https://ppa.launchpadcontent.net/mozillateam/ppa/ubuntu noble main\n")
+            tek = Zapis({"flatpak remotes": (0, "flathub\thttps://dl.flathub.org/repo/\tsystem\nmoj\thttps://x/\tuser\n")})
+            v = p.viri(tek, mapa=t)
+        self.assertEqual(v["ppa"], ["ppa:mozillateam/ppa"])
+        self.assertEqual([(x["ime"], x["za"]) for x in v["flatpak"]], [("flathub", "sistem"), ("moj", "uporabnik")])
 
     def test_odpri(self):
         zagnano = []
         self.assertTrue(p.odpri("gearlever", lambda u, **k: zagnano.append(u)))
         self.assertTrue(p.odpri("mintinstall", lambda u, **k: zagnano.append(u)))
-        self.assertFalse(p.odpri("snap-store", lambda u, **k: zagnano.append(u)))
-        self.assertEqual(zagnano, [["flatpak", "run", "it.mijorus.gearlever"], ["mintinstall"]])
+        self.assertTrue(p.odpri("snap-store", lambda u, **k: zagnano.append(u)))
+        self.assertEqual(zagnano, [["flatpak", "run", "it.mijorus.gearlever"], ["mintinstall"], ["snap-store"]])
 
     def test_podrobnosti_flatpak_z_okoljem(self):
         info = (0, "Bazaar\n\n        ID: io.github.kolunmi.Bazaar\n   Version: 0.9.7\n   License: GPL-3.0-or-later\n"
@@ -111,8 +138,8 @@ class Pravila(unittest.TestCase):
         js = (KOREN / "assets/os/delovna.js").read_text(encoding="utf-8")
         i, j = js.index('klic("ponudnikPodrobnosti", [p.id])'), js.index('klic("ponudnikNamesti", [p.id])')
         self.assertLess(i, j)
-        self.assertIn("function namestiPotrjeno()", js)
-        self.assertEqual(js.count("namestiPotrjeno()"), 2, "namestitev samo iz gumba potrditve")
+        self.assertEqual(js.count('klic("ponudnikNamesti"'), 1)
+        self.assertLess(js.index("potrditev(vrsta, vrstice, seznamPaketov"), j, "namestitev samo iz gumba potrditve")
 
     def test_stran_in_paket(self):
         js = (KOREN / "assets/os/delovna.js").read_text(encoding="utf-8")
