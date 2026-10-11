@@ -42,3 +42,17 @@ class Pomnilnik(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FilterBrezPretvorbe(unittest.TestCase):
+    def test_preskoci_shranjen_seznam(self):
+        import tempfile
+        from core.filter_lists import FilterListAgent
+        d = tempfile.mkdtemp()
+        klici = []
+        a = FilterListAgent(d, on_rules=lambda p, v: klici.append(v), fetch=lambda *a: (304, b"", "", ""), first_delay=999)
+        a._write(b"[Adblock Plus 2.0]\n||oglas.example^\n" * 50, "", "")
+        a.skip_saved = True
+        a.start(); a.loaded.wait(5); a.stop()
+        self.assertEqual(klici, [], "preveden seznam se ob zagonu ne pretvarja znova")
+        self.assertEqual(a.list_sha256, a.saved_sha256())

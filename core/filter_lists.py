@@ -86,7 +86,7 @@ class FilterListAgent:
 
     def __init__(self, data_dir, on_rules, never_block_domains=(), fetch=default_fetch, url: str = EASYLIST_URL,
                  first_delay: float = FIRST_UPDATE_DELAY_SECONDS, interval: float = UPDATE_INTERVAL_SECONDS,
-                 retry: float = RETRY_SECONDS):
+                 retry: float = RETRY_SECONDS, skip_saved: bool = False):
         self.data_dir = Path(data_dir)
         self.on_rules = on_rules
         self.never_block_domains = tuple(never_block_domains)
@@ -102,6 +102,9 @@ class FilterListAgent:
         self.list_sha256 = ""
         self.fetched_at = 0.0
         self.loaded = threading.Event()
+        #: Shranjeni seznam je ze preveden (WebKit ga nalozi iz shrambe): ob zagonu ga ne pretvarjamo znova
+        #: (pretvorba EasyList v Pythonu stane ~150 MiB RAM-a, ki ostanejo procesu).
+        self.skip_saved = skip_saved
 
     # -- files -----------------------------------------------------------------------------------
     @property
@@ -138,7 +141,10 @@ class FilterListAgent:
 
     def _run(self) -> None:
         try:
-            self.load_saved()
+            if not self.skip_saved:
+                self.load_saved()
+            else:
+                self.list_sha256 = str(self._read_meta().get("sha256") or "")
         except Exception as exc:  # noqa: BLE001 - a broken cache must never break start-up
             self.last_error = f"{exc.__class__.__name__}: {exc}"
         finally:
@@ -190,6 +196,10 @@ class FilterListAgent:
         self.rule_count = len(rules)
         self.list_sha256 = _sha256(data)
         self.on_rules(webkit_filters.to_json(rules), source)
+
+    def saved_sha256(self) -> str:
+        """SHA-256 shranjenega seznama iz meta podatkov (brez branja in pretvarjanja seznama)."""
+        return str(self._read_meta().get("sha256") or "") if self.list_path.is_file() else ""
 
     def status(self) -> dict:
         return {"rules": self.rule_count, "fetched_at": self.fetched_at, "last_error": self.last_error, "sha256": self.list_sha256[:16]}

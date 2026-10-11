@@ -363,11 +363,43 @@ class VdelaniSplet:
             from core.threat_intel import default_data_dir
             mapa = default_data_dir("safeer-mint").parent / "filter-lists"
             self._filter_mapa = mapa / "compiled"
+            # Seznam, ki je ze preveden (oznaka list.sha256 = sha shranjenega seznama), WebKit nalozi iz shrambe; Python
+            # ga ne bere in ne pretvarja (meritev 11. 10. 2026: pretvorba je procesu pustila ~170 MiB).
+            oznaka = self._filter_mapa / "list.sha256"
+            preveden = ""
+            try:
+                preveden = oznaka.read_text("utf-8").strip()
+            except OSError:
+                pass
             self.filter_agent = FilterListAgent(mapa, on_rules=lambda p, v: self.GLib.idle_add(self._namesti_filter, p, v),
                                                  never_block_domains=adblock.real_bank_domains())
+            if preveden and preveden == self.filter_agent.saved_sha256():
+                self.filter_agent.skip_saved = True
+                self._nalozi_preveden_filter()
             self.filter_agent.start()
         except Exception as napaka:
             print("[Safeer OS Splet] EasyList:", napaka)
+
+    def _nalozi_preveden_filter(self) -> None:
+        def nalozen(shramba, rezultat, *_a):
+            try:
+                self.filter = shramba.load_finish(rezultat)
+                for z in self.zavihki:
+                    self._uporabi_filter(z["pogled"])
+            except Exception as napaka:
+                # Shramba je pokvarjena ali je ni: naslednjic seznam pretvorimo znova.
+                print("[Safeer OS Splet] preveden filter:", napaka)
+                try:
+                    (self._filter_mapa / "list.sha256").unlink()
+                except OSError:
+                    pass
+        try:
+            self._filter_mapa.mkdir(parents=True, exist_ok=True)
+            if self.filter_store is None:
+                self.filter_store = self.WebKit2.UserContentFilterStore.new(str(self._filter_mapa))
+            self.filter_store.load(FILTER_ID, None, nalozen)
+        except Exception as napaka:
+            print("[Safeer OS Splet] preveden filter:", napaka)
 
     def _namesti_filter(self, pravila, _vir):
         try:
@@ -385,6 +417,8 @@ class VdelaniSplet:
         try:
             self.filter = shramba.save_finish(rezultat)
             (self._filter_mapa / "compiled.sha256").write_text(sha, "utf-8")
+            if self.filter_agent is not None and self.filter_agent.list_sha256:
+                (self._filter_mapa / "list.sha256").write_text(self.filter_agent.list_sha256, "utf-8")
             for z in self.zavihki:
                 self._uporabi_filter(z["pogled"])
         except Exception as napaka:
