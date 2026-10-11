@@ -565,6 +565,77 @@ class ZakonitiViri:
             return [v for v in (self._tunein_vnos(r, skupina) for r in vrste) if v][:40 if query else 150]
         return self._cached(kljuc, fetch)
 
+    # ------------------------------------------------------------------ tokovi postaje
+    # Lastnik, 11. 10. 2026: postaja z vec programi (Rock Radio: Best Ballads, Hard & Heavy, Classics) - uporabnik
+    # izbere program kot na strani postaje. Tokove najdemo na domaci strani postaje (povezave na tokove), ime toka pove
+    # streznik sam (glava icy-name). Nic ni vpisano na roko za posamezno postajo.
+    _TOK_VZOREC = re.compile(r"""https://[^\s"'<>\\]{6,400}""")
+    _TOK_NAMIG = re.compile(r"stream|live|icecast|shoutcast|proxy|\.mp3|\.aac|\.m3u8|\.ogg|/radio|:8\d{3}/", re.I)
+    _TOK_NE = re.compile(r"\.(?:jpe?g|png|gif|webp|svg|css|js|ico|woff2?|ttf|html?)(?:[?#]|$)|facebook|instagram|twitter|x\.com|youtube|google|datocms", re.I)
+
+    def domaca_stran_postaje(self, item: dict) -> str:
+        stran = str(item.get("domaca_stran") or "")
+        gid = str(item.get("tunein_id") or "")
+        if not stran and re.fullmatch(r"s\d{1,12}", gid):
+            try:
+                opis = self._json(self.TUNEIN + "/Describe.ashx?" + urllib.parse.urlencode({"id": gid, "render": "json"}), 6)
+                stran = str(((opis or {}).get("body") or [{}])[0].get("url") or "")
+            except Exception:
+                stran = ""
+        if stran.startswith("http://"):
+            stran = "https://" + stran[len("http://"):]
+        return stran if stran.startswith("https://") else ""
+
+    def _glava_toka(self, url: str) -> dict | None:
+        """Ali je naslov zvocni tok: preberemo samo glavo (icy-name, vrsta, bitna hitrost), telesa ne."""
+        host = (urllib.parse.urlsplit(url).hostname or "").lower()
+        if not host or re.fullmatch(r"[\d.]+|\[?[0-9a-f]*:[0-9a-f:]+\]?", host) or host in ("localhost",) or host.endswith(".local"):
+            return None
+        request = urllib.request.Request(url, headers={"User-Agent": "SafeerOS/1.0 (+https://safeer.si)", "Icy-MetaData": "1"})
+        try:
+            with self._opener(request, timeout=5) as response:
+                glava = response.headers
+                vrsta = str(glava.get("Content-Type") or "").lower()
+                if not (vrsta.startswith("audio/") or "mpegurl" in vrsta or "ogg" in vrsta):
+                    return None
+                return {"url": url, "ime": str(glava.get("icy-name") or "").strip()[:120],
+                        "bitrate": int(re.sub(r"\D", "", str(glava.get("icy-br") or "")) or 0),
+                        "mime": "application/vnd.apple.mpegurl" if "mpegurl" in vrsta else vrsta.split(";")[0]}
+        except Exception:
+            return None
+
+    def tokovi_postaje(self, item: dict) -> list[dict]:
+        """Vsi tokovi (programi) postaje z njene domace strani: [{naslov, url, bitrate, mime}]. Prazno, ce jih ni vec."""
+        stran = self.domaca_stran_postaje(item)
+        if not stran:
+            return []
+
+        def fetch():
+            request = urllib.request.Request(stran, headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) SafeerOS/1.0",
+                                                             "Accept": "text/html"})
+            with self._opener(request, timeout=8) as response:
+                html = response.read(1024 * 1024).decode("utf-8", "replace")
+            kandidati = []
+            for url in self._TOK_VZOREC.findall(html.replace("\\/", "/").replace("&amp;", "&")):
+                url = url.rstrip(").,;")
+                if self._TOK_NAMIG.search(url) and not self._TOK_NE.search(url) and url not in kandidati:
+                    kandidati.append(url)
+            kandidati = kandidati[:12]
+            if not kandidati:
+                return []
+            with ThreadPoolExecutor(max_workers=min(6, len(kandidati))) as pool:
+                glave = [g for g in pool.map(self._glava_toka, kandidati) if g]
+            tokovi, imena = [], set()
+            for g in glave:
+                ime = g["ime"] or str(item.get("naslov") or "")
+                kljuc = _norm(ime)
+                if kljuc in imena:
+                    continue                 # isti program v drugi kakovosti (HLS, nizja hitrost): obdrzimo prvega
+                imena.add(kljuc)
+                tokovi.append({"naslov": ime, "url": g["url"], "bitrate": g["bitrate"], "mime": g["mime"]})
+            return tokovi if len(tokovi) > 1 else []
+        return self._cached("tokovi:" + stran, fetch)
+
     def resolve_tunein(self, item: dict) -> dict | None:
         gid = str(item.get("tunein_id") or "")
         if not re.fullmatch(r"s\d{1,12}", gid):
