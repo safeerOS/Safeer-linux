@@ -158,7 +158,7 @@
       posN_naprava_zasedena: "z napravo trenutno deli druga naprava", posN_ni_datoteke: "datoteke ni več",
       posN_naprava_ni_seznanjena: "ta računalnik pri središču ni prijavljen",
       posN_sredisce_naprave_ni_dosegljivo: "naprava v tem omrežju ni dosegljiva", posN_posiljanje_ni_uspelo: "povezava je bila prekinjena",
-      isciVSpletu: "Išči »{q}« v spletu", odpreVBrskalniku: "privzeti brskalnik", isciem: "Iščem …",
+      isciVSpletu: "Išči »{q}« v spletu", odpreVBrskalniku: "rezultati tukaj na namizju", isciem: "Iščem …",
       prostor: "{n} el.",
       spremeniOzadje: "Spremeni ozadje …", prilagodiDock: "Prilagodi dock …",
       dockNamig: "Program dodaš v dock tako, da ga povlečeš iz menija; odstraniš ga tako, da ga povlečeš ven.",
@@ -352,7 +352,7 @@
       posN_naprava_zasedena: "another device is sharing with that device right now", posN_ni_datoteke: "the file is gone",
       posN_naprava_ni_seznanjena: "this computer is not signed in at the hub",
       posN_sredisce_naprave_ni_dosegljivo: "the device cannot be reached on this network", posN_posiljanje_ni_uspelo: "the connection was interrupted",
-      isciVSpletu: "Search the web for “{q}”", odpreVBrskalniku: "default browser", isciem: "Searching …",
+      isciVSpletu: "Search the web for “{q}”", odpreVBrskalniku: "results right here on the desktop", isciem: "Searching …",
       prostor: "{n} items",
       spremeniOzadje: "Change wallpaper …", prilagodiDock: "Customise dock …",
       dockNamig: "Add an app to the dock by dragging it from the menu; drag it out to remove it.",
@@ -2690,10 +2690,27 @@
   // Kateri zadetek odpre Enter, ce uporabnik ni izbral sam: prvi program (kot meni Start), sicer Safeer OS, sicer
   // naprava, najdena po imenu. Naprava, najdena samo po vrsti (»telefon«), Enterja ne prevzame - ostane splet.
   var RANG_ZADETKA = { program: 3, safeer: 2, naprava: 1 };
-  function privzetiZadetek(vnosi) {
+  /* Kaj uporabnik isce (Enter brez izbire): spletni naslov -> splet; program -> program; datoteka, slika, medij ali
+     zapisek, katerega ime se z nizom zacne ali je enako (ali niz izgleda kot pot ali datoteka s koncnico) -> ta vnos;
+     razdelek Safeer OS ali naprava po imenu; sicer splet (prva vrstica). Ocene so iz skupnega iskanje.js
+     (SafeerIskanje.oceni: enako 100, zacetek 70, beseda 50, del 30) - ista pravila kot iskanje v Safeer OS. */
+  var PRAG_IMENA = 70;
+  function imeVnosa(v) {
+    if (v.vrsta === "datoteka" || v.vrsta === "medij") return v.d.naslov || v.d.ime || "";
+    if (v.vrsta === "zapisek") return v.z.naslov || "";
+    return "";
+  }
+  function privzetiZadetek(vnosi, q) {
+    var I_ = typeof SafeerIskanje !== "undefined" ? SafeerIskanje : null;
+    if (I_ && q && I_.jeNaslov(q)) return 0;
     var prvi = 0, rang = 0;
     vnosi.forEach(function (v, i) {
       var r = v.vrsta === "naprava" && !v.poImenu ? 0 : (RANG_ZADETKA[v.vrsta] || 0);
+      if (I_ && q && (v.vrsta === "datoteka" || v.vrsta === "medij" || v.vrsta === "zapisek")) {
+        var ime = imeVnosa(v), brezKoncnice = ime.replace(/\.[^.\s]{1,8}$/, "");
+        var ocena = Math.max(I_.oceni(ime, q), I_.oceni(brezKoncnice, q));
+        if (ocena >= PRAG_IMENA || (v.vrsta === "datoteka" && I_.jePotAliKoncnica(q) && ocena > 0)) r = 2.5;
+      }
       if (r > rang) { rang = r; prvi = i; }
     });
     return prvi;
@@ -2783,7 +2800,7 @@
       });
     });
     // Na namizju Enter odpre program, ce se kateri ujema (kot meni Start); splet ostane prva vrstica in Shift+Enter.
-    if (!I.rocno) I.izbran = privzetiZadetek(I.zadetki.map(function (b) { return b._v; }));
+    if (!I.rocno) I.izbran = privzetiZadetek(I.zadetki.map(function (b) { return b._v; }), I.zadnji);
     z.hidden = false; $("iskalnoPolje").setAttribute("aria-expanded", "true");
     oznaciZadetek();
   }
@@ -2816,9 +2833,11 @@
     }
   }
   function odpriSplet(q) {
-    // Spletni zadetek odpre privzeti brskalnik; starejsi Safeer OS brez te metode odpre vdelani Splet.
-    klic("odpriVBrskalniku", [q]).then(function (ok) { if (ok === false) return klic("iskanjeSplet", [q]); })
-      .catch(function () { klic("iskanjeSplet", [q]); });
+    // Spletni zadetek: rezultati v plosci na namizju, tik pod iskalnim poljem (isti vgrajeni brskalnik kot Splet v
+    // Safeer OS, z vsemi moznostmi). Brez tega (starejsi Safeer OS, brez peskovnika) privzeti brskalnik.
+    var r = $("iskalnoPolje").getBoundingClientRect();
+    klic("spletNaNamizju", [q, Math.round(r.bottom)]).then(function (ok) { if (ok === false) return klic("odpriVBrskalniku", [q]); })
+      .catch(function () { klic("odpriVBrskalniku", [q]).catch(function () { klic("iskanjeSplet", [q]); }); });
   }
 
   // ------------------------------------------------------------------ SAFEER LINK (gumb pod iskalnikom)

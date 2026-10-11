@@ -152,7 +152,7 @@ class TestDelovnaStran(unittest.TestCase):
         js, html = beri("assets", "os", "delovna.js"), beri("assets", "os", "delovna.html")
         for niz in ("function ocenaPrograma(p, ql)", "I.poEnter = true", 'e.key === "Enter" && e.shiftKey',
                     'izberiZadetek(programi.length ? { vrsta: "program", p: programi[0] } : safeer.length ? safeer[0] : napravaPoImenu || { vrsta: "splet", q: q })',
-                    'if (!I.rocno) I.izbran = privzetiZadetek(I.zadetki.map(function (b) { return b._v; }));'):
+                    'if (!I.rocno) I.izbran = privzetiZadetek(I.zadetki.map(function (b) { return b._v; }), I.zadnji);'):
             self.assertIn(niz, js)
         self.assertIn("Shift+Enter splet", js)
         self.assertIn("Shift+Enter web", js)
@@ -208,6 +208,7 @@ assert.strictEqual(smiselnSpust(["/m/a", "/x/y"], "/m"), true);
         blok = js[js.index("  function ocenaPrograma(p, ql) {"):js.index("  function isci(q) {")]
         koda = """
 var assert = require("assert");
+var SafeerIskanje = require(process.argv[1]);
 var BES = { ciljMedia: "Medijski center", ciljNaprave: "Naprave (Safeer Link)", ciljScit: "Ščit – zaščita za ves računalnik",
             ciljNastavitve: "Nastavitve Safeer OS", ciljZapiski: "Zapiski", ciljSporocila: "Sporočila", ciljSplet: "Splet v Safeer OS" };
 function t(k) { return BES[k] || k; }
@@ -267,8 +268,18 @@ assert.strictEqual(privzetiZadetek([splet, saf, { vrsta: "naprava", poImenu: tru
 assert.strictEqual(privzetiZadetek([splet, { vrsta: "naprava", poImenu: true }, { vrsta: "datoteka" }]), 1);
 assert.strictEqual(privzetiZadetek([splet, { vrsta: "naprava", poImenu: false }, { vrsta: "datoteka" }, { vrsta: "mediji" }]), 0,
                    "naprava po vrsti, datoteka in pot v Medijski center Enterja ne prevzamejo");
+// Namera (lastnik 11. 10. 2026): sistem prepozna, ali uporabnik isce program, datoteko, sliko ali splet.
+var dat = function (ime) { return { vrsta: "datoteka", d: { ime: ime, pot: "/h/" + ime } }; };
+assert.strictEqual(privzetiZadetek([splet, dat("Dopust 2024.jpg")], "dopust"), 1, "ime slike se zacne z nizom");
+assert.strictEqual(privzetiZadetek([splet, dat("Porocilo.pdf")], "porocilo.pdf"), 1, "datoteka s koncnico");
+assert.strictEqual(privzetiZadetek([splet, dat("Recept za vreme.txt")], "vreme"), 0, "beseda sredi imena: splet");
+assert.strictEqual(privzetiZadetek([splet, dat("vreme.txt")], "vreme"), 1);
+assert.strictEqual(privzetiZadetek([splet, dat("rtvslo.si.txt"), prog], "rtvslo.si"), 0, "spletni naslov: splet");
+assert.strictEqual(privzetiZadetek([splet, dat("Gimp navodila.pdf"), prog], "gimp"), 2, "program pred datoteko");
+assert.strictEqual(privzetiZadetek([splet, { vrsta: "medij", d: { naslov: "Bohemian Rhapsody" } }], "bohemian"), 1);
+assert.strictEqual(privzetiZadetek([splet, { vrsta: "zapisek", z: { naslov: "Nakupi" } }], "nakupi"), 1);
 """
-        subprocess.run(["node", "-e", koda], check=True)
+        subprocess.run(["node", "-e", koda, os.path.join(KOREN, "assets", "os", "iskanje.js")], check=True)
         # Cilji so razdelki, ki jih glavno okno pozna; sidro bloka mora na strani obstajati.
         html = beri("assets", "os", "index.html")
         import re
