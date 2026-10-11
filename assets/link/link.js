@@ -2459,7 +2459,8 @@
   // Prijavno okno (Safeer Control / Safeer OS na racunalniku)
   // ----------------------------------------------------------------
 
-  var prijava = { qr: false, koda: false, krogNeuspel: false, cakalnik: null, ponovno: null };
+  // opomba: kam gre odziv na vneseno kodo (prijavno okno ali »Dodaj napravo« v oknu povezanih naprav).
+  var prijava = { qr: false, koda: false, krogNeuspel: false, cakalnik: null, ponovno: null, opomba: "", preverjanje: null };
 
   /**
    * Control, ki ni povezan (ne z zetonom ne s krogom zaupanja) in sredisce ne tece tu. Clan kroga
@@ -2613,6 +2614,7 @@
 
   /** Klik v polje za kodo: sredisce pokaze kodo (seznanitev s kodo, SPAKE2). */
   function zacniKodo(opombaId) {
+    if (opombaId) prijava.opomba = opombaId;
     if (prijava.koda || !most) return;
     prijava.koda = true;
     besedilo(opombaId || "opombaPrijavaKoda", t("iscem"));
@@ -2630,9 +2632,21 @@
       if (!prijava.koda) zacniKodo(opombaId);
       return;
     }
+    prijava.opomba = opombaId;
     besedilo(opombaId, t("prijavaPreverjam"));
+    // Odgovor pride vedno (kodaNiSprejeta ali seznanitev); ce ga zaradi omrezja ni, uporabnik ne ostane pri
+    // »Preverjam …« za vedno.
+    if (prijava.preverjanje) clearTimeout(prijava.preverjanje);
+    prijava.preverjanje = setTimeout(function () {
+      prijava.preverjanje = null;
+      var o = el(opombaId);
+      if (o && o.textContent === t("prijavaPreverjam")) { besedilo(opombaId, t("napUkaz")); prijava.koda = false; }
+    }, 30000);
     if (most) most.potrdiKodo(koda);
   }
+  /** Odziv na kodo v oknu povezanih naprav (»Dodaj napravo« -> »Vnesi kodo z druge naprave«). */
+  function jeDodajKoda() { return prijava.opomba === "opombaDodajKoda"; }
+  function koncajPreverjanje() { if (prijava.preverjanje) { clearTimeout(prijava.preverjanje); prijava.preverjanje = null; } }
 
   /** Ali je iskanje sprozil gumb za povezavo; takrat gremo naprej brez novega klika. */
   var povezujemPoIskanju = false;
@@ -2690,6 +2704,7 @@
         var vp = el("prijavaVnosKode");
         if (vp) try { vp.focus(); } catch (e) {}
       } else if (vrsta === "kodaNiSprejeta" && jePrijavnoOkno()) {
+        koncajPreverjanje();
         var rp = (podatki && podatki.razlog) || "napacna_koda";
         besedilo("opombaPrijavaKoda", t(rp === "prevec_poskusov" ? "napPrevecPoskusov"
           : (rp === "prijava_ne_obstaja" ? "napPrijavaPotekla" : "napNapacnaKoda")));
@@ -2699,6 +2714,9 @@
       } else if (vrsta === "nacin") {
         // Nov Hub: kodo pokaze gostitelj, uporabnik jo prepise sem.
         // Starejsi Hub: kodo pokazemo mi, potrdi se na gostitelju.
+        if (jeDodajKoda())
+          besedilo("opombaDodajKoda", podatki && podatki.nacin === "koda_na_gostitelju" ? t("prijavaKodaNaSredisce")
+            : t("potrdiKodo") + " " + String((podatki && podatki.koda) || ""));
         var gs = el("gumbSeznani");
         if (gs) gs.disabled = true;
         if (podatki && podatki.nacin === "koda_na_gostitelju") {
@@ -2716,9 +2734,17 @@
           besedilo("opombaSeznanitev", t("cakamNaPotrditev"));
         }
       } else if (vrsta === "kodaNiSprejeta") {
+        koncajPreverjanje();
         var razlog = (podatki && podatki.razlog) || "napacna_koda";
         var kljucNapake = razlog === "prevec_poskusov" ? "napPrevecPoskusov"
           : (razlog === "prijava_ne_obstaja" ? "napPrijavaPotekla" : "napNapacnaKoda");
+        if (jeDodajKoda()) {
+          // Do 2.1.76 je odziv sel v skrito polje drugega okna in uporabnik je ostal pri »Preverjam …«.
+          besedilo("opombaDodajKoda", t(kljucNapake));
+          if (razlog === "prevec_poskusov" || razlog === "prijava_ne_obstaja") prijava.koda = false;
+          var vd = el("dodajVnosKode");
+          if (vd) { vd.value = ""; try { vd.focus(); } catch (e) {} }
+        }
         besedilo("opombaSeznanitev", t(kljucNapake));
         if (razlog === "prevec_poskusov" || razlog === "prijava_ne_obstaja") {
           pokazi("vnosKodeBlok", false);
@@ -2730,7 +2756,12 @@
           if (v2) { v2.value = ""; try { v2.focus(); } catch (e) {} }
         }
       } else if (vrsta === "seznanitev") {
+        koncajPreverjanje();
         if (podatki && jePrijavnoOkno()) besedilo("opombaPrijavaKoda", t("prijavaUspela"));
+        if (jeDodajKoda()) {
+          besedilo("opombaDodajKoda", t(podatki ? "prijavaUspela" : "niPotrjeno"));
+          prijava.koda = false;
+        }
         var gumb = el("gumbSeznani");
         if (gumb) gumb.disabled = false;
         if (podatki) {
