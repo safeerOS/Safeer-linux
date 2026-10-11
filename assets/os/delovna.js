@@ -69,6 +69,12 @@
       ppOpis_gnome_software: "GNOME-ov center programov (paketi sistema in Flatpak).",
       ppOpis_snap_store: "Programi Snap. Linux Mint ima Snap izklopljen namenoma; vklopiš ga lahko sam.",
       ppOpis_mintinstall: "Center programov Linux Mint (paketi sistema in Flathub).",
+      ppPreverjam: "Preverjam, kaj se bo namestilo …", ppKajSe: "Namestilo se bo:", ppOkolje: "okolje, ki ga program potrebuje",
+      ppVirFlatpak: "Vir: Flathub · samo za tvojega uporabnika · brez gesla · prenos {mb} MB",
+      ppVirApt: "Vir: skladišča {vir} · za ves računalnik · sistem vpraša za geslo · prenos {mb} MB",
+      ppPosSamo: "Posodobitve: v Upravitelju posodobitev imaš vklopljene samodejne posodobitve, zato se bo posodabljal sam. To spremeniš v nastavitvah Upravitelja posodobitev.",
+      ppPosRocno: "Posodobitve: ponudi jih Upravitelj posodobitev; namestijo se šele, ko jih potrdiš.",
+      ppPotrdi: "Namesti", ppPreklici: "Prekliči", ppNiPodatkov: "Podatkov o namestitvi ni bilo mogoče prebrati, zato ne namestim.",
       oblakNamescam: "Nameščam {ime} iz uradnega vira {ponudnik}. To lahko traja nekaj minut …",
       oblakNamesceno: "{ime} je nameščen. Najdeš ga med Igrami.", oblakZeNamescam: "Namestitev že teče.",
       oblakNapaka_vir: "Uradnega vira ni bilo mogoče dodati. Preveri povezavo z internetom.",
@@ -230,6 +236,12 @@
       ppOpis_gnome_software: "GNOME's software center (system packages and Flatpak).",
       ppOpis_snap_store: "Snap apps. Linux Mint turns Snap off on purpose; you can turn it on yourself.",
       ppOpis_mintinstall: "The Linux Mint software center (system packages and Flathub).",
+      ppPreverjam: "Checking what will be installed …", ppKajSe: "This will be installed:", ppOkolje: "runtime the program needs",
+      ppVirFlatpak: "Source: Flathub · for your user only · no password · download {mb} MB",
+      ppVirApt: "Source: {vir} repositories · for the whole computer · the system asks for a password · download {mb} MB",
+      ppPosSamo: "Updates: automatic updates are on in the Update Manager, so it will update by itself. You can change this in the Update Manager settings.",
+      ppPosRocno: "Updates: the Update Manager offers them; they are installed only when you confirm.",
+      ppPotrdi: "Install", ppPreklici: "Cancel", ppNiPodatkov: "Could not read what would be installed, so nothing is installed.",
       oblakNamescam: "Installing {ime} from the official {ponudnik} source. This can take a few minutes…",
       oblakNamesceno: "{ime} is installed. You will find it under Games.", oblakZeNamescam: "The installation is already running.",
       oblakNapaka_vir: "The official source could not be added. Check your internet connection.",
@@ -2226,12 +2238,38 @@
         g.addEventListener("click", function () {
           if (p.namescen) { klic("ponudnikOdpri", [p.id]); zapri(); return; }
           if (p.vrsta === "snap") { klic("splet", [p.stran]); zapri(); return; }
-          g.disabled = true; g.textContent = t("ppNamescam");
+          // Najprej pokazemo, kaj natanko se bo namestilo, od kod in koliko; namestitev sele po potrditvi.
+          g.disabled = true; g.textContent = t("ppPreverjam");
+          klic("ponudnikPodrobnosti", [p.id]).then(function (d) {
+            if (!d || !d.ok) { obvesti(t("ppNiPodatkov")); osvezi(); return; }
+            var okvir = el("div", ""); okvir.style.cssText = "flex-basis:100%;margin:.4em 0 .2em;padding:.6em .7em;border:1px solid var(--obroba-mocna);border-radius:8px;font-size:.9em";
+            okvir.appendChild(el("div", "", t("ppKajSe")));
+            var ul = el("ul", ""); ul.style.cssText = "margin:.3em 0 .4em 1.2em;padding:0";
+            (d.paketi || []).forEach(function (x) {
+              ul.appendChild(el("li", "", x.ime + (x.razlicica ? " " + x.razlicica : "") + (x.okolje ? " – " + t("ppOkolje") : "")
+                + (x.prenos_mb ? " (" + String(x.prenos_mb).replace(".", jezik === "sl" ? "," : ".") + " MB)" : "")));
+            });
+            okvir.appendChild(ul);
+            var mb = String(d.prenos_mb || 0).replace(".", jezik === "sl" ? "," : ".");
+            okvir.appendChild(el("div", "", d.vrsta === "flatpak" ? t("ppVirFlatpak", { mb: mb }) : t("ppVirApt", { vir: d.vir, mb: mb })));
+            var pos = el("div", "", t(d.samodejno ? "ppPosSamo" : "ppPosRocno")); pos.style.marginTop = ".3em"; okvir.appendChild(pos);
+            var vrstaG = el("div", ""); vrstaG.style.cssText = "display:flex;gap:.6em;justify-content:flex-end;margin-top:.5em";
+            var gPreklici = el("button", "", t("ppPreklici")); gPreklici.type = "button"; gPreklici.style.width = "auto";
+            var gPotrdi = el("button", "", t("ppPotrdi")); gPotrdi.type = "button"; gPotrdi.style.cssText = "width:auto;border:1px solid var(--obroba-mocna)";
+            vrstaG.appendChild(gPreklici); vrstaG.appendChild(gPotrdi); okvir.appendChild(vrstaG);
+            vrsta.style.flexWrap = "wrap"; vrsta.appendChild(okvir); g.hidden = true;
+            gPreklici.addEventListener("click", function () { osvezi(); });
+            gPotrdi.addEventListener("click", function () { gPotrdi.disabled = true; gPreklici.disabled = true; namestiPotrjeno(); });
+            try { gPotrdi.focus(); } catch (x) {}
+          }).catch(function () { obvesti(t("ppNiPodatkov")); osvezi(); });
+        });
+        function namestiPotrjeno() {
+          g.textContent = t("ppNamescam");
           klic("ponudnikNamesti", [p.id]).then(function (r) {
             if (r && r.ok) { obvesti(t("ppKoncano", { ime: ime(p) })); osvezi(); naloziProgrameNaprav(); }
             else { obvesti(r && r.napaka === "preklicano" ? t("ppPreklicano") : t("ppNapaka", { ime: ime(p) })); osvezi(); }
           }).catch(function () { obvesti(t("ppNapaka", { ime: ime(p) })); osvezi(); });
-        });
+        }
         vrsta.appendChild(besedilo); vrsta.appendChild(g); seznam.appendChild(vrsta);
       });
       var prvi = seznam.querySelector("button:not([disabled])"); if (prvi) try { prvi.focus(); } catch (x) {}

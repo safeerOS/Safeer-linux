@@ -1918,6 +1918,7 @@ class SafeerOS(Gtk.Application):
             "ponudnikiProgramov": lambda: os_ponudniki_programov.stanje(),
             "ponudnikNamesti": lambda: os_ponudniki_programov.namesti(str(a[0]) if a else ""),
             "ponudnikOdpri": lambda: os_ponudniki_programov.odpri(str(a[0]) if a else ""),
+            "ponudnikPodrobnosti": lambda: os_ponudniki_programov.podrobnosti(str(a[0]) if a else ""),
             "prilepiDatoteke": lambda: os_datoteke.prilepi(a[0] if a and isinstance(a[0], list) else [], str(a[1]) if len(a) > 1 else "",
                                                            bool(a[2]) if len(a) > 2 else False),
             "spusceneDatoteke": self._spuscene_datoteke,

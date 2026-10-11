@@ -75,6 +75,87 @@ def stanje(tek: Callable = _tek, najdi: Callable = shutil.which, nosnap: Optiona
     return izid
 
 
+def _velikost_mb(besedilo: str) -> float:
+    """»11.9 MB« / »1.1 GB« / »812 kB« -> MB (0, ce ni stevila)."""
+    import re
+    m = re.match(r"\s*([\d.,]+)\s*([kMG])B", besedilo or "")
+    if not m:
+        return 0.0
+    v = float(m.group(1).replace(",", "."))
+    return round(v / 1024 if m.group(2) == "k" else v * 1024 if m.group(2) == "G" else v, 1)
+
+
+def _remote_info(ref: str, tek: Callable) -> dict:
+    """Polja iz `flatpak remote-info` (sistemski Flathub, sicer uporabnikov)."""
+    for nam in ("--system", "--user"):
+        koda, izpis = tek(["flatpak", "remote-info", nam, FLATHUB[0], ref], 60)
+        if koda == 0:
+            polja = {}
+            for v in izpis.splitlines():
+                k, _, vr = v.partition(":")
+                if vr and k.strip() and k.strip() not in polja:
+                    polja[k.strip()] = vr.strip()
+            return polja
+    return {}
+
+
+SAMODEJNO_MINT = "/var/lib/linuxmint/mintupdate-automatic-upgrades-enabled"
+
+
+def samodejne_posodobitve(vrsta: str, tek: Callable = _tek, obstaja: Callable = os.path.exists) -> bool:
+    """Ali bo Upravitelj posodobitev (Linux Mint) ta program posodabljal sam - to je uporabnikova nastavitev v Mintu,
+    ne Safeerjeva. apt: samodejne nadgradnje vklopljene; flatpak: te in »auto-update-flatpaks«."""
+    if not obstaja(SAMODEJNO_MINT):
+        return False
+    if vrsta != "flatpak":
+        return True
+    koda, izpis = tek(["gsettings", "get", "com.linuxmint.updates", "auto-update-flatpaks"], 10)
+    return koda == 0 and izpis.strip() == "true"
+
+
+def podrobnosti(id_: str, tek: Callable = _tek, najdi: Callable = shutil.which, obstaja: Callable = os.path.exists) -> dict:
+    """Kaj natanko se bo namestilo, od kod in koliko - uporabnik to vidi PRED namestitvijo (lastnik, 11. 10. 2026:
+    »uporabnik vedno ve, kaj se namesca«). Nic se ne namesti; samo branje (flatpak remote-info, apt-get -s)."""
+    p = _ponudnik(id_)
+    if p is None:
+        return {"ok": False, "napaka": "ni_ponudnika"}
+    if p["vrsta"] == "flatpak":
+        i = _remote_info(p["flatpak"], tek)
+        if not i:
+            return {"ok": False, "napaka": "ni_podatkov"}
+        izid = {"ok": True, "vrsta": "flatpak", "vir": "Flathub", "za": "uporabnik", "geslo": False,
+                "paketi": [{"ime": p["flatpak"], "razlicica": i.get("Version", ""), "prenos_mb": _velikost_mb(i.get("Download", ""))}],
+                "licenca": i.get("License", "")}
+        okolje = i.get("Runtime", "")
+        if okolje:
+            if tek(["flatpak", "info", okolje], 20)[0] != 0:
+                r = _remote_info(okolje.split("/")[0] + "//" + okolje.split("/")[-1], tek) if "/" in okolje else {}
+                izid["paketi"].append({"ime": okolje, "razlicica": r.get("Version", ""), "prenos_mb": _velikost_mb(r.get("Download", "")),
+                                       "okolje": True})
+        izid["prenos_mb"] = round(sum(x["prenos_mb"] for x in izid["paketi"]), 1)
+        izid["samodejno"] = samodejne_posodobitve("flatpak", tek, obstaja)
+        return izid
+    if p["vrsta"] == "apt":
+        koda, izpis = tek(["env", "LANG=C", "apt-get", "-s", "install", *p["paketi"]], 120)
+        if koda != 0:
+            return {"ok": False, "napaka": "ni_podatkov"}
+        paketi = []
+        for v in izpis.splitlines():
+            if v.startswith("Inst "):
+                deli = v.split()
+                razl = deli[2].strip("(") if len(deli) > 2 and deli[2].startswith("(") else (deli[3].strip("(") if len(deli) > 3 else "")
+                paketi.append({"ime": deli[1], "razlicica": razl})
+        koda, uri = tek(["env", "LANG=C", "apt-get", "install", "--print-uris", "-y", "-qq", *p["paketi"]], 120)
+        bajti = 0
+        for v in (uri or "").splitlines():
+            deli = v.split()
+            if len(deli) >= 3 and deli[2].isdigit():
+                bajti += int(deli[2])
+        return {"ok": True, "vrsta": "apt", "vir": "Linux Mint / Ubuntu", "za": "sistem", "geslo": True,
+                "paketi": paketi, "prenos_mb": round(bajti / 1048576, 1), "samodejno": samodejne_posodobitve("apt", tek, obstaja)}
+    return {"ok": False, "napaka": "snap"}
+
+
 def namesti(id_: str, tek: Callable = _tek, najdi: Callable = shutil.which) -> dict:
     """Namesti ponudnika na uporabnikov klik. Flatpak: --user (brez gesla); apt: pkexec (polkit vprasa za geslo)."""
     p = _ponudnik(id_)

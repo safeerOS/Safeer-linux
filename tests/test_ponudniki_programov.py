@@ -77,6 +77,43 @@ class Pravila(unittest.TestCase):
         self.assertFalse(p.odpri("snap-store", lambda u, **k: zagnano.append(u)))
         self.assertEqual(zagnano, [["flatpak", "run", "it.mijorus.gearlever"], ["mintinstall"]])
 
+    def test_podrobnosti_flatpak_z_okoljem(self):
+        info = (0, "Bazaar\n\n        ID: io.github.kolunmi.Bazaar\n   Version: 0.9.7\n   License: GPL-3.0-or-later\n"
+                   "  Download: 11.9 MB\n Installed: 24.2 MB\n   Runtime: org.gnome.Platform/x86_64/51\n")
+        okolje = (0, "   Version: 51.1\n  Download: 432.2 MB\n")
+        tek = Zapis({"flatpak remote-info --system flathub io.github.kolunmi.Bazaar": info,
+                     "flatpak remote-info --system flathub org.gnome.Platform//51": okolje,
+                     "gsettings get": (0, "true\n")})
+        d = p.podrobnosti("bazaar", tek, vse_je, obstaja=lambda pot: True)
+        self.assertEqual([x["ime"] for x in d["paketi"]], ["io.github.kolunmi.Bazaar", "org.gnome.Platform/x86_64/51"])
+        self.assertTrue(d["paketi"][1]["okolje"])
+        self.assertEqual(d["prenos_mb"], 444.1)
+        self.assertTrue(d["samodejno"])
+        self.assertFalse(any(u[:2] == ["flatpak", "install"] for u in tek.ukazi), "podrobnosti ne smejo namescati")
+
+    def test_podrobnosti_apt_simulacija(self):
+        sim = (0, "Inst gnome-software-common (46.0-1ubuntu2 Ubuntu:24.04/noble [all])\nInst gnome-software (46.0-1ubuntu2 Ubuntu:24.04/noble [amd64])\n")
+        uri = (0, "'http://x/a.deb' a.deb 1048576 MD5Sum:1\n'http://x/b.deb' b.deb 524288 MD5Sum:2\n")
+        tek = Zapis({"env LANG=C apt-get -s install": sim, "env LANG=C apt-get install --print-uris": uri})
+        d = p.podrobnosti("gnome-software", tek, vse_je, obstaja=lambda pot: False)
+        self.assertEqual([x["ime"] for x in d["paketi"]], ["gnome-software-common", "gnome-software"])
+        self.assertEqual(d["prenos_mb"], 1.5)
+        self.assertTrue(d["geslo"])
+        self.assertFalse(d["samodejno"])
+        self.assertFalse(any("pkexec" in u for u in tek.ukazi))
+
+    def test_samodejne_posodobitve_samo_ce_jih_je_vklopil_uporabnik(self):
+        self.assertFalse(p.samodejne_posodobitve("flatpak", Zapis({"gsettings": (0, "true")}), obstaja=lambda pot: False))
+        self.assertFalse(p.samodejne_posodobitve("flatpak", Zapis({"gsettings": (0, "false")}), obstaja=lambda pot: True))
+        self.assertTrue(p.samodejne_posodobitve("apt", Zapis(), obstaja=lambda pot: True))
+
+    def test_namestitev_sele_po_podrobnostih(self):
+        js = (KOREN / "assets/os/delovna.js").read_text(encoding="utf-8")
+        i, j = js.index('klic("ponudnikPodrobnosti", [p.id])'), js.index('klic("ponudnikNamesti", [p.id])')
+        self.assertLess(i, j)
+        self.assertIn("function namestiPotrjeno()", js)
+        self.assertEqual(js.count("namestiPotrjeno()"), 2, "namestitev samo iz gumba potrditve")
+
     def test_stran_in_paket(self):
         js = (KOREN / "assets/os/delovna.js").read_text(encoding="utf-8")
         for x in p.PONUDNIKI:
