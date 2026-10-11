@@ -16,7 +16,7 @@ korenskega okna (X11); na Waylandu zajem ni na voljo in to povemo naravnost.
 from __future__ import annotations
 
 import hashlib
-import io
+import http.client
 import json
 import os
 import re
@@ -108,28 +108,109 @@ def _sha256_datoteke(pot: str) -> str:
     return h.hexdigest()
 
 
+#: Prekinjeno oddajo (izpad Wi-Fi, spanje naprave) poskusimo znova toliko krat; vmes cakamo vedno dlje.
+POSKUSOV = 6
+CAKANJE_S = (2.0, 4.0, 8.0, 15.0, 30.0)
+#: Odgovori sredisca, po katerih nov poskus nima smisla (napacen zeton, ni prostora, prevelika, napacen odtis ...).
+_KONCNE_NAPAKE = (400, 401, 403, 404, 413, 507)
+
+
+def _odmik_na_hubu(gostitelj: str, vrata: int, odtis: str, zeton: str, cilj: str, sha: str,
+                   velikost: int) -> Tuple[bool, int, int]:
+    """(sredisce zna nadaljevati, koliko ze ima, koda HTTP). Starejse sredisce na HEAD /cast/file odgovori 404:
+    (False, 0, 404); brez odgovora (False, 0, 0)."""
+    povezava = link_tls._PripetaHttps(gostitelj, vrata, odtis, 10.0)
+    try:
+        povezava.request("HEAD", "/cast/file?target=" + quote(cilj, safe="") + "&sha256=" + sha + "&size=%d" % velikost,
+                         headers={"X-Safeer-Token": zeton})
+        odgovor = povezava.getresponse()
+        odgovor.read()
+        if odgovor.status != 200 or odgovor.getheader("x-safeer-resume") != "1":
+            return False, 0, int(odgovor.status)
+        n = int(odgovor.getheader("x-safeer-offset") or 0)
+        return True, (n if 0 <= n < velikost else 0), 200
+    except link_tls.NeujemanjeOdtisa:
+        raise
+    except Exception:  # noqa: BLE001 - brez odgovora: oddaja gre od zacetka
+        return False, 0, 0
+    finally:
+        try:
+            povezava.close()
+        except Exception:
+            pass
+
+
 def poslji_datoteko(ws_naslov: str, zeton: str, odtis: str, moj_id: str, cilj: str, pot: str,
-                    napredek: Optional[Callable[[int], None]] = None) -> Tuple[bool, Dict[str, str]]:
-    """Pošlje datoteko Hubu za cilj. Vrne (uspeh, napaka). Napredek dobi odstotek."""
+                    napredek: Optional[Callable[[int], None]] = None, mapa: str = "",
+                    spi: Callable[[float], None] = time.sleep) -> Tuple[bool, Dict[str, str]]:
+    """Pošlje datoteko Hubu za cilj. Vrne (uspeh, napaka). Napredek dobi odstotek.
+
+    Brez meje 4 GB in z nadaljevanjem (lastnik, 11. 10. 2026): ce se povezava prekine, vprasamo sredisce, koliko ze
+    ima (HEAD), in posljemo samo se ostanek - do POSKUSOV krat. Starejse sredisce nadaljevanja ne zna: takrat nov
+    poskus posilja od zacetka. `mapa`: relativna mapa pri posiljanju cele mape (cilj jo ustvari)."""
     ime = os.path.basename(pot)
     velikost = os.path.getsize(pot)
     odtis_dat = _sha256_datoteke(pot)
     u = urlparse(ws_naslov)
     gostitelj, vrata = u.hostname or "127.0.0.1", u.port or 443
     cilj_pot = ("/cast/file?name=" + quote(ime, safe="") + "&target=" + quote(cilj, safe="")
-                + "&from=" + quote(moj_id, safe=""))
+                + "&from=" + quote(moj_id, safe="") + ("&dir=" + quote(mapa, safe="") if mapa else ""))
+    zadnji = [-1]
+
+    def javi(poslano: int) -> None:
+        odst = int(poslano * 100 / velikost) if velikost else 100
+        if napredek and odst != zadnji[0]:
+            zadnji[0] = odst
+            napredek(odst)
+
+    zadnja_napaka: Dict[str, str] = {}
+    for poskus in range(POSKUSOV):
+        if poskus:
+            spi(CAKANJE_S[min(poskus - 1, len(CAKANJE_S) - 1)])
+        try:
+            zna, odmik, koda_glave = _odmik_na_hubu(gostitelj, vrata, odtis, zeton, cilj, odtis_dat, velikost)
+        except link_tls.NeujemanjeOdtisa:
+            return False, {"sporocilo": "Hub ima drugo potrdilo, kot je bilo ob seznanitvi.", "koda": "odtis_se_ne_ujema", "zasedenaOd": ""}
+        izid, koda_http, j = _oddaja(gostitelj, vrata, odtis, zeton, cilj_pot, pot, velikost, odtis_dat,
+                                     odmik if zna else 0, zna, javi)
+        if izid == "ok":
+            hubov = str(j.get("sha256", "") or "")
+            if hubov and hubov != odtis_dat:
+                return False, {"sporocilo": "Datoteka je po poti spremenjena (odtis se ne ujema).", "koda": "odtis_se_ne_ujema", "zasedenaOd": ""}
+            return True, {}
+        if izid == "odtis":
+            return False, {"sporocilo": "Hub ima drugo potrdilo, kot je bilo ob seznanitvi.", "koda": "odtis_se_ne_ujema", "zasedenaOd": ""}
+        if koda_http:
+            zadnja_napaka = napaka_huba(koda_http, j)
+            if koda_http in _KONCNE_NAPAKE:
+                return False, zadnja_napaka
+        elif koda_glave == 401:
+            # Sredisce nas ne pozna (zavrglo je telo in zaprlo povezavo): nov poskus ne pomaga.
+            return False, {"sporocilo": "Naprava ni seznanjena.", "koda": "naprava_ni_seznanjena", "zasedenaOd": ""}
+        else:
+            zadnja_napaka = {"sporocilo": "Pošiljanje ni uspelo: " + str(j.get("napaka") or "povezava prekinjena"),
+                             "koda": "posiljanje_ni_uspelo", "zasedenaOd": ""}
+    return False, zadnja_napaka or {"sporocilo": "Pošiljanje ni uspelo.", "koda": "posiljanje_ni_uspelo", "zasedenaOd": ""}
+
+
+def _oddaja(gostitelj: str, vrata: int, odtis: str, zeton: str, cilj_pot: str, pot: str, velikost: int, odtis_dat: str,
+            odmik: int, zna: bool, javi: Callable[[int], None]) -> Tuple[str, int, dict]:
+    """Ena oddaja (PUT) od `odmik` do konca. Vrne ("ok" | "napaka" | "odtis", koda HTTP ali 0, json odgovora)."""
     povezava = link_tls._PripetaHttps(gostitelj, vrata, odtis, 30.0)
     try:
         povezava.putrequest("PUT", cilj_pot)
         povezava.putheader("X-Safeer-Token", zeton)
         povezava.putheader("Content-Type", "application/octet-stream")
-        povezava.putheader("Content-Length", str(velikost))
+        povezava.putheader("Content-Length", str(velikost - odmik))
         povezava.putheader("x-safeer-sha256", odtis_dat)
+        if zna:
+            povezava.putheader("x-safeer-size", str(velikost))
+            povezava.putheader("x-safeer-offset", str(odmik))
         povezava.endheaders()
-        poslano = 0
-        zadnji = -1
+        poslano = odmik
         prekinjeno: Optional[Exception] = None
         with open(pot, "rb") as f:
+            f.seek(odmik)
             while True:
                 kos = f.read(KOS)
                 if not kos:
@@ -137,36 +218,26 @@ def poslji_datoteko(ws_naslov: str, zeton: str, odtis: str, moj_id: str, cilj: s
                 try:
                     povezava.send(kos)
                 except OSError as e:
-                    # Sredisce je oddajo zavrnilo in zaprlo povezavo, se preden smo poslali vse (cilj ni povezan, ni
-                    # prostora ...): razlog je morda ze v odgovoru - spodaj ga poskusimo prebrati.
+                    # Sredisce je oddajo zavrnilo ali se je povezava prekinila: razlog je morda ze v odgovoru.
                     prekinjeno = e
                     break
                 poslano += len(kos)
-                odst = int(poslano * 100 / velikost) if velikost else 100
-                if napredek and odst != zadnji:
-                    zadnji = odst
-                    napredek(odst)
+                javi(poslano)
         try:
             odgovor = povezava.getresponse()
-        except Exception:
-            if prekinjeno is not None:
-                raise prekinjeno
-            raise
+        except Exception as e:  # noqa: BLE001
+            return "napaka", 0, {"napaka": str(prekinjeno or e)}
         telo = odgovor.read().decode("utf-8", "replace")
         try:
             j = json.loads(telo) if telo else {}
         except json.JSONDecodeError:
             j = {}
-        if odgovor.status != 200:
-            return False, napaka_huba(odgovor.status, j if isinstance(j, dict) else {})
-        hubov = str(j.get("sha256", "") or "") if isinstance(j, dict) else ""
-        if hubov and hubov != odtis_dat:
-            return False, {"sporocilo": "Datoteka je po poti spremenjena (odtis se ne ujema).", "koda": "odtis_se_ne_ujema", "zasedenaOd": ""}
-        return True, {}
+        j = j if isinstance(j, dict) else {}
+        return ("ok" if odgovor.status == 200 else "napaka"), (0 if odgovor.status == 200 else odgovor.status), j
     except link_tls.NeujemanjeOdtisa:
-        return False, {"sporocilo": "Hub ima drugo potrdilo, kot je bilo ob seznanitvi.", "koda": "odtis_se_ne_ujema", "zasedenaOd": ""}
-    except Exception as e:  # noqa: BLE001 - uporabnik dobi razlog, brskalnik teče naprej
-        return False, {"sporocilo": f"Pošiljanje ni uspelo: {e}", "koda": "posiljanje_ni_uspelo", "zasedenaOd": ""}
+        return "odtis", 0, {}
+    except Exception as e:  # noqa: BLE001 - povezava: nov poskus
+        return "napaka", 0, {"napaka": str(e) or type(e).__name__}
     finally:
         try:
             povezava.close()
@@ -203,15 +274,33 @@ def enolicna_pot(mapa: str, ime: str) -> str:
     return pot
 
 
+def varna_podmapa(mapa: str) -> str:
+    """Relativna mapa iz share.file (`dir`, posiljanje cele mape): samo varna imena, brez »..« in absolutnih poti."""
+    deli = [varno_ime(d) for d in str(mapa or "").replace("\\", "/").split("/") if d.strip() not in ("", ".", "..")]
+    return os.path.join(*deli[:16]) if deli else ""
+
+
+def _ciljna_mapa(mapa: Optional[str], podmapa: str) -> str:
+    koren = mapa or mapa_prenosov()
+    pod = varna_podmapa(podmapa)
+    if not pod:
+        return koren
+    cilj = os.path.realpath(os.path.join(koren, pod))
+    if not cilj.startswith(os.path.realpath(koren) + os.sep):
+        return koren                      # ne sme iz mape prenosov
+    os.makedirs(cilj, exist_ok=True)
+    return cilj
+
+
 def prevzemi_datoteko(ws_naslov: str, odtis: str, pot_huba: str, ime: str, pricakovan_odtis: str,
-                      mapa: Optional[str] = None) -> Tuple[Optional[str], str]:
+                      mapa: Optional[str] = None, podmapa: str = "") -> Tuple[Optional[str], str]:
     """Prenese datoteko s Huba v mapo prenosov. Vrne (pot, "") ali (None, razlog)."""
-    cilj, razlog, _koda = _prevzemi(ws_naslov, odtis, pot_huba, ime, pricakovan_odtis, mapa)
+    cilj, razlog, _koda = _prevzemi(ws_naslov, odtis, pot_huba, ime, pricakovan_odtis, mapa, podmapa)
     return cilj, razlog
 
 
 def prevzemi_pri_srediscih(sredisca, pot_huba: str, ime: str, pricakovan_odtis: str,
-                           mapa: Optional[str] = None) -> Tuple[Optional[str], str]:
+                           mapa: Optional[str] = None, podmapa: str = "") -> Tuple[Optional[str], str]:
     """Datoteko prevzame pri prvem sredisci s seznama [(naslov, odtis), ...], ki jo ima. Vrne kot prevzemi_datoteko.
 
     Pot v `share.file` je relativna na sredisce, ki je datoteko sprejelo - to pa je lahko nase (posiljatelj jo je
@@ -222,46 +311,93 @@ def prevzemi_pri_srediscih(sredisca, pot_huba: str, ime: str, pricakovan_odtis: 
     for naslov, odtis in sredisca:
         if not naslov or not odtis:
             continue
-        cilj, razlog, koda = _prevzemi(naslov, odtis, pot_huba, ime, pricakovan_odtis, mapa)
+        cilj, razlog, koda = _prevzemi(naslov, odtis, pot_huba, ime, pricakovan_odtis, mapa, podmapa)
         if cilj or koda != 404:
             return cilj, razlog
     return None, razlog
 
 
 def _prevzemi(ws_naslov: str, odtis: str, pot_huba: str, ime: str, pricakovan_odtis: str,
-              mapa: Optional[str] = None) -> Tuple[Optional[str], str, int]:
-    """(pot, "", 200) ali (None, razlog, koda HTTP sredisca); koda 0 = do odgovora ni prislo ali prenos ni uspel."""
+              mapa: Optional[str] = None, podmapa: str = "",
+              spi: Callable[[float], None] = time.sleep) -> Tuple[Optional[str], str, int]:
+    """(pot, "", 200) ali (None, razlog, koda HTTP sredisca); koda 0 = do odgovora ni prislo ali prenos ni uspel.
+
+    Prekinjen prevzem (izpad Wi-Fi) nadaljuje, kjer je ostal (Range), do POSKUSOV krat; kar je ze prislo, je v
+    datoteki ».safeer-delno« ob cilju in dobi koncno ime sele, ko je cela in se odtis ujema."""
     u = urlparse(ws_naslov)
     gostitelj, vrata = u.hostname or "127.0.0.1", u.port or 443
-    cilj = enolicna_pot(mapa or mapa_prenosov(), varno_ime(ime))
+    mapa_cilja = _ciljna_mapa(mapa, podmapa)
+    delno = enolicna_pot(mapa_cilja, varno_ime(ime) + ".safeer-delno")
+    razlog, koda = "", 0
+    try:
+        for poskus in range(POSKUSOV):
+            if poskus:
+                spi(CAKANJE_S[min(poskus - 1, len(CAKANJE_S) - 1)])
+            izid, razlog, koda = _prevzem_enkrat(gostitelj, vrata, odtis, pot_huba, delno, pricakovan_odtis)
+            if izid == "ok":
+                cilj = enolicna_pot(mapa_cilja, varno_ime(ime))
+                os.replace(delno, cilj)
+                return cilj, "", 200
+            if izid == "koncno":
+                break
+        _odstrani(delno)
+        return None, razlog, koda
+    except Exception as e:  # noqa: BLE001
+        _odstrani(delno)
+        return None, str(e), 0
+
+
+def _odstrani(pot: str) -> None:
+    try:
+        os.remove(pot)
+    except OSError:
+        pass
+
+
+def _prevzem_enkrat(gostitelj: str, vrata: int, odtis: str, pot_huba: str, delno: str,
+                    pricakovan_odtis: str) -> Tuple[str, str, int]:
+    """("ok" | "znova" | "koncno", razlog, koda HTTP). Nadaljuje od velikosti `delno`, ce sredisce zna Range."""
+    imamo = os.path.getsize(delno) if os.path.isfile(delno) else 0
     povezava = link_tls._PripetaHttps(gostitelj, vrata, odtis, 30.0)
     try:
-        povezava.request("GET", pot_huba)
+        povezava.request("GET", pot_huba, headers={"Range": "bytes=%d-" % imamo} if imamo else {})
         odgovor = povezava.getresponse()
-        if odgovor.status != 200:
-            return None, f"Hub je odgovoril {odgovor.status}", int(odgovor.status)
+        if odgovor.status not in (200, 206):
+            return "koncno", f"Hub je odgovoril {odgovor.status}", int(odgovor.status)
         h = hashlib.sha256()
-        with open(cilj, "wb") as f:
-            while True:
-                kos = odgovor.read(KOS)
-                if not kos:
-                    break
-                f.write(kos)
-                h.update(kos)
+        if odgovor.status == 206 and imamo:
+            with open(delno, "rb") as f:
+                for kos in iter(lambda: f.read(1024 * 1024), b""):
+                    h.update(kos)
+            nacin = "ab"
+        else:
+            nacin = "wb"                      # sredisce Range ne zna (ali ga ni bilo): od zacetka
         pricakovan = pricakovan_odtis or (odgovor.getheader("x-safeer-sha256") or "")
-        if pricakovan and h.hexdigest() != pricakovan:
-            try:
-                os.remove(cilj)
-            except OSError:
-                pass
-            return None, "prstni odtis se ne ujema", 0
-        return cilj, "", 200
-    except Exception as e:  # noqa: BLE001
         try:
-            os.remove(cilj)
-        except OSError:
-            pass
-        return None, str(e), 0
+            with open(delno, nacin) as f:
+                while True:
+                    kos = odgovor.read(KOS)
+                    if not kos:
+                        break
+                    f.write(kos)
+                    h.update(kos)
+        except (OSError, http.client.HTTPException) as e:
+            if isinstance(e, OSError) and e.errno == 28:      # ENOSPC
+                return "koncno", "ni prostora", 0
+            return "znova", str(e) or type(e).__name__, 0
+        dolzina = odgovor.getheader("Content-Length")
+        if dolzina and dolzina.isdigit():
+            pricakovana = int(dolzina) + (imamo if odgovor.status == 206 else 0)
+            if os.path.getsize(delno) < pricakovana:
+                return "znova", "prevzem prekinjen", 0
+        if pricakovan and h.hexdigest() != pricakovan:
+            _odstrani(delno)
+            return "koncno", "prstni odtis se ne ujema", 0
+        return "ok", "", 200
+    except link_tls.NeujemanjeOdtisa as e:
+        return "koncno", str(e), 0
+    except Exception as e:  # noqa: BLE001 - povezava: nov poskus
+        return "znova", str(e) or type(e).__name__, 0
     finally:
         try:
             povezava.close()

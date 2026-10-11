@@ -2044,6 +2044,9 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
         if self._je_krajevni() and self._je_pot_datotek(pot):
             self._datoteka(pot, samo_glava=True)
             return
+        if self._je_krajevni() and pot == POT_ODDAJA:
+            self._odmik_oddaje()
+            return
         # HEAD nima telesa (HTTP/1.1).
         self.send_response(403 if not self._je_krajevni() else 404)
         self.send_header("Content-Length", "0")
@@ -2123,6 +2126,37 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
         zaslon.prevzemi(self.connection, zeton)
 
     # ------------------------------------------------------------------ deljenje: datoteka
+    def _odmik_oddaje(self) -> None:
+        """HEAD /cast/file?target=&sha256=&size=: koliko te datoteke ze imamo od prekinjene oddaje. Glava
+        x-safeer-offset (0 = od zacetka) in x-safeer-resume: 1 (to sredisce nadaljevanje zna; starejse odgovori 404)."""
+        lastnik = self._lastnik_zetona()
+        q = parse_qs(urlparse(self.path).query)
+        odmik = 0
+        if lastnik:
+            try:
+                odmik = self._hub.deljenje.odmik(lastnik[0], (q.get("target") or [""])[0].strip()[:NAJVEC_IMENA],
+                                                  (q.get("sha256") or [""])[0], int((q.get("size") or ["-1"])[0]))
+            except ValueError:
+                odmik = 0
+        self.send_response(200 if lastnik else 401)
+        self.send_header("x-safeer-offset", str(odmik))
+        self.send_header("x-safeer-resume", "1")
+        self.send_header("Content-Length", "0")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+
+    @staticmethod
+    def _zacetek_obsega(glava: str, velikost: int) -> int:
+        """Range: bytes=N- (nadaljevanje prevzema) -> N; brez glave, z drugo obliko ali zunaj datoteke -> 0 (cela)."""
+        glava = str(glava or "").strip().lower()
+        if not glava.startswith("bytes=") or "," in glava:
+            return 0
+        zacetek, _, konec = glava[6:].partition("-")
+        if konec.strip() or not zacetek.strip().isdigit():
+            return 0
+        n = int(zacetek)
+        return n if 0 < n < velikost else 0
+
     def _prevzem_datoteke(self, pot: str) -> None:
         """GET /cast/file/<id>?k=<kljuc>: ciljna naprava prevzame datoteko, ki ji jo je napovedal share.file."""
         zaloga = self._hub.deljenje
@@ -2135,11 +2169,19 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             self._odgovori(503, link_hub_deljenje.napaka("Preveč hkratnih prenosov.", "prevec_prenosov"))
             return
         cela = False
+        zacetek = self._zacetek_obsega(self.headers.get("Range") or "", d.velikost)
         try:
             with open(d.pot, "rb") as vhod:
-                self.send_response(200)
+                if zacetek:
+                    # Cilj nadaljuje prekinjen prevzem (izpad Wi-Fi): samo se manjkajoci del.
+                    vhod.seek(zacetek)
+                    self.send_response(206)
+                    self.send_header("Content-Range", "bytes %d-%d/%d" % (zacetek, d.velikost - 1, d.velikost))
+                else:
+                    self.send_response(200)
+                self.send_header("Accept-Ranges", "bytes")
                 self.send_header("Content-Type", "application/octet-stream")
-                self.send_header("Content-Length", str(d.velikost))
+                self.send_header("Content-Length", str(d.velikost - zacetek))
                 self.send_header("x-safeer-sha256", d.sha256)
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("Connection", "close")
@@ -2153,7 +2195,7 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
                     self.wfile.write(kos)
                     poslano += len(kos)
                 self.wfile.flush()
-                cela = poslano == d.velikost
+                cela = zacetek + poslano == d.velikost
         except Exception:  # noqa: BLE001 - cilj je prekinil prevzem; datoteka pocaka na nov poskus
             self.close_connection = True
         finally:
@@ -2324,8 +2366,16 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             self._zavrzi_telo()
             self._odgovori(vnaprej[0], vnaprej[1])
             return
+        # Nadaljevanje oddaje: x-safeer-size (cela datoteka) in x-safeer-offset (od kod); brez njiju kot prej.
+        try:
+            skupaj = int(self.headers.get("x-safeer-size")) if self.headers.get("x-safeer-size") else None
+            odmik = int(self.headers.get("x-safeer-offset") or 0)
+        except ValueError:
+            skupaj, odmik = None, 0
         koda, odgovor, d = hub.deljenje.sprejmi(self.rfile, dolzina, ime, cilj, posiljatelj,
-                                               self.headers.get("x-safeer-sha256") or "")
+                                               self.headers.get("x-safeer-sha256") or "", skupaj=skupaj,
+                                               odmik=odmik if skupaj is not None else 0,
+                                               mapa=(q.get("dir") or [""])[0])
         if d is None:
             self.close_connection = True      # telo morda ni prebrano do konca
         else:

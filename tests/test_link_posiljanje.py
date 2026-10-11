@@ -76,10 +76,10 @@ class PosiljanjeTest(unittest.TestCase):
         self.assertEqual((s["stanje"], s["koda"]), ("napaka", "posiljanje_ni_uspelo"))
         self.assertEqual(s["naprava"], "tv1", "brez imena ostane id")
 
-    def test_mape_se_ne_posiljajo(self):
+    def test_prazna_mapa_in_mapa_z_datoteko(self):
         mapa = os.path.join(self.tmp.name, "Mapa")
         os.mkdir(mapa)
-        self.assertEqual(self.p.zacni("tv1", [mapa]), {"ok": False, "koda": "samo_mape", "mape": 1})
+        self.assertEqual(self.p.zacni("tv1", [mapa]), {"ok": False, "koda": "prazna_mapa", "mape": 1})
         r = self.p.zacni("tv1", [mapa, self._datoteka("a.txt")])
         self.assertEqual((r["ok"], r["datotek"], r["mape"]), (True, 1, 1))
         self._do_konca(r["id"])

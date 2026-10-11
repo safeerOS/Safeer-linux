@@ -40,7 +40,13 @@ import time
 from typing import Callable, Dict, Optional, Tuple
 
 NAJVEC_PRENOSOV = 3
-NAJVECJA_DATOTEKA = 4 * 1024 * 1024 * 1024
+#: Prej 4 GB. Datoteka gre na disk v koscih in nikoli v pomnilnik, zato je meja samo prostor na disku (preveri);
+#: ta stevilka le zavrne ocitno napacno dolzino (lastnik, 11. 10. 2026: »brez omejitve 4 GB«).
+NAJVECJA_DATOTEKA = 1024 ** 4
+#: Prekinjena oddaja (izpad Wi-Fi) pocaka toliko casa od zadnjega prejetega kosa; posiljatelj nadaljuje, kjer je ostal.
+DELNA_VELJA_S = 3600.0
+CAKANJE_DELNE_S = 10.0
+NAJVEC_GLOBINA_MAPE = 16
 REZERVA_PROSTORA = 200 * 1024 * 1024
 DATOTEKA_VELJA_S = 3600.0
 NAJVEC_CAKAJOCIH = 64
@@ -65,14 +71,24 @@ def varno_ime(ime: str) -> str:
     return ime[:NAJVEC_IMENA_DATOTEKE]
 
 
+def varna_mapa(mapa: str) -> str:
+    """Relativna mapa ob datoteki (posiljanje cele mape): samo varna imena, brez »..«, absolutnih poti in skritih map.
+    Prazno = brez mape (kot prej)."""
+    deli = [varno_ime(d) for d in str(mapa or "").replace("\\", "/").split("/")]
+    deli = [d for d in deli if d and d not in (".", "..")][:NAJVEC_GLOBINA_MAPE]
+    return "/".join(deli)[:400]
+
+
 def napaka(sporocilo: str, koda: str = "") -> dict:
     """Odgovor z napako v obeh oblikah, ki ju odjemalci berejo (napaka/koda in error/error_code)."""
     return {"napaka": sporocilo, "koda": koda, "error": sporocilo, "error_code": koda}
 
 
 class Datoteka:
-    def __init__(self, ime: str, velikost: int, pot: str, cilj: str, posiljatelj: str, sha256: str, nastala: float) -> None:
+    def __init__(self, ime: str, velikost: int, pot: str, cilj: str, posiljatelj: str, sha256: str, nastala: float,
+                 mapa: str = "") -> None:
         self.id = secrets.token_hex(8)
+        self.mapa = mapa
         self.kljuc = secrets.token_hex(16)
         self.ime = ime
         self.velikost = velikost
@@ -87,8 +103,25 @@ class Datoteka:
 
     def tovor(self) -> dict:
         """Tovor sporocila share.file, kot ga poslje Hub na Androidu."""
-        return {"id": self.id, "name": self.ime, "size": self.velikost, "path": self.pot_prevzema(),
-                "sha256": self.sha256, "for_host": False}
+        t = {"id": self.id, "name": self.ime, "size": self.velikost, "path": self.pot_prevzema(),
+             "sha256": self.sha256, "for_host": False}
+        if self.mapa:
+            t["dir"] = self.mapa          # starejsi cilj polje prezre in datoteko shrani brez mape
+        return t
+
+
+class Delna:
+    """Oddaja, ki se je prekinila: kar je prislo, ostane na disku; odtis tece naprej, posiljatelj nadaljuje od `prejeto`."""
+
+    def __init__(self, kljuc: tuple, ime: str, pot: str, mapa: str, cas: float) -> None:
+        self.kljuc = kljuc                # (posiljatelj, cilj, sha256, velikost)
+        self.ime = ime
+        self.pot = pot
+        self.mapa = mapa
+        self.prejeto = 0
+        self.odtis = hashlib.sha256()
+        self.cas = cas
+        self.v_teku = False
 
 
 class Deljenje:
@@ -101,6 +134,7 @@ class Deljenje:
         self._prosto = prosto or (lambda m: shutil.disk_usage(m).free)
         self._zaklep = threading.Lock()
         self._datoteke: Dict[str, Datoteka] = {}
+        self._delne: Dict[tuple, Delna] = {}
         self._prenosov = 0
         self._pospravljeno = False
 
@@ -131,7 +165,23 @@ class Deljenje:
 
     def stevilo(self) -> int:
         with self._zaklep:
-            return len(self._datoteke)
+            return len(self._datoteke) + len(self._delne)
+
+    @staticmethod
+    def _kljuc(posiljatelj: str, cilj: str, sha256: str, velikost: int) -> tuple:
+        return (str(posiljatelj or ""), str(cilj or ""), str(sha256 or "").strip().lower(), int(velikost))
+
+    def odmik(self, posiljatelj: str, cilj: str, sha256: str, velikost: int) -> int:
+        """Koliko bajtov prekinjene oddaje te datoteke ze imamo (0 = nic, zacni od zacetka). HEAD /cast/file."""
+        self.pocisti()
+        with self._zaklep:
+            d = self._delne.get(self._kljuc(posiljatelj, cilj, sha256, velikost))
+        # Ob izpadu povezave sredisce se nekaj casa bere, kar je ze na poti: posiljatelj, ki vprasa takoj, bi dobil 0
+        # in poslal vse znova (izmerjeno 11. 10. 2026 na TV: 302 MB presezka). Pocakamo, da branje konca (do 10 s).
+        konec = time.monotonic() + CAKANJE_DELNE_S
+        while d is not None and d.v_teku and time.monotonic() < konec:
+            time.sleep(0.1)
+        return d.prejeto if d is not None and not d.v_teku else 0
 
     # ------------------------------------------------------------------ sprejem (PUT /cast/file)
     def preveri(self, ime: str, cilj: str, dolzina: int) -> Optional[Tuple[int, dict]]:
@@ -153,42 +203,106 @@ class Deljenje:
         return None
 
     def sprejmi(self, vhod, dolzina: int, ime: str, cilj: str, posiljatelj: str,
-                napovedan_sha: str = "") -> Tuple[int, dict, Optional[Datoteka]]:
-        """Prebere natanko `dolzina` bajtov iz `vhod` v zacasno datoteko. Vrne (koda HTTP, odgovor, datoteka ali None)."""
+                napovedan_sha: str = "", skupaj: Optional[int] = None, odmik: int = 0,
+                mapa: str = "") -> Tuple[int, dict, Optional[Datoteka]]:
+        """Prebere natanko `dolzina` bajtov iz `vhod` v zacasno datoteko. Vrne (koda HTTP, odgovor, datoteka ali None).
+
+        Nadaljevanje (od kroga s prenosom po koscih): `skupaj` je velikost cele datoteke, `odmik` mesto, od koder
+        posiljatelj nadaljuje (vprasal je s HEAD). Z napovedanim odtisom se prekinjena oddaja ne zavrze: kar je prislo,
+        pocaka DELNA_VELJA_S; odgovor pove `odmik`. Brez `skupaj` je vse kot prej (ena oddaja, cela datoteka)."""
         ime = varno_ime(ime)
-        zavrnjeno = self.preveri(ime, cilj, dolzina)
+        mapa = varna_mapa(mapa)
+        # Samo posiljatelj, ki nadaljevanje zna (poslal je x-safeer-size), dobi ohranjen ostanek; starejsi kot prej.
+        nadaljevanje = skupaj is not None
+        skupaj = dolzina if skupaj is None else int(skupaj)
+        odmik = max(0, int(odmik or 0))
+        napovedan = (napovedan_sha or "").strip().lower()
+        if odmik + dolzina != skupaj and dolzina >= 0:
+            return 400, napaka("Dolžina se ne ujema z velikostjo datoteke.", "napacna_dolzina"), None
+        if odmik and not napovedan:
+            return 400, napaka("Nadaljevanje brez odtisa ni mogoče.", "manjka_odtis"), None
+        zavrnjeno = self.preveri(ime, cilj, dolzina) if not odmik else None
+        if zavrnjeno is None and skupaj > NAJVECJA_DATOTEKA:
+            zavrnjeno = 413, napaka("Datoteka je prevelika.", "prevelika")
         if zavrnjeno is not None:
             return zavrnjeno[0], zavrnjeno[1], None
+        kljuc = self._kljuc(posiljatelj, cilj, napovedan, skupaj) if napovedan and nadaljevanje else None
+        with self._zaklep:
+            delna = self._delne.get(kljuc) if kljuc else None
+            if odmik and (delna is None or delna.v_teku or delna.prejeto != odmik):
+                imamo = 0 if delna is None or delna.v_teku else delna.prejeto
+                return 409, dict(napaka("Nadaljevanje se ne ujema s tem, kar ima središče.", "napacen_odmik"),
+                                 odmik=imamo), None
+            if delna is not None and delna.v_teku:
+                return 409, dict(napaka("Ta datoteka se že sprejema.", "ze_v_teku"), odmik=0), None
+            if delna is not None and not odmik:
+                # Posiljatelj zacenja znova (ni vprasal ali ne zna nadaljevati): stari ostanek odpade.
+                self._delne.pop(kljuc, None)
+                self._odstrani_pot(delna.pot)
+                delna = None
+            if delna is not None:
+                delna.v_teku = True
         if not self._zasedi():
+            if delna is not None:
+                delna.v_teku = False
             return 503, napaka("Preveč hkratnih prenosov.", "prevec_prenosov"), None
-        pot = os.path.join(self._pripravi_mapo(), secrets.token_hex(6) + "-" + ime)
-        prejeto, odtis = 0, hashlib.sha256()
+        if delna is None:
+            pot = os.path.join(self._pripravi_mapo(), secrets.token_hex(6) + "-" + ime)
+            try:
+                os.close(os.open(pot, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
+            except OSError:
+                self._sprosti()
+                return 507, napaka("Datoteke ni mogoče shraniti.", "ni_prostora"), None
+            delna = Delna(kljuc or ("", "", secrets.token_hex(4), skupaj), ime, pot, mapa, self.ura())
+            delna.v_teku = True
+            if kljuc:
+                with self._zaklep:
+                    self._delne[kljuc] = delna
+        prekinjeno = False
         try:
-            with open(os.open(pot, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as izhod:
-                while prejeto < dolzina:
-                    kos = vhod.read(min(KOS, dolzina - prejeto))
+            with open(delna.pot, "r+b") as izhod:
+                izhod.seek(delna.prejeto)
+                izhod.truncate()
+                konec = delna.prejeto + dolzina
+                while delna.prejeto < konec:
+                    kos = vhod.read(min(KOS, konec - delna.prejeto))
                     if not kos:
                         break
                     izhod.write(kos)
-                    odtis.update(kos)
-                    prejeto += len(kos)
-        except Exception:  # noqa: BLE001 - prekinjena povezava ali poln disk: datoteke ne obdrzimo
-            self._odstrani_pot(pot)
+                    delna.odtis.update(kos)
+                    delna.prejeto += len(kos)
+                    delna.cas = self.ura()
+        except Exception:  # noqa: BLE001 - prekinjena povezava ali poln disk
+            prekinjeno = True
+        finally:
             self._sprosti()
-            return 500, napaka("Prenos je bil prekinjen.", "prenos_prekinjen"), None
-        self._sprosti()
-        if prejeto != dolzina:
-            self._odstrani_pot(pot)
+        if prekinjeno or delna.prejeto != skupaj:
+            if kljuc and delna.prejeto < skupaj:
+                # Kar je prislo, obdrzimo: odtis je do tod pravilen (izhod je zapisan pred posodobitvijo odtisa).
+                delna.v_teku = False
+                if prekinjeno:
+                    return 500, dict(napaka("Prenos je bil prekinjen.", "prenos_prekinjen"), odmik=delna.prejeto), None
+                return 400, dict(napaka("Datoteka ni prišla cela.", "ni_cela"), odmik=delna.prejeto), None
+            self._pozabi_delno(delna)
+            if prekinjeno:
+                return 500, napaka("Prenos je bil prekinjen.", "prenos_prekinjen"), None
             return 400, napaka("Datoteka ni prišla cela.", "ni_cela"), None
-        sha256 = odtis.hexdigest()
-        napovedan = (napovedan_sha or "").strip().lower()
+        sha256 = delna.odtis.hexdigest()
         if napovedan and napovedan != sha256:
-            self._odstrani_pot(pot)
+            self._pozabi_delno(delna)
             return 400, napaka("Prstni odtis se ne ujema.", "napacen_odtis"), None
-        d = Datoteka(ime, prejeto, pot, cilj, posiljatelj, sha256, self.ura())
         with self._zaklep:
+            if kljuc:
+                self._delne.pop(kljuc, None)
+            d = Datoteka(ime, skupaj, delna.pot, cilj, posiljatelj, sha256, self.ura(), mapa=delna.mapa or mapa)
             self._datoteke[d.id] = d
-        return 200, {"id": d.id, "name": d.ime, "size": prejeto, "key": d.kljuc, "for_host": False, "sha256": sha256}, d
+        return 200, {"id": d.id, "name": d.ime, "size": skupaj, "key": d.kljuc, "for_host": False, "sha256": sha256}, d
+
+    def _pozabi_delno(self, delna: Delna) -> None:
+        with self._zaklep:
+            if self._delne.get(delna.kljuc) is delna:
+                self._delne.pop(delna.kljuc, None)
+        self._odstrani_pot(delna.pot)
 
     # ------------------------------------------------------------------ prevzem (GET /cast/file/<id>?k=)
     def najdi(self, id_: str, kljuc: str) -> Optional[Datoteka]:
@@ -223,17 +337,24 @@ class Deljenje:
     def pocisti(self) -> None:
         """Datoteke, ki jih v eni uri ni nihce prevzel, izbrisemo."""
         meja = self.ura() - DATOTEKA_VELJA_S
+        meja_delnih = self.ura() - DELNA_VELJA_S
         with self._zaklep:
             stare = [i for i, d in self._datoteke.items() if d.nastala < meja]
+            stare_delne = [d for d in self._delne.values() if not d.v_teku and d.cas < meja_delnih]
         for i in stare:
             self.odstrani(i)
+        for d in stare_delne:
+            self._pozabi_delno(d)
 
     def izprazni(self) -> None:
         """Ob ustavitvi Huba: nic ne ostane na disku."""
         with self._zaklep:
             vse = list(self._datoteke)
+            delne = list(self._delne.values())
         for i in vse:
             self.odstrani(i)
+        for d in delne:
+            self._pozabi_delno(d)
 
 
 # ---------------------------------------------------------------------- zaslon

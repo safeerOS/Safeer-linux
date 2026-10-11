@@ -59,7 +59,7 @@ BESEDILA = {
         "ni_programa": "Programa »{ime}« na napravi ni.", "vec_programov": "»{ime}« ustreza več programom: {seznam}.",
         "zagnano": "Zagnano na napravi {naprava}: {ime}", "ni_uspelo": "Ni uspelo: {razlog}",
         "posiljam": "Pošiljam napravi {naprava}: {ime} … {odst} %",
-        "poslano": "Poslano napravi {naprava}: {n}", "mape_ne": " (mape niso poslane)",
+        "poslano": "Poslano napravi {naprava}: {n}",
         "besedilo_poslano": "Besedilo je poslano napravi {naprava}.",
         "preimenovano": "Naprava se zdaj imenuje »{ime}«.",
         "ne_sprejme": "Naprava {naprava} tega ne sprejme (manjka zmožnost »{zmoznost}«).",
@@ -114,7 +114,7 @@ BESEDILA = {
         "ni_programa": "There is no app “{ime}” on the device.", "vec_programov": "“{ime}” matches several apps: {seznam}.",
         "zagnano": "Started on {naprava}: {ime}", "ni_uspelo": "Failed: {razlog}",
         "posiljam": "Sending to {naprava}: {ime} … {odst} %",
-        "poslano": "Sent to {naprava}: {n}", "mape_ne": " (folders were not sent)",
+        "poslano": "Sent to {naprava}: {n}",
         "besedilo_poslano": "The text was sent to {naprava}.",
         "preimenovano": "The device is now called “{ime}”.",
         "ne_sprejme": "{naprava} does not accept this (capability “{zmoznost}” is missing).",
@@ -409,9 +409,11 @@ def ukaz_send(a, klic, izpis, napredek: Optional[Callable[[str], None]] = None, 
         raise Napaka(t("ni_uspelo", razlog=razlog(izid)), IZHOD_NEUSPEH, str(izid.get("koda") or "napaka"))
     if a.json:
         izpis(json.dumps({"ok": True, "id": n["id"], "name": ime, "files": izid.get("datotek"), "sent": izid.get("poslanih"),
-                          "skipped_folders": izid.get("mape", 0)}, ensure_ascii=False))
+                          "folders": izid.get("mape", 0),
+                          # mape gredo zdaj cele; kljuc ostane za skripte, ki ga berejo
+                          "skipped_folders": 0}, ensure_ascii=False))
     else:
-        izpis(t("poslano", naprava=ime, n=izid.get("poslanih")) + (t("mape_ne") if izid.get("mape") else ""))
+        izpis(t("poslano", naprava=ime, n=izid.get("poslanih")))
     return IZHOD_OK
 
 

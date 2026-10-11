@@ -1477,6 +1477,7 @@ class SafeerLink:
             ime = str(telo.get("name", "") or "datoteka")
             pot = str(telo.get("path", "") or "")
             odtis = str(telo.get("sha256", "") or "")
+            podmapa = str(telo.get("dir", "") or "")         # posiljanje cele mape: relativna mapa
             if not pot:
                 return
             posiljatelj = str(sporocilo.get("sender", "") or "")
@@ -1488,7 +1489,7 @@ class SafeerLink:
                 sredisce, _koda = self._sredisce_naprave(posiljatelj)
                 if sredisce is not None:
                     sredisca.append(sredisce)
-                cilj, razlog = link_deljenje.prevzemi_pri_srediscih(sredisca, pot, ime, odtis)
+                cilj, razlog = link_deljenje.prevzemi_pri_srediscih(sredisca, pot, ime, odtis, podmapa=podmapa)
                 if cilj:
                     self._odziv("prejeto", {"vrsta": "datoteka", "od": od, "ime": os.path.basename(cilj),
                                             "mapa": os.path.dirname(cilj)})
@@ -1670,7 +1671,8 @@ class SafeerLink:
         self._odziv_mape()
 
     def poslji_datoteko_napravi(self, id_naprave: str, pot: str,
-                                napredek: Optional[Callable[[int], None]] = None) -> Tuple[bool, Dict[str, str]]:
+                                napredek: Optional[Callable[[int], None]] = None,
+                                mapa: str = "") -> Tuple[bool, Dict[str, str]]:
         """Datoteko odda sredisci za napravo (PUT /cast/file); sredisce pove cilju, ta jo prevzame in preveri.
         Vrne (uspeh, napaka). Klic caka do konca oddaje - vedno iz delovne niti."""
         if not (self._hub() and self._odtis()):
@@ -1687,12 +1689,12 @@ class SafeerLink:
             if not seja:
                 koda = "sredisce_naprave_ni_dosegljivo"
                 return False, {"sporocilo": link_deljenje.SPOROCILA_SREDISCA[koda], "koda": koda, "zasedenaOd": ""}
-            return link_deljenje.poslji_datoteko(naslov, seja, odtis, nas_id, id_naprave, pot, napredek=napredek)
+            return link_deljenje.poslji_datoteko(naslov, seja, odtis, nas_id, id_naprave, pot, napredek=napredek, mapa=mapa)
         zeton = self._zeton_http()
         if not zeton:
             return False, {"sporocilo": "Hub ni znan.", "koda": "hub_ni_znan", "zasedenaOd": ""}
         return link_deljenje.poslji_datoteko(self._hub(), zeton, self._odtis() or "", self._id(), id_naprave, pot,
-                                             napredek=napredek)
+                                             napredek=napredek, mapa=mapa)
 
     def _sredisce_naprave(self, id_naprave: str) -> tuple:
         """Sredisce druge naprave, kadar to ni nase: ((naslov, odtis), "") | (None, "") | (None, koda)."""
