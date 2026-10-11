@@ -1,875 +1,1015 @@
-"""Domači Safeer Player v GTK 3 (brez WebKit).
+"""Safeer Player za Linux: Medijski center v domacem GTK oknu (brez WebKita).
 
-Ponuja popolnoma enak Medijski center kot spletni Safeer OS (knjižnica kartic,
-iskanje, filtriranje po kategorijah, predvajanje videa z GStreamer gtksink/gtkglsink,
-upravljanje zvoka, podnapisi in celozaslonski način).
+Vsa logika (knjiznica, mape, tokovi, predvajalnik, katalog) je v Safeer OS in se klice po istem mostu kot iz spletne
+strani (core/os_most_nativni.py); besedila so iz assets/os/besedila.js, ikone iz assets/os/os.js. Ta modul je samo
+izris: ista razporeditev kot spletni Medijski center (glava z dejanji, kategorije in iskanje, tvoja knjiznica,
+tvoje postaje, desno »Zdaj se predvaja« in cakalna vrsta, spodaj predvajalni trak).
+
+Privzet postane, ko ima vse, kar ima spletni (safeer_os.player_gtk_vklopljen); do takrat ga vklopi
+SAFEER_PLAYER_GTK=1 ali ~/.config/safeer-os/player.json {"player_gtk": true}.
 """
-
 from __future__ import annotations
 
 import os
-import sys
-from pathlib import Path
-from typing import Optional
+import threading
+from typing import Any, Callable, Optional
 
 import gi
+
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
-gi.require_version("GLib", "2.0")
+gi.require_version("GdkPixbuf", "2.0")
+from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, Pango  # noqa: E402
 
-try:
-    gi.require_version("Gst", "1.0")
-    from gi.repository import Gst
-    Gst.init(None)
-except Exception:
-    Gst = None
-
-from gi.repository import Gtk, Gdk, GLib, Pango
-
-from core import os_knjiznica, os_predvajalnik
+from core import os_besedila, os_most_nativni  # noqa: E402
+from core import os_player_gtk_ikone as ikone  # noqa: E402
 
 WMCLASS_PREDVAJALNIKA = ("safeer-os.Player", "Safeer Player")
+KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-CSS_PREDVAJALNIKA = b"""
-window.safeer-player {
-    background-color: #0c1821;
-    color: #f0f4f3;
-}
-.safeer-player label {
-    color: #f0f4f3;
-}
-.safeer-player label.kicker {
-    color: #54d6a5;
-    font-size: 11px;
-    font-weight: 800;
-}
-.safeer-player label.naslov-glava {
-    font-size: 22px;
-    font-weight: 700;
-    color: #f0f4f3;
-}
-.safeer-player label.medlo {
-    color: #b0bdc4;
-    font-size: 12px;
-}
-.safeer-player label.art-ikona {
-    font-size: 48px;
-    color: #54d6a5;
-}
-.safeer-player label.art-ikona-velika {
-    font-size: 96px;
-    color: #54d6a5;
-}
-/* Teme (Mint-Y, Adwaita) risejo gumbe z background-image: brez tega ostanejo gumbi svetli in napisi nevidni. */
-.safeer-player button, .safeer-player combobox button, .safeer-player entry {
-    background-image: none;
-    text-shadow: none;
-    box-shadow: none;
-}
-.safeer-player button label, .safeer-player combobox button label {
-    color: inherit;
-}
-.safeer-player combobox button, .safeer-player menu, .safeer-player .menu {
-    background-color: #1a3339;
-    color: #edfff7;
-}
-.safeer-player button {
-    background-color: #1a3339;
-    color: #edfff7;
-    border: 1px solid #3a6f65;
-    border-radius: 10px;
-    padding: 6px 12px;
-}
-.safeer-player button:hover {
-    background-color: #275248;
-    border-color: #54d6a5;
-}
-.safeer-player button.glavni {
-    background-color: #54d6a5;
-    color: #071e18;
-    font-weight: 700;
-    border-color: #54d6a5;
-}
-.safeer-player button.kategorija-izbrana {
-    background-color: #54d6a5;
-    color: #071e18;
-    font-weight: 700;
-}
-.safeer-player button.media-kartica {
-    background-color: rgba(24, 37, 47, 0.85);
-    border: 1px solid rgba(95, 194, 164, 0.33);
-    border-radius: 14px;
-    padding: 10px;
-    min-width: 170px;
-    min-height: 150px;
-}
-.safeer-player button.media-kartica:hover {
-    border-color: #54d6a5;
-    background-color: rgba(28, 48, 58, 0.95);
-}
-.safeer-player entry {
-    background-color: rgba(12, 24, 33, 0.85);
-    color: #f0f4f3;
-    border: 1px solid rgba(95, 194, 164, 0.33);
-    border-radius: 8px;
-    padding: 6px 10px;
-}
-.safeer-player entry:focus {
-    border-color: #54d6a5;
-}
-.safeer-player scale highlight {
-    background-color: #54d6a5;
-}
-.safeer-player scale slider {
-    background-color: #54d6a5;
-    min-width: 14px;
-    min-height: 14px;
-}
-.safeer-player box.vrstica-orodna {
-    background-color: rgba(8, 15, 23, 0.6);
-    border: 1px solid rgba(95, 194, 164, 0.25);
-    border-radius: 12px;
-    padding: 4px;
-}
-.safeer-player box.predvajalnik-bar {
-    background-color: rgba(12, 24, 33, 0.95);
-    border-top: 1px solid rgba(95, 194, 164, 0.33);
-    padding: 8px 16px;
-}
+#: Kategorije kot na strani (MEDIA_KATEGORIJE v os.js): (filter, ikona).
+KATEGORIJE = (("vse", "programi"), ("glasba", "glasba"), ("video", "video"), ("filmi", "video"),
+              ("serije", "video"), ("tv", "video"), ("radio", "radio"), ("slike", "slika"))
+#: Toliko vnosov vrne knjiznica naenkrat (core/os_knjiznica: meja 120) - polna stran pomeni, da jih je morda vec.
+STRAN_KNJIZNICE = 120
+
+# Barve in oblike iz assets/os/os.css (:root in .media-*), da GTK in spletni Medijski center izgledata enako.
+CSS = b"""
+.safeer-player { background-color: #090d15; color: #f0f4f3; }
+.safeer-player .vsebina { background-image: linear-gradient(100deg, rgba(13,21,32,1) 0%, rgba(9,13,21,1) 100%); }
+.safeer-player label { color: #f0f4f3; }
+.safeer-player .kicker { color: #54d6a5; font-size: 11px; font-weight: 800; letter-spacing: 1px; }
+.safeer-player .h1 { font-size: 30px; font-weight: 750; }
+.safeer-player .h2 { font-size: 21px; font-weight: 700; }
+.safeer-player .h3 { font-size: 17px; font-weight: 700; }
+.safeer-player .medlo, .safeer-player .medlo label { color: #b0bdc4; font-size: 13px; }
+.safeer-player .drobno { color: #b0bdc4; font-size: 12px; }
+.safeer-player button { background-image: none; text-shadow: none; box-shadow: none; color: #f0f4f3;
+  background-color: rgba(17,25,36,.78); border: 1px solid rgba(120,140,160,.22); border-radius: 12px; padding: 8px 13px; }
+.safeer-player button:hover { background-color: rgba(27,42,51,.92); border-color: rgba(84,214,165,.5); }
+.safeer-player button:disabled { opacity: .45; }
+.safeer-player button.glavni { background-color: #54d6a5; color: #071e18; border-color: #54d6a5; font-weight: 700; }
+.safeer-player button.glavni label { color: #071e18; }
+.safeer-player button.kategorija { background-color: transparent; border-color: transparent; border-radius: 10px; padding: 9px 12px; }
+.safeer-player button.kategorija label { color: #b0bdc4; }
+.safeer-player button.kategorija.izbrana { background-color: #54d6a5; }
+.safeer-player button.kategorija.izbrana label { color: #071e18; font-weight: 700; }
+.safeer-player .orodna { background-color: rgba(8,15,23,.6); border: 1px solid rgba(95,194,164,.25); border-radius: 14px; padding: 5px; }
+.safeer-player entry { background-image: none; background-color: rgba(9,13,21,.85); color: #f0f4f3;
+  border: 1px solid rgba(95,194,164,.33); border-radius: 10px; padding: 7px 10px; box-shadow: none; }
+.safeer-player entry:focus { border-color: #54d6a5; }
+.safeer-player .hero { border: 1px solid rgba(95,194,164,.33); border-radius: 24px; padding: 28px 30px;
+  background-image: linear-gradient(115deg, #15352e, #10232d 55%, #152332); }
+.safeer-player .hero-znak { color: rgba(84,214,165,.85); font-size: 84px; }
+.safeer-player button.kartica { padding: 0; border-radius: 17px; background-color: rgba(24,37,47,.83); }
+.safeer-player button.kartica:hover { border-color: rgba(84,214,165,.65); }
+.safeer-player .kartica-art { background-image: linear-gradient(145deg, #235b53, #1b3448); border-radius: 16px 16px 0 0; }
+.safeer-player .kartica-art.glasba { background-image: linear-gradient(145deg, #2c5a4a, #1d3343); }
+.safeer-player .kartica-art.slike { background-image: linear-gradient(145deg, #3a3f5c, #1d2a3f); }
+.safeer-player .kartica-pod { padding: 10px 12px 12px 12px; }
+.safeer-player .kartica-ime { font-weight: 700; font-size: 14px; }
+.safeer-player .nadaljuj { background-color: rgba(9,13,21,.75); border-radius: 8px; padding: 3px 8px; font-size: 12px; }
+.safeer-player progressbar trough { min-height: 4px; background-color: rgba(255,255,255,.15); border: none; }
+.safeer-player progressbar progress { min-height: 4px; background-color: #54d6a5; border: none; }
+.safeer-player button.odstrani { padding: 3px; border-radius: 50%; background-color: rgba(9,13,21,.8); }
+.safeer-player .prazno { border: 1px dashed rgba(95,194,164,.35); border-radius: 18px; padding: 30px; }
+.safeer-player button.vrstica { border-radius: 14px; padding: 12px 14px; }
+.safeer-player .desni { background-color: rgba(9,13,21,.55); border-left: 1px solid rgba(120,140,160,.18); padding: 24px 20px; }
+.safeer-player .sedaj { border: 1px solid rgba(95,194,164,.3); border-radius: 20px; padding: 18px;
+  background-image: linear-gradient(160deg, #15352e, #111d29); }
+.safeer-player .sedaj-art { color: #54d6a5; font-size: 64px; background-color: rgba(9,13,21,.45); border-radius: 16px; padding: 18px; }
+.safeer-player button.vrsta-vnos { background-color: transparent; border-color: transparent; padding: 8px 10px; }
+.safeer-player button.vrsta-vnos.izbran { background-color: rgba(84,214,165,.14); border-color: rgba(84,214,165,.4); }
+.safeer-player .trak { background-color: rgba(12,20,30,.97); border-top: 1px solid rgba(95,194,164,.33); padding: 10px 18px; }
+.safeer-player .trak button { padding: 6px 12px; }
+.safeer-player scale trough { min-height: 4px; background-color: rgba(255,255,255,.18); border: none; }
+.safeer-player scale highlight { background-color: #54d6a5; border: none; }
+.safeer-player scale slider { background-image: none; background-color: #54d6a5; min-width: 13px; min-height: 13px; border: none; }
+.safeer-player .obvestilo { background-color: #1a3339; border: 1px solid #54d6a5; border-radius: 12px; padding: 10px 16px; }
+.safeer-player .galerija { background-color: rgba(0,0,0,.94); }
 """
 
 
-def _gumb_z_ikono(ikona: str, napis: str = "") -> Gtk.Button:
-    """Gumb s simbolno ikono teme (emoji v napisih se brez pisave z emoji izrisejo kot kvadratki)."""
-    gumb = Gtk.Button(label=napis) if napis else Gtk.Button()
-    gumb.set_image(Gtk.Image.new_from_icon_name(ikona, Gtk.IconSize.BUTTON))
-    gumb.set_always_show_image(True)
-    return gumb
+def cas_medija(sekunde) -> str:
+    """Kot casMedija na strani: m:ss."""
+    try:
+        s = max(0, int(float(sekunde or 0)))
+    except (TypeError, ValueError):
+        s = 0
+    return "%d:%02d" % (s // 60, s % 60)
 
 
-def _format_cas(sekunde: float | int) -> str:
-    s = max(0, int(sekunde or 0))
-    m, sec = divmod(s, 60)
-    h, m = divmod(m, 60)
-    if h > 0:
-        return f"{h}:{m:02d}:{sec:02d}"
-    return f"{m}:{sec:02d}"
+def ujema(besedilo: str, iskanje: str) -> bool:
+    """Isto ujemanje kot knjiznica in stran: brez sumnikov in velikih crk, vse besede v poljubnem vrstnem redu."""
+    from core.os_knjiznica import kljuc_imena
+    kljuc = kljuc_imena(str(besedilo or ""))
+    return all(b in kljuc for b in kljuc_imena(str(iskanje or "")).split())
+
+
+def _gumb(napis: str = "", ikona: str = "", razred: str = "", velikost: int = 17) -> Gtk.Button:
+    g = Gtk.Button()
+    vsebina = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
+    if ikona:
+        barva = "#071e18" if "glavni" in razred.split() else "#f0f4f3"
+        slika = ikone.slika(ikona, velikost, barva)
+        if slika is not None:
+            vsebina.pack_start(slika, False, False, 0)
+    if napis:
+        vsebina.pack_start(Gtk.Label(label=napis), False, False, 0)
+    g.add(vsebina)
+    for r in razred.split():
+        g.get_style_context().add_class(r)
+    g.set_can_focus(True)
+    return g
+
+
+def _oznaka(besedilo: str = "", razred: str = "", xalign: float = 0.0, ovij: bool = False) -> Gtk.Label:
+    l = Gtk.Label(label=besedilo, xalign=xalign)
+    for r in razred.split():
+        l.get_style_context().add_class(r)
+    if ovij:
+        l.set_line_wrap(True)
+        l.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+    return l
 
 
 class SafeerPlayerOkno(Gtk.Window):
-    """Glavno okno domačega GTK Medijskega centra."""
+    """Glavno okno Safeer Playerja. ``most``: NativniPogled, ki ga ustvari Safeer OS (safeer_os._ustvari_predvajalnik)."""
 
-    def __init__(self, app: Optional[Gtk.Application] = None, iskanje: str = ""):
+    def __init__(self, app: Optional[Gtk.Application] = None, iskanje: str = "",
+                 most: Optional[os_most_nativni.NativniPogled] = None) -> None:
+        super().__init__(title="Safeer Player")
         if app is not None:
-            super().__init__(application=app, title="Safeer Player")
-        else:
-            super().__init__(title="Safeer Player")
-
+            self.set_application(app)
         self.set_wmclass(*WMCLASS_PREDVAJALNIKA)
         self.get_style_context().add_class("safeer-player")
-        self.set_default_size(1152, 720)
+        self._ikona_okna()
+        zaslon = Gdk.Screen.get_default()
+        sirina, visina = 1440, 900
+        try:
+            mon = Gdk.Display.get_default().get_primary_monitor() or Gdk.Display.get_default().get_monitor(0)
+            g = mon.get_workarea()
+            sirina, visina = min(1440, int(g.width * .9)), min(900, int(g.height * .9))
+        except Exception:  # noqa: BLE001
+            pass
+        self.set_default_size(sirina, visina)
         self.set_position(Gtk.WindowPosition.CENTER)
+        if zaslon is not None:
+            css = Gtk.CssProvider()
+            css.load_from_data(CSS)
+            Gtk.StyleContext.add_provider_for_screen(zaslon, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
-        self._uveljavi_css()
-        self._ikona()
-
-        # Zaledna knjižnica in predvajalnik
-        self.knjiznica = os_knjiznica.Knjiznica()
-        self.predvajalnik: Optional[os_predvajalnik.Predvajalnik] = None
-        self._video_ponor = None
-        self._video_widget = None
-
-        if Gst is not None:
-            try:
-                self.predvajalnik = os_predvajalnik.Predvajalnik(
-                    gst=Gst,
-                    sprememba=self._ob_spremembi_predvajalnika,
-                    konec=self._ob_koncu_predvajanja
-                )
-                self._iniciiraj_video_ponor()
-            except Exception as e:
-                print("[SafeerPlayerGTK] Napaka pri inicializaciji predvajalnika:", e)
-
-        self.izbrana_kategorija = ""
-        #: "zbirka" (krajevne datoteke) ali "katalog" (spletni katalog - isti kot Medijski center na strani).
-        self.nacin = "zbirka"
-        self.katalog_pogled = None
+        self.most = most or os_most_nativni.NativniPogled(lambda p, i, m, a: p.odgovor(i, False, "brez mosta"))
+        self.t = os_besedila.Prevajalnik()
+        # Stanje kot S.media* na strani.
+        self.filter = "vse"
+        self.iskanje = str(iskanje or "").strip()
+        self.odmik = 0
+        self.lokalno: list = []
+        self.ima_vec = False
+        self.tokovi: list = []
+        self.mape: list = []
+        self.osvezuje = False
+        self.dvd_pogon = ""
+        self.p: dict = {}
+        self.vlecenje = False
+        self._zahteva = 0
+        self._podpis_vrste = None
         self._casovnik_obvestila = 0
-        self.trenutno_iskanje = str(iskanje or "").strip()
-        self._v_premikanju_drsnika = False
+        self._galerija: Optional[dict] = None
 
-        self._zgradi_vmesnik()
+        self._zgradi()
+        self.connect("key-press-event", self._tipka)
+        for vrsta, fn in (("predvajalnik", self.osvezi_predvajalnik), ("medijskaKnjiznica", lambda _p: self.nalozi()),
+                          ("medijskoOsvezevanje", self._ob_osvezevanju),
+                          ("medijskaNapaka", lambda _p: self.obvesti(self.t("niUspelo")))):
+            self.most.naroci(vrsta, fn)
+        self.nalozi()
 
-        self.connect("key-press-event", self._ob_tipki)
-        self.connect("delete-event", self._ob_zapiranju)
+    # ------------------------------------------------------------------ pomocniki
+    def klic(self, metoda: str, argumenti: Optional[list] = None, gotovo: Optional[Callable[[Any], None]] = None,
+             napaka: Optional[Callable[[str], None]] = None) -> None:
+        self.most.klic(metoda, argumenti, gotovo, napaka)
 
-        # Periodični časovnik za osvežitev napredka (1x na sekundo)
-        GLib.timeout_add(500, self._osvezi_napredek)
-
-        self.osvezi_zbirko()
-
-    def _uveljavi_css(self):
+    def _ikona_okna(self) -> None:
         try:
-            ponudnik = Gtk.CssProvider()
-            ponudnik.load_from_data(CSS_PREDVAJALNIKA)
-            Gtk.StyleContext.add_provider_for_screen(
-                Gdk.Screen.get_default(),
-                ponudnik,
-                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-            )
-        except Exception as e:
-            print("[SafeerPlayerGTK] CSS napaka:", e)
-
-    def _ikona(self):
-        try:
-            pot = Path(__file__).resolve().parent.parent / "assets" / "os" / "predvajalnik.svg"
-            if pot.is_file():
-                self.set_icon_from_file(str(pot))
-            else:
-                self.set_icon_name("safeer-player")
-        except Exception:
-            self.set_icon_name("safeer-player")
-
-    def _iniciiraj_video_ponor(self):
-        if self.predvajalnik is None or Gst is None:
-            return
-        for opis, sink_ime in [
-            ("glupload ! gtkglsink name=safeersink", "safeersink"),
-            ("videoconvert ! gtksink name=safeersink", "safeersink"),
-        ]:
-            try:
-                bin_elem = Gst.parse_bin_from_description(opis, True)
-                if bin_elem is not None:
-                    sink = bin_elem.get_by_name(sink_ime)
-                    if sink is not None:
-                        widget = sink.get_property("widget")
-                        if widget is not None:
-                            self._video_ponor = bin_elem
-                            self._video_widget = widget
-                            self.predvajalnik.element.set_property("video-sink", bin_elem)
-                            break
-            except Exception:
-                continue
-
-    def _zgradi_vmesnik(self):
-        glavni_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.add(glavni_box)
-
-        # 1. Zgornja glava in orodna vrstica
-        glava_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        glava_box.set_border_width(12)
-
-        kicker_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        kicker_lbl = Gtk.Label(label="SAFEER PLAYER", xalign=0)
-        kicker_lbl.get_style_context().add_class("kicker")
-        naslov_lbl = Gtk.Label(label="Medijski center", xalign=0)
-        naslov_lbl.get_style_context().add_class("naslov-glava")
-        kicker_box.pack_start(kicker_lbl, False, False, 0)
-        kicker_box.pack_start(naslov_lbl, False, False, 0)
-        glava_box.pack_start(kicker_box, False, False, 0)
-
-        # Moja zbirka | Katalog
-        nacin_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        nacin_box.get_style_context().add_class("vrstica-orodna")
-        self.btn_zbirka = Gtk.Button(label="Moja zbirka")
-        self.btn_zbirka.connect("clicked", lambda *_: self.preklopi_nacin("zbirka"))
-        self.btn_katalog = Gtk.Button(label="Katalog")
-        self.btn_katalog.connect("clicked", lambda *_: self.preklopi_nacin("katalog"))
-        self.btn_zbirka.get_style_context().add_class("kategorija-izbrana")
-        nacin_box.pack_start(self.btn_zbirka, False, False, 0)
-        nacin_box.pack_start(self.btn_katalog, False, False, 0)
-        glava_box.pack_start(nacin_box, False, False, 8)
-
-        # Kategorije
-        kat_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        kat_box.get_style_context().add_class("vrstica-orodna")
-        self.kat_gumbi = {}
-        kategorije = [("", "Vse"), ("filmi", "Filmi"), ("serije", "Serije"),
-                      ("glasba", "Glasba"), ("tokovi", "Tokovi")]
-        for k_id, k_naziv in kategorije:
-            btn = Gtk.Button(label=k_naziv)
-            btn.connect("clicked", self._ob_izbiri_kategorije, k_id)
-            if k_id == self.izbrana_kategorija:
-                btn.get_style_context().add_class("kategorija-izbrana")
-            kat_box.pack_start(btn, False, False, 0)
-            self.kat_gumbi[k_id] = btn
-        glava_box.pack_start(kat_box, False, False, 8)
-        self.kat_box = kat_box
-
-        # Iskalnik
-        self.isci_entry = Gtk.SearchEntry()
-        self.isci_entry.set_placeholder_text("Išči medije...")
-        self.isci_entry.set_width_chars(20)
-        if self.trenutno_iskanje:
-            self.isci_entry.set_text(self.trenutno_iskanje)
-        self.isci_entry.connect("search-changed", self._ob_spremembi_iskanja)
-        glava_box.pack_start(self.isci_entry, False, False, 4)
-
-        # Gumbi za dejanja
-        dodaj_mapo_btn = _gumb_z_ikono("folder-new-symbolic", "Mapa")
-        dodaj_mapo_btn.connect("clicked", self._dialog_dodaj_mapo)
-        glava_box.pack_end(dodaj_mapo_btn, False, False, 0)
-
-        odpri_dat_btn = _gumb_z_ikono("document-open-symbolic", "Datoteka")
-        odpri_dat_btn.connect("clicked", self._dialog_odpri_datoteko)
-        glava_box.pack_end(odpri_dat_btn, False, False, 0)
-
-        glavni_box.pack_start(glava_box, False, False, 0)
-
-        # Kratko obvestilo (odpiranje, vsebina ni na voljo ...) - izgine samo.
-        self.obvestilo = Gtk.Label(label="", xalign=0)
-        self.obvestilo.get_style_context().add_class("medlo")
-        self.obvestilo.set_margin_start(16)
-        self.obvestilo.set_no_show_all(True)
-        glavni_box.pack_start(self.obvestilo, False, False, 0)
-
-        # 2. Glavno območje (Stack: knjižnica / predvajanje)
-        self.sklad = Gtk.Stack()
-        self.sklad.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
-        glavni_box.pack_start(self.sklad, True, True, 0)
-
-        # Pogled A: Knjižnica kartic
-        knjiznica_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        knjiznica_box.set_border_width(12)
-
-        scroll = Gtk.ScrolledWindow()
-        scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-
-        self.flowbox = Gtk.FlowBox()
-        self.flowbox.set_valign(Gtk.Align.START)
-        self.flowbox.set_max_children_per_line(30)
-        self.flowbox.set_selection_mode(Gtk.SelectionMode.NONE)
-        self.flowbox.set_homogeneous(True)
-        self.flowbox.set_column_spacing(12)
-        self.flowbox.set_row_spacing(12)
-        scroll.add(self.flowbox)
-
-        # Prazno stanje
-        self.prazno_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, valign=Gtk.Align.CENTER)
-        prazno_ikona = Gtk.Label(label="♫")
-        prazno_ikona.get_style_context().add_class("art-ikona-velika")
-        prazno_naslov = Gtk.Label(label="Tvoja zbirka je prazna")
-        prazno_naslov.get_style_context().add_class("naslov-glava")
-        prazno_namig = Gtk.Label(label="Dodaj mapo z mediji ali odpri datoteko za začetek predvajanja.")
-        prazno_namig.get_style_context().add_class("medlo")
-        prazno_gumb = Gtk.Button(label="＋ Dodaj mapo medijev")
-        prazno_gumb.get_style_context().add_class("glavni")
-        prazno_gumb.set_halign(Gtk.Align.CENTER)
-        prazno_gumb.connect("clicked", self._dialog_dodaj_mapo)
-
-        self.prazno_box.pack_start(prazno_ikona, False, False, 0)
-        self.prazno_box.pack_start(prazno_naslov, False, False, 0)
-        self.prazno_box.pack_start(prazno_namig, False, False, 0)
-        self.prazno_box.pack_start(prazno_gumb, False, False, 8)
-
-        knjiznica_box.pack_start(scroll, True, True, 0)
-        knjiznica_box.pack_start(self.prazno_box, True, True, 0)
-        self.sklad.add_named(knjiznica_box, "knjiznica")
-
-        # Pogled B: Predvajalnik (video / zvok)
-        predvajanje_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        
-        self.video_sklad = Gtk.Stack()
-        self.video_sklad.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
-
-        # Zvočni prikaz (ko ni videa)
-        zvok_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, valign=Gtk.Align.CENTER)
-        self.zvok_ikona = Gtk.Label(label="♫")
-        self.zvok_ikona.get_style_context().add_class("art-ikona-velika")
-        self.zvok_naslov = Gtk.Label()
-        self.zvok_naslov.get_style_context().add_class("naslov-glava")
-        self.zvok_podnaslov = Gtk.Label()
-        self.zvok_podnaslov.get_style_context().add_class("medlo")
-        zvok_box.pack_start(self.zvok_ikona, False, False, 0)
-        zvok_box.pack_start(self.zvok_naslov, False, False, 0)
-        zvok_box.pack_start(self.zvok_podnaslov, False, False, 0)
-        self.video_sklad.add_named(zvok_box, "zvok")
-
-        # Video prikaz
-        if self._video_widget is not None:
-            video_evbox = Gtk.EventBox()
-            video_evbox.add(self._video_widget)
-            video_evbox.connect("button-press-event", self._ob_kliku_videa)
-            self.video_sklad.add_named(video_evbox, "video")
-        else:
-            nadomestek = Gtk.Label(label="Video ponor (gtksink) ni na voljo.")
-            self.video_sklad.add_named(nadomestek, "video")
-
-        predvajanje_box.pack_start(self.video_sklad, True, True, 0)
-        self.sklad.add_named(predvajanje_box, "predvajanje")
-
-        self.sklad.show_all()
-        self.sklad.set_visible_child_name("knjiznica")
-        self.video_sklad.set_visible_child_name("zvok")
-
-        # 3. Spodnja nadzorna vrstica predvajalnika
-        bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        bar.get_style_context().add_class("predvajalnik-bar")
-
-        # Levo: Trenutni naslov in metapodatki
-        meta_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        meta_box.set_size_request(240, -1)
-        self.bar_naslov = Gtk.Label(label="Nič se ne predvaja", xalign=0)
-        self.bar_naslov.set_ellipsize(Pango.EllipsizeMode.END)
-        self.bar_podnaslov = Gtk.Label(label="", xalign=0)
-        self.bar_podnaslov.get_style_context().add_class("medlo")
-        self.bar_podnaslov.set_ellipsize(Pango.EllipsizeMode.END)
-        meta_box.pack_start(self.bar_naslov, False, False, 0)
-        meta_box.pack_start(self.bar_podnaslov, False, False, 0)
-        bar.pack_start(meta_box, False, False, 0)
-
-        # Sredina: Kontrolni gumbi in časovni drsnik
-        sredina_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        gumbi_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8, halign=Gtk.Align.CENTER)
-
-        self.btn_prejsnja = _gumb_z_ikono("media-skip-backward-symbolic")
-        self.btn_prejsnja.connect("clicked", lambda *_: self._ukaz("prejsnja"))
-        gumbi_box.pack_start(self.btn_prejsnja, False, False, 0)
-
-        self.btn_premor = Gtk.Button(label="▶")
-        self.btn_premor.get_style_context().add_class("glavni")
-        self.btn_premor.connect("clicked", lambda *_: self._ukaz("premor"))
-        gumbi_box.pack_start(self.btn_premor, False, False, 0)
-
-        self.btn_naslednja = _gumb_z_ikono("media-skip-forward-symbolic")
-        self.btn_naslednja.connect("clicked", lambda *_: self._ukaz("naslednja"))
-        gumbi_box.pack_start(self.btn_naslednja, False, False, 0)
-
-        self.btn_ustavi = _gumb_z_ikono("media-playback-stop-symbolic")
-        self.btn_ustavi.connect("clicked", lambda *_: self._ukaz("ustavi"))
-        gumbi_box.pack_start(self.btn_ustavi, False, False, 0)
-
-        sredina_box.pack_start(gumbi_box, False, False, 0)
-
-        # Časovni drsnik
-        cas_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self.lbl_trenutni_cas = Gtk.Label(label="0:00")
-        self.lbl_trenutni_cas.get_style_context().add_class("medlo")
-        cas_box.pack_start(self.lbl_trenutni_cas, False, False, 0)
-
-        self.drsnik = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 1000, 1)
-        self.drsnik.set_draw_value(False)
-        self.drsnik.set_hexpand(True)
-        self.drsnik.connect("change-value", self._ob_spremembi_drsnika)
-        self.drsnik.connect("button-press-event", lambda *_: setattr(self, "_v_premikanju_drsnika", True))
-        self.drsnik.connect_after("button-release-event", self._ob_spustu_drsnika)
-        cas_box.pack_start(self.drsnik, True, True, 0)
-
-        self.lbl_skupni_cas = Gtk.Label(label="0:00")
-        self.lbl_skupni_cas.get_style_context().add_class("medlo")
-        cas_box.pack_start(self.lbl_skupni_cas, False, False, 0)
-
-        sredina_box.pack_start(cas_box, False, False, 0)
-        bar.pack_start(sredina_box, True, True, 12)
-
-        # Desno: Dodatne kontrole (podnapisi, celozaslonski način, preklop pogledov)
-        desno_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, halign=Gtk.Align.END)
-        self.btn_podnapisi = _gumb_z_ikono("media-view-subtitles-symbolic")
-        self.btn_podnapisi.set_tooltip_text("Podnapisi [V]")
-        self.btn_podnapisi.connect("clicked", lambda *_: self._cikel_podnapisov())
-        desno_box.pack_start(self.btn_podnapisi, False, False, 0)
-
-        self.btn_fullscreen = _gumb_z_ikono("view-fullscreen-symbolic")
-        self.btn_fullscreen.set_tooltip_text("Celoten zaslon [F11 / F]")
-        self.btn_fullscreen.connect("clicked", lambda *_: self._preklopi_fullscreen())
-        desno_box.pack_start(self.btn_fullscreen, False, False, 0)
-
-        self.btn_pogled = Gtk.Button(label="Nazaj na izbiro")
-        self.btn_pogled.connect("clicked", lambda *_: self._preklopi_pogled())
-        desno_box.pack_start(self.btn_pogled, False, False, 0)
-
-        bar.pack_end(desno_box, False, False, 0)
-        glavni_box.pack_end(bar, False, False, 0)
-
-    # ------------------------------------------------------------------ Knjižnica in kartice
-
-    def osvezi_zbirko(self):
-        # Počisti obstoječe kartice
-        for otrok in self.flowbox.get_children():
-            self.flowbox.remove(otrok)
-
-        vnosi = []
-        if self.izbrana_kategorija == "tokovi":
-            for t in self.knjiznica.tokovi():
-                vnosi.append({"pot": t["url"], "naslov": t["ime"], "vrsta": t["vrsta"], "is_stream": True})
-        else:
-            vnosi = self.knjiznica.seznam(vrsta=self.izbrana_kategorija, iskanje=self.trenutno_iskanje)
-
-        if not vnosi:
-            self.flowbox.set_visible(False)
-            self.prazno_box.set_visible(True)
-            return
-
-        self.prazno_box.set_visible(False)
-        self.flowbox.set_visible(True)
-
-        for item in vnosi:
-            self._dodaj_kartico(item)
-
-        self.flowbox.show_all()
-
-    def _dodaj_kartico(self, item: dict):
-        pot = item.get("pot", "")
-        naslov = item.get("naslov", "Neznano")
-        vrsta = item.get("vrsta", "medij")
-
-        btn = Gtk.Button()
-        btn.get_style_context().add_class("media-kartica")
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-
-        ikona_tekst = "♫" if vrsta == "glasba" else ("📻" if vrsta == "radio" else ("📺" if vrsta == "tv" else "🎬"))
-        ikona = Gtk.Label(label=ikona_tekst)
-        ikona.get_style_context().add_class("art-ikona")
-        box.pack_start(ikona, True, True, 4)
-
-        lbl_naslov = Gtk.Label(label=naslov)
-        lbl_naslov.set_ellipsize(Pango.EllipsizeMode.END)
-        lbl_naslov.set_max_width_chars(18)
-        lbl_naslov.set_line_wrap(False)
-        box.pack_start(lbl_naslov, False, False, 0)
-
-        vrsta_tekst = vrsta.capitalize()
-        pozicija = item.get("pozicija", 0)
-        if pozicija > 0:
-            vrsta_tekst += f" · {_format_cas(pozicija)}"
-        lbl_pod = Gtk.Label(label=vrsta_tekst)
-        lbl_pod.get_style_context().add_class("medlo")
-        box.pack_start(lbl_pod, False, False, 0)
-
-        btn.add(box)
-        btn.connect("clicked", lambda *_: self.predvajaj_pot(pot, naslov=naslov, vrsta=vrsta))
-        self.flowbox.add(btn)
-
-    def _ob_izbiri_kategorije(self, btn, kat_id: str):
-        self.izbrana_kategorija = kat_id
-        for kid, gumb in self.kat_gumbi.items():
-            if kid == kat_id:
-                gumb.get_style_context().add_class("kategorija-izbrana")
-            else:
-                gumb.get_style_context().remove_class("kategorija-izbrana")
-        self.osvezi_zbirko()
-
-    def _ob_spremembi_iskanja(self, entry):
-        self.trenutno_iskanje = entry.get_text().strip()
-        if self.nacin == "katalog" and self.katalog_pogled is not None:
-            self.katalog_pogled.isci(self.trenutno_iskanje)
-            return
-        self.osvezi_zbirko()
-
-    def _dialog_dodaj_mapo(self, *_):
-        dialog = Gtk.FileChooserDialog(
-            title="Izberi mapo z mediji",
-            parent=self,
-            action=Gtk.FileChooserAction.SELECT_FOLDER
-        )
-        dialog.add_button("Prekliči", Gtk.ResponseType.CANCEL)
-        dialog.add_button("Izberi", Gtk.ResponseType.OK)
-        if dialog.run() == Gtk.ResponseType.OK:
-            mapa = dialog.get_filename()
-            if mapa:
-                self.knjiznica.dodaj_mapo(Path(mapa))
-                self.osvezi_zbirko()
-        dialog.destroy()
-
-    def _dialog_odpri_datoteko(self, *_):
-        dialog = Gtk.FileChooserDialog(
-            title="Odpri medijsko datoteko",
-            parent=self,
-            action=Gtk.FileChooserAction.OPEN
-        )
-        dialog.add_button("Prekliči", Gtk.ResponseType.CANCEL)
-        dialog.add_button("Odpri", Gtk.ResponseType.OK)
-        if dialog.run() == Gtk.ResponseType.OK:
-            dat = dialog.get_filename()
-            if dat:
-                self.predvajaj_pot(dat)
-        dialog.destroy()
-
-    # ------------------------------------------------------------------ Predvajanje
-
-    def predvajaj_pot(self, pot: str, naslov: str = "", vrsta: str = "medij", zacetek: int = 0,
-                      podnapisi: tuple = ()) -> bool:
-        if self.predvajalnik is None:
-            return False
-        if not pot:
-            return False
-
-        if pot.startswith(("http://", "https://", "dvd://", "file:")):
-            uri = pot
-        else:
-            uri = Path(pot).resolve().as_uri()
-
-        if not naslov:
-            naslov = Path(pot).stem if not pot.startswith("http") else pot
-
-        if vrsta == "medij" and not pot.startswith(("http", "file:")):
-            vrsta = os_knjiznica.vrsta_datoteke(Path(pot))
-
-        self.sklad.set_visible_child_name("predvajanje")
-        self.btn_pogled.set_label("Nazaj na izbiro")
-
-        skladba = os_predvajalnik.medij(uri, vrsta=vrsta if vrsta in ("video", "tv", "radio") else "medij")
-        skladba = os_predvajalnik.replace(skladba, naslov=naslov, zacetek=max(0, int(zacetek or 0)),
-                                          podnapisi=tuple(podnapisi or ()))
-        self.predvajalnik.zamenjaj_vrsto([skladba], zacni=0)
-
-        # Preklop video/zvok sklada
-        if vrsta in ("filmi", "serije", "video", "tv") and self._video_widget is not None:
-            self.video_sklad.set_visible_child_name("video")
-        else:
-            self.zvok_naslov.set_text(naslov)
-            self.zvok_podnaslov.set_text(vrsta.capitalize())
-            self.video_sklad.set_visible_child_name("zvok")
-
-        self.bar_naslov.set_text(naslov)
-        self.bar_podnaslov.set_text(vrsta.capitalize())
-        self.btn_premor.set_label("⏸")
-        return True
-
-    def _ukaz(self, ukaz: str, vrednost=None):
-        if self.predvajalnik is None:
-            return
-        if ukaz == "premor":
-            if self.predvajalnik.stanje == "predvaja":
-                self.predvajalnik.element.set_state(Gst.State.PAUSED)
-                self.predvajalnik.stanje = "pavza"
-                self.btn_premor.set_label("▶")
-            elif self.predvajalnik.stanje == "pavza":
-                self.predvajalnik.element.set_state(Gst.State.PLAYING)
-                self.predvajalnik.stanje = "predvaja"
-                self.btn_premor.set_label("⏸")
-            elif self.predvajalnik.vrsta:
-                self.predvajalnik.predvajaj(max(0, self.predvajalnik.indeks))
-        elif ukaz == "ustavi":
-            self.predvajalnik.element.set_state(Gst.State.NULL)
-            self.predvajalnik.stanje = "ustavljeno"
-            self.btn_premor.set_label("▶")
-            self.lbl_trenutni_cas.set_text("0:00")
-            self.drsnik.set_value(0)
-        elif ukaz == "skok":
-            try:
-                cilj_ns = int(float(vrednost) * Gst.SECOND)
-                self.predvajalnik.element.seek_simple(
-                    Gst.Format.TIME,
-                    Gst.SeekFlags.FLUSH | Gst.SeekFlags.KEY_UNIT,
-                    cilj_ns
-                )
-            except Exception:
-                pass
-        elif ukaz == "naslednja":
-            if self.predvajalnik.vrsta and self.predvajalnik.indeks + 1 < len(self.predvajalnik.vrsta):
-                self.predvajalnik.predvajaj(self.predvajalnik.indeks + 1)
-        elif ukaz == "prejsnja":
-            if self.predvajalnik.vrsta and self.predvajalnik.indeks > 0:
-                self.predvajalnik.predvajaj(self.predvajalnik.indeks - 1)
-
-    def _osvezi_napredek(self) -> bool:
-        if self.predvajalnik is None or self.predvajalnik.stanje not in ("predvaja", "pavza"):
-            return True
-        try:
-            ok_pos, pos_ns = self.predvajalnik.element.query_position(Gst.Format.TIME)
-            ok_dur, dur_ns = self.predvajalnik.element.query_duration(Gst.Format.TIME)
-            if ok_pos and ok_dur and dur_ns > 0:
-                pos_s = pos_ns / Gst.SECOND
-                dur_s = dur_ns / Gst.SECOND
-                self.lbl_trenutni_cas.set_text(_format_cas(pos_s))
-                self.lbl_skupni_cas.set_text(_format_cas(dur_s))
-                if not self._v_premikanju_drsnika:
-                    delez = min(1000, max(0, int((pos_s / dur_s) * 1000)))
-                    self.drsnik.set_value(delez)
-        except Exception:
-            pass
-        return True
-
-    def _ob_spremembi_drsnika(self, scale, scroll, value):
-        return False
-
-    def _ob_spustu_drsnika(self, scale, event):
-        self._v_premikanju_drsnika = False
-        if self.predvajalnik is None:
-            return
-        try:
-            ok_dur, dur_ns = self.predvajalnik.element.query_duration(Gst.Format.TIME)
-            if ok_dur and dur_ns > 0:
-                dur_s = dur_ns / Gst.SECOND
-                cilj_s = dur_s * (scale.get_value() / 1000.0)
-                self._ukaz("skok", cilj_s)
-        except Exception:
-            pass
-
-    def _cikel_podnapisov(self):
-        if self.predvajalnik is None:
-            return
-        try:
-            p = self.predvajalnik.podnapisi()
-            moznosti = p.get("moznosti", [])
-            trenutni = p.get("izbran", "izklop")
-            if not moznosti:
-                return
-            indeksi = [m.get("oznaka", "") for m in moznosti]
-            if trenutni in indeksi:
-                idx = (indeksi.index(trenutni) + 1) % len(indeksi)
-            else:
-                idx = 0
-            naslednji = indeksi[idx]
-            self.predvajalnik.izberi_podnapise(naslednji)
-            ime = next((m.get("ime", "") for m in moznosti if m.get("oznaka") == naslednji), naslednji)
-            self.btn_podnapisi.set_tooltip_text(f"Podnapisi: {ime}")
-        except Exception:
-            pass
-
-    def _preklopi_fullscreen(self):
-        okno = self.get_window()
-        if okno and okno.get_state() & Gdk.WindowState.FULLSCREEN:
-            self.unfullscreen()
-        else:
-            self.fullscreen()
-
-    def _pogled_brskanja(self) -> str:
-        return "katalog" if self.nacin == "katalog" and self.katalog_pogled is not None else "knjiznica"
-
-    def _preklopi_pogled(self):
-        if self.sklad.get_visible_child_name() != "predvajanje":
-            self.sklad.set_visible_child_name("predvajanje")
-            self.btn_pogled.set_label("Nazaj na izbiro")
-        else:
-            self.sklad.set_visible_child_name(self._pogled_brskanja())
-            self.btn_pogled.set_label("Predvajalnik")
-
-    # ------------------------------------------------------------------ Spletni katalog
-
-    def preklopi_nacin(self, nacin: str) -> None:
-        """Moja zbirka (datoteke na disku) ali Katalog (spletni viri - isti kot Medijski center v Safeer OS).
-        Katalog se ustvari ob prvem odprtju: zagon predvajalnika ga ne caka."""
-        self.nacin = "katalog" if nacin == "katalog" else "zbirka"
-        for gumb, izbran in ((self.btn_zbirka, self.nacin == "zbirka"), (self.btn_katalog, self.nacin == "katalog")):
-            ctx = gumb.get_style_context()
-            (ctx.add_class if izbran else ctx.remove_class)("kategorija-izbrana")
-        self.kat_box.set_visible(self.nacin == "zbirka")
-        if self.nacin == "katalog" and self.katalog_pogled is None:
-            from core import os_player_gtk_katalog
-            self.katalog_pogled = os_player_gtk_katalog.KatalogPogled(
-                predvajaj=self._predvajaj_iz_kataloga, sporocilo=self.obvesti)
-            self.sklad.add_named(self.katalog_pogled, "katalog")
-            self.katalog_pogled.show_all()
-            self.katalog_pogled.iskanje = self.trenutno_iskanje
-            self.katalog_pogled.nalozi()
-        self.sklad.set_visible_child_name(self._pogled_brskanja())
-        self.btn_pogled.set_label("Predvajalnik")
-
-    def _predvajaj_iz_kataloga(self, uri: str, vrsta: str, ime: str, zacetek: int = 0, podnapisi: tuple = ()) -> bool:
-        # Katalog: "video"/"tv" se kaze v oknu, "medij"/"radio" je zvok.
-        return self.predvajaj_pot(uri, naslov=ime, vrsta=vrsta or "medij", zacetek=zacetek, podnapisi=podnapisi)
-
-    def obvesti(self, besedilo: str, sekund: int = 6) -> None:
-        self.obvestilo.set_text(str(besedilo or ""))
-        self.obvestilo.set_visible(bool(besedilo))
+            self.set_icon_from_file(os.path.join(KOREN, "assets", "os", "predvajalnik.svg"))
+        except Exception:  # noqa: BLE001
+            self.set_icon_name("safeer-browser")
+
+    def obvesti(self, besedilo: str, sekund: int = 5) -> None:
+        self.obvestilo_napis.set_text(besedilo)
+        self.obvestilo.set_no_show_all(False)
+        self.obvestilo.show_all()
         if self._casovnik_obvestila:
             GLib.source_remove(self._casovnik_obvestila)
 
         def skrij():
             self._casovnik_obvestila = 0
-            self.obvestilo.set_visible(False)
+            self.obvestilo.hide()
             return False
         self._casovnik_obvestila = GLib.timeout_add_seconds(sekund, skrij)
 
-    def _ob_kliku_videa(self, widget, event):
-        if event.type == Gdk.EventType._2BUTTON_PRESS:
-            self._preklopi_fullscreen()
-            return True
-        return False
+    def _ni_uspelo(self, *_a) -> None:
+        self.obvesti(self.t("niUspelo"))
 
-    def _ob_spremembi_predvajalnika(self):
-        if self.predvajalnik and self.predvajalnik.trenutna:
-            self.bar_naslov.set_text(self.predvajalnik.trenutna.naslov)
-            stanje = self.predvajalnik.stanje
-            self.btn_premor.set_label("⏸" if stanje == "predvaja" else "▶")
+    # ------------------------------------------------------------------ gradnja
+    def _zgradi(self) -> None:
+        prekrivanje = Gtk.Overlay()
+        self.add(prekrivanje)
+        koren = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        koren.get_style_context().add_class("vsebina")
+        prekrivanje.add(koren)
 
-    def _ob_koncu_predvajanja(self, uri: str):
-        self.btn_premor.set_label("▶")
-        self.lbl_trenutni_cas.set_text("0:00")
-        self.drsnik.set_value(0)
+        sredina = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        koren.pack_start(sredina, True, True, 0)
+        drsnik = Gtk.ScrolledWindow()
+        drsnik.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        sredina.pack_start(drsnik, True, True, 0)
+        glavni = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=22)
+        glavni.set_border_width(30)
+        drsnik.add(glavni)
+        self.glavni = glavni
 
-    # ------------------------------------------------------------------ Tipkovnica in bližnjice
+        glavni.pack_start(self._zgradi_glavo(), False, False, 0)
+        glavni.pack_start(self._zgradi_orodno(), False, False, 0)
+        glavni.pack_start(self._zgradi_hero(), False, False, 0)
+        glavni.pack_start(self._zgradi_knjiznico(), False, False, 0)
+        #: Prostor za katalog (filmi, serije, glasba, radio, TV) - isti katalog kot na strani.
+        self.katalog_mesto = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        glavni.pack_start(self.katalog_mesto, False, False, 0)
+        glavni.pack_start(self._zgradi_tokove(), False, False, 0)
 
-    def _ob_tipki(self, widget, event) -> bool:
-        tipka = Gdk.keyval_name(event.keyval)
+        sredina.pack_start(self._zgradi_desni(), False, False, 0)
+        koren.pack_start(self._zgradi_trak(), False, False, 0)
 
-        # Če ima fokus iskalnik, pusti običajen vnos besedila
-        fokus = self.get_focus()
-        if fokus is self.isci_entry and tipka not in ("Escape", "Return"):
-            return False
+        self.obvestilo = Gtk.Box()
+        self.obvestilo.get_style_context().add_class("obvestilo")
+        self.obvestilo_napis = _oznaka("", "", 0.5, True)
+        self.obvestilo.pack_start(self.obvestilo_napis, True, True, 0)
+        self.obvestilo.set_halign(Gtk.Align.CENTER)
+        self.obvestilo.set_valign(Gtk.Align.END)
+        self.obvestilo.set_margin_bottom(90)
+        self.obvestilo.set_no_show_all(True)
+        prekrivanje.add_overlay(self.obvestilo)
 
-        if tipka == "space":
-            self._ukaz("premor")
-            return True
-        elif tipka == "Left":
-            if self.predvajalnik:
-                try:
-                    ok, pos = self.predvajalnik.element.query_position(Gst.Format.TIME)
-                    if ok:
-                        self._ukaz("skok", max(0, (pos / Gst.SECOND) - 10))
-                except Exception:
-                    pass
-            return True
-        elif tipka == "Right":
-            if self.predvajalnik:
-                try:
-                    ok, pos = self.predvajalnik.element.query_position(Gst.Format.TIME)
-                    if ok:
-                        self._ukaz("skok", (pos / Gst.SECOND) + 10)
-                except Exception:
-                    pass
-            return True
-        elif tipka in ("f", "F", "F11"):
-            self._preklopi_fullscreen()
-            return True
-        elif tipka in ("v", "V") and not event.state & Gdk.ModifierType.CONTROL_MASK:
-            self._cikel_podnapisov()
-            return True
-        elif tipka in ("n", "N"):
-            self._ukaz("naslednja")
-            return True
-        elif tipka in ("p", "P"):
-            self._ukaz("prejsnja")
-            return True
-        elif tipka == "Escape":
-            okno = self.get_window()
-            if okno and okno.get_state() & Gdk.WindowState.FULLSCREEN:
-                self.unfullscreen()
-                return True
-            if self.sklad.get_visible_child_name() == "predvajanje":
-                self._preklopi_pogled()
-                return True
-        return False
+    def _zgradi_glavo(self) -> Gtk.Widget:
+        glava = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
+        levo = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        levo.pack_start(_oznaka("SAFEER PLAYER", "kicker"), False, False, 0)
+        levo.pack_start(_oznaka(self.t("mediji"), "h1"), False, False, 0)
+        levo.pack_start(_oznaka(self.t("medijiOpis"), "medlo", ovij=True), False, False, 0)
+        glava.pack_start(levo, False, False, 0)
+        dejanja = Gtk.FlowBox()
+        dejanja.set_selection_mode(Gtk.SelectionMode.NONE)
+        dejanja.set_max_children_per_line(4)
+        dejanja.set_column_spacing(8)
+        dejanja.set_row_spacing(8)
+        dejanja.set_halign(Gtk.Align.END)
+        dejanja.set_valign(Gtk.Align.START)
+        g = _gumb(self.t("dodajMapoMedijev"), "mapa", "glavni")
+        g.connect("clicked", lambda *_: self.dodaj_mapo())
+        dejanja.add(g)
+        g = _gumb(self.t("dodajLokalno"), "datoteka")
+        g.connect("clicked", lambda *_: self.klic("lokalniMediji", [], None, self._ni_uspelo))
+        dejanja.add(g)
+        g = _gumb(self.t("dodajTok"), "radio")
+        g.connect("clicked", lambda *_: self.dodaj_tok())
+        dejanja.add(g)
+        self.gumb_disk = _gumb(self.t("predvajajDisk"), "video")
+        self.gumb_disk.connect("clicked", lambda *_: self.predvajaj_disk())
+        self.gumb_disk.set_no_show_all(True)
+        dejanja.add(self.gumb_disk)
+        glava.pack_end(dejanja, True, True, 0)
+        return glava
 
-    def ustavi(self) -> None:
-        """Popolnoma ustavi predvajanje in vrne predvajalnik v mirovanje."""
-        if self.predvajalnik is not None:
+    def _zgradi_orodno(self) -> Gtk.Widget:
+        orodna = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        kat = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+        kat.get_style_context().add_class("orodna")
+        self.gumbi_kategorij = {}
+        for ime, ikona in KATEGORIJE:
+            g = _gumb(self.t("media_" + ime), ikona, "kategorija", 15)
+            g.connect("clicked", lambda _g, i=ime: self.izberi_filter(i))
+            kat.pack_start(g, False, False, 0)
+            self.gumbi_kategorij[ime] = g
+        orodna.pack_start(kat, False, False, 0)
+        self.isci_entry = Gtk.SearchEntry()
+        self.isci_entry.set_placeholder_text(self.t("isciMedije"))
+        self.isci_entry.set_text(self.iskanje)
+        self.isci_entry.set_width_chars(28)
+        self.isci_entry.connect("search-changed", self._ob_iskanju)
+        orodna.pack_end(self.isci_entry, False, False, 0)
+        self._oznaci_filter()
+        return orodna
+
+    def _zgradi_hero(self) -> Gtk.Widget:
+        hero = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
+        hero.get_style_context().add_class("hero")
+        besedilo = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        besedilo.pack_start(_oznaka(self.t("mediaMojaZbirka"), "kicker"), False, False, 0)
+        self.hero_naslov = _oznaka(self.t("mediaHeroNaslov"), "h1", ovij=True)
+        besedilo.pack_start(self.hero_naslov, False, False, 0)
+        self.hero_opis = _oznaka(self.t("mediaHeroOpis"), "medlo", ovij=True)
+        self.hero_opis.set_max_width_chars(70)
+        besedilo.pack_start(self.hero_opis, False, False, 0)
+        self.hero_gumb = _gumb(self.t("dodajMapoMedijev"), "plus", "glavni")
+        self.hero_gumb.set_halign(Gtk.Align.START)
+        self.hero_gumb.set_margin_top(8)
+        self.hero_gumb.connect("clicked", lambda *_: self.dodaj_tok() if self.filter in ("tv", "radio") else self.dodaj_mapo())
+        besedilo.pack_start(self.hero_gumb, False, False, 0)
+        hero.pack_start(besedilo, True, True, 0)
+        hero.pack_end(_oznaka("♫", "hero-znak", 0.5), False, False, 30)
+        return hero
+
+    def _zgradi_knjiznico(self) -> Gtk.Widget:
+        blok = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        self.blok_knjiznice = blok
+        glava = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        levo = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        levo.pack_start(_oznaka(self.t("mediaLokalno"), "kicker"), False, False, 0)
+        self.naslov_zbirke = _oznaka(self.t("mediaTvojaZbirka"), "h2")
+        levo.pack_start(self.naslov_zbirke, False, False, 0)
+        glava.pack_start(levo, False, False, 0)
+        self.gumb_osvezi = _gumb("", "ponovno")
+        self.gumb_osvezi.set_tooltip_text(self.t("mediaOsvezi"))
+        self.gumb_osvezi.connect("clicked", lambda *_: self.osvezi_mape())
+        glava.pack_end(self.gumb_osvezi, False, False, 0)
+        g = _gumb("", "mapa")
+        g.set_tooltip_text(self.t("mediaMape"))
+        g.connect("clicked", lambda *_: self.okno_map())
+        glava.pack_end(g, False, False, 0)
+        self.stevec = _oznaka("", "medlo")
+        glava.pack_end(self.stevec, False, False, 6)
+        blok.pack_start(glava, False, False, 0)
+
+        self.mreza = Gtk.FlowBox()
+        self.mreza.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.mreza.set_homogeneous(True)
+        self.mreza.set_min_children_per_line(2)
+        self.mreza.set_max_children_per_line(8)
+        self.mreza.set_column_spacing(14)
+        self.mreza.set_row_spacing(14)
+        self.mreza.set_valign(Gtk.Align.START)
+        blok.pack_start(self.mreza, False, False, 0)
+
+        self.prazno = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.prazno.get_style_context().add_class("prazno")
+        slika = ikone.slika("glasba", 40, "#54d6a5")
+        if slika is not None:
+            self.prazno.pack_start(slika, False, False, 0)
+        self.prazno_naslov = _oznaka("", "h3", 0.5)
+        self.prazno_opis = _oznaka("", "medlo", 0.5, True)
+        self.prazno.pack_start(self.prazno_naslov, False, False, 0)
+        self.prazno.pack_start(self.prazno_opis, False, False, 0)
+        self.prazno_gumb = _gumb(self.t("dodajMapoMedijev"), "mapa")
+        self.prazno_gumb.set_halign(Gtk.Align.CENTER)
+        self.prazno_gumb.connect("clicked", lambda *_: self.dodaj_mapo())
+        self.prazno.pack_start(self.prazno_gumb, False, False, 0)
+        self.prazno.set_no_show_all(True)
+        blok.pack_start(self.prazno, False, False, 0)
+
+        self.gumb_vec = _gumb(self.t("mediaNaloziVec"))
+        self.gumb_vec.set_halign(Gtk.Align.CENTER)
+        self.gumb_vec.connect("clicked", lambda *_: self.nalozi(veckrat=True))
+        self.gumb_vec.set_no_show_all(True)
+        blok.pack_start(self.gumb_vec, False, False, 0)
+        return blok
+
+    def _zgradi_tokove(self) -> Gtk.Widget:
+        blok = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        glava = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        glava.pack_start(_oznaka(self.t("mediaShranjeniTokovi"), "kicker"), False, False, 0)
+        glava.pack_start(_oznaka(self.t("mediaTvojePostaje"), "h2"), False, False, 0)
+        blok.pack_start(glava, False, False, 0)
+        self.seznam_tokov = Gtk.FlowBox()
+        self.seznam_tokov.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.seznam_tokov.set_homogeneous(True)
+        self.seznam_tokov.set_max_children_per_line(4)
+        self.seznam_tokov.set_column_spacing(12)
+        self.seznam_tokov.set_row_spacing(12)
+        blok.pack_start(self.seznam_tokov, False, False, 0)
+        blok.set_no_show_all(True)
+        self.blok_tokov = blok
+        return blok
+
+    def _zgradi_desni(self) -> Gtk.Widget:
+        desni = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        desni.get_style_context().add_class("desni")
+        desni.set_size_request(320, -1)
+        sedaj = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        sedaj.get_style_context().add_class("sedaj")
+        sedaj.pack_start(_oznaka(self.t("mediaSedaj"), "kicker"), False, False, 0)
+        self.sedaj_art = _oznaka("♫", "sedaj-art", 0.5)
+        sedaj.pack_start(self.sedaj_art, False, False, 0)
+        self.sedaj_naslov = _oznaka(self.t("mediaNicesar"), "h3", ovij=True)
+        sedaj.pack_start(self.sedaj_naslov, False, False, 0)
+        self.sedaj_pod = _oznaka(self.t("mediaSedajNamig"), "medlo", ovij=True)
+        sedaj.pack_start(self.sedaj_pod, False, False, 0)
+        self.gumb_odpri_video = _gumb(self.t("mediaOdpriVideo"), "video")
+        self.gumb_odpri_video.connect("clicked", lambda *_: self.ukaz("odpri"))
+        self.gumb_odpri_video.set_no_show_all(True)
+        sedaj.pack_start(self.gumb_odpri_video, False, False, 0)
+        desni.pack_start(sedaj, False, False, 0)
+
+        glava = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        glava.pack_start(_oznaka(self.t("mediaCakalna"), "h3"), False, False, 0)
+        self.vrsta_stevec = _oznaka("", "medlo")
+        glava.pack_end(self.vrsta_stevec, False, False, 0)
+        desni.pack_start(glava, False, False, 0)
+        drsnik = Gtk.ScrolledWindow()
+        drsnik.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.vrsta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        drsnik.add(self.vrsta)
+        desni.pack_start(drsnik, True, True, 0)
+        return desni
+
+    def _zgradi_trak(self) -> Gtk.Widget:
+        trak = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        trak.get_style_context().add_class("trak")
+        self.trak_art = Gtk.Button(label="♫")
+        self.trak_art.set_tooltip_text(self.t("mediaOdpriVideo"))
+        self.trak_art.connect("clicked", lambda *_: self.ukaz("odpri"))
+        trak.pack_start(self.trak_art, False, False, 0)
+        meta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        meta.set_size_request(260, -1)
+        self.trak_naslov = _oznaka("", "kartica-ime")
+        self.trak_naslov.set_ellipsize(Pango.EllipsizeMode.END)
+        self.trak_vrsta = _oznaka("", "drobno")
+        self.trak_vrsta.set_ellipsize(Pango.EllipsizeMode.END)
+        meta.pack_start(self.trak_naslov, False, False, 0)
+        meta.pack_start(self.trak_vrsta, False, False, 0)
+        trak.pack_start(meta, False, False, 0)
+        self.trak_prejsnja = Gtk.Button(label="⏮")
+        self.trak_premor = Gtk.Button(label="Ⅱ")
+        self.trak_naslednja = Gtk.Button(label="⏭")
+        for g, u in ((self.trak_prejsnja, "prejsnja"), (self.trak_premor, "premor"), (self.trak_naslednja, "naslednja")):
+            g.connect("clicked", lambda _g, x=u: self.ukaz(x))
+            trak.pack_start(g, False, False, 0)
+        self.trak_cas = _oznaka("0:00", "drobno")
+        trak.pack_start(self.trak_cas, False, False, 0)
+        self.trak_napredek = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 1000, 1)
+        self.trak_napredek.set_draw_value(False)
+        self.trak_napredek.connect("button-press-event", lambda *_: setattr(self, "vlecenje", True))
+        self.trak_napredek.connect("button-release-event", self._ob_spustu_drsnika)
+        trak.pack_start(self.trak_napredek, True, True, 0)
+        self.trak_trajanje = _oznaka("0:00", "drobno")
+        trak.pack_start(self.trak_trajanje, False, False, 0)
+        self.trak_ustavi = Gtk.Button(label="■")
+        self.trak_ustavi.connect("clicked", lambda *_: self.ukaz("ustavi"))
+        trak.pack_start(self.trak_ustavi, False, False, 0)
+        trak.set_no_show_all(True)
+        self.trak = trak
+        return trak
+
+    # ------------------------------------------------------------------ knjiznica
+    def izberi_filter(self, ime: str) -> None:
+        self.filter = ime
+        self._oznaci_filter()
+        self.nalozi()
+
+    def _oznaci_filter(self) -> None:
+        for ime, g in self.gumbi_kategorij.items():
+            ctx = g.get_style_context()
+            (ctx.add_class if ime == self.filter else ctx.remove_class)("izbrana")
+
+    def _ob_iskanju(self, entry) -> None:
+        self.iskanje = entry.get_text().strip()
+        self.nalozi()
+
+    def isci(self, besedilo: str) -> None:
+        """Iskanje od zunaj (safeer-os --predvajalnik z iskanim nizom)."""
+        self.isci_entry.set_text(str(besedilo or ""))
+
+    @property
+    def isci_entry_text(self) -> str:
+        return self.isci_entry.get_text()
+
+    def nalozi(self, veckrat: bool = False) -> None:
+        """Kot naloziMedije na strani: disk, mape, tokovi, nato knjiznica po straneh."""
+        if not veckrat:
+            self.klic("dvdPogoni", [], self._ob_pogonih)
+            self.klic("medijskeMape", [], self._ob_mapah)
+            self.klic("tokoviMedijev", [], self._ob_tokovih)
+            self.klic("predvajalnikStanje", [], self.osvezi_predvajalnik)
+        if self.filter in ("tv", "radio"):
+            self._zahteva += 1
+            self.lokalno, self.ima_vec = [], False
+            self.narisi()
+            return
+        if not veckrat:
+            self.odmik, self.lokalno, self.ima_vec = 0, [], False
+        self._zahteva += 1
+        zahteva = self._zahteva
+
+        def gotovo(seznam):
+            if zahteva != self._zahteva:
+                return
+            seznam = seznam if isinstance(seznam, list) else []
+            self.lokalno = (self.lokalno + seznam) if veckrat else seznam
+            self.odmik += len(seznam)
+            self.ima_vec = len(seznam) == STRAN_KNJIZNICE
+            self.narisi()
+        self.klic("knjiznicaMedijev", [self.filter, self.iskanje, self.odmik], gotovo)
+
+    def _ob_pogonih(self, pogoni) -> None:
+        disk = next((p for p in (pogoni if isinstance(pogoni, list) else []) if p.get("vstavljen")), None)
+        self.dvd_pogon = (disk or {}).get("naprava", "")
+        if disk:
+            ime = disk.get("ime") or ""
+            napis = self.t("predvajajDisk") + (" · " + ime if ime and ime != "DVD" else "")
+            for otrok in self.gumb_disk.get_child().get_children():
+                if isinstance(otrok, Gtk.Label):
+                    otrok.set_text(napis)
+            self.gumb_disk.set_no_show_all(False)
+            self.gumb_disk.show_all()
+        else:
+            self.gumb_disk.hide()
+
+    def _ob_mapah(self, mape) -> None:
+        self.mape = mape if isinstance(mape, list) else []
+        self.gumb_osvezi.set_sensitive(bool(self.mape) and not self.osvezuje)
+        if getattr(self, "_okno_map", None) is not None:
+            self._napolni_mape()
+
+    def _ob_tokovih(self, vnosi) -> None:
+        self.tokovi = vnosi if isinstance(vnosi, list) else []
+        self.narisi()
+
+    def _ob_osvezevanju(self, podatki) -> None:
+        self.osvezuje = bool(podatki)
+        self.gumb_osvezi.set_sensitive(bool(self.mape) and not self.osvezuje)
+
+    def narisi(self) -> None:
+        """Kot narisiMedije na strani."""
+        vrsta, iskano = self.filter, self.iskanje
+        prikaz = [v for v in self.lokalno if (vrsta == "vse" or v.get("vrsta") == vrsta or
+                  vrsta == "video" and v.get("vrsta") in ("filmi", "serije")) and ujema(v.get("ime", ""), iskano)]
+        tokovi = [v for v in self.tokovi if (vrsta == "vse" or v.get("vrsta") == vrsta) and ujema(v.get("ime", ""), iskano)]
+        samo_viri = vrsta in ("tv", "radio")
+        self.stevec.set_text(str(len(prikaz)) if prikaz else "")
+        self.naslov_zbirke.set_text(self.t("mediaTvojaZbirka") if vrsta == "vse" else self.t("media_" + vrsta))
+        self.hero_naslov.set_text(self.t("mediaHeroNaslov") if vrsta == "vse" else self.t("media_" + vrsta))
+        self.hero_opis.set_text(self.t("mediaHeroOpis" if vrsta == "vse" and not self.lokalno and not self.mape
+                                       else "mediaHeroOpisIzbor"))
+        for otrok in self.hero_gumb.get_child().get_children():
+            if isinstance(otrok, Gtk.Label):
+                otrok.set_text(self.t("dodajTok" if samo_viri else "dodajMapoMedijev"))
+        for otrok in self.mreza.get_children():
+            self.mreza.remove(otrok)
+        for v in prikaz:
+            self.mreza.add(self._kartica(v, prikaz))
+        self.mreza.show_all()
+        self.blok_knjiznice.set_visible(not samo_viri)
+        prazno = not samo_viri and not prikaz
+        self.prazno_naslov.set_text(self.t("niZadetkov") if iskano else self.t("mediaPraznoNaslov"))
+        self.prazno_opis.set_text("" if iskano else self.t("mediaPraznoOpis"))
+        self.prazno_gumb.set_visible(not iskano)
+        if prazno:
+            self.prazno.set_no_show_all(False)
+            self.prazno.show_all()
+            self.prazno_gumb.set_visible(not iskano)
+        else:
+            self.prazno.hide()
+        self.gumb_vec.set_visible(not samo_viri and self.ima_vec)
+        self.gumb_osvezi.set_sensitive(bool(self.mape) and not self.osvezuje)
+        for otrok in self.seznam_tokov.get_children():
+            self.seznam_tokov.remove(otrok)
+        for v in tokovi:
+            self.seznam_tokov.add(self._tok(v))
+        if tokovi:
+            self.blok_tokov.set_no_show_all(False)
+            self.blok_tokov.show_all()
+        else:
+            self.blok_tokov.hide()
+
+    def _kartica(self, v: dict, prikaz: list) -> Gtk.Widget:
+        """Kot mediaKartica na strani: slika ali ikona, »Nadaljuj« z napredkom, ime, vrsta, odstrani."""
+        vrsta = str(v.get("vrsta") or "")
+        na_voljo = bool(v.get("naVoljo", True))
+        prekrivanje = Gtk.Overlay()
+        gumb = Gtk.Button()
+        gumb.get_style_context().add_class("kartica")
+        gumb.set_tooltip_text(str(v.get("pot") or ""))
+        gumb.set_sensitive(na_voljo)
+        telo = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        art = Gtk.Overlay()
+        art_ozadje = Gtk.Box()
+        art_ozadje.get_style_context().add_class("kartica-art")
+        if vrsta in ("glasba", "slike"):
+            art_ozadje.get_style_context().add_class(vrsta)
+        art_ozadje.set_size_request(190, 132)
+        art.add(art_ozadje)
+        ikona = ikone.slika("glasba" if vrsta == "glasba" else "slika" if vrsta == "slike" else "video", 42, "#9fe9cc")
+        if ikona is not None:
+            ikona.set_halign(Gtk.Align.CENTER)
+            ikona.set_valign(Gtk.Align.CENTER)
+            art.add_overlay(ikona)
+        if vrsta == "slike" and na_voljo:
+            self._slicica(art, str(v.get("pot") or ""))
+        pozicija, trajanje = float(v.get("pozicija") or 0), float(v.get("trajanje") or 0)
+        if vrsta in ("filmi", "serije") and pozicija >= 15 and trajanje > pozicija + 20:
+            spodaj = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            spodaj.set_valign(Gtk.Align.END)
+            spodaj.set_margin_start(10)
+            spodaj.set_margin_end(10)
+            spodaj.set_margin_bottom(8)
+            n = _oznaka(self.t("mediaNadaljuj") + " · " + cas_medija(pozicija), "nadaljuj")
+            n.set_halign(Gtk.Align.START)
+            spodaj.pack_start(n, False, False, 0)
+            merilo = Gtk.ProgressBar()
+            merilo.set_fraction(min(1.0, pozicija / trajanje))
+            spodaj.pack_start(merilo, False, False, 0)
+            art.add_overlay(spodaj)
+        telo.pack_start(art, False, False, 0)
+        pod = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        pod.get_style_context().add_class("kartica-pod")
+        ime = _oznaka(str(v.get("ime") or ""), "kartica-ime")
+        ime.set_ellipsize(Pango.EllipsizeMode.END)
+        ime.set_max_width_chars(22)
+        pod.pack_start(ime, False, False, 0)
+        opis = self.t("media_" + vrsta) + ("" if na_voljo else " · " + self.t("mediaManjka"))
+        pod.pack_start(_oznaka(opis, "drobno"), False, False, 0)
+        telo.pack_start(pod, False, False, 0)
+        gumb.add(telo)
+        gumb.connect("clicked", lambda *_: self.odpri_vnos(v, prikaz))
+        prekrivanje.add(gumb)
+        odstrani = _gumb("", "x", "odstrani", 13)
+        odstrani.set_tooltip_text(self.t("odstrani"))
+        odstrani.set_halign(Gtk.Align.END)
+        odstrani.set_valign(Gtk.Align.START)
+        odstrani.set_margin_top(8)
+        odstrani.set_margin_end(8)
+        odstrani.connect("clicked", lambda *_: self.klic("odstraniLokalniMedij", [v.get("pot")],
+                                                          lambda ok: ok and self.nalozi()))
+        prekrivanje.add_overlay(odstrani)
+        return prekrivanje
+
+    def _slicica(self, art: Gtk.Overlay, pot: str) -> None:
+        """Slika v knjiznici pokaze sebe; berem jo v ozadju, da mreza ne caka na disk."""
+        def beri():
             try:
-                self.predvajalnik.ustavi()
-            except Exception as e:
-                print("[SafeerPlayerGTK] Napaka ob ustavitvi:", e)
-        if hasattr(self, "btn_premor"):
-            self.btn_premor.set_label("▶")
-        if hasattr(self, "sklad"):
-            self.sklad.set_visible_child_name(self._pogled_brskanja())
-        if self.katalog_pogled is not None:
-            self.katalog_pogled.ustavi()
+                pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(pot, 380, 264, True)
+            except Exception:  # noqa: BLE001 - pokvarjena slika: ostane ikona
+                return
+            GLib.idle_add(pokazi, pb)
 
-    def _ob_zapiranju(self, widget, event) -> bool:
-        self.ustavi()
+        def pokazi(pb):
+            slika = Gtk.Image.new_from_pixbuf(pb.scale_simple(max(1, pb.get_width() // 2), max(1, pb.get_height() // 2),
+                                                              GdkPixbuf.InterpType.BILINEAR))
+            art.add_overlay(slika)
+            slika.show()
+            return False
+        threading.Thread(target=beri, daemon=True).start()
+
+    def odpri_vnos(self, v: dict, prikaz: list) -> None:
+        if v.get("vrsta") == "slike":
+            slike = [x for x in prikaz if x.get("vrsta") == "slike" and x.get("naVoljo", True)]
+            i = next((k for k, x in enumerate(slike) if x.get("pot") == v.get("pot")), 0)
+            self.galerija(slike, i)
+            return
+        self.klic("odpriLokalniMedij", [v.get("pot")], lambda ok: ok or self._ni_uspelo(), self._ni_uspelo)
+
+    def _tok(self, v: dict) -> Gtk.Widget:
+        """Kot mediaTok na strani: postaja v zivo z gumbom za odstranitev."""
+        prekrivanje = Gtk.Overlay()
+        g = Gtk.Button()
+        g.get_style_context().add_class("vrstica")
+        g.set_tooltip_text(str(v.get("url") or ""))
+        vrsta = str(v.get("vrsta") or "")
+        vsebina = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        ikona = ikone.slika("radio" if vrsta == "radio" else "video", 26, "#54d6a5")
+        if ikona is not None:
+            vsebina.pack_start(ikona, False, False, 0)
+        besedilo = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        ime = _oznaka(str(v.get("ime") or ""), "kartica-ime")
+        ime.set_ellipsize(Pango.EllipsizeMode.END)
+        besedilo.pack_start(ime, False, False, 0)
+        besedilo.pack_start(_oznaka(self.t("media_" + vrsta) + " · " + self.t("mediaVZivo"), "drobno"), False, False, 0)
+        vsebina.pack_start(besedilo, True, True, 0)
+        g.add(vsebina)
+        g.connect("clicked", lambda *_: self.klic("odpriMedijskiTok", [v.get("url")], lambda ok: ok or self._ni_uspelo(),
+                                                  self._ni_uspelo))
+        prekrivanje.add(g)
+        odstrani = _gumb("", "x", "odstrani", 13)
+        odstrani.set_tooltip_text(self.t("odstrani"))
+        odstrani.set_halign(Gtk.Align.END)
+        odstrani.set_valign(Gtk.Align.CENTER)
+        odstrani.set_margin_end(10)
+        odstrani.connect("clicked", lambda *_: self.klic("odstraniMedijskiTok", [v.get("url")],
+                                                          lambda ok: ok and self.nalozi()))
+        prekrivanje.add_overlay(odstrani)
+        return prekrivanje
+
+    # ------------------------------------------------------------------ dejanja
+    def dodaj_mapo(self) -> None:
+        self.klic("medijskaMapa", [], None, self._ni_uspelo)
+
+    def osvezi_mape(self) -> None:
+        self.osvezuje = True
+        self.gumb_osvezi.set_sensitive(False)
+
+        def gotovo(ok):
+            if not ok:
+                self._ob_osvezevanju(False)
+
+        def napaka(_e):
+            self._ob_osvezevanju(False)
+            self._ni_uspelo()
+        self.klic("osveziMedijskeMape", [], gotovo, napaka)
+
+    def predvajaj_disk(self) -> None:
+        if self.dvd_pogon:
+            self.klic("dvdPredvajaj", [self.dvd_pogon], lambda ok: ok or self.obvesti(self.t("mediaNapaka_dvd")))
+
+    def dodaj_tok(self) -> None:
+        """Kot sloj »Dodaj postajo« na strani: ime, neposredni naslov toka, vrsta (TV ali radio)."""
+        d = Gtk.Dialog(title=self.t("mediaDodajPostajo"), transient_for=self, modal=True)
+        d.get_style_context().add_class("safeer-player")
+        d.add_button(self.t("preklici"), Gtk.ResponseType.CANCEL)
+        shrani = d.add_button(self.t("mediaShraniPredvajaj"), Gtk.ResponseType.OK)
+        shrani.get_style_context().add_class("glavni")
+        d.set_default_response(Gtk.ResponseType.OK)
+        polje = d.get_content_area()
+        polje.set_spacing(10)
+        polje.set_border_width(18)
+        polje.pack_start(_oznaka(self.t("mediaDodajPostajo"), "h3"), False, False, 0)
+        ime = Gtk.Entry(placeholder_text=self.t("mediaImePostaje"), activates_default=True)
+        url = Gtk.Entry(placeholder_text=self.t("mediaNaslovToka"), activates_default=True)
+        url.set_width_chars(46)
+        vrsta = Gtk.ComboBoxText()
+        vrsta.append("tv", self.t("media_tv"))
+        vrsta.append("radio", self.t("media_radio"))
+        vrsta.set_active_id("radio" if self.filter == "radio" else "tv")
+        for napis, w in ((self.t("mediaImePostaje"), ime), (self.t("mediaNaslovToka"), url), (self.t("mediaVrstaPostaje"), vrsta)):
+            polje.pack_start(_oznaka(napis, "drobno"), False, False, 0)
+            polje.pack_start(w, False, False, 0)
+        polje.pack_start(_oznaka(self.t("mediaTokNamig"), "drobno", ovij=True), False, False, 0)
+        d.show_all()
+        while d.run() == Gtk.ResponseType.OK:
+            i, u = ime.get_text().strip(), url.get_text().strip()
+            if not i or not (u.lower().startswith("http://") or u.lower().startswith("https://")) or " " in u:
+                self.obvesti(self.t("mediaNapacenTok"))
+                continue
+            d.destroy()
+            self.klic("dodajMedijskiTok", [i, u, vrsta.get_active_id() or "tv"],
+                      lambda ok: self.nalozi() if ok else self.obvesti(self.t("mediaNapacenTok")),
+                      lambda _e: self.obvesti(self.t("mediaNapacenTok")))
+            return
+        d.destroy()
+
+    def okno_map(self) -> None:
+        """Kot sloj »Medijske mape« na strani: izbrane mape, stevilo vnosov, odstrani, dodaj."""
+        d = Gtk.Dialog(title=self.t("mediaMape"), transient_for=self, modal=True)
+        d.get_style_context().add_class("safeer-player")
+        d.set_default_size(560, 420)
+        d.add_button(self.t("zapri"), Gtk.ResponseType.CLOSE)
+        polje = d.get_content_area()
+        polje.set_spacing(10)
+        polje.set_border_width(18)
+        polje.pack_start(_oznaka(self.t("mediaMape"), "h3"), False, False, 0)
+        polje.pack_start(_oznaka(self.t("mediaMapeOpis"), "medlo", ovij=True), False, False, 0)
+        drsnik = Gtk.ScrolledWindow()
+        drsnik.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self._seznam_map = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        drsnik.add(self._seznam_map)
+        polje.pack_start(drsnik, True, True, 0)
+        dodaj = _gumb(self.t("dodajMapoMedijev"), "mapa", "glavni")
+        dodaj.set_halign(Gtk.Align.START)
+        dodaj.connect("clicked", lambda *_: (d.response(Gtk.ResponseType.CLOSE), self.dodaj_mapo()))
+        polje.pack_start(dodaj, False, False, 0)
+        self._okno_map = d
+        self._napolni_mape()
+        d.show_all()
+        self.klic("medijskeMape", [], self._ob_mapah)
+        d.run()
+        self._okno_map = None
+        d.destroy()
+
+    def _napolni_mape(self) -> None:
+        seznam = self._seznam_map
+        for otrok in seznam.get_children():
+            seznam.remove(otrok)
+        if not self.mape:
+            seznam.pack_start(_oznaka(self.t("mediaMapeNi"), "drobno"), False, False, 0)
+        for m in self.mape:
+            pot = str(m.get("pot") or "")
+            vrstica = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            ikona = ikone.slika("mapa", 22, "#54d6a5")
+            if ikona is not None:
+                vrstica.pack_start(ikona, False, False, 0)
+            besedilo = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            besedilo.set_tooltip_text(pot)
+            besedilo.pack_start(_oznaka(pot.rstrip("/").split("/")[-1] or pot, "kartica-ime"), False, False, 0)
+            stanje = self.t("mediaMapaVnosov", n=m.get("stevilo", 0)) if m.get("naVoljo") else self.t("mediaMapaNedosegljiva")
+            opis = _oznaka(pot + " · " + stanje, "drobno")
+            opis.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+            besedilo.pack_start(opis, False, False, 0)
+            vrstica.pack_start(besedilo, True, True, 0)
+            g = _gumb(self.t("odstrani"))
+
+            def odstrani(gumb, p=pot):
+                gumb.set_sensitive(False)
+
+                def gotovo(ok):
+                    if not ok:
+                        gumb.set_sensitive(True)
+                        self._ni_uspelo()
+                        return
+                    self.obvesti(self.t("mediaMapaOdstranjena"))
+                    self.klic("medijskeMape", [], self._ob_mapah)
+                    self.nalozi()
+                self.klic("odstraniMedijskoMapo", [p], gotovo, lambda _e: (gumb.set_sensitive(True), self._ni_uspelo()))
+            g.connect("clicked", odstrani)
+            vrstica.pack_end(g, False, False, 0)
+            seznam.pack_start(vrstica, False, False, 0)
+        seznam.show_all()
+
+    # ------------------------------------------------------------------ galerija
+    def galerija(self, slike: list, i: int) -> None:
+        """Kot galerija na strani: slika cez okno, puscici, Esc zapre, »Odpri v aplikaciji«."""
+        if not slike:
+            return
+        d = Gtk.Window(title=self.t("media_slike"), transient_for=self, modal=True)
+        d.get_style_context().add_class("safeer-player")
+        d.get_style_context().add_class("galerija")
+        d.set_default_size(*self.get_size())
+        okvir = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        okvir.set_border_width(16)
+        d.add(okvir)
+        slika = Gtk.Image()
+        okvir.pack_start(slika, True, True, 0)
+        vrstica = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        nazaj = _gumb("", "nazaj")
+        nazaj.set_tooltip_text(self.t("mediaPrejsnjaSlika"))
+        naprej = _gumb("", "desno")
+        naprej.set_tooltip_text(self.t("mediaNaslednjaSlika"))
+        napis = _oznaka("", "medlo", 0.5)
+        odpri = _gumb(self.t("mediaOdpriVAplikaciji"))
+        zapri = _gumb(self.t("zapri"), "x")
+        vrstica.pack_start(nazaj, False, False, 0)
+        vrstica.pack_start(naprej, False, False, 0)
+        vrstica.pack_start(napis, True, True, 0)
+        vrstica.pack_end(zapri, False, False, 0)
+        vrstica.pack_end(odpri, False, False, 0)
+        okvir.pack_start(vrstica, False, False, 0)
+        g = {"seznam": slike, "i": i}
+        self._galerija = g
+
+        def pokazi():
+            v = g["seznam"][g["i"]]
+            napis.set_text("%s · %d / %d" % (v.get("ime", ""), g["i"] + 1, len(g["seznam"])))
+            w, h = d.get_size()
+            try:
+                slika.set_from_pixbuf(GdkPixbuf.Pixbuf.new_from_file_at_scale(str(v.get("pot")), max(64, w - 40),
+                                                                               max(64, h - 110), True))
+            except Exception:  # noqa: BLE001
+                slika.clear()
+                napis.set_text(self.t("mediaManjka"))
+
+        def premakni(korak):
+            g["i"] = (g["i"] + korak) % len(g["seznam"])
+            pokazi()
+
+        def tipka(_w, e):
+            ime = Gdk.keyval_name(e.keyval)
+            if ime == "Left":
+                premakni(-1)
+            elif ime in ("Right", "space"):
+                premakni(1)
+            elif ime == "Home":
+                g["i"] = 0
+                pokazi()
+            elif ime == "End":
+                g["i"] = len(g["seznam"]) - 1
+                pokazi()
+            elif ime == "Escape":
+                d.destroy()
+            else:
+                return False
+            return True
+        nazaj.connect("clicked", lambda *_: premakni(-1))
+        naprej.connect("clicked", lambda *_: premakni(1))
+        zapri.connect("clicked", lambda *_: d.destroy())
+        odpri.connect("clicked", lambda *_: self.klic("odpriLokalniMedij", [g["seznam"][g["i"]].get("pot")],
+                                                      lambda ok: ok or self._ni_uspelo()))
+        d.connect("key-press-event", tipka)
+        d.connect("destroy", lambda *_: setattr(self, "_galerija", None))
+        d.show_all()
+        GLib.idle_add(lambda: (pokazi(), False)[1])
+
+    # ------------------------------------------------------------------ predvajalnik
+    def ukaz(self, ukaz: str, vrednost=None) -> None:
+        self.klic("predvajalnikUkaz", [ukaz] + ([vrednost] if vrednost is not None else []))
+
+    def _ob_spustu_drsnika(self, scale, _e) -> bool:
+        self.vlecenje = False
+        p = self.p
+        trajanje = float(p.get("trajanje") or 0)
+        if trajanje > 0 and p.get("vrsta") not in ("tv", "radio"):
+            self.ukaz("skok", trajanje * scale.get_value() / 1000.0)
         return False
 
+    def osvezi_predvajalnik(self, p) -> None:
+        """Kot osveziPredvajalnik na strani: trak, »Zdaj se predvaja«, cakalna vrsta."""
+        if not isinstance(p, dict):
+            return
+        self.p = p
+        t = self.t
+        ima = bool(p.get("naslov"))
+        stanje, vrsta = p.get("stanje"), p.get("vrsta")
+        zivo = vrsta in ("tv", "radio")
+        if not ima:
+            opis = t("mediaSedajNamig")
+        elif stanje == "napaka":
+            opis = t("mediaNapaka_" + (p.get("napaka") or "splosno"))
+        elif stanje == "ustavljeno":
+            opis = t("mediaUstavljeno")
+        elif stanje == "premor":
+            opis = t("mediaPremor")
+        else:
+            opis = t("mediaVZivo") if zivo else (p.get("izvor") or t("mediaTaRacunalnik"))
+        trak_viden = ima and stanje != "ustavljeno"
+        if trak_viden:
+            self.trak.set_no_show_all(False)
+            self.trak.show_all()
+        else:
+            self.trak.hide()
+        naslov = p.get("naslov") if ima else t("mediaNicesar")
+        self.trak_naslov.set_text(naslov)
+        self.trak_vrsta.set_text(opis)
+        self.sedaj_naslov.set_text(naslov)
+        self.sedaj_pod.set_text(opis)
+        znak = "▶" if vrsta in ("tv", "video") else "♫"
+        self.sedaj_art.set_text(znak)
+        self.trak_art.set_label(znak)
+        self.trak_napredek.set_visible(trak_viden and not zivo)
+        self.trak_trajanje.set_visible(trak_viden and not zivo)
+        self.trak_premor.set_label("Ⅱ" if stanje == "predvaja" else "▶")
+        self.trak_premor.set_sensitive(ima)
+        indeks, skupaj = int(p.get("indeks", -1) or 0), int(p.get("skupaj") or 0)
+        self.trak_prejsnja.set_sensitive(ima and indeks > 0)
+        self.trak_naslednja.set_sensitive(ima and indeks < skupaj - 1)
+        self.trak_ustavi.set_sensitive(ima and stanje != "ustavljeno")
+        self.trak_cas.set_text(t("mediaVZivo") if zivo else cas_medija(p.get("pozicija")))
+        self.trak_trajanje.set_text("" if zivo else cas_medija(p.get("trajanje")))
+        trajanje = float(p.get("trajanje") or 0)
+        self.trak_napredek.set_sensitive(trajanje > 0 and not zivo)
+        if not self.vlecenje:
+            self.trak_napredek.set_value(round(1000 * float(p.get("pozicija") or 0) / trajanje) if trajanje else 0)
+        odpri = ima and stanje != "ustavljeno" and vrsta != "radio"
+        if odpri:
+            self.gumb_odpri_video.set_no_show_all(False)
+            self.gumb_odpri_video.show_all()
+        else:
+            self.gumb_odpri_video.hide()
+        self._narisi_vrsto(p)
 
-def zazeni(pot_za_predvajanje: str = "", iskanje: str = ""):
-    okno = SafeerPlayerOkno(iskanje=iskanje)
-    if pot_za_predvajanje and os.path.exists(pot_za_predvajanje):
-        okno.predvajaj_pot(pot_za_predvajanje)
-    okno.show_all()
-    Gtk.main()
+    def _narisi_vrsto(self, p: dict) -> None:
+        seznam = p.get("vrstaSeznam") or []
+        zacetni, indeks = int(p.get("zacetniIndeks") or 0), int(p.get("indeks", -1) if p.get("indeks") is not None else -1)
+        self.vrsta_stevec.set_text(str(p.get("skupaj") or len(seznam)))
+        podpis = (indeks, zacetni, tuple((v.get("naslov"), v.get("vrsta")) for v in seznam))
+        if podpis == self._podpis_vrste:
+            return
+        self._podpis_vrste = podpis
+        for otrok in self.vrsta.get_children():
+            self.vrsta.remove(otrok)
+        if not seznam:
+            self.vrsta.pack_start(_oznaka(self.t("mediaVrstaPrazna"), "drobno", ovij=True), False, False, 0)
+        for i, v in enumerate(seznam):
+            stevilka = i + zacetni
+            g = Gtk.Button()
+            g.get_style_context().add_class("vrsta-vnos")
+            if stevilka == indeks:
+                g.get_style_context().add_class("izbran")
+            vrstica = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            vrstica.pack_start(_oznaka("♫" if stevilka == indeks else str(stevilka + 1), "medlo"), False, False, 0)
+            besedilo = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+            ime = _oznaka(str(v.get("naslov") or ""), "kartica-ime")
+            ime.set_ellipsize(Pango.EllipsizeMode.END)
+            besedilo.pack_start(ime, False, False, 0)
+            izvor = self.t("mediaVZivo") if v.get("vrsta") in ("tv", "radio") else (v.get("izvor") or self.t("mediaTaRacunalnik"))
+            besedilo.pack_start(_oznaka(izvor, "drobno"), False, False, 0)
+            vrstica.pack_start(besedilo, True, True, 0)
+            g.add(vrstica)
+            g.connect("clicked", lambda _g, s=stevilka: self.ukaz("predvajaj", s))
+            self.vrsta.pack_start(g, False, False, 0)
+        self.vrsta.show_all()
 
-
-if __name__ == "__main__":
-    pot = sys.argv[1] if len(sys.argv) > 1 else ""
-    zazeni(pot_za_predvajanje=pot)
+    # ------------------------------------------------------------------ tipke
+    def _tipka(self, _w, e) -> bool:
+        ime = Gdk.keyval_name(e.keyval)
+        ctrl = bool(e.state & Gdk.ModifierType.CONTROL_MASK)
+        if self.isci_entry.has_focus() and ime not in ("Escape",):
+            return False
+        if ctrl and ime in ("f", "k"):
+            self.isci_entry.grab_focus()
+            return True
+        if ime == "Escape" and self.isci_entry.get_text():
+            self.isci_entry.set_text("")
+            return True
+        if ime == "space" and self.p.get("naslov"):
+            self.ukaz("premor")
+            return True
+        return False
