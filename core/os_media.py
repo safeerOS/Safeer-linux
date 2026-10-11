@@ -1194,6 +1194,10 @@ class MediaCenter:
     PREDPOMNILNIK_TMDB = 400          # najvec shranjenih odgovorov TMDB (podrobnosti, ponudniki)
     SVEZE_SEKUND = 10 * 60            # mlajsega pogleda ne osvezujemo v ozadju
 
+    #: Razlicica pravil kataloga: ob spremembi (11. 10. 2026: PeerTube in Internet Archive nista vec vgrajena, glasbeni
+    #: dodatki gredo pod Glasbo) shranjen katalog ne velja vec - sicer bi stara vsebina ob zagonu se enkrat zasvetila.
+    RAZLICICA_KATALOGA = 2
+
     @property
     def pot_predpomnilnika(self) -> Path:
         return self.config_dir / "media-predpomnilnik.json"
@@ -1210,6 +1214,8 @@ class MediaCenter:
                 if not isinstance(data, dict):
                     data = {}
                 katalog = data.get("katalog") if isinstance(data.get("katalog"), dict) else {}
+                if data.get("razlicica") != self.RAZLICICA_KATALOGA:
+                    katalog = {}
                 tmdb = data.get("tmdb") if isinstance(data.get("tmdb"), dict) else {}
                 self._predpomnilnik = {"katalog": katalog, "tmdb": tmdb}
             return self._predpomnilnik
@@ -1224,7 +1230,7 @@ class MediaCenter:
                     stari = sorted(zapisi, key=lambda k: float((zapisi[k] or {}).get("uporabljeno") or 0))
                     for kljuc in stari[:len(zapisi) - meja]:
                         zapisi.pop(kljuc, None)
-            besedilo = json.dumps(shramba, ensure_ascii=False, separators=(",", ":"))
+            besedilo = json.dumps(dict(shramba, razlicica=self.RAZLICICA_KATALOGA), ensure_ascii=False, separators=(",", ":"))
         try:
             self.config_dir.mkdir(parents=True, exist_ok=True)
             zacasna = self.pot_predpomnilnika.with_suffix(".tmp")

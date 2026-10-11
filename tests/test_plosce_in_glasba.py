@@ -81,3 +81,30 @@ class MapeKotNemo(unittest.TestCase):
             with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": os.path.join(dom, ".config")}):
                 z = os_datoteke.zaznamki(dom, izpusti=[os.path.join(dom, "Dokumenti")])
         self.assertEqual([(x["ime"], os.path.basename(x["pot"])) for x in z], [("Projekti", "Projekti"), ("Moje", "Moja mapa")])
+
+
+class GlasbaVKatalogu(unittest.TestCase):
+    def test_lokalna_glasba_v_katalogu(self):
+        html, js = _beri("assets/os/index.html"), _beri("assets/os/os.js")
+        katalog = html.split('id="katalog"', 1)[1]
+        self.assertIn('id="katLokalnaGlasba"', katalog)
+        self.assertIn("function narisiLokalnoGlasbo(skladbe, vrsta)", js)
+        self.assertIn("var samoGlasba = prikaz.length > 0 && !neGlasba.length;", js)
+
+
+class VgrajeniViri(unittest.TestCase):
+    """Lastnik, 11. 10. 2026: PeerTube in Internet Archive nista vgrajena vira."""
+
+    def test_brez_peertube_in_archive(self):
+        from core import zakoniti_viri
+        v = zakoniti_viri.ZakonitiViri()
+        self.assertEqual(v._video_hosts([]), [])
+        klici = []
+        v.videos = lambda *a: klici.append("videos") or []
+        v.music = lambda *a: klici.append("music") or []
+        v.radio = lambda *a: klici.append("radio") or []
+        v.javna_last = lambda *a: klici.append("javna_last") or []
+        v.get("")
+        self.assertNotIn("javna_last", klici)
+        bes = _beri("assets/os/besedila.js")
+        self.assertNotIn("filmi v javni lasti, Jamendo", bes)

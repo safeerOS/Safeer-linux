@@ -1120,6 +1120,26 @@
     ovoj.appendChild(odstrani);
     return ovoj;
   }
+  function narisiLokalnoGlasbo(skladbe, vrsta) {
+    var c = $("katLokalnaGlasba"); if (!c) return;
+    c.innerHTML = "";
+    var vidno = skladbe.length && (vrsta === "vse" || vrsta === "glasba");
+    c.hidden = !vidno;
+    if (!vidno) return;
+    var glava = el("div", "kat-knjiznica-glava");
+    glava.appendChild(el("h3", "", ubezi(t("katNaTemRacunalniku")) + ' <small>' + skladbe.length + '</small>'));
+    c.appendChild(glava);
+    var seznamSkladb = el("div", "media-skladbe");
+    var omejeno = vrsta === "vse" && skladbe.length > 8;
+    (omejeno ? skladbe.slice(0, 8) : skladbe).forEach(function (v) { seznamSkladb.appendChild(mediaSkladba(v)); });
+    if (omejeno) {
+      var vse = el("button", "media-skladbe-vse", ubezi(t("mediaVseSkladbe", { n: skladbe.length })) + svg("desno"));
+      vse.type = "button";
+      vse.addEventListener("click", function () { S.mediaFilter = "glasba"; naloziMedije(); });
+      seznamSkladb.appendChild(vse);
+    }
+    c.appendChild(seznamSkladb);
+  }
   function mediaVir(v) {
     var x = v.program || v.spletna;
     var b = el("button", "media-vir", '<span class="media-vir-znak">' + svg(v.vrsta === "glasba" ? "glasba" : v.vrsta === "radio" ? "radio" : "video") +
@@ -1191,21 +1211,16 @@
     $("mediaMreza").hidden = samoViri;
     mreza.innerHTML = "";
     // Filmi, serije in slike kot kartice; glasba kot seznam skladb. V »Vse« najvec 8 skladb, ostale so v Glasbi.
+    // Glasba s tega racunalnika je del kataloga Glasba (in Vse): seznam skladb v katalogu, ne svoj razdelek nad njim.
     var skladbe = prikaz.filter(function (v) { return v.vrsta === "glasba"; });
-    prikaz.forEach(function (v) { if (v.vrsta !== "glasba") mreza.appendChild(mediaKartica(v)); });
-    if (skladbe.length) {
-      var seznamSkladb = el("div", "media-skladbe");
-      var omejeno = vrsta === "vse" && skladbe.length > 8;
-      (omejeno ? skladbe.slice(0, 8) : skladbe).forEach(function (v) { seznamSkladb.appendChild(mediaSkladba(v)); });
-      if (omejeno) {
-        var vse = el("button", "media-skladbe-vse", ubezi(t("mediaVseSkladbe", { n: skladbe.length })) + svg("desno"));
-        vse.type = "button";
-        vse.addEventListener("click", function () { S.mediaFilter = "glasba"; naloziMedije(); });
-        seznamSkladb.appendChild(vse);
-      }
-      mreza.appendChild(seznamSkladb);
-    }
+    var neGlasba = prikaz.filter(function (v) { return v.vrsta !== "glasba"; });
+    neGlasba.forEach(function (v) { mreza.appendChild(mediaKartica(v)); });
+    narisiLokalnoGlasbo(skladbe, vrsta);
     $("mediaPrazno").hidden = samoViri || prikaz.length !== 0;
+    // Knjiznica nad katalogom je samo za filme, serije in slike; glasba je v katalogu.
+    var samoGlasba = prikaz.length > 0 && !neGlasba.length;
+    $("mediaMreza").previousElementSibling.hidden = samoViri || samoGlasba;
+    $("mediaMreza").hidden = samoViri || samoGlasba;
     $("mediaVec").hidden = samoViri || !S.mediaHasMore;
     $("mediaOsvezi").disabled = !S.mediaMape.length || S.mediaOsvezuje;
     $("mediaPraznoNaslov").textContent = iskano ? t("niZadetkov") : t("mediaPraznoNaslov");
@@ -1227,7 +1242,7 @@
     $("mediaHeroDejanje").querySelector("span").textContent = t(samoViri ? "dodajTok" : "dodajMapoMedijev");
     osveziPredvajalnik(S.mediaPredvajalnik);
     // Brez krajevnih vsebin v izbrani kategoriji gre katalog pred prazno knjižnico (sicer bi ga odrivala navzdol).
-    $("r-media").classList.toggle("brez-krajevnega", samoViri || prikaz.length === 0);
+    $("r-media").classList.toggle("brez-krajevnega", samoViri || neGlasba.length === 0);
     uskladiKatalog();
   }
   function casMedija(sekunde) {

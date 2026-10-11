@@ -936,3 +936,9 @@ html.kavc .kat-kartica:focus, html.kavc .media-kartica-odpri:focus, html.kavc .m
   transform: scale(1.05); transition: transform .12s ease-out; z-index: 2; position: relative; }
 html.kavc:not(.kavc-miska), html.kavc:not(.kavc-miska) * { cursor: none !important; }
 #medijiKavc[aria-pressed="true"] { background: rgba(138, 199, 255, .22); border-color: rgba(138, 199, 255, .6); }
+
+/* Glasba s tega racunalnika v katalogu (pred kartami kataloga). */
+.kat-lokalna-glasba { margin: 10px 0 18px; }
+.kat-lokalna-glasba h3 { margin: 0; font-size: 16px; }
+.kat-lokalna-glasba h3 small { margin-left: 6px; opacity: .6; font-weight: 500; font-size: 13px; }
+.kat-lokalna-glasba .kat-knjiznica-glava { margin-bottom: 10px; }

@@ -234,7 +234,8 @@ class ZakonitiViri:
         return value
 
     def _video_hosts(self, configured: list[str]) -> list[str]:
-        hosts = list(PEERTUBE_INSTANCES)
+        # Lastnik, 11. 10. 2026: PeerTube ni vgrajen vir - samo strezniki PeerTube, ki jih je dodal uporabnik.
+        hosts: list[str] = []
         candidates = []
         for value in configured:
             try:
@@ -670,8 +671,8 @@ class ZakonitiViri:
             # Glasbena zvrst velja samo za glasbo in radio (video nima teh zvrsti).
             tasks = ((self.music, (query, zvrst, jezik)), (self.radio, (query, zvrst)))
         else:
-            tasks = ((self.videos, (query, configured_hosts, jezik)), (self.music, (query, "", jezik)), (self.radio, (query,)),
-                     (self.javna_last, (query, jezik, filmska_zvrst)))
+            # Lastnik, 11. 10. 2026: Internet Archive (filmi v javni lasti) ni vgrajen vir.
+            tasks = ((self.videos, (query, configured_hosts, jezik)), (self.music, (query, "", jezik)), (self.radio, (query,)))
         with ThreadPoolExecutor(max_workers=4) as pool:
             futures = [pool.submit(fn, *args) for fn, args in tasks]
             results = []
