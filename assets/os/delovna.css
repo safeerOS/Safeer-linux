@@ -375,7 +375,7 @@ select option { background: #111c2b; color: var(--besedilo); }
 .medij-iskanje:focus-within { border-color: rgba(135, 194, 255, .55); background: rgba(234, 244, 255, .09); }
 .medij-iskanje svg { width: 1em; height: 1em; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; opacity: .75; }
 .medij-iskanje input { flex: 1; min-width: 0; font: inherit; font-size: .9em; color: inherit; background: transparent; border: 0; outline: 0; }
-.medij-zadetki { margin-top: .5em; display: flex; flex-direction: column; gap: .15em; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+.medij-zadetki { margin-top: .5em; display: flex; flex-direction: column; gap: .15em; overflow-y: auto; flex: 0 1 auto; min-height: 0; }
 .medij-zadetki[hidden] { display: none; }
 .medij-zadetek { display: flex; align-items: center; gap: .7em; padding: .35em .5em; border-radius: var(--r-mal, 10px); border: 1px solid transparent;
   background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }

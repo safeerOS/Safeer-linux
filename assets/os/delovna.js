@@ -2812,7 +2812,7 @@
         var dobri = vsi.filter(function (z) { return z.o < 2000; });
         // Zadetek sredi besede pokazemo le, ce boljsih ni dovolj.
         if (dobri.length < 4) dobri = vsi;
-        MI.zadetki = dobri.sort(function (a, b) { return a.o - b.o; }).slice(0, 10);
+        MI.zadetki = dobri.sort(function (a, b) { return a.o - b.o; }).slice(0, 3);   // lastnik: le 3 najverjetnejsi, Datoteke ostanejo vidne
         narisiMedijZadetke(q, !konec);
       }
       klic("knjiznicaMedijev", ["", q, 0]).then(function (s) { deli.lokalno = (s || []).slice(0, 4); zdruzi(); }).catch(function () {});
