@@ -645,6 +645,22 @@ def zazeni_na_napravi(id_naprave: str, app: str) -> dict:
     return _control_naprave("Zazeni", str(id_naprave or ""), str(app or ""))
 
 
+def naprave_za_medij() -> list:
+    """Naprave v Linku, na katerih lahko lupa »prikaze« film ali glasbo (media.open): vse z daljincem razen te."""
+    izid = _control_naprave("Seznam")
+    return [{"id": n.get("id"), "ime": n.get("ime") or n.get("id"), "platforma": n.get("platforma") or ""}
+            for n in (izid.get("naprave") or []) if n.get("id") and not n.get("ta") and "remote" in (n.get("zmoznosti") or [])]
+
+
+def odpri_medij_na(id_naprave: str, medij: str) -> dict:
+    """»Prikazi na TV«: naslov odpre Medijski center izbrane naprave (Link media.open prek Controla)."""
+    try:
+        m = json.loads(medij or "{}")
+    except ValueError:
+        return {"ok": False, "koda": "prazno"}
+    return _control_naprave("Ukaz", str(id_naprave or ""), "media.open", json.dumps(m if isinstance(m, dict) else {}))
+
+
 def odpri_tukaj(id_naprave: str, app: str) -> dict:
     """Napravo prosi za zagon programa in pretakanje zaslona na ta racunalnik."""
     return _control_naprave("OdpriTukaj", str(id_naprave or ""), str(app or ""))
@@ -1083,6 +1099,10 @@ class SafeerOS(Gtk.Application):
         predvajalnik_okno = Gio.SimpleAction.new("predvajalnik", GLib.VariantType.new("s"))
         predvajalnik_okno.connect("activate", lambda _a, v: self._odpri_predvajalnik(v.get_string() if v else ""))
         self.add_action(predvajalnik_okno)
+        #: `safeer-os --medij-naprava <json>` (»prikazi na racunalniku« z druge naprave, media.open): Safeer Player.
+        medij = Gio.SimpleAction.new("medij", GLib.VariantType.new("s"))
+        medij.connect("activate", lambda _a, v: self._odpri_medij_od_drugod(v.get_string() if v else ""))
+        self.add_action(medij)
         #: `safeer-os --isci-naprava <niz>` (glas s telefona, core/link_daljinec.py search.query): niz v iskalno lupo.
         isci = Gio.SimpleAction.new("isci", GLib.VariantType.new("s"))
         isci.connect("activate", lambda _a, v: self._isci_od_drugod(v.get_string() if v else ""))
@@ -2151,6 +2171,16 @@ class SafeerOS(Gtk.Application):
     #: Dogodki vrste skladb iz kataloga (konec, naslednja/prejsnja, vgradni predvajalnik): vrsto vodi stran.
     DOGODKI_VRSTE = frozenset({"mediaKonec", "mediaVrstaUkaz", "mediaYt", "mediaYtZaprt", "mediaYtNapaka"})
 
+    def _odpri_medij_od_drugod(self, podatki: str) -> None:
+        """media.open: Safeer Player pride v ospredje in isce naslov (uporabnik je rekel »prikazi na racunalniku«)."""
+        try:
+            m = json.loads(podatki or "{}")
+        except ValueError:
+            return
+        naslov = " ".join(str((m or {}).get("title", "") or "").split())[:200]
+        if naslov:
+            self._odpri_predvajalnik(naslov)
+
     def _isci_od_drugod(self, niz: str) -> None:
         """Niz z druge naprave (telefon kot mikrofon): namizje se pokaze, lupa ga isce - nic se ne odpre samo."""
         niz = " ".join(str(niz or "").split())[:200]
@@ -2414,6 +2444,8 @@ class SafeerOS(Gtk.Application):
             "preimenujNapravo": lambda: preimenuj_napravo(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "upravljajRacunalnik": lambda: upravljaj_racunalnik(str(a[0]) if a else ""),
             "programiNaprave": lambda: programi_naprave(str(a[0]) if a else ""),
+            "napraveZaMedij": naprave_za_medij,
+            "odpriMedijNa": lambda: odpri_medij_na(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "zazeniNaNapravi": lambda: zazeni_na_napravi(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "odpriTukaj": lambda: odpri_tukaj(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "zvokUstavi": zvok_ustavi,
@@ -3943,6 +3975,16 @@ def main() -> int:
                 return 0
         except Exception as e:  # noqa: BLE001 - Safeer OS ne tece: zazenemo ga z magnetom
             print("[SafeerOS] magnet:", e)
+    if "--medij-naprava" in sys.argv[1:]:
+        # media.open z naprave v krogu: preda tekocemu Safeer OS (Safeer Player isce naslov), sicer zazene Safeer Player.
+        i = sys.argv.index("--medij-naprava")
+        podatki = sys.argv[i + 1] if i + 1 < len(sys.argv) else ""
+        try:
+            if _predaj_tekocemu("medij", podatki):
+                return 0
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] medij:", e)
+        sys.argv = [sys.argv[0], "--predvajalnik"]       # Safeer OS ni tekel: odpre se Safeer Player
     if "--isci-naprava" in sys.argv[1:]:
         # Glas s telefona (search.query): niz preda tekocemu Safeer OS; ce ne tece, ga zaradi iskanja ne zaganjamo.
         i = sys.argv.index("--isci-naprava")

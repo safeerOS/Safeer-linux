@@ -561,7 +561,11 @@ class Hub:
                                       "nastala": self.ura(), "krogov": 0, "poskusov": 0, "spake": None}
         self._objavi_kodo("pair.code", {"pair_id": pair_id, "name": ime, "code": koda,
                                         "expires_in_seconds": int(PIN_VELJA_S)})
-        if self.ob_kodi is not None:
+        # Koda se pokaze na DRUGIH napravah, nikoli na tisti, ki jo mora vpisati. Racunalnik, ki gosti ta Hub in se
+        # prijavlja sam, je kode ne sme pokazati (lastnik, 11. 10. 2026: na racunalniku je pisala ista koda, kot jo je
+        # bilo treba vpisati vanj).
+        lastna = bool(self.nas_id) and (device_id == self.nas_id or device_id.startswith(self.nas_id + "-"))
+        if self.ob_kodi is not None and not lastna:
             try:
                 self.ob_kodi(ime, koda)
             except Exception:

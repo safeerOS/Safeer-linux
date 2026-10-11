@@ -41,7 +41,7 @@ class TestTelefonMikrofon(unittest.TestCase):
                 mock.patch("subprocess.Popen"):
             link_daljinec.izvedi_control("search.query", {"q": "zvok"}, lambda u: None, izidi.append)
         self.assertTrue(izidi[0]["ok"])
-        self.assertIn('+ (DEJANJA_MAGNET + DEJANJA_SEZNAMI + DEJANJA_ISKANJE if _safeer_os() else [])',
+        self.assertIn('+ (DEJANJA_MAGNET + DEJANJA_SEZNAMI + DEJANJA_ISKANJE + DEJANJA_MEDIJ if _safeer_os() else [])',
                       beri("core", "link_daljinec.py"))
 
     def test_dovoljenje(self):

@@ -1263,7 +1263,7 @@
       prijavaPrevec: "Preveč hkratnih prijav. Poskusi čez minuto.",
       prijavaBrezQr: "Kode QR tu ni mogoče narisati. Uporabi 6-mestno kodo.",
       prijavaAli: "ali",
-      prijavaKodaNaslov: "Vpiši 6-mestno kodo",
+      prijavaKodaNaslov: "Vpiši kodo z druge naprave",
       prijavaKodaOpis: "Klikni v polje – koda se pokaže na televizorju ali tablici, kjer teče Safeer Link.",
       prijavaKodaNaSredisce: "Koda je zdaj na zaslonu naprave s Safeer Linkom. Prepiši jo sem.",
       prijavaKodaSestMest: "Koda ima 6 številk.",
@@ -1293,7 +1293,7 @@
       prijavaPrevec: "Too many sign-ins at once. Try again in a minute.",
       prijavaBrezQr: "The QR code can't be drawn here. Use the 6-digit code.",
       prijavaAli: "or",
-      prijavaKodaNaslov: "Enter the 6-digit code",
+      prijavaKodaNaslov: "Enter the code from another device",
       prijavaKodaOpis: "Click the field – the code appears on the TV or tablet running Safeer Link.",
       prijavaKodaNaSredisce: "The code is now on the screen of the Safeer Link device. Type it here.",
       prijavaKodaSestMest: "The code has 6 digits.",
@@ -1323,7 +1323,7 @@
       prijavaPrevec: "Zu viele gleichzeitige Anmeldungen. Versuche es in einer Minute erneut.",
       prijavaBrezQr: "Der QR-Code kann hier nicht angezeigt werden. Nutze den 6-stelligen Code.",
       prijavaAli: "oder",
-      prijavaKodaNaslov: "6-stelligen Code eingeben",
+      prijavaKodaNaslov: "Code von einem anderen Gerät eingeben",
       prijavaKodaOpis: "Klicke ins Feld – der Code erscheint auf dem Fernseher oder Tablet mit Safeer Link.",
       prijavaKodaNaSredisce: "Der Code steht jetzt auf dem Bildschirm des Safeer-Link-Geräts. Gib ihn hier ein.",
       prijavaKodaSestMest: "Der Code hat 6 Ziffern.",
@@ -1353,7 +1353,7 @@
       prijavaPrevec: "Demasiados inicios de sesión a la vez. Inténtalo en un minuto.",
       prijavaBrezQr: "Aquí no se puede mostrar el código QR. Usa el código de 6 cifras.",
       prijavaAli: "o",
-      prijavaKodaNaslov: "Introduce el código de 6 cifras",
+      prijavaKodaNaslov: "Introduce el código de otro dispositivo",
       prijavaKodaOpis: "Haz clic en el campo: el código aparece en el televisor o la tableta con Safeer Link.",
       prijavaKodaNaSredisce: "El código está ahora en la pantalla del dispositivo con Safeer Link. Escríbelo aquí.",
       prijavaKodaSestMest: "El código tiene 6 cifras.",
@@ -1383,7 +1383,7 @@
       prijavaPrevec: "Trop de connexions simultanées. Réessaie dans une minute.",
       prijavaBrezQr: "Le code QR ne peut pas être affiché ici. Utilise le code à 6 chiffres.",
       prijavaAli: "ou",
-      prijavaKodaNaslov: "Saisis le code à 6 chiffres",
+      prijavaKodaNaslov: "Saisis le code d'un autre appareil",
       prijavaKodaOpis: "Clique dans le champ : le code s'affiche sur le téléviseur ou la tablette avec Safeer Link.",
       prijavaKodaNaSredisce: "Le code est maintenant à l'écran de l'appareil Safeer Link. Saisis-le ici.",
       prijavaKodaSestMest: "Le code a 6 chiffres.",
@@ -1413,7 +1413,7 @@
       prijavaPrevec: "Troppi accessi contemporanei. Riprova tra un minuto.",
       prijavaBrezQr: "Qui il codice QR non può essere mostrato. Usa il codice di 6 cifre.",
       prijavaAli: "oppure",
-      prijavaKodaNaslov: "Inserisci il codice di 6 cifre",
+      prijavaKodaNaslov: "Inserisci il codice di un altro dispositivo",
       prijavaKodaOpis: "Fai clic nel campo: il codice appare sul televisore o sul tablet con Safeer Link.",
       prijavaKodaNaSredisce: "Il codice è ora sullo schermo del dispositivo con Safeer Link. Scrivilo qui.",
       prijavaKodaSestMest: "Il codice ha 6 cifre.",
@@ -2680,8 +2680,11 @@
   }
 
   /** Lastna 6-mestna koda te naprave (ista prijava kot QR): vpise se na napravi, ki je ze v Linku. */
+  // Koda te naprave (pod QR): vpise se na DRUGI napravi, nikoli v to (lastnik, 11. 10. 2026).
+  var kodaTe = "";
   function narisiKodoTe(koda) {
     koda = String(koda || "").replace(/\D/g, "");
+    kodaTe = koda.length === 6 ? koda : "";
     pokazi("prijavaKodaTeBlok", koda.length === 6);
     besedilo("prijavaKodaTe", koda.length === 6 ? koda.slice(0, 3) + " " + koda.slice(3) : "");
   }
@@ -2723,6 +2726,12 @@
     var vnos = el(vnosId || "prijavaVnosKode");
     opombaId = opombaId || "opombaPrijavaKoda";
     var koda = vnos ? String(vnos.value || "").replace(/\D/g, "") : "";
+    if (koda.length === 6 && koda === kodaTe) {
+      // Lastna koda v lastno polje: to ne more delovati - povemo, kam jo je treba vpisati.
+      besedilo(opombaId, t("kodaIstaNaprava"));
+      if (vnos) { vnos.value = ""; try { vnos.focus(); } catch (e) {} }
+      return;
+    }
     if (koda.length !== 6) {
       besedilo(opombaId, t("prijavaKodaSestMest"));
       if (vnos) try { vnos.focus(); } catch (e) {}

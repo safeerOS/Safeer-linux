@@ -800,7 +800,8 @@ class SafeerLink:
         """
         g = getattr(self, "_hub_gostitelj", None)
         znani = "" if (g is not None and g.gostimo()) else self._hub()
-        return link_hub.poisci_hub_z_odtisom(znani, self._odtis())
+        seznanjeni = tuple(fp for fp, s in self._seznanitve().items() if isinstance(s, dict) and s.get("token"))
+        return link_hub.poisci_hub_z_odtisom(znani, self._odtis(), seznanjeni)
 
     def _poisci_hub(self, tiho: bool = False) -> bool:
         """En poskus: najprej znani naslov, sele nato odkrivanje. Vrne True, ce je Hub najden.

@@ -334,11 +334,14 @@ def poisci_hub(znani: str = "", odtis: Optional[str] = None) -> Optional[str]:
     return None
 
 
-def poisci_hub_z_odtisom(znani: str = "", odtis: Optional[str] = None) -> Optional[dict]:
+def poisci_hub_z_odtisom(znani: str = "", odtis: Optional[str] = None, seznanjeni: tuple = ()) -> Optional[dict]:
     """Kot poisci_hub, a vrne {"naslov", "fp", "isti", "krog", "id"}: isti = to je Hub, s katerim smo seznanjeni
     (isti naslov, ki se oglasa, ali isti odtis potrdila na drugem naslovu). Med vec Hubi ima
     prednost tisti z nasim odtisom, nato hub, ki je clan kroga zaupanja (krog=True: njegovo potrdilo
     nosi kljuc iz kroga, zato mu zaupamo brez seznanitve - prijava gre s podpisom), nato TLS Hubi po vrsti.
+    `seznanjeni`: odtisi Hubov, s katerimi je ta naprava ze seznanjena (ima zeton). Imajo prednost pred izvoljenim
+    hubom kroga: nezaupan racunalnik se je 11. 10. 2026 preselil na hub telefona, kjer zetona nima, in ostal na
+    prijavnem oknu, ceprav je bil televizor, s katerim je bil seznanjen, dosegljiv.
     """
     if znani:
         osnova = _osnova(znani)
@@ -350,6 +353,10 @@ def poisci_hub_z_odtisom(znani: str = "", odtis: Optional[str] = None) -> Option
         for h in hubi:
             if h["fp"] == odtis.lower() and je_hub(_osnova(h["naslov"]), odtis=odtis):
                 return {"naslov": h["naslov"], "fp": h["fp"], "isti": True}
+    znani_odtisi = {str(o).lower() for o in seznanjeni if o}
+    for h in hubi:
+        if h["fp"] in znani_odtisi and je_hub(_osnova(h["naslov"]), odtis=h["fp"]):
+            return {"naslov": h["naslov"], "fp": h["fp"], "isti": False}
     # Izvoljeni hub (drug clan kroga zaupanja): oglas mDNS ne dobi zaupanja; da ga sele kljuc v
     # potrdilu, ki se ujema s kljucem tega clana v krogu.
     try:
