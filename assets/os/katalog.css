@@ -193,3 +193,9 @@
 .kat-jezik-neznan { grid-column: 1 / -1; margin: 14px 0 2px; }
 .kat-jezik-neznan h3 { margin: 0 0 2px; font-size: 16px; }
 .kat-jezik-neznan p { margin: 0; }
+
+/* Najhitrejsa pot do dodatkov Stremio v oknu Dodatki in viri. */
+.kat-stremio-pot { display: flex; align-items: center; gap: 14px; margin: 10px 0 14px; padding: 12px 14px; border-radius: 14px;
+  background: rgba(138, 199, 255, .08); border: 1px solid rgba(138, 199, 255, .25); }
+.kat-stremio-pot .gumb { flex: none; }
+.kat-stremio-pot p { margin: 0; }

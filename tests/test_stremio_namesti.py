@@ -147,3 +147,16 @@ class Namestitev(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NajhitrejsaPot(unittest.TestCase):
+    """Lastnik, 11. 10. 2026: najhitrejsa pot do dodatkov Stremio iz Medijskega centra; uporabnik ve, da aplikacije
+    Stremio ne potrebuje."""
+
+    def test_gumb_in_besedilo(self):
+        html, js, bes = _beri("assets/os/index.html"), _beri("assets/os/os.js"), _beri("assets/os/besedila.js")
+        self.assertIn('id="katPoisciDodatke"', html)
+        self.assertIn('data-t="katStremioBrezAplikacije"', html)
+        self.assertIn('odpriVSpletu("https://stremio-addons.net/")', js)
+        for jezik in ("sl", "en", "de", "es", "fr", "it"):
+            self.assertIn('BESEDILA_OS.%s, {"katPoisciDodatke"' % jezik, bes)
