@@ -1896,6 +1896,41 @@ class SafeerControl(Gtk.Application):
     e.preventDefault();
   }, {capture: true, passive: false});
   document.addEventListener("contextmenu", function (e) { e.preventDefault(); poslji("input.key", {key: "back"}); }, true);
+  // Velikost slike naprave: okno Controla se prilagodi njeni obliki (pokoncen telefon ni majhen med crnimi robovi).
+  var zadnja = "";
+  setInterval(function () {
+    var img = document.getElementById("zaslon");
+    if (!img || !img.naturalWidth) return;
+    var v = img.naturalWidth + "x" + img.naturalHeight;
+    if (v !== zadnja) { zadnja = v; poslji("okno.velikost", {w: img.naturalWidth, h: img.naturalHeight}); }
+  }, 700);
+  // Vrstica gumbov za udobno upravljanje telefona z miško: Nazaj, Domov, Opravila, Obvestila, Ležeče/Pokončno.
+  var sl = /^sl/i.test(navigator.language || "");
+  var vrstica = document.createElement("div");
+  vrstica.style.cssText = "position:fixed;right:12px;top:12px;z-index:2147483647;display:flex;gap:6px;" +
+    "background:rgba(11,20,36,.82);border:1px solid rgba(211,229,255,.25);border-radius:14px;padding:6px;font:14px system-ui,sans-serif";
+  var lezece = false;
+  function gumb(znak, naslov, fn) {
+    var b = document.createElement("button");
+    b.textContent = znak; b.title = naslov; b.setAttribute("aria-label", naslov);
+    b.style.cssText = "min-width:40px;height:36px;border-radius:10px;border:1px solid rgba(211,229,255,.2);" +
+      "background:rgba(16,26,43,.9);color:#eaf2ff;cursor:pointer;font:inherit;padding:0 10px";
+    b.addEventListener("mousedown", function (e) { e.stopPropagation(); }, true);
+    b.addEventListener("mouseup", function (e) { e.stopPropagation(); }, true);
+    b.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); fn(b); });
+    vrstica.appendChild(b);
+    return b;
+  }
+  gumb("◁", sl ? "Nazaj" : "Back", function () { poslji("input.key", {key: "back"}); });
+  gumb("○", sl ? "Domov" : "Home", function () { poslji("input.key", {key: "home"}); });
+  gumb("▢", sl ? "Odprte aplikacije" : "Recent apps", function () { poslji("input.key", {key: "recents"}); });
+  gumb("🔔", sl ? "Obvestila" : "Notifications", function () { poslji("input.key", {key: "notifications"}); });
+  gumb(sl ? "⟳ Ležeče" : "⟳ Landscape", sl ? "Obrni napravo" : "Rotate the device", function (b) {
+    lezece = !lezece;
+    poslji("input.rotate", {lezece: lezece});
+    b.textContent = lezece ? (sl ? "⟳ Pokončno" : "⟳ Portrait") : (sl ? "⟳ Ležeče" : "⟳ Landscape");
+  });
+  (document.body || document.documentElement).appendChild(vrstica);
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape" || e.key === "BrowserBack") { poslji("input.key", {key: "back"}); e.preventDefault(); return; }
     if (e.key === "Home") { poslji("input.key", {key: "home"}); e.preventDefault(); return; }
@@ -2012,6 +2047,9 @@ class SafeerControl(Gtk.Application):
             parametri = sporocilo.get("p") if isinstance(sporocilo.get("p"), dict) else {}
         except Exception:
             return
+        if dejanje == "okno.velikost":
+            self._prilagodi_gledalca(parametri.get("w"), parametri.get("h"))
+            return
         if self.link is not None and dejanje.startswith("input."):
             # Dotiki iz okna gredo samo napravi, ki jo okno kaže. Link drugo napravo šteje za gledano že od začetka
             # njenega deljenja - če se njena stran ne odpre, okno še kaže prejšnjo in dotik na njeni sliki ni za novo.
@@ -2019,9 +2057,34 @@ class SafeerControl(Gtk.Application):
                 return
             self.link.poslji_vnos(dejanje, parametri)
 
+    def _prilagodi_gledalca(self, sirina, visina) -> None:
+        """Okno gledalca v obliki slike naprave in cim vecje: pokoncen telefon zapolni visino zaslona, lezec zaslon
+        sirino (lastnik, 11. 10. 2026: udobno upravljanje telefona z racunalnika)."""
+        okno = self.gledalec
+        try:
+            w, h = int(sirina), int(visina)
+        except (TypeError, ValueError):
+            return
+        if okno is None or w <= 0 or h <= 0:
+            return
+        zaslon = okno.get_display().get_monitor_at_window(okno.get_window()) if okno.get_window() else None
+        g = zaslon.get_workarea() if zaslon is not None else None
+        if g is None:
+            return
+        rob_zgoraj = 40      # naslovna vrstica okna
+        najvecja_v, najvecja_s = int(g.height * 0.94) - rob_zgoraj, int(g.width * 0.94)
+        merilo = min(najvecja_v / h, najvecja_s / w)
+        nova_s, nova_v = max(320, int(w * merilo)), max(240, int(h * merilo))
+        okno.resize(nova_s, nova_v + 0)
+        okno.move(g.x + (g.width - nova_s) // 2, g.y + max(0, (g.height - nova_v - rob_zgoraj) // 2))
+
     def _odziv_vnosa(self, odziv: dict) -> None:
         """Naprava vnosa ne sprejme: v naslovu okna povemo, kaj naj uporabnik naredi (enkrat)."""
         if self.gledalec is None:
+            return
+        if odziv.get("koda") == "potrebno_dovoljenje_obracanje":
+            # Lezece: telefon je pravkar odprl nastavitev, ki jo mora uporabnik enkrat dovoliti.
+            self.gledalec.set_title("Safeer Control — zaslon · " + str(odziv.get("sporocilo") or ""))
             return
         if odziv.get("ok"):
             self.gledalec.set_title("Safeer Control — zaslon")
