@@ -107,6 +107,10 @@ DEJANJA_HOST = ["host.info"]
 DEJANJA_ZASLON = ["screen.start", "screen.stop", "screen.status"]
 #: Magnet povezava z druge naprave v krogu: odpre jo Safeer OS (Medijski center), ce je namescen.
 DEJANJA_MAGNET = ["magnet.open"]
+#: Telefon ali tablica kot mikrofon: kar uporabnik pove v daljinec, isce iskalna lupa Safeer OS na tem racunalniku.
+DEJANJA_ISKANJE = ["search.query"]
+#: »Prikazi na racunalniku« z druge naprave: naslov (film, serija, glasba) odpre Medijski center Safeer OS tukaj.
+DEJANJA_MEDIJ = ["media.open"]
 #: Torrent prenasa in pretaka ta racunalnik, naprava (televizor) samo predvaja tok - nic ne shranjuje.
 DEJANJA_TOK_TORRENTA = ["magnet.stream", "magnet.list", "magnet.remove", "magnet.keep"]
 #: Sprotno pretvarjanje za napravo, ki videa ne zna predvajati (core/link_sprotno.py, isto kot Pretok.kt na Androidu).
@@ -137,6 +141,46 @@ def odpri_magnet(uri: str) -> dict:
     subprocess.Popen([program, "--magnet-naprava", m["uri"]], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                      stderr=subprocess.DEVNULL, start_new_session=True)
     return izid(True, "Odpiram v Safeer OS: " + (m["ime"] or m["hash"][:12]))
+
+
+def isci_na_racunalniku(niz: str) -> dict:
+    """Niz z naprave v krogu (glas na telefonu) pokaze iskalna lupa Safeer OS: samo iskanje, nic se ne odpre."""
+    niz = " ".join(str(niz or "").split())[:200]
+    if not niz:
+        return izid(False, "Ni besedila za iskanje", koda="prazno")
+    program = _safeer_os()
+    if not program:
+        return izid(False, "Safeer OS na tem računalniku ni nameščen", koda="ni_safeer_os")
+    import subprocess
+    subprocess.Popen([program, "--isci-naprava", niz], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True)
+    return izid(True, "Iščem na računalniku")
+
+
+def medij_iz_parametrov(p: dict) -> Optional[dict]:
+    """Vnos za media.open: naslov (obvezen), vrsta, leto, iskanje; vse omejeno, nic se ne izvaja."""
+    naslov = " ".join(str(p.get("title", "") or "").split())[:200]
+    if not naslov:
+        return None
+    vrsta = str(p.get("kind", "") or "")
+    leto = p.get("year")
+    return {"title": naslov, "kind": vrsta if vrsta in ("film", "serija", "glasba", "radio", "video", "") else "",
+            "year": int(leto) if isinstance(leto, int) and 1800 < leto < 2200 else None}
+
+
+def odpri_medij(p: dict) -> dict:
+    """media.open: naslov z naprave v krogu pokaze Medijski center Safeer OS (iskanje tega naslova)."""
+    m = medij_iz_parametrov(p if isinstance(p, dict) else {})
+    if m is None:
+        return izid(False, "Ni naslova", koda="prazno")
+    program = _safeer_os()
+    if not program:
+        return izid(False, "Safeer OS na tem računalniku ni nameščen", koda="ni_safeer_os")
+    import json as _json
+    import subprocess
+    subprocess.Popen([program, "--medij-naprava", _json.dumps(m, ensure_ascii=False)], stdin=subprocess.DEVNULL,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    return izid(True, "Odpiram v Medijskem centru: " + m["title"])
 
 
 def _lastni_naslovi(hub_url: str) -> list:
@@ -186,6 +230,10 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
             koncaj(izid(True, "Seznami predvajanja", link_seznami.izvoz(parametri)))
         elif d in DEJANJA_MAGNET:
             koncaj(odpri_magnet(str(parametri.get("uri", "") or "")))
+        elif d in DEJANJA_MEDIJ:
+            koncaj(odpri_medij(parametri))
+        elif d in DEJANJA_ISKANJE:
+            koncaj(isci_na_racunalniku(str(parametri.get("q", "") or "")))
         elif d in DEJANJA_TOK_TORRENTA:
             if datoteke is None:
                 koncaj(izid(False, "Pretakanje tu ni na voljo", koda="ni_na_racunalniku"))
@@ -428,7 +476,7 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
         elif d == "status":
             s = {"app": "safeer-control-linux", "version": _razlicica_control(), "foreground": True,
                  "actions": DEJANJA_CONTROL + DEJANJA_HOST + (DEJANJA_DATOTEKE + DEJANJA_TOK_TORRENTA + DEJANJA_PRETOK if datoteke is not None else [])
-                            + (DEJANJA_MAGNET + DEJANJA_SEZNAMI if _safeer_os() else [])
+                            + (DEJANJA_MAGNET + DEJANJA_SEZNAMI + DEJANJA_ISKANJE + DEJANJA_MEDIJ if _safeer_os() else [])
                             + (DEJANJA_PREDAJA if predvajanje is not None else [])
                             + (DEJANJA_PROGRAMI if programi is not None and programi.vklopljeno else [])
                             + (DEJANJA_ZASLON if zaslon is not None and zaslon.na_voljo().get("dovoljeno") else []),

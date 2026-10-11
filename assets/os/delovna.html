@@ -14,6 +14,20 @@
   <form class="iskanje" id="iskanje" role="search" autocomplete="off">
     <svg class="ik" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z M20 20l-4-4"/></svg>
     <input id="iskalnoPolje" type="search" data-ph="iskanjePh" aria-label="Išči" aria-controls="zadetki" aria-expanded="false" spellcheck="false">
+    <button type="button" class="mikrofon" id="gumbMikrofon" aria-label="Išči z glasom">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z M5 11a7 7 0 0 0 14 0 M12 18v3"/></svg>
+    </button>
+    <!-- Med govorom: valovi glasnosti, ✕ preklic, ■ konec (kot narekovanje na telefonu). -->
+    <div class="govor-vrstica" id="govorVrstica" hidden>
+      <button type="button" class="govor-gumb" id="govorPreklici" aria-label="Prekliči">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12 M18 6L6 18"/></svg>
+      </button>
+      <span class="govor-delno" id="govorDelno"></span>
+      <div class="govor-valovi" id="govorValovi" aria-hidden="true"></div>
+      <button type="button" class="govor-gumb govor-konec" id="govorKoncaj" aria-label="Končaj">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
+      </button>
+    </div>
     <kbd class="namig" data-t="iskanjeNamig">Enter odpre označeno · Shift+Enter splet</kbd>
   </form>
   <div class="zadetki" id="zadetki" role="listbox" hidden></div>
@@ -173,6 +187,7 @@
   </form>
 </div>
 
+<script src="iskanje.js"></script>
 <script src="delovna.js"></script>
 </body>
 </html>

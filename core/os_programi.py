@@ -29,6 +29,30 @@ MAPA_IKON = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser(
 
 #: Nastavitve sistema (Cinnamon, Mint) dobijo svojo skupino, da se ne mesajo med programe.
 SISTEM = {"Settings", "System", "DesktopSettings", "HardwareSettings", "PackageManager", "Monitor", "Security"}
+#: Orodja, ki upravljajo nastavitve sistema (iskalna lupa jih pokaze v svoji skupini »Nastavitve«).
+NASTAVITVE = {"Settings", "DesktopSettings", "HardwareSettings"}
+#: Besede, po katerih uporabnik isce nastavitev, pa jih vnos sam nima (ne v svojem jeziku ne v anglescini).
+#: Kljuc je ime vnosa .desktop; iskanje ne gleda na sumnike.
+SOPOMENKE = {
+    "cinnamon-settings-power.desktop": "napajanje baterija energija varcevanje poraba spanje pokrov",
+    "cinnamon-settings-display.desktop": "monitor zaslon locljivost resolucija",
+    "cinnamon-display-panel.desktop": "monitor zaslon locljivost resolucija",
+    "cinnamon-settings-sound.desktop": "zvocnik slusalke mikrofon glasnost",
+    "cinnamon-settings-mouse.desktop": "miska touchpad sledilna ploscica kazalec",
+    "cinnamon-settings-keyboard.desktop": "tipke bliznjice razporeditev",
+    "cinnamon-settings-backgrounds.desktop": "ozadje slika namizja",
+    "cinnamon-settings-themes.desktop": "videz tema barve ikone kazalec",
+    "cinnamon-network-panel.desktop": "wifi brezzicno internet ethernet vpn",
+    "cinnamon-settings-notifications.desktop": "obvestila motnje",
+    "cinnamon-settings-startup.desktop": "samozagon zagon ob prijavi",
+    "cinnamon-settings-users.desktop": "racun geslo",
+    "cinnamon-settings-user.desktop": "racun geslo profil slika",
+    "cinnamon-settings-nightlight.desktop": "nocni nacin modra svetloba",
+    "cinnamon-settings-privacy.desktop": "zgodovina nedavne datoteke",
+    "blueberry.desktop": "bluetooth slusalke brezzicno",
+    "mintupdate.desktop": "posodobitve nadgradnja",
+    "system-config-printer.desktop": "tiskalnik tiskanje",
+}
 #: Vrstni red skupin v pogledu »Programi«.
 SKUPINE = ("splet", "pisarna", "predstavnost", "igre", "ucenje", "programiranje", "orodja", "sistem", "drugo")
 #: Programi, ki so del Safeerja samega (Safeer OS ne ponuja sebe; Safeer Player je njegov Medijski center).
@@ -100,7 +124,18 @@ def preberi_vnos(pot: str, namizja: Optional[List[str]] = None) -> Optional[dict
     if not ime:
         return None
     kategorije = _seznam(vnos.get("Categories", ""))
-    kljucne = _seznam(link_programi._vrednost(vnos, "Keywords"))
+    # Kljucne besede v jeziku uporabnika in anglesko (ime, splosno ime, kljucne): »display« najde »Zaslon«.
+    kljucne = _seznam(link_programi._vrednost(vnos, "Keywords")) + _seznam(vnos.get("Keywords", "") or "")
+    for kljuc in ("Name", "GenericName"):
+        osnovno = (vnos.get(kljuc, "") or "").strip()
+        if osnovno and osnovno != ime:
+            kljucne.append(osnovno)
+    kljucne += SOPOMENKE.get(os.path.basename(pot), "").split()
+    if set(kategorije) & NASTAVITVE:
+        # »nastavitve zaslona«: splosna beseda za vsa orodja nastavitev (jeziki Safeer OS in iskanja z glasom).
+        kljucne += ["nastavitve", "settings", "Einstellungen", "configuración", "configurações", "paramètres", "impostazioni"]
+    videne = set()
+    kljucne = [k.strip() for k in kljucne if k.strip() and not (k.strip().lower() in videne or videne.add(k.strip().lower()))]
     return {
         "pot": pot,
         "ime": ime,
@@ -111,7 +146,8 @@ def preberi_vnos(pot: str, namizja: Optional[List[str]] = None) -> Optional[dict
         "medij": je_predvajalnik(kategorije, ime + " " + link_programi._vrednost(vnos, "Comment") + " " +
                                  link_programi._vrednost(vnos, "GenericName")),
         "zvok": "Audio" in kategorije and "Video" not in kategorije and "TV" not in kategorije,
-        "kljucne": [k.strip() for k in kljucne if k.strip()][:12],
+        "kljucne": kljucne[:40],
+        "nastavitev": bool(set(kategorije) & NASTAVITVE),
     }
 
 
@@ -205,7 +241,7 @@ class Programi:
             izhod.append({
                 "id": oznaka, "ime": v["ime"], "opis": v["opis"], "splosno": v["splosno"],
                 "skupina": "igre" if oblak else v["skupina"], "kljucne": v["kljucne"], "oblak": oblak,
-                "medij": bool(v.get("medij")), "zvok": bool(v.get("zvok")),
+                "medij": bool(v.get("medij")), "zvok": bool(v.get("zvok")), "nastavitev": bool(v.get("nastavitev")),
                 "ikona": ikone(v["ikona"]) if ikone else "",
                 "uporaba": int(u.get("n", 0) or 0), "zadnjic": float(u.get("t", 0) or 0),
                 "pripet": oznaka in pripeti,

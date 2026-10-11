@@ -25,6 +25,7 @@
   // ------------------------------------------------------------------ besedila (SL, EN)
   var BESEDILA = {
     sl: {
+      mikrofonNaslov: "Išči z glasom", govorPoslusam: "Poslušam … povej, kaj iščeš", govorPrepoznavam: "Prepoznavam …", govorTisina: "Nisem slišal ničesar. Pritisni mikrofon in povej znova.", govorNiPodprto: "Iskanje z glasom na tem računalniku ni na voljo.", govorMikrofon: "Mikrofona ni mogoče odpreti.", govorNapaka: "Prepoznava govora ni uspela.", govorNamestiNaslov: "Iskanje z glasom", govorNamestiOpis: "Govor se prepozna na tem računalniku – nič ne gre na splet. Za to je treba enkrat prenesti prepoznavo govora ({mb} MB).", govorPrenesi: "Prenesi", govorNeZdaj: "Ne zdaj", govorPrenasam: "Prenašam prepoznavo govora … {o} %", govorPrekini: "Prekini", govorPrenosNapaka: "Prenos ni uspel. Poskusi znova.", govorPreklici: "Prekliči", govorKoncaj: "Končaj",
       iskanjePh: "Išči po spletu, programih, datotekah in medijih …", iskanjeNamig: "Enter odpre označeno · Shift+Enter splet",
       plosceNaslov: "Plošče", medijiNaslov: "Medijski center", datotekeNaslov: "Datoteke", programiNaslov: "Programi",
       zamenjajStrani: "Zamenjaj levo in desno", ponastavi: "Privzeta postavitev", vecjiTekst: "Večje besedilo",
@@ -137,7 +138,7 @@
       niProgramov: "V tej kategoriji ni programov.", napravaNedosegljiva: "{naprava}: ni dosegljiva",
       brezControla: "Safeer Link (Safeer Control) ne teče, zato programi naprav niso na voljo.",
       zagonPoslan: "Ukaz poslan napravi {naprava}.",
-      skSplet: "Splet", skProgrami: "Programi", skProgramiNaprav: "Programi naprav", skDatoteke: "Datoteke", skMediji: "Mediji",
+      skSplet: "Splet", skProgrami: "Programi", skNastavitve: "Nastavitve", skProgramiNaprav: "Programi naprav", skDatoteke: "Datoteke", skMediji: "Mediji", skPrikaziNa: "Prikaži na", prikaziNaVrsta: "Prikaži »{kaj}« na: {ime}", prikazanoNa: "Odpira se na {ime}: {kaj}", izberiNapravo: "Izberi, na kateri napravi naj se prikaže.", niNapraveCilja: "V Safeer Linku ni take naprave.", napravaNeZna: "{ime} tega še ne zna – posodobi Safeer na njej.",
       skZapiski: "Zapiski", skSafeer: "Safeer OS", ciljMedia: "Medijski center", ciljNaprave: "Naprave (Safeer Link)", ciljScit: "Ščit – zaščita za ves računalnik",
       ciljNastavitve: "Nastavitve Safeer OS", ciljZapiski: "Zapiski", ciljSporocila: "Sporočila", ciljSplet: "Splet v Safeer OS",
       odpreSafeerOs: "odpre Safeer OS", odprePredvajalnik: "odpre Safeer Player",
@@ -158,7 +159,7 @@
       posN_naprava_zasedena: "z napravo trenutno deli druga naprava", posN_ni_datoteke: "datoteke ni več",
       posN_naprava_ni_seznanjena: "ta računalnik pri središču ni prijavljen",
       posN_sredisce_naprave_ni_dosegljivo: "naprava v tem omrežju ni dosegljiva", posN_posiljanje_ni_uspelo: "povezava je bila prekinjena",
-      isciVSpletu: "Išči »{q}« v spletu", odpreVBrskalniku: "privzeti brskalnik", isciem: "Iščem …",
+      isciVSpletu: "Išči »{q}« v spletu", odpreVBrskalniku: "rezultati tukaj na namizju", isciem: "Iščem …",
       prostor: "{n} el.",
       spremeniOzadje: "Spremeni ozadje …", prilagodiDock: "Prilagodi dock …",
       dockNamig: "Program dodaš v dock tako, da ga povlečeš iz menija; odstraniš ga tako, da ga povlečeš ven.",
@@ -219,6 +220,7 @@
       nSmeti: "V Smeti ni šlo (morda nimaš dovoljenja).", nSplosno: "Ni uspelo."
     },
     en: {
+      mikrofonNaslov: "Search by voice", govorPoslusam: "Listening … say what you are looking for", govorPrepoznavam: "Recognising …", govorTisina: "I did not hear anything. Press the microphone and speak again.", govorNiPodprto: "Voice search is not available on this computer.", govorMikrofon: "The microphone cannot be opened.", govorNapaka: "Speech recognition failed.", govorNamestiNaslov: "Search by voice", govorNamestiOpis: "Speech is recognised on this computer – nothing goes to the internet. Speech recognition has to be downloaded once ({mb} MB).", govorPrenesi: "Download", govorNeZdaj: "Not now", govorPrenasam: "Downloading speech recognition … {o} %", govorPrekini: "Cancel", govorPrenosNapaka: "The download failed. Try again.", govorPreklici: "Cancel", govorKoncaj: "Done",
       iskanjePh: "Search the web, apps, files and media …", iskanjeNamig: "Enter opens the selection · Shift+Enter web",
       plosceNaslov: "Panels", medijiNaslov: "Media center", datotekeNaslov: "Files", programiNaslov: "Apps",
       zamenjajStrani: "Swap left and right", ponastavi: "Default layout", vecjiTekst: "Larger text",
@@ -331,7 +333,7 @@
       niProgramov: "No apps in this category.", napravaNedosegljiva: "{naprava}: not reachable",
       brezControla: "Safeer Link (Safeer Control) isn't running, so apps on your devices aren't available.",
       zagonPoslan: "Sent to {naprava}.",
-      skSplet: "Web", skProgrami: "Apps", skProgramiNaprav: "Apps on devices", skDatoteke: "Files", skMediji: "Media",
+      skSplet: "Web", skProgrami: "Apps", skNastavitve: "Settings", skProgramiNaprav: "Apps on devices", skDatoteke: "Files", skMediji: "Media", skPrikaziNa: "Show on", prikaziNaVrsta: "Show “{kaj}” on: {ime}", prikazanoNa: "Opening on {ime}: {kaj}", izberiNapravo: "Choose the device to show it on.", niNapraveCilja: "There is no such device in Safeer Link.", napravaNeZna: "{ime} cannot do this yet – update Safeer on it.",
       skZapiski: "Notes", skSafeer: "Safeer OS", ciljMedia: "Media Centre", ciljNaprave: "Devices (Safeer Link)", ciljScit: "Shield – protection for the whole computer",
       ciljNastavitve: "Safeer OS settings", ciljZapiski: "Notes", ciljSporocila: "Messages", ciljSplet: "Web in Safeer OS",
       odpreSafeerOs: "opens Safeer OS", odprePredvajalnik: "opens Safeer Player",
@@ -352,7 +354,7 @@
       posN_naprava_zasedena: "another device is sharing with that device right now", posN_ni_datoteke: "the file is gone",
       posN_naprava_ni_seznanjena: "this computer is not signed in at the hub",
       posN_sredisce_naprave_ni_dosegljivo: "the device cannot be reached on this network", posN_posiljanje_ni_uspelo: "the connection was interrupted",
-      isciVSpletu: "Search the web for “{q}”", odpreVBrskalniku: "default browser", isciem: "Searching …",
+      isciVSpletu: "Search the web for “{q}”", odpreVBrskalniku: "results right here on the desktop", isciem: "Searching …",
       prostor: "{n} items",
       spremeniOzadje: "Change wallpaper …", prilagodiDock: "Customise dock …",
       dockNamig: "Add an app to the dock by dragging it from the menu; drag it out to remove it.",
@@ -619,6 +621,7 @@
     location.search.replace(/^\?/, "").split("&").forEach(function (d) { var x = d.split("="); if (x[0]) q[x[0]] = x[1]; });
     robovi(q);
     prevedi();
+    klic("lupaUcenje").then(function (p) { U.izbire = (p && p.izbire) || []; }).catch(function () {});
     uveljaviPostavitev();
     delilnik($("deliStolpca"), true);
     delilnik($("deliMediji"), false);
@@ -2654,7 +2657,12 @@
   }
   function ujemaZadetek(besedilo, besede) {
     var k = " " + kljucIskanja(besedilo).replace(/[^\p{L}\p{N}]+/gu, " ");
-    return besede.length > 0 && besede.every(function (b) { return k.indexOf(b.length < 3 ? " " + b : b) >= 0; });
+    return besede.length > 0 && besede.every(function (b) {
+      if (k.indexOf(b.length < 3 ? " " + b : b) >= 0) return true;
+      // Sklon (povedano z glasom): »zaslona« najde »Zaslon«, »datoteko« »Datoteka« - zacetek besede brez zadnjih
+      // dveh crk (vsaj stiri).
+      return b.length >= 5 && k.indexOf(" " + b.slice(0, Math.max(4, b.length - 2))) >= 0;
+    });
   }
   // Safeer OS sam: razdelki glavnega okna in Scit (media v oknu Safeer Player). [cilj za odpriRazdelek, kljuc imena,
   // kljucne besede brez sumnikov].
@@ -2689,21 +2697,129 @@
   }
   // Kateri zadetek odpre Enter, ce uporabnik ni izbral sam: prvi program (kot meni Start), sicer Safeer OS, sicer
   // naprava, najdena po imenu. Naprava, najdena samo po vrsti (»telefon«), Enterja ne prevzame - ostane splet.
-  var RANG_ZADETKA = { program: 3, safeer: 2, naprava: 1 };
-  function privzetiZadetek(vnosi) {
+  var RANG_ZADETKA = { naCilj: 4, program: 3, safeer: 2, naprava: 1 };
+  /* Kaj uporabnik isce (Enter brez izbire): spletni naslov -> splet; program -> program; datoteka, slika, medij ali
+     zapisek, katerega ime se z nizom zacne ali je enako (ali niz izgleda kot pot ali datoteka s koncnico) -> ta vnos;
+     razdelek Safeer OS ali naprava po imenu; sicer splet (prva vrstica). Ocene so iz skupnega iskanje.js
+     (SafeerIskanje.oceni: enako 100, zacetek 70, beseda 50, del 30) - ista pravila kot iskanje v Safeer OS. */
+  var PRAG_IMENA = 70;
+  /* Ucenje lupe (core/os_lupa.py, samo na tem racunalniku): izbire [niz, kljuc zadetka, cas, prvi]. Za iskani niz dobi
+     zadetek oceno iz prejsnjih izbir z enakim ali podobnim nizom (eden je zacetek drugega; enak niz steje dvojno),
+     novejse stejejo vec (polovica po 30 dneh). Zadetek z oceno vsaj PRAG_UCENJA lupa ponudi prvega. */
+  var U = { izbire: [] };
+  var POL_ZIVLJENJA = 30 * 86400, PRAG_UCENJA = 0.5, NAJVEC_IZBIR = 500;
+  function kljucZadetka(v) {
+    switch (v && v.vrsta) {
+      case "splet": return "splet";
+      case "program": return "program:" + v.p.id;
+      case "prgNaprave": return "prgNaprave:" + (v.p.imeNaprave || "") + ":" + v.p.id;
+      case "safeer": return "safeer:" + v.cilj;
+      case "naprava": return "naprava:" + v.n.id;
+      case "datoteka": case "medij": return v.vrsta + ":" + (v.d.pot || v.d.id || v.d.ime || "");
+      case "zapisek": return "zapisek:" + v.z.id;
+      case "katalog": return "katalog:" + v.k.id;
+      case "mediji": return "mediji";
+    }
+    return "";
+  }
+  function nizUcenja(q) { return kljucIskanja(q).replace(/\s+/g, " ").trim(); }
+  function naucenaOcena(ql, zdaj) {
+    var ocene = {};
+    zdaj = zdaj || Date.now() / 1000;
+    if (!ql) return ocene;
+    U.izbire.forEach(function (z) {
+      var niz = z[0], enak = niz === ql;
+      if (!enak && !(niz.length >= 2 && (niz.indexOf(ql) === 0 || ql.indexOf(niz) === 0))) return;
+      var utez = Math.pow(0.5, Math.max(0, zdaj - z[2]) / POL_ZIVLJENJA) * (enak ? 2 : 1);
+      ocene[z[1]] = (ocene[z[1]] || 0) + utez;
+    });
+    return ocene;
+  }
+  // Seznam po naucenem (stabilno: pri enaki oceni ostane dosedanji vrstni red).
+  function poUcenju(seznam, N, kljuc) {
+    return seznam.map(function (x, i) { return [N[kljuc(x)] || 0, i, x]; })
+      .sort(function (a, b) { return (b[0] - a[0]) || (a[1] - b[1]); }).map(function (y) { return y[2]; });
+  }
+  function najboljNauceni(vnosi, N) {
+    var naj = -1, najO = 0;
+    vnosi.forEach(function (v, i) { var o = N[kljucZadetka(v)] || 0; if (o > najO) { najO = o; naj = i; } });
+    return najO >= PRAG_UCENJA ? naj : -1;
+  }
+  function imeVnosa(v) {
+    if (v.vrsta === "datoteka" || v.vrsta === "medij") return v.d.naslov || v.d.ime || "";
+    if (v.vrsta === "zapisek") return v.z.naslov || "";
+    return "";
+  }
+  function privzetiZadetek(vnosi, q, N) {
+    // Kar je uporabnik za tak niz ze izbral, je prvo (tudi splet - ce je takrat izbral splet).
+    var nauceni = N ? najboljNauceni(vnosi, N) : -1;
+    if (nauceni >= 0) return nauceni;
+    var I_ = typeof SafeerIskanje !== "undefined" ? SafeerIskanje : null;
+    if (I_ && q && I_.jeNaslov(q)) return 0;
     var prvi = 0, rang = 0;
     vnosi.forEach(function (v, i) {
       var r = v.vrsta === "naprava" && !v.poImenu ? 0 : (RANG_ZADETKA[v.vrsta] || 0);
+      if (I_ && q && (v.vrsta === "datoteka" || v.vrsta === "medij" || v.vrsta === "zapisek")) {
+        var ime = imeVnosa(v), brezKoncnice = ime.replace(/\.[^.\s]{1,8}$/, "");
+        var ocena = Math.max(I_.oceni(ime, q), I_.oceni(brezKoncnice, q));
+        if (ocena >= PRAG_IMENA || (v.vrsta === "datoteka" && I_.jePotAliKoncnica(q) && ocena > 0)) r = 2.5;
+      }
       if (r > rang) { rang = r; prvi = i; }
     });
     return prvi;
+  }
+  /* "Prikazi na ..." (glas ali tipkanje; sl, en, de, es, pt): cilj na koncu niza. Vrne {q: niz brez cilja in brez
+     glagola na zacetku, vrste: platforme naprav} ali null. Iskanje je potem samo za q, izbrani zadetek se odpre na
+     izbrani napravi (core/link_daljinec.py media.open). */
+  var PC = ["windows", "linux", "mac"];
+  var CILJI_MEDIJA = [
+    [/ (na|v) (tv|televiziji|televizorju|televizor|televizijo)$/, ["tv"]], [/ na (racunalniku|racunalnik|pc|prenosniku)$/, PC],
+    [/ na (tablici|tablico|tablica)$/, ["tablet"]], [/ na (telefonu|telefon|mobitelu|mobitel)$/, ["phone"]],
+    [/ on (the |my )?(tv|television|telly)$/, ["tv"]], [/ on (the |my |this )?(computer|pc|laptop)$/, PC],
+    [/ on (the |my )?tablet$/, ["tablet"]], [/ on (the |my )?(phone|mobile)$/, ["phone"]],
+    [/ (auf|im) (dem |meinem )?(fernseher|tv|fernsehen)$/, ["tv"]], [/ auf (dem |meinem )?(computer|pc|rechner|laptop)$/, PC],
+    [/ auf (dem |meinem )?tablet$/, ["tablet"]], [/ auf (dem |meinem )?(handy|telefon|smartphone)$/, ["phone"]],
+    [/ en (la |mi )?(tele|television|tv)$/, ["tv"]], [/ en (el |mi )?(ordenador|computador|computadora|pc|portatil)$/, PC],
+    [/ en (la |mi )?tableta$/, ["tablet"]], [/ en (el |mi )?(movil|telefono|celular)$/, ["phone"]],
+    [/ n(a|o) (tv|televisao|televisor)$/, ["tv"]], [/ no (computador|pc|portatil)$/, PC],
+    [/ no tablet$/, ["tablet"]], [/ no (telemovel|celular|telefone)$/, ["phone"]],
+    [/ sur (la |ma )?(tele|television|tv)$/, ["tv"]], [/ sur (lordinateur|mon ordinateur|le pc|mon pc)$/, PC],
+    [/ sur (la |ma )?tablette$/, ["tablet"]], [/ sur (le |mon )?(telephone|portable|mobile)$/, ["phone"]],
+    [/ (sulla|in) (tv|televisione)$/, ["tv"]], [/ sul (computer|pc)$/, PC],
+    [/ sul tablet$/, ["tablet"]], [/ sul (telefono|cellulare)$/, ["phone"]]
+  ];
+  var GLAGOLI_PRIKAZA = ["prikazi", "pokazi", "predvajaj", "odpri", "zavrti", "show", "play", "open", "put", "zeige", "spiele",
+                         "offne", "muestra", "reproduce", "pon", "abre", "mostra", "reproduz", "toca", "passa",
+                         "montre", "joue", "ouvre", "lance", "riproduci", "apri", "metti"];
+  function ciljMedija(q) {
+    var besede = String(q || "").trim().split(/\s+/).filter(Boolean);
+    var k = " " + besede.map(function (b) { return kljucIskanja(b).replace(/[^\p{L}\p{N}]+/gu, ""); }).join(" ");
+    for (var i = 0; i < CILJI_MEDIJA.length; i++) {
+      var m = k.match(CILJI_MEDIJA[i][0]);
+      if (!m) continue;
+      var ostanek = besede.slice(0, besede.length - m[0].trim().split(" ").length);
+      if (ostanek.length && GLAGOLI_PRIKAZA.indexOf(kljucIskanja(ostanek[0]).replace(/[^\p{L}]+/gu, "")) >= 0) ostanek = ostanek.slice(1);
+      return { q: ostanek.join(" "), vrste: CILJI_MEDIJA[i][1] };
+    }
+    return null;
+  }
+  // Naprave za cilj: vse ustrezne iz Linka; »na racunalniku« na racunalniku ponudi tudi tega (id "").
+  function napraveCilja(cilj, naprave, taJeRacunalnik) {
+    var izbor = (naprave || []).filter(function (n) { return cilj.vrste.indexOf(n.platforma) >= 0; });
+    if (taJeRacunalnik && cilj.vrste === PC) izbor.unshift({ id: "", ime: t("taRacunalnik"), platforma: "linux" });
+    return izbor;
   }
   function isci(q) {
     var st = ++I.st;
     q = q.trim();
     I.zadnji = q; I.rocno = false;
     if (!q) { I.poEnter = false; I.caka = false; skrijZadetke(); return; }
+    var cilj = ciljMedija(q);
+    I.cilj = cilj && cilj.q ? cilj : null;
+    if (I.cilj) q = I.cilj.q;
     var ql = kljucIskanja(q), besede = besedeIskanja(q);
+    var nauceno = naucenaOcena(nizUcenja(q));
+    I.nauceno = nauceno;
     I.caka = true;
     var skupine = [];
     // Programi naprav (ze nalozeni, potrjeni seznami)
@@ -2712,38 +2828,81 @@
     var naprave = q.length >= 2 ? napraveZaIskanje(besede) : [];
     var cakaj = [
       klic("programi").then(function (s) {
-        return (s || []).filter(function (p) { return !p.skrit && ujemaZadetek(p.ime + " " + (p.splosno || "") + " " + (p.kljucne || ""), besede); })
-          .sort(function (a, b) { return (ocenaPrograma(b, ql) - ocenaPrograma(a, ql)) || ((b.uporaba || 0) - (a.uporaba || 0)); }).slice(0, 5);
+        // Programi in orodja za nastavitve sistema (Cinnamon, Mint) - vsaka skupina do 5 zadetkov.
+        var vsi = (s || []).filter(function (p) { return !p.skrit && ujemaZadetek(p.ime + " " + (p.splosno || "") + " " + (p.kljucne || []).join(" "), besede); })
+          .sort(function (a, b) {
+            return ((nauceno["program:" + b.id] || 0) - (nauceno["program:" + a.id] || 0)) ||
+              (ocenaPrograma(b, ql) - ocenaPrograma(a, ql)) || ((b.uporaba || 0) - (a.uporaba || 0));
+          });
+        var programi = vsi.filter(function (p) { return !p.nastavitev; }).slice(0, 5);
+        programi.nastavitve = vsi.filter(function (p) { return p.nastavitev; }).slice(0, 5);
+        return programi;
       }).catch(function () { return []; }),
       q.length >= 2 ? klic("isciDatoteke", [q]).then(function (s) { return (s || []).slice(0, 6); }).catch(function () { return []; }) : Promise.resolve([]),
       q.length >= 2 ? klic("knjiznicaMedijev", ["", q, 0]).then(function (s) { return (s || []).slice(0, 5); }).catch(function () { return []; }) : Promise.resolve([]),
-      q.length >= 2 ? klic("zapiskiSeznam", [q]).then(function (s) { return (s || []).slice(0, 4); }).catch(function () { return []; }) : Promise.resolve([])
+      q.length >= 2 ? klic("zapiskiSeznam", [q]).then(function (s) { return (s || []).slice(0, 4); }).catch(function () { return []; }) : Promise.resolve([]),
+      // Katalog Medijskega centra (filmi, serije, glasba, radio, TV): samo iz predpomnilnika na disku - med
+      // tipkanjem se ne sprasuje virov po omrezju. Najprej naslovi, ki se z iskanim ujemajo.
+      q.length >= 3 ? klic("mediaIsciPredpomnilnik", [q]).then(function (s) {
+        s = s || [];
+        var poNaslovu = s.filter(function (x) { return ujemaZadetek((x.naslov || "") + " " + (x.izvajalec || ""), besede); });
+        return (poNaslovu.length ? poNaslovu : s).slice(0, 5);
+      }).catch(function () { return []; }) : Promise.resolve([]),
+      I.cilj ? klic("napraveZaMedij").catch(function () { return []; }) : Promise.resolve([])
     ];
-    // Enter, pritisnjen pred prihodom zadetkov: pocakamo samo na programe (hitro), ne na iskanje po disku.
-    cakaj[0].then(function (programi) {
-      if (st !== I.st) return;
-      I.caka = false;
-      if (!I.poEnter) return;
+    // Enter, pritisnjen pred prihodom zadetkov (I.poEnter): odlocimo, ko pridejo VSI zadetki - enako kot po prikazu
+    // (privzetiZadetek: datoteka, slika ali zapisek z ujemajocim imenom pred spletom). Ce iskanje po disku traja
+    // dlje kot 1,5 s po Enterju, odlocimo s tem, kar je ze tu: program, nastavitev, Safeer OS, naprava, sicer splet.
+    I.hitriEnter = function () {
+      // »Prikazi na …« odloci izris vseh zadetkov (naprave za cilj), ne programi.
+      if (st !== I.st || !I.poEnter || I.cilj) return;
       I.poEnter = false;
-      var napravaPoImenu = naprave.filter(function (v) { return v.poImenu; })[0];
-      izberiZadetek(programi.length ? { vrsta: "program", p: programi[0] } : safeer.length ? safeer[0] : napravaPoImenu || { vrsta: "splet", q: q });
-    });
+      cakaj[0].then(function (programi) {
+        if (st !== I.st) return;
+        var napravaPoImenu = naprave.filter(function (v) { return v.poImenu; })[0];
+        var nast = programi.nastavitve || [];
+        // Enter brez izbire: program, sicer nastavitev, katere ime se z nizom zacne, sicer Safeer OS ali naprava.
+        var nastPoImenu = nast.filter(function (p) { return ocenaPrograma(p, ql) >= 2; })[0];
+        var kandidati = programi.concat(nast).map(function (p) { return { vrsta: "program", p: p }; }).concat(safeer, naprave);
+        var nauceni = najboljNauceni(kandidati, nauceno);
+        if (nauceni >= 0) { I.privzetiV = kandidati[nauceni]; izberiZadetek(kandidati[nauceni]); return; }
+        I.privzetiV = programi.length ? { vrsta: "program", p: programi[0] } : nastPoImenu ? { vrsta: "program", p: nastPoImenu } : null;
+        izberiZadetek(programi.length ? { vrsta: "program", p: programi[0] } : nastPoImenu ? { vrsta: "program", p: nastPoImenu } :
+          safeer.length ? safeer[0] : napravaPoImenu || { vrsta: "splet", q: q });
+      });
+    };
     izrisiZadetke([{ naslov: t("skSplet"), vnosi: [{ vrsta: "splet", q: q }] }, { naslov: t("isciem"), vnosi: [] }]);
     Promise.all(cakaj).then(function (r) {
       if (st !== I.st) return;
+      I.caka = false;
+      if (I.cilj) {
+        I.napraveCilja = napraveCilja(I.cilj, r[5], true);
+        var naCilj = I.napraveCilja.map(function (n) {
+          return { vrsta: "naCilj", n: n, naslov: q, izberi: I.napraveCilja.length > 1 };
+        });
+        skupine.push({ naslov: t("skPrikaziNa"), vnosi: naCilj.length ? naCilj : [{ vrsta: "naCilj", n: null, naslov: q }] });
+      }
       skupine.push({ naslov: t("skSplet"), vnosi: [{ vrsta: "splet", q: q }] });
       if (r[0].length) skupine.push({ naslov: t("skProgrami"), vnosi: r[0].map(function (p) { return { vrsta: "program", p: p }; }) });
+      if ((r[0].nastavitve || []).length) skupine.push({ naslov: t("skNastavitve"), vnosi: r[0].nastavitve.map(function (p) { return { vrsta: "program", p: p }; }) });
       if (safeer.length) skupine.push({ naslov: t("skSafeer"), vnosi: safeer });
       if (naprave.length) skupine.push({ naslov: t("skNaprave"), vnosi: naprave });
       if (prg.length) skupine.push({ naslov: t("skProgramiNaprav"), vnosi: prg.map(function (p) { return { vrsta: "prgNaprave", p: p }; }) });
-      if (r[1].length) skupine.push({ naslov: t("skDatoteke"), vnosi: r[1].map(function (d) { return { vrsta: "datoteka", d: d }; }) });
-      if (r[3].length) skupine.push({ naslov: t("skZapiski"), vnosi: r[3].map(function (z) { return { vrsta: "zapisek", z: z }; }) });
+      if (r[1].length) skupine.push({ naslov: t("skDatoteke"), vnosi: poUcenju(r[1].map(function (d) { return { vrsta: "datoteka", d: d }; }), nauceno, kljucZadetka) });
+      if (r[3].length) skupine.push({ naslov: t("skZapiski"), vnosi: poUcenju(r[3].map(function (z) { return { vrsta: "zapisek", z: z }; }), nauceno, kljucZadetka) });
       // Mediji: zadetki iz krajevne knjiznice, na koncu pa pot v Medijski center. Katalog isce sele tam - med
       // tipkanjem na namizju virov ne sprasujemo in naslovov iz kataloga ne kazemo.
-      var mediji = r[2].map(function (d) { return { vrsta: "medij", d: d }; });
+      var mediji = poUcenju(r[2].map(function (d) { return { vrsta: "medij", d: d }; })
+        .concat(r[4].map(function (k) { return { vrsta: "katalog", k: k }; })), nauceno, kljucZadetka);
       if (q.length >= 2) mediji.push({ vrsta: "mediji", q: q });
       if (mediji.length) skupine.push({ naslov: t("skMediji"), vnosi: mediji });
       izrisiZadetke(skupine);
+      if (I.poEnter) {
+        I.poEnter = false; clearTimeout(I.enterCasovnik);
+        var b = I.zadetki[I.izbran];
+        if (b && b._v.vrsta === "naCilj" && b._v.izberi) { obvesti(t("izberiNapravo")); return; }
+        izberiZadetek(b ? b._v : { vrsta: "splet", q: q });
+      }
     });
   }
   function izrisiZadetke(skupine) {
@@ -2762,10 +2921,19 @@
         } else if (v.vrsta === "safeer") {
           // Medijski center se odpre v svojem oknu Safeer Player (safeer_os.py _odpri_razdelek), ostalo v Safeer OS.
           b.appendChild(ikonaVrste("program")); ime = v.ime; pod = t(v.cilj === "media" ? "odprePredvajalnik" : "odpreSafeerOs");
+        } else if (v.vrsta === "naCilj") {
+          b.appendChild(ikonaVrste("naprava"));
+          ime = v.n ? t("prikaziNaVrsta", { kaj: v.k ? v.k.naslov : v.naslov, ime: v.n.ime }) : t("niNapraveCilja");
         } else if (v.vrsta === "zapisek") {
           b.appendChild(ikonaVrste("dokument")); ime = v.z.naslov; pod = v.z.odlomek || "";
         } else if (v.vrsta === "naprava") {
           b.appendChild(ikonaVrste("naprava")); ime = v.n.ime; pod = t(v.datoteke ? "napravaDatoteke" : "napravaProgrami"); vir = "Safeer Link";
+        } else if (v.vrsta === "katalog") {
+          // Vsebina iz kataloga Medijskega centra (vir, ki ga je dodal uporabnik, ali vgrajeni zakoniti viri).
+          if (v.k.slika && /^https:\/\//.test(v.k.slika)) appendIkona(b, v.k.slika, v.k.naslov);
+          else b.appendChild(ikonaVrste(v.k.vrsta === "glasba" || v.k.vrsta === "podcast" || v.k.vrsta === "radio" ? "zvok" : "video"));
+          ime = v.k.naslov || ""; pod = v.k.izvajalec || "";
+          vir = t("skMediji");
         } else if (v.vrsta === "mediji") {
           b.appendChild(ikonaVrste("video")); ime = t("isciVMedijih", { q: v.q }); pod = t("odpreMedijski");
         } else if (v.vrsta === "datoteka") {
@@ -2783,7 +2951,8 @@
       });
     });
     // Na namizju Enter odpre program, ce se kateri ujema (kot meni Start); splet ostane prva vrstica in Shift+Enter.
-    if (!I.rocno) I.izbran = privzetiZadetek(I.zadetki.map(function (b) { return b._v; }));
+    if (!I.rocno) I.izbran = privzetiZadetek(I.zadetki.map(function (b) { return b._v; }), I.zadnji, I.nauceno);
+    I.privzetiV = I.zadetki[I.izbran] ? I.zadetki[I.izbran]._v : null;
     z.hidden = false; $("iskalnoPolje").setAttribute("aria-expanded", "true");
     oznaciZadetek();
   }
@@ -2793,7 +2962,101 @@
     var b = I.zadetki[I.izbran]; if (b) b.scrollIntoView({ block: "nearest" });
   }
   function skrijZadetke() { $("zadetki").hidden = true; $("iskalnoPolje").setAttribute("aria-expanded", "false"); I.zadetki = []; }
+  /* Iskanje z glasom (core/os_govor.py, na tem racunalniku). Prvi pritisk: ce prepoznave se ni, jo ponudimo prenesti
+     (velikost pove Safeer OS); sicer poslusamo. Med poslusanjem drugi pritisk konca govor, Esc ga preklice.
+     Prepoznano besedilo gre v polje in se isce kot natipkano - nic se ne odpre samo od sebe. */
+  var G = { stanje: "" };
+  function mikrofonKlik() {
+    if (G.stanje === "poslusam") { klic("govorUstavi"); return; }
+    if (G.stanje === "prepoznavam" || G.stanje === "namescam") return;
+    klic("govorStanje").then(function (s) {
+      if (!s || !s.podprto) obvesti(t("govorNiPodprto"));
+      else if (s.namescam) prikaziPrenosGovora(0);
+      else if (!s.namesceno) ponudiPrenosGovora(s.prenos || 0);
+      else zacniPoslusati();
+    }).catch(function () { obvesti(t("govorNiPodprto")); });
+  }
+  function zacniPoslusati() {
+    klic("govorPoslusaj").then(function (ok) { if (!ok) obvesti(t("govorNapaka")); }).catch(function () { obvesti(t("govorNapaka")); });
+  }
+  function plosaGovora(naslov, opis) {
+    var z = $("zadetki"); z.innerHTML = ""; I.zadetki = [];
+    var p = el("div", "govor-plosca");
+    p.appendChild(el("p", "govor-naslov", naslov));
+    if (opis) p.appendChild(el("p", "govor-opis", opis));
+    z.appendChild(p); z.hidden = false; $("iskalnoPolje").setAttribute("aria-expanded", "true");
+    return p;
+  }
+  function gumbGovora(gumbi, besedilo, glavni, fn) {
+    var g = el("button", "cip" + (glavni ? " glavni-gumb" : ""), besedilo); g.type = "button";
+    g.addEventListener("click", fn); gumbi.appendChild(g); return g;
+  }
+  function ponudiPrenosGovora(bajtov) {
+    var p = plosaGovora(t("govorNamestiNaslov"), t("govorNamestiOpis", { mb: Math.max(1, Math.round(bajtov / 1e6)) }));
+    var gumbi = el("div", "gumbi"); p.appendChild(gumbi);
+    gumbGovora(gumbi, t("govorNeZdaj"), false, skrijZadetke);
+    gumbGovora(gumbi, t("govorPrenesi"), true, function () {
+      klic("govorNamesti").then(function (ok) { if (ok) prikaziPrenosGovora(0); else { skrijZadetke(); obvesti(t("govorNiPodprto")); } });
+    }).focus();
+  }
+  function prikaziPrenosGovora(odstotek) {
+    G.stanje = "namescam";
+    var p = plosaGovora(t("govorPrenasam", { o: odstotek }));
+    var vrstica = document.createElement("progress"); vrstica.max = 100; vrstica.value = odstotek; p.appendChild(vrstica);
+    var gumbi = el("div", "gumbi"); p.appendChild(gumbi);
+    gumbGovora(gumbi, t("govorPrekini"), false, function () { klic("govorPrekliciNamestitev"); });
+  }
+  // Valovi glasnosti: zadnjih VALOV ravni (0..1) od desne proti levi; tisina so pike, govor stolpci.
+  var VALOV = 34, ravni = [];
+  function narisiValove() {
+    var c = $("govorValovi"); if (!c) return;
+    while (c.children.length < VALOV) c.appendChild(document.createElement("i"));
+    for (var i = 0; i < VALOV; i++) {
+      var r = ravni[ravni.length - VALOV + i] || 0;
+      c.children[i].style.height = (r < 0.28 ? 3 : Math.round(3 + (r - 0.28) / 0.72 * 22)) + "px";
+    }
+  }
+  function vrsticaGovora(vklop, prepoznava) {
+    var f = $("iskanje");
+    f.classList.toggle("govori", vklop); f.classList.toggle("prepoznava", !!prepoznava);
+    $("govorVrstica").hidden = !vklop;
+    if (!vklop) { ravni = []; $("govorDelno").textContent = ""; narisiValove(); }
+  }
+  function govorDogodek(d) {
+    var g = $("gumbMikrofon"), polje = $("iskalnoPolje"), v = d.vrsta;
+    if (v === "raven") { ravni.push(d.r || 0); if (ravni.length > 200) ravni.splice(0, 100); narisiValove(); return; }
+    if (v === "delno") { if (G.stanje === "poslusam" || G.stanje === "prepoznavam") $("govorDelno").textContent = d.besedilo || ""; return; }
+    if (v === "poslusam") { ravni = []; $("govorDelno").textContent = ""; vrsticaGovora(true, false); }
+    else if (v === "prepoznavam") { vrsticaGovora(true, true); if (!$("govorDelno").textContent) $("govorDelno").textContent = t("govorPrepoznavam"); }
+    else if (v !== "namescam") vrsticaGovora(false);
+    G.stanje = (v === "poslusam" || v === "prepoznavam" || v === "namescam") ? v : "";
+    g.classList.toggle("poslusam", v === "poslusam");
+    g.classList.toggle("prepoznavam", v === "prepoznavam");
+    if (v === "poslusam") { polje.value = ""; skrijZadetke(); polje.focus(); }
+    polje.placeholder = v === "poslusam" ? t("govorPoslusam") : v === "prepoznavam" ? t("govorPrepoznavam") : t("iskanjePh");
+    if (v === "namescam") prikaziPrenosGovora(d.odstotek || 0);
+    else if (v === "namesceno") { skrijZadetke(); zacniPoslusati(); }
+    else if (v === "besedilo") {
+      if (d.besedilo) { polje.value = d.besedilo; polje.focus(); clearTimeout(I.casovnik); isci(d.besedilo); }
+      else obvesti(t("govorTisina"));
+    }
+    else if (v === "tisina") obvesti(t("govorTisina"));
+    else if (v === "napaka") {
+      skrijZadetke();
+      if (d.razlog !== "preklicano") obvesti(t(d.razlog === "mikrofon" ? "govorMikrofon" : d.razlog === "prenos" ? "govorPrenosNapaka" : "govorNapaka"));
+    }
+  }
+  // Izbira gre v ucenje lupe; »prvi« pove, ali je bil to zadetek, ki ga je lupa ponudila prvega (merilo uspeha).
+  function zapomniIzbiro(v) {
+    var ql = nizUcenja(I.zadnji || ""), k = kljucZadetka(v);
+    if (!ql || !k) return;
+    var prvi = !!I.privzetiV && kljucZadetka(I.privzetiV) === k;
+    U.izbire.push([ql, k, Math.round(Date.now() / 1000), prvi]);
+    if (U.izbire.length > NAJVEC_IZBIR) U.izbire.shift();
+    klic("lupaZapomni", [ql, k, prvi]).catch(function () {});
+  }
   function izberiZadetek(v) {
+    zapomniIzbiro(v);
     skrijZadetke();
     if (v.vrsta === "splet") odpriSplet(v.q);
     else if (v.vrsta === "program") klic("zazeni", [v.p.id]);
@@ -2802,9 +3065,44 @@
     else if (v.vrsta === "zapisek") klic("odpriRazdelek", ["zapisek:" + v.z.id]);
     else if (v.vrsta === "naprava") odpriNapravo(v);
     else if (v.vrsta === "mediji") klic("odpriRazdelek", ["mediji:" + v.q]);
+    else if (v.vrsta === "katalog" && I.cilj) prikaziKatalogNa(v.k);
+    else if (v.vrsta === "katalog") odpriIzKataloga(v.k);
+    else if (v.vrsta === "naCilj") prikaziNa(v);
     else if (v.vrsta === "datoteka") odpriVnos(v.d);
     else if (v.vrsta === "medij") klic("odpriLokalniMedij", [v.d.pot]).then(function (ok) { if (ok) medijOsvezi(); else obvesti(t("niUspelo")); });
     $("iskalnoPolje").value = "";
+  }
+  /* Vsebina iz kataloga: glasba, radio in TV se predvajajo takoj (mali predvajalnik na namizju); film ali serija se
+     odpre v Safeer Playerju (podrobnosti, sezone, kje gledati). */
+  function odpriIzKataloga(k) {
+    if (k.vrsta === "film" || k.vrsta === "serija" || k.vrsta === "video") {
+      klic("odpriRazdelek", ["mediji:" + (k.naslov || "")]);
+      return;
+    }
+    klic("mediaPredvajaj", [k.id]).then(function (izid) {
+      if (!izid || izid.napaka_koda || izid.napaka) obvesti(t("niUspelo")); else medijOsvezi();
+    }).catch(function () { obvesti(t("niUspelo")); });
+  }
+  /* "Prikazi na ...": naslov (ali izbrani vnos kataloga) odpre Medijski center izbrane naprave; ta racunalnik (id "")
+     ga odpre tukaj. Vec naprav iste vrste: uporabnik izbere (vrstice "Prikazi na"). */
+  function prikaziNa(v) {
+    if (!v.n) { obvesti(t("niNapraveCilja")); return; }
+    var kaj = v.k ? v.k.naslov : v.naslov;
+    if (!v.n.id) { if (v.k) odpriIzKataloga(v.k); else klic("odpriRazdelek", ["mediji:" + kaj]); return; }
+    var m = { title: kaj, kind: v.k ? (v.k.vrsta || "") : "", year: v.k && v.k.leto ? Number(v.k.leto) || null : null };
+    klic("odpriMedijNa", [v.n.id, JSON.stringify(m)]).then(function (izid) {
+      var koda = izid && (izid.koda || izid.code);
+      if (izid && izid.ok) obvesti(t("prikazanoNa", { ime: v.n.ime, kaj: kaj }));
+      else if (koda === "neznano_dejanje" || koda === "stari_control") obvesti(t("napravaNeZna", { ime: v.n.ime }));
+      else obvesti(t("niUspelo"));
+    }).catch(function () { obvesti(t("niUspelo")); });
+  }
+  function prikaziKatalogNa(k) {
+    var n = I.napraveCilja || [];
+    if (n.length === 1) { prikaziNa({ n: n[0], k: k }); return; }
+    if (!n.length) { obvesti(t("niNapraveCilja")); return; }
+    izrisiZadetke([{ naslov: t("izberiNapravo"), vnosi: n.map(function (x) { return { vrsta: "naCilj", n: x, k: k, naslov: k.naslov }; }) }]);
+    $("iskalnoPolje").focus();
   }
   function odpriNapravo(v) {
     if (v.datoteke) {
@@ -2816,9 +3114,11 @@
     }
   }
   function odpriSplet(q) {
-    // Spletni zadetek odpre privzeti brskalnik; starejsi Safeer OS brez te metode odpre vdelani Splet.
-    klic("odpriVBrskalniku", [q]).then(function (ok) { if (ok === false) return klic("iskanjeSplet", [q]); })
-      .catch(function () { klic("iskanjeSplet", [q]); });
+    // Spletni zadetek: rezultati v plosci na namizju, tik pod iskalnim poljem (isti vgrajeni brskalnik kot Splet v
+    // Safeer OS, z vsemi moznostmi). Brez tega (starejsi Safeer OS, brez peskovnika) privzeti brskalnik.
+    var r = $("iskalnoPolje").getBoundingClientRect();
+    klic("spletNaNamizju", [q, Math.round(r.bottom)]).then(function (ok) { if (ok === false) return klic("odpriVBrskalniku", [q]); })
+      .catch(function () { klic("odpriVBrskalniku", [q]).catch(function () { klic("iskanjeSplet", [q]); }); });
   }
 
   // ------------------------------------------------------------------ SAFEER LINK (gumb pod iskalnikom)
@@ -2856,12 +3156,23 @@
   var zadnjeOsvezevanje = Date.now();
   function vezi() {
     var polje = $("iskalnoPolje");
+    var mik = $("gumbMikrofon");
+    mik.setAttribute("aria-label", t("mikrofonNaslov")); mik.title = t("mikrofonNaslov");
+    mik.addEventListener("click", mikrofonKlik);
+    $("govorPreklici").setAttribute("aria-label", t("govorPreklici")); $("govorPreklici").title = t("govorPreklici");
+    $("govorKoncaj").setAttribute("aria-label", t("govorKoncaj")); $("govorKoncaj").title = t("govorKoncaj");
+    $("govorPreklici").addEventListener("click", function () { klic("govorPreklici"); });
+    $("govorKoncaj").addEventListener("click", function () { klic("govorUstavi"); });
+    narisiValove();
     polje.addEventListener("input", function () { clearTimeout(I.casovnik); var q = polje.value; I.casovnik = setTimeout(function () { isci(q); }, 220); });
     polje.addEventListener("keydown", function (e) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         if (!I.zadetki.length) return;
         e.preventDefault(); I.rocno = true; I.izbran = (I.izbran + (e.key === "ArrowDown" ? 1 : -1) + I.zadetki.length) % I.zadetki.length; oznaciZadetek();
-      } else if (e.key === "Escape") { skrijZadetke(); polje.value = ""; I.poEnter = false; }
+      } else if (e.key === "Escape") {
+        if (G.stanje === "poslusam" || G.stanje === "prepoznavam") klic("govorPreklici");
+        skrijZadetke(); polje.value = ""; I.poEnter = false;
+      }
       else if (e.key === "Enter" && e.shiftKey) {
         // Shift+Enter: vedno splet, tudi ce se ujema program.
         e.preventDefault();
@@ -2874,16 +3185,22 @@
       e.preventDefault();
       var q = polje.value.trim(); if (!q) return;
       if (!I.rocno && (q !== I.zadnji || I.caka)) {
-        // Zadetki za ta niz se niso tu (hitro tipkanje + Enter): odloci, ko pridejo programi.
+        // Zadetki za ta niz se niso tu (hitro tipkanje + Enter): odloci, ko pridejo vsi (najvec 1,5 s).
         I.poEnter = true;
         if (q !== I.zadnji) { clearTimeout(I.casovnik); isci(q); I.poEnter = true; }
+        clearTimeout(I.enterCasovnik);
+        I.enterCasovnik = setTimeout(function () { if (I.hitriEnter) I.hitriEnter(); }, 1500);
         return;
       }
       var b = I.zadetki[I.izbran];
+      if (b && b._v.vrsta === "naCilj" && b._v.izberi && !I.rocno) { obvesti(t("izberiNapravo")); return; }
       izberiZadetek(b ? b._v : { vrsta: "splet", q: q });
     });
     document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape") { zapriMeni(); $("meniPlosce").hidden = true; }
+      if (e.key === "Escape") {
+        zapriMeni(); $("meniPlosce").hidden = true;
+        if (G.stanje === "poslusam" || G.stanje === "prepoznavam") klic("govorPreklici");   // polje je med govorom skrito
+      }
       var vPolju = /^(INPUT|SELECT|TEXTAREA)$/.test((document.activeElement || {}).tagName || "");
       if ((e.ctrlKey && (e.key === "k" || e.key === "K")) || (!vPolju && e.key === "/")) { e.preventDefault(); polje.focus(); polje.select(); }
     });
@@ -3023,6 +3340,12 @@
     // Dogodki iz Safeer OS (enako ime kot na glavni strani): osvezi, kar se je spremenilo.
     window.safeerOsDogodek = function (vrsta) {
       if (vrsta === "medijskaKnjiznica") medijOsvezi();
+      else if (vrsta === "govor") govorDogodek(arguments[1] || {});
+      else if (vrsta === "iskanjeOdDrugod") {
+        // Glas s telefona (Safeer Link): niz v lupo, kot bi ga uporabnik natipkal ali povedal tu.
+        var q = String((arguments[1] || {}).q || "").trim(), polje = $("iskalnoPolje");
+        if (q) { polje.value = q; polje.focus(); clearTimeout(I.casovnik); isci(q); }
+      }
       else if (vrsta === "ozadje") {
         var u = arguments[1] || "";
         document.documentElement.style.setProperty("--ozadje-slika", u ? 'url("' + u + '")' : "none");

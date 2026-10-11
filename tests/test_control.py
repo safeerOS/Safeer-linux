@@ -29,7 +29,8 @@ class ControlUkazi(unittest.TestCase):
         dejanja = i["data"]["actions"]
         # Magnet povezave z drugih naprav odpre Safeer OS, seznami predvajanja so njegovi - samo, ce je namescen.
         self.assertEqual(dejanja, link_daljinec.DEJANJA_CONTROL + link_daljinec.DEJANJA_HOST
-                         + (link_daljinec.DEJANJA_MAGNET + link_daljinec.DEJANJA_SEZNAMI if link_daljinec._safeer_os() else []))
+                         + (link_daljinec.DEJANJA_MAGNET + link_daljinec.DEJANJA_SEZNAMI + link_daljinec.DEJANJA_ISKANJE
+                            + link_daljinec.DEJANJA_MEDIJ if link_daljinec._safeer_os() else []))
         for d in (link_daljinec.DEJANJA_DATOTEKE + link_daljinec.DEJANJA_PROGRAMI
                   + link_daljinec.DEJANJA_ZASLON):
             self.assertNotIn(d, dejanja)

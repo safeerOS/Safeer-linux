@@ -1,0 +1,65 @@
+name: Govor (whisper-cli)
+# Program za govor v iskalni lupi Safeer OS (core/os_govor.py). Zgradi ga tools/govor/zgradi.sh v Ubuntu 22.04
+# (glibc 2.35: Linux Mint 21 in novejsi). Oznaka govor-* ustvari osnutek izdaje s programoma; Safeer OS ju prenese
+# sele, ko uporabnik prvic pritisne mikrofon, in preveri SHA-256, ki je vpisan v core/os_govor.py.
+on:
+  push:
+    branches: ['**']
+    tags: ['govor-*']
+    paths: ['tools/govor/**', '.github/workflows/govor.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  zgradi:
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:22.04
+    strategy:
+      matrix:
+        razlicica: [x86_64-v3, x86_64]
+    steps:
+      - name: Orodja
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates git cmake g++ make curl binutils
+      - uses: actions/checkout@v5
+      - name: Zgradi
+        run: bash tools/govor/zgradi.sh ${{ matrix.razlicica }} izhod
+      - name: Preizkus (model tiny, posnetek iz whisper.cpp)
+        run: |
+          curl -sSfL -o tiny.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-tiny.bin
+          izid="$(izhod/whisper-cli-${{ matrix.razlicica }} -m tiny.bin -f izhod/jfk.wav -l en -t 2 -nt -np -nf -ac 768)"
+          echo "$izid"
+          echo "$izid" | grep -qi "fellow americans"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: whisper-cli-${{ matrix.razlicica }}
+          path: |
+            izhod/whisper-cli-${{ matrix.razlicica }}
+            izhod/whisper.cpp-LICENSE
+  izdaja:
+    if: startsWith(github.ref, 'refs/tags/govor-')
+    needs: zgradi
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: izdaja
+          merge-multiple: true
+      - name: Osnutek izdaje
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cd izdaja && sha256sum -- * > SHA256SUMS && cat SHA256SUMS && cd ..
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --draft --verify-tag --title "Govor za Safeer OS ($TAG)" \
+              --notes 'whisper-cli (whisper.cpp v1.9.5, MIT) za prepoznavo govora v iskalni lupi Safeer OS. Deluje na računalniku, nič ne gre na splet.'
+          fi
+          if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = "true" ]; then
+            gh release upload "$TAG" izdaja/* --clobber
+          fi

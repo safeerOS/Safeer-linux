@@ -45,7 +45,7 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 
-from core import (os_datoteke, os_katalog, os_knjiznica, os_oblak_igre, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
+from core import (os_datoteke, os_govor, os_katalog, os_knjiznica, os_lupa, os_oblak_igre, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
                   os_media_besedila, os_mediji, os_posodobitve, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost,
                   os_torrent, os_torrent_tok, os_zapiski, os_zvok, knjiznica_kroga, os_ponudniki_programov, os_github_programi)
 from core import budnost, odlozisce_varuh, os_iskalnik, os_odpri_z, os_pretvorba_datotek  # noqa: E402
@@ -645,6 +645,22 @@ def zazeni_na_napravi(id_naprave: str, app: str) -> dict:
     return _control_naprave("Zazeni", str(id_naprave or ""), str(app or ""))
 
 
+def naprave_za_medij() -> list:
+    """Naprave v Linku, na katerih lahko lupa »prikaze« film ali glasbo (media.open): vse z daljincem razen te."""
+    izid = _control_naprave("Seznam")
+    return [{"id": n.get("id"), "ime": n.get("ime") or n.get("id"), "platforma": n.get("platforma") or ""}
+            for n in (izid.get("naprave") or []) if n.get("id") and not n.get("ta") and "remote" in (n.get("zmoznosti") or [])]
+
+
+def odpri_medij_na(id_naprave: str, medij: str) -> dict:
+    """»Prikazi na TV«: naslov odpre Medijski center izbrane naprave (Link media.open prek Controla)."""
+    try:
+        m = json.loads(medij or "{}")
+    except ValueError:
+        return {"ok": False, "koda": "prazno"}
+    return _control_naprave("Ukaz", str(id_naprave or ""), "media.open", json.dumps(m if isinstance(m, dict) else {}))
+
+
 def odpri_tukaj(id_naprave: str, app: str) -> dict:
     """Napravo prosi za zagon programa in pretakanje zaslona na ta racunalnik."""
     return _control_naprave("OdpriTukaj", str(id_naprave or ""), str(app or ""))
@@ -865,6 +881,16 @@ PESKOVNIK_PONOVNO_S = 30.0
 
 
 #: Ukazna zastavica za okno Safeer Player (Medijski center v svojem oknu); --predvajaj <datoteka> je nekaj drugega.
+#: Plosca Splet na namizju: (naslov, »Odpri v brskalniku«, »Zapri (Esc)«).
+BESEDILA_SPLETA_NA_NAMIZJU = {
+    "sl": ("Splet", "Odpri v brskalniku", "Zapri (Esc)"),
+    "en": ("Web", "Open in browser", "Close (Esc)"),
+    "de": ("Web", "Im Browser öffnen", "Schließen (Esc)"),
+    "es": ("Web", "Abrir en el navegador", "Cerrar (Esc)"),
+    "fr": ("Web", "Ouvrir dans le navigateur", "Fermer (Échap)"),
+    "it": ("Web", "Apri nel browser", "Chiudi (Esc)"),
+}
+
 ZASTAVICE_PREDVAJALNIKA = ("--predvajalnik", "--player")
 #: Ime okna Safeer Player za upravitelja oken (WM_CLASS): po njem ga pult zdruzi z vnosom »Safeer Player«
 #: (StartupWMClass v packaging/safeer-player.desktop) in ne z glavnim oknom Safeer OS. Ime je ID vnosa v paketu
@@ -955,6 +981,8 @@ class SafeerOS(Gtk.Application):
         self.shramba = os_programi.Shramba()
         self.programi = os_programi.Programi(self.shramba)
         self.zapiski = os_zapiski.Zapiski(ZAPISKI_POT)
+        self.lupa = os_lupa.Ucenje()
+        self.govor = os_govor.Govor()
         self.sporocila = os_sporocila.SporocilaOS()
         # Safeer Chat gre po Linku, ki ga drzi Safeer Control (D-Bus).
         self.sporocila.poslji_klepet = lambda n, b, c: _control_naprave("Klepet", n, b, c).get("stanje") \
@@ -1029,6 +1057,10 @@ class SafeerOS(Gtk.Application):
         # Splet je del istega okna. Ustvarimo ga sele ob prvem obisku in ga med razdelki samo skrijemo,
         # zato zavihki, prijave in zgodovina ostanejo zivi.
         self._spletni = None
+        #: Splet na delovni povrsini (iskanje z zgornjim poljem): isti vgrajeni brskalnik v plosci nad namizjem.
+        self._spletni_namizje = None
+        self._plosca_spleta = None
+        self._prekrivanje_delovne = None
         self._peskovnik_dela = None   # None = še ni preverjeno (core.os_splet.peskovnik_dela)
         self._peskovnik_preverjen = 0.0   # kdaj (time.monotonic) je bil nazadnje preverjen
         self._glavna_postavitev = None
@@ -1067,6 +1099,14 @@ class SafeerOS(Gtk.Application):
         predvajalnik_okno = Gio.SimpleAction.new("predvajalnik", GLib.VariantType.new("s"))
         predvajalnik_okno.connect("activate", lambda _a, v: self._odpri_predvajalnik(v.get_string() if v else ""))
         self.add_action(predvajalnik_okno)
+        #: `safeer-os --medij-naprava <json>` (»prikazi na racunalniku« z druge naprave, media.open): Safeer Player.
+        medij = Gio.SimpleAction.new("medij", GLib.VariantType.new("s"))
+        medij.connect("activate", lambda _a, v: self._odpri_medij_od_drugod(v.get_string() if v else ""))
+        self.add_action(medij)
+        #: `safeer-os --isci-naprava <niz>` (glas s telefona, core/link_daljinec.py search.query): niz v iskalno lupo.
+        isci = Gio.SimpleAction.new("isci", GLib.VariantType.new("s"))
+        isci.connect("activate", lambda _a, v: self._isci_od_drugod(v.get_string() if v else ""))
+        self.add_action(isci)
         #: `safeer-os --delovna` (safeer-cinnamon), ko Safeer OS ze tece brez delovne povrsine (glej _vklopi_delovno).
         delovna_povrsina = Gio.SimpleAction.new("delovna", None)
         delovna_povrsina.connect("activate", lambda *_a: self._vklopi_delovno())
@@ -1286,7 +1326,11 @@ class SafeerOS(Gtk.Application):
             okno.move(g.x, g.y)
             okno.set_default_size(g.width, g.height)
             okno.set_size_request(g.width, g.height)
-        okno.add(pogled)
+        # Prekrivanje: nad namizjem se lahko pokaze plosca Splet (iskanje po spletu iz zgornjega polja).
+        prekrivanje = Gtk.Overlay()
+        prekrivanje.add(pogled)
+        okno.add(prekrivanje)
+        self._prekrivanje_delovne = prekrivanje
         okno.connect("destroy", lambda *a: self._koncaj())
         self.okno_delovna, self.pogled_delovna = okno, pogled
         okno.show_all()
@@ -1419,6 +1463,8 @@ class SafeerOS(Gtk.Application):
         if iskanje:
             self._js("window.safeerOsPojdi && window.safeerOsPojdi(%s);" % json.dumps("mediji:" + iskanje),
                      self.pogled_predvajalnik)
+            # Lastnik, 11. 10. 2026: ko iscemo v Medijskem centru, je na celem zaslonu.
+            self.okno_predvajalnik.maximize()
         # Okno, ki ga je uporabnik zaprl (upravljalnik oken ga je umaknil, mi smo ga skrili), GTK ob ponovnem prikazu
         # ne oznaci s casom - Muffin ga potem le oznaci z »zahteva pozornost« in ostane za drugim oknom (izmerjeno
         # 11. 10. 2026). Zato cas uporabe nastavimo sami, pred prikazom.
@@ -1451,6 +1497,8 @@ class SafeerOS(Gtk.Application):
         okno.add(pogled)
         okno.connect("delete-event", self._zapri_predvajalnik)
         self.okno_predvajalnik, self.pogled_predvajalnik = okno, pogled
+        if iskanje and not self.posnetek:
+            okno.maximize()         # iskanje (lupa, glas z druge naprave): Medijski center na celem zaslonu
         okno.show_all()
         if self.posnetek and self.okno is None:
             # Kot pri glavnem oknu: posnetek mora nastati tudi, ce WebKit konca nalaganja ne javi.
@@ -1496,6 +1544,118 @@ class SafeerOS(Gtk.Application):
         """Uporabnik je v Cinnamonu izbral novo ozadje: delovna povrsina ga prevzame takoj."""
         ozadje = os_sistem.ozadje_namizja()
         self._dogodek("ozadje", ("file://" + GLib.uri_escape_string(ozadje, "/", False)) if ozadje else "")
+
+    #: Slog plosce Splet na namizju - barve namizja (assets/os/delovna.css).
+    CSS_SPLETA_NA_NAMIZJU = b"""
+        #splet-namizje { background-color: rgba(14, 23, 39, 0.98); border: 1px solid rgba(215, 234, 255, 0.34);
+            border-radius: 16px; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55); padding: 6px; }
+        #splet-namizje-glava { padding: 4px 8px 6px 12px; }
+        #splet-namizje-glava label { color: #eaf2ff; font-weight: bold; }
+        #splet-namizje-glava button { background-image: none; background-color: rgba(16, 26, 43, 0.8); color: #eaf2ff;
+            border: 1px solid rgba(211, 229, 255, 0.23); border-radius: 10px; padding: 4px 12px; box-shadow: none;
+            text-shadow: none; }
+        #splet-namizje-glava button:hover { background-color: rgba(104, 168, 229, 0.20); border-color: #9dceff; }
+    """
+
+    def _splet_na_namizju(self, niz: str, vrh: float = 0) -> bool:
+        """Iskanje po spletu iz zgornjega polja delovne povrsine: rezultati v plosci na namizju (isti vgrajeni
+        brskalnik z vsemi moznostmi kot Splet v Safeer OS: zavihki, naslov, Scit, meni), ne v drugem programu.
+        `vrh`: spodnji rob iskalnega polja (CSS px), plosca je tik pod njim. Brez peskovnika: privzeti brskalnik."""
+        niz = str(niz or "").strip()
+        if not niz:
+            return False
+        url = niz if niz.lower().startswith(("http://", "https://")) else \
+            _iskalnik() + GLib.uri_escape_string(niz, None, False)
+        if self.okno_delovna is None or not self._peskovnik_na_voljo():
+            return self._odpri_v_brskalniku(niz)
+        if self._plosca_spleta is None:
+            from core.os_splet import VdelaniSplet
+            css = Gtk.CssProvider()
+            css.load_from_data(self.CSS_SPLETA_NA_NAMIZJU)
+            Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), css,
+                                                     Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            self._spletni_namizje = VdelaniSplet(Gtk, Gdk, Gio, GLib, WebKit2, KOREN, _jezik, stanje_povezave,
+                                                 self._splet_v_zapisek, self.okno_delovna)
+            plosca = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            plosca.set_name("splet-namizje")
+            glava = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            glava.set_name("splet-namizje-glava")
+            glava.pack_start(Gtk.Label(label=BESEDILA_SPLETA_NA_NAMIZJU.get(_jezik(), BESEDILA_SPLETA_NA_NAMIZJU["en"])[0]),
+                             False, False, 0)
+            zapri = Gtk.Button(label="✕")
+            zapri.set_tooltip_text(BESEDILA_SPLETA_NA_NAMIZJU.get(_jezik(), BESEDILA_SPLETA_NA_NAMIZJU["en"])[2])
+            zapri.connect("clicked", lambda *_: self._skrij_splet_na_namizju())
+            glava.pack_end(zapri, False, False, 0)
+            v_brskalniku = Gtk.Button(label=BESEDILA_SPLETA_NA_NAMIZJU.get(_jezik(), BESEDILA_SPLETA_NA_NAMIZJU["en"])[1])
+            v_brskalniku.connect("clicked", lambda *_: self._splet_namizja_v_brskalnik())
+            glava.pack_end(v_brskalniku, False, False, 0)
+            okvir_glave = Gtk.EventBox()      # za glavo se okno premakne (okno nima okvirja)
+            okvir_glave.add(glava)
+            plosca.pack_start(okvir_glave, False, False, 0)
+            plosca.pack_start(self._spletni_namizje.gradnik, True, True, 0)
+            # Svoje okno brez okvirja (videz plosce namizja): namizje je vedno pod vsemi okni, rezultati pa morajo
+            # priti naprej. Za glavo se okno premakne; Esc ali ✕ ga skrije.
+            okno = Gtk.Window(title=BESEDILA_SPLETA_NA_NAMIZJU.get(_jezik(), BESEDILA_SPLETA_NA_NAMIZJU["en"])[0])
+            okno.set_wmclass("safeer-os.Splet", "Safeer Splet")
+            okno.set_icon_name("safeer-browser")
+            okno.set_decorated(False)
+            okno.set_application(self)
+            vizual = okno.get_screen().get_rgba_visual()
+            if vizual is not None:
+                okno.set_visual(vizual)
+                okno.set_app_paintable(True)
+            okno.add(plosca)
+            okno.connect("key-press-event", self._tipka_splet_na_namizju)
+            okno.connect("delete-event", lambda *_: (self._skrij_splet_na_namizju(), True)[1])
+            okvir_glave.connect("button-press-event", lambda _w, e: e.button == 1 and okno.begin_move_drag(
+                e.button, int(e.x_root), int(e.y_root), e.time))
+            self._plosca_spleta = okno
+        okno = self._plosca_spleta
+        zaslon = self._zaslon()
+        g = zaslon.get_workarea() if zaslon else None
+        x0, y0, sirina, visina = (g.x, g.y, g.width, g.height) if g else (0, 0, 1280, 800)
+        vrh = max(48, int(float(vrh or 0)) + 10)
+        sirina_okna, visina_okna = int(sirina * 0.74), max(320, int(visina - vrh - 24))
+        okno.set_default_size(sirina_okna, visina_okna)
+        okno.resize(sirina_okna, visina_okna)
+        okno.move(x0 + (sirina - sirina_okna) // 2, y0 + vrh)
+        okno.show_all()
+        self._spletni_namizje.odpri(url)
+        cas = _cas_dogodka(okno)
+        gdk_okno = okno.get_window()
+        if gdk_okno is not None and hasattr(gdk_okno, "set_user_time"):
+            gdk_okno.set_user_time(cas)
+        okno.present_with_time(cas)
+        try:
+            self._spletni_namizje.trenutni().grab_focus()
+        except Exception:  # noqa: BLE001
+            pass
+        return True
+
+    def _skrij_splet_na_namizju(self) -> bool:
+        if self._plosca_spleta is None or not self._plosca_spleta.get_visible():
+            return False
+        self._plosca_spleta.hide()
+        self._dogodek("spletNaNamizjuZaprt", None, self.pogled_delovna)
+        return True
+
+    def _splet_namizja_v_brskalnik(self) -> None:
+        """»Odpri v brskalniku«: trenutna stran gre v privzeti brskalnik, plosca se zapre."""
+        try:
+            naslov = self._spletni_namizje.trenutni().get_uri() or ""
+        except Exception:  # noqa: BLE001
+            naslov = ""
+        if naslov.startswith(("http://", "https://")) and self._odpri_v_brskalniku(naslov):
+            self._skrij_splet_na_namizju()
+
+    def _tipka_splet_na_namizju(self, okno, dogodek) -> bool:
+        """Esc najprej dobi stran (izhod iz celozaslonskega videa, zapiranje okenca na strani). WebKit tipko poslje
+        strani in, ce je stran ne porabi, jo poslje oknu znova - sele takrat Esc skrije okno Splet."""
+        if Gdk.keyval_name(dogodek.keyval) != "Escape":
+            return False
+        if okno.propagate_key_event(dogodek):
+            return True
+        return self._skrij_splet_na_namizju()
 
     def _odpri_v_brskalniku(self, niz: str) -> bool:
         """Spletni zadetek iskanja v PRIVZETEM brskalniku (xdg): naslov http(s) ali iskanje z nastavljenim
@@ -2015,6 +2175,30 @@ class SafeerOS(Gtk.Application):
     #: Dogodki vrste skladb iz kataloga (konec, naslednja/prejsnja, vgradni predvajalnik): vrsto vodi stran.
     DOGODKI_VRSTE = frozenset({"mediaKonec", "mediaVrstaUkaz", "mediaYt", "mediaYtZaprt", "mediaYtNapaka"})
 
+    def _odpri_medij_od_drugod(self, podatki: str) -> None:
+        """media.open: Safeer Player pride v ospredje in isce naslov (uporabnik je rekel »prikazi na racunalniku«)."""
+        try:
+            m = json.loads(podatki or "{}")
+        except ValueError:
+            return
+        naslov = " ".join(str((m or {}).get("title", "") or "").split())[:200]
+        if naslov:
+            self._odpri_predvajalnik(naslov)
+
+    def _isci_od_drugod(self, niz: str) -> None:
+        """Niz z druge naprave (telefon kot mikrofon): namizje se pokaze, lupa ga isce - nic se ne odpre samo."""
+        niz = " ".join(str(niz or "").split())[:200]
+        if not niz or self.pogled_delovna is None:
+            return
+        os_okna.pokazi_namizje()
+        if self.okno_delovna is not None:
+            self.okno_delovna.present_with_time(_cas_dogodka(self.okno_delovna))
+        self._dogodek("iskanjeOdDrugod", {"q": niz}, self.pogled_delovna)
+
+    def _govor_dogodek(self, vrsta: str, podatki: dict) -> None:
+        """Iz niti govora: stanje (poslusam, prepoznavam, besedilo, ...) gre na namizje."""
+        self._dogodek("govor", dict(podatki or {}, vrsta=vrsta), self.pogled_delovna)
+
     def _dogodek(self, vrsta: str, podatki, pogled=None) -> None:
         """Dogodek strani: vsem pogledom ali samo [pogled]. Medijski center je lahko odprt dvakrat (glavno okno in
         Safeer Player): dogodke vrste skladb dobi samo stran, ki je predvajanje zacela, sicer bi ob koncu skladbe vsaka
@@ -2095,9 +2279,22 @@ class SafeerOS(Gtk.Application):
                                                         self._medijski_predvajalnik.izberi_podnapise(str(a[0]) if a else "")),
             "iskanjeSplet": lambda: self._splet(_iskalnik() + GLib.uri_escape_string(str(a[0] if a else ""), None, False)),
             "odpriVBrskalniku": lambda: self._odpri_v_brskalniku(str(a[0]) if a else ""),
+            "spletNaNamizju": lambda: self._splet_na_namizju(str(a[0]) if a else "",
+                                                             a[1] if len(a) > 1 and isinstance(a[1], (int, float)) else 0),
+            "spletNaNamizjuZapri": self._skrij_splet_na_namizju,
             "odpriRazdelek": lambda: self._odpri_razdelek(str(a[0]) if a else ""),
             "nastavitveDocka": lambda: self._zazeni_orodje(["safeer-cinnamon", "--nastavitve-docka"]),
             "nastavitveOzadja": lambda: self._zazeni_orodje(["cinnamon-settings", "backgrounds"]),
+            "lupaUcenje": self.lupa.podatki,
+            "lupaZapomni": lambda: self.lupa.zapomni(*(list(a or [])[:3])),
+            "lupaPozabi": self.lupa.pozabi,
+            # Govor v lupi (core/os_govor.py): prepoznava na tem racunalniku; dogodki gredo strani kot »govor«.
+            "govorStanje": self.govor.stanje,
+            "govorNamesti": lambda: self.govor.namesti(self._govor_dogodek),
+            "govorPrekliciNamestitev": self.govor.preklici_namestitev,
+            "govorPoslusaj": lambda: self.govor.poslusaj(os_govor.jezik_govora(_jezik()), self._govor_dogodek),
+            "govorUstavi": self.govor.ustavi,
+            "govorPreklici": self.govor.preklici,
             "zapiskiSeznam": lambda: self.zapiski.seznam(str(a[0]) if a else ""),
             "zapisekDobi": lambda: self.zapiski.dobi(str(a[0]) if a else ""),
             "zapisekShrani": lambda: self.zapiski.shrani(
@@ -2251,6 +2448,8 @@ class SafeerOS(Gtk.Application):
             "preimenujNapravo": lambda: preimenuj_napravo(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "upravljajRacunalnik": lambda: upravljaj_racunalnik(str(a[0]) if a else ""),
             "programiNaprave": lambda: programi_naprave(str(a[0]) if a else ""),
+            "napraveZaMedij": naprave_za_medij,
+            "odpriMedijNa": lambda: odpri_medij_na(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "zazeniNaNapravi": lambda: zazeni_na_napravi(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "odpriTukaj": lambda: odpri_tukaj(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "zvokUstavi": zvok_ustavi,
@@ -3780,6 +3979,25 @@ def main() -> int:
                 return 0
         except Exception as e:  # noqa: BLE001 - Safeer OS ne tece: zazenemo ga z magnetom
             print("[SafeerOS] magnet:", e)
+    if "--medij-naprava" in sys.argv[1:]:
+        # media.open z naprave v krogu: preda tekocemu Safeer OS (Safeer Player isce naslov), sicer zazene Safeer Player.
+        i = sys.argv.index("--medij-naprava")
+        podatki = sys.argv[i + 1] if i + 1 < len(sys.argv) else ""
+        try:
+            if _predaj_tekocemu("medij", podatki):
+                return 0
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] medij:", e)
+        sys.argv = [sys.argv[0], "--predvajalnik"]       # Safeer OS ni tekel: odpre se Safeer Player
+    if "--isci-naprava" in sys.argv[1:]:
+        # Glas s telefona (search.query): niz preda tekocemu Safeer OS; ce ne tece, ga zaradi iskanja ne zaganjamo.
+        i = sys.argv.index("--isci-naprava")
+        niz = sys.argv[i + 1] if i + 1 < len(sys.argv) else ""
+        try:
+            return 0 if _predaj_tekocemu("isci", niz) else 3
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] isci:", e)
+            return 3
     datoteka = ""
     if "--predvajaj" in sys.argv[1:]:
         # Datoteka z diska: ce Safeer OS ze tece, jo preda njemu (org.gtk.Actions) in konca, sicer se zazene

@@ -41,7 +41,7 @@
       brezOdgovora: "Naprava se ni odzvala. Je Safeer na njej odprt?",
       niPovezave: "Ni povezave s Safeer Linkom.",
       pretociNaRacunalnik: "Odpri na tem računalniku", pretakam: "Na napravi potrdi »Deli zaslon«, nato se {ime} odpre tukaj.",
-      poslano: "Poslano", tipka: "Tipka {ime}", odpiram: "Odpiram {ime}", iscem: "Iščem »{kaj}«",
+      poslano: "Poslano", tipka: "Tipka {ime}", odpiram: "Odpiram {ime}", iscem: "Iščem »{kaj}«", iscemNaRacunalniku: "Iščem na računalniku: »{kaj}«",
       iscemYoutube: "YouTube: »{kaj}«", odpiramStran: "Odpiram stran", glasnostNa: "Glasnost {n} %",
       glasneje: "Glasneje", tisje: "Tišje", utisano: "Utišano", zvokNazaj: "Zvok je nazaj",
       nisemRazumel: "Nisem razumel: »{kaj}« — iščem to na napravi.",
@@ -69,7 +69,7 @@
       brezOdgovora: "The device did not respond. Is Safeer open on it?",
       niPovezave: "Not connected to Safeer Link.",
       pretociNaRacunalnik: "Open on this computer", pretakam: "Confirm “Share screen” on the device, then {ime} opens here.",
-      poslano: "Sent", tipka: "Key {ime}", odpiram: "Opening {ime}", iscem: "Searching “{kaj}”",
+      poslano: "Sent", tipka: "Key {ime}", odpiram: "Opening {ime}", iscem: "Searching “{kaj}”", iscemNaRacunalniku: "Searching the computer: “{kaj}”",
       iscemYoutube: "YouTube: “{kaj}”", odpiramStran: "Opening page", glasnostNa: "Volume {n} %",
       glasneje: "Louder", tisje: "Quieter", utisano: "Muted", zvokNazaj: "Sound is back",
       nisemRazumel: "Didn't understand “{kaj}” — searching for it on the device.",
@@ -97,7 +97,7 @@
       brezOdgovora: "Das Gerät hat nicht geantwortet. Ist Safeer dort geöffnet?",
       niPovezave: "Nicht mit Safeer Link verbunden.",
       pretociNaRacunalnik: "Auf diesem Computer öffnen", pretakam: "Bestätige „Bildschirm teilen“ auf dem Gerät, dann öffnet sich {ime} hier.",
-      poslano: "Gesendet", tipka: "Taste {ime}", odpiram: "Öffne {ime}", iscem: "Suche „{kaj}“",
+      poslano: "Gesendet", tipka: "Taste {ime}", odpiram: "Öffne {ime}", iscem: "Suche „{kaj}“", iscemNaRacunalniku: "Suche auf dem Computer: „{kaj}“",
       iscemYoutube: "YouTube: „{kaj}“", odpiramStran: "Öffne Seite", glasnostNa: "Lautstärke {n} %",
       glasneje: "Lauter", tisje: "Leiser", utisano: "Stumm", zvokNazaj: "Ton ist wieder da",
       nisemRazumel: "„{kaj}“ nicht verstanden — suche danach auf dem Gerät.",
@@ -125,7 +125,7 @@
       brezOdgovora: "El dispositivo no respondió. ¿Está Safeer abierto en él?",
       niPovezave: "Sin conexión con Safeer Link.",
       pretociNaRacunalnik: "Abrir en este ordenador", pretakam: "Confirma «Compartir pantalla» en el dispositivo y {ime} se abrirá aquí.",
-      poslano: "Enviado", tipka: "Tecla {ime}", odpiram: "Abriendo {ime}", iscem: "Buscando «{kaj}»",
+      poslano: "Enviado", tipka: "Tecla {ime}", odpiram: "Abriendo {ime}", iscem: "Buscando «{kaj}»", iscemNaRacunalniku: "Buscando en el ordenador: «{kaj}»",
       iscemYoutube: "YouTube: «{kaj}»", odpiramStran: "Abriendo página", glasnostNa: "Volumen {n} %",
       glasneje: "Más alto", tisje: "Más bajo", utisano: "Silenciado", zvokNazaj: "Sonido activado",
       nisemRazumel: "No entendí «{kaj}»: lo busco en el dispositivo.",
@@ -153,7 +153,7 @@
       brezOdgovora: "L'appareil n'a pas répondu. Safeer y est-il ouvert ?",
       niPovezave: "Pas de connexion à Safeer Link.",
       pretociNaRacunalnik: "Ouvrir sur cet ordinateur", pretakam: "Confirmez « Partager l'écran » sur l'appareil, puis {ime} s'ouvrira ici.",
-      poslano: "Envoyé", tipka: "Touche {ime}", odpiram: "J'ouvre {ime}", iscem: "Recherche « {kaj} »",
+      poslano: "Envoyé", tipka: "Touche {ime}", odpiram: "J'ouvre {ime}", iscem: "Recherche « {kaj} »", iscemNaRacunalniku: "Recherche sur l'ordinateur : « {kaj} »",
       iscemYoutube: "YouTube : « {kaj} »", odpiramStran: "J'ouvre la page", glasnostNa: "Volume {n} %",
       glasneje: "Plus fort", tisje: "Moins fort", utisano: "Muet", zvokNazaj: "Le son est revenu",
       nisemRazumel: "Je n'ai pas compris « {kaj} » — je le cherche sur l'appareil.",
@@ -181,7 +181,7 @@
       brezOdgovora: "Il dispositivo non ha risposto. Safeer è aperto lì?",
       niPovezave: "Nessuna connessione a Safeer Link.",
       pretociNaRacunalnik: "Apri su questo computer", pretakam: "Conferma «Condividi schermo» sul dispositivo, poi {ime} si aprirà qui.",
-      poslano: "Inviato", tipka: "Tasto {ime}", odpiram: "Apro {ime}", iscem: "Cerco «{kaj}»",
+      poslano: "Inviato", tipka: "Tasto {ime}", odpiram: "Apro {ime}", iscem: "Cerco «{kaj}»", iscemNaRacunalniku: "Cerco sul computer: «{kaj}»",
       iscemYoutube: "YouTube: «{kaj}»", odpiramStran: "Apro la pagina", glasnostNa: "Volume {n} %",
       glasneje: "Più forte", tisje: "Più piano", utisano: "Silenziato", zvokNazaj: "Audio riattivato",
       nisemRazumel: "Non ho capito «{kaj}»: lo cerco sul dispositivo.",
@@ -805,7 +805,17 @@
     stanje.zadnjeSliseno = cisto;
     var e = el("daljinecSliseno");
     if (e) { e.textContent = "»" + cisto + "«"; e.classList.remove("namig"); }
-    izvediRazumljeno(razumi(cisto));
+    var u = razumi(cisto);
+    // Na racunalniku s Safeer OS (search.query) gre vse, kar ni ukaz daljinca (glasnost, tipke, drsenje, posnetek),
+    // v iskalno lupo racunalnika - programi, datoteke, nastavitve, mediji in splet so tam na enem mestu.
+    var ukazDaljinca = u && ["volume", "key", "scroll", "digits", "screenshot", "restart", "clear_cache"].indexOf(u.dejanje) >= 0;
+    if (stanje.isceNaRacunalniku && !ukazDaljinca) {
+      var opis = t("iscemNaRacunalniku", { kaj: cisto });
+      besedilo("daljinecOdgovor", opis);
+      ukaz("search.query", { q: cisto }, function (izid) { pokaziOdgovor(izid, opis); });
+      return;
+    }
+    izvediRazumljeno(u);
   }
 
   // ----------------------------------------------------------------
@@ -942,6 +952,8 @@
         s.classList.toggle("napaka", d.foreground === false);
         // Kar naprava ne zna, skrijemo: drsenje je le v brskalniku, aplikacije le na Androidu.
         var dejanja = d.actions || [];
+        // Racunalnik s Safeer OS: kar povem v telefon, isce lupa na racunalniku (telefon je mikrofon zanj).
+        stanje.isceNaRacunalniku = dejanja.indexOf("search.query") >= 0;
         pokazi("daljinecAplikacijePanel", dejanja.indexOf("launch_app") >= 0);
         // Pretakanje na ta racunalnik: samo v Safeer Control in pri napravi, ki zna apps.launch (Android).
         pokazi("daljinecPretociIzbira", document.body.classList.contains("namizje") && dejanja.indexOf("apps.launch") >= 0);
