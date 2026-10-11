@@ -108,3 +108,20 @@ class VgrajeniViri(unittest.TestCase):
         self.assertNotIn("javna_last", klici)
         bes = _beri("assets/os/besedila.js")
         self.assertNotIn("filmi v javni lasti, Jamendo", bes)
+
+
+class GlasbaPoVsebini(unittest.TestCase):
+    def test_metas_glasbeni(self):
+        g = media_servers.stremio_metas_glasbeni
+        self.assertTrue(g([{"id": "lfm:abc%d" % i} for i in range(10)]))
+        self.assertTrue(g([{"id": "x%d" % i, "artist": "ADELA"} for i in range(5)]))
+        self.assertFalse(g([{"id": "tt%07d" % i, "genres": ["Music"]} for i in range(10)]))   # glasbeni filmi so filmi
+        self.assertFalse(g([{"id": "lfm:a"}]))                                                   # premalo za sodbo
+
+    def test_toki_imdb(self):
+        t = media_servers.stremio_toki_imdb
+        self.assertTrue(t({"types": ["movie", "series"], "resources": ["stream"], "idPrefixes": ["tt"]}))
+        self.assertTrue(t({"types": ["movie"], "resources": [{"name": "stream", "types": ["movie"]}]}))
+        self.assertFalse(t({"types": ["movie"], "resources": ["catalog", "meta"]}))
+        self.assertFalse(t({"types": ["movie"], "resources": ["stream"], "idPrefixes": ["xtream-"]}))
+        self.assertFalse(t({"types": ["tv"], "resources": ["stream"]}))

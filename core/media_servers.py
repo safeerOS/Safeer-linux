@@ -525,6 +525,40 @@ def stremio_vrsta_kataloga(tip: str, ime_dodatka: str = "", ime_kataloga: str = 
     return vrsta
 
 
+_GLASBENI_ID = ("lfm:", "lastfm:", "spotify:", "deezer:", "dz:", "ytm:", "yt_music", "ytmusic:", "soundcloud:", "sc:",
+                "music:", "track:", "song:", "album:", "artist:", "jamendo:", "audius:", "tidal:", "applemusic:")
+
+
+def stremio_metas_glasbeni(metas: list) -> bool:
+    """Katalog je glasba po VSEBINI, ne le po imenu (lastnik, 11. 10. 2026): vecina vnosov ima glasben id (Last.fm,
+    Spotify, Deezer, YouTube Music ...) ali izvajalca (artist). Filmi z zvrstjo »Music« niso glasba."""
+    vzorec = [m for m in (metas or [])[:30] if isinstance(m, dict)]
+    if len(vzorec) < 3:
+        return False
+    glasbenih = sum(1 for m in vzorec
+                    if str(m.get("id") or "").lower().startswith(_GLASBENI_ID) or isinstance(m.get("artist"), str) and m.get("artist"))
+    return glasbenih * 10 >= len(vzorec) * 6
+
+
+def stremio_toki_imdb(manifest: dict) -> bool:
+    """Dodatek da tokove za filme ali serije po id-jih IMDb (tt...): tak dodatek potrebuje katalog naslovov (Cinemeta),
+    sam pa ga nima nujno (npr. dodatki, ki dajo samo tokove)."""
+    if not isinstance(manifest, dict):
+        return False
+    tipi = {str(t) for t in (manifest.get("types") or [])}
+    predpone = manifest.get("idPrefixes")
+    for r in manifest.get("resources") or []:
+        if r == "stream" or (isinstance(r, dict) and r.get("name") == "stream"):
+            rt = {str(t) for t in ((r.get("types") if isinstance(r, dict) else None) or tipi)}
+            rp = (r.get("idPrefixes") if isinstance(r, dict) else None) or predpone
+            if rt & {"movie", "series"} and (not rp or any(str(p).startswith("tt") for p in rp)):
+                return True
+    return False
+
+
+CINEMETA = "https://v3-cinemeta.strem.io/manifest.json"
+
+
 def _stremio_izvajalec(meta: dict) -> str:
     """Izvajalec glasbenega vnosa: artist/author, prvi igralec ali reziser (kot Stremio.kt na Androidu)."""
     for k in ("artist", "author"):
@@ -626,6 +660,8 @@ def _stremio_items(base: str, server: dict, query: str) -> list[dict]:
             continue
         if iscem_sam:
             metas = [m for m in metas if isinstance(m, dict) and _stremio_ujema(m.get("name", ""), query)]
+        if vrsta in ("film", "serija", "video") and stremio_metas_glasbeni(metas):
+            vrsta = "glasba"
         for meta in metas[:100]:
             mid = str(meta.get("id") or "")
             if not mid:

@@ -2294,7 +2294,51 @@ class MediaCenter:
             if query and provider not in ("navidrome", "funkwhale"):
                 rows = [item for item in rows if media_servers.ujema_iskanje(item, query)]
             result.extend(rows)
+        result.extend(self._cinemeta_items(servers, result, query))
         return result
+
+    def _cinemeta_items(self, servers: list, vrstice: list, query: str) -> list[dict]:
+        """Katalog filmov in serij (Cinemeta - samo podatki o naslovih, tokove dajo uporabnikovi dodatki), kadar ima
+        uporabnik dodatek, ki predvaja filme ali serije po id-jih IMDb, njegovi katalogi pa takih naslovov ne dajo -
+        kot Safeer OS na Androidu (Stremio.zKatalogom). Uporabnik doda dodatek in pozabi nanj: filmi in serije se
+        pokazejo, kar noben dodatek ne predvaja, skrije preverba razpolozljivosti."""
+        if any(isinstance(x, dict) and str(x.get("imdb_id") or "").startswith("tt") and x.get("vrsta") in ("film", "serija")
+               for x in vrstice):
+            return []
+        stremio = [s for s in servers if isinstance(s, dict) and s.get("ponudnik") == "stremio" and s.get("url")
+                   and media_servers._stremio_koren(str(s.get("url"))) != media_servers._stremio_koren(media_servers.CINEMETA)]
+        if not stremio:
+            return []
+        zdaj = time.time()
+        if not hasattr(self, "_tt_dodatki"):
+            self._tt_dodatki = {}
+        imdb = False
+        for s in stremio:
+            koren = media_servers._stremio_koren(str(s.get("url")))
+            znano = self._tt_dodatki.get(koren)
+            if not znano or zdaj - znano[0] > 3600:
+                try:
+                    znano = (zdaj, media_servers.stremio_toki_imdb(media_servers.stremio_manifest(koren)))
+                except Exception:
+                    znano = (zdaj, False)
+                self._tt_dodatki[koren] = znano
+            if znano[1]:
+                imdb = True
+                break
+        if not imdb:
+            return []
+        streznik = {"id": "cinemeta", "ime": "Cinemeta", "ponudnik": "stremio", "url": media_servers.CINEMETA}
+        kljuc = "cinemeta:" + query.casefold()
+        cached = self._server_cache.get(kljuc)
+        if cached and zdaj - cached[0] < 300:
+            return cached[1]
+        try:
+            vrstice_c = media_servers.catalog("stremio", media_servers.CINEMETA, streznik, "", query)
+        except Exception:
+            return cached[1] if cached else []
+        vrstice_c = [x for x in vrstice_c if x.get("vrsta") in ("film", "serija")]
+        self._server_cache[kljuc] = (zdaj, vrstice_c)
+        return vrstice_c
 
     def add_source(self, url: str, name: str = "", prevzet: Optional[dict] = None) -> dict:
         """`prevzet`: vir je prisel z druge naprave v Linku ({"tip", "naslov", "cas"}, core/viri_sink.py)."""
