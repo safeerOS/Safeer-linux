@@ -77,6 +77,9 @@ PIN_VELJA_S = 300.0
 BESEDILO_KODA_ZAPRTA = ("Povezovanje s kodo je začasno zaprto, ker je nekdo ugibal kodo. Na napravi v Safeer Linku "
                         "odpri »Poveži naprave« ali uporabi kodo QR.")
 NAJVEC_POSKUSOV = 5
+#: Najvec neuspelih vnosov kode naprave na minuto (vse naprave skupaj): 10/min pri 10^6 moznostih in 5 minutah
+#: veljavnosti pomeni manj kot 1 : 20 000 moznosti za ugibanje.
+NAJVEC_KODA_NAPAK = 10
 NAJVEC_CAKAJOCIH = 8
 #: Zeton iz seznanitve je samo za prvo prijavo in vpis kljuca v krog; potem naprava pride s podpisom.
 ZETON_VELJA_S = 86400.0
@@ -309,6 +312,8 @@ class Hub:
         self._pridruzitve: Dict[str, dict] = {}    # qr_id -> pridruzitev s QR kodo
         self._pridruzeni: Dict[str, str] = {}      # porabljeni qr_id -> ime nove naprave
         self._qr_prijave: Dict[str, dict] = {}     # qr_id -> prijava s QR kodo na napravi
+        #: Casi neuspelih vnosov kode naprave (»Vpiši kodo z druge naprave«): omejitev ugibanja 6 stevk.
+        self._qr_koda_napake: list = []
         #: "ip:vrata", kot ga naprava potrebuje v QR kodi (nastavi HubStreznik).
         self.naslov_za_qr = ""
         self._zetoni: Dict[str, tuple] = {}        # zeton -> (device_id, ime, cas)
@@ -699,10 +704,13 @@ class Hub:
         return zeton, None
 
     # ------------------------------------------------------------------ prijava s QR kodo (naprava pokaže QR)
-    def zacni_qr(self, device_id: str, ime: str, platform: str, secret_sha256: str, poll_secret: str) -> tuple:
+    def zacni_qr(self, device_id: str, ime: str, platform: str, secret_sha256: str, poll_secret: str,
+                 code_sha256: str = "") -> tuple:
         import re
         if not re.match(r"^[0-9a-f]{64}$", (secret_sha256 or "").lower()) or len(poll_secret or "") < 16:
             return None, "neveljavno"
+        # Neobvezno: SHA-256 6-mestne kode, ki jo naprava pokaze poleg QR (glej _qr_po_kodi).
+        code_sha256 = (code_sha256 or "").lower() if re.match(r"^[0-9a-f]{64}$", (code_sha256 or "").lower()) else ""
         with self._zaklep:
             self._pocisti_qr()
             for k in [k for k, p in self._qr_prijave.items() if p["device_id"] == device_id]:
@@ -715,6 +723,7 @@ class Hub:
                 "name": (ime or device_id).strip()[:NAJVEC_IMENA],
                 "platform": (platform or "windows").strip()[:16],
                 "secret_sha256": secret_sha256.lower(),
+                "code_sha256": code_sha256,
                 "poll_secret": poll_secret,
                 "nastala": self.ura(),
                 "token": None,
@@ -723,15 +732,41 @@ class Hub:
             }
         return qr_id, None
 
+    def _qr_po_kodi(self, qr_id: str, skrivnost: str) -> tuple:
+        """Prijava s QR kodo, ki jo je clan Linka izbral z vpisom 6-mestne kode te naprave (brez qr_id): naprava,
+        ki se prijavlja, pokaze 6-mestno kodo poleg svoje QR kode (code_sha256 ob qr/start). Klicati pod
+        zaklepom; vrne (qr_id, napaka, polje s SHA-256 za primerjavo). Neuspeli vnosi so omejeni
+        (NAJVEC_KODA_NAPAK na minuto), da 6 stevk ni mogoce ugibati."""
+        import hashlib
+        qr_id = (qr_id or "").strip()
+        if qr_id:
+            return qr_id, None, "secret_sha256"
+        koda = (skrivnost or "").strip()
+        if len(koda) != 6 or not koda.isdigit():
+            return "", "qr_ne_obstaja", ""
+        zdaj = self.ura()
+        self._qr_koda_napake = [c for c in self._qr_koda_napake if c > zdaj - 60]
+        if len(self._qr_koda_napake) >= NAJVEC_KODA_NAPAK:
+            return "", "prevec_poskusov", ""
+        odtis = hashlib.sha256(koda.encode("utf-8")).hexdigest()
+        for k, p in self._qr_prijave.items():
+            if p.get("code_sha256") and p["code_sha256"] == odtis:
+                return k, None, "code_sha256"
+        self._qr_koda_napake.append(zdaj)
+        return "", "qr_ne_obstaja", ""
+
     def qr_podatki(self, qr_id: str, skrivnost: str) -> tuple:
         import hashlib
         import hmac
         with self._zaklep:
             self._pocisti_qr()
+            qr_id, napaka, polje = self._qr_po_kodi(qr_id, skrivnost)
+            if napaka:
+                return None, napaka
             p = self._qr_prijave.get((qr_id or "").strip())
             if not p:
                 return None, "qr_ne_obstaja"
-            if not hmac.compare_digest(hashlib.sha256((skrivnost or "").encode("utf-8")).hexdigest(), p["secret_sha256"]):
+            if not hmac.compare_digest(hashlib.sha256((skrivnost or "").encode("utf-8")).hexdigest(), p[polje]):
                 p["poskusov"] += 1
                 if p["poskusov"] >= NAJVEC_POSKUSOV:
                     self._qr_prijave.pop(qr_id, None)
@@ -744,10 +779,13 @@ class Hub:
         import hmac
         with self._zaklep:
             self._pocisti_qr()
+            qr_id, napaka, polje = self._qr_po_kodi(qr_id, skrivnost)
+            if napaka:
+                return None, napaka
             p = self._qr_prijave.get((qr_id or "").strip())
             if not p:
                 return None, "qr_ne_obstaja"
-            if not hmac.compare_digest(hashlib.sha256((skrivnost or "").encode("utf-8")).hexdigest(), p["secret_sha256"]):
+            if not hmac.compare_digest(hashlib.sha256((skrivnost or "").encode("utf-8")).hexdigest(), p[polje]):
                 p["poskusov"] += 1
                 if p["poskusov"] >= NAJVEC_POSKUSOV:
                     self._qr_prijave.pop(qr_id, None)
@@ -2532,7 +2570,8 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             qr_id, napaka = self._hub.zacni_qr(device_id, str(telo.get("name") or ""),
                                               str(telo.get("platform") or ""),
                                               str(telo.get("secret_sha256") or ""),
-                                              str(telo.get("poll_secret") or ""))
+                                              str(telo.get("poll_secret") or ""),
+                                              str(telo.get("code_sha256") or ""))
             if not qr_id:
                 koda = 429 if napaka == "prevec_prijav" else 400
                 self._napaka(koda, "Prijava ni mogoča.", napaka or "napaka")
@@ -2553,7 +2592,8 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             telo = self._telo()
             qr_id = str(telo.get("qr_id") or "").strip()
             skrivnost = str(telo.get("secret") or "").strip()
-            if not qr_id or not skrivnost:
+            # Brez qr_id: clan Linka je vpisal 6-mestno kodo naprave, ki se prijavlja (glej Hub._qr_po_kodi).
+            if not skrivnost or not qr_id and not (len(skrivnost) == 6 and skrivnost.isdigit()):
                 self._napaka(400, "Koda ne obstaja.", "qr_ne_obstaja")
                 return
             if pot.endswith("/info"):
