@@ -330,7 +330,11 @@ def gpu_lestvica_mozna(ffmpeg: str, vaapi: Optional[str]) -> bool:
                                 "-f", "lavfi", "-i", "color=black:size=640x360:rate=30,format=bgr0", "-frames:v", "3",
                                 "-vf", "hwupload," + SCALE_VAAPI.format(sirina=320, visina=180), "-c:v", "h264_vaapi",
                                 "-rc_mode", "CQP", "-qp", "24", "-bf", "0", "-f", "null", "-"],
-                               capture_output=True, timeout=20, stdin=subprocess.DEVNULL)
+                               # Izhoda ne zbiramo: steje samo izhodna koda. Program, ki bi namesto preizkusa
+                               # pisal tok brez konca, bi sicer v nekaj sekundah porabil ves pomnilnik
+                               # (izmerjeno 11. 10. 2026: >6 GB v preizkusih z laznim ffmpeg).
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20,
+                               stdin=subprocess.DEVNULL)
             _GPU[kljuc] = r.returncode == 0
         except Exception:  # noqa: BLE001 - brez preizkusa ostane pomanjsava na procesorju
             _GPU[kljuc] = False

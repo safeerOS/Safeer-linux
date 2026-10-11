@@ -602,6 +602,17 @@ class PomanjsavaNaGraficni(unittest.TestCase):
             self.assertFalse(link_zaslon.gpu_lestvica_mozna("", self.VAAPI))
             with mock.patch.dict(os.environ, {"SAFEER_ZASLON_GPU": "0"}):
                 self.assertFalse(link_zaslon.gpu_lestvica_mozna("ffmpeg", self.VAAPI))
+        link_zaslon._GPU.clear()
+        # Izhoda preizkusa ne zbiramo v pomnilnik (lazni ffmpeg, ki pise brez konca, je porabil >6 GB).
+        with mock.patch.dict(os.environ, {"SAFEER_ZASLON_GPU": "1"}), \
+                mock.patch.object(link_zaslon.subprocess, "run",
+                                  return_value=mock.Mock(returncode=0)) as run:
+            self.assertTrue(link_zaslon.gpu_lestvica_mozna("ffmpeg", self.VAAPI))
+        kw = run.call_args.kwargs
+        self.assertNotIn("capture_output", kw)
+        self.assertIs(kw.get("stdout"), link_zaslon.subprocess.DEVNULL)
+        self.assertIs(kw.get("stderr"), link_zaslon.subprocess.DEVNULL)
+        link_zaslon._GPU.clear()
 
     def test_preizkus_na_obliki_x11grab_in_izid_si_zapomni(self):
         klici = []
