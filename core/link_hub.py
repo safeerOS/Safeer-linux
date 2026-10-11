@@ -480,7 +480,8 @@ QR_POVEZAVA = "https://safeer.si/p#i={qr_id}&s={skrivnost}&f={odtis}&a={naslov}"
 QR_ODTIS_ZNAKOV = 64
 
 
-def zacni_qr(ws_naslov: str, device_id: str, ime: str, platforma: str = PLATFORMA) -> Optional[dict]:
+def zacni_qr(ws_naslov: str, device_id: str, ime: str, platforma: str = PLATFORMA,
+             koda: Optional[str] = None) -> Optional[dict]:
     """Odpre prijavo s QR kodo. Vrne {"qr_id", "odtis", "skrivnost", "prevzem", "naslov", "povezava", "velja"},
     {"napaka": ...} ali None, ce se hub ne oglasi.
 
@@ -500,7 +501,7 @@ def zacni_qr(ws_naslov: str, device_id: str, ime: str, platforma: str = PLATFORM
     # Ista prijava ima se 6-mestno kodo te naprave: kdor nima kamere, jo vpise na napravi v Linku (»Vpiši kodo
     # z druge naprave«). Hub dobi samo njen SHA-256; dovoli jo lahko samo ze seznanjena naprava, Hub pa omeji
     # ugibanje (NAJVEC_KODA_NAPAK na minuto). Skrivnost QR ostane dolga - aplikacije na telefonu jo preverjajo.
-    koda_naprave = "%06d" % secrets.randbelow(1000000)
+    koda_naprave = koda if koda and len(koda) == 6 and koda.isdigit() else "%06d" % secrets.randbelow(1000000)
     koda, odgovor, videni = link_tls.zahteva(osnova + "/cast/pair/qr/start", {
         "device_id": device_id, "name": ime, "platform": platforma,
         "secret_sha256": hashlib.sha256(skrivnost.encode("utf-8")).hexdigest(), "poll_secret": prevzem,

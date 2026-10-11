@@ -234,6 +234,8 @@ class SafeerLink:
         # Prijava s QR kodo (prijavno okno Safeer Control / Safeer OS): odprta koda in rod - nova koda
         # ali zaprto okno povecata rod, da nit, ki caka na potrditev, sama odneha.
         self._qr: Optional[dict] = None
+        #: Ista prijava pri drugih Hubih (koda naprave, glej _prijave_kode_drugje): [(naslov, prijava)].
+        self._qr_dodatne: list = []
         self._qr_rod = 0
         # »Nadaljuj brez povezave naprav« v prijavnem oknu (Safeer Control odpre Safeer OS na tem racunalniku).
         self.ob_brez_povezave: Optional[Callable[[], None]] = None
@@ -964,6 +966,15 @@ class SafeerLink:
         self._qr = prijava
         # Ista prijava ima tudi 6-mestno kodo: kdor nima kamere, jo vpise na napravi v Linku.
         self._odziv("qr", {"svg": svg, "velja": prijava["velja"], "koda": prijava.get("koda", "")})
+        # Z Link Mesh ima Hub vsaka naprava in clan Linka kodo vpise na SVOJEM: isto kodo prijavimo pri vseh
+        # Hubih v domacem omrezju (najvec 6), da jo najde ne glede na to, s katere naprave jo dovoli.
+        dodatne = self._prijave_kode_drugje(naslov, prijava.get("koda", ""))
+        if rod != self._qr_rod:
+            for n2, p2 in dodatne:
+                link_hub.preklici_qr(n2, p2, self._id())
+            return
+        self._qr_dodatne = dodatne
+        glavna = (naslov, prijava)
         konec = time.time() + max(30, int(prijava["velja"]) - 20)
         while rod == self._qr_rod:
             time.sleep(1.5)
@@ -974,7 +985,21 @@ class SafeerLink:
                 self._v_ozadju(self._zacni_qr)
                 return
             zeton, razlog = link_hub.stanje_qr(naslov, prijava, self._id())
+            if not zeton:
+                for n2, p2 in list(dodatne):
+                    z2, r2 = link_hub.stanje_qr(n2, p2, self._id())
+                    if z2:
+                        # Dovoljeno pri drugem Hubu: ta postane nas (zeton in odtis sta njegova).
+                        naslov, prijava, zeton, razlog = n2, p2, z2, ""
+                        break
+                    if r2 == "qr_ne_obstaja":
+                        dodatne.remove((n2, p2))
             if zeton:
+                # Vse druge prijave iste kode (tudi prva, ce je dovolil drug Hub) preklicemo.
+                for n2, p2 in [glavna] + dodatne:
+                    if p2 is not prijava:
+                        self._v_ozadju(lambda n=n2, p=p2: link_hub.preklici_qr(n, p, self._id()))
+                self._qr_dodatne = []
                 self._qr = None
                 self._qr_rod += 1
                 self.nastavitve.podatki["hub_url"] = naslov
@@ -999,6 +1024,35 @@ class SafeerLink:
         naslov = self._hub()
         if stara and naslov:
             self._v_ozadju(lambda: link_hub.preklici_qr(naslov, stara, self._id()))
+        dodatne, self._qr_dodatne = list(getattr(self, "_qr_dodatne", []) or []), []
+        for n2, p2 in dodatne:
+            self._v_ozadju(lambda n=n2, p=p2: link_hub.preklici_qr(n, p, self._id()))
+
+    def _prijave_kode_drugje(self, glavni: str, koda: str) -> list:
+        """Ista prijava (ista 6-mestna koda) pri drugih Hubih v domacem omrezju: [(naslov, prijava)]."""
+        from urllib.parse import urlparse
+        if not koda:
+            return []
+        try:
+            hubi = link_hub.poisci_hube_mdns(1.5)
+        except Exception:  # noqa: BLE001
+            return []
+        glavni_kraj = urlparse(glavni)
+        izid = []
+        for h in hubi:
+            n = str(h.get("naslov") or "")
+            u = urlparse(n)
+            if not h.get("tls") or (u.hostname, u.port) == (glavni_kraj.hostname, glavni_kraj.port):
+                continue
+            try:
+                p = link_hub.zacni_qr(n, self._id(), self._ime(), koda=koda)
+            except Exception:  # noqa: BLE001
+                p = None
+            if p and not p.get("napaka"):
+                izid.append((n, p))
+            if len(izid) >= 6:
+                break
+        return izid
 
     def _zeton_http(self) -> Optional[str]:
         """Zeton za HTTP klice sredisca: zeton seznanitve ali sejni zeton s podpisom (krog zaupanja)."""

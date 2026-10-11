@@ -5,10 +5,42 @@ kode). Clan Linka jo vpise v »Vpiši kodo z druge naprave« in s tem napravo do
 omejitev ugibanja, stari odjemalci brez kode), odjemalec (link_hub.zacni_qr, odobri_kodo).
 """
 import hashlib
+import shutil
+import tempfile
 import unittest
 from unittest import mock
 
 from core import link_hub, link_hub_streznik
+
+
+def _zacasni_hubi(stevilo):
+    """Hubi za preizkus na nakljucnih vratih, z zacasnim potrdilom in zetoni - nikoli v pravih nastavitvah
+    uporabnika in nikoli na privzetih vratih (11. 10. 2026 so prvi preizkusi zapisali zetone v pravi
+    ~/.config/safeer-browser/hub-zetoni.json; odstranjeno)."""
+    mapa = tempfile.mkdtemp(prefix="safeer-koda-")
+    zaplate = [mock.patch.object(link_hub, "NASTAVITVE_MAPA", mapa),
+               mock.patch.object(link_hub_streznik, "PRIVZETA_VRATA", 0),
+               mock.patch.object(link_hub_streznik.HubStreznik, "_ze_gosti_lokalno", staticmethod(lambda: False)),
+               mock.patch.object(link_hub_streznik, "_na_privzetih_vratih_ze_tece_hub", lambda *a, **k: False)]
+    for z in zaplate:
+        z.start()
+    hubi = []
+    for i in range(stevilo):
+        h = link_hub_streznik.HubStreznik(tls_mapa=mapa + "/tls%d" % i)
+        if not h.zazeni():
+            break
+        hubi.append(h)
+
+    def pospravi():
+        for h in hubi:
+            h.ustavi()
+        for z in zaplate:
+            z.stop()
+        shutil.rmtree(mapa, ignore_errors=True)
+    if len(hubi) != stevilo:
+        pospravi()
+        raise unittest.SkipTest("huba ni bilo mogoce zagnati")
+    return hubi, pospravi
 
 
 def _sha(s: str) -> str:
@@ -108,14 +140,12 @@ class VZivo(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.streznik = link_hub_streznik.HubStreznik()
-        if not cls.streznik.zazeni():
-            raise unittest.SkipTest("huba ni bilo mogoce zagnati")
+        (cls.streznik,), cls.pospravi = _zacasni_hubi(1)
         cls.naslov = "wss://127.0.0.1:%d%s" % (cls.streznik.vrata, link_hub_streznik.POT_WS)
 
     @classmethod
     def tearDownClass(cls):
-        cls.streznik.ustavi()
+        cls.pospravi()
 
     def test_koda_naprave_od_zacetka_do_zetona(self):
         prijava = link_hub.zacni_qr(self.naslov, "n-nov-pc", "Nov racunalnik", "linux")
@@ -132,3 +162,68 @@ class VZivo(unittest.TestCase):
         zeton, razlog = link_hub.stanje_qr(self.naslov, prijava, "n-nov-pc")
         self.assertTrue(zeton, razlog)
         self.assertEqual(self.streznik.hub.naprava_zetona(zeton)[0], "n-nov-pc")
+
+
+class VecHubov(unittest.TestCase):
+    """Z Link Mesh ima Hub vsaka naprava: clan vpise kodo pri SVOJEM Hubu. Naprava, ki se prijavlja, zato isto kodo
+    prijavi pri vseh Hubih v omrezju in prevzame zeton od tistega, pri katerem je bila dovoljena."""
+
+    @classmethod
+    def setUpClass(cls):
+        (cls.a, cls.b), cls.pospravi = _zacasni_hubi(2)
+        pot = link_hub_streznik.POT_WS
+        cls.na = "wss://127.0.0.1:%d%s" % (cls.a.vrata, pot)
+        cls.nb = "wss://127.0.0.1:%d%s" % (cls.b.vrata, pot)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.pospravi()
+
+    def test_dovoljeno_pri_drugem_hubu(self):
+        import threading
+        import time
+        from core import safeer_link
+        link = safeer_link.SafeerLink.__new__(safeer_link.SafeerLink)
+        odzivi, dogodek = [], threading.Event()
+
+        def odziv(vrsta, podatki):
+            odzivi.append((vrsta, podatki))
+            if vrsta in ("qr", "seznanitev"):
+                dogodek.set()
+        link._odziv = odziv
+        link._qr_rod, link._qr, link._qr_dodatne = 0, None, []
+        link._hub = lambda: self.na
+        link._id = lambda: "n-nov-pc"
+        link._ime = lambda: "Nov PC"
+        link._v_ozadju = lambda f: f()
+        link.nastavitve = mock.MagicMock()
+        link.nastavitve.podatki = {}
+        link._zapomni_seznanitev = lambda: None
+        link._povezi = lambda: None
+        link._zaupaj_ob_prijavi = False
+        link.ob_seznanitvi = None
+        hubi = [{"naslov": self.na, "tls": True}, {"naslov": self.nb, "tls": True}]
+        with mock.patch.object(safeer_link.link_hub, "poisci_hube_mdns", return_value=hubi), \
+                mock.patch.object(safeer_link.link_seja, "po_prijavi"), \
+                mock.patch.object(safeer_link.link_hub, "qr_svg", return_value="<svg/>"):
+            nit = threading.Thread(target=link._zacni_qr_notranje, daemon=True)
+            nit.start()
+            self.assertTrue(dogodek.wait(10), "QR s kodo se mora pokazati")
+            koda = odzivi[0][1]["koda"]
+            konec = time.time() + 10
+            while not link._qr_dodatne and time.time() < konec:
+                time.sleep(0.1)
+            self.assertEqual([n for n, _ in link._qr_dodatne], [self.nb], "koda je prijavljena tudi pri drugem Hubu")
+            dogodek.clear()
+            zeton_clana = self.b.hub._nov_zeton("n-telefon", "Telefon")
+            self.assertTrue(link_hub.odobri_kodo(self.nb, zeton_clana, self.b.odtis, koda)["ok"])
+            self.assertTrue(dogodek.wait(10), "po potrditvi pri drugem Hubu se naprava prijavi")
+            link._qr_rod += 1
+            nit.join(5)
+        self.assertEqual(odzivi[-1], ("seznanitev", True))
+        self.assertEqual(link.nastavitve.podatki["hub_url"], self.nb)
+        self.assertEqual(link.nastavitve.podatki["hub_fp"], self.b.odtis.lower())
+        self.assertEqual(self.b.hub.naprava_zetona(link.nastavitve.podatki["control_token"])[0], "n-nov-pc")
+        # Prijava pri prvem Hubu je preklicana: koda tam ne velja vec.
+        zeton_a = self.a.hub._nov_zeton("n-tablica", "Tablica")
+        self.assertEqual(link_hub.odobri_kodo(self.na, zeton_a, self.a.odtis, koda)["razlog"], "qr_ne_obstaja")
