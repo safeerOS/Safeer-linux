@@ -57,9 +57,10 @@ class PonudnikVZivo(unittest.TestCase):
             zasloni = [n for n in naprave if n.get("role") == "receiver" and "remote" in (n.get("capabilities") or [])]
             if not zasloni:
                 self.skipTest("na hubu ni zaslona z daljincem")
-            # Zadnji aktivni zaslon: prvi na seznamu je lahko naprava, ki spi ure (11. 10. 2026: tablica, nazadnje
-            # videna pred 8 h) - takrat ukaz caka na odgovor, ki ga ni, in test je padal odvisno od tega, ali se zbudi.
-            cilj = max(zasloni, key=lambda n: float(n.get("last_seen") or 0))
+            # Televizor (preizkusna naprava), sicer zadnji aktivni zaslon. Prvi na seznamu je lahko naprava, ki spi ure
+            # (11. 10. 2026: tablica, nazadnje videna pred 8 h), druga ima deljenje aplikacij izklopljeno po izbiri
+            # lastnika (telefon: ok=True, enabled=False) - oboje ni napaka Safeerja, test pa je padal odvisno od vrstnega reda.
+            cilj = max(zasloni, key=lambda n: (n.get("platform") == "tv", float(n.get("last_seen") or 0)))
             p.poslji({"id": "p6-apps", "type": "control.command", "target": cilj["id"],
                       "payload": {"action": "apps.list", "params": {}}})
             self.assertTrue(dogodek.wait(10), "zaslon mora odgovoriti na apps.list")
