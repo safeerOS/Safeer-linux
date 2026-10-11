@@ -48,7 +48,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 from core import (os_datoteke, os_katalog, os_knjiznica, os_oblak_igre, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
                   os_media_besedila, os_mediji, os_posodobitve, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost,
                   os_torrent, os_torrent_tok, os_zapiski, os_zvok, knjiznica_kroga, os_ponudniki_programov, os_github_programi)
-from core import budnost, odlozisce_varuh, os_iskalnik, os_odpri_z, os_pretvorba_datotek  # noqa: E402
+from core import budnost, odlozisce_varuh, os_iskalnik, os_most_nativni, os_odpri_z, os_pretvorba_datotek  # noqa: E402
 
 # Preklop vhoda zvocne vrstice JBL je samo interni poskus: uradni paket modula ne vsebuje
 # (packaging/install_os_payload.sh), zato ga uvozimo le, ce je prisoten (zagon iz repozitorija).
@@ -1503,7 +1503,7 @@ class SafeerOS(Gtk.Application):
             self._ustvari_predvajalnik(iskanje)
             return True
         if iskanje:
-            if self.pogled_predvajalnik is None:          # GTK predvajalnik nima strani
+            if isinstance(self.pogled_predvajalnik, os_most_nativni.NativniPogled):   # GTK predvajalnik nima strani
                 self.okno_predvajalnik.isci_entry.set_text(iskanje)
             else:
                 self._js("window.safeerOsPojdi && window.safeerOsPojdi(%s);" % json.dumps("mediji:" + iskanje),
@@ -1523,9 +1523,12 @@ class SafeerOS(Gtk.Application):
             # Domaci GTK predvajalnik (brez WebKita). Privzet postane, ko doseze vse funkcije Medijskega centra
             # (glej player_gtk_vklopljen); do takrat ostane spletni Medijski center, ki ga uporabniki poznajo.
             from core import os_player_gtk
-            okno = os_player_gtk.SafeerPlayerOkno(app=self, iskanje=iskanje)
+            # Isti most kot stran Medijskega centra: GTK okno je le drug izris (core/os_most_nativni.py).
+            most = os_most_nativni.NativniPogled(self._most_klic)
+            self.pogledi.append(most)
+            okno = os_player_gtk.SafeerPlayerOkno(app=self, iskanje=iskanje, most=most)
             okno.connect("delete-event", self._zapri_predvajalnik)
-            self.okno_predvajalnik, self.pogled_predvajalnik = okno, None
+            self.okno_predvajalnik, self.pogled_predvajalnik = okno, most
             okno.show_all()
             return
         # Jezik v naslovu strani: Medijski center se pokaze takoj, brez cakanja na »zacetek« (glej os.js zacni).
@@ -2070,12 +2073,18 @@ class SafeerOS(Gtk.Application):
     # ------------------------------------------------------------------ most
     def _js(self, koda: str, pogled=None) -> None:
         for p in ([pogled] if pogled is not None else list(self.pogledi)):
+            if isinstance(p, os_most_nativni.NativniPogled):
+                continue                    # domaci pogled nima JavaScripta: odgovori in dogodki gredo naravnost
             try:
                 p.run_javascript(koda, None, None, None)
             except Exception:
                 pass
 
     def _odgovori(self, pogled, id_, ok: bool, podatki) -> None:
+        if isinstance(pogled, os_most_nativni.NativniPogled):
+            GLib.idle_add(pogled.odgovor, int(id_), bool(ok), podatki)
+            return
+
         def naredi():
             self._js("window.__safeerOsOdgovor(%d, %s, %s);" % (
                 int(id_), "true" if ok else "false", json.dumps(podatki, ensure_ascii=True)), pogled)
@@ -2129,6 +2138,9 @@ class SafeerOS(Gtk.Application):
         def naredi():
             self._js("window.safeerOsDogodek && window.safeerOsDogodek(%s, %s);" % (
                 json.dumps(vrsta), json.dumps(podatki, ensure_ascii=True)), pogled)
+            for p in ([pogled] if pogled is not None else list(self.pogledi)):
+                if isinstance(p, os_most_nativni.NativniPogled):
+                    p.dogodek(vrsta, podatki)
             return False
         GLib.idle_add(naredi)
 
@@ -2138,6 +2150,11 @@ class SafeerOS(Gtk.Application):
             id_, metoda, a = int(s.get("id", 0)), str(s.get("m", "")), list(s.get("a") or [])
         except Exception:
             return
+        self._most_klic(pogled, id_, metoda, a)
+
+    def _most_klic(self, pogled, id_: int, metoda: str, a: list) -> None:
+        """Klic mostu - iz strani (WebKit) ali domacega pogleda (core/os_most_nativni.NativniPogled, GTK Safeer
+        Player). Obe poti uporabljata iste metode; razlikuje se le, kam gre odgovor (_odgovori)."""
         # Na glavni niti (Gtk, ikone, okna):
         glavna = {
             "zacetek": self._zacetek,
