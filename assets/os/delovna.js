@@ -33,7 +33,7 @@
       odpriMedijskiCenter: "Odpri Medijski center", niPredvajanja: "Ni predvajanja",
       medijNavodilo: "Izberi glasbo ali video v Datotekah ali v Medijskem centru.",
       medijIskanjePh: "Išči glasbo, radio, filme in serije …", medijIskanjeVse: "Vsi zadetki za »{q}« v Medijskem centru",
-      medijIskanjeIscem: "Iščem …", medijIskanjeNic: "Ni zadetkov.", medijTaRacunalnik: "Ta računalnik",
+      medijIskanjeIscem: "Iščem …", medijIskanjeSe: "Iščem še po virih …", medijIskanjeNic: "Ni zadetkov.", medijTaRacunalnik: "Ta računalnik",
       prejsnja: "Prejšnja", premor: "Predvajaj / premor", naslednja: "Naslednja",
       predvaja: "Predvaja", vPremoru: "Premor", ustavljeno: "Ustavljeno", napakaPredvajanja: "Predvajanje ni uspelo",
       filterPh: "Filtriraj …", filterPrgPh: "Išči programe …", vseVrste: "Vse vrste", vrstaDokument: "Dokumenti",
@@ -163,8 +163,12 @@
       posN_sredisce_naprave_ni_dosegljivo: "naprava v tem omrežju ni dosegljiva", posN_posiljanje_ni_uspelo: "povezava je bila prekinjena",
       isciVSpletu: "Išči »{q}« v spletu", odpreVBrskalniku: "rezultati tukaj na namizju", isciem: "Iščem …",
       prostor: "{n} el.",
-      spremeniOzadje: "Spremeni ozadje …", prilagodiDock: "Prilagodi dock …",
-      dockNamig: "Program dodaš v dock tako, da ga povlečeš iz menija; odstraniš ga tako, da ga povlečeš ven.",
+      spremeniOzadje: "Spremeni ozadje …", prilagodiDock: "Uredi dock …",
+      dockDodaj: "Dodaj v dock", dockOdstrani: "Odstrani iz docka", dockNaslov: "Dock", dockDodajProgram: "Dodaj program …",
+      dockGor: "Premakni gor", dockDol: "Premakni dol", dockPrazen: "V docku ni programov.", dockVecNastavitev: "Več nastavitev docka …",
+      dockIsci: "Poišči program …", dockBrezPlanka: "Dock (Plank) ni nameščen.", dockOpis: "Vrstni red spremeniš s puščicama; ikone lahko tudi povlečeš kar na docku.",
+      dockDodano: "{ime} je v docku.", dockOdstranjeno: "{ime} ni več v docku.", nazaj: "Nazaj",
+      dockNamig: "Program dodaš v dock z desnim klikom na program › Dodaj v dock ali v Uredi dock.",
       linkPovezan: "Safeer Link · {n}", linkPovezanBrez: "Safeer Link · povezano",
       linkPovezi: "Poveži se v Safeer Link", linkNaslov: "Safeer Link: tvoje naprave (odpre Safeer Control)",
       naprav1: "1 naprava", naprav2: "2 napravi", naprav34: "{n} naprave", napravN: "{n} naprav",
@@ -230,7 +234,7 @@
       odpriMedijskiCenter: "Open Media center", niPredvajanja: "Nothing playing",
       medijNavodilo: "Pick music or a video in Files or in the Media center.",
       medijIskanjePh: "Search music, radio, films and series …", medijIskanjeVse: "All results for “{q}” in the Media center",
-      medijIskanjeIscem: "Searching …", medijIskanjeNic: "Nothing found.", medijTaRacunalnik: "This computer",
+      medijIskanjeIscem: "Searching …", medijIskanjeSe: "Still searching sources …", medijIskanjeNic: "Nothing found.", medijTaRacunalnik: "This computer",
       prejsnja: "Previous", premor: "Play / pause", naslednja: "Next",
       predvaja: "Playing", vPremoru: "Paused", ustavljeno: "Stopped", napakaPredvajanja: "Playback failed",
       filterPh: "Filter …", filterPrgPh: "Search apps …", vseVrste: "All types", vrstaDokument: "Documents",
@@ -360,8 +364,12 @@
       posN_sredisce_naprave_ni_dosegljivo: "the device cannot be reached on this network", posN_posiljanje_ni_uspelo: "the connection was interrupted",
       isciVSpletu: "Search the web for “{q}”", odpreVBrskalniku: "results right here on the desktop", isciem: "Searching …",
       prostor: "{n} items",
-      spremeniOzadje: "Change wallpaper …", prilagodiDock: "Customise dock …",
-      dockNamig: "Add an app to the dock by dragging it from the menu; drag it out to remove it.",
+      spremeniOzadje: "Change wallpaper …", prilagodiDock: "Edit dock …",
+      dockDodaj: "Add to dock", dockOdstrani: "Remove from dock", dockNaslov: "Dock", dockDodajProgram: "Add an app …",
+      dockGor: "Move up", dockDol: "Move down", dockPrazen: "No apps in the dock.", dockVecNastavitev: "More dock settings …",
+      dockIsci: "Find an app …", dockBrezPlanka: "The dock (Plank) is not installed.", dockOpis: "Change the order with the arrows; you can also drag icons on the dock itself.",
+      dockDodano: "{ime} is in the dock.", dockOdstranjeno: "{ime} is no longer in the dock.", nazaj: "Back",
+      dockNamig: "Add an app to the dock by right-clicking it › Add to dock, or in Edit dock.",
       linkPovezan: "Safeer Link · {n}", linkPovezanBrez: "Safeer Link · connected",
       linkPovezi: "Connect to Safeer Link", linkNaslov: "Safeer Link: your devices (opens Safeer Control)",
       naprav1: "1 device", naprav2: "2 devices", naprav34: "{n} devices", napravN: "{n} devices",
@@ -2150,6 +2158,7 @@
   var lokalniOb = 0;
   function naloziLokalnePrograme() {
     lokalniOb = Date.now();
+    dockNalozi();
     return klic("programi").then(function (s) {
       P.lokalni = (Array.isArray(s) ? s : []).filter(function (p) { return p && p.id; }).map(function (p) {
         return { id: String(p.id), ime: String(p.ime || p.id), opis: String(p.opis || p.splosno || ""), skupina: p.skupina || "drugo",
@@ -2616,6 +2625,10 @@
       m.push([t("zazeniNaNapravi"), function () { zazeni("zazeniNaNapravi", p); }]);
     }
     m.push([jePriljubljen(p) ? t("odstraniPriljubljeno") : t("dodajPriljubljeno"), function () { preklopiPriljubljen(p); }]);
+    if (p.lokalni && D.plank) {
+      var vDocku = D.ids.indexOf(p.id) >= 0;
+      m.push([t(vDocku ? "dockOdstrani" : "dockDodaj"), function () { dockPreklopi(p.id, p.ime, !vDocku); }]);
+    }
     m.push(["—"]);
     m.push([t("kategorija", { k: t(IMENA_KATEGORIJ[kategorijaPrograma(p)]) }), null, true]);
     ["pisarna", "ustvarjanje", "mediji", "splet", "igre", "drugo"].forEach(function (k) {
@@ -2623,6 +2636,94 @@
       m.push(["  → " + t(IMENA_KATEGORIJ[k]), function () { N.kategorije[kljucPrograma(p)] = k; shrani(); izrisiPrograme(); }]);
     });
     pokaziMeni(m, x, y);
+  }
+  // ------------------------------------------------------------------ DOCK (core/os_dock.py)
+  // Lastnik, 11. 10. 2026: dodajanje, odstranjevanje in razvrscanje programov v docku mora biti enostavno - tudi z
+  // daljincem (puscici namesto vlecenja). Spremembo Plank pokaze po kratkem ponovnem zagonu.
+  var D = { plank: false, ids: [], programi: [] };
+  function dockNalozi() {
+    return klic("dock").then(function (r) {
+      D.plank = !!(r && r.plank); D.programi = (r && r.programi) || [];
+      D.ids = D.programi.map(function (x) { return x.id; });
+      return D;
+    }).catch(function () { return D; });
+  }
+  function dockPreklopi(id, ime, dodaj) {
+    return klic(dodaj ? "dockDodaj" : "dockOdstrani", [id]).then(function (r) {
+      if (!r || r.ok === false) { obvesti(t("niUspelo")); return; }
+      obvesti(t(dodaj ? "dockDodano" : "dockOdstranjeno", { ime: ime }));
+      return dockNalozi();
+    }).catch(function () { obvesti(t("niUspelo")); });
+  }
+  function urediDock() {
+    var ovoj = el("div", "meni dock-urejanje"); ovoj.setAttribute("role", "dialog"); ovoj.setAttribute("aria-label", t("dockNaslov"));
+    ovoj.style.cssText = "position:fixed;left:50%;top:6vh;transform:translateX(-50%);width:min(30em,94vw);max-height:88vh;overflow:auto;padding:1em 1.2em";
+    var izbiram = false;
+    function zapri() { ovoj.remove(); document.removeEventListener("keydown", esc, true); }
+    function esc(ev) { if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); if (izbiram) { izbiram = false; narisi(); } else zapri(); } }
+    function g(besedilo, naslov, fn) {
+      var b = el("button", "", besedilo); b.type = "button"; if (naslov) { b.title = naslov; b.setAttribute("aria-label", naslov); }
+      b.addEventListener("click", fn); return b;
+    }
+    function premakni(i, smer) {
+      var vrsta = D.programi.map(function (x) { return x.dockitem; });
+      var j = i + smer; if (j < 0 || j >= vrsta.length) return;
+      var x = vrsta[i]; vrsta[i] = vrsta[j]; vrsta[j] = x;
+      var px = D.programi[i]; D.programi[i] = D.programi[j]; D.programi[j] = px;
+      narisi(j, smer < 0 ? "gor" : "dol");
+      klic("dockRazvrsti", [vrsta]).then(function (r) { if (!r || r.ok === false) obvesti(t("niUspelo")); dockNalozi(); });
+    }
+    function narisi(fokusVrstica, fokusGumb) {
+      ovoj.innerHTML = "";
+      ovoj.appendChild(el("p", "meni-naslov", izbiram ? t("dockDodajProgram") : t("dockNaslov")));
+      if (!D.plank) { ovoj.appendChild(el("p", "", t("dockBrezPlanka"))); ovoj.appendChild(g(t("zapri"), "", zapri)); return; }
+      if (izbiram) { narisiIzbiro(); return; }
+      ovoj.appendChild(el("p", "meni-namig", t("dockOpis")));
+      var seznam = el("div", "dock-seznam");
+      if (!D.programi.length) seznam.appendChild(el("p", "prazno", t("dockPrazen")));
+      D.programi.forEach(function (x, i) {
+        var v = el("div", "dock-vrstica");
+        v.appendChild(slikaAliCrka(x.ikona, x.ime));
+        v.appendChild(el("span", "ime", x.ime));
+        var gor = g("↑", t("dockGor"), function () { premakni(i, -1); }); gor.disabled = i === 0; gor.dataset.v = "gor";
+        var dol = g("↓", t("dockDol"), function () { premakni(i, 1); }); dol.disabled = i === D.programi.length - 1; dol.dataset.v = "dol";
+        var od = g("✕", t("dockOdstrani"), function () { dockPreklopi(x.id, x.ime, false).then(function () { narisi(); }); });
+        v.appendChild(gor); v.appendChild(dol); v.appendChild(od);
+        seznam.appendChild(v);
+        if (fokusVrstica === i) setTimeout(function () { var f = v.querySelector('[data-v="' + fokusGumb + '"]:not(:disabled)') || v.querySelector("button:not(:disabled)"); if (f) f.focus(); }, 0);
+      });
+      ovoj.appendChild(seznam);
+      var spodaj = el("div", "dock-gumbi");
+      spodaj.appendChild(g(t("dockDodajProgram"), "", function () { izbiram = true; narisi(); }));
+      spodaj.appendChild(g(t("dockVecNastavitev"), "", function () { zapri(); klic("nastavitveDocka"); }));
+      spodaj.appendChild(g(t("zapri"), "", zapri));
+      ovoj.appendChild(spodaj);
+    }
+    function narisiIzbiro() {
+      var polje = el("input", "filter"); polje.type = "search"; polje.placeholder = t("dockIsci"); polje.style.cssText = "width:100%;box-sizing:border-box;margin:.2em 0 .5em";
+      var seznam = el("div", "dock-seznam");
+      function izpisi() {
+        var q = polje.value.trim().toLocaleLowerCase(jezik);
+        seznam.innerHTML = "";
+        P.lokalni.filter(function (p) {
+          return D.ids.indexOf(p.id) < 0 && (!q || p.ime.toLocaleLowerCase(jezik).indexOf(q) >= 0);
+        }).sort(function (a, b) { return a.ime.localeCompare(b.ime, jezik, { sensitivity: "base" }); }).forEach(function (p) {
+          var b = el("button", "dock-vrstica dock-izbira"); b.type = "button";
+          b.appendChild(slikaAliCrka(p.ikona, p.ime)); b.appendChild(el("span", "ime", p.ime)); b.appendChild(el("span", "plus", "+"));
+          b.addEventListener("click", function () { dockPreklopi(p.id, p.ime, true).then(function () { izbiram = false; narisi(); }); });
+          seznam.appendChild(b);
+        });
+      }
+      polje.addEventListener("input", izpisi);
+      ovoj.appendChild(polje); ovoj.appendChild(seznam); izpisi();
+      var spodaj = el("div", "dock-gumbi");
+      spodaj.appendChild(g(t("nazaj"), "", function () { izbiram = false; narisi(); }));
+      ovoj.appendChild(spodaj);
+      setTimeout(function () { polje.focus(); }, 0);
+    }
+    document.addEventListener("keydown", esc, true);
+    document.body.appendChild(ovoj);
+    dockNalozi().then(function () { narisi(); var f = ovoj.querySelector("button:not(:disabled)"); if (f) f.focus(); });
   }
   function preklopiPriljubljen(p) {
     var k = kljucPrograma(p);
@@ -2671,32 +2772,64 @@
   // Vsi viri Medijskega centra (dodatki, Jamendo, radio, TV, ta racunalnik) brez odpiranja okna: glasba in radio
   // zaigrata v predvajalniku na namizju, film in serija se odpreta v Safeer Playerju (odpriIzKataloga).
   var MI = { cas: null, zahteva: 0, zadetki: [] };
+  // Zadetki pridejo po delih: najprej ta racunalnik in predpomnilnik kataloga (takoj, brez omrezja), nato sveze iskanje
+  // po virih. Ne cakamo na najpocasnejsi vir: kar je, je takoj vidno; po 12 s iskanja po virih ne cakamo vec.
+  // Vrstni red: naslov, ki se z iskanim zacne (beseda), pred zadetkom sredi besede (»rock« ne najde najprej »Brockovich«).
+  function medijOcena(z, q) {
+    var naslov = z.lokalno ? (z.d.naslov || z.d.ime || "") : (z.k.naslov || ""), izv = z.lokalno ? "" : (z.k.izvajalec || "");
+    var b = q.toLocaleLowerCase(jezik), zacetek = new RegExp("(^|[^\\p{L}\\p{N}])" + b.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "u");
+    if (zacetek.test(naslov.toLocaleLowerCase(jezik))) return 0;
+    if (zacetek.test(izv.toLocaleLowerCase(jezik))) return 1;
+    return 2;
+  }
   function medijIsci(q) {
     var polje = $("medijZadetki");
     q = String(q || "").trim();
     clearTimeout(MI.cas);
-    if (q.length < 2) { polje.hidden = true; polje.textContent = ""; MI.zadetki = []; return; }
+    if (q.length < 2) { ++MI.zahteva; polje.hidden = true; polje.textContent = ""; MI.zadetki = []; return; }
     MI.cas = setTimeout(function () {
-      var zahteva = ++MI.zahteva;
+      var zahteva = ++MI.zahteva, deli = { lokalno: [], hitro: [], sveze: null, radio: [] }, konec = false;
+      // »rock radio«: uporabnik isce radijsko postajo - te pridejo prve, iscemo pa »rock« med postajami.
+      var radioBesede = /(^|\s)(radio|radia|radijo|radijske?|postaj[ae]?|station|sender)(\s|$)/i;
+      var zeliRadio = radioBesede.test(q), qRadio = q.replace(radioBesede, " ").replace(/\s+/g, " ").trim() || q;
       polje.hidden = false; polje.textContent = "";
       polje.appendChild(el("p", "medij-zadetki-stanje", t("medijIskanjeIscem")));
-      Promise.all([
-        klic("knjiznicaMedijev", ["", q, 0]).then(function (s) { return (s || []).slice(0, 4); }).catch(function () { return []; }),
-        klic("mediaKatalog", [q, "vse", "", 1, "", [], false, [], ""]).then(function (r) {
-          return ((r && r.vnosi) || []).slice(0, 8);
-        }).catch(function () { return []; })
-      ]).then(function (izid) {
+      function zdruzi() {
         if (zahteva !== MI.zahteva) return;
-        MI.zadetki = izid[0].map(function (d) { return { lokalno: true, d: d }; })
-          .concat(izid[1].map(function (k) { return { k: k }; }));
-        narisiMedijZadetke(q);
-      });
+        var videni = {}, katalog = [];
+        var radio = deli.radio.slice(0, zeliRadio ? 8 : 3);
+        (zeliRadio ? radio.concat(deli.sveze || [], deli.hitro) : (deli.sveze || []).concat(radio, deli.hitro)).forEach(function (k) {
+          var kljuc = String(k.id || "") || ((k.naslov || "") + "|" + (k.vrsta || ""));
+          var kljuc2 = (k.naslov || "").toLocaleLowerCase(jezik) + "|" + (k.izvajalec || "").toLocaleLowerCase(jezik);
+          if (videni[kljuc] || videni[kljuc2]) return;
+          videni[kljuc] = videni[kljuc2] = true; katalog.push({ k: k });
+        });
+        var vsi = deli.lokalno.map(function (d) { return { lokalno: true, d: d }; }).concat(katalog);
+        vsi.forEach(function (z, i) {
+          var jeRadio = !z.lokalno && (z.k.vrsta === "radio" || radio.indexOf(z.k) >= 0);
+          z.o = (zeliRadio && jeRadio ? -1 : medijOcena(z, jeRadio ? qRadio : q)) * 1000 + i;
+        });
+        var dobri = vsi.filter(function (z) { return z.o < 2000; });
+        // Zadetek sredi besede pokazemo le, ce boljsih ni dovolj.
+        if (dobri.length < 4) dobri = vsi;
+        MI.zadetki = dobri.sort(function (a, b) { return a.o - b.o; }).slice(0, 10);
+        narisiMedijZadetke(q, !konec);
+      }
+      klic("knjiznicaMedijev", ["", q, 0]).then(function (s) { deli.lokalno = (s || []).slice(0, 4); zdruzi(); }).catch(function () {});
+      klic("mediaIsciPredpomnilnik", [q]).then(function (s) { deli.hitro = s || []; zdruzi(); }).catch(function () {});
+      var rok = setTimeout(function () { if (zahteva === MI.zahteva && !konec) { konec = true; zdruzi(); } }, 12000);
+      var radioKonec = klic("mediaKatalog", [qRadio, "radio", "", 1, "", [], false, [], ""]).then(function (r) {
+        deli.radio = ((r && r.vnosi) || []).slice(0, 10); zdruzi();
+      }).catch(function () {});
+      klic("mediaKatalog", [q, "vse", "", 1, "", [], false, [], ""]).then(function (r) {
+        deli.sveze = ((r && r.vnosi) || []).slice(0, 20);
+      }).catch(function () {}).then(function () { return radioKonec; }).then(function () { clearTimeout(rok); konec = true; zdruzi(); });
     }, 350);
   }
-  function narisiMedijZadetke(q) {
-    var polje = $("medijZadetki");
+  function narisiMedijZadetke(q, seIscem) {
+    var polje = $("medijZadetki"), fokus = document.activeElement && polje.contains(document.activeElement) ? Array.prototype.indexOf.call(polje.children, document.activeElement) : -1;
     polje.textContent = "";
-    if (!MI.zadetki.length) polje.appendChild(el("p", "medij-zadetki-stanje", t("medijIskanjeNic")));
+    if (!MI.zadetki.length) polje.appendChild(el("p", "medij-zadetki-stanje", t(seIscem ? "medijIskanjeIscem" : "medijIskanjeNic")));
     MI.zadetki.forEach(function (z, i) {
       var b = el("button", "medij-zadetek"); b.type = "button"; b.setAttribute("role", "option");
       var slika = z.k && z.k.slika;
@@ -2714,7 +2847,9 @@
     var vse = el("button", "medij-zadetek vse", t("medijIskanjeVse", { q: q })); vse.type = "button";
     vse.addEventListener("click", function () { klic("odpriRazdelek", ["mediji:" + q]); medijIskanjePocisti(); });
     polje.appendChild(vse);
+    if (seIscem && MI.zadetki.length) polje.appendChild(el("p", "medij-zadetki-stanje", t("medijIskanjeSe")));
     polje.hidden = false;
+    if (fokus >= 0 && polje.children[fokus]) polje.children[fokus].focus();
   }
   function medijIzberi(i) {
     var z = MI.zadetki[i];
@@ -3462,7 +3597,7 @@
       setTimeout(osveziLink, 8000);
     });
     $("gumbOzadje").addEventListener("click", function () { $("meniPlosce").hidden = true; klic("nastavitveOzadja"); });
-    $("gumbDock").addEventListener("click", function () { $("meniPlosce").hidden = true; klic("nastavitveDocka"); });
+    $("gumbDock").addEventListener("click", function () { $("meniPlosce").hidden = true; urediDock(); });
 
     // Mediji
     document.querySelectorAll("#kontrole [data-ukaz]").forEach(function (b) {

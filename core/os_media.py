@@ -1196,7 +1196,7 @@ class MediaCenter:
 
     #: Razlicica pravil kataloga: ob spremembi (11. 10. 2026: PeerTube in Internet Archive nista vec vgrajena, glasbeni
     #: dodatki gredo pod Glasbo) shranjen katalog ne velja vec - sicer bi stara vsebina ob zagonu se enkrat zasvetila.
-    RAZLICICA_KATALOGA = 2
+    RAZLICICA_KATALOGA = 3
 
     @property
     def pot_predpomnilnika(self) -> Path:

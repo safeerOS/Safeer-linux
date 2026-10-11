@@ -315,7 +315,7 @@ assert.strictEqual(privzetiZadetek([splet, { vrsta: "zapisek", z: { naslov: "Nak
         # disku (vsaka crka ne sme iti k virom po omrezju), film/serija odpre Medijski center, glasba/radio se predvaja.
         # Glavna lupa med tipkanjem ne sprasuje virov po omrezju; to sme samo iskanje v predvajalniku (medijIsci), ki
         # isce izrecno po medijih in pocaka, da uporabnik neha tipkati (lastnik, 11. 10. 2026).
-        lupa = js.replace(js[js.index("  function medijIsci(q) {"):js.index("  function narisiMedijZadetke(q) {")], "")
+        lupa = js.replace(js[js.index("  function medijIsci(q) {"):js.index("  function narisiMedijZadetke(q, seIscem) {")], "")
         self.assertNotIn('klic("mediaKatalog"', lupa)
         self.assertIn('q.length >= 3 ? klic("mediaIsciPredpomnilnik", [q])', js)
         self.assertIn('else if (v.vrsta === "katalog") odpriIzKataloga(v.k);', js)

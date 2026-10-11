@@ -310,34 +310,25 @@ class ZakonitiViri:
             # PeerTube vrne videe v tem jeziku IN videe s podnapisi v njem; tocno izbere katalog (os_media).
             iskanje["languageOneOf"] = jezik
         encoded = urllib.parse.urlencode(iskanje)
+        if not hosts:
+            # Lastnik, 11. 10. 2026: PeerTube ni vgrajen - brez streznikov, ki jih je dodal uporabnik, ga ne iscemo
+            # (tudi ne prek globalnega indeksa sepiasearch.org).
+            return []
         def fetch():
             result = []
-            try:
-                data = self._json("https://sepiasearch.org/api/v1/search/videos?" + encoded)
-                rows = data.get("data", []) if isinstance(data, dict) else []
-                for row in rows:
-                    host = str(row.get("host") or urllib.parse.urlsplit(str(row.get("url") or "")).hostname or "")
-                    if not host and row.get("channel"):
-                        host = str(row["channel"].get("host") or "")
-                    item = self._peertube_video(row, host, "Iskanje")
-                    if item:
-                        result.append(item)
-            except Exception:
-                pass
-            if not result:
-                def server_search(host):
-                    path = "/api/v1/search/videos?" + urllib.parse.urlencode(dict(iskanje, count=20))
-                    return self._peer_rows(host, path, "Iskanje")
-                with ThreadPoolExecutor(max_workers=min(8, len(hosts))) as pool:
-                    futures = [pool.submit(server_search, host) for host in hosts]
-                    try:
-                        for future in as_completed(futures, timeout=_TIMEOUT):
-                            rows = future.result()
-                            if rows:
-                                result.extend(rows)
-                                break
-                    except FuturesTimeout:
-                        pass
+            def server_search(host):
+                path = "/api/v1/search/videos?" + urllib.parse.urlencode(dict(iskanje, count=20))
+                return self._peer_rows(host, path, "Iskanje")
+            with ThreadPoolExecutor(max_workers=min(8, len(hosts))) as pool:
+                futures = [pool.submit(server_search, host) for host in hosts]
+                try:
+                    for future in as_completed(futures, timeout=_TIMEOUT):
+                        try:
+                            result.extend(future.result() or [])
+                        except Exception:
+                            pass
+                except FuturesTimeout:
+                    pass
             terms = [word for word in _norm(query).split() if len(word) > 1]
             if terms:
                 result = [item for item in result if all(term in _norm(" ".join((item["naslov"], item["izvajalec"], item["opis"]))) for term in terms)]
@@ -476,17 +467,31 @@ class ZakonitiViri:
         if oznaka:
             tags = [(oznaka, ime)]
         else:
-            tags = [(query, "Iskanje")] if query else [("SI", "Slovenija")] + [(tag, tag.title()) for tag in RADIO_TAGS] + [("", "Najbolj poslušane")]
+            # Iskanje: najprej postaje s tem imenom v Sloveniji (»rock radio« = Rock Radio iz Slovenije), nato po svetu,
+            # nato postaje s to oznako (zvrstjo). Prej je iskalo samo po oznaki - »rock radio« ni nasel nicesar.
+            tags = ([("ime:SI:" + query, "Iskanje"), ("ime:" + query, "Iskanje"), (query, "Iskanje")] if query else
+                    [("SI", "Slovenija")] + [(tag, tag.title()) for tag in RADIO_TAGS] + [("", "Najbolj poslušane")])
         def load_tag(entry):
             value, label = entry
             params = {"order": "clickcount", "reverse": "true", "hidebroken": "true",
                       "limit": "60" if oznaka else "30", "is_https": "true"}
             if value == "SI": params["countrycode"] = "SI"
+            elif value.startswith("ime:SI:"): params["name"] = value[len("ime:SI:"):]; params["countrycode"] = "SI"
+            elif value.startswith("ime:"): params["name"] = value[len("ime:"):]
             elif value: params["tag"] = value
             key = "radio:" + label + ":" + value
             def fetch(params=params, label=label):
-                url = "https://de1.api.radio-browser.info/json/stations/search?" + urllib.parse.urlencode(params)
-                rows = self._json(url)
+                # Radio Browser ima vec zrcal; ce eno ne odgovori (11. 10. 2026: de1 vracal 503), poskusimo naslednje.
+                napaka = None
+                for streznik in ("de1", "de2", "fi1", "nl1", "at1"):
+                    try:
+                        rows = self._json("https://%s.api.radio-browser.info/json/stations/search?%s"
+                                          % (streznik, urllib.parse.urlencode(params)))
+                        break
+                    except Exception as e:  # noqa: BLE001
+                        napaka = e
+                else:
+                    raise napaka or OSError("Radio Browser")
                 return [self._station(row, label) for row in rows if isinstance(row, dict)]
             return self._cached(key, fetch)
         with ThreadPoolExecutor(max_workers=len(tags)) as pool:

@@ -50,6 +50,7 @@ from core import (os_datoteke, os_govor, os_katalog, os_knjiznica, os_lupa, os_o
                   os_torrent, os_torrent_tok, os_zapiski, os_zvok, knjiznica_kroga, os_ponudniki_programov, os_github_programi)
 from core import budnost, odlozisce_varuh, os_iskalnik, os_odpri_z, os_pretvorba_datotek  # noqa: E402
 from core import media_servers  # noqa: E402
+from core import os_dock  # noqa: E402
 
 # Preklop vhoda zvocne vrstice JBL je samo interni poskus: uradni paket modula ne vsebuje
 # (packaging/install_os_payload.sh), zato ga uvozimo le, ce je prisoten (zagon iz repozitorija).
@@ -2267,6 +2268,11 @@ class SafeerOS(Gtk.Application):
             "odpriZ": lambda: os_odpri_z.odpri_z(a[0] if a and isinstance(a[0], list) else [], str(a[1]) if len(a) > 1 else "",
                                                  bool(a[2]) if len(a) > 2 else False, self._zazeni_vnos_z),
             "pripni": lambda: self.programi.pripni(str(a[0]), bool(a[1]) if len(a) > 1 else True),
+            # Dock (Plank): dodaj, odstrani, razvrsti iz menijev Safeer OS (core/os_dock.py).
+            "dock": self._dock_seznam,
+            "dockDodaj": lambda: os_dock.dodaj(self.programi.pot(str(a[0]) if a else "") or ""),
+            "dockOdstrani": lambda: os_dock.odstrani(str(a[0]) if a else ""),
+            "dockRazvrsti": lambda: os_dock.razvrsti([str(x) for x in a[0]] if a and isinstance(a[0], list) else []),
             "skrijDomov": lambda: self.programi.skrij_domov(str(a[0]), bool(a[1]) if len(a) > 1 else True),
             "nedavnePozabi": lambda: self._nedavne_pozabi(str(a[0]) if a else ""),
             "nedavnePocisti": self._nedavne_pocisti,
@@ -2641,6 +2647,16 @@ class SafeerOS(Gtk.Application):
         cisti = os_spletne.pocisti(seznam)
         self.shramba.set("spletne", cisti)
         return cisti
+
+    def _dock_seznam(self) -> dict:
+        """Programi v docku po vrsti, z imenom in ikono; »plank« = ali je dock sploh namescen."""
+        programi = []
+        for e in os_dock.elementi():
+            v = os_programi.preberi_vnos(e["pot"]) or {}
+            ime = v.get("ime") or (e["id"][: -len(".desktop")] if e["id"].endswith(".desktop") else e["id"])
+            programi.append({"id": e["id"], "dockitem": e["dockitem"], "ime": ime,
+                             "ikona": self._ikona(v["ikona"]) if v.get("ikona") else ""})
+        return {"ok": True, "plank": bool(GLib.find_program_in_path("plank")), "programi": programi}
 
     def _ikona(self, ime: str) -> str:
         if ime not in self._ikone:

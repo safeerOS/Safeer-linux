@@ -375,7 +375,7 @@ select option { background: #111c2b; color: var(--besedilo); }
 .medij-iskanje:focus-within { border-color: rgba(135, 194, 255, .55); background: rgba(234, 244, 255, .09); }
 .medij-iskanje svg { width: 1em; height: 1em; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; opacity: .75; }
 .medij-iskanje input { flex: 1; min-width: 0; font: inherit; font-size: .9em; color: inherit; background: transparent; border: 0; outline: 0; }
-.medij-zadetki { margin-top: .5em; display: flex; flex-direction: column; gap: .15em; max-height: 22em; overflow-y: auto; flex: none; }
+.medij-zadetki { margin-top: .5em; display: flex; flex-direction: column; gap: .15em; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
 .medij-zadetki[hidden] { display: none; }
 .medij-zadetek { display: flex; align-items: center; gap: .7em; padding: .35em .5em; border-radius: var(--r-mal, 10px); border: 1px solid transparent;
   background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
@@ -389,3 +389,16 @@ select option { background: #111c2b; color: var(--besedilo); }
 .medij-zadetek-besedilo small { font-size: .75em; opacity: .7; }
 .medij-zadetek.vse { justify-content: center; font-size: .82em; color: #9fd0ff; }
 .medij-zadetki-stanje { margin: .3em .5em; font-size: .8em; opacity: .7; }
+
+/* Urejanje docka (Uredi dock …): vrstica = ikona, ime, gor, dol, odstrani; velike tarce tudi za daljinec. */
+.dock-urejanje .dock-seznam { display: flex; flex-direction: column; gap: .3em; margin: .4em 0 .8em; }
+.dock-urejanje .dock-vrstica { display: flex; align-items: center; gap: .6em; padding: .35em .5em; border-radius: 10px;
+  background: var(--povrsina); border: 1px solid var(--obroba); }
+.dock-urejanje .dock-vrstica img, .dock-urejanje .dock-vrstica .crka { width: 1.8em; height: 1.8em; flex: none; }
+.dock-urejanje .dock-vrstica .ime { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-urejanje .dock-vrstica button { flex: none; min-width: 2.2em; height: 2.2em; border-radius: 8px; font-size: 1em; }
+.dock-urejanje .dock-vrstica button:disabled { opacity: .3; }
+.dock-urejanje button.dock-izbira { width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.dock-urejanje button.dock-izbira:hover, .dock-urejanje button.dock-izbira:focus-visible { background: var(--izbrano); outline: 0; }
+.dock-urejanje .dock-izbira .plus { font-size: 1.3em; color: var(--poudarek); }
+.dock-urejanje .dock-gumbi { display: flex; flex-wrap: wrap; gap: .5em; justify-content: flex-end; }

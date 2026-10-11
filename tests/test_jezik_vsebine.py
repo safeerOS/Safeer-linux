@@ -237,7 +237,13 @@ class ViriVJeziku(unittest.TestCase):
         self.naslovi.clear()
         self.viri.videos("kekec", None, "sl")
         self.assertIn("languageOneOf=sl", self.naslovi[0])
-        self.assertTrue(self.naslovi[0].startswith("https://sepiasearch.org/api/v1/search/videos?"))
+        # Iskanje samo na streznikih, ki jih je dodal uporabnik (nikoli globalni indeks sepiasearch.org).
+        self.assertTrue(self.naslovi[0].startswith("https://tilvids.com/api/v1/search/videos?"))
+        self.assertFalse(any("sepiasearch" in n for n in self.naslovi))
+        self.naslovi.clear()
+        self.viri._video_hosts = lambda configured: []
+        self.assertEqual(self.viri.videos("rock", None, ""), [])
+        self.assertEqual(self.naslovi, [], "brez uporabnikovih streznikov PeerTube se ne sprasuje nicesar")
 
     def test_jamendo(self):
         skladbe = self.viri.music("", "", "sl")
