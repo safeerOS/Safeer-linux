@@ -143,6 +143,9 @@
       ptdPretvarjam: "Pretvarjam »{ime}« v {cilj} …", ptdKoncano: "Shranjeno ob izvirniku kot »{izhod}« ({velikost}).",
       ptdNapaka: "Pretvorba ni uspela ({koda}).", ptdNiOrodja: "Za to vrsto datotek manjka program: {orodje}.",
       ptdNiMogoce: "Te datoteke ni mogoče pretvoriti.",
+      ptdNiUspelo: "Te datoteke ni bilo mogoče pretvoriti – morda je poškodovana. Izvirnik je nespremenjen.",
+      ptdPrepocasi: "Pretvorba je trajala predolgo in je bila ustavljena. Izvirnik je nespremenjen.",
+      ptdNiDatoteke: "Datoteke ni več na tem mestu.",
       pretvori: "Pretvori za televizor (1080p) …", prvIscem: "Iščem napravo z najboljšim strojnim kodirnikom za »{ime}« …",
       prvPrenasam: "Naprava {naprava} prenaša »{ime}« … {odst} %", prvPretvarjam: "Naprava {naprava} pretvarja »{ime}« … {odst} %",
       prvShranjujem: "Naprava {naprava} shranjuje pretvorjeni video …", prvKoncanoNaslov: "Video je pretvorjen",
@@ -290,6 +293,9 @@
       ptdPretvarjam: "Converting “{ime}” to {cilj} …", ptdKoncano: "Saved next to the original as “{izhod}” ({velikost}).",
       ptdNapaka: "Conversion failed ({koda}).", ptdNiOrodja: "A program for this kind of file is missing: {orodje}.",
       ptdNiMogoce: "This file cannot be converted.",
+      ptdNiUspelo: "This file could not be converted – it may be damaged. The original is unchanged.",
+      ptdPrepocasi: "The conversion took too long and was stopped. The original is unchanged.",
+      ptdNiDatoteke: "The file is no longer there.",
       pretvori: "Convert for TV (1080p) …", prvIscem: "Looking for the device with the best hardware encoder for “{ime}” …",
       prvPrenasam: "{naprava} is fetching “{ime}” … {odst} %", prvPretvarjam: "{naprava} is converting “{ime}” … {odst} %",
       prvShranjujem: "{naprava} is saving the converted video …", prvKoncanoNaslov: "The video is converted",
@@ -917,7 +923,10 @@
     var ik = ikonaVrste(e.mapa ? "mapa" : e.vrsta);
     if (e.pot && !e.oddaljeno && !e.smeti && (e.vrsta === "slika" || e.vrsta === "video")) ik.setAttribute("data-slicica", e.pot);
     c.appendChild(ik); c.appendChild(el("span", "", e.ime));
-    td.appendChild(c); td.title = e.ime; tr.appendChild(td);
+    // Polno ime kot namig samo, ko je odrezano: sicer bi namig (WebKitGTK ga pokaze z zamikom, brez premika miske)
+    // prekril meni desnega klika, ki se odpre pod kazalcem - tudi postavko »Pretvori v …«.
+    td.appendChild(c); tr.appendChild(td);
+    td.addEventListener("mouseenter", function () { var s = c.lastChild; td.title = s && s.scrollWidth > s.clientWidth + 1 ? e.ime : ""; });
     tr.appendChild(el("td", "st-vrsta", t("en_" + (e.mapa ? "mapa" : (IKONE_VRST[e.vrsta] ? e.vrsta : "drugo")))));
     var lok = el("td", "st-lok");
     if (e.oddaljeno) { var o = el("span", "oznaka-vira oddaljeno", e.naprava); lok.appendChild(o); }
@@ -1714,7 +1723,9 @@
   function pretvoriDatoteko(e) {
     var ovoj = el("div", "meni"); ovoj.setAttribute("role", "dialog");
     ovoj.style.cssText = "position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);max-width:34em;padding:1em 1.2em";
-    var naslov = el("p", "meni-naslov", t("ptdNaslov", { ime: e.ime }));
+    // Naslov je v velikih crkah (meni-naslov): ime datoteke gre v svojo vrstico, da ostane zapisano tako, kot je.
+    var naslov = el("p", "meni-naslov", t("pretvoriV").replace(/\s\u2026$/, ""));
+    var imeDat = el("p", "", e.ime); imeDat.style.cssText = "margin:.1em 0 0;font-weight:600;overflow-wrap:anywhere";
     var besedilo = el("p", "", t("ptdIzberi")); besedilo.style.cssText = "margin:.6em 0";
     ovoj.setAttribute("aria-label", t("ptdNaslov", { ime: e.ime }));
     var oblike = el("div", ""); oblike.style.cssText = "display:grid;grid-template-columns:repeat(3,minmax(5.5em,1fr));gap:.3em;margin:.4em 0";
@@ -1722,28 +1733,32 @@
     gumbi.style.cssText = "display:flex;gap:.6em;justify-content:flex-end;margin-top:.6em;padding-top:.5em;border-top:1px solid rgba(127,127,127,.25)";
     var gZapri = el("button", "", t("shrZapri")); gZapri.type = "button";
     gZapri.addEventListener("click", zapri); gumbi.appendChild(gZapri);
-    [naslov, besedilo, oblike, gumbi].forEach(function (x) { ovoj.appendChild(x); });
+    [naslov, imeDat, besedilo, oblike, gumbi].forEach(function (x) { ovoj.appendChild(x); });
     document.body.appendChild(ovoj);
     var casovnik = 0;
     function zapri() { clearTimeout(casovnik); ovoj.remove(); document.removeEventListener("keydown", esc, true); }
     function esc(ev) { if (ev.key === "Escape") { ev.preventDefault(); zapri(); } }
     document.addEventListener("keydown", esc, true);
     var ORODJA = { slika: "ImageMagick", zvok: "ffmpeg", besedilo: "LibreOffice", preglednica: "LibreOffice", predstavitev: "LibreOffice" };
+    var skupinaDat = "";
+    // Uporabnik vidi razlog z besedami; notranja koda ostane samo za neznane primere.
+    var BESEDILA_NAPAK = { ni_mogoce: "ptdNiMogoce", ni_uspelo: "ptdNiUspelo", prepocasi: "ptdPrepocasi", ni_datoteke: "ptdNiDatoteke" };
     function napaka(r) {
       var k = (r && r.koda) || "napaka";
       oblike.innerHTML = "";
-      besedilo.textContent = k === "ni_orodja" ? t("ptdNiOrodja", { orodje: ORODJA[r.skupina] || "?" })
-        : k === "ni_mogoce" ? t("ptdNiMogoce") : t("ptdNapaka", { koda: k });
+      besedilo.textContent = k === "ni_orodja" ? t("ptdNiOrodja", { orodje: ORODJA[(r && r.skupina) || skupinaDat] || "?" })
+        : BESEDILA_NAPAK[k] ? t(BESEDILA_NAPAK[k]) : t("ptdNapaka", { koda: k });
     }
     function spremljaj(id, cilj) {
       klic("pretvorbaDatotekeStanje", [id]).then(function (r) {
         if (!r || !r.ok) { napaka(r); return; }
         if (r.stanje === "koncano") {
           besedilo.textContent = t("ptdKoncano", { izhod: String(r.izhod || "").split("/").pop(), velikost: velikost(r.velikost || 0) });
+          // r.izhod je samo ime; Nemo potrebuje celo pot (r.pot_izhoda).
           if (D.vir) odpriVir(D.vir);
-          if (r.izhod) {
+          if (r.pot_izhoda) {
             var gMapa = el("button", "", t("pokaziVMapi")); gMapa.type = "button";
-            gMapa.addEventListener("click", function () { klic("pokaziVMapi", [r.izhod]); zapri(); });
+            gMapa.addEventListener("click", function () { klic("pokaziVMapi", [r.pot_izhoda]); zapri(); });
             gumbi.insertBefore(gMapa, gZapri);
           }
           try { gZapri.focus(); } catch (x) {}
@@ -1755,6 +1770,7 @@
     }
     klic("pretvorbaMoznosti", [e.pot]).then(function (m) {
       if (!m || !m.cilji || !m.cilji.length) { napaka({ koda: "ni_mogoce" }); return; }
+      skupinaDat = m.skupina || "";
       if (!m.orodje) { napaka({ koda: "ni_orodja", skupina: m.skupina }); return; }
       m.cilji.forEach(function (c, i) {
         var g = el("button", "", c.toUpperCase()); g.type = "button";
