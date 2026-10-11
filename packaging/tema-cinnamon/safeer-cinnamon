@@ -326,6 +326,12 @@ dock_prilagodi() {
     # Dock se umakne oknu, ki bi ga prekril (lastnik 11. 10. 2026: »z vkljucenim skrivanjem« - privzeto na vseh
     # zaslonih in profilih; na desnem robu delovni povrsini ne vzame prostora).
     skrivanje="intelligent"
+    # Enkratni prehod: dock, ki smo mu temo Gtk+ nastavili mi (privzeto do 1.2.2), dobi prozorno temo. Kdor si temo
+    # potem izbere sam, jo obdrzi (oznaka prepreci ponovno spremembo).
+    if [ ! -e "$MAPA/dock-tema-prozorna" ]; then
+        [ "$(dconf read "${PLANK_DOCK}theme" 2>/dev/null)" = "'Gtk+'" ] && dconf write "${PLANK_DOCK}theme" "'Transparent'"
+        : > "$MAPA/dock-tema-prozorna"
+    fi
     # Zapis: kaj smo nazadnje nastavili mi. Brez zapisa je dock iz razlicice pred 1.2 - velikost in skrivanje ostaneta
     # uporabnikova ("uporabnik" se nikoli ne ujema z vrednostjo, zato ju ne spreminjamo vec).
     [ -e "$MAPA/dock-nastavljeno" ] || printf 'ikone=uporabnik\nskrivanje=uporabnik\n' > "$MAPA/dock-nastavljeno"
@@ -448,9 +454,9 @@ dock() {
     else
         # Privzete nastavitve samo ob prvem vklopu docka: kar uporabnik potem spremeni (lega, velikost), ostane.
         if [ -n "$novo" ] && command -v dconf >/dev/null 2>&1; then
-            # Privzeto kot pri lastniku (11. 10. 2026): dock na desnem robu, tema Gtk+ (barve sistemske teme),
-            # skrivanje vklopljeno.
-            dconf write "${PLANK_DOCK}theme" "'Gtk+'"
+            # Privzeto kot pri lastniku (11. 10. 2026): dock na desnem robu, prozorna tema (samo ikone - lastnik:
+            # sivi trak teme Gtk+ ob robu zaslona je odvec), skrivanje vklopljeno.
+            dconf write "${PLANK_DOCK}theme" "'Transparent'"
             dconf write "${PLANK_DOCK}position" "'right'"
             dconf write "${PLANK_DOCK}alignment" "'center'"
             dconf write "${PLANK_DOCK}zoom-enabled" "false"
@@ -481,7 +487,7 @@ dock_izklopi() {
         dconf dump "$PLANK_DOCK" > "$MAPA/dock-nas/plank.ini" 2>/dev/null || true
         [ -f "$MAPA/dock-nastavljeno" ] && cp -f "$MAPA/dock-nastavljeno" "$MAPA/dock-nas/nastavljeno"
     fi
-    rm -f "$AUTOSTART" "$MAPA/dock-nastavljeno"
+    rm -f "$AUTOSTART" "$MAPA/dock-nastavljeno" "$MAPA/dock-tema-prozorna"
     if [ -n "$bil" ] || [ "${1:-}" = "koncno" ]; then
         pkill -x plank >/dev/null 2>&1 || true
         if command -v dconf >/dev/null 2>&1 && [ -f "$MAPA/plank-prej.ini" ]; then

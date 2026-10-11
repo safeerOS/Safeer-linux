@@ -714,8 +714,8 @@ class TestTemaCinnamon(unittest.TestCase):
             self.assertEqual(sorted(os.listdir(o["launcherji"])), ["firefox.dockitem", "nemo.dockitem", "safeer-os.dockitem"])
             self.assertEqual(self._dconf(o, "dock-items"), "['nemo.dockitem', 'firefox.dockitem', 'safeer-os.dockitem']")
             self.assertEqual(self._dconf(o, "pinned-only"), "false")
-            # Privzeto kot pri lastniku (11. 10. 2026): desni rob, tema Gtk+, skrivanje vklopljeno.
-            self.assertEqual(self._dconf(o, "theme"), "'Gtk+'")
+            # Privzeto kot pri lastniku (11. 10. 2026): desni rob, prozorna tema (brez sivega traku), skrivanje vklopljeno.
+            self.assertEqual(self._dconf(o, "theme"), "'Transparent'")
             self.assertEqual(self._dconf(o, "position"), "'right'")
             # Velikost ikon po zaslonu (lazni zaslon 1920 x 1080): 44 px.
             self.assertEqual(self._dconf(o, "icon-size"), "44")
