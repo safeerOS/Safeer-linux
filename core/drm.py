@@ -55,7 +55,7 @@ OBVESTILO = r"""
     (document.body || document.documentElement).appendChild(d);
     setTimeout(function () { d.remove(); }, 9000);
   } catch (e) {}
-})(%s);
+})(__BESEDILO__);
 """
 
 # Brskalniki z Widevine po vrsti: najprej zasebni (Brave), nato drugi Chromium. Flatpak tudi.
@@ -145,7 +145,7 @@ def prikljuci(WebKit2, pogled, preusmeritev: Preusmeritev, jezik: Callable[[], s
         izid, ime = preusmeritev.odpri(url)
         if izid in ("odprto", "ni"):
             import json
-            koda = OBVESTILO % json.dumps(besedilo_obvestila(izid, ime, jezik() or "sl"))
+            koda = OBVESTILO.replace("__BESEDILO__", json.dumps(besedilo_obvestila(izid, ime, jezik() or "sl")))
             try:
                 pogled.evaluate_javascript(koda, -1, None, None, None, None, None)
             except Exception:  # noqa: BLE001 - starejsi WebKitGTK

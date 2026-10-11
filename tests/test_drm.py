@@ -44,6 +44,12 @@ class Preusmeritev(unittest.TestCase):
         self.assertIn("Brave", drm.besedilo_obvestila("ni", ""))
         self.assertIn("Brave", drm.besedilo_obvestila("odprto", "Brave"))
 
+    def test_obvestilo_se_sestavi(self):
+        import json
+        koda = drm.OBVESTILO.replace("__BESEDILO__", json.dumps(drm.besedilo_obvestila("odprto", "Brave")))
+        self.assertIn("Brave", koda)
+        self.assertNotIn("__BESEDILO__", koda)
+
     def test_skripta_le_widevine_in_playready(self):
         self.assertIn("widevine|playready", drm.SKRIPTA)
         self.assertIn("izvirna.apply(this, arguments)", drm.SKRIPTA)
