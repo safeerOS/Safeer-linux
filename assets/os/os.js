@@ -72,6 +72,9 @@
     if (!most) return Promise.reject("brez mosta");
     return most.klic(metoda, argumenti || []);
   }
+  // Safeer Player (safeer_os.py --predvajalnik, »Odpri Medijski center« na delovni povrsini): ista stran v svojem
+  // oknu, samo Medijski center - brez stranske vrstice, glave in noge Safeer OS. Most, katalog in predvajalnik so isti.
+  var PREDVAJALNIK = /[?&]predvajalnik=1(&|$)/.test(location.search);
 
   // ------------------------------------------------------------------ besedila
   var jezik = "sl";
@@ -99,7 +102,7 @@
   /* Zlozljiva stranska vrstica: gumb v glavi ali Ctrl+B, kot v brskalnikih. */
   function vrsticaUredi() {
     var gumb = document.getElementById("gumbVrstica");
-    if (!gumb) return;
+    if (!gumb || PREDVAJALNIK) return;     // Safeer Player nima stranske vrstice (in Ctrl+B ne spremeni glavnega okna)
     var skrcena = document.body.classList.contains("vrstica-skrcena");
     gumb.setAttribute("aria-expanded", skrcena ? "false" : "true");
     gumb.title = t(skrcena ? "vrsticaRazsiri" : "vrsticaSkrci");
@@ -130,8 +133,10 @@
     try { localStorage.setItem("safeer_vrstica_skrcena", skrcena ? "1" : "0"); } catch (e) {}
     vrsticaUredi();
   }
-  try { if (localStorage.getItem("safeer_vrstica_skrcena") === "1") document.body.classList.add("vrstica-skrcena"); } catch (e) {}
-  try { if (localStorage.getItem("safeer_vrstica_skrita") === "1") document.body.classList.add("vrstica-skrita"); } catch (e) {}
+  if (!PREDVAJALNIK) {
+    try { if (localStorage.getItem("safeer_vrstica_skrcena") === "1") document.body.classList.add("vrstica-skrcena"); } catch (e) {}
+    try { if (localStorage.getItem("safeer_vrstica_skrita") === "1") document.body.classList.add("vrstica-skrita"); } catch (e) {}
+  }
 
   function $(id) { return document.getElementById(id); }
   function el(oznaka, razred, html) {
@@ -223,6 +228,11 @@
 
   // ------------------------------------------------------------------ navigacija
   function pojdi(razdelek) {
+    if (PREDVAJALNIK && razdelek !== "media") {
+      // Drugi razdelki niso del Safeer Playerja: odpre jih glavno okno Safeer OS (enako kot z delovne povrsine).
+      klic("odpriRazdelek", [razdelek]).catch(function () {});
+      return;
+    }
     S.razdelek = razdelek;
     zapriMeniSporocila();
     // Gostitelj pokaze ali skrije desni vdelani brskalnik. Klic je idempotenten, zato
@@ -252,6 +262,8 @@
   }
   window.safeerOsPojdi = function (kam) {
     kam = String(kam || "");
+    // Safeer Player sprejme samo Medijski center; ukazi za glavno okno (zapiski, iskanje ...) niso zanj.
+    if (PREDVAJALNIK && kam !== "media" && kam.indexOf("mediji:") !== 0) return;
     if (kam.indexOf("iskanje:") === 0) {
       pojdi("domov");
       $("iskanje").value = kam.slice(8);
@@ -1245,6 +1257,14 @@
      0.4.65 je klik ostal brez odziva, ce je gostitelj naslov zavrnil (odgovor false ni napaka obljube).
      novZavihek: stran, ki jo ima uporabnik odprto v brskalniku, ostane (povezava iz sporocila). */
   function odpriVSpletu(naslov, novZavihek) {
+    if (PREDVAJALNIK) {
+      // Safeer Player je samostojno okno: spletno stran (ponudnik, »Kje gledati«) odpre privzeti brskalnik, kot na
+      // delovni povrsini - ne glavno okno Safeer OS.
+      return klic("odpriVBrskalniku", [naslov]).then(function (ok) {
+        if (ok === false) obvesti(t("niUspelo"));
+        return ok !== false;
+      }, function () { obvesti(t("niUspelo")); return false; });
+    }
     return klic("splet", novZavihek ? [naslov, true] : [naslov]).then(function (ok) {
       // Pojasnilo o peskovniku je gostitelj pravkar poslal sam (dogodek spletBrezPeskovnika): splosno ga ne prekrije.
       if (ok === false && !pravkarBrezPeskovnika()) obvesti(t("niUspelo"));
@@ -4245,7 +4265,8 @@
     // da splosno obvestilo o napaki tega pojasnila ne prekrije.
     if (vrsta === "spletBrezPeskovnika" || vrsta === "medijBrezPeskovnika") { brezPeskovnikaOb = Date.now(); obvesti(t(vrsta)); }
     if (vrsta === "posodobitev") pokaziPosodobitevDoma(podatki);
-    if (vrsta === "magnet") odpriMagnet(podatki && podatki.uri, podatki && podatki.samodejno === true);
+    // Magnet z druge naprave ali iz brskalnika prevzame glavno okno (kot prej); Safeer Player ga ne odpre se enkrat.
+    if (vrsta === "magnet" && !PREDVAJALNIK) odpriMagnet(podatki && podatki.uri, podatki && podatki.samodejno === true);
     // Film iz torrenta (dodatek): med branjem torrenta in prenosom zacetka uporabnik vidi, da se nekaj dogaja.
     if (vrsta === "mediaTorrent") obvesti(t("mediaTorrentPripravljam", { ime: (podatki && podatki.naslov) || "" }));
     if (vrsta === "mediaMotor" && podatki) motorNapredek(podatki);
@@ -4261,6 +4282,8 @@
         magnetOsveziPrenose();
       }
     }
+    // »pojdi« in »fokus« sta za glavno okno; Safeer Player dobi svoj ukaz neposredno (safeer_os.py _odpri_predvajalnik).
+    if (PREDVAJALNIK) return;
     if (vrsta === "pojdi") window.safeerOsPojdi(podatki);
     if (vrsta === "fokus") {
       osveziOkna();
@@ -4589,7 +4612,8 @@
     $("magnetPrivzeto").addEventListener("click", function () {
       klic("magnetPrivzeto", [true]).then(function (je) { $("magnetPrivzeto").hidden = !!je; if (je) obvesti(t("magnetPrivzetoOk")); });
     });
-    klic("cakajociMagnet").then(function (c) { if (c && c.uri) odpriMagnet(c.uri, c.samodejno === true); }).catch(function () {});
+    if (!PREDVAJALNIK)      // cakajoci magnet je za glavno okno, ki ga Safeer OS prav zanj odpira
+      klic("cakajociMagnet").then(function (c) { if (c && c.uri) odpriMagnet(c.uri, c.samodejno === true); }).catch(function () {});
     $("mediaNapraveZapri").addEventListener("click", zapriSloje);
     $("mediaNapraveNazaj").addEventListener("click", nazajMediaNaprave);
     $("mediaMapeDodaj").addEventListener("click", function () { zapriSloje(); $("medijiMapa").click(); });
@@ -4703,7 +4727,7 @@
       if (e.key === "Escape") {
         var odprt = document.querySelector(".sloj.viden");
         if (odprt || iskanje.value) { iskanje.value = ""; zapriSloje(); iskanje.blur(); }
-        else pojdi("domov");
+        else if (!PREDVAJALNIK) pojdi("domov");      // Safeer Player nima domacega zaslona
         return;
       }
       var v = document.activeElement;
@@ -4714,21 +4738,42 @@
       if (e.ctrlKey || e.altKey || e.metaKey) return;
       if (e.key && e.key.length === 1 && e.key !== " ") {
         e.preventDefault();
-        iskanje.focus();
-        iskanje.value += e.key;
-        isci();
+        // Safeer Player nima iskanja Safeer OS (glava je skrita): tipkanje gre v iskanje Medijskega centra.
+        var polje = PREDVAJALNIK ? $("mediaIskanje") : iskanje;
+        polje.focus();
+        polje.value += e.key;
+        if (PREDVAJALNIK) polje.dispatchEvent(new Event("input")); else isci();
       }
     });
   }
 
+  // Safeer Player: samo razdelek Medijski center, po zelji z iskanim nizom z delovne povrsine (?iskanje=).
+  function zacniPredvajalnik() {
+    var iskano = (location.search.match(/[?&]iskanje=([^&]*)/) || [])[1];
+    var niz = "";
+    try { niz = iskano ? decodeURIComponent(iskano).trim() : ""; } catch (e) { niz = ""; }
+    window.safeerOsPojdi(niz ? "mediji:" + niz : "media");
+  }
+
   function zacni() {
     if (/[?&]namizje=1/.test(location.search)) document.body.classList.add("namizje");
+    if (PREDVAJALNIK) {
+      document.body.classList.add("predvajalnik");
+      document.title = "Safeer Player";
+      var oznaka = document.querySelector("#r-media .media-glava .media-kicker");
+      if (oznaka) oznaka.textContent = "SAFEER PLAYER";
+      // Jezik pove gostitelj ze v naslovu strani (?jezik=): Medijski center se pokaze takoj, ne sele po »zacetek«
+      // (ta pri nepovezanem racunalniku caka na iskanje Safeer Linka), katalog pa se nalozi samo enkrat.
+      var jezikStrani = (location.search.match(/[?&]jezik=([a-z]{2})(?:&|$)/) || [])[1];
+      if (jezikStrani && BESEDILA_OS[jezikStrani]) jezik = jezikStrani;
+    }
     prevedi();
     poveziDogodke();
     osveziUro();
     setInterval(osveziUro, 1000);
     narisiDomov();
     narisiPovezavo();
+    if (PREDVAJALNIK) zacniPredvajalnik();
     if (!most) return;
     klic("zacetek").then(function (z) {
       S.zacetek = z;
@@ -4747,7 +4792,8 @@
       osveziUro();
       narisiMape();
       narisiDomov();
-      nalozPrograme();
+      nalozPrograme();              // tudi za Safeer Player: predvajalniki racunalnika so med viri Medijskega centra
+      if (PREDVAJALNIK) return;     // stanje, odprta okna, nedavne datoteke in sporocila so v lupini Safeer OS
       osveziStanje();
       osveziOkna();
       narisiNedavneDomov();

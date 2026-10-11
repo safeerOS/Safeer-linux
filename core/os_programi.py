@@ -31,8 +31,9 @@ MAPA_IKON = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser(
 SISTEM = {"Settings", "System", "DesktopSettings", "HardwareSettings", "PackageManager", "Monitor", "Security"}
 #: Vrstni red skupin v pogledu »Programi«.
 SKUPINE = ("splet", "pisarna", "predstavnost", "igre", "ucenje", "programiranje", "orodja", "sistem", "drugo")
-#: Programi, ki so del Safeerja samega (Safeer OS ne ponuja sebe).
-IZPUSTI = {"safeer-os.desktop", "io.github.memelandfaner.SafeerOS.desktop"}
+#: Programi, ki so del Safeerja samega (Safeer OS ne ponuja sebe; Safeer Player je njegov Medijski center).
+IZPUSTI = {"safeer-os.desktop", "io.github.memelandfaner.SafeerOS.desktop",
+           "safeer-os.Player.desktop", "io.github.memelandfaner.SafeerOS.Player.desktop"}
 
 
 #: Programi za Medijski center: predvajalniki po XDG ali programi za radio/glasbo/podcaste po opisu.

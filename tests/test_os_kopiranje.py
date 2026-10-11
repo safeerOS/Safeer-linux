@@ -156,6 +156,7 @@ function klic(m, a) {
 var document = { activeElement: null };
 var window = { getSelection: function () { return izbor; }, innerWidth: 1200, innerHeight: 800 };
 var S = { sporocilaAktivni: null, razdelek: "sporocila" };
+var PREDVAJALNIK = false;      // glavno okno Safeer OS (Safeer Player odpira splet drugace: test_os_predvajalnik_okno)
 function s(id, besedilo, smer) { return { id: id, smer: smer || "noter", cas: "2026-10-07T10:" + (id < 10 ? "0" : "") + id, besedilo: besedilo }; }
 function cakaj() { return new Promise(function (r) { setTimeout(r, 0); }); }
 """

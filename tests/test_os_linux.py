@@ -684,6 +684,7 @@ class Samozagon(unittest.TestCase):
         lazni.delovna, lazni.okno, lazni.okno_delovna, lazni.namizje = False, None, None, False
         lazni._cakajoca_datoteka, lazni._cakajoca_ponudba = "", None
         lazni._prvic, lazni.posnetek, lazni.shramba = True, "", self.shramba
+        lazni._zacni_s_predvajalnikom = False        # zagon s --predvajalnik ima svoj preizkus (test_os_predvajalnik_okno)
         for ime, vrednost in polja.items():
             setattr(lazni, ime, vrednost)
         with mock.patch.object(self.os_, "GLib"), mock.patch.object(self.os_, "Gio"):

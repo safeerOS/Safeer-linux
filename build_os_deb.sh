@@ -22,7 +22,8 @@ rm -rf "$STAGE" "$BUILD_ROOT"
 bash "$DIR/packaging/install_os_payload.sh" "$STAGE/usr"
 mkdir -p "$BUILD_ROOT/DEBIAN"
 cp -a "$STAGE/usr" "$BUILD_ROOT/"
-sed -i 's|^Exec=safeer-os|Exec=/usr/bin/safeer-os|' "$BUILD_ROOT/usr/share/applications/safeer-os.desktop"
+sed -i 's|^Exec=safeer-os|Exec=/usr/bin/safeer-os|' "$BUILD_ROOT/usr/share/applications/safeer-os.desktop" \
+    "$BUILD_ROOT/usr/share/applications/safeer-os.Player.desktop"
 
 cat << EOF2 > "$BUILD_ROOT/DEBIAN/control"
 Package: safeer-os
