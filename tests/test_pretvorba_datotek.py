@@ -70,12 +70,28 @@ class Pravila(unittest.TestCase):
         js = (KOREN / "assets/os/delovna.js").read_text(encoding="utf-8")
         self.assertIn('klic("pretvorbaMoznosti", [e.pot])', js)
         self.assertIn('klic("pretvoriDatoteko", [e.pot, c])', js)
-        for k in ("pretvoriV", "ptdNaslov", "ptdIzberi", "ptdPretvarjam", "ptdKoncano", "ptdNapaka", "ptdNiOrodja"):
+        for k in ("pretvoriV", "ptdNaslov", "ptdIzberi", "ptdPretvarjam", "ptdKoncano", "ptdNapaka", "ptdNiOrodja",
+                  "ptdNiUspelo", "ptdPrepocasi", "ptdNiDatoteke"):
             self.assertEqual(js.count(k + ":"), 2, k)
         py = (KOREN / "safeer_os.py").read_text(encoding="utf-8")
         for k in ('"pretvorbaMoznosti"', '"pretvoriDatoteko"', '"pretvorbaDatotekeStanje"'):
             self.assertIn(k, py)
         self.assertIn("os_pretvorba_datotek", (KOREN / "packaging/install_os_payload.sh").read_text(encoding="utf-8"))
+
+    def test_meni_pozna_iste_koncnice_kot_pretvornik(self):
+        # »Pretvori v …« se pokaze samo za koncnice, ki jih pretvornik res zna (sicer okno samo rece »ni mogoce«).
+        import re
+        js = (KOREN / "assets/os/delovna.js").read_text(encoding="utf-8")
+        m = re.search(r'var PRETVORLJIVE = "([^"]*)"\.split', js)
+        self.assertIsNotNone(m)
+        py = {k[1:] for k in p.SLIKE + p.ZVOK + p.BESEDILA + p.PREGLEDNICE + p.PREDSTAVITVE}
+        self.assertEqual(set(m.group(1).split(" ")), py)
+        self.assertIn("pretvorljiva(e.ime)", js)
+        # Stanje vrne v »izhod« samo ime, cela pot je »pot_izhoda«: »Pokazi v mapi« mora uporabiti celo pot.
+        self.assertIn('klic("pokaziVMapi", [r.pot_izhoda])', js)
+        # Vsaka koda napake iz pretvornika ima besedilo (uporabnik ne vidi »ni_uspelo«).
+        for koda in ("ni_mogoce", "ni_uspelo", "prepocasi", "ni_datoteke"):
+            self.assertIn(koda + ": \"ptd", js)
 
 
 @unittest.skipUnless(shutil.which("ffmpeg") and (shutil.which("convert") or shutil.which("magick")), "ni ffmpeg/ImageMagick")
