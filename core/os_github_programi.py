@@ -33,6 +33,48 @@ def _beri(url: str, odpri: Callable = urllib.request.urlopen, cas: float = 15) -
         return json.loads(o.read(4 * 1024 * 1024).decode("utf-8"))
 
 
+#: Zvrsti programov (kljuc -> besede v temah in opisu repozitorija). Prva zvrst z najvec zadetki zmaga.
+ZVRSTI = {
+    "mediji": ("media", "video", "music", "audio", "player", "podcast", "stream", "iptv", "radio", "youtube", "jellyfin", "kodi", "mpv"),
+    "ustvarjanje": ("editor", "image", "photo", "graphics", "drawing", "design", "3d", "animation", "daw", "music-production", "paint"),
+    "pisarna": ("office", "document", "pdf", "spreadsheet", "notes", "markdown", "calendar", "todo", "productivity", "ebook"),
+    "splet": ("browser", "web", "rss", "download", "torrent", "email", "mail", "http"),
+    "komunikacija": ("chat", "messenger", "matrix", "telegram", "signal", "xmpp", "irc", "voip", "video-call", "airdrop", "file-sharing", "share"),
+    "igre": ("game", "games", "gaming", "emulator", "steam", "retro"),
+    "razvoj": ("ide", "developer", "programming", "compiler", "git", "terminal", "cli", "sdk", "api", "devtools"),
+    "sistem": ("system", "monitor", "backup", "disk", "file-manager", "launcher", "utility", "tool", "driver", "desktop"),
+    "varnost": ("security", "privacy", "vpn", "password", "encryption", "firewall", "adblock", "2fa"),
+}
+
+
+def zvrst(teme: List[str], opis: str) -> str:
+    """Zvrst programa iz tem (topics) in opisa repozitorija; 'drugo', ce ne vemo."""
+    besedila = " ".join(teme or []).lower() + " " + (opis or "").lower()
+    besede = set(re.findall(r"[a-z0-9][a-z0-9-]+", besedila))
+    najboljsa, tock = "drugo", 0
+    for k, kljucne in ZVRSTI.items():
+        n = sum(2 if t in (teme or []) else 1 for t in kljucne if t in besede)
+        if n > tock:
+            najboljsa, tock = k, n
+    return najboljsa
+
+
+def sistem_datoteke(ime: str) -> str:
+    """Za kateri sistem je datoteka: linux, windows, macos, android, ios ali drugo (npr. izvorna koda)."""
+    n = (ime or "").lower()
+    if n.endswith((".apk", ".aab", ".apkm", ".xapk")) or "android" in n:
+        return "android"
+    if n.endswith(".ipa") or re.search(r"\bios\b", n):
+        return "ios"
+    if n.endswith((".exe", ".msi", ".msix", ".appx")) or re.search(_WINDOWS, n):
+        return "windows"
+    if n.endswith((".dmg", ".pkg")) or re.search(r"macos|darwin|\bmac\b|osx|apple", n):
+        return "macos"
+    if za_linux(n) and (re.search(r"linux|\.deb$|\.rpm$|\.appimage$|\.flatpak|\.snap$", n)):
+        return "linux"
+    return "drugo"
+
+
 def isci(niz: str, odpri: Callable = urllib.request.urlopen) -> dict:
     """Javni repozitoriji, ki ustrezajo nizu (najvec 20, po zvezdicah)."""
     n = str(niz or "").strip()[:100]
@@ -45,13 +87,16 @@ def isci(niz: str, odpri: Callable = urllib.request.urlopen) -> dict:
         return {"ok": False, "napaka": "omejitev" if "403" in str(e) or "429" in str(e) else "omrezje"}
     izid = []
     for r in (d.get("items") or [])[:20]:
+        teme = [str(x).lower() for x in (r.get("topics") or [])][:20]
         izid.append({"repo": r.get("full_name", ""), "opis": (r.get("description") or "")[:200],
+                     "zvrst": zvrst(teme, r.get("description") or ""),
                      "zvezdice": int(r.get("stargazers_count") or 0), "licenca": ((r.get("license") or {}).get("spdx_id") or ""),
                      "posodobljeno": (r.get("pushed_at") or "")[:10], "arhiviran": bool(r.get("archived"))})
     return {"ok": True, "repozitoriji": izid}
 
 
-_DRUGI_SISTEMI = re.compile(r"(windows|win32|win64|\bwin\b|macos|darwin|\bmac\b|osx|android|\bios\b|freebsd|\.exe$|\.msi$|\.dmg$|\.apk$)")
+_WINDOWS = r"windows|win32|win64|\bwin\b|mingw|msvc|\bw64\b|\bw32\b|-w64-|-w32-|win-?x64|win-?x86|win-?arm"
+_DRUGI_SISTEMI = re.compile(r"(" + _WINDOWS + r"|macos|darwin|\bmac\b|osx|android|\bios\b|freebsd|\.exe$|\.msi$|\.dmg$|\.apk$)")
 _ARHITEKTURE = {"x86_64": ("x86_64", "x86-64", "amd64", "x64", "linux64"), "aarch64": ("aarch64", "arm64", "arm-64"),
                 "armv7l": ("armv7", "armhf", "arm32", "arm-32")}
 
@@ -64,7 +109,7 @@ def za_linux(ime: str) -> bool:
 
 def za_ta_racunalnik(ime: str, stroj: str = "") -> bool:
     """Za Linux in za arhitekturo tega racunalnika (ali brez oznake arhitekture)."""
-    if not za_linux(ime):
+    if sistem_datoteke(ime) != "linux":
         return False
     n = ime.lower()
     stroj = (stroj or platform.machine()).lower()
@@ -93,6 +138,7 @@ def izdaje(repo: str, odpri: Callable = urllib.request.urlopen) -> dict:
             dig = str(a.get("digest") or "")
             datoteke.append({"ime": ime, "mb": round((a.get("size") or 0) / 1048576, 1), "prenosi": int(a.get("download_count") or 0),
                              "url": a.get("browser_download_url", ""), "linux": za_linux(ime), "nas": za_ta_racunalnik(ime),
+                             "sistem": sistem_datoteke(ime),
                              "sha256": dig[7:] if dig.startswith("sha256:") and len(dig) == 71 else ""})
         # Najprej za ta racunalnik, nato za Linux, nato ostalo; znotraj po prenosih.
         datoteke.sort(key=lambda d: (not d["nas"], not d["linux"], -d["prenosi"]))

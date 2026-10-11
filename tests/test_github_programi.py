@@ -5,6 +5,7 @@ import os
 import tempfile
 import time
 import unittest
+from pathlib import Path
 
 from core import os_github_programi as g
 
@@ -78,6 +79,23 @@ class Pravila(unittest.TestCase):
         self.assertFalse(g.za_ta_racunalnik("app-linux-arm-64.deb", "x86_64"))
         self.assertTrue(g.za_ta_racunalnik("app.AppImage", "x86_64"))
         self.assertTrue(g.za_ta_racunalnik("app_arm64.deb", "aarch64"))
+
+    def test_sistem_datoteke_in_zvrst(self):
+        pricakovano = {"app-windows-x86-64.zip": "windows", "app.msi": "windows", "app-macos-arm-64.tar.gz": "macos",
+                       "app.dmg": "macos", "app-android-arm64.apk": "android", "app.ipa": "ios", "app-linux-x86-64.deb": "linux",
+                       "app.AppImage": "linux", "app-x86_64.flatpak": "linux", "source.tar.gz": "drugo",
+                       "mpv-v0.41.0-x86_64-w64-mingw32.zip": "windows", "libmpv-v0.41.0-i686-w64-mingw32-gpl.zip": "windows",
+                       "app-win-x64.zip": "windows"}
+        self.assertFalse(g.za_ta_racunalnik("mpv-v0.41.0-x86_64-w64-mingw32.zip", "x86_64"))
+        for ime, sistem in pricakovano.items():
+            self.assertEqual(g.sistem_datoteke(ime), sistem, ime)
+        self.assertEqual(g.zvrst(["video-player", "mpv"], "A media player"), "mediji")
+        self.assertEqual(g.zvrst([], "An open-source cross-platform alternative to AirDrop"), "komunikacija")
+        self.assertEqual(g.zvrst(["game", "emulator"], ""), "igre")
+        self.assertEqual(g.zvrst([], ""), "drugo")
+        js = (Path(__file__).resolve().parent.parent / "assets/os/delovna.js").read_text(encoding="utf-8")
+        for k in g.ZVRSTI:
+            self.assertEqual(js.count("ppZvrst_" + k + ":"), 2, k)
 
     def test_sha256_ujemanje_in_neujemanje(self):
         import hashlib

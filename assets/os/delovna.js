@@ -88,6 +88,10 @@
       ppGhIzdaje: "Izdaje", ppGhNazaj: "Rezultati", ppGhBrezIzdaj: "Ta repozitorij nima izdaj.", ppGhBrezDatotek: "Brez datotek.",
       ppGhPredizdaja: "predizdaja", ppGhArhiviran: "arhiviran", ppGhPrenosov: "{n}× preneseno", ppGhShrani: "Shrani",
       ppGhShranjujem: "Shranjujem …", ppGhShranjeno: "Shranjeno: {ime}", ppGhNiMape: "V izbrano mapo ni mogoče pisati.",
+      ppGhVse: "Vse", ppGhZaTaKratko: "Ta računalnik", ppGhDrugo: "Drugo", ppGhDrugaLicenca: "druga licenca", ppGhNiZaNas: "V teh izdajah ni datoteke za ta računalnik (Linux).",
+      ppZvrst_mediji: "Mediji", ppZvrst_ustvarjanje: "Ustvarjanje", ppZvrst_pisarna: "Pisarna", ppZvrst_splet: "Splet",
+      ppZvrst_komunikacija: "Komunikacija", ppZvrst_igre: "Igre", ppZvrst_razvoj: "Razvoj", ppZvrst_sistem: "Sistem in orodja",
+      ppZvrst_varnost: "Varnost in zasebnost", ppZvrst_drugo: "Drugo",
       ppGhZaTa: "za ta računalnik", ppAptVir: "skladišče paketov · za ves računalnik",
       ppGhShranjenoPreverjeno: "Shranjeno in preverjeno (SHA-256 z GitHuba): {ime}",
       ppGhKontrolna: "Prenesena datoteka se ne ujema s SHA-256 z GitHuba, zato je nisem shranil.",
@@ -278,6 +282,10 @@
       ppGhIzdaje: "Releases", ppGhNazaj: "Results", ppGhBrezIzdaj: "This repository has no releases.", ppGhBrezDatotek: "No files.",
       ppGhPredizdaja: "pre-release", ppGhArhiviran: "archived", ppGhPrenosov: "{n} downloads", ppGhShrani: "Save",
       ppGhShranjujem: "Saving …", ppGhShranjeno: "Saved: {ime}", ppGhNiMape: "The chosen folder cannot be written to.",
+      ppGhVse: "All", ppGhZaTaKratko: "This computer", ppGhDrugo: "Other", ppGhDrugaLicenca: "other licence", ppGhNiZaNas: "These releases have no file for this computer (Linux).",
+      ppZvrst_mediji: "Media", ppZvrst_ustvarjanje: "Creative", ppZvrst_pisarna: "Office", ppZvrst_splet: "Web",
+      ppZvrst_komunikacija: "Communication", ppZvrst_igre: "Games", ppZvrst_razvoj: "Development", ppZvrst_sistem: "System and tools",
+      ppZvrst_varnost: "Security and privacy", ppZvrst_drugo: "Other",
       ppGhZaTa: "for this computer", ppAptVir: "package repository · for the whole computer",
       ppGhShranjenoPreverjeno: "Saved and verified (SHA-256 from GitHub): {ime}",
       ppGhKontrolna: "The downloaded file does not match GitHub's SHA-256, so it was not kept.",
@@ -2304,6 +2312,18 @@
       try { gO.focus(); } catch (x) {}
       return okvir;
     }
+    // Vrsta cipov za filter: [[kljuc, besedilo, stevilo]]; izbrani je obrobljen.
+    function cipi(moznosti, izbrani, naIzbiro) {
+      var v = el("div", ""); v.style.cssText = "display:flex;flex-wrap:wrap;gap:.35em;margin:.5em 0";
+      moznosti.forEach(function (m) {
+        var g = gumb(m[1] + (m[2] !== undefined ? " · " + m[2] : ""), m[0] === izbrani);
+        g.style.fontWeight = m[0] === izbrani ? "600" : "400";
+        g.setAttribute("aria-pressed", m[0] === izbrani ? "true" : "false");
+        g.addEventListener("click", function () { naIzbiro(m[0]); });
+        v.appendChild(g);
+      });
+      return v;
+    }
     var ZAVIHKI = [["ponudniki", "ppZavihekPonudniki"], ["viri", "ppZavihekViri"], ["github", "ppZavihekGithub"]];
     var trenutni = "ponudniki";
     ZAVIHKI.forEach(function (z) {
@@ -2436,24 +2456,48 @@
           if (!r || !r.ok) { napaka(r); return; }
           rezultati.innerHTML = "";
           if (!r.repozitoriji.length) { rezultati.appendChild(el("p", "", t("ppGhNic"))); return; }
-          r.repozitoriji.forEach(function (x) {
-            var opis = [x.opis, "★ " + x.zvezdice, x.licenca, x.posodobljeno, x.arhiviran ? t("ppGhArhiviran") : ""].filter(Boolean).join(" · ");
+          zadnjeIskanje = r.repozitoriji; narisiRepozitorije();
+        }).catch(function () { napaka(null); });
+      }
+      var zadnjeIskanje = [], izbranaZvrst = "vse";
+      function narisiRepozitorije() {
+        rezultati.innerHTML = "";
+        var stetje = {};
+        zadnjeIskanje.forEach(function (x) { stetje[x.zvrst] = (stetje[x.zvrst] || 0) + 1; });
+        var moznosti = [["vse", t("ppGhVse"), zadnjeIskanje.length]];
+        Object.keys(stetje).sort(function (a, b) { return stetje[b] - stetje[a]; }).forEach(function (k) { moznosti.push([k, t("ppZvrst_" + k), stetje[k]]); });
+        if (!stetje[izbranaZvrst]) izbranaZvrst = "vse";
+        rezultati.appendChild(cipi(moznosti, izbranaZvrst, function (k) { izbranaZvrst = k; narisiRepozitorije(); }));
+        zadnjeIskanje.filter(function (x) { return izbranaZvrst === "vse" || x.zvrst === izbranaZvrst; }).forEach(function (x) {
+            var opis = [x.opis, t("ppZvrst_" + x.zvrst), "★ " + x.zvezdice, x.licenca === "NOASSERTION" ? t("ppGhDrugaLicenca") : x.licenca, x.posodobljeno, x.arhiviran ? t("ppGhArhiviran") : ""].filter(Boolean).join(" · ");
             var vrsta = vrsticaZ(x.repo, opis);
             var g = gumb(t("ppGhIzdaje"), true);
             g.addEventListener("click", function () { izdaje(x.repo); });
             vrsta.appendChild(g); rezultati.appendChild(vrsta);
-          });
-        }).catch(function () { napaka(null); });
+        });
       }
+      var izbraniSistem = "";
       function izdaje(repo) {
         rezultati.innerHTML = ""; rezultati.appendChild(el("p", "", t("ppGhIscem")));
         klic("githubIzdaje", [repo]).then(function (r) {
           if (!r || !r.ok) { napaka(r); return; }
           rezultati.innerHTML = "";
-          var nazaj = gumb("← " + t("ppGhNazaj")); nazaj.addEventListener("click", isci); rezultati.appendChild(nazaj);
+          var nazaj = gumb("← " + t("ppGhNazaj")); nazaj.addEventListener("click", narisiRepozitorije); rezultati.appendChild(nazaj);
           var naslov = el("p", "", repo); naslov.style.cssText = "font-weight:600;margin:.5em 0 .2em"; rezultati.appendChild(naslov);
           if (!r.izdaje.length) { rezultati.appendChild(el("p", "", t("ppGhBrezIzdaj"))); return; }
+          // Filter po sistemu: »Ta racunalnik« (Linux in ta arhitektura), Linux, Windows, macOS, Android ... z stevilom datotek.
+          var vse = []; r.izdaje.forEach(function (iz) { vse = vse.concat(iz.datoteke); });
+          function ustreza(d, k) { return k === "vse" || (k === "nas" ? d.nas : d.sistem === k); }
+          var moznosti = [["nas", t("ppGhZaTaKratko")], ["linux", "Linux"], ["windows", "Windows"], ["macos", "macOS"],
+                          ["android", "Android"], ["ios", "iOS"], ["drugo", t("ppGhDrugo")], ["vse", t("ppGhVse")]]
+            .map(function (m) { return [m[0], m[1], vse.filter(function (d) { return ustreza(d, m[0]); }).length]; })
+            .filter(function (m) { return m[2] > 0 || m[0] === "vse"; });
+          var zaNas = vse.some(function (d) { return d.nas; });
+          if (!izbraniSistem || !moznosti.some(function (m) { return m[0] === izbraniSistem; })) izbraniSistem = zaNas ? "nas" : "vse";
+          rezultati.appendChild(cipi(moznosti, izbraniSistem, function (k) { izbraniSistem = k; izdaje(repo); }));
+          if (!zaNas) { var op = el("p", "", t("ppGhNiZaNas")); op.style.cssText = "margin:.2em 0;opacity:.8"; rezultati.appendChild(op); }
           r.izdaje.forEach(function (iz) {
+            iz = { ime: iz.ime, datum: iz.datum, predizdaja: iz.predizdaja, datoteke: iz.datoteke.filter(function (d) { return ustreza(d, izbraniSistem); }) };
             var h = el("div", "", iz.ime + " · " + iz.datum + (iz.predizdaja ? " · " + t("ppGhPredizdaja") : ""));
             h.style.cssText = "margin:.7em 0 .2em;opacity:.85"; rezultati.appendChild(h);
             if (!iz.datoteke.length) { rezultati.appendChild(el("p", "", t("ppGhBrezDatotek"))); return; }
@@ -2487,8 +2531,8 @@
           });
         }).catch(function () { napaka(null); });
       }
-      gIsci.addEventListener("click", isci);
-      polje.addEventListener("keydown", function (ev) { if (ev.key === "Enter") { ev.preventDefault(); isci(); } });
+      gIsci.addEventListener("click", function () { izbranaZvrst = "vse"; izbraniSistem = ""; isci(); });
+      polje.addEventListener("keydown", function (ev) { if (ev.key === "Enter") { ev.preventDefault(); izbranaZvrst = "vse"; izbraniSistem = ""; isci(); } });
       try { polje.focus(); } catch (x) {}
     }
     odpriZavihek("ponudniki");
