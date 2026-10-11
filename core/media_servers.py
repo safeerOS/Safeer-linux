@@ -505,7 +505,7 @@ def stremio_vrsta(tip: str) -> str:
 
 
 _GLASBENO_IME = re.compile(r"(^|[^a-z])(music|musik|musica|musique|muzika|glasba|glasbeni|songs?|concerts?|koncerti?|"
-                           r"lastfm|last fm|vevo|karaoke|soundcloud|videospoti?)([^a-z]|$)")
+                           r"last[ .]?fm|vevo|karaoke|soundcloud|videospoti?)([^a-z]|$)")
 
 
 def glasbeno_ime(ime: str) -> bool:
