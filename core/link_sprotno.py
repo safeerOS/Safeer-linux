@@ -107,6 +107,35 @@ def bitna_hitrost(velikost: int, trajanje_ms: int, sirina: int, visina: int) -> 
 
 # ----------------------------------------------------------------------------- krajevni posrednik vira
 
+#: ISO 639-1 -> ISO 639-2 (ffmpeg in vecina vsebnikov oznaci jezik s tremi crkami).
+_JEZIK3 = {"en": "eng", "sl": "slv", "de": "ger", "fr": "fre", "es": "spa", "it": "ita", "pt": "por", "hr": "hrv",
+           "sr": "srp", "ru": "rus", "hi": "hin", "ja": "jpn", "ko": "kor", "zh": "chi"}
+_JEZIK3_B = {"ger": "deu", "fre": "fra", "chi": "zho"}
+
+
+def izberi_sled(oznake: List[str], jeziki: List[str]) -> int:
+    """Indeks prve zvocne sledi, ki je v enem od `jeziki` (po vrsti zelja); 0, ce ni nobene."""
+    for j in jeziki:
+        j = str(j or "").strip().lower()
+        kandidati = {j, _JEZIK3.get(j, j), _JEZIK3_B.get(_JEZIK3.get(j, j), "")} - {""}
+        for i, o in enumerate(oznake):
+            if o in kandidati:
+                return i
+    return 0
+
+
+def jeziki_zahteve(polje) -> List[str]:
+    """audio_langs iz video.stream: najvec 4 kode (2-3 crke)."""
+    if not isinstance(polje, list):
+        return []
+    izid = []
+    for v in polje[:4]:
+        v = str(v or "").strip().lower()
+        if 2 <= len(v) <= 3 and v.isascii() and v.isalpha() and v not in izid:
+            izid.append(v)
+    return izid
+
+
 def glave_zahteve(o) -> dict:
     """Glave zahteve za izvirnik, kot jih poslje naprava (Stremio proxyHeaders): najvec 16, brez prelomov vrstic,
     brez Range/Host/Content-Length (te doloca posrednik)."""
@@ -347,6 +376,7 @@ class Sprotno:
         sirina = int(p.get("width") or 0)
         visina = int(p.get("height") or 0)
         seek_ms = max(0, int(p.get("seek_ms") or 0))
+        jeziki = jeziki_zahteve(p.get("audio_langs"))     # zeleni jezik zvoka (TV: anglescina / slovenscina)
         os.makedirs(self.mapa, exist_ok=True)
         # En tok naenkrat: drugi bi oba zatikala. Tok, ki ga nihce ne bere vec, umaknemo.
         with self._kljucavnica:
@@ -381,7 +411,7 @@ class Sprotno:
         osnova = streznik.osnova(krajevni_naslov())
         bitna = bitna_hitrost(velikost, trajanje_ms, sirina, visina)
         threading.Thread(target=self._pretvarjaj, args=(t, f"http://127.0.0.1:{vrata}/{t.skrivnost}", seek_ms, bitna, visina,
-                                                         max(0, trajanje_ms - seek_ms)),
+                                                         max(0, trajanje_ms - seek_ms), jeziki),
                          name="safeer-pretok", daemon=True).start()
         self._zazeni_strazo()
         return {"id": t.id, "url": f"{osnova}/live/{t.id}", "fp": streznik.odtis, "token": streznik.zeton_za(posiljatelj or "naprava")}
@@ -421,7 +451,7 @@ class Sprotno:
     # ---- ffmpeg
 
     def ukaz(self, vhod: str, izhod: str, seek_ms: int, bitna: int, visina_vira: int, vaapi: Optional[str],
-             kodirnik: str = "") -> List[str]:
+             kodirnik: str = "", zvocna_sled: int = 0) -> List[str]:
         """Ukaz ffmpeg: strojno (VAAPI dekodiranje + kodiranje, CQP - edini nacin na Intelovem LP vhodu; na Windows
         h264_nvenc/h264_amf) ali programsko (x264; na Windows Media Foundation h264_mf, ki je v sistemu).
         Najvec 1080p, manjsega ne povecujemo; fragmentiran MP4 (2 s), da ga naprava bere sproti."""
@@ -458,7 +488,7 @@ class Sprotno:
                 # Media Foundation (Windows): programski kodirnik sistema; strojnega (hw_encoding) ne uporabljamo.
                 u += ["-c:v", "h264_mf", "-rate_control", "cbr", "-b:v", str(bitna if bitna > 0 else privzeta),
                       "-pix_fmt", "nv12"]
-        u += ["-c:a", "aac", "-b:a", "160k", "-ac", "2", "-sn", "-dn", "-map", "0:v:0", "-map", "0:a:0?",
+        u += ["-c:a", "aac", "-b:a", "160k", "-ac", "2", "-sn", "-dn", "-map", "0:v:0", "-map", "0:a:%d?" % max(0, int(zvocna_sled)),
               "-f", "mp4", "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-frag_duration", "2000000", izhod]
         return u
 
@@ -475,7 +505,24 @@ class Sprotno:
         except (OSError, ValueError, subprocess.TimeoutExpired):
             return False
 
-    def _pretvarjaj(self, t: Tok, vhod: str, seek_ms: int, bitna: int, visina_vira: int, pricakovano_ms: int = 0) -> None:
+    def zvocna_sled(self, vhod: str, jeziki: List[str]) -> int:
+        """Katera zvocna sled vira je v zelenem jeziku (ffprobe, oznaka language): indeks med zvocnimi sledmi, 0 =
+        prva (tudi ce jezika ne najdemo ali ga vir ne navaja). Lastnik, 11. 10. 2026: pretvorba je vzela privzeto
+        sled (sinhronizacijo), cetudi je gledalec zelel anglescino."""
+        if not jeziki:
+            return 0
+        try:
+            izpis = subprocess.run([self.ffprobe(), "-v", "error", "-select_streams", "a", "-show_entries",
+                                    "stream_tags=language", "-of", "csv=p=0", vhod],
+                                   capture_output=True, text=True, timeout=20, creationflags=_BREZ_OKNA).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            return 0
+        oznake = [v.strip().lower() for v in izpis.splitlines()]
+        return izberi_sled(oznake, jeziki)
+
+    def _pretvarjaj(self, t: Tok, vhod: str, seek_ms: int, bitna: int, visina_vira: int, pricakovano_ms: int = 0,
+                    jeziki: Optional[List[str]] = None) -> None:
+        sled = self.zvocna_sled(vhod, jeziki or [])
         # Poskusi: (vaapi naprava, ime kodirnika) - najprej strojno, nato programsko.
         if WINDOWS:
             strojni = self.strojni_kodirnik()
@@ -488,7 +535,8 @@ class Sprotno:
                 return
             t.strojno = naprava is not None or kodirnik in STROJNI_WINDOWS
             try:
-                t.proces = subprocess.Popen(self.ukaz(vhod, t.datoteka, seek_ms, bitna, visina_vira, naprava, kodirnik),
+                t.proces = subprocess.Popen(self.ukaz(vhod, t.datoteka, seek_ms, bitna, visina_vira, naprava, kodirnik,
+                                                      zvocna_sled=sled),
                                             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=_BREZ_OKNA)
             except OSError as e:
                 t.napaka = "napaka"; t.koncano = True
