@@ -4223,6 +4223,10 @@
     ob("katPrilepi", "click", katPrilepi);
     // Imenik dodatkov Stremio: Install na strani doda dodatek v Safeer (stremio:// -> okno Dodatki, potrdi Poveži).
     ob("katPoisciDodatke", "click", function () { odpriVSpletu("https://stremio-addons.net/"); });
+    ob("medijiStremio", "click", function () {
+      odpriVSpletu("https://stremio-addons.net/");
+      obvesti(t("katStremioBrezAplikacije"));
+    });
     ob("mediaStreznikVrsta", "change", katPrilagodiObrazec);
     ob("mediaDodajStreznik", "submit", function (event) {
       event.preventDefault();
