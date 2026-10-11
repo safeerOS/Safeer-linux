@@ -33,60 +33,61 @@ KATEGORIJE = (("vse", "programi"), ("glasba", "glasba"), ("video", "video"), ("f
 #: Toliko vnosov vrne knjiznica naenkrat (core/os_knjiznica: meja 120) - polna stran pomeni, da jih je morda vec.
 STRAN_KNJIZNICE = 120
 
-# Barve in oblike iz assets/os/os.css (:root in .media-*), da GTK in spletni Medijski center izgledata enako.
+# Barve in oblike iz assets/os/os.css (:root in .media-*), da GTK in spletni Medijski center izgledata enako. Razred
+# »sp-gtk« (ne »safeer-player«): okno videa v safeer_os.py ima svoj slog za window.safeer-player.
 CSS = b"""
-.safeer-player { background-color: #090d15; color: #f0f4f3; }
-.safeer-player .vsebina { background-image: linear-gradient(100deg, rgba(13,21,32,1) 0%, rgba(9,13,21,1) 100%); }
-.safeer-player label { color: #f0f4f3; }
-.safeer-player .kicker { color: #54d6a5; font-size: 11px; font-weight: 800; letter-spacing: 1px; }
-.safeer-player .h1 { font-size: 30px; font-weight: 750; }
-.safeer-player .h2 { font-size: 21px; font-weight: 700; }
-.safeer-player .h3 { font-size: 17px; font-weight: 700; }
-.safeer-player .medlo, .safeer-player .medlo label { color: #b0bdc4; font-size: 13px; }
-.safeer-player .drobno { color: #b0bdc4; font-size: 12px; }
-.safeer-player button { background-image: none; text-shadow: none; box-shadow: none; color: #f0f4f3;
+.sp-gtk { background-color: #090d15; color: #f0f4f3; }
+.sp-gtk .vsebina { background-image: linear-gradient(100deg, rgba(13,21,32,1) 0%, rgba(9,13,21,1) 100%); }
+.sp-gtk label { color: #f0f4f3; }
+.sp-gtk .kicker { color: #54d6a5; font-size: 11px; font-weight: 800; }
+.sp-gtk .h1 { font-size: 30px; font-weight: 800; }
+.sp-gtk .h2 { font-size: 21px; font-weight: 700; }
+.sp-gtk .h3 { font-size: 17px; font-weight: 700; }
+.sp-gtk .medlo, .sp-gtk .medlo label { color: #b0bdc4; font-size: 13px; }
+.sp-gtk .drobno { color: #b0bdc4; font-size: 12px; }
+.sp-gtk button { background-image: none; text-shadow: none; box-shadow: none; color: #f0f4f3;
   background-color: rgba(17,25,36,.78); border: 1px solid rgba(120,140,160,.22); border-radius: 12px; padding: 8px 13px; }
-.safeer-player button:hover { background-color: rgba(27,42,51,.92); border-color: rgba(84,214,165,.5); }
-.safeer-player button:disabled { opacity: .45; }
-.safeer-player button.glavni { background-color: #54d6a5; color: #071e18; border-color: #54d6a5; font-weight: 700; }
-.safeer-player button.glavni label { color: #071e18; }
-.safeer-player button.kategorija { background-color: transparent; border-color: transparent; border-radius: 10px; padding: 9px 12px; }
-.safeer-player button.kategorija label { color: #b0bdc4; }
-.safeer-player button.kategorija.izbrana { background-color: #54d6a5; }
-.safeer-player button.kategorija.izbrana label { color: #071e18; font-weight: 700; }
-.safeer-player .orodna { background-color: rgba(8,15,23,.6); border: 1px solid rgba(95,194,164,.25); border-radius: 14px; padding: 5px; }
-.safeer-player entry { background-image: none; background-color: rgba(9,13,21,.85); color: #f0f4f3;
+.sp-gtk button:hover { background-color: rgba(27,42,51,.92); border-color: rgba(84,214,165,.5); }
+.sp-gtk button:disabled { opacity: .45; }
+.sp-gtk button.glavni { background-color: #54d6a5; color: #071e18; border-color: #54d6a5; font-weight: 700; }
+.sp-gtk button.glavni label { color: #071e18; }
+.sp-gtk button.kategorija { background-color: transparent; border-color: transparent; border-radius: 10px; padding: 9px 12px; }
+.sp-gtk button.kategorija label { color: #b0bdc4; }
+.sp-gtk button.kategorija.izbrana { background-color: #54d6a5; }
+.sp-gtk button.kategorija.izbrana label { color: #071e18; font-weight: 700; }
+.sp-gtk .orodna { background-color: rgba(8,15,23,.6); border: 1px solid rgba(95,194,164,.25); border-radius: 14px; padding: 5px; }
+.sp-gtk entry { background-image: none; background-color: rgba(9,13,21,.85); color: #f0f4f3;
   border: 1px solid rgba(95,194,164,.33); border-radius: 10px; padding: 7px 10px; box-shadow: none; }
-.safeer-player entry:focus { border-color: #54d6a5; }
-.safeer-player .hero { border: 1px solid rgba(95,194,164,.33); border-radius: 24px; padding: 28px 30px;
+.sp-gtk entry:focus { border-color: #54d6a5; }
+.sp-gtk .hero { border: 1px solid rgba(95,194,164,.33); border-radius: 24px; padding: 28px 30px;
   background-image: linear-gradient(115deg, #15352e, #10232d 55%, #152332); }
-.safeer-player .hero-znak { color: rgba(84,214,165,.85); font-size: 84px; }
-.safeer-player button.kartica { padding: 0; border-radius: 17px; background-color: rgba(24,37,47,.83); }
-.safeer-player button.kartica:hover { border-color: rgba(84,214,165,.65); }
-.safeer-player .kartica-art { background-image: linear-gradient(145deg, #235b53, #1b3448); border-radius: 16px 16px 0 0; }
-.safeer-player .kartica-art.glasba { background-image: linear-gradient(145deg, #2c5a4a, #1d3343); }
-.safeer-player .kartica-art.slike { background-image: linear-gradient(145deg, #3a3f5c, #1d2a3f); }
-.safeer-player .kartica-pod { padding: 10px 12px 12px 12px; }
-.safeer-player .kartica-ime { font-weight: 700; font-size: 14px; }
-.safeer-player .nadaljuj { background-color: rgba(9,13,21,.75); border-radius: 8px; padding: 3px 8px; font-size: 12px; }
-.safeer-player progressbar trough { min-height: 4px; background-color: rgba(255,255,255,.15); border: none; }
-.safeer-player progressbar progress { min-height: 4px; background-color: #54d6a5; border: none; }
-.safeer-player button.odstrani { padding: 3px; border-radius: 50%; background-color: rgba(9,13,21,.8); }
-.safeer-player .prazno { border: 1px dashed rgba(95,194,164,.35); border-radius: 18px; padding: 30px; }
-.safeer-player button.vrstica { border-radius: 14px; padding: 12px 14px; }
-.safeer-player .desni { background-color: rgba(9,13,21,.55); border-left: 1px solid rgba(120,140,160,.18); padding: 24px 20px; }
-.safeer-player .sedaj { border: 1px solid rgba(95,194,164,.3); border-radius: 20px; padding: 18px;
+.sp-gtk .hero-znak { color: rgba(84,214,165,.85); font-size: 84px; }
+.sp-gtk button.kartica { padding: 0; border-radius: 17px; background-color: rgba(24,37,47,.83); }
+.sp-gtk button.kartica:hover { border-color: rgba(84,214,165,.65); }
+.sp-gtk .kartica-art { background-image: linear-gradient(145deg, #235b53, #1b3448); border-radius: 16px 16px 0 0; }
+.sp-gtk .kartica-art.glasba { background-image: linear-gradient(145deg, #2c5a4a, #1d3343); }
+.sp-gtk .kartica-art.slike { background-image: linear-gradient(145deg, #3a3f5c, #1d2a3f); }
+.sp-gtk .kartica-pod { padding: 10px 12px 12px 12px; }
+.sp-gtk .kartica-ime { font-weight: 700; font-size: 14px; }
+.sp-gtk .nadaljuj { background-color: rgba(9,13,21,.75); border-radius: 8px; padding: 3px 8px; font-size: 12px; }
+.sp-gtk progressbar trough { min-height: 4px; background-color: rgba(255,255,255,.15); border: none; }
+.sp-gtk progressbar progress { min-height: 4px; background-color: #54d6a5; border: none; }
+.sp-gtk button.odstrani { padding: 3px; border-radius: 50%; background-color: rgba(9,13,21,.8); }
+.sp-gtk .prazno { border: 1px dashed rgba(95,194,164,.35); border-radius: 18px; padding: 30px; }
+.sp-gtk button.vrstica { border-radius: 14px; padding: 12px 14px; }
+.sp-gtk .desni { background-color: rgba(9,13,21,.55); border-left: 1px solid rgba(120,140,160,.18); padding: 24px 20px; }
+.sp-gtk .sedaj { border: 1px solid rgba(95,194,164,.3); border-radius: 20px; padding: 18px;
   background-image: linear-gradient(160deg, #15352e, #111d29); }
-.safeer-player .sedaj-art { color: #54d6a5; font-size: 64px; background-color: rgba(9,13,21,.45); border-radius: 16px; padding: 18px; }
-.safeer-player button.vrsta-vnos { background-color: transparent; border-color: transparent; padding: 8px 10px; }
-.safeer-player button.vrsta-vnos.izbran { background-color: rgba(84,214,165,.14); border-color: rgba(84,214,165,.4); }
-.safeer-player .trak { background-color: rgba(12,20,30,.97); border-top: 1px solid rgba(95,194,164,.33); padding: 10px 18px; }
-.safeer-player .trak button { padding: 6px 12px; }
-.safeer-player scale trough { min-height: 4px; background-color: rgba(255,255,255,.18); border: none; }
-.safeer-player scale highlight { background-color: #54d6a5; border: none; }
-.safeer-player scale slider { background-image: none; background-color: #54d6a5; min-width: 13px; min-height: 13px; border: none; }
-.safeer-player .obvestilo { background-color: #1a3339; border: 1px solid #54d6a5; border-radius: 12px; padding: 10px 16px; }
-.safeer-player .galerija { background-color: rgba(0,0,0,.94); }
+.sp-gtk .sedaj-art { color: #54d6a5; font-size: 64px; background-color: rgba(9,13,21,.45); border-radius: 16px; padding: 18px; }
+.sp-gtk button.vrsta-vnos { background-color: transparent; border-color: transparent; padding: 8px 10px; }
+.sp-gtk button.vrsta-vnos.izbran { background-color: rgba(84,214,165,.14); border-color: rgba(84,214,165,.4); }
+.sp-gtk .trak { background-color: rgba(12,20,30,.97); border-top: 1px solid rgba(95,194,164,.33); padding: 10px 18px; }
+.sp-gtk .trak button { padding: 6px 12px; }
+.sp-gtk scale trough { min-height: 4px; background-color: rgba(255,255,255,.18); border: none; }
+.sp-gtk scale highlight { background-color: #54d6a5; border: none; }
+.sp-gtk scale slider { background-image: none; background-color: #54d6a5; min-width: 13px; min-height: 13px; border: none; }
+.sp-gtk .obvestilo { background-color: #1a3339; border: 1px solid #54d6a5; border-radius: 12px; padding: 10px 16px; }
+.sp-gtk .galerija { background-color: rgba(0,0,0,.94); }
 """
 
 
@@ -142,7 +143,7 @@ class SafeerPlayerOkno(Gtk.Window):
         if app is not None:
             self.set_application(app)
         self.set_wmclass(*WMCLASS_PREDVAJALNIKA)
-        self.get_style_context().add_class("safeer-player")
+        self.get_style_context().add_class("sp-gtk")
         self._ikona_okna()
         zaslon = Gdk.Screen.get_default()
         sirina, visina = 1440, 900
@@ -156,8 +157,11 @@ class SafeerPlayerOkno(Gtk.Window):
         self.set_position(Gtk.WindowPosition.CENTER)
         if zaslon is not None:
             css = Gtk.CssProvider()
-            css.load_from_data(CSS)
-            Gtk.StyleContext.add_provider_for_screen(zaslon, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            try:
+                css.load_from_data(CSS)
+                Gtk.StyleContext.add_provider_for_screen(zaslon, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            except GLib.Error as e:      # okno brez sloga je se vedno uporabno
+                print("[SafeerPlayer] slog:", e)
 
         self.most = most or os_most_nativni.NativniPogled(lambda p, i, m, a: p.odgovor(i, False, "brez mosta"))
         self.t = os_besedila.Prevajalnik()
@@ -252,6 +256,7 @@ class SafeerPlayerOkno(Gtk.Window):
         self.obvestilo.set_margin_bottom(90)
         self.obvestilo.set_no_show_all(True)
         prekrivanje.add_overlay(self.obvestilo)
+        prekrivanje.set_overlay_pass_through(self.obvestilo, True)
 
     def _zgradi_glavo(self) -> Gtk.Widget:
         glava = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=24)
@@ -605,6 +610,7 @@ class SafeerPlayerOkno(Gtk.Window):
             ikona.set_halign(Gtk.Align.CENTER)
             ikona.set_valign(Gtk.Align.CENTER)
             art.add_overlay(ikona)
+            art.set_overlay_pass_through(ikona, True)
         if vrsta == "slike" and na_voljo:
             self._slicica(art, str(v.get("pot") or ""))
         pozicija, trajanje = float(v.get("pozicija") or 0), float(v.get("trajanje") or 0)
@@ -621,6 +627,7 @@ class SafeerPlayerOkno(Gtk.Window):
             merilo.set_fraction(min(1.0, pozicija / trajanje))
             spodaj.pack_start(merilo, False, False, 0)
             art.add_overlay(spodaj)
+            art.set_overlay_pass_through(spodaj, True)
         telo.pack_start(art, False, False, 0)
         pod = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         pod.get_style_context().add_class("kartica-pod")
@@ -658,6 +665,7 @@ class SafeerPlayerOkno(Gtk.Window):
             slika = Gtk.Image.new_from_pixbuf(pb.scale_simple(max(1, pb.get_width() // 2), max(1, pb.get_height() // 2),
                                                               GdkPixbuf.InterpType.BILINEAR))
             art.add_overlay(slika)
+            art.set_overlay_pass_through(slika, True)
             slika.show()
             return False
         threading.Thread(target=beri, daemon=True).start()
@@ -725,7 +733,7 @@ class SafeerPlayerOkno(Gtk.Window):
     def dodaj_tok(self) -> None:
         """Kot sloj »Dodaj postajo« na strani: ime, neposredni naslov toka, vrsta (TV ali radio)."""
         d = Gtk.Dialog(title=self.t("mediaDodajPostajo"), transient_for=self, modal=True)
-        d.get_style_context().add_class("safeer-player")
+        d.get_style_context().add_class("sp-gtk")
         d.add_button(self.t("preklici"), Gtk.ResponseType.CANCEL)
         shrani = d.add_button(self.t("mediaShraniPredvajaj"), Gtk.ResponseType.OK)
         shrani.get_style_context().add_class("glavni")
@@ -761,7 +769,7 @@ class SafeerPlayerOkno(Gtk.Window):
     def okno_map(self) -> None:
         """Kot sloj »Medijske mape« na strani: izbrane mape, stevilo vnosov, odstrani, dodaj."""
         d = Gtk.Dialog(title=self.t("mediaMape"), transient_for=self, modal=True)
-        d.get_style_context().add_class("safeer-player")
+        d.get_style_context().add_class("sp-gtk")
         d.set_default_size(560, 420)
         d.add_button(self.t("zapri"), Gtk.ResponseType.CLOSE)
         polje = d.get_content_area()
@@ -831,7 +839,7 @@ class SafeerPlayerOkno(Gtk.Window):
         if not slike:
             return
         d = Gtk.Window(title=self.t("media_slike"), transient_for=self, modal=True)
-        d.get_style_context().add_class("safeer-player")
+        d.get_style_context().add_class("sp-gtk")
         d.get_style_context().add_class("galerija")
         d.set_default_size(*self.get_size())
         okvir = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
