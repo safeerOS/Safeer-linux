@@ -45,6 +45,7 @@ ZACETNA_TISINA = 5.0        # s brez govora -> konec
 TISINA_PO_GOVORU = 1.0      # s tisine po govoru -> konec
 KOS = 480                   # vzorcev na kos (30 ms)
 NAJMANJ_GLASNOST = 400      # RMS (int16), pod tem ni govora ne glede na hrup
+SPROTNO_VSAKIH = 0.9          # s novega zvoka med sprotnimi prepoznavami
 FAKTOR_GOVORA = 2.5         # govor je vsaj toliko glasnejsi od hrupa ozadja (~8 dB)
 #: Besede ukaza na zacetku (»odpri zaslon«): lupa isce z vsemi besedami hkrati, zato jih odstranimo.
 UKAZI = {
@@ -52,7 +53,39 @@ UKAZI = {
     "en": ("open", "search for", "search", "find", "play", "launch", "start", "show"),
     "de": ("öffne", "suche nach", "suche", "finde", "spiele", "starte", "zeige"),
     "hr": ("otvori", "pretraži", "traži", "nađi", "pusti", "pokreni", "pokaži"),
+    "es": ("abre", "abrir", "busca", "buscar", "encuentra", "reproduce", "pon", "inicia", "muestra"),
+    "pt": ("abre", "abrir", "abra", "procura", "procurar", "pesquisa", "pesquisar", "encontra", "toca", "reproduz", "inicia", "mostra"),
+    "fr": ("ouvre", "ouvrir", "cherche", "chercher", "trouve", "joue", "lance", "affiche"),
+    "it": ("apri", "cerca", "trova", "riproduci", "avvia", "mostra"),
 }
+CLENI = {
+    "en": ("the", "a", "an", "my"), "de": ("der", "die", "das", "den", "dem", "ein", "eine", "einen", "meine", "mein"),
+    "es": ("el", "la", "los", "las", "un", "una", "mi", "mis"), "pt": ("o", "a", "os", "as", "um", "uma", "meu", "minha"),
+    "fr": ("le", "la", "les", "un", "une", "mon", "ma", "mes"), "it": ("il", "lo", "la", "i", "gli", "le", "un", "una", "mio", "mia"),
+}
+#: Namig prepoznavi (whisper --prompt): pogoste besede iskanja v jeziku uporabnika. Na posnetkih lastnika (3 m od
+#: prenosnika, ventilator) je namig popravil npr. »Sled« -> »Splet«; odstranjevanje suma (RNNoise, FFT) in vecji
+#: modeli (medium, large-turbo, 5x pocasnejsa) niso pomagali (meritev 11. 10. 2026).
+NAMIGI = {
+    "sl": "Odpri datoteko. Poišči sliko. Predvajaj film. Glasba. Medijski center. Nastavitve zaslona. Zvok. Omrežje. Splet.",
+    "en": "Open the file. Find a picture. Play the film. Music. Media center. Display settings. Sound. Network. Web.",
+    "de": "Öffne die Datei. Suche ein Bild. Spiele den Film. Musik. Mediencenter. Bildschirm-Einstellungen. Ton. Netzwerk.",
+    "es": "Abre el archivo. Busca una imagen. Reproduce la película. Música. Centro multimedia. Pantalla. Sonido. Red.",
+    "pt": "Abre o ficheiro. Procura uma imagem. Reproduz o filme. Música. Centro multimédia. Ecrã. Som. Rede.",
+    "fr": "Ouvre le fichier. Cherche une image. Joue le film. Musique. Centre multimédia. Écran. Son. Réseau.",
+    "it": "Apri il file. Cerca un'immagine. Riproduci il film. Musica. Centro multimediale. Schermo. Suono. Rete.",
+    "hr": "Otvori datoteku. Traži sliku. Pusti film. Glazba. Medijski centar. Zaslon. Zvuk. Mreža.",
+}
+
+
+def jezik_govora(privzeti: str = "en") -> str:
+    """Jezik, v katerem uporabnik govori: jezik seje (LANGUAGE/LC_ALL/LC_MESSAGES/LANG), ce ga whisper pozna;
+    sicer jezik vmesnika. Portugalec z angleskim vmesnikom Safeer OS govori portugalsko."""
+    for kljuc in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
+        v = (os.environ.get(kljuc) or "").split(":")[0][:2].lower()
+        if v.isalpha() and len(v) == 2 and v not in ("c", "po"):
+            return v
+    return (privzeti or "en")[:2].lower()
 
 
 def razlicica_cpu() -> Optional[str]:
@@ -81,6 +114,10 @@ def ocisti(besedilo: str, jezik: str = "sl") -> str:
             return ""
         if nizko.startswith(ukaz + " "):
             b = b[len(ukaz) + 1:].strip()
+            # Clen za ukazom (»abre el archivo«) iskanje le moti: vse besede se morajo ujemati.
+            prva, _, ostalo = b.partition(" ")
+            if ostalo and prva.lower() in CLENI.get(jezik, ()) + CLENI["en"]:
+                b = ostalo.strip()
             break
     return b
 
@@ -94,18 +131,24 @@ def _rms(podatki: bytes) -> float:
 
 
 class ZaznavaGovora:
-    """Konec govora po glasnosti. Hrup ozadja je mediana prvih ~0,3 s (brez nicel, ko se mikrofon sele odpira) in se
-    med tisino pocasi prilagaja; govor je, kar je vsaj FAKTOR_GOVORA-krat glasnejse (in nad NAJMANJ_GLASNOST) v
-    vsaj treh zaporednih kosih. Meritev 11. 10. 2026: hrup mikrofona prenosnika lastnika ~690 RMS, zato fiksen prag
-    ne zadosca."""
+    """Konec govora po glasnosti. Hrup ozadja je 10. percentil glasnosti zadnjih ~3 s (premori med besedami ga drzijo
+    pri tleh tudi med govorom); prvih ~0,2 s (mikrofon se odpira, nicle) ne steje. Govor je, kar je vsaj
+    FAKTOR_GOVORA-krat glasnejse od hrupa (in nad NAJMANJ_GLASNOST) v treh zaporednih kosih - presojamo za nazaj,
+    ker se hrup ustali sele po nekaj kosih in uporabnik pogosto spregovori takoj.
+    Meritev 11. 10. 2026 (posnetek lastnika): hrup 530-830 RMS, govor 1500-14600, odpiranje mikrofona 0-121 RMS v
+    prvih 0,18 s - fiksen prag in najtisji zacetni kos nista delovala (konec govora ni bil zaznan)."""
+
+    OKNO = 100        # kosov (3 s)
+    ZAGON = 7         # kosov (0,21 s) odpiranja mikrofona
 
     def __init__(self) -> None:
         self.kosov = 0
-        self.zacetni = []
+        self.zadnji = []
+        self.trije = []
+        self.najvec3 = 0.0     # najglasnejsi trije zaporedni kosi (njihov najtisji)
         self.hrup = None
-        self.glasnih = 0
-        self.govor = False
         self.tihih = 0
+        self.govor = False     # ko je govor enkrat zaznan, ostane (dolg govor dvigne hrup v oknu)
 
     @property
     def prag(self) -> float:
@@ -115,23 +158,19 @@ class ZaznavaGovora:
         """Vrne None (nadaljuj), »konec« (govor koncan) ali »tisina« (uporabnik ni spregovoril)."""
         self.kosov += 1
         cas = self.kosov * KOS / VZORCI
-        if self.hrup is None:
-            if rms >= 20:                       # mikrofon se odpira: prvi kosi so tisina iz nicel
-                self.zacetni.append(rms)
-            if len(self.zacetni) >= 10:
-                # Najtisji kos: uporabnik pogosto spregovori takoj, ko mikrofon zasveti.
-                self.hrup = min(self.zacetni)
-            return None if cas < ZACETNA_TISINA else "tisina"
-        if rms >= self.prag:
-            self.glasnih += 1
-            self.tihih = 0
-            if self.glasnih >= 3:
+        if self.kosov > self.ZAGON:
+            if not self.govor or rms < self.prag:          # med govorom hrup ocenjujemo samo iz tisine
+                self.zadnji.append(rms)
+                del self.zadnji[:-self.OKNO]
+            self.trije = (self.trije + [rms])[-3:]
+            if len(self.trije) == 3:
+                self.najvec3 = max(self.najvec3, min(self.trije))
+            if len(self.zadnji) >= 8:
+                urejeni = sorted(self.zadnji)
+                self.hrup = urejeni[len(urejeni) // 10]
+            self.tihih = self.tihih + 1 if rms < self.prag else 0
+            if self.hrup is not None and self.najvec3 >= self.prag:
                 self.govor = True
-        else:
-            self.glasnih = 0
-            self.tihih += 1
-            if not self.govor:
-                self.hrup = 0.95 * self.hrup + 0.05 * rms
         if self.govor and self.tihih * KOS / VZORCI >= TISINA_PO_GOVORU:
             return "konec"
         if cas >= NAJDALJE:
@@ -139,6 +178,13 @@ class ZaznavaGovora:
         if not self.govor and cas >= ZACETNA_TISINA:
             return "tisina"
         return None
+
+
+def raven(rms: float) -> float:
+    """Glasnost za valove na zaslonu, 0..1 (logaritemsko: hrup ~600 RMS ~0,2, glasen govor ~10000 RMS ~1)."""
+    if rms <= 1:
+        return 0.0
+    return round(max(0.0, min(1.0, (20 * math.log10(rms) - 50) / 30)), 2)
 
 
 class Govor:
@@ -295,6 +341,7 @@ class Govor:
             return False
         s["preklici"].set()
         s["ustavi"].set()
+        self._ustavi_proces(s)
         return True
 
     def _delo(self, seja, jezik, dogodek) -> None:
@@ -303,6 +350,7 @@ class Govor:
         javljeno = False
         zaznava = ZaznavaGovora()
         izid = None
+        sprotno = {"nit": None, "dolzina": 0}
         try:
             while not seja["ustavi"].is_set():
                 kos = proc.stdout.read(KOS * 2)
@@ -310,11 +358,17 @@ class Govor:
                     izid = "napaka"
                     break
                 posneto += kos
-                if not javljeno:
-                    # Mikrofon je odprt (prvi kos je tu): sele zdaj gumb zasveti - prej bi se zacetek govora izgubil.
+                r = _rms(kos)
+                if not javljeno and (r >= 50 or len(posneto) >= VZORCI):
+                    # Mikrofon res sprejema zvok (prvih ~0,15 s so nicle, ko se odpira): sele zdaj gumb zasveti.
+                    # Posnetek lastnika: govor, zacet ob kliku, je izgubil prvi zlog (»Predvajaj« -> »Vajaj«).
                     dogodek("poslusam", {})
                     javljeno = True
-                izid = zaznava.kos(_rms(kos))
+                izid = zaznava.kos(r)
+                if zaznava.kosov % 2 == 0:
+                    dogodek("raven", {"r": raven(r)})        # valovi v polju (~16 na sekundo)
+                if zaznava.govor:
+                    self._sprotno(seja, sprotno, posneto, jezik, dogodek)
                 if izid:
                     break
         finally:
@@ -335,13 +389,36 @@ class Govor:
             dogodek("tisina", {})
             return
         dogodek("prepoznavam", {})
-        surovo = self.prepoznaj(bytes(posneto), jezik)
+        self._ustavi_proces(seja)                            # sprotna prepoznava ni vec potrebna
+        surovo = self.prepoznaj(bytes(posneto), jezik, seja)
         if seja["preklici"].is_set():
             dogodek("preklicano", {})
             return
         dogodek("besedilo", {"besedilo": ocisti(surovo, jezik), "surovo": surovo})
 
-    def prepoznaj(self, pcm: bytes, jezik: str) -> str:
+    def _sprotno(self, seja, sprotno, posneto, jezik, dogodek) -> None:
+        """Med govorom: vsakic, ko je prejsnja prepoznava koncana in je prislo vsaj SPROTNO_VSAKIH s novega zvoka,
+        prepoznamo dosedanji posnetek in ga pokazemo (»delno«) - kot narekovanje na telefonu."""
+        nit = sprotno["nit"]
+        if (nit is not None and nit.is_alive()) or len(posneto) - sprotno["dolzina"] < SPROTNO_VSAKIH * VZORCI * 2:
+            return
+        sprotno["dolzina"] = len(posneto)
+        kopija = bytes(posneto)
+
+        def delo():
+            besedilo = self.prepoznaj(kopija, jezik, seja, kopiraj=False)
+            if besedilo and not seja["ustavi"].is_set():
+                dogodek("delno", {"besedilo": besedilo})
+        sprotno["nit"] = threading.Thread(target=delo, daemon=True)
+        sprotno["nit"].start()
+
+    @staticmethod
+    def _ustavi_proces(seja) -> None:
+        proc = seja.get("proces")
+        if proc is not None and proc.poll() is None:
+            proc.kill()
+
+    def prepoznaj(self, pcm: bytes, jezik: str, seja=None, kopiraj=True) -> str:
         mapa = os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()
         fd, pot = tempfile.mkstemp(prefix="safeer-govor-", suffix=".wav", dir=mapa)
         os.close(fd)
@@ -353,14 +430,25 @@ class Govor:
                 # Tisina pred in po govoru: whisper pri govoru od prve milisekunde rad izpusti zacetek besede.
                 w.writeframes(bytes(int(VZORCI * 0.4) * 2) + pcm + bytes(int(VZORCI * 0.3) * 2))
             kopija = os.environ.get("SAFEER_GOVOR_POSNETKI", "")      # samo za razvoj: mapa za kopije posnetkov
-            if kopija and os.path.isdir(kopija):
+            if kopiraj and kopija and os.path.isdir(kopija):
                 shutil.copy(pot, os.path.join(kopija, "govor-%d.wav" % int(time.time())))
             niti = str(max(1, min(4, os.cpu_count() or 2)))
             # -ac 512: enkoder obdela ~10 s namesto 30 s (posnetek najvec NAJDALJE s + 0,7 s tisine) - ~3x hitreje.
             ukaz = [self.pot_programa(), "-m", self.pot_modela(), "-f", pot, "-l", jezik, "-t", niti,
                     "-nt", "-np", "-nf", "-ac", "512"]
-            r = subprocess.run(ukaz, capture_output=True, text=True, timeout=60)
-            return " ".join(v.strip() for v in r.stdout.splitlines() if v.strip())
+            if NAMIGI.get(jezik):
+                ukaz += ["--prompt", NAMIGI[jezik]]
+            proc = subprocess.Popen(ukaz, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+            if seja is not None:
+                seja["proces"] = proc                       # preklic ali koncna prepoznava ga ustavi
+            try:
+                izhod, _ = proc.communicate(timeout=60)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                izhod, _ = proc.communicate()
+            if proc.returncode != 0:
+                return ""
+            return " ".join(v.strip() for v in izhod.splitlines() if v.strip())
         finally:
             try:
                 os.remove(pot)

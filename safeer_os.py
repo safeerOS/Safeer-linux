@@ -1083,6 +1083,10 @@ class SafeerOS(Gtk.Application):
         predvajalnik_okno = Gio.SimpleAction.new("predvajalnik", GLib.VariantType.new("s"))
         predvajalnik_okno.connect("activate", lambda _a, v: self._odpri_predvajalnik(v.get_string() if v else ""))
         self.add_action(predvajalnik_okno)
+        #: `safeer-os --isci-naprava <niz>` (glas s telefona, core/link_daljinec.py search.query): niz v iskalno lupo.
+        isci = Gio.SimpleAction.new("isci", GLib.VariantType.new("s"))
+        isci.connect("activate", lambda _a, v: self._isci_od_drugod(v.get_string() if v else ""))
+        self.add_action(isci)
         #: `safeer-os --delovna` (safeer-cinnamon), ko Safeer OS ze tece brez delovne povrsine (glej _vklopi_delovno).
         delovna_povrsina = Gio.SimpleAction.new("delovna", None)
         delovna_povrsina.connect("activate", lambda *_a: self._vklopi_delovno())
@@ -2147,6 +2151,16 @@ class SafeerOS(Gtk.Application):
     #: Dogodki vrste skladb iz kataloga (konec, naslednja/prejsnja, vgradni predvajalnik): vrsto vodi stran.
     DOGODKI_VRSTE = frozenset({"mediaKonec", "mediaVrstaUkaz", "mediaYt", "mediaYtZaprt", "mediaYtNapaka"})
 
+    def _isci_od_drugod(self, niz: str) -> None:
+        """Niz z druge naprave (telefon kot mikrofon): namizje se pokaze, lupa ga isce - nic se ne odpre samo."""
+        niz = " ".join(str(niz or "").split())[:200]
+        if not niz or self.pogled_delovna is None:
+            return
+        os_okna.pokazi_namizje()
+        if self.okno_delovna is not None:
+            self.okno_delovna.present_with_time(_cas_dogodka(self.okno_delovna))
+        self._dogodek("iskanjeOdDrugod", {"q": niz}, self.pogled_delovna)
+
     def _govor_dogodek(self, vrsta: str, podatki: dict) -> None:
         """Iz niti govora: stanje (poslusam, prepoznavam, besedilo, ...) gre na namizje."""
         self._dogodek("govor", dict(podatki or {}, vrsta=vrsta), self.pogled_delovna)
@@ -2244,7 +2258,7 @@ class SafeerOS(Gtk.Application):
             "govorStanje": self.govor.stanje,
             "govorNamesti": lambda: self.govor.namesti(self._govor_dogodek),
             "govorPrekliciNamestitev": self.govor.preklici_namestitev,
-            "govorPoslusaj": lambda: self.govor.poslusaj(_jezik(), self._govor_dogodek),
+            "govorPoslusaj": lambda: self.govor.poslusaj(os_govor.jezik_govora(_jezik()), self._govor_dogodek),
             "govorUstavi": self.govor.ustavi,
             "govorPreklici": self.govor.preklici,
             "zapiskiSeznam": lambda: self.zapiski.seznam(str(a[0]) if a else ""),
@@ -3929,6 +3943,15 @@ def main() -> int:
                 return 0
         except Exception as e:  # noqa: BLE001 - Safeer OS ne tece: zazenemo ga z magnetom
             print("[SafeerOS] magnet:", e)
+    if "--isci-naprava" in sys.argv[1:]:
+        # Glas s telefona (search.query): niz preda tekocemu Safeer OS; ce ne tece, ga zaradi iskanja ne zaganjamo.
+        i = sys.argv.index("--isci-naprava")
+        niz = sys.argv[i + 1] if i + 1 < len(sys.argv) else ""
+        try:
+            return 0 if _predaj_tekocemu("isci", niz) else 3
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] isci:", e)
+            return 3
     datoteka = ""
     if "--predvajaj" in sys.argv[1:]:
         # Datoteka z diska: ce Safeer OS ze tece, jo preda njemu (org.gtk.Actions) in konca, sicer se zazene

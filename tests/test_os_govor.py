@@ -47,6 +47,10 @@ class TestCiscenje(unittest.TestCase):
         self.assertEqual(os_govor.ocisti("Poišči datoteko navodila"), "datoteko navodila")
         self.assertEqual(os_govor.ocisti("open firefox", "en"), "firefox")
         self.assertEqual(os_govor.ocisti("Search for cats", "en"), "cats", "daljsi ukaz pred krajsim")
+        self.assertEqual(os_govor.ocisti("Abre el archivo.", "es"), "archivo")
+        self.assertEqual(os_govor.ocisti("Öffne die Einstellungen", "de"), "Einstellungen")
+        self.assertEqual(os_govor.ocisti("Reproduz o filme", "pt"), "filme")
+        self.assertEqual(os_govor.ocisti("Play the Jungle Book", "en"), "Jungle Book")
         self.assertEqual(os_govor.ocisti("[BLANK_AUDIO]"), "")
         self.assertEqual(os_govor.ocisti("(glasba) Zvok"), "Zvok")
         self.assertEqual(os_govor.ocisti("Odpri."), "", "samo ukaz: nic za iskati")
@@ -79,6 +83,28 @@ class TestZaznava(unittest.TestCase):
         izid, cas, _ = zaznaj(pcm([(0.4, 60), (10.0, 6000)]))
         self.assertEqual(izid, "konec")
         self.assertAlmostEqual(cas, os_govor.NAJDALJE, delta=0.05)
+
+
+class TestJezik(unittest.TestCase):
+    def test_jezik_seje(self):
+        for okolje, privzeti, pricakovano in (({"LANGUAGE": "pt_PT:en", "LANG": "pt_PT.UTF-8"}, "en", "pt"),
+                                              ({"LANGUAGE": "", "LC_ALL": "", "LC_MESSAGES": "", "LANG": "de_DE.UTF-8"}, "en", "de"),
+                                              ({"LANGUAGE": "", "LC_ALL": "", "LC_MESSAGES": "", "LANG": "C.UTF-8"}, "sl", "sl")):
+            with mock.patch.dict(os.environ, okolje):
+                self.assertEqual(os_govor.jezik_govora(privzeti), pricakovano)
+
+    def test_namig_za_vsak_jezik(self):
+        for j in ("sl", "en", "de", "es", "pt"):
+            self.assertIn(j, os_govor.NAMIGI)
+            self.assertIn(j, os_govor.UKAZI)
+
+
+class TestRaven(unittest.TestCase):
+    def test_raven(self):
+        self.assertEqual(os_govor.raven(0), 0.0)
+        self.assertLess(os_govor.raven(600), 0.3)
+        self.assertGreater(os_govor.raven(10000), 0.95)
+        self.assertEqual(os_govor.raven(10 ** 6), 1.0)
 
 
 class TestNamestitev(unittest.TestCase):
@@ -191,7 +217,9 @@ class TestPoslusanje(unittest.TestCase):
 
     def test_govor_v_besedilo(self):
         dogodki = self.poslusaj([(0.4, 60), (1.2, 6000), (1.5, 60)])
-        self.assertEqual([d[0] for d in dogodki], ["poslusam", "prepoznavam", "besedilo"])
+        self.assertEqual([d[0] for d in dogodki if d[0] not in ("raven", "delno")], ["poslusam", "prepoznavam", "besedilo"])
+        ravni = [d[1]["r"] for d in dogodki if d[0] == "raven"]
+        self.assertTrue(ravni and max(ravni) > 0.6 and min(ravni) < 0.1, "valovi: govor visoko, tisina nizko")
         self.assertEqual(dogodki[-1][1]["besedilo"], "nastavitve zaslona")
         with open(self.argumenti) as f:
             arg = f.read().split()
@@ -203,13 +231,13 @@ class TestPoslusanje(unittest.TestCase):
 
     def test_tisina_brez_prepoznave(self):
         dogodki = self.poslusaj([(6.0, 60)])
-        self.assertEqual([d[0] for d in dogodki], ["poslusam", "tisina"])
+        self.assertEqual([d[0] for d in dogodki if d[0] != "raven"], ["poslusam", "tisina"])
         self.assertFalse(os.path.exists(self.argumenti), "whisper-cli se v tisini ne pozene")
 
     def test_preklic(self):
         dogodki = self.poslusaj([(0.4, 60), (6.0, 6000)], preklici_po=0.3)
         self.assertEqual(dogodki[-1][0], "preklicano")
-        self.assertFalse(os.path.exists(self.argumenti))
+        self.assertNotIn("besedilo", [d[0] for d in dogodki])
 
 
 if __name__ == "__main__":

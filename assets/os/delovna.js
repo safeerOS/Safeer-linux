@@ -25,7 +25,7 @@
   // ------------------------------------------------------------------ besedila (SL, EN)
   var BESEDILA = {
     sl: {
-      mikrofonNaslov: "Išči z glasom", govorPoslusam: "Poslušam … povej, kaj iščeš", govorPrepoznavam: "Prepoznavam …", govorTisina: "Nisem slišal ničesar. Pritisni mikrofon in povej znova.", govorNiPodprto: "Iskanje z glasom na tem računalniku ni na voljo.", govorMikrofon: "Mikrofona ni mogoče odpreti.", govorNapaka: "Prepoznava govora ni uspela.", govorNamestiNaslov: "Iskanje z glasom", govorNamestiOpis: "Govor se prepozna na tem računalniku – nič ne gre na splet. Za to je treba enkrat prenesti prepoznavo govora ({mb} MB).", govorPrenesi: "Prenesi", govorNeZdaj: "Ne zdaj", govorPrenasam: "Prenašam prepoznavo govora … {o} %", govorPrekini: "Prekini", govorPrenosNapaka: "Prenos ni uspel. Poskusi znova.",
+      mikrofonNaslov: "Išči z glasom", govorPoslusam: "Poslušam … povej, kaj iščeš", govorPrepoznavam: "Prepoznavam …", govorTisina: "Nisem slišal ničesar. Pritisni mikrofon in povej znova.", govorNiPodprto: "Iskanje z glasom na tem računalniku ni na voljo.", govorMikrofon: "Mikrofona ni mogoče odpreti.", govorNapaka: "Prepoznava govora ni uspela.", govorNamestiNaslov: "Iskanje z glasom", govorNamestiOpis: "Govor se prepozna na tem računalniku – nič ne gre na splet. Za to je treba enkrat prenesti prepoznavo govora ({mb} MB).", govorPrenesi: "Prenesi", govorNeZdaj: "Ne zdaj", govorPrenasam: "Prenašam prepoznavo govora … {o} %", govorPrekini: "Prekini", govorPrenosNapaka: "Prenos ni uspel. Poskusi znova.", govorPreklici: "Prekliči", govorKoncaj: "Končaj",
       iskanjePh: "Išči po spletu, programih, datotekah in medijih …", iskanjeNamig: "Enter odpre označeno · Shift+Enter splet",
       plosceNaslov: "Plošče", medijiNaslov: "Medijski center", datotekeNaslov: "Datoteke", programiNaslov: "Programi",
       zamenjajStrani: "Zamenjaj levo in desno", ponastavi: "Privzeta postavitev", vecjiTekst: "Večje besedilo",
@@ -220,7 +220,7 @@
       nSmeti: "V Smeti ni šlo (morda nimaš dovoljenja).", nSplosno: "Ni uspelo."
     },
     en: {
-      mikrofonNaslov: "Search by voice", govorPoslusam: "Listening … say what you are looking for", govorPrepoznavam: "Recognising …", govorTisina: "I did not hear anything. Press the microphone and speak again.", govorNiPodprto: "Voice search is not available on this computer.", govorMikrofon: "The microphone cannot be opened.", govorNapaka: "Speech recognition failed.", govorNamestiNaslov: "Search by voice", govorNamestiOpis: "Speech is recognised on this computer – nothing goes to the internet. Speech recognition has to be downloaded once ({mb} MB).", govorPrenesi: "Download", govorNeZdaj: "Not now", govorPrenasam: "Downloading speech recognition … {o} %", govorPrekini: "Cancel", govorPrenosNapaka: "The download failed. Try again.",
+      mikrofonNaslov: "Search by voice", govorPoslusam: "Listening … say what you are looking for", govorPrepoznavam: "Recognising …", govorTisina: "I did not hear anything. Press the microphone and speak again.", govorNiPodprto: "Voice search is not available on this computer.", govorMikrofon: "The microphone cannot be opened.", govorNapaka: "Speech recognition failed.", govorNamestiNaslov: "Search by voice", govorNamestiOpis: "Speech is recognised on this computer – nothing goes to the internet. Speech recognition has to be downloaded once ({mb} MB).", govorPrenesi: "Download", govorNeZdaj: "Not now", govorPrenasam: "Downloading speech recognition … {o} %", govorPrekini: "Cancel", govorPrenosNapaka: "The download failed. Try again.", govorPreklici: "Cancel", govorKoncaj: "Done",
       iskanjePh: "Search the web, apps, files and media …", iskanjeNamig: "Enter opens the selection · Shift+Enter web",
       plosceNaslov: "Panels", medijiNaslov: "Media center", datotekeNaslov: "Files", programiNaslov: "Apps",
       zamenjajStrani: "Swap left and right", ponastavi: "Default layout", vecjiTekst: "Larger text",
@@ -2657,7 +2657,12 @@
   }
   function ujemaZadetek(besedilo, besede) {
     var k = " " + kljucIskanja(besedilo).replace(/[^\p{L}\p{N}]+/gu, " ");
-    return besede.length > 0 && besede.every(function (b) { return k.indexOf(b.length < 3 ? " " + b : b) >= 0; });
+    return besede.length > 0 && besede.every(function (b) {
+      if (k.indexOf(b.length < 3 ? " " + b : b) >= 0) return true;
+      // Sklon (povedano z glasom): »zaslona« najde »Zaslon«, »datoteko« »Datoteka« - zacetek besede brez zadnjih
+      // dveh crk (vsaj stiri).
+      return b.length >= 5 && k.indexOf(" " + b.slice(0, Math.max(4, b.length - 2))) >= 0;
+    });
   }
   // Safeer OS sam: razdelki glavnega okna in Scit (media v oknu Safeer Player). [cilj za odpriRazdelek, kljuc imena,
   // kljucne besede brez sumnikov].
@@ -2944,8 +2949,29 @@
     var gumbi = el("div", "gumbi"); p.appendChild(gumbi);
     gumbGovora(gumbi, t("govorPrekini"), false, function () { klic("govorPrekliciNamestitev"); });
   }
+  // Valovi glasnosti: zadnjih VALOV ravni (0..1) od desne proti levi; tisina so pike, govor stolpci.
+  var VALOV = 34, ravni = [];
+  function narisiValove() {
+    var c = $("govorValovi"); if (!c) return;
+    while (c.children.length < VALOV) c.appendChild(document.createElement("i"));
+    for (var i = 0; i < VALOV; i++) {
+      var r = ravni[ravni.length - VALOV + i] || 0;
+      c.children[i].style.height = (r < 0.28 ? 3 : Math.round(3 + (r - 0.28) / 0.72 * 22)) + "px";
+    }
+  }
+  function vrsticaGovora(vklop, prepoznava) {
+    var f = $("iskanje");
+    f.classList.toggle("govori", vklop); f.classList.toggle("prepoznava", !!prepoznava);
+    $("govorVrstica").hidden = !vklop;
+    if (!vklop) { ravni = []; $("govorDelno").textContent = ""; narisiValove(); }
+  }
   function govorDogodek(d) {
     var g = $("gumbMikrofon"), polje = $("iskalnoPolje"), v = d.vrsta;
+    if (v === "raven") { ravni.push(d.r || 0); if (ravni.length > 200) ravni.splice(0, 100); narisiValove(); return; }
+    if (v === "delno") { if (G.stanje === "poslusam" || G.stanje === "prepoznavam") $("govorDelno").textContent = d.besedilo || ""; return; }
+    if (v === "poslusam") { ravni = []; $("govorDelno").textContent = ""; vrsticaGovora(true, false); }
+    else if (v === "prepoznavam") { vrsticaGovora(true, true); if (!$("govorDelno").textContent) $("govorDelno").textContent = t("govorPrepoznavam"); }
+    else if (v !== "namescam") vrsticaGovora(false);
     G.stanje = (v === "poslusam" || v === "prepoznavam" || v === "namescam") ? v : "";
     g.classList.toggle("poslusam", v === "poslusam");
     g.classList.toggle("prepoznavam", v === "prepoznavam");
@@ -3053,6 +3079,11 @@
     var mik = $("gumbMikrofon");
     mik.setAttribute("aria-label", t("mikrofonNaslov")); mik.title = t("mikrofonNaslov");
     mik.addEventListener("click", mikrofonKlik);
+    $("govorPreklici").setAttribute("aria-label", t("govorPreklici")); $("govorPreklici").title = t("govorPreklici");
+    $("govorKoncaj").setAttribute("aria-label", t("govorKoncaj")); $("govorKoncaj").title = t("govorKoncaj");
+    $("govorPreklici").addEventListener("click", function () { klic("govorPreklici"); });
+    $("govorKoncaj").addEventListener("click", function () { klic("govorUstavi"); });
+    narisiValove();
     polje.addEventListener("input", function () { clearTimeout(I.casovnik); var q = polje.value; I.casovnik = setTimeout(function () { isci(q); }, 220); });
     polje.addEventListener("keydown", function (e) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -3085,7 +3116,10 @@
       izberiZadetek(b ? b._v : { vrsta: "splet", q: q });
     });
     document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape") { zapriMeni(); $("meniPlosce").hidden = true; }
+      if (e.key === "Escape") {
+        zapriMeni(); $("meniPlosce").hidden = true;
+        if (G.stanje === "poslusam" || G.stanje === "prepoznavam") klic("govorPreklici");   // polje je med govorom skrito
+      }
       var vPolju = /^(INPUT|SELECT|TEXTAREA)$/.test((document.activeElement || {}).tagName || "");
       if ((e.ctrlKey && (e.key === "k" || e.key === "K")) || (!vPolju && e.key === "/")) { e.preventDefault(); polje.focus(); polje.select(); }
     });
@@ -3226,6 +3260,11 @@
     window.safeerOsDogodek = function (vrsta) {
       if (vrsta === "medijskaKnjiznica") medijOsvezi();
       else if (vrsta === "govor") govorDogodek(arguments[1] || {});
+      else if (vrsta === "iskanjeOdDrugod") {
+        // Glas s telefona (Safeer Link): niz v lupo, kot bi ga uporabnik natipkal ali povedal tu.
+        var q = String((arguments[1] || {}).q || "").trim(), polje = $("iskalnoPolje");
+        if (q) { polje.value = q; polje.focus(); clearTimeout(I.casovnik); isci(q); }
+      }
       else if (vrsta === "ozadje") {
         var u = arguments[1] || "";
         document.documentElement.style.setProperty("--ozadje-slika", u ? 'url("' + u + '")' : "none");

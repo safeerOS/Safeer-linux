@@ -238,3 +238,16 @@ def pomanjsaj_vse(nasi_xid: Optional[set] = None, cas: int = 0) -> int:
         except Exception:  # noqa: BLE001
             continue
     return koliko
+
+
+def pokazi_namizje() -> bool:
+    """Pokaze namizje (okna se umaknejo kot pri Super+D), da je iskalna lupa vidna; klicati na glavni niti.
+    False, ce Wnck ni na voljo."""
+    z = _pridobi()
+    if not z:
+        return False
+    try:
+        z.toggle_showing_desktop(True)
+        return True
+    except Exception:  # noqa: BLE001
+        return False

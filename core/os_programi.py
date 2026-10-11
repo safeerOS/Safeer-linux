@@ -131,6 +131,9 @@ def preberi_vnos(pot: str, namizja: Optional[List[str]] = None) -> Optional[dict
         if osnovno and osnovno != ime:
             kljucne.append(osnovno)
     kljucne += SOPOMENKE.get(os.path.basename(pot), "").split()
+    if set(kategorije) & NASTAVITVE:
+        # »nastavitve zaslona«: splosna beseda za vsa orodja nastavitev (jeziki Safeer OS in iskanja z glasom).
+        kljucne += ["nastavitve", "settings", "Einstellungen", "configuración", "configurações", "paramètres", "impostazioni"]
     videne = set()
     kljucne = [k.strip() for k in kljucne if k.strip() and not (k.strip().lower() in videne or videne.add(k.strip().lower()))]
     return {

@@ -35,7 +35,7 @@ class TestNastavitve(unittest.TestCase):
         v = self._preberi("cinnamon-settings-power.desktop", VNOS)
         self.assertTrue(v["nastavitev"])
         self.assertEqual(v["ime"], "Upravljanje porabe energije")
-        for beseda in ("energija", "power", "battery", "Power Management", "baterija", "napajanje"):
+        for beseda in ("energija", "power", "battery", "Power Management", "baterija", "napajanje", "nastavitve", "settings"):
             self.assertIn(beseda, v["kljucne"])
         self.assertEqual(len(v["kljucne"]), len({k.lower() for k in v["kljucne"]}), "brez ponovitev")
 

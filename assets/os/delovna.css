@@ -80,6 +80,19 @@ svg { width: 1.3em; height: 1.3em; fill: none; stroke: currentColor; stroke-widt
 .mikrofon.prepoznavam { color: var(--poudarek); border-color: var(--poudarek); }
 @keyframes utrip-mikrofona { 0%, 100% { box-shadow: 0 0 0 0 rgba(138, 199, 255, .55); } 50% { box-shadow: 0 0 0 .45em rgba(138, 199, 255, 0); } }
 @media (prefers-reduced-motion: reduce) { .mikrofon.poslusam { animation: none; } }
+.iskanje.govori input, .iskanje.govori .namig, .iskanje.govori .mikrofon { display: none; }
+.govor-vrstica { flex: 1; min-width: 0; display: flex; align-items: center; gap: .6em; }
+.govor-vrstica[hidden] { display: none; }
+.govor-gumb { flex: none; width: 2em; height: 2em; display: grid; place-items: center; border-radius: 50%; padding: 0;
+  border: 1px solid var(--obroba); background: transparent; color: var(--tiho); cursor: pointer; }
+.govor-gumb:hover, .govor-gumb:focus-visible { color: var(--besedilo); border-color: var(--obroba-mocna); outline: 0; }
+.govor-gumb svg { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
+.govor-konec { background: var(--poudarek); border-color: var(--poudarek); color: var(--ozadje); }
+.govor-konec svg { fill: currentColor; stroke: none; }
+.govor-delno { flex: 1; min-width: 0; font-style: italic; color: var(--besedilo); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.govor-valovi { flex: none; display: flex; align-items: center; gap: 2px; height: 1.8em; }
+.govor-valovi i { display: block; width: 3px; border-radius: 2px; background: var(--besedilo); opacity: .85; }
+.iskanje.prepoznava .govor-valovi i { opacity: .35; }
 .govor-plosca { padding: .9em 1em; display: grid; gap: .5em; }
 .govor-plosca .govor-naslov { margin: 0; font-weight: 600; }
 .govor-plosca .govor-opis { margin: 0; color: var(--tiho); line-height: 1.45; }
