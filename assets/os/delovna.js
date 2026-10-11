@@ -2807,7 +2807,8 @@
         var vsi = deli.lokalno.map(function (d) { return { lokalno: true, d: d }; }).concat(katalog);
         vsi.forEach(function (z, i) {
           var jeRadio = !z.lokalno && (z.k.vrsta === "radio" || radio.indexOf(z.k) >= 0);
-          z.o = (zeliRadio && jeRadio ? -1 : medijOcena(z, jeRadio ? qRadio : q)) * 1000 + i;
+          var celo = zeliRadio && jeRadio && (z.k.naslov || "").toLocaleLowerCase(jezik).indexOf(q.toLocaleLowerCase(jezik)) >= 0;
+          z.o = (celo ? -2 : zeliRadio && jeRadio ? -1 : medijOcena(z, jeRadio ? qRadio : q)) * 1000 + i;
         });
         var dobri = vsi.filter(function (z) { return z.o < 2000; });
         // Zadetek sredi besede pokazemo le, ce boljsih ni dovolj.
