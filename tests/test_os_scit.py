@@ -754,8 +754,9 @@ class UporabiTest(unittest.TestCase):
         koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         with open(os.path.join(koren, "safeer_os.py"), encoding="utf-8") as f:
             vir = f.read()
-        # Scit se zazene tudi, kadar Safeer OS tece kot delovna povrsina (--delovna); prej se tam ni nikoli.
-        self.assertEqual(vir.count("self.scit.zacni_ce_vklopljen()"), 2)
+        # Scit se zazene tudi, kadar Safeer OS tece kot delovna povrsina (--delovna); prej se tam ni nikoli. Tretje
+        # mesto je _vklopi_delovno: delovna povrsina se vklopi v procesu, ki ze tece kot okno Safeer Player.
+        self.assertEqual(vir.count("self.scit.zacni_ce_vklopljen()"), 3)
         delovna = vir[vir.index("if self.delovna and self.okno_delovna is None:"):]
         self.assertLess(delovna.index("self.scit.zacni_ce_vklopljen()"), delovna.index("return"))
         with open(os.path.join(koren, "assets", "os", "os.js"), encoding="utf-8") as f:

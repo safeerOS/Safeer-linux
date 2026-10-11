@@ -887,6 +887,13 @@ body.vrstica-skrcena:not(.nacin-splet) .skrij-vrstico span { display: none; }
 body.vrstica-skrita:not(.nacin-splet) #aplikacija { grid-template-columns: 1fr; }
 body.vrstica-skrita:not(.nacin-splet) #stranska { display: none; }
 body.vrstica-skrita:not(.nacin-splet) .rocaj-vrstice { display: block; }
+/* Safeer Player (index.html?predvajalnik=1): Medijski center v svojem oknu - brez stranske vrstice, glave in noge
+   Safeer OS. Mreza z vrstico ne velja (flex), zato tudi zapomnjena skrcena vrstica glavnega okna ne vpliva. */
+body.predvajalnik #aplikacija { display: flex; }
+body.predvajalnik #glavno { flex: 1; }
+body.predvajalnik #stranska, body.predvajalnik #vrh, body.predvajalnik #noga,
+body.predvajalnik .rocaj-vrstice, body.predvajalnik .razdelek:not(#r-media) { display: none !important; }
+body.predvajalnik #vsebina { padding-top: 30px; }
 /* Nadaljuj z druge naprave: izbira "tukaj" / "tukaj in ustavi tam" pod ponudbo, ki igra */
 .media-predaja-izbira { display:flex; gap:8px; padding:4px 0 8px 32px; }
 .media-predaja-izbira .media-mapa { flex:1; }
