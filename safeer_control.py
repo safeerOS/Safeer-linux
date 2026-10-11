@@ -37,6 +37,9 @@ KOREN = os.path.dirname(os.path.abspath(__file__))
 if KOREN not in sys.path:
     sys.path.insert(0, KOREN)
 
+# Manj RAM-a: najvec dve areni malloc (pred nitmi GTK/WebKit/GStreamer) - core/pomnilnik.py.
+from core import pomnilnik  # noqa: E402
+pomnilnik.omeji_arene(2)
 
 import gi  # noqa: E402
 
@@ -751,6 +754,7 @@ class SafeerControl(Gtk.Application):
 
     def do_startup(self) -> None:
         Gtk.Application.do_startup(self)
+        pomnilnik.obrezuj_periodicno(GLib)
         # Safeer OS (stikalo »Zaupaj temu računalniku«) klice to dejanje prek D-Bus (org.gtk.Actions).
         zaupanje = Gio.SimpleAction.new("zaupanje", GLib.VariantType.new("b"))
         zaupanje.connect("activate", self._na_zaupanje)

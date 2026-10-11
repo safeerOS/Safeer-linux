@@ -38,6 +38,10 @@ KOREN = os.path.dirname(os.path.abspath(__file__))
 if KOREN not in sys.path:
     sys.path.insert(0, KOREN)
 
+# Manj RAM-a: najvec dve areni malloc (pred nitmi GTK/WebKit/GStreamer) - core/pomnilnik.py.
+from core import pomnilnik  # noqa: E402
+pomnilnik.omeji_arene(2)
+
 import gi  # noqa: E402
 
 gi.require_version("Gtk", "3.0")
@@ -1149,6 +1153,7 @@ class SafeerOS(Gtk.Application):
 
     def do_startup(self) -> None:
         Gtk.Application.do_startup(self)
+        pomnilnik.obrezuj_periodicno(GLib)
         self._izvozi_predvajanje()
         threading.Thread(target=stremio_privzeto, name="safeer-stremio-privzeto", daemon=True).start()
 
@@ -1299,7 +1304,10 @@ class SafeerOS(Gtk.Application):
             MOST_JS, WebKit2.UserContentInjectedFrames.TOP_FRAME,
             WebKit2.UserScriptInjectionTime.START, None, None))
         odlozisce_varuh.dodaj(WebKit2, upravitelj)   # Ctrl+C brez izbora ne sme izprazniti odložišča
-        pogled = WebKit2.WebView.new_with_user_content_manager(upravitelj)
+        # Strani Safeer OS (namizje, glavno okno) imajo skupen kontekst z mejo pomnilnika spletnega procesa.
+        if getattr(self, "_os_kontekst", None) is None:
+            self._os_kontekst = pomnilnik.kontekst(WebKit2, 220)
+        pogled = WebKit2.WebView(user_content_manager=upravitelj, web_context=self._os_kontekst)
         upravitelj.connect("script-message-received::safeerOs", lambda _u, r: self._na_sporocilo(pogled, r))
         n = pogled.get_settings()
         n.set_property("enable-developer-extras", bool(os.environ.get("SAFEER_OS_RAZVOJ")))
@@ -1676,7 +1684,22 @@ class SafeerOS(Gtk.Application):
             return False
         self._plosca_spleta.hide()
         self._dogodek("spletNaNamizjuZaprt", None, self.pogled_delovna)
+        # Skrit Splet drzi spletni proces (~250 MiB): po minuti ga zapremo; naslednje iskanje ga odpre na novo.
+        if getattr(self, "_sprosti_splet_id", 0):
+            GLib.source_remove(self._sprosti_splet_id)
+        self._sprosti_splet_id = GLib.timeout_add_seconds(60, self._sprosti_splet_na_namizju)
         return True
+
+    def _sprosti_splet_na_namizju(self) -> bool:
+        self._sprosti_splet_id = 0
+        okno = self._plosca_spleta
+        if okno is None or okno.get_visible():
+            return False
+        self._plosca_spleta = None
+        self._spletni_namizje = None
+        okno.destroy()
+        pomnilnik.obrezuj()
+        return False
 
     def _splet_namizja_v_brskalnik(self) -> None:
         """»Odpri v brskalniku«: trenutna stran gre v privzeti brskalnik, plosca se zapre."""

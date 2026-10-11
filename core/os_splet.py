@@ -187,7 +187,8 @@ class VdelaniSplet:
                 indexeddb_directory=os.path.join(mapa, "indexeddb"),
                 local_storage_directory=os.path.join(mapa, "localstorage"),
                 websql_directory=os.path.join(mapa, "websql"))
-            self.kontekst = WebKit2.WebContext.new_with_website_data_manager(upravitelj)
+            from core import pomnilnik
+            self.kontekst = pomnilnik.kontekst(WebKit2, 350, website_data_manager=upravitelj)
             self.kontekst.set_sandbox_enabled(True)
             piskotki = upravitelj.get_cookie_manager()
             piskotki.set_persistent_storage(os.path.join(self.config.config_dir, "cookies.sqlite"),

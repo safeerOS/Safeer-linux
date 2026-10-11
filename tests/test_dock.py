@@ -61,3 +61,14 @@ class StranBrezPodvojenihSpremenljivk(unittest.TestCase):
         imena = re.findall(r"^  var ([A-Za-z_$][\w$]*) = ", js, re.M)
         podvojena = sorted({i for i in imena if imena.count(i) > 1})
         self.assertEqual(podvojena, [])
+
+
+class ControlPaketVsebujeModule(unittest.TestCase):
+    def test_vsi_moduli_safeer_control_so_v_paketu(self):
+        import re
+        koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        py = open(os.path.join(koren, "safeer_control.py"), encoding="utf-8").read()
+        paket = open(os.path.join(koren, "packaging", "install_control_payload.sh"), encoding="utf-8").read()
+        uvozi = set(re.findall(r"^from core import (\w+)", py, re.M))
+        manjka = sorted(m for m in uvozi if not re.search(r"(?<![\w])%s(?![\w])" % re.escape(m), paket))
+        self.assertEqual(manjka, [])
