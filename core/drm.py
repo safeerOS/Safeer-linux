@@ -19,17 +19,24 @@ MOST = "safeerDrm"
 SKRIPTA = r"""
 (function () {
   try {
-    var n = navigator, izvirna = n.requestMediaKeySystemAccess;
-    if (!izvirna || n.__safeerDrm) return;
+    var n = navigator;
+    if (n.__safeerDrm) return;
     n.__safeerDrm = true;
-    n.requestMediaKeySystemAccess = function (sistem) {
+    var izvirna = n.requestMediaKeySystemAccess;
+    function javi(sistem) {
       try {
         if (/widevine|playready/i.test(String(sistem || "")) && window.webkit && window.webkit.messageHandlers &&
             window.webkit.messageHandlers.safeerDrm) {
           window.webkit.messageHandlers.safeerDrm.postMessage(String(sistem));
         }
       } catch (e) {}
-      return izvirna.apply(this, arguments);
+    }
+    // WebKitGTK na namizju EME pogosto sploh nima (funkcija ne obstaja): stran bi brez klica le javila »brskalnik ni
+    // podprt«. Zato jo ponudimo - ob klicu Safeer stran odpre drugje, stran pa dobi obicajno zavrnitev.
+    n.requestMediaKeySystemAccess = function (sistem) {
+      javi(sistem);
+      if (izvirna) return izvirna.apply(this, arguments);
+      return Promise.reject(new DOMException("Key system not supported", "NotSupportedError"));
     };
   } catch (e) {}
 })();

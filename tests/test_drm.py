@@ -47,6 +47,7 @@ class Preusmeritev(unittest.TestCase):
     def test_skripta_le_widevine_in_playready(self):
         self.assertIn("widevine|playready", drm.SKRIPTA)
         self.assertIn("izvirna.apply(this, arguments)", drm.SKRIPTA)
+        self.assertIn('"NotSupportedError"', drm.SKRIPTA)
 
 
 if __name__ == "__main__":
