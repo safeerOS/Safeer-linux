@@ -95,8 +95,8 @@ class TestMediaOpen(unittest.TestCase):
         self.assertIn('Gio.SimpleAction.new("medij", GLib.VariantType.new("s"))', py)
         self.assertIn("self._odpri_predvajalnik(naslov)", py)
         # Iskanje v Medijskem centru (lupa, glas z druge naprave) odpre okno na celem zaslonu.
-        self.assertIn("            okno.maximize()         # iskanje (lupa, glas z druge naprave)", py)
-        self.assertIn("            self.okno_predvajalnik.maximize()", py)
+        self.assertIn("            okno.maximize()", py)
+        self.assertIn("        self.okno_predvajalnik.maximize()", py)
 
 
 if __name__ == "__main__":

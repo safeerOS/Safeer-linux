@@ -1491,8 +1491,8 @@ class SafeerOS(Gtk.Application):
         if iskanje:
             self._js("window.safeerOsPojdi && window.safeerOsPojdi(%s);" % json.dumps("mediji:" + iskanje),
                      self.pogled_predvajalnik)
-            # Lastnik, 11. 10. 2026: ko iscemo v Medijskem centru, je na celem zaslonu.
-            self.okno_predvajalnik.maximize()
+        # Lastnik, 11. 10. 2026: Safeer Player se vedno odpre cez cel zaslon - tudi ko ga odpremo znova ali iscemo.
+        self.okno_predvajalnik.maximize()
         # Okno, ki ga je uporabnik zaprl (upravljalnik oken ga je umaknil, mi smo ga skrili), GTK ob ponovnem prikazu
         # ne oznaci s casom - Muffin ga potem le oznaci z »zahteva pozornost« in ostane za drugim oknom (izmerjeno
         # 11. 10. 2026). Zato cas uporabe nastavimo sami, pred prikazom.
@@ -1525,8 +1525,10 @@ class SafeerOS(Gtk.Application):
         okno.add(pogled)
         okno.connect("delete-event", self._zapri_predvajalnik)
         self.okno_predvajalnik, self.pogled_predvajalnik = okno, pogled
-        if iskanje and not self.posnetek:
-            okno.maximize()         # iskanje (lupa, glas z druge naprave): Medijski center na celem zaslonu
+        if not self.posnetek:
+            # Lastnik, 11. 10. 2026: Safeer Player se vedno odpre cez cel zaslon (povecano okno, dock in pult ostaneta);
+            # nacin za kavc (kavc.js) ga da cez cel zaslon brez pulta.
+            okno.maximize()
         okno.show_all()
         if self.posnetek and self.okno is None:
             # Kot pri glavnem oknu: posnetek mora nastati tudi, ce WebKit konca nalaganja ne javi.
@@ -2285,6 +2287,7 @@ class SafeerOS(Gtk.Application):
             "odpriLokalniMedij": lambda: self._odpri_lokalni_medij(str(a[0]) if a else ""),
             "cakajociMagnet": self._vzemi_cakajoci_magnet,
             "cakajociStremio": self._vzemi_cakajoci_stremio,
+            "kavcCelZaslon": lambda: self._kavc_cel_zaslon(pogled, bool(a[0]) if a else False),
             "odlozisceBesedilo": self._odlozisce_besedilo,
             "kopiraj": lambda: self._kopiraj(str(a[0]) if a else ""),
             "magnetPredvajaj": lambda: self._predvajaj_magnet(int(a[0]) if a else -1, int(a[1]) if len(a) > 1 else -1,
@@ -3564,6 +3567,18 @@ class SafeerOS(Gtk.Application):
             return True       # stran Safeer Playerja ga prevzame ob nalaganju (cakajociStremio)
         self._odpri_predvajalnik()
         self._dogodek("stremioDodatek", {"url": url}, self.pogled_predvajalnik)
+        return True
+
+    def _kavc_cel_zaslon(self, pogled, vklop: bool) -> bool:
+        """Nacin za kavc (kavc.js): okno strani, ki ga je vklopila, cez cel zaslon. GTK in ne celozaslonski nacin strani,
+        da Escape ostane tipka Nazaj (WebKit bi z njo zapustil cel zaslon)."""
+        okno = self.okno_predvajalnik if pogled is not None and pogled is self.pogled_predvajalnik else self.okno
+        if okno is None:
+            return False
+        if vklop:
+            okno.fullscreen()
+        else:
+            okno.unfullscreen()
         return True
 
     def _vzemi_cakajoci_stremio(self) -> dict:
