@@ -2171,14 +2171,18 @@
     poskusiNaprav++;
     casPoskusa = setTimeout(function () { zgradiStranDatotek(); naloziProgrameNaprav(); }, 8000);
   }
+  function prgNapravaShranjena() {
+    try { var v = localStorage.getItem("safeer_prg_naprava"); return v == null ? "ta" : v; } catch (e) { return "ta"; }
+  }
   function zgradiIzbiroNaprav() {
-    var s = $("prgNaprava"), prej = s.value; s.innerHTML = "";
-    var o = el("option", "", t("vseNaprave")); o.value = ""; s.appendChild(o);
+    var s = $("prgNaprava"), prej = s.value || prgNapravaShranjena(); s.innerHTML = "";
+    // Privzeto programi tega racunalnika (lastnik, 11. 10. 2026): programe drugih naprav uporabnik vklopi sam.
     if (P.lokalni.length) { var ta = el("option", "", t("taRacunalnik")); ta.value = "ta"; s.appendChild(ta); }
+    var o = el("option", "", t("vseNaprave")); o.value = ""; s.appendChild(o);
     P.naprave.forEach(function (n) { var x = el("option", "", n.ime); x.value = n.id; s.appendChild(x); });
     // Spletne bliznjice niso naprava: najdes jih pod Vse naprave in v kategoriji Splet.
     s.value = prej;
-    if (s.value !== prej) s.value = "";
+    if (s.value !== prej) s.value = P.lokalni.length ? "ta" : "";
   }
   function zgradiKategorije() {
     var z = $("prgKategorije"); z.innerHTML = "";
@@ -2219,7 +2223,8 @@
     if (!P.nalozeno) sporocila.push(t("nalagam"));
     else if (P.brezControla) sporocila.push(t("brezControla"));
     else if (!P.naprave.length && $("prgNaprava").value !== "ta") sporocila.push(t("niNaprav"));
-    P.nedosegljive.forEach(function (n) { sporocila.push(t("napravaNedosegljiva", { naprava: n })); });
+    // Nedosegljive naprave so pomembne le, ko uporabnik gleda tudi programe drugih naprav.
+    if ($("prgNaprava").value !== "ta") P.nedosegljive.forEach(function (n) { sporocila.push(t("napravaNedosegljiva", { naprava: n })); });
     // Zmogljivost mreze brez pomikanja
     var r = mreza.getBoundingClientRect(), fs = parseFloat(getComputedStyle(mreza).fontSize) || 14;
     var stolpci = seznamPogled ? 1 : Math.max(2, Math.min(6, Math.floor((r.width + 0.6 * fs) / (8.6 * fs))));
@@ -3400,7 +3405,10 @@
       // Kdor isce program, ki ga je pravkar namestil, ga mora najti: seznam preberemo znova (najvec na 5 s).
       if (Date.now() - lokalniOb > 5000) naloziLokalnePrograme();
     });
-    $("prgNaprava").addEventListener("change", function () { P.stran = 0; izrisiPrograme(); });
+    $("prgNaprava").addEventListener("change", function () {
+      try { localStorage.setItem("safeer_prg_naprava", this.value); } catch (e) { /* ni shrambe */ }
+      P.stran = 0; izrisiPrograme();
+    });
     $("prgRazvrsti").addEventListener("change", function () { izrisiPrograme(); });
     $("prgNamesti").addEventListener("click", ponudnikiProgramov);
     $("prgPogled").addEventListener("click", function () { N.pogled = N.pogled === "seznam" ? "mreza" : "seznam"; shrani(); P.stran = 0; izrisiPrograme(); });

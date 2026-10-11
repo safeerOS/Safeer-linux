@@ -38,3 +38,19 @@ class NamizjeTv(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProgramiTegaRacunalnika(unittest.TestCase):
+    def test_privzeto_ta_racunalnik(self):
+        js = _beri("assets/os/delovna.js")
+        self.assertIn('return v == null ? "ta" : v;', js)
+        self.assertIn('localStorage.setItem("safeer_prg_naprava", this.value)', js)
+        self.assertIn('if ($("prgNaprava").value !== "ta") P.nedosegljive.forEach', js)
+
+    def test_oblika_ob_istem_imenu(self):
+        import sys
+        sys.path.insert(0, KOREN)
+        from core import os_programi
+        self.assertEqual(os_programi.oblika_namestitve("/home/u/.local/share/flatpak/exports/share/applications/a.desktop"), "Flatpak")
+        self.assertEqual(os_programi.oblika_namestitve("/var/lib/snapd/desktop/applications/a.desktop"), "Snap")
+        self.assertEqual(os_programi.oblika_namestitve("/usr/share/applications/a.desktop"), "")

@@ -151,6 +151,18 @@ def preberi_vnos(pot: str, namizja: Optional[List[str]] = None) -> Optional[dict
     }
 
 
+def oblika_namestitve(pot: str) -> str:
+    """Kako je program namescen, po poti vnosa .desktop: Flatpak, Snap ali AppImage; prazno za navaden paket."""
+    p = pot.replace("\\", "/")
+    if "/flatpak/" in p:
+        return "Flatpak"
+    if "/snapd/" in p or "/snap/" in p:
+        return "Snap"
+    if "appimage" in p.lower():
+        return "AppImage"
+    return ""
+
+
 class Shramba:
     """os.json: uporaba programov, pripeti programi in nastavitve Safeer OS."""
 
@@ -234,7 +246,16 @@ class Programi:
         pripeti = list(self.shramba.get("pripeti", []) or [])
         skriti = set(self.shramba.get("skriti_domov", []) or [])
         izhod = []
+        # Isti program v dveh oblikah (npr. paket in Flatpak): obe kartici imata isto ime - oblika pove, katera je katera
+        # (lastnik, 11. 10. 2026: »zakaj imam 2 Safeer Browserja«).
+        imena: dict = {}
+        for v in vnosi.values():
+            imena[v["ime"].casefold()] = imena.get(v["ime"].casefold(), 0) + 1
         for oznaka, v in sorted(vnosi.items(), key=lambda p: p[1]["ime"].lower()):
+            if imena.get(v["ime"].casefold(), 0) > 1:
+                oblika = oblika_namestitve(str(v.get("pot") or ""))
+                if oblika:
+                    v = dict(v, ime="%s (%s)" % (v["ime"], oblika))
             u = uporaba.get(oznaka) or {}
             # Igre v oblaku (core/os_oblak_igre.py): program tece na ponudnikovih streznikih - to mora biti vidno.
             oblak = (os_oblak_igre.oblak_za(oznaka) or {}).get("ponudnik", "")
