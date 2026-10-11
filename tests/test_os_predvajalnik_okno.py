@@ -306,6 +306,8 @@ class Most(_Lupina):
         lazna._katalog_most.return_value.pozna.side_effect = lambda m: m in os_katalog.Katalog.METODE
         lazna._katalog_pogled = None
         lazna.SPREMINJAJO_DATOTEKE = self.SafeerOS.SPREMINJAJO_DATOTEKE
+        # Stran in domaci pogled (GTK) gresta skozi isti _most_klic.
+        lazna._most_klic = lambda *a: self.SafeerOS._most_klic(lazna, *a)
         return lazna
 
     def _klic(self, lazna, pogled, metoda, argumenti=()):

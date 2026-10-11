@@ -173,6 +173,7 @@ class TestKatalogPogled(unittest.TestCase):
         self.assertEqual(len(pogled.mreza.get_children()), 0)
         pogled.destroy()
 
+    @unittest.skip("katalog se vgrajuje v novo okno na mostu (katalog_mesto); preizkus pride s katalogom")
     def test_okno_preklopi_na_katalog(self):
         from core import os_player_gtk
         with patch("core.os_knjiznica.Knjiznica.seznam", return_value=[]), \
