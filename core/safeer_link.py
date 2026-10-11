@@ -120,6 +120,7 @@ MOST_JS = """
     poisciHub: function () { poslji("poisciHub"); },
     seznani: function () { poslji("seznani"); },
     potrdiKodo: function (koda) { poslji("potrdiKodo", [String(koda || "")]); },
+    odobriKodo: function (koda) { poslji("odobriKodo", [String(koda || "")]); },
     prekiniSeznanitev: function () { poslji("prekiniSeznanitev"); },
     zacniQr: function () { poslji("zacniQr"); },
     prekiniQr: function () { poslji("prekiniQr"); },
@@ -233,6 +234,8 @@ class SafeerLink:
         # Prijava s QR kodo (prijavno okno Safeer Control / Safeer OS): odprta koda in rod - nova koda
         # ali zaprto okno povecata rod, da nit, ki caka na potrditev, sama odneha.
         self._qr: Optional[dict] = None
+        #: Ista prijava pri drugih Hubih (koda naprave, glej _prijave_kode_drugje): [(naslov, prijava)].
+        self._qr_dodatne: list = []
         self._qr_rod = 0
         # »Nadaljuj brez povezave naprav« v prijavnem oknu (Safeer Control odpre Safeer OS na tem racunalniku).
         self.ob_brez_povezave: Optional[Callable[[], None]] = None
@@ -617,6 +620,7 @@ class SafeerLink:
             "nadaljujBrezPovezave": lambda: self._nadaljuj_brez_povezave(),
             "nastaviZaupanje": lambda: self.nastavi_zaupanje(bool(argumenti[0]) if argumenti else False),
             "zacniVabilo": lambda: self._v_ozadju(self._zacni_vabilo),
+            "odobriKodo": lambda: self._v_ozadju(lambda: self._odobri_kodo(str(argumenti[0]) if argumenti else "")),
             "prekiniVabilo": lambda: self._prekini_vabilo(),
             "poveziNaprave": lambda: self._povezi_naprave(),
             "poveziSe": lambda: self._v_ozadju(self._povezi),
@@ -960,7 +964,17 @@ class SafeerLink:
             return
         svg = link_hub.qr_svg(prijava["povezava"])
         self._qr = prijava
-        self._odziv("qr", {"svg": svg, "velja": prijava["velja"]})
+        # Ista prijava ima tudi 6-mestno kodo: kdor nima kamere, jo vpise na napravi v Linku.
+        self._odziv("qr", {"svg": svg, "velja": prijava["velja"], "koda": prijava.get("koda", "")})
+        # Z Link Mesh ima Hub vsaka naprava in clan Linka kodo vpise na SVOJEM: isto kodo prijavimo pri vseh
+        # Hubih v domacem omrezju (najvec 6), da jo najde ne glede na to, s katere naprave jo dovoli.
+        dodatne = self._prijave_kode_drugje(naslov, prijava.get("koda", ""))
+        if rod != self._qr_rod:
+            for n2, p2 in dodatne:
+                link_hub.preklici_qr(n2, p2, self._id())
+            return
+        self._qr_dodatne = dodatne
+        glavna = (naslov, prijava)
         konec = time.time() + max(30, int(prijava["velja"]) - 20)
         while rod == self._qr_rod:
             time.sleep(1.5)
@@ -971,7 +985,21 @@ class SafeerLink:
                 self._v_ozadju(self._zacni_qr)
                 return
             zeton, razlog = link_hub.stanje_qr(naslov, prijava, self._id())
+            if not zeton:
+                for n2, p2 in list(dodatne):
+                    z2, r2 = link_hub.stanje_qr(n2, p2, self._id())
+                    if z2:
+                        # Dovoljeno pri drugem Hubu: ta postane nas (zeton in odtis sta njegova).
+                        naslov, prijava, zeton, razlog = n2, p2, z2, ""
+                        break
+                    if r2 == "qr_ne_obstaja":
+                        dodatne.remove((n2, p2))
             if zeton:
+                # Vse druge prijave iste kode (tudi prva, ce je dovolil drug Hub) preklicemo.
+                for n2, p2 in [glavna] + dodatne:
+                    if p2 is not prijava:
+                        self._v_ozadju(lambda n=n2, p=p2: link_hub.preklici_qr(n, p, self._id()))
+                self._qr_dodatne = []
                 self._qr = None
                 self._qr_rod += 1
                 self.nastavitve.podatki["hub_url"] = naslov
@@ -996,6 +1024,35 @@ class SafeerLink:
         naslov = self._hub()
         if stara and naslov:
             self._v_ozadju(lambda: link_hub.preklici_qr(naslov, stara, self._id()))
+        dodatne, self._qr_dodatne = list(getattr(self, "_qr_dodatne", []) or []), []
+        for n2, p2 in dodatne:
+            self._v_ozadju(lambda n=n2, p=p2: link_hub.preklici_qr(n, p, self._id()))
+
+    def _prijave_kode_drugje(self, glavni: str, koda: str) -> list:
+        """Ista prijava (ista 6-mestna koda) pri drugih Hubih v domacem omrezju: [(naslov, prijava)]."""
+        from urllib.parse import urlparse
+        if not koda:
+            return []
+        try:
+            hubi = link_hub.poisci_hube_mdns(1.5)
+        except Exception:  # noqa: BLE001
+            return []
+        glavni_kraj = urlparse(glavni)
+        izid = []
+        for h in hubi:
+            n = str(h.get("naslov") or "")
+            u = urlparse(n)
+            if not h.get("tls") or (u.hostname, u.port) == (glavni_kraj.hostname, glavni_kraj.port):
+                continue
+            try:
+                p = link_hub.zacni_qr(n, self._id(), self._ime(), koda=koda)
+            except Exception:  # noqa: BLE001
+                p = None
+            if p and not p.get("napaka"):
+                izid.append((n, p))
+            if len(izid) >= 6:
+                break
+        return izid
 
     def _zeton_http(self) -> Optional[str]:
         """Zeton za HTTP klice sredisca: zeton seznanitve ali sejni zeton s podpisom (krog zaupanja)."""
@@ -1003,6 +1060,53 @@ class SafeerLink:
             return self._zeton()
         if self._v_krogu():
             return link_hub.seja_s_podpisom(self._hub(), self._id(), self._odtis() or "", self._ime())
+        return None
+
+    def _odobri_kodo(self, koda: str) -> None:
+        """»Vpiši kodo z druge naprave«: ta naprava je v Linku in dovoli napravo, ki kaze svojo 6-mestno kodo
+        (prijavno okno Safeer Controla, Safeer OS na telefonu ali TV). Izid gre na stran kot »kodaOdobrena«."""
+        naslov, odtis = self._hub(), self._odtis() or ""
+        zeton = self._zeton_http() if naslov else None
+        if not naslov or not zeton:
+            self._odziv("kodaOdobrena", {"ok": False, "razlog": "ni_seznanjena"})
+            return
+        try:
+            izid = link_hub.odobri_kodo(naslov, zeton, odtis, koda)
+            if not izid.get("ok") and izid.get("razlog") == "qr_ne_obstaja":
+                # Ni koda naprave, ki se prijavlja: morda je koda povabila druge naprave (njeno sredisce kaze
+                # »Poveži naprave«). Kot na Androidu se ji pridruzimo s to kodo (SPAKE2).
+                izid = self._pridruzi_s_kodo_povabila(koda) or izid
+        except Exception as e:  # noqa: BLE001 - stran mora vedno dobiti odgovor
+            print(f"[SafeerLink] kode ni bilo mogoce potrditi: {e}")
+            izid = {"ok": False, "razlog": "ni_huba"}
+        self._odziv("kodaOdobrena", izid)
+
+    def _pridruzi_s_kodo_povabila(self, koda: str) -> Optional[dict]:
+        """Sredisce v domacem omrezju, ki kaze kodo povabila: pridruzimo se mu z vpisano kodo. None, ce takega
+        sredisca ni (koda potem ni veljavna nikjer)."""
+        from urllib.parse import urlparse
+        lastni = urlparse(self._hub() or "")
+        for h in link_hub.poisci_hube_mdns(1.5):
+            n = str(h.get("naslov") or "")
+            u = urlparse(n)
+            if not h.get("tls") or (u.hostname, u.port) == (lastni.hostname, lastni.port):
+                continue
+            if link_hub.ima_odprto_kodo(n) is not True:
+                continue
+            prijava = link_hub.zacni_seznanitev(n, self._id(), self._ime())
+            if not prijava or prijava.get("napaka"):
+                continue
+            zeton, razlog = link_hub.potrdi_kodo(n, prijava, self._id(), koda)
+            if not zeton:
+                return {"ok": False, "razlog": "prevec_poskusov" if razlog == "prevec_poskusov" else "qr_ne_obstaja"}
+            self.nastavitve.podatki["hub_url"] = n
+            self.nastavitve.podatki["control_token"] = zeton
+            self.nastavitve.podatki["hub_fp"] = str(prijava.get("odtis", ""))
+            link_seja.po_prijavi(self.nastavitve.podatki, self._zaupaj_ob_prijavi)
+            self._zapomni_seznanitev()
+            self.nastavitve.shrani()
+            self._povezi()
+            return {"ok": True, "ime": str(h.get("ime") or "")}
         return None
 
     def _zacni_vabilo(self) -> None:

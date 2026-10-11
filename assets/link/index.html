@@ -81,6 +81,11 @@
           <div class="qrOkvir" id="qrSlika" aria-live="polite"><span class="qrCakam" data-t="prijavaQrPripravljam">Pripravljam kodo …</span></div>
           <h3 data-t="prijavaQrNaslov">Skeniraj s telefonom</h3>
           <p data-t="prijavaQrOpis">Usmeri kamero telefona ali tablice, ki je že v Safeer Linku, v kodo in potrdi na telefonu.</p>
+          <div class="prijavaKodaTe" id="prijavaKodaTeBlok" hidden>
+            <p data-t="prijavaKodaTe">ali na napravi v Safeer Linku vpiši kodo te naprave:</p>
+            <div class="vabiloPin" id="prijavaKodaTe" aria-live="polite"></div>
+            <small data-t="prijavaKodaTeOpis">Povezane naprave → Poveži naprave → Vpiši kodo z druge naprave</small>
+          </div>
           <p class="opomba" id="opombaQr"></p>
           <button class="drobniGumb" id="gumbQrZnova" data-t="prijavaPoisci" hidden>Poišči znova</button>
         </div>
@@ -310,9 +315,10 @@
             </div>
             <button class="vabiloVpisi" id="gumbOdpriVnosKode" data-t="vabiloVpisiGumb">Vpiši kodo z druge naprave</button>
             <div class="vnosKodeDodaj" id="vnosKodeDodaj" hidden>
+              <p data-t="vabiloVpisiOpis">Druga naprava kaže svojo 6-mestno kodo? Vpiši jo tukaj in jo dovoli.</p>
               <input class="vnosStevilke" id="dodajVnosKode" type="text" inputmode="numeric"
                      autocomplete="one-time-code" maxlength="6" placeholder="123 456" aria-label="Koda" />
-              <button class="glavni" id="gumbDodajKoda" data-t="prijavaGumb">Prijava</button>
+              <button class="glavni" id="gumbDodajKoda" data-t="vabiloDovoli">Dovoli</button>
               <p class="opomba" id="opombaDodajKoda"></p>
             </div>
           </div>
