@@ -34,3 +34,18 @@ class T(unittest.TestCase):
         self.assertEqual(os_dock.razcleni_seznam("smeti("), [])
 if __name__ == "__main__":
     unittest.main()
+
+
+class PaketVsebujeModule(unittest.TestCase):
+    def test_vsi_moduli_safeer_os_so_v_paketu(self):
+        """Vsak modul core, ki ga safeer_os.py uvozi, mora biti v install_os_payload.sh (11. 10. 2026 je os_dock
+        manjkal in namescena delovna povrsina se ni zagnala)."""
+        import re
+        koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        py = open(os.path.join(koren, "safeer_os.py"), encoding="utf-8").read()
+        paket = open(os.path.join(koren, "packaging", "install_os_payload.sh"), encoding="utf-8").read()
+        uvozi = set()
+        for blok in re.findall(r"^from core import \(?([^)\n]*(?:\n[^)\n]*)*?)\)?\s*(?:#.*)?$", py, re.M):
+            uvozi.update(x.strip() for x in re.sub(r"#.*", "", blok).replace("\n", ",").split(",") if x.strip())
+        manjka = sorted(m for m in uvozi if not re.search(r"(?<![\w])%s(?![\w])" % re.escape(m), paket))
+        self.assertEqual(manjka, [])
