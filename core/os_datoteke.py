@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import time
+import urllib.parse
 from collections import deque
 from typing import List, Optional
 
@@ -44,6 +45,31 @@ def uporabniske_mape(dom: Optional[str] = None) -> List[dict]:
         pot = nastavljene.get(vrsta) or os.path.join(dom, PRIVZETO[vrsta])
         if os.path.isdir(pot) and os.path.realpath(pot) != os.path.realpath(dom):
             izhod.append({"vrsta": vrsta, "pot": pot, "ime": os.path.basename(pot.rstrip("/"))})
+    return izhod
+
+
+def zaznamki(dom: Optional[str] = None, izpusti: Optional[List[str]] = None) -> List[dict]:
+    """Zaznamki map, kot jih uporabnik vidi v Nemu (~/.config/gtk-3.0/bookmarks): samo krajevne mape, ki obstajajo,
+    brez tistih, ki so ze med uporabnikovimi mapami (lastnik, 11. 10. 2026: pri obicajni temi jih ima pri roki)."""
+    dom = dom or os.path.expanduser("~")
+    znane = {os.path.realpath(p) for p in (izpusti or [])}
+    izhod, videne = [], set()
+    pot_datoteke = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.join(dom, ".config"), "gtk-3.0", "bookmarks")
+    try:
+        with open(pot_datoteke, encoding="utf-8") as f:
+            vrstice = f.read().splitlines()
+    except Exception:
+        return izhod
+    for vrstica in vrstice[:50]:
+        uri, _, ime = vrstica.strip().partition(" ")
+        if not uri.startswith("file://"):
+            continue
+        pot = urllib.parse.unquote(urllib.parse.urlsplit(uri).path)
+        prava = os.path.realpath(pot)
+        if not pot or not os.path.isdir(pot) or prava in znane or prava in videne:
+            continue
+        videne.add(prava)
+        izhod.append({"vrsta": "ZAZNAMEK", "pot": pot, "ime": ime.strip() or os.path.basename(pot.rstrip("/")) or pot})
     return izhod
 
 

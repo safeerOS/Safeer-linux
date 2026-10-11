@@ -639,6 +639,7 @@
       nastaviVidez(z.videz);
       VL.sistemsko = !!z.vlecenjeDatotek;
       Z.mape = z.mape || []; Z.dom = (Z.mape[0] && Z.mape[0].pot) || "";
+      Z.zaznamki = Array.isArray(z.zaznamki) ? z.zaznamki : [];
       Z.spletne = Array.isArray(z.spletne) ? z.spletne : [];
       zgradiStranDatotek();
       odpriVir({ vrsta: "nedavno" });
@@ -719,11 +720,13 @@
     gumb(t("najvecje"), { vrsta: "najvecje" });
     gumb(t("smeti"), { vrsta: "smeti" });
     oznaka(t("mape"));
+    // Kot pri obicajni temi (Nemo): domaca mapa, Namizje, uporabnikove mape in zaznamki (lastnik, 11. 10. 2026).
     Z.mape.forEach(function (m) {
       if (m.vrsta === "HOME") gumb(t("domov"), { vrsta: "lokalno", pot: m.pot });
-      else if (["DOCUMENTS", "PICTURES", "VIDEOS", "MUSIC", "DOWNLOAD"].indexOf(m.vrsta) >= 0)
+      else if (["DESKTOP", "DOCUMENTS", "PICTURES", "VIDEOS", "MUSIC", "DOWNLOAD"].indexOf(m.vrsta) >= 0)
         gumb(BESEDILA[jezik][m.vrsta] ? t(m.vrsta) : m.ime, { vrsta: "lokalno", pot: m.pot });
     });
+    (Z.zaznamki || []).forEach(function (m) { gumb(m.ime, { vrsta: "lokalno", pot: m.pot }).title = m.pot; });
     oznaka(t("naprave"));
     // Ta racunalnik = cel datotecni sistem (kot »Racunalnik« v Nemu); domaca mapa je zgoraj med Mapami.
     gumb(t("taRacunalnik"), { vrsta: "lokalno", pot: "/" }, true);

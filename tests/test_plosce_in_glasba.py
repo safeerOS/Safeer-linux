@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import unittest
+from unittest import mock
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, KOREN)
@@ -61,3 +62,22 @@ class SkladbeZDiska(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MapeKotNemo(unittest.TestCase):
+    def test_namizje_in_zaznamki(self):
+        import tempfile
+        from core import os_datoteke
+        js = _beri("assets/os/delovna.js")
+        self.assertIn('["DESKTOP", "DOCUMENTS", "PICTURES", "VIDEOS", "MUSIC", "DOWNLOAD"]', js)
+        self.assertIn("(Z.zaznamki || []).forEach", js)
+        with tempfile.TemporaryDirectory() as dom:
+            for m in ("Projekti", "Moja mapa", "Dokumenti"):
+                os.makedirs(os.path.join(dom, m))
+            os.makedirs(os.path.join(dom, ".config", "gtk-3.0"))
+            with open(os.path.join(dom, ".config", "gtk-3.0", "bookmarks"), "w", encoding="utf-8") as f:
+                f.write("file://%s/Projekti\nfile://%s/Moja%%20mapa Moje\nfile://%s/Dokumenti\nfile://%s/ni\nsftp://x/y\n"
+                        % (dom, dom, dom, dom))
+            with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": os.path.join(dom, ".config")}):
+                z = os_datoteke.zaznamki(dom, izpusti=[os.path.join(dom, "Dokumenti")])
+        self.assertEqual([(x["ime"], os.path.basename(x["pot"])) for x in z], [("Projekti", "Projekti"), ("Moje", "Moja mapa")])

@@ -2601,6 +2601,7 @@ class SafeerOS(Gtk.Application):
             "ozadje": ("file://" + GLib.uri_escape_string(ozadje, "/", False)) if ozadje else "",
             "razpolozljivo": os_sistem.razpolozljivo(),
             "mape": os_datoteke.uporabniske_mape(),
+            "zaznamki": os_datoteke.zaznamki(izpusti=[m["pot"] for m in os_datoteke.uporabniske_mape()]),
             "celozaslonsko": bool(self.shramba.get("celozaslonsko", True)) and not self.v_oknu,
             "namizje": self.namizje,
             "spletne": shranjene_spletne,
