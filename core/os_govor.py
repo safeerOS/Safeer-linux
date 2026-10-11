@@ -33,11 +33,15 @@ MODEL = {
     "velikost": 190085487,
 }
 #: Program whisper-cli (whisper.cpp v1.9.5), zgrajen v nasem CI (ubuntu-22.04, GGML_NATIVE=OFF, brez OpenMP) in
-#: objavljen v izdaji »govor-1«. Dokler sha256 ni vpisan, se program ne prenasa (velja samo ze namescen).
+#: objavljen v izdaji »govor-1« (osnutek; objavi ga lastnik z »da«). Prenese se samo datoteka s tem SHA-256.
 IZDAJA_PROGRAMA = "https://github.com/safeerOS/Safeer-linux/releases/download/govor-1/"
 PROGRAMI = {
-    "x86_64-v3": {"ime": "whisper-cli-x86_64-v3", "sha256": "", "velikost": 0},
-    "x86_64": {"ime": "whisper-cli-x86_64", "sha256": "", "velikost": 0},
+    # CI tek 38135130708 (zapis c862e7f). Meritev na prenosniku lastnika, 3,5 s govora: v3 1,35 s, osnovni 10,5 s
+    # (brez AVX - samo za stare procesorje, kjer drugega ne gre).
+    "x86_64-v3": {"ime": "whisper-cli-x86_64-v3", "velikost": 4024136,
+                  "sha256": "2bd2706235fadb8bd1ab1f364436013604734a192788f13e9a274a235f9379e8"},
+    "x86_64": {"ime": "whisper-cli-x86_64", "velikost": 3688264,
+               "sha256": "76150102c9531c9427caace2a402522cdd16d6425f956b343fc98d06fb611047"},
 }
 VZORCI = 16000
 NAJDALJE = 8.0              # s posnetka
