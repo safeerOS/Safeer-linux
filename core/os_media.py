@@ -3623,6 +3623,21 @@ class MediaCenter:
             bazen.shutdown(wait=False)
         return tokovi
 
+    def tokovi_postaje(self, item_id: str) -> list[dict]:
+        """Programi radijske postaje (Rock Radio: Best Ballads, Hard & Heavy ...) kot vnosi, ki jih resolve() pozna."""
+        item = self._dynamic_items.get(item_id) or next((x for x in self.catalog()["vnosi"] if x.get("id") == item_id), None)
+        if not item or item.get("vrsta") != "radio":
+            return []
+        izhod = []
+        for tok in self._zakoniti_viri.tokovi_postaje(item):
+            vnos = {"id": "tok:" + hashlib.sha1(tok["url"].encode("utf-8")).hexdigest()[:16], "naslov": tok["naslov"],
+                    "vrsta": "radio", "url": tok["url"], "mime": tok.get("mime") or "", "bitrate": tok.get("bitrate") or 0,
+                    "slika": item.get("slika") or "", "vir": item.get("vir") or "", "vir_id": item.get("vir_id") or "",
+                    "postaja_id": item_id}
+            self._dynamic_items[vnos["id"]] = vnos
+            izhod.append({"id": vnos["id"], "naslov": vnos["naslov"], "bitrate": vnos["bitrate"]})
+        return izhod
+
     def resolve(self, item_id: str, pripravi_torrent: bool = True) -> Optional[dict]:
         """Vnos, pripravljen za predvajanje. `pripravi_torrent=False` (podrobnosti naslova): naslova, ki ga ponujajo
         samo torrenti, ne zacnemo prenasati - to se zgodi sele, ko uporabnik pritisne Predvajaj."""

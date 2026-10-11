@@ -625,9 +625,14 @@ class ZakonitiViri:
                 return []
             with ThreadPoolExecutor(max_workers=min(6, len(kandidati))) as pool:
                 glave = [g for g in pool.map(self._glava_toka, kandidati) if g]
+            # Tok brez imena (npr. HLS istega glavnega programa) izpustimo, ce imajo drugi tokovi imena.
+            if sum(1 for g in glave if g["ime"]) >= 2:
+                glave = [g for g in glave if g["ime"]]
             tokovi, imena = [], set()
             for g in glave:
                 ime = g["ime"] or str(item.get("naslov") or "")
+                if ime.isupper():
+                    ime = re.sub(r"\bHq\b", "HQ", ime.title())
                 kljuc = _norm(ime)
                 if kljuc in imena:
                     continue                 # isti program v drugi kakovosti (HLS, nizja hitrost): obdrzimo prvega

@@ -331,7 +331,7 @@ class Katalog:
         "mediaPredvajaj": "_predvajaj_vnos", "mediaYtUkaz": "_yt_ukaz", "mediaStanje": "_stanje",
         "mediaKnjiznica": "_knjiznica_seznam", "mediaKnjiznicaPredvajaj": "_knjiznica_predvajaj",
         "mediaKnjiznicaOdstrani": "_knjiznica_odstrani", "mediaKnjiznicaObdrzi": "_knjiznica_obdrzi",
-        "mediaMotorPreklici": "_motor_preklici",
+        "mediaMotorPreklici": "_motor_preklici", "mediaTokovi": "_tokovi",
     }
 
     @staticmethod
@@ -513,6 +513,9 @@ class Katalog:
 
     def _stanje(self, _a: list) -> dict:
         return {"na_voljo": True, "native": True, "predvajalnik": "GStreamer"}
+
+    def _tokovi(self, a: list) -> Any:
+        return self.mc.tokovi_postaje(self._niz(a, 0))
 
     def _predvajaj_vnos(self, a: list) -> Optional[dict]:
         ident = self._niz(a, 0)

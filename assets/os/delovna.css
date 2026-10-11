@@ -407,3 +407,10 @@ select option { background: #111c2b; color: var(--besedilo); }
 .dock-urejanje button.dock-izbira:hover, .dock-urejanje button.dock-izbira:focus-visible { background: var(--izbrano); outline: 0; }
 .dock-urejanje .dock-izbira .plus { font-size: 1.3em; color: var(--poudarek); }
 .dock-urejanje .dock-gumbi { display: flex; flex-wrap: wrap; gap: .5em; justify-content: flex-end; }
+
+/* Programi postaje (tokovi): vrsta cipov pod predvajalnikom. */
+.medij-tokovi { display: flex; flex-wrap: wrap; align-items: center; gap: .35em; margin: .45em 0 .1em; flex: none; }
+.medij-tokovi[hidden] { display: none; }
+.medij-tokovi-naslov { font-size: .78em; opacity: .75; margin-right: .2em; }
+.medij-tokovi .cip { font-size: .8em; }
+.medij-tokovi .cip.izbran { background: var(--izbrano); border-color: var(--poudarek); }

@@ -33,7 +33,7 @@
       odpriMedijskiCenter: "Odpri Medijski center", niPredvajanja: "Ni predvajanja",
       medijNavodilo: "Izberi glasbo ali video v Datotekah ali v Medijskem centru.",
       medijIskanjePh: "Išči glasbo, radio, filme in serije …", medijIskanjeVse: "Vsi zadetki za »{q}« v Medijskem centru",
-      medijIskanjeIscem: "Iščem …", medijIskanjeSe: "Iščem še po virih …", medijIskanjeNic: "Ni zadetkov.", medijTaRacunalnik: "Ta računalnik",
+      medijIskanjeIscem: "Iščem …", medijTokovi: "Programi postaje:", medijIskanjeSe: "Iščem še po virih …", medijIskanjeNic: "Ni zadetkov.", medijTaRacunalnik: "Ta računalnik",
       prejsnja: "Prejšnja", premor: "Predvajaj / premor", naslednja: "Naslednja",
       predvaja: "Predvaja", vPremoru: "Premor", ustavljeno: "Ustavljeno", napakaPredvajanja: "Predvajanje ni uspelo",
       filterPh: "Filtriraj …", filterPrgPh: "Išči programe …", vseVrste: "Vse vrste", vrstaDokument: "Dokumenti",
@@ -234,7 +234,7 @@
       odpriMedijskiCenter: "Open Media center", niPredvajanja: "Nothing playing",
       medijNavodilo: "Pick music or a video in Files or in the Media center.",
       medijIskanjePh: "Search music, radio, films and series …", medijIskanjeVse: "All results for “{q}” in the Media center",
-      medijIskanjeIscem: "Searching …", medijIskanjeSe: "Still searching sources …", medijIskanjeNic: "Nothing found.", medijTaRacunalnik: "This computer",
+      medijIskanjeIscem: "Searching …", medijTokovi: "Station channels:", medijIskanjeSe: "Still searching sources …", medijIskanjeNic: "Nothing found.", medijTaRacunalnik: "This computer",
       prejsnja: "Previous", premor: "Play / pause", naslednja: "Next",
       predvaja: "Playing", vPremoru: "Paused", ustavljeno: "Stopped", napakaPredvajanja: "Playback failed",
       filterPh: "Filter …", filterPrgPh: "Search apps …", vseVrste: "All types", vrstaDokument: "Documents",
@@ -2856,9 +2856,43 @@
     var z = MI.zadetki[i];
     if (!z) return;
     if (z.lokalno) {
+      M.tokovi = null; narisiTokove();
       klic("odpriLokalniMedij", [z.d.pot]).then(function (ok) { if (ok) medijOsvezi(); else obvesti(t("niUspelo")); });
-    } else odpriIzKataloga(z.k);
+    } else {
+      odpriIzKataloga(z.k);
+      naloziTokove(z.k);
+    }
     medijIskanjePocisti();
+  }
+  // Postaja z vec programi: cipi pod predvajalnikom, izbrani je oznacen (core/zakoniti_viri.tokovi_postaje).
+  function naloziTokove(k) {
+    M.tokovi = null; narisiTokove();
+    if (!k || k.vrsta !== "radio" || !k.id) return;
+    var id = k.id;
+    klic("mediaTokovi", [id]).then(function (s) {
+      if (!Array.isArray(s) || s.length < 2) return;
+      M.tokovi = { postaja: id, seznam: s, izbran: "", cas: Date.now() };
+      narisiTokove();
+    }).catch(function () {});
+  }
+  function narisiTokove() {
+    var v = $("medijTokovi"); if (!v) return;
+    v.textContent = "";
+    if (!M.tokovi) { v.hidden = true; return; }
+    v.setAttribute("aria-label", t("medijTokovi"));
+    v.appendChild(el("span", "medij-tokovi-naslov", t("medijTokovi")));
+    M.tokovi.seznam.forEach(function (tok) {
+      var b = el("button", "cip" + (M.tokovi.izbran === tok.id ? " izbran" : ""), tok.naslov); b.type = "button";
+      if (tok.bitrate) b.title = tok.bitrate + " kbit/s";
+      b.addEventListener("click", function () {
+        M.tokovi.izbran = tok.id; M.tokovi.cas = Date.now(); narisiTokove();
+        klic("mediaPredvajaj", [tok.id]).then(function (izid) {
+          if (!izid || izid.napaka_koda || izid.napaka) obvesti(t("niUspelo")); else medijOsvezi();
+        }).catch(function () { obvesti(t("niUspelo")); });
+      });
+      v.appendChild(b);
+    });
+    v.hidden = false;
   }
   function medijIskanjePocisti() {
     $("medijIskanjePolje").value = ""; $("medijZadetki").hidden = true; $("medijZadetki").textContent = ""; MI.zadetki = [];
@@ -2885,6 +2919,8 @@
   }
   function izrisiMedij() {
     var p = M.zadnje || {}, ima = !!p.naslov && p.stanje !== "ustavljeno";
+    // Programi postaje izginejo, ko predvajanje konca (ne takoj po izbiri - tok se sele zacenja).
+    if (!ima && M.tokovi && Date.now() - M.tokovi.cas > 15000) { M.tokovi = null; narisiTokove(); }
     $("ploscaMediji").classList.toggle("prazno", !ima);
     $("medijNaslov").textContent = ima ? p.naslov : t("niPredvajanja");
     var pod = !ima ? t("medijNavodilo")
