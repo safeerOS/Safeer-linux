@@ -49,3 +49,15 @@ class PaketVsebujeModule(unittest.TestCase):
             uvozi.update(x.strip() for x in re.sub(r"#.*", "", blok).replace("\n", ",").split(",") if x.strip())
         manjka = sorted(m for m in uvozi if not re.search(r"(?<![\w])%s(?![\w])" % re.escape(m), paket))
         self.assertEqual(manjka, [])
+
+
+class StranBrezPodvojenihSpremenljivk(unittest.TestCase):
+    def test_delovna_js_brez_podvojenega_var(self):
+        """Dve spremenljivki z istim imenom na vrhu delovna.js se prepiseta (11. 10. 2026: stanje docka »D« je
+        prepisalo stanje Datotek - Programi in Datoteke so ostali prazni)."""
+        import re
+        koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        js = open(os.path.join(koren, "assets", "os", "delovna.js"), encoding="utf-8").read()
+        imena = re.findall(r"^  var ([A-Za-z_$][\w$]*) = ", js, re.M)
+        podvojena = sorted({i for i in imena if imena.count(i) > 1})
+        self.assertEqual(podvojena, [])

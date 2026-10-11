@@ -2625,8 +2625,8 @@
       m.push([t("zazeniNaNapravi"), function () { zazeni("zazeniNaNapravi", p); }]);
     }
     m.push([jePriljubljen(p) ? t("odstraniPriljubljeno") : t("dodajPriljubljeno"), function () { preklopiPriljubljen(p); }]);
-    if (p.lokalni && D.plank) {
-      var vDocku = D.ids.indexOf(p.id) >= 0;
+    if (p.lokalni && DK.plank) {
+      var vDocku = DK.ids.indexOf(p.id) >= 0;
       m.push([t(vDocku ? "dockOdstrani" : "dockDodaj"), function () { dockPreklopi(p.id, p.ime, !vDocku); }]);
     }
     m.push(["—"]);
@@ -2640,13 +2640,13 @@
   // ------------------------------------------------------------------ DOCK (core/os_dock.py)
   // Lastnik, 11. 10. 2026: dodajanje, odstranjevanje in razvrscanje programov v docku mora biti enostavno - tudi z
   // daljincem (puscici namesto vlecenja). Spremembo Plank pokaze po kratkem ponovnem zagonu.
-  var D = { plank: false, ids: [], programi: [] };
+  var DK = { plank: false, ids: [], programi: [] };
   function dockNalozi() {
     return klic("dock").then(function (r) {
-      D.plank = !!(r && r.plank); D.programi = (r && r.programi) || [];
-      D.ids = D.programi.map(function (x) { return x.id; });
-      return D;
-    }).catch(function () { return D; });
+      DK.plank = !!(r && r.plank); DK.programi = (r && r.programi) || [];
+      DK.ids = DK.programi.map(function (x) { return x.id; });
+      return DK;
+    }).catch(function () { return DK; });
   }
   function dockPreklopi(id, ime, dodaj) {
     return klic(dodaj ? "dockDodaj" : "dockOdstrani", [id]).then(function (r) {
@@ -2666,27 +2666,27 @@
       b.addEventListener("click", fn); return b;
     }
     function premakni(i, smer) {
-      var vrsta = D.programi.map(function (x) { return x.dockitem; });
+      var vrsta = DK.programi.map(function (x) { return x.dockitem; });
       var j = i + smer; if (j < 0 || j >= vrsta.length) return;
       var x = vrsta[i]; vrsta[i] = vrsta[j]; vrsta[j] = x;
-      var px = D.programi[i]; D.programi[i] = D.programi[j]; D.programi[j] = px;
+      var px = DK.programi[i]; DK.programi[i] = DK.programi[j]; DK.programi[j] = px;
       narisi(j, smer < 0 ? "gor" : "dol");
       klic("dockRazvrsti", [vrsta]).then(function (r) { if (!r || r.ok === false) obvesti(t("niUspelo")); dockNalozi(); });
     }
     function narisi(fokusVrstica, fokusGumb) {
       ovoj.innerHTML = "";
       ovoj.appendChild(el("p", "meni-naslov", izbiram ? t("dockDodajProgram") : t("dockNaslov")));
-      if (!D.plank) { ovoj.appendChild(el("p", "", t("dockBrezPlanka"))); ovoj.appendChild(g(t("zapri"), "", zapri)); return; }
+      if (!DK.plank) { ovoj.appendChild(el("p", "", t("dockBrezPlanka"))); ovoj.appendChild(g(t("zapri"), "", zapri)); return; }
       if (izbiram) { narisiIzbiro(); return; }
       ovoj.appendChild(el("p", "meni-namig", t("dockOpis")));
       var seznam = el("div", "dock-seznam");
-      if (!D.programi.length) seznam.appendChild(el("p", "prazno", t("dockPrazen")));
-      D.programi.forEach(function (x, i) {
+      if (!DK.programi.length) seznam.appendChild(el("p", "prazno", t("dockPrazen")));
+      DK.programi.forEach(function (x, i) {
         var v = el("div", "dock-vrstica");
         v.appendChild(slikaAliCrka(x.ikona, x.ime));
         v.appendChild(el("span", "ime", x.ime));
         var gor = g("↑", t("dockGor"), function () { premakni(i, -1); }); gor.disabled = i === 0; gor.dataset.v = "gor";
-        var dol = g("↓", t("dockDol"), function () { premakni(i, 1); }); dol.disabled = i === D.programi.length - 1; dol.dataset.v = "dol";
+        var dol = g("↓", t("dockDol"), function () { premakni(i, 1); }); dol.disabled = i === DK.programi.length - 1; dol.dataset.v = "dol";
         var od = g("✕", t("dockOdstrani"), function () { dockPreklopi(x.id, x.ime, false).then(function () { narisi(); }); });
         v.appendChild(gor); v.appendChild(dol); v.appendChild(od);
         seznam.appendChild(v);
@@ -2706,7 +2706,7 @@
         var q = polje.value.trim().toLocaleLowerCase(jezik);
         seznam.innerHTML = "";
         P.lokalni.filter(function (p) {
-          return D.ids.indexOf(p.id) < 0 && (!q || p.ime.toLocaleLowerCase(jezik).indexOf(q) >= 0);
+          return DK.ids.indexOf(p.id) < 0 && (!q || p.ime.toLocaleLowerCase(jezik).indexOf(q) >= 0);
         }).sort(function (a, b) { return a.ime.localeCompare(b.ime, jezik, { sensitivity: "base" }); }).forEach(function (p) {
           var b = el("button", "dock-vrstica dock-izbira"); b.type = "button";
           b.appendChild(slikaAliCrka(p.ikona, p.ime)); b.appendChild(el("span", "ime", p.ime)); b.appendChild(el("span", "plus", "+"));
