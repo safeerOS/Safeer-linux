@@ -137,7 +137,7 @@
       odpriTukaj: "Odpri tukaj (zaslon naprave na tem računalniku)", zazeniNaNapravi: "Zaženi na napravi",
       kategorija: "Kategorija: {k}", popraviKategorijo: "Premakni v kategorijo",
       niNaprav: "Programi drugih naprav se pokažejo, ko napravo dodaš v Safeer Linku (Safeer Control).",
-      niProgramov: "V tej kategoriji ni programov.", napravaNedosegljiva: "{naprava}: ni dosegljiva",
+      niProgramov: "V tej kategoriji ni programov.", napravaNedosegljiva: "{naprava}: ni dosegljiva", napraveNedosegljive1: "{n} naprava ni dosegljiva", napraveNedosegljive2: "{n} napravi nista dosegljivi", napraveNedosegljive3: "{n} naprave niso dosegljive", napraveNedosegljive5: "{n} naprav ni dosegljivih",
       brezControla: "Safeer Link (Safeer Control) ne teče, zato programi naprav niso na voljo.",
       zagonPoslan: "Ukaz poslan napravi {naprava}.",
       skSplet: "Splet", skProgrami: "Programi", skNastavitve: "Nastavitve", skProgramiNaprav: "Programi naprav", skDatoteke: "Datoteke", skMediji: "Mediji", skPrikaziNa: "Prikaži na", prikaziNaVrsta: "Prikaži »{kaj}« na: {ime}", prikazanoNa: "Odpira se na {ime}: {kaj}", izberiNapravo: "Izberi, na kateri napravi naj se prikaže.", niNapraveCilja: "V Safeer Linku ni take naprave.", napravaNeZna: "{ime} tega še ne zna – posodobi Safeer na njej.",
@@ -334,7 +334,7 @@
       odpriTukaj: "Open here (device screen on this computer)", zazeniNaNapravi: "Start on the device",
       kategorija: "Category: {k}", popraviKategorijo: "Move to category",
       niNaprav: "Apps from your other devices appear once you add a device in Safeer Link (Safeer Control).",
-      niProgramov: "No apps in this category.", napravaNedosegljiva: "{naprava}: not reachable",
+      niProgramov: "No apps in this category.", napravaNedosegljiva: "{naprava}: not reachable", napraveNedosegljive1: "{n} device not reachable", napraveNedosegljive2: "{n} devices not reachable", napraveNedosegljive3: "{n} devices not reachable", napraveNedosegljive5: "{n} devices not reachable",
       brezControla: "Safeer Link (Safeer Control) isn't running, so apps on your devices aren't available.",
       zagonPoslan: "Sent to {naprava}.",
       skSplet: "Web", skProgrami: "Apps", skNastavitve: "Settings", skProgramiNaprav: "Apps on devices", skDatoteke: "Files", skMediji: "Media", skPrikaziNa: "Show on", prikaziNaVrsta: "Show “{kaj}” on: {ime}", prikazanoNa: "Opening on {ime}: {kaj}", izberiNapravo: "Choose the device to show it on.", niNapraveCilja: "There is no such device in Safeer Link.", napravaNeZna: "{ime} cannot do this yet – update Safeer on it.",
@@ -2224,7 +2224,13 @@
     else if (P.brezControla) sporocila.push(t("brezControla"));
     else if (!P.naprave.length && $("prgNaprava").value !== "ta") sporocila.push(t("niNaprav"));
     // Nedosegljive naprave so pomembne le, ko uporabnik gleda tudi programe drugih naprav.
-    if ($("prgNaprava").value !== "ta") P.nedosegljive.forEach(function (n) { sporocila.push(t("napravaNedosegljiva", { naprava: n })); });
+    // Ena kratka vrstica namesto dolgega nastevanja; imena so v namigu ob prehodu z misko.
+    var nedosegljive = $("prgNaprava").value !== "ta" ? P.nedosegljive : [];
+    if (nedosegljive.length) {
+      var nn = nedosegljive.length, d100 = nn % 100;
+      var kljuc = d100 === 1 ? "1" : d100 === 2 ? "2" : (d100 === 3 || d100 === 4) ? "3" : "5";
+      sporocila.push(t("napraveNedosegljive" + kljuc, { n: nn }));
+    }
     // Zmogljivost mreze brez pomikanja
     var r = mreza.getBoundingClientRect(), fs = parseFloat(getComputedStyle(mreza).fontSize) || 14;
     var stolpci = seznamPogled ? 1 : Math.max(2, Math.min(6, Math.floor((r.width + 0.6 * fs) / (8.6 * fs))));
@@ -2244,6 +2250,7 @@
       mreza.appendChild(el("p", "prazno", t(brezPriljubljenih ? "niPriljubljenihPrg" : "niProgramov")));
     }
     sp.textContent = sporocila.join(" · "); sp.hidden = !sporocila.length;
+    sp.title = nedosegljive.join(", ");
     sp.classList.toggle("napaka", P.nedosegljive.length > 0 || P.brezControla);
     ostraniStrani($("prgStrani"), od, do_, seznam.length, strani, P.stran, function (s) { P.stran = s; izrisiPrograme(); });
   }

@@ -237,6 +237,7 @@ select option { background: #111c2b; color: var(--besedilo); }
 
 .sporocilo { color: var(--tiho); font-size: .82em; margin: .8em .2em; }
 .sporocilo.napaka { color: var(--opozorilo); }
+#prgSporocilo { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .strani { flex: none; display: flex; align-items: center; justify-content: flex-end; gap: .4em; font-size: .75em; color: var(--tise); margin-top: auto; padding-top: .4em; min-height: 2em; }
 .strani button { border: 1px solid var(--tanka); background: transparent; border-radius: 7px; padding: .15em .6em; cursor: pointer; color: var(--tiho); }
 .strani button:disabled { opacity: .35; cursor: default; }

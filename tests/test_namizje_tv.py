@@ -45,7 +45,10 @@ class ProgramiTegaRacunalnika(unittest.TestCase):
         js = _beri("assets/os/delovna.js")
         self.assertIn('return v == null ? "ta" : v;', js)
         self.assertIn('localStorage.setItem("safeer_prg_naprava", this.value)', js)
-        self.assertIn('if ($("prgNaprava").value !== "ta") P.nedosegljive.forEach', js)
+        self.assertIn('var nedosegljive = $("prgNaprava").value !== "ta" ? P.nedosegljive : [];', js)
+        # Nedosegljive naprave: ena kratka vrstica s stevilom, ne nastevanje imen.
+        self.assertNotIn('P.nedosegljive.forEach', js)
+        self.assertIn('"{n} naprave niso dosegljive"', js)
 
     def test_oblika_ob_istem_imenu(self):
         import sys
