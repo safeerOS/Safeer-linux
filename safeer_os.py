@@ -1364,6 +1364,9 @@ class SafeerOS(Gtk.Application):
                 # Scit, ki ga je uporabnik vklopil, varuje tudi, kadar Safeer OS tece kot delovna povrsina.
                 self.scit.zacni_ce_vklopljen()
                 uredi_samozagon_ob_zagonu(self.shramba)
+                # Safeer Control je del prijave v namizje: ob prijavi prijavno okno Safeer Linka (QR / koda /
+                # nadaljuj brez povezave), razen ce je racunalnik ze povezan (zaupan ali v tej seji).
+                GLib.timeout_add_seconds(4, self._prijavno_okno_ob_prijavi)
             self._povezi_koncanje()
             return
         if self._zacni_s_predvajalnikom:
@@ -4195,6 +4198,32 @@ class SafeerOS(Gtk.Application):
             print("[SafeerOS] čiščenje medijskega pogleda:", e)
         if self._medijski_okno is not None:
             self._medijski_okno.hide()
+
+    def _prijavno_okno_ob_prijavi(self) -> bool:
+        """Ob prijavi v namizje (delovna povrsina) pokaze prijavno okno Safeer Linka - Safeer Control je del prijave v
+        namizje (lastnik, 12. 10. 2026). Ne pokaze ga, ce je racunalnik ze povezan (zaupan racunalnik po ponovnem
+        zagonu ali odjavi iz seje; nezaupan v isti seji), ce je uporabnik v tej seji ze izbral »Nadaljuj brez povezave«
+        ali ce je bil v tej seji ze pokazan (ponovni zagon delovne povrsine po sesutju ne sme znova vsiljevati okna)."""
+        from core import link_seja
+        try:
+            c = en_proces.control_app()
+            link = getattr(c, "link", None) if c is not None else None
+            if link is None:
+                # Control se vgradi ~3 s po zagonu: pocakamo do ~40 s, nato (locen Control) okno odpre uporabnik sam.
+                self._prijava_poskusi = getattr(self, "_prijava_poskusi", 0) + 1
+                return self._prijava_poskusi < 10
+            podatki = link.nastavitve.podatki
+            if link_seja.povezava_velja(podatki) or link._v_krogu() or link_seja.brez_v_seji(podatki):
+                return False
+            seja = link_seja.trenutna_seja()
+            if self.shramba.get("prijavno_okno_seja") == seja:
+                return False
+            self.shramba.set("prijavno_okno_seja", seja)
+        except Exception as e:  # noqa: BLE001 - brez prijavnega okna namizje vseeno deluje
+            print("[SafeerOS] prijavno okno ob prijavi:", e, flush=True)
+            return False
+        self._prijava()
+        return False
 
     def _prijava(self) -> bool:
         """Prijavno okno Safeer Linka (QR / koda / brez povezave) - zanj skrbi Safeer Control; okno je nad

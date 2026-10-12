@@ -1672,6 +1672,12 @@ class SafeerControl(_OSNOVA):
         self._iz_os = False
         if self.link is not None and self.link.okno is not None:
             self.link.okno.set_keep_above(False)
+        if VGRAJEN:
+            # Control tece v procesu Safeer OS (delovna povrsina ali okno): Safeer OS je ze odprt. Novega zagona ne
+            # potrebujemo - ta bi na delovni povrsini odprl se celo lupino. Prijavno okno se samo umakne.
+            if self.link is not None and self.link.okno is not None:
+                self.link.okno.hide()
+            return
         ukaz = None
         pot = shutil_which("safeer-os")
         if pot:

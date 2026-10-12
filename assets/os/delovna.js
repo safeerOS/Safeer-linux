@@ -3642,7 +3642,8 @@
     // Safeer Link, ozadje, dock
     $("gumbLink").addEventListener("click", function () {
       // Povezan racunalnik: okno »Poveži naprave« (QR ALI 6-mestna koda). Nepovezan: prijavno okno
-      // (QR / vpis kode / brez povezave). Oboje v Safeer Controlu, nikoli samo ob prijavi.
+      // (QR / vpis kode / brez povezave). Oboje v Safeer Controlu; prijavno okno se pokaze tudi samo ob prijavi
+      // v namizje, ce racunalnik ni povezan (safeer_os._prijavno_okno_ob_prijavi).
       var povezan = L.stanje && L.stanje.stanje === "povezan";
       klic(povezan ? "novaNaprava" : "prijava").then(function (ok) { if (ok === false) obvesti(t("brezControla")); })
         .catch(function () {});
