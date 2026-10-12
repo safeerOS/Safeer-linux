@@ -107,3 +107,34 @@ class Koda(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SpletOb(unittest.TestCase):
+    def test_skritje_sprazni_predpomnilnik(self):
+        with open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8") as f:
+            s = f.read()
+        telo = s.split("def _skrij_splet_na_namizju", 1)[1].split("\n    def ", 1)[0]
+        self.assertIn("sprazni_predpomnilnik()", telo)
+        self.assertIn("timeout_add_seconds(60, self._sprosti_splet_na_namizju)", telo)
+
+    def test_predpomnilnik_brez_zapiranja_zavihkov(self):
+        from core import os_splet
+
+        class Upr:
+            klici = []
+
+            def clear(self, *a):
+                self.klici.append(a)
+
+        class Kontekst:
+            def get_website_data_manager(self):
+                return Upr()
+
+        class W:
+            class WebsiteDataTypes:
+                MEMORY_CACHE = 1
+        splet = os_splet.VdelaniSplet.__new__(os_splet.VdelaniSplet)
+        splet.kontekst, splet.WebKit2, splet.zavihki = Kontekst(), W, ["a", "b"]
+        self.assertTrue(splet.sprazni_predpomnilnik())
+        self.assertEqual(Upr.klici[0][0], 1)
+        self.assertEqual(splet.zavihki, ["a", "b"])

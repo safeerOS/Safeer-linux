@@ -1770,6 +1770,10 @@ class SafeerOS(Gtk.Application):
             return False
         self._plosca_spleta.hide()
         self._dogodek("spletNaNamizjuZaprt", None, self.pogled_delovna)
+        # Takoj: predpomnilnik v pomnilniku spletnih procesov (zavihki ostanejo) in prazne strani Pythona sistemu.
+        if self._spletni_namizje is not None:
+            self._spletni_namizje.sprazni_predpomnilnik()
+        GLib.timeout_add_seconds(2, lambda: (pomnilnik.obrezuj(), False)[1])
         # Skrit Splet drzi spletni proces (~250 MiB): po minuti ga zapremo; naslednje iskanje ga odpre na novo.
         if getattr(self, "_sprosti_splet_id", 0):
             GLib.source_remove(self._sprosti_splet_id)

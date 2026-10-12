@@ -530,6 +530,18 @@ class VdelaniSplet:
         self.zavihki = []
         self.aktivni = None
 
+    def sprazni_predpomnilnik(self) -> bool:
+        """Ob skritju Spleta: spletni procesi izpraznejo pomnilniski predpomnilnik (dekodirane slike, skripte, CSS).
+        Zavihki in strani ostanejo - ob ponovnem odprtju so tam, kjer jih je uporabnik pustil; strani se le
+        ponovno izrisejo iz predpomnilnika na disku (stresni preizkus 12. 10. 2026: pri pogosti rabi se Splet nikoli
+        ni bil 60 s skrit, zato se njegov proces ni nikoli zmanjsal)."""
+        try:
+            upr = self.kontekst.get_website_data_manager()
+            upr.clear(self.WebKit2.WebsiteDataTypes.MEMORY_CACHE, 0, None, None, None)
+            return True
+        except Exception:  # noqa: BLE001 - starejsi WebKit brez tega: ostane sprostitev po minuti
+            return False
+
     def izberi(self, pogled):
         self.aktivni = pogled; self.sklad.set_visible_child(pogled)
         for z in self.zavihki:
