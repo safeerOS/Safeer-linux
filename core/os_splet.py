@@ -109,6 +109,33 @@ def peskovnik_dela(zazeni=None, kje=None, obstaja=None, okolje=None) -> bool:
         return False
 
 
+def omrezni_procesi(starsevski: int | None = None) -> set:
+    """PID-i omreznih procesov WebKita, ki so neposredni otroci tega procesa."""
+    starsevski = os.getpid() if starsevski is None else starsevski
+    izid = set()
+    try:
+        imena = os.listdir("/proc")
+    except OSError:
+        return izid
+    for ime in imena:
+        if not ime.isdigit():
+            continue
+        try:
+            with open("/proc/%s/stat" % ime, encoding="utf-8", errors="replace") as f:
+                stat = f.read()
+        except OSError:
+            continue
+        glava, _, rep_ = stat.rpartition(")")
+        if "WebKitNetworkPr" not in glava:
+            continue
+        try:
+            if int(rep_.split()[1]) == starsevski:
+                izid.add(int(ime))
+        except (IndexError, ValueError):
+            continue
+    return izid
+
+
 def besedila(jezik: str) -> dict:
     """Besedila razdelka Splet; neznani jezik varno pade na anglescino."""
     return BESEDILA.get(str(jezik or "")[:2].lower(), BESEDILA["en"])
@@ -492,6 +519,20 @@ class VdelaniSplet:
         return pogled
 
     def nov_zavihek(self, naslov: str = ""):
+        # Omrezni proces Spleta si zapomnimo ob prvem zavihku: ob sprostitvi ga koncamo (sprosti_zavihke).
+        if getattr(self, "_omrezni_pid", None) is None and not getattr(self, "_iscem_omrezni", False):
+            self._iscem_omrezni = True
+            pred, zacetek = omrezni_procesi(), self.GLib.get_monotonic_time()
+
+            def poisci() -> bool:
+                novi = omrezni_procesi() - pred
+                if len(novi) == 1:
+                    self._omrezni_pid = novi.pop()
+                if novi or self._omrezni_pid is not None or self.GLib.get_monotonic_time() - zacetek > 8_000_000:
+                    self._iscem_omrezni = False
+                    return False
+                return True
+            self.GLib.timeout_add(200, poisci)
         self._stevec += 1
         pogled = self._nov_pogled()
         vrstica = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -529,6 +570,23 @@ class VdelaniSplet:
                 pass
         self.zavihki = []
         self.aktivni = None
+        self.koncaj_omrezni_proces()
+
+    def koncaj_omrezni_proces(self) -> bool:
+        """Konca omrezni proces Spleta, ko Splet nima zavihkov; ob naslednjem zavihku WebKit zazene novega.
+
+        12. 10. 2026: libsoup 3.4.4-5ubuntu0.9 (in upstream) pri vsaki povezavi prek posrednika (nas DoH) pusti
+        SoupConnection - omrezni proces je rasel ~6 MiB/min (krog147/libsoup-prispevek). Do popravka v distribucijah
+        tako pomnilnik vrnemo ob vsaki sprostitvi Spleta; DNS ostane sifriran. Ubijemo samo proces, ki se je pojavil
+        ob prvem zavihku Spleta (otrok tega procesa z imenom WebKitNetworkProcess)."""
+        pid, self._omrezni_pid = getattr(self, "_omrezni_pid", None), None
+        if not pid or pid not in omrezni_procesi():
+            return False
+        try:
+            os.kill(pid, 15)
+            return True
+        except OSError:
+            return False
 
     def sprazni_predpomnilnik(self) -> bool:
         """Ob skritju Spleta: spletni procesi izpraznejo pomnilniski predpomnilnik (dekodirane slike, skripte, CSS).

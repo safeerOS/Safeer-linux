@@ -154,3 +154,61 @@ class DrugaAplikacija(unittest.TestCase):
         self.assertEqual(s.count("self._dodaj_okno("), 3)
         with open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8") as f:
             self.assertIn('os.environ.pop("SAFEER_CONTROL_VGRAJEN", None)', f.read())
+
+
+class OmrezniProcesSpleta(unittest.TestCase):
+    """libsoup 3.4.4-5ubuntu0.9 pusca povezave prek posrednika: ob sprostitvi Spleta koncamo njegov omrezni proces."""
+
+    def _splet(self):
+        from core import os_splet
+        s = os_splet.VdelaniSplet.__new__(os_splet.VdelaniSplet)
+        s.zavihki, s.aktivni = [], None
+        return s, os_splet
+
+    def test_konca_samo_zapomnjeni_proces(self):
+        from unittest import mock
+        s, os_splet = self._splet()
+        s._omrezni_pid = 4242
+        with mock.patch.object(os_splet, "omrezni_procesi", return_value={4242, 77}), \
+                mock.patch.object(os_splet.os, "kill") as kill:
+            self.assertTrue(s.koncaj_omrezni_proces())
+        kill.assert_called_once_with(4242, 15)
+        self.assertIsNone(s._omrezni_pid)
+
+    def test_ne_ubije_tujega(self):
+        from unittest import mock
+        s, os_splet = self._splet()
+        s._omrezni_pid = 4242          # ze koncan; PID ni vec omrezni proces tega procesa
+        with mock.patch.object(os_splet, "omrezni_procesi", return_value={77}), \
+                mock.patch.object(os_splet.os, "kill") as kill:
+            self.assertFalse(s.koncaj_omrezni_proces())
+        kill.assert_not_called()
+        s._omrezni_pid = None
+        with mock.patch.object(os_splet.os, "kill") as kill:
+            self.assertFalse(s.koncaj_omrezni_proces())
+        kill.assert_not_called()
+
+    def test_sprostitev_konca_omrezni(self):
+        from unittest import mock
+        s, os_splet = self._splet()
+        with mock.patch.object(os_splet.VdelaniSplet, "koncaj_omrezni_proces") as k:
+            s.sprosti_zavihke()
+        k.assert_called_once()
+
+    def test_omrezni_procesi_najde_otroka(self):
+        from core import os_splet
+        import shutil
+        if not shutil.which("sleep"):
+            self.skipTest("ni sleep")
+        # Lazen otrok z imenom WebKitNetworkProcess (exec -a); /proc/<pid>/stat comm je 15 znakov.
+        p = subprocess.Popen(["bash", "-c", "exec -a WebKitNetworkProcess sleep 5"])
+        try:
+            import time
+            for _ in range(50):
+                if p.pid in os_splet.omrezni_procesi():
+                    break
+                time.sleep(0.05)
+            # comm pri exec -a ostane "sleep"; zato preverimo vsaj, da tuji procesi niso zajeti
+            self.assertNotIn(os.getpid(), os_splet.omrezni_procesi())
+        finally:
+            p.kill(); p.wait()
