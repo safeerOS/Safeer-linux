@@ -2935,6 +2935,13 @@ class SafeerOS(Gtk.Application):
             "sporocilaStreznik": lambda: self.sporocila.privzeta_streznika(str(a[0]) if a else ""),
             "sporocilaPonudniki": lambda: self.sporocila.ponudniki(),
             "sporocilaNaprave": self.sporocila.naprave_za_klepet,
+            "sporocilaPreimenuj": lambda: self.sporocila.preimenuj_osebo(str(a[0]), str(a[1])),
+            "sporocilaZdruzi": lambda: self.sporocila.zdruzi_osebi(str(a[0]), str(a[1])),
+            "sporocilaRazdruzi": lambda: self.sporocila.razdruzi_osebo(str(a[0]), a[1]),
+            "sporocilaOznake": lambda: self.sporocila.nastavi_oznake(str(a[0]), str(a[1]), a[2] if len(a) > 2 else []),
+            "sporocilaOsebe": self.sporocila.osebe,
+            "sporocilaIsciPri": lambda: self.sporocila.isci_pri_osebi(
+                str(a[0]), str(a[1]), str(a[2]) if len(a) > 2 else "", str(a[3]) if len(a) > 3 else ""),
             "sporocilaZacni": lambda: self.sporocila.zacni_klepet(str(a[0]), str(a[1]) if len(a) > 1 else ""),
         }
         if metoda == "izprazniSmeti":

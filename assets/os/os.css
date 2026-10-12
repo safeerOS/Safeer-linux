@@ -387,6 +387,47 @@ h2 .dodatno + .dodatno { margin-left: 14px; }
 .mehurcek time { display:block; color:var(--medlo); font-size:11px; margin-top:5px; text-align:right; -webkit-user-select: none; user-select: none; cursor: default; }
 .mehurcek.fokus-tipke:focus { outline: 2px solid var(--zelena); outline-offset: 2px; }
 .mehurcek ::selection { background: rgba(138, 199, 255, .45); color: #fff; }
+/* Nabiralnik (preneseno s Safeer OS za Windows): mape, oznake, iskanje, pano z osebo */
+.nabiralnik { display:grid; grid-template-columns:200px minmax(260px, 24%) 1fr; min-height:520px; height:calc(100vh - 230px); max-height:calc(100vh - 230px);
+  border:1px solid var(--rob); border-radius:16px; background:rgba(0,0,0,.14); overflow:hidden; }
+.nabiralnik-mape { border-right:1px solid var(--rob); padding:12px 10px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; }
+.mape button { width:100%; display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:10px; text-align:left; background:transparent; }
+.mape button svg { width:18px; height:18px; color:var(--medlo); } .mape button.izbran { background:var(--kartica-poudarek); font-weight:600; }
+.mape button.izbran svg { color:var(--zelena); } .mape button:hover { background:rgba(255,255,255,.05); }
+.mape button i { margin-left:auto; min-width:20px; height:20px; padding:0 6px; border-radius:10px; background:var(--zelena); color:var(--zelena-temna); font-size:12px; font-style:normal; display:grid; place-items:center; }
+.nabiralnik-naslov { display:block; margin:14px 12px 6px; font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--medlo); }
+.nabiralnik-mape .kanali-seznam { flex-direction:column; flex-wrap:nowrap; gap:4px; margin:0; }
+.nabiralnik-mape .kanal-cip { width:100%; justify-content:flex-start; }
+.nabiralnik-seznam { border-right:1px solid var(--rob); display:flex; flex-direction:column; min-width:0; }
+.sporocila-iskanje { margin:12px 12px 8px; } .nabiralnik-seznam .filtri { padding:0 12px 8px; margin:0; }
+.nabiralnik-seznam .filtri button { padding:6px 12px; font-size:13px; }
+.nabiralnik-seznam .pogovori-seznam { flex:1; max-height:none; border-right:0; }
+.pogovor-telo { flex:1; display:flex; min-height:0; }
+.pogovor-pano { width:260px; border-left:1px solid var(--rob); padding:16px; overflow-y:auto; display:flex; flex-direction:column; gap:16px; }
+.pano-oseba { display:flex; flex-direction:column; align-items:center; gap:6px; text-align:center; }
+.pano-avatar { width:64px; height:64px; border-radius:50%; background:rgba(138, 199, 255,.18); color:var(--zelena); display:grid; place-items:center; font-size:24px; font-weight:700; }
+.pano-oseba small { color:var(--medlo); } .pano-gumbi { display:flex; gap:6px; margin-top:6px; } .pano-gumbi .gumb { padding:6px 10px; font-size:12px; }
+.oznake-cipi { display:flex; flex-wrap:wrap; gap:6px; } .oznake-cipi span { display:inline-flex; align-items:center; gap:4px; padding:3px 8px; border-radius:999px; background:rgba(138, 199, 255,.16); color:var(--zelena); font-size:12px; }
+.oznake-cipi span button { background:none; color:inherit; padding:0 2px; font-size:13px; line-height:1; }
+.oznaka-vnos { display:flex; gap:6px; margin-top:8px; } .oznaka-vnos input { flex:1; min-width:0; border:1px solid var(--rob); border-radius:8px; background:rgba(255,255,255,.06); padding:6px 8px; } .oznaka-vnos .gumb { padding:4px 10px; }
+.oznake-mape button { padding:6px 12px; } .oznake-mape button span::before { content:"#"; color:var(--medlo); margin-right:4px; }
+.pogovor-vrstica .oznaka-pogovora { display:inline-block; margin-left:4px; padding:0 6px; border-radius:6px; background:rgba(138, 199, 255,.14); color:var(--zelena); font-size:11px; vertical-align:middle; } .pano-skupina b { display:block; font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--medlo); margin-bottom:6px; }
+.pano-skupina .identiteta { display:flex; align-items:center; gap:6px; padding:6px 0; border-bottom:1px solid var(--rob); font-size:13px; word-break:break-all; }
+.pano-skupina .identiteta .gumb { margin-left:auto; flex:none; }
+.pogovor-naslov { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.pogovor-naslov-besedilo b { display:block; } .pogovor-naslov-besedilo small { color:var(--medlo); font-weight:400; }
+.pogovor-vrstica .oznaka-kanala { display:inline-block; margin-left:6px; padding:1px 6px; border-radius:6px; background:rgba(255,255,255,.08); font-size:11px; color:var(--medlo); vertical-align:middle; }
+/* 1080p in ozje: pogovor ostane siroka sredina, pano je ozji; pod 1100 px ostaneta samo seznam in pogovor. */
+@media (max-width: 1700px) { .nabiralnik { grid-template-columns:180px minmax(240px, 22%) 1fr; } .pogovor-pano { width:230px; padding:12px; } }
+@media (max-width: 1100px) { .nabiralnik { grid-template-columns:minmax(260px, 34%) 1fr; } .nabiralnik-mape { display:none; } .pogovor-pano { display:none; } }
+.nabiralnik .pogovor-okno { max-height:none; min-height:0; }
+#panoIskanjeVnos { width:100%; box-sizing:border-box; border:1px solid var(--rob); border-radius:8px; background:rgba(255,255,255,.06); color:inherit; padding:6px 8px; margin-top:8px; font:inherit; }
+.pano-zadetki { display:flex; flex-direction:column; gap:4px; margin-top:6px; max-height:220px; overflow:auto; }
+.pano-zadetek { text-align:left; background:rgba(255,255,255,.06); border:1px solid var(--rob); border-radius:8px; padding:6px 8px; color:inherit; cursor:pointer; font:inherit; }
+.pano-zadetek:hover { border-color:var(--zelena); }
+.pano-zadetek small { display:block; opacity:.7; font-size:11px; margin-bottom:2px; }
+.pano-zadetek span { display:block; font-size:12px; line-height:1.3; }
+.mehurcek.zadetek-iskanja { outline:2px solid var(--zelena); outline-offset:2px; }
 /* Meni mehurcka (desni klik, tipka Meni): kopiraj izbrano / celo sporocilo, odpri povezavo. */
 .spor-meni { position: fixed; z-index: 15; display: flex; flex-direction: column; min-width: 200px; padding: 6px; border-radius: 12px;
   background: rgba(14, 21, 31, .98); border: 1px solid var(--rob); box-shadow: var(--senca); }
@@ -396,7 +437,7 @@ h2 .dodatno + .dodatno { margin-left: 14px; }
 .sporocila-vnos { display:flex; gap:10px; padding:14px; border-top:1px solid var(--rob); }
 .sporocila-vnos textarea { flex:1; resize:none; border:1px solid var(--rob); border-radius:12px; background:rgba(0,0,0,.18); padding:10px; outline:0; }
 .sporocila-vnos textarea:focus { border-color:var(--zelena); }
-#slojKanal .plosca, #slojKanalUredi .plosca, #slojPisi .plosca { left:50%; top:50%; transform:translate(-50%,-50%); width:520px; max-width:calc(100vw - 32px); }
+#slojKanal .plosca, #slojKanalUredi .plosca, #slojPisi .plosca, #slojOseba .plosca { left:50%; top:50%; transform:translate(-50%,-50%); width:520px; max-width:calc(100vw - 32px); }
 .kanal-carovnik,.kanal-carovnik>div { display:flex; flex-direction:column; gap:12px; }
 .kanal-carovnik label span { display:block; color:var(--medlo); margin-bottom:6px; }
 .kanal-carovnik input,.kanal-carovnik select { width:100%; border:1px solid var(--rob); border-radius:10px; background:#111b27; padding:11px 12px; }
@@ -973,3 +1014,9 @@ html.kavc:not(.kavc-miska), html.kavc:not(.kavc-miska) * { cursor: none !importa
 .aplikacije-vrsta .gumb { white-space:nowrap; padding:8px 12px; }
 .aplikacije-vrsta .ime { flex:1; min-width:0; font-weight:600; }
 .aplikacije-vrsta .ime small { display:block; color:var(--medlo); font-weight:400; }
+/* Iskalno polje v nabiralniku (na Linuxu .ciljno-iskanje prej ni bilo) */
+.ciljno-iskanje { display:flex; align-items:center; gap:10px; width:min(620px,100%); height:46px; margin:14px 0 18px; padding:0 15px; border:1px solid var(--rob); border-radius:13px; background:rgba(9,13,21,.72); box-sizing:border-box; }
+.ciljno-iskanje:focus-within { border-color:var(--zelena); }
+.ciljno-iskanje svg { width:20px; height:20px; flex:none; color:var(--zelena); }
+.ciljno-iskanje input { width:100%; min-width:0; border:0; outline:0; background:transparent; }
+.nabiralnik .sporocila-iskanje { width:auto; height:40px; margin:12px 12px 8px; padding:0 12px; }
