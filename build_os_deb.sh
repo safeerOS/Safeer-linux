@@ -6,9 +6,12 @@
 # devices, D-Bus, safeerctl) and Safeer Cinnamon (look, dock, workspace layout, boot/login look).
 #
 # Earlier releases shipped safeer-control and safeer-cinnamon as separate packages. This package carries every file
-# they had and declares Replaces + Provides for both, WITHOUT Conflicts/Breaks: dpkg then takes their files over and
-# the old packages "disappear" (postrm disappear). That matters: with Conflicts the old safeer-cinnamon would be
-# removed with `prerm remove`, which turns the user's Safeer Cinnamon look off during the update.
+# they had and declares Replaces + Provides for both. safeer-cinnamon gets NO Conflicts/Breaks: dpkg takes its files
+# over and the old package "disappears" (postrm disappear). That matters: with Conflicts the old safeer-cinnamon would
+# be removed with `prerm remove`, which turns the user's Safeer Cinnamon look off during the update.
+# safeer-control cannot disappear: the old safeer-os it is upgraded from depends on it, and dpkg never lets a package
+# that an installed package still depends on disappear (measured on Mint 22.3: it stayed "ii"). So it gets a versioned
+# Conflicts and is removed in the same step; its prerm/postrm only clean byte-code and caches (checked in 2.1.81).
 # tools/mint_namestitev checks on Linux Mint that an update from the last release leaves no old package behind.
 # ==============================================================================
 set -euo pipefail
@@ -53,6 +56,7 @@ Recommends: mint-themes, cinnamon, network-manager, pulseaudio-utils, policykit-
 Suggests: libreoffice-writer, libreoffice-calc, libreoffice-impress, plymouth, slick-greeter
 Provides: safeer-control (= ${CONTROL_VERSION}), safeer-cinnamon (= ${CINNAMON_VERSION})
 Replaces: safeer-control, safeer-cinnamon
+Conflicts: safeer-control (<< ${CONTROL_VERSION}~)
 Maintainer: Safeer <info@safeer.si>
 Homepage: https://safeer.si/os/
 Description: Safeer OS - the Safeer desktop on top of Linux Mint

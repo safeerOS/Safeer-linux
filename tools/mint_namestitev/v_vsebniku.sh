@@ -25,10 +25,11 @@ if ls /prejsnji/safeer-*_all.deb >/dev/null 2>&1; then
   echo "   najprej prejsnja izdaja: $(cd /prejsnji && echo safeer-*_all.deb)"
   # Paketa, ki ju je nadomestil safeer-os, morata ob posodobitvi »izginiti« (Replaces): to se zgodi samo, ce ima
   # novi paket VSE njune datoteke. Sicer bi ostala namescena in lastnika polovice datotek.
+  # (Brez cevi printf | grep -q: s pipefail grep -q zapre cev, printf dobi SIGPIPE in najdena datoteka velja za manjkajoco.)
   for star in /prejsnji/safeer-control_*_all.deb /prejsnji/safeer-cinnamon_*_all.deb; do
     [ -f "$star" ] || continue
     manjka="$(dpkg-deb -c "$star" | grep -v '^d' | awk '{print $6}' | sed 's|^\./||' | while read -r d; do
-      printf '%s\n' "$VSEBNIK_OS" | grep -qxF "$d" || echo "$d"; done)"
+      grep -qxF -- "$d" <<<"$VSEBNIK_OS" || echo "$d"; done)"
     [ -z "$manjka" ] || { echo "$manjka" | head -20; echo "NAPAKA: safeer-os nima vseh datotek paketa $(basename "$star")"; exit 1; }
   done
   apt-get install -y -q --no-install-recommends /prejsnji/safeer-*_all.deb >/tmp/prejsnja.log 2>&1 \
