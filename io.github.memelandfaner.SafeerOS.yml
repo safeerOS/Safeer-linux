@@ -87,6 +87,18 @@ modules:
       - type: file
         url: https://files.pythonhosted.org/packages/84/21/a35af28dcc61f37ed850a2d64c65c701321dfbf25085e469d5559360cbbf/pillow-12.3.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
         sha256: 78cb2c6865a35ab8ff8b75fd122f6033b92a62c82801110e48ddd6c936a45d91
+  - name: libwnck
+    # Seznam odprtih oken in »Pokazi namizje« na delovni povrsini (core/os_okna.py). Runtime GNOME 50 ga nima.
+    buildsystem: meson
+    config-opts:
+      - -Dstartup_notification=disabled
+      - -Dintrospection=enabled
+      - -Dgtk_doc=false
+      - -Dinstall_tools=false
+    sources:
+      - type: archive
+        url: https://download.gnome.org/sources/libwnck/43/libwnck-43.3.tar.xz
+        sha256: 6af8ac41a8f067ade1d3caaed254a83423b5f61ad3f7a460fcacbac2e192bdf7
   - name: safeer-os
     buildsystem: simple
     build-commands:

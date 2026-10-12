@@ -163,7 +163,7 @@ jobs:
           dbus-run-session -- xvfb-run -a flatpak run --command=safeer-control io.github.memelandfaner.SafeerOS --version | tee /dev/stderr | grep -Fx "Safeer Control $(cat packaging/VERSION_CONTROL)"
           dbus-run-session -- flatpak run --command=safeerctl io.github.memelandfaner.SafeerOS --version | tee /dev/stderr | grep -Fx "safeerctl $(cat packaging/VERSION_CONTROL)"
           # Safeer Link najde naprave prek mDNS: zeroconf (in qrcode za QR prijavo) morata biti v paketu.
-          flatpak run --command=python3 io.github.memelandfaner.SafeerOS -c "import zeroconf, qrcode, cryptography; from cryptography.hazmat.primitives.ciphers.aead import AESGCM; AESGCM(AESGCM.generate_key(bit_length=256))"
+          flatpak run --command=python3 io.github.memelandfaner.SafeerOS -c "import zeroconf, qrcode, cryptography; from cryptography.hazmat.primitives.ciphers.aead import AESGCM; AESGCM(AESGCM.generate_key(bit_length=256)); import gi; gi.require_version('Wnck', '3.0'); from gi.repository import Wnck"
       - name: Shield inside the sandbox of the package that was just built
         # Scit v peskovniku Flatpak, s kodo samega paketa, na pravem systemd-resolved + NetworkManager (tools/scit_lab).
         run: |
