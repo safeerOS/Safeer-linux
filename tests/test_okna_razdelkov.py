@@ -73,3 +73,38 @@ class OknaRazdelkov(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PloscaSporocil(unittest.TestCase):
+    """Sporocila na namizju (lastnik, 12. 10. 2026): kuverta z neprebranimi v pultu, plosca s pogovori."""
+
+    def setUp(self):
+        import safeer_os
+        self.so = safeer_os
+
+    def test_ikona_kuverte_s_stevilom(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as mapa:
+            poti = [self.so.ikona_kuverte(n, mapa) for n in (0, 3, 12, 3)]
+            self.assertEqual([os.path.basename(p) for p in poti], ["kuverta-0.png", "kuverta-3.png", "kuverta-9p.png", "kuverta-3.png"])
+            for p in poti:
+                with open(p, "rb") as d:
+                    self.assertEqual(d.read(8), b"\x89PNG\r\n\x1a\n")
+
+    def test_pogovor_iz_plosce_odpre_okno_sporocil(self):
+        o = _Os()
+        with mock.patch.object(self.so.GLib, "timeout_add", lambda *a, **k: 0):
+            self.so.SafeerOS._odpri_razdelek(o, "pogovor:l:n-123")
+            self.so.SafeerOS._odpri_razdelek(o, "sporocila:novo")
+        self.assertEqual(o.klici, [("okno", "sporocila", "pogovor:l:n-123"), ("okno", "sporocila", "sporocila:novo")])
+
+    def test_plosca_je_v_paketu_in_klice_obstojece_metode(self):
+        js = open(os.path.join(KOREN, "assets", "os", "sporocila-plosca.js"), encoding="utf-8").read()
+        self.assertTrue(os.path.isfile(os.path.join(KOREN, "assets", "os", "sporocila-plosca.html")))
+        vir = open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8").read()
+        for metoda in ("sporocilaSeznam", "odpriRazdelek", "skrijPloscoSporocil"):
+            self.assertIn('klic("%s"' % metoda, js)
+            self.assertIn('"%s":' % metoda, vir)
+        os_js = open(os.path.join(KOREN, "assets", "os", "os.js"), encoding="utf-8").read()
+        self.assertIn('kam.indexOf("pogovor:") === 0', os_js)
+        self.assertIn('kam === "sporocila:novo"', os_js)

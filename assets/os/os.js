@@ -271,6 +271,7 @@
     if (PREDVAJALNIK && kam !== "media" && kam.indexOf("mediji:") !== 0) return;
     // Okno enega razdelka: drugo gre skozi pojdi (ta ga preda Safeer OS), zapisek samo v oknu Zapiskov.
     if (RAZDELEK && kam.indexOf("zapisek:") === 0 && RAZDELEK !== "zapiski") return;
+    if (RAZDELEK && (kam.indexOf("pogovor:") === 0 || kam === "sporocila:novo") && RAZDELEK !== "sporocila") return;
     if (kam.indexOf("iskanje:") === 0) {
       pojdi("domov");
       $("iskanje").value = kam.slice(8);
@@ -291,6 +292,18 @@
       var iskano = kam.slice(7).trim();
       S.mediaIskanje = iskano; $("mediaIskanje").value = iskano; S.mediaFilter = "vse";
       pojdi("media"); narisiMedije();
+      return;
+    }
+    if (kam.indexOf("pogovor:") === 0) {
+      // Plosca sporocil na delovni povrsini: »pogovor:<kanal>:<id>« (id lahko vsebuje dvopicje, kanal ne).
+      var ostalo = kam.slice(8), dv = ostalo.indexOf(":");
+      S.sporocilaOdpri = dv > 0 ? { kanal: ostalo.slice(0, dv), id: ostalo.slice(dv + 1) } : null;
+      if (S.razdelek === "sporocila") naloziSporocila(); else pojdi("sporocila");
+      return;
+    }
+    if (kam === "sporocila:novo") {
+      pojdi("sporocila");
+      if ($("sporocilaPisi")) $("sporocilaPisi").click();
       return;
     }
     if (kam.indexOf("zapisek:") === 0) {
@@ -2757,8 +2770,19 @@
     if (!most) { narisiSporocila(); return; }
     klic("sporocilaSeznam").then(function (p) {
       S.sporocilaSkupine = p.skupine || []; S.sporocilaKanali = p.kanali || [];
-      narisiSporocila(); uskladiOdprtPogovor();
+      narisiSporocila(); uskladiOdprtPogovor(); odpriCakajociPogovor();
     }).catch(function () { narisiSporocila(); });
+  }
+  // Plosca sporocil na delovni povrsini (sporocila-plosca.html): klik na pogovor odpre okno Sporocila pri njem.
+  function odpriCakajociPogovor() {
+    var c = S.sporocilaOdpri; if (!c) return;
+    S.sporocilaOdpri = null;
+    (S.sporocilaSkupine || []).some(function (skupina) {
+      return (skupina.pogovori || []).some(function (p) {
+        if (p.kanal_id !== c.kanal || p.id !== c.id) return false;
+        odpriPogovor(skupina.oseba, p); return true;
+      });
+    });
   }
   function kanalIkona(vrsta) { return vrsta === "email" ? "sporocila" : vrsta === "safeer" ? "povezava" : "sporocila"; }
   function kratekCas(cas) {

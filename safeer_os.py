@@ -1024,6 +1024,53 @@ def zagon_predvajalnika(argumenti) -> bool:
     return any(a in ZASTAVICE_PREDVAJALNIKA for a in (argumenti or ()))
 
 
+BESEDILA_KUVERTE = {
+    "sl": ("Sporočila", "Sporočila: {n} neprebranih"), "en": ("Messages", "Messages: {n} unread"),
+    "de": ("Nachrichten", "Nachrichten: {n} ungelesen"), "es": ("Mensajes", "Mensajes: {n} sin leer"),
+    "fr": ("Messages", "Messages : {n} non lus"), "it": ("Messaggi", "Messaggi: {n} non letti"),
+}
+
+
+def ikona_kuverte(n: int, mapa: str, velikost: int = 48) -> str:
+    """Ikona kuverte za pult: bela kuverta (vidna na temnem pultu), pri neprebranih modra znacka s stevilom (9+).
+    Narise jo cairo (brez tujih slik); vrne pot do PNG v predpomnilniku (ena datoteka na stevilo)."""
+    import cairo
+    oznaka = "" if n <= 0 else ("9+" if n > 9 else str(n))
+    os.makedirs(mapa, exist_ok=True)
+    pot = os.path.join(mapa, "kuverta-%s.png" % (oznaka.replace("+", "p") or "0"))
+    if os.path.isfile(pot):
+        return pot
+    v = float(velikost)
+    p = cairo.ImageSurface(cairo.FORMAT_ARGB32, velikost, velikost)
+    c = cairo.Context(p)
+    c.set_line_width(v * 0.07)
+    c.set_line_join(cairo.LINE_JOIN_ROUND)
+    c.set_source_rgba(0.92, 0.95, 1.0, 1.0)
+    x0, y0, x1, y1 = v * 0.10, v * 0.26, v * 0.80, v * 0.80
+    c.rectangle(x0, y0, x1 - x0, y1 - y0)
+    c.stroke()
+    c.move_to(x0, y0)
+    c.line_to((x0 + x1) / 2, (y0 + y1) / 2 + v * 0.02)
+    c.line_to(x1, y0)
+    c.stroke()
+    if oznaka:
+        r = v * 0.24
+        cx, cy = v - r - 1, r + 1
+        c.arc(cx, cy, r, 0, 6.2832)
+        c.set_source_rgba(0.23, 0.55, 0.94, 1.0)
+        c.fill()
+        c.set_source_rgba(1, 1, 1, 1)
+        c.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+        c.set_font_size(v * (0.30 if len(oznaka) > 1 else 0.36))
+        e = c.text_extents(oznaka)
+        c.move_to(cx - e.width / 2 - e.x_bearing, cy - e.height / 2 - e.y_bearing)
+        c.show_text(oznaka)
+    zacasna = pot + ".tmp"
+    p.write_to_png(zacasna)
+    os.replace(zacasna, pot)
+    return pot
+
+
 #: Razdelki, ki se na delovni povrsini odprejo vsak v svojem oknu (ne cela stara lupina Safeer OS).
 RAZDELKI_V_SVOJEM_OKNU = ("zapiski", "sporocila", "nastavitve")
 _NASLOVI_RAZDELKOV = {
@@ -1385,6 +1432,8 @@ class SafeerOS(Gtk.Application):
                 # Safeer Control je del prijave v namizje: ob prijavi prijavno okno Safeer Linka (QR / koda /
                 # nadaljuj brez povezave), razen ce je racunalnik ze povezan (zaupan ali v tej seji).
                 GLib.timeout_add_seconds(4, self._prijavno_okno_ob_prijavi)
+                # Sporocila na namizju: kuverta z neprebranimi v pultu zgoraj desno, klik odpre plosco sporocil.
+                GLib.timeout_add_seconds(2, lambda: (self._zacni_kuverto(), False)[1])
             self._povezi_koncanje()
             return
         if self._zacni_s_predvajalnikom:
@@ -1645,7 +1694,8 @@ class SafeerOS(Gtk.Application):
         if self.okno is None and self.okno_delovna is not None:
             # Na delovni povrsini se stara lupina Safeer OS ne odpira vec (lastnik, 12. 10. 2026: »namizno okolje lahko
             # ponudi vec udobja kot aplikacija«): vsak razdelek ima svoje mesto na namizju.
-            osnova = "zapiski" if razdelek.startswith("zapisek:") else razdelek.split("#", 1)[0]
+            osnova = "zapiski" if razdelek.startswith("zapisek:") else \
+                "sporocila" if razdelek.startswith(("pogovor:", "sporocila:")) else razdelek.split("#", 1)[0]
             if osnova in RAZDELKI_V_SVOJEM_OKNU:
                 return self._odpri_okno_razdelka(osnova, razdelek)
             if osnova == "naprave":
@@ -1660,6 +1710,119 @@ class SafeerOS(Gtk.Application):
                 GLib.timeout_add(1500, lambda: (self._dogodek("pojdi", razdelek), False)[1])
             return True
         return self._domov(razdelek)
+
+    # ------------------------------------------------------------------ sporocila na namizju (kuverta in plosca)
+    KUVERTA_OSVEZI_S = 30
+
+    def _zacni_kuverto(self) -> None:
+        """Kuverta v pultu (XApp.StatusIcon na Cinnamonu, sicer Gtk.StatusIcon) s stevilom neprebranih sporocil."""
+        if getattr(self, "_kuverta", None) is not None:
+            return
+        self._kuverta_xapp = True
+        try:
+            gi.require_version("XApp", "1.0")
+            from gi.repository import XApp  # noqa: WPS433
+            k = XApp.StatusIcon()
+            k.set_name("safeer-os-sporocila")
+            k.connect("activate", lambda *_a: self._preklopi_plosco_sporocil())
+        except Exception:
+            self._kuverta_xapp = False
+            k = Gtk.StatusIcon()
+            k.set_title("Safeer – sporočila")
+            k.connect("activate", lambda *_a: self._preklopi_plosco_sporocil())
+        self._kuverta, self._kuverta_stevilo = k, -1
+        self._osvezi_kuverto()
+        GLib.timeout_add_seconds(self.KUVERTA_OSVEZI_S, lambda: (self._osvezi_kuverto(), True)[1])
+
+    def _osvezi_kuverto(self) -> None:
+        def delo() -> None:
+            try:
+                seznam = self.sporocila.seznam()
+                n = sum(int(s.get("neprebrano") or 0) for s in seznam.get("skupine") or [])
+            except Exception as e:  # noqa: BLE001 - brez Sporocil kuverta ostane brez stevila
+                print("[SafeerOS] kuverta:", e)
+                n = 0
+            GLib.idle_add(lambda: (self._narisi_kuverto(n), False)[1])
+        threading.Thread(target=delo, name="safeer-kuverta", daemon=True).start()
+
+    def _narisi_kuverto(self, n: int) -> None:
+        k = getattr(self, "_kuverta", None)
+        if k is None or n == self._kuverta_stevilo:
+            return
+        self._kuverta_stevilo = n
+        pot = ikona_kuverte(n, os.path.join(GLib.get_user_cache_dir(), "safeer-os"))
+        napis = BESEDILA_KUVERTE.get(_jezik(), BESEDILA_KUVERTE["en"])
+        opis = napis[1].format(n=n) if n else napis[0]
+        try:
+            if self._kuverta_xapp:
+                k.set_icon_name(pot)
+                k.set_tooltip_text(opis)
+            else:
+                k.set_from_file(pot)
+                k.set_tooltip_text(opis)
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] kuverta:", e)
+
+    def _preklopi_plosco_sporocil(self) -> None:
+        okno = getattr(self, "_plosca_sporocil", None)
+        if okno is not None and okno.get_visible():
+            self._skrij_plosco_sporocil()
+            return
+        # Klik na kuverto, ko je plosca odprta: plosca se je ze skrila ob izgubi fokusa - ne odpremo je znova.
+        if time.monotonic() - getattr(self, "_plosca_skrita_ob", 0.0) < 0.4:
+            return
+        if okno is None:
+            okno = Gtk.Window(title=BESEDILA_KUVERTE.get(_jezik(), BESEDILA_KUVERTE["en"])[0])
+            okno.set_application(self)
+            okno.set_wmclass("safeer-os.Sporocila", "Safeer")
+            okno.set_icon_name("safeer-os")
+            okno.set_decorated(False)
+            okno.set_skip_taskbar_hint(True)
+            okno.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+            vizual = okno.get_screen().get_rgba_visual()
+            if vizual is not None:
+                okno.set_visual(vizual)
+                okno.set_app_paintable(True)
+            pogled = self._nov_pogled("sporocila-plosca.html?jezik=" + _jezik())
+            prozorno = Gdk.RGBA()
+            prozorno.parse("rgba(0,0,0,0)")
+            pogled.set_background_color(prozorno)
+            okno.add(pogled)
+            okno.connect("delete-event", lambda *_a: (self._skrij_plosco_sporocil(), True)[1])
+            # Klik drugam skrije plosco (kot meni v pultu).
+            okno.connect("focus-out-event", lambda *_a: (GLib.timeout_add(150, self._skrij_ce_ni_fokusa), False)[1])
+            self._plosca_sporocil, self._pogled_plosce = okno, pogled
+        else:
+            self._js("window.safeerPloscaOsvezi && window.safeerPloscaOsvezi();", self._pogled_plosce)
+        zaslon = self._zaslon()
+        g = zaslon.get_workarea() if zaslon else None
+        sirina = 400
+        visina = min(660, g.height - 16) if g else 640
+        okno.set_default_size(sirina, visina)
+        okno.resize(sirina, visina)
+        if g:
+            okno.move(g.x + g.width - sirina - 10, g.y + 8)
+        okno.show_all()
+        cas = _cas_dogodka(okno)
+        gdk_okno = okno.get_window()
+        if gdk_okno is not None and hasattr(gdk_okno, "set_user_time"):
+            gdk_okno.set_user_time(cas)
+        okno.present_with_time(cas)
+        self._osvezi_kuverto()
+
+    def _skrij_ce_ni_fokusa(self) -> bool:
+        okno = getattr(self, "_plosca_sporocil", None)
+        if okno is not None and okno.get_visible() and not okno.is_active():
+            self._skrij_plosco_sporocil()
+        return False
+
+    def _skrij_plosco_sporocil(self) -> bool:
+        okno = getattr(self, "_plosca_sporocil", None)
+        if okno is not None and okno.get_visible():
+            okno.hide()
+            self._plosca_skrita_ob = time.monotonic()
+        self._osvezi_kuverto()
+        return True
 
     # ------------------------------------------------------------------ okna razdelkov (delovna povrsina)
     def _odpri_okno_razdelka(self, ime: str, cilj: str = "") -> bool:
@@ -2578,6 +2741,7 @@ class SafeerOS(Gtk.Application):
             "odpriVBrskalniku": lambda: self._odpri_v_brskalniku(str(a[0]) if a else ""),
             "privzetiBrskalnik": privzeti_brskalnik,
             "sistemskeNastavitve": lambda: sistemske_nastavitve(str(a[0]) if a else ""),
+            "skrijPloscoSporocil": lambda: self._skrij_plosco_sporocil(),
             "spletNaNamizju": lambda: self._splet_na_namizju(str(a[0]) if a else "",
                                                              a[1] if len(a) > 1 and isinstance(a[1], (int, float)) else 0),
             "spletNaNamizjuZapri": self._skrij_splet_na_namizju,
