@@ -145,3 +145,20 @@ class ThreatIntelService:
             "expires_at": bundle.manifest.expires_at.strftime("%Y-%m-%dT%H:%M:%SZ") if bundle else "",
             "last_error": self.store.last_error,
         }
+
+
+_SKUPNE: dict = {}
+_SKUPNE_ZAKLEP = threading.Lock()
+
+
+def skupna(data_dir) -> "ThreatIntelService":
+    """Ena storitev na mapo za ves proces (12. 10. 2026: Scit in Splet v Safeer OS sta imela vsak svojo - dvakrat
+    preverjen paket, dve kazali v pomnilniku in dva posodabljalnika). Prvi klic jo ustvari in zazene."""
+    kljuc = str(Path(data_dir))
+    with _SKUPNE_ZAKLEP:
+        storitev = _SKUPNE.get(kljuc)
+        if storitev is None:
+            storitev = ThreatIntelService(data_dir)
+            storitev.start()
+            _SKUPNE[kljuc] = storitev
+        return storitev

@@ -354,10 +354,9 @@ class VdelaniSplet:
 
     def _zazeni_zascito(self) -> None:
         try:
-            from core.threat_intel import ThreatIntelService, default_data_dir
-            self._threat_service = ThreatIntelService(default_data_dir("safeer-mint"))
+            from core.threat_intel import default_data_dir, skupna
+            self._threat_service = skupna(default_data_dir("safeer-mint"))   # ista kot v Scitu
             adblock.register_threat_matcher(self._threat_service.match)
-            self._threat_service.start()
         except Exception as napaka:
             print("[Safeer OS Splet] vir grozenj:", napaka)
         if not self.config.get("easylist_enabled", True):
@@ -831,7 +830,7 @@ class VdelaniSplet:
 
     def koncaj(self):
         if self.filter_agent: self.filter_agent.stop()
-        if self._threat_service: self._threat_service.stop()
+        # Vir groženj je skupen za ves proces (threat_intel.skupna: tudi Scit) - ne ustavljamo ga tu.
         try:
             get_doh_proxy(enabled=False)
         except Exception:

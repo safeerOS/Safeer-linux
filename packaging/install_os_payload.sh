@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Safeer OS (Linux) payload: the Safeer OS shell for the desktop (safeer_os.py, its core modules and
-# the page in assets/os). It talks to Safeer Control over D-Bus and starts it when needed, so a
+# the page in assets/os). Since 12. 10. 2026 it also carries Safeer Control and runs it in its own process
+# (core/en_proces.py, one process instead of two); a separately running Control is still used over D-Bus, so a
 # package built from this payload depends on the Safeer Control payload (deb: safeer-control;
 # AppImage and Flatpak: both payloads in one bundle).
 set -euo pipefail
@@ -16,7 +17,7 @@ cp -a "$ROOT/safeer_os.py" "$LIB/"
 # core/os_jbl.py (JBL input switching) is an internal experiment and is deliberately NOT shipped.
 # Lazy imports count too: core/os_splet.py is imported only when the user opens Splet, and it needs
 # filter_lists -> webkit_filters. tests/test_tovor_uvozi.py walks every import in the payload.
-for modul in budnost iskalni_kljuc os_datoteke os_dock pomnilnik os_iskalnik os_odpri_z os_knjiznica os_media_besedila os_mediji os_mpris os_oblak_igre os_ponudniki_programov os_github_programi os_posodobitve os_predvajalnik os_pretvorba_datotek os_torrent os_torrent_tok podnapisi os_dvd os_okna os_omrezje os_govor os_lupa os_programi os_scit os_sistem os_sporocila os_spletne os_stabilnost os_zapiski os_zvok \
+for modul in budnost en_proces iskalni_kljuc os_datoteke os_dock pomnilnik os_iskalnik os_odpri_z os_knjiznica os_media_besedila os_mediji os_mpris os_oblak_igre os_ponudniki_programov os_github_programi os_posodobitve os_predvajalnik os_pretvorba_datotek os_torrent os_torrent_tok podnapisi os_dvd os_okna os_omrezje os_govor os_lupa os_programi os_scit os_sistem os_sporocila os_spletne os_stabilnost os_zapiski os_zvok \
              link_datoteke link_urejanje link_hub link_hub_streznik link_obramba link_varovalka link_hub_deljenje link_mesh link_rele link_pretok link_sprotno link_predvajanje link_iskanje link_krog link_dostop link_e2e link_kripto link_mediji link_programi link_seja link_tls link_ws link_vticnik link_pot spake2 signed_feed threat_intel \
              os_katalog os_media knjiznica_kroga media_servers tok_izbira watch_providers zakoniti_viri izvirni_jezik uvoz_seznama seznami_sink viri_sink \
              os_splet ikone_strani dlna_zvocniki zvok_na_zvocnik adblock config bookmarks_importer doh_proxy filter_lists webkit_filters bank_guard odlozisce_varuh ozadje_strani drm; do
@@ -29,6 +30,14 @@ cp -a "$ROOT/assets/os" "$LIB/assets/"
 mkdir -p "$LIB/ui" && cp -a "$ROOT"/ui/splet.html "$ROOT"/ui/splet.css "$ROOT"/ui/splet.js "$ROOT"/ui/splet-gore.webp "$LIB/ui/"
 for dat in banks.json bank_guard_page.js; do [ -f "$ROOT/core/$dat" ] && cp -a "$ROOT/core/$dat" "$LIB/core/"; done
 cp -a "$ROOT/packaging/VERSION_OS" "$LIB/packaging/"
+# En proces (core/en_proces.py): Safeer OS zazene Safeer Control v svojem procesu, zato ima ves tovor Controla
+# (safeer_control.py, moduli Linka, stran assets/link). Iz istega izvora - nicesar ne prepisemo (cp -n).
+TOVOR_CONTROL="$(mktemp -d)"
+bash "$ROOT/packaging/install_control_payload.sh" "$TOVOR_CONTROL/usr" >/dev/null
+( cd "$TOVOR_CONTROL/usr/lib/safeer-control" && find . -type f ) | while IFS= read -r dat; do
+    [ -e "$LIB/$dat" ] || install -D -m 644 "$TOVOR_CONTROL/usr/lib/safeer-control/$dat" "$LIB/$dat"
+done
+rm -rf "$TOVOR_CONTROL"
 find "$LIB" -type d -name __pycache__ -exec rm -rf {} +
 find "$LIB" -name '*.pyc' -delete
 # Pri sistemski namestitvi je vsebina v lasti root; uporabniški proces jo mora

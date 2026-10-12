@@ -55,6 +55,7 @@ from core import (os_datoteke, os_govor, os_katalog, os_knjiznica, os_lupa, os_o
 from core import budnost, odlozisce_varuh, os_iskalnik, os_odpri_z, os_pretvorba_datotek  # noqa: E402
 from core import media_servers  # noqa: E402
 from core import os_dock  # noqa: E402
+from core import en_proces  # noqa: E402
 
 # Preklop vhoda zvocne vrstice JBL je samo interni poskus: uradni paket modula ne vsebuje
 # (packaging/install_os_payload.sh), zato ga uvozimo le, ce je prisoten (zagon iz repozitorija).
@@ -221,6 +222,10 @@ PREDVAJANJE_POT = "/io/github/memelandfaner/SafeerOS/predvajanje"
 def nastavi_zaupanje(zaupaj: bool) -> bool:
     """»Zaupaj temu racunalniku«: tekoci Safeer Control dobi odlocitev prek D-Bus (drzi nastavitve v
     pomnilniku in bi jih sicer prepisal); ce ne tece, jo zapisemo v njegove nastavitve sami."""
+    c = en_proces.control_app()
+    if c is not None:   # Control tece v tem procesu (core/en_proces.py)
+        en_proces.na_glavni(lambda: c.activate_action("zaupanje", GLib.Variant("b", bool(zaupaj))))
+        return True
     try:
         vodilo = Gio.bus_get_sync(Gio.BusType.SESSION, None)
         ima = vodilo.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
@@ -261,6 +266,10 @@ def _nastavitve_pladnja() -> dict:
 def nastavi_predajanje(deli: bool) -> bool:
     """»Predvajanje za druge naprave« (poleg Zaupaj): tekoci Control dobi vrednost prek D-Bus (drzi nastavitve v
     pomnilniku in uskladi pladenj), sicer jo zapisemo v control.json sami - kot nastavi_zaupanje."""
+    c = en_proces.control_app()
+    if c is not None:
+        en_proces.na_glavni(lambda: c.activate_action("predvajanje-za-naprave", GLib.Variant("b", bool(deli))))
+        return bool(deli)
     try:
         vodilo = Gio.bus_get_sync(Gio.BusType.SESSION, None)
         if _control_na_vodilu(vodilo):
@@ -285,6 +294,12 @@ def nastavi_predajanje(deli: bool) -> bool:
 
 
 def _control_na_vodilu(vodilo) -> bool:
+    if en_proces.control_app() is not None:
+        return True
+    return _control_na_vodilu_dbus(vodilo)
+
+
+def _control_na_vodilu_dbus(vodilo) -> bool:
     return vodilo.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "NameHasOwner",
                             GLib.Variant("(s)", (CONTROL_ID,)), GLib.VariantType("(b)"),
                             Gio.DBusCallFlags.NONE, 2000, None).unpack()[0]
@@ -296,11 +311,15 @@ _ZAGON_CONTROLA = threading.Lock()
 
 
 def _zagotovi_control(vodilo) -> bool:
-    """Control tece (na vodilu) - ce ne, ga zazenemo v ozadju (pladenj) in pocakamo, da se javi."""
+    """Control tece (v tem procesu ali na vodilu) - ce ne, ga Safeer OS vgradi v svoj proces (core/en_proces.py);
+    sele ce to ni mogoce, ga zazenemo kot locen proces v ozadju (pladenj) in pocakamo, da se javi."""
     if _control_na_vodilu(vodilo):
         return True
     with _ZAGON_CONTROLA:
         if _control_na_vodilu(vodilo):      # medtem ga je zagnala druga nit
+            return True
+        aplikacija = en_proces.os_app()
+        if aplikacija is not None and en_proces.na_glavni(aplikacija._vgradi_control, cas=20.0, privzeto=False):
             return True
         ukaz = _ukaz_controla()
         if not ukaz:
@@ -321,6 +340,10 @@ def control_dejanje(ime: str, parameter: Optional["GLib.Variant"] = None) -> boo
         vodilo = Gio.bus_get_sync(Gio.BusType.SESSION, None)
         if not _zagotovi_control(vodilo):
             return False
+        c = en_proces.control_app()
+        if c is not None:
+            en_proces.na_glavni(lambda: c.activate_action(ime, parameter))
+            return True
         vodilo.call_sync(CONTROL_ID, CONTROL_POT, "org.gtk.Actions", "Activate",
                          GLib.Variant("(sava{sv})", (ime, [parameter] if parameter is not None else [], {})),
                          None, Gio.DBusCallFlags.NONE, 5000, None)
@@ -417,6 +440,10 @@ def _control_naprave(metoda: str, *argumenti: str) -> dict:
         vodilo = Gio.bus_get_sync(Gio.BusType.SESSION, None)
         if not _zagotovi_control(vodilo):
             return {"ok": False, "koda": "ni_controla"}
+        c = en_proces.control_app()
+        if c is not None:   # v istem procesu: neposredno (ta funkcija tece v ozadju, kot prej klic D-Bus)
+            izid = c._naprave_metoda(metoda, [str(x) for x in argumenti])
+            return izid if isinstance(izid, dict) else {"ok": False}
         podpis = "(" + "s" * len(argumenti) + ")"
         r = vodilo.call_sync(CONTROL_ID, CONTROL_POT + "/naprave", CONTROL_ID + ".Naprave", metoda,
                              GLib.Variant(podpis, tuple(argumenti)) if argumenti else None,
@@ -1155,7 +1182,64 @@ class SafeerOS(Gtk.Application):
         Gtk.Application.do_startup(self)
         pomnilnik.obrezuj_periodicno(GLib)
         self._izvozi_predvajanje()
+        en_proces.nastavi_os(self, klic=self._predvajanje_neposredno)
         threading.Thread(target=stremio_privzeto, name="safeer-stremio-privzeto", daemon=True).start()
+        if (self.delovna or self.namizje) and not self.posnetek:
+            # Namizje tece ves dan: Control (Safeer Link, naprave, pladenj) naj tece z njim, v istem procesu, kot je
+            # prej tekel locen proces v ozadju. Z zamikom, da namizje ni pocasnejse ob prijavi.
+            GLib.timeout_add_seconds(3, lambda: (self._vgradi_control(), False)[1])
+
+    def do_shutdown(self) -> None:
+        c = en_proces.control_app()
+        if c is not None:
+            try:   # kot SIGTERM samostojnega Controla: pospravi Link, deljene mape, lociti zaslon, navidezni zvok
+                c.koncaj_brez_izhoda()
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] Control ob izhodu:", e)
+        Gtk.Application.do_shutdown(self)
+
+    # ------------------------------------------------------------------ Control v istem procesu (core/en_proces.py)
+    def _vgradi_control(self) -> bool:
+        """Safeer Control zazene v tem procesu (glavna nit). False: ze tece drug proces Control, Control ni v paketu
+        ali ga uporabnik zeli locenega (SAFEER_LOCEN_CONTROL=1) - takrat ostane stara pot (locen proces, D-Bus)."""
+        if en_proces.control_app() is not None:
+            return True
+        if os.environ.get("SAFEER_LOCEN_CONTROL") == "1" or self.posnetek:
+            return False
+        if not os.path.isfile(os.path.join(KOREN, "safeer_control.py")):
+            return False
+        try:
+            vodilo = self.get_dbus_connection() or Gio.bus_get_sync(Gio.BusType.SESSION, None)
+            if _control_na_vodilu_dbus(vodilo):
+                return False                      # Control ze tece kot locen proces: ga ne podvajamo
+            zaklep = os_stabilnost.zakleni_primerek("safeer-control")
+            if zaklep is None:
+                return False                      # locen Control se ravno zaganja
+            import safeer_control
+            safeer_control._ZAKLEP_PRIMERKA = zaklep
+            safeer_control.VGRAJEN = True
+            c = safeer_control.SafeerControl(ozadje=True)
+            if not c.register(None) or c.get_is_remote():
+                return False
+            en_proces.nastavi_control(c)
+            c.activate()                          # prva aktivacija v ozadju: Link, pladenj, preverba posodobitev
+            print("[SafeerOS] Safeer Control tece v procesu Safeer OS (en proces).", flush=True)
+            return True
+        except Exception as e:  # noqa: BLE001 - ce ne gre, ostane locen proces
+            print("[SafeerOS] vgradnja Controla:", e, flush=True)
+            return False
+
+    def _predvajanje_neposredno(self, metoda: str, argumenti: list) -> dict:
+        """Isti vmesnik kot D-Bus Predvajanje, za Control v istem procesu (brez D-Bus samemu sebi)."""
+        if metoda == "OdstraniPrenos":
+            ok = bool(knjiznica_kroga.odstrani_lokalnega(str(argumenti[0]) if argumenti else ""))
+            if ok:
+                GLib.idle_add(lambda: (self._dogodek("mediaKnjiznicaSpremenjena", None), False)[1])
+            return {"ok": ok}
+        fn = {"Stanje": self._predvajanje_za_control, "Premor": self._predvajanje_premor}.get(metoda)
+        if fn is None:
+            return {"ok": False, "message": "neznana metoda"}
+        return en_proces.na_glavni(fn, cas=3.0, privzeto={"ok": False, "message": "cas"})
 
     # ------------------------------------------------------------------ D-Bus za Safeer Control: kaj predvajam
     VMESNIK_PREDVAJANJE = """

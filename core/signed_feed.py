@@ -371,13 +371,18 @@ def _valid_rule_value(value: str, kind: str) -> bool:
     return False
 
 
-def verify_bundle(bundle_bytes: bytes, manifest: Manifest, trusted_keys: dict) -> Bundle:
+def verify_bundle_bytes(bundle_bytes: bytes, manifest: Manifest, trusted_keys: dict) -> None:
+    """Size, SHA-256 and signature of the bundle file (no JSON parsing)."""
     if len(bundle_bytes) != manifest.bundle_size:
         raise FeedVerificationError("bundle size does not match the manifest")
     if hashlib.sha256(bundle_bytes).hexdigest() != manifest.bundle_sha256:
         raise FeedVerificationError("bundle SHA-256 does not match the manifest")
     if not _signature_ok(manifest.bundle_signature, trusted_keys, BUNDLE_CONTEXT, bundle_bytes):
         raise FeedVerificationError("bundle signature is not valid")
+
+
+def verify_bundle(bundle_bytes: bytes, manifest: Manifest, trusted_keys: dict) -> Bundle:
+    verify_bundle_bytes(bundle_bytes, manifest, trusted_keys)
     payload = _strict_loads(bundle_bytes)
     if not isinstance(payload, dict) or canonical_json(payload) != bundle_bytes:
         raise FeedVerificationError("bundle is not in canonical form")
@@ -446,6 +451,70 @@ class ThreatIndex:
                                             for k in urejeno)
         self._ima_url = len(self._kljuci["u"]) > 0
         self.size = len(rules)
+
+    # -- Kazalo na disku (12. 10. 2026): ob zagonu se paket ne razcleni vec v Pythonu (200 000 pravil v JSON je za
+    # sabo pustilo ~45 MiB razdrobljenega kupa). Kazalo (~2 MB) se prebere z mmap: strani so deljene in cist
+    # predpomnilnik datotek, ki ga jedro lahko kadarkoli sprosti.
+    _MAGIJA = b"SFIDX1\x00\x00"
+    _VRSTE = ("d", "h", "u")
+
+    def shrani(self, pot, bundle_sha256: str) -> bool:
+        """Zapise kazalo (glava, kljuci, kategorije, kontrolna vsota blake2b). Nikoli ne vrze izjeme."""
+        import sys
+        try:
+            telo = bytearray(self._MAGIJA)
+            telo += bytes.fromhex(bundle_sha256)
+            telo += (1 if sys.byteorder == "little" else 2).to_bytes(8, "little")
+            telo += int(self.size).to_bytes(8, "little")
+            for v in self._VRSTE:
+                telo += len(self._kljuci[v]).to_bytes(8, "little")
+            for v in self._VRSTE:
+                telo += bytes(memoryview(self._kljuci[v]).cast("B"))
+            for v in self._VRSTE:
+                kat = bytes(self._kategorije[v])
+                telo += kat + b"\x00" * (-len(kat) % 8)
+            telo += hashlib.blake2b(bytes(telo), digest_size=32).digest()
+            _atomic_write(Path(pot), bytes(telo))
+            return True
+        except Exception:  # noqa: BLE001 - kazalo je le pospesek; brez njega deluje kot prej
+            return False
+
+    @classmethod
+    def nalozi(cls, pot, bundle_sha256: str):
+        """Kazalo z diska (mmap) ali None, ce ga ni, je za drug paket ali je poskodovano."""
+        import mmap
+        import sys
+        try:
+            with open(pot, "rb") as f:
+                m = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+        except (OSError, ValueError):
+            return None
+        try:
+            if len(m) < 96 or m[:8] != cls._MAGIJA or m[8:40] != bytes.fromhex(bundle_sha256):
+                return None
+            if int.from_bytes(m[40:48], "little") != (1 if sys.byteorder == "little" else 2):
+                return None
+            if hashlib.blake2b(m[:-32], digest_size=32).digest() != m[-32:]:
+                return None
+            velikost = int.from_bytes(m[48:56], "little")
+            stevila = [int.from_bytes(m[56 + 8 * i:64 + 8 * i], "little") for i in range(3)]
+            mv, odmik = memoryview(m), 80
+            idx = cls.__new__(cls)
+            idx._kljuci, idx._kategorije = {}, {}
+            for v, n in zip(cls._VRSTE, stevila):
+                idx._kljuci[v] = mv[odmik:odmik + 8 * n].cast("Q")
+                odmik += 8 * n
+            for v, n in zip(cls._VRSTE, stevila):
+                idx._kategorije[v] = mv[odmik:odmik + n]
+                odmik += n + (-n % 8)
+            if odmik != len(m) - 32:
+                return None
+            idx._ima_url = stevila[2] > 0
+            idx.size = velikost
+            idx._mmap = m
+            return idx
+        except Exception:  # noqa: BLE001
+            return None
 
     def _najdi(self, vrsta: str, value: str):
         from bisect import bisect_left
@@ -617,14 +686,30 @@ class SignedFeedStore:
                                        check_expiry=False)
             if manifest.version != version:
                 raise FeedVerificationError("stored manifest does not match the recorded version")
-            bundle = verify_bundle(bundle_path.read_bytes(), manifest, self.trusted_keys)
+            index_path = self._index_path(version)
+            index = ThreatIndex.nalozi(index_path, manifest.bundle_sha256)
+            if index is not None:
+                # Kazalo je iz tega paketa: paket se vedno preverimo (velikost, SHA-256, podpis), JSON pa ne razclenimo.
+                verify_bundle_bytes(bundle_path.read_bytes(), manifest, self.trusted_keys)
+                bundle = Bundle(manifest, (), ())
+            else:
+                bundle = verify_bundle(bundle_path.read_bytes(), manifest, self.trusted_keys)
+                index = ThreatIndex(bundle.rules)
+                index.shrani(index_path, manifest.bundle_sha256)
+                bundle = _brez_pravil(bundle)
+                nalozen = ThreatIndex.nalozi(index_path, manifest.bundle_sha256)
+                if nalozen is not None:
+                    index = nalozen          # polja iz kupa sprostimo, ostane mmap
         except (OSError, FeedVerificationError) as exc:
             self.last_error = f"stored feed unavailable: {exc}"
             return False
         with self._lock:
-            self.index = ThreatIndex(bundle.rules)
-            self.bundle = _brez_pravil(bundle)
+            self.index = index
+            self.bundle = bundle
         return True
+
+    def _index_path(self, version: int):
+        return self.directory / f"{self.feed_type}-{version}-index.bin"
 
     def _install(self, manifest: Manifest, manifest_bytes: bytes, bundle_bytes: bytes) -> None:
         manifest_path, bundle_path = self._files(manifest.version)
@@ -632,7 +717,8 @@ class SignedFeedStore:
         _atomic_write(manifest_path, manifest_bytes)
         # The state file is the commit point: until it is replaced, load() keeps using the old files.
         _atomic_write(self._state_path, json.dumps({"version": manifest.version}).encode("ascii"))
-        for old in self.directory.glob(f"{self.feed_type}-*-*.json"):
+        for old in list(self.directory.glob(f"{self.feed_type}-*-*.json")) + \
+                list(self.directory.glob(f"{self.feed_type}-*-index.bin")):
             parts = old.name.split("-")
             if len(parts) >= 3 and parts[-2].isdigit() and int(parts[-2]) < manifest.version:
                 try:
@@ -655,6 +741,8 @@ class SignedFeedStore:
                 bundle = verify_bundle(bundle_bytes, manifest, self.trusted_keys)
                 index = ThreatIndex(bundle.rules)
                 self._install(manifest, manifest_bytes, bundle_bytes)
+                if index.shrani(self._index_path(manifest.version), manifest.bundle_sha256):
+                    index = ThreatIndex.nalozi(self._index_path(manifest.version), manifest.bundle_sha256) or index
                 with self._lock:
                     self.bundle = _brez_pravil(bundle)
                     self.index = index

@@ -482,9 +482,8 @@ class Seznami:
     def zazeni(self) -> None:
         if self.storitev is None:
             try:
-                from core.threat_intel import ThreatIntelService, default_data_dir
-                self.storitev = ThreatIntelService(default_data_dir("safeer-mint"))
-                self.storitev.start()
+                from core.threat_intel import default_data_dir, skupna
+                self.storitev = skupna(default_data_dir("safeer-mint"))   # ista kot v Spletu (en proces, ena kopija)
             except Exception as e:  # noqa: BLE001
                 print("[SafeerOS] scit: seznam groznj:", e)
         if self._nit is None:

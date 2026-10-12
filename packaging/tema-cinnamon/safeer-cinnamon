@@ -523,10 +523,36 @@ zagoni_vrni() {
     rmdir "$MAPA/zagoni" 2>/dev/null || true
 }
 
+# Dve namizji hkrati ne (lastnik, 12. 10. 2026): Nemovo namizje (nemo-desktop: ikone, desni klik, lastno ozadje)
+# je teklo pod delovno povrsino Safeer OS. Med delovno povrsino so Nemove ikone izklopljene (Nemo takrat namizja
+# ne rise) in proces nemo-desktop ustavljen; izklop delovne povrsine vrne prejsnjo nastavitev in Nemovo namizje.
+NEMO_IKONE="org.nemo.desktop:show-desktop-icons"
+
+nemo_namizje_izklopi() {
+    obstaja "$NEMO_IKONE" || return 0
+    mkdir -p "$MAPA"
+    [ -e "$MAPA/nemo-ikone-prej" ] || beri "$NEMO_IKONE" > "$MAPA/nemo-ikone-prej" 2>/dev/null || true
+    pisi "$NEMO_IKONE" false
+    [ -n "$KOREN" ] && return 0      # preizkus (SAFEER_CINNAMON_KOREN): pravih procesov ne ustavljamo
+    pkill -TERM -x -u "$(id -u)" nemo-desktop >/dev/null 2>&1 || true
+}
+
+nemo_namizje_vrni() {
+    obstaja "$NEMO_IKONE" || return 0
+    local v="true"
+    [ -s "$MAPA/nemo-ikone-prej" ] && v="$(cat "$MAPA/nemo-ikone-prej")"
+    rm -f "$MAPA/nemo-ikone-prej"
+    pisi "$NEMO_IKONE" "$v"
+    if [ -z "$KOREN" ] && [ "$v" = "true" ] && command -v nemo-desktop >/dev/null 2>&1 && ! pgrep -x -u "$(id -u)" nemo-desktop >/dev/null 2>&1; then
+        (setsid nemo-desktop >/dev/null 2>&1 &)
+    fi
+}
+
 delovna() {
     # Delovna povrsina (iskanje, datoteke, predvajalnik, programi naprav) je del Safeer OS.
     command -v safeer-os >/dev/null 2>&1 || { echo "safeer-cinnamon: Safeer OS ni namescen - delovna povrsina preskocena."; return 0; }
     zagoni_izklopi
+    nemo_namizje_izklopi
     printf '[Desktop Entry]\nType=Application\nName=Safeer Cinnamon\nExec=safeer-cinnamon --seja\nX-GNOME-Autostart-enabled=true\nX-GNOME-Autostart-Delay=2\nNoDisplay=true\n' > "$SEJA"
     pgrep -f "safeer_os.py|/safeer-os( |$)" >/dev/null 2>&1 || (setsid safeer-os --delovna >/dev/null 2>&1 &)
 }
@@ -536,6 +562,7 @@ delovna_izklopi() {
     [ -f "$SEJA" ] && bila=1
     rm -f "$SEJA"
     zagoni_vrni
+    [ -e "$MAPA/nemo-ikone-prej" ] && nemo_namizje_vrni
     # Delovna povrsina (Safeer OS z --delovna) se konca cisto (SIGTERM -> Safeer OS pospravi za sabo).
     if [ -n "$bila" ] || [ "${1:-}" = "koncno" ]; then pkill -TERM -f "safeer.*--delovna" >/dev/null 2>&1 || true; fi
     return 0
@@ -762,7 +789,10 @@ case "${1:-}" in
                              fi ;;
     --straza)                [ -f "$VKLOPLJENO" ] && [ -f "$AUTOSTART" ] && dock_straza ;;
     --nastavitve-docka)      command -v plank >/dev/null 2>&1 && exec plank --preferences ;;
-    --seja)                  [ -f "$VKLOPLJENO" ] && [ -f "$SEJA" ] && command -v safeer-os >/dev/null 2>&1 && exec safeer-os --delovna ;;
+    --seja)                  if [ -f "$VKLOPLJENO" ] && [ -f "$SEJA" ] && command -v safeer-os >/dev/null 2>&1; then
+                                 nemo_namizje_izklopi      # ob prijavi Cinnamon zazene tudi Nemovo namizje
+                                 exec safeer-os --delovna
+                             fi ;;
     -h|--help)               awk 'NR > 2 && /^# ====/ { exit } NR > 2 { sub(/^# ?/, ""); print }' "$0" ;;
     *) echo "safeer-cinnamon: neznana moznost $1 (--help)" >&2; exit 2 ;;
 esac

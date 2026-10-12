@@ -61,6 +61,8 @@ CONTROL_POT = "/io/github/memelandfaner/SafeerControl"
 NASTAVITVE_MAPA = os.path.expanduser("~/.config/safeer-control")
 #: Safeer OS na tem racunalniku (D-Bus): sprejeta ponudba "Poslji na napravo" gre njemu.
 OS_ID = "io.github.memelandfaner.SafeerOS"
+#: True, ko Control tece v procesu Safeer OS (core/en_proces.py) - takrat ne zaganja sam sebe znova in ne konca procesa.
+VGRAJEN = False
 SAMOZAGON_POT = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "autostart", "safeer-control.desktop")
 
 # Besedila pladnja v jezikih vmesnika (isti nabor kot Safeer Browser).
@@ -1476,6 +1478,8 @@ class SafeerControl(Gtk.Application):
 
     def koncaj(self) -> None:
         self.koncaj_brez_izhoda()
+        if VGRAJEN:
+            return          # v procesu Safeer OS: Link in pladenj pospravimo, namizje tece naprej
         self.quit()
 
     def koncaj_brez_izhoda(self) -> None:
@@ -1620,6 +1624,11 @@ class SafeerControl(Gtk.Application):
             except Exception:  # noqa: BLE001
                 pass
         podatki = json.dumps(p, ensure_ascii=True)
+        from core import en_proces
+        if en_proces.os_app() is not None:
+            # Safeer OS je ta isti proces: dejanje neposredno (D-Bus samemu sebi z glavne niti bi obvisel 5 s).
+            en_proces.os_app().activate_action("ponudba", GLib.Variant("s", podatki))
+            return
         try:
             vodilo = self.get_dbus_connection() or Gio.bus_get_sync(Gio.BusType.SESSION, None)
             tece = vodilo.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "NameHasOwner",
@@ -1797,6 +1806,10 @@ class SafeerControl(Gtk.Application):
         return False
 
     def _znova_zazeni(self) -> None:
+        if VGRAJEN:
+            # V procesu Safeer OS: nova razlicica pride z naslednjim zagonom Safeer OS; okno pokazemo takoj.
+            self.pokazi_okno()
+            return
         print("[SafeerControl] Koda je posodobljena; zaganjam novo razlicico.")
         try:
             self.koncaj_brez_izhoda()
