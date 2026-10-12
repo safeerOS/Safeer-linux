@@ -344,6 +344,18 @@ class VdelaniSplet:
         self.nov_zavihek()
         self.GLib.timeout_add_seconds(5, self.osvezi_povezavo)
 
+
+    def _okno_za_dialog(self):
+        """Okno, nad katerim se odpre dialog: tisto, v katerem je Splet ZDAJ (na delovni povrsini je to svoje okno
+        »Splet«, ne okno delovne povrsine, ki je bilo podano ob ustvarjanju). Modalni dialog nad napacnim oknom je ostal
+        skrit ZA celozaslonskim Spletom in zaklenil vnos vanj - Splet je bil videti zamrznjen (lastnik, 12. 10. 2026)."""
+        try:
+            vrh = self.gradnik.get_toplevel()
+            if isinstance(vrh, self.Gtk.Window) and vrh.get_visible():
+                return vrh
+        except Exception:
+            pass
+        return self.stars
     def _t(self, kljuc: str, **vrednosti) -> str:
         niz = besedila(self.jezik()).get(kljuc, kljuc)
         return niz.format(**vrednosti) if vrednosti else niz
@@ -779,7 +791,7 @@ class VdelaniSplet:
         """Zaznamki (Ctrl+Shift+O) in zgodovina (Ctrl+H) z iskanjem; klik odpre stran v novem zavihku."""
         from core import zgodovina
         Gtk = self.Gtk
-        d = Gtk.Dialog(title=self._t(kaj), transient_for=self.stars, modal=True)
+        d = Gtk.Dialog(title=self._t(kaj), transient_for=self._okno_za_dialog(), modal=True)
         d.set_default_size(720, 560)
         d.add_button(self._t("zapri"), Gtk.ResponseType.CLOSE)
         iskanje = Gtk.SearchEntry(); iskanje.set_margin_start(12); iskanje.set_margin_end(12)
@@ -830,7 +842,7 @@ class VdelaniSplet:
             print("[Safeer OS Splet] uvoz zaznamkov:", napaka)
             dodanih, viri = 0, {}
         zavihki = uvoz_zavihkov.odprti_zavihki()
-        d = Gtk.Dialog(title=self._t("uvozi").rstrip(" …"), transient_for=self.stars, modal=True)
+        d = Gtk.Dialog(title=self._t("uvozi").rstrip(" …"), transient_for=self._okno_za_dialog(), modal=True)
         d.add_button(self._t("zapri"), Gtk.ResponseType.CLOSE)
         obmocje = d.get_content_area(); obmocje.set_spacing(10); obmocje.set_margin_start(16); obmocje.set_margin_end(16)
         if viri or zavihki:
@@ -875,7 +887,7 @@ class VdelaniSplet:
         """Upravitelj predpomnilnika: velikost, ciscenje predpomnilnika (prijave ostanejo), podatki po straneh, meja."""
         Gtk, W = self.Gtk, self.WebKit2
         upr = self.kontekst.get_website_data_manager()
-        d = Gtk.Dialog(title=self._t("predpomnilnik"), transient_for=self.stars, modal=True)
+        d = Gtk.Dialog(title=self._t("predpomnilnik"), transient_for=self._okno_za_dialog(), modal=True)
         d.set_default_size(640, 560)
         d.add_button(self._t("zapri"), Gtk.ResponseType.CLOSE)
         obmocje = d.get_content_area(); obmocje.set_spacing(8)
@@ -1189,7 +1201,7 @@ class VdelaniSplet:
         self._osvezi_scit()
 
     def _dodaj_portal(self, *_):
-        d = self.Gtk.Dialog(title=self._t("dodaj"), transient_for=self.stars, flags=self.Gtk.DialogFlags.MODAL)
+        d = self.Gtk.Dialog(title=self._t("dodaj"), transient_for=self._okno_za_dialog(), flags=self.Gtk.DialogFlags.MODAL)
         d.add_button(self._t("preklici"), self.Gtk.ResponseType.CANCEL); d.add_button(self._t("shrani"), self.Gtk.ResponseType.OK)
         mreza = self.Gtk.Grid(column_spacing=10, row_spacing=8, margin=16)
         ime, url = self.Gtk.Entry(), self.Gtk.Entry(); url.set_text("https://")
@@ -1239,7 +1251,7 @@ class VdelaniSplet:
         if sodba is not None: self._opozorilo_bank(pogled0, uri, sodba, True)
 
     def _opozorilo_bank(self, pogled, uri, sodba, nalozen=False):
-        d = self.Gtk.MessageDialog(transient_for=self.stars, flags=0, message_type=self.Gtk.MessageType.WARNING,
+        d = self.Gtk.MessageDialog(transient_for=self._okno_za_dialog(), flags=0, message_type=self.Gtk.MessageType.WARNING,
                                    buttons=self.Gtk.ButtonsType.NONE, text="Safeer Shield · BankGuard")
         d.format_secondary_text(adblock.fake_bank_warning_text(sodba, self.jezik()))
         d.add_button(self._t("nazaj"), 1)
@@ -1249,7 +1261,7 @@ class VdelaniSplet:
         elif nalozen: pogled.go_back() if pogled.can_go_back() else pogled.load_uri(self.domaci_uri())
 
     def _opozorilo(self, naslov, opis):
-        d = self.Gtk.MessageDialog(transient_for=self.stars, flags=0, message_type=self.Gtk.MessageType.WARNING,
+        d = self.Gtk.MessageDialog(transient_for=self._okno_za_dialog(), flags=0, message_type=self.Gtk.MessageType.WARNING,
                                    buttons=self.Gtk.ButtonsType.CLOSE, text=naslov)
         d.format_secondary_text(opis); d.run(); d.destroy()
 
@@ -1259,7 +1271,7 @@ class VdelaniSplet:
             zahteva.allow(); return True
         if pravilo == "deny":
             zahteva.deny(); return True
-        d = self.Gtk.MessageDialog(transient_for=self.stars, flags=self.Gtk.DialogFlags.MODAL,
+        d = self.Gtk.MessageDialog(transient_for=self._okno_za_dialog(), flags=self.Gtk.DialogFlags.MODAL,
                                    message_type=self.Gtk.MessageType.QUESTION,
                                    buttons=self.Gtk.ButtonsType.NONE, text=self._t("dovoljenje"))
         d.add_button(self._t("zavrni"), self.Gtk.ResponseType.NO)
@@ -1281,7 +1293,7 @@ class VdelaniSplet:
     def _povecava(self, korak):
         if self.trenutni(): self.trenutni().set_zoom_level(max(.5, min(3.0, self.trenutni().get_zoom_level() + korak)))
     def _nastavitve(self, *_):
-        d = self.Gtk.Dialog(title=self._t("nastavitve"), transient_for=self.stars, flags=self.Gtk.DialogFlags.MODAL)
+        d = self.Gtk.Dialog(title=self._t("nastavitve"), transient_for=self._okno_za_dialog(), flags=self.Gtk.DialogFlags.MODAL)
         d.add_button(self._t("preklici"), self.Gtk.ResponseType.CANCEL)
         d.add_button(self._t("shrani"), self.Gtk.ResponseType.OK)
         mreza = self.Gtk.Grid(column_spacing=12, row_spacing=12, margin=18)

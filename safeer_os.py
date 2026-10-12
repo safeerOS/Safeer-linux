@@ -1285,6 +1285,12 @@ class SafeerOS(Gtk.Application):
 
     def do_startup(self) -> None:
         Gtk.Application.do_startup(self)
+        # Spletne strani (prefers-color-scheme) sledijo temi namizja, tudi ob preklopu med delom.
+        try:
+            from core import os_tema_namizja
+            self._tema_namizja = os_tema_namizja.sledi(Gtk, Gio, GLib)
+        except Exception as e:  # noqa: BLE001 - brez tega strani ostanejo le svetle
+            print("[SafeerOS] tema namizja:", e)
         pomnilnik.obrezuj_periodicno(GLib)
         self._izvozi_predvajanje()
         en_proces.nastavi_os(self, klic=self._predvajanje_neposredno)
