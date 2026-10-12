@@ -67,6 +67,14 @@ except ImportError:
     os_jbl = None
 
 
+def privzeti_brskalnik() -> str:
+    """Ime privzetega brskalnika sistema (za https), npr. "Opera"; prazno, ce ga ni."""
+    try:
+        app = Gio.AppInfo.get_default_for_uri_scheme("https")
+        return app.get_display_name() if app is not None else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
 def dvojni_esc(prejsnji_ms, zdaj_ms, okno_ms: int = 600) -> bool:
     """Ali je bil Esc pritisnjen dvakrat zapored v okno_ms (casi dogodkov GDK v ms)."""
     if prejsnji_ms is None or not zdaj_ms:
@@ -2478,6 +2486,7 @@ class SafeerOS(Gtk.Application):
                                                         self._medijski_predvajalnik.izberi_podnapise(str(a[0]) if a else "")),
             "iskanjeSplet": lambda: self._splet(_iskalnik() + GLib.uri_escape_string(str(a[0] if a else ""), None, False)),
             "odpriVBrskalniku": lambda: self._odpri_v_brskalniku(str(a[0]) if a else ""),
+            "privzetiBrskalnik": privzeti_brskalnik,
             "spletNaNamizju": lambda: self._splet_na_namizju(str(a[0]) if a else "",
                                                              a[1] if len(a) > 1 and isinstance(a[1], (int, float)) else 0),
             "spletNaNamizjuZapri": self._skrij_splet_na_namizju,

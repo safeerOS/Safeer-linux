@@ -29,7 +29,7 @@
       iskanjePh: "Išči po spletu, programih, datotekah in medijih …", iskanjePhKratko: "Išči programe, datoteke, splet …", iskanjePhKrajse: "Išči programe in splet …", iskanjePhNajkrajse: "Išči …", iskanjeNamig: "Enter odpre označeno · Shift+Enter splet",
       plosceNaslov: "Plošče", medijiNaslov: "Medijski center", datotekeNaslov: "Datoteke", programiNaslov: "Programi",
       zamenjajStrani: "Zamenjaj levo in desno", ponastavi: "Privzeta postavitev", vecjiTekst: "Večje besedilo", velikostBesedila: "Velikost besedila", tekst200: "200 % – za ogled od daleč",
-      manjProsojnosti: "Manj prosojnosti", skrijPlosco: "Skrij ploščo", pokaziPlosco: "Pokaži ploščo {ime}", spremeniVelikost: "Povleci za spremembo velikosti (puščice s tipkovnico)",
+      manjProsojnosti: "Manj prosojnosti", spletVBrskalniku: "Iskanje po spletu v privzetem brskalniku", spletVBrskalnikuIme: "Iskanje po spletu v brskalniku {ime}", skrijPlosco: "Skrij ploščo", pokaziPlosco: "Pokaži ploščo {ime}", spremeniVelikost: "Povleci za spremembo velikosti (puščice s tipkovnico)",
       odpriMedijskiCenter: "Odpri Medijski center", niPredvajanja: "Ni predvajanja",
       medijNavodilo: "Izberi glasbo ali video v Datotekah ali v Medijskem centru.",
       medijIskanjePh: "Išči glasbo, radio, filme in serije …", medijIskanjeVse: "Vsi zadetki za »{q}« v Medijskem centru",
@@ -230,7 +230,7 @@
       iskanjePh: "Search the web, apps, files and media …", iskanjePhKratko: "Search apps, files, web …", iskanjePhKrajse: "Search apps and web …", iskanjePhNajkrajse: "Search …", iskanjeNamig: "Enter opens the selection · Shift+Enter web",
       plosceNaslov: "Panels", medijiNaslov: "Media center", datotekeNaslov: "Files", programiNaslov: "Apps",
       zamenjajStrani: "Swap left and right", ponastavi: "Default layout", vecjiTekst: "Larger text", velikostBesedila: "Text size", tekst200: "200 % – for viewing from afar",
-      manjProsojnosti: "Less transparency", skrijPlosco: "Hide panel", pokaziPlosco: "Show the {ime} panel", spremeniVelikost: "Drag to resize (arrow keys work too)",
+      manjProsojnosti: "Less transparency", spletVBrskalniku: "Search the web in the default browser", spletVBrskalnikuIme: "Search the web in {ime}", skrijPlosco: "Hide panel", pokaziPlosco: "Show the {ime} panel", spremeniVelikost: "Drag to resize (arrow keys work too)",
       odpriMedijskiCenter: "Open Media center", niPredvajanja: "Nothing playing",
       medijNavodilo: "Pick music or a video in Files or in the Media center.",
       medijIskanjePh: "Search music, radio, films and series …", medijIskanjeVse: "All results for “{q}” in the Media center",
@@ -471,7 +471,7 @@
 
   // ------------------------------------------------------------------ nastavitve postavitve
   // Samo udobje enega uporabnika na tem racunalniku (sirina stolpcev, skrite plosce): localStorage.
-  var PRIVZETO = { levo: 50, medij: 118, skrite: [], zamenjano: false, vecjiTekst: false, manjProsojnosti: false,
+  var PRIVZETO = { levo: 50, medij: 118, skrite: [], zamenjano: false, vecjiTekst: false, manjProsojnosti: false, spletVBrskalniku: false,
                    pogled: "mreza", priljubljeniPrg: [], kategorije: {}, priljubljeneDat: [] };
   var N = nalozi();
   function nalozi() {
@@ -523,6 +523,7 @@
       izb.value = najblizja;
     }
     $("stikaloProsojnost").checked = manjProsojnosti();
+    $("stikaloBrskalnik").checked = !!N.spletVBrskalniku;
     requestAnimationFrame(function () { izrisiDatoteke(); izrisiPrograme(); });
   }
 
@@ -3420,6 +3421,11 @@
   function odpriSplet(q) {
     // Spletni zadetek: rezultati v plosci na namizju, tik pod iskalnim poljem (isti vgrajeni brskalnik kot Splet v
     // Safeer OS, z vsemi moznostmi). Brez tega (starejsi Safeer OS, brez peskovnika) privzeti brskalnik.
+    if (N.spletVBrskalniku) {
+      klic("odpriVBrskalniku", [q]).then(function (ok) { if (ok === false) klic("iskanjeSplet", [q]); })
+        .catch(function () { klic("iskanjeSplet", [q]); });
+      return;
+    }
     var r = $("iskalnoPolje").getBoundingClientRect();
     klic("spletNaNamizju", [q, Math.round(r.bottom)]).then(function (ok) { if (ok === false) return klic("odpriVBrskalniku", [q]); })
       .catch(function () { klic("odpriVBrskalniku", [q]).catch(function () { klic("iskanjeSplet", [q]); }); });
@@ -3537,6 +3543,11 @@
     $("izbiraTeksta").addEventListener("change", function () {
       klic("videzCinnamonNastavi", ["tekst", Number(this.value)]).then(nastaviVidez).catch(uveljaviPostavitev);
     });
+    // Uporabnik, ki mu je ljubsi drug brskalnik: iskanje po spletu iz zgornjega polja odpre privzeti brskalnik sistema.
+    $("stikaloBrskalnik").addEventListener("change", function () { N.spletVBrskalniku = this.checked; shrani(); });
+    klic("privzetiBrskalnik", []).then(function (ime) {
+      if (ime) $("napisBrskalnik").textContent = t("spletVBrskalnikuIme", { ime: ime });
+    }).catch(function () {});
     $("stikaloProsojnost").addEventListener("change", function () {
       if (V.naVoljo) { klic("videzCinnamonNastavi", ["kontrast", this.checked]).then(nastaviVidez).catch(uveljaviPostavitev); return; }
       N.manjProsojnosti = this.checked; shrani(); uveljaviPostavitev();

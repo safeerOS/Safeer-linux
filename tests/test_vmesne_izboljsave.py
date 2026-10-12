@@ -116,3 +116,41 @@ class ZaklepSpleta(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SpletVPrivzetemBrskalniku(unittest.TestCase):
+    """Uporabnik, ki mu je ljubsi drug brskalnik: iskanje po spletu iz polja na namizju odpre privzeti brskalnik."""
+
+    def setUp(self):
+        self.js = (KOREN / "assets/os/delovna.js").read_text(encoding="utf-8")
+
+    def test_stikalo_v_nastavitvah(self):
+        html = (KOREN / "assets/os/delovna.html").read_text(encoding="utf-8")
+        self.assertIn('id="stikaloBrskalnik"', html)
+        self.assertIn("spletVBrskalniku: false", self.js)
+        self.assertEqual(self.js.count("spletVBrskalniku:"), 3)      # sl, en, privzeto
+
+    def test_iskanje_najprej_preveri_stikalo(self):
+        zacetek = self.js.index("function odpriSplet(q)")
+        telo = self.js[zacetek:self.js.index("\n  }\n", zacetek)]
+        self.assertLess(telo.index("N.spletVBrskalniku"), telo.index('klic("spletNaNamizju"'))
+        self.assertIn('klic("odpriVBrskalniku", [q])', telo)
+
+    def test_ime_privzetega_brskalnika(self):
+        f = _funkcija("safeer_os.py", "privzeti_brskalnik")
+
+        class App:
+            def get_display_name(self):
+                return "Opera"
+
+        class AppInfo:
+            ime = App()
+
+            @classmethod
+            def get_default_for_uri_scheme(cls, shema):
+                return cls.ime if shema == "https" else None
+
+        f.__globals__["Gio"] = type("Gio", (), {"AppInfo": AppInfo})
+        self.assertEqual(f(), "Opera")
+        AppInfo.ime = None
+        self.assertEqual(f(), "")
