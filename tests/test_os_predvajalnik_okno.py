@@ -69,6 +69,7 @@ class Usmerjanje(_Lupina):
             lazna._domov.assert_called_once_with(razdelek)
             lazna._odpri_predvajalnik.assert_not_called()
             lazna = self._lazna(okno=False)
+            lazna.okno_delovna = None     # brez delovne povrsine (GNOME, Xfce ...); z njo glej test_okna_razdelkov
             with mock.patch.object(self.os_, "GLib") as glib:
                 self.assertTrue(self.SafeerOS._odpri_razdelek(lazna, razdelek))
             lazna._ustvari_okno.assert_called_once_with()
@@ -406,28 +407,29 @@ class Stran(unittest.TestCase):
             self.assertIn(izbirnik, self.css)
         self.assertIn("body.predvajalnik #aplikacija { display: flex; }", self.css)
         # Zapomnjena skrcena/skrita vrstica glavnega okna (localStorage) ne sme v Safeer Player in obratno.
-        self.assertIn("if (!gumb || PREDVAJALNIK) return;", self.js)
-        self.assertIn("  if (!PREDVAJALNIK) {\n    try { if (localStorage.getItem(\"safeer_vrstica_skrcena\")", self.js)
+        self.assertIn("if (!gumb || EN_RAZDELEK) return;", self.js)
+        self.assertIn("  if (!EN_RAZDELEK) {\n    try { if (localStorage.getItem(\"safeer_vrstica_skrcena\")", self.js)
 
     def test_drugi_razdelki_gredo_v_glavno_okno(self):
-        self.assertIn('if (PREDVAJALNIK && razdelek !== "media") {\n'
-                      '      // Drugi razdelki niso del Safeer Playerja: odpre jih glavno okno Safeer OS (enako kot z delovne povrsine).\n'
+        self.assertIn('var EN_RAZDELEK = PREDVAJALNIK ? "media" : RAZDELEK;', self.js)
+        self.assertIn('if (EN_RAZDELEK && razdelek !== EN_RAZDELEK) {\n'
+                      '      // Drugi razdelki niso del tega okna: odpre jih Safeer OS (z delovne povrsine vsakega v svojem oknu).\n'
                       '      klic("odpriRazdelek", [razdelek]).catch(function () {});', self.js)
         self.assertIn('if (PREDVAJALNIK && kam !== "media" && kam.indexOf("mediji:") !== 0) return;', self.js)
 
     def test_dogodki_glavnega_okna_ne_vplivajo(self):
         dogodki = self.js[self.js.index("window.safeerOsDogodek = function (vrsta, podatki) {"):]
         self.assertIn('if (vrsta === "magnet" && !PREDVAJALNIK) odpriMagnet(', dogodki)
-        self.assertLess(dogodki.index("if (PREDVAJALNIK) return;"), dogodki.index('if (vrsta === "pojdi") window.safeerOsPojdi(podatki);'))
-        self.assertLess(dogodki.index("if (PREDVAJALNIK) return;"), dogodki.index('if (vrsta === "fokus") {'))
+        self.assertLess(dogodki.index("if (EN_RAZDELEK) return;"), dogodki.index('if (vrsta === "pojdi") window.safeerOsPojdi(podatki);'))
+        self.assertLess(dogodki.index("if (EN_RAZDELEK) return;"), dogodki.index('if (vrsta === "fokus") {'))
         # Predvajanje (stanje, knjiznica, katalog) dobi tudi Safeer Player - te so pred izhodom.
         for vrsta in ('katDogodek(vrsta, podatki);', 'if (vrsta === "predvajalnik") osveziPredvajalnik(podatki);',
                       'if (vrsta === "medijskaKnjiznica") naloziMedije();'):
-            self.assertLess(dogodki.index(vrsta), dogodki.index("if (PREDVAJALNIK) return;"), vrsta)
+            self.assertLess(dogodki.index(vrsta), dogodki.index("if (EN_RAZDELEK) return;"), vrsta)
         self.assertIn("if (!PREDVAJALNIK)      // cakajoci magnet", self.js)
 
     def test_tipkovnica_in_splet(self):
-        self.assertIn('else if (!PREDVAJALNIK) pojdi("domov");', self.js)
+        self.assertIn('else if (!EN_RAZDELEK) pojdi("domov");', self.js)
         self.assertIn('var polje = PREDVAJALNIK ? $("mediaIskanje") : iskanje;', self.js)
         splet = self.js[self.js.index("function odpriVSpletu("):self.js.index("function odpriSplet(")]
         self.assertIn('return klic("odpriVBrskalniku", [naslov])', splet)
@@ -440,7 +442,7 @@ class Stran(unittest.TestCase):
         splet = self.js[self.js.index("  var brezPeskovnikaOb = 0;"):self.js.index("  function odpriSplet(naslov, ime)")]
         koda = r"""
 var assert = require("assert");
-var klici = [], obvestila = [], izidi = {}, PREDVAJALNIK = false;
+var klici = [], obvestila = [], izidi = {}, PREDVAJALNIK = false, EN_RAZDELEK = "";
 function t(k) { return k; }
 function obvesti(b) { obvestila.push(b); }
 function klic(m, a) { klici.push([m, a]); return m in izidi ? Promise.resolve(izidi[m]) : Promise.resolve(true); }
@@ -448,7 +450,7 @@ function klic(m, a) { klici.push([m, a]); return m in izidi ? Promise.resolve(iz
 (async function () {
   assert.strictEqual(await odpriVSpletu("https://365.rtvslo.si/"), true);
   assert.deepStrictEqual(klici.pop(), ["splet", ["https://365.rtvslo.si/"]]);
-  PREDVAJALNIK = true;
+  PREDVAJALNIK = true; EN_RAZDELEK = "media";
   assert.strictEqual(await odpriVSpletu("https://365.rtvslo.si/"), true);
   assert.deepStrictEqual(klici.pop(), ["odpriVBrskalniku", ["https://365.rtvslo.si/"]]);
   assert.deepStrictEqual(klici, []);

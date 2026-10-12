@@ -1024,6 +1024,22 @@ def zagon_predvajalnika(argumenti) -> bool:
     return any(a in ZASTAVICE_PREDVAJALNIKA for a in (argumenti or ()))
 
 
+#: Razdelki, ki se na delovni povrsini odprejo vsak v svojem oknu (ne cela stara lupina Safeer OS).
+RAZDELKI_V_SVOJEM_OKNU = ("zapiski", "sporocila", "nastavitve")
+_NASLOVI_RAZDELKOV = {
+    "sl": {"zapiski": "Zapiski", "sporocila": "Sporočila", "nastavitve": "Nastavitve Safeer OS"},
+    "en": {"zapiski": "Notes", "sporocila": "Messages", "nastavitve": "Safeer OS settings"},
+    "de": {"zapiski": "Notizen", "sporocila": "Nachrichten", "nastavitve": "Safeer OS Einstellungen"},
+    "es": {"zapiski": "Notas", "sporocila": "Mensajes", "nastavitve": "Ajustes de Safeer OS"},
+    "fr": {"zapiski": "Notes", "sporocila": "Messages", "nastavitve": "Réglages de Safeer OS"},
+    "it": {"zapiski": "Note", "sporocila": "Messaggi", "nastavitve": "Impostazioni di Safeer OS"},
+}
+
+
+def _naslov_razdelka(ime: str) -> str:
+    return _NASLOVI_RAZDELKOV.get(_jezik(), _NASLOVI_RAZDELKOV["en"]).get(ime, "Safeer OS")
+
+
 def razdelek_predvajalnika(razdelek: str) -> Optional[str]:
     """Ali delovna povrsina z »odpriRazdelek« zahteva Medijski center - ta se odpre v oknu Safeer Player, ne v glavnem
     oknu Safeer OS. Vrne iskani niz ('' brez iskanja) za »media« in »mediji:<niz>«, za druge razdelke None (ti gredo
@@ -1129,6 +1145,8 @@ class SafeerOS(Gtk.Application):
         #: Safeer Player: Medijski center v svojem oknu (gumb »Odpri Medijski center« na delovni povrsini, meni
         #: »Safeer Player«). Ista stran in isti most v tem procesu - predvajanje, mini predvajalnik in Safeer Link so skupni.
         self.okno_predvajalnik: Optional[Gtk.ApplicationWindow] = None
+        #: Okna razdelkov na delovni povrsini (ime -> (okno, pogled)), glej _odpri_okno_razdelka.
+        self.okna_razdelkov: dict = {}
         self.pogled_predvajalnik = None
         #: Zagon s --predvajalnik: prva aktivacija odpre samo Safeer Player (glavno okno sele naslednja, meni Safeer OS).
         self._zacni_s_predvajalnikom = bool(predvajalnik)
@@ -1624,12 +1642,61 @@ class SafeerOS(Gtk.Application):
         iskanje = razdelek_predvajalnika(razdelek)
         if iskanje is not None:
             return self._odpri_predvajalnik(iskanje)
+        if self.okno is None and self.okno_delovna is not None:
+            # Na delovni povrsini se stara lupina Safeer OS ne odpira vec (lastnik, 12. 10. 2026: »namizno okolje lahko
+            # ponudi vec udobja kot aplikacija«): vsak razdelek ima svoje mesto na namizju.
+            osnova = "zapiski" if razdelek.startswith("zapisek:") else razdelek.split("#", 1)[0]
+            if osnova in RAZDELKI_V_SVOJEM_OKNU:
+                return self._odpri_okno_razdelka(osnova, razdelek)
+            if osnova == "naprave":
+                return self._prijava()                       # Safeer Control: prijava ali seznam naprav
+            if osnova == "splet":
+                return self._splet_na_namizju("", domov=True)
+            if osnova in ("", "domov"):
+                return True                                  # delovna povrsina je domaci zaslon
         if self.okno is None:
             self._ustvari_okno()
             if razdelek:
                 GLib.timeout_add(1500, lambda: (self._dogodek("pojdi", razdelek), False)[1])
             return True
         return self._domov(razdelek)
+
+    # ------------------------------------------------------------------ okna razdelkov (delovna povrsina)
+    def _odpri_okno_razdelka(self, ime: str, cilj: str = "") -> bool:
+        """Zapiski, Sporocila ali Nastavitve v svojem oknu (ista stran, index.html?razdelek=<ime>, kot Safeer Player za
+        Medijski center) - brez stranske vrstice in glave stare lupine. Odprto okno pride v ospredje in gre na cilj."""
+        par = self.okna_razdelkov.get(ime)
+        if par is None:
+            stran = "index.html?" + urllib.parse.urlencode([("razdelek", ime), ("jezik", _jezik())],
+                                                         quote_via=urllib.parse.quote)
+            pogled = self._nov_pogled(stran)
+            okno = Gtk.ApplicationWindow(application=self, title=_naslov_razdelka(ime))
+            okno.set_wmclass("safeer-os." + ime, _naslov_razdelka(ime))
+            okno.set_icon_name("safeer-os")
+            zaslon = self._zaslon()
+            g = zaslon.get_workarea() if zaslon else None
+            okno.set_default_size(min(1280, int(g.width * 0.85)) if g else 1200,
+                                  min(860, int(g.height * 0.85)) if g else 800)
+            okno.set_position(Gtk.WindowPosition.CENTER)
+            okno.add(pogled)
+            # Zapiranje okno samo skrije: naslednji klic ga takoj vrne (nezapisano besedilo zapiska ostane).
+            okno.connect("delete-event", lambda w, *_: (w.hide(), True)[1])
+            self.okna_razdelkov[ime] = par = (okno, pogled)
+            okno.show_all()
+            if cilj and cilj != ime:
+                GLib.timeout_add(1500, lambda: (self._js("window.safeerOsPojdi && window.safeerOsPojdi(%s);"
+                                                          % json.dumps(cilj), pogled), False)[1])
+        else:
+            okno, pogled = par
+            self._js("window.safeerOsPojdi && window.safeerOsPojdi(%s);" % json.dumps(cilj or ime), pogled)
+        okno = par[0]
+        cas = _cas_dogodka(okno)
+        okno.show_all()
+        gdk_okno = okno.get_window()
+        if gdk_okno is not None and hasattr(gdk_okno, "set_user_time"):
+            gdk_okno.set_user_time(cas)
+        okno.present_with_time(cas)
+        return True
 
     # ------------------------------------------------------------------ Safeer Player (Medijski center v svojem oknu)
     def _odpri_predvajalnik(self, iskanje: str = "") -> bool:
@@ -1739,17 +1806,18 @@ class SafeerOS(Gtk.Application):
         #splet-namizje-glava button:hover { background-color: rgba(104, 168, 229, 0.20); border-color: #9dceff; }
     """
 
-    def _splet_na_namizju(self, niz: str, vrh: float = 0) -> bool:
+    def _splet_na_namizju(self, niz: str, vrh: float = 0, domov: bool = False) -> bool:
         """Iskanje po spletu iz zgornjega polja delovne povrsine: rezultati v plosci na namizju (isti vgrajeni
         brskalnik z vsemi moznostmi kot Splet v Safeer OS: zavihki, naslov, Scit, meni), ne v drugem programu.
         `vrh`: spodnji rob iskalnega polja (CSS px), plosca je tik pod njim. Brez peskovnika: privzeti brskalnik."""
         niz = str(niz or "").strip()
-        if not niz:
+        if not niz and not domov:
             return False
-        url = niz if niz.lower().startswith(("http://", "https://")) else \
+        # domov: »Splet« iz iskanja na delovni povrsini brez niza - zacetna stran Spleta (url "" = domaca stran).
+        url = "" if not niz else niz if niz.lower().startswith(("http://", "https://")) else \
             _iskalnik() + GLib.uri_escape_string(niz, None, False)
         if self.okno_delovna is None or not self._peskovnik_na_voljo():
-            return self._odpri_v_brskalniku(niz)
+            return self._odpri_v_brskalniku(niz) if niz else False
         if self._plosca_spleta is None:
             from core.os_splet import VdelaniSplet
             css = Gtk.CssProvider()

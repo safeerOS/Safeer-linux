@@ -895,6 +895,13 @@ body.predvajalnik #glavno { flex: 1; }
 body.predvajalnik #stranska, body.predvajalnik #vrh, body.predvajalnik #noga,
 body.predvajalnik .rocaj-vrstice, body.predvajalnik .razdelek:not(#r-media) { display: none !important; }
 body.predvajalnik #vsebina { padding-top: 30px; }
+/* Okno enega razdelka (index.html?razdelek=zapiski|sporocila|nastavitve) na delovni povrsini: kot Safeer Player -
+   brez stranske vrstice, glave in noge, samo izbrani razdelek. */
+body.en-razdelek #aplikacija { display: flex; }
+body.en-razdelek #glavno { flex: 1; }
+body.en-razdelek #stranska, body.en-razdelek #vrh, body.en-razdelek #noga,
+body.en-razdelek .rocaj-vrstice, body.en-razdelek .razdelek:not(.viden) { display: none !important; }
+body.en-razdelek #vsebina { padding-top: 30px; }
 /* Nadaljuj z druge naprave: izbira "tukaj" / "tukaj in ustavi tam" pod ponudbo, ki igra */
 .media-predaja-izbira { display:flex; gap:8px; padding:4px 0 8px 32px; }
 .media-predaja-izbira .media-mapa { flex:1; }

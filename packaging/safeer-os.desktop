@@ -10,3 +10,5 @@ Terminal=false
 Categories=System;
 Keywords=Safeer;OS;launcher;home;
 StartupWMClass=safeer-os
+# Na Cinnamonu je Safeer OS namizno okolje (Safeer Cinnamon, delovna povrsina): stare lupine v oknu meni ne ponuja.
+NotShowIn=X-Cinnamon;
