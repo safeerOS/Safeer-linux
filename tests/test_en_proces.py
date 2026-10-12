@@ -210,6 +210,7 @@ class OmrezniProcesSpleta(unittest.TestCase):
             def timeout_add(_ms, fn):
                 klici.append(fn)
         s.GLib = GLib
+        s._stevec = 0
         with mock.patch.object(os_splet, "omrezni_procesi", side_effect=[{1}, {1, 99}]), \
                 mock.patch.object(os_splet.VdelaniSplet, "_nov_pogled", side_effect=RuntimeError("konec")):
             with self.assertRaises(RuntimeError):
