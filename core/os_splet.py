@@ -12,6 +12,7 @@ import os
 import shutil
 import subprocess
 import urllib.parse
+import weakref
 from pathlib import Path
 
 from core import adblock, drm, odlozisce_varuh, os_stabilnost, ozadje_strani
@@ -172,6 +173,87 @@ def omrezni_procesi_shrambe(piskotki: str, starsevski: int | None = None) -> lis
     return sorted(pid for pid in omrezni_procesi(starsevski) if cilj in odprte_datoteke(pid))
 
 
+# Zaznamki, zgodovina in uvoz (12. 10. 2026: Splet naj bo enostavna zamenjava za drug brskalnik)
+for _j, _b in {
+    "sl": {"zaznamki": "Zaznamki", "zgodovina": "Zgodovina", "uvozi": "Uvozi iz drugega brskalnika …",
+           "uvoz_zaznamki": "Zaznamkov dodanih: {n} (iz: {od}).", "uvoz_brez": "Drugega brskalnika s podatki ni bilo mogoče najti.",
+           "uvoz_zavihki": "Odpri {n} zavihkov iz brskalnika {ime}", "zapri": "Zapri", "prazno": "Ni zadetkov."},
+    "en": {"zaznamki": "Bookmarks", "zgodovina": "History", "uvozi": "Import from another browser …",
+           "uvoz_zaznamki": "Bookmarks added: {n} (from: {od}).", "uvoz_brez": "No other browser with data was found.",
+           "uvoz_zavihki": "Open {n} tabs from {ime}", "zapri": "Close", "prazno": "No results."},
+    "de": {"zaznamki": "Lesezeichen", "zgodovina": "Verlauf", "uvozi": "Aus anderem Browser importieren …",
+           "uvoz_zaznamki": "Lesezeichen hinzugefügt: {n} (aus: {od}).", "uvoz_brez": "Kein anderer Browser mit Daten gefunden.",
+           "uvoz_zavihki": "{n} Tabs aus {ime} öffnen", "zapri": "Schließen", "prazno": "Keine Treffer."},
+    "es": {"zaznamki": "Marcadores", "zgodovina": "Historial", "uvozi": "Importar de otro navegador …",
+           "uvoz_zaznamki": "Marcadores añadidos: {n} (de: {od}).", "uvoz_brez": "No se encontró otro navegador con datos.",
+           "uvoz_zavihki": "Abrir {n} pestañas de {ime}", "zapri": "Cerrar", "prazno": "Sin resultados."},
+    "fr": {"zaznamki": "Favoris", "zgodovina": "Historique", "uvozi": "Importer d'un autre navigateur …",
+           "uvoz_zaznamki": "Favoris ajoutés : {n} (de : {od}).", "uvoz_brez": "Aucun autre navigateur avec des données.",
+           "uvoz_zavihki": "Ouvrir {n} onglets de {ime}", "zapri": "Fermer", "prazno": "Aucun résultat."},
+    "it": {"zaznamki": "Segnalibri", "zgodovina": "Cronologia", "uvozi": "Importa da un altro browser …",
+           "uvoz_zaznamki": "Segnalibri aggiunti: {n} (da: {od}).", "uvoz_brez": "Nessun altro browser con dati trovato.",
+           "uvoz_zavihki": "Apri {n} schede da {ime}", "zapri": "Chiudi", "prazno": "Nessun risultato."},
+}.items():
+    BESEDILA.setdefault(_j, {}).update(_b)
+
+
+def blizjica(tipka: str, ctrl: bool = False, shift: bool = False, alt: bool = False) -> str | None:
+    """Bliznjice kot v obicajnih brskalnikih (Chrome, Firefox, Opera): ime dejanja ali None."""
+    t = (tipka or "").lower()
+    if ctrl and not alt:
+        if t == "t":
+            return "obnovi-zaprt" if shift else "nov"
+        if t == "w" or t == "f4":
+            return "zapri"
+        if t in ("tab", "iso_left_tab"):
+            return "prejsnji" if shift or t == "iso_left_tab" else "naslednji"
+        if t in ("page_down", "next"):
+            return "naslednji"
+        if t in ("page_up", "prior"):
+            return "prejsnji"
+        if t in ("l", "k", "e") and not shift:
+            return "naslov"
+        if t == "r" or t == "f5":
+            return "osvezi-brez" if shift or t == "f5" else "osvezi"
+        if t == "f" and not shift:
+            return "najdi"
+        if t == "d" and not shift:
+            return "zaznamek"
+        if t == "h" and not shift:
+            return "zgodovina"
+        if t == "o" and shift:
+            return "zaznamki"
+        if t in ("plus", "equal", "kp_add"):
+            return "povecaj"
+        if t in ("minus", "kp_subtract"):
+            return "pomanjsaj"
+        if t in ("0", "kp_0"):
+            return "povecava-0"
+        if t in ("1", "2", "3", "4", "5", "6", "7", "8") and not shift:
+            return "zavihek-" + t
+        if t == "9" and not shift:
+            return "zavihek-zadnji"
+        return None
+    if alt and not ctrl:
+        if t == "left":
+            return "nazaj"
+        if t == "right":
+            return "naprej"
+        if t == "home":
+            return "domov"
+        if t == "d":
+            return "naslov"
+        return None
+    if not ctrl and not alt:
+        if t == "f5":
+            return "osvezi"
+        if t == "f6":
+            return "naslov"
+        if t == "f3":
+            return "najdi"
+    return None
+
+
 def besedila(jezik: str) -> dict:
     """Besedila razdelka Splet; neznani jezik varno pade na anglescino."""
     return BESEDILA.get(str(jezik or "")[:2].lower(), BESEDILA["en"])
@@ -324,6 +406,7 @@ class VdelaniSplet:
         self.vnos.set_name("splet-vnos")
         self.vnos.set_placeholder_text(self._t("naslov"))
         self.vnos.connect("activate", self._vnesi_naslov)
+        self.vnos.connect("key-press-event", lambda _v, e: self.tipka(e))
         self.zvezdica = self._gumb("☆", lambda *_: self.dodaj_trenutno(), "address-action")
         naslov.pack_start(self.kljucavnica, False, False, 8)
         naslov.pack_start(self.vnos, True, True, 0)
@@ -403,6 +486,9 @@ class VdelaniSplet:
         meni = self.Gtk.Menu()
         vnosi = [
             (self._t("nov"), lambda *_: self.nov_zavihek()),
+            (self._t("zaznamki"), lambda *_: self._seznam("zaznamki")),
+            (self._t("zgodovina"), lambda *_: self._seznam("zgodovina")),
+            (self._t("uvozi"), self._uvozi),
             (self._t("prenosi"), self._pokazi_prenose),
             (self._t("najdi"), lambda *_: self._pokazi_najdi()),
             (self._t("povecaj"), lambda *_: self._povecava(.1)),
@@ -483,6 +569,8 @@ class VdelaniSplet:
         try:
             self.filter = shramba.save_finish(rezultat)
             (self._filter_mapa / "compiled.sha256").write_text(sha, "utf-8")
+            from core.filter_lists import pocisti_zacasne_filtre
+            pocisti_zacasne_filtre(str(self._filter_mapa))
             if self.filter_agent is not None and self.filter_agent.list_sha256:
                 (self._filter_mapa / "list.sha256").write_text(self.filter_agent.list_sha256, "utf-8")
             for z in self.zavihki:
@@ -512,7 +600,10 @@ class VdelaniSplet:
         os_stabilnost.obnovi_ob_padcu(W, self.GLib, pogled, "safeer-os", "splet")
         upravitelj = pogled.get_user_content_manager()
         upravitelj.register_script_message_handler("safeer")
-        upravitelj.connect("script-message-received::safeer", lambda _u, r: self._sporocilo(pogled, r))
+        # Sibka referenca (glej drm.prikljuci): sicer zaprt zavihek nikoli ne sprosti svojega WebView.
+        ref = weakref.ref(pogled)
+        upravitelj.connect("script-message-received::safeer",
+                           lambda _u, r: ref() is not None and self._sporocilo(ref(), r))
         # Stevec scita v locenem svetu: stran v glavnem svetu tega rokovalnika ne doseze.
         upravitelj.register_script_message_handler_in_world(adblock.STEVEC_MOST, adblock.STEVEC_SVET)
         upravitelj.connect("script-message-received::" + adblock.STEVEC_MOST, lambda _u, r: self._stevec(r))
@@ -546,6 +637,8 @@ class VdelaniSplet:
         # Temno pod našo začetno stranjo, belo pod spletom - belo mora biti nastavljeno, preden dokument strani nastane.
         ozadje_strani.prikljuci(self.Gdk, W, pogled, os.path.join(self.koren, "ui"), TEMNO_OZADJE)
         pogled.connect("decide-policy", self._politika)
+        pogled.connect("key-press-event", lambda _p, e: self.tipka(e))
+        pogled.connect("button-press-event", self._miska)
         pogled.connect("create", lambda p, a: self._novo_okno(p, a))
         pogled.connect("load-changed", self._nalozen)
         pogled.connect("notify::title", self._naslov_spremenjen)
@@ -577,9 +670,163 @@ class VdelaniSplet:
             self.odpri_domov(); return
         z = next((x for x in self.zavihki if x["pogled"] is pogled), None)
         if z is None: return
+        self._zapomni_zaprt(pogled)
         indeks = self.zavihki.index(z); self.zavihki.remove(z)
         self.skatla_zavihkov.remove(z["dogodek"]); self.sklad.remove(pogled); pogled.destroy()
         self.izberi(self.zavihki[max(0, indeks - 1)]["pogled"])
+
+    def _zapomni_zaprt(self, pogled) -> None:
+        """Naslov zaprtega zavihka za Ctrl+Shift+T (najvec 20)."""
+        try:
+            naslov = pogled.get_uri() or ""
+        except Exception:  # noqa: BLE001
+            naslov = ""
+        if naslov.startswith(("http://", "https://")):
+            zaprti = getattr(self, "_zaprti", [])
+            zaprti.append(naslov)
+            self._zaprti = zaprti[-20:]
+
+    def tipka(self, dogodek) -> bool:
+        """Bliznjice brskalnika; vrne True, ce je tipka porabljena."""
+        Gdk = self.Gdk
+        stanje = dogodek.state
+        dejanje = blizjica(Gdk.keyval_name(dogodek.keyval) or "", bool(stanje & Gdk.ModifierType.CONTROL_MASK),
+                           bool(stanje & Gdk.ModifierType.SHIFT_MASK), bool(stanje & Gdk.ModifierType.MOD1_MASK))
+        return self.izvedi(dejanje) if dejanje else False
+
+    def izvedi(self, dejanje: str) -> bool:
+        p = self.trenutni()
+        if dejanje == "nov":
+            self.nov_zavihek(); self.vnos.grab_focus()
+        elif dejanje == "zapri":
+            if p is not None:
+                self.zapri_zavihek(p)
+        elif dejanje == "obnovi-zaprt":
+            zaprti = getattr(self, "_zaprti", [])
+            if not zaprti:
+                return True
+            self.nov_zavihek(zaprti.pop())
+        elif dejanje in ("naslednji", "prejsnji") or dejanje.startswith("zavihek-"):
+            if not self.zavihki:
+                return True
+            if dejanje == "zavihek-zadnji":
+                i = len(self.zavihki) - 1
+            elif dejanje.startswith("zavihek-"):
+                i = int(dejanje.rsplit("-", 1)[1]) - 1
+                if i >= len(self.zavihki):
+                    return True
+            else:
+                tren = next((k for k, z in enumerate(self.zavihki) if z["pogled"] is p), 0)
+                i = (tren + (1 if dejanje == "naslednji" else -1)) % len(self.zavihki)
+            self.izberi(self.zavihki[i]["pogled"])
+        elif dejanje == "naslov":
+            self.vnos.grab_focus(); self.vnos.select_region(0, -1)
+        elif dejanje == "osvezi" and p is not None:
+            p.reload()
+        elif dejanje == "osvezi-brez" and p is not None:
+            p.reload_bypass_cache()
+        elif dejanje == "najdi":
+            self._pokazi_najdi()
+        elif dejanje == "zaznamek":
+            self.dodaj_trenutno()
+        elif dejanje in ("zgodovina", "zaznamki"):
+            self._seznam(dejanje)
+        elif dejanje == "povecaj":
+            self._povecava(.1)
+        elif dejanje == "pomanjsaj":
+            self._povecava(-.1)
+        elif dejanje == "povecava-0" and p is not None:
+            p.set_zoom_level(1.0)
+        elif dejanje == "nazaj" and p is not None:
+            p.go_back()
+        elif dejanje == "naprej" and p is not None:
+            p.go_forward()
+        elif dejanje == "domov":
+            self.odpri_domov()
+        else:
+            return False
+        return True
+
+    def _seznam(self, kaj: str = "zaznamki") -> None:
+        """Zaznamki (Ctrl+Shift+O) in zgodovina (Ctrl+H) z iskanjem; klik odpre stran v novem zavihku."""
+        from core import zgodovina
+        Gtk = self.Gtk
+        d = Gtk.Dialog(title=self._t(kaj), transient_for=self.stars, modal=True)
+        d.set_default_size(720, 560)
+        d.add_button(self._t("zapri"), Gtk.ResponseType.CLOSE)
+        iskanje = Gtk.SearchEntry(); iskanje.set_margin_start(12); iskanje.set_margin_end(12)
+        zvezki = Gtk.Notebook()
+        seznami = {}
+        for kljuc in ("zaznamki", "zgodovina"):
+            okvir = Gtk.ScrolledWindow(); okvir.set_vexpand(True)
+            sez = Gtk.ListBox(); sez.set_activate_on_single_click(True)
+            sez.connect("row-activated", lambda _s, vrstica: (self.nov_zavihek(vrstica.naslov), d.destroy()))
+            okvir.add(sez); zvezki.append_page(okvir, Gtk.Label(label=self._t(kljuc))); seznami[kljuc] = sez
+        def napolni(*_):
+            niz = iskanje.get_text()
+            viri = {"zaznamki": [{"title": p.get("title", ""), "url": p.get("url", "")} for p in self.config.get_portals()],
+                    "zgodovina": zgodovina.nalozi(os.path.join(self.config.config_dir, "history.json"))}
+            for kljuc, sez in seznami.items():
+                for v in sez.get_children():
+                    v.destroy()
+                zadetki = [z for z in zgodovina.isci(viri[kljuc], niz) if z.get("url")][:300]
+                for z in zadetki:
+                    vrstica = Gtk.ListBoxRow(); vrstica.naslov = z["url"]
+                    skatla = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin=8)
+                    a = Gtk.Label(label=z.get("title") or z["url"], xalign=0); a.set_ellipsize(3)
+                    b = Gtk.Label(label=(z.get("time", "") + "  " + z["url"]).strip(), xalign=0); b.set_ellipsize(3)
+                    b.get_style_context().add_class("dim-label")
+                    skatla.pack_start(a, False, False, 0); skatla.pack_start(b, False, False, 0)
+                    vrstica.add(skatla); sez.add(vrstica)
+                if not zadetki:
+                    sez.add(Gtk.Label(label=self._t("prazno"), margin=16))
+                sez.show_all()
+        iskanje.connect("search-changed", napolni)
+        obmocje = d.get_content_area(); obmocje.set_spacing(8)
+        obmocje.pack_start(iskanje, False, False, 6); obmocje.pack_start(zvezki, True, True, 0)
+        napolni()
+        d.show_all()
+        zvezki.set_current_page(0 if kaj == "zaznamki" else 1)
+        iskanje.grab_focus()
+        d.connect("response", lambda *_: d.destroy())
+
+    def _uvozi(self, *_):
+        """Zaznamki in odprti zavihki iz drugih brskalnikov na tem racunalniku (samo branje njihovih datotek)."""
+        from core import uvoz_zavihkov
+        Gtk = self.Gtk
+        try:
+            from core.bookmarks_importer import auto_import_all_profiles
+            zaznamki, viri = auto_import_all_profiles()
+            dodanih, _ = self.config.import_bookmarks_items(zaznamki)
+        except Exception as napaka:  # noqa: BLE001
+            print("[Safeer OS Splet] uvoz zaznamkov:", napaka)
+            dodanih, viri = 0, {}
+        zavihki = uvoz_zavihkov.odprti_zavihki()
+        d = Gtk.Dialog(title=self._t("uvozi").rstrip(" …"), transient_for=self.stars, modal=True)
+        d.add_button(self._t("zapri"), Gtk.ResponseType.CLOSE)
+        obmocje = d.get_content_area(); obmocje.set_spacing(10); obmocje.set_margin_start(16); obmocje.set_margin_end(16)
+        if viri or zavihki:
+            obmocje.pack_start(Gtk.Label(label=self._t("uvoz_zaznamki", n=dodanih, od=", ".join(viri) or "-"),
+                                         xalign=0, margin_top=12), False, False, 0)
+        else:
+            obmocje.pack_start(Gtk.Label(label=self._t("uvoz_brez"), margin=16), False, False, 0)
+        for ime, naslovi in zavihki.items():
+            gumb = Gtk.Button(label=self._t("uvoz_zavihki", n=len(naslovi), ime=ime))
+            gumb.connect("clicked", lambda _g, n=naslovi: ([self.nov_zavihek(x) for x in n], d.destroy()))
+            obmocje.pack_start(gumb, False, False, 0)
+        d.connect("response", lambda *_: d.destroy())
+        d.show_all()
+        for z in self.zavihki:          # zacetna stran pokaze nove bliznjice
+            if je_domaca_stran(z["pogled"].get_uri() or "", self.koren):
+                self._poslji_stanje(z["pogled"], prenesi=False)
+
+    def _miska(self, pogled, dogodek) -> bool:
+        """Stranska gumba miske (nazaj/naprej), kot v drugih brskalnikih."""
+        if dogodek.button == 8:
+            pogled.go_back(); return True
+        if dogodek.button == 9:
+            pogled.go_forward(); return True
+        return False
 
     def sprosti_zavihke(self) -> None:
         """Zapre vse zavihke (spletni proces se konca in vrne pomnilnik); naslednji odpri() naredi nov zavihek.
@@ -703,6 +950,10 @@ class VdelaniSplet:
                 return True
             if vrsta == W.PolicyDecisionType.NEW_WINDOW_ACTION:
                 odlocitev.ignore(); self.nov_zavihek(naslov); return True
+            # Srednji klik ali Ctrl+klik na povezavo: nov zavihek (kot v drugih brskalnikih).
+            if (dejanje.get_navigation_type() == W.NavigationType.LINK_CLICKED and naslov.startswith(("http://", "https://"))
+                    and (dejanje.get_mouse_button() == 2 or dejanje.get_modifiers() & int(self.Gdk.ModifierType.CONTROL_MASK))):
+                odlocitev.ignore(); self.nov_zavihek(naslov); return True
             if naslov.startswith(("file://", "about:blank")):
                 odlocitev.use(); return True
             if not naslov.startswith(("http://", "https://")):
@@ -733,6 +984,8 @@ class VdelaniSplet:
             self._poslji_stanje(pogled)
         else:
             self._preveri_bank_stran(pogled, naslov)
+            from core import zgodovina
+            zgodovina.dodaj(os.path.join(self.config.config_dir, "history.json"), naslov, pogled.get_title() or "")
         self._osvezi_orodja()
 
     def _poslji_stanje(self, pogled, prenesi=True):

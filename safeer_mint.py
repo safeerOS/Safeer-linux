@@ -17,6 +17,7 @@ import threading
 import time
 import subprocess
 import warnings
+import weakref
 import urllib.parse
 from datetime import datetime
 import gi
@@ -4570,6 +4571,9 @@ class SafeerMintBrowser(Gtk.Window):
         sha, source, fallback_json = user_data
         try:
             content_filter = store.load_finish(result) if fallback_json is not None else store.save_finish(result)
+            if fallback_json is None:
+                from core.filter_lists import pocisti_zacasne_filtre
+                pocisti_zacasne_filtre(str(self._filter_store_dir))
         except Exception as exc:
             if fallback_json is not None:
                 # the cached compiled filter is gone or damaged: compile again
@@ -4620,8 +4624,10 @@ class SafeerMintBrowser(Gtk.Window):
         content_mgr.register_script_message_handler("safeer")
         # Posiljatelja si zapomnimo tu: on_js_message mora vedeti, katera stran klice,
         # sicer bi lahko poljubna stran sprozila dejanja nasega vmesnika.
+        # Sibka referenca: mocna (privzeti argument z zavihkom) je naredila krog C-Python, zaprt zavihek se ni sprostil (12. 10. 2026).
+        ref_wv = weakref.ref(wv)
         content_mgr.connect("script-message-received::safeer",
-                            lambda cm, res, posiljatelj=wv: self.on_js_message(cm, res, posiljatelj))
+                            lambda cm, res: ref_wv() is not None and self.on_js_message(cm, res, ref_wv()))
         # Stevec scita v locenem svetu (STEVEC_SVET): stran v glavnem svetu tega rokovalnika ne doseze,
         # zato stevca ne more napihniti (pregled 8. 10. 2026).
         content_mgr.register_script_message_handler_in_world(STEVEC_MOST, STEVEC_SVET)

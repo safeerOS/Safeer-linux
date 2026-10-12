@@ -185,3 +185,142 @@ class SistemskeNastavitve(unittest.TestCase):
             self.assertTrue(f(""))
             self.assertFalse(f("; rm -rf /"))
         self.assertEqual(zagnano, [["cinnamon-settings", "themes"], ["cinnamon-settings"]])
+
+
+class ZaprtiZavihkiSeSprostijo(unittest.TestCase):
+    """12. 10. 2026: rokovalnik sporocil je z mocno referenco na pogled naredil krog C-Python, ki ga zbiralnik ne vidi;
+    vsak zaprt zavihek Spleta je ostal ziv (+2,2 MiB). Rokovalniki morajo pogled drzati sibko."""
+
+    def test_brez_mocne_reference_na_pogled(self):
+        import re
+        for datoteka, vzorec in (("core/os_splet.py", r"lambda _u, r: self\._sporocilo\(pogled"),
+                                 ("core/drm.py", r"def ob_sporocilu\(_u, _r\):\n        url = pogled"),
+                                 ("safeer_mint.py", r"posiljatelj=wv"),
+                                 ("safeer_os.py", r"lambda _u, r: self\._na_sporocilo\(pogled")):
+            with self.subTest(datoteka):
+                self.assertIsNone(re.search(vzorec, (KOREN / datoteka).read_text(encoding="utf-8")))
+
+
+class BliznjiceSpleta(unittest.TestCase):
+    """Splet: iste bliznjice kot v obicajnih brskalnikih (uporabnik opazi cim manj sprememb)."""
+
+    def test_preslikava(self):
+        from core.os_splet import blizjica as b
+        pricakovano = {
+            ("t", 1, 0, 0): "nov", ("T", 1, 1, 0): "obnovi-zaprt", ("w", 1, 0, 0): "zapri",
+            ("Tab", 1, 0, 0): "naslednji", ("ISO_Left_Tab", 1, 1, 0): "prejsnji", ("Page_Down", 1, 0, 0): "naslednji",
+            ("l", 1, 0, 0): "naslov", ("F6", 0, 0, 0): "naslov", ("d", 0, 0, 1): "naslov",
+            ("r", 1, 0, 0): "osvezi", ("F5", 0, 0, 0): "osvezi", ("r", 1, 1, 0): "osvezi-brez",
+            ("f", 1, 0, 0): "najdi", ("d", 1, 0, 0): "zaznamek", ("plus", 1, 0, 0): "povecaj",
+            ("minus", 1, 0, 0): "pomanjsaj", ("0", 1, 0, 0): "povecava-0", ("3", 1, 0, 0): "zavihek-3",
+            ("9", 1, 0, 0): "zavihek-zadnji", ("Left", 0, 0, 1): "nazaj", ("Right", 0, 0, 1): "naprej",
+        }
+        for (t, c, s, a), d in pricakovano.items():
+            with self.subTest(t=t, c=c, s=s, a=a):
+                self.assertEqual(b(t, bool(c), bool(s), bool(a)), d)
+
+    def test_obicajne_tipke_ostanejo_strani(self):
+        from core.os_splet import blizjica as b
+        for t in ("a", "Escape", "Return", "space", "Left", "BackSpace"):
+            self.assertIsNone(b(t))
+        self.assertIsNone(b("c", True))      # Ctrl+C kopira na strani
+        self.assertIsNone(b("v", True))
+
+    def _splet(self, uri_tren="https://a.si/"):
+        from core import os_splet
+        s = os_splet.VdelaniSplet.__new__(os_splet.VdelaniSplet)
+        pogledi = [mock.Mock(), mock.Mock(), mock.Mock()]
+        for i, p in enumerate(pogledi):
+            p.get_uri.return_value = "https://s%d.si/" % i
+        s.zavihki = [{"pogled": p} for p in pogledi]
+        s.aktivni = pogledi[0]
+        s.izberi = lambda p: setattr(s, "aktivni", p)
+        s.trenutni = lambda: s.aktivni
+        s.nov_zavihek = mock.Mock()
+        return s, pogledi
+
+    def test_preklapljanje_in_obnova_zaprtega(self):
+        s, p = self._splet()
+        s.izvedi("naslednji"); self.assertIs(s.aktivni, p[1])
+        s.izvedi("prejsnji"); s.izvedi("prejsnji"); self.assertIs(s.aktivni, p[2])
+        s.izvedi("zavihek-1"); self.assertIs(s.aktivni, p[0])
+        s.izvedi("zavihek-zadnji"); self.assertIs(s.aktivni, p[2])
+        s._zapomni_zaprt(p[1])
+        s.izvedi("obnovi-zaprt")
+        s.nov_zavihek.assert_called_once_with("https://s1.si/")
+
+
+class ZacasniFiltri(unittest.TestCase):
+    def test_odstrani_samo_stare_zacasne(self):
+        import time
+        from core.filter_lists import pocisti_zacasne_filtre
+        with tempfile.TemporaryDirectory() as d:
+            for ime in ("ContentRuleList-abc123", "ContentRuleList-XYZ789", "ContentRuleList-safeer-easylist",
+                        "compiled.sha256"):
+                Path(d, ime).write_text("x")
+            star = time.time() - 7200
+            for ime in ("ContentRuleList-abc123", "ContentRuleList-safeer-easylist", "compiled.sha256"):
+                os.utime(os.path.join(d, ime), (star, star))
+            self.assertEqual(pocisti_zacasne_filtre(d), 1)
+            self.assertEqual(sorted(os.listdir(d)), ["ContentRuleList-XYZ789", "ContentRuleList-safeer-easylist",
+                                                     "compiled.sha256"])
+
+
+class UvozZavihkov(unittest.TestCase):
+    """Seja Chromium (SNSS): trenutna stran vsakega odprtega zavihka; zaprti zavihki izpusceni."""
+
+    @staticmethod
+    def _ukaz(st, vsebina):
+        import struct
+        return struct.pack("<HB", len(vsebina) + 1, st) + vsebina
+
+    @staticmethod
+    def _nav(tab, indeks, url):
+        import struct
+        b = url.encode()
+        telo = struct.pack("<iii", tab, indeks, len(b)) + b + b"\0" * ((4 - len(b) % 4) % 4)
+        return struct.pack("<I", len(telo)) + telo
+
+    def test_seja(self):
+        import struct
+        from core.uvoz_zavihkov import preberi_sejo
+        p = b"SNSS" + struct.pack("<i", 3)
+        p += self._ukaz(6, self._nav(1, 0, "https://a.si/"))
+        p += self._ukaz(6, self._nav(1, 1, "https://a.si/druga"))
+        p += self._ukaz(7, struct.pack("<ii", 1, 1))
+        p += self._ukaz(6, self._nav(2, 0, "https://b.si/"))
+        p += self._ukaz(6, self._nav(3, 0, "https://zaprt.si/"))
+        p += self._ukaz(16, struct.pack("<iq", 3, 0))
+        p += self._ukaz(6, self._nav(4, 0, "chrome://newtab/"))
+        self.assertEqual(preberi_sejo(p), ["https://a.si/druga", "https://b.si/"])
+        self.assertEqual(preberi_sejo(b"nesmisel"), [])
+
+    def test_najde_opero(self):
+        from core.uvoz_zavihkov import najdi_seje
+        with tempfile.TemporaryDirectory() as d:
+            mapa = Path(d, ".config/opera/Sessions"); mapa.mkdir(parents=True)
+            (mapa / "Session_1").write_bytes(b"SNSS")
+            self.assertEqual(list(najdi_seje(d)), ["Opera"])
+
+
+class Zgodovina(unittest.TestCase):
+    def test_dodaj_isci(self):
+        from core import zgodovina
+        with tempfile.TemporaryDirectory() as d:
+            pot = os.path.join(d, "history.json")
+            self.assertTrue(zgodovina.dodaj(pot, "https://a.si/", "Prva"))
+            self.assertTrue(zgodovina.dodaj(pot, "https://a.si/", "Prva 2"))
+            self.assertTrue(zgodovina.dodaj(pot, "https://b.si/", "Druga"))
+            self.assertFalse(zgodovina.dodaj(pot, "file:///etc/passwd"))
+            z = zgodovina.nalozi(pot)
+            self.assertEqual([x["url"] for x in z], ["https://b.si/", "https://a.si/"])
+            self.assertEqual(z[1]["title"], "Prva 2")
+            self.assertEqual([x["url"] for x in zgodovina.isci(z, "druga")], ["https://b.si/"])
+
+    def test_bliznjici(self):
+        from core.os_splet import blizjica, besedila
+        self.assertEqual(blizjica("h", True), "zgodovina")
+        self.assertEqual(blizjica("O", True, True), "zaznamki")
+        for j in ("sl", "en", "de", "es", "fr", "it"):
+            for k in ("zaznamki", "zgodovina", "uvozi", "uvoz_zavihki", "zapri", "prazno"):
+                self.assertIn(k, besedila(j))

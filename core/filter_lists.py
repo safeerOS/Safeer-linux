@@ -203,3 +203,27 @@ class FilterListAgent:
 
     def status(self) -> dict:
         return {"rules": self.rule_count, "fetched_at": self.fetched_at, "last_error": self.last_error, "sha256": self.list_sha256[:16]}
+
+
+def pocisti_zacasne_filtre(mapa, starost_s: float = 3600.0) -> int:
+    """Odstrani zapuscene zacasne datoteke prevajanja WebKit (ContentRuleList-XXXXXX), ki ostanejo, ce se program
+    konca med prevajanjem (12. 10. 2026: 15 datotek, 195 MB). Prevedeni seznami (ContentRuleList-<id>) ostanejo;
+    datoteke, mlajse od ure, tudi (morda se ravno prevajajo)."""
+    import re
+    import time as _time
+    izbrisanih = 0
+    try:
+        imena = os.listdir(mapa)
+    except OSError:
+        return 0
+    for ime in imena:
+        if not re.fullmatch(r"ContentRuleList-[A-Za-z0-9]{6}", ime):
+            continue
+        pot = os.path.join(mapa, ime)
+        try:
+            if _time.time() - os.path.getmtime(pot) >= starost_s:
+                os.remove(pot)
+                izbrisanih += 1
+        except OSError:
+            continue
+    return izbrisanih

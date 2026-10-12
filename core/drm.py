@@ -7,6 +7,7 @@ brskalniku, ki ga ima (npr. Brave); vse ostalo ostane v Safeerju. Komponente ne 
 Zaznava: skripta na strani ovije navigator.requestMediaKeySystemAccess - ko stran zaprosi za Widevine ali PlayReady,
 o tem obvesti Safeer (rokovalnik »safeerDrm«). Safeer ne izve nicesar drugega o strani.
 """
+import weakref
 import os
 import shutil
 import subprocess
@@ -139,8 +140,15 @@ def prikljuci(WebKit2, pogled, preusmeritev: Preusmeritev, jezik: Callable[[], s
     """Skripta in rokovalnik na pogledu WebKit: ob zahtevi za Widevine stran odpre v brskalniku z Widevine."""
     upravitelj = pogled.get_user_content_manager()
     upravitelj.register_script_message_handler(MOST)
+    # Sibka referenca: rokovalnik zivi na upravitelju vsebine, ki ga drzi pogled. Mocna referenca bi naredila krog
+    # med C in Pythonom, ki ga zbiralnik ne vidi - zaprt zavihek (WebView) se ne bi nikoli sprostil (12. 10. 2026:
+    # 30 zaprtih zavihkov = 30 zivih WebView, +68 MiB).
+    ref = weakref.ref(pogled)
 
     def ob_sporocilu(_u, _r):
+        pogled = ref()
+        if pogled is None:
+            return
         url = pogled.get_uri() or ""
         izid, ime = preusmeritev.odpri(url)
         if izid in ("odprto", "ni"):

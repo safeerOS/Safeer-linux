@@ -27,6 +27,7 @@ import json
 import os
 import socket
 import subprocess
+import weakref
 import sys
 import threading
 import time
@@ -1436,7 +1437,9 @@ class SafeerOS(Gtk.Application):
         if getattr(self, "_os_kontekst", None) is None:
             self._os_kontekst = pomnilnik.kontekst(WebKit2, 220)
         pogled = WebKit2.WebView(user_content_manager=upravitelj, web_context=self._os_kontekst)
-        upravitelj.connect("script-message-received::safeerOs", lambda _u, r: self._na_sporocilo(pogled, r))
+        ref = weakref.ref(pogled)   # sibka: mocna referenca bi zaprtemu oknu pustila zivi WebView (krog C-Python)
+        upravitelj.connect("script-message-received::safeerOs",
+                           lambda _u, r: ref() is not None and self._na_sporocilo(ref(), r))
         n = pogled.get_settings()
         n.set_property("enable-developer-extras", bool(os.environ.get("SAFEER_OS_RAZVOJ")))
         try:   # razvojni nacin: napake JavaScripta v terminal (preverjanje razdelkov s --posnetek)
