@@ -20,6 +20,10 @@ finish-args:
   - --filesystem=host-os:ro
   - --filesystem=/var/lib/flatpak:ro
   - --filesystem=/var/lib/snapd/desktop:ro
+  # Datoteke: USB kljuci in diski (Mint jih priklopi v /media/<uporabnik>), kot v upravitelju datotek.
+  - --filesystem=/media
+  - --filesystem=/run/media
+  - --filesystem=/mnt
   - --filesystem=xdg-run/pipewire-0
   - --talk-name=org.freedesktop.Flatpak
   - --own-name=io.github.memelandfaner.SafeerControl
