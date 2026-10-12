@@ -3560,12 +3560,9 @@ class SafeerMintBrowser(Gtk.Window):
         try:
             if hasattr(WebKit2, "HardwareAccelerationPolicy"):
                 hw_pref = self.config.get("hardware_acceleration", "on_demand")
-                if hw_pref == "always":
-                    settings.set_hardware_acceleration_policy(WebKit2.HardwareAccelerationPolicy.ALWAYS)
-                elif hw_pref == "never":
-                    settings.set_hardware_acceleration_policy(WebKit2.HardwareAccelerationPolicy.NEVER)
-                else:
-                    settings.set_hardware_acceleration_policy(WebKit2.HardwareAccelerationPolicy.ON_DEMAND)
+                # Privzeto vklopljeno; uporabnik ga lahko izklopi ("never"). ON_DEMAND je v WebKitGTK 2.4x opuscen.
+                from core.os_splet import politika_pospesevanja
+                settings.set_hardware_acceleration_policy(politika_pospesevanja(WebKit2, hw_pref))
             if hasattr(settings, "set_enable_accelerated_2d_canvas"):
                 settings.set_enable_accelerated_2d_canvas(True)
             if hasattr(settings, "set_enable_mediasource"):
@@ -5036,8 +5033,8 @@ class SafeerMintBrowser(Gtk.Window):
                             tab_item["title_label"].set_text(h_title)
                         if "icon_label" in tab_item and tab_item["icon_label"]:
                             tab_item["icon_label"].set_text("🍃")
-                        # Inject live custom portals and shield metrics into home.html
-                        portals = self.config.get_portals()
+                        # Inject live custom portals and shield metrics into home.html (uvozeni zaznamki ne)
+                        portals = self.config.get_home_portals()
                         portals_json = json.dumps(portals)
                         lang = get_current_language()
                         brave_on = "true" if self.config.get("brave_mode_enabled", True) else "false"

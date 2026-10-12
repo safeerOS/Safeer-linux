@@ -324,3 +324,74 @@ class Zgodovina(unittest.TestCase):
         for j in ("sl", "en", "de", "es", "fr", "it"):
             for k in ("zaznamki", "zgodovina", "uvozi", "uvoz_zavihki", "zapri", "prazno"):
                 self.assertIn(k, besedila(j))
+
+
+class UvozeniZaznamkiNeNaZacetno(unittest.TestCase):
+    def test_zacetna_brez_uvozenih(self):
+        from core.config import ConfigManager
+        c = ConfigManager.__new__(ConfigManager)
+        portali = [{"id": "a", "title": "Moj", "url": "https://moj.si/"},
+                   {"id": "b", "title": "Uvozen", "url": "https://u.si/", "folder": ""},
+                   {"id": "c", "title": "Uvozen2", "url": "https://u2.si/", "uvozen": True}]
+        c.get_portals = lambda: portali
+        self.assertEqual([p["id"] for p in c.get_home_portals()], ["a"])
+
+
+class StrojnoPospesevanje(unittest.TestCase):
+    def test_privzeto_vklopljeno_izklop_mogoc(self):
+        from core.os_splet import politika_pospesevanja
+
+        class P:
+            ALWAYS, NEVER = "always", "never"
+        W = type("W", (), {"HardwareAccelerationPolicy": P})
+        for nastavitev in (None, "on_demand", "always", ""):
+            self.assertEqual(politika_pospesevanja(W, nastavitev), "always")
+        self.assertEqual(politika_pospesevanja(W, "never"), "never")
+
+
+class WebSocketPrvoSporociloPoRokovanju(unittest.TestCase):
+    """Sporocilo, ki ga streznik poslje takoj za odgovorom 101 (v istem paketu TCP), se ne sme izgubiti
+    (enaka napaka kot v Firefoxovem Network Monitorju, oktober 2026)."""
+
+    def test_okvir_v_istem_paketu_kot_101(self):
+        import base64, hashlib, socket, threading
+        from core.link_rele import WsOdjemalec
+        a, b = socket.socketpair()
+        odj = WsOdjemalec.__new__(WsOdjemalec)
+        odj.s = a
+
+        def streznik():
+            zahteva = b""
+            while b"\r\n\r\n" not in zahteva:
+                zahteva += b.recv(4096)
+            kljuc = [v.split(b": ", 1)[1] for v in zahteva.split(b"\r\n") if v.lower().startswith(b"sec-websocket-key")][0]
+            sprejem = base64.b64encode(hashlib.sha1(kljuc + b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest())
+            okvir = bytes([0x81, 5]) + b"zdravo"[:5]
+            b.sendall(b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                      b"Sec-WebSocket-Accept: " + sprejem + b"\r\n\r\n" + okvir)
+
+        nit = threading.Thread(target=streznik); nit.start()
+        odj._rokovanje("/x", {}, "localhost")
+        nit.join(5)
+        self.assertEqual(odj.prejmi(), (1, b"zdrav"))
+        a.close(); b.close()
+
+
+class UpraviteljPredpomnilnika(unittest.TestCase):
+    def test_velikost_mape(self):
+        from core.os_splet import velikost_mape_mb
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "a"))
+            with open(os.path.join(d, "a", "x"), "wb") as f:
+                f.write(b"x" * (3 * 1024 * 1024))
+            self.assertEqual(velikost_mape_mb(d), 3)
+            self.assertEqual(velikost_mape_mb(os.path.join(d, "ni")), 0)
+
+    def test_besedila_in_meni(self):
+        from core.os_splet import besedila
+        for j in ("sl", "en", "de", "es", "fr", "it"):
+            for k in ("predpomnilnik", "pp_disk", "pp_pocisti", "pp_strani", "pp_odstrani", "pp_meja"):
+                self.assertIn(k, besedila(j))
+        src = (KOREN / "core/os_splet.py").read_text(encoding="utf-8")
+        self.assertIn('(self._t("predpomnilnik"), lambda *_: self._predpomnilnik())', src)
+        self.assertIn("self._omeji_predpomnilnik()", src)

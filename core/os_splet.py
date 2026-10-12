@@ -175,26 +175,49 @@ def omrezni_procesi_shrambe(piskotki: str, starsevski: int | None = None) -> lis
 
 # Zaznamki, zgodovina in uvoz (12. 10. 2026: Splet naj bo enostavna zamenjava za drug brskalnik)
 for _j, _b in {
-    "sl": {"zaznamki": "Zaznamki", "zgodovina": "Zgodovina", "uvozi": "Uvozi iz drugega brskalnika …",
+    "sl": {"strojno": "Strojno pospeševanje (izklopi, če se strani prikazujejo napačno)", "zaznamki": "Zaznamki", "zgodovina": "Zgodovina", "uvozi": "Uvozi iz drugega brskalnika …",
            "uvoz_zaznamki": "Zaznamkov dodanih: {n} (iz: {od}).", "uvoz_brez": "Drugega brskalnika s podatki ni bilo mogoče najti.",
            "uvoz_zavihki": "Odpri {n} zavihkov iz brskalnika {ime}", "zapri": "Zapri", "prazno": "Ni zadetkov."},
-    "en": {"zaznamki": "Bookmarks", "zgodovina": "History", "uvozi": "Import from another browser …",
+    "en": {"strojno": "Hardware acceleration (turn off if pages display incorrectly)", "zaznamki": "Bookmarks", "zgodovina": "History", "uvozi": "Import from another browser …",
            "uvoz_zaznamki": "Bookmarks added: {n} (from: {od}).", "uvoz_brez": "No other browser with data was found.",
            "uvoz_zavihki": "Open {n} tabs from {ime}", "zapri": "Close", "prazno": "No results."},
-    "de": {"zaznamki": "Lesezeichen", "zgodovina": "Verlauf", "uvozi": "Aus anderem Browser importieren …",
+    "de": {"strojno": "Hardwarebeschleunigung (ausschalten, wenn Seiten falsch angezeigt werden)", "zaznamki": "Lesezeichen", "zgodovina": "Verlauf", "uvozi": "Aus anderem Browser importieren …",
            "uvoz_zaznamki": "Lesezeichen hinzugefügt: {n} (aus: {od}).", "uvoz_brez": "Kein anderer Browser mit Daten gefunden.",
            "uvoz_zavihki": "{n} Tabs aus {ime} öffnen", "zapri": "Schließen", "prazno": "Keine Treffer."},
-    "es": {"zaznamki": "Marcadores", "zgodovina": "Historial", "uvozi": "Importar de otro navegador …",
+    "es": {"strojno": "Aceleración por hardware (desactívala si las páginas se ven mal)", "zaznamki": "Marcadores", "zgodovina": "Historial", "uvozi": "Importar de otro navegador …",
            "uvoz_zaznamki": "Marcadores añadidos: {n} (de: {od}).", "uvoz_brez": "No se encontró otro navegador con datos.",
            "uvoz_zavihki": "Abrir {n} pestañas de {ime}", "zapri": "Cerrar", "prazno": "Sin resultados."},
-    "fr": {"zaznamki": "Favoris", "zgodovina": "Historique", "uvozi": "Importer d'un autre navigateur …",
+    "fr": {"strojno": "Accélération matérielle (désactivez-la si les pages s'affichent mal)", "zaznamki": "Favoris", "zgodovina": "Historique", "uvozi": "Importer d'un autre navigateur …",
            "uvoz_zaznamki": "Favoris ajoutés : {n} (de : {od}).", "uvoz_brez": "Aucun autre navigateur avec des données.",
            "uvoz_zavihki": "Ouvrir {n} onglets de {ime}", "zapri": "Fermer", "prazno": "Aucun résultat."},
-    "it": {"zaznamki": "Segnalibri", "zgodovina": "Cronologia", "uvozi": "Importa da un altro browser …",
+    "it": {"strojno": "Accelerazione hardware (disattivala se le pagine si vedono male)", "zaznamki": "Segnalibri", "zgodovina": "Cronologia", "uvozi": "Importa da un altro browser …",
            "uvoz_zaznamki": "Segnalibri aggiunti: {n} (da: {od}).", "uvoz_brez": "Nessun altro browser con dati trovato.",
            "uvoz_zavihki": "Apri {n} schede da {ime}", "zapri": "Chiudi", "prazno": "Nessun risultato."},
 }.items():
     BESEDILA.setdefault(_j, {}).update(_b)
+
+
+for _j, _b in {'sl': {'predpomnilnik': 'Upravitelj predpomnilnika', 'pp_disk': 'Predpomnilnik na disku: {mb} MB', 'pp_pocisti': 'Počisti predpomnilnik (prijave ostanejo)', 'pp_strani': 'Shranjeni podatki strani', 'pp_odstrani': 'Odstrani', 'pp_meja': 'Samodejno počisti predpomnilnik nad {mb} MB', 'pp_iskanje': 'Išči stran …', 'pp_vrste': 'piškotki, shramba, predpomnilnik'}, 'en': {'predpomnilnik': 'Cache manager', 'pp_disk': 'Disk cache: {mb} MB', 'pp_pocisti': 'Clear cache (keeps sign-ins)', 'pp_strani': 'Stored site data', 'pp_odstrani': 'Remove', 'pp_meja': 'Automatically clear cache above {mb} MB', 'pp_iskanje': 'Search site …', 'pp_vrste': 'cookies, storage, cache'}, 'de': {'predpomnilnik': 'Cache-Verwaltung', 'pp_disk': 'Festplatten-Cache: {mb} MB', 'pp_pocisti': 'Cache leeren (Anmeldungen bleiben)', 'pp_strani': 'Gespeicherte Website-Daten', 'pp_odstrani': 'Entfernen', 'pp_meja': 'Cache über {mb} MB automatisch leeren', 'pp_iskanje': 'Website suchen …', 'pp_vrste': 'Cookies, Speicher, Cache'}, 'es': {'predpomnilnik': 'Gestor de caché', 'pp_disk': 'Caché en disco: {mb} MB', 'pp_pocisti': 'Vaciar caché (se mantienen las sesiones)', 'pp_strani': 'Datos guardados de sitios', 'pp_odstrani': 'Eliminar', 'pp_meja': 'Vaciar la caché automáticamente por encima de {mb} MB', 'pp_iskanje': 'Buscar sitio …', 'pp_vrste': 'cookies, almacenamiento, caché'}, 'fr': {'predpomnilnik': 'Gestionnaire de cache', 'pp_disk': 'Cache disque : {mb} Mo', 'pp_pocisti': 'Vider le cache (les connexions restent)', 'pp_strani': 'Données de sites enregistrées', 'pp_odstrani': 'Supprimer', 'pp_meja': 'Vider automatiquement le cache au-delà de {mb} Mo', 'pp_iskanje': 'Rechercher un site …', 'pp_vrste': 'cookies, stockage, cache'}, 'it': {'predpomnilnik': 'Gestione cache', 'pp_disk': 'Cache su disco: {mb} MB', 'pp_pocisti': 'Svuota cache (gli accessi restano)', 'pp_strani': 'Dati dei siti salvati', 'pp_odstrani': 'Rimuovi', 'pp_meja': 'Svuota automaticamente la cache oltre {mb} MB', 'pp_iskanje': 'Cerca sito …', 'pp_vrste': 'cookie, archiviazione, cache'}}.items():
+    BESEDILA.setdefault(_j, {}).update(_b)
+
+
+
+def velikost_mape_mb(pot: str) -> int:
+    """Velikost mape v MiB (datoteke, brez sledenja povezavam)."""
+    skupaj = 0
+    for koren, _mape, datoteke in os.walk(pot):
+        for ime in datoteke:
+            try:
+                skupaj += os.lstat(os.path.join(koren, ime)).st_size
+            except OSError:
+                pass
+    return skupaj // (1024 * 1024)
+
+
+def politika_pospesevanja(WebKit2, nastavitev):
+    """Strojno pospesevanje je privzeto vklopljeno (ALWAYS); uporabnik ga lahko izklopi ("never").
+    "on_demand" je v WebKitGTK 2.4x opuscen - obravnavamo ga kot vklopljeno."""
+    return WebKit2.HardwareAccelerationPolicy.NEVER if nastavitev == "never" else WebKit2.HardwareAccelerationPolicy.ALWAYS
 
 
 def blizjica(tipka: str, ctrl: bool = False, shift: bool = False, alt: bool = False) -> str | None:
@@ -353,6 +376,7 @@ class VdelaniSplet:
             pass
         self._nastavi_omrezje()
         self.kontekst.connect("download-started", self._prenos_zacet)
+        self._omeji_predpomnilnik()
 
     def _nastavi_omrezje(self) -> None:
         W = self.WebKit2
@@ -489,6 +513,7 @@ class VdelaniSplet:
             (self._t("zaznamki"), lambda *_: self._seznam("zaznamki")),
             (self._t("zgodovina"), lambda *_: self._seznam("zgodovina")),
             (self._t("uvozi"), self._uvozi),
+            (self._t("predpomnilnik"), lambda *_: self._predpomnilnik()),
             (self._t("prenosi"), self._pokazi_prenose),
             (self._t("najdi"), lambda *_: self._pokazi_najdi()),
             (self._t("povecaj"), lambda *_: self._povecava(.1)),
@@ -525,7 +550,8 @@ class VdelaniSplet:
                 pass
             self.filter_agent = FilterListAgent(mapa, on_rules=lambda p, v: self.GLib.idle_add(self._namesti_filter, p, v),
                                                  never_block_domains=adblock.real_bank_domains())
-            if preveden and preveden == self.filter_agent.saved_sha256():
+            from core.webkit_filters import VERZIJA_PRETVORNIKA
+            if preveden and preveden == "%s:%s" % (self.filter_agent.saved_sha256(), VERZIJA_PRETVORNIKA):
                 self.filter_agent.skip_saved = True
                 self._nalozi_preveden_filter()
             self.filter_agent.start()
@@ -572,7 +598,8 @@ class VdelaniSplet:
             from core.filter_lists import pocisti_zacasne_filtre
             pocisti_zacasne_filtre(str(self._filter_mapa))
             if self.filter_agent is not None and self.filter_agent.list_sha256:
-                (self._filter_mapa / "list.sha256").write_text(self.filter_agent.list_sha256, "utf-8")
+                from core.webkit_filters import VERZIJA_PRETVORNIKA
+                (self._filter_mapa / "list.sha256").write_text("%s:%s" % (self.filter_agent.list_sha256, VERZIJA_PRETVORNIKA), "utf-8")
             for z in self.zavihki:
                 self._uporabi_filter(z["pogled"])
         except Exception as napaka:
@@ -624,6 +651,7 @@ class VdelaniSplet:
         self._skripta(upravitelj, adblock.ANTI_CLICKJACKING_SCRIPT, W.UserScriptInjectionTime.END, izloceni=izvzemi + ["file://*"])
         self._skripta(upravitelj, adblock.TAB_THROTTLER_SCRIPT, izloceni=izvzemi)
         nastavitve = pogled.get_settings()
+        nastavitve.set_hardware_acceleration_policy(politika_pospesevanja(W, self.config.get("hardware_acceleration", "on_demand")))
         nastavitve.set_enable_javascript(True)
         nastavitve.set_enable_javascript_markup(True)
         nastavitve.set_javascript_can_open_windows_automatically(False)
@@ -820,6 +848,88 @@ class VdelaniSplet:
             if je_domaca_stran(z["pogled"].get_uri() or "", self.koren):
                 self._poslji_stanje(z["pogled"], prenesi=False)
 
+    def _mapa_predpomnilnika(self) -> str:
+        return os.path.join(self.config.config_dir, "web-data", "cache")
+
+    def _omeji_predpomnilnik(self) -> None:
+        """Ob zagonu: predpomnilnik na disku nad mejo (privzeto 500 MB) se pocisti; prijave in shramba strani ostanejo."""
+        meja = int(self.config.get("splet_predpomnilnik_meja_mb", 500) or 0)
+        if meja <= 0:
+            return
+        def preveri():
+            if velikost_mape_mb(self._mapa_predpomnilnika()) > meja:
+                self.GLib.idle_add(lambda: (self._pocisti_predpomnilnik(), False)[1])
+        import threading
+        threading.Thread(target=preveri, daemon=True, name="splet-predpomnilnik").start()
+
+    def _pocisti_predpomnilnik(self, ob_koncu=None) -> None:
+        W = self.WebKit2
+        try:
+            self.kontekst.get_website_data_manager().clear(
+                W.WebsiteDataTypes.DISK_CACHE | W.WebsiteDataTypes.MEMORY_CACHE, 0, None,
+                (lambda *_: ob_koncu()) if ob_koncu else None, None)
+        except Exception as napaka:  # noqa: BLE001
+            print("[Safeer OS Splet] predpomnilnik:", napaka)
+
+    def _predpomnilnik(self) -> None:
+        """Upravitelj predpomnilnika: velikost, ciscenje predpomnilnika (prijave ostanejo), podatki po straneh, meja."""
+        Gtk, W = self.Gtk, self.WebKit2
+        upr = self.kontekst.get_website_data_manager()
+        d = Gtk.Dialog(title=self._t("predpomnilnik"), transient_for=self.stars, modal=True)
+        d.set_default_size(640, 560)
+        d.add_button(self._t("zapri"), Gtk.ResponseType.CLOSE)
+        obmocje = d.get_content_area(); obmocje.set_spacing(8)
+        for stran in ("set_margin_start", "set_margin_end", "set_margin_top"):
+            getattr(obmocje, stran)(12)
+        napis = Gtk.Label(xalign=0)
+        def osvezi_napis():
+            napis.set_text(self._t("pp_disk", mb=velikost_mape_mb(self._mapa_predpomnilnika())))
+        osvezi_napis()
+        pocisti = Gtk.Button(label=self._t("pp_pocisti"))
+        pocisti.connect("clicked", lambda *_: self._pocisti_predpomnilnik(lambda: self.GLib.timeout_add(500, lambda: (osvezi_napis(), False)[1])))
+        meja_mb = int(self.config.get("splet_predpomnilnik_meja_mb", 500) or 500)
+        samodejno = Gtk.CheckButton(label=self._t("pp_meja", mb=meja_mb))
+        samodejno.set_active(int(self.config.get("splet_predpomnilnik_meja_mb", 500) or 0) > 0)
+        samodejno.connect("toggled", lambda g: self.config.set("splet_predpomnilnik_meja_mb", meja_mb if g.get_active() else 0))
+        obmocje.pack_start(napis, False, False, 0); obmocje.pack_start(pocisti, False, False, 0)
+        obmocje.pack_start(samodejno, False, False, 0)
+        obmocje.pack_start(Gtk.Label(label=self._t("pp_strani"), xalign=0, margin_top=8), False, False, 0)
+        iskanje = Gtk.SearchEntry(); iskanje.set_placeholder_text(self._t("pp_iskanje"))
+        obmocje.pack_start(iskanje, False, False, 0)
+        okvir = Gtk.ScrolledWindow(); okvir.set_vexpand(True)
+        seznam = Gtk.ListBox(); okvir.add(seznam); obmocje.pack_start(okvir, True, True, 0)
+        vrste = W.WebsiteDataTypes.ALL if hasattr(W.WebsiteDataTypes, "ALL") else (
+            W.WebsiteDataTypes.COOKIES | W.WebsiteDataTypes.LOCAL_STORAGE | W.WebsiteDataTypes.INDEXEDDB_DATABASES
+            | W.WebsiteDataTypes.DISK_CACHE)
+        podatki = []
+        def izrisi(*_):
+            for v in seznam.get_children():
+                v.destroy()
+            niz = iskanje.get_text().strip().lower()
+            for wd in sorted(podatki, key=lambda x: x.get_name() or ""):
+                ime = wd.get_name() or ""
+                if niz and niz not in ime.lower():
+                    continue
+                vrstica = Gtk.Box(spacing=8, margin=6)
+                vrstica.pack_start(Gtk.Label(label=ime, xalign=0), True, True, 0)
+                gumb = Gtk.Button(label=self._t("pp_odstrani"))
+                def odstrani(_g, wd=wd):
+                    upr.remove(vrste, [wd], None, lambda *_: (podatki.remove(wd), izrisi(), osvezi_napis()), None)
+                gumb.connect("clicked", odstrani)
+                vrstica.pack_end(gumb, False, False, 0)
+                seznam.add(vrstica)
+            seznam.show_all()
+        def prejeto(m, rezultat, *_):
+            try:
+                podatki[:] = list(m.fetch_finish(rezultat) or [])
+            except Exception as napaka:  # noqa: BLE001
+                print("[Safeer OS Splet] podatki strani:", napaka)
+            izrisi()
+        upr.fetch(vrste, None, prejeto, None)
+        iskanje.connect("search-changed", izrisi)
+        d.connect("response", lambda *_: d.destroy())
+        d.show_all()
+
     def _miska(self, pogled, dogodek) -> bool:
         """Stranska gumba miske (nazaj/naprej), kot v drugih brskalnikih."""
         if dogodek.button == 8:
@@ -958,9 +1068,10 @@ class VdelaniSplet:
                 odlocitev.use(); return True
             if not naslov.startswith(("http://", "https://")):
                 odlocitev.ignore(); return True
-            if self.config.get("adblock_enabled", True) and adblock.is_ad_domain(naslov) and not adblock.is_threat_domain(naslov):
+            grozi = adblock.is_threat_domain(naslov)      # enkrat na navigacijo (prej dvakrat)
+            if not grozi and self.config.get("adblock_enabled", True) and adblock.is_ad_domain(naslov):
                 self.config.increment_ads_blocked(); odlocitev.ignore(); self._osvezi_scit(); return True
-            if adblock.is_threat_domain(naslov):
+            if grozi:
                 self.config.increment_threats_blocked(); odlocitev.ignore(); self._opozorilo("Safeer Shield", naslov); self._osvezi_scit(); return True
             sodba = adblock.fake_bank_verdict(naslov)
             if sodba is not None:
@@ -991,7 +1102,7 @@ class VdelaniSplet:
     def _poslji_stanje(self, pogled, prenesi=True):
         """Zacetna stran Splet: jezik, iskalnik in bliznjice z ikonami (manjkajoce se prenesejo v ozadju)."""
         from core import ikone_strani
-        portali, manjkajo = ikone_strani.z_ikonami(self.config.get_portals())
+        portali, manjkajo = ikone_strani.z_ikonami(self.config.get_home_portals())
         # Kdor je kdaj imel lastne bliznjice, mu vgrajenih ne vracamo, ko svoje odstrani (nic ni vsiljeno).
         if portali and not self.config.get("splet_brez_privzetih", False): self.config.set("splet_brez_privzetih", True)
         stanje = {"language": self.jezik(), "engine": self.config.get("search_engine", "duckduckgo"), "portals": portali,
@@ -1179,13 +1290,19 @@ class VdelaniSplet:
         motor.set_active_id(self.config.get("search_engine", "duckduckgo"))
         oglasi = self.Gtk.CheckButton(label=self._t("adblock")); oglasi.set_active(self.config.get("adblock_enabled", True))
         doh = self.Gtk.CheckButton(label=self._t("doh")); doh.set_active(self.config.get("doh_enabled", True))
+        strojno = self.Gtk.CheckButton(label=self._t("strojno"))
+        strojno.set_active(self.config.get("hardware_acceleration", "on_demand") != "never")
         mreza.attach(self.Gtk.Label(label=self._t("iskalnik"), xalign=0), 0, 0, 1, 1); mreza.attach(motor, 1, 0, 1, 1)
-        mreza.attach(oglasi, 0, 1, 2, 1); mreza.attach(doh, 0, 2, 2, 1)
+        mreza.attach(oglasi, 0, 1, 2, 1); mreza.attach(doh, 0, 2, 2, 1); mreza.attach(strojno, 0, 3, 2, 1)
         d.get_content_area().add(mreza); d.show_all()
         if d.run() == self.Gtk.ResponseType.OK:
             self.config.set("search_engine", motor.get_active_id() or "duckduckgo")
             self.config.set("adblock_enabled", oglasi.get_active())
             self.config.set("doh_enabled", doh.get_active())
+            self.config.set("hardware_acceleration", "on_demand" if strojno.get_active() else "never")
+            politika = politika_pospesevanja(self.WebKit2, self.config.get("hardware_acceleration"))
+            for z in self.zavihki:
+                z["pogled"].get_settings().set_hardware_acceleration_policy(politika)
             self._nastavi_omrezje()
         d.destroy()
     def _v_zapisek(self, *_):

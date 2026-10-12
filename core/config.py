@@ -441,6 +441,11 @@ class ConfigManager:
         """Shrani seznam priljubljenih strani."""
         self.set("custom_portals", portals)
 
+    def get_home_portals(self):
+        """Bliznjice za zacetno stran: brez uvozenih zaznamkov (ti so v seznamu zaznamkov), sicer bi uvoz stotih
+        zaznamkov iz drugega brskalnika preplavil zacetno stran (lastnik, 12. 10. 2026). Uvozeni imajo kljuc folder."""
+        return [p for p in self.get_portals() if "folder" not in p and not p.get("uvozen")]
+
     def add_portal(self, title: str, url: str, mark: str = "🌐", bg: str = "", color: str = "#00d2ff") -> str:
         """Doda novo priljubljeno stran."""
         norm_url = normalize_web_url(url)
@@ -554,7 +559,8 @@ class ConfigManager:
                 "color": item.get("color", "#00d2ff"),
                 "domain": item.get("domain", ""),
                 "favicon": item.get("favicon", ""),
-                "folder": item.get("folder", "")
+                "folder": item.get("folder", ""),
+                "uvozen": True
             })
             existing_urls.add(norm_key)
             added_count += 1
