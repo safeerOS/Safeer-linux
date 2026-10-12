@@ -414,3 +414,6 @@ select option { background: #111c2b; color: var(--besedilo); }
 .medij-tokovi-naslov { font-size: .78em; opacity: .75; margin-right: .2em; }
 .medij-tokovi .cip { font-size: .8em; }
 .medij-tokovi .cip.izbran { background: var(--izbrano); border-color: var(--poudarek); }
+
+/* Meni nastavitev namizja je dolg (sistemske nastavitve): na majhnem zaslonu se pomika. */
+#meniPlosce { max-height: calc(100vh - 90px); overflow-y: auto; }

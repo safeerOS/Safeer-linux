@@ -29,7 +29,7 @@
       iskanjePh: "Išči po spletu, programih, datotekah in medijih …", iskanjePhKratko: "Išči programe, datoteke, splet …", iskanjePhKrajse: "Išči programe in splet …", iskanjePhNajkrajse: "Išči …", iskanjeNamig: "Enter odpre označeno · Shift+Enter splet",
       plosceNaslov: "Plošče", medijiNaslov: "Medijski center", datotekeNaslov: "Datoteke", programiNaslov: "Programi",
       zamenjajStrani: "Zamenjaj levo in desno", ponastavi: "Privzeta postavitev", vecjiTekst: "Večje besedilo", velikostBesedila: "Velikost besedila", tekst200: "200 % – za ogled od daleč",
-      manjProsojnosti: "Manj prosojnosti", spletVBrskalniku: "Iskanje po spletu v privzetem brskalniku", spletVBrskalnikuIme: "Iskanje po spletu v brskalniku {ime}", skrijPlosco: "Skrij ploščo", pokaziPlosco: "Pokaži ploščo {ime}", spremeniVelikost: "Povleci za spremembo velikosti (puščice s tipkovnico)",
+      manjProsojnosti: "Manj prosojnosti", spletVBrskalniku: "Iskanje po spletu v privzetem brskalniku", spletVBrskalnikuIme: "Iskanje po spletu v brskalniku {ime}", sistemNaslov: "Namizje in sistem", modulTeme: "Tema, ikone in kazalec …", modulOzadja: "Sistemska ozadja …", modulPisave: "Pisave …", modulZaslon: "Zaslon …", modulOkna: "Okna …", modulPult: "Pult …", modulNocna: "Nočna svetloba …", modulVse: "Vse nastavitve sistema …", skrijPlosco: "Skrij ploščo", pokaziPlosco: "Pokaži ploščo {ime}", spremeniVelikost: "Povleci za spremembo velikosti (puščice s tipkovnico)",
       odpriMedijskiCenter: "Odpri Medijski center", niPredvajanja: "Ni predvajanja",
       medijNavodilo: "Izberi glasbo ali video v Datotekah ali v Medijskem centru.",
       medijIskanjePh: "Išči glasbo, radio, filme in serije …", medijIskanjeVse: "Vsi zadetki za »{q}« v Medijskem centru",
@@ -230,7 +230,7 @@
       iskanjePh: "Search the web, apps, files and media …", iskanjePhKratko: "Search apps, files, web …", iskanjePhKrajse: "Search apps and web …", iskanjePhNajkrajse: "Search …", iskanjeNamig: "Enter opens the selection · Shift+Enter web",
       plosceNaslov: "Panels", medijiNaslov: "Media center", datotekeNaslov: "Files", programiNaslov: "Apps",
       zamenjajStrani: "Swap left and right", ponastavi: "Default layout", vecjiTekst: "Larger text", velikostBesedila: "Text size", tekst200: "200 % – for viewing from afar",
-      manjProsojnosti: "Less transparency", spletVBrskalniku: "Search the web in the default browser", spletVBrskalnikuIme: "Search the web in {ime}", skrijPlosco: "Hide panel", pokaziPlosco: "Show the {ime} panel", spremeniVelikost: "Drag to resize (arrow keys work too)",
+      manjProsojnosti: "Less transparency", spletVBrskalniku: "Search the web in the default browser", spletVBrskalnikuIme: "Search the web in {ime}", sistemNaslov: "Desktop and system", modulTeme: "Theme, icons and pointer …", modulOzadja: "System backgrounds …", modulPisave: "Fonts …", modulZaslon: "Display …", modulOkna: "Windows …", modulPult: "Panel …", modulNocna: "Night light …", modulVse: "All system settings …", skrijPlosco: "Hide panel", pokaziPlosco: "Show the {ime} panel", spremeniVelikost: "Drag to resize (arrow keys work too)",
       odpriMedijskiCenter: "Open Media center", niPredvajanja: "Nothing playing",
       medijNavodilo: "Pick music or a video in Files or in the Media center.",
       medijIskanjePh: "Search music, radio, films and series …", medijIskanjeVse: "All results for “{q}” in the Media center",
@@ -3542,6 +3542,10 @@
     });
     $("izbiraTeksta").addEventListener("change", function () {
       klic("videzCinnamonNastavi", ["tekst", Number(this.value)]).then(nastaviVidez).catch(uveljaviPostavitev);
+    });
+    // Sistemske nastavitve namizja (Cinnamon): odpre jih sistem, uporabnik ima vse moznosti.
+    Array.prototype.forEach.call(document.querySelectorAll("[data-modul]"), function (b) {
+      b.addEventListener("click", function () { klic("sistemskeNastavitve", [b.getAttribute("data-modul")]).catch(function () {}); });
     });
     // Uporabnik, ki mu je ljubsi drug brskalnik: iskanje po spletu iz zgornjega polja odpre privzeti brskalnik sistema.
     $("stikaloBrskalnik").addEventListener("change", function () { N.spletVBrskalniku = this.checked; shrani(); });

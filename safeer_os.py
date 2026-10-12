@@ -75,6 +75,29 @@ def privzeti_brskalnik() -> str:
     except Exception:  # noqa: BLE001
         return ""
 
+MODULI_NASTAVITEV = ("", "themes", "backgrounds", "fonts", "display", "windows", "panel", "nightlight", "desktop",
+                     "effects", "keyboard", "mouse", "sound", "power", "screensaver", "accessibility")
+
+
+def sistemske_nastavitve(modul: str = "") -> bool:
+    """Odpre sistemske nastavitve namizja (Cinnamon; brez njega GNOME/Xfce/MATE). Samo znani moduli."""
+    from shutil import which
+    if modul not in MODULI_NASTAVITEV:
+        return False
+    if which("cinnamon-settings"):
+        ukaz = ["cinnamon-settings"] + ([modul] if modul else [])
+    else:
+        ukaz = next(([u] for u in ("gnome-control-center", "xfce4-settings-manager", "mate-control-center")
+                     if which(u)), None)
+        if ukaz is None:
+            return False
+    try:
+        subprocess.Popen(ukaz, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+        return True
+    except OSError:
+        return False
+
 def dvojni_esc(prejsnji_ms, zdaj_ms, okno_ms: int = 600) -> bool:
     """Ali je bil Esc pritisnjen dvakrat zapored v okno_ms (casi dogodkov GDK v ms)."""
     if prejsnji_ms is None or not zdaj_ms:
@@ -2487,6 +2510,7 @@ class SafeerOS(Gtk.Application):
             "iskanjeSplet": lambda: self._splet(_iskalnik() + GLib.uri_escape_string(str(a[0] if a else ""), None, False)),
             "odpriVBrskalniku": lambda: self._odpri_v_brskalniku(str(a[0]) if a else ""),
             "privzetiBrskalnik": privzeti_brskalnik,
+            "sistemskeNastavitve": lambda: sistemske_nastavitve(str(a[0]) if a else ""),
             "spletNaNamizju": lambda: self._splet_na_namizju(str(a[0]) if a else "",
                                                              a[1] if len(a) > 1 and isinstance(a[1], (int, float)) else 0),
             "spletNaNamizjuZapri": self._skrij_splet_na_namizju,

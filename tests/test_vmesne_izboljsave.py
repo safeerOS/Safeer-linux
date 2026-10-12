@@ -154,3 +154,34 @@ class SpletVPrivzetemBrskalniku(unittest.TestCase):
         self.assertEqual(f(), "Opera")
         AppInfo.ime = None
         self.assertEqual(f(), "")
+
+
+class SistemskeNastavitve(unittest.TestCase):
+    """Uporabnik ima vedno proste roke: vse nastavitve namizja so dosegljive iz nastavitev delovne povrsine."""
+
+    def test_gumbi_in_besedila(self):
+        html = (KOREN / "assets/os/delovna.html").read_text(encoding="utf-8")
+        js = (KOREN / "assets/os/delovna.js").read_text(encoding="utf-8")
+        for modul in ("themes", "backgrounds", "fonts", "display", "windows", "panel", "nightlight", ""):
+            self.assertIn('data-modul="%s"' % modul, html)
+        for kljuc in ("modulTeme", "modulVse", "sistemNaslov"):
+            self.assertEqual(js.count(kljuc + ":"), 2)       # sl, en
+        self.assertIn('klic("sistemskeNastavitve"', js)
+
+    def test_samo_znani_moduli(self):
+        f = _funkcija("safeer_os.py", "sistemske_nastavitve")
+        zagnano = []
+
+        class Sp:
+            DEVNULL = None
+
+            @staticmethod
+            def Popen(ukaz, **_k):
+                zagnano.append(ukaz)
+
+        f.__globals__.update(subprocess=Sp, MODULI_NASTAVITEV=("", "themes"))
+        with mock.patch("shutil.which", lambda u: "/usr/bin/" + u if u == "cinnamon-settings" else None):
+            self.assertTrue(f("themes"))
+            self.assertTrue(f(""))
+            self.assertFalse(f("; rm -rf /"))
+        self.assertEqual(zagnano, [["cinnamon-settings", "themes"], ["cinnamon-settings"]])
