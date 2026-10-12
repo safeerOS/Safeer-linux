@@ -136,6 +136,22 @@ def omrezni_procesi(starsevski: int | None = None) -> set:
     return izid
 
 
+def odprte_datoteke(pid: int) -> set:
+    """Poti datotek, ki jih ima proces odprte (/proc/<pid>/fd); prazno, ce ni dostopa."""
+    izid = set()
+    mapa = "/proc/%d/fd" % pid
+    try:
+        imena = os.listdir(mapa)
+    except OSError:
+        return izid
+    for ime in imena:
+        try:
+            izid.add(os.path.realpath(os.readlink(os.path.join(mapa, ime))))
+        except OSError:
+            continue
+    return izid
+
+
 def besedila(jezik: str) -> dict:
     """Besedila razdelka Splet; neznani jezik varno pade na anglescino."""
     return BESEDILA.get(str(jezik or "")[:2].lower(), BESEDILA["en"])
@@ -197,8 +213,6 @@ class VdelaniSplet:
         self.filter, self.filter_store, self.filter_agent = None, None, None
         self.prenosi = []
         self._threat_service = None
-        # Omrezni proces Spleta se lahko zazene ze ob ustvarjanju konteksta (posrednik DoH, filtri): stanje prej.
-        self._omrezni_pred = omrezni_procesi()
         self._ustvari_kontekst()
         self._zgradi()
         self._zazeni_zascito()
@@ -521,11 +535,6 @@ class VdelaniSplet:
         return pogled
 
     def nov_zavihek(self, naslov: str = ""):
-        # Omrezni proces Spleta si zapomnimo ob prvem zavihku: ob sprostitvi ga koncamo (sprosti_zavihke).
-        if getattr(self, "_omrezni_pid", None) is None and not getattr(self, "_iscem_omrezni", False):
-            pred = getattr(self, "_omrezni_pred", None)
-            self._omrezni_pred = None
-            self._sledi_omreznemu(omrezni_procesi() if pred is None else pred)
         self._stevec += 1
         pogled = self._nov_pogled()
         vrstica = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -565,38 +574,23 @@ class VdelaniSplet:
         self.aktivni = None
         self.koncaj_omrezni_proces()
 
-    def _sledi_omreznemu(self, pred: set) -> None:
-        """Nekaj sekund isce omrezni proces, ki ga se ni bilo v `pred` - to je proces tega Spleta."""
-        self._iscem_omrezni = True
-        zacetek = self.GLib.get_monotonic_time()
-
-        def poisci() -> bool:
-            novi = omrezni_procesi() - pred
-            self._omrezni_pid = novi.pop() if len(novi) == 1 else getattr(self, "_omrezni_pid", None)
-            if novi or getattr(self, "_omrezni_pid", None) is not None or \
-                    self.GLib.get_monotonic_time() - zacetek > 8_000_000:
-                self._iscem_omrezni = False
-                return False
-            return True
-        self.GLib.timeout_add(200, poisci)
-
     def koncaj_omrezni_proces(self) -> bool:
         """Konca omrezni proces Spleta, ko Splet nima zavihkov; ob naslednjem zavihku WebKit zazene novega.
 
         12. 10. 2026: libsoup 3.4.4-5ubuntu0.9 (in upstream) pri vsaki povezavi prek posrednika (nas DoH) pusti
         SoupConnection - omrezni proces je rasel ~6 MiB/min (krog147/libsoup-prispevek). Do popravka v distribucijah
-        tako pomnilnik vrnemo ob vsaki sprostitvi Spleta; DNS ostane sifriran. Ubijemo samo proces, ki se je pojavil
-        ob prvem zavihku Spleta (otrok tega procesa z imenom WebKitNetworkProcess)."""
-        pid, self._omrezni_pid = getattr(self, "_omrezni_pid", None), None
-        if not pid or pid not in omrezni_procesi():
-            return False
-        try:
-            os.kill(pid, 15)
-        except OSError:
-            return False
-        # WebKit zazene nov omrezni proces takoj (kontekst ostane): sledimo mu, da ga ob naslednji sprostitvi spet koncamo.
-        self._sledi_omreznemu(omrezni_procesi() - {pid})
-        return True
+        tako pomnilnik vrnemo ob vsaki sprostitvi Spleta; DNS ostane sifriran. Proces Spleta prepoznamo po tem, da ima
+        odprto shrambo piskotkov Spleta (zanesljivo, ne glede na cas zagona; namizje in Control je nimata)."""
+        piskotki = os.path.realpath(os.path.join(self.config.config_dir, "cookies.sqlite"))
+        konec = False
+        for pid in omrezni_procesi():
+            if piskotki in odprte_datoteke(pid):
+                try:
+                    os.kill(pid, 15)
+                    konec = True
+                except OSError:
+                    pass
+        return konec
 
     def sprazni_predpomnilnik(self) -> bool:
         """Ob skritju Spleta: spletni procesi izpraznejo pomnilniski predpomnilnik (dekodirane slike, skripte, CSS).

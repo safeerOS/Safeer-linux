@@ -157,99 +157,51 @@ class DrugaAplikacija(unittest.TestCase):
 
 
 class OmrezniProcesSpleta(unittest.TestCase):
-    """libsoup 3.4.4-5ubuntu0.9 pusca povezave prek posrednika: ob sprostitvi Spleta koncamo njegov omrezni proces."""
+    """libsoup 3.4.4-5ubuntu0.9 pusca povezave prek posrednika: ob sprostitvi Spleta koncamo njegov omrezni proces.
+    Prepoznamo ga po odprti shrambi piskotkov Spleta (12. 10.: sledenje po casu zagona je na pravem PC zgresilo)."""
 
-    def _splet(self):
+    def _splet(self, mapa):
         from core import os_splet
         s = os_splet.VdelaniSplet.__new__(os_splet.VdelaniSplet)
         s.zavihki, s.aktivni = [], None
+
+        class Config:
+            config_dir = mapa
+        s.config = Config()
         return s, os_splet
 
-    def test_konca_samo_zapomnjeni_proces(self):
+    def test_konca_samo_proces_s_piskotki_spleta(self):
         from unittest import mock
-        s, os_splet = self._splet()
-        s._omrezni_pid = 4242
-        klici = []
+        with tempfile.TemporaryDirectory() as d:
+            s, os_splet = self._splet(d)
+            piskotki = os.path.realpath(os.path.join(d, "cookies.sqlite"))
+            odprte = {11: {"/x/namizje"}, 22: {piskotki, "/x/cache"}, 33: set()}
+            with mock.patch.object(os_splet, "omrezni_procesi", return_value={11, 22, 33}), \
+                    mock.patch.object(os_splet, "odprte_datoteke", side_effect=lambda pid: odprte[pid]), \
+                    mock.patch.object(os_splet.os, "kill") as kill:
+                self.assertTrue(s.koncaj_omrezni_proces())
+            kill.assert_called_once_with(22, 15)
 
-        class GLib:
-            @staticmethod
-            def get_monotonic_time():
-                return 0
-
-            @staticmethod
-            def timeout_add(_ms, fn):
-                klici.append(fn)
-        s.GLib = GLib
-        with mock.patch.object(os_splet, "omrezni_procesi", side_effect=[{4242, 77}, {4242, 77}, {77, 5000}]), \
-                mock.patch.object(os_splet.os, "kill") as kill:
-            self.assertTrue(s.koncaj_omrezni_proces())
-            self.assertIsNone(s._omrezni_pid)
-            klici[0]()                     # WebKit je zagnal novega: tudi temu sledimo
-        kill.assert_called_once_with(4242, 15)
-        self.assertEqual(s._omrezni_pid, 5000)
-
-    def test_ne_ubije_tujega(self):
+    def test_brez_procesa_spleta_nic(self):
         from unittest import mock
-        s, os_splet = self._splet()
-        s._omrezni_pid = 4242          # ze koncan; PID ni vec omrezni proces tega procesa
-        with mock.patch.object(os_splet, "omrezni_procesi", return_value={77}), \
-                mock.patch.object(os_splet.os, "kill") as kill:
-            self.assertFalse(s.koncaj_omrezni_proces())
-        kill.assert_not_called()
-        s._omrezni_pid = None
-        with mock.patch.object(os_splet.os, "kill") as kill:
-            self.assertFalse(s.koncaj_omrezni_proces())
-        kill.assert_not_called()
+        with tempfile.TemporaryDirectory() as d:
+            s, os_splet = self._splet(d)
+            with mock.patch.object(os_splet, "omrezni_procesi", return_value={11}), \
+                    mock.patch.object(os_splet, "odprte_datoteke", return_value={"/x/namizje"}), \
+                    mock.patch.object(os_splet.os, "kill") as kill:
+                self.assertFalse(s.koncaj_omrezni_proces())
+            kill.assert_not_called()
 
     def test_sprostitev_konca_omrezni(self):
         from unittest import mock
-        s, os_splet = self._splet()
-        with mock.patch.object(os_splet.VdelaniSplet, "koncaj_omrezni_proces") as k:
-            s.sprosti_zavihke()
-        k.assert_called_once()
+        with tempfile.TemporaryDirectory() as d:
+            s, os_splet = self._splet(d)
+            with mock.patch.object(os_splet.VdelaniSplet, "koncaj_omrezni_proces") as k:
+                s.sprosti_zavihke()
+            k.assert_called_once()
 
-    def test_proces_iz_ustvarjanja_konteksta(self):
-        """Omrezni proces se zazene ze ob ustvarjanju konteksta - primerjamo s stanjem pred tem."""
-        from unittest import mock
-        s, os_splet = self._splet()
-        s._omrezni_pred, s._stevec = {1}, 0
-        klici = []
-
-        class GLib:
-            @staticmethod
-            def get_monotonic_time():
-                return 0
-
-            @staticmethod
-            def timeout_add(_ms, fn):
-                klici.append(fn)
-        s.GLib = GLib
-        with mock.patch.object(os_splet, "omrezni_procesi", return_value={1, 55}), \
-                mock.patch.object(os_splet.VdelaniSplet, "_nov_pogled", side_effect=RuntimeError("konec")):
-            with self.assertRaises(RuntimeError):
-                s.nov_zavihek("")
-            klici[0]()
-        self.assertEqual(s._omrezni_pid, 55)
-
-    def test_iskanje_brez_zacetnega_atributa(self):
-        """12. 10. v zivo: AttributeError '_omrezni_pid' v iskanju ob prvem zavihku."""
-        from unittest import mock
-        s, os_splet = self._splet()
-        klici = []
-
-        class GLib:
-            @staticmethod
-            def get_monotonic_time():
-                return 0
-
-            @staticmethod
-            def timeout_add(_ms, fn):
-                klici.append(fn)
-        s.GLib = GLib
-        s._stevec = 0
-        with mock.patch.object(os_splet, "omrezni_procesi", side_effect=[{1}, {1, 99}]), \
-                mock.patch.object(os_splet.VdelaniSplet, "_nov_pogled", side_effect=RuntimeError("konec")):
-            with self.assertRaises(RuntimeError):
-                s.nov_zavihek("")
-            self.assertFalse(klici[0]())          # nasel nov proces -> konec iskanja
-        self.assertEqual(s._omrezni_pid, 99)
+    def test_odprte_datoteke_tega_procesa(self):
+        from core import os_splet
+        with tempfile.NamedTemporaryFile() as f:
+            self.assertIn(os.path.realpath(f.name), os_splet.odprte_datoteke(os.getpid()))
+        self.assertEqual(os_splet.odprte_datoteke(2 ** 22 + 7), set())
