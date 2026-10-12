@@ -70,8 +70,13 @@ class KlikVOknuGledalca(unittest.TestCase):
         ukazi = []
         upravitelj = WebKit2.UserContentManager()
         upravitelj.register_script_message_handler("safeerVnos")
-        upravitelj.connect("script-message-received::safeerVnos",
-                           lambda _u, r: ukazi.append(json.loads(r.get_js_value().to_string())))
+        self.okna = []
+
+        def sprejmi(_u, r):
+            # okno.* (velikost slike za obliko okna gledalca) ostane v Controlu - na napravo gre samo input.*.
+            u = json.loads(r.get_js_value().to_string())
+            (self.okna if str(u.get("d", "")).startswith("okno.") else ukazi).append(u)
+        upravitelj.connect("script-message-received::safeerVnos", sprejmi)
         if s_skripto:
             upravitelj.add_script(WebKit2.UserScript(self.skripta, WebKit2.UserContentInjectedFrames.TOP_FRAME,
                                                      WebKit2.UserScriptInjectionTime.END, None, None))
@@ -124,6 +129,8 @@ class KlikVOknuGledalca(unittest.TestCase):
         self.assertEqual(stran, [], "stran dotika ne sme poslati se enkrat")
         self.assertEqual(len(ukazi), 1, ukazi)
         self.assertEqual(ukazi[0]["d"], "input.tap")
+        # Okno gledalca dobi velikost slike naprave (enkrat, dokler se ne spremeni), da ima obliko zaslona naprave.
+        self.assertEqual([(o["d"], o["p"]) for o in self.okna], [("okno.velikost", {"w": 800, "h": 400})])
         self.assertAlmostEqual(ukazi[0]["p"]["x"], 0.5, places=2)
         self.assertAlmostEqual(ukazi[0]["p"]["y"], 0.5, places=2)
 
