@@ -523,21 +523,9 @@ class VdelaniSplet:
     def nov_zavihek(self, naslov: str = ""):
         # Omrezni proces Spleta si zapomnimo ob prvem zavihku: ob sprostitvi ga koncamo (sprosti_zavihke).
         if getattr(self, "_omrezni_pid", None) is None and not getattr(self, "_iscem_omrezni", False):
-            self._iscem_omrezni = True
             pred = getattr(self, "_omrezni_pred", None)
-            if pred is None:
-                pred = omrezni_procesi()        # po koncanem procesu: novega zazene ta zavihek
-            self._omrezni_pred, zacetek = None, self.GLib.get_monotonic_time()
-
-            def poisci() -> bool:
-                novi = omrezni_procesi() - pred
-                self._omrezni_pid = novi.pop() if len(novi) == 1 else getattr(self, "_omrezni_pid", None)
-                if novi or getattr(self, "_omrezni_pid", None) is not None or \
-                        self.GLib.get_monotonic_time() - zacetek > 8_000_000:
-                    self._iscem_omrezni = False
-                    return False
-                return True
-            self.GLib.timeout_add(200, poisci)
+            self._omrezni_pred = None
+            self._sledi_omreznemu(omrezni_procesi() if pred is None else pred)
         self._stevec += 1
         pogled = self._nov_pogled()
         vrstica = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -577,6 +565,21 @@ class VdelaniSplet:
         self.aktivni = None
         self.koncaj_omrezni_proces()
 
+    def _sledi_omreznemu(self, pred: set) -> None:
+        """Nekaj sekund isce omrezni proces, ki ga se ni bilo v `pred` - to je proces tega Spleta."""
+        self._iscem_omrezni = True
+        zacetek = self.GLib.get_monotonic_time()
+
+        def poisci() -> bool:
+            novi = omrezni_procesi() - pred
+            self._omrezni_pid = novi.pop() if len(novi) == 1 else getattr(self, "_omrezni_pid", None)
+            if novi or getattr(self, "_omrezni_pid", None) is not None or \
+                    self.GLib.get_monotonic_time() - zacetek > 8_000_000:
+                self._iscem_omrezni = False
+                return False
+            return True
+        self.GLib.timeout_add(200, poisci)
+
     def koncaj_omrezni_proces(self) -> bool:
         """Konca omrezni proces Spleta, ko Splet nima zavihkov; ob naslednjem zavihku WebKit zazene novega.
 
@@ -589,9 +592,11 @@ class VdelaniSplet:
             return False
         try:
             os.kill(pid, 15)
-            return True
         except OSError:
             return False
+        # WebKit zazene nov omrezni proces takoj (kontekst ostane): sledimo mu, da ga ob naslednji sprostitvi spet koncamo.
+        self._sledi_omreznemu(omrezni_procesi() - {pid})
+        return True
 
     def sprazni_predpomnilnik(self) -> bool:
         """Ob skritju Spleta: spletni procesi izpraznejo pomnilniski predpomnilnik (dekodirane slike, skripte, CSS).

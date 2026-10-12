@@ -169,11 +169,24 @@ class OmrezniProcesSpleta(unittest.TestCase):
         from unittest import mock
         s, os_splet = self._splet()
         s._omrezni_pid = 4242
-        with mock.patch.object(os_splet, "omrezni_procesi", return_value={4242, 77}), \
+        klici = []
+
+        class GLib:
+            @staticmethod
+            def get_monotonic_time():
+                return 0
+
+            @staticmethod
+            def timeout_add(_ms, fn):
+                klici.append(fn)
+        s.GLib = GLib
+        with mock.patch.object(os_splet, "omrezni_procesi", side_effect=[{4242, 77}, {4242, 77}, {77, 5000}]), \
                 mock.patch.object(os_splet.os, "kill") as kill:
             self.assertTrue(s.koncaj_omrezni_proces())
+            self.assertIsNone(s._omrezni_pid)
+            klici[0]()                     # WebKit je zagnal novega: tudi temu sledimo
         kill.assert_called_once_with(4242, 15)
-        self.assertIsNone(s._omrezni_pid)
+        self.assertEqual(s._omrezni_pid, 5000)
 
     def test_ne_ubije_tujega(self):
         from unittest import mock
