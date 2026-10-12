@@ -513,6 +513,20 @@ def krog() -> Krog:
         return _krog
 
 
+def pozabi_krog() -> None:
+    """Odjava te naprave (»Odjavi to napravo«): krajevna kopija kroga zaupanja, stiki in sosedje Link Mesh gredo
+    stran. Odjavljena naprava ne sme vec poznati naprav, s katerimi je bila povezana (lastnik, 12. 10. 2026)."""
+    global _krog
+    with _zaklep:
+        pot = _pot_kroga()
+        for dat in (pot, pot + "-stiki.json", os.path.join(_mapa_nastavitev(), "mesh-sosedje.json")):
+            try:
+                os.remove(dat)
+            except FileNotFoundError:
+                pass
+        _krog = None
+
+
 def sprejmi(tuj) -> bool:
     """Krog, ki ga je poslal hub (trust.update ali odgovor na prijavo)."""
     return krog().zdruzi(tuj)

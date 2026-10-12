@@ -18,11 +18,16 @@ rm -rf "$STAGE" "$APPDIR"
 mkdir -p "$APPDIR" "$ROOT/dist"
 bash packaging/install_control_payload.sh "$STAGE/usr"
 bash packaging/install_os_payload.sh "$STAGE/usr"
-# python3-qrcode (QR code in the Safeer Link window) comes from the build host's dist-packages when present.
-if [ -d /usr/lib/python3/dist-packages/qrcode ]; then
-    cp -a /usr/lib/python3/dist-packages/qrcode "$STAGE/usr/lib/python3/dist-packages/" 2>/dev/null \
-        || { mkdir -p "$STAGE/usr/lib/python3/dist-packages"; cp -a /usr/lib/python3/dist-packages/qrcode "$STAGE/usr/lib/python3/dist-packages/"; }
-fi
+# Pure-Python modules of Safeer Link from the build host's dist-packages: qrcode (QR code for signing in) and
+# zeroconf + ifaddr (finding devices over mDNS; without them there is no QR code and no 6-digit code at all).
+mkdir -p "$STAGE/usr/lib/python3/dist-packages"
+for modul in qrcode zeroconf ifaddr; do
+    if [ -d "/usr/lib/python3/dist-packages/$modul" ]; then
+        cp -a "/usr/lib/python3/dist-packages/$modul" "$STAGE/usr/lib/python3/dist-packages/"
+    elif [ -n "${CI:-}" ]; then
+        echo "manjka /usr/lib/python3/dist-packages/$modul (apt install python3-$modul)" >&2; exit 1
+    fi
+done
 cp -a "$STAGE/usr" "$APPDIR/"
 python3 packaging/prepare_appdir.py "$APPDIR" "$APPID" safeer-os
 install -m755 packaging/AppRun-os "$APPDIR/AppRun"

@@ -19,8 +19,9 @@
 #   safeer-cinnamon --stanje        izpise, kaj je vklopljeno
 #   safeer-cinnamon --seja          ob prijavi: delovna povrsina Safeer OS (safeer-os --delovna)
 #   safeer-cinnamon --nastavitve-docka  odpre nastavitve docka (programe dodas tako, da jih povleces iz menija)
-#   safeer-cinnamon --od-vklopa     zagonski in prijavni zaslon v videzu Safeer (vprasa za skrbnisko geslo)
-#   safeer-cinnamon --od-vklopa-izklopi  vrne prejsnji zagonski in prijavni zaslon
+#   safeer-cinnamon --od-vklopa     zagonski in prijavni zaslon v videzu Safeer (vprasa za skrbnisko geslo); ce Safeer
+#                                   Cinnamon se ni vklopljen, po prijavi tudi delovna povrsina Safeer OS
+#   safeer-cinnamon --od-vklopa-izklopi  vrne prejsnji zagonski in prijavni zaslon (in delovno povrsino, ce jo je vklopil --od-vklopa)
 #
 # Samo uradne nastavitve Cinnamona (gsettings) in Planka (dconf). V ozadju tecejo le dock Plank in
 # Safeer OS (delovna povrsina), ce ju postavitev vkljucuje; --izklopi vrne vse. Zagonski in prijavni zaslon sta
@@ -655,6 +656,28 @@ od_vklopa() {
     return "$koda"
 }
 
+# »Safeer od vklopa« pomeni Safeer od vklopa racunalnika do namizja (preizkus na testnem racunalniku 12. 10. 2026:
+# uporabnik je pricakoval, da se po ponovnem zagonu odpre Safeer, dobil pa je samo zagonski in prijavni zaslon).
+# Ce Safeer Cinnamon se ni vklopljen, zato po prijavi vklopimo tudi delovno povrsino Safeer OS. Ce ga je uporabnik ze
+# vklopil (videz, dock ali delovna), njegove izbire ne spreminjamo. Izklop vrne samo tisto, kar je vklopil ta ukaz.
+OD_VKLOPA_NAMIZJE="$MAPA/od-vklopa-namizje"
+od_vklopa_vse() {
+    od_vklopa vklopi || return $?
+    if [ ! -f "$VKLOPLJENO" ]; then
+        vklopi delovna
+        mkdir -p "$MAPA" && : > "$OD_VKLOPA_NAMIZJE"
+        sporoci "Safeer od vklopa: zagonski in prijavni zaslon Safeer, po prijavi delovna površina Safeer."
+    fi
+}
+od_vklopa_vse_izklopi() {
+    od_vklopa izklopi || return $?
+    if [ -f "$OD_VKLOPA_NAMIZJE" ]; then
+        rm -f "$OD_VKLOPA_NAMIZJE"
+        [ -f "$VKLOPLJENO" ] && izklopi
+    fi
+    return 0
+}
+
 # ---------------------------------------------------------------------------- vklop, izklop
 # $1 = postavitev (videz | dock | delovna), $2 = ozadje (glej ozadje)
 vklopi() {
@@ -780,8 +803,8 @@ case "${1:-}" in
     --vecji-tekst)           case "${2:-}" in 200) tekst 2.0 ;; 175) tekst 1.75 ;; 160) tekst 1.6 ;; 150) tekst 1.5 ;; 125) tekst 1.25 ;; *) tekst vecji ;; esac ;;
     --obicajen-tekst)        tekst obicajen ;;
     --stanje|--status)       stanje ;;
-    --od-vklopa)             od_vklopa vklopi ;;
-    --od-vklopa-izklopi)     od_vklopa izklopi ;;
+    --od-vklopa)             od_vklopa_vse ;;
+    --od-vklopa-izklopi)     od_vklopa_vse_izklopi ;;
     --dock)                  if [ -f "$VKLOPLJENO" ] && [ -f "$AUTOSTART" ]; then
                                  nadgradi_postavitev
                                  dock_zazeni

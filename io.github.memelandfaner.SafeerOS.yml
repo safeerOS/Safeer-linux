@@ -29,6 +29,22 @@ modules:
       - type: file
         url: https://files.pythonhosted.org/packages/dd/b8/d2d6d731733f51684bbf76bf34dab3b70a9148e8f2cef2bb544fccec681a/qrcode-8.2-py3-none-any.whl
         sha256: 16e64e0716c14960108e85d853062c9e8bba5ca8252c0b4d0231b9df4060ff4f
+  - name: python3-zeroconf
+    # Safeer Link najde naprave prek mDNS (brez tega ni QR kode in ne 6-mestne kode za prijavo). Kolo za Python 3.12 ali 3.13.
+    buildsystem: simple
+    build-commands:
+      - pip3 install --no-index --no-deps --prefix=/app ifaddr-0.2.0-py3-none-any.whl
+      - pip3 install --no-index --no-deps --find-links . --prefix=/app zeroconf
+    sources:
+      - type: file
+        url: https://files.pythonhosted.org/packages/9c/1f/19ebc343cc71a7ffa78f17018535adc5cbdd87afb31d7c34874680148b32/ifaddr-0.2.0-py3-none-any.whl
+        sha256: 085e0305cfe6f16ab12d72e2024030f5d52674afad6911bb1eee207177b8a748
+      - type: file
+        url: https://files.pythonhosted.org/packages/59/ff/c7372507c7e25ad3499fe08d4678deb1ed41c57f78ff5df43bd2d4d98cfc/zeroconf-0.148.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
+        sha256: cc88fd01b5552ffb4d5bc551d027ac28a1852c03ceab754d02bd0d5f04c54e85
+      - type: file
+        url: https://files.pythonhosted.org/packages/e1/16/7f7c5cee5279afe2a6a8b9657de9a587ccb34168d7c99acc6d2b40b9d87e/zeroconf-0.148.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
+        sha256: dde01541e6a45c4d1b6e6d97b532ea241abc32c183745a74021b134d867388d8
   - name: python3-pillow
     # Vrtenje slik brez oznake EXIF (PNG, WebP); JPEG z EXIF-om Control zavrti brez Pillow. Kolo za Python 3.12 ali 3.13 runtime-a.
     buildsystem: simple

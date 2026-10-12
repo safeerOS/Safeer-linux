@@ -2900,6 +2900,8 @@
         besedilo("opombaPozabi", t("pozabljeno"));
         stanje.seznanjen = false;
         stanje.povezan = false;
+        // Odjavljena naprava ne sme vec videti naprav, s katerimi je bila povezana.
+        stanje.naprave = [];
         narisiVse();
       } else if (vrsta === "sinhronizacija") {
         narisiSync();

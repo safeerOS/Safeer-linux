@@ -743,6 +743,20 @@ class SafeerLink:
             except Exception:
                 pass
         self.nastavitve.shrani()
+        # Odjavljena naprava ne vidi vec naprav, s katerimi je bila povezana (lastnik, 12. 10. 2026): racunalnik neha
+        # gostiti Safeer Link (njegov Hub je drzal seznam naprav), seznam naprav in krajevni krog zaupanja gresta stran.
+        g = getattr(self, "_hub_gostitelj", None)
+        if g is not None:
+            try:
+                g.koncaj()
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerLink] gostovanja ob odjavi ni bilo mogoce ustaviti:", e)
+        try:
+            link_krog.pozabi_krog()
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerLink] kroga zaupanja ob odjavi ni bilo mogoce pozabiti:", e)
+        self.naprave = []
+        self._odziv("naprave", [])
         self._odziv("pozabljeno", True)
 
     def _seznanitve(self) -> dict:

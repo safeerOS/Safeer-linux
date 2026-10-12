@@ -209,3 +209,30 @@ class Zdruzevanje(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OdjavaPozabiKrog(unittest.TestCase):
+    """»Odjavi to napravo«: odjavljena naprava ne sme vec poznati naprav, s katerimi je bila povezana (12. 10. 2026)."""
+
+    def test_pozabi_krog_pobrise_krog_stike_in_sosede(self):
+        mapa = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, mapa, True)
+        with mock.patch.object(link_hub, "NASTAVITVE_MAPA", mapa), mock.patch.object(link_krog, "_krog", None):
+            pot = os.path.join(mapa, "krog.json")
+            for dat in (pot, pot + "-stiki.json", os.path.join(mapa, "mesh-sosedje.json")):
+                with open(dat, "w") as d:
+                    d.write("{}")
+            link_krog.krog()                      # nalozen v pomnilnik
+            link_krog.pozabi_krog()
+            self.assertEqual(sorted(os.listdir(mapa)), [])
+            self.assertIsNone(link_krog._krog)
+            link_krog.pozabi_krog()               # drugic (ni vec datotek) brez napake
+            self.assertEqual(link_krog.krog().stevilo(), 0)
+
+    def test_odjava_ustavi_gostovanje_in_pocisti_seznam(self):
+        vir = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "core", "safeer_link.py"),
+                   encoding="utf-8").read()
+        telo = vir.split("def _pozabi_napravo", 1)[1].split("\n    def ", 1)[0]
+        for niz in ("g.koncaj()", "link_krog.pozabi_krog()", "self.naprave = []", 'self._odziv("naprave", [])'):
+            self.assertIn(niz, telo)
+        self.assertLess(telo.index('self._odziv("naprave", [])'), telo.index('self._odziv("pozabljeno", True)'))

@@ -193,6 +193,43 @@ class TestPaket(unittest.TestCase):
             self.assertIn(niz, s)
         self.assertEqual(subprocess.run(["bash", "-n", os.path.join(TEMA, "safeer-cinnamon")]).returncode, 0)
 
+    def _od_vklopa_vse(self, ukaz, ze_vklopljen, pomocnik_koda=0, oznaka=False):
+        """Pozene od_vklopa_vse / od_vklopa_vse_izklopi z nadomestki (brez pkexec in brez sprememb namizja)."""
+        with open(os.path.join(TEMA, "safeer-cinnamon")) as f:
+            s = f.read()
+        funkcije = re.search(r"^OD_VKLOPA_NAMIZJE=.*?^}\n.*?^}\n", s, re.S | re.M).group(0)
+        with tempfile.TemporaryDirectory() as mapa:
+            vklopljeno = os.path.join(mapa, "vklopljeno")
+            if ze_vklopljen:
+                open(vklopljeno, "w").close()
+            if oznaka:
+                open(os.path.join(mapa, "od-vklopa-namizje"), "w").close()
+            skripta = ('MAPA="%s"; VKLOPLJENO="%s"; DNEVNIK="%s/dnevnik"\n'
+                       'od_vklopa() { echo "od_vklopa $1" >> "$DNEVNIK"; return %d; }\n'
+                       'vklopi() { echo "vklopi $1" >> "$DNEVNIK"; : > "$VKLOPLJENO"; }\n'
+                       'izklopi() { echo izklopi >> "$DNEVNIK"; rm -f "$VKLOPLJENO"; }\n'
+                       'sporoci() { :; }\n%s\n%s\n') % (mapa, vklopljeno, mapa, pomocnik_koda, funkcije, ukaz)
+            koda = subprocess.run(["bash", "-c", skripta]).returncode
+            pot = os.path.join(mapa, "dnevnik")
+            dnevnik = open(pot).read().split("\n") if os.path.exists(pot) else []
+            return koda, [v for v in dnevnik if v], os.path.exists(os.path.join(mapa, "od-vklopa-namizje"))
+
+    def test_od_vklopa_vklopi_tudi_namizje_ce_safeer_cinnamon_se_ni_vklopljen(self):
+        # Preizkus 12. 10. 2026: »Safeer od vklopa« je pomenil samo zagonski in prijavni zaslon, po ponovnem zagonu
+        # pa se Safeer ni odprl. Zdaj pomeni Safeer od vklopa do namizja.
+        self.assertEqual(self._od_vklopa_vse("od_vklopa_vse", False), (0, ["od_vklopa vklopi", "vklopi delovna"], True))
+
+    def test_od_vklopa_ne_spremeni_izbrane_postavitve(self):
+        self.assertEqual(self._od_vklopa_vse("od_vklopa_vse", True), (0, ["od_vklopa vklopi"], False))
+
+    def test_od_vklopa_brez_gesla_ne_vklopi_nicesar(self):
+        self.assertEqual(self._od_vklopa_vse("od_vklopa_vse", False, 126), (126, ["od_vklopa vklopi"], False))
+
+    def test_izklop_vrne_samo_kar_je_vklopil_od_vklopa(self):
+        self.assertEqual(self._od_vklopa_vse("od_vklopa_vse_izklopi", True, oznaka=True),
+                         (0, ["od_vklopa izklopi", "izklopi"], False))
+        self.assertEqual(self._od_vklopa_vse("od_vklopa_vse_izklopi", True), (0, ["od_vklopa izklopi"], False))
+
     @unittest.skipUnless(shutil.which("dpkg-deb"), "dpkg-deb ni namescen")
     def test_paket_vsebuje_od_vklopa(self):
         r = subprocess.run(["bash", os.path.join(KOREN, "build_os_deb.sh")], cwd=KOREN, capture_output=True, text=True)

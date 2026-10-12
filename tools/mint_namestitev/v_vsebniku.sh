@@ -63,6 +63,9 @@ for mapa in /usr/lib/safeer-browser /usr/lib/safeer-control /usr/lib/safeer-os; 
     || { echo "NAPAKA: $mapa nima bajtne kode za vse module (postinst je ni prevedel)"; exit 1; }
 done
 
+echo "== 1b. odvisnosti, brez katerih Safeer Link ne najde naprav"
+/usr/bin/python3 -c "import zeroconf, qrcode, cryptography" || { echo "NAPAKA: manjka python3-zeroconf/qrcode/cryptography"; exit 1; }
+
 echo "== 2. razlicice programov"
 xvfb-run -a safeer --version | tee /dev/stderr | grep -Fxq "Safeer Browser $(razlicica "$BRSKALNIK")"
 xvfb-run -a safeer-control --version | tee /dev/stderr | grep -Fxq "Safeer Control $(razlicica_v safeer-control)"
