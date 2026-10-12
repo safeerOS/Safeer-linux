@@ -114,7 +114,7 @@ class WsOdjemalec:
         vrstica = glava.split(b"\r\n", 1)[0].decode(errors="replace")
         if " 101 " not in vrstica + " ":
             raise ConnectionError("rele zavrnil: " + vrstica)
-        pricakovano = base64.b64encode(hashlib.sha1((kljuc + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()).decode()
+        pricakovano = base64.b64encode(hashlib.sha1((kljuc + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode(), usedforsecurity=False).digest()).decode()
         if pricakovano.encode() not in glava:
             raise ConnectionError("napacen odgovor rokovanja")
 

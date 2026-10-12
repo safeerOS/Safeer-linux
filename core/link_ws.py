@@ -51,7 +51,7 @@ ZAPIRALNI_ROK_S = 0.3
 
 def sprejemni_kljuc(kljuc: str) -> str:
     """Vrednost glave Sec-WebSocket-Accept za dani Sec-WebSocket-Key."""
-    izvlecek = hashlib.sha1((kljuc.strip() + CAROBNI_NIZ).encode("ascii")).digest()
+    izvlecek = hashlib.sha1((kljuc.strip() + CAROBNI_NIZ).encode("ascii"), usedforsecurity=False).digest()
     return base64.b64encode(izvlecek).decode("ascii")
 
 

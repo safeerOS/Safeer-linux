@@ -835,7 +835,7 @@ def slicica(pot: str) -> str:
     if not os.path.isfile(pot):
         return ""
     uri = "file://" + urllib.parse.quote(pot)
-    md5 = hashlib.md5(uri.encode("utf-8")).hexdigest()
+    md5 = hashlib.md5(uri.encode("utf-8"), usedforsecurity=False).hexdigest()
     skupni = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "thumbnails")
     for podmapa in ("large", "normal", "x-large"):
         kandidat = os.path.join(skupni, podmapa, md5 + ".png")

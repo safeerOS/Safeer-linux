@@ -1322,7 +1322,7 @@ class MediaCenter:
     @staticmethod
     def _odtis_vnosov(rezultat: Optional[dict]) -> str:
         vnosi = (rezultat or {}).get("vnosi") or []
-        return hashlib.sha1(json.dumps(vnosi, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+        return hashlib.sha1(json.dumps(vnosi, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8"), usedforsecurity=False).hexdigest()
 
     def _osvezi_v_ozadju(self, kljuc: str, query: str, kind: str, genre: str, page: int, ob_osvezitvi=None,
                          moznosti: Optional[dict] = None) -> None:
@@ -1849,7 +1849,7 @@ class MediaCenter:
         kljuc = "%s|%s" % (s.get("izvajalec") or "", s.get("naslov") or "")
         yt = str(s.get("youtube") or "")
         return {
-            "id": "seznam:" + hashlib.sha1((ime + "\n" + kljuc).encode("utf-8")).hexdigest()[:20],
+            "id": "seznam:" + hashlib.sha1((ime + "\n" + kljuc).encode("utf-8"), usedforsecurity=False).hexdigest()[:20],
             "naslov": str(s.get("naslov") or ""), "izvajalec": str(s.get("izvajalec") or ""),
             "slika": str(s.get("slika") or ""), "vrsta": "glasba", "vir": vir or "Seznam", "vir_id": "seznam",
             # Posnetek z YouTuba ali (skladba, dodana iz kataloga) njen neposredni naslov.
@@ -2900,7 +2900,7 @@ class MediaCenter:
         if cached and time.time() - cached[0] < 2 * 60 * 60:
             return cached[1]
         # Kljuc na disku je odtis naslova (brez API kljuca v datoteki).
-        disk_kljuc = hashlib.sha1(url.encode("utf-8")).hexdigest()
+        disk_kljuc = hashlib.sha1(url.encode("utf-8"), usedforsecurity=False).hexdigest()
         with self._predpomnilnik_lock:
             na_disku = self._nalozi_predpomnilnik()["tmdb"].get(disk_kljuc)
         if (not cached and isinstance(na_disku, dict) and isinstance(na_disku.get("podatki"), dict)
@@ -3630,7 +3630,7 @@ class MediaCenter:
             return []
         izhod = []
         for tok in self._zakoniti_viri.tokovi_postaje(item):
-            vnos = {"id": "tok:" + hashlib.sha1(tok["url"].encode("utf-8")).hexdigest()[:16], "naslov": tok["naslov"],
+            vnos = {"id": "tok:" + hashlib.sha1(tok["url"].encode("utf-8"), usedforsecurity=False).hexdigest()[:16], "naslov": tok["naslov"],
                     "vrsta": "radio", "url": tok["url"], "mime": tok.get("mime") or "", "bitrate": tok.get("bitrate") or 0,
                     "slika": item.get("slika") or "", "vir": item.get("vir") or "", "vir_id": item.get("vir_id") or "",
                     "postaja_id": item_id}

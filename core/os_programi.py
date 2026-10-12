@@ -486,7 +486,7 @@ def pot_ikone(ime: str, velikost: int = IKONA_VELIKOST) -> str:
     """Ikona programa kot PNG v predpomnilniku; vrne pot ali ''. Klicati na glavni niti (Gtk)."""
     if not ime:
         return ""
-    cilj = os.path.join(MAPA_IKON, hashlib.sha1(("%s|%d" % (ime, velikost)).encode()).hexdigest() + ".png")
+    cilj = os.path.join(MAPA_IKON, hashlib.sha1(("%s|%d" % (ime, velikost)).encode(), usedforsecurity=False).hexdigest() + ".png")
     if os.path.isfile(cilj) and os.path.getsize(cilj) > 0:
         return cilj
     izvor = ""

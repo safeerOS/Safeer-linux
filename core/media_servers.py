@@ -392,7 +392,7 @@ def _jellyfin_items(base: str, server: dict, token: str) -> list[dict]:
 
 def _navidrome_items(base: str, server: dict, secret: str, query: str) -> list[dict]:
     salt = secrets.token_hex(8)
-    token = hashlib.md5((secret + salt).encode()).hexdigest()
+    token = hashlib.md5((secret + salt).encode(), usedforsecurity=False).hexdigest()
     common = {"u": server.get("uporabnik", ""), "t": token, "s": salt,
               "v": "1.16.1", "c": "SafeerOS", "f": "json"}
     if query:
