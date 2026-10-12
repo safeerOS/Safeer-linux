@@ -521,8 +521,10 @@ class Paket(unittest.TestCase):
     def test_deb_pot_do_ukaza(self):
         deb = beri("build_os_deb.sh")
         self.assertIn('"$BUILD_ROOT/usr/share/applications/safeer-os.Player.desktop"', deb)
-        self.assertIn("desktop-file-validate /usr/share/applications/safeer-os.Player.desktop",
-                      beri(".github", "workflows", "linux-packages.yml"))
+        potek = beri(".github", "workflows", "linux-packages.yml")
+        # Vnose preveri ena zanka (en paket safeer-os od 12. 10. 2026): safeer-os.Player mora biti v njej.
+        self.assertIn('desktop-file-validate "/usr/share/applications/$d.desktop"', potek)
+        self.assertRegex(potek, r"for d in safeer-os [^\n]*safeer-os\.Player ")
 
     def test_safeer_os_ne_ponuja_sebe(self):
         """Safeer Player je Medijski center Safeer OS: med Programi in viri Medijskega centra ga ni (kot Safeer OS)."""

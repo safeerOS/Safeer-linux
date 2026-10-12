@@ -56,12 +56,11 @@ AppImages do not automatically register a permanent desktop launcher. Use deskto
 
 ## Safeer OS for Linux (safeer-os)
 
-Safeer OS is a full-screen shell over the desktop (programs, files, devices, network, sound, Shield) that talks to Safeer Control over D-Bus and starts it when needed. Its payload is `packaging/install_os_payload.sh` (version `packaging/VERSION_OS`); `tests/test_packaging.py` installs it and imports it without the source tree.
+Safeer OS is the Safeer desktop on top of Linux Mint: a workspace (search, programs, files, media, devices, Shield, Splet) with the dock below; it talks to Safeer Control over D-Bus and runs it in its own process. Since 12 Oct 2026 the .deb is **one package**: `safeer-os` carries Safeer OS (`packaging/install_os_payload.sh`), Safeer Control with `safeerctl` (`packaging/install_control_payload.sh`) and Safeer Cinnamon (`packaging/install_cinnamon_payload.sh`), so a double click in GDebi installs everything and one update keeps it current. It `Provides` and `Replaces` the former `safeer-control` and `safeer-cinnamon` packages without `Conflicts`, so an update takes their files over and they disappear without their `prerm remove` (which would turn the user's Safeer Cinnamon look off); `tools/mint_namestitev` checks this on Linux Mint against the last release. Versions: `packaging/VERSION_OS`, `VERSION_CONTROL`, `VERSION_CINNAMON`.
 
 ```sh
-bash build_control_deb.sh && bash build_os_deb.sh
-sudo apt install ./safeer-control_2.1.81_all.deb ./safeer-os_0.4.83_all.deb      # .deb: safeer-os depends on safeer-control
-sudo apt install ./safeer-os-tema_0.4.83_all.deb                                  # Linux Mint: Safeer OS as the desktop (theme + start at login)
+bash build_os_deb.sh
+sudo apt install ./safeer-os_0.4.83_all.deb      # or double-click it; nothing on the desktop changes until "Safeer Cinnamon" is opened in the menu
 LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_os_appimage.sh   # Safeer-OS-<version>-x86_64.AppImage (Safeer OS + Control; `--control` starts Control)
 bash packaging/build_os_flatpak.sh                                                        # Safeer-OS-<version>-x86_64.flatpak (io.github.memelandfaner.SafeerOS)
 ```

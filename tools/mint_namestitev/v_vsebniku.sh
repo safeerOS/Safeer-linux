@@ -10,32 +10,53 @@ echo "== Linux Mint: $(grep -rhs "packages.linuxmint.com" /etc/apt/sources.list.
 paket() { local p; p="$(ls /paketi/$1 2>/dev/null | head -1)"; [ -f "$p" ] || { echo "NAPAKA: manjka paket $1" >&2; exit 1; }; echo "$p"; }
 razlicica() { dpkg-deb -f "$1" Version; }
 BRSKALNIK="$(paket 'safeer-browser_*_all.deb')"
-CONTROL="$(paket 'safeer-control_*_all.deb')"
+# Od 12. 10. 2026 je Safeer OS en paket: Safeer Control in Safeer Cinnamon sta v njem (glej build_os_deb.sh).
 OS="$(paket 'safeer-os_*_all.deb')"
-TEMA="$(paket 'safeer-os-tema_*_all.deb')"
-CINNAMON="$(paket 'safeer-cinnamon_*_all.deb')"
+VSEBNIK_OS="$(dpkg-deb -c "$OS" | awk '{print $6}' | sed -n 's|^\./||p')"
+razlicica_v() { dpkg-deb -f "$OS" Provides | tr ',' '\n' | sed -n "s/^ *$1 (= \(.*\))\$/\1/p"; }
 
 echo "== 1. namestitev (odvisnosti razresi apt iz skladisc Minta in Ubuntuja)"
 apt-get update -q >/dev/null
 # Orodja preizkusa - niso odvisnosti paketov.
 apt-get install -y -q --no-install-recommends xvfb xauth dbus-x11 desktop-file-utils >/dev/null
 # Priporocenih paketov ne namescamo: pri uporabniku so ze tam (namizje Cinnamon), tu bi jih bilo vec sto.
+useradd -m preizkus
 if ls /prejsnji/safeer-*_all.deb >/dev/null 2>&1; then
   echo "   najprej prejsnja izdaja: $(cd /prejsnji && echo safeer-*_all.deb)"
+  # Paketa, ki ju je nadomestil safeer-os, morata ob posodobitvi »izginiti« (Replaces): to se zgodi samo, ce ima
+  # novi paket VSE njune datoteke. Sicer bi ostala namescena in lastnika polovice datotek.
+  for star in /prejsnji/safeer-control_*_all.deb /prejsnji/safeer-cinnamon_*_all.deb; do
+    [ -f "$star" ] || continue
+    manjka="$(dpkg-deb -c "$star" | grep -v '^d' | awk '{print $6}' | sed 's|^\./||' | while read -r d; do
+      printf '%s\n' "$VSEBNIK_OS" | grep -qxF "$d" || echo "$d"; done)"
+    [ -z "$manjka" ] || { echo "$manjka" | head -20; echo "NAPAKA: safeer-os nima vseh datotek paketa $(basename "$star")"; exit 1; }
+  done
   apt-get install -y -q --no-install-recommends /prejsnji/safeer-*_all.deb >/tmp/prejsnja.log 2>&1 \
     || { tail -40 /tmp/prejsnja.log; echo "NAPAKA: namestitev prejsnje izdaje"; exit 1; }
   # Najslabsi primer za posodobitev: programi so ze tekli kot root in v mapah programov pustili svojo bajtno kodo.
   xvfb-run -a safeer --version >/dev/null
   xvfb-run -a safeer-control --version >/dev/null
   xvfb-run -a safeer-os --version >/dev/null
+  # Uporabnik ima Safeer Cinnamon vklopljen: posodobitev mu videza ne sme izklopiti (stari paket ne sme dobiti
+  # `prerm remove`, zato safeer-os nima Conflicts/Breaks, samo Replaces).
+  su preizkus -c 'mkdir -p ~/.config/safeer-cinnamon && touch ~/.config/safeer-cinnamon/vklopljeno'
   echo "   nato posodobitev z ukazom, s katerim jo namesti Safeer OS (apt-get install --allow-downgrades)"
 fi
 # --reinstall: tudi kadar ima prejsnja izdaja isto stevilko (veja pred novo stevilko razlicice), se namestijo novi paketi.
-apt-get install -y -q --allow-downgrades --reinstall --no-install-recommends "$BRSKALNIK" "$CONTROL" "$OS" "$TEMA" "$CINNAMON" >/tmp/namestitev.log 2>&1 \
+apt-get install -y -q --allow-downgrades --reinstall --no-install-recommends "$BRSKALNIK" "$OS" >/tmp/namestitev.log 2>&1 \
   || { tail -40 /tmp/namestitev.log; echo "NAPAKA: namestitev"; exit 1; }
-for p in safeer-browser safeer-control safeer-os safeer-os-tema safeer-cinnamon; do
+for p in safeer-browser safeer-os; do
   dpkg-query -W -f '${Package} ${Version} ${db:Status-Abbrev}\n' "$p" | tee /dev/stderr | grep -q " ii " || { echo "NAPAKA: $p ni namescen"; exit 1; }
 done
+for p in safeer-control safeer-cinnamon; do
+  if dpkg-query -W -f '${db:Status-Abbrev}\n' "$p" 2>/dev/null | grep -q "^ii"; then
+    echo "NAPAKA: stari paket $p je po posodobitvi se namescen (safeer-os bi ga moral nadomestiti)"; exit 1
+  fi
+done
+if ls /prejsnji/safeer-cinnamon_*_all.deb >/dev/null 2>&1; then
+  [ -f /home/preizkus/.config/safeer-cinnamon/vklopljeno ] || { echo "NAPAKA: posodobitev je izklopila Safeer Cinnamon"; exit 1; }
+  rm -f /home/preizkus/.config/safeer-cinnamon/vklopljeno
+fi
 # Uporabnik v /usr/lib ne more pisati: brez bajtne kode, prevedene ob namestitvi, Python ob vsakem zagonu prevaja znova.
 for mapa in /usr/lib/safeer-browser /usr/lib/safeer-control /usr/lib/safeer-os; do
   [ "$(find "$mapa" -name '*.pyc' | wc -l)" -ge "$(find "$mapa" -name '*.py' | wc -l)" ] \
@@ -44,8 +65,8 @@ done
 
 echo "== 2. razlicice programov"
 xvfb-run -a safeer --version | tee /dev/stderr | grep -Fxq "Safeer Browser $(razlicica "$BRSKALNIK")"
-xvfb-run -a safeer-control --version | tee /dev/stderr | grep -Fxq "Safeer Control $(razlicica "$CONTROL")"
-safeerctl --version | tee /dev/stderr | grep -Fxq "safeerctl $(razlicica "$CONTROL")"
+xvfb-run -a safeer-control --version | tee /dev/stderr | grep -Fxq "Safeer Control $(razlicica_v safeer-control)"
+safeerctl --version | tee /dev/stderr | grep -Fxq "safeerctl $(razlicica_v safeer-control)"
 xvfb-run -a safeer-os --version | tee /dev/stderr | grep -Fxq "Safeer OS $(razlicica "$OS")"
 
 echo "== 3. zaganjalniki v meniju"
@@ -60,7 +81,6 @@ if [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null |
   echo "OPOZORILO: gostitelj omejuje uporabniske imenske prostore, Linux Mint jih ne."
   echo "           Na gostitelju: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0"
 fi
-useradd -m preizkus
 rm -f /tmp/safeer-os.png
 # Brez upravljalnika oken cel zaslon ne velja (okno ostane 200 x 200), zato velikost okna povemo sami.
 su preizkus -c 'cd ~ && SAFEER_OS_OKNO=1280x800 dbus-run-session -- xvfb-run -a -s "-screen 0 1280x800x24" timeout 120 safeer-os --posnetek /tmp/safeer-os.png' >/tmp/zagon.log 2>&1 \
@@ -77,17 +97,18 @@ PY
 if grep -q "Traceback" /tmp/zagon.log; then tail -30 /tmp/zagon.log; echo "NAPAKA: izjema ob zagonu"; exit 1; fi
 
 echo "== 5. ukaza videza delujeta"
-bash -n /usr/bin/safeer-os-tema
 bash -n /usr/bin/safeer-cinnamon
-test -f /usr/share/themes/Safeer-OS/gtk-3.0/gtk.css
 test -f /usr/share/themes/Safeer-Cinnamon/cinnamon/cinnamon.css
+safeer-cinnamon --help >/dev/null
 
 echo "== 6. odstranitev ne pusti nicesar"
-apt-get remove -y -q safeer-os-tema safeer-cinnamon safeer-os safeer-control safeer-browser >/tmp/odstranitev.log 2>&1 \
+# safeer-os-tema (staro celozaslonsko namizje) ni vec v izdaji; ce ga je namestila prejsnja izdaja, gre tudi on.
+dpkg-query -W -f '${db:Status-Abbrev}\n' safeer-os-tema 2>/dev/null | grep -q "^ii" && TEMA_STARA=safeer-os-tema || TEMA_STARA=""
+apt-get remove -y -q $TEMA_STARA safeer-os safeer-browser >/tmp/odstranitev.log 2>&1 \
   || { tail -30 /tmp/odstranitev.log; echo "NAPAKA: odstranitev"; exit 1; }
 for ostanek in /usr/lib/safeer-os /usr/lib/safeer-control /usr/lib/safeer-browser /usr/lib/safeer-cinnamon \
                /usr/bin/safeer /usr/bin/safeer-os /usr/bin/safeer-control /usr/bin/safeerctl /usr/bin/safeer-cinnamon \
-               /usr/share/themes/Safeer-OS /usr/share/themes/Safeer-Cinnamon /usr/share/applications/safeer-os.desktop; do
+               /usr/share/themes/Safeer-Cinnamon /usr/share/applications/safeer-os.desktop; do
   [ ! -e "$ostanek" ] || { echo "NAPAKA: po odstranitvi je ostalo $ostanek"; find "$ostanek" | head -5; exit 1; }
 done
 echo "== USPEH: namestitev, zagon in odstranitev na Linux Mintu"

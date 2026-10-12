@@ -195,10 +195,10 @@ class TestPaket(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("dpkg-deb"), "dpkg-deb ni namescen")
     def test_paket_vsebuje_od_vklopa(self):
-        r = subprocess.run(["bash", os.path.join(KOREN, "build_cinnamon_tema_deb.sh")], cwd=KOREN, capture_output=True, text=True)
+        r = subprocess.run(["bash", os.path.join(KOREN, "build_os_deb.sh")], cwd=KOREN, capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
-        with open(os.path.join(KOREN, "packaging", "VERSION_CINNAMON")) as f:
-            deb = os.path.join(KOREN, "safeer-cinnamon_%s_all.deb" % f.read().strip())
+        with open(os.path.join(KOREN, "packaging", "VERSION_OS")) as f:
+            deb = os.path.join(KOREN, "safeer-os_%s_all.deb" % f.read().strip())
         try:
             vsebina = subprocess.run(["dpkg-deb", "-c", deb], capture_output=True, text=True).stdout
             for pot in ("./usr/lib/safeer-cinnamon/od-vklopa", "./usr/share/plymouth/themes/safeer/safeer.plymouth",

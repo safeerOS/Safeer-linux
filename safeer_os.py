@@ -2224,15 +2224,8 @@ class SafeerOS(Gtk.Application):
 
     # ------------------------------------------------------------------ posodobitve (safeer.si/os/razlicice.json)
     def _posodobitve_razlicice(self) -> dict:
-        r = {"safeer-os": RAZLICICA}
-        if os_posodobitve.nacin_namestitve() == "deb":
-            try:
-                v = subprocess.run(["dpkg-query", "-W", "-f=${Version}", "safeer-control"], capture_output=True, text=True, timeout=10).stdout.strip()
-                if v:
-                    r["safeer-control"] = v
-            except Exception:
-                pass
-        return r
+        # Od 12. 10. 2026 je Safeer Control (in Safeer Cinnamon) v paketu safeer-os: ena razlicica, ena posodobitev.
+        return {"safeer-os": RAZLICICA}
 
     def _posodobitve_stanje(self, vsiljeno: bool = False) -> dict:
         """Stanje za vmesnik (v niti): izid zadnje preverbe (najvec 6 ur stare, ali sveze ob [vsiljeno]) + tekoce posodabljanje."""

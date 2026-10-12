@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Safeer OS (Linux) payload: the Safeer OS shell for the desktop (safeer_os.py, its core modules and
 # the page in assets/os). Since 12. 10. 2026 it also carries Safeer Control and runs it in its own process
-# (core/en_proces.py, one process instead of two); a separately running Control is still used over D-Bus, so a
-# package built from this payload depends on the Safeer Control payload (deb: safeer-control;
-# AppImage and Flatpak: both payloads in one bundle).
+# (core/en_proces.py, one process instead of two); a separately running Control is still used over D-Bus, so every
+# package built from this payload also carries the Safeer Control payload (deb: build_os_deb.sh, one package with
+# Control and Safeer Cinnamon; AppImage and Flatpak: both payloads in one bundle).
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PREFIX="${1:?Usage: install_os_payload.sh DESTINATION_PREFIX [desktop-id]}"

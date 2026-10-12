@@ -90,9 +90,9 @@ sha256sum -c --ignore-missing SHA256SUMS
 The checksums catch a damaged download. They are not signed yet, so they do not protect
 against someone who can replace files in the release itself.
 
-**Safeer Control** — the companion desktop app that pairs this computer with a Safeer phone or
-television over your own network — ships as `safeer-control_<version>_all.deb` in the same
-release and does not require the browser. It also brings `safeerctl`, Safeer Link from the command
+**Safeer Control** — pairs this computer with a Safeer phone or television over your own network —
+is part of the single Safeer OS package `safeer-os_<version>_all.deb` in the same release (one
+install for Safeer OS, Control and the Safeer Cinnamon look) and does not require the browser. It also brings `safeerctl`, Safeer Link from the command
 line (`safeerctl devices`, `safeerctl send file --to DEVICE`, `--json` for scripts): see
 [docs/SAFEERCTL.md](docs/SAFEERCTL.md). With a phone running Safeer OS Mobile it can also send this
 computer's internet through the phone while the home connection is down — no hotspot needed: see

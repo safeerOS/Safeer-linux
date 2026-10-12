@@ -898,7 +898,7 @@ class TestTemaCinnamon(unittest.TestCase):
     def test_povezave_na_mint_obstajajo(self):
         # Mint-Y-Dark-Blue nima metacity-1 (Mint za obrobe vseh tem uporablja Mint-Y); povezava v prazno
         # bi pokvarila obrobe oken.
-        skripta = beri("build_cinnamon_tema_deb.sh")
+        skripta = beri("packaging", "install_cinnamon_payload.sh")
         cilji = re.findall(r"ln -s (/\S+) ", skripta)
         self.assertTrue(cilji)
         for c in cilji:
@@ -907,11 +907,12 @@ class TestTemaCinnamon(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("dpkg-deb"), "dpkg-deb ni namescen")
     def test_paket(self):
-        r = subprocess.run(["bash", os.path.join(KOREN, "build_cinnamon_tema_deb.sh")], cwd=KOREN,
+        # Safeer Cinnamon je od 12. 10. 2026 v enem paketu safeer-os (build_os_deb.sh).
+        r = subprocess.run(["bash", os.path.join(KOREN, "build_os_deb.sh")], cwd=KOREN,
                            capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
-        with open(os.path.join(KOREN, "packaging", "VERSION_CINNAMON")) as f:
-            deb = os.path.join(KOREN, "safeer-cinnamon_%s_all.deb" % f.read().strip())
+        with open(os.path.join(KOREN, "packaging", "VERSION_OS")) as f:
+            deb = os.path.join(KOREN, "safeer-os_%s_all.deb" % f.read().strip())
         try:
             vsebina = subprocess.run(["dpkg-deb", "-c", deb], capture_output=True, text=True).stdout
             for pot in ("./usr/bin/safeer-cinnamon", "./usr/lib/safeer-cinnamon/izbira",
@@ -929,12 +930,15 @@ class TestTemaCinnamon(unittest.TestCase):
             polja = subprocess.run(["dpkg-deb", "-f", deb, "Depends", "Recommends"], capture_output=True, text=True).stdout
             odvisnosti = polja.split("Recommends:")[0]
             # GDebi priporocenih paketov ne namesti: dock in okno z izbiro morata delovati tudi tako.
-            for paket in ("plank", "dconf-cli", "python3-gi", "gir1.2-gtk-3.0", "mint-themes"):
+            for paket in ("plank", "dconf-cli", "python3-gi", "gir1.2-gtk-3.0"):
                 self.assertIn(paket, odvisnosti)
+            # mint-themes obstaja samo v Linux Mintu: priporocilo, da se en paket namesti tudi na Ubuntu in Debianu.
+            self.assertNotIn("mint-themes", odvisnosti)
+            self.assertIn("mint-themes", polja.split("Recommends:")[1])
             self.assertNotIn("papirus", odvisnosti, "200 MB ikon ostane priporocilo (tema ima nadomestne)")
             prerm = subprocess.run(["dpkg-deb", "-I", deb, "prerm"], capture_output=True, text=True).stdout
             self.assertIn("safeer-cinnamon --izklopi", prerm)
-            self.assertIn('[ "$1" = "remove" ]', prerm)
+            self.assertIn('[ "${1:-}" = "remove" ]', prerm)
         finally:
             os.remove(deb)
 

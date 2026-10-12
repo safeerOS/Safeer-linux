@@ -1,9 +1,9 @@
 #!/bin/bash
 # Paketi .deb na pravem Linux Mintu: namestitev, zagon in odstranitev - tako, kot to naredi uporabnik.
 #
-# Posel »deb-appimage« pakete zgradi in namesti na Ubuntu 22.04. Tam se paketa videza (safeer-os-tema,
-# safeer-cinnamon) sploh ne dasta namestiti (mint-themes obstaja samo v Linux Mintu), odvisnosti pa razresi drugo
-# skladisce kot pri uporabniku. Ta preizkus namesti VSE pakete v sliki Linux Minta (skladisca Minta + Ubuntuja).
+# Posel »deb-appimage« pakete zgradi in namesti na Ubuntu 22.04. Tam tema Safeer Cinnamon nima mint-themes
+# (obstaja samo v Linux Mintu), odvisnosti pa razresi drugo skladisce kot pri uporabniku. Ta preizkus namesti
+# VSE pakete v sliki Linux Minta (skladisca Minta + Ubuntuja).
 #
 #   preizkus.sh SLIKA MAPA_S_PAKETI [MAPA_S_PREJSNJO_IZDAJO]      npr. preizkus.sh linuxmintd/mint22.3-amd64 .
 #

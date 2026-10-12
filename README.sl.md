@@ -86,9 +86,9 @@ sha256sum -c --ignore-missing SHA256SUMS
 Vsote ujamejo poškodovan prenos. Še niso podpisane, zato ne varujejo pred nekom, ki bi lahko
 zamenjal datoteke v sami izdaji.
 
-**Safeer Control** — spremljevalna namizna aplikacija, ki ta računalnik poveže s telefonom ali
-televizorjem Safeer prek tvojega omrežja — je v isti izdaji kot
-`safeer-control_<verzija>_all.deb` in brskalnika ne potrebuje. Prinese tudi `safeerctl`, Safeer Link
+**Safeer Control** — ta računalnik poveže s telefonom ali televizorjem Safeer prek tvojega omrežja — je
+del enega paketa Safeer OS `safeer-os_<verzija>_all.deb` v isti izdaji (ena namestitev za Safeer OS,
+Control in videz Safeer Cinnamon) in brskalnika ne potrebuje. Prinese tudi `safeerctl`, Safeer Link
 iz ukazne vrstice (`safeerctl devices`, `safeerctl send datoteka --to NAPRAVA`, `--json` za skripte):
 glej [docs/SAFEERCTL.md](docs/SAFEERCTL.md). S telefonom s Safeer OS Mobile lahko internet tega računalnika
 ob izpadu domače povezave teče skozi telefon — brez dostopne točke: glej
