@@ -138,3 +138,20 @@ class SpletOb(unittest.TestCase):
         self.assertTrue(splet.sprazni_predpomnilnik())
         self.assertEqual(Upr.klici[0][0], 1)
         self.assertEqual(splet.zavihki, ["a", "b"])
+
+
+class DrugaAplikacija(unittest.TestCase):
+    def test_vgrajen_control_je_gio_application(self):
+        """Drugi Gtk.Application v istem procesu se ne registrira (GLib 2.80); Control v procesu Safeer OS je zato
+        Gio.Application, okna pa doda Safeer OS."""
+        koda = ("import os, sys; os.environ['SAFEER_CONTROL_VGRAJEN']='1'; sys.path.insert(0, %r); "
+                "import safeer_control as c; from gi.repository import Gio, Gtk; "
+                "print(issubclass(c.SafeerControl, Gtk.Application), issubclass(c.SafeerControl, Gio.Application))" % KOREN)
+        izid = subprocess.run(["python3", "-c", koda], capture_output=True, text=True, timeout=60)
+        self.assertEqual(izid.stdout.strip().splitlines()[-1], "False True", izid.stderr[-500:])
+        with open(os.path.join(KOREN, "safeer_control.py"), encoding="utf-8") as f:
+            s = f.read()
+        self.assertNotIn("self.add_window(okno)\n            return\n        from", "")   # placeholder
+        self.assertEqual(s.count("self._dodaj_okno("), 3)
+        with open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8") as f:
+            self.assertIn('os.environ.pop("SAFEER_CONTROL_VGRAJEN", None)', f.read())

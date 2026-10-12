@@ -1215,7 +1215,11 @@ class SafeerOS(Gtk.Application):
             zaklep = os_stabilnost.zakleni_primerek("safeer-control")
             if zaklep is None:
                 return False                      # locen Control se ravno zaganja
-            import safeer_control
+            os.environ["SAFEER_CONTROL_VGRAJEN"] = "1"      # Control kot Gio.Application (glej safeer_control._OSNOVA)
+            try:
+                import safeer_control
+            finally:
+                os.environ.pop("SAFEER_CONTROL_VGRAJEN", None)   # otroci (programi, ki jih zazenemo) je ne dedujejo
             safeer_control._ZAKLEP_PRIMERKA = zaklep
             safeer_control.VGRAJEN = True
             c = safeer_control.SafeerControl(ozadje=True)

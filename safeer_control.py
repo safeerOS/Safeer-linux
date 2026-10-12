@@ -706,7 +706,13 @@ class OddaljeniGledalec(Gtk.Window):
                              args=(self.id_naprave,), name="safeer-gledalec-stop", daemon=True).start()
 
 
-class SafeerControl(Gtk.Application):
+# V procesu Safeer OS (core/en_proces.py) je Control Gio.Application: drugi Gtk.Application v istem procesu se ne
+# more registrirati (GLib 2.80: g_application_impl_attempt_primary, preverjeno 12. 10. 2026), Gio.Application pa se.
+# Okna takrat pripadajo aplikaciji Safeer OS (_dodaj_okno). Safeer OS nastavi SAFEER_CONTROL_VGRAJEN pred uvozom.
+_OSNOVA = Gio.Application if os.environ.get("SAFEER_CONTROL_VGRAJEN") == "1" else Gtk.Application
+
+
+class SafeerControl(_OSNOVA):
     def __init__(self, ozadje: bool = False) -> None:
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.FLAGS_NONE)
         self.link: Optional[SafeerLink] = None
@@ -755,8 +761,9 @@ class SafeerControl(Gtk.Application):
         self.zvok.ustavi()
 
     def do_startup(self) -> None:
-        Gtk.Application.do_startup(self)
-        pomnilnik.obrezuj_periodicno(GLib)
+        _OSNOVA.do_startup(self)
+        if not VGRAJEN:         # v procesu Safeer OS obrezuje Safeer OS
+            pomnilnik.obrezuj_periodicno(GLib)
         # Safeer OS (stikalo »Zaupaj temu računalniku«) klice to dejanje prek D-Bus (org.gtk.Actions).
         zaupanje = Gio.SimpleAction.new("zaupanje", GLib.VariantType.new("b"))
         zaupanje.connect("activate", self._na_zaupanje)
@@ -787,6 +794,16 @@ class SafeerControl(Gtk.Application):
         # sicer bi film na televizorju obstal sredi predvajanja. Zaprt pokrov in rocno spanje delujeta kot vedno.
         self._budnost = budnost.Budnost("Safeer Control")
         GLib.timeout_add_seconds(30, self._budnost_tik)
+
+    def _dodaj_okno(self, okno) -> None:
+        """Okno Controla pripada aplikaciji: samostojno Controlu, v procesu Safeer OS pa Safeer OS (Gtk.Application)."""
+        if isinstance(self, Gtk.Application):
+            self.add_window(okno)
+            return
+        from core import en_proces
+        aplikacija = en_proces.os_app()
+        if aplikacija is not None:
+            aplikacija.add_window(okno)
 
     def _budnost_tik(self) -> bool:
         try:
@@ -1332,7 +1349,7 @@ class SafeerControl(Gtk.Application):
         try:
             okno = OddaljeniGledalec(self, id_naprave, podatki)
             self._oddaljeni_gledalec = okno
-            self.add_window(okno)
+            self._dodaj_okno(okno)
             okno.present()
         except Exception as e:  # noqa: BLE001
             print("[SafeerControl] Gledalca ni bilo mogoce odpreti:", e)
@@ -1688,7 +1705,7 @@ class SafeerControl(Gtk.Application):
             return
         self.link.pokazi()
         if self.link.okno is not None:
-            self.add_window(self.link.okno)
+            self._dodaj_okno(self.link.okno)
 
     # ------------------------------------------------------------------ posodobitve s safeer.si (pladenj)
     def _posodobitve_razlicice(self) -> dict:
@@ -1986,7 +2003,7 @@ class SafeerControl(Gtk.Application):
                 if uporabnik:
                     self._konec_gledanja()
             okno.connect("destroy", zaprto)
-            self.add_window(okno)
+            self._dodaj_okno(okno)
             self.gledalec = okno
             self._vnos_nastavitve_odprte = False
             okno.show_all()
