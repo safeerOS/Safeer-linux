@@ -3109,9 +3109,96 @@
       naloziSporocila();
     }, 30000);
   }
-  function odpriCarovnikKanala() { zapriSloje(); preklopiKanalPolja(); $("kanalNapaka").hidden = true; $("slojKanal").classList.add("viden"); $("kanalNaslov").focus(); }
+  function barvaIzImena(s) {
+    var h = 0; s = String(s || "");
+    for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
+    return h;
+  }
+  var kanalPonudnikiPodatki = null;
+  function odpriCarovnikKanala() {
+    zapriSloje(); $("kanalNapaka").hidden = true; $("kanalPonudnik").value = "";
+    $("kanalVrsta").value = "email";
+    $("kanalVrstaIzbira").querySelectorAll("button").forEach(function (x) { x.classList.toggle("izbran", x.getAttribute("data-vrsta") === "email"); });
+    preklopiKanalPolja(); $("slojKanal").classList.add("viden");
+    if (kanalPonudnikiPodatki) { narisiPonudnike(); return; }
+    klic("sporocilaPonudniki").then(function (p) { kanalPonudnikiPodatki = p || { ponudniki: [], aplikacije: [] }; narisiPonudnike(); })
+      .catch(function () { kanalPonudnikiPodatki = { ponudniki: [{ id: "drug", ime: "", domene: [], geslo: "navadno", navodila: "drug" }], aplikacije: [] }; narisiPonudnike(); });
+  }
+  function navodilaZa(kljuc) {
+    var k = { gmail: "navGmail", yahoo: "navYahoo", icloud: "navIcloud", gmx: "navGmx", zoho: "navZoho", fastmail: "navFastmail", arnes: "navArnes", oauth: "navOauth", drug: "navDrug" }[kljuc] || "navNavadno";
+    return t(k);
+  }
+  function narisiPonudnike() {
+    var m = $("kanalPonudnikiMreza"); m.textContent = "";
+    (kanalPonudnikiPodatki.ponudniki || []).forEach(function (p) {
+      var b = document.createElement("button"); b.type = "button"; b.setAttribute("data-id", p.id);
+      var drug = p.id === "drug", oauth = p.geslo === "oauth";
+      if (oauth) b.classList.add("ni-na-voljo");
+      var ime = document.createElement("b"); ime.textContent = drug ? t("kanalDrugPonudnikIme") : p.ime + (oauth ? "  · " + t("kanalNiNaVoljo") : "");
+      var opis = document.createElement("small");
+      opis.textContent = drug ? t("kanalDrugPonudnikOpis") : oauth ? "" : (p.domene || []).slice(0, 2).map(function (d) { return "@" + d; }).join(", ");
+      var znak = document.createElement("span"); znak.className = "ponudnik-znak"; znak.setAttribute("aria-hidden", "true");
+      znak.textContent = drug ? "@" : (p.ime || "?").replace(/[^A-Za-z0-9]/g, "").charAt(0).toUpperCase();
+      znak.style.background = drug ? "" : "hsl(" + barvaIzImena(p.id) + ", 45%, 40%)";
+      var besedilo = document.createElement("span"); besedilo.className = "ponudnik-besedilo";
+      besedilo.appendChild(ime); besedilo.appendChild(opis);
+      b.appendChild(znak); b.appendChild(besedilo);
+      if (p.geslo === "aplikacije") { var cip = document.createElement("i"); cip.className = "ponudnik-cip"; cip.textContent = t("kanalCipGeslo"); besedilo.appendChild(cip); }
+      b.addEventListener("click", function () { izberiPonudnika(p); });
+      m.appendChild(b);
+    });
+    var a = $("kanalAplikacijeMreza"); a.textContent = "";
+    [["posta", "kanalAppPosta"], ["klepet", "kanalAppKlepet"], ["vec", "kanalAppVec"]].forEach(function (sk) {
+      var seznam = (kanalPonudnikiPodatki.aplikacije || []).filter(function (x) { return x.vrsta === sk[0]; });
+      if (!seznam.length) return;
+      var h = document.createElement("b"); h.className = "aplikacije-skupina"; h.textContent = t(sk[1]); a.appendChild(h);
+      seznam.forEach(function (x) {
+        var v = document.createElement("div"); v.className = "aplikacije-vrsta";
+        var ime = document.createElement("div"); ime.className = "ime"; ime.textContent = x.ime;
+        var podnaslov = document.createElement("small"); podnaslov.textContent = x.opis || (x.splet || x.prenos || "").replace(/^https?:\/\//, "").split("/")[0]; ime.appendChild(podnaslov);
+        v.appendChild(ime);
+        if (x.splet) { var g1 = document.createElement("button"); g1.type = "button"; g1.className = "gumb glavni"; g1.textContent = t("kanalAppSplet");
+          g1.addEventListener("click", function () { zapriSloje(); odpriVSpletu(x.splet, true); }); v.appendChild(g1); }
+        if (x.prenos) { var g2 = document.createElement("button"); g2.type = "button"; g2.className = "gumb"; g2.textContent = t("kanalAppPrenos");
+          g2.addEventListener("click", function () { zapriSloje(); odpriVSpletu(x.prenos, true); }); v.appendChild(g2); }
+        a.appendChild(v);
+      });
+    });
+  }
+  function izberiPonudnika(p) {
+    $("kanalPonudnik").value = p.id; $("kanalNapaka").hidden = true;
+    var drug = p.id === "drug";
+    $("kanalPonudniki").hidden = true; $("kanalEmail").hidden = false;
+    $("kanalNaslov").placeholder = drug ? t("epostniNaslov") : t("kanalNaslovPri", { ime: p.ime });
+    $("kanalGeslo").placeholder = p.geslo === "aplikacije" ? t("kanalGesloAplikacije16") : t("kanalNavadnoGeslo");
+    $("kanalNavodila").textContent = navodilaZa(p.navodila);
+    // Kje najdes geslo za aplikacije: gumb odpre pravo stran ponudnika (uradne strani, glej core/sporocila/ponudniki.py).
+    $("kanalStranGesla").hidden = !p.geslo_stran;
+    $("kanalStranGesla").setAttribute("data-url", p.geslo_stran || "");
+    $("kanalStranGesla").textContent = t("kanalStranGesla", { ime: p.ime || "" });
+    $("kanalStrezniki").hidden = !drug; $("kanalNapredno").hidden = drug;
+    $("kanalImap").value = drug ? "" : (p.imap + (p.imap_vrata && p.imap_vrata !== 993 ? ":" + p.imap_vrata : ""));
+    $("kanalSmtp").value = drug ? "" : (p.smtp + (p.smtp_vrata && p.smtp_vrata !== 465 ? ":" + p.smtp_vrata : ""));
+    $("kanalImap").removeAttribute("data-rocno"); $("kanalSmtp").removeAttribute("data-rocno");
+    preklopiKanalPolja();
+    $("kanalPovezi").disabled = p.geslo === "oauth";
+    $("kanalNaslov").focus();
+  }
   function preklopiKanalPolja() {
-    var email = $("kanalVrsta").value === "email"; $("kanalEmail").hidden = !email; $("kanalChatwoot").hidden = email;
+    var v = $("kanalVrsta").value, email = v === "email", ponudnik = $("kanalPonudnik").value;
+    $("kanalPonudniki").hidden = !email || !!ponudnik; $("kanalEmail").hidden = !email || !ponudnik;
+    $("kanalChatwoot").hidden = v !== "chatwoot"; $("kanalAplikacijeSeznam").hidden = v !== "aplikacije";
+    $("kanalApi").hidden = v !== "api"; if (v === "api") preklopiApiProtokol();
+    $("kanalPovezi").hidden = v === "aplikacije" || (email && !ponudnik);
+    $("kanalSkrivnostOpis").hidden = v === "aplikacije";
+    if (v !== "email" || ponudnik) $("kanalPovezi").disabled = false;
+  }
+  /* Lastni API: Matrix potrebuje streznik + zeton, Telegram Bot samo zeton. Navodila povedo, kje ju dobis. */
+  function preklopiApiProtokol() {
+    var pr = $("kanalProtokol").value;
+    $("kanalApiStreznik").hidden = pr !== "matrix";
+    $("kanalApiZeton").placeholder = pr === "matrix" ? t("apiZeton") : "123456:ABC…";
+    $("kanalApiNavodila").textContent = t(pr === "matrix" ? "navMatrix" : "navTelegramBot");
   }
   function skupinaZadetkov(cilj, naslov, razred) {
     var g = el("div", "skupina-zadetkov " + (razred || ""));
@@ -4438,6 +4525,16 @@
     $("sporocilaPisi").addEventListener("click", odpriPisiNapravi);
     $("pisiPreklici").addEventListener("click", zapriSloje);
     $("kanalPreklici").addEventListener("click", zapriSloje);
+    $("kanalApiProtokol").querySelectorAll("button").forEach(function (b) {
+      b.addEventListener("click", function () {
+        $("kanalProtokol").value = b.getAttribute("data-protokol");
+        $("kanalApiProtokol").querySelectorAll("button").forEach(function (x) { x.classList.toggle("izbran", x === b); });
+        preklopiApiProtokol();
+      });
+    });
+    $("kanalStranGesla").addEventListener("click", function () {
+      var url = this.getAttribute("data-url"); if (url) odpriVSpletu(url, true);
+    });
     $("kanalVrstaIzbira").querySelectorAll("button").forEach(function (b) {
       b.addEventListener("click", function () {
         $("kanalVrsta").value = b.getAttribute("data-vrsta");
@@ -4445,13 +4542,17 @@
         preklopiKanalPolja();
       });
     });
+    $("kanalZamenjaj").addEventListener("click", function () { $("kanalPonudnik").value = ""; preklopiKanalPolja(); });
+    $("kanalNapredno").addEventListener("click", function () { $("kanalStrezniki").hidden = false; $("kanalNapredno").hidden = true; });
+    ["kanalImap", "kanalSmtp"].forEach(function (id) { $(id).addEventListener("input", function () { this.setAttribute("data-rocno", "1"); }); });
     $("kanalNaslov").addEventListener("blur", function () {
-      var naslov = this.value.trim(); if (naslov.indexOf("@") < 1) return;
+      var naslov = this.value.trim(); if (naslov.indexOf("@") < 1 || $("kanalPonudnik").value !== "drug") return;
+      // Drug ponudnik: ce je domena znanega ponudnika, ga izberemo; sicer predlagamo imap./smtp.domena.
+      var znani = (kanalPonudnikiPodatki && kanalPonudnikiPodatki.ponudniki || []).filter(function (p) { return (p.domene || []).indexOf(naslov.split("@")[1].toLowerCase()) >= 0; })[0];
+      if (znani) { izberiPonudnika(znani); return; }
       klic("sporocilaStreznik", [naslov]).then(function (p) {
-        if (!$("kanalImap").value) $("kanalImap").value = p.imap || "";
-        if (!$("kanalSmtp").value) $("kanalSmtp").value = p.smtp || "";
-        var namig = p.namig === "aplikacije" ? t("namigGesloAplikacije") : p.namig === "oauth" ? t("namigOauth") : "";
-        $("kanalNamig").textContent = namig; $("kanalNamig").hidden = !namig;
+        if (!$("kanalImap").getAttribute("data-rocno")) $("kanalImap").value = p.imap || "";
+        if (!$("kanalSmtp").getAttribute("data-rocno")) $("kanalSmtp").value = p.smtp || "";
       });
     });
     $("kanalUrediPreklici").addEventListener("click", zapriSloje);
@@ -4537,14 +4638,19 @@
     });
     $("obrazecKanal").addEventListener("submit", function (e) {
       e.preventDefault(); var email = $("kanalVrsta").value === "email";
-      var p = email ? { vrsta:"email", naslov:$("kanalNaslov").value, imap:$("kanalImap").value,
-        smtp:$("kanalSmtp").value, geslo:$("kanalGeslo").value } :
+      if ($("kanalVrsta").value === "aplikacije") return;
+      if (email && $("kanalPonudnik").value === "outlook") { $("kanalNapaka").textContent = t("navOauth"); $("kanalNapaka").hidden = false; return; }
+      function gostitelj(v, privzeto) { var t2 = String(v || "").trim(), i = t2.lastIndexOf(":"); var vr = i > 0 ? parseInt(t2.slice(i + 1), 10) : NaN; return isNaN(vr) ? [t2, privzeto] : [t2.slice(0, i), vr]; }
+      var gi = gostitelj($("kanalImap").value, 993), gs = gostitelj($("kanalSmtp").value, 465);
+      var p = email ? { vrsta:"email", naslov:$("kanalNaslov").value, imap:gi[0], imap_vrata:gi[1],
+        smtp:gs[0], smtp_vrata:gs[1], geslo:$("kanalGeslo").value, ponudnik:$("kanalPonudnik").value } :
+        $("kanalVrsta").value === "api" ? { vrsta:$("kanalProtokol").value, streznik:$("kanalApiStreznik").value, zeton:$("kanalApiZeton").value, ime:$("kanalApiIme").value } :
         { vrsta:"chatwoot", url:$("kanalUrl").value, account_id:Number($("kanalRacun").value), zeton:$("kanalZeton").value };
       var gumb = $("kanalPovezi"); gumb.disabled = true; gumb.textContent = t("povezujem");
       $("kanalNapaka").hidden = true;
       klic("sporocilaDodaj", [p]).then(function () {
         gumb.disabled = false; gumb.textContent = t("povezi");
-        $("kanalGeslo").value = ""; $("kanalZeton").value = ""; zapriSloje(); naloziSporocila();
+        $("kanalGeslo").value = ""; $("kanalZeton").value = ""; $("kanalApiZeton").value = ""; zapriSloje(); naloziSporocila();
         setTimeout(naloziSporocila, 4000);
       }).catch(function (napaka) {
         gumb.disabled = false; gumb.textContent = t("povezi");

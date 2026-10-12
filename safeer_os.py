@@ -2933,6 +2933,7 @@ class SafeerOS(Gtk.Application):
             "sporocilaSkrivnost": lambda: self.sporocila.nastavi_skrivnost(str(a[0]), str(a[1])),
             "sporocilaOdstrani": lambda: self.sporocila.odstrani_kanal(str(a[0])),
             "sporocilaStreznik": lambda: self.sporocila.privzeta_streznika(str(a[0]) if a else ""),
+            "sporocilaPonudniki": lambda: self.sporocila.ponudniki(),
             "sporocilaNaprave": self.sporocila.naprave_za_klepet,
             "sporocilaZacni": lambda: self.sporocila.zacni_klepet(str(a[0]), str(a[1]) if len(a) > 1 else ""),
         }

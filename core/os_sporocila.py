@@ -8,8 +8,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import Callable, List, Optional
 
+from .sporocila import ponudniki as _ponudniki
 from .sporocila.chatwoot import ChatwootAdapter
 from .sporocila.email import EmailAdapter
+from .sporocila.matrix import MatrixAdapter
+from .sporocila.telegram_bot import TelegramBotAdapter
 from .sporocila.model import Kanal
 from .sporocila.storitev import StoritevSporocil
 
@@ -76,6 +79,10 @@ class SporocilaOS:
                                 n.get("uporabnik", ""), skrivnost)
         if vrsta == "chatwoot":
             return ChatwootAdapter(kid, n.get("url", ""), int(n.get("account_id") or 0), skrivnost)
+        if vrsta == "matrix":
+            return MatrixAdapter(kid, n.get("streznik", ""), skrivnost)
+        if vrsta == "telegram_bot":
+            return TelegramBotAdapter(kid, skrivnost)
         return None
 
     def _nalozi(self):
@@ -89,9 +96,18 @@ class SporocilaOS:
 
     @staticmethod
     def privzeta_streznika(naslov: str) -> dict:
+        p = _ponudniki.iz_naslova(naslov)
+        if p:
+            return {"imap": p["imap"], "smtp": p["smtp"], "imap_vrata": p["imap_vrata"], "smtp_vrata": p["smtp_vrata"],
+                    "namig": "" if p["geslo"] == "navadno" else p["geslo"], "ponudnik": p["id"]}
         domena = naslov.rsplit("@", 1)[-1].lower().strip()
         imap, smtp, namig = PONUDNIKI.get(domena, ("imap." + domena, "smtp." + domena, ""))
-        return {"imap": imap, "smtp": smtp, "imap_vrata": 993, "smtp_vrata": 465, "namig": namig}
+        return {"imap": imap, "smtp": smtp, "imap_vrata": 993, "smtp_vrata": 465, "namig": namig, "ponudnik": "drug"}
+
+    @staticmethod
+    def ponudniki() -> dict:
+        """Seznam ponudnikov in aplikacij za carovnik »Dodaj kanal«."""
+        return _ponudniki.za_vmesnik()
 
     def dodaj_kanal(self, podatki: dict) -> dict:
         """Doda kanal SAMO, ce se prijava posreci - uporabnik takoj ve, ali je vse prav."""
@@ -102,6 +118,10 @@ class SporocilaOS:
             if "@" not in naslov or "." not in naslov.rsplit("@", 1)[-1]:
                 raise ValueError("Vnesi veljaven e-poštni naslov.")
             p = self.privzeta_streznika(naslov)
+            izbrani = _ponudniki.po_id(str(podatki.get("ponudnik") or ""))
+            if izbrani and izbrani["id"] != "drug":
+                p = {"imap": izbrani["imap"], "smtp": izbrani["smtp"], "imap_vrata": izbrani["imap_vrata"], "smtp_vrata": izbrani["smtp_vrata"],
+                     "namig": "" if izbrani["geslo"] == "navadno" else izbrani["geslo"], "ponudnik": izbrani["id"]}
             if p["namig"] == "oauth":
                 raise ValueError("Outlook in Hotmail ne dovolita več prijave z geslom (samo Microsoftova prijava). Ta vrsta prijave pride v naslednji različici.")
             geslo = str(podatki.get("geslo") or "")
@@ -109,16 +129,33 @@ class SporocilaOS:
                 raise ValueError("Vnesi geslo.")
             nastavitve = {"naslov": naslov, "uporabnik": str(podatki.get("uporabnik") or naslov),
                           "imap": str(podatki.get("imap") or p["imap"]), "smtp": str(podatki.get("smtp") or p["smtp"]),
-                          "imap_vrata": int(podatki.get("imap_vrata") or 993), "smtp_vrata": int(podatki.get("smtp_vrata") or 465)}
+                          "imap_vrata": int(podatki.get("imap_vrata") or p.get("imap_vrata") or 993),
+                          "smtp_vrata": int(podatki.get("smtp_vrata") or p.get("smtp_vrata") or 465)}
+            for kljuc in ("imap", "smtp"):   # "gostitelj:vrata" iz rocnega vnosa
+                g, _, vr = nastavitve[kljuc].rpartition(":")
+                if g and vr.isdigit():
+                    nastavitve[kljuc], nastavitve[kljuc + "_vrata"] = g, int(vr)
+            if p.get("ponudnik"):
+                nastavitve["ponudnik"] = p["ponudnik"]
             a = self._adapter(kid, "email", nastavitve, geslo)
             try:
                 a.povezi()
             except Exception as e:
                 ime = type(e).__name__
+                # Nekateri ponudniki hocejo uporabnisko ime brez domene: poskusimo se tako, preden obupamo.
+                brez = naslov.rsplit("@", 1)[0]
+                if ime == "NapakaPrijave" and nastavitve["uporabnik"] == naslov and brez:
+                    nastavitve["uporabnik"] = brez
+                    a = self._adapter(kid, "email", nastavitve, geslo)
+                    try:
+                        a.povezi(); ime = ""
+                    except Exception as e2:
+                        ime = type(e2).__name__; nastavitve["uporabnik"] = naslov
                 if ime == "NapakaPrijave":
                     namig = " Pri tem ponudniku potrebuješ »geslo za aplikacije« (nastaviš ga v varnostnih nastavitvah računa)." if p["namig"] == "aplikacije" else ""
                     raise ValueError("Prijava ni uspela - preveri naslov in geslo." + namig)
-                raise ValueError("Strežnika %s ni mogoče doseči." % nastavitve["imap"])
+                if ime:
+                    raise ValueError("Strežnika %s ni mogoče doseči." % nastavitve["imap"])
             a.shrani_geslo(geslo)
             ime = naslov
         elif vrsta == "chatwoot":
@@ -133,6 +170,43 @@ class SporocilaOS:
                 raise ValueError("Chatwoot ni sprejel povezave - preveri naslov, račun in žeton.")
             a.shrani_zeton(zeton)
             ime = str(podatki.get("ime") or "Chatwoot")
+        elif vrsta == "matrix":
+            # Lastni API: Matrix (Element, Beeper, Synapse ...) - naslov domacega streznika + dostopni zeton.
+            streznik = str(podatki.get("streznik", "")).strip().rstrip("/")
+            if streznik and "://" not in streznik:
+                streznik = "https://" + streznik
+            zeton = str(podatki.get("zeton") or "").strip()
+            lokalni = streznik.startswith("http://localhost") or streznik.startswith("http://127.")
+            if not (streznik.startswith("https://") or lokalni) or not zeton:
+                raise ValueError("Vnesi naslov strežnika (https://…) in dostopni žeton.")
+            nastavitve = {"streznik": streznik}
+            a = self._adapter(kid, "matrix", nastavitve, zeton)
+            try:
+                a.povezi()
+            except Exception as e:
+                if type(e).__name__ == "NapakaPrijave":
+                    raise ValueError("Matrix žetona ni sprejel - preveri, da je dostopni žeton prepisan v celoti.")
+                raise ValueError("Strežnika %s ni mogoče doseči." % streznik)
+            a.shrani_zeton(zeton)
+            nastavitve["uporabnik"] = a.uporabnik
+            ime = str(podatki.get("ime") or a.uporabnik or "Matrix")
+        elif vrsta == "telegram_bot":
+            # Lastni API: Telegram Bot API - zeton od @BotFather; sporocila ljudi, ki pisejo botu.
+            zeton = str(podatki.get("zeton") or "").strip()
+            if ":" not in zeton or len(zeton) < 20:
+                raise ValueError("Vnesi žeton bota (oblika 123456:ABC…), ki ti ga da @BotFather.")
+            nastavitve = {}
+            a = self._adapter(kid, "telegram_bot", nastavitve, zeton)
+            try:
+                a.povezi()
+            except Exception as e:
+                if type(e).__name__ == "NapakaPrijave":
+                    raise ValueError("Telegram žetona ni sprejel - preveri, da je prepisan v celoti.")
+                raise ValueError("Telegrama ni mogoče doseči.")
+            a.shrani_zeton(zeton)
+            uime = (a.bot or {}).get("username", "")
+            nastavitve["bot"] = uime
+            ime = str(podatki.get("ime") or ("Telegram @" + uime if uime else "Telegram bot"))
         else:
             raise ValueError("Nepodprta vrsta kanala")
         self.storitev.registriraj(Kanal(kid, vrsta, ime, "povezan"), a, nastavitve)
@@ -160,10 +234,40 @@ class SporocilaOS:
     def seznam(self, kanal: str = "") -> dict:
         skupine = self.storitev.zdruzeni_pogovori(kanal)
         kanali = {k.id: k.slovar() for k in self.storitev.kanali()}
+        try:
+            smeri = self.storitev.zadnje_smeri()
+        except Exception:
+            smeri = {}
         for s in skupine:
             for p in s["pogovori"]:
                 p["kanal"] = kanali.get(p["kanal_id"], {})
-        return {"kanali": list(kanali.values()), "skupine": skupine}
+                p["zadnji_ven"] = smeri.get((p["kanal_id"], p["id"])) == "ven"
+        return {"kanali": list(kanali.values()), "skupine": skupine, "oznake": self.storitev.vse_oznake()}
+
+    # ---- osebe in oznake (uporabnikovo urejanje) ----
+    def preimenuj_osebo(self, oseba_id: str, ime: str) -> dict:
+        if not self.storitev.graf.preimenuj(str(oseba_id), str(ime)):
+            raise ValueError("Oseba ne obstaja.")
+        return self.seznam()
+
+    def zdruzi_osebi(self, cilj_id: str, drugi_id: str) -> dict:
+        if cilj_id == drugi_id:
+            raise ValueError("Izberi drugo osebo.")
+        self.storitev.zdruzi_osebi(str(cilj_id), str(drugi_id))
+        return self.seznam()
+
+    def razdruzi_osebo(self, oseba_id: str, identiteta) -> dict:
+        if not isinstance(identiteta, (list, tuple)) or len(identiteta) != 2:
+            raise ValueError("Neveljavna identiteta.")
+        self.storitev.razdruzi_osebo(str(oseba_id), (str(identiteta[0]), str(identiteta[1])))
+        return self.seznam()
+
+    def nastavi_oznake(self, kanal_id: str, pogovor_id: str, oznake) -> dict:
+        self.storitev.nastavi_oznake(str(kanal_id), str(pogovor_id), list(oznake or []))
+        return self.seznam()
+
+    def osebe(self) -> list:
+        return [o.slovar() for o in self.storitev.graf.vse()]
 
     def pogovor(self, kanal_id: str, pogovor_id: str) -> list:
         self.storitev.oznaci_prebrano(kanal_id, pogovor_id)
@@ -193,8 +297,8 @@ class SporocilaOS:
             neprebrano = (int(prej["neprebrano"] or 0) if prej else 0) + novih
             if prej and not zadnje:
                 zadnje, cas = prej["zadnje_sporocilo"] or "", prej["cas"] or cas
-            st.db.execute("INSERT OR REPLACE INTO pogovori VALUES(?,?,?,?,?,?,?)",
-                          (naprava_id, KANAL_LINKA, oseba, "", zadnje[:240], neprebrano, cas))
+            st.db.execute("INSERT OR REPLACE INTO pogovori(id,kanal_id,oseba_id,zadeva,zadnje_sporocilo,neprebrano,cas,identiteta) VALUES(?,?,?,?,?,?,?,?)",
+                          (naprava_id, KANAL_LINKA, oseba, "", zadnje[:240], neprebrano, cas, naprava_id))
 
     def prejmi_klepet(self, od: str, ime: str, besedilo: str, cas: str = "", sid: str = "") -> bool:
         """chat.send z druge naprave; vrne True, ce je sporocilo novo (ne ponovljena dostava)."""
@@ -254,8 +358,17 @@ class SporocilaOS:
         if not n:
             return []
         return [s for s in self.storitev.zdruzeni_pogovori()
-                if n in (s["oseba"]["ime"] + " " + " ".join(p["zadnje_sporocilo"] + " " + p["zadeva"] + " " + p["id"]
-                                                            for p in s["pogovori"])).casefold()][:20]
+                if n in (s["oseba"]["ime"] + " " + s["oseba"].get("privzeto_ime", "") + " " +
+                         " ".join(p["zadnje_sporocilo"] + " " + p["zadeva"] + " " + p["id"] + " " + " ".join(p.get("oznake", []))
+                                  for p in s["pogovori"])).casefold()][:20]
+
+    def isci_pri_osebi(self, oseba_id: str, niz: str, kanal_id: str = "", pogovor_id: str = "") -> list:
+        """Iskanje po vsebini sporocil ene osebe (vsi njeni kanali) ali enega pogovora; za pano v nabiralniku."""
+        kanali = {k.id: k.slovar() for k in self.storitev.kanali()}
+        izid = self.storitev.isci_sporocila(niz, str(oseba_id or ""), str(kanal_id or ""), str(pogovor_id or ""))
+        for z in izid:
+            z["kanal"] = kanali.get(z["kanal_id"], {})
+        return izid
 
     def sinhroniziraj(self) -> dict:
         self.storitev.sinhroniziraj()

@@ -949,3 +949,27 @@ html.kavc:not(.kavc-miska), html.kavc:not(.kavc-miska) * { cursor: none !importa
 .kat-lokalna-glasba h3 { margin: 0; font-size: 16px; }
 .kat-lokalna-glasba h3 small { margin-left: 6px; opacity: .6; font-weight: 500; font-size: 13px; }
 .kat-lokalna-glasba .kat-knjiznica-glava { margin-bottom: 10px; }
+
+/* Carovnik »Dodaj kanal«: ponudniki kot ploscice z znakom, navodila za geslo, aplikacije po skupinah. */
+.kanal-carovnik { max-height: 86vh; overflow: auto; width: min(720px, 94vw); }
+.ponudniki-mreza { display:grid; grid-template-columns:repeat(auto-fill, minmax(210px, 1fr)); gap:8px; }
+.ponudniki-mreza button { display:flex; align-items:center; gap:12px; text-align:left; padding:10px 12px; border:1px solid var(--rob);
+  border-radius:12px; background:rgba(255,255,255,.04); color:inherit; font:inherit; cursor:pointer; }
+.ponudniki-mreza button:hover, .ponudniki-mreza button:focus-visible { border-color:var(--zelena); background:rgba(255,255,255,.08); outline:none; }
+.ponudnik-znak { flex:none; width:38px; height:38px; border-radius:50%; display:grid; place-items:center; font-weight:700;
+  color:#fff; background:rgba(255,255,255,.12); }
+.ponudnik-besedilo { min-width:0; display:flex; flex-direction:column; gap:2px; }
+.ponudnik-besedilo b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ponudnik-besedilo small { color:var(--medlo); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ponudnik-cip { align-self:flex-start; font-style:normal; font-size:11px; padding:1px 7px; border-radius:999px;
+  background:rgba(138,199,255,.18); color:#bfe0ff; }
+.ponudniki-mreza button.ni-na-voljo { opacity:.6; }
+.kanal-navodila { border:1px solid var(--rob); border-radius:12px; padding:12px 14px; background:rgba(255,255,255,.03); }
+.kanal-navodila p { margin:6px 0 0; white-space:pre-line; color:var(--medlo); line-height:1.5; }
+.kanal-navodila .kanal-stran-gesla { margin-top:10px; }
+.kanal-nazaj { align-self:flex-start; }
+.aplikacije-skupina { display:block; margin:10px 0 6px; }
+.aplikacije-vrsta { display:flex; align-items:center; gap:10px; padding:8px 10px; border:1px solid var(--rob); border-radius:12px; margin-bottom:6px; }
+.aplikacije-vrsta .gumb { white-space:nowrap; padding:8px 12px; }
+.aplikacije-vrsta .ime { flex:1; min-width:0; font-weight:600; }
+.aplikacije-vrsta .ime small { display:block; color:var(--medlo); font-weight:400; }
