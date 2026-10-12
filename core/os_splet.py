@@ -152,6 +152,26 @@ def odprte_datoteke(pid: int) -> set:
     return izid
 
 
+def pss_mb(pid: int) -> float:
+    """PSS procesa v MiB iz /proc/<pid>/smaps_rollup; 0, ce ni dostopa."""
+    try:
+        with open("/proc/%d/smaps_rollup" % pid, encoding="ascii", errors="replace") as f:
+            for vrstica in f:
+                if vrstica.startswith("Pss:"):
+                    return int(vrstica.split()[1]) / 1024.0
+    except (OSError, ValueError, IndexError):
+        pass
+    return 0.0
+
+
+def omrezni_procesi_shrambe(piskotki: str, starsevski: int | None = None) -> list:
+    """Omrezni procesi WebKita (otroci tega procesa), ki imajo odprto dano shrambo piskotkov.
+
+    Tako locimo omrezni proces enega programa od drugih v istem procesu (namizje, Control)."""
+    cilj = os.path.realpath(piskotki)
+    return sorted(pid for pid in omrezni_procesi(starsevski) if cilj in odprte_datoteke(pid))
+
+
 def besedila(jezik: str) -> dict:
     """Besedila razdelka Splet; neznani jezik varno pade na anglescino."""
     return BESEDILA.get(str(jezik or "")[:2].lower(), BESEDILA["en"])
@@ -581,16 +601,33 @@ class VdelaniSplet:
         SoupConnection - omrezni proces je rasel ~6 MiB/min (krog147/libsoup-prispevek). Do popravka v distribucijah
         tako pomnilnik vrnemo ob vsaki sprostitvi Spleta; DNS ostane sifriran. Proces Spleta prepoznamo po tem, da ima
         odprto shrambo piskotkov Spleta (zanesljivo, ne glede na cas zagona; namizje in Control je nimata)."""
-        piskotki = os.path.realpath(os.path.join(self.config.config_dir, "cookies.sqlite"))
         konec = False
-        for pid in omrezni_procesi():
-            if piskotki in odprte_datoteke(pid):
+        for pid in omrezni_procesi_shrambe(os.path.join(self.config.config_dir, "cookies.sqlite")):
+            try:
+                os.kill(pid, 15)
+                konec = True
+            except OSError:
+                pass
+        return konec
+
+    def ob_zaklepu(self, meja_mb: float = 300.0) -> bool:
+        """Zaslon zaklenjen: zavihki ostanejo, sprostimo predpomnilnik; prevelik omrezni proces (libsoup pusca prek
+        DoH posrednika) obnovimo, ce se nobena stran ne nalaga. Vrne True, ce je bil omrezni proces obnovljen."""
+        self.sprazni_predpomnilnik()
+        try:
+            if any(z["pogled"].is_loading() for z in self.zavihki):
+                return False
+        except Exception:  # noqa: BLE001
+            return False
+        obnovljen = False
+        for pid in omrezni_procesi_shrambe(os.path.join(self.config.config_dir, "cookies.sqlite")):
+            if pss_mb(pid) >= meja_mb:
                 try:
                     os.kill(pid, 15)
-                    konec = True
+                    obnovljen = True
                 except OSError:
                     pass
-        return konec
+        return obnovljen
 
     def sprazni_predpomnilnik(self) -> bool:
         """Ob skritju Spleta: spletni procesi izpraznejo pomnilniski predpomnilnik (dekodirane slike, skripte, CSS).

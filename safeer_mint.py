@@ -79,6 +79,8 @@ from core.filter_lists import FILTER_ID as FILTER_LIST_ID
 from core.default_browser import is_default_browser as system_is_default_browser, set_default_browser
 from core.tab_monitor import TabMonitor, describe as describe_load
 from core.tab_lifecycle import dejanje_zavihka, izberi_za_sprostitev, pomnilnik
+from core.os_splet import omrezni_procesi_shrambe, pss_mb
+from core.pomnilnik import recikliraj_omrezni
 from core import processes_page
 from core import userscripts as uporabniske_skripte
 from core import odlozisce_varuh
@@ -5221,6 +5223,8 @@ class SafeerMintBrowser(Gtk.Window):
                 if self.sleep_tab(tab["id"], f"neaktiven {int(zdaj - tab['inactive_since'])} s"):
                     stanje[-1]["sleeping"] = True
 
+        self._recikliraj_omrezni_proces(zdaj)
+
         try:
             with open("/proc/meminfo", encoding="ascii") as datoteka:
                 razpolozljivo, skupaj = pomnilnik(datoteka.read())
@@ -5231,6 +5235,37 @@ class SafeerMintBrowser(Gtk.Window):
             for kandidat in izberi_za_sprostitev(stanje, manjkajoce):
                 self.sleep_tab(kandidat["id"], "MemAvailable pod 10 %")
         return True
+
+    def _recikliraj_omrezni_proces(self, zdaj):
+        """Konca prevelik omrezni proces, ko okna nihce ne uporablja (libsoup pusca prek DoH posrednika)."""
+        try:
+            if self.is_active():
+                self._okno_neaktivno_od = None
+                return False
+            if getattr(self, "_okno_neaktivno_od", None) is None:
+                self._okno_neaktivno_od = zdaj
+                return False
+            prenosi = any(d.get("status") == "running" for d in self.downloads)
+            nalaganje = zvok = False
+            for tab in self.tabs:
+                wv = tab.get("webview")
+                if wv is None or tab.get("sleeping") or tab.get("deferred"):
+                    continue
+                nalaganje = nalaganje or bool(wv.is_loading())
+                zvok = zvok or bool(wv.get_property("is-playing-audio"))
+            meja = float(self.config.get("network_process_limit_mb", 300) or 0)
+            piskotki = os.path.join(self.config.config_dir, "cookies.sqlite")
+            for pid in omrezni_procesi_shrambe(piskotki):
+                velikost = pss_mb(pid)
+                if recikliraj_omrezni(okno_aktivno=False, neaktivno_s=zdaj - self._okno_neaktivno_od,
+                                      prenosi=prenosi, nalaganje=nalaganje, zvok=zvok,
+                                      pss_mb=velikost, meja_mb=meja):
+                    os.kill(pid, signal.SIGTERM)
+                    print(f"[Pomnilnik] omrezni proces {pid} ({velikost:.0f} MiB) obnovljen med mirovanjem okna")
+                    return True
+        except Exception as napaka:  # noqa: BLE001 - nikoli ne sme ustaviti casovnika zavihkov
+            print(f"[Pomnilnik] obnova omreznega procesa preskocena: {napaka}")
+        return False
 
     def _monitor_tabs(self):
         """Two-second sample of every tab's web process; called from the main loop."""

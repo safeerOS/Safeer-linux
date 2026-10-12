@@ -67,6 +67,13 @@ except ImportError:
     os_jbl = None
 
 
+def dvojni_esc(prejsnji_ms, zdaj_ms, okno_ms: int = 600) -> bool:
+    """Ali je bil Esc pritisnjen dvakrat zapored v okno_ms (casi dogodkov GDK v ms)."""
+    if prejsnji_ms is None or not zdaj_ms:
+        return False
+    return 0 <= zdaj_ms - prejsnji_ms <= okno_ms
+
+
 def _jbl_vrstica(ime: str) -> bool:
     return os_jbl is not None and os_jbl.je_vrstica(ime)
 
@@ -1184,6 +1191,7 @@ class SafeerOS(Gtk.Application):
         pomnilnik.obrezuj_periodicno(GLib)
         self._izvozi_predvajanje()
         en_proces.nastavi_os(self, klic=self._predvajanje_neposredno)
+        self._spremljaj_zaklep()
         threading.Thread(target=stremio_privzeto, name="safeer-stremio-privzeto", daemon=True).start()
         if (self.delovna or self.namizje) and not self.posnetek:
             # Namizje tece ves dan: Control (Safeer Link, naprave, pladenj) naj tece z njim, v istem procesu, kot je
@@ -1770,6 +1778,26 @@ class SafeerOS(Gtk.Application):
             pass
         return True
 
+    def _spremljaj_zaklep(self) -> None:
+        """Ob zaklepu zaslona (Cinnamon) Splet sprosti pomnilnik; zavihki ostanejo."""
+        try:
+            vodilo = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+            vodilo.signal_subscribe(None, "org.cinnamon.ScreenSaver", "ActiveChanged", "/org/cinnamon/ScreenSaver",
+                                    None, Gio.DBusSignalFlags.NONE, self._ob_zaklepu, None)
+        except Exception as e:  # noqa: BLE001 - brez seje D-Bus (preizkusi) ni zaklepa
+            print("[SafeerOS] zaklep:", e)
+
+    def _ob_zaklepu(self, _vodilo, _posiljatelj, _pot, _vmesnik, _signal, parametri, _podatki) -> None:
+        try:
+            zaklenjen = bool(parametri.unpack()[0])
+        except Exception:  # noqa: BLE001
+            return
+        if not zaklenjen or self._spletni_namizje is None:
+            return
+        obnovljen = self._spletni_namizje.ob_zaklepu()
+        pomnilnik.obrezuj()
+        print("[SafeerOS] zaklep: Splet sprostil predpomnilnik" + (", omrezni proces obnovljen" if obnovljen else ""))
+
     def _skrij_splet_na_namizju(self) -> bool:
         if self._plosca_spleta is None or not self._plosca_spleta.get_visible():
             return False
@@ -1809,6 +1837,13 @@ class SafeerOS(Gtk.Application):
         strani in, ce je stran ne porabi, jo poslje oknu znova - sele takrat Esc skrije okno Splet."""
         if Gdk.keyval_name(dogodek.keyval) != "Escape":
             return False
+        # Dvojni Esc (v 0,6 s) Splet vedno zapre: strani, kot je Google, prvi Esc porabijo zase in brez tega
+        # uporabnik Spleta s tipkovnico ne bi mogel zapreti (stresni preizkus 12. 10. 2026).
+        cas = int(getattr(dogodek, "time", 0) or 0)
+        prejsnji, self._zadnji_esc_splet = getattr(self, "_zadnji_esc_splet", None), cas
+        if dvojni_esc(prejsnji, cas):
+            self._zadnji_esc_splet = None
+            return self._skrij_splet_na_namizju()
         if okno.propagate_key_event(dogodek):
             return True
         return self._skrij_splet_na_namizju()
