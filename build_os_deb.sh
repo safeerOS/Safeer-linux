@@ -101,6 +101,10 @@ fi
 if [ -d /usr/lib/safeer-control ] && [ -x /usr/bin/find ]; then
     /usr/bin/find /usr/lib/safeer-control -depth \( -name '*.pyc' -o -name __pycache__ \) -delete 2>/dev/null || true
 fi
+# The layout chooser (/usr/lib/safeer-cinnamon/izbira) is Python too: byte-code written when it ran as root.
+if [ -d /usr/lib/safeer-cinnamon ] && [ -x /usr/bin/find ]; then
+    /usr/bin/find /usr/lib/safeer-cinnamon -depth \( -name '*.pyc' -o -name __pycache__ \) -delete 2>/dev/null || true
+fi
 # Safeer Cinnamon: on removal (not on an update) every user who has it turned on gets the previous look back while
 # the command and the theme still exist (a logged-in user in their own session, the others in a temporary D-Bus
 # session). Without this Cinnamon would fall back to the default theme and the panel, dock and wallpaper would stay
