@@ -1796,7 +1796,7 @@ class SafeerOS(Gtk.Application):
             return
         obnovljen = self._spletni_namizje.ob_zaklepu()
         pomnilnik.obrezuj()
-        print("[SafeerOS] zaklep: Splet sprostil predpomnilnik" + (", omrezni proces obnovljen" if obnovljen else ""))
+        print("[SafeerOS] zaklep: Splet sprostil predpomnilnik" + (", omrezni proces obnovljen" if obnovljen else ""), flush=True)
 
     def _skrij_splet_na_namizju(self) -> bool:
         if self._plosca_spleta is None or not self._plosca_spleta.get_visible():
