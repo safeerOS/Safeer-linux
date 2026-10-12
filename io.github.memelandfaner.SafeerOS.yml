@@ -91,6 +91,8 @@ modules:
     # Seznam odprtih oken in »Pokazi namizje« na delovni povrsini (core/os_okna.py). Runtime GNOME 50 ga nima.
     buildsystem: meson
     config-opts:
+      # Brez tega meson namesti v /app/lib64 in GI typelib ne najde (izmerjeno v CI, 13. 10. 2026).
+      - --libdir=lib
       - -Dstartup_notification=disabled
       - -Dintrospection=enabled
       - -Dgtk_doc=false
