@@ -2585,6 +2585,9 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
                 "qr_id": qr_id,
                 "hub_id": IDENTITETA_HUBA,
                 "fp": self._hub.odtis,
+                # Naslov v domacem omrezju (kot pri vabilu): naprava, ki se prijavlja na lastni Hub (127.0.0.1),
+                # ga da v QR - sicer bi telefon iskal sredisce na samem sebi (»Safeer Link se ne oglasi«).
+                "address": self._hub.naslov_za_qr,
                 "expires_in_seconds": int(PIN_VELJA_S)
             })
             return

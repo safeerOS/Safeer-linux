@@ -525,6 +525,11 @@ def zacni_qr(ws_naslov: str, device_id: str, ime: str, platforma: str = PLATFORM
     odtis = videni.lower()
     u = urlparse(ws_naslov)
     naslov = "%s:%d" % (u.hostname, u.port or 443)
+    # Prijava na lastni Hub (wss://127.0.0.1): v QR gre naslov v domacem omrezju, ki ga sporoci Hub - sicer telefon
+    # isce sredisce na samem sebi (testni racunalnik 12. 10. 2026: »Safeer Link se ne oglasi«, koda je delovala).
+    domaci = str(odgovor.get("address") or "").strip()
+    if u.hostname in ("127.0.0.1", "localhost", "::1") and ":" in domaci and not domaci.startswith("127."):
+        naslov = domaci
     return {
         "qr_id": qr_id, "odtis": odtis, "skrivnost": skrivnost, "koda": koda_naprave, "prevzem": prevzem, "naslov": naslov,
         "povezava": QR_POVEZAVA.format(qr_id=qr_id, skrivnost=skrivnost, odtis=odtis[:QR_ODTIS_ZNAKOV], naslov=naslov),
