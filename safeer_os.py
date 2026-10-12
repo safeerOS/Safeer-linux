@@ -2486,7 +2486,53 @@ class SafeerOS(Gtk.Application):
                     s["cas"] = time.time() - os_posodobitve.PREVERBA_S + 600   # cez 10 minut znova
         izid = s["izid"] or {"nove": [], "nacin": os_posodobitve.nacin_namestitve(), "stran": os_posodobitve.STRAN}
         return {"nove": izid.get("nove") or [], "opis": os_posodobitve.opis(izid), "nacin": izid.get("nacin"), "novo": izid.get("novo") or {},
-                "stran": izid.get("stran"), "nasa": RAZLICICA, "napaka": s["napaka"], "posodabljanje": self.posodabljanje.stanje()}
+                "stran": izid.get("stran"), "nasa": RAZLICICA, "napaka": s["napaka"], "posodabljanje": self.posodabljanje.stanje(),
+                "flatpak_preklop": self._flatpak_ponudba(izid)}
+
+    def _flatpak_ponudba(self, izid: dict):
+        """Ponudba »hitrejsi Splet« (lastnik, 12. 10. 2026: Flatpak je glavna pot): samo .deb brez Flatpaka."""
+        p = (izid or {}).get("flatpak_preklop")
+        if not p:
+            return None
+        if self.posodobitve.get("flatpak_namescen") is None:
+            self.posodobitve["flatpak_namescen"] = os_posodobitve.flatpak_namescen()
+        return None if self.posodobitve["flatpak_namescen"] else {"razlicica": p.get("razlicica")}
+
+    def _flatpak_preklop(self) -> dict:
+        """Prenese Flatpak Safeer OS (SHA-256 iz manifesta), ga namesti za uporabnika in Safeer OS znova zazene -
+        zaganjalnik .deb ga nato preda Flatpaku (WebKit iz runtime GNOME). Brez gesla."""
+        st = self._posodobitve_stanje()
+        izid = self.posodobitve.get("izid") or {}
+        p = izid.get("flatpak_preklop")
+        if not p or not st.get("flatpak_preklop"):
+            return {"ok": False, "koda": "ni_na_voljo"}
+        d = p["datoteka"]
+
+        def delo(stanje: os_posodobitve.Posodabljanje) -> None:
+            mapa = os.path.join(GLib.get_user_cache_dir(), "safeer-os", "posodobitve")
+            ime = str(d["url"]).rsplit("/", 1)[-1]
+            stanje.sporocilo = ime
+            pot = os_posodobitve.prenesi(str(d["url"]), os.path.join(mapa, ime), str(d.get("sha256") or ""),
+                                         int(d.get("velikost") or 0),
+                                         lambda a, b: setattr(stanje, "odstotek", int(a * 100 / b) if b else 0),
+                                         lambda: stanje.prekinjeno, agent="SafeerOS/" + RAZLICICA)
+            stanje.faza, stanje.odstotek = "namescanje", 100
+            r = os_posodobitve.namesti_flatpak(pot)
+            if r.returncode != 0:
+                stanje.faza, stanje.sporocilo = "napaka", (r.stderr or r.stdout or "").strip()[-300:] or "namestitev ni uspela"
+                return
+            try:
+                os.remove(pot)
+            except OSError:
+                pass
+            self.posodobitve["flatpak_namescen"] = True
+            stanje.sporocilo = "Flatpak"
+            # Znova zazenemo prek zaganjalnika .deb (preda Flatpaku); najprej koncamo ta proces (en primerek).
+            argumenti = ["--delovna"] if self.delovna else []
+            subprocess.Popen(["sh", "-c", 'sleep 3; exec /usr/bin/safeer-os "$@"', "safeer-os"] + argumenti,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            GLib.timeout_add_seconds(1, lambda: (self._koncaj(), False)[1])
+        return {"ok": self.posodabljanje.zacni(delo)}
 
     def _posodobitve_tiho(self) -> bool:
         """Tiha preverba ob zagonu in nato na 6 ur; novo razlicico sporoci vmesniku (opomba na domacem zaslonu)."""
@@ -2505,14 +2551,14 @@ class SafeerOS(Gtk.Application):
         if not nove:
             return {"ok": False, "koda": "ni_novih"}
         nacin = st["nacin"]
-        if nacin not in ("deb", "flatpak", "appimage"):
+        if nacin not in ("deb", "flatpak", "flatpak+deb", "appimage"):
             return {"ok": False, "koda": "rocno", "stran": st["stran"]}
 
         def delo(p: os_posodobitve.Posodabljanje) -> None:
             mapa = os.path.join(GLib.get_user_cache_dir(), "safeer-os", "posodobitve")
             datoteke = []
             for n in nove:
-                for d in ([n["datoteka"]] + ([n["tema"]] if n.get("tema") else [])):
+                for d in ([n["datoteka"]] + ([n["tema"]] if n.get("tema") else []) + ([n["deb"]] if n.get("deb") else [])):
                     ime = str(d["url"]).rsplit("/", 1)[-1]
                     p.sporocilo = ime
                     datoteke.append(os_posodobitve.prenesi(str(d["url"]), os.path.join(mapa, ime), str(d.get("sha256") or ""),
@@ -2792,6 +2838,7 @@ class SafeerOS(Gtk.Application):
         ozadje = {
             "posodobitveStanje": lambda: self._posodobitve_stanje(bool(a[0]) if a else False),
             "posodobi": self._posodobi,
+            "flatpakPreklop": self._flatpak_preklop,
             "stanje": os_sistem.stanje,
             "glasnost": lambda: os_sistem.nastavi_glasnost(int(a[0])),
             "utisaj": os_sistem.preklopi_utisaj,

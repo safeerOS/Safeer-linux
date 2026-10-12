@@ -220,7 +220,9 @@ def nacin_namestitve() -> str:
     if sys.platform.startswith("win"):
         return "windows"
     if os.environ.get("FLATPAK_ID"):
-        return "flatpak"
+        # Flatpak je glavna pot; ob njem je lahko namescen se paket .deb (sistemski deli: prijava, zagon, Cinnamon),
+        # ki ga zaganjalnik .deb preda Flatpaku. Posodobita se oba, sicer bi sistemski deli zaostajali.
+        return "flatpak+deb" if gostitelj_ima_deb() else "flatpak"
     if os.environ.get("APPIMAGE"):
         return "appimage"
     if shutil.which("dpkg") and os.path.exists("/var/lib/dpkg/info/safeer-os.list"):
@@ -228,12 +230,24 @@ def nacin_namestitve() -> str:
     return "neznano"
 
 
+def gostitelj_ima_deb() -> bool:
+    """V Flatpaku: ali je na racunalniku namescen paket safeer-os (.deb)."""
+    if not os.environ.get("FLATPAK_ID") or not shutil.which("flatpak-spawn"):
+        return False
+    try:
+        r = subprocess.run(["flatpak-spawn", "--host", "dpkg-query", "-W", "-f", "${Status}", "safeer-os"],
+                           capture_output=True, text=True, timeout=10)
+        return r.returncode == 0 and r.stdout.strip().endswith("installed")
+    except Exception:
+        return False
+
+
 def _vnos_datoteke(paket: dict, nacin: str) -> Optional[dict]:
     """Datoteka za namestitev v programu ali None (nova razlicica brez nje: vmesnik odpre stran)."""
     if nacin == "windows":
         d = {k: paket.get(k) for k in ("url", "sha256", "velikost")}
     else:
-        d = paket.get({"deb": "deb", "flatpak": "flatpak", "appimage": "appimage"}.get(nacin, ""))
+        d = paket.get({"deb": "deb", "flatpak": "flatpak", "flatpak+deb": "flatpak", "appimage": "appimage"}.get(nacin, ""))
     return d if veljavna_datoteka(d) else None
 
 
@@ -253,6 +267,12 @@ def preveri(platforma: str, razlicice: Dict[str, str], manifest: Optional[dict] 
             continue
         vnos = {"kljuc": kljuc, "ime": IMENA.get(kljuc, kljuc), "nasa": nasa, "razlicica": str(paket.get("razlicica")),
                 "datoteka": _vnos_datoteke(paket, nacin)}
+        if kljuc == "safeer-os" and nacin == "flatpak+deb":
+            # Oba paketa v enem koraku; brez veljavnega .deb nic napol (samo stran).
+            if veljavna_datoteka(paket.get("deb")):
+                vnos["deb"] = paket["deb"]
+            else:
+                vnos["datoteka"] = None
         if kljuc == "safeer-os" and nacin == "deb" and "tema_deb" in paket:
             if veljavna_datoteka(paket["tema_deb"]):
                 vnos["tema"] = paket["tema_deb"]
@@ -260,7 +280,14 @@ def preveri(platforma: str, razlicice: Dict[str, str], manifest: Optional[dict] 
                 vnos["datoteka"] = None   # paket videza gre v isti apt-get: brez veljavnega vnosa nic napol (samo stran)
         nove.append(vnos)
     novo = skupina.get("novo") if isinstance(skupina.get("novo"), dict) else {}
-    return {"nove": nove, "nacin": nacin, "stran": str(m.get("stran") or STRAN), "preverjeno": int(time.time()),
+    # Paket .deb brez Flatpaka: ponudba »hitrejsi Splet« (Flatpak na runtime GNOME, ista ali novejsa razlicica).
+    preklop = None
+    os_paket = skupina.get("safeer-os") if isinstance(skupina.get("safeer-os"), dict) else {}
+    nasa_os = razlicice.get("safeer-os", "")
+    if nacin == "deb" and veljavna_datoteka(os_paket.get("flatpak")) and \
+            not novejsa(nasa_os, str(os_paket.get("razlicica") or "")):
+        preklop = {"razlicica": str(os_paket.get("razlicica")), "datoteka": os_paket["flatpak"]}
+    return {"nove": nove, "nacin": nacin, "flatpak_preklop": preklop, "stran": str(m.get("stran") or STRAN), "preverjeno": int(time.time()),
             "novo": {k: str(v) for k, v in novo.items() if isinstance(v, str)}}
 
 
@@ -319,6 +346,17 @@ def namesti_linux(nacin: str, poti: List[str]) -> subprocess.CompletedProcess:
         return subprocess.run(["pkexec", "apt-get", "install", "-y", *poti], capture_output=True, text=True, timeout=900)
     if nacin == "flatpak":
         return subprocess.run(["flatpak", "install", "--user", "-y", "--reinstall", *poti], capture_output=True, text=True, timeout=900)
+    if nacin == "flatpak+deb":
+        # Najprej .deb na racunalniku (pkexec vprasa za geslo), nato Flatpak. Poti so v ~/.cache - enake na racunalniku.
+        debi = [p for p in poti if p.endswith(".deb")]
+        flatpaki = [p for p in poti if not p.endswith(".deb")]
+        if debi:
+            r = subprocess.run(["flatpak-spawn", "--host", "pkexec", "apt-get", "install", "-y", *debi],
+                               capture_output=True, text=True, timeout=900)
+            if r.returncode != 0:
+                return r
+        return subprocess.run(["flatpak", "install", "--user", "-y", "--reinstall", *flatpaki],
+                              capture_output=True, text=True, timeout=900)
     if nacin == "appimage":
         # Nova datoteka zamenja tekoco NA ISTI POTI (ime ostane): bliznjice, meni in AppImageLauncher kazejo nanjo se naprej.
         zdajsnji = os.environ.get("APPIMAGE") or ""
@@ -328,6 +366,25 @@ def namesti_linux(nacin: str, poti: List[str]) -> subprocess.CompletedProcess:
         os.chmod(zdajsnji, 0o755)
         return subprocess.CompletedProcess(["appimage", zdajsnji], 0, zdajsnji, "")
     raise RuntimeError("neznan nacin namestitve")
+
+
+FLATPAK_ID = "io.github.memelandfaner.SafeerOS"
+
+
+def flatpak_namescen() -> bool:
+    """Ali je Safeer OS kot Flatpak ze namescen (za uporabnika ali za vse)."""
+    if not shutil.which("flatpak"):
+        return False
+    try:
+        return subprocess.run(["flatpak", "info", FLATPAK_ID], capture_output=True, timeout=15).returncode == 0
+    except Exception:
+        return False
+
+
+def namesti_flatpak(pot: str) -> subprocess.CompletedProcess:
+    """Paket Flatpak za uporabnika (brez gesla); runtime GNOME pride s Flathuba (--runtime-repo v paketu)."""
+    return subprocess.run(["flatpak", "install", "--user", "-y", "--noninteractive", pot],
+                          capture_output=True, text=True, timeout=3600)
 
 
 class Posodabljanje:

@@ -2619,6 +2619,8 @@
   S.posodobitve = { stanje: null, zanka: 0 };
   function narisiPosodobitve(st) {
     S.posodobitve.stanje = st;
+    var fp = $("gumbFlatpak");
+    if (fp) { fp.hidden = !(st && st.flatpak_preklop) || !!(st.posodabljanje && st.posodabljanje.tece); }
     var naslov = $("posodobitveNaslov"), pod = $("posodobitvePod"), gumb = $("gumbPosodobi");
     if (!naslov) return;
     var p = st && st.posodabljanje;
@@ -2634,7 +2636,7 @@
     if (st && st.nove && st.nove.length) {
       naslov.textContent = t("posodobitevNaVoljo", { opis: st.opis });
       var novo = st.novo && (st.novo[jezik] || st.novo.en) ? (st.novo[jezik] || st.novo.en) + " " : "";
-      pod.textContent = novo + ((st.nacin === "deb" || st.nacin === "windows") ? t("posodobitevNaVoljoPod") : (st.nacin === "flatpak" || st.nacin === "appimage") ? t("posodobitevNaVoljoFlatpak") : t("posodobitevRocnoPod"));
+      pod.textContent = novo + ((st.nacin === "deb" || st.nacin === "flatpak+deb" || st.nacin === "windows") ? t("posodobitevNaVoljoPod") : (st.nacin === "flatpak" || st.nacin === "appimage") ? t("posodobitevNaVoljoFlatpak") : t("posodobitevRocnoPod"));
       return;
     }
     naslov.textContent = t("posodobitevNajnovejsa", { v: (st && st.nasa) || (S.zacetek && S.zacetek.razlicica) || "" });
@@ -2653,10 +2655,17 @@
       }).catch(function () {});
     }, 1000);
   }
+  function flatpakPreklop() {
+    var st = S.posodobitve.stanje || {};
+    klic("flatpakPreklop").then(function (r) {
+      if (r && r.ok) { narisiPosodobitve({ nasa: st.nasa, nove: st.nove || [], opis: st.opis, nacin: st.nacin, posodabljanje: { tece: true, faza: "prenos", odstotek: 0, sporocilo: "" } }); posodobitveZanka(); }
+      else nalozPosodobitve(true);
+    }).catch(function () { obvesti(t("niUspelo")); });
+  }
   function posodobi() {
     var st = S.posodobitve.stanje;
     if (!st || !st.nove || !st.nove.length) { nalozPosodobitve(true); return; }
-    if (st.nacin !== "deb" && st.nacin !== "flatpak" && st.nacin !== "appimage" && st.nacin !== "windows") { klic("splet", [st.stran || "https://safeer.si/os/"]); return; }
+    if (st.nacin !== "deb" && st.nacin !== "flatpak+deb" && st.nacin !== "flatpak" && st.nacin !== "appimage" && st.nacin !== "windows") { klic("splet", [st.stran || "https://safeer.si/os/"]); return; }
     klic("posodobi").then(function (r) {
       if (r && r.ok) { narisiPosodobitve({ nasa: st.nasa, nove: st.nove, opis: st.opis, nacin: st.nacin, posodabljanje: { tece: true, faza: "prenos", odstotek: 0, sporocilo: "" } }); posodobitveZanka(); }
       else if (r && r.koda === "rocno") klic("splet", [r.stran || "https://safeer.si/os/"]);
@@ -4891,6 +4900,7 @@
       }).catch(function () { b.removeAttribute("aria-busy"); });
     });
     $("gumbPosodobi").addEventListener("click", posodobi);
+    $("gumbFlatpak").addEventListener("click", flatpakPreklop);
     $("domPosodobitevGumb").addEventListener("click", naPosodobitve);
     $("stikaloPredaja").addEventListener("click", function () {
       // "Predvajanje za druge naprave": Nadaljuj z druge naprave / Pošlji na napravo proti temu računalniku (nastavitev Controla).
