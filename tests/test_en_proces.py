@@ -151,7 +151,6 @@ class DrugaAplikacija(unittest.TestCase):
         self.assertEqual(izid.stdout.strip().splitlines()[-1], "False True", izid.stderr[-500:])
         with open(os.path.join(KOREN, "safeer_control.py"), encoding="utf-8") as f:
             s = f.read()
-        self.assertNotIn("self.add_window(okno)\n            return\n        from", "")   # placeholder
         self.assertEqual(s.count("self._dodaj_okno("), 3)
         with open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8") as f:
             self.assertIn('os.environ.pop("SAFEER_CONTROL_VGRAJEN", None)', f.read())
