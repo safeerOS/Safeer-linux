@@ -88,12 +88,20 @@ def _kandidati_map() -> List[str]:
     mape.append("/var/lib/flatpak/exports/share/applications")
     mape.append(os.path.join(doma, "flatpak/exports/share/applications"))
     mape.append("/var/lib/snapd/desktop/applications")
+    # Safeer OS v Flatpaku: programi, namesceni na racunalniku, so pod /run/host/usr (core/gostitelj.py).
+    from core import gostitelj
+    mape += gostitelj.mape_gostitelja("applications")
     vse: List[str] = []
     for m in mape:
         p = os.path.realpath(m)
         if p not in vse:
             vse.append(p)
     return vse
+
+
+def gostitelj_pixmaps() -> List[str]:
+    from core import gostitelj
+    return gostitelj.mape_gostitelja("pixmaps")
 
 
 def _mape_vnosov() -> List[str]:
@@ -489,6 +497,8 @@ class Programi:
                     # Flatpak: sistemski in tisti, ki jih je uporabnik namestil zase (--user).
                     "/var/lib/flatpak/exports/share/icons",
                     os.path.join(doma, "flatpak/exports/share/icons")]
+        from core import gostitelj
+        korenine += gostitelj.mape_gostitelja("icons")
         velikosti = ["128x128", "96x96", "64x64", "256x256", "48x48", "scalable"]
         teme = ["hicolor", "Papirus", "Adwaita", "breeze"]
         for koren in ([] if samo_pixmaps else korenine):
@@ -498,7 +508,7 @@ class Programi:
                         pot = os.path.join(koren, tema, velikost, "apps", ime + konec)
                         if os.path.isfile(pot):
                             return pot
-        for mapa in ("/usr/share/pixmaps", os.path.join(doma, "pixmaps")):
+        for mapa in ["/usr/share/pixmaps", os.path.join(doma, "pixmaps")] + gostitelj_pixmaps():
             for konec in ("", ".png", ".svg", ".xpm"):
                 pot = os.path.join(mapa, ime + konec)
                 if os.path.isfile(pot) and (konec or ime.lower().endswith((".png", ".svg", ".xpm"))):

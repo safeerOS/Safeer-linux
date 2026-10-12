@@ -20,7 +20,7 @@ import subprocess
 import time
 from typing import Dict, List, Optional, Tuple
 
-from core import link_programi, os_oblak_igre
+from core import gostitelj, link_programi, os_oblak_igre
 
 NAJVEC = 400
 IKONA_VELIKOST = 96
@@ -302,6 +302,8 @@ class Programi:
                 ok = bool(zaganjalnik(pot))
             except Exception:
                 ok = False
+        if not ok and gostitelj.v_flatpaku():
+            ok = gostitelj.zazeni_vnos(pot)
         if not ok:
             for ukaz in (["gio", "launch", pot], ["gtk-launch", oznaka]):
                 if shutil.which(ukaz[0]) is None:

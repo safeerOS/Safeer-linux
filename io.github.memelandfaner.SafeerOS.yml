@@ -15,6 +15,11 @@ finish-args:
   - --socket=pulseaudio
   - --socket=session-bus
   - --filesystem=home
+  # Programi, ikone in zaganjalniki racunalnika (Flatpak je glavna pot distribucije; core/gostitelj.py):
+  # /usr racunalnika pod /run/host/usr (samo branje) ter Flatpak in Snap programi, namesceni za vse uporabnike.
+  - --filesystem=host-os:ro
+  - --filesystem=/var/lib/flatpak:ro
+  - --filesystem=/var/lib/snapd/desktop:ro
   - --filesystem=xdg-run/pipewire-0
   - --talk-name=org.freedesktop.Flatpak
   - --own-name=io.github.memelandfaner.SafeerControl

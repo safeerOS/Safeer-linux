@@ -53,7 +53,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 from core import (os_datoteke, os_govor, os_katalog, os_knjiznica, os_lupa, os_oblak_igre, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
                   os_media_besedila, os_mediji, os_posodobitve, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost,
                   os_torrent, os_torrent_tok, os_zapiski, os_zvok, knjiznica_kroga, os_ponudniki_programov, os_github_programi)
-from core import budnost, odlozisce_varuh, os_iskalnik, os_odpri_z, os_pretvorba_datotek  # noqa: E402
+from core import budnost, gostitelj, odlozisce_varuh, os_iskalnik, os_odpri_z, os_pretvorba_datotek  # noqa: E402
 from core import media_servers  # noqa: E402
 from core import os_dock  # noqa: E402
 pomnilnik.tlak_omrezja(WebKit2, 160)   # pred prvim pogledom: omrezni procesi WebKita z mejo pomnilnika
@@ -1290,6 +1290,7 @@ class SafeerOS(Gtk.Application):
 
     def do_startup(self) -> None:
         Gtk.Application.do_startup(self)
+        gostitelj.dodaj_ikone_gostitelja(Gtk)
         # Spletne strani (prefers-color-scheme) sledijo temi namizja, tudi ob preklopu med delom.
         try:
             from core import os_tema_namizja
@@ -3110,6 +3111,9 @@ class SafeerOS(Gtk.Application):
     def _zazeni_vnos_z(self, pot: str, datoteke: list) -> bool:
         """Zazene program iz menija, po zelji z datotekami (»Odpri z ...«) - z okoljem namizja, da novo okno pride
         v ospredje."""
+        # Flatpak: program tece na racunalniku, ne v peskovniku (core/gostitelj.py).
+        if gostitelj.v_flatpaku():
+            return gostitelj.zazeni_vnos(pot, datoteke)
         info = Gio.DesktopAppInfo.new_from_filename(pot)
         if info is None:
             return False
