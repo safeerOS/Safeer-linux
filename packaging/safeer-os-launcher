@@ -30,6 +30,9 @@ APP_DIR="$(cd "$BIN_DIR/../lib/safeer-os" && pwd)" || {
 # wrappers that run them through flatpak-spawn --host (packaging/flatpak_host_wrappers.sh).
 if [ -n "${FLATPAK_ID:-}" ] && [ -d /app/host-bin ]; then
     export PATH="/app/host-bin:$PATH"
+    # Same settings, sign-in, trust and messages as the .deb: the Flatpak would otherwise keep its own copy in
+    # ~/.var/app (and ask to sign in to Safeer Link again). --filesystem=home makes these folders reachable.
+    export XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share" XDG_CACHE_HOME="$HOME/.cache"
 fi
 
 PY="${PYTHON:-python3}"
@@ -40,6 +43,22 @@ for arg in "$@"; do
         --version|--posnetek|--help|-h) exec "$PY" "$APP_DIR/safeer_os.py" "$@" ;;
     esac
 done
+# Flatpak is the main way Safeer OS is delivered (owner, 12 Oct 2026): it runs on the GNOME runtime, so the
+# web engine (WebKitGTK) is current without waiting for Ubuntu. The .deb keeps the system parts (login and boot
+# look, Cinnamon, start at login). When the Safeer OS Flatpak and its runtime are installed and the Flatpak is not
+# older than this package, the .deb launcher starts the Flatpak instead. SAFEER_OS_BREZ_FLATPAKA=1 keeps the .deb.
+if [ -z "${FLATPAK_ID:-}" ] && [ -z "${SAFEER_OS_BREZ_FLATPAKA:-}" ] && [ "$APP_DIR" = "/usr/lib/safeer-os" ] \
+        && command -v flatpak >/dev/null 2>&1; then
+    FP_ID="io.github.memelandfaner.SafeerOS"
+    FP_DIR="$(flatpak info --show-location "$FP_ID" 2>/dev/null)"
+    FP_RT="$(flatpak info --show-runtime "$FP_ID" 2>/dev/null)"
+    FP_VER="$(cat "$FP_DIR/files/lib/safeer-os/packaging/VERSION_OS" 2>/dev/null)"
+    NAS_VER="$(cat "$APP_DIR/packaging/VERSION_OS" 2>/dev/null)"
+    if [ -n "$FP_VER" ] && [ -n "$FP_RT" ] && flatpak info "$FP_RT" >/dev/null 2>&1 \
+            && { [ -z "$NAS_VER" ] || dpkg --compare-versions "$FP_VER" ge "$NAS_VER" 2>/dev/null; }; then
+        exec flatpak run "$FP_ID" "$@"
+    fi
+fi
 if [ -n "${SAFEER_OS_BREZ_NADZORA:-}" ]; then
     exec "$PY" "$APP_DIR/safeer_os.py" "$@"
 fi
