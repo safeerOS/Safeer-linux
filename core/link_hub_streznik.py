@@ -30,6 +30,7 @@ import json
 import os
 import logging
 import re
+import secrets
 import socket
 import ssl
 import sys
@@ -653,9 +654,8 @@ class Hub:
             self._pocisti_pridruzitve()
             while len(self._pridruzitve) >= NAJVEC_CAKAJOCIH:
                 self._pridruzitve.pop(next(iter(self._pridruzitve)), None)
-            qr_id = link_ws.nakljucni(12)
+            qr_id = secrets.token_hex(12)   # hex: Safeer na Androidu sprejme samo [0-9a-f]{8,64} (QrPrijavaActivity)
             skrivnost = link_ws.nakljucni(16)
-            import secrets
             self._pridruzitve[qr_id] = {"odtis": hashlib.sha256(skrivnost.encode()).hexdigest(),
                                         "nastala": self.ura(), "poskusov": 0,
                                         "pin": str(100000 + secrets.randbelow(900000))}
@@ -721,7 +721,7 @@ class Hub:
                 self._qr_prijave.pop(k, None)
             if len(self._qr_prijave) >= NAJVEC_CAKAJOCIH:
                 return None, "prevec_prijav"
-            qr_id = link_ws.nakljucni(12)
+            qr_id = secrets.token_hex(12)   # hex: Safeer na Androidu sprejme samo [0-9a-f]{8,64} (QrPrijavaActivity)
             self._qr_prijave[qr_id] = {
                 "device_id": device_id,
                 "name": (ime or device_id).strip()[:NAJVEC_IMENA],

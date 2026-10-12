@@ -56,6 +56,11 @@ class HubKodaNaprave(unittest.TestCase):
                                                "p" * 24, _sha("123456"))
         self.assertIsNone(napaka)
 
+    def test_qr_id_je_hex_kot_ga_sprejme_android(self):
+        # Safeer na Androidu (QrPrijavaActivity.razcleni) sprejme samo qr_id [0-9a-f]{8,64}; base64url
+        # (npr. »4gWc_ZSzSkse2-Bh«) je telefon zavrnil z »Ta koda ni koda za prijavo v Safeer« (12. 10. 2026).
+        self.assertRegex(self.qr_id, r"^[0-9a-f]{8,64}$")
+
     def test_clan_dovoli_s_kodo_brez_qr_id(self):
         podatki, napaka = self.hub.qr_podatki("", "123456")
         self.assertEqual((podatki or {}).get("name"), "Nov racunalnik", napaka)
