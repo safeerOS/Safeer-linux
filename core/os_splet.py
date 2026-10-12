@@ -99,7 +99,11 @@ def peskovnik_dela(zazeni=None, kje=None, obstaja=None, okolje=None) -> bool:
     if not bwrap or not kje("xdg-dbus-proxy"):
         return False
     try:
-        return zazeni([bwrap, "--unshare-all", "--ro-bind", "/", "/", "true"], stdin=subprocess.DEVNULL,
+        # WebKit v peskovniku priklopi tudi /proc in /dev (za xdg-dbus-proxy in spletni proces). Stresni preizkus
+        # 12. 10. 2026: v zabojniku je goli --unshare-all uspel, »--proc /proc« pa ne (»Can't mount proc«) - WebKit je
+        # nato ob vsakem odprtju Spleta podrl Safeer OS (SIGTRAP). Zato preverimo isto, kar potrebuje WebKit.
+        return zazeni([bwrap, "--unshare-all", "--die-with-parent", "--ro-bind", "/", "/", "--proc", "/proc",
+                       "--dev", "/dev", "true"], stdin=subprocess.DEVNULL,
                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=8).returncode == 0
     except Exception:
         return False

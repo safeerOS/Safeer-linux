@@ -46,6 +46,10 @@ class PeskovnikDela(unittest.TestCase):
         ukaz, moznosti = klici[0]
         self.assertEqual(ukaz[0], "/usr/bin/bwrap")
         self.assertIn("--unshare-all", ukaz)            # prav ustvarjanje imenskih prostorov je tisto, kar odpove
+        # Stresni preizkus #77: --unshare-all je v zabojniku uspel, priklop /proc (ki ga WebKit potrebuje) pa ne.
+        i = ukaz.index("--proc")
+        self.assertEqual(ukaz[i + 1], "/proc")
+        self.assertIn("--dev", ukaz)
         self.assertLessEqual(moznosti.get("timeout", 999), 10)
 
     def test_ne_dela(self):
