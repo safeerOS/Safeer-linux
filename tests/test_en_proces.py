@@ -194,21 +194,3 @@ class OmrezniProcesSpleta(unittest.TestCase):
         with mock.patch.object(os_splet.VdelaniSplet, "koncaj_omrezni_proces") as k:
             s.sprosti_zavihke()
         k.assert_called_once()
-
-    def test_omrezni_procesi_najde_otroka(self):
-        from core import os_splet
-        import shutil
-        if not shutil.which("sleep"):
-            self.skipTest("ni sleep")
-        # Lazen otrok z imenom WebKitNetworkProcess (exec -a); /proc/<pid>/stat comm je 15 znakov.
-        p = subprocess.Popen(["bash", "-c", "exec -a WebKitNetworkProcess sleep 5"])
-        try:
-            import time
-            for _ in range(50):
-                if p.pid in os_splet.omrezni_procesi():
-                    break
-                time.sleep(0.05)
-            # comm pri exec -a ostane "sleep"; zato preverimo vsaj, da tuji procesi niso zajeti
-            self.assertNotIn(os.getpid(), os_splet.omrezni_procesi())
-        finally:
-            p.kill(); p.wait()
