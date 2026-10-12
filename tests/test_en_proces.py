@@ -195,6 +195,29 @@ class OmrezniProcesSpleta(unittest.TestCase):
             s.sprosti_zavihke()
         k.assert_called_once()
 
+    def test_proces_iz_ustvarjanja_konteksta(self):
+        """Omrezni proces se zazene ze ob ustvarjanju konteksta - primerjamo s stanjem pred tem."""
+        from unittest import mock
+        s, os_splet = self._splet()
+        s._omrezni_pred, s._stevec = {1}, 0
+        klici = []
+
+        class GLib:
+            @staticmethod
+            def get_monotonic_time():
+                return 0
+
+            @staticmethod
+            def timeout_add(_ms, fn):
+                klici.append(fn)
+        s.GLib = GLib
+        with mock.patch.object(os_splet, "omrezni_procesi", return_value={1, 55}), \
+                mock.patch.object(os_splet.VdelaniSplet, "_nov_pogled", side_effect=RuntimeError("konec")):
+            with self.assertRaises(RuntimeError):
+                s.nov_zavihek("")
+            klici[0]()
+        self.assertEqual(s._omrezni_pid, 55)
+
     def test_iskanje_brez_zacetnega_atributa(self):
         """12. 10. v zivo: AttributeError '_omrezni_pid' v iskanju ob prvem zavihku."""
         from unittest import mock

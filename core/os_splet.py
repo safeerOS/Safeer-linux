@@ -197,6 +197,8 @@ class VdelaniSplet:
         self.filter, self.filter_store, self.filter_agent = None, None, None
         self.prenosi = []
         self._threat_service = None
+        # Omrezni proces Spleta se lahko zazene ze ob ustvarjanju konteksta (posrednik DoH, filtri): stanje prej.
+        self._omrezni_pred = omrezni_procesi()
         self._ustvari_kontekst()
         self._zgradi()
         self._zazeni_zascito()
@@ -522,7 +524,10 @@ class VdelaniSplet:
         # Omrezni proces Spleta si zapomnimo ob prvem zavihku: ob sprostitvi ga koncamo (sprosti_zavihke).
         if getattr(self, "_omrezni_pid", None) is None and not getattr(self, "_iscem_omrezni", False):
             self._iscem_omrezni = True
-            pred, zacetek = omrezni_procesi(), self.GLib.get_monotonic_time()
+            pred = getattr(self, "_omrezni_pred", None)
+            if pred is None:
+                pred = omrezni_procesi()        # po koncanem procesu: novega zazene ta zavihek
+            self._omrezni_pred, zacetek = None, self.GLib.get_monotonic_time()
 
             def poisci() -> bool:
                 novi = omrezni_procesi() - pred
