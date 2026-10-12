@@ -55,6 +55,7 @@ from core import (os_datoteke, os_govor, os_katalog, os_knjiznica, os_lupa, os_o
 from core import budnost, odlozisce_varuh, os_iskalnik, os_odpri_z, os_pretvorba_datotek  # noqa: E402
 from core import media_servers  # noqa: E402
 from core import os_dock  # noqa: E402
+pomnilnik.tlak_omrezja(WebKit2, 160)   # pred prvim pogledom: omrezni procesi WebKita z mejo pomnilnika
 from core import en_proces  # noqa: E402
 
 # Preklop vhoda zvocne vrstice JBL je samo interni poskus: uradni paket modula ne vsebuje

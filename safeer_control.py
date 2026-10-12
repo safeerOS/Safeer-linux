@@ -55,6 +55,7 @@ from core.link_gledalec import (Gledalec, OKVIR_OBVESTILO, OKVIR_SLIKA,  # noqa:
                                 izberi_ponor, niz_cevovoda, preslikaj_tipko,
                                 preslikaj_tocko)
 from core.safeer_link import SafeerLink  # noqa: E402
+pomnilnik.tlak_omrezja(WebKit2, 160)   # pred prvim pogledom (v procesu Safeer OS je ze nastavljeno)
 
 APP_ID = "io.github.memelandfaner.SafeerControl"
 CONTROL_POT = "/io/github/memelandfaner/SafeerControl"

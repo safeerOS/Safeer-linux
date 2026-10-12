@@ -74,3 +74,19 @@ def kontekst(WebKit2, meja_mb: int, **lastnosti):
         except Exception:  # noqa: BLE001
             pass
     return WebKit2.WebContext(**lastnosti)
+
+
+def tlak_omrezja(WebKit2, meja_mb: int) -> bool:
+    """Meja pomnilnika za omrezne procese WebKita (WebKitGTK 2.34+, velja za vse, ustvarjene po klicu).
+
+    Stresni preizkus na lastnikovem racunalniku 12. 10. 2026: omrezni proces Spleta je v 15 minutah iskanja zrasel s
+    187 na 278 MiB (vse anonimni pomnilnik), en zavihek, eno okno. Nad mejo WebKit omreznemu procesu sprosti
+    predpomnilnike. Klicati pred prvim pogledom WebKit v procesu."""
+    s = tlak_webkit(WebKit2, meja_mb)
+    if s is None:
+        return False
+    try:
+        WebKit2.WebsiteDataManager.set_memory_pressure_settings(s)
+        return True
+    except Exception:  # noqa: BLE001 - starejsi WebKitGTK
+        return False

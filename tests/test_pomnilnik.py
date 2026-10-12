@@ -75,3 +75,43 @@ class KompaktenIndeks(unittest.TestCase):
         self.assertIsNone(i.match_url("https://ok.example/drugo"))
         self.assertEqual(i.match_url("https://WWW.zlo.example/x"), "phishing")
         self.assertEqual(i.size, 5)
+
+
+class TlakOmrezja(unittest.TestCase):
+    def test_nastavi_za_omrezne_procese(self):
+        from core import pomnilnik
+        klici = []
+
+        class S:
+            @staticmethod
+            def new():
+                return S()
+
+            def set_memory_limit(self, mb):
+                klici.append(("meja", mb))
+
+        class WDM:
+            @staticmethod
+            def set_memory_pressure_settings(s):
+                klici.append(("omrezje", type(s).__name__))
+
+        class W:
+            MemoryPressureSettings = S
+            WebsiteDataManager = WDM
+        self.assertTrue(pomnilnik.tlak_omrezja(W, 160))
+        self.assertEqual(klici, [("meja", 160), ("omrezje", "S")])
+
+    def test_brez_podpore(self):
+        from core import pomnilnik
+
+        class W:
+            pass
+        self.assertFalse(pomnilnik.tlak_omrezja(W, 160))
+
+    def test_klic_pred_prvim_pogledom(self):
+        import os
+        koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        for ime in ("safeer_os.py", "safeer_control.py"):
+            with open(os.path.join(koren, ime), encoding="utf-8") as f:
+                s = f.read()
+            self.assertLess(s.index("pomnilnik.tlak_omrezja(WebKit2, 160)"), s.index("WebKit2.WebView("), ime)
