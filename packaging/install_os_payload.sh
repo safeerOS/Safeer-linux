@@ -20,10 +20,12 @@ cp -a "$ROOT/safeer_os.py" "$LIB/"
 for modul in budnost en_proces uvoz_zavihkov zgodovina iskalni_kljuc os_datoteke os_dock pomnilnik os_iskalnik os_odpri_z os_knjiznica os_media_besedila os_mediji os_mpris os_oblak_igre os_ponudniki_programov os_github_programi os_posodobitve os_predvajalnik os_pretvorba_datotek os_torrent os_torrent_tok podnapisi os_dvd os_okna os_omrezje os_govor os_lupa os_programi os_scit os_sistem os_sporocila os_spletne os_stabilnost os_tema_namizja os_zapiski os_zvok \
              link_datoteke link_urejanje link_hub link_hub_streznik link_obramba link_varovalka link_hub_deljenje link_mesh link_rele link_pretok link_sprotno link_predvajanje link_iskanje link_krog link_dostop link_e2e link_kripto link_mediji link_programi link_seja link_tls link_ws link_vticnik link_pot spake2 signed_feed threat_intel \
              os_katalog os_media knjiznica_kroga media_servers tok_izbira watch_providers zakoniti_viri izvirni_jezik uvoz_seznama seznami_sink viri_sink \
-             os_splet ikone_strani dlna_zvocniki zvok_na_zvocnik adblock config bookmarks_importer doh_proxy filter_lists webkit_filters bank_guard odlozisce_varuh ozadje_strani drm; do
+             os_splet splet_temno ikone_strani dlna_zvocniki zvok_na_zvocnik adblock config bookmarks_importer doh_proxy filter_lists webkit_filters bank_guard odlozisce_varuh ozadje_strani drm; do
     cp -a "$ROOT/core/$modul.py" "$LIB/core/"
 done
 mkdir -p "$LIB/core/sporocila" && install -m 644 "$ROOT"/core/sporocila/*.py "$LIB/core/sporocila/"
+# Dark Reader (MIT) za »vsili temno« v Spletu (core/splet_temno.py preveri SHA-256 pred uporabo).
+mkdir -p "$LIB/core/darkreader" && install -m 644 "$ROOT"/core/darkreader/darkreader.js "$ROOT"/core/darkreader/LICENSE "$LIB/core/darkreader/"
 [ -f "$ROOT/core/__init__.py" ] && cp -a "$ROOT/core/__init__.py" "$LIB/core/" || true
 cp -a "$ROOT/assets/os" "$LIB/assets/"
 # Splet v Safeer OS: skupna zacetna stran in podatki BankGuarda (iste datoteke kot na Windows/Androidu).

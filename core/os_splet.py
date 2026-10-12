@@ -15,7 +15,7 @@ import urllib.parse
 import weakref
 from pathlib import Path
 
-from core import adblock, drm, odlozisce_varuh, os_stabilnost, ozadje_strani
+from core import adblock, drm, odlozisce_varuh, os_stabilnost, ozadje_strani, splet_temno
 from core.config import ConfigManager, SEARCH_ENGINES, normalize_web_url
 from core.doh_proxy import get_doh_proxy
 from core.filter_lists import FILTER_ID
@@ -334,6 +334,12 @@ class VdelaniSplet:
         #: Gumb »Install« dodatka Stremio (povezava stremio://...): Safeer Player pokaze dodatek in vprasa (kot Android).
         self.stremio_dodatek = stremio_dodatek
         self.config = ConfigManager()
+        #: »Vsili temno« (core/splet_temno.py): skripta Dark Reader vsakega pogleda, da jo ob spremembi zamenjamo.
+        self._temno_skripte = weakref.WeakKeyDictionary()
+        try:
+            Gtk.Settings.get_default().connect("notify::gtk-application-prefer-dark-theme", lambda *_: self._temno_osvezi())
+        except Exception:
+            pass
         self.zavihki, self.aktivni, self._stevec = [], None, 0
         self.filter, self.filter_store, self.filter_agent = None, None, None
         self.prenosi = []
@@ -518,6 +524,54 @@ class VdelaniSplet:
         g.connect("clicked", dejanje)
         return g
 
+    # ---------------------------------------------------------------- vsili temno
+    def _temno_nacin(self) -> str:
+        n = str(self.config.get("temno_nacin", splet_temno.PRIVZETO) or splet_temno.PRIVZETO)
+        return n if n in splet_temno.NACINI else splet_temno.PRIVZETO
+
+    def _namizje_temno(self) -> bool:
+        try:
+            return bool(self.Gtk.Settings.get_default().props.gtk_application_prefer_dark_theme)
+        except Exception:
+            return False
+
+    def _temno_izjeme(self) -> list:
+        izjeme = self.config.get("temno_izjeme", []) or []
+        return [str(x) for x in izjeme] if isinstance(izjeme, list) else []
+
+    def _temno_namesti(self, upravitelj):
+        try:
+            return splet_temno.namesti(self.WebKit2, upravitelj, os.path.join(self.koren, "core"), self._temno_nacin(),
+                                       self._namizje_temno(), self._temno_izjeme())
+        except Exception as napaka:
+            print("[Safeer OS Splet] vsili temno:", napaka)
+            return None
+
+    def _temno_osvezi(self, znova_nalozi=None) -> None:
+        """Skripto zamenja v vseh zavihkih; znova_nalozi: pogled, ki ga naj takoj osvezi (sprememba se vidi)."""
+        for z in list(getattr(self, "zavihki", []) or []):
+            pogled = z.get("pogled")
+            if pogled is None:
+                continue
+            upravitelj = pogled.get_user_content_manager()
+            splet_temno.odstrani(upravitelj, self._temno_skripte.get(pogled))
+            self._temno_skripte[pogled] = self._temno_namesti(upravitelj)
+        if znova_nalozi is not None:
+            try:
+                znova_nalozi.reload()
+            except Exception:
+                pass
+
+    def _temno_preklopi_stran(self, *_):
+        p = self.trenutni()
+        g = splet_temno.gostitelj(p.get_uri() if p else "")
+        if not g:
+            return
+        izjeme = self._temno_izjeme()
+        izjeme = [x for x in izjeme if x != g] if g in izjeme else izjeme + [g]
+        self.config.set("temno_izjeme", izjeme)
+        self._temno_osvezi(znova_nalozi=p)
+
     def _meni(self):
         meni = self.Gtk.Menu()
         vnosi = [
@@ -533,6 +587,12 @@ class VdelaniSplet:
             (self._t("nastavitve"), self._nastavitve),
             (self._t("zapisek"), self._v_zapisek),
         ]
+        p = self.trenutni()
+        g = splet_temno.gostitelj(p.get_uri() if p else "")
+        if g and splet_temno.dejaven(self._temno_nacin(), self._namizje_temno()):
+            jezik = str(self.jezik() if callable(self.jezik) else self.jezik or "sl")
+            kljuc = "na_strani_vklopi" if g in self._temno_izjeme() else "na_strani_izklopi"
+            vnosi.insert(-2, (splet_temno.besedilo(jezik, kljuc), self._temno_preklopi_stran))
         for napis, dejanje in vnosi:
             v = self.Gtk.MenuItem(label=napis); v.connect("activate", dejanje); meni.append(v)
         meni.show_all()
@@ -662,6 +722,7 @@ class VdelaniSplet:
             W.UserScriptInjectionTime.END, adblock.STEVEC_SVET, None, izvzemi))
         self._skripta(upravitelj, adblock.ANTI_CLICKJACKING_SCRIPT, W.UserScriptInjectionTime.END, izloceni=izvzemi + ["file://*"])
         self._skripta(upravitelj, adblock.TAB_THROTTLER_SCRIPT, izloceni=izvzemi)
+        self._temno_skripte[pogled] = self._temno_namesti(upravitelj)
         nastavitve = pogled.get_settings()
         nastavitve.set_hardware_acceleration_policy(politika_pospesevanja(W, self.config.get("hardware_acceleration", "on_demand")))
         nastavitve.set_enable_javascript(True)
@@ -1306,12 +1367,21 @@ class VdelaniSplet:
         strojno.set_active(self.config.get("hardware_acceleration", "on_demand") != "never")
         mreza.attach(self.Gtk.Label(label=self._t("iskalnik"), xalign=0), 0, 0, 1, 1); mreza.attach(motor, 1, 0, 1, 1)
         mreza.attach(oglasi, 0, 1, 2, 1); mreza.attach(doh, 0, 2, 2, 1); mreza.attach(strojno, 0, 3, 2, 1)
+        jezik = str(self.jezik() if callable(self.jezik) else self.jezik or "sl")
+        temno = self.Gtk.ComboBoxText()
+        for n in splet_temno.NACINI: temno.append(n, splet_temno.besedilo(jezik, n))
+        temno.set_active_id(self._temno_nacin())
+        mreza.attach(self.Gtk.Label(label=splet_temno.besedilo(jezik, "nastavitev"), xalign=0), 0, 4, 1, 1)
+        mreza.attach(temno, 1, 4, 1, 1)
         d.get_content_area().add(mreza); d.show_all()
         if d.run() == self.Gtk.ResponseType.OK:
             self.config.set("search_engine", motor.get_active_id() or "duckduckgo")
             self.config.set("adblock_enabled", oglasi.get_active())
             self.config.set("doh_enabled", doh.get_active())
             self.config.set("hardware_acceleration", "on_demand" if strojno.get_active() else "never")
+            if (temno.get_active_id() or splet_temno.PRIVZETO) != self._temno_nacin():
+                self.config.set("temno_nacin", temno.get_active_id() or splet_temno.PRIVZETO)
+                self._temno_osvezi(znova_nalozi=self.trenutni())
             politika = politika_pospesevanja(self.WebKit2, self.config.get("hardware_acceleration"))
             for z in self.zavihki:
                 z["pogled"].get_settings().set_hardware_acceleration_policy(politika)
