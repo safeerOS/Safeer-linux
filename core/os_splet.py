@@ -526,9 +526,9 @@ class VdelaniSplet:
 
             def poisci() -> bool:
                 novi = omrezni_procesi() - pred
-                if len(novi) == 1:
-                    self._omrezni_pid = novi.pop()
-                if novi or self._omrezni_pid is not None or self.GLib.get_monotonic_time() - zacetek > 8_000_000:
+                self._omrezni_pid = novi.pop() if len(novi) == 1 else getattr(self, "_omrezni_pid", None)
+                if novi or getattr(self, "_omrezni_pid", None) is not None or \
+                        self.GLib.get_monotonic_time() - zacetek > 8_000_000:
                     self._iscem_omrezni = False
                     return False
                 return True

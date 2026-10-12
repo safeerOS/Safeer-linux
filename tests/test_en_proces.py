@@ -194,3 +194,25 @@ class OmrezniProcesSpleta(unittest.TestCase):
         with mock.patch.object(os_splet.VdelaniSplet, "koncaj_omrezni_proces") as k:
             s.sprosti_zavihke()
         k.assert_called_once()
+
+    def test_iskanje_brez_zacetnega_atributa(self):
+        """12. 10. v zivo: AttributeError '_omrezni_pid' v iskanju ob prvem zavihku."""
+        from unittest import mock
+        s, os_splet = self._splet()
+        klici = []
+
+        class GLib:
+            @staticmethod
+            def get_monotonic_time():
+                return 0
+
+            @staticmethod
+            def timeout_add(_ms, fn):
+                klici.append(fn)
+        s.GLib = GLib
+        with mock.patch.object(os_splet, "omrezni_procesi", side_effect=[{1}, {1, 99}]), \
+                mock.patch.object(os_splet.VdelaniSplet, "_nov_pogled", side_effect=RuntimeError("konec")):
+            with self.assertRaises(RuntimeError):
+                s.nov_zavihek("")
+            self.assertFalse(klici[0]())          # nasel nov proces -> konec iskanja
+        self.assertEqual(s._omrezni_pid, 99)
