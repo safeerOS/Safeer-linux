@@ -69,3 +69,11 @@ class Povezano(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AkcijaSplet(unittest.TestCase):
+    def test_akcija_splet_samo_http(self):
+        s = (KOREN / "safeer_os.py").read_text(encoding="utf-8")
+        self.assertIn('Gio.SimpleAction.new("splet", GLib.VariantType.new("s"))', s)
+        i = s.index("def _splet_od_drugod")
+        self.assertIn('startswith(("http://", "https://"))', s[i:i + 400])

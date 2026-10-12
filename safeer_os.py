@@ -1274,6 +1274,11 @@ class SafeerOS(Gtk.Application):
         isci = Gio.SimpleAction.new("isci", GLib.VariantType.new("s"))
         isci.connect("activate", lambda _a, v: self._isci_od_drugod(v.get_string() if v else ""))
         self.add_action(isci)
+        # Odpri spletni naslov v Spletu na delovni povrsini (drugi programi, Safeer Link, preizkus na testnem PC):
+        # gdbus call ... org.gtk.Actions.Activate splet "[<'https://...'>]" {}. Samo http(s), nic drugega.
+        splet_akcija = Gio.SimpleAction.new("splet", GLib.VariantType.new("s"))
+        splet_akcija.connect("activate", lambda _a, v: self._splet_od_drugod(v.get_string() if v else ""))
+        self.add_action(splet_akcija)
         #: `safeer-os --stremio <naslov>` (gumb »Install« na strani z dodatki, x-scheme-handler/stremio): Safeer Player.
         stremio = Gio.SimpleAction.new("stremio", GLib.VariantType.new("s"))
         stremio.connect("activate", lambda _a, v: self._odpri_stremio_dodatek(v.get_string() if v else ""))
@@ -2642,6 +2647,11 @@ class SafeerOS(Gtk.Application):
         naslov = " ".join(str((m or {}).get("title", "") or "").split())[:200]
         if naslov:
             self._odpri_predvajalnik(naslov)
+
+    def _splet_od_drugod(self, url: str) -> None:
+        url = str(url or "").strip()
+        if url.lower().startswith(("http://", "https://")) and len(url) <= 4096:
+            self._splet_na_namizju(url)
 
     def _isci_od_drugod(self, niz: str) -> None:
         """Niz z druge naprave (telefon kot mikrofon): namizje se pokaze, lupa ga isce - nic se ne odpre samo."""
