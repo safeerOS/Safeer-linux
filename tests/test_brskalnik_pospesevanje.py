@@ -40,7 +40,8 @@ def test_zamenjava_zavihka():
         def reorder_child(self, x, i): self.o.remove(x); self.o.insert(i, x)
 
     b = types.SimpleNamespace(config={}, tabs=[], tabs_box=Box(), closed_tabs_stack=[], zaprti=[])
-    b.config = types.SimpleNamespace(get=lambda k, d=None: d)
+    nast = {"splet_skia_kompozitor": True}       # pri Skia kompozitorju velja staticni seznam (24ur.com)
+    b.config = types.SimpleNamespace(get=lambda k, d=None: nast.get(k, d))
 
     def new_tab(uri, switch=True):
         tid = "t%d" % (len(b.tabs) + 10)
@@ -60,3 +61,11 @@ def test_zamenjava_zavihka():
     assert [t["uri"] for t in b.tabs] == ["https://www.24ur.com/", "https://github.com/"]
     assert b.tabs[0]["webview"].n.p == "NEVER" and b.zaprti == [prvi] and b.closed_tabs_stack == []
     assert getattr(b, "_naslednja_politika", None) is None
+
+
+def test_texturemapper_24ur_ostane_pospesen():
+    W = types.SimpleNamespace(HardwareAccelerationPolicy=types.SimpleNamespace(NEVER="NEVER", ALWAYS="ALWAYS"))
+    ns = {"WebKit2": W, "GLib": types.SimpleNamespace(idle_add=lambda f: f())}
+    exec(_funkcija(), ns)
+    b = types.SimpleNamespace(tabs=[], config=types.SimpleNamespace(get=lambda k, d=None: d))
+    assert ns["zamenjaj_za_pospesevanje"](b, _Pogled("ALWAYS"), "https://www.24ur.com/") is False

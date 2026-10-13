@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Safeer Browser for Linux Mint - DNS-over-HTTPS (DoH) & Encrypted Proxy Engine
-Encrypted DNS with HTTP/2 support and bounded local HTTP/CONNECT tunneling.
+Encrypted DNS with HTTP/2 support and bounded local HTTP/CONNECT and SOCKS5 tunneling.
 Public target lookups fail closed; resolver endpoint bootstrap uses the system DNS.
 The local proxy only ever connects outwards to public addresses, never to the Fetch
 bad-port list: loopback, private, link-local (including cloud metadata) and reserved
@@ -538,6 +538,49 @@ def _brez_zamika(vticnica: socket.socket) -> None:
         pass
 
 
+def _preberi_tocno(vticnica: socket.socket, n: int) -> bytes:
+    """Prebere natanko n bajtov (SOCKS5 pozdrav in zahteva); ob prekinjeni povezavi vrze OSError."""
+    podatki = b""
+    while len(podatki) < n:
+        kos = vticnica.recv(n - len(podatki))
+        if not kos:
+            raise OSError("povezava prekinjena")
+        podatki += kos
+    return podatki
+
+
+# Odgovori SOCKS5 (RFC 1928): 0 uspeh, 2 ni dovoljeno, 4 gostitelj nedosegljiv, 5 povezava zavrnjena,
+# 7 ukaz ni podprt, 8 vrsta naslova ni podprta.
+def _socks5_odgovor(koda: int) -> bytes:
+    return bytes([5, koda, 0, 1, 0, 0, 0, 0, 0, 0])
+
+
+def socks_ima_http2() -> bool:
+    """Ali libsoup prek posrednika SOCKS5 govori HTTP/2.
+
+    libsoup HTTP/2 izklopi za vsak posrednik "http" (soup-connection.c, is_not_using_http_proxy), za SOCKS5
+    pa ne. Izmerjeno 13. 10. 2026: libsoup 3.6.6 (Flatpak GNOME 50) prek SOCKS5 http-2-0, libsoup 3.4.4 (Mint)
+    ostane pri HTTP/1.1. Zato SOCKS5 uporabimo samo od 3.6 naprej; starejsi ostane pri preizkusenem HTTP CONNECT.
+    """
+    try:
+        return (Soup.get_major_version(), Soup.get_minor_version()) >= (3, 6)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def nastavitve_posrednika(WebKit, vrata: int, izjeme: List[str]):
+    """NetworkProxySettings za lokalni DoH posrednik.
+
+    Privzeto http://127.0.0.1:vrata (navaden HTTP dobi razumljive strani napak). Kjer libsoup prek SOCKS5 zna
+    HTTP/2, gre https skozi socks5:// na istih vratih: brez tega je bil github.com hladno 1171 ms namesto 600 ms
+    (HTTP/1.1 namesto HTTP/2). GLib ime poslje posredniku (SOCKS5 vrsta 3), zato DNS se vedno tece prek DoH.
+    """
+    p = WebKit.NetworkProxySettings.new("http://127.0.0.1:%d" % vrata, izjeme)
+    if socks_ima_http2():
+        p.add_proxy_for_scheme("https", "socks5://127.0.0.1:%d" % vrata)
+    return p
+
+
 class LocalDoHProxy:
     """
     Visoko-zmogljiv lokalni posredniški strežnik (Loopback CONNECT Proxy).
@@ -710,6 +753,9 @@ class LocalDoHProxy:
         remote_sock = None
         try:
             client_sock.settimeout(10.0)
+            if client_sock.recv(1, socket.MSG_PEEK) == b"\x05":
+                remote_sock = self._socks5(client_sock)
+                return
             req_data = b""
             while b"\r\n\r\n" not in req_data and len(req_data) < 8192:
                 chunk = client_sock.recv(2048)
@@ -818,6 +864,78 @@ class LocalDoHProxy:
                     remote_sock.close()
                 except Exception:
                     pass
+
+    def _socks5(self, client_sock: socket.socket) -> Optional[socket.socket]:
+        """SOCKS5 CONNECT brez prijave (RFC 1928), z istimi pravili kot HTTP CONNECT: dovoljena vrata, ime prek
+        DoH, samo javni naslovi. Vrne oddaljeno vticnico (za pospravljanje v finally) ali None."""
+        _ver, n = _preberi_tocno(client_sock, 2)
+        metode = _preberi_tocno(client_sock, n)
+        if 0 not in metode:
+            client_sock.sendall(b"\x05\xff")
+            return None
+        client_sock.sendall(b"\x05\x00")
+        ver, ukaz, _rez, vrsta = _preberi_tocno(client_sock, 4)
+        if vrsta == 1:
+            host = socket.inet_ntoa(_preberi_tocno(client_sock, 4))
+        elif vrsta == 3:
+            host = _preberi_tocno(client_sock, _preberi_tocno(client_sock, 1)[0]).decode("ascii", errors="replace")
+        elif vrsta == 4:
+            host = socket.inet_ntop(socket.AF_INET6, _preberi_tocno(client_sock, 16))
+        else:
+            client_sock.sendall(_socks5_odgovor(8))
+            return None
+        port = int.from_bytes(_preberi_tocno(client_sock, 2), "big")
+        if ver != 5 or ukaz != 1:
+            client_sock.sendall(_socks5_odgovor(7))
+            return None
+        if not je_dovoljena_vrata(port):
+            client_sock.sendall(_socks5_odgovor(2))
+            return None
+        try:
+            ipaddress.ip_address(host)
+            naslov: Optional[str] = host
+        except ValueError:
+            naslov = self.resolver.resolve(host)
+            if not naslov:
+                client_sock.sendall(_socks5_odgovor(4))
+                return None
+        if not je_dovoljen_cilj(naslov, self.dovoli_lokalno):
+            client_sock.sendall(_socks5_odgovor(2))
+            return None
+        remote_sock = self._socks5_povezi(host, naslov, port)
+        if remote_sock is None:
+            client_sock.sendall(_socks5_odgovor(5))
+            return None
+        with self._socket_lock:
+            self._sockets.add(remote_sock)
+        if not self.is_running:
+            return remote_sock
+        client_sock.sendall(_socks5_odgovor(0))
+        client_sock.settimeout(30.0)
+        remote_sock.settimeout(30.0)
+        self._pipe_sockets(client_sock, remote_sock)
+        return remote_sock
+
+    def _socks5_povezi(self, host: str, naslov: str, vrata: int) -> Optional[socket.socket]:
+        """Kot _povezi_z_osvezitvijo, a brez odgovora HTTP (napako SOCKS5 poslje klicatelj)."""
+        for poskus in range(2):
+            try:
+                povezava = socket.create_connection((naslov, vrata), timeout=10.0)
+                _brez_zamika(povezava)
+                return povezava
+            except OSError:
+                pass
+            if poskus or host == naslov:
+                return None
+            try:
+                self.resolver.pozabi(host)
+                nov = self.resolver.resolve(host)
+            except Exception:  # noqa: BLE001
+                nov = None
+            if not nov or nov == naslov or not je_dovoljen_cilj(nov, self.dovoli_lokalno):
+                return None
+            naslov = nov
+        return None
 
     def _pipe_sockets(self, s1: socket.socket, s2: socket.socket):
         """Asinhrono dvosmerno posredovanje podatkov z nicelno zakasnitvijo."""

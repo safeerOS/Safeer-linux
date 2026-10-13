@@ -147,7 +147,9 @@ def _splet_w():
 
 def test_zelena_politika():
     s = _splet_w()
-    assert s._zelena_politika("https://www.24ur.com/") == "NEVER"
+    assert s._zelena_politika("https://www.24ur.com/") == "ALWAYS"     # TextureMapper (privzeto): 24ur pospeseno
+    s.config["splet_skia_kompozitor"] = True
+    assert s._zelena_politika("https://www.24ur.com/") == "NEVER"      # Skia: staticni seznam velja
     assert s._zelena_politika("https://www.rtvslo.si/") == "ALWAYS"
     s.config["hardware_acceleration"] = "never"
     assert s._zelena_politika("https://www.rtvslo.si/") == "NEVER"
@@ -172,6 +174,7 @@ def test_zamenjava_zavihka_na_istem_mestu():
         d = object(); s.skatla_zavihkov.otroci.append(d); s.sklad.otroci.append(p)
         s.zavihki.append({"pogled": p, "dogodek": d}); return p
     s.nov_zavihek = nov_zavihek
+    s.config["splet_skia_kompozitor"] = True
     a = nov_zavihek("https://www.rtvslo.si/"); b = nov_zavihek("https://github.com/")
     assert s._zamenjaj_za_pospesevanje(a, "https://www.rtvslo.si/novice") is False       # isti izris: nic
     assert s._zamenjaj_za_pospesevanje(a, "https://www.24ur.com/") is True
@@ -208,3 +211,43 @@ def test_varuh_sesutje_takoj_po_ubijanju_je_pomnilnik():
     s._varuh_ubil = time.monotonic() - 60
     s._proces_pomnilnik(q, 0)                       # navadno sesutje: ne ucimo
     assert s.config["splet_brez_pospesevanja"] == ["puscajoca.primer.si"]
+
+
+def test_brez_pospesevanja_staticni_seznam_le_pri_skii():
+    assert os_splet.brez_pospesevanja("https://www.24ur.com/", (), skia=False) is False
+    assert os_splet.brez_pospesevanja("https://x.primer.si/", ["primer.si"], skia=False) is True   # uceni vedno
+
+
+class _Funkcija:
+    def __init__(self, ime): self.ime = ime
+    def get_identifier(self): return self.ime
+
+
+class _Seznam:
+    def __init__(self, imena): self.f = [_Funkcija(i) for i in imena]
+    def get_length(self): return len(self.f)
+    def get(self, i): return self.f[i]
+
+
+class _NastF:
+    def __init__(self): self.vklop = {}
+    def set_feature_enabled(self, f, v): self.vklop[f.get_identifier()] = v
+
+
+def test_nastavi_kompozitor():
+    import types
+    W = types.SimpleNamespace(Settings=types.SimpleNamespace(
+        get_all_features=lambda: _Seznam(["Drugo", "UseSkiaForComposition"])))
+    n = _NastF()
+    assert os_splet.nastavi_kompozitor(W, n) is True and n.vklop == {"UseSkiaForComposition": False}
+    assert os_splet.nastavi_kompozitor(W, n, True) is True and n.vklop["UseSkiaForComposition"] is True
+    W2 = types.SimpleNamespace(Settings=types.SimpleNamespace(get_all_features=lambda: _Seznam(["Drugo"])))
+    assert os_splet.nastavi_kompozitor(W2, _NastF()) is False       # WebKit brez stikala (2.52): nic
+    assert os_splet.nastavi_kompozitor(types.SimpleNamespace(), _NastF()) is False   # brez API
+
+
+def test_nov_pogled_izbere_kompozitor():
+    import inspect
+    koda = inspect.getsource(os_splet.VdelaniSplet._nov_pogled)
+    assert "nastavi_kompozitor(" in koda
+    assert "splet_kompozitor_v" in inspect.getsource(os_splet.VdelaniSplet.__init__)
