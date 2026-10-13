@@ -122,3 +122,13 @@ def test_control_pozna_agent_ask(monkeypatch):
     monkeypatch.setattr(storitev, "vprasaj", lambda p, pos, k, iz: klici.append((p, pos)))
     link_daljinec.izvedi_control("agent.ask", {"text": "pavza"}, lambda u: None, lambda r: None, posiljatelj="n-x")
     assert klici == [({"text": "pavza"}, "n-x")]
+
+
+def test_popravi_stisaj_utisaj():
+    N = razumevanje.Naloga
+    assert razumevanje.popravi("stišaj televizor", [N("utisaj", "tv")])[0].dejanje == "glasnost_dol"
+    assert razumevanje.popravi("utišaj tv", [N("glasnost_dol", "tv")])[0].dejanje == "utisaj"
+    assert razumevanje.popravi("odpri Netflix na tv in stišaj ga", [N("odpri_aplikacijo", "tv"), N("utisaj", "tv")])[1].dejanje == "glasnost_dol"
+    obe = [N("utisaj", "tv"), N("glasnost_dol", "tablica")]
+    assert [n.dejanje for n in razumevanje.popravi("utišaj tv in stišaj tablico", obe)] == ["utisaj", "glasnost_dol"]
+    assert razumevanje.popravi("pavza", [N("pavza", "tukaj")])[0].dejanje == "pavza"

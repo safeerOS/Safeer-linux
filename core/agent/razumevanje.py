@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import unicodedata
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional
@@ -123,6 +124,26 @@ def llama_server(naslov: str = "", kljuc: str = "", cas: float = 60.0) -> Callab
     return klic
 
 
+def _brez_sumnikov(s: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFKD", s.lower()) if not unicodedata.combining(c))
+
+
+def popravi(besedilo: str, naloge: List[Naloga]) -> List[Naloga]:
+    """Majhen model (Gemma 4B) zamenjuje "stisaj" (tisje) in "utisaj" (brez zvoka) - meritev 13. 10. 2026: 3 od 9
+    napak. Ce stavek vsebuje samo eno od obeh zahtev, vse naloge glasnosti dobijo to dejanje."""
+    t = _brez_sumnikov(besedilo)
+    brez_u = t.replace("utisa", "")
+    tisje = "stisa" in brez_u or any(k in t for k in ("tisje", "manj glasno", "turn it down", "quieter"))
+    brez = any(k in t for k in ("utisa", "izklopi zvok", "ugasni zvok", "brez zvoka", "mute"))
+    if tisje == brez:
+        return naloge
+    zeleno = "glasnost_dol" if tisje else "utisaj"
+    for n in naloge:
+        if n.dejanje in ("glasnost_dol", "utisaj"):
+            n.dejanje = zeleno
+    return naloge
+
+
 def razumi(besedilo: str, klic_modela: Optional[Callable[[list, dict], dict]] = None) -> Razumevanje:
     besedilo = " ".join(str(besedilo or "").split())[:300]
     if not besedilo:
@@ -131,5 +152,5 @@ def razumi(besedilo: str, klic_modela: Optional[Callable[[list, dict], dict]] = 
         odgovor = (klic_modela or llama_server())(sporocila(besedilo), SHEMA)
     except Exception as e:  # noqa: BLE001
         return Razumevanje(napaka="model ni dosegljiv: " + (str(e) or type(e).__name__)[:120])
-    naloge = preveri(odgovor)
+    naloge = popravi(besedilo, preveri(odgovor))
     return Razumevanje(naloge=naloge, napaka="" if naloge else "ni razumljivo")
