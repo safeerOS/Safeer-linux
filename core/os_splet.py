@@ -1204,8 +1204,6 @@ class VdelaniSplet:
                 odlocitev.use(); return True
             if not naslov.startswith(("http://", "https://")):
                 odlocitev.ignore(); return True
-            if self._zamenjaj_za_pospesevanje(pogled, naslov):   # stran s seznama puscanja: nov pogled brez pospesevanja
-                odlocitev.ignore(); return True
             grozi = adblock.is_threat_domain(naslov)      # enkrat na navigacijo (prej dvakrat)
             if not grozi and self.config.get("adblock_enabled", True) and adblock.is_ad_domain(naslov):
                 self.config.increment_ads_blocked(); odlocitev.ignore(); self._osvezi_scit(); return True
@@ -1217,6 +1215,9 @@ class VdelaniSplet:
             if self.config.get("tracking_protection_enabled", True) and zahteva.get_http_method() == "GET":
                 cist = adblock.strip_tracking_parameters(naslov)
                 if cist != naslov: odlocitev.ignore(); pogled.load_uri(cist); return True
+            # Stran s seznama puscanja: nov pogled z drugim izrisom - sele za Scitom in BankGuardom.
+            if self._zamenjaj_za_pospesevanje(pogled, naslov):
+                odlocitev.ignore(); return True
             odlocitev.use(); return True
         except Exception:
             odlocitev.ignore(); return True
