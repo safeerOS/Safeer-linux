@@ -190,3 +190,56 @@ def test_storitev_brez_modela_ima_kodo(monkeypatch):
     odg = []
     storitev.vprasaj({"text": "glasneje"}, "n-tel", odg.append, link_daljinec.izid, v_ozadju=False)
     assert odg[-1]["ok"] is False and odg[-1]["code"] == "agent_ni_modela"
+
+
+class LinkPredaja(Link):
+    def __init__(self, stanja, ponudba=None):
+        super().__init__()
+        self.stanja, self.ponudba = stanja, ponudba or {"ok": True, "data": {"queued": True, "shown": "banner"}}
+
+    def ukaz(self, nid, dejanje, parametri):
+        self.klici.append((nid, dejanje, parametri))
+        if dejanje == "play.state":
+            return {"ok": True, "data": self.stanja.get(nid, {"shared": True, "playing": False})}
+        if dejanje == "play.offer":
+            return self.ponudba
+        return {"ok": True}
+
+
+FILM = {"id": "share:abc", "naslov": "Film", "zvok": "https://10.0.0.5:8443/d/share%3Aabc", "video": True}
+
+
+def test_predaja_s_telefona_na_tv():
+    link = LinkPredaja({"n-tel": {"shared": True, "playing": True, "is_playing": True, "position_ms": 754000,
+                                  "duration_ms": 5400000, "item": FILM, "server": {"base_url": "https://x", "fp": "f", "token": "t"}}})
+    iz = izvajanje.Izvajalec(link.naprave, link.ukaz)
+    r = izvajanje.izvedi(razumevanje.Naloga("nadaljuj_na_napravi", "tv"), iz, tukaj="n-tel")
+    assert r.ok and "Film" in r.besedilo and "12:34" in r.besedilo and "Dnevna soba" in r.besedilo
+    assert link.klici[0] == ("n-tel", "play.state", {})                         # najprej naprava, s katere je ukaz
+    nid, dej, par = link.klici[-1]
+    assert (nid, dej) == ("n-tv", "play.offer") and par["position_ms"] == 754000
+    assert par["server_device"] == "n-tel" and "server" not in par              # zeton racunalnika se ne prenasa
+    assert not any(k[0] == "n-tv" and k[1] == "play.state" for k in link.klici)  # cilja ne sprasujemo
+
+
+def test_predaja_spletni_tok_brez_streznika_in_zadnji_video():
+    tok = {"id": "https://radio.si/s", "naslov": "Radio", "zvok": "https://radio.si/s", "video": False}
+    link = LinkPredaja({"n-pc-control": {"shared": True, "playing": False, "last": True, "position_ms": 1000, "item": tok},
+                        "n-tab": {"shared": True, "playing": True, "position_ms": 5000, "item": tok}})
+    iz = izvajanje.Izvajalec(link.naprave, link.ukaz)
+    r = izvajanje.izvedi(razumevanje.Naloga("nadaljuj_na_napravi", "tv"), iz)
+    par = link.klici[-1][2]
+    assert r.ok and par["position_ms"] == 5000 and "server_device" not in par   # igra ima prednost pred »zadnji«
+
+
+def test_predaja_nic_ne_igra_in_zavrnitve():
+    iz = izvajanje.Izvajalec(LinkPredaja({}).naprave, LinkPredaja({}).ukaz)
+    r = izvajanje.izvedi(razumevanje.Naloga("nadaljuj_na_napravi", "tv"), iz)
+    assert not r.ok and "Nobena naprava" in r.besedilo
+    igra = {"n-tel": {"shared": True, "playing": True, "item": FILM}}
+    for odgovor, besedilo in (({"ok": True, "data": {"queued": False, "reason": "izklopljeno"}}, "ne sprejema"),
+                              ({"ok": False, "code": "neznano_dejanje"}, "posodobi"),
+                              ({"ok": True, "data": {"queued": True, "shown": "later"}}, "Odpri Safeer OS")):
+        link = LinkPredaja(igra, odgovor)
+        r = izvajanje.izvedi(razumevanje.Naloga("nadaljuj_na_napravi", "tv"), izvajanje.Izvajalec(link.naprave, link.ukaz), tukaj="n-tel")
+        assert besedilo in r.besedilo

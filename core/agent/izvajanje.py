@@ -121,8 +121,61 @@ def izvedi(naloga: Naloga, izvajalec: Izvajalec, tukaj: str = "") -> Izid:
         if not r.get("ok"):
             r = izvajalec.ukaz(nid, "open_url", {"url": url})
         return izid(r, f"Na {ime} iščem »{naloga.kaj}« na YouTubu.")
-    # nadaljuj_na_napravi: naslednji korak (predaja predvajanja)
-    return Izid(False, f"Tega (»{d}«) agent še ne zna – pride v naslednjem koraku.", ime)
+    if d == "nadaljuj_na_napravi":
+        return predaj(izvajalec, naprave, n, tukaj)
+    return Izid(False, f"Tega (»{d}«) agent še ne zna.", ime)
+
+
+def _cas(ms: int) -> str:
+    s = max(0, int(ms) // 1000)
+    return f"{s // 3600}:{s // 60 % 60:02d}:{s % 60:02d}" if s >= 3600 else f"{s // 60}:{s % 60:02d}"
+
+
+def _kaj_igra(izvajalec: Izvajalec, naprave: List[dict], tukaj: str, cilj_id: str):
+    """Naprava, ki zdaj predvaja (najprej ta, s katere pride ukaz), in njeno `play.state`. Ce nic ne igra, nazadnje
+    gledani video s shranjenim mestom (`last`). Vrne (naprava, stanje) ali (None, None)."""
+    vrstni = sorted((x for x in naprave if str(x.get("id")) != cilj_id), key=lambda x: str(x.get("id")) != tukaj)
+    zadnji = None
+    for x in vrstni:
+        r = izvajalec.ukaz(str(x.get("id")), "play.state", {})
+        st = r.get("data") if r.get("ok") and isinstance(r.get("data"), dict) else {}
+        if not isinstance(st.get("item"), dict):
+            continue
+        if st.get("playing"):
+            return x, st
+        if st.get("last") and zadnji is None:
+            zadnji = (x, st)
+    return zadnji or (None, None)
+
+
+def predaj(izvajalec: Izvajalec, naprave: List[dict], cilj: dict, tukaj: str = "") -> Izid:
+    """»Daj to na TV«: kar igra na izvoru, ponudi cilju (`play.offer`) od istega mesta. Na cilju se pokaze pasica
+    Sprejmi/Zavrni - nic se ne zacne samo (nacelo predaje v Linku). Datoteka izvora gre prek `server_device`: cilj dobi
+    svoj zeton pri izvoru, zeton tega racunalnika se ne prenasa."""
+    cid, cime = str(cilj.get("id")), str(cilj.get("ime") or cilj.get("id"))
+    izvor, st = _kaj_igra(izvajalec, naprave, tukaj, cid)
+    if izvor is None:
+        return Izid(False, "Nobena naprava zdaj ne predvaja ničesar, kar bi lahko nadaljeval.", cime)
+    iid, iime = str(izvor.get("id")), str(izvor.get("ime") or izvor.get("id"))
+    item = dict(st["item"])
+    parametri = {"item": item, "position_ms": int(st.get("position_ms") or 0),
+                 "duration_ms": int(st.get("duration_ms") or 0)}
+    if st.get("server") or st.get("server_device"):
+        parametri["server_device"] = str(st.get("server_device") or iid)
+    r = izvajalec.ukaz(cid, "play.offer", parametri)
+    d = r.get("data") if isinstance(r.get("data"), dict) else {}
+    naslov = str(item.get("naslov") or "posnetek")
+    if r.get("ok") and d.get("queued"):
+        kje = "Odpri Safeer OS na " + cime + ", da ga sprejmeš." if d.get("shown") == "later" else "Sprejmi ga na " + cime + "."
+        return Izid(True, f"»{naslov}« z {iime} ({_cas(parametri['position_ms'])}) sem ponudil na {cime}. {kje}", cime)
+    if r.get("ok"):
+        razlog = str(d.get("reason") or "")
+        if razlog == "izklopljeno":
+            return Izid(False, f"{cime} ne sprejema predaje (vklopi jo v Safeer Linku).", cime)
+        return Izid(False, f"{cime} tega posnetka ne more predvajati.", cime)
+    if str(r.get("code") or "") == "neznano_dejanje":
+        return Izid(False, f"{cime} predaje še ne pozna (posodobi Safeer).", cime)
+    return Izid(False, f"{cime}: {r.get('message') or r.get('code') or 'predaja ni uspela'}", cime)
 
 
 def _gdbus(metoda: str, *arg: str) -> dict:
