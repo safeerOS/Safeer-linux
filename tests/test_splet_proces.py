@@ -96,3 +96,9 @@ def test_ob_odpovedi_klican(monkeypatch):
 def test_stran_ubezi_znake():
     h = os_splet.stran_procesa_koncana("<b>", "a&b", "x", 'https://e.si/"><script>')
     assert "<b>" not in h and "&lt;b&gt;" in h and "<script>" not in h
+
+
+def test_predpomnilnik_strani_vklopljen():
+    import inspect
+    koda = inspect.getsource(os_splet.VdelaniSplet._nov_pogled)
+    assert "set_enable_page_cache(True)" in koda and "set_enable_page_cache(False)" not in koda

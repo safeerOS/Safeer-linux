@@ -757,7 +757,9 @@ class VdelaniSplet:
         nastavitve.set_enable_html5_database(False)
         try:
             nastavitve.set_enable_hyperlink_auditing(False); nastavitve.set_enable_dns_prefetching(False)
-            nastavitve.set_enable_page_cache(False); nastavitve.set_enable_encrypted_media(True)
+            # Predpomnilnik strani (bfcache): "Nazaj" brez ponovnega nalaganja. Meritev 13. 10. 2026 (testni PC, 4 strani):
+            # nazaj ~0,3-0,4 s namesto ~1,2 s, RAM spletnih procesov +50 MB (~7 %); ob pomanjkanju ga WebKit sprosti sam.
+            nastavitve.set_enable_page_cache(True); nastavitve.set_enable_encrypted_media(True)
         except Exception:
             pass
         # Temno pod našo začetno stranjo, belo pod spletom - belo mora biti nastavljeno, preden dokument strani nastane.
