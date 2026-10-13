@@ -43,7 +43,7 @@ sys.path.insert(0, BASE_DIR)
 
 from core.runtime_safety import install_main_thread_gc, collect_closed_views
 from core.config import CONFIG_DIR, ConfigManager, SEARCH_ENGINES, normalize_web_url
-from core.doh_proxy import get_doh_proxy, DOH_PROVIDERS
+from core.doh_proxy import get_doh_proxy, DOH_PROVIDERS, nastavitve_posrednika
 from core.i18n import t, set_language, get_current_language, SUPPORTED_LANGUAGES
 from core import drm
 from core.adblock import (
@@ -745,7 +745,7 @@ class SafeerMintBrowser(Gtk.Window):
                                               lokalno=bool(self.config.get("doh_lokalno_omrezje", False)))
                     if doh_proxy and doh_proxy.actual_port > 0:
                         local_proxy_url = f"http://127.0.0.1:{doh_proxy.actual_port}"
-                        proxy_settings = WebKit2.NetworkProxySettings.new(local_proxy_url, ignore_hosts)
+                        proxy_settings = nastavitve_posrednika(WebKit2, doh_proxy.actual_port, ignore_hosts)
                         self.web_context.set_network_proxy_settings(WebKit2.NetworkProxyMode.CUSTOM, proxy_settings)
                         prov_label = custom_doh_url if doh_provider == "custom" else doh_provider
                         print(f"[Network Security] 🛡️ Šifriran DNS (DoH: {prov_label}) aktiviran prek {local_proxy_url}")

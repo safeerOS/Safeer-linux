@@ -19,7 +19,7 @@ from pathlib import Path
 
 from core import adblock, drm, odlozisce_varuh, os_stabilnost, ozadje_strani, splet_temno
 from core.config import ConfigManager, SEARCH_ENGINES, normalize_web_url
-from core.doh_proxy import get_doh_proxy
+from core.doh_proxy import get_doh_proxy, nastavitve_posrednika
 from core.filter_lists import FILTER_ID
 
 
@@ -460,7 +460,7 @@ class VdelaniSplet:
                                     custom_url=self.config.get("custom_doh_url", "https://1.1.1.1/dns-query"), enabled=True,
                                     lokalno=bool(self.config.get("doh_lokalno_omrezje", False)))
                 if doh and doh.actual_port > 0:
-                    p = W.NetworkProxySettings.new("http://127.0.0.1:%d" % doh.actual_port, izjeme)
+                    p = nastavitve_posrednika(W, doh.actual_port, izjeme)
                     self.kontekst.set_network_proxy_settings(W.NetworkProxyMode.CUSTOM, p)
                     return
             self.kontekst.set_network_proxy_settings(W.NetworkProxyMode.DEFAULT, None)
