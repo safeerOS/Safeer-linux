@@ -41,3 +41,8 @@ def test_v_paketu():
     besedilo = open(os.path.join(KOREN, "packaging", "install_os_payload.sh")).read()
     assert "webkit-okolje.sh" in besedilo
     assert "webkit-okolje.sh" in open(os.path.join(KOREN, "packaging", "safeer-os-launcher")).read()
+
+
+def test_v_paketu_brskalnika():
+    assert "webkit-okolje.sh" in open(os.path.join(KOREN, "packaging", "install_payload.sh")).read()
+    assert "safeer_webkit_okolje" in open(os.path.join(KOREN, "packaging", "safeer-launcher")).read()
