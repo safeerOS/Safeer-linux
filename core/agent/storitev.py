@@ -3,7 +3,8 @@ lokalnim modelom razume in izvede naloge na napravah v Linku. Dostop: neznano de
 (link_dostop.zahteva_dejanja -> VSE), zato agenta lahko uporabi le naprava iz ozjega kroga - ne more prek racunalnika
 upravljati naprav, ki jih sama ne bi smela.
 
-parametri: {"text": stavek, "minutes": trajanje seje (1.. ali 0/None = neomejeno), "stop": true = ustavi sejo}
+parametri: {"text": stavek, "minutes": trajanje seje (1.. ali 0/None = neomejeno), "stop": true = ustavi sejo,
+"here": id naprave, ki pomeni "tukaj" (daljinec na telefonu upravlja televizor -> tukaj je televizor; privzeto posiljatelj)}
 odgovor data: {"steps": [{"task": {...}, "ok": bool, "text": kratek izid, "device": ime}], "session_left_s": int|null}"""
 from __future__ import annotations
 
@@ -51,6 +52,8 @@ def vprasaj(parametri: dict, posiljatelj: str, koncaj: Callable[[dict], None],
         return
     minute = parametri.get("minutes")
     s = _seja(posiljatelj, minute if isinstance(minute, (int, float)) and not isinstance(minute, bool) else None)
+    tukaj = str(parametri.get("here") or "").strip()[:128]
+    s.tukaj = tukaj or posiljatelj
 
     def delo() -> None:
         try:

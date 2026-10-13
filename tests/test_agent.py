@@ -145,3 +145,16 @@ def test_naslov_modela(monkeypatch, tmp_path):
     (tmp_path / ".config" / "safeer-agent").mkdir(parents=True)
     (tmp_path / ".config" / "safeer-agent" / "naslov").write_text("http://192.0.2.6:8085\n")
     assert razumevanje.naslov_modela() == "http://192.0.2.6:8085"
+
+
+def test_storitev_tukaj_je_ciljna_naprava(monkeypatch):
+    from core import link_daljinec
+    from core.agent import storitev
+    link = Link()
+    model = lambda s, shema: {"naloge": [{"dejanje": "pavza", "naprava": "tukaj", "kaj": ""}]}
+    monkeypatch.setattr(storitev, "nova_seja", lambda **k: seja.Seja(
+        izvajalec=izvajanje.Izvajalec(link.naprave, link.ukaz), klic_modela=model, **k))
+    storitev._seje.clear()
+    odg = []
+    storitev.vprasaj({"text": "pavza", "here": "n-tv"}, "n-tel", odg.append, link_daljinec.izid, v_ozadju=False)
+    assert link.klici[-1] == ("n-tv", "key", {"key": "pause"})
