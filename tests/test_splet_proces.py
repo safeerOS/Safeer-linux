@@ -42,29 +42,55 @@ class _Pogled:
 
 def _splet():
     s = object.__new__(os_splet.VdelaniSplet)
-    s.WebKit2 = types.SimpleNamespace(WebProcessTerminationReason=types.SimpleNamespace(
-        CRASHED=0, EXCEEDED_MEMORY_LIMIT=1, TERMINATED_BY_API=2))
-    s.GLib = types.SimpleNamespace(idle_add=lambda f: f())
     s.jezik = lambda: "sl"
     return s
 
 
-def test_prvic_znova_drugic_razlaga():
+def test_razlaga_ob_odpovedi():
     s, p = _splet(), _Pogled("https://primer.si/stran")
-    s._proces_koncan(p, 1)
-    assert p.znova == 1 and p.html is None
-    s._proces_koncan(p, 1)                          # v 30 s spet: ne vrtimo se v krogu
-    assert p.znova == 1 and p.html[1] == "https://primer.si/stran"
+    s._proces_koncan(p, "pomnilnik")
+    assert p.html[1] == "https://primer.si/stran"
     assert "Naloži znova" in p.html[0] and 'href="https://primer.si/stran"' in p.html[0]
-
-
-def test_api_in_interne_strani_brez_ukrepa():
-    s = _splet()
-    p = _Pogled("https://primer.si/")
-    s._proces_koncan(p, 2)                          # ustavili smo ga sami
     q = _Pogled("about:blank")
-    s._proces_koncan(q, 0)
-    assert p.znova == q.znova == 0 and p.html is None and q.html is None
+    s._proces_koncan(q, "sesutje")
+    assert q.html is None
+
+
+class _Ura:
+    t = 0.0
+
+    def __call__(self):
+        return self.t
+
+
+def test_pomnilnik_le_enkrat_znova(monkeypatch):
+    from core import os_stabilnost as st
+    monkeypatch.setattr(st, "zapisi", lambda *a, **k: None)
+    ura = _Ura()
+    o = st.ObnovaPogleda("x", "y", ura=ura)
+    assert o.odlocitev("pomnilnik") is True
+    ura.t = 60
+    assert o.odlocitev("pomnilnik") is False          # drugic v 10 min: razlaga, ne vrtenje v krogu
+    assert o.odlocitev("sesutje") is True             # sesutje se vedno do NAJVEC_OBNOV
+    ura.t = 60 + st.OKNO_SESUTIJ_S + 1
+    assert o.odlocitev("pomnilnik") is True           # po oknu spet
+
+
+def test_ob_odpovedi_klican(monkeypatch):
+    import types
+    from core import os_stabilnost as st
+    monkeypatch.setattr(st, "zapisi", lambda *a, **k: None)
+    W = types.SimpleNamespace(WebProcessTerminationReason=types.SimpleNamespace(CRASHED=0, EXCEEDED_MEMORY_LIMIT=1, TERMINATED_BY_API=2))
+    klici, znova = [], []
+    G = types.SimpleNamespace(timeout_add=lambda ms, f: znova.append(f))
+
+    class P:
+        def connect(self, ime, f): self.f = f
+        def reload(self): pass
+    p = P()
+    st.obnovi_ob_padcu(W, G, p, "x", "y", ob_odpovedi=lambda pg, r: klici.append(r))
+    p.f(p, 1); p.f(p, 1); p.f(p, 2)
+    assert len(znova) == 1 and klici == ["pomnilnik"]
 
 
 def test_stran_ubezi_znake():

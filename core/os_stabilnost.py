@@ -21,7 +21,7 @@ import json
 import os
 import sys
 import threading
-from typing import Optional
+from typing import Callable, Optional
 
 NAJVECJI_DNEVNIK = 256 * 1024
 #: Toliko sesutij v tem casu pomeni, da nekaj ni v redu in je pametneje teci okrnjeno.
@@ -192,12 +192,14 @@ class ObnovaPogleda:
         if razlog == "api":            # program je proces koncal sam (npr. sprosti_zavihke) - ni napaka
             return False
         zdaj = self._ura()
-        self._obnove = [t for t in self._obnove if zdaj - t < OKNO_SESUTIJ_S]
-        if len(self._obnove) >= NAJVEC_OBNOV:
+        self._obnove = [t for t in self._obnove if zdaj - t[0] < OKNO_SESUTIJ_S]
+        # Stran, ki je enkrat ze presegla mejo pomnilnika, bi jo spet: znova jo nalozimo le enkrat v oknu.
+        pomnilnik_ze = razlog == "pomnilnik" and any(r == "pomnilnik" for _t, r in self._obnove)
+        if len(self._obnove) >= NAJVEC_OBNOV or pomnilnik_ze:
             zapisi(self.ime_programa, "spletni proces (%s) je padel (%s); prevec obnov v %d min - brez ponovnega nalaganja"
                    % (self.ime_strani, razlog, OKNO_SESUTIJ_S // 60))
             return False
-        self._obnove.append(zdaj)
+        self._obnove.append((zdaj, razlog))
         zapisi(self.ime_programa, "spletni proces (%s) je padel (%s); stran nalozena znova (%d/%d)"
                % (self.ime_strani, razlog, len(self._obnove), NAJVEC_OBNOV))
         return True
@@ -214,19 +216,30 @@ def razlog_padca(WebKit2, razlog) -> str:
     return "sesutje"
 
 
-def obnovi_ob_padcu(WebKit2, GLib, pogled, ime_programa: str, ime_strani: str) -> Optional[ObnovaPogleda]:
-    """Prikljuci obnovo na pogled. Brez signala (zelo star WebKit) ne naredi nicesar."""
+def obnovi_ob_padcu(WebKit2, GLib, pogled, ime_programa: str, ime_strani: str,
+                    ob_odpovedi: Optional[Callable] = None) -> Optional[ObnovaPogleda]:
+    """Prikljuci obnovo na pogled. Brez signala (zelo star WebKit) ne naredi nicesar.
+    ob_odpovedi(pogled, razlog): ko strani ne nalozimo vec znova (prevec padcev, ponovno prekoracen pomnilnik) -
+    npr. Splet pokaze razlago z gumbom, da zavihek ne ostane bel."""
     obnova = ObnovaPogleda(ime_programa, ime_strani)
 
     def ob_padcu(p, razlog):
-        if obnova.odlocitev(razlog_padca(WebKit2, razlog)):
-            def znova():
+        beseda = razlog_padca(WebKit2, razlog)
+        if not obnova.odlocitev(beseda):
+            if ob_odpovedi is not None and beseda != "api":
                 try:
-                    p.reload()
-                except Exception:  # noqa: BLE001 - pogled je ze unicen
+                    ob_odpovedi(p, beseda)
+                except Exception:  # noqa: BLE001
                     pass
-                return False
-            GLib.timeout_add(obnova.zakasnitev_ms, znova)
+            return
+
+        def znova():
+            try:
+                p.reload()
+            except Exception:  # noqa: BLE001 - pogled je ze unicen
+                pass
+            return False
+        GLib.timeout_add(obnova.zakasnitev_ms, znova)
     try:
         pogled.connect("web-process-terminated", ob_padcu)
     except TypeError:

@@ -721,7 +721,7 @@ class VdelaniSplet:
         W = self.WebKit2
         pogled = W.WebView.new_with_context(self.kontekst)
         # Padec spletnega procesa (sesutje strani, pomanjkanje pomnilnika): zavihek se nalozi znova, kot v brskalniku.
-        os_stabilnost.obnovi_ob_padcu(W, self.GLib, pogled, "safeer-os", "splet")
+        os_stabilnost.obnovi_ob_padcu(W, self.GLib, pogled, "safeer-os", "splet", ob_odpovedi=self._proces_koncan)
         upravitelj = pogled.get_user_content_manager()
         upravitelj.register_script_message_handler("safeer")
         # Sibka referenca (glej drm.prikljuci): sicer zaprt zavihek nikoli ne sprosti svojega WebView.
@@ -770,25 +770,14 @@ class VdelaniSplet:
         pogled.connect("notify::title", self._naslov_spremenjen)
         pogled.connect("notify::uri", self._uri_spremenjen)
         pogled.connect("permission-request", self._dovoljenje)
-        pogled.connect("web-process-terminated", self._proces_koncan)
         self._uporabi_filter(pogled)
         return pogled
 
-    def _proces_koncan(self, pogled, razlog) -> None:
-        """Proces strani se je sesul ali presegel mejo pomnilnika: stran enkrat nalozimo znova (v 30 s najvec
-        enkrat, da se pozresna stran ne vrti v krogu), sicer pokazemo razlago z gumbom za ponovno nalaganje."""
-        W = self.WebKit2
-        if razlog == getattr(W.WebProcessTerminationReason, "TERMINATED_BY_API", object()):
-            return
+    def _proces_koncan(self, pogled, _razlog: str = "") -> None:
+        """os_stabilnost strani ne nalozi vec znova (ponovno prekoracen pomnilnik, prevec padcev): namesto bele
+        strani razlaga z gumbom za ponovno nalaganje."""
         uri = pogled.get_uri() or ""
         if not uri.startswith(("http://", "https://")):
-            return
-        if not hasattr(self, "_proces_znova"):
-            self._proces_znova = weakref.WeakKeyDictionary()
-        zdaj = time.monotonic()
-        if zdaj - self._proces_znova.get(pogled, -1e9) > 30:
-            self._proces_znova[pogled] = zdaj
-            self.GLib.idle_add(lambda: (pogled.reload(), False)[1])
             return
         pogled.load_alternate_html(stran_procesa_koncana(self._t("proces_naslov"), self._t("proces_besedilo"),
                                                          self._t("proces_znova"), uri), uri, None)
