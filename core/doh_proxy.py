@@ -409,6 +409,18 @@ class DoHResolver:
             return None, 15
 
 
+#: Najvec hkratnih tunelov (vsak je nit; nit miruje v select, dokler ni podatkov).
+NAJVEC_POVEZAV = 256
+
+
+def _brez_zamika(vticnica: socket.socket) -> None:
+    """TCP_NODELAY: posrednik majhnih zapisov TLS (rokovanje, glave HTTP/2) ne zadrzuje (Nagle + zakasnjen ACK)."""
+    try:
+        vticnica.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    except Exception:   # noqa: BLE001 - ni vticnica TCP (preizkus) ali je ze zaprta
+        pass
+
+
 class LocalDoHProxy:
     """
     Visoko-zmogljiv lokalni posredniški strežnik (Loopback CONNECT Proxy).
@@ -428,7 +440,10 @@ class LocalDoHProxy:
         self.is_running = False
         self._server_sock: Optional[socket.socket] = None
         self._thread: Optional[threading.Thread] = None
-        self._slots = threading.BoundedSemaphore(64)
+        # Brskalnik drzi odprte povezave HTTP/2 in jih odpre vec na stran (novicarske strani: deset in vec gostiteljev).
+        # S 64 je bil posrednik na velikih straneh poln in je nove povezave zavrnil (slike so cakale).
+        self._slots = threading.BoundedSemaphore(NAJVEC_POVEZAV)
+        self.zavrnjenih = 0
         self._sockets = set()
         self._socket_lock = threading.Lock()
 
@@ -474,8 +489,10 @@ class LocalDoHProxy:
             try:
                 client_sock, _ = self._server_sock.accept()
                 if not self._slots.acquire(blocking=False):
+                    self.zavrnjenih += 1
                     client_sock.close()
                     continue
+                _brez_zamika(client_sock)
                 with self._socket_lock:
                     self._sockets.add(client_sock)
                 t = threading.Thread(target=self._handle_client, args=(client_sock,), daemon=True)
@@ -513,7 +530,9 @@ class LocalDoHProxy:
     def _vzpostavi_povezavo(self, client_sock: socket.socket, naslov: str, vrata: int) -> Optional[socket.socket]:
         """Povezava na razresen naslov; pri neuspehu (npr. stran samo z IPv6, omrezje pa IPv6 nima) razumljiva napaka."""
         try:
-            return socket.create_connection((naslov, vrata), timeout=10.0)
+            povezava = socket.create_connection((naslov, vrata), timeout=10.0)
+            _brez_zamika(povezava)
+            return povezava
         except OSError:
             if ":" in naslov:
                 self._napaka_502(client_sock, "Ta stran je dosegljiva samo prek IPv6, vase omrezje pa IPv6 ne omogoca. / "
