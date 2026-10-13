@@ -435,6 +435,9 @@ class VdelaniSplet:
             print("[Safeer OS Splet] shramba:", napaka)
             self.kontekst = WebKit2.WebContext.get_default()
             self.kontekst.set_sandbox_enabled(True)
+        # Varuh: proces strani, ki ga WebKitova meja ne ujame (puscanje DMA-BUF), ustavimo sami (core/splet_varuh.py).
+        self._varuh_ubil = -1e9
+        self.GLib.timeout_add_seconds(5, self._varuh_tik)
         try:
             self.kontekst.set_cache_model(WebKit2.CacheModel.WEB_BROWSER)
         except Exception:
@@ -1238,11 +1241,25 @@ class VdelaniSplet:
         except Exception as napaka:  # noqa: BLE001
             print("[Safeer OS Splet] pospesevanje:", napaka)
 
+    def _varuh_tik(self) -> bool:
+        try:
+            from core import pomnilnik, splet_varuh
+            pid = splet_varuh.preglej(pomnilnik.meja_strani_mb(), os.getpid(), bool(os.environ.get("FLATPAK_ID")))
+            if pid is not None:
+                self._varuh_ubil = time.monotonic()
+                os_stabilnost.zapisi("safeer-os", "spletni proces nad mejo pomnilnika ustavljen (varuh)")
+        except Exception as napaka:  # noqa: BLE001 - varuh ne sme podreti Spleta
+            print("[Safeer OS Splet] varuh:", napaka)
+        return True
+
     def _proces_pomnilnik(self, pogled, razlog) -> None:
-        """WebKit je stran ustavil, ker je presegla mejo pomnilnika: njeno domeno si zapomnimo (brez strojnega izrisa),
-        da jo os_stabilnost nalozi znova ze brez puscanja."""
+        """Stran je presegla mejo pomnilnika (ustavil jo je WebKit ali nas varuh): njeno domeno si zapomnimo (brez
+        strojnega izrisa), da jo os_stabilnost nalozi znova ze brez puscanja."""
         W = self.WebKit2
-        if razlog != getattr(getattr(W, "WebProcessTerminationReason", None), "EXCEEDED_MEMORY_LIMIT", object()):
+        R = getattr(W, "WebProcessTerminationReason", None)
+        pomnilnik = razlog == getattr(R, "EXCEEDED_MEMORY_LIMIT", object())
+        varuh = razlog == getattr(R, "CRASHED", object()) and time.monotonic() - getattr(self, "_varuh_ubil", -1e9) < 5
+        if not (pomnilnik or varuh):
             return
         g = gostitelj_strani(pogled.get_uri() or "")
         if not g or brez_pospesevanja("https://" + g, self._ucene_brez_pospesevanja()):

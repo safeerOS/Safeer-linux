@@ -164,3 +164,16 @@ def test_pomnilnik_nauci_stran():
     assert s.config["splet_brez_pospesevanja"] == ["novice.primer.si"] and p.n.p == "NEVER"
     s._proces_pomnilnik(p, 1)
     assert s.config["splet_brez_pospesevanja"] == ["novice.primer.si"]   # ne podvaja
+
+
+def test_varuh_sesutje_takoj_po_ubijanju_je_pomnilnik():
+    import time
+    s = _splet_w()
+    p = _PogledN("https://puscajoca.primer.si/")
+    s._varuh_ubil = time.monotonic()
+    s._proces_pomnilnik(p, 0)                       # CRASHED, ker ga je ubil varuh
+    assert s.config["splet_brez_pospesevanja"] == ["puscajoca.primer.si"] and p.n.p == "NEVER"
+    q = _PogledN("https://drugo.primer.si/")
+    s._varuh_ubil = time.monotonic() - 60
+    s._proces_pomnilnik(q, 0)                       # navadno sesutje: ne ucimo
+    assert s.config["splet_brez_pospesevanja"] == ["puscajoca.primer.si"]
