@@ -158,3 +158,23 @@ def test_storitev_tukaj_je_ciljna_naprava(monkeypatch):
     odg = []
     storitev.vprasaj({"text": "pavza", "here": "n-tv"}, "n-tel", odg.append, link_daljinec.izid, v_ozadju=False)
     assert link.klici[-1] == ("n-tv", "key", {"key": "pause"})
+
+
+def test_isci_in_predvajaj():
+    link = Link()
+    iz = izvajanje.Izvajalec(link.naprave, link.ukaz)
+    a = izvajanje.izvedi(razumevanje.Naloga("isci", "racunalnik", "risanke"), iz)
+    assert a.ok and link.klici[-1] == ("n-pc-control", "search.query", {"q": "risanke"})
+    b = izvajanje.izvedi(razumevanje.Naloga("predvajaj", "tv", "Radio 1"), iz)
+    assert b.ok and link.klici[-1][1] == "open_in_app" and "Radio+1" in link.klici[-1][2]["url"]
+    c = izvajanje.izvedi(razumevanje.Naloga("predvajaj", "tv", ""), iz)
+    assert not c.ok
+
+
+def test_predvajaj_brez_aplikacije_odpre_stran():
+    link = Link()
+    resnicni = link.ukaz
+    link.ukaz = lambda nid, d, p: {"ok": False} if d == "open_in_app" else resnicni(nid, d, p)
+    iz = izvajanje.Izvajalec(link.naprave, link.ukaz)
+    assert izvajanje.izvedi(razumevanje.Naloga("predvajaj", "tablica", "Siddharta"), iz).ok
+    assert link.klici[-1][1] == "open_url"

@@ -109,7 +109,19 @@ def izvedi(naloga: Naloga, izvajalec: Izvajalec, tukaj: str = "") -> Izid:
         if zadetek is None:
             return Izid(False, f"Na {ime} ni programa »{naloga.kaj}«.", ime)
         return izid(izvajalec.ukaz(nid, "apps.launch", {"app": zadetek.get("id")}), f"Odpiram {zadetek.get('name')} na {ime}.")
-    # predvajaj, isci, nadaljuj_na_napravi: naslednji korak (Medijski center, predaja)
+    if d in ("isci", "predvajaj"):
+        if not naloga.kaj:
+            return Izid(False, "Kaj naj poiščem?" if d == "isci" else "Kaj naj predvajam?", ime)
+        if str(n.get("platforma") or "") in PLATFORME["racunalnik"] or n.get("vrsta") == "control":
+            # Racunalnik s Safeer OS: iskalna lupa (programi, datoteke, Medijski center, splet na enem mestu).
+            return izid(izvajalec.ukaz(nid, "search.query", {"q": naloga.kaj}), f"Iščem »{naloga.kaj}« na {ime}.")
+        # Televizor, telefon, tablica: iskanje na YouTubu (aplikacija, sicer stran).
+        url = "https://www.youtube.com/results?search_query=" + "+".join(naloga.kaj.split())
+        r = izvajalec.ukaz(nid, "open_in_app", {"package": "com.google.android.youtube", "url": url})
+        if not r.get("ok"):
+            r = izvajalec.ukaz(nid, "open_url", {"url": url})
+        return izid(r, f"Na {ime} iščem »{naloga.kaj}« na YouTubu.")
+    # nadaljuj_na_napravi: naslednji korak (predaja predvajanja)
     return Izid(False, f"Tega (»{d}«) agent še ne zna – pride v naslednjem koraku.", ime)
 
 
