@@ -399,6 +399,21 @@ class Klicanje(unittest.TestCase):
         izbrani = [h["id"] for h in m.kandidati([self.oglas("n-a")], zdaj=100.0 + self.link_mesh.VECJI_CAKA_S + 1)]
         self.assertEqual(izbrani, ["n-a"])
 
+    def test_isti_hub_pod_dvema_idjema_enkrat(self):
+        """n-z in n-z-control imata isti kljuc (isti Hub): klicemo enega; ce je eden ze povezan ali klican, nobenega."""
+        self.link_mesh.link_krog.krog.return_value.clan_za_id.side_effect = \
+            lambda i: None if i in TUJCI else {"kljuc": "k-" + i.removesuffix("-control")}
+        m = self.link_mesh.MeshPovezovalec(self.hub, "n-m")
+        izbrani = [h["id"] for h in m.kandidati([self.oglas("n-z"), self.oglas("n-z-control")], zdaj=100.0)]
+        self.assertEqual(izbrani, ["n-z"])
+        m._klicem.add("n-z")
+        self.assertEqual(m.kandidati([self.oglas("n-z-control")], zdaj=100.0), [])
+        m._klicem.clear()
+        with mock.patch.object(self.hub, "sosedje", return_value=["n-z-control"]):
+            self.assertEqual(m.kandidati([self.oglas("n-z")], zdaj=100.0), [])
+        # Drug Hub (drug kljuc) se vedno pride na vrsto.
+        self.assertEqual([h["id"] for h in m.kandidati([self.oglas("n-zz")], zdaj=100.0)], ["n-zz"])
+
     def test_zapomnjeni_naslov_brez_mdns(self):
         import tempfile, os
         pot = os.path.join(tempfile.mkdtemp(), "znani.json")
