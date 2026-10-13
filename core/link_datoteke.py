@@ -959,6 +959,11 @@ class Datoteke:
             del p[i]
             self.nastavi(p)
 
+    def pot(self, oznaka: str) -> str:
+        """Pot do datoteke z oznako, ki jo naprava sme videti (sicer prazno)."""
+        r = self.mape.razresi(str(oznaka or ""))
+        return r[1] if r is not None and os.path.exists(r[1]) else ""
+
     def odpri(self, oznaka: str) -> bool:
         """Odpre datoteko ali mapo **na racunalniku**, s programom, ki ga ima uporabnik zanjo
         (xdg-open). Dovoljene so samo oznake, ki jih naprava ze sme videti - drugega ne odpremo,
