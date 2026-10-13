@@ -198,7 +198,7 @@
       ptdPrepocasi: "Pretvorba je trajala predolgo in je bila ustavljena. Izvirnik je nespremenjen.",
       ptdNiDatoteke: "Datoteke ni več na tem mestu.",
       pretvori: "Pretvori za televizor (1080p) …", prvIscem: "Iščem napravo z najboljšim strojnim kodirnikom za »{ime}« …",
-      prvPrenasam: "Naprava {naprava} prenaša »{ime}« … {odst} %", prvPretvarjam: "Naprava {naprava} pretvarja »{ime}« … {odst} %",
+      prvPrenasam: "Naprava {naprava} prenaša »{ime}« … {odst} %", prvPretvarjam: "Naprava {naprava} pretvarja »{ime}« … {odst} %", prvPretvarjamTu: "Nobena naprava ne more pomagati, zato »{ime}« pretvarja ta računalnik … {odst} %",
       prvShranjujem: "Naprava {naprava} shranjuje pretvorjeni video …", prvKoncanoNaslov: "Video je pretvorjen",
       prvKoncano: "»{izhod}« ({velikost}) je na napravi {naprava}, v mapi {kje}. Predvaja ga vsak televizor. Izvirnik na tem računalniku ostane nespremenjen.",
       prvVprasaj: "Ga prenesem tudi na ta računalnik, zraven izvirnika?", prvPrenesi: "Prenesi na ta računalnik", prvPusti: "Pusti tam",
@@ -399,7 +399,7 @@
       ptdPrepocasi: "The conversion took too long and was stopped. The original is unchanged.",
       ptdNiDatoteke: "The file is no longer there.",
       pretvori: "Convert for TV (1080p) …", prvIscem: "Looking for the device with the best hardware encoder for “{ime}” …",
-      prvPrenasam: "{naprava} is fetching “{ime}” … {odst} %", prvPretvarjam: "{naprava} is converting “{ime}” … {odst} %",
+      prvPrenasam: "{naprava} is fetching “{ime}” … {odst} %", prvPretvarjam: "{naprava} is converting “{ime}” … {odst} %", prvPretvarjamTu: "No device can help, so this computer is converting “{ime}” … {odst} %",
       prvShranjujem: "{naprava} is saving the converted video …", prvKoncanoNaslov: "The video is converted",
       prvKoncano: "“{izhod}” ({velikost}) is on {naprava}, in the folder {kje}. Every TV can play it. The original on this computer is unchanged.",
       prvVprasaj: "Copy it to this computer too, next to the original?", prvPrenesi: "Copy to this computer", prvPusti: "Leave it there",
@@ -1959,6 +1959,7 @@
       if (st === "isceno") besedilo.textContent = t("prvIscem", z);
       else if (st === "prenasam") besedilo.textContent = t("prvPrenasam", z);
       else if (st === "pretvarjam") besedilo.textContent = t("prvPretvarjam", z);
+      else if (st === "pretvarjam_tu") besedilo.textContent = t("prvPretvarjamTu", z);
       else if (st === "shranjujem") besedilo.textContent = t("prvShranjujem", z);
       else if (st === "prenasam_nazaj") { besedilo.textContent = t("prvNazaj", z); zamenjajGumbe([gZapri]); }
       else if (st === "na_racunalniku") { koncaj(t("prvNaRacunalniku", z)); if (D.vir) odpriVir(D.vir); return; }

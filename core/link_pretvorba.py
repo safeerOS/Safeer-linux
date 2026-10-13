@@ -74,6 +74,18 @@ def sonda(pot: str) -> Optional[dict]:
         return None
 
 
+def trajanje_videa(pot: str) -> float:
+    """Trajanje v sekundah (ffprobe) za odstotek pri pretvorbi na tem racunalniku; 0, ce ni znano."""
+    if not shutil.which("ffprobe"):
+        return 0.0
+    try:
+        r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", pot],
+                           capture_output=True, text=True, timeout=10)
+        return max(0.0, float((r.stdout or "0").strip() or 0))
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
 def zna_prebrati(info: dict, oblika: Optional[dict]) -> bool:
     """Ali ima naprava dekodirnik za izvirnik (vrsta in velikost). Brez podatkov: naprava preveri sama."""
     dek = (info.get("gpu") or {}).get("dekodirniki")
@@ -171,7 +183,7 @@ class Opravilo:
         self.pot = os.path.realpath(pot)
         self.ime = os.path.basename(self.pot)
         self.velikost = os.path.getsize(self.pot)
-        # isceno | prenasam | pretvarjam | shranjujem | koncano | prenasam_nazaj | na_racunalniku | pusceno | napaka
+        # isceno | prenasam | pretvarjam | pretvarjam_tu | shranjujem | koncano | prenasam_nazaj | na_racunalniku | pusceno | napaka
         self.stanje = "isceno"
         self.odstotek = 0
         self.napaka = ""
@@ -243,7 +255,7 @@ class Pretvorba:
     def __init__(self, naprave: Callable[[], List[dict]], vprasaj: Callable[[str, str, dict], dict],
                  datoteke, hub_url: Callable[[], str] = lambda: "", cakaj: float = 2.0,
                  prenesi: Optional[Callable[[dict, str, str, "Opravilo"], None]] = None,
-                 sonda: Callable[[str], Optional[dict]] = sonda) -> None:
+                 sonda: Callable[[str], Optional[dict]] = sonda, ffmpeg: Optional[str] = None) -> None:
         self.naprave = naprave
         self.vprasaj = vprasaj
         self.datoteke = datoteke
@@ -251,6 +263,8 @@ class Pretvorba:
         self.cakaj = cakaj
         self._prenesi = prenesi or prenesi_z_naprave
         self._sonda = sonda
+        #: ffmpeg za pretvorbo na tem racunalniku, kadar nobena naprava ne more pomagati (None = poisci, "" = brez).
+        self._ffmpeg_pot = ffmpeg
         self.opravila: Dict[str, Opravilo] = {}
         self.skupine: Dict[str, Skupina] = {}
         #: Naprave, ki ta trenutek pretvarjajo za ta racunalnik (en video na napravo - brez preobremenitve).
@@ -398,11 +412,13 @@ class Pretvorba:
                     continue   # takoj poskusi dati naslednji video naslednji prosti napravi
                 if not tecejo and not zasedene:
                     # Nobena naprava ne more (in nobena ne dela): preostali videi ne gredo nikamor.
+                    # Takrat jih pretvori ta racunalnik sam (pocasneje, a uporabnik dobi, kar je narocil).
                     while cakajo:
                         x = cakajo.popleft()
-                        x.stanje = "napaka"
-                        x.napaka = "ne_zna_dekodirati" if x.razlogi and all("ne zna prebrati" in r for r in x.razlogi.values()) \
+                        razlog = "ne_zna_dekodirati" if x.razlogi and all("ne zna prebrati" in r for r in x.razlogi.values()) \
                             else "ni_naprave"
+                        if not self._lokalno(x):
+                            x.stanje, x.napaka = "napaka", razlog
                     break
             time.sleep(self.cakaj)
         g.koncana = True
@@ -450,6 +466,7 @@ class Pretvorba:
             o.napaka, o.stanje = str(e) or type(e).__name__, "koncano"
 
     def _pretvori(self, o: Opravilo, kandidati: Optional[List[dict]] = None, oblika: Optional[dict] = None) -> None:
+        sam = kandidati is None
         try:
             if kandidati is None:
                 oblika = self._sonda(o.pot)
@@ -500,9 +517,66 @@ class Pretvorba:
                 if faza in ("prenasam", "pretvarjam", "shranjujem"):
                     o.stanje = faza
         except _Napaka as e:
-            o.napaka, o.stanje = str(e), "napaka"
+            # En video (ne skupina - tam druge naprave poskusi _razdeli): ce ne more nobena naprava, pretvori ta racunalnik.
+            if not (sam and self._lokalno(o)):
+                o.napaka, o.stanje = str(e), "napaka"
         except Exception as e:  # noqa: BLE001 - pretvorba ne sme podreti Controla
             o.napaka, o.stanje = str(e) or type(e).__name__, "napaka"
+
+    # ------------------------------------------------------------------ rezerva: pretvorba na tem racunalniku
+
+    def _ffmpeg(self) -> str:
+        if self._ffmpeg_pot is not None:
+            return self._ffmpeg_pot
+        pot = shutil.which("ffmpeg") or ""
+        if not pot and os.name == "nt":
+            try:
+                from core.link_sprotno import ffmpeg_windows
+                pot = ffmpeg_windows() or ""
+            except Exception:  # noqa: BLE001
+                pot = ""
+        return pot
+
+    def _lokalno(self, o: Opravilo) -> bool:
+        """Pretvori video na tem racunalniku (H.264/AAC MP4 do 1080p, kot naprave) zraven izvirnika.
+        Z nizko prednostjo, da namizje ostane odzivno. False, ce ffmpeg ni ali pretvorba ne uspe."""
+        ff = self._ffmpeg()
+        if not ff or not os.path.isfile(o.pot):
+            return False
+        cilj = prosta_pot(os.path.dirname(o.pot), ime_pretvorjenega(o.ime))
+        zacasna = cilj + ".part.mp4"
+        trajanje = trajanje_videa(o.pot)
+        o.cilj, o.cilj_ime, o.napaka, o.odstotek, o.stanje = "", "", "", 0, "pretvarjam_tu"
+        # 1080p po krajsi stranici (tudi pokoncni video), nikoli povecano.
+        merilo = ("scale=w='min(iw,if(gte(iw,ih),1920,1080))':h='min(ih,if(gte(iw,ih),1080,1920))'"
+                  ":force_original_aspect_ratio=decrease:force_divisible_by=2")
+        ukaz = [ff, "-nostdin", "-hide_banner", "-v", "error", "-y", "-i", o.pot, "-map", "0:v:0", "-map", "0:a:0?",
+                "-vf", merilo, "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", zacasna]
+        try:
+            # Nizka prednost z "nice" (preexec_fn ni varen v vecnitnem Controlu).
+            if os.name != "nt" and shutil.which("nice"):
+                ukaz = ["nice", "-n", "10"] + ukaz
+            p = subprocess.Popen(ukaz, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+            for vrstica in p.stdout or []:
+                if vrstica.startswith("out_time_us=") and trajanje > 0:
+                    try:
+                        o.odstotek = max(0, min(99, int(int(vrstica.split("=", 1)[1]) / 1e6 / trajanje * 100)))
+                    except ValueError:
+                        pass
+            if p.wait() != 0 or not os.path.isfile(zacasna) or os.path.getsize(zacasna) == 0:
+                raise OSError("ffmpeg")
+            os.replace(zacasna, cilj)
+        except Exception:  # noqa: BLE001
+            try:
+                os.remove(zacasna)
+            except OSError:
+                pass
+            o.odstotek = 0
+            return False
+        o.lokalno, o.izhod_ime, o.izhod_velikost = cilj, os.path.basename(cilj), os.path.getsize(cilj)
+        o.cilj_ime, o.odstotek, o.stanje = "", 100, "na_racunalniku"
+        return True
 
 
 def prenesi_z_naprave(streznik: dict, oznaka: str, cilj: str, o: Opravilo) -> None:
