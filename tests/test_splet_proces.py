@@ -4,6 +4,12 @@ import types
 from core import os_splet, pomnilnik
 
 
+def test_meja_sprostitve():
+    assert pomnilnik.meja_sprostitve_mb(12 * 1024) == 1536
+    assert pomnilnik.meja_sprostitve_mb(4096) == 768
+    assert pomnilnik.meja_sprostitve_mb() == pomnilnik.meja_strani_mb() // 2
+
+
 def test_meja_strani():
     assert pomnilnik.meja_strani_mb(4096) == 1536
     assert pomnilnik.meja_strani_mb(12 * 1024) == 3072

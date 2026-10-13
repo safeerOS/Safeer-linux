@@ -402,7 +402,7 @@ class VdelaniSplet:
                 local_storage_directory=os.path.join(mapa, "localstorage"),
                 websql_directory=os.path.join(mapa, "websql"))
             from core import pomnilnik
-            self.kontekst = pomnilnik.kontekst(WebKit2, 350, website_data_manager=upravitelj,
+            self.kontekst = pomnilnik.kontekst(WebKit2, pomnilnik.meja_sprostitve_mb(), website_data_manager=upravitelj,
                                                ubij_mb=pomnilnik.meja_strani_mb())
             self.kontekst.set_sandbox_enabled(True)
             piskotki = upravitelj.get_cookie_manager()

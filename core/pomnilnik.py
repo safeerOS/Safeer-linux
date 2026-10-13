@@ -68,6 +68,14 @@ def meja_strani_mb(skupaj_mb: int = 0) -> int:
     return int(min(4096, max(1536, skupaj_mb // 4)))
 
 
+def meja_sprostitve_mb(skupaj_mb: int = 0) -> int:
+    """Meja, nad katero WebKit procesu strani sprosti predpomnilnike (njena tretjina, "conservative") - polovica meje
+    ubijanja. Prej 350 MB: WebKit je predpomnilnike praznil ze pri ~115 MB, torej pri skoraj vsaki strani; meritev
+    13. 10. 2026 (testni PC, 8 strani, isti proces izmenicno): toplo LCP Splet 752 ms proti 388 ms golega WebKita,
+    z mejo 1500 MB 400 ms."""
+    return meja_strani_mb(skupaj_mb) // 2
+
+
 def tlak_webkit(WebKit2, meja_mb: int, ubij_mb: int = 0):
     """MemoryPressureSettings za WebContext (WebKitGTK 2.34+) ali None. ubij_mb > meja_mb: nad to porabo WebKit
     proces strani ustavi (Splet ga potem nalozi znova ali pokaze razlago - os_splet._proces_koncan)."""
