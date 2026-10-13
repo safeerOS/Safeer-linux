@@ -1,0 +1,17 @@
+diff --git a/Source/WebCore/platform/graphics/gstreamer/MediaPlayerPrivateGStreamer.cpp b/Source/WebCore/platform/graphics/gstreamer/MediaPlayerPrivateGStreamer.cpp
+index c5b86056..c72a4ac9 100644
+--- a/Source/WebCore/platform/graphics/gstreamer/MediaPlayerPrivateGStreamer.cpp
++++ b/Source/WebCore/platform/graphics/gstreamer/MediaPlayerPrivateGStreamer.cpp
+@@ -4256,7 +4256,11 @@ void MediaPlayerPrivateGStreamer::managePlayerSuspend()
+         GstState actualState = pendingState != GST_STATE_VOID_PENDING ? pendingState : currentState;
+         m_isSuspended = true;
+         auto targetState = suspendTargetState();
+-        if (actualState == targetState) {
++        // Suspending only ever lowers the pipeline state. A pipeline that is still below the target state, such as a
++        // MediaSource pipeline in NULL before its source is set (the target is PAUSED there), has nothing to suspend:
++        // bringing it up to PAUSED that early fails in uridecodebin3 and leaves playsink half-way, so the audio and
++        // video sinks it adds later stay in READY and playback stalls. Requests to play are still held until resumed.
++        if (actualState <= targetState) {
+             GST_DEBUG_OBJECT(pipeline(), "Pipeline is already in %s state, no need to suspend playback.", gst_state_get_name(actualState));
+             return;
+         }

@@ -1,6 +1,8 @@
 # WebKitGTK 2.54.1 (API 4.1, GTK 3) z nasima popravkoma za plasti backdrop-filter v kompozitorju Skia:
 #  1) izhodno obmocje filtra se izracuna pred izrisom podrevesa (brez 2^n izrisov za locene plasti),
 #  2) filtrirano ozadje plasti se v okvirju shrani in ponovno uporabi (prekrite plasti), piksli enaki kot brez tega.
+# in s popravkom predvajanja (gst-mse-suspend.patch): utisan video, ki se nalaga izven vidnega polja, ne sme dvigniti
+# cevovoda MediaSource v PAUSED pred nastavitvijo vira (RTV 365 je obvisel v "buffering" ze v nespremenjenem 2.54.1).
 # Gorvodno: WebKit bugzilla (glej skia-backdrop-2n.patch). Ko bo popravek v izdaji WebKitGTK v runtime-u
 # org.gnome.Platform, ta modul odstranimo.
 # Knjiznica nadomesti tisto iz runtime-a: /app/lib je v iskalni poti pred /usr/lib, WebKitWebProcess se zazene
@@ -32,3 +34,5 @@ sources:
     sha256: ea0bbb02dbdbc596874a4e7ad35b66645b3e0a232bd0e4081de5ed92eb0a397d
   - type: patch
     path: skia-backdrop-2n.patch
+  - type: patch
+    path: gst-mse-suspend.patch
