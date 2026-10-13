@@ -11,8 +11,10 @@ import json
 import os
 import shutil
 import subprocess
+import time
 import urllib.parse
 import weakref
+from html import escape as _escape_html
 from pathlib import Path
 
 from core import adblock, drm, odlozisce_varuh, os_stabilnost, ozadje_strani, splet_temno
@@ -67,6 +69,16 @@ BESEDILA = {
            "blokirano": "Annunci e minacce bloccati: {count}", "isci": "Trova …"},
 }
 
+# Ko se proces strani sesuje ali preseze mejo pomnilnika (web-process-terminated).
+_PROCES = {
+    "sl": ("Stran se je zaprla", "Ta stran je porabila preveč pomnilnika ali se je sesula, zato jo je Safeer ustavil, da računalnik ostane odziven.", "Naloži znova"),
+    "en": ("The page stopped", "This page used too much memory or crashed, so Safeer stopped it to keep your computer responsive.", "Reload"),
+    "de": ("Die Seite wurde beendet", "Diese Seite hat zu viel Speicher verbraucht oder ist abgestürzt. Safeer hat sie beendet, damit der Computer reaktionsfähig bleibt.", "Neu laden"),
+    "es": ("La página se detuvo", "Esta página usó demasiada memoria o falló, así que Safeer la detuvo para que el ordenador siga respondiendo.", "Recargar"),
+    "fr": ("La page s'est arrêtée", "Cette page a utilisé trop de mémoire ou a planté ; Safeer l'a arrêtée pour que l'ordinateur reste réactif.", "Recharger"),
+    "it": ("La pagina si è interrotta", "Questa pagina ha usato troppa memoria o si è bloccata, quindi Safeer l'ha fermata per mantenere reattivo il computer.", "Ricarica"),
+}
+
 # Skupna dodatna besedila so zapisana posebej, da zgornji slovar ostane berljiv.
 _DODATNA = {
     "sl": ("Spletna stran zahteva posebno dovoljenje.", "Zavrni", "Dovoli", "Iskalnik", "Blokiraj oglase in sledilce", "Šifriran DNS (DoH)"),
@@ -78,6 +90,8 @@ _DODATNA = {
 }
 for _jezik, _vrednosti in _DODATNA.items():
     BESEDILA[_jezik].update(dict(zip(("dovoljenje", "zavrni", "dovoli", "iskalnik", "adblock", "doh"), _vrednosti)))
+for _jezik, _vrednosti in _PROCES.items():
+    BESEDILA[_jezik].update(dict(zip(("proces_naslov", "proces_besedilo", "proces_znova"), _vrednosti)))
 
 
 #: Ozadje pogleda pod našimi stranmi (pod spletnimi je belo, glej core/ozadje_strani.py).
@@ -277,6 +291,16 @@ def blizjica(tipka: str, ctrl: bool = False, shift: bool = False, alt: bool = Fa
     return None
 
 
+def stran_procesa_koncana(naslov: str, besedilo: str, gumb: str, uri: str) -> str:
+    """Preprosta stran (brez skript strani): razlaga in gumb, ki stran nalozi znova."""
+    e = _escape_html
+    return ("<!doctype html><meta charset=utf-8><meta name=color-scheme content='light dark'>"
+            "<body style='font:16px system-ui,sans-serif;max-width:36em;margin:15vh auto;padding:0 1em;line-height:1.5'>"
+            f"<h1 style='font-size:1.4em'>{e(naslov)}</h1><p>{e(besedilo)}</p>"
+            f"<p><a href=\"{e(uri, quote=True)}\" style='display:inline-block;padding:.5em 1.2em;border-radius:6px;"
+            f"background:#2a6df4;color:#fff;text-decoration:none'>{e(gumb)}</a></p></body>")
+
+
 def besedila(jezik: str) -> dict:
     """Besedila razdelka Splet; neznani jezik varno pade na anglescino."""
     return BESEDILA.get(str(jezik or "")[:2].lower(), BESEDILA["en"])
@@ -378,7 +402,8 @@ class VdelaniSplet:
                 local_storage_directory=os.path.join(mapa, "localstorage"),
                 websql_directory=os.path.join(mapa, "websql"))
             from core import pomnilnik
-            self.kontekst = pomnilnik.kontekst(WebKit2, 350, website_data_manager=upravitelj)
+            self.kontekst = pomnilnik.kontekst(WebKit2, 350, website_data_manager=upravitelj,
+                                               ubij_mb=pomnilnik.meja_strani_mb())
             self.kontekst.set_sandbox_enabled(True)
             piskotki = upravitelj.get_cookie_manager()
             piskotki.set_persistent_storage(os.path.join(self.config.config_dir, "cookies.sqlite"),
@@ -745,8 +770,28 @@ class VdelaniSplet:
         pogled.connect("notify::title", self._naslov_spremenjen)
         pogled.connect("notify::uri", self._uri_spremenjen)
         pogled.connect("permission-request", self._dovoljenje)
+        pogled.connect("web-process-terminated", self._proces_koncan)
         self._uporabi_filter(pogled)
         return pogled
+
+    def _proces_koncan(self, pogled, razlog) -> None:
+        """Proces strani se je sesul ali presegel mejo pomnilnika: stran enkrat nalozimo znova (v 30 s najvec
+        enkrat, da se pozresna stran ne vrti v krogu), sicer pokazemo razlago z gumbom za ponovno nalaganje."""
+        W = self.WebKit2
+        if razlog == getattr(W.WebProcessTerminationReason, "TERMINATED_BY_API", object()):
+            return
+        uri = pogled.get_uri() or ""
+        if not uri.startswith(("http://", "https://")):
+            return
+        if not hasattr(self, "_proces_znova"):
+            self._proces_znova = weakref.WeakKeyDictionary()
+        zdaj = time.monotonic()
+        if zdaj - self._proces_znova.get(pogled, -1e9) > 30:
+            self._proces_znova[pogled] = zdaj
+            self.GLib.idle_add(lambda: (pogled.reload(), False)[1])
+            return
+        pogled.load_alternate_html(stran_procesa_koncana(self._t("proces_naslov"), self._t("proces_besedilo"),
+                                                         self._t("proces_znova"), uri), uri, None)
 
     def nov_zavihek(self, naslov: str = ""):
         self._stevec += 1

@@ -8,6 +8,7 @@ anonimni pomnilnik v mnogih areanah glibc (33 niti, vsaka si vzame svojo areno i
 * tlak_webkit(): spletni procesi WebKita dobijo mejo pomnilnika - nad njo WebKit sam sprosti predpomnilnike.
 """
 import ctypes
+import os
 import ctypes.util
 import gc
 
@@ -55,19 +56,35 @@ def obrezuj_periodicno(GLib, sekunde: int = 90) -> None:
     GLib.timeout_add_seconds(int(sekunde), korak)
 
 
-def tlak_webkit(WebKit2, meja_mb: int):
-    """MemoryPressureSettings za WebContext (WebKitGTK 2.34+) ali None."""
+def meja_strani_mb(skupaj_mb: int = 0) -> int:
+    """Koliko pomnilnika sme porabiti en proces strani, preden ga WebKit ustavi: cetrtina RAM-a, najmanj 1,5 GB,
+    najvec 4 GB. Meritev 13. 10. 2026 (testni racunalnik, 12 GB): en proces strani je zrasel na ~7 GB in sistem
+    je moral ubijati programe (OOM); brez meje ena pozresna stran ustavi ves racunalnik."""
+    if skupaj_mb <= 0:
+        try:
+            skupaj_mb = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") // (1024 * 1024)
+        except (ValueError, OSError, AttributeError):
+            skupaj_mb = 8192
+    return int(min(4096, max(1536, skupaj_mb // 4)))
+
+
+def tlak_webkit(WebKit2, meja_mb: int, ubij_mb: int = 0):
+    """MemoryPressureSettings za WebContext (WebKitGTK 2.34+) ali None. ubij_mb > meja_mb: nad to porabo WebKit
+    proces strani ustavi (Splet ga potem nalozi znova ali pokaze razlago - os_splet._proces_koncan)."""
     try:
         s = WebKit2.MemoryPressureSettings.new()
         s.set_memory_limit(int(meja_mb))
+        if ubij_mb > meja_mb:
+            s.set_kill_threshold(float(ubij_mb) / float(meja_mb))
+            s.set_poll_interval(5.0)    # privzeto 30 s: pozresna stran bi medtem pobrala se gigabajte (preizkus: 1,6 GB/s)
         return s
     except Exception:  # noqa: BLE001
         return None
 
 
-def kontekst(WebKit2, meja_mb: int, **lastnosti):
+def kontekst(WebKit2, meja_mb: int, ubij_mb: int = 0, **lastnosti):
     """Nov WebContext z mejo pomnilnika za spletne procese; brez podpore navaden WebContext."""
-    s = tlak_webkit(WebKit2, meja_mb)
+    s = tlak_webkit(WebKit2, meja_mb, ubij_mb)
     if s is not None:
         try:
             return WebKit2.WebContext(memory_pressure_settings=s, **lastnosti)
