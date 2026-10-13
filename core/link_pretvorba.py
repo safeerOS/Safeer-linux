@@ -93,6 +93,8 @@ def _izlocitev(d: Optional[dict], velikost: int, oblika: Optional[dict]) -> str:
     """Zakaj naprava ne more pretvoriti ("" = lahko)."""
     if d is None:
         return "ne odgovori"
+    if d.get("_brez_dostopa"):
+        return "ni dostopa (na tej napravi v Safeer Linku dovoli ta racunalnik)"
     if (d.get("pomoc") or {}).get("lahko") is False:
         return "ne sme pomagati (" + str((d.get("pomoc") or {}).get("razlog") or "") + ")"
     if not (d.get("gpu") or {}).get("strojno") or ocena_kodirnika(d)[0] < 1920:
@@ -128,6 +130,9 @@ def razvrsti_naprave(naprave: List[dict], vprasaj: Callable[[str, str, dict], di
             r = vprasaj(n["id"], "host.info", {})
         except Exception:  # noqa: BLE001
             return None
+        if not r.get("ok") and r.get("code") == "ni_dovoljeno":
+            # Naprava odgovori, a temu racunalniku ne zaupa (link_dostop): to povemo, ne "ne odgovori".
+            return {"_brez_dostopa": True}
         d = r.get("data") if r.get("ok") else None
         return d if isinstance(d, dict) else None
 
