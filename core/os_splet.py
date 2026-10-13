@@ -1244,7 +1244,9 @@ class VdelaniSplet:
     def _varuh_tik(self) -> bool:
         try:
             from core import pomnilnik, splet_varuh
-            pid = splet_varuh.preglej(pomnilnik.meja_strani_mb(), os.getpid(), bool(os.environ.get("FLATPAK_ID")))
+            # 3/4 meje WebKita: pri puscanju DMA-BUF WebKit proces sprazni in spet napolni (meritev: 0,4 -> 2,8 GB v
+            # krogih po ~30 s, brez ustavitve), zato varuh ukrepa nizje, ko je to ze zanesljivo puscanje.
+            pid = splet_varuh.preglej(pomnilnik.meja_strani_mb() * 3 // 4, os.getpid(), bool(os.environ.get("FLATPAK_ID")))
             if pid is not None:
                 self._varuh_ubil = time.monotonic()
                 os_stabilnost.zapisi("safeer-os", "spletni proces nad mejo pomnilnika ustavljen (varuh)")
