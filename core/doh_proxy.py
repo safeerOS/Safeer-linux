@@ -249,6 +249,23 @@ class DoHResolver:
     #: Kako dolgo po izteku TTL se sme uporabiti star naslov (medtem ko se osvezuje v ozadju).
     STARO_S = 3600
 
+    def ogrej(self) -> None:
+        """Odpre (ali ohrani) povezavo do streznika DoH z vprasanjem po imenu samega streznika - nic ne izda."""
+        try:
+            if self.provider == "custom":
+                gostitelj = urllib.parse.urlsplit(self.custom_url).hostname or ""
+            else:
+                gostitelj = urllib.parse.urlsplit(DOH_PROVIDERS.get(self.provider, DOH_PROVIDERS["cloudflare"])["url"]).hostname or ""
+            try:
+                ipaddress.ip_address(gostitelj)
+                gostitelj = "example.com"      # streznik z IP naslovom: nevtralno ime (IANA, nic ne izda)
+            except ValueError:
+                pass
+            if gostitelj:
+                self._poizvedba(gostitelj, 3.5, 1)
+        except Exception:  # noqa: BLE001
+            pass
+
     def pozabi(self, hostname: str) -> None:
         """Pozabi naslov imena (npr. star naslov ne sprejme povezave): naslednji resolve vpraša DoH znova."""
         h = (hostname or "").lower().strip().rstrip(".")
@@ -449,6 +466,8 @@ class _ZankaDoH:
             seja = Soup.Session()
             # Brez posrednika (sicer bi DoH sel skozi nas posrednik); obicajno preverjanje potrdil ostane.
             seja.set_proxy_resolver(Gio.SimpleProxyResolver.new(None, []))
+            # libsoup privzeto zapre mirujoco povezavo po 60 s; streznik (Cloudflare) jo drzi vsaj 2 min.
+            seja.set_idle_timeout(240)
             self._seja = seja
             pripravljena.set()
             GLib.MainLoop.new(self._kontekst, False).run()
@@ -560,6 +579,11 @@ class LocalDoHProxy:
         self.is_running = True
         self._thread = threading.Thread(target=self._accept_loop, daemon=True, name="SafeerDoHProxy")
         self._thread.start()
+        # Povezavo do streznika DoH odpremo takoj (TCP + TLS ~110 ms), da je prva stran ne caka: meritev 13. 10. 2026,
+        # 25 novih imen hkrati s toplo povezavo ~175 ms, s hladno ~330 ms.
+        ogrej = getattr(self.resolver, "ogrej", None)
+        if callable(ogrej):
+            threading.Thread(target=ogrej, daemon=True, name="safeer-doh-ogrej").start()
 
         print(f"[DoH Proxy] Lokalni posrednik aktiviran na http://{self.bind_host}:{self.actual_port} (DoH: {self.resolver.provider})")
         return self.actual_port

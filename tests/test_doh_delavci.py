@@ -125,3 +125,13 @@ def test_isti_naslov_ne_poskusa_znova(monkeypatch):
         assert b.recv(100).startswith(b"HTTP/1.1 502")
     finally:
         a.close(); b.close()
+
+
+def test_ogrej_vprasa_po_strezniku_doh(monkeypatch):
+    from core import doh_proxy
+    r = DoHResolver()
+    vprasano = []
+    r._poizvedba = lambda h, t, q=1: vprasano.append(h) or (None, 15)
+    r.ogrej()
+    r.set_provider("quad9"); r.ogrej()
+    assert vprasano == ["example.com", "dns.quad9.net"]   # cloudflare: https://1.1.1.1/...
