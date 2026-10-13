@@ -3568,7 +3568,8 @@ class SafeerMintBrowser(Gtk.Window):
             if hasattr(WebKit2, "HardwareAccelerationPolicy"):
                 hw_pref = self.config.get("hardware_acceleration", "on_demand")
                 # Privzeto vklopljeno; uporabnik ga lahko izklopi ("never"). ON_DEMAND je v WebKitGTK 2.4x opuscen.
-                from core.os_splet import politika_pospesevanja
+                from core.os_splet import nastavi_kompozitor, politika_pospesevanja
+                nastavi_kompozitor(WebKit2, settings, bool(self.config.get("splet_skia_kompozitor", False)))
                 settings.set_hardware_acceleration_policy(getattr(self, "_naslednja_politika", None)
                                                           or politika_pospesevanja(WebKit2, hw_pref))
             if hasattr(settings, "set_enable_accelerated_2d_canvas"):
@@ -4883,7 +4884,8 @@ class SafeerMintBrowser(Gtk.Window):
             from core.os_splet import brez_pospesevanja, politika_pospesevanja
             if not uri.startswith(("http://", "https://")):
                 return False
-            zelena = (WebKit2.HardwareAccelerationPolicy.NEVER if brez_pospesevanja(uri)
+            zelena = (WebKit2.HardwareAccelerationPolicy.NEVER
+                      if brez_pospesevanja(uri, (), bool(self.config.get("splet_skia_kompozitor", False)))
                       else politika_pospesevanja(WebKit2, self.config.get("hardware_acceleration", "on_demand")))
             if webview.get_settings().get_hardware_acceleration_policy() == zelena:
                 return False

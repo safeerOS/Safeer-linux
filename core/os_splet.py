@@ -228,11 +228,33 @@ def velikost_mape_mb(pot: str) -> int:
     return skupaj // (1024 * 1024)
 
 
-#: Strani, na katerih WebKit 2.54 s strojnim izrisom (DMA-BUF) pusca pomnilnik (meritev 13. 10. 2026: 24ur.com
-#: ~90 MB/s na Intel Haswell in Iris Xe; 11 drugih slovenskih in svetovnih strani stabilnih). Na njih Splet izrise
-#: brez strojnega pospesevanja (228 MB stabilno); drugje ostane pospeseno (zameglitev ozadja, 3D). Seznam se sam
-#: dopolni, ko WebKit ustavi stran zaradi pomnilnika (VdelaniSplet._proces_pomnilnik).
+#: Strani, ki jih Skia kompozitor WebKita 2.54 ne zmore (24ur.com: 28 elementov z backdrop-filter -> 2^n izrisov,
+#: ~100 MB/s in 100 % CPU, meritev 13. 10. 2026). Velja SAMO, ce je Skia kompozitor vklopljen (glej nastavi_kompozitor);
+#: s TextureMapperjem (privzeto v Spletu) te strani tecejo normalno, s pospesevanjem. Uceni seznam (VdelaniSplet.
+#: _proces_pomnilnik) velja vedno.
 BREZ_POSPESEVANJA = ("24ur.com",)
+
+#: Konfiguracijski kljuc razlicice izrisa: ob prehodu na TextureMapper (2) se pozabi uceni seznam iz casa Skie.
+KOMPOZITOR_RAZLICICA = 2
+
+
+def nastavi_kompozitor(WebKit2, nastavitve, skia: bool = False) -> bool:
+    """Izbere kompozitor WebKita 2.54: Skia (UseSkiaForComposition) ali TextureMapper.
+
+    Skia kompozitor naredi za n elementov z backdrop-filter 2^n izrisov podrevesa (WebKit SkiaCompositingLayer::
+    paintBackdrop; poroceno gorvodno 13. 10. 2026): stran z 20+ takimi elementi ustavi izris, porabi 100 % jedra in
+    pomnilnik raste do OOM. TextureMapper na 10 straneh ni pocasnejsi (hladno LCP -16 %, toplo load -11 %, FCP enak;
+    zameglitev ozadja, filtri in 3D enaki na 1,6/255). Vrne True, ce WebKit to stikalo pozna (2.54+)."""
+    try:
+        seznam = WebKit2.Settings.get_all_features()
+        for i in range(seznam.get_length()):
+            f = seznam.get(i)
+            if f.get_identifier() == "UseSkiaForComposition":
+                nastavitve.set_feature_enabled(f, bool(skia))
+                return True
+    except Exception:  # noqa: BLE001 - starejsi WebKit brez API funkcij
+        pass
+    return False
 
 
 def gostitelj_strani(naslov: str) -> str:
@@ -242,12 +264,14 @@ def gostitelj_strani(naslov: str) -> str:
         return ""
 
 
-def brez_pospesevanja(naslov: str, ucene=()) -> bool:
-    """Ali naj se ta stran izrise brez strojnega pospesevanja (domena ali njena poddomena na seznamu)."""
+def brez_pospesevanja(naslov: str, ucene=(), skia: bool = True) -> bool:
+    """Ali naj se ta stran izrise brez strojnega pospesevanja (domena ali njena poddomena na seznamu).
+    Staticni seznam velja le pri Skia kompozitorju (skia=True), uceni seznam vedno."""
     g = gostitelj_strani(naslov)
     if not g:
         return False
-    return any(g == d or g.endswith("." + d) for d in tuple(BREZ_POSPESEVANJA) + tuple(ucene or ()))
+    domene = (tuple(BREZ_POSPESEVANJA) if skia else ()) + tuple(ucene or ())
+    return any(g == d or g.endswith("." + d) for d in domene)
 
 
 def politika_pospesevanja(WebKit2, nastavitev):
@@ -380,6 +404,12 @@ class VdelaniSplet:
         #: Gumb »Install« dodatka Stremio (povezava stremio://...): Safeer Player pokaze dodatek in vprasa (kot Android).
         self.stremio_dodatek = stremio_dodatek
         self.config = ConfigManager()
+        try:
+            if self.config.get("splet_kompozitor_v", 0) != KOMPOZITOR_RAZLICICA:
+                self.config.set("splet_brez_pospesevanja", [])
+                self.config.set("splet_kompozitor_v", KOMPOZITOR_RAZLICICA)
+        except Exception:  # noqa: BLE001
+            pass
         #: »Vsili temno« (core/splet_temno.py): skripta Dark Reader vsakega pogleda, da jo ob spremembi zamenjamo.
         self._temno_skripte = weakref.WeakKeyDictionary()
         try:
@@ -775,6 +805,7 @@ class VdelaniSplet:
         self._skripta(upravitelj, adblock.TAB_THROTTLER_SCRIPT, izloceni=izvzemi)
         self._temno_skripte[pogled] = self._temno_namesti(upravitelj)
         nastavitve = pogled.get_settings()
+        nastavi_kompozitor(W, nastavitve, self._skia())
         nastavitve.set_hardware_acceleration_policy(getattr(self, "_naslednja_politika", None)
                                                     or politika_pospesevanja(W, self.config.get("hardware_acceleration", "on_demand")))
         nastavitve.set_enable_javascript(True)
@@ -1231,9 +1262,13 @@ class VdelaniSplet:
         v = self.config.get("splet_brez_pospesevanja", [])
         return [str(x) for x in v] if isinstance(v, list) else []
 
+    def _skia(self) -> bool:
+        """Skia kompozitor samo, ce ga uporabnik izrecno vklopi (splet_skia_kompozitor); privzeto TextureMapper."""
+        return bool(self.config.get("splet_skia_kompozitor", False))
+
     def _zelena_politika(self, naslov: str):
         W = self.WebKit2
-        if brez_pospesevanja(naslov, self._ucene_brez_pospesevanja()):
+        if brez_pospesevanja(naslov, self._ucene_brez_pospesevanja(), self._skia()):
             return W.HardwareAccelerationPolicy.NEVER
         return politika_pospesevanja(W, self.config.get("hardware_acceleration", "on_demand"))
 
@@ -1295,7 +1330,7 @@ class VdelaniSplet:
         if not (pomnilnik or varuh):
             return
         g = gostitelj_strani(pogled.get_uri() or "")
-        if not g or brez_pospesevanja("https://" + g, self._ucene_brez_pospesevanja()):
+        if not g or brez_pospesevanja("https://" + g, self._ucene_brez_pospesevanja(), self._skia()):
             return
         ucene = (self._ucene_brez_pospesevanja() + [g])[-50:]
         try:
@@ -1529,7 +1564,7 @@ class VdelaniSplet:
                 self._temno_osvezi(znova_nalozi=self.trenutni())
             politika = politika_pospesevanja(self.WebKit2, self.config.get("hardware_acceleration"))
             for z in self.zavihki:
-                if not brez_pospesevanja(z["pogled"].get_uri() or "", self._ucene_brez_pospesevanja()):
+                if not brez_pospesevanja(z["pogled"].get_uri() or "", self._ucene_brez_pospesevanja(), self._skia()):
                     z["pogled"].get_settings().set_hardware_acceleration_policy(politika)
             self._nastavi_omrezje()
         d.destroy()
