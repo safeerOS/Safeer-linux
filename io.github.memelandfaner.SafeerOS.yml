@@ -101,6 +101,23 @@ modules:
       - type: archive
         url: https://download.gnome.org/sources/libwnck/43/libwnck-43.3.tar.xz
         sha256: 6af8ac41a8f067ade1d3caaed254a83423b5f61ad3f7a460fcacbac2e192bdf7
+  - name: xapp
+    # Kuverta in ikone v pultu Cinnamona (XApp.StatusIcon). app-lib-only: samo knjiznica, nastavitev Minta za Flatpak.
+    # Razlicica kot v Mintu 22.3.
+    buildsystem: meson
+    config-opts:
+      - --libdir=lib
+      - -Dapp-lib-only=true
+      - -Dmate=false
+      - -Dstatus-notifier=false
+      - -Dintrospection=true
+      - -Ddocs=false
+      - -Dpy-overrides-dir=/app/lib/python3.13/site-packages/gi/overrides
+    sources:
+      - type: git
+        url: https://github.com/linuxmint/xapp.git
+        tag: 3.2.3
+        commit: 58ffe8e1e38354804ef09966fc8379b212abb187
   - name: safeer-os
     buildsystem: simple
     build-commands:

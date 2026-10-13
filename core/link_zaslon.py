@@ -423,12 +423,39 @@ def kodek_za_pot(kodek: str, prek_huba: bool) -> str:
     return kodek if (kodek != "hevc" or prek_huba) else "h264"
 
 
-def vaapi_naprava() -> Optional[str]:
-    """Naprava za strojno kodiranje (Intel/AMD); None, kadar je ni."""
+#: Ali strojno kodiranje na napravi res dela (pot -> bool), preizkuseno enkrat na zagon.
+_VAAPI_DELUJE: dict = {}
+
+
+def vaapi_deluje(pot: str, ffmpeg: Optional[str] = None, zazeni=subprocess.run) -> bool:
+    """Kratek preizkus h264_vaapi (3 slike). Naprava /dev/dri obstaja tudi, ko gonilnika VA ni (npr. Flatpak na
+    starejsem Intelu: »Device creation failed: -5«, izmerjeno na testnem PC 13. 10. 2026) - takrat bi zajem zaslona
+    takoj padel. Brez ffmpeg ne preizkusamo (stara pot: naprava obstaja = dela)."""
+    if pot in _VAAPI_DELUJE:
+        return _VAAPI_DELUJE[pot]
+    ffmpeg = ffmpeg or shutil.which("ffmpeg")
+    if not ffmpeg:
+        return True
+    try:
+        r = zazeni([ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-vaapi_device", pot,
+                    "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=30", "-frames:v", "3",
+                    "-vf", "format=nv12,hwupload", "-c:v", "h264_vaapi", "-rc_mode", "CQP", "-qp", "24",
+                    "-f", "null", "-"], capture_output=True, timeout=10)
+        dela = r.returncode == 0
+    except Exception:
+        dela = False
+    _VAAPI_DELUJE[pot] = dela
+    if not dela:
+        print("[zaslon] strojno kodiranje na %s ne dela - zajem s procesorjem (x264)" % pot, flush=True)
+    return dela
+
+
+def vaapi_naprava(ffmpeg: Optional[str] = None) -> Optional[str]:
+    """Naprava za strojno kodiranje (Intel/AMD), ki res dela; None, kadar je ni (zajem s procesorjem)."""
     for ime in ("renderD128", "renderD129"):
         pot = os.path.join("/dev/dri", ime)
         if os.path.exists(pot):
-            return pot
+            return pot if vaapi_deluje(pot, ffmpeg) else None
     return None
 
 
@@ -610,7 +637,7 @@ class Zaslon:
     def na_voljo(self) -> dict:
         """Ali ta racunalnik sploh zna deliti zaslon in s cim."""
         display = os.environ.get("DISPLAY", "")
-        vaapi = vaapi_naprava()
+        vaapi = vaapi_naprava(self.ffmpeg)
         return {
             "dovoljeno": self.vklopljeno,
             "mozno": bool(self.ffmpeg) and bool(display),
@@ -755,7 +782,7 @@ class Zaslon:
                 self._okolje_zajema = None
                 self._zvok_vir = privzeti_monitor()
                 self._vnos = Vnos(display=display)
-                vaapi = vaapi_naprava()
+                vaapi = vaapi_naprava(self.ffmpeg)
                 self._kodek = izberi_kodek(kodeki, lambda: hevc_mozen(self.ffmpeg, vaapi))
                 # Preizkus graficne samo, kadar sliko res pomanjsamo (sicer ga ne potrebujemo).
                 gpu = (sirina, visina) != tuple(izvor[:2]) and gpu_lestvica_mozna(self.ffmpeg, vaapi)
