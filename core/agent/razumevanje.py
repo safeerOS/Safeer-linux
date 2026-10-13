@@ -122,7 +122,7 @@ def llama_server(naslov: str = "", kljuc: str = "", cas: float = 60.0) -> Callab
             kljuc = ""
 
     def klic(sporocila_: list, shema: dict) -> dict:
-        if not naslov:
+        if not naslov.startswith(("http://", "https://")):
             raise OSError("ni naslova modela (SAFEER_AGENT)")
         telo = {"messages": sporocila_, "temperature": 0, "max_tokens": 200, "cache_prompt": True,
                 "response_format": {"type": "json_schema", "json_schema": {"name": "naloge", "strict": True, "schema": shema}}}
@@ -130,7 +130,7 @@ def llama_server(naslov: str = "", kljuc: str = "", cas: float = 60.0) -> Callab
         if kljuc:
             glave["Authorization"] = "Bearer " + kljuc
         z = urllib.request.Request(naslov.rstrip("/") + "/v1/chat/completions", json.dumps(telo).encode(), glave)
-        with urllib.request.urlopen(z, timeout=cas) as o:
+        with urllib.request.urlopen(z, timeout=cas) as o:  # nosec B310 - samo http(s), preverjeno zgoraj
             d = json.load(o)
         return json.loads(d["choices"][0]["message"]["content"])
     return klic
