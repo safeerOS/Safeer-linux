@@ -8,9 +8,6 @@ cp -a "$ROOT/safeer_mint.py" "$ROOT/core" "$ROOT/ui" "$ROOT/assets" "$PREFIX/lib
 find "$PREFIX/lib/safeer-browser" -type d -name __pycache__ -exec rm -rf {} +
 find "$PREFIX/lib/safeer-browser" -name '*.pyc' -delete
 install -m755 "$ROOT/packaging/safeer-launcher" "$PREFIX/bin/safeer"
-# WebKit 2.54 na starejsih grafikah Intel brez izrisovalnika DMA-BUF (puscanje pomnilnika; packaging/webkit-okolje.sh).
-mkdir -p "$PREFIX/lib/safeer-browser/packaging"
-install -m644 "$ROOT/packaging/webkit-okolje.sh" "$PREFIX/lib/safeer-browser/packaging/webkit-okolje.sh"
 install -Dm644 "$ROOT/LICENSE" "$PREFIX/share/doc/safeer-browser/LICENSE"
 ln -sf safeer "$PREFIX/bin/safeer-browser"
 sed "s/^Icon=.*/Icon=$ID/" "$ROOT/packaging/safeer-browser.desktop" > "$PREFIX/share/applications/$ID.desktop"

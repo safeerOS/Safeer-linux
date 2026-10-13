@@ -34,12 +34,6 @@ if [ -z "${SAFEER_NO_SCOPE:-}" ] && command -v systemd-run >/dev/null 2>&1 \
 fi
 
 # Gladko predvajanje zvoka brez prekinitev (PipeWire / PulseAudio 120ms buffer)
-# Flatpak (WebKit 2.54): na starejsih grafikah Intel brez izrisovalnika DMA-BUF - packaging/webkit-okolje.sh.
-if [ -n "${FLATPAK_ID:-}" ] && [ -f "$APP_DIR/packaging/webkit-okolje.sh" ]; then
-    . "$APP_DIR/packaging/webkit-okolje.sh"
-    safeer_webkit_okolje
-fi
-
 export PULSE_LATENCY_MSEC=120
 export GST_PULSE_BUFFER_MS=120
 

@@ -108,3 +108,59 @@ def test_predpomnilnik_strani_vklopljen():
     import inspect
     koda = inspect.getsource(os_splet.VdelaniSplet._nov_pogled)
     assert "set_enable_page_cache(True)" in koda and "set_enable_page_cache(False)" not in koda
+
+
+def test_brez_pospesevanja_seznam():
+    assert os_splet.brez_pospesevanja("https://www.24ur.com/novice") is True
+    assert os_splet.brez_pospesevanja("https://24ur.com/") is True
+    assert os_splet.brez_pospesevanja("https://ne24ur.com/") is False
+    assert os_splet.brez_pospesevanja("https://www.rtvslo.si/") is False
+    assert os_splet.brez_pospesevanja("https://x.primer.si/", ["primer.si"]) is True
+    assert os_splet.brez_pospesevanja("about:blank") is False
+
+
+class _Nast:
+    def __init__(self): self.p = "ALWAYS"
+    def get_hardware_acceleration_policy(self): return self.p
+    def set_hardware_acceleration_policy(self, p): self.p = p
+
+
+class _PogledN(_Pogled):
+    def __init__(self, uri):
+        super().__init__(uri); self.n = _Nast()
+    def get_settings(self): return self.n
+
+
+class _Cfg(dict):
+    def set(self, k, v): self[k] = v
+
+
+def _splet_w():
+    import types
+    s = object.__new__(os_splet.VdelaniSplet)
+    s.WebKit2 = types.SimpleNamespace(
+        HardwareAccelerationPolicy=types.SimpleNamespace(NEVER="NEVER", ALWAYS="ALWAYS"),
+        WebProcessTerminationReason=types.SimpleNamespace(CRASHED=0, EXCEEDED_MEMORY_LIMIT=1, TERMINATED_BY_API=2))
+    s.config = _Cfg()
+    return s
+
+
+def test_pospesevanje_po_strani():
+    s = _splet_w()
+    p = _PogledN("https://www.24ur.com/")
+    s._pospesevanje_za_stran(p); assert p.n.p == "NEVER"
+    p.uri = "https://www.rtvslo.si/"
+    s._pospesevanje_za_stran(p); assert p.n.p == "ALWAYS"
+    s.config["hardware_acceleration"] = "never"
+    s._pospesevanje_za_stran(p); assert p.n.p == "NEVER"          # uporabnik izklopil povsod
+
+
+def test_pomnilnik_nauci_stran():
+    s = _splet_w()
+    p = _PogledN("https://novice.primer.si/clanek")
+    s._proces_pomnilnik(p, 0)                                          # sesutje: nic
+    assert "splet_brez_pospesevanja" not in s.config and p.n.p == "ALWAYS"
+    s._proces_pomnilnik(p, 1)                                          # pomnilnik: zapomni in preklopi
+    assert s.config["splet_brez_pospesevanja"] == ["novice.primer.si"] and p.n.p == "NEVER"
+    s._proces_pomnilnik(p, 1)
+    assert s.config["splet_brez_pospesevanja"] == ["novice.primer.si"]   # ne podvaja

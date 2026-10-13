@@ -32,7 +32,6 @@ cp -a "$ROOT/assets/os" "$LIB/assets/"
 mkdir -p "$LIB/ui" && cp -a "$ROOT"/ui/splet.html "$ROOT"/ui/splet.css "$ROOT"/ui/splet.js "$ROOT"/ui/splet-gore.webp "$LIB/ui/"
 for dat in banks.json bank_guard_page.js; do [ -f "$ROOT/core/$dat" ] && cp -a "$ROOT/core/$dat" "$LIB/core/"; done
 cp -a "$ROOT/packaging/VERSION_OS" "$LIB/packaging/"
-cp -a "$ROOT/packaging/webkit-okolje.sh" "$LIB/packaging/"
 # En proces (core/en_proces.py): Safeer OS zazene Safeer Control v svojem procesu, zato ima ves tovor Controla
 # (safeer_control.py, moduli Linka, stran assets/link). Iz istega izvora - nicesar ne prepisemo (cp -n).
 TOVOR_CONTROL="$(mktemp -d)"

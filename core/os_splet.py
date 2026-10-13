@@ -228,6 +228,28 @@ def velikost_mape_mb(pot: str) -> int:
     return skupaj // (1024 * 1024)
 
 
+#: Strani, na katerih WebKit 2.54 s strojnim izrisom (DMA-BUF) pusca pomnilnik (meritev 13. 10. 2026: 24ur.com
+#: ~90 MB/s na Intel Haswell in Iris Xe; 11 drugih slovenskih in svetovnih strani stabilnih). Na njih Splet izrise
+#: brez strojnega pospesevanja (228 MB stabilno); drugje ostane pospeseno (zameglitev ozadja, 3D). Seznam se sam
+#: dopolni, ko WebKit ustavi stran zaradi pomnilnika (VdelaniSplet._proces_pomnilnik).
+BREZ_POSPESEVANJA = ("24ur.com",)
+
+
+def gostitelj_strani(naslov: str) -> str:
+    try:
+        return (urllib.parse.urlsplit(naslov).hostname or "").lower().rstrip(".")
+    except ValueError:
+        return ""
+
+
+def brez_pospesevanja(naslov: str, ucene=()) -> bool:
+    """Ali naj se ta stran izrise brez strojnega pospesevanja (domena ali njena poddomena na seznamu)."""
+    g = gostitelj_strani(naslov)
+    if not g:
+        return False
+    return any(g == d or g.endswith("." + d) for d in tuple(BREZ_POSPESEVANJA) + tuple(ucene or ()))
+
+
 def politika_pospesevanja(WebKit2, nastavitev):
     """Strojno pospesevanje je privzeto vklopljeno (ALWAYS); uporabnik ga lahko izklopi ("never").
     "on_demand" je v WebKitGTK 2.4x opuscen - obravnavamo ga kot vklopljeno."""
@@ -721,6 +743,7 @@ class VdelaniSplet:
         W = self.WebKit2
         pogled = W.WebView.new_with_context(self.kontekst)
         # Padec spletnega procesa (sesutje strani, pomanjkanje pomnilnika): zavihek se nalozi znova, kot v brskalniku.
+        pogled.connect("web-process-terminated", self._proces_pomnilnik)   # pred obnovo (ta caka 400 ms)
         os_stabilnost.obnovi_ob_padcu(W, self.GLib, pogled, "safeer-os", "splet", ob_odpovedi=self._proces_koncan)
         upravitelj = pogled.get_user_content_manager()
         upravitelj.register_script_message_handler("safeer")
@@ -1197,7 +1220,44 @@ class VdelaniSplet:
         except Exception: naslov = ""
         return self.nov_zavihek(naslov)
 
+    def _ucene_brez_pospesevanja(self) -> list:
+        v = self.config.get("splet_brez_pospesevanja", [])
+        return [str(x) for x in v] if isinstance(v, list) else []
+
+    def _pospesevanje_za_stran(self, pogled) -> None:
+        """Ob zacetku nalaganja: strani s seznama brez strojnega izrisa, ostale po nastavitvi uporabnika."""
+        W = self.WebKit2
+        try:
+            if brez_pospesevanja(pogled.get_uri() or "", self._ucene_brez_pospesevanja()):
+                politika = W.HardwareAccelerationPolicy.NEVER
+            else:
+                politika = politika_pospesevanja(W, self.config.get("hardware_acceleration", "on_demand"))
+            nastavitve = pogled.get_settings()
+            if nastavitve.get_hardware_acceleration_policy() != politika:
+                nastavitve.set_hardware_acceleration_policy(politika)
+        except Exception as napaka:  # noqa: BLE001
+            print("[Safeer OS Splet] pospesevanje:", napaka)
+
+    def _proces_pomnilnik(self, pogled, razlog) -> None:
+        """WebKit je stran ustavil, ker je presegla mejo pomnilnika: njeno domeno si zapomnimo (brez strojnega izrisa),
+        da jo os_stabilnost nalozi znova ze brez puscanja."""
+        W = self.WebKit2
+        if razlog != getattr(getattr(W, "WebProcessTerminationReason", None), "EXCEEDED_MEMORY_LIMIT", object()):
+            return
+        g = gostitelj_strani(pogled.get_uri() or "")
+        if not g or brez_pospesevanja("https://" + g, self._ucene_brez_pospesevanja()):
+            return
+        ucene = (self._ucene_brez_pospesevanja() + [g])[-50:]
+        try:
+            self.config.set("splet_brez_pospesevanja", ucene)
+        except Exception:  # noqa: BLE001
+            pass
+        self._pospesevanje_za_stran(pogled)
+
     def _nalozen(self, pogled, dogodek):
+        if dogodek == self.WebKit2.LoadEvent.STARTED:
+            self._pospesevanje_za_stran(pogled)
+            return
         if dogodek != self.WebKit2.LoadEvent.FINISHED: return
         naslov = pogled.get_uri() or ""
         if je_domaca_stran(naslov, self.koren):
@@ -1418,9 +1478,8 @@ class VdelaniSplet:
             if (temno.get_active_id() or splet_temno.PRIVZETO) != self._temno_nacin():
                 self.config.set("temno_nacin", temno.get_active_id() or splet_temno.PRIVZETO)
                 self._temno_osvezi(znova_nalozi=self.trenutni())
-            politika = politika_pospesevanja(self.WebKit2, self.config.get("hardware_acceleration"))
             for z in self.zavihki:
-                z["pogled"].get_settings().set_hardware_acceleration_policy(politika)
+                self._pospesevanje_za_stran(z["pogled"])   # nastavitev uporabnika, strani s seznama ostanejo brez
             self._nastavi_omrezje()
         d.destroy()
     def _v_zapisek(self, *_):
