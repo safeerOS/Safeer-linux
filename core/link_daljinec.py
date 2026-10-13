@@ -130,6 +130,43 @@ def _safeer_os() -> str:
                                                if os.path.isfile(p) and os.access(p, os.X_OK)), "")
 
 
+#: Paketi, ki jih druge naprave odpirajo z blizjnicama »Odpri Safeer OS« in »Safeer brskalnik« (launch_app).
+#: Na televizorju in tablici so to aplikacije Android, na racunalniku pa Safeer OS in Safeer Browser.
+PAKETI_SAFEER_OS = ("si.safeer.os", "si.safeer.tablet")
+PAKETI_BRSKALNIK = ("si.safeer.tv",)
+
+
+def _safeer_browser() -> str:
+    """Zaganjalnik Safeer Browserja na tem racunalniku ali \"\"."""
+    import shutil
+    return shutil.which("safeer-browser") or ""
+
+
+def odpri_safeer_aplikacijo(paket: str, zazeni: Optional[Callable[[list], None]] = None) -> dict:
+    """launch_app z druge naprave na racunalniku: Safeer OS ali Safeer Browser. Ce Safeer OS ze tece, ga
+    nov zagon samo prinese v ospredje (Gtk.Application). Drugih paketov (aplikacije Android) racunalnik nima.
+    Zagon gre v ozadje, odgovor pride takoj - prej je bil ukaz neznan in druga naprava je cakala."""
+    import subprocess
+    paket = str(paket or "")
+    if paket in PAKETI_SAFEER_OS:
+        ukaz, ime = _safeer_os(), "Safeer OS"
+    elif paket in PAKETI_BRSKALNIK:
+        ukaz, ime = _safeer_browser() or _safeer_os(), "Safeer Browser"
+    else:
+        return izid(False, "Tega programa na računalniku ni", koda="ni_programa")
+    if not ukaz:
+        return izid(False, f"{ime} na tem računalniku ni nameščen", koda="ni_programa")
+    try:
+        if zazeni is not None:
+            zazeni([ukaz])
+        else:
+            subprocess.Popen([ukaz], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             start_new_session=True)
+    except OSError as e:
+        return izid(False, f"{ime} se ni odprl: {e}", koda="napaka")
+    return izid(True, f"Odpiram {ime}")
+
+
 def odpri_magnet(uri: str) -> dict:
     """Magnet z naprave v krogu zaupanja odpre Safeer OS; ukazov ali poti od naprave ne izvajamo."""
     from core import os_torrent
@@ -440,6 +477,8 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
                 koncaj(izid(True, "Računalnik programov ne deli", podatki))
             else:
                 koncaj(izid(True, f"{len(podatki['items'])} programov", podatki))
+        elif d == "launch_app":
+            koncaj(odpri_safeer_aplikacijo(str(parametri.get("package", "") or "")))
         elif d == "apps.launch":
             if programi is None:
                 koncaj(izid(False, "Programi tu niso na voljo", koda="ni_na_racunalniku"))

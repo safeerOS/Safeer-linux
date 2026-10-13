@@ -876,6 +876,7 @@
       odpriSafeerOs: "Safeer OS na televizorju",
       odpriBrskalnik: "Safeer brskalnik",
       odpiramNaZaslonu: "Odpiram {ime} na napravi {naprava} …",
+      odprtoNaZaslonu: "{ime} se odpira na napravi {naprava}.",
       deliDatoteka: "Datoteka",
       deliBesedilo: "Besedilo",
       posljiNaNapravo: "Pošlji na napravo",
@@ -947,6 +948,7 @@
       odpriSafeerOs: "Safeer OS on the TV",
       odpriBrskalnik: "Safeer browser",
       odpiramNaZaslonu: "Opening {ime} on {naprava} …",
+      odprtoNaZaslonu: "{ime} is opening on {naprava}.",
       deliDatoteka: "File",
       deliBesedilo: "Text",
       posljiNaNapravo: "Send to device",
@@ -1014,6 +1016,7 @@
       odpriSafeerOs: "Safeer OS auf dem Fernseher",
       odpriBrskalnik: "Safeer-Browser",
       odpiramNaZaslonu: "Öffne {ime} auf {naprava} …",
+      odprtoNaZaslonu: "{ime} wird auf {naprava} geöffnet.",
       deliDatoteka: "Datei",
       deliBesedilo: "Text",
       posljiNaNapravo: "An Gerät senden",
@@ -1076,6 +1079,7 @@
       odpriSafeerOs: "Safeer OS en el televisor",
       odpriBrskalnik: "Navegador Safeer",
       odpiramNaZaslonu: "Abriendo {ime} en {naprava} …",
+      odprtoNaZaslonu: "{ime} se está abriendo en {naprava}.",
       deliDatoteka: "Archivo",
       deliBesedilo: "Texto",
       posljiNaNapravo: "Enviar al dispositivo",
@@ -1138,6 +1142,7 @@
       odpriSafeerOs: "Safeer OS sur le téléviseur",
       odpriBrskalnik: "Navigateur Safeer",
       odpiramNaZaslonu: "Ouverture de {ime} sur {naprava} …",
+      odprtoNaZaslonu: "{ime} s’ouvre sur {naprava}.",
       deliDatoteka: "Fichier",
       deliBesedilo: "Texte",
       posljiNaNapravo: "Envoyer à l’appareil",
@@ -1223,6 +1228,7 @@
       odpriSafeerOs: "Safeer OS sul televisore",
       odpriBrskalnik: "Browser Safeer",
       odpiramNaZaslonu: "Apro {ime} su {naprava} …",
+      odprtoNaZaslonu: "{ime} si sta aprendo su {naprava}.",
       daljinec: "Telecomando",
       ospredjeOpis: "Perché Safeer si apra da solo quando il telefono gli invia una pagina o un comando, consentigli una volta di apparire sopra le altre app.",
       ospredjeDovoli: "Consenti",
@@ -2873,6 +2879,7 @@
           if ((mocNaprave[idMoci] || "") !== kratko) { mocNaprave[idMoci] = kratko; narisiNaprave(); }
           return;
         }
+        if (podatki && String(podatki.ref || "").indexOf("odpri-") === 0) { odzivOdpiranja(podatki); return; }
         if (window.SafeerDaljinec) window.SafeerDaljinec.odziv(podatki);
       } else if (vrsta === "oddaljeniZaslon") {
         besedilo("opombaDeljenje", podatki && podatki.ok ? "" :
@@ -3686,7 +3693,25 @@
     var n = deljenje.naprava;
     if (!n || !most || !most.ukaz) return;
     besedilo("opombaDeljenje", t("odpiramNaZaslonu", { ime: ime, naprava: prijaznoIme(n) }));
-    most.ukaz(n.id, "launch_app", JSON.stringify({ package: paket }), "");
+    // Odgovor naprave pokazemo (prej ga ni nihce prebral: ob napaki je ostal napis »Odpiram …«).
+    var ref = "odpri-" + Date.now().toString(36);
+    odpiranje = { ref: ref, ime: ime, naprava: prijaznoIme(n) };
+    setTimeout(function () {
+      if (odpiranje && odpiranje.ref === ref) {
+        odpiranje = null;
+        besedilo("opombaDeljenje", t("napUkaz"));
+      }
+    }, 10000);
+    most.ukaz(n.id, "launch_app", JSON.stringify({ package: paket }), ref);
+  }
+  var odpiranje = null;
+  function odzivOdpiranja(podatki) {
+    if (!odpiranje || String(podatki.ref || "") !== odpiranje.ref) return false;
+    var o = odpiranje;
+    odpiranje = null;
+    besedilo("opombaDeljenje", podatki.ok ? t("odprtoNaZaslonu", { ime: o.ime, naprava: o.naprava })
+      : ((podatki.message) || t("napUkaz")));
+    return true;
   }
 
   var gumbOdpriSafeerOs = el("gumbOdpriSafeerOs");
