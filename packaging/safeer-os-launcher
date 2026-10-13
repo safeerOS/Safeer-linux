@@ -33,6 +33,11 @@ if [ -n "${FLATPAK_ID:-}" ] && [ -d /app/host-bin ]; then
     # Same settings, sign-in, trust and messages as the .deb: the Flatpak would otherwise keep its own copy in
     # ~/.var/app (and ask to sign in to Safeer Link again). --filesystem=home makes these folders reachable.
     export XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share" XDG_CACHE_HOME="$HOME/.cache"
+    # WebKit 2.54 na starejsih grafikah Intel: brez izrisovalnika DMA-BUF (puscanje pomnilnika, packaging/webkit-okolje.sh).
+    if [ -f "$APP_DIR/packaging/webkit-okolje.sh" ]; then
+        . "$APP_DIR/packaging/webkit-okolje.sh"
+        safeer_webkit_okolje
+    fi
 fi
 
 PY="${PYTHON:-python3}"
