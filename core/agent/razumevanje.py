@@ -99,9 +99,21 @@ def preveri(odgovor) -> List[Naloga]:
     return izid
 
 
+def naslov_modela() -> str:
+    """Kje tece jezikovni model: SAFEER_AGENT ali ~/.config/safeer-agent/naslov (npr. http://telefon:8085)."""
+    n = os.environ.get("SAFEER_AGENT", "").strip()
+    if not n:
+        try:
+            with open(os.path.expanduser("~/.config/safeer-agent/naslov"), encoding="utf-8") as f:
+                n = f.read().strip()
+        except OSError:
+            n = ""
+    return n if n.startswith(("http://", "https://")) else ""
+
+
 def llama_server(naslov: str = "", kljuc: str = "", cas: float = 60.0) -> Callable[[list, dict], dict]:
     """Klic llama-serverja (OpenAI-zdruzljiv) z izhodom, omejenim na JSON shemo."""
-    naslov = naslov or os.environ.get("SAFEER_AGENT", "")
+    naslov = naslov or naslov_modela()
     if not kljuc:
         try:
             with open(os.path.expanduser("~/.config/safeer-agent/kljuc"), encoding="utf-8") as f:

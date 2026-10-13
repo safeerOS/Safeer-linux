@@ -132,3 +132,16 @@ def test_popravi_stisaj_utisaj():
     obe = [N("utisaj", "tv"), N("glasnost_dol", "tablica")]
     assert [n.dejanje for n in razumevanje.popravi("utišaj tv in stišaj tablico", obe)] == ["utisaj", "glasnost_dol"]
     assert razumevanje.popravi("pavza", [N("pavza", "tukaj")])[0].dejanje == "pavza"
+
+
+def test_naslov_modela(monkeypatch, tmp_path):
+    monkeypatch.setenv("SAFEER_AGENT", "http://192.0.2.5:8085")
+    assert razumevanje.naslov_modela() == "http://192.0.2.5:8085"
+    monkeypatch.setenv("SAFEER_AGENT", "ftp://x")
+    assert razumevanje.naslov_modela() == ""
+    monkeypatch.delenv("SAFEER_AGENT")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert razumevanje.naslov_modela() == ""
+    (tmp_path / ".config" / "safeer-agent").mkdir(parents=True)
+    (tmp_path / ".config" / "safeer-agent" / "naslov").write_text("http://192.0.2.6:8085\n")
+    assert razumevanje.naslov_modela() == "http://192.0.2.6:8085"

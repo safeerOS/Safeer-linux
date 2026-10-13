@@ -33,6 +33,14 @@ from core import link_deljenje, link_dostop, link_e2e, link_hub, link_hub_strezn
 from core import odlozisce_varuh  # noqa: E402
 
 
+def _agent_na_voljo() -> bool:
+    try:
+        from core.agent.razumevanje import naslov_modela
+        return bool(naslov_modela())
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _magnet_na_voljo() -> bool:
     """Ali ta racunalnik zna odpreti magnet povezavo z druge naprave (Safeer OS je namescen)."""
     from core import link_daljinec
@@ -1266,7 +1274,9 @@ class SafeerLink:
             # Magnet povezave z drugih naprav odpre Safeer OS na tem racunalniku.
             + (["magnet"] if self.control and _magnet_na_voljo() else [])
             # Seznami predvajanja Medijskega centra (Safeer OS): Control jih drugim napravam da v branje (lists.get).
-            + (["lists"] if self.control and _magnet_na_voljo() else []),
+            + (["lists"] if self.control and _magnet_na_voljo() else [])
+            # Safeer Agent (agent.ask): racunalnik razume stavek z druge naprave, ce je nastavljen jezikovni model.
+            + (["agent"] if self.control and _agent_na_voljo() else []),
             # Kataloga programov v prijavi ni vec: seznam naprav dobi VSAKA naprava v Linku, imena programov pa sme
             # videti samo naprava, ki ji je uporabnik tu odprl programe (apps.list, core/link_dostop).
             katalog=None,
