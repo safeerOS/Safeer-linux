@@ -208,15 +208,23 @@ class DoHResolver:
 
         now = time.time()
 
-        # 1. Preveri predpomnilnik
+        # 1. Preveri predpomnilnik. Pretecen zapis (do STARO_S) vrnemo takoj in ga osvezimo v ozadju (RFC 8767,
+        #    "serve stale"): stran ne caka na DoH zaradi kratkih TTL-jev CDN-jev. Ce stari naslov ne deluje vec,
+        #    posrednik ime pozabi in ga razresi znova (LocalDoHProxy._povezi_z_osvezitvijo).
+        staro = None
         with self._lock:
             cached = self._cache.get(h)
             if cached:
                 ip, exp = cached
                 if now < exp:
                     return ip
+                if ip and now < exp + self.STARO_S:
+                    staro = ip
                 else:
                     del self._cache[h]
+        if staro:
+            self._osvezi_v_ozadju(h, timeout)
+            return staro
 
         # Coalesce requests for one host and never fall back to plaintext DNS.
         with self._lock:
@@ -242,6 +250,48 @@ class DoHResolver:
             with self._lock:
                 self._pending.pop(key, None)
                 event.set()
+
+    #: Kako dolgo po izteku TTL se sme uporabiti star naslov (medtem ko se osvezuje v ozadju).
+    STARO_S = 3600
+
+    def pozabi(self, hostname: str) -> None:
+        """Pozabi naslov imena (npr. star naslov ne sprejme povezave): naslednji resolve vpraša DoH znova."""
+        h = (hostname or "").lower().strip().rstrip(".")
+        with self._lock:
+            self._cache.pop(h, None)
+
+    def _osvezi_v_ozadju(self, h: str, timeout: float) -> None:
+        with self._lock:
+            generation = (self.provider, self.custom_url)
+            key = (generation, h)
+            if key in self._pending:
+                return
+            event = threading.Event()
+            self._pending[key] = event
+            if self._delavci is None:
+                self._delavci = ThreadPoolExecutor(max_workers=self.DELAVCEV, thread_name_prefix="safeer-doh")
+            delavci = self._delavci
+
+        def osvezi() -> None:
+            try:
+                ip, ttl = self._query_doh(h, timeout)
+                with self._lock:
+                    # Neuspela osvezitev ne izbrise delujocega starega naslova.
+                    if ip and generation == (self.provider, self.custom_url):
+                        self._cache[h] = (ip, time.time() + max(1, min(ttl, 3600)))
+            except Exception:  # noqa: BLE001
+                pass
+            finally:
+                with self._lock:
+                    self._pending.pop(key, None)
+                event.set()
+
+        try:
+            delavci.submit(osvezi)
+        except Exception:  # noqa: BLE001 - izvajalec ustavljen: ostane stari naslov
+            with self._lock:
+                self._pending.pop(key, None)
+            event.set()
 
     #: Stalne niti za poizvedbe DoH (vsaka ima toplo povezavo; HTTP/2 jih pri istem strezniku ne potrebuje vec).
     DELAVCEV = 4
@@ -548,6 +598,26 @@ class LocalDoHProxy:
         except Exception:
             pass
 
+    def _povezi_z_osvezitvijo(self, client_sock: socket.socket, host: str, naslov: str,
+                              vrata: int) -> Optional[socket.socket]:
+        """Kot _vzpostavi_povezavo; ce naslov (morda star iz predpomnilnika) ne sprejme povezave, ime razresi
+        znova in poskusi se enkrat na novem naslovu."""
+        try:
+            povezava = socket.create_connection((naslov, vrata), timeout=10.0)
+            _brez_zamika(povezava)
+            return povezava
+        except OSError:
+            pass
+        try:
+            self.resolver.pozabi(host)
+            nov = self.resolver.resolve(host)
+        except Exception:  # noqa: BLE001
+            nov = None
+        if nov and nov != naslov and je_dovoljen_cilj(nov, self.dovoli_lokalno):
+            return self._vzpostavi_povezavo(client_sock, nov, vrata)
+        self._napaka_povezave(client_sock, naslov)   # isti naslov: ne cakamo se enkrat do 10 s
+        return None
+
     def _vzpostavi_povezavo(self, client_sock: socket.socket, naslov: str, vrata: int) -> Optional[socket.socket]:
         """Povezava na razresen naslov; pri neuspehu (npr. stran samo z IPv6, omrezje pa IPv6 nima) razumljiva napaka."""
         try:
@@ -555,12 +625,15 @@ class LocalDoHProxy:
             _brez_zamika(povezava)
             return povezava
         except OSError:
-            if ":" in naslov:
-                self._napaka_502(client_sock, "Ta stran je dosegljiva samo prek IPv6, vase omrezje pa IPv6 ne omogoca. / "
-                                              "This site is reachable only over IPv6, and your network does not provide it.")
-            else:
-                self._napaka_502(client_sock, "Povezava s streznikom ni uspela. / Could not connect to the server.")
+            self._napaka_povezave(client_sock, naslov)
             return None
+
+    def _napaka_povezave(self, client_sock: socket.socket, naslov: str) -> None:
+        if ":" in naslov:
+            self._napaka_502(client_sock, "Ta stran je dosegljiva samo prek IPv6, vase omrezje pa IPv6 ne omogoca. / "
+                                          "This site is reachable only over IPv6, and your network does not provide it.")
+        else:
+            self._napaka_502(client_sock, "Povezava s streznikom ni uspela. / Could not connect to the server.")
 
     def _pripravi_cilj(self, client_sock: socket.socket, host: str, port: int) -> Optional[str]:
         """
@@ -620,7 +693,7 @@ class LocalDoHProxy:
                 if not resolved_ip:
                     return
 
-                remote_sock = self._vzpostavi_povezavo(client_sock, resolved_ip, port)
+                remote_sock = self._povezi_z_osvezitvijo(client_sock, host, resolved_ip, port)
                 if remote_sock is None:
                     return
                 with self._socket_lock:
@@ -654,7 +727,7 @@ class LocalDoHProxy:
                 if not resolved_ip:
                     return
 
-                remote_sock = self._vzpostavi_povezavo(client_sock, resolved_ip, port)
+                remote_sock = self._povezi_z_osvezitvijo(client_sock, host, resolved_ip, port)
                 if remote_sock is None:
                     return
                 with self._socket_lock:
