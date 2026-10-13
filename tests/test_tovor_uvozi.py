@@ -23,7 +23,7 @@ import re
 import unittest
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PODPAKETI = ("sporocila",)
+PODPAKETI = ("sporocila", "agent")
 UVOZNE_NAPAKE = ("ImportError", "ModuleNotFoundError")
 
 

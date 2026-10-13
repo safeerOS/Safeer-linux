@@ -94,3 +94,31 @@ def test_seja_trajanje_in_ustavitev():
     n.ustavi()
     assert not n.tece()
     assert seja.Seja(trajanje_min=0).trajanje_min == 1      # najmanj 1 minuta
+
+
+def test_storitev_agent_ask_in_ustavitev(monkeypatch):
+    from core import link_daljinec, link_dostop
+    from core.agent import storitev
+    assert link_dostop.zahteva_dejanja("agent.ask") == link_dostop.VSE      # samo ozji krog
+    link = Link()
+    model = lambda s, shema: {"naloge": [{"dejanje": "utisaj", "naprava": "tv", "kaj": ""}]}
+    monkeypatch.setattr(storitev, "nova_seja", lambda **k: seja.Seja(
+        izvajalec=izvajanje.Izvajalec(link.naprave, link.ukaz), klic_modela=model, **k))
+    storitev._seje.clear()
+    odg = []
+    storitev.vprasaj({"text": "utišaj tv", "minutes": 5}, "n-tel", odg.append, link_daljinec.izid, v_ozadju=False)
+    assert odg[-1]["ok"] and odg[-1]["data"]["steps"][0]["text"].startswith("Utišano")
+    assert 0 < odg[-1]["data"]["session_left_s"] <= 300
+    storitev.vprasaj({"stop": True}, "n-tel", odg.append, link_daljinec.izid, v_ozadju=False)
+    assert odg[-1]["ok"] and "n-tel" not in storitev._seje
+    storitev.vprasaj({"text": ""}, "n-tel", odg.append, link_daljinec.izid, v_ozadju=False)
+    assert not odg[-1]["ok"]
+
+
+def test_control_pozna_agent_ask(monkeypatch):
+    from core import link_daljinec
+    from core.agent import storitev
+    klici = []
+    monkeypatch.setattr(storitev, "vprasaj", lambda p, pos, k, iz: klici.append((p, pos)))
+    link_daljinec.izvedi_control("agent.ask", {"text": "pavza"}, lambda u: None, lambda r: None, posiljatelj="n-x")
+    assert klici == [({"text": "pavza"}, "n-x")]

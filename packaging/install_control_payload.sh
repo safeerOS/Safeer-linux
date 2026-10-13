@@ -18,6 +18,8 @@ done
 [ -f "$ROOT/core/__init__.py" ] && cp -a "$ROOT/core/__init__.py" "$LIB/core/" || true
 # Safeer Chat: Control vpise sporocila z drugih naprav v Sporocila Safeer OS (core/sporocila).
 mkdir -p "$LIB/core/sporocila" && cp -a "$ROOT"/core/sporocila/*.py "$LIB/core/sporocila/"
+# Safeer Agent (agent.ask): stavek z druge naprave -> naloge na napravah v Linku (core/agent).
+mkdir -p "$LIB/core/agent" && cp -a "$ROOT"/core/agent/*.py "$LIB/core/agent/"
 cp -a "$ROOT/assets/link" "$LIB/assets/"
 cp -a "$ROOT/packaging/VERSION_CONTROL" "$LIB/packaging/"
 find "$LIB" -type d -name __pycache__ -exec rm -rf {} +

@@ -29,7 +29,9 @@ Dejanja: predvajaj (glasba, film, serija, radio, TV program), odpri_stran (splet
 glasnost_dol, utisaj, pavza, nadaljuj, ustavi, nadaljuj_na_napravi (to, kar zdaj igra, naj se nadaljuje na drugi napravi), isci (isci
 vsebino), ni_ukaz (vprasanje ali pogovor, ki ni ukaz za napravo).
 Naprave: tv (televizor, televizija), tablica, telefon (mobitel), racunalnik (PC, prenosnik), tukaj (ce naprava ni omenjena).
-"kaj" je vsebina ukaza (ime pesmi, filma, postaje, strani, aplikacije ali iskalni niz), brez imena naprave; prazno, ce je ni."""
+"kaj" je vsebina ukaza (ime pesmi, filma, postaje, strani, aplikacije ali iskalni niz), brez imena naprave; prazno, ce je ni.
+Pozor: "stisaj", "tisje", "manj glasno" = glasnost_dol; "utisaj", "izklopi zvok", "mute" = utisaj; "ustavi", "stop" = ustavi;
+"nadaljuj" (film, serijo, glasbo) brez druge naprave = nadaljuj. Ne dodajaj nalog, ki jih uporabnik ni izrekel."""
 
 # Zgledi (prejsnji pogovor). Zadnji zgledi so "tukaj": zadnji zgled doloca nagnjenje modela (meritev 3. 10. 2026).
 ZGLEDI = [
@@ -40,6 +42,10 @@ ZGLEDI = [
     ("daj to na tablico", [("nadaljuj_na_napravi", "tablica", "")]),
     ("utišaj televizor in na tablici odpri YouTube", [("utisaj", "tv", ""), ("odpri_aplikacijo", "tablica", "YouTube")]),
     ("zavrti Big Foot Mamo na telefonu", [("predvajaj", "telefon", "Big Foot Mama")]),
+    ("stišaj tablico", [("glasnost_dol", "tablica", "")]),
+    ("ustavi radio na računalniku, nato na televizorju odpri delo.si", [("ustavi", "racunalnik", ""), ("odpri_stran", "tv", "delo.si")]),
+    ("daj na pavzo na tablici", [("pavza", "tablica", "")]),
+    ("nadaljuj serijo", [("nadaljuj", "tukaj", "")]),
     ("glasneje", [("glasnost_gor", "tukaj", "")]),
     ("odpri Spotify", [("odpri_aplikacijo", "tukaj", "Spotify")]),
     ("nadaljuj", [("nadaljuj", "tukaj", "")]),

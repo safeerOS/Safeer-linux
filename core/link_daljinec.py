@@ -119,6 +119,8 @@ DEJANJA_PRETOK = ["video.stream", "video.stream_stop", "video.stream_status"]
 DEJANJA_PREDAJA = ["play.state", "play.stop", "play.offer"]
 #: Seznami predvajanja Medijskega centra so enaki na vseh napravah v Linku (core/link_seznami.py; samo branje).
 DEJANJA_SEZNAMI = ["lists.get"]
+#: Safeer Agent (core/agent/storitev.py): stavek z druge naprave -> naloge na napravah v Linku. Zahteva polno zaupanje.
+DEJANJA_AGENT = ["agent.ask"]
 
 
 def _safeer_os() -> str:
@@ -234,6 +236,9 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
             koncaj(odpri_medij(parametri))
         elif d in DEJANJA_ISKANJE:
             koncaj(isci_na_racunalniku(str(parametri.get("q", "") or "")))
+        elif d in DEJANJA_AGENT:
+            from core.agent import storitev
+            storitev.vprasaj(parametri, posiljatelj, koncaj, izid)
         elif d in DEJANJA_TOK_TORRENTA:
             if datoteke is None:
                 koncaj(izid(False, "Pretakanje tu ni na voljo", koda="ni_na_racunalniku"))
