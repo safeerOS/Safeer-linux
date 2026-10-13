@@ -30,6 +30,8 @@ finish-args:
   - --own-name=io.github.memelandfaner.SafeerOS
   - --env=GTK_USE_PORTAL=1
 modules:
+  # Nas WebKitGTK s popravki (packaging/webkit); prvi modul zaradi predpomnilnika flatpak-builderja.
+  - packaging/webkit/webkit2gtk-safeer.yml
   - name: python3-qrcode
     buildsystem: simple
     build-commands:

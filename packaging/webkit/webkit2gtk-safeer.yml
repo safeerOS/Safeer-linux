@@ -1,0 +1,34 @@
+# WebKitGTK 2.54.1 (API 4.1, GTK 3) z nasima popravkoma za plasti backdrop-filter v kompozitorju Skia:
+#  1) izhodno obmocje filtra se izracuna pred izrisom podrevesa (brez 2^n izrisov za locene plasti),
+#  2) filtrirano ozadje plasti se v okvirju shrani in ponovno uporabi (prekrite plasti), piksli enaki kot brez tega.
+# Gorvodno: WebKit bugzilla (glej skia-backdrop-2n.patch). Ko bo popravek v izdaji WebKitGTK v runtime-u
+# org.gnome.Platform, ta modul odstranimo.
+# Knjiznica nadomesti tisto iz runtime-a: /app/lib je v iskalni poti pred /usr/lib, WebKitWebProcess se zazene
+# iz /app/libexec. Modul je prvi v manifestu, da ga flatpak-builder vzame iz predpomnilnika, ko se spremeni le koda Safeerja.
+name: webkit2gtk-safeer
+buildsystem: cmake-ninja
+builddir: true
+config-opts:
+  - -DPORT=GTK
+  - -DCMAKE_BUILD_TYPE=Release
+  - -DCMAKE_INSTALL_LIBDIR=lib
+  - -DUSE_GTK4=OFF
+  - -DENABLE_SPEECH_SYNTHESIS=OFF
+  - -DENABLE_WEBDRIVER=OFF
+  - -DUSE_LIBBACKTRACE=OFF
+  - -DUSE_SYSTEM_UNIFDEF=OFF
+  - -DENABLE_DOCUMENTATION=OFF
+  - -DENABLE_MINIBROWSER=OFF
+  - -DENABLE_API_TESTS=OFF
+  - -DENABLE_LAYOUT_TESTS=OFF
+cleanup:
+  - /bin
+  - /include
+  - /lib/pkgconfig
+  - /share/gir-1.0
+sources:
+  - type: archive
+    url: https://webkitgtk.org/releases/webkitgtk-2.54.1.tar.xz
+    sha256: ea0bbb02dbdbc596874a4e7ad35b66645b3e0a232bd0e4081de5ed92eb0a397d
+  - type: patch
+    path: skia-backdrop-2n.patch

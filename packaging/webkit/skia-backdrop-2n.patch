@@ -1,0 +1,242 @@
+diff --git a/Source/WebCore/platform/graphics/skia/SkiaCompositingLayer.cpp b/Source/WebCore/platform/graphics/skia/SkiaCompositingLayer.cpp
+index ab23ed59..3ff49857 100644
+--- a/Source/WebCore/platform/graphics/skia/SkiaCompositingLayer.cpp
++++ b/Source/WebCore/platform/graphics/skia/SkiaCompositingLayer.cpp
+@@ -241,9 +241,24 @@ void SkiaCompositingLayer::setFilters(const FilterOperations& filterOperations)
+     groupPropertyChanged();
+ }
+ 
++static float maximumBlurSigma(const FilterOperation& filterOperation)
++{
++    switch (filterOperation.type()) {
++    case FilterOperation::Type::Blur:
++        return downcast<BlurFilterOperation>(filterOperation).stdDeviation();
++    case FilterOperation::Type::DropShadow:
++        return downcast<DropShadowFilterOperation>(filterOperation).stdDeviation();
++    default:
++        return 0;
++    }
++}
++
+ void SkiaCompositingLayer::setBackdropFilters(const FilterOperations& filterOperations)
+ {
+     m_backdrop.filter = SkiaCompositingLayerFilters::create(filterOperations, SkTileMode::kClamp);
++    m_backdrop.maximumBlurSigma = 0;
++    for (const auto& filterOperation : filterOperations)
++        m_backdrop.maximumBlurSigma = std::max(m_backdrop.maximumBlurSigma, maximumBlurSigma(filterOperation));
+ }
+ 
+ void SkiaCompositingLayer::setBackdropFiltersRect(const FloatRoundedRect& clipRect)
+@@ -1279,7 +1294,7 @@ void SkiaCompositingLayer::paintBackdrop(SkCanvas& canvas, PaintContext& context
+         paint.setBlendMode(*context.blendMode);
+     // Per spec, a backdrop blur mirrors the image at the border box, and an aligned surface could include pixels from outside it.
+     // https://drafts.csswg.org/filter-effects-2/#BackdropFilterProperty
+-    paintWithFilter(canvas, context, clipTransform, *inverseTransform, m_backdrop.clipRect.rect(), paint, FilterSurfaceAlignment::LocalCoordinates, WTF::move(paintBackdropRootSubtree));
++    paintWithFilter(canvas, context, clipTransform, *inverseTransform, m_backdrop.clipRect.rect(), paint, FilterSurfaceAlignment::LocalCoordinates, WTF::move(paintBackdropRootSubtree), this);
+ }
+ 
+ void SkiaCompositingLayer::paintWithMaskAndBackdrop(SkCanvas& canvas, PaintContext& context)
+@@ -1351,7 +1366,7 @@ static std::optional<SkMatrix> computeDeviceAlignedSurfaceTransform(const Transf
+     return matrix;
+ }
+ 
+-void SkiaCompositingLayer::paintWithFilter(SkCanvas& canvas, PaintContext& context, const TransformationMatrix& layerTransform, const TransformationMatrix& inverseLayerTransform, const FloatRect& localBounds, const SkPaint& layerPaint, FilterSurfaceAlignment alignment, PaintFunction&& paintFunction)
++void SkiaCompositingLayer::paintWithFilter(SkCanvas& canvas, PaintContext& context, const TransformationMatrix& layerTransform, const TransformationMatrix& inverseLayerTransform, const FloatRect& localBounds, const SkPaint& layerPaint, FilterSurfaceAlignment alignment, PaintFunction&& paintFunction, const SkiaCompositingLayer* filteredBackdropKey)
+ {
+     // Like Chromium, paint the subtree into a surface in the layer plane at a fixed scale, filter it there and
+     // draw the result with the layer transform. SkCanvas::saveLayer() would pick the layer resolution at the
+@@ -1372,35 +1387,16 @@ void SkiaCompositingLayer::paintWithFilter(SkCanvas& canvas, PaintContext& conte
+     if (surfaceRect.isEmpty())
+         return;
+ 
+-    auto imageInfo = SkImageInfo::Make(surfaceRect.width(), surfaceRect.height(), kRGBA_8888_SkColorType, kPremul_SkAlphaType, SkColorSpace::MakeSRGB());
+-    auto surface = SkSurfaces::RenderTarget(grContext, skgpu::Budgeted::kNo, imageInfo, 0, kTopLeft_GrSurfaceOrigin, nullptr);
+-    if (!surface)
+-        return;
+-
+-    auto* surfaceCanvas = surface->getCanvas();
+-    if (!surfaceCanvas)
+-        return;
+-
+-    context.imageSetBatch.flushIfNeeded(canvas);
+-
+-    surfaceCanvas->clear(SK_ColorTRANSPARENT);
+-    surfaceCanvas->translate(-surfaceRect.x(), -surfaceRect.y());
+-    surfaceCanvas->concat(layerToScaled);
+-    surfaceCanvas->concat(SkM44(inverseLayerTransform));
+-
+-    {
+-        // The filter may sample outside the damage, so paint the whole subtree and limit only the composite.
+-        SetForScope scopedNoDamageRestriction(context.compositingDamageRegion, std::nullopt);
+-        paintFunction(*surfaceCanvas, context);
+-        context.imageSetBatch.flushIfNeeded(*surfaceCanvas);
+-    }
+-
+     // Filter parameters are in layer units, the surface is in scaled pixels relative to its origin.
+     auto layerToSurface = layerToScaled;
+     layerToSurface.postTranslate(-surfaceRect.x(), -surfaceRect.y());
+     auto filter = layerPaint.refImageFilter()->makeWithLocalMatrix(layerToSurface);
+ 
+     // The filter output only has to cover the visible part of the layer plane, and has to fit in a texture.
++    // It does not depend on the painted content, so work it out before painting: if none of the output is
++    // visible (the layer is out of view, or outside the surface of the backdrop being painted), skip the
++    // surface and the subtree paint. Painting it anyway made each backdrop-filter layer repaint every
++    // earlier one, each of which repainted its own backdrop again: 2^n subtree paints for n such layers.
+     const auto sourceBounds = SkRect::MakeIWH(surfaceRect.width(), surfaceRect.height());
+     const auto deviceToLayer = inverseLayerPlaneTransform(TransformationMatrix(canvas.getLocalToDevice()).multiply(layerTransform));
+     auto clipRect = deviceToLayer ? FloatRect(layerPlaneClipBounds(*deviceToLayer, FloatRect(canvas.getDeviceClipBounds()))) : FloatRect();
+@@ -1412,13 +1408,7 @@ void SkiaCompositingLayer::paintWithFilter(SkCanvas& canvas, PaintContext& conte
+     if (outputRect.isEmpty())
+         return;
+ 
+-    SkIRect filteredSubset;
+-    SkIPoint filteredOffset;
+-    auto filtered = SkImages::MakeWithFilter(grContext, surface->makeImageSnapshot(), filter.get(), sourceBounds.roundOut(), SkIRect(outputRect), &filteredSubset, &filteredOffset);
+-    if (!filtered)
+-        return;
+-
+-    {
++    auto drawFiltered = [&](SkImage& filtered, const SkIRect& filteredSubset, const SkIPoint& filteredOffset) {
+         SkAutoCanvasRestore autoRestore(&canvas, true);
+ 
+         if (const auto* damageRegion = context.damageRegionOrNull())
+@@ -1437,7 +1427,75 @@ void SkiaCompositingLayer::paintWithFilter(SkCanvas& canvas, PaintContext& conte
+         paint.setAntiAlias(true);
+         const auto destinationRect = SkRect::MakeXYWH(filteredOffset.x(), filteredOffset.y(), filteredSubset.width(), filteredSubset.height());
+         const auto sampling = SkSamplingOptions(deviceAlignedTransform ? SkFilterMode::kNearest : SkFilterMode::kLinear);
+-        canvas.drawImageRect(filtered.get(), SkRect::Make(filteredSubset), destinationRect, sampling, &paint, SkCanvas::kStrict_SrcRectConstraint);
++        canvas.drawImageRect(&filtered, SkRect::Make(filteredSubset), destinationRect, sampling, &paint, SkCanvas::kStrict_SrcRectConstraint);
++    };
++
++    // A backdrop already filtered in this frame, under the same transform and for the same visible area: draw that
++    // result again. A result filtered for a larger area holds the same pixels too, unless the filter downsamples:
++    // Skia blurs a sigma above 4 surface pixels on a coarser grid that depends on the area filtered.
++    static constexpr float maximumBlurSigmaWithoutDownsampling = 4; // SkShaderBlurAlgorithm::kMaxLinearSigma
++    static constexpr size_t maximumFilteredBackdropsPerLayer = 16;
++    const bool cacheable = filteredBackdropKey && !deviceAlignedTransform;
++    const bool largerAreaGivesSamePixels = filteredBackdropKey && filteredBackdropKey->m_backdrop.maximumBlurSigma * std::max(scale.width(), scale.height()) <= maximumBlurSigmaWithoutDownsampling;
++    if (cacheable) {
++        auto cached = context.filteredBackdrops.find(filteredBackdropKey);
++        if (cached != context.filteredBackdrops.end()) {
++            for (auto& entry : cached->value) {
++                if (entry.layerTransform != layerTransform || entry.layerToScaled != layerToScaled || entry.surfaceRect != surfaceRect || entry.colorFilter != context.colorFilter)
++                    continue;
++                if (entry.outputRect == outputRect) {
++                    context.imageSetBatch.flushIfNeeded(canvas);
++                    drawFiltered(*entry.image, entry.subset, entry.offset);
++                    return;
++                }
++                // Draw only the part a new result would hold: sampling beyond its edge changes the edge pixels.
++                const bool coversOutputRectExactly = entry.offset == SkIPoint::Make(entry.outputRect.x(), entry.outputRect.y()) && entry.subset.width() == entry.outputRect.width() && entry.subset.height() == entry.outputRect.height();
++                if (largerAreaGivesSamePixels && coversOutputRectExactly && entry.outputRect.contains(outputRect)) {
++                    const auto subset = SkIRect::MakeXYWH(entry.subset.x() + outputRect.x() - entry.outputRect.x(), entry.subset.y() + outputRect.y() - entry.outputRect.y(), outputRect.width(), outputRect.height());
++                    context.imageSetBatch.flushIfNeeded(canvas);
++                    drawFiltered(*entry.image, subset, SkIPoint::Make(outputRect.x(), outputRect.y()));
++                    return;
++                }
++            }
++        }
++    }
++
++    auto imageInfo = SkImageInfo::Make(surfaceRect.width(), surfaceRect.height(), kRGBA_8888_SkColorType, kPremul_SkAlphaType, SkColorSpace::MakeSRGB());
++    auto surface = SkSurfaces::RenderTarget(grContext, skgpu::Budgeted::kNo, imageInfo, 0, kTopLeft_GrSurfaceOrigin, nullptr);
++    if (!surface)
++        return;
++
++    auto* surfaceCanvas = surface->getCanvas();
++    if (!surfaceCanvas)
++        return;
++
++    context.imageSetBatch.flushIfNeeded(canvas);
++
++    surfaceCanvas->clear(SK_ColorTRANSPARENT);
++    surfaceCanvas->translate(-surfaceRect.x(), -surfaceRect.y());
++    surfaceCanvas->concat(layerToScaled);
++    surfaceCanvas->concat(SkM44(inverseLayerTransform));
++
++    {
++        // The filter may sample outside the damage, so paint the whole subtree and limit only the composite.
++        SetForScope scopedNoDamageRestriction(context.compositingDamageRegion, std::nullopt);
++        paintFunction(*surfaceCanvas, context);
++        context.imageSetBatch.flushIfNeeded(*surfaceCanvas);
++    }
++
++    SkIRect filteredSubset;
++    SkIPoint filteredOffset;
++    auto filtered = SkImages::MakeWithFilter(grContext, surface->makeImageSnapshot(), filter.get(), sourceBounds.roundOut(), SkIRect(outputRect), &filteredSubset, &filteredOffset);
++    if (!filtered)
++        return;
++
++    drawFiltered(*filtered, filteredSubset, filteredOffset);
++
++    if (cacheable) {
++        auto& results = context.filteredBackdrops.add(filteredBackdropKey, Vector<PaintContext::FilteredBackdrop> { }).iterator->value;
++        if (results.size() >= maximumFilteredBackdropsPerLayer)
++            results.removeAt(0);
++        results.append({ layerTransform, layerToScaled, surfaceRect, outputRect, context.colorFilter, WTF::move(filtered), filteredSubset, filteredOffset });
+     }
+ 
+     // The render tasks are now recorded -- submit them to the GPU now, instead of
+diff --git a/Source/WebCore/platform/graphics/skia/SkiaCompositingLayer.h b/Source/WebCore/platform/graphics/skia/SkiaCompositingLayer.h
+index 18ab7030..cf93c84c 100644
+--- a/Source/WebCore/platform/graphics/skia/SkiaCompositingLayer.h
++++ b/Source/WebCore/platform/graphics/skia/SkiaCompositingLayer.h
+@@ -34,6 +34,7 @@
+ #include "FloatPoint3D.h"
+ #include "FloatRect.h"
+ #include "FloatRoundedRect.h"
++#include "IntRect.h"
+ #include "IntSize.h"
+ #include "SkiaCompositingLayer3DRenderingContext.h"
+ #include "SkiaCompositingLayerImageSetBatch.h"
+@@ -44,7 +45,9 @@
+ WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+ #include <skia/core/SkCanvas.h>
+ #include <skia/core/SkColorFilter.h>
++#include <skia/core/SkImage.h>
+ #include <skia/core/SkM44.h>
++#include <skia/core/SkMatrix.h>
+ #include <skia/core/SkPath.h>
+ #include <skia/effects/SkImageFilters.h>
+ WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+@@ -206,6 +209,23 @@ private:
+         RefPtr<SkiaCompositingLayer> paintingBackdropForLayer;
+         bool skipAfterBackdrop { false };
+         SkiaCompositingLayerImageSetBatch imageSetBatch;
++
++        // A backdrop is filtered from the backdrop root's subtree painted up to its layer, which is the same in
++        // every walk of a frame. Painting a later backdrop walks that subtree again and reaches the earlier
++        // backdrop layers, so their filtered backdrops are kept for the rest of the frame: filtering them again
++        // in every such walk made overlapping backdrop-filter layers cost 2^n subtree paints. A layer may keep
++        // a few results, one per visible area it was filtered for.
++        struct FilteredBackdrop {
++            TransformationMatrix layerTransform;
++            SkMatrix layerToScaled;
++            IntRect surfaceRect;
++            IntRect outputRect;
++            sk_sp<SkColorFilter> colorFilter;
++            sk_sp<SkImage> image;
++            SkIRect subset;
++            SkIPoint offset;
++        };
++        HashMap<const SkiaCompositingLayer*, Vector<FilteredBackdrop>> filteredBackdrops;
+     };
+ 
+     struct Filter {
+@@ -253,7 +273,7 @@ private:
+     bool stopPaintingIntoBackdropIfNeeded(PaintContext&);
+     void paintSelfAndChildren(SkCanvas&, PaintContext&);
+     void paintWithIntermediateSurface(SkCanvas&, PaintContext&, const IntRect&, SkPaint*, PaintFunction&&);
+-    void paintWithFilter(SkCanvas&, PaintContext&, const TransformationMatrix& layerTransform, const TransformationMatrix& inverseLayerTransform, const FloatRect& localBounds, const SkPaint&, FilterSurfaceAlignment, PaintFunction&&);
++    void paintWithFilter(SkCanvas&, PaintContext&, const TransformationMatrix& layerTransform, const TransformationMatrix& inverseLayerTransform, const FloatRect& localBounds, const SkPaint&, FilterSurfaceAlignment, PaintFunction&&, const SkiaCompositingLayer* filteredBackdropKey = nullptr);
+     FloatSize filterSurfaceScale(const PaintContext&) const;
+     void paintWith3DRenderingContext(SkCanvas&, PaintContext&);
+     void paintBackdrop(SkCanvas&, PaintContext&);
+@@ -356,6 +376,7 @@ private:
+     struct {
+         sk_sp<SkImageFilter> filter;
+         FloatRoundedRect clipRect;
++        float maximumBlurSigma { 0 };
+     } m_backdrop;
+     bool m_isBackdropRoot { false };
+     bool m_shouldBlend { false };
