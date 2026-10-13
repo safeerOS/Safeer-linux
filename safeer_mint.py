@@ -2752,6 +2752,9 @@ class SafeerMintBrowser(Gtk.Window):
                             print(f"[Policy Security] Blokiran nedovoljen protokol navigacije: {uri}")
                             decision.ignore()
                             return True
+                        if self.zamenjaj_za_pospesevanje(webview, uri):
+                            decision.ignore()
+                            return True
                         if self.config.get("adblock_enabled", True) and is_ad_domain(uri) and not is_threat_domain(uri):
                             self.config.increment_ads_blocked(1)
                             decision.ignore()
@@ -3562,7 +3565,8 @@ class SafeerMintBrowser(Gtk.Window):
                 hw_pref = self.config.get("hardware_acceleration", "on_demand")
                 # Privzeto vklopljeno; uporabnik ga lahko izklopi ("never"). ON_DEMAND je v WebKitGTK 2.4x opuscen.
                 from core.os_splet import politika_pospesevanja
-                settings.set_hardware_acceleration_policy(politika_pospesevanja(WebKit2, hw_pref))
+                settings.set_hardware_acceleration_policy(getattr(self, "_naslednja_politika", None)
+                                                          or politika_pospesevanja(WebKit2, hw_pref))
             if hasattr(settings, "set_enable_accelerated_2d_canvas"):
                 settings.set_enable_accelerated_2d_canvas(True)
             if hasattr(settings, "set_enable_mediasource"):
@@ -4866,6 +4870,48 @@ class SafeerMintBrowser(Gtk.Window):
             self.switch_to_tab(tab_id)
 
         return tab_id
+
+    def zamenjaj_za_pospesevanje(self, webview, uri):
+        """Stran s seznama puscanja (core/os_splet.BREZ_POSPESEVANJA, WebKit 2.54 + DMA-BUF: 24ur.com ~90 MB/s) se odpre
+        v novem zavihku na istem mestu, ki ima izris brez pospesevanja ze ob nastanku - sprememba med zivljenjem pogleda
+        da crno okno (preverjeno 13. 10. 2026). Velja tudi obratno (s seznama na drugo stran). True = zamenjano."""
+        try:
+            from core.os_splet import brez_pospesevanja, politika_pospesevanja
+            if not uri.startswith(("http://", "https://")):
+                return False
+            zelena = (WebKit2.HardwareAccelerationPolicy.NEVER if brez_pospesevanja(uri)
+                      else politika_pospesevanja(WebKit2, self.config.get("hardware_acceleration", "on_demand")))
+            if webview.get_settings().get_hardware_acceleration_policy() == zelena:
+                return False
+            star = next((t for t in self.tabs if t.get("webview") is webview), None)
+            if star is None:
+                return False
+        except Exception as e:
+            print(f"[Safeer] pospesevanje: {e}", flush=True)
+            return False
+
+        def zamenjaj():
+            if star not in self.tabs:
+                return False
+            indeks = self.tabs.index(star)
+            self._naslednja_politika = zelena
+            try:
+                nov_id = self.new_tab(uri, switch=True)
+            finally:
+                self._naslednja_politika = None
+            nov = next((t for t in self.tabs if t["id"] == nov_id), None)
+            if nov is not None:
+                self.tabs.remove(nov); self.tabs.insert(indeks, nov)
+                try:
+                    self.tabs_box.reorder_child(nov["event_box"], indeks)
+                except Exception:
+                    pass
+            stevilo = len(self.closed_tabs_stack)
+            self.close_tab(star["id"])
+            del self.closed_tabs_stack[stevilo:]      # zamenjava ni zaprt zavihek (Ctrl+Shift+T)
+            return False
+        GLib.idle_add(zamenjaj)
+        return True
 
     def close_tab(self, tab_id):
         tab_to_close = None
