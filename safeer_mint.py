@@ -4998,20 +4998,6 @@ class SafeerMintBrowser(Gtk.Window):
 
     def on_tab_load_changed(self, tab_id, webview, event):
         if event == WebKit2.LoadEvent.STARTED:
-            # Strani, na katerih WebKit 2.54 s strojnim izrisom pusca pomnilnik (core/os_splet.BREZ_POSPESEVANJA,
-            # meritev 13. 10. 2026: 24ur.com ~90 MB/s), izrisemo brez pospesevanja; drugje velja nastavitev uporabnika.
-            try:
-                from core.os_splet import brez_pospesevanja, politika_pospesevanja
-                ucene = self.config.get("splet_brez_pospesevanja", [])
-                if brez_pospesevanja(webview.get_uri() or "", ucene if isinstance(ucene, list) else []):
-                    politika = WebKit2.HardwareAccelerationPolicy.NEVER
-                else:
-                    politika = politika_pospesevanja(WebKit2, self.config.get("hardware_acceleration", "on_demand"))
-                nastavitve = webview.get_settings()
-                if nastavitve.get_hardware_acceleration_policy() != politika:
-                    nastavitve.set_hardware_acceleration_policy(politika)
-            except Exception as e:
-                print(f"[Safeer] pospesevanje: {e}", flush=True)
             webview._safeer_bank_check = getattr(webview, "_safeer_bank_check", 0) + 1  # prekliči staro preverjanje
             webview._safeer_crashed = False
             for item in self.tabs:
