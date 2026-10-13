@@ -2752,9 +2752,6 @@ class SafeerMintBrowser(Gtk.Window):
                             print(f"[Policy Security] Blokiran nedovoljen protokol navigacije: {uri}")
                             decision.ignore()
                             return True
-                        if self.zamenjaj_za_pospesevanje(webview, uri):
-                            decision.ignore()
-                            return True
                         if self.config.get("adblock_enabled", True) and is_ad_domain(uri) and not is_threat_domain(uri):
                             self.config.increment_ads_blocked(1)
                             decision.ignore()
@@ -2788,6 +2785,13 @@ class SafeerMintBrowser(Gtk.Window):
                                 decision.ignore()
                                 webview.load_uri(clean_uri)
                                 return True
+
+                        # Stran s seznama puscanja (WebKit 2.54 + DMA-BUF): nov zavihek z drugim izrisom - za varnostnimi
+                        # preverjanji, da zamenjava nikoli ne obide Scita ali BankGuarda.
+                        zamenjaj = getattr(self, "zamenjaj_za_pospesevanje", None)
+                        if callable(zamenjaj) and zamenjaj(webview, uri):
+                            decision.ignore()
+                            return True
 
                     nav_type = nav_action.get_navigation_type()
                     mouse_btn = nav_action.get_mouse_button()
