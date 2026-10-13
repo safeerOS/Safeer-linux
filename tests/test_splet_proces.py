@@ -145,34 +145,65 @@ def _splet_w():
     return s
 
 
-def test_pospesevanje_po_strani():
+def test_zelena_politika():
     s = _splet_w()
-    p = _PogledN("https://www.24ur.com/")
-    s._pospesevanje_za_stran(p); assert p.n.p == "NEVER"
-    p.uri = "https://www.rtvslo.si/"
-    s._pospesevanje_za_stran(p); assert p.n.p == "ALWAYS"
+    assert s._zelena_politika("https://www.24ur.com/") == "NEVER"
+    assert s._zelena_politika("https://www.rtvslo.si/") == "ALWAYS"
     s.config["hardware_acceleration"] = "never"
-    s._pospesevanje_za_stran(p); assert p.n.p == "NEVER"          # uporabnik izklopil povsod
+    assert s._zelena_politika("https://www.rtvslo.si/") == "NEVER"
+
+
+class _Box:
+    def __init__(self): self.otroci = []
+    def reorder_child(self, o, i): self.otroci.remove(o); self.otroci.insert(i, o)
+    def remove(self, o): self.otroci.remove(o)
+
+
+def test_zamenjava_zavihka_na_istem_mestu():
+    s = _splet_w()
+    s.skatla_zavihkov, s.sklad = _Box(), _Box()
+    izbran = []
+    s.izberi = lambda p: izbran.append(p)
+    s.trenutni = lambda: izbran[-1] if izbran else None
+    s.zavihki = []
+
+    def nov_zavihek(naslov):
+        p = _PogledN(naslov); p.n.p = getattr(s, "_naslednja_politika", None) or "ALWAYS"; p.destroy = lambda: None
+        d = object(); s.skatla_zavihkov.otroci.append(d); s.sklad.otroci.append(p)
+        s.zavihki.append({"pogled": p, "dogodek": d}); return p
+    s.nov_zavihek = nov_zavihek
+    a = nov_zavihek("https://www.rtvslo.si/"); b = nov_zavihek("https://github.com/")
+    assert s._zamenjaj_za_pospesevanje(a, "https://www.rtvslo.si/novice") is False       # isti izris: nic
+    assert s._zamenjaj_za_pospesevanje(a, "https://www.24ur.com/") is True
+    nov = s.zavihki[0]["pogled"]
+    assert nov is not a and nov.uri == "https://www.24ur.com/" and nov.n.p == "NEVER"
+    assert [z["pogled"] for z in s.zavihki] == [nov, b] and len(s.skatla_zavihkov.otroci) == 2
+    assert izbran[-1] is nov and s._naslednja_politika is None
 
 
 def test_pomnilnik_nauci_stran():
+    import types
     s = _splet_w()
+    zamenjave = []
+    s.GLib = types.SimpleNamespace(idle_add=lambda f: f())
+    s._zamenjaj_za_pospesevanje = lambda p, u: zamenjave.append(u)
     p = _PogledN("https://novice.primer.si/clanek")
     s._proces_pomnilnik(p, 0)                                          # sesutje: nic
     assert "splet_brez_pospesevanja" not in s.config and p.n.p == "ALWAYS"
-    s._proces_pomnilnik(p, 1)                                          # pomnilnik: zapomni in preklopi
-    assert s.config["splet_brez_pospesevanja"] == ["novice.primer.si"] and p.n.p == "NEVER"
+    s._proces_pomnilnik(p, 1)                                          # pomnilnik: zapomni in zamenja zavihek
+    assert s.config["splet_brez_pospesevanja"] == ["novice.primer.si"] and len(zamenjave) == 1
     s._proces_pomnilnik(p, 1)
     assert s.config["splet_brez_pospesevanja"] == ["novice.primer.si"]   # ne podvaja
 
 
 def test_varuh_sesutje_takoj_po_ubijanju_je_pomnilnik():
-    import time
+    import time, types
     s = _splet_w()
+    s.GLib = types.SimpleNamespace(idle_add=lambda f: None)
     p = _PogledN("https://puscajoca.primer.si/")
     s._varuh_ubil = time.monotonic()
     s._proces_pomnilnik(p, 0)                       # CRASHED, ker ga je ubil varuh
-    assert s.config["splet_brez_pospesevanja"] == ["puscajoca.primer.si"] and p.n.p == "NEVER"
+    assert s.config["splet_brez_pospesevanja"] == ["puscajoca.primer.si"]
     q = _PogledN("https://drugo.primer.si/")
     s._varuh_ubil = time.monotonic() - 60
     s._proces_pomnilnik(q, 0)                       # navadno sesutje: ne ucimo

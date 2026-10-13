@@ -775,7 +775,8 @@ class VdelaniSplet:
         self._skripta(upravitelj, adblock.TAB_THROTTLER_SCRIPT, izloceni=izvzemi)
         self._temno_skripte[pogled] = self._temno_namesti(upravitelj)
         nastavitve = pogled.get_settings()
-        nastavitve.set_hardware_acceleration_policy(politika_pospesevanja(W, self.config.get("hardware_acceleration", "on_demand")))
+        nastavitve.set_hardware_acceleration_policy(getattr(self, "_naslednja_politika", None)
+                                                    or politika_pospesevanja(W, self.config.get("hardware_acceleration", "on_demand")))
         nastavitve.set_enable_javascript(True)
         nastavitve.set_enable_javascript_markup(True)
         nastavitve.set_javascript_can_open_windows_automatically(False)
@@ -1203,6 +1204,8 @@ class VdelaniSplet:
                 odlocitev.use(); return True
             if not naslov.startswith(("http://", "https://")):
                 odlocitev.ignore(); return True
+            if self._zamenjaj_za_pospesevanje(pogled, naslov):   # stran s seznama puscanja: nov pogled brez pospesevanja
+                odlocitev.ignore(); return True
             grozi = adblock.is_threat_domain(naslov)      # enkrat na navigacijo (prej dvakrat)
             if not grozi and self.config.get("adblock_enabled", True) and adblock.is_ad_domain(naslov):
                 self.config.increment_ads_blocked(); odlocitev.ignore(); self._osvezi_scit(); return True
@@ -1227,19 +1230,46 @@ class VdelaniSplet:
         v = self.config.get("splet_brez_pospesevanja", [])
         return [str(x) for x in v] if isinstance(v, list) else []
 
-    def _pospesevanje_za_stran(self, pogled) -> None:
-        """Ob zacetku nalaganja: strani s seznama brez strojnega izrisa, ostale po nastavitvi uporabnika."""
+    def _zelena_politika(self, naslov: str):
         W = self.WebKit2
+        if brez_pospesevanja(naslov, self._ucene_brez_pospesevanja()):
+            return W.HardwareAccelerationPolicy.NEVER
+        return politika_pospesevanja(W, self.config.get("hardware_acceleration", "on_demand"))
+
+    def _zamenjaj_za_pospesevanje(self, pogled, naslov: str) -> bool:
+        """Stran potrebuje drugacen strojni izris kot ta zavihek (seznam puscanja): WebKit 2.54 pogleda, ki mu izris
+        zamenjamo med zivljenjem, ne izrise vec (crno okno, preverjeno 13. 10. 2026), zato zavihek na istem mestu
+        zamenjamo z novim pogledom, ki ima pravi izris ze ob nastanku, in vanj nalozimo stran. True = zamenjano."""
         try:
-            if brez_pospesevanja(pogled.get_uri() or "", self._ucene_brez_pospesevanja()):
-                politika = W.HardwareAccelerationPolicy.NEVER
-            else:
-                politika = politika_pospesevanja(W, self.config.get("hardware_acceleration", "on_demand"))
-            nastavitve = pogled.get_settings()
-            if nastavitve.get_hardware_acceleration_policy() != politika:
-                nastavitve.set_hardware_acceleration_policy(politika)
-        except Exception as napaka:  # noqa: BLE001
-            print("[Safeer OS Splet] pospesevanje:", napaka)
+            zelena = self._zelena_politika(naslov)
+            if pogled.get_settings().get_hardware_acceleration_policy() == zelena:
+                return False
+        except Exception:  # noqa: BLE001
+            return False
+        star = next((x for x in self.zavihki if x["pogled"] is pogled), None)
+        if star is None:
+            return False
+        indeks = self.zavihki.index(star)
+        self._naslednja_politika = zelena
+        try:
+            nov = self.nov_zavihek(naslov)
+        finally:
+            self._naslednja_politika = None
+        z = next((x for x in self.zavihki if x["pogled"] is nov), None)
+        if z is not None:
+            self.zavihki.remove(z); self.zavihki.insert(indeks, z)
+            try:
+                self.skatla_zavihkov.reorder_child(z["dogodek"], indeks)
+            except Exception:  # noqa: BLE001
+                pass
+        if star in self.zavihki:
+            self.zavihki.remove(star)
+            try:
+                self.skatla_zavihkov.remove(star["dogodek"]); self.sklad.remove(pogled); pogled.destroy()
+            except Exception:  # noqa: BLE001
+                pass
+        self.izberi(nov)
+        return True
 
     def _varuh_tik(self) -> bool:
         try:
@@ -1271,12 +1301,11 @@ class VdelaniSplet:
             self.config.set("splet_brez_pospesevanja", ucene)
         except Exception:  # noqa: BLE001
             pass
-        self._pospesevanje_za_stran(pogled)
+        uri = pogled.get_uri() or ""
+        # Namesto ponovnega nalaganja istega pogleda (os_stabilnost) nov zavihek z izrisom brez pospesevanja.
+        self.GLib.idle_add(lambda: (self._zamenjaj_za_pospesevanje(pogled, uri), False)[1])
 
     def _nalozen(self, pogled, dogodek):
-        if dogodek == self.WebKit2.LoadEvent.STARTED:
-            self._pospesevanje_za_stran(pogled)
-            return
         if dogodek != self.WebKit2.LoadEvent.FINISHED: return
         naslov = pogled.get_uri() or ""
         if je_domaca_stran(naslov, self.koren):
@@ -1497,8 +1526,10 @@ class VdelaniSplet:
             if (temno.get_active_id() or splet_temno.PRIVZETO) != self._temno_nacin():
                 self.config.set("temno_nacin", temno.get_active_id() or splet_temno.PRIVZETO)
                 self._temno_osvezi(znova_nalozi=self.trenutni())
+            politika = politika_pospesevanja(self.WebKit2, self.config.get("hardware_acceleration"))
             for z in self.zavihki:
-                self._pospesevanje_za_stran(z["pogled"])   # nastavitev uporabnika, strani s seznama ostanejo brez
+                if not brez_pospesevanja(z["pogled"].get_uri() or "", self._ucene_brez_pospesevanja()):
+                    z["pogled"].get_settings().set_hardware_acceleration_policy(politika)
             self._nastavi_omrezje()
         d.destroy()
     def _v_zapisek(self, *_):
