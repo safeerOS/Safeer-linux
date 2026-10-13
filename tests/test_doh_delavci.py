@@ -4,21 +4,19 @@ import threading
 from core.doh_proxy import DoHResolver
 
 
-def test_poizvedbe_na_stalnih_nitih():
+def test_hkratne_poizvedbe_istega_imena_ena():
     r = DoHResolver()
-    niti = []
+    klici = []
 
     def lazna(h, timeout):
-        niti.append(threading.current_thread().name)
+        klici.append(h)
+        threading.Event().wait(0.1)
         return "93.184.216.34", 300
 
     r._query_doh = lazna
-    for i in range(10):
-        t = threading.Thread(target=r.resolve, args=(f"s{i}.example.com",))
-        t.start(); t.join()
-    assert len(niti) == 10
-    assert all(n.startswith("safeer-doh") for n in niti)
-    assert len(set(niti)) <= DoHResolver.DELAVCEV
+    niti = [threading.Thread(target=r.resolve, args=("isto.example.com",)) for _ in range(10)]
+    [t.start() for t in niti]; [t.join() for t in niti]
+    assert klici == ["isto.example.com"]
 
 
 def test_napaka_delavca_je_neuspela_poizvedba():
@@ -34,7 +32,22 @@ def test_napaka_delavca_je_neuspela_poizvedba():
 def test_zastavica_idempotent_v_kodi():
     import inspect
     from core import doh_proxy
-    assert "MessageFlags.IDEMPOTENT" in inspect.getsource(doh_proxy.DoHResolver._poizvedba)
+    assert "MessageFlags.IDEMPOTENT" in inspect.getsource(doh_proxy._ZankaDoH.poslji)
+
+
+def test_poizvedba_gre_skozi_eno_zanko(monkeypatch):
+    from core import doh_proxy
+    poslano = []
+
+    class Lazna:
+        def poslji(self, url, telo, timeout):
+            poslano.append(url)
+            return None
+
+    monkeypatch.setattr(doh_proxy, "_zanka_doh", lambda: Lazna())
+    r = DoHResolver()
+    assert r._poizvedba("a.example.com", 1.0) == (None, 15)
+    assert poslano == [doh_proxy.DOH_PROVIDERS["cloudflare"]["url"]]
 
 
 import time as _time

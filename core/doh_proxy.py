@@ -14,9 +14,7 @@ import threading
 import time
 import urllib.parse
 import ipaddress
-import math
 import gi
-from concurrent.futures import ThreadPoolExecutor
 gi.require_version("Soup", "3.0")
 from gi.repository import Soup, Gio, GLib
 from typing import Dict, Tuple, Optional, List
@@ -165,13 +163,7 @@ class DoHResolver:
         # Predpomnilnik: hostname -> (ip_address, expire_timestamp)
         self._cache: Dict[str, Tuple[str, float]] = {}
         self._lock = threading.Lock()
-        # SSL kontekst s preverjanjem veljavnosti sistemskih certifikatov
-        self._transport = threading.local()
         self._pending = {}
-        # Poizvedbe DoH tecejo na stalnih nitih, vsaka s svojo sejo libsoup in odprto povezavo do streznika DoH.
-        # Prej je vsaka povezava brskalnika (nova nit) odprla svojo sejo: nov TCP + TLS za vsako ime (~115 ms namesto
-        # ~40 ms, meritev 13. 10. 2026).
-        self._delavci: Optional[ThreadPoolExecutor] = None
 
     def set_provider(self, provider: str, custom_url: str = ""):
         with self._lock:
@@ -241,7 +233,10 @@ class DoHResolver:
                 entry = self._cache.get(h)
                 return entry[0] if entry and entry[1] > time.time() else None
         try:
-            ip, ttl = self._na_delavcu(h, timeout)
+            try:
+                ip, ttl = self._query_doh(h, timeout)
+            except Exception:  # noqa: BLE001 - kot neuspela poizvedba
+                ip, ttl = None, 15
             with self._lock:
                 if generation == (self.provider, self.custom_url):
                     self._cache[h] = (ip, time.time() + (max(1, min(ttl, 3600)) if ip else 15))
@@ -268,9 +263,6 @@ class DoHResolver:
                 return
             event = threading.Event()
             self._pending[key] = event
-            if self._delavci is None:
-                self._delavci = ThreadPoolExecutor(max_workers=self.DELAVCEV, thread_name_prefix="safeer-doh")
-            delavci = self._delavci
 
         def osvezi() -> None:
             try:
@@ -286,26 +278,7 @@ class DoHResolver:
                     self._pending.pop(key, None)
                 event.set()
 
-        try:
-            delavci.submit(osvezi)
-        except Exception:  # noqa: BLE001 - izvajalec ustavljen: ostane stari naslov
-            with self._lock:
-                self._pending.pop(key, None)
-            event.set()
-
-    #: Stalne niti za poizvedbe DoH (vsaka ima toplo povezavo; HTTP/2 jih pri istem strezniku ne potrebuje vec).
-    DELAVCEV = 4
-
-    def _na_delavcu(self, h: str, timeout: float) -> Tuple[Optional[str], int]:
-        with self._lock:
-            if self._delavci is None:
-                self._delavci = ThreadPoolExecutor(max_workers=self.DELAVCEV, thread_name_prefix="safeer-doh")
-            delavci = self._delavci
-        try:
-            # A in morda AAAA: najvec dve poizvedbi, vsaka do `timeout`.
-            return delavci.submit(self._query_doh, h, timeout).result(2 * timeout + 1)
-        except Exception:  # noqa: BLE001 - cas potekel ali napaka: kot neuspela poizvedba
-            return None, 15
+        threading.Thread(target=osvezi, name="safeer-doh-osvezi", daemon=True).start()
 
     @staticmethod
     def _build_dns_wire_query(hostname: str, qtype: int = 1) -> bytes:
@@ -447,38 +420,92 @@ class DoHResolver:
         if self.provider == "custom" and not je_dovoljen_doh_streznik(parsed.hostname):
             return None, 15
         try:
-            session = getattr(self._transport, "session", None)
-            if session is None:
-                session = Soup.Session()
-                session.set_proxy_resolver(Gio.SimpleProxyResolver.new(None, []))
-                self._transport.session = session
-            session.set_timeout(max(1, math.ceil(timeout)))
-            message = Soup.Message.new("POST", base_url)
-            # IDEMPOTENT: poizvedba DNS je varna za ponovitev, zato libsoup sme uporabiti obstojeco povezavo
-            # (za POST brez te zastavice odpre novo TCP + TLS povezavo za vsako poizvedbo).
-            message.set_flags(Soup.MessageFlags.NO_REDIRECT | Soup.MessageFlags.IDEMPOTENT)
-            message.set_request_body_from_bytes("application/dns-message", GLib.Bytes.new(self._build_dns_wire_query(hostname, qtype)))
-            message.get_request_headers().append("Accept", "application/dns-message")
-            stream = session.send(message, None)
-            try:
-                if message.get_status() != 200:
-                    return None, 15
-                if message.get_response_headers().get_content_type()[0] != "application/dns-message":
-                    return None, 15
-                data = bytearray()
-                while len(data) <= 65535:
-                    chunk = stream.read_bytes(min(8192, 65536 - len(data)), None).get_data()
-                    if not chunk:
-                        break
-                    data.extend(chunk)
-                if len(data) > 65535:
-                    return None, 15
-                return self._parse_dns_wire_response(bytes(data), hostname, qtype)
-            finally:
-                stream.close(None)
+            telo = self._build_dns_wire_query(hostname, qtype)
+            odgovor = _zanka_doh().poslji(base_url, telo, timeout)
+            if odgovor is None:
+                return None, 15
+            status, vrsta, data = odgovor
+            if status != 200 or vrsta != "application/dns-message" or len(data) > 65535:
+                return None, 15
+            return self._parse_dns_wire_response(data, hostname, qtype)
         except Exception:
             return None, 15
 
+
+class _ZankaDoH:
+    """Ena seja libsoup na lastni niti z zanko GLib: vse poizvedbe DoH gredo po eni topli povezavi HTTP/2
+    (vzporedne poizvedbe so prepletene na njej). Meritev 13. 10. 2026: ime ~40 ms (prej ~120 ms: vsaka povezava
+    brskalnika je odprla svojo sejo in svoj TLS), 20 hkratnih imen v ~95 ms.
+
+    libsoup 3 sejo veze na nit/kontekst, v katerem je nastala, zato jo uporabljamo samo iz te niti."""
+
+    def __init__(self) -> None:
+        self._kontekst = GLib.MainContext.new()
+        self._seja = None
+        pripravljena = threading.Event()
+
+        def tek() -> None:
+            self._kontekst.push_thread_default()
+            seja = Soup.Session()
+            # Brez posrednika (sicer bi DoH sel skozi nas posrednik); obicajno preverjanje potrdil ostane.
+            seja.set_proxy_resolver(Gio.SimpleProxyResolver.new(None, []))
+            self._seja = seja
+            pripravljena.set()
+            GLib.MainLoop.new(self._kontekst, False).run()
+
+        threading.Thread(target=tek, name="safeer-doh", daemon=True).start()
+        pripravljena.wait(5)
+
+    def poslji(self, url: str, telo: bytes, timeout: float) -> Optional[Tuple[int, str, bytes]]:
+        """POST application/dns-message; vrne (status, vrsta vsebine, telo) ali None (napaka, cas potekel)."""
+        if self._seja is None:
+            return None
+        konec = threading.Event()
+        izid: dict = {}
+        preklic = Gio.Cancellable()
+
+        def zacni(*_a) -> bool:
+            try:
+                sporocilo = Soup.Message.new("POST", url)
+                # IDEMPOTENT: poizvedba DNS je varna za ponovitev, zato libsoup sme uporabiti obstojeco povezavo
+                # (za POST brez te zastavice odpre novo TCP + TLS povezavo za vsako poizvedbo).
+                sporocilo.set_flags(Soup.MessageFlags.NO_REDIRECT | Soup.MessageFlags.IDEMPOTENT)
+                sporocilo.set_request_body_from_bytes("application/dns-message", GLib.Bytes.new(telo))
+                sporocilo.get_request_headers().append("Accept", "application/dns-message")
+
+                def koncano(seja, rezultat, *_b) -> None:
+                    try:
+                        podatki = seja.send_and_read_finish(rezultat)
+                        vrsta = sporocilo.get_response_headers().get_content_type()[0] or ""
+                        izid["o"] = (int(sporocilo.get_status()), vrsta, bytes(podatki.get_data() or b""))
+                    except Exception:  # noqa: BLE001
+                        pass
+                    konec.set()
+
+                self._seja.send_and_read_async(sporocilo, GLib.PRIORITY_DEFAULT, preklic, koncano)
+            except Exception:  # noqa: BLE001
+                konec.set()
+            return False
+
+        vir = GLib.idle_source_new()
+        vir.set_callback(zacni)
+        vir.attach(self._kontekst)
+        if not konec.wait(max(0.5, timeout)):
+            preklic.cancel()
+            return None
+        return izid.get("o")
+
+
+_zanka: Optional[_ZankaDoH] = None
+_zanka_zaklep = threading.Lock()
+
+
+def _zanka_doh() -> _ZankaDoH:
+    global _zanka
+    with _zanka_zaklep:
+        if _zanka is None:
+            _zanka = _ZankaDoH()
+        return _zanka
 
 #: Najvec hkratnih tunelov (vsak je nit; nit miruje v select, dokler ni podatkov).
 NAJVEC_POVEZAV = 256
