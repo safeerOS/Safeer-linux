@@ -338,6 +338,11 @@ class MeshPovezovalec:
         """Oglasi Hubov, ki jih moramo zdaj poklicati (brez omrezja - preizkusljivo)."""
         zdaj = time.time() if zdaj is None else zdaj
         povezani = set(self.hub.sosedje())
+        # Sosedje, povezani prek Global Linka: ce jih mDNS zdaj oglasa v domacem omrezju, jih poklicemo neposredno -
+        # lokalna povezava ima prednost (lastnik, 13. 10. 2026); Hub nato zapre pot prek releja (dodaj_soseda).
+        povezave = getattr(self.hub, "povezave_sosedov", None)
+        prek_releja = {hid for hid, p in (povezave() if callable(povezave) else {}).items()
+                       if _je_zanka(str(getattr(p, "naslov", "") or ""))}
         izbrani = []
         # Isti Hub je lahko v krogu pod dvema id-jema (npr. `n-x` in `n-x-control`, isti kljuc, isti naslov).
         # Ce smo z njim ze povezani ali ga ze klicemo pod drugim id-jem, ga ne klicemo znova: Hub bi drugo povezavo
@@ -347,7 +352,8 @@ class MeshPovezovalec:
         zasedeni_kljuci = {k for k in (self._kljuc_clana(i) for i in zasedeni) if k}
         for h in oglasi:
             hid = str(h.get("id") or "")
-            if not hid or hid == self.nas_id or not h.get("tls") or hid in povezani:
+            domov = hid in prek_releja and bool(h.get("mdns")) and not _je_zanka(str(h.get("naslov") or ""))
+            if not hid or hid == self.nas_id or not h.get("tls") or (hid in povezani and not domov):
                 continue
             if h.get("mesh") != link_hub_streznik_mesh():
                 continue            # star Hub: sosednje povezave ne razume
@@ -360,7 +366,7 @@ class MeshPovezovalec:
             kljuc = self._kljuc_clana(hid)
             if kljuc is None:
                 continue            # ni v krogu zaupanja
-            if kljuc and kljuc in zasedeni_kljuci:
+            if kljuc and kljuc in zasedeni_kljuci and not domov:
                 continue            # isti Hub pod drugim id-jem: ze povezan ali ga ze klicemo
             if self._zavrnjeni.get(hid, (0.0, 0.0))[0] > zdaj:
                 continue            # nas je zavrnil; pocakamo
@@ -384,7 +390,7 @@ class MeshPovezovalec:
 
     def en_krog(self, isci: bool = True) -> None:
         """En krog iskanja in klicanja sosedov. isci=False: samo zapomnjeni sosedje, brez iskanja oglasov mDNS."""
-        oglasi = list(self.poisci() or []) if isci else []
+        oglasi = [dict(h, mdns=True) for h in (self.poisci() or []) if isinstance(h, dict)] if isci else []
         for h in oglasi:
             if h.get("mesh") == link_hub_streznik_mesh() and h.get("tls"):
                 self.zapomni(str(h.get("id") or ""), str(h.get("naslov") or ""))
@@ -465,6 +471,8 @@ class MeshPovezovalec:
                 self._neuspehi[hid] = self._neuspehi.get(hid, 0) + 1
             if self._ustavljen.is_set() or not global_link_vklopljen():
                 return
+            if hid in self.hub.sosedje():
+                return              # ze povezan (prek releja): domov ni uspelo, rele ostane - ne klicemo ga znova
             # Neposredno ga ni (zunaj doma ali za pozarnim zidom): prek link.safeer.si.
             if hid in samo_prek_releja() or self._neuspehi.get(hid, 0) >= RELE_PO_NEUSPEHIH:
                 self._klici_prek_releja(h)

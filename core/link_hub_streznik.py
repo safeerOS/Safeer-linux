@@ -290,6 +290,12 @@ class _Namestnik:
         return None
 
 
+
+def _pot_povezave(povezava) -> str:
+    """'lan' ali 'rele' (krajevni konec Global Linka) za sosednjo povezavo, po njenem naslovu."""
+    from core import link_pot
+    return link_pot.pot_naslova(str(getattr(povezava, "naslov", "") or ""))
+
 class Hub:
     """Register naprav in usmerjanje sporocil. Brez omrezja - to je HubStreznik.
 
@@ -1461,6 +1467,9 @@ class Hub:
 
         Ce za istega soseda ze obstaja povezava (oba sta klicala hkrati), ostane tista, ki jo je
         odprl manjsi id - obe strani tako izbereta isto in ena povezava se zapre.
+
+        Prej pa velja pot: povezava v domacem omrezju ima prednost pred Global Linkom (lastnik, 13. 10. 2026).
+        Ko se naprava vrne domov, neposredna povezava zamenja tisto prek releja; rele domace nikoli ne zamenja.
         """
         if not sosed_id or sosed_id == self.nas_id:
             return False
@@ -1468,8 +1477,12 @@ class Hub:
         with self._zaklep:
             obstojeca = self._sosedje.get(sosed_id)
             if obstojeca is not None and obstojeca is not povezava:
+                nova_pot, stara_pot = _pot_povezave(povezava), _pot_povezave(obstojeca)
+                if nova_pot == "rele" and stara_pot == "lan":
+                    return False
                 zacetnik_stare = getattr(obstojeca, "podatki", {}).get("zacel", "")
-                if zacetnik_stare == min(sosed_id, self.nas_id) and zacel != zacetnik_stare:
+                if (nova_pot == stara_pot and zacetnik_stare == min(sosed_id, self.nas_id)
+                        and zacel != zacetnik_stare):
                     return False
                 stara = obstojeca
             if obstojeca is None and len(self._sosedje) >= NAJVEC_SOSEDOV:
