@@ -61,8 +61,10 @@ def vprasaj(parametri: dict, posiljatelj: str, koncaj: Callable[[dict], None],
             ok = any(k.ok for k in koraki)
             povzetek = " ".join(k.izid for k in koraki)[:300]
             ostane = None if s.trajanje_min is None else max(0, int(s.trajanje_min * 60 - (s.ura() - s._zacetek)))
+            brez_modela = not ok and len(koraki) == 1 and koraki[0].izid.startswith("model ni dosegljiv")
             koncaj(izid(ok, povzetek, {"steps": [{"task": k.naloga, "ok": k.ok, "text": k.izid, "device": k.naprava}
-                                                  for k in koraki], "session_left_s": ostane}))
+                                                  for k in koraki], "session_left_s": ostane},
+                        koda="agent_ni_modela" if brez_modela else ""))
         except Exception as e:  # noqa: BLE001 - odgovor mora vedno priti
             koncaj(izid(False, "Agent: " + (str(e) or type(e).__name__)[:120]))
 

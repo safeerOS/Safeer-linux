@@ -178,3 +178,15 @@ def test_predvajaj_brez_aplikacije_odpre_stran():
     iz = izvajanje.Izvajalec(link.naprave, link.ukaz)
     assert izvajanje.izvedi(razumevanje.Naloga("predvajaj", "tablica", "Siddharta"), iz).ok
     assert link.klici[-1][1] == "open_url"
+
+
+def test_storitev_brez_modela_ima_kodo(monkeypatch):
+    from core import link_daljinec
+    from core.agent import storitev
+    def pade(*_a):
+        raise OSError("x")
+    monkeypatch.setattr(storitev, "nova_seja", lambda **k: seja.Seja(klic_modela=pade, **k))
+    storitev._seje.clear()
+    odg = []
+    storitev.vprasaj({"text": "glasneje"}, "n-tel", odg.append, link_daljinec.izid, v_ozadju=False)
+    assert odg[-1]["ok"] is False and odg[-1]["code"] == "agent_ni_modela"
