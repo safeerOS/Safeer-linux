@@ -22,6 +22,15 @@ import time
 import uuid
 from typing import Callable, Dict, Optional
 
+
+def _izvedi_js(pogled, koda: str) -> None:
+    """JavaScript v strani: WebKitGTK 6.0 (GTK4) ima samo evaluate_javascript, starejsi 4.1 run_javascript."""
+    if hasattr(pogled, "evaluate_javascript"):
+        pogled.evaluate_javascript(koda, -1, None, None, None, None, None)
+    else:
+        pogled.run_javascript(koda, None, None, None)
+
+
 ZMOZNOST = "remote"
 
 DEJANJA = ["key", "scroll", "open_url", "volume", "restart", "clear_cache", "status", "screenshot"]
@@ -746,7 +755,7 @@ def _tipka(app, ime: str) -> dict:
             "mute": "v.muted=true;",
             "unmute": "v.muted=false;",
         }[ime]
-        wv.run_javascript(_js_video(telo), None, None, None)
+        _izvedi_js(wv, _js_video(telo))
         return izid(True, f"Tipka {ime}")
     if ime in ("left", "right", "ok", "center", "menu"):
         return izid(False, "Tipke daljinca na racunalniku ni; uporabi misko ali tipkovnico", koda="ni_na_racunalniku")
@@ -765,7 +774,7 @@ def _drsenje(app, smer: str) -> dict:
     }.get(smer)
     if not js:
         return izid(False, f"Neznana smer: {smer}")
-    wv.run_javascript(js, None, None, None)
+    _izvedi_js(wv, js)
     return izid(True, f"Drsenje {smer}")
 
 

@@ -399,12 +399,74 @@ def _gostitelj(url: str) -> str:
         return ""
 
 
+def _js_vrednost(rezultat):
+    """Vrednost sporocila skripte: WebKit 6.0 da JSC.Value, WebKit2 4.1 JavascriptResult."""
+    return rezultat.get_js_value() if hasattr(rezultat, "get_js_value") else rezultat
+
+
+def registriraj_most(upravitelj, ime: str, svet=None) -> None:
+    """register_script_message_handler za WebKit 6.0 (ime, svet) in 4.1 (ime / _in_world)."""
+    try:
+        upravitelj.register_script_message_handler(ime, svet)
+        return
+    except TypeError:
+        pass
+    if svet:
+        upravitelj.register_script_message_handler_in_world(ime, svet)
+    else:
+        upravitelj.register_script_message_handler(ime)
+
+
+def _ocisti(skatla) -> None:
+    """GTK4: odstrani vse otroke gradnika (ListBox, Box)."""
+    otrok = skatla.get_first_child()
+    while otrok is not None:
+        naslednji = otrok.get_next_sibling()
+        skatla.remove(otrok)
+        otrok = naslednji
+
+
+def _robovi(gradnik, rob: int):
+    for stran in ("set_margin_start", "set_margin_end", "set_margin_top", "set_margin_bottom"):
+        getattr(gradnik, stran)(rob)
+    return gradnik
+
+
+class _Tipka:
+    """Tipka iz GTK4 EventControllerKey z enakima poljema kot Gdk.EventKey v GTK3 (keyval, state)."""
+    __slots__ = ("keyval", "state")
+
+    def __init__(self, keyval, state):
+        self.keyval, self.state = keyval, state
+
+    def get_keyval(self):
+        return True, self.keyval
+
+    def get_state(self):
+        return True, self.state
+
+
+class _Klik:
+    """Klik iz GTK4 GestureClick z enakimi polji kot Gdk.EventButton v GTK3 (button, x, y)."""
+    __slots__ = ("button", "x", "y")
+
+    def __init__(self, button, x, y):
+        self.button, self.x, self.y = button, x, y
+
+
 class VdelaniSplet:
-    """GTK gradnik z zavihki; namenoma ni okno in zato ne more zapustiti Safeer OS."""
+    """GTK4 gradnik z zavihki (WebKitGTK 6.0); namenoma ni okno in zato ne more zapustiti Safeer OS.
+
+    Prehod na GTK4 (lastnik, 14. 10. 2026): na X11 GTK3 nima EGL, zato je WebKit vsak okvir kopiral prek procesorja
+    v vmesnik in Xorg (24ur ~40 % jedra); GTK4 sliko pokaze z EGL brez kopije. Lupina Safeer OS je v QML (kot na
+    Windows), Splet in vsebine ostanejo na nasem WebKitGTK - v istem procesu (Qt vrti zanko GLib)."""
 
     def __init__(self, Gtk, Gdk, Gio, GLib, WebKit2, koren: str, jezik, stanje_povezave,
                  odpri_zapisek=None, stars=None, stremio_dodatek=None):
+        # WebKit2 je tu modul WebKit (API 6.0); ime parametra ostane zaradi skupnih pomoznih funkcij.
         self.Gtk, self.Gdk, self.Gio, self.GLib, self.WebKit2 = Gtk, Gdk, Gio, GLib, WebKit2
+        from gi.repository import Pango
+        self.Pango = Pango
         self.koren, self.jezik = koren, jezik
         self.stanje_povezave, self.odpri_zapisek = stanje_povezave, odpri_zapisek
         self.stars = stars
@@ -439,7 +501,7 @@ class VdelaniSplet:
         »Splet«, ne okno delovne povrsine, ki je bilo podano ob ustvarjanju). Modalni dialog nad napacnim oknom je ostal
         skrit ZA celozaslonskim Spletom in zaklenil vnos vanj - Splet je bil videti zamrznjen (lastnik, 12. 10. 2026)."""
         try:
-            vrh = self.gradnik.get_toplevel()
+            vrh = self.gradnik.get_root()
             if isinstance(vrh, self.Gtk.Window) and vrh.get_visible():
                 return vrh
         except Exception:
@@ -453,25 +515,23 @@ class VdelaniSplet:
         WebKit2 = self.WebKit2
         mapa = os.path.join(self.config.config_dir, "web-data")
         os.makedirs(mapa, exist_ok=True)
+        # WebKitGTK 6.0: podatki, piskotki, posrednik in prenosi so na NetworkSession (ista mapa kot prej: obstojece
+        # prijave, zgodovina shrambe in piskotki ostanejo). Peskovnik je v 6.0 vedno vklopljen (ni vec izklopa).
+        from core import pomnilnik
         try:
-            upravitelj = WebKit2.WebsiteDataManager(
-                base_data_directory=mapa, base_cache_directory=os.path.join(mapa, "cache"),
-                disk_cache_directory=os.path.join(mapa, "cache"),
-                indexeddb_directory=os.path.join(mapa, "indexeddb"),
-                local_storage_directory=os.path.join(mapa, "localstorage"),
-                websql_directory=os.path.join(mapa, "websql"))
-            from core import pomnilnik
-            self.kontekst = pomnilnik.kontekst(WebKit2, pomnilnik.meja_sprostitve_mb(), website_data_manager=upravitelj,
-                                               ubij_mb=pomnilnik.meja_strani_mb())
-            self.kontekst.set_sandbox_enabled(True)
-            piskotki = upravitelj.get_cookie_manager()
+            self.seja = WebKit2.NetworkSession.new(mapa, os.path.join(mapa, "cache"))
+            piskotki = self.seja.get_cookie_manager()
             piskotki.set_persistent_storage(os.path.join(self.config.config_dir, "cookies.sqlite"),
                                             WebKit2.CookiePersistentStorage.SQLITE)
             piskotki.set_accept_policy(WebKit2.CookieAcceptPolicy.NO_THIRD_PARTY)
         except Exception as napaka:
             print("[Safeer OS Splet] shramba:", napaka)
+            self.seja = WebKit2.NetworkSession.get_default()
+        try:
+            self.kontekst = pomnilnik.kontekst(WebKit2, pomnilnik.meja_sprostitve_mb(), ubij_mb=pomnilnik.meja_strani_mb())
+        except Exception as napaka:
+            print("[Safeer OS Splet] kontekst:", napaka)
             self.kontekst = WebKit2.WebContext.get_default()
-            self.kontekst.set_sandbox_enabled(True)
         # Varuh: proces strani, ki ga WebKitova meja ne ujame (puscanje DMA-BUF), ustavimo sami (core/splet_varuh.py).
         self._varuh_ubil = -1e9
         self.GLib.timeout_add_seconds(5, self._varuh_tik)
@@ -480,8 +540,12 @@ class VdelaniSplet:
         except Exception:
             pass
         self._nastavi_omrezje()
-        self.kontekst.connect("download-started", self._prenos_zacet)
+        self.seja.connect("download-started", self._prenos_zacet)
         self._omeji_predpomnilnik()
+
+    def podatki(self):
+        """WebsiteDataManager Spleta (6.0: na seji)."""
+        return self.seja.get_website_data_manager()
 
     def _nastavi_omrezje(self) -> None:
         W = self.WebKit2
@@ -490,7 +554,7 @@ class VdelaniSplet:
             nacin = self.config.get("secure_proxy_mode", "disabled")
             if nacin == "custom" and self.config.get("secure_proxy_url", "").strip():
                 p = W.NetworkProxySettings.new(self.config.get("secure_proxy_url").strip(), izjeme)
-                self.kontekst.set_network_proxy_settings(W.NetworkProxyMode.CUSTOM, p)
+                self.seja.set_proxy_settings(W.NetworkProxyMode.CUSTOM, p)
                 return
             if self.config.get("doh_enabled", True) and self.config.get("doh_provider", "cloudflare") != "disabled":
                 doh = get_doh_proxy(provider=self.config.get("doh_provider", "cloudflare"),
@@ -498,9 +562,9 @@ class VdelaniSplet:
                                     lokalno=bool(self.config.get("doh_lokalno_omrezje", False)))
                 if doh and doh.actual_port > 0:
                     p = nastavitve_posrednika(W, doh.actual_port, izjeme)
-                    self.kontekst.set_network_proxy_settings(W.NetworkProxyMode.CUSTOM, p)
+                    self.seja.set_proxy_settings(W.NetworkProxyMode.CUSTOM, p)
                     return
-            self.kontekst.set_network_proxy_settings(W.NetworkProxyMode.DEFAULT, None)
+            self.seja.set_proxy_settings(W.NetworkProxyMode.DEFAULT, None)
         except Exception as napaka:
             print("[Safeer OS Splet] DoH/proxy:", napaka)
 
@@ -511,13 +575,17 @@ class VdelaniSplet:
         self.vrstica_zavihkov = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         self.vrstica_zavihkov.set_name("splet-zavihki")
         self.skatla_zavihkov = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        self.vrstica_zavihkov.pack_start(self.skatla_zavihkov, False, False, 10)
+        self.skatla_zavihkov.set_margin_start(10)
+        self.vrstica_zavihkov.append(self.skatla_zavihkov)
         self.nov_gumb = self._gumb("+", lambda *_: self.nov_zavihek(), "new-tab")
-        self.vrstica_zavihkov.pack_start(self.nov_gumb, False, False, 0)
+        self.vrstica_zavihkov.append(self.nov_gumb)
+        presledek = Gtk.Box(); presledek.set_hexpand(True)
+        self.vrstica_zavihkov.append(presledek)
         self.povezava = Gtk.Label(label="")
         self.povezava.set_name("splet-povezava")
-        self.vrstica_zavihkov.pack_end(self.povezava, False, False, 18)
-        self.gradnik.pack_start(self.vrstica_zavihkov, False, False, 0)
+        self.povezava.set_margin_end(18)
+        self.vrstica_zavihkov.append(self.povezava)
+        self.gradnik.append(self.vrstica_zavihkov)
 
         orodja = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         orodja.set_name("splet-orodja")
@@ -526,74 +594,127 @@ class VdelaniSplet:
         self.osvezi = self._gumb("↻", lambda *_: self._osvezi_trenutni(), "nav")
         self.domov = self._gumb("⌂", lambda *_: self.odpri_domov(), "nav")
         for g, namig in ((self.nazaj, "nazaj"), (self.naprej, "naprej"), (self.osvezi, "osvezi"), (self.domov, "domov")):
-            g.set_tooltip_text(self._t(namig)); orodja.pack_start(g, False, False, 0)
+            g.set_tooltip_text(self._t(namig)); orodja.append(g)
         naslov = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
         naslov.set_name("splet-naslov")
-        self.kljucavnica = (Gtk.Image.new_from_icon_name("channel-secure-symbolic", Gtk.IconSize.MENU)
-                            if Gtk.IconTheme.get_default().has_icon("channel-secure-symbolic") else Gtk.Label(label="🔒"))
+        naslov.set_hexpand(True)
+        naslov.set_margin_start(4); naslov.set_margin_end(4)
+        self.kljucavnica = (Gtk.Image.new_from_icon_name("channel-secure-symbolic")
+                            if self._ima_ikono("channel-secure-symbolic") else Gtk.Label(label="🔒"))
+        self.kljucavnica.set_margin_start(8); self.kljucavnica.set_margin_end(8)
         self.vnos = Gtk.Entry()
         self.vnos.set_name("splet-vnos")
+        self.vnos.set_hexpand(True)
         self.vnos.set_placeholder_text(self._t("naslov"))
         self.vnos.connect("activate", self._vnesi_naslov)
-        self.vnos.connect("key-press-event", lambda _v, e: self.tipka(e))
+        self._tipke(self.vnos, lambda e: self.tipka(e))
         self.zvezdica = self._gumb("☆", lambda *_: self.dodaj_trenutno(), "address-action")
-        naslov.pack_start(self.kljucavnica, False, False, 8)
-        naslov.pack_start(self.vnos, True, True, 0)
-        naslov.pack_end(self.zvezdica, False, False, 5)
-        orodja.pack_start(naslov, True, True, 4)
+        self.zvezdica.set_margin_end(5)
+        naslov.append(self.kljucavnica)
+        naslov.append(self.vnos)
+        naslov.append(self.zvezdica)
+        orodja.append(naslov)
         self.scit = self._gumb("♢", lambda *_: None, "nav")
         self.scit.set_tooltip_text(self._t("scit"))
-        orodja.pack_start(self.scit, False, False, 0)
+        orodja.append(self.scit)
         meni = Gtk.MenuButton()
-        meni.set_image(Gtk.Image.new_from_icon_name("open-menu-symbolic", Gtk.IconSize.LARGE_TOOLBAR))
+        meni.set_icon_name("open-menu-symbolic")
         meni.set_name("splet-meni")
         meni.set_tooltip_text(self._t("meni"))
-        meni.set_popup(self._meni())
-        orodja.pack_end(meni, False, False, 0)
-        self.gradnik.pack_start(orodja, False, False, 0)
+        self._meni_gumb = meni
+        self._namesti_dejanja()
+        # Meni se zgradi ob odprtju (vnos »Vsili temno na tej strani« je odvisen od trenutne strani).
+        meni.set_create_popup_func(lambda g, *_: g.set_menu_model(self._meni()))
+        orodja.append(meni)
+        self.gradnik.append(orodja)
         self.orodja = orodja
 
         self.najdi_vrstica = Gtk.SearchBar()
         self.najdi_vnos = Gtk.SearchEntry()
         self.najdi_vnos.set_placeholder_text(self._t("isci"))
         self.najdi_vnos.connect("search-changed", self._najdi)
-        self.najdi_vrstica.add(self.najdi_vnos)
-        self.gradnik.pack_start(self.najdi_vrstica, False, False, 0)
+        self.najdi_vrstica.set_child(self.najdi_vnos)
+        self.najdi_vrstica.connect_entry(self.najdi_vnos)
+        self.gradnik.append(self.najdi_vrstica)
         self.sklad = Gtk.Stack()
         self.sklad.set_transition_type(Gtk.StackTransitionType.NONE)
-        self.gradnik.pack_start(self.sklad, True, True, 0)
+        self.sklad.set_vexpand(True); self.sklad.set_hexpand(True)
+        self.gradnik.append(self.sklad)
         self._css()
         self.osvezi_povezavo()
+
+    # ---------------------------------------------------------------- GTK4 pomocniki
+    def _ima_ikono(self, ime: str) -> bool:
+        try:
+            return self.Gtk.IconTheme.get_for_display(self.Gdk.Display.get_default()).has_icon(ime)
+        except Exception:
+            return False
+
+    def _tipke(self, gradnik, obdelaj) -> None:
+        """GTK4 nadomestek za key-press-event: obdelaj(e) dobi predmet z .keyval in .state (kot Gdk.EventKey)."""
+        k = self.Gtk.EventControllerKey()
+        k.set_propagation_phase(self.Gtk.PropagationPhase.CAPTURE)
+        k.connect("key-pressed", lambda _k, keyval, _koda, stanje:
+                  bool(obdelaj(_Tipka(keyval, stanje))))
+        gradnik.add_controller(k)
+
+    def _klik(self, gradnik, obdelaj, gumb: int = 0) -> None:
+        """GTK4 nadomestek za button-press-event: obdelaj(gumb, x, y)."""
+        k = self.Gtk.GestureClick()
+        k.set_button(gumb)
+        k.connect("pressed", lambda g, _n, x, y: obdelaj(g.get_current_button(), x, y))
+        gradnik.add_controller(k)
+
+    def _namesti_dejanja(self) -> None:
+        """Dejanja menija Spleta (Gio.SimpleActionGroup »splet«) za Gio.Menu v PopoverMenu."""
+        skupina = self.Gio.SimpleActionGroup()
+        dejanja = {
+            "nov": lambda: self.nov_zavihek(), "zaznamki": lambda: self._seznam("zaznamki"),
+            "zgodovina": lambda: self._seznam("zgodovina"), "uvozi": lambda: self._uvozi(),
+            "predpomnilnik": lambda: self._predpomnilnik(), "prenosi": lambda: self._pokazi_prenose(),
+            "najdi": lambda: self._pokazi_najdi(), "povecaj": lambda: self._povecava(.1),
+            "pomanjsaj": lambda: self._povecava(-.1), "nastavitve": lambda: self._nastavitve(),
+            "zapisek": lambda: self._v_zapisek(), "temno": lambda: self._temno_preklopi_stran(),
+        }
+        for ime, dejanje in dejanja.items():
+            d = self.Gio.SimpleAction.new(ime, None)
+            d.connect("activate", lambda *_a, f=dejanje: f())
+            skupina.add_action(d)
+        self.gradnik.insert_action_group("splet", skupina)
 
     def _css(self) -> None:
         # Barve namizja Safeer OS (delovna.css): ozadje #0b1424, kartice #101a2b/#16233a, poudarek #8ac7ff - Splet je del
         # celotne teme (lastnik, 11. 10. 2026), ne zelen kot samostojni Safeer Browser.
-        css = b"""
+        css = """
         #safeer-splet { background: #0b1424; color: #eaf2ff; }
         #splet-zavihki { background: #0b1424; min-height: 52px; }
         .splet-tab { background: #101a2b; color: #c3d4ea; border: 1px solid rgba(211,229,255,.14);
           border-bottom: 0; border-radius: 12px 12px 0 0; padding: 8px 12px; margin-top: 8px; min-width: 180px; }
         .splet-tab-aktiven { background: #16233a; color: #eaf2ff; border-color: rgba(138,199,255,.55);
           border-top: 2px solid #8ac7ff; }
-        .splet-tab button, .new-tab, .nav, .address-action, #splet-meni { background: transparent; color: #eaf2ff;
+        .splet-tab button, .new-tab, .nav, .address-action, #splet-meni > button { background: transparent; color: #eaf2ff;
           border: 0; box-shadow: none; text-shadow: none; }
         .new-tab { font-size: 24px; padding: 5px 10px; }
         #splet-povezava { color: #e3ecf7; border: 1px solid rgba(138,199,255,.55); border-radius: 14px;
           padding: 5px 14px; margin-top: 8px; margin-bottom: 8px; background: rgba(138,199,255,.08); }
         #splet-orodja { background: #0b1424; padding: 6px 14px 8px; }
         .nav { font-size: 20px; padding: 6px 9px; border-radius: 10px; color: #e2eaf6; }
-        .nav image, .address-action image, #splet-meni image { color: #e2eaf6; }
-        .nav:hover, .address-action:hover, #splet-meni:hover { background: rgba(104,168,229,.20); }
+        .nav image, .address-action image, #splet-meni image { color: #e2eaf6; -gtk-icon-size: 20px; }
+        .nav:hover, .address-action:hover, #splet-meni > button:hover { background: rgba(104,168,229,.20); }
         #splet-naslov { background: #101a2b; border: 2px solid rgba(138,199,255,.55); border-radius: 20px; padding: 2px 6px; }
-        #splet-vnos { background: transparent; color: #eaf2ff; border: 0; box-shadow: none; font-size: 16px; padding: 10px 4px; }
+        #splet-vnos { background: transparent; color: #eaf2ff; border: 0; box-shadow: none; outline: none;
+          font-size: 16px; padding: 10px 4px; }
         #splet-vnos selection { background: #2b5b8c; }
-        menu { background: #101a2b; color: #eaf2ff; border: 1px solid rgba(211,229,255,.23); }
-        menuitem:hover { background: rgba(104,168,229,.20); }
+        popover.menu contents { background: #101a2b; color: #eaf2ff; border: 1px solid rgba(211,229,255,.23); }
+        popover.menu modelbutton:hover { background: rgba(104,168,229,.20); }
         """
         ponudnik = self.Gtk.CssProvider()
-        ponudnik.load_from_data(css)
-        self.Gtk.StyleContext.add_provider_for_screen(self.Gdk.Screen.get_default(), ponudnik,
-                                                       self.Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        try:
+            ponudnik.load_from_string(css)
+        except AttributeError:  # GTK < 4.12
+            ponudnik.load_from_data(css, -1)
+        self.Gtk.StyleContext.add_provider_for_display(self.Gdk.Display.get_default(), ponudnik,
+                                                        self.Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self._css_ponudnik = ponudnik
 
     def _gumb(self, napis, dejanje, razred):
@@ -601,14 +722,12 @@ class VdelaniSplet:
         ikone = {"←": "go-previous-symbolic", "→": "go-next-symbolic", "↻": "view-refresh-symbolic",
                  "⌂": "go-home-symbolic", "☆": "non-starred-symbolic", "♢": "security-high-symbolic",
                  "+": "list-add-symbolic"}
-        if napis in ikone and self.Gtk.IconTheme.get_default().has_icon(ikone[napis]):
-            g = self.Gtk.Button()
-            g.set_image(self.Gtk.Image.new_from_icon_name(ikone[napis], self.Gtk.IconSize.LARGE_TOOLBAR))
-            g.set_always_show_image(True)
+        if napis in ikone and self._ima_ikono(ikone[napis]):
+            g = self.Gtk.Button.new_from_icon_name(ikone[napis])
         else:
             g = self.Gtk.Button(label=napis)
-        g.set_relief(self.Gtk.ReliefStyle.NONE)
-        g.get_style_context().add_class(razred)
+        g.set_has_frame(False)
+        g.add_css_class(razred)
         g.connect("clicked", dejanje)
         return g
 
@@ -661,29 +780,19 @@ class VdelaniSplet:
         self._temno_osvezi(znova_nalozi=p)
 
     def _meni(self):
-        meni = self.Gtk.Menu()
-        vnosi = [
-            (self._t("nov"), lambda *_: self.nov_zavihek()),
-            (self._t("zaznamki"), lambda *_: self._seznam("zaznamki")),
-            (self._t("zgodovina"), lambda *_: self._seznam("zgodovina")),
-            (self._t("uvozi"), self._uvozi),
-            (self._t("predpomnilnik"), lambda *_: self._predpomnilnik()),
-            (self._t("prenosi"), self._pokazi_prenose),
-            (self._t("najdi"), lambda *_: self._pokazi_najdi()),
-            (self._t("povecaj"), lambda *_: self._povecava(.1)),
-            (self._t("pomanjsaj"), lambda *_: self._povecava(-.1)),
-            (self._t("nastavitve"), self._nastavitve),
-            (self._t("zapisek"), self._v_zapisek),
-        ]
+        meni = self.Gio.Menu()
+        vnosi = [("nov", "nov"), ("zaznamki", "zaznamki"), ("zgodovina", "zgodovina"), ("uvozi", "uvozi"),
+                 ("predpomnilnik", "predpomnilnik"), ("prenosi", "prenosi"), ("najdi", "najdi"),
+                 ("povecaj", "povecaj"), ("pomanjsaj", "pomanjsaj"), ("nastavitve", "nastavitve"), ("zapisek", "zapisek")]
+        vnosi = [(self._t(k), d) for k, d in vnosi]
         p = self.trenutni()
         g = splet_temno.gostitelj(p.get_uri() if p else "")
         if g and splet_temno.dejaven(self._temno_nacin(), self._namizje_temno()):
             jezik = str(self.jezik() if callable(self.jezik) else self.jezik or "sl")
             kljuc = "na_strani_vklopi" if g in self._temno_izjeme() else "na_strani_izklopi"
-            vnosi.insert(-2, (splet_temno.besedilo(jezik, kljuc), self._temno_preklopi_stran))
+            vnosi.insert(-2, (splet_temno.besedilo(jezik, kljuc), "temno"))
         for napis, dejanje in vnosi:
-            v = self.Gtk.MenuItem(label=napis); v.connect("activate", dejanje); meni.append(v)
-        meni.show_all()
+            meni.append(napis, "splet." + dejanje)
         return meni
 
     def _zazeni_zascito(self) -> None:
@@ -782,18 +891,19 @@ class VdelaniSplet:
 
     def _nov_pogled(self):
         W = self.WebKit2
-        pogled = W.WebView.new_with_context(self.kontekst)
+        # WebKitGTK 6.0: kontekst (procesi strani, meja pomnilnika) in omrezna seja (podatki, piskotki) sta locena.
+        pogled = W.WebView(web_context=self.kontekst, network_session=self.seja)
         # Padec spletnega procesa (sesutje strani, pomanjkanje pomnilnika): zavihek se nalozi znova, kot v brskalniku.
         pogled.connect("web-process-terminated", self._proces_pomnilnik)   # pred obnovo (ta caka 400 ms)
         os_stabilnost.obnovi_ob_padcu(W, self.GLib, pogled, "safeer-os", "splet", ob_odpovedi=self._proces_koncan)
         upravitelj = pogled.get_user_content_manager()
-        upravitelj.register_script_message_handler("safeer")
+        registriraj_most(upravitelj, "safeer")
         # Sibka referenca (glej drm.prikljuci): sicer zaprt zavihek nikoli ne sprosti svojega WebView.
         ref = weakref.ref(pogled)
         upravitelj.connect("script-message-received::safeer",
                            lambda _u, r: ref() is not None and self._sporocilo(ref(), r))
         # Stevec scita v locenem svetu: stran v glavnem svetu tega rokovalnika ne doseze.
-        upravitelj.register_script_message_handler_in_world(adblock.STEVEC_MOST, adblock.STEVEC_SVET)
+        registriraj_most(upravitelj, adblock.STEVEC_MOST, adblock.STEVEC_SVET)
         upravitelj.connect("script-message-received::" + adblock.STEVEC_MOST, lambda _u, r: self._stevec(r))
         odlozisce_varuh.dodaj(W, upravitelj)   # tudi na prijavnih straneh: nicesar ne spreminja, le varuje odlozisce
         # Widevine (Netflix, Disney+ ...): stran se odpre v namescenem brskalniku z Widevine (core/drm.py).
@@ -817,23 +927,25 @@ class VdelaniSplet:
         nastavi_kompozitor(W, nastavitve, self._skia())
         nastavitve.set_hardware_acceleration_policy(getattr(self, "_naslednja_politika", None)
                                                     or politika_pospesevanja(W, self.config.get("hardware_acceleration", "on_demand")))
-        nastavitve.set_enable_javascript(True)
-        nastavitve.set_enable_javascript_markup(True)
-        nastavitve.set_javascript_can_open_windows_automatically(False)
-        nastavitve.set_enable_html5_local_storage(True)
-        nastavitve.set_enable_html5_database(False)
-        try:
-            nastavitve.set_enable_hyperlink_auditing(False); nastavitve.set_enable_dns_prefetching(False)
-            # Predpomnilnik strani (bfcache): "Nazaj" brez ponovnega nalaganja. Meritev 13. 10. 2026 (testni PC, 4 strani):
-            # nazaj ~0,3-0,4 s namesto ~1,2 s, RAM spletnih procesov +50 MB (~7 %); ob pomanjkanju ga WebKit sprosti sam.
-            nastavitve.set_enable_page_cache(True); nastavitve.set_enable_encrypted_media(True)
-        except Exception:
-            pass
+        # Vsaka nastavitev posebej: WebKitGTK 6.0 je nekatere odstranil (npr. html5_database, dns_prefetching).
+        # Predpomnilnik strani (bfcache): "Nazaj" brez ponovnega nalaganja. Meritev 13. 10. 2026 (testni PC, 4 strani):
+        # nazaj ~0,3-0,4 s namesto ~1,2 s, RAM spletnih procesov +50 MB (~7 %); ob pomanjkanju ga WebKit sprosti sam.
+        for ime, vrednost in (("enable_javascript", True), ("enable_javascript_markup", True),
+                              ("javascript_can_open_windows_automatically", False), ("enable_html5_local_storage", True),
+                              ("enable_html5_database", False), ("enable_hyperlink_auditing", False),
+                              ("enable_dns_prefetching", False), ("enable_page_cache", True),
+                              ("enable_encrypted_media", True)):
+            nastavi = getattr(nastavitve, "set_" + ime, None)
+            if nastavi is not None:
+                try:
+                    nastavi(vrednost)
+                except Exception:  # noqa: BLE001
+                    pass
         # Temno pod našo začetno stranjo, belo pod spletom - belo mora biti nastavljeno, preden dokument strani nastane.
         ozadje_strani.prikljuci(self.Gdk, W, pogled, os.path.join(self.koren, "ui"), TEMNO_OZADJE)
         pogled.connect("decide-policy", self._politika)
-        pogled.connect("key-press-event", lambda _p, e: self.tipka(e))
-        pogled.connect("button-press-event", self._miska)
+        self._tipke(pogled, lambda e: self.tipka(e))
+        self._klik(pogled, lambda gumb, x, y: self._miska(pogled, _Klik(gumb, x, y)))
         pogled.connect("create", lambda p, a: self._novo_okno(p, a))
         pogled.connect("load-changed", self._nalozen)
         pogled.connect("notify::title", self._naslov_spremenjen)
@@ -855,17 +967,21 @@ class VdelaniSplet:
         self._stevec += 1
         pogled = self._nov_pogled()
         vrstica = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=6)
-        vrstica.get_style_context().add_class("splet-tab")
+        vrstica.add_css_class("splet-tab")
         ikona = self.Gtk.Label(label="🌐")
-        naslov_lbl = self.Gtk.Label(label=self._t("nov")); naslov_lbl.set_ellipsize(3); naslov_lbl.set_xalign(0)
+        naslov_lbl = self.Gtk.Label(label=self._t("nov")); naslov_lbl.set_ellipsize(self.Pango.EllipsizeMode.END)
+        naslov_lbl.set_xalign(0); naslov_lbl.set_hexpand(True)
         zapri = self._gumb("×", lambda *_: self.zapri_zavihek(pogled), "tab-close")
-        vrstica.pack_start(ikona, False, False, 0); vrstica.pack_start(naslov_lbl, True, True, 0); vrstica.pack_end(zapri, False, False, 0)
-        dogodek = self.Gtk.EventBox(); dogodek.add(vrstica); dogodek.connect("button-press-event", lambda _w, _e: (self.izberi(pogled), True)[1])
-        self.skatla_zavihkov.pack_start(dogodek, False, False, 0)
+        vrstica.append(ikona); vrstica.append(naslov_lbl); vrstica.append(zapri)
+        # GTK4: ni EventBox; klik na zavihek ujame GestureClick na sami vrstici (gumb × ostane svoj).
+        dogodek = vrstica
+        self._klik(vrstica, lambda *_: self.izberi(pogled), 1)
+        self.skatla_zavihkov.append(vrstica)
+        pogled.set_vexpand(True); pogled.set_hexpand(True)
         self.sklad.add_named(pogled, "splet-%d" % self._stevec)
         zavihek = {"pogled": pogled, "dogodek": dogodek, "vrstica": vrstica, "naslov": naslov_lbl, "ikona": ikona}
         self.zavihki.append(zavihek)
-        dogodek.show_all(); pogled.show_all(); self.izberi(pogled)
+        self.izberi(pogled)
         self.odpri(naslov, pogled)
         return pogled
 
@@ -877,7 +993,11 @@ class VdelaniSplet:
         self._zapomni_zaprt(pogled)
         indeks = self.zavihki.index(z); self.zavihki.remove(z)
         self._drm_konec(z)
-        self.skatla_zavihkov.remove(z["dogodek"]); self.sklad.remove(pogled); pogled.destroy()
+        self.skatla_zavihkov.remove(z["dogodek"]); self.sklad.remove(pogled)
+        try:
+            pogled.try_close()   # GTK4: ni destroy(); WebKit konca stran, ko pogled nima vec lastnika
+        except Exception:  # noqa: BLE001
+            pass
         self.izberi(self.zavihki[max(0, indeks - 1)]["pogled"])
 
     def _zapomni_zaprt(self, pogled) -> None:
@@ -896,7 +1016,7 @@ class VdelaniSplet:
         Gdk = self.Gdk
         stanje = dogodek.state
         dejanje = blizjica(Gdk.keyval_name(dogodek.keyval) or "", bool(stanje & Gdk.ModifierType.CONTROL_MASK),
-                           bool(stanje & Gdk.ModifierType.SHIFT_MASK), bool(stanje & Gdk.ModifierType.MOD1_MASK))
+                           bool(stanje & Gdk.ModifierType.SHIFT_MASK), bool(stanje & Gdk.ModifierType.ALT_MASK))
         return self.izvedi(dejanje) if dejanje else False
 
     def izvedi(self, dejanje: str) -> bool:
@@ -956,44 +1076,72 @@ class VdelaniSplet:
         """Zaznamki (Ctrl+Shift+O) in zgodovina (Ctrl+H) z iskanjem; klik odpre stran v novem zavihku."""
         from core import zgodovina
         Gtk = self.Gtk
-        d = Gtk.Dialog(title=self._t(kaj), transient_for=self._okno_za_dialog(), modal=True)
-        d.set_default_size(720, 560)
-        d.add_button(self._t("zapri"), Gtk.ResponseType.CLOSE)
+        d, obmocje = self._dialog(self._t(kaj), 720, 560)
         iskanje = Gtk.SearchEntry(); iskanje.set_margin_start(12); iskanje.set_margin_end(12)
-        zvezki = Gtk.Notebook()
+        zvezki = Gtk.Notebook(); zvezki.set_vexpand(True)
         seznami = {}
         for kljuc in ("zaznamki", "zgodovina"):
             okvir = Gtk.ScrolledWindow(); okvir.set_vexpand(True)
             sez = Gtk.ListBox(); sez.set_activate_on_single_click(True)
             sez.connect("row-activated", lambda _s, vrstica: (self.nov_zavihek(vrstica.naslov), d.destroy()))
-            okvir.add(sez); zvezki.append_page(okvir, Gtk.Label(label=self._t(kljuc))); seznami[kljuc] = sez
+            okvir.set_child(sez); zvezki.append_page(okvir, Gtk.Label(label=self._t(kljuc))); seznami[kljuc] = sez
         def napolni(*_):
             niz = iskanje.get_text()
             viri = {"zaznamki": [{"title": p.get("title", ""), "url": p.get("url", "")} for p in self.config.get_portals()],
                     "zgodovina": zgodovina.nalozi(os.path.join(self.config.config_dir, "history.json"))}
             for kljuc, sez in seznami.items():
-                for v in sez.get_children():
-                    v.destroy()
+                _ocisti(sez)
                 zadetki = [z for z in zgodovina.isci(viri[kljuc], niz) if z.get("url")][:300]
                 for z in zadetki:
                     vrstica = Gtk.ListBoxRow(); vrstica.naslov = z["url"]
-                    skatla = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin=8)
-                    a = Gtk.Label(label=z.get("title") or z["url"], xalign=0); a.set_ellipsize(3)
-                    b = Gtk.Label(label=(z.get("time", "") + "  " + z["url"]).strip(), xalign=0); b.set_ellipsize(3)
-                    b.get_style_context().add_class("dim-label")
-                    skatla.pack_start(a, False, False, 0); skatla.pack_start(b, False, False, 0)
-                    vrstica.add(skatla); sez.add(vrstica)
+                    skatla = _robovi(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2), 8)
+                    a = Gtk.Label(label=z.get("title") or z["url"], xalign=0); a.set_ellipsize(self.Pango.EllipsizeMode.END)
+                    b = Gtk.Label(label=(z.get("time", "") + "  " + z["url"]).strip(), xalign=0)
+                    b.set_ellipsize(self.Pango.EllipsizeMode.END)
+                    b.add_css_class("dim-label")
+                    skatla.append(a); skatla.append(b)
+                    vrstica.set_child(skatla); sez.append(vrstica)
                 if not zadetki:
-                    sez.add(Gtk.Label(label=self._t("prazno"), margin=16))
-                sez.show_all()
+                    sez.append(_robovi(Gtk.Label(label=self._t("prazno")), 16))
         iskanje.connect("search-changed", napolni)
-        obmocje = d.get_content_area(); obmocje.set_spacing(8)
-        obmocje.pack_start(iskanje, False, False, 6); obmocje.pack_start(zvezki, True, True, 0)
+        iskanje.set_margin_top(6); iskanje.set_margin_bottom(6)
+        obmocje.append(iskanje); obmocje.append(zvezki)
         napolni()
-        d.show_all()
+        d.present()
         zvezki.set_current_page(0 if kaj == "zaznamki" else 1)
         iskanje.grab_focus()
-        d.connect("response", lambda *_: d.destroy())
+
+    def _dialog(self, naslov: str, sirina: int = 480, visina: int = -1, gumbi=None):
+        """GTK4 dialog (Gtk.Dialog je opuscen): okno nad Spletom z obmocjem in vrstico gumbov.
+
+        gumbi: [(napis, odgovor)]; ob kliku se poklice d.odgovor(odgovor) (privzeto zapre okno). Vrne (okno, obmocje)."""
+        Gtk = self.Gtk
+        d = Gtk.Window(title=naslov, modal=True)
+        stars = self._okno_za_dialog()
+        if stars is not None:
+            try:
+                d.set_transient_for(stars)
+            except Exception:  # noqa: BLE001
+                pass
+        d.set_default_size(sirina, visina)
+        d.set_destroy_with_parent(True)
+        glavna = _robovi(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8), 12)
+        obmocje = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        obmocje.set_vexpand(True)
+        glavna.append(obmocje)
+        vrstica = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        vrstica.set_halign(Gtk.Align.END)
+        glavna.append(vrstica)
+        d.odgovor = lambda _o: d.destroy()
+        for napis, odgovor in (gumbi or [(self._t("zapri"), Gtk.ResponseType.CLOSE)]):
+            g = Gtk.Button(label=napis)
+            g.connect("clicked", lambda _g, o=odgovor: d.odgovor(o))
+            vrstica.append(g)
+        d.set_child(glavna)
+        k = Gtk.EventControllerKey()
+        k.connect("key-pressed", lambda _k, keyval, *_: (keyval == self.Gdk.KEY_Escape and (d.destroy() or True)))
+        d.add_controller(k)
+        return d, obmocje
 
     def _uvozi(self, *_):
         """Zaznamki in odprti zavihki iz drugih brskalnikov na tem racunalniku (samo branje njihovih datotek)."""
@@ -1007,20 +1155,17 @@ class VdelaniSplet:
             print("[Safeer OS Splet] uvoz zaznamkov:", napaka)
             dodanih, viri = 0, {}
         zavihki = uvoz_zavihkov.odprti_zavihki()
-        d = Gtk.Dialog(title=self._t("uvozi").rstrip(" …"), transient_for=self._okno_za_dialog(), modal=True)
-        d.add_button(self._t("zapri"), Gtk.ResponseType.CLOSE)
-        obmocje = d.get_content_area(); obmocje.set_spacing(10); obmocje.set_margin_start(16); obmocje.set_margin_end(16)
+        d, obmocje = self._dialog(self._t("uvozi").rstrip(" …"))
         if viri or zavihki:
-            obmocje.pack_start(Gtk.Label(label=self._t("uvoz_zaznamki", n=dodanih, od=", ".join(viri) or "-"),
-                                         xalign=0, margin_top=12), False, False, 0)
+            obmocje.append(Gtk.Label(label=self._t("uvoz_zaznamki", n=dodanih, od=", ".join(viri) or "-"),
+                                     xalign=0, margin_top=12))
         else:
-            obmocje.pack_start(Gtk.Label(label=self._t("uvoz_brez"), margin=16), False, False, 0)
+            obmocje.append(_robovi(Gtk.Label(label=self._t("uvoz_brez")), 16))
         for ime, naslovi in zavihki.items():
             gumb = Gtk.Button(label=self._t("uvoz_zavihki", n=len(naslovi), ime=ime))
             gumb.connect("clicked", lambda _g, n=naslovi: ([self.nov_zavihek(x) for x in n], d.destroy()))
-            obmocje.pack_start(gumb, False, False, 0)
-        d.connect("response", lambda *_: d.destroy())
-        d.show_all()
+            obmocje.append(gumb)
+        d.present()
         for z in self.zavihki:          # zacetna stran pokaze nove bliznjice
             if je_domaca_stran(z["pogled"].get_uri() or "", self.koren):
                 self._poslji_stanje(z["pogled"], prenesi=False)
@@ -1042,7 +1187,7 @@ class VdelaniSplet:
     def _pocisti_predpomnilnik(self, ob_koncu=None) -> None:
         W = self.WebKit2
         try:
-            self.kontekst.get_website_data_manager().clear(
+            self.podatki().clear(
                 W.WebsiteDataTypes.DISK_CACHE | W.WebsiteDataTypes.MEMORY_CACHE, 0, None,
                 (lambda *_: ob_koncu()) if ob_koncu else None, None)
         except Exception as napaka:  # noqa: BLE001
@@ -1051,13 +1196,8 @@ class VdelaniSplet:
     def _predpomnilnik(self) -> None:
         """Upravitelj predpomnilnika: velikost, ciscenje predpomnilnika (prijave ostanejo), podatki po straneh, meja."""
         Gtk, W = self.Gtk, self.WebKit2
-        upr = self.kontekst.get_website_data_manager()
-        d = Gtk.Dialog(title=self._t("predpomnilnik"), transient_for=self._okno_za_dialog(), modal=True)
-        d.set_default_size(640, 560)
-        d.add_button(self._t("zapri"), Gtk.ResponseType.CLOSE)
-        obmocje = d.get_content_area(); obmocje.set_spacing(8)
-        for stran in ("set_margin_start", "set_margin_end", "set_margin_top"):
-            getattr(obmocje, stran)(12)
+        upr = self.podatki()
+        d, obmocje = self._dialog(self._t("predpomnilnik"), 640, 560)
         napis = Gtk.Label(xalign=0)
         def osvezi_napis():
             napis.set_text(self._t("pp_disk", mb=velikost_mape_mb(self._mapa_predpomnilnika())))
@@ -1068,34 +1208,33 @@ class VdelaniSplet:
         samodejno = Gtk.CheckButton(label=self._t("pp_meja", mb=meja_mb))
         samodejno.set_active(int(self.config.get("splet_predpomnilnik_meja_mb", 500) or 0) > 0)
         samodejno.connect("toggled", lambda g: self.config.set("splet_predpomnilnik_meja_mb", meja_mb if g.get_active() else 0))
-        obmocje.pack_start(napis, False, False, 0); obmocje.pack_start(pocisti, False, False, 0)
-        obmocje.pack_start(samodejno, False, False, 0)
-        obmocje.pack_start(Gtk.Label(label=self._t("pp_strani"), xalign=0, margin_top=8), False, False, 0)
+        obmocje.append(napis); obmocje.append(pocisti)
+        obmocje.append(samodejno)
+        obmocje.append(Gtk.Label(label=self._t("pp_strani"), xalign=0, margin_top=8))
         iskanje = Gtk.SearchEntry(); iskanje.set_placeholder_text(self._t("pp_iskanje"))
-        obmocje.pack_start(iskanje, False, False, 0)
+        obmocje.append(iskanje)
         okvir = Gtk.ScrolledWindow(); okvir.set_vexpand(True)
-        seznam = Gtk.ListBox(); okvir.add(seznam); obmocje.pack_start(okvir, True, True, 0)
+        seznam = Gtk.ListBox(); okvir.set_child(seznam); obmocje.append(okvir)
         vrste = W.WebsiteDataTypes.ALL if hasattr(W.WebsiteDataTypes, "ALL") else (
             W.WebsiteDataTypes.COOKIES | W.WebsiteDataTypes.LOCAL_STORAGE | W.WebsiteDataTypes.INDEXEDDB_DATABASES
             | W.WebsiteDataTypes.DISK_CACHE)
         podatki = []
         def izrisi(*_):
-            for v in seznam.get_children():
-                v.destroy()
+            _ocisti(seznam)
             niz = iskanje.get_text().strip().lower()
             for wd in sorted(podatki, key=lambda x: x.get_name() or ""):
                 ime = wd.get_name() or ""
                 if niz and niz not in ime.lower():
                     continue
-                vrstica = Gtk.Box(spacing=8, margin=6)
-                vrstica.pack_start(Gtk.Label(label=ime, xalign=0), True, True, 0)
+                vrstica = _robovi(Gtk.Box(spacing=8), 6)
+                oznaka = Gtk.Label(label=ime, xalign=0); oznaka.set_hexpand(True)
+                vrstica.append(oznaka)
                 gumb = Gtk.Button(label=self._t("pp_odstrani"))
                 def odstrani(_g, wd=wd):
                     upr.remove(vrste, [wd], None, lambda *_: (podatki.remove(wd), izrisi(), osvezi_napis()), None)
                 gumb.connect("clicked", odstrani)
-                vrstica.pack_end(gumb, False, False, 0)
-                seznam.add(vrstica)
-            seznam.show_all()
+                vrstica.append(gumb)
+                seznam.append(vrstica)
         def prejeto(m, rezultat, *_):
             try:
                 podatki[:] = list(m.fetch_finish(rezultat) or [])
@@ -1104,8 +1243,7 @@ class VdelaniSplet:
             izrisi()
         upr.fetch(vrste, None, prejeto, None)
         iskanje.connect("search-changed", izrisi)
-        d.connect("response", lambda *_: d.destroy())
-        d.show_all()
+        d.present()
 
     def _miska(self, pogled, dogodek) -> bool:
         """Stranska gumba miske (nazaj/naprej), kot v drugih brskalnikih."""
@@ -1121,7 +1259,7 @@ class VdelaniSplet:
         for z in list(self.zavihki):
             try:
                 self.skatla_zavihkov.remove(z["dogodek"]); self.sklad.remove(z["pogled"])
-                z["pogled"].destroy(); z["dogodek"].destroy()
+                z["pogled"].try_close()
             except Exception:  # noqa: BLE001
                 pass
         self.zavihki = []
@@ -1169,7 +1307,7 @@ class VdelaniSplet:
         ponovno izrisejo iz predpomnilnika na disku (stresni preizkus 12. 10. 2026: pri pogosti rabi se Splet nikoli
         ni bil 60 s skrit, zato se njegov proces ni nikoli zmanjsal)."""
         try:
-            upr = self.kontekst.get_website_data_manager()
+            upr = self.podatki()
             upr.clear(self.WebKit2.WebsiteDataTypes.MEMORY_CACHE, 0, None, None, None)
             return True
         except Exception:  # noqa: BLE001 - starejsi WebKit brez tega: ostane sprostitev po minuti
@@ -1181,11 +1319,10 @@ class VdelaniSplet:
         if z is not None and z.get("drm") is not None:
             self.sklad.set_visible_child(z["drm"].gradnik)
         for z in self.zavihki:
-            slog = z["vrstica"].get_style_context()
             if z["pogled"] is pogled:
-                slog.add_class("splet-tab-aktiven")
+                z["vrstica"].add_css_class("splet-tab-aktiven")
             else:
-                slog.remove_class("splet-tab-aktiven")
+                z["vrstica"].remove_css_class("splet-tab-aktiven")
         self._osvezi_orodja()
 
     def trenutni(self):
@@ -1267,9 +1404,13 @@ class VdelaniSplet:
             odlocitev.ignore(); return True
 
     def _novo_okno(self, _pogled, dejanje):
+        # WebKitGTK 6.0 zahteva, da je vrnjen pogled »related-view« izvornega; nas zavihek ima svoje nastavitve in
+        # skripte, zato stran odpremo v novem zavihku in WebKitu ne vrnemo pogleda (window.open ostane brez opener).
         try: naslov = dejanje.get_request().get_uri() or ""
         except Exception: naslov = ""
-        return self.nov_zavihek(naslov)
+        if naslov:
+            self.nov_zavihek(naslov)
+        return None
 
     def _ucene_brez_pospesevanja(self) -> list:
         v = self.config.get("splet_brez_pospesevanja", [])
@@ -1308,13 +1449,14 @@ class VdelaniSplet:
         if z is not None:
             self.zavihki.remove(z); self.zavihki.insert(indeks, z)
             try:
-                self.skatla_zavihkov.reorder_child(z["dogodek"], indeks)
+                prej = self.zavihki[indeks - 1]["dogodek"] if indeks > 0 else None
+                self.skatla_zavihkov.reorder_child_after(z["dogodek"], prej)
             except Exception:  # noqa: BLE001
                 pass
         if star in self.zavihki:
             self.zavihki.remove(star)
             try:
-                self.skatla_zavihkov.remove(star["dogodek"]); self.sklad.remove(pogled); pogled.destroy()
+                self.skatla_zavihkov.remove(star["dogodek"]); self.sklad.remove(pogled); pogled.try_close()
             except Exception:  # noqa: BLE001
                 pass
         self.izberi(nov)
@@ -1374,7 +1516,8 @@ class VdelaniSplet:
         stanje = {"language": self.jezik(), "engine": self.config.get("search_engine", "duckduckgo"), "portals": portali,
                   "hidden": list(self.config.get("splet_skrite_bliznjice", []) or []),
                   "no_defaults": bool(self.config.get("splet_brez_privzetih", False))}
-        pogled.run_javascript("window.safeerSpletInit(%s);" % json.dumps(stanje, ensure_ascii=True), None, None, None)
+        pogled.evaluate_javascript("window.safeerSpletInit(%s);" % json.dumps(stanje, ensure_ascii=True), -1,
+                                   None, None, None, None, None)
         if prenesi and manjkajo and not getattr(self, "_ikone_tecejo", False):
             self._ikone_tecejo = True
             import threading
@@ -1444,9 +1587,8 @@ class VdelaniSplet:
             return True
         gost = safeer_drm.Gostitelj(self.Gtk, self.Gdk, self.GLib, ob_celozaslonu=self._drm_celozaslonsko,
                                     ob_koncu=lambda z=z: self._drm_konec(z))
-        gost.gradnik.connect("key-press-event", lambda _g, e, gost=gost: self.tipka(e) or gost.tipka(e))
+        self._tipke(gost.gradnik, lambda e, gost=gost: self.tipka(e) or gost.tipka(e))
         self.sklad.add_named(gost.gradnik, "drm-%d" % id(gost))
-        gost.gradnik.show()
         z["drm"] = gost
         if pogled is self.trenutni():
             self.sklad.set_visible_child(gost.gradnik)
@@ -1478,7 +1620,7 @@ class VdelaniSplet:
             self.sklad.set_visible_child(z["pogled"])
 
     def _drm_celozaslonsko(self, vklopi: bool) -> None:
-        okno = self.gradnik.get_toplevel()
+        okno = self.gradnik.get_root()
         for g in (self.vrstica_zavihkov, getattr(self, "orodja", None)):
             if g is not None:
                 g.set_visible(not vklopi)
@@ -1507,7 +1649,7 @@ class VdelaniSplet:
 
     def _sporocilo(self, pogled, rezultat):
         try:
-            vrednost = rezultat.get_js_value().to_json(0)
+            vrednost = _js_vrednost(rezultat).to_json(0)
             sporocilo = razcleni_sporocilo(vrednost)
         except Exception: sporocilo = None
         if not sporocilo:
@@ -1535,7 +1677,7 @@ class VdelaniSplet:
     def _stevec(self, rezultat):
         """Stevec scita iz kozmeticne skripte (loceni svet). Samo increment; stevilo omejeno."""
         try:
-            s = adblock.preveri_stevec(json.loads(rezultat.get_js_value().to_json(0)))
+            s = adblock.preveri_stevec(json.loads(_js_vrednost(rezultat).to_json(0)))
         except Exception:
             s = None
         if not s:
@@ -1547,29 +1689,35 @@ class VdelaniSplet:
         self._osvezi_scit()
 
     def _dodaj_portal(self, *_):
-        d = self.Gtk.Dialog(title=self._t("dodaj"), transient_for=self._okno_za_dialog(), flags=self.Gtk.DialogFlags.MODAL)
-        d.add_button(self._t("preklici"), self.Gtk.ResponseType.CANCEL); d.add_button(self._t("shrani"), self.Gtk.ResponseType.OK)
-        mreza = self.Gtk.Grid(column_spacing=10, row_spacing=8, margin=16)
-        ime, url = self.Gtk.Entry(), self.Gtk.Entry(); url.set_text("https://")
-        mreza.attach(self.Gtk.Label(label=self._t("ime"), xalign=0), 0, 0, 1, 1); mreza.attach(ime, 1, 0, 1, 1)
-        mreza.attach(self.Gtk.Label(label=self._t("url"), xalign=0), 0, 1, 1, 1); mreza.attach(url, 1, 1, 1, 1)
-        d.get_content_area().add(mreza); d.show_all()
-        if d.run() == self.Gtk.ResponseType.OK:
-            naslov = normalize_web_url(url.get_text())
-            if naslov:
-                self.config.add_portal(ime.get_text().strip() or urllib.parse.urlparse(naslov).hostname, naslov)
-                # Znova dodana bliznjica ni vec med odstranjenimi.
-                self.config.set("splet_skrite_bliznjice", [k for k in (self.config.get("splet_skrite_bliznjice", []) or []) if k != kljuc_bliznjice(naslov)])
-        d.destroy()
-        p = self.trenutni()
-        if p and je_domaca_stran(p.get_uri() or "", self.koren): p.reload()
+        Gtk = self.Gtk
+        R = Gtk.ResponseType
+        d, obmocje = self._dialog(self._t("dodaj"), gumbi=[(self._t("preklici"), R.CANCEL), (self._t("shrani"), R.OK)])
+        mreza = _robovi(Gtk.Grid(column_spacing=10, row_spacing=8), 4)
+        ime, url = Gtk.Entry(), Gtk.Entry(); url.set_text("https://"); url.set_hexpand(True)
+        mreza.attach(Gtk.Label(label=self._t("ime"), xalign=0), 0, 0, 1, 1); mreza.attach(ime, 1, 0, 1, 1)
+        mreza.attach(Gtk.Label(label=self._t("url"), xalign=0), 0, 1, 1, 1); mreza.attach(url, 1, 1, 1, 1)
+        obmocje.append(mreza)
+
+        def odgovor(o):
+            if o == R.OK:
+                naslov = normalize_web_url(url.get_text())
+                if naslov:
+                    self.config.add_portal(ime.get_text().strip() or urllib.parse.urlparse(naslov).hostname, naslov)
+                    # Znova dodana bliznjica ni vec med odstranjenimi.
+                    self.config.set("splet_skrite_bliznjice", [k for k in (self.config.get("splet_skrite_bliznjice", []) or [])
+                                                               if k != kljuc_bliznjice(naslov)])
+            d.destroy()
+            p = self.trenutni()
+            if p and je_domaca_stran(p.get_uri() or "", self.koren): p.reload()
+        d.odgovor = odgovor
+        d.present()
 
     def dodaj_trenutno(self):
         p = self.trenutni(); uri = p.get_uri() if p else ""
         if not uri or je_domaca_stran(uri, self.koren): return
         self.config.add_portal(p.get_title() or urllib.parse.urlparse(uri).hostname or uri, uri)
-        if self.Gtk.IconTheme.get_default().has_icon("starred-symbolic"):
-            self.zvezdica.set_image(self.Gtk.Image.new_from_icon_name("starred-symbolic", self.Gtk.IconSize.BUTTON))
+        if self._ima_ikono("starred-symbolic"):
+            self.zvezdica.set_icon_name("starred-symbolic")
         else:
             self.zvezdica.set_label("★")
 
@@ -1586,30 +1734,45 @@ class VdelaniSplet:
         if not uri.startswith(("http://", "https://")) or adblock.is_real_bank_host(uri): return
         skripta = adblock.bank_guard_page_script()
         if not skripta: return
-        pogled.run_javascript_in_world(skripta, "safeer-bankguard", None, self._bank_signali, (pogled, uri))
+        pogled.evaluate_javascript(skripta, -1, "safeer-bankguard", None, None, self._bank_signali, (pogled, uri))
 
     def _bank_signali(self, pogled, rezultat, podatki):
         pogled0, uri = podatki
-        try: signali = json.loads(pogled.run_javascript_in_world_finish(rezultat).get_js_value().to_json(0) or "null")
+        try: signali = json.loads(_js_vrednost(pogled.evaluate_javascript_finish(rezultat)).to_json(0) or "null")
         except Exception: return
         if pogled0.get_uri() != uri: return
         sodba = adblock.fake_bank_page_verdict(uri, signali)
         if sodba is not None: self._opozorilo_bank(pogled0, uri, sodba, True)
 
+    def _vprasaj(self, naslov: str, opis: str, gumbi, ob_odgovoru=None) -> None:
+        """GTK4 Gtk.AlertDialog (asinhrono; GTK3 MessageDialog.run je odstranjen). ob_odgovoru(indeks gumba ali -1)."""
+        d = self.Gtk.AlertDialog()
+        d.set_message(naslov)
+        if opis:
+            d.set_detail(opis)
+        d.set_buttons(list(gumbi))
+        d.set_modal(True)
+        d.set_cancel_button(0)
+
+        def koncano(dialog, rezultat, *_):
+            try:
+                i = dialog.choose_finish(rezultat)
+            except Exception:  # noqa: BLE001 - zaprto brez izbire
+                i = -1
+            if ob_odgovoru is not None:
+                ob_odgovoru(i)
+        d.choose(self._okno_za_dialog(), None, koncano, None)
+
     def _opozorilo_bank(self, pogled, uri, sodba, nalozen=False):
-        d = self.Gtk.MessageDialog(transient_for=self._okno_za_dialog(), flags=0, message_type=self.Gtk.MessageType.WARNING,
-                                   buttons=self.Gtk.ButtonsType.NONE, text="Safeer Shield · BankGuard")
-        d.format_secondary_text(adblock.fake_bank_warning_text(sodba, self.jezik()))
-        d.add_button(self._t("nazaj"), 1)
-        if sodba.official_domain: d.add_button(sodba.official_domain, 2)
-        odgovor = d.run(); d.destroy()
-        if odgovor == 2: pogled.load_uri("https://" + sodba.official_domain + "/")
-        elif nalozen: pogled.go_back() if pogled.can_go_back() else pogled.load_uri(self.domaci_uri())
+        gumbi = [self._t("nazaj")] + ([sodba.official_domain] if sodba.official_domain else [])
+
+        def odgovor(i):
+            if i == 1 and sodba.official_domain: pogled.load_uri("https://" + sodba.official_domain + "/")
+            elif nalozen: pogled.go_back() if pogled.can_go_back() else pogled.load_uri(self.domaci_uri())
+        self._vprasaj("Safeer Shield · BankGuard", adblock.fake_bank_warning_text(sodba, self.jezik()), gumbi, odgovor)
 
     def _opozorilo(self, naslov, opis):
-        d = self.Gtk.MessageDialog(transient_for=self._okno_za_dialog(), flags=0, message_type=self.Gtk.MessageType.WARNING,
-                                   buttons=self.Gtk.ButtonsType.CLOSE, text=naslov)
-        d.format_secondary_text(opis); d.run(); d.destroy()
+        self._vprasaj(naslov, opis, [self._t("zapri")])
 
     def _dovoljenje(self, _pogled, zahteva):
         pravilo = self.config.get("permissions_policy", "ask")
@@ -1617,20 +1780,18 @@ class VdelaniSplet:
             zahteva.allow(); return True
         if pravilo == "deny":
             zahteva.deny(); return True
-        d = self.Gtk.MessageDialog(transient_for=self._okno_za_dialog(), flags=self.Gtk.DialogFlags.MODAL,
-                                   message_type=self.Gtk.MessageType.QUESTION,
-                                   buttons=self.Gtk.ButtonsType.NONE, text=self._t("dovoljenje"))
-        d.add_button(self._t("zavrni"), self.Gtk.ResponseType.NO)
-        d.add_button(self._t("dovoli"), self.Gtk.ResponseType.YES)
-        odgovor = d.run(); d.destroy()
-        zahteva.allow() if odgovor == self.Gtk.ResponseType.YES else zahteva.deny()
+        # Zahteva ostane odprta, dokler uporabnik ne odgovori (WebKit to dovoli, ce signal vrne True).
+        self._vprasaj(self._t("dovoljenje"), "", [self._t("zavrni"), self._t("dovoli")],
+                      lambda i: zahteva.allow() if i == 1 else zahteva.deny())
         return True
 
     def _prenos_zacet(self, _kontekst, prenos):
         ime = os.path.basename(urllib.parse.urlparse(prenos.get_request().get_uri()).path) or "prenos"
         cilj = os.path.join(os.path.expanduser("~/Downloads"), ime)
         os.makedirs(os.path.dirname(cilj), exist_ok=True)
-        prenos.set_destination(self.GLib.filename_to_uri(cilj, None)); self.prenosi.append(cilj)
+        # WebKitGTK 6.0: cilj je pot (4.1: URI).
+        je6 = hasattr(self.WebKit2, "NetworkSession")
+        prenos.set_destination(cilj if je6 else self.GLib.filename_to_uri(cilj, None)); self.prenosi.append(cilj)
 
     def _pokazi_prenose(self, *_): self._opozorilo(self._t("prenosi"), "\n".join(self.prenosi[-10:]) or "—")
     def _pokazi_najdi(self): self.najdi_vrstica.set_search_mode(True); self.najdi_vnos.grab_focus()
@@ -1639,40 +1800,45 @@ class VdelaniSplet:
     def _povecava(self, korak):
         if self.trenutni(): self.trenutni().set_zoom_level(max(.5, min(3.0, self.trenutni().get_zoom_level() + korak)))
     def _nastavitve(self, *_):
-        d = self.Gtk.Dialog(title=self._t("nastavitve"), transient_for=self._okno_za_dialog(), flags=self.Gtk.DialogFlags.MODAL)
-        d.add_button(self._t("preklici"), self.Gtk.ResponseType.CANCEL)
-        d.add_button(self._t("shrani"), self.Gtk.ResponseType.OK)
-        mreza = self.Gtk.Grid(column_spacing=12, row_spacing=12, margin=18)
-        motor = self.Gtk.ComboBoxText()
+        Gtk = self.Gtk
+        R = Gtk.ResponseType
+        d, obmocje = self._dialog(self._t("nastavitve"), gumbi=[(self._t("preklici"), R.CANCEL), (self._t("shrani"), R.OK)])
+        mreza = _robovi(Gtk.Grid(column_spacing=12, row_spacing=12), 6)
+        motor = Gtk.ComboBoxText()
         for kljuc, podatki in SEARCH_ENGINES.items(): motor.append(kljuc, podatki["name"])
         motor.set_active_id(self.config.get("search_engine", "duckduckgo"))
-        oglasi = self.Gtk.CheckButton(label=self._t("adblock")); oglasi.set_active(self.config.get("adblock_enabled", True))
-        doh = self.Gtk.CheckButton(label=self._t("doh")); doh.set_active(self.config.get("doh_enabled", True))
-        strojno = self.Gtk.CheckButton(label=self._t("strojno"))
+        oglasi = Gtk.CheckButton(label=self._t("adblock")); oglasi.set_active(self.config.get("adblock_enabled", True))
+        doh = Gtk.CheckButton(label=self._t("doh")); doh.set_active(self.config.get("doh_enabled", True))
+        strojno = Gtk.CheckButton(label=self._t("strojno"))
         strojno.set_active(self.config.get("hardware_acceleration", "on_demand") != "never")
-        mreza.attach(self.Gtk.Label(label=self._t("iskalnik"), xalign=0), 0, 0, 1, 1); mreza.attach(motor, 1, 0, 1, 1)
+        mreza.attach(Gtk.Label(label=self._t("iskalnik"), xalign=0), 0, 0, 1, 1); mreza.attach(motor, 1, 0, 1, 1)
         mreza.attach(oglasi, 0, 1, 2, 1); mreza.attach(doh, 0, 2, 2, 1); mreza.attach(strojno, 0, 3, 2, 1)
         jezik = str(self.jezik() if callable(self.jezik) else self.jezik or "sl")
-        temno = self.Gtk.ComboBoxText()
+        temno = Gtk.ComboBoxText()
         for n in splet_temno.NACINI: temno.append(n, splet_temno.besedilo(jezik, n))
         temno.set_active_id(self._temno_nacin())
-        mreza.attach(self.Gtk.Label(label=splet_temno.besedilo(jezik, "nastavitev"), xalign=0), 0, 4, 1, 1)
+        mreza.attach(Gtk.Label(label=splet_temno.besedilo(jezik, "nastavitev"), xalign=0), 0, 4, 1, 1)
         mreza.attach(temno, 1, 4, 1, 1)
-        d.get_content_area().add(mreza); d.show_all()
-        if d.run() == self.Gtk.ResponseType.OK:
-            self.config.set("search_engine", motor.get_active_id() or "duckduckgo")
-            self.config.set("adblock_enabled", oglasi.get_active())
-            self.config.set("doh_enabled", doh.get_active())
-            self.config.set("hardware_acceleration", "on_demand" if strojno.get_active() else "never")
-            if (temno.get_active_id() or splet_temno.PRIVZETO) != self._temno_nacin():
-                self.config.set("temno_nacin", temno.get_active_id() or splet_temno.PRIVZETO)
-                self._temno_osvezi(znova_nalozi=self.trenutni())
-            politika = politika_pospesevanja(self.WebKit2, self.config.get("hardware_acceleration"))
-            for z in self.zavihki:
-                if not brez_pospesevanja(z["pogled"].get_uri() or "", self._ucene_brez_pospesevanja(), self._skia()):
-                    z["pogled"].get_settings().set_hardware_acceleration_policy(politika)
-            self._nastavi_omrezje()
-        d.destroy()
+        obmocje.append(mreza)
+
+        def odgovor(o):
+            if o == R.OK:
+                self.config.set("search_engine", motor.get_active_id() or "duckduckgo")
+                self.config.set("adblock_enabled", oglasi.get_active())
+                self.config.set("doh_enabled", doh.get_active())
+                self.config.set("hardware_acceleration", "on_demand" if strojno.get_active() else "never")
+                if (temno.get_active_id() or splet_temno.PRIVZETO) != self._temno_nacin():
+                    self.config.set("temno_nacin", temno.get_active_id() or splet_temno.PRIVZETO)
+                    self._temno_osvezi(znova_nalozi=self.trenutni())
+                politika = politika_pospesevanja(self.WebKit2, self.config.get("hardware_acceleration"))
+                for z in self.zavihki:
+                    if not brez_pospesevanja(z["pogled"].get_uri() or "", self._ucene_brez_pospesevanja(), self._skia()):
+                        z["pogled"].get_settings().set_hardware_acceleration_policy(politika)
+                self._nastavi_omrezje()
+            d.destroy()
+        d.odgovor = odgovor
+        d.present()
+
     def _v_zapisek(self, *_):
         p = self.trenutni()
         if self.odpri_zapisek and p: self.odpri_zapisek(p.get_title() or self._t("nov"), p.get_uri() or "")

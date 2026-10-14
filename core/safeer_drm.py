@@ -167,6 +167,7 @@ class _X11:
         L.XOpenDisplay.argtypes = [ctypes.c_char_p]
         for ime, args in (("XReparentWindow", [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_int, ctypes.c_int]),
                           ("XMapWindow", [ctypes.c_void_p, ctypes.c_ulong]),
+                          ("XUnmapWindow", [ctypes.c_void_p, ctypes.c_ulong]),
                           ("XMoveResizeWindow", [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_int,
                                                  ctypes.c_uint, ctypes.c_uint]),
                           ("XFlush", [ctypes.c_void_p]), ("XCloseDisplay", [ctypes.c_void_p])):
@@ -175,14 +176,18 @@ class _X11:
         if not self.dpy:
             raise OSError("X11 ni na voljo")
 
-    def vstavi(self, otrok: int, stars: int, sirina: int, visina: int) -> None:
-        self.lib.XReparentWindow(self.dpy, otrok, stars, 0, 0)
-        self.lib.XMoveResizeWindow(self.dpy, otrok, 0, 0, max(1, sirina), max(1, visina))
+    def vstavi(self, otrok: int, stars: int, x: int, y: int, sirina: int, visina: int) -> None:
+        self.lib.XReparentWindow(self.dpy, otrok, stars, x, y)
+        self.lib.XMoveResizeWindow(self.dpy, otrok, x, y, max(1, sirina), max(1, visina))
         self.lib.XMapWindow(self.dpy, otrok)
         self.lib.XFlush(self.dpy)
 
-    def velikost(self, okno: int, sirina: int, visina: int) -> None:
-        self.lib.XMoveResizeWindow(self.dpy, okno, 0, 0, max(1, sirina), max(1, visina))
+    def velikost(self, okno: int, x: int, y: int, sirina: int, visina: int) -> None:
+        self.lib.XMoveResizeWindow(self.dpy, okno, x, y, max(1, sirina), max(1, visina))
+        self.lib.XFlush(self.dpy)
+
+    def pokazi(self, okno: int, vidno: bool) -> None:
+        (self.lib.XMapWindow if vidno else self.lib.XUnmapWindow)(self.dpy, okno)
         self.lib.XFlush(self.dpy)
 
     def zapri(self) -> None:
@@ -192,7 +197,10 @@ class _X11:
 
 
 class Gostitelj:
-    """Gradnik GTK, v katerega se vstavi okno Safeer DRM. En gostitelj = ena seja (en zavihek)."""
+    """Gradnik GTK4, nad katerim je okno Safeer DRM. En gostitelj = ena seja (en zavihek).
+
+    GTK4 nima X okna na gradnik: okno Safeer DRM postane otrok X okna vrhnjega okna (Safeer OS / Splet) na mestu in
+    v velikosti tega gradnika; mesto se preveri ob vsaki spremembi velikosti in ob branju stanja (200 ms)."""
 
     def __init__(self, Gtk, Gdk, GLib, ob_celozaslonu: Optional[Callable[[bool], None]] = None,
                  ob_koncu: Optional[Callable[[], None]] = None) -> None:
@@ -200,10 +208,14 @@ class Gostitelj:
         self.ob_celozaslonu, self.ob_koncu = ob_celozaslonu, ob_koncu
         self.gradnik = Gtk.DrawingArea()
         self.gradnik.set_name("safeer-drm")
-        self.gradnik.set_can_focus(True)
-        self.gradnik.connect("size-allocate", lambda _g, _a: self._prilagodi())
-        self.gradnik.connect("draw", self._risi)
-        self.gradnik.add_events(Gdk.EventMask.KEY_PRESS_MASK)
+        self.gradnik.set_focusable(True)
+        self.gradnik.set_hexpand(True); self.gradnik.set_vexpand(True)
+        self.gradnik.connect("resize", lambda *_: self._prilagodi())
+        self.gradnik.set_draw_func(lambda _g, cr, *_: self._risi(_g, cr))
+        self._mesto = None
+        # Okno DRM je otrok vrhnjega okna, zato ga ob skritju gradnika (drug zavihek, Splet skrit) skrijemo sami.
+        self.gradnik.connect("map", lambda *_: self._vidno(True))
+        self.gradnik.connect("unmap", lambda *_: self._vidno(False))
         self.proces: Optional[subprocess.Popen] = None
         self.seja = ""
         self.stanje = ""
@@ -224,19 +236,39 @@ class Gostitelj:
         return izvrsljiva() is not None
 
     def _xid_starsa(self) -> int:
-        okno = self.gradnik.get_window()
-        if okno is None:
-            return 0
         try:
-            import gi
-            gi.require_version("GdkX11", "3.0")
-            from gi.repository import GdkX11
-            if not isinstance(okno, GdkX11.X11Window):
+            koren = self.gradnik.get_native()
+            povrsina = koren.get_surface() if koren is not None else None
+            if povrsina is None:
                 return 0
-            okno.ensure_native()
-            return int(okno.get_xid())
+            import gi
+            gi.require_version("GdkX11", "4.0")
+            from gi.repository import GdkX11
+            if not isinstance(povrsina, GdkX11.X11Surface):
+                return 0
+            return int(povrsina.get_xid())
         except Exception:  # noqa: BLE001 - Wayland: ni X11 okna
             return 0
+
+    def _pravokotnik(self):
+        """(x, y, sirina, visina) gradnika v X pikah povrsine vrhnjega okna."""
+        koren = self.gradnik.get_native()
+        if koren is None:
+            return None
+        ok, tocka = self.gradnik.compute_point(koren, self._Tocka())
+        if not ok:
+            return None
+        try:
+            dx, dy = koren.get_surface_transform()   # senca/okvir odjemalca (CSD)
+        except Exception:  # noqa: BLE001
+            dx = dy = 0.0
+        m = self.gradnik.get_scale_factor() or 1
+        return (int(round((tocka.x + dx) * m)), int(round((tocka.y + dy) * m)),
+                self.gradnik.get_width() * m, self.gradnik.get_height() * m)
+
+    def _Tocka(self):
+        from gi.repository import Graphene
+        return Graphene.Point().init(0, 0)
 
     def zacni(self, url: str, storitev: bool = False) -> bool:
         exe = izvrsljiva()
@@ -245,7 +277,6 @@ class Gostitelj:
         self.ustavi()
         uskladi_logiko(exe)
         self.url = url
-        self.gradnik.realize()
         stars = self._xid_starsa()
         mapa_sej = Path(os.path.expanduser("~/.cache/safeer-drm"))
         mapa_sej.mkdir(parents=True, exist_ok=True)
@@ -328,25 +359,36 @@ class Gostitelj:
             elif vrsta in ("FULLSCREEN_ON", "FULLSCREEN_OFF") and self.ob_celozaslonu:
                 self.ob_celozaslonu(vrsta == "FULLSCREEN_ON")
                 self.GLib.timeout_add(300, lambda: (self._prilagodi(), False)[1])
+        self._prilagodi()   # gradnik se premakne tudi brez spremembe velikosti (vrstica zavihkov skrita/prikazana)
         return True
 
     def _vstavi(self, okno: int) -> None:
         stars = self._xid_starsa()
         if not okno or not stars:
             return
+        mesto = self._pravokotnik()
+        if mesto is None:
+            return
         if self._x11 is None:
             self._x11 = _X11()
-        a = self.gradnik.get_allocation()
-        merilo = self.gradnik.get_scale_factor() or 1
-        self._x11.vstavi(okno, stars, a.width * merilo, a.height * merilo)
-        self._okno = okno
+        self._x11.vstavi(okno, stars, *mesto)
+        self._okno, self._mesto = okno, mesto
+
+    def _vidno(self, vidno: bool) -> None:
+        if self._x11 is not None and self._okno:
+            self._mesto = None
+            self._x11.pokazi(self._okno, vidno)
+            if vidno:
+                self._prilagodi()
 
     def _prilagodi(self) -> None:
         if self._x11 is None or not self._okno:
             return
-        a = self.gradnik.get_allocation()
-        merilo = self.gradnik.get_scale_factor() or 1
-        self._x11.velikost(self._okno, a.width * merilo, a.height * merilo)
+        mesto = self._pravokotnik()
+        if mesto is None or mesto == self._mesto:
+            return
+        self._mesto = mesto
+        self._x11.velikost(self._okno, *mesto)
 
     def _pospravi(self) -> None:
         if self.seja:

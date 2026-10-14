@@ -110,11 +110,14 @@ def tlak_omrezja(WebKit2, meja_mb: int) -> bool:
     s = tlak_webkit(WebKit2, meja_mb)
     if s is None:
         return False
-    try:
-        WebKit2.WebsiteDataManager.set_memory_pressure_settings(s)
-        return True
-    except Exception:  # noqa: BLE001 - starejsi WebKitGTK
-        return False
+    # WebKitGTK 6.0 (GTK4): staticna metoda je na NetworkSession; 4.1: na WebsiteDataManager.
+    for razred in ("NetworkSession", "WebsiteDataManager"):
+        try:
+            getattr(WebKit2, razred).set_memory_pressure_settings(s)
+            return True
+        except Exception:  # noqa: BLE001 - starejsi WebKitGTK ali drug API
+            continue
+    return False
 
 
 def recikliraj_omrezni(*, okno_aktivno: bool, neaktivno_s: float, prenosi: bool, nalaganje: bool,

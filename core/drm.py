@@ -15,6 +15,15 @@ import time
 import urllib.parse
 from typing import Callable, List, Optional, Tuple
 
+
+def _izvedi_js(pogled, koda: str) -> None:
+    """JavaScript v strani: WebKitGTK 6.0 (GTK4) ima samo evaluate_javascript, starejsi 4.1 run_javascript."""
+    if hasattr(pogled, "evaluate_javascript"):
+        pogled.evaluate_javascript(koda, -1, None, None, None, None, None)
+    else:
+        pogled.run_javascript(koda, None, None, None)
+
+
 MOST = "safeerDrm"
 
 SKRIPTA = r"""
@@ -193,7 +202,10 @@ def prikljuci(WebKit2, pogled, preusmeritev: Preusmeritev, jezik: Callable[[], s
     """Skripta in rokovalnik na pogledu WebKit: ob zahtevi za Widevine stran predvaja Safeer DRM v istem zavihku
     (vdelaj, Splet Safeer OS); ce tega ni ali ne gre, jo odpre v namescenem brskalniku z Widevine."""
     upravitelj = pogled.get_user_content_manager()
-    upravitelj.register_script_message_handler(MOST)
+    try:
+        upravitelj.register_script_message_handler(MOST, None)   # WebKitGTK 6.0 (GTK4): (ime, svet)
+    except TypeError:
+        upravitelj.register_script_message_handler(MOST)         # WebKit2GTK 4.1 (Safeer Browser, GTK3)
     # Sibka referenca: rokovalnik zivi na upravitelju vsebine, ki ga drzi pogled. Mocna referenca bi naredila krog
     # med C in Pythonom, ki ga zbiralnik ne vidi - zaprt zavihek (WebView) se ne bi nikoli sprostil (12. 10. 2026:
     # 30 zaprtih zavihkov = 30 zivih WebView, +68 MiB).
@@ -220,7 +232,7 @@ def prikljuci(WebKit2, pogled, preusmeritev: Preusmeritev, jezik: Callable[[], s
                 pogled.evaluate_javascript(koda, -1, None, None, None, None, None)
             except Exception:  # noqa: BLE001 - starejsi WebKitGTK
                 try:
-                    pogled.run_javascript(koda, None, None, None)
+                    _izvedi_js(pogled, koda)
                 except Exception:  # noqa: BLE001
                     pass
     upravitelj.connect("script-message-received::" + MOST, ob_sporocilu)

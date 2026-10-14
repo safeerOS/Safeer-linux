@@ -33,6 +33,14 @@ from core import link_deljenje, link_dostop, link_e2e, link_hub, link_hub_strezn
 from core import odlozisce_varuh  # noqa: E402
 
 
+def _izvedi_js(pogled, koda: str) -> None:
+    """JavaScript v strani: WebKitGTK 6.0 (GTK4) ima samo evaluate_javascript, starejsi 4.1 run_javascript."""
+    if hasattr(pogled, "evaluate_javascript"):
+        pogled.evaluate_javascript(koda, -1, None, None, None, None, None)
+    else:
+        pogled.run_javascript(koda, None, None, None)
+
+
 def _agent_na_voljo() -> bool:
     try:
         from core.agent.razumevanje import naslov_modela
@@ -440,7 +448,10 @@ class SafeerLink:
             return
 
         upravitelj = WebKit2.UserContentManager()
-        upravitelj.register_script_message_handler("safeerLink")
+        try:
+            upravitelj.register_script_message_handler("safeerLink", None)   # WebKitGTK 6.0
+        except TypeError:
+            upravitelj.register_script_message_handler("safeerLink")         # WebKit2GTK 4.1
         upravitelj.connect("script-message-received::safeerLink", self._na_sporocilo)
         # Jezik mora biti znan ze ob nalaganju strani: link.js ga prebere enkrat, stanje
         # (window.__safeerLink) pa pride sele po nalaganju - prej je stran padla na navigator.language
@@ -581,7 +592,7 @@ class SafeerLink:
         if pogled is None:
             return
         try:
-            pogled.run_javascript(koda, None, None, None)
+            _izvedi_js(pogled, koda)
         except Exception:
             pass
 
