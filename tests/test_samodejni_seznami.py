@@ -145,6 +145,17 @@ class MostKataloga(unittest.TestCase):
         self.assertTrue(all(s["url"].startswith("file:") for s in shranjen["skladbe"]))
         self.assertEqual(self.k.izvedi("mediaSamodejniShrani", ["ni-ga", "X"]), {"napaka": "ni_mogoce"})
 
+    def test_katalog_stremio_ni_uporabnikova_glasba(self):
+        """Vnosi kataloga dodatka Stremio (Flix-Music ...) gredo na seznam samo, ce jih je uporabnik ze predvajal:
+        na testnem PC je bil »Odkrij« iz 25 takih vnosov in nobeden ni zaigral (lastnik, 14. 10. 2026)."""
+        osebni = [{"id": "stremio:s:movie:%d" % i, "vrsta": "glasba", "naslov": "Pesem %d" % i, "izvajalec": "X",
+                   "url": "stremio:https://dodatek.example|movie|%d" % i} for i in range(20)]
+        osebni.append({"id": "nav-1", "vrsta": "glasba", "naslov": "Moja", "izvajalec": "Y", "url": "https://navidrome.example/1"})
+        self.k.mc._personal_items = lambda _q: osebni
+        idji = {s["id"] for s in self.k._zberi_skladbe()}
+        self.assertFalse(any(i.startswith("stremio:") for i in idji))
+        self.assertIn("nav-1", idji)
+
     def test_osvezitev_najvec_enkrat_na_10_minut(self):
         zacetki = []
         self.k.izracunaj_samodejne = lambda: zacetki.append(1) or []

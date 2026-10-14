@@ -569,6 +569,11 @@ class Katalog:
                     if not isinstance(item, dict) or item.get("vrsta") != "glasba" or not item.get("id") or not item.get("url"):
                         continue
                     n, t = stevci.get(str(item["id"]), (0, 0))
+                    if str(item["url"]).startswith("stremio:") and not n:
+                        # Katalog dodatka Stremio (npr. Flix-Music) ni uporabnikova glasba in pogosto nima toka: na
+                        # testnem PC 14. 10. 2026 je bil »Odkrij« iz 25 takih vnosov in nobeden ni zaigral (ni_toka).
+                        # Steje samo, kar je uporabnik ze predvajal.
+                        continue
                     zanri = item.get("zanri")
                     skladbe.append({"id": str(item["id"]), "naslov": item.get("naslov"), "izvajalec": item.get("izvajalec"),
                                     "zanr": ", ".join(str(z) for z in zanri) if isinstance(zanri, list) else zanri,
