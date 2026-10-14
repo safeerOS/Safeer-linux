@@ -3090,7 +3090,7 @@
     if (!ima && M.tokovi && Date.now() - M.tokovi.cas > 15000) { M.tokovi = null; narisiTokove(); }
     $("ploscaMediji").classList.toggle("prazno", !ima);
     $("medijNaslov").textContent = ima ? p.naslov : t("niPredvajanja");
-    var izh = IZ.z && SafeerIzhod.aktivna(IZ.z);
+    var izh = IZ && IZ.z && SafeerIzhod.aktivna(IZ.z);
     var pod = !ima ? t("medijNavodilo")
       : p.stanje === "napaka" ? t("napakaPredvajanja")
       : (p.stanje === "premor" ? t("vPremoru") : t("predvaja")) + (p.izvor ? " · " + p.izvor : "") +

@@ -4738,9 +4738,8 @@ class SafeerOS(Gtk.Application):
         self._dogodek("predvajalnik", self._medijski_podatki())
         self._mpris_osvezi()
 
-    def _yt_ukaz(self, ukaz: str) -> bool:
+    def _yt_ukaz(self, ukaz: str, yt: dict) -> bool:
         """Tipke pripomockov in sistema za skladbo v vgradnem predvajalniku YouTuba (glavna nit)."""
-        yt = self._yt_predvajanje()
         if ukaz == "premor":
             return self._katalog_youtube_ukaz("pauseVideo" if yt["stanje"] == "predvaja" else "playVideo")
         if ukaz in ("naslednja", "prejsnja"):
@@ -4754,8 +4753,9 @@ class SafeerOS(Gtk.Application):
         return False
 
     def _medijski_ukaz(self, ukaz: str, vrednost=None) -> bool:
-        if self._yt_predvajanje() is not None:
-            return self._yt_ukaz(ukaz)
+        yt = self._yt_predvajanje()
+        if yt is not None:          # katalog jo lahko hkrati konca (nit): podatke beremo enkrat
+            return self._yt_ukaz(ukaz, yt)
         servis = self._medijski_predvajalnik
         if not servis:
             return False

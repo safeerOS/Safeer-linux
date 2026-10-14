@@ -183,7 +183,12 @@
              v Safeer Playerju okno pod ~1100 px): navigacija se skrije, ostanejo vodoravni zavihki (#mediaKategorije). Odloca
              sirina Medijskega centra (@container), ne okna - enako v glavnem oknu s stransko vrstico in v Safeer Playerju. -->
         <div class="media-telo">
+          <!-- Skrita leva navigacija (lastnik, 14. 10. 2026): tanek rocaj na levem robu jo pokaze spet (kot stranska vrstica). -->
+          <button class="media-nav-rocaj" id="mediaNavRocaj" type="button" aria-controls="mediaNav"></button>
           <nav class="media-nav" id="mediaNav">
+            <div class="media-nav-glava">
+              <button class="gumb-ikona media-nav-skrci" id="mediaNavSkrci" type="button" aria-controls="mediaNav" aria-expanded="true"><svg data-ikona="vrstica"></svg></button>
+            </div>
             <div class="media-nav-kategorije" id="mediaNavKategorije" role="tablist" aria-orientation="vertical"></div>
             <div class="media-nav-viri" id="mediaNavViri" hidden>
               <h2 class="media-nav-naslov" id="mediaNavViriNaslov" data-t="mediaViriNaslov"></h2>
@@ -191,6 +196,7 @@
             </div>
             <!-- Skrij, kar uporabnik ne potrebuje (lastnik, 14. 10. 2026): plosca s potrditvenimi polji za zavihke in vire. -->
             <button class="media-nav-prilagodi" id="mediaNavPrilagodi" type="button" aria-haspopup="dialog" aria-controls="slojPrilagodi"><svg data-ikona="drsniki"></svg><span data-t="mediaPrilagodiMeni"></span></button>
+            <button class="media-nav-prilagodi media-nav-skrij" id="mediaNavSkrij" type="button" aria-controls="mediaNav"><svg data-ikona="x"></svg><span data-t="mediaNavSkrij"></span></button>
           </nav>
           <div class="media-vsebina">
         <div class="media-orodna">

@@ -121,6 +121,7 @@
       el.innerHTML = '<path d="' + (IK[el.getAttribute("data-ikona")] || "") + '"/>';
     });
     vrsticaUredi();
+    navNapisi();
     prevediKatalog();
   }
 
@@ -1343,6 +1344,8 @@
         b.setAttribute("aria-selected", S.mediaFilter === k[0] ? "true" : "false");
         b.setAttribute("data-kategorija", k[0]);
         b.addEventListener("click", function () { izberiZavihekMedijev(k[0]); });
+        // Skrcena navigacija kaze samo ikone: ime ostane bralniku zaslona in namigu.
+        if (cilj[1] === "media-nav-kategorija") { b.setAttribute("aria-label", t("media_" + k[0])); b.title = t("media_" + k[0]); }
         poveziMeniNav(b, "kat:" + k[0], t("media_" + k[0]));
         cilj[0].appendChild(b);
       });
@@ -1448,6 +1451,55 @@
     if (isti) naloziKatalog();
     narisiViriNav();
   }
+  // ---- leva navigacija: skrci na ikone ali povsem skrij (lastnik, 14. 10. 2026: »ali se da stransko vrstico skriti in
+  // jo zlahka spet pokazati«). Kot stranska vrstica Safeer OS (vrsticaPreklopi, vrsticaSkrij): gumb na vrhu navigacije,
+  // »Skrij meni« na dnu, rocaj na levem robu in tipke - v glavnem oknu Ctrl+Shift+B (Ctrl+B je stranska vrstica), v
+  // Safeer Playerju tudi Ctrl+B. Zapomni si vsaka vrsta okna posebej (udobje tega uporabnika: localStorage).
+  var NAV_KLJUC = "safeer_media_nav_" + (PREDVAJALNIK ? "player" : "glavno");
+  function navTipka() { return PREDVAJALNIK ? "Ctrl+B" : "Ctrl+Shift+B"; }
+  function navStanje() {
+    var r = $("r-media");
+    return !r ? "" : r.classList.contains("nav-skrita") ? "skrita" : r.classList.contains("nav-skrcena") ? "skrcena" : "";
+  }
+  function navNastavi(stanje, fokus) {
+    var r = $("r-media"); if (!r) return;
+    var prej = navStanje();
+    r.classList.toggle("nav-skrcena", stanje === "skrcena");
+    r.classList.toggle("nav-skrita", stanje === "skrita");
+    try { localStorage.setItem(NAV_KLJUC, stanje); } catch (e) {}
+    navNapisi();
+    if (!fokus) return;
+    if (stanje === "skrita") { var rocaj = $("mediaNavRocaj"); if (rocaj) rocaj.focus(); }
+    else if (prej === "skrita") { var izbran = document.querySelector(".media-nav-kategorija.izbrana") || $("mediaNavSkrci"); if (izbran) izbran.focus(); }
+  }
+  function navNapisi() {
+    var s = navStanje(), g = $("mediaNavSkrci"), rocaj = $("mediaNavRocaj"), skrij = $("mediaNavSkrij"), pril = $("mediaNavPrilagodi");
+    if (!g) return;
+    g.title = t(s === "skrcena" ? "mediaNavRazsiri" : "mediaNavSkrci", { tipka: navTipka() });
+    g.setAttribute("aria-label", g.title);
+    g.setAttribute("aria-expanded", s === "skrcena" ? "false" : "true");
+    rocaj.title = t("mediaNavPokazi", { tipka: navTipka() });
+    rocaj.setAttribute("aria-label", rocaj.title);
+    rocaj.setAttribute("aria-expanded", s === "skrita" ? "false" : "true");
+    skrij.setAttribute("aria-label", t("mediaNavSkrij")); skrij.title = t("mediaNavSkrij");
+    pril.setAttribute("aria-label", t("mediaPrilagodiMeni")); pril.title = t("mediaPrilagodiMeni");
+  }
+  function poveziNav() {
+    if (!$("mediaNavSkrci")) return;
+    try { var shranjeno = localStorage.getItem(NAV_KLJUC); if (shranjeno === "skrcena" || shranjeno === "skrita") navNastavi(shranjeno, false); } catch (e) {}
+    navNapisi();
+    $("mediaNavSkrci").addEventListener("click", function () { navNastavi(navStanje() === "skrcena" ? "" : "skrcena", false); });
+    $("mediaNavSkrij").addEventListener("click", function () { navNastavi("skrita", true); });
+    $("mediaNavRocaj").addEventListener("click", function () { navNastavi("", true); });
+    document.addEventListener("keydown", function (e) {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || (e.key !== "b" && e.key !== "B")) return;
+      if (!(e.shiftKey || PREDVAJALNIK)) return;          // Ctrl+B v glavnem oknu ostane stranski vrstici
+      var r = $("r-media"); if (!r || r.offsetParent === null || (!PREDVAJALNIK && S.razdelek !== "media")) return;
+      e.preventDefault();
+      // Skrita navigacija se najprej pokaze (kot stranska vrstica), sicer se skrci ali razsiri.
+      if (navStanje() === "skrita") navNastavi("", true); else navNastavi(navStanje() === "skrcena" ? "" : "skrcena", false);
+    });
+  }
   function narisiViriNav() {
     var ovoj = $("mediaNavViri"), seznam = $("mediaNavViriSeznam"); if (!ovoj || !seznam) return;
     var vnosi = [];
@@ -1466,7 +1518,7 @@
       var vrstica = el("div", "media-nav-vrstica"); vrstica.setAttribute("role", "listitem");
       var b = el("button", "media-nav-vir" + (v.izbran ? " izbran" : ""),
         svg(v.ikona) + '<span><b>' + ubezi(v.ime) + '</b><small>' + ubezi(v.pod) + '</small></span>');
-      b.type = "button"; b.title = v.ime;
+      b.type = "button"; b.title = v.ime; b.setAttribute("aria-label", v.ime + ", " + v.pod);
       if (v.izbran !== null) b.setAttribute("aria-pressed", v.izbran ? "true" : "false");
       b.addEventListener("click", v.dejanje);
       poveziMeniNav(b, v.kljuc, v.ime);
@@ -1721,7 +1773,7 @@
       if (opis === t("mediaTaRacunalnik")) opis = "";
     }
     // Zvok gre na drugo napravo ali zvocnik (»Predvajaj na …«): vrstica to pove, namesto »Ta racunalnik«.
-    var izh = IZ.z && SafeerIzhod.aktivna(IZ.z);
+    var izh = IZ && IZ.z && SafeerIzhod.aktivna(IZ.z);
     if (izh && izh.vrsta !== "racunalnik") opis = [opis, t("predvajaNa", { ime: izh.ime })].filter(Boolean).join(" · ");
     else if (!item && !opis) opis = t("mediaTaRacunalnik");
     $("mediaBarNaslov").textContent = naslov; $("mediaBarNaslov").title = naslov;
@@ -6275,6 +6327,7 @@
     $("medijiDodajPrazno").addEventListener("click", function () { $("medijiMapa").click(); });
     $("mediaBarOdpri").addEventListener("click", function () { klic("predvajalnikUkaz", ["odpri"]).catch(function () {}); });
     poveziTrak();
+    poveziNav();
     poveziPrilagodi();
     $("mediaBarNapredek").addEventListener("change", function () {
       var p = S.mediaPredvajalnik;
