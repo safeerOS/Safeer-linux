@@ -900,8 +900,10 @@ class SafeerControl(_OSNOVA):
                 pass
             koncano.set()
             return False
-        GLib.idle_add(delo)
-        koncano.wait(2.0)
+        # Prednost kot dogodki (ne »idle«): zasedena glavna zanka Safeer OS bi klic sicer zadrzevala.
+        GLib.idle_add(delo, priority=GLib.PRIORITY_DEFAULT)
+        if not koncano.wait(3.0):
+            return None              # seznama ta trenutek ni: Teamwork ne spremeni stanja odprtosti
         return list(izid)
 
     def _vir_teamwork(self, u):

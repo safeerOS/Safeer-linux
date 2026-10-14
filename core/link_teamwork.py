@@ -687,11 +687,15 @@ class Teamwork:
         """Ali ima datoteko odprto program na tej napravi. Ob odprtju zapomni razlicico, ki jo je program nalozil."""
         if okna is None:
             okna = self._okna()
+            if okna is None:
+                return
         program = je_odprta(s.pot, okna, procesi)
         if program is not None and not s.lokalno["odprto"]:
             s.lokalno.update(odprto=True, program=program, osnova=s.sha)
+            print("[Teamwork] tukaj odprto:", os.path.basename(s.pot), program)
         elif program is None and s.lokalno["odprto"]:
-            s.lokalno.update(odprto=False, osnova="")
+            s.lokalno.update(odprto=False, osnova="", program="")
+            print("[Teamwork] tukaj zaprto:", os.path.basename(s.pot))
         elif program is not None:
             s.lokalno["program"] = program
 
@@ -933,11 +937,14 @@ class Teamwork:
         return ", ".join(u.drugi) or u.ime_naprave
 
     # -------------------------------------------------------------- tik
-    def _okna(self) -> List[dict]:
+    def _okna(self) -> Optional[List[dict]]:
+        """Seznam oken ali None, ce ga ta trenutek ni (glavna nit zasedena): takrat stanja odprtosti ne spreminjamo -
+        sicer bi prazen seznam pomenil »zaprto« in Teamwork bi utripal."""
         try:
-            return list(self.okna() or [])
-        except Exception:  # noqa: BLE001 - brez seznama oken ostane zaznava po procesih
-            return []
+            o = self.okna()
+        except Exception:  # noqa: BLE001
+            return None
+        return None if o is None else list(o)
 
     def tik(self) -> None:
         with self._zaklep:
@@ -957,7 +964,8 @@ class Teamwork:
         for s in seje:
             with s.zaklep:
                 self._zaznaj_lokalno_shranitev(s)
-                self._preveri_lokalno(s, okna, procesi)
+                if okna is not None:
+                    self._preveri_lokalno(s, okna, procesi)
                 for i, u in list(s.udelezenci.items()):
                     if zdaj - u.get("cas", 0) > POTECE_S:
                         u["odprto"] = False
@@ -974,7 +982,7 @@ class Teamwork:
             try:
                 if not os.path.isfile(u.pot):
                     continue
-                program = je_odprta(u.pot, okna, procesi)
+                program = je_odprta(u.pot, okna, procesi) if okna is not None else (u.program if u.odprto else None)
                 odprto = program is not None
                 if odprto and not u.odprto:
                     u.odprto, u.program = True, program or ""
