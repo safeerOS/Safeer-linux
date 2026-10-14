@@ -252,7 +252,7 @@ Item {
             koren.klic("isciDatoteke", [q, 8], function (r) {
                 if (st !== zahteva) return
                 ;(r || []).forEach(function (d) {
-                    zadetkiModel.insert(Math.max(0, zadetkiModel.count - 1), { vrsta: "datoteka", ime: d.ime, opis: koren.kratkaPot(d.pot), kljuc: d.pot, ikona: "" })
+                    zadetkiModel.insert(Math.max(0, zadetkiModel.count - 1), { vrsta: d.mapa ? "mapa" : "datoteka", ime: d.ime, opis: koren.kratkaPot(d.pot), kljuc: d.pot, ikona: "" })
                 })
                 poUcenju()
             })
@@ -268,6 +268,7 @@ Item {
             }
             if (z.vrsta === "program") koren.klic("zazeni", [z.kljuc], function (ok) { if (!ok) koren.obvesti(koren.t("niUspelo")) })
             else if (z.vrsta === "datoteka") koren.klic("odpriDatoteko", [z.kljuc])
+            else if (z.vrsta === "mapa") datoteke.odpri({ vrsta: "lokalno", pot: z.kljuc })   // mapa se odpre v Datotekah
             else koren.klic("spletNaNamizju", [z.kljuc])
             polje.text = ""
         }
@@ -281,7 +282,7 @@ Item {
                 Row {
                     anchors.verticalCenter: parent.verticalCenter; x: 10; spacing: 12
                     Image { source: model.ikona; width: 26; height: 26; visible: model.ikona !== ""; sourceSize: Qt.size(52, 52) }
-                    Text { text: model.vrsta === "splet" ? "🌐" : "📄"; visible: model.ikona === ""; font.pixelSize: 20; width: 26 }
+                    Text { text: model.vrsta === "splet" ? "🌐" : model.vrsta === "mapa" ? "📁" : "📄"; visible: model.ikona === ""; font.pixelSize: 20; width: 26 }
                     Column {
                         Text { text: model.ime; color: koren.paleta.besedilo; font.pixelSize: 14; elide: Text.ElideRight; width: seznamZadetkov.width - 70 }
                         Text { text: model.opis; color: koren.paleta.medlo; font.pixelSize: 11; elide: Text.ElideMiddle; width: seznamZadetkov.width - 70; visible: text !== "" }
