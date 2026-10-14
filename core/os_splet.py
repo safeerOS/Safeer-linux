@@ -935,10 +935,14 @@ class VdelaniSplet:
             koda, self.WebKit2.UserContentInjectedFrames.ALL_FRAMES,
             cas or self.WebKit2.UserScriptInjectionTime.START, dovoljeni, izloceni))
 
-    def _nov_pogled(self):
+    def _nov_pogled(self, povezan=None):
         W = self.WebKit2
         # WebKitGTK 6.0: kontekst (procesi strani, meja pomnilnika) in omrezna seja (podatki, piskotki) sta locena.
-        pogled = W.WebView(web_context=self.kontekst, network_session=self.seja)
+        # povezan: okno, ki ga odpre stran (window.open, prijava z Googlom/Microsoftom): WebKit zahteva »related-view«,
+        # ki deli proces in sejo z izvorom; upravitelj vsebine in nastavitve sta svoja (preverjeno 14. 10. 2026), zato
+        # spodaj dobi iste skripte in nastavitve kot vsak zavihek.
+        pogled = (W.WebView(related_view=povezan) if povezan is not None
+                  else W.WebView(web_context=self.kontekst, network_session=self.seja))
         # Padec spletnega procesa (sesutje strani, pomanjkanje pomnilnika): zavihek se nalozi znova, kot v brskalniku.
         pogled.connect("web-process-terminated", self._proces_pomnilnik)   # pred obnovo (ta caka 400 ms)
         os_stabilnost.obnovi_ob_padcu(W, self.GLib, pogled, "safeer-os", "splet", ob_odpovedi=self._proces_koncan)
@@ -1009,9 +1013,9 @@ class VdelaniSplet:
         pogled.load_alternate_html(stran_procesa_koncana(self._t("proces_naslov"), self._t("proces_besedilo"),
                                                          self._t("proces_znova"), uri), uri, None)
 
-    def nov_zavihek(self, naslov: str = ""):
+    def nov_zavihek(self, naslov: str = "", povezan=None):
         self._stevec += 1
-        pogled = self._nov_pogled()
+        pogled = self._nov_pogled(povezan)
         vrstica = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=6)
         vrstica.add_css_class("splet-tab")
         ikona = self.Gtk.Label(label="🌐")
@@ -1028,7 +1032,8 @@ class VdelaniSplet:
         zavihek = {"pogled": pogled, "dogodek": dogodek, "vrstica": vrstica, "naslov": naslov_lbl, "ikona": ikona}
         self.zavihki.append(zavihek)
         self.izberi(pogled)
-        self.odpri(naslov, pogled)
+        if povezan is None:
+            self.odpri(naslov, pogled)      # okno strani nalozi WebKit sam (zahteva iz window.open)
         return pogled
 
     def zapri_zavihek(self, pogled):
@@ -1421,14 +1426,13 @@ class VdelaniSplet:
                 if self.stremio_dodatek is not None:
                     self.GLib.idle_add(lambda: self.stremio_dodatek(naslov) and False)
                 return True
-            if vrsta == W.PolicyDecisionType.NEW_WINDOW_ACTION:
-                odlocitev.ignore(); self.nov_zavihek(naslov); return True
+            nov_okno = vrsta == W.PolicyDecisionType.NEW_WINDOW_ACTION
             # Srednji klik ali Ctrl+klik na povezavo: nov zavihek (kot v drugih brskalnikih).
             if (dejanje.get_navigation_type() == W.NavigationType.LINK_CLICKED and naslov.startswith(("http://", "https://"))
                     and (dejanje.get_mouse_button() == 2 or dejanje.get_modifiers() & int(self.Gdk.ModifierType.CONTROL_MASK))):
                 odlocitev.ignore(); self.nov_zavihek(naslov); return True
             if naslov.startswith(("file://", "about:blank")):
-                odlocitev.use(); return True
+                odlocitev.use(); return True     # about:blank: okno za prijavo se pogosto odpre prazno
             if not naslov.startswith(("http://", "https://")):
                 odlocitev.ignore(); return True
             grozi = adblock.is_threat_domain(naslov)      # enkrat na navigacijo (prej dvakrat)
@@ -1439,6 +1443,8 @@ class VdelaniSplet:
             sodba = adblock.fake_bank_verdict(naslov)
             if sodba is not None:
                 odlocitev.ignore(); self._opozorilo_bank(pogled, naslov, sodba); return True
+            if nov_okno:
+                odlocitev.use(); return True     # zavihek naredi signal "create" (_novo_okno)
             if self.config.get("tracking_protection_enabled", True) and zahteva.get_http_method() == "GET":
                 cist = adblock.strip_tracking_parameters(naslov)
                 if cist != naslov: odlocitev.ignore(); pogled.load_uri(cist); return True
@@ -1449,14 +1455,14 @@ class VdelaniSplet:
         except Exception:
             odlocitev.ignore(); return True
 
-    def _novo_okno(self, _pogled, dejanje):
-        # WebKitGTK 6.0 zahteva, da je vrnjen pogled »related-view« izvornega; nas zavihek ima svoje nastavitve in
-        # skripte, zato stran odpremo v novem zavihku in WebKitu ne vrnemo pogleda (window.open ostane brez opener).
-        try: naslov = dejanje.get_request().get_uri() or ""
-        except Exception: naslov = ""
-        if naslov:
-            self.nov_zavihek(naslov)
-        return None
+    def _novo_okno(self, pogled, _dejanje):
+        """Okno, ki ga odpre stran (target=_blank, window.open): zavihek s povezanim pogledom. Prej je bil zavihek brez
+        opener, zato prijava v oknu (Google, Microsoft, Apple, placila) ni mogla vrniti rezultata strani, ki jo je
+        odprla (14. 10. 2026, kot safeer_mint.py new_tab(related_view)). Stran okno zapre z window.close()."""
+        nov = self.nov_zavihek(povezan=pogled)
+        ref = weakref.ref(nov)
+        nov.connect("close", lambda *_: ref() is not None and self.zapri_zavihek(ref()))
+        return nov
 
     def _ucene_brez_pospesevanja(self) -> list:
         return ucene_brez_pospesevanja(self.config)
