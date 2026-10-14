@@ -1488,10 +1488,23 @@ class VdelaniSplet:
         except Exception:
             odlocitev.ignore(); return True
 
-    def _novo_okno(self, pogled, _dejanje):
+    def _novo_okno(self, pogled, dejanje):
         """Okno, ki ga odpre stran (target=_blank, window.open): zavihek s povezanim pogledom. Prej je bil zavihek brez
         opener, zato prijava v oknu (Google, Microsoft, Apple, placila) ni mogla vrniti rezultata strani, ki jo je
         odprla (14. 10. 2026, kot safeer_mint.py new_tab(related_view)). Stran okno zapre z window.close()."""
+        # window.open ne gre skozi decide-policy NEW_WINDOW_ACTION (to je le za target=_blank; preizkus 14. 10.: okno na
+        # tujo stran se je odprlo), zato ista pravila tudi tu.
+        try:
+            naslov = dejanje.get_request().get_uri() or ""
+            prava = dejanje.get_navigation_type() == self.WebKit2.NavigationType.LINK_CLICKED
+        except Exception:  # noqa: BLE001
+            naslov, prava = "", False
+        if naslov.lower().startswith(("http://", "https://")):
+            if adblock.is_threat_domain(naslov) or (self.config.get("adblock_enabled", True) and adblock.is_ad_domain(naslov)):
+                self.config.increment_ads_blocked(); self._osvezi_scit(); return None
+            if self.config.get("popup_blokiraj", True) and not pojavna_okna.dovoli(
+                    pogled.get_uri() or "", naslov, prava, self.config.get("popup_dovoljeni", []) or []):
+                self._pojavno_blokirano(pogled, naslov); return None
         nov = self.nov_zavihek(povezan=pogled)
         ref = weakref.ref(nov)
         nov.connect("close", lambda *_: ref() is not None and self.zapri_zavihek(ref()))
