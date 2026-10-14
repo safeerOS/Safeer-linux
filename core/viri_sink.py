@@ -131,14 +131,15 @@ def obrezi_izbrisane(izbrisani: dict) -> dict:
 
 
 # ------------------------------------------------------------------ prijava osebnih streznikov v naslovih
-# Skladbe osebnih streznikov imajo prijavo v naslovu toka in ovitka: Jellyfin/Emby `api_key=<zeton>`, Navidrome/Subsonic
-# `u=…&t=md5(geslo+sol)&s=…`, Plex `X-Plex-Token`, Funkwhale `token`, Kodi in TVHeadend `uporabnik:geslo@`. Taki naslovi
-# ne smejo v sezname, police ali na druge naprave (pregled 14. 10. 2026: »Shrani kot seznam« jih je pisal v
-# seznami.json, lists.get pa jih je dal napravam v Linku). Shranimo naslov brez prijave; Medijski center jo doda ob
-# predvajanju iz zbirke skrivnosti (MediaCenter.s_prijavo).
+# Skladbe osebnih streznikov imajo prijavo v naslovu toka in ovitka: Jellyfin `ApiKey=<zeton>` (prej `api_key`), Emby
+# `api_key`, Navidrome/Subsonic `u=…&t=md5(geslo+sol)&s=…`, Plex `X-Plex-Token`, Funkwhale `token`, Kodi in TVHeadend
+# `uporabnik:geslo@`. Taki naslovi ne smejo v sezname, police ali na druge naprave (pregled 14. 10. 2026: »Shrani kot
+# seznam« jih je pisal v seznami.json, lists.get pa jih je dal napravam v Linku). Shranimo naslov brez prijave;
+# Medijski center jo doda ob predvajanju iz zbirke skrivnosti (MediaCenter.s_prijavo).
 
 #: Parametri, ki so prijava ne glede na pot (male crke).
-PARAMETRI_PRIJAVE = frozenset({"api_key", "x-emby-token", "x-mediabrowser-token", "token", "access_token", "x-plex-token"})
+PARAMETRI_PRIJAVE = frozenset({"api_key", "apikey", "x-emby-token", "x-mediabrowser-token", "token", "access_token",
+                               "x-plex-token"})
 #: Parametri Subsonic API (Navidrome, Airsonic …): kratka imena, zato samo na poti /rest/ ali *.view - drugje (npr.
 #: `t=` cas v posnetku) jih ne odstranimo.
 PARAMETRI_SUBSONIC = frozenset({"u", "t", "s", "p"})

@@ -35,6 +35,8 @@ modules:
   - packaging/webkit/webkitgtk6-safeer.yml
   # Typelib WebKita na pot, kjer ga Flatpak isce (skupen modul s Safeer Browserjem).
   - packaging/webkit/webkitgtk6-safeer-typelib.yml
+  # libsoup 3.8.0 (varnostni popravki, runtime 50 ima 3.6.6) - za WebKitom, da njegov predpomnilnik ostane.
+  - packaging/libsoup/libsoup3-safeer.yml
   - name: python3-pyside6
     # Lupina Safeer OS v Qt Quick (QML) kot na Windows - ena koda namizja za obe platformi (lastnik, 14. 10. 2026).
     # Qt na Linuxu vrti zanko GLib, zato GTK4 okna (Splet, vsebine na WebKitGTK) tecejo v istem procesu (PoC na testnem

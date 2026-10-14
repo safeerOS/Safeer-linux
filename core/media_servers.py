@@ -11,10 +11,12 @@ import base64
 import hashlib
 import ipaddress
 import json
+import platform
 import re
 import secrets
 import socket
 import unicodedata
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -91,11 +93,50 @@ def tok_odgovarja(url: str, glave: dict | None = None, rok: float = 4.0) -> bool
         return False
 
 
+# ---------------------------------------------------------------------------------- Jellyfin in Emby
+# Jellyfin 12 (7. 9. 2026) ima stare nacine prijave privzeto izklopljene (EnableLegacyAuthorization: glavi X-Emby-Token
+# in X-MediaBrowser-Token, parameter `api_key`, shema »Emby«) in nima vec /Users/{id}/Items. Vedno deluje glava
+# `Authorization: MediaBrowser … Token="…"` in parameter `ApiKey` (Jellyfin 10.8+, preverjeno v izvorni kodi
+# AuthorizationContext.cs 15. 10. 2026). Emby (zaprta koda) ostane pri `X-Emby-Token` in `api_key`.
+
+
+def _id_naprave_mediabrowser() -> str:
+    """Stalen DeviceId te namestitve. Jellyfin ob prijavi z istim DeviceId odjavi prejsnjo sejo, zato vse naprave
+    s Safeerjem ne smejo imeti istega (prej "safeer-os"). Iz /etc/machine-id prek SHA-256: id racunalnika ne gre ven."""
+    try:
+        with open("/etc/machine-id", "rb") as f:
+            mid = f.read(64).strip()
+    except OSError:
+        mid = b""
+    return "safeer-" + hashlib.sha256(b"safeer-mediabrowser:" + mid).hexdigest()[:16] if mid else "safeer-os"
+
+
+def _glava_mediabrowser(zeton: str = "") -> str:
+    def cisto(v: str) -> str:
+        return str(v).replace('"', "").replace(",", " ")
+    deli = ['Client="Safeer OS"', 'Device="%s"' % cisto(platform.system() or "Linux"),
+            'DeviceId="%s"' % _id_naprave_mediabrowser(), 'Version="1.0"']
+    if zeton:
+        deli.append('Token="%s"' % cisto(zeton))
+    return "MediaBrowser " + ", ".join(deli)
+
+
+def _glave_mediabrowser(kind: str, zeton: str) -> dict:
+    glave = {"Authorization": _glava_mediabrowser(zeton)}
+    if kind == "emby":
+        glave["X-Emby-Token"] = zeton
+    return glave
+
+
+def parameter_zetona(kind: str) -> str:
+    """Ime parametra z zetonom v naslovu toka in slike (GStreamer in WebKit glav ne dodata)."""
+    return "api_key" if kind == "emby" else "ApiKey"
+
+
 def authenticate(kind: str, base: str, username: str, secret: str) -> dict:
     if kind in ("jellyfin", "emby"):
-        auth = 'MediaBrowser Client="Safeer OS", Device="Windows", DeviceId="safeer-os", Version="1.0"'
         data = json.loads(_request(_url(base, "/Users/AuthenticateByName"),
-                                  {"Authorization": auth, "Content-Type": "application/json"},
+                                  {"Authorization": _glava_mediabrowser(), "Content-Type": "application/json"},
                                   {"Username": username, "Pw": secret}))
         token = data.get("AccessToken")
         user_id = (data.get("User") or {}).get("Id")
@@ -364,12 +405,23 @@ def _dlna_items(base: str, server: dict) -> list[dict]:
     return rezultat
 
 
-def _jellyfin_items(base: str, server: dict, token: str) -> list[dict]:
-    user_id = server.get("user_id", "")
-    raw = json.loads(_request(_url(base, "/Users/%s/Items" % urllib.parse.quote(user_id, safe=""), {
-        "Recursive": "true", "IncludeItemTypes": "Movie,Episode,Audio", "Limit": 1000,
-        "Fields": "Overview,RunTimeTicks,ProductionYear,Album,AlbumArtist,Artists",
-    }), {"X-Emby-Token": token}))
+def _jellyfin_items(base: str, server: dict, token: str, kind: str = "jellyfin") -> list[dict]:
+    user_id = str(server.get("user_id", ""))
+    parametri = {"Recursive": "true", "IncludeItemTypes": "Movie,Episode,Audio", "Limit": 1000,
+                 "Fields": "Overview,RunTimeTicks,ProductionYear,Album,AlbumArtist,Artists"}
+    glave = _glave_mediabrowser(kind, token)
+    stara_pot = _url(base, "/Users/%s/Items" % urllib.parse.quote(user_id, safe=""), parametri)
+    if kind == "emby":
+        raw = json.loads(_request(stara_pot, glave))
+    else:
+        # /Items?userId= je v Jellyfinu od 10.9, /Users/{id}/Items je 12 odstranil: starejsi strezniki vrnejo 404.
+        try:
+            raw = json.loads(_request(_url(base, "/Items", dict(parametri, userId=user_id)), glave))
+        except urllib.error.HTTPError as napaka:
+            if napaka.code != 404:
+                raise
+            raw = json.loads(_request(stara_pot, glave))
+    kljuc = parameter_zetona(kind)
     result = []
     for row in raw.get("Items", []):
         typ = row.get("Type")
@@ -377,9 +429,9 @@ def _jellyfin_items(base: str, server: dict, token: str) -> list[dict]:
         ident = str(row.get("Id") or "")
         if not ident:
             continue
-        image = _url(base, "/Items/%s/Images/Primary" % ident, {"maxHeight": 240, "api_key": token})
+        image = _url(base, "/Items/%s/Images/Primary" % ident, {"maxHeight": 240, kljuc: token})
         stream = _url(base, "/%s/%s/stream" % ("Audio" if typ == "Audio" else "Videos", ident),
-                      {"static": "true", "api_key": token})
+                      {"static": "true", kljuc: token})
         ticks = int(row.get("RunTimeTicks") or 0)
         result.append({"id": "server:%s:%s" % (server["id"], ident), "naslov": row.get("Name", ""),
                        "vrsta": media_kind, "url": stream, "slika": image,
@@ -449,7 +501,7 @@ def _plex_items(base: str, server: dict, token: str) -> list[dict]:
 
 def catalog(kind: str, base: str, server: dict, secret: str, query: str = "") -> list[dict]:
     if kind in ("jellyfin", "emby"):
-        rows = _jellyfin_items(base, server, secret)
+        rows = _jellyfin_items(base, server, secret, kind)
     elif kind == "navidrome":
         rows = _navidrome_items(base, server, secret, query)
     elif kind == "plex":
@@ -521,7 +573,7 @@ def s_prijavo(url: str, server: dict, secret: str) -> str:
         return cist
     d = urllib.parse.urlsplit(cist)
     if kind in ("jellyfin", "emby"):
-        dodatek = {"api_key": secret}
+        dodatek = {parameter_zetona(kind): secret}
     elif kind == "navidrome" and viri_sink.je_subsonic(d.path):
         sol = secrets.token_hex(8)
         dodatek = {"u": uporabnik, "t": hashlib.md5((secret + sol).encode(), usedforsecurity=False).hexdigest(), "s": sol}

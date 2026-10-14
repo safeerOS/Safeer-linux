@@ -32,6 +32,8 @@ modules:
   # v CI svoj predpomnilnik, glej .github/workflows/linux-packages.yml).
   - packaging/webkit/webkitgtk6-safeer.yml
   - packaging/webkit/webkitgtk6-safeer-typelib.yml
+  # libsoup 3.8.0 (varnostni popravki, runtime 50 ima 3.6.6) - za WebKitom, da njegov predpomnilnik ostane.
+  - packaging/libsoup/libsoup3-safeer.yml
   - name: safeer-browser
     buildsystem: simple
     build-commands:

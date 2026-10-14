@@ -1,0 +1,28 @@
+# libsoup 3.8.0 namesto tiste iz runtime-a: org.gnome.Platform//50 ima 3.6.6, //51 pa 3.7.3 (gnome-build-meta,
+# elements/sdk/libsoup.bst, preverjeno 15. 10. 2026). 3.8.0 popravi CVE-2026-3099 (Digest nonce), CVE-2026-66337
+# (multipart, branje cez mejo) in posredovanje shranjene prijave proxyja po preusmeritvi na drug izvor; 3.7.3 (vsebovan)
+# CVE-2026-5119 (piskotki proxyju) ter napake WebSocket, HTTP/2 in prijave proxyja. Isti soname (libsoup-3.0.so.0):
+# /app/lib je v iskalni poti pred /usr/lib, zato ga uporabijo nas WebKitGTK (omrezni proces), souphttpsrc iz GStreamerja
+# in core/doh_proxy.py (typelib Soup-3.0 v /app/lib/girepository-1.0). Modul je ZA WebKitom, da predpomnilnik WebKita
+# (2-3 h gradnje) ostane veljaven; libsoup 3 ohranja ABI, WebKit, preveden ob 3.6.6, zato dela s 3.8.0.
+# Moznosti kot v gnome-build-meta (brez NTLM, brez preizkusov in dokumentacije). Odstranimo, ko runtime dobi >= 3.8.0.
+name: libsoup3-safeer
+buildsystem: meson
+config-opts:
+  - -Dtests=false
+  - -Dinstalled_tests=false
+  - -Ddocs=disabled
+  - -Dvapi=disabled
+  - -Dautobahn=disabled
+  - -Dntlm=disabled
+  - -Dsysprof=disabled
+  - -Dpkcs11_tests=disabled
+  - -Dtls_check=false
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/gir-1.0
+sources:
+  - type: archive
+    url: https://download.gnome.org/sources/libsoup/3.8/libsoup-3.8.0.tar.xz
+    sha256: bbf08fa3e03a88c31a3d27a0d87cb422e9490f2d08e149211103df6d638a2238
