@@ -164,3 +164,26 @@ def test_safeer_chat_prek_linka():
         s.zacni_klepet("tv1", "Televizor")
         assert {sk["oseba"]["ime"] for sk in s.seznam()["skupine"]} == {"Telefon", "Televizor"}
         s.zapri()
+
+
+def test_dogodek_spremembe_za_kuverto():
+    """Kuverta v pultu se osvezi ob dogodku (novo sporocilo, prebran pogovor, sinhronizacija), ne z branjem baze
+    vsakih 30 s (lastnik, 15. 10. 2026)."""
+    from core import os_sporocila
+    from core.os_sporocila import KANAL_LINKA, SporocilaOS
+    dogodki = []
+    poslusalec = lambda: dogodki.append(1)  # noqa: E731
+    os_sporocila.ob_spremembi(poslusalec)
+    os_sporocila.ob_spremembi(poslusalec)            # dvojna prijava ne podvoji dogodkov
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            s = SporocilaOS(Path(d) / "s.sqlite3", zazeni=False)
+            assert s.prejmi_klepet("fon1", "Telefon", "Živjo", "", "m1") and len(dogodki) == 1
+            assert not s.prejmi_klepet("fon1", "Telefon", "Živjo", "", "m1") and len(dogodki) == 1
+            s.pogovor(KANAL_LINKA, "fon1")
+            assert len(dogodki) == 2
+            s.sinhroniziraj()
+            assert len(dogodki) == 3
+            s.zapri()
+    finally:
+        os_sporocila._poslusalci.remove(poslusalec)

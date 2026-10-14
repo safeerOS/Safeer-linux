@@ -139,6 +139,44 @@ class PladenjSni(unittest.TestCase):
         velikosti = [(s, v, len(b)) for s, v, b in lastnosti["IconPixmap"]]
         self.assertEqual(velikosti, [(32, 32, 32 * 32 * 4), (64, 64, 64 * 64 * 4)])
 
+    def test_kuverta_sporocil_poleg_ikone_controla(self):
+        """Kuverta Sporocil (Safeer OS) je SNI na lastni povezavi: v istem procesu kot ikona Controla (isti poti
+        /StatusNotifierItem in /MenuBar), brez Qt. Nova ikona in namig se sporocita s signaloma; klik odpre plosco."""
+        from core.pladenj_sni import Kuverta, Pladenj, lastno_vodilo
+        ikona = os.path.join(KOREN, "assets", "icon.png")
+        if not os.path.isfile(ikona):
+            self.skipTest("ni assets/icon.png")
+        self.pladenj = Pladenj("safeer-control", "Safeer Control", "safeer-control", [], vodilo=self.pladenj_vodilo)
+        kliki = []
+        vodilo_kuverte = lastno_vodilo(self.vodilo_test.get_bus_address())
+        kuverta = Kuverta(lambda: kliki.append(1), "Sporočila", vodilo=vodilo_kuverte)
+        try:
+            self._kuverta(kuverta, ikona, kliki)
+        finally:
+            kuverta.zapri()
+            vodilo_kuverte.close_sync(None)
+
+    def _kuverta(self, kuverta, ikona, kliki):
+        self.assertTrue(_pocakaj(lambda: len(self.prijave) == 2), self.prijave)
+        self.assertEqual(set(self.prijave), {self.pladenj.ime_vodila, kuverta.pladenj.ime_vodila})
+        signali = []
+        self.vodilo.signal_subscribe(None, "org.kde.StatusNotifierItem", None, "/StatusNotifierItem", None,
+                                     Gio.DBusSignalFlags.NONE, lambda *a: signali.append((a[1], a[4])), None)
+        kuverta.nastavi(ikona, "Sporočila: 3 neprebranih")
+        self.assertTrue(_pocakaj(lambda: {("NewIcon"), ("NewToolTip")} <= {s for _p, s in signali}), signali)
+        pladenj_controla = self.pladenj
+        self.pladenj = kuverta.pladenj           # _klic sprasuje self.pladenj
+        lastnosti = self._klic("/StatusNotifierItem", "org.freedesktop.DBus.Properties", "GetAll",
+                               GLib.Variant("(s)", ("org.kde.StatusNotifierItem",)), "(a{sv})").unpack()[0]
+        self.assertEqual((lastnosti["Id"], lastnosti["IconName"], lastnosti["ToolTip"][3]),
+                         ("safeer-os-sporocila", "", "Sporočila: 3 neprebranih"))
+        self.assertEqual(len(lastnosti["IconPixmap"]), 2)
+        self._klic("/StatusNotifierItem", "org.kde.StatusNotifierItem", "Activate", GLib.Variant("(ii)", (0, 0)), None)
+        self._klic("/MenuBar", "com.canonical.dbusmenu", "Event",
+                   GLib.Variant("(isvu)", (1, "clicked", GLib.Variant("i", 0), 0)), None)
+        self.assertTrue(_pocakaj(lambda: kliki == [1, 1]), kliki)
+        self.pladenj = pladenj_controla
+
 
 if __name__ == "__main__":
     unittest.main()

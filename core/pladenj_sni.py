@@ -237,6 +237,12 @@ class Pladenj:
                                                            self._strazar_je, None)
 
     # ------------------------------------------------------------------ javni vmesnik
+    def nastavi_ikono(self, ikona: str) -> None:
+        """Nova ikona (ime iz teme ali absolutna pot do slike); pladenj jo prebere ob signalu NewIcon."""
+        self.ikona_ime = "" if os.path.isabs(ikona) else ikona
+        self.ikona_slika = _slikovne_tocke(ikona) if os.path.isabs(ikona) else []
+        self._signal(SNI_POT, "org.kde.StatusNotifierItem", "NewIcon", None)
+
     def nastavi_namig(self, besedilo: str) -> None:
         self.namig = str(besedilo or "")
         self._signal(SNI_POT, "org.kde.StatusNotifierItem", "NewToolTip", None)
@@ -377,4 +383,31 @@ class Pladenj:
             p.aktiviraj()
 
 
-__all__ = ["Postavka", "Pladenj"]
+def lastno_vodilo(naslov: Optional[str] = None) -> Gio.DBusConnection:
+    """Lastna povezava z vodilom seje. Ikona SNI ima stalni poti (/StatusNotifierItem, /MenuBar): drugo ikono v istem
+    procesu (kuverta poleg ikone Controla) lahko objavimo samo na drugi povezavi."""
+    naslov = naslov or Gio.dbus_address_get_for_bus_sync(Gio.BusType.SESSION, None)
+    return Gio.DBusConnection.new_for_address_sync(
+        naslov, Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION,
+        None, None)
+
+
+class Kuverta:
+    """Kuverta Sporocil v pultu Safeer OS (StatusNotifierItem, brez Qt in brez GTK3): ikona s stevilom neprebranih,
+    levi klik ali postavka menija odpre plosco Sporocil. Vmesnik kot prejsnja os_lupina.Kuverta: nastavi(pot, opis)."""
+
+    def __init__(self, ob_kliku: Callable[[], None], napis: str, vodilo: Optional[Gio.DBusConnection] = None) -> None:
+        self._postavka = Postavka(napis)
+        self._postavka.connect("activate", lambda *_a: ob_kliku())
+        self.pladenj = Pladenj("safeer-os-sporocila", napis, "mail-unread-symbolic", [self._postavka],
+                               ob_aktivaciji=ob_kliku, vodilo=vodilo or lastno_vodilo())
+
+    def nastavi(self, pot_png: str, opis: str) -> None:
+        self.pladenj.nastavi_ikono(pot_png)
+        self.pladenj.nastavi_namig(opis)
+
+    def zapri(self) -> None:
+        self.pladenj.zapri()
+
+
+__all__ = ["Postavka", "Pladenj", "Kuverta", "lastno_vodilo"]

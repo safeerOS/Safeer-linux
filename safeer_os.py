@@ -383,6 +383,46 @@ def _zagotovi_control(vodilo) -> bool:
         return False
 
 
+#: Nastavitve Controla, ki so bile samo v njegovem pladnju: kljuc v Nastavitvah Safeer OS -> (postavka pladnja,
+#: stanje, nastavi). Prek postavke pladnja, kadar je pladenj: ostane uskladena in sprememba gre po isti poti.
+_NASTAVITVE_CONTROLA = {
+    "programi": ("programi", lambda c: bool(c.programi.vklopljeno), lambda c, v: c.nastavi_programe(v)),
+    "vesDisk": ("ves_disk", lambda c: bool(c.datoteke.mape.ves_disk), lambda c, v: c.nastavi_ves_disk(v)),
+    "zaslon": ("zaslon", lambda c: bool(c.zaslon.vklopljeno), lambda c, v: c.nastavi_zaslon(v)),
+    "predajanje": ("predvajanje", lambda c: bool(c.nastavitve.get("predvajanje_za_naprave", True)),
+                   lambda c, v: c.nastavi_predvajanje_za_naprave(v)),
+    "samozagon": ("samozagon", lambda c: bool(sys.modules["safeer_control"].Samozagon.je_vklopljen()),
+                  lambda c, v: c.nastavi_samozagon(v)),
+}
+
+
+def nastavitve_controla() -> Optional[dict]:
+    """Stanje nastavitev Controla, ki tece v tem procesu (core/en_proces.py); None, ce ne tece tu."""
+    c = en_proces.control_app()
+    if c is None:
+        return None
+    try:
+        return {k: stanje(c) for k, (_p, stanje, _n) in _NASTAVITVE_CONTROLA.items()}
+    except Exception as e:  # noqa: BLE001
+        print("[SafeerOS] nastavitve Controla:", e)
+        return None
+
+
+def nastavi_control(kljuc: str, vrednost: bool) -> Optional[bool]:
+    """Spremeni nastavitev Controla (glavna nit); vrne stanje, kot je obveljalo, ali None."""
+    c = en_proces.control_app()
+    zapis = _NASTAVITVE_CONTROLA.get(kljuc)
+    if c is None or zapis is None:
+        return None
+    ime_postavke, stanje, nastavi = zapis
+    postavka = getattr(getattr(c, "pladenj", None), ime_postavke, None)
+    if postavka is not None:
+        postavka.set_active(bool(vrednost))         # toggled -> isti klic kot klik v pladnju
+    else:
+        nastavi(c, bool(vrednost))
+    return stanje(c)
+
+
 def control_dejanje(ime: str, parameter: Optional["GLib.Variant"] = None) -> bool:
     """Dejanje v Safeer Controlu (prijava, nova-naprava, odjava). Ce Control ne tece, ga zazenemo v ozadju
     (pladenj) in pocakamo, da se javi na vodilu. Klicati v ozadju (ne na glavni niti)."""
@@ -2002,22 +2042,30 @@ class SafeerOS(Gtk.Application):
         return self._domov(razdelek)
 
     # ------------------------------------------------------------------ sporocila na namizju (kuverta in plosca)
-    KUVERTA_OSVEZI_S = 30
+    #: Varnostno osvezevanje stevila; sicer se kuverta osvezi ob dogodku (os_sporocila.ob_spremembi: novo sporocilo,
+    #: prebran pogovor, koncana sinhronizacija). Periodicno je potrebno samo, ce Control tece kot locen proces.
+    KUVERTA_OSVEZI_S = 120
 
-    #: Ikona kuverte v pultu, ki jo da lupina Qt (core/os_lupina.py, QSystemTrayIcon): predmet z metodo
-    #: nastavi(pot_png, opis); klik nanjo poklice _preklopi_plosco_sporocil(). None: kuverte ni.
+    #: Ikona kuverte v pultu: predmet z metodo nastavi(pot_png, opis); klik nanjo poklice _preklopi_plosco_sporocil().
+    #: None: kuverte ni.
     kuverta_pult = None
 
     def _namesti_kuverto(self):
-        """Ikona kuverte v pultu. GTK3 je imel XApp.StatusIcon (Cinnamon) ali Gtk.StatusIcon - obeh v GTK4 ni (XApp je
-        knjiznica GTK3 in se v procesu GTK4 ne da naloziti). Ikono v pultu da lupina Qt (QSystemTrayIcon) tako, da
-        nastavi `kuverta_pult`; brez nje (cista lupina GTK4) kuverte ni in vrnemo False."""
-        if self.kuverta_pult is None and self.lupina is not None:
+        """Ikona kuverte v pultu. GTK3 je imel XApp.StatusIcon (Cinnamon) ali Gtk.StatusIcon - obeh v GTK4 ni. Kuverta je
+        StatusNotifierItem (core/pladenj_sni.py) - isti sklad kot ikona Controla, brez Qt, zato dela tudi z namizjem
+        WebKit. Ikona Qt (QSystemTrayIcon) je samo nadomestek, ce SNI ne gre (ni vodila D-Bus)."""
+        if self.kuverta_pult is None:
+            ob_kliku = lambda: GLib.idle_add(lambda: (self._preklopi_plosco_sporocil(), False)[1])  # noqa: E731
             try:
-                self.kuverta_pult = os_lupina.Kuverta(lambda: GLib.idle_add(
-                    lambda: (self._preklopi_plosco_sporocil(), False)[1]))
+                from core import pladenj_sni
+                self.kuverta_pult = pladenj_sni.Kuverta(ob_kliku, BESEDILA_KUVERTE.get(_jezik(), BESEDILA_KUVERTE["en"])[0])
             except Exception as e:  # noqa: BLE001
-                print("[SafeerOS] kuverta (Qt):", e)
+                print("[SafeerOS] kuverta (SNI):", e)
+                if self.lupina is not None:
+                    try:
+                        self.kuverta_pult = os_lupina.Kuverta(ob_kliku)
+                    except Exception as e2:  # noqa: BLE001
+                        print("[SafeerOS] kuverta (Qt):", e2)
         return self.kuverta_pult or False
 
     def _zacni_kuverto(self) -> None:
@@ -2026,11 +2074,21 @@ class SafeerOS(Gtk.Application):
             return
         k = self._namesti_kuverto()
         if not k:
-            print("[SafeerOS] kuverta v pultu: ni ikone pulta (GTK4 brez lupine Qt)", flush=True)
+            print("[SafeerOS] kuverta v pultu: ni ikone pulta", flush=True)
             return
         self._kuverta, self._kuverta_stevilo = k, -1
         self._osvezi_kuverto()
+        os_sporocila.ob_spremembi(lambda: GLib.idle_add(lambda: (self._osvezi_kuverto(), False)[1]))
         GLib.timeout_add_seconds(self.KUVERTA_OSVEZI_S, lambda: (self._osvezi_kuverto(), True)[1])
+
+    def pokazi_sporocila(self) -> None:
+        """Klik na obvestilo novega sporocila (core/safeer_link.py): odpre plosco Sporocil, ce ni ze odprta."""
+        def zdaj() -> bool:
+            okno = getattr(self, "_plosca_sporocil", None)
+            if okno is None or not okno.get_visible():
+                self._preklopi_plosco_sporocil()
+            return False
+        GLib.idle_add(zdaj)
 
     def _osvezi_kuverto(self) -> None:
         def delo() -> None:
@@ -3109,6 +3167,8 @@ class SafeerOS(Gtk.Application):
             "aktivirajOkno": lambda: self._okno_dejanje(a[0] if a else 0, "aktiviraj"),
             "zapriOkno": lambda: self._okno_dejanje(a[0] if a else 0, "zapri"),
             "namizje": self._namizje,
+            "nastavitveDelov": self._nastavitve_delov,
+            "nastavitevDela": lambda: self._nastavitev_dela(pogled, str(a[0]) if a else "", a[1] if len(a) > 1 else None),
             "celozaslonsko": lambda: self._celozaslonsko(bool(a[0]) if a else True),
             "control": lambda: self._odpri_control(),
             "prijava": lambda: self._prijava(),
@@ -3643,6 +3703,48 @@ class SafeerOS(Gtk.Application):
 
     def _okno_dejanje(self, xid, dejanje: str) -> bool:
         return os_okna.dejanje(xid, dejanje, _cas_dogodka(self.okno))
+
+    def _nastavitve_delov(self) -> dict:
+        """Kateri deli Safeerja imajo nastavitve v Nastavitvah Safeer OS: Control (v tem procesu), Splet (WebKitov
+        peskovnik dela) in namizje QML (lupina tece)."""
+        return {"control": nastavitve_controla(), "splet": bool(self._peskovnik_na_voljo()),
+                "namizje": self.lupina is not None}
+
+    def _nastavitev_dela(self, pogled, kljuc: str, vrednost=None):
+        """Klik v skupinah Naprave in Link, Splet in Namizje (Nastavitve Safeer OS)."""
+        if kljuc in _NASTAVITVE_CONTROLA:
+            return nastavi_control(kljuc, bool(vrednost))
+        if kljuc == "mape":
+            c = en_proces.control_app()
+            if c is None:
+                return False
+            c.izberi_mape()
+            return True
+        if kljuc == "splet":
+            # Isto okno kot »Nastavitve« v meniju Spleta (ena nastavitev za vse primerke Spleta: ConfigManager).
+            # Splet se odpre, da je okno nad njim: v glavnem oknu ali, na delovni povrsini, v plosci na namizju.
+            splet = self._spletni or getattr(self, "_spletni_namizje", None)
+            if splet is None:
+                if self.okno is not None and self.okno.get_visible():
+                    self._splet("")
+                    splet = self._spletni
+                else:
+                    self._splet_na_namizju("", domov=True)
+                    splet = getattr(self, "_spletni_namizje", None)
+            if splet is None:
+                return False
+            splet._nastavitve()
+            return True
+        if kljuc == "namizje" and self.lupina is not None:
+            # »Prilagodi namizje« je na namizju QML (pod okni): okno z Nastavitvami se umakne, da je vidno.
+            okno = pogled.get_root() if hasattr(pogled, "get_root") else None
+            if isinstance(okno, Gtk.Window):
+                okno.minimize()
+            if okno is not self.okno:
+                self._namizje()
+            self.lupina.dogodek("prilagodi", {})
+            return True
+        return False
 
     def _namizje(self) -> bool:
         """Umakne Safeer OS in pokaze Mintovo namizje (vrne se s klikom v meniju ali na plosci)."""

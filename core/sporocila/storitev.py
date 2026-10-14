@@ -7,7 +7,7 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Dict, Iterable, Optional
+from typing import Callable, Dict, Iterable, Optional
 
 from .adapter import Adapter
 from .identiteta import IdentitetniGraf, PRIVZETA_POT, zasebna_baza
@@ -41,6 +41,8 @@ class StoritevSporocil:
                 self.db.execute("ALTER TABLE pogovori ADD COLUMN identiteta TEXT NOT NULL DEFAULT ''")
         self._sinhronizacija = threading.Lock()
         self._obnovljeni = set()
+        #: Klic po vsaki sinhronizaciji (kuverta v pultu Safeer OS osvezi stevilo neprebranih brez periodicnega branja).
+        self.ob_sinhronizaciji: Optional[Callable[[], None]] = None
 
     def registriraj(self, kanal: Kanal, adapter: Adapter, nastavitve: Optional[dict] = None) -> None:
         nastavitve = dict(nastavitve or {})
@@ -63,7 +65,13 @@ class StoritevSporocil:
     def sinhroniziraj(self, kanal_id: Optional[str] = None) -> int:
         """Prenese novo. Hkrati tece najvec ena sinhronizacija (zanka v ozadju in gumb v vmesniku)."""
         with self._sinhronizacija:
-            return self._sinhroniziraj(kanal_id)
+            skupaj = self._sinhroniziraj(kanal_id)
+        if self.ob_sinhronizaciji is not None:
+            try:
+                self.ob_sinhronizaciji()
+            except Exception:  # noqa: BLE001 - poslusalec ne sme ustaviti zanke sinhronizacije
+                pass
+        return skupaj
 
     @staticmethod
     def _razlog(napaka: Exception) -> str:
