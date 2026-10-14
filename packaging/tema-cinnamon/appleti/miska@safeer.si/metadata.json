@@ -1,0 +1,7 @@
+{
+    "uuid": "miska@safeer.si",
+    "name": "Safeer Mouse",
+    "description": "Mouse settings and the battery of a wireless mouse, in one place",
+    "icon": "input-mouse",
+    "max-instances": 1
+}
