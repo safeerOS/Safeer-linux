@@ -1042,7 +1042,8 @@ def poslji_obvestilo(app, Gio, GLib, prosnja: dict, jezik: Optional[str]) -> str
     obvestilo = Gio.Notification.new(NASLOV)
     obvestilo.set_body(telo_obvestila(prosnja, jezik))
     try:
-        obvestilo.set_icon(Gio.ThemedIcon.new("safeer-control"))
+        from core import obvestila
+        obvestilo.set_icon(Gio.ThemedIcon.new(obvestila.ikona(app)))
     except Exception:  # noqa: BLE001 - brez ikone je obvestilo enako uporabno
         pass
     try:
@@ -1054,15 +1055,15 @@ def poslji_obvestilo(app, Gio, GLib, prosnja: dict, jezik: Optional[str]) -> str
     for gumb, dejanje in (("dovoli", DEJANJE_DOVOLI), ("zavrni", DEJANJE_ZAVRNI)):
         obvestilo.add_button_with_target(besedilo_obvestila(jezik, gumb), "app." + dejanje, GLib.Variant("s", kljuc))
     ident = id_obvestila(kljuc)
-    app.send_notification(ident, obvestilo)
+    # Ena pot obvestil (core/obvestila.py): v procesu Safeer OS gre obvestilo pod Safeer OS kot vsa druga.
+    from core import obvestila
+    obvestila.poslji_gio(ident, obvestilo, app)
     return ident
 
 
 def umakni_obvestilo(app, kljuc_prosnje: str) -> None:
-    try:
-        app.withdraw_notification(id_obvestila(kljuc_prosnje))
-    except Exception:  # noqa: BLE001
-        pass
+    from core import obvestila
+    obvestila.umakni(id_obvestila(kljuc_prosnje), app)
 
 
 def registriraj_dejanja(app, Gio, GLib, dovoli: Callable[[str, str], object], zavrni: Callable[[str, str], object],
@@ -1080,13 +1081,16 @@ def registriraj_dejanja(app, Gio, GLib, dovoli: Callable[[str, str], object], za
                 print("[SafeerControl] prosnja za dostop:", e, flush=True)
             umakni_obvestilo(app, par[0] + "|" + par[1])
         return obravnava
-    for ime, klic in ((DEJANJE_DOVOLI, dovoli), (DEJANJE_ZAVRNI, zavrni)):
-        dejanje = Gio.SimpleAction.new(ime, GLib.VariantType.new("s"))
-        dejanje.connect("activate", ob_odgovoru(klic))
-        app.add_action(dejanje)
-    naprave = Gio.SimpleAction.new(DEJANJE_NAPRAVE, None)
-    naprave.connect("activate", lambda _d, _p: odpri_naprave())
-    app.add_action(naprave)
+    # Na aplikaciji Control in na Safeer OS, ce tece v istem procesu: obvestilo gre prek Safeer OS (core/obvestila.py).
+    from core import obvestila
+    for cilj in obvestila.registriraj_na(app):
+        for ime, klic in ((DEJANJE_DOVOLI, dovoli), (DEJANJE_ZAVRNI, zavrni)):
+            dejanje = Gio.SimpleAction.new(ime, GLib.VariantType.new("s"))
+            dejanje.connect("activate", ob_odgovoru(klic))
+            cilj.add_action(dejanje)
+        naprave = Gio.SimpleAction.new(DEJANJE_NAPRAVE, None)
+        naprave.connect("activate", lambda _d, _p: odpri_naprave())
+        cilj.add_action(naprave)
 
 
 def _za_preizkus(pot: Optional[str]) -> None:

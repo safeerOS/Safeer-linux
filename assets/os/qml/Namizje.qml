@@ -35,6 +35,7 @@ Item {
             if (vrsta === "iskanjeOdDrugod" && p && p.q) { polje.text = p.q; polje.forceActiveFocus() }
             if (vrsta === "predvajalnik" && p) koren.medij = p
             if (vrsta === "medijskaKnjiznica") koren.osveziMedij()
+            if (vrsta === "prilagodi") prilagodi.odpri()   // Nastavitve Safeer OS -> Namizje -> Prilagodi namizje
         }
     }
     property string jezik: "sl"

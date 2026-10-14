@@ -16,8 +16,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
-import subprocess
 import threading
 import time
 from typing import Callable, Dict, List, Optional, Tuple
@@ -2199,12 +2197,13 @@ class SafeerLink:
         except Exception as e:  # noqa: BLE001
             print(f"[SafeerLink] Klepeta ni bilo mogoče shraniti: {e}")
             return
-        if novo and shutil.which("notify-send"):
-            try:
-                subprocess.Popen(["notify-send", "-a", "Safeer OS", "-i", "safeer-os", ime, telo["text"][:300]],
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except OSError:
-                pass
+        if novo:
+            # Ena pot obvestil (core/obvestila.py); novo sporocilo iste naprave zamenja prejsnje obvestilo, klik nanj
+            # odpre plosco Sporocil v Safeer OS (ce tece v tem procesu).
+            from core import en_proces, obvestila
+            obvestila.poslji(ime, telo["text"][:300], "safeer-klepet-" + od,
+                             privzeto=getattr(en_proces.os_app(), "pokazi_sporocila", None),
+                             app=en_proces.control_app())
 
     def zapisi_stanje_za_os(self) -> None:
         """Safeer OS (locen proces) bere naprave in stanje zvoka iz datoteke v XDG_RUNTIME_DIR.

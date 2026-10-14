@@ -68,6 +68,25 @@ def _cas_klepeta(vrednost: str) -> str:
         return _cas_zdaj()
 
 
+#: Poslusalci sprememb neprebranih (kuverta v pultu Safeer OS): klic brez argumentov, iz katerekoli niti. Dogodek
+#: namesto periodicnega branja baze (lastnik, 15. 10. 2026: kuverta je prej brala bazo vsakih 30 s).
+_poslusalci: List[Callable[[], None]] = []
+
+
+def ob_spremembi(klic: Callable[[], None]) -> None:
+    """Prijava poslusalca: novo sporocilo, prebran pogovor ali koncana sinhronizacija."""
+    if klic not in _poslusalci:
+        _poslusalci.append(klic)
+
+
+def _sporoci() -> None:
+    for klic in list(_poslusalci):
+        try:
+            klic()
+        except Exception as e:  # noqa: BLE001 - poslusalec ne sme podreti prejema sporocila
+            print("[Sporocila] poslusalec:", e, flush=True)
+
+
 class SporocilaOS:
     #: Osnutke shranjujejo, brisejo in usklajujejo locene niti mostu (safeer_os.py, ozadje): brez zaklepa
     #: branje-sprememba-zapis osnutki.json in IMAP APPEND/brisanje izgubijo, podvojijo ali obudijo osnutek
@@ -80,6 +99,7 @@ class SporocilaOS:
         self.poslji_klepet: Optional[Callable[[str, str, str], str]] = None
         #: Naprave v Linku, ki znajo klepet (nastavi gostitelj): [{"id", "ime"}]
         self.naprave_klepeta: Optional[Callable[[], List[dict]]] = None
+        self.storitev.ob_sinhronizaciji = _sporoci
         self._nalozi()
         if zazeni and self.storitev.adapterji:
             self.storitev.zazeni()
@@ -287,6 +307,7 @@ class SporocilaOS:
 
     def pogovor(self, kanal_id: str, pogovor_id: str) -> list:
         self.storitev.oznaci_prebrano(kanal_id, pogovor_id)
+        _sporoci()
         return [s.slovar() for s in self.storitev.sporocila(kanal_id, pogovor_id)]
 
     def poslji(self, kanal_id: str, pogovor_id: str, besedilo: str) -> dict:
@@ -450,6 +471,7 @@ class SporocilaOS:
             st.db.execute("INSERT OR REPLACE INTO sporocila VALUES(?,?,?,?,?,?,?,?)",
                           (sid, od, KANAL_LINKA, "noter", besedilo, cas, "[]", "prejeto"))
         self._pogovor_linka(od, ime, besedilo.replace("\n", " "), cas, 1)
+        _sporoci()
         return True
 
     def zacni_klepet(self, naprava_id: str, ime: str) -> dict:

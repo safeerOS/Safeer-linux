@@ -3354,6 +3354,7 @@
     var odVklopa = S.zacetek && S.zacetek.odVklopa;
     $("stikaloOdVklopa").hidden = !(odVklopa && odVklopa.na_voljo);
     $("stikaloOdVklopa").setAttribute("aria-checked", odVklopa && odVklopa.vklopljeno ? "true" : "false");
+    narisiNastavitveDelov();
     var cilj = $("skupineNastavitev");
     cilj.innerHTML = "";
     seznamNastavitev().forEach(function (g) {
@@ -3369,6 +3370,57 @@
     $("oSistemu").textContent = t("razlicica", { v: (S.zacetek && S.zacetek.razlicica) || "" }) +
       (S.zacetek ? " · " + S.zacetek.racunalnik : "");
     if (!S.stanje) klic("stanje").then(function (s) { narisiStanje(s); kontrole($("hitreNastavitve"), false); }, function () {});
+  }
+
+  // Nastavitve delov Safeerja na enem mestu (lastnik, 15. 10. 2026: »vse je en proces«): kar je bilo prej samo v
+  // pladnju Controla, v meniju Spleta ali v desnem kliku na namizje. Most pove, kateri del tece; skupine dela, ki ne
+  // tece, ne pokazemo (brez mrtvih gumbov). Stikala kazejo stanje, ki ga vrne Control (ne zeljenega).
+  function narisiNastavitveDelov() {
+    var cilj = $("nastavitveDelov");
+    if (!cilj) return;
+    klic("nastavitveDelov").then(function (d) {
+      cilj.innerHTML = "";
+      if (!d) return;
+      function skupina(naslov, gumbi) {
+        cilj.appendChild(el("h2", "", ubezi(naslov)));
+        var m = el("div", "hitre");
+        gumbi.forEach(function (g) { m.appendChild(g); });
+        cilj.appendChild(m);
+      }
+      function gumb(ikona, kljuc, preklop, ob) {
+        var b = el("button", "stikalo", svg(ikona) + "<div><span>" + ubezi(t(kljuc)) + "</span><small>" +
+          ubezi(t(kljuc + "Pod")) + "</small></div>" + (preklop === null ? "" : "<i></i>"));
+        b.dataset.nastavitev = kljuc;
+        if (preklop !== null) {
+          b.setAttribute("role", "switch");
+          b.setAttribute("aria-checked", preklop ? "true" : "false");
+        }
+        b.addEventListener("click", function () { ob(b); });
+        return b;
+      }
+      function stikalo(ikona, kljuc, ime, stanje) {
+        return gumb(ikona, kljuc, !!stanje, function (b) {
+          var nov = b.getAttribute("aria-checked") !== "true";
+          b.setAttribute("aria-checked", nov ? "true" : "false");
+          klic("nastavitevDela", [ime, nov]).then(function (zdaj) {
+            if (typeof zdaj === "boolean") b.setAttribute("aria-checked", zdaj ? "true" : "false");
+          }).catch(function () { b.setAttribute("aria-checked", nov ? "false" : "true"); });
+        });
+      }
+      var c = d.control;
+      if (c) {
+        skupina(t("gNapraveLink"), [
+          gumb("mapa", "ndMape", null, function () { klic("nastavitevDela", ["mape"]); }),
+          stikalo("disk", "ndVesDisk", "vesDisk", c.vesDisk),
+          stikalo("programi", "ndProgrami", "programi", c.programi),
+          stikalo("zaslon", "ndZaslon", "zaslon", c.zaslon),
+          stikalo("naprave", "predajaStikalo", "predajanje", c.predajanje),
+          stikalo("ponovno", "ndSamozagon", "samozagon", c.samozagon)
+        ]);
+      }
+      if (d.splet) skupina(t("gSplet"), [gumb("splet", "ndSplet", null, function () { klic("nastavitevDela", ["splet"]); })]);
+      if (d.namizje) skupina(t("gNamizje"), [gumb("paleta", "ndNamizje", null, function () { klic("nastavitevDela", ["namizje"]); })]);
+    }, function () { cilj.innerHTML = ""; });
   }
 
   // ------------------------------------------------------------------ napajanje

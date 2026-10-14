@@ -348,10 +348,11 @@ class GumbiNaObvestilu(unittest.TestCase):
         self.assertIn("pair_id", self.s.hub.zacni_seznanitev("telefon", "Telefon", B))
 
     def test_signal_obvestilnega_streznika_izvede_dejanje_enkrat(self):
+        from core import obvestila
         klici = []
-        link_hub_streznik._zapomni_dejanja(41, {"sprosti": lambda: klici.append("sprosti")})
-        link_hub_streznik._zapomni_dejanja(42, {"odpri": lambda: klici.append("odpri")})
-        signal = lambda ime, *p: link_hub_streznik._ob_signalu_obvestila(  # noqa: E731
+        obvestila._zapomni_dejanja(41, {"sprosti": lambda: klici.append("sprosti")})
+        obvestila._zapomni_dejanja(42, {"odpri": lambda: klici.append("odpri")})
+        signal = lambda ime, *p: obvestila._ob_signalu_obvestila(  # noqa: E731
             None, "", "", "", ime, mock.Mock(unpack=lambda: p))
         signal("ActionInvoked", 41, "neznan")      # neznan gumb: nic; obvestilo je s tem porabljeno
         signal("ActionInvoked", 41, "sprosti")
@@ -360,28 +361,29 @@ class GumbiNaObvestilu(unittest.TestCase):
         signal("NotificationClosed", 42, 1)
         signal("ActionInvoked", 42, "odpri")
         self.assertEqual(klici, ["odpri"])
-        link_hub_streznik._zapomni_dejanja(43, {"sprosti": lambda: klici.append("sprosti")})
+        obvestila._zapomni_dejanja(43, {"sprosti": lambda: klici.append("sprosti")})
         signal("ActionInvoked", 43, "sprosti")
         signal("ActionInvoked", 43, "sprosti")
         self.assertEqual(klici, ["odpri", "sprosti"])
         # Dejanje, ki pade, ne podre glavne zanke.
-        link_hub_streznik._zapomni_dejanja(44, {"x": lambda: 1 / 0})
+        obvestila._zapomni_dejanja(44, {"x": lambda: 1 / 0})
         signal("ActionInvoked", 44, "x")
         # Spomin je omejen.
-        for i in range(100, 100 + 3 * link_hub_streznik.NAJVEC_OBVESTIL_Z_GUMBI):
-            link_hub_streznik._zapomni_dejanja(i, {"a": lambda: None})
-        self.assertLessEqual(len(link_hub_streznik._dejanja), link_hub_streznik.NAJVEC_OBVESTIL_Z_GUMBI)
+        for i in range(100, 100 + 3 * obvestila.NAJVEC_OBVESTIL_Z_GUMBI):
+            obvestila._zapomni_dejanja(i, {"a": lambda: None})
+        self.assertLessEqual(len(obvestila._dejanja), obvestila.NAJVEC_OBVESTIL_Z_GUMBI)
 
     @unittest.skipUnless(importlib.util.find_spec("gi"), "gumbi na obvestilu gredo po D-Bus (gi), ki ga tu ni")
     def test_narocilo_na_signal_drzi_povezavo_z_vodilom(self):
         """Gio.bus_get_sync vrne skupno povezavo, ki se zapre, ko jo spusti zadnji lastnik - z njo izgine narocilo na
         signal in gumb je mrtev (videno v Cinnamonu: pritisk je obvestilo zaprl, zgodilo pa se ni nic)."""
+        from core import obvestila
         vodilo = mock.Mock()
-        with mock.patch.object(link_hub_streznik, "_dejanja_narocena", False), \
-                mock.patch.object(link_hub_streznik, "_vodilo_dejanj", None):
-            link_hub_streznik._naroci_dejanja(vodilo)
-            self.assertIs(link_hub_streznik._vodilo_dejanj, vodilo)
-            link_hub_streznik._naroci_dejanja(vodilo)
+        with mock.patch.object(obvestila, "_dejanja_narocena", False), \
+                mock.patch.object(obvestila, "_vodilo_dejanj", None):
+            obvestila._naroci_dejanja(vodilo)
+            self.assertIs(obvestila._vodilo_dejanj, vodilo)
+            obvestila._naroci_dejanja(vodilo)
             self.assertEqual(vodilo.signal_subscribe.call_count, 1, "narocilo je eno na proces")
             self.assertEqual(vodilo.signal_subscribe.call_args[0][2], "ActionInvoked")
 
