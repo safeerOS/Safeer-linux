@@ -68,13 +68,17 @@ def razcleni_mime(izpis: str) -> Tuple[str, List[str]]:
             continue
         nizka = v.lower()
         trenutna = ""
-        if nizka.startswith("default application"):
-            ime = v.rsplit(":", 1)[-1].strip()
+        ime = v.rsplit(":", 1)[-1].strip() if ":" in v else ""
+        if nizka.startswith("default application") or (ime.endswith(".desktop") and not privzeti):
             privzeti = ime if _OZNAKA.match(ime) else ""
         elif nizka.startswith("recommended applications"):
             trenutna = "recommended"
         elif nizka.startswith("registered applications"):
             trenutna = "registered"
+        elif v.rstrip().endswith(":"):
+            # Izpis v jeziku racunalnika (Flatpak: gio tece na gostitelju prek flatpak-spawn, ki LC_ALL ne prenese -
+            # testni PC 14. 10. 2026: »Vpisani programi:«). Vrstni red gio je vedno: vpisani, nato priporoceni.
+            trenutna = "registered" if not skupine["registered"] else "recommended"
     vrstni: List[str] = []
     for ime in ([privzeti] if privzeti else []) + skupine["recommended"] + skupine["registered"]:
         if ime not in vrstni:

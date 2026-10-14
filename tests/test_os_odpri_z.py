@@ -174,3 +174,14 @@ class OdpriZ(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_izpis_gio_v_jeziku_racunalnika():
+    """Flatpak: gio na gostitelju odgovori v jeziku racunalnika (testni PC 14. 10. 2026, slovenscina)."""
+    from core import os_odpri_z
+    izpis = ("Privzet program za »application/vnd.oasis.opendocument.text«: libreoffice-writer.desktop\n"
+             "Vpisani programi:\n\tai.storyteller.wordcraft.desktop\n\tlibreoffice-writer.desktop\n\torg.gnome.FileRoller.desktop\n"
+             "Priporočeni programi:\n\tai.storyteller.wordcraft.desktop\n\tlibreoffice-writer.desktop\n")
+    privzeti, vsi = os_odpri_z.razcleni_mime(izpis)
+    assert privzeti == "libreoffice-writer.desktop"
+    assert vsi == ["libreoffice-writer.desktop", "ai.storyteller.wordcraft.desktop", "org.gnome.FileRoller.desktop"]

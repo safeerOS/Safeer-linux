@@ -15,7 +15,9 @@ for tool in $TOOLS; do
     cat > "$DEST/$tool" << 'EOF'
 #!/bin/sh
 # Runs the host's tool of the same name (Safeer OS Flatpak).
-exec flatpak-spawn --host --env=DISPLAY="${DISPLAY:-}" --env=WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" "$(basename "$0")" "$@"
+# LC_ALL/LANGUAGE: Python izpis orodij razclenjuje v anglescini (LC_ALL=C) - brez tega gostitelj odgovori v svojem jeziku.
+exec flatpak-spawn --host --env=DISPLAY="${DISPLAY:-}" --env=WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
+    ${LC_ALL:+"--env=LC_ALL=$LC_ALL"} ${LANGUAGE:+"--env=LANGUAGE=$LANGUAGE"} "$(basename "$0")" "$@"
 EOF
     chmod 755 "$DEST/$tool"
 done
