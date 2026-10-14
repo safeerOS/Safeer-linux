@@ -52,7 +52,7 @@ Section: x11
 Priority: optional
 Architecture: ${ARCH}
 Depends: python3, python3-cryptography, python3-gi, python3-gi-cairo, python3-qrcode, python3-zeroconf, gir1.2-gtk-3.0, gir1.2-webkit2-4.1, gir1.2-soup-3.0, gir1.2-glib-2.0, gir1.2-secret-1, gir1.2-atspi-2.0, gir1.2-gstreamer-1.0, gstreamer1.0-gtk3, gstreamer1.0-libav, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-base, sway, wf-recorder, wtype, wmctrl, libglib2.0-bin, plank, dconf-cli
-Recommends: mint-themes, cinnamon, network-manager, pulseaudio-utils, policykit-1, xdg-utils, gir1.2-wnck-3.0, x11-utils, gstreamer1.0-plugins-good, imagemagick, ffmpeg, python3-pil, papirus-icon-theme
+Recommends: mint-themes, cinnamon, network-manager, pulseaudio-utils, policykit-1, xdg-utils, gir1.2-wnck-3.0, x11-utils, gstreamer1.0-plugins-good, imagemagick, ffmpeg, python3-pil, python3-numpy, papirus-icon-theme
 Suggests: libreoffice-writer, libreoffice-calc, libreoffice-impress, plymouth, slick-greeter
 Provides: safeer-control (= ${CONTROL_VERSION}), safeer-cinnamon (= ${CINNAMON_VERSION})
 Replaces: safeer-control, safeer-cinnamon
