@@ -4033,6 +4033,8 @@ class SafeerOS(Gtk.Application):
     def _mpris_podatki(self) -> dict:
         """Stanje predvajalnika za sistem: kot za stran, z izvajalcem in sliko iz kataloga, ce ju ta pozna."""
         p = dict(self._medijski_podatki())
+        if p.get("vrstaStrani") and p.get("izvor") == "YouTube":
+            return p            # skladba v vgradnem predvajalniku: izvajalec in slika sta ze v podatkih
         servis = self._medijski_predvajalnik
         vnos = (self._katalog.vnos_predvajanega(servis.trenutna.uri) if self._katalog is not None and servis
                 and servis.trenutna else None) or {}
@@ -4707,12 +4709,49 @@ class SafeerOS(Gtk.Application):
             self._zadnji_medijski_napredek = None
             self._dogodek("medijskaKnjiznica", None)
 
+    def _yt_predvajanje(self) -> Optional[dict]:
+        """Skladba iz kataloga v vgradnem predvajalniku YouTuba, kadar domaci predvajalnik ne igra (ne premor)."""
+        servis = self._medijski_predvajalnik
+        if servis is not None and servis.stanje in ("predvaja", "premor"):
+            return None
+        return self._katalog.yt_podatki() if self._katalog is not None else None
+
     def _medijski_podatki(self) -> dict:
+        yt = self._yt_predvajanje()
+        if yt is not None:
+            # Ista oblika kot domaci predvajalnik (14. 10. 2026: pripomocek na namizju je med skladbo s seznama kazal
+            # »Ni predvajanja«). Polozaja vgradni predvajalnik ne javlja: trajanje 0 skrije drsnik. Naslednjo in
+            # prejsnjo vodi stran (vrstaStrani), zato ju pripomocki ne onemogocijo.
+            return dict(yt, indeks=-1, zacetniIndeks=0, skupaj=0, vrstaSeznam=[], pozicija=0, trajanje=0, napaka="",
+                        vrstaStrani=True)
         return self._medijski_predvajalnik.podatki() if self._medijski_predvajalnik else {
             "stanje": "ustavljeno", "naslov": "", "vrsta": "", "indeks": -1,
             "zacetniIndeks": 0, "skupaj": 0, "vrstaSeznam": [], "pozicija": 0, "trajanje": 0, "napaka": ""}
 
+    def _yt_spremenjeno(self) -> None:
+        """Skladba v vgradnem predvajalniku je zacela, se ustavila ali koncala: stranem (Medijski center, namizje) in
+        sistemu (MPRIS) povemo novo stanje - sicer bi vrstica ostala pri stari skladbi."""
+        self._dogodek("predvajalnik", self._medijski_podatki())
+        self._mpris_osvezi()
+
+    def _yt_ukaz(self, ukaz: str) -> bool:
+        """Tipke pripomockov in sistema za skladbo v vgradnem predvajalniku YouTuba (glavna nit)."""
+        yt = self._yt_predvajanje()
+        if ukaz == "premor":
+            return self._katalog_youtube_ukaz("pauseVideo" if yt["stanje"] == "predvaja" else "playVideo")
+        if ukaz in ("naslednja", "prejsnja"):
+            self._dogodek("mediaVrstaUkaz", 1 if ukaz == "naslednja" else -1)
+            return True
+        if ukaz == "ustavi":
+            return self._katalog_youtube_ukaz("zapri")        # zapre pogled: yt_zaprt ustavi tudi vrsto strani
+        if ukaz == "odpri" and self._medijski_okno is not None:
+            self._medijski_okno.present()
+            return True
+        return False
+
     def _medijski_ukaz(self, ukaz: str, vrednost=None) -> bool:
+        if self._yt_predvajanje() is not None:
+            return self._yt_ukaz(ukaz)
         servis = self._medijski_predvajalnik
         if not servis:
             return False
@@ -5327,6 +5366,7 @@ class SafeerOS(Gtk.Application):
         if not self._medijski_okno.is_active() and not getattr(self, "_medijski_skladba_videna", False):
             self._medijski_okno.present()   # prvic okno pokazemo; naslednja skladba ga ne meče v ospredje
         self._medijski_skladba_videna = True
+        GLib.idle_add(lambda: self._yt_spremenjeno() and False)   # ko katalog zapise skladbo (glej _predvajaj_razresen)
         return True
 
     def _medijski_odlocitev(self, _pogled, odlocitev, vrsta) -> bool:
@@ -5363,6 +5403,7 @@ class SafeerOS(Gtk.Application):
         try:
             vrednost = rezultat.get_js_value() if hasattr(rezultat, "get_js_value") else rezultat   # 4.1 / 6.0
             self._katalog.yt_sporocilo(vrednost.to_string())
+            self._yt_spremenjeno()
         except Exception as e:  # noqa: BLE001
             print("[SafeerOS] stanje skladbe:", e)
 
@@ -5372,6 +5413,7 @@ class SafeerOS(Gtk.Application):
             self._medijski_skladba_videna = False
             if self._katalog is not None:
                 self._katalog.yt_zaprt()
+                self._yt_spremenjeno()
 
     def _medijski_nalozen(self, pogled, dogodek) -> None:
         if dogodek != WebKit2.LoadEvent.FINISHED or not self._medijski_naslov:

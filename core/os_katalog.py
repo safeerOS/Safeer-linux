@@ -761,6 +761,15 @@ class Katalog:
             self._yt = None
             self.dogodek("mediaKonec", {"id": yt["id"]})
 
+    def yt_podatki(self) -> Optional[dict]:
+        """Skladba v vgradnem predvajalniku YouTuba (None, ce je ni): za namizje in sistem v obliki domacega predvajalnika.
+        Dokler skladba prvic ne zaigra, velja za predvajano (stran jo tako tudi kaze); premor sele po pavzi."""
+        yt = self._yt
+        if yt is None:
+            return None
+        return {"stanje": "predvaja" if yt["igra"] or not yt["ze_igral"] else "premor", "naslov": yt.get("naslov") or "",
+                "izvajalec": yt.get("izvajalec") or "", "slika": yt.get("slika") or "", "izvor": "YouTube", "vrsta": "medij"}
+
     def yt_zaprt(self) -> None:
         """Uporabnik je zaprl okno s skladbo: vrsta se ustavi."""
         yt, self._yt = self._yt, None
@@ -808,7 +817,10 @@ class Katalog:
             ident = str(item.get("id") or ident)
             naslov = naslov_za_predvajalnik(item)
             url = naslov_vgradnje(item["youtube"])
-            self._yt = {"id": ident, "igra": False, "ze_igral": False, "kljuc": kljuc}
+            # Naslov, izvajalec in slika: za pripomocek »Predvaja se« na namizju in sistem (MPRIS), ki ne poznata strani.
+            self._yt = {"id": ident, "igra": False, "ze_igral": False, "kljuc": kljuc,
+                        "naslov": str(item.get("naslov") or "")[:300], "izvajalec": str(item.get("izvajalec") or "")[:200],
+                        "slika": str(item.get("slika") or "")[:2048]}
             if not url or not self._v_glavni_pocakaj(lambda: self._youtube(url, naslov)):
                 self._yt = None
                 return dict(item, native=True, napaka_koda="tok")
