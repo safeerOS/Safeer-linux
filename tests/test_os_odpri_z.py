@@ -185,3 +185,16 @@ def test_izpis_gio_v_jeziku_racunalnika():
     privzeti, vsi = os_odpri_z.razcleni_mime(izpis)
     assert privzeti == "libreoffice-writer.desktop"
     assert vsi == ["libreoffice-writer.desktop", "ai.storyteller.wordcraft.desktop", "org.gnome.FileRoller.desktop"]
+
+
+def test_program_za_shemo():
+    import tempfile
+    from core import os_odpri_z as oz
+    with tempfile.TemporaryDirectory() as d:
+        with open(os.path.join(d, "thunderbird.desktop"), "w") as f:
+            f.write("[Desktop Entry]\nType=Application\nName=Thunderbird\nExec=thunderbird %u\n")
+        izpis = "Default application for “x-scheme-handler/mailto”: thunderbird.desktop\n"
+        p = oz.program_za_shemo("mailto", gio=lambda a: (0, izpis), mape=[d], namizja=["X-Cinnamon"])
+        assert p == {"oznaka": "thunderbird.desktop", "ime": "Thunderbird"}
+        assert oz.program_za_shemo("mailto", gio=lambda a: (1, ""), mape=[d]) is None
+        assert oz.program_za_shemo("../x", gio=lambda a: (0, izpis), mape=[d]) is None

@@ -86,6 +86,21 @@ def razcleni_mime(izpis: str) -> Tuple[str, List[str]]:
     return privzeti, vrstni
 
 
+def program_za_shemo(shema: str, gio: Callable = _gio, mape: Optional[List[str]] = None,
+                     namizja: Optional[List[str]] = None) -> Optional[dict]:
+    """Privzeti program za povezave sheme (mailto, magnet ...): {"oznaka", "ime"} ali None, ce ga ni. V Flatpaku gio
+    tece na gostitelju, zato Splet pozna program racunalnika (prej »zunanji program«; 14. 10. 2026)."""
+    if not re.match(r"^[a-z][a-z0-9+.-]{0,31}$", str(shema or "")):
+        return None
+    koda, izpis = gio(["mime", "x-scheme-handler/" + shema])
+    privzeti, vsi = razcleni_mime(izpis) if koda == 0 else ("", [])
+    for oznaka in ([privzeti] if privzeti else []) + vsi:
+        vnos = _vnos(oznaka, mape, namizja)
+        if vnos:
+            return {"oznaka": oznaka, "ime": vnos.get("ime") or oznaka}
+    return None
+
+
 def pot_vnosa(oznaka: str, mape: Optional[List[str]] = None) -> Optional[str]:
     """Datoteka .desktop za oznako programa (ime vnosa brez poti) ali None."""
     oznaka = str(oznaka or "")

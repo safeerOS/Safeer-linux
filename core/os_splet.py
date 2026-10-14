@@ -1893,23 +1893,29 @@ class VdelaniSplet:
         """Povezava, ki pripada programu na racunalniku: vprasanje (stran ne sme odpirati programov brez vednosti),
         zapomni si »vedno« za stran in program, nato Gtk.UriLauncher (v Flatpaku portal, zunaj privzeti program)."""
         gostitelj = external_apps.site_of(stran)
-        program = None
-        if not os.path.exists("/.flatpak-info"):
-            try:
-                program = self.Gio.AppInfo.get_default_for_uri_scheme(shema)
-            except Exception:  # noqa: BLE001
-                program = None
-            if program is None:
-                if kretnja:   # strani, ki le preverjajo, ali je program namescen (brez klika), ne dobijo obvestila
-                    self._ni_programa(gostitelj, shema)
-                return
-            if (program.get_id() or "").lower().startswith(("safeer", "io.github.memelandfaner")):
-                return        # povezava bi vodila nazaj v Safeer
-        ime = program.get_display_name() if program is not None else self._ti("external_app_generic")
+        try:
+            from core import os_odpri_z
+            program = os_odpri_z.program_za_shemo(shema)      # tudi v Flatpaku: program gostitelja
+        except Exception as napaka:  # noqa: BLE001
+            print("[Splet] program za", shema, napaka, flush=True)
+            program = None
+        if program is None:
+            if kretnja:   # strani, ki le preverjajo, ali je program namescen (brez klika), ne dobijo obvestila
+                self._ni_programa(gostitelj, shema)
+            return
+        if program["oznaka"].lower().startswith(("safeer", "io.github.memelandfaner")):
+            return        # povezava bi vodila nazaj v Safeer
+        ime = program["ime"]
 
         def odpri():
             try:
-                self.Gtk.UriLauncher.new(uri).launch(self._okno_za_dialog(), None, None, None)
+                if os.environ.get("FLATPAK_ID"):
+                    # Program racunalnika neposredno (portal bi uporabnika vprasal se enkrat, katerega programa).
+                    from core import os_dock
+                    subprocess.Popen(os_dock._gostitelj(["gio", "open", uri]), stdin=subprocess.DEVNULL,
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+                else:
+                    self.Gtk.UriLauncher.new(uri).launch(self._okno_za_dialog(), None, None, None)
             except Exception as napaka:  # noqa: BLE001
                 print("[Splet] zunanji program:", napaka, flush=True)
                 self._ni_programa(gostitelj, shema)
