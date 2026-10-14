@@ -14,6 +14,7 @@ from typing import Callable, List, Optional
 from .sporocila import ponudniki as _ponudniki
 from .sporocila.chatwoot import ChatwootAdapter
 from .sporocila.email import EmailAdapter, ocisti_geslo
+from .sporocila.adapter import varen_streznik
 from .sporocila.matrix import MatrixAdapter
 from .sporocila.telegram_bot import TelegramBotAdapter
 from .sporocila.model import Kanal
@@ -68,6 +69,11 @@ def _cas_klepeta(vrednost: str) -> str:
 
 
 class SporocilaOS:
+    #: Osnutke shranjujejo, brisejo in usklajujejo locene niti mostu (safeer_os.py, ozadje): brez zaklepa
+    #: branje-sprememba-zapis osnutki.json in IMAP APPEND/brisanje izgubijo, podvojijo ali obudijo osnutek
+    #: (pregled 14. 10. 2026). En zaklep za razred: ena datoteka osnutki.json, en primerek na proces.
+    _osnutki_klj = threading.RLock()
+
     def __init__(self, pot=None, zazeni: bool = True):
         self.storitev = StoritevSporocil(pot, interval=INTERVAL_S)
         #: Posiljanje po Linku (nastavi gostitelj): (naprava, besedilo, cas) -> "accepted"/"queued"/koda napake
@@ -186,8 +192,8 @@ class SporocilaOS:
             if streznik and "://" not in streznik:
                 streznik = "https://" + streznik
             zeton = str(podatki.get("zeton") or "").strip()
-            lokalni = streznik.startswith("http://localhost") or streznik.startswith("http://127.")
-            if not (streznik.startswith("https://") or lokalni) or not zeton:
+            # http:// le na tem racunalniku (ime tocno localhost ali povratni IP) - sicer gre zeton v cistopisu po mrezi.
+            if not varen_streznik(streznik) or not zeton:
                 raise ValueError("Vnesi naslov strežnika (https://…) in dostopni žeton.")
             nastavitve = {"streznik": streznik}
             a = self._adapter(kid, "matrix", nastavitve, zeton)
@@ -311,6 +317,10 @@ class SporocilaOS:
 
     def uskladi_osnutke(self, najmanj_s: float = 60.0) -> list:
         """Osnutek, ki ga je uporabnik v Gmailu (telefon) poslal ali izbrisal, izgine tudi tukaj (najvec enkrat na minuto)."""
+        with self._osnutki_klj:
+            return self._uskladi_osnutke(najmanj_s)
+
+    def _uskladi_osnutke(self, najmanj_s: float) -> list:
         import time
         if time.monotonic() - getattr(self, "_osnutki_uskl", -1e9) < najmanj_s:
             return self.osnutki()
@@ -350,6 +360,10 @@ class SporocilaOS:
 
     def shrani_osnutek(self, o: dict) -> list:
         """Osnutek ostane na tem racunalniku (z isto zasebnostjo kot baza sporocil); najvec 50."""
+        with self._osnutki_klj:
+            return self._shrani_osnutek(o)
+
+    def _shrani_osnutek(self, o: dict) -> list:
         o = o if isinstance(o, dict) else {}
         cist = {"id": str(o.get("id") or uuid.uuid4().hex[:12]), "kanal_id": str(o.get("kanal_id") or "")[:200],
                 "za": str(o.get("za") or "")[:320], "zadeva": str(o.get("zadeva") or "")[:300].replace("\n", " "),
@@ -386,6 +400,10 @@ class SporocilaOS:
             print("[Sporocila] odstranitev osnutka na strezniku:", e, flush=True)
 
     def odstrani_osnutek(self, osnutek_id: str) -> list:
+        with self._osnutki_klj:
+            return self._odstrani_osnutek(osnutek_id)
+
+    def _odstrani_osnutek(self, osnutek_id: str) -> list:
         for o in self.osnutki():
             if o.get("id") == str(osnutek_id):
                 self._osnutek_s_streznika(o)     # poslan ali izbrisan osnutek izgine tudi iz Gmaila

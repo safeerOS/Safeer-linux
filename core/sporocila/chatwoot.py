@@ -6,11 +6,14 @@ from datetime import datetime, timezone
 import json
 from typing import Callable, Iterable, Optional, Sequence
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
-from .adapter import Adapter
+from .adapter import Adapter, odpri_brez_preusmeritev
 from .model import Pogovor, Sporocilo
 from . import skrivnosti
+
+#: Glava api_access_token bi ob preusmeritvi sla na nov naslov (pregled 14. 10. 2026): preusmeritev zavrnemo.
+urlopen = odpri_brez_preusmeritev
 
 
 class ChatwootAdapter(Adapter):

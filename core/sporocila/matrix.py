@@ -14,13 +14,15 @@ import uuid
 from datetime import datetime, timezone
 from typing import Callable, Iterable, Optional, Sequence
 from urllib.parse import quote, urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
-from .adapter import Adapter
+from .adapter import Adapter, odpri_brez_preusmeritev, varen_streznik
 from .model import Pogovor, Sporocilo
 from . import skrivnosti
 
 NAJVEC_NA_SOBO = 200
+#: Vse zahteve nosijo zeton: brez sledenja preusmeritvam (glej adapter.odpri_brez_preusmeritev).
+urlopen = odpri_brez_preusmeritev
 
 
 class NapakaPrijave(RuntimeError):
@@ -56,6 +58,8 @@ class MatrixAdapter(Adapter):
         return skrivnosti.zahtevaj(self.kljuc_skrivnosti, self._zeton, self._vnos_zetona)
 
     def _api(self, pot: str, metoda: str = "GET", podatki=None, parametri: Optional[dict] = None, timeout: Optional[float] = None):
+        if not varen_streznik(self.streznik):
+            raise ValueError("Naslov strežnika se mora začeti s https://")
         url = self.streznik + "/_matrix/client/v3" + pot + ("?" + urlencode(parametri) if parametri else "")
         telo = None if podatki is None else json.dumps(podatki, ensure_ascii=False).encode("utf-8")
         zahteva = Request(url, data=telo, method=metoda, headers={"Authorization": "Bearer " + self._skrivnost(),
@@ -87,7 +91,7 @@ class MatrixAdapter(Adapter):
 
     # ---- povezava ----
     def povezi(self) -> None:
-        if not self.streznik.startswith("https://") and not self.streznik.startswith("http://localhost") and not self.streznik.startswith("http://127."):
+        if not varen_streznik(self.streznik):
             raise ValueError("Naslov strežnika se mora začeti s https://")
         kdo = self._api("/account/whoami")
         self.uporabnik = str(kdo.get("user_id") or "")

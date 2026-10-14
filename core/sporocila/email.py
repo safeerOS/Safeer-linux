@@ -232,8 +232,31 @@ class EmailAdapter(Adapter):
         uidi = (odg[0] or b"").split() if status == "OK" and odg else []
         for uid in uidi:
             imap.uid("store", uid, "+FLAGS", "(\\Deleted)")
-        if uidi:
+        if not uidi:
+            return
+        # Navadni EXPUNGE bi trajno izbrisal VSA sporocila z \Deleted v Osnutkih (tudi tuja, ki jih je drug odjemalec
+        # samo oznacil). UID EXPUNGE (RFC 4315, UIDPLUS) izbrise le nase; brez UIDPLUS samo, ce drugih oznacenih ni
+        # (pregled 14. 10. 2026).
+        if self._ima_uidplus(imap):
+            imap.uid("expunge", b",".join(uidi).decode("ascii"))
+            return
+        status, odg = imap.uid("search", None, "DELETED")
+        oznaceni = set((odg[0] or b"").split()) if status == "OK" and odg else None
+        if oznaceni is not None and oznaceni <= set(uidi):
             imap.expunge()
+
+    @staticmethod
+    def _ima_uidplus(imap) -> bool:
+        """Zmoznosti po prijavi (Gmail UIDPLUS oglasi sele po prijavi; imaplib hrani le tiste pred njo)."""
+        zmoznosti = set(getattr(imap, "capabilities", ()) or ())
+        try:
+            status, odg = imap.capability()
+            if status == "OK" and odg and odg[0]:
+                v = odg[0].decode("ascii", "replace") if isinstance(odg[0], bytes) else str(odg[0])
+                zmoznosti |= set(v.upper().split())
+        except Exception:  # noqa: BLE001
+            pass
+        return "UIDPLUS" in {str(z).upper() for z in zmoznosti}
 
     def shrani_osnutek(self, za: str, zadeva: str, besedilo: str, prejsnji_mid: str = "") -> str:
         """Osnutek tudi v mapo Osnutki na strezniku (Gmail na telefonu ga vidi in lahko poslje). Vrne Message-ID;
@@ -272,7 +295,8 @@ class EmailAdapter(Adapter):
                 return set(ids)          # mape ne poznamo: nicesar ne brisemo
             ostali = set()
             for mid in ids:
-                status, odg = imap.uid("search", None, "HEADER", "Message-ID", mid)
+                # UNDELETED: osnutek z oznako \Deleted (se ne izbrisan) je za uporabnika ze izbrisan.
+                status, odg = imap.uid("search", None, "UNDELETED", "HEADER", "Message-ID", mid)
                 if status != "OK" or (odg and odg[0] and odg[0].split()):
                     ostali.add(mid)      # ob napaki iskanja raje ohranimo
             return ostali
