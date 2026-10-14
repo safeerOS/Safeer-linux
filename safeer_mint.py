@@ -5586,6 +5586,11 @@ class SafeerMintBrowser(Gtk.Window):
         except Exception:
             pass
         self.tab_monitor.forget(tab_id)
+        if os_stabilnost.razlog_padca(WebKit2, reason) == "api":
+            # Proces je ustavil program (ne spanje zavihka): obnova tega ne nalaga znova, zato razlaga z gumbom
+            # (kot prej) - sicer bi zavihek ostal bel.
+            self.on_web_process_terminated(tab_id, webview, reason)
+            return
         try:
             from core.os_splet import nauci_po_padcu, ucene_brez_pospesevanja
             uri = webview.get_uri() or ""
