@@ -834,6 +834,9 @@ class SafeerControl(_OSNOVA):
         self.datoteke.gledanje = knjiznica_kroga.lokalni
         self.datoteke.odstrani_gledanje = self._odstrani_gledanje
         self.datoteke.obdrzi_gledanje = knjiznica_kroga.nastavi_obdrzi
+        # Teamwork: ista datoteka odprta na vec napravah (core/link_teamwork) - ta racunalnik kot lastnik datotek
+        # v deljenih mapah in kot udelezenec za delovne kopije z drugih naprav (»Nadaljuj tukaj«).
+        self.teamwork = self._pripravi_teamwork()
         # Programi racunalnika za televizor; privzeto izklopljeno ("programi_za_tv" v control.json).
         self.programi = link_programi.Programi(bool(self.nastavitve.get("programi_za_tv", False)))
         self.programi.ob_spremembi = lambda vklopljeno: self.nastavitve.set("programi_za_tv", bool(vklopljeno))
@@ -854,6 +857,117 @@ class SafeerControl(_OSNOVA):
         # pustil prejsnji (ubit) Control, pospravimo takoj - sicer bi zvok sel v prazno.
         self.zvok = link_zvok.ZvokNaNapravo()
         self.zvok.ustavi()
+
+    # ------------------------------------------------------------------ Teamwork
+    def _pripravi_teamwork(self):
+        from core import link_teamwork
+        try:
+            tw = link_teamwork.Teamwork(
+                razresi=self.datoteke.pot, ime_naprave=self._ime_naprave_linka, obvesti=self._obvestilo_teamwork,
+                ukaz=self._ukaz_teamwork, okna=self._okna_teamwork, prenesi=self._prenesi_teamwork,
+                poslji=self._poslji_teamwork, opis_lastnika=self._opis_teamwork, usklajeno=self._usklajeno_teamwork)
+        except Exception as e:  # noqa: BLE001 - brez Teamworka Control dela kot prej
+            print("[Teamwork]", e)
+            return None
+        self.datoteke.teamwork = tw
+        self.datoteke.streznik.teamwork = tw
+        tw.zazeni()
+        return tw
+
+    def _ime_naprave_linka(self, id_naprave: str) -> str:
+        link = self.link
+        for n in (link.naprave if link is not None else []) or []:
+            if n.get("id") == id_naprave:
+                return str(n.get("ime") or id_naprave)
+        return id_naprave
+
+    def _ukaz_teamwork(self, id_naprave: str, dejanje: str, parametri: dict) -> dict:
+        link = self.link
+        if link is None:
+            return {"ok": False, "koda": "ni_povezave"}
+        return link.ukaz_pocakaj(id_naprave, dejanje, parametri, cas=10.0)
+
+    def _okna_teamwork(self) -> list:
+        """Odprta okna programov (naslov, razred). Seznam oken bere samo glavna nit (core/os_okna)."""
+        from core import os_okna
+        izid: list = []
+        koncano = threading.Event()
+
+        def delo() -> bool:
+            try:
+                izid.extend({"ime": o.get("ime", ""), "program": o.get("program", "")} for o in os_okna.seznam())
+            except Exception:  # noqa: BLE001
+                pass
+            koncano.set()
+            return False
+        GLib.idle_add(delo)
+        koncano.wait(2.0)
+        return list(izid)
+
+    def _vir_teamwork(self, u):
+        """Vir za streznik datotek naprave lastnika (svez zeton iz odgovora na files.session, kljuc iz kroga)."""
+        from core import link_krog, link_pretok
+        if not u.streznik:
+            return None
+        try:
+            kljuc = str((link_krog.krog().clan_za_id(u.naprava) or {}).get("kljuc") or "")
+        except Exception:  # noqa: BLE001
+            kljuc = ""
+        return link_pretok.vir_iz_streznika(u.streznik, u.oznaka, kljuc)
+
+    def _opis_teamwork(self, u):
+        from core import link_nadaljuj, link_pretok
+        vir = self._vir_teamwork(u)
+        if vir is None:
+            return None
+        return link_nadaljuj._Odjemalec(vir, link_pretok.pretok()).opis()
+
+    def _poslji_teamwork(self, u, pot_telesa: str, dolzina: int):
+        from core import link_pretok
+        vir = self._vir_teamwork(u)
+        if vir is None:
+            raise ConnectionError("ni streznika")
+        with open(pot_telesa, "rb") as telo:
+            povezava, odgovor = link_pretok.pretok().odpri(vir, "POST", vrsta="popravek", rok=120.0, telo=telo,
+                                                           dolzina=dolzina)
+            try:
+                podatki = odgovor.read(1024 * 1024)
+                try:
+                    return odgovor.status, json.loads(podatki.decode("utf-8") or "{}")
+                except ValueError:
+                    return odgovor.status, {}
+            finally:
+                povezava.close()
+
+    def _prenesi_teamwork(self, u) -> dict:
+        """Nova razlicica z naprave lastnika v delovno kopijo (samo spremembe, core/link_nadaljuj); ne odpre je."""
+        from core import link_krog, link_nadaljuj
+        if not u.streznik:
+            return {"ok": False}
+        try:
+            kljuc = str((link_krog.krog().clan_za_id(u.naprava) or {}).get("kljuc") or "")
+        except Exception:  # noqa: BLE001
+            kljuc = ""
+        r = link_nadaljuj.nadaljuj_tukaj(u.streznik, kljuc, u.oznaka, u.naprava, u.ime_naprave, u.pot_imen,
+                                         odpri=lambda _p: True)
+        return r if r.get("ok") and os.path.realpath(r.get("pot", "")) == os.path.realpath(u.pot) else {"ok": False}
+
+    def _usklajeno_teamwork(self, u) -> None:
+        from core import link_nadaljuj
+        link_nadaljuj.oznaci_usklajeno(u.naprava, u.oznaka, u.pot, u.sha)
+
+    def _obvestilo_teamwork(self, koda: str, podatki: dict) -> None:
+        import shutil
+        from core import link_teamwork
+        if not shutil.which("notify-send"):
+            return
+        jezik = self.link._jezik() if self.link is not None else "en"
+        try:
+            naslov, besedilo = link_teamwork.besedilo(jezik, koda, **podatki)
+            subprocess.Popen(["notify-send", "-a", "Safeer", "-i", "safeer-control", naslov, besedilo],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:  # noqa: BLE001
+            pass
 
     def do_startup(self) -> None:
         _OSNOVA.do_startup(self)
@@ -1058,6 +1172,19 @@ class SafeerControl(_OSNOVA):
                     "message": "" if ok else n.get("sporocilo", "")}
         if metoda == "Upravljaj":
             return self.upravljaj_racunalnik(str(a[0]) if a else "")
+        if metoda == "Teamwork":
+            # Safeer OS po »Nadaljuj tukaj«: delovno kopijo spremljamo; odgovor pove program lastnika (JSON).
+            if self.teamwork is None:
+                return {"ok": False, "koda": "ni_na_voljo"}
+            try:
+                podatki = json.loads(str(a[0])) if a else {}
+            except ValueError:
+                podatki = {}
+            if not isinstance(podatki, dict):
+                return {"ok": False, "koda": "napacna_zahteva"}
+            return self.teamwork.udelezi(podatki)
+        if metoda == "TeamworkStanje":
+            return self.teamwork.stanje() if self.teamwork is not None else {"ok": True, "datoteke": []}
         if metoda == "Klepet":
             # Safeer Chat iz Sporocil v Safeer OS: poslje napravi v Linku in vrne potrditev sredisca.
             stanje = link.poslji_klepet(str(a[0]), str(a[1]), str(a[2]) if len(a) > 2 else "")
@@ -1653,6 +1780,8 @@ class SafeerControl(_OSNOVA):
         except Exception:
             pass
         try:
+            if getattr(self, "teamwork", None) is not None:
+                self.teamwork.ustavi()
             self.datoteke.ustavi()
         except Exception:
             pass

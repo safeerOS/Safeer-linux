@@ -28,6 +28,7 @@ import shutil
 import socket
 import ssl
 import subprocess
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -363,6 +364,9 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             # Preveliko telo: odgovor mora priti do naprave, zato preberemo in zavrzemo, kar se posilja.
             self._napaka(413, "predolgo telo")
             self._zavrzi_telo(dolzina)
+            return
+        if u.path.startswith("/popravek/"):
+            sprejmi_popravek(self, streznik, urllib.parse.unquote(u.path[len("/popravek/"):]))
             return
         uredi_pot(self, streznik, u.path)
 
@@ -735,6 +739,62 @@ def uredi_pot(obravnava, streznik: "StreznikDatotek", pot: str) -> None:
     obravnava.wfile.write(telo)
 
 
+def sprejmi_popravek(obravnava, streznik: "StreznikDatotek", oznaka: str) -> None:
+    """POST `/popravek/<id>` (prek Huba `/cast/popravek/<id>`): Teamwork - shranitev datoteke z naprave, ki jo ureja
+    (core/link_teamwork). Isti zeton in ista pravica kot urejanje (odprte datoteke, ne samo izrecno poslana), naprava
+    pa mora biti prijavljena v sejo te datoteke. Telo gre v zacasno datoteko, sestavi ga Teamwork."""
+    from core import link_teamwork
+    obravnava.close_connection = True
+    z = obravnava.headers.get("X-Safeer-Token")
+    z = z.strip() if z else None
+    tw = getattr(streznik, "teamwork", None)
+    if not streznik.zeton_velja(z, zmoznost=ZMOZNOST_DATOTEKE):
+        _napaka_http(obravnava, 401, "manjka ali napacen zeton")
+        return
+    naprava = streznik.naprava_zetona(z)
+    if tw is None or not naprava:
+        _napaka_http(obravnava, 404, "teamwork ni na voljo")
+        return
+    try:
+        dolzina = int(obravnava.headers.get("Content-Length") or -1)
+    except ValueError:
+        dolzina = -1
+    if dolzina <= 0 or dolzina > link_teamwork.NAJVEC_POPRAVKA:
+        _napaka_http(obravnava, 413, "napacna dolzina")
+        return
+    fd, telo = tempfile.mkstemp(prefix=".popravek-", dir=tw._mapa_zacasnih())
+    try:
+        with os.fdopen(fd, "wb") as f:
+            ostane = dolzina
+            while ostane > 0:
+                kos = obravnava.rfile.read(min(ostane, 1024 * 1024))
+                if not kos:
+                    break
+                f.write(kos)
+                ostane -= len(kos)
+        if ostane > 0:
+            _napaka_http(obravnava, 400, "telo ni celo")
+            return
+        koda, odgovor = tw.popravek(naprava, oznaka, telo)
+    except Exception as e:  # noqa: BLE001 - naprava dobi odgovor, ne prekinjene povezave
+        koda, odgovor = 500, {"ok": False, "koda": "napaka", "razlog": str(e)}
+    finally:
+        try:
+            os.remove(telo)
+        except OSError:
+            pass
+    podatki = json.dumps(odgovor).encode("utf-8")
+    obravnava.send_response(koda)
+    obravnava.send_header("Content-Type", "application/json")
+    obravnava.send_header("Content-Length", str(len(podatki)))
+    obravnava.send_header("Connection", "close")
+    obravnava.end_headers()
+    try:
+        obravnava.wfile.write(podatki)
+    except (BrokenPipeError, ConnectionResetError, ssl.SSLError, socket.timeout):
+        pass
+
+
 def posreduj_tok(obravnava, streznik: "StreznikDatotek", skrivnost: str, samo_glava: bool) -> None:
     """Tok torrenta, ki ga prenasa racunalnik, za napravo v krogu: zeton v glavi, `Range` gre naprej.
 
@@ -804,6 +864,8 @@ class StreznikDatotek:
         self.mape = mape
         self.tls_mapa = tls_mapa
         self.odtis = ""
+        #: Teamwork (core/link_teamwork) za POST /popravek/<id>; brez njega pot vrne 404.
+        self.teamwork = None
         self.vrata = 0
         self._zetoni: Dict[str, Tuple[str, float, float]] = {}   # zeton -> (id naprave, izdan, zadnja raba)
         #: Ali je naprava umaknjena iz kroga zaupanja: njeni zetoni takoj prenehajo veljati (ne sele po 12 h).
@@ -899,6 +961,18 @@ class StreznikDatotek:
             if v is not None:
                 self._zetoni[najden] = (v[0], v[1], zdaj)
         return True
+
+    def naprava_zetona(self, zeton: Optional[str], zdaj: Optional[float] = None) -> str:
+        """Naprava, ki ji je bil zeton izdan (ce se velja), sicer "". Za popravke Teamworka: datoteko sme spremeniti
+        samo naprava, ki je prijavljena v sejo te datoteke."""
+        if not zeton:
+            return ""
+        zdaj = time.monotonic() if zdaj is None else zdaj
+        with self._kljucavnica:
+            for z, (n, izdan, rabljen) in self._zetoni.items():
+                if hmac.compare_digest(zeton.encode(), z.encode()) and _zeton_zivi(izdan, rabljen, zdaj):
+                    return n
+        return ""
 
     def dovoli_izrecno(self, id_naprave: str, oznaka: str, zdaj: Optional[float] = None) -> None:
         """Ta datoteka je napravi dosegljiva tudi brez odprtih datotek: uporabnik tega racunalnika ji jo je sam
@@ -1012,6 +1086,8 @@ class Datoteke:
                  ves_disk: bool = False) -> None:
         self.mape = DeljeneMape(poti, ves_disk=ves_disk)
         self.streznik = StreznikDatotek(self.mape, tls_mapa)
+        #: Teamwork (core/link_teamwork): Control ga poveze - ukaz files.session in popravki na strezniku.
+        self.teamwork = None
         # Klicatelj (Control) ga nastavi, da spremembo map shrani in stran osvezi.
         self.ob_spremembi: Optional[callable] = None
         #: Knjiznica kroga: gledanje() vrne prenose, ki jih je Safeer OS na tem racunalniku zaradi gledanja prenesel
@@ -1092,17 +1168,21 @@ class Datoteke:
         # `edit`: naprava sme datoteke te mape brisati (v Smeti), preimenovati, premakniti in vrteti slike (POST /d/<id>).
         o: dict = {"items": vnosi, "folder": oznaka if oznaka != "root" else "", "shared": True, "edit": oznaka not in ("", "root")}
         if any(v.get("type") != "folder" for v in vnosi):
-            self.streznik.zazeni()
-            naslov = naslov_do_huba(hub_url) if hub_url else krajevni_naslov()
-            o["server"] = {
-                "base_url": self.streznik.osnova(naslov),
-                "fp": self.streznik.odtis,
-                "token": self.streznik.zeton_za(id_naprave or "naprava"),
-                # Hub tega racunalnika streze iste poti pod /cast (Global Link): urejanje, slicice, tokovi.
-                # Starejsi Control tega polja nima - naprava zdoma takrat ponudi samo branje.
-                "hub": 2,
-            }
+            o["server"] = self.streznik_za(id_naprave, hub_url)
         return o
+
+    def streznik_za(self, id_naprave: str, hub_url: str = "") -> dict:
+        """Naslov, odtis in zeton streznika datotek za napravo (zazene streznik, ce se ne tece)."""
+        self.streznik.zazeni()
+        naslov = naslov_do_huba(hub_url) if hub_url else krajevni_naslov()
+        return {
+            "base_url": self.streznik.osnova(naslov),
+            "fp": self.streznik.odtis,
+            "token": self.streznik.zeton_za(id_naprave or "naprava"),
+            # Hub tega racunalnika streze iste poti pod /cast (Global Link): urejanje, slicice, tokovi.
+            # Starejsi Control tega polja nima - naprava zdoma takrat ponudi samo branje.
+            "hub": 2,
+        }
 
 
     def tok_torrenta(self, uri: str, id_naprave: str, hub_url: str = "", datoteka: Optional[int] = None,

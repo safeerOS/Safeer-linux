@@ -64,6 +64,9 @@
       nadaljujNapaka_ni_dosegljiva: "Naprava trenutno ni dosegljiva.", nadaljujNapaka_ni_datoteke: "Datoteke na napravi ni več.",
       nadaljujNapaka_datoteka_se_spreminja: "Datoteka se na napravi ravno spreminja. Poskusi čez trenutek.",
       nadaljujNapaka_disk: "Datoteke ni bilo mogoče shraniti na ta računalnik.",
+      nadaljujPodprt: "Odprto v programu {program}, ker tukaj ni istega programa kot na napravi {naprava}.",
+      nadaljujPretok: "Tu ni programa za to vrsto datotek: datoteka je odprta na napravi {naprava}, urejaš jo prek njenega zaslona.",
+      nadaljujTeamwork: "Teamwork: datoteko ureja tudi {drugi}. Shranjene spremembe dobi vsak sam.",
       niUspelo: "Ni uspelo.", strani: "{a}–{b} od {n}", nazaj: "‹", naprej: "›",
       kVse: "Vse", kPisarna: "Pisarna", kUstvarjanje: "Ustvarjanje", kMediji: "Mediji", kSplet: "Splet", kIgre: "Igre",
       kDrugo: "Drugo", kPriljubljeni: "★ Priljubljeni",
@@ -273,6 +276,9 @@
       nadaljujNapaka_ni_dosegljiva: "The device can't be reached right now.", nadaljujNapaka_ni_datoteke: "The file is no longer on the device.",
       nadaljujNapaka_datoteka_se_spreminja: "The file is changing on the device right now. Try again in a moment.",
       nadaljujNapaka_disk: "The file could not be saved on this computer.",
+      nadaljujPodprt: "Opened in {program}, because the same program as on {naprava} isn't installed here.",
+      nadaljujPretok: "There's no program for this type of file here: it's open on {naprava}, you edit it through its screen.",
+      nadaljujTeamwork: "Teamwork: {drugi} is editing this file too. Everyone gets saved changes automatically.",
       niUspelo: "That didn't work.", strani: "{a}–{b} of {n}", nazaj: "‹", naprej: "›",
       kVse: "All", kPisarna: "Office", kUstvarjanje: "Creative", kMediji: "Media", kSplet: "Web", kIgre: "Games",
       kDrugo: "Other", kPriljubljeni: "★ Favourites",
@@ -1677,6 +1683,11 @@
         : t("nadaljujIzidPolno", { preneseno: velikost(r.preneseno) || "0 B" });
       if (r.izvirnik) b += " " + t("nadaljujIzvirnik");
       if (r.prejsnja_v_smeteh) b += " " + t("nadaljujSmeti");
+      // Teamwork (core/link_teamwork): kako se je odprla in kdo jo se ureja.
+      if (r.odprto && r.nacin === "podprt" && r.program) b += " " + t("nadaljujPodprt", { program: r.program, naprava: v.ime });
+      if (r.odprto && r.nacin === "pretok") b += " " + t("nadaljujPretok", { naprava: v.ime });
+      if (r.teamwork && r.teamwork.drugi && r.teamwork.drugi.length)
+        b += " " + t("nadaljujTeamwork", { drugi: r.teamwork.drugi.map(function (x) { return x === "@tukaj" ? v.ime : x; }).join(", ") });
       if (!r.odprto) b += " " + t("nadaljujNiOdprto", { pot: stranskoBesedilo(r.pot || "") });
       obvesti(b);
     }).catch(function () { delete nadaljujTece[kljuc]; obvesti(t("nadaljujNapaka")); });

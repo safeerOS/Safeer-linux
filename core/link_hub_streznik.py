@@ -2447,6 +2447,15 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
         if pot.startswith(POT_DATOTEKE):
             self._uredi_datoteko(pot)
             return
+        if pot.startswith("/cast/popravek/"):
+            # Teamwork prek Huba (Global Link): shranitev datoteke z naprave, ki jo ureja (core/link_teamwork).
+            streznik = self._streznik_datotek()
+            if streznik is None:
+                return
+            from core import link_datoteke
+            from urllib.parse import unquote
+            link_datoteke.sprejmi_popravek(self, streznik, unquote(pot[len("/cast/popravek/"):]))
+            return
         if pot == POT_PREIMENUJ:
             telo = self._telo()
             koda, odgovor = self._hub.preimenuj_napravo(self.headers.get("X-Safeer-Token") or "",
