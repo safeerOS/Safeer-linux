@@ -959,15 +959,11 @@ class SafeerControl(_OSNOVA):
         link_nadaljuj.oznaci_usklajeno(u.naprava, u.oznaka, u.pot, u.sha)
 
     def _obvestilo_teamwork(self, koda: str, podatki: dict) -> None:
-        import shutil
-        from core import link_teamwork
-        if not shutil.which("notify-send"):
-            return
+        from core import link_teamwork, obvestila
         jezik = self.link._jezik() if self.link is not None else "en"
         try:
             naslov, besedilo = link_teamwork.besedilo(jezik, koda, **podatki)
-            subprocess.Popen(["notify-send", "-a", "Safeer", "-i", "safeer-control", naslov, besedilo],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            obvestila.poslji(naslov, besedilo, app=self)
         except Exception:  # noqa: BLE001
             pass
 
@@ -1476,18 +1472,15 @@ class SafeerControl(_OSNOVA):
         threading.Thread(target=self.internet.zazeni, name="safeer-internet-zagon", daemon=True).start()
 
     def _obvestilo_interneta(self, koda: str, podatki: dict) -> None:
-        import shutil
-        if not shutil.which("notify-send"):
-            return
+        from core import obvestila
         jezik = self.link._jezik() if self.link is not None else "en"
         besedila = self.OBVESTILA_INTERNETA.get(jezik) or self.OBVESTILA_INTERNETA["en"]
         if koda not in besedila:
             return
         naslov, besedilo = besedila[koda]
         try:
-            subprocess.Popen(["notify-send", "-a", "Safeer Control", "-i", "safeer-control", naslov,
-                              besedilo.format(telefon=str(podatki.get("telefon") or "?"))],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            obvestila.poslji(naslov, besedilo.format(telefon=str(podatki.get("telefon") or "?")),
+                             "safeer-internet", app=self)
         except Exception:  # noqa: BLE001
             pass
 

@@ -2834,82 +2834,6 @@ def _slovensko() -> bool:
     return False
 
 
-#: Gumbi na obvestilih: stevilka obvestila -> {kljuc dejanja: klic}. Pritisk sporoci obvestilni streznik s signalom
-#: ActionInvoked; poslusamo ga enkrat na proces (v glavni zanki GLib - program brez nje gumbov nima).
-_dejanja: Dict[int, Dict[str, Callable[[], None]]] = {}
-_dejanja_zaklep = threading.Lock()
-_dejanja_narocena = False
-#: Povezava z vodilom seje, na kateri poslusamo pritiske gumbov. Drzimo jo, dokler proces zivi: Gio.bus_get_sync vrne
-#: skupno povezavo, ki se zapre, ko jo spusti zadnji lastnik - z njo bi tiho izginilo tudi narocilo na signal.
-_vodilo_dejanj = None
-NAJVEC_OBVESTIL_Z_GUMBI = 32
-
-
-def _zapomni_dejanja(stevilka: int, klici: Dict[str, Callable[[], None]]) -> None:
-    with _dejanja_zaklep:
-        while len(_dejanja) >= NAJVEC_OBVESTIL_Z_GUMBI:
-            _dejanja.pop(next(iter(_dejanja)), None)
-        _dejanja[int(stevilka)] = dict(klici)
-
-
-def _ob_signalu_obvestila(_vodilo, _posiljatelj, _pot, _vmesnik, signal, parametri, *_ostalo) -> None:
-    """ActionInvoked(stevilka, kljuc): izvede dejanje gumba.
-
-    Signala NotificationClosed ne poslusamo: namizje ga poslje ze, ko oblacek obvestila izgine, obvestilo pa z
-    gumbom ostane v pladnju - gumb bi bil takrat mrtev (videno v Cinnamonu). Gumbi se pozabijo ob pritisku ali ko jih
-    izrine novejse obvestilo; pritisk na gumb stare zapore ne naredi nicesar (vir ni vec zaprt).
-    """
-    if signal != "ActionInvoked":
-        return
-    try:
-        stevilka, kljuc = parametri.unpack()
-    except Exception:
-        return
-    with _dejanja_zaklep:
-        klici = _dejanja.pop(int(stevilka), None)
-    klic = (klici or {}).get(str(kljuc))
-    if klic is None:
-        return
-    try:
-        klic()
-    except Exception as e:  # noqa: BLE001 - gumb obvestila ne sme podreti glavne zanke
-        print("[SafeerLink] dejanje obvestila ni uspelo:", e, flush=True)
-
-
-def _naroci_dejanja(vodilo) -> None:
-    global _dejanja_narocena, _vodilo_dejanj
-    if _dejanja_narocena:
-        return
-    from gi.repository import Gio
-    vodilo.signal_subscribe("org.freedesktop.Notifications", "org.freedesktop.Notifications", "ActionInvoked",
-                            "/org/freedesktop/Notifications", None, Gio.DBusSignalFlags.NONE, _ob_signalu_obvestila)
-    _vodilo_dejanj = vodilo
-    _dejanja_narocena = True
-
-
-def _obvestilo_dbus(naslov: str, besedilo: str, cas_ms: int, dejanja: Optional[list] = None) -> bool:
-    """Obvestilo po D-Busu (org.freedesktop.Notifications): brez orodja notify-send, ki ga paket ne zahteva.
-
-    `dejanja`: [(kljuc, napis, klic)] - gumbi na obvestilu."""
-    try:
-        from gi.repository import Gio, GLib
-        vodilo = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-        gumbi: List[str] = []
-        for kljuc, napis, _klic in dejanja or []:
-            gumbi += [str(kljuc), str(napis)]
-        if gumbi:
-            _naroci_dejanja(vodilo)
-        odgovor = vodilo.call_sync("org.freedesktop.Notifications", "/org/freedesktop/Notifications",
-                                   "org.freedesktop.Notifications", "Notify",
-                                   GLib.Variant("(susssasa{sv}i)", ("Safeer Control", 0, "safeer-control", naslov, besedilo, gumbi, {}, int(cas_ms))),
-                                   GLib.VariantType("(u)"), Gio.DBusCallFlags.NONE, 3000, None)
-        if gumbi:
-            _zapomni_dejanja(int(odgovor.unpack()[0]), {str(kljuc): klic for kljuc, _napis, klic in dejanja or []})
-        return True
-    except Exception:
-        return False
-
-
 def _obvestilo_windows(naslov: str, besedilo: str) -> bool:
     """Obvestilo v kotu zaslona na Windows (PowerShell, brez dodatnih modulov). Besedilo gre v okolje, ne v ukaz."""
     import subprocess
@@ -2934,25 +2858,14 @@ def _obvestilo_windows(naslov: str, besedilo: str) -> bool:
 
 
 def _obvestilo(naslov: str, besedilo: str, cas_ms: int = 15000, dejanja: Optional[list] = None) -> None:
-    """Obvestilo namizja; sredisce tece v ozadju, uporabnik drugace ne izve. V svoji niti: sredisce ne caka nanj.
+    """Obvestilo namizja; sredisce tece v ozadju, uporabnik drugace ne izve. Ne caka nanj.
 
-    `dejanja`: [(kljuc, napis, klic)] - gumbi (samo po D-Busu; notify-send in obvestilo Windows jih nimata)."""
-    def poslji() -> None:
-        if sys.platform == "win32":
-            _obvestilo_windows(naslov, besedilo)
-            return
-        if _obvestilo_dbus(naslov, besedilo, cas_ms, dejanja):
-            return
-        import shutil
-        import subprocess
-        if not shutil.which("notify-send"):
-            return
-        try:
-            subprocess.Popen(["notify-send", "-a", "Safeer Control", "-i", "safeer-control", "-t", str(int(cas_ms)), naslov, besedilo],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
-    threading.Thread(target=poslji, name="safeer-obvestilo", daemon=True).start()
+    `dejanja`: [(kljuc, napis, klic)] - gumbi. Na Linuxu ena pot obvestil Safeerja (core/obvestila.py)."""
+    if sys.platform == "win32":
+        threading.Thread(target=_obvestilo_windows, args=(naslov, besedilo), name="safeer-obvestilo", daemon=True).start()
+        return
+    from core import obvestila
+    obvestila.poslji(naslov, besedilo, gumbi=dejanja, cas_ms=cas_ms, prioriteta="high" if dejanja else "normal")
 
 
 def besedilo_zapore(vir: str, trajanje_s: float, razlog: str, slovensko: bool, ime: str = "") -> tuple:
