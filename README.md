@@ -139,10 +139,11 @@ bash packaging/build_appimage.sh   # AppImage
 bash packaging/build_flatpak.sh    # Flatpak
 ```
 
-Tests:
+Tests (GTK 3 and GTK 4 run in separate processes; details in [CONTRIBUTING.md](CONTRIBUTING.md#running-the-tests)):
 
 ```bash
-python3 -m unittest discover -s tests
+PYTHONPATH=tests xvfb-run -a python3 -m unittest $(python3 tools/razdeli_teste.py gtk3)
+PYTHONPATH=tests xvfb-run -a python3 -m unittest $(python3 tools/razdeli_teste.py gtk4)
 ```
 
 ## Fork it

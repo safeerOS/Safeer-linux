@@ -134,10 +134,11 @@ bash packaging/build_appimage.sh   # AppImage
 bash packaging/build_flatpak.sh    # Flatpak
 ```
 
-Testi:
+Testi (GTK 3 in GTK 4 v ločenih procesih; podrobnosti v [CONTRIBUTING.sl.md](CONTRIBUTING.sl.md#preizkusi)):
 
 ```bash
-python3 -m unittest discover -s tests
+PYTHONPATH=tests xvfb-run -a python3 -m unittest $(python3 tools/razdeli_teste.py gtk3)
+PYTHONPATH=tests xvfb-run -a python3 -m unittest $(python3 tools/razdeli_teste.py gtk4)
 ```
 
 ## Vzemi in predelaj
@@ -147,7 +148,7 @@ lahko vzameš, zamenjaš sezname, spremeniš videz, dodaš, kar potrebuješ, in 
 
 ## Sodelovanje
 
-Glej [CONTRIBUTING.md](CONTRIBUTING.md). Varnostne težave gredo po poti iz
+Glej [CONTRIBUTING.sl.md](CONTRIBUTING.sl.md). Varnostne težave gredo po poti iz
 [SECURITY.md](SECURITY.md), zasebno in ne v javno prijavo.
 
 ## Licenca

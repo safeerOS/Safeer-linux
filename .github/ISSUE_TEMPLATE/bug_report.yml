@@ -1,0 +1,54 @@
+name: Bug report
+description: Something in Safeer does not work as it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting. Slovenian or English, both are fine. Security problems go through SECURITY.md, not here.
+        Please leave out personal data (names, home folders, e-mail addresses) from logs and screenshots.
+  - type: dropdown
+    id: product
+    attributes:
+      label: Product
+      options:
+        - Safeer Browser
+        - Safeer OS (shell, Media Center, Messages …)
+        - Safeer Control
+        - Packaging / installation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: What did you do?
+      description: Steps to reproduce, one per line.
+      placeholder: "1. Open …\n2. Click …"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Settings → About, or `safeer --version`.
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Distribution and package format
+      placeholder: Linux Mint 22.3, .deb / Flatpak / AppImage
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: URL of the page (for rendering problems), screenshot, terminal output.

@@ -1,0 +1,32 @@
+name: Idea or improvement
+description: Something Safeer could do better or should do.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ideas are judged from the user's side: what becomes easier, safer or more private for the person using Safeer.
+        Remember the one firm rule: no fixes written for one named website (see CONTRIBUTING.md).
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is hard or missing today?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: elsewhere
+    attributes:
+      label: Does another program already do this well?
+      description: Firefox, Jellyfin, Kodi … a link or a screenshot helps.
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Contribution
+      options:
+        - label: I would like to work on this myself.
