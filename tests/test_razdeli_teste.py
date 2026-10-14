@@ -26,9 +26,11 @@ class Razdelitev(unittest.TestCase):
         wf = open(os.path.join(KOREN, ".github", "workflows", "linux-packages.yml"), encoding="utf-8").read()
         self.assertNotIn("unittest $(python3 tools/razdeli_teste.py", wf)
         for skupina in ("gtk3", "gtk4"):
-            self.assertIn('T="$(python3 tools/razdeli_teste.py %s)"' % skupina, wf)
+            self.assertIn('T="$(python3 tools/razdeli_teste.py %s --poti)"' % skupina, wf)
         self.assertEqual(wf.count('test -n "$T"'), 2)
-        self.assertEqual(wf.count("-m unittest $T"), 2)
+        # pytest pozene tudi preizkuse, napisane kot funkcije (unittest jih ni videl).
+        self.assertEqual(wf.count("-m pytest -q -p no:cacheprovider $T"), 2)
+        self.assertNotIn("-m unittest $T", wf)
 
 
 if __name__ == "__main__":

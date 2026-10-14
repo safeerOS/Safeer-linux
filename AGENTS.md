@@ -33,7 +33,7 @@ Velja za vsako spremembo v tem repozitoriju. Kratko, preverljivo; podrobnosti so
 - Dostopnost: tipkovnica, fokus, kontrast; animacije spostujejo zmanjsano gibanje.
 
 ## Preizkusi
-- GTK3 in GTK4 ne moreta v isti proces pytest: skupini da `tools/razdeli_teste.py gtk3|gtk4` (CI: brskalnik na Ubuntu 22.04, Safeer OS na 24.04).
+- GTK3 in GTK4 ne moreta v isti proces pytest: skupini da `tools/razdeli_teste.py gtk3|gtk4 --poti` (za pytest; CI poganja pytest, ker unittest ne vidi preizkusov kot funkcij) (CI: brskalnik na Ubuntu 22.04, Safeer OS na 24.04).
 - `python3 -m pytest -q -p no:cacheprovider tests/<datoteka>`; za JS `node -e "new Function(require('fs').readFileSync(F,'utf8'))"`.
 - Zivi preizkus na testnem PC (Flatpak): `flatpak run --command=sh … -c "export PATH=/app/host-bin:$PATH; …"` – brez tega PATH orodja gostitelja (gsettings …) niso vidna.
 

@@ -55,8 +55,8 @@ GTK 3 in GTK 4 ne moreta biti naložena v istem procesu Python, zato sta preizku
 skupinah. `tools/razdeli_teste.py` skupino določi iz uvozov:
 
 ```bash
-PYTHONPATH=tests xvfb-run -a python3 -m unittest $(python3 tools/razdeli_teste.py gtk3)
-PYTHONPATH=tests xvfb-run -a python3 -m unittest $(python3 tools/razdeli_teste.py gtk4)
+PYTHONPATH=tests xvfb-run -a python3 -m pytest -q $(python3 tools/razdeli_teste.py gtk3 --poti)
+PYTHONPATH=tests xvfb-run -a python3 -m pytest -q $(python3 tools/razdeli_teste.py gtk4 --poti)
 ```
 
 Skupina `gtk4` potrebuje še PySide6 za lupino Qt Quick (`pip install PySide6` ali

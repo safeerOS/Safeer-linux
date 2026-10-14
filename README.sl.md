@@ -137,8 +137,8 @@ bash packaging/build_flatpak.sh    # Flatpak
 Testi (GTK 3 in GTK 4 v ločenih procesih; podrobnosti v [CONTRIBUTING.sl.md](CONTRIBUTING.sl.md#preizkusi)):
 
 ```bash
-PYTHONPATH=tests xvfb-run -a python3 -m unittest $(python3 tools/razdeli_teste.py gtk3)
-PYTHONPATH=tests xvfb-run -a python3 -m unittest $(python3 tools/razdeli_teste.py gtk4)
+PYTHONPATH=tests xvfb-run -a python3 -m pytest -q $(python3 tools/razdeli_teste.py gtk3 --poti)
+PYTHONPATH=tests xvfb-run -a python3 -m pytest -q $(python3 tools/razdeli_teste.py gtk4 --poti)
 ```
 
 ## Vzemi in predelaj

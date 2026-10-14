@@ -11,7 +11,7 @@ Skupina se doloci iz uvozov (ast), brez izvajanja kode:
   * preizkus spada v skupino, do katere pridejo njegovi uvozi (v preizkusu katerikoli, v modulih tisti na ravni
     modula - prehodno). Preizkus, ki doseze obe skupini, je napaka (izpis na stderr, izhodna koda 2).
 
-Uporaba: python3 tools/razdeli_teste.py gtk3|gtk4   -> imena modulov (test_x) za `python3 -m unittest`.
+Uporaba: python3 tools/razdeli_teste.py gtk3|gtk4 [--poti]   -> imena modulov (test_x) ali poti (tests/test_x.py) za pytest.
 """
 import ast
 import os
@@ -142,11 +142,13 @@ def razdeli() -> tuple:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2 or sys.argv[1] not in ("gtk3", "gtk4"):
+    poti = "--poti" in sys.argv[2:]          # poti datotek za pytest (tests/test_x.py) namesto imen modulov
+    if len(sys.argv) not in (2, 3) or sys.argv[1] not in ("gtk3", "gtk4") or (len(sys.argv) == 3 and not poti):
         print(__doc__.strip().splitlines()[-1], file=sys.stderr)
         sys.exit(1)
     g3, g4, oboje = razdeli()
     for ime in oboje:
         print("preizkus %s uvaza GTK 3 in GTK 4 hkrati" % ime, file=sys.stderr)
-    print(" ".join(g3 if sys.argv[1] == "gtk3" else g4))
+    izbrani = g3 if sys.argv[1] == "gtk3" else g4
+    print(" ".join(("tests/%s.py" % m) if poti else m for m in izbrani))
     sys.exit(2 if oboje else 0)

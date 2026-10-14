@@ -6,8 +6,8 @@
 
 <!-- Tests you ran, and the device / distribution where you saw it work. -->
 
-- [ ] `PYTHONPATH=tests xvfb-run -a python3 -m unittest $(python3 tools/razdeli_teste.py gtk3)` passes
-- [ ] `PYTHONPATH=tests xvfb-run -a python3 -m unittest $(python3 tools/razdeli_teste.py gtk4)` passes
+- [ ] `PYTHONPATH=tests xvfb-run -a python3 -m pytest -q $(python3 tools/razdeli_teste.py gtk3 --poti)` passes
+- [ ] `PYTHONPATH=tests xvfb-run -a python3 -m pytest -q $(python3 tools/razdeli_teste.py gtk4 --poti)` passes
 - [ ] New behaviour has a test
 - [ ] No code for one named website (CONTRIBUTING.md)
 - [ ] User-visible text is in every language the file already has (or marked as English-only below)

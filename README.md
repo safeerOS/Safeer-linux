@@ -142,8 +142,8 @@ bash packaging/build_flatpak.sh    # Flatpak
 Tests (GTK 3 and GTK 4 run in separate processes; details in [CONTRIBUTING.md](CONTRIBUTING.md#running-the-tests)):
 
 ```bash
-PYTHONPATH=tests xvfb-run -a python3 -m unittest $(python3 tools/razdeli_teste.py gtk3)
-PYTHONPATH=tests xvfb-run -a python3 -m unittest $(python3 tools/razdeli_teste.py gtk4)
+PYTHONPATH=tests xvfb-run -a python3 -m pytest -q $(python3 tools/razdeli_teste.py gtk3 --poti)
+PYTHONPATH=tests xvfb-run -a python3 -m pytest -q $(python3 tools/razdeli_teste.py gtk4 --poti)
 ```
 
 ## Fork it

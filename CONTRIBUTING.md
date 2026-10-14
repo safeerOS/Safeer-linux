@@ -56,8 +56,8 @@ GTK 3 and GTK 4 cannot be loaded into the same Python process, so the suite is s
 groups. `tools/razdeli_teste.py` picks the group from each test's imports:
 
 ```bash
-PYTHONPATH=tests xvfb-run -a python3 -m unittest $(python3 tools/razdeli_teste.py gtk3)
-PYTHONPATH=tests xvfb-run -a python3 -m unittest $(python3 tools/razdeli_teste.py gtk4)
+PYTHONPATH=tests xvfb-run -a python3 -m pytest -q $(python3 tools/razdeli_teste.py gtk3 --poti)
+PYTHONPATH=tests xvfb-run -a python3 -m pytest -q $(python3 tools/razdeli_teste.py gtk4 --poti)
 ```
 
 The `gtk4` group also needs PySide6 for the Qt Quick shell (`pip install PySide6`, or
