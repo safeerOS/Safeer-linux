@@ -1289,6 +1289,30 @@ def _predaj_ce_oddaljen(app, dejanje: str, vrednost=None) -> bool:
     return True
 
 
+def datoteka_nedavnih(okolje=None, dom: str = "") -> str:
+    """Seznam nedavnih datotek racunalnika. V Flatpaku GTK bere ~/.var/app/<id>/data/recently-used.xbel, ki je prazen
+    (testni PC 14. 10. 2026: Nedavno je bilo vedno prazno); programi racunalnika pisejo v ~/.local/share. Prazno = privzeto."""
+    okolje = os.environ if okolje is None else okolje
+    if not okolje.get("FLATPAK_ID"):
+        return ""
+    return os.path.join(dom or os.path.expanduser("~"), ".local", "share", "recently-used.xbel")
+
+
+_NEDAVNI = None
+
+
+def _nedavni():
+    """Gtk.RecentManager nad seznamom racunalnika (glej datoteka_nedavnih)."""
+    global _NEDAVNI
+    if _NEDAVNI is None:
+        pot = datoteka_nedavnih()
+        try:
+            _NEDAVNI = Gtk.RecentManager(filename=pot) if pot else Gtk.RecentManager.get_default()
+        except Exception:  # noqa: BLE001
+            _NEDAVNI = Gtk.RecentManager.get_default()
+    return _NEDAVNI
+
+
 def _ima_delovno(app) -> bool:
     """Delovna povrsina tece: okno WebKit (delovna.html) ali namizje QML (core/os_lupina.Namizje)."""
     return getattr(app, "okno_delovna", None) is not None or \
@@ -2942,7 +2966,7 @@ class SafeerOS(Gtk.Application):
                 lambda: self._dogodek("nosilci", None))
             try:
                 # Seznam nedavnih vodi GTK in spremembo javi sam (datoteka, odprta ali shranjena v drugem programu).
-                Gtk.RecentManager.get_default().connect(
+                _nedavni().connect(
                     "changed", lambda *_a: nadzor.zunanja(os_datoteke.NadzorMap.NEDAVNO))
             except Exception as e:  # noqa: BLE001
                 print("[SafeerOS] nadzor nedavnih:", e)
@@ -3520,7 +3544,7 @@ class SafeerOS(Gtk.Application):
     def _nedavne(self) -> list:
         izhod = []
         try:
-            for e in Gtk.RecentManager.get_default().get_items():
+            for e in _nedavni().get_items():
                 if not e.exists() or not e.is_local():
                     continue
                 pot = GLib.filename_from_uri(e.get_uri())[0]
@@ -3544,14 +3568,14 @@ class SafeerOS(Gtk.Application):
         if not pot or not os.path.isabs(pot):
             return False
         try:
-            return bool(Gtk.RecentManager.get_default().remove_item(GLib.filename_to_uri(pot, None)))
+            return bool(_nedavni().remove_item(GLib.filename_to_uri(pot, None)))
         except Exception as e:  # noqa: BLE001
             print("[SafeerOS] nedavne pozabi:", e)
             return False
 
     def _nedavne_pocisti(self) -> bool:
         try:
-            Gtk.RecentManager.get_default().purge_items()
+            _nedavni().purge_items()
             return True
         except Exception as e:  # noqa: BLE001
             print("[SafeerOS] nedavne pocisti:", e)
