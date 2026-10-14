@@ -51,6 +51,10 @@ class Pravila(unittest.TestCase):
         self.assertNotIn("zlo", o)
         self.assertEqual(o["tmdb_id"], 12)
         self.assertEqual(len(o["id"]), 2048)
+        # Ozadje (Domov) samo s spletnim ali krajevnim naslovom, vir je besedilo, zvrst stevilka.
+        o = P.cisti_opis({"ozadje": "javascript:x", "vir": "Vir\n1", "zanr": "878"})
+        self.assertEqual((o.get("ozadje"), o["vir"], o["zanr"]), (None, "Vir 1", 878))
+        self.assertEqual(P.cisti_opis({"ozadje": "https://s.test/o.jpg"})["ozadje"], "https://s.test/o.jpg")
 
 
 class Epizode(unittest.TestCase):
@@ -160,6 +164,16 @@ class Vidnost(unittest.TestCase):
         self.assertEqual(P.POLICE_ZAVIHKOV["filmi"], ("nadaljuj", "nazadnje", "priljubljene"))
         self.assertEqual(P.POLICE_ZAVIHKOV["glasba"], ("nadaljuj", "najvec", "nazadnje", "priljubljene"))
         self.assertNotIn("vse", P.POLICE_ZAVIHKOV)          # iskanje nima polic
+        # Domov: vse osebne police in nazadnje predvajana glasba; slike imajo svoj zavihek.
+        self.assertEqual(P.POLICE_ZAVIHKOV["domov"], ("nadaljuj", "nazadnje", "glasba", "najvec", "priljubljene"))
+        self.assertNotIn("slike", P.VRSTE_ZAVIHKA["domov"])
+        self.assertTrue({"film", "serija", "glasba", "radio", "tv-v-zivo"} <= P.VRSTE_ZAVIHKA["domov"])
+
+    def test_domov_prazne_police_izpadejo(self):
+        viri = {"nadaljuj": [], "nazadnje": [{"kljuc": "pot:/a.mkv", "vrsta": "filmi"}, {"kljuc": "pot:/b.jpg", "vrsta": "slike"}],
+                "glasba": [], "najvec": [], "priljubljene": []}
+        self.assertEqual(P.sestavi_police("domov", viri), [{"id": "nazadnje", "vnosi": [{"kljuc": "pot:/a.mkv", "vrsta": "filmi"}]}])
+        self.assertEqual(P.sestavi_police("domov", {}), [])
 
     def test_prazne_police_izpadejo_in_vrste_se_filtrirajo(self):
         viri = {"priljubljene": [{"kljuc": "id:f", "vrsta": "film"}, {"kljuc": "id:r", "vrsta": "radio"}],
@@ -396,6 +410,40 @@ class MostPolic(unittest.TestCase):
         self.assertEqual(len(vnosi), 1)
         self.assertEqual((vnosi[0]["naslov"], vnosi[0]["album"]), ("Album", True))
 
+    # ---- Domov (lastnik, 14. 10. 2026): zacetna stran Medijskega centra
+    def test_domov_brez_vsebine_nima_polic(self):
+        self.assertEqual(self.k.izvedi("mediaPolice", ["domov", ""])["police"], [])
+
+    def test_domov_nazadnje_predvajana_glasba_po_albumih_in_iz_kataloga(self):
+        album = Path(self.mapa.name) / "Album"
+        album.mkdir()
+        poti = []
+        for ime in ("01 A.mp3", "02 B.mp3"):
+            (album / ime).write_bytes(b"x")
+            poti.append(str((album / ime).resolve()))
+        self.lokalna.dodaj(poti)
+        self.lokalna.predvajano(poti[0])
+        self.lokalna.predvajano(poti[1])
+        self.k.police.zapomni("id:g1", {"id": "g1", "naslov": "Skladba iz kataloga", "vrsta": "glasba", "izvajalec": "Izvajalec"})
+        self.k.police.zapomni("id:f1", {"id": "f1", "naslov": "Film", "vrsta": "film"})
+        police = {p["id"]: p["vnosi"] for p in self.k.izvedi("mediaPolice", ["domov", ""])["police"]}
+        glasba = police["glasba"]
+        # Album z dvema predvajanima skladbama je ena kartica; film ni na polici glasbe.
+        self.assertEqual(sorted(v["naslov"] for v in glasba), ["Album", "Skladba iz kataloga"])
+        self.assertEqual([v for v in glasba if v["naslov"] == "Album"][0]["album"], True)
+        # Na Domov so tudi nazadnje dodane datoteke (vse vrste razen slik).
+        self.assertIn("nazadnje", police)
+
+    def test_domov_opis_hrani_vir_ozadje_in_zvrst(self):
+        self.k._mc.vnosi["fx"] = {"id": "fx", "vrsta": "film", "naslov": "Film X", "tmdb_id": 9, "leto": 2016, "vir": "Vir 1",
+                                  "zanri": [878, 18], "ozadje": "https://slike.test/o.jpg", "url": "https://tok.test/fx.mp4"}
+        self.k.izvedi("mediaPredvajaj", ["fx"])
+        opis = self.k.police.opis("tmdb:film:9")
+        self.assertEqual((opis["vir"], opis["ozadje"], opis["zanr"], opis["leto"]), ("Vir 1", "https://slike.test/o.jpg", 878, 2016))
+        vnos = K.Katalog._vnos_opisa("tmdb:film:9", opis, {})
+        for polje in ("vir", "ozadje", "zanr", "leto"):
+            self.assertIn(polje, vnos)
+
 
 def _beri(*deli):
     with open(os.path.join(KOREN, *deli), encoding="utf-8") as f:
@@ -424,7 +472,7 @@ class Vmesnik(unittest.TestCase):
     def test_polica_skrita_brez_vsebine(self):
         telo = self.js.split("function narisiPolice() {", 1)[1].split("\n  }\n", 1)[0]
         self.assertIn("c.hidden = !police.length;", telo)
-        self.assertIn('<div class="media-police" id="mediaPolice" hidden></div>', self.html)
+        self.assertIn('<div class="media-police media-domov-del" id="mediaPolice" hidden></div>', self.html)
         self.assertIn(".media-police[hidden]", self.css)
         self.assertIn('klic("mediaPolice", [S.mediaFilter, S.mediaIskanje])', self.js)
         self.assertIn("if (!veckrat) naloziPolice();", self.js)

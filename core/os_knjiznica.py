@@ -248,6 +248,13 @@ class Knjiznica:
                                    (os_police.NAJMANJ_ZA_NAJVEC, max(1, min(int(meja), 200)))).fetchall()
         return [v for v in map(self._vrstica, vrstice) if v["naVoljo"]]
 
+    def nazadnje_predvajana_glasba(self, meja: int = 60) -> list[dict]:
+        """Nazadnje predvajane skladbe z diska (za polico »Nazadnje predvajana glasba« na Domov), najnovejse prve."""
+        with self._baza() as baza:
+            vrstice = baza.execute("SELECT " + self._STOLPCI + " FROM mediji WHERE vrsta='glasba' AND zadnjic > 0 "
+                                   "ORDER BY zadnjic DESC LIMIT ?", (max(1, min(int(meja), 500)),)).fetchall()
+        return [v for v in map(self._vrstica, vrstice) if v["naVoljo"]]
+
     def epizode(self) -> list[dict]:
         """Vse krajevne epizode (za naslednjo epizodo)."""
         with self._baza() as baza:

@@ -772,8 +772,12 @@ class Katalog:
     @staticmethod
     def _opis_vnosa(item: dict, ident: str) -> dict:
         """Kar kartica na polici potrebuje; naslov toka le pri prenosih in skladbah (rezerva, ce ga katalog izgubi)."""
-        opis = {p: item.get(p) for p in ("naslov", "vrsta", "slika", "izvajalec", "tmdb_id", "sezona", "epizoda", "leto")}
+        opis = {p: item.get(p) for p in ("naslov", "vrsta", "slika", "izvajalec", "tmdb_id", "sezona", "epizoda", "leto",
+                                          "vir", "ozadje")}
         opis["id"] = str(item.get("id") or ident)
+        zanri = item.get("zanri")
+        if isinstance(zanri, list) and zanri:
+            opis["zanr"] = zanri[0]
         if str(item.get("vrsta") or "") in ("radio", "tv-v-zivo", "glasba", "podcast"):
             opis["url"] = str(item.get("url") or "")
         return os_police.cisti_opis(opis)
@@ -797,7 +801,7 @@ class Katalog:
         tip = "tok" if k.startswith("tok:") else "lokalno" if k.startswith("pot:") else "katalog"
         d = {"kljuc": k, "tip": tip, "naslov": str(m.get("naslov") or ""), "vrsta": str(m.get("vrsta") or ""),
              "ogledano": k in ogledano}
-        for p in ("slika", "izvajalec", "podnaslov", "id", "url", "tmdb_id", "sezona", "epizoda"):
+        for p in ("slika", "izvajalec", "podnaslov", "id", "url", "tmdb_id", "sezona", "epizoda", "leto", "vir", "ozadje", "zanr"):
             if m.get(p):
                 d[p] = m[p]
         if tip == "tok":
@@ -844,7 +848,7 @@ class Katalog:
                 serije.add(int(m["tmdb_id"]))
         for v in self.lokalna.nedokoncane():
             izhod.append(self._vnos_lokalni(v))
-        if zavihek in ("serije", "video"):
+        if zavihek in ("serije", "video", "domov"):
             for v, cas in os_police.naslednje_lokalne(self.lokalna.epizode()):
                 izhod.append(self._vnos_naslednje_lokalne(v, cas))
             izhod += self._naslednje_kataloga(ogledano, serije)
@@ -872,6 +876,25 @@ class Katalog:
                 albumi.add(mapa)
                 d.update(naslov=Path(mapa).name or d["naslov"], podnaslov=d["naslov"], album=True)
             izhod.append(d)
+        return izhod
+
+    def _polica_glasba(self, zavihek: str, ogledano: dict) -> list:
+        """Nazadnje predvajana glasba (Domov): skladbe z diska po albumih (mapah) in skladbe iz kataloga ali s seznamov,
+        nazadnje predvajano prvo. Brez predvajanj police ni (prazne police izpadejo)."""
+        izhod, albumi = [], set()
+        for v in self.lokalna.nazadnje_predvajana_glasba(200):
+            mapa = str(Path(v["pot"]).parent)
+            if mapa in albumi:
+                continue
+            albumi.add(mapa)
+            d = self._vnos_lokalni(v)
+            d.update(naslov=Path(mapa).name or d["naslov"], podnaslov=d["naslov"], album=True)
+            izhod.append(d)
+        for k, v in self.police.predvajanja().items():
+            m = v.get("m") if isinstance(v.get("m"), dict) else {}
+            if str(m.get("vrsta") or "") in os_police.ZVOCNE and m.get("naslov") and int(v.get("t") or 0):
+                izhod.append(dict(self._vnos_opisa(k, m, ogledano), t=int(v["t"])))
+        izhod.sort(key=lambda d: -int(d.get("t") or 0))
         return izhod
 
     def _polica_najvec(self, zavihek: str, ogledano: dict) -> list:

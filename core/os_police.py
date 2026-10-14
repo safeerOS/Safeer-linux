@@ -56,7 +56,11 @@ VRSTE_ZAVIHKA = {
     "radio": frozenset({"radio"}),
     "tv": frozenset({"tv", "tv-v-zivo"}),
     "slike": frozenset({"slike"}),
+    # Domov (lastnik, 14. 10. 2026: zacetna stran Medijskega centra): vse vrste razen slik, ki imajo svoj zavihek.
+    "domov": frozenset({"filmi", "serije", "film", "serija", "video", "glasba", "podcast", "podkast", "radio", "tv", "tv-v-zivo"}),
 }
+#: Vrste na polici »Nazadnje predvajana glasba« (samo Domov).
+ZVOCNE = frozenset({"glasba", "podcast", "podkast"})
 #: Police na zavihku in njihov vrstni red. Radio in TV nimata »nadaljuj« (prenos v zivo) ne »nazadnje dodano«
 #: (postaj ne dodajamo kot datotek); slike imajo samo priljubljene. Iskanje (»vse«) nima polic.
 POLICE_ZAVIHKOV = {
@@ -67,6 +71,7 @@ POLICE_ZAVIHKOV = {
     "radio": ("priljubljene", "najvec"),
     "tv": ("priljubljene", "najvec"),
     "slike": ("priljubljene",),
+    "domov": ("nadaljuj", "nazadnje", "glasba", "najvec", "priljubljene"),
 }
 #: Vrste, pri katerih ima »ogledano« smisel (video); glasba in postaje ga nimajo.
 OGLEDLJIVE = frozenset({"filmi", "serije", "film", "serija", "video"})
@@ -112,9 +117,10 @@ def je_ogledano(pozicija: float, trajanje: float) -> bool:
     return float(trajanje or 0) > 0 and float(pozicija or 0) >= OGLEDANO_PRI * float(trajanje)
 
 
-_POLJA_BESEDILA = ("naslov", "vrsta", "izvajalec", "podnaslov")
-_POLJA_NASLOVA = ("slika", "url", "pot", "id")
-_POLJA_STEVIL = ("tmdb_id", "sezona", "epizoda", "leto")
+# vir, ozadje in zanr (prva zvrst TMDB) za junaka na Domov: samo resnicni podatki vnosa, nic izmisljenega.
+_POLJA_BESEDILA = ("naslov", "vrsta", "izvajalec", "podnaslov", "vir")
+_POLJA_NASLOVA = ("slika", "url", "pot", "id", "ozadje")
+_POLJA_STEVIL = ("tmdb_id", "sezona", "epizoda", "leto", "zanr")
 
 
 def cisti_opis(m: Any) -> dict:
@@ -131,8 +137,9 @@ def cisti_opis(m: Any) -> dict:
     for p in _POLJA_STEVIL:
         if _celo(m.get(p)):
             izhod[p] = min(_celo(m.get(p)), 2_147_483_647)
-    if not str(izhod.get("slika", "")).startswith(("https://", "http://", "file://")):
-        izhod.pop("slika", None)
+    for p in ("slika", "ozadje"):
+        if not str(izhod.get(p, "")).startswith(("https://", "http://", "file://")):
+            izhod.pop(p, None)
     if not str(izhod.get("url", "")).startswith(("https://", "http://")):
         izhod.pop("url", None)
     return izhod
