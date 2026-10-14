@@ -1815,7 +1815,8 @@ class SafeerOS(Gtk.Application):
         in docku (robovi iz workarea), zato se nic ne prekriva."""
         robovi = self._robovi()
         self._robovi_delovne = robovi
-        if not self.posnetek and os_lupina.pripravi(sys.argv[:1]):
+        # pozno: Safeer OS je ze tekel kot Player ali okno (_vklopi_delovno) - Qt mora dobiti EGL (glej os_lupina.pripravi).
+        if not self.posnetek and os_lupina.pripravi(sys.argv[:1], pozno=bool(self.get_windows())):
             # Namizje v QML (kot na Windows); Splet, Safeer Player in razdelki ostanejo okna GTK4 v tem procesu.
             self.lupina = os_lupina.Namizje(self)
             self.pogled_delovna = self._qml_pogled = self.lupina.pogled
