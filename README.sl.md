@@ -1,7 +1,7 @@
 # Safeer Browser za Linux
 
-Hiter, lahek brskalnik z zasebnostjo na prvem mestu za Linux Mint, Ubuntu in Debian — GTK3 in
-WebKit2GTK, zato se odpre v trenutku in pusti ventilatorje pri miru.
+Hiter, lahek brskalnik z zasebnostjo na prvem mestu za Linux Mint, Ubuntu in Debian — nativni GTK4
+in WebKitGTK 6.0 z našimi popravki pogona, zato se odpre v trenutku in pusti ventilatorje pri miru.
 
 [![Licenca](https://img.shields.io/badge/Licenca-Apache_2.0-blue?style=flat-square)](LICENSE)
 [![Platforma](https://img.shields.io/badge/Platforma-Linux_Mint_%7C_Ubuntu_%7C_Debian-87cf3e?style=flat-square)](#zahteve)
@@ -16,8 +16,18 @@ English: [README.md](README.md) · Spletna stran: [safeer.si](https://safeer.si)
 
 ## Kaj zna
 
-**Hiter zagon, majhna poraba.** Nativni GTK3 z WebKit2GTK — brez Electrona, brez drugega
-brskalniškega pogona, brez posodabljalnika v ozadju.
+**Nativni GTK4, naš WebKit.** Nativni GTK4 z WebKitGTK 6.0 — brez Electrona, brez drugega
+brskalniškega pogona, brez posodabljalnika v ozadju. Flatpak prinese WebKitGTK 2.54.1 s popravki, ki
+smo jih razvili sami ([packaging/webkit](packaging/webkit)): plasti z backdrop-filter v kompozitorju
+Skia se ne izrisujejo več 2ⁿ-krat, utišan video MediaSource izven vidnega polja pa tokov ne pušča več
+obtičanih v »nalaganju«. Popravki so pripravljeni za WebKit; ko jih bo imel WebKitGTK sam, naše
+gradnje ne bo več.
+
+**Isti pogon kot Safeer OS.** Brskalnik in Splet v Safeer OS sta ena koda: vsaka izboljšava spleta je
+takoj v obeh.
+
+**Zaščiten video.** Safeer DRM, majhen pomočnik, ki se zažene le ob potrebi, predvaja video z
+Widevine (Netflix, Disney+ …) v zavihku brskalnika, pogon strani pa ostane v celoti v peskovniku.
 
 **Krajevni ščit pred grožnjami.** Botnetni C2, gostitelji zlonamerne kode in lažno
 predstavljanje iz virov abuse.ch (Feodo Tracker, URLhaus, ThreatFox) in Phishing Army, ujeti
@@ -28,9 +38,23 @@ velja le majhen vgrajen zasilni seznam.
 **Blokirani oglasi in sledilci**, blokirani piškotki tretjih oseb, sledilni parametri
 odstranjeni iz povezav, brez telemetrije. Privzeti iskalnik je DuckDuckGo.
 
-**Šifriran DNS** prek HTTPS z delujočim HTTP/2 in brez tihega preklopa na navadni DNS ob napaki.
-Ponudnikoma, ki ju dosežemo po imenu (Quad9, AdGuard), se naslov strežnika enkrat poišče prek
-sistemskega DNS; Cloudflare in Google dosežemo po IP. Zaenkrat samo naslovi IPv4 (zapisi A).
+**Nezaželena pojavna okna blokirana, prijavna ostanejo.** Stran lahko odpre okno le po tvojem
+kliku. Okno, ki ga skripta odpre na drugo stran, je blokirano z vrstico, kjer ga lahko vseeno odpreš
+ali stran vedno dovoliš; prijavna in plačilna okna (Google, Microsoft, Apple, PayPal, `/login`,
+`/oauth` …) in okna iste strani se vedno odprejo, z ohranjeno povezavo do strani, zato »Prijava z …«
+deluje.
+
+**Varni prenosi.** Datoteke gredo v mapo Prenosi pod imenom, ki ga da strežnik, nikoli ne prepišejo
+obstoječe, programi in namestitveni paketi (`.deb`, `.AppImage`, `.exe`, `.sh` …) pa se prenesejo
+šele po tvoji potrditvi.
+
+**Povezave na druge programe vprašajo.** `mailto:`, `magnet:`, `zoommtg:` in podobne odpre program na
+tvojem računalniku po potrditvi; »vedno« si brskalnik lahko zapomni za vsako stran.
+
+**Šifriran DNS** prek HTTPS (izbereš Quad9, AdGuard, Cloudflare, Google, svoj strežnik ali izklop) z
+delujočim HTTP/2 in brez tihega preklopa na navadni DNS ob napaki. Ponudnikoma, ki ju dosežemo po imenu
+(Quad9, AdGuard), se naslov strežnika enkrat poišče prek sistemskega DNS; Cloudflare in Google dosežemo
+po IP. Najprej se vpraša za naslov IPv4 (zapis A), IPv6 (AAAA) le, če ga stran nima.
 
 **Predvajanje v ozadju.** Glasba in podkasti tečejo naprej ob menjavi zavihkov, z dovolj nizko
 porabo procesorja, da prenosnik ostane tih.
@@ -74,8 +98,10 @@ flatpak install ./Safeer-Browser-<verzija>-x86_64.flatpak
 
 Ali pa v upravitelju datotek preprosto dvoklikni `.deb`.
 
-AppImage in Flatpak sta narejena samo za x86_64. Paket `.deb` ni vezan na arhitekturo (Python
-na sistemskem GTK in WebKit2GTK), a na ARM64 ni preizkušen ob vsaki izdaji.
+Naš popravljeni WebKit je v **Flatpaku**; `.deb` in AppImage uporabljata WebKitGTK 6.0 sistema.
+Če sta nameščena `.deb` in Flatpak, ukaz `safeer` zažene Flatpak (iste nastavitve, prijave in
+zaznamki). AppImage in Flatpak sta narejena samo za x86_64. Paket `.deb` ni vezan na arhitekturo
+(Python na sistemskem GTK4 in WebKitGTK), a na ARM64 ni preizkušen ob vsaki izdaji.
 
 Preveri, kaj si prenesel, s `SHA256SUMS` iz iste izdaje:
 
@@ -96,8 +122,9 @@ ob izpadu domače povezave teče skozi telefon — brez dostopne točke: glej
 
 ## Zahteve
 
-Sodoben Linux Mint, Ubuntu ali Debian z GTK3 in WebKit2GTK. AppImage za izdaje je grajen proti
-glibc 2.35 (Ubuntu 22.04), zato teče tudi na starejših sistemih.
+`.deb` in AppImage: Linux Mint 22 ali novejši, Ubuntu 24.04 ali novejši ali Debian 13, z GTK4 in
+WebKitGTK 6.0 (AppImage je grajen proti glibc 2.39). Starejši sistemi, npr. Linux Mint 21: uporabi
+Flatpak — GTK4 in naš WebKit prinese s sabo.
 
 ## Gradnja iz izvorne kode
 
