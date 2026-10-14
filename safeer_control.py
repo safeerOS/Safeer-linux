@@ -745,8 +745,9 @@ class SafeerControl(_OSNOVA):
         # Programi racunalnika za televizor; privzeto izklopljeno ("programi_za_tv" v control.json).
         self.programi = link_programi.Programi(bool(self.nastavitve.get("programi_za_tv", False)))
         self.programi.ob_spremembi = lambda vklopljeno: self.nastavitve.set("programi_za_tv", bool(vklopljeno))
-        # Zaslon racunalnika na televizorju; privzeto izklopljeno ("zaslon_za_tv" v control.json).
-        self.zaslon = link_zaslon.Zaslon(vklopljeno=bool(self.nastavitve.get("zaslon_za_tv", False)))
+        # Zaslon racunalnika na televizorju ("zaslon_za_tv" v control.json): brez izbire uporabnika pripravljen, ker ga
+        # vsaka naprava dobi sele z zmoznostjo »z«, ki jo odobri uporabnik tu (link_zaslon.vklopljeno_iz_nastavitev).
+        self.zaslon = link_zaslon.Zaslon(vklopljeno=link_zaslon.vklopljeno_iz_nastavitev(self.nastavitve.get("zaslon_za_tv")))
         self.zaslon.ob_spremembi = lambda vklopljeno: self.nastavitve.set("zaslon_za_tv", bool(vklopljeno))
         # Locen zaslon za televizor: programi s televizorja tecejo na drugem, nevidnem zaslonu in ne
         # posegajo v uporabnikovega ("locen_zaslon_za_tv" v control.json, privzeto vklopljeno, kjer je mogoce).

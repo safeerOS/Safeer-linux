@@ -576,6 +576,16 @@ def ukaz_zvok(vir: str, ffmpeg: str = "ffmpeg") -> List[str]:
             "-ac", str(ZVOK_KANALI), "-ar", str(ZVOK_HZ), "-f", "s16le", "-"]
 
 
+def vklopljeno_iz_nastavitev(vrednost: object) -> bool:
+    """Ali je deljenje zaslona v Safeer Controlu vklopljeno (`zaslon_za_tv` v control.json).
+
+    Uporabnik ni nikoli izbiral (kljuca ni): VKLOPLJENO - pripravljeno (14. 10. 2026). To je varno, ker zaslon vsaka
+    druga naprava dobi sele, ko ji uporabnik NA TEM racunalniku odpre zmoznost »z« (core/link_dostop, za vsako napravo
+    posebej) - rocno ali z »Dovoli« v obvestilu s prosnjo za dostop; brez tega racunalnik screen.start zavrne sam.
+    Izrecna izbira uporabnika (tudi izklop) velja naprej."""
+    return True if vrednost is None else bool(vrednost)
+
+
 class Zaslon:
     """Deljenje zaslona racunalnika s televizorjem: ena seja naenkrat, samo na uporabnikov ukaz."""
 
