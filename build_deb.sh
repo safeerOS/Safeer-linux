@@ -51,8 +51,8 @@ Section: web
 Priority: optional
 Architecture: ${ARCH}
 Depends: ${ODVISNOSTI}
-${PRIPOROCILA}Maintainer: Safeer <info@safeer.si>
-Homepage: https://github.com/safeerOS/Safeer-linux
+Maintainer: Safeer <info@safeer.si>
+${PRIPOROCILA}Homepage: https://github.com/safeerOS/Safeer-linux
 Description: Sovereign, ultra-fast, and private web browser for Linux Mint & Ubuntu
  Safeer Browser is an open-source, ultra-fast web browser engineered
 ${OPIS_GTK}
