@@ -205,8 +205,8 @@ Steklo {
                 Layout.fillWidth: true; Layout.fillHeight: true
                 // Ozka plosca (aplikacija v manjsem oknu, 14. 10. 2026: pri 1080 px ime ni bilo vidno): stolpca
                 // Spremenjeno in Velikost se umakneta imenu.
-                readonly property bool ozko: width < 430
-                readonly property bool zeloOzko: width < 300
+                readonly property bool ozko: width < 360
+                readonly property bool zeloOzko: width < 260
                 readonly property real stolpci: (zeloOzko ? 0 : 80) + (ozko ? 0 : 110)
                 clip: true; model: panel.prikazani; boundsBehavior: Flickable.StopAtBounds
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
