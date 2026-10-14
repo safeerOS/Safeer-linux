@@ -9,6 +9,9 @@
 name: libsoup3-safeer
 buildsystem: meson
 config-opts:
+  # Kot WebKit (CMAKE_INSTALL_LIBDIR=lib): SDK z mesonom privzeto namesti v /app/lib/x86_64-linux-gnu, ki ni v iskalni
+  # poti Flatpaka - CI #813 je nalozil 3.6.6 iz runtime-a.
+  - --libdir=lib
   - -Dtests=false
   - -Dinstalled_tests=false
   - -Ddocs=disabled

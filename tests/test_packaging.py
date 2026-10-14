@@ -217,6 +217,8 @@ class PackagingTests(unittest.TestCase):
         self.assertGreaterEqual(tuple(map(int,razlicica)),(3,8,0))
         self.assertRegex(modul,r'(?m)^    sha256: [0-9a-f]{64}$')
         self.assertIn('https://download.gnome.org/sources/libsoup/%s.%s/'%razlicica[:2],modul)
+        # Brez --libdir=lib gre knjiznica v /app/lib/x86_64-linux-gnu in nalozi se 3.6.6 iz runtime-a (CI #813).
+        self.assertIn('  - --libdir=lib',modul)
         for manifest in ('io.github.memelandfaner.SafeerOS.yml','io.github.memelandfaner.SafeerBrowser.yml'):
             with self.subTest(manifest=manifest):
                 seznam=re.findall(r'^  - (\S.*)$',(ROOT/manifest).read_text().split('\nmodules:\n',1)[1],re.M)
