@@ -732,7 +732,13 @@ class VdelaniSplet:
         self.vrstica_zavihkov.set_name("splet-zavihki")
         self.skatla_zavihkov = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         self.skatla_zavihkov.set_margin_start(10)
-        self.vrstica_zavihkov.append(self.skatla_zavihkov)
+        # Zavihki v drsniku: veliko zavihkov ne razsiri okna cez zaslon (preizkus 14. 10.: okno ni slo vec na zaslon);
+        # ko jih je prevec, se vrstica drsi (kolesce, Ctrl+Tab), kot v Firefoxu.
+        self.drsnik_zavihkov = Gtk.ScrolledWindow()
+        self.drsnik_zavihkov.set_policy(Gtk.PolicyType.EXTERNAL, Gtk.PolicyType.NEVER)
+        self.drsnik_zavihkov.set_propagate_natural_width(True)
+        self.drsnik_zavihkov.set_child(self.skatla_zavihkov)
+        self.vrstica_zavihkov.append(self.drsnik_zavihkov)
         self.nov_gumb = self._gumb("+", lambda *_: self.nov_zavihek(), "new-tab")
         self.vrstica_zavihkov.append(self.nov_gumb)
         presledek = Gtk.Box(); presledek.set_hexpand(True)
@@ -1614,7 +1620,25 @@ class VdelaniSplet:
                 z["vrstica"].add_css_class("splet-tab-aktiven")
             else:
                 z["vrstica"].remove_css_class("splet-tab-aktiven")
+        z = self._zavihek(pogled)
+        if z is not None and getattr(self, "drsnik_zavihkov", None) is not None:
+            self.GLib.idle_add(lambda v=z["vrstica"]: self._v_vidno(v) or False)
         self._osvezi_orodja()
+
+    def _v_vidno(self, vrstica) -> None:
+        """Izbrani zavihek v vidnem delu drsne vrstice zavihkov."""
+        try:
+            ok, meje = vrstica.compute_bounds(self.skatla_zavihkov)
+            if not ok:
+                return
+            prilagodi = self.drsnik_zavihkov.get_hadjustment()
+            x, sirina = meje.get_x(), meje.get_width()
+            if x < prilagodi.get_value():
+                prilagodi.set_value(x)
+            elif x + sirina > prilagodi.get_value() + prilagodi.get_page_size():
+                prilagodi.set_value(x + sirina - prilagodi.get_page_size())
+        except Exception:  # noqa: BLE001
+            pass
 
     def trenutni(self):
         return self.aktivni
