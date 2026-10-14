@@ -218,6 +218,20 @@ class SafeerBrskalnik(Gtk.Application):
         except Exception as e:  # noqa: BLE001 - zaprtje mora uspeti tudi brez seje
             print("[Safeer Browser] seja:", e, flush=True)
         self.splet.koncaj_drm()
+        # »Izbrisi ob izhodu«: okno se skrije takoj, proces pa konca sele, ko WebKit podatke izbrise (najvec 5 s).
+        if self.splet.config.get("brisi_ob_izhodu", []) and not getattr(self, "_brisanje", False):
+            self._brisanje = True
+            self.okno.set_visible(False)
+            stanje = {"konec": False}
+
+            def konec():
+                if not stanje["konec"]:
+                    stanje["konec"] = True
+                    self.okno.destroy()
+                return False
+            self.splet.pocisti_ob_izhodu(lambda: GLib.idle_add(konec))
+            GLib.timeout_add_seconds(5, konec)
+            return True
         return False
 
     def do_activate(self) -> None:

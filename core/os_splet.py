@@ -17,8 +17,8 @@ import weakref
 from html import escape as _escape_html
 from pathlib import Path
 
-from core import (adblock, drm, odlozisce_varuh, os_stabilnost, ozadje_strani, pojavna_okna, safeer_drm, splet_prenosi,
-                  splet_temno)
+from core import (adblock, dovoljenja_strani, drm, odlozisce_varuh, os_stabilnost, ozadje_strani, pojavna_okna,
+                  safeer_drm, splet_prenosi, splet_temno, zascita)
 from core.config import ConfigManager, SEARCH_ENGINES, normalize_web_url
 from core import external_apps
 from core.doh_proxy import get_doh_proxy, nastavitve_posrednika
@@ -244,7 +244,67 @@ _BRSKALNIK = {
            "odstrani": "Rimuovi", "zaznamek_odstrani": "Rimuovi segnalibro", "povecava_vrni": "Ripristina zoom al 100 %",
            "najdi_naprej": "Risultato successivo", "najdi_nazaj": "Risultato precedente"},
 }
-for _j, _b in list(splet_prenosi.BESEDILA.items()) + list(pojavna_okna.BESEDILA.items()) + list(_BRSKALNIK.items()):   # skupaj s Safeer Browserjem
+_NASTAVITVE = {
+    "sl": {"nas_splosno": "Splošno", "nas_zasebnost": "Zasebnost in varnost", "nas_dovoljenja": "Nastavitve spletnih mest …",
+           "nas_brisi": "Izbriši podatke brskanja …", "nas_mapa": "Mapa za prenose: {mapa}",
+           "nas_vprasaj_kam": "Vedno vprašaj, kam shraniti datoteko",
+           "nas_programi": "Programi in namestitveni paketi se prenesejo šele po tvoji potrditvi."},
+    "en": {"nas_splosno": "General", "nas_zasebnost": "Privacy & security", "nas_dovoljenja": "Site settings …",
+           "nas_brisi": "Clear browsing data …", "nas_mapa": "Download folder: {mapa}",
+           "nas_vprasaj_kam": "Always ask where to save files",
+           "nas_programi": "Programs and installers are downloaded only after you confirm."},
+    "de": {"nas_splosno": "Allgemein", "nas_zasebnost": "Datenschutz & Sicherheit", "nas_dovoljenja": "Website-Einstellungen …",
+           "nas_brisi": "Browserdaten löschen …", "nas_mapa": "Download-Ordner: {mapa}",
+           "nas_vprasaj_kam": "Immer fragen, wo Dateien gespeichert werden",
+           "nas_programi": "Programme und Installationspakete werden erst nach deiner Bestätigung heruntergeladen."},
+    "es": {"nas_splosno": "General", "nas_zasebnost": "Privacidad y seguridad", "nas_dovoljenja": "Ajustes de sitios …",
+           "nas_brisi": "Borrar datos de navegación …", "nas_mapa": "Carpeta de descargas: {mapa}",
+           "nas_vprasaj_kam": "Preguntar siempre dónde guardar los archivos",
+           "nas_programi": "Los programas e instaladores solo se descargan tras tu confirmación."},
+    "fr": {"nas_splosno": "Général", "nas_zasebnost": "Vie privée et sécurité", "nas_dovoljenja": "Paramètres des sites …",
+           "nas_brisi": "Effacer les données de navigation …", "nas_mapa": "Dossier de téléchargement : {mapa}",
+           "nas_vprasaj_kam": "Toujours demander où enregistrer les fichiers",
+           "nas_programi": "Les programmes et installateurs ne sont téléchargés qu’après votre confirmation."},
+    "it": {"nas_splosno": "Generale", "nas_zasebnost": "Privacy e sicurezza", "nas_dovoljenja": "Impostazioni dei siti …",
+           "nas_brisi": "Cancella dati di navigazione …", "nas_mapa": "Cartella download: {mapa}",
+           "nas_vprasaj_kam": "Chiedi sempre dove salvare i file",
+           "nas_programi": "Programmi e pacchetti di installazione vengono scaricati solo dopo la tua conferma."},
+}
+_BRISANJE = {
+    "sl": {"bp_naslov": "Izbriši podatke brskanja", "bp_obdobje": "Časovno obdobje", "bp_ura": "Zadnja ura",
+           "bp_dan": "Zadnjih 24 ur", "bp_teden": "Zadnji teden", "bp_vse": "Vse", "bp_zgodovina": "Zgodovina brskanja",
+           "bp_piskotki": "Piškotki in podatki strani (odjava s strani)", "bp_predpomnilnik": "Predpomnilnik (slike in datoteke)",
+           "bp_prenosi": "Seznam prenosov (datoteke ostanejo)", "bp_dovoljenja": "Nastavitve spletnih mest",
+           "bp_izbrisi": "Izbriši", "bp_ob_izhodu": "Izbranih podatkov ob zaprtju ne shranjuj (izbriši ob izhodu)",
+           "bp_koncano": "Izbrisano."},
+    "en": {"bp_naslov": "Clear browsing data", "bp_obdobje": "Time range", "bp_ura": "Last hour", "bp_dan": "Last 24 hours",
+           "bp_teden": "Last week", "bp_vse": "Everything", "bp_zgodovina": "Browsing history",
+           "bp_piskotki": "Cookies and site data (signs you out)", "bp_predpomnilnik": "Cache (images and files)",
+           "bp_prenosi": "Download list (files stay)", "bp_dovoljenja": "Site settings", "bp_izbrisi": "Clear",
+           "bp_ob_izhodu": "Delete the selected data when closing", "bp_koncano": "Cleared."},
+    "de": {"bp_naslov": "Browserdaten löschen", "bp_obdobje": "Zeitraum", "bp_ura": "Letzte Stunde", "bp_dan": "Letzte 24 Stunden",
+           "bp_teden": "Letzte Woche", "bp_vse": "Alles", "bp_zgodovina": "Verlauf",
+           "bp_piskotki": "Cookies und Website-Daten (meldet dich ab)", "bp_predpomnilnik": "Cache (Bilder und Dateien)",
+           "bp_prenosi": "Download-Liste (Dateien bleiben)", "bp_dovoljenja": "Website-Einstellungen", "bp_izbrisi": "Löschen",
+           "bp_ob_izhodu": "Ausgewählte Daten beim Schließen löschen", "bp_koncano": "Gelöscht."},
+    "es": {"bp_naslov": "Borrar datos de navegación", "bp_obdobje": "Intervalo", "bp_ura": "Última hora",
+           "bp_dan": "Últimas 24 horas", "bp_teden": "Última semana", "bp_vse": "Todo", "bp_zgodovina": "Historial",
+           "bp_piskotki": "Cookies y datos de sitios (cierra sesiones)", "bp_predpomnilnik": "Caché (imágenes y archivos)",
+           "bp_prenosi": "Lista de descargas (los archivos se quedan)", "bp_dovoljenja": "Ajustes de sitios",
+           "bp_izbrisi": "Borrar", "bp_ob_izhodu": "Borrar los datos seleccionados al cerrar", "bp_koncano": "Borrado."},
+    "fr": {"bp_naslov": "Effacer les données de navigation", "bp_obdobje": "Période", "bp_ura": "Dernière heure",
+           "bp_dan": "Dernières 24 heures", "bp_teden": "Dernière semaine", "bp_vse": "Tout", "bp_zgodovina": "Historique",
+           "bp_piskotki": "Cookies et données de sites (vous déconnecte)", "bp_predpomnilnik": "Cache (images et fichiers)",
+           "bp_prenosi": "Liste des téléchargements (les fichiers restent)", "bp_dovoljenja": "Paramètres des sites",
+           "bp_izbrisi": "Effacer", "bp_ob_izhodu": "Effacer les données sélectionnées à la fermeture", "bp_koncano": "Effacé."},
+    "it": {"bp_naslov": "Cancella dati di navigazione", "bp_obdobje": "Intervallo", "bp_ura": "Ultima ora",
+           "bp_dan": "Ultime 24 ore", "bp_teden": "Ultima settimana", "bp_vse": "Tutto", "bp_zgodovina": "Cronologia",
+           "bp_piskotki": "Cookie e dati dei siti (esce dagli account)", "bp_predpomnilnik": "Cache (immagini e file)",
+           "bp_prenosi": "Elenco download (i file restano)", "bp_dovoljenja": "Impostazioni dei siti", "bp_izbrisi": "Cancella",
+           "bp_ob_izhodu": "Cancella i dati selezionati alla chiusura", "bp_koncano": "Cancellato."},
+}
+for _j, _b in (list(_BRISANJE.items()) + list(splet_prenosi.BESEDILA.items()) + list(pojavna_okna.BESEDILA.items()) + list(_BRSKALNIK.items())
+               + list(zascita.BESEDILA.items()) + list(_NASTAVITVE.items()) + list(dovoljenja_strani.BESEDILA.items())):   # skupaj s Safeer Browserjem
     BESEDILA.setdefault(_j, {}).update(_b)
 
 
@@ -364,6 +424,8 @@ def blizjica(tipka: str, ctrl: bool = False, shift: bool = False, alt: bool = Fa
             return "najdi-nazaj" if shift else "najdi-naprej"
         if t == "p" and not shift:
             return "natisni"
+        if t == "delete" and shift:
+            return "izbrisi"
         if t == "m" and not shift:
             return "utisaj"
         if t == "d" and not shift:
@@ -616,6 +678,8 @@ class VdelaniSplet:
             piskotki.set_persistent_storage(os.path.join(self.config.config_dir, "cookies.sqlite"),
                                             WebKit2.CookiePersistentStorage.SQLITE)
             piskotki.set_accept_policy(WebKit2.CookieAcceptPolicy.NO_THIRD_PARTY)
+            if self.config.get("zascita_itp", False):
+                self.seja.set_itp_enabled(True)      # stroga zascita (core/zascita.py)
         except Exception as napaka:
             print("[Safeer OS Splet] shramba:", napaka)
             self.seja = WebKit2.NetworkSession.get_default()
@@ -716,7 +780,7 @@ class VdelaniSplet:
         self.gumb_prenosov = self._gumb("⬇", self._pokazi_prenose, "nav")
         self.gumb_prenosov.set_visible(False)
         orodja.append(self.gumb_prenosov)
-        self.scit = self._gumb("♢", lambda *_: None, "nav")
+        self.scit = self._gumb("♢", lambda *_: self._pokazi_scit(), "nav")
         self.scit.set_tooltip_text(self._t("scit"))
         orodja.append(self.scit)
         meni = Gtk.MenuButton()
@@ -818,6 +882,7 @@ class VdelaniSplet:
             "pomanjsaj": lambda: self._povecava(-.1), "nastavitve": lambda: self._nastavitve(),
             "zapisek": lambda: self._v_zapisek(), "temno": lambda: self._temno_preklopi_stran(),
             "natisni": lambda: self.izvedi("natisni"), "celozaslonsko": lambda: self.izvedi("celozaslonsko"),
+            "izbrisi": lambda: self._izbrisi_podatke(), "dovoljenja": lambda: self._dovoljenja_strani(),
         }
         for ime, dejanje in dejanja.items():
             d = self.Gio.SimpleAction.new(ime, None)
@@ -936,7 +1001,8 @@ class VdelaniSplet:
         vnosi = [("nov", "nov"), ("zaznamki", "zaznamki"), ("zgodovina", "zgodovina"), ("uvozi", "uvozi"),
                  ("predpomnilnik", "predpomnilnik"), ("prenosi", "prenosi"), ("najdi", "najdi"),
                  ("povecaj", "povecaj"), ("pomanjsaj", "pomanjsaj"), ("natisni", "natisni"),
-                 ("celozaslonsko", "celozaslonsko"), ("nastavitve", "nastavitve"), ("zapisek", "zapisek")]
+                 ("celozaslonsko", "celozaslonsko"), ("nas_brisi", "izbrisi"), ("nas_dovoljenja", "dovoljenja"),
+                 ("nastavitve", "nastavitve"), ("zapisek", "zapisek")]
         if not self.odpri_zapisek:
             vnosi = [v for v in vnosi if v[1] != "zapisek"]   # samostojni brskalnik nima zapiskov: brez praznega vnosa
         vnosi = [(self._t(k), d) for k, d in vnosi]
@@ -1030,12 +1096,19 @@ class VdelaniSplet:
             print("[Safeer OS Splet] prevajanje filtra:", napaka)
 
     def _uporabi_filter(self, pogled):
-        if self.filter is not None:
-            try:
-                pogled.get_user_content_manager().remove_filter_by_id(FILTER_ID)
-                pogled.get_user_content_manager().add_filter(self.filter)
-            except Exception:
-                pass
+        self._filter_za(pogled, pogled.get_uri() or "")
+
+    def _filter_za(self, pogled, naslov: str) -> None:
+        """Seznam EasyList na zavihku: vklopljen, razen ce ga je uporabnik izklopil (stopnja po meri) ali stran izvzel
+        (»Zascita na tej strani: izklopljena«). Upravitelj vsebine je za vsak zavihek svoj, zato velja le zanj."""
+        upravitelj = pogled.get_user_content_manager()
+        try:
+            upravitelj.remove_filter_by_id(FILTER_ID)
+            if (self.filter is not None and self.config.get("easylist_enabled", True)
+                    and not zascita.je_izjema(self.config, naslov)):
+                upravitelj.add_filter(self.filter)
+        except Exception:  # noqa: BLE001
+            pass
 
     def _skripta(self, upravitelj, koda, cas=None, dovoljeni=None, izloceni=None):
         if not koda:
@@ -1051,7 +1124,8 @@ class VdelaniSplet:
         # ki deli proces in sejo z izvorom; upravitelj vsebine in nastavitve sta svoja (preverjeno 14. 10. 2026), zato
         # spodaj dobi iste skripte in nastavitve kot vsak zavihek.
         pogled = (W.WebView(related_view=povezan) if povezan is not None
-                  else W.WebView(web_context=self.kontekst, network_session=self.seja))
+                  else W.WebView(web_context=self.kontekst, network_session=self.seja,
+                                 website_policies=self._pravila_strani()))
         # Padec spletnega procesa (sesutje strani, pomanjkanje pomnilnika): zavihek se nalozi znova, kot v brskalniku.
         pogled.connect("web-process-terminated", self._proces_pomnilnik)   # pred obnovo (ta caka 400 ms)
         os_stabilnost.obnovi_ob_padcu(W, self.GLib, pogled, "safeer-os", "splet", ob_odpovedi=self._proces_koncan)
@@ -1071,14 +1145,17 @@ class VdelaniSplet:
         drm.prikljuci(W, pogled, self._drm, lambda: str(self.jezik() if callable(self.jezik) else self.jezik or "sl"),
                       vdelaj=self._drm_vdelaj)
         izvzemi = adblock.AUTH_SCRIPT_EXCLUSIONS
+        # Strani, kjer je uporabnik izklopil zascito: brez skript za oglase (ostanejo varnostne in GPC).
+        izvzemi_oglase = izvzemi + zascita.vzorci_izjem(self.config)
         if self.config.get("gpc_dnt_enabled", True): self._skripta(upravitelj, adblock.GPC_AND_DNT_SCRIPT, izloceni=izvzemi)
-        self._skripta(upravitelj, adblock.YOUTUBE_ADBLOCK_SCRIPT, dovoljeni=["*://*.youtube.com/*", "*://youtube.com/*"], izloceni=izvzemi)
+        if self.config.get("adblock_enabled", True):
+            self._skripta(upravitelj, adblock.YOUTUBE_ADBLOCK_SCRIPT, dovoljeni=["*://*.youtube.com/*", "*://youtube.com/*"], izloceni=izvzemi_oglase)
         self._skripta(upravitelj, adblock.YOUTUBE_KEEP_WATCHING_SCRIPT, dovoljeni=["*://*.youtube.com/*", "*://youtube.com/*"], izloceni=izvzemi)
-        if self.config.get("adguard_protection_enabled", True): self._skripta(upravitelj, adblock.ADGUARD_PROTECTION_SCRIPT, izloceni=izvzemi)
+        if self.config.get("adguard_protection_enabled", True): self._skripta(upravitelj, adblock.ADGUARD_PROTECTION_SCRIPT, izloceni=izvzemi_oglase)
         # Kozmeticna skripta (cist DOM) v locenem svetu: lahko skrije oglase in posilja stevec, stran je ne vidi.
         upravitelj.add_script(W.UserScript.new_for_world(
             adblock.GENERIC_COSMETIC_SCRIPT, W.UserContentInjectedFrames.ALL_FRAMES,
-            W.UserScriptInjectionTime.END, adblock.STEVEC_SVET, None, izvzemi))
+            W.UserScriptInjectionTime.END, adblock.STEVEC_SVET, None, izvzemi_oglase))
         self._skripta(upravitelj, adblock.ANTI_CLICKJACKING_SCRIPT, W.UserScriptInjectionTime.END, izloceni=izvzemi + ["file://*"])
         self._skripta(upravitelj, adblock.TAB_THROTTLER_SCRIPT, izloceni=izvzemi)
         self._temno_skripte[pogled] = self._temno_namesti(upravitelj)
@@ -1093,7 +1170,9 @@ class VdelaniSplet:
                               ("javascript_can_open_windows_automatically", False), ("enable_html5_local_storage", True),
                               ("enable_html5_database", False),
                               ("enable_dns_prefetching", False), ("enable_page_cache", True),
-                              ("enable_encrypted_media", True)):
+                              ("enable_encrypted_media", True),
+                              # Stroga zascita: stran ne izve lokalnega naslova IP prek WebRTC.
+                              ("enable_webrtc", not self.config.get("zascita_brez_webrtc", False))):
             nastavi = getattr(nastavitve, "set_" + ime, None)
             if nastavi is not None:
                 try:
@@ -1250,6 +1329,8 @@ class VdelaniSplet:
             okno = self._okno_za_dialog()
             if okno is not None:
                 okno.unfullscreen() if okno.is_fullscreen() else okno.fullscreen()
+        elif dejanje == "izbrisi":
+            self._izbrisi_podatke()
         elif dejanje == "utisaj" and p is not None:
             p.set_is_muted(not p.get_is_muted()); self._osvezi_zvok(p)
         elif dejanje == "nazaj" and p is not None:
@@ -1606,7 +1687,8 @@ class VdelaniSplet:
             if not naslov.startswith(("http://", "https://")):
                 odlocitev.ignore(); return True
             grozi = adblock.is_threat_domain(naslov)      # enkrat na navigacijo (prej dvakrat)
-            if not grozi and self.config.get("adblock_enabled", True) and adblock.is_ad_domain(naslov):
+            izjema = zascita.je_izjema(self.config, naslov)
+            if not grozi and not izjema and self.config.get("adblock_enabled", True) and adblock.is_ad_domain(naslov):
                 self.config.increment_ads_blocked(); odlocitev.ignore(); self._osvezi_scit(); return True
             if grozi:
                 self.config.increment_threats_blocked(); odlocitev.ignore(); self._opozorilo("Safeer Shield", naslov); self._osvezi_scit(); return True
@@ -1619,7 +1701,7 @@ class VdelaniSplet:
                         pogled.get_uri() or "", naslov, prava, self.config.get("popup_dovoljeni", []) or []):
                     odlocitev.ignore(); self._pojavno_blokirano(pogled, naslov); return True
                 odlocitev.use(); return True     # zavihek naredi signal "create" (_novo_okno)
-            if self.config.get("tracking_protection_enabled", True) and zahteva.get_http_method() == "GET":
+            if not izjema and self.config.get("tracking_protection_enabled", True) and zahteva.get_http_method() == "GET":
                 cist = adblock.strip_tracking_parameters(naslov)
                 if cist != naslov: odlocitev.ignore(); pogled.load_uri(cist); return True
             # Stran s seznama puscanja: nov pogled z drugim izrisom - sele za Scitom in BankGuardom.
@@ -1685,11 +1767,15 @@ class VdelaniSplet:
                 return False
         except Exception:  # noqa: BLE001
             return False
+        return self._zamenjaj_pogled(pogled, naslov, zelena)
+
+    def _zamenjaj_pogled(self, pogled, naslov: str, politika=None) -> bool:
+        """Zavihek na istem mestu dobi nov pogled (nove skripte, izris, izjeme zascite) z isto stranjo."""
         star = next((x for x in self.zavihki if x["pogled"] is pogled), None)
         if star is None:
             return False
         indeks = self.zavihki.index(star)
-        self._naslednja_politika = zelena
+        self._naslednja_politika = politika
         try:
             nov = self.nov_zavihek(naslov)
         finally:
@@ -1740,6 +1826,9 @@ class VdelaniSplet:
         self.GLib.idle_add(lambda: (self._zamenjaj_za_pospesevanje(pogled, uri), False)[1])
 
     def _nalozen(self, pogled, dogodek):
+        if dogodek == self.WebKit2.LoadEvent.STARTED:
+            self._filter_za(pogled, pogled.get_uri() or "")    # izjema zascite velja ze za prvo zahtevo strani
+            return
         if dogodek != self.WebKit2.LoadEvent.FINISHED: return
         naslov = pogled.get_uri() or ""
         if je_domaca_stran(naslov, self.koren):
@@ -2000,7 +2089,57 @@ class VdelaniSplet:
         return True
 
     def _osvezi_scit(self):
-        pass  # stevca ni vec; namig gumba ostane "scit"
+        """Scit v orodni vrstici: izklopljena zascita na tej strani je vidna (kot Firefox)."""
+        p = self.trenutni()
+        izjema = p is not None and zascita.je_izjema(self.config, p.get_uri() or "")
+        ikona = "security-low-symbolic" if izjema else "security-high-symbolic"
+        try:
+            if self._ima_ikono(ikona):
+                self.scit.set_icon_name(ikona)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _pokazi_scit(self):
+        """Klik na scit: zascita na tej strani (vklop/izklop), stevec blokiranega, nastavitve zascite."""
+        Gtk = self.Gtk
+        p = self.trenutni()
+        uri = p.get_uri() if p is not None else ""
+        gost = zascita.gostitelj(uri) if (uri or "").startswith(("http://", "https://")) else ""
+        pop = Gtk.Popover()
+        pop.set_parent(self.scit)
+        skatla = _robovi(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10), 12)
+        skatla.set_size_request(320, -1)
+        if gost:
+            vrsta = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            napis = Gtk.Label(label=self._t("zas_na_strani").format(stran=gost), xalign=0, hexpand=True, wrap=True)
+            stikalo = Gtk.Switch(active=not zascita.je_izjema(self.config, uri), valign=Gtk.Align.CENTER)
+            vrsta.append(napis); vrsta.append(stikalo)
+            skatla.append(vrsta)
+            stanje = Gtk.Label(xalign=0); stanje.add_css_class("dim-label")
+            stanje.set_text(self._t("zas_vklopljena") if stikalo.get_active() else self._t("zas_izklopljena"))
+            skatla.append(stanje)
+
+            def ob_stikalu(s, _l):
+                if s.get_active() == (not zascita.je_izjema(self.config, uri)):
+                    return
+                vklop = zascita.preklopi_izjemo(self.config, uri)
+                stanje.set_text(self._t("zas_vklopljena") if vklop else self._t("zas_izklopljena"))
+                pop.popdown()
+                self._zamenjaj_pogled(p, uri)       # skripte in seznam strani na novo, brez/z zascito
+                self._osvezi_scit()
+            stikalo.connect("notify::active", ob_stikalu)
+        skatla.append(Gtk.Label(label=self._t("zas_blokirano").format(
+            n=int(self.config.get("total_ads_blocked", 0) or 0) + int(self.config.get("total_threats_blocked", 0) or 0)),
+            xalign=0))
+        g = Gtk.Button(label=self._t("zas_nastavitve"))
+        g.connect("clicked", lambda *_: (pop.popdown(), self._nastavitve()))
+        skatla.append(g)
+        opis = Gtk.Label(label=self._t("zas_ni_podatkov"), xalign=0, wrap=True); opis.add_css_class("dim-label")
+        opis.set_max_width_chars(40)
+        skatla.append(opis)
+        pop.set_child(skatla)
+        pop.connect("closed", lambda *_: self.GLib.idle_add(lambda: pop.unparent() or False))
+        pop.popup()
 
     def _preveri_bank_stran(self, pogled, uri):
         if not uri.startswith(("http://", "https://")) or adblock.is_real_bank_host(uri): return
@@ -2046,16 +2185,195 @@ class VdelaniSplet:
     def _opozorilo(self, naslov, opis):
         self._vprasaj(naslov, opis, [self._t("zapri")])
 
-    def _dovoljenje(self, _pogled, zahteva):
-        pravilo = self.config.get("permissions_policy", "ask")
-        if pravilo == "allow":
+    def _pravila_strani(self):
+        """Samodejno predvajanje (nastavitve spletnih mest): WebKit ga sprejme le ob nastanku pogleda."""
+        W = self.WebKit2
+        try:
+            nacin = {"dovoli": W.AutoplayPolicy.ALLOW, "brez_zvoka": W.AutoplayPolicy.ALLOW_WITHOUT_SOUND,
+                     "blokiraj": W.AutoplayPolicy.DENY}[dovoljenja_strani.samodejno_predvajanje(self.config)]
+            return W.WebsitePolicies(autoplay=nacin)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _dovoljenje(self, pogled, zahteva):
+        """Dovoljenja po straneh (core/dovoljenja_strani.py): zapomnjena odlocitev ali privzeto za vrsto, sicer vprasanje,
+        ki se zapomni (kot Firefox). Prej ena nastavitev za vse strani in brez spomina."""
+        uri = pogled.get_uri() or ""
+        vrste = dovoljenja_strani.vrste_zahteve(zahteva, self.WebKit2)
+        odl = dovoljenja_strani.odlocitev(self.config, uri, vrste)
+        if odl == "dovoli":
             zahteva.allow(); return True
-        if pravilo == "deny":
+        if odl == "zavrni":
             zahteva.deny(); return True
+        kaj = ", ".join(self._t("dv_" + v).lower() for v in vrste) or self._t("dovoljenje")
+        stran = dovoljenja_strani.gostitelj(uri) or self._t("dovoljenje")
+
+        def odgovor(i):
+            if i == 1:
+                zahteva.allow()
+            else:
+                zahteva.deny()
+            if i in (0, 1):
+                dovoljenja_strani.zapomni(self.config, uri, vrste, "dovoli" if i == 1 else "zavrni")
         # Zahteva ostane odprta, dokler uporabnik ne odgovori (WebKit to dovoli, ce signal vrne True).
-        self._vprasaj(self._t("dovoljenje"), "", [self._t("zavrni"), self._t("dovoli")],
-                      lambda i: zahteva.allow() if i == 1 else zahteva.deny())
+        self._vprasaj(self._t("dv_zahteva").format(stran=stran, kaj=kaj), "", [self._t("zavrni"), self._t("dovoli")], odgovor)
         return True
+
+    OBDOBJA = (("ura", 3600), ("dan", 86400), ("teden", 7 * 86400), ("vse", 0))
+    VRSTE_BRISANJA = ("zgodovina", "piskotki", "predpomnilnik", "prenosi", "dovoljenja")
+
+    def izbrisi(self, vrste, sekund: int = 0, ob_koncu=None) -> None:
+        """Izbrise izbrane podatke brskanja za zadnjih `sekund` (0 = vse). Piskotki in predpomnilnik: WebKit asinhrono."""
+        import datetime
+        from core import zgodovina
+        vrste = set(vrste)
+        if "zgodovina" in vrste:
+            od = datetime.datetime.now() - datetime.timedelta(seconds=sekund) if sekund else None
+            zgodovina.pocisti(os.path.join(self.config.config_dir, "history.json"), od)
+        if "prenosi" in vrste:
+            self.prenosi[:] = [z for z in self.prenosi if z.get("stanje") == "tece"]
+            self._osvezi_prenose()
+        if "dovoljenja" in vrste:
+            for k in ("dovoljenja_strani", "popup_dovoljeni", "external_app_permissions"):
+                self.config.set(k, {} if k != "popup_dovoljeni" else [])
+        W = self.WebKit2
+        tipi = 0
+        if "piskotki" in vrste:
+            for ime in ("COOKIES", "LOCAL_STORAGE", "SESSION_STORAGE", "INDEXEDDB_DATABASES", "OFFLINE_APPLICATION_CACHE",
+                        "SERVICE_WORKER_REGISTRATIONS", "DOM_CACHE", "HSTS_CACHE", "ITP"):
+                tipi |= int(getattr(W.WebsiteDataTypes, ime, 0) or 0)
+        if "predpomnilnik" in vrste:
+            for ime in ("DISK_CACHE", "MEMORY_CACHE"):
+                tipi |= int(getattr(W.WebsiteDataTypes, ime, 0) or 0)
+        if not tipi:
+            ob_koncu and ob_koncu()
+            return
+        try:
+            upravitelj = self.seja.get_website_data_manager()
+            upravitelj.clear(W.WebsiteDataTypes(tipi), sekund * 1_000_000, None,
+                             lambda m, r, *_: (m.clear_finish(r), ob_koncu and ob_koncu()), None)
+        except Exception as napaka:  # noqa: BLE001
+            print("[Splet] brisanje podatkov:", napaka, flush=True)
+            ob_koncu and ob_koncu()
+
+    def pocisti_ob_izhodu(self, ob_koncu=None) -> None:
+        """Brisanje ob izhodu (kot Firefox): brskalnik ob zaprtju okna, Splet ob koncu Safeer OS."""
+        vrste = [v for v in (self.config.get("brisi_ob_izhodu", []) or []) if v in self.VRSTE_BRISANJA]
+        if vrste:
+            self.izbrisi(vrste, 0, ob_koncu)
+        elif ob_koncu:
+            ob_koncu()
+
+    def _izbrisi_podatke(self, *_):
+        Gtk = self.Gtk
+        R = Gtk.ResponseType
+        d, obmocje = self._dialog(self._t("bp_naslov"), 520, -1,
+                                  gumbi=[(self._t("preklici"), R.CANCEL), (self._t("bp_izbrisi"), R.OK)])
+        vsebina = _robovi(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8), 6)
+        vrsta = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        vrsta.append(Gtk.Label(label=self._t("bp_obdobje"), xalign=0, hexpand=True))
+        obdobje = Gtk.ComboBoxText()
+        for k, _s in self.OBDOBJA:
+            obdobje.append(k, self._t("bp_" + k))
+        obdobje.set_active_id(str(self.config.get("brisi_obdobje", "ura")) if self.config.get("brisi_obdobje", "ura") in
+                              [k for k, _ in self.OBDOBJA] else "ura")
+        vrsta.append(obdobje); vsebina.append(vrsta)
+        izbrane = set(self.config.get("brisi_vrste", ["zgodovina", "predpomnilnik"]) or [])
+        stikala = {}
+        for v in self.VRSTE_BRISANJA:
+            c = Gtk.CheckButton(label=self._t("bp_" + v)); c.set_active(v in izbrane)
+            stikala[v] = c; vsebina.append(c)
+        ob_izhodu = Gtk.CheckButton(label=self._t("bp_ob_izhodu"))
+        ob_izhodu.set_active(bool(self.config.get("brisi_ob_izhodu", [])))
+        ob_izhodu.set_margin_top(8)
+        vsebina.append(ob_izhodu)
+        obmocje.append(vsebina)
+
+        def odgovor(o):
+            izbrane = [v for v, c in stikala.items() if c.get_active()]
+            if o == R.OK:
+                self.config.set("brisi_vrste", izbrane)
+                self.config.set("brisi_obdobje", obdobje.get_active_id() or "ura")
+                self.config.set("brisi_ob_izhodu", izbrane if ob_izhodu.get_active() else [])
+                sekund = dict(self.OBDOBJA).get(obdobje.get_active_id() or "ura", 3600)
+                self.izbrisi(izbrane, sekund, lambda: self._opozorilo(self._t("bp_naslov"), self._t("bp_koncano")))
+            d.destroy()
+        d.odgovor = odgovor
+        d.present()
+
+    def _dovoljenja_strani(self, *_):
+        """Nastavitve spletnih mest: privzeto za vsako vrsto, strani z lastno nastavitvijo, samodejno predvajanje,
+        pojavna okna, zunanji programi in strani brez zascite - vse na enem mestu, vse se da preklicati."""
+        Gtk = self.Gtk
+        d, obmocje = self._dialog(self._t("dv_naslov"), 640, 640)
+        okvir = Gtk.ScrolledWindow(vexpand=True); okvir.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        vsebina = _robovi(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10), 12)
+        okvir.set_child(vsebina); obmocje.append(okvir)
+
+        def naslov(t):
+            l = Gtk.Label(label=t, xalign=0); l.add_css_class("heading"); l.set_margin_top(8); vsebina.append(l)
+
+        def izbira(moznosti, trenutna, ob):
+            c = Gtk.ComboBoxText()
+            for k, besedilo in moznosti:
+                c.append(k, besedilo)
+            c.set_active_id(trenutna)
+            c.connect("changed", lambda c: ob(c.get_active_id()))
+            return c
+
+        odl = [(o, self._t("dv_" + o)) for o in dovoljenja_strani.ODLOCITVE]
+        naslov(self._t("dv_privzeto"))
+        mreza = Gtk.Grid(column_spacing=12, row_spacing=6)
+        for i, v in enumerate(dovoljenja_strani.VRSTE):
+            mreza.attach(Gtk.Label(label=self._t("dv_" + v), xalign=0, hexpand=True), 0, i, 1, 1)
+            mreza.attach(izbira(odl, dovoljenja_strani.privzeto(self.config, v),
+                                lambda o, v=v: dovoljenja_strani.nastavi_privzeto(self.config, v, o)), 1, i, 1, 1)
+        vsebina.append(mreza)
+        naslov(self._t("dv_samodejno"))
+        vsebina.append(izbira([(o, self._t("dv_sp_" + o)) for o in dovoljenja_strani.SAMODEJNO],
+                              dovoljenja_strani.samodejno_predvajanje(self.config),
+                              lambda o: self.config.set("samodejno_predvajanje", o)))
+        opis = Gtk.Label(label=self._t("dv_novi"), xalign=0); opis.add_css_class("dim-label"); vsebina.append(opis)
+
+        naslov(self._t("dv_strani"))
+        strani = dovoljenja_strani.seznam(self.config)
+        if not strani:
+            l = Gtk.Label(label=self._t("dv_ni_strani"), xalign=0); l.add_css_class("dim-label"); vsebina.append(l)
+        for gost, dov in strani:
+            vrsta = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            besedilo = gost + " — " + ", ".join("%s: %s" % (self._t("dv_" + k), self._t("dv_" + o)) for k, o in dov.items())
+            l = Gtk.Label(label=besedilo, xalign=0, hexpand=True, wrap=True); vrsta.append(l)
+            g = Gtk.Button(label=self._t("dv_pozabi"))
+            g.connect("clicked", lambda _g, gost=gost, vrsta=vrsta: (dovoljenja_strani.pozabi_stran(self.config, gost),
+                                                                    vsebina.remove(vrsta)))
+            vrsta.append(g); vsebina.append(vrsta)
+
+        def seznam_kljuca(naslov_k, kljuc, ob_odstrani):
+            vrednost = self.config.get(kljuc, []) or []
+            elementi = list(vrednost.keys()) if isinstance(vrednost, dict) else [str(x) for x in vrednost]
+            if not elementi:
+                return
+            naslov(self._t(naslov_k))
+            for el in elementi:
+                vrsta = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+                vrsta.append(Gtk.Label(label=el, xalign=0, hexpand=True))
+                g = Gtk.Button(label=self._t("dv_odstrani"))
+                g.connect("clicked", lambda _g, el=el, vrsta=vrsta: (ob_odstrani(el), vsebina.remove(vrsta)))
+                vrsta.append(g); vsebina.append(vrsta)
+
+        def odstrani_iz(kljuc):
+            def f(el):
+                v = self.config.get(kljuc, []) or []
+                if isinstance(v, dict):
+                    v = {k: x for k, x in v.items() if k != el}
+                else:
+                    v = [x for x in v if x != el]
+                self.config.set(kljuc, v)
+            return f
+        seznam_kljuca("dv_pojavna", "popup_dovoljeni", odstrani_iz("popup_dovoljeni"))
+        seznam_kljuca("dv_programi", "external_app_permissions", odstrani_iz("external_app_permissions"))
+        seznam_kljuca("dv_zascita", "zascita_izjeme", odstrani_iz("zascita_izjeme"))
+        d.present()
 
     # ---------------------------------------------------------------- prenosi (core/splet_prenosi.py)
     def _prenos_zacet(self, _kontekst, prenos):
@@ -2072,13 +2390,19 @@ class VdelaniSplet:
         ime = splet_prenosi.ime_prenosa(predlagano, uri)
         mapa = splet_prenosi.mapa_prenosov(self.GLib)
         self._pospravi_zavihek_prenosa(prenos)
+        vprasaj_kam = bool(self.config.get("always_ask_download_dir", False))
         if not splet_prenosi.je_izvrsljiv_prenos(ime):
-            self._prenos_v(prenos, splet_prenosi.edinstvena_pot(mapa, ime))
+            if vprasaj_kam:
+                self._prenos_kam(prenos, mapa, ime)
+            else:
+                self._prenos_v(prenos, splet_prenosi.edinstvena_pot(mapa, ime))
             return True
         # Program ali namestitveni paket: stran ga ne sme podtakniti ob obisku. Prenos caka na odgovor (WebKit:
         # cilj se lahko nastavi kasneje, ce signal vrne True).
         def odgovor(i):
-            if i == 1:
+            if i == 1 and vprasaj_kam:
+                self._prenos_kam(prenos, mapa, ime)
+            elif i == 1:
                 self._prenos_v(prenos, splet_prenosi.edinstvena_pot(mapa, ime))
             else:
                 prenos.cancel()
@@ -2192,8 +2516,32 @@ class VdelaniSplet:
         if prazen:
             self.GLib.idle_add(lambda: self.zapri_zavihek(pogled) and False)
 
-    def _prenos_v(self, prenos, pot):
+    def _prenos_kam(self, prenos, mapa: str, ime: str) -> None:
+        """Nastavitev »Vedno vprasaj, kam shraniti«: Gtk.FileDialog (v Flatpaku prek portala); preklic = brez prenosa."""
+        try:
+            dialog = self.Gtk.FileDialog()
+            dialog.set_initial_folder(self.Gio.File.new_for_path(mapa))
+            dialog.set_initial_name(ime)
+
+            def koncano(dlg, rezultat, *_):
+                try:
+                    datoteka = dlg.save_finish(rezultat)
+                except Exception:  # noqa: BLE001 - preklicano
+                    datoteka = None
+                pot = datoteka.get_path() if datoteka is not None else None
+                if pot:
+                    self._prenos_v(prenos, pot, prepisi=True)
+                else:
+                    prenos.cancel()
+            dialog.save(self._okno_za_dialog(), None, koncano, None)
+        except Exception as napaka:  # noqa: BLE001 - brez FileDialog: v mapo Prenosi
+            print("[Splet] izbira mape prenosa:", napaka, flush=True)
+            self._prenos_v(prenos, splet_prenosi.edinstvena_pot(mapa, ime))
+
+    def _prenos_v(self, prenos, pot, prepisi: bool = False):
         je6 = hasattr(self.WebKit2, "NetworkSession")   # WebKitGTK 6.0: cilj je pot (4.1: URI)
+        if prepisi:      # uporabnik je v izbirniku sam potrdil prepis obstojece datoteke
+            prenos.set_allow_overwrite(True)
         prenos.set_destination(pot if je6 else self.GLib.filename_to_uri(pot, None))
         zapis = splet_prenosi.nov_zapis(pot)
         zapis["prenos"] = prenos
@@ -2334,14 +2682,83 @@ class VdelaniSplet:
         z["zvok"].set_icon_name("audio-volume-muted-symbolic" if utisan else "audio-volume-high-symbolic")
         z["zvok"].set_tooltip_text(self._t("zvok" if utisan else "utisaj"))
     def _nastavitve(self, *_):
+        """Nastavitve brskalnika po skupinah kot Firefox (lastnik 14. 10. 2026): Splosno, Zasebnost in varnost, Prenosi."""
         Gtk = self.Gtk
         R = Gtk.ResponseType
-        d, obmocje = self._dialog(self._t("nastavitve"), gumbi=[(self._t("preklici"), R.CANCEL), (self._t("shrani"), R.OK)])
-        mreza = _robovi(Gtk.Grid(column_spacing=12, row_spacing=12), 6)
+        d, obmocje = self._dialog(self._t("nastavitve"), 640, 620, gumbi=[(self._t("preklici"), R.CANCEL), (self._t("shrani"), R.OK)])
+        zvezki = Gtk.Notebook(); zvezki.set_vexpand(True)
+
+        def stran(naslov):
+            okvir = Gtk.ScrolledWindow(); okvir.set_vexpand(True)
+            okvir.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            m = _robovi(Gtk.Grid(column_spacing=12, row_spacing=10), 12)
+            okvir.set_child(m)
+            zvezki.append_page(okvir, Gtk.Label(label=naslov))
+            return m
+
+        def napis(besedilo, krepko=False, opis=False):
+            l = Gtk.Label(label=besedilo, xalign=0, wrap=True)
+            l.set_max_width_chars(60)
+            if krepko:
+                l.add_css_class("heading")
+            if opis:
+                l.add_css_class("dim-label")
+            return l
+
+        # ---- Splosno
+        splosno = stran(self._t("nas_splosno"))
         motor = Gtk.ComboBoxText()
         for kljuc, podatki in SEARCH_ENGINES.items(): motor.append(kljuc, podatki["name"])
         motor.set_active_id(self.config.get("search_engine", "duckduckgo"))
-        oglasi = Gtk.CheckButton(label=self._t("adblock")); oglasi.set_active(self.config.get("adblock_enabled", True))
+        jezik = str(self.jezik() if callable(self.jezik) else self.jezik or "sl")
+        temno = Gtk.ComboBoxText()
+        for n in splet_temno.NACINI: temno.append(n, splet_temno.besedilo(jezik, n))
+        temno.set_active_id(self._temno_nacin())
+        strojno = Gtk.CheckButton(label=self._t("strojno"))
+        strojno.set_active(self.config.get("hardware_acceleration", "on_demand") != "never")
+        splosno.attach(napis(self._t("iskalnik")), 0, 0, 1, 1); splosno.attach(motor, 1, 0, 1, 1)
+        splosno.attach(napis(splet_temno.besedilo(jezik, "nastavitev")), 0, 1, 1, 1); splosno.attach(temno, 1, 1, 1, 1)
+        splosno.attach(strojno, 0, 2, 2, 1)
+        privzeti = getattr(self, "privzeti", None)     # samo samostojni Safeer Browser (safeer_brskalnik.py)
+        if privzeti is not None and not privzeti[0]():
+            gumb_privzeti = Gtk.Button(label=privzeti[2]()[4])
+
+            def ob_privzeti(g):
+                ok, napake = privzeti[1]()
+                g.set_label(privzeti[2]()[3] if ok else "; ".join(napake)[:120]); g.set_sensitive(not ok)
+            gumb_privzeti.connect("clicked", ob_privzeti)
+            splosno.attach(gumb_privzeti, 0, 3, 2, 1)
+
+        # ---- Zasebnost in varnost
+        zas = stran(self._t("nas_zasebnost"))
+        vrsta = 0
+        zas.attach(napis(self._t("zas_naslov"), krepko=True), 0, vrsta, 2, 1); vrsta += 1
+        zdaj = zascita.raven(self.config)
+        gumbi_ravni = {}
+        skupina = None
+        for ime, opis in (("obicajna", "zas_obicajna_opis"), ("stroga", "zas_stroga_opis"), ("po_meri", "")):
+            g = Gtk.CheckButton(label=self._t("zas_" + ime))
+            if skupina is not None:
+                g.set_group(skupina)
+            skupina = skupina or g
+            g.set_active(ime == zdaj)
+            gumbi_ravni[ime] = g
+            zas.attach(g, 0, vrsta, 2, 1); vrsta += 1
+            if opis:
+                o = napis(self._t(opis), opis=True); o.set_margin_start(28)
+                zas.attach(o, 0, vrsta, 2, 1); vrsta += 1
+        po_meri = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6); po_meri.set_margin_start(28)
+        stikala = {}
+        for kljuc, besedilo in (("adblock_enabled", "zas_oglasi"), ("easylist_enabled", "zas_easylist"),
+                                ("adguard_protection_enabled", "zas_adguard"), ("tracking_protection_enabled", "zas_parametri"),
+                                ("gpc_dnt_enabled", "zas_gpc"), ("zascita_itp", "zas_itp"), ("zascita_brez_webrtc", "zas_webrtc")):
+            c = Gtk.CheckButton(label=self._t(besedilo)); c.set_active(zascita.nastavitve(self.config)[kljuc])
+            stikala[kljuc] = c; po_meri.append(c)
+        po_meri.set_visible(zdaj == "po_meri")
+        gumbi_ravni["po_meri"].connect("toggled", lambda g: po_meri.set_visible(g.get_active()))
+        zas.attach(po_meri, 0, vrsta, 2, 1); vrsta += 1
+        pojavna = Gtk.CheckButton(label=self._t("po_nastavitev")); pojavna.set_active(self.config.get("popup_blokiraj", True))
+        zas.attach(pojavna, 0, vrsta, 2, 1); vrsta += 1
         # Izbira DNS (lastnik 14. 10. 2026: »ne pozabi na moznost menjave DNS«) - isti ponudniki kot Safeer Browser.
         doh = Gtk.ComboBoxText()
         for kljuc in ("quad9", "adguard", "cloudflare", "google", "custom", "disabled"):
@@ -2352,35 +2769,34 @@ class VdelaniSplet:
         lasten.set_text(self.config.get("custom_doh_url", "") or "")
         lasten.set_visible(doh.get_active_id() == "custom")
         doh.connect("changed", lambda c: lasten.set_visible(c.get_active_id() == "custom"))
-        pojavna = Gtk.CheckButton(label=self._t("po_nastavitev")); pojavna.set_active(self.config.get("popup_blokiraj", True))
-        strojno = Gtk.CheckButton(label=self._t("strojno"))
-        strojno.set_active(self.config.get("hardware_acceleration", "on_demand") != "never")
-        mreza.attach(Gtk.Label(label=self._t("iskalnik"), xalign=0), 0, 0, 1, 1); mreza.attach(motor, 1, 0, 1, 1)
-        mreza.attach(oglasi, 0, 1, 2, 1); mreza.attach(pojavna, 0, 2, 2, 1); mreza.attach(strojno, 0, 3, 2, 1)
-        jezik = str(self.jezik() if callable(self.jezik) else self.jezik or "sl")
-        temno = Gtk.ComboBoxText()
-        for n in splet_temno.NACINI: temno.append(n, splet_temno.besedilo(jezik, n))
-        temno.set_active_id(self._temno_nacin())
-        mreza.attach(Gtk.Label(label=splet_temno.besedilo(jezik, "nastavitev"), xalign=0), 0, 4, 1, 1)
-        mreza.attach(temno, 1, 4, 1, 1)
-        privzeti = getattr(self, "privzeti", None)     # samo samostojni Safeer Browser (safeer_brskalnik.py)
-        if privzeti is not None and not privzeti[0]():
-            gumb_privzeti = Gtk.Button(label=privzeti[2]()[4])
+        zas.attach(napis(self._t("doh"), krepko=True), 0, vrsta, 2, 1); vrsta += 1
+        zas.attach(doh, 0, vrsta, 2, 1); vrsta += 1
+        zas.attach(lasten, 0, vrsta, 2, 1); vrsta += 1
+        for kljuc, dejanje in (("nas_dovoljenja", lambda *_: (d.destroy(), self._dovoljenja_strani())),
+                               ("nas_brisi", lambda *_: (d.destroy(), self._izbrisi_podatke()))):
+            g = Gtk.Button(label=self._t(kljuc)); g.set_halign(Gtk.Align.START); g.connect("clicked", dejanje)
+            zas.attach(g, 0, vrsta, 2, 1); vrsta += 1
+        zas.attach(napis(self._t("zas_ni_podatkov"), opis=True), 0, vrsta, 2, 1); vrsta += 1
 
-            def ob_privzeti(g):
-                ok, napake = privzeti[1]()
-                g.set_label(privzeti[2]()[3] if ok else "; ".join(napake)[:120]); g.set_sensitive(not ok)
-            gumb_privzeti.connect("clicked", ob_privzeti)
-            mreza.attach(gumb_privzeti, 0, 7, 2, 1)
-        mreza.attach(Gtk.Label(label=self._t("doh"), xalign=0), 0, 5, 1, 1)
-        mreza.attach(doh, 1, 5, 1, 1)
-        mreza.attach(lasten, 1, 6, 1, 1)
-        obmocje.append(mreza)
+        # ---- Prenosi
+        pren = stran(self._t("prenosi"))
+        pren.attach(napis(self._t("nas_mapa").format(mapa=_kratka_pot(splet_prenosi.mapa_prenosov(self.GLib)))), 0, 0, 2, 1)
+        vprasaj = Gtk.CheckButton(label=self._t("nas_vprasaj_kam"))
+        vprasaj.set_active(bool(self.config.get("always_ask_download_dir", False)))
+        pren.attach(vprasaj, 0, 1, 2, 1)
+        pren.attach(napis(self._t("nas_programi"), opis=True), 0, 2, 2, 1)
+
+        obmocje.append(zvezki)
 
         def odgovor(o):
             if o == R.OK:
                 self.config.set("search_engine", motor.get_active_id() or "duckduckgo")
-                self.config.set("adblock_enabled", oglasi.get_active())
+                izbrana = next((ime for ime, g in gumbi_ravni.items() if g.get_active()), "obicajna")
+                if izbrana == "po_meri":
+                    for kljuc, c in stikala.items():
+                        self.config.set(kljuc, c.get_active())
+                else:
+                    zascita.nastavi_raven(self.config, izbrana)
                 dns = doh.get_active_id() or "cloudflare"
                 url = lasten.get_text().strip()
                 if dns == "custom" and not (url.startswith("https://") and len(url) > 12 and " " not in url):
@@ -2391,6 +2807,7 @@ class VdelaniSplet:
                 self.config.set("doh_enabled", dns != "disabled")
                 self.config.set("doh_provider", dns)
                 self.config.set("popup_blokiraj", pojavna.get_active())
+                self.config.set("always_ask_download_dir", vprasaj.get_active())
                 self.config.set("hardware_acceleration", "on_demand" if strojno.get_active() else "never")
                 if (temno.get_active_id() or splet_temno.PRIVZETO) != self._temno_nacin():
                     self.config.set("temno_nacin", temno.get_active_id() or splet_temno.PRIVZETO)
@@ -2399,10 +2816,28 @@ class VdelaniSplet:
                 for z in self.zavihki:
                     if not brez_pospesevanja(z["pogled"].get_uri() or "", self._ucene_brez_pospesevanja(), self._skia()):
                         z["pogled"].get_settings().set_hardware_acceleration_policy(politika)
+                self._uporabi_zascito()
                 self._nastavi_omrezje()
             d.destroy()
         d.odgovor = odgovor
         d.present()
+
+    def _uporabi_zascito(self) -> None:
+        """Stopnja zascite takoj: ITP na seji, WebRTC in seznam EasyList na vseh zavihkih; skripte (AdGuard, GPC) dobijo
+        nove strani - trenutni zavihek se zato nalozi znova."""
+        try:
+            self.seja.set_itp_enabled(bool(self.config.get("zascita_itp", False)))
+        except Exception:  # noqa: BLE001
+            pass
+        brez = bool(self.config.get("zascita_brez_webrtc", False))
+        for z in self.zavihki:
+            nast = z["pogled"].get_settings()
+            if hasattr(nast, "set_enable_webrtc"):
+                nast.set_enable_webrtc(not brez)
+            self._filter_za(z["pogled"], z["pogled"].get_uri() or "")
+        p = self.trenutni()
+        if p is not None and (p.get_uri() or "").startswith(("http://", "https://")):
+            self._zamenjaj_pogled(p, p.get_uri())
 
     def _v_zapisek(self, *_):
         p = self.trenutni()
