@@ -102,6 +102,43 @@ def nalozi_sejo(config) -> list:
     return [str(n) for n in v if isinstance(n, str) and n.startswith(("http://", "https://"))][:30]
 
 
+PRIVZETI = {
+    "sl": ("Safeer Browser ni tvoj privzeti brskalnik.", "Nastavi kot privzetega", "Ne sprašuj več",
+           "Safeer Browser je zdaj tvoj privzeti brskalnik.", "Nastavi Safeer Browser kot privzeti brskalnik"),
+    "en": ("Safeer Browser is not your default browser.", "Make default", "Don't ask again",
+           "Safeer Browser is now your default browser.", "Make Safeer Browser the default browser"),
+    "de": ("Safeer Browser ist nicht dein Standardbrowser.", "Als Standard festlegen", "Nicht mehr fragen",
+           "Safeer Browser ist jetzt dein Standardbrowser.", "Safeer Browser als Standardbrowser festlegen"),
+    "es": ("Safeer Browser no es tu navegador predeterminado.", "Establecer como predeterminado", "No volver a preguntar",
+           "Safeer Browser es ahora tu navegador predeterminado.", "Establecer Safeer Browser como navegador predeterminado"),
+    "fr": ("Safeer Browser n’est pas votre navigateur par défaut.", "Définir par défaut", "Ne plus demander",
+           "Safeer Browser est maintenant votre navigateur par défaut.", "Définir Safeer Browser comme navigateur par défaut"),
+    "it": ("Safeer Browser non è il tuo browser predefinito.", "Imposta come predefinito", "Non chiedere più",
+           "Safeer Browser ora è il tuo browser predefinito.", "Imposta Safeer Browser come browser predefinito"),
+}
+
+
+def besedila_privzetega() -> tuple:
+    return PRIVZETI.get(jezik(), PRIVZETI["en"])
+
+
+def nastavi_privzetega() -> tuple:
+    """(uspeh, napake) - .deb, Flatpak (prek racunalnika); AppImage pove, kje se nastavi (core/default_browser.py)."""
+    from core.default_browser import set_default_browser
+    try:
+        return set_default_browser(KOREN)
+    except Exception as e:  # noqa: BLE001 - klik ne sme zapreti okna
+        return False, [repr(e)]
+
+
+def je_privzet() -> bool:
+    from core.default_browser import is_default_browser
+    try:
+        return bool(is_default_browser())
+    except Exception:  # noqa: BLE001
+        return False
+
+
 class SafeerBrskalnik(Gtk.Application):
     def __init__(self) -> None:
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_OPEN)
@@ -115,7 +152,12 @@ class SafeerBrskalnik(Gtk.Application):
         okno.set_icon_name("safeer-browser")
         okno.set_default_size(1280, 820)
         self.splet = VdelaniSplet(Gtk, Gdk, Gio, GLib, WebKit2, KOREN, jezik, None, stars=okno)
-        okno.set_child(self.splet.gradnik)
+        self.splet.privzeti = (je_privzet, nastavi_privzetega, besedila_privzetega)   # gumb v nastavitvah Spleta
+        skatla = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        skatla.append(self._vrstica_privzetega())
+        skatla.append(self.splet.gradnik)
+        self.splet.gradnik.set_vexpand(True)
+        okno.set_child(skatla)
         k = Gtk.EventControllerKey()
         k.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         k.connect("key-pressed", lambda _k, keyval, _koda, stanje: bool(self.splet.tipka(_Tipka(keyval, stanje))))
@@ -128,6 +170,43 @@ class SafeerBrskalnik(Gtk.Application):
             for n in seja[1:]:
                 self.splet.nov_zavihek(n)
             self.splet.izberi(self.splet.zavihki[izbran_v_seji(self.splet.config, len(self.splet.zavihki))]["pogled"])
+
+    def _vrstica_privzetega(self):
+        """Kot Firefox: tiha vrstica, ce Safeer ni privzeti brskalnik - nikoli ne prevzame vloge sam (lastnik: brez
+        prevzemanja za hrbtom). »Ne sprasuj vec« si zapomni (check_default_browser, ista nastavitev kot GTK3)."""
+        besedila = besedila_privzetega()
+        rev = Gtk.Revealer()
+        vrsta = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        vrsta.set_name("splet-pojavna")
+        for stran in ("set_margin_start", "set_margin_end", "set_margin_top", "set_margin_bottom"):
+            getattr(vrsta, stran)(4)
+        napis = Gtk.Label(label=besedila[0], xalign=0, hexpand=True)
+        nastavi = Gtk.Button(label=besedila[1])
+        nikoli = Gtk.Button(label=besedila[2])
+        for g in (napis, nastavi, nikoli):
+            vrsta.append(g)
+        rev.set_child(vrsta)
+
+        def ob_nastavi(*_):
+            ok, napake = nastavi_privzetega()
+            if ok:
+                napis.set_text(besedila[3]); nastavi.set_visible(False); nikoli.set_visible(False)
+                GLib.timeout_add_seconds(4, lambda: rev.set_reveal_child(False) or False)
+            else:
+                napis.set_text("; ".join(napake)[:200])
+
+        def ob_nikoli(*_):
+            self.splet.config.set("check_default_browser", False)
+            rev.set_reveal_child(False)
+        nastavi.connect("clicked", ob_nastavi)
+        nikoli.connect("clicked", ob_nikoli)
+
+        def preveri():
+            if self.splet.config.get("check_default_browser", True) and not je_privzet():
+                rev.set_reveal_child(True)
+            return False
+        GLib.timeout_add_seconds(3, preveri)     # po prvem izrisu: brez zamude ob zagonu
+        return rev
 
     def _ob_zaprtju(self, *_a) -> bool:
         try:
@@ -169,6 +248,10 @@ def main() -> int:
     if "--version" in sys.argv[1:]:
         print("Safeer Browser " + razlicica())
         return 0
+    if "--set-default" in sys.argv[1:]:
+        ok, napake = nastavi_privzetega()
+        print(besedila_privzetega()[3] if ok else "; ".join(napake), file=sys.stdout if ok else sys.stderr)
+        return 0 if ok else 1
     safeer_log.install(CONFIG_DIR, razlicica())
     # Razred okna na X11 = prgname: brez tega »safeer_brskalnik.py« in pult okna ne poveze z vnosom v meniju
     # (StartupWMClass; izmerjeno v Xvfb ob pregledu paketa 14. 10. 2026).

@@ -179,7 +179,22 @@ def ensure_desktop_entry(app_dir):
     return path
 
 
+def _flatpak_gostitelj(*argumenti):
+    """xdg-settings racunalnika iz Flatpaka (flatpak-spawn --host; brskalnik ima dovoljenje org.freedesktop.Flatpak)."""
+    import subprocess
+    try:
+        r = subprocess.run(["flatpak-spawn", "--host", "xdg-settings", *argumenti], capture_output=True, text=True,
+                           timeout=10)
+        return r.returncode, r.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return 1, ""
+
+
 def is_default_browser():
+    flatpak = os.environ.get("FLATPAK_ID")
+    if flatpak:
+        koda, izpis = _flatpak_gostitelj("get", "default-web-browser")
+        return koda == 0 and izpis == flatpak + ".desktop"
     for content_type in WEB_TYPES:
         app = Gio.AppInfo.get_default_for_type(content_type, False)
         if app is None or app.get_id() != DESKTOP_ID:
@@ -188,7 +203,14 @@ def is_default_browser():
 
 
 def set_default_browser(app_dir):
-    if os.environ.get("FLATPAK_ID") or os.environ.get("APPIMAGE") or os.environ.get("SAFEER_PORTABLE"):
+    flatpak = os.environ.get("FLATPAK_ID")
+    if flatpak:
+        # Flatpak (GTK4 brskalnik z nasim WebKitom, 14. 10. 2026): vnos na racunalniku je <ID>.desktop.
+        koda, izpis = _flatpak_gostitelj("set", "default-web-browser", flatpak + ".desktop")
+        if koda == 0 and is_default_browser():
+            return True, []
+        return False, [izpis or "xdg-settings set default-web-browser ni uspel"]
+    if os.environ.get("APPIMAGE") or os.environ.get("SAFEER_PORTABLE"):
         return False, ["Izberite Safeer v sistemskih nastavitvah privzetih aplikacij. / Select Safeer in your desktop default-app settings."]
     errors = []
     try:

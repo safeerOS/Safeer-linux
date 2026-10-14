@@ -38,7 +38,7 @@ class Okno(unittest.TestCase):
             app.register(None)
             app._ustvari()
             s = app.splet
-            self.assertIs(app.okno.get_child(), s.gradnik)
+            self.assertIs(s.gradnik.get_root(), app.okno)        # Splet v oknu (nad njim vrstica privzetega)
             self.assertFalse(s.povezava.get_visible())        # brez oznake Safeer Linka
             self.assertTrue(hasattr(s, "_drm_vdelaj"))         # Safeer DRM (Widevine) v zavihku
             self.assertTrue(hasattr(s, "_temno_namesti"))      # Dark Reader
@@ -53,3 +53,10 @@ def test_zaprtje_okna_konca_drm():
     splet = open(os.path.join(b.KOREN, "core", "os_splet.py"), encoding="utf-8").read()
     telo = splet.split("def koncaj_drm", 1)[1].split("def _drm_konec", 1)[0]
     assert "self.zavihki" in telo and "_drm_konec(z)" in telo
+
+
+def test_privzeti_brskalnik_besedila_in_ukaz():
+    assert set(b.PRIVZETI) == {"sl", "en", "de", "es", "fr", "it"}
+    assert all(len(v) == 5 for v in b.PRIVZETI.values())
+    besedilo = open(os.path.join(b.KOREN, "safeer_brskalnik.py"), encoding="utf-8").read()
+    assert '"--set-default" in sys.argv[1:]' in besedilo and "check_default_browser" in besedilo

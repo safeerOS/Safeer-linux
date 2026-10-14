@@ -2362,6 +2362,15 @@ class VdelaniSplet:
         temno.set_active_id(self._temno_nacin())
         mreza.attach(Gtk.Label(label=splet_temno.besedilo(jezik, "nastavitev"), xalign=0), 0, 4, 1, 1)
         mreza.attach(temno, 1, 4, 1, 1)
+        privzeti = getattr(self, "privzeti", None)     # samo samostojni Safeer Browser (safeer_brskalnik.py)
+        if privzeti is not None and not privzeti[0]():
+            gumb_privzeti = Gtk.Button(label=privzeti[2]()[4])
+
+            def ob_privzeti(g):
+                ok, napake = privzeti[1]()
+                g.set_label(privzeti[2]()[3] if ok else "; ".join(napake)[:120]); g.set_sensitive(not ok)
+            gumb_privzeti.connect("clicked", ob_privzeti)
+            mreza.attach(gumb_privzeti, 0, 7, 2, 1)
         mreza.attach(Gtk.Label(label=self._t("doh"), xalign=0), 0, 5, 1, 1)
         mreza.attach(doh, 1, 5, 1, 1)
         mreza.attach(lasten, 1, 6, 1, 1)
