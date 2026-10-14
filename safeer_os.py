@@ -1485,6 +1485,11 @@ class SafeerOS(Gtk.Application):
         except Exception as e:  # noqa: BLE001 - brez tega strani ostanejo le svetle
             print("[SafeerOS] tema namizja:", e)
         pomnilnik.obrezuj_periodicno(GLib)
+        # `safeer-os --okno` iz menija, ko Safeer OS ze tece (npr. kot Safeer Player): drugi zagon to sporoci
+        # primerku, ki tece, pred aktivacijo - sicer bi se odprlo staro okno namesto namizja QML (pregled 14. 10. 2026).
+        okno_qml = Gio.SimpleAction.new("okno-qml", None)
+        okno_qml.connect("activate", lambda *_a: setattr(self, "_qml_okno", True))
+        self.add_action(okno_qml)
         self._izvozi_predvajanje()
         en_proces.nastavi_os(self, klic=self._predvajanje_neposredno)
         self._spremljaj_zaklep()
@@ -5185,6 +5190,13 @@ def main() -> int:
             app._cakajoca_ponudba = json.loads(ponudba_json)
         except Exception:  # noqa: BLE001
             app._cakajoca_ponudba = None
+    if app._qml_okno:
+        try:
+            app.register(None)
+            if app.get_is_remote():
+                app.activate_action("okno-qml", None)   # primerek, ki tece, naj odpre namizje QML v oknu
+        except Exception:  # noqa: BLE001
+            pass
     if "--delovna" in sys.argv[1:]:
         # Ze tece primerek Safeer OS (delovna povrsina ali okno): drugi zagon ob prijavi ali iz
         # safeer-cinnamon ne sme odpreti glavnega okna (aktivacija bi ga), zato tiho koncamo.
