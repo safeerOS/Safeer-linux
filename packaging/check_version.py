@@ -22,6 +22,18 @@ assert re.search(r'APP_VERSION = "' + re.escape(v) + r'"', (r / "safeer_mint.py"
 assert ET.parse(r / "io.github.memelandfaner.SafeerBrowser.metainfo.xml") \
     .find("releases/release").get("version") == v, "AppStream version differs"
 
+# --- Safeer OS: najnovejsa izdaja v AppStream = packaging/VERSION_OS ---------------
+# 14. 10. 2026: VERSION_OS je bil 0.4.84, metainfo pa je kot najnovejso kazal 0.4.83 (pregled) - trgovine programov
+# (GNOME Software, Mintova Upravitelj programov) bi uporabniku pokazale napacno razlicico in opombe.
+v_os = (r / "packaging/VERSION_OS").read_text().strip()
+v_control = (r / "packaging/VERSION_CONTROL").read_text().strip()
+os_izdaja = ET.parse(r / "io.github.memelandfaner.SafeerOS.metainfo.xml").find("releases/release")
+assert os_izdaja is not None and os_izdaja.get("version") == v_os, \
+    "Safeer OS AppStream version differs from packaging/VERSION_OS (%s)" % v_os
+os_opis = "".join(os_izdaja.itertext())
+assert "Safeer Control" not in os_opis or ("Safeer Control " + v_control) in os_opis, \
+    "Safeer OS AppStream release names another Safeer Control than packaging/VERSION_CONTROL (%s)" % v_control
+
 # --- mesta, kjer README in PACKAGING.md uporabniku povejo, kaj naj prenese -----
 napake = []
 
@@ -62,4 +74,4 @@ if napake:
 if os.environ.get("GITHUB_REF_TYPE") == "tag":
     assert os.environ["GITHUB_REF_NAME"] == "v" + v, "Release tag differs"
 
-print("Version:", v)
+print("Version:", v, "| Safeer OS:", v_os, "| Safeer Control:", v_control)
