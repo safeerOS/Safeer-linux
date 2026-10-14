@@ -53,3 +53,10 @@ def test_splet_in_brskalnik_uporabljata_isto_kodo():
     assert 'expanduser("~/Downloads")' not in splet
     mint = open(os.path.join(KOREN, "safeer_mint.py"), encoding="utf-8").read()
     assert "from core.splet_prenosi import" in mint and "def varno_ime_datoteke" not in mint
+
+
+def test_splet_ima_zunanje_programe_in_okna_z_opener():
+    """14. 10. 2026: mailto:/magnet:/claude:// so bili v Spletu tiho prezrti, window.open brez opener (prijave)."""
+    splet = open(os.path.join(KOREN, "core", "os_splet.py"), encoding="utf-8").read()
+    assert "external_apps.external_scheme(naslov)" in splet and "UriLauncher" in splet
+    assert "related_view=povezan" in splet and 'nov.connect("close"' in splet

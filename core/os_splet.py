@@ -19,6 +19,7 @@ from pathlib import Path
 
 from core import adblock, drm, odlozisce_varuh, os_stabilnost, ozadje_strani, safeer_drm, splet_prenosi, splet_temno
 from core.config import ConfigManager, SEARCH_ENGINES, normalize_web_url
+from core import external_apps
 from core.doh_proxy import get_doh_proxy, nastavitve_posrednika
 from core.filter_lists import FILTER_ID
 
@@ -1427,6 +1428,17 @@ class VdelaniSplet:
                     self.GLib.idle_add(lambda: self.stremio_dodatek(naslov) and False)
                 return True
             nov_okno = vrsta == W.PolicyDecisionType.NEW_WINDOW_ACTION
+            shema = external_apps.external_scheme(naslov)
+            if shema:
+                # mailto:, tel:, magnet:, zoommtg:, claude:// po prijavi ...: program na racunalniku, po potrditvi
+                # (prej tiho prezrto; 14. 10. 2026 kot safeer_mint.py open_external_app_link).
+                odlocitev.ignore()
+                try:
+                    kretnja = bool(dejanje.is_user_gesture())
+                except Exception:  # noqa: BLE001
+                    kretnja = dejanje.get_navigation_type() == W.NavigationType.LINK_CLICKED
+                self.GLib.idle_add(lambda: self._zunanji_program(naslov, shema, pogled.get_uri() or "", kretnja) and False)
+                return True
             # Srednji klik ali Ctrl+klik na povezavo: nov zavihek (kot v drugih brskalnikih).
             if (dejanje.get_navigation_type() == W.NavigationType.LINK_CLICKED and naslov.startswith(("http://", "https://"))
                     and (dejanje.get_mouse_button() == 2 or dejanje.get_modifiers() & int(self.Gdk.ModifierType.CONTROL_MASK))):
@@ -1870,6 +1882,70 @@ class VdelaniSplet:
         self._vprasaj(self._t("pr_program"), self._t("pr_program_opis").format(ime=ime, mapa=_kratka_pot(mapa)),
                       [self._t("pr_preklici"), self._t("pr_prenesi")], odgovor)
         return True
+
+    def _ti(self, kljuc: str) -> str:
+        """Besedila, ki so ze prevedena za Safeer Browser (core/i18n.py), v jeziku Spleta."""
+        from core.i18n import TRANSLATIONS
+        j = str(self.jezik() if callable(self.jezik) else self.jezik or "en")[:2]
+        return TRANSLATIONS.get(j, {}).get(kljuc) or TRANSLATIONS.get("en", {}).get(kljuc) or kljuc
+
+    def _zunanji_program(self, uri: str, shema: str, stran: str, kretnja: bool = True) -> None:
+        """Povezava, ki pripada programu na racunalniku: vprasanje (stran ne sme odpirati programov brez vednosti),
+        zapomni si »vedno« za stran in program, nato Gtk.UriLauncher (v Flatpaku portal, zunaj privzeti program)."""
+        gostitelj = external_apps.site_of(stran)
+        program = None
+        if not os.path.exists("/.flatpak-info"):
+            try:
+                program = self.Gio.AppInfo.get_default_for_uri_scheme(shema)
+            except Exception:  # noqa: BLE001
+                program = None
+            if program is None:
+                if kretnja:   # strani, ki le preverjajo, ali je program namescen (brez klika), ne dobijo obvestila
+                    self._ni_programa(gostitelj, shema)
+                return
+            if (program.get_id() or "").lower().startswith(("safeer", "io.github.memelandfaner")):
+                return        # povezava bi vodila nazaj v Safeer
+        ime = program.get_display_name() if program is not None else self._ti("external_app_generic")
+
+        def odpri():
+            try:
+                self.Gtk.UriLauncher.new(uri).launch(self._okno_za_dialog(), None, None, None)
+            except Exception as napaka:  # noqa: BLE001
+                print("[Splet] zunanji program:", napaka, flush=True)
+                self._ni_programa(gostitelj, shema)
+
+        dovoljenja = self.config.get("external_app_permissions", {})
+        if external_apps.is_allowed(dovoljenja, gostitelj, shema):
+            odpri(); return
+        if not hasattr(self, "_vrata_programov"):
+            self._vrata_programov = external_apps.ExternalLinkGate()
+        vrata = self._vrata_programov
+        if not vrata.may_ask(gostitelj, shema):
+            return
+        vrata.asking()
+        gumbi = [self._t("preklici"), self._ti("external_app_open")]
+        if gostitelj:
+            gumbi.append(self._ti("external_app_remember").format(site=gostitelj))
+
+        def odgovor(i):
+            vrata.answered(gostitelj, shema, i in (1, 2))
+            if i == 2:
+                self.config.set("external_app_permissions", external_apps.remember(
+                    self.config.get("external_app_permissions", {}), gostitelj, shema))
+            if i in (1, 2):
+                odpri()
+        self._vprasaj(self._ti("external_app_title").format(app=ime),
+                      self._ti("external_app_body").format(site=gostitelj or self._ti("external_app_this_page"),
+                                                           app=ime, scheme=shema), gumbi, odgovor)
+
+    def _ni_programa(self, gostitelj: str, shema: str) -> None:
+        kljuc = (gostitelj, shema)
+        if not hasattr(self, "_ni_programa_pokazano"):
+            self._ni_programa_pokazano = set()
+        if kljuc in self._ni_programa_pokazano:
+            return
+        self._ni_programa_pokazano.add(kljuc)
+        self._opozorilo(self._ti("external_app_missing_title"), self._ti("external_app_missing_body").format(scheme=shema))
 
     def _pospravi_zavihek_prenosa(self, prenos):
         """Povezava na datoteko iz drugega programa ali target=_blank odpre zavihek, ki ostane prazen (preizkus
