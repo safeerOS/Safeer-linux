@@ -70,6 +70,15 @@ class PrekHubaKotDoma(unittest.TestCase):
         return self._zahteva(self.hub.vrata, self.hub.odtis, metoda, "/cast" + pot, telo,
                              self.zeton if zeton is None else zeton)
 
+    # ------------------------------------------------------------------ opis kosov (»Nadaljuj tukaj«)
+    def test_opis_kosov_prek_huba_kot_doma(self):
+        st_d, _, telo_d = self.doma("GET", "/kosi/share:0:zapis.txt")
+        st_z, _, telo_z = self.zdoma("GET", "/kosi/share:0:zapis.txt")
+        self.assertEqual((st_d, st_z), (200, 200))
+        self.assertEqual(json.loads(telo_z), json.loads(telo_d))
+        self.assertEqual(json.loads(telo_z)["velikost"], len("besedilo"))
+        self.assertEqual(self.zdoma("GET", "/kosi/share:0:zapis.txt", zeton="napacen")[0], 401)
+
     # ------------------------------------------------------------------ seznam
     def test_seznam_pove_cas_spremembe_in_pot_prek_huba(self):
         o = self.dat.seznam("share:0:", "n-tv")

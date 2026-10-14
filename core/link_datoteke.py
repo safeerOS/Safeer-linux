@@ -583,10 +583,89 @@ def postrezi_slicico(obravnava, streznik: "StreznikDatotek", oznaka: str, samo_g
         pass
 
 
+# ------------------------------------------------------------------ opis kosov (»Nadaljuj na drugi napravi«)
+#: Najvec toliko opisov datotek drzimo v pomnilniku (najdlje neuporabljeni izpadejo).
+NAJVEC_OPISOV = 32
+#: Najvec toliko opisov hkrati se racuna (vsak prebere celo datoteko): mapa s sto zahtevami ne zasede vseh jeder in diska.
+_OPISI_HKRATI = threading.BoundedSemaphore(2)
+_opisi: "collections.OrderedDict[tuple, bytes]" = collections.OrderedDict()
+_opisi_kljuc = threading.Lock()
+
+
+def _kljuc_opisa(pot: str) -> Optional[tuple]:
+    try:
+        s = os.stat(pot)
+    except OSError:
+        return None
+    return (pot, s.st_size, s.st_mtime_ns, s.st_ino)
+
+
+def opis_kosov(pot: str) -> Optional[bytes]:
+    """Opis datoteke za prenos samo spremenjenih kosov (core/link_delta.manifest) kot JSON. Opis velja za
+    (pot, velikost, cas spremembe v ns, inode) - ob vsaki spremembi datoteke se izracuna znova. None, ce datoteka
+    med branjem ni mirovala ali je prevelika."""
+    from core import link_delta
+    kljuc = _kljuc_opisa(pot)
+    if kljuc is None or kljuc[1] > link_delta.NAJVEC_VELIKOST:
+        return None
+    with _opisi_kljuc:
+        znan = _opisi.get(kljuc)
+        if znan is not None:
+            _opisi.move_to_end(kljuc)
+            return znan
+    with _OPISI_HKRATI:
+        # Budnosti tu ne podaljsujemo: opis je kratko branje, kose naprava nato prenese z /d/ (ta jo podaljsa).
+        opis = link_delta.manifest(pot)
+    if _kljuc_opisa(pot) != kljuc or opis["velikost"] != kljuc[1]:
+        return None                      # datoteka se je med branjem spremenila: opis ne velja
+    telo = json.dumps(opis, separators=(",", ":")).encode("utf-8")
+    with _opisi_kljuc:
+        _opisi[kljuc] = telo
+        _opisi.move_to_end(kljuc)
+        while len(_opisi) > NAJVEC_OPISOV:
+            _opisi.popitem(last=False)
+    return telo
+
+
+def postrezi_kose(obravnava, streznik: "StreznikDatotek", oznaka: str, samo_glava: bool) -> None:
+    """Opis kosov datoteke (`/kosi/<id>`, prek Huba `/cast/kosi/<id>`): ISTI zeton in ISTA pravica kot prenos datoteke
+    (zmoznost "d" ali izrecno poslana datoteka). Same kose naprava nato prenese z obicajnim `Range` GET /d/<id>."""
+    z = obravnava.headers.get("X-Safeer-Token")
+    if not streznik.zeton_velja(z.strip() if z else None, zmoznost=ZMOZNOST_DATOTEKE, oznaka=oznaka):
+        _napaka_http(obravnava, 401, "manjka ali napacen zeton")
+        return
+    r = streznik.mape.razresi(oznaka)
+    if r is None or not os.path.isfile(r[1]):
+        _napaka_http(obravnava, 404, "datoteke ni")
+        return
+    telo = None
+    for _ in range(2):
+        try:
+            telo = opis_kosov(r[1])
+        except OSError:
+            telo = None
+        if telo is not None:
+            break
+    if telo is None:
+        _napaka_http(obravnava, 409, "datoteka se spreminja ali je prevelika")
+        return
+    obravnava.send_response(200)
+    obravnava.send_header("Content-Type", "application/json")
+    obravnava.send_header("Content-Length", str(len(telo)))
+    obravnava.send_header("Cache-Control", "no-store")
+    obravnava.end_headers()
+    if samo_glava:
+        return
+    try:
+        obravnava.wfile.write(telo)
+    except (BrokenPipeError, ConnectionResetError, ssl.SSLError, socket.timeout):
+        pass
+
+
 # ------------------------------------------------------------------ ena vrata za streznik datotek in Hub
 #: Poti streznika datotek. Hub jih streze pod /cast (Global Link pripelje samo do vrat Huba), zato mora biti
 #: seznam en sam: kar dela doma, dela zdoma.
-POTI_STREZNIKA = ("/d/", "/thumb/", "/m/", "/live/")
+POTI_STREZNIKA = ("/d/", "/thumb/", "/m/", "/live/", "/kosi/")
 
 
 def je_pot_streznika(pot: str) -> bool:
@@ -611,6 +690,9 @@ def postrezi_pot(obravnava, streznik: "StreznikDatotek", pot: str, samo_glava: b
         return
     if pot.startswith("/thumb/"):
         postrezi_slicico(obravnava, streznik, urllib.parse.unquote(pot[7:]), samo_glava)
+        return
+    if pot.startswith("/kosi/"):
+        postrezi_kose(obravnava, streznik, urllib.parse.unquote(pot[6:]), samo_glava)
         return
     if not pot.startswith("/d/"):
         _napaka_http(obravnava, 404, "ni take poti")
