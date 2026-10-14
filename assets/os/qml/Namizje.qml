@@ -6,6 +6,7 @@ import QtQuick.Effects
 import QtQuick.Layouts
 import QtQuick.Shapes
 import "../izhod.js" as Izhod
+import "../besedila-namizja.js" as Besedila
 
 Item {
     id: koren
@@ -39,139 +40,83 @@ Item {
         }
     }
     property string jezik: "sl"
-    // Tema sistema (Nastavitve Safeer OS) in videz namizja (Prilagodi namizje) - en videz z vmesnikom, Spletom in Controlom.
-    property var paleta: ({ poudarek: "#54d6a5", poudarekTemna: "#06231a", besedilo: "#f0f4f3", medlo: "#b0bdc4",
-                            vnos: "#111b27", karticaRgb: [0.067, 0.098, 0.141], poudarekRgb: [0.329, 0.839, 0.647] })
+    // Barve iz assets/os/tokens.css (en vir z vmesnikom, Spletom, delovno povrsino in Controlom): paleto poslje
+    // core/os_lupina.paleta ob »zacetek« in dogodku »videz«. Spodaj je le rezerva do prvega odgovora (iste vrednosti,
+    // preverja tests/test_namizje_celota.py), da prvi izris ni v drugih barvah.
+    property var paleta: ({ poudarek: "#8ac7ff", poudarekTemna: "#0b1424", besedilo: "#eaf2ff", medlo: "#afbed4",
+                            tise: "#93a9c4", vnos: "#121d2d", ozadje: "#0b1424", ozadje2: "#152a3d", fokus: "#9dceff",
+                            karticaRgb: [0.0627, 0.102, 0.1686], poudarekRgb: [0.5412, 0.7804, 1], prekrivRgb: [1, 1, 1],
+                            robRgb: [0.8275, 0.898, 1], robA: 0.23, vrste: ({}), kontrast: false, merilo: 1 })
     property real zameglitev: 1.0
     property real prosojnost: 0.55
+    // Kontrast (tema sistema »Kontrast«): plosce skoraj neprosojne in brez zameglitve, robovi mocnejsi - kot
+    // »Manj prosojnosti« na delovni povrsini WebKit.
+    readonly property bool kontrast: !!paleta.kontrast
+    readonly property real prosojnostPlosc: kontrast ? Math.max(0.94, prosojnost) : prosojnost
+    readonly property real zameglitevPlosc: kontrast ? 0 : zameglitev
+    // Velikost besedila sistema (Cinnamon); QML pise v pikslih, zato jih pomnozimo sami.
+    readonly property real merilo: Math.max(1, Math.min(2, Number(paleta.merilo) || 1))
+    function px(n) { return Math.round(n * merilo) }
     property var videz: ({})
-    function plosca(a) { var c = paleta.karticaRgb || [0.067, 0.098, 0.141]; return Qt.rgba(c[0], c[1], c[2], a) }
-    function poudarekA(a) { var c = paleta.poudarekRgb || [0.329, 0.839, 0.647]; return Qt.rgba(c[0], c[1], c[2], a) }
+    function plosca(a) { var c = paleta.karticaRgb; return Qt.rgba(c[0], c[1], c[2], a) }
+    function poudarekA(a) { var c = paleta.poudarekRgb; return Qt.rgba(c[0], c[1], c[2], a) }
+    function prekriv(a) { var c = paleta.prekrivRgb || [1, 1, 1]; return Qt.rgba(c[0], c[1], c[2], a) }
+    function crta(a) { var c = paleta.robRgb || [1, 1, 1]; return Qt.rgba(c[0], c[1], c[2], kontrast ? Math.max(0.45, a * 2.5) : a) }
+    function barvaVrste(v) { var b = paleta.vrste || {}; return b[v] || b.program || paleta.tise }
     function uporabiVidez(v) {
         if (!v) return
-        koren.videz = v
+        // Dogodek »videz« lahko prinese samo del (npr. le kontrast in velikost besedila): ostalo ostane.
+        var z = {}
+        for (var k in koren.videz) z[k] = koren.videz[k]
+        for (var k2 in v) z[k2] = v[k2]
+        koren.videz = z
         if (v.paleta) koren.paleta = v.paleta
         if (v.ozadje !== undefined) koren.ozadjeUrl = v.ozadje || ""
         if (v.zameglitev !== undefined) koren.zameglitev = v.zameglitev
         if (v.prosojnost !== undefined) koren.prosojnost = v.prosojnost
     }
-    readonly property var besedila: ({
-        sl: { pretvoriV: "Pretvori v …", ptdPretvarjam: "Pretvarjam »{ime}« v {cilj} …", ptdKoncano: "Shranjeno ob izvirniku kot »{izhod}«.",
-              ptdNapaka: "Pretvorba ni uspela.", ptdNiMogoce: "Te datoteke ni mogoče pretvoriti.",
-              ptdNiOrodja: "Za to vrsto datotek manjka program: {orodje}.",
-              dockDodaj: "Dodaj v dock", dockOdstrani: "Odstrani iz docka", odpriZ: "Odpri z …", privzetProgram: "privzeto", posljiNaNapravo: "Pošlji na napravo …",
-              posNiNaprav: "V Safeer Linku ni naprave, ki bi sprejela datoteko.", posPosiljam: "Pošiljam napravi {naprava}: {ime} …",
-              posPoslano: "Poslano napravi {naprava}: {ime}", posNapaka: "Pošiljanje napravi {naprava} ni uspelo.",
-              sk_pisarna: "Pisarna", sk_ustvarjanje: "Ustvarjanje", sk_mediji: "Mediji", sk_splet: "Splet", sk_igre: "Igre",
-              sk_orodja: "Orodja", sk_sistem: "Sistem", sk_drugo: "Drugo", sk_predstavnost: "Predstavnost",
-              sk_programiranje: "Programiranje", sk_ucenje: "Učenje",
-              isci: "Išči po programih, datotekah in spletu …", splet: "Išči na spletu", programi: "Programi",
-              isciProg: "Išči programe …", vse: "Vse", datoteke: "Datoteke", nedavno: "Nedavno", smeti: "Koš",
-              mape: "Mape", naprave: "Naprave", filter: "Filtriraj …", ime: "Ime", velikost: "Velikost",
-              spremenjeno: "Spremenjeno", prazno: "Mapa je prazna.", niNedavnih: "Še ni nedavnih datotek.",
-              kosPrazen: "Koš je prazen.", odpri: "Odpri", pokazi: "Pokaži v mapi", preimenuj: "Preimenuj",
-              vKos: "V Koš", obnovi: "Obnovi", izprazni: "Izprazni Koš", izprazniVpr: "Izprazni Koš? Datotek ne bo mogoče obnoviti.",
-              preklici: "Prekliči", razveljavi: "Razveljavi", vKosPoslano: "»{ime}« je v Košu.", novaMapa: "Nova mapa",
-              niUspelo: "Ni uspelo.", medijski: "Medijski center", niPredvajanja: "Ni predvajanja",
-              medijOpis: "Glasba, radio, filmi in serije iz tvojih virov.", odpriMedijski: "Odpri Medijski center",
-              predvaja: "Predvaja", vPremoru: "V premoru", napakaPredvajanja: "Predvajanje ni uspelo", vZivo: "V živo",
-              prejsnja: "Prejšnja", naslednja: "Naslednja", premor: "Premor", nadaljuj: "Nadaljuj",
-              predvajajNa: "Predvajaj na …", predvajajNaNaslov: "Predvajaj na", predvajaNa: "Predvaja na: {ime}",
-              zvokIsci: "Poišči zvočnike v omrežju", zvokIscem: "Iščem zvočnike v omrežju …",
-              zvokNiIzhodov: "V omrežju ni najdenih zvočnikov in v Safeer Linku ni naprave, ki bi predvajala zvok.",
-              izhodNalagam: "Nalagam …", zvokZvocnik: "Zvočnik v omrežju", zvokPredvaja: "Predvaja", zvokPovezujem: "Povezujem …",
-              zvokZvocnikPreklopi: "Preklopi s: {vir}", zvokNaNapravoZacet: "Zvok gre na: {ime}", zvokNazaj: "Zvok je spet na računalniku.",
-              zvokZvocnikZaseden: "{ime} trenutno predvaja {vir}. Pritisni še enkrat, da preklopiš na zvok računalnika.",
-              link: "Safeer Link", napravN: "{n} naprav", nastavitve: "Nastavitve", taRacunalnik: "Ta računalnik",
-              HOME: "Domača mapa", DESKTOP: "Namizje", DOCUMENTS: "Dokumenti", DOWNLOAD: "Prenosi",
-              PICTURES: "Fotografije", MUSIC: "Glasba", VIDEOS: "Videi", gor: "Navzgor", shrani: "Shrani",
-              nalagam: "Nalagam …", niOdgovorila: "Naprava ni odgovorila.", neDeli: "Naprava ne deli datotek.",
-              odpiramZ: "Odpiram {ime} z naprave {naprava} …", zazeniNa: "Zaženi na napravi", odpriNaNapravi: "Odpri na napravi",
-              prenasam: "Prenašam {ime} …", odprtoV: "Odprto v programu {program}, ker tukaj ni istega programa kot na napravi {naprava}.",
-              odprtoNaNapravi: "Tu ni programa za to vrsto datotek: datoteka je odprta na napravi {naprava}, urejaš jo prek njenega zaslona.",
-              teamworkTudi: "Teamwork: datoteko ureja tudi {drugi}.", mapeNaprave: "Mape naprave", brezProgramov: "Na napravi ni programov.",
-              niLocenega: "Naprava nima ločenega zaslona – odpreš lahko samo, kar ne moti njenega uporabnika.",
-              oddaljeno: "Oddaljeno namizje", odpriSProgramom: "Odpri s programom naprave {naprava}",
-              prilagodi: "Prilagodi namizje …", temaSistema: "Tema in nastavitve sistema …", ozadje: "Ozadje",
-              ozadjeWindows: "Ozadje Windows", lastnaSlika: "Lastna slika …", zameglitevNapis: "Zameglitev plošč",
-              prosojnostNapis: "Prekrivnost plošč", privzeto: "Privzeto", zapri: "Zapri",
-              temaOpis: "Barve so iz teme sistema (Nastavitve Safeer OS › Videz) – enake v Spletu in Safeer Controlu." },
-        en: { pretvoriV: "Convert to …", ptdPretvarjam: "Converting “{ime}” to {cilj} …", ptdKoncano: "Saved next to the original as “{izhod}”.",
-              ptdNapaka: "Conversion failed.", ptdNiMogoce: "This file can't be converted.",
-              ptdNiOrodja: "A program for this kind of file is missing: {orodje}.",
-              dockDodaj: "Add to dock", dockOdstrani: "Remove from dock", odpriZ: "Open with …", privzetProgram: "default", posljiNaNapravo: "Send to a device …",
-              posNiNaprav: "No device in Safeer Link can receive a file.", posPosiljam: "Sending “{ime}” to {naprava} …",
-              posPoslano: "Sent to {naprava}: {ime}", posNapaka: "Sending to {naprava} failed.",
-              sk_pisarna: "Office", sk_ustvarjanje: "Creative", sk_mediji: "Media", sk_splet: "Internet", sk_igre: "Games",
-              sk_orodja: "Accessories", sk_sistem: "System", sk_drugo: "Other", sk_predstavnost: "Multimedia",
-              sk_programiranje: "Programming", sk_ucenje: "Education",
-              isci: "Search apps, files and the web …", splet: "Search the web", programi: "Apps",
-              isciProg: "Find an app …", vse: "All", datoteke: "Files", nedavno: "Recent", smeti: "Recycle Bin",
-              mape: "Folders", naprave: "Devices", filter: "Filter …", ime: "Name", velikost: "Size",
-              spremenjeno: "Modified", prazno: "This folder is empty.", niNedavnih: "No recent files yet.",
-              kosPrazen: "The Recycle Bin is empty.", odpri: "Open", pokazi: "Show in folder", preimenuj: "Rename",
-              vKos: "Move to Recycle Bin", obnovi: "Restore", izprazni: "Empty Recycle Bin", izprazniVpr: "Empty the Recycle Bin? Files can't be restored.",
-              preklici: "Cancel", razveljavi: "Undo", vKosPoslano: "“{ime}” is in the Recycle Bin.", novaMapa: "New folder",
-              niUspelo: "That didn't work.", medijski: "Media centre", niPredvajanja: "Nothing playing",
-              medijOpis: "Music, radio, films and series from your sources.", odpriMedijski: "Open Media centre",
-              predvaja: "Playing", vPremoru: "Paused", napakaPredvajanja: "Playback failed", vZivo: "Live",
-              prejsnja: "Previous", naslednja: "Next", premor: "Pause", nadaljuj: "Play",
-              predvajajNa: "Play on …", predvajajNaNaslov: "Play on", predvajaNa: "Playing on: {ime}",
-              zvokIsci: "Find speakers in the network", zvokIscem: "Looking for speakers in the network …",
-              zvokNiIzhodov: "No speakers were found in the network and no device in Safeer Link can play sound.",
-              izhodNalagam: "Loading …", zvokZvocnik: "Network speaker", zvokPredvaja: "Playing", zvokPovezujem: "Connecting …",
-              zvokZvocnikPreklopi: "Switch from: {vir}", zvokNaNapravoZacet: "Sound is going to: {ime}", zvokNazaj: "Sound is back on the computer.",
-              zvokZvocnikZaseden: "{ime} is playing {vir}. Press again to switch to the computer sound.",
-              link: "Safeer Link", napravN: "{n} devices", nastavitve: "Settings", taRacunalnik: "This PC",
-              HOME: "Home", DESKTOP: "Desktop", DOCUMENTS: "Documents", DOWNLOAD: "Downloads",
-              PICTURES: "Pictures", MUSIC: "Music", VIDEOS: "Videos", gor: "Up", shrani: "Save",
-              nalagam: "Loading …", niOdgovorila: "The device didn't answer.", neDeli: "The device doesn't share files.",
-              odpiramZ: "Opening {ime} from {naprava} …", zazeniNa: "Start on the device", odpriNaNapravi: "Open on the device",
-              prenasam: "Downloading {ime} …", odprtoV: "Opened in {program}, because the same app as on {naprava} isn't installed here.",
-              odprtoNaNapravi: "There's no app for this type of file here: it's open on {naprava}, you edit it through its screen.",
-              teamworkTudi: "Teamwork: {drugi} is editing this file too.", mapeNaprave: "Device folders", brezProgramov: "No apps on this device.",
-              niLocenega: "The device has no separate screen – it can't open this without disturbing its user.",
-              oddaljeno: "Remote desktop", odpriSProgramom: "Open with an app on {naprava}",
-              prilagodi: "Customise desktop …", temaSistema: "System theme and settings …", ozadje: "Wallpaper",
-              ozadjeWindows: "Windows wallpaper", lastnaSlika: "Your own picture …", zameglitevNapis: "Panel blur",
-              prosojnostNapis: "Panel opacity", privzeto: "Default", zapri: "Close",
-              temaOpis: "Colours come from the system theme (Safeer OS Settings › Appearance) – the same in Web and Safeer Control." }
-    })
-    // Linux: Smeti (ne Koš) in ozadje sistema; ostalo enako kot na Windows (ena koda namizja za obe platformi).
+    // Besedila: assets/os/besedila-namizja.js - isti slovar kot delovna povrsina WebKit (sl, en, de, es, fr, it).
+    readonly property var besedila: Besedila.BESEDILA_NAMIZJA
+    function nastaviJezik(j) { koren.jezik = besedila[j] ? j : "en" }
+    // Windows: Koš namesto Smeti in »Ta PC« (kljuci win_…); namizje QML ima pri nekaterih sporocilih manj zamenjav (qml_…).
     property string platforma: "windows"
-    readonly property var besedilaLinux: ({
-        sl: { smeti: "Smeti", kosPrazen: "Smeti so prazne.", vKos: "V Smeti", izprazni: "Izprazni Smeti",
-              izprazniVpr: "Izpraznim Smeti? Datotek ne bo mogoče obnoviti.", vKosPoslano: "»{ime}« je v Smeteh." },
-        en: { smeti: "Trash", kosPrazen: "The Trash is empty.", vKos: "Move to Trash", izprazni: "Empty Trash",
-              izprazniVpr: "Empty the Trash? Files can't be restored.", vKosPoslano: "“{ime}” is in the Trash." }
-    })
     function t(k, vr) {
-        var lin = platforma === "linux" ? (besedilaLinux[jezik] || besedilaLinux.en)[k] : undefined
-        var s = lin || (besedila[jezik] || besedila.en)[k] || besedila.en[k] || k
-        if (vr) for (var x in vr) s = s.replace("{" + x + "}", vr[x])
+        var d = besedila[jezik] || besedila.en, en = besedila.en
+        var s = (platforma === "windows" && (d["win_" + k] || en["win_" + k])) || d["qml_" + k] || d[k] || en["qml_" + k] || en[k] || k
+        if (vr) for (var x in vr) s = s.split("{" + x + "}").join(vr[x])
         return s
     }
     function velikost(b) {
         if (!b) return ""
         var e = ["B", "KB", "MB", "GB", "TB"], i = 0
         while (b >= 1024 && i < 4) { b /= 1024; i++ }
-        return (i ? b.toFixed(b < 10 ? 1 : 0) : b) + " " + e[i]
+        var st = i ? b.toFixed(b < 10 ? 1 : 0) : String(b)
+        return (jezik === "en" ? st : st.replace(".", ",")) + " " + e[i]     // decimalna vejica kot delovna.js
     }
     function cas(s) {
         if (!s) return ""
         var d = new Date(s * 1000), z = new Date()
         if (d.toDateString() === z.toDateString()) return Qt.formatTime(d, "hh:mm")
-        return Qt.formatDate(d, "d. M. yyyy")
+        if (jezik === "sl") return Qt.formatDate(d, "d. M. yyyy")
+        // Drugi jeziki: kratek datum po krajevnih navadah (isti jeziki kot LOKALE v delovna.js).
+        var l = ({ en: "en_GB", de: "de_DE", es: "es_ES", fr: "fr_FR", it: "it_IT" })[jezik] || "en_GB"
+        return d.toLocaleDateString(Qt.locale(l), Locale.ShortFormat)
     }
     function obvesti(besedilo, dejanje, ob) { obvestilo.pokazi(besedilo, dejanje, ob) }
+    // »{n} naprav«: slovenscina ima ednino, dvojino in mnozino (isto pravilo kot delovna.js).
+    function steviloNaprav(n) {
+        var m = n % 100
+        if (jezik !== "sl") return t(n === 1 ? "naprav1" : "napravN", { n: n })
+        return m === 1 ? t("naprav1") : m === 2 ? t("naprav2") : (m === 3 || m === 4) ? t("naprav34", { n: n }) : t("napravN", { n: n })
+    }
 
     // ------------------------------------------------------------------ ozadje
     property string ozadjeUrl: ""
     Rectangle {
         anchors.fill: parent
         gradient: Gradient {
-            GradientStop { position: 0; color: "#0b1426" }
-            GradientStop { position: 1; color: "#152a3d" }
+            GradientStop { position: 0; color: koren.paleta.ozadje }
+            GradientStop { position: 1; color: koren.paleta.ozadje2 }
         }
     }
     Image {
@@ -190,7 +135,7 @@ Item {
         anchors.fill: ozadje
         source: ozadje
         blurEnabled: true
-        blur: koren.zameglitev
+        blur: koren.zameglitevPlosc
         Behavior on blur { NumberAnimation { duration: 200 } }
         blurMax: 64
         saturation: 0.15
@@ -211,17 +156,30 @@ Item {
             anchors.fill: parent; anchors.leftMargin: 52; anchors.rightMargin: 18
             placeholderText: koren.t("isci")
             placeholderTextColor: koren.paleta.medlo
-            color: koren.paleta.besedilo; font.pixelSize: 16
+            color: koren.paleta.besedilo; font.pixelSize: koren.px(16)
             background: Item {}
             onTextChanged: casovnikIskanja.restart()
             Keys.onReturnPressed: zadetki.izberi(zadetki.trenutni)
             Keys.onDownPressed: { zadetki.premaknjen = true; zadetki.trenutni = Math.min(zadetki.trenutni + 1, zadetkiModel.count - 1) }
             Keys.onUpPressed: { zadetki.premaknjen = true; zadetki.trenutni = Math.max(zadetki.trenutni - 1, 0) }
-            Keys.onEscapePressed: text = ""
+            Keys.onEscapePressed: koren.zapriVrhnje()
         }
         Lupa { x: 20; anchors.verticalCenter: parent.verticalCenter }
     }
     Timer { id: casovnikIskanja; interval: 180; onTriggered: zadetki.isci(polje.text) }
+    // Escape zapre, kar je zgoraj (kot Nazaj na daljincu TV): Prilagodi namizje, sicer zadetke iskanja. Meniji in okna
+    // (Popup, Menu) se zaprejo sami (CloseOnEscape), zato bliznjica takrat ne velja. Puscice in Tab: vsak del namizja
+    // (iskanje, Medijski center, viri in seznam Datotek, kategorije in mreza Programov, gumbi) ima fokus in tipke.
+    function zapriVrhnje() {
+        if (prilagodi.visible) { prilagodi.zapri(); return true }
+        if (polje.text !== "") { polje.text = ""; polje.forceActiveFocus(); return true }
+        return false
+    }
+    Shortcut {
+        sequences: [StandardKey.Cancel, "Back"]
+        enabled: (prilagodi.visible || polje.text !== "") && !izhodi.visible && !meniNamizja.visible
+        onActivated: koren.zapriVrhnje()
+    }
     ListModel { id: zadetkiModel; objectName: "zadetkiModel" }
     Steklo {
         id: zadetki
@@ -233,7 +191,7 @@ Item {
         visible: polje.text.length > 0 && zadetkiModel.count > 0
         width: iskanje.width; x: iskanje.x; y: iskanje.y + iskanje.height + 8
         height: Math.min(420, seznamZadetkov.contentHeight + 16)
-        barva: koren.plosca(Math.min(0.95, koren.prosojnost + 0.27))
+        barva: koren.plosca(Math.min(0.95, koren.prosojnostPlosc + 0.27))
         // Ucenje lupe (core/os_lupa.py, isti zapis kot prejsnja delovna povrsina): kar je uporabnik za tak niz ze
         // izbral, je prvo. Izbire [niz, kljuc, cas, prvi]; novejse stejejo vec (polovica po 30 dneh), enak niz dvojno.
         property var izbire: []
@@ -311,15 +269,15 @@ Item {
             anchors.fill: parent; anchors.margins: 8
             model: zadetkiModel; clip: true; interactive: contentHeight > height
             delegate: Rectangle {
-                width: seznamZadetkov.width; height: 46; radius: 10
-                color: index === zadetki.trenutni ? Qt.rgba(1, 1, 1, 0.12) : (mz.containsMouse ? Qt.rgba(1, 1, 1, 0.06) : "transparent")
+                width: seznamZadetkov.width; height: koren.px(46); radius: 10
+                color: index === zadetki.trenutni ? koren.prekriv(0.12) : (mz.containsMouse ? koren.prekriv(0.06) : "transparent")
                 Row {
                     anchors.verticalCenter: parent.verticalCenter; x: 10; spacing: 12
                     Image { source: model.ikona; width: 26; height: 26; visible: model.ikona !== ""; sourceSize: Qt.size(52, 52) }
-                    Text { text: model.vrsta === "splet" ? "🌐" : model.vrsta === "mapa" ? "📁" : "📄"; visible: model.ikona === ""; font.pixelSize: 20; width: 26 }
+                    Text { text: model.vrsta === "splet" ? "🌐" : model.vrsta === "mapa" ? "📁" : "📄"; visible: model.ikona === ""; font.pixelSize: koren.px(20); width: 26 }
                     Column {
-                        Text { text: model.ime; color: koren.paleta.besedilo; font.pixelSize: 14; elide: Text.ElideRight; width: seznamZadetkov.width - 70 }
-                        Text { text: model.opis; color: koren.paleta.medlo; font.pixelSize: 11; elide: Text.ElideMiddle; width: seznamZadetkov.width - 70; visible: text !== "" }
+                        Text { text: model.ime; color: koren.paleta.besedilo; font.pixelSize: koren.px(14); elide: Text.ElideRight; width: seznamZadetkov.width - 70 }
+                        Text { text: model.opis; color: koren.paleta.medlo; font.pixelSize: koren.px(11); elide: Text.ElideMiddle; width: seznamZadetkov.width - 70; visible: text !== "" }
                     }
                 }
                 MouseArea { id: mz; anchors.fill: parent; hoverEnabled: true; onClicked: zadetki.izberi(index) }
@@ -334,14 +292,21 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
         y: iskanje.y + iskanje.height + 10
         visible: !zadetki.visible
-        height: 26; width: linkVrstica.width + 22; radius: 13
-        color: ml.containsMouse ? Qt.rgba(1, 1, 1, 0.16) : koren.plosca(koren.prosojnost)
-        border.color: Qt.rgba(1, 1, 1, 0.12)
+        height: koren.px(26); width: linkVrstica.width + 22; radius: height / 2
+        color: ml.containsMouse || activeFocus ? koren.prekriv(0.16) : koren.plosca(koren.prosojnostPlosc)
+        border.width: activeFocus ? 2 : 1
+        border.color: activeFocus ? koren.paleta.fokus : koren.crta(0.12)
+        activeFocusOnTab: true
+        Accessible.role: Accessible.Button
+        Accessible.name: koren.t("linkNaslov")
+        Keys.onReturnPressed: koren.klic("odpriRazdelek", ["naprave"])
+        Keys.onEnterPressed: koren.klic("odpriRazdelek", ["naprave"])
+        Keys.onSpacePressed: koren.klic("odpriRazdelek", ["naprave"])
         Behavior on color { ColorAnimation { duration: 150 } }
         Row {
             id: linkVrstica; anchors.centerIn: parent; spacing: 7
             Rectangle { width: 7; height: 7; radius: 4; color: koren.napravVLinku > 0 ? koren.paleta.poudarek : koren.paleta.medlo; anchors.verticalCenter: parent.verticalCenter }
-            Text { text: koren.t("link") + (koren.napravVLinku > 0 ? " · " + koren.t("napravN", { n: koren.napravVLinku }) : ""); color: koren.paleta.besedilo; font.pixelSize: 12 }
+            Text { text: koren.t("link") + (koren.napravVLinku > 0 ? " · " + koren.steviloNaprav(koren.napravVLinku) : ""); color: koren.paleta.besedilo; font.pixelSize: koren.px(12) }
         }
         MouseArea { id: ml; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: koren.klic("odpriRazdelek", ["naprave"]) }
     }
@@ -363,14 +328,15 @@ Item {
         anchors.right: parent.right; anchors.rightMargin: koren.rob
         anchors.verticalCenter: iskanje.verticalCenter
         width: 40; height: 40; radius: 20
-        color: mn.containsMouse || mn.activeFocus ? Qt.rgba(1, 1, 1, 0.16) : koren.plosca(koren.prosojnost)
-        border.color: Qt.rgba(1, 1, 1, 0.12)
+        color: mn.containsMouse || activeFocus ? koren.prekriv(0.16) : koren.plosca(koren.prosojnostPlosc)
+        border.width: activeFocus ? 2 : 1
+        border.color: activeFocus ? koren.paleta.fokus : koren.crta(0.12)
         Accessible.role: Accessible.Button
         Accessible.name: koren.t("nastavitve")
         activeFocusOnTab: true
         Keys.onReturnPressed: meniNamizja.popup(gumbNastavitve, 0, height + 6)
         Keys.onSpacePressed: meniNamizja.popup(gumbNastavitve, 0, height + 6)
-        Text { anchors.centerIn: parent; text: "\u2699"; color: koren.paleta.besedilo; font.pixelSize: 20 }
+        Text { anchors.centerIn: parent; text: "\u2699"; color: koren.paleta.besedilo; font.pixelSize: koren.px(20) }
         MouseArea { id: mn; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                     onClicked: meniNamizja.popup(gumbNastavitve, 0, gumbNastavitve.height + 6) }
         ToolTip.visible: mn.containsMouse; ToolTip.text: koren.t("nastavitve"); ToolTip.delay: 500
@@ -383,7 +349,8 @@ Item {
     property real robSpodaj: 0
     property real robLevo: 0
     property real robDesno: 0
-    readonly property real vrhPanelov: robZgoraj + 104
+    // Paneli pod gumbom Safeer Link (ta zraste z vecjim besedilom sistema)
+    readonly property real vrhPanelov: Math.max(robZgoraj + 104, linkGumb.y + linkGumb.height - 2)
     // Medijski center: kaj se predvaja (lastnik, 14. 10. 2026: med glasbo je pripomocek kazal »Ni predvajanja«). Isto stanje
     // kot delovna.js in Medijski center (predvajalnikStanje: domaci predvajalnik ali skladba s seznama v vgradnem predvajalniku
     // YouTuba), osvezevanje 1 s med predvajanjem, sicer 3 s; dogodek »predvajalnik« osvezi takoj.
@@ -426,12 +393,13 @@ Item {
         objectName: "medijski"
         zamegljeno: zamegljeno
         x: koren.robLevo + koren.rob; y: koren.vrhPanelov
-        width: (koren.width - koren.robLevo - koren.robDesno - 3 * koren.rob) * 0.44; height: 150
+        width: (koren.width - koren.robLevo - koren.robDesno - 3 * koren.rob) * 0.44; height: Math.max(150, medijVsebina.implicitHeight + 36)
         Column {
+            id: medijVsebina
             anchors.fill: parent; anchors.margins: 18; spacing: 10
             RowLayout {
                 width: parent.width; spacing: 8
-                Text { text: koren.t("medijski"); color: koren.paleta.besedilo; font.pixelSize: 16; font.bold: true; Layout.fillWidth: true
+                Text { text: koren.t("medijski"); color: koren.paleta.besedilo; font.pixelSize: koren.px(16); font.bold: true; Layout.fillWidth: true
                        elide: Text.ElideRight }
                 GumbIkona {
                     id: gumbIzhod
@@ -453,7 +421,7 @@ Item {
                     Rectangle {
                         anchors.fill: parent; radius: 12
                         gradient: Gradient { GradientStop { position: 0; color: koren.paleta.poudarek } GradientStop { position: 1; color: koren.paleta.vnos } }
-                        Text { anchors.centerIn: parent; text: "♫"; color: koren.paleta.besedilo; font.pixelSize: 24 }
+                        Text { anchors.centerIn: parent; text: "♫"; color: koren.paleta.besedilo; font.pixelSize: koren.px(24) }
                     }
                     // Naslovnica iz kataloga (ce jo predvajalnik pozna), z zaobljenimi robovi kot znak.
                     Image {
@@ -479,13 +447,13 @@ Item {
                         objectName: "medijNaslov"
                         width: parent.width; elide: Text.ElideRight
                         text: koren.medijIgra ? koren.medij.naslov : koren.t("niPredvajanja")
-                        color: koren.paleta.besedilo; font.pixelSize: 15; font.bold: true
+                        color: koren.paleta.besedilo; font.pixelSize: koren.px(15); font.bold: true
                     }
                     Text {
                         objectName: "medijOpis"
                         width: parent.width; elide: Text.ElideRight
                         text: koren.opisMedija()
-                        color: koren.paleta.medlo; font.pixelSize: 12
+                        color: koren.paleta.medlo; font.pixelSize: koren.px(12)
                     }
                 }
                 Row {
@@ -517,7 +485,7 @@ Item {
             Rectangle {
                 objectName: "medijNapredek"
                 visible: koren.medijIgra && Number(koren.medij.trajanje) > 0
-                width: parent.width; height: 4; radius: 2; color: Qt.rgba(1, 1, 1, 0.12)
+                width: parent.width; height: 4; radius: 2; color: koren.prekriv(0.12)
                 Accessible.role: Accessible.ProgressBar
                 Accessible.name: Math.floor((koren.medij.pozicija || 0) / 60) + ":" + ("0" + Math.floor((koren.medij.pozicija || 0) % 60)).slice(-2)
                 Rectangle {
@@ -575,12 +543,12 @@ Item {
         }
         onClosed: gumbIzhod.forceActiveFocus()
         Timer { interval: 3000; running: izhodi.visible; repeat: true; onTriggered: koren.naloziIzhode() }
-        background: Rectangle { radius: 14; color: koren.paleta.vnos; border.color: Qt.rgba(1, 1, 1, 0.14) }
+        background: Rectangle { radius: 14; color: koren.paleta.vnos; border.color: koren.crta(0.14) }
         contentItem: Column {
             spacing: 8
             RowLayout {
                 width: parent.width
-                Text { text: koren.t("predvajajNaNaslov"); color: koren.paleta.besedilo; font.pixelSize: 15; font.bold: true; Layout.fillWidth: true }
+                Text { text: koren.t("predvajajNaNaslov"); color: koren.paleta.besedilo; font.pixelSize: koren.px(15); font.bold: true; Layout.fillWidth: true }
                 GumbIkona {
                     objectName: "izhodIsci"
                     pot: koren.ikone.ponovno; width: 30; height: 30; velikostIkone: 16; ime: koren.t("zvokIsci")
@@ -606,7 +574,7 @@ Item {
                     readonly property string ime: modelData.vrsta === "racunalnik" ? koren.t("taRacunalnik") : modelData.ime
                     readonly property string pod: izhodi.opis(modelData)
                     width: seznamIzhodov.width; height: 50; radius: 10
-                    color: modelData.aktiven ? koren.poudarekA(0.22) : (izbran || mi.containsMouse) ? Qt.rgba(1, 1, 1, 0.10) : "transparent"
+                    color: modelData.aktiven ? koren.poudarekA(0.22) : (izbran || mi.containsMouse) ? koren.prekriv(0.10) : "transparent"
                     border.width: izbran ? 2 : 0; border.color: koren.paleta.poudarek
                     Accessible.role: Accessible.RadioButton
                     Accessible.name: ime + (pod ? ", " + pod : "")
@@ -621,8 +589,8 @@ Item {
                     }
                     Column {
                         x: 48; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 48 - 36; spacing: 2
-                        Text { text: vrsticaIzhoda.ime; color: koren.paleta.besedilo; font.pixelSize: 13; font.bold: true; width: parent.width; elide: Text.ElideRight }
-                        Text { text: vrsticaIzhoda.pod; visible: text !== ""; color: koren.paleta.medlo; font.pixelSize: 11; width: parent.width; elide: Text.ElideRight }
+                        Text { text: vrsticaIzhoda.ime; color: koren.paleta.besedilo; font.pixelSize: koren.px(13); font.bold: true; width: parent.width; elide: Text.ElideRight }
+                        Text { text: vrsticaIzhoda.pod; visible: text !== ""; color: koren.paleta.medlo; font.pixelSize: koren.px(11); width: parent.width; elide: Text.ElideRight }
                     }
                     Shape {
                         visible: !!vrsticaIzhoda.modelData.aktiven
@@ -637,7 +605,7 @@ Item {
             Text {
                 objectName: "izhodStanje"
                 width: parent.width; wrapMode: Text.WordWrap; visible: text !== ""
-                text: izhodi.stanjeBesedilo; color: koren.paleta.medlo; font.pixelSize: 12
+                text: izhodi.stanjeBesedilo; color: koren.paleta.medlo; font.pixelSize: koren.px(12)
                 Accessible.role: Accessible.StaticText
             }
         }
@@ -664,7 +632,7 @@ Item {
         vstop.start()
         koren.klic("zacetek", [], function (z) {
             z = z || {}
-            koren.jezik = (z.jezik === "sl" || z.jezik === "en") ? z.jezik : "en"
+            koren.nastaviJezik(z.jezik)
             if (z.platforma) koren.platforma = z.platforma
             koren.vOknu = !!z.vOknu
             koren.dom = (z.mape && z.mape[0] && z.mape[0].pot) || ""
@@ -714,21 +682,21 @@ Item {
     }
     Menu {
         id: meniNamizja
-        background: Rectangle { implicitWidth: 230; radius: 12; color: koren.paleta.vnos; border.color: Qt.rgba(1, 1, 1, 0.14) }
+        background: Rectangle { implicitWidth: 230; radius: 12; color: koren.paleta.vnos; border.color: koren.crta(0.14) }
         MenuItem {
             text: koren.t("prilagodi")
-            contentItem: Text { text: parent.text; color: koren.paleta.besedilo; font.pixelSize: 13; leftPadding: 6 }
+            contentItem: Text { text: parent.text; color: koren.paleta.besedilo; font.pixelSize: koren.px(13); leftPadding: 6 }
             background: Rectangle { radius: 8; color: parent.highlighted ? koren.poudarekA(0.22) : "transparent" }
             onTriggered: prilagodi.odpri()
         }
         MenuItem {
             text: koren.t("temaSistema")
-            contentItem: Text { text: parent.text; color: koren.paleta.besedilo; font.pixelSize: 13; leftPadding: 6 }
+            contentItem: Text { text: parent.text; color: koren.paleta.besedilo; font.pixelSize: koren.px(13); leftPadding: 6 }
             background: Rectangle { radius: 8; color: parent.highlighted ? koren.poudarekA(0.22) : "transparent" }
             onTriggered: koren.klic("odpriRazdelek", ["nastavitve"])
         }
     }
-    Prilagodi { id: prilagodi; z: 30; anchors.fill: parent }
+    Prilagodi { id: prilagodi; objectName: "prilagodi"; z: 30; anchors.fill: parent }
 
     // ------------------------------------------------------------------ obvestilo spodaj (z dejanjem, npr. Razveljavi)
     Rectangle {
@@ -738,7 +706,7 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
         y: koren.height - koren.robSpodaj - 70
         height: 40; radius: 20; width: vrsticaObv.width + 30
-        color: koren.plosca(0.94); border.color: Qt.rgba(1, 1, 1, 0.14)
+        color: koren.plosca(0.94); border.color: koren.crta(0.14)
         opacity: 0; visible: opacity > 0
         Behavior on opacity { NumberAnimation { duration: 200 } }
         function pokazi(b, dejanje, ob) {
@@ -747,7 +715,7 @@ Item {
         }
         Row {
             id: vrsticaObv; anchors.centerIn: parent; spacing: 14
-            Text { id: napisObv; color: koren.paleta.besedilo; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
+            Text { id: napisObv; color: koren.paleta.besedilo; font.pixelSize: koren.px(13); anchors.verticalCenter: parent.verticalCenter }
             Gumb { id: gumbObv; visible: besedilo !== ""; onKlik: { if (obvestilo.ob) obvestilo.ob(); obvestilo.opacity = 0 } }
         }
         Timer { id: skrijObv; interval: 6000; onTriggered: obvestilo.opacity = 0 }

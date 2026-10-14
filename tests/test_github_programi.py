@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from core import os_github_programi as g
+from besedila_namizja import besedila, stevilo  # noqa: E402 - skupni slovar namizja
 
 
 class Odgovor(io.BytesIO):
@@ -95,7 +96,7 @@ class Pravila(unittest.TestCase):
         self.assertEqual(g.zvrst([], ""), "drugo")
         js = (Path(__file__).resolve().parent.parent / "assets/os/delovna.js").read_text(encoding="utf-8")
         for k in g.ZVRSTI:
-            self.assertEqual(js.count("ppZvrst_" + k + ":"), 2, k)
+            self.assertEqual(stevilo("ppZvrst_" + k), 6, k)
 
     def test_sha256_ujemanje_in_neujemanje(self):
         import hashlib

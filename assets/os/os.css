@@ -1,30 +1,6 @@
 /* Safeer OS za racunalnik - isti videz kot Safeer OS na televizorju (temno, meta zelena). */
 .media-glava-dejanja { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-:root {
-  --ok: #7fe0b6;           /* stanje »deluje« ostane zeleno (kot --ok na namizju) */
-  --ozadje: #0b1424;
-  --stranska: rgba(11, 20, 36, .86);
-  --kartica: rgba(16, 26, 43, .80);
-  --kartica-poudarek: rgba(24, 38, 62, .92);
-  --koda-podlaga: rgba(4, 9, 17, .72);
-  --rob: rgba(211, 229, 255, .23);
-  --besedilo: #eaf2ff;
-  --medlo: #afbed4;
-  --zelena: #8ac7ff;
-  --zelena-temna: #0b1424;
-  --rdeca: #ff6b6b;
-  --polmer: 18px;
-  --senca: 0 18px 40px rgba(0, 0, 0, .35);
-  /* Medijski center (14. 10. 2026): mirna, temna podlaga namesto slike namizja in povrsine nad njo. */
-  --media-tancica: rgba(7, 11, 18, .95);
-  --media-logotip-podlaga: #eef2f7;   /* svetla podlaga logotipov TV in radia (temni logotipi ostanejo vidni) */
-  --media-povrsina: rgba(17, 27, 42, .72);
-  --media-meni: #121d2d;
-  --media-poudarek: rgba(138, 199, 255, .14);
-  /* Osebne police: znacke na plakatu (srcek, ogledano, »⋯«) in merilo napredka. */
-  --media-znacka: rgba(3, 7, 10, .84);
-  --media-merilo: rgba(255, 255, 255, .2);
-}
+/* Barve (:root) so v tokens.css - en vir za vse strani in namizje QML; index.html jo nalozi pred to datoteko. */
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; }
 body {

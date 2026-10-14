@@ -6,6 +6,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core import os_odpri_z as O  # noqa: E402
+from besedila_namizja import besedila, stevilo  # noqa: E402 - skupni slovar namizja
 
 IZPIS_MIME = """Default application for “text/plain”: urejevalnik.desktop
 Registered applications:
@@ -169,7 +170,7 @@ class OdpriZ(unittest.TestCase):
         self.assertIn('"programiZaOdpiranje": os_odpri_z.vsi_programi,', ozadje)
         self.assertIn('klic("programiZaOdpiranje")', js)
         for kljuc in ("odpriZ", "privzetProgram", "drugProgram", "vednoSTem", "niProgramaZaVrsto", "odslejZ"):
-            self.assertEqual(js.count(kljuc + ': "'), 2, "%s v slovenscini in anglescini" % kljuc)
+            self.assertEqual(stevilo(kljuc), 6, "%s v vseh jezikih" % kljuc)
 
 
 if __name__ == "__main__":

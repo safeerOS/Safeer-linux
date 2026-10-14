@@ -1,19 +1,7 @@
 /* Safeer Cinnamon - delovna povrsina. Paleta = tema Safeer-Cinnamon (po CBlue). */
+/* Barve so v tokens.css (en vir z namizjem QML in vmesnikom Safeer OS); tukaj so samo imena te strani in postavitev.
+ * Imena so na body (ne :root), da sledijo tudi bloku ».kontrast, body.manj-prosojnosti« iz tokens.css. */
 :root {
-  --ozadje: #0b1424;
-  --povrsina: rgba(16, 26, 43, 0.80);
-  --povrsina-mocna: rgba(16, 26, 43, 0.88);
-  --obroba: rgba(211, 229, 255, 0.23);
-  --obroba-mocna: rgba(215, 234, 255, 0.34);
-  --tanka: rgba(213, 232, 250, 0.12);
-  --besedilo: #eaf2ff;
-  --tiho: #afbed4;
-  --tise: #93a9c4;
-  --poudarek: #8ac7ff;
-  --izbrano: rgba(104, 168, 229, 0.20);
-  --fokus: #9dceff;
-  --ok: #7fe0b6;
-  --opozorilo: #ffcf8a;
   --zamegli: 18px;
   --r-plosca: 17px;
   --r-mal: 9px;
@@ -22,16 +10,17 @@
   --medij: 118px;      /* visina medijske plosce (premakne jo uporabnik) */
   color-scheme: dark;
 }
-body.manj-prosojnosti {
-  --povrsina: #111c2b;
-  --povrsina-mocna: #111c2b;
-  --obroba: rgba(215, 234, 255, 0.45);
-  --obroba-mocna: rgba(215, 234, 255, 0.6);
-  --tanka: rgba(213, 232, 250, 0.22);
-  --zamegli: 0px;
+body {
+  --povrsina: var(--kartica);
+  --povrsina-mocna: var(--kartica-mocna);
+  --obroba: var(--rob);
+  --obroba-mocna: var(--rob-mocan);
+  --tiho: var(--medlo);
+  --poudarek: var(--zelena);
 }
+body.manj-prosojnosti { --zamegli: 0px; }
 @media (prefers-reduced-transparency: reduce) {
-  body:not(.prosojnost-vsiljena) { --povrsina: #111c2b; --povrsina-mocna: #111c2b; --zamegli: 0px; }
+  body:not(.prosojnost-vsiljena) { --povrsina: var(--kartica-polna); --povrsina-mocna: var(--kartica-polna); --zamegli: 0px; }
 }
 body.vecji-tekst { --pisava: 17px; }
 
@@ -161,7 +150,7 @@ svg { width: 1.3em; height: 1.3em; fill: none; stroke: currentColor; stroke-widt
 .gumb-ikona.glavni { width: 2.7em; height: 2.7em; background: rgba(138, 199, 255, .16); border-color: rgba(138, 199, 255, .35); color: var(--besedilo); }
 .cip, select { font-size: .78em; padding: .3em .8em; border-radius: 99px; border: 1px solid var(--obroba); background: rgba(217, 234, 255, .07); color: #c3d7ef; cursor: pointer; }
 .cip:hover, select:hover { border-color: var(--obroba-mocna); color: var(--besedilo); }
-select option { background: #111c2b; color: var(--besedilo); }
+select option { background: var(--kartica-polna); color: var(--besedilo); }
 /* Iskalni polji Datotek in Programov: vecji, z lupo (lastnik, 11. 10. 2026: »potrebujeta vecjo iskalno lupo«). */
 .filter { font-size: .95em; padding: .5em .9em .5em 2.3em; border-radius: 999px; border: 1px solid var(--tanka); min-width: 8em; width: 16em;
   background: rgba(234, 244, 255, .07) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23c1d0e2' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='6.5'/%3E%3Cpath d='M16 16l4.5 4.5'/%3E%3C/svg%3E") no-repeat .75em center / 1.15em; }
@@ -249,9 +238,9 @@ select option { background: #111c2b; color: var(--besedilo); }
 .lastnosti dd { margin: 0; overflow-wrap: anywhere; }
 .ikona-vrste { flex: none; width: 1.35em; height: 1.35em; border-radius: 5px; display: inline-grid; place-items: center; color: #eaf2ff; }
 .ikona-vrste svg { width: .9em; height: .9em; }
-.v-mapa { background: #3b6fb0; } .v-slika { background: #2f8a6b; } .v-video { background: #b45058; } .v-zvok { background: #674da7; }
-.v-dokument { background: #2558ad; } .v-splet { background: #26789a; } .v-arhiv { background: #8a6a2f; } .v-program { background: #4a5a70; } .v-drugo { background: #4a5a70; }
-.v-naprava { background: #2a7f8f; }
+.v-mapa { background: var(--vrsta-mapa); } .v-slika { background: var(--vrsta-slika); } .v-video { background: var(--vrsta-video); } .v-zvok { background: var(--vrsta-zvok); }
+.v-dokument { background: var(--vrsta-dokument); } .v-splet { background: var(--vrsta-splet); } .v-arhiv { background: var(--vrsta-arhiv); } .v-program { background: var(--vrsta-program); } .v-drugo { background: var(--vrsta-program); }
+.v-naprava { background: var(--vrsta-naprava); }
 
 .sporocilo { color: var(--tiho); font-size: .82em; margin: .8em .2em; }
 .sporocilo.napaka { color: var(--opozorilo); }
@@ -365,7 +354,7 @@ select option { background: #111c2b; color: var(--besedilo); }
   padding: .45em .7em; border-radius: 10px; background: rgba(234, 244, 255, .04); border: 1px solid var(--tanka); }
 .okno-novo .gumbi { display: flex; justify-content: flex-end; gap: .5em; margin-top: .6em; }
 .okno-novo .cip { font-size: .85em; padding: .45em 1.1em; }
-.glavni-gumb { background: #8ac7ff !important; color: #0b1424 !important; border-color: #8ac7ff !important; font-weight: 600; }
+.glavni-gumb { background: var(--zelena) !important; color: var(--zelena-temna) !important; border-color: var(--zelena) !important; font-weight: 600; }
 .seznam tbody tr.novo { animation: novo 1.6s ease-out; }
 @keyframes novo { from { background: rgba(127, 224, 182, .35); } to { background: transparent; } }
 .dat-glavno { position: relative; }

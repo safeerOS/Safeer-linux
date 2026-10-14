@@ -138,41 +138,64 @@ Steklo {
     RowLayout {
         anchors.fill: parent; anchors.margins: 14; spacing: 12
         // ---------------- viri
-        ListView {
-            id: viriSeznam
-            Layout.preferredWidth: 170; Layout.fillHeight: true
-            clip: true; model: panel.viri; boundsBehavior: Flickable.StopAtBounds
-            header: Column {
-                spacing: 8; bottomPadding: 6
-                Text { text: koren.t("datoteke"); color: koren.paleta.besedilo; font.pixelSize: 16; font.bold: true; leftPadding: 4 }
-                IzbiraNaprave {
-                    width: viriSeznam.width; zmoznost: "datoteke"; naprave: koren.naprave
-                    onIzbrana: function (id, ime) { panel.izberiNapravo(id, ime) }
-                }
+        // Naslov in izbira naprave nad seznamom virov (ne glava ListViewa: ta se ob vecjem besedilu sistema
+        // odreze na vrhu - posnetek pri 150 %, 15. 10. 2026).
+        ColumnLayout {
+            Layout.fillWidth: false; Layout.fillHeight: true; spacing: 8
+            Layout.preferredWidth: Math.min(koren.px(170), panel.width * 0.34); Layout.maximumWidth: Layout.preferredWidth
+            Text { text: koren.t("datoteke"); color: koren.paleta.besedilo; font.pixelSize: koren.px(16); font.bold: true; leftPadding: 4 }
+            IzbiraNaprave {
+                Layout.fillWidth: true; zmoznost: "datoteke"; naprave: koren.naprave
+                onIzbrana: function (id, ime) { panel.izberiNapravo(id, ime) }
             }
-            delegate: Item {
-                width: viriSeznam.width; height: modelData.naslov ? 30 : 32
-                Text {
-                    visible: !!modelData.naslov; text: (modelData.naslov || "").toUpperCase()
-                    color: Qt.darker(koren.paleta.medlo, 1.15); font.pixelSize: 10; font.letterSpacing: 1; anchors.bottom: parent.bottom; anchors.bottomMargin: 6; x: 6
+            ListView {
+                id: viriSeznam
+                Layout.fillWidth: true; Layout.fillHeight: true; Layout.topMargin: 6
+                clip: true; model: panel.viri; boundsBehavior: Flickable.StopAtBounds
+                // Tipkovnica in daljinec TV (puscice): gor/dol preskoci naslove skupin, Enter ali preslednica odpre vir.
+                activeFocusOnTab: true; currentIndex: -1
+                Accessible.role: Accessible.List; Accessible.name: koren.t("mape")
+                function izberiVir(i) {
+                    var m = panel.viri[i]
+                    if (!m || !m.vir) return
+                    if (m.vir.vrsta === "naprava") panel.pot = [{ id: m.vir.pot, ime: m.ime }]
+                    panel.odpri(m.vir)
                 }
-                Rectangle {
-                    visible: !modelData.naslov
-                    anchors.fill: parent; anchors.margins: 1; radius: 9
-                    readonly property bool izbran: !!modelData.vir && panel.vir.vrsta === modelData.vir.vrsta && panel.vir.pot === modelData.vir.pot
-                    color: izbran ? koren.poudarekA(0.18) : (mv.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent")
-                    Behavior on color { ColorAnimation { duration: 120 } }
-                    Text { text: modelData.oznaka || ""; color: parent.izbran ? Qt.lighter(koren.paleta.poudarek, 1.35) : koren.paleta.besedilo; font.pixelSize: 13; elide: Text.ElideRight
-                           width: parent.width - 16; x: 10; anchors.verticalCenter: parent.verticalCenter }
-                    MouseArea { id: mv; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                                onClicked: if (modelData.vir) {
-                                    if (modelData.vir.vrsta === "naprava") panel.pot = [{ id: modelData.vir.pot, ime: modelData.ime }]
-                                    panel.odpri(modelData.vir)
-                                } }
+                function premakni(smer) {
+                    for (var i = currentIndex + smer; i >= 0 && i < panel.viri.length; i += smer)
+                        if (!panel.viri[i].naslov) { currentIndex = i; positionViewAtIndex(i, ListView.Contain); return }
+                }
+                onActiveFocusChanged: if (activeFocus && currentIndex < 0) premakni(1)
+                Keys.onDownPressed: premakni(1)
+                Keys.onUpPressed: premakni(-1)
+                Keys.onReturnPressed: izberiVir(currentIndex)
+                Keys.onEnterPressed: izberiVir(currentIndex)
+                Keys.onSpacePressed: izberiVir(currentIndex)
+                Keys.onRightPressed: seznam.forceActiveFocus()
+                delegate: Item {
+                    width: viriSeznam.width; height: koren.px(modelData.naslov ? 30 : 32)
+                    Text {
+                        visible: !!modelData.naslov; text: (modelData.naslov || "").toUpperCase()
+                        color: Qt.darker(koren.paleta.medlo, 1.15); font.pixelSize: koren.px(10); font.letterSpacing: 1; anchors.bottom: parent.bottom; anchors.bottomMargin: 6; x: 6
+                    }
+                    Rectangle {
+                        visible: !modelData.naslov
+                        anchors.fill: parent; anchors.margins: 1; radius: 9
+                        readonly property bool izbran: !!modelData.vir && panel.vir.vrsta === modelData.vir.vrsta && panel.vir.pot === modelData.vir.pot
+                        color: izbran ? koren.poudarekA(0.18) : (mv.containsMouse ? koren.prekriv(0.08) : "transparent")
+                        border.width: viriSeznam.activeFocus && index === viriSeznam.currentIndex ? 2 : 0
+                        border.color: koren.paleta.fokus
+                        Accessible.role: Accessible.ListItem; Accessible.name: modelData.oznaka || ""
+                        Behavior on color { ColorAnimation { duration: 120 } }
+                        Text { text: modelData.oznaka || ""; color: parent.izbran ? Qt.lighter(koren.paleta.poudarek, 1.35) : koren.paleta.besedilo; font.pixelSize: koren.px(13); elide: Text.ElideRight
+                               width: parent.width - 16; x: 10; anchors.verticalCenter: parent.verticalCenter }
+                        MouseArea { id: mv; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                    onClicked: { viriSeznam.currentIndex = index; viriSeznam.izberiVir(index) } }
+                    }
                 }
             }
         }
-        Rectangle { Layout.fillHeight: true; width: 1; color: Qt.rgba(1, 1, 1, 0.08) }
+        Rectangle { Layout.fillHeight: true; width: 1; color: koren.prekriv(0.08) }
         // ---------------- vsebina
         ColumnLayout {
             Layout.fillWidth: true; Layout.fillHeight: true; spacing: 8
@@ -186,7 +209,7 @@ Steklo {
                            } else panel.odpri({ vrsta: "lokalno", pot: panel.stars })
                        } }
                 Text {
-                    Layout.fillWidth: true; color: koren.paleta.besedilo; font.pixelSize: 12; elide: Text.ElideLeft
+                    Layout.fillWidth: true; color: koren.paleta.besedilo; font.pixelSize: koren.px(12); elide: Text.ElideLeft
                     text: panel.vir.vrsta === "naprava" ? [panel.imeNaprave].concat(panel.pot.map(function (x) { return x.ime })).join("  ›  ")
                         : panel.vir.vrsta === "lokalno" ? koren.kratkaPot(panel.vir.pot) : panel.vir.vrsta === "smeti" ? koren.t("smeti") : koren.t("nedavno")
                 }
@@ -195,11 +218,11 @@ Steklo {
                        onKlik: koren.klic("novaMapa", [panel.vir.pot, koren.t("novaMapa")], function (r) {
                            if (r && r.ok) { panel.nalozi(true); preimenovanje.zacni({ ime: r.ime, pot: r.pot }) } else koren.obvesti(koren.t("niUspelo")) }) }
                 Rectangle {
-                    width: Math.min(170, Math.max(96, seznam.width * 0.34)); height: 30; radius: 15; color: Qt.rgba(1, 1, 1, 0.07); border.color: Qt.rgba(1, 1, 1, 0.12)
+                    width: Math.min(170, Math.max(96, seznam.width * 0.34)); height: 30; radius: 15; color: koren.prekriv(0.07); border.color: koren.crta(0.12)
                     TextField {
                         id: poljeFilter
                         anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 10
-                        placeholderText: koren.t("filter"); placeholderTextColor: koren.paleta.medlo; color: koren.paleta.besedilo; font.pixelSize: 12
+                        placeholderText: koren.t("filter"); placeholderTextColor: koren.paleta.medlo; color: koren.paleta.besedilo; font.pixelSize: koren.px(12)
                         background: Item {}
                         onTextChanged: panel.filter = text
                     }
@@ -216,6 +239,7 @@ Steklo {
                 onActiveFocusChanged: if (activeFocus && currentIndex < 0 && count > 0) currentIndex = 0
                 Keys.onReturnPressed: { var e = izbran(); if (e) panel.odpriElement(e) }
                 Keys.onEnterPressed: { var e = izbran(); if (e) panel.odpriElement(e) }
+                Keys.onLeftPressed: viriSeznam.forceActiveFocus()
                 Keys.onDeletePressed: { var e = izbran(); if (e && (panel.vir.vrsta === "lokalno" || panel.vir.vrsta === "nedavno")) panel.vKos(e) }
                 Keys.onPressed: function (d) {
                     var e = izbran()
@@ -230,19 +254,19 @@ Steklo {
                 // Spremenjeno in Velikost se umakneta imenu.
                 readonly property bool ozko: width < 360
                 readonly property bool zeloOzko: width < 260
-                readonly property real stolpci: (zeloOzko ? 0 : 80) + (ozko ? 0 : 110)
+                readonly property real stolpci: (zeloOzko ? 0 : koren.px(80)) + (ozko ? 0 : koren.px(110))
                 clip: true; model: panel.prikazani; boundsBehavior: Flickable.StopAtBounds
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                 header: Row {
                     height: 26; spacing: 0
-                    Text { text: koren.t("ime"); color: Qt.darker(koren.paleta.medlo, 1.15); font.pixelSize: 11; width: seznam.width - seznam.stolpci }
-                    Text { text: koren.t("velikost"); color: Qt.darker(koren.paleta.medlo, 1.15); font.pixelSize: 11; width: 80; visible: !seznam.zeloOzko }
-                    Text { text: koren.t("spremenjeno"); color: Qt.darker(koren.paleta.medlo, 1.15); font.pixelSize: 11; width: 110; visible: !seznam.ozko }
+                    Text { text: koren.t("ime"); color: Qt.darker(koren.paleta.medlo, 1.15); font.pixelSize: koren.px(11); width: seznam.width - seznam.stolpci }
+                    Text { text: koren.t("velikost"); color: Qt.darker(koren.paleta.medlo, 1.15); font.pixelSize: koren.px(11); width: koren.px(80); visible: !seznam.zeloOzko }
+                    Text { text: koren.t("spremenjeno"); color: Qt.darker(koren.paleta.medlo, 1.15); font.pixelSize: koren.px(11); width: koren.px(110); visible: !seznam.ozko }
                 }
                 delegate: Rectangle {
-                    width: seznam.width; height: 34; radius: 8
+                    width: seznam.width; height: koren.px(34); radius: 8
                     color: index === seznam.currentIndex && seznam.activeFocus ? koren.poudarekA(0.2)
-                         : md.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
+                         : md.containsMouse ? koren.prekriv(0.08) : "transparent"
                     Accessible.role: Accessible.ListItem; Accessible.name: modelData.ime
                     Behavior on color { ColorAnimation { duration: 100 } }
                     Row {
@@ -250,17 +274,18 @@ Steklo {
                         Row {
                             width: seznam.width - seznam.stolpci - 6; spacing: 8
                             Rectangle {
-                                width: 22; height: 22; radius: 6; anchors.verticalCenter: parent.verticalCenter
-                                color: modelData.mapa ? "#3b82f6" : modelData.vrsta === "slika" ? "#e879f9" : modelData.vrsta === "video" ? "#f97316"
-                                     : modelData.vrsta === "zvok" ? "#22c55e" : modelData.vrsta === "dokument" ? "#60a5fa" : "#64748b"
-                                Text { anchors.centerIn: parent; color: "white"; font.pixelSize: 10; font.bold: true
+                                width: koren.px(22); height: koren.px(22); radius: 6; anchors.verticalCenter: parent.verticalCenter
+                                color: koren.barvaVrste(modelData.mapa ? "mapa" : modelData.vrsta)
+                                Text { anchors.centerIn: parent; color: koren.prekriv(1); font.pixelSize: koren.px(10); font.bold: true
                                        text: modelData.mapa ? "▣" : (modelData.ime.split(".").pop() || "?").slice(0, 3).toUpperCase() }
                             }
-                            Text { text: modelData.ime; color: koren.paleta.besedilo; font.pixelSize: 13; elide: Text.ElideRight
-                                   width: parent.width - 32; anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: modelData.ime; color: koren.paleta.besedilo; font.pixelSize: koren.px(13); elide: Text.ElideRight
+                                   width: parent.width - koren.px(22) - 10; anchors.verticalCenter: parent.verticalCenter }
                         }
-                        Text { text: modelData.mapa ? "" : koren.velikost(modelData.velikost); color: koren.paleta.medlo; font.pixelSize: 12; width: 80; visible: !seznam.zeloOzko }
-                        Text { text: koren.cas(modelData.spremenjeno || modelData.izbrisano); color: koren.paleta.medlo; font.pixelSize: 12; width: 110; visible: !seznam.ozko }
+                        Text { text: modelData.mapa ? "" : koren.velikost(modelData.velikost); color: koren.paleta.medlo; font.pixelSize: koren.px(12); width: koren.px(80); visible: !seznam.zeloOzko
+                               anchors.verticalCenter: parent.verticalCenter }
+                        Text { text: koren.cas(modelData.spremenjeno || modelData.izbrisano); color: koren.paleta.medlo; font.pixelSize: koren.px(12); width: koren.px(110); visible: !seznam.ozko
+                               anchors.verticalCenter: parent.verticalCenter }
                     }
                     MouseArea {
                         id: md; anchors.fill: parent; hoverEnabled: true; acceptedButtons: Qt.LeftButton | Qt.RightButton
@@ -273,7 +298,7 @@ Steklo {
                 }
                 Text {
                     anchors.centerIn: parent; visible: seznam.count === 0
-                    text: panel.prazno(); color: koren.paleta.medlo; font.pixelSize: 13
+                    text: panel.prazno(); color: koren.paleta.medlo; font.pixelSize: koren.px(13)
                 }
             }
         }
@@ -281,12 +306,12 @@ Steklo {
 
     // Meni v slogu namizja (kot meni ozadja v Namizje.qml), ne sivi privzeti meni Qt.
     component MeniVnos: MenuItem {
-        contentItem: Text { text: parent.text; color: koren.paleta.besedilo; font.pixelSize: 13; leftPadding: 6 }
+        contentItem: Text { text: parent.text; color: koren.paleta.besedilo; font.pixelSize: koren.px(13); leftPadding: 6 }
         background: Rectangle { radius: 8; color: parent.highlighted ? koren.poudarekA(0.22) : "transparent" }
     }
     Menu {
         id: meni
-        background: Rectangle { implicitWidth: 230; radius: 12; color: koren.paleta.vnos; border.color: Qt.rgba(1, 1, 1, 0.14) }
+        background: Rectangle { implicitWidth: 230; radius: 12; color: koren.paleta.vnos; border.color: koren.crta(0.14) }
         property var e: null
         MeniVnos { text: koren.t("odpri"); visible: panel.vir.vrsta !== "smeti"; height: visible ? implicitHeight : 0; onTriggered: panel.odpriElement(meni.e) }
         MeniVnos { text: koren.t("odpriSProgramom", { naprava: panel.imeNaprave })
@@ -309,8 +334,8 @@ Steklo {
     Popup {
         id: preimenovanje
         property var e: null
-        anchors.centerIn: parent; modal: true; padding: 18; width: 380
-        background: Rectangle { radius: 16; color: koren.paleta.vnos; border.color: Qt.rgba(1, 1, 1, 0.14) }
+        anchors.centerIn: parent; modal: true; focus: true; padding: 18; width: 380
+        background: Rectangle { radius: 16; color: koren.paleta.vnos; border.color: koren.crta(0.14) }
         function zacni(e) { preimenovanje.e = e; novoIme.text = e.ime; open(); novoIme.forceActiveFocus(); novoIme.selectAll() }
         function shrani() {
             koren.klic("preimenujDatoteko", [preimenovanje.e.pot, novoIme.text], function (r) {
@@ -320,9 +345,9 @@ Steklo {
         }
         ColumnLayout {
             anchors.fill: parent; spacing: 12
-            Text { text: koren.t("preimenuj"); color: koren.paleta.besedilo; font.pixelSize: 15; font.bold: true }
-            TextField { id: novoIme; Layout.fillWidth: true; color: koren.paleta.besedilo; font.pixelSize: 14
-                        background: Rectangle { radius: 8; color: Qt.rgba(1, 1, 1, 0.08); border.color: koren.paleta.poudarek }
+            Text { text: koren.t("preimenuj"); color: koren.paleta.besedilo; font.pixelSize: koren.px(15); font.bold: true }
+            TextField { id: novoIme; Layout.fillWidth: true; color: koren.paleta.besedilo; font.pixelSize: koren.px(14)
+                        background: Rectangle { radius: 8; color: koren.prekriv(0.08); border.color: koren.paleta.poudarek }
                         Keys.onReturnPressed: preimenovanje.shrani() }
             RowLayout { Layout.alignment: Qt.AlignRight; spacing: 8
                 Gumb { besedilo: koren.t("preklici"); onKlik: preimenovanje.close() }
@@ -337,8 +362,8 @@ Steklo {
         id: izbirnik
         property string naslov: ""
         property var moznosti: []        // [{ ime, opis, ob }]
-        anchors.centerIn: parent; modal: true; padding: 18; width: 400
-        background: Rectangle { radius: 16; color: koren.paleta.vnos; border.color: Qt.rgba(1, 1, 1, 0.14) }
+        anchors.centerIn: parent; modal: true; focus: true; padding: 18; width: 400
+        background: Rectangle { radius: 16; color: koren.paleta.vnos; border.color: koren.crta(0.14) }
         function pokazi(n, m) { naslov = n; moznosti = m; open() }
         function odpriZ(e) {
             koren.klic("programiZaDatoteko", [e.pot], function (r) {
@@ -378,18 +403,21 @@ Steklo {
         }
         ColumnLayout {
             anchors.fill: parent; spacing: 10
-            Text { text: izbirnik.naslov; color: koren.paleta.besedilo; font.pixelSize: 15; font.bold: true; elide: Text.ElideMiddle; Layout.fillWidth: true }
+            Text { text: izbirnik.naslov; color: koren.paleta.besedilo; font.pixelSize: koren.px(15); font.bold: true; elide: Text.ElideMiddle; Layout.fillWidth: true }
             Repeater {
                 model: izbirnik.moznosti
                 delegate: Rectangle {
                     Layout.fillWidth: true; height: 40; radius: 10
-                    color: mi.containsMouse || mi.activeFocus ? koren.poudarekA(0.2) : Qt.rgba(1, 1, 1, 0.05)
+                    color: mi.containsMouse || activeFocus ? koren.poudarekA(0.2) : koren.prekriv(0.05)
+                    border.width: activeFocus ? 2 : 0; border.color: koren.paleta.fokus
                     activeFocusOnTab: true
+                    Keys.onEnterPressed: { izbirnik.close(); modelData.ob() }
+                    Keys.onSpacePressed: { izbirnik.close(); modelData.ob() }
                     Accessible.role: Accessible.Button; Accessible.name: modelData.ime
                     Keys.onReturnPressed: { izbirnik.close(); modelData.ob() }
                     Row { anchors.verticalCenter: parent.verticalCenter; x: 12; spacing: 10
-                        Text { text: modelData.ime; color: koren.paleta.besedilo; font.pixelSize: 13 }
-                        Text { text: modelData.opis; color: koren.paleta.medlo; font.pixelSize: 11; visible: text !== "" } }
+                        Text { text: modelData.ime; color: koren.paleta.besedilo; font.pixelSize: koren.px(13) }
+                        Text { text: modelData.opis; color: koren.paleta.medlo; font.pixelSize: koren.px(11); visible: text !== "" } }
                     MouseArea { id: mi; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                                 onClicked: { izbirnik.close(); modelData.ob() } }
                 }
@@ -452,11 +480,11 @@ Steklo {
 
     Popup {
         id: potrdi
-        anchors.centerIn: parent; modal: true; padding: 18; width: 400
-        background: Rectangle { radius: 16; color: koren.paleta.vnos; border.color: Qt.rgba(1, 1, 1, 0.14) }
+        anchors.centerIn: parent; modal: true; focus: true; padding: 18; width: 400
+        background: Rectangle { radius: 16; color: koren.paleta.vnos; border.color: koren.crta(0.14) }
         ColumnLayout {
             anchors.fill: parent; spacing: 14
-            Text { text: koren.t("izprazniVpr"); color: koren.paleta.besedilo; font.pixelSize: 14; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+            Text { text: koren.t("izprazniVpr"); color: koren.paleta.besedilo; font.pixelSize: koren.px(14); wrapMode: Text.WordWrap; Layout.fillWidth: true }
             RowLayout { Layout.alignment: Qt.AlignRight; spacing: 8
                 Gumb { besedilo: koren.t("preklici"); onKlik: potrdi.close() }
                 Gumb { besedilo: koren.t("izprazni"); poudarjen: true

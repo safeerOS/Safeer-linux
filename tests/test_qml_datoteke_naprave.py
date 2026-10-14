@@ -21,8 +21,9 @@ class DatotekeNaprave(unittest.TestCase):
             qml = f.read()
         self.assertIn('"prenesiDatotekoNaprave", [naprava, e.id, e.ime, streznik, mape]', qml)
         for kljuc in ("odprtoV", "odprtoNaNapravi", "teamworkTudi"):
-            self.assertEqual(len(re.findall(kljuc + ":", open(os.path.join(KOREN, "assets", "os", "qml", "Namizje.qml"),
-                                                                encoding="utf-8").read())), 2, kljuc)   # sl in en
+            # Skupni slovar namizja (QML in delovna povrsina): vseh 6 jezikov.
+            self.assertEqual(len(re.findall(r"\b" + kljuc + ":", open(os.path.join(KOREN, "assets", "os", "besedila-namizja.js"),
+                                                                     encoding="utf-8").read())), 6, kljuc)
 
     def test_prenos_gre_prek_nadaljuj_tukaj(self):
         klici = []

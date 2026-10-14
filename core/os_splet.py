@@ -2208,7 +2208,11 @@ class VdelaniSplet:
 
     def _drm_obvestilo(self, pogled, kljuc: str) -> None:
         besedila = {"sl": "Pripravljam predvajalnik zaščitenih vsebin (enkrat) …",
-                    "en": "Preparing the protected video player (one time) …"}
+                    "en": "Preparing the protected video player (one time) …",
+                    "de": "Player für geschützte Inhalte wird vorbereitet (einmalig) …",
+                    "es": "Preparando el reproductor de contenido protegido (solo una vez) …",
+                    "fr": "Préparation du lecteur de contenus protégés (une seule fois) …",
+                    "it": "Preparazione del lettore di contenuti protetti (una sola volta) …"}
         jezik = str(self.jezik() if callable(self.jezik) else self.jezik or "sl")[:2]
         koda = drm.OBVESTILO.replace("__BESEDILO__", json.dumps(besedila.get(jezik, besedila["en"])))
         try:

@@ -1248,6 +1248,32 @@ def _prozorno_okno(okno) -> None:
     okno.add_css_class("safeer-prozorno")
 
 
+#: Razred oken Safeer OS za pult (WM_CLASS res_class) - enak StartupWMClass v packaging/safeer-os.desktop.
+RAZRED_SAFEER_OS = "safeer-os"
+
+
+def _ikona_safeer_os() -> str:
+    """Ime ikone Safeer OS, kot jo je namestil paket: .deb »safeer-os«, Flatpak ID programa. Prej so imela okna ikono
+    »safeer-browser«, ki je brez Safeer Browserja ni (pregled celovitosti 15. 10. 2026)."""
+    try:
+        tema = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+        for ime in ("safeer-os", APP_ID):
+            if tema.has_icon(ime):
+                return ime
+    except Exception:  # noqa: BLE001 - brez zaslona: ime iz paketa .deb
+        pass
+    return "safeer-os"
+
+
+def _razred_okna(okno, vloga: str = "") -> None:
+    """Okna Safeer OS (razdelki, Splet, plosca sporocil, Medijski center, pogovorna okna) so v pultu ena skupina z ikono
+    Safeer OS: res_class = »safeer-os« (StartupWMClass), res_name pove vlogo. Prej je imelo vsako okno svoj razred
+    (»safeer-os.Nastavitve«, »Safeer«, »Safeer Splet« ali nobenega), zato je pult kazal locene skupine s splosno ikono.
+    Safeer Player ima svoj vnos v meniju (WMCLASS_PREDVAJALNIKA) in ostane loceno."""
+    x11.nastavi_razred(okno, RAZRED_SAFEER_OS + ("." + vloga if vloga else ""), RAZRED_SAFEER_OS)
+    okno.set_icon_name(_ikona_safeer_os())
+
+
 def _registriraj_most(upravitelj, ime: str) -> None:
     """register_script_message_handler za WebKit 6.0 (ime, svet) in 4.1 (ime)."""
     try:
@@ -2204,8 +2230,7 @@ class SafeerOS(Gtk.Application):
         if okno is None:
             okno = Gtk.Window(title=BESEDILA_KUVERTE.get(_jezik(), BESEDILA_KUVERTE["en"])[0])
             okno.set_application(self)
-            x11.nastavi_razred(okno, "safeer-os.Sporocila", "Safeer")
-            okno.set_icon_name("safeer-os")
+            _razred_okna(okno, "Sporocila")
             okno.set_decorated(False)
             x11.nastavi_preskoci(okno, opravilna=True, preklopnik=False)
             x11.nastavi_vrsto(okno, "DIALOG")
@@ -2256,8 +2281,7 @@ class SafeerOS(Gtk.Application):
                                                          quote_via=urllib.parse.quote)
             pogled = self._nov_pogled(stran)
             okno = Gtk.ApplicationWindow(application=self, title=_naslov_razdelka(ime))
-            x11.nastavi_razred(okno, "safeer-os." + ime, _naslov_razdelka(ime))
-            okno.set_icon_name("safeer-os")
+            _razred_okna(okno, ime)
             zaslon = self._zaslon()
             g = self._delovno_obmocje(zaslon) if zaslon else None
             sirina, visina = (min(1280, int(g.width * 0.85)) if g else 1200, min(860, int(g.height * 0.85)) if g else 800)
@@ -2344,7 +2368,7 @@ class SafeerOS(Gtk.Application):
             okno.set_icon_name("predvajalnik")
         except Exception as e:  # noqa: BLE001 - brez nalagalnika SVG ostane ikona Safeer
             print("[SafeerOS] ikona predvajalnika:", e)
-            okno.set_icon_name("safeer-browser")
+            okno.set_icon_name(_ikona_safeer_os())
 
     def _zapri_predvajalnik(self, okno, *_a) -> bool:
         """Zapiranje okna Safeer Player. Ob delovni povrsini ali glavnem oknu se okno samo skrije: predvajanje tece
@@ -2440,8 +2464,7 @@ class SafeerOS(Gtk.Application):
             # Svoje okno brez okvirja (videz plosce namizja): namizje je vedno pod vsemi okni, rezultati pa morajo
             # priti naprej. Za glavo se okno premakne; Esc ali ✕ ga skrije.
             okno = Gtk.Window(title=BESEDILA_SPLETA_NA_NAMIZJU.get(_jezik(), BESEDILA_SPLETA_NA_NAMIZJU["en"])[0])
-            x11.nastavi_razred(okno, "safeer-os.Splet", "Safeer Splet")
-            okno.set_icon_name("safeer-browser")
+            _razred_okna(okno, "Splet")
             okno.set_decorated(False)
             okno.set_application(self)
             _prozorno_okno(okno)
@@ -2612,8 +2635,7 @@ class SafeerOS(Gtk.Application):
     def _ustvari_okno(self) -> None:
         pogled = self._nov_pogled("index.html" + ("?namizje=1" if self.namizje else ""))
         okno = Gtk.ApplicationWindow(application=self, title="Safeer OS")
-        x11.nastavi_razred(okno, "safeer-os", "Safeer OS")
-        okno.set_icon_name("safeer-browser")
+        _razred_okna(okno)
         zaslon = self._zaslon()
         if self.posnetek and _velikost_okna(os.environ.get("SAFEER_OS_OKNO", "")):
             sirina, visina = _velikost_okna(os.environ["SAFEER_OS_OKNO"])
@@ -5392,9 +5414,9 @@ class SafeerOS(Gtk.Application):
         """Obicajno okno za izbiro mape (kam ustvariti novo mapo ali datoteko). konec('') ob preklicu.
         Besedila poda stran v jeziku vmesnika (GTK4 Gtk.FileDialog nima napisa za Preklici - ostane sistemski)."""
         stars = self.okno_delovna if (self.okno is None or not self.okno.get_visible()) else self.okno
-        self._izberi_poti(naslov or "Izberi mapo", stars, "mapa",
+        self._izberi_poti(naslov or self._mb("izberi_mapo_splosno"), stars, "mapa",
                           lambda poti: konec and konec(poti[0] if poti else ""),
-                          potrdi=izberi or "Izberi", zacetna=os.path.expanduser(zacetna or "~"))
+                          potrdi=izberi or self._mb("izberi"), zacetna=os.path.expanduser(zacetna or "~"))
 
     def _medijski_dodaj_mapo(self, stars=None, konec: Optional[Callable[[bool], None]] = None) -> None:
         def izbrano(poti: list) -> None:
@@ -5436,23 +5458,24 @@ class SafeerOS(Gtk.Application):
     def _medijski_dodaj_tok(self, stars=None, konec: Optional[Callable[[bool], None]] = None) -> None:
         """Uporabnikov neposredni tok shrani in predvaja v GStreamerju. GTK4: Gtk.Dialog.run je odstranjen - okno z
         gumboma, izid dobi konec(True/False)."""
-        dialog = Gtk.Window(title="Dodaj TV ali radijski tok", modal=True)
+        dialog = Gtk.Window(title=self._mb("tok_naslov"), modal=True)
         dialog.set_transient_for(stars or self.okno)
+        _razred_okna(dialog, "Dialog")
         dialog.set_destroy_with_parent(True)
         polja = _robovi_gradnika(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8), 12)
         ime = Gtk.Entry()
-        ime.set_placeholder_text("Ime postaje")
+        ime.set_placeholder_text(self._mb("tok_ime"))
         polja.append(ime)
-        vrste = (("tv", "TV v živo"), ("radio", "Radio"))
+        vrste = (("tv", self._mb("tok_tv")), ("radio", self._mb("tok_radio")))
         vrsta = Gtk.DropDown.new_from_strings([napis for _k, napis in vrste])
         vrsta.set_selected(0)
         polja.append(vrsta)
         vnos = Gtk.Entry()
-        vnos.set_placeholder_text("https://primer.si/kanal.m3u8")
+        vnos.set_placeholder_text(self._mb("tok_primer"))
         vnos.set_width_chars(55)
         polja.append(vnos)
         gumbi = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8, halign=Gtk.Align.END)
-        preklici, shrani = Gtk.Button(label="Prekliči"), Gtk.Button(label="Shrani in predvajaj")
+        preklici, shrani = Gtk.Button(label=self._mb("preklici")), Gtk.Button(label=self._mb("shrani_predvajaj"))
         gumbi.append(preklici)
         gumbi.append(shrani)
         polja.append(gumbi)
@@ -5500,7 +5523,7 @@ class SafeerOS(Gtk.Application):
         self._medijski_naslov = naslov
         self._medijski_js = False
         self._medijski_pogled.get_settings().set_property("enable-javascript-markup", False)
-        self._medijski_okno.set_title("Medijski center")
+        self._medijski_okno.set_title(self._mb("medijski_center"))
         self._medijski_pogled.load_uri(naslov)
         self._medijski_okno.present()
         return True
@@ -5540,7 +5563,8 @@ class SafeerOS(Gtk.Application):
         nastavitve.set_property("enable-javascript-markup", False)
         nastavitve.set_property("enable-webgl", False)
         pogled.connect("load-changed", self._medijski_nalozen)
-        okno = Gtk.ApplicationWindow(application=self, title="Medijski center")
+        okno = Gtk.ApplicationWindow(application=self, title=self._mb("medijski_center"))
+        _razred_okna(okno, "Medijski")
         okno.set_default_size(1100, 700)
         okno.set_transient_for(self.okno or self.okno_predvajalnik)
         okno.set_child(pogled)
@@ -5561,7 +5585,7 @@ class SafeerOS(Gtk.Application):
         self._medijski_js = True
         self._medijski_skladba = True
         self._medijski_pogled.get_settings().set_property("enable-javascript-markup", True)
-        self._medijski_okno.set_title(ime or "Medijski center")
+        self._medijski_okno.set_title(ime or self._mb("medijski_center"))
         zahteva = WebKit2.URIRequest.new(naslov)
         # YouTube vgradnjo dovoli samo znanemu izvoru; Safeer se predstavi enako kot na Windows.
         zahteva.get_http_headers().append("Referer", os_katalog.IZVOR_VGRADNJE)

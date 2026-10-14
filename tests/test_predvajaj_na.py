@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import unittest
+from besedila_namizja import besedila, stevilo  # noqa: E402 - skupni slovar namizja
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 JEZIKI = ("sl", "en", "de", "es", "fr", "it")
@@ -126,9 +127,7 @@ class Stran(unittest.TestCase):
         bes = _beri("assets", "os", "besedila.js")
         for kljuc in ("predvajajNa", "predvajajNaNaslov", "predvajaNa", "zvokIsci", "zvokIscem", "zvokNiIzhodov", "izhodNalagam"):
             self.assertEqual(bes.count('"%s":' % kljuc), 6, kljuc)
-            for jezik_ in ("delovna.js", ("qml", "Namizje.qml")):
-                besedilo = _beri("assets", "os", *(jezik_ if isinstance(jezik_, tuple) else (jezik_,)))
-                self.assertEqual(besedilo.count(" %s: " % kljuc), 2, (jezik_, kljuc))    # sl in en
+            self.assertEqual(stevilo(kljuc), 6, kljuc)      # delovna povrsina in namizje QML: skupni slovar
         for j in JEZIKI:
             self.assertIn('Object.assign(BESEDILA_OS.%s, {"predvajajNa"' % j, bes)
 
@@ -160,7 +159,7 @@ class NamizjeQmlStaticno(unittest.TestCase):
         self.assertIn("visible: koren.medijIgra && Number(koren.medij.trajanje) > 0", self.q)
 
     def test_velikost_pripomocka_ostane(self):
-        self.assertIn("width: (koren.width - koren.robLevo - koren.robDesno - 3 * koren.rob) * 0.44; height: 150", self.q)
+        self.assertIn("width: (koren.width - koren.robLevo - koren.robDesno - 3 * koren.rob) * 0.44; height: Math.max(150, medijVsebina.implicitHeight + 36)", self.q)
 
 
 class NamizjeQmlZivo(unittest.TestCase):

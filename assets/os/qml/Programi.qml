@@ -56,7 +56,7 @@ Steklo {
         anchors.fill: parent; anchors.margins: 18; spacing: 12
         RowLayout {
             Layout.fillWidth: true; spacing: 12
-            Text { text: koren.t("programi"); color: koren.paleta.besedilo; font.pixelSize: 16; font.bold: true }
+            Text { text: koren.t("programi"); color: koren.paleta.besedilo; font.pixelSize: koren.px(16); font.bold: true }
             IzbiraNaprave {
                 zmoznost: "programi"; naprave: koren.naprave
                 onIzbrana: function (id, ime) { panel.naprava = id; panel.imeNaprave = ime; panel.nalozi() }
@@ -68,11 +68,11 @@ Steklo {
             }
             Rectangle {
                 Layout.fillWidth: true; height: 34; radius: 17
-                color: Qt.rgba(1, 1, 1, 0.07); border.color: Qt.rgba(1, 1, 1, 0.12)
+                color: koren.prekriv(0.07); border.color: koren.crta(0.12)
                 Lupa { x: 12; anchors.verticalCenter: parent.verticalCenter; scale: 0.8 }
                 TextField {
                     anchors.fill: parent; anchors.leftMargin: 36; anchors.rightMargin: 12
-                    placeholderText: koren.t("isciProg"); placeholderTextColor: koren.paleta.medlo; color: koren.paleta.besedilo; font.pixelSize: 13
+                    placeholderText: koren.t("isciProg"); placeholderTextColor: koren.paleta.medlo; color: koren.paleta.besedilo; font.pixelSize: koren.px(13)
                     background: Item {}
                     onTextChanged: panel.niz = text
                 }
@@ -83,11 +83,17 @@ Steklo {
             Repeater {
                 model: [""].concat(panel.skupine)
                 delegate: Rectangle {
-                    height: 26; width: n.implicitWidth + 22; radius: 13
-                    color: panel.skupina === modelData ? koren.paleta.poudarek : (ms.containsMouse ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, 0.07))
+                    height: koren.px(26); width: n.implicitWidth + 22; radius: height / 2
+                    color: panel.skupina === modelData ? koren.paleta.poudarek : (ms.containsMouse || activeFocus ? koren.prekriv(0.14) : koren.prekriv(0.07))
+                    border.width: activeFocus ? 2 : 0; border.color: koren.paleta.fokus
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.RadioButton; Accessible.name: n.text; Accessible.checked: panel.skupina === modelData
+                    Keys.onReturnPressed: panel.skupina = modelData
+                    Keys.onEnterPressed: panel.skupina = modelData
+                    Keys.onSpacePressed: panel.skupina = modelData
                     Behavior on color { ColorAnimation { duration: 140 } }
                     Text {
-                        id: n; anchors.centerIn: parent; font.pixelSize: 12
+                        id: n; anchors.centerIn: parent; font.pixelSize: koren.px(12)
                         text: modelData === "" ? koren.t("vse")
                               : panel.imeSkupine(modelData)
                         color: panel.skupina === modelData ? koren.paleta.poudarekTemna : koren.paleta.besedilo
@@ -101,23 +107,41 @@ Steklo {
             Layout.fillWidth: true; Layout.fillHeight: true
             clip: true
             readonly property int stolpcev: Math.max(3, Math.floor(width / 128))
-            cellWidth: width / stolpcev; cellHeight: 112
+            cellWidth: width / stolpcev; cellHeight: 112 + koren.px(14) - 14
             model: panel.prikazani
+            // Tipkovnica in daljinec TV: puscice premikajo izbiro, Enter/preslednica zazene, tipka Meni odpre meni.
+            activeFocusOnTab: true; keyNavigationEnabled: true; currentIndex: -1
+            Accessible.role: Accessible.List; Accessible.name: koren.t("programi")
+            onActiveFocusChanged: if (activeFocus && currentIndex < 0 && count > 0) currentIndex = 0
+            onCountChanged: if (currentIndex >= count) currentIndex = count - 1
+            function trenutni() { return currentIndex >= 0 && currentIndex < panel.prikazani.length ? panel.prikazani[currentIndex] : null }
+            Keys.onReturnPressed: { var p = trenutni(); if (p) panel.zazeni(p) }
+            Keys.onEnterPressed: { var p = trenutni(); if (p) panel.zazeni(p) }
+            Keys.onSpacePressed: { var p = trenutni(); if (p) panel.zazeni(p) }
+            Keys.onPressed: function (d) {
+                var p = trenutni()
+                if (p && !panel.naprava && (d.key === Qt.Key_Menu || (d.key === Qt.Key_F10 && (d.modifiers & Qt.ShiftModifier)))) {
+                    meniPrograma.pokazi(p); d.accepted = true
+                }
+            }
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
             add: Transition { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 200 } }
             Text {
                 anchors.centerIn: parent; visible: panel.stanje !== "" && panel.stanje !== "nalagam" || (panel.stanje === "nalagam" && mreza.count === 0)
                 text: panel.stanje === "nalagam" ? koren.t("nalagam") : panel.stanje === "napaka" ? koren.t("niOdgovorila") : koren.t("brezProgramov")
-                color: koren.paleta.medlo; font.pixelSize: 13
+                color: koren.paleta.medlo; font.pixelSize: koren.px(13)
             }
             delegate: Item {
                 width: mreza.cellWidth; height: mreza.cellHeight
                 Rectangle {
                     id: ploscica
                     anchors.fill: parent; anchors.margins: 5; radius: 14
-                    color: mp.containsMouse ? Qt.rgba(1, 1, 1, 0.13) : Qt.rgba(1, 1, 1, 0.05)
-                    border.color: mp.containsMouse ? koren.poudarekA(0.55) : Qt.rgba(1, 1, 1, 0.08)
+                    readonly property bool izbran: mreza.activeFocus && index === mreza.currentIndex
+                    color: mp.containsMouse || izbran ? koren.prekriv(0.13) : koren.prekriv(0.05)
+                    border.width: izbran ? 2 : 1
+                    border.color: izbran ? koren.paleta.fokus : mp.containsMouse ? koren.poudarekA(0.55) : koren.crta(0.08)
+                    Accessible.role: Accessible.ListItem; Accessible.name: modelData.ime
                     scale: mp.pressed ? 0.95 : (mp.containsMouse ? 1.04 : 1)
                     Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
                     Behavior on color { ColorAnimation { duration: 140 } }
@@ -131,7 +155,7 @@ Steklo {
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter; anchors.top: slika.bottom; anchors.topMargin: 10
                         width: parent.width - 12; horizontalAlignment: Text.AlignHCenter
-                        text: modelData.ime; color: koren.paleta.besedilo; font.pixelSize: 12; elide: Text.ElideRight
+                        text: modelData.ime; color: koren.paleta.besedilo; font.pixelSize: koren.px(12); elide: Text.ElideRight
                     }
                     MouseArea {
                         id: mp; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
@@ -148,7 +172,7 @@ Steklo {
 
     // Desni klik na program tega racunalnika: Odpri, Dodaj v dock / Odstrani iz docka (kot prejsnja delovna povrsina).
     component MeniVnos: MenuItem {
-        contentItem: Text { text: parent.text; color: koren.paleta.besedilo; font.pixelSize: 13; leftPadding: 6 }
+        contentItem: Text { text: parent.text; color: koren.paleta.besedilo; font.pixelSize: koren.px(13); leftPadding: 6 }
         background: Rectangle { radius: 8; color: parent.highlighted ? koren.poudarekA(0.22) : "transparent" }
     }
     Menu {
@@ -156,7 +180,7 @@ Steklo {
         property var p: null
         property bool plank: false
         property bool vDocku: false
-        background: Rectangle { implicitWidth: 220; radius: 12; color: koren.paleta.vnos; border.color: Qt.rgba(1, 1, 1, 0.14) }
+        background: Rectangle { implicitWidth: 220; radius: 12; color: koren.paleta.vnos; border.color: koren.crta(0.14) }
         function pokazi(p) {
             meniPrograma.p = p
             koren.klic("dock", [], function (d) {

@@ -80,7 +80,8 @@ class Postavitev(unittest.TestCase):
         self.assertNotRegex(self.css.split("Spodnja vrstica »Predvaja se«", 1)[1].split("}", 1)[0], r"position:\s*(fixed|absolute)")
 
     def test_mirna_podlaga_iz_tem(self):
-        self.assertIn("--media-tancica:", self.css.split(":root {", 1)[1].split("}", 1)[0])           # barva je v :root
+        tokeni = _beri("assets", "os", "tokens.css")                 # barve vseh strani so v tokens.css (:root)
+        self.assertIn("--media-tancica:", tokeni.split(":root {", 1)[1].split("}", 1)[0])
         self.assertIn("body.v-mediji #ozadje::after, body.predvajalnik #ozadje::after { background: var(--media-tancica); }", self.css)
         self.assertIn('document.body.classList.toggle("v-mediji", razdelek === "media");', self.js)
 

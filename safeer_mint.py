@@ -4156,17 +4156,17 @@ class SafeerMintBrowser(Gtk.Window):
         response = 1
         try:
             self.increment_shields_blocked()
-            host = urllib.parse.urlparse(uri).hostname or ("lokalna datoteka" if is_local_page(uri) else uri)
+            host = urllib.parse.urlparse(uri).hostname or (t("bank_local_file") if is_local_page(uri) else uri)
             lure = getattr(verdict, "reason", "") == "lure"
             dialog = Gtk.MessageDialog(
                 transient_for=self,
                 flags=0,
                 message_type=Gtk.MessageType.WARNING,
                 buttons=Gtk.ButtonsType.NONE,
-                text="🛡️ Safeer Shield: PAST ZA PODATKE KARTICE" if lure else "🛡️ Safeer Shield: LAŽNA SPLETNA BANKA"
+                text=t("bank_lure_title") if lure else t("bank_fake_title")
             )
-            dialog.format_secondary_text(f"{host}\n\n" + fake_bank_warning_text(verdict, "sl"))
-            dialog.add_button("Vseeno nadaljuj", 3)
+            dialog.format_secondary_text(f"{host}\n\n" + fake_bank_warning_text(verdict, get_current_language()))
+            dialog.add_button(t("bank_continue"), 3)
             if verdict.official_domain:
                 dialog.add_button(t("threat_open_official").format(domain=verdict.official_domain), 2)
             dialog.add_button(t("threat_back_safe"), 1)

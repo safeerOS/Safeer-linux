@@ -40,6 +40,13 @@ OZADJA = (("jezero", "Gore in jezero", "Mountains and lake", "safeer-jezero.jpg"
           ("globina", "Globina", "Depth", "safeer-globina.jpg"))
 MAPE_OZADIJ = ("/run/host/usr/share/backgrounds/safeer", "/usr/share/backgrounds/safeer",
                str(KOREN / "packaging" / "tema-cinnamon" / "ozadje"))
+#: Imena ozadij v drugih jezikih namizja (sl in en sta v OZADJA).
+IMENA_OZADIJ = {
+    "de": {"jezero": "Berge und See", "gore": "Berge", "aurora": "Polarlicht", "zora": "Morgenröte", "globina": "Tiefe"},
+    "es": {"jezero": "Montañas y lago", "gore": "Montañas", "aurora": "Aurora", "zora": "Alba", "globina": "Profundidad"},
+    "fr": {"jezero": "Montagnes et lac", "gore": "Montagnes", "aurora": "Aurore", "zora": "Aube", "globina": "Profondeur"},
+    "it": {"jezero": "Montagne e lago", "gore": "Montagne", "aurora": "Aurora", "zora": "Alba", "globina": "Profondità"},
+}
 PRIVZETI_VIDEZ = {"zameglitev": 1.0, "prosojnost": 0.55}
 SLIKE = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
 
@@ -192,13 +199,98 @@ def _url(pot: str) -> str:
     return QUrl.fromLocalFile(pot).toString() if pot else ""
 
 
+# ---------------------------------------------------------------------------------------- paleta (en vir: tokens.css)
+TOKENI = KOREN / "assets" / "os" / "tokens.css"
+
+
+def _barva_css(vrednost: str) -> Optional[tuple]:
+    """#rgb, #rrggbb ali rgb(a)(r, g, b[, a]) -> (r, g, b, a) z r, g, b 0-255 in a 0-1; drugo (sence, var()) -> None."""
+    import re
+    v = vrednost.strip().lower()
+    m = re.fullmatch(r"#([0-9a-f]{3}|[0-9a-f]{6})", v)
+    if m:
+        h = m.group(1)
+        if len(h) == 3:
+            h = "".join(c * 2 for c in h)
+        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), 1.0)
+    m = re.fullmatch(r"rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)", v)
+    if m:
+        return (int(m.group(1)), int(m.group(2)), int(m.group(3)), float(m.group(4)) if m.group(4) else 1.0)
+    return None
+
+
+def tokeni(kontrast: bool = False, pot: Path = TOKENI) -> dict:
+    """Barve iz tokens.css: blok :root, ob kontrastu prepisan z blokom ».kontrast« (isti kot na straneh WebKit)."""
+    import re
+    try:
+        css = re.sub(r"/\*.*?\*/", "", pot.read_text(encoding="utf-8"), flags=re.S)
+    except OSError:
+        return {}
+    izid: dict = {}
+    for izbirnik, telo in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+        izbirniki = [x.strip() for x in izbirnik.split(",")]
+        if ":root" in izbirniki or (kontrast and ".kontrast" in izbirniki):
+            for ime, vrednost in re.findall(r"--([\w-]+)\s*:\s*([^;]+);", telo):
+                b = _barva_css(vrednost)
+                if b is not None:
+                    izid[ime] = b
+    return izid
+
+
+def _qml_barva(b: tuple) -> str:
+    """QML: #rrggbb ali #aarrggbb (prosojnost spredaj)."""
+    r, g, m, a = b
+    return ("#%02x%02x%02x" % (r, g, m)) if a >= 1 else ("#%02x%02x%02x%02x" % (round(a * 255), r, g, m))
+
+
+def _rgb(b: tuple) -> list:
+    return [round(b[0] / 255, 4), round(b[1] / 255, 4), round(b[2] / 255, 4)]
+
+
+VRSTE_DATOTEK = ("mapa", "slika", "video", "zvok", "dokument", "splet", "arhiv", "program", "naprava")
+
+
+def paleta(kontrast: bool = False, merilo: float = 1.0, pot: Path = TOKENI) -> dict:
+    """Paleta za Namizje.qml iz tokens.css - iste barve kot Nastavitve, Medijski center, Splet in delovna povrsina.
+    Prej je imelo namizje QML svojo zeleno (#54d6a5), vmesnik pa modro (pregled celovitosti 15. 10. 2026)."""
+    t = tokeni(kontrast, pot)
+    if not t:
+        return {}
+    b = lambda ime: _qml_barva(t[ime])  # noqa: E731
+    return {
+        "poudarek": b("zelena"), "poudarekTemna": b("zelena-temna"), "besedilo": b("besedilo"), "medlo": b("medlo"),
+        "tise": b("tise"), "vnos": b("media-meni"), "ozadje": b("ozadje"), "ozadje2": b("ozadje-2"),
+        "ok": b("ok"), "rdeca": b("rdeca"), "fokus": b("fokus"),
+        "karticaRgb": _rgb(t["kartica"]), "poudarekRgb": _rgb(t["zelena"]), "prekrivRgb": _rgb(t["prekriv"]),
+        "robRgb": _rgb(t["rob"]), "robA": t["rob"][3],
+        "vrste": {v: b("vrsta-" + v) for v in VRSTE_DATOTEK if "vrsta-" + v in t},
+        "kontrast": bool(kontrast), "merilo": round(max(1.0, min(2.0, float(merilo or 1.0))), 3),
+    }
+
+
+def merilo_besedila(odstotek, razmerje_zaslona: float = 1.0) -> float:
+    """Velikost besedila sistema (Cinnamon text-scaling-factor) za namizje QML. QML pise v pikslih (font.pixelSize), ki
+    jih povecava pisave sistema ne doseze. Ce je Qt povecavo ze uporabil za ves zaslon (razmerje pik iz Xft.dpi),
+    je ne podvojimo."""
+    try:
+        skala = float(odstotek) / 100.0
+    except (TypeError, ValueError):
+        return 1.0
+    if skala <= 1.0:
+        return 1.0
+    if razmerje_zaslona > 1.0 and abs(razmerje_zaslona - skala) < 0.05:
+        return 1.0
+    return min(2.0, skala)
+
+
 def videz_za_qml(shramba, ozadje_sistema: str, jezik: str = "sl", paleta: Optional[dict] = None) -> dict:
     v = videz(shramba)
     ozadja, izbira = [], ""
     for kljuc, sl, en, _ime in OZADJA:
         pot = _pot_ozadja_safeer(kljuc)
         if pot:
-            ozadja.append({"kljuc": "safeer:" + kljuc, "ime": sl if jezik == "sl" else en, "url": _url(pot)})
+            ime = sl if jezik == "sl" else IMENA_OZADIJ.get(jezik, {}).get(kljuc, en)
+            ozadja.append({"kljuc": "safeer:" + kljuc, "ime": ime, "url": _url(pot)})
             if ozadje_sistema and os.path.basename(pot) == os.path.basename(ozadje_sistema):
                 izbira = "safeer:" + kljuc
     izid = {"izbira": izbira or ozadje_sistema, "ozadje": _url(ozadje_sistema), "zameglitev": v["zameglitev"],
@@ -363,6 +455,7 @@ class Namizje:
             # povrsino WebKit (delovna.html). Brez tega crno okno brez okvirja cez cel zaslon (pregled 14. 10.).
             raise RuntimeError("namizje QML se ni naložilo")
         self._ob_koncu = ob_koncu
+        self._spremljaj_temo()
         if self.v_oknu:
             # Zaprtje okna = okno postane nevidno. Signala closing PySide6 6.11 ne dostavi (QQuickCloseEvent* se ne
             # pretvori), prepis event() v Pythonu pa je na testnem PC zaklenil glavno nit (crno okno) - 14. 10. 2026.
@@ -370,7 +463,7 @@ class Namizje:
             self.okno.visibleChanged.connect(self._vidnost)
             return
         from PySide6.QtGui import QGuiApplication
-        QGuiApplication.primaryScreen().geometryChanged.connect(lambda *_: self.postavi())
+        QGuiApplication.primaryScreen().geometryChanged.connect(lambda *_: self._zaslon_spremenjen())
 
     # ------------------------------------------------------------------ klici
     def klic(self, klic_id: int, metoda: str, a: list) -> None:
@@ -433,9 +526,69 @@ class Namizje:
         nastavi_ozadje_sistema(pot)
 
     def videz(self, jezik: str = "") -> dict:
+        """Ozadje in plosce (Prilagodi namizje) + paleta iz tokens.css + kontrast in velikost besedila sistema
+        (videz_cinnamon, isto kot stikali delovne povrsine). Prej je QML dobil samo ozadje (pregled 15. 10. 2026)."""
         from core import os_sistem
         import safeer_os as so
-        return videz_za_qml(self.os.shramba, os_sistem.ozadje_namizja() or "", jezik or so._jezik())
+        try:
+            sistem = dict(so.videz_cinnamon())
+        except Exception as e:  # noqa: BLE001 - brez Cinnamona: privzeti videz
+            print("[SafeerOS lupina] videz sistema:", e, flush=True)
+            sistem = {}
+        try:
+            from PySide6.QtGui import QGuiApplication
+            razmerje = float(QGuiApplication.primaryScreen().devicePixelRatio())
+        except Exception:  # noqa: BLE001
+            razmerje = 1.0
+        kontrast = bool(sistem.get("kontrast"))
+        p = paleta(kontrast, merilo_besedila(sistem.get("tekstOdstotek") or 100, razmerje))
+        v = videz_za_qml(self.os.shramba, os_sistem.ozadje_namizja() or "", jezik or so._jezik(), p)
+        v.update({"kontrast": kontrast, "tekstOdstotek": int(sistem.get("tekstOdstotek") or 100)})
+        return v
+
+    def _spremljaj_temo(self) -> None:
+        """Tema (Kontrast) in velikost besedila se spremenita v Nastavitvah ali ukazu safeer-cinnamon: namizje QML
+        dobi novo paleto takoj (dogodek »videz«). Delovna povrsina WebKit ima isto v safeer_os._ustvari_delovno."""
+        self._nastavitve_sistema = []
+        try:
+            from gi.repository import Gio
+            vir = Gio.SettingsSchemaSource.get_default()
+            for shema, kljuc in (("org.cinnamon.theme", "name"), ("org.cinnamon.desktop.interface", "text-scaling-factor")):
+                if vir is None or vir.lookup(shema, True) is None:
+                    continue
+                n = Gio.Settings.new(shema)
+                n.connect("changed::" + kljuc, lambda *_a: self.dogodek("videz", self.videz()))
+                self._nastavitve_sistema.append(n)     # drzimo referenco, sicer signal utihne
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS lupina] tema:", e, flush=True)
+
+    def _zaslon_spremenjen(self) -> None:
+        """Locljivost ali zaslon se je spremenil: namizje cez nov zaslon in dock Plank na novo (Plank sprememb
+        locljivosti ne sledi). Isto kot _prestavi_delovno za delovno povrsino WebKit; rob docka preberemo znova,
+        ko se dock ustali."""
+        from PySide6.QtCore import QTimer
+        self.postavi()
+        # Sprememba locljivosti sprozi vec signalov zapored: dock postavimo enkrat, ko se zaslon umiri.
+        if getattr(self, "_casovnik_docka", None) is None:
+            self._casovnik_docka = QTimer()
+            self._casovnik_docka.setSingleShot(True)
+            self._casovnik_docka.setInterval(1500)
+            self._casovnik_docka.timeout.connect(self._postavi_dock)
+        self._casovnik_docka.start()
+
+    def _postavi_dock(self) -> None:
+        import shutil
+        import subprocess
+        from PySide6.QtCore import QTimer
+        if shutil.which("safeer-cinnamon"):
+            try:
+                subprocess.Popen(["safeer-cinnamon", "--dock"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, start_new_session=True)
+            except OSError as e:
+                print("[SafeerOS lupina] dock:", e, flush=True)
+        if hasattr(self, "_dock_rob"):
+            del self._dock_rob
+        QTimer.singleShot(4000, self._robovi)
 
     def dogodek(self, vrsta: str, podatki: Any = None) -> None:
         self.pogled.qml_dogodek(vrsta, podatki)

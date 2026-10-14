@@ -114,8 +114,9 @@
   }
   var SMERI = { ArrowLeft: "levo", ArrowRight: "desno", ArrowUp: "gor", ArrowDown: "dol" };
   // Puscice premikajo izbor v Safeer Playerju vedno, v glavnem oknu v Medijskem centru ali v nacinu za kavc.
+  // Delovna povrsina (delovna.html, <html data-kavc="namizje">): vedno - namizje na TV z daljincem ali ploskom.
   function aktivno() {
-    if (PREDVAJALNIK || kavc()) return true;
+    if (PREDVAJALNIK || kavc() || html.getAttribute("data-kavc") === "namizje") return true;
     var r = document.getElementById("r-media");
     return !!(r && viden(r));
   }
@@ -123,7 +124,8 @@
     if (e.ctrlKey || e.altKey || e.metaKey || !e.isTrusted) return;
     nacinTipk();
     var el = document.activeElement;
-    if (aktivno() && (e.key === "BrowserBack" || e.key === "GoBack" || (e.key === "Backspace" && !vPolju(el)))) {
+    // Tipko, ki jo je stran ze obdelala (npr. Backspace = mapa navzgor v Datotekah), pustimo strani.
+    if (aktivno() && !e.defaultPrevented && (e.key === "BrowserBack" || e.key === "GoBack" || (e.key === "Backspace" && !vPolju(el)))) {
       e.preventDefault(); nazaj(); return;
     }
     if (e.key === "Escape" && aktivno()) vrniIzbor();
