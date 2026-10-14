@@ -742,7 +742,7 @@ class VdelaniSplet:
             g.connect("clicked", lambda _g, d=dejanje: self.izvedi(d))
             najdi_vrsta.append(g)
         self.najdi_stevec = Gtk.Label(label="")
-        self.najdi_stevec.add_css_class("dim-label")
+        self.najdi_stevec.set_name("splet-najdi-stevec")   # svetlo na temni vrstici (preizkus 14. 10.: neviden)
         najdi_vrsta.append(self.najdi_stevec)
         self.najdi_vrstica.set_child(najdi_vrsta)
         self.najdi_vrstica.connect_entry(self.najdi_vnos)
@@ -838,6 +838,13 @@ class VdelaniSplet:
         #splet-vnos selection { background: #2b5b8c; }
         popover.menu contents { background: #101a2b; color: #eaf2ff; border: 1px solid rgba(211,229,255,.23); }
         popover.menu modelbutton:hover { background: rgba(104,168,229,.20); }
+        #safeer-splet searchbar > revealer > box { background: #0b1424; border-bottom: 1px solid rgba(211,229,255,.14); }
+        #safeer-splet searchbar entry { background: #101a2b; color: #eaf2ff; border: 1px solid rgba(138,199,255,.45); }
+        #safeer-splet searchbar button { background: transparent; color: #e2eaf6; border: 0; box-shadow: none; }
+        #splet-najdi-stevec { color: #b0bdc4; margin-start: 6px; }
+        #splet-pojavna { background: #16233a; color: #eaf2ff; border-bottom: 1px solid rgba(138,199,255,.35); }
+        #splet-pojavna button { background: rgba(138,199,255,.12); color: #eaf2ff; border: 1px solid rgba(138,199,255,.35);
+          box-shadow: none; }
         """
         ponudnik = self.Gtk.CssProvider()
         try:
