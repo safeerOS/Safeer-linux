@@ -163,8 +163,29 @@ def tv_drzave(drzava_uporabnika: str = "", moji: bool = False) -> list[dict]:
     return izid
 
 
+def pripravi_logotipe(cas: float = 4.0) -> None:
+    """Manjkajoce logotipe kanalov prenese hkrati (enkrat; nato so v predpomnilniku na disku). Katalog TV v zivo
+    se namrec shrani - logotip, prenesen sele po izrisu, bi se pokazal sele ob naslednji osvezitvi (10 min)."""
+    from concurrent.futures import ThreadPoolExecutor, wait
+    from core import ikone_strani
+    manjkajo = sorted({domaca_stran(k, izvor) for k, _i, _j, _u, _s, _samo, izvor in TV_V_ZIVO} - {""})
+    manjkajo = [s for s in manjkajo if not ikone_strani.iz_predpomnilnika(s) and s not in _LOGOTIPI_V_TEKU]
+    if not manjkajo:
+        return
+
+    def eno(stran):
+        _LOGOTIPI_V_TEKU.add(stran)
+        i = ikone_strani.ikona_strani(stran)
+        if i:
+            ikone_strani.shrani(stran, i)
+    pool = ThreadPoolExecutor(max_workers=8)
+    wait([pool.submit(eno, s) for s in manjkajo], timeout=cas)
+    pool.shutdown(wait=False)
+
+
 def tv_v_zivo(drzava: str = "") -> list[dict]:
     """Uradni prenosi v zivo; domaci (npr. RTV SLO) samo za uporabnike iz te drzave."""
+    pripravi_logotipe()
     izid = []
     for kljuc, ime, jezik, url, stran, samo, izvor in TV_V_ZIVO:
         if samo and samo != (drzava or "").upper():
