@@ -122,15 +122,17 @@ def dejaven(nacin: str, namizje_temno: bool) -> bool:
     return nacin == "vedno" or (nacin == "samodejno" and namizje_temno)
 
 
-def namesti(W, upravitelj, koren_core: str, nacin: str, namizje_temno: bool, izjeme: Iterable[str]):
-    """Doda skripto v upravitelja vsebine pogleda; vrne UserScript (za kasnejso odstranitev) ali None."""
+def namesti(W, upravitelj, koren_core: str, nacin: str, namizje_temno: bool, izjeme: Iterable[str],
+            vzorci: Iterable[str] = ()):
+    """Doda skripto v upravitelja vsebine pogleda; vrne UserScript (za kasnejso odstranitev) ali None.
+    vzorci: dodatni vzorci WebKit (npr. adblock.AUTH_SCRIPT_EXCLUSIONS - prijave, Cloudflare, banke), kjer ne tece."""
     if not dejaven(nacin, namizje_temno):
         return None
     k = koda(koren_core)
     if not k:
         return None
     skripta = W.UserScript.new_for_world(k, W.UserContentInjectedFrames.TOP_FRAME, W.UserScriptInjectionTime.START,
-                                         SVET, None, vzorci_izjem(izjeme))
+                                         SVET, None, vzorci_izjem(izjeme) + list(vzorci))
     upravitelj.add_script(skripta)
     return skripta
 

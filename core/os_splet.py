@@ -447,6 +447,7 @@ def registriraj_most(upravitelj, ime: str, svet=None) -> None:
 def _unici_pogled(pogled) -> None:
     """Zaprt zavihek: GTK4 nima destroy(), try_close() strani ne ustavi (preizkus 14. 10.: stran je po zaprtju
     zavihka se posiljala sporocila, zvok bi tekel naprej). run_dispose() pogled sprosti takoj, kot destroy() v GTK3."""
+    os_stabilnost.oznaci_zaprt(pogled)
     try:
         pogled.stop_loading()
         pogled.run_dispose()
@@ -781,8 +782,9 @@ class VdelaniSplet:
 
     def _temno_namesti(self, upravitelj):
         try:
+            # Prijave, Cloudflare in banke brez Dark Readerja (kot slog CSS v brskalniku; pregled 14. 10. 2026).
             return splet_temno.namesti(self.WebKit2, upravitelj, os.path.join(self.koren, "core"), self._temno_nacin(),
-                                       self._namizje_temno(), self._temno_izjeme())
+                                       self._namizje_temno(), self._temno_izjeme(), adblock.AUTH_SCRIPT_EXCLUSIONS)
         except Exception as napaka:
             print("[Safeer OS Splet] vsili temno:", napaka)
             return None

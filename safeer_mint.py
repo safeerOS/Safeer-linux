@@ -1672,6 +1672,9 @@ class SafeerMintBrowser(Gtk.Window):
                 print(f"[Print] Napaka pri tiskanju: {e2}")
 
     def toggle_fullscreen(self):
+        if getattr(self, "_drm_celo", False):
+            self.drm_celozaslonsko(False)    # F11 med zascitenim videom cez cel zaslon: vrstice nazaj
+            return
         if getattr(self, "_is_fullscreen", False):
             self.unfullscreen()
             self._is_fullscreen = False
@@ -4961,6 +4964,7 @@ class SafeerMintBrowser(Gtk.Window):
             self.webview_stack.remove(notice)
             notice.destroy()
         self.drm_konec(tab_to_close)
+        os_stabilnost.oznaci_zaprt(tab_to_close["webview"])
         self.webview_stack.remove(tab_to_close["webview"])
         tab_to_close["webview"].destroy()
         # Do not flush every other tab's cache when closing one tab.
@@ -5007,6 +5011,12 @@ class SafeerMintBrowser(Gtk.Window):
         if not target:
             return
 
+        if getattr(self, "_drm_celo", False) and getattr(self, "_drm_celo_tab", None) != tab_id:
+            # Zavihek z zascitenim videom cez cel zaslon zapuscamo: brez tega bi drug zavihek ostal brez vrstic.
+            prejsnji = next((x for x in self.tabs if x["id"] == self._drm_celo_tab), None)
+            if prejsnji is not None and prejsnji.get("drm") is not None:
+                prejsnji["drm"].ukaz("key:Escape")
+            self.drm_celozaslonsko(False)
         drm_gost = target.get("drm")
         self.webview_stack.set_visible_child(target.get("crash_notice")
                                              or (drm_gost.gradnik if drm_gost is not None else None) or target["webview"])
@@ -5074,7 +5084,8 @@ class SafeerMintBrowser(Gtk.Window):
                         self.webview_stack.remove(notice)
                         notice.destroy()
                         if self.active_tab_id == tab_id:
-                            self.webview_stack.set_visible_child(webview)
+                            gost = item.get("drm")
+                            self.webview_stack.set_visible_child(gost.gradnik if gost is not None else webview)
                     break
         if event == WebKit2.LoadEvent.FINISHED:
             uri = webview.get_uri() or ""
@@ -5495,7 +5506,8 @@ class SafeerMintBrowser(Gtk.Window):
                 GLib.idle_add(v_gui)
             safeer_drm.prenesi_v_ozadju(koncano)   # paket se prenese enkrat; do takrat stran ostane
             return True
-        gost = safeer_drm.Gostitelj(Gtk, Gdk, GLib, ob_celozaslonu=self.drm_celozaslonsko,
+        gost = safeer_drm.Gostitelj(Gtk, Gdk, GLib,
+                                    ob_celozaslonu=lambda vklopi, tid=tab_id: self.drm_celozaslonsko(vklopi, tid),
                                     ob_koncu=lambda tab=tab: self.drm_konec(tab))
         gost.gradnik.connect("key-press-event", lambda _g, e, gost=gost: gost.tipka(e))
         self.webview_stack.add_named(gost.gradnik, tab_id + "-drm")
@@ -5517,7 +5529,8 @@ class SafeerMintBrowser(Gtk.Window):
         if gost is None:
             return
         tab["drm"] = None
-        self.drm_celozaslonsko(False)
+        if getattr(self, "_drm_celo_tab", None) == tab.get("id"):
+            self.drm_celozaslonsko(False)     # samo zavihek, ki je cez cel zaslon (ne zavihek v ozadju)
         gost.unici()
         try:
             self.webview_stack.remove(gost.gradnik)
@@ -5531,7 +5544,7 @@ class SafeerMintBrowser(Gtk.Window):
         if tab in self.tabs and self.active_tab_id == tab["id"]:
             self.webview_stack.set_visible_child(tab.get("crash_notice") or tab["webview"])
 
-    def drm_celozaslonsko(self, vklopi):
+    def drm_celozaslonsko(self, vklopi, tab_id=None):
         """Celozaslonski zasciten video: okno cez cel zaslon, vse razen zavihka (vrstica zavihkov, orodja, stranska
         vrstica) skrito - kot Splet. Skrite gradnike si zapomnimo in jih ob izhodu pokazemo nazaj."""
         skriti = self.__dict__.setdefault("_drm_skriti", [])
@@ -5560,6 +5573,7 @@ class SafeerMintBrowser(Gtk.Window):
             if not getattr(self, "_is_fullscreen", False):
                 self.unfullscreen()
         self._drm_celo = bool(vklopi)
+        self._drm_celo_tab = tab_id if vklopi else None
 
     def on_web_process_died(self, tab_id, webview, reason):
         """Vsak padec procesa strani: pospravi stanje zavihka; ce je stran presegla mejo pomnilnika (WebKit ali varuh),
@@ -5648,7 +5662,8 @@ class SafeerMintBrowser(Gtk.Window):
         splet_temno.odstrani(content_mgr, skripte.pop(webview, None))
         if is_dark:
             try:
-                skripta = splet_temno.namesti(WebKit2, content_mgr, os.path.join(BASE_DIR, "core"), "vedno", True, [])
+                skripta = splet_temno.namesti(WebKit2, content_mgr, os.path.join(BASE_DIR, "core"), "vedno", True, [],
+                                              AUTH_SCRIPT_EXCLUSIONS)
             except Exception as e:
                 print(f"[DarkMode] Dark Reader: {e}")
                 skripta = None

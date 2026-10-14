@@ -98,3 +98,39 @@ class KratkaPot(OknoQml):
         self.assertEqual(kp("/home/ana"), "~")
         self.assertEqual(kp("/home/anabela/x"), "/home/anabela/x")
         self.assertEqual(kp("/media/usb/x"), "/media/usb/x")
+
+
+class PregledPopravki(unittest.TestCase):
+    """Pregled kode 14. 10. 2026."""
+
+    def test_obnova_ne_nalozi_zaprtega_pogleda(self):
+        from core import os_stabilnost
+        klici = []
+
+        class P:
+            def connect(self, _s, f):
+                self.f = f
+
+            def reload(self):
+                klici.append(1)
+        cakajo = []
+        G = type("G", (), {"timeout_add": staticmethod(lambda _ms, f: cakajo.append(f))})
+        W = type("W", (), {})
+        p = P()
+        os_stabilnost.obnovi_ob_padcu(W, G, p, "preizkus", "x")
+        p.f(p, object())
+        os_stabilnost.oznaci_zaprt(p)
+        for f in cakajo:
+            f()
+        self.assertEqual(klici, [])
+
+    def test_zaprto_okno_pocaka_druga_okna(self):
+        with open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8") as f:
+            vir = f.read()
+        self.assertIn("ob_koncu=lambda: GLib.idle_add(self._zaprto_qml_okno)", vir)
+        del_ = vir[vir.index("def _zaprto_qml_okno"):]
+        self.assertLess(del_.index("get_windows()"), del_.index("self._koncaj()"))
+
+    def test_temno_brez_prijav(self):
+        with open(os.path.join(KOREN, "safeer_mint.py"), encoding="utf-8") as f:
+            self.assertIn("AUTH_SCRIPT_EXCLUSIONS)", f.read())

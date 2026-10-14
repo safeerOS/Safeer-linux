@@ -216,6 +216,14 @@ def razlog_padca(WebKit2, razlog) -> str:
     return "sesutje"
 
 
+def oznaci_zaprt(pogled) -> None:
+    """Zavihek se zapira: cakajoca obnova (obnovi_ob_padcu) ga ne sme vec nalagati (pregled 14. 10. 2026)."""
+    try:
+        pogled._safeer_zaprt = True
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def obnovi_ob_padcu(WebKit2, GLib, pogled, ime_programa: str, ime_strani: str,
                     ob_odpovedi: Optional[Callable] = None) -> Optional[ObnovaPogleda]:
     """Prikljuci obnovo na pogled. Brez signala (zelo star WebKit) ne naredi nicesar.
@@ -234,6 +242,8 @@ def obnovi_ob_padcu(WebKit2, GLib, pogled, ime_programa: str, ime_strani: str,
             return
 
         def znova():
+            if getattr(p, "_safeer_zaprt", False):
+                return False   # zavihek je medtem zaprt ali zamenjan (ucenje brez pospesevanja) - ne klici unicenega pogleda
             try:
                 p.reload()
             except Exception:  # noqa: BLE001 - pogled je ze unicen

@@ -296,6 +296,9 @@ class Namizje:
         self.okno.setSource(QUrl.fromLocalFile(str(QML)))
         for napaka in self.okno.errors():
             print("[SafeerOS lupina]", napaka.toString(), flush=True)
+        if v_oknu and self.okno.status() == self.okno.Status.Error:
+            # Aplikacija v oknu ima rezervo (staro okno index.html): brez tega bi uporabnik dobil prazno okno.
+            raise RuntimeError("namizje QML se ni naložilo")
         self._ob_koncu = ob_koncu
         if self.v_oknu:
             # Zaprtje okna = okno postane nevidno. Signala closing PySide6 6.11 ne dostavi (QQuickCloseEvent* se ne
@@ -422,7 +425,10 @@ class Namizje:
             self._ob_koncu()
 
     def dvigni(self) -> None:
-        """Ponovni zagon aplikacije iz menija: obstojece okno spredaj (ne drugega)."""
+        """Ponovni zagon aplikacije iz menija: obstojece okno spredaj (ne drugega), tudi ce je pomanjsano."""
+        from PySide6.QtCore import Qt
+        if self.okno.windowStates() & Qt.WindowState.WindowMinimized:
+            self.okno.showNormal()
         self.okno.show()
         self.okno.raise_()
         self.okno.requestActivate()

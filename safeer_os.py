@@ -1686,8 +1686,7 @@ class SafeerOS(Gtk.Application):
         if not self._qml_okno or self.posnetek or self.namizje or self.delovna or not os_lupina.pripravi(sys.argv[:1]):
             return False
         try:
-            self.lupina = os_lupina.Namizje(self, ob_koncu=lambda: GLib.idle_add(lambda: (self._koncaj(), False)[1]),
-                                            v_oknu=True)
+            self.lupina = os_lupina.Namizje(self, ob_koncu=lambda: GLib.idle_add(self._zaprto_qml_okno), v_oknu=True)
         except Exception as e:  # noqa: BLE001 - QML se ni nalozil: staro okno
             print("[SafeerOS] okno QML:", e, flush=True)
             self.lupina = None
@@ -1701,6 +1700,17 @@ class SafeerOS(Gtk.Application):
             self.scit.zacni_ce_vklopljen()
             uredi_samozagon_ob_zagonu(self.shramba)
         return True
+
+    def _zaprto_qml_okno(self) -> bool:
+        """Uporabnik je zaprl okno aplikacije. Ce so odprta se druga okna (Splet, Safeer Player z videom, Zapiski …),
+        jih ne zapremo brez opozorila (pregled 14. 10. 2026): Safeer OS se konca, ko izgine zadnje vidno okno."""
+        if self.lupina is not None and self.lupina.okno.isVisible():
+            return False                      # okno je medtem spet odprto (dvigni)
+        if any(o.get_visible() for o in self.get_windows()):
+            GLib.timeout_add_seconds(2, self._zaprto_qml_okno)
+            return False
+        self._koncaj()
+        return False
 
     def _povezi_koncanje(self) -> None:
         """Dejanje »koncaj« in signali SIGTERM (odjava), SIGHUP, SIGINT: Safeer OS pospravi za sabo (Mintov pult, Scit,
