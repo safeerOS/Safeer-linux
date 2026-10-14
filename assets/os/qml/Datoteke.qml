@@ -251,22 +251,28 @@ Steklo {
         }
     }
 
+    // Meni v slogu namizja (kot meni ozadja v Namizje.qml), ne sivi privzeti meni Qt.
+    component MeniVnos: MenuItem {
+        contentItem: Text { text: parent.text; color: koren.paleta.besedilo; font.pixelSize: 13; leftPadding: 6 }
+        background: Rectangle { radius: 8; color: parent.highlighted ? koren.poudarekA(0.22) : "transparent" }
+    }
     Menu {
         id: meni
+        background: Rectangle { implicitWidth: 230; radius: 12; color: koren.paleta.vnos; border.color: Qt.rgba(1, 1, 1, 0.14) }
         property var e: null
-        MenuItem { text: koren.t("odpri"); visible: panel.vir.vrsta !== "smeti"; height: visible ? implicitHeight : 0; onTriggered: panel.odpriElement(meni.e) }
-        MenuItem { text: koren.t("odpriSProgramom", { naprava: panel.imeNaprave })
+        MeniVnos { text: koren.t("odpri"); visible: panel.vir.vrsta !== "smeti"; height: visible ? implicitHeight : 0; onTriggered: panel.odpriElement(meni.e) }
+        MeniVnos { text: koren.t("odpriSProgramom", { naprava: panel.imeNaprave })
                    visible: panel.vir.vrsta === "naprava" && !!meni.e && !meni.e.mapa; height: visible ? implicitHeight : 0
                    onTriggered: panel.odpriSProgramomNaprave(meni.e) }
         // Kot Datoteke na prejsnji delovni povrsini (delovna.js): Odpri z … in Poslji na napravo … (14. 10. 2026).
-        MenuItem { text: koren.t("odpriZ"); visible: panel.lokalnaDatoteka(meni.e); height: visible ? implicitHeight : 0
+        MeniVnos { text: koren.t("odpriZ"); visible: panel.lokalnaDatoteka(meni.e); height: visible ? implicitHeight : 0
                    onTriggered: izbirnik.odpriZ(meni.e) }
-        MenuItem { text: koren.t("posljiNaNapravo"); visible: panel.lokalnaDatoteka(meni.e); height: visible ? implicitHeight : 0
+        MeniVnos { text: koren.t("posljiNaNapravo"); visible: panel.lokalnaDatoteka(meni.e); height: visible ? implicitHeight : 0
                    onTriggered: izbirnik.poslji(meni.e) }
-        MenuItem { text: koren.t("pokazi"); visible: panel.vir.vrsta === "lokalno" || panel.vir.vrsta === "nedavno"; height: visible ? implicitHeight : 0; onTriggered: koren.klic("pokaziVMapi", [meni.e.pot]) }
-        MenuItem { text: koren.t("preimenuj"); visible: panel.vir.vrsta === "lokalno"; height: visible ? implicitHeight : 0; onTriggered: preimenovanje.zacni(meni.e) }
-        MenuItem { text: koren.t("vKos"); visible: panel.vir.vrsta === "lokalno" || panel.vir.vrsta === "nedavno"; height: visible ? implicitHeight : 0; onTriggered: panel.vKos(meni.e) }
-        MenuItem { text: koren.t("obnovi"); visible: panel.vir.vrsta === "smeti"; height: visible ? implicitHeight : 0
+        MeniVnos { text: koren.t("pokazi"); visible: panel.vir.vrsta === "lokalno" || panel.vir.vrsta === "nedavno"; height: visible ? implicitHeight : 0; onTriggered: koren.klic("pokaziVMapi", [meni.e.pot]) }
+        MeniVnos { text: koren.t("preimenuj"); visible: panel.vir.vrsta === "lokalno"; height: visible ? implicitHeight : 0; onTriggered: preimenovanje.zacni(meni.e) }
+        MeniVnos { text: koren.t("vKos"); visible: panel.vir.vrsta === "lokalno" || panel.vir.vrsta === "nedavno"; height: visible ? implicitHeight : 0; onTriggered: panel.vKos(meni.e) }
+        MeniVnos { text: koren.t("obnovi"); visible: panel.vir.vrsta === "smeti"; height: visible ? implicitHeight : 0
                    onTriggered: koren.klic("obnoviIzSmeti", [meni.e.id], function (r) { if (r && r.ok) panel.nalozi(true); else koren.obvesti(koren.t("niUspelo")) }) }
     }
 
