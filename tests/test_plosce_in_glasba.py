@@ -26,7 +26,7 @@ class Plosce(unittest.TestCase):
         self.assertIn("function narisiSkritePlosce()", js)
         self.assertIn('p.classList.toggle("vse-skrito"', js)
         for jezik_vrstica in ('pokaziPlosco: "Pokaži ploščo {ime}"', 'pokaziPlosco: "Show the {ime} panel"'):
-            self.assertIn(jezik_vrstica, js)
+            self.assertIn(jezik_vrstica, _beri("assets/os/besedila-namizja.js"))   # skupni slovar namizja
 
 
 class GlasbeniDodatki(unittest.TestCase):

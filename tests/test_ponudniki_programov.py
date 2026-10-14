@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from core import os_ponudniki_programov as p
+from besedila_namizja import besedila, stevilo  # noqa: E402 - skupni slovar namizja
 
 KOREN = Path(__file__).resolve().parent.parent
 
@@ -144,9 +145,9 @@ class Pravila(unittest.TestCase):
     def test_stran_in_paket(self):
         js = (KOREN / "assets/os/delovna.js").read_text(encoding="utf-8")
         for x in p.PONUDNIKI:
-            self.assertEqual(js.count("ppOpis_" + x["id"].replace("-", "_") + ":"), 2, x["id"])
+            self.assertEqual(stevilo("ppOpis_" + x["id"].replace("-", "_")), 6, x["id"])
         for k in ("ppGumb", "ppNaslov", "ppUvod", "ppNamesti", "ppOdpri", "ppVec", "ppPreklicano"):
-            self.assertEqual(js.count(k + ":"), 2, k)
+            self.assertEqual(stevilo(k), 6, k)
         self.assertIn('klic("ponudnikNamesti", [p.id])', js)
         self.assertIn('id="prgNamesti"', (KOREN / "assets/os/delovna.html").read_text(encoding="utf-8"))
         py = (KOREN / "safeer_os.py").read_text(encoding="utf-8")

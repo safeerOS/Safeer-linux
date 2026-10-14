@@ -2,6 +2,7 @@
 kategorije programov v eni vrstici in iskanje programov ob izbiri naprave. Brez GTK."""
 import os
 import unittest
+from besedila_namizja import besedila, stevilo  # noqa: E402 - skupni slovar namizja
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -48,7 +49,7 @@ class ProgramiTegaRacunalnika(unittest.TestCase):
         self.assertIn('var nedosegljive = $("prgNaprava").value !== "ta" ? P.nedosegljive : [];', js)
         # Nedosegljive naprave: ena kratka vrstica s stevilom, ne nastevanje imen.
         self.assertNotIn('P.nedosegljive.forEach', js)
-        self.assertIn('"{n} naprave niso dosegljive"', js)
+        self.assertIn('"{n} naprave niso dosegljive"', besedila())
 
     def test_oblika_ob_istem_imenu(self):
         import sys

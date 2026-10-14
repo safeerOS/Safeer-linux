@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+from besedila_namizja import besedila, stevilo  # noqa: E402 - skupni slovar namizja
 
 KOREN = Path(__file__).resolve().parents[1]
 
@@ -132,7 +133,8 @@ class SpletVPrivzetemBrskalniku(unittest.TestCase):
         html = (KOREN / "assets/os/delovna.html").read_text(encoding="utf-8")
         self.assertIn('id="stikaloBrskalnik"', html)
         self.assertIn("spletVBrskalniku: false", self.js)
-        self.assertEqual(self.js.count("spletVBrskalniku:"), 3)      # sl, en, privzeto
+        self.assertEqual(self.js.count("spletVBrskalniku:"), 1)      # privzeto
+        self.assertEqual(stevilo("spletVBrskalniku"), 6)
 
     def test_iskanje_najprej_preveri_stikalo(self):
         zacetek = self.js.index("function odpriSplet(q)")
@@ -169,7 +171,7 @@ class SistemskeNastavitve(unittest.TestCase):
         for modul in ("themes", "backgrounds", "fonts", "display", "windows", "panel", "nightlight", ""):
             self.assertIn('data-modul="%s"' % modul, html)
         for kljuc in ("modulTeme", "modulVse", "sistemNaslov"):
-            self.assertEqual(js.count(kljuc + ":"), 2)       # sl, en
+            self.assertEqual(stevilo(kljuc), 6)
         self.assertIn('klic("sistemskeNastavitve"', js)
 
     def test_samo_znani_moduli(self):

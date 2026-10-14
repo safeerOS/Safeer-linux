@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 from core import os_pretvorba_datotek as p
+from besedila_namizja import besedila, stevilo  # noqa: E402 - skupni slovar namizja
 
 KOREN = Path(__file__).resolve().parent.parent
 
@@ -72,7 +73,7 @@ class Pravila(unittest.TestCase):
         self.assertIn('klic("pretvoriDatoteko", [e.pot, c])', js)
         for k in ("pretvoriV", "ptdNaslov", "ptdIzberi", "ptdPretvarjam", "ptdKoncano", "ptdNapaka", "ptdNiOrodja",
                   "ptdNiUspelo", "ptdPrepocasi", "ptdNiDatoteke"):
-            self.assertEqual(js.count(k + ":"), 2, k)
+            self.assertEqual(stevilo(k), 6, k)
         py = (KOREN / "safeer_os.py").read_text(encoding="utf-8")
         for k in ('"pretvorbaMoznosti"', '"pretvoriDatoteko"', '"pretvorbaDatotekeStanje"'):
             self.assertIn(k, py)

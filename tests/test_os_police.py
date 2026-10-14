@@ -514,7 +514,7 @@ class Vmesnik(unittest.TestCase):
         nove = self.css.split("/* Osebne police", 1)[1]
         # Nove barve so spremenljivke v os.css :root (--media-znacka, --media-merilo), ne trdo kodirane tu.
         self.assertNotRegex(nove, r"rgba?\(|#[0-9a-fA-F]{3,6}\b")
-        self.assertIn("--media-znacka:", _beri("assets", "os", "os.css"))
+        self.assertIn("--media-znacka:", _beri("assets", "os", "tokens.css"))
 
 
 if __name__ == "__main__":

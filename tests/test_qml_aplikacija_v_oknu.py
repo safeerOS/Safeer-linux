@@ -3,6 +3,7 @@ import os
 import unittest
 
 from core import os_lupina
+from besedila_namizja import besedila, stevilo  # noqa: E402 - skupni slovar namizja
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -80,7 +81,7 @@ class SkupineProgramov(unittest.TestCase):
         import re
         qml = open(os.path.join(KOREN, "assets", "os", "qml", "Namizje.qml"), encoding="utf-8").read()
         for k in ("sk_pisarna", "sk_predstavnost", "sk_orodja", "sk_sistem", "sk_splet"):
-            self.assertEqual(len(re.findall(k + ":", qml)), 2, k)   # sl in en
+            self.assertEqual(stevilo(k), 6, k)
         self.assertNotIn('"Predstavnost"', open(os.path.join(KOREN, "assets", "os", "qml", "Programi.qml"), encoding="utf-8").read())
 
 
@@ -144,7 +145,7 @@ class DatotekeMeni(unittest.TestCase):
         nam = open(os.path.join(KOREN, "assets", "os", "qml", "Namizje.qml"), encoding="utf-8").read()
         import re
         for k in ("odpriZ", "privzetProgram", "posljiNaNapravo", "posNiNaprav", "posPosiljam", "posPoslano", "posNapaka"):
-            self.assertEqual(len(re.findall(r"\b" + k + ":", nam)), 2, k)
+            self.assertEqual(stevilo(k), 6, k)
 
 
 class LupaUcenje(OknoQml):

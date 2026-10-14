@@ -11,6 +11,7 @@ import stat
 import subprocess
 import tempfile
 import unittest
+from besedila_namizja import besedila, stevilo  # noqa: E402 - skupni slovar namizja
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OS = os.path.join(KOREN, "assets", "os")
@@ -68,7 +69,7 @@ class TestDelovnaStran(unittest.TestCase):
                          "zavihek Priljubljeni mora biti viden tudi prazen")
         self.assertLess(js.index('"priljubljeni", "vse"'), js.index('"pisarna", "ustvarjanje"'))
         self.assertIn("niPriljubljenihPrg", js)
-        self.assertEqual(js.count("niPriljubljenihPrg:"), 2, "navodilo mora biti v obeh jezikih")
+        self.assertEqual(stevilo("niPriljubljenihPrg"), 6, "navodilo mora biti v vseh jezikih")
         # Zvezdica na ploscici doda program z enim klikom in ne sprozi zagona.
         self.assertIn("e.stopPropagation(); preklopiPriljubljen(p);", js)
         # Program tega racunalnika se zazene takoj (brez menija) in v iskanju ni podvojen.
@@ -156,8 +157,8 @@ class TestDelovnaStran(unittest.TestCase):
                     'izberiZadetek(programi.length ? { vrsta: "program", p: programi[0] } : nastPoImenu ? { vrsta: "program", p: nastPoImenu } :',
                     'if (!I.rocno) I.izbran = privzetiZadetek(I.zadetki.map(function (b) { return b._v; }), I.zadnji, I.nauceno);'):
             self.assertIn(niz, js)
-        self.assertIn("Shift+Enter splet", js)
-        self.assertIn("Shift+Enter web", js)
+        self.assertIn("Shift+Enter splet", besedila())
+        self.assertIn("Shift+Enter web", besedila())
         self.assertIn("Shift+Enter splet", html)
         self.assertNotIn("Enter = splet", js + html)
 
@@ -193,6 +194,8 @@ pocistiIzbiro(); assert.strictEqual(izbraniVnosi().length, 0); assert.strictEqua
 assert.deepStrictEqual([1, 2, 3, 4, 5, 11, 101, 102, 104, 105].map(steviloElementov),
   ["1 element", "2 elementa", "3 elementi", "4 elementi", "5 elementov", "11 elementov",
    "101 element", "102 elementa", "104 elementi", "105 elementov"]);
+var T = { elem1: "{n} item", elemN: "{n} items" };
+function t(k, z) { return T[k].split("{n}").join(z.n); }
 jezik = "en"; assert.deepStrictEqual([1, 2].map(steviloElementov), ["1 item", "2 items"]);
 assert.strictEqual(smiselnSpust(["/m/a"], "/m"), false);
 assert.strictEqual(smiselnSpust(["/m/a"], "/m/a"), false);
@@ -300,12 +303,12 @@ assert.strictEqual(privzetiZadetek([splet, { vrsta: "zapisek", z: { naslov: "Nak
         self.assertIn('klic("zapiskiSeznam", [q])', js)
         self.assertIn('else if (v.vrsta === "zapisek") klic("odpriRazdelek", ["zapisek:" + v.z.id]);', js)
         self.assertIn('if (kam.indexOf("zapisek:") === 0) {', beri("assets", "os", "os.js"))
-        self.assertEqual(js.count('skZapiski: "'), 2)
+        self.assertEqual(stevilo("skZapiski"), 6)
         os_js = beri("assets", "os", "os.js")
         self.assertIn('if (/^blok[A-Za-z]+$/.test(sidro)) setTimeout(function () {', os_js)
         for kljuc in ("skSafeer", "ciljMedia", "ciljNaprave", "ciljScit", "ciljNastavitve", "ciljZapiski", "ciljSporocila", "ciljSplet", "odpreSafeerOs",
                       "skNaprave", "napravaDatoteke", "napravaProgrami", "isciVMedijih", "odpreMedijski"):
-            self.assertEqual(js.count(kljuc + ': "'), 2, kljuc)
+            self.assertEqual(stevilo(kljuc), 6, kljuc)
         # Naprava odpre svoje datoteke (ali programe) na delovni povrsini; mediji vodijo v Medijski center z iskanim nizom.
         self.assertIn('else if (v.vrsta === "naprava") odpriNapravo(v);', js)
         self.assertIn('odpriVir({ vrsta: "naprava", id: v.n.id, ime: v.n.ime, pot: [] });', js)
@@ -322,7 +325,7 @@ assert.strictEqual(privzetiZadetek([splet, { vrsta: "zapisek", z: { naslov: "Nak
         self.assertIn('klic("odpriRazdelek", ["mediji:" + (k.naslov || "")]);', js)
         self.assertIn('klic("mediaPredvajaj", [k.id])', js)
         # Lastnik, 11. 10. 2026: lupa najde tudi orodja za nastavitve sistema, v svoji skupini »Nastavitve«.
-        self.assertEqual(js.count('skNastavitve: "'), 2)
+        self.assertEqual(stevilo("skNastavitve"), 6)
         self.assertIn('programi.nastavitve = vsi.filter(function (p) { return p.nastavitev; }).slice(0, 5);', js)
         self.assertIn('skupine.push({ naslov: t("skNastavitve")', js)
         # Filtra v ploscah uporabljata ista pravila kot iskanje.
@@ -353,7 +356,7 @@ assert.strictEqual(privzetiZadetek([splet, { vrsta: "zapisek", z: { naslov: "Nak
                       "posN_stari_control", "posN_ni_controla", "posN_hub_ni_znan", "posN_prazna_mapa", "posN_prevec_datotek",
                       "posN_prevelika", "posN_ni_prostora", "posN_naprava_zasedena", "posN_ni_datoteke",
                       "posN_naprava_ni_seznanjena", "posN_sredisce_naprave_ni_dosegljivo", "posN_posiljanje_ni_uspelo"):
-            self.assertEqual(js.count(kljuc + ': "'), 2, kljuc)
+            self.assertEqual(stevilo(kljuc), 6, kljuc)
 
     @unittest.skipUnless(shutil.which("node"), "node ni namescen")
     def test_besedilo_posiljanja(self):
@@ -419,7 +422,7 @@ assert.strictEqual(izrisov, 9);
         """Premik, kopija, v Smeti, preimenovanje in novo se dajo razveljaviti: gumb v obvestilu in Ctrl+Z."""
         js, py, css = self.js, beri("safeer_os.py"), beri("assets", "os", "delovna.css")
         for kljuc in ("razveljavi", "razveljavljeno", "nicZaRazveljaviti", "razveljavitevNiUspela", "preimenovano"):
-            self.assertEqual(len(re.findall(r"\b%s: \"" % kljuc, js)), 2, "besedilo %s mora biti v obeh jezikih" % kljuc)
+            self.assertEqual(stevilo(kljuc), 6, "besedilo %s mora biti v vseh jezikih" % kljuc)
         for niz in ('klic("razveljaviDatoteke", [zapis])',
                     'zapomniDejanje({ vrsta: premakni ? "premik" : "kopija", pari: r.pari || [] })',
                     'zapomniDejanje({ vrsta: rezi ? "premik" : "kopija", pari: r.pari || [] })',
@@ -445,7 +448,7 @@ assert.strictEqual(izrisov, 9);
             self.assertIn(niz, js)
         for kljuc in ("kopirajN", "izreziN", "vSmetiN", "obnoviN", "izbranoN", "pocistiIzbiro", "delnoUspelo",
                       "premaknjenoV", "kopiranoV", "vSmetiVecOk", "obnovljenoN"):
-            self.assertEqual(len(re.findall(r"\b%s: \"" % kljuc, js)), 2, "besedilo %s mora biti v obeh jezikih" % kljuc)
+            self.assertEqual(stevilo(kljuc), 6, "besedilo %s mora biti v vseh jezikih" % kljuc)
         # Vrstice in naslovi plosc se ne oznacijo kot besedilo (WebKitGTK potrebuje predpono).
         self.assertIn(".seznam tbody tr { cursor: pointer; user-select: none; -webkit-user-select: none; }", css)
         self.assertRegex(css, r"\.glava h2 \{[^}]*-webkit-user-select: none;")
