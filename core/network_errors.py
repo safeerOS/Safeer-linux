@@ -67,9 +67,12 @@ def error_html(uri, method, certificate=False, jezik="sl"):
 
 def _ima_vire(view):
     """WebKit2 4.1 javi glavno zahtevo (in njeno metodo); WebKitGTK 6.0 ne. Lazni pogled v preizkusih: kot 4.1."""
+    if not isinstance(view, GObject.Object):
+        return True
     try:
         return bool(GObject.signal_lookup('resource-load-started', type(view)))
-    except TypeError:
+    except (TypeError, AttributeError):
+        # Starejsi PyGObject (Ubuntu 22.04) za tip brez GType vrze AttributeError, novejsi TypeError (CI 14. 10. 2026).
         return True
 
 
