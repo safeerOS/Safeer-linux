@@ -690,7 +690,9 @@ class VdelaniSplet:
         self.pojavna_napis.set_ellipsize(self.Pango.EllipsizeMode.MIDDLE)
         self.pojavna_odpri = Gtk.Button(label=self._t("po_odpri"))
         self.pojavna_vedno = Gtk.Button()
-        skrij = self._gumb("×", lambda *_: self.pojavna.set_reveal_child(False), "tab-close")
+        skrij = Gtk.Button.new_from_icon_name("window-close-symbolic")
+        skrij.set_has_frame(False)
+        skrij.connect("clicked", lambda *_: self.pojavna.set_reveal_child(False))
         for g in (self.pojavna_napis, self.pojavna_odpri, self.pojavna_vedno, skrij):
             vrsta.append(g)
         self.pojavna_odpri.connect("clicked", lambda *_: self._pojavno_odpri(False))
@@ -1500,7 +1502,9 @@ class VdelaniSplet:
         except Exception:  # noqa: BLE001
             naslov, prava = "", False
         if naslov.lower().startswith(("http://", "https://")):
-            if adblock.is_threat_domain(naslov) or (self.config.get("adblock_enabled", True) and adblock.is_ad_domain(naslov)):
+            if adblock.is_threat_domain(naslov):
+                self.config.increment_threats_blocked(); self._osvezi_scit(); return None
+            if self.config.get("adblock_enabled", True) and adblock.is_ad_domain(naslov):
                 self.config.increment_ads_blocked(); self._osvezi_scit(); return None
             if self.config.get("popup_blokiraj", True) and not pojavna_okna.dovoli(
                     pogled.get_uri() or "", naslov, prava, self.config.get("popup_dovoljeni", []) or []):

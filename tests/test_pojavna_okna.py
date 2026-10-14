@@ -45,3 +45,8 @@ def test_splet_uporablja_pravila_in_izbiro_dns():
     splet = open(os.path.join(KOREN, "core", "os_splet.py"), encoding="utf-8").read()
     assert "pojavna_okna.dovoli(" in splet and "_pojavno_blokirano" in splet
     assert '"popup_blokiraj"' in splet and '"doh_provider", dns' in splet
+
+
+def test_naslov_ip():
+    assert po.osnova("127.0.0.1") == "127.0.0.1"
+    assert po.zapomni([], "http://192.168.1.5:8080/x") == ["192.168.1.5"]

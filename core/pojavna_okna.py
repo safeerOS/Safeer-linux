@@ -44,6 +44,12 @@ def gostitelj(uri: str) -> str:
 
 def osnova(host: str) -> str:
     """Registrirana domena (priblizek brez celotnega seznama javnih koncnic): mail.google.com -> google.com."""
+    import ipaddress
+    try:
+        ipaddress.ip_address((host or "").strip("[]"))
+        return host            # naslov IP je cel (prej »0.1« za 127.0.0.1, preizkus 14. 10.)
+    except ValueError:
+        pass
     deli = [d for d in (host or "").split(".") if d]
     if len(deli) <= 2:
         return ".".join(deli)
