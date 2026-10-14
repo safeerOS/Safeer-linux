@@ -63,15 +63,33 @@ def skupina(pot: str) -> str:
     return ""
 
 
+def _gostitelj_ima(ime: str, pot: Optional[str]) -> Optional[str]:
+    """V Flatpaku je ovoj v /app/host-bin vedno najden; velja le, ce ima program res racunalnik (/run/host/usr/bin)."""
+    if pot and os.environ.get("FLATPAK_ID") and pot.startswith("/app/host-bin/"):
+        return pot if os.path.exists("/run/host/usr/bin/" + ime) else None
+    return pot
+
+
 def orodje(sk: str, najdi: Callable[[str], Optional[str]] = shutil.which) -> str:
-    """Pot orodja za skupino ("" = ni namesceno)."""
+    """Pot orodja za skupino ("" = ni namesceno). V Flatpaku LibreOffice in ImageMagick tecejo na racunalniku."""
+    def n(ime: str) -> Optional[str]:
+        return _gostitelj_ima(ime, najdi(ime))
     if sk == "slika":
-        return najdi("magick") or najdi("convert") or ""
+        return n("magick") or n("convert") or ""
     if sk == "zvok":
-        return najdi("ffmpeg") or ""
+        return n("ffmpeg") or ""
     if sk in ("besedilo", "preglednica", "predstavitev"):
-        return najdi("soffice") or najdi("libreoffice") or ""
+        return n("soffice") or n("libreoffice") or ""
     return ""
+
+
+def _zacasna_mapa() -> str:
+    """Zacasna mapa, ki jo vidi tudi program na racunalniku (v Flatpaku je /tmp peskovnika zaseben)."""
+    if os.environ.get("FLATPAK_ID"):
+        koren = os.path.join(os.path.expanduser("~"), ".cache", "safeer-pretvorba")
+        os.makedirs(koren, exist_ok=True)
+        return tempfile.mkdtemp(prefix="safeer-pretvorba-", dir=koren)
+    return tempfile.mkdtemp(prefix="safeer-pretvorba-")
 
 
 def moznosti(pot: str, najdi: Callable[[str], Optional[str]] = shutil.which) -> dict:
@@ -156,7 +174,7 @@ class Pretvorbe:
         with self._omejitev:
             delo["stanje"] = "pretvarjam"
             izhod = izhodna_pot(pot, konc)
-            zacasna = tempfile.mkdtemp(prefix="safeer-pretvorba-")
+            zacasna = _zacasna_mapa()
             try:
                 profil = os.path.join(zacasna, "profil")
                 cilj_v_zacasni = os.path.join(zacasna, "izhod." + konc)
