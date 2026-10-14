@@ -273,7 +273,7 @@
     if (PREDVAJALNIK && kam !== "media" && kam.indexOf("mediji:") !== 0) return;
     // Okno enega razdelka: drugo gre skozi pojdi (ta ga preda Safeer OS), zapisek samo v oknu Zapiskov.
     if (RAZDELEK && kam.indexOf("zapisek:") === 0 && RAZDELEK !== "zapiski") return;
-    if (RAZDELEK && (kam.indexOf("pogovor:") === 0 || kam === "sporocila:novo") && RAZDELEK !== "sporocila") return;
+    if (RAZDELEK && (kam.indexOf("pogovor:") === 0 || kam.indexOf("sporocila:novo") === 0) && RAZDELEK !== "sporocila") return;
     if (kam.indexOf("iskanje:") === 0) {
       pojdi("domov");
       $("iskanje").value = kam.slice(8);
@@ -303,9 +303,11 @@
       if (S.razdelek === "sporocila") naloziSporocila(); else pojdi("sporocila");
       return;
     }
-    if (kam === "sporocila:novo") {
+    if (kam === "sporocila:novo" || kam === "sporocila:novo-email") {
+      // Plosca na namizju: »Novo sporocilo« na zavihku E-posta odpre novo e-sporocilo, na zavihku Sporocila klepet z napravo.
       pojdi("sporocila");
-      if ($("sporocilaPisi")) $("sporocilaPisi").click();
+      if (kam === "sporocila:novo-email") odpriNovo(null);
+      else if ($("sporocilaPisi")) $("sporocilaPisi").click();
       return;
     }
     if (kam.indexOf("zapisek:") === 0) {

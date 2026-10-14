@@ -126,7 +126,7 @@
   $("vse").textContent = t("vse");
   $("zapri").setAttribute("aria-label", t("zapri"));
   $("zapri").addEventListener("click", function () { klic("skrijPloscoSporocil").catch(function () {}); });
-  $("novo").addEventListener("click", function () { odpri("sporocila:novo"); });
+  $("novo").addEventListener("click", function () { odpri(S.vrsta === "email" ? "sporocila:novo-email" : "sporocila:novo"); });
   $("vse").addEventListener("click", function () { odpri("sporocila"); });
   $("iskanje").addEventListener("input", narisi);
   [["zavSporocila", "klepet"], ["zavEposta", "email"]].forEach(function (z) {
@@ -137,9 +137,10 @@
   });
   narisi();
   osvezi().then(function () {
-    // Prvi pogled: zavihek z neprebranimi (e-posta, ce je novo samo tam).
-    var n = { klepet: 0, email: 0 };
-    vrstice().forEach(function (v) { n[v.vrsta] += Number(v.p.neprebrano || 0); });
-    if (!n.klepet && n.email) { S.vrsta = "email"; narisi(); }
+    // Prvi pogled: zavihek z neprebranimi (e-posta, ce je novo samo tam); brez klepetov sploh pa e-posta - plosca
+    // ne sme kazati »Ni sporocil«, ko je v e-posti polno pisem (lastnik, 14. 10. 2026).
+    var n = { klepet: 0, email: 0 }, vseh = { klepet: 0, email: 0 };
+    vrstice().forEach(function (v) { n[v.vrsta] += Number(v.p.neprebrano || 0); vseh[v.vrsta]++; });
+    if ((!n.klepet && n.email) || (!vseh.klepet && vseh.email)) { S.vrsta = "email"; narisi(); }
   });
 })();
