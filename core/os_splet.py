@@ -853,7 +853,8 @@ class VdelaniSplet:
         #safeer-splet searchbar > revealer > box { background: #0b1424; border-bottom: 1px solid rgba(211,229,255,.14); }
         #safeer-splet searchbar entry { background: #101a2b; color: #eaf2ff; border: 1px solid rgba(138,199,255,.45); }
         #safeer-splet searchbar button { background: transparent; color: #e2eaf6; border: 0; box-shadow: none; }
-        #splet-najdi-stevec { color: #b0bdc4; margin-start: 6px; }
+        #splet-najdi-stevec { color: #b0bdc4; margin-left: 6px; }
+        #safeer-brskalnik { background: #0b1424; }
         #splet-pojavna { background: #16233a; color: #eaf2ff; border-bottom: 1px solid rgba(138,199,255,.35); }
         #splet-pojavna button { background: rgba(138,199,255,.12); color: #eaf2ff; border: 1px solid rgba(138,199,255,.35);
           box-shadow: none; }

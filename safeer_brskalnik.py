@@ -154,6 +154,7 @@ class SafeerBrskalnik(Gtk.Application):
         self.splet = VdelaniSplet(Gtk, Gdk, Gio, GLib, WebKit2, KOREN, jezik, None, stars=okno)
         self.splet.privzeti = (je_privzet, nastavi_privzetega, besedila_privzetega)   # gumb v nastavitvah Spleta
         skatla = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        skatla.set_name("safeer-brskalnik")      # ozadje kot Splet (brez belega roba okoli vrstice)
         skatla.append(self._vrstica_privzetega())
         skatla.append(self.splet.gradnik)
         self.splet.gradnik.set_vexpand(True)
