@@ -11,8 +11,10 @@ const Gio = imports.gi.Gio;
 const GLib = imports.gi.GLib;
 const Mainloop = imports.mainloop;
 
-let UPowerGlib = null;
-try { UPowerGlib = imports.gi.UPowerGlib; } catch (e) { UPowerGlib = null; }
+// UPower prek D-Bus (asinhrono): UPowerGlib.get_devices2 v cjs vrne prazne predmete (preizkus 14. 10. 2026).
+const UPOWER = "org.freedesktop.UPower";
+const VRSTA_MISKA = 5;
+// UpDeviceLevel: 0 neznano, 1 brez ravni (velja odstotek), 3 nizka, 4 kriticna, 6 normalna, 7 visoka, 8 polna.
 
 const BESEDILA = {
     sl: { miska: "Miška", baterija: "Baterija", hitrost: "Hitrost kazalca", levicar: "Levičarska miška",
@@ -81,39 +83,48 @@ class SafeerMiska extends Applet.TextIconApplet {
         this.menuManager = new PopupMenu.PopupMenuManager(this);
         this.menu = new Applet.AppletPopupMenu(this, orientation);
         this.menuManager.addMenu(this.menu);
-        this.odjemalec = null;
-        if (UPowerGlib) {
-            try { this.odjemalec = UPowerGlib.Client.new_full(null); } catch (e) { this.odjemalec = null; }
-        }
-        this._osvezi_ikono();
-        this._casovnik = Mainloop.timeout_add_seconds(120, () => { this._osvezi_ikono(); return true; });
+        this.miske = [];
+        this._preberi_miske();
+        this._casovnik = Mainloop.timeout_add_seconds(120, () => { this._preberi_miske(); return true; });
     }
 
-    _miske() {
-        if (!this.odjemalec || !UPowerGlib) return [];
-        let naprave = [];
-        try {
-            naprave = this.odjemalec.get_devices2 ? this.odjemalec.get_devices2() : this.odjemalec.get_devices();
-        } catch (e) { return []; }
-        return (naprave || []).filter(n => n && n.kind === UPowerGlib.DeviceKind.MOUSE);
+    _klic(pot, vmesnik, metoda, argumenti, vrsta, ob) {
+        Gio.DBus.system.call(UPOWER, pot, vmesnik, metoda, argumenti, new GLib.VariantType(vrsta),
+                             Gio.DBusCallFlags.NONE, 3000, null, (vir, izid) => {
+            let v = null;
+            try { v = vir.call_finish(izid).recursiveUnpack(); } catch (e) { v = null; }
+            ob(v);
+        });
     }
+
+    _preberi_miske() {
+        this._klic("/org/freedesktop/UPower", UPOWER, "EnumerateDevices", null, "(ao)", (v) => {
+            let poti = v ? v[0] : [];
+            let najdene = [], ostalo = poti.length;
+            if (!ostalo) { this.miske = []; this._osvezi_ikono(); return; }
+            for (let pot of poti) {
+                this._klic(pot, "org.freedesktop.DBus.Properties", "GetAll",
+                           new GLib.Variant("(s)", [UPOWER + ".Device"]), "(a{sv})", (l) => {
+                    let p = l ? l[0] : null;
+                    if (p && p.Type === VRSTA_MISKA)
+                        najdene.push({ model: p.Model || "", raven: p.BatteryLevel || 0, odstotek: p.Percentage || 0 });
+                    if (--ostalo === 0) { this.miske = najdene; this._osvezi_ikono(); }
+                });
+            }
+        });
+    }
+
+    _miske() { return this.miske; }
 
     _raven(n) {
-        let L = UPowerGlib.DeviceLevel;
-        let raven = n.battery_level;
-        if (raven === L.FULL) return T.polna;
-        if (raven === L.HIGH) return T.visoka;
-        if (raven === L.NORMAL) return T.normalna;
-        if (raven === L.LOW) return T.nizka;
-        if (raven === L.CRITICAL) return T.kriticna;
-        if (raven === L.NONE && n.percentage > 0) return Math.round(n.percentage) + " %";
-        return T.neznana;
+        let ravni = { 8: T.polna, 7: T.visoka, 6: T.normalna, 3: T.nizka, 4: T.kriticna };
+        if (ravni[n.raven]) return ravni[n.raven];
+        if (n.raven === 1 && n.odstotek > 0) return Math.round(n.odstotek) + " %";
+        return T.neznana;          // 0: miska ravni (se) ni javila
     }
 
     _nizka(n) {
-        let L = UPowerGlib.DeviceLevel;
-        return n.battery_level === L.LOW || n.battery_level === L.CRITICAL ||
-            (n.battery_level === L.NONE && n.percentage > 0 && n.percentage <= 15);
+        return n.raven === 3 || n.raven === 4 || (n.raven === 1 && n.odstotek > 0 && n.odstotek <= 15);
     }
 
     _osvezi_ikono() {
@@ -177,7 +188,7 @@ class SafeerMiska extends Applet.TextIconApplet {
     on_applet_clicked() {
         if (!this.menu.isOpen) {
             this._napolni();
-            this._osvezi_ikono();
+            this._preberi_miske();
         }
         this.menu.toggle();
     }
