@@ -123,3 +123,21 @@ class OsnutkiNaStrezniku(unittest.TestCase):
             self.assertEqual(len(o), 1)
             self.assertEqual(o[0]["mid"], "")
             sp.zapri()
+
+
+class UskladitevOsnutkov(unittest.TestCase):
+    def test_v_gmailu_poslan_osnutek_izgine(self):
+        from core.os_sporocila import SporocilaOS
+        with tempfile.TemporaryDirectory() as d:
+            sp = SporocilaOS(Path(d) / "sporocila.db", zazeni=False)
+            adapter = MagicMock()
+            adapter.shrani_osnutek.side_effect = ["<a@x>", "<b@x>"]
+            adapter.osnutki_na_strezniku.return_value = {"<b@x>"}
+            sp.storitev.adapterji["k"] = adapter
+            sp.shrani_osnutek({"kanal_id": "k", "za": "a@example.test", "besedilo": "a"})
+            sp.shrani_osnutek({"kanal_id": "k", "za": "b@example.test", "besedilo": "b"})
+            ostali = sp.uskladi_osnutke()
+            self.assertEqual([o["za"] for o in ostali], ["b@example.test"])
+            adapter.osnutki_na_strezniku.side_effect = OSError("brez omrezja")
+            self.assertEqual(len(sp.uskladi_osnutke(najmanj_s=0)), 1)     # napaka ne brise nicesar
+            sp.zapri()

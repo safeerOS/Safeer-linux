@@ -3161,7 +3161,7 @@ class SafeerOS(Gtk.Application):
             "sporocilaPoslji": lambda: self.sporocila.poslji(str(a[0]), str(a[1]), str(a[2])),
             "sporocilaNovo": lambda: self.sporocila.novo(str(a[0]), str(a[1]), str(a[2]), str(a[3]),
                                                          str(a[4]) if len(a) > 4 else ""),
-            "sporocilaOsnutki": self.sporocila.osnutki,
+            "sporocilaOsnutki": self.sporocila.uskladi_osnutke,
             "sporocilaShraniOsnutek": lambda: self.sporocila.shrani_osnutek(a[0] if a and isinstance(a[0], dict) else {}),
             "sporocilaOdstraniOsnutek": lambda: self.sporocila.odstrani_osnutek(str(a[0]) if a else ""),
             "sporocilaSinhroniziraj": self.sporocila.sinhroniziraj,

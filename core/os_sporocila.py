@@ -309,6 +309,38 @@ class SporocilaOS:
     def _pot_osnutkov(self) -> Path:
         return Path(self.storitev.pot).with_name("osnutki.json")
 
+    def uskladi_osnutke(self, najmanj_s: float = 60.0) -> list:
+        """Osnutek, ki ga je uporabnik v Gmailu (telefon) poslal ali izbrisal, izgine tudi tukaj (najvec enkrat na minuto)."""
+        import time
+        if time.monotonic() - getattr(self, "_osnutki_uskl", -1e9) < najmanj_s:
+            return self.osnutki()
+        self._osnutki_uskl = time.monotonic()
+        seznam = self.osnutki()
+        po_kanalu: dict = {}
+        for o in seznam:
+            if o.get("mid"):
+                po_kanalu.setdefault(str(o.get("kanal_id") or ""), []).append(o)
+        odstrani = []
+        for kid, osn in po_kanalu.items():
+            a = self.storitev.adapterji.get(kid)
+            if a is None or not hasattr(a, "osnutki_na_strezniku"):
+                continue
+            try:
+                ostali = a.osnutki_na_strezniku([o["mid"] for o in osn])
+            except Exception as e:  # noqa: BLE001 - brez omrezja ali gesla: nic ne spremenimo
+                print("[Sporocila] uskladitev osnutkov:", e, flush=True)
+                continue
+            odstrani += [o["id"] for o in osn if o["mid"] not in ostali]
+        if not odstrani:
+            return seznam
+        nov = [x for x in seznam if x.get("id") not in odstrani]
+        pot = self._pot_osnutkov()
+        zacasna = pot.with_suffix(".tmp")
+        zacasna.write_text(json.dumps(nov, ensure_ascii=False, indent=1), "utf-8")
+        os.chmod(zacasna, 0o600)
+        os.replace(zacasna, pot)
+        return nov
+
     def osnutki(self) -> list:
         try:
             podatki = json.loads(self._pot_osnutkov().read_text("utf-8"))
