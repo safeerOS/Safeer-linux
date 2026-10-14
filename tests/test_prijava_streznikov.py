@@ -22,8 +22,11 @@ STREZNIKI = [
     {"id": "streznik-cccccccccccccccc", "ponudnik": "kodi", "ime": "Kodi", "url": "http://192.168.1.5:8080",
      "uporabnik": "kodi", "secret_enc": "enc:kodi-geslo"},
 ]
-JF_TOK = "https://jf.test:8920/Audio/abc/stream?static=true&api_key=ZETON-JF"
-JF_SLIKA = "https://jf.test:8920/Items/abc/Images/Primary?maxHeight=240&api_key=ZETON-JF"
+# Jellyfin 12 sprejme le `ApiKey` (api_key je stara prijava, privzeto izklopljena); starejsi shranjeni naslovi imajo api_key.
+JF_TOK = "https://jf.test:8920/Audio/abc/stream?static=true&ApiKey=ZETON-JF"
+JF_SLIKA = "https://jf.test:8920/Items/abc/Images/Primary?maxHeight=240&ApiKey=ZETON-JF"
+JF_TOK_STAR = "https://jf.test:8920/Audio/abc/stream?static=true&api_key=ZETON-JF"
+JF_SLIKA_STAR = "https://jf.test:8920/Items/abc/Images/Primary?maxHeight=240&api_key=ZETON-JF"
 ND_TOK = "https://nd.test/rest/stream.view?u=ana&t=0123abcd&s=sol1&v=1.16.1&c=SafeerOS&f=json&id=7"
 SKRIVNO = ("ZETON-JF", "t=0123abcd", "s=sol1", "u=ana", "geslo")
 
@@ -36,6 +39,7 @@ def _brez_skrivnosti(test, besedilo):
 class CistiNaslovi(unittest.TestCase):
     def test_brez_prijave(self):
         self.assertEqual(viri_sink.brez_prijave(JF_TOK), "https://jf.test:8920/Audio/abc/stream?static=true")
+        self.assertEqual(viri_sink.brez_prijave(JF_TOK_STAR), "https://jf.test:8920/Audio/abc/stream?static=true")
         self.assertEqual(viri_sink.brez_prijave(ND_TOK), "https://nd.test/rest/stream.view?v=1.16.1&c=SafeerOS&f=json&id=7")
         self.assertEqual(viri_sink.brez_prijave("https://plex.test/library/parts/1/file.mp3?X-Plex-Token=abc"),
                          "https://plex.test/library/parts/1/file.mp3")
@@ -120,7 +124,7 @@ class SezamiMedijskegaCentra(unittest.TestCase):
         self.assertEqual(self.mc.seznam("Drugi")["vnosi"][0]["url"], JF_TOK)
 
     def test_enkratna_selitev_starih_seznamov_in_obrambni_izvoz(self):
-        star = [{"ime": "Star", "vir": "", "cas": 1, "skladbe": [{"naslov": "Pesem", "url": JF_TOK, "slika": JF_SLIKA},
+        star = [{"ime": "Star", "vir": "", "cas": 1, "skladbe": [{"naslov": "Pesem", "url": JF_TOK_STAR, "slika": JF_SLIKA_STAR},
                                                               {"naslov": "Druga", "url": ND_TOK}]}]
         (self.koren / "seznami.json").write_text(json.dumps(star), encoding="utf-8")
         # Safeer Control odgovarja tudi, ce Safeer OS datoteke se ni ocistil.
@@ -130,7 +134,8 @@ class SezamiMedijskegaCentra(unittest.TestCase):
         mc = self._mc()
         self.assertEqual(mc.seznami()[0]["stevilo"], 2)
         _brez_skrivnosti(self, self._disk())
-        self.assertEqual(mc.seznam("Star")["vnosi"][0]["url"], JF_TOK)       # predvajanje dela tudi po selitvi
+        # Predvajanje dela tudi po selitvi - z novim parametrom ApiKey (Jellyfin 12), ne s starim api_key.
+        self.assertEqual(mc.seznam("Star")["vnosi"][0]["url"], JF_TOK)
 
     def test_prevzem_z_druge_naprave_brez_prijave(self):
         self.mc._seznami_pisi([{"ime": "Tuj", "vir": "", "cas": 5, "skladbe": [{"naslov": "X", "url": ND_TOK}]}])
@@ -254,6 +259,20 @@ class LogotipiTv(unittest.TestCase):
             ZV.pripravi_logotipe(cas=2.0)
             self.assertEqual(len(klici), 2 * prvic)
         self.assertEqual(ZV.LOGOTIP_ZNOVA_S, 600.0)
+
+
+class GStreamerBrezPrijaveVGlavah(unittest.TestCase):
+    def test_souphttpsrc_ne_dobi_glav_piskotkov_ali_gesla(self):
+        """GStreamer-SA-2026-0080: souphttpsrc pred 1.28.7 ob preusmeritvi na drug izvor poslje naprej extra-headers,
+        piskotke in user-id/user-pw. Runtime 50 ima GStreamer 1.26.11, zato prijava gre samo v naslov (ApiKey, u/t/s,
+        uporabnik@): nov naslov iz Location je nima, libsoup pa prijavo iz naslova uporabi le za ta izvor
+        (soup-auth-manager.c jo po uporabi odstrani). Teh lastnosti ne nastavljamo nikjer."""
+        import re
+        koren = Path(__file__).resolve().parent.parent
+        datoteke = list((koren / "core").rglob("*.py")) + list(koren.glob("*.py"))
+        vzorec = re.compile(r"[\"'](extra-headers|user-id|user-pw|proxy-id|proxy-pw|cookies)[\"']")
+        najdeno = [str(p.relative_to(koren)) for p in datoteke if vzorec.search(p.read_text(encoding="utf-8", errors="replace"))]
+        self.assertEqual(najdeno, [])
 
 
 if __name__ == "__main__":
