@@ -101,7 +101,7 @@ def izvedi(app, dejanje: str, parametri: dict, odpri_naslov: Callable[[str], Non
 
 
 DEJANJA_CONTROL = ["open_url", "volume", "status"]
-DEJANJA_DATOTEKE = ["files.list", "files.open", "files.open_locen"]
+DEJANJA_DATOTEKE = ["files.list", "files.open", "files.open_locen", "files.session"]
 DEJANJA_PROGRAMI = ["apps.list", "apps.launch", "apps.launch_locen", "apps.close", "apps.running"]
 DEJANJA_HOST = ["host.info"]
 DEJANJA_ZASLON = ["screen.start", "screen.stop", "screen.status"]
@@ -217,6 +217,20 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
                 koncaj(izid(True, "Na računalniku ni izbrane nobene mape", podatki))
             else:
                 koncaj(izid(True, f"{len(podatki['items'])} vnosov", podatki))
+        elif d == "files.session":
+            # Teamwork: naprava ureja delovno kopijo datoteke tega racunalnika (core/link_teamwork). Odgovor pove
+            # trenutno razlicico, kdo jo se ureja, in svez naslov streznika za popravke.
+            tw = getattr(datoteke, "teamwork", None) if datoteke is not None else None
+            if tw is None:
+                koncaj(izid(False, "Teamwork tu ni na voljo", koda="neznano"))
+                return
+            stanje = tw.prijava(posiljatelj, parametri)
+            if stanje.get("ok"):
+                try:
+                    stanje["streznik"] = datoteke.streznik_za(posiljatelj, hub_url)
+                except Exception:  # noqa: BLE001 - brez streznika ostane obvestilo, popravek pride ob naslednjem
+                    pass
+            koncaj(izid(bool(stanje.get("ok")), "Teamwork", stanje, koda=str(stanje.get("koda") or "")))
         elif d in ("files.open", "files.open_locen"):
             # Datoteko odpre racunalnik s svojim programom; televizor jo nato vidi prek zaslona.
             if datoteke is None:

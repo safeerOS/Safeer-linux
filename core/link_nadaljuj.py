@@ -184,6 +184,29 @@ def pocisti_predpomnilnik(mapa: str, najvec: int = NAJVEC_PREDPOMNILNIKA, ohrani
         skupaj -= vel
 
 
+def oznaci_usklajeno(id_naprave: str, oznaka: str, cilj: str, sha: str,
+                     mapa_predpomnilnika: Optional[str] = None) -> bool:
+    """Teamwork: delovna kopija `cilj` je bila pravkar poslana napravi (enaka je njeni razlicici). Prejsnja kopija v
+    predpomnilniku postane ta vsebina - naslednji »Nadaljuj tukaj« je ne steje za lokalno spremembo (ne gre v Smeti)
+    in iz nje vzame kose."""
+    mapa_pp = mapa_predpomnilnika or privzeta_mapa_predpomnilnika()
+    mapa_kopije = os.path.join(mapa_pp, _jedro(id_naprave), hashlib.sha256(str(oznaka).encode("utf-8")).hexdigest()[:32])
+    with _zaklep(mapa_kopije):
+        try:
+            os.makedirs(mapa_kopije, exist_ok=True)
+            kopija = os.path.join(mapa_kopije, "kopija")
+            fd, zacasna = tempfile.mkstemp(prefix=".kopija-", dir=mapa_kopije)
+            with os.fdopen(fd, "wb") as f, open(cilj, "rb") as v:
+                shutil.copyfileobj(v, f, 1024 * 1024)
+            os.replace(zacasna, kopija)
+            _pisi_json(os.path.join(mapa_kopije, "zapis.json"),
+                       {"opis": None, "sha256": sha, "kopija_stat": _stat(kopija), "cilj": cilj, "cilj_stat": _stat(cilj),
+                        "cas": time.time()})
+            return True
+        except OSError:
+            return False
+
+
 # ------------------------------------------------------------------ omrezje
 
 class _Odjemalec:

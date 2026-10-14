@@ -703,15 +703,49 @@ def datoteke_naprave(id_naprave: str, mapa: str = "") -> dict:
     return _control_naprave("Datoteke", str(id_naprave or ""), str(mapa or ""))
 
 
-def nadaljuj_tukaj(streznik: dict, kljuc: str, oznaka: str, id_naprave: str, ime_naprave: str, pot_imen: list) -> dict:
-    """»Nadaljuj tukaj«: datoteko z druge naprave shrani sem s prenosom samo spremenjenih kosov in jo odpre
-    (core/link_nadaljuj). V ozadju (omrezje in disk). Vrne meritve za stran (preneseno, iz_lokalnih, cas ...)."""
-    from core import link_nadaljuj
+def nadaljuj_tukaj(streznik: dict, kljuc: str, oznaka: str, id_naprave: str, ime_naprave: str, pot_imen: list,
+                   zaganjalnik=None) -> dict:
+    """»Nadaljuj tukaj«: datoteko z druge naprave shrani sem s prenosom samo spremenjenih kosov (core/link_nadaljuj) in
+    jo odpre. V ozadju (omrezje in disk). Vrne meritve za stran (preneseno, iz_lokalnih, cas ...) in kako se je odprla.
+
+    Teamwork (core/link_teamwork): delovno kopijo spremlja Safeer Control - shranitve gredo napravi lastnika, nove
+    razlicice pridejo sem, kdo jo se ureja, pove obvestilo. Program: isti kot pri lastniku, ce je tu namescen; sicer
+    program, ki format podpira; ce ga ni, se datoteka odpre na napravi lastnika in tu se pokaze njen zaslon."""
+    from core import link_nadaljuj, link_teamwork
     moje_ime = ""
     if link_nadaljuj.IME_MAPE in [str(x) for x in pot_imen]:
         # Datoteka, ki se vraca (A -> B -> A): ime tega racunalnika v Linku pove, kje je izvirnik.
         moje_ime = next((str(n.get("ime") or "") for n in _control_naprave("Seznam").get("naprave") or [] if n.get("ta")), "")
-    return link_nadaljuj.nadaljuj_tukaj(streznik, kljuc, oznaka, id_naprave, ime_naprave, pot_imen, moje_ime=moje_ime)
+    izid = link_nadaljuj.nadaljuj_tukaj(streznik, kljuc, oznaka, id_naprave, ime_naprave, pot_imen, moje_ime=moje_ime,
+                                        odpri=lambda _p: True)
+    if not izid.get("ok"):
+        return izid
+    pot = str(izid.get("pot") or "")
+    program_lastnika = ""
+    if not izid.get("izvirnik"):
+        tw = _control_naprave("Teamwork", json.dumps({
+            "naprava": str(id_naprave), "ime_naprave": str(ime_naprave), "oznaka": str(oznaka),
+            "pot_imen": [str(x) for x in pot_imen], "pot": pot, "streznik": streznik if isinstance(streznik, dict) else {}}))
+        program_lastnika = str(tw.get("program") or "")
+        izid["teamwork"] = {"podprto": bool(tw.get("podprto")), "drugi": [str(x) for x in tw.get("drugi") or []]}
+    from core import os_odpri_z
+    izbira = link_teamwork.izberi_program(pot, program_lastnika, os_odpri_z.programi_za)
+    izid["nacin"], izid["program"] = izbira["nacin"], izbira["ime"]
+    izid["odprto"] = False
+    if izbira["nacin"] in ("isti", "podprt"):
+        izid["odprto"] = bool(os_odpri_z.odpri_z([pot], izbira["program"], zaganjalnik=zaganjalnik).get("ok"))
+        if not izid["odprto"]:
+            from core import os_datoteke
+            izid["odprto"] = bool(os_datoteke.odpri(pot))
+    elif not izid.get("izvirnik"):
+        # Tu ni programa za ta format: datoteka se odpre na napravi lastnika (na locenem zaslonu, ce ga ima) in tu se
+        # pokaze njen zaslon - urejas na njej.
+        r = _control_naprave("Ukaz", str(id_naprave), "files.open_locen", json.dumps({"id": str(oznaka)}))
+        if not r.get("ok"):
+            r = _control_naprave("Ukaz", str(id_naprave), "files.open", json.dumps({"id": str(oznaka)}))
+        if r.get("ok"):
+            izid["odprto"] = bool(upravljaj_racunalnik(str(id_naprave)).get("ok"))
+    return izid
 
 
 def preimenuj_napravo(id_naprave: str, ime: str) -> dict:
@@ -2987,7 +3021,7 @@ class SafeerOS(Gtk.Application):
             "nadaljujTukaj": lambda: nadaljuj_tukaj(
                 a[0] if a and isinstance(a[0], dict) else {}, str(a[1]) if len(a) > 1 else "", str(a[2]) if len(a) > 2 else "",
                 str(a[3]) if len(a) > 3 else "", str(a[4]) if len(a) > 4 else "",
-                [str(x) for x in (a[5] if len(a) > 5 and isinstance(a[5], list) else [])][:32]),
+                [str(x) for x in (a[5] if len(a) > 5 and isinstance(a[5], list) else [])][:32], self._zazeni_vnos_z),
             "preimenujNapravo": lambda: preimenuj_napravo(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "upravljajRacunalnik": lambda: upravljaj_racunalnik(str(a[0]) if a else ""),
             "programiNaprave": lambda: programi_naprave(str(a[0]) if a else ""),

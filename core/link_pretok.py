@@ -227,13 +227,16 @@ class LokalniPretok:
         return _Pot("127.0.0.1", vrata, "/cast/d/", odtis, True, zdaj + POT_VELJA_S)
 
     def odpri(self, vir: Vir, metoda: str, obseg: str = "", vrsta: str = "d",
-              rok: float = 20.0) -> Tuple[http.client.HTTPSConnection, http.client.HTTPResponse]:
+              rok: float = 20.0, telo=None, dolzina: int = 0) -> Tuple[http.client.HTTPSConnection, http.client.HTTPResponse]:
         """Zahteva do naprave (neposredno ali prek releja); ob izpadu neposredne poti enkrat znova.
 
-        `vrsta`: pot streznika datotek za isto datoteko - "d" (datoteka) ali "kosi" (opis kosov, core/link_delta).
+        `vrsta`: pot streznika datotek za isto datoteko - "d" (datoteka), "kosi" (opis kosov, core/link_delta) ali
+        "popravek" (Teamwork: POST shranitve, core/link_teamwork; `telo` je odprta datoteka z `dolzina` bajti).
         `rok`: cakanje na odgovor (opis velike datoteke naprava racuna dlje kot prvi bajt toka)."""
-        if vrsta not in ("d", "kosi"):
+        if vrsta not in ("d", "kosi", "popravek"):
             raise ValueError("neznana vrsta poti")
+        if (vrsta == "popravek") != (telo is not None):
+            raise ValueError("popravek potrebuje telo")
         if vir.pot and vrsta != "d":
             raise ValueError("tok torrenta nima opisa kosov")
         zadnja: Optional[BaseException] = None
@@ -245,11 +248,16 @@ class LokalniPretok:
             glave = {"X-Safeer-Token": vir.zeton}
             if obseg:
                 glave["Range"] = obseg
+            if telo is not None:
+                glave["Content-Length"] = str(int(dolzina))
+                glave["Content-Type"] = "application/octet-stream"
+                telo.seek(0)
             try:
                 if vir.pot and p.rele:
                     raise ConnectionError("tok torrenta samo v domacem omrezju")
                 predpona = p.predpona if vrsta == "d" else p.predpona[:-2] + vrsta + "/"   # /d/ -> /kosi/, /cast/d/ -> /cast/kosi/
-                povezava.request(metoda, vir.pot or (predpona + urllib.parse.quote(vir.id_datoteke, safe="")), headers=glave)
+                povezava.request(metoda, vir.pot or (predpona + urllib.parse.quote(vir.id_datoteke, safe="")), body=telo,
+                                 headers=glave)
                 odgovor = povezava.getresponse()
                 # Pot dela: dokler tok tece, je ne preverjamo znova (brez premora in brez dodatnih kanalov releja).
                 p.velja_do = time.time() + POT_VELJA_S

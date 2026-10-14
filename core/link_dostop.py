@@ -61,7 +61,8 @@ VSE_ZMOZNOSTI = frozenset((DATOTEKE, PROGRAMI, PREDVAJALNIK, ZASLON))
 PROSTO, VSE = "", "*"
 
 _DEJANJA = {
-    DATOTEKE: {"files.list", "files.search", "files.open", "files.open_locen", "storage.put", "storage.status"},
+    # files.session: Teamwork - naprava pove, da ima datoteko te naprave odprto (core/link_teamwork).
+    DATOTEKE: {"files.list", "files.search", "files.open", "files.open_locen", "files.session", "storage.put", "storage.status"},
     PROGRAMI: {"apps.list", "apps.launch", "apps.launch_locen", "apps.close", "apps.running", "apps", "launch_app", "open_in_app"},
     PREDVAJALNIK: {
         # Kaj naprava predvaja, nadaljevanje in ustavitev; seznami in viri Medijskega centra.
