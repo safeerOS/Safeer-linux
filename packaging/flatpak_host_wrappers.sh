@@ -4,13 +4,16 @@
 # one wrapper per tool that runs it on the host through flatpak-spawn (--talk-name=org.freedesktop.Flatpak).
 # The Python code stays the same: shutil.which() finds the wrapper and subprocess runs it. A tool the
 # host does not have fails with a non-zero exit code, exactly as a missing command would.
+# 14. 10. 2026: xdg-mime (privzeti programi), udisksctl (izvrzi USB), dpkg-query/apt-cache (ponudniki programov),
+# avahi-browse (naprave v omrezju) in dconf (dock) v peskovniku Flatpaka manjkajo - preverjeno na testnem PC.
 set -euo pipefail
 DEST="${1:?Usage: flatpak_host_wrappers.sh /app/host-bin}"
 mkdir -p "$DEST"
 TOOLS="nmcli nm-connection-editor resolvectl pkexec pactl pacmd wpctl brightnessctl gsettings gdbus systemctl loginctl
        xdg-open gio xprop xdotool wmctrl sway swaymsg wf-recorder wtype notify-send cinnamon-settings cinnamon-session-quit
        cinnamon-screensaver-command gnome-screenshot nemo pgrep pkill hostnamectl timedatectl xrandr playerctl amixer
-       safeer safeer-browser flatpak safeer-cinnamon nemo-desktop"
+       safeer safeer-browser flatpak safeer-cinnamon nemo-desktop
+       xdg-mime udisksctl dpkg-query apt-cache avahi-browse dconf"
 for tool in $TOOLS; do
     cat > "$DEST/$tool" << 'EOF'
 #!/bin/sh
