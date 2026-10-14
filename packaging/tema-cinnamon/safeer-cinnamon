@@ -40,7 +40,9 @@ ZADNJE_OZADJE="$MAPA/zadnje-ozadje"
 SEZNAM_OKEN="$MAPA/seznam-oken.txt"
 # Samozagon Safeer OS (cel zaslon) in seja safeer-os-tema bi se tepla z delovno povrsino: med vklopom ju
 # izklopimo z uporabnikovim preglasitvenim vnosom in ju ob izklopu vrnemo tocno tako, kot sta bila.
-TUJI_ZAGONI="safeer-os.desktop safeer-os-tema.desktop safeer-tema.desktop"
+# Samozagon Safeer Control (`safeer-control --ozadje`) tudi: Control tece v procesu delovne povrsine (en proces);
+# locen Control, ki se ob prijavi javi prej, bi tekel ves dan kot drugi proces (+67-117 MiB PSS, pregled 15. 10. 2026).
+TUJI_ZAGONI="safeer-os.desktop safeer-os-tema.desktop safeer-tema.desktop safeer-control.desktop"
 PLANK_TEME="${XDG_DATA_HOME:-$HOME/.local/share}/plank/themes"
 # Koren sistema (privzeto /): preizkusi ukaza ga preusmerijo v zacasno mapo.
 KOREN="${SAFEER_CINNAMON_KOREN:-}"
@@ -722,7 +724,10 @@ delovna() {
     zagoni_izklopi
     nemo_namizje_izklopi
     printf '[Desktop Entry]\nType=Application\nName=Safeer Cinnamon\nExec=safeer-cinnamon --seja\nX-GNOME-Autostart-enabled=true\nX-GNOME-Autostart-Delay=2\nNoDisplay=true\n' > "$SEJA"
-    pgrep -f "safeer_os.py|/safeer-os( |$)" >/dev/null 2>&1 || (setsid safeer-os --delovna >/dev/null 2>&1 &)
+    # Vedno: ce Safeer OS ze tece (Safeer Player, okno iz menija), mu --delovna preda delovno povrsino (dejanje
+    # »delovna«); prej je bil zagon preskocen in delovne povrsine ni bilo do naslednje prijave. Ce ze ima delovno
+    # povrsino, se ne zgodi nic.
+    (setsid safeer-os --delovna >/dev/null 2>&1 &)
 }
 
 delovna_izklopi() {
@@ -731,8 +736,17 @@ delovna_izklopi() {
     rm -f "$SEJA"
     zagoni_vrni
     [ -e "$MAPA/nemo-ikone-prej" ] && nemo_namizje_vrni
-    # Delovna povrsina (Safeer OS z --delovna) se konca cisto (SIGTERM -> Safeer OS pospravi za sabo).
-    if [ -n "$bila" ] || [ "${1:-}" = "koncno" ]; then pkill -TERM -f "safeer.*--delovna" >/dev/null 2>&1 || true; fi
+    # Delovna povrsina se konca cisto (Safeer OS pospravi za sabo). Proces, ki mu je bila predana pozneje (zagnan kot
+    # Safeer Player ali okno), nima --delovna v ukazni vrstici: zato najprej dejanje »delovna-izklopi« na vodilu (konca
+    # samo proces z delovno povrsino), SIGTERM po imenu ostane za starejse razlicice.
+    if [ -n "$bila" ] || [ "${1:-}" = "koncno" ]; then
+        if [ -z "$KOREN" ] && command -v gdbus >/dev/null 2>&1; then
+            gdbus call --session --timeout 5 --dest io.github.memelandfaner.SafeerOS \
+                --object-path /io/github/memelandfaner/SafeerOS --method org.gtk.Actions.Activate \
+                delovna-izklopi "[]" "{}" >/dev/null 2>&1 || true
+        fi
+        pkill -TERM -f "safeer.*--delovna" >/dev/null 2>&1 || true
+    fi
     return 0
 }
 
@@ -991,6 +1005,7 @@ case "${1:-}" in
     --nastavitve-docka)      command -v plank >/dev/null 2>&1 && exec plank --preferences ;;
     --seja)                  if [ -f "$VKLOPLJENO" ] && [ -f "$SEJA" ] && command -v safeer-os >/dev/null 2>&1; then
                                  nemo_namizje_izklopi      # ob prijavi Cinnamon zazene tudi Nemovo namizje
+                                 zagoni_izklopi            # tudi novejsi TUJI_ZAGONI (safeer-control) ob nadgradnji
                                  miska_enkrat
                                  # Ze vklopljena postavitev iz starejse razlicice dobi gumb Pokazi namizje enkrat; ce ga
                                  # uporabnik odstrani, ga ne vracamo.

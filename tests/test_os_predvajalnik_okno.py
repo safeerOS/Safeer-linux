@@ -284,11 +284,21 @@ class Okno(_Lupina):
             okno.set_visible.assert_called_once_with(False)   # predvajanje in vrsta skladb tecejo naprej
             lazna._koncaj.assert_not_called()
         lazna = mock.MagicMock()
-        lazna.okno_delovna = lazna.okno = None
+        lazna.okno_delovna = lazna.okno = lazna._plosca_spleta = None
         okno = mock.Mock()
         self.assertTrue(self.SafeerOS._zapri_predvajalnik(lazna, okno, None))
         lazna._koncaj.assert_called_once_with()         # samostojni Safeer Player se zapre kot vsak predvajalnik
         okno.set_visible.assert_not_called()
+        # Splet, odprt iz samostojnega Safeer Playerja, ostane: predvajanje se ustavi, proces konca zaprtje Spleta.
+        lazna = mock.MagicMock()
+        lazna.okno_delovna = lazna.okno = None
+        lazna._plosca_spleta.get_visible.return_value = True
+        okno = mock.Mock()
+        self.assertTrue(self.SafeerOS._zapri_predvajalnik(lazna, okno, None))
+        lazna._koncaj.assert_not_called()
+        okno.set_visible.assert_called_once_with(False)
+        lazna._ustavi_neposredni_medij.assert_called_once_with()
+        lazna._pocisti_medijski_pogled.assert_called_once_with()
 
     def test_sistemska_okna_nad_safeer_playerjem(self):
         lazna = mock.MagicMock()
@@ -374,18 +384,21 @@ class Most(_Lupina):
         lazna._katalog_pogled = mock.Mock()                              # pogleda ni vec
         self.assertIsNone(self._dogodek(lazna, "mediaKonec"))
 
-    def test_splet_brez_glavnega_okna_v_privzetem_brskalniku(self):
+    def test_splet_brez_glavnega_okna_v_spletu_istega_procesa(self):
+        """Brez vidnega glavnega okna (Safeer Cinnamon, Safeer Player) povezavo odpre Splet v svojem oknu v tem procesu
+        (_splet_na_namizju), ne privzeti brskalnik (pregled celovitosti 15. 10. 2026)."""
         for okno in (None, mock.Mock(**{"get_visible.return_value": False})):
             lazna = mock.MagicMock()
             lazna.okno = okno
-            lazna._odpri_v_brskalniku.return_value = True
+            lazna._splet_na_namizju.return_value = True
             self.assertTrue(self.SafeerOS._splet(lazna, "https://365.rtvslo.si/"))
-            lazna._odpri_v_brskalniku.assert_called_once_with("https://365.rtvslo.si/")
+            lazna._splet_na_namizju.assert_called_once_with("https://365.rtvslo.si/")
+            lazna._odpri_v_brskalniku.assert_not_called()
             lazna._pokazi_spletni_nacin.assert_not_called()
-            lazna._odpri_v_brskalniku.reset_mock()
+            lazna._splet_na_namizju.reset_mock()
             self.assertFalse(self.SafeerOS._splet(lazna, ""))
             self.assertFalse(self.SafeerOS._splet(lazna, "javascript:alert(1)"))
-            lazna._odpri_v_brskalniku.assert_not_called()
+            lazna._splet_na_namizju.assert_not_called()
         lazna = mock.MagicMock()
         lazna.okno.is_active.return_value = False
         self.SafeerOS._splet(lazna, "https://example.org/")

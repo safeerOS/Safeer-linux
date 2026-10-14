@@ -9,6 +9,7 @@ Brez Safeer OS (samostojni paket safeer-control, Windows ...) Control tece kot p
 """
 from __future__ import annotations
 
+import os
 import threading
 from typing import Any, Callable, Optional
 
@@ -70,3 +71,20 @@ def na_glavni(fn: Callable[[], Any], cas: float = 10.0, privzeto: Any = None) ->
     if "e" in izid:
         raise izid["e"]
     return izid.get("v")
+
+
+def mapa_nastavitev_racunalnika() -> str:
+    """~/.config racunalnika. V Flatpaku XDG_CONFIG_HOME kaze v peskovnik (~/.var/app/...), safeer-cinnamon in
+    samozagoni pa so v ~/.config racunalnika (kot core/os_dock.mapa_launcherjev)."""
+    return (None if os.environ.get("FLATPAK_ID") else os.environ.get("XDG_CONFIG_HOME")) or \
+        os.path.join(os.path.expanduser("~"), ".config")
+
+
+def delovna_safeer_cinnamon() -> bool:
+    """Ali je vklopljena postavitev »delovna« Safeer Cinnamon: ob prijavi seja safeer-cinnamon (autostart/
+    safeer-cinnamon.desktop) zazene Safeer OS z delovno povrsino, ta pa Control v svojem procesu. Lastna samozagona
+    safeer-os.desktop in safeer-control.desktop sta med tem skrita (TUJI_ZAGONI v packaging/tema-cinnamon/safeer-cinnamon)
+    in shranjena v safeer-cinnamon/zagoni/, od koder ju izklop vrne."""
+    mapa = mapa_nastavitev_racunalnika()
+    return os.path.isfile(os.path.join(mapa, "safeer-cinnamon", "vklopljeno")) and \
+        os.path.isfile(os.path.join(mapa, "autostart", "safeer-cinnamon.desktop"))

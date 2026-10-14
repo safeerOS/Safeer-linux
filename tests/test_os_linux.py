@@ -685,6 +685,9 @@ class Samozagon(unittest.TestCase):
         lazni._cakajoca_datoteka, lazni._cakajoca_ponudba = "", None
         lazni._prvic, lazni.posnetek, lazni.shramba = True, "", self.shramba
         lazni._zacni_s_predvajalnikom = False        # zagon s --predvajalnik ima svoj preizkus (test_os_predvajalnik_okno)
+        # Delovna povrsina: Scit in zagon ob prijavi uredi _ob_namizju (skupno ob zagonu in ob _vklopi_delovno).
+        lazni._namizje_pripravljeno = False
+        lazni._ob_namizju = lambda: self.os_.SafeerOS._ob_namizju(lazni)
         for ime, vrednost in polja.items():
             setattr(lazni, ime, vrednost)
         with mock.patch.object(self.os_, "GLib"), mock.patch.object(self.os_, "Gio"):

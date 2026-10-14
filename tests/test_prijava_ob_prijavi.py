@@ -90,7 +90,12 @@ class PrijavnoOknoObPrijavi(unittest.TestCase):
     def test_delovna_povrsina_ob_zagonu_nacrtuje_okno(self):
         vir = open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8").read()
         delovna = vir.split("if self.delovna and not _ima_delovno(self):", 1)[1].split("return", 1)[0]
-        self.assertIn("self._prijavno_okno_ob_prijavi", delovna)
+        self.assertIn("self._ob_namizju()", delovna)
+        # Skupno ob zagonu z --delovna in ob poznejsem vklopu (_vklopi_delovno), pregled celovitosti 15. 10. 2026.
+        ob_namizju = vir.split("def _ob_namizju(self)", 1)[1].split("\n    def ", 1)[0]
+        self.assertIn("self._prijavno_okno_ob_prijavi", ob_namizju)
+        vklop = vir.split("def _vklopi_delovno(self)", 1)[1].split("\n    def ", 1)[0]
+        self.assertIn("self._ob_namizju()", vklop)
 
     def test_brez_povezave_v_vgrajenem_controlu_ne_odpre_lupine(self):
         vir = open(os.path.join(KOREN, "safeer_control.py"), encoding="utf-8").read()

@@ -912,8 +912,9 @@ class TestTemaCinnamon(unittest.TestCase):
             self.assertNotIn("window-list", self._vrednost(o, "org.cinnamon", "enabled-applets"))
             self.assertEqual(self._vrednost(o, "org.cinnamon.desktop.background", "picture-uri"), "'file:///home/u/moje.jpg'",
                              "ozadje 'ohrani' pusti uporabnikovo")
-            # Samozagon Safeer OS (cel zaslon) in starejsa tema Safeer OS bi se tepla z delovno povrsino.
-            for ime in ("safeer-os.desktop", "safeer-tema.desktop"):
+            # Samozagon Safeer OS (cel zaslon) in starejsa tema Safeer OS bi se tepla z delovno povrsino; samozagon
+            # Safeer Control bi prehitel vgradnjo v proces delovne povrsine (dva procesa, pregled 15. 10. 2026).
+            for ime in ("safeer-os.desktop", "safeer-tema.desktop", "safeer-control.desktop"):
                 with open(os.path.join(o["avto"], ime)) as f:
                     self.assertIn("Hidden=true", f.read())
             with open(os.path.join(o["avto"], "safeer-cinnamon.desktop")) as f:
@@ -937,6 +938,34 @@ class TestTemaCinnamon(unittest.TestCase):
             self.assertEqual(self._vrednost(o, "org.cinnamon.desktop.interface", "text-scaling-factor"), "1.25")
             self._ukaz(o, "--izklopi")
             self._kot_na_zacetku(o)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_delovna_preda_safeer_os_ki_ze_tece(self):
+        """Safeer OS ze tece (Safeer Player, okno iz menija): vklop delovne povrsine vseeno pozene safeer-os --delovna,
+        ki tekocemu preda dejanje »delovna« - prej je bil zagon preskocen in namizja ni bilo do naslednje prijave."""
+        tmp = tempfile.mkdtemp()
+        try:
+            o = self._okolje(tmp)
+            dnevnik = os.path.join(tmp, "setsid.log")
+            for ime, vsebina in (("pgrep", "#!/bin/sh\nexit 0\n"),                 # Safeer OS tece
+                                 ("setsid", '#!/bin/sh\necho "$@" >> "%s"\n' % dnevnik)):
+                p = os.path.join(tmp, "bin", ime)
+                with open(p, "w") as f:
+                    f.write(vsebina)
+            self._ukaz(o, "--profil", "delovna", "--ozadje", "ohrani")
+            import time
+            vsebina, konec = "", time.monotonic() + 10     # zagon tece v ozadju (setsid ... &)
+            while "safeer-os --delovna" not in vsebina and time.monotonic() < konec:
+                time.sleep(0.05)
+                vsebina = open(dnevnik).read() if os.path.exists(dnevnik) else ""
+            self.assertIn("safeer-os --delovna", vsebina)
+            with open(os.path.join(TEMA, "safeer-cinnamon"), encoding="utf-8") as f:
+                vir = f.read()
+            # Izklop konca tudi proces, ki mu je bila delovna povrsina predana (brez --delovna v ukazni vrstici).
+            self.assertIn("delovna-izklopi", vir[vir.index("delovna_izklopi() {"):])
+            seja = vir[vir.index("    --seja)"):]
+            self.assertLess(seja.index("zagoni_izklopi"), seja.index("exec safeer-os --delovna"))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 

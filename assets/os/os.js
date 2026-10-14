@@ -3347,6 +3347,9 @@
     kontrole($("hitreNastavitve"), false);
     $("stikaloCelozaslonsko").setAttribute("aria-checked", S.zacetek && S.zacetek.celozaslonsko ? "true" : "false");
     $("stikaloSamozagon").setAttribute("aria-checked", S.zacetek && S.zacetek.samozagon ? "true" : "false");
+    // Safeer Cinnamon: Safeer OS je vedno v oknu, ob delovni povrsini ga ob prijavi zazene seja safeer-cinnamon.
+    $("stikaloCelozaslonsko").hidden = !!(S.zacetek && S.zacetek.safeerCinnamon);
+    $("stikaloSamozagon").hidden = !!(S.zacetek && S.zacetek.samozagonNamizje);
     // Safeer od vklopa (zagonski in prijavni zaslon): samo, ce je namescen paket safeer-cinnamon s pomocnikom.
     var odVklopa = S.zacetek && S.zacetek.odVklopa;
     $("stikaloOdVklopa").hidden = !(odVklopa && odVklopa.na_voljo);
