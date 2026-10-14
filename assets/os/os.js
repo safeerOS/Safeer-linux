@@ -707,6 +707,8 @@
     }, true);
   }
   function naloziMedije(veckrat) {
+    // Prve strani drugih zavihkov v ozadju (klik na Filmi/Serije je potem takoj; enkrat na 10 min, odloci jedro).
+    if (most && !naloziMedije.predgreto) { naloziMedije.predgreto = true; klic("mediaPredgrej", []).catch(function () {}); }
     if (!veckrat) naloziPolice();
     // DVD v pogonu (brez zaščite): gumb se pokaže samo, kadar je disk vstavljen.
     if (!veckrat && most) klic("dvdPogoni").then(function (pogoni) {

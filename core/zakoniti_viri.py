@@ -800,7 +800,7 @@ class ZakonitiViri:
         return self._cached("archive-pd:" + iskanje.casefold() + (("|" + jezik) if jezik else "") + (("|z" + predmet) if predmet else ""), fetch)
 
     def get(self, query: str = "", configured_hosts: list[str] | None = None, zvrst: str = "", jezik: str = "",
-            filmska_zvrst: str = "") -> list[dict]:
+            filmska_zvrst: str = "", vrsta: str = "") -> list[dict]:
         """`jezik`: izbran jezik vsebine. PeerTube in Jamendo izbereta ze sama; pri radiu in javni lasti jezik pove
         vnos. Tocno izbiro (in vnose brez znanega jezika) opravi katalog."""
         if zvrst:
@@ -809,6 +809,14 @@ class ZakonitiViri:
         else:
             # Lastnik, 11. 10. 2026: Internet Archive (filmi v javni lasti) ni vgrajen vir.
             tasks = ((self.videos, (query, configured_hosts, jezik)), (self.music, (query, "", jezik)), (self.radio, (query,)))
+        # Samo viri, ki dajo to vrsto (lastnik 14. 10. 2026: cakanje na filme - prej je katalog filmov cakal tudi na
+        # radijske postaje, 1,7 s na prenosniku, ceprav jih katalog nato izloci).
+        potrebni = {"film": ("videos",), "serija": ("videos",), "video": ("videos",), "glasba": ("music",),
+                    "radio": ("radio",), "tv-v-zivo": ()}.get(vrsta)
+        if potrebni is not None:
+            tasks = tuple(t for t in tasks if t[0].__name__ in potrebni)
+            if not tasks:
+                return []
         with ThreadPoolExecutor(max_workers=4) as pool:
             futures = [pool.submit(fn, *args) for fn, args in tasks]
             results = []

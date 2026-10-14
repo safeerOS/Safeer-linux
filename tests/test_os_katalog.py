@@ -375,3 +375,28 @@ def test_medijski_center_brez_zavihka_vse():
     # Filmi in serije imajo vsak svoje zvrsti (TMDB ima za serije druge stevilke), 14. 10. 2026.
     assert 'if (filter === "film" || filter === "serija") return filter;' in js
     assert "zadnjaMedijskaKategorija()" in js
+
+
+def test_katalog_hitreje_14_10():
+    """Lastnik 14. 10. 2026: cakanje na katalog filmov in serij - predgrevanje zavihkov, osebni in javni viri hkrati,
+    filmi ne cakajo na radio."""
+    import os as _os
+    koren = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    beri = lambda *p: open(_os.path.join(koren, *p), encoding="utf-8").read()  # noqa: E731
+    assert '"mediaPredgrej": "_predgrej"' in beri("core", "os_katalog.py")
+    assert 'klic("mediaPredgrej", [])' in beri("assets", "os", "os.js")
+    assert "_vzporedno.submit(self._personal_items" in beri("core", "os_media.py")
+    from core.zakoniti_viri import ZakonitiViri
+    z = ZakonitiViri.__new__(ZakonitiViri)
+    klici = []
+    z.videos = lambda *a: klici.append("videos") or []
+    z.music = lambda *a: klici.append("music") or []
+    z.radio = lambda *a: klici.append("radio") or []
+    def ime(f, n):
+        f.__name__ = n
+        return f
+    z.videos, z.music, z.radio = ime(z.videos, "videos"), ime(z.music, "music"), ime(z.radio, "radio")
+    z.get("", [], "", "", vrsta="film")
+    assert klici == ["videos"]
+    klici.clear(); z.get("", [], "", "", vrsta="tv-v-zivo")
+    assert klici == []

@@ -3304,9 +3304,21 @@ class MediaCenter:
         # ne smejo prenesti v glavni katalog.
         configured_hosts = [str(source.get("url") or "") for source in data.get("viri", [])
                             if isinstance(source, dict) and source.get("url")]
-        lawful = (self._zakoniti_viri.get(_text(query, 120), configured_hosts, _text(genre, 20), jezik) if glasbena
-                  else self._zakoniti_viri.get(_text(query, 120), configured_hosts, "", jezik,
-                                               filmska_zvrst=_text(genre, 20) if kind in ("film", "vse") else ""))
+        vrsta_virov = "" if kind in ("", "vse") else kind
+        # Javni viri in osebni (dodatki Stremio, Cinemeta, strezniki) hkrati, ne zaporedno: prvi katalog filmov na
+        # prenosniku z 10 dodatki 4,9 s -> priblizno najpocasnejsi vir (meritev 14. 10. 2026).
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=2) as _vzporedno:
+            _osebni = _vzporedno.submit(self._personal_items, _text(query, 120))
+            lawful = (self._zakoniti_viri.get(_text(query, 120), configured_hosts, _text(genre, 20), jezik,
+                                              vrsta=vrsta_virov) if glasbena
+                      else self._zakoniti_viri.get(_text(query, 120), configured_hosts, "", jezik,
+                                                   filmska_zvrst=_text(genre, 20) if kind in ("film", "vse") else "",
+                                                   vrsta=vrsta_virov))
+            try:
+                _osebni_vnosi = _osebni.result()
+            except Exception:  # noqa: BLE001 - en vir ne sme podreti kataloga
+                _osebni_vnosi = []
         if glasbena:
             # Pri zvrsti pokazemo samo zadetke te zvrsti, ne tudi krajevnih datotek in osebnih virov.
             local, remote = [], []
@@ -3321,7 +3333,7 @@ class MediaCenter:
                 dynamic, remote, local = [], [], []
         if kind not in ("", "vse"):
             lawful = [item for item in lawful if item.get("vrsta") == kind]
-        personal = self._personal_items(_text(query, 120))
+        personal = _osebni_vnosi
         if kind == "tv-v-zivo" and _text(genre, 20) not in ("", "moji"):
             personal = []
         if glasbena:

@@ -330,7 +330,7 @@ class Katalog:
         return getattr(self, self.METODE[metoda])(a)
 
     METODE = {
-        "mediaZvrsti": "_zvrsti", "mediaKatalog": "_katalog", "mediaIsciPredpomnilnik": "_isci_predpomnilnik",
+        "mediaZvrsti": "_zvrsti", "mediaKatalog": "_katalog", "mediaPredgrej": "_predgrej", "mediaIsciPredpomnilnik": "_isci_predpomnilnik",
         "mediaPodrobnosti": "_podrobnosti", "mediaWatchSettings": "_watch_settings", "mediaWatchCountry": "_watch_country",
         "mediaSezona": "_sezona", "mediaEpizoda": "_epizoda", "mediaFilm": "_film",
         "mediaViri": "_viri", "mediaDodajVir": "_dodaj_vir", "mediaDodajStreznik": "_dodaj_streznik",
@@ -379,6 +379,26 @@ class Katalog:
             izklopljeni_jeziki=izklopljeni_jeziki,
             # Izbran jezik vsebine (poleg zvrsti); neznana koda v jedru ne velja.
             jezik=self._niz(a, 8)[:8]))
+
+    def _predgrej(self, _a: list) -> Any:
+        """Ob odprtju Medijskega centra v ozadju pripravi prve strani glavnih zavihkov (Glasba, Filmi, Serije, Radio,
+        TV v zivo), da je klik na zavihek takoj (lastnik 14. 10. 2026: cakanje na katalog filmov in serij). Enkrat na
+        10 minut; ze sveze poglede predpomnilnik vrne takoj, brez omrezja."""
+        zdaj = time.time()
+        if zdaj - getattr(self, "_predgreto", 0) < 600:
+            return False
+        self._predgreto = zdaj
+        mc = self.mc
+        mc.izbrana_drzava = self._drzava()
+
+        def delo():
+            for vrsta in ("film", "serija", "glasba", "radio", "tv-v-zivo"):
+                try:
+                    mc.catalog_hitro("", vrsta, "", 1)
+                except Exception as napaka:  # noqa: BLE001
+                    print("[Katalog] predgrevanje %s: %s" % (vrsta, napaka), flush=True)
+        threading.Thread(target=delo, name="katalog-predgrej", daemon=True).start()
+        return True
 
     def _isci_predpomnilnik(self, a: list) -> Any:
         return self.mc.isci_v_predpomnilniku(self._niz(a, 0), 8)
