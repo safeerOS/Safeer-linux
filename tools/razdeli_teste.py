@@ -132,6 +132,8 @@ def razdeli() -> tuple:
             skupine.add("4")
         for u in _uvozi(list(ast.walk(drevo)), "tests." + d[:-3], moduli):
             skupine |= doseze(u)
+        # Preizkus, ki sam na ravni modula zahteva Gtk (gi.require_version("Gtk", "4.0")), spada v tisto skupino.
+        skupine |= {_zahteva(v) for v in _na_ravni_modula(drevo)} - {""}
         ime = d[:-3]
         if skupine == {"3", "4"}:
             oboje.append(ime)

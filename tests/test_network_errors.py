@@ -39,3 +39,10 @@ class NetworkErrorTests(unittest.TestCase):
             h.load_failed(v,WebKit2.LoadEvent.STARTED,url,error)
         h.load_changed(v,WebKit2.LoadEvent.STARTED)
         callbacks.pop()();self.assertEqual(v.loaded,[url])
+
+
+def test_jeziki_napake():
+    from core.network_errors import BESEDILA
+    assert set(BESEDILA) == {"sl", "en", "de", "es", "fr", "it"}
+    assert "Try again" in error_html("https://example.org/", "GET", jezik="en")
+    assert 'lang="sl"' in error_html("https://example.org/", "GET")

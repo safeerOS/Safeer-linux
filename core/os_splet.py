@@ -1102,6 +1102,9 @@ class VdelaniSplet:
         # Temno pod našo začetno stranjo, belo pod spletom - belo mora biti nastavljeno, preden dokument strani nastane.
         ozadje_strani.prikljuci(self.Gdk, W, pogled, os.path.join(self.koren, "ui"), TEMNO_OZADJE)
         pogled.connect("decide-policy", self._politika)
+        # Napaka omrezja ali potrdila: nasa stran v jeziku vmesnika (prej WebKitova v anglescini; kot Safeer Browser).
+        from core.network_errors import NetworkErrorHandler
+        pogled._safeer_napake = NetworkErrorHandler(pogled, lambda: str(self.jezik() if callable(self.jezik) else self.jezik or "sl"))
         fc = pogled.get_find_controller()
         fc.connect("counted-matches", lambda f, n: pogled is self.trenutni() and self._najdi_stevec(f, n))
         fc.connect("failed-to-find-text", lambda f: pogled is self.trenutni() and self._najdi_stevec(f, 0))

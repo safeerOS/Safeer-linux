@@ -3,6 +3,9 @@ import datetime
 import os
 import tempfile
 
+import gi
+gi.require_version("Gtk", "4.0")   # skupina GTK4 (tools/razdeli_teste.py)
+
 from core import zgodovina
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -41,3 +44,11 @@ def test_stevilo_zadetkov():
     assert [z(n, "sl") for n in (1, 2, 3, 5, 101, 102)] == ["1 zadetek", "2 zadetka", "3 zadetki", "5 zadetkov",
                                                              "101 zadetek", "102 zadetka"]
     assert z(1, "en") == "1 match" and z(4, "de") == "4 Treffer"
+
+
+def test_napake_omrezja_v_gtk4():
+    from core import network_errors as ne
+    assert ne.WebKit2.__name__.endswith("WebKit")          # WebKitGTK 6.0, ne WebKit2 4.1
+    assert "Poskusi znova" in ne.error_html("https://example.org/", "GET")
+    s = open(os.path.join(KOREN, "core", "os_splet.py"), encoding="utf-8").read()
+    assert "NetworkErrorHandler(pogled" in s
