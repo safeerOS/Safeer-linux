@@ -38,3 +38,13 @@ class Okno(unittest.TestCase):
             self.assertTrue(hasattr(s, "_drm_vdelaj"))         # Safeer DRM (Widevine) v zavihku
             self.assertTrue(hasattr(s, "_temno_namesti"))      # Dark Reader
             app.okno.destroy()
+
+
+def test_zaprtje_okna_konca_drm():
+    """Preizkus 14. 10.: po zaprtju okna je safeer-drm na gostitelju ostal (flatpak-spawn) in drzal Flatpak."""
+    besedilo = open(os.path.join(b.KOREN, "safeer_brskalnik.py"), encoding="utf-8").read()
+    telo = besedilo.split("def _ob_zaprtju", 1)[1].split("def do_activate", 1)[0]
+    assert "koncaj_drm()" in telo
+    splet = open(os.path.join(b.KOREN, "core", "os_splet.py"), encoding="utf-8").read()
+    telo = splet.split("def koncaj_drm", 1)[1].split("def _drm_konec", 1)[0]
+    assert "self.zavihki" in telo and "_drm_konec(z)" in telo

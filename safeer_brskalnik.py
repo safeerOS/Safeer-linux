@@ -112,6 +112,7 @@ class SafeerBrskalnik(Gtk.Application):
             shrani_sejo(self.splet.config, [z["pogled"].get_uri() or "" for z in self.splet.zavihki])
         except Exception as e:  # noqa: BLE001 - zaprtje mora uspeti tudi brez seje
             print("[Safeer Browser] seja:", e, flush=True)
+        self.splet.koncaj_drm()
         return False
 
     def do_activate(self) -> None:

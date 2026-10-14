@@ -1629,6 +1629,15 @@ class VdelaniSplet:
             pass
         return True
 
+    def koncaj_drm(self) -> None:
+        """Zaprtje okna (Safeer Browser): konca Safeer DRM v vseh zavihkih. Preizkus 14. 10. na testnem PC: brez tega
+        je okno izginilo, proces safeer-drm na gostitelju (flatpak-spawn --watch-bus) pa je ostal in drzal Flatpak."""
+        for z in list(self.zavihki):
+            try:
+                self._drm_konec(z)
+            except Exception as e:  # noqa: BLE001 - zaprtje mora uspeti
+                print("[Splet] DRM konec:", e, flush=True)
+
     def _drm_konec(self, z) -> None:
         gost = z.get("drm") if z else None
         if gost is None:
