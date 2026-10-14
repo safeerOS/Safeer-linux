@@ -27,7 +27,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from . import knjiznica_kroga, media_servers, os_media, zakoniti_viri
+from . import knjiznica_kroga, media_servers, os_media, os_police, zakoniti_viri
 
 #: Posnetek YouTube: natanko 11 znakov iz te abecede.
 YOUTUBE_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -239,7 +239,7 @@ class Katalog:
                  youtube_ukaz: Callable[[str], bool],
                  jezik: Callable[[], str] = lambda: "sl", visina_zaslona: int = 1080,
                  uskladi_sezname: Optional[Callable[[Callable], bool]] = None,
-                 knjiznica: Optional[knjiznica_kroga.Knjiznica] = None) -> None:
+                 knjiznica: Optional[knjiznica_kroga.Knjiznica] = None, lokalna: Any = None) -> None:
         self.config_dir = Path(config_dir)
         self.dogodek = dogodek
         self.v_glavni = v_glavni
@@ -261,6 +261,14 @@ class Katalog:
         self._seznami_usklajeni = 0.0
         self._seznami_usklajujem = False
         self._motor_odstotek = -1
+        #: Osebne police (core/os_police.py): priljubljene, stevci, ogledano - v isti mapi kot napredek.json.
+        self.police = os_police.Police(self.config_dir)
+        #: Krajevna knjiznica (core/os_knjiznica.py) za police; None = privzeta baza ob prvi rabi.
+        self._lokalna = lokalna
+        #: Ponujena naslednja epizoda: {"zeton", "cas", "kljuc", "tip", ...} ali None. Zeton porabi prvi pogled, ki
+        #: jo zacne ali preklice (Medijski center je lahko odprt v dveh oknih - epizoda se ne sme zaceti dvakrat).
+        self._ponudba: Optional[dict] = None
+        self._zaklep_ponudbe = threading.Lock()
 
     # ------------------------------------------------------------------ jedro
     @property
@@ -332,6 +340,9 @@ class Katalog:
         "mediaKnjiznica": "_knjiznica_seznam", "mediaKnjiznicaPredvajaj": "_knjiznica_predvajaj",
         "mediaKnjiznicaOdstrani": "_knjiznica_odstrani", "mediaKnjiznicaObdrzi": "_knjiznica_obdrzi",
         "mediaMotorPreklici": "_motor_preklici", "mediaTokovi": "_tokovi",
+        "mediaPolice": "_police", "mediaPriljubljena": "_priljubljena", "mediaOgledano": "_ogledano",
+        "mediaPolicaPredvajaj": "_polica_predvajaj", "mediaPredvajanTok": "_predvajan_tok",
+        "mediaNaslednjaPredvajaj": "_naslednja_predvajaj", "mediaNaslednjaPreklici": "_naslednja_preklici",
     }
 
     @staticmethod
@@ -498,6 +509,9 @@ class Katalog:
             return
         stanje = d.get("stanje")
         if stanje == 1 and not yt["igra"]:
+            if not yt["ze_igral"] and yt.get("kljuc"):
+                # Vgradni predvajalnik ne javlja mesta: skladba s seznama steje, ko res zaigra (prvic v tej izbiri).
+                self.police.stej(yt["kljuc"])
             yt["igra"] = True
             self.dogodek("mediaYt", {"id": yt["id"], "igra": True})
         elif stanje == 2 and yt["igra"]:
@@ -524,12 +538,19 @@ class Katalog:
         item = self.mc.resolve(ident)
         if not item:
             return None
+        return self._predvajaj_razresen(item, ident)
+
+    def _predvajaj_razresen(self, item: dict, ident: str) -> Optional[dict]:
         if item.get("napaka_koda") or item.get("napaka") or item.get("sporocilo"):
             return item
         if item.get("stran") and str(item.get("url") or "") == str(item.get("stran")):
             return item       # prenos, ki ga izdajatelj ponuja samo na svoji strani: stran ga odpre v Spletu
         nacin = nacin_predvajanja(item, os_media.je_neposredni_zvok)
         self._yt = None       # nova izbira: prejsnja skladba v vgradnem predvajalniku ne sprozi vec nicesar
+        self._preklici_ponudbo()      # uporabnik je izbral drugo vsebino: ponujena epizoda se ne zacne sama
+        kljuc = os_police.kljuc_vnosa(dict(item, id=str(item.get("id") or ident)))
+        if nacin in ("youtube", "neposredno"):
+            self.police.zapomni(kljuc, self._opis_vnosa(item, ident))
         # Dnevnik brez naslova vsebine: samo pot predvajanja in gostitelj (za iskanje napak, kot na Windows).
         print("[SafeerMedia] pot=%s vrsta=%s gostitelj=%s" % (nacin or "ni", item.get("vrsta") or "",
               urllib.parse.urlsplit(str(item.get("url") or "")).hostname or ""), flush=True)
@@ -538,7 +559,7 @@ class Katalog:
             ident = str(item.get("id") or ident)
             naslov = naslov_za_predvajalnik(item)
             url = naslov_vgradnje(item["youtube"])
-            self._yt = {"id": ident, "igra": False, "ze_igral": False}
+            self._yt = {"id": ident, "igra": False, "ze_igral": False, "kljuc": kljuc}
             if not url or not self._v_glavni_pocakaj(lambda: self._youtube(url, naslov)):
                 self._yt = None
                 return dict(item, native=True, napaka_koda="tok")
@@ -548,7 +569,7 @@ class Katalog:
             if item.get("pot") and not url.startswith("file:"):
                 url = Path(str(item["pot"])).as_uri()
             vrsta = vrsta_predvajalnika(item)
-            zacetek = self.napredek_za(str(item.get("id") or ident)) if vrsta == "video" else 0
+            zacetek = self._zacetek(item, ident, kljuc) if vrsta in ("video", "medij") else 0
             ok = self._v_glavni_pocakaj(lambda: self._predvajaj(url, vrsta, naslov_za_predvajalnik(item), zacetek,
                                                                  podnapisi_vnosa(item), vrsta in ("video", "tv")))
             if not ok:
@@ -557,6 +578,7 @@ class Katalog:
                 self._predvajano.clear()
             # izvajalec in slika: za sistem (MPRIS - zvocni applet in medijske tipke pokazejo, kaj igra)
             self._predvajano[url] = {"id": str(item.get("id") or ident), "zvok": vrsta in ("medij", "radio"), "vrsta": vrsta,
+                                     "kljuc": kljuc,
                                      "izvajalec": str(item.get("izvajalec") or "")[:200], "slika": str(item.get("slika") or "")[:2048]}
             return dict(item, native=True, zvok=vrsta in ("medij", "radio"))
         if nacin == "vdelano":
@@ -591,13 +613,17 @@ class Katalog:
         ident = str(v.get("ref") or "") or "knjiznica:" + v["kljuc"]
         naslov = str(v.get("naslov") or "")
         self._yt = None
+        self._preklici_ponudbo()
         print("[SafeerMedia] pot=knjiznica vrsta=%s podnapisov=%d" % (v.get("vrsta") or "", len(podnapisi)), flush=True)
         zacetek = self.napredek_za(ident)
         if not self._v_glavni_pocakaj(lambda: self._predvajaj(url, "video", naslov, zacetek, podnapisi, True)):
             return {"napaka_koda": "tok"}
         if len(self._predvajano) > 50:
             self._predvajano.clear()
-        self._predvajano[url] = {"id": ident, "zvok": False, "vrsta": "video"}
+        kljuc = "id:" + ident
+        self.police.zapomni(kljuc, {"id": ident, "naslov": naslov, "vrsta": "film" if v.get("vrsta") != "serija" else "serija",
+                                    "slika": v.get("slika") or ""})
+        self._predvajano[url] = {"id": ident, "zvok": False, "vrsta": "video", "kljuc": kljuc}
         return {"id": ident, "naslov": naslov, "native": True, "zvok": False}
 
     def _knjiznica_odstrani(self, a: list) -> bool:
@@ -639,38 +665,394 @@ class Katalog:
         return int(v[0]) if isinstance(v, list) and v and isinstance(v[0], (int, float)) and v[0] >= 15 else 0
 
     def shrani_napredek(self, uri: str, pozicija: float, trajanje: float) -> None:
-        """Film ali epizoda iz kataloga: zapomnimo si, kje je uporabnik ostal (ne za zvok in prenose v zivo)."""
+        """Film ali epizoda iz kataloga (in dolg zvok - podcast): zapomnimo si, kje je uporabnik ostal; ne za skladbe
+        in prenose v zivo. Klice se vsakih nekaj sekund med predvajanjem: tu tudi stejemo predvajanje in oznacimo
+        video kot ogledan (core/os_police.py)."""
         vnos = self._predvajano.get(str(uri or ""))
-        if not vnos or vnos.get("vrsta") != "video" or pozicija < 15 or trajanje <= 0:
+        if not vnos:
+            return
+        self._stej_in_oznaci(vnos, pozicija, trajanje)
+        dolg_zvok = vnos.get("vrsta") == "medij" and trajanje >= os_police.DOLG_ZVOK_S
+        if (vnos.get("vrsta") != "video" and not dolg_zvok) or pozicija < 15 or trajanje <= 0:
             return
         d = self._napredki()
-        if trajanje - pozicija < 20:        # tik pred koncem: naslednjic od zacetka
+        # Tik pred koncem ali ogledano (90 %, odjavna spica): naslednjic od zacetka, ne »Nadaljuj« pri odjavni spici.
+        if trajanje - pozicija < 20 or (vnos.get("vrsta") == "video" and os_police.je_ogledano(pozicija, trajanje)):
             d.pop(vnos["id"], None)
         else:
             d[vnos["id"]] = [int(pozicija), int(trajanje), int(time.time())]
         if len(d) > NAJVEC_NAPREDKOV:
             for k, _ in sorted(d.items(), key=lambda kv: kv[1][2] if isinstance(kv[1], list) and len(kv[1]) > 2 else 0)[:len(d) - NAJVEC_NAPREDKOV]:
                 d.pop(k, None)
-        try:
-            self.config_dir.mkdir(parents=True, exist_ok=True)
-            (self.config_dir / "napredek.json").write_text(json.dumps(d), encoding="utf-8")
-        except OSError:
-            pass
+        self._pisi_napredke(d)
+
+    def _stej_in_oznaci(self, vnos: dict, pozicija: float, trajanje: float) -> None:
+        """Predvajanje steje enkrat na izbiro, ko je preteklo dovolj (os_police.prag_stetja); video pri 90 % je ogledan."""
+        kljuc = vnos.get("kljuc")
+        if not kljuc:
+            return
+        if not vnos.get("steto") and pozicija >= os_police.prag_stetja(trajanje):
+            vnos["steto"] = True
+            self.police.stej(kljuc)
+        if vnos.get("vrsta") == "video" and not vnos.get("ogledan") and os_police.je_ogledano(pozicija, trajanje):
+            vnos["ogledan"] = True
+            self.police.nastavi_ogledano(kljuc, True)
 
     def konec(self, uri: str) -> None:
-        """Domaci predvajalnik je vnos odigral do konca: film pozabi napredek, skladba sprozi naslednjo iz vrste."""
+        """Domaci predvajalnik je vnos odigral do konca: film pozabi napredek in je ogledan, skladba sprozi naslednjo iz
+        vrste, po epizodi Safeer ponudi naslednjo (dogodek mediaNaslednja). Datoteka iz krajevne knjiznice ni v
+        _predvajano: zanjo velja _konec_lokalne."""
         vnos = self._predvajano.get(str(uri or ""))
         if not vnos:
+            self._konec_lokalne(str(uri or ""))
             return
-        if vnos.get("vrsta") == "video":
+        if vnos.get("vrsta") in ("video", "medij"):
             d = self._napredki()
             if d.pop(vnos["id"], None) is not None:
-                try:
-                    (self.config_dir / "napredek.json").write_text(json.dumps(d), encoding="utf-8")
-                except OSError:
-                    pass
+                self._pisi_napredke(d)
+        if vnos.get("vrsta") == "video" and vnos.get("kljuc"):
+            self.police.nastavi_ogledano(vnos["kljuc"], True)
+            epizoda = os_police.razcleni_kljuc_epizode(vnos["kljuc"])
+            if epizoda is not None:
+                # Naslednjo epizodo pove TMDB (omrezje): v ozadju, glavna nit (predvajalnik) ne caka.
+                threading.Thread(target=self._ponudi_naslednjo_kataloga, args=(epizoda, vnos["kljuc"]),
+                                 name="safeer-naslednja", daemon=True).start()
         if vnos.get("zvok"):
             self.dogodek("mediaKonec", {"id": vnos["id"]})
+
+    def _pisi_napredke(self, d: dict) -> None:
+        """Atomaren zapis napredek.json (zacasna datoteka + os.replace): izpad med pisanjem ne izgubi vseh mest."""
+        zacasna = self.config_dir / (".napredek.json.%d.%d.tmp" % (os.getpid(), threading.get_ident()))
+        try:
+            self.config_dir.mkdir(parents=True, exist_ok=True)
+            zacasna.write_text(json.dumps(d), encoding="utf-8")
+            os.replace(zacasna, self.config_dir / "napredek.json")
+        except OSError:
+            try:
+                zacasna.unlink()
+            except OSError:
+                pass
+
+    def _zacetek(self, item: dict, ident: str, kljuc: str) -> int:
+        """Kje nadaljevati: napredek po id vnosa; ce ga ni, po id, pod katerim je bil isti naslov (kljuc) predvajan
+        prej (epizodo s police Safeer po ponovnem zagonu sestavi znova in ima lahko drug id)."""
+        zacetek = self.napredek_za(str(item.get("id") or ident))
+        if zacetek or not kljuc:
+            return zacetek
+        prej = str(self.police.opis(kljuc).get("id") or "")
+        return self.napredek_za(prej) if prej and prej != str(item.get("id") or ident) else 0
+
+    @staticmethod
+    def _opis_vnosa(item: dict, ident: str) -> dict:
+        """Kar kartica na polici potrebuje; naslov toka le pri prenosih in skladbah (rezerva, ce ga katalog izgubi)."""
+        opis = {p: item.get(p) for p in ("naslov", "vrsta", "slika", "izvajalec", "tmdb_id", "sezona", "epizoda", "leto")}
+        opis["id"] = str(item.get("id") or ident)
+        if str(item.get("vrsta") or "") in ("radio", "tv-v-zivo", "glasba", "podcast"):
+            opis["url"] = str(item.get("url") or "")
+        return os_police.cisti_opis(opis)
+
+    # ------------------------------------------------------------------ osebne police (core/os_police.py)
+    @property
+    def lokalna(self):
+        if self._lokalna is None:
+            from . import os_knjiznica
+            self._lokalna = os_knjiznica.Knjiznica()
+        return self._lokalna
+
+    @staticmethod
+    def _vnos_lokalni(v: dict) -> dict:
+        return {"kljuc": "pot:" + v["pot"], "tip": "lokalno", "pot": v["pot"], "naslov": v.get("ime") or "",
+                "vrsta": v.get("vrsta") or "", "pozicija": int(v.get("pozicija") or 0), "trajanje": int(v.get("trajanje") or 0),
+                "ogledano": bool(v.get("ogledano")), "n": int(v.get("predvajanj") or 0), "t": int(v.get("zadnjic") or 0)}
+
+    @staticmethod
+    def _vnos_opisa(k: str, m: dict, ogledano: dict) -> dict:
+        tip = "tok" if k.startswith("tok:") else "lokalno" if k.startswith("pot:") else "katalog"
+        d = {"kljuc": k, "tip": tip, "naslov": str(m.get("naslov") or ""), "vrsta": str(m.get("vrsta") or ""),
+             "ogledano": k in ogledano}
+        for p in ("slika", "izvajalec", "podnaslov", "id", "url", "tmdb_id", "sezona", "epizoda"):
+            if m.get(p):
+                d[p] = m[p]
+        if tip == "tok":
+            d["url"] = k[4:]
+        elif tip == "lokalno":
+            d["pot"] = k[4:]
+        return d
+
+    def _police(self, a: list) -> dict:
+        """Police za zavihek Medijskega centra in stanje kartic (srcki in ogledano) za vse zavihke."""
+        zavihek, iskanje = self._niz(a, 0), self._niz(a, 1)
+        ogledano = self.police.ogledano()
+        izhod = {"priljubljene": self.police.kljuci_priljubljenih(),
+                 "ogledano": [k for k, _ in sorted(ogledano.items(), key=lambda kv: -kv[1])[:2000]], "police": []}
+        vrste = os_police.POLICE_ZAVIHKOV.get(zavihek, ())
+        if not vrste or iskanje.strip():
+            return izhod
+        viri = {}
+        for ime in vrste:
+            try:
+                viri[ime] = getattr(self, "_polica_" + ime)(zavihek, ogledano)
+            except Exception as e:  # noqa: BLE001 - polica, ki ne gre (baza zaklenjena, TMDB), ne podre ostalih
+                print("[SafeerMedia] polica %s: %s" % (ime, type(e).__name__), flush=True)
+                viri[ime] = []
+        izhod["police"] = os_police.sestavi_police(zavihek, viri)
+        return izhod
+
+    def _polica_nadaljuj(self, zavihek: str, ogledano: dict) -> list:
+        """Nedokoncano iz kataloga in knjiznice ter naslednje epizode serij, nazadnje gledano prvo."""
+        po_id = {}
+        for k, v in self.police.predvajanja().items():
+            m = v.get("m") if isinstance(v.get("m"), dict) else {}
+            if m.get("id"):
+                po_id[m["id"]] = (k, m)
+        izhod, serije = [], set()
+        for ident, v in self._napredki().items():
+            if not (isinstance(v, list) and len(v) >= 2 and ident in po_id):
+                continue
+            k, m = po_id[ident]
+            d = self._vnos_opisa(k, m, ogledano)
+            d.update(pozicija=int(v[0] or 0), trajanje=int(v[1] or 0), t=int(v[2] or 0) if len(v) > 2 else 0)
+            izhod.append(d)
+            if m.get("vrsta") == "serija" and m.get("tmdb_id"):
+                serije.add(int(m["tmdb_id"]))
+        for v in self.lokalna.nedokoncane():
+            izhod.append(self._vnos_lokalni(v))
+        if zavihek in ("serije", "video"):
+            for v, cas in os_police.naslednje_lokalne(self.lokalna.epizode()):
+                izhod.append(dict(self._vnos_lokalni(v), naslednja=True, t=cas))
+            izhod += self._naslednje_kataloga(ogledano, serije)
+        izhod.sort(key=lambda d: -int(d.get("t") or 0))
+        return izhod
+
+    def _polica_nazadnje(self, zavihek: str, ogledano: dict) -> list:
+        """Nazadnje dodano v knjiznico. Glasba po albumih (mapah): nov album je ena kartica, ne dvajset skladb."""
+        izhod, albumi = [], set()
+        for v in self.lokalna.nazadnje_dodane(200):
+            if not os_police.ustreza_zavihku(zavihek, v["vrsta"]):
+                continue
+            d = self._vnos_lokalni(v)
+            if v["vrsta"] == "glasba":
+                mapa = str(Path(v["pot"]).parent)
+                if mapa in albumi:
+                    continue
+                albumi.add(mapa)
+                d.update(naslov=Path(mapa).name or d["naslov"], podnaslov=d["naslov"], album=True)
+            izhod.append(d)
+        return izhod
+
+    def _polica_najvec(self, zavihek: str, ogledano: dict) -> list:
+        izhod = [self._vnos_lokalni(v) for v in self.lokalna.najveckrat()]
+        for k, v in self.police.predvajanja().items():
+            n = int(v.get("n") or 0)
+            if n >= os_police.NAJMANJ_ZA_NAJVEC and isinstance(v.get("m"), dict) and v["m"].get("naslov"):
+                izhod.append(dict(self._vnos_opisa(k, v["m"], ogledano), n=n, t=int(v.get("t") or 0)))
+        izhod.sort(key=lambda d: (-int(d.get("n") or 0), -int(d.get("t") or 0)))
+        return izhod
+
+    def _polica_priljubljene(self, zavihek: str, ogledano: dict) -> list:
+        """Priljubljene; datoteke in postaje le, ce so se v knjiznici (odstranjene ne obljubljajo predvajanja)."""
+        izhod = []
+        for x in self.police.priljubljene():
+            k, m = x["k"], dict(x.get("m") or {})
+            if k.startswith("pot:"):
+                v = self.lokalna.dobi(k[4:])
+                if not v or not v["naVoljo"]:
+                    continue
+                izhod.append(self._vnos_lokalni(v))
+                continue
+            if k.startswith("tok:"):
+                tok = self.lokalna.dobi_tok(k[4:])
+                if not tok:
+                    continue
+                m.update(naslov=tok["ime"], vrsta=tok["vrsta"])
+            if m.get("naslov"):
+                izhod.append(self._vnos_opisa(k, m, ogledano))
+        return izhod
+
+    def _priljubljena(self, a: list) -> bool:
+        """Srcek: [kljuc, da, opis]. Datoteka in postaja morata biti v knjiznici; opis kataloga, ki ga je Safeer
+        zapisal ob predvajanju, ima prednost pred opisom s strani."""
+        k, da = self._niz(a, 0), bool(a[1]) if len(a) > 1 else True
+        opis = a[2] if len(a) > 2 and isinstance(a[2], dict) else {}
+        if da and k.startswith("pot:") and not self.lokalna.dobi(k[4:]):
+            return False
+        if da and k.startswith("tok:") and not self.lokalna.dobi_tok(k[4:]):
+            return False
+        if da and not k.startswith(("pot:", "tok:")):
+            opis = dict(opis, **self.police.opis(k))
+        return self.police.nastavi_priljubljeno(k, da, opis)
+
+    def _ogledano(self, a: list) -> dict:
+        """»Oznaci kot ogledano/neogledano«: [kljuc, da, opis] -> {"ok", "ogledano"}. Ogledan naslov pozabi mesto
+        (naslednjic od zacetka, kot Jellyfin)."""
+        k, da = self._niz(a, 0), bool(a[1]) if len(a) > 1 else True
+        opis = os_police.cisti_opis(a[2]) if len(a) > 2 and isinstance(a[2], dict) else {}
+        if k.startswith("pot:"):
+            ok = bool(self.lokalna.nastavi_ogledano(k[4:], da))
+            return {"ok": ok, "ogledano": da if ok else not da}
+        if k.startswith("tok:") or not os_police.veljaven_kljuc(k):
+            return {"ok": False, "ogledano": False}
+        if da:
+            ident = str(self.police.opis(k).get("id") or opis.get("id") or "")
+            d = self._napredki()
+            if ident and d.pop(ident, None) is not None:
+                self._pisi_napredke(d)
+            if opis and not self.police.opis(k):
+                self.police.zapomni(k, opis)      # rocno oznacena epizoda: naslov serije za »Naslednja epizoda«
+        return {"ok": True, "ogledano": self.police.nastavi_ogledano(k, da)}
+
+    def _polica_predvajaj(self, a: list) -> Optional[dict]:
+        """Vnos s police kataloga: [kljuc, opis s strani]. Najprej isti id kot prej (napredek je pod njim), sicer
+        epizodo ali film znova sestavi po TMDB, za postajo ali skladbo pa uporabi shranjeni naslov toka."""
+        k = self._niz(a, 0)
+        if not os_police.veljaven_kljuc(k) or k.startswith(("pot:", "tok:")):
+            return None
+        stran = os_police.cisti_opis(a[1]) if len(a) > 1 and isinstance(a[1], dict) else {}
+        m = self.police.opis(k) or stran
+        ident = str(m.get("id") or "")
+        if ident:
+            izid = self._predvajaj_vnos([ident])
+            if izid:
+                return izid
+        epizoda = os_police.razcleni_kljuc_epizode(k)
+        item = None
+        if epizoda is not None:
+            naslov = str(m.get("naslov") or stran.get("naslov") or "")
+            item = self.mc.episode_item(epizoda[0], epizoda[1], epizoda[2], naslov)
+        elif k.startswith("tmdb:film:") and k[10:].isdigit():
+            item = self.mc.movie_item(int(k[10:]), str(m.get("naslov") or ""))
+        if item and item.get("id"):
+            return self._predvajaj_vnos([str(item["id"])])
+        if m.get("url"):
+            return self._predvajaj_razresen({"id": ident or k, "naslov": m.get("naslov") or "", "vrsta": m.get("vrsta") or "",
+                                             "url": m["url"], "izvajalec": m.get("izvajalec") or "",
+                                             "slika": m.get("slika") or ""}, ident or k)
+        return None
+
+    def _predvajan_tok(self, a: list) -> int:
+        """Shranjena postaja (Dodaj > TV/radio tok) se je zacela: steje za »Najveckrat predvajano«.
+        Domaci predvajalnik za te postaje knjiznici ne javlja mesta, zato steje zacetek, ki ga je izbral uporabnik."""
+        url = self._niz(a, 0)
+        tok = self.lokalna.dobi_tok(url) if url else None
+        if not tok:
+            return 0
+        return self.police.stej("tok:" + url, {"naslov": tok["ime"], "vrsta": tok["vrsta"]})
+
+    # ------------------------------------------------------------------ naslednja epizoda
+    def _epizod_v_sezoni(self, tmdb: int, predpomnilnik: dict) -> Callable[[int], int]:
+        """Stevilo ze predvajanih epizod sezone po TMDB (prihodnje epizode se ne stejejo)."""
+        danes = time.strftime("%Y-%m-%d")
+
+        def epizod(s: int) -> int:
+            if s not in predpomnilnik:
+                epizode = (self.mc.season(tmdb, s) or {}).get("epizode") or []
+                predpomnilnik[s] = [e for e in epizode if str(e.get("datum") or "9999") <= danes]
+            return len(predpomnilnik[s])
+        return epizod
+
+    def _naslednja_epizoda_kataloga(self, tmdb: int, s: int, e: int, ogledano: dict) -> Optional[dict]:
+        """Prva naslednja neogledana epizoda (najvec 12 korakov naprej) z naslovom in sliko iz TMDB."""
+        sezone: dict = {}
+        epizod = self._epizod_v_sezoni(tmdb, sezone)
+        for _ in range(12):
+            naslednja = os_police.naslednja_kataloga(s, e, epizod)
+            if naslednja is None:
+                return None
+            s, e = naslednja
+            if "tmdb:tv:%d:%d:%d" % (tmdb, s, e) not in ogledano:
+                podatki = next((x for x in sezone.get(s, []) if int(x.get("stevilka") or 0) == e), {})
+                return {"sezona": s, "epizoda": e, "naslov": str(podatki.get("naslov") or ""),
+                        "slika": str(podatki.get("slika") or "")}
+        return None
+
+    def _vnos_naslednje(self, tmdb: int, kljuc_prej: str, nasl: dict) -> dict:
+        m = self.police.opis(kljuc_prej)
+        serija = str(m.get("naslov") or "").split(" · ")[0]
+        oznaka = "S%02dE%02d" % (nasl["sezona"], nasl["epizoda"])
+        return {"kljuc": "tmdb:tv:%d:%d:%d" % (tmdb, nasl["sezona"], nasl["epizoda"]), "tip": "katalog",
+                "naslov": serija or nasl["naslov"] or oznaka, "vrsta": "serija", "tmdb_id": tmdb,
+                "sezona": nasl["sezona"], "epizoda": nasl["epizoda"], "naslednja": True, "ogledano": False,
+                "podnaslov": oznaka + (" · " + nasl["naslov"] if nasl["naslov"] else ""),
+                "slika": nasl["slika"] or str(m.get("slika") or "")}
+
+    def _naslednje_kataloga(self, ogledano: dict, zasedene: set) -> list:
+        """Naslednja epizoda za serije iz kataloga, gledane v zadnjih 180 dneh (najvec 6 - vsaka vprasa TMDB)."""
+        zadnje: dict = {}
+        meja = time.time() - os_police.NASLEDNJA_DNI * 86400
+        for k, cas in ogledano.items():
+            r = os_police.razcleni_kljuc_epizode(k)
+            if r is None or cas < meja or r[0] in zasedene:
+                continue
+            if r[0] not in zadnje or (cas, r[1], r[2]) > zadnje[r[0]][0]:
+                zadnje[r[0]] = ((cas, r[1], r[2]), k)
+        izhod = []
+        for tmdb, ((cas, s, e), k) in sorted(zadnje.items(), key=lambda kv: -kv[1][0][0])[:6]:
+            nasl = self._naslednja_epizoda_kataloga(tmdb, s, e, ogledano)
+            if nasl:
+                izhod.append(dict(self._vnos_naslednje(tmdb, k, nasl), t=cas))
+        return izhod
+
+    def _ponudi(self, ponudba: dict) -> None:
+        ponudba = dict(ponudba, zeton=secrets.token_hex(8), cas=time.monotonic())
+        with self._zaklep_ponudbe:
+            self._ponudba = ponudba
+        self.dogodek("mediaNaslednja", {k: v for k, v in ponudba.items() if k != "cas"})
+
+    def _vzemi_ponudbo(self, zeton: str) -> Optional[dict]:
+        with self._zaklep_ponudbe:
+            p = self._ponudba
+            if not p or not zeton or p["zeton"] != zeton or time.monotonic() - p["cas"] > 600:
+                return None
+            self._ponudba = None
+        self.dogodek("mediaNaslednjaKonec", {"zeton": zeton})
+        return p
+
+    def _preklici_ponudbo(self) -> None:
+        with self._zaklep_ponudbe:
+            p, self._ponudba = self._ponudba, None
+        if p:
+            self.dogodek("mediaNaslednjaKonec", {"zeton": p["zeton"]})
+
+    def _naslednja_predvajaj(self, a: list) -> Optional[dict]:
+        """Ponujeno epizodo zacne prvi pogled, ki to zahteva; datoteko iz knjiznice odpre stran (odpriLokalniMedij)."""
+        p = self._vzemi_ponudbo(self._niz(a, 0))
+        if p is None:
+            return None
+        if p.get("tip") == "lokalno":
+            return {"tip": "lokalno", "pot": p.get("pot") or ""}
+        return self._polica_predvajaj([p["kljuc"], p])
+
+    def _naslednja_preklici(self, a: list) -> bool:
+        return self._vzemi_ponudbo(self._niz(a, 0)) is not None
+
+    def _ponudi_naslednjo_kataloga(self, epizoda: tuple, kljuc: str) -> None:
+        try:
+            tmdb, s, e = epizoda
+            nasl = self._naslednja_epizoda_kataloga(tmdb, s, e, self.police.ogledano())
+            if nasl:
+                self._ponudi(self._vnos_naslednje(tmdb, kljuc, nasl))
+        except Exception as e:  # noqa: BLE001 - brez TMDB ni ponudbe; predvajanje je ze koncano
+            print("[SafeerMedia] naslednja epizoda: %s" % type(e).__name__, flush=True)
+
+    def _konec_lokalne(self, uri: str) -> None:
+        """Film ali epizoda iz krajevne knjiznice je odigrana do konca: ogledana; po epizodi ponudimo naslednjo."""
+        if not uri.startswith("file://"):
+            return
+        pot = urllib.parse.unquote(urllib.parse.urlsplit(uri).path)
+        try:
+            v = self.lokalna.dobi(pot)
+            if not v or v["vrsta"] not in ("filmi", "serije"):
+                return
+            self.lokalna.nastavi_ogledano(pot, True)
+            if v["vrsta"] != "serije":
+                return
+            epizode = {x["pot"]: x for x in self.lokalna.epizode()}
+            naslednja = os_police.naslednja_lokalna(pot, epizode.keys())
+            x = epizode.get(naslednja or "")
+            if x and x["naVoljo"] and not x["ogledano"]:
+                self._ponudi(dict(self._vnos_lokalni(x), naslednja=True))
+        except Exception as e:  # noqa: BLE001 - baza zaklenjena: predvajanje se konca brez ponudbe
+            print("[SafeerMedia] konec datoteke: %s" % type(e).__name__, flush=True)
 
     def zapri(self) -> None:
         self._yt = None

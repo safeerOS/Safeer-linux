@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from core import os_police
 from core.iskalni_kljuc import kljuc as kljuc_imena
 
 
@@ -61,7 +62,8 @@ class Knjiznica:
                 pozicija INTEGER NOT NULL DEFAULT 0, trajanje INTEGER NOT NULL DEFAULT 0
             )""")
             stolpci = {v[1] for v in baza.execute("PRAGMA table_info(mediji)")}
-            for ime in ("pozicija", "trajanje"):
+            # predvajanj: stevec za polico »Najveckrat predvajano«; ogledano: kdaj je bil video ogledan (0 = ne).
+            for ime in ("pozicija", "trajanje", "predvajanj", "ogledano"):
                 if ime not in stolpci:
                     baza.execute(f"ALTER TABLE mediji ADD COLUMN {ime} INTEGER NOT NULL DEFAULT 0")
             baza.execute("CREATE INDEX IF NOT EXISTS mediji_vrsta ON mediji(vrsta, dodano DESC)")
@@ -73,6 +75,8 @@ class Knjiznica:
             baza.execute("""CREATE TABLE IF NOT EXISTS mape (
                 pot TEXT PRIMARY KEY, dodano INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER))
             )""")
+        #: Poti, katerih predvajanje je v tej seji ze steto (shrani_napredek se klice vsakih nekaj sekund).
+        self._steto: set[str] = set()
 
     @contextmanager
     def _baza(self):
@@ -191,22 +195,74 @@ class Knjiznica:
             vrednosti.append(beseda)
         where = " WHERE " + " AND ".join(pogoji) if pogoji else ""
         with self._baza() as baza:
-            vrstice = baza.execute("SELECT pot, naslov, vrsta, zadnjic, pozicija, trajanje FROM mediji" + where +
+            vrstice = baza.execute("SELECT " + self._STOLPCI + " FROM mediji" + where +
                                    " ORDER BY safeer_casefold(naslov), pot LIMIT ? OFFSET ?",
                                    (*vrednosti, meja, odmik)).fetchall()
-        return [{"pot": p, "ime": n, "vrsta": v, "zadnjic": z, "pozicija": po,
-                 "trajanje": tr, "naVoljo": Path(p).is_file()}
-                for p, n, v, z, po, tr in vrstice]
+        return [self._vrstica(v) for v in vrstice]
+
+    _STOLPCI = "pot, naslov, vrsta, zadnjic, pozicija, trajanje, dodano, predvajanj, ogledano"
+
+    @staticmethod
+    def _vrstica(v: tuple) -> dict:
+        p, n, vr, z, po, tr, do, st, og = v
+        return {"pot": p, "ime": n, "vrsta": vr, "zadnjic": z, "pozicija": po, "trajanje": tr, "dodano": do,
+                "predvajanj": st, "ogledano": og, "naVoljo": Path(p).is_file()}
 
     def predvajano(self, pot: str) -> None:
+        """Uporabnik je odprl datoteko. Skladba steje takoj (domaci predvajalnik zvoka knjiznici ne javlja mesta);
+        video steje sele v shrani_napredek, ko je res tekel (os_police.prag_stetja)."""
+        self._steto.discard(pot)
         with self._baza() as baza:
-            baza.execute("UPDATE mediji SET zadnjic=CAST(strftime('%s','now') AS INTEGER) WHERE pot=?", (pot,))
+            glasba = baza.execute("""UPDATE mediji SET zadnjic=CAST(strftime('%s','now') AS INTEGER),
+                predvajanj=predvajanj + 1 WHERE pot=? AND vrsta='glasba'""", (pot,)).rowcount
+            if not glasba:
+                baza.execute("UPDATE mediji SET zadnjic=CAST(strftime('%s','now') AS INTEGER) WHERE pot=?", (pot,))
+        if glasba:
+            self._steto.add(pot)
 
     def dobi(self, pot: str) -> dict | None:
         with self._baza() as baza:
-            vnos = baza.execute("SELECT pot, naslov, vrsta, pozicija, trajanje FROM mediji WHERE pot=?", (pot,)).fetchone()
-        return {"pot": vnos[0], "ime": vnos[1], "vrsta": vnos[2],
-                "pozicija": vnos[3], "trajanje": vnos[4]} if vnos else None
+            vnos = baza.execute("SELECT " + self._STOLPCI + " FROM mediji WHERE pot=?", (pot,)).fetchone()
+        return self._vrstica(vnos) if vnos else None
+
+    # ------------------------------------------------------------------ police (core/os_police.py)
+    def nazadnje_dodane(self, meja: int = 60) -> list[dict]:
+        """Nazadnje dodane datoteke, ki so na disku (najnovejse prve)."""
+        with self._baza() as baza:
+            vrstice = baza.execute("SELECT " + self._STOLPCI + " FROM mediji WHERE vrsta IN ('filmi', 'serije', 'glasba') "
+                                   "ORDER BY dodano DESC, safeer_casefold(naslov) LIMIT ?", (max(1, min(int(meja), 500)),)).fetchall()
+        return [v for v in map(self._vrstica, vrstice) if v["naVoljo"]]
+
+    def nedokoncane(self, meja: int = 40) -> list[dict]:
+        """Filmi in epizode s shranjenim mestom (za polico Nadaljuj), nazadnje gledani prvi."""
+        with self._baza() as baza:
+            vrstice = baza.execute("SELECT " + self._STOLPCI + """ FROM mediji
+                WHERE pozicija > 0 AND trajanje > 0 AND vrsta IN ('filmi', 'serije')
+                ORDER BY zadnjic DESC LIMIT ?""", (max(1, min(int(meja), 200)),)).fetchall()
+        return [v for v in map(self._vrstica, vrstice) if v["naVoljo"]]
+
+    def najveckrat(self, meja: int = 40) -> list[dict]:
+        with self._baza() as baza:
+            vrstice = baza.execute("SELECT " + self._STOLPCI + " FROM mediji WHERE predvajanj >= ? "
+                                   "ORDER BY predvajanj DESC, zadnjic DESC LIMIT ?",
+                                   (os_police.NAJMANJ_ZA_NAJVEC, max(1, min(int(meja), 200)))).fetchall()
+        return [v for v in map(self._vrstica, vrstice) if v["naVoljo"]]
+
+    def epizode(self) -> list[dict]:
+        """Vse krajevne epizode (za naslednjo epizodo)."""
+        with self._baza() as baza:
+            vrstice = baza.execute("SELECT " + self._STOLPCI + " FROM mediji WHERE vrsta='serije' LIMIT ?",
+                                   (NAJVEC_V_MAPI,)).fetchall()
+        return [self._vrstica(v) for v in vrstice]
+
+    def nastavi_ogledano(self, pot: str, da: bool) -> bool:
+        """Rocno »Oznaci kot ogledano/neogledano«. Ogledan video zacne naslednjic od zacetka (kot Jellyfin)."""
+        with self._baza() as baza:
+            if da:
+                return bool(baza.execute("""UPDATE mediji SET ogledano=CAST(strftime('%s','now') AS INTEGER), pozicija=0
+                    WHERE pot=? AND vrsta IN ('filmi', 'serije')""", (pot,)).rowcount)
+            return bool(baza.execute("UPDATE mediji SET ogledano=0 WHERE pot=? AND vrsta IN ('filmi', 'serije')",
+                                     (pot,)).rowcount)
 
     def skladbe_iz_mape(self, pot: str, meja: int = 500) -> list[dict]:
         """Vse indeksirane skladbe iz mape izbrane skladbe (album), urejene po naslovu.
@@ -226,14 +282,22 @@ class Knjiznica:
         return []
 
     def shrani_napredek(self, pot: str, pozicija: float, trajanje: float) -> None:
-        """Na koncu posnetka naslednje odpiranje začne od začetka."""
+        """Na koncu posnetka naslednje odpiranje začne od začetka.
+
+        Hkrati steje predvajanje (enkrat na sejo, ko video res tece - os_police.prag_stetja) in oznaci video kot
+        ogledan pri 90 % (os_police.je_ogledano)."""
         pozicija, trajanje = max(0, int(pozicija)), max(0, int(trajanje))
         if trajanje <= 0:
             return
-        pozicija = 0 if pozicija >= trajanje - 20 else min(pozicija, trajanje)
+        stej = pot not in self._steto and pozicija >= os_police.prag_stetja(trajanje)
+        ogledan = os_police.je_ogledano(pozicija, trajanje)
+        pozicija = 0 if pozicija >= trajanje - 20 or ogledan else min(pozicija, trajanje)
         with self._baza() as baza:
-            baza.execute("""UPDATE mediji SET pozicija=?, trajanje=?
-                WHERE pot=? AND vrsta IN ('filmi', 'serije')""", (pozicija, trajanje, pot))
+            spremenjeno = baza.execute("""UPDATE mediji SET pozicija=?, trajanje=?, predvajanj=predvajanj + ?,
+                ogledano=CASE WHEN ? THEN CAST(strftime('%s','now') AS INTEGER) ELSE ogledano END
+                WHERE pot=? AND vrsta IN ('filmi', 'serije')""", (pozicija, trajanje, int(stej), int(ogledan), pot)).rowcount
+        if stej and spremenjeno:
+            self._steto.add(pot)
 
     def ponastavi_napredek(self, pot: str) -> None:
         with self._baza() as baza:

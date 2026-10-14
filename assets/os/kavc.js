@@ -5,7 +5,8 @@
  * - Premikanje s puscicami po zaslonu (prostorsko: najblizji gumb v smeri puscice) v Safeer Playerju in v Medijskem
  *   centru; v polju za vnos puscici gor/dol (in levo/desno na robu besedila) zapustita polje.
  * - OK (Enter) izbere; Nazaj (Escape, Backspace zunaj polja, tipka Nazaj na daljincu) zapre okno ali podrobnosti.
- * - Igralni plosek (Gamepad API, ce ga sistem ponuja): smerni gumbi in levi palcek = puscice, A = OK, B = Nazaj.
+ * - Igralni plosek (Gamepad API, ce ga sistem ponuja): smerni gumbi in levi palcek = puscice, A = OK, B = Nazaj,
+ *   Y = meni izbrane kartice (srcek, ogledano).
  * - Nacin za kavc: vecje pisave in kartice, jasen okvir izbora, okno cez cel zaslon; kazalec miske se skrije, ko
  *   miska miruje, in se vrne ob premiku.
  */
@@ -191,6 +192,11 @@
       gumbPloska("desno", g(15) || x > 0.6, function () { premakni("desno"); });
       gumbPloska("ok", g(0), function () { var el = document.activeElement; if (el && el !== document.body) el.click(); });
       gumbPloska("nazaj", g(1), nazaj);
+      // Y: meni izbrane kartice (srcek, ogledano) - kot tipka Meni na tipkovnici.
+      gumbPloska("meni", g(3), function () {
+        var el = document.activeElement;
+        if (el && el !== document.body) el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+      });
       break;
     }
     requestAnimationFrame(beriPlosek);

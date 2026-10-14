@@ -30,7 +30,10 @@ class Slog(unittest.TestCase):
 
     def test_katalog_nima_vodoravnih_polic(self):
         # Vodoravni pomik v medijskem centru pomeni polico; izbire in vsebina se morajo prelomiti ali biti mreža.
-        self.assertNotRegex(self.css, r"overflow-x\s*:\s*(auto|scroll)")
+        # Izjema so le osebne police na vrhu zavihka (Nadaljuj, Nazadnje dodano ... - lastnik, 14. 10. 2026).
+        polica = pravilo(self.css, ".media-polica-vrsta")
+        self.assertIn("overflow-x: auto", polica)
+        self.assertNotRegex(self.css.replace(polica, ""), r"overflow-x\s*:\s*(auto|scroll)")
 
     def test_na_tvojih_napravah_je_mreza_kot_katalog(self):
         vrsta = pravilo(self.css, ".kat-knjiznica-vrsta")

@@ -19,6 +19,9 @@
   --media-povrsina: rgba(17, 27, 42, .72);
   --media-meni: #121d2d;
   --media-poudarek: rgba(138, 199, 255, .14);
+  /* Osebne police: znacke na plakatu (srcek, ogledano, »⋯«) in merilo napredka. */
+  --media-znacka: rgba(3, 7, 10, .84);
+  --media-merilo: rgba(255, 255, 255, .2);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; }

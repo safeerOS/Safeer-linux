@@ -184,6 +184,9 @@
         </div>
         <div class="media-postavitev">
           <div class="media-glavni">
+            <!-- Osebne police (lastnik, 14. 10. 2026): Nadaljuj, Nazadnje dodano, Najvec predvajano, Priljubljene - samo
+                 tiste z vsebino in samo na zavihkih, kjer imajo smisel (core/os_police.py). -->
+            <div class="media-police" id="mediaPolice" hidden></div>
             <div class="media-naslov-vrstice"><div><span class="media-kicker" data-t="mediaLokalno"></span><h2 id="mediaNaslovZbirke" data-t="mediaTvojaZbirka"></h2></div><div class="media-knjiznica-dejanja"><span class="media-stevec" id="mediaStevec"></span><button class="media-osvezi" id="mediaNapraveGumb" type="button" data-naslov="mediaNaprave" aria-label="Devices"><svg data-ikona="naprave"></svg></button><button class="media-osvezi" id="mediaMapeGumb" type="button" data-naslov="mediaMape" aria-label="Folders"><svg data-ikona="mapa"></svg></button><button class="media-osvezi" id="mediaOsvezi" type="button" data-naslov="mediaOsvezi" aria-label="Refresh library" disabled><svg data-ikona="ponovno"></svg></button></div></div>
             <div class="media-knjiznica" id="mediaMreza"></div>
             <div class="media-prazno" id="mediaPrazno" hidden>
@@ -635,6 +638,14 @@
   <h3 id="mediaEpizodeNaslov"></h3><div class="kat-epizode" id="mediaEpizode"></div>
 </div>
 <div class="kat-seznam-meni" id="mediaSeznamMeni" hidden></div>
+<!-- Meni kartice: desni klik, tipka Meni ali Shift+F10, na igralnem plosku Y (srcek, ogledano). -->
+<div class="kat-meni-kartice" id="mediaKarticaMeni" role="menu" hidden></div>
+<!-- Naslednja epizoda: po koncu epizode Safeer ponudi naslednjo in jo po odstevanju zacne sam (kot Jellyfin). -->
+<div class="media-naslednja" id="naslEpPlosca" role="dialog" aria-labelledby="naslEpNaslov" aria-describedby="naslEpPod" hidden>
+  <div class="media-naslednja-slika" id="naslEpSlika" aria-hidden="true"></div>
+  <div class="media-naslednja-besedilo"><small data-t="naslednjaNaslov"></small><b id="naslEpNaslov"></b><span id="naslEpPod"></span><span class="media-naslednja-cas" id="naslEpCas"></span></div>
+  <div class="media-naslednja-gumbi"><button class="gumb glavni" id="naslEpZdaj" type="button" data-t="naslednjaZdaj"></button><button class="gumb" id="naslEpNe" type="button" data-t="naslednjaNeZdaj"></button></div>
+</div>
 <!-- Oseba: preimenuj / zdruzi z drugo osebo -->
 <div class="sloj" id="slojOseba"><div class="tancica"></div>
   <form class="plosca kanal-carovnik" id="obrazecOseba">
