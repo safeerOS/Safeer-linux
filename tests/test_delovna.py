@@ -783,6 +783,25 @@ class TestTemaCinnamon(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_gumb_pokazi_namizje_pred_cornerbar(self):
+        """Mintov tanek trak »cornerbar« ostane v samem kotu, gumb gre tik pred njega (ura | gumb | trak); izklop vrne
+        trak na prvotno mesto (testni PC, 14. 10. 2026)."""
+        tmp = tempfile.mkdtemp()
+        prej = self.APPLETI
+        try:
+            self.APPLETI = prej[:-1] + ", 'panel1:right:6:cornerbar@cinnamon.org:14']"
+            self.ZACETNO = TestTemaCinnamon.ZACETNO.replace(prej, self.APPLETI)
+            o = self._okolje(tmp)
+            self._ukaz(o, "--profil", "dock")
+            appleti = [a.strip("'") for a in self._vrednost(o, "org.cinnamon", "enabled-applets").strip("[]").split(", ")]
+            mesto = {a.split(":")[3]: int(a.split(":")[2]) for a in appleti if a.split(":")[1] == "right"}
+            self.assertLess(mesto["calendar@cinnamon.org"], mesto["show-desktop@cinnamon.org"])
+            self.assertLess(mesto["show-desktop@cinnamon.org"], mesto["cornerbar@cinnamon.org"])
+            self._ukaz(o, "--izklopi")
+            self._kot_na_zacetku(o)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_delovna_in_izklop_vrneta_nastavitve(self):
         """Postavitev delovna: dock + delovna povrsina Safeer OS; po --izklopi so nastavitve in zagoni kot prej."""
         tmp = tempfile.mkdtemp()

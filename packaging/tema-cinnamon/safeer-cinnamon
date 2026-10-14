@@ -232,14 +232,38 @@ try:
     appleti = [str(a) for a in ast.literal_eval(vrednost.replace("@as ", ""))]
 except Exception:
     sys.exit(1)
-deli = [a.split(":") for a in appleti]
+
+
+def deli(a):
+    return a.split(":")
+
+
+def premakni(seznam, pult, od, za):
+    """Desni del pulta: vsem appletom z mestom >= od pristejemo za (1 ali -1)."""
+    izid = []
+    for a in seznam:
+        d = deli(a)
+        if len(d) >= 4 and d[0] == pult and d[1] == "right" and d[2].isdigit() and int(d[2]) >= od:
+            a = ":".join(d[:2] + [str(int(d[2]) + za)] + d[3:])
+        izid.append(a)
+    return izid
+
+
 if kaj == "dodaj":
-    if any(len(d) >= 4 and d[3] == UUID for d in deli):
+    if any(len(deli(a)) >= 4 and deli(a)[3] == UUID for a in appleti):
         sys.exit(0)                      # uporabnik ga ze ima (tudi drugje): ne podvajamo
-    pult = next((d[0] for d in deli if len(d) >= 4), "panel1")
-    desno = [int(d[2]) for d in deli if len(d) >= 4 and d[0] == pult and d[1] == "right" and d[2].isdigit()]
-    st = [int(d[4]) for d in deli if len(d) >= 5 and d[4].isdigit()]
-    vnos = "%s:right:%d:%s:%d" % (pult, max(desno) + 1 if desno else 0, UUID, max(st) + 1 if st else 1)
+    pult = next((deli(a)[0] for a in appleti if len(deli(a)) >= 4), "panel1")
+    desno = [deli(a) for a in appleti if len(deli(a)) >= 4 and deli(a)[0] == pult and deli(a)[1] == "right"
+             and deli(a)[2].isdigit()]
+    st = [int(deli(a)[4]) for a in appleti if len(deli(a)) >= 5 and deli(a)[4].isdigit()]
+    mesto = max(int(d[2]) for d in desno) + 1 if desno else 0
+    # Mintov »cornerbar« (tanek trak v samem kotu, prav tako pokaze namizje) ostane v kotu; gumb gre tik pred njega,
+    # sicer je trak med uro in gumbom videti kot locilo (preizkus na testnem PC, 14. 10. 2026).
+    kot = next((d for d in desno if d[3] == "cornerbar@cinnamon.org"), None)
+    if kot is not None:
+        mesto = int(kot[2])
+        appleti = premakni(appleti, pult, mesto, 1)
+    vnos = "%s:right:%d:%s:%d" % (pult, mesto, UUID, max(st) + 1 if st else 1)
     with open(zapis, "w", encoding="utf-8") as f:
         f.write(vnos + "\n")
     print(repr(appleti + [vnos]))
@@ -248,8 +272,13 @@ else:
         sys.exit(0)
     vnos = open(zapis, encoding="utf-8").read().strip()
     os.remove(zapis)
-    if vnos in appleti:
-        print(repr([a for a in appleti if a != vnos]))
+    d = deli(vnos)
+    ostali = [a for a in appleti if a != vnos]
+    if len(ostali) == len(appleti):
+        sys.exit(0)
+    if len(d) >= 3 and d[2].isdigit():
+        ostali = premakni(ostali, d[0], int(d[2]) + 1, -1)   # cornerbar in ostali nazaj na svoje mesto
+    print(repr(ostali))
 PY
 )" || return 0
     [ -n "$izid" ] && pisi org.cinnamon:enabled-applets "$izid"
