@@ -108,7 +108,7 @@ jobs:
           # Lupina QML: PySide6 iz paketa (Mint 22 ga nima) se nalozi in pozene Qt Quick brez zaslona.
           QT_QPA_PLATFORM=offscreen /usr/bin/python3 -c "import sys; sys.path.insert(0, '/usr/lib/safeer-os/vendor'); from PySide6.QtGui import QGuiApplication; from PySide6.QtQuick import QQuickView; a = QGuiApplication([]); v = QQuickView(); print('PySide6 OK')"
           bash -n /usr/bin/safeer-cinnamon
-          # Okno z izbiro postavitve (GTK 3) se prevede.
+          # Okno z izbiro postavitve (GTK 4) se prevede.
           python3 -m py_compile /usr/lib/safeer-cinnamon/izbira
           test -f /usr/share/themes/Safeer-Cinnamon/cinnamon/cinnamon.css
           test -f /usr/share/themes/Safeer-Cinnamon-Kontrast/gtk-3.0/gtk.css

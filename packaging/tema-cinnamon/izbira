@@ -13,8 +13,9 @@ import sys
 
 import gi
 
-gi.require_version("Gtk", "3.0")
-gi.require_version("Gdk", "3.0")
+# GTK4 kot Safeer OS (lastnik, 14. 10. 2026: najnovejsa tehnologija, ki dela na nasih napravah; Mint 22 jo ima).
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
 gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import GLib  # noqa: E402
 
@@ -52,11 +53,11 @@ BESEDILA = {
     },
 }
 
-SLOG = b"""
-.safeer-kartica { padding: 10px; border-radius: 14px; border: 2px solid alpha(currentColor, 0.18); background-image: none; }
+SLOG = """
+.safeer-kartica { padding: 10px; border-radius: 14px; border: 2px solid alpha(currentColor, 0.18); background: none; }
 .safeer-kartica:checked { border-color: #8ac7ff; background-color: alpha(#8ac7ff, 0.12); }
 .safeer-kartica:focus { box-shadow: 0 0 0 2px alpha(#9dceff, 0.55); }
-.safeer-ozadje { padding: 4px; border-radius: 10px; border: 2px solid transparent; background-image: none; }
+.safeer-ozadje { padding: 4px; border-radius: 10px; border: 2px solid transparent; background: none; }
 .safeer-ozadje:checked { border-color: #8ac7ff; }
 .safeer-naslov { font-weight: bold; font-size: 1.25em; }
 .safeer-ime { font-weight: bold; }
@@ -239,74 +240,83 @@ def narisi_skico(cr, w, h, profil: str, pult_zgoraj: bool):
 
 
 # ---------------------------------------------------------------------------- okno
+def _ime_za_bralnik(gradnik, ime: str, opis: str = "") -> None:
+    """Ime (in opis) za bralnik zaslona (GTK4: Gtk.Accessible)."""
+    lastnosti, vrednosti = [Gtk.AccessibleProperty.LABEL], [ime]
+    if opis:
+        lastnosti.append(Gtk.AccessibleProperty.DESCRIPTION)
+        vrednosti.append(opis)
+    gradnik.update_property(lastnosti, vrednosti)
+
+
 class Izbira(Gtk.Window):
-    def __init__(self):
+    def __init__(self, ob_koncu=None):
         super().__init__(title="Safeer Cinnamon")
         self.t = BESEDILA[jezik()]
         self.s = stanje()
         self.set_icon_name("preferences-desktop-theme")
-        self.set_position(Gtk.WindowPosition.CENTER)
         self.set_resizable(False)
-        self.set_border_width(18)
         slog = Gtk.CssProvider()
-        slog.load_from_data(SLOG)
-        Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), slog, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        slog.load_from_string(SLOG)
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), slog, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
         gumb = self.t["uporabi"] if self.s["profil"] else self.t["vklopi"]
         okvir = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
-        self.add(okvir)
+        for stran in ("top", "bottom", "start", "end"):
+            getattr(okvir, "set_margin_" + stran)(18)
+        self.set_child(okvir)
         naslov = Gtk.Label(label=self.t["naslov"], xalign=0)
-        naslov.get_style_context().add_class("safeer-naslov")
-        okvir.pack_start(naslov, False, False, 0)
+        naslov.add_css_class("safeer-naslov")
+        okvir.append(naslov)
         pod = self.t["podnaslov"].format(gumb=gumb)
         if self.s["profil"]:
             pod = self.t["vklopljeno"].format(profil=self.t[self.s["profil"]]) + " · " + pod
         podnaslov = Gtk.Label(label=pod, xalign=0, wrap=True, max_width_chars=90)
-        podnaslov.get_style_context().add_class("safeer-tiho")
-        okvir.pack_start(podnaslov, False, False, 0)
+        podnaslov.add_css_class("safeer-tiho")
+        okvir.append(podnaslov)
 
         self.kartice = {}
         vrsta = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12, homogeneous=True)
-        okvir.pack_start(vrsta, False, False, 0)
+        okvir.append(vrsta)
         prva = None
         for profil in PROFILI:
-            k = Gtk.RadioButton.new_from_widget(prva)
+            k = Gtk.ToggleButton()
+            if prva is not None:
+                k.set_group(prva)
             prva = prva or k
-            k.set_mode(False)
-            k.get_style_context().add_class("safeer-kartica")
+            k.add_css_class("safeer-kartica")
             vsebina = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-            skica = Gtk.DrawingArea()
-            skica.set_size_request(236, 142)
-            skica.connect("draw", self._narisi, profil)
-            vsebina.pack_start(skica, False, False, 0)
+            skica = Gtk.DrawingArea(content_width=236, content_height=142)
+            skica.set_draw_func(self._narisi, profil)
+            vsebina.append(skica)
             ime = Gtk.Label(label=self.t[profil], xalign=0)
-            ime.get_style_context().add_class("safeer-ime")
-            vsebina.pack_start(ime, False, False, 0)
+            ime.add_css_class("safeer-ime")
+            vsebina.append(ime)
             opis = self.t[profil + "_opis"]
             manjka = ""
             if profil != "videz" and not self.s["plank"]:
                 manjka = self.t["ni_planka"]
             elif profil == "delovna" and not self.s["safeer_os"]:
                 manjka = self.t["ni_safeer_os"]
-            besedilo = Gtk.Label(label=opis + (" " + manjka if manjka else ""), xalign=0, yalign=0, wrap=True, max_width_chars=30)
+            besedilo = Gtk.Label(label=opis + (" " + manjka if manjka else ""), xalign=0, yalign=0, wrap=True,
+                                 max_width_chars=30, vexpand=True)
             besedilo.set_size_request(236, -1)
-            besedilo.get_style_context().add_class("safeer-tiho")
-            vsebina.pack_start(besedilo, True, True, 0)
-            k.add(vsebina)
+            besedilo.add_css_class("safeer-tiho")
+            vsebina.append(besedilo)
+            k.set_child(vsebina)
             k.set_sensitive(not manjka)
-            k.get_accessible().set_name(self.t[profil])
-            k.get_accessible().set_description(opis)
+            _ime_za_bralnik(k, self.t[profil], opis)
             self.kartice[profil] = k
-            vrsta.pack_start(k, True, True, 0)
+            vrsta.append(k)
         izbran = self.s["profil"] if self.s["profil"] in PROFILI and self.kartice[self.s["profil"]].get_sensitive() else "videz"
         self.kartice[izbran].set_active(True)
 
         oznaka = Gtk.Label(label=self.t["ozadje"], xalign=0)
-        oznaka.get_style_context().add_class("safeer-ime")
-        okvir.pack_start(oznaka, False, False, 0)
+        oznaka.add_css_class("safeer-ime")
+        okvir.append(oznaka)
         self.ozadja = {}
         trak = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        okvir.pack_start(trak, False, False, 0)
+        okvir.append(trak)
         prvo = None
         moznosti = [(ime, os.path.join(OZADJA_MAPA, dat)) for ime, dat in OZADJA]
         trenutno, prejsnje = self.s["trenutno"].strip("'"), self.s["prejsnje"]
@@ -321,52 +331,58 @@ class Izbira(Gtk.Window):
         for ime, pot in moznosti:
             if ime != "ohrani" and not os.path.isfile(pot):
                 continue
-            g = Gtk.RadioButton.new_from_widget(prvo)
+            g = Gtk.ToggleButton()
+            if prvo is not None:
+                g.set_group(prvo)
             prvo = prvo or g
-            g.set_mode(False)
-            g.get_style_context().add_class("safeer-ozadje")
+            g.add_css_class("safeer-ozadje")
             polje = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-            slika = Gtk.Image()
             try:
-                slika.set_from_pixbuf(GdkPixbuf.Pixbuf.new_from_file_at_scale(pot, 132, 74, False))
+                slika = Gtk.Picture.new_for_paintable(
+                    Gdk.Texture.new_for_pixbuf(GdkPixbuf.Pixbuf.new_from_file_at_scale(pot, 132, 74, False)))
+                slika.set_can_shrink(False)
             except Exception:  # noqa: BLE001 - brez slike (ozadje je barva ali datoteke ni vec) ostane ikona
-                slika.set_from_icon_name("preferences-desktop-wallpaper", Gtk.IconSize.DIALOG)
-                slika.set_size_request(132, 74)
-            polje.pack_start(slika, False, False, 0)
+                slika = Gtk.Image.new_from_icon_name("preferences-desktop-wallpaper")
+                slika.set_pixel_size(48)
+            slika.set_size_request(132, 74)
+            polje.append(slika)
             napis = Gtk.Label(label=napisi[ime])
-            napis.get_style_context().add_class("safeer-tiho")
-            polje.pack_start(napis, False, False, 0)
-            g.add(polje)
-            g.get_accessible().set_name(self.t["ozadje"] + ": " + napisi[ime])
+            napis.add_css_class("safeer-tiho")
+            polje.append(napis)
+            g.set_child(polje)
+            _ime_za_bralnik(g, self.t["ozadje"] + ": " + napisi[ime])
             self.ozadja[ime] = g
-            trak.pack_start(g, False, False, 0)
+            trak.append(g)
         zacetno = self.ozadja.get(zacetno_ozadje(self.s)) or self.ozadja.get("ohrani") or next(iter(self.ozadja.values()), None)
         if zacetno is not None:
             zacetno.set_active(True)
 
         gumbi = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        okvir.pack_start(gumbi, False, False, 0)
+        okvir.append(gumbi)
         if self.s["profil"]:
             vrni = Gtk.Button(label=self.t["vrni"])
             vrni.connect("clicked", lambda *_: self._pozeni("--izklopi"))
-            gumbi.pack_start(vrni, False, False, 0)
-        potrdi = Gtk.Button(label=gumb)
-        potrdi.get_style_context().add_class("suggested-action")
-        potrdi.set_can_default(True)
-        potrdi.connect("clicked", self._potrdi)
-        gumbi.pack_end(potrdi, False, False, 0)
+            gumbi.append(vrni)
+        prostor = Gtk.Box(hexpand=True)
+        gumbi.append(prostor)
         preklici = Gtk.Button(label=self.t["preklici"])
         preklici.connect("clicked", lambda *_: self.close())
-        gumbi.pack_end(preklici, False, False, 0)
-        potrdi.grab_default()
+        gumbi.append(preklici)
+        potrdi = Gtk.Button(label=gumb)
+        potrdi.add_css_class("suggested-action")
+        potrdi.connect("clicked", self._potrdi)
+        gumbi.append(potrdi)
+        self.set_default_widget(potrdi)
         # Fokus na izbrani kartici: puscici levo/desno zamenjata postavitev, Enter potrdi.
         self.set_focus(self.kartice[izbran])
-        self.connect("key-press-event", lambda _o, d: self.close() if d.keyval == Gdk.KEY_Escape else None)
-        self.connect("destroy", Gtk.main_quit)
+        tipke = Gtk.EventControllerKey()
+        tipke.connect("key-pressed", lambda _c, tipka, _k, _s: (self.close(), True)[1] if tipka == Gdk.KEY_Escape else False)
+        self.add_controller(tipke)
+        if ob_koncu is not None:
+            self.connect("close-request", lambda *_: (ob_koncu(), False)[1])
 
-    def _narisi(self, obmocje, cr, profil):
-        narisi_skico(cr, obmocje.get_allocated_width(), obmocje.get_allocated_height(), profil, self.s["pult_zgoraj"])
-        return False
+    def _narisi(self, obmocje, cr, sirina, visina, profil):
+        narisi_skico(cr, sirina, visina, profil, self.s["pult_zgoraj"])
 
     def izbrano(self) -> tuple:
         profil = next((p for p, k in self.kartice.items() if k.get_active()), "videz")
@@ -388,11 +404,12 @@ class Izbira(Gtk.Window):
 
 
 def main() -> int:
-    if not Gtk.init_check(sys.argv)[0]:
+    if not Gtk.init_check():
         # Brez zaslona (terminal prek ssh ...): vklopi zadnjo izbrano postavitev, kot ukaz brez moznosti.
         return subprocess.call([UKAZ])
-    Izbira().show_all()
-    Gtk.main()
+    zanka = GLib.MainLoop()
+    Izbira(ob_koncu=zanka.quit).present()
+    zanka.run()
     return 0
 
 

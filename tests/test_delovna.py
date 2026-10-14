@@ -953,7 +953,7 @@ class TestTemaCinnamon(unittest.TestCase):
     def test_paket(self):
         # Safeer Cinnamon je od 12. 10. 2026 v enem paketu safeer-os (build_os_deb.sh).
         r = subprocess.run(["bash", os.path.join(KOREN, "build_os_deb.sh")], cwd=KOREN,
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, env=dict(os.environ, SAFEER_DEB_BREZ_QT="1"))
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(os.path.join(KOREN, "packaging", "VERSION_OS")) as f:
             deb = os.path.join(KOREN, "safeer-os_%s_all.deb" % f.read().strip())
@@ -974,7 +974,7 @@ class TestTemaCinnamon(unittest.TestCase):
             polja = subprocess.run(["dpkg-deb", "-f", deb, "Depends", "Recommends"], capture_output=True, text=True).stdout
             odvisnosti = polja.split("Recommends:")[0]
             # GDebi priporocenih paketov ne namesti: dock in okno z izbiro morata delovati tudi tako.
-            for paket in ("plank", "dconf-cli", "python3-gi", "gir1.2-gtk-3.0"):
+            for paket in ("plank", "dconf-cli", "python3-gi", "gir1.2-gtk-4.0"):
                 self.assertIn(paket, odvisnosti)
             # mint-themes obstaja samo v Linux Mintu: priporocilo, da se en paket namesti tudi na Ubuntu in Debianu.
             self.assertNotIn("mint-themes", odvisnosti)
