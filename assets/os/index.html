@@ -103,8 +103,9 @@
       <section class="razdelek" id="r-sporocila">
         <div class="sporocila-glava">
           <div><h1 data-t="sporocila"></h1><p data-t="sporocilaOpis"></p></div>
-          <div class="gumbi-glave"><button class="gumb" id="sporocilaPisi"><svg data-ikona="povezava"></svg><span data-t="pisiNapravi"></span></button>
-          <button class="gumb glavni" id="sporocilaDodaj"><svg data-ikona="plus"></svg><span data-t="dodajKanal"></span></button></div>
+          <div class="gumbi-glave"><button class="gumb glavni" id="sporocilaNovo"><svg data-ikona="sporocilo"></svg><span data-t="novoSporocilo"></span></button>
+          <button class="gumb" id="sporocilaPisi"><svg data-ikona="povezava"></svg><span data-t="pisiNapravi"></span></button>
+          <button class="gumb" id="sporocilaDodaj"><svg data-ikona="plus"></svg><span data-t="dodajKanal"></span></button></div>
         </div>
         <!-- Nabiralnik: mape in kanali | pogovori z iskanjem in filtri | pogovor + stranski pano z osebo -->
         <div class="nabiralnik">
@@ -114,6 +115,7 @@
               <button data-mapa="neprebrano"><svg data-ikona="sporocila"></svg><span data-t="mapaNeprebrano"></span><i id="stNeprebrano" hidden></i></button>
               <button data-mapa="poslano"><svg data-ikona="poslji"></svg><span data-t="mapaPoslano"></span></button>
               <button data-mapa="vsi"><svg data-ikona="arhiv"></svg><span data-t="mapaVsiPogovori"></span></button>
+              <button data-mapa="osnutki"><svg data-ikona="uredi"></svg><span data-t="mapaOsnutki"></span><i id="stOsnutki" hidden></i></button>
             </div>
             <b class="nabiralnik-naslov" data-t="oznakeNaslov"></b>
             <div class="mape oznake-mape" id="sporocilaOznake"></div>
@@ -542,6 +544,19 @@
     <p class="drobno" id="kanalUrediOpis"></p>
     <input id="kanalUrediGeslo" type="password" autocomplete="current-password" data-ph="gesloAplikacije">
     <div class="gumbi"><button type="button" class="gumb" id="kanalOdstrani" data-t="odstraniKanal"></button><button type="button" class="gumb" id="kanalUrediPreklici" data-t="preklici"></button><button class="gumb glavni" type="submit" data-t="povezi"></button></div>
+  </form>
+</div>
+
+<!-- Novo e-sporocilo ali osnutek (lastnik, 14. 10. 2026: v Sporocilih je manjkalo) -->
+<div class="sloj" id="slojNovo"><div class="tancica"></div>
+  <form class="plosca kanal-carovnik novo-sporocilo" id="obrazecNovo">
+    <h3 data-t="novoSporocilo"></h3>
+    <label class="drobno"><span data-t="novoOd"></span><select id="novoOd"></select></label>
+    <input id="novoZa" type="email" autocomplete="email" data-ph="novoZa" required>
+    <input id="novoZadeva" type="text" autocomplete="off" data-ph="novoZadeva" maxlength="300">
+    <textarea id="novoBesedilo" rows="14" data-ph="napisiSporocilo" required></textarea>
+    <p class="drobno" id="novoNapaka" hidden></p>
+    <div class="gumbi"><button type="button" class="gumb" id="novoOdstrani" data-t="odstraniOsnutek" hidden></button><button type="button" class="gumb" id="novoPreklici" data-t="preklici"></button><button type="button" class="gumb" id="novoOsnutek" data-t="shraniOsnutek"></button><button class="gumb glavni" type="submit" data-t="posljiSporocilo"></button></div>
   </form>
 </div>
 

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import threading
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Callable, List, Optional
 
 from .sporocila import ponudniki as _ponudniki
@@ -43,6 +46,10 @@ NAPAKE_KLEPETA = {
     "meja": "Sporočilo je predolgo.",
     "potek": "Središče Safeer Linka ni odgovorilo.",
 }
+
+
+#: En naslov prejemnika (brez imena, brez vec naslovov in brez novih vrstic - glava To ne sme dobiti vrinjenih glav).
+_NASLOV = re.compile(r"[^@\s<>,;\"]+@[^@\s<>,;\"]+\.[^@\s<>,;\"]+")
 
 
 def _cas_zdaj() -> str:
@@ -283,6 +290,55 @@ class SporocilaOS:
         if kanal_id == KANAL_LINKA:
             return self._poslji_po_linku(str(pogovor_id), besedilo)
         return self.storitev.poslji(kanal_id, pogovor_id, besedilo).slovar()
+
+    # ------------------------------------------------------------------ novo sporocilo in osnutki
+    def novo(self, kanal_id: str, prejemnik: str, zadeva: str, besedilo: str, osnutek_id: str = "") -> dict:
+        """Novo e-sporocilo (lastnik, 14. 10. 2026: v Sporocilih je manjkalo). Vrne nabiralnik in poslan pogovor."""
+        prejemnik, zadeva, besedilo = str(prejemnik).strip(), str(zadeva).strip(), str(besedilo).strip()
+        if not _NASLOV.fullmatch(prejemnik):
+            raise ValueError("Naslov prejemnika ni veljaven")
+        if not besedilo:
+            raise ValueError("Prazno sporočilo")
+        if "\n" in zadeva or "\r" in zadeva:
+            raise ValueError("Zadeva ne sme imeti novih vrstic")
+        self.storitev.novo(str(kanal_id), prejemnik, zadeva, besedilo)
+        if osnutek_id:
+            self.odstrani_osnutek(osnutek_id)
+        return dict(self.seznam(), poslano={"kanal_id": str(kanal_id), "id": prejemnik})
+
+    def _pot_osnutkov(self) -> Path:
+        return Path(self.storitev.pot).with_name("osnutki.json")
+
+    def osnutki(self) -> list:
+        try:
+            podatki = json.loads(self._pot_osnutkov().read_text("utf-8"))
+        except (OSError, ValueError):
+            return []
+        return [o for o in podatki if isinstance(o, dict) and o.get("id")] if isinstance(podatki, list) else []
+
+    def shrani_osnutek(self, o: dict) -> list:
+        """Osnutek ostane na tem racunalniku (z isto zasebnostjo kot baza sporocil); najvec 50."""
+        o = o if isinstance(o, dict) else {}
+        cist = {"id": str(o.get("id") or uuid.uuid4().hex[:12]), "kanal_id": str(o.get("kanal_id") or "")[:200],
+                "za": str(o.get("za") or "")[:320], "zadeva": str(o.get("zadeva") or "")[:300].replace("\n", " "),
+                "besedilo": str(o.get("besedilo") or "")[:200000], "cas": _cas_zdaj()}
+        ostali = [x for x in self.osnutki() if x.get("id") != cist["id"]]
+        seznam = ([cist] + ostali)[:50]
+        pot = self._pot_osnutkov()
+        zacasna = pot.with_suffix(".tmp")
+        zacasna.write_text(json.dumps(seznam, ensure_ascii=False, indent=1), "utf-8")
+        os.chmod(zacasna, 0o600)
+        os.replace(zacasna, pot)
+        return seznam
+
+    def odstrani_osnutek(self, osnutek_id: str) -> list:
+        seznam = [x for x in self.osnutki() if x.get("id") != str(osnutek_id)]
+        pot = self._pot_osnutkov()
+        zacasna = pot.with_suffix(".tmp")
+        zacasna.write_text(json.dumps(seznam, ensure_ascii=False, indent=1), "utf-8")
+        os.chmod(zacasna, 0o600)
+        os.replace(zacasna, pot)
+        return seznam
 
     # ------------------------------------------------------------------ Safeer Chat (Link)
     def _zagotovi_kanal_linka(self) -> None:
