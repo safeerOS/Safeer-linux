@@ -322,6 +322,9 @@ class SporocilaOS:
         cist = {"id": str(o.get("id") or uuid.uuid4().hex[:12]), "kanal_id": str(o.get("kanal_id") or "")[:200],
                 "za": str(o.get("za") or "")[:320], "zadeva": str(o.get("zadeva") or "")[:300].replace("\n", " "),
                 "besedilo": str(o.get("besedilo") or "")[:200000], "cas": _cas_zdaj()}
+        prejsnji = next((x for x in self.osnutki() if x.get("id") == cist["id"]), {})
+        # Tudi v mapo Osnutki e-postnega racuna (lastnik, 14. 10. 2026: osnutek naj bo viden v Gmailu na telefonu).
+        cist["mid"] = self._osnutek_na_streznik(cist, str(prejsnji.get("mid") or "")) or str(prejsnji.get("mid") or "")
         ostali = [x for x in self.osnutki() if x.get("id") != cist["id"]]
         seznam = ([cist] + ostali)[:50]
         pot = self._pot_osnutkov()
@@ -331,7 +334,29 @@ class SporocilaOS:
         os.replace(zacasna, pot)
         return seznam
 
+    def _osnutek_na_streznik(self, o: dict, prejsnji_mid: str) -> str:
+        a = self.storitev.adapterji.get(str(o.get("kanal_id") or ""))
+        if a is None or not hasattr(a, "shrani_osnutek"):
+            return ""
+        try:
+            return a.shrani_osnutek(o.get("za", ""), o.get("zadeva", ""), o.get("besedilo", ""), prejsnji_mid)
+        except Exception as e:  # noqa: BLE001 - osnutek ostane vsaj na tem racunalniku
+            print("[Sporocila] osnutek na strezniku:", e, flush=True)
+            return ""
+
+    def _osnutek_s_streznika(self, o: dict) -> None:
+        a = self.storitev.adapterji.get(str(o.get("kanal_id") or ""))
+        if a is None or not o.get("mid") or not hasattr(a, "odstrani_osnutek"):
+            return
+        try:
+            a.odstrani_osnutek(str(o["mid"]))
+        except Exception as e:  # noqa: BLE001
+            print("[Sporocila] odstranitev osnutka na strezniku:", e, flush=True)
+
     def odstrani_osnutek(self, osnutek_id: str) -> list:
+        for o in self.osnutki():
+            if o.get("id") == str(osnutek_id):
+                self._osnutek_s_streznika(o)     # poslan ali izbrisan osnutek izgine tudi iz Gmaila
         seznam = [x for x in self.osnutki() if x.get("id") != str(osnutek_id)]
         pot = self._pot_osnutkov()
         zacasna = pot.with_suffix(".tmp")
