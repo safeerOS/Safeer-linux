@@ -64,6 +64,7 @@ from core import (os_datoteke, os_govor, os_katalog, os_knjiznica, os_lupa, os_o
 from core import budnost, gostitelj, odlozisce_varuh, os_iskalnik, os_odpri_z, os_pretvorba_datotek  # noqa: E402
 from core import media_servers  # noqa: E402
 from core import os_dock  # noqa: E402
+from core import os_lupina  # noqa: E402
 from core import x11  # noqa: E402
 pomnilnik.tlak_omrezja(WebKit2, 160)   # pred prvim pogledom: omrezni procesi WebKita z mejo pomnilnika
 from core import en_proces  # noqa: E402
@@ -1265,6 +1266,8 @@ class SafeerOS(Gtk.Application):
             self.v_oknu = True
         self.okno_delovna: Optional[Gtk.Window] = None
         self.pogled_delovna = None
+        #: Namizje QML (core/os_lupina.py); takrat okno_delovna ostane None, pogled_delovna je QmlPogled.
+        self.lupina = None
         self._robovi_delovne = None
         #: Safeer Player: Medijski center v svojem oknu (gumb »Odpri Medijski center« na delovni povrsini, meni
         #: »Safeer Player«). Ista stran in isti most v tem procesu - predvajanje, mini predvajalnik in Safeer Link so skupni.
@@ -1510,7 +1513,7 @@ class SafeerOS(Gtk.Application):
 
     # ------------------------------------------------------------------ okno
     def do_activate(self) -> None:
-        if self.delovna and self.okno_delovna is None:
+        if self.delovna and not self._ima_delovno():
             # Prvi zagon z --delovna: samo delovna povrsina (glavno okno ob naslednji aktivaciji).
             self._ustvari_delovno()
             self._prvic = False
@@ -1572,7 +1575,7 @@ class SafeerOS(Gtk.Application):
         ali okno iz menija: delovna povrsina se odpre v tem procesu (prej je drugi zagon tiho koncal in tema je ostala
         brez nje do naslednje prijave). Glavno okno odslej ob zapiranju samo skrije (_zapri_glavno). Kjer delovna
         povrsina ze je ali tece celozaslonski Safeer OS (namizje), se ne zgodi nic - kot prej."""
-        if self.okno_delovna is not None or self.namizje or self.posnetek:
+        if self._ima_delovno() or self.namizje or self.posnetek:
             return False
         self.delovna, self.v_oknu = True, True
         self._ustvari_delovno()
@@ -1652,6 +1655,14 @@ class SafeerOS(Gtk.Application):
         in docku (robovi iz workarea), zato se nic ne prekriva."""
         robovi = self._robovi()
         self._robovi_delovne = robovi
+        if not self.posnetek and os_lupina.pripravi(sys.argv[:1]):
+            # Namizje v QML (kot na Windows); Splet, Safeer Player in razdelki ostanejo okna GTK4 v tem procesu.
+            self.lupina = os_lupina.Namizje(self)
+            self.pogled_delovna = self._qml_pogled = self.lupina.pogled
+            self.lupina.pokazi()
+            self.hold()          # okno QML ni okno Gtk.Application: brez tega bi se proces koncal takoj po zagonu
+            self._ob_spremembi_zaslonov(self.lupina.postavi)
+            return
         pogled = self._nov_pogled("delovna.html?" + "&".join("%s=%d" % kv for kv in sorted(robovi.items())))
         okno = Gtk.ApplicationWindow(application=self, title="Safeer Cinnamon")
         # GTK4 nima set_wmclass, set_type_hint, set_keep_below, move: lastnosti X nastavi core/x11.py.
@@ -1693,6 +1704,10 @@ class SafeerOS(Gtk.Application):
         # Pult/dock se lahko pojavita sele po prijavi (Plank): robove preverimo se nekajkrat.
         GLib.timeout_add_seconds(3, self._preveri_robove)
         self._ob_spremembi_zaslonov(self._prestavi_delovno)
+
+    def _ima_delovno(self) -> bool:
+        """Delovna povrsina tece: okno WebKit (delovna.html) ali namizje QML."""
+        return self.okno_delovna is not None or self.lupina is not None
 
     def _preveri_robove(self) -> bool:
         if self.okno_delovna is None:
@@ -1782,7 +1797,7 @@ class SafeerOS(Gtk.Application):
         iskanje = razdelek_predvajalnika(razdelek)
         if iskanje is not None:
             return self._odpri_predvajalnik(iskanje)
-        if self.okno is None and self.okno_delovna is not None:
+        if self.okno is None and self._ima_delovno():
             # Na delovni povrsini se stara lupina Safeer OS ne odpira vec (lastnik, 12. 10. 2026: »namizno okolje lahko
             # ponudi vec udobja kot aplikacija«): vsak razdelek ima svoje mesto na namizju.
             osnova = "zapiski" if razdelek.startswith("zapisek:") else \
@@ -1813,6 +1828,12 @@ class SafeerOS(Gtk.Application):
         """Ikona kuverte v pultu. GTK3 je imel XApp.StatusIcon (Cinnamon) ali Gtk.StatusIcon - obeh v GTK4 ni (XApp je
         knjiznica GTK3 in se v procesu GTK4 ne da naloziti). Ikono v pultu da lupina Qt (QSystemTrayIcon) tako, da
         nastavi `kuverta_pult`; brez nje (cista lupina GTK4) kuverte ni in vrnemo False."""
+        if self.kuverta_pult is None and self.lupina is not None:
+            try:
+                self.kuverta_pult = os_lupina.Kuverta(lambda: GLib.idle_add(
+                    lambda: (self._preklopi_plosco_sporocil(), False)[1]))
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] kuverta (Qt):", e)
         return self.kuverta_pult or False
 
     def _zacni_kuverto(self) -> None:
@@ -2008,7 +2029,7 @@ class SafeerOS(Gtk.Application):
         """Zapiranje okna Safeer Player. Ob delovni povrsini ali glavnem oknu se okno samo skrije: predvajanje tece
         naprej (tudi vrsta skladb iz kataloga, ki jo vodi njegova stran), mini predvajalnik ga kaze, naslednji klic
         okno takoj vrne. Samostojni Safeer Player (zagon iz menija brez Safeer OS) se zapre kot vsak predvajalnik."""
-        if self.okno_delovna is not None or self.okno is not None:
+        if self._ima_delovno() or self.okno is not None:
             okno.set_visible(False)
             return True
         self._koncaj()
@@ -2057,7 +2078,7 @@ class SafeerOS(Gtk.Application):
         # domov: »Splet« iz iskanja na delovni povrsini brez niza - zacetna stran Spleta (url "" = domaca stran).
         url = "" if not niz else niz if niz.lower().startswith(("http://", "https://")) else \
             _iskalnik() + GLib.uri_escape_string(niz, None, False)
-        if self.okno_delovna is None or not self._peskovnik_na_voljo():
+        if not self._ima_delovno() or not self._peskovnik_na_voljo():
             return self._odpri_v_brskalniku(niz) if niz else False
         if self._plosca_spleta is None:
             from core.os_splet import VdelaniSplet
@@ -2838,6 +2859,8 @@ class SafeerOS(Gtk.Application):
         os_okna.pokazi_namizje()
         if self.okno_delovna is not None:
             self.okno_delovna.present_with_time(_cas_dogodka(self.okno_delovna))
+        elif self.lupina is not None:
+            self.lupina.okno.requestActivate()
         self._dogodek("iskanjeOdDrugod", {"q": niz}, self.pogled_delovna)
 
     def _govor_dogodek(self, vrsta: str, podatki: dict) -> None:

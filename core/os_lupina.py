@@ -1,0 +1,399 @@
+"""Lupina Safeer OS v Qt Quick (QML) na Linuxu - isto namizje kot na Windows (assets/os/qml).
+
+Lastnik, 14. 10. 2026: »QML za sistemski vmesnik, HTML/WebKitGTK za spletne aplikacije in vsebine brskalnika«. Lupina
+(namizje) je QML, Splet in vsebine ostanejo GTK4 + nas WebKitGTK - v ISTEM procesu. Zanko vrti GTK (g_application_run):
+Qt na Linuxu uporablja razpecevalnik GLib, zato njegove casovnike, dogodke in izris QML obdela ista zanka (PoC na
+testnem PC in v zabojniku 14. 10.: casovniki Qt in QML tecejo med Gtk.Application.run).
+
+Most: QML poklice Most.klic(metoda, argumenti_json) z istimi imeni kot spletna stran delovne povrsine; klic gre v
+SafeerOS._obdelaj_klic (glavna nit GLib), odgovor pride kot signal Most.odgovor. Klicatelj je QmlPogled, zato
+_odgovori/_dogodek vedo, da gre odgovor lupini in ne strani WebKit.
+
+Vklop: SAFEER_LUPINA=qml (privzeto, ce je PySide6 na voljo) ali html (prejsnja delovna povrsina v WebKitu).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import itertools
+import json
+import os
+import threading
+from pathlib import Path
+from typing import Any, Callable, Optional
+
+KOREN = Path(__file__).resolve().parents[1]
+QML = KOREN / "assets" / "os" / "qml" / "Namizje.qml"
+
+#: Ozadja Safeer (paket safeer-cinnamon jih namesti v /usr/share/backgrounds/safeer; enaka kot na Windows).
+OZADJA = (("jezero", "Gore in jezero", "Mountains and lake", "safeer-jezero.jpg"),
+          ("gore", "Gore", "Mountains", "safeer-gore-3840x2160.png"),
+          ("aurora", "Aurora", "Aurora", "safeer-aurora.jpg"),
+          ("zora", "Zora", "Dawn", "safeer-zora.jpg"),
+          ("globina", "Globina", "Depth", "safeer-globina.jpg"))
+MAPE_OZADIJ = ("/run/host/usr/share/backgrounds/safeer", "/usr/share/backgrounds/safeer",
+               str(KOREN / "packaging" / "tema-cinnamon" / "ozadje"))
+PRIVZETI_VIDEZ = {"zameglitev": 1.0, "prosojnost": 0.55}
+SLIKE = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
+
+_qt_app = None
+
+
+def zelena() -> bool:
+    """Ali naj bo namizje QML: SAFEER_LUPINA=html vrne prejsnjo delovno povrsino; brez PySide6 tudi."""
+    if os.environ.get("SAFEER_LUPINA", "qml").strip().lower() == "html":
+        return False
+    import importlib.util
+    return importlib.util.find_spec("PySide6") is not None and QML.is_file()
+
+
+def pripravi(argv: list) -> bool:
+    """QGuiApplication pred GTK (en na proces). Zanko potem vrti Gtk.Application.run."""
+    global _qt_app
+    if _qt_app is not None:
+        return True
+    if not zelena():
+        return False
+    try:
+        from PySide6.QtCore import QCoreApplication, Qt
+        from PySide6.QtWidgets import QApplication   # QApplication (ne QGuiApplication): QSystemTrayIcon (kuverta)
+        # X11 (Mint): Qt naj ne ugiba Waylanda, ce ga seja nima; Haswell in podobni: privzeti OpenGL je zanesljiv.
+        if os.environ.get("XDG_SESSION_TYPE") != "wayland":
+            os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
+        QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
+        _qt_app = QApplication.instance() or QApplication(list(argv) or ["safeer-os"])
+        _qt_app.setQuitOnLastWindowClosed(False)     # zivljenje procesa vodi Gtk.Application
+        _qt_app.setApplicationName("Safeer OS")
+        _qt_app.setDesktopFileName("io.github.memelandfaner.SafeerOS")
+        return True
+    except Exception as e:  # noqa: BLE001 - brez Qt: prejsnja delovna povrsina
+        print("[SafeerOS lupina] Qt ni na voljo:", e, flush=True)
+        _qt_app = None
+        return False
+
+
+def dejavna() -> bool:
+    return _qt_app is not None
+
+
+# ---------------------------------------------------------------------------------------- videz (ozadje, plosce)
+def _pot_ozadja_safeer(kljuc: str) -> str:
+    ime = next((o[3] for o in OZADJA if o[0] == kljuc), "")
+    for mapa in MAPE_OZADIJ:
+        pot = os.path.join(mapa, ime)
+        if ime and os.path.isfile(pot):
+            return pot
+    return ""
+
+
+def _preveri_videz(sprememba: dict) -> dict:
+    izid: dict = {}
+    oz = sprememba.get("ozadje")
+    if isinstance(oz, str):
+        if oz.startswith("safeer:") and any(o[0] == oz[7:] for o in OZADJA):
+            izid["ozadje"] = oz
+        elif os.path.isabs(oz) and oz.lower().endswith(SLIKE) and os.path.isfile(oz):
+            izid["ozadje"] = oz
+    for k, lo, hi in (("zameglitev", 0.0, 1.0), ("prosojnost", 0.2, 0.9)):
+        x = sprememba.get(k)
+        if isinstance(x, (int, float)) and not isinstance(x, bool):
+            izid[k] = round(max(lo, min(hi, float(x))), 3)
+    return izid
+
+
+def videz(shramba) -> dict:
+    v = dict(PRIVZETI_VIDEZ)
+    shranjeno = shramba.get("namizje_videz", None)
+    if isinstance(shranjeno, dict):
+        v.update(_preveri_videz(shranjeno))
+    return v
+
+
+def nastavi_videz(shramba, sprememba: dict, nastavi_ozadje_sistema: Optional[Callable[[str], None]] = None) -> dict:
+    """Shrani zameglitev/prosojnost; ozadje je na Linuxu ozadje sistema (Cinnamon), zato ga nastavimo tam - enako
+    vidijo namizje, zaklenjen zaslon in Splet."""
+    if not isinstance(sprememba, dict):
+        return videz(shramba)
+    if sprememba.get("privzeto"):
+        shramba.set("namizje_videz", {})
+        sprememba = {"ozadje": "safeer:jezero"}
+    preverjeno = _preveri_videz(sprememba)
+    oz = preverjeno.pop("ozadje", "")
+    trenutni = videz(shramba)
+    trenutni.update(preverjeno)
+    trenutni.pop("ozadje", None)
+    shramba.set("namizje_videz", trenutni)
+    if oz and nastavi_ozadje_sistema is not None:
+        pot = _pot_ozadja_safeer(oz[7:]) if oz.startswith("safeer:") else oz
+        if pot:
+            nastavi_ozadje_sistema(pot)
+    return trenutni
+
+
+def _url(pot: str) -> str:
+    from PySide6.QtCore import QUrl
+    return QUrl.fromLocalFile(pot).toString() if pot else ""
+
+
+def videz_za_qml(shramba, ozadje_sistema: str, jezik: str = "sl", paleta: Optional[dict] = None) -> dict:
+    v = videz(shramba)
+    ozadja, izbira = [], ""
+    for kljuc, sl, en, _ime in OZADJA:
+        pot = _pot_ozadja_safeer(kljuc)
+        if pot:
+            ozadja.append({"kljuc": "safeer:" + kljuc, "ime": sl if jezik == "sl" else en, "url": _url(pot)})
+            if ozadje_sistema and os.path.basename(pot) == os.path.basename(ozadje_sistema):
+                izbira = "safeer:" + kljuc
+    izid = {"izbira": izbira or ozadje_sistema, "ozadje": _url(ozadje_sistema), "zameglitev": v["zameglitev"],
+            "prosojnost": v["prosojnost"], "ozadja": ozadja, "windows": "",
+            "lastna": "" if izbira else ozadje_sistema}
+    if paleta:
+        izid["paleta"] = paleta
+    return izid
+
+
+def _mapa_ikon() -> Path:
+    mapa = Path(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")) / "safeer-os" / "ikone-namizja"
+    mapa.mkdir(parents=True, exist_ok=True)
+    return mapa
+
+
+def ikona_v_url(ikona: str) -> str:
+    """Ikona programa za QML Image: data:image;base64 -> datoteka v predpomnilniku, pot -> file:// URL."""
+    import base64
+    if not ikona:
+        return ""
+    if ikona.startswith("data:image/") and ";base64," in ikona:
+        glava, podatki = ikona.split(";base64,", 1)
+        koncnica = "svg" if "svg" in glava else ("png" if "png" in glava else "jpg")
+        pot = _mapa_ikon() / (hashlib.sha1(podatki.encode("ascii", "ignore")).hexdigest()[:20] + "." + koncnica)
+        if not pot.exists():
+            try:
+                pot.write_bytes(base64.b64decode(podatki))
+            except (OSError, ValueError):
+                return ""
+        return _url(str(pot))
+    if ikona.startswith("/"):
+        return _url(ikona)
+    return ikona
+
+
+def naprave_za_izbiro(vse: list, s_programi: list, z_datotekami: list) -> list:
+    """Druge naprave v Safeer Linku za izbiro na namizju (ista oblika kot na Windows): ena vrstica na napravo; racunalnik
+    je v Linku lahko dvakrat (Safeer OS in njegov Control, id »…-control«)."""
+    programi = {n["id"] for n in s_programi}
+    datoteke = {n["id"] for n in z_datotekami}
+    po_kljucu: dict = {}
+    for n in vse:
+        id_n = str(n.get("id") or "")
+        if n.get("ta") or not id_n or (id_n not in programi and id_n not in datoteke):
+            continue
+        kljuc = id_n[:-len("-control")] if id_n.endswith("-control") else id_n
+        v = po_kljucu.setdefault(kljuc, {"kljuc": kljuc, "ime": "", "platforma": "", "programi": "", "datoteke": ""})
+        if not v["ime"] or not id_n.endswith("-control"):
+            v["ime"] = str(n.get("ime") or id_n)
+            v["platforma"] = str(n.get("platforma") or "")
+        if id_n in programi and (not v["programi"] or not id_n.endswith("-control")):
+            v["programi"] = id_n
+        if id_n in datoteke and (not v["datoteke"] or id_n.endswith("-control")):
+            v["datoteke"] = id_n
+    return sorted(po_kljucu.values(), key=lambda v: v["ime"].lower())
+
+
+# ---------------------------------------------------------------------------------------- most in okno
+def _ustvari_razrede():
+    from PySide6.QtCore import QObject, QUrl, Qt, Signal, Slot
+    from PySide6.QtQuick import QQuickView
+
+    class Most(QObject):
+        """QML -> Python: klic vrne id, odgovor pride kot signal (iz katerekoli niti; Qt ga dostavi v glavno nit)."""
+        odgovor = Signal(int, bool, str)
+        dogodek = Signal(str, str)
+
+        def __init__(self, lupina) -> None:
+            super().__init__()
+            self._lupina = lupina
+            self._stevec = itertools.count(1)
+
+        @Slot(str, str, result=int)
+        def klic(self, metoda: str, argumenti: str) -> int:
+            klic_id = next(self._stevec)
+            try:
+                a = json.loads(argumenti or "[]")
+            except ValueError:
+                a = []
+            self._lupina.klic(klic_id, metoda, a if isinstance(a, list) else [])
+            return klic_id
+
+        @Slot(str, result=str)
+        def datotekaUrl(self, pot: str) -> str:  # noqa: N802 - ime za QML
+            return QUrl.fromLocalFile(pot).toString() if pot else ""
+
+    class Okno(QQuickView):
+        def __init__(self) -> None:
+            super().__init__()
+            self.setTitle("Safeer OS namizje")
+            self.setFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnBottomHint)
+            self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
+            self.setColor(Qt.GlobalColor.black)
+
+    return Most, Okno
+
+
+class QmlPogled:
+    """Klicatelj za SafeerOS._obdelaj_klic (namesto pogleda WebKit): odgovori in dogodki gredo v QML."""
+
+    def __init__(self, most) -> None:
+        self._most = most
+
+    def qml_odgovor(self, klic_id: int, ok: bool, podatki: Any) -> None:
+        self._most.odgovor.emit(int(klic_id), bool(ok), json.dumps(podatki, ensure_ascii=False, default=str))
+
+    def qml_dogodek(self, vrsta: str, podatki: Any) -> None:
+        self._most.dogodek.emit(str(vrsta), json.dumps(podatki, ensure_ascii=False, default=str))
+
+    # Del API pogleda WebKit, ki ga _obdelaj_klic kdaj uporabi (okno klica, naslov)
+    def get_uri(self) -> str:
+        return "qml:namizje"
+
+    def get_root(self):
+        return None
+
+
+class Namizje:
+    """Namizje QML na Linuxu: cez cel zaslon, pod vsemi okni (X11 _NET_WM_WINDOW_TYPE_DESKTOP), brez gumba v pultu."""
+
+    def __init__(self, safeer_os, ob_koncu: Optional[Callable[[], None]] = None) -> None:
+        from PySide6.QtCore import QUrl
+        Most, Okno = _ustvari_razrede()
+        self.os = safeer_os
+        self.most = Most(self)
+        self.pogled = QmlPogled(self.most)
+        self.okno = Okno()
+        self.okno.rootContext().setContextProperty("Most", self.most)
+        self.okno.setSource(QUrl.fromLocalFile(str(QML)))
+        for napaka in self.okno.errors():
+            print("[SafeerOS lupina]", napaka.toString(), flush=True)
+        self._ob_koncu = ob_koncu
+        from PySide6.QtGui import QGuiApplication
+        QGuiApplication.primaryScreen().geometryChanged.connect(lambda *_: self.postavi())
+
+    # ------------------------------------------------------------------ klici
+    def klic(self, klic_id: int, metoda: str, a: list) -> None:
+        from gi.repository import GLib
+
+        def na_glavni() -> bool:
+            try:
+                if not self._lastna(klic_id, metoda, a):
+                    self.os._obdelaj_klic(self.pogled, klic_id, metoda, a)
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS lupina]", metoda, e, flush=True)
+                self.pogled.qml_odgovor(klic_id, False, str(e))
+            return False
+        # Klic je ze v glavni niti (zanka GLib), a QML naj se najprej vrne - kot pri spletni strani.
+        GLib.idle_add(na_glavni)
+
+    def _odgovor_v_ozadju(self, klic_id: int, delo: Callable[[], Any]) -> None:
+        def nit() -> None:
+            try:
+                self.pogled.qml_odgovor(klic_id, True, delo())
+            except Exception as e:  # noqa: BLE001
+                self.pogled.qml_odgovor(klic_id, False, str(e))
+        threading.Thread(target=nit, daemon=True, name="safeer-lupina").start()
+
+    def _lastna(self, klic_id: int, metoda: str, a: list) -> bool:
+        """Metode, ki jih ima samo namizje QML (oblika podatkov kot na Windows). Ostale gredo SafeerOS."""
+        import safeer_os as so
+        odg = self.pogled.qml_odgovor
+        if metoda == "programiNamizja":
+            seznam = self.os._seznam_programov() or []
+            odg(klic_id, True, [dict(p, ikona=ikona_v_url(str(p.get("ikona") or ""))) for p in seznam])
+        elif metoda == "programiNapraveNamizja":
+            def delo():
+                r = so.programi_naprave(str(a[0]) if a else "") or {}
+                if isinstance(r, dict):
+                    r = dict(r, programi=[dict(p, ikona=ikona_v_url(str(p.get("ikona") or "")))
+                                          for p in r.get("programi") or []])
+                return r
+            self._odgovor_v_ozadju(klic_id, delo)
+        elif metoda == "napraveNamizja":
+            self._odgovor_v_ozadju(klic_id, lambda: naprave_za_izbiro(
+                so.vse_naprave(), so.naprave_s_programi(), so.naprave_z_datotekami()))
+        elif metoda == "videzNamizja":
+            odg(klic_id, True, self.videz())
+        elif metoda == "nastaviVidezNamizja":
+            nastavi_videz(self.os.shramba, a[0] if a and isinstance(a[0], dict) else {}, self._nastavi_ozadje_sistema)
+            v = self.videz()
+            odg(klic_id, True, v)
+            self.dogodek("videz", v)
+        elif metoda == "zacetek":
+            z = dict(self.os._zacetek())
+            v = self.videz(str(z.get("jezik") or "sl"))
+            z.update({"ozadje": v["ozadje"], "videz": v, "platforma": "linux"})
+            odg(klic_id, True, z)
+        else:
+            return False
+        return True
+
+    def _nastavi_ozadje_sistema(self, pot: str) -> None:
+        try:
+            from gi.repository import Gio, GLib
+            vir = Gio.SettingsSchemaSource.get_default()
+            if vir is not None and vir.lookup("org.cinnamon.desktop.background", True) is not None:
+                Gio.Settings.new("org.cinnamon.desktop.background").set_string(
+                    "picture-uri", "file://" + GLib.uri_escape_string(pot, "/", False))
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS lupina] ozadje:", e, flush=True)
+
+    def videz(self, jezik: str = "") -> dict:
+        from core import os_sistem
+        import safeer_os as so
+        return videz_za_qml(self.os.shramba, os_sistem.ozadje_namizja() or "", jezik or so._jezik())
+
+    def dogodek(self, vrsta: str, podatki: Any = None) -> None:
+        self.pogled.qml_dogodek(vrsta, podatki)
+
+    # ------------------------------------------------------------------ polozaj: pod vsemi okni
+    def postavi(self) -> None:
+        from PySide6.QtGui import QGuiApplication
+        self.okno.setGeometry(QGuiApplication.primaryScreen().geometry())
+
+    def pokazi(self) -> None:
+        self.okno.create()
+        self._x11_namizje(int(self.okno.winId()))
+        self.postavi()
+        self.okno.show()
+
+    def _x11_namizje(self, xid: int) -> None:
+        """_NET_WM_WINDOW_TYPE_DESKTOP pred prikazom: upravitelj oken ga ne pokaze v pultu in ga drzi spodaj."""
+        try:
+            from core import x11
+            p = x11.povezava()
+            if p is None or not xid:
+                return
+            p.nastavi_stevila(xid, "_NET_WM_WINDOW_TYPE", p.atom("ATOM"), [p.atom("_NET_WM_WINDOW_TYPE_DESKTOP")])
+            p.nastavi_razred(xid, "safeer-cinnamon", "Safeer Cinnamon")
+            p.poslji()
+        except Exception as e:  # noqa: BLE001 - Wayland ali brez X: Qt zastavica WindowStaysOnBottomHint ostane
+            print("[SafeerOS lupina] X11:", e, flush=True)
+
+    def zapri(self) -> None:
+        self.okno.close()
+
+
+class Kuverta:
+    """Kuverta s stevilom neprebranih v pultu (QSystemTrayIcon - StatusNotifierItem, ki ga Cinnamon pokaze prek
+    xapp-sn-watcherja). Nadomesca XApp.StatusIcon, ki ga v procesu GTK4 ni mogoce naloziti."""
+
+    def __init__(self, ob_kliku: Callable[[], None]) -> None:
+        from PySide6.QtGui import QIcon
+        from PySide6.QtWidgets import QSystemTrayIcon
+        self._QIcon = QIcon
+        self._ikona = QSystemTrayIcon()
+        self._ikona.activated.connect(lambda razlog: ob_kliku() if razlog in (
+            QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.DoubleClick) else None)
+
+    def nastavi(self, pot_png: str, opis: str) -> None:
+        self._ikona.setIcon(self._QIcon(pot_png))
+        self._ikona.setToolTip(opis)
+        self._ikona.show()

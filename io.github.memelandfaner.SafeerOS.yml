@@ -30,9 +30,8 @@ finish-args:
   - --own-name=io.github.memelandfaner.SafeerOS
   - --env=GTK_USE_PORTAL=1
 modules:
-  # Nas WebKitGTK s popravki (packaging/webkit); prvi modul zaradi predpomnilnika flatpak-builderja.
-  - packaging/webkit/webkit2gtk-safeer.yml
-  # GTK4 (WebKit API 6.0): prehod Safeer OS na GTK4; drugi modul, da predpomnilnik prvega ostane.
+  # Nas WebKitGTK s popravki (packaging/webkit), API 6.0 za GTK4; prvi modul zaradi predpomnilnika flatpak-builderja.
+  # WebKit2GTK 4.1 (GTK3) Safeer OS ne potrebuje vec - ostaja samo v paketu Safeer Browser (safeer_mint.py).
   - packaging/webkit/webkitgtk6-safeer.yml
   # WebKit namesti typelib v /app/lib/x86_64-linux-gnu/girepository-1.0 (typelibdir iz SDK), Flatpak pa isce v
   # /app/lib/girepository-1.0 (GI_TYPELIB_PATH): brez premika Python vzame typelib iz runtime-a (CI 13. 10. 2026).
@@ -114,37 +113,8 @@ modules:
       - type: file
         url: https://files.pythonhosted.org/packages/84/21/a35af28dcc61f37ed850a2d64c65c701321dfbf25085e469d5559360cbbf/pillow-12.3.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
         sha256: 78cb2c6865a35ab8ff8b75fd122f6033b92a62c82801110e48ddd6c936a45d91
-  - name: libwnck
-    # Seznam odprtih oken in »Pokazi namizje« na delovni povrsini (core/os_okna.py). Runtime GNOME 50 ga nima.
-    buildsystem: meson
-    config-opts:
-      # Brez tega meson namesti v /app/lib64 in GI typelib ne najde (izmerjeno v CI, 13. 10. 2026).
-      - --libdir=lib
-      - -Dstartup_notification=disabled
-      - -Dintrospection=enabled
-      - -Dgtk_doc=false
-      - -Dinstall_tools=false
-    sources:
-      - type: archive
-        url: https://download.gnome.org/sources/libwnck/43/libwnck-43.3.tar.xz
-        sha256: 6af8ac41a8f067ade1d3caaed254a83423b5f61ad3f7a460fcacbac2e192bdf7
-  - name: xapp
-    # Kuverta in ikone v pultu Cinnamona (XApp.StatusIcon). app-lib-only: samo knjiznica, nastavitev Minta za Flatpak.
-    # Razlicica kot v Mintu 22.3.
-    buildsystem: meson
-    config-opts:
-      - --libdir=lib
-      - -Dapp-lib-only=true
-      - -Dmate=false
-      - -Dstatus-notifier=false
-      - -Dintrospection=true
-      - -Ddocs=false
-      - -Dpy-overrides-dir=/app/lib/python3.13/site-packages/gi/overrides
-    sources:
-      - type: git
-        url: https://github.com/linuxmint/xapp.git
-        tag: 3.2.3
-        commit: 58ffe8e1e38354804ef09966fc8379b212abb187
+  # libwnck in XApp (oboje samo GTK3) nista vec potrebna: seznam oken je EWMH (core/os_okna.py, core/x11.py), ikoni
+  # v pultu sta StatusNotifierItem (core/pladenj_sni.py) in QSystemTrayIcon (core/os_lupina.py) - prehod na GTK4.
   - name: safeer-os
     buildsystem: simple
     build-commands:
