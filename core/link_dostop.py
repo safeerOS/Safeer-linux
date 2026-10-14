@@ -706,7 +706,8 @@ def zabelezi(posiljatelj: str, kaj: str, zdaj: Optional[float] = None) -> None:
 # racunalnika, ga dobi samo, ce ga odobri uporabnik NA TEM racunalniku - zascita pred napadalcem. Prej je naprava brez
 # dostopa dobila samo zavrnitev; uporabnik jo je moral sam poiskati v nastavitvah.
 #
-# Ko racunalnik zavrne ukaz, ker naprava nima ENE zmoznosti (d/p/v/z - ne »*«), in je naprava clan kroga tega
+# Ko racunalnik zavrne ZASCITENO sporocilo (posiljatelja dokazuje kljuc - nezascitenemu »sender« vpise sredisce in ga
+# je mogoce ponarediti), ker naprava nima ENE zmoznosti (d/p/v/z - ne »*«), in je naprava clan kroga tega
 # racunalnika, si zapomni prosnjo {jedro, ime, zmoznost, cas} in program z obvestili (Safeer Control) pokaze obvestilo
 # z gumboma Dovoli / Zavrni. Ime naprave je iz kroga TEGA racunalnika, nikoli iz besedila sporocila. Dovoli doda samo
 # tisto eno crko; odobri se lahko samo odprta prosnja in samo s klikom uporabnika (dejanje aplikacije, glej
@@ -824,20 +825,20 @@ def nastavi_prikaz(pokazi: Optional[Callable[[dict], None]], umakni: Optional[Ca
         _prikaz, _umik = pokazi, umakni
 
 
-def prosnja_ob_zavrnitvi(device_id: str, zahteva: str, zascita: Optional[str] = None, zascitljivo: bool = True,
+def prosnja_ob_zavrnitvi(device_id: str, zahteva: str, zascita: Optional[str] = None,
                          zdaj: Optional[float] = None) -> Tuple[str, str]:
-    """Racunalnik je zahtevo naprave pravkar zavrnil. Ce ji manjka ena zmoznost in je clan kroga, uporabnika tu
-    vprasa (obvestilo). Vrne (access_request, capability) za odgovor napravi. Nikoli ne odpre nicesar."""
+    """Racunalnik je zahtevo naprave pravkar zavrnil. Ce je sporocilo prislo ZASCITENO (posiljatelja dokazuje kljuc),
+    napravi manjka ena zmoznost in je clan kroga, uporabnika tu vprasa (obvestilo). Vrne (access_request, capability)
+    za odgovor napravi. Nikoli ne odpre nicesar.
+
+    Samo zasciteno (isto pravilo kot Android): polje »sender« nezascitenega sporocila vpise sredisce, zato bi lahko
+    ponarejeno sporocilo uporabniku pokazalo »<druzinski clan> prosi za dostop« in ga pripravilo do odobritve tuji
+    napravi. Nezascitena sporocila (tudi starejsih naprav, ki zascite ne znajo) dobijo "none" in obvestila ni."""
     zdaj = time.time() if zdaj is None else zdaj
-    if zahteva not in VSE_ZMOZNOSTI:
+    if zahteva not in VSE_ZMOZNOSTI or not zascita:
         return PROSNJA_NI, zahteva
     try:
-        if zascita:
-            j = str(zascita)             # jedro iz PREVERJENEGA kljuca (zasciteno sporocilo)
-        elif zascitljivo and zahteva_zascito(device_id):
-            return PROSNJA_NI, zahteva   # nezasciteno v imenu naprave, ki zascito zna: ni ona, ne sprasujemo
-        else:
-            j = jedro(device_id)
+        j = str(zascita)                 # jedro iz PREVERJENEGA kljuca (core/link_e2e), ne oznaka iz sredisca
         if not _je_jedro(j) or j == lastno_jedro():
             return PROSNJA_NI, zahteva
         if zahteva in zmoznosti_jedra(j):
@@ -886,13 +887,9 @@ def prosnja_ob_zavrnitvi(device_id: str, zahteva: str, zascita: Optional[str] = 
 
 def prosnja_ob_zavrnitvi_sporocila(device_id: str, tip: str, dejanje: str = "",
                                    zascita: Optional[str] = None) -> Tuple[str, str]:
-    """Kot prosnja_ob_zavrnitvi, za sporocila, ki niso ukaz (cast.url, share.screen)."""
-    try:
-        from core import link_e2e
-        zascitljivo = tip in link_e2e.ZASCITENI_TIPI
-    except Exception:  # noqa: BLE001
-        zascitljivo = True
-    return prosnja_ob_zavrnitvi(device_id, zahteva_sporocila(tip, dejanje), zascita, zascitljivo)
+    """Kot prosnja_ob_zavrnitvi, za sporocila, ki niso ukaz (cast.url). Zasciteno lahko pride samo tip iz
+    link_e2e.ZASCITENI_TIPI; share.screen ni med njimi, zato zanj prosnje ni (sredisce zasciten share.screen zavrze)."""
+    return prosnja_ob_zavrnitvi(device_id, zahteva_sporocila(tip, dejanje), zascita)
 
 
 def z_prosnjo(odgovor: dict, stanje: str, zmoznost: str) -> dict:
