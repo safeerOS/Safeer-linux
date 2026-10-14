@@ -583,6 +583,10 @@ class Katalog:
             self._predvajano[url] = {"id": str(item.get("id") or ident), "zvok": vrsta in ("medij", "radio"), "vrsta": vrsta,
                                      "kljuc": kljuc,
                                      "izvajalec": str(item.get("izvajalec") or "")[:200], "slika": str(item.get("slika") or "")[:2048]}
+            if vrsta == "video":
+                # IMDb oznaka za »Poisci podnapise na spletu« v predvajalniku (core/podnapisi_splet.py)
+                from . import podnapisi_splet
+                self._predvajano[url]["podnapisi_id"] = podnapisi_splet.id_vnosa(item)
             return dict(item, native=True, zvok=vrsta in ("medij", "radio"))
         if nacin == "vdelano":
             ok = self._v_glavni_pocakaj(lambda: self._vdelano(str(item.get("url") or "")))

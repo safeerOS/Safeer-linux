@@ -1419,6 +1419,10 @@ class SafeerOS(Gtk.Application):
         self._medijski_napis = None
         self._medijski_sklad = None
         self._medijski_vrsta = None
+        self._medijski_zvok = None        # gumb Zvok (zvocni posnetek, zamik, izenacevalnik)
+        self._medijski_osd = None         # kratko besedilo v kotu slike
+        self._medijski_osd_cas = 0
+        self._medijska_okenca = []        # odprta okenca z nastavitvami (tipke gredo njim)
         self._medijski_premor = None
         self._medijski_drsnik = None
         self._medijski_cas = None
@@ -3804,6 +3808,12 @@ class SafeerOS(Gtk.Application):
                 self._medijski_predvajalnik.shrani_podnapise = _pn.shrani_nastavitve
                 self._medijski_predvajalnik.jezik_sistema = _pn.jezik_sistema()
                 self._medijski_predvajalnik.pripravi_podnapis = _pn.pripravi
+                # Jezik zvoka in izenacevalnik (kot v Kodiju): shranjena izbira velja od prvega posnetka naprej.
+                from core import predvajalnik_moznosti as _pm
+                self._medijski_predvajalnik.moznosti = _pm.nalozi()
+                self._medijski_predvajalnik.shrani_moznosti = _pm.shrani
+                self._medijski_predvajalnik.nastavi_izenacevalnik(self._medijski_predvajalnik.moznosti["izenacevalnik"],
+                                                                  shrani=False)
                 self._medijski_predvajalnik.v_glavni = lambda f: GLib.idle_add(f)
                 if not self._medijski_tik_zacet:
                     self._medijski_tik_zacet = True
@@ -3849,6 +3859,14 @@ class SafeerOS(Gtk.Application):
                     window.safeer-player scale highlight { background: #8ac7ff; }
                     window.safeer-player scale slider { background: #8ac7ff;
                         min-width: 14px; min-height: 14px; margin: -6px; }
+                    window.safeer-player label.safeer-player-osd { background: rgba(11,20,36,.86); color: #eaf2ff;
+                        border: 1px solid rgba(211,229,255,.23); border-radius: 10px; padding: 8px 14px;
+                        font-size: 16px; font-weight: 700; }
+                    window.safeer-player popover > contents { background: #0f1b2e; color: #eaf2ff; }
+                    window.safeer-player popover label.safeer-player-heading { color: #afbed4; font-weight: 700; }
+                    window.safeer-player popover checkbutton { color: #eaf2ff; padding: 4px 6px; }
+                    window.safeer-player popover checkbutton:focus-visible,
+                    window.safeer-player popover button:focus-visible { outline: 2px solid #8ac7ff; }
                 """)
             except Exception as e:  # noqa: BLE001
                 print("[SafeerOS] slog predvajalnika:", e)
@@ -3892,7 +3910,18 @@ class SafeerOS(Gtk.Application):
             self._medijski_sklad.add_named(slika, "slika")
         else:
             print("[SafeerOS] gtk4paintablesink ni namescen: video v svojem oknu (autovideosink)", flush=True)
-        postavitev.append(self._medijski_sklad)
+        # OSD (zamik, zvocni posnetek, podnapisi): kratko besedilo v kotu slike, kot v Kodiju in VLC.
+        prekrivanje = Gtk.Overlay()
+        prekrivanje.set_vexpand(True)
+        prekrivanje.set_child(self._medijski_sklad)
+        self._medijski_osd = Gtk.Label(halign=Gtk.Align.END, valign=Gtk.Align.START)
+        self._medijski_osd.add_css_class("safeer-player-osd")
+        self._medijski_osd.set_margin_top(16)
+        self._medijski_osd.set_margin_end(16)
+        self._medijski_osd.set_can_target(False)
+        self._medijski_osd.set_visible(False)
+        prekrivanje.add_overlay(self._medijski_osd)
+        postavitev.append(prekrivanje)
         self._medijski_napis = Gtk.Label(xalign=0)
         self._medijski_napis.add_css_class("safeer-player-title")
         postavitev.append(self._medijski_napis)
@@ -3936,7 +3965,14 @@ class SafeerOS(Gtk.Application):
         self._medijski_podnapisi = Gtk.Button(label="💬 " + self._mb("podnapisi"))
         self._medijski_podnapisi.set_visible(False)
         self._medijski_podnapisi.connect("clicked", self._medijski_meni_podnapisov)
+        self._medijski_podnapisi.set_tooltip_text(self._mb("podnapisi") + " (V) · " + self._mb("zamik_podnapisov") + " (G / H)")
         gumbi.append(self._medijski_podnapisi)
+        # Zvok (kot v Kodiju): zvocni posnetek, zamik zvoka in izenacevalnik; tipka Menu na daljincu ga odpre.
+        self._medijski_zvok = Gtk.Button(label="🔊 " + self._mb("zvok"))
+        self._medijski_zvok.set_visible(False)
+        self._medijski_zvok.connect("clicked", self._medijski_meni_zvoka)
+        self._medijski_zvok.set_tooltip_text(self._mb("zvocni_posnetek") + " (B) · " + self._mb("zamik_zvoka") + " (J / K)")
+        gumbi.append(self._medijski_zvok)
         postavitev.append(gumbi)
         self._medijski_vrsta = Gtk.Label(xalign=0)
         self._medijski_vrsta.add_css_class("safeer-player-queue")
@@ -3947,6 +3983,8 @@ class SafeerOS(Gtk.Application):
         self._medijski_predvajalnik_okno = okno
 
     def _medijski_miska_drsnika(self, _kontroler, dogodek) -> bool:
+        if dogodek is None:       # GTK ob odprtju okenca (popover) poslje dogodek brez podatkov
+            return False
         vrsta = dogodek.get_event_type()
         if vrsta == Gdk.EventType.BUTTON_PRESS:
             self._medijski_zacni_premik(self._medijski_drsnik, dogodek)
@@ -4008,8 +4046,13 @@ class SafeerOS(Gtk.Application):
         naprej = [v.naslov for v in servis.vrsta[servis.indeks + 1:servis.indeks + 6]]
         self._medijski_vrsta.set_text(self._mb("cakalna_vrsta") + ": " + "  ·  ".join(naprej) if naprej else "")
         podatki = self._medijski_podatki()
+        video = podatki.get("vrsta") == "video" or (servis.trenutna is not None and self._medij_ima_sliko())
         if getattr(self, "_medijski_podnapisi", None) is not None:
-            self._medijski_podnapisi.set_visible(bool(podatki.get("podnapisi")) and podatki.get("vrsta") == "video")
+            # Video ima vedno vsaj »Naloži iz datoteke«, zato je gumb viden ob vsakem videu.
+            self._medijski_podnapisi.set_visible(bool(podatki.get("podnapisi")) and podatki.get("vrsta") == "video" or
+                                                 bool(video) and servis.trenutna is not None and not servis.je_dvd())
+        if getattr(self, "_medijski_zvok", None) is not None:
+            self._medijski_zvok.set_visible(servis.trenutna is not None and self._medijske_moznosti_zvoka())
         self._osvezi_medijski_drsnik(podatki)
         self._dogodek("predvajalnik", podatki)
 
@@ -4022,20 +4065,364 @@ class SafeerOS(Gtk.Application):
         return " · ".join(x for x in (ime, m.get("oznaka") or "") if x) or str(m.get("ime") or "")
 
     def _medijski_meni_podnapisov(self, gumb) -> None:
+        """Podnapisi (kot v Kodiju): izbira toka, zamik, nalaganje iz datoteke in s spleta - vse s tipkovnico in daljincem."""
         servis = self._medijski_predvajalnik
         if servis is None:
             return
+        self._medijsko_okence(gumb, self._medijska_plosca_podnapisov)
+
+    def _medijska_plosca_podnapisov(self, okence) -> "Gtk.Widget":
+        servis = self._medijski_predvajalnik
+        plosca = self._medijska_plosca()
         stanje = servis.podnapisi()
-        # GTK4: Gtk.Menu/RadioMenuItem ni vec - Gio.Menu s stanjskim dejanjem (izbira ene moznosti) v PopoverMenu.
-        izbira = Gio.SimpleAction.new_stateful("izberi", GLib.VariantType.new("s"), GLib.Variant("s", stanje["izbran"]))
-        izbira.connect("change-state", lambda d, v: (d.set_state(v), servis.izberi_podnapise(v.get_string())))
-        meni = Gio.Menu()
-        for kljuc, napis in [("izklop", self._mb("podnapisi_izklop"))] + \
-                [(m["kljuc"], self._ime_podnapisa(m)) for m in stanje["moznosti"]]:
-            postavka = Gio.MenuItem.new(napis, None)
-            postavka.set_action_and_target_value("podnapisi.izberi", GLib.Variant("s", kljuc))
-            meni.append_item(postavka)
-        self._pokazi_meni(gumb, meni, "podnapisi", [izbira])
+        moznosti = [("izklop", self._mb("podnapisi_izklop"))] + [(m["kljuc"], self._ime_podnapisa(m)) for m in stanje["moznosti"]]
+        plosca.append(self._medijski_naslov_plosce(self._mb("podnapisi")))
+        self._medijske_izbire(plosca, moznosti, stanje["izbran"],
+                              lambda kljuc: (servis.izberi_podnapise(kljuc),
+                                             self._medijski_osd_pokazi(self._mb("podnapisi") + ": " + dict(moznosti).get(kljuc, ""))))
+        if not servis.je_dvd():
+            plosca.append(self._medijski_zamik_vrstica("podnapisi"))
+            datoteka = Gtk.Button(label="📂 " + self._mb("podnapisi_datoteka"))
+            datoteka.connect("clicked", lambda _g: (okence.popdown(), self._medijski_podnapisi_iz_datoteke()))
+            plosca.append(datoteka)
+            if self._medijski_id_podnapisov():
+                splet = Gtk.Button(label="🌐 " + self._mb("podnapisi_splet"))
+                splet.connect("clicked", lambda _g: self._medijski_podnapisi_splet(okence))
+                plosca.append(splet)
+        return plosca
+
+    def _medijski_meni_zvoka(self, gumb) -> None:
+        if self._medijski_predvajalnik is None:
+            return
+        self._medijsko_okence(gumb, self._medijska_plosca_zvoka)
+
+    def _medijske_moznosti_zvoka(self) -> bool:
+        """Ali ima okence Zvok kaj pokazati (vec zvocnih posnetkov, zamik ob videu ali izenacevalnik)."""
+        servis = self._medijski_predvajalnik
+        if servis is None or servis.trenutna is None:
+            return False
+        try:
+            vec_zvokov = int(servis.element.get_property("n-audio") or 0) > 1
+        except Exception:  # noqa: BLE001
+            vec_zvokov = False
+        return vec_zvokov or servis.izenacevalnik is not None or self._medij_ima_sliko()
+
+    def _medijska_plosca_zvoka(self, okence) -> "Gtk.Widget":
+        from core import predvajalnik_moznosti as _pm
+        servis = self._medijski_predvajalnik
+        plosca = self._medijska_plosca()
+        toki = servis.zvocni_toki(_jezik(), self._mb("zvok_st"))
+        if len(toki["moznosti"]) > 1:
+            plosca.append(self._medijski_naslov_plosce(self._mb("zvocni_posnetek")))
+            imena = {m["kljuc"]: m["ime"] for m in toki["moznosti"]}
+            self._medijske_izbire(plosca, [(m["kljuc"], m["ime"]) for m in toki["moznosti"]], toki["izbran"],
+                                  lambda i: (servis.izberi_zvok(i), self._medijski_osd_pokazi(
+                                      self._mb("zvocni_posnetek") + ": " + imena.get(i, ""))))
+        if self._medij_ima_sliko():
+            plosca.append(self._medijski_zamik_vrstica("zvok"))
+        if servis.izenacevalnik is not None:
+            plosca.append(self._medijski_naslov_plosce(self._mb("izenacevalnik")))
+            izbire = list(_pm.IZBIRE_IZENACEVALNIKA)
+            seznam = Gtk.DropDown.new_from_strings([self._mb("eq_" + i) for i in izbire])
+            trenutna = servis.moznosti.get("izenacevalnik", "ravno")
+            seznam.set_selected(izbire.index(trenutna) if trenutna in izbire else 0)
+            plosca.append(seznam)
+            drsniki = self._medijski_drsniki_izenacevalnika()
+            drsniki.set_visible(trenutna == _pm.PO_MERI)
+            plosca.append(drsniki)
+
+            def izbrano(dd, _p) -> None:
+                izbira = izbire[dd.get_selected()] if 0 <= dd.get_selected() < len(izbire) else "ravno"
+                servis.nastavi_izenacevalnik(izbira)
+                drsniki.set_visible(izbira == _pm.PO_MERI)
+                self._medijski_osd_pokazi(self._mb("izenacevalnik") + ": " + self._mb("eq_" + izbira))
+            seznam.connect("notify::selected", izbrano)
+        return plosca
+
+    def _medijski_drsniki_izenacevalnika(self) -> "Gtk.Widget":
+        """Deset navpicnih drsnikov (Po meri): -12..+12 dB, puscici gor/dol premikata izbrani pas za 1 dB."""
+        from core import predvajalnik_moznosti as _pm
+        servis = self._medijski_predvajalnik
+        vrsta = Gtk.Box(spacing=4)
+        vrednosti = list(_pm.ojacitve(_pm.PO_MERI, servis.moznosti.get("po_meri")))
+        cakam = {"id": 0}
+
+        def shrani() -> bool:
+            cakam["id"] = 0
+            servis.shrani_moznosti(dict(servis.moznosti))
+            return False
+
+        for i, pas in enumerate(_pm.PASOVI):
+            stolpec = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            drsnik = Gtk.Scale.new_with_range(Gtk.Orientation.VERTICAL, _pm.NAJMANJ_DB, _pm.NAJVEC_DB, 1)
+            drsnik.set_inverted(True)            # gor = glasneje
+            drsnik.set_draw_value(False)
+            drsnik.set_size_request(-1, 120)
+            drsnik.set_value(vrednosti[i])
+            drsnik.set_tooltip_text("%s Hz" % pas)
+            drsnik.update_property([Gtk.AccessibleProperty.LABEL], ["%s %s Hz" % (self._mb("izenacevalnik"), pas)])
+
+            def premik(d, k=i) -> None:
+                vrednosti[k] = round(d.get_value())
+                servis.nastavi_izenacevalnik(_pm.PO_MERI, vrednosti, shrani=False)
+                if not cakam["id"]:              # na disk sele, ko uporabnik neha premikati
+                    cakam["id"] = GLib.timeout_add(600, shrani)
+            drsnik.connect("value-changed", premik)
+            stolpec.append(drsnik)
+            oznaka = Gtk.Label(label=pas)
+            oznaka.add_css_class("dim-label")
+            stolpec.append(oznaka)
+            vrsta.append(stolpec)
+        return vrsta
+
+    @staticmethod
+    def _medijska_plosca() -> "Gtk.Box":
+        plosca = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        return _robovi_gradnika(plosca, 10)
+
+    @staticmethod
+    def _medijski_naslov_plosce(besedilo: str) -> "Gtk.Label":
+        naslov = Gtk.Label(label=besedilo, xalign=0)
+        naslov.add_css_class("safeer-player-heading")
+        return naslov
+
+    @staticmethod
+    def _medijske_izbire(plosca, moznosti: list, izbran, izberi: Callable) -> None:
+        """Izbira ene moznosti (radijski gumbi): puscice in preslednica, kot v vsakem dialogu GTK."""
+        prvi = None
+        for kljuc, napis in moznosti:
+            gumb = Gtk.CheckButton(label=napis)
+            if prvi is None:
+                prvi = gumb
+            else:
+                gumb.set_group(prvi)
+            gumb.set_active(kljuc == izbran)
+            gumb.connect("toggled", lambda g, k=kljuc: g.get_active() and izberi(k))
+            plosca.append(gumb)
+
+    def _medijski_zamik_vrstica(self, vrsta: str) -> "Gtk.Widget":
+        """»Zamik zvoka  −100 ms  +150 ms  +100 ms  Ponastavi« - gumbi menija premikajo za 100 ms, tipke za 50 ms."""
+        from core import predvajalnik_moznosti as _pm
+        servis = self._medijski_predvajalnik
+        okvir = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        ime = self._mb("zamik_zvoka" if vrsta == "zvok" else "zamik_podnapisov")
+        tipke = "J / K" if vrsta == "zvok" else "G / H"
+        okvir.append(self._medijski_naslov_plosce("%s (%s)" % (ime, tipke)))
+        vrstica = Gtk.Box(spacing=6)
+        vrednost = Gtk.Label(label=_pm.besedilo_zamika(servis.zamik_zvoka if vrsta == "zvok" else servis.zamik_podnapisov))
+        vrednost.set_width_chars(9)
+
+        def premakni(korak: int) -> None:
+            ms = servis.nastavi_zamik(vrsta, 0) if korak == 0 else servis.premakni_zamik(vrsta, korak)
+            vrednost.set_text(_pm.besedilo_zamika(ms))
+            self._medijski_osd_pokazi("%s: %s" % (ime, _pm.besedilo_zamika(ms)))
+        for napis, korak in (("−%d ms" % _pm.KORAK_MENI_MS, -_pm.KORAK_MENI_MS), (None, 0),
+                             ("+%d ms" % _pm.KORAK_MENI_MS, _pm.KORAK_MENI_MS)):
+            if napis is None:
+                vrstica.append(vrednost)
+                continue
+            gumb = Gtk.Button(label=napis)
+            gumb.update_property([Gtk.AccessibleProperty.LABEL], ["%s %s" % (ime, napis)])
+            gumb.connect("clicked", lambda _g, k=korak: premakni(k))
+            vrstica.append(gumb)
+        ponastavi = Gtk.Button(label="↺ " + self._mb("ponastavi"))
+        ponastavi.update_property([Gtk.AccessibleProperty.LABEL], ["%s: %s" % (ime, self._mb("ponastavi"))])
+        ponastavi.connect("clicked", lambda _g: premakni(0))
+        vrstica.append(ponastavi)
+        okvir.append(vrstica)
+        return okvir
+
+    def _medijsko_okence(self, gumb, zgradi: Callable) -> None:
+        """Okence pod gumbom z nastavitvami (Gtk.Popover): vsebino zgradi zgradi(okence); fokus na prvi moznosti,
+        da daljinec in tipkovnica takoj delujeta."""
+        stari = getattr(gumb, "_safeer_meni", None)
+        if stari is not None:
+            stari.unparent()
+        okence = Gtk.Popover()
+        okence.set_parent(gumb)
+        okence.set_position(Gtk.PositionType.TOP)
+        okence.set_has_arrow(False)
+        gumb._safeer_meni = okence
+        okence.set_child(zgradi(okence))
+        self._medijska_okenca = [o for o in getattr(self, "_medijska_okenca", []) if o is not stari] + [okence]
+        okence.popup()
+        self._medijski_fokus_okenca(okence)
+
+    @staticmethod
+    def _medijski_fokus_okenca(okence) -> None:
+        """Fokus na izbrani moznosti (daljinec: puscici takoj premikata izbiro), sicer na prvem gumbu."""
+        def isci(g):
+            while g is not None:
+                if isinstance(g, Gtk.CheckButton) and g.get_active():
+                    return g
+                najden = isci(g.get_first_child())
+                if najden is not None:
+                    return najden
+                g = g.get_next_sibling()
+            return None
+        izbran = isci(okence.get_child())
+        if izbran is None or not izbran.grab_focus():
+            okence.child_focus(Gtk.DirectionType.TAB_FORWARD)
+
+    def _medijsko_okence_odprto(self) -> bool:
+        return any(o.get_visible() for o in getattr(self, "_medijska_okenca", []))
+
+    def _medijski_osd_pokazi(self, besedilo: str) -> None:
+        """Kratko besedilo v kotu slike za 2 s (zamik, posnetek, podnapisi)."""
+        osd = getattr(self, "_medijski_osd", None)
+        if osd is None:
+            return
+        osd.set_text(besedilo)
+        osd.set_visible(True)
+        if getattr(self, "_medijski_osd_cas", 0):
+            GLib.source_remove(self._medijski_osd_cas)
+
+        def skrij() -> bool:
+            self._medijski_osd_cas = 0
+            osd.set_visible(False)
+            return False
+        self._medijski_osd_cas = GLib.timeout_add(2000, skrij)
+
+    def _medijski_zamik_tipka(self, vrsta: str, korak: int) -> bool:
+        from core import predvajalnik_moznosti as _pm
+        servis = self._medijski_predvajalnik
+        if servis is None or servis.trenutna is None or not self._medij_ima_sliko():
+            return False
+        ms = servis.premakni_zamik(vrsta, korak)
+        self._medijski_osd_pokazi("%s: %s" % (self._mb("zamik_zvoka" if vrsta == "zvok" else "zamik_podnapisov"),
+                                              _pm.besedilo_zamika(ms)))
+        return True
+
+    def _medijski_naslednji_zvok(self) -> bool:
+        servis = self._medijski_predvajalnik
+        if servis is None:
+            return False
+        i = servis.naslednji_zvok()
+        if i < 0:
+            return False
+        ime = next((m["ime"] for m in servis.zvocni_toki(_jezik(), self._mb("zvok_st"))["moznosti"] if m["kljuc"] == i), "")
+        self._medijski_osd_pokazi(self._mb("zvocni_posnetek") + ": " + ime)
+        return True
+
+    # ------------------------------------------------------------------ podnapisi iz datoteke in s spleta
+
+    def _medijski_podnapisi_iz_datoteke(self) -> None:
+        servis = self._medijski_predvajalnik
+        if servis is None or servis.trenutna is None:
+            return
+        from core import podnapisi as _pn
+        video = Gio.File.new_for_uri(servis.trenutna.uri).get_path() if servis.trenutna.uri.startswith("file://") else ""
+
+        def izbrano(poti: list) -> None:
+            if not poti or self._medijski_predvajalnik is None or self._medijski_predvajalnik.trenutna is None:
+                return
+            pot = poti[0]
+            try:
+                velikost = os.path.getsize(pot)
+            except OSError:
+                velikost = -1
+            if not _pn.je_podnapis(pot) or not 0 < velikost <= _pn.NAJVEC_BAJTOV:
+                self._medijski_osd_pokazi(self._mb("podnapisi_neveljavni"))
+                return
+            koda, oznaka = _pn.jezik(os.path.basename(video) if video else self._medijski_predvajalnik.trenutna.naslov, pot)
+            if self._medijski_predvajalnik.dodaj_podnapis(GLib.filename_to_uri(pot, None), os.path.basename(pot), koda, oznaka):
+                self._medijski_osd_pokazi(self._mb("podnapisi") + ": " + os.path.basename(pot))
+        self._izberi_poti(self._mb("podnapisi_izberi"), self._medijski_predvajalnik_okno or self.okno, "datoteka", izbrano,
+                          potrdi=self._mb("odpri"), zacetna=os.path.dirname(video) if video else "",
+                          filtri=[(self._mb("podnapisi") + " (SRT, ASS, SSA, VTT)", ["*.srt", "*.ass", "*.ssa", "*.vtt",
+                                                                                     "*.SRT", "*.ASS", "*.SSA", "*.VTT"])])
+
+    def _medijski_id_podnapisov(self) -> str:
+        """IMDb oznaka trenutnega vnosa kataloga (movie/tt… ali series/tt…:S:E) za spletne podnapise; prazno = ni."""
+        servis = self._medijski_predvajalnik
+        if servis is None or servis.trenutna is None or self._katalog is None:
+            return ""
+        vnos = self._katalog.vnos_predvajanega(servis.trenutna.uri) or {}
+        return str(vnos.get("podnapisi_id") or "")
+
+    def _medijski_jeziki_podnapisov(self) -> list:
+        from core import podnapisi_splet
+        servis = self._medijski_predvajalnik
+        return podnapisi_splet.jeziki_uporabnika(servis.nastavitve_podnapisov.get("jezik"), servis.jezik_sistema, _jezik())
+
+    def _medijski_podnapisi_splet(self, okence) -> None:
+        """Rezultati dodatka OpenSubtitles v istem okencu: uporabnikovi jeziki prvi, izbira prenese in vklopi podnapis."""
+        from core import podnapisi_splet
+        ident = self._medijski_id_podnapisov()
+        if not ident:
+            return
+        cakaj = self._medijska_plosca()
+        cakaj.append(Gtk.Label(label=self._mb("podnapisi_iscem"), xalign=0))
+        okence.set_child(cakaj)
+        jeziki = self._medijski_jeziki_podnapisov()
+        uri = self._medijski_predvajalnik.trenutna.uri
+
+        def delo() -> None:
+            try:
+                izid, napaka = podnapisi_splet.poisci(ident, jeziki), ""
+            except Exception as e:  # noqa: BLE001 - omrezje, JSON: uporabnik vidi razumljivo sporocilo
+                print("[SafeerOS] spletni podnapisi:", type(e).__name__, e, flush=True)
+                izid, napaka = [], "podnapisi_napaka"
+            GLib.idle_add(lambda: (self._medijski_rezultati_podnapisov(okence, uri, izid, napaka), False)[1])
+        threading.Thread(target=delo, name="safeer-podnapisi-splet", daemon=True).start()
+
+    def _medijski_rezultati_podnapisov(self, okence, uri: str, rezultati: list, napaka: str) -> None:
+        from gi.repository import Pango
+        from core import podnapisi as _pn, podnapisi_splet
+        servis = self._medijski_predvajalnik
+        if servis is None or servis.trenutna is None or servis.trenutna.uri != uri or not okence.get_visible():
+            return
+        plosca = self._medijska_plosca()
+        nazaj = Gtk.Button(label="← " + self._mb("nazaj"))
+        nazaj.connect("clicked", lambda _g: (okence.set_child(self._medijska_plosca_podnapisov(okence)),
+                                             self._medijski_fokus_okenca(okence)))
+        plosca.append(nazaj)
+        if napaka or not rezultati:
+            plosca.append(Gtk.Label(label=self._mb(napaka or "podnapisi_ni"), xalign=0, wrap=True))
+        else:
+            seznam = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            for jezik, skupina in podnapisi_splet.skupine(rezultati):
+                seznam.append(self._medijski_naslov_plosce(_pn.ime_jezika(jezik, _jezik())))
+                for r in skupina:
+                    gumb = Gtk.Button(label=" · ".join(x for x in (r["ime"] or r["id"], r["oznaka"]) if x))
+                    gumb.get_child().set_ellipsize(Pango.EllipsizeMode.MIDDLE)    # dolga imena izdaj
+                    gumb.get_child().set_xalign(0)
+                    gumb.connect("clicked", lambda _g, r=r: self._medijski_prenesi_podnapis(okence, uri, r))
+                    seznam.append(gumb)
+            drsno = Gtk.ScrolledWindow()
+            drsno.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            drsno.set_propagate_natural_height(True)
+            drsno.set_max_content_height(420)
+            drsno.set_min_content_width(420)
+            drsno.set_child(seznam)
+            plosca.append(drsno)
+        okence.set_child(plosca)
+        okence.child_focus(Gtk.DirectionType.TAB_FORWARD)
+
+    def _medijski_prenesi_podnapis(self, okence, uri: str, rezultat: dict) -> None:
+        from core import podnapisi as _pn, podnapisi_splet
+        self._medijski_osd_pokazi(self._mb("podnapisi_prenasam"))
+
+        def delo() -> None:
+            try:
+                pot = podnapisi_splet.prenesi(rezultat)
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] prenos podnapisa:", type(e).__name__, e, flush=True)
+                pot = ""
+
+            def nared() -> bool:
+                servis = self._medijski_predvajalnik
+                if not pot:
+                    self._medijski_osd_pokazi(self._mb("podnapisi_napaka"))
+                elif servis is not None and servis.trenutna is not None and servis.trenutna.uri == uri:
+                    ime = _pn.ime_jezika(rezultat["jezik"], _jezik())
+                    if servis.dodaj_podnapis(GLib.filename_to_uri(pot, None), rezultat["ime"] or ime,
+                                             rezultat["jezik"], " ".join(x for x in ("OpenSubtitles", rezultat["oznaka"]) if x)):
+                        okence.popdown()
+                        self._medijski_osd_pokazi(self._mb("podnapisi") + ": " + ime)
+                return False
+            GLib.idle_add(nared)
+        threading.Thread(target=delo, name="safeer-podnapis-prenos", daemon=True).start()
 
     @staticmethod
     def _pokazi_meni(gumb, meni, skupina: str, dejanja: list) -> None:
@@ -4105,7 +4492,12 @@ class SafeerOS(Gtk.Application):
         if len(kljuci) < 2:
             return False
         i = kljuci.index(stanje["izbran"]) if stanje["izbran"] in kljuci else 0
-        return servis.izberi_podnapise(kljuci[(i + 1) % len(kljuci)])
+        nov = kljuci[(i + 1) % len(kljuci)]
+        if not servis.izberi_podnapise(nov):
+            return False
+        m = next((m for m in stanje["moznosti"] if m["kljuc"] == nov), None)
+        self._medijski_osd_pokazi(self._mb("podnapisi") + ": " + (self._ime_podnapisa(m) if m else self._mb("podnapisi_izklop")))
+        return True
 
     @staticmethod
     def _medijski_cas_besedilo(sekunde: float) -> str:
@@ -4154,6 +4546,14 @@ class SafeerOS(Gtk.Application):
     def _medijska_tipka(self, okno, dogodek) -> bool:
         tipka = Gdk.keyval_name(dogodek.keyval)
         servis = self._medijski_predvajalnik
+        if self._medijsko_okence_odprto():
+            # Okence z nastavitvami ima svoje tipke (puscice, preslednica, Esc) - ne premikamo posnetka pod njim.
+            # Tipka Nazaj na daljincu ga zapre kot Esc.
+            if tipka == "Back":
+                for o in self._medijska_okenca:
+                    o.popdown()
+                return True
+            return False
         if servis is not None and servis.je_dvd():
             # Meni DVD: puščice in Enter premikajo izbiro (v filmu jih disk prezre), M odpre meni diska.
             ukaz = {"Up": "gor", "Down": "dol", "Return": "potrdi", "KP_Enter": "potrdi", "m": "meni", "M": "meni"}.get(tipka or "")
@@ -4161,6 +4561,23 @@ class SafeerOS(Gtk.Application):
                 return servis.navigacija(ukaz)
             if tipka in ("Left", "Right"):
                 servis.navigacija("levo" if tipka == "Left" else "desno")
+        brez_ctrl = not dogodek.state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK)
+        if tipka in ("Menu", "AudioCycleTrack") or (tipka in ("b", "B") and brez_ctrl):
+            # Menu na daljincu odpre Zvok; B in tipka daljinca za zvocni posnetek ga preklopita (kot v VLC).
+            if tipka == "Menu":
+                if self._medijski_zvok is not None and self._medijski_zvok.get_visible():
+                    self._medijski_meni_zvoka(self._medijski_zvok)
+                    return True
+                return False
+            return self._medijski_naslednji_zvok()
+        if tipka in ("j", "J", "k", "K", "g", "G", "h", "H") and brez_ctrl:
+            # Zamik za 50 ms kot v VLC: J/K zvok (K = zvok kasneje), G/H podnapisi (H = podnapisi kasneje).
+            from core import predvajalnik_moznosti as _pm
+            t = tipka.lower()
+            return self._medijski_zamik_tipka("zvok" if t in "jk" else "podnapisi",
+                                              _pm.KORAK_TIPKA_MS if t in "kh" else -_pm.KORAK_TIPKA_MS)
+        if tipka == "Subtitle":
+            return self._medijski_naslednji_podnapisi()
         if tipka == "space":
             return self._medijski_ukaz("premor")
         if tipka in ("Left", "Right") and self._medijski_predvajalnik:
@@ -4604,7 +5021,7 @@ class SafeerOS(Gtk.Application):
                           "mapa" if mapa else "datoteka", izbrano)
 
     def _izberi_poti(self, naslov: str, stars, nacin: str, konec: Callable[[list], None],
-                     potrdi: str = "", zacetna: str = "") -> None:
+                     potrdi: str = "", zacetna: str = "", filtri: Optional[list] = None) -> None:
         """Sistemsko okno za izbiro (GTK4 Gtk.FileDialog, asinhrono; GTK3 FileChooserDialog.run je odstranjen).
         nacin: »datoteka«, »datoteke« (vec) ali »mapa«. konec(seznam poti) - prazen ob preklicu."""
         izbira = Gtk.FileDialog(title=naslov, modal=True)
@@ -4612,6 +5029,16 @@ class SafeerOS(Gtk.Application):
             izbira.set_accept_label(potrdi)
         zacetna = zacetna if zacetna and os.path.isdir(zacetna) else GLib.get_home_dir()
         izbira.set_initial_folder(Gio.File.new_for_path(zacetna))   # ne mapa programa (~/.local/lib/safeer-os)
+        if filtri:
+            # [(ime, [vzorci])]: npr. samo podnapisi - prvi filter je privzet
+            seznam = Gio.ListStore.new(Gtk.FileFilter)
+            for ime, vzorci in filtri:
+                f = Gtk.FileFilter()
+                f.set_name(ime)
+                for v in vzorci:
+                    f.add_pattern(v)
+                seznam.append(f)
+            izbira.set_filters(seznam)
 
         def izbrano(dialog, izid) -> None:
             try:
