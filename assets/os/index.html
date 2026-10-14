@@ -189,6 +189,8 @@
               <h2 class="media-nav-naslov" id="mediaNavViriNaslov" data-t="mediaViriNaslov"></h2>
               <div class="media-nav-seznam" id="mediaNavViriSeznam" role="list" aria-labelledby="mediaNavViriNaslov"></div>
             </div>
+            <!-- Skrij, kar uporabnik ne potrebuje (lastnik, 14. 10. 2026): plosca s potrditvenimi polji za zavihke in vire. -->
+            <button class="media-nav-prilagodi" id="mediaNavPrilagodi" type="button" aria-haspopup="dialog" aria-controls="slojPrilagodi"><svg data-ikona="drsniki"></svg><span data-t="mediaPrilagodiMeni"></span></button>
           </nav>
           <div class="media-vsebina">
         <div class="media-orodna">
@@ -199,6 +201,8 @@
           <div class="media-glavni">
             <!-- Domov: junak z eno pravo vsebino (prva iz »Nadaljuj«, sicer nazadnje dodana) - samo resnicni podatki vnosa. -->
             <section class="media-junak media-domov-del" id="mediaJunak" aria-labelledby="mediaJunakNaslov" hidden></section>
+            <!-- Samodejni seznami (core/samodejni_seznami.py): na Domov in na vrhu Glasbe, samo seznami z dovolj skladbami. -->
+            <section class="media-samodejni media-domov-del" id="mediaSamodejni" aria-labelledby="mediaSamodejniNaslov" hidden></section>
             <!-- Osebne police (lastnik, 14. 10. 2026): Nadaljuj, Nazadnje dodano, Najvec predvajano, Priljubljene - samo
                  tiste z vsebino in samo na zavihkih, kjer imajo smisel (core/os_police.py). Na Domov se vsa vrsta z
                  »Vse →« odpre v svojem zavihku. -->
@@ -509,6 +513,15 @@
     <p class="drobno" data-t="mediaMapeOpis"></p>
     <div class="media-mape-seznam" id="mediaMapeSeznam"></div>
     <div class="gumbi"><button type="button" class="gumb" id="mediaMapeZapri" data-t="zapri"></button><button type="button" class="gumb glavni" id="mediaMapeDodaj"><svg data-ikona="mapa"></svg><span data-t="dodajMapoMedijev"></span></button></div>
+  </div>
+</div>
+<div class="sloj" id="slojPrilagodi"><div class="tancica"></div>
+  <div class="plosca media-mape-plosca prilagodi-plosca" role="dialog" aria-modal="true" aria-labelledby="prilagodiNaslov" aria-describedby="prilagodiOpis">
+    <span class="media-kicker">SAFEER MEDIA</span>
+    <h3 id="prilagodiNaslov" data-t="mediaPrilagodiNaslov"></h3>
+    <p class="drobno" id="prilagodiOpis" data-t="mediaPrilagodiOpis"></p>
+    <div class="prilagodi-seznam" id="prilagodiSeznam"></div>
+    <div class="gumbi"><button type="button" class="gumb glavni" id="prilagodiZapri" data-t="zapri"></button></div>
   </div>
 </div>
 <div class="sloj" id="slojMediaNaprave"><div class="tancica"></div>

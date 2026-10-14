@@ -279,7 +279,7 @@ class Navigacija(unittest.TestCase):
     def test_viri_samo_pravi_brez_praznega_naslova(self):
         telo = _funkcija(self.js, "narisiViriNav")
         self.assertIn("ovoj.hidden = !vnosi.length;", telo)
-        self.assertIn("if (S.mediaMape.length)", telo)
+        self.assertIn("if (S.mediaMape.length && ", telo)
         self.assertIn('<div class="media-nav-viri" id="mediaNavViri" hidden>', self.html)
         # Isto pravilo kot core/os_media.vidni_viri: strezniki, viri z vsebino, delujoci predvajalni viri.
         self.assertIn('v.vrsta === "streznik" || (v.stevilo || 0) > 0 || (v.tip === "predvajalni_vir" && !v.napaka)', self.js)
@@ -352,6 +352,100 @@ class BesedilaInBarve(unittest.TestCase):
     def test_zmanjsano_gibanje(self):
         blok = _beri("assets", "os", "os.css").split("Medijski center na namizju", 1)[1]
         self.assertIn("@media (prefers-reduced-motion: no-preference) {\n  .media-vrsta-plosca:not([hidden])", blok)
+
+
+class PrilagojenMeni(unittest.TestCase):
+    """Skrij, kar uporabnik ne potrebuje (lastnik, 14. 10. 2026): zavihki in viri se skrijejo samo iz menija."""
+
+    def setUp(self):
+        self.js = _beri("assets", "os", "os.js")
+        self.html = _beri("assets", "os", "index.html")
+        self.kavc = _beri("assets", "os", "kavc.js")
+
+    def test_domov_se_ne_skrije_in_skrito_ni_v_meniju(self):
+        koda = "var S = { mediaSkrito: { 'kat:tv': 1, 'kat:domov': 1, 'vir:a': 1 } };\n" + _funkcija(self.js, "jeSkrito") + """
+        console.log(JSON.stringify([jeSkrito("kat:tv"), jeSkrito("kat:domov"), jeSkrito("vir:a"), jeSkrito("kat:radio")]));"""
+        self.assertEqual(_node(koda), [True, False, True, False])
+        mediji = _funkcija(self.js, "narisiMedije")
+        self.assertIn('MEDIA_KATEGORIJE.filter(function (k) { return k[0] === S.mediaFilter || !jeSkrito("kat:" + k[0]); })', mediji)
+        self.assertIn('poveziMeniNav(b, "kat:" + k[0], t("media_" + k[0]));', mediji)       # vodoravni zavihki in leva navigacija
+        viri = _funkcija(self.js, "narisiViriNav")
+        self.assertIn('!jeSkrito("vir:mape")', viri)
+        self.assertIn('if (jeSkrito("vir:" + v.id)) return;', viri)
+        # Zapomnjen skrit zavihek ob odprtju: Domov.
+        self.assertIn('if (ob_nalaganju && !prej && jeSkrito("kat:" + S.mediaFilter)) { izberiMedijskoKategorijo("domov");',
+                      _funkcija(self.js, "nastaviSkrito"))
+        # V jedru, ne v localStorage (skupno glavnemu oknu in Safeer Playerju; drugo okno dobi dogodek).
+        self.assertIn('klic("mediaSkrij", [kljuc, !!da])', self.js)
+        self.assertIn('if (vrsta === "mediaSkrito") nastaviSkrito(podatki, false);', self.js)
+        self.assertNotIn("safeer.mediaSkrito", self.js)
+
+    def test_meni_s_tipkovnico_dotikom_in_ploskom(self):
+        povezi = _funkcija(self.js, "poveziMeniNav")
+        for niz in ('addEventListener("contextmenu"', 'e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")',
+                    'if (e.pointerType === "mouse") return;', "}, 600);"):
+            self.assertIn(niz, povezi)
+        # Gumb Y na ploscku poslje »contextmenu« izbranemu gumbu (kavc.js).
+        self.assertIn('el.dispatchEvent(new MouseEvent("contextmenu"', self.kavc)
+        meni = _funkcija(self.js, "odpriMeniNav")
+        self.assertIn('if (kljuc !== "kat:domov") postavka("x", t("mediaSkrijIzMenija")', meni)
+        self.assertIn('t("mediaPrilagodiMeni")', meni)
+
+    def test_plosca_prilagodi(self):
+        self.assertIn('id="mediaNavPrilagodi" type="button" aria-haspopup="dialog" aria-controls="slojPrilagodi"', self.html)
+        self.assertIn('<div class="plosca media-mape-plosca prilagodi-plosca" role="dialog" aria-modal="true" aria-labelledby="prilagodiNaslov"', self.html)
+        plosca = _funkcija(self.js, "narisiPrilagodi")
+        self.assertIn('k[0] !== "domov"', plosca)
+        self.assertIn('cb.type = "checkbox"; cb.checked = !jeSkrito(p.kljuc);', plosca)
+        self.assertIn('if (e.key === "Escape" && zapriPrilagodi()) { e.preventDefault(); e.stopImmediatePropagation(); }', self.js)
+        # Odprto okno ujame izbor puscic (kavc.js: .sloj.viden).
+        self.assertIn('.sloj.viden, [role=dialog]:not([hidden])', self.kavc)
+
+    def test_meni_ob_povecavi_kavca(self):
+        koda = """
+        var window = { innerWidth: 1920, innerHeight: 1080, getComputedStyle: function () { return { zoom: "1.25" }; } };
+        var document = { body: {} };
+        """ + _funkcija(self.js, "postaviPlavajoce") + """
+        var m = { offsetWidth: 240, offsetHeight: 143, style: {} };
+        postaviPlavajoce(m, 100, 760, 700); var a = [m.style.left, m.style.top];
+        postaviPlavajoce(m, 100, 1060, 1000); a.push(m.style.top);              // pod gumbom ni prostora: nad gumb
+        console.log(JSON.stringify(a));"""
+        self.assertEqual(_node(koda), ["80px", "608px", "657px"])
+
+
+class SamodejniSeznamiStran(unittest.TestCase):
+    def setUp(self):
+        self.js = _beri("assets", "os", "os.js")
+        self.html = _beri("assets", "os", "index.html")
+
+    def test_polica_na_domov_in_glasbi_brez_praznih(self):
+        self.assertIn('<section class="media-samodejni media-domov-del" id="mediaSamodejni" aria-labelledby="mediaSamodejniNaslov" hidden>', self.html)
+        telo = _funkcija(self.js, "narisiSamodejne")
+        self.assertIn('var vidno = (S.mediaFilter === "domov" || S.mediaFilter === "glasba") && !String(S.mediaIskanje || "").trim() && seznami.length > 0;', telo)
+        self.assertIn("c.hidden = !vidno;", telo)
+        self.assertIn('klic("mediaSamodejniSeznami", [])', self.js)
+        self.assertIn('if (vrsta === "mediaSamodejniOsvezeni") naloziSamodejne();', self.js)
+
+    def test_predvajanje_skozi_obstojeco_vrsto_brez_mesanja(self):
+        telo = _funkcija(self.js, "predvajajSamodejni")
+        self.assertIn("kat.vrsta = vnosi.map(function (v) { return v.id; }); kat.vrstaVnosi = vnosi; kat.vrstaMesto = 0;", telo)
+        self.assertIn("odpriKatalogVnos(vnosi[0].id);", telo)
+        for f in ("predvajajSamodejni", "narisiSamodejne", "kolaz"):
+            self.assertNotIn("Math.random", _funkcija(self.js, f))
+        self.assertIn('klic("mediaSamodejniShrani", [sz.id, ime])', _funkcija(self.js, "shraniSamodejni"))
+
+    def test_kolaz_samo_iz_pravih_naslovnic(self):
+        telo = _funkcija(self.js, "kolaz")
+        self.assertIn("var n = slike.length >= 4 ? 4 : slike.length ? 1 : 0;", telo)
+        self.assertIn("slike.slice(0, n)", telo)
+
+    def test_besedila_v_vseh_jezikih(self):
+        bes = _beri("assets", "os", "besedila.js")
+        for kljuc in ("mediaSkrijIzMenija", "mediaPrilagodiMeni", "mediaPrilagodiNaslov", "mediaPrilagodiOpis", "mediaPrilagodiVrste",
+                      "mediaSkritoObvestilo", "samNaslov", "samNajvec", "samNazadnje", "samDolgo", "samOdkrij", "samMesanica",
+                      "samShrani", "samShranjen", "samPredvajaj"):
+            self.assertEqual(bes.count('"%s":' % kljuc), 6, kljuc)
+            self.assertTrue(kljuc in self.js or kljuc in self.html, kljuc)
 
 
 class Kavc(unittest.TestCase):

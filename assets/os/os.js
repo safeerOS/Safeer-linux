@@ -162,6 +162,18 @@
   }
 
   function $(id) { return document.getElementById(id); }
+  // Plavajoc meni ob gumbu: koordinate zaslona (getBoundingClientRect) v CSS px strani - v nacinu za kavc je stran
+  // povecana (zoom 1,25), sicer bi bil meni zamaknjen in odrezan (izmerjeno 14. 10. 2026 v WebKitGTK 6.0). Ce pod gumbom
+  // ni prostora, gre nad gumb [nadY].
+  function postaviPlavajoce(m, x, y, nadY, rob) {
+    var z = parseFloat(window.getComputedStyle(document.body).zoom) || 1;
+    rob = rob == null ? 12 : rob;
+    var sirina = window.innerWidth / z, visina = window.innerHeight / z, h = m.offsetHeight;
+    var vrh = y / z;
+    if (vrh + h > visina - rob && nadY != null && nadY / z - h >= rob) vrh = nadY / z - h;
+    m.style.left = Math.max(rob, Math.min(sirina - m.offsetWidth - rob, x / z)) + "px";
+    m.style.top = Math.max(rob, Math.min(visina - h - rob, vrh)) + "px";
+  }
   function el(oznaka, razred, html) {
     var e = document.createElement(oznaka);
     if (razred) e.className = razred;
@@ -252,6 +264,7 @@
     mediaLokalno: [], mediaTokovi: [], mediaMape: [], galerija: null, mediaOsvezuje: false, mediaPredvajalnik: null,
     mediaOffset: 0, mediaHasMore: false, mediaRequest: 0,
     mediaQueueKey: "", mediaDragging: false, mediaViriNav: [], glasnostDotik: 0,
+    mediaSkrito: {}, mediaSkritoNalozeno: false, samodejni: [],
     programIskanje: "", mediaIskanje: "", napraveIskanje: "", datotekeIskanje: "", iskalneDatoteke: []
   };
   var PRIVZETE_SPLETNE = [
@@ -732,6 +745,9 @@
       if ($("slojMediaMape").classList.contains("viden")) narisiMedijskeMape();
       narisiViriNav();
     }).catch(function () {});
+    // Skriti predmeti menija (nastavitve Medijskega centra) in samodejni seznami (predpomnjeni, racunajo se v ozadju).
+    if (!veckrat && most) klic("mediaSkrito").then(function (seznam) { nastaviSkrito(seznam, true); }).catch(function () {});
+    if (!veckrat) naloziSamodejne();
     // Viri v levi navigaciji: samo tisti, iz katerih je kaj predvajljivega (isto pravilo kot core/os_media.vidni_viri).
     if (!veckrat && most) klic("mediaViri").then(function (viri) {
       S.mediaViriNav = (Array.isArray(viri) ? viri : []).filter(function (v) {
@@ -1317,18 +1333,21 @@
       if (!cilj[0]) return;
       cilj[0].innerHTML = "";
       cilj[0].setAttribute("aria-label", t("mediji"));
-      MEDIA_KATEGORIJE.forEach(function (k) {
+      // Skriti zavihki niso v meniju; odprt zavihek (npr. prek »Vse →«) ostane viden, da uporabnik ve, kje je.
+      MEDIA_KATEGORIJE.filter(function (k) { return k[0] === S.mediaFilter || !jeSkrito("kat:" + k[0]); }).forEach(function (k) {
         var b = el("button", cilj[1] + (S.mediaFilter === k[0] ? " izbrana" : ""),
           svg(k[1]) + '<span>' + ubezi(t("media_" + k[0])) + '</span>');
         b.type = "button"; b.setAttribute("role", "tab");
         b.setAttribute("aria-selected", S.mediaFilter === k[0] ? "true" : "false");
         b.setAttribute("data-kategorija", k[0]);
         b.addEventListener("click", function () { izberiZavihekMedijev(k[0]); });
+        poveziMeniNav(b, "kat:" + k[0], t("media_" + k[0]));
         cilj[0].appendChild(b);
       });
     });
     $("mediaNav").setAttribute("aria-label", t("mediji"));
     narisiViriNav();
+    narisiSamodejne();
     var domov = S.mediaFilter === "domov";
     $("r-media").classList.toggle("domov", domov);
     if (domov) {
@@ -1430,11 +1449,12 @@
   function narisiViriNav() {
     var ovoj = $("mediaNavViri"), seznam = $("mediaNavViriSeznam"); if (!ovoj || !seznam) return;
     var vnosi = [];
-    if (S.mediaMape.length) vnosi.push({ ime: t("mediaTaRacunalnik"), pod: t("mediaMape"), ikona: "mapa", izbran: null,
-                                         dejanje: function () { $("mediaMapeGumb").click(); } });
+    if (S.mediaMape.length && !jeSkrito("vir:mape")) vnosi.push({ kljuc: "vir:mape", ime: t("mediaTaRacunalnik"), pod: t("mediaMape"),
+                                         ikona: "mapa", izbran: null, dejanje: function () { $("mediaMapeGumb").click(); } });
     S.mediaViriNav.forEach(function (v) {
+      if (jeSkrito("vir:" + v.id)) return;         // skrit iz menija; vir sam ostane vklopljen in v iskanju
       var streznik = v.vrsta === "streznik";
-      vnosi.push({ ime: v.ime || v.url || v.id, ikona: streznik && v.ponudnik !== "stremio" ? "naprave" : "splet",
+      vnosi.push({ kljuc: "vir:" + v.id, ime: v.ime || v.url || v.id, ikona: streznik && v.ponudnik !== "stremio" ? "naprave" : "splet",
                    pod: streznik ? (IME_PONUDNIKA[v.ponudnik] || t("katOsebniStreznik")) : t("katVirElementov", { n: v.stevilo || 0 }),
                    izbran: samoTaVir(v.id), dejanje: function () { izberiVir(v); } });
     });
@@ -1447,9 +1467,213 @@
       b.type = "button"; b.title = v.ime;
       if (v.izbran !== null) b.setAttribute("aria-pressed", v.izbran ? "true" : "false");
       b.addEventListener("click", v.dejanje);
+      poveziMeniNav(b, v.kljuc, v.ime);
       vrstica.appendChild(b);
       seznam.appendChild(vrstica);
     });
+  }
+  // ---- prilagojen meni (lastnik, 14. 10. 2026: »skrij, kar uporabnik ne potrebuje«): vsak zavihek razen Domov in vsak
+  // vir v levi navigaciji (in v vodoravnih zavihkih) se da skriti - desni klik, tipka Meni, Shift+F10, dolg pritisk ali
+  // gumb Y na ploscku, ali v plosci »Prilagodi meni«. Skrito je samo v meniju: podatki in viri ostanejo, iskanje najde
+  // vse. Shranjeno v nastavitvah Medijskega centra (core/os_katalog.py), skupno glavnemu oknu in Safeer Playerju.
+  function jeSkrito(kljuc) { return kljuc !== "kat:domov" && !!S.mediaSkrito[kljuc]; }
+  function nastaviSkrito(seznam, ob_nalaganju) {
+    var prej = S.mediaSkritoNalozeno;
+    S.mediaSkrito = {};
+    (Array.isArray(seznam) ? seznam : []).forEach(function (k) { S.mediaSkrito[k] = 1; });
+    S.mediaSkritoNalozeno = true;
+    // Zapomnjen zavihek je skrit: Medijski center se odpre na Domov (samo ob odprtju; »Vse →« ga se vedno odpre).
+    if (ob_nalaganju && !prej && jeSkrito("kat:" + S.mediaFilter)) { izberiMedijskoKategorijo("domov"); naloziMedije(); return; }
+    narisiMedije();
+    if ($("slojPrilagodi").classList.contains("viden")) narisiPrilagodi();
+  }
+  function skrijPredmet(kljuc, da, ime) {
+    return klic("mediaSkrij", [kljuc, !!da]).then(function (seznam) {
+      // Skrit je zavihek, ki je odprt: pokaze se Domov.
+      if (da && kljuc === "kat:" + S.mediaFilter) izberiMedijskoKategorijo("domov");
+      nastaviSkrito(seznam, false);
+      if (da && S.mediaFilter === "domov" && kljuc.indexOf("kat:") === 0) naloziMedije();
+      if (da && ime) obvesti(t("mediaSkritoObvestilo", { ime: ime }));
+      return true;
+    }, function () { obvesti(t("niUspelo")); return false; });
+  }
+  // Meni predmeta navigacije: isti kot meni kartice (#mediaKarticaMeni - tipkovnica, Escape, klik drugam ga zapre).
+  function odpriMeniNav(gumb, kljuc, ime) {
+    var m = $("mediaKarticaMeni"); if (!m) return;
+    m.innerHTML = ""; m._kartica = gumb;
+    m.setAttribute("aria-label", ime);
+    var naslov = el("b", "", ubezi(ime)); naslov.setAttribute("aria-hidden", "true"); m.appendChild(naslov);
+    var postavka = function (ikona, besedilo, dejanje) {
+      var b = el("button", "", svg(ikona) + "<span>" + ubezi(besedilo) + "</span>");
+      b.type = "button"; b.setAttribute("role", "menuitem");
+      b.addEventListener("click", function () { zapriMeniKartice(false); dejanje(); });
+      m.appendChild(b);
+    };
+    if (kljuc !== "kat:domov") postavka("x", t("mediaSkrijIzMenija"), function () {
+      skrijPredmet(kljuc, true, ime).then(function () {
+        // Izbor ostane v meniju (tipkovnica, daljinec): na zavihku Domov.
+        var prvi = document.querySelector(".media-nav-kategorija, .media-kategorija");
+        var vidni = Array.prototype.filter.call(document.querySelectorAll(".media-nav-kategorija, .media-kategorija"), function (b) { return b.offsetParent; });
+        (vidni[0] || prvi || document.body).focus();
+      });
+    });
+    postavka("drsniki", t("mediaPrilagodiMeni"), function () { odpriPrilagodi(gumb); });
+    m.hidden = false;
+    var r = gumb.getBoundingClientRect();
+    postaviPlavajoce(m, r.left + 12, r.bottom + 4, r.top - 4);
+    m.querySelector("[role=menuitem]").focus();
+  }
+  // Desni klik, tipka Meni, Shift+F10, dolg pritisk (dotik) in gumb Y na ploscku (kavc.js poslje »contextmenu«).
+  function poveziMeniNav(gumb, kljuc, ime) {
+    gumb.addEventListener("contextmenu", function (e) { e.preventDefault(); e.stopPropagation(); odpriMeniNav(gumb, kljuc, ime); });
+    gumb.addEventListener("keydown", function (e) {
+      if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) { e.preventDefault(); e.stopPropagation(); odpriMeniNav(gumb, kljuc, ime); }
+    });
+    var ura = 0;
+    gumb.addEventListener("pointerdown", function (e) {
+      if (e.pointerType === "mouse") return;
+      clearTimeout(ura);
+      ura = setTimeout(function () { gumb._dolgo = true; odpriMeniNav(gumb, kljuc, ime); }, 600);
+    });
+    ["pointerup", "pointerleave", "pointercancel"].forEach(function (d) { gumb.addEventListener(d, function () { clearTimeout(ura); }); });
+    // Klik, ki konca dolg pritisk, ne odpre zavihka (meni je ze odprt).
+    gumb.addEventListener("click", function (e) { if (gumb._dolgo) { gumb._dolgo = false; e.stopImmediatePropagation(); e.preventDefault(); } }, true);
+  }
+  // Plosca »Prilagodi meni«: potrditvena polja za vse zavihke (razen Domov) in vse vire - skrite tudi, da se vrnejo.
+  function narisiPrilagodi() {
+    var seznam = $("prilagodiSeznam"); if (!seznam) return;
+    var aktivni = document.activeElement && document.activeElement.getAttribute ? document.activeElement.getAttribute("data-kljuc") : null;
+    seznam.innerHTML = "";
+    var skupina = function (naslovKljuc, predmeti) {
+      if (!predmeti.length) return;
+      var g = el("fieldset", "prilagodi-skupina");
+      g.appendChild(el("legend", "", ubezi(t(naslovKljuc))));
+      predmeti.forEach(function (p) {
+        var vrstica = el("label", "media-mapa prilagodi-vrstica"), cb = document.createElement("input");
+        cb.type = "checkbox"; cb.checked = !jeSkrito(p.kljuc); cb.setAttribute("data-kljuc", p.kljuc);
+        cb.addEventListener("change", function () { skrijPredmet(p.kljuc, !cb.checked); });
+        vrstica.appendChild(cb);
+        vrstica.insertAdjacentHTML("beforeend", svg(p.ikona) + '<div><b>' + ubezi(p.ime) + '</b>' + (p.pod ? '<small>' + ubezi(p.pod) + '</small>' : "") + '</div>');
+        g.appendChild(vrstica);
+      });
+      seznam.appendChild(g);
+    };
+    skupina("mediaPrilagodiVrste", MEDIA_KATEGORIJE.filter(function (k) { return k[0] !== "domov"; }).map(function (k) {
+      return { kljuc: "kat:" + k[0], ime: t("media_" + k[0]), ikona: k[1] };
+    }));
+    var viri = [];
+    if (S.mediaMape.length) viri.push({ kljuc: "vir:mape", ime: t("mediaTaRacunalnik"), pod: t("mediaMape"), ikona: "mapa" });
+    S.mediaViriNav.forEach(function (v) {
+      viri.push({ kljuc: "vir:" + v.id, ime: v.ime || v.url || v.id, ikona: v.vrsta === "streznik" && v.ponudnik !== "stremio" ? "naprave" : "splet",
+                  pod: v.vrsta === "streznik" ? (IME_PONUDNIKA[v.ponudnik] || t("katOsebniStreznik")) : t("katVirElementov", { n: v.stevilo || 0 }) });
+    });
+    skupina("mediaViriNaslov", viri);
+    if (aktivni) { var cilj = seznam.querySelector('[data-kljuc="' + aktivni.replace(/"/g, "") + '"]'); if (cilj) cilj.focus(); }
+  }
+  function odpriPrilagodi(odkod) {
+    var sloj = $("slojPrilagodi"); if (!sloj) return;
+    sloj._odkod = odkod || document.activeElement;
+    narisiPrilagodi();
+    sloj.classList.add("viden");
+    var prvi = sloj.querySelector("input[type=checkbox]") || $("prilagodiZapri");
+    prvi.focus();
+  }
+  function zapriPrilagodi() {
+    var sloj = $("slojPrilagodi"); if (!sloj || !sloj.classList.contains("viden")) return false;
+    sloj.classList.remove("viden");
+    var nazaj = sloj._odkod && document.contains(sloj._odkod) ? sloj._odkod : $("mediaNavPrilagodi");
+    if (nazaj && nazaj.focus) nazaj.focus();
+    return true;
+  }
+  function poveziPrilagodi() {
+    $("mediaNavPrilagodi").addEventListener("click", function () { odpriPrilagodi(this); });
+    $("prilagodiZapri").addEventListener("click", zapriPrilagodi);
+    $("slojPrilagodi").querySelector(".tancica").addEventListener("click", zapriPrilagodi);
+    // Escape (Nazaj na daljincu) zapre samo plosco, izbor se vrne tja, od koder je bila odprta.
+    window.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && zapriPrilagodi()) { e.preventDefault(); e.stopImmediatePropagation(); }
+    }, true);
+  }
+
+  // ---- samodejni seznami (core/samodejni_seznami.py): na Domov in na vrhu Glasbe; krajevno iz uporabnikove glasbe.
+  // Kartica: kolaz iz pravih naslovnic, ime in stevilo skladb; klik predvaja (vrsta strani, kot seznam predvajanja),
+  // »Shrani kot seznam« ga kopira med navadne sezname (od tedaj se ne spreminja vec).
+  function imeSamodejnega(sz) {
+    if (sz.vrsta === "izvajalec") return t("samMesanica", { ime: sz.ime });
+    if (sz.vrsta === "zanr") return sz.ime;
+    return t({ najvec: "samNajvec", nazadnje: "samNazadnje", dolgo: "samDolgo", odkrij: "samOdkrij" }[sz.vrsta] || "samNaslov");
+  }
+  function naloziSamodejne() {
+    if (!most) return;
+    klic("mediaSamodejniSeznami", []).then(function (r) {
+      S.samodejni = r && Array.isArray(r.seznami) ? r.seznami : [];
+      narisiSamodejne();
+    }).catch(function () {});
+  }
+  function predvajajSamodejni(sz) {
+    klic("mediaSamodejniSeznam", [sz.id]).then(function (r) {
+      var vnosi = (r && r.vnosi) || [];
+      if (!vnosi.length) { obvesti(t("katNapakaVira")); return; }
+      prekliciNaslednjo();
+      // Vrsta strani v stalnem vrstnem redu; mesa samo gumb »Premesaj« (naslednjiVVrsti).
+      kat.vrsta = vnosi.map(function (v) { return v.id; }); kat.vrstaVnosi = vnosi; kat.vrstaMesto = 0; kat.vrstaZgodovina = [];
+      narisiVrsto();
+      odpriKatalogVnos(vnosi[0].id);
+    }, function () { obvesti(t("katNapakaVira")); });
+  }
+  function shraniSamodejni(sz) {
+    var ime = imeSamodejnega(sz);
+    klic("mediaSamodejniShrani", [sz.id, ime]).then(function (r) {
+      if (r && r.ok) { obvesti(t("samShranjen", { ime: r.ime })); naloziSeznamePredvajanja(); }
+      else obvesti(t("seznamNiMogoce"));
+    }, function () { obvesti(t("seznamNiMogoce")); });
+  }
+  // Kolaz 2 x 2 iz stirih pravih naslovnic; z manj naslovnicami prva cez celo kartico (kot Spotify), brez nje znak.
+  function kolaz(slike) {
+    var n = slike.length >= 4 ? 4 : slike.length ? 1 : 0;
+    var k = el("span", "media-kolaz" + (n === 4 ? "" : n ? " ena" : " prazen")); k.setAttribute("aria-hidden", "true");
+    if (!n) { k.innerHTML = svg("glasba"); return k; }
+    slike.slice(0, n).forEach(function (pot) {
+      var img = document.createElement("img"); img.alt = ""; img.loading = "lazy"; img.src = pot;
+      img.onerror = function () { this.remove(); if (!k.querySelector("img")) { k.className = "media-kolaz prazen"; k.innerHTML = svg("glasba"); } };
+      k.appendChild(img);
+    });
+    return k;
+  }
+  function narisiSamodejne() {
+    var c = $("mediaSamodejni"); if (!c) return;
+    var seznami = S.samodejni || [];
+    var vidno = (S.mediaFilter === "domov" || S.mediaFilter === "glasba") && !String(S.mediaIskanje || "").trim() && seznami.length > 0;
+    c.hidden = !vidno;
+    var podpis = JSON.stringify(seznami) + "|" + jezik;
+    if (!vidno || c._podpis === podpis) return;
+    c._podpis = podpis;
+    var izbran = document.activeElement && c.contains(document.activeElement) ? document.activeElement.getAttribute("data-id") : null;
+    c.innerHTML = "";
+    var glava = el("h3", "media-polica-naslov", ubezi(t("samNaslov"))); glava.id = "mediaSamodejniNaslov";
+    c.appendChild(glava);
+    var vrsta = el("div", "media-polica-vrsta media-samodejni-vrsta"); vrsta.setAttribute("role", "list");
+    seznami.forEach(function (sz) {
+      var ime = imeSamodejnega(sz);
+      var ovoj = el("div", "media-samodejni-ovoj"); ovoj.setAttribute("role", "listitem");
+      var kartica = el("button", "kat-kartica media-samodejni-kartica"); kartica.type = "button";
+      kartica.setAttribute("data-id", sz.id);
+      kartica.setAttribute("aria-label", t("samPredvajaj", { ime: ime }) + ", " + stSkladb(sz.stevilo));
+      kartica.appendChild(kolaz(sz.slike || []));
+      var podatki = el("span", "kat-podatki");
+      var b = el("b", "", ubezi(ime)); b.title = ime; podatki.appendChild(b);
+      podatki.appendChild(el("span", "kat-meta", "<span>" + ubezi(stSkladb(sz.stevilo)) + "</span>"));
+      kartica.appendChild(podatki);
+      kartica.addEventListener("click", function () { predvajajSamodejni(sz); });
+      var shrani = el("button", "media-samodejni-shrani", svg("plus") + "<span>" + ubezi(t("samShrani")) + "</span>");
+      shrani.type = "button"; shrani.setAttribute("data-id", sz.id + "|shrani");
+      shrani.setAttribute("aria-label", t("samShrani") + ": " + ime);
+      shrani.addEventListener("click", function () { shraniSamodejni(sz); });
+      ovoj.appendChild(kartica); ovoj.appendChild(shrani);
+      vrsta.appendChild(ovoj);
+    });
+    c.appendChild(vrsta);
+    if (izbran) { var e = c.querySelector('[data-id="' + izbran.replace(/"/g, "") + '"]'); if (e) e.focus({ preventScroll: true }); }
   }
   function casMedija(sekunde) {
     sekunde = Math.max(0, Math.floor(Number(sekunde) || 0));
@@ -4418,8 +4642,7 @@
     m.appendChild(obrazec);
     m.hidden = false;
     var r = ob.getBoundingClientRect();
-    m.style.left = Math.max(12, Math.min(window.innerWidth - m.offsetWidth - 12, r.left)) + "px";
-    m.style.top = Math.max(12, Math.min(window.innerHeight - m.offsetHeight - 12, r.bottom + 6)) + "px";
+    postaviPlavajoce(m, r.left, r.bottom + 6, r.top - 6);
   }
   document.addEventListener("click", function (e) {
     var m = $("mediaSeznamMeni");
@@ -4617,8 +4840,7 @@
     if (!m.querySelector("[role=menuitem]")) return;
     m.hidden = false;
     var r = (ob || card).getBoundingClientRect();
-    m.style.left = Math.max(12, Math.min(window.innerWidth - m.offsetWidth - 12, r.left)) + "px";
-    m.style.top = Math.max(12, Math.min(window.innerHeight - m.offsetHeight - 12, ob ? r.bottom + 6 : r.top + 24)) + "px";
+    postaviPlavajoce(m, r.left, ob ? r.bottom + 6 : r.top + 24, ob ? r.top - 6 : null);
     m.querySelector("[role=menuitem]").focus();
   }
   function zapriMeniKartice(vrniFokus) {
@@ -5483,6 +5705,9 @@
   // ------------------------------------------------------------------ dogodki iz safeer_os.py
   window.safeerOsDogodek = function (vrsta, podatki) {
     katDogodek(vrsta, podatki);
+    // Drugo okno (glavno ali Safeer Player) je skrilo ali vrnilo predmet menija; novi samodejni seznami.
+    if (vrsta === "mediaSkrito") nastaviSkrito(podatki, false);
+    if (vrsta === "mediaSamodejniOsvezeni") naloziSamodejne();
     if (vrsta === "stanje") narisiStanje(podatki);
     if (vrsta === "okna") narisiOkna(podatki);
     if (vrsta === "predvajalnik") osveziPredvajalnik(podatki);
@@ -5981,6 +6206,7 @@
     $("medijiDodajPrazno").addEventListener("click", function () { $("medijiMapa").click(); });
     $("mediaBarOdpri").addEventListener("click", function () { klic("predvajalnikUkaz", ["odpri"]).catch(function () {}); });
     poveziTrak();
+    poveziPrilagodi();
     $("mediaBarNapredek").addEventListener("change", function () {
       var p = S.mediaPredvajalnik;
       S.mediaDragging = false;

@@ -1172,3 +1172,38 @@ body.v-mediji #ozadje::after, body.predvajalnik #ozadje::after { background: var
 @media (prefers-reduced-motion: no-preference) {
   .media-vrsta-plosca:not([hidden]) { animation: pojav .14s ease-out; }
 }
+
+/* ------------------------------------------------------------------ Prilagojen meni in samodejni seznami (lastnik,
+   14. 10. 2026): »Prilagodi meni« na dnu leve navigacije, plosca s potrditvenimi polji, police samodejnih seznamov s
+   kolazem pravih naslovnic. Samo barve iz :root zgoraj. */
+.media-nav-prilagodi { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; margin-top: -8px; padding: 8px 14px;
+  border-radius: 12px; color: var(--medlo); font-size: 14px; text-align: left; }
+.media-nav-prilagodi svg { width: 18px; height: 18px; }
+.media-nav-prilagodi:hover { color: var(--besedilo); background: var(--media-povrsina); }
+.prilagodi-plosca { width: 520px; max-height: calc(100vh - 48px); display: flex; flex-direction: column; gap: 10px; }
+.prilagodi-plosca h3 { margin: 4px 0 0; }
+.prilagodi-plosca .drobno { margin: 0; }
+.prilagodi-seznam { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 2px; }
+.prilagodi-skupina { margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 6px; }
+.prilagodi-skupina legend { margin: 0 0 6px; padding: 0; color: var(--medlo); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.prilagodi-vrstica { cursor: pointer; min-height: 48px; }
+.prilagodi-vrstica input[type=checkbox] { width: 20px; height: 20px; flex: none; margin: 0; accent-color: var(--zelena); }
+.prilagodi-vrstica:focus-within { border-color: var(--zelena); }
+.media-samodejni[hidden] { display: none; }
+.media-samodejni { order: -2; min-width: 0; margin: 0 0 22px; }
+.media-samodejni-vrsta > .media-samodejni-ovoj { flex: 0 0 176px; width: 176px; min-width: 0; display: flex; flex-direction: column; gap: 6px;
+  scroll-snap-align: start; }
+.media-samodejni-kartica { width: 100%; min-width: 0; }
+/* Kolaz 2 x 2 iz pravih naslovnic; pravila plakata kataloga (.kat-kartica img: 2 / 3) tu ne veljajo. */
+.media-samodejni-kartica .media-kolaz { position: relative; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+  width: 100%; aspect-ratio: 1 / 1; overflow: hidden; background: var(--media-povrsina); }
+.media-samodejni-kartica .media-kolaz > img { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; aspect-ratio: auto;
+  object-fit: cover; }
+.media-samodejni-kartica .media-kolaz.ena { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+.media-samodejni-kartica .media-kolaz.prazen { grid-template-columns: 1fr; grid-template-rows: 1fr; place-items: center; color: var(--zelena); }
+.media-samodejni-kartica .media-kolaz.prazen svg { width: 44px; height: 44px; }
+.media-samodejni-shrani { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 6px 10px;
+  border: 1px solid var(--rob); border-radius: 999px; color: var(--medlo); font-size: 13px; }
+.media-samodejni-shrani svg { width: 16px; height: 16px; flex: none; }
+.media-samodejni-shrani span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.media-samodejni-shrani:hover { color: var(--besedilo); border-color: var(--zelena); background: var(--media-poudarek); }
