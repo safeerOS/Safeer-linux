@@ -38,7 +38,7 @@ Steklo {
         })
         odpri({ vrsta: "nedavno", pot: "" })
     }
-    function odpri(v) { vir = v; filter = ""; poljeFilter.text = ""; nalozi(false) }
+    function odpri(v) { vir = v; filter = ""; poljeFilter.text = ""; seznam.currentIndex = seznam.activeFocus ? 0 : -1; nalozi(false) }
     function izberiNapravo(id, ime) {
         naprava = id; imeNaprave = ime; pot = []; streznik = null
         if (!id) { viri = lokalniViri; odpri({ vrsta: "nedavno", pot: "" }); return }
@@ -203,6 +203,24 @@ Steklo {
             ListView {
                 id: seznam
                 Layout.fillWidth: true; Layout.fillHeight: true
+                // Tipkovnica (AGENTS: dostopnost): puscice, Enter odpre, Delete v Smeti, F2 preimenuj, tipka Meni/Shift+F10.
+                activeFocusOnTab: true; keyNavigationEnabled: true; currentIndex: -1
+                Accessible.role: Accessible.List; Accessible.name: koren.t("datoteke")
+                onCountChanged: if (currentIndex >= count) currentIndex = count - 1
+                function izbran() { return currentIndex >= 0 && currentIndex < panel.prikazani.length ? panel.prikazani[currentIndex] : null }
+                onActiveFocusChanged: if (activeFocus && currentIndex < 0 && count > 0) currentIndex = 0
+                Keys.onReturnPressed: { var e = izbran(); if (e) panel.odpriElement(e) }
+                Keys.onEnterPressed: { var e = izbran(); if (e) panel.odpriElement(e) }
+                Keys.onDeletePressed: { var e = izbran(); if (e && (panel.vir.vrsta === "lokalno" || panel.vir.vrsta === "nedavno")) panel.vKos(e) }
+                Keys.onPressed: function (d) {
+                    var e = izbran()
+                    if (!e) return
+                    if (d.key === Qt.Key_F2 && panel.vir.vrsta === "lokalno") { preimenovanje.zacni(e); d.accepted = true }
+                    else if (d.key === Qt.Key_Menu || (d.key === Qt.Key_F10 && (d.modifiers & Qt.ShiftModifier))) {
+                        meni.e = e; var it = currentItem
+                        meni.popup(it, 40, it ? it.height : 0); d.accepted = true
+                    }
+                }
                 // Ozka plosca (aplikacija v manjsem oknu, 14. 10. 2026: pri 1080 px ime ni bilo vidno): stolpca
                 // Spremenjeno in Velikost se umakneta imenu.
                 readonly property bool ozko: width < 360
@@ -218,7 +236,9 @@ Steklo {
                 }
                 delegate: Rectangle {
                     width: seznam.width; height: 34; radius: 8
-                    color: md.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
+                    color: index === seznam.currentIndex && seznam.activeFocus ? koren.poudarekA(0.2)
+                         : md.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
+                    Accessible.role: Accessible.ListItem; Accessible.name: modelData.ime
                     Behavior on color { ColorAnimation { duration: 100 } }
                     Row {
                         anchors.verticalCenter: parent.verticalCenter; x: 6; spacing: 0
@@ -240,7 +260,10 @@ Steklo {
                     MouseArea {
                         id: md; anchors.fill: parent; hoverEnabled: true; acceptedButtons: Qt.LeftButton | Qt.RightButton
                         onDoubleClicked: panel.odpriElement(modelData)
-                        onClicked: function (m) { if (m.button === Qt.RightButton) { meni.e = modelData; meni.popup() } }
+                        onClicked: function (m) {
+                            seznam.currentIndex = index; seznam.forceActiveFocus()
+                            if (m.button === Qt.RightButton) { meni.e = modelData; meni.popup() }
+                        }
                     }
                 }
                 Text {
