@@ -207,9 +207,14 @@ def naprave_za_izbiro(vse: list, s_programi: list, z_datotekami: list) -> list:
     return sorted(po_kljucu.values(), key=lambda v: v["ime"].lower())
 
 
+def velikost_okna(sirina: int, visina: int) -> tuple:
+    """Velikost okna aplikacije iz delovnega obmocja: 90 %, najvec 1440 x 900, najmanj 960 x 620 (minimum okna)."""
+    return (max(960, min(1440, int(sirina * 0.9))), max(620, min(900, int(visina * 0.9))))
+
+
 # ---------------------------------------------------------------------------------------- most in okno
 def _ustvari_razrede():
-    from PySide6.QtCore import QObject, QUrl, Qt, Signal, Slot
+    from PySide6.QtCore import QObject, QSize, QUrl, Qt, Signal, Slot
     from PySide6.QtQuick import QQuickView
 
     class Most(QObject):
@@ -237,10 +242,15 @@ def _ustvari_razrede():
             return QUrl.fromLocalFile(pot).toString() if pot else ""
 
     class Okno(QQuickView):
-        def __init__(self) -> None:
+        def __init__(self, v_oknu: bool = False) -> None:
             super().__init__()
-            self.setTitle("Safeer OS namizje")
-            self.setFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnBottomHint)
+            if v_oknu:
+                # Aplikacija Safeer OS (GNOME, KDE …): isto namizje v navadnem oknu z robom in gumbom v pultu.
+                self.setTitle("Safeer OS")
+                self.setMinimumSize(QSize(960, 620))
+            else:
+                self.setTitle("Safeer OS namizje")
+                self.setFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnBottomHint)
             self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
             self.setColor(Qt.GlobalColor.black)
 
@@ -268,20 +278,28 @@ class QmlPogled:
 
 
 class Namizje:
-    """Namizje QML na Linuxu: cez cel zaslon, pod vsemi okni (X11 _NET_WM_WINDOW_TYPE_DESKTOP), brez gumba v pultu."""
+    """Namizje QML na Linuxu: cez cel zaslon, pod vsemi okni (X11 _NET_WM_WINDOW_TYPE_DESKTOP), brez gumba v pultu.
 
-    def __init__(self, safeer_os, ob_koncu: Optional[Callable[[], None]] = None) -> None:
+    v_oknu=True: aplikacija Safeer OS (`safeer-os --okno` na GNOME, KDE …) pokaze ISTO namizje v navadnem oknu -
+    ena koda za namizno okolje in aplikacijo, vsaka novost je takoj v obeh (lastnik, 14. 10. 2026). Zaprtje okna
+    poklice ob_koncu (kot zaprtje starega glavnega okna)."""
+
+    def __init__(self, safeer_os, ob_koncu: Optional[Callable[[], None]] = None, v_oknu: bool = False) -> None:
         from PySide6.QtCore import QUrl
         Most, Okno = _ustvari_razrede()
         self.os = safeer_os
+        self.v_oknu = bool(v_oknu)
         self.most = Most(self)
         self.pogled = QmlPogled(self.most)
-        self.okno = Okno()
+        self.okno = Okno(self.v_oknu)
         self.okno.rootContext().setContextProperty("Most", self.most)
         self.okno.setSource(QUrl.fromLocalFile(str(QML)))
         for napaka in self.okno.errors():
             print("[SafeerOS lupina]", napaka.toString(), flush=True)
         self._ob_koncu = ob_koncu
+        if self.v_oknu:
+            self.okno.closing.connect(lambda *_: self._ob_koncu() if self._ob_koncu else None)
+            return
         from PySide6.QtGui import QGuiApplication
         QGuiApplication.primaryScreen().geometryChanged.connect(lambda *_: self.postavi())
 
@@ -336,7 +354,7 @@ class Namizje:
         elif metoda == "zacetek":
             z = dict(self.os._zacetek())
             v = self.videz(str(z.get("jezik") or "sl"))
-            z.update({"ozadje": v["ozadje"], "videz": v, "platforma": "linux"})
+            z.update({"ozadje": v["ozadje"], "videz": v, "platforma": "linux", "vOknu": self.v_oknu})
             odg(klic_id, True, z)
         else:
             return False
@@ -363,13 +381,42 @@ class Namizje:
     # ------------------------------------------------------------------ polozaj: pod vsemi okni
     def postavi(self) -> None:
         from PySide6.QtGui import QGuiApplication
+        if self.v_oknu:
+            return
         self.okno.setGeometry(QGuiApplication.primaryScreen().geometry())
 
     def pokazi(self) -> None:
+        if self.v_oknu:
+            self._pokazi_okno()
+            return
         self.okno.create()
         self._x11_namizje(int(self.okno.winId()))
         self.postavi()
         self.okno.show()
+
+    def _pokazi_okno(self) -> None:
+        """Okno aplikacije: 90 % delovnega obmocja (najvec 1440 x 900, kot staro glavno okno), na sredini."""
+        from PySide6.QtGui import QGuiApplication
+        g = QGuiApplication.primaryScreen().availableGeometry()
+        sirina, visina = velikost_okna(g.width(), g.height())
+        self.okno.resize(sirina, visina)
+        self.okno.setPosition(g.x() + (g.width() - sirina) // 2, g.y() + (g.height() - visina) // 2)
+        self.okno.create()
+        try:
+            from core import x11
+            p = x11.povezava()
+            if p is not None and int(self.okno.winId()):
+                p.nastavi_razred(int(self.okno.winId()), "safeer-os", "Safeer OS")   # skupina v pultu, StartupWMClass
+                p.poslji()
+        except Exception as e:  # noqa: BLE001 - Wayland: Qt da razred iz setDesktopFileName
+            print("[SafeerOS lupina] X11:", e, flush=True)
+        self.okno.show()
+
+    def dvigni(self) -> None:
+        """Ponovni zagon aplikacije iz menija: obstojece okno spredaj (ne drugega)."""
+        self.okno.show()
+        self.okno.raise_()
+        self.okno.requestActivate()
 
     def _x11_namizje(self, xid: int) -> None:
         """_NET_WM_WINDOW_TYPE_DESKTOP pred prikazom: upravitelj oken ga ne pokaze v pultu in ga drzi spodaj."""

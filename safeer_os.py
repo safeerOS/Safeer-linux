@@ -1623,6 +1623,11 @@ class SafeerOS(Gtk.Application):
             self._odpri_predvajalnik()
             self._povezi_koncanje()
             return
+        if isinstance(self.lupina, os_lupina.Namizje) and self.lupina.v_oknu:
+            self.lupina.dvigni()
+            return
+        if self.okno is None and self.lupina is None and self._ustvari_qml_okno():
+            return
         if self.okno is not None:
             self._domov()
             return
@@ -1645,6 +1650,33 @@ class SafeerOS(Gtk.Application):
             uredi_samozagon_ob_zagonu(self.shramba)
             # Brez prijavnega okna ob zagonu: Safeer OS dela takoj, naprave uporabnik poveze v Napravah,
             # kadar hoce (tam vidi, ali je v omrezju Safeer Link, in dobi navodila, ce ga ni).
+
+    #: `safeer-os --okno` iz menija (GNOME, KDE …) brez datoteke, ponudbe ali predvajalnika: main() nastavi True.
+    _qml_okno = False
+
+    def _ustvari_qml_okno(self) -> bool:
+        """Aplikacija Safeer OS v oknu = isto namizje QML kot namizno okolje (lastnik, 14. 10. 2026: brez dvojnega dela;
+        Datoteke z drugih naprav in Teamwork, Lupa, Programi naprav so tako tudi v aplikaciji). Razdelki (Nastavitve,
+        Zapiski, Sporocila, Splet, Safeer Player) se odprejo v svojih oknih kot na namizju (_ima_delovno). Brez PySide6
+        ali s SAFEER_LUPINA=html ostane prejsnje okno index.html (vrne False)."""
+        if not self._qml_okno or self.posnetek or self.namizje or self.delovna or not os_lupina.pripravi(sys.argv[:1]):
+            return False
+        try:
+            self.lupina = os_lupina.Namizje(self, ob_koncu=lambda: GLib.idle_add(lambda: (self._koncaj(), False)[1]),
+                                            v_oknu=True)
+        except Exception as e:  # noqa: BLE001 - QML se ni nalozil: staro okno
+            print("[SafeerOS] okno QML:", e, flush=True)
+            self.lupina = None
+            return False
+        self.pogled_delovna = self._qml_pogled = self.lupina.pogled
+        self.lupina.pokazi()
+        self.hold()          # okno QML ni okno Gtk.Application: brez tega bi se proces koncal takoj po zagonu
+        self._povezi_koncanje()
+        if self._prvic:
+            self._prvic = False
+            self.scit.zacni_ce_vklopljen()
+            uredi_samozagon_ob_zagonu(self.shramba)
+        return True
 
     def _povezi_koncanje(self) -> None:
         """Dejanje »koncaj« in signali SIGTERM (odjava), SIGHUP, SIGINT: Safeer OS pospravi za sabo (Mintov pult, Scit,
@@ -1894,6 +1926,9 @@ class SafeerOS(Gtk.Application):
             if osnova == "splet":
                 return self._splet_na_namizju("", domov=True)
             if osnova in ("", "domov"):
+                lupina = getattr(self, "lupina", None)
+                if lupina is not None and getattr(lupina, "v_oknu", False):
+                    lupina.dvigni()                     # aplikacija v oknu: domaci zaslon je to okno
                 return True                                  # delovna povrsina je domaci zaslon
         if self.okno is None:
             self._ustvari_okno()
@@ -5108,6 +5143,7 @@ def main() -> int:
     app = SafeerOS(v_oknu=v_oknu, posnetek=posnetek, namizje="--namizje" in sys.argv[1:],
                    delovna="--delovna" in sys.argv[1:], predvajalnik=predvajalnik)
     app._cakajoci_magnet = magnet
+    app._qml_okno = "--okno" in sys.argv[1:] and not (magnet or datoteka or ponudba_json or predvajalnik or stremio_url)
     app._cakajoci_stremio = stremio_url
     app._cakajoca_datoteka = datoteka
     if ponudba_json:

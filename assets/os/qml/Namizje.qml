@@ -256,6 +256,28 @@ Item {
         MouseArea { id: ml; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: koren.klic("odpriRazdelek", ["naprave"]) }
     }
 
+    // Aplikacija v oknu (GNOME, KDE …): desnega klika na ozadje nihce ne isce - Nastavitve in Prilagodi kot gumb.
+    property bool vOknu: false
+    Rectangle {
+        id: gumbNastavitve
+        objectName: "gumbNastavitve"
+        visible: koren.vOknu
+        anchors.right: parent.right; anchors.rightMargin: koren.rob
+        anchors.verticalCenter: iskanje.verticalCenter
+        width: 40; height: 40; radius: 20
+        color: mn.containsMouse || mn.activeFocus ? Qt.rgba(1, 1, 1, 0.16) : koren.plosca(koren.prosojnost)
+        border.color: Qt.rgba(1, 1, 1, 0.12)
+        Accessible.role: Accessible.Button
+        Accessible.name: koren.t("nastavitve")
+        activeFocusOnTab: true
+        Keys.onReturnPressed: meniNamizja.popup(gumbNastavitve, 0, height + 6)
+        Keys.onSpacePressed: meniNamizja.popup(gumbNastavitve, 0, height + 6)
+        Text { anchors.centerIn: parent; text: "\u2699"; color: koren.paleta.besedilo; font.pixelSize: 20 }
+        MouseArea { id: mn; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                    onClicked: meniNamizja.popup(gumbNastavitve, 0, gumbNastavitve.height + 6) }
+        ToolTip.visible: mn.containsMouse; ToolTip.text: koren.t("nastavitve"); ToolTip.delay: 500
+    }
+
     // ------------------------------------------------------------------ paneli
     readonly property real rob: 30
     readonly property real vrhPanelov: 104
@@ -310,6 +332,7 @@ Item {
             z = z || {}
             koren.jezik = (z.jezik === "sl" || z.jezik === "en") ? z.jezik : "en"
             if (z.platforma) koren.platforma = z.platforma
+            koren.vOknu = !!z.vOknu
             koren.ozadjeUrl = z.ozadje || ""
             if (z.videz) koren.uporabiVidez(z.videz)
             datoteke.zacni(z.mape || [])

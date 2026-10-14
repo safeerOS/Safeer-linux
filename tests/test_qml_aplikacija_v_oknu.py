@@ -1,0 +1,63 @@
+"""Aplikacija Safeer OS v oknu (GNOME, KDE …) = isto namizje QML kot namizno okolje (lastnik, 14. 10. 2026)."""
+import os
+import unittest
+
+from core import os_lupina
+
+KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+class VelikostOkna(unittest.TestCase):
+    def test_kot_staro_glavno_okno(self):
+        self.assertEqual(os_lupina.velikost_okna(1920, 1040), (1440, 900))
+        self.assertEqual(os_lupina.velikost_okna(1366, 728), (1229, 655))
+        self.assertEqual(os_lupina.velikost_okna(800, 600), (960, 620))   # najmanj minimum okna
+
+
+class OknoQml(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import PySide6  # noqa: F401
+        except ImportError:
+            raise unittest.SkipTest("PySide6 ni namescen")
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtWidgets import QApplication
+        cls.app = QApplication.instance() or QApplication(["test"])
+
+    def _namizje(self, v_oknu):
+        class Os:
+            shramba = {}
+        return os_lupina.Namizje(Os(), v_oknu=v_oknu)
+
+    def test_okno_ima_rob_namizje_ne(self):
+        from PySide6.QtCore import Qt
+        okno = self._namizje(True)
+        self.assertEqual(okno.okno.errors(), [])
+        self.assertFalse(okno.okno.flags() & Qt.WindowType.FramelessWindowHint)
+        self.assertEqual(okno.okno.title(), "Safeer OS")
+        namizje = self._namizje(False)
+        self.assertTrue(namizje.okno.flags() & Qt.WindowType.WindowStaysOnBottomHint)
+
+    def test_gumb_nastavitve_samo_v_oknu(self):
+        from PySide6.QtCore import QObject
+        n = self._namizje(True)
+        koren = n.okno.rootObject()
+        gumb = koren.findChild(QObject, "gumbNastavitve")
+        self.assertIsNotNone(gumb)
+        self.assertFalse(gumb.property("visible"))
+        koren.setProperty("vOknu", True)
+        self.assertTrue(gumb.property("visible"))
+
+
+class Zagon(unittest.TestCase):
+    def test_okno_iz_menija_odpre_qml(self):
+        with open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8") as f:
+            vir = f.read()
+        self.assertIn("self._ustvari_qml_okno()", vir)
+        self.assertIn('app._qml_okno = "--okno" in sys.argv[1:]', vir)
+        self.assertIn("v_oknu=True", vir)
+
+
+if __name__ == "__main__":
+    unittest.main()
