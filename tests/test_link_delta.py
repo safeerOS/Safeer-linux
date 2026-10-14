@@ -27,7 +27,8 @@ class Razrez(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.podatki = _nakljucno(5 * 1024 * 1024)
-        cls.opis = link_delta.manifest_toka(io.BytesIO(cls.podatki).read, hitro=False)
+        cls.povprecno = link_delta.izberi_povprecno(len(cls.podatki))
+        cls.opis = link_delta.manifest_toka(io.BytesIO(cls.podatki).read, hitro=False, povprecno=cls.povprecno)
 
     def test_opis_je_pravilen(self):
         m = self.opis
@@ -37,13 +38,14 @@ class Razrez(unittest.TestCase):
         naslednji = 0
         for i, (odmik, dolzina, h) in enumerate(m["kosi"]):
             self.assertEqual(odmik, naslednji)
-            self.assertLessEqual(dolzina, link_delta.NAJVEC)
+            self.assertLessEqual(dolzina, self.povprecno * 4)
             if i < len(m["kosi"]) - 1:
-                self.assertGreaterEqual(dolzina, link_delta.NAJMANJ)
+                self.assertGreaterEqual(dolzina, self.povprecno // 4)
             self.assertEqual(h, hashlib.sha256(self.podatki[odmik:odmik + dolzina]).hexdigest())
             naslednji += dolzina
         povprecje = len(self.podatki) / len(m["kosi"])
-        self.assertTrue(40 * 1024 < povprecje < 120 * 1024, povprecje)
+        self.assertEqual((self.povprecno, m["povprecno"], m["alg"]), (32 * 1024, 32 * 1024, "gear32-okno32-v2"))
+        self.assertTrue(self.povprecno * 0.6 < povprecje < self.povprecno * 2, povprecje)
 
     def test_opis_datoteke_je_opis_toka(self):
         with tempfile.NamedTemporaryFile(delete=False) as d:
@@ -54,19 +56,56 @@ class Razrez(unittest.TestCase):
     def test_vstavljanje_premakne_samo_kose_okoli_sebe(self):
         sredina = len(self.podatki) // 2
         novi = self.podatki[:sredina] + b"0123456789" + self.podatki[sredina:]
-        m2 = link_delta.manifest_toka(io.BytesIO(novi).read, hitro=False)
+        m2 = link_delta.manifest_toka(io.BytesIO(novi).read, hitro=False, povprecno=self.povprecno)
         o = link_delta.ocena(m2, [self.opis])
         delez = o["kosov_lokalno"] / o["kosov"]
         print("\n[delta] vstavljenih 10 B v 5 MiB: kosov %d, iz prejsnje kopije %d (%.1f %%), prenesti %d B v %d zahtevah"
               % (o["kosov"], o["kosov_lokalno"], delez * 100, o["podatki"], o["zahtev"]))
         self.assertGreater(delez, 0.95)
-        self.assertLess(o["podatki"], 3 * link_delta.NAJVEC)
+        self.assertLess(o["podatki"], 3 * 4 * self.povprecno)
         self.assertEqual(o["zahtev"], 1)
 
     def test_numpy_da_iste_meje(self):
         if link_delta._np is None:
             self.skipTest("numpy ni namescen")
-        self.assertEqual(link_delta.manifest_toka(io.BytesIO(self.podatki).read, hitro=True), self.opis)
+        self.assertEqual(link_delta.manifest_toka(io.BytesIO(self.podatki).read, hitro=True, povprecno=self.povprecno),
+                         self.opis)
+        # Vsa povprecja: numpy in cisti Python rezeta enako.
+        podatki = self.podatki[:1024 * 1024] + bytes(100_000) + self.podatki[:50_000] * 3
+        for p in (4096, 8192, 16384, 32768, 65536):
+            with self.subTest(povprecno=p):
+                self.assertEqual(link_delta.manifest_toka(io.BytesIO(podatki).read, hitro=True, povprecno=p),
+                                 link_delta.manifest_toka(io.BytesIO(podatki).read, hitro=False, povprecno=p))
+
+    def test_parametri_po_velikosti(self):
+        z = link_delta.izberi_povprecno
+        self.assertEqual([z(0), z(100), z(528 * 1024), z(1024 * 1024), z(5 * 1024 * 1024), z(10 ** 9)],
+                         [4096, 4096, 4096, 8192, 32768, 65536])
+        for p in (4096, 8192, 16384, 32768, 65536):
+            par = link_delta.Parametri(p)
+            biti = p.bit_length() - 1
+            self.assertEqual((par.najmanj, par.najvec), (p // 4, p * 4))
+            self.assertEqual(bin(par.maska_stroga).count("1"), biti + 2)
+            self.assertEqual(bin(par.maska_blaga).count("1"), biti - 2)
+            self.assertEqual(par.maska_stroga >> 31, 1)            # zgornji biti (odvisni od celega okna)
+        # v1 = stalni parametri 64 KiB: enaki kot v2 s povprecjem 64 KiB
+        v1 = link_delta.Parametri(65536)
+        self.assertEqual((v1.maska_stroga, v1.maska_blaga), (((1 << 18) - 1) << 14, ((1 << 14) - 1) << 18))
+        for slab in (3000, 6000, 131072):
+            with self.assertRaises(ValueError):
+                link_delta.Parametri(slab)
+
+    def test_vsak_razrez_se_po_vstavljanju_ujame(self):
+        podatki = self.podatki[:2 * 1024 * 1024]
+        novi = podatki[:1_000_000] + b"x" * 10 + podatki[1_000_000:]
+        for p in (4096, 16384, 65536):
+            with self.subTest(povprecno=p):
+                m1 = link_delta.manifest_toka(io.BytesIO(podatki).read, hitro=False, povprecno=p)
+                m2 = link_delta.manifest_toka(io.BytesIO(novi).read, hitro=False, povprecno=p)
+                o = link_delta.ocena(m2, [m1])
+                self.assertLess(o["podatki"], 3 * 4 * p)
+                povprecje = len(podatki) / len(m1["kosi"])
+                self.assertTrue(p * 0.6 < povprecje < p * 2, (p, povprecje))
 
     def test_enolicni_podatki(self):
         # Same nicle: okno je povsod enako - meje so vedno na isti dolzini (najvec ali najmanj), nikoli pa ne zmanjka.
@@ -87,7 +126,7 @@ class Razrez(unittest.TestCase):
             return vir.randbytes(n)
         tracemalloc.start()
         try:
-            with mock.patch.object(link_delta, "_dolzina_kosa", lambda buf, s, n, hitro: min(n, 100_000)):
+            with mock.patch.object(link_delta, "_dolzina_kosa", lambda buf, s, n, hitro, par: min(n, 100_000)):
                 m = link_delta.manifest_toka(beri, hitro=False)
             _, vrh = tracemalloc.get_traced_memory()
         finally:
@@ -178,6 +217,64 @@ class Sestava(unittest.TestCase):
         with open(cilj, "rb") as d:
             self.assertEqual(d.read(), b"prej")      # cilj ostane, kot je bil
         self.assertEqual([f for f in os.listdir(self.mapa) if f.endswith(".part")], [])
+
+    def test_opis_v1_starejse_naprave(self):
+        # Starejsa naprava da opis v1 (brez "povprecno", stalno 64 KiB): lokalne kose razrezemo z istimi parametri.
+        m = link_delta.manifest_toka(io.BytesIO(self.nova).read, povprecno=65536)
+        del m["povprecno"]
+        m["alg"] = "gear32-okno32-v1"
+        self.assertTrue(link_delta.preveri_manifest(m))
+        lokalni_v2 = (self.pot_stare, link_delta.manifest(self.pot_stare))      # drugo povprecje: izracuna se znova
+        self.assertNotEqual(lokalni_v2[1]["povprecno"], 65536)
+        cilj = os.path.join(self.mapa, "nova")
+        r = link_delta.sestavi(m, [lokalni_v2], self._prenesi, cilj)
+        self.assertFalse(r["polno"])
+        self.assertGreater(r["iz_lokalnih"], len(self.nova) // 2)
+        with open(cilj, "rb") as d:
+            self.assertEqual(d.read(), self.nova)
+
+    def test_neznan_razrez(self):
+        m = dict(self.opis, alg="gear64-v9")
+        self.assertFalse(link_delta.preveri_manifest(m))
+        self.assertFalse(link_delta.preveri_manifest(dict(self.opis, povprecno=3000)))
+        with self.assertRaises(link_delta.NapakaDelte):
+            link_delta.sestavi(m, [self.pot_stare], self._prenesi, os.path.join(self.mapa, "x"))
+
+    def test_zip_s_ploscicami_kot_pcraft(self):
+        # PhotoCraft .pcraft: ZIP brez stiskanja, ploscice z imeni po vsebini, spredaj predogled, zadaj manifest.json.
+        # Druga razlicica: nov predogled (50 KB), ena nova ploscica na sredini, spremenjen manifest.json.
+        import zipfile
+        rnd = random.Random(42)
+        ploscice = [rnd.randbytes(rnd.randint(300, 10_000)) for _ in range(120)]
+
+        def zip_(pot, predogled, ploscice_, opis):
+            with zipfile.ZipFile(pot, "w", zipfile.ZIP_STORED) as z:
+                z.writestr("preview.png", predogled)
+                for p in ploscice_:
+                    z.writestr("tiles/%s.zst" % hashlib.sha256(p).hexdigest(), p)
+                z.writestr("manifest.json", opis)
+        v1, v2 = os.path.join(self.mapa, "v1.pcraft"), os.path.join(self.mapa, "v2.pcraft")
+        zip_(v1, rnd.randbytes(50_000), ploscice, json.dumps({"plasti": 3, "ploscice": len(ploscice)}))
+        nove = ploscice[:60] + [rnd.randbytes(4000)] + ploscice[60:]
+        zip_(v2, rnd.randbytes(50_000), nove, json.dumps({"plasti": 4, "ploscice": len(nove)}))
+        with open(v2, "rb") as d:
+            vsebina_v2 = d.read()
+        m2 = link_delta.manifest(v2)                         # kot streznik: povprecje po velikosti
+        cilj = os.path.join(self.mapa, "sestavljena.pcraft")
+        r = link_delta.sestavi(m2, [v1], lambda o, n: vsebina_v2[o:o + n], cilj)
+        with open(cilj, "rb") as d:
+            self.assertEqual(d.read(), vsebina_v2)
+        opis_bajtov = len(json.dumps(m2, separators=(",", ":")))
+        delez = (r["podatki"] + opis_bajtov) / len(vsebina_v2)
+        print("\n[delta] .pcraft-podoben ZIP %d B, povprecje %d B: podatki %d B + opis %d B = %.1f %% datoteke, %d zahtev"
+              % (len(vsebina_v2), m2["povprecno"], r["podatki"], opis_bajtov, delez * 100, r["zahtev"]))
+        self.assertEqual(m2["povprecno"], 4096)
+        self.assertLess(delez, 0.35)
+        # Za primerjavo: stalno povprecje 64 KiB (v1) prenese skoraj vse.
+        m_staro = link_delta.manifest(v2, povprecno=65536)
+        o = link_delta.ocena(m_staro, [link_delta.manifest(v1, povprecno=65536)])
+        print("[delta] isti ZIP s stalnimi 64 KiB kosi (v1): podatki %d B = %.1f %% datoteke"
+              % (o["podatki"], 100.0 * o["podatki"] / len(vsebina_v2)))
 
     def test_napacen_opis(self):
         slab = dict(self.opis, kosi=self.opis["kosi"][1:])
@@ -350,6 +447,19 @@ class Streznik(unittest.TestCase):
         self.assertEqual(izid["razlog"], "naprava_brez_opisa")
         with open(izid["pot"], "rb") as d:
             self.assertEqual(d.read(), self.vsebina + b"dodano na A")
+
+    def test_neznan_razrez_naprave_pomeni_cel_prenos(self):
+        self.assertTrue(self._nadaljuj()["ok"])
+        with open(self.pot, "ab") as d:
+            d.write(b"dodano")
+        prav = link_datoteke.opis_kosov
+        with mock.patch.object(link_datoteke, "opis_kosov",
+                               lambda pot: json.dumps(dict(json.loads(prav(pot)), alg="gear64-v9")).encode()):
+            izid = self._nadaljuj()
+        self.assertTrue(izid["ok"], izid)
+        self.assertEqual((izid["delta"], izid["razlog"]), (False, "naprava_brez_opisa"))
+        with open(izid["pot"], "rb") as d:
+            self.assertEqual(d.read(), self.vsebina + b"dodano")
 
     def test_brez_pravice(self):
         self.d.streznik.sme = lambda naprava, zmoznost: False
