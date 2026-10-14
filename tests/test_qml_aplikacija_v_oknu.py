@@ -145,3 +145,25 @@ class DatotekeMeni(unittest.TestCase):
         import re
         for k in ("odpriZ", "privzetProgram", "posljiNaNapravo", "posNiNaprav", "posPosiljam", "posPoslano", "posNapaka"):
             self.assertEqual(len(re.findall(r"\b" + k + ":", nam)), 2, k)
+
+
+class LupaUcenje(OknoQml):
+    def test_naucen_zadetek_je_prvi(self):
+        import time
+        from PySide6.QtCore import QObject, QMetaObject, Q_ARG
+
+        class Os:
+            shramba = {}
+        n = os_lupina.Namizje(Os(), v_oknu=True)
+        z = n.okno.rootObject().findChild(QObject, "zadetki")
+        self.assertIsNotNone(z)
+        z.setProperty("izbire", [["calc", "program:org.gnome.Calculator.desktop", int(time.time()), False]])
+        z.setProperty("zadnjiNiz", "calc")
+        from PySide6.QtCore import Q_RETURN_ARG
+        mesto = QMetaObject.invokeMethod(z, "najMesto", Q_RETURN_ARG("QVariant"),
+                                         Q_ARG("QVariant", ["splet", "program:org.gnome.Calculator.desktop"]))
+        self.assertEqual(mesto, 1)
+        z.setProperty("zadnjiNiz", "drugo")
+        mesto = QMetaObject.invokeMethod(z, "najMesto", Q_RETURN_ARG("QVariant"),
+                                         Q_ARG("QVariant", ["splet", "program:org.gnome.Calculator.desktop"]))
+        self.assertEqual(mesto, -1)

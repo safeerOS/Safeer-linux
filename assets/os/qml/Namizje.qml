@@ -195,9 +195,10 @@ Item {
         Lupa { x: 20; anchors.verticalCenter: parent.verticalCenter }
     }
     Timer { id: casovnikIskanja; interval: 180; onTriggered: zadetki.isci(polje.text) }
-    ListModel { id: zadetkiModel }
+    ListModel { id: zadetkiModel; objectName: "zadetkiModel" }
     Steklo {
         id: zadetki
+        objectName: "zadetki"
         zamegljeno: zamegljeno
         z: 10
         property int trenutni: 0
@@ -206,23 +207,65 @@ Item {
         width: iskanje.width; x: iskanje.x; y: iskanje.y + iskanje.height + 8
         height: Math.min(420, seznamZadetkov.contentHeight + 16)
         barva: koren.plosca(Math.min(0.95, koren.prosojnost + 0.27))
+        // Ucenje lupe (core/os_lupa.py, isti zapis kot prejsnja delovna povrsina): kar je uporabnik za tak niz ze
+        // izbral, je prvo. Izbire [niz, kljuc, cas, prvi]; novejse stejejo vec (polovica po 30 dneh), enak niz dvojno.
+        property var izbire: []
+        property string zadnjiNiz: ""
+        function nizUcenja(q) {
+            var n = String(q || "").toLowerCase()
+            if (n.normalize) n = n.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+            return n.replace(/\s+/g, " ").trim()
+        }
+        function kljucZadetka(z) { return z.vrsta === "splet" ? "splet" : z.vrsta + ":" + z.kljuc }
+        function ocene(ql) {
+            var o = {}, zdaj = Date.now() / 1000
+            izbire.forEach(function (x) {
+                var niz = x[0], enak = niz === ql
+                if (!enak && !(niz.length >= 2 && (niz.indexOf(ql) === 0 || ql.indexOf(niz) === 0))) return
+                o[x[1]] = (o[x[1]] || 0) + Math.pow(0.5, Math.max(0, zdaj - x[2]) / (30 * 86400)) * (enak ? 2 : 1)
+            })
+            return o
+        }
+        function najMesto(kljuci) {          // mesto naucenega zadetka ali -1
+            var o = ocene(nizUcenja(zadnjiNiz)), naj = -1, najO = 0
+            for (var i = 0; i < kljuci.length; i++) {
+                var v = o[kljuci[i]] || 0
+                if (v > najO) { najO = v; naj = i }
+            }
+            return najO >= 0.5 ? naj : -1
+        }
+        function poUcenju() {
+            var k = []
+            for (var i = 0; i < zadetkiModel.count; i++) k.push(kljucZadetka(zadetkiModel.get(i)))
+            var naj = najMesto(k)
+            if (naj > 0) zadetkiModel.move(naj, 0, 1)
+            trenutni = 0
+        }
         function isci(q) {
             zadetkiModel.clear(); trenutni = 0
-            q = (q || "").trim(); if (!q) return
+            q = (q || "").trim(); zadnjiNiz = q; if (!q) return
             var st = ++zahteva, ql = q.toLowerCase()
             programi.vsi.filter(function (p) { return p.ime.toLowerCase().indexOf(ql) >= 0 }).slice(0, 5)
                 .forEach(function (p) { zadetkiModel.append({ vrsta: "program", ime: p.ime, opis: koren.t("programi"), kljuc: p.id, ikona: p.ikona || "" }) })
             zadetkiModel.append({ vrsta: "splet", ime: koren.t("splet") + ": " + q, opis: "", kljuc: q, ikona: "" })
+            poUcenju()
             koren.klic("isciDatoteke", [q, 8], function (r) {
                 if (st !== zahteva) return
                 ;(r || []).forEach(function (d) {
                     zadetkiModel.insert(Math.max(0, zadetkiModel.count - 1), { vrsta: "datoteka", ime: d.ime, opis: koren.kratkaPot(d.pot), kljuc: d.pot, ikona: "" })
                 })
+                poUcenju()
             })
         }
         function izberi(i) {
             if (i < 0 || i >= zadetkiModel.count) return
             var z = zadetkiModel.get(i)
+            var ql = nizUcenja(zadnjiNiz), k = kljucZadetka(z)
+            if (ql && k) {
+                izbire.push([ql, k, Math.round(Date.now() / 1000), i === 0])
+                if (izbire.length > 500) izbire.shift()
+                koren.klic("lupaZapomni", [ql, k, i === 0])
+            }
             if (z.vrsta === "program") koren.klic("zazeni", [z.kljuc], function (ok) { if (!ok) koren.obvesti(koren.t("niUspelo")) })
             else if (z.vrsta === "datoteka") koren.klic("odpriDatoteko", [z.kljuc])
             else koren.klic("spletNaNamizju", [z.kljuc])
@@ -359,6 +402,7 @@ Item {
             datoteke.zacni(z.mape || [])
         })
         programi.nalozi()
+        koren.klic("lupaUcenje", [], function (p) { zadetki.izbire = (p && p.izbire) || [] })
         osveziLink()
     }
     // Safeer Link se ob zagonu sele poveze: stevilo naprav osvezimo na 20 s.
