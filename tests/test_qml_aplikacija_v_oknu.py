@@ -82,3 +82,19 @@ class SkupineProgramov(unittest.TestCase):
         for k in ("sk_pisarna", "sk_predstavnost", "sk_orodja", "sk_sistem", "sk_splet"):
             self.assertEqual(len(re.findall(k + ":", qml)), 2, k)   # sl in en
         self.assertNotIn('"Predstavnost"', open(os.path.join(KOREN, "assets", "os", "qml", "Programi.qml"), encoding="utf-8").read())
+
+
+class KratkaPot(OknoQml):
+    def test_domaca_mapa_kot_tilda(self):
+        class Os:
+            shramba = {}
+        n = os_lupina.Namizje(Os(), v_oknu=True)
+        koren = n.okno.rootObject()
+        koren.setProperty("dom", "/home/ana")
+        from PySide6.QtCore import QMetaObject, Q_RETURN_ARG, Q_ARG
+        def kp(p):
+            return QMetaObject.invokeMethod(koren, "kratkaPot", Q_RETURN_ARG("QVariant"), Q_ARG("QVariant", p))
+        self.assertEqual(kp("/home/ana/Dokumenti/a.odt"), "~/Dokumenti/a.odt")
+        self.assertEqual(kp("/home/ana"), "~")
+        self.assertEqual(kp("/home/anabela/x"), "/home/anabela/x")
+        self.assertEqual(kp("/media/usb/x"), "/media/usb/x")

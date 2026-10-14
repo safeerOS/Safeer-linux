@@ -210,7 +210,7 @@ Item {
             koren.klic("isciDatoteke", [q, 8], function (r) {
                 if (st !== zahteva) return
                 ;(r || []).forEach(function (d) {
-                    zadetkiModel.insert(Math.max(0, zadetkiModel.count - 1), { vrsta: "datoteka", ime: d.ime, opis: d.pot, kljuc: d.pot, ikona: "" })
+                    zadetkiModel.insert(Math.max(0, zadetkiModel.count - 1), { vrsta: "datoteka", ime: d.ime, opis: koren.kratkaPot(d.pot), kljuc: d.pot, ikona: "" })
                 })
             })
         }
@@ -260,6 +260,14 @@ Item {
             Text { text: koren.t("link") + (koren.napravVLinku > 0 ? " · " + koren.t("napravN", { n: koren.napravVLinku }) : ""); color: koren.paleta.besedilo; font.pixelSize: 12 }
         }
         MouseArea { id: ml; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: koren.klic("odpriRazdelek", ["naprave"]) }
+    }
+
+    // Domaca mapa kot »~« (kot upravitelji datotek): krajse in brez uporabniskega imena na posnetkih zaslona (14. 10. 2026).
+    property string dom: ""
+    function kratkaPot(p) {
+        p = p || ""
+        if (!dom) return p
+        return p === dom ? "~" : (p.indexOf(dom + "/") === 0 ? "~" + p.slice(dom.length) : p)
     }
 
     // Aplikacija v oknu (GNOME, KDE …): desnega klika na ozadje nihce ne isce - Nastavitve in Prilagodi kot gumb.
@@ -339,6 +347,7 @@ Item {
             koren.jezik = (z.jezik === "sl" || z.jezik === "en") ? z.jezik : "en"
             if (z.platforma) koren.platforma = z.platforma
             koren.vOknu = !!z.vOknu
+            koren.dom = (z.mape && z.mape[0] && z.mape[0].pot) || ""
             koren.ozadjeUrl = z.ozadje || ""
             if (z.videz) koren.uporabiVidez(z.videz)
             datoteke.zacni(z.mape || [])

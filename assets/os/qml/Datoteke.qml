@@ -183,7 +183,7 @@ Steklo {
                 Text {
                     Layout.fillWidth: true; color: koren.paleta.besedilo; font.pixelSize: 12; elide: Text.ElideLeft
                     text: panel.vir.vrsta === "naprava" ? [panel.imeNaprave].concat(panel.pot.map(function (x) { return x.ime })).join("  ›  ")
-                        : panel.vir.vrsta === "lokalno" ? panel.vir.pot : panel.vir.vrsta === "smeti" ? koren.t("smeti") : koren.t("nedavno")
+                        : panel.vir.vrsta === "lokalno" ? koren.kratkaPot(panel.vir.pot) : panel.vir.vrsta === "smeti" ? koren.t("smeti") : koren.t("nedavno")
                 }
                 Gumb { besedilo: koren.t("izprazni"); visible: panel.vir.vrsta === "smeti" && panel.elementi.length > 0; onKlik: potrdi.open() }
                 Gumb { besedilo: "+ " + koren.t("novaMapa"); visible: panel.vir.vrsta === "lokalno"
