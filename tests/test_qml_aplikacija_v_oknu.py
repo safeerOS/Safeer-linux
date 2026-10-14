@@ -50,6 +50,18 @@ class OknoQml(unittest.TestCase):
         self.assertTrue(gumb.property("visible"))
 
 
+class Zaprtje(OknoQml):
+    def test_zaprtje_okna_poklice_ob_koncu(self):
+        klici = []
+
+        class Os:
+            shramba = {}
+        n = os_lupina.Namizje(Os(), ob_koncu=lambda: klici.append(1), v_oknu=True)
+        n.okno.show()
+        n.okno.close()
+        self.assertEqual(klici, [1])
+
+
 class Zagon(unittest.TestCase):
     def test_okno_iz_menija_odpre_qml(self):
         with open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8") as f:
