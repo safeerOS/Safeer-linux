@@ -48,6 +48,16 @@ CLANI = ({"id": A + "-os", "kljuc": "KA", "ime": "Safeer OS na telefonu", "dodan
     {"id": j, "kljuc": "K%d" % i, "ime": "Naprava %d" % i, "dodano": 2_000_000_000.0} for i, j in enumerate(DRUGI))
 
 
+_ZASCITENO = object()
+
+
+def _vprasaj(naprava, zahteva, zascita=_ZASCITENO, **k):
+    """Zavrnitev ZASCITENEGA sporocila (privzeto: jedro iz preverjenega kljuca je jedro naprave)."""
+    if zascita is _ZASCITENO:
+        zascita = naprava[:link_dostop.DOLZINA_JEDRA] if link_dostop.je_id_iz_kljuca(naprava) else None
+    return link_dostop.prosnja_ob_zavrnitvi(naprava, zahteva, zascita=zascita, **k)
+
+
 class _Osnova(unittest.TestCase):
     clani = CLANI
 
@@ -74,7 +84,7 @@ class _Osnova(unittest.TestCase):
 
 class NastanekProsnje(_Osnova):
     def test_clan_kroga_brez_zmoznosti_sprozi_obvestilo(self):
-        izid = link_dostop.prosnja_ob_zavrnitvi(A + "-os", link_dostop.zahteva_dejanja("files.list"), zdaj=ZDAJ)
+        izid = _vprasaj(A + "-os", link_dostop.zahteva_dejanja("files.list"), zdaj=ZDAJ)
         self.assertEqual(izid, ("pending", "d"))
         self.assertEqual(len(self.pokazano), 1)
         p = self.pokazano[0]
@@ -83,87 +93,95 @@ class NastanekProsnje(_Osnova):
         self.assertEqual(link_dostop.zmoznosti(A), set())               # prosnja sama ne odpre nicesar
 
     def test_ime_iz_kroga_precisceno_in_omejeno(self):
-        link_dostop.prosnja_ob_zavrnitvi(A, "p", zdaj=ZDAJ)
+        _vprasaj(A, "p", zdaj=ZDAJ)
         self.assertEqual(self.pokazano[0]["ime"], "Druzinski telefon")       # vnos naprave same, brez nadzornih znakov
         self.assertEqual(link_dostop.cisto_ime("x" * 200 + "\n"), "x" * 60)
         self.assertEqual(link_dostop.cisto_ime("a\nb\tc\u202ed"), "a b c d")
 
     def test_neznana_naprava_ne_sprozi_obvestila(self):
-        self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(B, "d", zdaj=ZDAJ), ("none", "d"))
-        self.assertEqual(link_dostop.prosnja_ob_zavrnitvi("stara-oznaka", "d", zdaj=ZDAJ), ("none", "d"))
-        self.assertEqual(link_dostop.prosnja_ob_zavrnitvi("", "d", zdaj=ZDAJ), ("none", "d"))
+        self.assertEqual(_vprasaj(B, "d", zdaj=ZDAJ), ("none", "d"))
+        self.assertEqual(_vprasaj("stara-oznaka", "d", zdaj=ZDAJ), ("none", "d"))
+        self.assertEqual(_vprasaj("", "d", zdaj=ZDAJ), ("none", "d"))
         self.assertEqual(self.pokazano, [])
 
     def test_dejanje_ki_zahteva_vse_ali_nic_ne_sprozi_obvestila(self):
         for dejanje in ("novo.dejanje", "", "sync.data"):
             zahteva = link_dostop.zahteva_dejanja(dejanje)
-            self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(A, zahteva, zdaj=ZDAJ), ("none", zahteva))
-        self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(A, "", zdaj=ZDAJ), ("none", ""))
-        self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(A, "x", zdaj=ZDAJ), ("none", "x"))
+            self.assertEqual(_vprasaj(A, zahteva, zdaj=ZDAJ), ("none", zahteva))
+        self.assertEqual(_vprasaj(A, "", zdaj=ZDAJ), ("none", ""))
+        self.assertEqual(_vprasaj(A, "x", zdaj=ZDAJ), ("none", "x"))
         self.assertEqual(self.pokazano, [])
 
     def test_ta_racunalnik_in_naprava_z_zmoznostjo_ne_sprozita_obvestila(self):
-        self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(JAZ + "-control", "d", zascita=JAZ, zdaj=ZDAJ)[0], "none")
+        self.assertEqual(_vprasaj(JAZ + "-control", "d", zascita=JAZ, zdaj=ZDAJ)[0], "none")
         link_dostop.nastavi(A, "d")
-        self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(A, "d", zdaj=ZDAJ)[0], "none")
+        self.assertEqual(_vprasaj(A, "d", zdaj=ZDAJ)[0], "none")
         self.assertEqual(self.pokazano, [])
 
     def test_brez_programa_z_obvestili_ni_prosnje(self):
         link_dostop.nastavi_prikaz(None)
-        self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(A, "d", zdaj=ZDAJ), ("none", "d"))
+        self.assertEqual(_vprasaj(A, "d", zdaj=ZDAJ), ("none", "d"))
         self.assertEqual(link_dostop.odprte_prosnje(), [])
 
-    def test_nezasciteno_v_imenu_naprave_z_zascito_ne_sprozi_obvestila(self):
+    def test_samo_zasciteno_sporocilo_sprozi_obvestilo(self):
+        """Oznako posiljatelja nezascitenega sporocila vpise sredisce: ponaredek bi uporabniku pokazal »druzinski clan
+        prosi za dostop«. Zato nezasciteno - tudi od naprave, ki zascite se nikoli ni uporabila - dobi "none"."""
+        self.assertFalse(link_dostop.zna_zascito(A))
+        for naprava in (A, A + "-os"):
+            self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(naprava, "d", zdaj=ZDAJ), ("none", "d"))
+            self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(naprava, "d", zascita=None, zdaj=ZDAJ), ("none", "d"))
+            self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(naprava, "d", zascita="", zdaj=ZDAJ), ("none", "d"))
         link_dostop.zabelezi_zascito(A)
         self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(A + "-os", "d", zdaj=ZDAJ), ("none", "d"))
         self.assertEqual(self.pokazano, [])
         # Zasciteno: velja preverjen kljuc, ne oznaka.
-        self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(B, "d", zascita=A, zdaj=ZDAJ), ("pending", "d"))
+        self.assertEqual(_vprasaj(B, "d", zascita=A, zdaj=ZDAJ), ("pending", "d"))
         self.assertEqual(self.pokazano[0]["jedro"], A)
+        self.assertEqual(_vprasaj(A, "p", zascita="karkoli", zdaj=ZDAJ), ("none", "p"))     # ni jedro
 
     def test_napaka_prikaza_ni_prosnja(self):
         link_dostop.nastavi_prikaz(mock.Mock(side_effect=RuntimeError("ni obvestil")))
-        self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(A, "d", zdaj=ZDAJ), ("none", "d"))
+        self.assertEqual(_vprasaj(A, "d", zdaj=ZDAJ), ("none", "d"))
         self.assertEqual(link_dostop.odprte_prosnje(), [])
 
 
 class Omejitve(_Osnova):
     def test_ista_prosnja_najvec_enkrat_na_deset_minut(self):
-        self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(A, "d", zdaj=ZDAJ)[0], "pending")
+        self.assertEqual(_vprasaj(A, "d", zdaj=ZDAJ)[0], "pending")
         for zamik in (1, 60, 599):
-            self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(A, "d", zdaj=ZDAJ + zamik)[0], "pending")
+            self.assertEqual(_vprasaj(A, "d", zdaj=ZDAJ + zamik)[0], "pending")
         self.assertEqual(len(self.pokazano), 1)
-        self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(A, "p", zdaj=ZDAJ + 5)[0], "pending")   # druga zmoznost
+        self.assertEqual(_vprasaj(A, "p", zdaj=ZDAJ + 5)[0], "pending")   # druga zmoznost
         self.assertEqual(len(self.pokazano), 2)
-        self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(A, "d", zdaj=ZDAJ + 601)[0], "pending")
+        self.assertEqual(_vprasaj(A, "d", zdaj=ZDAJ + 601)[0], "pending")
         self.assertEqual(len(self.pokazano), 3)                         # po desetih minutah se enkrat
 
     def test_najvec_pet_odprtih_najstarejse_izpadejo(self):
         for i, j in enumerate(DRUGI[:6]):
-            self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(j, "d", zdaj=ZDAJ + i)[0], "pending")
+            self.assertEqual(_vprasaj(j, "d", zdaj=ZDAJ + i)[0], "pending")
         odprte = [p["jedro"] for p in link_dostop.odprte_prosnje()]
         self.assertEqual(odprte, DRUGI[1:6])
         self.assertEqual(self.umaknjeno, [DRUGI[0] + "|d"])            # obvestilo izpadle se umakne
         # Izpadla prosnja je v desetih minutah »none« (ne caka vec) in je ni mogoce odobriti.
-        self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(DRUGI[0], "d", zdaj=ZDAJ + 10)[0], "none")
+        self.assertEqual(_vprasaj(DRUGI[0], "d", zdaj=ZDAJ + 10)[0], "none")
         self.assertFalse(link_dostop.odobri_prosnjo(DRUGI[0], "d"))
         self.assertEqual(link_dostop.zmoznosti(DRUGI[0]), set())
 
 
 class Zavrnitev(_Osnova):
     def test_zavrni_utisa_za_24_ur_in_prezivi_ponovni_zagon(self):
-        link_dostop.prosnja_ob_zavrnitvi(A, "d", zdaj=ZDAJ)
+        _vprasaj(A, "d", zdaj=ZDAJ)
         self.assertTrue(link_dostop.zavrni_prosnjo(A, "d", zdaj=ZDAJ + 5))
         self.assertEqual(link_dostop.odprte_prosnje(), [])
-        self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(A, "d", zdaj=ZDAJ + 700), ("declined", "d"))
+        self.assertEqual(_vprasaj(A, "d", zdaj=ZDAJ + 700), ("declined", "d"))
         self.assertEqual(self._zapis()["zavrnjeno"], {A + "|d": ZDAJ + 5})
         pot = link_dostop._pot()
         link_dostop._za_preizkus(pot)                                   # nov zagon programa
         self._javi_prikaz()
-        self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(A, "d", zdaj=ZDAJ + 3600), ("declined", "d"))
-        self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(A, "p", zdaj=ZDAJ + 3600)[0], "pending")  # druga crka
+        self.assertEqual(_vprasaj(A, "d", zdaj=ZDAJ + 3600), ("declined", "d"))
+        self.assertEqual(_vprasaj(A, "p", zdaj=ZDAJ + 3600)[0], "pending")  # druga crka
         self.assertEqual(len(self.pokazano), 2)
-        self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(A, "d", zdaj=ZDAJ + 5 + 86400)[0], "pending")
+        self.assertEqual(_vprasaj(A, "d", zdaj=ZDAJ + 5 + 86400)[0], "pending")
 
     def test_zavrnitev_v_pomnilniku_velja_tudi_ce_jo_starejsi_program_izbrise(self):
         link_dostop.zavrni_prosnjo(A, "d", zdaj=ZDAJ)
@@ -171,7 +189,7 @@ class Zavrnitev(_Osnova):
         with open(pot, "w", encoding="utf-8") as d:                     # starejsi program polja ne pozna
             json.dump({"v": 1, "podedovano_ob": 1.0, "naprave": {}}, d)
         os.utime(pot, (1, 1))
-        self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(A, "d", zdaj=ZDAJ + 60)[0], "declined")
+        self.assertEqual(_vprasaj(A, "d", zdaj=ZDAJ + 60)[0], "declined")
 
     def test_napacne_oblike_ne_zapisemo(self):
         for jedro, crka in (("karkoli", "d"), (A + "-os", "d"), (A, "*"), (A, "dp"), ("", "")):
@@ -183,14 +201,14 @@ class Zavrnitev(_Osnova):
         with open(pot, "w", encoding="utf-8") as d:
             json.dump({"v": 1, "podedovano_ob": 1.0, "naprave": {},
                        "zavrnjeno": {A + "|d": "jutri", "x|d": ZDAJ, A + "|q": ZDAJ, A + "|p": True}}, d)
-        self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(A, "d", zdaj=ZDAJ)[0], "pending")
-        self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(A, "p", zdaj=ZDAJ)[0], "pending")
+        self.assertEqual(_vprasaj(A, "d", zdaj=ZDAJ)[0], "pending")
+        self.assertEqual(_vprasaj(A, "p", zdaj=ZDAJ)[0], "pending")
 
 
 class Dovoli(_Osnova):
     def test_dovoli_doda_samo_zaprosen_crko(self):
         link_dostop.nastavi(A, "v")
-        link_dostop.prosnja_ob_zavrnitvi(A + "-os", "d", zdaj=ZDAJ)
+        _vprasaj(A + "-os", "d", zdaj=ZDAJ)
         self.assertTrue(link_dostop.odobri_prosnjo(A, "d"))
         self.assertEqual(link_dostop.zmoznosti(A), {"v", "d"})
         self.assertEqual(self._zapis()["naprave"], {A: "dv"})
@@ -201,18 +219,18 @@ class Dovoli(_Osnova):
         self.assertFalse(link_dostop.odobri_prosnjo(A, "d"))
         self.assertFalse(link_dostop.odobri_prosnjo(A, "*"))
         self.assertFalse(link_dostop.odobri_prosnjo("karkoli", "d"))
-        link_dostop.prosnja_ob_zavrnitvi(A, "d", zdaj=ZDAJ)
+        _vprasaj(A, "d", zdaj=ZDAJ)
         self.assertFalse(link_dostop.odobri_prosnjo(A, "p"))            # druga zmoznost ni bila zaprosena
         self.assertEqual(link_dostop.zmoznosti(A), set())
 
     def test_dovoli_po_zavrnitvi_izbrise_zavrnitev(self):
         link_dostop.zavrni_prosnjo(A, "p", zdaj=ZDAJ - 90000)          # stara, potekla
-        link_dostop.prosnja_ob_zavrnitvi(A, "p")
+        _vprasaj(A, "p")
         self.assertTrue(link_dostop.odobri_prosnjo(A, "p"))
         self.assertNotIn(A + "|p", self._zapis().get("zavrnjeno", {}))
 
     def test_dovoli_ki_ga_ni_mogoce_zapisati_pusti_prosnjo_odprto(self):
-        link_dostop.prosnja_ob_zavrnitvi(A, "d", zdaj=ZDAJ)
+        _vprasaj(A, "d", zdaj=ZDAJ)
         with mock.patch.object(link_dostop, "_na_disk", side_effect=OSError(28, "No space left on device")):
             self.assertFalse(link_dostop.odobri_prosnjo(A, "d"))
         self.assertEqual(len(link_dostop.odprte_prosnje()), 1)
@@ -290,9 +308,12 @@ class RacunalnikVprasa(_Osnova):
         self.idle_add = p.start()
         self.addCleanup(p.stop)
 
-    def _ukaz(self, od, dejanje, **dodatno):
+    def _ukaz(self, od, dejanje, zasciteno=True, **dodatno):
+        """Ukaz od naprave; privzeto zasciten (kot ga oznaci core/link_hub: _zascita = jedro preverjenega kljuca)."""
         self.poslano.clear()
         s = {"id": "u1", "type": "control.command", "sender": od, "payload": {"action": dejanje, "params": {}}}
+        if zasciteno:
+            s["_zascita"] = od[:link_dostop.DOLZINA_JEDRA]
         s.update(dodatno)
         self.link._na_sporocilo_huba(s)
         return self.poslano[-1]["payload"] if self.poslano else None
@@ -321,6 +342,18 @@ class RacunalnikVprasa(_Osnova):
         self.assertEqual((o["access_request"], o["capability"], o["code"]), ("none", "*", "ni_dovoljeno"))
         self.assertEqual(self.pokazano, [])
 
+    def test_nezasciten_ukaz_ne_vprasa(self):
+        """Nezasciten ukaz (starejsa naprava brez zascite ali ponaredek z oznako druzinskega clana): stara zavrnitev,
+        "none" in brez obvestila."""
+        o = self._ukaz(A + "-os", "files.list", zasciteno=False)
+        self.assertEqual((o["ok"], o["data"]["shared"], o["data"]["reason"]), (True, False, "access"))
+        self.assertEqual((o["access_request"], o["capability"]), ("none", "d"))
+        self.assertEqual((o["data"]["access_request"], o["data"]["capability"]), ("none", "d"))
+        o = self._ukaz(A, "apps.launch", zasciteno=False)
+        self.assertEqual((o["code"], o["access_request"], o["capability"]), ("ni_dovoljeno", "none", "p"))
+        self.assertEqual(self.pokazano, [])
+        self.assertEqual(link_dostop.odprte_prosnje(), [])
+
     def test_po_zavrnitvi_declined(self):
         self._ukaz(A, "files.list")
         link_dostop.zavrni_prosnjo(A, "d")
@@ -341,17 +374,34 @@ class RacunalnikVprasa(_Osnova):
         self.assertFalse(self.link.odobri_prosnjo_dostopa(A, "p"))      # nic drugega
 
     def test_stran_zavrnjena_s_prosnjo(self):
-        self.link._na_sporocilo_huba({"id": "c1", "type": "cast.url", "sender": A,
+        self.link._na_sporocilo_huba({"id": "c1", "type": "cast.url", "sender": A, "_zascita": A,
                                       "payload": {"url": "https://primer.si/"}})
         ack = self.poslano[-1]
         self.assertEqual((ack["type"], ack["status"], ack["access_request"], ack["capability"]),
                          ("cast.ack", "rejected", "pending", "v"))
+        self.assertEqual([(p["jedro"], p["zmoznost"]) for p in self.pokazano], [(A, "v")])
 
-    def test_zaslon_brez_dostopa_vprasa(self):
-        self.link._na_sporocilo_huba({"type": "share.screen", "sender": A,
-                                      "payload": {"action": "start", "id": "z1", "path": "/x", "fp": "ab"}})
+    def test_nezascitena_stran_ne_vprasa(self):
+        self.link._na_sporocilo_huba({"id": "c1", "type": "cast.url", "sender": A,
+                                      "payload": {"url": "https://primer.si/"}})
+        ack = self.poslano[-1]
+        self.assertEqual((ack["status"], ack["access_request"], ack["capability"]), ("rejected", "none", "v"))
+        self.assertEqual(self.pokazano, [])
+
+    def test_zaslon_druge_naprave_ne_vprasa(self):
+        """share.screen nikoli ne pride zasciten (ni v link_e2e.ZASCITENI_TIPI; sredisce zasciten share.screen zavrze),
+        zato zanj prosnje ni - zaslon naprava zaprosi z zascitenim ukazom screen.start."""
+        from core import link_e2e
+        self.assertNotIn("share.screen", link_e2e.ZASCITENI_TIPI)
+        for dodatno in ({}, {"_zascita": A}):
+            sporocilo = {"type": "share.screen", "sender": A,
+                         "payload": {"action": "start", "id": "z1", "path": "/x", "fp": "ab"}}
+            sporocilo.update(dodatno)
+            self.link._na_sporocilo_huba(sporocilo)
         self.assertEqual(self.link.gledani_zaslon, "")
-        self.assertEqual([(p["jedro"], p["zmoznost"]) for p in self.pokazano], [(A, "z")])
+        self.assertEqual(self.pokazano, [])
+        o = self._ukaz(A, "screen.start")
+        self.assertEqual((o["access_request"], o["capability"]), ("pending", "z"))
 
     def test_odgovor_druge_naprave_prenese_stanje_prosnje(self):
         f = self.safeer_link._prosnja_iz_odgovora

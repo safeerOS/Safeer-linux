@@ -1697,7 +1697,8 @@ class SafeerLink:
             # Naprava je v Safeer Linku (pomaga pri povezavi), a ji uporabnik tega na TEM racunalniku ni odprl:
             # zavrne racunalnik sam, ne glede na to, kaj druga naprava kaze ali skriva.
             link_dostop.zabelezi(posiljatelj, dejanje)
-            # Manjka ena zmoznost in naprava je v krogu: uporabnik TEGA racunalnika dobi obvestilo z Dovoli / Zavrni.
+            # Zasciten ukaz, manjka ena zmoznost in naprava je v krogu: uporabnik TEGA racunalnika dobi obvestilo z
+            # Dovoli / Zavrni (nezasciten ukaz dobi "none" - posiljatelja vpise sredisce).
             # Naprava izve le, da prosnja caka (ali da je zavrnjena) - stara oblika zavrnitve ostane nespremenjena.
             stanje, zmoznost = link_dostop.prosnja_ob_zavrnitvi(
                 posiljatelj, link_dostop.zahteva_dejanja(dejanje), zascita=sporocilo.get("_zascita"))
@@ -1772,9 +1773,9 @@ class SafeerLink:
             if dejanje == "start" and not link_dostop.sme_sporocilo(str(sporocilo.get("sender", "") or ""), "share.screen", "start"):
                 # Zaslon druge naprave se tu odpre sam (z moznostjo upravljanja), zato samo od naprave, ki ji je
                 # uporabnik odprl zaslon in upravljanje.
+                # Prosnje za dostop tu ni: share.screen nikoli ne pride zasciten (ni v link_e2e.ZASCITENI_TIPI), prosnja
+                # pa velja samo za zasciteno sporocilo (core/link_dostop). Zaslon naprava zaprosi z ukazom screen.start.
                 link_dostop.zabelezi(str(sporocilo.get("sender", "") or ""), "share.screen")
-                link_dostop.prosnja_ob_zavrnitvi_sporocila(str(sporocilo.get("sender", "") or ""), "share.screen",
-                                                           "start", zascita=sporocilo.get("_zascita"))
                 return
             if dejanje == "start":
                 posiljatelj = str(sporocilo.get("sender", "") or "")
