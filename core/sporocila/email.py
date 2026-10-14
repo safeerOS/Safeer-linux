@@ -261,6 +261,27 @@ class EmailAdapter(Adapter):
                 pass
         return str(msg["Message-ID"])
 
+    def osnutki_na_strezniku(self, message_ids) -> set:
+        """Kateri od teh osnutkov so se v mapi Osnutki (osnutek, poslan ali izbrisan v Gmailu, tam izgine)."""
+        ids = [m for m in message_ids if m]
+        if not ids:
+            return set()
+        imap = self._locena_povezava()
+        try:
+            if imap.select(_navedi(self._mapa_osnutkov(imap)), readonly=True)[0] != "OK":
+                return set(ids)          # mape ne poznamo: nicesar ne brisemo
+            ostali = set()
+            for mid in ids:
+                status, odg = imap.uid("search", None, "HEADER", "Message-ID", mid)
+                if status != "OK" or (odg and odg[0] and odg[0].split()):
+                    ostali.add(mid)      # ob napaki iskanja raje ohranimo
+            return ostali
+        finally:
+            try:
+                imap.logout()
+            except Exception:
+                pass
+
     def odstrani_osnutek(self, message_id: str) -> None:
         if not message_id:
             return
