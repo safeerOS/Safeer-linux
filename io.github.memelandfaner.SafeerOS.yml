@@ -32,6 +32,8 @@ finish-args:
 modules:
   # Nas WebKitGTK s popravki (packaging/webkit); prvi modul zaradi predpomnilnika flatpak-builderja.
   - packaging/webkit/webkit2gtk-safeer.yml
+  # GTK4 (WebKit API 6.0): prehod Safeer OS na GTK4; drugi modul, da predpomnilnik prvega ostane.
+  - packaging/webkit/webkitgtk6-safeer.yml
   # WebKit namesti typelib v /app/lib/x86_64-linux-gnu/girepository-1.0 (typelibdir iz SDK), Flatpak pa isce v
   # /app/lib/girepository-1.0 (GI_TYPELIB_PATH): brez premika Python vzame typelib iz runtime-a (CI 13. 10. 2026).
   # Loceni modul, da se predpomnilnik WebKita (2 h gradnje) ne razveljavi.
