@@ -23,6 +23,11 @@ class Seja(unittest.TestCase):
         c = C()
         b.shrani_sejo(c, ["https://a.si/", "file:///x/splet.html", "http://b.si/", ""])
         self.assertEqual(b.nalozi_sejo(c), ["https://a.si/", "http://b.si/"])
+        self.assertEqual(b.izbran_v_seji(c, 2), 0)
+        b.shrani_sejo(c, ["https://a.si/", "file:///x/splet.html", "http://b.si/"], izbran=2)
+        self.assertEqual(b.izbran_v_seji(c, 2), 1)          # izbran je bil b.si (2. shranjeni)
+        c["splet_seja_izbran"] = 9
+        self.assertEqual(b.izbran_v_seji(c, 2), 0)
 
 
 class Okno(unittest.TestCase):

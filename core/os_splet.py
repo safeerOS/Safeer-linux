@@ -17,7 +17,8 @@ import weakref
 from html import escape as _escape_html
 from pathlib import Path
 
-from core import adblock, drm, odlozisce_varuh, os_stabilnost, ozadje_strani, safeer_drm, splet_prenosi, splet_temno
+from core import (adblock, drm, odlozisce_varuh, os_stabilnost, ozadje_strani, pojavna_okna, safeer_drm, splet_prenosi,
+                  splet_temno)
 from core.config import ConfigManager, SEARCH_ENGINES, normalize_web_url
 from core import external_apps
 from core.doh_proxy import get_doh_proxy, nastavitve_posrednika
@@ -214,7 +215,7 @@ for _j, _b in {
 
 for _j, _b in {'sl': {'predpomnilnik': 'Upravitelj predpomnilnika', 'pp_disk': 'Predpomnilnik na disku: {mb} MB', 'pp_pocisti': 'Počisti predpomnilnik (prijave ostanejo)', 'pp_strani': 'Shranjeni podatki strani', 'pp_odstrani': 'Odstrani', 'pp_meja': 'Samodejno počisti predpomnilnik nad {mb} MB', 'pp_iskanje': 'Išči stran …', 'pp_vrste': 'piškotki, shramba, predpomnilnik'}, 'en': {'predpomnilnik': 'Cache manager', 'pp_disk': 'Disk cache: {mb} MB', 'pp_pocisti': 'Clear cache (keeps sign-ins)', 'pp_strani': 'Stored site data', 'pp_odstrani': 'Remove', 'pp_meja': 'Automatically clear cache above {mb} MB', 'pp_iskanje': 'Search site …', 'pp_vrste': 'cookies, storage, cache'}, 'de': {'predpomnilnik': 'Cache-Verwaltung', 'pp_disk': 'Festplatten-Cache: {mb} MB', 'pp_pocisti': 'Cache leeren (Anmeldungen bleiben)', 'pp_strani': 'Gespeicherte Website-Daten', 'pp_odstrani': 'Entfernen', 'pp_meja': 'Cache über {mb} MB automatisch leeren', 'pp_iskanje': 'Website suchen …', 'pp_vrste': 'Cookies, Speicher, Cache'}, 'es': {'predpomnilnik': 'Gestor de caché', 'pp_disk': 'Caché en disco: {mb} MB', 'pp_pocisti': 'Vaciar caché (se mantienen las sesiones)', 'pp_strani': 'Datos guardados de sitios', 'pp_odstrani': 'Eliminar', 'pp_meja': 'Vaciar la caché automáticamente por encima de {mb} MB', 'pp_iskanje': 'Buscar sitio …', 'pp_vrste': 'cookies, almacenamiento, caché'}, 'fr': {'predpomnilnik': 'Gestionnaire de cache', 'pp_disk': 'Cache disque : {mb} Mo', 'pp_pocisti': 'Vider le cache (les connexions restent)', 'pp_strani': 'Données de sites enregistrées', 'pp_odstrani': 'Supprimer', 'pp_meja': 'Vider automatiquement le cache au-delà de {mb} Mo', 'pp_iskanje': 'Rechercher un site …', 'pp_vrste': 'cookies, stockage, cache'}, 'it': {'predpomnilnik': 'Gestione cache', 'pp_disk': 'Cache su disco: {mb} MB', 'pp_pocisti': 'Svuota cache (gli accessi restano)', 'pp_strani': 'Dati dei siti salvati', 'pp_odstrani': 'Rimuovi', 'pp_meja': 'Svuota automaticamente la cache oltre {mb} MB', 'pp_iskanje': 'Cerca sito …', 'pp_vrste': 'cookie, archiviazione, cache'}}.items():
     BESEDILA.setdefault(_j, {}).update(_b)
-for _j, _b in splet_prenosi.BESEDILA.items():   # prenosi: skupaj s Safeer Browserjem
+for _j, _b in list(splet_prenosi.BESEDILA.items()) + list(pojavna_okna.BESEDILA.items()):   # skupaj s Safeer Browserjem
     BESEDILA.setdefault(_j, {}).update(_b)
 
 
@@ -681,6 +682,22 @@ class VdelaniSplet:
         self.najdi_vrstica.set_child(self.najdi_vnos)
         self.najdi_vrstica.connect_entry(self.najdi_vnos)
         self.gradnik.append(self.najdi_vrstica)
+        # Blokirano pojavno okno: vrstica nad stranjo (kot v drugih brskalnikih), nic se ne izgubi brez vednosti.
+        self.pojavna = Gtk.Revealer()
+        vrsta = _robovi(Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8), 4)
+        vrsta.set_name("splet-pojavna")
+        self.pojavna_napis = Gtk.Label(xalign=0, hexpand=True)
+        self.pojavna_napis.set_ellipsize(self.Pango.EllipsizeMode.MIDDLE)
+        self.pojavna_odpri = Gtk.Button(label=self._t("po_odpri"))
+        self.pojavna_vedno = Gtk.Button()
+        skrij = self._gumb("×", lambda *_: self.pojavna.set_reveal_child(False), "tab-close")
+        for g in (self.pojavna_napis, self.pojavna_odpri, self.pojavna_vedno, skrij):
+            vrsta.append(g)
+        self.pojavna_odpri.connect("clicked", lambda *_: self._pojavno_odpri(False))
+        self.pojavna_vedno.connect("clicked", lambda *_: self._pojavno_odpri(True))
+        self.pojavna.set_child(vrsta)
+        self._pojavno = None
+        self.gradnik.append(self.pojavna)
         self.sklad = Gtk.Stack()
         self.sklad.set_transition_type(Gtk.StackTransitionType.NONE)
         self.sklad.set_vexpand(True); self.sklad.set_hexpand(True)
@@ -1456,6 +1473,10 @@ class VdelaniSplet:
             if sodba is not None:
                 odlocitev.ignore(); self._opozorilo_bank(pogled, naslov, sodba); return True
             if nov_okno:
+                prava = dejanje.get_navigation_type() == W.NavigationType.LINK_CLICKED
+                if self.config.get("popup_blokiraj", True) and not pojavna_okna.dovoli(
+                        pogled.get_uri() or "", naslov, prava, self.config.get("popup_dovoljeni", []) or []):
+                    odlocitev.ignore(); self._pojavno_blokirano(pogled, naslov); return True
                 odlocitev.use(); return True     # zavihek naredi signal "create" (_novo_okno)
             if self.config.get("tracking_protection_enabled", True) and zahteva.get_http_method() == "GET":
                 cist = adblock.strip_tracking_parameters(naslov)
@@ -1953,6 +1974,24 @@ class VdelaniSplet:
         self._ni_programa_pokazano.add(kljuc)
         self._opozorilo(self._ti("external_app_missing_title"), self._ti("external_app_missing_body").format(scheme=shema))
 
+    def _pojavno_blokirano(self, pogled, naslov: str) -> None:
+        self._pojavno = (pogled.get_uri() or "", naslov)
+        stran = pojavna_okna.osnova(pojavna_okna.gostitelj(self._pojavno[0]))
+        self.pojavna_napis.set_text(self._t("po_blokirano").format(cilj=pojavna_okna.gostitelj(naslov) or naslov))
+        self.pojavna_vedno.set_label(self._t("po_vedno").format(stran=stran))
+        self.pojavna_vedno.set_visible(bool(stran))
+        self.pojavna.set_reveal_child(True)
+
+    def _pojavno_odpri(self, vedno: bool) -> None:
+        if not self._pojavno:
+            return
+        izvor, naslov = self._pojavno
+        self._pojavno = None
+        self.pojavna.set_reveal_child(False)
+        if vedno:
+            self.config.set("popup_dovoljeni", pojavna_okna.zapomni(self.config.get("popup_dovoljeni", []), izvor))
+        self.nov_zavihek(naslov)
+
     def _pospravi_zavihek_prenosa(self, prenos):
         """Povezava na datoteko iz drugega programa ali target=_blank odpre zavihek, ki ostane prazen (preizkus
         14. 10.: »Nov zavihek« za namesti.sh). Zavihek brez lastne strani zapremo, kot safeer_mint.py."""
@@ -2086,24 +2125,46 @@ class VdelaniSplet:
         for kljuc, podatki in SEARCH_ENGINES.items(): motor.append(kljuc, podatki["name"])
         motor.set_active_id(self.config.get("search_engine", "duckduckgo"))
         oglasi = Gtk.CheckButton(label=self._t("adblock")); oglasi.set_active(self.config.get("adblock_enabled", True))
-        doh = Gtk.CheckButton(label=self._t("doh")); doh.set_active(self.config.get("doh_enabled", True))
+        # Izbira DNS (lastnik 14. 10. 2026: »ne pozabi na moznost menjave DNS«) - isti ponudniki kot Safeer Browser.
+        doh = Gtk.ComboBoxText()
+        for kljuc in ("quad9", "adguard", "cloudflare", "google", "custom", "disabled"):
+            doh.append(kljuc, self._ti("doh_" + kljuc))
+        izbran_dns = self.config.get("doh_provider", "cloudflare") if self.config.get("doh_enabled", True) else "disabled"
+        doh.set_active_id(izbran_dns if izbran_dns in ("quad9", "adguard", "cloudflare", "google", "custom") else "disabled")
+        lasten = Gtk.Entry(placeholder_text="https://dns.example/dns-query")
+        lasten.set_text(self.config.get("custom_doh_url", "") or "")
+        lasten.set_visible(doh.get_active_id() == "custom")
+        doh.connect("changed", lambda c: lasten.set_visible(c.get_active_id() == "custom"))
+        pojavna = Gtk.CheckButton(label=self._t("po_nastavitev")); pojavna.set_active(self.config.get("popup_blokiraj", True))
         strojno = Gtk.CheckButton(label=self._t("strojno"))
         strojno.set_active(self.config.get("hardware_acceleration", "on_demand") != "never")
         mreza.attach(Gtk.Label(label=self._t("iskalnik"), xalign=0), 0, 0, 1, 1); mreza.attach(motor, 1, 0, 1, 1)
-        mreza.attach(oglasi, 0, 1, 2, 1); mreza.attach(doh, 0, 2, 2, 1); mreza.attach(strojno, 0, 3, 2, 1)
+        mreza.attach(oglasi, 0, 1, 2, 1); mreza.attach(pojavna, 0, 2, 2, 1); mreza.attach(strojno, 0, 3, 2, 1)
         jezik = str(self.jezik() if callable(self.jezik) else self.jezik or "sl")
         temno = Gtk.ComboBoxText()
         for n in splet_temno.NACINI: temno.append(n, splet_temno.besedilo(jezik, n))
         temno.set_active_id(self._temno_nacin())
         mreza.attach(Gtk.Label(label=splet_temno.besedilo(jezik, "nastavitev"), xalign=0), 0, 4, 1, 1)
         mreza.attach(temno, 1, 4, 1, 1)
+        mreza.attach(Gtk.Label(label=self._t("doh"), xalign=0), 0, 5, 1, 1)
+        mreza.attach(doh, 1, 5, 1, 1)
+        mreza.attach(lasten, 1, 6, 1, 1)
         obmocje.append(mreza)
 
         def odgovor(o):
             if o == R.OK:
                 self.config.set("search_engine", motor.get_active_id() or "duckduckgo")
                 self.config.set("adblock_enabled", oglasi.get_active())
-                self.config.set("doh_enabled", doh.get_active())
+                dns = doh.get_active_id() or "cloudflare"
+                url = lasten.get_text().strip()
+                if dns == "custom" and not (url.startswith("https://") and len(url) > 12 and " " not in url):
+                    dns = self.config.get("doh_provider", "cloudflare")      # neveljaven naslov: ostane prejsnji
+                    dns = "cloudflare" if dns in ("custom", "disabled") else dns
+                elif dns == "custom":
+                    self.config.set("custom_doh_url", url)
+                self.config.set("doh_enabled", dns != "disabled")
+                self.config.set("doh_provider", dns)
+                self.config.set("popup_blokiraj", pojavna.get_active())
                 self.config.set("hardware_acceleration", "on_demand" if strojno.get_active() else "never")
                 if (temno.get_active_id() or splet_temno.PRIVZETO) != self._temno_nacin():
                     self.config.set("temno_nacin", temno.get_active_id() or splet_temno.PRIVZETO)

@@ -17,6 +17,17 @@ KOREN = os.path.dirname(os.path.abspath(__file__))
 if KOREN not in sys.path:
     sys.path.insert(0, KOREN)
 
+if os.environ.get("FLATPAK_ID") and os.path.isdir("/app/host-bin"):
+    # Kot packaging/safeer-os-launcher: orodja racunalnika (gio za »Odpri z«, povezave mailto: ...) prek ovojev in iste
+    # mape podatkov kot .deb (prijave, zaznamki). Preizkus 14. 10.: brez tega je bil mailto »program ni najden«.
+    # Pred uvozom core.config (CONFIG_DIR se doloci ob uvozu).
+    if "/app/host-bin" not in os.environ.get("PATH", "").split(":"):
+        os.environ["PATH"] = "/app/host-bin:" + os.environ.get("PATH", "")
+    _dom = os.path.expanduser("~")
+    os.environ["XDG_CONFIG_HOME"] = os.path.join(_dom, ".config")
+    os.environ["XDG_DATA_HOME"] = os.path.join(_dom, ".local", "share")
+    os.environ["XDG_CACHE_HOME"] = os.path.join(_dom, ".cache")
+
 from core import pomnilnik  # noqa: E402
 pomnilnik.omeji_arene(2)
 
@@ -70,9 +81,20 @@ def naslovi_iz_argumentov(argv) -> list:
     return izhod
 
 
-def shrani_sejo(config, naslovi) -> None:
-    """Odprti zavihki ob zaprtju okna (obnovijo se ob naslednjem zagonu, kot prej v safeer_mint.py)."""
-    config.set("splet_seja", [n for n in naslovi if n.startswith(("http://", "https://"))][:30])
+def shrani_sejo(config, naslovi, izbran: int = 0) -> None:
+    """Odprti zavihki ob zaprtju okna (obnovijo se ob naslednjem zagonu, kot prej v safeer_mint.py) in zavihek, ki je
+    bil izbran (preizkus 14. 10.: po zagonu je bil vedno izbran prvi)."""
+    shranjeni = [(i, n) for i, n in enumerate(naslovi) if n.startswith(("http://", "https://"))][:30]
+    config.set("splet_seja_izbran", next((k for k, (i, _n) in enumerate(shranjeni) if i == izbran), 0))
+    config.set("splet_seja", [n for _i, n in shranjeni])
+
+
+def izbran_v_seji(config, n: int) -> int:
+    try:
+        i = int(config.get("splet_seja_izbran", 0) or 0)
+    except (TypeError, ValueError):
+        i = 0
+    return i if 0 <= i < n else 0
 
 
 def nalozi_sejo(config) -> list:
@@ -105,11 +127,14 @@ class SafeerBrskalnik(Gtk.Application):
             self.splet.odpri(seja[0])
             for n in seja[1:]:
                 self.splet.nov_zavihek(n)
-            self.splet.izberi(self.splet.zavihki[0]["pogled"])
+            self.splet.izberi(self.splet.zavihki[izbran_v_seji(self.splet.config, len(self.splet.zavihki))]["pogled"])
 
     def _ob_zaprtju(self, *_a) -> bool:
         try:
-            shrani_sejo(self.splet.config, [z["pogled"].get_uri() or "" for z in self.splet.zavihki])
+            tren = self.splet.trenutni()
+            zavihki = self.splet.zavihki
+            shrani_sejo(self.splet.config, [z["pogled"].get_uri() or "" for z in zavihki],
+                        next((i for i, z in enumerate(zavihki) if z["pogled"] is tren), 0))
         except Exception as e:  # noqa: BLE001 - zaprtje mora uspeti tudi brez seje
             print("[Safeer Browser] seja:", e, flush=True)
         self.splet.koncaj_drm()
