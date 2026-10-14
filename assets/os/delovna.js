@@ -25,6 +25,7 @@
   // ------------------------------------------------------------------ besedila (SL, EN)
   var BESEDILA = {
     sl: {
+      dostopProsnjaPoslana: "Prošnja za dostop je poslana. Odobri jo na napravi {naprava}.", dostopZavrnjen: "Naprava {naprava} je dostop zavrnila.",
       mikrofonNaslov: "Išči z glasom", govorPoslusam: "Poslušam … povej, kaj iščeš", govorPrepoznavam: "Prepoznavam …", govorTisina: "Nisem slišal ničesar. Pritisni mikrofon in povej znova.", govorNiPodprto: "Iskanje z glasom na tem računalniku ni na voljo.", govorMikrofon: "Mikrofona ni mogoče odpreti.", govorNapaka: "Prepoznava govora ni uspela.", govorNamestiNaslov: "Iskanje z glasom", govorNamestiOpis: "Govor se prepozna na tem računalniku – nič ne gre na splet. Za to je treba enkrat prenesti prepoznavo govora ({mb} MB).", govorPrenesi: "Prenesi", govorNeZdaj: "Ne zdaj", govorPrenasam: "Prenašam prepoznavo govora … {o} %", govorPrekini: "Prekini", govorPrenosNapaka: "Prenos ni uspel. Poskusi znova.", govorPreklici: "Prekliči", govorKoncaj: "Končaj",
       iskanjePh: "Išči po spletu, programih, datotekah in medijih …", iskanjePhKratko: "Išči programe, datoteke, splet …", iskanjePhKrajse: "Išči programe in splet …", iskanjePhNajkrajse: "Išči …", iskanjeNamig: "Enter odpre označeno · Shift+Enter splet",
       plosceNaslov: "Plošče", medijiNaslov: "Medijski center", datotekeNaslov: "Datoteke", programiNaslov: "Programi",
@@ -226,6 +227,7 @@
       nSmeti: "V Smeti ni šlo (morda nimaš dovoljenja).", nSplosno: "Ni uspelo."
     },
     en: {
+      dostopProsnjaPoslana: "Access request sent. Approve it on {naprava}.", dostopZavrnjen: "{naprava} declined access.",
       mikrofonNaslov: "Search by voice", govorPoslusam: "Listening … say what you are looking for", govorPrepoznavam: "Recognising …", govorTisina: "I did not hear anything. Press the microphone and speak again.", govorNiPodprto: "Voice search is not available on this computer.", govorMikrofon: "The microphone cannot be opened.", govorNapaka: "Speech recognition failed.", govorNamestiNaslov: "Search by voice", govorNamestiOpis: "Speech is recognised on this computer – nothing goes to the internet. Speech recognition has to be downloaded once ({mb} MB).", govorPrenesi: "Download", govorNeZdaj: "Not now", govorPrenasam: "Downloading speech recognition … {o} %", govorPrekini: "Cancel", govorPrenosNapaka: "The download failed. Try again.", govorPreklici: "Cancel", govorKoncaj: "Done",
       iskanjePh: "Search the web, apps, files and media …", iskanjePhKratko: "Search apps, files, web …", iskanjePhKrajse: "Search apps and web …", iskanjePhNajkrajse: "Search …", iskanjeNamig: "Enter opens the selection · Shift+Enter web",
       plosceNaslov: "Panels", medijiNaslov: "Media center", datotekeNaslov: "Files", programiNaslov: "Apps",
@@ -935,7 +937,12 @@
       klic("datotekeNaprave", [vir.id, mapa]).then(prispelo(function (r) {
         // Nedosegljiva ali nedeljena naprava: pokazemo stanje, nikoli starih podatkov.
         if (!r || !r.ok) { nastaviVnose([], t("napravaNeOdgovori"), true); $("datStanje").textContent = t("napravaNedosegljiva", { naprava: vir.ime }); return; }
-        if (r.shared === false) { nastaviVnose([], t("napravaNeDeli"), true); return; }
+        if (r.shared === false) {
+          // Ta racunalnik je napravo prosil za dostop: odobri ga uporabnik NA njej (core/link_dostop).
+          var prosnja = r.access_request === "pending" ? "dostopProsnjaPoslana" : (r.access_request === "declined" ? "dostopZavrnjen" : "");
+          nastaviVnose([], prosnja ? t(prosnja, { naprava: vir.ime || "" }) : t("napravaNeDeli"), true);
+          return;
+        }
         vir.streznik = r.server || ""; vir.kljuc = r.kljuc || "";
         var vnosi = (r.items || []).map(function (v) {
           return { ime: v.name || v.id, id: v.id, oddaljeno: true, naprava: vir.ime, mapa: v.type === "folder",

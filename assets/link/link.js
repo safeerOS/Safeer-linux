@@ -910,6 +910,7 @@
       ospredjeOpis: "Da se Safeer odpre sam, ko mu s telefona pošlješ stran ali ukaz, mu enkrat dovoli prekrivanje drugih aplikacij.",
       ospredjeDovoli: "Dovoli",
       dostopNaslov: "Kaj sme ta naprava na tem računalniku",
+      dostopNaslovIme: "Kaj dovoliš napravi {ime} na tem računalniku",
       dostopDatoteke: "Datoteke",
       dostopDatotekeOpis: "Deljene mape tega računalnika.",
       dostopProgrami: "Programi",
@@ -979,6 +980,7 @@
       ospredjeOpis: "So that Safeer opens by itself when your phone sends it a page or a command, allow it once to appear over other apps.",
       ospredjeDovoli: "Allow",
       dostopNaslov: "What this device may do on this computer",
+      dostopNaslovIme: "What you allow {ime} to do on this computer",
       dostopDatoteke: "Files",
       dostopDatotekeOpis: "Shared folders of this computer.",
       dostopProgrami: "Apps",
@@ -1041,6 +1043,7 @@
       ospredjeOpis: "Damit sich Safeer von selbst öffnet, wenn das Telefon eine Seite oder einen Befehl schickt, erlaube ihm einmal, über anderen Apps zu erscheinen.",
       ospredjeDovoli: "Erlauben",
       dostopNaslov: "Was dieses Gerät auf diesem Computer darf",
+      dostopNaslovIme: "Was du {ime} auf diesem Computer erlaubst",
       dostopDatoteke: "Dateien",
       dostopDatotekeOpis: "Freigegebene Ordner dieses Computers.",
       dostopProgrami: "Programme",
@@ -1103,6 +1106,7 @@
       ospredjeOpis: "Para que Safeer se abra solo cuando el teléfono le envíe una página o un comando, permítele una vez aparecer sobre otras apps.",
       ospredjeDovoli: "Permitir",
       dostopNaslov: "Qué puede hacer este dispositivo en este ordenador",
+      dostopNaslovIme: "Qué permites a {ime} en este ordenador",
       dostopDatoteke: "Archivos",
       dostopDatotekeOpis: "Carpetas compartidas de este ordenador.",
       dostopProgrami: "Programas",
@@ -1165,6 +1169,7 @@
       ospredjeOpis: "Pour que Safeer s'ouvre tout seul quand le téléphone lui envoie une page ou une commande, autorisez-le une fois à s'afficher par-dessus les autres applis.",
       ospredjeDovoli: "Autoriser",
       dostopNaslov: "Ce que cet appareil peut faire sur cet ordinateur",
+      dostopNaslovIme: "Ce que tu autorises à {ime} sur cet ordinateur",
       dostopDatoteke: "Fichiers",
       dostopDatotekeOpis: "Dossiers partagés de cet ordinateur.",
       dostopProgrami: "Programmes",
@@ -1227,6 +1232,7 @@
       ospredjeOpis: "Perché Safeer si apra da solo quando il telefono gli invia una pagina o un comando, consentigli una volta di apparire sopra le altre app.",
       ospredjeDovoli: "Consenti",
       dostopNaslov: "Cosa può fare questo dispositivo su questo computer",
+      dostopNaslovIme: "Cosa permetti a {ime} su questo computer",
       dostopDatoteke: "File",
       dostopDatotekeOpis: "Cartelle condivise di questo computer.",
       dostopProgrami: "Programmi",
@@ -2879,6 +2885,15 @@
           ((podatki && podatki.message) || t("napUkaz")));
       } else if (vrsta === "govor") {
         if (window.SafeerDaljinec) window.SafeerDaljinec.govor(podatki);
+      } else if (vrsta === "razdelek") {
+        // Klik na obvestilo »naprava prosi za dostop«: seznam naprav (safeer_control.dostop_odpri_naprave).
+        if (stanje.control && typeof podatki === "string") izberiRazdelek(podatki);
+      } else if (vrsta === "dostop") {
+        // Dostop naprave se je spremenil (stikala ali »Dovoli« v obvestilu): odprta plosca pokaze novo stanje.
+        if (podatki && deljenje.naprava && deljenje.naprava.id === podatki.id && podatki.ok) {
+          deljenje.naprava.dostop = String(podatki.dostop || "");
+          pokaziDostop(deljenje.naprava);
+        }
       } else if (vrsta === "naprave") {
         stanje.naprave = podatki || [];
         if (window.SafeerDaljinec) window.SafeerDaljinec.naprave(stanje.naprave);
@@ -3090,6 +3105,9 @@
     var zna = znaDostop(naprava);
     pokazi("dostopBlok", zna);
     if (!zna) return;
+    // Smer mora biti jasna: to je dovoljenje NAPRAVI za TA racunalnik (ne obratno).
+    var naslovDostopa = document.querySelector("#dostopBlok .dostopNaslov");
+    if (naslovDostopa) naslovDostopa.textContent = t("dostopNaslovIme", { ime: prijaznoIme(naprava) });
     var ima = String(naprava.dostop || "");
     for (var i = 0; i < DOSTOP_CRKE.length; i++) {
       var s = el("dostop_" + DOSTOP_CRKE[i]);

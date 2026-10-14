@@ -740,7 +740,8 @@ def programi_naprave(id_naprave: str) -> dict:
         programi.append({"id": str(e["id"]), "ime": str(e.get("name") or e["id"]), "opis": str(e.get("comment") or ""),
                          "skupina": str(e.get("group") or _skupina_paketa(e["id"])), "ikona": ikona,
                          "naprava": str(id_naprave)})
-    return {"ok": True, "programi": programi, "deli": bool(izid.get("enabled", True))}
+    return {"ok": True, "programi": programi, "deli": bool(izid.get("enabled", True)),
+            "access_request": str(izid.get("access_request") or "")}
 
 
 def zazeni_na_napravi(id_naprave: str, app: str) -> dict:
