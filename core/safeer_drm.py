@@ -323,7 +323,11 @@ class Gostitelj:
         if not stars:
             args = [str(exe), url]   # brez X11: lastno okno (samostojni nacin)
         if v_flatpaku():
-            args = ["flatpak-spawn", "--host", "--watch-bus"] + args   # --watch-bus: konca se s Safeer OS
+            # --watch-bus: konca se s Safeer OS. Zaslon izrecno (kot core/os_dock.py): sicer okno Safeer DRM nastane le,
+            # ce je DISPLAY v okolju aktivacije D-Bus seje (pregled paketa 14. 10. 2026).
+            args = ["flatpak-spawn", "--host", "--watch-bus",
+                    "--env=DISPLAY=" + os.environ.get("DISPLAY", ""),
+                    "--env=WAYLAND_DISPLAY=" + os.environ.get("WAYLAND_DISPLAY", "")] + args
         elif stars:
             args.append(f"--lastnik={os.getpid()}")
         try:

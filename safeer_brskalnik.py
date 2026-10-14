@@ -170,6 +170,9 @@ def main() -> int:
         print("Safeer Browser " + razlicica())
         return 0
     safeer_log.install(CONFIG_DIR, razlicica())
+    # Razred okna na X11 = prgname: brez tega »safeer_brskalnik.py« in pult okna ne poveze z vnosom v meniju
+    # (StartupWMClass; izmerjeno v Xvfb ob pregledu paketa 14. 10. 2026).
+    GLib.set_prgname(APP_ID)
     app = SafeerBrskalnik()
     argumenti = [sys.argv[0]] + naslovi_iz_argumentov(sys.argv[1:])
     return app.run(argumenti)
