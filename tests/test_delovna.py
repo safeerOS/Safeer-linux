@@ -851,7 +851,7 @@ class TestTemaCinnamon(unittest.TestCase):
         if not node:
             self.skipTest("node ni namescen")
         applet = os.path.join(TEMA, "appleti", "miska@safeer.si", "applet.js")
-        stub = os.path.join(os.path.dirname(os.path.abspath(__file__)), "miska_applet_stub.js")
+        stub = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_miska_applet.js")
         izid = json.loads(subprocess.run([node, stub, applet], check=True, capture_output=True, text=True).stdout)
         self.assertEqual(izid["napaka"], "")
         self.assertNotIn("locate-pointer", izid["prebrani"])
