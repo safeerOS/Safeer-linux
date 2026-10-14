@@ -3534,7 +3534,7 @@ class SafeerOS(Gtk.Application):
             ime = v.get("ime") or (e["id"][: -len(".desktop")] if e["id"].endswith(".desktop") else e["id"])
             programi.append({"id": e["id"], "dockitem": e["dockitem"], "ime": ime,
                              "ikona": self._ikona(v["ikona"]) if v.get("ikona") else ""})
-        return {"ok": True, "plank": bool(GLib.find_program_in_path("plank")), "programi": programi}
+        return {"ok": True, "plank": os_dock.je_namescen(), "programi": programi}
 
     def _ikona(self, ime: str) -> str:
         if ime not in self._ikone:

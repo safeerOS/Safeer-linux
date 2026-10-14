@@ -72,3 +72,17 @@ class ControlPaketVsebujeModule(unittest.TestCase):
         uvozi = set(re.findall(r"^from core import (\w+)", py, re.M))
         manjka = sorted(m for m in uvozi if not re.search(r"(?<![\w])%s(?![\w])" % re.escape(m), paket))
         self.assertEqual(manjka, [])
+
+
+def test_dock_v_flatpaku(monkeypatch):
+    """Flatpak: dconf/plank/kill na racunalniku, launcherji v ~/.config racunalnika, pot brez /run/host (14. 10. 2026)."""
+    from core import os_dock
+    monkeypatch.setenv("FLATPAK_ID", "io.github.memelandfaner.SafeerOS")
+    monkeypatch.setenv("XDG_CONFIG_HOME", "/home/u/.var/app/io.github.memelandfaner.SafeerOS/config")
+    monkeypatch.setenv("HOME", "/home/u")
+    assert os_dock._gostitelj(["dconf", "read", "x"]) == ["flatpak-spawn", "--host", "dconf", "read", "x"]
+    assert os_dock.mapa_launcherjev() == "/home/u/.config/plank/dock1/launchers"
+    assert os_dock.pot_za_gostitelja("/run/host/usr/share/applications/a.desktop") == "/usr/share/applications/a.desktop"
+    assert os_dock.pot_za_gostitelja("/var/lib/flatpak/exports/share/applications/b.desktop").startswith("/var/lib")
+    monkeypatch.delenv("FLATPAK_ID")
+    assert os_dock._gostitelj(["dconf"]) == ["dconf"]

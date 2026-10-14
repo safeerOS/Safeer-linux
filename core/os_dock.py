@@ -19,14 +19,38 @@ PLANK_DOCK = "/net/launchpad/plank/docks/dock1/"
 KONCNICA = ".dockitem"
 
 
+def _v_flatpaku() -> bool:
+    return bool(os.environ.get("FLATPAK_ID"))
+
+
+def _gostitelj(argumenti: List[str]) -> List[str]:
+    """Plank, dconf in kill tecejo na racunalniku: v Flatpaku prek flatpak-spawn --host (testni PC 14. 10. 2026: v
+    peskovniku je bil dock »nenamescen« - plank in njegov dconf nista vidna, /proc kaze samo peskovnik)."""
+    return (["flatpak-spawn", "--host"] + list(argumenti)) if _v_flatpaku() else list(argumenti)
+
+
+def pot_za_gostitelja(pot: str) -> str:
+    """Program racunalnika je v Flatpaku viden pod /run/host; Plank na racunalniku potrebuje pravo pot."""
+    return pot[len("/run/host"):] if pot.startswith("/run/host/") else pot
+
+
 def mapa_launcherjev() -> str:
-    koren = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    # V Flatpaku XDG_CONFIG_HOME kaze v peskovnik (~/.var/app/...); Plank bere ~/.config racunalnika.
+    koren = (None if _v_flatpaku() else os.environ.get("XDG_CONFIG_HOME")) or os.path.join(os.path.expanduser("~"), ".config")
     return os.path.join(koren, "plank", "dock1", "launchers")
+
+
+def je_namescen() -> bool:
+    """Ali je dock Plank na racunalniku (tudi iz Flatpaka)."""
+    import shutil
+    if shutil.which("plank") or os.path.exists("/run/host/usr/bin/plank"):
+        return True
+    return _plank_pid() is not None
 
 
 def _dconf_beri(kljuc: str) -> str:
     try:
-        r = subprocess.run(["dconf", "read", PLANK_DOCK + kljuc], capture_output=True, text=True, timeout=5)
+        r = subprocess.run(_gostitelj(["dconf", "read", PLANK_DOCK + kljuc]), capture_output=True, text=True, timeout=5)
         return r.stdout.strip() if r.returncode == 0 else ""
     except (OSError, subprocess.SubprocessError):
         return ""
@@ -34,7 +58,8 @@ def _dconf_beri(kljuc: str) -> str:
 
 def _dconf_pisi(kljuc: str, vrednost: str) -> bool:
     try:
-        return subprocess.run(["dconf", "write", PLANK_DOCK + kljuc, vrednost], capture_output=True, timeout=5).returncode == 0
+        return subprocess.run(_gostitelj(["dconf", "write", PLANK_DOCK + kljuc, vrednost]), capture_output=True,
+                              timeout=5).returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
 
@@ -95,6 +120,14 @@ def elementi() -> List[dict]:
 
 
 def _plank_pid() -> Optional[int]:
+    if _v_flatpaku():
+        try:
+            r = subprocess.run(_gostitelj(["pgrep", "-u", str(os.getuid()), "-x", "plank"]), capture_output=True,
+                               text=True, timeout=5)
+            vrstice = [v for v in r.stdout.split() if v.isdigit()]
+            return int(vrstice[0]) if vrstice else None
+        except (OSError, subprocess.SubprocessError, ValueError):
+            return None
     for ime in os.listdir("/proc"):
         if not ime.isdigit():
             continue
@@ -113,8 +146,11 @@ def osvezi() -> None:
     if pid is None:
         return
     try:
-        os.kill(pid, signal.SIGTERM)
-    except OSError:
+        if _v_flatpaku():
+            subprocess.run(_gostitelj(["kill", str(pid)]), capture_output=True, timeout=5)
+        else:
+            os.kill(pid, signal.SIGTERM)
+    except (OSError, subprocess.SubprocessError):
         return
     import time
     for _ in range(30):
@@ -122,7 +158,7 @@ def osvezi() -> None:
             break
         time.sleep(0.05)
     try:
-        subprocess.Popen(["plank"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
+        subprocess.Popen(_gostitelj(["plank"]), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
                          start_new_session=True)
     except OSError:
         pass
@@ -146,7 +182,7 @@ def dodaj(pot_desktop: str, osvezi_dock=True) -> dict:
     os.makedirs(mapa, exist_ok=True)
     ime = _ime_za(pot_desktop)
     with open(os.path.join(mapa, ime), "w", encoding="utf-8") as f:
-        f.write("[PlankDockItemPreferences]\nLauncher=file://%s\n" % urllib.parse.quote(pot_desktop))
+        f.write("[PlankDockItemPreferences]\nLauncher=file://%s\n" % urllib.parse.quote(pot_za_gostitelja(pot_desktop)))
     vrsta = [e["dockitem"] for e in elementi() if e["dockitem"] != ime] + [ime]
     _dconf_pisi("dock-items", zapisi_seznam(vrsta))
     if osvezi_dock:
