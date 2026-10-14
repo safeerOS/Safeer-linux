@@ -31,24 +31,34 @@ NAJVEC_KANDIDATOV = 4
 CAS_KANDIDATA_S = 4.0
 
 
+#: Video ponori po vrsti: gtk4paintablesink (paket gstreamer1.0-gtk4) slike rise v oknu GTK4, appsink (vedno ob appsrc)
+#: jih da programu kot teksture, glimagesink odpre svoje okno. gtksink je GTK3 in ga v procesu GTK4 ne smemo naloziti.
+PONORI = ("gtk4paintablesink", "appsink", "glimagesink")
+
+
 def izberi_ponor(je_na_voljo: Callable[[str], bool]) -> str:
     """Izbere video ponor, ne da bi moral test uvoziti GStreamer."""
-    if je_na_voljo("gtksink"):
-        return "gtksink"
-    if je_na_voljo("glimagesink"):
-        return "glimagesink"
-    raise NapakaGledalca("Manjkata video ponora gtksink in glimagesink.")
+    for ponor in PONORI:
+        if je_na_voljo(ponor):
+            return ponor
+    raise NapakaGledalca("Manjkajo video ponori gtk4paintablesink, appsink in glimagesink.")
 
 
 def niz_cevovoda(ponor: str) -> str:
     """Vrne cevovod H.264 za izbrani podprti video ponor."""
-    if ponor not in ("gtksink", "glimagesink"):
+    if ponor not in PONORI:
         raise NapakaGledalca("Nepodprt video ponor.")
+    if ponor == "appsink":
+        # BGRA: Gdk.MemoryFormat.B8G8R8A8; zadrzimo samo zadnjo sliko (sproti, brez zaostanka).
+        izhod = ("video/x-raw,format=BGRA ! appsink name=ponor sync=false max-buffers=1 drop=true "
+                 "emit-signals=true")
+    else:
+        izhod = f"{ponor} name=ponor sync=false"
     return (
         "appsrc name=vir is-live=true format=time do-timestamp=true block=false "
         'caps="video/x-h264,stream-format=(string)byte-stream,alignment=(string)au" '
         "! h264parse ! avdec_h264 ! videoconvert "
-        f"! {ponor} name=ponor sync=false"
+        f"! {izhod}"
     )
 
 

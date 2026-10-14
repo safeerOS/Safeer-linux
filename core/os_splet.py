@@ -932,7 +932,7 @@ class VdelaniSplet:
         # nazaj ~0,3-0,4 s namesto ~1,2 s, RAM spletnih procesov +50 MB (~7 %); ob pomanjkanju ga WebKit sprosti sam.
         for ime, vrednost in (("enable_javascript", True), ("enable_javascript_markup", True),
                               ("javascript_can_open_windows_automatically", False), ("enable_html5_local_storage", True),
-                              ("enable_html5_database", False), ("enable_hyperlink_auditing", False),
+                              ("enable_html5_database", False),
                               ("enable_dns_prefetching", False), ("enable_page_cache", True),
                               ("enable_encrypted_media", True)):
             nastavi = getattr(nastavitve, "set_" + ime, None)

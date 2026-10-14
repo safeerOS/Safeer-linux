@@ -45,10 +45,18 @@ pomnilnik.omeji_arene(2)
 
 import gi  # noqa: E402
 
-gi.require_version("Gtk", "3.0")
-gi.require_version("Gdk", "3.0")
-gi.require_version("WebKit2", "4.1")
-from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
+# GTK4 + WebKitGTK 6.0 (lastnik, 14. 10. 2026): na X11 GTK3 nima EGL, zato je WebKit vsak okvir kopiral prek procesorja.
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+gi.require_version("WebKit", "6.0")
+from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
+# Ime WebKit2 ostane: skupne pomozne funkcije (pomnilnik, os_stabilnost, odlozisce_varuh) dobijo modul kot parameter.
+from gi.repository import WebKit as WebKit2  # noqa: E402
+try:   # X11: delovno obmocje zaslona (GdkX11.X11Monitor.get_workarea) in cas streznika; na Waylandu ga ni
+    gi.require_version("GdkX11", "4.0")
+    from gi.repository import GdkX11  # noqa: E402
+except (ValueError, ImportError):
+    GdkX11 = None
 
 from core import (os_datoteke, os_govor, os_katalog, os_knjiznica, os_lupa, os_oblak_igre, os_okna, os_omrezje, os_programi, os_scit, os_sistem,  # noqa: E402
                   os_media_besedila, os_mediji, os_posodobitve, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost,
@@ -56,6 +64,7 @@ from core import (os_datoteke, os_govor, os_katalog, os_knjiznica, os_lupa, os_o
 from core import budnost, gostitelj, odlozisce_varuh, os_iskalnik, os_odpri_z, os_pretvorba_datotek  # noqa: E402
 from core import media_servers  # noqa: E402
 from core import os_dock  # noqa: E402
+from core import x11  # noqa: E402
 pomnilnik.tlak_omrezja(WebKit2, 160)   # pred prvim pogledom: omrezni procesi WebKita z mejo pomnilnika
 from core import en_proces  # noqa: E402
 
@@ -1000,23 +1009,92 @@ WMCLASS_PREDVAJALNIKA = ("safeer-os.Player", "Safeer Player")
 
 
 def _cas_dogodka(okno=None) -> int:
-    """Cas za present_with_time, ko ni dogodka GDK (predaja iz menija, ukazne vrstice ali D-Bus). Najprej cas
-    streznika X za dano okno (GdkX11): ta je vedno novejsi od zadnjega klika v oknu v ospredju, zato upravljalnik oken
-    (Muffin) okno res pokaze, namesto da ga le oznaci z »zahteva pozornost«. Rezerva: milisekunde od zagona -
-    32-bitno, zato po 49,7 dneh zacne znova (sicer OverflowError in okno ne pride naprej)."""
-    cas = Gtk.get_current_event_time()
-    if cas:
-        return cas
+    """Cas za present_with_time in dejanja oken. GTK4 nima vec »trenutnega dogodka« (Gtk.get_current_event_time), zato
+    cas streznika X za dano okno ali katerokoli nase realizirano okno (GdkX11): ta je vedno novejsi od zadnjega klika
+    v oknu v ospredju, zato upravljalnik oken (Muffin) okno res pokaze, namesto da ga le oznaci z »zahteva pozornost«.
+    Rezerva: milisekunde od zagona - 32-bitno, zato po 49,7 dneh zacne znova (sicer OverflowError)."""
     try:
-        gdk_okno = okno.get_window() if okno is not None else None
-        if gdk_okno is not None:
-            gi.require_version("GdkX11", "3.0")
-            from gi.repository import GdkX11
-            if isinstance(gdk_okno, GdkX11.X11Window):
-                return GdkX11.x11_get_server_time(gdk_okno) & 0xFFFFFFFF
+        if GdkX11 is not None:
+            okna = ([okno] if okno is not None else []) + list(Gtk.Window.list_toplevels())
+            for o in okna:
+                povrsina = o.get_surface() if o is not None and o.get_realized() else None
+                if isinstance(povrsina, GdkX11.X11Surface):
+                    return GdkX11.x11_get_server_time(povrsina) & 0xFFFFFFFF
     except (ImportError, ValueError, TypeError, AttributeError):
         pass
     return int(GLib.get_monotonic_time() / 1000) & 0xFFFFFFFF
+
+
+def _v_ospredje(okno) -> None:
+    """Okno pokaze in ga da v ospredje s casom uporabe (glej _cas_dogodka). Okno, ki ga je uporabnik zaprl (skrili smo
+    ga), GTK ob ponovnem prikazu ne oznaci s casom - Muffin ga potem le oznaci z »zahteva pozornost«."""
+    okno.set_visible(True)
+    cas = _cas_dogodka(okno)
+    povrsina = x11.povrsina_x11(okno)
+    if povrsina is not None:
+        povrsina.set_user_time(cas)
+    okno.present_with_time(cas)
+
+
+class _Tipka:
+    """Tipka iz GTK4 EventControllerKey s polji kot Gdk.EventKey v GTK3 (keyval, state, time)."""
+    __slots__ = ("keyval", "state", "time")
+
+    def __init__(self, keyval, state, cas):
+        self.keyval, self.state, self.time = keyval, state, cas
+
+
+def _tipke(gradnik, obdelaj, zajem: bool = False):
+    """GTK4 nadomestek za key-press-event: obdelaj(gradnik, dogodek) dobi predmet s .keyval, .state in .time.
+    zajem=True: tipko dobimo pred otroki (kot GTK3 okno, ki je tipko videlo pred gradnikom v fokusu)."""
+    k = Gtk.EventControllerKey()
+    if zajem:
+        k.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+    k.connect("key-pressed", lambda kr, keyval, _koda, stanje:
+              bool(obdelaj(gradnik, _Tipka(keyval, stanje, kr.get_current_event_time()))))
+    gradnik.add_controller(k)
+    return k
+
+
+def _robovi_gradnika(gradnik, rob: int):
+    """GTK4 nima set_border_width: rob okoli gradnika."""
+    for stran in ("set_margin_start", "set_margin_end", "set_margin_top", "set_margin_bottom"):
+        getattr(gradnik, stran)(rob)
+    return gradnik
+
+
+def _css(besedilo) -> "Gtk.CssProvider":
+    """Slog za ves zaslon (GTK4: load_from_string, add_provider_for_display)."""
+    if isinstance(besedilo, bytes):
+        besedilo = besedilo.decode("utf-8")
+    ponudnik = Gtk.CssProvider()
+    try:
+        ponudnik.load_from_string(besedilo)
+    except AttributeError:  # GTK < 4.12
+        ponudnik.load_from_data(besedilo, -1)
+    Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), ponudnik,
+                                              Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    return ponudnik
+
+
+_PROZORNO_CSS = None
+
+
+def _prozorno_okno(okno) -> None:
+    """Okno brez lastnega ozadja (GTK3: vizual RGBA + app_paintable). GTK4 na X11 s sestavljalnikom risbo okna z
+    alfa kanalom pokaze sam - dovolj je prozorno ozadje v slogu."""
+    global _PROZORNO_CSS
+    if _PROZORNO_CSS is None:
+        _PROZORNO_CSS = _css("window.safeer-prozorno { background: transparent; box-shadow: none; }")
+    okno.add_css_class("safeer-prozorno")
+
+
+def _registriraj_most(upravitelj, ime: str) -> None:
+    """register_script_message_handler za WebKit 6.0 (ime, svet) in 4.1 (ime)."""
+    try:
+        upravitelj.register_script_message_handler(ime, None)
+    except TypeError:
+        upravitelj.register_script_message_handler(ime)
 
 
 def zagon_predvajalnika(argumenti) -> bool:
@@ -1172,7 +1250,6 @@ class SafeerOS(Gtk.Application):
         #: Naslovi datotek, ki jih uporabnik vlece IZ Datotek (pravo vlecenje namizja, glej _zacni_vlecenje).
         self._lastno_vlecenje: list = []
         self._lastno_ni_uspelo = False
-        self._okna_vlecenja: list = []
         self._ikone: dict = {}
         self._prvic = True
         #: Namizni nacin: Safeer OS je namizje (spodaj, programi nad njim) s svojo vrstico namesto
@@ -1510,7 +1587,7 @@ class SafeerOS(Gtk.Application):
     def _nov_pogled(self, stran: str) -> WebKit2.WebView:
         """WebKit z mostom do tega procesa; odgovori gredo nazaj v isti pogled."""
         upravitelj = WebKit2.UserContentManager()
-        upravitelj.register_script_message_handler("safeerOs")
+        _registriraj_most(upravitelj, "safeerOs")
         upravitelj.add_script(WebKit2.UserScript(
             MOST_JS, WebKit2.UserContentInjectedFrames.TOP_FRAME,
             WebKit2.UserScriptInjectionTime.START, None, None))
@@ -1540,9 +1617,14 @@ class SafeerOS(Gtk.Application):
         pogled.connect("decide-policy", self._na_politiko)
         # Ce spletni proces pade (sesutje, pomanjkanje pomnilnika), se stran nalozi znova - sicer ostane prazno namizje.
         os_stabilnost.obnovi_ob_padcu(WebKit2, GLib, pogled, "safeer-os", stran.split("?", 1)[0])
+        pogled.set_hexpand(True)
+        pogled.set_vexpand(True)
         pogled.connect("context-menu", lambda *a: True)   # brez »Reload / Inspect« v preobleki
         if stran.startswith("delovna.html"):   # Datoteke na delovni povrsini sprejmejo datoteke iz drugih programov
-            pogled.connect("drag-data-received", self._na_vlecene_podatke)
+            # GTK4: signala drag-data-received ni; DropControllerMotion vlecenja ne prevzame (spust ostane WebKitu).
+            vlecenje = Gtk.DropControllerMotion()
+            vlecenje.connect("enter", lambda k, *_a: self._na_vlecene_podatke(pogled, k.get_drop()))
+            pogled.add_controller(vlecenje)
         # Posnetek mora load-changed priklopiti PRED load_uri. Pri hitrem file:// nalaganju je bil
         # dogodek sicer lahko že mimo in preverjevalni zagon je ostal odprt za vedno.
         if self.posnetek:
@@ -1560,7 +1642,7 @@ class SafeerOS(Gtk.Application):
         zaslon = self._zaslon()
         if zaslon is None:
             return {"vrh": 0, "dno": 0, "levo": 0, "desno": 0}
-        g, w = zaslon.get_geometry(), zaslon.get_workarea()
+        g, w = zaslon.get_geometry(), self._delovno_obmocje(zaslon)
         return {"vrh": max(0, w.y - g.y), "levo": max(0, w.x - g.x),
                 "dno": max(0, (g.y + g.height) - (w.y + w.height)),
                 "desno": max(0, (g.x + g.width) - (w.x + w.width))}
@@ -1572,27 +1654,27 @@ class SafeerOS(Gtk.Application):
         self._robovi_delovne = robovi
         pogled = self._nov_pogled("delovna.html?" + "&".join("%s=%d" % kv for kv in sorted(robovi.items())))
         okno = Gtk.ApplicationWindow(application=self, title="Safeer Cinnamon")
-        okno.set_wmclass("safeer-cinnamon", "Safeer Cinnamon")
+        # GTK4 nima set_wmclass, set_type_hint, set_keep_below, move: lastnosti X nastavi core/x11.py.
+        x11.nastavi_razred(okno, "safeer-cinnamon", "Safeer Cinnamon")
         okno.set_icon_name("safeer-browser")
-        okno.set_type_hint(Gdk.WindowTypeHint.DESKTOP)
+        x11.nastavi_vrsto(okno, "DESKTOP")
         okno.set_decorated(False)
-        okno.set_skip_taskbar_hint(True)
-        okno.set_skip_pager_hint(True)
-        okno.set_keep_below(True)
+        x11.nastavi_preskoci(okno)
+        x11.nastavi_stanje(okno, "BELOW")
         zaslon = self._zaslon()
         g = zaslon.get_geometry() if zaslon else None
         if g is not None:
-            okno.move(g.x, g.y)
+            x11.premakni(okno, g.x, g.y)
             okno.set_default_size(g.width, g.height)
             okno.set_size_request(g.width, g.height)
         # Prekrivanje: nad namizjem se lahko pokaze plosca Splet (iskanje po spletu iz zgornjega polja).
         prekrivanje = Gtk.Overlay()
-        prekrivanje.add(pogled)
-        okno.add(prekrivanje)
+        prekrivanje.set_child(pogled)
+        okno.set_child(prekrivanje)
         self._prekrivanje_delovne = prekrivanje
         okno.connect("destroy", lambda *a: self._koncaj())
         self.okno_delovna, self.pogled_delovna = okno, pogled
-        okno.show_all()
+        okno.set_visible(True)
         try:
             vir = Gio.SettingsSchemaSource.get_default()
             if vir is not None and vir.lookup("org.cinnamon.desktop.background", True) is not None:
@@ -1610,10 +1692,7 @@ class SafeerOS(Gtk.Application):
             print("[SafeerOS] ozadje:", e)
         # Pult/dock se lahko pojavita sele po prijavi (Plank): robove preverimo se nekajkrat.
         GLib.timeout_add_seconds(3, self._preveri_robove)
-        try:
-            Gdk.Screen.get_default().connect("monitors-changed", lambda *a: self._prestavi_delovno())
-        except Exception:
-            pass
+        self._ob_spremembi_zaslonov(self._prestavi_delovno)
 
     def _preveri_robove(self) -> bool:
         if self.okno_delovna is None:
@@ -1629,9 +1708,9 @@ class SafeerOS(Gtk.Application):
         if self.okno_delovna is None or zaslon is None:
             return
         g = zaslon.get_geometry()
-        self.okno_delovna.move(g.x, g.y)
+        x11.premakni(self.okno_delovna, g.x, g.y)
         self.okno_delovna.set_size_request(g.width, g.height)
-        self.okno_delovna.resize(g.width, g.height)
+        self.okno_delovna.set_default_size(g.width, g.height)
         self._preveri_robove()
         # Dock Plank ne sledi spremembi locljivosti: safeer-cinnamon --dock ga postavi na novo (pocaka,
         # da se zaslon ustali). Robove delovne povrsine potem popravi _preveri_robove (vsake 3 s).
@@ -1726,22 +1805,24 @@ class SafeerOS(Gtk.Application):
     # ------------------------------------------------------------------ sporocila na namizju (kuverta in plosca)
     KUVERTA_OSVEZI_S = 30
 
+    #: Ikona kuverte v pultu, ki jo da lupina Qt (core/os_lupina.py, QSystemTrayIcon): predmet z metodo
+    #: nastavi(pot_png, opis); klik nanjo poklice _preklopi_plosco_sporocil(). None: kuverte ni.
+    kuverta_pult = None
+
+    def _namesti_kuverto(self):
+        """Ikona kuverte v pultu. GTK3 je imel XApp.StatusIcon (Cinnamon) ali Gtk.StatusIcon - obeh v GTK4 ni (XApp je
+        knjiznica GTK3 in se v procesu GTK4 ne da naloziti). Ikono v pultu da lupina Qt (QSystemTrayIcon) tako, da
+        nastavi `kuverta_pult`; brez nje (cista lupina GTK4) kuverte ni in vrnemo False."""
+        return self.kuverta_pult or False
+
     def _zacni_kuverto(self) -> None:
-        """Kuverta v pultu (XApp.StatusIcon na Cinnamonu, sicer Gtk.StatusIcon) s stevilom neprebranih sporocil."""
+        """Kuverta v pultu s stevilom neprebranih sporocil (glej _namesti_kuverto)."""
         if getattr(self, "_kuverta", None) is not None:
             return
-        self._kuverta_xapp = True
-        try:
-            gi.require_version("XApp", "1.0")
-            from gi.repository import XApp  # noqa: WPS433
-            k = XApp.StatusIcon()
-            k.set_name("safeer-os-sporocila")
-            k.connect("activate", lambda *_a: self._preklopi_plosco_sporocil())
-        except Exception:
-            self._kuverta_xapp = False
-            k = Gtk.StatusIcon()
-            k.set_title("Safeer – sporočila")
-            k.connect("activate", lambda *_a: self._preklopi_plosco_sporocil())
+        k = self._namesti_kuverto()
+        if not k:
+            print("[SafeerOS] kuverta v pultu: ni ikone pulta (GTK4 brez lupine Qt)", flush=True)
+            return
         self._kuverta, self._kuverta_stevilo = k, -1
         self._osvezi_kuverto()
         GLib.timeout_add_seconds(self.KUVERTA_OSVEZI_S, lambda: (self._osvezi_kuverto(), True)[1])
@@ -1766,12 +1847,7 @@ class SafeerOS(Gtk.Application):
         napis = BESEDILA_KUVERTE.get(_jezik(), BESEDILA_KUVERTE["en"])
         opis = napis[1].format(n=n) if n else napis[0]
         try:
-            if self._kuverta_xapp:
-                k.set_icon_name(pot)
-                k.set_tooltip_text(opis)
-            else:
-                k.set_from_file(pot)
-                k.set_tooltip_text(opis)
+            k.nastavi(pot, opis)
         except Exception as e:  # noqa: BLE001
             print("[SafeerOS] kuverta:", e)
 
@@ -1786,40 +1862,32 @@ class SafeerOS(Gtk.Application):
         if okno is None:
             okno = Gtk.Window(title=BESEDILA_KUVERTE.get(_jezik(), BESEDILA_KUVERTE["en"])[0])
             okno.set_application(self)
-            okno.set_wmclass("safeer-os.Sporocila", "Safeer")
+            x11.nastavi_razred(okno, "safeer-os.Sporocila", "Safeer")
             okno.set_icon_name("safeer-os")
             okno.set_decorated(False)
-            okno.set_skip_taskbar_hint(True)
-            okno.set_type_hint(Gdk.WindowTypeHint.DIALOG)
-            vizual = okno.get_screen().get_rgba_visual()
-            if vizual is not None:
-                okno.set_visual(vizual)
-                okno.set_app_paintable(True)
+            x11.nastavi_preskoci(okno, opravilna=True, preklopnik=False)
+            x11.nastavi_vrsto(okno, "DIALOG")
+            _prozorno_okno(okno)
             pogled = self._nov_pogled("sporocila-plosca.html?jezik=" + _jezik())
             prozorno = Gdk.RGBA()
             prozorno.parse("rgba(0,0,0,0)")
             pogled.set_background_color(prozorno)
-            okno.add(pogled)
-            okno.connect("delete-event", lambda *_a: (self._skrij_plosco_sporocil(), True)[1])
-            # Klik drugam skrije plosco (kot meni v pultu).
-            okno.connect("focus-out-event", lambda *_a: (GLib.timeout_add(150, self._skrij_ce_ni_fokusa), False)[1])
+            okno.set_child(pogled)
+            okno.connect("close-request", lambda *_a: (self._skrij_plosco_sporocil(), True)[1])
+            # Klik drugam skrije plosco (kot meni v pultu); GTK4: ni focus-out-event, je lastnost is-active.
+            okno.connect("notify::is-active", lambda o, *_a: o.is_active() or
+                         GLib.timeout_add(150, self._skrij_ce_ni_fokusa))
             self._plosca_sporocil, self._pogled_plosce = okno, pogled
         else:
             self._js("window.safeerPloscaOsvezi && window.safeerPloscaOsvezi();", self._pogled_plosce)
         zaslon = self._zaslon()
-        g = zaslon.get_workarea() if zaslon else None
+        g = self._delovno_obmocje(zaslon) if zaslon else None
         sirina = 400
         visina = min(660, g.height - 16) if g else 640
         okno.set_default_size(sirina, visina)
-        okno.resize(sirina, visina)
         if g:
-            okno.move(g.x + g.width - sirina - 10, g.y + 8)
-        okno.show_all()
-        cas = _cas_dogodka(okno)
-        gdk_okno = okno.get_window()
-        if gdk_okno is not None and hasattr(gdk_okno, "set_user_time"):
-            gdk_okno.set_user_time(cas)
-        okno.present_with_time(cas)
+            x11.premakni(okno, g.x + g.width - sirina - 10, g.y + 8)
+        _v_ospredje(okno)
         self._osvezi_kuverto()
 
     def _skrij_ce_ni_fokusa(self) -> bool:
@@ -1831,7 +1899,7 @@ class SafeerOS(Gtk.Application):
     def _skrij_plosco_sporocil(self) -> bool:
         okno = getattr(self, "_plosca_sporocil", None)
         if okno is not None and okno.get_visible():
-            okno.hide()
+            okno.set_visible(False)
             self._plosca_skrita_ob = time.monotonic()
         self._osvezi_kuverto()
         return True
@@ -1846,31 +1914,25 @@ class SafeerOS(Gtk.Application):
                                                          quote_via=urllib.parse.quote)
             pogled = self._nov_pogled(stran)
             okno = Gtk.ApplicationWindow(application=self, title=_naslov_razdelka(ime))
-            okno.set_wmclass("safeer-os." + ime, _naslov_razdelka(ime))
+            x11.nastavi_razred(okno, "safeer-os." + ime, _naslov_razdelka(ime))
             okno.set_icon_name("safeer-os")
             zaslon = self._zaslon()
-            g = zaslon.get_workarea() if zaslon else None
-            okno.set_default_size(min(1280, int(g.width * 0.85)) if g else 1200,
-                                  min(860, int(g.height * 0.85)) if g else 800)
-            okno.set_position(Gtk.WindowPosition.CENTER)
-            okno.add(pogled)
+            g = self._delovno_obmocje(zaslon) if zaslon else None
+            sirina, visina = (min(1280, int(g.width * 0.85)) if g else 1200, min(860, int(g.height * 0.85)) if g else 800)
+            okno.set_default_size(sirina, visina)
+            self._na_sredino(okno, sirina, visina)
+            okno.set_child(pogled)
             # Zapiranje okno samo skrije: naslednji klic ga takoj vrne (nezapisano besedilo zapiska ostane).
-            okno.connect("delete-event", lambda w, *_: (w.hide(), True)[1])
+            okno.connect("close-request", lambda w, *_: (w.set_visible(False), True)[1])
             self.okna_razdelkov[ime] = par = (okno, pogled)
-            okno.show_all()
+            okno.set_visible(True)
             if cilj and cilj != ime:
                 GLib.timeout_add(1500, lambda: (self._js("window.safeerOsPojdi && window.safeerOsPojdi(%s);"
                                                           % json.dumps(cilj), pogled), False)[1])
         else:
             okno, pogled = par
             self._js("window.safeerOsPojdi && window.safeerOsPojdi(%s);" % json.dumps(cilj or ime), pogled)
-        okno = par[0]
-        cas = _cas_dogodka(okno)
-        okno.show_all()
-        gdk_okno = okno.get_window()
-        if gdk_okno is not None and hasattr(gdk_okno, "set_user_time"):
-            gdk_okno.set_user_time(cas)
-        okno.present_with_time(cas)
+        _v_ospredje(par[0])
         return True
 
     # ------------------------------------------------------------------ Safeer Player (Medijski center v svojem oknu)
@@ -1889,12 +1951,8 @@ class SafeerOS(Gtk.Application):
         self.okno_predvajalnik.maximize()
         # Okno, ki ga je uporabnik zaprl (upravljalnik oken ga je umaknil, mi smo ga skrili), GTK ob ponovnem prikazu
         # ne oznaci s casom - Muffin ga potem le oznaci z »zahteva pozornost« in ostane za drugim oknom (izmerjeno
-        # 11. 10. 2026). Zato cas uporabe nastavimo sami, pred prikazom.
-        cas = _cas_dogodka(self.okno_predvajalnik)
-        gdk_okno = self.okno_predvajalnik.get_window()
-        if gdk_okno is not None and hasattr(gdk_okno, "set_user_time"):
-            gdk_okno.set_user_time(cas)
-        self.okno_predvajalnik.present_with_time(cas)
+        # 11. 10. 2026). Zato cas uporabe nastavimo sami, pred prikazom (_v_ospredje).
+        _v_ospredje(self.okno_predvajalnik)
         return True
 
     def _ustvari_predvajalnik(self, iskanje: str = "") -> None:
@@ -1905,25 +1963,26 @@ class SafeerOS(Gtk.Application):
         pogled = self._nov_pogled(stran)
         okno = Gtk.ApplicationWindow(application=self, title="Safeer Player")
         # Svoja skupina in ikona v pultu (ne »Safeer OS«): WM_CLASS se ujema s StartupWMClass vnosa Safeer Player.
-        okno.set_wmclass(*WMCLASS_PREDVAJALNIKA)
+        x11.nastavi_razred(okno, *WMCLASS_PREDVAJALNIKA)
         self._ikona_predvajalnika(okno)
         velikost = _velikost_okna(os.environ.get("SAFEER_OS_OKNO", "")) if self.posnetek else None
         if velikost:
             okno.set_default_size(*velikost)
         else:
             zaslon = self._zaslon()
-            g = zaslon.get_workarea() if zaslon else None
-            okno.set_default_size(min(1440, int(g.width * 0.9)) if g else 1280,
-                                  min(900, int(g.height * 0.9)) if g else 800)
-            okno.set_position(Gtk.WindowPosition.CENTER)
-        okno.add(pogled)
-        okno.connect("delete-event", self._zapri_predvajalnik)
+            g = self._delovno_obmocje(zaslon) if zaslon else None
+            sirina, visina = (min(1440, int(g.width * 0.9)) if g else 1280, min(900, int(g.height * 0.9)) if g else 800)
+            okno.set_default_size(sirina, visina)
+            if self.posnetek:
+                self._na_sredino(okno, sirina, visina)   # sicer je povecano (spodaj); premik bi ga motil
+        okno.set_child(pogled)
+        okno.connect("close-request", self._zapri_predvajalnik)
         self.okno_predvajalnik, self.pogled_predvajalnik = okno, pogled
         if not self.posnetek:
             # Lastnik, 11. 10. 2026: Safeer Player se vedno odpre cez cel zaslon (povecano okno, dock in pult ostaneta);
             # nacin za kavc (kavc.js) ga da cez cel zaslon brez pulta.
             okno.maximize()
-        okno.show_all()
+        okno.set_visible(True)
         if self.posnetek and self.okno is None:
             # Kot pri glavnem oknu: posnetek mora nastati tudi, ce WebKit konca nalaganja ne javi.
             GLib.timeout_add(8000 + int(os.environ.get("SAFEER_OS_POSNETEK_ZAMIK", "0") or 0), self._rezervni_posnetek)
@@ -1931,9 +1990,16 @@ class SafeerOS(Gtk.Application):
     @staticmethod
     def _ikona_predvajalnika(okno) -> None:
         """Ikona okna Safeer Player iz strani (assets/os/predvajalnik.svg) - je v vsakem paketu, tudi ob zagonu iz
-        repozitorija; namescena ikona vnosa (Icon=) ima isto sliko."""
+        repozitorija; namescena ikona vnosa (Icon=) ima isto sliko. GTK4 nima set_icon_from_file: mapo strani dodamo
+        temi ikon (datoteka predvajalnik.svg v njej je ikona »predvajalnik«)."""
         try:
-            okno.set_icon_from_file(os.path.join(KOREN, "assets", "os", "predvajalnik.svg"))
+            tema = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+            mapa = os.path.join(KOREN, "assets", "os")
+            if mapa not in (tema.get_search_path() or []):
+                tema.add_search_path(mapa)
+            if not tema.has_icon("predvajalnik"):
+                raise LookupError("predvajalnik.svg ni v temi ikon")
+            okno.set_icon_name("predvajalnik")
         except Exception as e:  # noqa: BLE001 - brez nalagalnika SVG ostane ikona Safeer
             print("[SafeerOS] ikona predvajalnika:", e)
             okno.set_icon_name("safeer-browser")
@@ -1943,7 +2009,7 @@ class SafeerOS(Gtk.Application):
         naprej (tudi vrsta skladb iz kataloga, ki jo vodi njegova stran), mini predvajalnik ga kaze, naslednji klic
         okno takoj vrne. Samostojni Safeer Player (zagon iz menija brez Safeer OS) se zapre kot vsak predvajalnik."""
         if self.okno_delovna is not None or self.okno is not None:
-            okno.hide()
+            okno.set_visible(False)
             return True
         self._koncaj()
         return True
@@ -1995,10 +2061,7 @@ class SafeerOS(Gtk.Application):
             return self._odpri_v_brskalniku(niz) if niz else False
         if self._plosca_spleta is None:
             from core.os_splet import VdelaniSplet
-            css = Gtk.CssProvider()
-            css.load_from_data(self.CSS_SPLETA_NA_NAMIZJU)
-            Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), css,
-                                                     Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            _css(self.CSS_SPLETA_NA_NAMIZJU)
             self._spletni_namizje = VdelaniSplet(Gtk, Gdk, Gio, GLib, WebKit2, KOREN, _jezik, stanje_povezave,
                                                  self._splet_v_zapisek, self.okno_delovna,
                                                  stremio_dodatek=self._odpri_stremio_dodatek)
@@ -2006,52 +2069,52 @@ class SafeerOS(Gtk.Application):
             plosca.set_name("splet-namizje")
             glava = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
             glava.set_name("splet-namizje-glava")
-            glava.pack_start(Gtk.Label(label=BESEDILA_SPLETA_NA_NAMIZJU.get(_jezik(), BESEDILA_SPLETA_NA_NAMIZJU["en"])[0]),
-                             False, False, 0)
+            glava.append(Gtk.Label(label=BESEDILA_SPLETA_NA_NAMIZJU.get(_jezik(), BESEDILA_SPLETA_NA_NAMIZJU["en"])[0]))
+            presledek = Gtk.Box()
+            presledek.set_hexpand(True)
+            glava.append(presledek)
+            v_brskalniku = Gtk.Button(label=BESEDILA_SPLETA_NA_NAMIZJU.get(_jezik(), BESEDILA_SPLETA_NA_NAMIZJU["en"])[1])
+            v_brskalniku.connect("clicked", lambda *_: self._splet_namizja_v_brskalnik())
+            glava.append(v_brskalniku)
             zapri = Gtk.Button(label="✕")
             zapri.set_tooltip_text(BESEDILA_SPLETA_NA_NAMIZJU.get(_jezik(), BESEDILA_SPLETA_NA_NAMIZJU["en"])[2])
             zapri.connect("clicked", lambda *_: self._skrij_splet_na_namizju())
-            glava.pack_end(zapri, False, False, 0)
-            v_brskalniku = Gtk.Button(label=BESEDILA_SPLETA_NA_NAMIZJU.get(_jezik(), BESEDILA_SPLETA_NA_NAMIZJU["en"])[1])
-            v_brskalniku.connect("clicked", lambda *_: self._splet_namizja_v_brskalnik())
-            glava.pack_end(v_brskalniku, False, False, 0)
-            okvir_glave = Gtk.EventBox()      # za glavo se okno premakne (okno nima okvirja)
-            okvir_glave.add(glava)
-            plosca.pack_start(okvir_glave, False, False, 0)
-            plosca.pack_start(self._spletni_namizje.gradnik, True, True, 0)
+            glava.append(zapri)
+            # Za glavo se okno premakne (okno nima okvirja): GTK4 Gtk.WindowHandle namesto EventBox + begin_move_drag.
+            okvir_glave = Gtk.WindowHandle()
+            okvir_glave.set_child(glava)
+            plosca.append(okvir_glave)
+            self._spletni_namizje.gradnik.set_vexpand(True)
+            plosca.append(self._spletni_namizje.gradnik)
             # Svoje okno brez okvirja (videz plosce namizja): namizje je vedno pod vsemi okni, rezultati pa morajo
             # priti naprej. Za glavo se okno premakne; Esc ali ✕ ga skrije.
             okno = Gtk.Window(title=BESEDILA_SPLETA_NA_NAMIZJU.get(_jezik(), BESEDILA_SPLETA_NA_NAMIZJU["en"])[0])
-            okno.set_wmclass("safeer-os.Splet", "Safeer Splet")
+            x11.nastavi_razred(okno, "safeer-os.Splet", "Safeer Splet")
             okno.set_icon_name("safeer-browser")
             okno.set_decorated(False)
             okno.set_application(self)
-            vizual = okno.get_screen().get_rgba_visual()
-            if vizual is not None:
-                okno.set_visual(vizual)
-                okno.set_app_paintable(True)
-            okno.add(plosca)
-            okno.connect("key-press-event", self._tipka_splet_na_namizju)
-            okno.connect("delete-event", lambda *_: (self._skrij_splet_na_namizju(), True)[1])
-            okvir_glave.connect("button-press-event", lambda _w, e: e.button == 1 and okno.begin_move_drag(
-                e.button, int(e.x_root), int(e.y_root), e.time))
+            _prozorno_okno(okno)
+            okno.set_child(plosca)
+            # Esc: najprej stran (izhod iz celozaslonskega videa ...), sele neporabljen skrije okno (glej
+            # _tipka_splet_na_namizju); dvojni Esc ujamemo pred stranjo.
+            _tipke(okno, self._dvojni_esc_splet, zajem=True)
+            esc = Gtk.ShortcutController()
+            esc.add_shortcut(Gtk.Shortcut.new(Gtk.ShortcutTrigger.parse_string("Escape"),
+                                              Gtk.CallbackAction.new(lambda *_a: self._skrij_splet_na_namizju())))
+            okno.add_controller(esc)
+            okno.connect("close-request", lambda *_: (self._skrij_splet_na_namizju(), True)[1])
             self._plosca_spleta = okno
         okno = self._plosca_spleta
         zaslon = self._zaslon()
-        g = zaslon.get_workarea() if zaslon else None
+        g = self._delovno_obmocje(zaslon) if zaslon else None
         x0, y0, sirina, visina = (g.x, g.y, g.width, g.height) if g else (0, 0, 1280, 800)
         # Lastnik, 11. 10. 2026: Splet se odpre cez cel zaslon (kot Safeer Player) - pult in dock ostaneta vidna.
         okno.set_default_size(sirina, visina)
-        okno.resize(sirina, visina)
-        okno.move(x0, y0)
-        okno.show_all()
+        x11.premakni(okno, x0, y0)
+        okno.set_visible(True)
         okno.maximize()
         self._spletni_namizje.odpri(url)
-        cas = _cas_dogodka(okno)
-        gdk_okno = okno.get_window()
-        if gdk_okno is not None and hasattr(gdk_okno, "set_user_time"):
-            gdk_okno.set_user_time(cas)
-        okno.present_with_time(cas)
+        _v_ospredje(okno)
         try:
             self._spletni_namizje.trenutni().grab_focus()
         except Exception:  # noqa: BLE001
@@ -2081,7 +2144,7 @@ class SafeerOS(Gtk.Application):
     def _skrij_splet_na_namizju(self) -> bool:
         if self._plosca_spleta is None or not self._plosca_spleta.get_visible():
             return False
-        self._plosca_spleta.hide()
+        self._plosca_spleta.set_visible(False)
         self._dogodek("spletNaNamizjuZaprt", None, self.pogled_delovna)
         # Takoj: predpomnilnik v pomnilniku spletnih procesov (zavihki ostanejo) in prazne strani Pythona sistemu.
         if self._spletni_namizje is not None:
@@ -2112,9 +2175,10 @@ class SafeerOS(Gtk.Application):
         if naslov.startswith(("http://", "https://")) and self._odpri_v_brskalniku(naslov):
             self._skrij_splet_na_namizju()
 
-    def _tipka_splet_na_namizju(self, okno, dogodek) -> bool:
-        """Esc najprej dobi stran (izhod iz celozaslonskega videa, zapiranje okenca na strani). WebKit tipko poslje
-        strani in, ce je stran ne porabi, jo poslje oknu znova - sele takrat Esc skrije okno Splet."""
+    def _dvojni_esc_splet(self, _okno, dogodek) -> bool:
+        """Esc najprej dobi stran (izhod iz celozaslonskega videa, zapiranje okenca na strani); Esc, ki ga stran ne
+        porabi, pride do bliznjice okna (Gtk.ShortcutController v _splet_na_namizju) in sele ta skrije okno Splet.
+        Ta funkcija tece PRED stranjo (faza zajema) in ujame samo dvojni Esc."""
         if Gdk.keyval_name(dogodek.keyval) != "Escape":
             return False
         # Dvojni Esc (v 0,6 s) Splet vedno zapre: strani, kot je Google, prvi Esc porabijo zase in brez tega
@@ -2124,9 +2188,7 @@ class SafeerOS(Gtk.Application):
         if dvojni_esc(prejsnji, cas):
             self._zadnji_esc_splet = None
             return self._skrij_splet_na_namizju()
-        if okno.propagate_key_event(dogodek):
-            return True
-        return self._skrij_splet_na_namizju()
+        return False
 
     def _odpri_v_brskalniku(self, niz: str) -> bool:
         """Spletni zadetek iskanja v PRIVZETEM brskalniku (xdg): naslov http(s) ali iskanje z nastavljenim
@@ -2143,16 +2205,59 @@ class SafeerOS(Gtk.Application):
             return False
 
     def _zaslon(self):
+        """Zaslon (Gdk.Monitor) Safeer OS: tisti, na katerem je namizje ali glavno okno; sicer prvi (GTK4 nima vec
+        »glavnega« zaslona - na X11 GDK primarni izhod RandR da na prvo mesto)."""
         try:
             d = Gdk.Display.get_default()
-            return d.get_primary_monitor() or d.get_monitor(0)
+            for okno in (self.okno_delovna, self.okno):
+                povrsina = okno.get_surface() if okno is not None and okno.get_realized() else None
+                if povrsina is not None:
+                    m = d.get_monitor_at_surface(povrsina)
+                    if m is not None:
+                        return m
+            zasloni = d.get_monitors()
+            return zasloni.get_item(0) if zasloni.get_n_items() else None
         except Exception:
             return None
+
+    @staticmethod
+    def _delovno_obmocje(zaslon):
+        """Del zaslona brez pulta in docka (GTK3 Gdk.Monitor.get_workarea; v GTK4 samo GdkX11.X11Monitor)."""
+        try:
+            return zaslon.get_workarea()
+        except AttributeError:
+            return zaslon.get_geometry()
+
+    @staticmethod
+    def _ob_spremembi_zaslonov(ob_spremembi) -> None:
+        """GTK4 nima Gdk.Screen (monitors-changed, size-changed): seznam zaslonov (items-changed) in geometrija
+        vsakega zaslona (notify::geometry)."""
+        try:
+            zasloni = Gdk.Display.get_default().get_monitors()
+
+            def povezi(od: int, koliko: int) -> None:
+                for i in range(od, od + koliko):
+                    m = zasloni.get_item(i)
+                    if m is not None:
+                        m.connect("notify::geometry", lambda *_a: ob_spremembi())
+
+            povezi(0, zasloni.get_n_items())
+            zasloni.connect("items-changed", lambda _s, polozaj, _odstranjeni, dodani:
+                            (povezi(polozaj, dodani), ob_spremembi()))
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] spremljanja zaslonov ni:", e)
+
+    def _na_sredino(self, okno, sirina: int, visina: int) -> None:
+        """GTK3 set_position(CENTER): GTK4 tega nima, okno postavimo na sredino delovnega obmocja sami."""
+        zaslon = self._zaslon()
+        g = self._delovno_obmocje(zaslon) if zaslon else None
+        if g is not None:
+            x11.premakni(okno, g.x + max(0, (g.width - sirina) // 2), g.y + max(0, (g.height - visina) // 2))
 
     def _ustvari_okno(self) -> None:
         pogled = self._nov_pogled("index.html" + ("?namizje=1" if self.namizje else ""))
         okno = Gtk.ApplicationWindow(application=self, title="Safeer OS")
-        okno.set_wmclass("safeer-os", "Safeer OS")
+        x11.nastavi_razred(okno, "safeer-os", "Safeer OS")
         okno.set_icon_name("safeer-browser")
         zaslon = self._zaslon()
         if self.posnetek and _velikost_okna(os.environ.get("SAFEER_OS_OKNO", "")):
@@ -2162,34 +2267,34 @@ class SafeerOS(Gtk.Application):
             okno.set_decorated(False)
             okno.fullscreen()
         elif not self.namizje:
-            g = zaslon.get_workarea() if zaslon else None
-            okno.set_default_size(min(1440, int(g.width * 0.9)) if g else 1280,
-                                  min(900, int(g.height * 0.9)) if g else 800)
-            okno.set_position(Gtk.WindowPosition.CENTER)
+            g = self._delovno_obmocje(zaslon) if zaslon else None
+            sirina, visina = (min(1440, int(g.width * 0.9)) if g else 1280, min(900, int(g.height * 0.9)) if g else 800)
+            okno.set_default_size(sirina, visina)
+            self._na_sredino(okno, sirina, visina)
         else:
             # Namizje: okno je ozadje - vedno pod programi, ni ga v preklopniku oken in ga »Pokaži
             # namizje« ne pomanjsa. Spodaj pusti prostor za Safeerjevo vrstico.
             g = zaslon.get_geometry() if zaslon else None
-            okno.set_type_hint(Gdk.WindowTypeHint.DESKTOP)
+            x11.nastavi_vrsto(okno, "DESKTOP")
             okno.set_decorated(False)
-            okno.set_skip_taskbar_hint(True)
-            okno.set_skip_pager_hint(True)
+            x11.nastavi_preskoci(okno)
             if g is not None:
-                okno.move(g.x, g.y)
+                x11.premakni(okno, g.x, g.y)
                 okno.set_default_size(g.width, g.height - VISINA_VRSTICE)
                 okno.set_size_request(g.width, g.height - VISINA_VRSTICE)
         postavitev = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        postavitev.pack_start(pogled, True, True, 0)
-        okno.add(postavitev)
-        okno.connect("key-press-event", self._na_tipko)
-        okno.connect("focus-in-event", lambda *a: (self._dogodek("fokus", None), False)[1])
+        postavitev.append(pogled)
+        okno.set_child(postavitev)
+        # F11 v fazi zajema: deluje tudi, ko ima fokus stran (kot GTK3 key-press-event okna).
+        _tipke(okno, self._na_tipko, zajem=True)
+        okno.connect("notify::is-active", lambda o, *a: o.is_active() and self._dogodek("fokus", None))
         if self.delovna:
             # Ob delovni povrsini zapiranje glavnega okna samo skrije okno: Scit, predvajanje, prenosi in
             # prijave v Spletu tecejo naprej; »Safeer OS« v meniju ga spet pokaze (do_activate -> _domov).
-            okno.connect("delete-event", lambda o, *_: (o.hide(), True)[1])
+            okno.connect("close-request", lambda o, *_: (o.set_visible(False), True)[1])
         okno.connect("destroy", lambda *a: self._koncaj())
         self.okno, self.pogled, self._glavna_postavitev = okno, pogled, postavitev
-        okno.show_all()
+        okno.present()
         if self.posnetek:
             # V nekaterih WebKit2GTK/Mesa kombinacijah FINISHED za krajevni file:// pogled ne
             # pride. Preverjanje mora kljub temu narediti posnetek in se koncati, ne viseti.
@@ -2202,20 +2307,18 @@ class SafeerOS(Gtk.Application):
         zaslon = self._zaslon()
         g = zaslon.get_geometry() if zaslon else None
         vrstica = Gtk.Window(title="Safeer OS vrstica")
-        vrstica.set_wmclass("safeer-os-vrstica", "Safeer OS")
-        vrstica.set_type_hint(Gdk.WindowTypeHint.DOCK)
+        x11.nastavi_razred(vrstica, "safeer-os-vrstica", "Safeer OS")
+        x11.nastavi_vrsto(vrstica, "DOCK")
         vrstica.set_decorated(False)
-        vrstica.set_skip_taskbar_hint(True)
-        vrstica.set_skip_pager_hint(True)
-        vrstica.stick()
-        vrstica.set_keep_above(True)
+        x11.nastavi_preskoci(vrstica)
+        x11.nastavi_stanje(vrstica, "STICKY", "ABOVE")
         if g is not None:
-            vrstica.move(g.x, g.y + g.height - VISINA_VRSTICE)
+            x11.premakni(vrstica, g.x, g.y + g.height - VISINA_VRSTICE)
             vrstica.set_size_request(g.width, VISINA_VRSTICE)
-        vrstica.add(self._nov_pogled("vrstica.html"))
+        vrstica.set_child(self._nov_pogled("vrstica.html"))
         vrstica.connect("realize", lambda w: GLib.timeout_add(200, lambda: (self._rezerviraj(w, g), False)[1]))
         self.add_window(vrstica)
-        vrstica.show_all()
+        vrstica.set_visible(True)
         self.vrstica = vrstica
         self._spremljaj_okna()
         self._spremljaj_zaslone()
@@ -2225,14 +2328,7 @@ class SafeerOS(Gtk.Application):
         locljivost. Vrstica in namizje morata za njim - sicer ostaneta v velikosti zaslona,
         ki ga ni vec (20. 9. 2026: pokrov zaprt, slika sla na televizor 3840x2160, vrstica
         pa je ostala siroka 1920 in na starem mestu)."""
-        try:
-            zaslon = Gdk.Screen.get_default()
-            if zaslon is None:
-                return
-            zaslon.connect("monitors-changed", lambda *a: self._zaslon_spremenjen())
-            zaslon.connect("size-changed", lambda *a: self._zaslon_spremenjen())
-        except Exception as e:  # noqa: BLE001
-            print("[SafeerOS] spremljanja zaslonov ni:", e)
+        self._ob_spremembi_zaslonov(self._zaslon_spremenjen)
 
     def _zaslon_spremenjen(self) -> None:
         # Menjava zaslona sprozi vec dogodkov zapored (ugasne se en izhod, prizge drug):
@@ -2252,33 +2348,32 @@ class SafeerOS(Gtk.Application):
         if g is None:
             return False
         if self.vrstica is not None:
-            self.vrstica.move(g.x, g.y + g.height - VISINA_VRSTICE)
+            x11.premakni(self.vrstica, g.x, g.y + g.height - VISINA_VRSTICE)
             self.vrstica.set_size_request(g.width, VISINA_VRSTICE)
-            self.vrstica.resize(g.width, VISINA_VRSTICE)
+            self.vrstica.set_default_size(g.width, VISINA_VRSTICE)
             # Rezervacija spodnjega roba je vezana na velikost zaslona, zato gre znova tudi ta.
             self._rezerviraj(self.vrstica, g)
         if self.namizje and self.okno is not None:
-            self.okno.move(g.x, g.y)
+            x11.premakni(self.okno, g.x, g.y)
             self.okno.set_size_request(g.width, g.height - VISINA_VRSTICE)
-            self.okno.resize(g.width, g.height - VISINA_VRSTICE)
+            self.okno.set_default_size(g.width, g.height - VISINA_VRSTICE)
         print("[SafeerOS] zaslon %dx%d: vrstica in namizje prilagojena" % (g.width, g.height))
         return False
 
     def _rezerviraj(self, vrstica, g) -> None:
-        """Rezervira spodnji rob zaslona za vrstico (xprop; GTK 3 tega sam ne zna)."""
+        """Rezervira spodnji rob zaslona za vrstico (_NET_WM_STRUT_PARTIAL prek core/x11.py; GTK tega sam ne zna,
+        prej xprop)."""
         try:
-            gi.require_version("GdkX11", "3.0")
-            from gi.repository import GdkX11  # noqa: F401
-            xid = vrstica.get_window().get_xid()
+            if g is None:
+                return
             m = vrstica.get_scale_factor() or 1
-            zaslon_h = Gdk.Screen.get_default().get_height() * m
+            zaslon_h = x11.visina_korena()            # visina korenskega okna X je ze v fizicnih pikah
+            if not zaslon_h:
+                return
             spodaj = (zaslon_h - (g.y + g.height) * m) + VISINA_VRSTICE * m
             x0, x1 = g.x * m, (g.x + g.width) * m - 1
-            vrednost = "0,0,0,%d,0,0,0,0,0,0,%d,%d" % (spodaj, x0, x1)
-            subprocess.run(["xprop", "-id", str(xid), "-f", "_NET_WM_STRUT_PARTIAL", "32cccccccccccc",
-                            "-set", "_NET_WM_STRUT_PARTIAL", vrednost], timeout=4)
-            subprocess.run(["xprop", "-id", str(xid), "-f", "_NET_WM_STRUT", "32cccc",
-                            "-set", "_NET_WM_STRUT", "0,0,0,%d" % spodaj], timeout=4)
+            if not x11.rezerviraj(vrstica, dno=spodaj, dno_od=x0, dno_do=x1):
+                print("[SafeerOS] rezervacija vrstice: ni X11")
         except Exception as e:  # noqa: BLE001
             print("[SafeerOS] rezervacija vrstice:", e)
 
@@ -2299,10 +2394,9 @@ class SafeerOS(Gtk.Application):
         """Gumb Domov v vrstici (ali ponoven zagon Safeer OS iz menija): programe pomanjsamo, pred nami je
         Safeer OS."""
         if self.namizje:
-            cas = Gtk.get_current_event_time() or int(GLib.get_monotonic_time() / 1000)
-            os_okna.pomanjsaj_vse(self._nasi_xid(), cas)
+            os_okna.pomanjsaj_vse(self._nasi_xid(), _cas_dogodka(self.okno))
         if self.okno is not None:
-            self.okno.deiconify()
+            self.okno.unminimize()
             self.okno.present()
         self._dogodek("fokus", None)
         if razdelek:
@@ -2346,19 +2440,35 @@ class SafeerOS(Gtk.Application):
             pass
         self.quit()
 
-    def _na_vlecene_podatke(self, pogled, kontekst, _x, _y, podatki, _vrsta, _cas) -> None:
+    def _na_vlecene_podatke(self, pogled, kontekst) -> None:
         """Datoteke, ki jih uporabnik vlece v okno iz drugega programa (Nemo, namizje). WebKitGTK strani njihovih poti
-        ne pove, GTK pa jih pove nam (WebKit podatke zahteva ob vstopu vlecenja). Zapomnimo si jih; stran izve samo,
-        koliko jih je (dogodek vleceneDatoteke), in jih ob spustu prevzame z metodo spusceneDatoteke. Novo vlecenje
-        (drug kontekst) prejsnje pozabi - tudi ce ne prinasa datotek."""
-        try:
-            if kontekst is not self._vleceno_kontekst:
-                self._vleceno_kontekst, self._vlecene_poti = kontekst, []
-            poti = os_datoteke.poti_iz_naslovov(podatki.get_uris() or [])
-            if poti:
-                self._vlecene_poti = poti
+        ne pove, GTK pa jih pove nam: ob vstopu vlecenja (Gtk.DropControllerMotion) preberemo seznam datotek iz
+        Gdk.Drop. Zapomnimo si jih; stran izve samo, koliko jih je (dogodek vleceneDatoteke), in jih ob spustu prevzame
+        z metodo spusceneDatoteke. Novo vlecenje (drug Gdk.Drop) prejsnje pozabi - tudi ce ne prinasa datotek."""
+        def javi() -> None:
             self._js("window.safeerOsDogodek && window.safeerOsDogodek(\"vleceneDatoteke\", %s);"
                      % json.dumps({"stevilo": len(self._vlecene_poti)}), pogled)
+
+        def prebrano(spust, izid) -> None:
+            try:
+                seznam = spust.read_value_finish(izid)
+                naslovi = [f.get_uri() for f in (seznam.get_files() if seznam is not None else [])]
+                poti = os_datoteke.poti_iz_naslovov(naslovi)
+                if poti and spust is self._vleceno_kontekst:
+                    self._vlecene_poti = poti
+            except Exception:  # noqa: BLE001 - vlecenje brez datotek ali preklicano
+                pass
+            javi()
+
+        try:
+            if kontekst is None:
+                return
+            if kontekst is not self._vleceno_kontekst:
+                self._vleceno_kontekst, self._vlecene_poti = kontekst, []
+            if kontekst.get_formats().contain_gtype(Gdk.FileList.__gtype__):
+                kontekst.read_value_async(Gdk.FileList.__gtype__, GLib.PRIORITY_DEFAULT, None, prebrano)
+            else:
+                javi()
         except Exception:
             pass
 
@@ -2378,42 +2488,48 @@ class SafeerOS(Gtk.Application):
         standardni seznam naslovov datotek: Nemo datoteke kopira (s Shift premakne), sprejmejo jih tudi brskalnik,
         posta in terminal. Kopiranje ali premik opravi ciljni program; mi ne brisemo nicesar."""
         naslovi = os_datoteke.naslovi_iz_poti(poti if isinstance(poti, list) else [])
-        okno = pogled.get_toplevel() if pogled is not None else None
+        okno = pogled.get_root() if pogled is not None else None
         if not naslovi or not isinstance(okno, Gtk.Window) or not self._vlecenje_na_voljo():
             return False
-        if okno not in self._okna_vlecenja:
-            self._okna_vlecenja.append(okno)
-            okno.connect("drag-data-get", self._na_vlecenje_daj)
-            okno.connect("drag-failed", self._na_vlecenje_ni_uspelo)
-            okno.connect("drag-end", self._na_vlecenje_konec, pogled)
-        cilji = Gtk.TargetList.new([])
-        cilji.add_uri_targets(0)
+        povrsina = okno.get_surface()
+        if povrsina is None:
+            return False
         self._lastno_vlecenje, self._lastno_ni_uspelo = naslovi, False
         try:
-            kontekst = okno.drag_begin_with_coordinates(
-                cilji, Gdk.DragAction.COPY | Gdk.DragAction.MOVE, 1, None, -1, -1)
+            # GTK4: Gdk.Drag.begin z vsebino text/uri-list (samo seznam naslovov, kot GTK3 add_uri_targets).
+            kazalec = Gdk.Display.get_default().get_default_seat().get_pointer()
+            _ok, x, y, _maska = povrsina.get_device_position(kazalec)
+            vsebina = Gdk.ContentProvider.new_for_bytes(
+                "text/uri-list", GLib.Bytes.new(("\r\n".join(naslovi) + "\r\n").encode("utf-8")))
+            vlecenje = Gdk.Drag.begin(povrsina, kazalec, vsebina, Gdk.DragAction.COPY | Gdk.DragAction.MOVE, x, y)
         except Exception:
-            kontekst = None
-        if kontekst is None:
+            vlecenje = None
+        if vlecenje is None:
             self._lastno_vlecenje = []
             return False
+        self._vlecenje_gdk = vlecenje          # referenca: vlecenje mora ziveti do konca
+        vlecenje.connect("cancel", lambda v, _razlog: self._na_vlecenje_ni_uspelo(v, pogled))
+        vlecenje.connect("dnd-finished", lambda v: self._na_vlecenje_konec(v, pogled))
         try:   # ikona ob kazalcu: vrsta prve datoteke
             prva = os_datoteke.poti_iz_naslovov(naslovi[:1])[0]
             vrsta = "inode/directory" if os.path.isdir(prva) else (Gio.content_type_guess(prva, None)[0] or "")
-            Gtk.drag_set_icon_gicon(kontekst, Gio.content_type_get_icon(vrsta) if vrsta
-                                    else Gio.ThemedIcon.new("text-x-generic"), 0, 0)
+            slika = Gtk.Image.new_from_gicon(Gio.content_type_get_icon(vrsta) if vrsta
+                                             else Gio.ThemedIcon.new("text-x-generic"))
+            slika.set_pixel_size(32)
+            Gtk.DragIcon.get_for_drag(vlecenje).set_child(slika)
         except Exception:
             pass
         return True
 
-    def _na_vlecenje_daj(self, _okno, _kontekst, podatki, _info, _cas) -> None:
-        podatki.set_uris(list(self._lastno_vlecenje))
-
-    def _na_vlecenje_ni_uspelo(self, _okno, _kontekst, _izid) -> bool:
+    def _na_vlecenje_ni_uspelo(self, vlecenje, pogled) -> None:
+        """Gdk.Drag »cancel«: cilj vlecenja ni sprejel (GTK3 drag-failed); za njim ni vec »dnd-finished«."""
         self._lastno_ni_uspelo = True
-        return False
+        self._na_vlecenje_konec(vlecenje, pogled)
 
-    def _na_vlecenje_konec(self, _okno, _kontekst, pogled) -> None:
+    def _na_vlecenje_konec(self, vlecenje, pogled) -> None:
+        if vlecenje is not getattr(self, "_vlecenje_gdk", None):
+            return
+        self._vlecenje_gdk = None
         sprejeto = bool(self._lastno_vlecenje) and not self._lastno_ni_uspelo
         self._lastno_vlecenje = []
         self._js("window.safeerOsDogodek && window.safeerOsDogodek(\"vlecenjeKoncano\", %s);"
@@ -2612,12 +2728,16 @@ class SafeerOS(Gtk.Application):
         # Zajemi celo okno: levi WebKit je v spletnem nacinu samo stranska vrstica. Zagon s --predvajalnik nima
         # glavnega okna - takrat zajamemo Safeer Player.
         okno, pogled = (self.okno, self.pogled) if self.okno is not None else (self.okno_predvajalnik, self.pogled_predvajalnik)
-        if okno is not None and okno.get_window() is not None:
+        if okno is not None and okno.get_realized():
             try:
-                w, h = okno.get_allocated_width(), okno.get_allocated_height()
-                slika = Gdk.pixbuf_get_from_window(okno.get_window(), 0, 0, w, h)
-                if slika is not None:
-                    slika.savev(self.posnetek, "png", [], [])
+                # GTK4: Gdk.pixbuf_get_from_window ni vec - okno izrisemo z njegovim izrisovalnikom v teksturo.
+                w, h = okno.get_width(), okno.get_height()
+                slikar = Gtk.WidgetPaintable.new(okno)
+                posnetek = Gtk.Snapshot()
+                slikar.snapshot(posnetek, w, h)
+                vozlisce = posnetek.to_node()
+                if vozlisce is not None:
+                    okno.get_native().get_renderer().render_texture(vozlisce, None).save_to_png(self.posnetek)
                     print("posnetek:", self.posnetek)
                     self.quit()
                     return False
@@ -2626,7 +2746,8 @@ class SafeerOS(Gtk.Application):
         def konec(pogled, rezultat):
             try:
                 povrsina = pogled.get_snapshot_finish(rezultat)
-                povrsina.write_to_png(self.posnetek)
+                # WebKitGTK 6.0: Gdk.Texture; 4.1: cairo.Surface
+                (povrsina.save_to_png if hasattr(povrsina, "save_to_png") else povrsina.write_to_png)(self.posnetek)
                 print("posnetek:", self.posnetek)
             except Exception as e:  # noqa: BLE001
                 print("posnetek ni uspel:", e)
@@ -2637,12 +2758,21 @@ class SafeerOS(Gtk.Application):
     # ------------------------------------------------------------------ most
     def _js(self, koda: str, pogled=None) -> None:
         for p in ([pogled] if pogled is not None else list(self.pogledi)):
+            if hasattr(p, "qml_odgovor"):
+                continue        # lupina QML nima JavaScripta strani; dogodke dobi prek _dogodek
             try:
-                p.run_javascript(koda, None, None, None)
+                if hasattr(p, "evaluate_javascript"):          # WebKitGTK 6.0 (GTK4)
+                    p.evaluate_javascript(koda, -1, None, None, None, None, None)
+                else:
+                    p.run_javascript(koda, None, None, None)
             except Exception:
                 pass
 
     def _odgovori(self, pogled, id_, ok: bool, podatki) -> None:
+        if hasattr(pogled, "qml_odgovor"):     # lupina QML: signal Qt je varen iz katerekoli niti
+            pogled.qml_odgovor(int(id_), bool(ok), podatki)
+            return
+
         def naredi():
             self._js("window.__safeerOsOdgovor(%d, %s, %s);" % (
                 int(id_), "true" if ok else "false", json.dumps(podatki, ensure_ascii=True)), pogled)
@@ -2722,6 +2852,12 @@ class SafeerOS(Gtk.Application):
             lastnik = self._katalog_pogled if vrsta in self.DOGODKI_VRSTE else None
             pogled = lastnik if lastnik is not None and any(p is lastnik for p in self.pogledi) else None
 
+        lupina = getattr(self, "_qml_pogled", None)
+        if lupina is not None and (pogled is None or pogled is lupina):
+            lupina.qml_dogodek(vrsta, podatki)
+            if pogled is lupina:
+                return
+
         def naredi():
             self._js("window.safeerOsDogodek && window.safeerOsDogodek(%s, %s);" % (
                 json.dumps(vrsta), json.dumps(podatki, ensure_ascii=True)), pogled)
@@ -2730,10 +2866,16 @@ class SafeerOS(Gtk.Application):
 
     def _na_sporocilo(self, pogled, rezultat) -> None:
         try:
-            s = json.loads(rezultat.get_js_value().to_string())
+            vrednost = rezultat.get_js_value() if hasattr(rezultat, "get_js_value") else rezultat   # WebKit 4.1 / 6.0
+            s = json.loads(vrednost.to_string())
             id_, metoda, a = int(s.get("id", 0)), str(s.get("m", "")), list(s.get("a") or [])
         except Exception:
             return
+        self._obdelaj_klic(pogled, id_, metoda, a)
+
+    def _obdelaj_klic(self, pogled, id_: int, metoda: str, a: list) -> None:
+        """Klic namizja: iz spletne strani (pogled WebKit) ali iz lupine QML (pogled = os_lupina.QmlPogled).
+        Odgovor gre prek _odgovori nazaj istemu klicatelju."""
         # Na glavni niti (Gtk, ikone, okna):
         glavna = {
             "zacetek": self._zacetek,
@@ -2765,10 +2907,7 @@ class SafeerOS(Gtk.Application):
             "shraniSpletne": lambda: self._shrani_spletne(a[0] if a else []),
             "splet": lambda: self._splet(str(a[0]) if a else "", len(a) > 1 and a[1] is True),
             "medij": lambda: self._medij(str(a[0]) if a else ""),
-            "lokalniMediji": lambda: self._medijski_dodaj_datoteke(self._okno_klica(pogled)),
-            "medijskaMapa": lambda: self._medijski_dodaj_mapo(self._okno_klica(pogled)),
             "osveziMedijskeMape": self._medijski_osvezi_mape,
-            "medijskiTok": lambda: self._medijski_dodaj_tok(self._okno_klica(pogled)),
             "dodajMedijskiTok": lambda: self._shrani_medijski_tok(
                 str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "",
                 str(a[2]) if len(a) > 2 else ""),
@@ -2777,11 +2916,9 @@ class SafeerOS(Gtk.Application):
             "cakajociMagnet": self._vzemi_cakajoci_magnet,
             "cakajociStremio": self._vzemi_cakajoci_stremio,
             "kavcCelZaslon": lambda: self._kavc_cel_zaslon(pogled, bool(a[0]) if a else False),
-            "odlozisceBesedilo": self._odlozisce_besedilo,
             "kopiraj": lambda: self._kopiraj(str(a[0]) if a else ""),
             "magnetPredvajaj": lambda: self._predvajaj_magnet(int(a[0]) if a else -1, int(a[1]) if len(a) > 1 else -1,
                                                              str(a[2]) if len(a) > 2 else ""),
-            "magnetIzDatoteke": lambda: self._magnet_iz_datoteke(bool(a[0]) if a else False, self._okno_klica(pogled)),
             "predvajajZNaprave": lambda: self._predvajaj_z_naprave(
                 a[0] if a and isinstance(a[0], dict) else {}, str(a[1]) if len(a) > 1 else "",
                 a[2] if len(a) > 2 and isinstance(a[2], list) else [], int(a[3]) if len(a) > 3 else 0,
@@ -2890,7 +3027,6 @@ class SafeerOS(Gtk.Application):
             "sliciceDatotek": lambda: {pot: GLib.filename_to_uri(s, None) for pot, s in
                                        os_datoteke.slicice(a[0] if a and isinstance(a[0], list) else []).items()},
             "najvecjeDatoteke": lambda: os_datoteke.najvecje(),
-            "izberiMapo": lambda: self._izberi_mapo(*[str(x) for x in a[:4]]),
             "medijskeMape": lambda: self._medijska_knjiznica().mape_podrobno(),
             "odstraniMedijskoMapo": lambda: self._odstrani_medijsko_mapo(str(a[0]) if a else ""),
             "tokoviMedijev": lambda: self._medijska_knjiznica().tokovi(),
@@ -3008,19 +3144,41 @@ class SafeerOS(Gtk.Application):
                 str(a[0]), str(a[1]), str(a[2]) if len(a) > 2 else "", str(a[3]) if len(a) > 3 else ""),
             "sporocilaZacni": lambda: self.sporocila.zacni_klepet(str(a[0]), str(a[1]) if len(a) > 1 else ""),
         }
+        # Na glavni niti, odgovor pride kasneje (GTK4: sistemska okna in odlozisce so samo asinhrona - Dialog.run in
+        # Clipboard.wait_for_text sta odstranjena). Funkcija dobi konec(izid) in ga poklice, ko uporabnik odloci.
+        asinhrono = {
+            "lokalniMediji": lambda konec: self._medijski_dodaj_datoteke(self._okno_klica(pogled), konec),
+            "medijskaMapa": lambda konec: self._medijski_dodaj_mapo(self._okno_klica(pogled), konec),
+            "medijskiTok": lambda konec: self._medijski_dodaj_tok(self._okno_klica(pogled), konec),
+            "odlozisceBesedilo": lambda konec: self._odlozisce_besedilo(konec),
+            "magnetIzDatoteke": lambda konec: self._magnet_iz_datoteke(bool(a[0]) if a else False,
+                                                                       self._okno_klica(pogled), konec),
+            "izberiMapo": lambda konec: self._izberi_mapo(*[str(x) for x in a[:4]], konec=konec),
+        }
         if metoda == "izprazniSmeti":
             # Trajni izbris: potrditev v sistemskem oknu na glavni niti (stran je ne more preskociti), brisanje v ozadju.
-            if not self._potrdi_izpraznitev_smeti():
-                self._odgovori(pogled, id_, True, {"ok": True, "potrjeno": False})
-                return
-
             def delo_smeti():
                 try:
                     self._odgovori(pogled, id_, True, dict(os_datoteke.izprazni_smeti(), potrjeno=True))
                 except Exception as e:  # noqa: BLE001
                     print("[SafeerOS] izprazni smeti:", e)
                     self._odgovori(pogled, id_, False, str(e))
-            threading.Thread(target=delo_smeti, name="safeer-smeti", daemon=True).start()
+
+            def odlocitev(potrjeno: bool) -> None:
+                if not potrjeno:
+                    self._odgovori(pogled, id_, True, {"ok": True, "potrjeno": False})
+                    return
+                threading.Thread(target=delo_smeti, name="safeer-smeti", daemon=True).start()
+            self._potrdi_izpraznitev_smeti(odlocitev)
+            return
+        if metoda in asinhrono:
+            def konec(izid, _p=pogled, _i=id_) -> None:
+                self._odgovori(_p, _i, True, izid)
+            try:
+                asinhrono[metoda](konec)
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS]", metoda, e)
+                self._odgovori(pogled, id_, False, str(e))
             return
         if self._katalog_most().pozna(metoda):
             if metoda == "mediaPredvajaj":
@@ -3067,24 +3225,29 @@ class SafeerOS(Gtk.Application):
         "it": ("Svuotare il cestino?", "Elementi nel cestino: {n}. Saranno eliminati definitivamente e non potranno essere ripristinati.", "Annulla", "Svuota cestino"),
     }
 
-    def _potrdi_izpraznitev_smeti(self) -> bool:
-        """Vprasa v sistemskem (GTK) oknu; privzeti gumb je Preklici. Prazne Smeti: nic za vprasati."""
+    def _potrdi_izpraznitev_smeti(self, odlocitev: Callable[[bool], None]) -> None:
+        """Vprasa v sistemskem (GTK) oknu; privzeti gumb je Preklici. Prazne Smeti: nic za vprasati.
+        GTK4: Gtk.AlertDialog je asinhron - odlocitev(True/False) pride, ko uporabnik izbere."""
         n = os_datoteke.smeti()["skupaj"]
         if not n:
-            return False
+            odlocitev(False)
+            return
         naslov, opis, preklic, potrdi = self.BESEDILA_SMETI.get(_jezik(), self.BESEDILA_SMETI["en"])
-        okno = Gtk.MessageDialog(transient_for=self.get_active_window(), modal=True, message_type=Gtk.MessageType.WARNING,
-                                 buttons=Gtk.ButtonsType.NONE, text=naslov)
-        okno.format_secondary_text(opis.format(n=n))
-        okno.add_button(preklic, Gtk.ResponseType.CANCEL)
-        gumb = okno.add_button(potrdi, Gtk.ResponseType.OK)
-        gumb.get_style_context().add_class("destructive-action")
-        okno.set_default_response(Gtk.ResponseType.CANCEL)
-        okno.set_keep_above(True)
-        try:
-            return okno.run() == Gtk.ResponseType.OK
-        finally:
-            okno.destroy()
+        okno = Gtk.AlertDialog()
+        okno.set_message(naslov)
+        okno.set_detail(opis.format(n=n))
+        okno.set_buttons([preklic, potrdi])
+        okno.set_cancel_button(0)
+        okno.set_default_button(0)
+        okno.set_modal(True)
+
+        def izbrano(dialog, izid) -> None:
+            try:
+                i = dialog.choose_finish(izid)
+            except Exception:  # noqa: BLE001 - zaprto brez izbire (Esc)
+                i = 0
+            odlocitev(i == 1)
+        okno.choose(self.get_active_window(), None, izbrano)
 
     # ------------------------------------------------------------------ dejanja
     def _zacetek(self) -> dict:
@@ -3165,7 +3328,7 @@ class SafeerOS(Gtk.Application):
         if info is None:
             return False
         kontekst = Gdk.Display.get_default().get_app_launch_context()
-        kontekst.set_timestamp(Gtk.get_current_event_time() or Gdk.CURRENT_TIME)
+        kontekst.set_timestamp(_cas_dogodka() or Gdk.CURRENT_TIME)
         return bool(info.launch([Gio.File.new_for_path(d) for d in datoteke], kontekst))
 
     def _nedavne(self) -> list:
@@ -3208,30 +3371,25 @@ class SafeerOS(Gtk.Application):
             print("[SafeerOS] nedavne pocisti:", e)
             return False
 
-    # --- odprta okna (libwnck prek core/os_okna.py: samo X11, samo glavna nit, brez ponovnega
-    # osvezevanja seznama oken v zanki - to je povzrocilo sesutje)
+    # --- odprta okna (EWMH prek core/os_okna.py: samo X11, samo glavna nit; libwnck je GTK3 in ga v GTK4 ni)
     def _nasi_xid(self) -> set:
         """Okni Safeer OS (domaci zaslon, vrstica) v seznamu programov ne smeta biti."""
         nasi = set()
         for w in (self.okno, self.vrstica):
-            try:
-                if w is not None and w.get_window() is not None:
-                    nasi.add(w.get_window().get_xid())
-            except Exception:  # noqa: BLE001
-                pass
+            if w is not None and x11.xid(w):
+                nasi.add(x11.xid(w))
         return nasi
 
     def _odprta_okna(self) -> list:
         return os_okna.seznam(self._nasi_xid(), os_programi.MAPA_IKON)
 
     def _okno_dejanje(self, xid, dejanje: str) -> bool:
-        cas = Gtk.get_current_event_time() or int(GLib.get_monotonic_time() / 1000)
-        return os_okna.dejanje(xid, dejanje, cas)
+        return os_okna.dejanje(xid, dejanje, _cas_dogodka(self.okno))
 
     def _namizje(self) -> bool:
         """Umakne Safeer OS in pokaze Mintovo namizje (vrne se s klikom v meniju ali na plosci)."""
         if self.okno is not None:
-            self.okno.iconify()
+            self.okno.minimize()
         return True
 
     def _splet(self, naslov: str, nov_zavihek: bool = False) -> bool:
@@ -3288,9 +3446,10 @@ class SafeerOS(Gtk.Application):
         self._spletni = VdelaniSplet(Gtk, Gdk, Gio, GLib, WebKit2, KOREN, _jezik, stanje_povezave,
                                      self._splet_v_zapisek, self.okno,
                                      stremio_dodatek=self._odpri_stremio_dodatek)
-        self._glavna_postavitev.pack_start(self._spletni.gradnik, True, True, 0)
-        self._spletni.gradnik.set_no_show_all(True)
-        self._spletni.gradnik.hide()
+        self._spletni.gradnik.set_hexpand(True)
+        self._spletni.gradnik.set_vexpand(True)
+        self._spletni.gradnik.set_visible(False)       # GTK4: skrit, dokler uporabnik ne odpre Spleta
+        self._glavna_postavitev.append(self._spletni.gradnik)
         return True
 
     def _pokazi_spletni_nacin(self) -> bool:
@@ -3317,9 +3476,8 @@ class SafeerOS(Gtk.Application):
             if sirina < 160:
                 sirina = 375
             self.pogled.set_size_request(sirina, -1)
+            # Lupina se v Box razteza (hexpand); v nacinu Splet mora ostati le stranska vrstica.
             self.pogled.set_hexpand(False)
-            # Lupina je v Box zapakirana z expand=True; v nacinu Splet mora ostati le stranska vrstica.
-            self._glavna_postavitev.set_child_packing(self.pogled, False, False, 0, Gtk.PackType.START)
             # WebKitWebView kot naravno sirino javi zadnjo dodelitev, zato Box lupine ne bi zozil:
             # brskalniku dodelimo preostanek okna (in ga uskladimo ob vsaki spremembi velikosti okna).
             # JS vrne sirino v fizicnih pikslih (CSS * devicePixelRatio, npr. besedilo 1,5x); GTK hoce logicne.
@@ -3330,8 +3488,7 @@ class SafeerOS(Gtk.Application):
             self.pogled.set_size_request(sirina, -1)
             self._sirina_stranske = sirina
             self._uskladi_sirino_spleta()
-            self._spletni.gradnik.set_no_show_all(False)
-            self._spletni.gradnik.show_all()
+            self._spletni.gradnik.set_visible(True)
             # Lupina se je zožila, brskalnik je dobil svoj del okna. Brez izrecnega izrisa je ob prvem odpiranju iz
             # drugega razdelka del orodne vrstice brskalnika ostal neizrisan (videli so se ostanki lupine), dokler
             # se ni spremenila velikost okna. Izmerjeno v preizkusni seji brez sestavljalnika, 7. 10. 2026.
@@ -3349,24 +3506,24 @@ class SafeerOS(Gtk.Application):
     def _uskladi_sirino_spleta(self, *_):
         if not self._spletni_nacin or self._spletni is None or self.okno is None:
             return False
-        skupaj = self.okno.get_allocated_width()
+        skupaj = self.okno.get_width()
         stranska = int(getattr(self, "_sirina_stranske", 300) or 300)
         self._spletni.gradnik.set_size_request(max(360, skupaj - stranska), -1)
-        if not getattr(self, "_splet_povezan_resize", False):
-            self._splet_povezan_resize = True
-            self.okno.connect("size-allocate", lambda *a: GLib.idle_add(self._uskladi_sirino_spleta))
+        povrsina = self.okno.get_surface()
+        if povrsina is not None and getattr(self, "_splet_povezan_resize", None) is not povrsina:
+            # GTK4 nima signala size-allocate: velikost okna sporoci njegova povrsina (Gdk.Surface width).
+            self._splet_povezan_resize = povrsina
+            povrsina.connect("notify::width", lambda *a: GLib.idle_add(self._uskladi_sirino_spleta))
         return False
 
     def _skrij_spletni_nacin(self, razdelek: str = "domov") -> bool:
         self._spletni_nacin = False
         if self._spletni is not None:
-            self._spletni.gradnik.hide()
-            self._spletni.gradnik.set_no_show_all(True)
+            self._spletni.gradnik.set_visible(False)
         self.pogled.set_size_request(-1, -1)
         self.pogled.set_hexpand(True)
         if self._spletni is not None:
             self._spletni.gradnik.set_size_request(-1, -1)
-        self._glavna_postavitev.set_child_packing(self.pogled, True, True, 0, Gtk.PackType.START)
         self._js("document.body.classList.remove('nacin-splet');")
         return True
 
@@ -3424,114 +3581,7 @@ class SafeerOS(Gtk.Application):
                     self._medijski_tik_zacet = True
                     GLib.timeout_add_seconds(1, self._medijski_tik)
             if self._medijski_predvajalnik_okno is None:
-                okno = Gtk.Window(title="Safeer Player")
-                # Okno z videom je del Safeer Playerja: v pultu je v njegovi skupini, z njegovo ikono.
-                okno.set_wmclass(*WMCLASS_PREDVAJALNIKA)
-                self._ikona_predvajalnika(okno)
-                okno.get_style_context().add_class("safeer-player")
-                if self._medijski_css is None:
-                    try:
-                        css = Gtk.CssProvider()
-                        css.load_from_data(b"""
-                            window.safeer-player { background: #0b1424; color: #eaf2ff; }
-                            window.safeer-player label { color: #eaf2ff; }
-                            window.safeer-player label.safeer-player-title { font-size: 18px; font-weight: 700; }
-                            window.safeer-player label.safeer-player-queue { color: #afbed4; }
-                            window.safeer-player label.safeer-player-note { font-size: 96px; color: #8ac7ff; }
-                            window.safeer-player button { background: #16233a; color: #eaf2ff;
-                                border: 1px solid rgba(211,229,255,.23); border-radius: 10px; padding: 8px 13px; }
-                            window.safeer-player button:hover { background: #243e63; border-color: #8ac7ff; }
-                            window.safeer-player scale highlight { background: #8ac7ff; }
-                            window.safeer-player scale slider { background: #8ac7ff;
-                                min-width: 14px; min-height: 14px; }
-                        """)
-                        Gtk.StyleContext.add_provider_for_screen(
-                            Gdk.Screen.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-                        self._medijski_css = css
-                    except Exception as e:  # noqa: BLE001
-                        print("[SafeerOS] slog predvajalnika:", e)
-                # Na velikih zaslonih 960x620 deluje kot sličica; okno naj zavzame približno dve tretjini.
-                zaslon = self._zaslon()
-                g = zaslon.get_workarea() if zaslon else None
-                okno.set_default_size(max(960, int(g.width * 0.62)) if g else 960,
-                                      max(620, int(g.height * 0.7)) if g else 620)
-                # Brez glavnega okna (predvajanje iz Safeer Playerja) je nad oknom Safeer Player.
-                okno.set_transient_for(self.okno or self.okno_predvajalnik)
-                okno.set_position(Gtk.WindowPosition.CENTER_ON_PARENT)
-                okno.connect("delete-event", lambda *a: (self._ustavi_neposredni_medij(), True)[1])
-                okno.connect("key-press-event", self._medijska_tipka)
-                postavitev = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-                postavitev.set_border_width(16)
-                # Glasba nima slike: namesto črnega polja pokažemo znak in naslov (sklad preklopi ob osvežitvi).
-                self._medijski_sklad = Gtk.Stack()
-                self._medijski_sklad.set_vexpand(True)
-                self._medijski_sklad.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
-                zvok = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, valign=Gtk.Align.CENTER)
-                znak = Gtk.Label(label="♫")
-                znak.get_style_context().add_class("safeer-player-note")
-                self._medijski_zvok_naslov = Gtk.Label()
-                self._medijski_zvok_naslov.get_style_context().add_class("safeer-player-title")
-                self._medijski_zvok_naslov.set_line_wrap(True)
-                self._medijski_zvok_naslov.set_justify(Gtk.Justification.CENTER)
-                zvok.pack_start(znak, False, False, 0)
-                zvok.pack_start(self._medijski_zvok_naslov, False, False, 0)
-                self._medijski_sklad.add_named(zvok, "zvok")
-                ponor = Gst.ElementFactory.make("gtksink", "safeer-media-video")
-                if ponor is not None:
-                    self._medijski_predvajalnik.element.set_property("video-sink", ponor)
-                    slika = Gtk.EventBox()
-                    slika.add(ponor.get_property("widget"))
-                    # Dvojni klik na sliko preklopi cel zaslon (kot v VLC in mpv).
-                    slika.connect("button-press-event", lambda _w, d: d.type == Gdk.EventType._2BUTTON_PRESS and
-                                  self._medijski_cel_zaslon(okno))
-                    self._medijski_sklad.add_named(slika, "slika")
-                postavitev.pack_start(self._medijski_sklad, True, True, 0)
-                self._medijski_napis = Gtk.Label(xalign=0)
-                self._medijski_napis.get_style_context().add_class("safeer-player-title")
-                postavitev.pack_start(self._medijski_napis, False, False, 0)
-                premik = Gtk.Box(spacing=10)
-                self._medijski_drsnik = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 1, 1)
-                self._medijski_drsnik.set_draw_value(False)
-                self._medijski_drsnik.set_hexpand(True)
-                self._medijski_drsnik.set_tooltip_text(self._mb("premik"))
-                self._medijski_drsnik.connect("change-value", self._medijski_premik)
-                self._medijski_drsnik.connect("button-press-event", self._medijski_zacni_premik)
-                self._medijski_drsnik.connect_after("button-release-event", self._medijski_spusti_premik)
-                premik.pack_start(self._medijski_drsnik, True, True, 0)
-                self._medijski_cas = Gtk.Label(label="0:00 / 0:00")
-                premik.pack_start(self._medijski_cas, False, False, 0)
-                postavitev.pack_start(premik, False, False, 0)
-                gumbi = Gtk.Box(spacing=8)
-                for napis_gumba, dejanje in (("＋ " + self._mb("dodaj_datoteke"), self._medijski_dodaj_datoteke),
-                                              ("⏮ " + self._mb("prejsnja"), lambda: self._medijski_ukaz("prejsnja")),
-                                              ("⏭ " + self._mb("naslednja"), lambda: self._medijski_ukaz("naslednja"))):
-                    gumb = Gtk.Button(label=napis_gumba)
-                    gumb.connect("clicked", lambda _g, ukaz=dejanje: ukaz())
-                    gumbi.pack_start(gumb, False, False, 0)
-                self._medijski_premor = Gtk.Button(label="⏸ " + self._mb("premor"))
-                self._medijski_premor.connect("clicked", lambda _g: self._medijski_ukaz("premor"))
-                gumbi.pack_start(self._medijski_premor, False, False, 0)
-                # Podnapisi (kot v VLC): izklop, vgrajeni tokovi in datoteke ob videu; tipka V jih preklaplja.
-                self._medijski_podnapisi = Gtk.Button(label="💬 " + self._mb("podnapisi"))
-                self._medijski_podnapisi.set_no_show_all(True)
-                self._medijski_podnapisi.connect("clicked", self._medijski_meni_podnapisov)
-                gumbi.pack_end(self._medijski_podnapisi, False, False, 0)
-                # "Poslji na napravo": kar igra tu, drugi napravi v Linku - tam caka tiho Sprejmi/Zavrni, tu igra naprej.
-                poslji = Gtk.Button(label="📤 " + self._mb("poslji"))
-                poslji.connect("clicked", self._medijski_poslji_meni)
-                gumbi.pack_end(poslji, False, False, 0)
-                celozaslonsko = Gtk.Button(label="⛶ " + self._mb("cel_zaslon"))
-                celozaslonsko.connect("clicked", lambda _g: okno.unfullscreen() if okno.get_window() and
-                                     okno.get_window().get_state() & Gdk.WindowState.FULLSCREEN else okno.fullscreen())
-                gumbi.pack_end(celozaslonsko, False, False, 0)
-                postavitev.pack_start(gumbi, False, False, 0)
-                self._medijski_vrsta = Gtk.Label(xalign=0)
-                self._medijski_vrsta.get_style_context().add_class("safeer-player-queue")
-                self._medijski_vrsta.set_line_wrap(True)
-                postavitev.pack_start(self._medijski_vrsta, False, False, 0)
-                okno.add(postavitev)
-                self.add_window(okno)
-                self._medijski_predvajalnik_okno = okno
+                self._ustvari_okno_videa(Gst)
             if seznam:
                 uspesno = self._medijski_predvajalnik.zamenjaj_vrsto(seznam, zacni)
             else:
@@ -3539,10 +3589,9 @@ class SafeerOS(Gtk.Application):
                                                   naslov=ime, zacetek=zacetek)
                 uspesno = self._medijski_predvajalnik.stanje != "napaka"
             if prikazi:
-                self._medijski_predvajalnik_okno.show_all()
                 self._medijski_predvajalnik_okno.present()
             else:
-                self._medijski_predvajalnik_okno.hide()
+                self._medijski_predvajalnik_okno.set_visible(False)
             return uspesno
         except Exception as e:  # noqa: BLE001
             print("[SafeerOS] neposredni medij:", e)
@@ -3550,6 +3599,133 @@ class SafeerOS(Gtk.Application):
             # Lokalni varni tok (127.0.0.1/m/<skrivnost>) ni spletna stran: ne v brskalnik in ne v zgodovino.
             return self._splet(naslov) if vrsta == "medij" and naslov.startswith(("http://", "https://")) \
                 and not naslov.startswith("http://127.0.0.1:") else False
+
+    def _ustvari_okno_videa(self, Gst) -> None:
+        """Okno domacega predvajalnika (GStreamer): slika, napis, drsnik, gumbi in cakalna vrsta."""
+        okno = Gtk.Window(title="Safeer Player")
+        # Okno z videom je del Safeer Playerja: v pultu je v njegovi skupini, z njegovo ikono.
+        x11.nastavi_razred(okno, *WMCLASS_PREDVAJALNIKA)
+        self._ikona_predvajalnika(okno)
+        okno.add_css_class("safeer-player")
+        if self._medijski_css is None:
+            try:
+                self._medijski_css = _css("""
+                    window.safeer-player { background: #0b1424; color: #eaf2ff; }
+                    window.safeer-player label { color: #eaf2ff; }
+                    window.safeer-player label.safeer-player-title { font-size: 18px; font-weight: 700; }
+                    window.safeer-player label.safeer-player-queue { color: #afbed4; }
+                    window.safeer-player label.safeer-player-note { font-size: 96px; color: #8ac7ff; }
+                    window.safeer-player button { background: #16233a; color: #eaf2ff;
+                        border: 1px solid rgba(211,229,255,.23); border-radius: 10px; padding: 8px 13px; }
+                    window.safeer-player button:hover { background: #243e63; border-color: #8ac7ff; }
+                    window.safeer-player scale highlight { background: #8ac7ff; }
+                    window.safeer-player scale slider { background: #8ac7ff;
+                        min-width: 14px; min-height: 14px; margin: -6px; }
+                """)
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] slog predvajalnika:", e)
+        # Na velikih zaslonih 960x620 deluje kot sličica; okno naj zavzame približno dve tretjini.
+        zaslon = self._zaslon()
+        g = self._delovno_obmocje(zaslon) if zaslon else None
+        okno.set_default_size(max(960, int(g.width * 0.62)) if g else 960,
+                              max(620, int(g.height * 0.7)) if g else 620)
+        # Brez glavnega okna (predvajanje iz Safeer Playerja) je nad oknom Safeer Player; GTK4 nima
+        # set_position(CENTER_ON_PARENT) - prehodno okno postavi upravitelj oken nad starsa.
+        okno.set_transient_for(self.okno or self.okno_predvajalnik)
+        okno.connect("close-request", lambda *a: (self._ustavi_neposredni_medij(), True)[1])
+        _tipke(okno, self._medijska_tipka, zajem=True)    # presledek je premor, tudi ko ima fokus gumb
+        postavitev = _robovi_gradnika(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8), 16)
+        # Glasba nima slike: namesto črnega polja pokažemo znak in naslov (sklad preklopi ob osvežitvi).
+        self._medijski_sklad = Gtk.Stack()
+        self._medijski_sklad.set_vexpand(True)
+        self._medijski_sklad.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        zvok = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, valign=Gtk.Align.CENTER)
+        znak = Gtk.Label(label="♫")
+        znak.add_css_class("safeer-player-note")
+        self._medijski_zvok_naslov = Gtk.Label()
+        self._medijski_zvok_naslov.add_css_class("safeer-player-title")
+        self._medijski_zvok_naslov.set_wrap(True)
+        self._medijski_zvok_naslov.set_justify(Gtk.Justification.CENTER)
+        zvok.append(znak)
+        zvok.append(self._medijski_zvok_naslov)
+        self._medijski_sklad.add_named(zvok, "zvok")
+        # GTK4: gtksink (GTK3) ne gre; gtk4paintablesink (gst-plugins-rs) da Gdk.Paintable za Gtk.Picture. Brez
+        # njega playbin izbere autovideosink: video je v svojem oknu, tu ostane napis in upravljanje.
+        ponor = Gst.ElementFactory.make("gtk4paintablesink", "safeer-media-video")
+        if ponor is not None:
+            self._medijski_predvajalnik.element.set_property("video-sink", ponor)
+            slika = Gtk.Picture.new_for_paintable(ponor.get_property("paintable"))
+            slika.set_hexpand(True)
+            slika.set_vexpand(True)
+            # Dvojni klik na sliko preklopi cel zaslon (kot v VLC in mpv).
+            klik = Gtk.GestureClick()
+            klik.connect("pressed", lambda _k, n, _x, _y: n == 2 and self._medijski_cel_zaslon(okno))
+            slika.add_controller(klik)
+            self._medijski_sklad.add_named(slika, "slika")
+        else:
+            print("[SafeerOS] gtk4paintablesink ni namescen: video v svojem oknu (autovideosink)", flush=True)
+        postavitev.append(self._medijski_sklad)
+        self._medijski_napis = Gtk.Label(xalign=0)
+        self._medijski_napis.add_css_class("safeer-player-title")
+        postavitev.append(self._medijski_napis)
+        premik = Gtk.Box(spacing=10)
+        self._medijski_drsnik = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 1, 1)
+        self._medijski_drsnik.set_draw_value(False)
+        self._medijski_drsnik.set_hexpand(True)
+        self._medijski_drsnik.set_tooltip_text(self._mb("premik"))
+        self._medijski_drsnik.connect("change-value", self._medijski_premik)
+        # GTK4: ni button-press/release-event. Surovi dogodki v fazi zajema (EventControllerLegacy) - drsnikova
+        # lastna kretnja jih ne prevzame, zato spust vedno pride (GestureClick bi jo drsnik preklical).
+        miska = Gtk.EventControllerLegacy()
+        miska.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        miska.connect("event", self._medijski_miska_drsnika)
+        self._medijski_drsnik.add_controller(miska)
+        premik.append(self._medijski_drsnik)
+        self._medijski_cas = Gtk.Label(label="0:00 / 0:00")
+        premik.append(self._medijski_cas)
+        postavitev.append(premik)
+        gumbi = Gtk.Box(spacing=8)
+        for napis_gumba, dejanje in (("＋ " + self._mb("dodaj_datoteke"), self._medijski_dodaj_datoteke),
+                                      ("⏮ " + self._mb("prejsnja"), lambda: self._medijski_ukaz("prejsnja")),
+                                      ("⏭ " + self._mb("naslednja"), lambda: self._medijski_ukaz("naslednja"))):
+            gumb = Gtk.Button(label=napis_gumba)
+            gumb.connect("clicked", lambda _g, ukaz=dejanje: ukaz())
+            gumbi.append(gumb)
+        self._medijski_premor = Gtk.Button(label="⏸ " + self._mb("premor"))
+        self._medijski_premor.connect("clicked", lambda _g: self._medijski_ukaz("premor"))
+        gumbi.append(self._medijski_premor)
+        presledek = Gtk.Box()
+        presledek.set_hexpand(True)
+        gumbi.append(presledek)        # GTK3 pack_end: gumbi spodaj desno, v istem vrstnem redu
+        celozaslonsko = Gtk.Button(label="⛶ " + self._mb("cel_zaslon"))
+        celozaslonsko.connect("clicked", lambda _g: self._medijski_cel_zaslon(okno))
+        gumbi.append(celozaslonsko)
+        # "Poslji na napravo": kar igra tu, drugi napravi v Linku - tam caka tiho Sprejmi/Zavrni, tu igra naprej.
+        poslji = Gtk.Button(label="📤 " + self._mb("poslji"))
+        poslji.connect("clicked", self._medijski_poslji_meni)
+        gumbi.append(poslji)
+        # Podnapisi (kot v VLC): izklop, vgrajeni tokovi in datoteke ob videu; tipka V jih preklaplja.
+        self._medijski_podnapisi = Gtk.Button(label="💬 " + self._mb("podnapisi"))
+        self._medijski_podnapisi.set_visible(False)
+        self._medijski_podnapisi.connect("clicked", self._medijski_meni_podnapisov)
+        gumbi.append(self._medijski_podnapisi)
+        postavitev.append(gumbi)
+        self._medijski_vrsta = Gtk.Label(xalign=0)
+        self._medijski_vrsta.add_css_class("safeer-player-queue")
+        self._medijski_vrsta.set_wrap(True)
+        postavitev.append(self._medijski_vrsta)
+        okno.set_child(postavitev)
+        self.add_window(okno)
+        self._medijski_predvajalnik_okno = okno
+
+    def _medijski_miska_drsnika(self, _kontroler, dogodek) -> bool:
+        vrsta = dogodek.get_event_type()
+        if vrsta == Gdk.EventType.BUTTON_PRESS:
+            self._medijski_zacni_premik(self._medijski_drsnik, dogodek)
+        elif vrsta == Gdk.EventType.BUTTON_RELEASE and self._medijski_vlecem:
+            # Po privzeti obdelavi spusta (GTK3 connect_after): drsnik ima ze koncno vrednost.
+            GLib.idle_add(lambda: (self._medijski_spusti_premik(self._medijski_drsnik, dogodek), False)[1])
+        return False
 
     def _ustavi_neposredni_medij(self) -> None:
         if self._medijski_predvajalnik is not None:
@@ -3560,7 +3736,7 @@ class SafeerOS(Gtk.Application):
             except Exception:
                 pass
         if self._medijski_predvajalnik_okno is not None:
-            self._medijski_predvajalnik_okno.hide()
+            self._medijski_predvajalnik_okno.set_visible(False)
 
     def _mpris_podatki(self) -> dict:
         """Stanje predvajalnika za sistem: kot za stran, z izvajalcem in sliko iz kataloga, ce ju ta pozna."""
@@ -3622,18 +3798,33 @@ class SafeerOS(Gtk.Application):
         if servis is None:
             return
         stanje = servis.podnapisi()
-        meni = Gtk.Menu()
-        skupina = None
+        # GTK4: Gtk.Menu/RadioMenuItem ni vec - Gio.Menu s stanjskim dejanjem (izbira ene moznosti) v PopoverMenu.
+        izbira = Gio.SimpleAction.new_stateful("izberi", GLib.VariantType.new("s"), GLib.Variant("s", stanje["izbran"]))
+        izbira.connect("change-state", lambda d, v: (d.set_state(v), servis.izberi_podnapise(v.get_string())))
+        meni = Gio.Menu()
         for kljuc, napis in [("izklop", self._mb("podnapisi_izklop"))] + \
                 [(m["kljuc"], self._ime_podnapisa(m)) for m in stanje["moznosti"]]:
-            postavka = Gtk.RadioMenuItem.new_with_label_from_widget(skupina, napis)
-            skupina = skupina or postavka
-            postavka.set_active(kljuc == stanje["izbran"])
-            postavka.connect("activate", lambda p, k=kljuc: p.get_active() and servis.izberi_podnapise(k))
-            meni.append(postavka)
-        meni.show_all()
-        meni.attach_to_widget(gumb, None)
-        meni.popup_at_widget(gumb, Gdk.Gravity.NORTH_WEST, Gdk.Gravity.SOUTH_WEST, None)
+            postavka = Gio.MenuItem.new(napis, None)
+            postavka.set_action_and_target_value("podnapisi.izberi", GLib.Variant("s", kljuc))
+            meni.append_item(postavka)
+        self._pokazi_meni(gumb, meni, "podnapisi", [izbira])
+
+    @staticmethod
+    def _pokazi_meni(gumb, meni, skupina: str, dejanja: list) -> None:
+        """Meni pod gumbom (GTK3 Menu.popup_at_widget): Gio.Menu v Gtk.PopoverMenu z dejanji v skupini `skupina`."""
+        dejanja_skupine = Gio.SimpleActionGroup()
+        for d in dejanja:
+            dejanja_skupine.add_action(d)
+        gumb.insert_action_group(skupina, dejanja_skupine)
+        stari = getattr(gumb, "_safeer_meni", None)
+        if stari is not None:
+            stari.unparent()
+        okence = Gtk.PopoverMenu.new_from_model(meni)
+        okence.set_parent(gumb)
+        okence.set_position(Gtk.PositionType.BOTTOM)
+        okence.set_has_arrow(False)
+        gumb._safeer_meni = okence
+        okence.popup()
 
     def _medijski_poslji_meni(self, gumb) -> None:
         """Meni naprav v Linku (brez te); izbira poslje ponudbo prek Controla (Ponudi) in izid pokaze v napisu."""
@@ -3645,14 +3836,13 @@ class SafeerOS(Gtk.Application):
             if not seznam:
                 self._medijski_obvestilo(self._mb("poslji_ni"))
                 return False
-            meni = Gtk.Menu()
-            for n in seznam:
-                postavka = Gtk.MenuItem(label=str(n.get("ime") or n.get("id") or ""))
-                postavka.connect("activate", lambda _p, nap=n: self._medijski_poslji(nap))
-                meni.append(postavka)
-            meni.show_all()
-            meni.attach_to_widget(gumb, None)
-            meni.popup_at_widget(gumb, Gdk.Gravity.NORTH_WEST, Gdk.Gravity.SOUTH_WEST, None)
+            meni, dejanja = Gio.Menu(), []
+            for i, n in enumerate(seznam):
+                dejanje = Gio.SimpleAction.new("n%d" % i, None)
+                dejanje.connect("activate", lambda *_a, nap=n: self._medijski_poslji(nap))
+                dejanja.append(dejanje)
+                meni.append(str(n.get("ime") or n.get("id") or ""), "poslji.n%d" % i)
+            self._pokazi_meni(gumb, meni, "poslji", dejanja)
             return False
         threading.Thread(target=lambda: GLib.idle_add(pokazi, naprave()), name="safeer-poslji-naprave", daemon=True).start()
 
@@ -3727,7 +3917,7 @@ class SafeerOS(Gtk.Application):
         return os_media_besedila.besedilo(kljuc, _jezik())
 
     def _medijski_cel_zaslon(self, okno) -> bool:
-        if okno.get_window() and okno.get_window().get_state() & Gdk.WindowState.FULLSCREEN:
+        if okno.is_fullscreen():
             okno.unfullscreen()
         else:
             okno.fullscreen()
@@ -3754,7 +3944,7 @@ class SafeerOS(Gtk.Application):
             return self._medijski_cel_zaslon(okno)
         if tipka and tipka.lower() in ("n", "p") and not dogodek.state & Gdk.ModifierType.CONTROL_MASK:
             return self._medijski_ukaz("naslednja" if tipka.lower() == "n" else "prejsnja")
-        if tipka == "Escape" and okno.get_window() and okno.get_window().get_state() & Gdk.WindowState.FULLSCREEN:
+        if tipka == "Escape" and okno.is_fullscreen():
             okno.unfullscreen()
             return True
         return False
@@ -3887,7 +4077,6 @@ class SafeerOS(Gtk.Application):
                 self._zadnji_medijski_napredek = None
             return True
         elif ukaz == "odpri" and self._medijski_predvajalnik_okno:
-            self._medijski_predvajalnik_okno.show_all()
             self._medijski_predvajalnik_okno.present()
         else:
             return False
@@ -4064,10 +4253,18 @@ class SafeerOS(Gtk.Application):
         besedilo = str(besedilo or "")[:NAJVEC_KOPIJE]
         if not besedilo:
             return False
-        odlozisce = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
-        odlozisce.set_text(besedilo, -1)
-        odlozisce.store()
+        # GTK4: odlozisce je na zaslonu (Gdk.Clipboard); store_async ga preda upravitelju odlozisca, da ostane po izhodu.
+        odlozisce = Gdk.Display.get_default().get_clipboard()
+        odlozisce.set(besedilo)
+        odlozisce.store_async(GLib.PRIORITY_DEFAULT, None, SafeerOS._odlozisce_shranjeno)
         return True
+
+    @staticmethod
+    def _odlozisce_shranjeno(odlozisce, izid) -> None:
+        try:
+            odlozisce.store_finish(izid)
+        except Exception:  # noqa: BLE001 - brez upravitelja odlozisca besedilo ostane, dokler tece Safeer OS
+            pass
 
     def _odpri_stremio_dodatek(self, naslov: str) -> bool:
         """Gumb »Install« dodatka Stremio (stremio://...) iz Spleta, brskalnika ali druge aplikacije: Safeer Player odpre
@@ -4100,10 +4297,16 @@ class SafeerOS(Gtk.Application):
         return {"url": url} if url else {}
 
     @staticmethod
-    def _odlozisce_besedilo() -> str:
-        """Gumb Prilepi v oknu Dodatki: besedilo iz odlozisca (samo na klik uporabnika, najvec 1024 znakov)."""
-        besedilo = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).wait_for_text() or ""
-        return besedilo.strip()[:1024]
+    def _odlozisce_besedilo(konec: Callable[[str], None]) -> None:
+        """Gumb Prilepi v oknu Dodatki: besedilo iz odlozisca (samo na klik uporabnika, najvec 1024 znakov).
+        GTK4 bere odlozisce samo asinhrono: besedilo dobi konec(besedilo)."""
+        def prebrano(odlozisce, izid) -> None:
+            try:
+                besedilo = odlozisce.read_text_finish(izid) or ""
+            except Exception:  # noqa: BLE001 - v odloziscu ni besedila
+                besedilo = ""
+            konec(besedilo.strip()[:1024])
+        Gdk.Display.get_default().get_clipboard().read_text_async(None, prebrano)
 
     def _vzemi_cakajoci_magnet(self, pogled=None) -> dict:
         """Magnet, ki caka na stran (zagon z --magnet ali magnet, preden je bilo okno). Dobi ga samo stran, ki ji je
@@ -4154,22 +4357,53 @@ class SafeerOS(Gtk.Application):
             print("[SafeerOS] rqbit:", e)
             return {"ok": False, "koda": "prenos_programa"}
 
-    def _magnet_iz_datoteke(self, mapa: bool, stars=None) -> bool:
-        """Uporabnik izbere svojo datoteko ali mapo; iz nje nastane magnet, ki ga lahko pošlje ali deli."""
-        izbirnik = Gtk.FileChooserNative.new(
-            self._mb("izberi_mapo") if mapa else self._mb("deli_datoteko"), stars or self.okno,
-            Gtk.FileChooserAction.SELECT_FOLDER if mapa else Gtk.FileChooserAction.OPEN, None, None)
-        izbirnik.set_current_folder(GLib.get_home_dir())
-        if izbirnik.run() != Gtk.ResponseType.ACCEPT:
-            return False
-        pot = izbirnik.get_filename() or ""
+    def _magnet_iz_datoteke(self, mapa: bool, stars=None, konec: Optional[Callable[[bool], None]] = None) -> None:
+        """Uporabnik izbere svojo datoteko ali mapo; iz nje nastane magnet, ki ga lahko pošlje ali deli.
+        konec(True/False): ali je uporabnik izbral (GTK4: izbira je asinhrona)."""
+        def izbrano(poti: list) -> None:
+            if not poti:
+                konec and konec(False)
+                return
+            pot = poti[0]
 
-        def delo() -> None:
-            izid = _magnet_klic(lambda: {"uri": os_torrent.torrenti().deli_datoteko(pot),
-                                         "ime": os.path.basename(pot)})
-            self._dogodek("magnetDeljen", izid)
-        threading.Thread(target=delo, name="safeer-magnet-deli", daemon=True).start()
-        return True
+            def delo() -> None:
+                izid = _magnet_klic(lambda: {"uri": os_torrent.torrenti().deli_datoteko(pot),
+                                             "ime": os.path.basename(pot)})
+                self._dogodek("magnetDeljen", izid)
+            threading.Thread(target=delo, name="safeer-magnet-deli", daemon=True).start()
+            konec and konec(True)
+        self._izberi_poti(self._mb("izberi_mapo") if mapa else self._mb("deli_datoteko"), stars or self.okno,
+                          "mapa" if mapa else "datoteka", izbrano)
+
+    def _izberi_poti(self, naslov: str, stars, nacin: str, konec: Callable[[list], None],
+                     potrdi: str = "", zacetna: str = "") -> None:
+        """Sistemsko okno za izbiro (GTK4 Gtk.FileDialog, asinhrono; GTK3 FileChooserDialog.run je odstranjen).
+        nacin: »datoteka«, »datoteke« (vec) ali »mapa«. konec(seznam poti) - prazen ob preklicu."""
+        izbira = Gtk.FileDialog(title=naslov, modal=True)
+        if potrdi:
+            izbira.set_accept_label(potrdi)
+        zacetna = zacetna if zacetna and os.path.isdir(zacetna) else GLib.get_home_dir()
+        izbira.set_initial_folder(Gio.File.new_for_path(zacetna))   # ne mapa programa (~/.local/lib/safeer-os)
+
+        def izbrano(dialog, izid) -> None:
+            try:
+                if nacin == "datoteke":
+                    model = dialog.open_multiple_finish(izid)
+                    datoteke = [model.get_item(i) for i in range(model.get_n_items())] if model is not None else []
+                elif nacin == "mapa":
+                    datoteke = [dialog.select_folder_finish(izid)]
+                else:
+                    datoteke = [dialog.open_finish(izid)]
+            except GLib.Error:      # preklic (Gtk.DialogError.DISMISSED)
+                datoteke = []
+            poti = [f.get_path() for f in datoteke if f is not None and f.get_path()]
+            konec(poti)
+        if nacin == "datoteke":
+            izbira.open_multiple(stars, None, izbrano)
+        elif nacin == "mapa":
+            izbira.select_folder(stars, None, izbrano)
+        else:
+            izbira.open(stars, None, izbrano)
 
     def _odstrani_lokalni_medij(self, pot: str) -> bool:
         if not self._medijska_knjiznica().dobi(pot):
@@ -4198,16 +4432,10 @@ class SafeerOS(Gtk.Application):
             self._dogodek("medijskaKnjiznica", None)
         return odstranjen
 
-    def _medijski_dodaj_datoteke(self, stars=None) -> None:
-        dialog = Gtk.FileChooserDialog(title=self._mb("dodaj_datoteke"),
-                                       transient_for=stars or self._medijski_predvajalnik_okno or self.okno,
-                                       action=Gtk.FileChooserAction.OPEN)
-        dialog.add_buttons(self._mb("preklici"), Gtk.ResponseType.CANCEL, self._mb("dodaj"), Gtk.ResponseType.OK)
-        dialog.set_current_folder(GLib.get_home_dir())   # ne mapa programa (~/.local/lib/safeer-os)
-        dialog.set_select_multiple(True)
-        try:
-            if dialog.run() == Gtk.ResponseType.OK:
-                poti = dialog.get_filenames()[:500]
+    def _medijski_dodaj_datoteke(self, stars=None, konec: Optional[Callable] = None) -> None:
+        def izbrano(poti: list) -> None:
+            poti = poti[:500]
+            if poti:
                 self._medijska_knjiznica().dodaj(poti)
                 for pot in poti:
                     vrsta = os_knjiznica.vrsta_datoteke(Path(pot))
@@ -4223,48 +4451,38 @@ class SafeerOS(Gtk.Application):
                     except ValueError as e:
                         print("[SafeerOS] dodajanje medija:", e)
                 self._dogodek("medijskaKnjiznica", None)
-        finally:
-            dialog.destroy()
+            if konec is not None:
+                konec(None)
+        self._izberi_poti(self._mb("dodaj_datoteke"), stars or self._medijski_predvajalnik_okno or self.okno,
+                          "datoteke", izbrano, potrdi=self._mb("dodaj"))
 
-    def _izberi_mapo(self, zacetna: str = "", naslov: str = "", preklici: str = "", izberi: str = "") -> str:
-        """Obicajno okno za izbiro mape (kam ustvariti novo mapo ali datoteko). '' ob preklicu.
-        Besedila poda stran v jeziku vmesnika."""
+    def _izberi_mapo(self, zacetna: str = "", naslov: str = "", preklici: str = "", izberi: str = "",
+                     konec: Optional[Callable[[str], None]] = None) -> None:
+        """Obicajno okno za izbiro mape (kam ustvariti novo mapo ali datoteko). konec('') ob preklicu.
+        Besedila poda stran v jeziku vmesnika (GTK4 Gtk.FileDialog nima napisa za Preklici - ostane sistemski)."""
         stars = self.okno_delovna if (self.okno is None or not self.okno.get_visible()) else self.okno
-        dialog = Gtk.FileChooserDialog(title=naslov or "Izberi mapo", transient_for=stars,
-                                       action=Gtk.FileChooserAction.SELECT_FOLDER)
-        dialog.add_buttons(preklici or "Prekliči", Gtk.ResponseType.CANCEL, izberi or "Izberi", Gtk.ResponseType.OK)
-        dialog.set_keep_above(True)
-        dialog.set_default_size(980, 640)
-        dialog.set_position(Gtk.WindowPosition.CENTER)
-        zacetna = os.path.expanduser(zacetna or "~")
-        dialog.set_current_folder(zacetna if os.path.isdir(zacetna) else GLib.get_home_dir())
-        try:
-            return (dialog.get_filename() or "") if dialog.run() == Gtk.ResponseType.OK else ""
-        finally:
-            dialog.destroy()
+        self._izberi_poti(naslov or "Izberi mapo", stars, "mapa",
+                          lambda poti: konec and konec(poti[0] if poti else ""),
+                          potrdi=izberi or "Izberi", zacetna=os.path.expanduser(zacetna or "~"))
 
-    def _medijski_dodaj_mapo(self, stars=None) -> bool:
-        dialog = Gtk.FileChooserDialog(title=self._mb("dodaj_mapo"), transient_for=stars or self.okno,
-                                       action=Gtk.FileChooserAction.SELECT_FOLDER)
-        dialog.add_buttons(self._mb("preklici"), Gtk.ResponseType.CANCEL, self._mb("dodaj"), Gtk.ResponseType.OK)
-        dialog.set_current_folder(GLib.get_home_dir())   # ne mapa programa (~/.local/lib/safeer-os)
-        try:
-            if dialog.run() != Gtk.ResponseType.OK:
-                return False
-            mapa = dialog.get_filename()
-        finally:
-            dialog.destroy()
-        knjiznica = self._medijska_knjiznica()
+    def _medijski_dodaj_mapo(self, stars=None, konec: Optional[Callable[[bool], None]] = None) -> None:
+        def izbrano(poti: list) -> None:
+            if not poti:
+                konec and konec(False)
+                return
+            mapa = poti[0]
+            knjiznica = self._medijska_knjiznica()
 
-        def uvozi():
-            try:
-                knjiznica.dodaj_mapo(mapa)
-                self._dogodek("medijskaKnjiznica", None)
-            except Exception as e:  # noqa: BLE001
-                print("[SafeerOS] medijska mapa:", e)
-                self._dogodek("medijskaNapaka", "")
-        threading.Thread(target=uvozi, daemon=True).start()
-        return True
+            def uvozi():
+                try:
+                    knjiznica.dodaj_mapo(mapa)
+                    self._dogodek("medijskaKnjiznica", None)
+                except Exception as e:  # noqa: BLE001
+                    print("[SafeerOS] medijska mapa:", e)
+                    self._dogodek("medijskaNapaka", "")
+            threading.Thread(target=uvozi, daemon=True).start()
+            konec and konec(True)
+        self._izberi_poti(self._mb("dodaj_mapo"), stars or self.okno, "mapa", izbrano, potrdi=self._mb("dodaj"))
 
     def _medijski_osvezi_mape(self) -> bool:
         if self._medijsko_osvezevanje or not self._medijska_knjiznica().seznam_map():
@@ -4285,37 +4503,52 @@ class SafeerOS(Gtk.Application):
         threading.Thread(target=osvezi, daemon=True).start()
         return True
 
-    def _medijski_dodaj_tok(self, stars=None) -> bool:
-        """Uporabnikov neposredni tok shrani in predvaja v GStreamerju."""
-        dialog = Gtk.Dialog(title="Dodaj TV ali radijski tok", transient_for=stars or self.okno, flags=Gtk.DialogFlags.MODAL)
-        dialog.add_buttons("Prekliči", Gtk.ResponseType.CANCEL, "Shrani in predvajaj", Gtk.ResponseType.OK)
-        polja = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        polja.set_border_width(12)
+    def _medijski_dodaj_tok(self, stars=None, konec: Optional[Callable[[bool], None]] = None) -> None:
+        """Uporabnikov neposredni tok shrani in predvaja v GStreamerju. GTK4: Gtk.Dialog.run je odstranjen - okno z
+        gumboma, izid dobi konec(True/False)."""
+        dialog = Gtk.Window(title="Dodaj TV ali radijski tok", modal=True)
+        dialog.set_transient_for(stars or self.okno)
+        dialog.set_destroy_with_parent(True)
+        polja = _robovi_gradnika(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8), 12)
         ime = Gtk.Entry()
         ime.set_placeholder_text("Ime postaje")
-        polja.pack_start(ime, False, False, 0)
-        vrsta = Gtk.ComboBoxText()
-        vrsta.append("tv", "TV v živo")
-        vrsta.append("radio", "Radio")
-        vrsta.set_active_id("tv")
-        polja.pack_start(vrsta, False, False, 0)
+        polja.append(ime)
+        vrste = (("tv", "TV v živo"), ("radio", "Radio"))
+        vrsta = Gtk.DropDown.new_from_strings([napis for _k, napis in vrste])
+        vrsta.set_selected(0)
+        polja.append(vrsta)
         vnos = Gtk.Entry()
         vnos.set_placeholder_text("https://primer.si/kanal.m3u8")
         vnos.set_width_chars(55)
-        polja.pack_start(vnos, False, False, 0)
-        dialog.get_content_area().pack_start(polja, False, False, 0)
-        dialog.show_all()
-        try:
-            if dialog.run() != Gtk.ResponseType.OK:
-                return False
-            naslov = vnos.get_text().strip()
-            ime_postaje = ime.get_text().strip()
-            vrsta_toka = vrsta.get_active_id()
-            return self._shrani_medijski_tok(ime_postaje, naslov, vrsta_toka)
-        except ValueError:
-            return False
-        finally:
+        polja.append(vnos)
+        gumbi = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8, halign=Gtk.Align.END)
+        preklici, shrani = Gtk.Button(label="Prekliči"), Gtk.Button(label="Shrani in predvajaj")
+        gumbi.append(preklici)
+        gumbi.append(shrani)
+        polja.append(gumbi)
+        dialog.set_child(polja)
+        koncano = []
+
+        def odgovor(ok: bool) -> None:
+            if koncano:
+                return
+            koncano.append(True)
+            izid = False
+            if ok:
+                try:
+                    izbrana = vrsta.get_selected()
+                    vrsta_toka = vrste[izbrana][0] if 0 <= izbrana < len(vrste) else "tv"
+                    izid = self._shrani_medijski_tok(ime.get_text().strip(), vnos.get_text().strip(), vrsta_toka)
+                except ValueError:
+                    izid = False
             dialog.destroy()
+            if konec is not None:
+                konec(izid)
+        preklici.connect("clicked", lambda *_a: odgovor(False))
+        shrani.connect("clicked", lambda *_a: odgovor(True))
+        dialog.connect("close-request", lambda *_a: (odgovor(False), True)[1])
+        _tipke(dialog, lambda _d, e: Gdk.keyval_name(e.keyval) == "Escape" and (odgovor(False) or True))
+        dialog.present()
 
     def _shrani_medijski_tok(self, ime: str, url: str, vrsta: str) -> bool:
         os_predvajalnik.medij(url, vrsta)
@@ -4337,7 +4570,6 @@ class SafeerOS(Gtk.Application):
         self._medijski_pogled.get_settings().set_property("enable-javascript-markup", False)
         self._medijski_okno.set_title("Medijski center")
         self._medijski_pogled.load_uri(naslov)
-        self._medijski_okno.show_all()
         self._medijski_okno.present()
         return True
 
@@ -4351,22 +4583,21 @@ class SafeerOS(Gtk.Application):
             return False
         # Tuje strani v lastnem, zacasnem kontekstu s peskovnikom: nic piskotkov/podatkov Safeer OS in
         # locen spletni proces, ki ga ob izhodu z vsebine izpraznemo.
-        kontekst = WebKit2.WebContext.new_ephemeral()
-        try:
-            kontekst.set_sandbox_enabled(True)
-        except Exception:
-            pass
+        # WebKitGTK 6.0: zacasni podatki so na seji (NetworkSession.new_ephemeral), peskovnik je vedno vklopljen;
+        # svoj WebContext = svoj spletni proces.
+        kontekst = WebKit2.WebContext()
         kontekst.set_cache_model(WebKit2.CacheModel.DOCUMENT_VIEWER)
         # Edino sporocilo, ki ga ta pogled sme poslati Safeer OS: stanje skladbe v vgradnem predvajalniku
         # (igra, premor, konec, napaka). Mostu Safeer OS (safeerOs) tu ni.
         upravitelj = WebKit2.UserContentManager()
-        upravitelj.register_script_message_handler("safeerSkladba")
+        _registriraj_most(upravitelj, "safeerSkladba")
         upravitelj.connect("script-message-received::safeerSkladba", self._na_stanje_skladbe)
         upravitelj.add_script(WebKit2.UserScript(
             os_katalog.SKRIPT_SKLADBE, WebKit2.UserContentInjectedFrames.TOP_FRAME,
             WebKit2.UserScriptInjectionTime.END, list(os_katalog.STRANI_SKRIPTA_SKLADBE), None))
         odlozisce_varuh.dodaj(WebKit2, upravitelj)
-        lastnosti = {"web_context": kontekst, "user_content_manager": upravitelj}
+        lastnosti = {"web_context": kontekst, "user_content_manager": upravitelj,
+                     "network_session": WebKit2.NetworkSession.new_ephemeral()}
         if hasattr(WebKit2, "WebsitePolicies"):
             # Medijski pogled odpre uporabnik zato, da nekaj predvaja: predvajanje se zacne brez dodatnega klika.
             lastnosti["website_policies"] = WebKit2.WebsitePolicies(autoplay=WebKit2.AutoplayPolicy.ALLOW)
@@ -4380,8 +4611,8 @@ class SafeerOS(Gtk.Application):
         okno = Gtk.ApplicationWindow(application=self, title="Medijski center")
         okno.set_default_size(1100, 700)
         okno.set_transient_for(self.okno or self.okno_predvajalnik)
-        okno.add(pogled)
-        okno.connect("delete-event", lambda *a: (self._pocisti_medijski_pogled(), True)[1])
+        okno.set_child(pogled)
+        okno.connect("close-request", lambda *a: (self._pocisti_medijski_pogled(), True)[1])
         self._medijski_pogled, self._medijski_okno = pogled, okno
         return True
 
@@ -4403,7 +4634,7 @@ class SafeerOS(Gtk.Application):
         # YouTube vgradnjo dovoli samo znanemu izvoru; Safeer se predstavi enako kot na Windows.
         zahteva.get_http_headers().append("Referer", os_katalog.IZVOR_VGRADNJE)
         self._medijski_pogled.load_request(zahteva)
-        self._medijski_okno.show_all()
+        self._medijski_okno.set_visible(True)
         if not self._medijski_okno.is_active() and not getattr(self, "_medijski_skladba_videna", False):
             self._medijski_okno.present()   # prvic okno pokazemo; naslednja skladba ga ne meče v ospredje
         self._medijski_skladba_videna = True
@@ -4441,7 +4672,8 @@ class SafeerOS(Gtk.Application):
         if not getattr(self, "_medijski_skladba", False) or self._katalog is None:
             return
         try:
-            self._katalog.yt_sporocilo(rezultat.get_js_value().to_string())
+            vrednost = rezultat.get_js_value() if hasattr(rezultat, "get_js_value") else rezultat   # 4.1 / 6.0
+            self._katalog.yt_sporocilo(vrednost.to_string())
         except Exception as e:  # noqa: BLE001
             print("[SafeerOS] stanje skladbe:", e)
 
@@ -4498,13 +4730,15 @@ class SafeerOS(Gtk.Application):
         try:
             self._medijski_pogled.load_uri("about:blank")
             self._medijski_pogled.get_settings().set_property("enable-javascript-markup", False)
-            upravitelj = self._medijski_pogled.get_context().get_website_data_manager()
+            seja = self._medijski_pogled.get_network_session() if hasattr(self._medijski_pogled, "get_network_session") \
+                else None   # WebKitGTK 6.0: podatki so na seji; 4.1: na kontekstu
+            upravitelj = (seja or self._medijski_pogled.get_context()).get_website_data_manager()
             vrste = WebKit2.WebsiteDataTypes.MEMORY_CACHE | WebKit2.WebsiteDataTypes.DISK_CACHE
             upravitelj.clear(vrste, 0, None, None, None)
         except Exception as e:  # noqa: BLE001
             print("[SafeerOS] čiščenje medijskega pogleda:", e)
         if self._medijski_okno is not None:
-            self._medijski_okno.hide()
+            self._medijski_okno.set_visible(False)
 
     def _prijavno_okno_ob_prijavi(self) -> bool:
         """Ob prijavi v namizje (delovna povrsina) ponudi povezavo v Safeer Link - ne z oknom cez namizje, ampak s tihim

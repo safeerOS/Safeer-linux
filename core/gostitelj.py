@@ -49,14 +49,63 @@ def zazeni_vnos(pot: str, datoteke: Sequence[str] = ()) -> bool:
         return False
 
 
+def tema_ikon(Gtk):
+    """Privzeta tema ikon: GTK4 (na zaslon) ali GTK3; None, ce zaslona ni (GTK4 brez zaslona)."""
+    if Gtk.get_major_version() >= 4:
+        from gi.repository import Gdk
+        zaslon = Gdk.Display.get_default()
+        return Gtk.IconTheme.get_for_display(zaslon) if zaslon is not None else None
+    return Gtk.IconTheme.get_default()
+
+
+def nalozen_gtk():
+    """Modul Gtk v razlicici, ki jo proces ze uporablja (Safeer OS 4, Safeer Browser 3); brez nje najprej 4.0.
+    Druge razlicice ne vsiljujemo - ValueError bi pomenil, da ikon ni (prej: vedno 3.0)."""
+    import gi
+    if gi.get_required_version("Gtk") is None:
+        for razlicica in ("4.0", "3.0"):
+            try:
+                gi.require_version("Gtk", razlicica)
+                break
+            except ValueError:
+                continue
+    from gi.repository import Gtk
+    return Gtk
+
+
+def ikona_iz_teme(ime: str, velikost: int) -> str:
+    """Pot do datoteke ikone v temi ikon (kot jo najde namizje); '' ce je ni. GTK3 in GTK4, samo glavna nit."""
+    try:
+        Gtk = nalozen_gtk()
+        tema = tema_ikon(Gtk)
+        if tema is None:
+            return ""
+        if Gtk.get_major_version() >= 4:
+            # GTK4 namesto manjkajoce vrne ikono »image-missing«, zato najprej has_icon.
+            if not tema.has_icon(ime):
+                return ""
+            slika = tema.lookup_icon(ime, None, velikost, 1, Gtk.TextDirection.NONE, 0)
+            datoteka = slika.get_file() if slika is not None else None
+            pot = (datoteka.get_path() or "") if datoteka is not None else ""
+        else:
+            info = tema.lookup_icon(ime, velikost, 0)
+            pot = (info.get_filename() or "") if info is not None else ""
+        return pot if pot and os.path.isfile(pot) else ""
+    except Exception:
+        return ""
+
+
 def dodaj_ikone_gostitelja(Gtk) -> None:
     """Tema ikon GTK naj najde tudi ikone programov, namescenih na racunalniku."""
     if not v_flatpaku():
         return
     try:
-        tema = Gtk.IconTheme.get_default()
+        tema = tema_ikon(Gtk)
+        if tema is None:
+            return
         for m in mape_gostitelja("icons") + mape_gostitelja("pixmaps"):
             if os.path.isdir(m):
-                tema.append_search_path(m)
+                # GTK4: add_search_path; GTK3: append_search_path.
+                (tema.add_search_path if hasattr(tema, "add_search_path") else tema.append_search_path)(m)
     except Exception:
         pass

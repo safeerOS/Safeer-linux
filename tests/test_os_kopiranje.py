@@ -745,27 +745,28 @@ class Odlozisce(unittest.TestCase):
         self.os_ = safeer_os
 
     def _kopiraj(self, besedilo):
-        with mock.patch.object(self.os_, "Gtk") as gtk, mock.patch.object(self.os_, "Gdk"):
+        # GTK4: odlozisce zaslona (Gdk.Display.get_clipboard), set + store_async.
+        with mock.patch.object(self.os_, "Gdk") as gdk:
             izid = self.os_.SafeerOS._kopiraj(besedilo)
-            return izid, gtk.Clipboard.get.return_value
+            return izid, gdk.Display.get_default.return_value.get_clipboard.return_value
 
     def test_dolgo_sporocilo_gre_celo(self):
         # Do 0.4.65: besedilo[:8192] (dovolj za magnet povezavo, premalo za dolgo e-sporocilo).
         besedilo = "Dolgo sporočilo. " * 2000
         izid, odlozisce = self._kopiraj(besedilo)
         self.assertTrue(izid)
-        odlozisce.set_text.assert_called_once_with(besedilo, -1)
-        odlozisce.store.assert_called_once()
+        odlozisce.set.assert_called_once_with(besedilo)
+        odlozisce.store_async.assert_called_once()
 
     def test_prazno_besedilo_ne_izprazni_odlozisca(self):
         izid, odlozisce = self._kopiraj("")
         self.assertFalse(izid)
-        odlozisce.set_text.assert_not_called()
+        odlozisce.set.assert_not_called()
 
     def test_zgornja_meja(self):
         izid, odlozisce = self._kopiraj("x" * (self.os_.NAJVEC_KOPIJE + 500))
         self.assertTrue(izid)
-        self.assertEqual(len(odlozisce.set_text.call_args[0][0]), self.os_.NAJVEC_KOPIJE)
+        self.assertEqual(len(odlozisce.set.call_args[0][0]), self.os_.NAJVEC_KOPIJE)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 """Safeer OS in Safeer Control v enem procesu (core/en_proces.py, 12. 10. 2026)."""
 import os
+import sys
 import subprocess
 import tempfile
 import threading
@@ -126,7 +127,7 @@ class SpletOb(unittest.TestCase):
             def clear(self, *a):
                 self.klici.append(a)
 
-        class Kontekst:
+        class Seja:     # WebKitGTK 6.0: podatki so na NetworkSession
             def get_website_data_manager(self):
                 return Upr()
 
@@ -134,7 +135,7 @@ class SpletOb(unittest.TestCase):
             class WebsiteDataTypes:
                 MEMORY_CACHE = 1
         splet = os_splet.VdelaniSplet.__new__(os_splet.VdelaniSplet)
-        splet.kontekst, splet.WebKit2, splet.zavihki = Kontekst(), W, ["a", "b"]
+        splet.seja, splet.WebKit2, splet.zavihki = Seja(), W, ["a", "b"]
         self.assertTrue(splet.sprazni_predpomnilnik())
         self.assertEqual(Upr.klici[0][0], 1)
         self.assertEqual(splet.zavihki, ["a", "b"])
@@ -147,7 +148,7 @@ class DrugaAplikacija(unittest.TestCase):
         koda = ("import os, sys; os.environ['SAFEER_CONTROL_VGRAJEN']='1'; sys.path.insert(0, %r); "
                 "import safeer_control as c; from gi.repository import Gio, Gtk; "
                 "print(issubclass(c.SafeerControl, Gtk.Application), issubclass(c.SafeerControl, Gio.Application))" % KOREN)
-        izid = subprocess.run(["python3", "-c", koda], capture_output=True, text=True, timeout=60)
+        izid = subprocess.run([sys.executable, "-c", koda], capture_output=True, text=True, timeout=60)
         self.assertEqual(izid.stdout.strip().splitlines()[-1], "False True", izid.stderr[-500:])
         with open(os.path.join(KOREN, "safeer_control.py"), encoding="utf-8") as f:
             s = f.read()

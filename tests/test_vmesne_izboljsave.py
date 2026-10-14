@@ -34,9 +34,13 @@ class DvojniEsc(unittest.TestCase):
 
     def test_vgrajeno_v_tipko_spleta(self):
         besedilo = (KOREN / "safeer_os.py").read_text(encoding="utf-8")
-        zacetek = besedilo.index("def _tipka_splet_na_namizju")
+        # GTK4: dvojni Esc ujame kontroler v fazi zajema (pred stranjo); enojni neporabljen Esc gre do bliznjice okna.
+        zacetek = besedilo.index("def _dvojni_esc_splet")
         telo = besedilo[zacetek:besedilo.index("\n    def ", zacetek + 10)]
-        self.assertLess(telo.index("dvojni_esc"), telo.index("propagate_key_event"))
+        self.assertIn("if dvojni_esc(prejsnji, cas):", telo)
+        splet = besedilo[besedilo.index("def _splet_na_namizju"):besedilo.index("def _spremljaj_zaklep")]
+        self.assertIn("_tipke(okno, self._dvojni_esc_splet, zajem=True)", splet)
+        self.assertIn('Gtk.ShortcutTrigger.parse_string("Escape")', splet)
 
 
 class RecikliranjeOmreznega(unittest.TestCase):
@@ -393,5 +397,6 @@ class UpraviteljPredpomnilnika(unittest.TestCase):
             for k in ("predpomnilnik", "pp_disk", "pp_pocisti", "pp_strani", "pp_odstrani", "pp_meja"):
                 self.assertIn(k, besedila(j))
         src = (KOREN / "core/os_splet.py").read_text(encoding="utf-8")
-        self.assertIn('(self._t("predpomnilnik"), lambda *_: self._predpomnilnik())', src)
+        self.assertIn('("predpomnilnik", "predpomnilnik")', src)       # Gio.Menu vnos (GTK4)
+        self.assertIn('"predpomnilnik": lambda: self._predpomnilnik()', src)   # dejanje splet.predpomnilnik
         self.assertIn("self._omeji_predpomnilnik()", src)

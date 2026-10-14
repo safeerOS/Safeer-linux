@@ -107,7 +107,8 @@ def test_stran_ubezi_znake():
 def test_predpomnilnik_strani_vklopljen():
     import inspect
     koda = inspect.getsource(os_splet.VdelaniSplet._nov_pogled)
-    assert "set_enable_page_cache(True)" in koda and "set_enable_page_cache(False)" not in koda
+    # GTK4: nastavitve se nastavijo v zanki (WebKitGTK 6.0 je nekatere odstranil)
+    assert '("enable_page_cache", True)' in koda and '("enable_page_cache", False)' not in koda
 
 
 def test_brez_pospesevanja_seznam():

@@ -234,18 +234,19 @@ class Okno(_Lupina):
         vir = beri("safeer_os.py")
         telo = vir[vir.index("def _ustvari_predvajalnik"):vir.index("def _ikona_predvajalnika")]
         self.assertIn('Gtk.ApplicationWindow(application=self, title="Safeer Player")', telo)
-        self.assertIn("okno.set_wmclass(*WMCLASS_PREDVAJALNIKA)", telo)
+        # GTK4 nima set_wmclass: WM_CLASS nastavi core/x11.py ob realizaciji okna.
+        self.assertIn("x11.nastavi_razred(okno, *WMCLASS_PREDVAJALNIKA)", telo)
         self.assertIn('("predvajalnik", "1")', telo)
-        self.assertIn('okno.connect("delete-event", self._zapri_predvajalnik)', telo)
+        self.assertIn('okno.connect("close-request", self._zapri_predvajalnik)', telo)
         self.assertEqual(self.os_.WMCLASS_PREDVAJALNIKA, ("safeer-os.Player", "Safeer Player"))
         # Glavno okno ostane, kot je bilo: ista stran, isto ime za upravitelja oken.
         glavno = vir[vir.index("def _ustvari_okno"):vir.index("def _ustvari_vrstico")]
         self.assertIn('self._nov_pogled("index.html" + ("?namizje=1" if self.namizje else ""))', glavno)
-        self.assertIn('okno.set_wmclass("safeer-os", "Safeer OS")', glavno)
+        self.assertIn('x11.nastavi_razred(okno, "safeer-os", "Safeer OS")', glavno)
         self.assertTrue(os.path.isfile(os.path.join(KOREN, "assets", "os", "predvajalnik.svg")))
         # Okno z videom (domaci predvajalnik) je v pultu v skupini Safeer Player.
-        video = vir[vir.index('okno = Gtk.Window(title="Safeer Player")'):vir.index('okno.get_style_context().add_class("safeer-player")')]
-        self.assertIn("okno.set_wmclass(*WMCLASS_PREDVAJALNIKA)", video)
+        video = vir[vir.index('okno = Gtk.Window(title="Safeer Player")'):vir.index('okno.add_css_class("safeer-player")')]
+        self.assertIn("x11.nastavi_razred(okno, *WMCLASS_PREDVAJALNIKA)", video)
 
     def test_prvo_odprtje_ustvari_okno_z_iskanjem(self):
         lazna = mock.MagicMock()
@@ -256,12 +257,13 @@ class Okno(_Lupina):
 
     def test_odprto_okno_pride_v_ospredje_z_iskanjem_samo_v_svoji_strani(self):
         lazna = mock.MagicMock()
-        with mock.patch.object(self.os_, "Gtk") as gtk, mock.patch.object(self.os_, "GLib"):
-            gtk.get_current_event_time.return_value = 1234
+        povrsina = mock.Mock()
+        with mock.patch.object(self.os_, "_cas_dogodka", return_value=1234), \
+                mock.patch.object(self.os_.x11, "povrsina_x11", return_value=povrsina), mock.patch.object(self.os_, "GLib"):
             self.SafeerOS._odpri_predvajalnik(lazna, "Pink Floyd")
         lazna._ustvari_predvajalnik.assert_not_called()
         # Zaprto ali pomanjsano okno: cas uporabe pred prikazom (present ga tudi razsiri iz pomanjsanega stanja).
-        lazna.okno_predvajalnik.get_window.return_value.set_user_time.assert_called_once_with(1234)
+        povrsina.set_user_time.assert_called_once_with(1234)
         lazna.okno_predvajalnik.present_with_time.assert_called_once_with(1234)
         koda, pogled = lazna._js.call_args.args
         self.assertIs(pogled, lazna.pogled_predvajalnik, "glavno okno ne sme dobiti ukaza za Safeer Player")
@@ -279,14 +281,14 @@ class Okno(_Lupina):
             lazna.okno = mock.Mock() if glavno else None
             okno = mock.Mock()
             self.assertTrue(self.SafeerOS._zapri_predvajalnik(lazna, okno, None))
-            okno.hide.assert_called_once_with()        # predvajanje in vrsta skladb tecejo naprej
+            okno.set_visible.assert_called_once_with(False)   # predvajanje in vrsta skladb tecejo naprej
             lazna._koncaj.assert_not_called()
         lazna = mock.MagicMock()
         lazna.okno_delovna = lazna.okno = None
         okno = mock.Mock()
         self.assertTrue(self.SafeerOS._zapri_predvajalnik(lazna, okno, None))
         lazna._koncaj.assert_called_once_with()         # samostojni Safeer Player se zapre kot vsak predvajalnik
-        okno.hide.assert_not_called()
+        okno.set_visible.assert_not_called()
 
     def test_sistemska_okna_nad_safeer_playerjem(self):
         lazna = mock.MagicMock()
@@ -304,6 +306,7 @@ class Most(_Lupina):
         lazna = mock.MagicMock()
         lazna.pogled, lazna.pogled_predvajalnik = mock.Mock(name="glavni"), mock.Mock(name="predvajalnik")
         lazna._okno_klica = lambda p: self.SafeerOS._okno_klica(lazna, p)
+        lazna._obdelaj_klic = lambda *a: self.SafeerOS._obdelaj_klic(lazna, *a)
         lazna._katalog_most.return_value.pozna.side_effect = lambda m: m in os_katalog.Katalog.METODE
         lazna._katalog_pogled = None
         lazna.SPREMINJAJO_DATOTEKE = self.SafeerOS.SPREMINJAJO_DATOTEKE
@@ -328,13 +331,18 @@ class Most(_Lupina):
                             ("medijskiTok", "_medijski_dodaj_tok")):
             lazna = self._lazna()
             self._klic(lazna, lazna.pogled_predvajalnik, metoda)
-            getattr(lazna, ime).assert_called_once_with(lazna.okno_predvajalnik)
+            # GTK4: izbira je asinhrona - zadnji argument je konec(izid), ki odgovori strani.
+            getattr(lazna, ime).assert_called_once_with(lazna.okno_predvajalnik, mock.ANY)
             lazna = self._lazna()
             self._klic(lazna, lazna.pogled, metoda)
-            getattr(lazna, ime).assert_called_once_with(None)        # glavno okno: kot prej
+            getattr(lazna, ime).assert_called_once_with(None, mock.ANY)        # glavno okno: kot prej
         lazna = self._lazna()
         self._klic(lazna, lazna.pogled_predvajalnik, "magnetIzDatoteke", [True])
-        lazna._magnet_iz_datoteke.assert_called_once_with(True, lazna.okno_predvajalnik)
+        lazna._magnet_iz_datoteke.assert_called_once_with(True, lazna.okno_predvajalnik, mock.ANY)
+        konec = lazna._magnet_iz_datoteke.call_args.args[2]
+        lazna._odgovori.assert_not_called()                      # odgovor pride sele po izbiri
+        konec(True)
+        lazna._odgovori.assert_called_once_with(lazna.pogled_predvajalnik, 7, True, True)
 
     def test_lastnik_vrste_skladb(self):
         lazna = self._lazna()
@@ -559,10 +567,12 @@ class VOspredjeTest(unittest.TestCase):
 
     def test_ponovno_odpiranje_uporabi_cas_streznika_x(self):
         odpri = self.vir[self.vir.index("def _odpri_predvajalnik("):self.vir.index("def _ustvari_predvajalnik(")]
-        self.assertIn("_cas_dogodka(self.okno_predvajalnik)", odpri)
-        self.assertLess(odpri.index("set_user_time(cas)"), odpri.index("present_with_time(cas)"))
+        self.assertIn("_v_ospredje(self.okno_predvajalnik)", odpri)
         self.assertNotIn("get_monotonic_time", odpri)
-        cas = self.vir[self.vir.index("def _cas_dogodka("):self.vir.index("def _podatki_zagona(")]
+        ospredje = self.vir[self.vir.index("def _v_ospredje("):self.vir.index("class _Tipka")]
+        self.assertIn("cas = _cas_dogodka(okno)", ospredje)
+        self.assertLess(ospredje.index("set_user_time(cas)"), ospredje.index("present_with_time(cas)"))
+        cas = self.vir[self.vir.index("def _cas_dogodka("):self.vir.index("def _v_ospredje(")]
         self.assertIn("x11_get_server_time", cas)
         self.assertIn("& 0xFFFFFFFF", cas)
 

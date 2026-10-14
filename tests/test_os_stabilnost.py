@@ -158,18 +158,19 @@ class Okna(unittest.TestCase):
         self.assertEqual(izid.get("seznam"), [])
         self.assertIs(izid.get("dejanje"), False)
 
-    def test_force_update_samo_enkrat(self):
-        """Ponovljeni force_update je bil vzrok sesutja 20. 9. 2026."""
+    def test_brez_libwnck(self):
+        """Ponovljeni force_update v libwnck je bil vzrok sesutja 20. 9. 2026. GTK4: libwnck (GTK3) se sploh ne
+        nalozi vec - seznam oken bere EWMH prek core/x11.py; nobenega objekta knjiznice ni, ki bi ga lahko sprostili."""
         with open(os.path.join(KOREN, "core", "os_okna.py"), encoding="utf-8") as d:
             vir = d.read()
-        klici = [l.strip() for l in vir.splitlines()
-                 if "force_update()" in l and not l.strip().startswith("#") and "_zaslon.force_update()" in l]
-        self.assertEqual(len(klici), 1, "force_update sme biti poklican samo na enem mestu: %s" % klici)
-        self.assertIn("_osvezen", vir, "force_update mora biti zasciten z zastavico")
+        koda = "\n".join(l for l in vir.splitlines() if not l.strip().startswith("#"))
+        self.assertNotIn('require_version("Wnck"', koda)
+        self.assertNotIn("force_update()", koda.split('"""', 2)[-1], "force_update ne sme ostati v kodi")
+        self.assertIn("from core import x11", vir)
         # In v glavnem programu ga ne sme biti vec.
         glavni = open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8").read()
         self.assertNotIn("force_update", glavni)
-        self.assertNotIn("Wnck", glavni, "libwnck se uporablja samo prek core/os_okna.py")
+        self.assertNotIn("Wnck", glavni, "seznam oken samo prek core/os_okna.py")
 
     def test_ikone_oken_se_pocistijo(self):
         mapa = tempfile.mkdtemp(prefix="safeer-ikone-")

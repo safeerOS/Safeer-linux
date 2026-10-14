@@ -9,8 +9,8 @@ Protokol je isti kot na telefonu (vsebina po HTTPS, nadzor pri Hubu):
               POST /cast/share/screen/stop {id}
  - sprejem datoteke: GET <hub>/<path>, preverjen SHA-256, v mapo prenosov.
 
-Vse gre samo po TLS s pripetim odtisom Huba (link_tls). Zajem zaslona: GdkPixbuf iz
-korenskega okna (X11); na Waylandu zajem ni na voljo in to povemo naravnost.
+Vse gre samo po TLS s pripetim odtisom Huba (link_tls). Zajem zaslona: korensko okno X11 prek Xlib (core/x11.py),
+stisnjeno z GdkPixbuf; na Waylandu zajem ni na voljo in to povemo naravnost.
 """
 
 from __future__ import annotations
@@ -570,24 +570,31 @@ class DeljenjeZaslona:
         if os.environ.get("WAYLAND_DISPLAY") and not os.environ.get("DISPLAY"):
             return False, "Zajem zaslona na Waylandu še ni na voljo."
         try:
-            import gi
-            gi.require_version("Gdk", "3.0")
-            from gi.repository import Gdk
-            okno = Gdk.get_default_root_window()
-            if okno is None:
-                return False, "Zaslona ni mogoče zajeti."
+            # Xlib (core/x11.py), ne Gdk: ista pot v procesu GTK3 in GTK4 (Gdk 3 se v GTK4 ne da naloziti).
+            from core import x11
+            p = x11.Povezava()
+            try:
+                if not all(p.velikost_korena()):
+                    return False, "Zaslona ni mogoče zajeti."
+            finally:
+                p.zapri()
             return True, ""
         except Exception as e:  # noqa: BLE001
             return False, f"Zajem zaslona ni na voljo: {e}"
 
-    @staticmethod
-    def _okvir() -> Optional[bytes]:
-        from gi.repository import Gdk, GdkPixbuf
-        okno = Gdk.get_default_root_window()
-        s, v = okno.get_width(), okno.get_height()
-        pb = Gdk.pixbuf_get_from_window(okno, 0, 0, s, v)
-        if pb is None:
+    def _okvir(self) -> Optional[bytes]:
+        """En okvir zaslona kot JPEG. Tece v niti deljenja: ima svojo povezavo z X (ne GDK-jeve)."""
+        import gi
+        gi.require_version("GdkPixbuf", "2.0")
+        from gi.repository import GdkPixbuf, GLib
+        from core import x11
+        if getattr(self, "_x11", None) is None:
+            self._x11 = x11.Povezava()
+        zajem = self._x11.zajemi()
+        if zajem is None:
             return None
+        s, v, rgb = zajem
+        pb = GdkPixbuf.Pixbuf.new_from_bytes(GLib.Bytes.new(rgb), GdkPixbuf.Colorspace.RGB, False, 8, s, v, s * 3)
         if max(s, v) > NAJVEC_PX:
             if s >= v:
                 ns, nv = NAJVEC_PX, max(1, int(v * NAJVEC_PX / s))
@@ -596,6 +603,14 @@ class DeljenjeZaslona:
             pb = pb.scale_simple(ns, nv, GdkPixbuf.InterpType.BILINEAR)
         ok, podatki = pb.save_to_bufferv("jpeg", ["quality"], [str(KAKOVOST_JPEG)])
         return bytes(podatki) if ok else None
+
+    def _zapri_x11(self) -> None:
+        p, self._x11 = getattr(self, "_x11", None), None
+        if p is not None:
+            try:
+                p.zapri()
+            except Exception:  # noqa: BLE001
+                pass
 
     def _tok(self) -> None:
         vticnik = None
@@ -672,6 +687,7 @@ class DeljenjeZaslona:
                     self.napaka = f"Deljenje zaslona je padlo: {e}"
         finally:
             self.tece = False
+            self._zapri_x11()
             if vticnik is not None:
                 try:
                     vticnik.close()

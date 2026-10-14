@@ -43,20 +43,27 @@ def test_preslikava_tipk_in_sumnikov():
     assert preslikaj_tipko("ccaron", "č", False) is None
 
 
-def test_cevovod_ima_h264_caps_in_gtk3_ponor():
-    cevovod = niz_cevovoda("gtksink")
+def test_cevovod_ima_h264_caps_in_gtk4_ponor():
+    cevovod = niz_cevovoda("gtk4paintablesink")
     assert "appsrc name=vir is-live=true format=time" in cevovod
     assert "video/x-h264" in cevovod
     assert "stream-format=(string)byte-stream" in cevovod
     assert "alignment=(string)au" in cevovod
-    assert "! h264parse ! avdec_h264 ! videoconvert ! gtksink name=ponor sync=false" in cevovod
+    assert "! h264parse ! avdec_h264 ! videoconvert ! gtk4paintablesink name=ponor sync=false" in cevovod
+    # appsink: slike BGRA za Gdk.MemoryTexture, vedno samo zadnja.
+    assert ("! videoconvert ! video/x-raw,format=BGRA ! appsink name=ponor sync=false max-buffers=1 drop=true"
+            in niz_cevovoda("appsink"))
+    # gtksink je GTK3: v procesu GTK4 ga ne smemo naloziti.
+    with pytest.raises(NapakaGledalca):
+        niz_cevovoda("gtksink")
 
 
-def test_izbira_ponora_daje_prednost_gtk3_in_pozna_zasilnega():
-    assert izberi_ponor(lambda ime: ime in {"gtksink", "glimagesink"}) == "gtksink"
-    assert izberi_ponor(lambda ime: ime == "glimagesink") == "glimagesink"
-    with pytest.raises(NapakaGledalca, match="gtksink in glimagesink"):
-        izberi_ponor(lambda _ime: False)
+def test_izbira_ponora_daje_prednost_gtk4_in_pozna_zasilna():
+    assert izberi_ponor(lambda ime: ime in {"gtk4paintablesink", "appsink", "glimagesink", "gtksink"}) == "gtk4paintablesink"
+    assert izberi_ponor(lambda ime: ime in {"appsink", "glimagesink", "gtksink"}) == "appsink"
+    assert izberi_ponor(lambda ime: ime in {"glimagesink", "gtksink"}) == "glimagesink"
+    with pytest.raises(NapakaGledalca, match="gtk4paintablesink, appsink in glimagesink"):
+        izberi_ponor(lambda ime: ime == "gtksink")
 
 
 def test_preslikava_tocke_izpusti_crne_robove():

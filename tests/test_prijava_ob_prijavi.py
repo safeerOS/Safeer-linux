@@ -97,7 +97,7 @@ class PrijavnoOknoObPrijavi(unittest.TestCase):
         telo = vir.split("def odpri_safeer_os(self)", 1)[1].split("\n    def ", 1)[0]
         vgrajen = telo.index("if VGRAJEN:")
         self.assertLess(vgrajen, telo.index("subprocess.Popen"))
-        self.assertIn("self.link.okno.hide()", telo[vgrajen:telo.index("subprocess.Popen")])
+        self.assertIn("self.link.okno.set_visible(False)", telo[vgrajen:telo.index("subprocess.Popen")])   # GTK4: hide()
 
 
 if __name__ == "__main__":

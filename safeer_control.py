@@ -43,10 +43,13 @@ pomnilnik.omeji_arene(2)
 
 import gi  # noqa: E402
 
-gi.require_version("Gtk", "3.0")
-gi.require_version("Gdk", "3.0")
-gi.require_version("WebKit2", "4.1")
-from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+gi.require_version("WebKit", "6.0")
+from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
+# WebKitGTK 6.0 (GTK4): ime WebKit2 ostane, ker ga pomozne funkcije (pomnilnik, odlozisce_varuh, os_stabilnost) dobijo
+# kot parameter in znajo oba API-ja.
+from gi.repository import WebKit as WebKit2  # noqa: E402
 
 from core import link_daljinec, link_datoteke, link_deljenje, link_hub, link_programi, link_sway, link_tls, link_zaslon, link_zvok  # noqa: E402
 from core import budnost, odlozisce_varuh, os_posodobitve, os_stabilnost  # noqa: E402
@@ -54,7 +57,7 @@ from core import link_internet, link_internet_posrednik, sistemski_posrednik  # 
 from core.link_gledalec import (Gledalec, OKVIR_OBVESTILO, OKVIR_SLIKA,  # noqa: E402
                                 izberi_ponor, niz_cevovoda, preslikaj_tipko,
                                 preslikaj_tocko)
-from core.safeer_link import SafeerLink  # noqa: E402
+from core.safeer_link import SafeerLink, _js_vrednost, _obmocje_zaslona, _vprasaj  # noqa: E402
 pomnilnik.tlak_omrezja(WebKit2, 160)   # pred prvim pogledom (v procesu Safeer OS je ze nastavljeno)
 
 APP_ID = "io.github.memelandfaner.SafeerControl"
@@ -68,12 +71,12 @@ SAMOZAGON_POT = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduse
 
 # Besedila pladnja v jezikih vmesnika (isti nabor kot Safeer Browser).
 BESEDILA = {
-    "sl": {"posodobi": "Posodobi: {opis} …", "posodobi_prenasam": "Prenašam {ime} …", "posodobi_namescam": "Nameščam … (vpiši geslo, če te sistem vpraša)", "posodobi_koncano": "Nameščeno: {opis}. Nova različica se zažene ob naslednjem zagonu.", "posodobi_napaka": "Posodobitev ni uspela: {napaka}", "posodobi_naslov": "Posodobitev Safeer", "locen_namesti": "Namesti ločen zaslon za televizor …", "locen_posodobi": "Posodobi wf-recorder za ločen zaslon …", "locen_ni": "Ločen zaslon za televizor: wf-recorder je prestar", "locen_vprasanje": "Za ločen zaslon za televizor Safeer Control potrebuje pakete: {paketi}. Programi, ki jih zaženeš s televizorja, se bodo odprli na svojem zaslonu in ne bodo motili tvojega namizja.\n\nNamestim jih zdaj? Sistem te bo vprašal za geslo.", "locen_uspeh": "Ločen zaslon za televizor je pripravljen.", "locen_napaka": "Namestitev ni uspela. Programi s televizorja se še naprej odpirajo na namizju.", "locen_gumb": "Namesti", "odpri": "Odpri Safeer Control", "samozagon": "Zaženi ob prijavi", "mape": "Mape za televizor …", "programi": "Programi za televizor", "ves_disk": "Ves računalnik za televizor", "zaslon": "Zaslon za televizor", "predvajanje": "Predvajanje za druge naprave", "ponudba_naslov": "Pošlji na napravo", "ponudba": "{naprava} ti pošilja: {kaj}", "sprejmi": "Sprejmi", "zavrni": "Zavrni", "koncaj": "Končaj", "povezan": "Safeer Link: povezan", "ni": "Safeer Link: ni povezave"},
-    "en": {"posodobi": "Update: {opis}…", "posodobi_prenasam": "Downloading {ime}…", "posodobi_namescam": "Installing… (enter your password if the system asks)", "posodobi_koncano": "Installed: {opis}. The new version starts with the next launch.", "posodobi_napaka": "The update did not go through: {napaka}", "posodobi_naslov": "Safeer update", "locen_namesti": "Install the separate TV screen…", "locen_posodobi": "Update wf-recorder for the separate TV screen…", "locen_ni": "Separate TV screen: wf-recorder is too old", "locen_vprasanje": "For the separate TV screen Safeer Control needs these packages: {paketi}. Programs you start from the TV will open on their own screen and will not disturb your desktop.\n\nInstall them now? The system will ask for your password.", "locen_uspeh": "The separate TV screen is ready.", "locen_napaka": "Installation failed. Programs from the TV keep opening on your desktop.", "locen_gumb": "Install", "odpri": "Open Safeer Control", "samozagon": "Start at login", "mape": "Folders for the TV…", "programi": "Apps for the TV", "ves_disk": "Whole computer for the TV", "zaslon": "Screen for the TV", "predvajanje": "Playback for other devices", "ponudba_naslov": "Send to device", "ponudba": "{naprava} is sending you: {kaj}", "sprejmi": "Accept", "zavrni": "Decline", "koncaj": "Quit", "povezan": "Safeer Link: connected", "ni": "Safeer Link: not connected"},
-    "de": {"posodobi": "Aktualisieren: {opis} …", "posodobi_prenasam": "Lade {ime} herunter …", "posodobi_namescam": "Installiere … (gib dein Passwort ein, wenn das System fragt)", "posodobi_koncano": "Installiert: {opis}. Die neue Version startet beim nächsten Start.", "posodobi_napaka": "Das Update hat nicht geklappt: {napaka}", "posodobi_naslov": "Safeer-Update", "locen_namesti": "Separaten Bildschirm für den Fernseher installieren …", "locen_posodobi": "wf-recorder für den separaten Bildschirm aktualisieren …", "locen_ni": "Separater Bildschirm: wf-recorder ist zu alt", "locen_vprasanje": "Für den separaten Bildschirm braucht Safeer Control diese Pakete: {paketi}. Programme, die du vom Fernseher startest, öffnen sich auf einem eigenen Bildschirm und stören deinen Desktop nicht.\n\nJetzt installieren? Das System fragt nach deinem Passwort.", "locen_uspeh": "Der separate Bildschirm für den Fernseher ist bereit.", "locen_napaka": "Die Installation ist fehlgeschlagen. Programme vom Fernseher öffnen sich weiter auf dem Desktop.", "locen_gumb": "Installieren", "odpri": "Safeer Control öffnen", "samozagon": "Beim Anmelden starten", "mape": "Ordner für den Fernseher …", "programi": "Programme für den Fernseher", "ves_disk": "Ganzer Computer für den Fernseher", "zaslon": "Bildschirm für den Fernseher", "predvajanje": "Wiedergabe für andere Geräte", "ponudba_naslov": "An Gerät senden", "ponudba": "{naprava} sendet dir: {kaj}", "sprejmi": "Annehmen", "zavrni": "Ablehnen", "koncaj": "Beenden", "povezan": "Safeer Link: verbunden", "ni": "Safeer Link: nicht verbunden"},
-    "es": {"posodobi": "Actualizar: {opis}…", "posodobi_prenasam": "Descargando {ime}…", "posodobi_namescam": "Instalando… (escribe tu contraseña si el sistema la pide)", "posodobi_koncano": "Instalado: {opis}. La versión nueva arranca con el próximo inicio.", "posodobi_napaka": "La actualización no se completó: {napaka}", "posodobi_naslov": "Actualización de Safeer", "locen_namesti": "Instalar la pantalla separada para el televisor…", "locen_posodobi": "Actualizar wf-recorder para la pantalla separada…", "locen_ni": "Pantalla separada: wf-recorder es demasiado antiguo", "locen_vprasanje": "Para la pantalla separada Safeer Control necesita estos paquetes: {paketi}. Los programas que abras desde el televisor se abrirán en su propia pantalla y no molestarán tu escritorio.\n\n¿Instalarlos ahora? El sistema te pedirá la contraseña.", "locen_uspeh": "La pantalla separada para el televisor está lista.", "locen_napaka": "La instalación ha fallado. Los programas del televisor seguirán abriéndose en el escritorio.", "locen_gumb": "Instalar", "odpri": "Abrir Safeer Control", "samozagon": "Iniciar al iniciar sesión", "mape": "Carpetas para el televisor…", "programi": "Programas para el televisor", "ves_disk": "Todo el ordenador para el televisor", "zaslon": "Pantalla para el televisor", "predvajanje": "Reproducción para otros dispositivos", "ponudba_naslov": "Enviar a un dispositivo", "ponudba": "{naprava} te envía: {kaj}", "sprejmi": "Aceptar", "zavrni": "Rechazar", "koncaj": "Salir", "povezan": "Safeer Link: conectado", "ni": "Safeer Link: sin conexión"},
-    "fr": {"posodobi": "Mettre à jour : {opis}…", "posodobi_prenasam": "Téléchargement de {ime}…", "posodobi_namescam": "Installation… (saisis ton mot de passe si le système le demande)", "posodobi_koncano": "Installé : {opis}. La nouvelle version démarre au prochain lancement.", "posodobi_napaka": "La mise à jour n'a pas abouti : {napaka}", "posodobi_naslov": "Mise à jour Safeer", "locen_namesti": "Installer l'écran séparé pour le téléviseur…", "locen_posodobi": "Mettre à jour wf-recorder pour l'écran séparé…", "locen_ni": "Écran séparé : wf-recorder est trop ancien", "locen_vprasanje": "Pour l'écran séparé, Safeer Control a besoin de ces paquets : {paketi}. Les programmes lancés depuis le téléviseur s'ouvriront sur leur propre écran sans déranger ton bureau.\n\nLes installer maintenant ? Le système te demandera ton mot de passe.", "locen_uspeh": "L'écran séparé pour le téléviseur est prêt.", "locen_napaka": "L'installation a échoué. Les programmes du téléviseur continuent de s'ouvrir sur le bureau.", "locen_gumb": "Installer", "odpri": "Ouvrir Safeer Control", "samozagon": "Lancer à la connexion", "mape": "Dossiers pour le téléviseur…", "programi": "Programmes pour le téléviseur", "ves_disk": "Tout l'ordinateur pour le téléviseur", "zaslon": "Écran pour le téléviseur", "predvajanje": "Lecture pour les autres appareils", "ponudba_naslov": "Envoyer à un appareil", "ponudba": "{naprava} t'envoie : {kaj}", "sprejmi": "Accepter", "zavrni": "Refuser", "koncaj": "Quitter", "povezan": "Safeer Link : connecté", "ni": "Safeer Link : non connecté"},
-    "it": {"posodobi": "Aggiorna: {opis}…", "posodobi_prenasam": "Scarico {ime}…", "posodobi_namescam": "Installo… (inserisci la password se il sistema la chiede)", "posodobi_koncano": "Installato: {opis}. La nuova versione parte al prossimo avvio.", "posodobi_napaka": "L'aggiornamento non è riuscito: {napaka}", "posodobi_naslov": "Aggiornamento Safeer", "locen_namesti": "Installa lo schermo separato per il televisore…", "locen_posodobi": "Aggiorna wf-recorder per lo schermo separato…", "locen_ni": "Schermo separato: wf-recorder è troppo vecchio", "locen_vprasanje": "Per lo schermo separato Safeer Control ha bisogno di questi pacchetti: {paketi}. I programmi avviati dal televisore si apriranno su un proprio schermo senza disturbare il tuo desktop.\n\nInstallarli ora? Il sistema ti chiederà la password.", "locen_uspeh": "Lo schermo separato per il televisore è pronto.", "locen_napaka": "L'installazione non è riuscita. I programmi dal televisore continuano ad aprirsi sul desktop.", "locen_gumb": "Installa", "odpri": "Apri Safeer Control", "samozagon": "Avvia all’accesso", "mape": "Cartelle per il televisore…", "programi": "Programmi per il televisore", "ves_disk": "Tutto il computer per il televisore", "zaslon": "Schermo per il televisore", "predvajanje": "Riproduzione per gli altri dispositivi", "ponudba_naslov": "Invia a un dispositivo", "ponudba": "{naprava} ti invia: {kaj}", "sprejmi": "Accetta", "zavrni": "Rifiuta", "koncaj": "Esci", "povezan": "Safeer Link: connesso", "ni": "Safeer Link: non connesso"},
+    "sl": {"preklici": "Prekliči", "posodobi": "Posodobi: {opis} …", "posodobi_prenasam": "Prenašam {ime} …", "posodobi_namescam": "Nameščam … (vpiši geslo, če te sistem vpraša)", "posodobi_koncano": "Nameščeno: {opis}. Nova različica se zažene ob naslednjem zagonu.", "posodobi_napaka": "Posodobitev ni uspela: {napaka}", "posodobi_naslov": "Posodobitev Safeer", "locen_namesti": "Namesti ločen zaslon za televizor …", "locen_posodobi": "Posodobi wf-recorder za ločen zaslon …", "locen_ni": "Ločen zaslon za televizor: wf-recorder je prestar", "locen_vprasanje": "Za ločen zaslon za televizor Safeer Control potrebuje pakete: {paketi}. Programi, ki jih zaženeš s televizorja, se bodo odprli na svojem zaslonu in ne bodo motili tvojega namizja.\n\nNamestim jih zdaj? Sistem te bo vprašal za geslo.", "locen_uspeh": "Ločen zaslon za televizor je pripravljen.", "locen_napaka": "Namestitev ni uspela. Programi s televizorja se še naprej odpirajo na namizju.", "locen_gumb": "Namesti", "odpri": "Odpri Safeer Control", "samozagon": "Zaženi ob prijavi", "mape": "Mape za televizor …", "programi": "Programi za televizor", "ves_disk": "Ves računalnik za televizor", "zaslon": "Zaslon za televizor", "predvajanje": "Predvajanje za druge naprave", "ponudba_naslov": "Pošlji na napravo", "ponudba": "{naprava} ti pošilja: {kaj}", "sprejmi": "Sprejmi", "zavrni": "Zavrni", "koncaj": "Končaj", "povezan": "Safeer Link: povezan", "ni": "Safeer Link: ni povezave"},
+    "en": {"preklici": "Cancel", "posodobi": "Update: {opis}…", "posodobi_prenasam": "Downloading {ime}…", "posodobi_namescam": "Installing… (enter your password if the system asks)", "posodobi_koncano": "Installed: {opis}. The new version starts with the next launch.", "posodobi_napaka": "The update did not go through: {napaka}", "posodobi_naslov": "Safeer update", "locen_namesti": "Install the separate TV screen…", "locen_posodobi": "Update wf-recorder for the separate TV screen…", "locen_ni": "Separate TV screen: wf-recorder is too old", "locen_vprasanje": "For the separate TV screen Safeer Control needs these packages: {paketi}. Programs you start from the TV will open on their own screen and will not disturb your desktop.\n\nInstall them now? The system will ask for your password.", "locen_uspeh": "The separate TV screen is ready.", "locen_napaka": "Installation failed. Programs from the TV keep opening on your desktop.", "locen_gumb": "Install", "odpri": "Open Safeer Control", "samozagon": "Start at login", "mape": "Folders for the TV…", "programi": "Apps for the TV", "ves_disk": "Whole computer for the TV", "zaslon": "Screen for the TV", "predvajanje": "Playback for other devices", "ponudba_naslov": "Send to device", "ponudba": "{naprava} is sending you: {kaj}", "sprejmi": "Accept", "zavrni": "Decline", "koncaj": "Quit", "povezan": "Safeer Link: connected", "ni": "Safeer Link: not connected"},
+    "de": {"preklici": "Abbrechen", "posodobi": "Aktualisieren: {opis} …", "posodobi_prenasam": "Lade {ime} herunter …", "posodobi_namescam": "Installiere … (gib dein Passwort ein, wenn das System fragt)", "posodobi_koncano": "Installiert: {opis}. Die neue Version startet beim nächsten Start.", "posodobi_napaka": "Das Update hat nicht geklappt: {napaka}", "posodobi_naslov": "Safeer-Update", "locen_namesti": "Separaten Bildschirm für den Fernseher installieren …", "locen_posodobi": "wf-recorder für den separaten Bildschirm aktualisieren …", "locen_ni": "Separater Bildschirm: wf-recorder ist zu alt", "locen_vprasanje": "Für den separaten Bildschirm braucht Safeer Control diese Pakete: {paketi}. Programme, die du vom Fernseher startest, öffnen sich auf einem eigenen Bildschirm und stören deinen Desktop nicht.\n\nJetzt installieren? Das System fragt nach deinem Passwort.", "locen_uspeh": "Der separate Bildschirm für den Fernseher ist bereit.", "locen_napaka": "Die Installation ist fehlgeschlagen. Programme vom Fernseher öffnen sich weiter auf dem Desktop.", "locen_gumb": "Installieren", "odpri": "Safeer Control öffnen", "samozagon": "Beim Anmelden starten", "mape": "Ordner für den Fernseher …", "programi": "Programme für den Fernseher", "ves_disk": "Ganzer Computer für den Fernseher", "zaslon": "Bildschirm für den Fernseher", "predvajanje": "Wiedergabe für andere Geräte", "ponudba_naslov": "An Gerät senden", "ponudba": "{naprava} sendet dir: {kaj}", "sprejmi": "Annehmen", "zavrni": "Ablehnen", "koncaj": "Beenden", "povezan": "Safeer Link: verbunden", "ni": "Safeer Link: nicht verbunden"},
+    "es": {"preklici": "Cancelar", "posodobi": "Actualizar: {opis}…", "posodobi_prenasam": "Descargando {ime}…", "posodobi_namescam": "Instalando… (escribe tu contraseña si el sistema la pide)", "posodobi_koncano": "Instalado: {opis}. La versión nueva arranca con el próximo inicio.", "posodobi_napaka": "La actualización no se completó: {napaka}", "posodobi_naslov": "Actualización de Safeer", "locen_namesti": "Instalar la pantalla separada para el televisor…", "locen_posodobi": "Actualizar wf-recorder para la pantalla separada…", "locen_ni": "Pantalla separada: wf-recorder es demasiado antiguo", "locen_vprasanje": "Para la pantalla separada Safeer Control necesita estos paquetes: {paketi}. Los programas que abras desde el televisor se abrirán en su propia pantalla y no molestarán tu escritorio.\n\n¿Instalarlos ahora? El sistema te pedirá la contraseña.", "locen_uspeh": "La pantalla separada para el televisor está lista.", "locen_napaka": "La instalación ha fallado. Los programas del televisor seguirán abriéndose en el escritorio.", "locen_gumb": "Instalar", "odpri": "Abrir Safeer Control", "samozagon": "Iniciar al iniciar sesión", "mape": "Carpetas para el televisor…", "programi": "Programas para el televisor", "ves_disk": "Todo el ordenador para el televisor", "zaslon": "Pantalla para el televisor", "predvajanje": "Reproducción para otros dispositivos", "ponudba_naslov": "Enviar a un dispositivo", "ponudba": "{naprava} te envía: {kaj}", "sprejmi": "Aceptar", "zavrni": "Rechazar", "koncaj": "Salir", "povezan": "Safeer Link: conectado", "ni": "Safeer Link: sin conexión"},
+    "fr": {"preklici": "Annuler", "posodobi": "Mettre à jour : {opis}…", "posodobi_prenasam": "Téléchargement de {ime}…", "posodobi_namescam": "Installation… (saisis ton mot de passe si le système le demande)", "posodobi_koncano": "Installé : {opis}. La nouvelle version démarre au prochain lancement.", "posodobi_napaka": "La mise à jour n'a pas abouti : {napaka}", "posodobi_naslov": "Mise à jour Safeer", "locen_namesti": "Installer l'écran séparé pour le téléviseur…", "locen_posodobi": "Mettre à jour wf-recorder pour l'écran séparé…", "locen_ni": "Écran séparé : wf-recorder est trop ancien", "locen_vprasanje": "Pour l'écran séparé, Safeer Control a besoin de ces paquets : {paketi}. Les programmes lancés depuis le téléviseur s'ouvriront sur leur propre écran sans déranger ton bureau.\n\nLes installer maintenant ? Le système te demandera ton mot de passe.", "locen_uspeh": "L'écran séparé pour le téléviseur est prêt.", "locen_napaka": "L'installation a échoué. Les programmes du téléviseur continuent de s'ouvrir sur le bureau.", "locen_gumb": "Installer", "odpri": "Ouvrir Safeer Control", "samozagon": "Lancer à la connexion", "mape": "Dossiers pour le téléviseur…", "programi": "Programmes pour le téléviseur", "ves_disk": "Tout l'ordinateur pour le téléviseur", "zaslon": "Écran pour le téléviseur", "predvajanje": "Lecture pour les autres appareils", "ponudba_naslov": "Envoyer à un appareil", "ponudba": "{naprava} t'envoie : {kaj}", "sprejmi": "Accepter", "zavrni": "Refuser", "koncaj": "Quitter", "povezan": "Safeer Link : connecté", "ni": "Safeer Link : non connecté"},
+    "it": {"preklici": "Annulla", "posodobi": "Aggiorna: {opis}…", "posodobi_prenasam": "Scarico {ime}…", "posodobi_namescam": "Installo… (inserisci la password se il sistema la chiede)", "posodobi_koncano": "Installato: {opis}. La nuova versione parte al prossimo avvio.", "posodobi_napaka": "L'aggiornamento non è riuscito: {napaka}", "posodobi_naslov": "Aggiornamento Safeer", "locen_namesti": "Installa lo schermo separato per il televisore…", "locen_posodobi": "Aggiorna wf-recorder per lo schermo separato…", "locen_ni": "Schermo separato: wf-recorder è troppo vecchio", "locen_vprasanje": "Per lo schermo separato Safeer Control ha bisogno di questi pacchetti: {paketi}. I programmi avviati dal televisore si apriranno su un proprio schermo senza disturbare il tuo desktop.\n\nInstallarli ora? Il sistema ti chiederà la password.", "locen_uspeh": "Lo schermo separato per il televisore è pronto.", "locen_napaka": "L'installazione non è riuscita. I programmi dal televisore continuano ad aprirsi sul desktop.", "locen_gumb": "Installa", "odpri": "Apri Safeer Control", "samozagon": "Avvia all’accesso", "mape": "Cartelle per il televisore…", "programi": "Programmi per il televisore", "ves_disk": "Tutto il computer per il televisore", "zaslon": "Schermo per il televisore", "predvajanje": "Riproduzione per gli altri dispositivi", "ponudba_naslov": "Invia a un dispositivo", "ponudba": "{naprava} ti invia: {kaj}", "sprejmi": "Accetta", "zavrni": "Rifiuta", "koncaj": "Esci", "povezan": "Safeer Link: connesso", "ni": "Safeer Link: non connesso"},
 }
 
 
@@ -245,98 +248,82 @@ def shutil_which(ime: str) -> Optional[str]:
 
 
 class Pladenj:
-    """Ikona v pladnju: XApp.StatusIcon (Linux Mint/Cinnamon), sicer Gtk.StatusIcon."""
+    """Ikona v pladnju: StatusNotifierItem z menijem dbusmenu (core/pladenj_sni.py). GTK4 nima Gtk.StatusIcon,
+    XApp.StatusIcon pa potrebuje GTK3; Linux Mint ikone SNI kaze prek xapp-sn-watcher."""
 
     def __init__(self, app: "SafeerControl") -> None:
+        from core.pladenj_sni import Pladenj as PladenjSni, Postavka
         self.app = app
         self.jezik = app.nastavitve.get("ui_language")
-        self.meni = Gtk.Menu()
-        self.odpri = Gtk.MenuItem(label=besedilo(self.jezik, "odpri"))
+        self.odpri = Postavka(besedilo(self.jezik, "odpri"))
         self.odpri.connect("activate", lambda *_a: app.pokazi_okno())
-        self.samozagon = Gtk.CheckMenuItem(label=besedilo(self.jezik, "samozagon"))
+        self.samozagon = Postavka(besedilo(self.jezik, "samozagon"), preklop=True)
         self.samozagon.set_active(Samozagon.je_vklopljen())
         self._preklop_id = self.samozagon.connect("toggled", self._preklop)
-        self.mape = Gtk.MenuItem(label=besedilo(self.jezik, "mape"))
+        self.mape = Postavka(besedilo(self.jezik, "mape"))
         self.mape.connect("activate", lambda *_a: app.izberi_mape())
         # Programi za televizor: privzeto izklopljeno; uporabnik vklopi tu in kadarkoli izklopi.
-        self.programi = Gtk.CheckMenuItem(label=besedilo(self.jezik, "programi"))
+        self.programi = Postavka(besedilo(self.jezik, "programi"), preklop=True)
         self.programi.set_active(bool(app.programi.vklopljeno))
         self._programi_id = self.programi.connect("toggled", self._preklop_programi)
         # Brskanje po celem racunalniku: privzeto izklopljeno. Vklopljeno pomeni, da televizor
         # vidi domaco mapo in koren diska, ne le izbranih map - zato je locena, zavestna izbira.
-        self.ves_disk = Gtk.CheckMenuItem(label=besedilo(self.jezik, "ves_disk"))
+        self.ves_disk = Postavka(besedilo(self.jezik, "ves_disk"), preklop=True)
         self.ves_disk.set_active(bool(app.datoteke.mape.ves_disk))
         self._ves_disk_id = self.ves_disk.connect("toggled", self._preklop_ves_disk)
         # Zaslon racunalnika na televizorju: privzeto izklopljeno, vklopi ga uporabnik tu.
-        self.zaslon = Gtk.CheckMenuItem(label=besedilo(self.jezik, "zaslon"))
+        self.zaslon = Postavka(besedilo(self.jezik, "zaslon"), preklop=True)
         self.zaslon.set_active(bool(app.zaslon.vklopljeno))
         self._zaslon_id = self.zaslon.connect("toggled", self._preklop_zaslon)
         # »Nadaljuj z druge naprave«: telefon sme vprasati, kaj Safeer OS tu predvaja, in nadaljevati pri isti
         # sekundi. Privzeto vklopljeno (gre samo napravam v krogu zaupanja, datoteke le iz deljenih map).
-        self.predvajanje = Gtk.CheckMenuItem(label=besedilo(self.jezik, "predvajanje"))
+        self.predvajanje = Postavka(besedilo(self.jezik, "predvajanje"), preklop=True)
         self.predvajanje.set_active(bool(app.nastavitve.get("predvajanje_za_naprave", True)))
         self._predvajanje_id = self.predvajanje.connect("toggled", self._preklop_predvajanje)
         # Posodobitev s safeer.si: postavka se pokaze samo, kadar je na voljo novejsa razlicica (preverba na 6 ur).
-        self.posodobi = Gtk.MenuItem(label="")
+        self.posodobi = Postavka("")
         self.posodobi.connect("activate", lambda *_a: app.posodobi_iz_pladnja())
         # Locen zaslon za televizor: postavka se pokaze samo, kadar kaj manjka ali je prestaro.
-        self.locen = Gtk.MenuItem(label="")
+        self.locen = Postavka("")
         self.locen.connect("activate", lambda *_a: app.namesti_locen_zaslon())
-        self.koncaj = Gtk.MenuItem(label=besedilo(self.jezik, "koncaj"))
+        self.koncaj = Postavka(besedilo(self.jezik, "koncaj"))
         self.koncaj.connect("activate", lambda *_a: app.koncaj())
-        for m in (self.odpri, self.posodobi, self.mape, self.ves_disk, self.programi, self.zaslon, self.predvajanje, self.locen, Gtk.SeparatorMenuItem(),
-                  self.samozagon, Gtk.SeparatorMenuItem(), self.koncaj):
-            self.meni.append(m)
-        self.meni.show_all()
+        postavke = [self.odpri, self.posodobi, self.mape, self.ves_disk, self.programi, self.zaslon, self.predvajanje,
+                    self.locen, Postavka(locilo=True), self.samozagon, Postavka(locilo=True), self.koncaj]
         self.osvezi_locen()
         self.osvezi_posodobitev()
         self.ikona = None
-        self.xapp = None
         ikona = "safeer-control"
         try:
-            if not Gtk.IconTheme.get_default().has_icon(ikona):
+            if not Gtk.IconTheme.get_for_display(Gdk.Display.get_default()).has_icon(ikona):
                 ikona = os.path.join(KOREN, "assets", "icon.png")  # zagon iz izvorne kode brez namescene teme
         except Exception:
             pass
         try:
-            gi.require_version("XApp", "1.0")
-            from gi.repository import XApp  # noqa: WPS433
-            self.xapp = XApp.StatusIcon()
-            self.xapp.set_icon_name(ikona)
-            self.xapp.set_name("safeer-control")
-            self.xapp.set_secondary_menu(self.meni)
-            self.xapp.connect("activate", lambda *_a: app.pokazi_okno())
-        except Exception:
-            self.ikona = Gtk.StatusIcon()
-            if os.path.isabs(ikona):
-                self.ikona.set_from_file(ikona)
-            else:
-                self.ikona.set_from_icon_name(ikona)
-            self.ikona.set_title("Safeer Control")
-            self.ikona.connect("activate", lambda *_a: app.pokazi_okno())
-            self.ikona.connect("popup-menu", lambda ikona, gumb, cas: self.meni.popup(None, None, Gtk.StatusIcon.position_menu, ikona, gumb, cas))
+            self.ikona = PladenjSni("safeer-control", "Safeer Control", ikona, postavke,
+                                    ob_aktivaciji=app.pokazi_okno)
+        except Exception as e:  # noqa: BLE001 - brez seje D-Bus ni pladnja; Link tece naprej
+            print("[SafeerControl] Pladenj:", e)
         self.stanje(False)
 
     def stanje(self, povezan: bool) -> None:
         napis = besedilo(self.jezik, "povezan" if povezan else "ni")
         try:
-            if self.xapp is not None:
-                self.xapp.set_tooltip_text(napis)
-            elif self.ikona is not None:
-                self.ikona.set_tooltip_text(napis)
+            if self.ikona is not None:
+                self.ikona.nastavi_namig(napis)
         except Exception:
             pass
 
-    def _preklop_programi(self, postavka: Gtk.CheckMenuItem) -> None:
+    def _preklop_programi(self, postavka) -> None:
         self.app.nastavi_programe(bool(postavka.get_active()))
 
-    def _preklop_ves_disk(self, postavka: Gtk.CheckMenuItem) -> None:
+    def _preklop_ves_disk(self, postavka) -> None:
         self.app.nastavi_ves_disk(bool(postavka.get_active()))
 
-    def _preklop_zaslon(self, postavka: Gtk.CheckMenuItem) -> None:
+    def _preklop_zaslon(self, postavka) -> None:
         self.app.nastavi_zaslon(bool(postavka.get_active()))
 
-    def _preklop_predvajanje(self, postavka: Gtk.CheckMenuItem) -> None:
+    def _preklop_predvajanje(self, postavka) -> None:
         self.app.nastavitve.set("predvajanje_za_naprave", bool(postavka.get_active()))
 
     def osvezi_posodobitev(self) -> None:
@@ -401,8 +388,63 @@ def naprave_konca_gledanja(prikazana: str, gledana: str) -> list:
     return [naprava for naprava in dict.fromkeys((str(prikazana or ""), str(gledana or ""))) if naprava]
 
 
+class _Dogodek:
+    """Polja dogodka iz krmilnikov GTK4 z istimi imeni kot Gdk.Event* v GTK3 (x, y, button, keyval, state)."""
+
+    def __init__(self, **polja) -> None:
+        self.__dict__.update(polja)
+
+
+class X11:
+    """Okna GTK4 na X11 (core/x11.py): GTK4 nima set_keep_above, move, set_type_hint ne set_skip_*_hint - to so
+    lastnosti X in sporocila upravljalniku oken (EWMH). Na Waylandu ne naredi nicesar."""
+
+    @staticmethod
+    def _poslji_nad_vsemi(okno) -> bool:
+        from core import x11
+        p, xid = x11.povezava(), x11.xid(okno)
+        if p is not None and xid:
+            p.sporocilo(xid, "_NET_WM_STATE", 1 if getattr(okno, "_safeer_nad_vsemi", False) else 0,
+                        p.atom("_NET_WM_STATE_ABOVE"), 0, 1)
+            p.poslji()
+        return False
+
+    @classmethod
+    def nad_vsemi(cls, okno, da: bool) -> None:
+        """GTK3 set_keep_above: ob vsakem prikazu okna (GTK ob preslikavi na novo zapise _NET_WM_STATE) in se enkrat
+        cez 300 ms - okno je morda ravno prikazano in ga upravljalnik oken se ne upravlja (sporocilo bi prezrl)."""
+        okno._safeer_nad_vsemi = bool(da)
+        if not getattr(okno, "_safeer_nad_vsemi_ob_prikazu", False):
+            okno._safeer_nad_vsemi_ob_prikazu = True
+            okno.connect("map", cls._poslji_nad_vsemi)
+        cls._poslji_nad_vsemi(okno)
+        GLib.timeout_add(300, cls._poslji_nad_vsemi, okno)
+
+    @staticmethod
+    def obvestilo(okno) -> None:
+        """GTK3 set_type_hint(NOTIFICATION) + set_keep_above + set_skip_taskbar/pager_hint: vrsta »obvestilo« (ne
+        vzame fokusa) pred prvim prikazom, stanja ob prikazu."""
+        from core import x11
+        p = x11.povezava()
+        if p is None:
+            return
+
+        def vrsta(xid: int) -> None:
+            p.nastavi_stevila(xid, "_NET_WM_WINDOW_TYPE", p.atom("ATOM"), [p.atom("_NET_WM_WINDOW_TYPE_NOTIFICATION")])
+            p.poslji()
+        x11.ob_realizaciji(okno, vrsta)
+        x11.nastavi_preskoci(okno, True, True)
+        X11.nad_vsemi(okno, True)
+
+    @staticmethod
+    def premakni(okno, x: int, y: int) -> None:
+        """GTK3 move()."""
+        from core import x11
+        x11.premakni(okno, x, y)
+
+
 class OddaljeniGledalec(Gtk.Window):
-    """GTK3 gledalec H.264, ki tece v istem procesu kot Safeer Control."""
+    """GTK4 gledalec H.264, ki tece v istem procesu kot Safeer Control."""
 
     def __init__(self, control, id_naprave: str, podatki: dict) -> None:
         super().__init__(title="Oddaljeni zaslon - " + str(podatki.get("ime") or "racunalnik"))
@@ -417,30 +459,30 @@ class OddaljeniGledalec(Gtk.Window):
         self.prejsnja_tocka = None
         self.sirina_slike = 1920
         self.visina_slike = 1080
+        self._slika = None              # zadnja slika iz appsink (sirina, visina, bajti), ki caka na glavno nit
+        self._slika_caka = False
+        self._kazalec = None            # zadnji polozaj kazalca nad sliko (za kolesce)
         self.set_default_size(1200, 760)
 
         prekrivnik = Gtk.Overlay()
-        self.add(prekrivnik)
-        self.dogodki = Gtk.EventBox()
-        self.dogodki.set_visible_window(False)
-        self.dogodki.set_above_child(True)
-        self.dogodki.set_can_focus(True)
-        self.dogodki.add_events(
-            Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.LEAVE_NOTIFY_MASK |
-            Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK |
-            Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.KEY_PRESS_MASK | Gdk.EventMask.KEY_RELEASE_MASK)
-        prekrivnik.add(self.dogodki)
+        self.set_child(prekrivnik)
+        # Vsebnik slike prejme miško, kolesce in tipke (v GTK3 EventBox nad sliko).
+        self.dogodki = Gtk.Box()
+        self.dogodki.set_hexpand(True)
+        self.dogodki.set_vexpand(True)
+        self.dogodki.set_focusable(True)
+        prekrivnik.set_child(self.dogodki)
 
         self.stanje = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.stanje.set_halign(Gtk.Align.CENTER)
         self.stanje.set_valign(Gtk.Align.CENTER)
         self.napis = Gtk.Label(label="Povezujem ...")
-        self.napis.set_line_wrap(True)
+        self.napis.set_wrap(True)
         self.ponovno = Gtk.Button(label="Povezi znova")
-        self.ponovno.set_no_show_all(True)
+        self.ponovno.set_visible(False)
         self.ponovno.connect("clicked", self._ponovi)
-        self.stanje.pack_start(self.napis, False, False, 0)
-        self.stanje.pack_start(self.ponovno, False, False, 0)
+        self.stanje.append(self.napis)
+        self.stanje.append(self.ponovno)
         prekrivnik.add_overlay(self.stanje)
 
         celo = Gtk.Button(label="Celozaslonsko")
@@ -451,15 +493,24 @@ class OddaljeniGledalec(Gtk.Window):
         celo.connect("clicked", self._celo)
         prekrivnik.add_overlay(celo)
 
-        self.dogodki.connect("motion-notify-event", self._premik)
-        self.dogodki.connect("leave-notify-event", self._izhod_miske)
-        self.dogodki.connect("button-press-event", self._klik, True)
-        self.dogodki.connect("button-release-event", self._klik, False)
-        self.dogodki.connect("scroll-event", self._kolo)
-        self.dogodki.connect("key-press-event", self._tipka, True)
-        self.dogodki.connect("key-release-event", self._tipka, False)
-        self.connect("delete-event", self._zahteva_zaprtje)
-        self.show_all()
+        premik = Gtk.EventControllerMotion()
+        premik.connect("motion", lambda _k, x, y: self._premik(None, _Dogodek(x=x, y=y)))
+        premik.connect("enter", lambda _k, x, y: setattr(self, "_kazalec", (x, y)))
+        premik.connect("leave", lambda *_a: self._izhod_miske())
+        self.dogodki.add_controller(premik)
+        klik = Gtk.GestureClick()
+        klik.set_button(0)              # vsi gumbi
+        klik.connect("pressed", lambda g, _n, x, y: self._klik(None, _Dogodek(x=x, y=y, button=g.get_current_button()), True))
+        klik.connect("released", lambda g, _n, x, y: self._klik(None, _Dogodek(x=x, y=y, button=g.get_current_button()), False))
+        self.dogodki.add_controller(klik)
+        kolo = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.BOTH_AXES)
+        kolo.connect("scroll", self._kolo)
+        self.dogodki.add_controller(kolo)
+        tipke = Gtk.EventControllerKey()
+        tipke.connect("key-pressed", lambda _k, keyval, _koda, stanje: self._tipka(None, _Dogodek(keyval=keyval, state=stanje), True))
+        tipke.connect("key-released", lambda _k, keyval, _koda, stanje: self._tipka(None, _Dogodek(keyval=keyval, state=stanje), False))
+        self.dogodki.add_controller(tipke)
+        self.connect("close-request", self._zahteva_zaprtje)
         self._zacni(podatki)
 
     @staticmethod
@@ -471,7 +522,7 @@ class OddaljeniGledalec(Gtk.Window):
         return Gst
 
     def _celo(self, *_a) -> None:
-        if self.get_window() is not None and self.get_window().get_state() & Gdk.WindowState.FULLSCREEN:
+        if self.is_fullscreen():
             self.unfullscreen()
         else:
             self.fullscreen()
@@ -480,16 +531,19 @@ class OddaljeniGledalec(Gtk.Window):
         if self.zaprto:
             return False
         self.napis.set_text(sporocilo or "Povezava je bila prekinjena.")
-        self.ponovno.show()
-        self.stanje.show_all()
+        self.ponovno.set_visible(True)
+        self.stanje.set_visible(True)
         return False
 
     def _zamenjaj_vsebino(self, widget) -> None:
-        otrok = self.dogodki.get_child()
-        if otrok is not None:
+        otrok = self.dogodki.get_first_child()
+        while otrok is not None:
+            naslednji = otrok.get_next_sibling()
             self.dogodki.remove(otrok)
-        self.dogodki.add(widget)
-        widget.show()
+            otrok = naslednji
+        widget.set_hexpand(True)
+        widget.set_vexpand(True)
+        self.dogodki.append(widget)
 
     def _pripravi_pipeline(self) -> None:
         self.Gst = self._nalozi_gstreamer()
@@ -498,16 +552,21 @@ class OddaljeniGledalec(Gtk.Window):
         self.pipeline = Gst.parse_launch(niz_cevovoda(self.ponor_ime))
         self.appsrc = self.pipeline.get_by_name("vir")
         ponor = self.pipeline.get_by_name("ponor")
-        if self.ponor_ime == "gtksink":
-            self._zamenjaj_vsebino(ponor.props.widget)
+        if self.ponor_ime == "gtk4paintablesink":
+            self._zamenjaj_vsebino(Gtk.Picture.new_for_paintable(ponor.get_property("paintable")))
+        elif self.ponor_ime == "appsink":
+            # Brez gtk4paintablesink (paket gstreamer1.0-gtk4): slike iz appsink kot Gdk.MemoryTexture v istem oknu.
+            self.slika = Gtk.Picture()
+            self._zamenjaj_vsebino(self.slika)
+            ponor.connect("new-sample", self._nova_slika)
         else:
             prazno = Gtk.DrawingArea()
             self._zamenjaj_vsebino(prazno)
             if ponor.find_property("handle-events") is not None:
                 ponor.set_property("handle-events", True)
-            self.napis.set_text("Paket gtksink ni na voljo. Slika je odprta v locenem oknu glimagesink.")
-            self.stanje.show_all()
-            print("[SafeerControl] gtksink ni na voljo; uporabljam glimagesink v locenem oknu.")
+            self.napis.set_text("Paket gtk4paintablesink ni na voljo. Slika je odprta v locenem oknu glimagesink.")
+            self.stanje.set_visible(True)
+            print("[SafeerControl] gtk4paintablesink ni na voljo; uporabljam glimagesink v locenem oknu.")
             podloga = ponor.get_static_pad("sink")
             if podloga is not None:
                 podloga.add_probe(Gst.PadProbeType.EVENT_UPSTREAM, self._navigacijski_dogodek)
@@ -517,15 +576,44 @@ class OddaljeniGledalec(Gtk.Window):
         if self.pipeline.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
             raise RuntimeError("GStreamer cevovoda ni mogel zagnati.")
 
+    def _nova_slika(self, ponor):
+        """Nit GStreamerja: zadnjo sliko shranimo, narise jo glavna nit (najvec ena caka, starejse odpadejo)."""
+        Gst = self.Gst
+        vzorec = ponor.emit("pull-sample")
+        if vzorec is None:
+            return Gst.FlowReturn.OK
+        struktura = vzorec.get_caps().get_structure(0)
+        medpomnilnik = vzorec.get_buffer()
+        ok, podatki = medpomnilnik.map(Gst.MapFlags.READ)
+        if not ok:
+            return Gst.FlowReturn.OK
+        try:
+            self._slika = (struktura.get_value("width"), struktura.get_value("height"), bytes(podatki.data))
+        finally:
+            medpomnilnik.unmap(podatki)
+        if not self._slika_caka:
+            self._slika_caka = True
+            GLib.idle_add(self._narisi_sliko)
+        return Gst.FlowReturn.OK
+
+    def _narisi_sliko(self) -> bool:
+        self._slika_caka = False
+        slika, self._slika = self._slika, None
+        if slika is None or self.zaprto:
+            return False
+        sirina, visina, bajti = slika
+        self.slika.set_paintable(Gdk.MemoryTexture.new(sirina, visina, Gdk.MemoryFormat.B8G8R8A8,
+                                                       GLib.Bytes.new(bajti), sirina * 4))
+        return False
+
     def _gst_napaka(self, _vodilo, sporocilo) -> None:
         napaka, _podrobnosti = sporocilo.parse_error()
         GLib.idle_add(self._pokazi_napako, "GStreamer: " + str(napaka))
 
     def _zacni(self, podatki: dict) -> None:
         self.napis.set_text("Povezujem ...")
-        self.ponovno.hide()
-        self.stanje.show_all()
-        self.ponovno.hide()
+        self.ponovno.set_visible(False)
+        self.stanje.set_visible(True)
         self._ustavi_pretok()
         try:
             self._pripravi_pipeline()
@@ -563,8 +651,8 @@ class OddaljeniGledalec(Gtk.Window):
         threading.Thread(target=delo, name="safeer-gledalec", daemon=True).start()
 
     def _povezano(self) -> bool:
-        if self.ponor_ime == "gtksink":
-            self.stanje.hide()
+        if self.ponor_ime != "glimagesink":
+            self.stanje.set_visible(False)
         self.dogodki.grab_focus()
         return False
 
@@ -580,9 +668,9 @@ class OddaljeniGledalec(Gtk.Window):
             self.appsrc = None
 
     def _ponovi(self, *_a) -> None:
-        self.ponovno.hide()
+        self.ponovno.set_visible(False)
         self.napis.set_text("Pridobivam novo dovoljenje ...")
-        self.stanje.show()
+        self.stanje.set_visible(True)
 
         def delo() -> None:
             try:
@@ -605,13 +693,13 @@ class OddaljeniGledalec(Gtk.Window):
                 pass
 
     def _tocka(self, x: float, y: float):
-        razpored = self.dogodki.get_allocation()
-        return preslikaj_tocko(x, y, razpored.width, razpored.height,
+        return preslikaj_tocko(x, y, self.dogodki.get_width(), self.dogodki.get_height(),
                                self.sirina_slike, self.visina_slike)
 
     def _premik(self, _widget, dogodek) -> bool:
         # Absolutni polozaj (kot Windows gledalec): oddaljeni kazalec je vedno tam, kamor kaze nas.
         # Relativni premiki so se razlezli (pospesek miske na drugi strani, skok ob vstopu v okno).
+        self._kazalec = (dogodek.x, dogodek.y)
         tocka = self._tocka(dogodek.x, dogodek.y)
         if tocka is not None and tocka != self.prejsnja_tocka:
             self._poslji({"vrsta": "tocka", "x": round(tocka[0]), "y": round(tocka[1])})
@@ -620,6 +708,7 @@ class OddaljeniGledalec(Gtk.Window):
 
     def _izhod_miske(self, *_a) -> bool:
         self.prejsnja_tocka = None
+        self._kazalec = None
         return False
 
     def _klik(self, _widget, dogodek, dol: bool) -> bool:
@@ -635,18 +724,21 @@ class OddaljeniGledalec(Gtk.Window):
             self._poslji({"vrsta": "gumb", "gumb": gumb, "dol": dol})
         return True
 
-    def _kolo(self, _widget, dogodek) -> bool:
-        if self._tocka(dogodek.x, dogodek.y) is None:
+    def _kolo(self, krmilnik, dx: float, dy: float) -> bool:
+        # Krmilnik kolesca v GTK4 nima polozaja: velja zadnji polozaj kazalca nad sliko (krmilnik gibanja).
+        if self._kazalec is not None and self._tocka(*self._kazalec) is None:
             return True
-        if dogodek.direction == Gdk.ScrollDirection.SMOOTH:
-            _uspeh, _dx, dy = dogodek.get_scroll_deltas()
-            if not dy:
-                return True
-            smer = "dol" if dy > 0 else "gor"
-            koliko = min(10, max(1, round(abs(dy)) or 1))
-        else:
-            smer = "dol" if dogodek.direction in (Gdk.ScrollDirection.DOWN, Gdk.ScrollDirection.RIGHT) else "gor"
-            koliko = 1
+        kolesce = True
+        try:
+            kolesce = krmilnik.get_unit() == Gdk.ScrollUnit.WHEEL
+        except Exception:  # noqa: BLE001 - GTK pred 4.8
+            pass
+        if not dy and kolesce:
+            dy = dx                      # vodoravno kolesce: desno = dol, levo = gor (kot v GTK3)
+        if not dy:
+            return True
+        smer = "dol" if dy > 0 else "gor"
+        koliko = min(10, max(1, round(abs(dy)) or 1))
         self._poslji({"vrsta": "kolesce", "smer": smer, "koliko": koliko})
         return True
 
@@ -1262,7 +1354,7 @@ class SafeerControl(_OSNOVA):
             self.link._povezi_naprave()        # prej izbral »brez povezave«: spet prijavno okno
         self.pokazi_okno()
         if self.link.okno is not None:
-            self.link.okno.set_keep_above(True)
+            X11.nad_vsemi(self.link.okno, True)
             self.link.okno.present()
 
     def nova_naprava(self) -> None:
@@ -1371,7 +1463,7 @@ class SafeerControl(_OSNOVA):
 
         def nazaj():
             if self.link is not None and self.link.okno is not None:
-                self.link.okno.set_keep_above(False)
+                X11.nad_vsemi(self.link.okno, False)
             self.odpri_safeer_os()
             return False
         GLib.timeout_add(2500, nazaj)      # »Prijavljeno« ostane vidno, nato nazaj v Safeer OS
@@ -1414,15 +1506,11 @@ class SafeerControl(_OSNOVA):
         if not ukaz:
             return
         jezik = self.nastavitve.get("ui_language")
-        vprasanje = Gtk.MessageDialog(message_type=Gtk.MessageType.QUESTION, buttons=Gtk.ButtonsType.CANCEL,
-                                      text="Safeer Control")
-        vprasanje.format_secondary_text(besedilo(jezik, "locen_vprasanje").format(
-            paketi=", ".join(link_sway.paketi_za_namestitev(s))))
-        vprasanje.add_button(besedilo(jezik, "locen_gumb"), Gtk.ResponseType.OK)
-        odgovor = vprasanje.run()
-        vprasanje.destroy()
-        if odgovor != Gtk.ResponseType.OK:
-            return
+
+        # GTK4 nima Dialog.run(): vprasamo asinhrono (Gtk.AlertDialog), namestitev zacne odgovor.
+        def odgovor(i: int) -> None:
+            if i == 1:
+                threading.Thread(target=tece, name="safeer-namestitev", daemon=True).start()
 
         def tece() -> None:
             try:
@@ -1437,19 +1525,17 @@ class SafeerControl(_OSNOVA):
                 self.drugi_zaslon = link_sway.DrugiZaslon()
                 self.programi.drugi = self.drugi_zaslon
                 self.zaslon.drugi = self.drugi_zaslon
-                sporocilo, vrsta = besedilo(jezik, "locen_uspeh"), Gtk.MessageType.INFO
+                sporocilo = besedilo(jezik, "locen_uspeh")
             else:
-                sporocilo, vrsta = besedilo(jezik, "locen_napaka"), Gtk.MessageType.WARNING
-            okno = Gtk.MessageDialog(message_type=vrsta, buttons=Gtk.ButtonsType.OK, text="Safeer Control")
-            okno.format_secondary_text(sporocilo)
-            okno.run()
-            okno.destroy()
+                sporocilo = besedilo(jezik, "locen_napaka")
+            _vprasaj(None, "Safeer Control", sporocilo, ["OK"])
             if self.pladenj is not None:
                 self.pladenj.osvezi_locen()
             return False
 
-        import threading
-        threading.Thread(target=tece, name="safeer-namestitev", daemon=True).start()
+        _vprasaj(None, "Safeer Control",
+                 besedilo(jezik, "locen_vprasanje").format(paketi=", ".join(link_sway.paketi_za_namestitev(s))),
+                 [besedilo(jezik, "preklici"), besedilo(jezik, "locen_gumb")], odgovor, preklic=0)
 
     def nastavi_ves_disk(self, vklopljeno: bool) -> None:
         """Televizor sme (ali ne sme vec) brskati po celem racunalniku, ne le po izbranih mapah.
@@ -1559,46 +1645,51 @@ class SafeerControl(_OSNOVA):
             ime = str(p.get("od_ime") or "")
             if self.link is not None:
                 ime = next((str(n.get("ime") or "") for n in self.link.naprave if n.get("id") == p.get("od")), "") or ime
-            okno = Gtk.Window(type=Gtk.WindowType.TOPLEVEL, title=besedilo(jezik, "ponudba_naslov"))
+            okno = Gtk.Window(title=besedilo(jezik, "ponudba_naslov"))
             okno.set_decorated(False)
-            okno.set_type_hint(Gdk.WindowTypeHint.NOTIFICATION)
-            okno.set_keep_above(True)
-            okno.set_accept_focus(False)
-            okno.set_skip_taskbar_hint(True)
-            okno.set_skip_pager_hint(True)
             okno.set_resizable(False)
-            okno.set_border_width(14)
-            okno.get_style_context().add_class("safeer-pasica")
+            okno.add_css_class("safeer-pasica")
+            # GTK4 nima set_type_hint/set_keep_above/set_skip_*_hint/set_accept_focus: upravljalniku oken povemo prek
+            # X11 (vrsta »obvestilo« ne vzame fokusa).
+            X11.obvestilo(okno)
             css = Gtk.CssProvider()
-            css.load_from_data(b"""
+            css.load_from_string("""
                 window.safeer-pasica { background: #0f1a26; color: #f0f4f3; border: 1px solid #26364a; border-radius: 12px; }
                 window.safeer-pasica label { color: #f0f4f3; }
                 window.safeer-pasica button { background: #152129; color: #f0f4f3; border: 1px solid #26364a; border-radius: 10px; padding: 6px 14px; }
                 window.safeer-pasica button:hover { border-color: #57d6ad; }
             """)
-            Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
             skatla = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            for stran in ("set_margin_start", "set_margin_end", "set_margin_top", "set_margin_bottom"):
+                getattr(skatla, stran)(14)          # prej set_border_width(14)
             napis = Gtk.Label(label=besedilo(jezik, "ponudba").format(naprava=ime or p.get("od", ""), kaj=link_predvajanje.opis_ponudbe(p)))
-            napis.set_line_wrap(True)
+            napis.set_wrap(True)
             napis.set_max_width_chars(44)
             napis.set_xalign(0)
-            skatla.pack_start(napis, True, True, 0)
+            napis.set_hexpand(True)
+            skatla.append(napis)
             sprejmi = Gtk.Button(label=besedilo(jezik, "sprejmi"))
             sprejmi.connect("clicked", lambda *_a: (self._umakni_pasico(), self.predaja_sprejmi()))
             zavrni = Gtk.Button(label=besedilo(jezik, "zavrni"))
             zavrni.connect("clicked", lambda *_a: (self._umakni_pasico(), self.predaja_zavrni()))
-            skatla.pack_start(sprejmi, False, False, 0)
-            skatla.pack_start(zavrni, False, False, 0)
-            okno.add(skatla)
-            okno.show_all()
-            # Spodnji desni kot glavnega zaslona (nad pultom): okno je ze narisano, zato poznamo njegovo velikost.
-            try:
-                zaslon = Gdk.Display.get_default()
-                g = (zaslon.get_primary_monitor() or zaslon.get_monitor(0)).get_workarea()
-                sirina, visina = okno.get_size()
-                okno.move(g.x + g.width - sirina - 24, g.y + g.height - visina - 24)
-            except Exception:  # noqa: BLE001
-                pass
+            for gumb in (sprejmi, zavrni):
+                gumb.set_valign(Gtk.Align.CENTER)
+                skatla.append(gumb)
+            okno.set_child(skatla)
+
+            # Spodnji desni kot glavnega zaslona (nad pultom): ko je okno prikazano, poznamo njegovo velikost.
+            def v_kot(*_a) -> bool:
+                try:
+                    g = _obmocje_zaslona()
+                    sirina, visina = okno.get_width(), okno.get_height()
+                    if g is not None and sirina > 0:
+                        X11.premakni(okno, g.x + g.width - sirina - 24, g.y + g.height - visina - 24)
+                except Exception:  # noqa: BLE001
+                    pass
+                return False
+            okno.connect("map", lambda *_a: GLib.idle_add(v_kot))
+            okno.present()
             self._pasica_ponudbe = okno
             GLib.timeout_add_seconds(self.PASICA_S, lambda: (self._umakni_pasico(okno), False)[1])
         except Exception as e:  # noqa: BLE001
@@ -1671,12 +1762,12 @@ class SafeerControl(_OSNOVA):
         gre v pladenj. Dokler Safeer OS za racunalnik ni namescen, to okno to posteno pove."""
         self._iz_os = False
         if self.link is not None and self.link.okno is not None:
-            self.link.okno.set_keep_above(False)
+            X11.nad_vsemi(self.link.okno, False)
         if VGRAJEN:
             # Control tece v procesu Safeer OS (delovna povrsina ali okno): Safeer OS je ze odprt. Novega zagona ne
             # potrebujemo - ta bi na delovni povrsini odprl se celo lupino. Prijavno okno se samo umakne.
             if self.link is not None and self.link.okno is not None:
-                self.link.okno.hide()
+                self.link.okno.set_visible(False)
             return
         ukaz = None
         pot = shutil_which("safeer-os")
@@ -1700,9 +1791,9 @@ class SafeerControl(_OSNOVA):
         if self.link is not None and self.link.okno is not None:
             # S pladnjem se okno umakne tja; brez njega (zagon iz menija) ga le pomanjsamo, da ne izgine.
             if getattr(self, "pladenj", None) is not None:
-                self.link.okno.hide()
+                self.link.okno.set_visible(False)
             else:
-                self.link.okno.iconify()
+                self.link.okno.minimize()
 
     def pokazi_okno(self) -> None:
         if self.link is None:
@@ -1751,16 +1842,16 @@ class SafeerControl(_OSNOVA):
         jezik = self.nastavitve.get("ui_language")
         okno = Gtk.Window(title=besedilo(jezik, "posodobi_naslov"))
         okno.set_default_size(420, 120)
-        okno.set_border_width(16)
-        okno.set_position(Gtk.WindowPosition.CENTER)
         skatla = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        for stran in ("set_margin_start", "set_margin_end", "set_margin_top", "set_margin_bottom"):
+            getattr(skatla, stran)(16)              # prej set_border_width(16)
         napis = Gtk.Label(label=besedilo(jezik, "posodobi_prenasam").replace("{ime}", ""), xalign=0)
-        napis.set_line_wrap(True)
+        napis.set_wrap(True)
         vrstica = Gtk.ProgressBar()
-        skatla.pack_start(napis, False, False, 0)
-        skatla.pack_start(vrstica, False, False, 0)
-        okno.add(skatla)
-        okno.show_all()
+        skatla.append(napis)
+        skatla.append(vrstica)
+        okno.set_child(skatla)
+        okno.present()                              # GTK4 polozaja ne doloca: na sredino ga postavi upravljalnik oken
 
         def delo(p: os_posodobitve.Posodabljanje) -> None:
             mapa = os.path.join(GLib.get_user_cache_dir(), "safeer-control", "posodobitve")
@@ -1851,7 +1942,8 @@ class SafeerControl(_OSNOVA):
     def dovoli_potrdilo(self, pem: str, gostitelj: str) -> None:
         try:
             potrdilo = Gio.TlsCertificate.new_from_pem(pem, -1)
-            self.web_context.allow_tls_certificate_for_host(potrdilo, gostitelj)
+            # WebKitGTK 6.0: izjeme potrdil so na NetworkSession (vsi pogledi Controla uporabljajo privzeto).
+            WebKit2.NetworkSession.get_default().allow_tls_certificate_for_host(potrdilo, gostitelj)
         except Exception as e:  # noqa: BLE001
             print(f"[SafeerControl] Potrdila Huba ni bilo mogoče dovoliti: {e}")
 
@@ -1985,7 +2077,7 @@ class SafeerControl(_OSNOVA):
         zna (Safeer Vnos na tablici), jo iz tega okna upravljas z misko in tipkovnico."""
         if self.gledalec is None:
             upravitelj = WebKit2.UserContentManager()
-            upravitelj.register_script_message_handler("safeerVnos")
+            upravitelj.register_script_message_handler("safeerVnos", None)   # WebKitGTK 6.0: (ime, svet)
             upravitelj.connect("script-message-received::safeerVnos", self._vnos_iz_gledalca)
             upravitelj.add_script(WebKit2.UserScript(
                 self.GLEDALEC_VNOS_JS,
@@ -2000,7 +2092,7 @@ class SafeerControl(_OSNOVA):
             nastavitve.set_property("enable-developer-extras", False)
             okno = Gtk.Window(title="Safeer Control — zaslon")
             okno.set_default_size(960, 600)
-            okno.add(pogled)
+            okno.set_child(pogled)
 
             def zaprto(*_a):
                 # Uporabnik je okno zaprl sam: self.gledalec je še to okno. Kadar deljenje konča naprava,
@@ -2009,11 +2101,13 @@ class SafeerControl(_OSNOVA):
                 self.gledalec = None
                 if uporabnik:
                     self._konec_gledanja()
-            okno.connect("destroy", zaprto)
+            # GTK4 sporoci »destroy« sele, ko okna nihce vec ne drzi (self.gledalec ga drzi): uporabnikovo zaprtje
+            # ujamemo ob close-request; _zapri_gledalca okno unici neposredno (brez sporocila napravi).
+            okno.connect("close-request", lambda *_a: (zaprto(), False)[1])
             self._dodaj_okno(okno)
             self.gledalec = okno
             self._vnos_nastavitve_odprte = False
-            okno.show_all()
+            okno.present()
             if self.link is not None:
                 self.link.ob_odzivu_vnosa = self._odziv_vnosa
         pogled = self.gledalec.get_child()
@@ -2080,7 +2174,7 @@ class SafeerControl(_OSNOVA):
     def _vnos_iz_gledalca(self, _upravitelj, rezultat) -> None:
         """Dotik/tipka iz okna gledalca -> ukaz input.* napravi, katere zaslon gledamo."""
         try:
-            sporocilo = json.loads(rezultat.get_js_value().to_string())
+            sporocilo = json.loads(_js_vrednost(rezultat).to_string())
             dejanje = str(sporocilo.get("d", ""))
             parametri = sporocilo.get("p") if isinstance(sporocilo.get("p"), dict) else {}
         except Exception:
@@ -2105,16 +2199,15 @@ class SafeerControl(_OSNOVA):
             return
         if okno is None or w <= 0 or h <= 0:
             return
-        zaslon = okno.get_display().get_monitor_at_window(okno.get_window()) if okno.get_window() else None
-        g = zaslon.get_workarea() if zaslon is not None else None
+        g = _obmocje_zaslona(okno)
         if g is None:
             return
         rob_zgoraj = 40      # naslovna vrstica okna
         najvecja_v, najvecja_s = int(g.height * 0.94) - rob_zgoraj, int(g.width * 0.94)
         merilo = min(najvecja_v / h, najvecja_s / w)
         nova_s, nova_v = max(320, int(w * merilo)), max(240, int(h * merilo))
-        okno.resize(nova_s, nova_v + 0)
-        okno.move(g.x + (g.width - nova_s) // 2, g.y + max(0, (g.height - nova_v - rob_zgoraj) // 2))
+        okno.set_default_size(nova_s, nova_v)       # GTK4: resize -> set_default_size (velja tudi za prikazano okno)
+        X11.premakni(okno, g.x + (g.width - nova_s) // 2, g.y + max(0, (g.height - nova_v - rob_zgoraj) // 2))
 
     def _odziv_vnosa(self, odziv: dict) -> None:
         """Naprava vnosa ne sprejme: v naslovu okna povemo, kaj naj uporabnik naredi (enkrat)."""

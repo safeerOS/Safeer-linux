@@ -102,10 +102,12 @@ class VgradnjaYoutubeTests(unittest.TestCase):
         with open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8") as f:
             okno = f.read()
         pogled = okno[okno.index("def _ustvari_medijski_pogled"):okno.index("def _katalog_youtube(")]
-        self.assertIn('register_script_message_handler("safeerSkladba")', pogled)
+        self.assertIn('_registriraj_most(upravitelj, "safeerSkladba")', pogled)
         self.assertNotIn('"safeerOs"', pogled)
-        self.assertIn("set_sandbox_enabled(True)", pogled)
-        self.assertIn("new_ephemeral()", pogled)
+        # WebKitGTK 6.0: peskovnik je vedno vklopljen (ni set_sandbox_enabled); svoj WebContext = svoj spletni proces,
+        # zacasni podatki na zacasni seji.
+        self.assertIn("kontekst = WebKit2.WebContext()", pogled)
+        self.assertIn("WebKit2.NetworkSession.new_ephemeral()", pogled)
 
 
 class _LazniMc:

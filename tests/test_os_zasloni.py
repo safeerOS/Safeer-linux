@@ -22,9 +22,11 @@ class Zasloni(unittest.TestCase):
         self.vir = _vir()
 
     def test_poslusa_obe_spremembi_zaslona(self):
-        """Zamenjan zaslon in spremenjena locljivost sta dva razlicna signala; potrebujemo oba."""
-        self.assertIn('"monitors-changed"', self.vir)
-        self.assertIn('"size-changed"', self.vir)
+        """Zamenjan zaslon in spremenjena locljivost sta dva razlicna signala; potrebujemo oba.
+        GTK4 (ni Gdk.Screen): seznam zaslonov (items-changed) in geometrija vsakega zaslona (notify::geometry)."""
+        self.assertIn('"items-changed"', self.vir)
+        self.assertIn('"notify::geometry"', self.vir)
+        self.assertIn("self._ob_spremembi_zaslonov(self._zaslon_spremenjen)", self.vir)
 
     def test_spremembe_zdruzimo(self):
         """Menjava zaslona sprozi rafal dogodkov: prilagodimo se enkrat, ne pri vsakem."""
@@ -35,10 +37,11 @@ class Zasloni(unittest.TestCase):
         """Prilagoditev mora premakniti IN raztegniti oboje - sicer ostane eno od njiju napacno."""
         zacetek = self.vir.index("def _prilagodi_zaslonu")
         telo = self.vir[zacetek:self.vir.index("def _rezerviraj", zacetek)]
-        self.assertIn("self.vrstica.move(g.x, g.y + g.height - VISINA_VRSTICE)", telo)
-        self.assertIn("self.vrstica.resize(g.width, VISINA_VRSTICE)", telo)
-        self.assertIn("self.okno.move(g.x, g.y)", telo)
-        self.assertIn("self.okno.resize(g.width, g.height - VISINA_VRSTICE)", telo)
+        # GTK4 nima move/resize: polozaj prek core/x11.py (XMoveWindow), velikost s set_default_size.
+        self.assertIn("x11.premakni(self.vrstica, g.x, g.y + g.height - VISINA_VRSTICE)", telo)
+        self.assertIn("self.vrstica.set_default_size(g.width, VISINA_VRSTICE)", telo)
+        self.assertIn("x11.premakni(self.okno, g.x, g.y)", telo)
+        self.assertIn("self.okno.set_default_size(g.width, g.height - VISINA_VRSTICE)", telo)
 
     def test_rezervacija_roba_gre_znova(self):
         """_NET_WM_STRUT je izracunan iz velikosti zaslona: po menjavi mora biti postavljen znova,

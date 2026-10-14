@@ -31,6 +31,21 @@ def _izvedi_js(pogled, koda: str) -> None:
         pogled.run_javascript(koda, None, None, None)
 
 
+def _gdk_webkit():
+    """(Gdk, WebKit, gtk4) v razlicici, ki jo je program ze izbral: Safeer Browser GTK3 + WebKit2GTK 4.1, Safeer OS
+    in Control GTK4 + WebKitGTK 6.0 (en proces ne sme naloziti obeh)."""
+    import gi
+    if gi.get_required_version("Gtk") == "3.0":
+        gi.require_version("Gdk", "3.0")
+        gi.require_version("WebKit2", "4.1")
+        from gi.repository import Gdk, WebKit2
+        return Gdk, WebKit2, False
+    gi.require_version("Gdk", "4.0")
+    gi.require_version("WebKit", "6.0")
+    from gi.repository import Gdk, WebKit
+    return Gdk, WebKit, True
+
+
 ZMOZNOST = "remote"
 
 DEJANJA = ["key", "scroll", "open_url", "volume", "restart", "clear_cache", "status", "screenshot"]
@@ -843,7 +858,10 @@ def _znova_zazeni(app) -> dict:
             pass
         try:
             from gi.repository import Gtk
-            Gtk.main_quit()
+            if hasattr(Gtk, "main_quit"):
+                Gtk.main_quit()                     # GTK3
+            elif app.get_application() is not None:
+                app.get_application().quit()        # GTK4 nima glavne zanke Gtk.main
         except Exception:
             pass
         return False
@@ -854,14 +872,19 @@ def _znova_zazeni(app) -> dict:
 def _pocisti(app) -> dict:
     """Pocisti predpomnilnik WebKita (ne piskotkov in ne gesel)."""
     try:
-        import gi
-        gi.require_version("WebKit2", "4.1")
-        from gi.repository import WebKit2
+        _Gdk, WebKit2, gtk4 = _gdk_webkit()
         wv = _webview(app)
-        kontekst = wv.get_context() if wv is not None else WebKit2.WebContext.get_default()
-        upravitelj = kontekst.get_website_data_manager()
-        vrste = (WebKit2.WebsiteDataTypes.DISK_CACHE | WebKit2.WebsiteDataTypes.MEMORY_CACHE
-                 | WebKit2.WebsiteDataTypes.OFFLINE_APPLICATION_CACHE)
+        if gtk4:
+            # WebKitGTK 6.0: podatki strani so na NetworkSession, ne na WebContext.
+            seja = wv.get_network_session() if wv is not None else WebKit2.NetworkSession.get_default()
+            upravitelj = seja.get_website_data_manager()
+        else:
+            kontekst = wv.get_context() if wv is not None else WebKit2.WebContext.get_default()
+            upravitelj = kontekst.get_website_data_manager()
+        vrste = WebKit2.WebsiteDataTypes.DISK_CACHE | WebKit2.WebsiteDataTypes.MEMORY_CACHE
+        # Predpomnilnika aplikacij (AppCache) WebKitGTK 6.0 nima vec.
+        if hasattr(WebKit2.WebsiteDataTypes, "OFFLINE_APPLICATION_CACHE"):
+            vrste |= WebKit2.WebsiteDataTypes.OFFLINE_APPLICATION_CACHE
         upravitelj.clear(vrste, 0, None, None, None)
         return izid(True, "Predpomnilnik pociscen")
     except Exception as e:  # noqa: BLE001
@@ -892,20 +915,20 @@ def _posnetek(app, koncaj: Callable[[dict], None]) -> None:
     if wv is None:
         koncaj(izid(False, "Ni odprtega zavihka"))
         return
-    import gi
-    gi.require_version("WebKit2", "4.1")
-    gi.require_version("Gdk", "3.0")
-    from gi.repository import WebKit2, Gdk, GdkPixbuf  # noqa: F401
+    Gdk, WebKit2, gtk4 = _gdk_webkit()
+    from gi.repository import GdkPixbuf
     import base64
 
-    def gotovo(pogled, rezultat):
+    def gotovo(pogled, rezultat, *_a):
         try:
+            # WebKitGTK 6.0 vrne Gdk.Texture, 4.1 povrsino cairo.
             povrsina = pogled.get_snapshot_finish(rezultat)
             sirina, visina = povrsina.get_width(), povrsina.get_height()
             if sirina <= 0 or visina <= 0:
                 koncaj(izid(False, "Zaslon se ni pripravljen"))
                 return
-            slika = Gdk.pixbuf_get_from_surface(povrsina, 0, 0, sirina, visina)
+            slika = (Gdk.pixbuf_get_from_texture(povrsina) if gtk4
+                     else Gdk.pixbuf_get_from_surface(povrsina, 0, 0, sirina, visina))
             merilo = min(1.0, 640.0 / sirina)
             if merilo < 1.0:
                 slika = slika.scale_simple(max(1, int(sirina * merilo)), max(1, int(visina * merilo)),

@@ -475,11 +475,13 @@ assert.strictEqual(izrisov, 9);
         self.assertIn('e.dataTransfer.dropEffect = "none";', js)
         # Safeer OS: poti si zapomni samo pogled delovne povrsine; ven ponudi samo standardni seznam naslovov.
         self.assertIn('if stran.startswith("delovna.html"):', py)
-        self.assertIn('pogled.connect("drag-data-received", self._na_vlecene_podatke)', py)
-        zacni = py[py.index("    def _zacni_vlecenje(self, pogled, poti)"):py.index("    def _na_vlecenje_daj(")]
-        self.assertIn("cilji.add_uri_targets(0)", zacni)
+        # GTK4: poti iz Gdk.Drop ob vstopu (DropControllerMotion spusta ne prevzame - spust ostane WebKitu).
+        self.assertIn("vlecenje = Gtk.DropControllerMotion()", py)
+        self.assertIn('vlecenje.connect("enter", lambda k, *_a: self._na_vlecene_podatke(pogled, k.get_drop()))', py)
+        zacni = py[py.index("    def _zacni_vlecenje(self, pogled, poti)"):py.index("    def _na_vlecenje_ni_uspelo(")]
+        self.assertIn('Gdk.ContentProvider.new_for_bytes(\n                "text/uri-list"', zacni)
         self.assertIn("Gdk.DragAction.COPY | Gdk.DragAction.MOVE", zacni)
-        self.assertNotIn("cilji.add(", zacni, "samo text/uri-list - brez posebnih oblik")
+        self.assertEqual(zacni.count("Gdk.ContentProvider."), 1, "samo text/uri-list - brez posebnih oblik")
         self.assertNotIn('"drag-data-delete"', py, "po spustu ne brisemo nicesar: premik opravi ciljni program")
         self.assertIn('"zacniVlecenje": lambda: self._zacni_vlecenje(pogled, a[0] if a else [])', py)
         self.assertIn('"spusceneDatoteke": self._spuscene_datoteke', py)

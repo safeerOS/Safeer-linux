@@ -47,10 +47,11 @@ d('mousedown', t[0]); d('mouseup', t[t.length-1]); return JSON.stringify(window.
 def _webkit():
     try:
         import gi
-        gi.require_version("Gtk", "3.0")
-        gi.require_version("WebKit2", "4.1")
-        from gi.repository import GLib, Gtk, WebKit2
-        return GLib, Gtk, WebKit2
+        # Control je od prehoda na GTK4 na WebKitGTK 6.0 (modul WebKit).
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("WebKit", "6.0")
+        from gi.repository import GLib, Gtk, WebKit
+        return GLib, Gtk, WebKit
     except Exception:  # noqa: BLE001 - brez WebKitGTK (npr. repozitorij za Windows) preizkusa ni
         return None
 
@@ -69,41 +70,35 @@ class KlikVOknuGledalca(unittest.TestCase):
         GLib, Gtk, WebKit2 = _webkit()
         ukazi = []
         upravitelj = WebKit2.UserContentManager()
-        upravitelj.register_script_message_handler("safeerVnos")
+        upravitelj.register_script_message_handler("safeerVnos", None)
         self.okna = []
 
         def sprejmi(_u, r):
             # okno.* (velikost slike za obliko okna gledalca) ostane v Controlu - na napravo gre samo input.*.
-            u = json.loads(r.get_js_value().to_string())
+            u = json.loads(r.to_string())          # WebKitGTK 6.0: JSC.Value
             (self.okna if str(u.get("d", "")).startswith("okno.") else ukazi).append(u)
         upravitelj.connect("script-message-received::safeerVnos", sprejmi)
         if s_skripto:
             upravitelj.add_script(WebKit2.UserScript(self.skripta, WebKit2.UserContentInjectedFrames.TOP_FRAME,
                                                      WebKit2.UserScriptInjectionTime.END, None, None))
-        pogled = WebKit2.WebView.new_with_user_content_manager(upravitelj)
-        okno = Gtk.OffscreenWindow()
+        pogled = WebKit2.WebView(user_content_manager=upravitelj)
+        okno = Gtk.Window()                         # GTK4 nima OffscreenWindow; zaslon je Xvfb ali pravi
         okno.set_default_size(800, 600)
-        okno.add(pogled)
-        okno.show_all()
+        okno.set_child(pogled)
+        okno.present()
         zanka = GLib.MainLoop()
         izid = {}
 
-        novi = hasattr(pogled, "evaluate_javascript")        # WebKitGTK 2.40+; starejsi ima run_javascript
-
-        def po_dogodkih(_p, rezultat):
+        def po_dogodkih(_p, rezultat, *_a):
             try:
-                vrednost = (pogled.evaluate_javascript_finish(rezultat) if novi
-                            else pogled.run_javascript_finish(rezultat).get_js_value())
+                vrednost = pogled.evaluate_javascript_finish(rezultat)
                 izid["stran"] = json.loads(vrednost.to_string())
             except Exception as e:  # noqa: BLE001
                 izid["napaka"] = str(e)
             GLib.timeout_add(300, lambda: (zanka.quit(), False)[1])      # sporocila skripte pridejo za odgovorom
 
         def sprozi():
-            if novi:
-                pogled.evaluate_javascript(_dogodki(tocke), -1, None, None, None, po_dogodkih)
-            else:
-                pogled.run_javascript(_dogodki(tocke), None, po_dogodkih)
+            pogled.evaluate_javascript(_dogodki(tocke), -1, None, None, None, po_dogodkih)
             return False
 
         def ob_nalaganju(_p, dogodek):

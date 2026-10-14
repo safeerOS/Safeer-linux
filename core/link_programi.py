@@ -473,22 +473,9 @@ class Programi:
 
     @staticmethod
     def _iz_teme(ime: str) -> str:
-        """Ikono najprej poiscemo tako, kot jo namizje: prek teme ikon (GTK). Brez GTK (testi) prazno."""
-        try:
-            import gi
-            gi.require_version("Gtk", "3.0")
-            from gi.repository import Gtk
-            tema = Gtk.IconTheme.get_default()
-            if tema is None:
-                return ""
-            najdena = tema.lookup_icon(ime, IKONA_VELIKOST, 0)
-            if najdena is not None:
-                pot = najdena.get_filename() or ""
-                if pot and os.path.isfile(pot):
-                    return pot
-        except Exception:
-            pass
-        return ""
+        """Ikono najprej poiscemo tako, kot jo namizje: prek teme ikon (GTK3 ali GTK4). Brez GTK (testi) prazno."""
+        from core import gostitelj
+        return gostitelj.ikona_iz_teme(ime, IKONA_VELIKOST)
 
     def _poisci_ikono(self, ime: str, samo_pixmaps: bool = False) -> str:
         doma = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")

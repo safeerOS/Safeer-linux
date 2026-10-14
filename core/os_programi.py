@@ -485,7 +485,7 @@ class NadzorProgramov:
 
 
 def pot_ikone(ime: str, velikost: int = IKONA_VELIKOST) -> str:
-    """Ikona programa kot PNG v predpomnilniku; vrne pot ali ''. Klicati na glavni niti (Gtk)."""
+    """Ikona programa kot PNG v predpomnilniku; vrne pot ali ''. Klicati na glavni niti (tema ikon GTK)."""
     if not ime:
         return ""
     cilj = os.path.join(MAPA_IKON, hashlib.sha1(("%s|%d" % (ime, velikost)).encode(), usedforsecurity=False).hexdigest() + ".png")
@@ -496,18 +496,16 @@ def pot_ikone(ime: str, velikost: int = IKONA_VELIKOST) -> str:
         izvor = ime
     try:
         import gi
-        gi.require_version("Gtk", "3.0")
         gi.require_version("GdkPixbuf", "2.0")
-        from gi.repository import GdkPixbuf, Gtk
-        if izvor:
-            slika = GdkPixbuf.Pixbuf.new_from_file_at_size(izvor, velikost, velikost)
-        else:
-            tema = Gtk.IconTheme.get_default()
+        from gi.repository import GdkPixbuf
+        if not izvor:
+            # Tema ikon prek core/gostitelj.py: GTK4 (Safeer OS) ali GTK3, kar proces ze uporablja.
+            from core import gostitelj
             ime_teme = ime[:-4] if ime.endswith((".png", ".svg", ".xpm")) else ime
-            info = tema.lookup_icon(ime_teme, velikost, Gtk.IconLookupFlags.FORCE_SIZE)
-            if info is None:
+            izvor = gostitelj.ikona_iz_teme(ime_teme, velikost)
+            if not izvor:
                 return ""
-            slika = info.load_icon()
+        slika = GdkPixbuf.Pixbuf.new_from_file_at_size(izvor, velikost, velikost)
         if slika is None:
             return ""
         os.makedirs(MAPA_IKON, exist_ok=True)
