@@ -10,6 +10,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from core import predvajalnik_moznosti as _moznosti
+
 
 @dataclass(frozen=True)
 class Skladba:
@@ -121,9 +123,20 @@ class Predvajalnik:
         self._zunanji = -1           # izbrana datoteka podnapisov trenutnega videa (indeks v podnapisi)
         self._izberi_zunanji = False  # po nalaganju izberi dodani tok podnapisov
         self._samodejno_vgrajeni = False
+        #: Zamik zvoka in podnapisov v ms za trenutni posnetek (core/predvajalnik_moznosti.py); nov posnetek = 0.
+        self.zamik_zvoka = 0
+        self.zamik_podnapisov = 0
+        #: {"zvok_jezik", "izenacevalnik", "po_meri"} - shrani jih klicatelj (shrani_moznosti).
+        self.moznosti = _moznosti.privzete()
+        self.shrani_moznosti = lambda _n: None
+        self._samodejni_zvok = False
+        self._obnovi_zvok = -1        # izbrani zvocni tok po ponovnem nalaganju (zamenjava podnapisov)
+        self.izenacevalnik = None     # element equalizer-10bands; None = izenacevalnika ni (meni ga ne pokaze)
+        self._predojacitev = None
         self.element = gst.ElementFactory.make("playbin", "safeer-media")
         if self.element is None:
             raise RuntimeError("GStreamer playbin ni na voljo")
+        self._pripravi_izenacevalnik()
         self.vodilo = self.element.get_bus()
         self.vodilo.add_signal_watch()
         self.vodilo.connect("message", self._sporocilo)
@@ -183,6 +196,10 @@ class Predvajalnik:
                 return False
         self.element.set_property("uri", self.vrsta[indeks].uri)
         self._pripravi_podnapise(self.vrsta[indeks])
+        # Zamik velja za en posnetek (kot v VLC); jezik zvoka izberemo, ko playbin pozna tokove (ASYNC_DONE).
+        self.nastavi_zamik("zvok", 0)
+        self.nastavi_zamik("podnapisi", 0)
+        self._samodejni_zvok, self._obnovi_zvok = True, -1
         rezultat = self.element.set_state(self.gst.State.PLAYING)
         self.stanje = "napaka" if rezultat == self.gst.StateChangeReturn.FAILURE else "predvaja"
         if self.stanje == "napaka":
@@ -354,6 +371,10 @@ class Predvajalnik:
         except Exception:
             pozicija = 0
         igra = self.stanje == "predvaja"
+        try:
+            self._obnovi_zvok = int(self.element.get_property("current-audio"))
+        except Exception:
+            self._obnovi_zvok = -1
         self.element.set_state(self.gst.State.READY)
         self._nastavi_zunanji(zunanji)
         self._besedilo(zunanji >= 0)
@@ -362,6 +383,174 @@ class Predvajalnik:
         if not igra:
             # Premor: skok opravimo takoj po nalaganju (poskusi_nadaljevati zahteva predvajanje).
             self._premor_skok = pozicija
+
+    # ------------------------------------------------------------------ zvocni posnetki
+
+    def _oznake_zvoka(self, i: int) -> dict:
+        """Jezik, kodek, naslov (oznake toka) in stevilo kanalov (zmoznosti blazinice) zvocnega toka i."""
+        izid = {"jezik": "", "kodek": "", "naslov": "", "kanali": 0}
+        try:
+            oznake = self.element.emit("get-audio-tags", i)
+            if oznake is not None:
+                for kljuc, ime in (("jezik", "language-code"), ("kodek", "audio-codec"), ("naslov", "title")):
+                    ok, vrednost = oznake.get_string(ime)
+                    if ok and vrednost:
+                        izid[kljuc] = str(vrednost)[:80]
+        except Exception:
+            pass
+        try:
+            blazinica = self.element.emit("get-audio-pad", i)
+            zmoznosti = blazinica.get_current_caps() if blazinica is not None else None
+            if zmoznosti is not None and zmoznosti.get_size() > 0:
+                ok, kanali = zmoznosti.get_structure(0).get_int("channels")
+                if ok:
+                    izid["kanali"] = int(kanali)
+        except Exception:
+            pass
+        return izid
+
+    def zvocni_toki(self, jezik_vmesnika: str = "sl", privzeto: str = "{n}") -> dict:
+        """{"moznosti": [{"kljuc": i, "ime", "jezik"}], "izbran": i} - ime kot v Kodiju (»Slovenščina · AC3 5.1«)."""
+        try:
+            stevilo = int(self.element.get_property("n-audio") or 0)
+            trenutni = int(self.element.get_property("current-audio"))
+        except Exception:
+            stevilo, trenutni = 0, -1
+        moznosti = []
+        for i in range(max(0, min(stevilo, 32))):
+            o = self._oznake_zvoka(i)
+            moznosti.append({"kljuc": i, "jezik": o["jezik"],
+                             "ime": _moznosti.ime_zvocnega_toka(i, o["jezik"], o["kodek"], o["kanali"], o["naslov"],
+                                                                jezik_vmesnika, privzeto)})
+        return {"moznosti": moznosti, "izbran": trenutni if 0 <= trenutni < stevilo else (0 if stevilo else -1)}
+
+    def izberi_zvok(self, i: int, zapomni: bool = True) -> bool:
+        try:
+            stevilo = int(self.element.get_property("n-audio") or 0)
+        except Exception:
+            stevilo = 0
+        if self.trenutna is None or not 0 <= int(i) < stevilo:
+            return False
+        self.element.set_property("current-audio", int(i))
+        if zapomni:
+            from core import podnapisi as _pn
+            jezik = _pn.iso1(self._oznake_zvoka(int(i))["jezik"])
+            if jezik and jezik != self.moznosti.get("zvok_jezik"):
+                self.moznosti = dict(self.moznosti, zvok_jezik=jezik)
+                self.shrani_moznosti(dict(self.moznosti))
+        self.sprememba()
+        return True
+
+    def naslednji_zvok(self) -> int:
+        """Tipka B (kot v VLC): naslednji zvocni posnetek; -1, ce ga ni."""
+        stanje = self.zvocni_toki()
+        n = len(stanje["moznosti"])
+        if n < 2:
+            return -1
+        i = (stanje["izbran"] + 1) % n
+        return i if self.izberi_zvok(i) else -1
+
+    def _po_nalaganju_zvok(self) -> None:
+        if self._obnovi_zvok >= 0:
+            i, self._obnovi_zvok = self._obnovi_zvok, -1
+            self.izberi_zvok(i, zapomni=False)
+            return
+        if not self._samodejni_zvok:
+            return
+        self._samodejni_zvok = False
+        zeleni = self.moznosti.get("zvok_jezik") or ""
+        if not zeleni:
+            return
+        try:
+            stevilo = int(self.element.get_property("n-audio") or 0)
+            trenutni = int(self.element.get_property("current-audio"))
+        except Exception:
+            return
+        if stevilo < 2:
+            return
+        i = _moznosti.izberi_po_jeziku([self._oznake_zvoka(k)["jezik"] for k in range(stevilo)], [zeleni])
+        if i >= 0 and i != trenutni:
+            self.element.set_property("current-audio", i)
+
+    # ------------------------------------------------------------------ zamik zvoka in podnapisov
+
+    def nastavi_zamik(self, vrsta: str, ms: int) -> int:
+        """vrsta "zvok" (pozitivno = zvok kasneje) ali "podnapisi" (pozitivno = podnapisi kasneje)."""
+        if vrsta == "zvok":
+            self.zamik_zvoka = _moznosti.premakni_zamik(ms, 0, _moznosti.MEJA_ZVOK_MS)
+            lastnost, vrednost = "av-offset", _moznosti.av_offset_ns(self.zamik_zvoka)
+        elif vrsta == "podnapisi":
+            self.zamik_podnapisov = _moznosti.premakni_zamik(ms, 0, _moznosti.MEJA_PODNAPISI_MS)
+            lastnost, vrednost = "text-offset", _moznosti.text_offset_ns(self.zamik_podnapisov)
+        else:
+            return 0
+        try:
+            self.element.set_property(lastnost, vrednost)
+        except Exception as e:  # noqa: BLE001 - starejsi GStreamer brez lastnosti: zamik ostane 0
+            print("[SafeerOS] zamik:", lastnost, e, flush=True)
+        return self.zamik_zvoka if vrsta == "zvok" else self.zamik_podnapisov
+
+    def premakni_zamik(self, vrsta: str, korak_ms: int) -> int:
+        trenutni = self.zamik_zvoka if vrsta == "zvok" else self.zamik_podnapisov
+        return self.nastavi_zamik(vrsta, trenutni + int(korak_ms))
+
+    # ------------------------------------------------------------------ izenacevalnik
+
+    def _pripravi_izenacevalnik(self) -> None:
+        """equalizer-10bands kot audio-filter playbina (velja za vse posnetke). Obdelava v F32: dvig pasov ne poci,
+        predojacitev (volume) pred izhodom odsteje najvecji dvig. Brez elementa izenacevalnika ni (meni ga skrije).
+        Izmerjeno 14. 10. 2026 (600 s stereo 48 kHz, en procesor): Ravno +0,1 % CPU, Bas +1,1 % CPU."""
+        try:
+            if not hasattr(self.gst, "parse_bin_from_description") or self.gst.ElementFactory.find("equalizer-10bands") is None:
+                return
+            vreca = self.gst.parse_bin_from_description(
+                "audioconvert ! audio/x-raw,format=F32LE ! equalizer-10bands name=safeer-eq ! "
+                "volume name=safeer-eq-predojacitev ! audioconvert", True)
+            self.element.set_property("audio-filter", vreca)
+            self.izenacevalnik = vreca.get_by_name("safeer-eq")
+            self._predojacitev = vreca.get_by_name("safeer-eq-predojacitev")
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] izenacevalnik ni na voljo:", e, flush=True)
+            self.izenacevalnik = self._predojacitev = None
+            return
+        self.nastavi_izenacevalnik(self.moznosti.get("izenacevalnik", "ravno"), self.moznosti.get("po_meri"), shrani=False)
+
+    def nastavi_izenacevalnik(self, izbira: str, po_meri=None, shrani: bool = True) -> list:
+        """Prednastavitev (ali Po meri z desetimi vrednostmi v dB) takoj, tudi med predvajanjem."""
+        if izbira not in _moznosti.IZBIRE_IZENACEVALNIKA:
+            izbira = "ravno"
+        if po_meri is None:
+            po_meri = self.moznosti.get("po_meri")
+        ojacitve = _moznosti.ojacitve(izbira, po_meri)
+        if self.izenacevalnik is not None:
+            for i, db in enumerate(ojacitve):
+                self.izenacevalnik.set_property("band%d" % i, float(db))
+            if self._predojacitev is not None:
+                self._predojacitev.set_property("volume", _moznosti.predojacitev(ojacitve))
+        self.moznosti = dict(self.moznosti, izenacevalnik=izbira)
+        if izbira == _moznosti.PO_MERI:
+            self.moznosti["po_meri"] = ojacitve
+        if shrani:
+            self.shrani_moznosti(dict(self.moznosti))
+        return ojacitve
+
+    # ------------------------------------------------------------------ podnapisi iz datoteke ali s spleta
+
+    def dodaj_podnapis(self, uri: str, ime: str, jezik: str = "", oznaka: str = "") -> bool:
+        """Uporabnik je izbral datoteko (ali prenos s spleta): dodamo jo k trenutnemu videu in jo takoj izberemo."""
+        s = self.trenutna
+        if s is None or urlsplit(str(uri or "")).scheme not in ("file", "https", "http"):
+            return False
+        podnapisi = list(s.podnapisi)
+        k = next((i for i, p in enumerate(podnapisi) if p[0] == uri), -1)
+        if k < 0:
+            if len(podnapisi) >= 32:
+                podnapisi.pop(0)
+                self._zunanji = self._zunanji - 1 if self._zunanji > 0 else -1
+            podnapisi.append((str(uri), str(ime or "")[:120], str(jezik or "")[:8], str(oznaka or "")[:40]))
+            k = len(podnapisi) - 1
+            self.vrsta[self.indeks] = replace(s, podnapisi=tuple(podnapisi))
+        return self.izberi_podnapise("z:%d" % k)
 
     # ------------------------------------------------------------------ DVD meni
 
@@ -476,6 +665,7 @@ class Predvajalnik:
                 self.ustavi()
         elif sporocilo.type == self.gst.MessageType.ASYNC_DONE:
             self._po_nalaganju_podnapisi()
+            self._po_nalaganju_zvok()
             if getattr(self, "_premor_skok", 0):
                 cilj, self._premor_skok = self._premor_skok, 0
                 self._cakaj_zacetek = 0
