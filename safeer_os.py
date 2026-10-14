@@ -1688,7 +1688,8 @@ class SafeerOS(Gtk.Application):
         Datoteke z drugih naprav in Teamwork, Lupa, Programi naprav so tako tudi v aplikaciji). Razdelki (Nastavitve,
         Zapiski, Sporocila, Splet, Safeer Player) se odprejo v svojih oknih kot na namizju (_ima_delovno). Brez PySide6
         ali s SAFEER_LUPINA=html ostane prejsnje okno index.html (vrne False)."""
-        if not self._qml_okno or self.posnetek or self.namizje or self.delovna or not os_lupina.pripravi(sys.argv[:1]):
+        if not self._qml_okno or self.posnetek or self.namizje or self.delovna or \
+                not os_lupina.pripravi(sys.argv[:1], pozno=bool(self.get_windows())):
             return False
         try:
             self.lupina = os_lupina.Namizje(self, ob_koncu=lambda: GLib.idle_add(self._zaprto_qml_okno), v_oknu=True)

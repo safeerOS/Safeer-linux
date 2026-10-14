@@ -54,13 +54,18 @@ def zelena() -> bool:
     return importlib.util.find_spec("PySide6") is not None and QML.is_file()
 
 
-def pripravi(argv: list) -> bool:
-    """QGuiApplication pred GTK (en na proces). Zanko potem vrti Gtk.Application.run."""
+def pripravi(argv: list, pozno: bool = False) -> bool:
+    """QGuiApplication pred GTK (en na proces). Zanko potem vrti Gtk.Application.run.
+
+    pozno=True: GTK v tem procesu ze ima okna (npr. Safeer Player, nato `--okno`). Qt potem z GLX ne dobi konteksta
+    (testni PC 14. 10. 2026: »QGLXContext: Failed to create dummy context« in sesutje), zato EGL kot GTK4."""
     global _qt_app
     if _qt_app is not None:
         return True
     if not zelena():
         return False
+    if pozno:
+        os.environ.setdefault("QT_XCB_GL_INTEGRATION", "xcb_egl")
     try:
         from PySide6.QtCore import QCoreApplication, Qt
         from PySide6.QtWidgets import QApplication   # QApplication (ne QGuiApplication): QSystemTrayIcon (kuverta)
