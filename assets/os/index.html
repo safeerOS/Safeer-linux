@@ -178,18 +178,34 @@
             </div>
           </div>
         </div>
+        <!-- Namizna postavitev (lastnik, 14. 10. 2026, skica Safeer Playerja): levo navpicna navigacija (Domov, vrste vsebin,
+             pod »Viri« uporabnikovi pravi viri), desno vsebina z iskanjem na vrhu. Ozek prostor (Medijski center ozji od 980 px,
+             v Safeer Playerju okno pod ~1100 px): navigacija se skrije, ostanejo vodoravni zavihki (#mediaKategorije). Odloca
+             sirina Medijskega centra (@container), ne okna - enako v glavnem oknu s stransko vrstico in v Safeer Playerju. -->
+        <div class="media-telo">
+          <nav class="media-nav" id="mediaNav">
+            <div class="media-nav-kategorije" id="mediaNavKategorije" role="tablist" aria-orientation="vertical"></div>
+            <div class="media-nav-viri" id="mediaNavViri" hidden>
+              <h2 class="media-nav-naslov" id="mediaNavViriNaslov" data-t="mediaViriNaslov"></h2>
+              <div class="media-nav-seznam" id="mediaNavViriSeznam" role="list" aria-labelledby="mediaNavViriNaslov"></div>
+            </div>
+          </nav>
+          <div class="media-vsebina">
         <div class="media-orodna">
-          <div class="media-kategorije" id="mediaKategorije" role="tablist" aria-label="Media"></div>
+          <div class="media-kategorije" id="mediaKategorije" role="tablist"></div>
           <label class="razdelek-iskanje media-iskalnik"><svg data-ikona="isci"></svg><input id="mediaIskanje" type="search" autocomplete="off" data-ph="isciMedije"></label>
         </div>
         <div class="media-postavitev">
           <div class="media-glavni">
+            <!-- Domov: junak z eno pravo vsebino (prva iz »Nadaljuj«, sicer nazadnje dodana) - samo resnicni podatki vnosa. -->
+            <section class="media-junak media-domov-del" id="mediaJunak" aria-labelledby="mediaJunakNaslov" hidden></section>
             <!-- Osebne police (lastnik, 14. 10. 2026): Nadaljuj, Nazadnje dodano, Najvec predvajano, Priljubljene - samo
-                 tiste z vsebino in samo na zavihkih, kjer imajo smisel (core/os_police.py). -->
-            <div class="media-police" id="mediaPolice" hidden></div>
+                 tiste z vsebino in samo na zavihkih, kjer imajo smisel (core/os_police.py). Na Domov se vsa vrsta z
+                 »Vse →« odpre v svojem zavihku. -->
+            <div class="media-police media-domov-del" id="mediaPolice" hidden></div>
             <div class="media-naslov-vrstice"><div><span class="media-kicker" data-t="mediaLokalno"></span><h2 id="mediaNaslovZbirke" data-t="mediaTvojaZbirka"></h2></div><div class="media-knjiznica-dejanja"><span class="media-stevec" id="mediaStevec"></span><button class="media-osvezi" id="mediaNapraveGumb" type="button" data-naslov="mediaNaprave" aria-label="Devices"><svg data-ikona="naprave"></svg></button><button class="media-osvezi" id="mediaMapeGumb" type="button" data-naslov="mediaMape" aria-label="Folders"><svg data-ikona="mapa"></svg></button><button class="media-osvezi" id="mediaOsvezi" type="button" data-naslov="mediaOsvezi" aria-label="Refresh library" disabled><svg data-ikona="ponovno"></svg></button></div></div>
             <div class="media-knjiznica" id="mediaMreza"></div>
-            <div class="media-prazno" id="mediaPrazno" hidden>
+            <div class="media-prazno media-domov-del" id="mediaPrazno" hidden>
               <div class="media-prazno-ikona" id="mediaPraznoZnak"><svg data-ikona="glasba"></svg></div>
               <b id="mediaPraznoNaslov" data-t="mediaPraznoNaslov"></b><span id="mediaPraznoOpis" data-t="mediaPraznoOpis"></span>
               <button class="gumb glavni" id="medijiDodajPrazno" type="button"><svg data-ikona="mapa"></svg><span data-t="dodajMapoMedijev"></span></button>
@@ -213,17 +229,6 @@
                   </div>
                 </div>
               </div>
-              <div class="kat-trak" id="mediaPredvajalnik" hidden>
-                <div class="kat-trak-besedilo"><small data-t="katPredvajaSe"></small><b id="mediaPredvajalnikNaslov"></b><span id="mediaPredvajalnikMeta"></span></div>
-                <div class="kat-trak-gumbi">
-                  <button class="gumb-ikona" id="mediaPremesaj" type="button" data-naslov="mediaPremesaj" hidden><svg viewBox="0 0 24 24"><path d="M16 4h4v4M4 20 20 4M20 16v4h-4M15 15l5 5M4 4l5 5"/></svg></button>
-                  <button class="gumb-ikona" id="mediaPrejsnja" type="button" data-naslov="mediaPrejsnja" hidden><svg viewBox="0 0 24 24"><path d="M6 5v14M19 5 9 12l10 7z"/></svg></button>
-                  <button class="kat-trak-premor" id="mediaKatPremor" type="button" data-naslov="katPremor">&#10074;&#10074;</button>
-                  <button class="gumb-ikona" id="mediaNaslednja" type="button" data-naslov="mediaNaslednja" hidden><svg viewBox="0 0 24 24"><path d="M18 5v14M5 5l10 7-10 7z"/></svg></button>
-                  <button class="gumb-ikona" id="mediaPonovi" type="button" data-naslov="mediaPonovi" hidden><svg viewBox="0 0 24 24"><path d="M17 2l3 3-3 3M4 11V9a4 4 0 0 1 4-4h12M7 22l-3-3 3-3M20 13v2a4 4 0 0 1-4 4H4"/></svg></button>
-                  <button class="gumb-ikona" id="mediaZapri" type="button" data-naslov="katUstavi"><svg data-ikona="x"></svg></button>
-                </div>
-              </div>
               <div class="kat-zanri" id="mediaZanri" role="group" hidden></div>
               <div class="kat-seznami" id="mediaSeznami" hidden></div>
               <!-- Glasba s tega racunalnika je del kataloga Glasba (lastnik, 11. 10. 2026), ne svoj razdelek nad njim. -->
@@ -241,11 +246,8 @@
             <div class="media-naslov-vrstice media-odkrij-glava"><div><span class="media-kicker" data-t="mediaSvet"></span><h2 data-t="mediaOdkrij"></h2></div></div>
             <div class="media-odkrij" id="mediaOdkrij"></div>
           </div>
-          <aside class="media-desni" id="mediaDesni">
-            <!-- Stolpec je viden samo, ko se kaj predvaja (lastnik, 14. 10. 2026); sicer ima katalog vso sirino. -->
-            <div class="media-sedaj"><span class="media-kicker" data-t="mediaSedaj"></span><div class="media-sedaj-vrstica"><div class="media-sedaj-art" id="mediaSedajArt" aria-hidden="true">♫</div><div class="media-sedaj-besedilo"><h3 id="mediaSedajNaslov" data-t="mediaNicesar"></h3><p id="mediaSedajPod" data-t="mediaSedajNamig"></p></div></div><button class="gumb" id="mediaOdpriOkno" data-t="mediaOdpriVideo" hidden></button></div>
-            <div class="media-cakalna"><div class="media-cakalna-glava"><h3 data-t="mediaCakalna"></h3><span id="mediaCakalnaStevec"></span></div><div id="mediaVrsta" class="media-vrsta"></div></div>
-          </aside>
+        </div>
+          </div>
         </div>
       </section>
 
@@ -433,18 +435,38 @@
       </section>
     </div>
 
-    <div id="mediaPlayerBar" class="media-player-bar" hidden>
-      <button class="media-player-art" id="mediaBarOdpri" type="button" aria-label="Open player">♫</button>
+    <!-- Spodnja vrstica »Predvaja se« (kot v glasbenih aplikacijah): vidna samo, ko se kaj predvaja (premor steje,
+         ustavljeno ne) - domaci predvajalnik ali skladba iz kataloga. Je pod drsnim delom (#vsebina), zato vsebine nikoli
+         ne prekrije. Nadomesti desni stolpec in trak kataloga (lastnik, 14. 10. 2026); cakalna vrsta je v plosci nad njo. -->
+    <div id="mediaPlayerBar" class="media-player-bar" role="region" aria-labelledby="mediaBarNaslov" hidden>
+      <button class="media-player-art" id="mediaBarOdpri" type="button" data-naslov="mediaOdpriVideo"><span id="mediaBarZnak" aria-hidden="true"></span></button>
       <div class="media-player-meta"><b id="mediaBarNaslov"></b><span id="mediaBarVrsta"></span></div>
-      <div class="media-player-komande">
-        <button id="mediaBarPrejsnja" type="button" aria-label="Previous">⏮</button>
-        <button id="mediaBarPremor" type="button" aria-label="Pause">Ⅱ</button>
-        <button id="mediaBarNaslednja" type="button" aria-label="Next">⏭</button>
+      <div class="media-player-sredina">
+        <div class="media-player-komande">
+          <button class="gumb-ikona" id="mediaPremesaj" type="button" data-naslov="mediaPremesaj" aria-pressed="false" hidden><svg data-ikona="premesaj"></svg></button>
+          <button class="gumb-ikona" id="mediaPrejsnja" type="button" data-naslov="mediaPrejsnja"><svg data-ikona="prejsnja"></svg></button>
+          <button class="media-player-premor" id="mediaKatPremor" type="button" data-naslov="katPremor"><svg data-ikona="premor"></svg></button>
+          <button class="gumb-ikona" id="mediaNaslednja" type="button" data-naslov="mediaNaslednja"><svg data-ikona="naslednja"></svg></button>
+          <button class="gumb-ikona" id="mediaPonovi" type="button" data-naslov="mediaPonovi" aria-pressed="false" hidden><svg data-ikona="ponovi"></svg></button>
+        </div>
+        <div class="media-player-polozaj" id="mediaBarPolozaj" hidden>
+          <span id="mediaBarCas" class="media-player-cas">0:00</span>
+          <input id="mediaBarNapredek" type="range" min="0" max="1000" value="0" data-naslov="mediaPolozaj">
+          <span id="mediaBarTrajanje" class="media-player-cas">0:00</span>
+        </div>
       </div>
-      <span id="mediaBarCas" class="media-player-cas">0:00</span>
-      <input id="mediaBarNapredek" type="range" min="0" max="1000" value="0" aria-label="Playback position">
-      <span id="mediaBarTrajanje" class="media-player-cas">0:00</span>
-      <button id="mediaBarUstavi" class="media-player-stop" type="button" aria-label="Stop">■</button>
+      <div class="media-player-desno">
+        <button class="gumb-ikona" id="mediaBarVrstaGumb" type="button" data-naslov="mediaCakalna" aria-expanded="false" aria-controls="mediaVrstaPlosca" hidden><svg data-ikona="seznam"></svg></button>
+        <div class="media-player-glasnost" id="mediaBarGlasnost" hidden>
+          <button class="gumb-ikona" id="mediaBarUtisaj" type="button" data-naslov="utisaj" aria-pressed="false"><svg data-ikona="zvok"></svg></button>
+          <input id="mediaBarGlasnostDrsnik" type="range" min="0" max="100" step="1" value="0" data-naslov="glasnost">
+        </div>
+        <button class="gumb-ikona" id="mediaZapri" type="button" data-naslov="katUstavi"><svg data-ikona="x"></svg></button>
+      </div>
+      <div class="media-vrsta-plosca" id="mediaVrstaPlosca" role="dialog" aria-labelledby="mediaVrstaNaslov" hidden>
+        <div class="media-cakalna-glava"><h3 id="mediaVrstaNaslov" data-t="mediaCakalna"></h3><span id="mediaCakalnaStevec"></span></div>
+        <div id="mediaVrsta" class="media-vrsta"></div>
+      </div>
     </div>
 
     <footer id="noga">

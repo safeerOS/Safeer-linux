@@ -329,7 +329,7 @@ class Vmesnik(unittest.TestCase):
     def test_izbira_je_v_glavi_kataloga(self):
         # 14. 10. 2026: izbira jezika je v glavi kataloga ob razvrstitvi in virih (edino mesto za jezik), zvrsti
         # imajo svojo vrstico pod njo. Prej je bila pred zvrstmi, izklop jezikov pa se v plosci »Viri in jeziki«.
-        orodja = self.html.split('<div class="kat-orodja">', 1)[1].split('<div class="kat-trak"', 1)[0]
+        orodja = self.html.split('<div class="kat-orodja">', 1)[1].split('<div class="kat-zanri"', 1)[0]
         self.assertLess(orodja.index('id="mediaRazvrsti"'), orodja.index('id="mediaJezik"'))
         self.assertLess(orodja.index('id="mediaJezik"'), orodja.index('id="mediaViriFilterGumb"'))
         self.assertIn('<label class="kat-jezik" id="mediaJezikPolje" hidden>', orodja)

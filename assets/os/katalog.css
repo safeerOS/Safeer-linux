@@ -12,17 +12,7 @@
 .kat-glava { align-items: flex-end; gap: 14px; flex-wrap: wrap; }
 .kat-orodja { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
 .kat-orodja .gumb { min-height: 42px; }
-.kat-trak { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 12px 0 4px; padding: 12px 16px;
   border: 1px solid rgba(138, 199, 255, .4); border-radius: 16px; background: linear-gradient(135deg, rgba(138, 199, 255, .12), rgba(17,25,36,.78)); }
-.kat-trak-besedilo { min-width: 0; display: grid; gap: 2px; }
-.kat-trak-besedilo small { color: var(--zelena); font-weight: 700; letter-spacing: .08em; font-size: 11px; }
-.kat-trak-besedilo b, .kat-trak-besedilo span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.kat-trak-besedilo span { color: var(--medlo); font-size: 13px; }
-.kat-trak-gumbi { display: flex; align-items: center; gap: 6px; flex: none; }
-.kat-trak-gumbi .gumb-ikona { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 10px; color: var(--medlo); }
-.kat-trak-gumbi .gumb-ikona svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.kat-trak-gumbi .gumb-ikona.vklopljen { color: var(--zelena); background: rgba(138, 199, 255, .14); }
-.kat-trak-premor { width: 44px; height: 44px; border-radius: 50%; background: var(--zelena); color: #060b11; font-size: 15px; font-weight: 800; }
 .kat-kartica .kat-odstrani, .kat-kartica .kat-na-seznam { position: absolute; top: 8px; left: 8px; width: 28px; height: 28px; display: grid; place-items: center;
   border-radius: 50%; background: rgba(3,7,10,.82); color: #fff; font-size: 14px; opacity: 0; transition: opacity .15s ease; }
 .kat-kartica:hover .kat-odstrani, .kat-kartica:focus-visible .kat-odstrani, .kat-kartica:hover .kat-na-seznam, .kat-kartica:focus-visible .kat-na-seznam { opacity: 1; }

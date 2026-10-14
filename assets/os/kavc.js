@@ -226,9 +226,9 @@
     napisGumba(vklop);
     // Cel zaslon naredi Safeer OS (okno GTK): Escape tako ostane tipka Nazaj in ne zapusti celega zaslona.
     klic("kavcCelZaslon", [vklop]);
-    // Ob vklopu je izbrana prva vsebina (kartica kataloga ali knjiznice), ne gumb v glavi.
+    // Ob vklopu je izbrana prva vsebina (na Domov gumb Predvajaj junaka, sicer kartica kataloga ali knjiznice), ne gumb v glavi.
     if (vklop) setTimeout(function () {
-      var prva = Array.prototype.filter.call(document.querySelectorAll(".kat-kartica, .media-kartica-odpri, .media-skladba-odpri"), viden)[0];
+      var prva = Array.prototype.filter.call(document.querySelectorAll("#mediaJunakPredvajaj, .kat-kartica, .media-kartica-odpri, .media-skladba-odpri"), viden)[0];
       if (prva) izberi(prva); else premakni("dol");
     }, 300);
   }

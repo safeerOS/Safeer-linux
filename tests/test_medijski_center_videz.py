@@ -66,17 +66,18 @@ class Postavitev(unittest.TestCase):
         self.css = _beri("assets", "os", "os.css")
         self.js = _beri("assets", "os", "os.js")
 
-    def test_desni_stolpec_samo_med_predvajanjem(self):
-        self.assertIn("#r-media:not(.predvaja) .media-desni { display: none; }", self.css)
+    def test_brez_desnega_stolpca_in_traku_kataloga(self):
+        # 14. 10. 2026: kar se predvaja, je v spodnji vrstici (kot v glasbenih aplikacijah); desnega stolpca in traku
+        # kataloga ni vec, katalog ima vso sirino.
+        html = _beri("assets", "os", "index.html")
+        for star in ('id="mediaDesni"', 'class="kat-trak"', 'id="mediaSedajNaslov"', 'id="mediaOdpriOkno"', 'id="mediaBarPremor"'):
+            self.assertNotIn(star, html)
+        self.assertNotIn("uskladiDesniStolpec", self.js)
         self.assertIn("#r-media .media-postavitev { grid-template-columns: minmax(0, 1fr); gap: 24px; }", self.css)
-        telo = self.js.split("function uskladiDesniStolpec() {", 1)[1].split("\n  }", 1)[0]
-        # Isto pravilo kot spodnja vrstica predvajalnika: premor steje, ustavljeno ne; ali skladba iz kataloga.
-        self.assertIn('var domaci = !!(p && p.naslov && p.stanje !== "ustavljeno");', telo)
-        self.assertIn("kat.aktivni && kat.aktivni.zvok", telo)
-        self.assertIn('r.classList.toggle("predvaja", domaci || izKataloga);', telo)
-        for klic in ("function prikaziMediaBar() {\n    var p = S.mediaPredvajalnik;\n    uskladiDesniStolpec();",
-                     "    if (!pl) return;\n    uskladiDesniStolpec();"):
-            self.assertIn(klic, self.js)
+        # Spodnja vrstica je pod drsnim delom (#vsebina), ne cez njega: vsebine ne prekrije.
+        glavno = html.split('<main id="glavno">', 1)[1].split("</main>", 1)[0]
+        self.assertLess(glavno.index('<div id="vsebina">'), glavno.index('<div id="mediaPlayerBar"'))
+        self.assertNotRegex(self.css.split("Spodnja vrstica »Predvaja se«", 1)[1].split("}", 1)[0], r"position:\s*(fixed|absolute)")
 
     def test_mirna_podlaga_iz_tem(self):
         self.assertIn("--media-tancica:", self.css.split(":root {", 1)[1].split("}", 1)[0])           # barva je v :root
@@ -162,6 +163,195 @@ class Zvrsti(unittest.TestCase):
     def test_most_doda_zvrsti_v_odgovor(self):
         py = _beri("core", "os_katalog.py")
         self.assertIn('rezultat = dict(rezultat, zvrsti=mc.zvrsti_filtrirajo(self._niz(a, 1, "vse"), izklopljeni))', py)
+
+
+def _funkcija(js, ime):
+    """Besedilo funkcije `ime` iz os.js (do zaprtja na istem zamiku)."""
+    return "function %s(" % ime + js.split("  function %s(" % ime, 1)[1].split("\n  }\n", 1)[0] + "\n  }\n"
+
+
+def _node(koda):
+    import json
+    import shutil
+    import subprocess
+    if not shutil.which("node"):
+        raise unittest.SkipTest("node ni namescen")
+    izid = subprocess.run(["node", "-e", koda], capture_output=True, text=True, check=True).stdout
+    return json.loads(izid)
+
+
+class Domov(unittest.TestCase):
+    """Skica Safeer Playerja (lastnik, 14. 10. 2026): Domov je privzeti pogled, junak samo z resnicnimi podatki,
+    brez praznih polic, »Vse →« odpre pravi zavihek."""
+
+    def setUp(self):
+        self.js = _beri("assets", "os", "os.js")
+        self.html = _beri("assets", "os", "index.html")
+
+    def test_domov_je_privzet_in_zapomni_se_zadnji_pogled(self):
+        koda = _funkcija(self.js, "zadnjaMedijskaKategorija") + """
+        var shramba = {}; var localStorage = { getItem: function (k) { return k in shramba ? shramba[k] : null; } };
+        var izid = [zadnjaMedijskaKategorija()];
+        shramba["safeer.mediaKategorija"] = "filmi"; izid.push(zadnjaMedijskaKategorija());
+        shramba["safeer.mediaKategorija"] = "vse"; izid.push(zadnjaMedijskaKategorija());
+        shramba["safeer.mediaKategorija"] = "domov"; izid.push(zadnjaMedijskaKategorija());
+        console.log(JSON.stringify(izid));"""
+        self.assertEqual(_node(koda), ["domov", "filmi", "domov", "domov"])
+        kategorije = self.js.split("var MEDIA_KATEGORIJE = [", 1)[1].split("];", 1)[0]
+        self.assertTrue(kategorije.strip().startswith('["domov", "domov"]'))
+        self.assertNotIn('"vse"', kategorije)
+        # Domov nima kataloga in ne krajevne mreze; izbira se zapomni kot prej (izberiMedijskoKategorijo).
+        self.assertIn("slike: \"\", domov: \"\" };", self.js)
+        self.assertIn('S.mediaFilter === "tv" || S.mediaFilter === "radio" || S.mediaFilter === "domov"', self.js)
+
+    def test_brez_praznih_polic_in_vse_odpre_zavihek(self):
+        telo = _funkcija(self.js, "narisiPolice")
+        self.assertIn("c.hidden = !police.length;", telo)
+        self.assertIn("izberiZavihekMedijev(zavihek)", telo)
+        koda = "var ZAVIHEK_VRSTE = " + self.js.split("var ZAVIHEK_VRSTE = ", 1)[1].split(";\n", 1)[0] + ";\n" + \
+            _funkcija(self.js, "zavihekPolice") + """
+        console.log(JSON.stringify([
+          zavihekPolice({ id: "nadaljuj", vnosi: [{ vrsta: "serija" }, { vrsta: "serija" }, { vrsta: "film" }] }),
+          zavihekPolice({ id: "nazadnje", vnosi: [{ vrsta: "filmi" }, { vrsta: "glasba" }, { vrsta: "filmi" }] }),
+          zavihekPolice({ id: "glasba", vnosi: [{ vrsta: "film" }] }),
+          zavihekPolice({ id: "najvec", vnosi: [{ vrsta: "radio" }] })]));"""
+        self.assertEqual(_node(koda), ["serije", "filmi", "glasba", "radio"])
+        # Prazno stanje z gumbom Dodaj, ko Domov nima nobene police (sele po odgovoru, da ne utripa).
+        domov = _funkcija(self.js, "narisiMediaDomov")
+        self.assertIn('var nalozeno = POL.nalozeno === "domov";', domov)
+        self.assertIn("prazno.hidden = !nalozeno || ima;", domov)
+        self.assertIn('class="media-prazno media-domov-del" id="mediaPrazno" hidden', self.html)
+
+    def test_junak_samo_z_resnicnimi_podatki(self):
+        priprava = "var t = function (k, z) { return k + (z ? JSON.stringify(z) : ''); };\n" + \
+            "var KAT_FILMSKI_ZANRI = " + self.js.split("var KAT_FILMSKI_ZANRI = ", 1)[1].split(";\n", 1)[0] + ";\n" + \
+            "var KAT_SERIJSKI_ZANRI = " + self.js.split("var KAT_SERIJSKI_ZANRI = ", 1)[1].split(";\n", 1)[0] + ";\n" + \
+            "var ZAVIHEK_VRSTE = " + self.js.split("var ZAVIHEK_VRSTE = ", 1)[1].split(";\n", 1)[0] + ";\n"
+        koda = priprava + "".join(_funkcija(self.js, f) for f in ("imeZvrsti", "trajanjeBesedilo", "podatkiJunaka")) + """
+        console.log(JSON.stringify([
+          podatkiJunaka({ naslov: "Film 1", vrsta: "film" }),
+          podatkiJunaka({ naslov: "Film 2", vrsta: "film", leto: 2016, zanr: 878, vir: "Vir 1", pozicija: 1800, trajanje: 6600,
+                          slika: "https://s.test/p.jpg", ozadje: "https://s.test/o.jpg" }),
+          podatkiJunaka({ naslov: "Album", vrsta: "glasba", album: true, trajanje: 200, tip: "lokalno", pot: "/m/a.mp3" }),
+          podatkiJunaka({ naslov: "Film 3", vrsta: "filmi", trajanje: 5400, tip: "lokalno" })]));"""
+        brez, film, album, lokalni = _node(koda)
+        # Brez podatkov: samo naslov in vrsta, nobene izmisljene oznake, vira ali slike.
+        self.assertEqual(brez["meta"], ["media_filmi"])
+        self.assertEqual((brez["vir"], brez["slika"], brez["ozadje"], brez["napredek"]), ("", "", "", 0))
+        self.assertEqual(film["meta"], ["2016", 'policaOstane{"n":80}', "katZanr_scifi", "media_filmi"])
+        self.assertEqual((film["vir"], film["napredek"], film["ozadje"]), ("Vir 1", 27, "https://s.test/o.jpg"))
+        self.assertEqual(album["meta"], ["media_glasba"])                   # dolzina albuma ni dolzina prve skladbe
+        self.assertEqual(album["vir"], "mediaTaRacunalnik")
+        self.assertEqual(lokalni["meta"], ['domovUre{"h":1,"m":30}', "media_filmi"])
+        telo = _funkcija(self.js, "podatkiJunaka") + _funkcija(self.js, "narisiMediaDomov")
+        for izmisljeno in ("4K", "HDR", "Dolby", "IMDb", "ocena"):
+            self.assertNotIn(izmisljeno, telo)
+
+
+class Navigacija(unittest.TestCase):
+    """Leva navigacija na namizju, vodoravni zavihki v ozkem prostoru; viri so pravi, brez praznih naslovov."""
+
+    def setUp(self):
+        self.css = _beri("assets", "os", "os.css")
+        self.js = _beri("assets", "os", "os.js")
+        self.html = _beri("assets", "os", "index.html")
+
+    def test_ozko_ostanejo_vodoravni_zavihki(self):
+        blok = self.css.split("Medijski center na namizju", 1)[1]
+        self.assertIn("#r-media { container: mediji / inline-size; }", blok)
+        self.assertIn(".media-nav { display: none; }", blok)                   # privzeto (ozko): brez leve navigacije
+        siroko = blok.split("@container mediji (min-width: 980px) {", 1)[1].split("\n}\n", 1)[0]
+        self.assertIn("grid-template-columns: 220px minmax(0, 1fr)", siroko)
+        self.assertIn(".media-nav { position: sticky;", siroko)
+        self.assertIn("#r-media .media-orodna .media-kategorije { display: none; }", siroko)
+        # Iskanje ostane na vrhu vsebine v obeh postavitvah.
+        vsebina = self.html.split('<div class="media-vsebina">', 1)[1]
+        self.assertTrue(vsebina.lstrip().startswith('<div class="media-orodna">'))
+        self.assertIn('id="mediaIskanje"', vsebina.split('<div class="media-postavitev">', 1)[0])
+
+    def test_isti_zavihki_v_obeh_postavitvah(self):
+        telo = _funkcija(self.js, "narisiMedije")
+        self.assertIn('[[kategorije, "media-kategorija"], [$("mediaNavKategorije"), "media-nav-kategorija"]]', telo)
+        self.assertIn('b.setAttribute("role", "tab");', telo)
+        self.assertIn('b.setAttribute("aria-selected"', telo)
+        self.assertIn('role="tablist" aria-orientation="vertical"', self.html)
+
+    def test_viri_samo_pravi_brez_praznega_naslova(self):
+        telo = _funkcija(self.js, "narisiViriNav")
+        self.assertIn("ovoj.hidden = !vnosi.length;", telo)
+        self.assertIn("if (S.mediaMape.length)", telo)
+        self.assertIn('<div class="media-nav-viri" id="mediaNavViri" hidden>', self.html)
+        # Isto pravilo kot core/os_media.vidni_viri: strezniki, viri z vsebino, delujoci predvajalni viri.
+        self.assertIn('v.vrsta === "streznik" || (v.stevilo || 0) > 0 || (v.tip === "predvajalni_vir" && !v.napaka)', self.js)
+        # Klik na vir uporabi obstojeci zacasni filter virov kataloga (tam ga uporabnik tudi ponastavi).
+        izberi = _funkcija(self.js, "izberiVir")
+        self.assertIn("kat.izklopljeni[x] = 1", izberi)
+        self.assertIn("osveziGumbViri();", izberi)
+
+
+class SpodnjaVrstica(unittest.TestCase):
+    """Vrstica »Predvaja se«: samo med predvajanjem, polozaj samo, ce je znan, isti gumbi za katalog in predvajalnik."""
+
+    def setUp(self):
+        self.js = _beri("assets", "os", "os.js")
+        self.html = _beri("assets", "os", "index.html")
+
+    def test_skrita_ko_se_nic_ne_predvaja(self):
+        self.assertIn('<div id="mediaPlayerBar" class="media-player-bar" role="region" aria-labelledby="mediaBarNaslov" hidden>', self.html)
+        koda = """
+        var el = {}; function $(id) { return el[id] || (el[id] = { hidden: true, setAttribute: function () {}, focus: function () {} }); }
+        var document = { body: { classList: { toggle: function () {} } } };
+        var S = { mediaPredvajalnik: null }, kat = { aktivni: null };
+        """ + "".join(_funkcija(self.js, f) for f in ("skladbaKataloga", "zapriVrstoPlosco", "uskladiTrak")) + """
+        var izid = [];
+        $("mediaPlayerBar").hidden = false;
+        uskladiTrak(); izid.push($("mediaPlayerBar").hidden);                                  // nic
+        S.mediaPredvajalnik = { naslov: "Skladba 1", stanje: "ustavljeno" };
+        uskladiTrak(); izid.push($("mediaPlayerBar").hidden);                                  // ustavljeno
+        S.mediaPredvajalnik.stanje = "premor"; uskladiTrak(); izid.push($("mediaPlayerBar").hidden);
+        S.mediaPredvajalnik.stanje = "ustavljeno"; kat.aktivni = { zvok: true, naslov: "Skladba 2" };
+        uskladiTrak(); izid.push($("mediaPlayerBar").hidden);                                  // skladba iz kataloga
+        kat.aktivni = { zvok: false }; uskladiTrak(); izid.push($("mediaPlayerBar").hidden);  // video iz kataloga gre v okno
+        console.log(JSON.stringify(izid));"""
+        self.assertEqual(_node(koda), [True, True, False, False, True])
+
+    def test_polozaj_samo_ce_je_znan(self):
+        telo = _funkcija(self.js, "narisiTrak")
+        self.assertIn('var polozaj = !(item && item.okno_youtube) && !!p.naslov && p.stanje !== "ustavljeno" && !zivo && Number(p.trajanje) > 0;', telo)
+        self.assertIn('$("mediaBarPolozaj").hidden = !polozaj;', telo)
+        self.assertIn('<div class="media-player-polozaj" id="mediaBarPolozaj" hidden>', self.html)
+        # Glasnost je sistemska in samo, ce jo sistem javi.
+        self.assertIn("ovoj.hidden = !z;", _funkcija(self.js, "narisiGlasnostTraku"))
+
+    def test_obstojeci_gumbi_v_vrstici(self):
+        vrstica = self.html.split('<div id="mediaPlayerBar"', 1)[1].split("\n    </div>\n", 1)[0]
+        for id_ in ("mediaPremesaj", "mediaPrejsnja", "mediaKatPremor", "mediaNaslednja", "mediaPonovi", "mediaZapri",
+                    "mediaBarNapredek", "mediaBarGlasnostDrsnik", "mediaBarVrstaGumb", "mediaVrsta"):
+            self.assertIn('id="%s"' % id_, vrstica)
+        for niz in ('ob("mediaPrejsnja", "click", function () { if (skladbaKataloga()) predvajajIzVrste(-1); else ukaz("prejsnja"); });',
+                    'ob("mediaKatPremor", "click", function () { if (skladbaKataloga()) premorKatPredvajanja(); else ukaz("premor"); });',
+                    'ob("mediaZapri", "click", function () { if (kat.aktivni) ustaviKatPredvajanje(); else ukaz("ustavi"); });'):
+            self.assertIn(niz, self.js)
+        # Plosca cakalne vrste: Escape (Nazaj na daljincu) zapre samo njo, izbor se vrne na gumb.
+        self.assertIn('if (e.key === "Escape" && zapriVrstoPlosco(true)) { e.preventDefault(); e.stopImmediatePropagation(); }', self.js)
+
+
+class BesedilaInBarve(unittest.TestCase):
+    def test_nova_besedila_v_vseh_jezikih(self):
+        bes = _beri("assets", "os", "besedila.js")
+        js, html = _beri("assets", "os", "os.js"), _beri("assets", "os", "index.html")
+        for kljuc in ("media_domov", "mediaViriNaslov", "mediaPolozaj", "policaGlasba", "domovVse", "domovVseOznaka",
+                      "domovUre", "domovMinut", "domovNadaljuj", "domovPredvajaj"):
+            self.assertEqual(bes.count('"%s":' % kljuc), 6, kljuc)
+            self.assertTrue(kljuc in js or kljuc in html or kljuc == "media_domov", kljuc)
+
+    def test_barve_samo_iz_spremenljivk(self):
+        blok = _beri("assets", "os", "os.css").split("Medijski center na namizju", 1)[1]
+        self.assertNotRegex(blok, r"rgba?\(|#[0-9a-fA-F]{3,6}\b")
+
+    def test_zmanjsano_gibanje(self):
+        blok = _beri("assets", "os", "os.css").split("Medijski center na namizju", 1)[1]
+        self.assertIn("@media (prefers-reduced-motion: no-preference) {\n  .media-vrsta-plosca:not([hidden])", blok)
 
 
 class Kavc(unittest.TestCase):
