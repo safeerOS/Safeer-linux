@@ -215,9 +215,19 @@ class Samozagon:
     """Zagon ob prijavi: vnos v ~/.config/autostart (XDG), ki pozene `safeer-control --ozadje`."""
 
     @staticmethod
+    def pot() -> str:
+        """Ob delovni povrsini Safeer Cinnamon je vnos skrit (TUJI_ZAGONI) in shranjen v safeer-cinnamon/zagoni/: tja
+        pisemo, da izklop Safeer Cinnamon vrne uporabnikovo izbiro, skriti vnos pa ostane skrit (pregled 15. 10. 2026)."""
+        from core import en_proces
+        if en_proces.delovna_safeer_cinnamon():
+            return os.path.join(en_proces.mapa_nastavitev_racunalnika(), "safeer-cinnamon", "zagoni",
+                                "safeer-control.desktop")
+        return SAMOZAGON_POT
+
+    @staticmethod
     def je_vklopljen() -> bool:
         try:
-            with open(SAMOZAGON_POT, "r", encoding="utf-8") as d:
+            with open(Samozagon.pot(), "r", encoding="utf-8") as d:
                 v = d.read()
             return "safeer-control" in v and "X-GNOME-Autostart-enabled=false" not in v and "Hidden=true" not in v
         except Exception:
@@ -225,16 +235,21 @@ class Samozagon:
 
     @staticmethod
     def nastavi(vklopljen: bool) -> None:
+        pot = Samozagon.pot()
         try:
             if not vklopljen:
-                if os.path.exists(SAMOZAGON_POT):
-                    os.remove(SAMOZAGON_POT)
+                if os.path.exists(pot):
+                    os.remove(pot)
+                if pot != SAMOZAGON_POT:     # »vnosa ni bilo«: izklop Safeer Cinnamon odstrani skriti vnos
+                    open(pot + ".ni", "w").close()
                 return
-            os.makedirs(os.path.dirname(SAMOZAGON_POT), exist_ok=True)
+            os.makedirs(os.path.dirname(pot), exist_ok=True)
+            if pot != SAMOZAGON_POT and os.path.exists(pot + ".ni"):
+                os.remove(pot + ".ni")      # izklop Safeer Cinnamon naj vnos vrne, ne izbrise
             ukaz = "safeer-control --ozadje"
             if not shutil_which("safeer-control"):
                 ukaz = f'"{sys.executable}" "{os.path.abspath(__file__)}" --ozadje'
-            with open(SAMOZAGON_POT, "w", encoding="utf-8") as d:
+            with open(pot, "w", encoding="utf-8") as d:
                 d.write("[Desktop Entry]\nType=Application\nName=Safeer Control\n"
                         "Comment=Safeer Link v ozadju (daljinec, deljenje) / Safeer Link in the background\n"
                         f"Exec={ukaz}\nIcon=safeer-control\nTerminal=false\nNoDisplay=true\n"
@@ -291,6 +306,12 @@ class Pladenj:
         self.koncaj.connect("activate", lambda *_a: app.koncaj())
         postavke = [self.odpri, self.posodobi, self.mape, self.ves_disk, self.programi, self.zaslon, self.predvajanje,
                     self.locen, Postavka(locilo=True), self.samozagon, Postavka(locilo=True), self.koncaj]
+        if VGRAJEN:
+            # Control v procesu Safeer OS (en proces): zivljenje, zagon ob prijavi in posodobitve vodi Safeer OS.
+            # »Zaženi ob prijavi« bi pisal samozagon, ki ga Safeer Cinnamon skrije (dva procesa ob prijavi); »Končaj« je
+            # Link ustavil le napol (ikona in vgrajeni Control sta ostala, ponovni vklop ni bil mogoc); »Posodobi« je
+            # podvajal posodobitve Safeer OS (Nastavitve). Pregled celovitosti 15. 10. 2026.
+            postavke = [self.odpri, self.mape, self.ves_disk, self.programi, self.zaslon, self.predvajanje, self.locen]
         self.osvezi_locen()
         self.osvezi_posodobitev()
         self.ikona = None
@@ -329,7 +350,7 @@ class Pladenj:
 
     def osvezi_posodobitev(self) -> None:
         """Postavka "Posodobi: Safeer Control 2.1.23 …" le, kadar je zadnja preverba nasla novejso razlicico."""
-        opis = os_posodobitve.opis(self.app.posodobitve_izid or {})
+        opis = "" if VGRAJEN else os_posodobitve.opis(self.app.posodobitve_izid or {})
         if opis:
             self.posodobi.set_label(besedilo(self.jezik, "posodobi").replace("{opis}", opis))
             self.posodobi.show()
@@ -975,6 +996,11 @@ class SafeerControl(_OSNOVA):
         _OSNOVA.do_startup(self)
         if not VGRAJEN:         # v procesu Safeer OS obrezuje Safeer OS
             pomnilnik.obrezuj_periodicno(GLib)
+        # Zagon iz menija, ko Control ze tece (_pokazi_tekocega): izrecna zahteva uporabnika, okno takoj - za razliko od
+        # gole aktivacije, ki jo vgrajeni Control prvo minuto prezre (samozagon ob prijavi, do_activate).
+        okno = Gio.SimpleAction.new("okno", None)
+        okno.connect("activate", lambda *_a: self._okno_iz_menija())
+        self.add_action(okno)
         # Safeer OS (stikalo »Zaupaj temu računalniku«) klice to dejanje prek D-Bus (org.gtk.Actions).
         zaupanje = Gio.SimpleAction.new("zaupanje", GLib.VariantType.new("b"))
         zaupanje.connect("activate", self._na_zaupanje)
@@ -2066,7 +2092,8 @@ class SafeerControl(_OSNOVA):
                 self._pripravi_link()
             self.pladenj = Pladenj(self)
             self.link.povezi_v_ozadju()
-            GLib.timeout_add_seconds(120, self._posodobitve_preveri)
+            if not VGRAJEN:      # v procesu Safeer OS posodobitve preverja in namesca Safeer OS (en postopek)
+                GLib.timeout_add_seconds(120, self._posodobitve_preveri)
             if os.environ.pop("SAFEER_CONTROL_ODPRI", "") == "1":
                 self.pokazi_okno()
             return
@@ -2075,10 +2102,19 @@ class SafeerControl(_OSNOVA):
             # Ob prijavi samozagon locenega Controla (`safeer-control --ozadje`, tudi starejsi paket .deb) najde ime na
             # vodilu, ki ga ima Safeer OS, in mu poslje Activate - okno Controla se je odprlo cez namizje (testni PC,
             # 14. 10. 2026). Uporabnik ob prijavi najprej vidi namizje; okno odpre klik v pladnju ali v meniju pozneje.
+            # Velja samo za golo aktivacijo (samozagon): meni (_pokazi_tekocega) poslje dejanje »okno«, Safeer OS klice
+            # pokazi_okno neposredno, pladenj tudi - ti okno odprejo takoj.
             print("[SafeerControl] aktivacija ob zagonu seje prezrta (namizje najprej)", flush=True)
             return
         # Program je tekel v ozadju, medtem pa je bil posodobljen: namesto starega okna odpremo novo
         # razlicico (uporabniku ni treba vedeti, da je bilo treba kaj znova zagnati).
+        if self._koda_posodobljena() and (self.link is None or self.link.okno is None):
+            self._znova_zazeni()
+            return
+        self.pokazi_okno()
+
+    def _okno_iz_menija(self) -> None:
+        """Dejanje »okno« (zagon iz menija, ko Control ze tece): kot do_activate, brez cakanja ob zagonu seje."""
         if self._koda_posodobljena() and (self.link is None or self.link.okno is None):
             self._znova_zazeni()
             return
@@ -2143,6 +2179,17 @@ class SafeerControl(_OSNOVA):
         if self._je_s_huba(cist):
             self._odpri_gledalca(cist)
             return
+        from core import en_proces
+        aplikacija = en_proces.os_app() if VGRAJEN else None
+        if aplikacija is not None:
+            # Control v procesu Safeer OS: stran odpre Splet v istem procesu (glavno okno ali okno Splet), kot vse
+            # druge povezave na namizju (pregled celovitosti 15. 10. 2026). Brez peskovnika WebKit Splet sam preda
+            # stran privzetemu brskalniku.
+            try:
+                if en_proces.na_glavni(lambda: aplikacija._splet(cist, True), privzeto=False):
+                    return
+            except Exception as e:  # noqa: BLE001 - privzeti brskalnik kot prej
+                print(f"[SafeerControl] Splet: {e}")
         # Prejete strani in povezave odpre brskalnik, ki ga uporabnik ze ima (ce je to Safeer, toliko bolje).
         try:
             Gio.AppInfo.launch_default_for_uri(cist, None)
@@ -2422,6 +2469,17 @@ def _ime_zasedeno() -> bool:
         return False
 
 
+def _samozagon_odvec() -> bool:
+    """Ob delovni povrsini Safeer Cinnamon Control tece v procesu Safeer OS (vgradi ga ~3 s po zagonu delovne povrsine).
+    Samozagon `--ozadje`, ki se javi prej (starejsi vnos, ki ga TUJI_ZAGONI se ni skril), bi vgradnjo prehitel in tekel
+    ves dan kot drugi proces (+67-117 MiB PSS, pregled celovitosti 15. 10. 2026) - zato se konca. Izjema: zagnal ga je
+    Safeer OS sam, ker vgradnja ni bila mogoca (SAFEER_CONTROL_IZ_OS)."""
+    if os.environ.get("SAFEER_CONTROL_IZ_OS") == "1":
+        return False
+    from core import en_proces
+    return en_proces.delovna_safeer_cinnamon()
+
+
 def _pokazi_tekocega(cakaj_s: float = 8.0) -> bool:
     """Control ze tece: pokaze njegovo okno (org.freedesktop.Application.Activate). Ce se se zaganja, pocaka, da se
     javi na vodilu. Vrne, ali je uspelo."""
@@ -2433,8 +2491,12 @@ def _pokazi_tekocega(cakaj_s: float = 8.0) -> bool:
                                    GLib.Variant("(s)", (APP_ID,)), GLib.VariantType("(b)"),
                                    Gio.DBusCallFlags.NONE, 2000, None).unpack()[0]
             if ima:
-                vodilo.call_sync(APP_ID, CONTROL_POT, "org.freedesktop.Application", "Activate",
-                                 GLib.Variant("(a{sv})", ({},)), None, Gio.DBusCallFlags.NONE, 5000, None)
+                try:    # dejanje »okno«: tudi vgrajeni Control takoj po zagonu seje (glej do_activate)
+                    vodilo.call_sync(APP_ID, CONTROL_POT, "org.gtk.Actions", "Activate",
+                                     GLib.Variant("(sava{sv})", ("okno", [], {})), None, Gio.DBusCallFlags.NONE, 5000, None)
+                except Exception:  # noqa: BLE001 - starejsi Control brez dejanja: gola aktivacija
+                    vodilo.call_sync(APP_ID, CONTROL_POT, "org.freedesktop.Application", "Activate",
+                                     GLib.Variant("(a{sv})", ({},)), None, Gio.DBusCallFlags.NONE, 5000, None)
                 return True
             time.sleep(0.25)
     except Exception:  # noqa: BLE001 - brez vodila ali starejsi primerek: nadaljujemo po stari poti
@@ -2452,6 +2514,8 @@ def main() -> int:
     # zahteval ozadje (Safeer OS in samozagon ob prijavi startata hkrati). Poleg tega bi drugi primerek se pred tem
     # pospravil navidezne zvocne izhode tekocega. Zato: zagon v ozadju, ko Control ze tece, se konca tiho; zagon iz
     # menija tekocemu samo pokaze okno.
+    if ozadje and _samozagon_odvec():
+        return 0          # pred zaklepom: zaklep bi Safeer OS-u med vgradnjo rekel, da se locen Control ravno zaganja
     _ZAKLEP_PRIMERKA = os_stabilnost.zakleni_primerek("safeer-control")
     if _ZAKLEP_PRIMERKA is None:
         if ozadje or _pokazi_tekocega():

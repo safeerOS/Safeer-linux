@@ -374,7 +374,10 @@ def _zagotovi_control(vodilo) -> bool:
         ukaz = _ukaz_controla()
         if not ukaz:
             return False
-        subprocess.Popen(ukaz + ["--ozadje"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        # SAFEER_CONTROL_IZ_OS: `--ozadje` se ob delovni povrsini Safeer Cinnamon sicer konca takoj (samozagon, glej
+        # safeer_control.main) - tu ga je zahteval Safeer OS sam, ker vgradnja ni bila mogoca.
+        subprocess.Popen(ukaz + ["--ozadje"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+                         env=dict(os.environ, SAFEER_CONTROL_IZ_OS="1"))
         for _ in range(40):
             time.sleep(0.25)
             if _control_na_vodilu(vodilo):
@@ -925,29 +928,63 @@ def _ukaz_os() -> str:
     return '"%s" "%s"' % (sys.executable, os.path.join(KOREN, "safeer_os.py"))
 
 
-def je_samozagon() -> bool:
-    """Ali se Safeer OS zazene ob prijavi v racunalnik (~/.config/autostart, vidno tudi v Mintovih
-    »Zagonskih programih«, kjer ga uporabnik lahko izklopi)."""
+def _mapa_nastavitev() -> str:
+    return en_proces.mapa_nastavitev_racunalnika()
+
+
+def _safeer_cinnamon_vklopljen() -> bool:
+    """Safeer Cinnamon je vklopljen (katerakoli postavitev): Safeer OS iz menija se odpre kot okno (main)."""
+    return os.path.isfile(os.path.join(_mapa_nastavitev(), "safeer-cinnamon", "vklopljeno"))
+
+
+def delovna_safeer_cinnamon() -> bool:
+    return en_proces.delovna_safeer_cinnamon()
+
+
+def _pot_samozagona() -> str:
+    """Kam pisemo vnos zagona ob prijavi: ob delovni povrsini Safeer Cinnamon v shranjeno kopijo, ki jo izklop Safeer
+    Cinnamon vrne (zagoni_vrni) - zapis v autostart bi prepisal skriti vnos in ob prijavi bi se Safeer OS zagnal
+    dvakrat (pregled celovitosti 15. 10. 2026)."""
+    if delovna_safeer_cinnamon():
+        return os.path.join(_mapa_nastavitev(), "safeer-cinnamon", "zagoni", "safeer-os.desktop")
+    return SAMOZAGON
+
+
+def _vnos_vklopljen(pot: str) -> bool:
     try:
-        with open(SAMOZAGON, encoding="utf-8") as f:
+        with open(pot, encoding="utf-8") as f:
             vsebina = f.read()
     except OSError:
         return False
     return "X-GNOME-Autostart-enabled=false" not in vsebina and "Hidden=true" not in vsebina
 
 
+def je_samozagon() -> bool:
+    """Ali se Safeer OS zazene ob prijavi v racunalnik (~/.config/autostart, vidno tudi v Mintovih
+    »Zagonskih programih«, kjer ga uporabnik lahko izklopi). Ob delovni povrsini Safeer Cinnamon vedno da: zazene ga
+    seja safeer-cinnamon (izklop je »Nazaj v Linux Mint« → »Ne zaganjaj več ob prijavi«)."""
+    return delovna_safeer_cinnamon() or _vnos_vklopljen(SAMOZAGON)
+
+
 def nastavi_samozagon(vklop: bool) -> bool:
     """Vklop zapise vnos; izklop ga pusti z X-GNOME-Autostart-enabled=false (preglasi tudi sistemski
-    vnos iz paketa, ko bo Safeer OS namescen kot .deb)."""
+    vnos iz paketa, ko bo Safeer OS namescen kot .deb). Ob delovni povrsini Safeer Cinnamon gre zapis v kopijo, ki
+    jo vrne izklop Safeer Cinnamon (_pot_samozagona)."""
+    pot = _pot_samozagona()
     vnos = ("[Desktop Entry]\nType=Application\nName=Safeer OS\n"
             "Comment=Safeer OS ob prijavi v racunalnik\nComment[sl]=Safeer OS ob prijavi v računalnik\n"
             "Exec=%s\nIcon=%s\nTerminal=false\nX-GNOME-Autostart-enabled=%s\nX-GNOME-Autostart-Delay=2\n"
             % (_ukaz_os(), os.path.join(KOREN, "assets", "os", "znak.svg"), "true" if vklop else "false"))
     try:
-        os.makedirs(os.path.dirname(SAMOZAGON), exist_ok=True)
-        with open(SAMOZAGON + ".tmp", "w", encoding="utf-8") as f:
+        os.makedirs(os.path.dirname(pot), exist_ok=True)
+        with open(pot + ".tmp", "w", encoding="utf-8") as f:
             f.write(vnos)
-        os.replace(SAMOZAGON + ".tmp", SAMOZAGON)
+        os.replace(pot + ".tmp", pot)
+        if pot != SAMOZAGON:
+            try:   # oznaka »vnosa ni bilo«: izklop Safeer Cinnamon naj zdaj vrne ta vnos, ne izbrise ga
+                os.remove(pot + ".ni")
+            except FileNotFoundError:
+                pass
         return True
     except OSError:
         return False
@@ -962,7 +999,7 @@ def uredi_samozagon_ob_zagonu(shramba) -> bool:
     if shramba.get("samozagon_izbral") is not None:
         return False
     izklopljen = False
-    if je_samozagon():
+    if _vnos_vklopljen(_pot_samozagona()):
         izklopljen = nastavi_samozagon(False)
         if not izklopljen:
             return False                # vnosa ni bilo mogoce zapisati: poskusimo ob naslednjem zagonu
@@ -1477,6 +1514,12 @@ class SafeerOS(Gtk.Application):
         delovna_povrsina = Gio.SimpleAction.new("delovna", None)
         delovna_povrsina.connect("activate", lambda *_a: self._vklopi_delovno())
         self.add_action(delovna_povrsina)
+        #: `safeer-cinnamon` ob izklopu postavitve delovna: konec procesa, ki ima delovno povrsino (kot SIGTERM). Proces
+        #: ima lahko drugo ime (Safeer Player, okno iz menija, ki mu je bila delovna povrsina predana), zato pkill po
+        #: »--delovna« ni dovolj. Brez delovne povrsine (samo Safeer Player) se ne zgodi nic.
+        delovna_konec = Gio.SimpleAction.new("delovna-izklopi", None)
+        delovna_konec.connect("activate", lambda *_a: self._izklopi_delovno())
+        self.add_action(delovna_konec)
 
     def do_startup(self) -> None:
         Gtk.Application.do_startup(self)
@@ -1498,9 +1541,10 @@ class SafeerOS(Gtk.Application):
         en_proces.nastavi_os(self, klic=self._predvajanje_neposredno)
         self._spremljaj_zaklep()
         threading.Thread(target=stremio_privzeto, name="safeer-stremio-privzeto", daemon=True).start()
-        if (self.delovna or self.namizje) and not self.posnetek:
+        if self.namizje and not self.posnetek:
             # Namizje tece ves dan: Control (Safeer Link, naprave, pladenj) naj tece z njim, v istem procesu, kot je
-            # prej tekel locen proces v ozadju. Z zamikom, da namizje ni pocasnejse ob prijavi.
+            # prej tekel locen proces v ozadju. Z zamikom, da namizje ni pocasnejse ob prijavi. Delovna povrsina
+            # (--delovna ali predana pozneje) to naredi v _ob_namizju.
             GLib.timeout_add_seconds(3, lambda: (self._vgradi_control(), False)[1])
 
     def do_shutdown(self) -> None:
@@ -1637,16 +1681,8 @@ class SafeerOS(Gtk.Application):
         if self.delovna and not _ima_delovno(self):
             # Prvi zagon z --delovna: samo delovna povrsina (glavno okno ob naslednji aktivaciji).
             self._ustvari_delovno()
+            self._ob_namizju()
             self._prvic = False
-            if not self.posnetek:
-                # Scit, ki ga je uporabnik vklopil, varuje tudi, kadar Safeer OS tece kot delovna povrsina.
-                self.scit.zacni_ce_vklopljen()
-                uredi_samozagon_ob_zagonu(self.shramba)
-                # Safeer Link ob prijavi v namizje: ce racunalnik ni povezan, tiho obvestilo z gumbom »Poveži«
-                # (okno ob zagonu je bilo moteče - lastnik, 13. 10. 2026), razen ce je ze povezan ali v tej seji izbral brez.
-                GLib.timeout_add_seconds(4, self._prijavno_okno_ob_prijavi)
-                # Sporocila na namizju: kuverta z neprebranimi v pultu zgoraj desno, klik odpre plosco sporocil.
-                GLib.timeout_add_seconds(2, lambda: (self._zacni_kuverto(), False)[1])
             self._povezi_koncanje()
             return
         if self._zacni_s_predvajalnikom:
@@ -1739,16 +1775,54 @@ class SafeerOS(Gtk.Application):
         ali okno iz menija: delovna povrsina se odpre v tem procesu (prej je drugi zagon tiho koncal in tema je ostala
         brez nje do naslednje prijave). Glavno okno odslej ob zapiranju samo skrije (_zapri_glavno). Kjer delovna
         povrsina ze je ali tece celozaslonski Safeer OS (namizje), se ne zgodi nic - kot prej."""
-        if _ima_delovno(self) or self.namizje or self.posnetek:
+        lupina = getattr(self, "lupina", None)
+        okno_aplikacije = isinstance(lupina, os_lupina.Namizje) and lupina.v_oknu
+        if (_ima_delovno(self) and not okno_aplikacije) or self.namizje or self.posnetek:
             return False
+        if okno_aplikacije:
+            # Aplikacija Safeer OS v oknu je isto namizje QML (_ustvari_qml_okno): okno postane delovna povrsina. Prej je
+            # odprto okno delovno povrsino blokiralo do naslednje prijave (pregled celovitosti 15. 10. 2026).
+            lupina._ob_koncu = None              # zaprtje tega okna ne sme koncati Safeer OS (_zaprto_qml_okno)
+            try:
+                lupina.zapri()
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] okno aplikacije:", e, flush=True)
+            self.lupina = None
+            self.pogled_delovna = self._qml_pogled = None
         self.delovna, self.v_oknu = True, True
         self._ustvari_delovno()
+        self._ob_namizju()
+        self._povezi_koncanje()
+        return True
+
+    def _ob_namizju(self) -> None:
+        """Kar sodi k delovni povrsini, ne glede na to, ali je nastala ob zagonu (--delovna) ali pozneje v procesu, ki je
+        ze tekel kot Safeer Player ali okno (_vklopi_delovno): Scit, zagon ob prijavi, kuverta sporocil v pultu, Control
+        v tem procesu (Safeer Link, pladenj) in ponudba povezave. Prej je vse to dobila samo pot ob zagonu (pregled
+        celovitosti 15. 10. 2026). Vsak del se zgodi enkrat na proces."""
+        if self.posnetek or getattr(self, "_namizje_pripravljeno", False):
+            return
+        self._namizje_pripravljeno = True
         if self._prvic:
-            # Kot ob zagonu z --delovna; ce je glavno okno ze odprto, sta Scit in zagon ob prijavi ze urejena.
+            # Ce je bilo glavno okno ze odprto, sta Scit in zagon ob prijavi ze urejena.
             self._prvic = False
+            # Scit, ki ga je uporabnik vklopil, varuje tudi, kadar Safeer OS tece kot delovna povrsina.
             self.scit.zacni_ce_vklopljen()
             uredi_samozagon_ob_zagonu(self.shramba)
-        self._povezi_koncanje()
+        # Sporocila na namizju: kuverta z neprebranimi v pultu zgoraj desno, klik odpre plosco sporocil.
+        GLib.timeout_add_seconds(2, lambda: (self._zacni_kuverto(), False)[1])
+        # Namizje tece ves dan: Control (Safeer Link, naprave, pladenj) tece z njim, v istem procesu. Z zamikom, da
+        # namizje ni pocasnejse ob prijavi.
+        GLib.timeout_add_seconds(3, lambda: (self._vgradi_control(), False)[1])
+        # Safeer Link ob prijavi v namizje: ce racunalnik ni povezan, tiho obvestilo z gumbom »Poveži«
+        # (okno ob zagonu je bilo moteče - lastnik, 13. 10. 2026), razen ce je ze povezan ali v tej seji izbral brez.
+        GLib.timeout_add_seconds(4, self._prijavno_okno_ob_prijavi)
+
+    def _izklopi_delovno(self) -> bool:
+        """Dejanje »delovna-izklopi« (safeer-cinnamon ob izklopu): proces z delovno povrsino se konca kot ob SIGTERM."""
+        if not (self.delovna and _ima_delovno(self)):
+            return False
+        GLib.idle_add(lambda: (self._koncaj(), False)[1])
         return True
 
     def _nov_pogled(self, stran: str) -> WebKit2.WebView:
@@ -2216,6 +2290,13 @@ class SafeerOS(Gtk.Application):
         if _ima_delovno(self) or self.okno is not None:
             okno.set_visible(False)
             return True
+        if self._plosca_spleta is not None and self._plosca_spleta.get_visible():
+            # Splet, odprt iz tega Safeer Playerja (povezava, spletna aplikacija), ostane odprt: predvajanje se ustavi
+            # kot ob zaprtju predvajalnika, Safeer OS pa se konca, ko uporabnik zapre se Splet (_skrij_splet_na_namizju).
+            okno.set_visible(False)
+            self._pocisti_medijski_pogled()
+            self._ustavi_neposredni_medij()
+            return True
         self._koncaj()
         return True
 
@@ -2255,14 +2336,16 @@ class SafeerOS(Gtk.Application):
     def _splet_na_namizju(self, niz: str, vrh: float = 0, domov: bool = False) -> bool:
         """Iskanje po spletu iz zgornjega polja delovne povrsine: rezultati v plosci na namizju (isti vgrajeni
         brskalnik z vsemi moznostmi kot Splet v Safeer OS: zavihki, naslov, Scit, meni), ne v drugem programu.
-        `vrh`: spodnji rob iskalnega polja (CSS px), plosca je tik pod njim. Brez peskovnika: privzeti brskalnik."""
+        `vrh`: spodnji rob iskalnega polja (CSS px), plosca je tik pod njim. Brez peskovnika: privzeti brskalnik.
+        Isto okno Splet dobijo tudi povezave iz Zapiskov, Sporocil, Safeer Playerja in spletnih aplikacij, kadar
+        glavnega okna ni (_splet) - tudi brez delovne povrsine (samo Safeer Player): en proces, en Splet."""
         niz = str(niz or "").strip()
         if not niz and not domov:
             return False
         # domov: »Splet« iz iskanja na delovni povrsini brez niza - zacetna stran Spleta (url "" = domaca stran).
         url = "" if not niz else niz if niz.lower().startswith(("http://", "https://")) else \
             _iskalnik() + GLib.uri_escape_string(niz, None, False)
-        if not _ima_delovno(self) or not self._peskovnik_na_voljo():
+        if not self._peskovnik_na_voljo():
             return self._odpri_v_brskalniku(niz) if niz else False
         if self._plosca_spleta is None:
             from core.os_splet import VdelaniSplet
@@ -2359,6 +2442,10 @@ class SafeerOS(Gtk.Application):
         if getattr(self, "_sprosti_splet_id", 0):
             GLib.source_remove(self._sprosti_splet_id)
         self._sprosti_splet_id = GLib.timeout_add_seconds(60, self._sprosti_splet_na_namizju)
+        if not _ima_delovno(self) and self.okno is None and not any(o.get_visible() for o in self.get_windows()):
+            # Samostojni Safeer Player je ze zaprt (_zapri_predvajalnik), Splet je bil zadnje okno: kot zaprtje
+            # zadnjega okna - skrito okno sicer drzi proces brez vsega vidnega.
+            GLib.idle_add(lambda: (self._koncaj(), False)[1])
         return True
 
     def _sprosti_splet_na_namizju(self) -> bool:
@@ -3509,6 +3596,10 @@ class SafeerOS(Gtk.Application):
             "mape": os_datoteke.uporabniske_mape(),
             "zaznamki": os_datoteke.zaznamki(izpusti=[m["pot"] for m in os_datoteke.uporabniske_mape()]),
             "celozaslonsko": bool(self.shramba.get("celozaslonsko", True)) and not self.v_oknu,
+            # Safeer Cinnamon: Safeer OS je vedno v oknu (main), stikalo Celozaslonsko nima ucinka; ob delovni
+            # povrsini zagon ob prijavi vodi seja safeer-cinnamon - Nastavitve stikal ne pokazejo (os.js).
+            "safeerCinnamon": _safeer_cinnamon_vklopljen(),
+            "samozagonNamizje": delovna_safeer_cinnamon(),
             "namizje": self.namizje,
             "spletne": shranjene_spletne,
             "razlicica": RAZLICICA,
@@ -3661,9 +3752,11 @@ class SafeerOS(Gtk.Application):
             if not naslov.lower().startswith(("http://", "https://")) or not normalize_web_url(naslov):
                 return False
         if self.okno is None or not self.okno.get_visible():
-            # Glavnega okna ni ali je skrito (klic iz Safeer Playerja ali delovne povrsine): stran odpre privzeti
-            # brskalnik, ne skrita lupina. Prej je klic brez glavnega okna padel, v skritem oknu pa ga ni nihce videl.
-            return bool(naslov) and self._odpri_v_brskalniku(naslov)
+            # Glavnega okna ni ali je skrito (Safeer Cinnamon, Safeer Player, okna Zapiskov in Sporocil): stran odpre
+            # Splet v svojem oknu v tem procesu, ne skrita lupina. Prej je sel vsak klic v privzeti brskalnik
+            # (pregled celovitosti 15. 10. 2026); ta ostane samo brez peskovnika WebKit (_splet_na_namizju) ali na
+            # izrecno zahtevo uporabnika (»Odpri v brskalniku«).
+            return bool(naslov) and self._splet_na_namizju(naslov)
         if not self.okno.is_active():
             self.okno.present()
         if not self._pokazi_spletni_nacin():
@@ -5489,7 +5582,25 @@ class SafeerOS(Gtk.Application):
         return True
 
     def _odpri_control(self) -> bool:
-        """Safeer Control: prijavno okno (QR / koda) ali seznam naprav, ce je racunalnik ze povezan."""
+        """Safeer Control: prijavno okno (QR / koda) ali seznam naprav, ce je racunalnik ze povezan.
+
+        Control v tem procesu (core/en_proces.py) pokaze okno neposredno. Prej je vedno zagnal nov proces
+        safeer-control, ki je vgrajenemu Controlu poslal Activate - ta ga je prvo minuto po zagonu prezrl (pregled
+        celovitosti 15. 10. 2026). Ce Control se ne tece, ga Safeer OS najprej vgradi (en proces); locen proces
+        ostane samo, kadar vgradnja ni mogoca."""
+        def v_procesu() -> bool:
+            c = en_proces.control_app()
+            if c is None and self._vgradi_control():
+                c = en_proces.control_app()
+            if c is None:
+                return False
+            c.pokazi_okno()
+            return True
+        try:
+            if en_proces.na_glavni(v_procesu, cas=20.0, privzeto=False):
+                return True
+        except Exception as e:  # noqa: BLE001 - locen proces kot prej
+            print("[SafeerOS] Control v procesu:", e, flush=True)
         ukaz = _ukaz_controla()
         if not ukaz:
             return False
@@ -5630,8 +5741,7 @@ def main() -> int:
         posnetek = sys.argv[i + 1] if i + 1 < len(sys.argv) else "/tmp/safeer-os.png"
     # Ob vklopljenem Safeer Cinnamon je namizje delovna povrsina: Safeer OS iz menija se odpre kot okno
     # (ne cez cel zaslon in brez skrivanja Mintovega pulta).
-    cinnamon = os.path.isfile(os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),
-                                           "safeer-cinnamon", "vklopljeno"))
+    cinnamon = _safeer_cinnamon_vklopljen()
     # Proces, ki ga je zagnal Safeer Player, odpre tudi Safeer OS iz menija v oknu (kot ob --predvajaj).
     v_oknu = "--okno" in sys.argv[1:] or bool(magnet) or bool(datoteka) or bool(ponudba_json) or predvajalnik \
         or (cinnamon and "--namizje" not in sys.argv[1:])
@@ -5654,11 +5764,11 @@ def main() -> int:
         except Exception:  # noqa: BLE001
             pass
     if "--delovna" in sys.argv[1:]:
-        # Ze tece primerek Safeer OS (delovna povrsina ali okno): drugi zagon ob prijavi ali iz
-        # safeer-cinnamon ne sme odpreti glavnega okna (aktivacija bi ga), zato tiho koncamo.
+        # Ze tece primerek Safeer OS (delovna povrsina, Safeer Player ali okno): drugi zagon ob prijavi ali iz
+        # safeer-cinnamon mu preda dejanje »delovna« (_vklopi_delovno) - aktivacija bi odprla glavno okno, tihi konec
+        # pa je pustil sejo brez delovne povrsine do naslednje prijave (pregled celovitosti 15. 10. 2026).
         try:
-            app.register(None)
-            if app.get_is_remote():
+            if _predaj_ce_oddaljen(app, "delovna"):
                 return 0
         except Exception:  # noqa: BLE001
             pass

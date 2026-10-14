@@ -154,19 +154,38 @@ def _safeer_os() -> str:
                                                if os.path.isfile(p) and os.access(p, os.X_OK)), "")
 
 
+def _dejanje_v_procesu(dejanje: str, vrednost: str) -> bool:
+    """Control tece v procesu Safeer OS (core/en_proces.py): dejanje Safeer OS (magnet, isci, medij) neposredno, na
+    glavni niti - prej je vsak ukaz zagnal cel proces safeer-os samo zato, da je klic predal naprej (pregled
+    celovitosti 15. 10. 2026). False: Safeer OS v tem procesu ne tece, ostane zagon programa."""
+    try:
+        from core import en_proces
+    except ImportError:          # brskalnik Safeer (safeer_mint.py) brez tega modula
+        return False
+    aplikacija = en_proces.os_app()
+    if aplikacija is None:
+        return False
+    from gi.repository import GLib
+    GLib.idle_add(lambda: (aplikacija.activate_action(dejanje, GLib.Variant("s", vrednost)), False)[1])
+    return True
+
+
 def odpri_magnet(uri: str) -> dict:
     """Magnet z naprave v krogu zaupanja odpre Safeer OS; ukazov ali poti od naprave ne izvajamo."""
     from core import os_torrent
     m = os_torrent.razcleni_magnet(uri)
     if m is None:
         return izid(False, "To ni veljavna magnet povezava", koda="ni_magnet")
+    ime = "Odpiram v Safeer OS: " + (m["ime"] or m["hash"][:12])
+    if _dejanje_v_procesu("magnet", "naprava:" + m["uri"]):     # kot --magnet-naprava (safeer_os.main)
+        return izid(True, ime)
     program = _safeer_os()
     if not program:
         return izid(False, "Safeer OS na tem računalniku ni nameščen", koda="ni_safeer_os")
     import subprocess
     subprocess.Popen([program, "--magnet-naprava", m["uri"]], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                      stderr=subprocess.DEVNULL, start_new_session=True)
-    return izid(True, "Odpiram v Safeer OS: " + (m["ime"] or m["hash"][:12]))
+    return izid(True, ime)
 
 
 def isci_na_racunalniku(niz: str) -> dict:
@@ -174,6 +193,8 @@ def isci_na_racunalniku(niz: str) -> dict:
     niz = " ".join(str(niz or "").split())[:200]
     if not niz:
         return izid(False, "Ni besedila za iskanje", koda="prazno")
+    if _dejanje_v_procesu("isci", niz):
+        return izid(True, "Iščem na računalniku")
     program = _safeer_os()
     if not program:
         return izid(False, "Safeer OS na tem računalniku ni nameščen", koda="ni_safeer_os")
@@ -199,10 +220,12 @@ def odpri_medij(p: dict) -> dict:
     m = medij_iz_parametrov(p if isinstance(p, dict) else {})
     if m is None:
         return izid(False, "Ni naslova", koda="prazno")
+    import json as _json
+    if _dejanje_v_procesu("medij", _json.dumps(m, ensure_ascii=False)):
+        return izid(True, "Odpiram v Medijskem centru: " + m["title"])
     program = _safeer_os()
     if not program:
         return izid(False, "Safeer OS na tem računalniku ni nameščen", koda="ni_safeer_os")
-    import json as _json
     import subprocess
     subprocess.Popen([program, "--medij-naprava", _json.dumps(m, ensure_ascii=False)], stdin=subprocess.DEVNULL,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
