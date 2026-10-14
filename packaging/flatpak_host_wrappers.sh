@@ -10,7 +10,7 @@ mkdir -p "$DEST"
 TOOLS="nmcli nm-connection-editor resolvectl pkexec pactl pacmd wpctl brightnessctl gsettings gdbus systemctl loginctl
        xdg-open gio xprop xdotool wmctrl sway swaymsg wf-recorder wtype notify-send cinnamon-settings cinnamon-session-quit
        cinnamon-screensaver-command gnome-screenshot nemo pgrep pkill hostnamectl timedatectl xrandr playerctl amixer
-       safeer safeer-browser flatpak"
+       safeer safeer-browser flatpak safeer-cinnamon nemo-desktop"
 for tool in $TOOLS; do
     cat > "$DEST/$tool" << 'EOF'
 #!/bin/sh
