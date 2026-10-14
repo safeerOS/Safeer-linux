@@ -13,6 +13,8 @@ Zapis (dostop.json v mapi nastavitev, 0600; berejo ga Control, brskalnik in sred
 »zascita«: naprave, ki so s tem racunalnikom ze vzpostavile zascito od naprave do naprave (core/link_e2e). Od take
 naprave nezascitenega ukaza ne sprejmemo vec - sicer bi se kdorkoli z njeno oznako predstavil kot starejsa razlicica.
 Crke: d = datoteke, p = programi, v = predvajalnik, z = zaslon in upravljanje. Naprava brez zapisa nima dostopa.
+»zavrnjeno«: {"n-<16 hex>|<crka>": unix cas} - prosnje za dostop, ki jih je uporabnik tu zavrnil (24 ur brez vprasanja;
+glej prosnje za dostop spodaj). Polja, ki jih program ne pozna, ob pisanju ostanejo.
 Ob prvem zagonu z dovoljenji se enkrat vpisejo naprave, ki so bile z racunalnikom v krogu ze prej (`podedovani`);
 pozneje se nic vec ne podeduje - nov vnos v krogu s starim datumom dostopa ne dobi.
 
@@ -40,6 +42,7 @@ import os
 import tempfile
 import threading
 import time
+from collections import OrderedDict
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 #: 6. 10. 2026 00:00:00 UTC. Naprave, ki so bile s to napravo v krogu ze prej, ob uvedbi dovoljenj obdrzijo dostop.
@@ -227,6 +230,8 @@ _pot_preglasena: Optional[str] = None
 _zascita_disk: Set[str] = set()
 #: Kdaj (time.monotonic) zapis nazadnje ni uspel; None = zadnji je uspel.
 _zapis_spodletel_ob: Optional[float] = None
+#: Polje »zavrnjeno« z diska (glej prosnje spodaj): "<jedro>|<crka>" -> cas zavrnitve (unix).
+_zavrnjeno_disk: Dict[str, float] = {}
 
 
 def _pot() -> str:
@@ -300,19 +305,24 @@ def _zaklenjen_zapis(pot: str):
                 pass
 
 
-def _z_diska(pot: str) -> Tuple[str, Dict[str, Set[str]], Set[str], float]:
-    """Zapis na disku: (stanje, naprave, zascita, podedovano_ob). Stanje je "ok", "ni" (datoteke ni), "napaka"
+#: Polja zapisa, ki jih pise _na_disk sam; vsa druga (»zavrnjeno« in polja novejsih programov) ostanejo, kot so.
+_LASTNA_POLJA = ("v", "podedovano_ob", "naprave", "zascita")
+
+
+def _z_diska(pot: str) -> Tuple[str, Dict[str, Set[str]], Set[str], float, dict]:
+    """Zapis na disku: (stanje, naprave, zascita, podedovano_ob, ostalo). Stanje je "ok", "ni" (datoteke ni), "napaka"
     (datoteka je, a je ni mogoce prebrati - pravice, disk) ali "pokvarjen" (vsebina ni pravilen zapis); razen pri "ok"
-    sta naprave in zascita prazna."""
+    so naprave, zascita in ostalo prazni. `ostalo` so polja, ki jih ta zapis sam ne vodi (npr. »zavrnjeno«, polja
+    novejsega programa): ob pisanju jih vrnemo nespremenjena."""
     try:
         with open(pot, "r", encoding="utf-8") as d:
             besedilo = d.read()
     except FileNotFoundError:
-        return "ni", {}, set(), 0.0
+        return "ni", {}, set(), 0.0, {}
     except OSError:
-        return "napaka", {}, set(), 0.0
+        return "napaka", {}, set(), 0.0, {}
     except ValueError:
-        return "pokvarjen", {}, set(), 0.0
+        return "pokvarjen", {}, set(), 0.0, {}
     try:
         surovo = json.loads(besedilo) or {}
         naprave = {str(k): iz_niza(str(crke)) for k, crke in (surovo.get("naprave") or {}).items()}
@@ -321,26 +331,30 @@ def _z_diska(pot: str) -> Tuple[str, Dict[str, Set[str]], Set[str], float]:
             ob = float(surovo.get("podedovano_ob") or 0.0)
         except (TypeError, ValueError):
             ob = 0.0
-        return "ok", naprave, zascita, ob
+        ostalo = {str(k): v for k, v in surovo.items() if k not in _LASTNA_POLJA}
+        return "ok", naprave, zascita, ob, ostalo
     except Exception:  # noqa: BLE001
-        return "pokvarjen", {}, set(), 0.0
+        return "pokvarjen", {}, set(), 0.0, {}
 
 
 _NE_PREVERJAJ = object()
 
 
 def _na_disk(pot: str, naprave: Dict[str, Set[str]], zascita: Set[str], podedovano_ob: float,
-             pricakovan: object = _NE_PREVERJAJ) -> Optional[Tuple[int, int, int]]:
+             pricakovan: object = _NE_PREVERJAJ, ostalo: Optional[dict] = None) -> Optional[Tuple[int, int, int]]:
     """Zapis v SVOJO zacasno datoteko (0600) in zamenjava: nikoli pol zapisa, nikoli datoteka, ki bi jo hkrati pisal
     drug program. Vrne odtis novega zapisa (zamenjava ohrani stevilko datoteke, cas in velikost zacasne datoteke).
 
     `pricakovan` je odtis zapisa, kot smo ga prebrali (None = zapisa ni bilo): ce je zapis tik pred zamenjavo drugacen,
-    ga je vmes spremenil drug program - NE zamenjamo in vrnemo None (klicatelj prebere znova in spremembo ponovi)."""
+    ga je vmes spremenil drug program - NE zamenjamo in vrnemo None (klicatelj prebere znova in spremembo ponovi).
+    `ostalo` so polja, ki jih ta zapis ne vodi (prebrana z diska): zapisejo se nespremenjena."""
+    vsebina = {k: v for k, v in (ostalo or {}).items() if k not in _LASTNA_POLJA}
+    vsebina.update({"v": 1, "podedovano_ob": podedovano_ob, "naprave": {k: v_niz(v) for k, v in sorted(naprave.items())},
+                    "zascita": sorted(zascita)})
     rocaj, zacasna = tempfile.mkstemp(prefix=os.path.basename(pot) + ".", suffix=".tmp", dir=os.path.dirname(pot))
     try:
         with os.fdopen(rocaj, "w", encoding="utf-8") as d:
-            json.dump({"v": 1, "podedovano_ob": podedovano_ob, "naprave": {k: v_niz(v) for k, v in sorted(naprave.items())},
-                       "zascita": sorted(zascita)}, d, indent=1)
+            json.dump(vsebina, d, indent=1)
             d.flush()
             os.fchmod(d.fileno(), 0o600)
             os.fsync(d.fileno())
@@ -370,14 +384,16 @@ def _podedovane_naprave() -> Dict[str, Set[str]]:
     return {j: set(VSE_ZMOZNOSTI) for j in stari}
 
 
-def _spremeni(sprememba: Callable[[Dict[str, Set[str]], Set[str]], None]) -> Dict[str, Set[str]]:
+def _spremeni(sprememba: Callable[[Dict[str, Set[str]], Set[str]], None],
+              sprememba_ostalega: Optional[Callable[[dict], None]] = None) -> Dict[str, Set[str]]:
     """Branje-sprememba-zapis kot en korak, pod zaklepom programa IN datoteke. `sprememba(naprave, zascita)` spremeni
-    oba na mestu. Izhodisce je vedno stanje z DISKA - spremembe drugih programov ostanejo. Zapis »zascita« samo raste:
+    oba na mestu; `sprememba_ostalega(ostalo)` po zelji spremeni polja, ki jih zapis sicer samo prenasa (»zavrnjeno«).
+    Polja, ki jih ta program ne pozna, ostanejo. Izhodisce je vedno stanje z DISKA - spremembe drugih programov ostanejo. Zapis »zascita« samo raste:
     kar ima ta program v pomnilniku, gre zraven (tudi kadar je zapis na disku pokvarjen ali ga je pisal starejsi
     program, ki zascite ne pozna). Ce zapisa se ni, je to prvi zagon z dovoljenji (podedovane naprave); pokvarjen
     zapis pomeni, da nima dostopa nihce (varna stran). Zapisa, ki ga ni mogoce PREBRATI, ne prepisemo: NapakaBranja.
     Vrne nove naprave in posodobi stanje v pomnilniku."""
-    global _zapis, _zascita, _prebran_odtis, _prebrana_pot, _zascita_disk, _zapis_spodletel_ob
+    global _zapis, _zascita, _prebran_odtis, _prebrana_pot, _zascita_disk, _zapis_spodletel_ob, _zavrnjeno_disk
     with _zaklep:
         pot = _pot()
         try:
@@ -385,7 +401,7 @@ def _spremeni(sprememba: Callable[[Dict[str, Set[str]], Set[str]], None]) -> Dic
             with _zaklenjen_zapis(pot):
                 for poskus in range(NAJVEC_POSKUSOV_ZAPISA):
                     odtis_prej = _odtis_zapisa(pot)
-                    stanje, naprave, zascita, ob = _z_diska(pot)
+                    stanje, naprave, zascita, ob, ostalo = _z_diska(pot)
                     if stanje == "napaka":
                         raise NapakaBranja(5, "zapisa dovoljenj ni mogoce prebrati - ne prepisemo ga")
                     if stanje == "ni":
@@ -395,9 +411,11 @@ def _spremeni(sprememba: Callable[[Dict[str, Set[str]], Set[str]], None]) -> Dic
                     if pot == _prebrana_pot:
                         zascita |= _zascita
                     sprememba(naprave, zascita)
+                    if sprememba_ostalega is not None:
+                        sprememba_ostalega(ostalo)
                     # Zamenjamo samo, ce je zapis se tak, kot smo ga prebrali (zadnji poskus brez preverbe, da se konca).
                     zadnji = poskus == NAJVEC_POSKUSOV_ZAPISA - 1
-                    odtis = _na_disk(pot, naprave, zascita, ob, _NE_PREVERJAJ if zadnji else odtis_prej)
+                    odtis = _na_disk(pot, naprave, zascita, ob, _NE_PREVERJAJ if zadnji else odtis_prej, ostalo=ostalo)
                     if odtis is not None:
                         break
         except OSError:
@@ -405,17 +423,19 @@ def _spremeni(sprememba: Callable[[Dict[str, Set[str]], Set[str]], None]) -> Dic
             raise
         _zapis, _zascita, _prebran_odtis, _prebrana_pot = naprave, zascita, odtis, pot
         _zascita_disk, _zapis_spodletel_ob = set(zascita), None
+        _zavrnjeno_disk = _zavrnjeno_iz(ostalo.get("zavrnjeno"))
         return naprave
 
 
 def _nalozen() -> Dict[str, Set[str]]:
     """Zapis dovoljenj; znova prebran, ce ga je spremenil drug program na tem racunalniku (Control, brskalnik)."""
-    global _zapis, _prebran_odtis, _prebrana_pot, _zascita, _zascita_disk
+    global _zapis, _prebran_odtis, _prebrana_pot, _zascita, _zascita_disk, _zavrnjeno_disk
     with _zaklep:
         pot = _pot()
         if pot != _prebrana_pot:
             # Drug zapis (preizkusi): kar smo vedeli za prejsnjega, zanj ne velja.
             _zascita, _zascita_disk, _zapis, _prebran_odtis, _prebrana_pot = set(), set(), None, None, pot
+            _zavrnjeno_disk = {}
         try:
             odtis = _odtis_zapisa(pot)
         except OSError:
@@ -438,13 +458,14 @@ def _nalozen() -> Dict[str, Set[str]]:
                 _zapis, _prebran_odtis = zapis, None
                 _zascita_disk = set()              # na disku ni nicesar: zapis »zascita« se vrne ob prvi priloznosti
                 return zapis
-        stanje, naprave, zascita, _ob = _z_diska(pot)
+        stanje, naprave, zascita, _ob, ostalo = _z_diska(pot)
         if stanje == "napaka":
             _zapis, _prebran_odtis = None, None         # ni berljiv: nihce, brez pisanja, naslednjic znova
             return {}
         if stanje == "ok":
             _zascita = _zascita | zascita
             _zascita_disk = set(zascita)
+            _zavrnjeno_disk = _zavrnjeno_iz(ostalo.get("zavrnjeno"))
         else:
             # Pokvarjen zapis: nihce nima dostopa (varna stran), uporabnik ga odpre znova. Kar ta program ze ve o
             # napravah z dokazanim kljucem, OSTANE: pokvarjen zapis ne sme ugasniti pravila »samo zasciteno«.
@@ -679,9 +700,405 @@ def zabelezi(posiljatelj: str, kaj: str, zdaj: Optional[float] = None) -> None:
     print(f"[SafeerDostop] Zavrnjeno: {posiljatelj or 'neznana naprava'} nima dostopa za {kaj}{dodatek}")
 
 
+# ---------------------------------------------------------------------- prosnje za dostop (odobri ta racunalnik)
+#
+# Lastnik, 14. 10. 2026: naprava (npr. telefon druzinskega clana, dodan v Safeer Link), ki zeli dostop do tega
+# racunalnika, ga dobi samo, ce ga odobri uporabnik NA TEM racunalniku - zascita pred napadalcem. Prej je naprava brez
+# dostopa dobila samo zavrnitev; uporabnik jo je moral sam poiskati v nastavitvah.
+#
+# Ko racunalnik zavrne ukaz, ker naprava nima ENE zmoznosti (d/p/v/z - ne »*«), in je naprava clan kroga tega
+# racunalnika, si zapomni prosnjo {jedro, ime, zmoznost, cas} in program z obvestili (Safeer Control) pokaze obvestilo
+# z gumboma Dovoli / Zavrni. Ime naprave je iz kroga TEGA racunalnika, nikoli iz besedila sporocila. Dovoli doda samo
+# tisto eno crko; odobri se lahko samo odprta prosnja in samo s klikom uporabnika (dejanje aplikacije, glej
+# safeer_control) - nic v prispelem sporocilu je ne more odobriti. Zavrni za 24 ur utisa isto prosnjo (zapis
+# »zavrnjeno« v dostop.json, da velja tudi po ponovnem zagonu). Ista prosnja najvec enkrat na 10 minut; odprtih
+# najvec 5 (najstarejse izpadejo).
+#
+# Napravi gre v odgovoru (ob nespremenjeni stari obliki zavrnitve) se "access_request": "pending" | "declined" | "none"
+# in "capability": crka (isti protokol kot Android).
+
+PROSNJA_PONOVNO_S = 600.0
+ZAVRNITEV_VELJA_S = 86400.0
+NAJVEC_PROSENJ = 5
+NAJVEC_IMENA = 60
+NAJVEC_ZAVRNITEV = 256
+PROSNJA_ODPRTA, PROSNJA_ZAVRNJENA, PROSNJA_NI = "pending", "declined", "none"
+
+#: Odprte prosnje po vrsti nastanka: "<jedro>|<crka>" -> {"jedro", "ime", "zmoznost", "cas"}.
+_prosnje: "OrderedDict[str, dict]" = OrderedDict()
+#: Kdaj (time.time) je bil uporabnik nazadnje vprasan za isto prosnjo.
+_zadnji_poziv: Dict[str, float] = {}
+#: Zavrnitve v tem programu (na disku jih lahko izbrise starejsi program, ki polja »zavrnjeno« ne pozna).
+_zavrnjeno: Dict[str, float] = {}
+#: Prikaz obvestila (nastavi ga program z obvestili - Safeer Control); brez njega prosnje ni mogoce pokazati.
+_prikaz: Optional[Callable[[dict], None]] = None
+_umik: Optional[Callable[[str], None]] = None
+
+
+def kljuc_prosnje(jedro_naprave: str, zmoznost: str) -> str:
+    return f"{jedro_naprave}|{zmoznost}"
+
+
+def _je_jedro(j: object) -> bool:
+    return isinstance(j, str) and len(j) == DOLZINA_JEDRA and je_id_iz_kljuca(j)
+
+
+def razcleni_kljuc_prosnje(kljuc: str) -> Optional[Tuple[str, str]]:
+    """"<jedro>|<crka>" -> (jedro, crka) ali None, ce ni prave oblike."""
+    if not isinstance(kljuc, str):
+        return None
+    j, locilo, z = kljuc.partition("|")
+    if not locilo or not _je_jedro(j) or z not in VSE_ZMOZNOSTI:
+        return None
+    return j, z
+
+
+def _zavrnjeno_iz(surovo: object) -> Dict[str, float]:
+    """Polje »zavrnjeno« z diska; vnosi napacne oblike se izpustijo."""
+    if not isinstance(surovo, dict):
+        return {}
+    izid: Dict[str, float] = {}
+    for k, v in surovo.items():
+        if razcleni_kljuc_prosnje(k) is None or isinstance(v, bool) or not isinstance(v, (int, float)) or v != v:
+            continue
+        izid[k] = float(v)
+        if len(izid) >= NAJVEC_ZAVRNITEV:
+            break
+    return izid
+
+
+def cisto_ime(ime: object) -> str:
+    """Ime naprave za obvestilo: brez nadzornih znakov (prelomi, smer pisave), strnjeni presledki, najvec 60 znakov."""
+    s = "".join(c if c.isprintable() else " " for c in str(ime or ""))
+    return " ".join(s.split())[:NAJVEC_IMENA].strip()
+
+
+def _ime_clana(jedro_naprave: str) -> Optional[str]:
+    """Ime naprave s tem jedrom iz kroga TEGA racunalnika; None, ce naprava ni clan kroga. Prednost ima vnos, katerega
+    oznaka je jedro samo (naprava), pred sorodnimi programi iste naprave."""
+    try:
+        k = _krog()
+        with k._zaklep:
+            clani = [dict(c) for c in k.clani.values() if k._veljaven(c)]
+    except Exception:  # noqa: BLE001 - brez kroga ni clanov
+        return None
+    najdeno: Optional[str] = None
+    for c in clani:
+        kljuc = str(c.get("kljuc") or "")
+        if not kljuc:
+            continue
+        try:
+            if _id_iz_kljuca(kljuc) != jedro_naprave:
+                continue
+        except Exception:  # noqa: BLE001 - pokvarjen vnos preskocimo
+            continue
+        ime = cisto_ime(c.get("ime"))
+        if str(c.get("id") or "") == jedro_naprave and ime:
+            return ime
+        if not najdeno:
+            najdeno = ime
+    if najdeno is None:
+        return None
+    return najdeno or jedro_naprave
+
+
+def _zavrnjeno_ob(kljuc: str) -> float:
+    return max(_zavrnjeno.get(kljuc, 0.0), _zavrnjeno_disk.get(kljuc, 0.0))
+
+
+def _pocisti_prosnje(zdaj: float) -> None:
+    """Pocisti stare vnose. Razlika je absolutna: ura, ki skoci nazaj, vnosa ne ohrani za vedno."""
+    for k in [k for k, p in _prosnje.items() if abs(zdaj - float(p.get("cas") or 0.0)) >= ZAVRNITEV_VELJA_S]:
+        _prosnje.pop(k, None)
+    for k in [k for k, t in _zadnji_poziv.items() if abs(zdaj - t) >= PROSNJA_PONOVNO_S]:
+        _zadnji_poziv.pop(k, None)
+    for k in [k for k, t in _zavrnjeno.items() if abs(zdaj - t) >= ZAVRNITEV_VELJA_S]:
+        _zavrnjeno.pop(k, None)
+
+
+def nastavi_prikaz(pokazi: Optional[Callable[[dict], None]], umakni: Optional[Callable[[str], None]] = None) -> None:
+    """Program z obvestili (Safeer Control) se javi: `pokazi(prosnja)` pokaze obvestilo z Dovoli/Zavrni (klic pride
+    iz katerekoli niti), `umakni(kljuc_prosnje)` ga umakne, ko prosnja izpade. None: prosenj ta program ne kaze."""
+    global _prikaz, _umik
+    with _zaklep:
+        _prikaz, _umik = pokazi, umakni
+
+
+def prosnja_ob_zavrnitvi(device_id: str, zahteva: str, zascita: Optional[str] = None, zascitljivo: bool = True,
+                         zdaj: Optional[float] = None) -> Tuple[str, str]:
+    """Racunalnik je zahtevo naprave pravkar zavrnil. Ce ji manjka ena zmoznost in je clan kroga, uporabnika tu
+    vprasa (obvestilo). Vrne (access_request, capability) za odgovor napravi. Nikoli ne odpre nicesar."""
+    zdaj = time.time() if zdaj is None else zdaj
+    if zahteva not in VSE_ZMOZNOSTI:
+        return PROSNJA_NI, zahteva
+    try:
+        if zascita:
+            j = str(zascita)             # jedro iz PREVERJENEGA kljuca (zasciteno sporocilo)
+        elif zascitljivo and zahteva_zascito(device_id):
+            return PROSNJA_NI, zahteva   # nezasciteno v imenu naprave, ki zascito zna: ni ona, ne sprasujemo
+        else:
+            j = jedro(device_id)
+        if not _je_jedro(j) or j == lastno_jedro():
+            return PROSNJA_NI, zahteva
+        if zahteva in zmoznosti_jedra(j):
+            return PROSNJA_NI, zahteva   # zavrnjeno iz drugega razloga
+        kljuc = kljuc_prosnje(j, zahteva)
+        if abs(zdaj - _zavrnjeno_ob(kljuc)) < ZAVRNITEV_VELJA_S:
+            return PROSNJA_ZAVRNJENA, zahteva
+        ime = _ime_clana(j)
+        if ime is None:
+            return PROSNJA_NI, zahteva   # ni clan kroga tega racunalnika
+    except Exception:  # noqa: BLE001 - napaka nikoli ne sprozi vprasanja
+        return PROSNJA_NI, zahteva
+    with _zaklep:
+        pokazi, umakni = _prikaz, _umik
+        if pokazi is None:
+            return PROSNJA_NI, zahteva
+        _pocisti_prosnje(zdaj)
+        zadnji = _zadnji_poziv.get(kljuc)
+        if zadnji is not None and abs(zdaj - zadnji) < PROSNJA_PONOVNO_S:
+            return (PROSNJA_ODPRTA if kljuc in _prosnje else PROSNJA_NI), zahteva
+        prosnja = {"jedro": j, "ime": ime, "zmoznost": zahteva, "cas": zdaj}
+        _prosnje.pop(kljuc, None)
+        _prosnje[kljuc] = prosnja
+        _zadnji_poziv[kljuc] = zdaj
+        izpadle = []
+        while len(_prosnje) > NAJVEC_PROSENJ:
+            izpadle.append(_prosnje.popitem(last=False)[0])
+    for k in izpadle:
+        if umakni is not None:
+            try:
+                umakni(k)
+            except Exception:  # noqa: BLE001
+                pass
+    try:
+        pokazi(dict(prosnja))
+    except Exception as e:  # noqa: BLE001 - obvestila ni bilo: napravi povemo, da prosnje ni
+        with _zaklep:
+            if _prosnje.get(kljuc) is prosnja:
+                _prosnje.pop(kljuc, None)
+        print(f"[SafeerDostop] Prosnje ni bilo mogoce pokazati: {e}")
+        return PROSNJA_NI, zahteva
+    print(f"[SafeerDostop] Prosnja za dostop: {j[:2]}…{j[-4:]} ({zahteva}) caka na odobritev na tem racunalniku",
+          flush=True)
+    return PROSNJA_ODPRTA, zahteva
+
+
+def prosnja_ob_zavrnitvi_sporocila(device_id: str, tip: str, dejanje: str = "",
+                                   zascita: Optional[str] = None) -> Tuple[str, str]:
+    """Kot prosnja_ob_zavrnitvi, za sporocila, ki niso ukaz (cast.url, share.screen)."""
+    try:
+        from core import link_e2e
+        zascitljivo = tip in link_e2e.ZASCITENI_TIPI
+    except Exception:  # noqa: BLE001
+        zascitljivo = True
+    return prosnja_ob_zavrnitvi(device_id, zahteva_sporocila(tip, dejanje), zascita, zascitljivo)
+
+
+def z_prosnjo(odgovor: dict, stanje: str, zmoznost: str) -> dict:
+    """Zavrnitev z dodanim stanjem prosnje. Obstojeca polja ostanejo, kot so (starejse naprave jih berejo); seznami
+    dobijo polji tudi v "data"."""
+    izid = dict(odgovor)
+    izid["access_request"] = stanje
+    izid["capability"] = zmoznost
+    if isinstance(izid.get("data"), dict):
+        izid["data"] = dict(izid["data"], access_request=stanje, capability=zmoznost)
+    return izid
+
+
+def odprte_prosnje() -> List[dict]:
+    with _zaklep:
+        _pocisti_prosnje(time.time())
+        return [dict(p) for p in _prosnje.values()]
+
+
+def dodaj_zmoznost(device_id: str, zmoznost: str) -> bool:
+    """Napravi doda ENO zmoznost k tistim, ki jih ze ima (branje-sprememba-zapis pod zaklepom, kot nastavi)."""
+    if zmoznost not in VSE_ZMOZNOSTI or not device_id or je_ta_naprava(device_id):
+        return False
+    j = jedro(device_id)
+    if not j:
+        return False
+    kljuc = kljuc_prosnje(j, zmoznost)
+
+    def sprememba(naprave: Dict[str, Set[str]], zascita: Set[str]) -> None:
+        naprave[j] = set(naprave.get(j) or ()) | {zmoznost}
+
+    def sprememba_ostalega(ostalo: dict) -> None:
+        if "zavrnjeno" in ostalo:
+            z = _zavrnjeno_iz(ostalo.get("zavrnjeno"))
+            z.pop(kljuc, None)
+            ostalo["zavrnjeno"] = z
+    with _zaklep:
+        _nalozen()
+        try:
+            _spremeni(sprememba, sprememba_ostalega)
+        except OSError:
+            return False
+        _zavrnjeno.pop(kljuc, None)
+    return True
+
+
+def odobri_prosnjo(jedro_naprave: str, zmoznost: str) -> bool:
+    """Uporabnik je na TEM racunalniku pritisnil Dovoli. Odobri se samo odprta prosnja in samo ta ena zmoznost."""
+    kljuc = kljuc_prosnje(str(jedro_naprave or ""), str(zmoznost or ""))
+    if razcleni_kljuc_prosnje(kljuc) is None:
+        return False
+    with _zaklep:
+        _pocisti_prosnje(time.time())
+        if kljuc not in _prosnje:
+            return False
+    if not dodaj_zmoznost(jedro_naprave, zmoznost):
+        return False                    # zapis ni uspel: prosnja ostane odprta, uporabnik lahko poskusi znova
+    with _zaklep:
+        _prosnje.pop(kljuc, None)
+        _zadnji_poziv.pop(kljuc, None)
+    print(f"[SafeerDostop] Uporabnik je dovolil: {jedro_naprave[:2]}…{jedro_naprave[-4:]} dobi {zmoznost}", flush=True)
+    return True
+
+
+def zavrni_prosnjo(jedro_naprave: str, zmoznost: str, zdaj: Optional[float] = None) -> bool:
+    """Uporabnik je pritisnil Zavrni: iste prosnje 24 ur ne kazemo (velja tudi po ponovnem zagonu)."""
+    kljuc = kljuc_prosnje(str(jedro_naprave or ""), str(zmoznost or ""))
+    if razcleni_kljuc_prosnje(kljuc) is None:
+        return False
+    zdaj = time.time() if zdaj is None else zdaj
+
+    def sprememba_ostalega(ostalo: dict) -> None:
+        z = {k: t for k, t in _zavrnjeno_iz(ostalo.get("zavrnjeno")).items() if abs(zdaj - t) < ZAVRNITEV_VELJA_S}
+        z[kljuc] = zdaj
+        if len(z) > NAJVEC_ZAVRNITEV:
+            z = dict(sorted(z.items(), key=lambda x: x[1])[-NAJVEC_ZAVRNITEV:])
+        ostalo["zavrnjeno"] = z
+    with _zaklep:
+        _prosnje.pop(kljuc, None)
+        _zavrnjeno[kljuc] = zdaj         # v tem programu velja takoj, tudi ce zapis ne uspe
+        _nalozen()
+        try:
+            _spremeni(lambda naprave, zascita: None, sprememba_ostalega)
+        except OSError:
+            pass
+    print(f"[SafeerDostop] Uporabnik je zavrnil: {jedro_naprave[:2]}…{jedro_naprave[-4:]} ({zmoznost}) za 24 ur",
+          flush=True)
+    return True
+
+
+# ---------------------------------------------------------------------- obvestilo s prosnjo (Safeer Control)
+#
+# Namizno obvestilo »<naprava> prosi za dostop« z gumboma »Dovoli« in »Zavrni«. Klik na obvestilo samo odpre seznam
+# naprav v Safeer Controlu - nikoli ne odobri. Gumba sta dejanji aplikacije Control s parametrom "<jedro>|<crka>";
+# odobri se lahko samo prosnja, ki res caka (odobri_prosnjo). Gio, GLib in aplikacijo dobijo funkcije kot parametre
+# (kot core/os_tema_namizja): ta modul ostane brez GTK, obvestilo pa je mogoce preizkusiti.
+
+#: Imena dejanj aplikacije Safeer Control (samostojne in vgrajene v Safeer OS).
+DEJANJE_DOVOLI = "dostop-dovoli"
+DEJANJE_ZAVRNI = "dostop-zavrni"
+DEJANJE_NAPRAVE = "dostop-naprave"
+PREDPONA_ID = "safeer-dostop-"
+NASLOV = "Safeer Link"
+
+BESEDILA_OBVESTILA = {
+    "sl": {"prosnja": "{ime} prosi za dostop: {kaj} na tem računalniku.", "dovoli": "Dovoli", "zavrni": "Zavrni",
+           "d": "datoteke", "p": "programi", "v": "predvajalnik", "z": "zaslon in upravljanje"},
+    "en": {"prosnja": "{ime} is asking for access: {kaj} on this computer.", "dovoli": "Allow", "zavrni": "Deny",
+           "d": "files", "p": "apps", "v": "player", "z": "screen and control"},
+    "de": {"prosnja": "{ime} bittet um Zugriff: {kaj} auf diesem Computer.", "dovoli": "Erlauben", "zavrni": "Ablehnen",
+           "d": "Dateien", "p": "Programme", "v": "Player", "z": "Bildschirm und Steuerung"},
+    "es": {"prosnja": "{ime} pide acceso: {kaj} en este ordenador.", "dovoli": "Permitir", "zavrni": "Rechazar",
+           "d": "archivos", "p": "programas", "v": "reproductor", "z": "pantalla y control"},
+    "fr": {"prosnja": "{ime} demande l'accès : {kaj} sur cet ordinateur.", "dovoli": "Autoriser", "zavrni": "Refuser",
+           "d": "fichiers", "p": "programmes", "v": "lecteur", "z": "écran et contrôle"},
+    "it": {"prosnja": "{ime} chiede l'accesso: {kaj} su questo computer.", "dovoli": "Consenti", "zavrni": "Rifiuta",
+           "d": "file", "p": "programmi", "v": "lettore", "z": "schermo e controllo"},
+}
+
+
+def besedilo_obvestila(jezik: Optional[str], kljuc: str) -> str:
+    return BESEDILA_OBVESTILA.get((jezik or "en")[:2].lower(), BESEDILA_OBVESTILA["en"]).get(
+        kljuc, BESEDILA_OBVESTILA["en"].get(kljuc, kljuc))
+
+
+def telo_obvestila(prosnja: dict, jezik: Optional[str]) -> str:
+    """Besedilo obvestila. Ime je iz kroga tega racunalnika in ze precisceno (cisto_ime)."""
+    ime = cisto_ime(prosnja.get("ime")) or str(prosnja.get("jedro") or "")
+    kaj = besedilo_obvestila(jezik, str(prosnja.get("zmoznost") or ""))
+    return besedilo_obvestila(jezik, "prosnja").format(ime=ime, kaj=kaj)
+
+
+def id_obvestila(kljuc_prosnje: str) -> str:
+    return PREDPONA_ID + str(kljuc_prosnje)
+
+
+def razcleni_parameter(parameter) -> Optional[Tuple[str, str]]:
+    """Parameter dejanja (GLib.Variant "s" ali niz) -> (jedro, crka) ali None."""
+    try:
+        niz = parameter.get_string() if hasattr(parameter, "get_string") else parameter
+    except Exception:  # noqa: BLE001
+        return None
+    return razcleni_kljuc_prosnje(niz) if isinstance(niz, str) else None
+
+
+def poslji_obvestilo(app, Gio, GLib, prosnja: dict, jezik: Optional[str]) -> str:
+    """Namizno obvestilo s prosnjo; vrne njegov id (en na prosnjo - ponovno vprasanje zamenja starega)."""
+    kljuc = kljuc_prosnje(str(prosnja.get("jedro") or ""), str(prosnja.get("zmoznost") or ""))
+    obvestilo = Gio.Notification.new(NASLOV)
+    obvestilo.set_body(telo_obvestila(prosnja, jezik))
+    try:
+        obvestilo.set_icon(Gio.ThemedIcon.new("safeer-control"))
+    except Exception:  # noqa: BLE001 - brez ikone je obvestilo enako uporabno
+        pass
+    try:
+        obvestilo.set_priority(Gio.NotificationPriority.HIGH)
+    except Exception:  # noqa: BLE001
+        pass
+    # Klik na obvestilo odpre seznam naprav (tam je tudi rocna nastavitev) - nikoli ne odobri.
+    obvestilo.set_default_action("app." + DEJANJE_NAPRAVE)
+    for gumb, dejanje in (("dovoli", DEJANJE_DOVOLI), ("zavrni", DEJANJE_ZAVRNI)):
+        obvestilo.add_button_with_target(besedilo_obvestila(jezik, gumb), "app." + dejanje, GLib.Variant("s", kljuc))
+    ident = id_obvestila(kljuc)
+    app.send_notification(ident, obvestilo)
+    return ident
+
+
+def umakni_obvestilo(app, kljuc_prosnje: str) -> None:
+    try:
+        app.withdraw_notification(id_obvestila(kljuc_prosnje))
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def registriraj_dejanja(app, Gio, GLib, dovoli: Callable[[str, str], object], zavrni: Callable[[str, str], object],
+                        odpri_naprave: Callable[[], object]) -> None:
+    """Dejanja »Dovoli«, »Zavrni« in »odpri seznam naprav« na aplikaciji Control. Dovoli/Zavrni sprejmeta samo
+    parameter prave oblike; vse drugo se tiho prezre."""
+    def ob_odgovoru(klic):
+        def obravnava(_dejanje, parameter) -> None:
+            par = razcleni_parameter(parameter)
+            if par is None:
+                return
+            try:
+                klic(*par)
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerControl] prosnja za dostop:", e, flush=True)
+            umakni_obvestilo(app, par[0] + "|" + par[1])
+        return obravnava
+    for ime, klic in ((DEJANJE_DOVOLI, dovoli), (DEJANJE_ZAVRNI, zavrni)):
+        dejanje = Gio.SimpleAction.new(ime, GLib.VariantType.new("s"))
+        dejanje.connect("activate", ob_odgovoru(klic))
+        app.add_action(dejanje)
+    naprave = Gio.SimpleAction.new(DEJANJE_NAPRAVE, None)
+    naprave.connect("activate", lambda _d, _p: odpri_naprave())
+    app.add_action(naprave)
+
+
 def _za_preizkus(pot: Optional[str]) -> None:
     """Preizkusi: zapis v zacasni datoteki (None vrne pravo pot)."""
     global _pot_preglasena, _zapis, _prebran_odtis, _prebrana_pot, _zascita, _zascita_disk, _zapis_spodletel_ob
+    global _zavrnjeno_disk, _prikaz, _umik
     with _zaklep:
         _pot_preglasena, _zapis, _prebran_odtis, _prebrana_pot, _zascita = pot, None, None, "", set()
         _zascita_disk, _zapis_spodletel_ob = set(), None
+        _zavrnjeno_disk, _prikaz, _umik = {}, None, None
+        _prosnje.clear()
+        _zadnji_poziv.clear()
+        _zavrnjeno.clear()

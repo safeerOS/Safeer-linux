@@ -231,6 +231,22 @@ def _dostop_naprave(id_naprave: str) -> dict:
         return {"dostop": "", "jaz": False}
 
 
+def _prosnja_iz_odgovora(telo: dict) -> dict:
+    """Stanje prosnje za dostop iz odgovora druge naprave (core/link_dostop: access_request, capability) - samo znane
+    vrednosti, da vmesnik ne pokaze karkoli, kar napravi pride na misel."""
+    if not isinstance(telo, dict):
+        return {}
+    stanje = telo.get("access_request")
+    if not isinstance(stanje, str) and isinstance(telo.get("data"), dict):
+        stanje = telo["data"].get("access_request")
+    if stanje not in ("pending", "declined", "none"):
+        return {}
+    zmoznost = telo.get("capability")
+    if not isinstance(zmoznost, str) and isinstance(telo.get("data"), dict):
+        zmoznost = telo["data"].get("capability")
+    return {"access_request": stanje, "capability": zmoznost if zmoznost in ("d", "p", "v", "z", "*") else ""}
+
+
 KATEGORIJA_ZAZNAMKI = "bookmarks"
 
 # Skripta, ki v strani naredi window.SafeerLink. Sinhroni bralci berejo stanje, ki
@@ -1681,7 +1697,11 @@ class SafeerLink:
             # Naprava je v Safeer Linku (pomaga pri povezavi), a ji uporabnik tega na TEM racunalniku ni odprl:
             # zavrne racunalnik sam, ne glede na to, kaj druga naprava kaze ali skriva.
             link_dostop.zabelezi(posiljatelj, dejanje)
-            koncaj(link_dostop.zavrnitev(dejanje))
+            # Manjka ena zmoznost in naprava je v krogu: uporabnik TEGA racunalnika dobi obvestilo z Dovoli / Zavrni.
+            # Naprava izve le, da prosnja caka (ali da je zavrnjena) - stara oblika zavrnitve ostane nespremenjena.
+            stanje, zmoznost = link_dostop.prosnja_ob_zavrnitvi(
+                posiljatelj, link_dostop.zahteva_dejanja(dejanje), zascita=sporocilo.get("_zascita"))
+            koncaj(link_dostop.z_prosnjo(link_dostop.zavrnitev(dejanje), stanje, zmoznost))
             return
 
         def izvedi() -> bool:
@@ -1706,20 +1726,26 @@ class SafeerLink:
         telo = sporocilo.get("payload") or {}
         url = str(telo.get("url", "") or "").strip()
         sprejeto = url.startswith("http://") or url.startswith("https://")
+        prosnja = None
         if sprejeto and not link_dostop.sme_sporocilo(str(sporocilo.get("sender") or ""), "cast.url",
                                                       zascita=sporocilo.get("_zascita")):
             # Stran se tu odpre sama, zato samo od naprave, ki ji je uporabnik odprl predvajalnik.
             link_dostop.zabelezi(str(sporocilo.get("sender") or ""), "cast.url")
             sprejeto = False
+            prosnja = link_dostop.prosnja_ob_zavrnitvi_sporocila(str(sporocilo.get("sender") or ""), "cast.url",
+                                                                 zascita=sporocilo.get("_zascita"))
         povezava = self.povezava
         if povezava is not None:
+            potrditev = {
+                "id": str(int(time.time() * 1000)),
+                "type": "cast.ack",
+                "ref_id": str(sporocilo.get("id", "") or ""),
+                "status": "accepted" if sprejeto else "rejected",
+            }
+            if prosnja is not None:
+                potrditev["access_request"], potrditev["capability"] = prosnja
             try:
-                povezava.poslji({
-                    "id": str(int(time.time() * 1000)),
-                    "type": "cast.ack",
-                    "ref_id": str(sporocilo.get("id", "") or ""),
-                    "status": "accepted" if sprejeto else "rejected",
-                })
+                povezava.poslji(potrditev)
             except Exception:
                 pass
         if not sprejeto:
@@ -1747,6 +1773,8 @@ class SafeerLink:
                 # Zaslon druge naprave se tu odpre sam (z moznostjo upravljanja), zato samo od naprave, ki ji je
                 # uporabnik odprl zaslon in upravljanje.
                 link_dostop.zabelezi(str(sporocilo.get("sender", "") or ""), "share.screen")
+                link_dostop.prosnja_ob_zavrnitvi_sporocila(str(sporocilo.get("sender", "") or ""), "share.screen",
+                                                           "start", zascita=sporocilo.get("_zascita"))
                 return
             if dejanje == "start":
                 posiljatelj = str(sporocilo.get("sender", "") or "")
@@ -2033,16 +2061,36 @@ class SafeerLink:
         id_naprave = str(id_naprave or "")
         try:
             ok = link_dostop.nastavi(id_naprave, link_dostop.iz_niza(str(crke or "")))
-            jedro = link_dostop.jedro(id_naprave)
-            for seznam in (self.naprave, getattr(self, "naprave_vse", None)):
-                for n in seznam or []:
-                    if link_dostop.jedro(str(n.get("id") or "")) == jedro:
-                        n.update(_dostop_naprave(str(n.get("id") or "")))
         except Exception as e:  # noqa: BLE001
             print(f"[SafeerLink] Dostopa ni bilo mogoče shraniti: {e}")
             ok = False
+        self._po_spremembi_dostopa(id_naprave, ok)
+
+    def _po_spremembi_dostopa(self, id_naprave: str, ok: bool) -> None:
+        """Seznam naprav in okno dobita nov dostop naprave (po stikalih v oknu ali po »Dovoli« v obvestilu)."""
+        idji = [id_naprave]
+        try:
+            jedro = link_dostop.jedro(id_naprave)
+            for seznam in (self.naprave, getattr(self, "naprave_vse", None)):
+                for n in seznam or []:
+                    if jedro and link_dostop.jedro(str(n.get("id") or "")) == jedro:
+                        n.update(_dostop_naprave(str(n.get("id") or "")))
+                        if str(n.get("id") or "") not in idji:
+                            idji.append(str(n.get("id") or ""))
+        except Exception as e:  # noqa: BLE001
+            print(f"[SafeerLink] Dostop v seznamu naprav: {e}")
         self._odziv("naprave", self.naprave)
-        self._odziv("dostop", {"id": id_naprave, "ok": bool(ok), **_dostop_naprave(id_naprave)})
+        # Za vsako oznako iste naprave (odobritev iz obvestila pozna samo jedro, okno pa oznako programa).
+        for i in idji:
+            self._odziv("dostop", {"id": i, "ok": bool(ok), **_dostop_naprave(i)})
+
+    def odobri_prosnjo_dostopa(self, jedro: str, zmoznost: str) -> bool:
+        """»Dovoli« v obvestilu na tem racunalniku (klik uporabnika - glej safeer_control): napravi doda samo zaprošeno
+        zmoznost. Odobri se samo prosnja, ki res caka (core/link_dostop.odobri_prosnjo)."""
+        ok = link_dostop.odobri_prosnjo(str(jedro or ""), str(zmoznost or ""))
+        if ok:
+            self._po_spremembi_dostopa(str(jedro), True)
+        return ok
 
     def _preimenuj_napravo(self, id_naprave: str = "", ime: str = "") -> None:
         zeton = self._zeton_http() if (self._hub() and self._odtis()) else None
@@ -2272,6 +2320,7 @@ class SafeerLink:
                 vnos[1] = {"ok": bool(telo.get("ok")), "message": str(telo.get("message") or ""),
                            "koda": str(telo.get("code") or ""),
                            "data": telo.get("data") if isinstance(telo.get("data"), dict) else {}}
+                vnos[1].update(_prosnja_iz_odgovora(telo))
             vnos[0].set()
             return
         if str(sporocilo.get("ref_id", "") or "").startswith("vnos-"):
@@ -2297,6 +2346,7 @@ class SafeerLink:
             o["koda"] = str(telo.get("code") or "")
             if isinstance(telo.get("data"), dict):
                 o["data"] = telo["data"]
+            o.update(_prosnja_iz_odgovora(telo))
         self._odziv("ukaz", o)
 
     def _poslji_trenutno(self, id_naprave: str = "") -> None:
