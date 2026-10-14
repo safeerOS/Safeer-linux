@@ -4646,7 +4646,9 @@ class SafeerMintBrowser(Gtk.Window):
         # Widevine (Netflix, Disney+ ...): WebKitGTK ga nima - stran se odpre v brskalniku z Widevine (core/drm.py).
         if getattr(self, "_drm_preusmeritev", None) is None:
             self._drm_preusmeritev = drm.Preusmeritev()
-        drm.prikljuci(WebKit2, wv, self._drm_preusmeritev, lambda: str(get_current_language() or "sl"))
+        # Kot Splet (14. 10. 2026): Safeer DRM (Chromium z Widevine) se vstavi v ta zavihek; brez njega rezerva drug brskalnik.
+        drm.prikljuci(WebKit2, wv, self._drm_preusmeritev, lambda: str(get_current_language() or "sl"),
+                      vdelaj=lambda pogled, naslov, tid=tab_id: self.drm_vdelaj(tid, pogled, naslov))
         self.apply_content_filter(wv)  # 📜 EasyList, once compiled
 
         # 1. Global Privacy Control (GPC) & Do Not Track (DNT) W3C Engine
@@ -4958,6 +4960,7 @@ class SafeerMintBrowser(Gtk.Window):
             notice = tab_to_close["crash_notice"]
             self.webview_stack.remove(notice)
             notice.destroy()
+        self.drm_konec(tab_to_close)
         self.webview_stack.remove(tab_to_close["webview"])
         tab_to_close["webview"].destroy()
         # Do not flush every other tab's cache when closing one tab.
@@ -5004,7 +5007,9 @@ class SafeerMintBrowser(Gtk.Window):
         if not target:
             return
 
-        self.webview_stack.set_visible_child(target.get("crash_notice") or target["webview"])
+        drm_gost = target.get("drm")
+        self.webview_stack.set_visible_child(target.get("crash_notice")
+                                             or (drm_gost.gradnik if drm_gost is not None else None) or target["webview"])
 
         cur_uri = target["webview"].get_uri() or target["uri"] or ""
         self.url_entry.set_text(self.format_clean_url(cur_uri))
@@ -5156,6 +5161,9 @@ class SafeerMintBrowser(Gtk.Window):
 
     def on_tab_uri_changed(self, tab_id, webview, prop):
         uri = webview.get_uri()
+        zav = next((x for x in self.tabs if x["id"] == tab_id), None)
+        if zav is not None and zav.get("drm") is not None and drm_gostitelj(uri or "") != drm_gostitelj(zav["drm"].url):
+            self.drm_konec(zav)   # uporabnik je sel drugam (Nazaj, nov naslov): zasciten video se konca
         if uri and "ui/home.html" not in uri:
             for tab in self.tabs:
                 if tab["id"] == tab_id:
@@ -5463,6 +5471,95 @@ class SafeerMintBrowser(Gtk.Window):
             if velikost_mape_mb(mapa) > meja:
                 GLib.idle_add(pocisti)
         threading.Thread(target=preveri, daemon=True, name="safeer-predpomnilnik").start()
+
+    def drm_vdelaj(self, tab_id, webview, url):
+        """Stran je zaprosila za Widevine: ista stran v Safeer DRM, vstavljenem v ta zavihek (kot Splet, core/safeer_drm).
+        False = rezerva (brskalnik z Widevine, core/drm.Preusmeritev)."""
+        from core import safeer_drm
+        tab = next((x for x in self.tabs if x["id"] == tab_id), None)
+        if tab is None or not url.startswith("https://"):
+            return False
+        if tab.get("drm") is not None and drm_gostitelj(tab["drm"].url) == drm_gostitelj(url):
+            return True                       # stran vprasa veckrat zapored
+        if not safeer_drm.Gostitelj.na_voljo():
+            if tab.get("drm_prenos"):
+                return True
+            tab["drm_prenos"] = True
+            def koncano(uspeh, tab=tab, url=url):
+                def v_gui():
+                    tab["drm_prenos"] = False
+                    if tab in self.tabs and (tab["webview"].get_uri() or "") == url:
+                        if not (uspeh and self.drm_vdelaj(tab["id"], tab["webview"], url)):
+                            self._drm_preusmeritev.odpri(url)
+                    return False
+                GLib.idle_add(v_gui)
+            safeer_drm.prenesi_v_ozadju(koncano)   # paket se prenese enkrat; do takrat stran ostane
+            return True
+        gost = safeer_drm.Gostitelj(Gtk, Gdk, GLib, ob_celozaslonu=self.drm_celozaslonsko,
+                                    ob_koncu=lambda tab=tab: self.drm_konec(tab))
+        gost.gradnik.connect("key-press-event", lambda _g, e, gost=gost: gost.tipka(e))
+        self.webview_stack.add_named(gost.gradnik, tab_id + "-drm")
+        gost.gradnik.show()
+        tab["drm"] = gost
+        if self.active_tab_id == tab_id:
+            self.webview_stack.set_visible_child(gost.gradnik)
+        if not gost.zacni(url, storitev=safeer_drm.je_storitev(url)):
+            self.drm_konec(tab)
+            return False
+        try:
+            webview.set_is_muted(True)        # stran v WebKitu (brez Widevine) naj ne igra zraven
+        except Exception:
+            pass
+        return True
+
+    def drm_konec(self, tab):
+        gost = tab.get("drm") if tab else None
+        if gost is None:
+            return
+        tab["drm"] = None
+        self.drm_celozaslonsko(False)
+        gost.unici()
+        try:
+            self.webview_stack.remove(gost.gradnik)
+            gost.gradnik.destroy()
+        except Exception:
+            pass
+        try:
+            tab["webview"].set_is_muted(False)
+        except Exception:
+            pass
+        if tab in self.tabs and self.active_tab_id == tab["id"]:
+            self.webview_stack.set_visible_child(tab.get("crash_notice") or tab["webview"])
+
+    def drm_celozaslonsko(self, vklopi):
+        """Celozaslonski zasciten video: okno cez cel zaslon, vse razen zavihka (vrstica zavihkov, orodja, stranska
+        vrstica) skrito - kot Splet. Skrite gradnike si zapomnimo in jih ob izhodu pokazemo nazaj."""
+        skriti = self.__dict__.setdefault("_drm_skriti", [])
+        if vklopi:
+            if skriti:
+                return
+            g = self.webview_stack
+            while g is not None and g is not self:
+                stars = g.get_parent()
+                if stars is not None and hasattr(stars, "get_children"):
+                    for sorojenec in stars.get_children():
+                        if sorojenec is not g and sorojenec.get_visible():
+                            sorojenec.hide()
+                            skriti.append(sorojenec)
+                g = stars
+            self.fullscreen()
+        else:
+            if not skriti and not getattr(self, "_drm_celo", False):
+                return
+            for w in skriti:
+                try:
+                    w.show()
+                except Exception:
+                    pass
+            skriti.clear()
+            if not getattr(self, "_is_fullscreen", False):
+                self.unfullscreen()
+        self._drm_celo = bool(vklopi)
 
     def on_web_process_died(self, tab_id, webview, reason):
         """Vsak padec procesa strani: pospravi stanje zavihka; ce je stran presegla mejo pomnilnika (WebKit ali varuh),
@@ -7520,6 +7617,14 @@ console.log("Safeer skripta teče na:", window.location.href);
                 if "title_label" in t_info and t_info["title_label"]:
                     t_info["title_label"].set_text(h_title)
         self.set_title(f"{t('app_title')} — Linux Mint Edition")
+
+
+def drm_gostitelj(naslov):
+    """Gostitelj strani brez www. (zasciten video se konca, ko uporabnik zapusti stran)."""
+    try:
+        return (urllib.parse.urlsplit(naslov or "").hostname or "").lower().removeprefix("www.")
+    except ValueError:
+        return ""
 
 
 def web_process_memory_limit_mb(total_mb=None):

@@ -206,12 +206,21 @@ class Gostitelj:
                  ob_koncu: Optional[Callable[[], None]] = None) -> None:
         self.Gtk, self.Gdk, self.GLib = Gtk, Gdk, GLib
         self.ob_celozaslonu, self.ob_koncu = ob_celozaslonu, ob_koncu
+        #: GTK3 (Safeer Browser, safeer_mint.py): gradnik ima svoje X okno - okno DRM je njegov otrok na (0, 0)
+        #: (tako je delovalo pred prehodom na GTK4, 3995d62). GTK4: otrok vrhnjega okna na mestu gradnika.
+        self._gtk3 = Gtk.get_major_version() == 3
         self.gradnik = Gtk.DrawingArea()
         self.gradnik.set_name("safeer-drm")
-        self.gradnik.set_focusable(True)
         self.gradnik.set_hexpand(True); self.gradnik.set_vexpand(True)
-        self.gradnik.connect("resize", lambda *_: self._prilagodi())
-        self.gradnik.set_draw_func(lambda _g, cr, *_: self._risi(_g, cr))
+        if self._gtk3:
+            self.gradnik.set_can_focus(True)
+            self.gradnik.connect("size-allocate", lambda *_: self._prilagodi())
+            self.gradnik.connect("draw", lambda _g, cr: self._risi(_g, cr))
+            self.gradnik.add_events(Gdk.EventMask.KEY_PRESS_MASK)
+        else:
+            self.gradnik.set_focusable(True)
+            self.gradnik.connect("resize", lambda *_: self._prilagodi())
+            self.gradnik.set_draw_func(lambda _g, cr, *_: self._risi(_g, cr))
         self._mesto = None
         # Okno DRM je otrok vrhnjega okna, zato ga ob skritju gradnika (drug zavihek, Splet skrit) skrijemo sami.
         self.gradnik.connect("map", lambda *_: self._vidno(True))
@@ -236,6 +245,8 @@ class Gostitelj:
         return izvrsljiva() is not None
 
     def _xid_starsa(self) -> int:
+        if self._gtk3:
+            return self._xid_gtk3()
         try:
             koren = self.gradnik.get_native()
             povrsina = koren.get_surface() if koren is not None else None
@@ -250,8 +261,26 @@ class Gostitelj:
         except Exception:  # noqa: BLE001 - Wayland: ni X11 okna
             return 0
 
+    def _xid_gtk3(self) -> int:
+        okno = self.gradnik.get_window()
+        if okno is None:
+            return 0
+        try:
+            import gi
+            gi.require_version("GdkX11", "3.0")
+            from gi.repository import GdkX11
+            if not isinstance(okno, GdkX11.X11Window):
+                return 0
+            okno.ensure_native()
+            return int(okno.get_xid())
+        except Exception:  # noqa: BLE001 - Wayland: ni X11 okna
+            return 0
+
     def _pravokotnik(self):
         """(x, y, sirina, visina) gradnika v X pikah povrsine vrhnjega okna."""
+        if self._gtk3:   # starsevsko okno je gradnikovo lastno X okno
+            m = self.gradnik.get_scale_factor() or 1
+            return (0, 0, self.gradnik.get_allocated_width() * m, self.gradnik.get_allocated_height() * m)
         koren = self.gradnik.get_native()
         if koren is None:
             return None
@@ -277,6 +306,8 @@ class Gostitelj:
         self.ustavi()
         uskladi_logiko(exe)
         self.url = url
+        if self._gtk3:
+            self.gradnik.realize()   # GTK3: X okno gradnika mora obstajati, preden ga damo procesu DRM kot starsa
         stars = self._xid_starsa()
         mapa_sej = Path(os.path.expanduser("~/.cache/safeer-drm"))
         mapa_sej.mkdir(parents=True, exist_ok=True)
