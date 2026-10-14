@@ -291,3 +291,6 @@ html.kavc .kat-katalog { grid-template-columns: repeat(auto-fill, minmax(180px, 
 .media-naslednja-gumbi { grid-column: 1 / -1; display: flex; gap: 10px; justify-content: flex-end; }
 @keyframes media-naslednja-noter { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .media-naslednja { animation: none; } .kat-vec { transition: none; } }
+/* Logotipi TV kanalov in radijskih postaj: celi, na sredini, na svetli podlagi (14. 10. 2026). */
+.kat-plakat.kat-logotip { background: var(--media-logotip-podlaga); }
+.kat-plakat.kat-logotip img { object-fit: contain; padding: 18%; box-sizing: border-box; background: var(--media-logotip-podlaga); }

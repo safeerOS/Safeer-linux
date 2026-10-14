@@ -3868,6 +3868,9 @@
       if (x.slika) {
         var image = document.createElement("img"); image.alt = ""; image.loading = "lazy"; image.src = x.slika;
         image.onerror = function () { image.replaceWith(el("span", "kat-brez-slike", svg(katIkona(x.vrsta)))); };
+        // Logotip TV kanala ali postaje (ne plakat): cel, na svetli podlagi - temni logotipi (RTV) so bili na temni
+        // kartici nevidni, siroki (France 24) obrezani (preizkus 14. 10. 2026).
+        if (x.vrsta === "tv-v-zivo" || x.vrsta === "radio") plakat.classList.add("kat-logotip");
         plakat.appendChild(image);
       } else plakat.appendChild(el("span", "kat-brez-slike", svg(katIkona(x.vrsta))));
       var data = el("span", "kat-podatki");

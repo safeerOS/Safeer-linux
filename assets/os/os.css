@@ -16,6 +16,7 @@
   --senca: 0 18px 40px rgba(0, 0, 0, .35);
   /* Medijski center (14. 10. 2026): mirna, temna podlaga namesto slike namizja in povrsine nad njo. */
   --media-tancica: rgba(7, 11, 18, .95);
+  --media-logotip-podlaga: #eef2f7;   /* svetla podlaga logotipov TV in radia (temni logotipi ostanejo vidni) */
   --media-povrsina: rgba(17, 27, 42, .72);
   --media-meni: #121d2d;
   --media-poudarek: rgba(138, 199, 255, .14);
