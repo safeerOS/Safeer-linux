@@ -1,0 +1,36 @@
+"""Funkcije brskalnika v Spletu (prej samo v Safeer Browserju GTK3), 14. 10. 2026."""
+import datetime
+import os
+import tempfile
+
+from core import zgodovina
+
+KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def test_bliznjice_kot_firefox():
+    from core.os_splet import blizjica
+    assert blizjica("g", True) == "najdi-naprej" and blizjica("g", True, True) == "najdi-nazaj"
+    assert blizjica("F3") == "najdi-naprej" and blizjica("F3", shift=True) == "najdi-nazaj"
+    assert blizjica("p", True) == "natisni" and blizjica("F11") == "celozaslonsko" and blizjica("m", True) == "utisaj"
+
+
+def test_zgodovina_odstrani_in_pocisti():
+    d = tempfile.mkdtemp()
+    p = os.path.join(d, "history.json")
+    zgodovina.dodaj(p, "https://a.si/")
+    zgodovina.dodaj(p, "https://b.si/")
+    assert zgodovina.odstrani(p, "https://a.si/") == 1
+    assert [z["url"] for z in zgodovina.nalozi(p)] == ["https://b.si/"]
+    star = {"title": "s", "url": "https://star.si/", "time": "01.01.2020 10:00"}
+    zgodovina._shrani(p, zgodovina.nalozi(p) + [star])
+    assert zgodovina.pocisti(p, datetime.datetime.now() - datetime.timedelta(hours=1)) == 1
+    assert zgodovina.nalozi(p) == [star]
+    assert zgodovina.pocisti(p) == 1 and zgodovina.nalozi(p) == []
+
+
+def test_splet_ima_funkcije():
+    s = open(os.path.join(KOREN, "core", "os_splet.py"), encoding="utf-8").read()
+    for niz in ("PrintOperation.new(p).run_dialog", "search_next()", "count_matches(", "set_is_muted(not",
+                "delete_portal(obstojeci", "zgodovina.odstrani(", "gumb_povecave", 'if not self.odpri_zapisek:'):
+        assert niz in s, niz

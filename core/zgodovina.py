@@ -28,6 +28,10 @@ def dodaj(pot: str, naslov: str, ime: str = "") -> bool:
         zgodovina[0].update(vnos)
     else:
         zgodovina.insert(0, vnos)
+    return _shrani(pot, zgodovina)
+
+
+def _shrani(pot: str, zgodovina: list) -> bool:
     try:
         os.makedirs(os.path.dirname(pot) or ".", exist_ok=True)
         fd, zacasna = tempfile.mkstemp(dir=os.path.dirname(pot) or ".", prefix=".history-")
@@ -37,6 +41,35 @@ def dodaj(pot: str, naslov: str, ime: str = "") -> bool:
         return True
     except OSError:
         return False
+
+
+def odstrani(pot: str, naslov: str) -> int:
+    """Odstrani vse obiske strani (gumb × v zgodovini). Vrne stevilo odstranjenih."""
+    zgodovina = nalozi(pot)
+    ostali = [z for z in zgodovina if z.get("url") != naslov]
+    if len(ostali) != len(zgodovina):
+        _shrani(pot, ostali)
+    return len(zgodovina) - len(ostali)
+
+
+def _cas(z: dict):
+    try:
+        return datetime.strptime(str(z.get("time", "")), "%d.%m.%Y %H:%M")
+    except ValueError:
+        return None
+
+
+def pocisti(pot: str, od=None) -> int:
+    """Izbrise zgodovino: vso (od=None) ali obiske od casa `od` (datetime) naprej - zadnja ura, dan, teden.
+    Zapis brez casa pri delnem brisanju ostane. Vrne stevilo izbrisanih."""
+    zgodovina = nalozi(pot)
+    if od is None:
+        ostali = []
+    else:
+        ostali = [z for z in zgodovina if (_cas(z) is None or _cas(z) < od)]
+    if len(ostali) != len(zgodovina):
+        _shrani(pot, ostali)
+    return len(zgodovina) - len(ostali)
 
 
 def isci(zapisi: list, niz: str) -> list:

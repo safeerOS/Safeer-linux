@@ -215,7 +215,36 @@ for _j, _b in {
 
 for _j, _b in {'sl': {'predpomnilnik': 'Upravitelj predpomnilnika', 'pp_disk': 'Predpomnilnik na disku: {mb} MB', 'pp_pocisti': 'Počisti predpomnilnik (prijave ostanejo)', 'pp_strani': 'Shranjeni podatki strani', 'pp_odstrani': 'Odstrani', 'pp_meja': 'Samodejno počisti predpomnilnik nad {mb} MB', 'pp_iskanje': 'Išči stran …', 'pp_vrste': 'piškotki, shramba, predpomnilnik'}, 'en': {'predpomnilnik': 'Cache manager', 'pp_disk': 'Disk cache: {mb} MB', 'pp_pocisti': 'Clear cache (keeps sign-ins)', 'pp_strani': 'Stored site data', 'pp_odstrani': 'Remove', 'pp_meja': 'Automatically clear cache above {mb} MB', 'pp_iskanje': 'Search site …', 'pp_vrste': 'cookies, storage, cache'}, 'de': {'predpomnilnik': 'Cache-Verwaltung', 'pp_disk': 'Festplatten-Cache: {mb} MB', 'pp_pocisti': 'Cache leeren (Anmeldungen bleiben)', 'pp_strani': 'Gespeicherte Website-Daten', 'pp_odstrani': 'Entfernen', 'pp_meja': 'Cache über {mb} MB automatisch leeren', 'pp_iskanje': 'Website suchen …', 'pp_vrste': 'Cookies, Speicher, Cache'}, 'es': {'predpomnilnik': 'Gestor de caché', 'pp_disk': 'Caché en disco: {mb} MB', 'pp_pocisti': 'Vaciar caché (se mantienen las sesiones)', 'pp_strani': 'Datos guardados de sitios', 'pp_odstrani': 'Eliminar', 'pp_meja': 'Vaciar la caché automáticamente por encima de {mb} MB', 'pp_iskanje': 'Buscar sitio …', 'pp_vrste': 'cookies, almacenamiento, caché'}, 'fr': {'predpomnilnik': 'Gestionnaire de cache', 'pp_disk': 'Cache disque : {mb} Mo', 'pp_pocisti': 'Vider le cache (les connexions restent)', 'pp_strani': 'Données de sites enregistrées', 'pp_odstrani': 'Supprimer', 'pp_meja': 'Vider automatiquement le cache au-delà de {mb} Mo', 'pp_iskanje': 'Rechercher un site …', 'pp_vrste': 'cookies, stockage, cache'}, 'it': {'predpomnilnik': 'Gestione cache', 'pp_disk': 'Cache su disco: {mb} MB', 'pp_pocisti': 'Svuota cache (gli accessi restano)', 'pp_strani': 'Dati dei siti salvati', 'pp_odstrani': 'Rimuovi', 'pp_meja': 'Svuota automaticamente la cache oltre {mb} MB', 'pp_iskanje': 'Cerca sito …', 'pp_vrste': 'cookie, archiviazione, cache'}}.items():
     BESEDILA.setdefault(_j, {}).update(_b)
-for _j, _b in list(splet_prenosi.BESEDILA.items()) + list(pojavna_okna.BESEDILA.items()):   # skupaj s Safeer Browserjem
+# 14. 10. 2026: funkcije, ki jih je imel le Safeer Browser GTK3 (najdi naprej/nazaj, tiskanje, celozaslonsko, utisaj ...).
+_BRSKALNIK = {
+    "sl": {"natisni": "Natisni …", "utisaj": "Utišaj zavihek", "zvok": "Vklopi zvok zavihka", "zadetki": "{n} zadetkov",
+           "ni_zadetkov": "Ni zadetkov", "celozaslonsko": "Celozaslonski način", "odstrani": "Odstrani",
+           "zaznamek_odstrani": "Odstrani zaznamek", "povecava_vrni": "Vrni velikost na 100 %",
+           "najdi_naprej": "Naslednji zadetek", "najdi_nazaj": "Prejšnji zadetek"},
+    "en": {"natisni": "Print …", "utisaj": "Mute tab", "zvok": "Unmute tab", "zadetki": "{n} matches",
+           "ni_zadetkov": "No matches", "celozaslonsko": "Full screen", "odstrani": "Remove",
+           "zaznamek_odstrani": "Remove bookmark", "povecava_vrni": "Reset zoom to 100 %",
+           "najdi_naprej": "Next match", "najdi_nazaj": "Previous match"},
+    "de": {"natisni": "Drucken …", "utisaj": "Tab stummschalten", "zvok": "Ton des Tabs einschalten",
+           "zadetki": "{n} Treffer", "ni_zadetkov": "Keine Treffer", "celozaslonsko": "Vollbild",
+           "odstrani": "Entfernen", "zaznamek_odstrani": "Lesezeichen entfernen",
+           "povecava_vrni": "Zoom auf 100 % zurücksetzen", "najdi_naprej": "Nächster Treffer",
+           "najdi_nazaj": "Vorheriger Treffer"},
+    "es": {"natisni": "Imprimir …", "utisaj": "Silenciar pestaña", "zvok": "Activar sonido de la pestaña",
+           "zadetki": "{n} coincidencias", "ni_zadetkov": "Sin coincidencias", "celozaslonsko": "Pantalla completa",
+           "odstrani": "Quitar", "zaznamek_odstrani": "Quitar marcador", "povecava_vrni": "Restablecer zoom al 100 %",
+           "najdi_naprej": "Siguiente coincidencia", "najdi_nazaj": "Coincidencia anterior"},
+    "fr": {"natisni": "Imprimer …", "utisaj": "Couper le son de l’onglet", "zvok": "Rétablir le son de l’onglet",
+           "zadetki": "{n} résultats", "ni_zadetkov": "Aucun résultat", "celozaslonsko": "Plein écran",
+           "odstrani": "Supprimer", "zaznamek_odstrani": "Supprimer le marque-page",
+           "povecava_vrni": "Réinitialiser le zoom à 100 %", "najdi_naprej": "Résultat suivant",
+           "najdi_nazaj": "Résultat précédent"},
+    "it": {"natisni": "Stampa …", "utisaj": "Silenzia scheda", "zvok": "Riattiva audio scheda",
+           "zadetki": "{n} risultati", "ni_zadetkov": "Nessun risultato", "celozaslonsko": "Schermo intero",
+           "odstrani": "Rimuovi", "zaznamek_odstrani": "Rimuovi segnalibro", "povecava_vrni": "Ripristina zoom al 100 %",
+           "najdi_naprej": "Risultato successivo", "najdi_nazaj": "Risultato precedente"},
+}
+for _j, _b in list(splet_prenosi.BESEDILA.items()) + list(pojavna_okna.BESEDILA.items()) + list(_BRSKALNIK.items()):   # skupaj s Safeer Browserjem
     BESEDILA.setdefault(_j, {}).update(_b)
 
 
@@ -331,6 +360,12 @@ def blizjica(tipka: str, ctrl: bool = False, shift: bool = False, alt: bool = Fa
             return "osvezi-brez" if shift or t == "f5" else "osvezi"
         if t == "f" and not shift:
             return "najdi"
+        if t == "g":
+            return "najdi-nazaj" if shift else "najdi-naprej"
+        if t == "p" and not shift:
+            return "natisni"
+        if t == "m" and not shift:
+            return "utisaj"
         if t == "d" and not shift:
             return "zaznamek"
         if t == "h" and not shift:
@@ -364,7 +399,9 @@ def blizjica(tipka: str, ctrl: bool = False, shift: bool = False, alt: bool = Fa
         if t == "f6":
             return "naslov"
         if t == "f3":
-            return "najdi"
+            return "najdi-nazaj" if shift else "najdi-naprej"
+        if t == "f11":
+            return "celozaslonsko"
     return None
 
 
@@ -612,7 +649,7 @@ class VdelaniSplet:
             print("[Safeer OS Splet] DoH/proxy:", napaka)
 
     def _zgradi(self) -> None:
-        Gtk = self.Gtk
+        Gtk, Gdk = self.Gtk, self.Gdk
         self.gradnik = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.gradnik.set_name("safeer-splet")
         self.vrstica_zavihkov = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
@@ -653,8 +690,15 @@ class VdelaniSplet:
         self._tipke(self.vnos, lambda e: self.tipka(e))
         self.zvezdica = self._gumb("☆", lambda *_: self.dodaj_trenutno(), "address-action")
         self.zvezdica.set_margin_end(5)
+        self.gumb_povecave = Gtk.Button(label="100 %")
+        self.gumb_povecave.set_has_frame(False)
+        self.gumb_povecave.add_css_class("address-action")
+        self.gumb_povecave.set_tooltip_text(self._t("povecava_vrni"))
+        self.gumb_povecave.connect("clicked", lambda *_: self.izvedi("povecava-0"))
+        self.gumb_povecave.set_visible(False)
         naslov.append(self.kljucavnica)
         naslov.append(self.vnos)
+        naslov.append(self.gumb_povecave)
         naslov.append(self.zvezdica)
         orodja.append(naslov)
         self.gumb_prenosov = self._gumb("⬇", self._pokazi_prenose, "nav")
@@ -679,7 +723,28 @@ class VdelaniSplet:
         self.najdi_vnos = Gtk.SearchEntry()
         self.najdi_vnos.set_placeholder_text(self._t("isci"))
         self.najdi_vnos.connect("search-changed", self._najdi)
-        self.najdi_vrstica.set_child(self.najdi_vnos)
+        # Enter: naslednji, Shift+Enter: prejsnji, Esc: zapri (kot v Firefoxu); stevec zadetkov.
+        self.najdi_vnos.connect("activate", lambda *_: self.izvedi("najdi-naprej"))
+        k = Gtk.EventControllerKey()
+        k.connect("key-pressed", lambda _k, kv, _c, st: bool(
+            Gdk.keyval_name(kv) in ("Return", "KP_Enter") and st & Gdk.ModifierType.SHIFT_MASK
+            and self.izvedi("najdi-nazaj")))
+        self.najdi_vnos.add_controller(k)
+        self.najdi_vnos.connect("previous-match", lambda *_: self.izvedi("najdi-nazaj"))
+        self.najdi_vnos.connect("next-match", lambda *_: self.izvedi("najdi-naprej"))
+        self.najdi_vnos.connect("stop-search", lambda *_: (self.najdi_vrstica.set_search_mode(False),
+                                                          self.trenutni() and self.trenutni().get_find_controller().search_finish()))
+        najdi_vrsta = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        najdi_vrsta.append(self.najdi_vnos)
+        for ikona, dejanje, namig in (("go-up-symbolic", "najdi-nazaj", "najdi_nazaj"),
+                                      ("go-down-symbolic", "najdi-naprej", "najdi_naprej")):
+            g = Gtk.Button.new_from_icon_name(ikona); g.set_has_frame(False); g.set_tooltip_text(self._t(namig))
+            g.connect("clicked", lambda _g, d=dejanje: self.izvedi(d))
+            najdi_vrsta.append(g)
+        self.najdi_stevec = Gtk.Label(label="")
+        self.najdi_stevec.add_css_class("dim-label")
+        najdi_vrsta.append(self.najdi_stevec)
+        self.najdi_vrstica.set_child(najdi_vrsta)
         self.najdi_vrstica.connect_entry(self.najdi_vnos)
         self.gradnik.append(self.najdi_vrstica)
         # Blokirano pojavno okno: vrstica nad stranjo (kot v drugih brskalnikih), nic se ne izgubi brez vednosti.
@@ -740,6 +805,7 @@ class VdelaniSplet:
             "najdi": lambda: self._pokazi_najdi(), "povecaj": lambda: self._povecava(.1),
             "pomanjsaj": lambda: self._povecava(-.1), "nastavitve": lambda: self._nastavitve(),
             "zapisek": lambda: self._v_zapisek(), "temno": lambda: self._temno_preklopi_stran(),
+            "natisni": lambda: self.izvedi("natisni"), "celozaslonsko": lambda: self.izvedi("celozaslonsko"),
         }
         for ime, dejanje in dejanja.items():
             d = self.Gio.SimpleAction.new(ime, None)
@@ -849,7 +915,10 @@ class VdelaniSplet:
         meni = self.Gio.Menu()
         vnosi = [("nov", "nov"), ("zaznamki", "zaznamki"), ("zgodovina", "zgodovina"), ("uvozi", "uvozi"),
                  ("predpomnilnik", "predpomnilnik"), ("prenosi", "prenosi"), ("najdi", "najdi"),
-                 ("povecaj", "povecaj"), ("pomanjsaj", "pomanjsaj"), ("nastavitve", "nastavitve"), ("zapisek", "zapisek")]
+                 ("povecaj", "povecaj"), ("pomanjsaj", "pomanjsaj"), ("natisni", "natisni"),
+                 ("celozaslonsko", "celozaslonsko"), ("nastavitve", "nastavitve"), ("zapisek", "zapisek")]
+        if not self.odpri_zapisek:
+            vnosi = [v for v in vnosi if v[1] != "zapisek"]   # samostojni brskalnik nima zapiskov: brez praznega vnosa
         vnosi = [(self._t(k), d) for k, d in vnosi]
         p = self.trenutni()
         g = splet_temno.gostitelj(p.get_uri() if p else "")
@@ -1014,6 +1083,9 @@ class VdelaniSplet:
         # Temno pod našo začetno stranjo, belo pod spletom - belo mora biti nastavljeno, preden dokument strani nastane.
         ozadje_strani.prikljuci(self.Gdk, W, pogled, os.path.join(self.koren, "ui"), TEMNO_OZADJE)
         pogled.connect("decide-policy", self._politika)
+        fc = pogled.get_find_controller()
+        fc.connect("counted-matches", lambda f, n: pogled is self.trenutni() and self._najdi_stevec(f, n))
+        fc.connect("failed-to-find-text", lambda f: pogled is self.trenutni() and self._najdi_stevec(f, 0))
         self._tipke(pogled, lambda e: self.tipka(e))
         self._klik(pogled, lambda gumb, x, y, p: self._miska(p, _Klik(gumb, x, y)))
         pogled.connect("create", lambda p, a: self._novo_okno(p, a))
@@ -1042,14 +1114,21 @@ class VdelaniSplet:
         naslov_lbl = self.Gtk.Label(label=self._t("nov")); naslov_lbl.set_ellipsize(self.Pango.EllipsizeMode.END)
         naslov_lbl.set_xalign(0); naslov_lbl.set_hexpand(True)
         zapri = self._gumb("×", lambda *_: self.zapri_zavihek(pogled), "tab-close")
-        vrstica.append(ikona); vrstica.append(naslov_lbl); vrstica.append(zapri)
+        zvok = self.Gtk.Button.new_from_icon_name("audio-volume-high-symbolic")
+        zvok.set_has_frame(False); zvok.add_css_class("tab-close"); zvok.set_visible(False)
+        zvok.connect("clicked", lambda *_: (pogled.set_is_muted(not pogled.get_is_muted()), self._osvezi_zvok(pogled)))
+        vrstica.append(ikona); vrstica.append(naslov_lbl); vrstica.append(zvok); vrstica.append(zapri)
         # GTK4: ni EventBox; klik na zavihek ujame GestureClick na sami vrstici (gumb × ostane svoj).
         dogodek = vrstica
         self._klik(vrstica, lambda *_: self.izberi(pogled), 1)
         self.skatla_zavihkov.append(vrstica)
         pogled.set_vexpand(True); pogled.set_hexpand(True)
         self.sklad.add_named(pogled, "splet-%d" % self._stevec)
-        zavihek = {"pogled": pogled, "dogodek": dogodek, "vrstica": vrstica, "naslov": naslov_lbl, "ikona": ikona}
+        zavihek = {"pogled": pogled, "dogodek": dogodek, "vrstica": vrstica, "naslov": naslov_lbl, "ikona": ikona,
+                   "zvok": zvok}
+        pogled.connect("notify::is-playing-audio", lambda p, _l: self._osvezi_zvok(p))
+        pogled.connect("notify::is-muted", lambda p, _l: self._osvezi_zvok(p))
+        pogled.connect("notify::zoom-level", lambda p, _l: p is self.trenutni() and self._osvezi_povecavo())
         self.zavihki.append(zavihek)
         self.izberi(pogled)
         if povezan is None:
@@ -1132,7 +1211,24 @@ class VdelaniSplet:
         elif dejanje == "pomanjsaj":
             self._povecava(-.1)
         elif dejanje == "povecava-0" and p is not None:
-            p.set_zoom_level(1.0)
+            p.set_zoom_level(1.0); self._osvezi_povecavo()
+        elif dejanje in ("najdi-naprej", "najdi-nazaj"):
+            if not self.najdi_vrstica.get_search_mode() or not self.najdi_vnos.get_text():
+                self._pokazi_najdi()
+            elif p is not None:
+                fc = p.get_find_controller()
+                fc.search_next() if dejanje == "najdi-naprej" else fc.search_previous()
+        elif dejanje == "natisni" and p is not None:
+            try:
+                self.WebKit2.PrintOperation.new(p).run_dialog(self._okno_za_dialog())
+            except Exception as napaka:  # noqa: BLE001
+                print("[Splet] tiskanje:", napaka, flush=True)
+        elif dejanje == "celozaslonsko":
+            okno = self._okno_za_dialog()
+            if okno is not None:
+                okno.unfullscreen() if okno.is_fullscreen() else okno.fullscreen()
+        elif dejanje == "utisaj" and p is not None:
+            p.set_is_muted(not p.get_is_muted()); self._osvezi_zvok(p)
         elif dejanje == "nazaj" and p is not None:
             p.go_back()
         elif dejanje == "naprej" and p is not None:
@@ -1158,7 +1254,8 @@ class VdelaniSplet:
             okvir.set_child(sez); zvezki.append_page(okvir, Gtk.Label(label=self._t(kljuc))); seznami[kljuc] = sez
         def napolni(*_):
             niz = iskanje.get_text()
-            viri = {"zaznamki": [{"title": p.get("title", ""), "url": p.get("url", "")} for p in self.config.get_portals()],
+            viri = {"zaznamki": [{"title": p.get("title", ""), "url": p.get("url", ""), "id": p.get("id", "")}
+                                 for p in self.config.get_portals()],
                     "zgodovina": zgodovina.nalozi(os.path.join(self.config.config_dir, "history.json"))}
             for kljuc, sez in seznami.items():
                 _ocisti(sez)
@@ -1171,7 +1268,15 @@ class VdelaniSplet:
                     b.set_ellipsize(self.Pango.EllipsizeMode.END)
                     b.add_css_class("dim-label")
                     skatla.append(a); skatla.append(b)
-                    vrstica.set_child(skatla); sez.append(vrstica)
+                    vrsta = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+                    skatla.set_hexpand(True); vrsta.append(skatla)
+                    # × odstrani zaznamek ali stran iz zgodovine (prej ni bilo mogoce; 14. 10. 2026).
+                    proc = Gtk.Button.new_from_icon_name("window-close-symbolic")
+                    proc.set_has_frame(False); proc.set_valign(Gtk.Align.CENTER)
+                    proc.set_tooltip_text(self._t("odstrani"))
+                    proc.connect("clicked", lambda _g, k=kljuc, zz=z: (self._odstrani_iz(k, zz), napolni()))
+                    vrsta.append(proc)
+                    vrstica.set_child(vrsta); sez.append(vrstica)
                 if not zadetki:
                     sez.append(_robovi(Gtk.Label(label=self._t("prazno")), 16))
         iskanje.connect("search-changed", napolni)
@@ -1181,6 +1286,15 @@ class VdelaniSplet:
         d.present()
         zvezki.set_current_page(0 if kaj == "zaznamki" else 1)
         iskanje.grab_focus()
+
+    def _odstrani_iz(self, kaj: str, zapis: dict) -> None:
+        from core import zgodovina
+        if kaj == "zaznamki":
+            if zapis.get("id"):
+                self.config.delete_portal(zapis["id"])
+        else:
+            zgodovina.odstrani(os.path.join(self.config.config_dir, "history.json"), zapis.get("url", ""))
+        self._osvezi_zvezdico()
 
     def _dialog(self, naslov: str, sirina: int = 480, visina: int = -1, gumbi=None):
         """GTK4 dialog (Gtk.Dialog je opuscen): okno nad Spletom z obmocjem in vrstico gumbov.
@@ -1761,6 +1875,8 @@ class VdelaniSplet:
         self.nazaj.set_sensitive(pogled.can_go_back()); self.naprej.set_sensitive(pogled.can_go_forward())
         self.kljucavnica.set_opacity(1.0 if uri.startswith("https://") else 0.0)
         self._osvezi_scit()
+        self._osvezi_zvezdico()
+        self._osvezi_povecavo()
 
     def _sporocilo(self, pogled, rezultat):
         try:
@@ -1827,14 +1943,29 @@ class VdelaniSplet:
         d.odgovor = odgovor
         d.present()
 
+    def _zaznamek_za(self, uri: str):
+        return next((p for p in self.config.get_portals() if p.get("url") == uri), None) if uri else None
+
     def dodaj_trenutno(self):
+        """Zvezdica: doda zaznamek, ce ga stran se nima, sicer ga odstrani (kot Firefox; prej se je dodal vsakic znova)."""
         p = self.trenutni(); uri = p.get_uri() if p else ""
         if not uri or je_domaca_stran(uri, self.koren): return
-        self.config.add_portal(p.get_title() or urllib.parse.urlparse(uri).hostname or uri, uri)
-        if self._ima_ikono("starred-symbolic"):
-            self.zvezdica.set_icon_name("starred-symbolic")
+        obstojeci = self._zaznamek_za(uri)
+        if obstojeci is not None and obstojeci.get("id"):
+            self.config.delete_portal(obstojeci["id"])
         else:
-            self.zvezdica.set_label("★")
+            self.config.add_portal(p.get_title() or urllib.parse.urlparse(uri).hostname or uri, uri)
+        self._osvezi_zvezdico()
+
+    def _osvezi_zvezdico(self):
+        p = self.trenutni(); uri = p.get_uri() if p else ""
+        ima = self._zaznamek_za(uri) is not None
+        ikona = "starred-symbolic" if ima else "non-starred-symbolic"
+        if self._ima_ikono(ikona):
+            self.zvezdica.set_icon_name(ikona)
+        else:
+            self.zvezdica.set_label("★" if ima else "☆")
+        self.zvezdica.set_tooltip_text(self._t("zaznamek_odstrani") if ima else self._t("dodaj"))
 
     def osvezi_povezavo(self):
         if self.stanje_povezave is None:   # samostojni Safeer Browser (safeer_brskalnik.py): brez oznake Linka
@@ -2141,9 +2272,43 @@ class VdelaniSplet:
 
     def _pokazi_najdi(self): self.najdi_vrstica.set_search_mode(True); self.najdi_vnos.grab_focus()
     def _najdi(self, vnos):
-        if self.trenutni(): self.trenutni().get_find_controller().search(vnos.get_text(), 0, 1000)
+        p = self.trenutni()
+        if not p:
+            return
+        fc = p.get_find_controller()
+        niz = vnos.get_text()
+        if not niz:
+            fc.search_finish(); self.najdi_stevec.set_text(""); return
+        W = self.WebKit2
+        moznosti = int(W.FindOptions.CASE_INSENSITIVE) | int(W.FindOptions.WRAP_AROUND)
+        fc.search(niz, moznosti, 1000)
+        fc.count_matches(niz, moznosti, 1000)
+
+    def _najdi_stevec(self, _fc, n):
+        self.najdi_stevec.set_text(self._t("zadetki").format(n=n) if n else self._t("ni_zadetkov"))
     def _povecava(self, korak):
         if self.trenutni(): self.trenutni().set_zoom_level(max(.5, min(3.0, self.trenutni().get_zoom_level() + korak)))
+        self._osvezi_povecavo()
+
+    def _osvezi_povecavo(self):
+        """Gumb »110 %« v naslovni vrstici, ko stran ni v izvirni velikosti (kot Firefox); klik vrne na 100 %."""
+        p = self.trenutni()
+        raven = p.get_zoom_level() if p is not None else 1.0
+        g = getattr(self, "gumb_povecave", None)
+        if g is not None:
+            g.set_label("%d %%" % round(raven * 100))
+            g.set_visible(abs(raven - 1.0) > 0.01)
+
+    def _osvezi_zvok(self, pogled):
+        """Zavihek, ki predvaja zvok, ima zvocnik; klik nanj utisa ali vrne zvok (kot Firefox)."""
+        z = self._zavihek(pogled)
+        if z is None or z.get("zvok") is None:
+            return
+        igra = bool(pogled.get_property("is-playing-audio"))
+        utisan = bool(pogled.get_is_muted())
+        z["zvok"].set_visible(igra or utisan)
+        z["zvok"].set_icon_name("audio-volume-muted-symbolic" if utisan else "audio-volume-high-symbolic")
+        z["zvok"].set_tooltip_text(self._t("zvok" if utisan else "utisaj"))
     def _nastavitve(self, *_):
         Gtk = self.Gtk
         R = Gtk.ResponseType
