@@ -51,6 +51,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, WebKit2  # noqa: E402
 from core import link_daljinec, link_datoteke, link_deljenje, link_hub, link_programi, link_sway, link_tls, link_zaslon, link_zvok  # noqa: E402
 from core import budnost, odlozisce_varuh, os_posodobitve, os_stabilnost  # noqa: E402
 from core import link_internet, link_internet_posrednik, sistemski_posrednik  # noqa: E402
+from core import link_dostop  # noqa: E402
 from core.link_gledalec import (Gledalec, OKVIR_OBVESTILO, OKVIR_SLIKA,  # noqa: E402
                                 izberi_ponor, niz_cevovoda, preslikaj_tipko,
                                 preslikaj_tocko)
@@ -788,6 +789,11 @@ class SafeerControl(_OSNOVA):
             dejanje = Gio.SimpleAction.new(ime, None)
             dejanje.connect("activate", lambda _d, _v, k=klic: k())
             self.add_action(dejanje)
+        # Prosnja za dostop z druge naprave (core/link_dostop): obvestilo z Dovoli / Zavrni. Odobri samo klik
+        # uporabnika tu; klik na obvestilo odpre seznam naprav. Velja za samostojni Control in Control v Safeer OS
+        # (oba sta ta aplikacija z istim ID-jem).
+        link_dostop.registriraj_dejanja(self, Gio, GLib, self.dostop_dovoli, self.dostop_zavrni, self.dostop_odpri_naprave)
+        link_dostop.nastavi_prikaz(self._pokazi_prosnjo_dostopa, self._umakni_prosnjo_dostopa)
         if self.ozadje:
             self.hold()  # brez okna bi se GApplication koncal; ikona v pladnju ga drzi
         self._izvozi_naprave()
@@ -795,6 +801,35 @@ class SafeerControl(_OSNOVA):
         # sicer bi film na televizorju obstal sredi predvajanja. Zaprt pokrov in rocno spanje delujeta kot vedno.
         self._budnost = budnost.Budnost("Safeer Control")
         GLib.timeout_add_seconds(30, self._budnost_tik)
+
+    # ------------------------------------------------------------------ prosnje za dostop (core/link_dostop)
+    def _pokazi_prosnjo_dostopa(self, prosnja: dict) -> None:
+        """Klic iz niti Linka: obvestilo posljemo z glavne niti."""
+        def poslji() -> bool:
+            try:
+                link_dostop.poslji_obvestilo(self, Gio, GLib, prosnja, self.nastavitve.get("ui_language"))
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerControl] obvestilo prosnje za dostop:", e, flush=True)
+            return False
+        GLib.idle_add(poslji)
+
+    def _umakni_prosnjo_dostopa(self, kljuc: str) -> None:
+        GLib.idle_add(lambda: (link_dostop.umakni_obvestilo(self, kljuc), False)[1])
+
+    def dostop_dovoli(self, jedro: str, zmoznost: str) -> bool:
+        """»Dovoli« v obvestilu: samo ta zmoznost in samo, ce prosnja res caka."""
+        if self.link is not None:
+            return self.link.odobri_prosnjo_dostopa(jedro, zmoznost)
+        return link_dostop.odobri_prosnjo(jedro, zmoznost)
+
+    def dostop_zavrni(self, jedro: str, zmoznost: str) -> bool:
+        return link_dostop.zavrni_prosnjo(jedro, zmoznost)
+
+    def dostop_odpri_naprave(self) -> None:
+        """Klik na obvestilo: okno Safeer Control na seznamu naprav (nic ne odobri)."""
+        self.pokazi_okno()
+        if self.link is not None:
+            self.link._odziv("razdelek", "naprave")
 
     def _dodaj_okno(self, okno) -> None:
         """Okno Controla pripada aplikaciji: samostojno Controlu, v procesu Safeer OS pa Safeer OS (Gtk.Application)."""
@@ -960,7 +995,9 @@ class SafeerControl(_OSNOVA):
                     "folder": str(d.get("folder") or ""), "shared": bool(d.get("shared", True)),
                     "reason": str(d.get("reason") or ""),
                     "server": d.get("server") if isinstance(d.get("server"), dict) else None,
-                    "kljuc": str(clan.get("kljuc") or "")}
+                    "kljuc": str(clan.get("kljuc") or ""),
+                    # Prosnja za dostop na tisti napravi (core/link_dostop): "pending" | "declined" | "none" | "".
+                    "access_request": str(r.get("access_request") or ""), "capability": str(r.get("capability") or "")}
         if metoda == "Ukaz":
             # Poljuben ukaz Linka napravi s cakanjem na odgovor (Safeer OS, diagnostika: host.info, status ...).
             id_naprave = str(a[0]) if a else ""
@@ -1086,7 +1123,8 @@ class SafeerControl(_OSNOVA):
                 od = int(d.get("offset") or 0) + len(kos)
                 if not kos or od >= skupaj:
                     break
-            return {"ok": True, "items": vsi, "enabled": bool((r.get("data") or {}).get("enabled", True))}
+            return {"ok": True, "items": vsi, "enabled": bool((r.get("data") or {}).get("enabled", True)),
+                    "access_request": str(r.get("access_request") or ""), "capability": str(r.get("capability") or "")}
         if metoda == "Zazeni":
             return link.ukaz_pocakaj(str(a[0]) if a else "", "apps.launch", {"app": str(a[1]) if len(a) > 1 else ""})
         if metoda == "OdpriTukaj":
@@ -1105,7 +1143,8 @@ class SafeerControl(_OSNOVA):
                 return {"ok": True, "tu": True, "koda": "", "message": str(r.get("message") or "")}
             return {"ok": bool(r.get("ok")), "tu": podatki.get("stream") == "pending",
                     "koda": str(r.get("koda") or r.get("code") or ""),
-                    "message": str(r.get("message") or "")}
+                    "message": str(r.get("message") or ""),
+                    "access_request": str(r.get("access_request") or "")}
         return {"ok": False, "message": "neznana metoda"}
 
     @staticmethod
