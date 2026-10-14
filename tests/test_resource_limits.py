@@ -31,13 +31,14 @@ class MemoryLimitTests(unittest.TestCase):
         self.assertEqual(limit(1024), 1024)
         self.assertEqual(limit(64 * 1024), 32768)
 
-    def test_memory_pressure_settings_get_an_explicit_limit(self):
+    def test_page_processes_get_the_limit_through_the_web_context(self):
+        # WebKit2GTK 4.1: WebsiteDataManager.set_memory_pressure_settings covers network processes only, so the
+        # per-tab limit must come from WebContext(memory_pressure_settings=...) - core/pomnilnik.kontekst, as Splet.
         source = _source()
-        block = source[source.index("mps = WebKit2.MemoryPressureSettings()"):source.index("set_memory_pressure_settings(mps)")]
-        self.assertIn("mps.set_memory_limit(limit_mb)", block)
-        self.assertIn("set_kill_threshold(1.0)", block)
-        # WebKit asserts conservative < strict on each setter call: strict must be raised first.
-        self.assertLess(block.index("set_strict_threshold(0.75)"), block.index("set_conservative_threshold(0.5)"))
+        self.assertIn("meje_pomnilnika.kontekst(", source)
+        self.assertIn("website_data_manager=self.website_data_manager", source)
+        self.assertNotIn("WebContext.new_with_website_data_manager", source)
+        self.assertIn("meje_pomnilnika.tlak_omrezja(WebKit2, 160)", source)
         self.assertIn("exceeded-memory-limit", source)
 
 

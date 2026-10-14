@@ -81,8 +81,9 @@ from core.default_browser import is_default_browser as system_is_default_browser
 from core.tab_monitor import TabMonitor, describe as describe_load
 from core.tab_lifecycle import dejanje_zavihka, izberi_za_sprostitev, pomnilnik
 from core.os_splet import omrezni_procesi_shrambe, pss_mb
-from core.pomnilnik import recikliraj_omrezni
+from core.pomnilnik import recikliraj_omrezni, meja_strani_mb
 from core import processes_page
+from core import os_stabilnost
 from core import userscripts as uporabniske_skripte
 from core import odlozisce_varuh
 from core import ozadje_strani
@@ -655,25 +656,21 @@ class SafeerMintBrowser(Gtk.Window):
                 local_storage_directory=os.path.join(data_dir, "localstorage"),
                 websql_directory=os.path.join(data_dir, "websql")
             )
-            # Pametno upravljanje pomnilnika: redno čiščenje odvečnih medpomnilnikov in JS Garbage Collection
-            # One page must not be able to push the whole computer into swap. The thresholds are
-            # fractions of a per-web-process limit; without an explicit limit WebKit measures them
-            # against all of RAM, so a single tab could grow past 10 GB before anything happened.
-            try:
-                limit_mb = web_process_memory_limit_mb()
-                mps = WebKit2.MemoryPressureSettings()
-                mps.set_memory_limit(limit_mb)
-                # WebKit checks conservative < strict on every call, so strict is raised first.
-                mps.set_kill_threshold(1.0)           # stop the tab; the user reloads it
-                mps.set_strict_threshold(0.75)        # drop everything that can be recreated
-                mps.set_conservative_threshold(0.5)   # release caches, run GC
-                mps.set_poll_interval(2)
-                WebKit2.WebsiteDataManager.set_memory_pressure_settings(mps)
-                print(f"[Memory] Meja na zavihek: {limit_mb} MB (sproščanje predpomnilnikov pri {limit_mb // 2} MB)")
-            except Exception as e:
-                print(f"[Memory] Opozorilo pri MemoryPressureSettings: {e}")
-
-            self.web_context = WebKit2.WebContext.new_with_website_data_manager(self.website_data_manager)
+            # Meja pomnilnika na proces strani (kot Splet): v WebKit2GTK 4.1 velja
+            # WebsiteDataManager.set_memory_pressure_settings le za omrezne procese - prej je bila meja zavihka zato
+            # samo na papirju (zavihek je lahko zrasel do OOM). Procesom strani jo da WebContext(memory_pressure_settings).
+            # Sprostitev predpomnilnikov pri polovici, ustavitev pri cetrtini RAM-a (1,5-4 GB; core/pomnilnik.py).
+            from core import pomnilnik as meje_pomnilnika
+            meje_pomnilnika.tlak_omrezja(WebKit2, 160)   # pred prvim pogledom, kot Safeer OS
+            self.web_context = meje_pomnilnika.kontekst(
+                WebKit2, meje_pomnilnika.meja_sprostitve_mb(), ubij_mb=meje_pomnilnika.meja_strani_mb(),
+                website_data_manager=self.website_data_manager)
+            print(f"[Memory] Meja procesa strani: {meje_pomnilnika.meja_strani_mb()} MB "
+                  f"(sproscanje predpomnilnikov pri {meje_pomnilnika.meja_sprostitve_mb()} MB)")
+            # Varuh: proces strani, ki ga WebKitova meja ne ujame (puscanje DMA-BUF), ustavimo sami (core/splet_varuh.py).
+            self._varuh_ubil = -1e9
+            GLib.timeout_add_seconds(5, self._varuh_tik)
+            self._omeji_predpomnilnik()
             self.web_context.set_sandbox_enabled(True)
             self.register_internal_pages(self.web_context)
             self._uskladi_jezik_spleta()
@@ -3578,9 +3575,10 @@ class SafeerMintBrowser(Gtk.Window):
                 settings.set_enable_mediasource(True)
             if hasattr(settings, "set_enable_back_forward_navigation_gestures"):
                 settings.set_enable_back_forward_navigation_gestures(True)
-            # Onemogoči ohranjanje preteklih strani v RAM-u (prepreči kopičenje odvečnega pomnilnika)
+            # Predpomnilnik strani (bfcache), kot Splet: "Nazaj" brez ponovnega nalaganja. Meritev 13. 10. 2026 (testni
+            # PC, 4 strani): nazaj ~0,3-0,4 s namesto ~1,2 s, RAM +50 MB (~7 %); ob pomanjkanju ga WebKit sprosti sam.
             if hasattr(settings, "set_enable_page_cache"):
-                settings.set_enable_page_cache(False)
+                settings.set_enable_page_cache(True)
             # Onemogoči zlonamerno sledenje povezavam (<a ping>) in DNS vohljanje
             if hasattr(settings, "set_enable_hyperlink_auditing"):
                 settings.set_enable_hyperlink_auditing(False)
@@ -4622,7 +4620,11 @@ class SafeerMintBrowser(Gtk.Window):
         wv.connect("load-changed", lambda w, ev: self.on_tab_load_changed(tab_id, w, ev))
         wv.connect("notify::title", lambda w, p: self.on_tab_title_changed(tab_id, w, p))
         wv.connect("notify::uri", lambda w, p: self.on_tab_uri_changed(tab_id, w, p))
-        wv.connect("web-process-terminated", lambda w, reason: self.on_web_process_terminated(tab_id, w, reason))
+        wv.connect("web-process-terminated", lambda w, reason: self.on_web_process_died(tab_id, w, reason))
+        # Kot Splet: po padcu procesa strani (sesutje, OOM) se stran sama nalozi znova; sele ko obnova odneha (prevec
+        # padcev, spet nad mejo pomnilnika) zavihek pokaze razlago z gumbom (core/os_stabilnost.py).
+        os_stabilnost.obnovi_ob_padcu(WebKit2, GLib, wv, "safeer-browser", "zavihek",
+                                      ob_odpovedi=lambda w, beseda: self.on_web_process_terminated(tab_id, w, beseda))
         wv.connect("create", self.on_create_webview)
         wv.connect("decide-policy", self.on_decide_policy)
 
@@ -4881,11 +4883,12 @@ class SafeerMintBrowser(Gtk.Window):
         v novem zavihku na istem mestu, ki ima izris brez pospesevanja ze ob nastanku - sprememba med zivljenjem pogleda
         da crno okno (preverjeno 13. 10. 2026). Velja tudi obratno (s seznama na drugo stran). True = zamenjano."""
         try:
-            from core.os_splet import brez_pospesevanja, politika_pospesevanja
+            from core.os_splet import brez_pospesevanja, politika_pospesevanja, ucene_brez_pospesevanja
             if not uri.startswith(("http://", "https://")):
                 return False
             zelena = (WebKit2.HardwareAccelerationPolicy.NEVER
-                      if brez_pospesevanja(uri, (), bool(self.config.get("splet_skia_kompozitor", False)))
+                      if brez_pospesevanja(uri, ucene_brez_pospesevanja(self.config),
+                                           bool(self.config.get("splet_skia_kompozitor", False)))
                       else politika_pospesevanja(WebKit2, self.config.get("hardware_acceleration", "on_demand")))
             if webview.get_settings().get_hardware_acceleration_policy() == zelena:
                 return False
@@ -5218,7 +5221,7 @@ class SafeerMintBrowser(Gtk.Window):
                 "sleeping": bool(tab.get("sleeping")),
                 "verdict": sample.verdict if sample else "calm",
             })
-        return processes_page.render(rows, get_current_language(), web_process_memory_limit_mb(), self.tab_monitor.cpu_budget)
+        return processes_page.render(rows, get_current_language(), meja_strani_mb(), self.tab_monitor.cpu_budget)
 
     # -------------------------------------------------------------
     # Per-tab load: indicator, sleep, menu
@@ -5422,21 +5425,81 @@ class SafeerMintBrowser(Gtk.Window):
         menu.show_all()
         menu.popup_at_widget(button, Gdk.Gravity.SOUTH, Gdk.Gravity.NORTH, None)
 
+    def _varuh_tik(self):
+        """Vsakih 5 s (kot Splet): proces strani nad 3/4 meje, ki ga WebKitova meja ne ujame (puscanje DMA-BUF v
+        WebKitGTK 2.54, meritev 13. 10. 2026: ~90 MB/s), ustavi varuh; zavihek se potem nalozi brez pospesevanja."""
+        try:
+            from core import splet_varuh
+            pid = splet_varuh.preglej(meja_strani_mb() * 3 // 4, os.getpid(), bool(os.environ.get("FLATPAK_ID")))
+            if pid is not None:
+                self._varuh_ubil = time.monotonic()
+                os_stabilnost.zapisi("safeer-browser", "spletni proces nad mejo pomnilnika ustavljen (varuh)")
+        except Exception as e:  # varuh ne sme podreti brskalnika
+            print(f"[Safeer] varuh: {e}", flush=True)
+        return True
+
+    def _omeji_predpomnilnik(self):
+        """Ob zagonu (kot Splet): predpomnilnik na disku nad mejo (privzeto 500 MB) se pocisti; prijave ostanejo."""
+        try:
+            meja = int(self.config.get("splet_predpomnilnik_meja_mb", 500) or 0)
+        except (TypeError, ValueError):
+            meja = 500
+        if meja <= 0:
+            return
+        from core.os_splet import velikost_mape_mb
+        mapa = os.path.join(self.config.config_dir, "web-data", "cache")
+
+        def pocisti():
+            try:
+                self.website_data_manager.clear(
+                    WebKit2.WebsiteDataTypes.DISK_CACHE | WebKit2.WebsiteDataTypes.MEMORY_CACHE, 0, None, None, None)
+            except Exception as e:
+                print(f"[Safeer] predpomnilnik: {e}", flush=True)
+            return False
+
+        def preveri():
+            if velikost_mape_mb(mapa) > meja:
+                GLib.idle_add(pocisti)
+        threading.Thread(target=preveri, daemon=True, name="safeer-predpomnilnik").start()
+
+    def on_web_process_died(self, tab_id, webview, reason):
+        """Vsak padec procesa strani: pospravi stanje zavihka; ce je stran presegla mejo pomnilnika (WebKit ali varuh),
+        si njeno domeno zapomni (brez strojnega izrisa) in jo odpre v novem zavihku na istem mestu, kot Splet."""
+        tab = next((item for item in self.tabs if item["id"] == tab_id), None)
+        if tab is None or tab.get("sleeping"):
+            return
+        try:
+            webview._safeer_network_errors.cancel_pending()
+        except Exception:
+            pass
+        self.tab_monitor.forget(tab_id)
+        try:
+            from core.os_splet import nauci_po_padcu, ucene_brez_pospesevanja
+            uri = webview.get_uri() or ""
+            ucene = nauci_po_padcu(WebKit2, reason, uri, ucene_brez_pospesevanja(self.config),
+                                   bool(self.config.get("splet_skia_kompozitor", False)),
+                                   time.monotonic() - getattr(self, "_varuh_ubil", -1e9))
+            if ucene is not None:
+                self.config.set("splet_brez_pospesevanja", ucene)
+                self.zamenjaj_za_pospesevanje(webview, uri)
+        except Exception as e:
+            print(f"[Safeer] ucenje pospesevanja: {e}", flush=True)
+
     def on_web_process_terminated(self, tab_id, webview, reason):
+        """Obnova je odnehala (core/os_stabilnost): razlaga z gumbom, da zavihek ne ostane bel."""
         tab = next((item for item in self.tabs if item["id"] == tab_id), None)
         if tab is None or tab.get("crash_notice") is not None or tab.get("sleeping"):
             return
         tab["crashed"] = True
         webview._safeer_crashed = True
-        webview._safeer_network_errors.cancel_pending()
-        self.tab_monitor.forget(tab_id)
+        # reason: beseda iz os_stabilnost (pomnilnik | sesutje) ali WebProcessTerminationReason.
+        nick = reason if isinstance(reason, str) else getattr(reason, "value_nick", str(reason))
         # Log only the reason: URLs may contain login tokens or private queries.
-        print(f"[Safeer] Web process stopped: {reason.value_nick}; awaiting manual reload", flush=True)
+        print(f"[Safeer] Web process stopped: {nick}; awaiting manual reload", flush=True)
         notice = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
         notice.set_halign(Gtk.Align.CENTER)
         notice.set_valign(Gtk.Align.CENTER)
-        nick = getattr(reason, "value_nick", str(reason))
-        if nick == "exceeded-memory-limit":
+        if nick in ("exceeded-memory-limit", "pomnilnik"):
             title_text = "Stran je porabila preveč pomnilnika / Page used too much memory"
             message_text = ("Safeer jo je ustavil, da računalnik ostane odziven.\n"
                             "Safeer stopped it so the computer stays responsive.")
@@ -7437,11 +7500,10 @@ console.log("Safeer skripta teče na:", window.location.href);
 
 
 def web_process_memory_limit_mb(total_mb=None):
-    """Per-tab memory limit: half of RAM, at least 1 GB.
+    """Half of RAM, at least 1 GB: the base for the tab lifecycle memory budget (a quarter of it).
 
-    12 GB -> 6144 MB, 8 GB -> 4096 MB, 4 GB -> 2048 MB. High on purpose (decision 2026-09-13): no
-    normal page must ever be stopped by it; it only keeps one runaway tab from taking the whole
-    computer with it. Caches are released at half of it and everything recreatable at three quarters.
+    The real per-page-process limit is core/pomnilnik.meja_strani_mb (same as Splet, 14. 10. 2026);
+    this value no longer stops any tab.
     """
     if total_mb is None:
         try:

@@ -274,6 +274,33 @@ def brez_pospesevanja(naslov: str, ucene=(), skia: bool = True) -> bool:
     return any(g == d or g.endswith("." + d) for d in domene)
 
 
+def ucene_brez_pospesevanja(config) -> list:
+    """Uceni seznam domen brez strojnega izrisa (skupen Spletu in brskalniku Safeer: isti ConfigManager). Ob novi
+    razlicici kompozitorja se seznam pozabi (domene iz casa Skie TextureMapperju ne skodijo)."""
+    try:
+        if config.get("splet_kompozitor_v", 0) != KOMPOZITOR_RAZLICICA:
+            config.set("splet_brez_pospesevanja", [])
+            config.set("splet_kompozitor_v", KOMPOZITOR_RAZLICICA)
+        v = config.get("splet_brez_pospesevanja", [])
+    except Exception:  # noqa: BLE001
+        return []
+    return [str(x) for x in v] if isinstance(v, list) else []
+
+
+def nauci_po_padcu(WebKit2, razlog, naslov: str, ucene, skia: bool, varuh_pred_s: float):
+    """Proces strani je presegel mejo pomnilnika (WebKit) ali ga je pred manj kot 5 s ustavil varuh (splet_varuh):
+    vrne nov uceni seznam z domeno te strani (zadnjih 50) ali None, ce se nimamo cesa nauciti."""
+    R = getattr(WebKit2, "WebProcessTerminationReason", None)
+    pomn = razlog == getattr(R, "EXCEEDED_MEMORY_LIMIT", object())
+    varuh = razlog == getattr(R, "CRASHED", object()) and varuh_pred_s < 5
+    if not (pomn or varuh):
+        return None
+    g = gostitelj_strani(naslov or "")
+    if not g or brez_pospesevanja("https://" + g, ucene, skia):
+        return None
+    return (list(ucene) + [g])[-50:]
+
+
 def politika_pospesevanja(WebKit2, nastavitev):
     """Strojno pospesevanje je privzeto vklopljeno (ALWAYS); uporabnik ga lahko izklopi ("never").
     "on_demand" je v WebKitGTK 2.4x opuscen - obravnavamo ga kot vklopljeno."""
@@ -483,12 +510,7 @@ class VdelaniSplet:
         #: Gumb »Install« dodatka Stremio (povezava stremio://...): Safeer Player pokaze dodatek in vprasa (kot Android).
         self.stremio_dodatek = stremio_dodatek
         self.config = ConfigManager()
-        try:
-            if self.config.get("splet_kompozitor_v", 0) != KOMPOZITOR_RAZLICICA:
-                self.config.set("splet_brez_pospesevanja", [])
-                self.config.set("splet_kompozitor_v", KOMPOZITOR_RAZLICICA)
-        except Exception:  # noqa: BLE001
-            pass
+        ucene_brez_pospesevanja(self.config)   # ob novi razlicici kompozitorja pozabi stari uceni seznam
         #: »Vsili temno« (core/splet_temno.py): skripta Dark Reader vsakega pogleda, da jo ob spremembi zamenjamo.
         self._temno_skripte = weakref.WeakKeyDictionary()
         try:
@@ -1424,8 +1446,7 @@ class VdelaniSplet:
         return None
 
     def _ucene_brez_pospesevanja(self) -> list:
-        v = self.config.get("splet_brez_pospesevanja", [])
-        return [str(x) for x in v] if isinstance(v, list) else []
+        return ucene_brez_pospesevanja(self.config)
 
     def _skia(self) -> bool:
         """Skia kompozitor samo, ce ga uporabnik izrecno vklopi (splet_skia_kompozitor); privzeto TextureMapper."""
@@ -1489,16 +1510,10 @@ class VdelaniSplet:
     def _proces_pomnilnik(self, pogled, razlog) -> None:
         """Stran je presegla mejo pomnilnika (ustavil jo je WebKit ali nas varuh): njeno domeno si zapomnimo (brez
         strojnega izrisa), da jo os_stabilnost nalozi znova ze brez puscanja."""
-        W = self.WebKit2
-        R = getattr(W, "WebProcessTerminationReason", None)
-        pomnilnik = razlog == getattr(R, "EXCEEDED_MEMORY_LIMIT", object())
-        varuh = razlog == getattr(R, "CRASHED", object()) and time.monotonic() - getattr(self, "_varuh_ubil", -1e9) < 5
-        if not (pomnilnik or varuh):
+        ucene = nauci_po_padcu(self.WebKit2, razlog, pogled.get_uri() or "", self._ucene_brez_pospesevanja(),
+                               self._skia(), time.monotonic() - getattr(self, "_varuh_ubil", -1e9))
+        if ucene is None:
             return
-        g = gostitelj_strani(pogled.get_uri() or "")
-        if not g or brez_pospesevanja("https://" + g, self._ucene_brez_pospesevanja(), self._skia()):
-            return
-        ucene = (self._ucene_brez_pospesevanja() + [g])[-50:]
         try:
             self.config.set("splet_brez_pospesevanja", ucene)
         except Exception:  # noqa: BLE001

@@ -69,3 +69,30 @@ def test_texturemapper_24ur_ostane_pospesen():
     exec(_funkcija(), ns)
     b = types.SimpleNamespace(tabs=[], config=types.SimpleNamespace(get=lambda k, d=None: d))
     assert ns["zamenjaj_za_pospesevanje"](b, _Pogled("ALWAYS"), "https://www.24ur.com/") is False
+
+
+def test_brskalnik_ima_izboljsave_spleta():
+    """Parity s Spletom (lastnik, 14. 10. 2026): meja procesa strani, varuh, ucenje, obnova, bfcache, predpomnilnik."""
+    import os
+    koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(koren, "safeer_mint.py"), encoding="utf-8") as f:
+        koda = f.read()
+    assert "GLib.timeout_add_seconds(5, self._varuh_tik)" in koda
+    assert "splet_varuh.preglej(" in koda
+    assert "nauci_po_padcu(" in koda and "ucene_brez_pospesevanja(self.config)" in koda
+    assert "os_stabilnost.obnovi_ob_padcu(" in koda and "ob_odpovedi=" in koda
+    assert "set_enable_page_cache(True)" in koda and "set_enable_page_cache(False)" not in koda
+    assert "self._omeji_predpomnilnik()" in koda and "splet_predpomnilnik_meja_mb" in koda
+
+
+def test_nauci_po_padcu():
+    import types
+    from core.os_splet import nauci_po_padcu
+    R = types.SimpleNamespace(EXCEEDED_MEMORY_LIMIT=2, CRASHED=0, TERMINATED_BY_API=1)
+    W = types.SimpleNamespace(WebProcessTerminationReason=R)
+    assert nauci_po_padcu(W, 2, "https://a.primer.si/x", [], False, 99) == ["a.primer.si"]
+    assert nauci_po_padcu(W, 0, "https://a.primer.si/x", [], False, 2) == ["a.primer.si"]   # varuh pred 2 s
+    assert nauci_po_padcu(W, 0, "https://a.primer.si/x", [], False, 30) is None             # navadno sesutje
+    assert nauci_po_padcu(W, 1, "https://a.primer.si/x", [], False, 0) is None              # API (spanje)
+    assert nauci_po_padcu(W, 2, "https://a.primer.si/x", ["primer.si"], False, 99) is None  # ze na seznamu
+    assert len(nauci_po_padcu(W, 2, "https://z.si", ["d%d.si" % i for i in range(60)], False, 99)) == 50

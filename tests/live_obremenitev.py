@@ -101,7 +101,7 @@ class LiveOverload(unittest.TestCase):
                     break
             report["samples"] = samples[-6:]
             report["log_tail"] = [l for l in log.splitlines() if " W " not in l][-20:]
-            report["memory_line"] = next((l for l in log.splitlines() if "Meja na zavihek" in l), "")
+            report["memory_line"] = next((l for l in log.splitlines() if "Meja procesa strani" in l), "")
             report["monitor_line"] = next((l for l in log.splitlines() if "Nadzor zavihkov aktiven" in l), "")
             report["hot_seen"] = "nad proračunom" in log
             report["slept"] = slept

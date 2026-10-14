@@ -193,7 +193,7 @@ def test_pomnilnik_nauci_stran():
     s._zamenjaj_za_pospesevanje = lambda p, u: zamenjave.append(u)
     p = _PogledN("https://novice.primer.si/clanek")
     s._proces_pomnilnik(p, 0)                                          # sesutje: nic
-    assert "splet_brez_pospesevanja" not in s.config and p.n.p == "ALWAYS"
+    assert not s.config.get("splet_brez_pospesevanja") and p.n.p == "ALWAYS"
     s._proces_pomnilnik(p, 1)                                          # pomnilnik: zapomni in zamenja zavihek
     assert s.config["splet_brez_pospesevanja"] == ["novice.primer.si"] and len(zamenjave) == 1
     s._proces_pomnilnik(p, 1)
@@ -251,4 +251,5 @@ def test_nov_pogled_izbere_kompozitor():
     import inspect
     koda = inspect.getsource(os_splet.VdelaniSplet._nov_pogled)
     assert "nastavi_kompozitor(" in koda
-    assert "splet_kompozitor_v" in inspect.getsource(os_splet.VdelaniSplet.__init__)
+    assert "ucene_brez_pospesevanja(self.config)" in inspect.getsource(os_splet.VdelaniSplet.__init__)
+    assert "splet_kompozitor_v" in inspect.getsource(os_splet.ucene_brez_pospesevanja)
