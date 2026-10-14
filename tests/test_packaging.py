@@ -209,6 +209,21 @@ class PackagingTests(unittest.TestCase):
         # Ovoj »safeer« v /app/host-bin bi v brskalniku pokazal na brskalnik gostitelja.
         self.assertIn('rm -f /app/host-bin/safeer /app/host-bin/safeer-browser',brskalnik)
 
+    def test_flatpak_libsoup_s_popravki_za_webkitom(self):
+        """org.gnome.Platform//50 ima libsoup 3.6.6 (CVE-2026-5119, CVE-2026-3099, CVE-2026-66337 …): oba Flatpaka
+        vzameta libsoup >= 3.8.0 iz packaging/libsoup, takoj za WebKitom (predpomnilnik WebKita ostane veljaven)."""
+        modul=(ROOT/'packaging/libsoup/libsoup3-safeer.yml').read_text()
+        razlicica=re.search(r'libsoup-(\d+)\.(\d+)\.(\d+)\.tar\.xz',modul).groups()
+        self.assertGreaterEqual(tuple(map(int,razlicica)),(3,8,0))
+        self.assertRegex(modul,r'(?m)^    sha256: [0-9a-f]{64}$')
+        self.assertIn('https://download.gnome.org/sources/libsoup/%s.%s/'%razlicica[:2],modul)
+        for manifest in ('io.github.memelandfaner.SafeerOS.yml','io.github.memelandfaner.SafeerBrowser.yml'):
+            with self.subTest(manifest=manifest):
+                seznam=re.findall(r'^  - (\S.*)$',(ROOT/manifest).read_text().split('\nmodules:\n',1)[1],re.M)
+                self.assertEqual(seznam[:3],['packaging/webkit/webkitgtk6-safeer.yml',
+                                             'packaging/webkit/webkitgtk6-safeer-typelib.yml',
+                                             'packaging/libsoup/libsoup3-safeer.yml'])
+
     def test_debian_maintainer_scripts_are_posix_sh(self):
         for builder in ('build_deb.sh','build_os_deb.sh'):
             with self.subTest(builder=builder):
