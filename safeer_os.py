@@ -3325,10 +3325,29 @@ class SafeerOS(Gtk.Application):
         return je_samozagon()
 
     def _nazaj_v_mint(self, za_stalno: bool) -> bool:
-        """Zapre Safeer OS; pod njim je obicajno namizje Linux Mint. »Za stalno« izklopi tudi zagon ob
-        prijavi. Nazaj se uporabnik vrne iz menija (Safeer OS)."""
+        """Zapre Safeer OS; pred uporabnikom je obicajno namizje Linux Mint. Nazaj se vrne iz menija (Safeer OS).
+
+        Ob Safeer Cinnamon (delovna povrsina) samo zaprtje ni bilo dovolj (lastnik, 14. 10. 2026: »uporabnik lahko
+        kadarkoli preklopi na Mint namizje«): ikone Nemo so ostale skrite, ob naslednji prijavi pa je Safeer OS zagnal
+        safeer-cinnamon --seja ne glede na stikalo. Zato: »Samo tokrat« vrne ikone namizja za to sejo (ob naslednji
+        prijavi spet Safeer OS); »Ne zaganjaj vec ob prijavi« vrne prejsnji videz Minta (safeer-cinnamon --izklopi:
+        tema, pult, dock, ozadje, ikone) - Safeer Cinnamon se znova vklopi iz menija."""
         if za_stalno:
             self._samozagon(False)
+        if videz_cinnamon()["naVoljo"]:
+            ukaz = ["safeer-cinnamon", "--izklopi"] if za_stalno else None
+            try:
+                if ukaz:
+                    # Loceno od Safeer OS: --izklopi konca tudi delovno povrsino (SIGTERM -> _koncaj pospravi).
+                    subprocess.Popen(ukaz, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                     start_new_session=True)
+                else:
+                    subprocess.run(["gsettings", "set", "org.nemo.desktop", "show-desktop-icons", "true"],
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+                    subprocess.Popen(["nemo-desktop"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL, start_new_session=True)
+            except Exception as e:  # noqa: BLE001 - Safeer OS se zapre v vsakem primeru
+                print("[SafeerOS] nazaj v Mint:", e)
         GLib.timeout_add(250, lambda: (self._koncaj(), False)[1])
         return True
 

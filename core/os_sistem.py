@@ -201,6 +201,10 @@ def ozadje_namizja() -> str:
         pot = unquote(uri[len("file://"):])
         if os.path.isfile(pot):
             return pot
+        # Flatpak: /usr racunalnika (ozadja Safeer, Minta) je v peskovniku pod /run/host/usr (--filesystem=host-os:ro).
+        # Brez tega je delovna povrsina v Flatpaku ostala brez ozadja (testni PC, 14. 10. 2026).
+        if pot.startswith("/usr/") and os.path.isfile("/run/host" + pot):
+            return "/run/host" + pot
     return ""
 
 
