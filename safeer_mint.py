@@ -4058,18 +4058,20 @@ class SafeerMintBrowser(Gtk.Window):
         content.pack_start(box_def, False, False, 0)
 
         dialog.show_all()
-        dialog.run()
+        odgovor = dialog.run()
 
-        # Apply user choices
-        selected_engine = combo_search.get_active_id() or "duckduckgo"
-        self.config.set("search_engine", selected_engine)
+        # Izbire veljajo samo ob gumbu »Začni brskati«. Zaprtje okna (X, Esc) ne sme uvoziti zaznamkov ali spremeniti
+        # privzetega brskalnika (testni PC 14. 10. 2026: X je uvozil zaznamke Firefoxa, ker je bila kljukica privzeta).
+        if odgovor == Gtk.ResponseType.OK:
+            selected_engine = combo_search.get_active_id() or "duckduckgo"
+            self.config.set("search_engine", selected_engine)
 
-        if import_chk and import_chk.get_active():
-            self.config.auto_import_from_browser("all")
-            self.broadcast_portals_update()
+            if import_chk and import_chk.get_active():
+                self.config.auto_import_from_browser("all")
+                self.broadcast_portals_update()
 
-        if def_chk and def_chk.get_active():
-            self.set_as_default_browser(show_dialog=False)
+            if def_chk and def_chk.get_active():
+                self.set_as_default_browser(show_dialog=False)
 
         self.config.set("first_run_completed", True)
         dialog.destroy()

@@ -96,3 +96,15 @@ def test_nauci_po_padcu():
     assert nauci_po_padcu(W, 1, "https://a.primer.si/x", [], False, 0) is None              # API (spanje)
     assert nauci_po_padcu(W, 2, "https://a.primer.si/x", ["primer.si"], False, 99) is None  # ze na seznamu
     assert len(nauci_po_padcu(W, 2, "https://z.si", ["d%d.si" % i for i in range(60)], False, 99)) == 50
+
+
+def test_zaprtje_carovnika_ne_uvozi_zaznamkov():
+    """X ali Esc v pozdravnem oknu ne sme uvoziti zaznamkov ali nastaviti privzetega brskalnika (14. 10. 2026)."""
+    import os
+    koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(koren, "safeer_mint.py"), encoding="utf-8") as f:
+        koda = f.read()
+    zacetek = koda.index("def open_first_run_wizard(")
+    del_ = koda[zacetek:koda.index("def load_homepage(", zacetek)]
+    assert "odgovor = dialog.run()" in del_
+    assert del_.index("if odgovor == Gtk.ResponseType.OK:") < del_.index("auto_import_from_browser")
