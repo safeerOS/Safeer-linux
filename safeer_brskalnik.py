@@ -89,6 +89,16 @@ def shrani_sejo(config, naslovi, izbran: int = 0) -> None:
     config.set("splet_seja", [n for _i, n in shranjeni])
 
 
+def shrani_ali_pozabi_sejo(config, naslovi, izbran: int = 0) -> None:
+    """»Izbrisi ob izhodu: zgodovina«: odprti zavihki so tudi zgodovina - seje ne shranimo in staro pozabimo (pregled
+    14. 10. 2026: prej so se naslovi zavihkov shranili ne glede na to nastavitev)."""
+    if "zgodovina" in (config.get("brisi_ob_izhodu", []) or []):
+        config.set("splet_seja", [])
+        config.set("splet_seja_izbran", 0)
+        return
+    shrani_sejo(config, naslovi, izbran)
+
+
 def izbran_v_seji(config, n: int) -> int:
     try:
         i = int(config.get("splet_seja_izbran", 0) or 0)
@@ -213,8 +223,8 @@ class SafeerBrskalnik(Gtk.Application):
         try:
             tren = self.splet.trenutni()
             zavihki = self.splet.zavihki
-            shrani_sejo(self.splet.config, [z["pogled"].get_uri() or "" for z in zavihki],
-                        next((i for i, z in enumerate(zavihki) if z["pogled"] is tren), 0))
+            shrani_ali_pozabi_sejo(self.splet.config, [z["pogled"].get_uri() or "" for z in zavihki],
+                                   next((i for i, z in enumerate(zavihki) if z["pogled"] is tren), 0))
         except Exception as e:  # noqa: BLE001 - zaprtje mora uspeti tudi brez seje
             print("[Safeer Browser] seja:", e, flush=True)
         self.splet.koncaj_drm()
@@ -247,10 +257,11 @@ class SafeerBrskalnik(Gtk.Application):
             self._ustvari()
         for i, d in enumerate(datoteke):
             naslov = d.get_uri() or ""
+            # Datoteka z diska (»Odpri z«, privzeti brskalnik): file:// je tu uporabnikova izbira (lokalno=True).
             if prvic and i == 0 and not nalozi_sejo(self.splet.config):
-                self.splet.odpri(naslov)
+                self.splet.odpri(naslov, lokalno=True)
             else:
-                self.splet.odpri_povezavo(naslov)
+                self.splet.odpri_povezavo(naslov, lokalno=True)
         self.okno.present()
 
 

@@ -54,12 +54,109 @@ class Prenos(unittest.TestCase):
 class Zaznava(unittest.TestCase):
     def test_skripta_zazna_eme_fairplay_in_zastoj(self):
         self.assertIn("WebKitMediaKeys", drm.SKRIPTA)
-        self.assertIn('javi("safeer:zastoj")', drm.SKRIPTA)
         self.assertIn("com\\.apple\\.fps", drm.SKRIPTA)
+        # Sum zazna samo loceni svet; stran (glavni svet) »safeer:« ne more poslati.
+        self.assertIn('poslji("safeer:zastoj")', drm.SKRIPTA_SVET)
+        self.assertNotIn("safeer:", drm.SKRIPTA)
+        self.assertNotIn("messageHandlers", drm.SKRIPTA)
+        self.assertIn("window.top !== window", drm.SKRIPTA_SVET)
 
-    def test_sum_ne_odpre_drugega_brskalnika(self):
-        vir = (KOREN / "core" / "drm.py").read_text(encoding="utf-8")
-        self.assertIn('if _vsebina(_r).startswith("safeer:"):', vir)
+
+class _Upravitelj:
+    def __init__(self):
+        self.most, self.skripte, self.rokovalnik = None, [], None
+
+    def register_script_message_handler(self, ime, svet):
+        self.most = (ime, svet)
+
+    def connect(self, signal, f):
+        self.rokovalnik = f
+
+    def add_script(self, s):
+        self.skripte.append(s)
+
+
+class _Pogled:
+    def __init__(self, uri):
+        self.uri, self.upr, self.js = uri, _Upravitelj(), []
+
+    def get_user_content_manager(self):
+        return self.upr
+
+    def get_uri(self):
+        return self.uri
+
+    def evaluate_javascript(self, koda, *a):
+        self.js.append(koda)
+
+
+class _Vrednost:
+    def __init__(self, v):
+        self.v = v
+
+    def to_string(self):
+        return self.v
+
+
+def _W():
+    import types
+
+    class US:
+        def __init__(self, vir, okvirji, cas, a, b):
+            self.vir, self.okvirji, self.svet = vir, okvirji, None
+
+        @staticmethod
+        def new_for_world(vir, okvirji, cas, svet, a, b):
+            u = US(vir, okvirji, cas, a, b)
+            u.svet = svet
+            return u
+    return types.SimpleNamespace(UserScript=US, UserContentInjectedFrames=types.SimpleNamespace(TOP_FRAME="TOP",
+                                                                                               ALL_FRAMES="ALL"),
+                                 UserScriptInjectionTime=types.SimpleNamespace(START="START"))
+
+
+class Privolitev(unittest.TestCase):
+    """Pregled 14. 10. 2026: nobena stran (ne zastoj videa ne oglas) ne sme sama zagnati Safeer DRM."""
+
+    def _prikljuci(self, **k):
+        self.odprto, self.vdelano, self.ponujeno = [], [], []
+        pre = mock.Mock()
+        pre.odpri = lambda url: (self.odprto.append(url), ("odprto", "Brave"))[1]
+        pogled = _Pogled("https://video.primer.si/film")
+        drm.prikljuci(_W(), pogled, pre, lambda: "sl",
+                      vdelaj=lambda p, u: self.vdelano.append(u) or True, **k)
+        return pogled
+
+    def test_rokovalnik_v_locenem_svetu_samo_glavni_okvir(self):
+        p = self._prikljuci()
+        self.assertEqual(p.upr.most, (drm.MOST, drm.SVET))
+        self.assertEqual([(s.okvirji, s.svet) for s in p.upr.skripte], [("TOP", None), ("TOP", drm.SVET)])
+
+    def test_sum_nikoli_ne_zazene(self):
+        p = self._prikljuci()                     # Safeer Browser GTK3 (brez vrstice)
+        p.upr.rokovalnik(None, _Vrednost("safeer:zastoj"))
+        p.upr.rokovalnik(None, _Vrednost("safeer:zapis"))
+        self.assertEqual((self.vdelano, self.odprto), ([], []))
+
+    def test_splet_samo_ponudi(self):
+        p = self._prikljuci(ponudi=lambda pg, u, s: self.ponujeno.append((u, s)))
+        p.upr.rokovalnik(None, _Vrednost("com.widevine.alpha"))
+        p.upr.rokovalnik(None, _Vrednost("safeer:zastoj"))
+        self.assertEqual(self.ponujeno, [("https://video.primer.si/film", False), ("https://video.primer.si/film", True)])
+        self.assertEqual((self.vdelano, self.odprto), ([], []))
+
+    def test_zavrnjena_stran_nic(self):
+        p = self._prikljuci(ponudi=lambda pg, u, s: self.ponujeno.append(u), dovoljeno=lambda u: "zavrni")
+        p.upr.rokovalnik(None, _Vrednost("com.widevine.alpha"))
+        self.assertEqual((self.ponujeno, self.vdelano, self.odprto), ([], [], []))
+        p = self._prikljuci(dovoljeno=lambda u: "zavrni")
+        p.upr.rokovalnik(None, _Vrednost("com.widevine.alpha"))
+        self.assertEqual((self.vdelano, self.odprto), ([], []))
+
+    def test_gtk3_zahteva_glavnega_okvirja_vdela(self):
+        p = self._prikljuci(dovoljeno=lambda u: "dovoli")
+        p.upr.rokovalnik(None, _Vrednost("com.widevine.alpha"))
+        self.assertEqual(self.vdelano, ["https://video.primer.si/film"])
 
 
 class Splet(unittest.TestCase):

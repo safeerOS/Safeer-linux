@@ -2621,6 +2621,13 @@ class SafeerOS(Gtk.Application):
         except Exception:
             pass
         try:
+            # »Izbrisi ob izhodu« in Safeer DRM za oba Spleta (okno in namizje), s cakanjem na WebKit (najvec 5 s).
+            if self._spletni is not None or self._spletni_namizje is not None:
+                from core.os_splet import pocisti_vse_ob_izhodu
+                pocisti_vse_ob_izhodu([self._spletni, self._spletni_namizje], GLib)
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] Splet ob izhodu:", e)
+        try:
             if self._spletni is not None:
                 self._spletni.koncaj()
         except Exception:

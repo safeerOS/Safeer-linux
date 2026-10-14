@@ -29,6 +29,12 @@ PRIJAVNI_GOSTITELJI = (
 PRIJAVNE_POTI = ("/login", "/signin", "/sign-in", "/oauth", "/oauth2", "/auth/", "/authorize", "/sso",
                  "/saml", "/openid", "/connect/authorize", "/consent")
 
+#: Prvi del gostitelja, ki pomeni streznik za prijavo (id.podjetje.si, sso.podjetje.eu, login.banka.si). Samo s tako
+#: predpono ali na strani odpiralca velja prijavna pot - sicer je bil oglas »https://ads.evil/auth/x« prijava (pregled
+#: 14. 10. 2026).
+PRIJAVNE_PREDPONE = frozenset({"id", "sso", "login", "logon", "signin", "auth", "oauth", "accounts", "account", "idp",
+                               "identity", "secure", "prijava", "konto"})
+
 #: Drugi del domene, pod katerim so registrirane strani (co.uk ...): osnova je tedaj zadnjih treh delov.
 _DVODELNE = frozenset({"co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "net.au", "org.au", "co.jp", "ne.jp",
                        "com.br", "com.cn", "com.tr", "co.nz", "co.za", "com.mx", "com.ar", "co.in", "co.kr",
@@ -62,12 +68,17 @@ def _pod(host: str, seznam) -> bool:
     return any(host == g or host.endswith("." + g) for g in seznam)
 
 
-def je_prijava(uri: str) -> bool:
+def je_prijava(uri: str, izvor: str = "") -> bool:
+    """Znani ponudnik prijave/placila, ali prijavna pot (/login, /oauth ...) na strezniku za prijavo (id., sso. ...) ali
+    na isti strani kot odpiralec (izvor)."""
     h = gostitelj(uri)
     if not h:
         return False
     if _pod(h, PRIJAVNI_GOSTITELJI):
         return True
+    hi = gostitelj(izvor)
+    if not (h.split(".", 1)[0] in PRIJAVNE_PREDPONE or (hi and osnova(hi) == osnova(h))):
+        return False
     try:
         pot = (urllib.parse.urlsplit(uri).path or "").lower()
     except ValueError:
@@ -80,12 +91,12 @@ def dovoli(izvor: str, cilj: str, prava_povezava: bool, dovoljeni=()) -> bool:
     if prava_povezava:
         return True
     if not cilj.lower().startswith(("http://", "https://")):
-        return True        # about:blank: prijava pogosto odpre prazno okno in ga nato preusmeri (ta navigacija gre
-                           # skozi Scit kot vsaka druga)
+        return True        # about:blank: prijava pogosto odpre prazno okno in ga nato preusmeri. Splet si tak zavihek
+                           # zapomni in prvo pravo stran v njem preveri s temi pravili (os_splet._politika).
     hi, hc = gostitelj(izvor), gostitelj(cilj)
     if hi and osnova(hi) == osnova(hc):
         return True
-    if je_prijava(cilj):
+    if je_prijava(cilj, izvor):
         return True
     return bool(hi) and osnova(hi) in set(dovoljeni or ())
 
