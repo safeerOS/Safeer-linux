@@ -61,7 +61,8 @@ class Zivo(unittest.TestCase):
     def setUpClass(cls):
         cls.mapa = tempfile.mkdtemp()
         for ime, vsebina in (("index.html", STRAN), ("eme.html", EME), ("okvir.html", "<p>okvir</p>"),
-                             ("ok.html", "<p>ok</p>"), ("oglas.html", "<p>oglas</p>")):
+                             ("ok.html", "<p>ok</p>"), ("oglas.html", "<p>oglas</p>"),
+                             ("video.html", '<video src="/ni-datoteke.mp4" muted autoplay></video>')):
             with open(os.path.join(cls.mapa, ime), "w", encoding="utf-8") as f:
                 f.write(vsebina)
         cls.streznik = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(_Tihi, directory=cls.mapa))
@@ -106,6 +107,14 @@ class Zivo(unittest.TestCase):
         self.assertEqual(self.ponudbe[n], (self.koren + "/index.html", False))
         self.assertEqual(self.vdelave, [])            # brez klika se nic ne zazene
 
+    def test_video_z_napako_le_ponudi(self):
+        """Sum (napaka zapisa) iz locenega sveta: samo ponudba (sum=True), nic se ne zazene."""
+        n = len(self.ponudbe)
+        self._nov("/video.html")
+        self.assertTrue(_cakaj(lambda: len(self.ponudbe) > n, 8))
+        self.assertEqual(self.ponudbe[n], (self.koren + "/video.html", True))
+        self.assertEqual(self.vdelave, [])
+
     def test_blob_prenos(self):
         p = self._nov("/index.html")
         n = len(self.prenosi)
@@ -125,6 +134,19 @@ class Zivo(unittest.TestCase):
         _js(p, 'var w = window.open(""); w.location = %s; 1' % json.dumps(self.koren + "/okvir.html"))
         self.assertTrue(_cakaj(lambda: any((z["pogled"].get_uri() or "").endswith("/okvir.html")
                                            for z in self.s.zavihki), 5))
+
+    def test_brisanje_ob_izhodu_pocaka_webkit(self):
+        """Safeer OS ob izhodu (os_splet.pocisti_vse_ob_izhodu): WebKit brisanje konca pred rokom. Samo predpomnilnik -
+        preizkus ne sme brisati piskotkov v nastavitvah, kjer tece."""
+        from core import os_splet
+        prej = self.s.config.get("brisi_ob_izhodu", [])
+        self.s.config.set("brisi_ob_izhodu", ["predpomnilnik"])
+        try:
+            t0 = time.monotonic()
+            self.assertTrue(os_splet.pocisti_vse_ob_izhodu([self.s], GLib, cas=5))
+            self.assertLess(time.monotonic() - t0, 5)
+        finally:
+            self.s.config.set("brisi_ob_izhodu", prej)
 
     def test_lokalna_datoteka_html(self):
         with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False) as f:
