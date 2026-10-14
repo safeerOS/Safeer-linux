@@ -167,11 +167,17 @@ def privzeta_mapa() -> str:
     return os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "safeer", "teamwork")
 
 
+def kratko_ime(ime: str) -> str:
+    """»Safeer OS (OnePlus)« -> »OnePlus«, »Safeer Control (ime-racunalnika)« -> »ime-racunalnika«; drugo ostane."""
+    m = re.fullmatch(r"\s*Safeer [^()]*\((.+)\)\s*", str(ime or ""))
+    return m.group(1).strip() if m else str(ime or "").strip()
+
+
 def ime_kopije(pot: str, kdo: str) -> str:
     """Prosto ime ob datoteki: »ime (kdo).koncnica«, »ime (kdo 2).koncnica« ..."""
     mapa, ime = os.path.split(pot)
     osnova, konc = os.path.splitext(ime)
-    kdo = re.sub(r"[\x00-\x1f/\\:]", "", str(kdo or "")).strip()[:60] or "Teamwork"
+    kdo = re.sub(r"[\x00-\x1f/\\:()]", "", kratko_ime(kdo)).strip()[:60] or "Teamwork"
     for i in range(1, 1000):
         kandidat = os.path.join(mapa, "%s (%s%s)%s" % (osnova, kdo, "" if i == 1 else " %d" % i, konc))
         if not os.path.lexists(kandidat):
@@ -510,7 +516,7 @@ class _Seja:
         self.udelezenci: Dict[str, dict] = {}       # id naprave -> {ime, program, odprto, cas}
         self.lokalno = {"odprto": False, "program": "", "osnova": ""}
         self.zadnji = {"naprava": "", "ime": "", "cas": 0.0}
-        self.spori: List[str] = []
+        self.spori: List[dict] = []                 # {kopija, naprava (cigava razlicica), kdo (kdo je shranil cez)}
         self.teamwork = False
         self.spremenjeno_od: Optional[Tuple[tuple, float]] = None
         self.zaklep = threading.RLock()
@@ -539,6 +545,8 @@ class _Udelezba:
         self.drugi: List[str] = []
         self.spremenjeno_od: Optional[Tuple[tuple, float]] = None
         self.podprto = True
+        self.videni_spori: Optional[set] = None
+        self.poslano_spor = ""                      # kopija, o kateri je obvestil ze odgovor na popravek
         self.zaklep = threading.Lock()
 
     @property
@@ -623,6 +631,9 @@ class Teamwork:
         except OSError:
             pass
 
+    def _ime_tega(self) -> str:
+        return "@tukaj"
+
     # -------------------------------------------------------------- lastnik
     def _seja(self, oznaka: str, ustvari: bool) -> Optional[_Seja]:
         with self._zaklep:
@@ -656,7 +667,7 @@ class Teamwork:
         with s.zaklep:
             self._preveri_lokalno(s)
             zdaj = self.zdaj()
-            s.udelezenci[posiljatelj] = {"ime": self.ime_naprave(posiljatelj) or posiljatelj, "odprto": bool(p.get("odprto")),
+            s.udelezenci[posiljatelj] = {"ime": kratko_ime(self.ime_naprave(posiljatelj) or posiljatelj), "odprto": bool(p.get("odprto")),
                                          "program": str(p.get("program") or "")[:80], "cas": zdaj}
             s.zadnja_raba = zdaj
             self._posodobi_teamwork(s)
@@ -671,7 +682,7 @@ class Teamwork:
                                                          if i != za and u.get("odprto") and u.get("program")), ""),
                 "zadnji": {"naprava": s.zadnji["naprava"], "ime": s.zadnji["ime"] or "@tukaj", "cas": s.zadnji["cas"]}
                 if s.zadnji["cas"] else None,
-                "spori": list(s.spori[-5:])}
+                "spori": [{"kopija": x["kopija"], "tvoj": x["naprava"] == za, "kdo": x["kdo"]} for x in s.spori[-5:]]}
 
     def _posodobi_teamwork(self, s: _Seja) -> None:
         """Obvestilo na TEJ napravi (lastnik), ko se Teamwork zacne ali konca - samo, ce datoteko ureja tudi ta."""
@@ -731,7 +742,8 @@ class Teamwork:
                 except OSError as e:
                     _odstrani(prihaja)
                     return 500, {"ok": False, "koda": "disk", "razlog": str(e)}
-                s.spori.append(os.path.basename(kopija))
+                kdo_prej = s.zadnji["ime"] or self._ime_tega()
+                s.spori.append({"kopija": os.path.basename(kopija), "naprava": posiljatelj, "kdo": kdo_prej})
                 if s.lokalno["odprto"]:
                     self.obvesti("spor_drugi", {"ime": os.path.basename(s.pot), "kdo": ime, "kopija": os.path.basename(kopija)})
                 return 200, {"ok": True, "spor": True, "kopija": os.path.basename(kopija), "sha256": s.sha,
@@ -789,7 +801,7 @@ class Teamwork:
                 kopija = ime_kopije(s.pot, prejsnji["ime"] or prejsnji["naprava"])
                 try:
                     shutil.copyfile(vir, kopija)
-                    s.spori.append(os.path.basename(kopija))
+                    s.spori.append({"kopija": os.path.basename(kopija), "naprava": prejsnji["naprava"], "kdo": "@tukaj"})
                     self.obvesti("spor", {"ime": os.path.basename(s.pot), "kdo": prejsnji["ime"], "kopija": os.path.basename(kopija)})
                 except OSError:
                     pass
@@ -849,6 +861,18 @@ class Teamwork:
         elif u.teamwork and not tw and u.odprto:
             self.obvesti("konec", {"ime": ime})
         u.teamwork, u.drugi = tw, drugi
+        obvescen_spor = False
+        spori = [x for x in d.get("spori") or [] if isinstance(x, dict) and x.get("kopija")]
+        if u.videni_spori is None:
+            u.videni_spori = {str(x["kopija"]) for x in spori}            # stare spore ob prvem odgovoru le zabelezimo
+        for x in spori:
+            if str(x["kopija"]) in u.videni_spori:
+                continue
+            u.videni_spori.add(str(x["kopija"]))
+            if x.get("tvoj") and not u.poslano_spor == str(x["kopija"]):
+                self.obvesti("spor", {"ime": ime, "kdo": self._ime(u, str(x.get("kdo") or "@tukaj")),
+                                      "kopija": str(x["kopija"])})
+                obvescen_spor = True
         sha = str(d.get("sha256") or "")
         if sha and sha != u.sha and _stat(u.pot) == u.stat and self.prenesi is not None:
             # Lastnik ima novejso razlicico, tu ni nic neposlanega: prenesemo samo spremembe.
@@ -862,14 +886,15 @@ class Teamwork:
                 if not u.odprto:
                     u.osnova = sha
                 zadnji = d.get("zadnji") if isinstance(d.get("zadnji"), dict) else {}
-                self.obvesti("nova" if u.odprto else "nova_zaprta",
-                             {"ime": ime, "kdo": self._ime(u, str(zadnji.get("ime") or "@tukaj"))})
+                if not obvescen_spor:            # obvestilo o sporu ze pove, da je glavna razlicica druga
+                    self.obvesti("nova" if u.odprto else "nova_zaprta",
+                                 {"ime": ime, "kdo": self._ime(u, str(zadnji.get("ime") or "@tukaj"))})
                 self._shrani()
 
     @staticmethod
     def _ime(u: _Udelezba, x: str) -> str:
         """»@tukaj« v odgovoru lastnika pomeni napravo lastnika same."""
-        return u.ime_naprave if x == "@tukaj" else x
+        return kratko_ime(u.ime_naprave if x == "@tukaj" else x)
 
     def _poslji(self, u: _Udelezba) -> None:
         """Delovna kopija je shranjena in miruje: lastniku samo spremenjene kose (najvec trikrat, ce se vmes spremeni)."""
@@ -905,6 +930,7 @@ class Teamwork:
                 _odstrani(telo)
             if koda == 200 and odgovor.get("ok"):
                 if odgovor.get("spor"):
+                    u.poslano_spor = str(odgovor.get("kopija", ""))
                     self.obvesti("spor", {"ime": ime, "kdo": self._kdo_zadnji(u), "kopija": odgovor.get("kopija", "")})
                     # Tvoja razlicica je pri lastniku (kopija); glavno razlicico prenesemo ob naslednjem javljanju.
                     u.stat = None
