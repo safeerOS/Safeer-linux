@@ -1386,6 +1386,8 @@ class VdelaniSplet:
 
     def izberi(self, pogled):
         self.aktivni = pogled; self.sklad.set_visible_child(pogled)
+        if getattr(self, "_pojavno", None) and self._pojavno[2] is not pogled:
+            self._pojavno = None; self.pojavna.set_reveal_child(False)   # vrstica velja za zavihek, kjer je nastala
         z = self._zavihek(pogled)
         if z is not None and z.get("drm") is not None:
             self.sklad.set_visible_child(z["drm"].gradnik)
@@ -1511,7 +1513,16 @@ class VdelaniSplet:
                 self._pojavno_blokirano(pogled, naslov); return None
         nov = self.nov_zavihek(povezan=pogled)
         ref = weakref.ref(nov)
-        nov.connect("close", lambda *_: ref() is not None and self.zapri_zavihek(ref()))
+        izvor = weakref.ref(pogled)
+
+        def zapri(*_):
+            # Okno za prijavo se zapre samo: uporabnik se vrne na stran, ki ga je odprla (preizkus 14. 10.: izbran je
+            # bil sosednji zavihek).
+            if ref() is not None:
+                self.zapri_zavihek(ref())
+            if izvor() is not None and any(z["pogled"] is izvor() for z in self.zavihki):
+                self.izberi(izvor())
+        nov.connect("close", zapri)
         return nov
 
     def _ucene_brez_pospesevanja(self) -> list:
@@ -1992,7 +2003,7 @@ class VdelaniSplet:
         self._opozorilo(self._ti("external_app_missing_title"), self._ti("external_app_missing_body").format(scheme=shema))
 
     def _pojavno_blokirano(self, pogled, naslov: str) -> None:
-        self._pojavno = (pogled.get_uri() or "", naslov)
+        self._pojavno = (pogled.get_uri() or "", naslov, pogled)
         stran = pojavna_okna.osnova(pojavna_okna.gostitelj(self._pojavno[0]))
         self.pojavna_napis.set_text(self._t("po_blokirano").format(cilj=pojavna_okna.gostitelj(naslov) or naslov))
         self.pojavna_vedno.set_label(self._t("po_vedno").format(stran=stran))
@@ -2002,7 +2013,7 @@ class VdelaniSplet:
     def _pojavno_odpri(self, vedno: bool) -> None:
         if not self._pojavno:
             return
-        izvor, naslov = self._pojavno
+        izvor, naslov, _p = self._pojavno
         self._pojavno = None
         self.pojavna.set_reveal_child(False)
         if vedno:
