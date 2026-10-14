@@ -258,6 +258,11 @@ Steklo {
         MenuItem { text: koren.t("odpriSProgramom", { naprava: panel.imeNaprave })
                    visible: panel.vir.vrsta === "naprava" && !!meni.e && !meni.e.mapa; height: visible ? implicitHeight : 0
                    onTriggered: panel.odpriSProgramomNaprave(meni.e) }
+        // Kot Datoteke na prejsnji delovni povrsini (delovna.js): Odpri z … in Poslji na napravo … (14. 10. 2026).
+        MenuItem { text: koren.t("odpriZ"); visible: panel.lokalnaDatoteka(meni.e); height: visible ? implicitHeight : 0
+                   onTriggered: izbirnik.odpriZ(meni.e) }
+        MenuItem { text: koren.t("posljiNaNapravo"); visible: panel.lokalnaDatoteka(meni.e); height: visible ? implicitHeight : 0
+                   onTriggered: izbirnik.poslji(meni.e) }
         MenuItem { text: koren.t("pokazi"); visible: panel.vir.vrsta === "lokalno" || panel.vir.vrsta === "nedavno"; height: visible ? implicitHeight : 0; onTriggered: koren.klic("pokaziVMapi", [meni.e.pot]) }
         MenuItem { text: koren.t("preimenuj"); visible: panel.vir.vrsta === "lokalno"; height: visible ? implicitHeight : 0; onTriggered: preimenovanje.zacni(meni.e) }
         MenuItem { text: koren.t("vKos"); visible: panel.vir.vrsta === "lokalno" || panel.vir.vrsta === "nedavno"; height: visible ? implicitHeight : 0; onTriggered: panel.vKos(meni.e) }
@@ -287,6 +292,82 @@ Steklo {
                 Gumb { besedilo: koren.t("preklici"); onKlik: preimenovanje.close() }
                 Gumb { besedilo: koren.t("shrani"); poudarjen: true; onKlik: preimenovanje.shrani() } }
         }
+    }
+
+    function lokalnaDatoteka(e) { return !!e && !e.mapa && (vir.vrsta === "lokalno" || vir.vrsta === "nedavno") }
+
+    // Izbira programa (Odpri z …) ali naprave (Poslji na napravo …) za eno datoteko.
+    Popup {
+        id: izbirnik
+        property string naslov: ""
+        property var moznosti: []        // [{ ime, opis, ob }]
+        anchors.centerIn: parent; modal: true; padding: 18; width: 400
+        background: Rectangle { radius: 16; color: koren.paleta.vnos; border.color: Qt.rgba(1, 1, 1, 0.14) }
+        function pokazi(n, m) { naslov = n; moznosti = m; open() }
+        function odpriZ(e) {
+            koren.klic("programiZaDatoteko", [e.pot], function (r) {
+                var p = (r && r.ok && r.programi) || []
+                if (!p.length) { koren.obvesti(koren.t("niUspelo")); return }
+                pokazi(koren.t("odpriZ") + " · " + e.ime, p.map(function (x) {
+                    return { ime: x.ime, opis: x.privzet ? koren.t("privzetProgram") : "",
+                             ob: function () { koren.klic("odpriZ", [[e.pot], x.id, false], function (o) { if (!(o && o.ok)) koren.obvesti(koren.t("niUspelo")) }) } }
+                }))
+            })
+        }
+        function poslji(e) {
+            koren.klic("napraveZaPosiljanje", [], function (n) {
+                n = (n || []).filter(function (x) { return x && x.id })
+                if (!n.length) { koren.obvesti(koren.t("posNiNaprav")); return }
+                pokazi(koren.t("posljiNaNapravo") + " · " + e.ime, n.map(function (x) {
+                    return { ime: x.ime, opis: "", ob: function () { panel.posljiNapravi(x, e) } }
+                }))
+            })
+        }
+        ColumnLayout {
+            anchors.fill: parent; spacing: 10
+            Text { text: izbirnik.naslov; color: koren.paleta.besedilo; font.pixelSize: 15; font.bold: true; elide: Text.ElideMiddle; Layout.fillWidth: true }
+            Repeater {
+                model: izbirnik.moznosti
+                delegate: Rectangle {
+                    Layout.fillWidth: true; height: 40; radius: 10
+                    color: mi.containsMouse || mi.activeFocus ? koren.poudarekA(0.2) : Qt.rgba(1, 1, 1, 0.05)
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.Button; Accessible.name: modelData.ime
+                    Keys.onReturnPressed: { izbirnik.close(); modelData.ob() }
+                    Row { anchors.verticalCenter: parent.verticalCenter; x: 12; spacing: 10
+                        Text { text: modelData.ime; color: koren.paleta.besedilo; font.pixelSize: 13 }
+                        Text { text: modelData.opis; color: koren.paleta.medlo; font.pixelSize: 11; visible: text !== "" } }
+                    MouseArea { id: mi; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                onClicked: { izbirnik.close(); modelData.ob() } }
+                }
+            }
+            Gumb { Layout.alignment: Qt.AlignRight; besedilo: koren.t("zapri"); onKlik: izbirnik.close() }
+        }
+    }
+
+    // Datoteko odda Safeer Control (kot »Poslji datoteko« v njem); tu spremljamo napredek do konca.
+    function posljiNapravi(naprava, e) {
+        koren.obvesti(koren.t("posPosiljam", { naprava: naprava.ime, ime: e.ime }))
+        koren.klic("posljiNapravi", [naprava.id, [e.pot]], function (r) {
+            if (!r || !r.ok) { koren.obvesti(koren.t("posNapaka", { naprava: naprava.ime })); return }
+            if (r.stanje === "posiljam") { posiljanje.id = r.id; posiljanje.naprava = naprava; posiljanje.ime = e.ime; posiljanje.napak = 0; posiljanje.start() }
+            else koren.obvesti(koren.t("posPoslano", { naprava: naprava.ime, ime: e.ime }))
+        }, function () { koren.obvesti(koren.t("posNapaka", { naprava: naprava.ime })) })
+    }
+    Timer {
+        id: posiljanje
+        property string id: ""
+        property var naprava: null
+        property string ime: ""
+        property int napak: 0
+        interval: 800; repeat: true
+        onTriggered: koren.klic("posljiStanje", [id], function (r) {
+            if (!r || !r.ok) { if (++posiljanje.napak > 5) { posiljanje.stop(); koren.obvesti(koren.t("posNapaka", { naprava: posiljanje.naprava.ime })) } return }
+            if (r.stanje === "posiljam") return
+            posiljanje.stop()
+            koren.obvesti(r.stanje === "poslano" ? koren.t("posPoslano", { naprava: posiljanje.naprava.ime, ime: posiljanje.ime })
+                                                 : koren.t("posNapaka", { naprava: posiljanje.naprava.ime }))
+        })
     }
 
     Popup {

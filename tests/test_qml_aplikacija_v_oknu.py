@@ -134,3 +134,14 @@ class PregledPopravki(unittest.TestCase):
     def test_temno_brez_prijav(self):
         with open(os.path.join(KOREN, "safeer_mint.py"), encoding="utf-8") as f:
             self.assertIn("AUTH_SCRIPT_EXCLUSIONS)", f.read())
+
+
+class DatotekeMeni(unittest.TestCase):
+    def test_odpri_z_in_poslji(self):
+        qml = open(os.path.join(KOREN, "assets", "os", "qml", "Datoteke.qml"), encoding="utf-8").read()
+        for klic in ('"programiZaDatoteko"', '"odpriZ"', '"napraveZaPosiljanje"', '"posljiNapravi"', '"posljiStanje"'):
+            self.assertIn(klic, qml)
+        nam = open(os.path.join(KOREN, "assets", "os", "qml", "Namizje.qml"), encoding="utf-8").read()
+        import re
+        for k in ("odpriZ", "privzetProgram", "posljiNaNapravo", "posNiNaprav", "posPosiljam", "posPoslano", "posNapaka"):
+            self.assertEqual(len(re.findall(r"\b" + k + ":", nam)), 2, k)
