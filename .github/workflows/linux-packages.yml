@@ -44,7 +44,14 @@ jobs:
       - name: Unit tests (browser GTK 3 and toolkit-free; Safeer OS GTK 4 runs in the safeer-os job)
         # GTK 3 and GTK 4 cannot be loaded in one Python process (14 Oct 2026: 94 errors in one run); the split is
         # derived from the imports (tools/razdeli_teste.py), not kept by hand.
-        run: PYTHONPATH=tests xvfb-run -a /usr/bin/python3 -m unittest $(python3 tools/razdeli_teste.py gtk3)
+        # Seznam najprej v spremenljivko: $(...) v argumentih poje izhodno kodo (namerna 2 ob mesanih GTK3/GTK4), prazen
+        # seznam pa da na Pythonu 3.10 »0 tests« z izhodom 0 - zelen korak brez preizkusov (pregled 14. 10. 2026).
+        shell: bash -e {0}
+        run: |
+          set -euo pipefail
+          T="$(python3 tools/razdeli_teste.py gtk3)"
+          test -n "$T"
+          PYTHONPATH=tests xvfb-run -a /usr/bin/python3 -m unittest $T
       - name: Stability regression
         run: xvfb-run -a /usr/bin/python3 tests/stability_runtime.py
       - name: Debian package and launch smoke
@@ -142,7 +149,13 @@ jobs:
       - name: PySide6 (QML shell) - the same wheels as the package and the Flatpak
         run: python3 packaging/pyside6_vendor.py build/vendor
       - name: Unit tests (Safeer OS and Control, GTK 4)
-        run: PYTHONPATH="tests:build/vendor" QT_QUICK_BACKEND=software xvfb-run -a /usr/bin/python3 -m unittest $(python3 tools/razdeli_teste.py gtk4)
+        # Kot pri gtk3: izhodna koda razdeli_teste.py in prazen seznam morata ustaviti korak.
+        shell: bash -e {0}
+        run: |
+          set -euo pipefail
+          T="$(python3 tools/razdeli_teste.py gtk4)"
+          test -n "$T"
+          PYTHONPATH="tests:build/vendor" QT_QUICK_BACKEND=software xvfb-run -a /usr/bin/python3 -m unittest $T
       - name: Safeer OS package (one package - Safeer OS, Safeer Control and Safeer Cinnamon)
         # Od 12. 10. 2026 je za Linux en sam paket .deb: ena namestitev (tudi z dvoklikom v GDebi), ena posodobitev.
         # mint-themes je le priporocilo, zato se paket tu namesti tudi na Ubuntu 24.04 brez priporocenih paketov.
