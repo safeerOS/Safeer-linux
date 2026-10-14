@@ -46,6 +46,7 @@ from core.config import CONFIG_DIR, ConfigManager, SEARCH_ENGINES, normalize_web
 from core.doh_proxy import get_doh_proxy, DOH_PROVIDERS, nastavitve_posrednika
 from core.i18n import t, set_language, get_current_language, SUPPORTED_LANGUAGES
 from core import drm
+from core import dovoljenja_strani
 from core.adblock import (
     YOUTUBE_ADBLOCK_SCRIPT,
     YOUTUBE_KEEP_WATCHING_SCRIPT,
@@ -4619,7 +4620,8 @@ class SafeerMintBrowser(Gtk.Window):
             self._drm_preusmeritev = drm.Preusmeritev()
         # Kot Splet (14. 10. 2026): Safeer DRM (Chromium z Widevine) se vstavi v ta zavihek; brez njega rezerva drug brskalnik.
         drm.prikljuci(WebKit2, wv, self._drm_preusmeritev, lambda: str(get_current_language() or "sl"),
-                      vdelaj=lambda pogled, naslov, tid=tab_id: self.drm_vdelaj(tid, pogled, naslov))
+                      vdelaj=lambda pogled, naslov, tid=tab_id: self.drm_vdelaj(tid, pogled, naslov),
+                      dovoljeno=lambda naslov: dovoljenja_strani.odlocitev(self.config, naslov, ["drm"]))
         self.apply_content_filter(wv)  # 📜 EasyList, once compiled
 
         # 1. Global Privacy Control (GPC) & Do Not Track (DNT) W3C Engine

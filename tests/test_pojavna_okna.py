@@ -50,3 +50,30 @@ def test_splet_uporablja_pravila_in_izbiro_dns():
 def test_naslov_ip():
     assert po.osnova("127.0.0.1") == "127.0.0.1"
     assert po.zapomni([], "http://192.168.1.5:8080/x") == ["192.168.1.5"]
+
+
+def test_prijavna_pot_samo_na_prijavnem_strezniku_ali_isti_strani():
+    """Pregled 14. 10. 2026: »https://ads.evil/auth/x« je veljal za prijavo."""
+    for cilj in ("https://ads.evil/auth/x", "https://popunder.example/login?x=1", "https://track.example/oauth2/a"):
+        assert not po.dovoli(STRAN, cilj, False), cilj
+    assert po.dovoli(STRAN, "https://prijava.filmi-primer.si/login", False)     # stran odpiralca
+    assert po.je_prijava("https://www.filmi-primer.si/sso/start", STRAN)
+    assert not po.je_prijava("https://ads.evil/auth/x", STRAN)
+    assert po.je_prijava("https://login.banka.si/oauth/authorize")
+
+
+def test_splet_preveri_prazno_okno():
+    splet = open(os.path.join(KOREN, "core", "os_splet.py"), encoding="utf-8").read()
+    assert 'z["pojavno_prazno"] = (pogled.get_uri() or "", prava, izvor)' in splet
+    assert 'z.pop("pojavno_prazno")' in splet
+
+
+class Pregled(__import__("unittest").TestCase):
+    """CI zaganja preizkuse z unittest (funkcij v slogu pytest ne vidi): novi preizkusi pregleda 14. 10. 2026."""
+
+    def test_prijavna_pot(self):
+        test_prijavna_pot_samo_na_prijavnem_strezniku_ali_isti_strani()
+        test_prijave_in_placila_dovoljene()
+
+    def test_prazno_okno(self):
+        test_splet_preveri_prazno_okno()

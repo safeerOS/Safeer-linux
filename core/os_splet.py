@@ -310,7 +310,7 @@ _BRISANJE = {
            "bp_ob_izhodu": "Cancella i dati selezionati alla chiusura", "bp_koncano": "Cancellato."},
 }
 for _j, _b in (list(_BRISANJE.items()) + list(splet_prenosi.BESEDILA.items()) + list(pojavna_okna.BESEDILA.items()) + list(_BRSKALNIK.items())
-               + list(zascita.BESEDILA.items()) + list(_NASTAVITVE.items()) + list(dovoljenja_strani.BESEDILA.items())):   # skupaj s Safeer Browserjem
+               + list(zascita.BESEDILA.items()) + list(_NASTAVITVE.items()) + list(dovoljenja_strani.BESEDILA.items()) + list(drm.BESEDILA.items())):   # skupaj s Safeer Browserjem
     BESEDILA.setdefault(_j, {}).update(_b)
 
 
@@ -545,6 +545,77 @@ def _gostitelj(url: str) -> str:
         return (urllib.parse.urlsplit(url).hostname or "").lower()
     except ValueError:
         return ""
+
+
+def _izvor(url: str) -> str:
+    """shema://gostitelj[:vrata] (izvor strani) ali ''."""
+    try:
+        d = urllib.parse.urlsplit(url or "")
+    except ValueError:
+        return ""
+    return (d.scheme + "://" + d.netloc).lower() if d.scheme and d.netloc else ""
+
+
+def pocisti_vse_ob_izhodu(spleti, GLib, cas: float = 5.0) -> bool:
+    """Konec Safeer OS: za vsak Splet (okno in namizje) konca Safeer DRM in izvede »Izbrisi ob izhodu«, nato caka na
+    WebKit (asinhrono brisanje) najvec `cas` sekund, kot Safeer Browser ob zaprtju okna. Prej je Safeer OS ob izhodu
+    klical le koncaj() - nastavitev ni brisala nicesar, proces safeer-drm je ostal (pregled 14. 10. 2026).
+    Vrne True, ce se je brisanje koncalo pravocasno."""
+    spleti = [s for s in spleti if s is not None]
+    for s in spleti:
+        try:
+            s.koncaj_drm()
+        except Exception as e:  # noqa: BLE001 - izhod mora uspeti
+            print("[Splet] DRM ob izhodu:", e, flush=True)
+    ostane = {"n": len(spleti)}
+
+    def konec():
+        ostane["n"] -= 1
+    for s in spleti:
+        try:
+            s.pocisti_ob_izhodu(konec)
+        except Exception as e:  # noqa: BLE001
+            print("[Splet] brisanje ob izhodu:", e, flush=True)
+            konec()
+    kontekst = GLib.MainContext.default()
+    rok = time.monotonic() + cas
+    while ostane["n"] > 0 and time.monotonic() < rok:
+        if not kontekst.iteration(False):
+            time.sleep(0.01)
+    return ostane["n"] <= 0
+
+
+def lokalni_naslov(naslov: str) -> str:
+    """file:// na obstojeco navadno datoteko (HTML, PDF, slika ... iz »Odpri z«, ukazne vrstice, privzetega brskalnika
+    ali naslovne vrstice) ali ''. normalize_web_url pozna le http(s), zato lokalna datoteka prej ni odprla nicesar
+    (pregled 14. 10. 2026). Mapo ali neobstojeco pot zavrnemo."""
+    n = (naslov or "").strip()
+    if not n.lower().startswith("file://"):
+        return ""
+    try:
+        d = urllib.parse.urlsplit(n)
+        if d.netloc not in ("", "localhost"):
+            return ""
+        pot = urllib.parse.unquote(d.path)
+    except ValueError:
+        return ""
+    return n if pot and os.path.isfile(pot) else ""
+
+
+def je_vdelana_vsebina(naslov: str, stran: str) -> bool:
+    """Navigacija, ki je del strani in ne pomeni nove strani: about:srcdoc (okvir s srcdoc), data: (okvir; glavni okvir
+    WebKit zavrne sam, preverjeno 14. 10. 2026 v WebKitGTK 6.0) in blob: istega izvora kot stran (prenos z atributom
+    download, izvoz) ali vgrajenega pdf.js (»Shrani«). Prej je Splet vse to prezrl (pregled 14. 10. 2026)."""
+    n = (naslov or "").strip()
+    nl = n.lower()
+    if nl == "about:srcdoc" or nl.startswith("data:"):
+        return True
+    if nl.startswith("blob:"):
+        if nl.startswith("blob:webkit-pdfjs-viewer://"):
+            return True
+        izvor = _izvor(n[5:])
+        return izvor.startswith(("https://", "http://")) and izvor == _izvor(stran)
+    return False
 
 
 def _js_vrednost(rezultat):
@@ -845,13 +916,14 @@ class VdelaniSplet:
         self.pojavna_vedno = Gtk.Button()
         skrij = Gtk.Button.new_from_icon_name("window-close-symbolic")
         skrij.set_has_frame(False)
-        skrij.connect("clicked", lambda *_: self.pojavna.set_reveal_child(False))
+        skrij.connect("clicked", lambda *_: self._vrstica_skrij())
         for g in (self.pojavna_napis, self.pojavna_odpri, self.pojavna_vedno, skrij):
             vrsta.append(g)
-        self.pojavna_odpri.connect("clicked", lambda *_: self._pojavno_odpri(False))
-        self.pojavna_vedno.connect("clicked", lambda *_: self._pojavno_odpri(True))
+        self.pojavna_odpri.connect("clicked", lambda *_: self._vrstica_klik(False))
+        self.pojavna_vedno.connect("clicked", lambda *_: self._vrstica_klik(True))
         self.pojavna.set_child(vrsta)
         self._pojavno = None
+        self._drm_ponudba = None      # (pogled, url): vrstica ponuja Safeer DRM (isto mesto kot pojavna okna)
         self.gradnik.append(self.pojavna)
         self.sklad = Gtk.Stack()
         self.sklad.set_transition_type(Gtk.StackTransitionType.NONE)
@@ -1154,8 +1226,10 @@ class VdelaniSplet:
         # Widevine (Netflix, Disney+ ...): stran se odpre v namescenem brskalniku z Widevine (core/drm.py).
         if getattr(self, "_drm", None) is None:
             self._drm = drm.Preusmeritev()
+        # Safeer DRM sele po kliku v vrstici (_drm_ponudi) in ne, ce je stran v nastavitvah zavrnjena.
         drm.prikljuci(W, pogled, self._drm, lambda: str(self.jezik() if callable(self.jezik) else self.jezik or "sl"),
-                      vdelaj=self._drm_vdelaj)
+                      vdelaj=self._drm_vdelaj, ponudi=self._drm_ponudi,
+                      dovoljeno=lambda url: dovoljenja_strani.odlocitev(self.config, url, ["drm"]))
         izvzemi = adblock.AUTH_SCRIPT_EXCLUSIONS
         # Strani, kjer je uporabnik izklopil zascito: brez skript za oglase (ostanejo varnostne in GPC).
         izvzemi_oglase = izvzemi + zascita.vzorci_izjem(self.config)
@@ -1220,7 +1294,7 @@ class VdelaniSplet:
         pogled.load_alternate_html(stran_procesa_koncana(self._t("proces_naslov"), self._t("proces_besedilo"),
                                                          self._t("proces_znova"), uri), uri, None)
 
-    def nov_zavihek(self, naslov: str = "", povezan=None):
+    def nov_zavihek(self, naslov: str = "", povezan=None, lokalno: bool = False):
         self._stevec += 1
         pogled = self._nov_pogled(povezan)
         vrstica = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -1247,7 +1321,7 @@ class VdelaniSplet:
         self.zavihki.append(zavihek)
         self.izberi(pogled)
         if povezan is None:
-            self.odpri(naslov, pogled)      # okno strani nalozi WebKit sam (zahteva iz window.open)
+            self.odpri(naslov, pogled, lokalno)      # okno strani nalozi WebKit sam (zahteva iz window.open)
         return pogled
 
     def zapri_zavihek(self, pogled):
@@ -1619,9 +1693,13 @@ class VdelaniSplet:
         self.aktivni = pogled; self.sklad.set_visible_child(pogled)
         if getattr(self, "_pojavno", None) and self._pojavno[2] is not pogled:
             self._pojavno = None; self.pojavna.set_reveal_child(False)   # vrstica velja za zavihek, kjer je nastala
+        if getattr(self, "_drm_ponudba", None) and self._drm_ponudba[0] is not pogled:
+            self._drm_ponudba = None; self.pojavna.set_reveal_child(False)
         z = self._zavihek(pogled)
         if z is not None and z.get("drm") is not None:
             self.sklad.set_visible_child(z["drm"].gradnik)
+        elif z is not None and z.get("drm_ponudba") and getattr(self, "pojavna", None) is not None:
+            self._drm_ponudi(pogled, *z["drm_ponudba"])     # ponudba, ki je nastala v ozadju
         for z in self.zavihki:
             if z["pogled"] is pogled:
                 z["vrstica"].add_css_class("splet-tab-aktiven")
@@ -1656,38 +1734,47 @@ class VdelaniSplet:
     def odpri_domov(self):
         if self.trenutni(): self.trenutni().load_uri(self.domaci_uri())
 
-    def odpri(self, naslov: str = "", pogled=None):
+    def odpri(self, naslov: str = "", pogled=None, lokalno: bool = False):
+        """lokalno=True: tudi datoteka z diska (file://) - samo za naslove od uporabnika (naslovna vrstica, »Odpri z«,
+        ukazna vrstica), nikoli iz sporocil strani ali drugih naprav."""
         pogled = pogled or self.trenutni()
         if pogled is None:
             if self.zavihki:
                 return False
+            if lokalno and lokalni_naslov(naslov):
+                self.nov_zavihek(naslov, lokalno=True); return True
             self.nov_zavihek(naslov)        # po sprosti_zavihke(): prvi zavihek na novo
             return True
         if not naslov: pogled.load_uri(self.domaci_uri()); return True
-        normalen = normalize_web_url(naslov)
+        normalen = (lokalni_naslov(naslov) if lokalno else "") or normalize_web_url(naslov)
         if not normalen: return False
         pogled.load_uri(normalen); return True
 
-    def odpri_povezavo(self, naslov: str) -> bool:
+    def odpri_povezavo(self, naslov: str, lokalno: bool = False) -> bool:
         """Povezava od drugod (sporočilo): strani, ki jo ima uporabnik odprto, ne zamenja. V zavihku z našo začetno
-        stranjo se odpre tam, sicer v novem zavihku."""
-        normalen = normalize_web_url(naslov)
+        stranjo se odpre tam, sicer v novem zavihku. lokalno=True (samo Safeer Browser: datoteka iz »Odpri z« ali
+        privzetega brskalnika): tudi file:// na obstojeco datoteko."""
+        normalen = (lokalni_naslov(naslov) if lokalno else "") or normalize_web_url(naslov)
         if not normalen: return False
         pogled = self.trenutni()
         if pogled is not None and ozadje_strani.nasa_stran(pogled.get_uri() or "", os.path.join(self.koren, "ui")):
             pogled.load_uri(normalen); return True
+        if lokalno:
+            self.nov_zavihek(normalen, lokalno=True); return True
         self.nov_zavihek(normalen); return True
 
     def _vnesi_naslov(self, vnos):
         besedilo = vnos.get_text().strip()
-        naslov = normalize_web_url(besedilo)
+        naslov = lokalni_naslov(besedilo) or normalize_web_url(besedilo)
         if not naslov:
             motor = self.config.get("search_engine", "duckduckgo")
             naslov = SEARCH_ENGINES.get(motor, SEARCH_ENGINES["duckduckgo"])["url"] + urllib.parse.quote_plus(besedilo)
-        self.odpri(naslov)
+        self.odpri(naslov, lokalno=True)        # uporabnik je naslov vpisal sam
 
     def _politika(self, pogled, odlocitev, vrsta):
         W = self.WebKit2
+        if vrsta == W.PolicyDecisionType.RESPONSE:
+            return self._odziv(pogled, odlocitev)
         if vrsta not in (W.PolicyDecisionType.NAVIGATION_ACTION, W.PolicyDecisionType.NEW_WINDOW_ACTION): return False
         try:
             dejanje = odlocitev.get_navigation_action(); zahteva = dejanje.get_request(); naslov = zahteva.get_uri() or ""
@@ -1715,6 +1802,10 @@ class VdelaniSplet:
                 odlocitev.ignore(); self.nov_zavihek(naslov); return True
             if naslov.startswith(("file://", "about:blank")):
                 odlocitev.use(); return True     # about:blank: okno za prijavo se pogosto odpre prazno
+            if je_vdelana_vsebina(naslov, pogled.get_uri() or ""):
+                # NAVIGATION_ACTION velja tudi za okvirje (iframe): srcdoc, data: in blob: istega izvora (prenos z
+                # atributom download, »Shrani« v pdf.js) so del strani. Glavni okvir na data: WebKit zavrne sam.
+                odlocitev.use(); return True
             if not naslov.startswith(("http://", "https://")):
                 odlocitev.ignore(); return True
             grozi = adblock.is_threat_domain(naslov)      # enkrat na navigacijo (prej dvakrat)
@@ -1732,12 +1823,27 @@ class VdelaniSplet:
                         pogled.get_uri() or "", naslov, prava, self.config.get("popup_dovoljeni", []) or []):
                     odlocitev.ignore(); self._pojavno_blokirano(pogled, naslov); return True
                 odlocitev.use(); return True     # zavihek naredi signal "create" (_novo_okno)
-            if not izjema and self.config.get("tracking_protection_enabled", True) and zahteva.get_http_method() == "GET":
+            # Prazno okno (window.open("") in nato location = ...): prvi pravi naslov gre skozi pravila pojavnih oken
+            # z odpiralcem kot izvorom (pregled 14. 10. 2026: tako se je odprl oglas mimo blokade).
+            z = self._zavihek(pogled)
+            if z is not None and z.get("pojavno_prazno") is not None:
+                izvor, prava, odpiralec = z.pop("pojavno_prazno")
+                if self.config.get("popup_blokiraj", True) and not pojavna_okna.dovoli(
+                        izvor, naslov, prava, self.config.get("popup_dovoljeni", []) or []):
+                    odlocitev.ignore()
+                    self.GLib.idle_add(lambda: self._pojavno_prazno_blokirano(pogled, odpiralec(), naslov) and False)
+                    return True
+            # Samo klik na povezavo (kot safeer_mint.py): decide-policy velja tudi za okvirje, load_uri pa bi z naslovom
+            # okvirja (vdelan predvajalnik z utm_) zamenjal ves zavihek; preusmeritev in obrazec (POST) ostaneta.
+            if (not izjema and self.config.get("tracking_protection_enabled", True)
+                    and dejanje.get_navigation_type() == W.NavigationType.LINK_CLICKED and not dejanje.is_redirect()
+                    and zahteva.get_http_method() == "GET"):
                 cist = adblock.strip_tracking_parameters(naslov)
-                if cist != naslov: odlocitev.ignore(); pogled.load_uri(cist); return True
-            # Stran s seznama puscanja: nov pogled z drugim izrisom - sele za Scitom in BankGuardom.
-            if self._zamenjaj_za_pospesevanje(pogled, naslov):
-                odlocitev.ignore(); return True
+                if cist != naslov:
+                    odlocitev.ignore()
+                    self.GLib.idle_add(lambda: pogled.load_uri(cist) and False)
+                    return True
+            # Zamenjava pogleda za strojni izris (seznam puscanja) je v _odziv: tam WebKit pove, ali gre za glavni okvir.
             odlocitev.use(); return True
         except Exception:
             odlocitev.ignore(); return True
@@ -1764,16 +1870,33 @@ class VdelaniSplet:
         nov = self.nov_zavihek(povezan=pogled)
         ref = weakref.ref(nov)
         izvor = weakref.ref(pogled)
+        if not naslov.lower().startswith(("http://", "https://")):
+            # Prazno okno: pravila pojavnih oken veljajo za prvo pravo stran, ki jo vanj nalozi odpiralec (_politika).
+            z = self._zavihek(nov)
+            if z is not None:
+                z["pojavno_prazno"] = (pogled.get_uri() or "", prava, izvor)
 
         def zapri(*_):
             # Okno za prijavo se zapre samo: uporabnik se vrne na stran, ki ga je odprla (preizkus 14. 10.: izbran je
-            # bil sosednji zavihek).
-            if ref() is not None:
-                self.zapri_zavihek(ref())
-            if izvor() is not None and any(z["pogled"] is izvor() for z in self.zavihki):
-                self.izberi(izvor())
+            # bil sosednji zavihek). Zapremo izven signala "close": pogleda ne unicujemo v njegovem rokovalniku.
+            def zdaj():
+                if ref() is not None:
+                    self.zapri_zavihek(ref())
+                if izvor() is not None and any(z["pogled"] is izvor() for z in self.zavihki):
+                    self.izberi(izvor())
+                return False
+            self.GLib.idle_add(zdaj)
         nov.connect("close", zapri)
         return nov
+
+    def _pojavno_prazno_blokirano(self, pogled, odpiralec, naslov: str) -> None:
+        """Prazno okno je hotelo na stran, ki je pravila pojavnih oken ne dovolijo: zavihek zapremo, odpiralec dobi
+        vrstico »Blokirano pojavno okno · Odpri · Vedno dovoli« kot pri vsakem drugem."""
+        if any(z["pogled"] is pogled for z in self.zavihki) and len(self.zavihki) > 1:
+            self.zapri_zavihek(pogled)
+        if odpiralec is not None and any(z["pogled"] is odpiralec for z in self.zavihki):
+            self.izberi(odpiralec)
+            self._pojavno_blokirano(odpiralec, naslov)
 
     def _ucene_brez_pospesevanja(self) -> list:
         return ucene_brez_pospesevanja(self.config)
@@ -1787,6 +1910,32 @@ class VdelaniSplet:
         if brez_pospesevanja(naslov, self._ucene_brez_pospesevanja(), self._skia()):
             return W.HardwareAccelerationPolicy.NEVER
         return politika_pospesevanja(W, self.config.get("hardware_acceleration", "on_demand"))
+
+    def _odziv(self, pogled, odlocitev) -> bool:
+        """Odgovor strezenika (RESPONSE): samo tu WebKit pove, ali je to glavni okvir. Stran s seznama puscanja dobi
+        nov pogled z drugim izrisom - samo glavni okvir in GET (prej je okvir zamenjal ves zavihek, POST je postal GET).
+        Zamenjava gre izven rokovalnika (pogleda ne unicujemo med njegovim signalom)."""
+        try:
+            if not odlocitev.is_main_frame_main_resource():
+                return False
+            zahteva = odlocitev.get_request()
+            if (zahteva.get_http_method() or "GET").upper() != "GET":
+                return False
+            odgovor = odlocitev.get_response()
+            naslov = (odgovor.get_uri() if odgovor is not None else "") or zahteva.get_uri() or ""
+            if not naslov.startswith(("http://", "https://")) or not self._potrebuje_zamenjavo(pogled, naslov):
+                return False
+        except Exception:  # noqa: BLE001 - privzeto ravnanje WebKita
+            return False
+        odlocitev.ignore()
+        self.GLib.idle_add(lambda: self._zamenjaj_za_pospesevanje(pogled, naslov) and False)
+        return True
+
+    def _potrebuje_zamenjavo(self, pogled, naslov: str) -> bool:
+        try:
+            return pogled.get_settings().get_hardware_acceleration_policy() != self._zelena_politika(naslov)
+        except Exception:  # noqa: BLE001
+            return False
 
     def _zamenjaj_za_pospesevanje(self, pogled, naslov: str) -> bool:
         """Stran potrebuje drugacen strojni izris kot ta zavihek (seznam puscanja): WebKit 2.54 pogleda, ki mu izris
@@ -1912,6 +2061,11 @@ class VdelaniSplet:
             # Uporabnik je sel drugam (Nazaj, nov naslov, Domov): zasciten video se konca, zavihek spet kaze Splet.
             if _gostitelj(pogled.get_uri() or "") != _gostitelj(z["drm"].url):
                 self._drm_konec(z)
+        if z is not None and z.get("drm_ponudba") and _gostitelj(pogled.get_uri() or "") != _gostitelj(z["drm_ponudba"][0]):
+            z.pop("drm_ponudba", None)         # ponudba velja za stran, kjer je nastala
+            if getattr(self, "_drm_ponudba", None) and self._drm_ponudba[0] is pogled:
+                self._drm_ponudba = None; self.pojavna.set_reveal_child(False)
+                self.pojavna_odpri.set_label(self._t("po_odpri"))
         if pogled is self.trenutni(): self._osvezi_orodja()
 
     # ------------------------------------------------------------------ Safeer DRM (Widevine) v zavihku
@@ -1963,6 +2117,59 @@ class VdelaniSplet:
         except Exception:  # noqa: BLE001 - starejsi WebKitGTK
             pass
         return True
+
+    def _drm_ponudi(self, pogled, url: str, sum_: bool = False) -> None:
+        """Stran ima (morda) zasciten video: vrstica nad stranjo z gumbom »Predvajaj v Safeer DRM«. Brez klika se nic
+        ne prenese in ne zazene (pregled 14. 10. 2026: prej je zastoj videa, napaka zapisa ali oglas v okvirju sam
+        prenesel ~120 MB in zagnal Chromium na gostitelju)."""
+        z = self._zavihek(pogled)
+        if z is None or not url.startswith("https://") or z.get("drm") is not None or z.get("drm_prenos"):
+            return
+        prej = z.get("drm_ponudba")
+        if prej and _gostitelj(prej[0]) == _gostitelj(url) and not prej[1]:
+            sum_ = False                       # prava zahteva strani ima prednost pred sumom
+        z["drm_ponudba"] = (url, sum_)
+        if pogled is not self.trenutni():
+            return                             # pokaze se, ko uporabnik izbere zavihek (izberi)
+        self._pojavno = None
+        self._drm_ponudba = (pogled, url)
+        self.pojavna_napis.set_text(self._t("drm_sum" if sum_ else "drm_zahteva").format(
+            stran=dovoljenja_strani.gostitelj(url) or url))
+        self.pojavna_odpri.set_label(self._t("drm_predvajaj"))
+        self.pojavna_vedno.set_visible(False)
+        self.pojavna.set_reveal_child(True)
+
+    def _drm_klik(self) -> None:
+        """Uporabnik je kliknil »Predvajaj v Safeer DRM«: nastavitev strani »zavrni« velja, »vprasaj« vprasa."""
+        pogled, url = self._drm_ponudba
+        self._drm_ponudba = None
+        self.pojavna.set_reveal_child(False)
+        self.pojavna_odpri.set_label(self._t("po_odpri"))
+        z = self._zavihek(pogled)
+        if z is None:
+            return
+        z.pop("drm_ponudba", None)
+        zdaj = pogled.get_uri() or ""
+        if _gostitelj(zdaj) != _gostitelj(url):
+            return                             # zavihek je medtem na drugi strani
+        odl = dovoljenja_strani.odlocitev(self.config, zdaj, ["drm"])
+        if odl == "zavrni":
+            return
+
+        def zazeni():
+            if z in self.zavihki and _gostitelj(pogled.get_uri() or "") == _gostitelj(zdaj):
+                if not self._drm_vdelaj(pogled, pogled.get_uri() or zdaj):
+                    self._drm.odpri(pogled.get_uri() or zdaj)      # rezerva: namesceni brskalnik z Widevine
+        if odl == "dovoli":
+            zazeni(); return
+
+        def odgovor(i):
+            if i in (0, 1):
+                dovoljenja_strani.zapomni(self.config, zdaj, ["drm"], "dovoli" if i == 1 else "zavrni")
+            if i == 1:
+                zazeni()
+        self._vprasaj(self._t("dv_zahteva").format(stran=dovoljenja_strani.gostitelj(zdaj), kaj=self._t("dv_drm").lower()),
+                      "", [self._t("zavrni"), self._t("dovoli")], odgovor)
 
     def koncaj_drm(self) -> None:
         """Zaprtje okna (Safeer Browser): konca Safeer DRM v vseh zavihkih. Preizkus 14. 10. na testnem PC: brez tega
@@ -2449,14 +2656,46 @@ class VdelaniSplet:
 
     def _zunanji_program(self, uri: str, shema: str, stran: str, kretnja: bool = True) -> None:
         """Povezava, ki pripada programu na racunalniku: vprasanje (stran ne sme odpirati programov brez vednosti),
-        zapomni si »vedno« za stran in program, nato Gtk.UriLauncher (v Flatpaku portal, zunaj privzeti program)."""
+        zapomni si »vedno« za stran in program, nato Gtk.UriLauncher (v Flatpaku portal, zunaj privzeti program).
+
+        Najprej vrata vprasanj (eno hkrati, tiho po »Ne«), sele nato iskanje programa - v niti in z zapomnjenim
+        izidom: gio mime / flatpak-spawn traja do 6 s in je prej tekel v niti GTK ob vsakem klicu, zato je stran, ki
+        v zanki odpira mailto:, zamrznila vmesnik (pregled 14. 10. 2026)."""
         gostitelj = external_apps.site_of(stran)
-        try:
-            from core import os_odpri_z
-            program = os_odpri_z.program_za_shemo(shema)      # tudi v Flatpaku: program gostitelja
-        except Exception as napaka:  # noqa: BLE001
-            print("[Splet] program za", shema, napaka, flush=True)
-            program = None
+        dovoljen = external_apps.is_allowed(self.config.get("external_app_permissions", {}), gostitelj, shema)
+        if not hasattr(self, "_vrata_programov"):
+            self._vrata_programov = external_apps.ExternalLinkGate()
+        if not dovoljen and not self._vrata_programov.may_ask(gostitelj, shema):
+            return
+        if not hasattr(self, "_programi_shem"):
+            self._programi_shem, self._iscem_sheme = {}, set()
+        zapis = self._programi_shem.get(shema)
+        # Najden program velja 10 min, »ni programa« 30 s (uporabnik ga medtem lahko namesti).
+        if zapis is not None and time.monotonic() - zapis[0] < (600 if zapis[1] else 30):
+            self._zunanji_program_nadaljuj(uri, shema, gostitelj, kretnja, zapis[1])
+            return
+        if shema in self._iscem_sheme:
+            return                       # iskanje ze tece: nove zahteve iste sheme ne cakajo v vrsti
+        self._iscem_sheme.add(shema)
+        import threading
+
+        def isci():
+            try:
+                from core import os_odpri_z
+                program = os_odpri_z.program_za_shemo(shema)      # tudi v Flatpaku: program gostitelja
+            except Exception as napaka:  # noqa: BLE001
+                print("[Splet] program za", shema, napaka, flush=True)
+                program = None
+
+            def v_gui():
+                self._iscem_sheme.discard(shema)
+                self._programi_shem[shema] = (time.monotonic(), program)
+                self._zunanji_program_nadaljuj(uri, shema, gostitelj, kretnja, program)
+                return False
+            self.GLib.idle_add(v_gui)
+        threading.Thread(target=isci, name="safeer-program-sheme", daemon=True).start()
+
+    def _zunanji_program_nadaljuj(self, uri: str, shema: str, gostitelj: str, kretnja: bool, program) -> None:
         if program is None:
             if kretnja:   # strani, ki le preverjajo, ali je program namescen (brez klika), ne dobijo obvestila
                 self._ni_programa(gostitelj, shema)
@@ -2543,7 +2782,24 @@ class VdelaniSplet:
                 meni.insert(nova, i)
         return False
 
+    def _vrstica_skrij(self) -> None:
+        """× v vrstici: ponudba Safeer DRM za to stran se ne vrne vec (dokler stran znova ne zaprosi)."""
+        if getattr(self, "_drm_ponudba", None):
+            z = self._zavihek(self._drm_ponudba[0])
+            if z is not None:
+                z.pop("drm_ponudba", None)
+            self._drm_ponudba = None
+        self.pojavna.set_reveal_child(False)
+
+    def _vrstica_klik(self, vedno: bool) -> None:
+        if getattr(self, "_drm_ponudba", None):
+            self._drm_klik()
+        else:
+            self._pojavno_odpri(vedno)
+
     def _pojavno_blokirano(self, pogled, naslov: str) -> None:
+        self._drm_ponudba = None
+        self.pojavna_odpri.set_label(self._t("po_odpri"))
         self._pojavno = (pogled.get_uri() or "", naslov, pogled)
         stran = pojavna_okna.osnova(pojavna_okna.gostitelj(self._pojavno[0]))
         self.pojavna_napis.set_text(self._t("po_blokirano").format(cilj=pojavna_okna.gostitelj(naslov) or naslov))
