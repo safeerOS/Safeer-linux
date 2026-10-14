@@ -172,6 +172,71 @@ class Par(unittest.TestCase):
                       self.obv_b)
         self.assertNotIn("nova", [k for k, _ in self.obv_b], "ob sporu eno obvestilo, ne dve")
 
+    def _kopije(self):
+        return sorted(x for x in os.listdir(self.deljena) if "(" in x)
+
+    def test_spor_ne_dela_kopij_v_nedogled(self):
+        """Pregled 14. 10.: ce prenos glavne razlicice po sporu ne uspe, ista vsebina ne gre znova (ena kopija)."""
+        self._udelezi()
+        self.okna_b.append({"ime": "vecer.pcraft", "program": "PhotoCraft"})
+        self._tiki(2)
+        self._uredi(self.izvirnik, 100, b"AAAA")
+        self.a.tik()
+        self.ura.t += 2
+        self.a.tik()
+        self.b.prenesi = lambda u: {"ok": False}
+        self._uredi(self.kopija, 500_000, b"BBBB")
+        for _ in range(10):
+            self.ura.t += 2
+            self.b.tik()
+        self.assertEqual(self._kopije(), ["vecer (Prenosnik).pcraft"])
+
+    def test_shrani_in_zapri_na_lastniku(self):
+        """Program na lastniku shrani staro vsebino in se zapre v istem trenutku: razlicica z B ostane kot kopija."""
+        self._udelezi()
+        self.okna_a.append({"ime": "vecer.pcraft", "program": "PhotoCraft"})
+        self.okna_b.append({"ime": "vecer.pcraft", "program": "PhotoCraft"})
+        self._tiki(2)
+        self._uredi(self.kopija, 200, b"BBBB")
+        self._tiki(2)
+        stara = bytearray(self.vsebina)
+        stara[50:54] = b"AAAA"
+        with open(self.izvirnik, "wb") as f:
+            f.write(stara)
+        os.utime(self.izvirnik, ns=(int(self.ura.t * 2e9),) * 2)
+        self.okna_a.clear()
+        for _ in range(2):
+            self.ura.t += 2
+            self.a.tik()
+        self.assertEqual(self._kopije(), ["vecer (Prenosnik).pcraft"])
+        self.assertIn("spor", [k for k, _ in self.obv_a])
+
+    def test_shranitev_lastnika_med_sestavljanjem_popravka(self):
+        """Lastnik shrani, medtem ko se popravek sestavlja: njegova shranitev ostane glavna, popravek gre v kopijo."""
+        self._udelezi()
+        self.okna_b.append({"ime": "vecer.pcraft", "program": "PhotoCraft"})
+        self._tiki(2)
+        izvirna = tw.uporabi_popravek
+
+        def pocasna(*a, **k):
+            izid = izvirna(*a, **k)
+            with open(self.izvirnik, "r+b") as f:
+                f.seek(10)
+                f.write(b"OWNERSAVE")
+            return izid
+        tw.uporabi_popravek = pocasna
+        try:
+            self._uredi(self.kopija, 300_000, b"BBBB")
+            self._tiki(3)
+        finally:
+            tw.uporabi_popravek = izvirna
+        with open(self.izvirnik, "rb") as f:
+            self.assertEqual(f.read()[10:19], b"OWNERSAVE")
+        kopije = self._kopije()
+        self.assertEqual(len(kopije), 1)
+        with open(os.path.join(self.deljena, kopije[0]), "rb") as f:
+            self.assertEqual(f.read()[300_000:300_004], b"BBBB")
+
     def test_udelezbe_ostanejo_po_ponovnem_zagonu(self):
         self._udelezi()
         b2 = tw.Teamwork(razresi=lambda o: "", ime_naprave=lambda i: i, obvesti=lambda k, p: None, ukaz=self._ukaz,
@@ -317,3 +382,69 @@ class Zaznava(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StreznikPopravkov(unittest.TestCase):
+    """POST /popravek/<id> na pravem strezniku datotek: zeton, pravica, prijava v sejo, zapis."""
+
+    def setUp(self):
+        import ssl
+        import http.client
+        from core import link_datoteke
+        self.ssl, self.http = ssl, http.client
+        self.tmp = tempfile.mkdtemp()
+        self.deljena = os.path.join(self.tmp, "Slike")
+        os.makedirs(self.deljena)
+        self.pot = os.path.join(self.deljena, "a.bin")
+        self.vsebina = _podatki(200_000, 7)
+        with open(self.pot, "wb") as f:
+            f.write(self.vsebina)
+        self.d = link_datoteke.Datoteke([self.deljena], tls_mapa=os.path.join(self.tmp, "tls"))
+        self.d.streznik.sme = lambda naprava, zmoznost: True
+        self.d.streznik.umaknjena = lambda naprava: False
+        self.tw = tw.Teamwork(razresi=self.d.pot, ime_naprave=lambda i: i, obvesti=lambda k, p: None, ukaz=None,
+                              okna=lambda: [], mapa=os.path.join(self.tmp, "tw"), procesi=None)
+        self.d.teamwork = self.d.streznik.teamwork = self.tw
+        self.streznik = self.d.streznik_za("naprava-b")
+
+    def tearDown(self):
+        self.d.ustavi()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _poslji(self, telo, zeton):
+        ctx = self.ssl.SSLContext(self.ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = self.ssl.CERT_NONE
+        p = self.http.HTTPSConnection("127.0.0.1", self.d.streznik.vrata, context=ctx, timeout=30)
+        glave = {"Content-Length": str(len(telo))}
+        if zeton:
+            glave["X-Safeer-Token"] = zeton
+        p.request("POST", "/popravek/share:0:a.bin", body=telo, headers=glave)
+        o = p.getresponse()
+        odgovor = o.read()
+        p.close()
+        return o.status, odgovor
+
+    def test_popravek_prek_streznika(self):
+        nova = bytearray(self.vsebina)
+        nova[1000:1004] = b"NOVO"
+        b = os.path.join(self.tmp, "b.bin")
+        with open(b, "wb") as f:
+            f.write(nova)
+        telo_pot = os.path.join(self.tmp, "telo")
+        osnova = tw._sha(self.pot)
+        tw.naredi_popravek(b, link_delta.manifest(self.pot), osnova, telo_pot)
+        with open(telo_pot, "rb") as f:
+            telo = f.read()
+        self.assertEqual(self._poslji(telo, "")[0], 401)
+        self.assertEqual(self._poslji(telo, "napacen")[0], 401)
+        # Naprava, ki ni prijavljena v sejo datoteke, je ne more spremeniti.
+        self.assertEqual(self._poslji(telo, self.streznik["token"])[0], 409)
+        self.tw.prijava("naprava-b", {"id": "share:0:a.bin", "odprto": True})
+        status, _ = self._poslji(telo, self.streznik["token"])
+        self.assertEqual(status, 200)
+        with open(self.pot, "rb") as f:
+            self.assertEqual(f.read(), bytes(nova))
+        # Naprava brez pravice do datotek: zavrnjeno.
+        self.d.streznik.sme = lambda naprava, zmoznost: False
+        self.assertEqual(self._poslji(telo, self.streznik["token"])[0], 401)

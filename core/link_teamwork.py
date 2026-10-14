@@ -62,6 +62,10 @@ UDELEZBA_VELJA_S = 30 * 24 * 3600.0
 #: Seja pri lastniku brez udelezencev toliko casa izgine.
 SEJA_VELJA_S = 600.0
 TIK_S = 2.0
+#: Najvec toliko kopij ob sporu na sejo (ista vsebina se nikoli ne zapise dvakrat).
+NAJVEC_KOPIJ = 20
+#: Po trajni napaki (prevelika datoteka, ni prostora pri lastniku) udelezenec toliko casa ne posilja znova.
+PREMOR_PO_NAPAKI_S = 300.0
 MAGIJA = b"SFTW1\n"
 #: Okna teh programov pokazejo ime mape, ne odprte datoteke (upravitelji datotek) - in nasa lastna.
 NI_UREJEVALNIK = ("nemo", "nautilus", "thunar", "caja", "pcmanfm", "dolphin", "safeer", "plank", "cinnamon")
@@ -76,6 +80,7 @@ BESEDILA = {
                  "Tvoja različica je shranjena kot »{kopija}«."),
         "spor_drugi": ("Teamwork: obe različici sta ohranjeni", "{kdo} je shranil »{ime}« iz starejše različice. "
                        "Njegova različica je shranjena kot »{kopija}«."),
+        "spor_brez_kopije": ('Teamwork: različica ni ohranjena', 'Različice »{ime}« z naprave {kdo} ni bilo mogoče ohraniti kot kopije (ni je več v zgodovini).'),
         "tukaj": "ta računalnik",
     },
     "en": {
@@ -87,6 +92,7 @@ BESEDILA = {
                  "Your version is saved as “{kopija}”."),
         "spor_drugi": ("Teamwork: both versions kept", "{kdo} saved “{ime}” from an older version. "
                        "Their version is saved as “{kopija}”."),
+        "spor_brez_kopije": ('Teamwork: version not kept', 'The version of “{ime}” from {kdo} could not be kept as a copy (it is no longer in the history).'),
         "tukaj": "this computer",
     },
     "de": {
@@ -98,6 +104,7 @@ BESEDILA = {
                  "Deine Version ist als „{kopija}“ gespeichert."),
         "spor_drugi": ("Teamwork: beide Versionen behalten", "{kdo} hat „{ime}“ aus einer älteren Version gespeichert. "
                        "Diese Version ist als „{kopija}“ gespeichert."),
+        "spor_brez_kopije": ('Teamwork: Version nicht behalten', 'Die Version von „{ime}“ von {kdo} konnte nicht als Kopie behalten werden (nicht mehr im Verlauf).'),
         "tukaj": "diesem Computer",
     },
     "es": {
@@ -109,6 +116,7 @@ BESEDILA = {
                  "Tu versión se guardó como «{kopija}»."),
         "spor_drugi": ("Teamwork: se conservan ambas versiones", "{kdo} guardó «{ime}» desde una versión anterior. "
                        "Su versión se guardó como «{kopija}»."),
+        "spor_brez_kopije": ('Teamwork: versión no conservada', 'La versión de «{ime}» de {kdo} no se pudo conservar como copia (ya no está en el historial).'),
         "tukaj": "este ordenador",
     },
     "fr": {
@@ -120,6 +128,7 @@ BESEDILA = {
                  "Ta version est enregistrée sous « {kopija} »."),
         "spor_drugi": ("Teamwork : les deux versions sont conservées", "{kdo} a enregistré « {ime} » depuis une version "
                        "plus ancienne. Sa version est enregistrée sous « {kopija} »."),
+        "spor_brez_kopije": ('Teamwork : version non conservée', "La version de « {ime} » de {kdo} n'a pas pu être conservée en copie (elle n'est plus dans l'historique)."),
         "tukaj": "cet ordinateur",
     },
     "it": {
@@ -131,6 +140,7 @@ BESEDILA = {
                  "La tua versione è salvata come «{kopija}»."),
         "spor_drugi": ("Teamwork: entrambe le versioni conservate", "{kdo} ha salvato «{ime}» da una versione precedente. "
                        "La sua versione è salvata come «{kopija}»."),
+        "spor_brez_kopije": ('Teamwork: versione non conservata', 'La versione di «{ime}» da {kdo} non è stata conservata come copia (non è più nella cronologia).'),
         "tukaj": "questo computer",
     },
 }
@@ -426,6 +436,8 @@ class Zgodovina:
 
     def __init__(self, mapa: str) -> None:
         self.mapa = mapa
+        #: Razlicice, ki jih seje se potrebujejo (trenutne): ciscenje jih ne odstrani.
+        self.ohrani: Callable[[], set] = lambda: set()
 
     def _mapa(self, kljuc: str) -> str:
         return os.path.join(self.mapa, "verzije", kljuc)
@@ -473,6 +485,10 @@ class Zgodovina:
 
     def pocisti(self, kljuc: str, ohrani: Iterable[str] = ()) -> None:
         ohrani = set(ohrani)
+        try:
+            ohrani |= set(self.ohrani())
+        except Exception:  # noqa: BLE001
+            pass
         verzije = sorted(self.poti(kljuc), key=lambda p: os.path.getmtime(p), reverse=True)
         for p in verzije[NAJVEC_VERZIJ:]:
             if os.path.basename(p) not in ohrani:
@@ -517,6 +533,7 @@ class _Seja:
         self.lokalno = {"odprto": False, "program": "", "osnova": ""}
         self.zadnji = {"naprava": "", "ime": "", "cas": 0.0}
         self.spori: List[dict] = []                 # {kopija, naprava (cigava razlicica), kdo (kdo je shranil cez)}
+        self.kopije: Dict[str, str] = {}            # sha vsebine -> ime kopije (ista vsebina samo enkrat)
         self.teamwork = False
         self.spremenjeno_od: Optional[Tuple[tuple, float]] = None
         self.zaklep = threading.RLock()
@@ -547,6 +564,7 @@ class _Udelezba:
         self.podprto = True
         self.videni_spori: Optional[set] = None
         self.poslano_spor = ""                      # kopija, o kateri je obvestil ze odgovor na popravek
+        self.premor_do = 0.0                        # po trajni napaki lastnika do takrat ne posiljamo
         self.zaklep = threading.Lock()
 
     @property
@@ -593,6 +611,7 @@ class Teamwork:
         self.zdaj = zdaj
         self.mapa = mapa or privzeta_mapa()
         self.zgodovina = Zgodovina(self.mapa)
+        self.zgodovina.ohrani = lambda: {x.sha for x in list(self._seje.values())}
         self._seje: Dict[str, _Seja] = {}
         self._udelezbe: Dict[str, _Udelezba] = {}
         self._zaklep = threading.RLock()
@@ -640,15 +659,17 @@ class Teamwork:
             s = self._seje.get(oznaka)
             if s is not None or not ustvari:
                 return s
-            pot = self.razresi(oznaka) or ""
-            if not pot or not os.path.isfile(pot):
-                return None
-            s = _Seja(oznaka, pot)
-            s.stat = _stat(pot)
-            s.sha = _sha(pot)
-            self.zgodovina.shrani(s.kljuc, s.sha, pot)
-            self._seje[oznaka] = s
-            return s
+        # Branje cele datoteke (zgoscena vrednost, kopija v zgodovino) ne sme drzati skupne kljucavnice: sicer caka
+        # D-Bus (TeamworkStanje) in vsak tik, dokler se velika datoteka ne prebere.
+        pot = self.razresi(oznaka) or ""
+        if not pot or not os.path.isfile(pot):
+            return None
+        nova = _Seja(oznaka, pot)
+        nova.stat = _stat(pot)
+        nova.sha = _sha(pot)
+        self.zgodovina.shrani(nova.kljuc, nova.sha, pot)
+        with self._zaklep:
+            return self._seje.setdefault(oznaka, nova)
 
     def _urejajo(self, s: _Seja) -> List[Tuple[str, str]]:
         """(id, ime) naprav, ki imajo datoteko zdaj odprto; "" = ta naprava."""
@@ -731,40 +752,60 @@ class Teamwork:
                 return 500, {"ok": False, "koda": "disk", "razlog": str(e)}
             nova = str(glava["opis"]["sha256"])
             osnova = str(glava.get("osnova") or "")
+            # Program na tej napravi je lahko shranil, medtem ko se je popravek sestavljal (velika datoteka): njegova
+            # shranitev je nova trenutna razlicica, popravek pa zato pride v spor (nic se ne prepise).
+            self._zaznaj_lokalno_shranitev(s, takoj=True)
             if nova == s.sha:
                 _odstrani(prihaja)
                 return 200, {"ok": True, "sha256": s.sha, "verzija": s.verzija, "spor": False, "podatki": meritve["podatki"]}
-            if osnova != s.sha:
-                # Nekdo je shranil vmes: glavna datoteka ostane, ta razlicica gre zraven.
-                kopija = ime_kopije(s.pot, ime)
+            if osnova == s.sha:
+                # Hitro naprej: nova razlicica postane glavna (prejsnja je v zgodovini). Zamenjava samo, ce se datoteka
+                # do zadnjega trenutka ni spremenila - sicer spor.
+                self.zgodovina.shrani(s.kljuc, s.sha, s.pot)
+                kopija_zgodovine = os.path.join(self._mapa_zacasnih(), ".z-" + nova)
                 try:
-                    _namesti(prihaja, kopija, s.pot)
+                    shutil.copyfile(prihaja, kopija_zgodovine)
+                    _namesti(prihaja, s.pot, s.pot, pred=s.stat)
+                    self.zgodovina.prevzemi(s.kljuc, nova, kopija_zgodovine)
+                except _SpremenjenaMedTem:
+                    _odstrani(kopija_zgodovine)
+                    self._zaznaj_lokalno_shranitev(s, takoj=True)
                 except OSError as e:
                     _odstrani(prihaja)
+                    _odstrani(kopija_zgodovine)
                     return 500, {"ok": False, "koda": "disk", "razlog": str(e)}
-                kdo_prej = s.zadnji["ime"] or self._ime_tega()
-                s.spori.append({"kopija": os.path.basename(kopija), "naprava": posiljatelj, "kdo": kdo_prej})
-                if s.lokalno["odprto"]:
-                    self.obvesti("spor_drugi", {"ime": os.path.basename(s.pot), "kdo": ime, "kopija": os.path.basename(kopija)})
-                return 200, {"ok": True, "spor": True, "kopija": os.path.basename(kopija), "sha256": s.sha,
-                             "verzija": s.verzija, "podatki": meritve["podatki"]}
-            # Hitro naprej: nova razlicica postane glavna (prejsnja je v zgodovini).
-            self.zgodovina.shrani(s.kljuc, s.sha, s.pot)
+                else:
+                    s.sha, s.stat = nova, _stat(s.pot)
+                    s.verzija += 1
+                    s.zadnji = {"naprava": posiljatelj, "ime": ime, "cas": self.zdaj()}
+                    s.spremenjeno_od = None
+                    if s.lokalno["odprto"]:
+                        self.obvesti("nova", {"ime": os.path.basename(s.pot), "kdo": ime})
+                    return 200, {"ok": True, "spor": False, "sha256": s.sha, "verzija": s.verzija,
+                                 "podatki": meritve["podatki"]}
+            # Spor: nekdo je shranil vmes - glavna datoteka ostane, ta razlicica gre zraven (ista vsebina samo enkrat).
+            obstojeca = s.kopije.get(nova)
+            if obstojeca and os.path.isfile(os.path.join(os.path.dirname(s.pot), obstojeca)):
+                _odstrani(prihaja)
+                return 200, {"ok": True, "spor": True, "kopija": obstojeca, "sha256": s.sha, "verzija": s.verzija,
+                             "podatki": meritve["podatki"]}
+            if len(s.kopije) >= NAJVEC_KOPIJ:
+                _odstrani(prihaja)
+                return 409, {"ok": False, "koda": "prevec_kopij", "sha256": s.sha}
+            kopija = ime_kopije(s.pot, ime)
             try:
-                kopija_zgodovine = os.path.join(self._mapa_zacasnih(), ".z-" + nova)
-                shutil.copyfile(prihaja, kopija_zgodovine)
-                _namesti(prihaja, s.pot, s.pot)
-                self.zgodovina.prevzemi(s.kljuc, nova, kopija_zgodovine)
+                _namesti(prihaja, kopija, s.pot)
             except OSError as e:
                 _odstrani(prihaja)
                 return 500, {"ok": False, "koda": "disk", "razlog": str(e)}
-            s.sha, s.stat = nova, _stat(s.pot)
-            s.verzija += 1
-            s.zadnji = {"naprava": posiljatelj, "ime": ime, "cas": self.zdaj()}
-            s.spremenjeno_od = None
+            s.kopije[nova] = os.path.basename(kopija)
+            kdo_prej = s.zadnji["ime"] or self._ime_tega()
+            s.spori.append({"kopija": os.path.basename(kopija), "naprava": posiljatelj, "kdo": kdo_prej})
             if s.lokalno["odprto"]:
-                self.obvesti("nova", {"ime": os.path.basename(s.pot), "kdo": ime})
-            return 200, {"ok": True, "spor": False, "sha256": s.sha, "verzija": s.verzija, "podatki": meritve["podatki"]}
+                self.obvesti("spor_drugi", {"ime": os.path.basename(s.pot), "kdo": ime, "kopija": os.path.basename(kopija)})
+            return 200, {"ok": True, "spor": True, "kopija": os.path.basename(kopija), "sha256": s.sha,
+                         "verzija": s.verzija, "podatki": meritve["podatki"]}
+        return 500, {"ok": False, "koda": "napaka"}
 
     def _mapa_zacasnih(self) -> str:
         m = os.path.join(self.mapa, "zacasno")
@@ -779,12 +820,15 @@ class Teamwork:
             s.spremenjeno_od = None
             return
         zdaj = self.zdaj()
-        if not takoj:
-            if s.spremenjeno_od is None or s.spremenjeno_od[0] != st:
-                s.spremenjeno_od = (st, zdaj)
-                return
-            if zdaj - s.spremenjeno_od[1] < MIRUJE_S:
-                return
+        # Stanje programa ob PRVI opazeni spremembi: »shrani in zapri« zapre okno, preden datoteka miruje - takrat je
+        # trenutno stanje ze »zaprto« in brez osnove, pa bi spor (program ni nalozil razlicice z druge naprave) zgresili.
+        if s.spremenjeno_od is None:
+            s.spremenjeno_od = (st, zdaj, dict(s.lokalno))
+        elif s.spremenjeno_od[0] != st:
+            s.spremenjeno_od = (st, zdaj, s.spremenjeno_od[2])
+        if not takoj and zdaj - s.spremenjeno_od[1] < MIRUJE_S:
+            return
+        lokalno = s.spremenjeno_od[2]
         s.spremenjeno_od = None
         try:
             nova = _sha(s.pot)
@@ -794,17 +838,25 @@ class Teamwork:
             s.stat = st
             return
         prejsnja, prejsnji = s.sha, dict(s.zadnji)
-        zastarela = s.lokalno["odprto"] and s.lokalno["osnova"] and s.lokalno["osnova"] != prejsnja and prejsnji["naprava"]
+        zastarela = lokalno["odprto"] and lokalno["osnova"] and lokalno["osnova"] != prejsnja and prejsnji["naprava"]
         if zastarela:
             vir = self.zgodovina.pot(s.kljuc, prejsnja)
-            if vir:
+            ohranjena = False
+            if vir and prejsnja not in s.kopije:
                 kopija = ime_kopije(s.pot, prejsnji["ime"] or prejsnji["naprava"])
                 try:
                     shutil.copyfile(vir, kopija)
+                    s.kopije[prejsnja] = os.path.basename(kopija)
                     s.spori.append({"kopija": os.path.basename(kopija), "naprava": prejsnji["naprava"], "kdo": "@tukaj"})
                     self.obvesti("spor", {"ime": os.path.basename(s.pot), "kdo": prejsnji["ime"], "kopija": os.path.basename(kopija)})
+                    ohranjena = True
                 except OSError:
-                    pass
+                    ohranjena = False
+            elif prejsnja in s.kopije:
+                ohranjena = True
+            if not ohranjena:
+                # Uporabnik mora izvedeti, da razlicica z druge naprave ni ohranjena - ne sme izginiti potiho.
+                self.obvesti("spor_brez_kopije", {"ime": os.path.basename(s.pot), "kdo": prejsnji["ime"] or prejsnji["naprava"]})
         s.sha, s.stat = nova, st
         s.verzija += 1
         s.zadnji = {"naprava": "", "ime": "", "cas": zdaj}
@@ -908,6 +960,8 @@ class Teamwork:
         if nova == u.sha:
             u.stat = st
             return
+        if self.zdaj() < u.premor_do:
+            return
         ime = os.path.basename(u.pot)
         for _ in range(3):
             opis = None
@@ -930,10 +984,12 @@ class Teamwork:
                 _odstrani(telo)
             if koda == 200 and odgovor.get("ok"):
                 if odgovor.get("spor"):
+                    if u.poslano_spor != str(odgovor.get("kopija", "")):
+                        self.obvesti("spor", {"ime": ime, "kdo": self._kdo_zadnji(u), "kopija": odgovor.get("kopija", "")})
                     u.poslano_spor = str(odgovor.get("kopija", ""))
-                    self.obvesti("spor", {"ime": ime, "kdo": self._kdo_zadnji(u), "kopija": odgovor.get("kopija", "")})
-                    # Tvoja razlicica je pri lastniku (kopija); glavno razlicico prenesemo ob naslednjem javljanju.
-                    u.stat = None
+                    # Ta vsebina je pri lastniku (kopija): ne posiljamo je znova. Glavno razlicico prenesemo zdaj ali ob
+                    # naslednjem javljanju (delovna kopija je takrat enaka poslani, zato jo _iz_odgovora sme zamenjati).
+                    u.stat = st
                     if self.prenesi is not None:
                         try:
                             if (self.prenesi(u) or {}).get("ok"):
@@ -957,6 +1013,9 @@ class Teamwork:
                 continue
             if koda == 409 and odgovor.get("koda") == "ponovi":
                 continue
+            if koda in (413, 500, 507) or odgovor.get("koda") in ("prevec_kopij", "disk", "ni_prostora"):
+                # Trajna napaka pri lastniku: ne posiljamo vsakih nekaj sekund znova cele datoteke.
+                u.premor_do = self.zdaj() + PREMOR_PO_NAPAKI_S
             return
 
     def _kdo_zadnji(self, u: _Udelezba) -> str:
@@ -1082,8 +1141,13 @@ def _odstrani(pot: str) -> None:
         pass
 
 
-def _namesti(vir: str, cilj: str, vzorec: str) -> None:
-    """Atomsko: vir (v drugi mapi) -> zacasna ob cilju (pravice kot `vzorec`) -> cilj."""
+class _SpremenjenaMedTem(OSError):
+    """Cilj se je spremenil po zadnji preverbi (shranil ga je program na tej napravi): zamenjave ni bilo."""
+
+
+def _namesti(vir: str, cilj: str, vzorec: str, pred: Optional[tuple] = None) -> None:
+    """Atomsko: vir (v drugi mapi) -> zacasna ob cilju (pravice kot `vzorec`) -> cilj. S `pred` samo, ce ima cilj
+    tik pred zamenjavo se to stanje (sicer _SpremenjenaMedTem, vir ostane)."""
     mapa = os.path.dirname(os.path.abspath(cilj))
     fd, zac = tempfile.mkstemp(prefix=".safeer-teamwork-", suffix=".part", dir=mapa)
     try:
@@ -1095,6 +1159,8 @@ def _namesti(vir: str, cilj: str, vzorec: str) -> None:
             shutil.copymode(vzorec, zac)
         except OSError:
             pass
+        if pred is not None and _stat(cilj) != pred:
+            raise _SpremenjenaMedTem("cilj se je spremenil")
         os.replace(zac, cilj)
     except BaseException:
         _odstrani(zac)

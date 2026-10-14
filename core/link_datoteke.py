@@ -739,6 +739,12 @@ def uredi_pot(obravnava, streznik: "StreznikDatotek", pot: str) -> None:
     obravnava.wfile.write(telo)
 
 
+#: Najvec toliko popravkov Teamworka hkrati (vsak gre v zacasno datoteko na disk tega racunalnika).
+_POPRAVKI_HKRATI = threading.BoundedSemaphore(2)
+#: Toliko prostora mora ostati na disku poleg popravka (in sestavljene datoteke).
+REZERVA_DISKA = 512 * 1024 * 1024
+
+
 def sprejmi_popravek(obravnava, streznik: "StreznikDatotek", oznaka: str) -> None:
     """POST `/popravek/<id>` (prek Huba `/cast/popravek/<id>`): Teamwork - shranitev datoteke z naprave, ki jo ureja
     (core/link_teamwork). Isti zeton in ista pravica kot urejanje (odprte datoteke, ne samo izrecno poslana), naprava
@@ -762,6 +768,25 @@ def sprejmi_popravek(obravnava, streznik: "StreznikDatotek", oznaka: str) -> Non
     if dolzina <= 0 or dolzina > link_teamwork.NAJVEC_POPRAVKA:
         _napaka_http(obravnava, 413, "napacna dolzina")
         return
+    try:
+        # Popravek in iz njega sestavljena datoteka: dvakratna velikost + rezerva, sicer 507 (naprava ne poskusa
+        # vsakih nekaj sekund znova - core/link_teamwork.PREMOR_PO_NAPAKI_S).
+        prosto = shutil.disk_usage(tw._mapa_zacasnih()).free
+    except OSError:
+        prosto = 0
+    if prosto < 2 * dolzina + REZERVA_DISKA:
+        _napaka_http(obravnava, 507, "ni prostora")
+        return
+    if not _POPRAVKI_HKRATI.acquire(timeout=30):
+        _napaka_http(obravnava, 503, "zasedeno")
+        return
+    try:
+        _sprejmi_popravek(obravnava, tw, naprava, oznaka, dolzina)
+    finally:
+        _POPRAVKI_HKRATI.release()
+
+
+def _sprejmi_popravek(obravnava, tw, naprava: str, oznaka: str, dolzina: int) -> None:
     fd, telo = tempfile.mkstemp(prefix=".popravek-", dir=tw._mapa_zacasnih())
     try:
         with os.fdopen(fd, "wb") as f:
