@@ -755,8 +755,9 @@ class UporabiTest(unittest.TestCase):
         with open(os.path.join(koren, "safeer_os.py"), encoding="utf-8") as f:
             vir = f.read()
         # Scit se zazene tudi, kadar Safeer OS tece kot delovna povrsina (--delovna); prej se tam ni nikoli. Tretje
-        # mesto je _vklopi_delovno: delovna povrsina se vklopi v procesu, ki ze tece kot okno Safeer Player.
-        self.assertEqual(vir.count("self.scit.zacni_ce_vklopljen()"), 3)
+        # mesto je _vklopi_delovno: delovna povrsina se vklopi v procesu, ki ze tece kot okno Safeer Player. Cetrto je
+        # _ustvari_qml_okno: aplikacija v oknu (namizje QML, 14. 10. 2026).
+        self.assertEqual(vir.count("self.scit.zacni_ce_vklopljen()"), 4)
         delovna = vir[vir.index("if self.delovna and not _ima_delovno(self):"):]
         self.assertLess(delovna.index("self.scit.zacni_ce_vklopljen()"), delovna.index("return"))
         with open(os.path.join(koren, "assets", "os", "os.js"), encoding="utf-8") as f:

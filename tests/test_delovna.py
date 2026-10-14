@@ -100,7 +100,7 @@ class TestDelovnaStran(unittest.TestCase):
         self.assertIn('"spremljajMapo": lambda: self._spremljaj_mapo(pogled, str(a[0]) if a else "")', py)
         self.assertIn('self._dogodek("datoteke", {"pot": spremenjen})', py)
         self.assertIn('self._dogodek("nosilci", None)', py)
-        self.assertIn("Gtk.RecentManager.get_default().connect(", py)
+        self.assertIn("_nedavni().connect(", py)   # seznam racunalnika tudi v Flatpaku (datoteka_nedavnih)
         # Plosca Datoteke na delovni povrsini: pove, kaj kaze, in se na dogodek odzove s tiho osvezitvijo.
         odpri = self.js.split("  function odpriVir(vir) {", 1)[1].split("  function drobtine(", 1)[0]
         self.assertIn("spremljajVir(vir);", odpri)
