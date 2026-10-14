@@ -5538,11 +5538,26 @@ class SafeerMintBrowser(Gtk.Window):
     # Force Dark Mode Engine
     # -------------------------------------------------------------
     def apply_dark_mode_to_webview(self, webview, is_dark: bool):
+        """Vsili temno kot Splet (14. 10. 2026): Dark Reader (core/splet_temno.py) v locenem svetu - slike in videi
+        ostanejo pravi, strani, ki so ze temne, ostanejo pri miru. Ce Dark Reader ni na voljo (manjka datoteka ali se
+        kontrolna vsota ne ujema), ostane prejsnji slog CSS."""
         content_mgr = webview.get_user_content_manager()
         try:
             content_mgr.remove_all_style_sheets()
         except Exception:
             pass
+        from core import splet_temno
+        skripte = self.__dict__.setdefault("_temno_skripte", weakref.WeakKeyDictionary())
+        splet_temno.odstrani(content_mgr, skripte.pop(webview, None))
+        if is_dark:
+            try:
+                skripta = splet_temno.namesti(WebKit2, content_mgr, os.path.join(BASE_DIR, "core"), "vedno", True, [])
+            except Exception as e:
+                print(f"[DarkMode] Dark Reader: {e}")
+                skripta = None
+            if skripta is not None:
+                skripte[webview] = skripta
+                return
 
         if is_dark:
             try:
@@ -5576,8 +5591,14 @@ class SafeerMintBrowser(Gtk.Window):
             wv = tab["webview"]
             self.apply_dark_mode_to_webview(wv, is_dark)
             self.inject_dark_mode_js(wv, is_dark)
+        # Dark Reader je uporabniska skripta: sprememba se vidi ob ponovnem nalaganju (kot v Spletu).
+        aktivni = self.get_active_webview()
+        if aktivni is not None and (aktivni.get_uri() or "").startswith(("http://", "https://")):
+            aktivni.reload()
 
     def inject_dark_mode_js(self, webview, is_dark: bool):
+        if is_dark and webview in self.__dict__.get("_temno_skripte", {}):
+            return      # Dark Reader ze dela na tej strani (apply_dark_mode_to_webview)
         js = f"""
         (function() {{
             if (window.location.protocol === 'file:') return;

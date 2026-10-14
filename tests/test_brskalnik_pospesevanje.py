@@ -108,3 +108,16 @@ def test_zaprtje_carovnika_ne_uvozi_zaznamkov():
     del_ = koda[zacetek:koda.index("def load_homepage(", zacetek)]
     assert "odgovor = dialog.run()" in del_
     assert del_.index("if odgovor == Gtk.ResponseType.OK:") < del_.index("auto_import_from_browser")
+
+
+def test_vsili_temno_z_dark_readerjem():
+    """Brskalnik uporablja Dark Reader kot Splet; slog CSS (obrat barv) ostane samo kot rezerva (14. 10. 2026)."""
+    import os
+    koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(koren, "safeer_mint.py"), encoding="utf-8") as f:
+        koda = f.read()
+    del_ = koda[koda.index("def apply_dark_mode_to_webview("):koda.index("def toggle_dark_mode(")]
+    assert "splet_temno.namesti(" in del_ and "splet_temno.odstrani(" in del_
+    assert del_.index("splet_temno.namesti(") < del_.index("FORCE_DARK_MODE_CSS")
+    js = koda[koda.index("def inject_dark_mode_js("):]
+    assert "_temno_skripte" in js[:600]
