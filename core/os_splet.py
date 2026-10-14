@@ -417,6 +417,16 @@ def registriraj_most(upravitelj, ime: str, svet=None) -> None:
         upravitelj.register_script_message_handler(ime)
 
 
+def _unici_pogled(pogled) -> None:
+    """Zaprt zavihek: GTK4 nima destroy(), try_close() strani ne ustavi (preizkus 14. 10.: stran je po zaprtju
+    zavihka se posiljala sporocila, zvok bi tekel naprej). run_dispose() pogled sprosti takoj, kot destroy() v GTK3."""
+    try:
+        pogled.stop_loading()
+        pogled.run_dispose()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _ocisti(skatla) -> None:
     """GTK4: odstrani vse otroke gradnika (ListBox, Box)."""
     otrok = skatla.get_first_child()
@@ -659,10 +669,11 @@ class VdelaniSplet:
         gradnik.add_controller(k)
 
     def _klik(self, gradnik, obdelaj, gumb: int = 0) -> None:
-        """GTK4 nadomestek za button-press-event: obdelaj(gumb, x, y)."""
+        """GTK4 nadomestek za button-press-event: obdelaj(gumb, x, y, gradnik). Gradnik pride iz krmilnika, zato ga
+        obdelaj ne sme hraniti v zaprtju (krmilnik je last gradnika - krog bi gradnik ohranil zivega)."""
         k = self.Gtk.GestureClick()
         k.set_button(gumb)
-        k.connect("pressed", lambda g, _n, x, y: obdelaj(g.get_current_button(), x, y))
+        k.connect("pressed", lambda g, _n, x, y: obdelaj(g.get_current_button(), x, y, g.get_widget()))
         gradnik.add_controller(k)
 
     def _namesti_dejanja(self) -> None:
@@ -945,7 +956,7 @@ class VdelaniSplet:
         ozadje_strani.prikljuci(self.Gdk, W, pogled, os.path.join(self.koren, "ui"), TEMNO_OZADJE)
         pogled.connect("decide-policy", self._politika)
         self._tipke(pogled, lambda e: self.tipka(e))
-        self._klik(pogled, lambda gumb, x, y: self._miska(pogled, _Klik(gumb, x, y)))
+        self._klik(pogled, lambda gumb, x, y, p: self._miska(p, _Klik(gumb, x, y)))
         pogled.connect("create", lambda p, a: self._novo_okno(p, a))
         pogled.connect("load-changed", self._nalozen)
         pogled.connect("notify::title", self._naslov_spremenjen)
@@ -995,7 +1006,7 @@ class VdelaniSplet:
         self._drm_konec(z)
         self.skatla_zavihkov.remove(z["dogodek"]); self.sklad.remove(pogled)
         try:
-            pogled.try_close()   # GTK4: ni destroy(); WebKit konca stran, ko pogled nima vec lastnika
+            _unici_pogled(pogled)
         except Exception:  # noqa: BLE001
             pass
         self.izberi(self.zavihki[max(0, indeks - 1)]["pogled"])
@@ -1259,7 +1270,7 @@ class VdelaniSplet:
         for z in list(self.zavihki):
             try:
                 self.skatla_zavihkov.remove(z["dogodek"]); self.sklad.remove(z["pogled"])
-                z["pogled"].try_close()
+                _unici_pogled(z["pogled"])
             except Exception:  # noqa: BLE001
                 pass
         self.zavihki = []
@@ -1456,7 +1467,7 @@ class VdelaniSplet:
         if star in self.zavihki:
             self.zavihki.remove(star)
             try:
-                self.skatla_zavihkov.remove(star["dogodek"]); self.sklad.remove(pogled); pogled.try_close()
+                self.skatla_zavihkov.remove(star["dogodek"]); self.sklad.remove(pogled); _unici_pogled(pogled)
             except Exception:  # noqa: BLE001
                 pass
         self.izberi(nov)

@@ -507,6 +507,13 @@ class DeljenjeZaslona:
             self.ob_spremembi(self.stanje())
 
     def zacni(self) -> None:
+        # libX11 in rokovalnik napak X nastavimo tu (glavna nit), ne v niti zajema: GDK med pastjo napak (trap push/pop)
+        # bi rokovalnik, nastavljen iz druge niti, ob pop prepisal.
+        try:
+            from core import x11
+            x11._knjiznica()
+        except Exception:  # noqa: BLE001 - brez X11 zajem javi napako sam
+            pass
         self._ustavi.clear()
         self._nit = threading.Thread(target=self._tok, daemon=True)
         self._nit.start()

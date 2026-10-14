@@ -89,7 +89,7 @@ class PrijavnoOknoObPrijavi(unittest.TestCase):
 
     def test_delovna_povrsina_ob_zagonu_nacrtuje_okno(self):
         vir = open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8").read()
-        delovna = vir.split("if self.delovna and not self._ima_delovno():", 1)[1].split("return", 1)[0]
+        delovna = vir.split("if self.delovna and not _ima_delovno(self):", 1)[1].split("return", 1)[0]
         self.assertIn("self._prijavno_okno_ob_prijavi", delovna)
 
     def test_brez_povezave_v_vgrajenem_controlu_ne_odpre_lupine(self):

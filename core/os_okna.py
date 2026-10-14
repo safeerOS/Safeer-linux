@@ -89,6 +89,8 @@ def spremljaj(ob_spremembi: Callable[[], None]) -> bool:
         _narocniki.append(ob_spremembi)
         if not _spremljam:
             from gi.repository import GLib
+            for ime in _LASTNOSTI_SPREMEMBE:      # ime_atoma pozna samo ze internirane atome
+                p.atom(ime)
             opisnik = p.spremljaj_koren()
             GLib.io_add_watch(opisnik, GLib.PRIORITY_DEFAULT, GLib.IOCondition.IN, _ob_dogodku)
             # Xlib dogodke bere tudi med drugimi klici (odgovori na branje lastnosti) in jih hrani v vrsti -

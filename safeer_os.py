@@ -1213,6 +1213,12 @@ def _predaj_ce_oddaljen(app, dejanje: str, vrednost=None) -> bool:
     return True
 
 
+def _ima_delovno(app) -> bool:
+    """Delovna povrsina tece: okno WebKit (delovna.html) ali namizje QML (core/os_lupina.Namizje)."""
+    return getattr(app, "okno_delovna", None) is not None or \
+        isinstance(getattr(app, "lupina", None), os_lupina.Namizje)
+
+
 class SafeerOS(Gtk.Application):
     def __init__(self, v_oknu: bool = False, posnetek: str = "", namizje: bool = False,
                  delovna: bool = False, predvajalnik: bool = False) -> None:
@@ -1370,6 +1376,7 @@ class SafeerOS(Gtk.Application):
 
     def do_startup(self) -> None:
         Gtk.Application.do_startup(self)
+        x11._knjiznica()    # rokovalnik napak X po GDK in v glavni niti (glej core/x11.py)
         gostitelj.dodaj_ikone_gostitelja(Gtk)
         # Spletne strani (prefers-color-scheme) sledijo temi namizja, tudi ob preklopu med delom.
         try:
@@ -1388,6 +1395,11 @@ class SafeerOS(Gtk.Application):
             GLib.timeout_add_seconds(3, lambda: (self._vgradi_control(), False)[1])
 
     def do_shutdown(self) -> None:
+        # Vsak konec procesa (tudi zadnje okno zaprto brez close-request): Scit vrne DNS, rqbit se ustavi, pult se vrne.
+        try:
+            self._koncaj()
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] konec:", e)
         c = en_proces.control_app()
         if c is not None:
             try:   # kot SIGTERM samostojnega Controla: pospravi Link, deljene mape, lociti zaslon, navidezni zvok
@@ -1513,7 +1525,7 @@ class SafeerOS(Gtk.Application):
 
     # ------------------------------------------------------------------ okno
     def do_activate(self) -> None:
-        if self.delovna and not self._ima_delovno():
+        if self.delovna and not _ima_delovno(self):
             # Prvi zagon z --delovna: samo delovna povrsina (glavno okno ob naslednji aktivaciji).
             self._ustvari_delovno()
             self._prvic = False
@@ -1575,7 +1587,7 @@ class SafeerOS(Gtk.Application):
         ali okno iz menija: delovna povrsina se odpre v tem procesu (prej je drugi zagon tiho koncal in tema je ostala
         brez nje do naslednje prijave). Glavno okno odslej ob zapiranju samo skrije (_zapri_glavno). Kjer delovna
         povrsina ze je ali tece celozaslonski Safeer OS (namizje), se ne zgodi nic - kot prej."""
-        if self._ima_delovno() or self.namizje or self.posnetek:
+        if _ima_delovno(self) or self.namizje or self.posnetek:
             return False
         self.delovna, self.v_oknu = True, True
         self._ustvari_delovno()
@@ -1683,7 +1695,8 @@ class SafeerOS(Gtk.Application):
         prekrivanje.set_child(pogled)
         okno.set_child(prekrivanje)
         self._prekrivanje_delovne = prekrivanje
-        okno.connect("destroy", lambda *a: self._koncaj())
+        # GTK4: »destroy« pride sele, ko okna nihce vec ne drzi (self.okno ga drzi), zato pospravimo ob zapiranju.
+        okno.connect("close-request", lambda *a: (self._koncaj(), False)[1])
         self.okno_delovna, self.pogled_delovna = okno, pogled
         okno.set_visible(True)
         try:
@@ -1704,10 +1717,6 @@ class SafeerOS(Gtk.Application):
         # Pult/dock se lahko pojavita sele po prijavi (Plank): robove preverimo se nekajkrat.
         GLib.timeout_add_seconds(3, self._preveri_robove)
         self._ob_spremembi_zaslonov(self._prestavi_delovno)
-
-    def _ima_delovno(self) -> bool:
-        """Delovna povrsina tece: okno WebKit (delovna.html) ali namizje QML."""
-        return self.okno_delovna is not None or self.lupina is not None
 
     def _preveri_robove(self) -> bool:
         if self.okno_delovna is None:
@@ -1797,7 +1806,7 @@ class SafeerOS(Gtk.Application):
         iskanje = razdelek_predvajalnika(razdelek)
         if iskanje is not None:
             return self._odpri_predvajalnik(iskanje)
-        if self.okno is None and self._ima_delovno():
+        if self.okno is None and _ima_delovno(self):
             # Na delovni povrsini se stara lupina Safeer OS ne odpira vec (lastnik, 12. 10. 2026: »namizno okolje lahko
             # ponudi vec udobja kot aplikacija«): vsak razdelek ima svoje mesto na namizju.
             osnova = "zapiski" if razdelek.startswith("zapisek:") else \
@@ -2029,7 +2038,7 @@ class SafeerOS(Gtk.Application):
         """Zapiranje okna Safeer Player. Ob delovni povrsini ali glavnem oknu se okno samo skrije: predvajanje tece
         naprej (tudi vrsta skladb iz kataloga, ki jo vodi njegova stran), mini predvajalnik ga kaze, naslednji klic
         okno takoj vrne. Samostojni Safeer Player (zagon iz menija brez Safeer OS) se zapre kot vsak predvajalnik."""
-        if self._ima_delovno() or self.okno is not None:
+        if _ima_delovno(self) or self.okno is not None:
             okno.set_visible(False)
             return True
         self._koncaj()
@@ -2078,7 +2087,7 @@ class SafeerOS(Gtk.Application):
         # domov: »Splet« iz iskanja na delovni povrsini brez niza - zacetna stran Spleta (url "" = domaca stran).
         url = "" if not niz else niz if niz.lower().startswith(("http://", "https://")) else \
             _iskalnik() + GLib.uri_escape_string(niz, None, False)
-        if not self._ima_delovno() or not self._peskovnik_na_voljo():
+        if not _ima_delovno(self) or not self._peskovnik_na_voljo():
             return self._odpri_v_brskalniku(niz) if niz else False
         if self._plosca_spleta is None:
             from core.os_splet import VdelaniSplet
@@ -2313,7 +2322,8 @@ class SafeerOS(Gtk.Application):
             # Ob delovni povrsini zapiranje glavnega okna samo skrije okno: Scit, predvajanje, prenosi in
             # prijave v Spletu tecejo naprej; »Safeer OS« v meniju ga spet pokaze (do_activate -> _domov).
             okno.connect("close-request", lambda o, *_: (o.set_visible(False), True)[1])
-        okno.connect("destroy", lambda *a: self._koncaj())
+        # GTK4: »destroy« pride sele, ko okna nihce vec ne drzi (self.okno ga drzi), zato pospravimo ob zapiranju.
+        okno.connect("close-request", lambda *a: (self._koncaj(), False)[1])
         self.okno, self.pogled, self._glavna_postavitev = okno, pogled, postavitev
         okno.present()
         if self.posnetek:
@@ -2519,10 +2529,9 @@ class SafeerOS(Gtk.Application):
         try:
             # GTK4: Gdk.Drag.begin z vsebino text/uri-list (samo seznam naslovov, kot GTK3 add_uri_targets).
             kazalec = Gdk.Display.get_default().get_default_seat().get_pointer()
-            _ok, x, y, _maska = povrsina.get_device_position(kazalec)
             vsebina = Gdk.ContentProvider.new_for_bytes(
                 "text/uri-list", GLib.Bytes.new(("\r\n".join(naslovi) + "\r\n").encode("utf-8")))
-            vlecenje = Gdk.Drag.begin(povrsina, kazalec, vsebina, Gdk.DragAction.COPY | Gdk.DragAction.MOVE, x, y)
+            vlecenje = Gdk.Drag.begin(povrsina, kazalec, vsebina, Gdk.DragAction.COPY | Gdk.DragAction.MOVE, 0, 0)  # odmik od kazalca
         except Exception:
             vlecenje = None
         if vlecenje is None:
@@ -3195,13 +3204,20 @@ class SafeerOS(Gtk.Application):
             self._potrdi_izpraznitev_smeti(odlocitev)
             return
         if metoda in asinhrono:
+            poslano = []
+
             def konec(izid, _p=pogled, _i=id_) -> None:
+                if poslano:            # odgovor samo enkrat, tudi ce bi ga pot klicala dvakrat
+                    return
+                poslano.append(True)
                 self._odgovori(_p, _i, True, izid)
             try:
                 asinhrono[metoda](konec)
             except Exception as e:  # noqa: BLE001
                 print("[SafeerOS]", metoda, e)
-                self._odgovori(pogled, id_, False, str(e))
+                if not poslano:
+                    poslano.append(True)
+                    self._odgovori(pogled, id_, False, str(e))
             return
         if self._katalog_most().pozna(metoda):
             if metoda == "mediaPredvajaj":
@@ -4457,6 +4473,15 @@ class SafeerOS(Gtk.Application):
 
     def _medijski_dodaj_datoteke(self, stars=None, konec: Optional[Callable] = None) -> None:
         def izbrano(poti: list) -> None:
+            try:
+                dodaj(poti)
+            except Exception as e:  # noqa: BLE001 - stran vseeno dobi odgovor
+                print("[SafeerOS] dodajanje medija:", e)
+            finally:
+                if konec is not None:
+                    konec(None)
+
+        def dodaj(poti: list) -> None:
             poti = poti[:500]
             if poti:
                 self._medijska_knjiznica().dodaj(poti)
@@ -4474,8 +4499,6 @@ class SafeerOS(Gtk.Application):
                     except ValueError as e:
                         print("[SafeerOS] dodajanje medija:", e)
                 self._dogodek("medijskaKnjiznica", None)
-            if konec is not None:
-                konec(None)
         self._izberi_poti(self._mb("dodaj_datoteke"), stars or self._medijski_predvajalnik_okno or self.okno,
                           "datoteke", izbrano, potrdi=self._mb("dodaj"))
 
@@ -4494,11 +4517,10 @@ class SafeerOS(Gtk.Application):
                 konec and konec(False)
                 return
             mapa = poti[0]
-            knjiznica = self._medijska_knjiznica()
 
             def uvozi():
                 try:
-                    knjiznica.dodaj_mapo(mapa)
+                    self._medijska_knjiznica().dodaj_mapo(mapa)
                     self._dogodek("medijskaKnjiznica", None)
                 except Exception as e:  # noqa: BLE001
                     print("[SafeerOS] medijska mapa:", e)
@@ -4562,7 +4584,9 @@ class SafeerOS(Gtk.Application):
                     izbrana = vrsta.get_selected()
                     vrsta_toka = vrste[izbrana][0] if 0 <= izbrana < len(vrste) else "tv"
                     izid = self._shrani_medijski_tok(ime.get_text().strip(), vnos.get_text().strip(), vrsta_toka)
-                except ValueError:
+                except Exception as e:  # noqa: BLE001 - okno se mora vedno zapreti, stran dobi odgovor
+                    if not isinstance(e, ValueError):
+                        print("[SafeerOS] medijski tok:", e)
                     izid = False
             dialog.destroy()
             if konec is not None:

@@ -80,8 +80,18 @@ def _na_napako(dpy, napaka) -> int:
     return _prejsnji_rokovalnik(dpy, napaka)
 
 
+_zaklep_knjiznice = threading.Lock()
+
+
 def _knjiznica():
-    """libX11 z nastavljenimi podpisi; None brez X11."""
+    """libX11 z nastavljenimi podpisi; None brez X11. Prvi klic naj bo v glavni niti (rokovalnik napak)."""
+    if _lib is not None:
+        return _lib or None
+    with _zaklep_knjiznice:
+        return _nalozi_knjiznico()
+
+
+def _nalozi_knjiznico():
     global _lib, _prejsnji_rokovalnik, _nas_rokovalnik
     if _lib is not None:
         return _lib or None
@@ -417,10 +427,16 @@ def nastavi_stanje(okno, *stanja: str, vklop: bool = True) -> bool:
 
 
 def premakni(okno, x: int, y: int) -> bool:
-    """GTK3 move(): polozaj okna na zaslonu (po prikazu; pred njim ga upravitelj oken postavi sam)."""
+    """GTK3 move(): polozaj okna na zaslonu (po prikazu; pred njim ga upravitelj oken postavi sam). x, y sta v
+    logicnih tockah GDK (kot geometrija Gdk.Monitor); X jih hoce v pikah, zato ju pomnozimo z merilom (HiDPI)."""
     p = povezava()
     if p is None:
         return False
+    try:
+        merilo = max(1, int(okno.get_scale_factor()))
+    except Exception:  # noqa: BLE001
+        merilo = 1
+    x, y = int(x) * merilo, int(y) * merilo
     stevec = getattr(okno, "_safeer_premik", None)
     okno._safeer_premik = (int(x), int(y))
     if stevec is None:
