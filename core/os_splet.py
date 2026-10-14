@@ -1750,6 +1750,9 @@ class VdelaniSplet:
             self.zvezdica.set_label("★")
 
     def osvezi_povezavo(self):
+        if self.stanje_povezave is None:   # samostojni Safeer Browser (safeer_brskalnik.py): brez oznake Linka
+            self.povezava.set_visible(False)
+            return False
         try: ok = (self.stanje_povezave() or {}).get("stanje") == "povezan"
         except Exception: ok = False
         self.povezava.set_text(("● " if ok else "○ ") + self._t("povezan" if ok else "nepovezan"))
