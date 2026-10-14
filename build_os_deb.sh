@@ -36,6 +36,9 @@ bash "$DIR/packaging/install_control_payload.sh" "$STAGE/usr"
 mkdir -p "$BUILD_ROOT/DEBIAN"
 cp -a "$STAGE/usr" "$BUILD_ROOT/"
 bash "$DIR/packaging/install_cinnamon_payload.sh" "$BUILD_ROOT"
+# Lupina QML (GTK4 + Qt Quick v istem procesu): PySide6, ki ga Linux Mint 22 nima v svojih paketih - ista kolesa kot v
+# Flatpaku (packaging/pyside6_vendor.py). Brez njih bi Safeer OS tekel s prejsnjo delovno povrsino v WebKitu.
+python3 "$DIR/packaging/pyside6_vendor.py" "$BUILD_ROOT/usr/lib/safeer-os/vendor"
 sed -i 's|^Exec=safeer-os|Exec=/usr/bin/safeer-os|' "$BUILD_ROOT/usr/share/applications/safeer-os.desktop" \
     "$BUILD_ROOT/usr/share/applications/safeer-os.Player.desktop"
 sed -i 's|^Exec=safeer-control|Exec=/usr/bin/safeer-control|' "$BUILD_ROOT/usr/share/applications/safeer-control.desktop"
@@ -51,8 +54,8 @@ Version: ${VERSION}
 Section: x11
 Priority: optional
 Architecture: ${ARCH}
-Depends: python3, python3-cryptography, python3-gi, python3-gi-cairo, python3-qrcode, python3-zeroconf, gir1.2-gtk-3.0, gir1.2-webkit2-4.1, gir1.2-soup-3.0, gir1.2-glib-2.0, gir1.2-secret-1, gir1.2-atspi-2.0, gir1.2-gstreamer-1.0, gstreamer1.0-gtk3, gstreamer1.0-libav, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-base, sway, wf-recorder, wtype, wmctrl, libglib2.0-bin, plank, dconf-cli
-Recommends: mint-themes, cinnamon, network-manager, pulseaudio-utils, policykit-1, xdg-utils, gir1.2-wnck-3.0, x11-utils, gstreamer1.0-plugins-good, imagemagick, ffmpeg, python3-pil, python3-numpy, papirus-icon-theme
+Depends: python3 (>= 3.10), python3-cryptography, python3-gi (>= 3.42), python3-gi-cairo, python3-qrcode, python3-zeroconf, gir1.2-gtk-4.0, gir1.2-webkit-6.0, gir1.2-gtk-3.0, gir1.2-soup-3.0, gir1.2-glib-2.0, gir1.2-secret-1, gir1.2-atspi-2.0, gir1.2-gstreamer-1.0, gstreamer1.0-libav, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-base, gstreamer1.0-gl, libxcb-cursor0, libxkbcommon-x11-0, libxcb-icccm4, libxcb-keysyms1, libxcb-shape0, libegl1, libfontconfig1, sway, wf-recorder, wtype, wmctrl, libglib2.0-bin, plank, dconf-cli
+Recommends: mint-themes, cinnamon, network-manager, pulseaudio-utils, policykit-1, xdg-utils, x11-utils, gstreamer1.0-plugins-good, imagemagick, ffmpeg, python3-pil, python3-numpy, papirus-icon-theme
 Suggests: libreoffice-writer, libreoffice-calc, libreoffice-impress, plymouth, slick-greeter
 Provides: safeer-control (= ${CONTROL_VERSION}), safeer-cinnamon (= ${CINNAMON_VERSION})
 Replaces: safeer-control, safeer-cinnamon

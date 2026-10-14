@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Safeer OS AppImage (Safeer OS + Safeer Control). Release builds run on Ubuntu 22.04 (glibc 2.35),
-# like the browser AppImage; newer hosts are diagnostic only (ALLOW_NEWER_GLIBC=1).
+# Safeer OS AppImage (Safeer OS + Safeer Control). Release builds run on Ubuntu 24.04 (glibc 2.39): GTK4 and
+# WebKitGTK 6.0 exist from Linux Mint 22 on; newer hosts are diagnostic only (ALLOW_NEWER_GLIBC=1).
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 [ "$(uname -m)" = x86_64 ] || { echo 'AppImage currently supports x86_64 only' >&2; exit 1; }
-if [ "$(getconf GNU_LIBC_VERSION | cut -d' ' -f2)" != 2.35 ] && [ "${ALLOW_NEWER_GLIBC:-0}" != 1 ]; then
-    echo 'Build release AppImages on Ubuntu 22.04. Set ALLOW_NEWER_GLIBC=1 for a host-specific diagnostic build.' >&2
+# Safeer OS na GTK4 (WebKitGTK 6.0) tece od Linux Mint 22 / Ubuntu 24.04 naprej (Mint 21 WebKitGTK 6.0 nima), zato
+# se AppImage gradi na Ubuntu 24.04 (glibc 2.39). Brskalnik (build_appimage.sh) ostane na 22.04.
+if [ "$(getconf GNU_LIBC_VERSION | cut -d' ' -f2)" != 2.39 ] && [ "${ALLOW_NEWER_GLIBC:-0}" != 1 ]; then
+    echo 'Build the Safeer OS AppImage on Ubuntu 24.04. Set ALLOW_NEWER_GLIBC=1 for a host-specific diagnostic build.' >&2
     exit 1
 fi
 : "${LINUXDEPLOY:?Set LINUXDEPLOY to the verified linuxdeploy executable}"
@@ -28,6 +30,8 @@ for modul in qrcode zeroconf ifaddr; do
         echo "manjka /usr/lib/python3/dist-packages/$modul (apt install python3-$modul)" >&2; exit 1
     fi
 done
+# Lupina QML: PySide6 kot v paketu .deb (packaging/pyside6_vendor.py).
+python3 packaging/pyside6_vendor.py "$STAGE/usr/lib/safeer-os/vendor"
 cp -a "$STAGE/usr" "$APPDIR/"
 python3 packaging/prepare_appdir.py "$APPDIR" "$APPID" safeer-os
 install -m755 packaging/AppRun-os "$APPDIR/AppRun"

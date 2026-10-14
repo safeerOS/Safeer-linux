@@ -14,6 +14,7 @@ Velja za vsako spremembo v tem repozitoriju. Kratko, preverljivo; podrobnosti so
 - Skrivnosti kanalov samo v sistemski zbirki (core/sporocila/skrivnosti.py), nikoli v datoteki ali dnevniku.
 
 ## Git in izdaje
+- Novo delo gradi na veji `gtk4` (GTK4, WebKitGTK 6.0, QML) - najnovejsa tehnologija, ki dela na nasih napravah, brez dvojnega dela na starejsih vejah (lastnik, 14. 10. 2026).
 - Delo na vejah; brez `--force`, brez brisanja oznak in izdaj, brez `git stash` brez oznake.
 - Vmesni commiti z `[skip ci]` (gradnja WebKita traja 2–3 h); zadnji commit veje brez.
 - Nic se ne objavi brez lastnikovega »da«. Pred izdajo: pregled kode, zelen CI, preizkus na testnem PC.
@@ -30,7 +31,7 @@ Velja za vsako spremembo v tem repozitoriju. Kratko, preverljivo; podrobnosti so
 - Dostopnost: tipkovnica, fokus, kontrast; animacije spostujejo zmanjsano gibanje.
 
 ## Preizkusi
-- GTK3 in GTK4 ne moreta v isti proces pytest: teste GTK4 poganjaj loceno od testov brskalnika (GTK3).
+- GTK3 in GTK4 ne moreta v isti proces pytest: skupini da `tools/razdeli_teste.py gtk3|gtk4` (CI: brskalnik na Ubuntu 22.04, Safeer OS na 24.04).
 - `python3 -m pytest -q -p no:cacheprovider tests/<datoteka>`; za JS `node -e "new Function(require('fs').readFileSync(F,'utf8'))"`.
 - Zivi preizkus na testnem PC (Flatpak): `flatpak run --command=sh … -c "export PATH=/app/host-bin:$PATH; …"` – brez tega PATH orodja gostitelja (gsettings …) niso vidna.
 

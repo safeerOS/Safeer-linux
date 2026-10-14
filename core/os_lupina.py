@@ -18,12 +18,18 @@ import hashlib
 import itertools
 import json
 import os
+import sys
 import threading
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 KOREN = Path(__file__).resolve().parents[1]
 QML = KOREN / "assets" / "os" / "qml" / "Namizje.qml"
+#: PySide6, ki ga prinese paket .deb (Mint 22 ga v svojih paketih nima; build_os_deb.sh -> packaging/pyside6_vendor.py).
+#: V Flatpaku je v /app, iz izvorne mape ga najde Python sam.
+VENDOR = KOREN / "vendor"
+if VENDOR.is_dir() and str(VENDOR) not in sys.path:
+    sys.path.insert(0, str(VENDOR))
 
 #: Ozadja Safeer (paket safeer-cinnamon jih namesti v /usr/share/backgrounds/safeer; enaka kot na Windows).
 OZADJA = (("jezero", "Gore in jezero", "Mountains and lake", "safeer-jezero.jpg"),

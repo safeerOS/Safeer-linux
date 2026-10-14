@@ -28,7 +28,7 @@ class OdpriTukaj(unittest.TestCase):
         self.assertEqual(control.link.klici, [
             ("telefon-1", "apps.launch", {"app": "com.safeer.video", "stream": True}, 8.0)
         ])
-        self.assertEqual(izid, {"ok": True, "tu": True, "koda": "", "message": ""})
+        self.assertEqual(izid, {"ok": True, "tu": True, "koda": "", "message": "", "access_request": ""})
 
     def test_napaka_naprave_se_ohrani(self):
         control = safeer_control.SafeerControl.__new__(safeer_control.SafeerControl)
