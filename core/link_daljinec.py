@@ -101,8 +101,8 @@ def izvedi(app, dejanje: str, parametri: dict, odpri_naslov: Callable[[str], Non
 
 
 DEJANJA_CONTROL = ["open_url", "volume", "status"]
-DEJANJA_DATOTEKE = ["files.list", "files.open"]
-DEJANJA_PROGRAMI = ["apps.list", "apps.launch", "apps.close", "apps.running"]
+DEJANJA_DATOTEKE = ["files.list", "files.open", "files.open_locen"]
+DEJANJA_PROGRAMI = ["apps.list", "apps.launch", "apps.launch_locen", "apps.close", "apps.running"]
 DEJANJA_HOST = ["host.info"]
 DEJANJA_ZASLON = ["screen.start", "screen.stop", "screen.status"]
 #: Magnet povezava z druge naprave v krogu: odpre jo Safeer OS (Medijski center), ce je namescen.
@@ -217,10 +217,24 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
                 koncaj(izid(True, "Na računalniku ni izbrane nobene mape", podatki))
             else:
                 koncaj(izid(True, f"{len(podatki['items'])} vnosov", podatki))
-        elif d == "files.open":
+        elif d in ("files.open", "files.open_locen"):
             # Datoteko odpre racunalnik s svojim programom; televizor jo nato vidi prek zaslona.
             if datoteke is None:
                 koncaj(izid(False, "Deljenje datotek tu ni na voljo", koda="ni_na_racunalniku"))
+                return
+            if d == "files.open_locen" or parametri.get("locen"):
+                # Namizje druge naprave (oddaljeno namizje): datoteka se odpre na LOCENEM zaslonu, uporabnik za tem
+                # racunalnikom tega ne opazi (lastnik, 13. 10. 2026). Brez locenega zaslona je ne odpremo.
+                drugi = getattr(programi, "drugi", None) if programi is not None else None
+                pot = datoteke.pot(str(parametri.get("id", "") or ""))
+                if not pot:
+                    koncaj(izid(False, "Te datoteke ni mogoče odpreti", koda="ni_datoteke"))
+                elif drugi is None:
+                    koncaj(izid(False, "Računalnik nima ločenega zaslona", koda="ni_locenega_zaslona"))
+                elif drugi.zazeni_program(["xdg-open", pot], opis={"oznaka": "datoteka", "ime": os.path.basename(pot)}):
+                    koncaj(izid(True, "Datoteka se odpira na ločenem zaslonu"))
+                else:
+                    koncaj(izid(False, "Te datoteke ni mogoče odpreti", koda="ni_datoteke"))
                 return
             if datoteke.odpri(str(parametri.get("id", "") or "")):
                 koncaj(izid(True, "Datoteka se odpira na računalniku"))
@@ -440,11 +454,17 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
                 koncaj(izid(True, "Računalnik programov ne deli", podatki))
             else:
                 koncaj(izid(True, f"{len(podatki['items'])} programov", podatki))
-        elif d == "apps.launch":
+        elif d in ("apps.launch", "apps.launch_locen"):
+            if d == "apps.launch_locen":
+                parametri = dict(parametri, locen=True)
             if programi is None:
                 koncaj(izid(False, "Programi tu niso na voljo", koda="ni_na_racunalniku"))
                 return
             oznaka = str(parametri.get("app", "") or "")
+            if parametri.get("locen") and getattr(programi, "drugi", None) is None:
+                # Oddaljeno namizje z druge naprave: brez locenega zaslona programa ne odpremo na namizju uporabnika.
+                koncaj(izid(False, "Računalnik nima ločenega zaslona", koda="ni_locenega_zaslona"))
+                return
             if programi.zazeni(oznaka):
                 koncaj(izid(True, "Program se zaganja"))
             else:

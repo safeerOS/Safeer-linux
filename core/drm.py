@@ -26,7 +26,7 @@ SKRIPTA = r"""
     var izvirna = n.requestMediaKeySystemAccess;
     function javi(sistem) {
       try {
-        if (/widevine|playready/i.test(String(sistem || "")) && window.webkit && window.webkit.messageHandlers &&
+        if (/widevine|playready|com\.apple\.fps|fairplay|^safeer:/i.test(String(sistem || "")) && window.webkit && window.webkit.messageHandlers &&
             window.webkit.messageHandlers.safeerDrm) {
           window.webkit.messageHandlers.safeerDrm.postMessage(String(sistem));
         }
@@ -34,7 +34,50 @@ SKRIPTA = r"""
     }
     // WebKitGTK na namizju EME pogosto sploh nima (funkcija ne obstaja): stran bi brez klica le javila »brskalnik ni
     // podprt«. Zato jo ponudimo - ob klicu Safeer stran odpre drugje, stran pa dobi obicajno zavrnitev.
+    // Brez EME v WebKitGTK manjkajo tudi razredi: nekateri predvajalniki (Vimeo) po tem sklepajo, da DRM ni, in
+    // requestMediaKeySystemAccess sploh ne poklicejo. Prazni razredi jih pripeljejo do klica (in s tem do Safeer DRM).
+    if (!izvirna) {
+      try {
+        var Ni = function () { throw new TypeError("Illegal constructor"); };
+        ["MediaKeys", "MediaKeySession", "MediaKeySystemAccess", "MediaKeyMessageEvent", "MediaEncryptedEvent"]
+          .forEach(function (ime) { if (typeof window[ime] === "undefined") window[ime] = Ni; });
+        var P = window.HTMLMediaElement && HTMLMediaElement.prototype;
+        if (P && !("setMediaKeys" in P)) {
+          P.setMediaKeys = function () { return Promise.reject(new DOMException("Not supported", "NotSupportedError")); };
+          Object.defineProperty(P, "mediaKeys", { get: function () { return null; }, configurable: true });
+        }
+      } catch (e) {}
+    }
+    // WebKitGTK se strani predstavi kot Safari: predvajalniki (Vimeo) zato izberejo FairPlay prek starega
+    // WebKitMediaKeys. Tega v WebKitGTK ni - prazen razred javi zahtevo za zascito, stran pa dobi »ni podprto«.
+    if (typeof window.WebKitMediaKeys === "undefined") {
+      try {
+        var Wmk = function (sistem) { javi(sistem || "com.apple.fps"); throw new DOMException("Not supported", "NotSupportedError"); };
+        Wmk.isTypeSupported = function (sistem) { window.__safeerEmeKlici = (window.__safeerEmeKlici || 0) + 1; javi(sistem); return false; };
+        window.WebKitMediaKeys = Wmk;
+      } catch (e) {}
+    }
+    // Splosna zaznava (tudi ce predvajalnik EME sploh ne poklice, npr. Vimeo z zapomnjeno odlocitvijo): video, ki naj
+    // bi tekel (ni ustavljen, ima vir), pa 6 s nima niti ene slike, ali video z napako zapisa/dekodiranja. Tak video
+    // v WebKitGTK ne bo stekel (zasciten ali zapis brez dekoderja) - Safeer DRM (Chromium) ga predvaja.
+    {
+      var zastoj = new WeakMap();
+      setInterval(function () {
+        try {
+          var m = document.querySelectorAll("video");
+          for (var i = 0; i < m.length; i++) {
+            var v = m[i];
+            if (v.error && (v.error.code === 3 || v.error.code === 4)) { javi("safeer:zapis"); return; }
+            var tece = !v.paused && !v.ended && (v.currentSrc || v.src) && v.readyState < 2;
+            var k = tece ? (zastoj.get(v) || 0) + 1 : 0;
+            zastoj.set(v, k);
+            if (k >= 3) { javi("safeer:zastoj"); zastoj.set(v, -1000); return; }
+          }
+        } catch (e) {}
+      }, 2000);
+    }
     n.requestMediaKeySystemAccess = function (sistem) {
+      window.__safeerEmeKlici = (window.__safeerEmeKlici || 0) + 1;
       javi(sistem);
       if (izvirna) return izvirna.apply(this, arguments);
       return Promise.reject(new DOMException("Key system not supported", "NotSupportedError"));
@@ -136,8 +179,19 @@ def besedilo_obvestila(izid: str, ime: str, jezik: str = "sl") -> str:
             "This page needs Widevine (protected video). Install a browser that supports it (e.g. Brave).")
 
 
-def prikljuci(WebKit2, pogled, preusmeritev: Preusmeritev, jezik: Callable[[], str]) -> None:
-    """Skripta in rokovalnik na pogledu WebKit: ob zahtevi za Widevine stran odpre v brskalniku z Widevine."""
+def _vsebina(rezultat) -> str:
+    """Besedilo sporocila skripte (WebKit2 4.1 JavascriptResult ali JSC.Value)."""
+    try:
+        vrednost = rezultat.get_js_value() if hasattr(rezultat, "get_js_value") else rezultat
+        return str(vrednost.to_string() or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def prikljuci(WebKit2, pogled, preusmeritev: Preusmeritev, jezik: Callable[[], str],
+              vdelaj: Optional[Callable[[object, str], bool]] = None) -> None:
+    """Skripta in rokovalnik na pogledu WebKit: ob zahtevi za Widevine stran predvaja Safeer DRM v istem zavihku
+    (vdelaj, Splet Safeer OS); ce tega ni ali ne gre, jo odpre v namescenem brskalniku z Widevine."""
     upravitelj = pogled.get_user_content_manager()
     upravitelj.register_script_message_handler(MOST)
     # Sibka referenca: rokovalnik zivi na upravitelju vsebine, ki ga drzi pogled. Mocna referenca bi naredila krog
@@ -150,6 +204,14 @@ def prikljuci(WebKit2, pogled, preusmeritev: Preusmeritev, jezik: Callable[[], s
         if pogled is None:
             return
         url = pogled.get_uri() or ""
+        if vdelaj is not None:
+            try:
+                if vdelaj(pogled, url):
+                    return
+            except Exception as e:  # noqa: BLE001 - rezerva: drug brskalnik
+                print("[SafeerDRM] vdelava:", e, flush=True)
+        if _vsebina(_r).startswith("safeer:"):
+            return      # samo sum (zastoj videa): drugega brskalnika zaradi tega ne odpiramo
         izid, ime = preusmeritev.odpri(url)
         if izid in ("odprto", "ni"):
             import json

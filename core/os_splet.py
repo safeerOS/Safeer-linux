@@ -17,7 +17,7 @@ import weakref
 from html import escape as _escape_html
 from pathlib import Path
 
-from core import adblock, drm, odlozisce_varuh, os_stabilnost, ozadje_strani, splet_temno
+from core import adblock, drm, odlozisce_varuh, os_stabilnost, ozadje_strani, safeer_drm, splet_temno
 from core.config import ConfigManager, SEARCH_ENGINES, normalize_web_url
 from core.doh_proxy import get_doh_proxy, nastavitve_posrednika
 from core.filter_lists import FILTER_ID
@@ -392,6 +392,13 @@ def je_domaca_stran(naslov: str, koren: str) -> bool:
         return False
 
 
+def _gostitelj(url: str) -> str:
+    try:
+        return (urllib.parse.urlsplit(url).hostname or "").lower()
+    except ValueError:
+        return ""
+
+
 class VdelaniSplet:
     """GTK gradnik z zavihki; namenoma ni okno in zato ne more zapustiti Safeer OS."""
 
@@ -516,7 +523,7 @@ class VdelaniSplet:
         orodja.set_name("splet-orodja")
         self.nazaj = self._gumb("←", lambda *_: self.trenutni() and self.trenutni().go_back(), "nav")
         self.naprej = self._gumb("→", lambda *_: self.trenutni() and self.trenutni().go_forward(), "nav")
-        self.osvezi = self._gumb("↻", lambda *_: self.trenutni() and self.trenutni().reload(), "nav")
+        self.osvezi = self._gumb("↻", lambda *_: self._osvezi_trenutni(), "nav")
         self.domov = self._gumb("⌂", lambda *_: self.odpri_domov(), "nav")
         for g, namig in ((self.nazaj, "nazaj"), (self.naprej, "naprej"), (self.osvezi, "osvezi"), (self.domov, "domov")):
             g.set_tooltip_text(self._t(namig)); orodja.pack_start(g, False, False, 0)
@@ -544,6 +551,7 @@ class VdelaniSplet:
         meni.set_popup(self._meni())
         orodja.pack_end(meni, False, False, 0)
         self.gradnik.pack_start(orodja, False, False, 0)
+        self.orodja = orodja
 
         self.najdi_vrstica = Gtk.SearchBar()
         self.najdi_vnos = Gtk.SearchEntry()
@@ -791,7 +799,8 @@ class VdelaniSplet:
         # Widevine (Netflix, Disney+ ...): stran se odpre v namescenem brskalniku z Widevine (core/drm.py).
         if getattr(self, "_drm", None) is None:
             self._drm = drm.Preusmeritev()
-        drm.prikljuci(W, pogled, self._drm, lambda: str(self.jezik() if callable(self.jezik) else self.jezik or "sl"))
+        drm.prikljuci(W, pogled, self._drm, lambda: str(self.jezik() if callable(self.jezik) else self.jezik or "sl"),
+                      vdelaj=self._drm_vdelaj)
         izvzemi = adblock.AUTH_SCRIPT_EXCLUSIONS
         if self.config.get("gpc_dnt_enabled", True): self._skripta(upravitelj, adblock.GPC_AND_DNT_SCRIPT, izloceni=izvzemi)
         self._skripta(upravitelj, adblock.YOUTUBE_ADBLOCK_SCRIPT, dovoljeni=["*://*.youtube.com/*", "*://youtube.com/*"], izloceni=izvzemi)
@@ -867,6 +876,7 @@ class VdelaniSplet:
         if z is None: return
         self._zapomni_zaprt(pogled)
         indeks = self.zavihki.index(z); self.zavihki.remove(z)
+        self._drm_konec(z)
         self.skatla_zavihkov.remove(z["dogodek"]); self.sklad.remove(pogled); pogled.destroy()
         self.izberi(self.zavihki[max(0, indeks - 1)]["pogled"])
 
@@ -1167,6 +1177,9 @@ class VdelaniSplet:
 
     def izberi(self, pogled):
         self.aktivni = pogled; self.sklad.set_visible_child(pogled)
+        z = self._zavihek(pogled)
+        if z is not None and z.get("drm") is not None:
+            self.sklad.set_visible_child(z["drm"].gradnik)
         for z in self.zavihki:
             slog = z["vrstica"].get_style_context()
             if z["pogled"] is pogled:
@@ -1388,7 +1401,99 @@ class VdelaniSplet:
             z["naslov"].set_text(self._t("nov") if je_domaca_stran(pogled.get_uri() or "", self.koren) else (pogled.get_title() or self._t("nov")))
 
     def _uri_spremenjen(self, pogled, _lastnost):
+        z = self._zavihek(pogled)
+        if z is not None and z.get("drm") is not None:
+            # Uporabnik je sel drugam (Nazaj, nov naslov, Domov): zasciten video se konca, zavihek spet kaze Splet.
+            if _gostitelj(pogled.get_uri() or "") != _gostitelj(z["drm"].url):
+                self._drm_konec(z)
         if pogled is self.trenutni(): self._osvezi_orodja()
+
+    # ------------------------------------------------------------------ Safeer DRM (Widevine) v zavihku
+    def _zavihek(self, pogled):
+        return next((x for x in self.zavihki if x["pogled"] is pogled), None)
+
+    def _osvezi_trenutni(self) -> None:
+        z = self._zavihek(self.trenutni())
+        if z is not None and z.get("drm") is not None:
+            z["drm"].ukaz("reload")
+        elif self.trenutni():
+            self.trenutni().reload()
+
+    def _drm_vdelaj(self, pogled, url: str) -> bool:
+        """Stran je zaprosila za Widevine: ista stran v Safeer DRM, vstavljenem v ta zavihek."""
+        z = self._zavihek(pogled)
+        if z is None or not url.startswith("https://"):
+            return False
+        if z.get("drm") is not None and _gostitelj(z["drm"].url) == _gostitelj(url):
+            return True                           # stran vprasa veckrat zapored
+        if not safeer_drm.Gostitelj.na_voljo():
+            if z.get("drm_prenos"):
+                return True
+            z["drm_prenos"] = True
+            # Prvic: paket se prenese (enkrat). Do takrat stran ostane, potem se zavihek sam preklopi.
+            self._drm_obvestilo(pogled, "pripravljam")
+            def koncano(uspeh: bool, z=z, url=url):
+                def v_gui():
+                    z["drm_prenos"] = False
+                    if z in self.zavihki and (z["pogled"].get_uri() or "") == url:
+                        if not (uspeh and self._drm_vdelaj(z["pogled"], url)):
+                            self._drm.odpri(url)  # rezerva: brskalnik z Widevine
+                    return False
+                self.GLib.idle_add(v_gui)
+            safeer_drm.prenesi_v_ozadju(koncano)
+            return True
+        gost = safeer_drm.Gostitelj(self.Gtk, self.Gdk, self.GLib, ob_celozaslonu=self._drm_celozaslonsko,
+                                    ob_koncu=lambda z=z: self._drm_konec(z))
+        gost.gradnik.connect("key-press-event", lambda _g, e, gost=gost: self.tipka(e) or gost.tipka(e))
+        self.sklad.add_named(gost.gradnik, "drm-%d" % id(gost))
+        gost.gradnik.show()
+        z["drm"] = gost
+        if pogled is self.trenutni():
+            self.sklad.set_visible_child(gost.gradnik)
+        if not gost.zacni(url, storitev=safeer_drm.je_storitev(url)):
+            self._drm_konec(z)
+            return False
+        try:
+            pogled.set_is_muted(True)            # stran v Spletu (brez Widevine) naj ne igra zraven
+        except Exception:  # noqa: BLE001 - starejsi WebKitGTK
+            pass
+        return True
+
+    def _drm_konec(self, z) -> None:
+        gost = z.get("drm") if z else None
+        if gost is None:
+            return
+        z["drm"] = None
+        self._drm_celozaslonsko(False)
+        gost.unici()
+        try:
+            self.sklad.remove(gost.gradnik)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            z["pogled"].set_is_muted(False)
+        except Exception:  # noqa: BLE001
+            pass
+        if z["pogled"] is self.trenutni():
+            self.sklad.set_visible_child(z["pogled"])
+
+    def _drm_celozaslonsko(self, vklopi: bool) -> None:
+        okno = self.gradnik.get_toplevel()
+        for g in (self.vrstica_zavihkov, getattr(self, "orodja", None)):
+            if g is not None:
+                g.set_visible(not vklopi)
+        if okno is not None and hasattr(okno, "fullscreen"):
+            (okno.fullscreen if vklopi else okno.unfullscreen)()
+
+    def _drm_obvestilo(self, pogled, kljuc: str) -> None:
+        besedila = {"sl": "Pripravljam predvajalnik zaščitenih vsebin (enkrat) …",
+                    "en": "Preparing the protected video player (one time) …"}
+        jezik = str(self.jezik() if callable(self.jezik) else self.jezik or "sl")[:2]
+        koda = drm.OBVESTILO.replace("__BESEDILO__", json.dumps(besedila.get(jezik, besedila["en"])))
+        try:
+            pogled.evaluate_javascript(koda, -1, None, None, None, None, None)
+        except Exception:  # noqa: BLE001
+            pass
 
     def _osvezi_orodja(self):
         pogled = self.trenutni()
