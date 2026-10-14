@@ -1814,19 +1814,38 @@ class SafeerOS(Gtk.Application):
                 "dno": max(0, (g.y + g.height) - (w.y + w.height)),
                 "desno": max(0, (g.x + g.width) - (w.x + w.width))}
 
+    def _ustvari_qml_namizje(self) -> bool:
+        """Namizje v QML (kot na Windows); Splet, Safeer Player in razdelki ostanejo okna GTK4 v tem procesu.
+        Napaka QML ali Namizje() (npr. brez primarnega zaslona) vrne False: ostane delovna povrsina WebKit
+        (delovna.html). Prej je bilo crno okno brez rezerve ali sesutje v zanko ponovnih zagonov (pregled 14. 10.)."""
+        lupina = None
+        try:
+            lupina = os_lupina.Namizje(self)
+            self.lupina = lupina
+            self.pogled_delovna = self._qml_pogled = lupina.pogled
+            lupina.pokazi()
+        except Exception as e:  # noqa: BLE001 - rezerva: delovna povrsina WebKit
+            print("[SafeerOS] namizje QML ni na voljo, delovna povrsina WebKit:", e, flush=True)
+            try:
+                if lupina is not None:
+                    lupina.okno.hide()
+            except Exception:  # noqa: BLE001
+                pass
+            self.lupina = None
+            self.pogled_delovna = self._qml_pogled = None
+            return False
+        self.hold()          # okno QML ni okno Gtk.Application: brez tega bi se proces koncal takoj po zagonu
+        self._ob_spremembi_zaslonov(lupina.postavi)
+        return True
+
     def _ustvari_delovno(self) -> None:
         """Okno delovne povrsine: cez cel zaslon, pod vsemi okni (kot namizje); vsebina se umakne pultu
         in docku (robovi iz workarea), zato se nic ne prekriva."""
         robovi = self._robovi()
         self._robovi_delovne = robovi
         # pozno: Safeer OS je ze tekel kot Player ali okno (_vklopi_delovno) - Qt mora dobiti EGL (glej os_lupina.pripravi).
-        if not self.posnetek and os_lupina.pripravi(sys.argv[:1], pozno=bool(self.get_windows())):
-            # Namizje v QML (kot na Windows); Splet, Safeer Player in razdelki ostanejo okna GTK4 v tem procesu.
-            self.lupina = os_lupina.Namizje(self)
-            self.pogled_delovna = self._qml_pogled = self.lupina.pogled
-            self.lupina.pokazi()
-            self.hold()          # okno QML ni okno Gtk.Application: brez tega bi se proces koncal takoj po zagonu
-            self._ob_spremembi_zaslonov(self.lupina.postavi)
+        if not self.posnetek and os_lupina.pripravi(sys.argv[:1], pozno=bool(self.get_windows())) \
+                and self._ustvari_qml_namizje():
             return
         pogled = self._nov_pogled("delovna.html?" + "&".join("%s=%d" % kv for kv in sorted(robovi.items())))
         okno = Gtk.ApplicationWindow(application=self, title="Safeer Cinnamon")
