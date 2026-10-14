@@ -26,7 +26,11 @@ def _v_flatpaku() -> bool:
 def _gostitelj(argumenti: List[str]) -> List[str]:
     """Plank, dconf in kill tecejo na racunalniku: v Flatpaku prek flatpak-spawn --host (testni PC 14. 10. 2026: v
     peskovniku je bil dock »nenamescen« - plank in njegov dconf nista vidna, /proc kaze samo peskovnik)."""
-    return (["flatpak-spawn", "--host"] + list(argumenti)) if _v_flatpaku() else list(argumenti)
+    if not _v_flatpaku():
+        return list(argumenti)
+    # Kot ovoji v /app/host-bin: Plank potrebuje zaslon (pregled 14. 10.: brez tega se po ponovnem zagonu ne bi prikazal).
+    return ["flatpak-spawn", "--host", "--env=DISPLAY=" + os.environ.get("DISPLAY", ""),
+            "--env=WAYLAND_DISPLAY=" + os.environ.get("WAYLAND_DISPLAY", "")] + list(argumenti)
 
 
 def pot_za_gostitelja(pot: str) -> str:
@@ -43,7 +47,7 @@ def mapa_launcherjev() -> str:
 def je_namescen() -> bool:
     """Ali je dock Plank na racunalniku (tudi iz Flatpaka)."""
     import shutil
-    if shutil.which("plank") or os.path.exists("/run/host/usr/bin/plank"):
+    if shutil.which("plank") or os.path.lexists("/run/host/usr/bin/plank"):
         return True
     return _plank_pid() is not None
 

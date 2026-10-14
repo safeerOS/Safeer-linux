@@ -121,7 +121,7 @@ def test_flatpak_orodje_racunalnika(monkeypatch, tmp_path):
     monkeypatch.setenv("FLATPAK_ID", "io.github.memelandfaner.SafeerOS")
     monkeypatch.setenv("HOME", str(tmp_path))
     obstaja = {"/run/host/usr/bin/soffice"}
-    monkeypatch.setattr(p.os.path, "exists", lambda x, _o=p.os.path.exists: x in obstaja or (_o(x) and not x.startswith("/run/host")))
+    monkeypatch.setattr(p.os.path, "lexists", lambda x, _o=p.os.path.lexists: x in obstaja or (_o(x) and not x.startswith("/run/host")))
     najdi = lambda ime: "/app/host-bin/" + ime
     assert p.orodje("besedilo", najdi) == "/app/host-bin/soffice"
     assert p.orodje("slika", najdi) == ""            # ImageMagick ni na racunalniku

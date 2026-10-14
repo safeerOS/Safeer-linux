@@ -66,7 +66,8 @@ def skupina(pot: str) -> str:
 def _gostitelj_ima(ime: str, pot: Optional[str]) -> Optional[str]:
     """V Flatpaku je ovoj v /app/host-bin vedno najden; velja le, ce ima program res racunalnik (/run/host/usr/bin)."""
     if pot and os.environ.get("FLATPAK_ID") and pot.startswith("/app/host-bin/"):
-        return pot if os.path.exists("/run/host/usr/bin/" + ime) else None
+        # lexists: na Mintu je /usr/bin/convert absolutna povezava na /etc/alternatives, ki je v peskovniku ni.
+        return pot if os.path.lexists("/run/host/usr/bin/" + ime) else None
     return pot
 
 
@@ -81,6 +82,22 @@ def orodje(sk: str, najdi: Callable[[str], Optional[str]] = shutil.which) -> str
     if sk in ("besedilo", "preglednica", "predstavitev"):
         return n("soffice") or n("libreoffice") or ""
     return ""
+
+
+def _zazeni_s_koncem(u: List[str], cas: float) -> int:
+    """Kot subprocess.run s casovno omejitvijo, a ob prekoracitvi najprej SIGTERM: flatpak-spawn ga posreduje programu
+    na racunalniku (SIGKILL ne - soffice bi ostal ziv brez profila; pregled 14. 10. 2026)."""
+    p = subprocess.Popen(u, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        return p.wait(timeout=cas)
+    except subprocess.TimeoutExpired:
+        p.terminate()
+        try:
+            p.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.wait()
+        raise
 
 
 def _zacasna_mapa() -> str:
@@ -174,15 +191,23 @@ class Pretvorbe:
         with self._omejitev:
             delo["stanje"] = "pretvarjam"
             izhod = izhodna_pot(pot, konc)
-            zacasna = _zacasna_mapa()
+            try:
+                zacasna = _zacasna_mapa()
+            except OSError:
+                delo.update(stanje="napaka", koda="ni_uspelo")
+                return
             try:
                 profil = os.path.join(zacasna, "profil")
                 cilj_v_zacasni = os.path.join(zacasna, "izhod." + konc)
                 u = ukaz(pot, konc, cilj_v_zacasni, orodje_pot, profil=profil, zacasna=zacasna)
                 try:
-                    r = self._zazeni(u, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                                     timeout=CAS_S.get("dokument" if sk not in CAS_S else sk, 300))
-                    koda = r.returncode
+                    cas = CAS_S.get("dokument" if sk not in CAS_S else sk, 300)
+                    if self._zazeni is subprocess.run:
+                        koda = _zazeni_s_koncem(u, cas)
+                    else:
+                        r = self._zazeni(u, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                                         timeout=cas)
+                        koda = r.returncode
                 except subprocess.TimeoutExpired:
                     koda = -1
                     delo["koda"] = "prepocasi"

@@ -38,6 +38,11 @@ Steklo {
         })
         odpri({ vrsta: "nedavno", pot: "" })
     }
+    // Mapa tega racunalnika (npr. iz iskanja): najprej nazaj na »Ta racunalnik«, ce so bile odprte datoteke naprave.
+    function odpriLokalno(pot) {
+        naprava = ""; imeNaprave = ""; panel.pot = []; streznik = null; viri = lokalniViri
+        odpri({ vrsta: "lokalno", pot: pot })
+    }
     function odpri(v) { vir = v; filter = ""; poljeFilter.text = ""; seznam.currentIndex = seznam.activeFocus ? 0 : -1; nalozi(false) }
     function izberiNapravo(id, ime) {
         naprava = id; imeNaprave = ime; pot = []; streznik = null
@@ -356,7 +361,7 @@ Steklo {
                         koren.obvesti(koren.t("ptdPretvarjam", { ime: e.ime, cilj: c.toUpperCase() }))
                         koren.klic("pretvoriDatoteko", [e.pot, c], function (r) {
                             if (!r || !r.ok) { koren.obvesti(koren.t("ptdNapaka")); return }
-                            pretvarjanje.id = r.id; pretvarjanje.napak = 0; pretvarjanje.start()
+                            pretvarjanje.dodaj(r.id)
                         }, function () { koren.obvesti(koren.t("ptdNapaka")) })
                     } }
                 }))
@@ -398,43 +403,52 @@ Steklo {
         koren.obvesti(koren.t("posPosiljam", { naprava: naprava.ime, ime: e.ime }))
         koren.klic("posljiNapravi", [naprava.id, [e.pot]], function (r) {
             if (!r || !r.ok) { koren.obvesti(koren.t("posNapaka", { naprava: naprava.ime })); return }
-            if (r.stanje === "posiljam") { posiljanje.id = r.id; posiljanje.naprava = naprava; posiljanje.ime = e.ime; posiljanje.napak = 0; posiljanje.start() }
+            if (r.stanje === "posiljam") posiljanje.dodaj(r.id, naprava, e.ime)
             else koren.obvesti(koren.t("posPoslano", { naprava: naprava.ime, ime: e.ime }))
         }, function () { koren.obvesti(koren.t("posNapaka", { naprava: naprava.ime })) })
     }
+    // Vec pretvorb in posiljanj hkrati: vsako opravilo ima svoj zapis (pregled 14. 10.: en id je prejsnjega prepisal).
     Timer {
         id: pretvarjanje
-        property string id: ""
-        property int napak: 0
+        property var dela: ({})        // id -> stevilo napak
         interval: 700; repeat: true
-        onTriggered: koren.klic("pretvorbaDatotekeStanje", [id], function (r) {
-            if (!r || !r.ok || r.stanje === "napaka") {
-                if (r && r.ok === false && ++pretvarjanje.napak <= 3) return
-                pretvarjanje.stop(); koren.obvesti(koren.t("ptdNapaka")); return
-            }
-            if (r.stanje !== "koncano") return
-            pretvarjanje.stop()
-            if (panel.vir.vrsta === "lokalno") panel.nalozi(true)
-            var pot = r.pot_izhoda || ""
-            koren.obvesti(koren.t("ptdKoncano", { izhod: String(r.izhod || "").split("/").pop() }),
-                          pot ? koren.t("pokazi") : "", pot ? function () { koren.klic("pokaziVMapi", [pot]) } : null)
+        function dodaj(id) { var d = dela; d[id] = 0; dela = d; start() }
+        function koncaj(id) { var d = dela; delete d[id]; dela = d; if (!Object.keys(d).length) stop() }
+        onTriggered: Object.keys(dela).forEach(function (id) {
+            koren.klic("pretvorbaDatotekeStanje", [id], function (r) {
+                if (!(id in pretvarjanje.dela)) return
+                if (!r || !r.ok || r.stanje === "napaka") {
+                    if (r && r.ok === false && ++pretvarjanje.dela[id] <= 3) return
+                    pretvarjanje.koncaj(id); koren.obvesti(koren.t("ptdNapaka")); return
+                }
+                if (r.stanje !== "koncano") return
+                pretvarjanje.koncaj(id)
+                if (panel.vir.vrsta === "lokalno") panel.nalozi(true)
+                var pot = r.pot_izhoda || ""
+                koren.obvesti(koren.t("ptdKoncano", { izhod: String(r.izhod || "").split("/").pop() }),
+                              pot ? koren.t("pokazi") : "", pot ? function () { koren.klic("pokaziVMapi", [pot]) } : null)
+            })
         })
     }
     Timer {
         id: posiljanje
-        property string id: ""
-        property var naprava: null
-        property string ime: ""
-        property int napak: 0
+        property var dela: ({})        // id -> { naprava, ime, napak }
         interval: 800; repeat: true
-        onTriggered: koren.klic("posljiStanje", [id], function (r) {
-            if (!r || !r.ok) { if (++posiljanje.napak > 5) { posiljanje.stop(); koren.obvesti(koren.t("posNapaka", { naprava: posiljanje.naprava.ime })) } return }
-            if (r.stanje === "posiljam") return
-            posiljanje.stop()
-            koren.obvesti(r.stanje === "poslano" ? koren.t("posPoslano", { naprava: posiljanje.naprava.ime, ime: posiljanje.ime })
-                                                 : koren.t("posNapaka", { naprava: posiljanje.naprava.ime }))
+        function dodaj(id, naprava, ime) { var d = dela; d[id] = { naprava: naprava, ime: ime, napak: 0 }; dela = d; start() }
+        function koncaj(id) { var d = dela; delete d[id]; dela = d; if (!Object.keys(d).length) stop() }
+        onTriggered: Object.keys(dela).forEach(function (id) {
+            koren.klic("posljiStanje", [id], function (r) {
+                var o = posiljanje.dela[id]
+                if (!o) return
+                if (!r || !r.ok) { if (++o.napak > 5) { posiljanje.koncaj(id); koren.obvesti(koren.t("posNapaka", { naprava: o.naprava.ime })) } return }
+                if (r.stanje === "posiljam") return
+                posiljanje.koncaj(id)
+                koren.obvesti(r.stanje === "poslano" ? koren.t("posPoslano", { naprava: o.naprava.ime, ime: o.ime })
+                                                     : koren.t("posNapaka", { naprava: o.naprava.ime }))
+            })
         })
     }
+
 
     Popup {
         id: potrdi

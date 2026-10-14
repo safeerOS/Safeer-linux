@@ -64,8 +64,9 @@ def pripravi(argv: list, pozno: bool = False) -> bool:
         return True
     if not zelena():
         return False
-    if pozno:
-        os.environ.setdefault("QT_XCB_GL_INTEGRATION", "xcb_egl")
+    nastavljen_egl = pozno and "QT_XCB_GL_INTEGRATION" not in os.environ
+    if nastavljen_egl:
+        os.environ["QT_XCB_GL_INTEGRATION"] = "xcb_egl"
     try:
         from PySide6.QtCore import QCoreApplication, Qt
         from PySide6.QtWidgets import QApplication   # QApplication (ne QGuiApplication): QSystemTrayIcon (kuverta)
@@ -77,6 +78,8 @@ def pripravi(argv: list, pozno: bool = False) -> bool:
         _qt_app.setQuitOnLastWindowClosed(False)     # zivljenje procesa vodi Gtk.Application
         _qt_app.setApplicationName("Safeer OS")
         _qt_app.setDesktopFileName("io.github.memelandfaner.SafeerOS")
+        if nastavljen_egl:
+            os.environ.pop("QT_XCB_GL_INTEGRATION", None)   # programi, ki jih Safeer OS zazene, naj izberejo sami
         return True
     except Exception as e:  # noqa: BLE001 - brez Qt: prejsnja delovna povrsina
         print("[SafeerOS lupina] Qt ni na voljo:", e, flush=True)

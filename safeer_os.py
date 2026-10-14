@@ -3071,10 +3071,6 @@ class SafeerOS(Gtk.Application):
                                                  bool(a[2]) if len(a) > 2 else False, self._zazeni_vnos_z),
             "pripni": lambda: self.programi.pripni(str(a[0]), bool(a[1]) if len(a) > 1 else True),
             # Dock (Plank): dodaj, odstrani, razvrsti iz menijev Safeer OS (core/os_dock.py).
-            "dock": self._dock_seznam,
-            "dockDodaj": lambda: os_dock.dodaj(self.programi.pot(str(a[0]) if a else "") or ""),
-            "dockOdstrani": lambda: os_dock.odstrani(str(a[0]) if a else ""),
-            "dockRazvrsti": lambda: os_dock.razvrsti([str(x) for x in a[0]] if a and isinstance(a[0], list) else []),
             "skrijDomov": lambda: self.programi.skrij_domov(str(a[0]), bool(a[1]) if len(a) > 1 else True),
             "nedavnePozabi": lambda: self._nedavne_pozabi(str(a[0]) if a else ""),
             "nedavnePocisti": self._nedavne_pocisti,
@@ -3157,6 +3153,11 @@ class SafeerOS(Gtk.Application):
         }
         # V ozadju (ukazi, ki lahko trajajo):
         ozadje = {
+            # Dock: v Flatpaku vsak klic tece prek flatpak-spawn (pgrep, dconf, kill, plank) - ne na glavni niti (pregled 14. 10.).
+            "dock": self._dock_seznam,
+            "dockDodaj": lambda: os_dock.dodaj(self.programi.pot(str(a[0]) if a else "") or ""),
+            "dockOdstrani": lambda: os_dock.odstrani(str(a[0]) if a else ""),
+            "dockRazvrsti": lambda: os_dock.razvrsti([str(x) for x in a[0]] if a and isinstance(a[0], list) else []),
             "posodobitveStanje": lambda: self._posodobitve_stanje(bool(a[0]) if a else False),
             "posodobi": self._posodobi,
             "flatpakPreklop": self._flatpak_preklop,

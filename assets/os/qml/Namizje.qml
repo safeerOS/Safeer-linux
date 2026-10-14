@@ -194,8 +194,8 @@ Item {
             background: Item {}
             onTextChanged: casovnikIskanja.restart()
             Keys.onReturnPressed: zadetki.izberi(zadetki.trenutni)
-            Keys.onDownPressed: zadetki.trenutni = Math.min(zadetki.trenutni + 1, zadetkiModel.count - 1)
-            Keys.onUpPressed: zadetki.trenutni = Math.max(zadetki.trenutni - 1, 0)
+            Keys.onDownPressed: { zadetki.premaknjen = true; zadetki.trenutni = Math.min(zadetki.trenutni + 1, zadetkiModel.count - 1) }
+            Keys.onUpPressed: { zadetki.premaknjen = true; zadetki.trenutni = Math.max(zadetki.trenutni - 1, 0) }
             Keys.onEscapePressed: text = ""
         }
         Lupa { x: 20; anchors.verticalCenter: parent.verticalCenter }
@@ -217,12 +217,16 @@ Item {
         // izbral, je prvo. Izbire [niz, kljuc, cas, prvi]; novejse stejejo vec (polovica po 30 dneh), enak niz dvojno.
         property var izbire: []
         property string zadnjiNiz: ""
+        property bool premaknjen: false
         function nizUcenja(q) {
             var n = String(q || "").toLowerCase()
+            // Iste posebne crke kot iskanje.js / delovna.js: skupen zapis ucenja (core/os_lupa.py).
+            var POSEBNE = { "\u0111": "d", "\u0142": "l", "\u00f8": "o", "\u00df": "ss", "\u00e6": "ae", "\u0153": "oe", "\u0131": "i" }
+            n = n.replace(/[\u0111\u0142\u00f8\u00df\u00e6\u0153\u0131]/g, function (z) { return POSEBNE[z] })
             if (n.normalize) n = n.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
             return n.replace(/\s+/g, " ").trim()
         }
-        function kljucZadetka(z) { return z.vrsta === "splet" ? "splet" : z.vrsta + ":" + z.kljuc }
+        function kljucZadetka(z) { return z.vrsta === "splet" ? "splet" : (z.vrsta === "mapa" ? "datoteka" : z.vrsta) + ":" + z.kljuc }
         function ocene(ql) {
             var o = {}, zdaj = Date.now() / 1000
             izbire.forEach(function (x) {
@@ -245,11 +249,11 @@ Item {
             for (var i = 0; i < zadetkiModel.count; i++) k.push(kljucZadetka(zadetkiModel.get(i)))
             var naj = najMesto(k)
             if (naj > 0) zadetkiModel.move(naj, 0, 1)
-            trenutni = 0
+            if (!premaknjen) trenutni = 0       // izbire, ki jo je uporabnik ze premaknil, ne ponastavimo
         }
         function isci(q) {
             zadetkiModel.clear(); trenutni = 0
-            q = (q || "").trim(); zadnjiNiz = q; if (!q) return
+            q = (q || "").trim(); zadnjiNiz = q; premaknjen = false; if (!q) return
             var st = ++zahteva, ql = q.toLowerCase()
             programi.vsi.filter(function (p) { return p.ime.toLowerCase().indexOf(ql) >= 0 }).slice(0, 5)
                 .forEach(function (p) { zadetkiModel.append({ vrsta: "program", ime: p.ime, opis: koren.t("programi"), kljuc: p.id, ikona: p.ikona || "" }) })
@@ -258,7 +262,10 @@ Item {
             koren.klic("isciDatoteke", [q, 8], function (r) {
                 if (st !== zahteva) return
                 ;(r || []).forEach(function (d) {
-                    zadetkiModel.insert(Math.max(0, zadetkiModel.count - 1), { vrsta: d.mapa ? "mapa" : "datoteka", ime: d.ime, opis: koren.kratkaPot(d.pot), kljuc: d.pot, ikona: "" })
+                    // Pred zadetek »Splet« (ki je po ucenju lahko prvi), sicer na konec (pregled 14. 10.).
+                    var sp = -1
+                    for (var i = 0; i < zadetkiModel.count; i++) if (zadetkiModel.get(i).vrsta === "splet") { sp = i; break }
+                    zadetkiModel.insert(sp > 0 ? sp : zadetkiModel.count, { vrsta: d.mapa ? "mapa" : "datoteka", ime: d.ime, opis: koren.kratkaPot(d.pot), kljuc: d.pot, ikona: "" })
                 })
                 poUcenju()
             })
@@ -274,7 +281,7 @@ Item {
             }
             if (z.vrsta === "program") koren.klic("zazeni", [z.kljuc], function (ok) { if (!ok) koren.obvesti(koren.t("niUspelo")) })
             else if (z.vrsta === "datoteka") koren.klic("odpriDatoteko", [z.kljuc])
-            else if (z.vrsta === "mapa") datoteke.odpri({ vrsta: "lokalno", pot: z.kljuc })   // mapa se odpre v Datotekah
+            else if (z.vrsta === "mapa") datoteke.odpriLokalno(z.kljuc)   // mapa se odpre v Datotekah (tega racunalnika)
             else koren.klic("spletNaNamizju", [z.kljuc])
             polje.text = ""
         }

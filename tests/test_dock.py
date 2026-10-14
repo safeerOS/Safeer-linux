@@ -80,7 +80,9 @@ def test_dock_v_flatpaku(monkeypatch):
     monkeypatch.setenv("FLATPAK_ID", "io.github.memelandfaner.SafeerOS")
     monkeypatch.setenv("XDG_CONFIG_HOME", "/home/u/.var/app/io.github.memelandfaner.SafeerOS/config")
     monkeypatch.setenv("HOME", "/home/u")
-    assert os_dock._gostitelj(["dconf", "read", "x"]) == ["flatpak-spawn", "--host", "dconf", "read", "x"]
+    monkeypatch.setenv("DISPLAY", ":0")
+    u = os_dock._gostitelj(["dconf", "read", "x"])
+    assert u[:2] == ["flatpak-spawn", "--host"] and "--env=DISPLAY=:0" in u and u[-3:] == ["dconf", "read", "x"]
     assert os_dock.mapa_launcherjev() == "/home/u/.config/plank/dock1/launchers"
     assert os_dock.pot_za_gostitelja("/run/host/usr/share/applications/a.desktop") == "/usr/share/applications/a.desktop"
     assert os_dock.pot_za_gostitelja("/var/lib/flatpak/exports/share/applications/b.desktop").startswith("/var/lib")
