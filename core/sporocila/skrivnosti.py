@@ -68,14 +68,41 @@ def _ss_poisci(kljuc: str):
 def _ss_preberi(kljuc: str) -> Optional[str]:
     Gio, GLib, vodilo, seja, odklenjeni, zaklenjeni = _ss_poisci(kljuc)
     if not odklenjeni and zaklenjeni:
-        # Zaklenjena zbirka: odklep zahteva poziv (geslo zbirke), ki ga tu ne prikazujemo - kot brez zbirke.
+        # Zaklenjena zbirka (samodejna prijava: GNOME Keyring se ob prijavi brez gesla ne odklene - testni PC,
+        # 14. 10. 2026). libsecret zunaj Flatpaka ob branju sam vprasa za odklep; tu sprozimo isti sistemski poziv
+        # (geslo za prijavo v racunalnik). Odgovor pride pozneje: naslednje branje (sinhronizacija, Poslji) uspe.
+        global zbirka_zaklenjena
+        zbirka_zaklenjena = True
+        _ss_odkleni(vodilo, Gio, GLib, zaklenjeni)
         return None
+    zbirka_zaklenjena = False
     if not odklenjeni:
         return None
     skrivnosti_ = _ss_klic(vodilo, Gio, GLib, _SS[1], _SS[2], "GetSecrets", GLib.Variant("(aoo)", (odklenjeni[:1], seja)))[0]
     for _pot, (_seja, _param, vrednost, _vrsta) in skrivnosti_.items():
         return bytes(vrednost).decode("utf-8")
     return None
+
+
+#: Zadnje branje je naslo samo zaklenjene vnose (sporocilo uporabniku pove, kaj naj naredi).
+zbirka_zaklenjena = False
+_odklep_zahtevan = 0.0
+
+
+def _ss_odkleni(vodilo, Gio, GLib, predmeti) -> None:
+    """Sistemski poziv za odklep zbirke - najvec enkrat na 10 minut (ce uporabnik poziv zapre, ga ne vsiljujemo)."""
+    import time
+    global _odklep_zahtevan
+    if time.monotonic() - _odklep_zahtevan < 600 and _odklep_zahtevan:
+        return
+    _odklep_zahtevan = time.monotonic()
+    try:
+        _odklenjeni, poziv = _ss_klic(vodilo, Gio, GLib, _SS[1], _SS[2], "Unlock", GLib.Variant("(ao)", (list(predmeti),)))
+        if poziv and poziv != "/":
+            vodilo.call(_SS[0], poziv, "org.freedesktop.Secret.Prompt", "Prompt", GLib.Variant("(s)", ("",)),
+                        None, Gio.DBusCallFlags.NONE, -1, None, None, None)
+    except Exception:  # noqa: BLE001 - brez poziva ostane rocni vnos gesla
+        pass
 
 
 def _ss_shrani(kljuc: str, vrednost: str) -> bool:
@@ -213,5 +240,8 @@ def zahtevaj(kljuc: str, v_pomnilniku: Optional[str] = None,
     if not vrednost and vnos is not None:
         vrednost = vnos()
     if not vrednost:
+        if zbirka_zaklenjena:
+            raise ManjkaSkrivnost("Zbirka gesel je zaklenjena. Odkleni jo v oknu, ki se je odprlo (geslo za prijavo v "
+                                  "računalnik), in poskusi znova.")
         raise ManjkaSkrivnost("Za povezavo je treba vnesti geslo ali žeton.")
     return vrednost
