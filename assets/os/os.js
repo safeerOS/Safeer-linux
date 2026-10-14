@@ -1645,6 +1645,7 @@
     var seznami = S.samodejni || [];
     var vidno = (S.mediaFilter === "domov" || S.mediaFilter === "glasba") && !String(S.mediaIskanje || "").trim() && seznami.length > 0;
     c.hidden = !vidno;
+    if (S.mediaFilter === "domov" && typeof POL !== "undefined") narisiMediaDomov();      // prazno stanje Domov je odvisno tudi od samodejnih seznamov
     var podpis = JSON.stringify(seznami) + "|" + jezik;
     if (!vidno || c._podpis === podpis) return;
     c._podpis = podpis;
@@ -4116,16 +4117,14 @@
             mestoLokalnihMedijev.appendChild(zadetek(v.vrsta === "glasba" ? "glasba" : v.vrsta === "slike" ? "slika" : "video",
               v.ime, mediaVrsta(v.vrsta), function () {
                 pojdi("media");
-                klic("odpriLokalniMedij", [v.pot]).then(function (ok) { if (!ok) obvesti(t("niUspelo")); })
-                  .catch(function () { obvesti(t("niUspelo")); });
+                odpriLokalno(v.pot, v.vrsta);
               }));
           });
           tokovi.forEach(function (v) {
             mestoLokalnihMedijev.appendChild(zadetek(v.vrsta === "radio" ? "radio" : "video", v.ime,
               mediaVrsta(v.vrsta), function () {
                 pojdi("media");
-                klic("odpriMedijskiTok", [v.url]).then(function (ok) { if (!ok) obvesti(t("niUspelo")); })
-                  .catch(function () { obvesti(t("niUspelo")); });
+                odpriTok(v.url);
               }));
           });
         }).catch(function () { if (moj === iskanjeStevec) mestoLokalnihMedijev.innerHTML = ""; });
@@ -4656,6 +4655,15 @@
   // ---- skladba iz kataloga ali s seznama: v spodnji vrstici (naslov, prejšnja/premor/naslednja, premešaj, ponovi, vrsta)
   function osveziKatTrak() { narisiTrak(); }
   function skrijKatTrak() { kat.aktivni = null; kat.igra = false; osveziKatTrak(); }
+  // Datoteka ali postaja v domacem predvajalniku zamenja skladbo iz kataloga: vrsta kataloga se ustavi (zahteva v teku
+  // se ne zacne), spodnja vrstica pokaze, kar res igra, in »Naslednja« ne vzame naslednje skladbe kataloga namesto filma
+  // (pregled 14. 10. 2026). Domaci predvajalnik ustavi gostitelj z novo vsebino; vgradni YouTube zapremo sami.
+  function opustiKatVrsto() {
+    var item = kat.aktivni;
+    kat.vrsta = []; kat.zahtevaPredvajanja++;
+    if (item && item.okno_youtube) klic("mediaYtUkaz", ["zapri"]).catch(function () {});
+    skrijKatTrak();
+  }
   function ustaviKatPredvajanje() {
     var item = kat.aktivni;
     kat.vrsta = []; kat.zahtevaPredvajanja++;
@@ -4946,7 +4954,9 @@
   }
   function narisiPolice() {
     var c = $("mediaPolice"); if (!c) return;
-    var police = POL.police || [];
+    // Samo police tega zavihka: po menjavi zavihka police prejsnjega (npr. Filmi na Domov) ne ostanejo vidne, dokler
+    // odgovor (lahko caka na TMDB) ne pride (pregled 14. 10. 2026).
+    var police = POL.nalozeno === S.mediaFilter ? (POL.police || []) : [];
     var podpis = JSON.stringify(police) + "|" + jezik + "|" + S.mediaFilter;
     if (podpis === POL.podpis) return;          // isti podatki: izbor in polozaj police ostaneta
     POL.podpis = podpis;
@@ -5046,8 +5056,9 @@
     var junak = $("mediaJunak"), prazno = $("mediaPrazno"); if (!junak) return;
     var nalozeno = POL.nalozeno === "domov";
     var ima = (POL.police || []).length > 0;
-    // Prazno stanje sele, ko je odgovor za Domov prisel (ne utripa ob odprtju); ena poteza: Dodaj mapo.
-    prazno.hidden = !nalozeno || ima;
+    // Prazno stanje sele, ko je odgovor za Domov prisel (ne utripa ob odprtju); ena poteza: Dodaj mapo. Samodejni
+    // seznami so tudi knjiznica: z njimi »Tvoja knjiznica se zacne tukaj« ni res (pregled 14. 10. 2026).
+    prazno.hidden = !nalozeno || ima || (S.samodejni || []).length > 0;
     if (!ima) { $("mediaPraznoNaslov").textContent = t("mediaPraznoNaslov"); $("mediaPraznoOpis").textContent = t("mediaPraznoOpis");
                 $("medijiDodajPrazno").hidden = false; $("mediaPraznoZnak").innerHTML = svg("glasba"); }
     var izbor = nalozeno && ima ? izbiraJunaka() : null;
@@ -5091,12 +5102,13 @@
     junak.appendChild(besedilo);
   }
 
-  function odpriLokalno(pot) {
-    prekliciNaslednjo();
+  function odpriLokalno(pot, vrsta) {
+    // Slika se odpre v pregledovalniku slik: glasba iz kataloga igra naprej.
+    if (vrsta !== "slike") { prekliciNaslednjo(); opustiKatVrsto(); }
     klic("odpriLokalniMedij", [pot]).then(function (ok) { if (!ok) obvesti(t("niUspelo")); }).catch(function () { obvesti(t("niUspelo")); });
   }
   function odpriTok(url) {
-    prekliciNaslednjo();
+    prekliciNaslednjo(); opustiKatVrsto();
     klic("odpriMedijskiTok", [url]).then(function (ok) {
       if (!ok) { obvesti(t("niUspelo")); return; }
       // Domaci predvajalnik shranjenih postaj ne javlja knjiznici: zacetek steje za »Najvec predvajano«.

@@ -219,8 +219,70 @@ class Domov(unittest.TestCase):
         # Prazno stanje z gumbom Dodaj, ko Domov nima nobene police (sele po odgovoru, da ne utripa).
         domov = _funkcija(self.js, "narisiMediaDomov")
         self.assertIn('var nalozeno = POL.nalozeno === "domov";', domov)
-        self.assertIn("prazno.hidden = !nalozeno || ima;", domov)
+        self.assertIn("prazno.hidden = !nalozeno || ima || (S.samodejni || []).length > 0;", domov)
         self.assertIn('class="media-prazno media-domov-del" id="mediaPrazno" hidden', self.html)
+
+    def _dom(self):
+        return """
+        var elementi = {};
+        var $ = function (id) { return elementi[id] || (elementi[id] = { id: id, hidden: false, innerHTML: "x", textContent: "",
+          contains: function () { return false; }, querySelectorAll: function () { return []; } }); };
+        var document = { activeElement: null }, jezik = "sl";
+        var t = function (k) { return k; }, svg = function (k) { return k; };
+        """
+
+    def test_prazno_stanje_domov_ne_ob_samodejnih_seznamih(self):
+        """Pregled 14. 10. 2026: »Tvoja knjiznica se zacne tukaj« je bil viden skupaj s samodejnimi seznami."""
+        koda = self._dom() + _funkcija(self.js, "izbiraJunaka") + _funkcija(self.js, "narisiMediaDomov") + """
+        var POL = { nalozeno: "domov", police: [] }, S = { samodejni: [{ id: "sam:odkrij" }] };
+        var izid = []; narisiMediaDomov(); izid.push($("mediaPrazno").hidden);
+        S.samodejni = []; narisiMediaDomov(); izid.push($("mediaPrazno").hidden);
+        POL.nalozeno = ""; narisiMediaDomov(); izid.push($("mediaPrazno").hidden);
+        console.log(JSON.stringify(izid));"""
+        self.assertEqual(_node(koda), [True, False, True])
+        # Ko pridejo samodejni seznami, se prazno stanje Domov narise znova.
+        self.assertIn('if (S.mediaFilter === "domov" && typeof POL !== "undefined") narisiMediaDomov();',
+                      _funkcija(self.js, "narisiSamodejne"))
+
+    def test_police_prejsnjega_zavihka_niso_vidne_po_menjavi(self):
+        """Pregled 14. 10. 2026: police Filmov so ostale na Domov, dokler odgovor (TMDB) ni prisel."""
+        koda = self._dom() + _funkcija(self.js, "narisiPolice") + """
+        var narisano = 0; function narisiMediaDomov() { narisano++; }
+        var POL = { nalozeno: "filmi", police: [{ id: "nadaljuj", vnosi: [{ kljuc: "id:a" }] }], podpis: "" };
+        var S = { mediaFilter: "domov" };
+        narisiPolice();
+        console.log(JSON.stringify([$("mediaPolice").hidden, $("mediaPolice").innerHTML, narisano]));"""
+        self.assertEqual(_node(koda), [True, "", 1])
+
+    def test_datoteka_ali_postaja_ustavi_vrsto_kataloga(self):
+        """Pregled 14. 10. 2026: po skladbi iz kataloga in filmu z »Nadaljuj« je spodnja vrstica kazala staro skladbo,
+        »Naslednja« pa je film zamenjala z naslednjo skladbo kataloga."""
+        koda = """
+        var klici = [];
+        var klic = function (m, a) { klici.push(m + ":" + JSON.stringify(a)); return Promise.resolve(true); };
+        var obvesti = function () {}, t = function (k) { return k; }, preklicano = 0;
+        function prekliciNaslednjo() { preklicano++; }
+        function skrijKatTrak() { kat.aktivni = null; kat.igra = false; }
+        function skladbaKataloga() { return kat.aktivni && kat.aktivni.zvok ? kat.aktivni : null; }
+        var kat = { aktivni: { id: "k1", zvok: true, okno_youtube: true }, igra: true, vrsta: ["k1", "k2"], zahtevaPredvajanja: 4 };
+        """ + "".join(_funkcija(self.js, f) for f in ("opustiKatVrsto", "odpriLokalno", "odpriTok")) + """
+        var izid = [];
+        odpriLokalno("/m/slika.jpg", "slike");                                 // slika: glasba igra naprej
+        izid.push(!!skladbaKataloga(), kat.vrsta.length);
+        odpriLokalno("/m/film.mkv");
+        izid.push(skladbaKataloga(), kat.vrsta.length, kat.zahtevaPredvajanja, preklicano);
+        kat.aktivni = { id: "k3", zvok: true }; kat.vrsta = ["k3", "k4"];
+        odpriTok("https://radio.test/tok");
+        izid.push(skladbaKataloga(), kat.vrsta.length, kat.zahtevaPredvajanja);
+        setTimeout(function () { izid.push(klici); console.log(JSON.stringify(izid)); }, 0);"""
+        izid = _node(koda)
+        self.assertEqual(izid[:9], [True, 2, None, 0, 5, 1, None, 0, 6])
+        self.assertIn('mediaYtUkaz:["zapri"]', izid[9])
+        self.assertIn('odpriLokalniMedij:["/m/film.mkv"]', izid[9])
+        self.assertIn('odpriMedijskiTok:["https://radio.test/tok"]', izid[9])
+        # Zadetki iskanja odprejo datoteko in postajo po isti poti (ne mimo nje).
+        self.assertIn("odpriLokalno(v.pot, v.vrsta);", self.js)
+        self.assertIn("odpriTok(v.url);", self.js)
 
     def test_junak_samo_z_resnicnimi_podatki(self):
         priprava = "var t = function (k, z) { return k + (z ? JSON.stringify(z) : ''); };\n" + \
