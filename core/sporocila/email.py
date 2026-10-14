@@ -27,6 +27,11 @@ NAJVEC_BAJTOV = 65536     # iz vsakega pisma prvih 64 KB (besedilo, ne priponke)
 CASOVNA_OMEJITEV = 20
 
 
+def _navedi(mapa: str) -> str:
+    """Ime mape IMAP v narekovajih (presledki, krajevna imena v spremenjenem UTF-7)."""
+    return '"%s"' % mapa.replace("\\", "\\\\").replace('"', '\\"')
+
+
 class NapakaPrijave(RuntimeError):
     """Streznik je zavrnil uporabnisko ime ali geslo."""
 
@@ -183,6 +188,90 @@ class EmailAdapter(Adapter):
             raise NapakaPrijave("Prijava ni uspela") from e
         imap.select("INBOX", readonly=False)
         self._imap = imap
+
+    # --------------------------------------------------------------- osnutki na strezniku (IMAP Drafts)
+    def _locena_povezava(self) -> imaplib.IMAP4_SSL:
+        """Kratka lastna povezava za osnutke: glavna (INBOX) ostane sinhronizaciji, ki tece v drugi niti."""
+        imap = imaplib.IMAP4_SSL(self.imap_streznik, self.imap_vrata,
+                                 ssl_context=ssl.create_default_context(), timeout=CASOVNA_OMEJITEV)
+        geslo = self._skrivnost()
+        try:
+            if _ascii(self.uporabnik, geslo):
+                imap.login(self.uporabnik, geslo)
+            else:
+                imap.authenticate("PLAIN", lambda _izziv: _plain_utf8(self.uporabnik, geslo))
+        except imaplib.IMAP4.error as e:
+            try:
+                imap.logout()
+            except Exception:
+                pass
+            raise NapakaPrijave("Prijava ni uspela") from e
+        return imap
+
+    @staticmethod
+    def _mapa_osnutkov(imap) -> str:
+        """Mapa z oznako \\Drafts (RFC 6154; Gmail: »[Gmail]/Drafts« ali krajevno ime), sicer »Drafts«."""
+        try:
+            status, vrstice = imap.list()
+            for v in vrstice or []:
+                v = v.decode("utf-8", "replace") if isinstance(v, bytes) else str(v)
+                if "\\Drafts" in v:
+                    m = re.search(r'"([^"]*)"\s*$', v) or re.search(r"(\S+)\s*$", v)
+                    if m:
+                        return m.group(1)
+        except Exception:
+            pass
+        return "Drafts"
+
+    def _izbrisi_osnutek(self, imap, mapa: str, message_id: str) -> None:
+        if not message_id:
+            return
+        if imap.select(_navedi(mapa))[0] != "OK":
+            return
+        status, odg = imap.uid("search", None, "HEADER", "Message-ID", message_id)
+        uidi = (odg[0] or b"").split() if status == "OK" and odg else []
+        for uid in uidi:
+            imap.uid("store", uid, "+FLAGS", "(\\Deleted)")
+        if uidi:
+            imap.expunge()
+
+    def shrani_osnutek(self, za: str, zadeva: str, besedilo: str, prejsnji_mid: str = "") -> str:
+        """Osnutek tudi v mapo Osnutki na strezniku (Gmail na telefonu ga vidi in lahko poslje). Vrne Message-ID;
+        prejsnja razlicica istega osnutka se odstrani."""
+        msg = EmailMessage()
+        msg["From"] = self.naslov
+        if za:
+            msg["To"] = za
+        msg["Subject"] = zadeva or ""
+        msg["Message-ID"] = make_msgid(domain=self.naslov.split("@")[-1] or None)
+        msg["Date"] = datetime.now(timezone.utc)
+        msg.set_content(besedilo or "")
+        imap = self._locena_povezava()
+        try:
+            mapa = self._mapa_osnutkov(imap)
+            status, _ = imap.append(_navedi(mapa), "(\\Draft)", imaplib.Time2Internaldate(datetime.now(timezone.utc)),
+                                    msg.as_bytes(policy=policy.SMTP))
+            if status != "OK":
+                raise RuntimeError("Streznik osnutka ni shranil")
+            self._izbrisi_osnutek(imap, mapa, prejsnji_mid)
+        finally:
+            try:
+                imap.logout()
+            except Exception:
+                pass
+        return str(msg["Message-ID"])
+
+    def odstrani_osnutek(self, message_id: str) -> None:
+        if not message_id:
+            return
+        imap = self._locena_povezava()
+        try:
+            self._izbrisi_osnutek(imap, self._mapa_osnutkov(imap), message_id)
+        finally:
+            try:
+                imap.logout()
+            except Exception:
+                pass
 
     def zapri(self) -> None:
         if self._imap is not None:

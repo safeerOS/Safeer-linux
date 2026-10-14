@@ -68,3 +68,58 @@ class NovoSporocilo(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OsnutkiNaStrezniku(unittest.TestCase):
+    """Osnutek je tudi v mapi Osnutki e-postnega racuna (Gmail na telefonu ga vidi; lastnik, 14. 10. 2026)."""
+
+    def _imap(self):
+        imap = MagicMock()
+        imap.list.return_value = ("OK", [b'(\\HasNoChildren \\Drafts) "/" "[Gmail]/Osnutki"',
+                                         b'(\\HasNoChildren) "/" "INBOX"'])
+        imap.append.return_value = ("OK", [b""])
+        imap.select.return_value = ("OK", [b"1"])
+        imap.uid.return_value = ("OK", [b"7"])
+        return imap
+
+    def test_append_v_mapo_drafts_in_zamenjava(self):
+        imap = self._imap()
+        with patch("core.sporocila.email.imaplib.IMAP4_SSL", return_value=imap):
+            a = EmailAdapter("k", "jaz@example.test", "imap.example.test", "smtp.example.test", geslo="skrivno")
+            mid = a.shrani_osnutek("bob@example.test", "Zadeva", "Besedilo", prejsnji_mid="<staro@example.test>")
+        mapa, zastavice, _cas, telo = imap.append.call_args.args
+        self.assertEqual(mapa, '"[Gmail]/Osnutki"')
+        self.assertEqual(zastavice, "(\\Draft)")
+        self.assertIn(b"Subject: Zadeva", telo)
+        self.assertIn(mid.encode(), telo)
+        iskanje = [c.args for c in imap.uid.call_args_list if c.args[0] == "search"][0]
+        self.assertEqual(iskanje[-1], "<staro@example.test>")
+        imap.expunge.assert_called_once()
+        imap.logout.assert_called_once()
+
+    def test_poslan_osnutek_izgine_tudi_s_streznika(self):
+        from core.os_sporocila import SporocilaOS
+        with tempfile.TemporaryDirectory() as d:
+            sp = SporocilaOS(Path(d) / "sporocila.db", zazeni=False)
+            adapter = MagicMock()
+            adapter.shrani_osnutek.return_value = "<o1@example.test>"
+            sp.storitev.adapterji["k"] = adapter
+            o = sp.shrani_osnutek({"kanal_id": "k", "za": "bob@example.test", "zadeva": "z", "besedilo": "b"})[0]
+            self.assertEqual(o["mid"], "<o1@example.test>")
+            sp.shrani_osnutek(dict(o, besedilo="b2"))
+            self.assertEqual(adapter.shrani_osnutek.call_args.args[3], "<o1@example.test>")   # zamenja prejsnjega
+            sp.odstrani_osnutek(o["id"])
+            adapter.odstrani_osnutek.assert_called_once()
+            sp.zapri()
+
+    def test_brez_streznika_ostane_krajevni(self):
+        from core.os_sporocila import SporocilaOS
+        with tempfile.TemporaryDirectory() as d:
+            sp = SporocilaOS(Path(d) / "sporocila.db", zazeni=False)
+            adapter = MagicMock()
+            adapter.shrani_osnutek.side_effect = OSError("ni omrezja")
+            sp.storitev.adapterji["k"] = adapter
+            o = sp.shrani_osnutek({"kanal_id": "k", "za": "bob@example.test", "besedilo": "b"})
+            self.assertEqual(len(o), 1)
+            self.assertEqual(o[0]["mid"], "")
+            sp.zapri()
