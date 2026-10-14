@@ -17,7 +17,7 @@ import weakref
 from html import escape as _escape_html
 from pathlib import Path
 
-from core import adblock, drm, odlozisce_varuh, os_stabilnost, ozadje_strani, safeer_drm, splet_temno
+from core import adblock, drm, odlozisce_varuh, os_stabilnost, ozadje_strani, safeer_drm, splet_prenosi, splet_temno
 from core.config import ConfigManager, SEARCH_ENGINES, normalize_web_url
 from core.doh_proxy import get_doh_proxy, nastavitve_posrednika
 from core.filter_lists import FILTER_ID
@@ -212,6 +212,8 @@ for _j, _b in {
 
 
 for _j, _b in {'sl': {'predpomnilnik': 'Upravitelj predpomnilnika', 'pp_disk': 'Predpomnilnik na disku: {mb} MB', 'pp_pocisti': 'Počisti predpomnilnik (prijave ostanejo)', 'pp_strani': 'Shranjeni podatki strani', 'pp_odstrani': 'Odstrani', 'pp_meja': 'Samodejno počisti predpomnilnik nad {mb} MB', 'pp_iskanje': 'Išči stran …', 'pp_vrste': 'piškotki, shramba, predpomnilnik'}, 'en': {'predpomnilnik': 'Cache manager', 'pp_disk': 'Disk cache: {mb} MB', 'pp_pocisti': 'Clear cache (keeps sign-ins)', 'pp_strani': 'Stored site data', 'pp_odstrani': 'Remove', 'pp_meja': 'Automatically clear cache above {mb} MB', 'pp_iskanje': 'Search site …', 'pp_vrste': 'cookies, storage, cache'}, 'de': {'predpomnilnik': 'Cache-Verwaltung', 'pp_disk': 'Festplatten-Cache: {mb} MB', 'pp_pocisti': 'Cache leeren (Anmeldungen bleiben)', 'pp_strani': 'Gespeicherte Website-Daten', 'pp_odstrani': 'Entfernen', 'pp_meja': 'Cache über {mb} MB automatisch leeren', 'pp_iskanje': 'Website suchen …', 'pp_vrste': 'Cookies, Speicher, Cache'}, 'es': {'predpomnilnik': 'Gestor de caché', 'pp_disk': 'Caché en disco: {mb} MB', 'pp_pocisti': 'Vaciar caché (se mantienen las sesiones)', 'pp_strani': 'Datos guardados de sitios', 'pp_odstrani': 'Eliminar', 'pp_meja': 'Vaciar la caché automáticamente por encima de {mb} MB', 'pp_iskanje': 'Buscar sitio …', 'pp_vrste': 'cookies, almacenamiento, caché'}, 'fr': {'predpomnilnik': 'Gestionnaire de cache', 'pp_disk': 'Cache disque : {mb} Mo', 'pp_pocisti': 'Vider le cache (les connexions restent)', 'pp_strani': 'Données de sites enregistrées', 'pp_odstrani': 'Supprimer', 'pp_meja': 'Vider automatiquement le cache au-delà de {mb} Mo', 'pp_iskanje': 'Rechercher un site …', 'pp_vrste': 'cookies, stockage, cache'}, 'it': {'predpomnilnik': 'Gestione cache', 'pp_disk': 'Cache su disco: {mb} MB', 'pp_pocisti': 'Svuota cache (gli accessi restano)', 'pp_strani': 'Dati dei siti salvati', 'pp_odstrani': 'Rimuovi', 'pp_meja': 'Svuota automaticamente la cache oltre {mb} MB', 'pp_iskanje': 'Cerca sito …', 'pp_vrste': 'cookie, archiviazione, cache'}}.items():
+    BESEDILA.setdefault(_j, {}).update(_b)
+for _j, _b in splet_prenosi.BESEDILA.items():   # prenosi: skupaj s Safeer Browserjem
     BESEDILA.setdefault(_j, {}).update(_b)
 
 
@@ -647,6 +649,9 @@ class VdelaniSplet:
         naslov.append(self.vnos)
         naslov.append(self.zvezdica)
         orodja.append(naslov)
+        self.gumb_prenosov = self._gumb("⬇", self._pokazi_prenose, "nav")
+        self.gumb_prenosov.set_visible(False)
+        orodja.append(self.gumb_prenosov)
         self.scit = self._gumb("♢", lambda *_: None, "nav")
         self.scit.set_tooltip_text(self._t("scit"))
         orodja.append(self.scit)
@@ -1825,15 +1830,135 @@ class VdelaniSplet:
                       lambda i: zahteva.allow() if i == 1 else zahteva.deny())
         return True
 
+    # ---------------------------------------------------------------- prenosi (core/splet_prenosi.py)
     def _prenos_zacet(self, _kontekst, prenos):
-        ime = os.path.basename(urllib.parse.urlparse(prenos.get_request().get_uri()).path) or "prenos"
-        cilj = os.path.join(os.path.expanduser("~/Downloads"), ime)
-        os.makedirs(os.path.dirname(cilj), exist_ok=True)
-        # WebKitGTK 6.0: cilj je pot (4.1: URI).
-        je6 = hasattr(self.WebKit2, "NetworkSession")
-        prenos.set_destination(cilj if je6 else self.GLib.filename_to_uri(cilj, None)); self.prenosi.append(cilj)
+        """14. 10. 2026: prej ~/Downloads (na slovenskem namizju je »Prejemi«), ime iz naslova, prepis obstojece
+        datoteke in programi brez potrditve. Zdaj kot Safeer Browser: mapa XDG, ime iz glave, (1), potrditev programa."""
+        prenos.connect("decide-destination", self._prenos_cilj)
 
-    def _pokazi_prenose(self, *_): self._opozorilo(self._t("prenosi"), "\n".join(self.prenosi[-10:]) or "—")
+    def _prenos_cilj(self, prenos, predlagano):
+        uri = ""
+        try:
+            uri = prenos.get_request().get_uri() or ""
+        except Exception:  # noqa: BLE001
+            pass
+        ime = splet_prenosi.ime_prenosa(predlagano, uri)
+        mapa = splet_prenosi.mapa_prenosov(self.GLib)
+        if not splet_prenosi.je_izvrsljiv_prenos(ime):
+            self._prenos_v(prenos, splet_prenosi.edinstvena_pot(mapa, ime))
+            return True
+        # Program ali namestitveni paket: stran ga ne sme podtakniti ob obisku. Prenos caka na odgovor (WebKit:
+        # cilj se lahko nastavi kasneje, ce signal vrne True).
+        def odgovor(i):
+            if i == 1:
+                self._prenos_v(prenos, splet_prenosi.edinstvena_pot(mapa, ime))
+            else:
+                prenos.cancel()
+        self._vprasaj(self._t("pr_program"), self._t("pr_program_opis").format(ime=ime, mapa=mapa),
+                      [self._t("pr_preklici"), self._t("pr_prenesi")], odgovor)
+        return True
+
+    def _prenos_v(self, prenos, pot):
+        je6 = hasattr(self.WebKit2, "NetworkSession")   # WebKitGTK 6.0: cilj je pot (4.1: URI)
+        prenos.set_destination(pot if je6 else self.GLib.filename_to_uri(pot, None))
+        zapis = splet_prenosi.nov_zapis(pot)
+        zapis["prenos"] = prenos
+        self.prenosi.insert(0, zapis)
+        del self.prenosi[50:]
+
+        def napredek(*_):
+            zapis["napredek"] = prenos.get_estimated_progress()
+            self._osvezi_prenose()
+
+        def konec(*_):
+            if zapis["stanje"] == "tece":
+                zapis["stanje"], zapis["napredek"] = "koncan", 1.0
+            zapis.pop("prenos", None)
+            self._osvezi_prenose()
+
+        def napaka(_p, err):
+            preklic = getattr(self.WebKit2, "DownloadError", None)
+            zapis["stanje"] = ("preklican" if preklic is not None and getattr(err, "code", None)
+                               == int(preklic.CANCELLED_BY_USER) else "napaka")
+            self._osvezi_prenose()
+        prenos.connect("notify::estimated-progress", napredek)
+        prenos.connect("failed", napaka)
+        prenos.connect("finished", konec)
+        self._osvezi_prenose()
+
+    def _osvezi_prenose(self):
+        """Gumb prenosov v orodni vrstici: viden samo, ko so prenosi; med prenosom kaze odstotek."""
+        g = getattr(self, "gumb_prenosov", None)
+        if g is None:
+            return
+        tecejo = [z for z in self.prenosi if z["stanje"] == "tece"]
+        g.set_visible(bool(self.prenosi))
+        if tecejo:
+            pct = int(min(float(z.get("napredek") or 0) for z in tecejo) * 100)
+            g.set_label("⬇ %d %%" % pct)
+        else:
+            g.set_label("⬇")
+        g.set_tooltip_text(self._t("prenosi"))
+        okno = getattr(self, "_okno_prenosov", None)
+        if okno is not None:
+            self._napolni_prenose()
+
+    def _pokazi_prenose(self, *_):
+        if getattr(self, "_okno_prenosov", None) is not None:
+            self._okno_prenosov.present(); return
+        Gtk = self.Gtk
+        d, obmocje = self._dialog(self._t("prenosi"), 560, 420, gumbi=[(self._t("pr_zapri"), Gtk.ResponseType.CLOSE)])
+        glava = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        mapa = Gtk.Button(label=self._t("pr_mapa"))
+        mapa.connect("clicked", lambda *_: self._odpri_datoteko(splet_prenosi.mapa_prenosov(self.GLib)))
+        glava.append(mapa)
+        obmocje.append(glava)
+        drsnik = Gtk.ScrolledWindow(vexpand=True)
+        self._seznam_prenosov = Gtk.ListBox()
+        self._seznam_prenosov.set_selection_mode(Gtk.SelectionMode.NONE)
+        drsnik.set_child(self._seznam_prenosov)
+        obmocje.append(drsnik)
+        self._okno_prenosov = d
+        d.connect("destroy", lambda *_: setattr(self, "_okno_prenosov", None))
+        self._napolni_prenose()
+        d.present()
+
+    def _napolni_prenose(self):
+        Gtk, sez = self.Gtk, getattr(self, "_seznam_prenosov", None)
+        if sez is None:
+            return
+        while sez.get_first_child() is not None:
+            sez.remove(sez.get_first_child())
+        if not self.prenosi:
+            sez.append(Gtk.Label(label=self._t("pr_ni"), margin_top=20))
+            return
+        for z in self.prenosi:
+            vrstica = _robovi(Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10), 6)
+            opis = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
+            ime = Gtk.Label(label=z["ime"], xalign=0)
+            ime.set_ellipsize(3)  # Pango.EllipsizeMode.END
+            opis.append(ime)
+            stanje = Gtk.Label(label=z["cas"] + " · " + splet_prenosi.opis_stanja(z, self._t), xalign=0)
+            stanje.add_css_class("dim-label")
+            opis.append(stanje)
+            vrstica.append(opis)
+            if z["stanje"] == "tece" and z.get("prenos") is not None:
+                g = Gtk.Button(label=self._t("pr_preklici"))
+                g.connect("clicked", lambda _g, p=z["prenos"]: p.cancel())
+                vrstica.append(g)
+            elif z["stanje"] == "koncan" and os.path.exists(z["pot"]):
+                g = Gtk.Button(label=self._t("pr_odpri"))
+                g.connect("clicked", lambda _g, p=z["pot"]: self._odpri_datoteko(p))
+                vrstica.append(g)
+            sez.append(vrstica)
+
+    def _odpri_datoteko(self, pot):
+        """Gtk.FileLauncher (GTK 4.10+): v Flatpaku gre prek portala, zunaj prek privzetega programa."""
+        try:
+            self.Gtk.FileLauncher.new(self.Gio.File.new_for_path(pot)).launch(self._okno_za_dialog(), None, None, None)
+        except Exception as napaka:  # noqa: BLE001
+            print("[Splet] odpri prenos:", napaka, flush=True)
+
     def _pokazi_najdi(self): self.najdi_vrstica.set_search_mode(True); self.najdi_vnos.grab_focus()
     def _najdi(self, vnos):
         if self.trenutni(): self.trenutni().get_find_controller().search(vnos.get_text(), 0, 1000)

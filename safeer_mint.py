@@ -203,40 +203,8 @@ def je_lokalni_dokument(url: str) -> bool:
         return False
 
 
-#: Programi in namestitveni paketi: teh brskalnik nikoli ne prenese brez uporabnikove potrditve.
-IZVRSLJIVE_KONCNICE = (".deb", ".rpm", ".apk", ".appimage", ".flatpak", ".flatpakref", ".snap", ".exe",
-                       ".msi", ".msix", ".bat", ".cmd", ".ps1", ".dmg", ".pkg", ".jar", ".run", ".sh",
-                       ".desktop", ".bin")
-
-
-def je_izvrsljiv_prenos(ime: str) -> bool:
-    """Ali je prenesena datoteka program ali namestitveni paket (po koncnici imena)."""
-    return str(ime or "").strip().lower().rstrip(". ").endswith(IZVRSLJIVE_KONCNICE)
-
-
-def varno_ime_datoteke(ime: str, privzeto: str = "prenos_datoteke") -> str:
-    """Iz imena, ki ga predlaga streznik, naredi ime, ki ne more zapustiti mape.
-
-    Streznik predlaga ime v glavi Content-Disposition in mu ne gre zaupati: lahko
-    vsebuje poti (`../../.bashrc`), absolutno pot (`/etc/cron.d/x`) ali obrnjene
-    posevnice. Vzamemo samo zadnji del poti in zavrzemo vse, kar ni ime datoteke.
-    """
-    if not ime:
-        return privzeto
-    ocisceno = ime.replace("\\", "/").replace("\x00", "")
-    ocisceno = ocisceno.split("/")[-1].strip()
-    # Nadzorni znaki v imenu datoteke nimajo kaj poceti.
-    ocisceno = "".join(z for z in ocisceno if ord(z) >= 32)
-    if ocisceno in ("", ".", ".."):
-        return privzeto
-    # Dolga imena nekatere datotecne sisteme zlomijo (meja je 255 bajtov).
-    if len(ocisceno.encode("utf-8")) > 200:
-        koren, konec = os.path.splitext(ocisceno)
-        konec = konec[:20]
-        while len((koren + konec).encode("utf-8")) > 200 and koren:
-            koren = koren[:-1]
-        ocisceno = (koren + konec) or privzeto
-    return ocisceno
+# Pravila prenosov (ime, programi) so skupna s Spletom na GTK4 (14. 10. 2026).
+from core.splet_prenosi import IZVRSLJIVE_KONCNICE, je_izvrsljiv_prenos, varno_ime_datoteke  # noqa: E402,F401
 
 
 def is_safe_web_url(url: str) -> bool:
