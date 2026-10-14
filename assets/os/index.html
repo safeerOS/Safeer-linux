@@ -159,58 +159,55 @@
       <section class="razdelek" id="r-media">
         <div class="media-glava">
           <div><span class="media-kicker">SAFEER OS / MEDIA</span><h1 data-t="mediji"></h1><p data-t="medijiOpis"></p></div>
+          <!-- Lastnik, 14. 10. 2026: en glavni gumb »Dodaj« z menijem vseh nacinov dodajanja; ob njem le dve kompaktni
+               dejanji (nadaljevanje z druge naprave, nacin za kavc). Prej je bilo v glavi osem enakovrednih gumbov. -->
           <div class="media-glava-dejanja">
-            <button class="gumb glavni" id="medijiMapa"><svg data-ikona="mapa"></svg><span data-t="dodajMapoMedijev"></span></button>
-            <button class="gumb" id="medijiLokalno"><svg data-ikona="datoteka"></svg><span data-t="dodajLokalno"></span></button>
-            <button class="gumb" id="medijiTok"><svg data-ikona="radio"></svg><span data-t="dodajTok"></span></button>
-            <button class="gumb" id="medijiDisk" hidden><svg data-ikona="video"></svg><span id="medijiDiskIme" data-t="predvajajDisk"></span></button>
-            <button class="gumb" id="medijiPredaja"><svg data-ikona="naprave"></svg><span data-t="mediaPredaja"></span></button>
-            <button class="gumb" id="medijiMagnet"><svg data-ikona="povezava"></svg><span data-t="magnet"></span></button>
-            <!-- Lastnik, 11. 10. 2026: hiter dostop do dodatkov Stremio (stran z dodatki; Install doda dodatek sem). -->
-            <button class="gumb" id="medijiStremio"><svg data-ikona="splet"></svg><span data-t="katPoisciDodatke"></span></button>
-            <button class="gumb" id="medijiDodaj"><svg data-ikona="plus"></svg><span data-t="dodajMedijskiVir"></span></button>
-            <button class="gumb" id="medijiKavc" aria-pressed="false"><svg data-ikona="video"></svg><span data-t="kavcVklop"></span></button>
+            <button class="gumb" id="medijiDisk" type="button" hidden><svg data-ikona="disk"></svg><span id="medijiDiskIme" data-t="predvajajDisk"></span></button>
+            <button class="media-ikona-gumb" id="medijiPredaja" type="button" data-naslov="mediaPredaja"><svg data-ikona="naprave"></svg></button>
+            <button class="media-ikona-gumb" id="medijiKavc" type="button" aria-pressed="false"><svg data-ikona="daljinec"></svg></button>
+            <div class="media-dodaj">
+              <button class="gumb glavni" id="medijiDodajMeniGumb" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="medijiDodajMeni"><svg data-ikona="plus"></svg><span data-t="mediaDodaj"></span></button>
+              <div class="media-dodaj-meni" id="medijiDodajMeni" role="menu" hidden>
+                <button role="menuitem" type="button" id="medijiMapa" tabindex="-1"><svg data-ikona="mapa"></svg><span><b data-t="dodajMapoMedijev"></b><small data-t="mediaDodajMapaOpis"></small></span></button>
+                <button role="menuitem" type="button" id="medijiLokalno" tabindex="-1"><svg data-ikona="datoteka"></svg><span><b data-t="dodajLokalno"></b><small data-t="mediaDodajLokalnoOpis"></small></span></button>
+                <button role="menuitem" type="button" id="medijiTok" tabindex="-1"><svg data-ikona="radio"></svg><span><b data-t="dodajTok"></b><small data-t="mediaDodajTokOpis"></small></span></button>
+                <button role="menuitem" type="button" id="medijiDodaj" tabindex="-1"><svg data-ikona="splet"></svg><span><b data-t="dodajMedijskiVir"></b><small data-t="mediaDodajSpletOpis"></small></span></button>
+                <button role="menuitem" type="button" id="medijiMagnet" tabindex="-1"><svg data-ikona="povezava"></svg><span><b data-t="magnet"></b><small data-t="mediaDodajMagnetOpis"></small></span></button>
+                <button role="menuitem" type="button" id="medijiDodatki" tabindex="-1"><svg data-ikona="program"></svg><span><b data-t="katDodatki"></b><small data-t="mediaDodajDodatkiOpis"></small></span></button>
+              </div>
+            </div>
           </div>
         </div>
         <div class="media-orodna">
           <div class="media-kategorije" id="mediaKategorije" role="tablist" aria-label="Media"></div>
           <label class="razdelek-iskanje media-iskalnik"><svg data-ikona="isci"></svg><input id="mediaIskanje" type="search" autocomplete="off" data-ph="isciMedije"></label>
         </div>
-        <div class="media-hero">
-          <div class="media-hero-vsebina">
-            <span class="media-kicker" data-t="mediaMojaZbirka"></span>
-            <h2 id="mediaHeroNaslov" data-t="mediaHeroNaslov"></h2>
-            <p id="mediaHeroOpis" data-t="mediaHeroOpis"></p>
-            <button class="gumb glavni" id="mediaHeroDejanje"><svg data-ikona="plus"></svg><span data-t="dodajMapoMedijev"></span></button>
-          </div>
-          <div class="media-hero-grafika" aria-hidden="true"><span class="media-orbita a"></span><span class="media-orbita b"></span><span class="media-orbita c"></span><span class="media-znak">♫</span></div>
-        </div>
         <div class="media-postavitev">
           <div class="media-glavni">
             <div class="media-naslov-vrstice"><div><span class="media-kicker" data-t="mediaLokalno"></span><h2 id="mediaNaslovZbirke" data-t="mediaTvojaZbirka"></h2></div><div class="media-knjiznica-dejanja"><span class="media-stevec" id="mediaStevec"></span><button class="media-osvezi" id="mediaNapraveGumb" type="button" data-naslov="mediaNaprave" aria-label="Devices"><svg data-ikona="naprave"></svg></button><button class="media-osvezi" id="mediaMapeGumb" type="button" data-naslov="mediaMape" aria-label="Folders"><svg data-ikona="mapa"></svg></button><button class="media-osvezi" id="mediaOsvezi" type="button" data-naslov="mediaOsvezi" aria-label="Refresh library" disabled><svg data-ikona="ponovno"></svg></button></div></div>
             <div class="media-knjiznica" id="mediaMreza"></div>
             <div class="media-prazno" id="mediaPrazno" hidden>
-              <div class="media-prazno-ikona"><svg data-ikona="glasba"></svg></div>
+              <div class="media-prazno-ikona" id="mediaPraznoZnak"><svg data-ikona="glasba"></svg></div>
               <b id="mediaPraznoNaslov" data-t="mediaPraznoNaslov"></b><span id="mediaPraznoOpis" data-t="mediaPraznoOpis"></span>
-              <button class="gumb" id="medijiDodajPrazno"><svg data-ikona="mapa"></svg><span data-t="dodajMapoMedijev"></span></button>
+              <button class="gumb glavni" id="medijiDodajPrazno" type="button"><svg data-ikona="mapa"></svg><span data-t="dodajMapoMedijev"></span></button>
             </div>
             <button class="gumb media-vec" id="mediaVec" data-t="mediaNaloziVec" hidden></button>
             <!-- KATALOG: filmi, serije, glasba, radio, TV v živo, seznami predvajanja in dodatki (isto jedro kot Windows). -->
             <div class="kat" id="katalog" hidden>
+              <!-- Glava kataloga: naslov s stevilom vsebin, nato vse izbire na enem mestu - razvrstitev, jezik vsebine (edino
+                   mesto za jezik) in viri. Dodajanje dodatkov in virov je v meniju »Dodaj« v glavi (lastnik, 14. 10. 2026). -->
               <div class="media-naslov-vrstice kat-glava">
-                <div><span class="media-kicker" data-t="katKicker"></span><h2 id="katNaslov"></h2></div>
+                <div class="kat-naslov"><h2 id="katNaslov"></h2><span class="kat-povzetek" id="mediaPovzetek" aria-live="polite"></span></div>
                 <div class="kat-orodja">
                   <label class="kat-razvrsti"><span data-t="katRazvrsti"></span><select id="mediaRazvrsti"></select></label>
+                  <label class="kat-jezik" id="mediaJezikPolje" hidden><select id="mediaJezik"></select></label>
                   <div class="kat-filter-viri">
                     <button class="gumb" id="mediaViriFilterGumb" type="button" aria-expanded="false" aria-controls="mediaViriFilter"></button>
                     <div class="kat-viri-filter" id="mediaViriFilter" hidden>
                       <div class="kat-viri-filter-seznam" id="mediaViriFilterSeznam"></div>
-                      <h4 class="kat-viri-filter-naslov" data-t="katJezikiNaslov"></h4>
-                      <div class="kat-viri-filter-seznam" id="mediaJezikiFilterSeznam"></div>
                       <div class="kat-viri-filter-noga"><small data-t="katViriZacasno"></small><button class="gumb" id="mediaViriFilterPonastavi" type="button" data-t="katVklopiVse"></button></div>
                     </div>
                   </div>
-                  <button class="gumb" id="katDodatki" type="button"><svg data-ikona="plus"></svg><span data-t="katDodatki"></span></button>
                 </div>
               </div>
               <div class="kat-trak" id="mediaPredvajalnik" hidden>
@@ -224,18 +221,15 @@
                   <button class="gumb-ikona" id="mediaZapri" type="button" data-naslov="katUstavi"><svg data-ikona="x"></svg></button>
                 </div>
               </div>
-              <div class="kat-zanri-vrstica">
-                <label class="kat-jezik" id="mediaJezikPolje" hidden><select id="mediaJezik"></select></label>
-                <div class="kat-zanri" id="mediaZanri" hidden></div>
-              </div>
+              <div class="kat-zanri" id="mediaZanri" role="group" hidden></div>
               <div class="kat-seznami" id="mediaSeznami" hidden></div>
               <!-- Glasba s tega racunalnika je del kataloga Glasba (lastnik, 11. 10. 2026), ne svoj razdelek nad njim. -->
               <div class="kat-lokalna-glasba" id="katLokalnaGlasba" hidden></div>
               <div class="kat-knjiznica" id="mediaKnjiznica" hidden></div>
-              <div class="kat-povzetek" id="mediaPovzetek"></div>
               <div class="kat-katalog" id="katMreza"></div>
-              <div class="kat-stranjevanje" id="mediaStranjevanje"></div>
-              <p class="drobno kat-prazno" id="katPrazno" hidden></p>
+              <!-- Ob koncu mreze se sama nalozi naslednja stran (kot v predvajalnikih Plex in Spotify), brez gumbov za strani. -->
+              <div class="kat-nalaganje" id="katNalaganje" hidden><span class="kat-vrtavka" aria-hidden="true"></span><span id="katNalaganjeBesedilo"></span><button class="gumb" id="katNalaganjeZnova" type="button" data-t="katPoskusiZnova" hidden></button></div>
+              <div class="kat-prazno" id="katPrazno" hidden><p class="drobno" id="katPraznoBesedilo"></p><button class="gumb" id="katPraznoDejanje" type="button" hidden></button></div>
             </div>
             <div class="media-naslov-vrstice media-tokovi-glava" id="mediaTokoviGlava" hidden><div><span class="media-kicker" data-t="mediaShranjeniTokovi"></span><h2 data-t="mediaTvojePostaje"></h2></div></div>
             <div class="media-viri" id="mediaTokovi" hidden></div>
@@ -244,8 +238,9 @@
             <div class="media-naslov-vrstice media-odkrij-glava"><div><span class="media-kicker" data-t="mediaSvet"></span><h2 data-t="mediaOdkrij"></h2></div></div>
             <div class="media-odkrij" id="mediaOdkrij"></div>
           </div>
-          <aside class="media-desni">
-            <div class="media-sedaj"><span class="media-kicker" data-t="mediaSedaj"></span><div class="media-sedaj-art" id="mediaSedajArt">♫</div><h3 id="mediaSedajNaslov" data-t="mediaNicesar"></h3><p id="mediaSedajPod" data-t="mediaSedajNamig"></p><button class="gumb" id="mediaOdpriOkno" data-t="mediaOdpriVideo" hidden></button></div>
+          <aside class="media-desni" id="mediaDesni">
+            <!-- Stolpec je viden samo, ko se kaj predvaja (lastnik, 14. 10. 2026); sicer ima katalog vso sirino. -->
+            <div class="media-sedaj"><span class="media-kicker" data-t="mediaSedaj"></span><div class="media-sedaj-vrstica"><div class="media-sedaj-art" id="mediaSedajArt" aria-hidden="true">♫</div><div class="media-sedaj-besedilo"><h3 id="mediaSedajNaslov" data-t="mediaNicesar"></h3><p id="mediaSedajPod" data-t="mediaSedajNamig"></p></div></div><button class="gumb" id="mediaOdpriOkno" data-t="mediaOdpriVideo" hidden></button></div>
             <div class="media-cakalna"><div class="media-cakalna-glava"><h3 data-t="mediaCakalna"></h3><span id="mediaCakalnaStevec"></span></div><div id="mediaVrsta" class="media-vrsta"></div></div>
           </aside>
         </div>

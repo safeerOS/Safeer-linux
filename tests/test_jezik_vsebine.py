@@ -295,6 +295,9 @@ class MostInPaket(unittest.TestCase):
 
             def preveri_razpolozljivost(self, vnosi, ob):
                 pass
+
+            def zvrsti_filtrirajo(self, kind, izklopljeni=()):
+                return False
         with tempfile.TemporaryDirectory() as td:
             katalog = os_katalog.Katalog(td, lambda *a: None, lambda f: f(), lambda *a, **k: True, lambda u: True,
                                          lambda a, b: True, lambda u: True)
@@ -323,12 +326,15 @@ class Vmesnik(unittest.TestCase):
         seznam = re.search(r"var KAT_JEZIKI = \[(.*?)\];", self.js, re.S).group(1)
         self.assertEqual(tuple(re.findall(r'"([a-z]{2})"', seznam)), izvirni_jezik.KODE)
 
-    def test_izbira_stoji_pred_zvrstmi(self):
-        vrstica = self.html.split('<div class="kat-zanri-vrstica">', 1)[1].split('<div class="kat-seznami"', 1)[0]
-        self.assertLess(vrstica.index('id="mediaJezik"'), vrstica.index('id="mediaZanri"'))
-        self.assertIn('<label class="kat-jezik" id="mediaJezikPolje" hidden>', vrstica)
-        css = _beri("assets", "os", "katalog.css")
-        self.assertIn(".kat-zanri-vrstica { display:flex", css)
+    def test_izbira_je_v_glavi_kataloga(self):
+        # 14. 10. 2026: izbira jezika je v glavi kataloga ob razvrstitvi in virih (edino mesto za jezik), zvrsti
+        # imajo svojo vrstico pod njo. Prej je bila pred zvrstmi, izklop jezikov pa se v plosci »Viri in jeziki«.
+        orodja = self.html.split('<div class="kat-orodja">', 1)[1].split('<div class="kat-trak"', 1)[0]
+        self.assertLess(orodja.index('id="mediaRazvrsti"'), orodja.index('id="mediaJezik"'))
+        self.assertLess(orodja.index('id="mediaJezik"'), orodja.index('id="mediaViriFilterGumb"'))
+        self.assertIn('<label class="kat-jezik" id="mediaJezikPolje" hidden>', orodja)
+        self.assertNotIn("mediaJezikiFilterSeznam", self.html)
+        self.assertNotIn("kat-zanri-vrstica", self.html)
 
     def test_kje_izbira_velja(self):
         velja = self.js.split("function jezikVelja(filter) {", 1)[1].split("}", 1)[0]
@@ -340,11 +346,13 @@ class Vmesnik(unittest.TestCase):
         self.assertIn('function izbranJezik() { return !kat.seznam && jezikVelja(kat.filter) ? (kat.jezikVsebine || "") : ""; }', self.js)
 
     def test_katalog_dobi_izbrani_jezik(self):
-        self.assertIn("Object.keys(kat.izklopljeniJeziki), izbranJezik()])", self.js)
+        # Jezik vsebine izbira samo izbirnik (brez seznama izklopljenih jezikov): jedru gre prazen seznam.
+        self.assertIn("Object.keys(kat.izklopljeni), false,\n                          [], izbranJezik()])", self.js)
+        self.assertNotIn("izklopljeniJeziki", self.js)
         izbira = self.js.split('ob("mediaJezik", "change", function () {', 1)[1].split("});", 1)[0]
         self.assertIn("kat.jezikVsebine = this.value; kat.page = 1;", izbira)
         # Kartice prejsnjega jezika takoj izginejo, katalog se nalozi znova.
-        self.assertIn("kat.katalog = []; kat.nalozen = false;", izbira)
+        self.assertIn("kat.katalog = []; kat.strani = []; kat.nalozen = false;", izbira)
         self.assertIn("naloziKatalog();", izbira)
 
     def test_vrstni_red_in_imena_jezikov(self):

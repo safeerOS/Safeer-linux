@@ -2871,6 +2871,20 @@ class MediaCenter:
             self._save(data)
         return {"ok": True, "pot": normalized}
 
+    def zvrsti_filtrirajo(self, kind: str, izklopljeni: Iterable[str] = ()) -> bool:
+        """Ali izbira zvrsti pri tej vrsti res spremeni katalog (lastnik, 14. 10. 2026: gumb zvrsti, ki nicesar ne
+        filtrira, zmede). Glasba in radio imata svoje zvrsti, TV v zivo drzave; filmi in serije samo prek TMDB, torej
+        ce je dodan vsaj en ponudnik za vgradno predvajanje in ga uporabnik ni zacasno izklopil (enako kot catalog)."""
+        if kind in ("glasba", "radio", "tv-v-zivo"):
+            return True
+        if kind not in ("film", "serija"):
+            return False
+        with self._lock:
+            data = self._load()
+        embed_ids = {str(provider.get("id") or host) for provider, _parsed, host in self._embed_viri(data)}
+        izklopljeni = {str(x) for x in (izklopljeni or []) if x}
+        return bool(embed_ids) and not embed_ids <= izklopljeni
+
     def _ima_embed_vir(self, data: Optional[dict] = None) -> bool:
         configured = data if isinstance(data, dict) else self._load()
         return bool(self._embed_viri(configured))

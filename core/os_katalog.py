@@ -355,6 +355,8 @@ class Katalog:
             rezultat = mc.brez_nerazpolozljivih(rezultat)
             if isinstance(rezultat, dict):
                 mc.preveri_razpolozljivost(rezultat.get("vnosi"), lambda idji: self.dogodek("mediaNiNaVoljo", {"idji": idji}))
+                # Stran pokaze gumbe zvrsti samo, kadar izbira zvrsti katalog res filtrira.
+                rezultat = dict(rezultat, zvrsti=mc.zvrsti_filtrirajo(self._niz(a, 1, "vse"), izklopljeni))
             return rezultat
 
         return prikazi(mc.catalog_hitro(

@@ -40,7 +40,7 @@
   }
   // Odprto okno (sloj, meni, podrobnosti naslova) ujame izbor: s puscicami ne pridemo na stran pod njim.
   function obmocje() {
-    var sloji = Array.prototype.filter.call(document.querySelectorAll(".sloj.viden, [role=dialog]:not([hidden])"), viden);
+    var sloji = Array.prototype.filter.call(document.querySelectorAll(".sloj.viden, [role=dialog]:not([hidden]), [role=menu]:not([hidden])"), viden);
     if (sloji.length) return sloji[sloji.length - 1];
     var p = document.getElementById("mediaPodrobnosti");
     if (p && !p.hidden && viden(p)) return p;
@@ -203,12 +203,13 @@
 
   // ------------------------------------------------------------------ nacin za kavc
   function kavc() { return html.classList.contains("kavc"); }
+  // Gumb je ikona (lastnik, 14. 10. 2026): stanje pove aria-pressed, namig pove, kaj klik naredi.
   function napisGumba(vklop) {
     var g = document.getElementById("medijiKavc");
     if (!g) return;
     g.setAttribute("aria-pressed", vklop ? "true" : "false");
-    var napis = g.querySelector("span");
-    if (napis) napis.textContent = besedilo(vklop ? "kavcIzklop" : "kavcVklop");
+    g.setAttribute("aria-label", besedilo("kavcVklop"));
+    g.title = besedilo(vklop ? "kavcIzklop" : "kavcVklop");
   }
   function nastaviKavc(vklop) {
     vklop = !!vklop;
@@ -233,6 +234,7 @@
     // Safeer Player se odpre v nacinu, v katerem ga je uporabnik zapustil.
     if (shranjeno === "1" && PREDVAJALNIK) nastaviKavc(true); else napisGumba(false);
   }
-  window.SafeerKavc = { premakni: premakni, nazaj: nazaj, nastavi: nastaviKavc, vklopljen: kavc };
+  window.SafeerKavc = { premakni: premakni, nazaj: nazaj, nastavi: nastaviKavc, vklopljen: kavc,
+                       napis: function () { napisGumba(kavc()); } };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", zacni); else zacni();
 })();

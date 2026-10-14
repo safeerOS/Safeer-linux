@@ -372,5 +372,6 @@ def test_medijski_center_brez_zavihka_vse():
               encoding="utf-8").read()
     kat = js.split("var MEDIA_KATEGORIJE = [", 1)[1].split("];", 1)[0]
     assert '"vse"' not in kat and '["glasba", "glasba"]' in kat
-    assert 'if (filter === "film" || filter === "serija") return "film";' in js
+    # Filmi in serije imajo vsak svoje zvrsti (TMDB ima za serije druge stevilke), 14. 10. 2026.
+    assert 'if (filter === "film" || filter === "serija") return filter;' in js
     assert "zadnjaMedijskaKategorija()" in js

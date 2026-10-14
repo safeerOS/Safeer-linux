@@ -7,7 +7,6 @@
 /* Brez krajevnih vsebin v izbrani kategoriji gre katalog pred prazno knjiznico; z vsebino kataloga uvodne plosce ni. */
 .media-glavni { display: flex; flex-direction: column; }
 #r-media.brez-krajevnega .kat { order: -1; }
-#r-media.ima-katalog .media-hero { display: none; }
 #r-media.ima-katalog.brez-krajevnega .media-prazno { display: none; }
 #r-media.ima-katalog.brez-krajevnega #mediaMreza, #r-media.ima-katalog.brez-krajevnega #mediaVec { display: none; }
 .kat-glava { align-items: flex-end; gap: 14px; flex-wrap: wrap; }
@@ -55,9 +54,7 @@
 .kat-napaka.kat-opozorilo { border-color:rgba(138, 199, 255, .35);background:rgba(138, 199, 255, .08);color:var(--besedilo);font-weight:550 }
 /* Zvrsti se prelomijo v vec vrstic: nicesar v medijskem centru ni treba pomikati v desno. */
 .kat-zanri { display:flex;flex-wrap:wrap;gap:8px;padding:8px 0 5px }
-/* Izbira jezika vsebine stoji pred zvrstmi (pri Videu, kjer zvrsti ni, sama). */
-.kat-zanri-vrstica { display:flex;align-items:flex-start;gap:10px;min-width:0 }
-.kat-zanri-vrstica .kat-zanri { flex:1 1 auto;min-width:0 }
+/* Izbira jezika vsebine je v glavi kataloga ob razvrstitvi in virih (edino mesto za jezik). */
 .kat-jezik { flex:none;padding:8px 0 5px }
 .kat-jezik select { height:38px;max-width:240px;padding:0 12px;border:1px solid var(--rob);border-radius:999px;background:var(--vnos);color:var(--besedilo);font-weight:650 }
 .kat-jezik select:focus { outline:0;border-color:var(--zelena) }
@@ -118,10 +115,6 @@
 .kat-kje-gledati-vira { margin:12px 0 0;color:var(--medlo);font-size:12px }
 .kat-kartica { transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease }
 .kat-kartica:focus-visible { box-shadow:0 0 0 3px rgba(138, 199, 255, .24),0 16px 34px rgba(0,0,0,.32) }
-.kat-stranjevanje { display: flex; align-items: center; justify-content: center; gap: 16px; margin: 28px 0 16px; padding: 16px; }
-.kat-stranjevanje .stran-info { font-weight: 600; font-size: 15px; color: var(--zelena); padding: 6px 16px; border-radius: 999px; background: rgba(138, 199, 255, 0.1); border: 1px solid rgba(138, 199, 255, 0.3); }
-.kat-stranjevanje button { min-height: 42px; padding: 0 20px; border-radius: 12px; }
-.kat-stranjevanje button:disabled { opacity: 0.4; cursor: not-allowed; }
 .kat-skupina { grid-column: 1 / -1; margin: 18px 0 2px; color: var(--medlo); font-size: 15px; }
 .kat-razvrsti { display:flex;align-items:center;gap:8px;color:var(--medlo);font-size:13px }
 .kat-razvrsti select { height:42px;padding:0 12px;color:var(--besedilo);background:var(--vnos);border:1px solid var(--rob);border-radius:11px }
@@ -138,7 +131,6 @@
 .kat-viri-filter-seznam.onemogoceno { opacity:.45;pointer-events:none }
 .kat-viri-filter-noga { display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;padding-top:10px;border-top:1px solid var(--rob) }
 .kat-viri-filter-noga small { color:var(--medlo);font-size:12px }
-.kat-viri-filter-naslov { margin:12px 6px 4px;padding-top:10px;border-top:1px solid var(--rob);color:var(--medlo);font-size:12px;text-transform:uppercase;letter-spacing:.04em }
 .kat-seznami { margin: 14px 0 4px; }
 .kat-seznami h3 { margin: 0 0 10px; font-size: 16px; }
 .kat-seznami-vrsta { display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch; }
@@ -199,3 +191,38 @@
   background: rgba(138, 199, 255, .08); border: 1px solid rgba(138, 199, 255, .25); }
 .kat-stremio-pot .gumb { flex: none; }
 .kat-stremio-pot p { margin: 0; }
+
+/* ---- 14. 10. 2026: glava kataloga z vsemi izbirami, zvrsti v svoji vrstici, plakati enake velikosti,
+   samodejno nalaganje naslednje strani in prazno stanje z enim dejanjem. */
+.kat-naslov { display: flex; align-items: baseline; gap: 12px; min-width: 0; flex-wrap: wrap; }
+.kat-naslov .kat-povzetek { min-height: 0; margin: 0; font-size: 14px; color: var(--medlo); }
+.kat-glava .kat-orodja { gap: 8px; }
+.kat-orodja .kat-jezik { padding: 0; }
+.kat-orodja .kat-jezik select, .kat-orodja .kat-razvrsti select, .kat-filter-viri > .gumb { height: 42px; border-radius: 11px; font-size: 14px; }
+.kat-orodja .kat-jezik select { padding: 0 12px; font-weight: 500; }
+.kat-filter-viri > .gumb { padding: 0 14px; }
+.kat-zanri { padding: 0 0 16px; }
+.kat-zanri button { padding: 8px 16px; font-size: 14px; }
+.kat-zanri button.izbran { box-shadow: none; }
+.kat-katalog { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 16px; }
+.kat-kartica { min-height: 0; display: flex; flex-direction: column; }
+.kat-kartica img, .kat-kartica .kat-brez-slike { height: auto; aspect-ratio: 2 / 3; }
+/* Glasba in radio nimata plakatov: kvadrat namesto visokega praznega okvirja. */
+#r-media .kat-katalog .kat-brez-slike { aspect-ratio: 1 / 1; background: var(--media-povrsina); }
+.kat-kartica .kat-podatki { flex: 1; padding: 10px 12px 12px; }
+/* Naslov v najvec dveh vrsticah (prej ena vrstica s tremi pikami ze pri kratkih naslovih). */
+.kat-kartica b { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  line-height: 1.3; min-height: 2.6em; font-size: 15px; overflow-wrap: anywhere; }
+.kat-kartica .kat-meta { text-transform: none; font-size: 13px; margin-top: 4px; }
+.kat-kartica .kat-meta span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kat-skupina { margin: 16px 0 0; font-size: 17px; font-weight: 600; color: var(--besedilo); }
+.kat-nalaganje { display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 64px; margin: 16px 0; color: var(--medlo); font-size: 14px; }
+.kat-nalaganje[hidden] { display: none; }
+.kat-vrtavka { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--rob); border-top-color: var(--zelena); }
+.kat-nalaganje.napaka .kat-vrtavka { display: none; }
+@media (prefers-reduced-motion: no-preference) { .kat-vrtavka { animation: kat-vrti .8s linear infinite; } }
+@keyframes kat-vrti { to { transform: rotate(360deg); } }
+.kat-prazno { display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 16px 0; padding: 40px 24px; text-align: center;
+  border: 1px solid var(--rob); border-radius: 16px; background: var(--media-povrsina); }
+.kat-prazno p { max-width: 52ch; font-size: 16px; }
+html.kavc .kat-katalog { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
