@@ -51,7 +51,10 @@ Item {
         if (v.prosojnost !== undefined) koren.prosojnost = v.prosojnost
     }
     readonly property var besedila: ({
-        sl: { dockDodaj: "Dodaj v dock", dockOdstrani: "Odstrani iz docka", odpriZ: "Odpri z …", privzetProgram: "privzeto", posljiNaNapravo: "Pošlji na napravo …",
+        sl: { pretvoriV: "Pretvori v …", ptdPretvarjam: "Pretvarjam »{ime}« v {cilj} …", ptdKoncano: "Shranjeno ob izvirniku kot »{izhod}«.",
+              ptdNapaka: "Pretvorba ni uspela.", ptdNiMogoce: "Te datoteke ni mogoče pretvoriti.",
+              ptdNiOrodja: "Za to vrsto datotek manjka program: {orodje}.",
+              dockDodaj: "Dodaj v dock", dockOdstrani: "Odstrani iz docka", odpriZ: "Odpri z …", privzetProgram: "privzeto", posljiNaNapravo: "Pošlji na napravo …",
               posNiNaprav: "V Safeer Linku ni naprave, ki bi sprejela datoteko.", posPosiljam: "Pošiljam napravi {naprava}: {ime} …",
               posPoslano: "Poslano napravi {naprava}: {ime}", posNapaka: "Pošiljanje napravi {naprava} ni uspelo.",
               sk_pisarna: "Pisarna", sk_ustvarjanje: "Ustvarjanje", sk_mediji: "Mediji", sk_splet: "Splet", sk_igre: "Igre",
@@ -80,7 +83,10 @@ Item {
               ozadjeWindows: "Ozadje Windows", lastnaSlika: "Lastna slika …", zameglitevNapis: "Zameglitev plošč",
               prosojnostNapis: "Prekrivnost plošč", privzeto: "Privzeto", zapri: "Zapri",
               temaOpis: "Barve so iz teme sistema (Nastavitve Safeer OS › Videz) – enake v Spletu in Safeer Controlu." },
-        en: { dockDodaj: "Add to dock", dockOdstrani: "Remove from dock", odpriZ: "Open with …", privzetProgram: "default", posljiNaNapravo: "Send to a device …",
+        en: { pretvoriV: "Convert to …", ptdPretvarjam: "Converting “{ime}” to {cilj} …", ptdKoncano: "Saved next to the original as “{izhod}”.",
+              ptdNapaka: "Conversion failed.", ptdNiMogoce: "This file can't be converted.",
+              ptdNiOrodja: "A program for this kind of file is missing: {orodje}.",
+              dockDodaj: "Add to dock", dockOdstrani: "Remove from dock", odpriZ: "Open with …", privzetProgram: "default", posljiNaNapravo: "Send to a device …",
               posNiNaprav: "No device in Safeer Link can receive a file.", posPosiljam: "Sending “{ime}” to {naprava} …",
               posPoslano: "Sent to {naprava}: {ime}", posNapaka: "Sending to {naprava} failed.",
               sk_pisarna: "Office", sk_ustvarjanje: "Creative", sk_mediji: "Media", sk_splet: "Internet", sk_igre: "Games",

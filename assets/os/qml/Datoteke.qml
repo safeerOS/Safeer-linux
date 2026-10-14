@@ -269,6 +269,8 @@ Steklo {
                    onTriggered: izbirnik.odpriZ(meni.e) }
         MeniVnos { text: koren.t("posljiNaNapravo"); visible: panel.lokalnaDatoteka(meni.e); height: visible ? implicitHeight : 0
                    onTriggered: izbirnik.poslji(meni.e) }
+        MeniVnos { text: koren.t("pretvoriV"); visible: panel.lokalnaDatoteka(meni.e); height: visible ? implicitHeight : 0
+                   onTriggered: izbirnik.pretvori(meni.e) }
         MeniVnos { text: koren.t("pokazi"); visible: panel.vir.vrsta === "lokalno" || panel.vir.vrsta === "nedavno"; height: visible ? implicitHeight : 0; onTriggered: koren.klic("pokaziVMapi", [meni.e.pot]) }
         MeniVnos { text: koren.t("preimenuj"); visible: panel.vir.vrsta === "lokalno"; height: visible ? implicitHeight : 0; onTriggered: preimenovanje.zacni(meni.e) }
         MeniVnos { text: koren.t("vKos"); visible: panel.vir.vrsta === "lokalno" || panel.vir.vrsta === "nedavno"; height: visible ? implicitHeight : 0; onTriggered: panel.vKos(meni.e) }
@@ -320,6 +322,23 @@ Steklo {
                 }))
             })
         }
+        // Pretvori v … (core/os_pretvorba_datotek.py): nova datoteka ob izvirniku, izvirnik ostane.
+        function pretvori(e) {
+            var ORODJA = { slika: "ImageMagick", zvok: "ffmpeg", besedilo: "LibreOffice", preglednica: "LibreOffice", predstavitev: "LibreOffice" }
+            koren.klic("pretvorbaMoznosti", [e.pot], function (m) {
+                if (!m || !m.cilji || !m.cilji.length) { koren.obvesti(koren.t("ptdNiMogoce")); return }
+                if (!m.orodje) { koren.obvesti(koren.t("ptdNiOrodja", { orodje: ORODJA[m.skupina] || "?" })); return }
+                pokazi(koren.t("pretvoriV") + " · " + e.ime, m.cilji.map(function (c) {
+                    return { ime: c.toUpperCase(), opis: "", ob: function () {
+                        koren.obvesti(koren.t("ptdPretvarjam", { ime: e.ime, cilj: c.toUpperCase() }))
+                        koren.klic("pretvoriDatoteko", [e.pot, c], function (r) {
+                            if (!r || !r.ok) { koren.obvesti(koren.t("ptdNapaka")); return }
+                            pretvarjanje.id = r.id; pretvarjanje.napak = 0; pretvarjanje.start()
+                        }, function () { koren.obvesti(koren.t("ptdNapaka")) })
+                    } }
+                }))
+            })
+        }
         function poslji(e) {
             koren.klic("napraveZaPosiljanje", [], function (n) {
                 n = (n || []).filter(function (x) { return x && x.id })
@@ -359,6 +378,24 @@ Steklo {
             if (r.stanje === "posiljam") { posiljanje.id = r.id; posiljanje.naprava = naprava; posiljanje.ime = e.ime; posiljanje.napak = 0; posiljanje.start() }
             else koren.obvesti(koren.t("posPoslano", { naprava: naprava.ime, ime: e.ime }))
         }, function () { koren.obvesti(koren.t("posNapaka", { naprava: naprava.ime })) })
+    }
+    Timer {
+        id: pretvarjanje
+        property string id: ""
+        property int napak: 0
+        interval: 700; repeat: true
+        onTriggered: koren.klic("pretvorbaDatotekeStanje", [id], function (r) {
+            if (!r || !r.ok || r.stanje === "napaka") {
+                if (r && r.ok === false && ++pretvarjanje.napak <= 3) return
+                pretvarjanje.stop(); koren.obvesti(koren.t("ptdNapaka")); return
+            }
+            if (r.stanje !== "koncano") return
+            pretvarjanje.stop()
+            if (panel.vir.vrsta === "lokalno") panel.nalozi(true)
+            var pot = r.pot_izhoda || ""
+            koren.obvesti(koren.t("ptdKoncano", { izhod: String(r.izhod || "").split("/").pop() }),
+                          pot ? koren.t("pokazi") : "", pot ? function () { koren.klic("pokaziVMapi", [pot]) } : null)
+        })
     }
     Timer {
         id: posiljanje
