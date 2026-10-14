@@ -466,6 +466,12 @@ def _ocisti(skatla) -> None:
         otrok = naslednji
 
 
+def _kratka_pot(pot: str) -> str:
+    """Pot za uporabnika: domaca mapa kot ~ (krajse in brez uporabniskega imena na posnetkih zaslona)."""
+    dom = os.path.expanduser("~")
+    return "~" + pot[len(dom):] if pot == dom or pot.startswith(dom + os.sep) else pot
+
+
 def _robovi(gradnik, rob: int):
     for stran in ("set_margin_start", "set_margin_end", "set_margin_top", "set_margin_bottom"):
         getattr(gradnik, stran)(rob)
@@ -1844,6 +1850,7 @@ class VdelaniSplet:
             pass
         ime = splet_prenosi.ime_prenosa(predlagano, uri)
         mapa = splet_prenosi.mapa_prenosov(self.GLib)
+        self._pospravi_zavihek_prenosa(prenos)
         if not splet_prenosi.je_izvrsljiv_prenos(ime):
             self._prenos_v(prenos, splet_prenosi.edinstvena_pot(mapa, ime))
             return True
@@ -1854,9 +1861,27 @@ class VdelaniSplet:
                 self._prenos_v(prenos, splet_prenosi.edinstvena_pot(mapa, ime))
             else:
                 prenos.cancel()
-        self._vprasaj(self._t("pr_program"), self._t("pr_program_opis").format(ime=ime, mapa=mapa),
+        self._vprasaj(self._t("pr_program"), self._t("pr_program_opis").format(ime=ime, mapa=_kratka_pot(mapa)),
                       [self._t("pr_preklici"), self._t("pr_prenesi")], odgovor)
         return True
+
+    def _pospravi_zavihek_prenosa(self, prenos):
+        """Povezava na datoteko iz drugega programa ali target=_blank odpre zavihek, ki ostane prazen (preizkus
+        14. 10.: »Nov zavihek« za namesti.sh). Zavihek brez lastne strani zapremo, kot safeer_mint.py."""
+        try:
+            pogled = prenos.get_web_view()
+        except Exception:  # noqa: BLE001
+            pogled = None
+        if pogled is None or len(self.zavihki) < 2:
+            return
+        if not any(z["pogled"] is pogled for z in self.zavihki):
+            return
+        try:
+            prazen = pogled.get_back_forward_list().get_current_item() is None
+        except Exception:  # noqa: BLE001
+            prazen = False
+        if prazen:
+            self.GLib.idle_add(lambda: self.zapri_zavihek(pogled) and False)
 
     def _prenos_v(self, prenos, pot):
         je6 = hasattr(self.WebKit2, "NetworkSession")   # WebKitGTK 6.0: cilj je pot (4.1: URI)
