@@ -26,6 +26,7 @@
 
   var BESEDILA = {
     sl: {
+      dostopProsnjaPoslana: "Prošnja za dostop je poslana. Odobri jo na napravi {naprava}.", dostopZavrnjen: "Naprava {naprava} je dostop zavrnila.",
       upravljam: "Upravljam", nazajNaLink: "Nazaj na Safeer Link", pokaziZaslon: "Pokaži zaslon naprave",
       samodejno: "Samodejno", govori: "Govori", poslji: "Pošlji",
       govoriNamig: "Pritisni mikrofon in povej, npr. »odpri YouTube« ali »glasneje«",
@@ -54,6 +55,7 @@
       kanal: "Program {n}", predvajanje: "Predvajanje", pavza: "Pavza"
     },
     en: {
+      dostopProsnjaPoslana: "Access request sent. Approve it on {naprava}.", dostopZavrnjen: "{naprava} declined access.",
       upravljam: "Controlling", nazajNaLink: "Back to Safeer Link", pokaziZaslon: "Show device screen",
       samodejno: "Auto", govori: "Speak", poslji: "Send",
       govoriNamig: "Tap the microphone and say e.g. “open YouTube” or “louder”",
@@ -82,6 +84,7 @@
       kanal: "Channel {n}", predvajanje: "Playing", pavza: "Pause"
     },
     de: {
+      dostopProsnjaPoslana: "Zugriffsanfrage gesendet. Bestätige sie auf {naprava}.", dostopZavrnjen: "{naprava} hat den Zugriff abgelehnt.",
       upravljam: "Steuere", nazajNaLink: "Zurück zu Safeer Link", pokaziZaslon: "Gerätebildschirm zeigen",
       samodejno: "Automatisch", govori: "Sprechen", poslji: "Senden",
       govoriNamig: "Tippe auf das Mikrofon und sage z. B. „öffne YouTube“ oder „lauter“",
@@ -110,6 +113,7 @@
       kanal: "Programm {n}", predvajanje: "Wiedergabe", pavza: "Pause"
     },
     es: {
+      dostopProsnjaPoslana: "Solicitud de acceso enviada. Apruébala en {naprava}.", dostopZavrnjen: "{naprava} ha rechazado el acceso.",
       upravljam: "Controlando", nazajNaLink: "Volver a Safeer Link", pokaziZaslon: "Mostrar pantalla del dispositivo",
       samodejno: "Automático", govori: "Hablar", poslji: "Enviar",
       govoriNamig: "Toca el micrófono y di, p. ej., «abre YouTube» o «más alto»",
@@ -138,6 +142,7 @@
       kanal: "Canal {n}", predvajanje: "Reproduciendo", pavza: "Pausa"
     },
     fr: {
+      dostopProsnjaPoslana: "Demande d'accès envoyée. Approuvez-la sur {naprava}.", dostopZavrnjen: "{naprava} a refusé l'accès.",
       upravljam: "Je contrôle", nazajNaLink: "Retour à Safeer Link", pokaziZaslon: "Afficher l'écran de l'appareil",
       samodejno: "Auto", govori: "Parler", poslji: "Envoyer",
       govoriNamig: "Touchez le micro et dites p. ex. « ouvre YouTube » ou « plus fort »",
@@ -166,6 +171,7 @@
       kanal: "Chaîne {n}", predvajanje: "Lecture", pavza: "Pause"
     },
     it: {
+      dostopProsnjaPoslana: "Richiesta di accesso inviata. Approvala su {naprava}.", dostopZavrnjen: "{naprava} ha rifiutato l'accesso.",
       upravljam: "Controllo", nazajNaLink: "Torna a Safeer Link", pokaziZaslon: "Mostra lo schermo del dispositivo",
       samodejno: "Automatico", govori: "Parla", poslji: "Invia",
       govoriNamig: "Tocca il microfono e di' ad es. «apri YouTube» o «più forte»",
@@ -323,6 +329,10 @@
     var ok = !!(izid && izid.ok);
     var niz = ok ? (uspehBesedilo || (izid && izid.message) || t("poslano")) : ((izid && izid.message) || t("brezOdgovora"));
     if (!ok && izid && izid.koda) niz = prevodKode(izid.koda, niz);
+    // Naprava ukaz zavrne, dokler ji dostopa ne odobri uporabnik NA njej (core/link_dostop: prosnja za dostop).
+    var imeCilja = stanje.naprava ? (stanje.naprava.ime || stanje.naprava.id || "") : "";
+    if (!ok && izid && izid.access_request === "pending") niz = t("dostopProsnjaPoslana", { naprava: imeCilja });
+    else if (!ok && izid && izid.access_request === "declined") niz = t("dostopZavrnjen", { naprava: imeCilja });
     o.textContent = niz;
     o.classList.toggle("napaka", !ok);
     var s = el("daljinecStanje");

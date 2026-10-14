@@ -367,7 +367,7 @@
     var n = S.naprave.find(function (x) { return x.id === p.naprava; }) || { ime: "" };
     obvesti(t("potrdiNaNapravi", { ime: p.ime, naprava: n.ime }));
     klic("odpriTukaj", [p.naprava, p.id]).then(function (r) {
-      if (!r || !r.ok) { obvesti(r && r.message ? r.message : t("niUspelo")); return; }
+      if (!r || !r.ok) { obvesti(sporociloProsnje(r, n.ime) || (r && r.message ? r.message : t("niUspelo"))); return; }
       if (!r.tu) obvesti(t("napravaNePretaka", { ime: p.ime, naprava: n.ime }));
     }, function () { obvesti(t("niUspelo")); });
   }
@@ -376,8 +376,15 @@
     obvesti(t("zaganjamNa", { ime: p.ime, naprava: n.ime }));
     klic("zazeniNaNapravi", [p.naprava, p.id]).then(function (r) {
       var ok = r === true || !!(r && r.ok);
-      if (!ok) obvesti(r && r.message ? r.message : t("niUspelo"));
+      if (!ok) obvesti(sporociloProsnje(r, n.ime) || (r && r.message ? r.message : t("niUspelo")));
     }, function () { obvesti(t("niUspelo")); });
+  }
+  /** Druga naprava je ukaz zavrnila: prosnja za dostop caka na njej ali jo je zavrnila (core/link_dostop). */
+  function sporociloProsnje(r, ime) {
+    var s = r && typeof r === "object" ? r.access_request : "";
+    if (s === "pending") return t("dostopProsnjaPoslana", { naprava: ime || "" });
+    if (s === "declined") return t("dostopZavrnjen", { naprava: ime || "" });
+    return "";
   }
   function ploscicaPrograma(p, zPripenjanjem, naDomacem) {
     var b = el("button", "ploscica");
@@ -442,7 +449,10 @@
       S.nalagam[id] = false;
       S.programiNaprav[id] = (r && r.programi) || [];
       if (r && !r.ok) S.programiNaprav[id].napaka = r.koda || "napaka";
-      else if (r && r.deli === false) S.programiNaprav[id].napaka = "ne_deli";
+      else if (r && r.deli === false) {
+        // Naprava je dostop zavrnila; ce caka prosnja, jo uporabnik odobri NA napravi (core/link_dostop).
+        S.programiNaprav[id].napaka = r.access_request === "pending" ? "prosnja" : (r.access_request === "declined" ? "zavrnjeno" : "ne_deli");
+      }
       narisiPrograme();
     }, function () { S.nalagam[id] = false; narisiPrograme(); });
   }
@@ -463,7 +473,8 @@
         var b = el("button", S.naprava === n.id ? "izbran" : "", svg(ikonaNaprave(n)) + ubezi(n.ime) + (st !== "" ? "<span>" + st + "</span>" : ""));
         b.addEventListener("click", function () {
           S.naprava = n.id; S.skupina = "vse"; narisiPrograme();
-          if (!S.programiNaprav[n.id]) nalozProgrameNaprave(n.id);
+          // Ob cakajoci prosnji vprasamo znova: uporabnik jo je morda medtem odobril na napravi.
+          if (!S.programiNaprav[n.id] || S.programiNaprav[n.id].napaka === "prosnja") nalozProgrameNaprave(n.id);
         });
         fn.appendChild(b);
       });
@@ -490,8 +501,12 @@
       var seznamN = S.programiNaprav[S.naprava];
       if (!seznamN) { mreza.appendChild(el("div", "programi-obvestilo", ubezi(t("nalagamPrograme")))); return; }
       if (seznamN.napaka) {
-        mreza.appendChild(el("div", "programi-obvestilo", ubezi(t(seznamN.napaka === "ne_deli" ? "napravaNeDeli" : "napravaNiOdgovorila"))));
-        if (seznamN.napaka !== "ne_deli") return;
+        var imeN = izbranaNaprava ? izbranaNaprava.ime : "";
+        var obvestiloN = seznamN.napaka === "prosnja" ? t("dostopProsnjaPoslana", { naprava: imeN })
+          : seznamN.napaka === "zavrnjeno" ? t("dostopZavrnjen", { naprava: imeN })
+          : t(seznamN.napaka === "ne_deli" ? "napravaNeDeli" : "napravaNiOdgovorila");
+        mreza.appendChild(el("div", "programi-obvestilo", ubezi(obvestiloN)));
+        if (["ne_deli", "prosnja", "zavrnjeno"].indexOf(seznamN.napaka) < 0) return;
       }
     }
     var iskano = String(S.programIskanje || "").trim();
@@ -833,7 +848,7 @@
     klic("datotekeNaprave", [n.id, mapa]).then(function (r) {
       if (S.mediaNaprava !== zahteva) return;
       if (!r || !r.ok) { mediaNapraveSporocilo(t("mediaNapravaNeOdgovori")); return; }
-      if (r.shared === false) { mediaNapraveSporocilo(t("mediaNapravaNeDeli")); return; }
+      if (r.shared === false) { mediaNapraveSporocilo(sporociloProsnje(r, n.ime) || t("mediaNapravaNeDeli")); return; }
       if (r.server) { n.streznik = r.server; n.kljuc = r.kljuc || ""; }
       // Samo mape, glasba in video (zbirka slik telefona/TV sem ne sodi).
       var vnosi = (r.items || []).filter(function (v) {
