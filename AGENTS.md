@@ -29,7 +29,7 @@ Velja za vsako spremembo v tem repozitoriju. Kratko, preverljivo; podrobnosti so
 - Dostop drugih naprav: o vsebinah te naprave odloca samo ta naprava (core/link_dostop.py); nic iz dohodnega sporocila ne sme podeliti dostopa.
 - Brez nadomestkov (»TODO«, lazni podatki, prazni gumbi) v vmesniku; kar ni narejeno, se ne pokaze.
 - Besedila vmesnika v vseh jezikih, ki jih datoteka ze ima (sl, en, de, es, fr, it).
-- Barve in videz iz enega vira (`assets/os/os.css` :root in teme), ne trdo kodirane barve po datotekah.
+- Barve in videz iz enega vira (`assets/os/tokens.css`; QML dobi paleto iz njega prek core/os_lupina.paleta()), ne trdo kodirane barve po datotekah.
 - Dostopnost: tipkovnica, fokus, kontrast; animacije spostujejo zmanjsano gibanje.
 
 ## Preizkusi
