@@ -7,6 +7,7 @@ bi bilo in koliko casa vzame racunanje opisov na tem racunalniku.
 
     python3 tools/delta_meritev.py stara.pcraft nova.pcraft [--json]
     python3 tools/delta_meritev.py --vstavi 10 datoteka   # sintetika: NOVA = STARA z 10 bajti, vstavljenimi na sredini
+    python3 tools/delta_meritev.py stara nova --povprecno 65536   # primerjava z drugim povprecjem kosa
 
 Nic ne gre na omrezje; isti razrez uporabljata streznik in odjemalec.
 """
@@ -45,6 +46,8 @@ def main(argv=None) -> int:
     p.add_argument("datoteki", nargs="+", help="STARA NOVA (ali ena datoteka z --vstavi)")
     p.add_argument("--vstavi", type=int, default=0, help="NOVA = STARA s toliko bajti, vstavljenimi na sredini")
     p.add_argument("--json", action="store_true", help="izpis kot JSON")
+    p.add_argument("--povprecno", type=int, default=0,
+                   help="povprecna dolzina kosa (4096-65536, potenca 2); privzeto kot v Linku: po velikosti nove")
     a = p.parse_args(argv)
     t0 = time.perf_counter()
     if a.vstavi:
@@ -52,24 +55,30 @@ def main(argv=None) -> int:
             stara = d.read()
         sredina = len(stara) // 2
         nova = stara[:sredina] + os.urandom(a.vstavi) + stara[sredina:]
-        m_stara = link_delta.manifest_toka(io.BytesIO(stara).read)
+        povprecno = a.povprecno or link_delta.izberi_povprecno(len(nova))
+        m_stara = link_delta.manifest_toka(io.BytesIO(stara).read, povprecno=povprecno)
         t1 = time.perf_counter()
-        m_nova = link_delta.manifest_toka(io.BytesIO(nova).read)
+        m_nova = link_delta.manifest_toka(io.BytesIO(nova).read, povprecno=povprecno)
     else:
         if len(a.datoteki) != 2:
             p.error("podaj STARO in NOVO datoteko (ali --vstavi N in eno datoteko)")
-        m_stara = link_delta.manifest(a.datoteki[0])
+        # Kot v Linku: povprecje kosa izbere streznik po velikosti NOVE, odjemalec staro razreze z istim.
+        povprecno = a.povprecno or link_delta.izberi_povprecno(os.path.getsize(a.datoteki[1]))
+        m_stara = link_delta.manifest(a.datoteki[0], povprecno=povprecno)
         t1 = time.perf_counter()
-        m_nova = link_delta.manifest(a.datoteki[1])
+        m_nova = link_delta.manifest(a.datoteki[1], povprecno=povprecno)
     t2 = time.perf_counter()
     o = izmeri(m_stara, m_nova)
     o["cas_opisa_stare_s"] = round(t1 - t0, 3)
     o["cas_opisa_nove_s"] = round(t2 - t1, 3)
+    o["povprecno"] = povprecno
     o["numpy"] = link_delta._np is not None
     if a.json:
         print(json.dumps(o, indent=2))
         return 0
     print("Velikost nove razlicice:   %s (%d kosov)" % (_berljivo(o["velikost"]), o["kosov"]))
+    print("Povprecna dolzina kosa:     %s (najmanj %s, najvec %s)"
+          % (_berljivo(povprecno), _berljivo(povprecno // 4), _berljivo(povprecno * 4)))
     print("Kosov ze na drugi napravi:  %d (%.1f %% bajtov)" % (o["kosov_lokalno"], o["delez_lokalno"] * 100))
     print("Po omrezju z delto:         %s = podatki %s + opis kosov %s, %d zahtev za obsege"
           % (_berljivo(o["preneseno"]), _berljivo(o["podatki"]), _berljivo(o["opis_bajtov"]), o["zahtev"]))

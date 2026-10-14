@@ -135,6 +135,14 @@ def _stat(pot: str) -> Optional[list]:
         return None
 
 
+def _sha_datoteke(pot: str) -> str:
+    h = hashlib.sha256()
+    with open(pot, "rb") as d:
+        for blok in iter(lambda: d.read(1024 * 1024), b""):
+            h.update(blok)
+    return h.hexdigest()
+
+
 def _beri_json(pot: str) -> dict:
     try:
         with open(pot, encoding="utf-8") as d:
@@ -294,20 +302,19 @@ def _nadaljuj(odjemalec: _Odjemalec, cilj: str, mapa_kopije: str) -> dict:
     kopija = os.path.join(mapa_kopije, "kopija")
     pot_zapisa = os.path.join(mapa_kopije, "zapis.json")
     zapis = _beri_json(pot_zapisa)
-    # Lokalni viri z opisi: prejsnja kopija (opis iz zapisa, ce se datoteka ni spremenila) in delovna kopija.
-    viri: List[Tuple[str, dict]] = []
+    # Lokalni viri: prejsnja kopija (z opisom iz zapisa, ce se ni spremenila) in delovna kopija. Opis se po potrebi
+    # izracuna sele ob sestavi - s povprecjem kosa, ki ga ima opis naprave (core/link_delta._LokalniKosi).
+    viri: List[Tuple[str, Optional[dict]]] = []
     opis_kopije = zapis.get("opis") if isinstance(zapis.get("opis"), dict) else None
     if os.path.isfile(kopija):
-        if opis_kopije is None or zapis.get("kopija_stat") != _stat(kopija) or not link_delta.preveri_manifest(opis_kopije):
-            opis_kopije = link_delta.manifest(kopija)
+        if zapis.get("kopija_stat") != _stat(kopija) or not link_delta.preveri_manifest(opis_kopije):
+            opis_kopije = None
         viri.append((kopija, opis_kopije))
-    opis_cilja = None
+    sha_cilja = ""
     if os.path.isfile(cilj):
-        if zapis.get("cilj") == cilj and zapis.get("cilj_stat") == _stat(cilj) and opis_kopije is not None:
-            opis_cilja = opis_kopije           # delovna kopija je od zadnjega prenosa nespremenjena
-        else:
-            opis_cilja = link_delta.manifest(cilj)
-        viri.append((cilj, opis_cilja))
+        nespremenjen = zapis.get("cilj") == cilj and zapis.get("cilj_stat") == _stat(cilj) and zapis.get("sha256")
+        sha_cilja = str(zapis["sha256"]) if nespremenjen else _sha_datoteke(cilj)
+        viri.append((cilj, opis_kopije if nespremenjen and opis_kopije is not None else None))
 
     zacetek = time.monotonic()
     meritve = None
@@ -332,11 +339,11 @@ def _nadaljuj(odjemalec: _Odjemalec, cilj: str, mapa_kopije: str) -> dict:
                 raise
             # Datoteka se je na drugi napravi spremenila med opisom in prenosom: nov opis, se enkrat.
     assert meritve is not None
-    sha_nove = opis["sha256"] if opis is not None else ""
+    sha_nove = opis["sha256"] if opis is not None else _sha_datoteke(kopija)
 
     # Delovna kopija: ce jo je uporabnik tu spremenil po zadnjem prenosu in je drugacna od nove, gre v Smeti.
     v_smeteh = False
-    if opis_cilja is None or opis_cilja["sha256"] != sha_nove:
+    if sha_cilja != sha_nove:
         mapa_cilja = os.path.dirname(cilj)
         os.makedirs(mapa_cilja, exist_ok=True)
         fd, zacasna = tempfile.mkstemp(prefix=".safeer-nadaljuj-", suffix=".part", dir=mapa_cilja)
@@ -361,7 +368,7 @@ def _nadaljuj(odjemalec: _Odjemalec, cilj: str, mapa_kopije: str) -> dict:
             except OSError:
                 pass
             raise
-    _pisi_json(pot_zapisa, {"opis": opis, "kopija_stat": _stat(kopija), "cilj": cilj, "cilj_stat": _stat(cilj),
+    _pisi_json(pot_zapisa, {"opis": opis, "sha256": sha_nove, "kopija_stat": _stat(kopija), "cilj": cilj, "cilj_stat": _stat(cilj),
                             "cas": time.time()})
     try:
         os.utime(mapa_kopije)                   # za ciscenje predpomnilnika: nazadnje rabljeno
