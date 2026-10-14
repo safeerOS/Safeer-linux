@@ -82,7 +82,14 @@ GLASBENE_ZVRSTI = {
 #: TV v zivo: samo uradni, javno objavljeni prenosi izdajateljev (preverjeno, da tecejo), brez posrednikov.
 #: (id, ime, jezik, url HLS ali "", uradna stran, samo za drzavo ("" = za vse), drzava izdajatelja)
 TV_V_ZIVO = (
-    ("rtvslo", "RTV SLO v živo", "slovenščina", "", "https://365.rtvslo.si/v-zivo", "SI", "SI"),
+    # RTV 365: vsak program na svoji strani (/programi/<kanal>); prejsnji /v-zivo je od jeseni 2026 stran 404
+    # (lastnik, 14. 10. 2026). Poti preverjene na 365.rtvslo.si/programi istega dne.
+    ("tvs1", "TV SLO 1", "slovenščina", "", "https://365.rtvslo.si/programi/tvs1", "SI", "SI"),
+    ("tvs2", "TV SLO 2", "slovenščina", "", "https://365.rtvslo.si/programi/tvs2", "SI", "SI"),
+    ("tvs3", "TV SLO 3", "slovenščina", "", "https://365.rtvslo.si/programi/tvs3", "SI", "SI"),
+    ("mmctv", "MMC TV", "slovenščina", "", "https://365.rtvslo.si/programi/mmctv", "SI", "SI"),
+    ("tvkp", "TV Koper", "slovenščina", "", "https://365.rtvslo.si/programi/tvkp", "SI", "SI"),
+    ("tvmb", "TV Maribor", "slovenščina", "", "https://365.rtvslo.si/programi/tvmb", "SI", "SI"),
     ("dw-en", "DW News", "angleščina", "https://dwamdstream102.akamaized.net/hls/live/2015525/dwstream102/index.m3u8", "", "", "DE"),
     ("dw-de", "DW Deutsch", "nemščina", "https://dwamdstream103.akamaized.net/hls/live/2015526/dwstream103/index.m3u8", "", "", "DE"),
     ("dw-es", "DW Español", "španščina", "https://dwamdstream104.akamaized.net/hls/live/2015530/dwstream104/index.m3u8", "", "", "DE"),
@@ -96,6 +103,44 @@ TV_V_ZIVO = (
     ("tagesschau24", "tagesschau24 (ARD)", "nemščina", "https://tagesschau.akamaized.net/hls/live/2020115/tagesschau/tagesschau_1/master.m3u8", "", "", "DE"),
     ("redbull", "Red Bull TV", "angleščina", "https://rbmn-live.akamaized.net/hls/live/590964/BoRB-AT/master.m3u8", "", "", "AT"),
 )
+
+
+#: Domaca stran izdajatelja za logotip kanala (ikone_strani: neposredno s strani, shranjeno v predpomnilnik).
+#: Lastnik 14. 10. 2026: pri TV v zivo so manjkale ikone.
+DOMACE_STRANI = {"SI": "https://www.rtvslo.si/", "dw": "https://www.dw.com/", "f24": "https://www.france24.com/",
+                 "aje": "https://www.aljazeera.com/", "trt-world": "https://www.trtworld.com/",
+                 "cbs-news": "https://www.cbsnews.com/", "arirang": "https://www.arirang.com/",
+                 "tagesschau24": "https://www.tagesschau.de/", "redbull": "https://www.redbull.com/"}
+
+
+def domaca_stran(kljuc: str, izvor: str) -> str:
+    if izvor == "SI":
+        return DOMACE_STRANI["SI"]
+    return DOMACE_STRANI.get(kljuc) or DOMACE_STRANI.get(kljuc.split("-")[0], "")
+
+
+def logotip(kljuc: str, izvor: str, prenesi: bool = True) -> str:
+    """Logotip kanala (data URL) iz predpomnilnika; manjkajocega prenese v ozadju (naslednji izris ga pokaze)."""
+    from core import ikone_strani
+    stran = domaca_stran(kljuc, izvor)
+    if not stran:
+        return ""
+    ikona = ikone_strani.iz_predpomnilnika(stran)
+    if ikona or not prenesi:
+        return ikona
+    if stran not in _LOGOTIPI_V_TEKU:
+        _LOGOTIPI_V_TEKU.add(stran)
+        import threading
+
+        def delo():
+            i = ikone_strani.ikona_strani(stran)
+            if i:
+                ikone_strani.shrani(stran, i)
+        threading.Thread(target=delo, daemon=True).start()
+    return ""
+
+
+_LOGOTIPI_V_TEKU: set = set()
 
 
 DRZAVE = {"SI": "Slovenija", "DE": "Nemčija", "FR": "Francija", "QA": "Katar", "TR": "Turčija", "US": "ZDA",
@@ -125,7 +170,8 @@ def tv_v_zivo(drzava: str = "") -> list[dict]:
         if samo and samo != (drzava or "").upper():
             continue
         vnos = {"id": "tv:" + kljuc, "naslov": ime, "vrsta": "tv-v-zivo", "vir": ime, "drzava": izvor,
-                "opis": "Uradni prenos v živo · " + DRZAVE.get(izvor, izvor) + " · " + jezik, "slika": "", "jezik": jezik_koda(jezik) or jezik}
+                "opis": "Uradni prenos v živo · " + DRZAVE.get(izvor, izvor) + " · " + jezik,
+                "slika": logotip(kljuc, izvor), "jezik": jezik_koda(jezik) or jezik}
         if url:
             vnos.update(url=url, mime="application/vnd.apple.mpegurl")
         else:

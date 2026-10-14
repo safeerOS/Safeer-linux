@@ -117,3 +117,18 @@ def test_dlna_imenik():
     with mock.patch.object(m, "_request", _odgovori({"/opis.xml": opis, "/upnp/control/cds": soap})):
         izid = m.catalog("dlna", "http://192.168.0.7:49152/opis.xml", SRV, "")
     assert izid and izid[0]["naslov"] == "Pesem" and izid[0]["vrsta"] == "glasba" and izid[0]["zanri"] == "Jazz"
+
+
+def test_tv_v_zivo_rtv_programi_in_logotipi(monkeypatch):
+    """Lastnik 14. 10. 2026: RTV SLO v zivo je odprl stran 404, kanali so bili brez ikon."""
+    from core import ikone_strani, zakoniti_viri as zv
+    monkeypatch.setattr(ikone_strani, "iz_predpomnilnika", lambda url: "data:image/png;base64,AA" if "dw.com" in url else "")
+    monkeypatch.setattr(zv, "_LOGOTIPI_V_TEKU", {"https://www.rtvslo.si/", "https://www.france24.com/",
+                                                   "https://www.aljazeera.com/", "https://www.trtworld.com/",
+                                                   "https://www.cbsnews.com/", "https://www.arirang.com/",
+                                                   "https://www.tagesschau.de/", "https://www.redbull.com/"})
+    kanali = {k["id"]: k for k in zv.tv_v_zivo("SI")}
+    assert kanali["tv:tvs1"]["stran"] == "https://365.rtvslo.si/programi/tvs1"
+    assert not any("/v-zivo" in str(k.get("stran", "")) for k in kanali.values())
+    assert kanali["tv:dw-en"]["slika"].startswith("data:image/")
+    assert "tv:tvs1" not in {k["id"] for k in zv.tv_v_zivo("DE")}
