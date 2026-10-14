@@ -214,7 +214,7 @@ def velikost_okna(sirina: int, visina: int) -> tuple:
 
 # ---------------------------------------------------------------------------------------- most in okno
 def _ustvari_razrede():
-    from PySide6.QtCore import QEvent, QObject, QSize, QUrl, Qt, Signal, Slot
+    from PySide6.QtCore import QObject, QSize, QUrl, Qt, Signal, Slot
     from PySide6.QtQuick import QQuickView
 
     class Most(QObject):
@@ -244,9 +244,6 @@ def _ustvari_razrede():
     class Okno(QQuickView):
         def __init__(self, v_oknu: bool = False) -> None:
             super().__init__()
-            #: Klic ob zaprtju okna (aplikacija v oknu). Signala closing PySide6 6.11 ne more dostaviti
-            #: (QQuickCloseEvent* se ne pretvori - preizkus na testnem PC 14. 10. 2026), zato dogodek Close tu.
-            self.ob_zaprtju = None
             if v_oknu:
                 # Aplikacija Safeer OS (GNOME, KDE …): isto namizje v navadnem oknu z robom in gumbom v pultu.
                 self.setTitle("Safeer OS")
@@ -256,11 +253,6 @@ def _ustvari_razrede():
                 self.setFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnBottomHint)
             self.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
             self.setColor(Qt.GlobalColor.black)
-
-        def event(self, dogodek) -> bool:  # noqa: D401 - Qt navidezna metoda
-            if dogodek.type() == QEvent.Type.Close and self.ob_zaprtju is not None:
-                self.ob_zaprtju()
-            return super().event(dogodek)
 
     return Most, Okno
 
@@ -306,7 +298,10 @@ class Namizje:
             print("[SafeerOS lupina]", napaka.toString(), flush=True)
         self._ob_koncu = ob_koncu
         if self.v_oknu:
-            self.okno.ob_zaprtju = lambda: self._ob_koncu() if self._ob_koncu else None
+            # Zaprtje okna = okno postane nevidno. Signala closing PySide6 6.11 ne dostavi (QQuickCloseEvent* se ne
+            # pretvori), prepis event() v Pythonu pa je na testnem PC zaklenil glavno nit (crno okno) - 14. 10. 2026.
+            self._prikazano = False
+            self.okno.visibleChanged.connect(self._vidnost)
             return
         from PySide6.QtGui import QGuiApplication
         QGuiApplication.primaryScreen().geometryChanged.connect(lambda *_: self.postavi())
@@ -419,6 +414,12 @@ class Namizje:
         except Exception as e:  # noqa: BLE001 - Wayland: Qt da razred iz setDesktopFileName
             print("[SafeerOS lupina] X11:", e, flush=True)
         self.okno.show()
+
+    def _vidnost(self, vidno: bool) -> None:
+        if vidno:
+            self._prikazano = True
+        elif self._prikazano and self._ob_koncu:
+            self._ob_koncu()
 
     def dvigni(self) -> None:
         """Ponovni zagon aplikacije iz menija: obstojece okno spredaj (ne drugega)."""
