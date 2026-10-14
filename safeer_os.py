@@ -405,7 +405,12 @@ def nastavitve_controla() -> Optional[dict]:
     if c is None:
         return None
     try:
-        return {k: stanje(c) for k, (_p, stanje, _n) in _NASTAVITVE_CONTROLA.items()}
+        izid = {k: stanje(c) for k, (_p, stanje, _n) in _NASTAVITVE_CONTROLA.items()}
+        if en_proces.delovna_safeer_cinnamon():
+            # Namizje (seja safeer-cinnamon) zazene Control v tem procesu; lastni samozagon Controla je skrit,
+            # ker bi ob prijavi tekel drugi proces (pregled celovitosti 15. 10. 2026).
+            izid.pop("samozagon", None)
+        return izid
     except Exception as e:  # noqa: BLE001
         print("[SafeerOS] nastavitve Controla:", e)
         return None
@@ -415,7 +420,7 @@ def nastavi_control(kljuc: str, vrednost: bool) -> Optional[bool]:
     """Spremeni nastavitev Controla (glavna nit); vrne stanje, kot je obveljalo, ali None."""
     c = en_proces.control_app()
     zapis = _NASTAVITVE_CONTROLA.get(kljuc)
-    if c is None or zapis is None:
+    if c is None or zapis is None or (kljuc == "samozagon" and en_proces.delovna_safeer_cinnamon()):
         return None
     ime_postavke, stanje, nastavi = zapis
     postavka = getattr(getattr(c, "pladenj", None), ime_postavke, None)

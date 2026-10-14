@@ -3414,9 +3414,10 @@
           stikalo("disk", "ndVesDisk", "vesDisk", c.vesDisk),
           stikalo("programi", "ndProgrami", "programi", c.programi),
           stikalo("zaslon", "ndZaslon", "zaslon", c.zaslon),
-          stikalo("naprave", "predajaStikalo", "predajanje", c.predajanje),
-          stikalo("ponovno", "ndSamozagon", "samozagon", c.samozagon)
-        ]);
+          stikalo("naprave", "predajaStikalo", "predajanje", c.predajanje)
+        ].concat(
+          // Pod Safeer Cinnamon Control zazene namizje v istem procesu - lastnega samozagona ni (en proces).
+          "samozagon" in c ? [stikalo("ponovno", "ndSamozagon", "samozagon", c.samozagon)] : []));
       }
       if (d.splet) skupina(t("gSplet"), [gumb("splet", "ndSplet", null, function () { klic("nastavitevDela", ["splet"]); })]);
       if (d.namizje) skupina(t("gNamizje"), [gumb("paleta", "ndNamizje", null, function () { klic("nastavitevDela", ["namizje"]); })]);

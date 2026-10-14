@@ -94,6 +94,15 @@ class NastavitveControla(unittest.TestCase):
                                    ("samozagon", False)])
         self.assertIsNone(self.so.nastavi_control("neznano", True))
 
+    def test_pod_safeer_cinnamon_brez_samozagona_controla(self):
+        """Namizje Safeer Cinnamon zazene Control v istem procesu: lastni samozagon bi pomenil drugi proces."""
+        c = _Control()
+        self.so.en_proces.nastavi_control(c)
+        with mock.patch.object(self.so.en_proces, "delovna_safeer_cinnamon", return_value=True):
+            self.assertNotIn("samozagon", self.so.nastavitve_controla())
+            self.assertIsNone(self.so.nastavi_control("samozagon", True))
+        self.assertEqual(c.klici, [])
+
     def test_brez_pladnja_neposredno(self):
         c = _Control(s_pladnjem=False)
         self.so.en_proces.nastavi_control(c)
