@@ -1188,6 +1188,13 @@ body.v-mediji #ozadje::after, body.predvajalnik #ozadje::after { background: var
 .prilagodi-skupina legend { margin: 0 0 6px; padding: 0; color: var(--medlo); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .prilagodi-vrstica { cursor: pointer; min-height: 48px; }
 .prilagodi-vrstica input[type=checkbox] { width: 20px; height: 20px; flex: none; margin: 0; accent-color: var(--zelena); }
+/* Neobkljukano polje je bilo v temni temi crn kvadrat brez obrobe (posnetek 14. 10. 2026): vidna obroba in kljukica. */
+.prilagodi-vrstica input[type=checkbox] { -webkit-appearance: none; appearance: none; display: grid; place-content: center;
+  border: 2px solid var(--medlo); border-radius: 5px; background: transparent; cursor: pointer; }
+.prilagodi-vrstica input[type=checkbox]:checked { background: var(--zelena); border-color: var(--zelena); }
+.prilagodi-vrstica input[type=checkbox]:checked::after { content: ""; width: 5px; height: 10px; margin-top: -2px;
+  border: solid var(--zelena-temna); border-width: 0 2.5px 2.5px 0; transform: rotate(45deg); }
+.prilagodi-vrstica input[type=checkbox]:focus-visible { outline: 2px solid var(--zelena); outline-offset: 2px; }
 .prilagodi-vrstica:focus-within { border-color: var(--zelena); }
 .media-samodejni[hidden] { display: none; }
 .media-samodejni { order: -2; min-width: 0; margin: 0 0 22px; }
