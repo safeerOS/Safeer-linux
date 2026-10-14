@@ -269,6 +269,8 @@ class Katalog:
         #: jo zacne ali preklice (Medijski center je lahko odprt v dveh oknih - epizoda se ne sme zaceti dvakrat).
         self._ponudba: Optional[dict] = None
         self._zaklep_ponudbe = threading.Lock()
+        #: (tmdb, sezona, epizoda) -> (cas, naslednja epizoda ali None) - glej _naslednja_epizoda_kataloga.
+        self._naslednje: dict = {}
 
     # ------------------------------------------------------------------ jedro
     @property
@@ -547,7 +549,8 @@ class Katalog:
             return item       # prenos, ki ga izdajatelj ponuja samo na svoji strani: stran ga odpre v Spletu
         nacin = nacin_predvajanja(item, os_media.je_neposredni_zvok)
         self._yt = None       # nova izbira: prejsnja skladba v vgradnem predvajalniku ne sprozi vec nicesar
-        self._preklici_ponudbo()      # uporabnik je izbral drugo vsebino: ponujena epizoda se ne zacne sama
+        if nacin:
+            self._preklici_ponudbo()  # uporabnik je izbral drugo vsebino: ponujena epizoda se ne zacne sama
         kljuc = os_police.kljuc_vnosa(dict(item, id=str(item.get("id") or ident)))
         if nacin in ("youtube", "neposredno"):
             self.police.zapomni(kljuc, self._opis_vnosa(item, ident))
@@ -819,10 +822,17 @@ class Katalog:
             izhod.append(self._vnos_lokalni(v))
         if zavihek in ("serije", "video"):
             for v, cas in os_police.naslednje_lokalne(self.lokalna.epizode()):
-                izhod.append(dict(self._vnos_lokalni(v), naslednja=True, t=cas))
+                izhod.append(self._vnos_naslednje_lokalne(v, cas))
             izhod += self._naslednje_kataloga(ogledano, serije)
         izhod.sort(key=lambda d: -int(d.get("t") or 0))
         return izhod
+
+    def _vnos_naslednje_lokalne(self, v: dict, cas: int) -> dict:
+        ep = os_police.epizoda_datoteke(v["pot"])
+        d = dict(self._vnos_lokalni(v), naslednja=True, t=cas)
+        if ep:
+            d["podnaslov"] = "S%02dE%02d" % (ep[1], ep[2])
+        return d
 
     def _polica_nazadnje(self, zavihek: str, ogledano: dict) -> list:
         """Nazadnje dodano v knjiznico. Glasba po albumih (mapah): nov album je ena kartica, ne dvajset skladb."""
@@ -951,7 +961,21 @@ class Katalog:
         return epizod
 
     def _naslednja_epizoda_kataloga(self, tmdb: int, s: int, e: int, ogledano: dict) -> Optional[dict]:
-        """Prva naslednja neogledana epizoda (najvec 12 korakov naprej) z naslovom in sliko iz TMDB."""
+        """Prva naslednja neogledana epizoda (najvec 12 korakov naprej) z naslovom in sliko iz TMDB.
+
+        Izid (tudi »ni je« ali TMDB ni dosegljiv) velja 30 min: polica se nalozi ob vsaki menjavi zavihka in brez
+        omrezja ne sme vsakic znova cakati na TMDB."""
+        kljuc, zdaj = (tmdb, s, e), time.monotonic()
+        prej = self._naslednje.get(kljuc)
+        if prej and zdaj - prej[0] < 1800:
+            return prej[1]
+        izid = self._poisci_naslednjo(tmdb, s, e, ogledano)
+        if len(self._naslednje) > 200:
+            self._naslednje.clear()
+        self._naslednje[kljuc] = (zdaj, izid)
+        return izid
+
+    def _poisci_naslednjo(self, tmdb: int, s: int, e: int, ogledano: dict) -> Optional[dict]:
         sezone: dict = {}
         epizod = self._epizod_v_sezoni(tmdb, sezone)
         for _ in range(12):
@@ -1025,6 +1049,13 @@ class Katalog:
     def _naslednja_preklici(self, a: list) -> bool:
         return self._vzemi_ponudbo(self._niz(a, 0)) is not None
 
+    def ponujena_naslednja(self) -> Optional[dict]:
+        """Za okno predvajalnika (safeer_os.py): trenutna ponudba naslednje epizode ali None. Okno jo lahko pokaze samo
+        in jo zacne z izvedi("mediaNaslednjaPredvajaj", [zeton]) - zeton jo porabi enkrat za vsa okna."""
+        with self._zaklep_ponudbe:
+            p = self._ponudba
+            return {k: v for k, v in p.items() if k != "cas"} if p else None
+
     def _ponudi_naslednjo_kataloga(self, epizoda: tuple, kljuc: str) -> None:
         try:
             tmdb, s, e = epizoda
@@ -1050,7 +1081,7 @@ class Katalog:
             naslednja = os_police.naslednja_lokalna(pot, epizode.keys())
             x = epizode.get(naslednja or "")
             if x and x["naVoljo"] and not x["ogledano"]:
-                self._ponudi(dict(self._vnos_lokalni(x), naslednja=True))
+                self._ponudi(self._vnos_naslednje_lokalne(x, int(time.time())))
         except Exception as e:  # noqa: BLE001 - baza zaklenjena: predvajanje se konca brez ponudbe
             print("[SafeerMedia] konec datoteke: %s" % type(e).__name__, flush=True)
 

@@ -3861,11 +3861,13 @@
       }
       var card = el("button", "kat-kartica"); card.type = "button"; card.setAttribute("data-id", x.id || "");
       card.setAttribute("aria-label", (x.naslov || "") + " — " + katOznaka(x.vrsta));
+      // Slika v ovoju .kat-plakat: srcek, »ogledano« in merilo se drzijo njenega spodnjega roba pri vsaki sirini mreze.
+      var plakat = el("span", "kat-plakat"); card.appendChild(plakat);
       if (x.slika) {
         var image = document.createElement("img"); image.alt = ""; image.loading = "lazy"; image.src = x.slika;
         image.onerror = function () { image.replaceWith(el("span", "kat-brez-slike", svg(katIkona(x.vrsta)))); };
-        card.appendChild(image);
-      } else card.appendChild(el("span", "kat-brez-slike", svg(katIkona(x.vrsta))));
+        plakat.appendChild(image);
+      } else plakat.appendChild(el("span", "kat-brez-slike", svg(katIkona(x.vrsta))));
       var data = el("span", "kat-podatki");
       var naslovKartice = el("b", "", ubezi(x.naslov || "")); naslovKartice.title = x.naslov || "";
       data.appendChild(naslovKartice);
@@ -4397,7 +4399,7 @@
   // Srcek in znak »ogledano« na kartici (brez ponovnega risanja: izbor in drsnik ostaneta); dostopno ime pove oboje.
   function oznaciKartico(card) {
     var k = card.getAttribute("data-kljuc"); if (!k) return;
-    var mesto = card.querySelector(".media-kartica-art") || card, fav = jePriljubljena(k), og = jeOgledano(card);
+    var mesto = card.querySelector(".kat-plakat, .media-kartica-art") || card, fav = jePriljubljena(k), og = jeOgledano(card);
     var znak = function (razred, da, ikona) {
       var z = mesto.querySelector(":scope > ." + razred);
       if (da && !z) { z = el("span", razred, svg(ikona)); z.setAttribute("aria-hidden", "true"); mesto.appendChild(z); }
@@ -4519,17 +4521,20 @@
   function karticaPolice(v, polica) {
     var card = el("button", "kat-kartica media-polica-kartica" + (v.naslednja ? " naslednja" : "")); card.type = "button";
     card.setAttribute("role", "listitem");
+    var plakat = el("span", "kat-plakat"); card.appendChild(plakat);
     if (v.slika) {
       var image = document.createElement("img"); image.alt = ""; image.loading = "lazy"; image.src = v.slika;
       image.onerror = function () { image.replaceWith(el("span", "kat-brez-slike", svg(ikonaPolice(v)))); };
-      card.appendChild(image);
-    } else card.appendChild(el("span", "kat-brez-slike " + ubezi(v.vrsta || ""), svg(ikonaPolice(v))));
+      plakat.appendChild(image);
+    } else plakat.appendChild(el("span", "kat-brez-slike", svg(ikonaPolice(v))));
     var napredek = v.pozicija > 0 && v.trajanje > v.pozicija;
-    if (napredek) card.appendChild(el("span", "kat-merilo", '<i style="width:' + Math.max(2, Math.min(100, Math.round(100 * v.pozicija / v.trajanje))) + '%"></i>'));
+    if (napredek) plakat.appendChild(el("span", "kat-merilo", '<i style="width:' + Math.max(2, Math.min(100, Math.round(100 * v.pozicija / v.trajanje))) + '%"></i>'));
     var data = el("span", "kat-podatki"), naslov = el("b", "", ubezi(v.naslov || "")); naslov.title = v.naslov || "";
     data.appendChild(naslov);
-    var meta = v.naslednja ? t("policaNaslednja") + (v.podnaslov ? " · " + v.podnaslov : "") :
-      napredek ? t("mediaNadaljuj") + " · " + casMedija(v.pozicija) + " / " + casMedija(v.trajanje) :
+    // Naslednja epizoda ima oznako na plakatu, pod naslovom pa katero (S02E01 · naslov); nedokoncano pove, koliko je se.
+    if (v.naslednja) plakat.appendChild(el("span", "kat-naslednja", ubezi(t("policaNaslednja"))));
+    var meta = v.naslednja ? (v.podnaslov || t("policaNaslednja")) :
+      napredek ? t("policaOstane", { n: Math.max(1, Math.round((v.trajanje - v.pozicija) / 60)) }) :
       polica === "najvec" && v.n ? t("policaPredvajano", { n: v.n }) : (v.podnaslov || v.izvajalec || katOznaka(v.vrsta) || mediaVrsta(v.vrsta));
     var vrsticaMeta = el("span", "kat-meta"); vrsticaMeta.appendChild(el("span", "", ubezi(meta)));
     data.appendChild(vrsticaMeta); card.appendChild(data);
@@ -4554,7 +4559,9 @@
     c.innerHTML = "";
     c.hidden = !police.length;
     police.forEach(function (p) {
-      var sekcija = el("section", "media-polica"); sekcija.setAttribute("data-polica", p.id);
+      // Glasba, radio in TV: kvadratne kartice (manj visine, katalog ostane blizu); video: plakati kot v katalogu.
+      var zvok = S.mediaFilter === "glasba" || S.mediaFilter === "radio" || S.mediaFilter === "tv";
+      var sekcija = el("section", "media-polica" + (zvok ? " zvok" : "")); sekcija.setAttribute("data-polica", p.id);
       var glava = el("h3", "media-polica-naslov", ubezi(naslovPolice(p.id)));
       glava.id = "mediaPolica_" + p.id;
       sekcija.setAttribute("aria-labelledby", glava.id);

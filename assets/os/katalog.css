@@ -234,14 +234,19 @@ html.kavc .kat-katalog { grid-template-columns: repeat(auto-fill, minmax(180px, 
 .media-polica-vrsta { display: flex; gap: 14px; overflow-x: auto; overflow-y: hidden; padding: 4px 2px 14px; scroll-snap-type: x proximity;
   scrollbar-width: thin; scrollbar-color: var(--rob) transparent; }
 .media-polica-vrsta > .kat-kartica { flex: 0 0 160px; scroll-snap-align: start; }
-.media-polica-kartica.naslednja .kat-meta span { color: var(--zelena); font-weight: 700; }
-/* Merilo napredka na spodnjem robu plakata; srcek levo in »ogledano« desno nad njim. */
-.kat-kartica .kat-merilo { position: absolute; left: 0; right: 0; top: 216px; height: 4px; background: var(--media-merilo); }
-.kat-kartica .kat-merilo i { display: block; height: 100%; background: var(--zelena); }
-.kat-kartica .kat-srce, .kat-kartica .kat-ogledano, .media-kartica-art .kat-srce, .media-kartica-art .kat-ogledano {
-  position: absolute; top: 184px; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; background: var(--media-znacka); }
-.media-kartica-art .kat-srce, .media-kartica-art .kat-ogledano { top: auto; bottom: 10px; }
+.kat-plakat .kat-naslednja { position: absolute; top: 9px; left: 9px; padding: 4px 7px; border-radius: 7px; background: var(--zelena);
+  color: var(--zelena-temna); font-size: 11px; font-weight: 800; }
+/* Zvok: kvadratna slika 150 px namesto plakata 220 px; znacke in merilo sledijo spodnjemu robu slike. */
+.media-polica.zvok .kat-kartica { min-height: 0; }
+.media-polica.zvok .kat-kartica .kat-brez-slike, .media-polica.zvok .kat-kartica img { height: 150px; aspect-ratio: auto; }
+/* Slika kartice v ovoju: merilo napredka na njenem spodnjem robu, srcek levo in »ogledano« desno nad njim. */
+.kat-plakat { position: relative; display: block; flex: none; }
+.kat-plakat .kat-merilo { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: var(--media-merilo); }
+.kat-plakat .kat-merilo i { display: block; height: 100%; background: var(--zelena); }
+.kat-plakat .kat-srce, .kat-plakat .kat-ogledano, .media-kartica-art .kat-srce, .media-kartica-art .kat-ogledano {
+  position: absolute; bottom: 10px; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; background: var(--media-znacka); }
 .kat-srce { left: 9px; color: var(--rdeca); }
+.media-kartica-art .kat-srce { bottom: 40px; }      /* nad oznako »Nadaljuj · 10:00« krajevne kartice */
 .kat-ogledano { right: 9px; color: var(--zelena); }
 .kat-srce svg, .kat-ogledano svg { width: 15px; height: 15px; stroke-width: 2.4; }
 .kat-srce svg { fill: currentColor; }

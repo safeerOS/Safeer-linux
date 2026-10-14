@@ -452,7 +452,7 @@ class Vmesnik(unittest.TestCase):
         for kljuc in ("policaNadaljujGledanje", "policaNadaljujPoslusanje", "policaNazadnje", "policaNajvec", "policaPriljubljene",
                       "policaPriljubljena", "policaNaslednja", "policaPredvajano", "priljubljenaDodaj", "priljubljenaOdstrani",
                       "priljubljenaDodano", "priljubljenaOdstranjeno", "ogledanoOznaci", "ogledanoOdznaci", "ogledanoOznaka",
-                      "karticaMeni", "naslednjaNaslov", "naslednjaZdaj", "naslednjaNeZdaj", "naslednjaCez"):
+                      "karticaMeni", "naslednjaNaslov", "naslednjaZdaj", "naslednjaNeZdaj", "naslednjaCez", "policaOstane"):
             self.assertEqual(bes.count('"%s":' % kljuc), 6, kljuc)
             self.assertIn(kljuc, self.js + self.html)
 
