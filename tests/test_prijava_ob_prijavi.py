@@ -1,6 +1,6 @@
-"""Safeer Control kot del prijave v namizje (lastnik, 12. 10. 2026).
+"""Safeer Link ob prijavi v namizje (lastnik 12. 10. 2026; 13. 10.: brez okna, le tiho obvestilo z gumbom »Poveži«).
 
-Ob prijavi v namizje (delovna povrsina) se pokaze prijavno okno Safeer Linka (QR / koda / nadaljuj brez povezave),
+Ob prijavi v namizje (delovna povrsina) Safeer OS ponudi povezavo (obvestilo, ki odpre prijavno okno),
 razen ce je racunalnik ze povezan, ce je uporabnik v tej seji izbral »brez povezave« ali ce je bilo okno v tej seji
 ze pokazano. »Nadaljuj brez povezave« v vgrajenem Controlu samo umakne okno (ne odpre se ene lupine).
 """
@@ -35,9 +35,8 @@ class _Os:
         self.shramba = _Shramba()
         self.prijav = 0
 
-    def _prijava(self):
+    def _ponudi_prijavo(self):
         self.prijav += 1
-        return True
 
 
 class PrijavnoOknoObPrijavi(unittest.TestCase):
@@ -103,3 +102,14 @@ class PrijavnoOknoObPrijavi(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ObvestiloNamestoOkna(unittest.TestCase):
+    def test_ob_zagonu_ni_okna_ampak_obvestilo(self):
+        vir = open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8").read()
+        telo = vir.split("def _prijavno_okno_ob_prijavi(self)", 1)[1].split("\n    def ", 1)[0]
+        self.assertIn("self._ponudi_prijavo()", telo)
+        self.assertNotIn("self._prijava()", telo)
+        ponudba = vir.split("def _ponudi_prijavo(self)", 1)[1].split("\n    def ", 1)[0]
+        self.assertIn("send_notification", ponudba)
+        self.assertIn('"app.prijava-iz-obvestila"', ponudba)

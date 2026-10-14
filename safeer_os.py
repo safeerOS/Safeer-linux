@@ -1441,8 +1441,8 @@ class SafeerOS(Gtk.Application):
                 # Scit, ki ga je uporabnik vklopil, varuje tudi, kadar Safeer OS tece kot delovna povrsina.
                 self.scit.zacni_ce_vklopljen()
                 uredi_samozagon_ob_zagonu(self.shramba)
-                # Safeer Control je del prijave v namizje: ob prijavi prijavno okno Safeer Linka (QR / koda /
-                # nadaljuj brez povezave), razen ce je racunalnik ze povezan (zaupan ali v tej seji).
+                # Safeer Link ob prijavi v namizje: ce racunalnik ni povezan, tiho obvestilo z gumbom »Poveži«
+                # (okno ob zagonu je bilo moteče - lastnik, 13. 10. 2026), razen ce je ze povezan ali v tej seji izbral brez.
                 GLib.timeout_add_seconds(4, self._prijavno_okno_ob_prijavi)
                 # Sporocila na namizju: kuverta z neprebranimi v pultu zgoraj desno, klik odpre plosco sporocil.
                 GLib.timeout_add_seconds(2, lambda: (self._zacni_kuverto(), False)[1])
@@ -4507,8 +4507,8 @@ class SafeerOS(Gtk.Application):
             self._medijski_okno.hide()
 
     def _prijavno_okno_ob_prijavi(self) -> bool:
-        """Ob prijavi v namizje (delovna povrsina) pokaze prijavno okno Safeer Linka - Safeer Control je del prijave v
-        namizje (lastnik, 12. 10. 2026). Ne pokaze ga, ce je racunalnik ze povezan (zaupan racunalnik po ponovnem
+        """Ob prijavi v namizje (delovna povrsina) ponudi povezavo v Safeer Link - ne z oknom cez namizje, ampak s tihim
+        obvestilom z gumbom »Poveži« (lastnik, 13. 10. 2026: okno takoj ob zagonu ni vsec; prej 12. 10. okno). Ne pokaze ga, ce je racunalnik ze povezan (zaupan racunalnik po ponovnem
         zagonu ali odjavi iz seje; nezaupan v isti seji), ce je uporabnik v tej seji ze izbral »Nadaljuj brez povezave«
         ali ce je bil v tej seji ze pokazan (ponovni zagon delovne povrsine po sesutju ne sme znova vsiljevati okna)."""
         from core import link_seja
@@ -4529,8 +4529,35 @@ class SafeerOS(Gtk.Application):
         except Exception as e:  # noqa: BLE001 - brez prijavnega okna namizje vseeno deluje
             print("[SafeerOS] prijavno okno ob prijavi:", e, flush=True)
             return False
-        self._prijava()
+        self._ponudi_prijavo()
         return False
+
+    _PRIJAVA_OBVESTILO = {
+        "sl": ("Safeer Link", "Naprave niso povezane s tem računalnikom.", "Poveži"),
+        "en": ("Safeer Link", "Your devices are not connected to this computer.", "Connect"),
+        "de": ("Safeer Link", "Deine Geräte sind nicht mit diesem Computer verbunden.", "Verbinden"),
+        "es": ("Safeer Link", "Tus dispositivos no están conectados a este ordenador.", "Conectar"),
+        "fr": ("Safeer Link", "Vos appareils ne sont pas connectés à cet ordinateur.", "Connecter"),
+        "it": ("Safeer Link", "I tuoi dispositivi non sono collegati a questo computer.", "Collega"),
+    }
+
+    def _ponudi_prijavo(self) -> None:
+        """Obvestilo namizja (brez okna): klik nanj ali na »Poveži« odpre prijavno okno Safeer Linka."""
+        naslov, besedilo, gumb = self._PRIJAVA_OBVESTILO.get(_jezik(), self._PRIJAVA_OBVESTILO["en"])
+        try:
+            if self.lookup_action("prijava-iz-obvestila") is None:
+                dejanje = Gio.SimpleAction.new("prijava-iz-obvestila", None)
+                dejanje.connect("activate", lambda *_a: self._prijava())
+                self.add_action(dejanje)
+            obvestilo = Gio.Notification.new(naslov)
+            obvestilo.set_body(besedilo)
+            obvestilo.set_icon(Gio.ThemedIcon.new("safeer-control"))
+            obvestilo.set_priority(Gio.NotificationPriority.LOW)
+            obvestilo.set_default_action("app.prijava-iz-obvestila")
+            obvestilo.add_button(gumb, "app.prijava-iz-obvestila")
+            self.send_notification("safeer-link-prijava", obvestilo)
+        except Exception as e:  # noqa: BLE001 - brez obvestila namizje deluje; povezava je v Napravah
+            print("[SafeerOS] obvestilo prijave:", e, flush=True)
 
     def _prijava(self) -> bool:
         """Prijavno okno Safeer Linka (QR / koda / brez povezave) - zanj skrbi Safeer Control; okno je nad
