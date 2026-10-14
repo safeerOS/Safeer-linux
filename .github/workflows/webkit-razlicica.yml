@@ -1,0 +1,21 @@
+# Tedenski opomnik: WebKitGTK v Flatpaku je pripet v /app (packaging/webkit/*.yml) in prekrije runtime, zato varnostne
+# izdaje WebKitGTK ne pridejo same. Tek je rdec (GitHub poslje obvestilo o neuspelem teku), ko je na
+# https://webkitgtk.org/releases/ novejsa stabilna izdaja od pripete - takrat posodobimo url in sha256 (14. 10. 2026).
+name: WebKitGTK razlicica
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"     # ponedeljek 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preveri:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Pripeti WebKitGTK proti najnovejsi stabilni izdaji
+        run: python3 tools/webkit_razlicica.py
