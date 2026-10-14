@@ -267,6 +267,24 @@ class StoritevSporocil:
                             (besedilo[:240], s.cas, pogovor_id, kanal_id))
         return s
 
+    def novo(self, kanal_id: str, prejemnik: str, zadeva: str, besedilo: str):
+        """Novo e-sporocilo osebi, s katero morda se ni pogovora: poslje ga in pogovor doda v nabiralnik."""
+        adapter = self.adapterji[kanal_id]
+        if getattr(adapter, "vrsta", "") != "email":
+            raise ValueError("Novo sporočilo zna samo e-pošta")
+        s = adapter.poslji(prejemnik, besedilo, (), zadeva_nova=zadeva)
+        oseba_id = self._oseba("email", prejemnik, "")
+        with self._zaklep, self.db:
+            self.db.execute("INSERT OR IGNORE INTO pogovori(id,kanal_id,oseba_id,zadeva,zadnje_sporocilo,neprebrano,cas,identiteta) "
+                            "VALUES(?,?,?,?,?,0,?,?)", (prejemnik, kanal_id, oseba_id, zadeva, "", s.cas, prejemnik))
+            self._shrani_sporocilo(kanal_id, s)
+            self.db.execute("UPDATE pogovori SET zadeva=?,zadnje_sporocilo=?,cas=? WHERE id=? AND kanal_id=?",
+                            (zadeva, besedilo[:240], s.cas, prejemnik, kanal_id))
+            if hasattr(adapter, "stanje"):
+                self.db.execute("INSERT OR REPLACE INTO kanal_stanje VALUES(?,?)",
+                                (kanal_id, json.dumps(adapter.stanje(), ensure_ascii=False)))
+        return s
+
     def zazeni(self):
         if self._nit and self._nit.is_alive(): return
         self._ustavi.clear()

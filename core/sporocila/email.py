@@ -257,15 +257,19 @@ class EmailAdapter(Adapter):
 
     # --------------------------------------------------------------- pisanje
     def poslji(self, pogovor_id: str, besedilo: str,
-               priponke: Sequence[dict] = ()) -> Sporocilo:
+               priponke: Sequence[dict] = (), zadeva_nova: str = "") -> Sporocilo:
+        """Odgovor v zadnji niti z osebo; zadeva_nova: novo sporocilo (nova nit s to zadevo, brez In-Reply-To)."""
         prejemnik = pogovor_id if "@" in pogovor_id else ""
         if not prejemnik:
             raise ValueError("Ni naslova prejemnika")
-        nit = self._zadnja_niti.get(pogovor_id) or {}
+        nit = {} if zadeva_nova else (self._zadnja_niti.get(pogovor_id) or {})
         zadeva = nit.get("zadeva") or ""
         msg = EmailMessage()
         msg["From"], msg["To"] = self.naslov, prejemnik
-        msg["Subject"] = zadeva if zadeva.lower().startswith(("re:", "odg:", "aw:")) else ("Re: " + zadeva if zadeva else "Sporočilo")
+        if zadeva_nova:
+            msg["Subject"] = zadeva_nova.strip()
+        else:
+            msg["Subject"] = zadeva if zadeva.lower().startswith(("re:", "odg:", "aw:")) else ("Re: " + zadeva if zadeva else "Sporočilo")
         if nit.get("message_id"):
             msg["In-Reply-To"] = nit["message_id"]
             msg["References"] = nit["message_id"]
@@ -299,6 +303,10 @@ class EmailAdapter(Adapter):
             except Exception:
                 pass
         cas = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        if zadeva_nova:
+            # Odgovor na to sporocilo (iz te aplikacije) nadaljuje novo nit.
+            prej = self._zadnja_niti.get(pogovor_id) or {}
+            self._zadnja_niti[pogovor_id] = dict(prej, zadeva=zadeva_nova.strip(), message_id=str(msg["Message-ID"]))
         return Sporocilo("mid:" + str(msg["Message-ID"]).strip("<>"), pogovor_id, "ven", besedilo, cas, [], "poslano")
 
     def oznaci_prebrano(self, pogovor_id: str) -> None:

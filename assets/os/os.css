@@ -1020,3 +1020,8 @@ html.kavc:not(.kavc-miska), html.kavc:not(.kavc-miska) * { cursor: none !importa
 .ciljno-iskanje svg { width:20px; height:20px; flex:none; color:var(--zelena); }
 .ciljno-iskanje input { width:100%; min-width:0; border:0; outline:0; background:transparent; }
 .nabiralnik .sporocila-iskanje { width:auto; height:40px; margin:12px 12px 8px; padding:0 12px; }
+/* Novo sporocilo (14. 10. 2026) */
+.novo-sporocilo { width: min(860px, 94vw); }
+.novo-sporocilo textarea { width:100%; min-height: 280px; resize: vertical; border:1px solid var(--rob); border-radius:10px;
+  background:#111b27; color: inherit; padding:11px 12px; font: inherit; line-height: 1.45; }
+.novo-sporocilo #novoNapaka { color: #ffb4a8; }
