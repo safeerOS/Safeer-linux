@@ -316,12 +316,28 @@ class Katalog:
         except (OSError, ValueError):
             return {}
 
+    #: Branje-sprememba-zapis nastavitve.json iz delovnih niti (drzava, skriti meni): brez zaklepa bi hkratni spremembi
+    #: druga drugo povozili (pregled 14. 10. 2026).
+    _zaklep_nastavitev = threading.Lock()
+
+    def _spremeni_nastavitve(self, sprememba: Callable[[dict], None]) -> None:
+        with self._zaklep_nastavitev:
+            d = self._nastavitve()
+            sprememba(d)
+            self._shrani_nastavitve(d)
+
     def _shrani_nastavitve(self, d: dict) -> None:
+        """Atomaren zapis (zacasna datoteka v isti mapi + os.replace): izpad med pisanjem ne pusti pol datoteke."""
+        zacasna = self.config_dir / (".nastavitve.json.%d.%d.tmp" % (os.getpid(), threading.get_ident()))
         try:
             self.config_dir.mkdir(parents=True, exist_ok=True)
-            (self.config_dir / "nastavitve.json").write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+            zacasna.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+            os.replace(zacasna, self.config_dir / "nastavitve.json")
         except OSError:
-            pass
+            try:
+                zacasna.unlink()
+            except OSError:
+                pass
 
     # ------------------------------------------------------------------ most
     def pozna(self, metoda: str) -> bool:
@@ -418,9 +434,7 @@ class Katalog:
         drzava = self._niz(a, 0, "auto").strip().upper()
         if drzava != "AUTO" and not re.fullmatch(r"[A-Z]{2}", drzava):
             raise ValueError("Neveljavna koda države.")
-        d = self._nastavitve()
-        d["media_watch_country"] = "auto" if drzava == "AUTO" else drzava
-        self._shrani_nastavitve(d)
+        self._spremeni_nastavitve(lambda d: d.update(media_watch_country="auto" if drzava == "AUTO" else drzava))
         return True
 
     def _sezona(self, a: list) -> Any:
@@ -484,14 +498,16 @@ class Katalog:
         k, da = self._niz(a, 0), bool(a[1]) if len(a) > 1 else True
         if not self._SKRITO.match(k) or k == "kat:domov":
             raise ValueError("Neveljaven predmet menija.")
-        skrito = set(self._skriti())
-        if da:
-            skrito.add(k)
-        else:
-            skrito.discard(k)
-        d = self._nastavitve()
-        d["media_skrito"] = sorted(skrito)[:self.NAJVEC_SKRITIH]
-        self._shrani_nastavitve(d)
+        def sprememba(d: dict) -> None:
+            # Skriti iz istega branja kot zapis (pod zaklepom): hkraten klic iz druge niti se ne izgubi.
+            skrito = {str(x) for x in (d.get("media_skrito") if isinstance(d.get("media_skrito"), list) else [])
+                      if self._SKRITO.match(str(x)) and str(x) != "kat:domov"}
+            if da:
+                skrito.add(k)
+            else:
+                skrito.discard(k)
+            d["media_skrito"] = sorted(skrito)[:self.NAJVEC_SKRITIH]
+        self._spremeni_nastavitve(sprememba)
         izid = self._skriti()
         self.dogodek("mediaSkrito", izid)          # drugo okno (glavno ali Safeer Player) se uskladi takoj
         return izid
@@ -641,7 +657,9 @@ class Katalog:
             else:
                 vnos = dict(izvorni.get(s["id"]) or {"id": s["id"], "naslov": s["naslov"], "izvajalec": s["izvajalec"],
                                                        "slika": s["slika"], "vrsta": "glasba", "url": s["url"]})
-            mc._dynamic_items[vnos["id"]] = vnos
+            # Bogatejsi vnos kataloga (glave, referer, razlicice) ostane: skrcen vnos s seznama ga ne sme nadomestiti,
+            # sicer poznejse predvajanje odpove (pregled 14. 10. 2026).
+            vnos = mc._dynamic_items.setdefault(vnos["id"], vnos)
             vnosi.append({k: vnos.get(k) for k in ("id", "naslov", "izvajalec", "slika", "vrsta", "vir")})
         return {"id": sz["id"], "vnosi": vnosi}
 
@@ -650,7 +668,11 @@ class Katalog:
         sz = self._najdi_samodejni(self._niz(a, 0))
         if not sz:
             return {"napaka": "ni_mogoce"}
-        skladbe = [{"naslov": s["naslov"], "izvajalec": s["izvajalec"], "slika": s["slika"], "sekund": s["sekund"], "url": s["url"]}
+        # Skladba osebnega streznika ima v naslovu prijavo (api_key, u/t/s): seznam hrani id streznika, naslov brez
+        # prijave zapise MediaCenter._seznami_pisi, prijavo doda ob predvajanju (MediaCenter.s_prijavo).
+        skladbe = [dict({"naslov": s["naslov"], "izvajalec": s["izvajalec"], "slika": s["slika"], "sekund": s["sekund"],
+                         "url": s["url"]}, **({"streznik": media_servers.streznik_iz_id(s["id"])}
+                                             if media_servers.streznik_iz_id(s["id"]) else {}))
                    for s in sz["skladbe"] if s["url"]]
         return self.mc.shrani_seznam(self._niz(a, 1), skladbe)
 
@@ -935,7 +957,10 @@ class Katalog:
         _predvajano: zanjo velja _konec_lokalne."""
         vnos = self._predvajano.get(str(uri or ""))
         if not vnos:
-            self._konec_lokalne(str(uri or ""))
+            if str(uri or "").startswith("file://"):
+                # Knjiznica (SQLite) in do 5000 epizod s preverbo datotek na NAS: v ozadju, glavna nit ne zamrzne.
+                threading.Thread(target=self._konec_lokalne, args=(str(uri),), name="safeer-konec-lokalne",
+                                 daemon=True).start()
             return
         if vnos.get("vrsta") in ("video", "medij"):
             d = self._napredki()
@@ -1031,7 +1056,24 @@ class Katalog:
                 print("[SafeerMedia] polica %s: %s" % (ime, type(e).__name__), flush=True)
                 viri[ime] = []
         izhod["police"] = os_police.sestavi_police(zavihek, viri)
+        self._ovitki_s_prijavo(izhod["police"])
         return izhod
+
+    def _ovitki_s_prijavo(self, police: list) -> None:
+        """Ovitek skladbe osebnega streznika (Navidrome, Plex) je na polici shranjen brez prijave (core/os_police.py,
+        cisti_opis): za prikaz na tej napravi ga dopolni s prijavo, na disk ne gre."""
+        s_prijavo = getattr(self.mc, "s_prijavo", None)
+        vnosi = [v for p in police for v in p.get("vnosi") or []
+                 if str(v.get("slika") or "").startswith(("http://", "https://")) and v.get("tip") == "katalog"]
+        if not vnosi or s_prijavo is None:
+            return
+        try:
+            prijave = self.mc._prijave_streznikov()
+            if prijave:
+                for v in vnosi:
+                    v["slika"] = s_prijavo(v["slika"], media_servers.streznik_iz_id(v.get("id")), prijave)
+        except Exception as e:  # noqa: BLE001 - brez zbirke skrivnosti ostane ovitek brez prijave
+            print("[SafeerMedia] ovitki polic: %s" % type(e).__name__, flush=True)
 
     def _polica_nadaljuj(self, zavihek: str, ogledano: dict) -> list:
         """Nedokoncano iz kataloga in knjiznice ter naslednje epizode serij, nazadnje gledano prvo."""
@@ -1185,8 +1227,11 @@ class Katalog:
         if item and item.get("id"):
             return self._predvajaj_vnos([str(item["id"])])
         if m.get("url"):
+            # Naslov s streznika je na polici brez prijave (cisti_opis): prijavo doda Medijski center zdaj.
+            s_prijavo = getattr(self.mc, "s_prijavo", None)
+            url = s_prijavo(m["url"], media_servers.streznik_iz_id(ident)) if s_prijavo else m["url"]
             return self._predvajaj_razresen({"id": ident or k, "naslov": m.get("naslov") or "", "vrsta": m.get("vrsta") or "",
-                                             "url": m["url"], "izvajalec": m.get("izvajalec") or "",
+                                             "url": url, "izvajalec": m.get("izvajalec") or "",
                                              "slika": m.get("slika") or ""}, ident or k)
         return None
 
@@ -1317,7 +1362,8 @@ class Katalog:
             print("[SafeerMedia] naslednja epizoda: %s" % type(e).__name__, flush=True)
 
     def _konec_lokalne(self, uri: str) -> None:
-        """Film ali epizoda iz krajevne knjiznice je odigrana do konca: ogledana; po epizodi ponudimo naslednjo."""
+        """Film ali epizoda iz krajevne knjiznice je odigrana do konca: ogledana; po epizodi ponudimo naslednjo.
+        Tece v ozadni niti (konec); ponudba gre na glavno nit (v_glavni)."""
         if not uri.startswith("file://"):
             return
         pot = urllib.parse.unquote(urllib.parse.urlsplit(uri).path)
@@ -1332,7 +1378,8 @@ class Katalog:
             naslednja = os_police.naslednja_lokalna(pot, epizode.keys())
             x = epizode.get(naslednja or "")
             if x and x["naVoljo"] and not x["ogledano"]:
-                self._ponudi(self._vnos_naslednje_lokalne(x, int(time.time())))
+                ponudba = self._vnos_naslednje_lokalne(x, int(time.time()))
+                self.v_glavni(lambda: self._ponudi(ponudba) and False)
         except Exception as e:  # noqa: BLE001 - baza zaklenjena: predvajanje se konca brez ponudbe
             print("[SafeerMedia] konec datoteke: %s" % type(e).__name__, flush=True)
 

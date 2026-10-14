@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
 from core.iskalni_kljuc import kljuc as kljuc_imena
+from core.viri_sink import brez_prijave, ima_prijavo
 
 NAJVEC_PRILJUBLJENIH = 500
 NAJVEC_PREDVAJANJ = 400
@@ -142,6 +143,11 @@ def cisti_opis(m: Any) -> dict:
             izhod.pop(p, None)
     if not str(izhod.get("url", "")).startswith(("https://", "http://")):
         izhod.pop("url", None)
+    # Prijava osebnega streznika (api_key, u/t/s, geslo v naslovu) ne gre v predvajanja.json in priljubljene.json:
+    # Medijski center jo doda ob predvajanju (MediaCenter.s_prijavo; pregled 14. 10. 2026).
+    for p in ("url", "slika", "ozadje"):
+        if p in izhod:
+            izhod[p] = brez_prijave(izhod[p])
     return izhod
 
 
@@ -303,8 +309,30 @@ class Police:
                 pass
             return False
 
+    def _ocisti_prijave(self) -> None:
+        """Enkratna selitev (14. 10. 2026): starejse razlicice so v opis skladbe s streznika zapisale naslov s prijavo
+        (api_key, u/t/s). Datoteki prepisemo z opisi brez nje; ce ni cesa cistiti, ne pisemo."""
+        with self._zaklep:
+            if getattr(self, "_prijave_ociscene", False):
+                return
+            self._prijave_ociscene = True
+
+            def umazan(m: Any) -> bool:
+                return isinstance(m, dict) and any(ima_prijavo(m.get(p)) for p in ("url", "slika", "ozadje")
+                                                   if isinstance(m.get(p), str))
+            pr = self._beri(self.PREDVAJANJA, {})
+            if any(isinstance(v, dict) and umazan(v.get("m")) for v in pr.values()):
+                self._pisi(self.PREDVAJANJA, {k: dict(v, m=cisti_opis(v["m"])) if isinstance(v, dict) and umazan(v.get("m")) else v
+                                              for k, v in pr.items()})
+            pl = self._beri(self.PRILJUBLJENE, {})
+            v = pl.get("v")
+            if isinstance(v, list) and any(isinstance(x, dict) and umazan(x.get("m")) for x in v):
+                self._pisi(self.PRILJUBLJENE, dict(pl, v=[dict(x, m=cisti_opis(x["m"])) if isinstance(x, dict) and umazan(x.get("m"))
+                                                          else x for x in v]))
+
     # ------------------------------------------------------------------ priljubljene
     def _seznam_priljubljenih(self) -> list:
+        self._ocisti_prijave()
         v = self._beri(self.PRILJUBLJENE, {}).get("v")
         return [x for x in v if isinstance(x, dict) and veljaven_kljuc(x.get("k"))] if isinstance(v, list) else []
 
@@ -333,6 +361,7 @@ class Police:
 
     # ------------------------------------------------------------------ predvajanja
     def _predvajanja(self) -> dict:
+        self._ocisti_prijave()
         return {k: v for k, v in self._beri(self.PREDVAJANJA, {}).items() if veljaven_kljuc(k) and isinstance(v, dict)}
 
     def _shrani_predvajanja(self, d: dict) -> None:

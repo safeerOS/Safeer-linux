@@ -479,6 +479,62 @@ def catalog(kind: str, base: str, server: dict, secret: str, query: str = "") ->
     return rows
 
 
+# ------------------------------------------------------------------- prijava ob predvajanju (ne v shranjenih naslovih)
+
+#: Predpona id-ja vnosa streznika -> ali id nosi id streznika (npr. "navidrome:<streznik>:<skladba>").
+_PREDPONE_STREZNIKA = ("server", "navidrome", "plex", "kodi", "tvh", "funkwhale", "dlna", "azura")
+
+
+def streznik_iz_id(ident: object) -> str:
+    """Id osebnega streznika iz id-ja njegovega vnosa ("" za vse drugo)."""
+    deli = str(ident or "").split(":", 2)
+    return deli[1] if len(deli) == 3 and deli[0] in _PREDPONE_STREZNIKA and deli[1].startswith("streznik-") else ""
+
+
+def _izvor(url: str) -> tuple:
+    try:
+        d = urllib.parse.urlsplit(str(url or ""))
+        return (d.scheme.lower(), d.netloc.rpartition("@")[2].lower())
+    except ValueError:
+        return ("", "")
+
+
+def je_naslov_streznika(url: str, server: dict) -> bool:
+    """Ali naslov kaze na ta streznik (isti protokol, gostitelj in vrata)."""
+    izvor = _izvor(url)
+    return bool(izvor[1]) and izvor == _izvor(str(server.get("url") or ""))
+
+
+def s_prijavo(url: str, server: dict, secret: str) -> str:
+    """Naslov, shranjen brez prijave (core/viri_sink.py, brez_prijave), z novo prijavo tega streznika - ob
+    predvajanju in prikazu na tej napravi. Prijavo doda le naslovu na tem strezniku, drugim nikoli."""
+    url = str(url or "")
+    if not url.startswith(("http://", "https://")) or not je_naslov_streznika(url, server):
+        return url
+    from core import viri_sink
+    cist = viri_sink.brez_prijave(url)
+    kind = str(server.get("ponudnik") or "")
+    uporabnik = str(server.get("uporabnik") or "")
+    if kind in ("kodi", "tvheadend"):
+        return _z_uporabnikom(cist, uporabnik, secret)
+    if not secret:
+        return cist
+    d = urllib.parse.urlsplit(cist)
+    if kind in ("jellyfin", "emby"):
+        dodatek = {"api_key": secret}
+    elif kind == "navidrome" and viri_sink.je_subsonic(d.path):
+        sol = secrets.token_hex(8)
+        dodatek = {"u": uporabnik, "t": hashlib.md5((secret + sol).encode(), usedforsecurity=False).hexdigest(), "s": sol}
+    elif kind == "plex":
+        dodatek = {"X-Plex-Token": secret}
+    elif kind == "funkwhale":
+        dodatek = {"token": secret}
+    else:
+        return cist
+    poizvedba = "&".join(x for x in (d.query, urllib.parse.urlencode(dodatek)) if x)
+    return urllib.parse.urlunsplit((d.scheme, d.netloc, d.path, poizvedba, d.fragment))
+
+
 # ------------------------------------------------------------------------------ Stremio dodatki
 
 #: Stremio vrste -> vrste Medijskega centra.

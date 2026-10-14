@@ -19,6 +19,14 @@ STRAN = 100                      # isto kot seznami_sink.STRAN (sporocila Linka 
 POLJA = ("naslov", "izvajalec", "youtube", "sekund", "slika", "url", "video", "android")
 
 
+def skladba_za_napravo(s: dict) -> dict:
+    """Skladba za drugo napravo: samo POLJA in nikoli prijava osebnega streznika (zeton, geslo) v naslovu - tudi ce je
+    v seznami.json ostala iz starejse razlicice ali z druge naprave (core/viri_sink.py, cista_skladba)."""
+    from core import viri_sink
+    cista = viri_sink.cista_skladba(s)
+    return {k: cista[k] for k in POLJA if k in cista}
+
+
 def mapa() -> str:
     """Mapa Medijskega centra Safeer OS (ista kot os_programi.MAPA_NASTAVITEV + "/media")."""
     return os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "safeer-os", "media")
@@ -75,6 +83,6 @@ def izvoz(parametri: Optional[dict] = None, koren: Optional[str] = None) -> dict
         od = max(0, int(parametri.get("od") or 0))
     except (TypeError, ValueError):
         od = 0
-    skladbe = [{k: s[k] for k in POLJA if k in s} for s in sz["skladbe"][od:od + STRAN] if isinstance(s, dict)]
+    skladbe = [skladba_za_napravo(s) for s in sz["skladbe"][od:od + STRAN] if isinstance(s, dict)]
     return {"ime": sz["ime"], "vir": sz.get("vir") or "", "cas": int(sz.get("cas") or 0), "stevilo": len(sz["skladbe"]),
             "od": od, "skladbe": skladbe}

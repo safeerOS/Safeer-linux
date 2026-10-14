@@ -1189,6 +1189,60 @@ class MediaCenter:
         self._predpomnilnik_casovnik: Optional[threading.Timer] = None
         self._osvezujem: set[str] = set()
 
+    # --- prijava osebnih streznikov ob predvajanju ------------------------------
+    #: Strezniki, ki imajo prijavo v naslovu toka (core/media_servers.py, s_prijavo).
+    _S_PRIJAVO = frozenset({"jellyfin", "emby", "navidrome", "plex", "kodi", "tvheadend", "funkwhale"})
+
+    def _prijave_streznikov(self) -> list:
+        """[(streznik, skrivnost)] osebnih streznikov s prijavo v naslovu. Skrivnost je samo v pomnilniku (kot vrstice
+        _server_cache, ki jo ze nosijo), kljuc je sifriran zapis - nov zeton je nov kljuc."""
+        with self._lock:
+            strezniki = [s for s in self._load().get("osebni_strezniki", [])
+                         if isinstance(s, dict) and s.get("ponudnik") in self._S_PRIJAVO and s.get("url")]
+        if not hasattr(self, "_skrivnosti_strezn"):
+            self._skrivnosti_strezn = {}
+        izid = []
+        for s in strezniki:
+            enc = str(s.get("secret_enc") or "")
+            if enc not in self._skrivnosti_strezn:
+                try:
+                    self._skrivnosti_strezn[enc] = self._secret_decryptor(enc) if enc else ""
+                except Exception:  # noqa: BLE001 - zaklenjena zbirka skrivnosti: naslov brez prijave, poskusimo znova
+                    izid.append((s, ""))
+                    continue
+            izid.append((s, self._skrivnosti_strezn[enc]))
+        return izid
+
+    def s_prijavo(self, url: str, streznik: str = "", prijave: Optional[list] = None) -> str:
+        """Naslov s streznika, shranjen brez prijave (seznam, polica), s prijavo za predvajanje na tej napravi.
+        [streznik]: id streznika, ki ga je skladba imela ob shranjevanju (ima prednost pred ujemanjem gostitelja)."""
+        url = str(url or "")
+        if not url.startswith(("http://", "https://")) or viri_sink.ima_prijavo(url):
+            return url
+        prijave = self._prijave_streznikov() if prijave is None else prijave
+        for server, secret in sorted(prijave, key=lambda p: str(p[0].get("id") or "") != streznik):
+            if media_servers.je_naslov_streznika(url, server):
+                return media_servers.s_prijavo(url, server, secret)
+        return url
+
+    def _vnos_s_prijavo(self, item: Optional[dict], streznik: str = "", prijave: Optional[list] = None) -> Optional[dict]:
+        """Vnos z naslovom toka in ovitka s prijavo (samo, ce kaze na uporabnikov streznik)."""
+        if not isinstance(item, dict):
+            return item
+        streznik = streznik or str(item.get("streznik") or "") or media_servers.streznik_iz_id(item.get("id"))
+        izid = item
+        for polje in ("url", "slika"):
+            prej = str(item.get(polje) or "")
+            if prej.startswith(("http://", "https://")) and not viri_sink.ima_prijavo(prej):
+                if prijave is None:
+                    prijave = self._prijave_streznikov()
+                    if not prijave:
+                        return item
+                novo = self.s_prijavo(prej, streznik, prijave)
+                if novo != prej:
+                    izid = dict(izid, **{polje: novo})
+        return izid
+
     # --- trajni predpomnilnik -------------------------------------------------
     PREDPOMNILNIK_KATALOG = 80        # najvec shranjenih pogledov (vrsta/zvrst/stran/iskanje)
     PREDPOMNILNIK_TMDB = 400          # najvec shranjenih odgovorov TMDB (podrobnosti, ponudniki)
@@ -1740,8 +1794,20 @@ class MediaCenter:
             data = json.loads(self.pot_seznamov.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return []
-        return [x for x in data if isinstance(x, dict) and x.get("ime") and isinstance(x.get("skladbe"), list)] \
+        vsi = [x for x in data if isinstance(x, dict) and x.get("ime") and isinstance(x.get("skladbe"), list)] \
             if isinstance(data, list) else []
+        if not getattr(self, "_seznami_ocisceni", False):
+            # Enkratna selitev: starejse razlicice so v seznam zapisale naslove s prijavo streznika (api_key, u/t/s).
+            self._seznami_ocisceni = True
+            if any(isinstance(s, dict) and (viri_sink.ima_prijavo(s.get("url")) or viri_sink.ima_prijavo(s.get("slika")))
+                   for x in vsi for s in x["skladbe"]):
+                with self._lock:
+                    try:
+                        self._seznami_pisi(vsi)
+                    except OSError:
+                        pass
+                vsi = [dict(x, skladbe=[viri_sink.cista_skladba(s) for s in x["skladbe"]]) for x in vsi]
+        return vsi
 
     @staticmethod
     def _zdaj_ms() -> int:
@@ -1797,7 +1863,9 @@ class MediaCenter:
         except (TypeError, ValueError):
             od = 0
         polja = ("naslov", "izvajalec", "youtube", "sekund", "slika", "url", "video", "android")
-        skladbe = [{k: s[k] for k in polja if k in s} for s in sz["skladbe"][od:od + seznami_sink.STRAN] if isinstance(s, dict)]
+        # Prijava streznika ne gre na druge naprave (enako core/link_seznami.py, skladba_za_napravo).
+        skladbe = [{k: c[k] for k in polja if k in c} for c in
+                   (viri_sink.cista_skladba(s) for s in sz["skladbe"][od:od + seznami_sink.STRAN] if isinstance(s, dict))]
         return {"ime": sz["ime"], "vir": sz.get("vir") or "", "cas": int(sz.get("cas") or 0), "stevilo": len(sz["skladbe"]),
                 "od": od, "skladbe": skladbe}
 
@@ -1840,8 +1908,11 @@ class MediaCenter:
 
     def _seznami_pisi(self, seznami: list[dict]) -> None:
         self.config_dir.mkdir(parents=True, exist_ok=True)
+        # Edina pot zapisa seznamov: prijava streznika (zeton, geslo) nikoli ne pride na disk ne na druge naprave.
+        cisti = [dict(x, skladbe=[viri_sink.cista_skladba(s) for s in x["skladbe"]]) if isinstance(x.get("skladbe"), list) else x
+                 for x in seznami[:self.NAJVEC_SEZNAMOV] if isinstance(x, dict)]
         zacasna = self.pot_seznamov.with_suffix(".tmp")
-        zacasna.write_text(json.dumps(seznami[:self.NAJVEC_SEZNAMOV], ensure_ascii=False), encoding="utf-8")
+        zacasna.write_text(json.dumps(cisti, ensure_ascii=False), encoding="utf-8")
         os.replace(zacasna, self.pot_seznamov)
 
     @staticmethod
@@ -1855,14 +1926,30 @@ class MediaCenter:
             # Posnetek z YouTuba ali (skladba, dodana iz kataloga) njen neposredni naslov.
             "url": ("https://www.youtube.com/watch?v=" + yt) if yt else str(s.get("url") or ""), "youtube": yt,
             "seznam": ime, "sekund": int(s.get("sekund") or 0),
+            # Skladba osebnega streznika: naslov je shranjen brez prijave, doda jo s_prijavo (ob prikazu in predvajanju).
+            "streznik": str(s.get("streznik") or ""),
         }
+
+    def _seznam_vnos_s_prijavo(self, ime: str, vir: str, s: dict, prijave: Optional[list] = None) -> dict:
+        vnos = self._seznam_vnos(ime, vir, s)
+        if s.get("prijava") or s.get("streznik"):
+            vnos = self._vnos_s_prijavo(vnos, vnos["streznik"], prijave)
+        return vnos
 
     def seznami(self) -> list[dict]:
         """Seznami predvajanja za prikaz: ime, izvor, stevilo skladb in slika (ovitek prve skladbe)."""
         with self._lock:
-            return [{"ime": x["ime"], "vir": x.get("vir") or "", "stevilo": len(x["skladbe"]),
-                     "slika": next((str(s.get("slika")) for s in x["skladbe"] if s.get("slika")), "")}
-                    for x in self._seznami_beri()]
+            vsi = self._seznami_beri()
+        prijave: Optional[list] = None
+        izid = []
+        for x in vsi:
+            prva = next((s for s in x["skladbe"] if isinstance(s, dict) and s.get("slika")), None)
+            slika = str((prva or {}).get("slika") or "")
+            if prva and (prva.get("prijava") or prva.get("streznik")):
+                prijave = self._prijave_streznikov() if prijave is None else prijave
+                slika = self.s_prijavo(slika, str(prva.get("streznik") or ""), prijave)
+            izid.append({"ime": x["ime"], "vir": x.get("vir") or "", "stevilo": len(x["skladbe"]), "slika": slika})
+        return izid
 
     def seznam(self, ime: str) -> dict:
         """Skladbe seznama kot vnosi kataloga (kartice, vrsta predvajanja)."""
@@ -1870,7 +1957,9 @@ class MediaCenter:
             sz = next((x for x in self._seznami_beri() if x["ime"] == ime), None)
             if not sz:
                 return {"ime": ime, "vnosi": []}
-            vnosi = [self._seznam_vnos(sz["ime"], sz.get("vir") or "", s) for s in sz["skladbe"] if isinstance(s, dict)]
+            skladbe = [s for s in sz["skladbe"] if isinstance(s, dict)]
+            prijave = self._prijave_streznikov() if any(s.get("prijava") or s.get("streznik") for s in skladbe) else []
+            vnosi = [self._seznam_vnos_s_prijavo(sz["ime"], sz.get("vir") or "", s, prijave) for s in skladbe]
             for v in vnosi:
                 self._dynamic_items[v["id"]] = v
             return {"ime": sz["ime"], "vir": sz.get("vir") or "", "vnosi": vnosi}
@@ -1960,13 +2049,17 @@ class MediaCenter:
                 for sz in self._seznami_beri():
                     for s in sz["skladbe"]:
                         if isinstance(s, dict) and self._seznam_vnos(sz["ime"], sz.get("vir") or "", s)["id"] == item_id:
-                            zapis = {k: s[k] for k in ("naslov", "izvajalec", "youtube", "slika", "sekund", "url") if k in s}
+                            zapis = {k: s[k] for k in ("naslov", "izvajalec", "youtube", "slika", "sekund", "url",
+                                                       "streznik", "prijava") if k in s}
         else:
             vnos = self._dynamic_items.get(item_id)
             url = str((vnos or {}).get("url") or "")
             if vnos and str(vnos.get("vrsta") or "") in ("glasba", "podcast", "podkast") and url.startswith(("http://", "https://", "file:")):
                 zapis = {"naslov": str(vnos.get("naslov") or ""), "izvajalec": str(vnos.get("izvajalec") or ""),
                          "youtube": "", "slika": str(vnos.get("slika") or ""), "sekund": 0, "url": url}
+                streznik = media_servers.streznik_iz_id(item_id)
+                if streznik:        # prijavo (zeton) odstrani _seznami_pisi; ob predvajanju jo doda ta streznik
+                    zapis["streznik"] = streznik
         if not zapis or not zapis.get("naslov"):
             return {"napaka": "ni_mogoce"}
         with self._lock:
@@ -2038,8 +2131,9 @@ class MediaCenter:
         sz, s = zadetek
         stari = str(s.get("youtube") or "")
         if (stari and not zamenjaj) or (s.get("url") and not stari):
-            # Posnetek je znan (ali pa ima skladba svoj neposredni naslov): nic ne iscemo.
-            return self._seznam_vnos(sz["ime"], sz.get("vir") or "", s)
+            # Posnetek je znan (ali pa ima skladba svoj neposredni naslov): nic ne iscemo. Skladba s streznika dobi
+            # prijavo sele zdaj (shranjena je brez nje).
+            return self._seznam_vnos_s_prijavo(sz["ime"], sz.get("vir") or "", s)
         zavrnjeni = tuple(x for x in (list(s.get("zavrnjeni") or []) + ([stari] if stari else [])) if x)
         if zamenjaj and len(zavrnjeni) > 3:
             return None
@@ -3685,6 +3779,8 @@ class MediaCenter:
         item = self._dynamic_items.get(item_id) or next((item for item in self.catalog()["vnosi"] if item.get("id") == item_id), None)
         if not item:
             return None
+        # Vnos s police ali samodejnega seznama nosi naslov streznika brez prijave (shranjen je bil tako): prijava zdaj.
+        item = self._vnos_s_prijavo(item)
         if str(item.get("url") or "").startswith("knjiznica:"):
             return self._razresi_knjiznico(item) if pripravi_torrent else dict(item, torrent=True)
         # Posebni naslovi (Stremio dodatek) so lahko tudi med razlicicami zdruzene kartice.

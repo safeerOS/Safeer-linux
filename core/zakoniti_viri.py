@@ -128,19 +128,46 @@ def logotip(kljuc: str, izvor: str, prenesi: bool = True) -> str:
     ikona = ikone_strani.iz_predpomnilnika(stran)
     if ikona or not prenesi:
         return ikona
-    if stran not in _LOGOTIPI_V_TEKU:
-        _LOGOTIPI_V_TEKU.add(stran)
-        import threading
-
-        def delo():
-            i = ikone_strani.ikona_strani(stran)
-            if i:
-                ikone_strani.shrani(stran, i)
-        threading.Thread(target=delo, daemon=True).start()
+    if _logotip_zacni(stran):
+        threading.Thread(target=_logotip_prenesi, args=(stran,), daemon=True).start()
     return ""
 
 
+#: Logotipi, ki se prav zdaj prenasajo (stran -> True), in kdaj je prenos nazadnje spodletel (stran -> time.monotonic()).
 _LOGOTIPI_V_TEKU: set = set()
+_LOGOTIPI_NEUSPELI: dict = {}
+_LOGOTIPI_ZAKLEP = threading.Lock()
+#: Spodleteli logotip poskusimo znova sele cez 10 min: prej ga tv_v_zivo() ne caka (pregled 14. 10. 2026: logotip,
+#: ki ni uspel, se do ponovnega zagona ni vec poskusil, katalog pa je ob vsakem izrisu cakal nanj do 4 s).
+LOGOTIP_ZNOVA_S = 600.0
+
+
+def _logotip_zacni(stran: str) -> bool:
+    """Ali naj ta klic prenese logotip: ni ze v teku in ni nedavno spodletel (oznaci ga kot v teku)."""
+    with _LOGOTIPI_ZAKLEP:
+        neuspel = _LOGOTIPI_NEUSPELI.get(stran)
+        if stran in _LOGOTIPI_V_TEKU or (neuspel is not None and time.monotonic() - neuspel < LOGOTIP_ZNOVA_S):
+            return False
+        _LOGOTIPI_V_TEKU.add(stran)
+        return True
+
+
+def _logotip_prenesi(stran: str) -> None:
+    from core import ikone_strani
+    i = None
+    try:
+        i = ikone_strani.ikona_strani(stran)
+        if i:
+            ikone_strani.shrani(stran, i)
+    except Exception:  # noqa: BLE001 - logotip je okras; brez njega kartica pokaze ime
+        i = None
+    finally:
+        with _LOGOTIPI_ZAKLEP:
+            _LOGOTIPI_V_TEKU.discard(stran)
+            if i:
+                _LOGOTIPI_NEUSPELI.pop(stran, None)
+            else:
+                _LOGOTIPI_NEUSPELI[stran] = time.monotonic()
 
 
 DRZAVE = {"SI": "Slovenija", "DE": "Nemčija", "FR": "Francija", "QA": "Katar", "TR": "Turčija", "US": "ZDA",
@@ -169,17 +196,12 @@ def pripravi_logotipe(cas: float = 4.0) -> None:
     from concurrent.futures import ThreadPoolExecutor, wait
     from core import ikone_strani
     manjkajo = sorted({domaca_stran(k, izvor) for k, _i, _j, _u, _s, _samo, izvor in TV_V_ZIVO} - {""})
-    manjkajo = [s for s in manjkajo if not ikone_strani.iz_predpomnilnika(s) and s not in _LOGOTIPI_V_TEKU]
+    # V teku ali nedavno spodleteli ne cakamo (_logotip_zacni): tv_v_zivo() caka samo na prvi poskus.
+    manjkajo = [s for s in manjkajo if not ikone_strani.iz_predpomnilnika(s) and _logotip_zacni(s)]
     if not manjkajo:
         return
-
-    def eno(stran):
-        _LOGOTIPI_V_TEKU.add(stran)
-        i = ikone_strani.ikona_strani(stran)
-        if i:
-            ikone_strani.shrani(stran, i)
     pool = ThreadPoolExecutor(max_workers=8)
-    wait([pool.submit(eno, s) for s in manjkajo], timeout=cas)
+    wait([pool.submit(_logotip_prenesi, s) for s in manjkajo], timeout=cas)
     pool.shutdown(wait=False)
 
 

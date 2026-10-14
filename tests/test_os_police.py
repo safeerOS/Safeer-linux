@@ -3,6 +3,7 @@ priljubljene, ogledano, naslednja epizoda in katere police se pokazejo na katere
 import json
 import os
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -387,9 +388,14 @@ class MostPolic(unittest.TestCase):
             (mapa / ime).write_bytes(b"x")
             poti.append(str((mapa / ime).resolve()))
         self.lokalna.dodaj(poti)
+        glavna, niti = threading.get_ident(), []
+        epizode = self.lokalna.epizode
+        self.lokalna.epizode = lambda *a: niti.append(threading.get_ident()) or epizode(*a)
         self.k.konec((mapa / "Serija S01E02.mkv").resolve().as_uri())
-        self.assertTrue(self.lokalna.dobi(poti[1])["ogledano"])
         ponudba = self._pocakaj("mediaNaslednja")
+        # Branje knjiznice (do 5000 epizod, preverba datotek na NAS) ni na glavni niti (pregled 14. 10. 2026).
+        self.assertTrue(niti and glavna not in niti)
+        self.assertTrue(self.lokalna.dobi(poti[1])["ogledano"])
         self.assertEqual((ponudba["tip"], ponudba["pot"]), ("lokalno", poti[2]))
         # Uporabnik je medtem sam izbral drugo vsebino: ponudba ne zacne nicesar.
         self.k.izvedi("mediaPredvajaj", ["r"])
