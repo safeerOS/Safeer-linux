@@ -55,7 +55,14 @@
       vednoSTem: "Vedno odpri to vrsto datotek s tem programom", niProgramaZaVrsto: "Za to vrsto datotek ni nastavljenega programa.",
       odslejZ: "Od zdaj se ta vrsta datotek odpira s programom {ime}.",
       odstraniPriljubljeno: "Odstrani iz priljubljenih", predogled: "Predogled", zapri: "Zapri",
-      odpiramNaNapravi: "Z naprave predvajam le glasbo in video. Druge datoteke odpri na sami napravi.",
+      nadaljujTukaj: "Nadaljuj tukaj", nadaljujPrenasam: "Prenašam »{ime}« z naprave {naprava} …",
+      nadaljujIzid: "Preneseno {preneseno} od {velikost} ({odstotek} % iz prejšnje kopije).",
+      nadaljujIzidPolno: "Preneseno {preneseno} (cela datoteka).", nadaljujSmeti: "Tvoja prejšnja različica je v Smeteh.",
+      nadaljujIzvirnik: "Shranjeno nazaj v izvirnik.", nadaljujNiOdprto: "Shranjeno v {pot}.",
+      nadaljujNapaka: "Datoteke ni bilo mogoče prenesti.", nadaljujNapaka_ni_dovoljenja: "Naprava ti datotek ne dovoli.",
+      nadaljujNapaka_ni_dosegljiva: "Naprava trenutno ni dosegljiva.", nadaljujNapaka_ni_datoteke: "Datoteke na napravi ni več.",
+      nadaljujNapaka_datoteka_se_spreminja: "Datoteka se na napravi ravno spreminja. Poskusi čez trenutek.",
+      nadaljujNapaka_disk: "Datoteke ni bilo mogoče shraniti na ta računalnik.",
       niUspelo: "Ni uspelo.", strani: "{a}–{b} od {n}", nazaj: "‹", naprej: "›",
       kVse: "Vse", kPisarna: "Pisarna", kUstvarjanje: "Ustvarjanje", kMediji: "Mediji", kSplet: "Splet", kIgre: "Igre",
       kDrugo: "Drugo", kPriljubljeni: "★ Priljubljeni",
@@ -256,7 +263,14 @@
       vednoSTem: "Always open this type of file with this program", niProgramaZaVrsto: "No program is set up for this type of file.",
       odslejZ: "From now on this type of file opens with {ime}.",
       odstraniPriljubljeno: "Remove from favourites", predogled: "Preview", zapri: "Close",
-      odpiramNaNapravi: "From a device I can only play music and video. Open other files on the device itself.",
+      nadaljujTukaj: "Continue here", nadaljujPrenasam: "Getting “{ime}” from {naprava}…",
+      nadaljujIzid: "Transferred {preneseno} of {velikost} ({odstotek} % from the previous copy).",
+      nadaljujIzidPolno: "Transferred {preneseno} (whole file).", nadaljujSmeti: "Your previous version is in the Trash.",
+      nadaljujIzvirnik: "Saved back to the original.", nadaljujNiOdprto: "Saved to {pot}.",
+      nadaljujNapaka: "The file could not be transferred.", nadaljujNapaka_ni_dovoljenja: "The device doesn't allow you its files.",
+      nadaljujNapaka_ni_dosegljiva: "The device can't be reached right now.", nadaljujNapaka_ni_datoteke: "The file is no longer on the device.",
+      nadaljujNapaka_datoteka_se_spreminja: "The file is changing on the device right now. Try again in a moment.",
+      nadaljujNapaka_disk: "The file could not be saved on this computer.",
       niUspelo: "That didn't work.", strani: "{a}–{b} of {n}", nazaj: "‹", naprej: "›",
       kVse: "All", kPisarna: "Office", kUstvarjanje: "Creative", kMediji: "Media", kSplet: "Web", kIgre: "Games",
       kDrugo: "Other", kPriljubljeni: "★ Favourites",
@@ -1614,8 +1628,9 @@
     if (e.oddaljeno) {
       var v = D.vir;
       if (e.mapa) { v.pot.push({ id: e.id, ime: e.ime }); odpriVir(v); return; }
-      if (e.vrsta !== "zvok" && e.vrsta !== "video") { obvesti(t("odpiramNaNapravi")); return; }
       if (!v.streznik) { obvesti(t("napravaNeOdgovori")); return; }
+      // Dokument, slika ... z druge naprave: urejanje se nadaljuje tukaj (prenese se samo, kar se je spremenilo).
+      if (e.vrsta !== "zvok" && e.vrsta !== "video") { nadaljujTukaj(e); return; }
       var predvajljivi = D.vse.filter(function (x) { return !x.mapa && (x.vrsta === "zvok" || x.vrsta === "video"); });
       var seznam = predvajljivi.map(function (x) { return x.izvirnik; });
       klic("predvajajZNaprave", [v.streznik, v.kljuc, seznam, predvajljivi.indexOf(e), v.ime, v.id]).then(function (ok) {
@@ -1630,6 +1645,35 @@
       return klic("odpriDatoteko", [e.pot]).then(function (ok2) { if (!ok2) obvesti(t("niUspelo")); });
     }).catch(function () { obvesti(t("niUspelo")); });
   }
+  // »Nadaljuj tukaj«: datoteka z druge naprave se shrani na ta racunalnik (Prejemi/Safeer/Z drugih naprav ali nazaj v
+  // izvirnik) in odpre. Po omrezju gre samo, cesar ta racunalnik se nima (core/link_nadaljuj); izid pove, koliko.
+  var nadaljujTece = {};
+  function nadaljujTukaj(e) {
+    var v = D.vir;
+    if (!v || v.vrsta !== "naprava" || e.mapa) return;
+    if (!v.streznik) { obvesti(t("napravaNeOdgovori")); return; }
+    var kljuc = v.id + "\n" + e.id;
+    if (nadaljujTece[kljuc]) return;
+    nadaljujTece[kljuc] = true;
+    obvesti(t("nadaljujPrenasam", { ime: e.ime, naprava: v.ime }));
+    var pot = v.pot.map(function (p) { return p.ime; }).concat([e.ime]);
+    klic("nadaljujTukaj", [v.streznik, v.kljuc || "", e.id, v.id, v.ime, pot]).then(function (r) {
+      delete nadaljujTece[kljuc];
+      if (!r || !r.ok) {
+        var k = "nadaljujNapaka_" + ((r && r.koda) || ""), s = t(k);
+        obvesti(s === k ? t("nadaljujNapaka") : s);
+        return;
+      }
+      var b = r.delta
+        ? t("nadaljujIzid", { preneseno: velikost(r.preneseno) || "0 B", velikost: velikost(r.velikost) || "0 B",
+                              odstotek: r.velikost ? Math.floor(100 * r.iz_lokalnih / r.velikost) : 100 })
+        : t("nadaljujIzidPolno", { preneseno: velikost(r.preneseno) || "0 B" });
+      if (r.izvirnik) b += " " + t("nadaljujIzvirnik");
+      if (r.prejsnja_v_smeteh) b += " " + t("nadaljujSmeti");
+      if (!r.odprto) b += " " + t("nadaljujNiOdprto", { pot: stranskoBesedilo(r.pot || "") });
+      obvesti(b);
+    }).catch(function () { delete nadaljujTece[kljuc]; obvesti(t("nadaljujNapaka")); });
+  }
   function jePriljubljena(e) { return N.priljubljeneDat.some(function (p) { return p.pot === e.pot; }); }
   function meniDatoteke(e, x, y) {
     var m = [];
@@ -1641,6 +1685,7 @@
       return;
     }
     m.push([t("odpri"), function () { odpriVnos(e); }]);
+    if (e.oddaljeno && !e.mapa) m.push([t("nadaljujTukaj"), function () { nadaljujTukaj(e); }]);
     if (!e.oddaljeno) {
       m.push([t("odpriZ"), function () { odpriZ(e); }]);
       m.push([t("predogled"), function () { predogled(e); }, e.mapa]);

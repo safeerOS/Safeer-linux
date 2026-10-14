@@ -703,6 +703,17 @@ def datoteke_naprave(id_naprave: str, mapa: str = "") -> dict:
     return _control_naprave("Datoteke", str(id_naprave or ""), str(mapa or ""))
 
 
+def nadaljuj_tukaj(streznik: dict, kljuc: str, oznaka: str, id_naprave: str, ime_naprave: str, pot_imen: list) -> dict:
+    """»Nadaljuj tukaj«: datoteko z druge naprave shrani sem s prenosom samo spremenjenih kosov in jo odpre
+    (core/link_nadaljuj). V ozadju (omrezje in disk). Vrne meritve za stran (preneseno, iz_lokalnih, cas ...)."""
+    from core import link_nadaljuj
+    moje_ime = ""
+    if link_nadaljuj.IME_MAPE in [str(x) for x in pot_imen]:
+        # Datoteka, ki se vraca (A -> B -> A): ime tega racunalnika v Linku pove, kje je izvirnik.
+        moje_ime = next((str(n.get("ime") or "") for n in _control_naprave("Seznam").get("naprave") or [] if n.get("ta")), "")
+    return link_nadaljuj.nadaljuj_tukaj(streznik, kljuc, oznaka, id_naprave, ime_naprave, pot_imen, moje_ime=moje_ime)
+
+
 def preimenuj_napravo(id_naprave: str, ime: str) -> dict:
     """Novo ime naprave (tudi tega racunalnika) za vse naprave v Linku; hrani ga sredisce."""
     return _control_naprave("Preimenuj", str(id_naprave or ""), str(ime or ""))
@@ -2972,6 +2983,11 @@ class SafeerOS(Gtk.Application):
             "pretvorbaPrenesiSkupino": lambda: _control_naprave("PretvorbaPrenesiSkupino", str(a[0]) if a else ""),
             "pretvorbaPustiSkupino": lambda: _control_naprave("PretvorbaPustiSkupino", str(a[0]) if a else ""),
             "datotekeNaprave": lambda: datoteke_naprave(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
+            # Datoteka z druge naprave: sem se prenese samo, kar se je spremenilo (core/link_nadaljuj), nato se odpre.
+            "nadaljujTukaj": lambda: nadaljuj_tukaj(
+                a[0] if a and isinstance(a[0], dict) else {}, str(a[1]) if len(a) > 1 else "", str(a[2]) if len(a) > 2 else "",
+                str(a[3]) if len(a) > 3 else "", str(a[4]) if len(a) > 4 else "",
+                [str(x) for x in (a[5] if len(a) > 5 and isinstance(a[5], list) else [])][:32]),
             "preimenujNapravo": lambda: preimenuj_napravo(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "upravljajRacunalnik": lambda: upravljaj_racunalnik(str(a[0]) if a else ""),
             "programiNaprave": lambda: programi_naprave(str(a[0]) if a else ""),
@@ -3060,7 +3076,7 @@ class SafeerOS(Gtk.Application):
 
     #: Metode mostu, po katerih je indeks imen datotek (core/os_iskalnik.py) zastarel.
     SPREMINJAJO_DATOTEKE = frozenset({"novaMapa", "novaDatoteka", "preimenujDatoteko", "vSmeti", "prilepiDatoteke",
-                                      "obnoviIzSmeti", "razveljaviDatoteke"})
+                                      "obnoviIzSmeti", "razveljaviDatoteke", "nadaljujTukaj"})
 
     #: Besedila sistemskega okna za trajni izbris (naslov, opis, preklic, potrditev).
     BESEDILA_SMETI = {
