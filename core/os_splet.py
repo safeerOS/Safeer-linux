@@ -405,6 +405,18 @@ def blizjica(tipka: str, ctrl: bool = False, shift: bool = False, alt: bool = Fa
     return None
 
 
+def stevilo_zadetkov(n: int, jezik: str) -> str:
+    """»1 zadetek, 2 zadetka, 3 zadetki, 5 zadetkov« (slovenska dvojina in mnozina; preizkus 14. 10.: »2 zadetkov«)."""
+    j = (jezik or "en")[:2]
+    if j == "sl":
+        o = n % 100
+        oblika = "zadetek" if o == 1 else "zadetka" if o == 2 else "zadetki" if o in (3, 4) else "zadetkov"
+        return "%d %s" % (n, oblika)
+    edn = {"en": "match", "de": "Treffer", "es": "coincidencia", "fr": "résultat", "it": "risultato"}
+    mn = {"en": "matches", "de": "Treffer", "es": "coincidencias", "fr": "résultats", "it": "risultati"}
+    return "%d %s" % (n, (edn if n == 1 else mn).get(j, "matches" if n != 1 else "match"))
+
+
 def stran_procesa_koncana(naslov: str, besedilo: str, gumb: str, uri: str) -> str:
     """Preprosta stran (brez skript strani): razlaga in gumb, ki stran nalozi znova."""
     e = _escape_html
@@ -2292,7 +2304,8 @@ class VdelaniSplet:
         fc.count_matches(niz, moznosti, 1000)
 
     def _najdi_stevec(self, _fc, n):
-        self.najdi_stevec.set_text(self._t("zadetki").format(n=n) if n else self._t("ni_zadetkov"))
+        self.najdi_stevec.set_text(stevilo_zadetkov(n, str(self.jezik() if callable(self.jezik) else self.jezik or "en"))
+                                   if n else self._t("ni_zadetkov"))
     def _povecava(self, korak):
         if self.trenutni(): self.trenutni().set_zoom_level(max(.5, min(3.0, self.trenutni().get_zoom_level() + korak)))
         self._osvezi_povecavo()

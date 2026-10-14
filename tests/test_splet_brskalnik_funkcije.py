@@ -34,3 +34,10 @@ def test_splet_ima_funkcije():
     for niz in ("PrintOperation.new(p).run_dialog", "search_next()", "count_matches(", "set_is_muted(not",
                 "delete_portal(obstojeci", "zgodovina.odstrani(", "gumb_povecave", 'if not self.odpri_zapisek:'):
         assert niz in s, niz
+
+
+def test_stevilo_zadetkov():
+    from core.os_splet import stevilo_zadetkov as z
+    assert [z(n, "sl") for n in (1, 2, 3, 5, 101, 102)] == ["1 zadetek", "2 zadetka", "3 zadetki", "5 zadetkov",
+                                                             "101 zadetek", "102 zadetka"]
+    assert z(1, "en") == "1 match" and z(4, "de") == "4 Treffer"
