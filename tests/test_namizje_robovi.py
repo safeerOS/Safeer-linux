@@ -19,3 +19,12 @@ def test_brez_delovnega_obmocja():
 def test_qml_uporablja_robove():
     q = open(os.path.join(KOREN, "assets", "os", "qml", "Namizje.qml"), encoding="utf-8").read()
     assert "y: koren.robZgoraj + 18" in q and "vrhPanelov: robZgoraj + 104" in q and "koren.robSpodaj - 70" in q
+
+
+def test_dock_plank():
+    from core import os_dock
+    nast = {"position": "'right'", "hide-mode": "'intelligent'", "icon-size": "40"}
+    assert os_dock.rob_docka(beri=lambda k: nast.get(k, ""), tece=lambda: True) == ("right", 62)
+    nast["hide-mode"] = "'auto'"
+    assert os_dock.rob_docka(beri=lambda k: nast.get(k, ""), tece=lambda: True) == ("", 0)
+    assert os_dock.rob_docka(beri=lambda k: "", tece=lambda: False) == ("", 0)

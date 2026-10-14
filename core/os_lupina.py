@@ -424,7 +424,18 @@ class Namizje:
         if koren is None:
             return
         z = QGuiApplication.primaryScreen()
-        for ime, vrednost in robovi_delovnega_obmocja(z.geometry(), z.availableGeometry()).items():
+        robovi = robovi_delovnega_obmocja(z.geometry(), z.availableGeometry())
+        if not hasattr(self, "_dock_rob"):
+            try:
+                from core import os_dock
+                self._dock_rob = os_dock.rob_docka()
+            except Exception:  # noqa: BLE001
+                self._dock_rob = ("", 0)
+        stran, piksli = self._dock_rob
+        kljuc = {"left": "robLevo", "right": "robDesno", "top": "robZgoraj", "bottom": "robSpodaj"}.get(stran)
+        if kljuc:
+            robovi[kljuc] = max(robovi[kljuc], piksli)
+        for ime, vrednost in robovi.items():
             koren.setProperty(ime, vrednost)
 
     def pokazi(self) -> None:

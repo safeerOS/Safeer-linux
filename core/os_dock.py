@@ -123,6 +123,22 @@ def elementi() -> List[dict]:
     return izhod
 
 
+def rob_docka(beri=None, tece=None) -> tuple:
+    """(stran, piksli), ki jih dock zaseda nad namizjem: Plank ne rezervira prostora (strut 0, preverjeno 14. 10. 2026
+    na testnem PC), zato bi pokril rob plosce Programi. ("", 0), ce docka ni ali se skriva vedno."""
+    beri = beri or _dconf_beri
+    if not (tece or (lambda: _plank_pid() is not None))():
+        return "", 0
+    stran = beri("position").strip("'\"") or "bottom"
+    if beri("hide-mode").strip("'\"") in ("auto", "window-dodge", "dodge-active", "dodge-maximized"):
+        return "", 0      # dock se umakne namizju sam (pokaze se le ob robu)
+    try:
+        ikona = int(beri("icon-size") or 48)
+    except ValueError:
+        ikona = 48
+    return (stran if stran in ("left", "right", "top", "bottom") else "bottom"), ikona + 22
+
+
 def _plank_pid() -> Optional[int]:
     if _v_flatpaku():
         try:
