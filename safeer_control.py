@@ -1900,6 +1900,12 @@ class SafeerControl(_OSNOVA):
                 self.pokazi_okno()
             return
         self._prva_aktivacija = False
+        if VGRAJEN and time.time() - self._ZAGNAN_OB < self.ZAGON_BREZ_OKNA_S:
+            # Ob prijavi samozagon locenega Controla (`safeer-control --ozadje`, tudi starejsi paket .deb) najde ime na
+            # vodilu, ki ga ima Safeer OS, in mu poslje Activate - okno Controla se je odprlo cez namizje (testni PC,
+            # 14. 10. 2026). Uporabnik ob prijavi najprej vidi namizje; okno odpre klik v pladnju ali v meniju pozneje.
+            print("[SafeerControl] aktivacija ob zagonu seje prezrta (namizje najprej)", flush=True)
+            return
         # Program je tekel v ozadju, medtem pa je bil posodobljen: namesto starega okna odpremo novo
         # razlicico (uporabniku ni treba vedeti, da je bilo treba kaj znova zagnati).
         if self._koda_posodobljena() and (self.link is None or self.link.okno is None):
@@ -1908,6 +1914,8 @@ class SafeerControl(_OSNOVA):
         self.pokazi_okno()
 
     _ZAGNAN_OB = time.time()
+    #: Toliko sekund po zagonu vgrajenega Controla zunanja aktivacija ne odpre okna (samozagon ob prijavi).
+    ZAGON_BREZ_OKNA_S = 60
     _DATOTEKE_KODE = ("safeer_control.py", "core/safeer_link.py", "core/link_hub.py",
                       "assets/link/link.js", "assets/link/index.html", "assets/link/daljinec.js")
 
@@ -2232,6 +2240,17 @@ class SafeerControl(_OSNOVA):
 _ZAKLEP_PRIMERKA = None
 
 
+def _ime_zasedeno() -> bool:
+    """Ali ima ime Safeer Control na vodilu seje ze kdo (Control ali Safeer OS z vgrajenim Controlom)."""
+    try:
+        vodilo = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        return bool(vodilo.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "NameHasOwner",
+                                     GLib.Variant("(s)", (APP_ID,)), GLib.VariantType("(b)"),
+                                     Gio.DBusCallFlags.NONE, 2000, None).unpack()[0])
+    except Exception:  # noqa: BLE001 - brez vodila: stara pot
+        return False
+
+
 def _pokazi_tekocega(cakaj_s: float = 8.0) -> bool:
     """Control ze tece: pokaze njegovo okno (org.freedesktop.Application.Activate). Ce se se zaganja, pocaka, da se
     javi na vodilu. Vrne, ali je uspelo."""
@@ -2266,6 +2285,9 @@ def main() -> int:
     if _ZAKLEP_PRIMERKA is None:
         if ozadje or _pokazi_tekocega():
             return 0
+    if ozadje and _ime_zasedeno():
+        # Control ze tece v Safeer OS (Flatpak: zaklep v peskovniku tu ni viden): samozagon se konca tiho, brez okna.
+        return 0
     # Sled ob sesutju in dnevnik neujetih izjem (~/.cache/safeer-control/). Control tece ves dan v
     # ozadju; brez tega naprave samo izgubijo racunalnik in nihce ne ve, zakaj.
     os_stabilnost.vkljuci("safeer-control")
