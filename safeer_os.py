@@ -758,6 +758,36 @@ def nadaljuj_tukaj(streznik: dict, kljuc: str, oznaka: str, id_naprave: str, ime
     return izid
 
 
+def prenesi_datoteko_naprave(id_naprave: str, oznaka: str, ime: str, streznik: dict, mape: list,
+                             zaganjalnik=None) -> dict:
+    """Lupina QML (Datoteke, ista kot na Windows): datoteka z druge naprave pride sem in se odpre - to je »Nadaljuj
+    tukaj« s Teamworkom (prenos samo sprememb, shranitve gredo nazaj, isti/podprt program ali zaslon naprave).
+    Kljuc za Global Link in ime naprave poiscemo tu; QML jih nima."""
+    kljuc = ""
+    try:
+        from core import link_krog
+        kljuc = str((link_krog.krog().clan_za_id(str(id_naprave)) or {}).get("kljuc") or "")
+    except Exception:  # noqa: BLE001 - doma gre brez kljuca
+        kljuc = ""
+    ime_naprave = next((str(n.get("ime") or "") for n in _control_naprave("Seznam").get("naprave") or []
+                        if n.get("id") == id_naprave), "") or str(id_naprave)
+    pot_imen = [str(x) for x in (mape or []) if str(x or "").strip()][:31] + [str(ime or "")]
+    return nadaljuj_tukaj(streznik if isinstance(streznik, dict) else {}, kljuc, str(oznaka), str(id_naprave),
+                          ime_naprave, pot_imen, zaganjalnik)
+
+
+def odpri_na_napravi_tukaj(id_naprave: str, oznaka: str) -> dict:
+    """Lupina QML: datoteko odpre program naprave (na locenem zaslonu, ce ga ima) in tu se pokaze njen zaslon."""
+    r = _control_naprave("Ukaz", str(id_naprave), "files.open_locen", json.dumps({"id": str(oznaka)}))
+    if not r.get("ok"):
+        if r.get("koda") != "ni_locenega_zaslona":
+            return {"ok": False, "koda": str(r.get("koda") or ""), "message": str(r.get("message") or "")}
+        r = _control_naprave("Ukaz", str(id_naprave), "files.open", json.dumps({"id": str(oznaka)}))
+        if not r.get("ok"):
+            return {"ok": False, "koda": str(r.get("koda") or ""), "message": str(r.get("message") or "")}
+    return upravljaj_racunalnik(str(id_naprave))
+
+
 def preimenuj_napravo(id_naprave: str, ime: str) -> dict:
     """Novo ime naprave (tudi tega racunalnika) za vse naprave v Linku; hrani ga sredisce."""
     return _control_naprave("Preimenuj", str(id_naprave or ""), str(ime or ""))
@@ -3186,6 +3216,12 @@ class SafeerOS(Gtk.Application):
             "pretvorbaPrenesiSkupino": lambda: _control_naprave("PretvorbaPrenesiSkupino", str(a[0]) if a else ""),
             "pretvorbaPustiSkupino": lambda: _control_naprave("PretvorbaPustiSkupino", str(a[0]) if a else ""),
             "datotekeNaprave": lambda: datoteke_naprave(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
+            # Lupina QML (assets/os/qml/Datoteke.qml): datoteka z naprave sem (Teamwork) ali odprta na napravi.
+            "prenesiDatotekoNaprave": lambda: prenesi_datoteko_naprave(
+                str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "", str(a[2]) if len(a) > 2 else "",
+                a[3] if len(a) > 3 and isinstance(a[3], dict) else {},
+                a[4] if len(a) > 4 and isinstance(a[4], list) else [], self._zazeni_vnos_z),
+            "odpriDatotekoTukaj": lambda: odpri_na_napravi_tukaj(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             # Datoteka z druge naprave: sem se prenese samo, kar se je spremenilo (core/link_nadaljuj), nato se odpre.
             "nadaljujTukaj": lambda: nadaljuj_tukaj(
                 a[0] if a and isinstance(a[0], dict) else {}, str(a[1]) if len(a) > 1 else "", str(a[2]) if len(a) > 2 else "",
@@ -3308,7 +3344,8 @@ class SafeerOS(Gtk.Application):
 
     #: Metode mostu, po katerih je indeks imen datotek (core/os_iskalnik.py) zastarel.
     SPREMINJAJO_DATOTEKE = frozenset({"novaMapa", "novaDatoteka", "preimenujDatoteko", "vSmeti", "prilepiDatoteke",
-                                      "obnoviIzSmeti", "razveljaviDatoteke", "nadaljujTukaj"})
+                                      "obnoviIzSmeti", "razveljaviDatoteke", "nadaljujTukaj",
+                                      "prenesiDatotekoNaprave"})
 
     #: Besedila sistemskega okna za trajni izbris (naslov, opis, preklic, potrditev).
     BESEDILA_SMETI = {

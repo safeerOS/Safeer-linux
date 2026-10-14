@@ -96,8 +96,17 @@ Steklo {
     }
     function odpriTukaj(e) {
         koren.obvesti(koren.t("prenasam", { ime: e.ime }))
-        koren.klic("prenesiDatotekoNaprave", [naprava, e.id, e.ime, streznik], function (r) {
-            if (!r || !r.ok) koren.obvesti(koren.t("niUspelo"))
+        // 5. argument (imena map do datoteke) uporabi Linux za mesto delovne kopije; Windows ga prezre.
+        var mape = pot.map(function (p) { return p.ime })
+        koren.klic("prenesiDatotekoNaprave", [naprava, e.id, e.ime, streznik, mape], function (r) {
+            if (!r || !r.ok) { koren.obvesti(koren.t("niUspelo")); return }
+            // Teamwork (Linux): kako se je odprla in kdo jo se ureja.
+            var b = []
+            if (r.nacin === "podprt" && r.program) b.push(koren.t("odprtoV", { program: r.program, naprava: imeNaprave }))
+            if (r.nacin === "pretok" && r.odprto) b.push(koren.t("odprtoNaNapravi", { naprava: imeNaprave }))
+            if (r.teamwork && r.teamwork.drugi && r.teamwork.drugi.length)
+                b.push(koren.t("teamworkTudi", { drugi: r.teamwork.drugi.map(function (x) { return x === "@tukaj" ? imeNaprave : x }).join(", ") }))
+            if (b.length) koren.obvesti(b.join(" "))
         })
     }
     function odpriSProgramomNaprave(e) {
