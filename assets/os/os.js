@@ -3961,7 +3961,7 @@
     povezava = String(povezava || "").trim(); if (!povezava) return;
     obvesti(t("seznamUvazam"));
     klic("mediaUvoziSeznam", [povezava]).then(function (r) {
-      if (!r || r.napaka) { obvesti(t(r && r.napaka === "ni_seznam" ? "seznamNiSeznam" : "seznamNiUspel")); return; }
+      if (!r || r.napaka) { obvesti(t(r && r.napaka === "ni_seznam" ? "seznamNiSeznam" : r && r.napaka === "zaseben" ? "seznamZaseben" : "seznamNiUspel")); return; }
       obvesti(t("seznamUvozen", { ime: r.ime, n: r.stevilo }));
       naloziSeznamePredvajanja().then(function () { odpriSeznamPredvajanja(r.ime); });
     }, function () { obvesti(t("seznamNiUspel")); });

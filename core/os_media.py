@@ -1877,12 +1877,9 @@ class MediaCenter:
 
     def uvozi_seznam(self, vnos: str) -> dict:
         """Uvozi javni seznam z YouTuba ali Spotifyja; isto ime zamenja obstojecega (ponoven uvoz = osvezitev)."""
-        povezava = uvoz_seznama.povezava_iz(vnos) or str(vnos or "").strip()
-        if not uvoz_seznama.je_povezava(povezava):
-            return {"napaka": "ni_seznam"}
-        uvoz = uvoz_seznama.uvozi(povezava)
-        if not uvoz or not uvoz.get("skladbe"):
-            return {"napaka": "ni_uspel"}
+        uvoz, razlog = uvoz_seznama.uvozi_z_razlogom(vnos)
+        if razlog or not uvoz:
+            return {"napaka": razlog or "ni_uspel"}
         ime = str(uvoz.get("ime") or uvoz.get("vir") or "Seznam")[:60]
         with self._lock:
             vsi = self._seznami_beri()

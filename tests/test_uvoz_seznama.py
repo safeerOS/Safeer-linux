@@ -30,9 +30,10 @@ class UvozSeznamaTest(unittest.TestCase):
     def test_prepozna_povezave(self):
         self.assertEqual(u.youtube_id("https://www.youtube.com/playlist?list=PL4fGSI1pDJn6puJdseH2Rt9sMvt9E2M4i"), "PL4fGSI1pDJn6puJdseH2Rt9sMvt9E2M4i")
         self.assertEqual(u.youtube_id("https://music.youtube.com/watch?v=abc&list=PL4fGSI1pDJn6puJdseH2Rt9sMvt9E2M4i"), "PL4fGSI1pDJn6puJdseH2Rt9sMvt9E2M4i")
-        # Posamezen posnetek, zasebni "Vsecki" (LL) in tuja stran niso seznam.
+        # Posamezen posnetek in tuja stran nista seznam. Zasebni »Vsecki« (LL) je seznam (od 14. 10. 2026), uvoz pa
+        # uporabniku pove, da je zaseben (prej »to ni seznam«).
         self.assertEqual(u.youtube_id("https://www.youtube.com/watch?v=abc"), "")
-        self.assertEqual(u.youtube_id("https://www.youtube.com/playlist?list=LL"), "")
+        self.assertEqual(u.youtube_id("https://www.youtube.com/playlist?list=LL"), "LL")
         self.assertEqual(u.youtube_id("https://primer.si/playlist?list=PL4fGSI1pDJn6puJdseH2Rt9sMvt9E2M4i"), "")
         self.assertEqual(u.spotify_id("https://open.spotify.com/intl-de/playlist/37i9dQZF1DXcBWIGoYBM5M?si=x"), ("playlist", "37i9dQZF1DXcBWIGoYBM5M"))
         self.assertEqual(u.spotify_id("spotify:album:4aawyAB9vmqN3uQ7FjRGTy"), ("album", "4aawyAB9vmqN3uQ7FjRGTy"))
@@ -258,3 +259,18 @@ class SamoPredvajljivoTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_zasebni_in_mix_14_10():
+    """Lastnik 14. 10. 2026: najljubsega seznama ni mogel uvoziti in ni vedel zakaj."""
+    from core import uvoz_seznama as u
+    assert u.youtube_id("https://www.youtube.com/playlist?list=LL") == "LL"
+    assert u.youtube_id("https://youtube.com/playlist?list=WL&si=x") == "WL"
+    assert u.uvozi_z_razlogom("https://www.youtube.com/playlist?list=LL") == (None, "zaseben")
+    assert u.uvozi_z_razlogom("https://www.youtube.com/watch?v=abc") == (None, "ni_seznam")
+    assert u._video_id("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=RDdQw4w9WgXcQ") == "dQw4w9WgXcQ"
+    d = {"a": [{"playlistPanelVideoRenderer": {"videoId": "x1", "title": {"simpleText": "Izvajalec - Pesem"},
+                                               "shortBylineText": {"runs": [{"text": "Kanal"}]}}}]}
+    izid = u.iz_youtube(d)
+    assert izid["vnosi"] == [{"id": "x1", "naslov": "Izvajalec - Pesem", "kanal": "Kanal", "glasba": False}]
+    assert u.iz_youtube({"alerts": [{"alertRenderer": {"text": {"simpleText": "This playlist is private"}}}]})["opozorilo"]
