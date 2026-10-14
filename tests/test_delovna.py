@@ -802,6 +802,47 @@ class TestTemaCinnamon(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_miska_namesto_porabe_na_namiznem_racunalniku(self):
+        """Applet Safeer Miska: na racunalniku brez baterije nadomesti Mintov applet porabe (ta je kazal le baterijo
+        miske kot baterijo), na prenosniku gre pred njega; izklop vrne pult kot je bil (lastnik, 14. 10. 2026)."""
+        prej = self.APPLETI
+        try:
+            self.APPLETI = prej[:-1] + ", 'panel1:right:4:power@cinnamon.org:12']"
+            self.ZACETNO = TestTemaCinnamon.ZACETNO.replace(prej, self.APPLETI)
+            for prenosnik in (False, True):
+                tmp = tempfile.mkdtemp()
+                try:
+                    o = self._okolje(tmp)
+                    os.makedirs(os.path.join(o["koren"], "usr", "share", "cinnamon", "applets", "miska@safeer.si"))
+                    napajanje = os.path.join(tmp, "napajanje")
+                    for ime, vrsta, obseg in (("hidpp_battery_0", "Battery", "Device"),) + (
+                            (("BAT0", "Battery", "System"),) if prenosnik else ()):
+                        os.makedirs(os.path.join(napajanje, ime))
+                        with open(os.path.join(napajanje, ime, "type"), "w") as f:
+                            f.write(vrsta + "\n")
+                        with open(os.path.join(napajanje, ime, "scope"), "w") as f:
+                            f.write(obseg + "\n")
+                    o["env"]["SAFEER_NAPAJANJE"] = napajanje
+                    self._ukaz(o, "--profil", "dock")
+                    appleti = [a.strip("'") for a in
+                               self._vrednost(o, "org.cinnamon", "enabled-applets").strip("[]").split(", ")]
+                    uuid = [a.split(":")[3] for a in appleti]
+                    self.assertEqual(uuid.count("miska@safeer.si"), 1)
+                    if prenosnik:
+                        self.assertIn("power@cinnamon.org", uuid)
+                        self.assertEqual(uuid.index("miska@safeer.si") + 1, uuid.index("power@cinnamon.org"))
+                    else:
+                        self.assertNotIn("power@cinnamon.org", uuid)
+                    self._ukaz(o, "--profil", "dock")          # ponoven vklop je ne podvoji
+                    self.assertEqual(self._vrednost(o, "org.cinnamon", "enabled-applets").count("miska@safeer.si"), 1)
+                    self._ukaz(o, "--izklopi")
+                    self._kot_na_zacetku(o)
+                finally:
+                    shutil.rmtree(tmp, ignore_errors=True)
+        finally:
+            self.APPLETI = prej
+            self.ZACETNO = TestTemaCinnamon.ZACETNO
+
     def test_delovna_in_izklop_vrneta_nastavitve(self):
         """Postavitev delovna: dock + delovna povrsina Safeer OS; po --izklopi so nastavitve in zagoni kot prej."""
         tmp = tempfile.mkdtemp()

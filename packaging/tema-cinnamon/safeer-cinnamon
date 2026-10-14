@@ -285,6 +285,96 @@ PY
     return 0
 }
 
+# Applet Safeer Miska (lastnik, 14. 10. 2026: ikona baterije v pultu je bila v resnici baterija miske). Na racunalniku
+# brez sistemske baterije (namizni PC) nadomesti Mintov applet porabe, ki tam kaze le baterijo miske; na prenosniku
+# gre ob njega. Kar dodamo ali odstranimo, si zapomnimo, da izklop vrne pult tocno tak, kot je bil.
+miska() {   # $1 = dodaj | odstrani
+    local v izid
+    [ -d "$KOREN/usr/share/cinnamon/applets/miska@safeer.si" ] || [ -d "$HOME/.local/share/cinnamon/applets/miska@safeer.si" ] \
+        || [ "$1" = odstrani ] || return 0
+    v="$(beri org.cinnamon:enabled-applets)" || return 0
+    mkdir -p "$MAPA"
+    if [ "$1" = dodaj ]; then : > "$MAPA/miska-ponujena"; fi
+    izid="$(python3 - "$1" "$v" "$MAPA/miska-dodana" "${SAFEER_NAPAJANJE:-/sys/class/power_supply}" <<'PY'
+import ast, os, sys
+kaj, vrednost, zapis, napajanje = sys.argv[1:5]
+UUID, MOC = "miska@safeer.si", "power@cinnamon.org"
+try:
+    appleti = [str(a) for a in ast.literal_eval(vrednost.replace("@as ", ""))]
+except Exception:
+    sys.exit(1)
+
+
+def deli(a):
+    return a.split(":")
+
+
+def sistemska_baterija():
+    """Baterija racunalnika (ne miske ali tipkovnice: te imajo scope Device)."""
+    try:
+        imena = os.listdir(napajanje)
+    except OSError:
+        return False
+    for ime in imena:
+        try:
+            vrsta = open(os.path.join(napajanje, ime, "type")).read().strip()
+        except OSError:
+            continue
+        try:
+            obseg = open(os.path.join(napajanje, ime, "scope")).read().strip()
+        except OSError:
+            obseg = "System"
+        if vrsta == "Battery" and obseg != "Device":
+            return True
+    return False
+
+
+if kaj == "dodaj":
+    if any(len(deli(a)) >= 4 and deli(a)[3] == UUID for a in appleti):
+        sys.exit(0)
+    moc = next((a for a in appleti if len(deli(a)) >= 4 and deli(a)[3] == MOC), None)
+    st = [int(deli(a)[4]) for a in appleti if len(deli(a)) >= 5 and deli(a)[4].isdigit()]
+    if moc is not None:
+        d = deli(moc)
+        vnos = "%s:%s:%s:%s:%d" % (d[0], d[1], d[2], UUID, max(st) + 1 if st else 1)
+        if sistemska_baterija():
+            novi = []
+            for a in appleti:                      # prenosnik: miska tik pred porabo
+                novi += [vnos, a] if a == moc else [a]
+            odstranjen = ""
+        else:
+            novi = [vnos if a == moc else a for a in appleti]
+            odstranjen = moc
+    else:
+        pult = next((deli(a)[0] for a in appleti if len(deli(a)) >= 4), "panel1")
+        desno = [int(deli(a)[2]) for a in appleti if len(deli(a)) >= 4 and deli(a)[1] == "right" and deli(a)[2].isdigit()]
+        vnos = "%s:right:%d:%s:%d" % (pult, min(desno) if desno else 0, UUID, max(st) + 1 if st else 1)
+        novi, odstranjen = appleti + [vnos], ""
+    with open(zapis, "w", encoding="utf-8") as f:
+        f.write(vnos + "\n" + odstranjen + "\n")
+    print(repr(novi))
+else:
+    if not os.path.isfile(zapis):
+        sys.exit(0)
+    vrstice = open(zapis, encoding="utf-8").read().split("\n")
+    os.remove(zapis)
+    vnos, odstranjen = (vrstice + ["", ""])[:2]
+    if odstranjen and odstranjen not in appleti:
+        novi = [odstranjen if a == vnos else a for a in appleti]
+        if odstranjen not in novi:
+            novi.append(odstranjen)
+    else:
+        novi = [a for a in appleti if a != vnos]
+    print(repr(novi))
+PY
+)" || return 0
+    [ -n "$izid" ] && pisi org.cinnamon:enabled-applets "$izid"
+    return 0
+}
+
+# Ze vklopljen Safeer Cinnamon iz starejse razlicice dobi Misko enkrat; ce jo uporabnik odstrani, je ne vracamo.
+miska_enkrat() { [ -e "$MAPA/miska-ponujena" ] || { mkdir -p "$MAPA"; miska dodaj; : > "$MAPA/miska-ponujena"; }; }
+
 seznam_oken_skrij() { mkdir -p "$MAPA"; seznam_oken skrij; }
 seznam_oken_vrni() { seznam_oken vrni; rm -f "$SEZNAM_OKEN" "$MAPA/appleti-prej.txt" "$MAPA/dock-pripeti-dodani"; rm -rf "$MAPA/appleti"; }
 
@@ -776,6 +866,7 @@ vklopi() {
         dock)    delovna_izklopi; pult_zgoraj; seznam_oken_skrij; pokazi_namizje dodaj; dock ;;
         delovna) pult_zgoraj; seznam_oken_skrij; pokazi_namizje dodaj; dock; delovna ;;
     esac
+    mkdir -p "$MAPA"; miska dodaj
 }
 
 izklopi() {
@@ -795,6 +886,8 @@ izklopi() {
     dock_izklopi koncno
     pokazi_namizje odstrani
     rm -f "$MAPA/pokazi-namizje-ponujeno"
+    miska odstrani
+    rm -f "$MAPA/miska-ponujena"
     seznam_oken_vrni
     # "Vrni prejsnji videz" vrne tudi zagonski in prijavni zaslon, ce ju je uporabnik vklopil.
     # (SAFEER_CINNAMON_BREZ_SISTEMA: preizkusi ukaza se sistemskih nastavitev ne dotikajo.)
@@ -882,6 +975,7 @@ case "${1:-}" in
     --od-vklopa-izklopi)     od_vklopa_vse_izklopi ;;
     --dock)                  if [ -f "$VKLOPLJENO" ] && [ -f "$AUTOSTART" ]; then
                                  nadgradi_postavitev
+                                 miska_enkrat
                                  dock_zazeni
                                  [ "$(profil_trenutni)" = dock ] && dock_straza
                              fi ;;
@@ -889,6 +983,7 @@ case "${1:-}" in
     --nastavitve-docka)      command -v plank >/dev/null 2>&1 && exec plank --preferences ;;
     --seja)                  if [ -f "$VKLOPLJENO" ] && [ -f "$SEJA" ] && command -v safeer-os >/dev/null 2>&1; then
                                  nemo_namizje_izklopi      # ob prijavi Cinnamon zazene tudi Nemovo namizje
+                                 miska_enkrat
                                  # Ze vklopljena postavitev iz starejse razlicice dobi gumb Pokazi namizje enkrat; ce ga
                                  # uporabnik odstrani, ga ne vracamo.
                                  if [ ! -e "$MAPA/pokazi-namizje-ponujeno" ]; then

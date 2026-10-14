@@ -15,6 +15,10 @@ mkdir -p "$ROOT/usr/share/themes" "$ROOT/usr/bin" "$ROOT/usr/share/applications"
          "$ROOT/usr/share/cinnamon-background-properties" "$ROOT/usr/share/doc/safeer-cinnamon" \
          "$ROOT/usr/share/plymouth/themes/safeer" "$ROOT/usr/lib/safeer-cinnamon" "$ROOT/usr/share/polkit-1/actions"
 cp -a "$T/Safeer-Cinnamon" "$T/Safeer-Cinnamon-Kontrast" "$ROOT/usr/share/themes/"
+# Applet Safeer Miska (miska v pultu: nastavitve in baterija brezzicne miske), dodan ob vklopu postavitve.
+mkdir -p "$ROOT/usr/share/cinnamon/applets"
+cp -a "$T/appleti/miska@safeer.si" "$ROOT/usr/share/cinnamon/applets/"
+chmod 644 "$ROOT/usr/share/cinnamon/applets/miska@safeer.si/"*
 # Obrobe oken rise Mint-Y (kot pri vseh Mintovih temah): barve vzame iz nase teme GTK (wm_bg, wm_title,
 # selected_bg_color ...), zato so v paleti Safeer. GTK 2 prevzamemo od Mint-Y-Dark-Blue.
 for tema in Safeer-Cinnamon Safeer-Cinnamon-Kontrast; do
