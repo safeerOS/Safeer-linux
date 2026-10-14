@@ -29,7 +29,7 @@ Zaznamki, ploščice začetne strani in glasovne bližnjice niso recepti, so le 
   kar zveni narobe.
 - **Napake, na katere naletiš sam.** Natančna prijava s koraki je prispevek sama po sebi.
 
-Ne veš, ali ideja sodi zraven? Najprej odpri nalogo (issue) in vprašaj.
+Kam gre projekt, piše v [ROADMAP.md](ROADMAP.md#kam-gre-safeer). Ne veš, ali ideja sodi zraven? Najprej odpri nalogo (issue) in vprašaj.
 
 ## Priprava razvojnega okolja
 

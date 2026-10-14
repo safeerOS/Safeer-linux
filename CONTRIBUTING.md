@@ -29,7 +29,7 @@ in a list, and they are fine.
   `core/` and fixing what sounds wrong is one of the most useful things you can do.
 - **Bugs you hit yourself.** A precise report with steps to reproduce is a contribution on its own.
 
-Not sure if an idea fits? Open an issue first and ask — that is cheaper for both of us than a
+Where the project is heading is in [ROADMAP.md](ROADMAP.md). Not sure if an idea fits? Open an issue first and ask — that is cheaper for both of us than a
 large pull request in the wrong direction.
 
 ## Development setup
