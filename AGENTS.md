@@ -7,6 +7,8 @@ Velja za vsako spremembo v tem repozitoriju. Kratko, preverljivo; podrobnosti so
 - Odlocamo z izmerjenimi podatki, ne po obcutku. Vsako trditev (hitrost, RAM, CPU) podpre meritev.
 - Odlocitev vedno s strani uporabnika: kaj je zanj najbolj udobno in varno.
 - Popravek napake v odprtokodnem projektu (WebKit, libsoup …) vrnemo skupnosti.
+- Vsaka izboljsava spletne izkusnje v Spletu (Safeer OS) gre tudi v vse brskalnike Safeer: Safeer Browser za Linux
+  (safeer_mint.py), Windows, telefon in TV (lastnik, 14. 10. 2026). Kar je skupno, je v skupnem modulu (core/).
 
 ## Zasebnost (nikoli v repo, commit, PR ali opombe izdaje)
 - Ime lastnika, domaca pot, uporabnisko ime, ime gostitelja, MAC, e-naslovi, posnetki zaslona naprav. V besedilu: »lastnik«.
