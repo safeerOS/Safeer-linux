@@ -141,3 +141,73 @@ class UskladitevOsnutkov(unittest.TestCase):
             adapter.osnutki_na_strezniku.side_effect = OSError("brez omrezja")
             self.assertEqual(len(sp.uskladi_osnutke(najmanj_s=0)), 1)     # napaka ne brise nicesar
             sp.zapri()
+
+
+class OsnutkiHkrati(unittest.TestCase):
+    """Most shrani/odstrani/uskladi osnutke iz locenih niti (pregled 14. 10. 2026): noben osnutek se ne izgubi."""
+
+    def test_hkratna_shranjevanja(self):
+        import threading
+        import time
+        from core.os_sporocila import SporocilaOS
+        with tempfile.TemporaryDirectory() as d:
+            sp = SporocilaOS(Path(d) / "sporocila.db", zazeni=False)
+            adapter = MagicMock()
+            stevec = iter(range(1000))
+
+            def shrani(*_a):
+                time.sleep(0.02)          # IMAP APPEND traja: brez zaklepa sta oba zapisa prebrala isti seznam
+                return "<%d@x>" % next(stevec)
+            adapter.shrani_osnutek.side_effect = shrani
+            sp.storitev.adapterji["k"] = adapter
+            niti = [threading.Thread(target=sp.shrani_osnutek,
+                                     args=({"id": "o%d" % i, "kanal_id": "k", "za": "a@example.test", "besedilo": str(i)},))
+                    for i in range(8)]
+            for n in niti:
+                n.start()
+            for n in niti:
+                n.join()
+            self.assertEqual(sorted(o["id"] for o in sp.osnutki()), sorted("o%d" % i for i in range(8)))
+            self.assertEqual(len({o["mid"] for o in sp.osnutki()}), 8)
+            sp.zapri()
+
+
+class BrisanjeOsnutkaImap(unittest.TestCase):
+    """Brisanje osnutka ne sme trajno izbrisati tujih sporocil z oznako \\Deleted v Osnutkih."""
+
+    def _imap(self, zmoznosti, oznaceni=b"7"):
+        imap = MagicMock()
+        imap.capabilities = ("IMAP4REV1",)
+        imap.capability.return_value = ("OK", [zmoznosti])
+        imap.select.return_value = ("OK", [b"1"])
+
+        def uid(ukaz, *a):
+            if ukaz == "search" and a[-1] == "DELETED":
+                return ("OK", [oznaceni])
+            return ("OK", [b"7"])
+        imap.uid.side_effect = uid
+        return imap
+
+    def test_uidplus_izbrise_samo_svoj_uid(self):
+        imap = self._imap(b"IMAP4rev1 UIDPLUS MOVE")
+        EmailAdapter._izbrisi_osnutek(EmailAdapter.__new__(EmailAdapter), imap, "Drafts", "<a@x>")
+        self.assertIn(("expunge", "7"), [c.args for c in imap.uid.call_args_list])
+        imap.expunge.assert_not_called()
+
+    def test_brez_uidplus_ne_izbrise_tujih(self):
+        imap = self._imap(b"IMAP4rev1", oznaceni=b"3 7")
+        EmailAdapter._izbrisi_osnutek(EmailAdapter.__new__(EmailAdapter), imap, "Drafts", "<a@x>")
+        imap.expunge.assert_not_called()
+        imap = self._imap(b"IMAP4rev1", oznaceni=b"7")
+        EmailAdapter._izbrisi_osnutek(EmailAdapter.__new__(EmailAdapter), imap, "Drafts", "<a@x>")
+        imap.expunge.assert_called_once()
+
+    def test_uskladitev_ne_steje_oznacenih(self):
+        imap = MagicMock()
+        imap.list.return_value = ("OK", [])
+        imap.select.return_value = ("OK", [b"1"])
+        imap.uid.return_value = ("OK", [b""])
+        with patch("core.sporocila.email.imaplib.IMAP4_SSL", return_value=imap):
+            a = EmailAdapter("k", "jaz@example.test", "imap.example.test", "smtp.example.test", geslo="skrivno")
+            self.assertEqual(a.osnutki_na_strezniku(["<a@x>"]), set())
+        self.assertEqual(imap.uid.call_args.args[:3], ("search", None, "UNDELETED"))

@@ -145,6 +145,48 @@ def nastavi_videz(shramba, sprememba: dict, nastavi_ozadje_sistema: Optional[Cal
     return trenutni
 
 
+GSETTINGS_OZADJE = ("org.cinnamon.desktop.background", "picture-uri")
+
+
+def uri_ozadja(pot: str) -> str:
+    """URI slike, kot ga vidi racunalnik: v Flatpaku je /run/host/usr/... na gostitelju /usr/..."""
+    from urllib.parse import quote
+    from core import gostitelj
+    return "file://" + quote(gostitelj.na_gostitelju(pot), safe="/")
+
+
+def nastavi_ozadje_sistema(pot: str, zazeni: Optional[Callable[[list], Any]] = None) -> bool:
+    """Ozadje Cinnamona (vidijo ga namizje, zaklenjen zaslon in Splet).
+
+    Flatpak: shema org.cinnamon.desktop.background ni v runtimu GNOME (lookup() vrne None), zato pisemo z ovojem
+    gsettings v /app/host-bin, ki tece na gostitelju - tako kot branje (os_sistem.ozadje_namizja). Prej izbira
+    ozadja v Flatpaku ni naredila nicesar (pregled 14. 10. 2026). Paket .deb: Gio.Settings + sync(), da takojsnje
+    branje (videz po spremembi) ze vidi novo vrednost."""
+    uri = uri_ozadja(pot)
+    try:
+        from core import gostitelj
+        if gostitelj.v_flatpaku():
+            import shutil
+            import subprocess
+            ukaz = "/app/host-bin/gsettings" if os.path.exists("/app/host-bin/gsettings") else shutil.which("gsettings")
+            if not ukaz:
+                return False
+            argv = [ukaz, "set", GSETTINGS_OZADJE[0], GSETTINGS_OZADJE[1], uri]
+            if zazeni is not None:
+                return bool(zazeni(argv))
+            return subprocess.run(argv, capture_output=True, timeout=5).returncode == 0
+        from gi.repository import Gio
+        vir = Gio.SettingsSchemaSource.get_default()
+        if vir is None or vir.lookup(GSETTINGS_OZADJE[0], True) is None:
+            return False
+        Gio.Settings.new(GSETTINGS_OZADJE[0]).set_string(GSETTINGS_OZADJE[1], uri)
+        Gio.Settings.sync()
+        return True
+    except Exception as e:  # noqa: BLE001
+        print("[SafeerOS lupina] ozadje:", e, flush=True)
+        return False
+
+
 def _url(pot: str) -> str:
     from PySide6.QtCore import QUrl
     return QUrl.fromLocalFile(pot).toString() if pot else ""
@@ -316,8 +358,9 @@ class Namizje:
         self.okno.setSource(QUrl.fromLocalFile(str(QML)))
         for napaka in self.okno.errors():
             print("[SafeerOS lupina]", napaka.toString(), flush=True)
-        if v_oknu and self.okno.status() == self.okno.Status.Error:
-            # Aplikacija v oknu ima rezervo (staro okno index.html): brez tega bi uporabnik dobil prazno okno.
+        if self.okno.status() == self.okno.Status.Error:
+            # Oba nacina imata rezervo: aplikacija v oknu staro okno index.html, namizje (--delovna) delovno
+            # povrsino WebKit (delovna.html). Brez tega crno okno brez okvirja cez cel zaslon (pregled 14. 10.).
             raise RuntimeError("namizje QML se ni naložilo")
         self._ob_koncu = ob_koncu
         if self.v_oknu:
@@ -387,14 +430,7 @@ class Namizje:
         return True
 
     def _nastavi_ozadje_sistema(self, pot: str) -> None:
-        try:
-            from gi.repository import Gio, GLib
-            vir = Gio.SettingsSchemaSource.get_default()
-            if vir is not None and vir.lookup("org.cinnamon.desktop.background", True) is not None:
-                Gio.Settings.new("org.cinnamon.desktop.background").set_string(
-                    "picture-uri", "file://" + GLib.uri_escape_string(pot, "/", False))
-        except Exception as e:  # noqa: BLE001
-            print("[SafeerOS lupina] ozadje:", e, flush=True)
+        nastavi_ozadje_sistema(pot)
 
     def videz(self, jezik: str = "") -> dict:
         from core import os_sistem

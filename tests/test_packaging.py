@@ -15,6 +15,23 @@ ROOT=Path(__file__).resolve().parents[1]
 NAMERNO_IZPUSCENI={'os_jbl'}
 
 class PackagingTests(unittest.TestCase):
+    def test_check_version_preveri_tudi_safeer_os(self):
+        """packaging/check_version.py: najnovejsa izdaja v metainfo Safeer OS = VERSION_OS (pregled 14. 10. 2026)."""
+        with tempfile.TemporaryDirectory() as d:
+            koren = Path(d)
+            for rel in ('packaging/check_version.py','packaging/VERSION','packaging/VERSION_OS','packaging/VERSION_CONTROL',
+                        'safeer_mint.py','README.md','PACKAGING.md','io.github.memelandfaner.SafeerBrowser.metainfo.xml',
+                        'io.github.memelandfaner.SafeerOS.metainfo.xml'):
+                (koren/rel).parent.mkdir(parents=True,exist_ok=True)
+                shutil.copy(ROOT/rel,koren/rel)
+            ukaz=['python3',str(koren/'packaging/check_version.py')]
+            okolje={k:v for k,v in os.environ.items() if not k.startswith('GITHUB_REF')}
+            self.assertEqual(subprocess.run(ukaz,capture_output=True,env=okolje).returncode,0)
+            (koren/'packaging/VERSION_OS').write_text('9.9.9\n')
+            r=subprocess.run(ukaz,capture_output=True,text=True,env=okolje)
+            self.assertNotEqual(r.returncode,0)
+            self.assertIn('VERSION_OS',r.stderr)
+
     def test_control_payload_can_actually_start(self):
         """Namesceni Safeer Control mora biti uvozljiv brez izvorne mape.
 

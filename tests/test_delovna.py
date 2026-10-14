@@ -843,6 +843,64 @@ class TestTemaCinnamon(unittest.TestCase):
             self.APPLETI = prej
             self.ZACETNO = TestTemaCinnamon.ZACETNO
 
+    def test_applet_miska_starejsa_shema_in_odstranitev(self):
+        """Applet v Node z laznim Cinnamonom: kljuca, ki ju starejsa shema nima, se ne bereta (get_boolean bi prekinil
+        Cinnamon); po odstranitvi iz pulta je meni unicen, odgovori D-Bus ne sprozijo novih klicev (pregled 14. 10.)."""
+        import json
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node ni namescen")
+        applet = os.path.join(TEMA, "appleti", "miska@safeer.si", "applet.js")
+        stub = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_miska_applet.js")
+        izid = json.loads(subprocess.run([node, stub, applet], check=True, capture_output=True, text=True).stdout)
+        self.assertEqual(izid["napaka"], "")
+        self.assertNotIn("locate-pointer", izid["prebrani"])
+        self.assertNotIn("middle-click-emulation", izid["prebrani"])
+        self.assertEqual(len(izid["stikala"]), 2)
+        self.assertTrue(izid["meni_unicen"])
+        self.assertEqual(izid["dbus_po_odstranitvi"], 0)
+
+    def test_odstranjena_miska_ostane_odstranjena_poraba_se_vrne(self):
+        """Uporabnik odstrani Misko: menjava postavitve je ne vrne, --izklopi pa vrne Mintov applet porabe, tudi ce je
+        bila Miska vmes ponovno dodana (prej se je zapis prepisal s praznim »odstranjen«; pregled 14. 10. 2026)."""
+        prej = self.APPLETI
+        tmp = tempfile.mkdtemp()
+        try:
+            self.APPLETI = prej[:-1] + ", 'panel1:right:4:power@cinnamon.org:12']"
+            self.ZACETNO = TestTemaCinnamon.ZACETNO.replace(prej, self.APPLETI)
+            o = self._okolje(tmp)
+            os.makedirs(os.path.join(o["koren"], "usr", "share", "cinnamon", "applets", "miska@safeer.si"))
+            o["env"]["SAFEER_NAPAJANJE"] = os.path.join(tmp, "brez-baterije")     # namizni racunalnik
+
+            def appleti():
+                return [a.strip("'") for a in self._vrednost(o, "org.cinnamon", "enabled-applets").strip("[]").split(", ")]
+
+            def brez_miske():
+                novi = "[%s]" % ", ".join("'%s'" % a for a in appleti() if ":miska@safeer.si:" not in a)
+                with open(o["db"]) as f:
+                    vrstice = [v for v in f if not v.startswith("org.cinnamon enabled-applets ")]
+                with open(o["db"], "w") as f:
+                    f.writelines(vrstice + ["org.cinnamon enabled-applets %s\n" % novi])
+
+            self._ukaz(o, "--profil", "dock")
+            self.assertTrue(any(":miska@safeer.si:" in a for a in appleti()))
+            self.assertFalse(any(":power@cinnamon.org:" in a for a in appleti()))
+            brez_miske()
+            self._ukaz(o, "--profil", "videz")
+            self._ukaz(o, "--profil", "dock")
+            self.assertFalse(any(":miska@safeer.si:" in a for a in appleti()), "menjava postavitve vrne Misko")
+            # Starejsa razlicica brez oznake »ponujena«: Miska se doda znova, zapis o porabi mora ostati.
+            os.remove(os.path.join(o["mapa"], "miska-ponujena"))
+            self._ukaz(o, "--profil", "dock")
+            self.assertTrue(any(":miska@safeer.si:" in a for a in appleti()))
+            self._ukaz(o, "--izklopi")
+            self.assertFalse(any(":miska@safeer.si:" in a for a in appleti()))
+            self.assertEqual(sum(":power@cinnamon.org:" in a for a in appleti()), 1, "--izklopi ne vrne porabe")
+        finally:
+            self.APPLETI = prej
+            self.ZACETNO = TestTemaCinnamon.ZACETNO
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_delovna_in_izklop_vrneta_nastavitve(self):
         """Postavitev delovna: dock + delovna povrsina Safeer OS; po --izklopi so nastavitve in zagoni kot prej."""
         tmp = tempfile.mkdtemp()

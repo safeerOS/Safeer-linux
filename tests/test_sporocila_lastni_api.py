@@ -128,5 +128,65 @@ class DodajKanalInIskanje(unittest.TestCase):
         self.assertEqual(json.loads(self.st.db.execute("SELECT nastavitve FROM kanali").fetchone()[0]).get("bot"), "safeer_bot")
 
 
+class VarenStreznik(unittest.TestCase):
+    """Zeton Matrix le na https:// ali na ta racunalnik; brez preusmeritev (pregled 14. 10. 2026)."""
+
+    def test_naslovi(self):
+        from core.sporocila.adapter import varen_streznik as v
+        for dober in ("https://matrix.org", "http://localhost:8008", "http://127.0.0.1:8008", "http://127.5.6.7",
+                      "http://[::1]:8008", "https://127.evil.tld"):
+            self.assertTrue(v(dober), dober)
+        for slab in ("http://127.evil.tld", "http://localhost.evil.tld", "http://127.0.0.1.nip.io", "http://matrix.org",
+                     "ftp://localhost", "http://localhost@evil.tld", "http://evil.tld#@localhost", "", "https://",
+                     "http://[::1", "http://10.0.0.1"):
+            self.assertFalse(v(slab), slab)
+
+    def test_matrix_zavrne_tuj_http(self):
+        for url in ("http://127.evil.tld", "http://localhost.evil.tld"):
+            a = matrix.MatrixAdapter("k", url, "ZETON")
+            with mock.patch.object(matrix, "urlopen", side_effect=AssertionError("zeton ne sme ven")):
+                with self.assertRaises(ValueError):
+                    a.povezi()
+                with self.assertRaises(ValueError):
+                    a._api("/sync")
+
+    def test_dodaj_kanal_zavrne_tuj_http(self):
+        sp = os_sporocila.SporocilaOS.__new__(os_sporocila.SporocilaOS)
+        for url in ("http://127.evil.tld", "http://localhost.evil.tld:8008"):
+            with self.assertRaises(ValueError):
+                sp.dodaj_kanal({"vrsta": "matrix", "streznik": url, "zeton": "ZETON"})
+
+    def test_preusmeritev_ne_odnese_zetona(self):
+        """Pravi streznik na 127.0.0.1: 302 na drug streznik - urllib bi glavo Authorization poslal naprej."""
+        import http.server, threading
+        prejeto = []
+
+        class Cilj(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                prejeto.append(self.headers.get("Authorization"))
+                self.send_response(200); self.end_headers(); self.wfile.write(b"{}")
+            def log_message(self, *a): pass
+        cilj = http.server.HTTPServer(("127.0.0.1", 0), Cilj)
+
+        class Preusmeri(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(302)
+                self.send_header("Location", "http://127.0.0.1:%d/ukradi" % cilj.server_port)
+                self.end_headers()
+            def log_message(self, *a): pass
+        vir = http.server.HTTPServer(("127.0.0.1", 0), Preusmeri)
+        for s in (cilj, vir):
+            threading.Thread(target=s.serve_forever, daemon=True).start()
+        try:
+            a = matrix.MatrixAdapter("k", "http://127.0.0.1:%d" % vir.server_port, "ZETON")
+            with self.assertRaises(HTTPError) as e:
+                a._api("/account/whoami")
+            self.assertEqual(e.exception.code, 302)
+            self.assertEqual(prejeto, [])
+        finally:
+            for s in (cilj, vir):
+                s.shutdown(); s.server_close()
+
+
 if __name__ == "__main__":
     unittest.main()

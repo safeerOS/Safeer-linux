@@ -21,6 +21,15 @@ class Razdelitev(unittest.TestCase):
         vsi = {d[:-3] for d in os.listdir(os.path.join(KOREN, "tests")) if d.startswith("test_") and d.endswith(".py")}
         self.assertEqual(set(gtk3) | set(gtk4), vsi, "noben preizkus ne izpade")
 
+    def test_ci_ne_poje_napake(self):
+        """$(...) v argumentih poje izhodno kodo 2, prazen seznam pa je »0 tests« z izhodom 0 (pregled 14. 10. 2026)."""
+        wf = open(os.path.join(KOREN, ".github", "workflows", "linux-packages.yml"), encoding="utf-8").read()
+        self.assertNotIn("unittest $(python3 tools/razdeli_teste.py", wf)
+        for skupina in ("gtk3", "gtk4"):
+            self.assertIn('T="$(python3 tools/razdeli_teste.py %s)"' % skupina, wf)
+        self.assertEqual(wf.count('test -n "$T"'), 2)
+        self.assertEqual(wf.count("-m unittest $T"), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
