@@ -51,7 +51,7 @@ Item {
         if (v.prosojnost !== undefined) koren.prosojnost = v.prosojnost
     }
     readonly property var besedila: ({
-        sl: { odpriZ: "Odpri z …", privzetProgram: "privzeto", posljiNaNapravo: "Pošlji na napravo …",
+        sl: { dockDodaj: "Dodaj v dock", dockOdstrani: "Odstrani iz docka", odpriZ: "Odpri z …", privzetProgram: "privzeto", posljiNaNapravo: "Pošlji na napravo …",
               posNiNaprav: "V Safeer Linku ni naprave, ki bi sprejela datoteko.", posPosiljam: "Pošiljam napravi {naprava}: {ime} …",
               posPoslano: "Poslano napravi {naprava}: {ime}", posNapaka: "Pošiljanje napravi {naprava} ni uspelo.",
               sk_pisarna: "Pisarna", sk_ustvarjanje: "Ustvarjanje", sk_mediji: "Mediji", sk_splet: "Splet", sk_igre: "Igre",
@@ -80,7 +80,7 @@ Item {
               ozadjeWindows: "Ozadje Windows", lastnaSlika: "Lastna slika …", zameglitevNapis: "Zameglitev plošč",
               prosojnostNapis: "Prekrivnost plošč", privzeto: "Privzeto", zapri: "Zapri",
               temaOpis: "Barve so iz teme sistema (Nastavitve Safeer OS › Videz) – enake v Spletu in Safeer Controlu." },
-        en: { odpriZ: "Open with …", privzetProgram: "default", posljiNaNapravo: "Send to a device …",
+        en: { dockDodaj: "Add to dock", dockOdstrani: "Remove from dock", odpriZ: "Open with …", privzetProgram: "default", posljiNaNapravo: "Send to a device …",
               posNiNaprav: "No device in Safeer Link can receive a file.", posPosiljam: "Sending “{ime}” to {naprava} …",
               posPoslano: "Sent to {naprava}: {ime}", posNapaka: "Sending to {naprava} failed.",
               sk_pisarna: "Office", sk_ustvarjanje: "Creative", sk_mediji: "Media", sk_splet: "Internet", sk_igre: "Games",

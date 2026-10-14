@@ -138,10 +138,37 @@ Steklo {
                         acceptedButtons: Qt.LeftButton | Qt.RightButton
                         onClicked: function (m) {
                             if (m.button === Qt.LeftButton) panel.zazeni(modelData)
+                            else if (!panel.naprava) meniPrograma.pokazi(modelData)
                         }
                     }
                 }
             }
         }
+    }
+
+    // Desni klik na program tega racunalnika: Odpri, Dodaj v dock / Odstrani iz docka (kot prejsnja delovna povrsina).
+    component MeniVnos: MenuItem {
+        contentItem: Text { text: parent.text; color: koren.paleta.besedilo; font.pixelSize: 13; leftPadding: 6 }
+        background: Rectangle { radius: 8; color: parent.highlighted ? koren.poudarekA(0.22) : "transparent" }
+    }
+    Menu {
+        id: meniPrograma
+        property var p: null
+        property bool plank: false
+        property bool vDocku: false
+        background: Rectangle { implicitWidth: 220; radius: 12; color: koren.paleta.vnos; border.color: Qt.rgba(1, 1, 1, 0.14) }
+        function pokazi(p) {
+            meniPrograma.p = p
+            koren.klic("dock", [], function (d) {
+                meniPrograma.plank = !!(d && d.plank)
+                meniPrograma.vDocku = !!(d && (d.programi || []).some(function (x) { return x.id === p.id }))
+                meniPrograma.popup()
+            }, function () { meniPrograma.plank = false; meniPrograma.popup() })
+        }
+        MeniVnos { text: koren.t("odpri"); onTriggered: panel.zazeni(meniPrograma.p) }
+        MeniVnos { text: koren.t(meniPrograma.vDocku ? "dockOdstrani" : "dockDodaj"); visible: meniPrograma.plank
+                   height: visible ? implicitHeight : 0
+                   onTriggered: koren.klic(meniPrograma.vDocku ? "dockOdstrani" : "dockDodaj", [meniPrograma.p.id], function (r) {
+                       if (!(r && r.ok)) koren.obvesti(koren.t("niUspelo")) }) }
     }
 }
