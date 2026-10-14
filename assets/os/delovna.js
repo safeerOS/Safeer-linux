@@ -32,6 +32,13 @@
       zamenjajStrani: "Zamenjaj levo in desno", ponastavi: "Privzeta postavitev", vecjiTekst: "Večje besedilo", velikostBesedila: "Velikost besedila", tekst200: "200 % – za ogled od daleč",
       manjProsojnosti: "Manj prosojnosti", spletVBrskalniku: "Iskanje po spletu v privzetem brskalniku", spletVBrskalnikuIme: "Iskanje po spletu v brskalniku {ime}", sistemNaslov: "Namizje in sistem", modulTeme: "Tema, ikone in kazalec …", modulOzadja: "Sistemska ozadja …", modulPisave: "Pisave …", modulZaslon: "Zaslon …", modulOkna: "Okna …", modulPult: "Pult …", modulNocna: "Nočna svetloba …", modulVse: "Vse nastavitve sistema …", skrijPlosco: "Skrij ploščo", pokaziPlosco: "Pokaži ploščo {ime}", spremeniVelikost: "Povleci za spremembo velikosti (puščice s tipkovnico)",
       odpriMedijskiCenter: "Odpri Medijski center", niPredvajanja: "Ni predvajanja",
+      // »Predvajaj na …« (izhod.js, 14. 10. 2026)
+      predvajajNa: "Predvajaj na …", predvajajNaNaslov: "Predvajaj na", predvajaNa: "Predvaja na: {ime}",
+      zvokIsci: "Poišči zvočnike v omrežju", zvokIscem: "Iščem zvočnike v omrežju …",
+      zvokNiIzhodov: "V omrežju ni najdenih zvočnikov in v Safeer Linku ni naprave, ki bi predvajala zvok.",
+      izhodNalagam: "Nalagam …", zvokZvocnik: "Zvočnik v omrežju", zvokPredvaja: "Predvaja", zvokPovezujem: "Povezujem …",
+      zvokZvocnikPreklopi: "Preklopi s: {vir}", zvokNaNapravoZacet: "Zvok gre na: {ime}", zvokNazaj: "Zvok je spet na računalniku.",
+      zvokZvocnikZaseden: "{ime} trenutno predvaja {vir}. Pritisni še enkrat, da preklopiš na zvok računalnika.",
       medijNavodilo: "Izberi glasbo ali video v Datotekah ali v Medijskem centru.",
       medijIskanjePh: "Išči glasbo, radio, filme in serije …", medijIskanjeVse: "Vsi zadetki za »{q}« v Medijskem centru",
       medijIskanjeIscem: "Iščem …", medijTokovi: "Programi postaje:", medijIskanjeSe: "Iščem še po virih …", medijIskanjeNic: "Ni zadetkov.", medijTaRacunalnik: "Ta računalnik",
@@ -244,6 +251,12 @@
       zamenjajStrani: "Swap left and right", ponastavi: "Default layout", vecjiTekst: "Larger text", velikostBesedila: "Text size", tekst200: "200 % – for viewing from afar",
       manjProsojnosti: "Less transparency", spletVBrskalniku: "Search the web in the default browser", spletVBrskalnikuIme: "Search the web in {ime}", sistemNaslov: "Desktop and system", modulTeme: "Theme, icons and pointer …", modulOzadja: "System backgrounds …", modulPisave: "Fonts …", modulZaslon: "Display …", modulOkna: "Windows …", modulPult: "Panel …", modulNocna: "Night light …", modulVse: "All system settings …", skrijPlosco: "Hide panel", pokaziPlosco: "Show the {ime} panel", spremeniVelikost: "Drag to resize (arrow keys work too)",
       odpriMedijskiCenter: "Open Media center", niPredvajanja: "Nothing playing",
+      predvajajNa: "Play on …", predvajajNaNaslov: "Play on", predvajaNa: "Playing on: {ime}",
+      zvokIsci: "Find speakers in the network", zvokIscem: "Looking for speakers in the network …",
+      zvokNiIzhodov: "No speakers were found in the network and no device in Safeer Link can play sound.",
+      izhodNalagam: "Loading …", zvokZvocnik: "Network speaker", zvokPredvaja: "Playing", zvokPovezujem: "Connecting …",
+      zvokZvocnikPreklopi: "Switch from: {vir}", zvokNaNapravoZacet: "Sound is going to: {ime}", zvokNazaj: "Sound is back on the computer.",
+      zvokZvocnikZaseden: "{ime} is playing {vir}. Press again to switch to the computer sound.",
       medijNavodilo: "Pick music or a video in Files or in the Media center.",
       medijIskanjePh: "Search music, radio, films and series …", medijIskanjeVse: "All results for “{q}” in the Media center",
       medijIskanjeIscem: "Searching …", medijTokovi: "Station channels:", medijIskanjeSe: "Still searching sources …", medijIskanjeNic: "Nothing found.", medijTaRacunalnik: "This computer",
@@ -2979,6 +2992,95 @@
     });
   }
 
+  // ---- »Predvajaj na …« (lastnik, 14. 10. 2026): kam gre zvok - ta racunalnik, naprava v Safeer Linku ali zvocnik v
+  // omrezju. Ista logika in privolitev kot v Medijskem centru in hitrih nastavitvah zvoka (izhod.js).
+  var IZ = { z: null, st: SafeerIzhod.novoStanje(), cas: 0 };
+  var IKONE_IZHODA = { racunalnik: "M3 4h18v13H3z M3 14h18 M9 21h6", zvocnik: "M4 9v6h4l5 4V5L8 9z M16 9a4 4 0 0 1 0 6 M18.5 6.5a8 8 0 0 1 0 11",
+                       naprava: "M3 4h18v12H3z M8 20h8 M12 16v4" };
+  function izhodGost() {
+    return { klic: function (m, a, ok, napaka) { klic(m, a).then(ok, napaka || function () {}); },
+             obvesti: function (k, z) { obvesti(t(k, z)); }, osvezi: naloziIzhode, narisi: narisiIzhode,
+             pozneje: function (ms, fn) { setTimeout(fn, ms); } };
+  }
+  function naloziIzhode() {
+    return klic("zvok").then(function (z) { IZ.z = z || {}; narisiIzhode(); izrisiMedij(); }, function () { narisiIzhode(); });
+  }
+  function narisiIzhode() {
+    var g = $("gumbIzhod"), c = $("izhodi"), z = IZ.z, st = IZ.st;
+    var a = z && SafeerIzhod.aktivna(z), drugje = !!(a && a.vrsta !== "racunalnik");
+    g.classList.toggle("vklopljen", drugje);
+    g.title = drugje ? t("predvajaNa", { ime: a.ime }) : t("predvajajNa");
+    g.setAttribute("aria-label", g.title);
+    if ($("meniIzhod").hidden) return;
+    var fokus = document.activeElement && c.contains(document.activeElement) ? document.activeElement.getAttribute("data-id") : null;
+    c.textContent = "";
+    $("izhodIsci").disabled = !!st.isce;
+    if (!z) { $("izhodStanje").textContent = t("izhodNalagam"); return; }
+    SafeerIzhod.moznosti(z).forEach(function (m) {
+      var caka = !!st.caka && st.caka === m.id && !m.aktiven, potrdi = st.potrdi[m.id];
+      var pod = m.vrsta === "racunalnik" ? m.pod : m.vrsta === "zvocnik" ? t("zvokZvocnik") + (m.model ? " · " + m.model : "") : "Safeer Link";
+      if (caka) pod = t("zvokPovezujem");
+      else if (m.aktiven && m.stanje) pod = t(m.stanje === "tece" ? "zvokPredvaja" : "zvokPovezujem") + " · " + pod;
+      else if (potrdi) pod = t("zvokZvocnikPreklopi", { vir: potrdi });
+      var b = el("button", "izhod" + (m.aktiven ? " izbran" : ""));
+      b.type = "button";
+      b.setAttribute("data-id", m.vrsta + ":" + m.id);
+      b.setAttribute("aria-pressed", m.aktiven ? "true" : "false");
+      b.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + IKONE_IZHODA[m.vrsta] + '"/></svg><span><b></b><small></small></span>';
+      b.querySelector("b").textContent = m.vrsta === "racunalnik" ? t("taRacunalnik") : m.ime;
+      b.querySelector("small").textContent = pod || "";
+      b.addEventListener("click", function () { SafeerIzhod.izberi(st, m, z, izhodGost()); });
+      c.appendChild(b);
+    });
+    $("izhodStanje").textContent = st.isce ? t("zvokIscem") : (SafeerIzhod.imaDruge(z) ? "" : t("zvokNiIzhodov"));
+    $("izhodStanje").hidden = !$("izhodStanje").textContent;
+    if (fokus) { var f = c.querySelector('[data-id="' + fokus.replace(/"/g, "") + '"]'); if (f) f.focus(); }
+  }
+  function odpriIzhode() {
+    var m = $("meniIzhod"), r = $("gumbIzhod").getBoundingClientRect();
+    m.hidden = false;
+    // Pod gumbom, poravnano desno; ne cez rob okna.
+    m.style.top = Math.round(Math.min(r.bottom + 6, window.innerHeight - m.offsetHeight - 8)) + "px";
+    m.style.left = Math.round(Math.max(8, Math.min(r.right - m.offsetWidth, window.innerWidth - m.offsetWidth - 8))) + "px";
+    $("gumbIzhod").setAttribute("aria-expanded", "true");
+    narisiIzhode();
+    naloziIzhode().then(function () {
+      var c = $("izhodi"), prvi = c.querySelector(".izhod.izbran") || c.querySelector("button");
+      if (prvi && !m.contains(document.activeElement)) prvi.focus();
+      if (IZ.z && !((IZ.z.link || {}).zvocniki || []).length && !IZ.st.isce) SafeerIzhod.isci(IZ.st, izhodGost());
+    });
+    clearInterval(IZ.cas);
+    IZ.cas = setInterval(function () { if (m.hidden) { clearInterval(IZ.cas); return; } naloziIzhode(); }, 3000);
+  }
+  function zapriIzhode(nazajNaGumb) {
+    var m = $("meniIzhod"); if (m.hidden) return false;
+    m.hidden = true;
+    clearInterval(IZ.cas);
+    $("gumbIzhod").setAttribute("aria-expanded", "false");
+    if (nazajNaGumb) $("gumbIzhod").focus();
+    return true;
+  }
+  function poveziIzhode() {
+    $("gumbIzhod").addEventListener("click", function (e) { e.stopPropagation(); if ($("meniIzhod").hidden) odpriIzhode(); else zapriIzhode(true); });
+    $("izhodIsci").addEventListener("click", function () { if (!IZ.st.isce) SafeerIzhod.isci(IZ.st, izhodGost()); });
+    document.addEventListener("click", function (e) {
+      if (!e.target.closest("#meniIzhod") && !e.target.closest("#gumbIzhod")) zapriIzhode(false);
+    });
+    $("meniIzhod").addEventListener("keydown", function (e) {
+      var vsi = Array.prototype.slice.call(this.querySelectorAll("button:not(:disabled)")), i = vsi.indexOf(document.activeElement);
+      var j = e.key === "ArrowDown" ? i + 1 : e.key === "ArrowUp" ? i - 1 : e.key === "Home" ? 0 : e.key === "End" ? vsi.length - 1 : null;
+      if (j === null || !vsi.length) return;
+      e.preventDefault();
+      vsi[Math.max(0, Math.min(vsi.length - 1, j))].focus();
+    });
+    // Escape zapre samo izbiro in vrne izbor na gumb (pred splosnim Escape na delovni povrsini).
+    window.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && zapriIzhode(true)) { e.preventDefault(); e.stopImmediatePropagation(); }
+    }, true);
+    window.addEventListener("resize", function () { zapriIzhode(false); });
+    naloziIzhode();
+  }
+
   function medijOsvezi() {
     return klic("predvajalnikStanje").then(function (p) { M.zadnje = p || {}; izrisiMedij(); }).catch(function () {});
   }
@@ -2988,11 +3090,22 @@
     if (!ima && M.tokovi && Date.now() - M.tokovi.cas > 15000) { M.tokovi = null; narisiTokove(); }
     $("ploscaMediji").classList.toggle("prazno", !ima);
     $("medijNaslov").textContent = ima ? p.naslov : t("niPredvajanja");
+    var izh = IZ.z && SafeerIzhod.aktivna(IZ.z);
     var pod = !ima ? t("medijNavodilo")
       : p.stanje === "napaka" ? t("napakaPredvajanja")
-      : (p.stanje === "premor" ? t("vPremoru") : t("predvaja")) + (p.izvor ? " · " + p.izvor : "");
+      : (p.stanje === "premor" ? t("vPremoru") : t("predvaja")) + (p.izvor ? " · " + p.izvor : "") +
+        (izh && izh.vrsta !== "racunalnik" ? " · " + t("predvajaNa", { ime: izh.ime }) : "");
+    // Naslovnica (skladba s seznama, katalog), ce jo predvajalnik pozna; sicer znak glasbe.
+    var ov = $("ovitek"), slika = ima && p.slika ? String(p.slika) : "";
+    if (ov._slika !== slika) {
+      ov._slika = slika;
+      var staro = ov.querySelector("img"); if (staro) staro.remove();
+      if (slika) { var img = document.createElement("img"); img.alt = ""; img.src = slika; img.onerror = function () { img.remove(); }; ov.appendChild(img); }
+    }
     $("medijPodnaslov").textContent = pod;
     $("medijNapredek").style.width = (ima && p.trajanje > 0 ? Math.min(100, p.pozicija / p.trajanje * 100) : 0) + "%";
+    // Tok v zivo ali vgradni predvajalnik (YouTube) polozaja ne javita: brez praznega drsnika (postavitev ostane).
+    $("medijNapredek").parentNode.style.visibility = ima && p.trajanje > 0 ? "" : "hidden";
     $("ikonaPremor").setAttribute("d", p.stanje === "predvaja" ? "M8 5v14 M16 5v14" : "M8 5v14l11-7z");
     document.querySelectorAll("#kontrole button").forEach(function (b) { b.disabled = !ima; });
   }
@@ -3722,6 +3835,7 @@
     });
     // »media« odpre Medijski center v svojem oknu Safeer Player, ne cele lupine Safeer OS (safeer_os.py _odpri_razdelek).
     $("gumbMedijskiCenter").addEventListener("click", function () { klic("odpriRazdelek", ["media"]).catch(function () {}); });
+    poveziIzhode();
 
     // Velikost okna: prerazporedi strani (brez pomikanja)
     var rt = 0;

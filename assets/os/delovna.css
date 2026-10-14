@@ -178,6 +178,19 @@ select option { background: #111c2b; color: var(--besedilo); }
 .napredek { height: 3px; background: rgba(100, 120, 147, .7); border-radius: 4px; margin-top: .4em; }
 .napredek i { display: block; width: 0; height: 100%; background: var(--poudarek); border-radius: 4px; }
 .kontrole { display: flex; align-items: center; gap: .3em; flex: none; }
+.ovitek { position: relative; overflow: hidden; }
+.ovitek img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+/* »Predvajaj na …«: gumb v glavi plosce in izbira izhoda (barve iz :root). */
+#gumbIzhod.vklopljen { color: var(--poudarek); background: var(--izbrano); }
+.izhod-meni { position: fixed; z-index: 45; width: 20em; max-width: calc(100vw - 16px); }
+.izhod-meni .izhod { gap: .7em; min-height: 2.9em; }
+.izhod-meni .izhod.izbran { background: var(--izbrano); }
+.izhod-meni .izhod svg { flex: none; width: 1.3em; height: 1.3em; fill: none; stroke: currentColor; stroke-width: 1.8; color: var(--tiho); }
+.izhod-meni .izhod.izbran svg { color: var(--poudarek); }
+.izhod-meni .izhod span { min-width: 0; display: flex; flex-direction: column; }
+.izhod-meni .izhod b, .izhod-meni .izhod small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.izhod-meni .izhod small { color: var(--tise); }
+.izhod-meni .meni-namig { max-width: none; }
 .plosca.mediji.prazno .kontrole { opacity: .45; }
 
 /* ---- Datoteke ---------------------------------------------------------- */

@@ -119,6 +119,20 @@ class StanjeZaNamizje(_Lupina):
         servis.stanje = "ustavljeno"
         self.assertEqual(self.l._medijski_podatki()["naslov"], "Pesem")
 
+    def test_skladba_kataloga_v_domacem_predvajalniku(self):
+        # Naslednjo vodi stran (vrstaStrani), izvajalec in naslovnica pridejo iz kataloga - za pripomocke in MPRIS.
+        servis = mock.MagicMock(stanje="predvaja", vrsta=[1])
+        servis.trenutna.uri = "https://radio.test/a.mp3"
+        servis.podatki.return_value = {"stanje": "predvaja", "naslov": "A", "vrsta": "medij"}
+        self.l._medijski_predvajalnik = servis
+        self.l._katalog._predvajano["https://radio.test/a.mp3"] = {"zvok": True, "izvajalec": "Pevka", "slika": "https://x.test/a.jpg"}
+        p = self.l._medijski_podatki()
+        self.assertEqual((p["vrstaStrani"], p["izvajalec"], p["slika"]), (True, "Pevka", "https://x.test/a.jpg"))
+        self.assertTrue(self.l._mpris_podatki()["vrstaStrani"])
+        servis.trenutna.uri = "file:///glasba/b.mp3"          # krajevna datoteka: vrsto vodi predvajalnik
+        p = self.l._mpris_podatki()
+        self.assertEqual((p["vrstaStrani"], p["izvajalec"], p["slika"]), (False, "", ""))
+
     def test_mpris_dobi_izvajalca_in_sliko(self):
         self._igra_yt()
         p = self.l._mpris_podatki()

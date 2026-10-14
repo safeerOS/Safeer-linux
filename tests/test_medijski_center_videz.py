@@ -363,7 +363,8 @@ class SpodnjaVrstica(unittest.TestCase):
         koda = """
         var el = {}; function $(id) { return el[id] || (el[id] = { hidden: true, setAttribute: function () {}, focus: function () {} }); }
         var document = { body: { classList: { toggle: function () {} } } };
-        var S = { mediaPredvajalnik: null }, kat = { aktivni: null };
+        var S = { mediaPredvajalnik: null }, kat = { aktivni: null }, most = null;
+        function zapriIzhode() { return false; }     // izbira »Predvajaj na …« (preizkus: test_predvajaj_na.py)
         """ + "".join(_funkcija(self.js, f) for f in ("skladbaKataloga", "zapriVrstoPlosco", "uskladiTrak")) + """
         var izid = [];
         $("mediaPlayerBar").hidden = false;

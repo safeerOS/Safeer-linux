@@ -460,12 +460,20 @@
         </div>
       </div>
       <div class="media-player-desno">
+        <button class="gumb-ikona" id="mediaBarIzhod" type="button" data-naslov="predvajajNa" aria-haspopup="dialog" aria-expanded="false" aria-controls="mediaIzhodPlosca"><svg data-ikona="oddajaj"></svg></button>
         <button class="gumb-ikona" id="mediaBarVrstaGumb" type="button" data-naslov="mediaCakalna" aria-expanded="false" aria-controls="mediaVrstaPlosca" hidden><svg data-ikona="seznam"></svg></button>
         <div class="media-player-glasnost" id="mediaBarGlasnost" hidden>
           <button class="gumb-ikona" id="mediaBarUtisaj" type="button" data-naslov="utisaj" aria-pressed="false"><svg data-ikona="zvok"></svg></button>
           <input id="mediaBarGlasnostDrsnik" type="range" min="0" max="100" step="1" value="0" data-naslov="glasnost">
         </div>
         <button class="gumb-ikona" id="mediaZapri" type="button" data-naslov="katUstavi"><svg data-ikona="x"></svg></button>
+      </div>
+      <!-- »Predvajaj na …« (lastnik, 14. 10. 2026): ta racunalnik, naprave v Safeer Linku in zvocniki v omrezju (izhod.js). -->
+      <div class="media-vrsta-plosca media-izhod-plosca" id="mediaIzhodPlosca" role="dialog" aria-labelledby="mediaIzhodNaslov" hidden>
+        <div class="media-cakalna-glava"><h3 id="mediaIzhodNaslov" data-t="predvajajNaNaslov"></h3>
+          <button class="gumb-ikona" id="mediaIzhodIsci" type="button" data-naslov="zvokIsci"><svg data-ikona="ponovno"></svg></button></div>
+        <div id="mediaIzhodi" class="media-izhodi" role="group" aria-labelledby="mediaIzhodNaslov"></div>
+        <p id="mediaIzhodStanje" class="media-izhod-stanje" role="status" aria-live="polite"></p>
       </div>
       <div class="media-vrsta-plosca" id="mediaVrstaPlosca" role="dialog" aria-labelledby="mediaVrstaNaslov" hidden>
         <div class="media-cakalna-glava"><h3 id="mediaVrstaNaslov" data-t="mediaCakalna"></h3><span id="mediaCakalnaStevec"></span></div>
@@ -730,6 +738,7 @@
 </div>
 <div id="obvestilo"></div>
 <script src="besedila.js"></script>
+<script src="izhod.js"></script>
 <script src="iskanje.js"></script>
 <script src="os.js"></script>
 <script src="kavc.js"></script>

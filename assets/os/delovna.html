@@ -87,6 +87,7 @@
       <div class="glava">
         <h2 id="nMediji" data-t="medijiNaslov">Medijski center</h2>
         <div class="glava-desno">
+          <button type="button" class="gumb-ikona majhen" id="gumbIzhod" data-naslov="predvajajNa" aria-haspopup="dialog" aria-expanded="false" aria-controls="meniIzhod"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-5 M3 12a8 8 0 0 1 8 8 M3 16a4 4 0 0 1 4 4 M3 20h.01"/></svg></button>
           <button type="button" class="cip" id="gumbMedijskiCenter" data-t="odpriMedijskiCenter">Odpri Medijski center</button>
           <button type="button" class="gumb-ikona majhen" data-skrij="mediji" data-naslov="skrijPlosco"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12 M18 6L6 18"/></svg></button>
         </div>
@@ -191,6 +192,14 @@
 
 <div class="obvestilo" id="obvestilo" role="status" aria-live="polite" hidden></div>
 <div class="meni" id="meniPrograma" role="menu" hidden></div>
+<!-- »Predvajaj na …« (lastnik, 14. 10. 2026): ta racunalnik, naprave v Safeer Linku in zvocniki v omrezju (izhod.js). -->
+<div class="meni izhod-meni" id="meniIzhod" role="dialog" aria-labelledby="izhodNaslov" hidden>
+  <p class="meni-naslov" id="izhodNaslov" data-t="predvajajNaNaslov">Predvajaj na</p>
+  <div id="izhodi" role="group" aria-labelledby="izhodNaslov"></div>
+  <p class="meni-namig" id="izhodStanje" role="status" aria-live="polite"></p>
+  <hr>
+  <button type="button" id="izhodIsci" data-t="zvokIsci">Poišči zvočnike v omrežju</button>
+</div>
 
 <!-- Nova mapa / nova datoteka / preimenuj: ime in lokacija (kam), kot v Nemu, a z izbiro mape v istem oknu. -->
 <div class="ozadje-okna" id="oknoNovo" hidden>
@@ -217,6 +226,7 @@
   </form>
 </div>
 
+<script src="izhod.js"></script>
 <script src="iskanje.js"></script>
 <script src="delovna.js"></script>
 </body>

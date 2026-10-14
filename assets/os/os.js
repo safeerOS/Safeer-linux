@@ -74,6 +74,8 @@
     ,predvajaj: "M7 4.5v15l12.5-7.5z"
     ,premor: "M7 5h3.5v14H7z M13.5 5H17v14h-3.5z"
     ,seznam: "M4 6h12 M4 12h12 M4 18h8 M19 15v6 M16 18h6"
+    // »Predvajaj na …« (oddajanje na drugo napravo ali zvocnik)
+    ,oddajaj: "M3 8V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-5 M3 12a8 8 0 0 1 8 8 M3 16a4 4 0 0 1 4 4 M3 20h.01"
   };
   function svg(ime) {
     return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + (IK[ime] || IK.datoteka) + '"/></svg>';
@@ -1689,9 +1691,11 @@
     var p = S.mediaPredvajalnik, bar = $("mediaPlayerBar"); if (!bar) return false;
     var domaci = !!(p && p.naslov && p.stanje !== "ustavljeno");
     var vidno = domaci || !!skladbaKataloga();
+    var prej = !bar.hidden;
     bar.hidden = !vidno;
     document.body.classList.toggle("ima-trak", vidno);
-    if (!vidno) zapriVrstoPlosco(false);
+    if (!vidno) { zapriVrstoPlosco(false); zapriIzhode(false); }
+    else if (!prej && most) naloziIzhode();     // ali zvok ze gre na drugo napravo (znak na gumbu »Predvajaj na …«)
     return vidno;
   }
   function prikaziMediaBar() { uskladiTrak(); }
@@ -1714,7 +1718,12 @@
       opis = p.stanje === "napaka" ? t("mediaNapaka_" + (p.napaka || "splosno")) : p.stanje === "premor" ? t("mediaPremor") :
         zivo ? t("mediaVZivo") : (p.izvor || t("mediaTaRacunalnik"));
       igra = p.stanje === "predvaja";
+      if (opis === t("mediaTaRacunalnik")) opis = "";
     }
+    // Zvok gre na drugo napravo ali zvocnik (»Predvajaj na …«): vrstica to pove, namesto »Ta racunalnik«.
+    var izh = IZ.z && SafeerIzhod.aktivna(IZ.z);
+    if (izh && izh.vrsta !== "racunalnik") opis = [opis, t("predvajaNa", { ime: izh.ime })].filter(Boolean).join(" · ");
+    else if (!item && !opis) opis = t("mediaTaRacunalnik");
     $("mediaBarNaslov").textContent = naslov; $("mediaBarNaslov").title = naslov;
     $("mediaBarVrsta").textContent = opis;
     var znak = $("mediaBarZnak"), ikona = znakTraku(item, p);
@@ -1827,8 +1836,91 @@
     if (nazajNaGumb) $("mediaBarVrstaGumb").focus();
     return true;
   }
+  // ---- »Predvajaj na …« (lastnik, 14. 10. 2026): kam gre zvok - ta racunalnik, naprava v Safeer Linku ali zvocnik v
+  // omrezju. Logika in privolitev za zaseden zvocnik sta skupni s hitrimi nastavitvami zvoka (izhod.js).
+  var IZ = { z: null, st: SafeerIzhod.novoStanje(), cas: 0 };
+  function izhodGost() { return izhodGostitelj(naloziIzhode, narisiIzhode); }
+  function naloziIzhode() {
+    return klic("zvok").then(function (z) { IZ.z = z || {}; narisiIzhode(); narisiTrak(); }, function () { narisiIzhode(); });
+  }
+  function ikonaIzhoda(m) {
+    return m.vrsta === "racunalnik" ? "namizje" : m.vrsta === "zvocnik" ? "zvok" : (m.platforma === "tablet" || m.platforma === "phone") ? "naprave" : "zaslon";
+  }
+  function narisiIzhode() {
+    var g = $("mediaBarIzhod"), c = $("mediaIzhodi"); if (!g || !c) return;
+    var z = IZ.z, st = IZ.st, a = z && SafeerIzhod.aktivna(z), drugje = !!(a && a.vrsta !== "racunalnik");
+    g.classList.toggle("vklopljen", drugje);
+    g.title = drugje ? t("predvajaNa", { ime: a.ime }) : t("predvajajNa");
+    g.setAttribute("aria-label", g.title);
+    if ($("mediaIzhodPlosca").hidden) return;
+    var fokus = document.activeElement && c.contains(document.activeElement) ? document.activeElement.getAttribute("data-id") : null;
+    c.innerHTML = "";
+    $("mediaIzhodIsci").disabled = !!st.isce;
+    if (!z) { $("mediaIzhodStanje").textContent = t("izhodNalagam"); return; }
+    SafeerIzhod.moznosti(z).forEach(function (m) {
+      var caka = !!st.caka && st.caka === m.id && !m.aktiven, potrdi = st.potrdi[m.id];
+      var ime = m.vrsta === "racunalnik" ? t("taRacunalnik") : m.ime;
+      var pod = m.vrsta === "racunalnik" ? m.pod : m.vrsta === "zvocnik" ? t("zvokZvocnik") + (m.model ? " · " + m.model : "") : "Safeer Link";
+      if (caka) pod = t("zvokPovezujem");
+      else if (m.aktiven && m.stanje) pod = t(m.stanje === "tece" ? "zvokPredvaja" : "zvokPovezujem") + " · " + pod;
+      else if (potrdi) pod = t("zvokZvocnikPreklopi", { vir: potrdi });
+      var b = el("button", "media-izhod" + (m.aktiven ? " izbran" : ""), svg(ikonaIzhoda(m)) + "<span><b>" + ubezi(ime) + "</b>" +
+        (pod ? "<small>" + ubezi(pod) + "</small>" : "") + "</span>" + (m.aktiven ? svg("kljukica") : ""));
+      b.type = "button";
+      b.setAttribute("data-id", m.vrsta + ":" + m.id);
+      b.setAttribute("aria-pressed", m.aktiven ? "true" : "false");
+      b.addEventListener("click", function () { SafeerIzhod.izberi(st, m, z, izhodGost()); });
+      c.appendChild(b);
+    });
+    $("mediaIzhodStanje").textContent = st.isce ? t("zvokIscem") : (SafeerIzhod.imaDruge(z) ? "" : t("zvokNiIzhodov"));
+    if (fokus) { var f = c.querySelector('[data-id="' + fokus.replace(/"/g, "") + '"]'); if (f) f.focus({ preventScroll: true }); }
+  }
+  function odpriIzhode() {
+    zapriVrstoPlosco(false);
+    $("mediaIzhodPlosca").hidden = false;
+    $("mediaBarIzhod").setAttribute("aria-expanded", "true");
+    narisiIzhode();
+    naloziIzhode().then(function () {
+      var c = $("mediaIzhodi"), prvi = c.querySelector(".media-izhod.izbran") || c.querySelector("button");
+      if (prvi && !c.contains(document.activeElement)) prvi.focus({ preventScroll: true });
+      // Zvocnikov se ni na seznamu: poiscemo jih takoj (iskanje traja nekaj sekund, stanje se kaze spodaj).
+      if (IZ.z && !((IZ.z.link || {}).zvocniki || []).length && !IZ.st.isce) SafeerIzhod.isci(IZ.st, izhodGost());
+    });
+    clearInterval(IZ.cas);
+    IZ.cas = setInterval(function () {
+      if ($("mediaIzhodPlosca").hidden) { clearInterval(IZ.cas); return; }
+      naloziIzhode();
+    }, 3000);
+  }
+  function zapriIzhode(nazajNaGumb) {
+    var plosca = $("mediaIzhodPlosca"); if (!plosca || plosca.hidden) return false;
+    plosca.hidden = true;
+    clearInterval(IZ.cas);
+    $("mediaBarIzhod").setAttribute("aria-expanded", "false");
+    if (nazajNaGumb) $("mediaBarIzhod").focus();
+    return true;
+  }
+  function poveziIzhode() {
+    $("mediaBarIzhod").addEventListener("click", function () { if ($("mediaIzhodPlosca").hidden) odpriIzhode(); else zapriIzhode(true); });
+    $("mediaIzhodIsci").addEventListener("click", function () { if (!IZ.st.isce) SafeerIzhod.isci(IZ.st, izhodGost()); });
+    document.addEventListener("click", function (e) {
+      if (!e.target.closest("#mediaIzhodPlosca") && !e.target.closest("#mediaBarIzhod")) zapriIzhode(false);
+    });
+    // Puscice gor/dol, Home in End med izbirami; Escape (tipka Nazaj) zapre samo plosco.
+    $("mediaIzhodPlosca").addEventListener("keydown", function (e) {
+      var vsi = Array.prototype.slice.call(this.querySelectorAll("button:not(:disabled)")), i = vsi.indexOf(document.activeElement);
+      var j = e.key === "ArrowDown" ? i + 1 : e.key === "ArrowUp" ? i - 1 : e.key === "Home" ? 0 : e.key === "End" ? vsi.length - 1 : null;
+      if (j === null || !vsi.length) return;
+      e.preventDefault();
+      vsi[Math.max(0, Math.min(vsi.length - 1, j))].focus();
+    });
+    window.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && zapriIzhode(true)) { e.preventDefault(); e.stopImmediatePropagation(); }
+    }, true);
+  }
   function poveziTrak() {
-    $("mediaBarVrstaGumb").addEventListener("click", function () { if ($("mediaVrstaPlosca").hidden) odpriVrstoPlosco(); else zapriVrstoPlosco(true); });
+    poveziIzhode();
+    $("mediaBarVrstaGumb").addEventListener("click", function () { zapriIzhode(false); if ($("mediaVrstaPlosca").hidden) odpriVrstoPlosco(); else zapriVrstoPlosco(true); });
     document.addEventListener("click", function (e) {
       if (!e.target.closest("#mediaVrstaPlosca") && !e.target.closest("#mediaBarVrstaGumb")) zapriVrstoPlosco(false);
     });
@@ -2797,7 +2889,13 @@
   }
 
   // ------------------------------------------------------------------ zvok
-  var zvokStanje = null, zvokCas = 0, zvokDotik = 0, zvokCaka = "", zvokPotrdi = {};
+  var zvokStanje = null, zvokCas = 0, zvokDotik = 0, zvokIzbira = SafeerIzhod.novoStanje();
+  // Gostitelj za izhod.js: most, obvestila v jeziku strani, casovniki.
+  function izhodGostitelj(osvezi, narisi) {
+    return { klic: function (m, a, ok, napaka) { klic(m, a).then(ok, napaka || function () {}); },
+             obvesti: function (k, z) { obvesti(t(k, z)); }, osvezi: osvezi, narisi: narisi,
+             pozneje: function (ms, fn) { setTimeout(fn, ms); } };
+  }
   var IKONA_ZVOKA = { zvocniki: "zvok", slusalke: "slusalke", hdmi: "zaslon", bluetooth: "bluetooth", usb: "zvok", mikrofon: "mikrofon" };
   var jblStanje = null, jblZaposleno = false;
   function nalozJbl() {
@@ -2984,70 +3082,29 @@
         function (v) { klic("zvokGlasnostIzhoda", [privzeti.id, v]).then(osveziStanje); },
         function (u) { klic("zvokUtisajIzhod", [privzeti.id, u]).then(function () { nalozZvok(); osveziStanje(); }); }));
     }
-    // Naprave v Safeer Linku
+    // Naprave v Safeer Linku in zvocniki v omrezju (DLNA, npr. JBL): zvok racunalnika gre nanje. Dejanja in privolitev
+    // za zaseden zvocnik so skupna z »Predvajaj na …« v Medijskem centru (izhod.js).
     var l = $("zvokLink");
     l.innerHTML = "";
-    link.naprave.forEach(function (n) {
-      var tece = naLinku === n.id, caka = zvokCaka === n.id && !tece;
-      var ikona = (n.platforma === "tablet" || n.platforma === "phone") ? "naprave" : "zaslon";
+    var gost = izhodGostitelj(nalozZvok, function () { narisiZvok(zvokStanje || z); });
+    SafeerIzhod.moznosti(z).forEach(function (m) {
+      if (m.vrsta === "racunalnik") return;
+      var tece = m.aktiven, caka = zvokIzbira.caka === m.id && !tece, potrdi = zvokIzbira.potrdi[m.id];
       var gumb;
       if (tece) {
         gumb = el("span", "dejanja");
-        var st = (link.zvok.stanje === "tece") ? "zvokPredvaja" : "zvokPovezujem";
-        gumb.appendChild(el("span", "znacka" + (link.zvok.stanje === "tece" ? " tece" : ""), ubezi(t(st))));
+        gumb.appendChild(el("span", "znacka" + (m.stanje === "tece" ? " tece" : ""), ubezi(t(m.stanje === "tece" ? "zvokPredvaja" : "zvokPovezujem"))));
         var ust = el("button", "gumb", ubezi(t("ustavi")));
-        ust.addEventListener("click", function (e) {
-          e.stopPropagation();
-          klic("zvokUstavi").then(function () { zvokCaka = ""; obvesti(t("zvokNazaj")); setTimeout(nalozZvok, 600); });
-        });
-        gumb.appendChild(ust);
-      } else {
-        gumb = el("button", "gumb" + (caka ? "" : " glavni"), ubezi(t(caka ? "zvokPovezujem" : "predvajajTukaj")));
-        gumb.addEventListener("click", function (e) {
-          e.stopPropagation();
-          zvokCaka = n.id;
-          narisiZvok(z);
-          klic("zvokNaNapravo", [n.id]).then(function (ok) {
-            if (!ok) { zvokCaka = ""; obvesti(t("niUspelo")); } else obvesti(t("zvokNaNapravoZacet", { ime: n.ime }));
-            setTimeout(nalozZvok, 800); setTimeout(function () { zvokCaka = ""; nalozZvok(); }, 6000);
-          });
-        });
-      }
-      l.appendChild(zvokVrstica(ikona, n.ime, "Safeer Link", tece, gumb));
-    });
-    // Zvocniki v omrezju (DLNA, npr. JBL): enako kot naprave v Linku, zvok racunalnika gre nanje.
-    var zv = link.zvocnik || {}, naZvocniku = zv.naprava || "";
-    (link.zvocniki || []).forEach(function (n) {
-      var tece = naZvocniku === n.id, caka = zvokCaka === n.id && !tece, potrdi = zvokPotrdi[n.id];
-      var gumb;
-      if (tece) {
-        gumb = el("span", "dejanja");
-        gumb.appendChild(el("span", "znacka" + (zv.stanje === "tece" ? " tece" : ""), ubezi(t(zv.stanje === "tece" ? "zvokPredvaja" : "zvokPovezujem"))));
-        var ust = el("button", "gumb", ubezi(t("ustavi")));
-        ust.addEventListener("click", function (e) {
-          e.stopPropagation();
-          klic("zvokUstaviZvocnik").then(function () { zvokCaka = ""; obvesti(t("zvokNazaj")); setTimeout(nalozZvok, 600); });
-        });
+        ust.addEventListener("click", function (e) { e.stopPropagation(); SafeerIzhod.nazaj(zvokIzbira, z, gost); });
         gumb.appendChild(ust);
       } else {
         gumb = el("button", "gumb" + (caka ? "" : " glavni"),
           ubezi(caka ? t("zvokPovezujem") : (potrdi ? t("zvokZvocnikPreklopi", { vir: potrdi }) : t("predvajajTukaj"))));
-        gumb.addEventListener("click", function (e) {
-          e.stopPropagation();
-          var soglasje = !!zvokPotrdi[n.id];
-          zvokCaka = n.id; delete zvokPotrdi[n.id];
-          narisiZvok(z);
-          klic("zvokNaZvocnik", [n.id, soglasje]).then(function (r) {
-            zvokCaka = "";
-            if (r && r.vir) { zvokPotrdi[n.id] = r.vir; obvesti(t("zvokZvocnikZaseden", { ime: n.ime, vir: r.vir })); }
-            else if (!r || !r.ok) obvesti(t("niUspelo"));
-            else obvesti(t("zvokNaNapravoZacet", { ime: n.ime }));
-            nalozZvok(); setTimeout(nalozZvok, 3000);
-          });
-        });
+        gumb.addEventListener("click", function (e) { e.stopPropagation(); SafeerIzhod.izberi(zvokIzbira, m, z, gost); });
       }
-      var pod = t("zvokZvocnik") + (n.model && n.model !== n.ime ? " · " + n.model : "");
-      l.appendChild(zvokVrstica("zvok", n.ime, pod, tece, gumb));
+      var ikona = m.vrsta === "zvocnik" ? "zvok" : (m.platforma === "tablet" || m.platforma === "phone") ? "naprave" : "zaslon";
+      var pod = m.vrsta === "zvocnik" ? t("zvokZvocnik") + (m.model ? " · " + m.model : "") : "Safeer Link";
+      l.appendChild(zvokVrstica(ikona, m.ime, pod, tece, gumb));
     });
     if (!link.naprave.length && !(link.zvocniki || []).length)
       l.appendChild(el("div", "prazno", ubezi(t(link.povezan ? "zvokBrezNaprav" : "zvokBrezLinka"))));

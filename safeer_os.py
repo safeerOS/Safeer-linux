@@ -4033,15 +4033,9 @@ class SafeerOS(Gtk.Application):
     def _mpris_podatki(self) -> dict:
         """Stanje predvajalnika za sistem: kot za stran, z izvajalcem in sliko iz kataloga, ce ju ta pozna."""
         p = dict(self._medijski_podatki())
-        if p.get("vrstaStrani") and p.get("izvor") == "YouTube":
-            return p            # skladba v vgradnem predvajalniku: izvajalec in slika sta ze v podatkih
-        servis = self._medijski_predvajalnik
-        vnos = (self._katalog.vnos_predvajanega(servis.trenutna.uri) if self._katalog is not None and servis
-                and servis.trenutna else None) or {}
-        p["izvajalec"] = vnos.get("izvajalec") or ""
-        p["slika"] = vnos.get("slika") or ""
-        # Skladba iz kataloga: naslednjo in prejsnjo vodi stran (vrsta, premesaj), zato sta na voljo tudi pri eni skladbi.
-        p["vrstaStrani"] = bool(vnos.get("zvok")) and servis is not None and len(servis.vrsta) <= 1 and p.get("vrsta") != "radio"
+        for kljuc in ("izvajalec", "slika"):
+            p[kljuc] = p.get(kljuc) or ""
+        p["vrstaStrani"] = bool(p.get("vrstaStrani"))
         return p
 
     def _mpris_osvezi(self) -> None:
@@ -4724,9 +4718,19 @@ class SafeerOS(Gtk.Application):
             # prejsnjo vodi stran (vrstaStrani), zato ju pripomocki ne onemogocijo.
             return dict(yt, indeks=-1, zacetniIndeks=0, skupaj=0, vrstaSeznam=[], pozicija=0, trajanje=0, napaka="",
                         vrstaStrani=True)
-        return self._medijski_predvajalnik.podatki() if self._medijski_predvajalnik else {
-            "stanje": "ustavljeno", "naslov": "", "vrsta": "", "indeks": -1,
-            "zacetniIndeks": 0, "skupaj": 0, "vrstaSeznam": [], "pozicija": 0, "trajanje": 0, "napaka": ""}
+        servis = self._medijski_predvajalnik
+        if servis is None:
+            return {"stanje": "ustavljeno", "naslov": "", "vrsta": "", "indeks": -1,
+                    "zacetniIndeks": 0, "skupaj": 0, "vrstaSeznam": [], "pozicija": 0, "trajanje": 0, "napaka": ""}
+        p = servis.podatki()
+        # Skladba iz kataloga: naslednjo in prejsnjo vodi stran (vrsta, premesaj), zato sta na voljo tudi pri eni skladbi.
+        vnos = (self._katalog.vnos_predvajanega(servis.trenutna.uri) if self._katalog is not None and servis.trenutna
+                else None) or {}
+        p["vrstaStrani"] = bool(vnos.get("zvok")) and len(servis.vrsta) <= 1 and p.get("vrsta") != "radio"
+        # Izvajalec in naslovnica iz kataloga: za pripomocke na namizju in sistem (MPRIS).
+        p["izvajalec"] = str(vnos.get("izvajalec") or "")
+        p["slika"] = str(vnos.get("slika") or "")
+        return p
 
     def _yt_spremenjeno(self) -> None:
         """Skladba v vgradnem predvajalniku je zacela, se ustavila ali koncala: stranem (Medijski center, namizje) in

@@ -4,6 +4,8 @@ import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Effects
 import QtQuick.Layouts
+import QtQuick.Shapes
+import "../izhod.js" as Izhod
 
 Item {
     id: koren
@@ -31,6 +33,8 @@ Item {
             if (vrsta === "datoteke" && p && p.pot === datoteke.vir.pot) datoteke.nalozi(true)
             if (vrsta === "videz" && p) koren.uporabiVidez(p)
             if (vrsta === "iskanjeOdDrugod" && p && p.q) { polje.text = p.q; polje.forceActiveFocus() }
+            if (vrsta === "predvajalnik" && p) koren.medij = p
+            if (vrsta === "medijskaKnjiznica") koren.osveziMedij()
         }
     }
     property string jezik: "sl"
@@ -69,6 +73,14 @@ Item {
               preklici: "Prekliči", razveljavi: "Razveljavi", vKosPoslano: "»{ime}« je v Košu.", novaMapa: "Nova mapa",
               niUspelo: "Ni uspelo.", medijski: "Medijski center", niPredvajanja: "Ni predvajanja",
               medijOpis: "Glasba, radio, filmi in serije iz tvojih virov.", odpriMedijski: "Odpri Medijski center",
+              predvaja: "Predvaja", vPremoru: "V premoru", napakaPredvajanja: "Predvajanje ni uspelo", vZivo: "V živo",
+              prejsnja: "Prejšnja", naslednja: "Naslednja", premor: "Premor", nadaljuj: "Nadaljuj",
+              predvajajNa: "Predvajaj na …", predvajajNaNaslov: "Predvajaj na", predvajaNa: "Predvaja na: {ime}",
+              zvokIsci: "Poišči zvočnike v omrežju", zvokIscem: "Iščem zvočnike v omrežju …",
+              zvokNiIzhodov: "V omrežju ni najdenih zvočnikov in v Safeer Linku ni naprave, ki bi predvajala zvok.",
+              izhodNalagam: "Nalagam …", zvokZvocnik: "Zvočnik v omrežju", zvokPredvaja: "Predvaja", zvokPovezujem: "Povezujem …",
+              zvokZvocnikPreklopi: "Preklopi s: {vir}", zvokNaNapravoZacet: "Zvok gre na: {ime}", zvokNazaj: "Zvok je spet na računalniku.",
+              zvokZvocnikZaseden: "{ime} trenutno predvaja {vir}. Pritisni še enkrat, da preklopiš na zvok računalnika.",
               link: "Safeer Link", napravN: "{n} naprav", nastavitve: "Nastavitve", taRacunalnik: "Ta računalnik",
               HOME: "Domača mapa", DESKTOP: "Namizje", DOCUMENTS: "Dokumenti", DOWNLOAD: "Prenosi",
               PICTURES: "Fotografije", MUSIC: "Glasba", VIDEOS: "Videi", gor: "Navzgor", shrani: "Shrani",
@@ -101,6 +113,14 @@ Item {
               preklici: "Cancel", razveljavi: "Undo", vKosPoslano: "“{ime}” is in the Recycle Bin.", novaMapa: "New folder",
               niUspelo: "That didn't work.", medijski: "Media centre", niPredvajanja: "Nothing playing",
               medijOpis: "Music, radio, films and series from your sources.", odpriMedijski: "Open Media centre",
+              predvaja: "Playing", vPremoru: "Paused", napakaPredvajanja: "Playback failed", vZivo: "Live",
+              prejsnja: "Previous", naslednja: "Next", premor: "Pause", nadaljuj: "Play",
+              predvajajNa: "Play on …", predvajajNaNaslov: "Play on", predvajaNa: "Playing on: {ime}",
+              zvokIsci: "Find speakers in the network", zvokIscem: "Looking for speakers in the network …",
+              zvokNiIzhodov: "No speakers were found in the network and no device in Safeer Link can play sound.",
+              izhodNalagam: "Loading …", zvokZvocnik: "Network speaker", zvokPredvaja: "Playing", zvokPovezujem: "Connecting …",
+              zvokZvocnikPreklopi: "Switch from: {vir}", zvokNaNapravoZacet: "Sound is going to: {ime}", zvokNazaj: "Sound is back on the computer.",
+              zvokZvocnikZaseden: "{ime} is playing {vir}. Press again to switch to the computer sound.",
               link: "Safeer Link", napravN: "{n} devices", nastavitve: "Settings", taRacunalnik: "This PC",
               HOME: "Home", DESKTOP: "Desktop", DOCUMENTS: "Documents", DOWNLOAD: "Downloads",
               PICTURES: "Pictures", MUSIC: "Music", VIDEOS: "Videos", gor: "Up", shrani: "Save",
@@ -363,30 +383,261 @@ Item {
     property real robLevo: 0
     property real robDesno: 0
     readonly property real vrhPanelov: robZgoraj + 104
+    // Medijski center: kaj se predvaja (lastnik, 14. 10. 2026: med glasbo je pripomocek kazal »Ni predvajanja«). Isto stanje
+    // kot delovna.js in Medijski center (predvajalnikStanje: domaci predvajalnik ali skladba s seznama v vgradnem predvajalniku
+    // YouTuba), osvezevanje 1 s med predvajanjem, sicer 3 s; dogodek »predvajalnik« osvezi takoj.
+    property var medij: ({})
+    readonly property bool medijIgra: !!medij.naslov && medij.stanje !== "ustavljeno"
+    function osveziMedij() { koren.klic("predvajalnikStanje", [], function (p) { koren.medij = p || {} }) }
+    function medijUkaz(u) { koren.klic("predvajalnikUkaz", [u], function () { koren.osveziMedij() }) }
+    Timer { interval: koren.medij.stanje === "predvaja" ? 1000 : 3000; running: true; repeat: true; triggeredOnStart: true
+            onTriggered: koren.osveziMedij() }
+    function opisMedija() {
+        var p = koren.medij
+        if (!koren.medijIgra) return koren.t("medijOpis")
+        var deli = [p.stanje === "napaka" ? koren.t("napakaPredvajanja") : p.stanje === "premor" ? koren.t("vPremoru")
+                    : (p.vrsta === "tv" || p.vrsta === "radio") ? koren.t("vZivo") : koren.t("predvaja")]
+        if (p.izvajalec) deli.push(p.izvajalec)
+        if (p.izvor) deli.push(p.izvor)
+        var izh = koren.izhodZ ? Izhod.SafeerIzhod.aktivna(koren.izhodZ) : null
+        if (izh && izh.vrsta !== "racunalnik") deli.push(koren.t("predvajaNa", { ime: izh.ime }))
+        return deli.join(" · ")
+    }
+    // Kam gre zvok (izhod.js, isto kot »Predvajaj na …« v Medijskem centru): ob predvajanju vsakih 15 s za znak na gumbu.
+    property var izhodZ: null
+    function naloziIzhode() { koren.klic("zvok", [], function (z) { koren.izhodZ = z || {}; izhodi.narisi() }) }
+    Timer { interval: 15000; running: koren.medijIgra && !izhodi.visible; repeat: true; triggeredOnStart: true; onTriggered: koren.naloziIzhode() }
+    function pozneje(ms, fn) {
+        var c = Qt.createQmlObject("import QtQuick; Timer { repeat: false }", koren)
+        c.interval = ms
+        c.triggered.connect(function () { fn(); c.destroy() })
+        c.start()
+    }
+    readonly property var ikone: ({
+        prejsnja: "M6 5v14 M19 5 9 12l10 7z", naslednja: "M18 5v14 M5 5l10 7-10 7z",
+        predvajaj: "M7 4.5v15l12.5-7.5z", premor: "M6.5 5h3.2v14H6.5z M14.3 5h3.2v14h-3.2z",
+        oddajaj: "M3 8V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-5 M3 12a8 8 0 0 1 8 8 M3 16a4 4 0 0 1 4 4 M3 20h.01",
+        ponovno: "M20 12a8 8 0 1 1-2.3-5.7 M20 4v5h-5",
+        racunalnik: "M3 4h18v13H3z M3 14h18 M9 21h6", naprava: "M3 4h18v12H3z M8 20h8 M12 16v4",
+        zvocnik: "M4 9v6h4l5 4V5L8 9z M16 9a4 4 0 0 1 0 6 M18.5 6.5a8 8 0 0 1 0 11", kljukica: "M5 12.5l4.5 4.5L19 7.5" })
     Steklo {
         id: medijski
+        objectName: "medijski"
         zamegljeno: zamegljeno
         x: koren.robLevo + koren.rob; y: koren.vrhPanelov
         width: (koren.width - koren.robLevo - koren.robDesno - 3 * koren.rob) * 0.44; height: 150
         Column {
             anchors.fill: parent; anchors.margins: 18; spacing: 10
             RowLayout {
-                width: parent.width
-                Text { text: koren.t("medijski"); color: koren.paleta.besedilo; font.pixelSize: 16; font.bold: true; Layout.fillWidth: true }
+                width: parent.width; spacing: 8
+                Text { text: koren.t("medijski"); color: koren.paleta.besedilo; font.pixelSize: 16; font.bold: true; Layout.fillWidth: true
+                       elide: Text.ElideRight }
+                GumbIkona {
+                    id: gumbIzhod
+                    objectName: "medijIzhod"
+                    readonly property var aktivna: koren.izhodZ ? Izhod.SafeerIzhod.aktivna(koren.izhodZ) : null
+                    pot: koren.ikone.oddajaj; width: 30; height: 30; velikostIkone: 17
+                    vklopljen: !!aktivna && aktivna.vrsta !== "racunalnik"
+                    ime: vklopljen ? koren.t("predvajaNa", { ime: aktivna.ime }) : koren.t("predvajajNa")
+                    Accessible.role: Accessible.ButtonMenu
+                    onKlik: izhodi.visible ? izhodi.close() : izhodi.open()
+                }
                 Gumb { besedilo: koren.t("odpriMedijski"); onKlik: koren.klic("odpriRazdelek", ["media"]) }
             }
-            Row {
-                spacing: 14
-                Rectangle {
-                    width: 54; height: 54; radius: 12
-                    gradient: Gradient { GradientStop { position: 0; color: "#2f6bff" } GradientStop { position: 1; color: "#7a4dff" } }
-                    Text { anchors.centerIn: parent; text: "♫"; color: "white"; font.pixelSize: 24 }
+            RowLayout {
+                width: parent.width; spacing: 14
+                Item {
+                    id: ovitek
+                    Layout.preferredWidth: 54; Layout.preferredHeight: 54
+                    Rectangle {
+                        anchors.fill: parent; radius: 12
+                        gradient: Gradient { GradientStop { position: 0; color: koren.paleta.poudarek } GradientStop { position: 1; color: koren.paleta.vnos } }
+                        Text { anchors.centerIn: parent; text: "♫"; color: koren.paleta.besedilo; font.pixelSize: 24 }
+                    }
+                    // Naslovnica iz kataloga (ce jo predvajalnik pozna), z zaobljenimi robovi kot znak.
+                    Image {
+                        id: slikaOvitka
+                        objectName: "medijSlika"
+                        anchors.fill: parent; visible: false; layer.enabled: true
+                        source: koren.medijIgra && koren.medij.slika ? koren.medij.slika : ""
+                        fillMode: Image.PreserveAspectCrop; asynchronous: true; sourceSize: Qt.size(108, 108)
+                    }
+                    Shape {
+                        objectName: "medijSlikaUcinek"
+                        anchors.fill: parent
+                        visible: slikaOvitka.status === Image.Ready
+                        ShapePath {
+                            strokeColor: "transparent"; fillItem: slikaOvitka
+                            PathRectangle { width: 54; height: 54; radius: 12 }
+                        }
+                    }
                 }
                 Column {
-                    anchors.verticalCenter: parent.verticalCenter; spacing: 4
-                    Text { text: koren.t("niPredvajanja"); color: koren.paleta.besedilo; font.pixelSize: 15; font.bold: true }
-                    Text { text: koren.t("medijOpis"); color: koren.paleta.medlo; font.pixelSize: 12 }
+                    Layout.fillWidth: true; spacing: 4
+                    Text {
+                        objectName: "medijNaslov"
+                        width: parent.width; elide: Text.ElideRight
+                        text: koren.medijIgra ? koren.medij.naslov : koren.t("niPredvajanja")
+                        color: koren.paleta.besedilo; font.pixelSize: 15; font.bold: true
+                    }
+                    Text {
+                        objectName: "medijOpis"
+                        width: parent.width; elide: Text.ElideRight
+                        text: koren.opisMedija()
+                        color: koren.paleta.medlo; font.pixelSize: 12
+                    }
                 }
+                Row {
+                    spacing: 6; visible: koren.medijIgra
+                    GumbIkona {
+                        objectName: "medijPrejsnja"
+                        pot: koren.ikone.prejsnja; polnilo: true; ime: koren.t("prejsnja")
+                        anchors.verticalCenter: parent.verticalCenter
+                        enabled: !!koren.medij.vrstaStrani || koren.medij.indeks > 0
+                        onKlik: koren.medijUkaz("prejsnja")
+                    }
+                    GumbIkona {
+                        objectName: "medijPremor"
+                        width: 42; height: 42; velikostIkone: 18; poudarjen: true; polnilo: true
+                        pot: koren.medij.stanje === "predvaja" ? koren.ikone.premor : koren.ikone.predvajaj
+                        ime: koren.medij.stanje === "predvaja" ? koren.t("premor") : koren.t("nadaljuj")
+                        onKlik: koren.medijUkaz("premor")
+                    }
+                    GumbIkona {
+                        objectName: "medijNaslednja"
+                        pot: koren.ikone.naslednja; polnilo: true; ime: koren.t("naslednja")
+                        anchors.verticalCenter: parent.verticalCenter
+                        enabled: !!koren.medij.vrstaStrani || koren.medij.indeks < (koren.medij.skupaj || 0) - 1
+                        onKlik: koren.medijUkaz("naslednja")
+                    }
+                }
+            }
+            // Polozaj samo, ce ga predvajalnik pozna (ne tok v zivo, ne vgradni predvajalnik YouTuba) - brez laznega drsnika.
+            Rectangle {
+                objectName: "medijNapredek"
+                visible: koren.medijIgra && Number(koren.medij.trajanje) > 0
+                width: parent.width; height: 4; radius: 2; color: Qt.rgba(1, 1, 1, 0.12)
+                Accessible.role: Accessible.ProgressBar
+                Accessible.name: Math.floor((koren.medij.pozicija || 0) / 60) + ":" + ("0" + Math.floor((koren.medij.pozicija || 0) % 60)).slice(-2)
+                Rectangle {
+                    height: parent.height; radius: 2; color: koren.paleta.poudarek
+                    width: parent.width * Math.min(1, Math.max(0, (koren.medij.pozicija || 0) / (koren.medij.trajanje || 1)))
+                }
+            }
+        }
+    }
+
+    // »Predvajaj na …«: ta racunalnik, naprave v Safeer Linku in zvocniki v omrezju (izhod.js). Escape ali klik drugam zapre;
+    // puscici gor/dol, Enter ali preslednica izbere.
+    Popup {
+        id: izhodi
+        objectName: "izhodiPopup"
+        parent: gumbIzhod
+        x: gumbIzhod.width - width; y: gumbIzhod.height + 8
+        width: 330; padding: 12
+        modal: false; focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
+        property var st: Izhod.SafeerIzhod.novoStanje()
+        property var moznosti: []
+        property string stanjeBesedilo: ""
+        property bool isce: false           // izhod.js pise v st (navaden objekt): vezave berejo to lastnost
+        function gost() {
+            return { klic: function (m, a, ok, napaka) { koren.klic(m, a, ok, napaka) },
+                     obvesti: function (k, z) { koren.obvesti(koren.t(k, z)) },
+                     osvezi: function () { koren.naloziIzhode() }, narisi: function () { izhodi.narisi() },
+                     pozneje: function (ms, fn) { koren.pozneje(ms, fn) } }
+        }
+        function narisi() {
+            var z = koren.izhodZ, i = seznamIzhodov.currentIndex
+            moznosti = z ? Izhod.SafeerIzhod.moznosti(z) : []
+            seznamIzhodov.currentIndex = Math.max(0, Math.min(i, moznosti.length - 1))
+            isce = !!st.isce
+            stanjeBesedilo = !z ? koren.t("izhodNalagam") : st.isce ? koren.t("zvokIscem")
+                           : Izhod.SafeerIzhod.imaDruge(z) ? "" : koren.t("zvokNiIzhodov")
+        }
+        function opis(m) {
+            if (st.caka && st.caka === m.id && !m.aktiven) return koren.t("zvokPovezujem")
+            var pod = m.vrsta === "racunalnik" ? m.pod : m.vrsta === "zvocnik" ? koren.t("zvokZvocnik") + (m.model ? " · " + m.model : "") : "Safeer Link"
+            if (m.aktiven && m.stanje) return koren.t(m.stanje === "tece" ? "zvokPredvaja" : "zvokPovezujem") + " · " + pod
+            if (st.potrdi[m.id]) return koren.t("zvokZvocnikPreklopi", { vir: st.potrdi[m.id] })
+            return pod
+        }
+        function izberi(i) { if (i >= 0 && i < moznosti.length) Izhod.SafeerIzhod.izberi(st, moznosti[i], koren.izhodZ, gost()) }
+        onOpened: {
+            narisi()
+            for (var i = 0; i < moznosti.length; i++) if (moznosti[i].aktiven) seznamIzhodov.currentIndex = i
+            seznamIzhodov.forceActiveFocus()
+            koren.klic("zvok", [], function (z) {
+                koren.izhodZ = z || {}; izhodi.narisi()
+                if (!((koren.izhodZ.link || {}).zvocniki || []).length && !izhodi.st.isce) Izhod.SafeerIzhod.isci(izhodi.st, izhodi.gost())
+            })
+        }
+        onClosed: gumbIzhod.forceActiveFocus()
+        Timer { interval: 3000; running: izhodi.visible; repeat: true; onTriggered: koren.naloziIzhode() }
+        background: Rectangle { radius: 14; color: koren.paleta.vnos; border.color: Qt.rgba(1, 1, 1, 0.14) }
+        contentItem: Column {
+            spacing: 8
+            RowLayout {
+                width: parent.width
+                Text { text: koren.t("predvajajNaNaslov"); color: koren.paleta.besedilo; font.pixelSize: 15; font.bold: true; Layout.fillWidth: true }
+                GumbIkona {
+                    objectName: "izhodIsci"
+                    pot: koren.ikone.ponovno; width: 30; height: 30; velikostIkone: 16; ime: koren.t("zvokIsci")
+                    enabled: !izhodi.isce
+                    onKlik: Izhod.SafeerIzhod.isci(izhodi.st, izhodi.gost())
+                }
+            }
+            ListView {
+                id: seznamIzhodov
+                objectName: "seznamIzhodov"
+                width: parent.width; height: Math.min(contentHeight, 300)
+                model: izhodi.moznosti; clip: true; spacing: 2
+                keyNavigationEnabled: true; activeFocusOnTab: true
+                Accessible.role: Accessible.List; Accessible.name: koren.t("predvajajNaNaslov")
+                Keys.onReturnPressed: izhodi.izberi(currentIndex)
+                Keys.onEnterPressed: izhodi.izberi(currentIndex)
+                Keys.onSpacePressed: izhodi.izberi(currentIndex)
+                delegate: Rectangle {
+                    id: vrsticaIzhoda
+                    required property var modelData
+                    required property int index
+                    readonly property bool izbran: seznamIzhodov.activeFocus && index === seznamIzhodov.currentIndex
+                    readonly property string ime: modelData.vrsta === "racunalnik" ? koren.t("taRacunalnik") : modelData.ime
+                    readonly property string pod: izhodi.opis(modelData)
+                    width: seznamIzhodov.width; height: 50; radius: 10
+                    color: modelData.aktiven ? koren.poudarekA(0.22) : (izbran || mi.containsMouse) ? Qt.rgba(1, 1, 1, 0.10) : "transparent"
+                    border.width: izbran ? 2 : 0; border.color: koren.paleta.poudarek
+                    Accessible.role: Accessible.RadioButton
+                    Accessible.name: ime + (pod ? ", " + pod : "")
+                    Accessible.checked: !!modelData.aktiven
+                    Shape {
+                        x: 12; anchors.verticalCenter: parent.verticalCenter; width: 24; height: 24; scale: 0.9
+                        ShapePath {
+                            strokeColor: vrsticaIzhoda.modelData.aktiven ? koren.paleta.poudarek : koren.paleta.medlo; strokeWidth: 1.8
+                            fillColor: "transparent"; capStyle: ShapePath.RoundCap; joinStyle: ShapePath.RoundJoin
+                            PathSvg { path: koren.ikone[vrsticaIzhoda.modelData.vrsta] || "" }
+                        }
+                    }
+                    Column {
+                        x: 48; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 48 - 36; spacing: 2
+                        Text { text: vrsticaIzhoda.ime; color: koren.paleta.besedilo; font.pixelSize: 13; font.bold: true; width: parent.width; elide: Text.ElideRight }
+                        Text { text: vrsticaIzhoda.pod; visible: text !== ""; color: koren.paleta.medlo; font.pixelSize: 11; width: parent.width; elide: Text.ElideRight }
+                    }
+                    Shape {
+                        visible: !!vrsticaIzhoda.modelData.aktiven
+                        anchors.right: parent.right; anchors.rightMargin: 10; anchors.verticalCenter: parent.verticalCenter; width: 24; height: 24; scale: 0.8
+                        ShapePath { strokeColor: koren.paleta.poudarek; strokeWidth: 2; fillColor: "transparent"; capStyle: ShapePath.RoundCap
+                                    PathSvg { path: koren.ikone.kljukica } }
+                    }
+                    MouseArea { id: mi; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                onClicked: { seznamIzhodov.currentIndex = vrsticaIzhoda.index; izhodi.izberi(vrsticaIzhoda.index) } }
+                }
+            }
+            Text {
+                objectName: "izhodStanje"
+                width: parent.width; wrapMode: Text.WordWrap; visible: text !== ""
+                text: izhodi.stanjeBesedilo; color: koren.paleta.medlo; font.pixelSize: 12
+                Accessible.role: Accessible.StaticText
             }
         }
     }

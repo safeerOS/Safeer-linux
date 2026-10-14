@@ -1161,6 +1161,22 @@ body.v-mediji #ozadje::after, body.predvajalnik #ozadje::after { background: var
 .media-vrsta-plosca h3 { margin: 0; font-size: 16px; }
 .media-vrsta-plosca .media-vrsta { max-height: none; }
 .media-vrsta-vnos.izbran { background: var(--media-poudarek); }
+/* »Predvajaj na …«: ena vrstica na izhod, aktivni s kljukico (barve iz :root). */
+.media-izhod-plosca { width: min(340px, calc(100vw - 48px)); }
+.media-izhod-plosca .media-cakalna-glava { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.media-izhodi { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.media-izhod { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 8px 12px; border-radius: 12px;
+  color: var(--besedilo); background: transparent; text-align: left; }
+.media-izhod:hover, .media-izhod:focus-visible { background: var(--media-povrsina); }
+.media-izhod.izbran { background: var(--media-poudarek); }
+.media-izhod > svg { flex: none; width: 22px; height: 22px; color: var(--medlo); }
+.media-izhod.izbran > svg { color: var(--zelena); }
+.media-izhod span { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.media-izhod b, .media-izhod small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.media-izhod b { font-size: 14px; font-weight: 600; }
+.media-izhod small { color: var(--medlo); font-size: 12px; }
+.media-izhod-stanje { margin: 8px 4px 0; color: var(--medlo); font-size: 12px; }
+.media-izhod-stanje:empty { display: none; }
 @media (max-width: 1000px) {
   .media-player-bar { grid-template-columns: 48px minmax(0, 1fr) auto auto; gap: 10px; margin: 0 12px 10px; }
   .media-player-art { width: 48px; height: 48px; }
