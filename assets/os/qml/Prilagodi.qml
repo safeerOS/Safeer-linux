@@ -1,15 +1,34 @@
-// Prilagodi namizje: ozadje (Safeer, Windows ali lastna slika), zameglitev in prekrivnost plosc. Barve so iz teme sistema.
+// Prilagodi namizje: ozadje (Safeer, Windows ali lastna slika), zameglitev in prekrivnost plosc. Barve so iz tokens.css,
+// kontrast in velikost besedila iz sistema. Tipkovnica: ob odprtju je fokus v oknu, Escape (in Nazaj) ga zapre.
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Dialogs
+import QtQuick.Window
 
 Item {
     id: prilagodi
     visible: opacity > 0
     opacity: 0
     Behavior on opacity { NumberAnimation { duration: 180 } }
-    function odpri() { opacity = 1; koren.klic("videzNamizja", [], function (v) { koren.uporabiVidez(v) }) }
-    function zapri() { opacity = 0 }
+    property Item fokusPrej: null
+    function urlSlike(p) {     // Windows C:\… -> file:///C:/…, Linux /home/… -> file:///home/…
+        p = String(p || "")
+        return p.charAt(0) === "/" ? "file://" + encodeURI(p) : "file:///" + encodeURI(p.replace(/\\/g, "/"))
+    }
+    function odpri() {
+        fokusPrej = Window.activeFocusItem
+        opacity = 1; prilagodi.forceActiveFocus()
+        koren.klic("videzNamizja", [], function (v) { koren.uporabiVidez(v) })
+    }
+    function zapri() {
+        opacity = 0
+        if (fokusPrej) fokusPrej.forceActiveFocus()
+        fokusPrej = null
+    }
+    Keys.onEscapePressed: zapri()
+    Keys.onBackPressed: zapri()
+    Accessible.role: Accessible.Dialog
+    Accessible.name: koren.t("prilagodi").replace(" …", "")
     function nastavi(sprememba) { koren.klic("nastaviVidezNamizja", [sprememba], function (v) { koren.uporabiVidez(v) }) }
 
     Rectangle { anchors.fill: parent; color: Qt.rgba(0, 0, 0, 0.35)
@@ -20,33 +39,38 @@ Item {
         width: Math.min(720, parent.width - 80); height: vsebina.implicitHeight + 48
         anchors.centerIn: parent
         radius: 22
-        color: koren.plosca(0.96); border.color: Qt.rgba(1, 1, 1, 0.14)
+        color: koren.plosca(0.96); border.color: koren.crta(0.14)
         MouseArea { anchors.fill: parent }        // klik v oknu ga ne zapre
         Column {
             id: vsebina
             x: 24; y: 24; width: okvir.width - 48; spacing: 16
-            Text { text: koren.t("prilagodi").replace(" …", ""); color: koren.paleta.besedilo; font.pixelSize: 20; font.bold: true }
-            Text { text: koren.t("ozadje"); color: koren.paleta.medlo; font.pixelSize: 13 }
+            Text { text: koren.t("prilagodi").replace(" …", ""); color: koren.paleta.besedilo; font.pixelSize: koren.px(20); font.bold: true }
+            Text { text: koren.t("ozadje"); color: koren.paleta.medlo; font.pixelSize: koren.px(13) }
             Flow {
                 width: parent.width; spacing: 12
                 Repeater {
                     model: (koren.videz.ozadja || []).concat(koren.videz.windows ? [{ kljuc: "windows", ime: koren.t("ozadjeWindows"), url: koren.videz.windows }] : [])
-                                                     .concat(koren.videz.lastna ? [{ kljuc: koren.videz.lastna, ime: koren.t("lastnaSlika").replace(" …", ""), url: "file:///" + koren.videz.lastna.replace(/\\/g, "/") }] : [])
+                                                     .concat(koren.videz.lastna ? [{ kljuc: koren.videz.lastna, ime: koren.t("lastnaSlika").replace(" …", ""), url: prilagodi.urlSlike(koren.videz.lastna) }] : [])
                     delegate: Item {
                         width: 152; height: 112
                         property bool izbrano: koren.videz.izbira === modelData.kljuc
                         Rectangle {
                             id: slicica; width: 152; height: 86; radius: 12; clip: true
                             color: koren.paleta.vnos
-                            border.width: parent.izbrano ? 3 : 1
-                            border.color: parent.izbrano ? koren.paleta.poudarek : (mo.containsMouse ? Qt.rgba(1, 1, 1, 0.4) : Qt.rgba(1, 1, 1, 0.14))
+                            border.width: parent.izbrano || activeFocus ? 3 : 1
+                            border.color: activeFocus ? koren.paleta.fokus : parent.izbrano ? koren.paleta.poudarek : (mo.containsMouse ? koren.crta(0.4) : koren.crta(0.14))
+                            activeFocusOnTab: true
+                            Accessible.role: Accessible.RadioButton; Accessible.name: modelData.ime; Accessible.checked: parent.izbrano
+                            Keys.onReturnPressed: prilagodi.nastavi({ ozadje: modelData.kljuc })
+                            Keys.onEnterPressed: prilagodi.nastavi({ ozadje: modelData.kljuc })
+                            Keys.onSpacePressed: prilagodi.nastavi({ ozadje: modelData.kljuc })
                             Image { anchors.fill: parent; anchors.margins: parent.border.width; source: modelData.url
                                     fillMode: Image.PreserveAspectCrop; asynchronous: true; sourceSize.width: 320 }
                             MouseArea { id: mo; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                                         onClicked: prilagodi.nastavi({ ozadje: modelData.kljuc }) }
                         }
                         Text { anchors.top: slicica.bottom; anchors.topMargin: 6; width: 152; elide: Text.ElideRight
-                               horizontalAlignment: Text.AlignHCenter; text: modelData.ime; font.pixelSize: 12
+                               horizontalAlignment: Text.AlignHCenter; text: modelData.ime; font.pixelSize: koren.px(12)
                                color: parent.izbrano ? koren.paleta.poudarek : koren.paleta.besedilo }
                     }
                 }
@@ -54,28 +78,38 @@ Item {
                     width: 152; height: 112
                     Rectangle {
                         width: 152; height: 86; radius: 12; color: "transparent"
-                        border.color: ml.containsMouse ? koren.paleta.poudarek : Qt.rgba(1, 1, 1, 0.22); border.width: 1
-                        Text { anchors.centerIn: parent; text: "+"; color: koren.paleta.besedilo; font.pixelSize: 30 }
+                        border.color: activeFocus ? koren.paleta.fokus : ml.containsMouse ? koren.paleta.poudarek : koren.crta(0.22)
+                        border.width: activeFocus ? 3 : 1
+                        activeFocusOnTab: true
+                        Accessible.role: Accessible.Button; Accessible.name: koren.t("lastnaSlika")
+                        Keys.onReturnPressed: izbiraSlike.open()
+                        Keys.onEnterPressed: izbiraSlike.open()
+                        Keys.onSpacePressed: izbiraSlike.open()
+                        Text { anchors.centerIn: parent; text: "+"; color: koren.paleta.besedilo; font.pixelSize: koren.px(30) }
                         MouseArea { id: ml; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                                     onClicked: izbiraSlike.open() }
                     }
                     Text { y: 92; width: 152; horizontalAlignment: Text.AlignHCenter; text: koren.t("lastnaSlika")
-                           color: koren.paleta.besedilo; font.pixelSize: 12 }
+                           color: koren.paleta.besedilo; font.pixelSize: koren.px(12) }
                 }
             }
             Row {
                 spacing: 14; width: parent.width
-                Text { text: koren.t("zameglitevNapis"); color: koren.paleta.besedilo; font.pixelSize: 13; width: 170; anchors.verticalCenter: parent.verticalCenter }
+                Text { text: koren.t("zameglitevNapis"); color: koren.paleta.besedilo; font.pixelSize: koren.px(13); width: 170; anchors.verticalCenter: parent.verticalCenter }
                 Slider { id: dZam; width: parent.width - 190; from: 0; to: 1; value: koren.zameglitev
-                         onMoved: koren.zameglitev = value; onPressedChanged: if (!pressed) prilagodi.nastavi({ zameglitev: value }) }
+                         Accessible.name: koren.t("zameglitevNapis")
+                         onMoved: { koren.zameglitev = value; if (!pressed) shraniTipke.restart() }
+                         onPressedChanged: if (!pressed) prilagodi.nastavi({ zameglitev: value }) }
             }
             Row {
                 spacing: 14; width: parent.width
-                Text { text: koren.t("prosojnostNapis"); color: koren.paleta.besedilo; font.pixelSize: 13; width: 170; anchors.verticalCenter: parent.verticalCenter }
+                Text { text: koren.t("prosojnostNapis"); color: koren.paleta.besedilo; font.pixelSize: koren.px(13); width: 170; anchors.verticalCenter: parent.verticalCenter }
                 Slider { id: dPro; width: parent.width - 190; from: 0.2; to: 0.9; value: koren.prosojnost
-                         onMoved: koren.prosojnost = value; onPressedChanged: if (!pressed) prilagodi.nastavi({ prosojnost: value }) }
+                         Accessible.name: koren.t("prosojnostNapis")
+                         onMoved: { koren.prosojnost = value; if (!pressed) shraniTipke.restart() }
+                         onPressedChanged: if (!pressed) prilagodi.nastavi({ prosojnost: value }) }
             }
-            Text { width: parent.width; wrapMode: Text.WordWrap; text: koren.t("temaOpis"); color: koren.paleta.medlo; font.pixelSize: 12 }
+            Text { width: parent.width; wrapMode: Text.WordWrap; text: koren.t("temaOpis"); color: koren.paleta.medlo; font.pixelSize: koren.px(12) }
             Row {
                 spacing: 10; anchors.right: parent.right
                 Gumb { besedilo: koren.t("temaSistema"); onKlik: { prilagodi.zapri(); koren.klic("odpriRazdelek", ["nastavitve"]) } }
@@ -84,12 +118,16 @@ Item {
             }
         }
     }
+    // Drsnika s puscicami: shranimo, ko se tipke umirijo (z misko ob spustu).
+    Timer { id: shraniTipke; interval: 400; onTriggered: prilagodi.nastavi({ zameglitev: dZam.value, prosojnost: dPro.value }) }
     FileDialog {
         id: izbiraSlike
-        nameFilters: ["Slike (*.jpg *.jpeg *.png *.webp *.bmp)"]
+        nameFilters: [koren.t("vrstaSlika") + " (*.jpg *.jpeg *.png *.webp *.bmp)"]
         onAccepted: {
-            var pot = decodeURIComponent(String(selectedFile).replace(/^file:\/\/\//, ""))
-            prilagodi.nastavi({ ozadje: pot.replace(/\//g, "\\") })
+            // Linux: /home/… ostane, kot je; Windows: C:/… -> C:\… (prej je tudi na Linuxu dobil »\home\…« in ga zavrnil).
+            var pot = decodeURIComponent(String(selectedFile).replace(/^file:\/\//, ""))
+            if (koren.platforma === "windows") pot = pot.replace(/^\//, "").replace(/\//g, "\\")
+            prilagodi.nastavi({ ozadje: pot })
         }
     }
 }

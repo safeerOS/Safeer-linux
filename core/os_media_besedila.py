@@ -164,6 +164,31 @@ BESEDILA: dict[str, dict[str, str]] = {
     },
 }
 
+# Okno »Dodaj TV ali radijski tok«, naslov okna Medijskega centra in izbira mape (prej trdo slovensko - pregled
+# celovitosti 15. 10. 2026).
+_OKNA = {
+    "sl": {"medijski_center": "Medijski center", "tok_naslov": "Dodaj TV ali radijski tok", "tok_ime": "Ime postaje",
+           "tok_tv": "TV v živo", "tok_radio": "Radio", "tok_primer": "https://primer.si/kanal.m3u8",
+           "shrani_predvajaj": "Shrani in predvajaj", "izberi_mapo_splosno": "Izberi mapo", "izberi": "Izberi"},
+    "en": {"medijski_center": "Media centre", "tok_naslov": "Add a TV or radio stream", "tok_ime": "Station name",
+           "tok_tv": "Live TV", "tok_radio": "Radio", "tok_primer": "https://example.com/channel.m3u8",
+           "shrani_predvajaj": "Save and play", "izberi_mapo_splosno": "Choose a folder", "izberi": "Choose"},
+    "de": {"medijski_center": "Mediencenter", "tok_naslov": "TV- oder Radiostream hinzufügen", "tok_ime": "Name des Senders",
+           "tok_tv": "Live-TV", "tok_radio": "Radio", "tok_primer": "https://beispiel.de/kanal.m3u8",
+           "shrani_predvajaj": "Speichern und abspielen", "izberi_mapo_splosno": "Ordner wählen", "izberi": "Auswählen"},
+    "es": {"medijski_center": "Centro multimedia", "tok_naslov": "Añadir una emisión de TV o radio", "tok_ime": "Nombre de la emisora",
+           "tok_tv": "TV en directo", "tok_radio": "Radio", "tok_primer": "https://ejemplo.es/canal.m3u8",
+           "shrani_predvajaj": "Guardar y reproducir", "izberi_mapo_splosno": "Elegir una carpeta", "izberi": "Elegir"},
+    "fr": {"medijski_center": "Centre multimédia", "tok_naslov": "Ajouter un flux TV ou radio", "tok_ime": "Nom de la station",
+           "tok_tv": "TV en direct", "tok_radio": "Radio", "tok_primer": "https://exemple.fr/chaine.m3u8",
+           "shrani_predvajaj": "Enregistrer et lire", "izberi_mapo_splosno": "Choisir un dossier", "izberi": "Choisir"},
+    "it": {"medijski_center": "Centro multimediale", "tok_naslov": "Aggiungi uno stream TV o radio", "tok_ime": "Nome dell’emittente",
+           "tok_tv": "TV in diretta", "tok_radio": "Radio", "tok_primer": "https://esempio.it/canale.m3u8",
+           "shrani_predvajaj": "Salva e riproduci", "izberi_mapo_splosno": "Scegli una cartella", "izberi": "Scegli"},
+}
+for _jezik, _besedila in _OKNA.items():
+    BESEDILA[_jezik].update(_besedila)
+
 
 def besedilo(kljuc: str, jezik: str = "en") -> str:
     """Napis v jeziku vmesnika; neznan jezik ali ključ pade na angleščino (in nato na ključ)."""

@@ -10,6 +10,8 @@ Zna tri oblike, ki jih uporabljamo:
   - Android:  res/values*/  (strings.xml, ui_strings.xml ...)
   - Safeer Link: assets/link/link.js  (var BESEDILA = { sl: {...}, en: {...} })
   - namizni:  core/i18n.py  (TRANSLATIONS = { "en": {...} })
+  - namizje Safeer OS: assets/os/besedila-namizja.js (en slovar za delovno povrsino
+    WebKit in namizje QML; zamenjave {x} morajo biti v vseh jezikih enake)
 
 Zazene se brez odvisnosti. Vrne 0, ce je vse pokrito, sicer 1 in izpise,
 kateri kljuci manjkajo kje.
@@ -98,6 +100,25 @@ def zberi_i18n_py(koren: str) -> dict[str, set[str]]:
     return {}
 
 
+def zberi_besedila_namizja(koren: str) -> tuple[dict[str, set[str]], list[str]]:
+    """({jezik: {kljuci}}, napake zamenjav) iz assets/os/besedila-namizja.js (en kljuc v vrstici)."""
+    pot = os.path.join(koren, "assets", "os", "besedila-namizja.js")
+    if not os.path.isfile(pot):
+        return {}, []
+    with open(pot, encoding="utf-8") as f:
+        vsebina = f.read()
+    vrednosti: dict[str, dict[str, str]] = {}
+    for ujem in re.finditer(r"^  (\w+): \{\n(.*?)^  \}", vsebina, re.M | re.S):
+        vrednosti[ujem.group(1)] = dict(re.findall(r'^    "?([\w$]+)"?: ("(?:[^"\\]|\\.)*")', ujem.group(2), re.M))
+    napake = []
+    osnova = vrednosti.get("sl", {})
+    for jezik, slovar in vrednosti.items():
+        for kljuc, besedilo in slovar.items():
+            if kljuc in osnova and sorted(re.findall(r"\{\w+\}", besedilo)) != sorted(re.findall(r"\{\w+\}", osnova[kljuc])):
+                napake.append("besedila-namizja.js / %s: %s ima druge zamenjave {..} kot sl" % (jezik, kljuc))
+    return {j: set(v) for j, v in vrednosti.items()}, napake
+
+
 def primerjaj(naslov: str, jeziki: dict[str, set[str]], osnovni: str) -> list[str]:
     """Vrne seznam napak; prazen seznam pomeni, da je vse pokrito."""
     napake = []
@@ -147,6 +168,16 @@ def main(koren: str) -> int:
         nasel_kaj = True
         print("Namizni brskalnik (core/i18n.py):")
         napake += primerjaj("i18n.py", namizni, "en")
+        print()
+
+    namizje, napake_zamenjav = zberi_besedila_namizja(koren)
+    if namizje:
+        nasel_kaj = True
+        print("Namizje Safeer OS (assets/os/besedila-namizja.js):")
+        napake += primerjaj("besedila-namizja.js", namizje, "sl")
+        for napaka in napake_zamenjav:
+            print("     " + napaka)
+        napake += napake_zamenjav
         print()
 
     if not nasel_kaj:

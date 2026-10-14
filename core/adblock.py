@@ -1404,6 +1404,47 @@ FAKE_BANK_TEXTS = {
                   "typing its official address or use its official app. Your bank never calls you to ask for a code or PIN and "
                   "never asks you to install remote-access software (AnyDesk, TeamViewer).",
     },
+    "de": {
+        "page": "Dies ist keine echte Online-Bank, obwohl sie sich als {bank} ausgibt. Die echte Seite der Bank ist {domain}.",
+        "host": "Diese Adresse ahmt {bank} nach. Die echte Seite der Bank ist {domain}.",
+        "local": "Eine aus einem Anhang oder Download geöffnete Datei gibt sich als {bank} aus. Die echte Seite der Bank ist {domain}.",
+        "lure": "Die Seite verlangt Kartendaten unter dem Vorwand \u201e{detail}\u201c. Polizei, Finanzamt und Paketdienste "
+                "kassieren Bußgelder oder Porto nie über solche Seiten.",
+        "advice": "Gib hier weder Benutzernamen, Passwort, SMS-Code, Steuernummer, PIN noch Kartendaten ein. Öffne deine Bank immer, "
+                  "indem du ihre offizielle Adresse eintippst, oder nutze ihre offizielle App. Deine Bank ruft dich nie an, um einen "
+                  "Code oder eine PIN zu verlangen, und verlangt nie die Installation von Fernwartungsprogrammen (AnyDesk, TeamViewer).",
+    },
+    "es": {
+        "page": "Esta no es una banca en línea real, aunque se presenta como {bank}. La web real del banco es {domain}.",
+        "host": "Esta dirección imita a {bank}. La web real del banco es {domain}.",
+        "local": "Un archivo abierto desde un adjunto o una descarga se hace pasar por {bank}. La web real del banco es {domain}.",
+        "lure": "La página pide los datos de la tarjeta con el pretexto de \u00ab{detail}\u00bb. La policía, Hacienda y las empresas "
+                "de mensajería nunca cobran multas ni envíos a través de páginas así.",
+        "advice": "No escribas aquí tu usuario, contraseña, código SMS, NIF, PIN ni datos de la tarjeta. Entra siempre en tu banco "
+                  "escribiendo su dirección oficial o usa su app oficial. Tu banco nunca te llama para pedirte un código o el PIN "
+                  "y nunca te pide instalar programas de acceso remoto (AnyDesk, TeamViewer).",
+    },
+    "fr": {
+        "page": "Ce n\u2019est pas une vraie banque en ligne, bien qu\u2019elle se présente comme {bank}. Le vrai site de la banque est {domain}.",
+        "host": "Cette adresse imite {bank}. Le vrai site de la banque est {domain}.",
+        "local": "Un fichier ouvert depuis une pièce jointe ou un téléchargement se fait passer pour {bank}. Le vrai site de la banque est {domain}.",
+        "lure": "La page demande les données de ta carte sous prétexte de \u00ab {detail} \u00bb. La police, les impôts et les services "
+                "de livraison n\u2019encaissent jamais d\u2019amendes ni de frais de port via ce genre de pages.",
+        "advice": "N\u2019indique ici ni identifiant, ni mot de passe, ni code SMS, ni numéro fiscal, ni code PIN, ni données de carte. "
+                  "Ouvre toujours ta banque en tapant son adresse officielle ou utilise son application officielle. Ta banque ne "
+                  "t\u2019appelle jamais pour demander un code ou le PIN et ne demande jamais d\u2019installer un logiciel d\u2019accès "
+                  "à distance (AnyDesk, TeamViewer).",
+    },
+    "it": {
+        "page": "Questa non è una vera banca online, anche se si presenta come {bank}. Il sito vero della banca è {domain}.",
+        "host": "Questo indirizzo imita {bank}. Il sito vero della banca è {domain}.",
+        "local": "Un file aperto da un allegato o da un download si spaccia per {bank}. Il sito vero della banca è {domain}.",
+        "lure": "La pagina chiede i dati della carta con il pretesto di \u00ab{detail}\u00bb. Polizia, Agenzia delle Entrate e corrieri "
+                "non riscuotono mai multe o spese di spedizione tramite pagine del genere.",
+        "advice": "Non inserire qui nome utente, password, codice SMS, codice fiscale, PIN o dati della carta. Apri sempre la tua banca "
+                  "digitando il suo indirizzo ufficiale o usa la sua app ufficiale. La tua banca non ti chiama mai per chiedere un "
+                  "codice o il PIN e non chiede mai di installare programmi di accesso remoto (AnyDesk, TeamViewer).",
+    },
 }
 
 

@@ -83,7 +83,9 @@ class Usmerjanje(_Lupina):
         self.assertIn('$("gumbMedijskiCenter").addEventListener("click", function () { klic("odpriRazdelek", ["media"])', js)
         self.assertIn('else if (v.vrsta === "mediji") klic("odpriRazdelek", ["mediji:" + v.q]);', js)
         self.assertIn('pod = t(v.cilj === "media" ? "odprePredvajalnik" : "odpreSafeerOs");', js)
-        self.assertEqual(js.count('odprePredvajalnik: "'), 2, "napis v obeh jezikih delovne povrsine")
+        # Besedila delovne povrsine so v skupnem slovarju z namizjem QML (vseh 6 jezikov).
+        self.assertEqual(beri("assets", "os", "besedila-namizja.js").count('odprePredvajalnik: "'), 6,
+                         "napis v vseh jezikih delovne povrsine")
         self.assertIn('"odpriRazdelek": lambda: self._odpri_razdelek(', beri("safeer_os.py"))
 
 
@@ -242,7 +244,8 @@ class Okno(_Lupina):
         # Glavno okno ostane, kot je bilo: ista stran, isto ime za upravitelja oken.
         glavno = vir[vir.index("def _ustvari_okno"):vir.index("def _ustvari_vrstico")]
         self.assertIn('self._nov_pogled("index.html" + ("?namizje=1" if self.namizje else ""))', glavno)
-        self.assertIn('x11.nastavi_razred(okno, "safeer-os", "Safeer OS")', glavno)
+        # Razred »safeer-os« (StartupWMClass) za vsa okna Safeer OS (_razred_okna, pregled celovitosti 15. 10. 2026).
+        self.assertIn('_razred_okna(okno)', glavno)
         self.assertTrue(os.path.isfile(os.path.join(KOREN, "assets", "os", "predvajalnik.svg")))
         # Okno z videom (domaci predvajalnik) je v pultu v skupini Safeer Player.
         video = vir[vir.index('okno = Gtk.Window(title="Safeer Player")'):vir.index('okno.add_css_class("safeer-player")')]

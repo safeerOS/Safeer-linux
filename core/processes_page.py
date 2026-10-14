@@ -28,13 +28,45 @@ _TEXT = {
         "sleep": "Sleep", "close": "Close", "total": "Total", "no_process": "—",
         "limit": "Memory limit per tab: {limit} MB · CPU budget: {cpu} % of one core",
     },
+    "de": {
+        "title": "Prozesse",
+        "intro": "Jeder Tab läuft in einem eigenen Prozess. Safeer misst alle zwei Sekunden; ein schwerer Hintergrund-Tab ohne Ton wird nach einer Minute schlafen gelegt.",
+        "tab": "Tab", "cpu": "CPU", "memory": "Speicher", "threads": "Threads", "state": "Status", "actions": "Aktionen",
+        "active": "aktiv", "audio": "Ton", "sleeping": "schläft", "hot": "über dem Budget", "hog": "lange über dem Budget",
+        "sleep": "Schlafen legen", "close": "Schließen", "total": "Gesamt", "no_process": "—",
+        "limit": "Speichergrenze pro Tab: {limit} MB · CPU-Budget: {cpu} % eines Kerns",
+    },
+    "es": {
+        "title": "Procesos",
+        "intro": "Cada pestaña se ejecuta en su propio proceso. Safeer mide cada dos segundos; una pestaña pesada en segundo plano y sin sonido se duerme al cabo de un minuto.",
+        "tab": "Pestaña", "cpu": "CPU", "memory": "Memoria", "threads": "Hilos", "state": "Estado", "actions": "Acciones",
+        "active": "activa", "audio": "sonido", "sleeping": "dormida", "hot": "por encima del límite", "hog": "mucho tiempo por encima del límite",
+        "sleep": "Dormir", "close": "Cerrar", "total": "Total", "no_process": "—",
+        "limit": "Límite de memoria por pestaña: {limit} MB · límite de CPU: {cpu} % de un núcleo",
+    },
+    "fr": {
+        "title": "Processus",
+        "intro": "Chaque onglet tourne dans son propre processus. Safeer mesure toutes les deux secondes ; un onglet lourd en arrière-plan sans son est mis en veille au bout d’une minute.",
+        "tab": "Onglet", "cpu": "CPU", "memory": "Mémoire", "threads": "Threads", "state": "État", "actions": "Actions",
+        "active": "actif", "audio": "son", "sleeping": "en veille", "hot": "au-delà du budget", "hog": "longtemps au-delà du budget",
+        "sleep": "Mettre en veille", "close": "Fermer", "total": "Total", "no_process": "—",
+        "limit": "Limite de mémoire par onglet : {limit} Mo · budget CPU : {cpu} % d’un cœur",
+    },
+    "it": {
+        "title": "Processi",
+        "intro": "Ogni scheda gira in un proprio processo. Safeer misura ogni due secondi; una scheda pesante in background senza audio viene sospesa dopo un minuto.",
+        "tab": "Scheda", "cpu": "CPU", "memory": "Memoria", "threads": "Thread", "state": "Stato", "actions": "Azioni",
+        "active": "attiva", "audio": "audio", "sleeping": "sospesa", "hot": "oltre il budget", "hog": "a lungo oltre il budget",
+        "sleep": "Sospendi", "close": "Chiudi", "total": "Totale", "no_process": "—",
+        "limit": "Limite di memoria per scheda: {limit} MB · budget CPU: {cpu} % di un core",
+    },
 }
 
 
 def _fmt_mb(mb, lang):
     if mb >= 1024:
         text = f"{mb / 1024:.2f} GB"
-        return text.replace(".", ",") if lang == "sl" else text
+        return text if lang == "en" else text.replace(".", ",")     # decimalna vejica v vseh jezikih razen en
     return f"{mb} MB"
 
 

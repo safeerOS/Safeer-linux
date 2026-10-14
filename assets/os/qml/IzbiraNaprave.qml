@@ -12,12 +12,12 @@ ComboBox {
         naprave.filter(function (n) { return !!n[zmoznost] }).map(function (n) { return { id: n[zmoznost], ime: n.ime } }))
     model: moznosti
     textRole: "ime"
-    implicitWidth: 190; implicitHeight: 32
-    font.pixelSize: 12
+    implicitWidth: koren.px(190); implicitHeight: koren.px(32)
+    font.pixelSize: koren.px(12)
     onActivated: function (i) { izbira.izbrana(moznosti[i].id, moznosti[i].ime) }
     background: Rectangle {
-        radius: 16; color: izbira.hovered ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, 0.08)
-        border.color: izbira.currentIndex > 0 ? koren.paleta.poudarek : Qt.rgba(1, 1, 1, 0.14)
+        radius: 16; color: izbira.hovered ? koren.prekriv(0.14) : koren.prekriv(0.08)
+        border.color: izbira.currentIndex > 0 ? koren.paleta.poudarek : koren.crta(0.14)
         Behavior on color { ColorAnimation { duration: 120 } }
     }
     contentItem: Row {
@@ -30,9 +30,9 @@ ComboBox {
     indicator: Text { text: "▾"; color: koren.paleta.medlo; x: izbira.width - 22; anchors.verticalCenter: parent.verticalCenter }
     delegate: ItemDelegate {
         width: izbira.width
-        contentItem: Text { text: modelData.ime; color: koren.paleta.besedilo; font.pixelSize: 12; elide: Text.ElideRight }
+        contentItem: Text { text: modelData.ime; color: koren.paleta.besedilo; font.pixelSize: koren.px(12); elide: Text.ElideRight }
         background: Rectangle { radius: 8; color: parent.highlighted ? koren.poudarekA(0.22) : "transparent" }
         highlighted: izbira.highlightedIndex === index
     }
-    popup.background: Rectangle { radius: 12; color: koren.paleta.vnos; border.color: Qt.rgba(1, 1, 1, 0.14) }
+    popup.background: Rectangle { radius: 12; color: koren.paleta.vnos; border.color: koren.crta(0.14) }
 }

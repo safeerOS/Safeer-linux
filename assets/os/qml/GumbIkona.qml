@@ -18,7 +18,7 @@ Rectangle {
     readonly property color barvaIkone: poudarjen ? koren.paleta.poudarekTemna : vklopljen ? koren.paleta.poudarek : koren.paleta.besedilo
     color: poudarjen ? (m.containsMouse ? Qt.lighter(koren.paleta.poudarek, 1.12) : koren.paleta.poudarek)
                      : vklopljen ? koren.poudarekA(0.22)
-                     : (m.pressed ? Qt.rgba(1, 1, 1, 0.22) : m.containsMouse ? Qt.rgba(1, 1, 1, 0.14) : "transparent")
+                     : (m.pressed ? koren.prekriv(0.22) : m.containsMouse ? koren.prekriv(0.14) : "transparent")
     border.width: activeFocus ? 2 : 0
     border.color: poudarjen ? koren.paleta.besedilo : koren.paleta.poudarek
     scale: m.pressed ? 0.94 : 1

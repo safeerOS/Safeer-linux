@@ -1,0 +1,58 @@
+/* Barve Safeer OS - EN vir za vse strani (index.html + os.css, delovna, sporocila-plosca, vrstica) in za namizje QML
+ * (core/os_lupina.paleta bere to datoteko in barve poslje v Namizje.qml). Nova barva gre sem, ne v posamezno datoteko.
+ * Blok ».kontrast« velja ob sistemski temi Kontrast (Safeer Cinnamon) oziroma stikalu »Manj prosojnosti«. */
+:root {
+  --ok: #7fe0b6;           /* stanje »deluje« ostane zeleno (kot --ok na namizju) */
+  --ozadje: #0b1424;
+  --ozadje-2: #152a3d;     /* drugi konec preliva za ozadjem namizja, dokler se slika ne nalozi */
+  --stranska: rgba(11, 20, 36, .86);
+  --kartica: rgba(16, 26, 43, .80);
+  --kartica-mocna: rgba(16, 26, 43, .88);
+  --kartica-trdna: rgba(16, 26, 43, .92);
+  --kartica-polna: #111c2b;
+  --kartica-poudarek: rgba(24, 38, 62, .92);
+  --koda-podlaga: rgba(4, 9, 17, .72);
+  --rob: rgba(211, 229, 255, .23);
+  --rob-mocan: rgba(215, 234, 255, .34);
+  --tanka: rgba(213, 232, 250, .12);
+  --prekriv: #ffffff;      /* svetla plast za lebdenje in pritisk nad temno povrsino */
+  --besedilo: #eaf2ff;
+  --medlo: #afbed4;
+  --tise: #93a9c4;
+  --zelena: #8ac7ff;       /* poudarek (ime je zgodovinsko - poudarek je moder kot Safeer OS na TV) */
+  --zelena-temna: #0b1424;
+  --fokus: #9dceff;
+  --izbrano: rgba(104, 168, 229, .20);
+  --modra: #3b8cf0;
+  --rdeca: #ff6b6b;
+  --opozorilo: #ffcf8a;
+  --polmer: 18px;
+  --senca: 0 18px 40px rgba(0, 0, 0, .35);
+  /* Vrste datotek (ikone v Datotekah na delovni povrsini in namizju QML). */
+  --vrsta-mapa: #3b6fb0;
+  --vrsta-slika: #2f8a6b;
+  --vrsta-video: #b45058;
+  --vrsta-zvok: #674da7;
+  --vrsta-dokument: #2558ad;
+  --vrsta-splet: #26789a;
+  --vrsta-arhiv: #8a6a2f;
+  --vrsta-program: #4a5a70;
+  --vrsta-naprava: #2a7f8f;
+  /* Medijski center (14. 10. 2026): mirna, temna podlaga namesto slike namizja in povrsine nad njo. */
+  --media-tancica: rgba(7, 11, 18, .95);
+  --media-logotip-podlaga: #eef2f7;   /* svetla podlaga logotipov TV in radia (temni logotipi ostanejo vidni) */
+  --media-povrsina: rgba(17, 27, 42, .72);
+  --media-meni: #121d2d;
+  --media-poudarek: rgba(138, 199, 255, .14);
+  /* Osebne police: znacke na plakatu (srcek, ogledano, »⋯«) in merilo napredka. */
+  --media-znacka: rgba(3, 7, 10, .84);
+  --media-merilo: rgba(255, 255, 255, .2);
+}
+.kontrast, body.manj-prosojnosti {
+  --kartica: #111c2b;
+  --kartica-mocna: #111c2b;
+  --kartica-trdna: #111c2b;
+  --rob: rgba(215, 234, 255, .45);
+  --rob-mocan: rgba(215, 234, 255, .6);
+  --tanka: rgba(213, 232, 250, .22);
+}
