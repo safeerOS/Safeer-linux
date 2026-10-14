@@ -73,7 +73,8 @@ class Splet(unittest.TestCase):
 
     def test_flatpak_zazene_na_gostitelju(self):
         vir = (KOREN / "core" / "safeer_drm.py").read_text(encoding="utf-8")
-        self.assertIn('["flatpak-spawn", "--host", "--watch-bus"]', vir)
+        self.assertIn('["flatpak-spawn", "--host", "--watch-bus",', vir)
+        self.assertIn('"--env=DISPLAY=" + os.environ.get("DISPLAY", "")', vir)
         self.assertIn('f"--lastnik={os.getpid()}"', vir)
 
     def test_logika_je_s_safeer_os(self):
