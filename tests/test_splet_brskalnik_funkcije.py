@@ -52,3 +52,12 @@ def test_napake_omrezja_v_gtk4():
     assert "Poskusi znova" in ne.error_html("https://example.org/", "GET")
     s = open(os.path.join(KOREN, "core", "os_splet.py"), encoding="utf-8").read()
     assert "NetworkErrorHandler(pogled" in s
+
+
+def test_napaka_posrednika_je_stran():
+    import socket
+    from core.doh_proxy import LocalDoHProxy
+    a, b = socket.socketpair()
+    LocalDoHProxy._napaka_502(a, "Strani s tem imenom ni bilo mogoče najti (DNS). / The site name could not be found (DNS).")
+    odgovor = b.recv(65536).decode("utf-8")
+    assert "text/html; charset=utf-8" in odgovor and "<h1>Strani s tem imenom" in odgovor and "<script" not in odgovor

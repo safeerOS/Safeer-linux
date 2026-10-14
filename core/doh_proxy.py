@@ -681,9 +681,18 @@ class LocalDoHProxy:
     @staticmethod
     def _napaka_502(client_sock: socket.socket, besedilo: str):
         """Razumljiv odgovor namesto praznega 502 (besedilo je ASCII, brez vsebine iz zahtevka)."""
-        telo = ("Safeer: " + besedilo).encode("ascii", errors="replace")
+        # Stran v barvah Safeerja namesto golega besedila (preizkus 14. 10. 2026: http:// naslov brez DNS je pokazal
+        # vrstico »Safeer: ...« v pisavi terminala). Besedilo je nase (brez vsebine iz zahtevka), CSP brez skript.
+        import html as _html
+        deli = [_html.escape(d.strip()) for d in besedilo.split(" / ", 1)]
+        telo = ("<!doctype html><html lang=sl><meta charset=utf-8><meta name=viewport content='width=device-width'>"
+                "<meta http-equiv=Content-Security-Policy content=\"default-src 'none'; style-src 'unsafe-inline'\">"
+                "<title>Safeer</title><style>html{color-scheme:dark}body{background:#0c1420;color:#eef4fa;"
+                "font:18px system-ui,sans-serif;max-width:620px;margin:12vh auto;padding:28px;line-height:1.6}"
+                "h1{font-size:26px}p{color:#bdcadd}</style><h1>" + deli[0] + "</h1>"
+                + ("<p>" + deli[1] + "</p>" if len(deli) > 1 else "") + "</html>").encode("utf-8")
         try:
-            client_sock.sendall(b"HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain; charset=us-ascii\r\n"
+            client_sock.sendall(b"HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/html; charset=utf-8\r\n"
                                 b"Content-Length: " + str(len(telo)).encode() + b"\r\nConnection: close\r\n\r\n" + telo)
         except Exception:
             pass
@@ -724,10 +733,10 @@ class LocalDoHProxy:
 
     def _napaka_povezave(self, client_sock: socket.socket, naslov: str) -> None:
         if ":" in naslov:
-            self._napaka_502(client_sock, "Ta stran je dosegljiva samo prek IPv6, vase omrezje pa IPv6 ne omogoca. / "
+            self._napaka_502(client_sock, "Ta stran je dosegljiva samo prek IPv6, vaše omrežje pa IPv6 ne omogoča. / "
                                           "This site is reachable only over IPv6, and your network does not provide it.")
         else:
-            self._napaka_502(client_sock, "Povezava s streznikom ni uspela. / Could not connect to the server.")
+            self._napaka_502(client_sock, "Povezava s strežnikom ni uspela. / Could not connect to the server.")
 
     def _pripravi_cilj(self, client_sock: socket.socket, host: str, port: int) -> Optional[str]:
         """
@@ -740,7 +749,7 @@ class LocalDoHProxy:
 
         resolved_ip = self.resolver.resolve(host)
         if not resolved_ip:
-            self._napaka_502(client_sock, "Razresevanje domene ni uspelo (DNS). / The domain could not be resolved (DNS).")
+            self._napaka_502(client_sock, "Strani s tem imenom ni bilo mogoče najti (DNS). / The site name could not be found (DNS).")
             return None
 
         if not je_dovoljen_cilj(resolved_ip, self.dovoli_lokalno):
