@@ -220,29 +220,35 @@ _BRSKALNIK = {
     "sl": {"natisni": "Natisni …", "utisaj": "Utišaj zavihek", "zvok": "Vklopi zvok zavihka", "zadetki": "{n} zadetkov",
            "ni_zadetkov": "Ni zadetkov", "celozaslonsko": "Celozaslonski način", "odstrani": "Odstrani",
            "zaznamek_odstrani": "Odstrani zaznamek", "povecava_vrni": "Vrni velikost na 100 %",
-           "najdi_naprej": "Naslednji zadetek", "najdi_nazaj": "Prejšnji zadetek"},
+           "najdi_naprej": "Naslednji zadetek", "najdi_nazaj": "Prejšnji zadetek",
+           "kon_povezava": "Odpri povezavo v novem zavihku", "kon_slika": "Odpri sliko v novem zavihku"},
     "en": {"natisni": "Print …", "utisaj": "Mute tab", "zvok": "Unmute tab", "zadetki": "{n} matches",
            "ni_zadetkov": "No matches", "celozaslonsko": "Full screen", "odstrani": "Remove",
            "zaznamek_odstrani": "Remove bookmark", "povecava_vrni": "Reset zoom to 100 %",
-           "najdi_naprej": "Next match", "najdi_nazaj": "Previous match"},
+           "najdi_naprej": "Next match", "najdi_nazaj": "Previous match",
+           "kon_povezava": "Open link in new tab", "kon_slika": "Open image in new tab"},
     "de": {"natisni": "Drucken …", "utisaj": "Tab stummschalten", "zvok": "Ton des Tabs einschalten",
            "zadetki": "{n} Treffer", "ni_zadetkov": "Keine Treffer", "celozaslonsko": "Vollbild",
            "odstrani": "Entfernen", "zaznamek_odstrani": "Lesezeichen entfernen",
            "povecava_vrni": "Zoom auf 100 % zurücksetzen", "najdi_naprej": "Nächster Treffer",
-           "najdi_nazaj": "Vorheriger Treffer"},
+           "najdi_nazaj": "Vorheriger Treffer", "kon_povezava": "Link in neuem Tab öffnen",
+           "kon_slika": "Bild in neuem Tab öffnen"},
     "es": {"natisni": "Imprimir …", "utisaj": "Silenciar pestaña", "zvok": "Activar sonido de la pestaña",
            "zadetki": "{n} coincidencias", "ni_zadetkov": "Sin coincidencias", "celozaslonsko": "Pantalla completa",
            "odstrani": "Quitar", "zaznamek_odstrani": "Quitar marcador", "povecava_vrni": "Restablecer zoom al 100 %",
-           "najdi_naprej": "Siguiente coincidencia", "najdi_nazaj": "Coincidencia anterior"},
+           "najdi_naprej": "Siguiente coincidencia", "najdi_nazaj": "Coincidencia anterior",
+           "kon_povezava": "Abrir enlace en una pestaña nueva", "kon_slika": "Abrir imagen en una pestaña nueva"},
     "fr": {"natisni": "Imprimer …", "utisaj": "Couper le son de l’onglet", "zvok": "Rétablir le son de l’onglet",
            "zadetki": "{n} résultats", "ni_zadetkov": "Aucun résultat", "celozaslonsko": "Plein écran",
            "odstrani": "Supprimer", "zaznamek_odstrani": "Supprimer le marque-page",
            "povecava_vrni": "Réinitialiser le zoom à 100 %", "najdi_naprej": "Résultat suivant",
-           "najdi_nazaj": "Résultat précédent"},
+           "najdi_nazaj": "Résultat précédent", "kon_povezava": "Ouvrir le lien dans un nouvel onglet",
+           "kon_slika": "Ouvrir l’image dans un nouvel onglet"},
     "it": {"natisni": "Stampa …", "utisaj": "Silenzia scheda", "zvok": "Riattiva audio scheda",
            "zadetki": "{n} risultati", "ni_zadetkov": "Nessun risultato", "celozaslonsko": "Schermo intero",
            "odstrani": "Rimuovi", "zaznamek_odstrani": "Rimuovi segnalibro", "povecava_vrni": "Ripristina zoom al 100 %",
-           "najdi_naprej": "Risultato successivo", "najdi_nazaj": "Risultato precedente"},
+           "najdi_naprej": "Risultato successivo", "najdi_nazaj": "Risultato precedente",
+           "kon_povezava": "Apri link in una nuova scheda", "kon_slika": "Apri immagine in una nuova scheda"},
 }
 _NASTAVITVE = {
     "sl": {"nas_splosno": "Splošno", "nas_zasebnost": "Zasebnost in varnost", "nas_dovoljenja": "Nastavitve spletnih mest …",
@@ -1197,6 +1203,7 @@ class VdelaniSplet:
         self._tipke(pogled, lambda e: self.tipka(e))
         self._klik(pogled, lambda gumb, x, y, p: self._miska(p, _Klik(gumb, x, y)))
         pogled.connect("create", lambda p, a: self._novo_okno(p, a))
+        pogled.connect("context-menu", self._kontekstni_meni)
         pogled.connect("load-changed", self._nalozen)
         pogled.connect("notify::title", self._naslov_spremenjen)
         pogled.connect("notify::uri", self._uri_spremenjen)
@@ -2503,6 +2510,38 @@ class VdelaniSplet:
             return
         self._ni_programa_pokazano.add(kljuc)
         self._opozorilo(self._ti("external_app_missing_title"), self._ti("external_app_missing_body").format(scheme=shema))
+
+    def _kontekstni_meni(self, _pogled, meni, zadetek, *_):
+        """Meni desnega klika kot v Firefoxu (lastnik 14. 10. 2026: »Kopiraj« na povezavi ni kopiral nicesar - prav je
+        »Kopiraj povezavo«): na povezavi brez izbranega besedila ni praznega »Kopiraj«, »Odpri v novem oknu« odpre
+        nov zavihek (Splet nima oken), brez »Preglej element«."""
+        W = self.WebKit2
+        A = W.ContextMenuAction
+        if getattr(self, "_dejanje_zavihek", None) is None:
+            self._dejanje_zavihek = self.Gio.SimpleAction.new("splet-nov-zavihek", self.GLib.VariantType.new("s"))
+            self._dejanje_zavihek.connect("activate", lambda _a, v: self.nov_zavihek(v.get_string()))
+        povezava = zadetek.context_is_link()
+        izbor = zadetek.context_is_selection()
+        for postavka in list(meni.get_items()):
+            dejanje = postavka.get_stock_action()
+            if dejanje == A.COPY and povezava and not izbor:
+                meni.remove(postavka)
+            elif dejanje == A.INSPECT_ELEMENT:
+                meni.remove(postavka)
+            elif dejanje in (A.OPEN_LINK_IN_NEW_WINDOW, A.OPEN_IMAGE_IN_NEW_WINDOW, A.OPEN_VIDEO_IN_NEW_WINDOW,
+                             A.OPEN_AUDIO_IN_NEW_WINDOW, A.OPEN_FRAME_IN_NEW_WINDOW):
+                naslov = (zadetek.get_link_uri() if dejanje == A.OPEN_LINK_IN_NEW_WINDOW else
+                          zadetek.get_image_uri() if dejanje == A.OPEN_IMAGE_IN_NEW_WINDOW else
+                          zadetek.get_media_uri()) or ""
+                if not naslov.startswith(("http://", "https://")):
+                    continue
+                kljuc = "kon_slika" if dejanje == A.OPEN_IMAGE_IN_NEW_WINDOW else "kon_povezava"
+                nova = W.ContextMenuItem.new_from_gaction(self._dejanje_zavihek, self._t(kljuc),
+                                                          self.GLib.Variant.new_string(naslov))
+                i = list(meni.get_items()).index(postavka)
+                meni.remove(postavka)
+                meni.insert(nova, i)
+        return False
 
     def _pojavno_blokirano(self, pogled, naslov: str) -> None:
         self._pojavno = (pogled.get_uri() or "", naslov, pogled)

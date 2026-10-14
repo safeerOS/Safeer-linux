@@ -215,12 +215,24 @@
   }
 
   // ------------------------------------------------------------------ stanje
+  // Zadnji izbrani zavihek Medijskega centra (ob naslednjem odprtju isti); privzeto Glasba.
+  function zadnjaMedijskaKategorija() {
+    try {
+      var k = localStorage.getItem("safeer.mediaKategorija");
+      if (["glasba", "video", "filmi", "serije", "tv", "radio", "slike"].indexOf(k) >= 0) return k;
+    } catch (_) {}
+    return "glasba";
+  }
+  function izberiMedijskoKategorijo(k) {
+    S.mediaFilter = k;
+    try { localStorage.setItem("safeer.mediaKategorija", k); } catch (_) {}
+  }
   var S = {
     zacetek: null, programi: [], skupina: "vse", razdelek: "domov", pot: "", stanje: null,
     sporocilaSkupine: [], sporocilaKanali: [], sporocilaFilter: "", sporocilaAktivni: null,
     // Multi-host: programi drugih naprav v Safeer Linku (id naprave -> seznam), izbrana naprava ("" = ta racunalnik).
     naprave: [], vseNaprave: [], programiNaprav: {}, nalagam: {}, naprava: "",
-    povezava: { stanje: "nov", control: true }, spletne: null, nedavne: [], mediaFilter: "vse",
+    povezava: { stanje: "nov", control: true }, spletne: null, nedavne: [], mediaFilter: zadnjaMedijskaKategorija(),
     mediaLokalno: [], mediaTokovi: [], mediaMape: [], galerija: null, mediaOsvezuje: false, mediaPredvajalnik: null,
     mediaOffset: 0, mediaHasMore: false, mediaRequest: 0,
     mediaQueueKey: "", mediaDragging: false,
@@ -623,8 +635,10 @@
   }
 
   // ------------------------------------------------------------------ Safeer Media
+  // Brez zavihka »Vse« (lastnik, 14. 10. 2026): v njem so zvrsti (Akcija, Komedija …) veljale le za filme, pod njimi pa so
+  // ostale radijske postaje in glasba - uporabnik ni vedel, kaj se dogaja. »Vse« ostane le notranje za rezultate iskanja.
   var MEDIA_KATEGORIJE = [
-    ["vse", "programi"], ["glasba", "glasba"], ["video", "video"], ["filmi", "video"],
+    ["glasba", "glasba"], ["video", "video"], ["filmi", "video"],
     ["serije", "video"], ["tv", "video"], ["radio", "radio"], ["slike", "slika"]
   ];
   var MEDIA_PREDLOGI = [
@@ -1174,7 +1188,7 @@
     if (omejeno) {
       var vse = el("button", "media-skladbe-vse", ubezi(t("mediaVseSkladbe", { n: skladbe.length })) + svg("desno"));
       vse.type = "button";
-      vse.addEventListener("click", function () { S.mediaFilter = "glasba"; naloziMedije(); });
+      vse.addEventListener("click", function () { izberiMedijskoKategorijo("glasba"); naloziMedije(); });
       seznamSkladb.appendChild(vse);
     }
     c.appendChild(seznamSkladb);
@@ -1229,7 +1243,11 @@
         svg(k[1]) + '<span>' + ubezi(t("media_" + k[0])) + '</span>');
       b.type = "button"; b.setAttribute("role", "tab");
       b.setAttribute("aria-selected", S.mediaFilter === k[0] ? "true" : "false");
-      b.addEventListener("click", function () { S.mediaFilter = k[0]; naloziMedije(); });
+      b.addEventListener("click", function () {
+        // Klik na zavihek med iskanjem: iskanje se konca, pokaze se zavihek (ne mesanica vseh vrst).
+        if (S.mediaFilter === "vse") { S.mediaIskanje = ""; $("mediaIskanje").value = ""; }
+        izberiMedijskoKategorijo(k[0]); naloziMedije();
+      });
       kategorije.appendChild(b);
     });
     var iskano = String(S.mediaIskanje || "").trim().toLocaleLowerCase();
@@ -1241,8 +1259,8 @@
     var dodani = spletne().map(function (v) { return kljucNaslova(v.url); });
     var predlogi = MEDIA_PREDLOGI.filter(function (v) { return (vrsta === "vse" || v.vrsta === vrsta) && mediaUstreza(v, iskano) && dodani.indexOf(kljucNaslova(v.url)) < 0; });
     $("mediaStevec").textContent = prikaz.length ? String(prikaz.length) : "";
-    $("mediaNaslovZbirke").textContent = vrsta === "vse" ? t("mediaTvojaZbirka") : mediaVrsta(vrsta);
-    $("mediaHeroNaslov").textContent = vrsta === "vse" ? t("mediaHeroNaslov") : mediaVrsta(vrsta);
+    $("mediaNaslovZbirke").textContent = vrsta === "vse" ? t("katRezultati") : mediaVrsta(vrsta);
+    $("mediaHeroNaslov").textContent = vrsta === "vse" ? t("katRezultati") : mediaVrsta(vrsta);
     // Prazno stanje nagovarja k dodajanju mape samo, dokler zbirka nima ničesar.
     $("mediaHeroOpis").textContent = t(vrsta === "vse" && !lokalni.length && !S.mediaMape.length ? "mediaHeroOpis" : "mediaHeroOpisIzbor");
     var samoViri = vrsta === "tv" || vrsta === "radio";
@@ -4205,7 +4223,7 @@
 
   // ---- zvrsti pod kategorijami: pri filmih in serijah filmske (TMDB), pri glasbi, radiu in TV iz kataloga
   function skupinaZanrov(filter) {
-    if (filter === "film" || filter === "serija" || filter === "vse") return "film";
+    if (filter === "film" || filter === "serija") return "film";      // rezultati iskanja (»vse«) brez zvrsti
     if (filter === "glasba" || filter === "radio" || filter === "tv-v-zivo") return filter;
     return "";
   }
@@ -4318,7 +4336,7 @@
     var blok = $("katalog"); if (!blok || !most) return;
     blok.hidden = !kat.filter;
     if (!kat.filter) { $("r-media").classList.remove("ima-katalog"); return; }
-    $("katNaslov").textContent = kat.filter === "vse" ? t("katVseVsebine") : katOznaka(kat.filter);
+    $("katNaslov").textContent = kat.filter === "vse" ? t("katRezultati") : katOznaka(kat.filter);
     narisiZanre();
     naloziSeznamePredvajanja();
     naloziKnjiznico();
@@ -5179,7 +5197,8 @@
       S.programIskanje = this.value.trim(); S.skupina = "vse"; narisiPrograme();
     });
     $("mediaIskanje").addEventListener("input", function () {
-      S.mediaIskanje = this.value.trim(); S.mediaFilter = "vse"; narisiMedije();
+      // Iskanje gre po vseh vrstah (rezultati); prazno iskanje vrne zadnji zavihek.
+      S.mediaIskanje = this.value.trim(); S.mediaFilter = S.mediaIskanje ? "vse" : zadnjaMedijskaKategorija(); narisiMedije();
       S.mediaRequest++;
       clearTimeout(S.mediaIskanjeZamik);
       S.mediaIskanjeZamik = setTimeout(function () { naloziMedije(); }, 180);

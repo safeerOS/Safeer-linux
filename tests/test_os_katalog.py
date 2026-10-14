@@ -363,3 +363,14 @@ class TovorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_medijski_center_brez_zavihka_vse():
+    """Lastnik 14. 10. 2026: zavihek »Vse« je zmedel (zvrsti so veljale le za filme, radio je ostal) - odstranjen."""
+    import os as _os
+    js = open(_os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "assets", "os", "os.js"),
+              encoding="utf-8").read()
+    kat = js.split("var MEDIA_KATEGORIJE = [", 1)[1].split("];", 1)[0]
+    assert '"vse"' not in kat and '["glasba", "glasba"]' in kat
+    assert 'if (filter === "film" || filter === "serija") return "film";' in js
+    assert "zadnjaMedijskaKategorija()" in js

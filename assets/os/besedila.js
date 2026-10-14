@@ -696,3 +696,10 @@ Object.assign(BESEDILA_OS.de, {"seznamZaseben": "Diese Playlist ist privat (z. B
 Object.assign(BESEDILA_OS.es, {"seznamZaseben": "Esta lista es privada (p. ej., Me gusta o Ver más tarde). En YouTube ponla como «Pública» u «Oculta» y vuelve a pegar el enlace."});
 Object.assign(BESEDILA_OS.fr, {"seznamZaseben": "Cette playlist est privée (p. ex. J’aime ou À regarder plus tard). Dans YouTube, rends-la « Publique » ou « Non répertoriée » et colle à nouveau le lien."});
 Object.assign(BESEDILA_OS.it, {"seznamZaseben": "Questa playlist è privata (ad es. Mi piace o Guarda più tardi). Su YouTube impostala come «Pubblica» o «Non in elenco» e incolla di nuovo il link."});
+// 14. 10. 2026: brez zavihka »Vse« - iskanje pokaze rezultate vseh vrst.
+Object.assign(BESEDILA_OS.sl, {"katRezultati": "Rezultati iskanja"});
+Object.assign(BESEDILA_OS.en, {"katRezultati": "Search results"});
+Object.assign(BESEDILA_OS.de, {"katRezultati": "Suchergebnisse"});
+Object.assign(BESEDILA_OS.es, {"katRezultati": "Resultados de búsqueda"});
+Object.assign(BESEDILA_OS.fr, {"katRezultati": "Résultats de recherche"});
+Object.assign(BESEDILA_OS.it, {"katRezultati": "Risultati della ricerca"});

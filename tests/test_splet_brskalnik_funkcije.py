@@ -61,3 +61,9 @@ def test_napaka_posrednika_je_stran():
     LocalDoHProxy._napaka_502(a, "Strani s tem imenom ni bilo mogoče najti (DNS). / The site name could not be found (DNS).")
     odgovor = b.recv(65536).decode("utf-8")
     assert "text/html; charset=utf-8" in odgovor and "<h1>Strani s tem imenom" in odgovor and "<script" not in odgovor
+
+
+def test_kontekstni_meni_kot_firefox():
+    s = open(os.path.join(KOREN, "core", "os_splet.py"), encoding="utf-8").read()
+    assert 'pogled.connect("context-menu", self._kontekstni_meni)' in s
+    assert "dejanje == A.COPY and povezava and not izbor" in s and "new_from_gaction(self._dejanje_zavihek" in s
