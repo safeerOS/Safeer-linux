@@ -190,7 +190,7 @@ Steklo {
                        onKlik: koren.klic("novaMapa", [panel.vir.pot, koren.t("novaMapa")], function (r) {
                            if (r && r.ok) { panel.nalozi(true); preimenovanje.zacni({ ime: r.ime, pot: r.pot }) } else koren.obvesti(koren.t("niUspelo")) }) }
                 Rectangle {
-                    width: 170; height: 30; radius: 15; color: Qt.rgba(1, 1, 1, 0.07); border.color: Qt.rgba(1, 1, 1, 0.12)
+                    width: Math.min(170, Math.max(96, seznam.width * 0.34)); height: 30; radius: 15; color: Qt.rgba(1, 1, 1, 0.07); border.color: Qt.rgba(1, 1, 1, 0.12)
                     TextField {
                         id: poljeFilter
                         anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 10
@@ -203,13 +203,18 @@ Steklo {
             ListView {
                 id: seznam
                 Layout.fillWidth: true; Layout.fillHeight: true
+                // Ozka plosca (aplikacija v manjsem oknu, 14. 10. 2026: pri 1080 px ime ni bilo vidno): stolpca
+                // Spremenjeno in Velikost se umakneta imenu.
+                readonly property bool ozko: width < 430
+                readonly property bool zeloOzko: width < 300
+                readonly property real stolpci: (zeloOzko ? 0 : 80) + (ozko ? 0 : 110)
                 clip: true; model: panel.prikazani; boundsBehavior: Flickable.StopAtBounds
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                 header: Row {
                     height: 26; spacing: 0
-                    Text { text: koren.t("ime"); color: Qt.darker(koren.paleta.medlo, 1.15); font.pixelSize: 11; width: seznam.width - 190 }
-                    Text { text: koren.t("velikost"); color: Qt.darker(koren.paleta.medlo, 1.15); font.pixelSize: 11; width: 80 }
-                    Text { text: koren.t("spremenjeno"); color: Qt.darker(koren.paleta.medlo, 1.15); font.pixelSize: 11; width: 110 }
+                    Text { text: koren.t("ime"); color: Qt.darker(koren.paleta.medlo, 1.15); font.pixelSize: 11; width: seznam.width - seznam.stolpci }
+                    Text { text: koren.t("velikost"); color: Qt.darker(koren.paleta.medlo, 1.15); font.pixelSize: 11; width: 80; visible: !seznam.zeloOzko }
+                    Text { text: koren.t("spremenjeno"); color: Qt.darker(koren.paleta.medlo, 1.15); font.pixelSize: 11; width: 110; visible: !seznam.ozko }
                 }
                 delegate: Rectangle {
                     width: seznam.width; height: 34; radius: 8
@@ -218,7 +223,7 @@ Steklo {
                     Row {
                         anchors.verticalCenter: parent.verticalCenter; x: 6; spacing: 0
                         Row {
-                            width: seznam.width - 196; spacing: 8
+                            width: seznam.width - seznam.stolpci - 6; spacing: 8
                             Rectangle {
                                 width: 22; height: 22; radius: 6; anchors.verticalCenter: parent.verticalCenter
                                 color: modelData.mapa ? "#3b82f6" : modelData.vrsta === "slika" ? "#e879f9" : modelData.vrsta === "video" ? "#f97316"
@@ -229,8 +234,8 @@ Steklo {
                             Text { text: modelData.ime; color: koren.paleta.besedilo; font.pixelSize: 13; elide: Text.ElideRight
                                    width: parent.width - 32; anchors.verticalCenter: parent.verticalCenter }
                         }
-                        Text { text: modelData.mapa ? "" : koren.velikost(modelData.velikost); color: koren.paleta.medlo; font.pixelSize: 12; width: 80 }
-                        Text { text: koren.cas(modelData.spremenjeno || modelData.izbrisano); color: koren.paleta.medlo; font.pixelSize: 12; width: 110 }
+                        Text { text: modelData.mapa ? "" : koren.velikost(modelData.velikost); color: koren.paleta.medlo; font.pixelSize: 12; width: 80; visible: !seznam.zeloOzko }
+                        Text { text: koren.cas(modelData.spremenjeno || modelData.izbrisano); color: koren.paleta.medlo; font.pixelSize: 12; width: 110; visible: !seznam.ozko }
                     }
                     MouseArea {
                         id: md; anchors.fill: parent; hoverEnabled: true; acceptedButtons: Qt.LeftButton | Qt.RightButton
