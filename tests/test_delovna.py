@@ -758,6 +758,29 @@ class TestTemaCinnamon(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_gumb_pokazi_namizje_v_kotu_pulta(self):
+        """Postavitvi z dockom dodata gumb Pokazi namizje skrajno desno na pult; videz in izklop ga odstranita, uporabnikov
+        obstojeci gumb se ne podvoji (lastnik, 14. 10. 2026)."""
+        tmp = tempfile.mkdtemp()
+        try:
+            o = self._okolje(tmp)
+            for profil in ("dock", "delovna"):
+                self._ukaz(o, "--profil", profil)
+                appleti = self._vrednost(o, "org.cinnamon", "enabled-applets")
+                self.assertEqual(appleti.count("show-desktop@cinnamon.org"), 1, profil)
+                vnos = [a for a in appleti.strip("[]").split(", ") if "show-desktop" in a][0].strip("'")
+                pult, stran, mesto = vnos.split(":")[:3]
+                desno = [int(a.strip("'").split(":")[2]) for a in appleti.strip("[]").split(", ")
+                         if a.strip("'").split(":")[:2] == [pult, "right"]]
+                self.assertEqual((stran, int(mesto)), ("right", max(desno)))       # skrajno desno
+            self._ukaz(o, "--profil", "videz")
+            self.assertNotIn("show-desktop", self._vrednost(o, "org.cinnamon", "enabled-applets"))
+            self._ukaz(o, "--profil", "dock")
+            self._ukaz(o, "--izklopi")
+            self._kot_na_zacetku(o)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_delovna_in_izklop_vrneta_nastavitve(self):
         """Postavitev delovna: dock + delovna povrsina Safeer OS; po --izklopi so nastavitve in zagoni kot prej."""
         tmp = tempfile.mkdtemp()

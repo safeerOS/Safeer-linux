@@ -216,6 +216,46 @@ PY
     [ -n "$izid" ] && pisi org.cinnamon:enabled-applets "$izid"
     return 0
 }
+# Gumb »Pokaži namizje« v desnem kotu pulta (lastnik, 14. 10. 2026: hitri gumb za prikaz namizja, smiselno uvrscen):
+# skrajno desno, za uro - kot v Windows, kotu se ne da zgresiti. Samo pri postavitvah z dockom (dock, delovna), kjer
+# namizje Safeer OS nadomesti okna; dodani vnos si zapomnimo, da ga izklop ali videz odstrani - nic drugega ne spreminja.
+pokazi_namizje() {   # $1 = dodaj | odstrani
+    local v izid
+    v="$(beri org.cinnamon:enabled-applets)" || return 0
+    mkdir -p "$MAPA"
+    [ "$1" = dodaj ] && : > "$MAPA/pokazi-namizje-ponujeno"
+    izid="$(python3 - "$1" "$v" "$MAPA/pokazi-namizje-dodan" <<'PY'
+import ast, os, sys
+kaj, vrednost, zapis = sys.argv[1:4]
+UUID = "show-desktop@cinnamon.org"
+try:
+    appleti = [str(a) for a in ast.literal_eval(vrednost.replace("@as ", ""))]
+except Exception:
+    sys.exit(1)
+deli = [a.split(":") for a in appleti]
+if kaj == "dodaj":
+    if any(len(d) >= 4 and d[3] == UUID for d in deli):
+        sys.exit(0)                      # uporabnik ga ze ima (tudi drugje): ne podvajamo
+    pult = next((d[0] for d in deli if len(d) >= 4), "panel1")
+    desno = [int(d[2]) for d in deli if len(d) >= 4 and d[0] == pult and d[1] == "right" and d[2].isdigit()]
+    st = [int(d[4]) for d in deli if len(d) >= 5 and d[4].isdigit()]
+    vnos = "%s:right:%d:%s:%d" % (pult, max(desno) + 1 if desno else 0, UUID, max(st) + 1 if st else 1)
+    with open(zapis, "w", encoding="utf-8") as f:
+        f.write(vnos + "\n")
+    print(repr(appleti + [vnos]))
+else:
+    if not os.path.isfile(zapis):
+        sys.exit(0)
+    vnos = open(zapis, encoding="utf-8").read().strip()
+    os.remove(zapis)
+    if vnos in appleti:
+        print(repr([a for a in appleti if a != vnos]))
+PY
+)" || return 0
+    [ -n "$izid" ] && pisi org.cinnamon:enabled-applets "$izid"
+    return 0
+}
+
 seznam_oken_skrij() { mkdir -p "$MAPA"; seznam_oken skrij; }
 seznam_oken_vrni() { seznam_oken vrni; rm -f "$SEZNAM_OKEN" "$MAPA/appleti-prej.txt" "$MAPA/dock-pripeti-dodani"; rm -rf "$MAPA/appleti"; }
 
@@ -703,9 +743,9 @@ vklopi() {
     tema
     ozadje "${2:-}" "$ze"
     case "$profil" in
-        videz)   delovna_izklopi; dock_izklopi; seznam_oken_vrni; pult_vrni ;;
-        dock)    delovna_izklopi; pult_zgoraj; seznam_oken_skrij; dock ;;
-        delovna) pult_zgoraj; seznam_oken_skrij; dock; delovna ;;
+        videz)   delovna_izklopi; dock_izklopi; pokazi_namizje odstrani; seznam_oken_vrni; pult_vrni ;;
+        dock)    delovna_izklopi; pult_zgoraj; seznam_oken_skrij; pokazi_namizje dodaj; dock ;;
+        delovna) pult_zgoraj; seznam_oken_skrij; pokazi_namizje dodaj; dock; delovna ;;
     esac
 }
 
@@ -724,6 +764,8 @@ izklopi() {
     rm -f "$VKLOPLJENO" "$PROFIL_DAT" "$MAPA/pult-prej"
     delovna_izklopi koncno
     dock_izklopi koncno
+    pokazi_namizje odstrani
+    rm -f "$MAPA/pokazi-namizje-ponujeno"
     seznam_oken_vrni
     # "Vrni prejsnji videz" vrne tudi zagonski in prijavni zaslon, ce ju je uporabnik vklopil.
     # (SAFEER_CINNAMON_BREZ_SISTEMA: preizkusi ukaza se sistemskih nastavitev ne dotikajo.)
@@ -818,6 +860,13 @@ case "${1:-}" in
     --nastavitve-docka)      command -v plank >/dev/null 2>&1 && exec plank --preferences ;;
     --seja)                  if [ -f "$VKLOPLJENO" ] && [ -f "$SEJA" ] && command -v safeer-os >/dev/null 2>&1; then
                                  nemo_namizje_izklopi      # ob prijavi Cinnamon zazene tudi Nemovo namizje
+                                 # Ze vklopljena postavitev iz starejse razlicice dobi gumb Pokazi namizje enkrat; ce ga
+                                 # uporabnik odstrani, ga ne vracamo.
+                                 if [ ! -e "$MAPA/pokazi-namizje-ponujeno" ]; then
+                                     p="$(profil_trenutni)"
+                                     if [ "$p" = dock ] || [ "$p" = delovna ]; then pokazi_namizje dodaj; fi
+                                     mkdir -p "$MAPA"; : > "$MAPA/pokazi-namizje-ponujeno"
+                                 fi
                                  exec safeer-os --delovna
                              fi ;;
     -h|--help)               awk 'NR > 2 && /^# ====/ { exit } NR > 2 { sub(/^# ?/, ""); print }' "$0" ;;
