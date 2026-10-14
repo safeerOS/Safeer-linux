@@ -14,12 +14,10 @@ Exec=safeer %U
 Icon=safeer-browser
 Terminal=false
 StartupNotify=true
-StartupWMClass=safeer-browser
+# GTK4 brskalnik (safeer_brskalnik.py) je Gtk.Application z ID-jem io.github.memelandfaner.SafeerBrowser: na Waylandu
+# je to app_id okna; na X11 je WM_CLASS prgname, zato ga mora safeer_brskalnik.py pred app.run() nastaviti na APP_ID
+# (izmerjeno 14. 10. 2026 v Xvfb: brez tega je WM_CLASS »safeer_brskalnik.py«).
+# Vnosa »Novo okno« ni: GTK4 brskalnik ima en primerek, drugi zagon brez naslova samo dvigne okno, ki ze tece.
+StartupWMClass=io.github.memelandfaner.SafeerBrowser
 Categories=Network;WebBrowser;
 MimeType=text/html;text/xml;application/xhtml+xml;application/pdf;x-scheme-handler/http;x-scheme-handler/https;
-Actions=new-window;
-
-[Desktop Action new-window]
-Name=New Window
-Name[sl]=Novo okno
-Exec=safeer

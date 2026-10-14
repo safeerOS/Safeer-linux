@@ -1,0 +1,10 @@
+# WebKit namesti typelib v /app/lib/x86_64-linux-gnu/girepository-1.0 (typelibdir iz SDK), Flatpak pa isce v
+# /app/lib/girepository-1.0 (GI_TYPELIB_PATH): brez premika Python vzame typelib iz runtime-a (CI 13. 10. 2026).
+# Loceni modul takoj za webkitgtk6-safeer.yml, da se predpomnilnik WebKita (2 h gradnje) ne razveljavi. Skupen za
+# Safeer OS in Safeer Browser (oba manifesta ga vkljucita), kot modul WebKita.
+# Ime ostane iz casa WebKit2GTK, da predpomnilnik flatpak-builderja v manifestu Safeer OS ostane veljaven.
+name: webkit2gtk-safeer-typelib
+buildsystem: simple
+build-commands:
+  - mkdir -p /app/lib/girepository-1.0
+  - mv /app/lib/x86_64-linux-gnu/girepository-1.0/*.typelib /app/lib/girepository-1.0/

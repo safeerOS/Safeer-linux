@@ -120,7 +120,43 @@ def manjkajoci(skripta, korenske):
     return manjka
 
 
+def prehodni_uvozi(korenska):
+    """{modul core: prvi kraj uvoza} za vse obvezne uvoze core, ki jih korenska datoteka doseze prehodno."""
+    najdeni, odprti = {}, [(os.path.join(KOREN, korenska), 0)]
+    while odprti:
+        pot, raven = odprti.pop()
+        for modul, vrstica, neobvezen in uvozi_core(pot, raven):
+            if neobvezen or modul in najdeni:
+                continue
+            datoteka = os.path.join(KOREN, "core", modul + ".py")
+            if os.path.isdir(os.path.join(KOREN, "core", modul)):
+                najdeni[modul] = "%s:%d" % (os.path.relpath(pot, KOREN), vrstica)
+            elif os.path.exists(datoteka):
+                najdeni[modul] = "%s:%d" % (os.path.relpath(pot, KOREN), vrstica)
+                odprti.append((datoteka, 1))
+    return najdeni
+
+
 class TovorUvozi(unittest.TestCase):
+    def test_safeer_browser(self):
+        """GTK4 brskalnik (safeer_brskalnik.py -> core/os_splet.py ...): vsak modul, ki ga doseze, tudi leno, je v tovoru.
+
+        install_payload.sh kopira cel core/ (razen internega poskusa), zato je tu preverjen namesceni tovor sam."""
+        import subprocess
+        import tempfile
+        uvozi = prehodni_uvozi("safeer_brskalnik.py")
+        self.assertIn("os_splet", uvozi)
+        self.assertIn("safeer_drm", uvozi)
+        with tempfile.TemporaryDirectory() as mapa:
+            okolje = {k: v for k, v in os.environ.items() if k != "SAFEER_BRSKALNIK_GTK3"}
+            subprocess.run(["bash", os.path.join(KOREN, "packaging", "install_payload.sh"), os.path.join(mapa, "usr")],
+                           check=True, env=okolje)
+            lib = os.path.join(mapa, "usr", "lib", "safeer-browser")
+            self.assertTrue(os.path.isfile(os.path.join(lib, "safeer_brskalnik.py")))
+            manjka = {m: kje for m, kje in uvozi.items()
+                      if not (os.path.isfile(os.path.join(lib, "core", m + ".py")) or os.path.isdir(os.path.join(lib, "core", m)))}
+        self.assertEqual(manjka, {})
+
     def test_safeer_os(self):
         self.assertEqual(manjkajoci("install_os_payload.sh", ["safeer_os.py"]), {})
 

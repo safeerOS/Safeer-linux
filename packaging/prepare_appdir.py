@@ -1,5 +1,5 @@
 """Seed dynamic GTK, GI, Python and WebKit resources before ELF dependency resolution."""
-import pathlib, re, shutil, subprocess, sys, sysconfig
+import os, pathlib, re, shutil, subprocess, sys, sysconfig
 root = pathlib.Path(sys.argv[1])
 # AppStream/desktop ID and the desktop file's base name: browser by default, Safeer OS when asked.
 appid = sys.argv[2] if len(sys.argv) > 2 else 'io.github.memelandfaner.SafeerBrowser'
@@ -28,8 +28,9 @@ copy(sys.executable,'usr/bin/python3')
 copy(pathlib.Path('/usr/lib')/pyver,f'usr/lib/{pyver}')
 for module in ('gi','cairo'):
     copy(pathlib.Path('/usr/lib/python3/dist-packages')/module,f'usr/lib/python3/dist-packages/{module}')
-# Safeer OS runs on GTK4 + WebKitGTK 6.0 (Ubuntu 24.04 / Mint 22 on); the browser stays on GTK3 + WebKitGTK 4.1.
-gtk4 = appid == 'io.github.memelandfaner.SafeerOS'
+# Safeer OS and, since 14 Oct 2026, the browser (safeer_brskalnik.py) run on GTK4 + WebKitGTK 6.0 (Ubuntu 24.04 /
+# Mint 22 on). SAFEER_BRSKALNIK_GTK3=1 builds the previous GTK3 + WebKitGTK 4.1 browser (Ubuntu 22.04).
+gtk4 = appid == 'io.github.memelandfaner.SafeerOS' or os.environ.get('SAFEER_BRSKALNIK_GTK3') != '1'
 subs = (('girepository-1.0','webkitgtk-6.0','gstreamer-1.0','gstreamer1.0','gdk-pixbuf-2.0') if gtk4 else
         ('girepository-1.0','webkit2gtk-4.1','gstreamer-1.0','gstreamer1.0','gdk-pixbuf-2.0','gtk-3.0'))
 for sub in subs:

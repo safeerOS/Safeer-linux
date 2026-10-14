@@ -11,7 +11,7 @@
   <description>
     <p>
       Safeer Browser is an open-source, sovereign, and lightweight web browser
-      natively engineered with GTK3 and WebKit2GTK for Linux Mint (Cinnamon, MATE, XFCE)
+      natively engineered with GTK4 and WebKitGTK for Linux Mint (Cinnamon, MATE, XFCE)
       and Ubuntu. It provides bookmarks, configurable privacy settings and a desktop interface.
     </p>
     <p>Key Highlights:</p>

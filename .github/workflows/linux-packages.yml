@@ -13,6 +13,9 @@ permissions:
   contents: read
 jobs:
   deb-appimage:
+    # Prejsnji brskalnik na GTK3 (safeer_mint.py, WebKit2GTK 4.1). Od 14. 10. 2026 je Safeer Browser v paketih GTK4
+    # (posla brskalnik in flatpak-brskalnik); ta posel do umika GTK3 se gradi in preizkusa safeer_mint.py in module,
+    # ki morajo delati tudi z GTK3 (SAFEER_BRSKALNIK_GTK3=1). Njegovi paketi niso del izdaje (artefakt brskalnik-gtk3).
     # Release AppImages must be built against glibc 2.35 (Ubuntu 22.04) so they still run on
     # Linux Mint 21 / Ubuntu 22.04. GitHub retires the ubuntu-22.04 runner image (deprecation
     # from 2026-09-17, removal 2027-04-17), so the job runs on a current runner inside an
@@ -45,6 +48,8 @@ jobs:
       - name: Stability regression
         run: xvfb-run -a /usr/bin/python3 tests/stability_runtime.py
       - name: Debian package and launch smoke
+        env:
+          SAFEER_BRSKALNIK_GTK3: '1'
         run: |
           bash build_deb.sh
           xvfb-run -a /usr/bin/python3 packaging/smoke.py build/stage/usr/lib/safeer-browser
@@ -55,13 +60,62 @@ jobs:
           desktop-file-validate /usr/share/applications/safeer-browser.desktop
           sudo apt-get remove -y safeer-browser
       - name: AppImage
+        env:
+          SAFEER_BRSKALNIK_GTK3: '1'
         run: |
           bash packaging/fetch_linuxdeploy.sh
           LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_appimage.sh
           APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a python3 packaging/test_appimage.py dist/Safeer-Browser-*.AppImage
       - uses: actions/upload-artifact@v7
         with:
-          name: deb-appimage
+          name: brskalnik-gtk3
+          path: |
+            *.deb
+            dist/*.AppImage
+  brskalnik:
+    # Safeer Browser na GTK4 (safeer_brskalnik.py) in WebKitGTK 6.0: .deb in AppImage za Linux Mint 22 / Ubuntu 24.04
+    # naprej (kot Safeer OS). WebKitGTK v teh dveh paketih je sistemski (Ubuntu); nas s popravki je v Flatpaku.
+    # Preizkus brskalnika (packaging/smoke_brskalnik.py): stran, prenos, nastavitve in vstavitev Safeer DRM v okno.
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:24.04
+      options: --privileged
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TZ: UTC
+    steps:
+      - name: Install build and test dependencies
+        run: |
+          apt-get update
+          apt-get install -y ca-certificates curl git sudo dbus python3-cryptography python3-pytest python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-webkit-6.0 gir1.2-soup-3.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-gl desktop-file-utils appstream dpkg-dev glib-networking xvfb x11-utils bubblewrap file libglib2.0-bin libglib2.0-dev-bin binutils patchelf libx11-6
+          [ "$(getconf GNU_LIBC_VERSION)" = 'glibc 2.39' ]
+      - uses: actions/checkout@v5
+      - name: Verify version consistency
+        run: python3 packaging/check_version.py
+      - name: Debian package and launch smoke
+        run: |
+          bash build_deb.sh
+          dpkg-deb -f "safeer-browser_$(cat packaging/VERSION)_all.deb" Package Version Depends Recommends
+          dpkg-deb -f "safeer-browser_$(cat packaging/VERSION)_all.deb" Depends | grep -F 'gir1.2-webkit-6.0'
+          xvfb-run -a dbus-run-session -- /usr/bin/python3 packaging/smoke_brskalnik.py build/stage/usr/lib/safeer-browser
+      - name: Install, launch and remove the Debian package
+        run: |
+          sudo apt-get install -y --no-install-recommends "./safeer-browser_$(cat packaging/VERSION)_all.deb"
+          xvfb-run -a safeer --version | tee /dev/stderr | grep -Fx "Safeer Browser $(cat packaging/VERSION)"
+          desktop-file-validate /usr/share/applications/safeer-browser.desktop
+          grep -Fx 'StartupWMClass=io.github.memelandfaner.SafeerBrowser' /usr/share/applications/safeer-browser.desktop
+          test -f /usr/lib/safeer-browser/safeer_brskalnik.py && test ! -e /usr/lib/safeer-browser/safeer_mint.py
+          xvfb-run -a dbus-run-session -- /usr/bin/python3 packaging/smoke_brskalnik.py /usr/lib/safeer-browser
+          sudo apt-get remove -y safeer-browser
+          [ ! -e /usr/lib/safeer-browser ] || { echo "po odstranitvi je ostalo /usr/lib/safeer-browser"; exit 1; }
+      - name: AppImage
+        run: |
+          bash packaging/fetch_linuxdeploy.sh
+          LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_appimage.sh
+          APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a dbus-run-session -- python3 packaging/test_appimage.py dist/Safeer-Browser-*.AppImage
+      - uses: actions/upload-artifact@v7
+        with:
+          name: brskalnik
           path: |
             *.deb
             dist/*.AppImage
@@ -144,7 +198,7 @@ jobs:
     # installs them on Ubuntu 22.04, where the two look packages cannot be installed at all (mint-themes exists
     # only in Linux Mint) and dependencies are resolved by another repository than the user's. This job takes the
     # very files that go into the release (tools/mint_namestitev).
-    needs: [deb-appimage, safeer-os]
+    needs: [brskalnik, safeer-os]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -154,7 +208,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v8
         with:
-          name: deb-appimage
+          name: brskalnik
           path: paketi
       - uses: actions/download-artifact@v8
         with:
@@ -206,7 +260,8 @@ jobs:
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           flatpak install --user --noninteractive flathub org.gnome.Platform//50 org.gnome.Sdk//50
       - run: python3 packaging/check_version.py
-      - run: bash packaging/build_flatpak.sh
+      # Flatpak brskalnika gradi posel flatpak-brskalnik: ID programa je v kljucu predpomnilnika flatpak-builderja,
+      # zato bi tu WebKit gradili se enkrat (2-3 h) in presegli cas posla.
       - name: Safeer OS Flatpak (Safeer OS + Safeer Control)
         run: bash packaging/build_os_flatpak.sh
       - name: Save flatpak-builder cache (WebKitGTK module)
@@ -242,6 +297,67 @@ jobs:
         with:
           name: flatpak
           path: dist/*.flatpak
+  flatpak-brskalnik:
+    # Safeer Browser (GTK4) z nasim WebKitGTK 6.0 - isti modul kot Safeer OS (packaging/webkit). flatpak-builder ima ID
+    # programa v kljucu predpomnilnika, zato brskalnik WebKit gradi in hrani posebej (vzporedno s poslom flatpak).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v5
+      - name: Free disk space for the WebKitGTK build
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift
+          df -h /
+      - name: Restore flatpak-builder cache (WebKitGTK module)
+        id: webkit-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .flatpak-builder/cache
+            .flatpak-builder/downloads
+          key: flatpak-brskalnik-webkit-${{ hashFiles('packaging/webkit/**', 'io.github.memelandfaner.SafeerBrowser.yml') }}
+          restore-keys: |
+            flatpak-brskalnik-webkit-
+      - name: Install Flatpak toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder appstream-compose desktop-file-utils
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive flathub org.gnome.Platform//50 org.gnome.Sdk//50
+      - run: python3 packaging/check_version.py
+      - name: Safeer Browser Flatpak
+        run: bash packaging/build_flatpak.sh
+      - name: Save flatpak-builder cache (WebKitGTK module)
+        if: always() && steps.webkit-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .flatpak-builder/cache
+            .flatpak-builder/downloads
+          key: flatpak-brskalnik-webkit-${{ hashFiles('packaging/webkit/**', 'io.github.memelandfaner.SafeerBrowser.yml') }}
+      - name: Unprivileged user namespaces for the WebKit sandbox
+        # Kot v poslu mint: spletni proces WebKita v Flatpaku tece v podpeskovniku (flatpak-spawn --sandbox).
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - name: Safeer Browser Flatpak runs on our WebKitGTK, with Safeer DRM
+        # Namestimo prav datoteko, ki gre v izdajo. Brskalnik mora teci na nasem WebKitGTK 6.0 (/app), ne na tistem iz
+        # runtime-a; smoke_brskalnik.py izrise stran, prenese datoteko in Safeer DRM (nadomestni program) zazene na
+        # gostitelju prek flatpak-spawn --host ter ga vstavi v okno. xvfb-run zunaj dbus-run-session: storitev Flatpak
+        # na gostitelju dobi DISPLAY kot v namizni seji.
+        run: |
+          sudo apt-get install -y xvfb dbus x11-utils
+          flatpak install --user --noninteractive --bundle dist/Safeer-Browser-*.flatpak
+          xvfb-run -a dbus-run-session -- flatpak run io.github.memelandfaner.SafeerBrowser --version | tee /dev/stderr | grep -Fx "Safeer Browser $(cat packaging/VERSION)"
+          flatpak info --show-permissions io.github.memelandfaner.SafeerBrowser | tee /dev/stderr | grep -F 'org.freedesktop.Flatpak=talk'
+          flatpak run --command=python3 io.github.memelandfaner.SafeerBrowser -c "import gi; gi.require_version('WebKit', '6.0'); from gi.repository import WebKit; v = (WebKit.get_major_version(), WebKit.get_minor_version(), WebKit.get_micro_version()); m = open('/proc/self/maps').read(); knj = sorted({l.split()[-1] for l in m.splitlines() if 'libwebkitgtk-6.0' in l}); print('GTK4 knjiznice:', knj, v); assert knj and all(k.startswith('/app/') for k in knj), 'WebKitGTK 6.0 ni iz /app'; print('WebKitGTK 6.0 iz /app', *v)"
+          flatpak run --command=sh io.github.memelandfaner.SafeerBrowser -c "test -x /app/libexec/webkitgtk-6.0/WebKitWebProcess && test -f /app/lib/safeer-browser/assets/safeer_drm/main.js && test -x /app/host-bin/gio && test ! -e /app/host-bin/safeer"
+          xvfb-run -a dbus-run-session -- flatpak run --command=python3 io.github.memelandfaner.SafeerBrowser "$PWD/packaging/smoke_brskalnik.py" /app/lib/safeer-browser
+      - uses: actions/upload-artifact@v7
+        with:
+          name: flatpak-brskalnik
+          path: dist/Safeer-Browser-*.flatpak
   scit-lab:
     # Scit spreminja sistemsko nastavitev DNS. Enotni testi ne vidijo, kako se systemd-resolved in NetworkManager
     # obnasata v resnici - in prav tam so bile napake do Safeer OS 0.4.42 (izklop je pustil racunalnik brez DNS).
@@ -255,7 +371,7 @@ jobs:
         run: bash tools/scit_lab/lab.sh preizkus
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [deb-appimage, safeer-os, flatpak, scit-lab, mint]
+    needs: [deb-appimage, brskalnik, safeer-os, flatpak, flatpak-brskalnik, scit-lab, mint]
     runs-on: ubuntu-24.04
     concurrency:
       group: release-${{ github.ref_name }}
@@ -266,7 +382,6 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
-          merge-multiple: true
       - name: Attach packages to the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -274,7 +389,9 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           mkdir -p release
-          find artifacts -type f \( -name '*.deb' -o -name '*.AppImage' -o -name '*.flatpak' \) -exec mv -t release {} +
+          # Vsak artefakt je v svoji mapi. Paketi GTK3 brskalnika (brskalnik-gtk3) niso del izdaje: imajo isti imeni
+          # datotek kot paketa GTK4 (safeer-browser_*.deb, Safeer-Browser-*.AppImage).
+          find artifacts -path artifacts/brskalnik-gtk3 -prune -o -type f \( -name '*.deb' -o -name '*.AppImage' -o -name '*.flatpak' \) -exec mv -t release {} +
           (cd release && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
           # A tag push gets a draft with the packages attached. A published release is final: its files
           # are the ones that were tested and whose checksums are in the update manifest, so a re-run of

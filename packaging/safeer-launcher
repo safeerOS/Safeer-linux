@@ -21,6 +21,43 @@ APP_DIR="$(cd "$BIN_DIR/../lib/safeer-browser" && pwd)" || {
     exit 1
 }
 
+# Safeer Browser na GTK4 (safeer_brskalnik.py) od 14. 10. 2026; tovor GTK3 (SAFEER_BRSKALNIK_GTK3=1 v
+# install_payload.sh) ima samo safeer_mint.py.
+VSTOP="$APP_DIR/safeer_brskalnik.py"
+[ -f "$VSTOP" ] || VSTOP="$APP_DIR/safeer_mint.py"
+PY="${PYTHON:-python3}"
+
+# Flatpak: orodja racunalnika (gio za »Odpri z«, xdg-open ...) so ovoji v /app/host-bin, ki jih zazenejo prek
+# flatpak-spawn --host (packaging/flatpak_host_wrappers.sh). Iste nastavitve, prijave in zaznamki kot v paketu .deb
+# (~/.config/safeer-mint), ne kopija v ~/.var/app - kot packaging/safeer-os-launcher (--filesystem=home).
+if [ -n "${FLATPAK_ID:-}" ] && [ -d /app/host-bin ]; then
+    export PATH="/app/host-bin:$PATH"
+    export XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share" XDG_CACHE_HOME="$HOME/.cache"
+fi
+
+# Enkratni zagoni (razlicica) brez preusmeritve v Flatpak in brez obsega systemd.
+for arg in "$@"; do
+    case "$arg" in
+        --version|--help|-h) exec "$PY" "$VSTOP" "$@" ;;
+    esac
+done
+
+# Nas WebKitGTK s popravki (packaging/webkit) je samo v Flatpaku; .deb uporablja WebKitGTK 6.0 sistema. Kot pri
+# Safeer OS: ce sta Flatpak Safeer Browser in njegov runtime namescena in Flatpak ni starejsi od tega paketa, zaganjalnik
+# .deb zazene Flatpak (podatki so isti, glej zgoraj). SAFEER_BRSKALNIK_BREZ_FLATPAKA=1 obdrzi .deb.
+if [ -z "${FLATPAK_ID:-}" ] && [ -z "${SAFEER_BRSKALNIK_BREZ_FLATPAKA:-}" ] && [ "$APP_DIR" = "/usr/lib/safeer-browser" ] \
+        && command -v flatpak >/dev/null 2>&1; then
+    FP_ID="io.github.memelandfaner.SafeerBrowser"
+    FP_DIR="$(flatpak info --show-location "$FP_ID" 2>/dev/null)"
+    FP_RT="$(flatpak info --show-runtime "$FP_ID" 2>/dev/null)"
+    FP_VER="$(cat "$FP_DIR/files/lib/safeer-browser/packaging/VERSION" 2>/dev/null)"
+    NAS_VER="$(cat "$APP_DIR/packaging/VERSION" 2>/dev/null)"
+    if [ -n "$FP_VER" ] && [ -n "$FP_RT" ] && flatpak info "$FP_RT" >/dev/null 2>&1 \
+            && { [ -z "$NAS_VER" ] || dpkg --compare-versions "$FP_VER" ge "$NAS_VER" 2>/dev/null; }; then
+        exec flatpak run "$FP_ID" "$@"
+    fi
+fi
+
 # Keep the rest of the desktop responsive when a page misbehaves: run the browser (and every
 # web process it spawns) in its own user cgroup scope. MemoryHigh makes the kernel reclaim from
 # Safeer first instead of pushing the whole session into swap; CPUWeight ranks it slightly below
@@ -37,4 +74,4 @@ fi
 export PULSE_LATENCY_MSEC=120
 export GST_PULSE_BUFFER_MS=120
 
-exec "${PYTHON:-python3}" "$APP_DIR/safeer_mint.py" "$@"
+exec "$PY" "$VSTOP" "$@"
