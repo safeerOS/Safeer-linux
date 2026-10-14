@@ -73,3 +73,12 @@ class Zagon(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SkupineProgramov(unittest.TestCase):
+    def test_imena_skupin_v_jeziku_vmesnika(self):
+        import re
+        qml = open(os.path.join(KOREN, "assets", "os", "qml", "Namizje.qml"), encoding="utf-8").read()
+        for k in ("sk_pisarna", "sk_predstavnost", "sk_orodja", "sk_sistem", "sk_splet"):
+            self.assertEqual(len(re.findall(k + ":", qml)), 2, k)   # sl in en
+        self.assertNotIn('"Predstavnost"', open(os.path.join(KOREN, "assets", "os", "qml", "Programi.qml"), encoding="utf-8").read())

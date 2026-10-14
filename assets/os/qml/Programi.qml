@@ -46,9 +46,11 @@ Steklo {
             if (!(r === true || (r && r.ok))) koren.obvesti(r && r.koda === "ni_locenega_zaslona" ? koren.t("niLocenega") : ((r && r.message) || koren.t("niUspelo")))
         })
     }
-    readonly property var imenaSkupin: ({ pisarna: "Pisarna", ustvarjanje: "Ustvarjanje", mediji: "Mediji", splet: "Splet",
-                                          igre: "Igre", orodja: "Orodja", sistem: "Sistem", drugo: "Drugo",
-                                          predstavnost: "Predstavnost", programiranje: "Programiranje" })
+    // Imena skupin v jeziku vmesnika (prej samo slovensko - tudi v angleskem Safeer OS in na Windows).
+    function imeSkupine(s) {
+        var k = "sk_" + s, b = koren.t(k)
+        return b !== k ? b : (s.charAt(0).toUpperCase() + s.slice(1))
+    }
 
     ColumnLayout {
         anchors.fill: parent; anchors.margins: 18; spacing: 12
@@ -87,7 +89,7 @@ Steklo {
                     Text {
                         id: n; anchors.centerIn: parent; font.pixelSize: 12
                         text: modelData === "" ? koren.t("vse")
-                              : (panel.imenaSkupin[modelData] || (modelData.charAt(0).toUpperCase() + modelData.slice(1)))
+                              : panel.imeSkupine(modelData)
                         color: panel.skupina === modelData ? koren.paleta.poudarekTemna : koren.paleta.besedilo
                     }
                     MouseArea { id: ms; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: panel.skupina = modelData }

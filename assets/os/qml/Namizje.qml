@@ -51,7 +51,10 @@ Item {
         if (v.prosojnost !== undefined) koren.prosojnost = v.prosojnost
     }
     readonly property var besedila: ({
-        sl: { isci: "Išči po programih, datotekah in spletu …", splet: "Išči na spletu", programi: "Programi",
+        sl: { sk_pisarna: "Pisarna", sk_ustvarjanje: "Ustvarjanje", sk_mediji: "Mediji", sk_splet: "Splet", sk_igre: "Igre",
+              sk_orodja: "Orodja", sk_sistem: "Sistem", sk_drugo: "Drugo", sk_predstavnost: "Predstavnost",
+              sk_programiranje: "Programiranje", sk_ucenje: "Učenje",
+              isci: "Išči po programih, datotekah in spletu …", splet: "Išči na spletu", programi: "Programi",
               isciProg: "Išči programe …", vse: "Vse", datoteke: "Datoteke", nedavno: "Nedavno", smeti: "Koš",
               mape: "Mape", naprave: "Naprave", filter: "Filtriraj …", ime: "Ime", velikost: "Velikost",
               spremenjeno: "Spremenjeno", prazno: "Mapa je prazna.", niNedavnih: "Še ni nedavnih datotek.",
@@ -74,7 +77,10 @@ Item {
               ozadjeWindows: "Ozadje Windows", lastnaSlika: "Lastna slika …", zameglitevNapis: "Zameglitev plošč",
               prosojnostNapis: "Prekrivnost plošč", privzeto: "Privzeto", zapri: "Zapri",
               temaOpis: "Barve so iz teme sistema (Nastavitve Safeer OS › Videz) – enake v Spletu in Safeer Controlu." },
-        en: { isci: "Search apps, files and the web …", splet: "Search the web", programi: "Apps",
+        en: { sk_pisarna: "Office", sk_ustvarjanje: "Creative", sk_mediji: "Media", sk_splet: "Internet", sk_igre: "Games",
+              sk_orodja: "Accessories", sk_sistem: "System", sk_drugo: "Other", sk_predstavnost: "Multimedia",
+              sk_programiranje: "Programming", sk_ucenje: "Education",
+              isci: "Search apps, files and the web …", splet: "Search the web", programi: "Apps",
               isciProg: "Find an app …", vse: "All", datoteke: "Files", nedavno: "Recent", smeti: "Recycle Bin",
               mape: "Folders", naprave: "Devices", filter: "Filter …", ime: "Name", velikost: "Size",
               spremenjeno: "Modified", prazno: "This folder is empty.", niNedavnih: "No recent files yet.",
