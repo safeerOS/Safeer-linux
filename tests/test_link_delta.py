@@ -302,6 +302,10 @@ class Streznik(unittest.TestCase):
             d.write(self.vsebina)
         self.d = link_datoteke.Datoteke([self.deljena], tls_mapa=os.path.join(self.mapa, "tls"))
         self.addCleanup(self.d.ustavi)
+        # Naprava ima datoteke odprte - neodvisno od zapisa dovoljenj na disku, ki ga pustijo drugi preizkusi v istem
+        # procesu (CI: unittest v enem procesu, 14. 10. 2026 je tu padlo 6 preizkusov z 401).
+        self.d.streznik.sme = lambda naprava, zmoznost: True
+        self.d.streznik.umaknjena = lambda naprava: False
         with link_datoteke._opisi_kljuc:
             link_datoteke._opisi.clear()
         self.streznik = self.d.seznam("share:0:", "racunalnik-b")["server"]

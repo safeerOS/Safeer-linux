@@ -28,12 +28,21 @@ copy(sys.executable,'usr/bin/python3')
 copy(pathlib.Path('/usr/lib')/pyver,f'usr/lib/{pyver}')
 for module in ('gi','cairo'):
     copy(pathlib.Path('/usr/lib/python3/dist-packages')/module,f'usr/lib/python3/dist-packages/{module}')
-for sub in ('girepository-1.0','webkit2gtk-4.1','gstreamer-1.0','gstreamer1.0','gdk-pixbuf-2.0','gtk-3.0'):
+# Safeer OS runs on GTK4 + WebKitGTK 6.0 (Ubuntu 24.04 / Mint 22 on); the browser stays on GTK3 + WebKitGTK 4.1.
+gtk4 = appid == 'io.github.memelandfaner.SafeerOS'
+subs = (('girepository-1.0','webkitgtk-6.0','gstreamer-1.0','gstreamer1.0','gdk-pixbuf-2.0') if gtk4 else
+        ('girepository-1.0','webkit2gtk-4.1','gstreamer-1.0','gstreamer1.0','gdk-pixbuf-2.0','gtk-3.0'))
+for sub in subs:
     copy(lib/sub,f'usr/lib/{triplet}/{sub}')
+if gtk4 and (lib/'gtk-4.0').exists():
+    copy(lib/'gtk-4.0',f'usr/lib/{triplet}/gtk-4.0')   # media and print modules, when the host has them
 # GIO TLS and proxy support are dynamically loaded.
 for name in ('libgiognutls.so','libgiolibproxy.so'):
     copy(lib/'gio/modules'/name,f'usr/lib/{triplet}/gio/modules/{name}')
-for name in ('libwebkit2gtk-4.1.so.0','libjavascriptcoregtk-4.1.so.0','libgtk-3.so.0','libgdk-3.so.0', 'libgirepository-1.0.so.1','libgstreamer-1.0.so.0'):
+libs = (('libwebkitgtk-6.0.so.4','libjavascriptcoregtk-6.0.so.1','libgtk-4.so.1','libgirepository-1.0.so.1','libgstreamer-1.0.so.0')
+        if gtk4 else
+        ('libwebkit2gtk-4.1.so.0','libjavascriptcoregtk-4.1.so.0','libgtk-3.so.0','libgdk-3.so.0','libgirepository-1.0.so.1','libgstreamer-1.0.so.0'))
+for name in libs:
     copy(lib/name,f'usr/lib/{name}')
 copy('/usr/share/glib-2.0/schemas','usr/share/glib-2.0/schemas')
 # No glibc, loader, GPU drivers, credentials or host certificate stores are copied.

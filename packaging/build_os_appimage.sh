@@ -30,8 +30,6 @@ for modul in qrcode zeroconf ifaddr; do
         echo "manjka /usr/lib/python3/dist-packages/$modul (apt install python3-$modul)" >&2; exit 1
     fi
 done
-# Lupina QML: PySide6 kot v paketu .deb (packaging/pyside6_vendor.py).
-python3 packaging/pyside6_vendor.py "$STAGE/usr/lib/safeer-os/vendor"
 cp -a "$STAGE/usr" "$APPDIR/"
 python3 packaging/prepare_appdir.py "$APPDIR" "$APPID" safeer-os
 install -m755 packaging/AppRun-os "$APPDIR/AppRun"
@@ -39,6 +37,10 @@ export LDAI_RUNTIME_FILE="${LDAI_RUNTIME_FILE:-$ROOT/build/tools/runtime-x86_64}
 [ -f "$LDAI_RUNTIME_FILE" ] || { echo "Run packaging/fetch_linuxdeploy.sh first" >&2; exit 1; }
 export VERSION="$(cat packaging/VERSION_OS)"
 export OUTPUT="$ROOT/dist/Safeer-OS-${VERSION}-x86_64.AppImage"
+# Lupina QML: PySide6 kot v paketu .deb (packaging/pyside6_vendor.py), a izven usr/: Qt pride z lastnimi knjiznicami
+# (RPATH $ORIGIN) in linuxdeploy jih ne sme razresevati - moduli PySide6, ki jih lupina ne rabi (npr. Qt 3D), bi gradnjo
+# ustavili zaradi manjkajocih knjiznic (14. 10. 2026). AppRun-os poda pot v SAFEER_PYSIDE6.
+python3 packaging/pyside6_vendor.py "$APPDIR/opt/pyside6"
 "$LINUXDEPLOY" --appdir "$APPDIR" --executable "$APPDIR/usr/bin/python3" \
     --desktop-file "$APPDIR/usr/share/applications/$APPID.desktop" \
     --icon-file "$APPDIR/usr/share/icons/hicolor/256x256/apps/safeer-os.png" \
