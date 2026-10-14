@@ -166,6 +166,11 @@ class Par(unittest.TestCase):
         with open(os.path.join(self.deljena, "vecer (Prenosnik).pcraft"), "rb") as f:
             self.assertEqual(f.read()[200:204], b"BBBB")
         self.assertIn("spor", [k for k, _ in self.obv_a])
+        # Tudi B izve, da je njegova razlicica ohranjena kot kopija (ob naslednjem javljanju).
+        self._tiki(4)
+        self.assertIn(("spor", {"ime": "vecer.pcraft", "kdo": "Testni PC", "kopija": "vecer (Prenosnik).pcraft"}),
+                      self.obv_b)
+        self.assertNotIn("nova", [k for k, _ in self.obv_b], "ob sporu eno obvestilo, ne dve")
 
     def test_udelezbe_ostanejo_po_ponovnem_zagonu(self):
         self._udelezi()
@@ -295,6 +300,12 @@ class Zaznava(unittest.TestCase):
             self.assertEqual(os.path.basename(tw.ime_kopije(pot, "../x")), "a (..x).txt")
         finally:
             shutil.rmtree(tmp)
+
+    def test_kratko_ime(self):
+        self.assertEqual(tw.kratko_ime("Safeer OS (OnePlus)"), "OnePlus")
+        self.assertEqual(tw.kratko_ime("Safeer Control (racunalnik-1)"), "racunalnik-1")
+        self.assertEqual(tw.kratko_ime("Tablica Matej"), "Tablica Matej")
+        self.assertEqual(os.path.basename(tw.ime_kopije("/x/a.txt", "Safeer OS (OnePlus)")), "a (OnePlus).txt")
 
     def test_besedila_v_vseh_jezikih(self):
         for jezik, b in tw.BESEDILA.items():
