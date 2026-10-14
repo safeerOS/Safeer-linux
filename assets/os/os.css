@@ -6,6 +6,7 @@
   --stranska: rgba(11, 20, 36, .86);
   --kartica: rgba(16, 26, 43, .80);
   --kartica-poudarek: rgba(24, 38, 62, .92);
+  --koda-podlaga: rgba(4, 9, 17, .72);
   --rob: rgba(211, 229, 255, .23);
   --besedilo: #eaf2ff;
   --medlo: #afbed4;
@@ -384,10 +385,15 @@ h2 .dodatno + .dodatno { margin-left: 14px; }
 .mehurcek.ven { align-self:flex-end; border-radius:15px 15px 4px 15px; background:rgba(138, 199, 255, .2); }
 .mehurcek time { display:block; color:var(--medlo); font-size:11px; margin-top:5px; text-align:right; -webkit-user-select: none; user-select: none; cursor: default; }
 .mehurcek.fokus-tipke:focus { outline: 2px solid var(--zelena); outline-offset: 2px; }
+.mehurcek.s-kodo { max-width:94%; align-self:stretch; }
+.mehurcek.ven.s-kodo { align-self:flex-end; }
+.mehurcek-koda { margin:10px 0 0; padding:10px 12px; border-radius:8px; background:var(--koda-podlaga); color:var(--besedilo);
+  font:13px/1.45 ui-monospace, "DejaVu Sans Mono", "Liberation Mono", monospace; white-space:pre; overflow-x:auto; tab-size:8; }
+.mehurcek-besedilo + .mehurcek-koda { margin-top:12px; }
 .mehurcek ::selection { background: rgba(138, 199, 255, .45); color: #fff; }
 /* Nabiralnik (preneseno s Safeer OS za Windows): mape, oznake, iskanje, pano z osebo */
 .nabiralnik { display:grid; grid-template-columns:200px minmax(260px, 24%) 1fr; min-height:520px; height:calc(100vh - 230px); max-height:calc(100vh - 230px);
-  border:1px solid var(--rob); border-radius:16px; background:rgba(0,0,0,.14); overflow:hidden; }
+  border:1px solid var(--rob); border-radius:16px; background:var(--kartica); overflow:hidden; }
 .nabiralnik-mape { border-right:1px solid var(--rob); padding:12px 10px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; }
 .mape button { width:100%; display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:10px; text-align:left; background:transparent; }
 .mape button svg { width:18px; height:18px; color:var(--medlo); } .mape button.izbran { background:var(--kartica-poudarek); font-weight:600; }

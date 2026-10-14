@@ -3198,9 +3198,24 @@
   function mehurcekSporocila(s) {
     var m = el("div", "mehurcek " + (s.smer === "ven" ? "ven" : "noter")), b = el("span", "mehurcek-besedilo");
     m._besedilo = s.besedilo || ""; m._podpis = podpisSporocila(s); m._id = s.id; m.tabIndex = -1;
-    b.textContent = m._besedilo;
-    m.appendChild(b); m.appendChild(el("time", "", ubezi(kratekCas(s.cas))));
+    var deli = razdeliKodo(m._besedilo);
+    b.textContent = deli[0];
+    if (deli[0]) m.appendChild(b);
+    if (deli[1]) {
+      // Popravek (git format-patch, diff) v pismu: pisava enake sirine, vrstice se ne lomijo, drsnik v mehurcku.
+      var k = el("pre", "mehurcek-koda"); k.textContent = deli[1];
+      m.classList.add("s-kodo"); m.appendChild(k);
+    }
+    m.appendChild(el("time", "", ubezi(kratekCas(s.cas))));
     return m;
+  }
+  // [besedilo, koda]: koda se zacne pri prvi vrstici popravka (lastnik, 14. 10. 2026: popravek v pismu se je bral
+  // kot zmeda prelomljenih vrstic). Brez popravka je koda "".
+  var ZACETEK_KODE = /^(From [0-9a-f]{40} |diff --git |Index: |--- a\/|@@ -\d)/m;
+  function razdeliKodo(besedilo) {
+    var t = String(besedilo || ""), i = t.search(ZACETEK_KODE);
+    if (i < 0) return [t, ""];
+    return [t.slice(0, i).replace(/\s+$/, ""), t.slice(i).replace(/\s+$/, "")];
   }
   // Besedilo, oznaceno znotraj pogovora ("" = nic ali izbor drugje na strani).
   function izbranoVSporocilih() {

@@ -50,6 +50,11 @@ class Slog(unittest.TestCase):
         # Gumbi, kartice in napisi vmesnika se ob vlecenju z misko ne smejo oznacevati - izjema je besedilo sporocila.
         self.assertIn("user-select: none", _pravilo(self.css, "body"))
 
+    def test_nabiralnik_na_neprosojni_podlagi(self):
+        css = _beri("assets", "os", "os.css")
+        self.assertRegex(css, r"\.nabiralnik \{[^}]*background:var\(--kartica\)")
+        self.assertRegex(css, r"\.mehurcek-koda \{[^}]*white-space:pre;[^}]*overflow-x:auto")
+
     def test_obroba_fokusa_s_tipkovnico(self):
         # Po kliku z misko brskalnik obrobe fokusa ne kaze vec, tudi ce se uporabnik potem premika s puscicami.
         self.assertIn("outline: 2px solid var(--zelena)", _pravilo(self.css, ".mehurcek.fokus-tipke:focus"))
@@ -207,6 +212,25 @@ assert.strictEqual(podpisSporocila(a), podpisSporocila(JSON.parse(JSON.stringify
 assert.notStrictEqual(podpisSporocila(a), podpisSporocila(Object.assign({}, a, { besedilo: "Živjo!" })));
 assert.notStrictEqual(podpisSporocila(a), podpisSporocila(Object.assign({}, a, { id: "2" })));
 assert.notStrictEqual(podpisSporocila({ id: "1", besedilo: "a" }), podpisSporocila({ id: "", besedilo: "1a" }));
+""")
+
+    def test_popravek_v_pismu_je_koda(self):
+        """Popravek (git format-patch) v pismu: besedilo ostane besedilo, popravek gre v <pre> brez lomljenja vrstic;
+        kopiranje celega sporocila se vedno vzame vse (lastnik, 14. 10. 2026)."""
+        self._stran(r"""
+var pismo = "Hello Kyle,\n\nthe patch below.\n\nSafeer\n\nFrom 0123456789abcdef0123456789abcdef01234567 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] x\n---\ndiff --git a/x.c b/x.c\n+\tg_clear_object (&conn);\n";
+var m = mehurcekSporocila(s(1, pismo, "ven"));
+assert.strictEqual(m.children[0].className, "mehurcek-besedilo");
+assert.strictEqual(m.children[0].textContent, "Hello Kyle,\n\nthe patch below.\n\nSafeer");
+assert.strictEqual(m.children[1].oznaka, "pre");
+assert.ok(m.children[1].textContent.indexOf("From 0123") === 0 && m.children[1].textContent.indexOf("g_clear_object") > 0);
+assert.ok(m.classList.contains("s-kodo"));
+assert.strictEqual(m._besedilo, pismo);
+var samo = mehurcekSporocila(s(2, "diff --git a/a b/a\n@@ -1 +1 @@"));
+assert.strictEqual(samo.children[0].oznaka, "pre");
+var navadno = mehurcekSporocila(s(3, "Pridem ob 5.\n--- konec ---\n@@ ni koda"));
+assert.strictEqual(navadno.children.length, 2);
+assert.ok(!navadno.classList.contains("s-kodo"));
 """)
 
     def test_nacrt_ohrani_mehurcke(self):
