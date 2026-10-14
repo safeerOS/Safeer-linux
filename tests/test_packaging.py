@@ -94,15 +94,103 @@ class PackagingTests(unittest.TestCase):
             create.assert_not_called()
 
     def test_shared_launcher_is_relocatable_and_preserves_arguments(self):
-        with tempfile.TemporaryDirectory(prefix='safeer package ') as directory:
+        # Od 14. 10. 2026 je brskalnik v paketih GTK4 (safeer_brskalnik.py); SAFEER_BRSKALNIK_GTK3=1 zgradi prejsnjega.
+        for gtk3,vstop in ((False,'safeer_brskalnik.py'),(True,'safeer_mint.py')):
+            with self.subTest(vstop=vstop), tempfile.TemporaryDirectory(prefix='safeer package ') as directory:
+                prefix=Path(directory)/'usr'
+                okolje={**os.environ,'SAFEER_BRSKALNIK_GTK3':'1' if gtk3 else '0'}
+                subprocess.run(['bash',str(ROOT/'packaging/install_payload.sh'),str(prefix)],check=True,env=okolje)
+                fake=Path(directory)/'python'
+                fake.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+                fake.chmod(0o755)
+                output=subprocess.check_output([str(prefix/'bin/safeer-browser'),'https://example.com/a b'],env={**os.environ,'PYTHON':str(fake)},text=True).splitlines()
+                self.assertEqual(output,[str(prefix/'lib/safeer-browser'/vstop),'https://example.com/a b'])
+                drugi='safeer_mint.py' if vstop=='safeer_brskalnik.py' else 'safeer_brskalnik.py'
+                self.assertFalse((prefix/'lib/safeer-browser'/drugi).exists(),drugi)
+                subprocess.run(['desktop-file-validate',str(prefix/'share/applications/safeer-browser.desktop')],check=True)
+
+    def test_browser_payload_can_actually_start(self):
+        """Namesceni GTK4 brskalnik se zazene brez izvorne mape: --version prek zaganjalnika (razlicica iz
+        packaging/VERSION v tovoru) in uvoz modulov, ki jih Splet nalozi lenobno (zgodovina, uvoz zavihkov, Safeer DRM)."""
+        import sys
+        with tempfile.TemporaryDirectory() as directory:
             prefix=Path(directory)/'usr'
             subprocess.run(['bash',str(ROOT/'packaging/install_payload.sh'),str(prefix)],check=True)
-            fake=Path(directory)/'python'
-            fake.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
-            fake.chmod(0o755)
-            output=subprocess.check_output([str(prefix/'bin/safeer-browser'),'https://example.com/a b'],env={**os.environ,'PYTHON':str(fake)},text=True).splitlines()
-            self.assertEqual(output,[str(prefix/'lib/safeer-browser/safeer_mint.py'),'https://example.com/a b'])
-            subprocess.run(['desktop-file-validate',str(prefix/'share/applications/safeer-browser.desktop')],check=True)
+            lib=prefix/'lib/safeer-browser'
+            environment={k:v for k,v in os.environ.items() if k not in ('PYTHONPATH','SAFEER_BRSKALNIK_GTK3')}
+            verzija=(ROOT/'packaging/VERSION').read_text().strip()
+            result=subprocess.run([str(prefix/'bin/safeer'),'--version'],capture_output=True,text=True,
+                                  cwd=tempfile.gettempdir(),env={**environment,'PYTHON':sys.executable})
+            self.assertEqual(result.returncode,0,result.stderr[-800:])
+            self.assertEqual(result.stdout.strip(),'Safeer Browser '+verzija)
+            code=(f"import sys; sys.path.insert(0, {str(lib)!r}); import safeer_brskalnik; "
+                  "from core import os_splet, safeer_drm, zgodovina, uvoz_zavihkov, bookmarks_importer, splet_prenosi; "
+                  "print(safeer_brskalnik.APP_ID, safeer_drm.vir_logike())")
+            result=subprocess.run([sys.executable,'-c',code],capture_output=True,text=True,
+                                  cwd=tempfile.gettempdir(),env=environment)
+            self.assertEqual(result.returncode,0,result.stderr[-800:])
+            self.assertIn('io.github.memelandfaner.SafeerBrowser',result.stdout)
+            # Safeer DRM: logika predvajalnika (main.js) pride s tovorom, paket ECS se prenese ob prvi potrebi.
+            self.assertTrue((lib/'assets/safeer_drm/main.js').is_file())
+            self.assertIn(str(lib/'assets/safeer_drm'),result.stdout)
+            self.assertTrue((lib/'ui/splet.html').is_file())
+            for ime in NAMERNO_IZPUSCENI:
+                self.assertFalse((lib/'core'/f'{ime}.py').exists(),ime)
+
+    def test_browser_desktop_entry(self):
+        """Vnos v meniju: privzeti brskalnik za http/https in HTML, okno GTK4 (ID programa) pripada vnosu, brez
+        dejanja »Novo okno«, ki ga GTK4 brskalnik z enim primerkom ne zna (samo dvigne obstojece okno)."""
+        import configparser
+        vnos=configparser.ConfigParser(interpolation=None)
+        vnos.optionxform=str
+        vnos.read(ROOT/'packaging/safeer-browser.desktop',encoding='utf-8')
+        d=vnos['Desktop Entry']
+        tipi=set(d['MimeType'].strip(';').split(';'))
+        self.assertTrue({'text/html','x-scheme-handler/http','x-scheme-handler/https'}<=tipi,tipi)
+        app_id=re.search(r'^APP_ID = "([^"]+)"',(ROOT/'safeer_brskalnik.py').read_text(),re.M).group(1)
+        self.assertEqual(d['StartupWMClass'],app_id)
+        self.assertEqual(d['Exec'],'safeer %U')
+        self.assertNotIn('Actions',d)
+        subprocess.run(['desktop-file-validate',str(ROOT/'packaging/safeer-browser.desktop')],check=True)
+
+    def test_browser_launcher_in_flatpak_uses_host_tools_and_deb_data(self):
+        """Kot packaging/safeer-os-launcher: ovoji orodij gostitelja in iste mape podatkov kot .deb."""
+        brskalnik=(ROOT/'packaging/safeer-launcher').read_text()
+        os_=(ROOT/'packaging/safeer-os-launcher').read_text()
+        for vrstica in ('if [ -n "${FLATPAK_ID:-}" ] && [ -d /app/host-bin ]; then','export PATH="/app/host-bin:$PATH"',
+                        'export XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share" XDG_CACHE_HOME="$HOME/.cache"'):
+            self.assertIn(vrstica,os_)
+            self.assertIn(vrstica,brskalnik)
+        # Obseg systemd ostane (odziven racunalnik, ko stran porabi prevec), Flatpak paketa .deb pa ga ne potrebuje.
+        self.assertLess(brskalnik.index('exec flatpak run "$FP_ID"'),brskalnik.index('systemd-run --user --scope'))
+
+    def test_browser_flatpak_ships_our_webkit_and_safeer_drm(self):
+        """Flatpak brskalnika ima nas WebKitGTK 6.0 iz iste datoteke modula kot Safeer OS (brez kopije gradnje) in
+        dovoljenja, ki jih Safeer DRM potrebuje: zagon na gostitelju (flatpak-spawn --host) in skupne mape v domu."""
+        brskalnik=(ROOT/'io.github.memelandfaner.SafeerBrowser.yml').read_text()
+        os_=(ROOT/'io.github.memelandfaner.SafeerOS.yml').read_text()
+        moduli=('  - packaging/webkit/webkitgtk6-safeer.yml\n','  - packaging/webkit/webkitgtk6-safeer-typelib.yml\n')
+        for modul in moduli:
+            self.assertIn(modul,brskalnik)
+            self.assertIn(modul,os_)
+        # WebKit je prvi modul (predpomnilnik flatpak-builderja), typelib takoj za njim.
+        seznam=re.findall(r'^  - (\S.*)$',brskalnik.split('\nmodules:\n',1)[1],re.M)
+        self.assertEqual(seznam[:2],[m.strip()[2:] for m in moduli])
+        self.assertNotIn('webkitgtk.org/releases',brskalnik)
+        self.assertRegex(brskalnik,r"(?m)^runtime: org\.gnome\.Platform\nruntime-version: '50'$")
+        self.assertIn("runtime-version: '50'",os_)
+        self.assertIn('bash packaging/install_payload.sh /app io.github.memelandfaner.SafeerBrowser',brskalnik)
+        self.assertIn('bash packaging/flatpak_host_wrappers.sh /app/host-bin',brskalnik)
+        dovoljenja=set(re.findall(r'^  - (--\S+)$',brskalnik,re.M))
+        drm=(ROOT/'core/safeer_drm.py').read_text()
+        self.assertIn('"flatpak-spawn", "--host"',drm)
+        self.assertIn('--talk-name=org.freedesktop.Flatpak',dovoljenja)
+        self.assertIn('Path(os.path.expanduser("~/.local/share/safeer-drm"))',drm)
+        self.assertIn('--filesystem=home',dovoljenja)
+        self.assertTrue({'--socket=wayland','--socket=fallback-x11','--share=network','--socket=pulseaudio',
+                         '--device=dri'}<=dovoljenja,dovoljenja)
+        # Ovoj »safeer« v /app/host-bin bi v brskalniku pokazal na brskalnik gostitelja.
+        self.assertIn('rm -f /app/host-bin/safeer /app/host-bin/safeer-browser',brskalnik)
 
     def test_debian_maintainer_scripts_are_posix_sh(self):
         for builder in ('build_deb.sh','build_os_deb.sh'):

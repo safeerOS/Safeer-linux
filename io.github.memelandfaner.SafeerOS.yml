@@ -33,14 +33,8 @@ modules:
   # Nas WebKitGTK s popravki (packaging/webkit), API 6.0 za GTK4; prvi modul zaradi predpomnilnika flatpak-builderja.
   # WebKit2GTK 4.1 (GTK3) Safeer OS ne potrebuje vec - ostaja samo v paketu Safeer Browser (safeer_mint.py).
   - packaging/webkit/webkitgtk6-safeer.yml
-  # WebKit namesti typelib v /app/lib/x86_64-linux-gnu/girepository-1.0 (typelibdir iz SDK), Flatpak pa isce v
-  # /app/lib/girepository-1.0 (GI_TYPELIB_PATH): brez premika Python vzame typelib iz runtime-a (CI 13. 10. 2026).
-  # Loceni modul, da se predpomnilnik WebKita (2 h gradnje) ne razveljavi.
-  - name: webkit2gtk-safeer-typelib
-    buildsystem: simple
-    build-commands:
-      - mkdir -p /app/lib/girepository-1.0
-      - mv /app/lib/x86_64-linux-gnu/girepository-1.0/*.typelib /app/lib/girepository-1.0/
+  # Typelib WebKita na pot, kjer ga Flatpak isce (skupen modul s Safeer Browserjem).
+  - packaging/webkit/webkitgtk6-safeer-typelib.yml
   - name: python3-pyside6
     # Lupina Safeer OS v Qt Quick (QML) kot na Windows - ena koda namizja za obe platformi (lastnik, 14. 10. 2026).
     # Qt na Linuxu vrti zanko GLib, zato GTK4 okna (Splet, vsebine na WebKitGTK) tecejo v istem procesu (PoC na testnem

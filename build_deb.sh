@@ -28,19 +28,34 @@ sed -i 's|^Exec=safeer|Exec=/usr/bin/safeer|' "$BUILD_ROOT/usr/share/application
 
 # 6. Create DEBIAN/control
 echo "📝 Generiranje DEBIAN/control..."
+# GTK4 brskalnik (privzeto) potrebuje WebKitGTK 6.0 in GTK4: Linux Mint 22 / Ubuntu 24.04 naprej. Paket .deb uporabi
+# WebKitGTK sistema; nas WebKitGTK s popravki (packaging/webkit) je samo v Flatpaku, ki ga zaganjalnik zazene, ce je
+# namescen (packaging/safeer-launcher). GDebi ne namesti priporocenih paketov: kar mora delovati takoj, je v Depends
+# (kodeki GStreamer za video na straneh - isti kot v paketu safeer-os).
+if [ "${SAFEER_BRSKALNIK_GTK3:-0}" = 1 ]; then
+    ODVISNOSTI="python3, python3-gi, python3-gi-cairo, gir1.2-gtk-3.0, gir1.2-webkit2-4.1, gir1.2-soup-3.0, gir1.2-glib-2.0"
+    PRIPOROCILA=""
+    OPIS_GTK=" specifically for Linux Mint and Ubuntu. Built natively with GTK3 and
+ WebKit2GTK, it includes ad filtering, a local threat blocklist,"
+else
+    ODVISNOSTI="python3 (>= 3.10), python3-gi (>= 3.42), python3-gi-cairo, gir1.2-gtk-4.0, gir1.2-webkit-6.0, gir1.2-soup-3.0, gir1.2-glib-2.0, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-libav, gstreamer1.0-gl"
+    PRIPOROCILA="Recommends: python3-cryptography, xdg-utils
+"
+    OPIS_GTK=" specifically for Linux Mint 22+ and Ubuntu 24.04+. Built natively with GTK4 and
+ WebKitGTK 6.0, it includes ad filtering, a local threat blocklist,"
+fi
 cat << EOF > "$BUILD_ROOT/DEBIAN/control"
 Package: safeer-browser
 Version: ${VERSION}
 Section: web
 Priority: optional
 Architecture: ${ARCH}
-Depends: python3, python3-gi, python3-gi-cairo, gir1.2-gtk-3.0, gir1.2-webkit2-4.1, gir1.2-soup-3.0, gir1.2-glib-2.0
-Maintainer: Safeer <info@safeer.si>
+Depends: ${ODVISNOSTI}
+${PRIPOROCILA}Maintainer: Safeer <info@safeer.si>
 Homepage: https://github.com/safeerOS/Safeer-linux
 Description: Sovereign, ultra-fast, and private web browser for Linux Mint & Ubuntu
  Safeer Browser is an open-source, ultra-fast web browser engineered
- specifically for Linux Mint and Ubuntu. Built natively with GTK3 and
- WebKit2GTK, it includes ad filtering, a local threat blocklist,
+${OPIS_GTK}
  bookmarks import from Firefox and Chrome, customizable portals,
  user CSS styling, and configurable JavaScript userscripts.
 EOF
@@ -131,6 +146,10 @@ echo "🔨 Izdelava paketa z dpkg-deb..."
 dpkg-deb --build --root-owner-group "$BUILD_ROOT" "$DIR/$DEB_PACKAGE"
 
 # 9. Build portable tar.gz package
+# Prenosni arhiv je namestitev iz izvorne kode GTK3 brskalnika (install.sh, safeer-mint.sh -> safeer_mint.py), zato
+# samo za GTK3; GTK4 brskalnik je v paketih .deb, Flatpak in AppImage.
+TAR_DATOTEKE=""
+if [ "${SAFEER_BRSKALNIK_GTK3:-0}" = 1 ]; then
 echo "📦 Izdelava prenosnega arhiva: $TAR_PACKAGE..."
 tar -czf "$DIR/$TAR_PACKAGE" \
     --exclude="__pycache__" \
@@ -139,18 +158,20 @@ tar -czf "$DIR/$TAR_PACKAGE" \
     --exclude="build" \
     -C "$DIR" \
     safeer_mint.py core ui assets safeer-mint.sh install.sh uninstall.sh safeer-browser.desktop README.md LICENSE
+TAR_DATOTEKE="$TAR_PACKAGE"
+fi
 
 # 10. Generate SHA256SUMS
 echo "🔒 Računanje SHA256 kontrolnih vsot..."
 cd "$DIR"
-sha256sum "$DEB_PACKAGE" "$TAR_PACKAGE" > "$DIR/SHA256SUMS"
+sha256sum "$DEB_PACKAGE" $TAR_DATOTEKE > "$DIR/SHA256SUMS"
 
 # 12. Verify package
 echo ""
 echo "=========================================================="
 echo "✅ PAKETI USPEŠNO ZGRAJENI:"
 echo "   All-Arch .deb: $DIR/$DEB_PACKAGE"
-echo "   Portable tar : $DIR/$TAR_PACKAGE"
+[ -z "$TAR_DATOTEKE" ] || echo "   Portable tar : $DIR/$TAR_PACKAGE"
 cat "$DIR/SHA256SUMS"
 echo "=========================================================="
 echo ""

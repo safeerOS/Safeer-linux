@@ -13,4 +13,7 @@ with tempfile.TemporaryDirectory(prefix='safeer-appimage-test-') as directory:
         raise SystemExit('Unrecognized AppRun entry point')
     runner.write_text(content.replace(entry,'exec "$PYTHON" "$@"'))
     runner.chmod(0o755)
-    subprocess.run([str(runner),str(repo/'packaging/smoke.py'),str(appdir/'usr/lib/safeer-browser')],check=True,timeout=45)
+    lib=appdir/'usr/lib/safeer-browser'
+    # GTK4 brskalnik (safeer_brskalnik.py) ima svoj preizkus: stran, prenos, nastavitve in vstavitev Safeer DRM.
+    smoke='smoke_brskalnik.py' if (lib/'safeer_brskalnik.py').exists() else 'smoke.py'
+    subprocess.run([str(runner),str(repo/'packaging'/smoke),str(lib)],check=True,timeout=120)
