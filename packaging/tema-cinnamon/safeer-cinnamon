@@ -350,6 +350,13 @@ if kaj == "dodaj":
         desno = [int(deli(a)[2]) for a in appleti if len(deli(a)) >= 4 and deli(a)[1] == "right" and deli(a)[2].isdigit()]
         vnos = "%s:right:%d:%s:%d" % (pult, min(desno) if desno else 0, UUID, max(st) + 1 if st else 1)
         novi, odstranjen = appleti + [vnos], ""
+    # Zapisa z odstranjenim appletom porabe nikoli ne prepisemo s praznim: sicer --izklopi Mintovega appleta ne vrne
+    # vec (ponovno dodana Miska po uporabnikovi odstranitvi - pregled 14. 10. 2026).
+    if not odstranjen and os.path.isfile(zapis):
+        try:
+            odstranjen = (open(zapis, encoding="utf-8").read().split("\n") + ["", ""])[1]
+        except OSError:
+            pass
     with open(zapis, "w", encoding="utf-8") as f:
         f.write(vnos + "\n" + odstranjen + "\n")
     print(repr(novi))
@@ -866,7 +873,8 @@ vklopi() {
         dock)    delovna_izklopi; pult_zgoraj; seznam_oken_skrij; pokazi_namizje dodaj; dock ;;
         delovna) pult_zgoraj; seznam_oken_skrij; pokazi_namizje dodaj; dock; delovna ;;
     esac
-    mkdir -p "$MAPA"; miska dodaj
+    # Enkrat na vklop (do --izklopi): ob vsaki menjavi postavitve bi se Miska, ki jo je uporabnik odstranil, vrnila.
+    miska_enkrat
 }
 
 izklopi() {

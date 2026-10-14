@@ -68,6 +68,12 @@ const MISKA = "org.cinnamon.desktop.peripherals.mouse";
 const VMESNIK = "org.cinnamon.desktop.interface";
 const VELIKOSTI = [[24, "obicajen"], [32, "velik"], [48, "zelo"]];
 
+// Kljuc, ki ga starejsa shema cinnamon-desktop nima (locate-pointer, middle-click-emulation ...): get_boolean na
+// manjkajocem kljucu prekine Cinnamon (g_error), zato vsak kljuc pred branjem preverimo (pregled 14. 10. 2026).
+function ima(nast, kljuc) {
+    try { return !!nast && nast.settings_schema.has_key(kljuc); } catch (e) { return false; }
+}
+
 function nastavitve(shema) {
     let vir = Gio.SettingsSchemaSource.get_default();
     return vir && vir.lookup(shema, true) ? new Gio.Settings({ schema_id: shema }) : null;
@@ -89,8 +95,11 @@ class SafeerMiska extends Applet.TextIconApplet {
     }
 
     _klic(pot, vmesnik, metoda, argumenti, vrsta, ob) {
+        if (this._odstranjen) return;
         Gio.DBus.system.call(UPOWER, pot, vmesnik, metoda, argumenti, new GLib.VariantType(vrsta),
                              Gio.DBusCallFlags.NONE, 3000, null, (vir, izid) => {
+            // Odgovor po odstranitvi appleta iz pulta: aktorji so ze uniceni, zato ga zavrzemo.
+            if (this._odstranjen) return;
             let v = null;
             try { v = vir.call_finish(izid).recursiveUnpack(); } catch (e) { v = null; }
             ob(v);
@@ -128,6 +137,7 @@ class SafeerMiska extends Applet.TextIconApplet {
     }
 
     _osvezi_ikono() {
+        if (this._odstranjen) return;
         let miske = this._miske();
         let opis = [T.miska];
         let nizka = false;
@@ -141,6 +151,7 @@ class SafeerMiska extends Applet.TextIconApplet {
     }
 
     _stikalo(besedilo, kljuc) {
+        if (!ima(this.miska, kljuc)) return;
         let p = new PopupMenu.PopupSwitchMenuItem(besedilo, this.miska.get_boolean(kljuc));
         p.connect("toggled", (_i, stanje) => this.miska.set_boolean(kljuc, stanje));
         this.menu.addMenuItem(p);
@@ -155,16 +166,18 @@ class SafeerMiska extends Applet.TextIconApplet {
         }
         if (this.miska) {
             if (this._miske().length) this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-            this.menu.addMenuItem(new PopupMenu.PopupMenuItem(T.hitrost, { reactive: false }));
-            let drsnik = new PopupMenu.PopupSliderMenuItem((this.miska.get_double("speed") + 1) / 2);
-            drsnik.connect("value-changed", (_d, v) => this.miska.set_double("speed", Math.max(-1, Math.min(1, v * 2 - 1))));
-            this.menu.addMenuItem(drsnik);
+            if (ima(this.miska, "speed")) {
+                this.menu.addMenuItem(new PopupMenu.PopupMenuItem(T.hitrost, { reactive: false }));
+                let drsnik = new PopupMenu.PopupSliderMenuItem((this.miska.get_double("speed") + 1) / 2);
+                drsnik.connect("value-changed", (_d, v) => this.miska.set_double("speed", Math.max(-1, Math.min(1, v * 2 - 1))));
+                this.menu.addMenuItem(drsnik);
+            }
             this._stikalo(T.levicar, "left-handed");
             this._stikalo(T.naravno, "natural-scroll");
             this._stikalo(T.srednji, "middle-click-emulation");
             this._stikalo(T.najdi, "locate-pointer");
         }
-        if (this.vmesnik) {
+        if (ima(this.vmesnik, "cursor-size")) {
             this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
             this.menu.addMenuItem(new PopupMenu.PopupMenuItem(T.velikost, { reactive: false }));
             let zdaj = this.vmesnik.get_int("cursor-size");
@@ -186,6 +199,7 @@ class SafeerMiska extends Applet.TextIconApplet {
     }
 
     on_applet_clicked() {
+        if (!this.menu) return;
         if (!this.menu.isOpen) {
             this._napolni();
             this._preberi_miske();
@@ -194,8 +208,14 @@ class SafeerMiska extends Applet.TextIconApplet {
     }
 
     on_applet_removed_from_panel() {
+        this._odstranjen = true;
         if (this._casovnik) Mainloop.source_remove(this._casovnik);
         this._casovnik = 0;
+        if (this.menu) {
+            try { this.menuManager.removeMenu(this.menu); } catch (e) { /* starejsi Cinnamon */ }
+            this.menu.destroy();
+            this.menu = null;
+        }
     }
 }
 
