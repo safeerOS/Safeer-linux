@@ -27,7 +27,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from . import knjiznica_kroga, media_servers, os_media, os_police, zakoniti_viri
+from . import knjiznica_kroga, media_servers, os_media, os_police, samodejni_seznami, zakoniti_viri
 
 #: Posnetek YouTube: natanko 11 znakov iz te abecede.
 YOUTUBE_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -271,6 +271,8 @@ class Katalog:
         self._zaklep_ponudbe = threading.Lock()
         #: (tmdb, sezona, epizoda) -> (cas, naslednja epizoda ali None) - glej _naslednja_epizoda_kataloga.
         self._naslednje: dict = {}
+        #: Samodejni seznami (core/samodejni_seznami.py): izracunani v ozadju najvec enkrat na 10 minut.
+        self._samodejni: dict = {"cas": 0.0, "seznami": [], "racunam": False}
 
     # ------------------------------------------------------------------ jedro
     @property
@@ -345,6 +347,9 @@ class Katalog:
         "mediaPolice": "_police", "mediaPriljubljena": "_priljubljena", "mediaOgledano": "_ogledano",
         "mediaPolicaPredvajaj": "_polica_predvajaj", "mediaPredvajanTok": "_predvajan_tok",
         "mediaNaslednjaPredvajaj": "_naslednja_predvajaj", "mediaNaslednjaPreklici": "_naslednja_preklici",
+        "mediaSkrito": "_skrito", "mediaSkrij": "_skrij",
+        "mediaSamodejniSeznami": "_samodejni_seznami", "mediaSamodejniSeznam": "_samodejni_seznam",
+        "mediaSamodejniShrani": "_samodejni_shrani",
     }
 
     @staticmethod
@@ -457,6 +462,192 @@ class Katalog:
 
     def _odkrij_dlna(self, _a: list) -> Any:
         return media_servers.odkrij_dlna()
+
+    # ------------------------------------------------------------------ prilagojen meni (skriti zavihki in viri)
+    #: Kljuc skritega predmeta leve navigacije: "kat:<zavihek>" ali "vir:<id vira>" ("vir:mape" = Ta racunalnik).
+    _SKRITO = re.compile(r"^(?:kat|vir):[\w:.\-]{1,200}$")
+    NAJVEC_SKRITIH = 300
+
+    def _skriti(self) -> list:
+        vrednost = self._nastavitve().get("media_skrito")
+        if not isinstance(vrednost, list):
+            return []
+        return sorted({str(k) for k in vrednost if self._SKRITO.match(str(k)) and str(k) != "kat:domov"})[:self.NAJVEC_SKRITIH]
+
+    def _skrito(self, _a: list) -> list:
+        """Kaj je uporabnik skril iz leve navigacije Medijskega centra (skupno glavnemu oknu in Safeer Playerju)."""
+        return self._skriti()
+
+    def _skrij(self, a: list) -> list:
+        """[kljuc, da]: skrij ali spet pokazi zavihek oziroma vir v navigaciji. Samo videz menija - podatki, viri in
+        iskanje ostanejo nespremenjeni. Domov se ne da skriti."""
+        k, da = self._niz(a, 0), bool(a[1]) if len(a) > 1 else True
+        if not self._SKRITO.match(k) or k == "kat:domov":
+            raise ValueError("Neveljaven predmet menija.")
+        skrito = set(self._skriti())
+        if da:
+            skrito.add(k)
+        else:
+            skrito.discard(k)
+        d = self._nastavitve()
+        d["media_skrito"] = sorted(skrito)[:self.NAJVEC_SKRITIH]
+        self._shrani_nastavitve(d)
+        izid = self._skriti()
+        self.dogodek("mediaSkrito", izid)          # drugo okno (glavno ali Safeer Player) se uskladi takoj
+        return izid
+
+    # ------------------------------------------------------------------ samodejni seznami (core/samodejni_seznami.py)
+    _NASLOVNICE = ("cover.jpg", "cover.png", "folder.jpg", "folder.png", "front.jpg", "front.png")
+
+    def _naslovnica_mape(self, mapa: Path, predpomnilnik: dict) -> str:
+        """Prava naslovnica albuma v mapi (cover.jpg, folder.jpg ...), ce obstaja; brez nje kartica pokaze znak."""
+        kljuc = str(mapa)
+        if kljuc not in predpomnilnik:
+            najdeno = ""
+            try:
+                imena = {p.name.casefold(): p for p in mapa.iterdir() if p.is_file()}
+                najdeno = next((imena[i].as_uri() for i in self._NASLOVNICE if i in imena), "")
+            except OSError:
+                pass
+            predpomnilnik[kljuc] = najdeno
+        return predpomnilnik[kljuc]
+
+    @staticmethod
+    def _oznake_datoteke(pot: str) -> tuple:
+        """(izvajalec, zvrst) iz oznak datoteke, ce je mutagen namescen; sicer prazno (izvajalec iz imena datoteke)."""
+        try:
+            from mutagen import File as MutagenFile
+            oznake = MutagenFile(pot, easy=True) or {}
+            prvi = lambda *imena: next((str(oznake.get(i)[0]) for i in imena if oznake.get(i)), "")  # noqa: E731
+            return prvi("artist", "albumartist"), prvi("genre")
+        except Exception:  # noqa: BLE001 - brez mutagena ali pokvarjena datoteka: ime datoteke
+            return "", ""
+
+    def _zberi_skladbe(self) -> list:
+        """Vsa uporabnikova glasba za samodejne sezname: krajevna knjiznica, skladbe osebnih streznikov (Navidrome,
+        Funkwhale, Jellyfin, DLNA ...) in skladbe iz kataloga, ki jih je predvajal. Stevci predvajanj iz knjiznice in
+        core/os_police.py. Bere disk in omrezje - samo v ozadni niti."""
+        skladbe, vnosi, naslovnice = [], {}, {}
+        oznake = getattr(self, "_oznake", {})
+        try:
+            for v in self.lokalna.glasba(3000):
+                if not v["naVoljo"]:
+                    continue
+                pot = Path(v["pot"])
+                try:
+                    kljuc_oznak = (str(pot), int(pot.stat().st_mtime))
+                except OSError:
+                    continue
+                if kljuc_oznak not in oznake:
+                    oznake[kljuc_oznak] = self._oznake_datoteke(str(pot))
+                izvajalec, zanr = oznake[kljuc_oznak]
+                ime = str(v.get("ime") or pot.stem)
+                izvajalec = izvajalec or samodejni_seznami.izvajalec_iz_imena(pot.name)
+                if izvajalec and ime.casefold().startswith(izvajalec.casefold()):
+                    ime = re.sub(r"^\s*[-–—]\s*", "", ime[len(izvajalec):]) or ime
+                skladbe.append({"id": "pot:" + str(pot), "naslov": ime, "izvajalec": izvajalec, "zanr": zanr,
+                                "slika": self._naslovnica_mape(pot.parent, naslovnice), "pot": str(pot), "url": pot.as_uri(),
+                                "dodano": v.get("dodano"), "zadnjic": v.get("zadnjic"), "n": v.get("predvajanj"),
+                                "sekund": v.get("trajanje")})
+        except Exception as e:  # noqa: BLE001 - zaklenjena baza ne ustavi ostalih virov
+            print("[SafeerMedia] samodejni seznami (knjiznica): %s" % type(e).__name__, flush=True)
+        self._oznake = dict(list(oznake.items())[-5000:])
+        stevci = {}
+        for k, v in self.police.predvajanja().items():
+            m = v.get("m") if isinstance(v.get("m"), dict) else {}
+            if str(m.get("vrsta") or "") in os_police.ZVOCNE and m.get("id") and m.get("naslov"):
+                stevci[str(m["id"])] = (int(v.get("n") or 0), int(v.get("t") or 0))
+                if str(m.get("url") or "").startswith(("http://", "https://")):
+                    skladbe.append({"id": str(m["id"]), "naslov": m["naslov"], "izvajalec": m.get("izvajalec"), "slika": m.get("slika"),
+                                    "url": m["url"], "n": v.get("n"), "zadnjic": v.get("t")})
+                    vnosi[str(m["id"])] = {"id": str(m["id"]), "naslov": m["naslov"], "izvajalec": m.get("izvajalec") or "",
+                                           "slika": m.get("slika") or "", "vrsta": "glasba", "url": m["url"]}
+        osebni = getattr(self.mc, "_personal_items", None)
+        if osebni is not None:
+            try:
+                for item in osebni(""):
+                    if not isinstance(item, dict) or item.get("vrsta") != "glasba" or not item.get("id") or not item.get("url"):
+                        continue
+                    n, t = stevci.get(str(item["id"]), (0, 0))
+                    zanri = item.get("zanri")
+                    skladbe.append({"id": str(item["id"]), "naslov": item.get("naslov"), "izvajalec": item.get("izvajalec"),
+                                    "zanr": ", ".join(str(z) for z in zanri) if isinstance(zanri, list) else zanri,
+                                    "slika": item.get("slika"), "url": item["url"], "n": n, "zadnjic": t,
+                                    "sekund": item.get("trajanje")})
+                    vnosi[str(item["id"])] = item
+            except Exception as e:  # noqa: BLE001 - nedosegljiv streznik ne ustavi knjiznice
+                print("[SafeerMedia] samodejni seznami (strezniki): %s" % type(e).__name__, flush=True)
+        self._samodejni_vnosi = vnosi
+        return skladbe
+
+    def izracunaj_samodejne(self) -> list:
+        seznami = samodejni_seznami.sestavi(self._zberi_skladbe(), time.time())
+        with self._zaklep:
+            spremenjeno = samodejni_seznami.povzetek(seznami) != samodejni_seznami.povzetek(self._samodejni["seznami"])
+            self._samodejni.update(seznami=seznami, cas=time.time())
+        if spremenjeno:
+            self.dogodek("mediaSamodejniOsvezeni", None)
+        return seznami
+
+    def _samodejni_seznami(self, _a: list) -> dict:
+        """Povzetek samodejnih seznamov iz predpomnilnika; starejse od 10 minut se v ozadju izracuna znova (stran dobi
+        dogodek »mediaSamodejniOsvezeni«, ko so novi)."""
+        with self._zaklep:
+            star = time.time() - self._samodejni["cas"] >= samodejni_seznami.OSVEZI_S
+            racuna = self._samodejni["racunam"]
+            if star and not racuna:
+                self._samodejni["racunam"] = racuna = True
+            else:
+                star = False
+            seznami = samodejni_seznami.povzetek(self._samodejni["seznami"])
+
+        def delo():
+            try:
+                self.izracunaj_samodejne()
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerMedia] samodejni seznami: %s" % e, flush=True)
+            finally:
+                with self._zaklep:      # tudi po napaki (streznik ne odgovori): naslednji poskus cez 10 minut
+                    self._samodejni.update(racunam=False, cas=time.time())
+        if star:
+            threading.Thread(target=delo, name="samodejni-seznami", daemon=True).start()
+        return {"seznami": seznami, "racuna": racuna}
+
+    def _najdi_samodejni(self, ident: str) -> Optional[dict]:
+        with self._zaklep:
+            return next((x for x in self._samodejni["seznami"] if x["id"] == ident), None)
+
+    @staticmethod
+    def _id_lokalne(pot: str) -> str:
+        import hashlib
+        return "samodejno-lokalno:" + hashlib.sha1(pot.encode("utf-8"), usedforsecurity=False).hexdigest()[:20]
+
+    def _samodejni_seznam(self, a: list) -> dict:
+        """Skladbe samodejnega seznama kot vnosi kataloga (vrsta predvajanja na strani, predvajanje kot katalog)."""
+        sz = self._najdi_samodejni(self._niz(a, 0))
+        if not sz:
+            return {"vnosi": []}
+        vnosi, mc = [], self.mc
+        izvorni = getattr(self, "_samodejni_vnosi", {})
+        for s in sz["skladbe"]:
+            if s["pot"]:
+                vnos = {"id": self._id_lokalne(s["pot"]), "naslov": s["naslov"], "izvajalec": s["izvajalec"], "slika": s["slika"],
+                        "vrsta": "glasba", "url": s["url"], "pot": s["pot"], "vir": ""}
+            else:
+                vnos = dict(izvorni.get(s["id"]) or {"id": s["id"], "naslov": s["naslov"], "izvajalec": s["izvajalec"],
+                                                       "slika": s["slika"], "vrsta": "glasba", "url": s["url"]})
+            mc._dynamic_items[vnos["id"]] = vnos
+            vnosi.append({k: vnos.get(k) for k in ("id", "naslov", "izvajalec", "slika", "vrsta", "vir")})
+        return {"id": sz["id"], "vnosi": vnosi}
+
+    def _samodejni_shrani(self, a: list) -> dict:
+        """»Shrani kot seznam«: samodejni seznam postane navaden seznam predvajanja (se ne spreminja vec)."""
+        sz = self._najdi_samodejni(self._niz(a, 0))
+        if not sz:
+            return {"napaka": "ni_mogoce"}
+        skladbe = [{"naslov": s["naslov"], "izvajalec": s["izvajalec"], "slika": s["slika"], "sekund": s["sekund"], "url": s["url"]}
+                   for s in sz["skladbe"] if s["url"]]
+        return self.mc.shrani_seznam(self._niz(a, 1), skladbe)
 
     # ------------------------------------------------------------------ seznami predvajanja
     def _seznami(self, _a: list) -> Any:
@@ -572,7 +763,15 @@ class Katalog:
         if nacin:
             self._preklici_ponudbo()  # uporabnik je izbral drugo vsebino: ponujena epizoda se ne zacne sama
         kljuc = os_police.kljuc_vnosa(dict(item, id=str(item.get("id") or ident)))
-        if nacin in ("youtube", "neposredno"):
+        if str(item.get("id") or ident).startswith("samodejno-lokalno:") and item.get("pot"):
+            # Datoteka s samodejnega seznama: predvajanje steje krajevna knjiznica (kot klik na skladbo), ne polica -
+            # ista skladba ni dvakrat na policah.
+            kljuc = ""
+            try:
+                self.lokalna.predvajano(str(item["pot"]))
+            except Exception:  # noqa: BLE001
+                pass
+        if kljuc and nacin in ("youtube", "neposredno"):
             self.police.zapomni(kljuc, self._opis_vnosa(item, ident))
         # Dnevnik brez naslova vsebine: samo pot predvajanja in gostitelj (za iskanje napak, kot na Windows).
         print("[SafeerMedia] pot=%s vrsta=%s gostitelj=%s" % (nacin or "ni", item.get("vrsta") or "",

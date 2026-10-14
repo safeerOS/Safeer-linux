@@ -1889,6 +1889,22 @@ class MediaCenter:
             self._zapomni_izbris(ime)
         return {"ime": ime, "stevilo": len(uvoz["skladbe"]), "vir": uvoz.get("vir") or ""}
 
+    def shrani_seznam(self, ime: str, skladbe: list) -> dict:
+        """Samodejni seznam »Shrani kot seznam«: navaden seznam predvajanja z istimi skladbami (isto ime ga zamenja,
+        kot ponoven uvoz). Skladbe imajo svoj naslov (datoteka ali tok), zato posnetkov ni treba iskati."""
+        ime = str(ime or "").strip()[:60]
+        skladbe = [s for s in (skladbe or []) if isinstance(s, dict) and s.get("naslov") and
+                   str(s.get("url") or "").startswith(("http://", "https://", "file:"))][:uvoz_seznama.NAJVEC]
+        if not ime or not skladbe:
+            return {"napaka": "ni_mogoce"}
+        with self._lock:
+            vsi = self._seznami_beri()
+            prej = next((int(x.get("cas") or 0) for x in vsi if x["ime"] == ime), 0)
+            ostali = [x for x in vsi if x["ime"] != ime]
+            self._seznami_pisi([{"ime": ime, "vir": "", "cas": self._nov_cas(ime, prej), "skladbe": skladbe}] + ostali)
+            self._zapomni_izbris(ime)
+        return {"ok": True, "ime": ime, "stevilo": len(skladbe)}
+
     def poisci_posnetke(self, ime: str, ob_koncu=None) -> None:
         """
         Uvozenim skladbam brez posnetka (Spotify) v ozadju poisce posnetke: seznam dobi slike posameznih skladb in
