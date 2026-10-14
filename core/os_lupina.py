@@ -215,6 +215,18 @@ def naprave_za_izbiro(vse: list, s_programi: list, z_datotekami: list) -> list:
     return sorted(po_kljucu.values(), key=lambda v: v["ime"].lower())
 
 
+def robovi_delovnega_obmocja(zaslon, delovno) -> dict:
+    """Odmiki vsebine od robov zaslona, ki jih zasedajo pulti: {robZgoraj, robSpodaj, robLevo, robDesno} (piksli)."""
+    def r(x):   # QRect ali (x, y, sirina, visina)
+        return (x.x(), x.y(), x.width(), x.height()) if hasattr(x, "x") else tuple(x)
+    zx, zy, zs, zv = r(zaslon)
+    dx, dy, ds, dv = r(delovno)
+    if ds <= 0 or dv <= 0:
+        return {"robZgoraj": 0, "robSpodaj": 0, "robLevo": 0, "robDesno": 0}
+    return {"robZgoraj": max(0, dy - zy), "robLevo": max(0, dx - zx),
+            "robSpodaj": max(0, (zy + zv) - (dy + dv)), "robDesno": max(0, (zx + zs) - (dx + ds))}
+
+
 def velikost_okna(sirina: int, visina: int) -> tuple:
     """Velikost okna aplikacije iz delovnega obmocja: 90 %, najvec 1440 x 900, najmanj 960 x 620 (minimum okna)."""
     return (max(960, min(1440, int(sirina * 0.9))), max(620, min(900, int(visina * 0.9))))
@@ -397,7 +409,23 @@ class Namizje:
         from PySide6.QtGui import QGuiApplication
         if self.v_oknu:
             return
-        self.okno.setGeometry(QGuiApplication.primaryScreen().geometry())
+        zaslon = QGuiApplication.primaryScreen()
+        self.okno.setGeometry(zaslon.geometry())
+        self._robovi()
+        if not getattr(self, "_robovi_povezani", False):
+            self._robovi_povezani = True
+            zaslon.availableGeometryChanged.connect(lambda *_: self._robovi())
+
+    def _robovi(self) -> None:
+        """Pult Linux Minta (in drugi pulti z rezervacijo prostora) prekriva namizje, ki je cez ves zaslon: vsebina se
+        umakne za njihov prostor (delovno obmocje). Lastnik 14. 10. 2026: pasica Minta je prekrivala iskanje."""
+        from PySide6.QtGui import QGuiApplication
+        koren = self.okno.rootObject() if hasattr(self.okno, "rootObject") else None
+        if koren is None:
+            return
+        z = QGuiApplication.primaryScreen()
+        for ime, vrednost in robovi_delovnega_obmocja(z.geometry(), z.availableGeometry()).items():
+            koren.setProperty(ime, vrednost)
 
     def pokazi(self) -> None:
         if self.v_oknu:

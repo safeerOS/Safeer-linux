@@ -183,7 +183,7 @@ Item {
         zamegljeno: zamegljeno
         width: Math.min(640, koren.width * 0.46); height: 54
         anchors.horizontalCenter: parent.horizontalCenter
-        y: 18
+        y: koren.robZgoraj + 18
         polmer: 27
         TextField {
             id: polje
@@ -357,12 +357,17 @@ Item {
 
     // ------------------------------------------------------------------ paneli
     readonly property real rob: 30
-    readonly property real vrhPanelov: 104
+    // Prostor pultov (Linux Mint zgoraj ali spodaj): nastavi os_lupina iz delovnega obmocja zaslona (14. 10. 2026).
+    property real robZgoraj: 0
+    property real robSpodaj: 0
+    property real robLevo: 0
+    property real robDesno: 0
+    readonly property real vrhPanelov: robZgoraj + 104
     Steklo {
         id: medijski
         zamegljeno: zamegljeno
-        x: koren.rob; y: koren.vrhPanelov
-        width: (koren.width - 3 * koren.rob) * 0.44; height: 150
+        x: koren.robLevo + koren.rob; y: koren.vrhPanelov
+        width: (koren.width - koren.robLevo - koren.robDesno - 3 * koren.rob) * 0.44; height: 150
         Column {
             anchors.fill: parent; anchors.margins: 18; spacing: 10
             RowLayout {
@@ -389,15 +394,15 @@ Item {
     Datoteke {
         id: datoteke
         zamegljeno: zamegljeno
-        x: koren.rob; y: medijski.y + medijski.height + koren.rob * 0.6
-        width: medijski.width; height: koren.height - y - koren.rob
+        x: medijski.x; y: medijski.y + medijski.height + koren.rob * 0.6
+        width: medijski.width; height: koren.height - koren.robSpodaj - y - koren.rob
     }
 
     Programi {
         id: programi
         zamegljeno: zamegljeno
         x: medijski.x + medijski.width + koren.rob; y: koren.vrhPanelov
-        width: koren.width - x - koren.rob; height: koren.height - y - koren.rob
+        width: koren.width - koren.robDesno - x - koren.rob; height: koren.height - koren.robSpodaj - y - koren.rob
     }
 
     // vstop: paneli prihajajo drug za drugim
@@ -479,7 +484,7 @@ Item {
         z: 20
         property var ob: null
         anchors.horizontalCenter: parent.horizontalCenter
-        y: koren.height - 70
+        y: koren.height - koren.robSpodaj - 70
         height: 40; radius: 20; width: vrsticaObv.width + 30
         color: koren.plosca(0.94); border.color: Qt.rgba(1, 1, 1, 0.14)
         opacity: 0; visible: opacity > 0
