@@ -5013,7 +5013,7 @@ class SafeerMintBrowser(Gtk.Window):
         else:
             self.varnostna_ikona("🎚️")
 
-        self.set_title(f"{target['title']} — Safeer Browser (Linux Mint)")
+        self.set_title(f"{target['title']} — Safeer Browser")
         self.update_star_status()
 
     def restore_closed_tab(self):
@@ -5152,7 +5152,7 @@ class SafeerMintBrowser(Gtk.Window):
                 break
 
         if self.active_tab_id == tab_id:
-            self.set_title(f"{title} — Safeer Browser (Linux Mint)")
+            self.set_title(f"{title} — Safeer Browser")
 
     def on_tab_uri_changed(self, tab_id, webview, prop):
         uri = webview.get_uri()
