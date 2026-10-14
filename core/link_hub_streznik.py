@@ -2110,7 +2110,7 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
 
     @staticmethod
     def _je_pot_datotek(pot: str) -> bool:
-        """Pot streznika datotek pod /cast: /cast/d/, /cast/thumb/, /cast/m/, /cast/live/."""
+        """Pot streznika datotek pod /cast: /cast/d/, /cast/thumb/, /cast/m/, /cast/live/, /cast/kosi/."""
         if not pot.startswith("/cast/"):
             return False
         from core import link_datoteke
