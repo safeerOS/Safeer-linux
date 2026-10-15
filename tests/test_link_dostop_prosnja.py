@@ -161,7 +161,7 @@ class Omejitve(_Osnova):
             self.assertEqual(_vprasaj(j, "d", zdaj=ZDAJ + i)[0], "pending")
         odprte = [p["jedro"] for p in link_dostop.odprte_prosnje()]
         self.assertEqual(odprte, DRUGI[1:6])
-        self.assertEqual(self.umaknjeno, [DRUGI[0] + "|d"])            # obvestilo izpadle se umakne
+        self.assertEqual(self.umaknjeno, [DRUGI[0]])                   # obvestilo naprave brez prosenj se umakne
         # Izpadla prosnja je v desetih minutah »none« (ne caka vec) in je ni mogoce odobriti.
         self.assertEqual(_vprasaj(DRUGI[0], "d", zdaj=ZDAJ + 10)[0], "none")
         self.assertFalse(link_dostop.odobri_prosnjo(DRUGI[0], "d"))
@@ -192,7 +192,7 @@ class Zavrnitev(_Osnova):
         self.assertEqual(_vprasaj(A, "d", zdaj=ZDAJ + 60)[0], "declined")
 
     def test_napacne_oblike_ne_zapisemo(self):
-        for jedro, crka in (("karkoli", "d"), (A + "-os", "d"), (A, "*"), (A, "dp"), ("", "")):
+        for jedro, crka in (("karkoli", "d"), (A + "-os", "d"), (A, "*"), (A, "dd"), (A, "d*"), (A, "dpvzd"), ("", "")):
             self.assertFalse(link_dostop.zavrni_prosnjo(jedro, crka, zdaj=ZDAJ))
         self.assertFalse(os.path.exists(link_dostop._pot()) and "zavrnjeno" in self._zapis())
 
@@ -308,10 +308,11 @@ class RacunalnikVprasa(_Osnova):
         self.idle_add = p.start()
         self.addCleanup(p.stop)
 
-    def _ukaz(self, od, dejanje, zasciteno=True, **dodatno):
+    def _ukaz(self, od, dejanje, zasciteno=True, parametri=None, **dodatno):
         """Ukaz od naprave; privzeto zasciten (kot ga oznaci core/link_hub: _zascita = jedro preverjenega kljuca)."""
         self.poslano.clear()
-        s = {"id": "u1", "type": "control.command", "sender": od, "payload": {"action": dejanje, "params": {}}}
+        s = {"id": "u1", "type": "control.command", "sender": od,
+             "payload": {"action": dejanje, "params": dict(parametri or {})}}
         if zasciteno:
             s["_zascita"] = od[:link_dostop.DOLZINA_JEDRA]
         s.update(dodatno)
@@ -353,6 +354,33 @@ class RacunalnikVprasa(_Osnova):
         self.assertEqual((o["code"], o["access_request"], o["capability"]), ("ni_dovoljeno", "none", "p"))
         self.assertEqual(self.pokazano, [])
         self.assertEqual(link_dostop.odprte_prosnje(), [])
+
+    def test_zahteva_v_ozadju_ne_odpre_obvestila(self):
+        """Lastnik, 15. 10. 2026: telefon v ozadju predpomni seznam programov (apps.list) - uporabnik ni nic zahteval,
+        zato obvestila ni. Polje obvestilo samo prepreci; dostopa nikoli ne odpre."""
+        o = self._ukaz(A, "apps.list", parametri={"background": True})
+        self.assertEqual((o["ok"], o["data"]["enabled"], o["data"]["reason"]), (True, False, "access"))
+        self.assertEqual((o["access_request"], o["capability"]), ("none", "p"))
+        self.assertEqual(self.pokazano, [])
+        self.assertEqual(link_dostop.odprte_prosnje(), [])
+        self.assertEqual(link_dostop.zmoznosti(A), set())
+        # Samo pravi True; "true", 1 ... so navadna zahteva.
+        o = self._ukaz(A, "apps.list", parametri={"background": "true"})
+        self.assertEqual(o["access_request"], "pending")
+        self.assertEqual(len(self.pokazano), 1)
+        # Prosnja ze caka (uporabnik je odprl programe): zahteva v ozadju izve, da caka, novega obvestila ni.
+        o = self._ukaz(A, "apps.list", parametri={"background": True})
+        self.assertEqual(o["access_request"], "pending")
+        self.assertEqual(len(self.pokazano), 1)
+        link_dostop.zavrni_prosnjo(A, "p")
+        self.assertEqual(self._ukaz(A, "apps.list", parametri={"background": True})["access_request"], "declined")
+        self.assertEqual(link_dostop.zmoznosti(A), set())
+
+    def test_v_ozadju_jedro(self):
+        self.assertEqual(_vprasaj(A, "p", zdaj=ZDAJ, v_ozadju=True), ("none", "p"))
+        self.assertEqual((self.pokazano, link_dostop.odprte_prosnje()), ([], []))
+        self.assertEqual(_vprasaj(A, "p", zdaj=ZDAJ), ("pending", "p"))     # uporabnik sam: obvestilo
+        self.assertEqual(len(self.pokazano), 1)
 
     def test_po_zavrnitvi_declined(self):
         self._ukaz(A, "files.list")
@@ -426,7 +454,7 @@ class Obvestilo(unittest.TestCase):
         Gio, GLib = self._gio()
         app = mock.Mock()
         ident = link_dostop.poslji_obvestilo(app, Gio, GLib, {"jedro": A, "ime": "Druzinski\ntelefon", "zmoznost": "d"}, "sl")
-        self.assertEqual(ident, "safeer-dostop-" + A + "|d")
+        self.assertEqual(ident, "safeer-dostop-" + A)                  # eno obvestilo na napravo
         Gio.Notification.new.assert_called_once_with("Safeer Link")
         o = Gio.Notification.new.return_value
         o.set_body.assert_called_once_with("Druzinski telefon prosi za dostop: datoteke na tem računalniku.")
@@ -457,12 +485,12 @@ class Obvestilo(unittest.TestCase):
         link_dostop.registriraj_dejanja(app, Gio, GLib, dovoli, zavrni, odpri)
         self.assertEqual(set(dejanja), {"dostop-dovoli", "dostop-zavrni", "dostop-naprave"})
         self.assertEqual(app.add_action.call_count, 3)
-        for slab in ("", "karkoli", A + "|*", A + "-os|d", A + "|dp", None):
+        for slab in ("", "karkoli", A + "|*", A + "-os|d", A + "|dd", A + "|dx", A + "|", None):
             dejanja["dostop-dovoli"](None, slab)
         dovoli.assert_not_called()
         dejanja["dostop-dovoli"](None, mock.Mock(get_string=lambda: A + "|p"))
         dovoli.assert_called_once_with(A, "p")
-        app.withdraw_notification.assert_called_once_with("safeer-dostop-" + A + "|p")
+        app.withdraw_notification.assert_called_once_with("safeer-dostop-" + A)
         dejanja["dostop-zavrni"](None, A + "|d")
         zavrni.assert_called_once_with(A, "d")
         dejanja["dostop-naprave"](None, None)
@@ -556,6 +584,168 @@ class VecProgramovZavrnjeno(_Osnova):
         self.assertEqual(sorted(zapis["naprave"]), sorted([A] + ["n-%016x" % (0x3000 + i) for i in range(100)]))
         self.assertEqual(sorted(zapis["zavrnjeno"]), sorted("n-%016x|d" % (0x4000 + i) for i in range(100)))
         self.assertEqual(sorted(os.listdir(os.path.dirname(pot))), ["dostop.json", "dostop.json.lock"])
+
+
+class Zdruzevanje(_Osnova):
+    """Ena naprava = eno obvestilo (lastnik, 15. 10. 2026: telefon je hkrati zaprosil za predvajalnik, zaslon in
+    programe; racunalnik je pokazal tri obvestila zapored)."""
+
+    def _javi_prikaz(self):
+        self.razporejeno = []
+        self.prikaz = link_dostop.ZdruzenPrikaz(
+            self.pokazano.append, self.umaknjeno.append, lambda s, klic: self.razporejeno.append((s, klic)))
+        link_dostop.nastavi_prikaz(self.prikaz.pokazi, self.prikaz.umakni)
+
+    def _izvedi(self):
+        cakajo, self.razporejeno = self.razporejeno, []
+        for _s, klic in cakajo:
+            klic()
+
+    def test_tri_hkratne_prosnje_eno_obvestilo(self):
+        for crka in "vzp":
+            self.assertEqual(_vprasaj(A + "-os", crka, zdaj=ZDAJ + 0.1)[0], "pending")
+        self.assertEqual([s for s, _ in self.razporejeno], [link_dostop.ZDRUZI_S])   # en odlozen prikaz
+        self.assertEqual(self.pokazano, [])
+        self._izvedi()
+        self.assertEqual(len(self.pokazano), 1)
+        p = self.pokazano[0]
+        self.assertEqual((p["jedro"], p["zmoznosti"], p["ime"]), (A, "vzp", "Druzinski telefon"))
+        self.assertEqual(link_dostop.telo_obvestila(p, "sl"),
+                         "Druzinski telefon prosi za dostop: predvajalnik, zaslon in upravljanje, programi na tem računalniku.")
+        self.assertEqual(link_dostop.telo_obvestila(p, "en"),
+                         "Druzinski telefon is asking for access: player, screen and control, apps on this computer.")
+        self.assertEqual(link_dostop.zmoznosti(A), set())               # prosnje same ne odprejo nicesar
+
+    def test_poznejsa_prosnja_iste_naprave_zamenja_obvestilo(self):
+        _vprasaj(A, "v", zdaj=ZDAJ)
+        self._izvedi()
+        _vprasaj(A, "d", zdaj=ZDAJ + 30)
+        self._izvedi()
+        self.assertEqual([p["zmoznosti"] for p in self.pokazano], ["v", "vd"])
+        Gio, GLib = mock.MagicMock(), mock.MagicMock()
+        GLib.Variant.side_effect = lambda tip, v: ("V", tip, v)
+        app = mock.Mock()
+        idji = {link_dostop.poslji_obvestilo(app, Gio, GLib, p, "sl") for p in self.pokazano}
+        self.assertEqual(idji, {"safeer-dostop-" + A})                  # isti id: namizje ga zamenja
+        gumbi = [c.args for c in Gio.Notification.new.return_value.add_button_with_target.call_args_list[-2:]]
+        self.assertEqual(gumbi, [("Dovoli", "app.dostop-dovoli", ("V", "s", A + "|vd")),
+                                 ("Zavrni", "app.dostop-zavrni", ("V", "s", A + "|vd"))])
+
+    def test_razlicni_napravi_dve_obvestili(self):
+        _vprasaj(A, "v", zdaj=ZDAJ)
+        _vprasaj(DRUGI[0], "v", zdaj=ZDAJ)
+        _vprasaj(A, "z", zdaj=ZDAJ)
+        self._izvedi()
+        self.assertEqual(sorted((p["jedro"], p["zmoznosti"]) for p in self.pokazano), sorted([(A, "vz"), (DRUGI[0], "v")]))
+
+    def test_dovoli_odobri_vse_nastete_z_enim_zapisom(self):
+        for crka in "vzp":
+            _vprasaj(A, crka, zdaj=ZDAJ)
+        self._izvedi()
+        pravi = link_dostop._na_disk
+        with mock.patch.object(link_dostop, "_na_disk", side_effect=pravi) as zapis:
+            self.assertTrue(link_dostop.odobri_prosnjo(A, "vzp"))
+        self.assertEqual(zapis.call_count, 1)
+        self.assertEqual(link_dostop.zmoznosti(A), {"v", "z", "p"})
+        self.assertEqual(self._zapis()["naprave"], {A: "pvz"})
+        self.assertEqual(link_dostop.odprte_prosnje(), [])
+        self.assertIn(A, self.umaknjeno)                                # obvestilo se umakne
+        self.assertFalse(link_dostop.odobri_prosnjo(A, "vzp"))         # enkrat
+        self.assertEqual(_vprasaj(A, "z", zdaj=ZDAJ)[0], "none")         # zdaj ima dostop
+
+    def test_dovoli_samo_nasteto_in_samo_odprto(self):
+        for crka in "vz":
+            _vprasaj(A, crka, zdaj=ZDAJ)
+        self.assertTrue(link_dostop.odobri_prosnjo(A, "vzd"))           # d ni bil zaprosen: ne odpre se
+        self.assertEqual(link_dostop.zmoznosti(A), {"v", "z"})
+        self.assertFalse(link_dostop.odobri_prosnjo(A, "d"))
+        self.assertFalse(link_dostop.odobri_prosnjo(A, "dpvz*"))
+        self.assertEqual(link_dostop.zmoznosti(A), {"v", "z"})
+
+    def test_dovoli_delno_pusti_ostalo_v_obvestilu(self):
+        for crka in "vzp":
+            _vprasaj(A, crka, zdaj=ZDAJ)
+        self._izvedi()
+        self.pokazano.clear()
+        self.assertTrue(link_dostop.odobri_prosnjo(A, "vz"))            # obvestilo je bilo pokazano pred »p«
+        self.assertEqual(link_dostop.zmoznosti(A), {"v", "z"})
+        self._izvedi()
+        self.assertEqual([p["zmoznosti"] for p in self.pokazano], ["p"])
+
+    def test_zavrni_zavrne_vse_nastete_za_24_ur(self):
+        for crka in "vzp":
+            _vprasaj(A, crka, zdaj=ZDAJ)
+        self.assertTrue(link_dostop.zavrni_prosnjo(A, "vzp", zdaj=ZDAJ + 1))
+        self.assertEqual(link_dostop.odprte_prosnje(), [])
+        self.assertEqual(self._zapis()["zavrnjeno"], {A + "|v": ZDAJ + 1, A + "|z": ZDAJ + 1, A + "|p": ZDAJ + 1})
+        self.assertIn(A, self.umaknjeno)
+        for crka in "vzp":
+            self.assertEqual(_vprasaj(A, crka, zdaj=ZDAJ + 3600), ("declined", crka))
+        self.assertEqual(_vprasaj(A, "d", zdaj=ZDAJ + 3600)[0], "pending")   # nenasteta crka ni zavrnjena
+        self.assertEqual(_vprasaj(A, "z", zdaj=ZDAJ + 2 + 86400)[0], "pending")
+        self.assertEqual(link_dostop.zmoznosti(A), set())
+
+    def test_ob_prikazu_sveze_stanje(self):
+        """Kar je bilo med cakanjem odobreno ali zavrnjeno, se ne pokaze; ce ni nic vec odprto, se obvestilo umakne."""
+        _vprasaj(A, "v", zdaj=ZDAJ)
+        _vprasaj(A, "z", zdaj=ZDAJ)
+        link_dostop.zavrni_prosnjo(A, "z", zdaj=ZDAJ)
+        self._izvedi()
+        self.assertEqual([p["zmoznosti"] for p in self.pokazano], ["v"])
+        _vprasaj(DRUGI[0], "d", zdaj=ZDAJ)
+        link_dostop.odobri_prosnjo(DRUGI[0], "d")
+        self.pokazano.clear()
+        self._izvedi()
+        self.assertEqual(self.pokazano, [])
+        self.assertIn(DRUGI[0], self.umaknjeno)
+
+    def test_neuspel_prikaz_zapre_prosnje_naprave(self):
+        _vprasaj(A, "v", zdaj=ZDAJ)
+        self.prikaz._pokazi = mock.Mock(side_effect=RuntimeError("ni obvestil"))
+        self._izvedi()
+        self.assertEqual(link_dostop.odprte_prosnje(), [])
+        self.assertEqual(_vprasaj(A, "v", zdaj=ZDAJ + 5)[0], "none")      # naprava ne caka zaman
+        self.assertFalse(link_dostop.odobri_prosnjo(A, "v"))
+
+    def test_varnost_ostane(self):
+        # Nezasciteno in neznana naprava: ni prosnje, ni obvestila.
+        self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(A, "v", zdaj=ZDAJ), ("none", "v"))
+        self.assertEqual(_vprasaj(B, "v", zdaj=ZDAJ), ("none", "v"))
+        self.assertEqual(self.razporejeno, [])
+        # Ime iz kroga, ne iz sporocila; najvec pet odprtih tudi pri zdruzevanju.
+        for i, j in enumerate(DRUGI[:3]):
+            for crka in "vz":
+                _vprasaj(j, crka, zdaj=ZDAJ + i)
+        self.assertEqual(len(link_dostop.odprte_prosnje()), link_dostop.NAJVEC_PROSENJ)
+        self.assertEqual(sorted(p["jedro"] + p["zmoznost"] for p in link_dostop.odprte_prosnje()),
+                         sorted([DRUGI[0] + "z", DRUGI[1] + "v", DRUGI[1] + "z", DRUGI[2] + "v", DRUGI[2] + "z"]))
+        self.assertFalse(link_dostop.odobri_prosnjo(DRUGI[0], "v"))     # izpadla prosnja se ne odobri
+        self._izvedi()
+        self.assertEqual(sorted((p["jedro"], p["zmoznosti"]) for p in self.pokazano),
+                         sorted([(DRUGI[0], "z"), (DRUGI[1], "vz"), (DRUGI[2], "vz")]))
+        self.assertTrue(all(p["ime"].startswith("Naprava ") for p in self.pokazano))
+        # Brez klika nic: zapis dovoljenj je prazen.
+        self.assertEqual(link_dostop.zmoznosti(DRUGI[1]), set())
+
+    def test_dejanje_gumba_nosi_vse_crke(self):
+        Gio, GLib = mock.MagicMock(), mock.MagicMock()
+        dejanja = {}
+
+        def nova(ime, tip):
+            d = mock.Mock()
+            d.connect.side_effect = lambda _sig, fn: dejanja.__setitem__(ime, fn)
+            return d
+        Gio.SimpleAction.new.side_effect = nova
+        app = mock.Mock()
+        link_dostop.registriraj_dejanja(app, Gio, GLib, link_dostop.odobri_prosnjo, link_dostop.zavrni_prosnjo, mock.Mock())
+        for crka in "vzp":
+            _vprasaj(A, crka, zdaj=ZDAJ)
+        _vprasaj(DRUGI[0], "d", zdaj=ZDAJ)
+        dejanja["dostop-dovoli"](None, A + "|vzp")
+        self.assertEqual(link_dostop.zmoznosti(A), {"v", "z", "p"})
+        dejanja["dostop-zavrni"](None, DRUGI[0] + "|d")
+        self.assertEqual(_vprasaj(DRUGI[0], "d", zdaj=ZDAJ + 60)[0], "declined")
+        self.assertEqual(link_dostop.zmoznosti(DRUGI[0]), set())
 
 
 if __name__ == "__main__":

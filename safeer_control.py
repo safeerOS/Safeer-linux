@@ -1024,7 +1024,11 @@ class SafeerControl(_OSNOVA):
         # uporabnika tu; klik na obvestilo odpre seznam naprav. Velja za samostojni Control in Control v Safeer OS
         # (oba sta ta aplikacija z istim ID-jem).
         link_dostop.registriraj_dejanja(self, Gio, GLib, self.dostop_dovoli, self.dostop_zavrni, self.dostop_odpri_naprave)
-        link_dostop.nastavi_prikaz(self._pokazi_prosnjo_dostopa, self._umakni_prosnjo_dostopa)
+        # Eno obvestilo na napravo: prosnje iste naprave v ZDRUZI_S gredo skupaj (lastnik, 15. 10. 2026: trije pozivi).
+        prikaz = link_dostop.ZdruzenPrikaz(
+            self._pokazi_prosnjo_dostopa, self._umakni_prosnjo_dostopa,
+            lambda s, klic: GLib.timeout_add(int(s * 1000), lambda: (klic(), False)[1]))
+        link_dostop.nastavi_prikaz(prikaz.pokazi, prikaz.umakni)
         if self.ozadje:
             self.hold()  # brez okna bi se GApplication koncal; ikona v pladnju ga drzi
         self._izvozi_naprave()
@@ -1035,7 +1039,7 @@ class SafeerControl(_OSNOVA):
 
     # ------------------------------------------------------------------ prosnje za dostop (core/link_dostop)
     def _pokazi_prosnjo_dostopa(self, prosnja: dict) -> None:
-        """Klic iz niti Linka: obvestilo posljemo z glavne niti."""
+        """Obvestilo s prosnjami ene naprave (link_dostop.ZdruzenPrikaz); poslje se z glavne niti."""
         def poslji() -> bool:
             try:
                 link_dostop.poslji_obvestilo(self, Gio, GLib, prosnja, self.nastavitve.get("ui_language"))
@@ -1048,7 +1052,7 @@ class SafeerControl(_OSNOVA):
         GLib.idle_add(lambda: (link_dostop.umakni_obvestilo(self, kljuc), False)[1])
 
     def dostop_dovoli(self, jedro: str, zmoznost: str) -> bool:
-        """»Dovoli« v obvestilu: samo ta zmoznost in samo, ce prosnja res caka."""
+        """»Dovoli« v obvestilu: nastete zmoznosti (ena ali vec crk) in od teh samo tiste, ki res cakajo."""
         if self.link is not None:
             return self.link.odobri_prosnjo_dostopa(jedro, zmoznost)
         return link_dostop.odobri_prosnjo(jedro, zmoznost)
