@@ -528,7 +528,11 @@ class Namizje:
         elif metoda == "videzNamizja":
             odg(klic_id, True, self.videz())
         elif metoda == "nastaviVidezNamizja":
-            nastavi_videz(self.os.shramba, a[0] if a and isinstance(a[0], dict) else {}, self._nastavi_ozadje_sistema)
+            sprememba = a[0] if a and isinstance(a[0], dict) else {}
+            if isinstance(sprememba.get("sporocila"), bool):
+                # Sporocila v celoti (Prilagodi namizje): isti vklop kot v Nastavitvah Safeer OS (core/sporocila/vklop.py).
+                self.os._nastavi_sporocila(sprememba["sporocila"])
+            nastavi_videz(self.os.shramba, sprememba, self._nastavi_ozadje_sistema)
             v = self.videz()
             odg(klic_id, True, v)
             self.dogodek("videz", v)
@@ -564,6 +568,8 @@ class Namizje:
         v = videz_za_qml(self.os.shramba, os_sistem.ozadje_namizja() or "", jezik or so._jezik(), p)
         # cinnamon: velikost besedila in kontrast se nastavita v sistemu (videzCinnamonNastavi, kot na delovni povrsini).
         v.update({"kontrast": kontrast, "tekstOdstotek": int(sistem.get("tekstOdstotek") or 100), "cinnamon": bool(sistem.get("naVoljo"))})
+        from core.sporocila import vklop
+        v["sporocila"] = vklop.sporocila_vklopljena()
         return v
 
     def _spremljaj_temo(self) -> None:

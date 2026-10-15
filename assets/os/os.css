@@ -1229,3 +1229,39 @@ body.v-mediji #ozadje::after, body.predvajalnik #ozadje::after { background: var
 .media-samodejni-shrani svg { width: 16px; height: 16px; flex: none; }
 .media-samodejni-shrani span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .media-samodejni-shrani:hover { color: var(--besedilo); border-color: var(--zelena); background: var(--media-poudarek); }
+
+/* ==== Vgrajeni kanali Sporocil (spletni klepeti, namizni programi) - core/os_kanali_sporocil.py ====
+   Kanal je nad stranjo na mestu #vgrajenKanalVsebina (Safeer OS ga tja postavi); stran pusti prostor prazen. */
+.nabiralnik.kanal-odprt { grid-template-columns:200px 1fr; }
+.nabiralnik.kanal-odprt .nabiralnik-seznam, .nabiralnik.kanal-odprt .pogovor-okno { display:none; }
+@media (max-width: 1100px) {
+  /* ozko okno: seznam kanalov ostane viden ob odprtem kanalu (drugace ga ne bi mogli zamenjati) */
+  .nabiralnik.kanal-odprt { grid-template-columns:180px 1fr; }
+  .nabiralnik.kanal-odprt .nabiralnik-mape { display:flex; }
+}
+.vgrajen-kanal { display:flex; flex-direction:column; min-width:0; min-height:0; }
+.vgrajen-kanal[hidden] { display:none; }
+.vgrajen-kanal-glava { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--rob); }
+.vgrajen-kanal-glava b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.vgrajen-kanal-glava .presledek { flex:1; }
+.vgrajen-kanal-glava .gumb-ikona[hidden] { display:none; }
+.vgrajen-kanal-vsebina { flex:1; min-height:0; position:relative; display:grid; place-items:center; background:var(--kartica-polna); }
+.vgrajen-kanal-vsebina p { max-width:36em; padding:0 18px; text-align:center; color:var(--medlo); }
+.kanal-znak { flex:none; width:24px; height:24px; border-radius:7px; display:grid; place-items:center; overflow:hidden;
+  font-size:11px; font-weight:700; color:var(--besedilo); background:var(--izbrano); }
+.kanal-znak img { width:100%; height:100%; object-fit:contain; }
+.aplikacije-vrsta .kanal-znak { width:32px; height:32px; border-radius:9px; font-size:13px; }
+.kanal-cip.vgrajen { padding-left:6px; }
+.kanal-cip.vgrajen .kanal-ime { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; }
+.kanal-cip.izbran { border-color:var(--zelena); background:var(--izbrano); }
+.kanal-cip.izklopljen { opacity:.55; }
+.kanal-cip.izklopljen i { background:var(--tise); }
+.kanal-znacka { min-width:20px; padding:1px 6px; border-radius:999px; background:var(--zelena); color:var(--zelena-temna);
+  font-size:12px; text-align:center; }
+.oznaka-dodano { color:var(--ok); font-size:13px; white-space:nowrap; }
+.svoj-klepet { display:flex; flex-direction:column; gap:8px; padding:10px; border:1px solid var(--rob); border-radius:12px; }
+.svoj-klepet .gumb { align-self:flex-end; }
+.kanal-carovnik .gumbi.levo { justify-content:flex-start; flex-wrap:wrap; }
+.kanal-carovnik .potrditev { display:flex; align-items:center; gap:8px; }
+.kanal-carovnik .stikalo { padding:12px 14px; }
+/* ==== konec: vgrajeni kanali Sporocil ==== */

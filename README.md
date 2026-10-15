@@ -26,6 +26,10 @@ build goes away.
 **Same engine as Safeer OS.** The browser and the web view in Safeer OS are one code base, so every
 improvement to the web lands in both at once.
 
+**Chats and mail on the side.** A side panel holds web chats and mail (WhatsApp, Messenger,
+Telegram, Gmail …) from the same list as Messages in Safeer OS, signed in with the same session as
+your tabs and protected by the same shield. Unread counts come from each page's title.
+
 **Protected video.** Safeer DRM, a small helper started on demand, plays Widevine-protected video
 (Netflix, Disney+ …) inside the browser tab while the web engine stays fully sandboxed.
 

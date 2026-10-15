@@ -19,6 +19,7 @@ from .sporocila.matrix import MatrixAdapter
 from .sporocila.telegram_bot import TelegramBotAdapter
 from .sporocila.model import Kanal
 from .sporocila.storitev import StoritevSporocil
+from .sporocila import vklop as _vklop
 
 # Znani ponudniki: IMAP/SMTP streznik in namig za prijavo (vecina zahteva "geslo za aplikacije").
 PONUDNIKI = {
@@ -101,7 +102,8 @@ class SporocilaOS:
         self.naprave_klepeta: Optional[Callable[[], List[dict]]] = None
         self.storitev.ob_sinhronizaciji = _sporoci
         self._nalozi()
-        if zazeni and self.storitev.adapterji:
+        # Izklopljena Sporocila (core/sporocila/vklop.py): storitev ne tece, nic ne preverja poste.
+        if zazeni and self.storitev.adapterji and _vklop.sporocila_vklopljena():
             self.storitev.zazeni()
 
     # ------------------------------------------------------------------ kanali
@@ -119,7 +121,10 @@ class SporocilaOS:
         return None
 
     def _nalozi(self):
+        izklopljeni = _vklop.izklopljeni_kanali()
         for r in self.storitev.db.execute("SELECT * FROM kanali").fetchall():
+            if r["id"] in izklopljeni:
+                continue            # izklopljen kanal se ne nalozi (nastavitve in prijava ostanejo)
             try:
                 a = self._adapter(r["id"], r["vrsta"], json.loads(r["nastavitve"] or "{}"))
             except Exception:
@@ -138,9 +143,9 @@ class SporocilaOS:
         return {"imap": imap, "smtp": smtp, "imap_vrata": 993, "smtp_vrata": 465, "namig": namig, "ponudnik": "drug"}
 
     @staticmethod
-    def ponudniki() -> dict:
-        """Seznam ponudnikov in aplikacij za carovnik »Dodaj kanal«."""
-        return _ponudniki.za_vmesnik()
+    def ponudniki(jezik: str = "sl") -> dict:
+        """Seznam ponudnikov, aplikacij in vgradljivih kanalov (imena v jeziku vmesnika) za carovnik »Dodaj kanal«."""
+        return _ponudniki.za_vmesnik(jezik)
 
     def dodaj_kanal(self, podatki: dict) -> dict:
         """Doda kanal SAMO, ce se prijava posreci - uporabnik takoj ve, ali je vse prav."""
@@ -264,12 +269,55 @@ class SporocilaOS:
 
     def odstrani_kanal(self, kanal_id: str) -> dict:
         self.storitev.odstrani_kanal(str(kanal_id))
+        _vklop.pozabi_kanal(str(kanal_id))
         return self.seznam()
+
+    # ------------------------------------------------------------------ vklop (lastnik, 15. 10. 2026)
+    def vklopi_kanal(self, kanal_id: str, vklop: bool) -> dict:
+        """Izklopljen kanal se ne povezuje, ne steje in ne obvesca; ostane na seznamu. Vklop ga takoj nalozi."""
+        kid = str(kanal_id)
+        if not any(k.id == kid for k in self.storitev.kanali()):
+            raise ValueError("Ni kanala")
+        _vklop.nastavi_kanal(kid, bool(vklop))
+        if not vklop:
+            a = self.storitev.adapterji.pop(kid, None)
+            if a is not None and hasattr(a, "zapri"):
+                try:
+                    a.zapri()
+                except Exception:  # noqa: BLE001
+                    pass
+        elif kid not in self.storitev.adapterji and kid != KANAL_LINKA:
+            r = self.storitev.db.execute("SELECT * FROM kanali WHERE id=?", (kid,)).fetchone()
+            a = self._adapter(kid, r["vrsta"], json.loads(r["nastavitve"] or "{}")) if r else None
+            if a is not None:
+                self.storitev.adapterji[kid] = a
+                if _vklop.sporocila_vklopljena():
+                    threading.Thread(target=self._prvic, args=(kid,), daemon=True).start()
+        _sporoci()
+        return self.seznam()
+
+    def ustavi(self) -> None:
+        """Sporocila izklopljena: storitev ne tece vec (brez preverjanja poste, Telegrama, Matrixa)."""
+        self.storitev.ustavi()
+        _sporoci()
+
+    def nadaljuj(self) -> None:
+        """Sporocila spet vklopljena: storitev tece, brez ponovnega zagona Safeer OS."""
+        if self.storitev.adapterji:
+            self.storitev.zazeni()
+        _sporoci()
 
     # ------------------------------------------------------------------ branje/pisanje
     def seznam(self, kanal: str = "") -> dict:
         skupine = self.storitev.zdruzeni_pogovori(kanal)
-        kanali = {k.id: k.slovar() for k in self.storitev.kanali()}
+        izklopljeni = _vklop.izklopljeni_kanali()
+        kanali = {k.id: dict(k.slovar(), vklopljen=k.id not in izklopljeni) for k in self.storitev.kanali()}
+        if izklopljeni:
+            # Pogovori izklopljenih kanalov niso v nabiralniku in se ne stejejo med neprebrane.
+            for s in skupine:
+                s["pogovori"] = [p for p in s["pogovori"] if p["kanal_id"] not in izklopljeni]
+                s["neprebrano"] = sum(int(p.get("neprebrano") or 0) for p in s["pogovori"])
+            skupine = [s for s in skupine if s["pogovori"]]
         try:
             smeri = self.storitev.zadnje_smeri()
         except Exception:
@@ -460,6 +508,8 @@ class SporocilaOS:
         od, besedilo = str(od or "").strip(), str(besedilo or "")[:NAJVEC_KLEPET]
         if not od or not besedilo.strip():
             return False
+        # Izklopljen Safeer Chat ali izklopljena Sporocila: sporocilo se shrani (ne izgubi), a ne steje in ne obvesca.
+        tiho = not _vklop.kanal_vklopljen(KANAL_LINKA)
         self._zagotovi_kanal_linka()
         sid = "chat:" + (str(sid) or uuid.uuid4().hex)
         st = self.storitev
@@ -470,9 +520,9 @@ class SporocilaOS:
         with st._zaklep, st.db:
             st.db.execute("INSERT OR REPLACE INTO sporocila VALUES(?,?,?,?,?,?,?,?)",
                           (sid, od, KANAL_LINKA, "noter", besedilo, cas, "[]", "prejeto"))
-        self._pogovor_linka(od, ime, besedilo.replace("\n", " "), cas, 1)
+        self._pogovor_linka(od, ime, besedilo.replace("\n", " "), cas, 0 if tiho else 1)
         _sporoci()
-        return True
+        return not tiho
 
     def zacni_klepet(self, naprava_id: str, ime: str) -> dict:
         """Uporabnik pise napravi prvi: pogovor obstaja, preden je kaj poslano."""

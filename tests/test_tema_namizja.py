@@ -55,7 +55,7 @@ class Povezano(unittest.TestCase):
     def test_dialogi_spleta_nad_oknom_spleta(self):
         s = (KOREN / "core" / "os_splet.py").read_text(encoding="utf-8")
         self.assertNotIn("transient_for=self.stars", s)
-        self.assertIn("def _okno_za_dialog(self)", s)
+        self.assertIn("def _okno_za_dialog(self", s)       # od 15. 10. 2026 tudi s pogledom vdelanega kanala
 
 
 if __name__ == "__main__":

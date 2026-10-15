@@ -446,7 +446,8 @@ Item {
             var d = {
                 programi: vsi.filter(function (p) { return !p.nastavitev }).slice(0, 5),
                 nastavitve: vsi.filter(function (p) { return p.nastavitev }).slice(0, 5),
-                safeer: q.length >= 2 && linux ? safeerCilji.filter(function (x) { return zadetki.ujema(koren.t(x[1]) + " " + x[2], bs) }).slice(0, 4) : [],
+                // Izklopljena Sporocila (Prilagodi): razdelka ni med zadetki.
+                safeer: q.length >= 2 && linux ? safeerCilji.filter(function (x) { return (koren.videz.sporocila !== false || x[0] !== "sporocila") && zadetki.ujema(koren.t(x[1]) + " " + x[2], bs) }).slice(0, 4) : [],
                 naprave: q.length >= 2 ? koren.naprave.filter(function (n) {
                     return zadetki.ujema(n.ime, bs) || zadetki.ujema(n.ime + " " + (besedeNaprav[n.platforma] || n.platforma || ""), bs)
                 }).slice(0, 4) : [],

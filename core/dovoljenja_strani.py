@@ -93,6 +93,19 @@ def zapomni(config, uri: str, vrste, odl: str) -> None:
     config.set("dovoljenja_strani", dict(list(strani.items())[-500:]))
 
 
+def izvori_obvestil(config) -> tuple:
+    """(dovoljeni, zavrnjeni) izvori https://gostitelj za obvestila - za WebKitov zacetni seznam dovoljenj
+    (initialize-notification-permissions), da zapomnjena odlocitev velja ze ob nalaganju strani."""
+    dovoljeni, zavrnjeni = [], []
+    for h, d in _strani(config).items():
+        o = d.get("obvestila")
+        if o == "dovoli":
+            dovoljeni.append("https://" + h)
+        elif o == "zavrni":
+            zavrnjeni.append("https://" + h)
+    return dovoljeni, zavrnjeni
+
+
 def pozabi_stran(config, gost: str) -> None:
     strani = _strani(config)
     strani.pop(gost, None)

@@ -29,21 +29,10 @@ PONUDNIKI: list[dict] = [
     {"id": DRUG, "ime": "", "domene": [], "imap": "", "imap_vrata": 993, "smtp": "", "smtp_vrata": 465, "geslo": NAVADNO, "navodila": "drug"},
 ]
 
-#: Ponudniki brez IMAP/SMTP in klepeti: na racunalniku uradna spletna aplikacija (odpre se v Safeer OS kot
-#: spletna aplikacija) ali uradna stran za prenos namizne aplikacije. Vse povezave so uradne strani ponudnikov.
+#: Ponudniki brez IMAP/SMTP in spletni klepeti so v core/spletni_klepeti.py (en katalog za Sporocila in stranske plosce
+#: vseh brskalnikov Safeer; vdelajo se v Sporocila). Tu ostanejo programi, ki v enem oknu zdruzijo vec storitev - samo
+#: uradna stran za prenos; Safeer nicesar ne prenasa sam.
 APLIKACIJE_SPOROCIL: list[dict] = [
-    {"ime": "Outlook", "vrsta": "posta", "splet": "https://outlook.live.com/mail/", "prenos": "https://www.microsoft.com/microsoft-365/outlook/email-and-calendar-software-microsoft-outlook"},
-    {"ime": "Proton Mail", "vrsta": "posta", "splet": "https://mail.proton.me/", "prenos": "https://proton.me/mail/download"},
-    {"ime": "Tuta Mail", "vrsta": "posta", "splet": "https://app.tuta.com/", "prenos": "https://tuta.com/#download"},
-    {"ime": "Signal", "vrsta": "klepet", "splet": "", "prenos": "https://signal.org/download/"},
-    {"ime": "Telegram", "vrsta": "klepet", "splet": "https://web.telegram.org/", "prenos": "https://desktop.telegram.org/"},
-    {"ime": "WhatsApp", "vrsta": "klepet", "splet": "https://web.whatsapp.com/", "prenos": "https://www.whatsapp.com/download"},
-    {"ime": "Viber", "vrsta": "klepet", "splet": "", "prenos": "https://www.viber.com/download/"},
-    {"ime": "Element (Matrix)", "vrsta": "klepet", "splet": "https://app.element.io/", "prenos": "https://element.io/download"},
-    {"ime": "Messenger", "vrsta": "klepet", "splet": "https://www.messenger.com/", "prenos": ""},
-    {"ime": "Discord", "vrsta": "klepet", "splet": "https://discord.com/app", "prenos": "https://discord.com/download"},
-    {"ime": "Slack", "vrsta": "klepet", "splet": "https://app.slack.com/", "prenos": "https://slack.com/downloads"},
-    {"ime": "Microsoft Teams", "vrsta": "klepet", "splet": "https://teams.microsoft.com/", "prenos": ""},
     # Vec kanalov v eni aplikaciji (lastnik, 12. 10. 2026): programi, ki v enem oknu zdruzijo vec storitev ali protokolov.
     # Najprej odprtokodni. Uradne strani preverjene 12. 10. 2026.
     {"ime": "Thunderbird", "vrsta": "vec", "opis": "e-pošta, koledar in klepet Matrix", "splet": "", "prenos": "https://www.thunderbird.net/"},
@@ -64,6 +53,9 @@ def iz_naslova(naslov: str) -> dict | None:
     return next((p for p in PONUDNIKI if d in p["domene"]), None)
 
 
-def za_vmesnik() -> dict:
-    """Vse, kar potrebuje spletni vmesnik (brez navodil - ta so prevedena v besedila.js)."""
-    return {"ponudniki": [{k: v for k, v in p.items()} for p in PONUDNIKI], "aplikacije": list(APLIKACIJE_SPOROCIL)}
+def za_vmesnik(jezik: str = "sl") -> dict:
+    """Vse, kar potrebuje spletni vmesnik (brez navodil - ta so prevedena v besedila.js). »klepeti«: katalog vdeljivih
+    spletnih klepetov in poste (core/spletni_klepeti.py) z imeni v jeziku vmesnika."""
+    from core import spletni_klepeti
+    return {"ponudniki": [{k: v for k, v in p.items()} for p in PONUDNIKI], "aplikacije": list(APLIKACIJE_SPOROCIL),
+            "klepeti": spletni_klepeti.za_vmesnik(jezik)}
