@@ -211,7 +211,10 @@ class LokalniPretok:
         with self._zaklep:
             rele = self._releji.get(cilj)
             if rele is None:
-                rele = (self._rele_za or link_rele.LokalniRele)(cilj)
+                # Zunaj doma: najprej neposredno (javni naslov doma, ce ga je naprava objavila in preverila), sicer
+                # prek releja - isto krajevno vrata (core/link_neposredno.LokalniOdZunaj).
+                from core import link_neposredno
+                rele = (self._rele_za or link_neposredno.od_zunaj)(cilj)
                 self._releji[cilj] = rele
         vrata = int(getattr(rele, "vrata", 0) or 0)
         with self._zaklep:
