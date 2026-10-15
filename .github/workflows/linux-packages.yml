@@ -396,6 +396,8 @@ jobs:
           xvfb-run -a dbus-run-session -- flatpak run --filesystem="$PWD/packaging:ro" --command=python3 io.github.memelandfaner.SafeerBrowser "$PWD/packaging/smoke_drm_peskovnik.py" /app/lib/safeer-browser 2>&1 | tee drm.txt || true
           grep '^FAIL: ' drm.txt | while read -r v; do echo "::error::Safeer DRM: ${v#FAIL: }"; done || true
           grep -E '^(ldd|EME|krog [12]: (dogodek|procesi))' drm.txt | head -40 | while read -r v; do echo "::notice::${v}"; done || true
+          # Vse diagnostike v eni opombi (GitHub pokaze najvec 10 opomb na korak; %0A = nova vrstica).
+          echo "::notice title=Safeer DRM diagnostika::$(grep -E '^(krog|zypak:|v peskovniku|koren|ZYPAK|Traceback|  File|[A-Za-z]+Error)' drm.txt | tail -60 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
           grep -qx PASS drm.txt
       - uses: actions/upload-artifact@v7
         with:

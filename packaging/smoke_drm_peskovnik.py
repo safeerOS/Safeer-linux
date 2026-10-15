@@ -107,11 +107,15 @@ def zazeni(exe, krog: int, cas: int) -> list:
     for x in d:
         print(f"krog {krog}: dogodek {x.get('type')} {x.get('detail', '')}"[:300], flush=True)
     print(f"krog {krog}: procesi strani (pid, Seccomp, NoNewPrivs, svoj mnt):", videni, flush=True)
-    if not zivo or not d:
+    if not zivo or not d or "NAVIGATION_OK" not in {x.get("type") for x in d}:
         try:
-            print(open(os.path.join(seja, "zypak.log"), encoding="utf-8", errors="replace").read()[-3000:], flush=True)
+            with open(os.path.join(seja, "zypak.log"), encoding="utf-8", errors="replace") as f:
+                vrstice = [v.rstrip() for v in f if v.strip()]
         except OSError:
-            pass
+            vrstice = ["(ni dnevnika)"]
+        # Ena vrstica na vrstico dnevnika s predpono »zypak:« - CI jih zdruzi v eno opombo (glej workflow).
+        for v in vrstice[-40:]:
+            print("zypak: " + v[:300], flush=True)
     return d, videni
 
 
