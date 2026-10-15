@@ -40,27 +40,35 @@ def dogodki(pot: str) -> list:
         return []
 
 
-def renderji(lastni_mnt: str) -> list:
-    """(pid, seccomp, nonewprivs, svoj mnt) za procese strani Chromiuma, ki jih vidimo."""
-    izid = []
+def procesi(lastni_mnt: str) -> dict:
+    """Kar o peskovniku Chromiuma vidimo iz peskovnika brskalnika:
+    - "renderji": (pid, Seccomp, NoNewPrivs, svoj mnt) procesov strani, ce so vidni (zypak spawn + expose-pids),
+    - "podpeskovniki": zagoni flatpak-spawn --sandbox za procese Chromiuma (zypak mimic: zygote in z njim procesi
+      strani tecejo v podpeskovniku portala, brez omrezja),
+    - "brez_peskovnika": procesi z --no-sandbox (ne sme jih biti)."""
+    izid = {"renderji": [], "podpeskovniki": [], "brez_peskovnika": []}
     for pid in os.listdir("/proc"):
         if not pid.isdigit():
             continue
         try:
             with open(f"/proc/{pid}/cmdline", "rb") as f:
-                ukaz = f.read().split(b"\0")
-            if b"--type=renderer" not in ukaz:
-                continue
-            status = open(f"/proc/{pid}/status", encoding="utf-8").read()
-            polja = dict(v.split(":", 1) for v in status.splitlines() if ":" in v)
-            try:
-                mnt = os.readlink(f"/proc/{pid}/ns/mnt")
-            except OSError:
-                mnt = "?"
-            izid.append((int(pid), polja.get("Seccomp", "?").strip(), polja.get("NoNewPrivs", "?").strip(),
-                         mnt != lastni_mnt))
+                ukaz = [a.decode("utf-8", "replace") for a in f.read().split(b"\0") if a]
         except OSError:
             continue
+        if "--no-sandbox" in ukaz:
+            izid["brez_peskovnika"].append((int(pid), " ".join(ukaz)[:200]))
+        vrsta = next((a[len("--type="):] for a in ukaz if a.startswith("--type=")), "")
+        if ukaz and os.path.basename(ukaz[0]) == "flatpak-spawn" and "--sandbox" in ukaz and vrsta:
+            izid["podpeskovniki"].append((int(pid), vrsta, "--no-network" in ukaz))
+        elif vrsta == "renderer":
+            try:
+                with open(f"/proc/{pid}/status", encoding="utf-8") as f:
+                    polja = dict(v.split(":", 1) for v in f.read().splitlines() if ":" in v)
+                mnt = os.readlink(f"/proc/{pid}/ns/mnt")
+            except OSError:
+                continue
+            izid["renderji"].append((int(pid), polja.get("Seccomp", "?").strip(), polja.get("NoNewPrivs", "?").strip(),
+                                     mnt != lastni_mnt))
     return izid
 
 
@@ -75,7 +83,7 @@ def zazeni(exe, krog: int, cas: int) -> list:
     print(f"krog {krog}: ukaz", ukaz[:2], flush=True)
     if not ukaz or ukaz[0] != safeer_drm.ZYPAK:
         fail(f"Safeer DRM se ne zazene prek zypaka: {ukaz}")
-        return [], []
+        return [], {"renderji": [], "podpeskovniki": [], "brez_peskovnika": []}
     okolje = safeer_drm.okolje_zagona()
     print("ZYPAK_EXPOSE_WIDEVINE_PATH =", okolje.get("ZYPAK_EXPOSE_WIDEVINE_PATH"), flush=True)
     okolje["SAFEER_DRM_EME_PREIZKUS"] = "1"
@@ -83,16 +91,16 @@ def zazeni(exe, krog: int, cas: int) -> list:
     dnevnik = open(os.path.join(seja, "zypak.log"), "wb")
     proces = subprocess.Popen(ukaz, env=okolje, stdout=dnevnik, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
     lastni_mnt = os.readlink("/proc/self/ns/mnt")
-    videni = []
+    videni = None
     konec = time.monotonic() + cas
     while time.monotonic() < konec and proces.poll() is None:
         time.sleep(1)
         d = dogodki(stanje)
         vrste = {x.get("type") for x in d}
-        if "NAVIGATION_OK" in vrste and not videni:
+        if "NAVIGATION_OK" in vrste and videni is None:
             time.sleep(2)
-            videni = renderji(lastni_mnt)
-        if "NAVIGATION_OK" in vrste and videni and ("EME" in vrste if krog == 2 else bool(vrste & {"DRM_READY", "DRM_FAILED"})):
+            videni = procesi(lastni_mnt)
+        if "NAVIGATION_OK" in vrste and videni is not None and ("EME" in vrste if krog == 2 else bool(vrste & {"DRM_READY", "DRM_FAILED"})):
             break
     zivo = proces.poll() is None
     if zivo:
@@ -106,7 +114,7 @@ def zazeni(exe, krog: int, cas: int) -> list:
     print(f"krog {krog}: tekel do konca preizkusa: {zivo}, izhodna koda {proces.returncode}", flush=True)
     for x in d:
         print(f"krog {krog}: dogodek {x.get('type')} {x.get('detail', '')}"[:300], flush=True)
-    print(f"krog {krog}: procesi strani (pid, Seccomp, NoNewPrivs, svoj mnt):", videni, flush=True)
+    print(f"krog {krog}: procesi:", videni, flush=True)
     if not zivo or not d or "NAVIGATION_OK" not in {x.get("type") for x in d}:
         try:
             with open(os.path.join(seja, "zypak.log"), encoding="utf-8", errors="replace") as f:
@@ -116,7 +124,7 @@ def zazeni(exe, krog: int, cas: int) -> list:
         # Ena vrstica na vrstico dnevnika s predpono »zypak:« - CI jih zdruzi v eno opombo (glej workflow).
         for v in vrstice[-40:]:
             print("zypak: " + v[:300], flush=True)
-    return d, videni
+    return d, videni or {"renderji": [], "podpeskovniki": [], "brez_peskovnika": []}
 
 
 def main() -> int:
@@ -140,11 +148,15 @@ def main() -> int:
         fail("Electron ni nalozil strani (NAVIGATION_OK) v peskovniku")
     if "PROCESS_FAILED" in v1:
         fail("proces strani se je sesul (PROCESS_FAILED)")
-    if not r1:
-        fail("procesa strani ni videti (zypak brez expose-pids?) - peskovnika ni mogoce preveriti")
-    for pid, seccomp, nnp, svoj_mnt in r1:
+    if r1["brez_peskovnika"]:
+        fail(f"procesi brez peskovnika (--no-sandbox): {r1['brez_peskovnika']}")
+    for pid, seccomp, nnp, svoj_mnt in r1["renderji"]:
         if seccomp != "2" or nnp != "1" or not svoj_mnt:
             fail(f"proces strani {pid} ni v podpeskovniku: Seccomp={seccomp} NoNewPrivs={nnp} svoj mnt={svoj_mnt}")
+    # Brez expose-pids procesov strani ne vidimo; potem mora biti viden zagon zygote v podpeskovniku portala.
+    zygote = [x for x in r1["podpeskovniki"] if x[1] == "zygote" and x[2]]
+    if not r1["renderji"] and not zygote:
+        fail(f"ni dokaza o podpeskovniku Chromiuma (ne procesov strani ne flatpak-spawn --sandbox zygote): {r1}")
     d2, _r2 = zazeni(exe, 2, 90)
     eme = [x.get("detail", "") for x in d2 if x.get("type") == "EME"]
     print("EME (com.widevine.alpha):", eme, flush=True)
