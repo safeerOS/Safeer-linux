@@ -3505,6 +3505,25 @@ class SafeerOS(Gtk.Application):
         Odgovor gre prek _odgovori nazaj istemu klicatelju."""
         # Na glavni niti (Gtk, ikone, okna):
         glavna = {
+            # Vgrajeni kanali Sporocil (core/os_kanali_sporocil.py): v GLAVNI niti - ustvarjajo gradnike GTK in poglede
+            # WebKit (v niti ozadja je proces padel ali obvisel; zivi preizkus 15. 10. 2026: »Dodaj v Sporocila« ni
+            # naredil nicesar). Seznam bere tudi zive kanale (self.zivi), ki jih spreminja samo glavna nit.
+            "kanaliSeznam": lambda: self._kanali_klic("seznam"),
+            "kanaliKatalog": lambda: self._kanali_klic("katalog"),
+            "kanalDodaj": lambda: self._kanali_klic("dodaj", str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "",
+                                                    str(a[2]) if len(a) > 2 else "", str(a[3]) if len(a) > 3 else ""),
+            "kanalOdstrani": lambda: self._kanali_klic("odstrani", str(a[0]) if a else "", len(a) > 1 and a[1] is True),
+            "kanalPreimenuj": lambda: self._kanali_klic("preimenuj", str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
+            "kanalPremakni": lambda: self._kanali_klic("premakni", str(a[0]) if a else "",
+                                                       int(a[1]) if len(a) > 1 and isinstance(a[1], (int, float)) else 1),
+            "kanalVklopi": lambda: self._kanali_klic("vklopi", str(a[0]) if a else "", len(a) < 2 or a[1] is True),
+            "kanalIzbrisiPodatke": lambda: self._kanali_klic("izbrisi_podatke", str(a[0]) if a else ""),
+            "kanalPokazi": lambda: self._kanal_pokazi(pogled, str(a[0]) if a else "",
+                                                      a[1] if len(a) > 1 and isinstance(a[1], dict) else {}),
+            "kanalPolozaj": lambda: self._kanali() is not None and self._kanali().polozaj(
+                pogled, a[0] if a and isinstance(a[0], dict) else {}),
+            "kanalSkrij": lambda: self._kanali() is not None and self._kanali().skrij(pogled),
+            "kanalUkaz": lambda: self._kanali_klic("ukaz", str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "zacetek": self._zacetek,
             "zacniVlecenje": lambda: self._zacni_vlecenje(pogled, a[0] if a else []),
             "programi": self._seznam_programov,
@@ -3818,22 +3837,6 @@ class SafeerOS(Gtk.Application):
             # Vgrajeni kanali Sporocil (spletni klepeti, namizni programi) in vklop - core/os_kanali_sporocil.py.
             "sporocilaVklop": lambda: self._nastavi_sporocila(bool(a[0]) if a else True),
             "sporocilaKanalVklop": lambda: self.sporocila.vklopi_kanal(str(a[0]), bool(a[1]) if len(a) > 1 else True),
-            "kanaliSeznam": lambda: self._kanali_klic("seznam"),
-            "kanaliKatalog": lambda: self._kanali_klic("katalog"),
-            "kanalDodaj": lambda: self._kanali_klic("dodaj", str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "",
-                                                    str(a[2]) if len(a) > 2 else "", str(a[3]) if len(a) > 3 else ""),
-            "kanalOdstrani": lambda: self._kanali_klic("odstrani", str(a[0]) if a else "", len(a) > 1 and a[1] is True),
-            "kanalPreimenuj": lambda: self._kanali_klic("preimenuj", str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
-            "kanalPremakni": lambda: self._kanali_klic("premakni", str(a[0]) if a else "",
-                                                       int(a[1]) if len(a) > 1 and isinstance(a[1], (int, float)) else 1),
-            "kanalVklopi": lambda: self._kanali_klic("vklopi", str(a[0]) if a else "", len(a) < 2 or a[1] is True),
-            "kanalIzbrisiPodatke": lambda: self._kanali_klic("izbrisi_podatke", str(a[0]) if a else ""),
-            "kanalPokazi": lambda: self._kanal_pokazi(pogled, str(a[0]) if a else "",
-                                                      a[1] if len(a) > 1 and isinstance(a[1], dict) else {}),
-            "kanalPolozaj": lambda: self._kanali() is not None and self._kanali().polozaj(
-                pogled, a[0] if a and isinstance(a[0], dict) else {}),
-            "kanalSkrij": lambda: self._kanali() is not None and self._kanali().skrij(pogled),
-            "kanalUkaz": lambda: self._kanali_klic("ukaz", str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "sporocilaNaprave": self.sporocila.naprave_za_klepet,
             "sporocilaPreimenuj": lambda: self.sporocila.preimenuj_osebo(str(a[0]), str(a[1])),
             "sporocilaZdruzi": lambda: self.sporocila.zdruzi_osebi(str(a[0]), str(a[1])),
@@ -4115,12 +4118,24 @@ class SafeerOS(Gtk.Application):
         """Moznost Sporocila v celoti (Nastavitve Safeer OS, Prilagodi namizje): izklop ustavi storitev, kanale, kuverto
         in obvestila; razdelka ni nikjer. Vklop vse vrne brez ponovnega zagona; nastavitve kanalov ostanejo."""
         sporocila_vklop.nastavi_sporocila(bool(vklop))
+        # Storitev (IMAP, Telegram ...) lahko ob ustavljanju caka na omrezje: tu, v niti klica (most: ozadje). Kanali,
+        # kuverta in okna so GTK in WebKit - samo v glavni niti (pregled 15. 10. 2026).
         if vklop:
             self.sporocila.nadaljuj()
+        else:
+            self.sporocila.ustavi()
+        if threading.current_thread() is threading.main_thread():
+            self._uskladi_vklop_sporocil(bool(vklop))
+        else:
+            GLib.idle_add(lambda: (self._uskladi_vklop_sporocil(bool(vklop)), False)[1])
+        return bool(vklop)
+
+    def _uskladi_vklop_sporocil(self, vklop: bool) -> None:
+        """Del vklopa Sporocil v glavni niti: kanali, kuverta, okno Sporocil, dogodek strani in namizju."""
+        if vklop:
             self._zacni_kanale()
             self._zacni_kuverto()
         else:
-            self.sporocila.ustavi()
             k = getattr(self, "_kanali_sporocil", None)
             if k is not None:
                 k.ustavi_vse()
@@ -4141,7 +4156,6 @@ class SafeerOS(Gtk.Application):
                 self.lupina.dogodek("videz", self.lupina.videz())
             except Exception as e:  # noqa: BLE001
                 print("[SafeerOS] videz ob vklopu Sporocil:", e)
-        return bool(vklop)
 
     def _samozagon(self, vklop: bool) -> bool:
         ok = nastavi_samozagon(vklop)

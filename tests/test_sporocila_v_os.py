@@ -95,6 +95,12 @@ class _Os:
         self.dogodki.append(("okno", ime))
         return True
 
+    def _uskladi_vklop_sporocil(self, vklop):
+        import safeer_os
+        import threading
+        self.niti_uskladitve = getattr(self, "niti_uskladitve", []) + [threading.current_thread() is threading.main_thread()]
+        return safeer_os.SafeerOS._uskladi_vklop_sporocil(self, vklop)
+
 
 class VklopSporocil(unittest.TestCase):
     def setUp(self):
@@ -130,6 +136,23 @@ class VklopSporocil(unittest.TestCase):
         self.assertEqual((o._kanali_sporocil.zagnani, o.kuverta_zacni), (1, 1))
         with mock.patch.object(self.so, "_ima_delovno", lambda _s: True):
             self.assertTrue(self.so.SafeerOS._odpri_razdelek(o, "sporocila"))
+
+    def test_vklop_iz_niti_ozadja_gtk_v_glavni_niti(self):
+        """Most poklice sporocilaVklop v niti ozadja: storitev se ustavi tam, kanali, kuverta in okno pa v glavni niti
+        (GTK in WebKit samo v glavni niti - pregled 15. 10. 2026)."""
+        import threading
+        o = _Os()
+        cakajo = []
+        with mock.patch.object(self.so.GLib, "idle_add", lambda f, *a, **k: cakajo.append(f)):
+            t = threading.Thread(target=lambda: self.so.SafeerOS._nastavi_sporocila(o, False))
+            t.start()
+            t.join(5)
+        self.assertEqual(o.sporocila.klici, ["ustavi"])
+        self.assertFalse(o._kanali_sporocil.ustavljeni, "kanali se ne sprostijo v niti ozadja")
+        self.assertEqual(len(cakajo), 1)
+        cakajo[0]()
+        self.assertTrue(o._kanali_sporocil.ustavljeni)
+        self.assertEqual(o.niti_uskladitve, [True])
 
     def test_nastavitve_in_prilagodi_imata_stikalo(self):
         vir = beri("safeer_os.py")
