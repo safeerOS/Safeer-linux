@@ -176,6 +176,15 @@ class PredvajalnikRazliciceTests(unittest.TestCase):
         self.assertEqual(self.element.lastnosti["uri"], "https://drug.test/b.mp4")     # se vedno druga razlicica
         self.assertEqual(self.p.stanje, "predvaja")
 
+    def test_stran_html_namesto_posnetka_tiho_naslednja(self):
+        self.p.zamenjaj_vrsto([Skladba("https://cdn.test/a", "Film", "video", nadomestni=(("https://drug.test/b.mp4", ()),))])
+        napaka = SimpleNamespace(domain="gst-stream-error-quark", code=4)          # TYPE_NOT_FOUND (stran HTML)
+        self.p._sporocilo(None, SimpleNamespace(type="error", parse_error=lambda: (napaka, "")))
+        self.assertEqual((self.p.stanje, self.element.lastnosti["uri"]), ("predvaja", "https://drug.test/b.mp4"))
+        self.p._sporocilo(None, SimpleNamespace(type="error", parse_error=lambda: (napaka, "")))
+        self.assertEqual((self.p.stanje, self.p.napaka), ("napaka", "format"))
+        self.assertEqual(self.neuspeli, [])               # morda manjka kodek na tem racunalniku: naslova ne skrijemo
+
     def test_po_zacetku_predvajanja_ni_nadomescanja(self):
         self.p.zamenjaj_vrsto([Skladba("https://cdn.test/a.mp4", "Film", "video",
                                        nadomestni=(("https://cdn.test/b.mp4", ()),))])
@@ -260,6 +269,11 @@ class IzbiraRazliciceTests(unittest.TestCase):
                 mock.patch.object(mc, "_izmeri_ping", lambda u: None):
             seznam = mc.razlicice_naslova("x")["razlicice"]
         self.assertEqual([(r["vir"], r["privzeta"]) for r in seznam], [("Dodatek A", True), ("Dodatek B", False)])
+        self.assertEqual([r["najhitrejsi"] for r in seznam], [False, False])      # odziv ni izmerjen: brez oznake
+        mc._ping_cache = {"cdn.test:443": (time.time(), 80.0), "drug.test:443": (time.time(), 20.0)}
+        with mock.patch.object(mc, "resolve", lambda i, pripravi_torrent=True: mc._dynamic_items[i]):
+            hitri = mc.razlicice_naslova("x")["razlicice"]
+        self.assertEqual([(r["ping"], r["najhitrejsi"]) for r in hitri], [(80, False), (20, True)])
         self.assertNotIn("sign", str(seznam))                       # podpisani naslovi ne gredo na stran
         self.assertTrue(mc.izberi_razlicico("x", seznam[1]["podpis"]))
         izbran = mc.uporabi_izbiro(mc._dynamic_items["x"])

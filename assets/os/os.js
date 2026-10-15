@@ -5940,7 +5940,9 @@
   // ---- razlicice naslova (lastnik, 15. 10. 2026): v podrobnostih filma ali epizode je en seznam vseh moznosti
   // predvajanja - toki iz dodatkov in streznikov, ki jih je dodal uporabnik (ime vira, kakovost, odziv), in lastni
   // vgrajeni viri, ce jih ima. Prva je samodejna izbira (privzeta); rocna izbira se zapomni za ta naslov.
-  var RAZL = { ura: 0 };
+  // ponudniki: dodatne moznosti predvajanja v istem seznamu (npr. lastni vgrajeni viri): function (item, sezona, epizoda,
+  // naslov) -> Promise([{ ime, ms, privzeta, oznaka, odpri: function () {} }]). Tako ni drugih, podvojenih gumbov.
+  var RAZL = { ura: 0, ponudniki: [] };
   function vrsticaRazlicice(r, oznake, ob) {
     var b = el("button", "kat-razlicica" + (r.izbrana ? " izbrana" : "")); b.type = "button"; b.setAttribute("role", "listitem");
     var ime = el("span", "kat-razlicica-ime", ubezi(r.vir || r.ime || t("razlVir")));
@@ -5962,9 +5964,11 @@
     cilj.innerHTML = ""; cilj.hidden = !vedno;
     if (vedno) cilj.appendChild(el("p", "drobno", ubezi(t("razlIscem"))));
     var naslov = (item.naslov || "") + (sezona ? " · S" + String(sezona).padStart(2, "0") + "E" + String(epizoda).padStart(2, "0") : "");
-    // Lastni vgrajeni viri (veja gtk4-mc-vgrajeni-viri): ce most to zna, so v istem seznamu, ne kot loceni gumbi.
-    var vgrajeni = klic("mediaVgrajeneMoznosti", [item, sezona || 0, epizoda || 0])
-      .then(function (m) { return Array.isArray(m) ? m : []; }, function () { return []; });
+    var vgrajeni = Promise.all(RAZL.ponudniki.map(function (ponudnik) {
+      try { return Promise.resolve(ponudnik(item, sezona || 0, epizoda || 0, naslov)).then(function (m) { return Array.isArray(m) ? m : []; },
+                                                                                          function () { return []; }); }
+      catch (e) { return Promise.resolve([]); }
+    })).then(function (skupine) { return [].concat.apply([], skupine); });
     var toki = Promise.resolve(vnos).then(function (id) {
       if (!id) return { id: "", razlicice: [] };
       return klic("mediaRazlicice", [id]).then(function (r) { return r || { id: id, razlicice: [] }; },
@@ -5992,14 +5996,11 @@
                                                                                           function () { predvajaj(r.id); });
         }));
       });
-      moznosti.forEach(function (m, i) {
-        var oznake = [["vgrajeno", t("razlVgrajeno")]];
+      moznosti.forEach(function (m) {
+        var oznake = [["vgrajeno", m.oznaka || t("razlVgrajeno")]];
         if (m.privzeta && !razl.length) oznake.unshift(["privzeta", t("razlPrivzeta")]);
-        seznam.appendChild(vrsticaRazlicice({ vir: m.ime, ping: m.ms != null ? Math.round(m.ms) : null }, oznake, function () {
-          if (typeof vgrOdpri !== "function") return;
-          if (!m.privzeta) klic("mediaVgrajenaIzbira", [item, sezona || 0, epizoda || 0, m.id]);
-          vgrOdpri(moznosti.slice(i).filter(function (x, j) { return j === 0 || x.vrsta === m.vrsta; }), 0, naslov);
-        }));
+        seznam.appendChild(vrsticaRazlicice({ vir: m.ime, ping: m.ms != null ? Math.round(m.ms) : null, izbrana: !!m.izbrana },
+                                            oznake, function () { if (typeof m.odpri === "function") m.odpri(); }));
       });
       cilj.appendChild(seznam); cilj.hidden = false;
     });

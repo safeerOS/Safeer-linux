@@ -25,3 +25,13 @@ def _dostop_naprav(tmp_path, monkeypatch, request):
         monkeypatch.setattr(link_hub_streznik, "OMEJENE_ODDAJE", {})
     yield
     link_dostop._za_preizkus(None)
+
+
+@pytest.fixture(autouse=True)
+def _brez_zapomnjenih_manifestov():
+    """Manifest dodatka je v core/media_servers zapomnjen 10 min (hitrejse iskanje); preizkusi z istim izmisljenim
+    dodatkom in drugacnim manifestom ne smejo videti manifesta prejsnjega preizkusa."""
+    from core import media_servers
+    media_servers._MANIFESTI.clear()
+    yield
+    media_servers._MANIFESTI.clear()

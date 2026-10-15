@@ -885,7 +885,10 @@ class Katalog:
 
     def _predvajaj_vnos(self, a: list) -> Optional[dict]:
         ident = self._niz(a, 0)
-        item = self.mc.uporabi_izbiro(self.mc.resolve(ident))     # rocno izbrana razlicica (podrobnosti) najprej
+        item = self.mc.resolve(ident)
+        uporabi = getattr(self.mc, "uporabi_izbiro", None)
+        if uporabi is not None:
+            item = uporabi(item)            # rocno izbrana razlicica (podrobnosti) najprej
         if not item:
             return None
         return self._predvajaj_razresen(item, ident)

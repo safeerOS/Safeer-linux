@@ -270,9 +270,18 @@ class GStreamerBrezPrijaveVGlavah(unittest.TestCase):
         import re
         koren = Path(__file__).resolve().parent.parent
         datoteke = list((koren / "core").rglob("*.py")) + list(koren.glob("*.py"))
-        vzorec = re.compile(r"[\"'](extra-headers|user-id|user-pw|proxy-id|proxy-pw|cookies)[\"']")
+        vzorec = re.compile(r"[\"'](user-id|user-pw|proxy-id|proxy-pw|cookies)[\"']")
         najdeno = [str(p.relative_to(koren)) for p in datoteke if vzorec.search(p.read_text(encoding="utf-8", errors="replace"))]
         self.assertEqual(najdeno, [])
+        # extra-headers samo za javne glave toka (Referer ...), ki jih zahteva dodatek - 15. 10. 2026: brez glave Referer
+        # streznik toka vrne 429. V njih nikoli prijave ali piskotkov (te bi sle ob preusmeritvi naprej).
+        vzorec = re.compile(r"[\"']extra-headers[\"']")
+        najdeno = [str(p.relative_to(koren)) for p in datoteke if vzorec.search(p.read_text(encoding="utf-8", errors="replace"))]
+        self.assertEqual(najdeno, ["core/os_predvajalnik.py"])
+        from core import os_predvajalnik
+        self.assertFalse({"authorization", "cookie", "proxy-authorization"} & os_predvajalnik._DOVOLJENE_GLAVE)
+        self.assertEqual(os_predvajalnik.cisti_glave({"Authorization": "Bearer x", "Cookie": "a=b", "Referer": "https://r/"}),
+                         (("Referer", "https://r/"),))
 
 
 if __name__ == "__main__":

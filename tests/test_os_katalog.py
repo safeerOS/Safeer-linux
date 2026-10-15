@@ -385,7 +385,10 @@ def test_katalog_hitreje_14_10():
     beri = lambda *p: open(_os.path.join(koren, *p), encoding="utf-8").read()  # noqa: E731
     assert '"mediaPredgrej": "_predgrej"' in beri("core", "os_katalog.py")
     assert 'klic("mediaPredgrej", [])' in beri("assets", "os", "os.js")
-    assert "_vzporedno.submit(self._personal_items" in beri("core", "os_media.py")
+    # 15. 10. 2026: osebni viri vsak v svoji niti (ne vec zaporedno), javni in TMDB hkrati z njimi - vedenje preverja
+    # tests/test_tok_iskanje.py (pocasen vir ne zadrzi prvih zadetkov).
+    assert "self._vzporedno(self._vrstice_streznika" in beri("core", "os_media.py")
+    assert "nit_javni = " in beri("core", "os_media.py")
     from core.zakoniti_viri import ZakonitiViri
     z = ZakonitiViri.__new__(ZakonitiViri)
     klici = []

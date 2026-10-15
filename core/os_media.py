@@ -4182,8 +4182,11 @@ class MediaCenter:
             wait([_bazen_virov().submit(self._izmeri_ping, u) for u in neznani[:8]], timeout=1.0)
         izbira = self._izbire_razlicic().get(self._kljuc_naslova(item), "")
         pingi = [self._ping_ms(r["url"]) for r in zive]
-        znani = [p for p in pingi if p is not None]
-        najhitrejsi = min(znani) if znani else None
+        # »Najhitrejsi« ima smisel samo med vec streznikov: oznaci prvo razlicico najhitrejsega gostitelja.
+        po_gostiteljih = {urllib.parse.urlsplit(str(r["url"])).hostname: p for r, p in zip(zive, pingi) if p is not None}
+        najhitrejsi_i = -1
+        if len(po_gostiteljih) > 1:
+            najhitrejsi_i = min((i for i, p in enumerate(pingi) if p is not None), key=lambda i: (pingi[i], i))
         izhod = []
         for i, (r, ping) in enumerate(zip(zive, pingi)):
             podpis = self._podpis_razlicice(r)
@@ -4191,7 +4194,7 @@ class MediaCenter:
             izhod.append({"podpis": podpis, "vir": str(r.get("dodatek") or r.get("vir") or "")[:60],
                           "opis": str(r.get("opis") or "").split("\n")[0][:80], "kakovost": kakovost[:20],
                           "ping": None if ping is None else round(ping), "privzeta": i == 0,
-                          "najhitrejsi": ping is not None and ping == najhitrejsi and len(znani) > 1,
+                          "najhitrejsi": i == najhitrejsi_i,
                           "izbrana": bool(izbira) and podpis == izbira, "lastni": bool(r.get("lastni"))})
         return {"id": item_id, "razlicice": izhod, "izbira": bool(izbira) and any(x["izbrana"] for x in izhod)}
 

@@ -89,8 +89,10 @@ def medij(uri: str, vrsta: str = "medij") -> Skladba:
     raise ValueError("Medij mora biti spletni tok ali obstoječa lokalna datoteka")
 
 
-#: Glave, ki jih tok sme nastaviti (brez prijav in piskotkov drugih strani; Host/Range doloci GStreamer sam).
-_DOVOLJENE_GLAVE = {"referer", "origin", "user-agent", "accept", "accept-language", "authorization", "x-requested-with"}
+#: Glave, ki jih tok sme nastaviti: samo javne (Referer, Origin ...), nikoli prijava ali piskotki. GStreamer pred 1.28.7
+#: (GStreamer-SA-2026-0080; runtime ima 1.26.11) ob preusmeritvi na drug izvor poslje extra-headers naprej - zato v njih
+#: ni nicesar skrivnega (tests/test_prijava_streznikov.py). Host/Range doloci GStreamer sam.
+_DOVOLJENE_GLAVE = {"referer", "origin", "user-agent", "accept", "accept-language", "x-requested-with"}
 
 
 def cisti_glave(glave) -> tuple:
@@ -814,6 +816,9 @@ class Predvajalnik:
             print("[SafeerOS] predvajanje:", napaka, re.sub(r"\?\S*", "?…", str(razhroscevanje or "")), flush=True)
             uri = self._poskusi[self._poskus][0] if self._poskus < len(self._poskusi) else (self.trenutna.uri if self.trenutna else "")
             koda = vrsta_napake(napaka, uri)
-            if koda == "tok" and self._naslednji_poskus(status_napake(razhroscevanje)):
+            # Tok z mrezo, ki se ni odprl: streznik ga ne da (tok) ali je namesto posnetka poslal stran HTML oziroma zapis,
+            # ki ga ta racunalnik ne zna (format) - druga razlicica je morda v redu.
+            if (koda == "tok" or (koda == "format" and uri.startswith(("http://", "https://")))) \
+                    and self._naslednji_poskus(status_napake(razhroscevanje)):
                 return
             self._koncna_napaka(koda)
