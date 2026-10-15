@@ -333,7 +333,7 @@
   // ki pretvorbo zna - most pretvorbaZaTvMozna). Meni je sinhron, zato oboje drzimo v predpomnilniku in ga osvezimo ob
   // zagonu, vrnitvi v Safeer OS, stanju Linka (60 s) in ob vsakem odprtju menija (lastnik: nic nedelujocega).
   var D = { vir: null, vse: [], stran: 0, razvrsti: "ime", smer: 1, izbran: -1, naprave: [], sprejmejo: [], nosilci: [],
-            zahteva: 0, izbrani: {}, sidro: "", tvMozna: false };
+            zahteva: 0, izbrani: {}, sidro: "", tvMozna: false, shrambaMozna: false };
 
   // Izbira vec datotek: klik izbere eno, Ctrl+klik doda ali odvzame, Shift+klik (ali Shift+puscica) izbere obseg od
   // zadnje izbrane - tudi cez strani -, Ctrl+A vse. D.izbrani: kljuc vnosa -> vnos; D.izbran ostane vrstica s fokusom.
@@ -450,8 +450,9 @@
       if (JSON.stringify(D.sprejmejo) !== prej) zgradiStranDatotek();
     }
     klic("napraveZaPosiljanje").then(sprejmejo, function () { sprejmejo([]); });
-    klic("pretvorbaZaTvMozna").then(function (r) { if (rod === ciljiRod) D.tvMozna = !!(r && r.ok); },
-                                    function () { if (rod === ciljiRod) D.tvMozna = false; });
+    // Isti odgovor pove se, ali je naprava za »Shrani na napravo« (shramba).
+    klic("pretvorbaZaTvMozna").then(function (r) { if (rod === ciljiRod) { D.tvMozna = !!(r && r.ok); D.shrambaMozna = !!(r && r.shramba); } },
+                                    function () { if (rod === ciljiRod) { D.tvMozna = false; D.shrambaMozna = false; } });
   }
   function osveziNosilce() {
     if (!most) return;
@@ -1362,7 +1363,7 @@
       m.push([t("lastnosti"), function () { lastnosti(e); }]);
       // Samo, ko res deluje (D.sprejmejo, D.tvMozna - osveziCilje): brez naprave ali orodja vnosa ni.
       if (!e.mapa && D.sprejmejo.length) m.push([t("posljiNaNapravo"), function () { izberiNapravoInPoslji([e.pot]); }]);
-      if (!e.mapa) m.push([t("shraniNaNapravo"), function () { shraniNaNapravo(e); }]);
+      if (!e.mapa && D.shrambaMozna) m.push([t("shraniNaNapravo"), function () { shraniNaNapravo(e); }]);
       if (!e.mapa && e.vrsta === "video" && D.tvMozna) m.push([t("pretvori"), function () { pretvoriVideo(e); }]);
       if (!e.mapa && pretvorljiva(e.ime))
         m.push([t("pretvoriV"), function () { pretvoriDatoteko(e); }]);

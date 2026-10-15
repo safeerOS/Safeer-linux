@@ -469,8 +469,8 @@ class PregledPopravki(Osnova):
         film, projekti = imena.index("film.mkv"), imena.index("Projekti")
         meni = self._obj("meniDatoteke")
         for mozna in (False, True):
-            self.odgovori["pretvorbaZaTvMozna"] = {"ok": mozna}
-            for i, vnos in ((film, "vnosPretvoriTv"), (projekti, "vnosPretvoriMapo")):
+            self.odgovori["pretvorbaZaTvMozna"] = {"ok": mozna, "shramba": mozna}
+            for i, vnos in ((film, "vnosPretvoriTv"), (projekti, "vnosPretvoriMapo"), (film, "vnosShrani")):
                 self.klici.clear()
                 self._js("datoteke.meniZa(%d)" % i)
                 self.assertTrue(self._pocakaj(lambda: meni.property("visible")))
