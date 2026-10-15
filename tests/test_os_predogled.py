@@ -104,6 +104,19 @@ class OknoPredogleda(unittest.TestCase):
         self.assertFalse(self.okno.pokazi(rod1, {"nacin": "html", "html": "<p>stara</p>"}))
         self.assertTrue(self.okno.pokazi(rod2, {"nacin": "html", "html": "<p>nova</p>"}))
 
+    def test_vrstica_slike_skrite(self):
+        izbire = []
+        rod = self.okno.odpri("Pismo")
+        self.okno.pokazi(rod, {"nacin": "html", "html": "<p>x</p>"}, "",
+                         {"skritih": 3, "posiljatelj": "ana@example.test", "prikazi": izbire.append})
+        self.assertTrue(self.okno._vrstica.get_visible())
+        self.assertIn("ana@example.test", self.okno._gumb_vedno.get_label())
+        self.okno._gumb_vedno.emit("clicked")
+        self.assertEqual(izbire, [True])
+        self.assertFalse(self.okno._gumb_slike.get_sensitive())
+        self.okno.pokazi(rod, {"nacin": "html", "html": "<p>s slikami</p>"})      # prikazane: vrstice ni
+        self.assertFalse(self.okno._vrstica.get_visible())
+
     def test_prenos_v_glavi(self):
         shranjeno = self.m / "x.pdf"
         shranjeno.write_bytes(b"x")
@@ -172,7 +185,7 @@ class Most(unittest.TestCase):
     def test_metode_mostu(self):
         py = (Path(__file__).resolve().parents[1] / "safeer_os.py").read_text(encoding="utf-8")
         for metoda in ("sporocilaPredogled", "sporocilaIzvirnik", "predogledDatoteke", "sporocilaPrenesiPriponko",
-                       "sporocilaPrenesiVse", "sporocilaSlicicaPriponke", "opisPrilog", "izberiPriloge"):
+                       "sporocilaPrenesiVse", "sporocilaSlicicaPriponke", "opisPrilog", "izberiPriloge", "sporocilaSlikeOd"):
             self.assertIn('"%s":' % metoda, py, metoda)
         # Odpiranje priponke v programu je samo v oknu predogleda (s potrditvijo za nevarne), ne neposredno s strani.
         self.assertNotIn('"sporocilaOdpriPriponko"', py)

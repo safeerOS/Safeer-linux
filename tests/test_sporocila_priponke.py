@@ -7,6 +7,7 @@ posredovanim pismom.
 """
 import base64
 import email
+import json
 import os
 import quopri
 import tempfile
@@ -336,6 +337,7 @@ class DrugiKanali(unittest.TestCase):
 
 class _Adapter:
     vrsta = "email"
+    zmore = {"poslji", "priloge"}
 
     def __init__(self, vsebina: bytes):
         self.vsebina, self.klici = vsebina, 0
@@ -454,11 +456,26 @@ class SporocilaOSPriponke(unittest.TestCase):
         self.assertEqual(self.os._priloge("k", [{"pot": "/a"}, "/b"]), [{"pot": "/a"}, {"pot": "/b"}])
 
     def test_izvirnik_s_slikami_v_vrstici_iz_predpomnilnika(self):
-        html = self.os.html_pisma("k", "uid:7", "sl")
+        r = self.os.html_pisma("k", "uid:7", "sl")
+        html = r["html"]
+        self.assertEqual((r["skritih"], r["posiljatelj"], r["prikazane"]), (1, "ana@example.test", False))
         self.assertIn('src="file://' + str(self.dom / ".cache" / "safeer-os" / "priloge"), html)
         self.assertNotIn("sled.example", html)
         self.assertNotIn("x()", html)
         self.assertIn("Content-Security-Policy", html)
+
+    def test_izvirnik_vedno_prikazi_od_posiljatelja(self):
+        self.os.nastavi_slike_od("ana@example.test", True)
+        blok = lambda u: False  # noqa: E731
+        with patch("core.sporocila.slike.prenesi_slike", return_value={"https://sled.example/p.gif": "file:///c/p.gif"}) as prenos:
+            r = self.os.html_pisma("k", "uid:7", "sl", je_blokirano=blok)
+        self.assertTrue(r["prikazane"])
+        self.assertEqual(prenos.call_args.args[0], ["https://sled.example/p.gif"])
+        self.assertIs(prenos.call_args.args[2], blok)                    # seznami Safeer gredo zraven
+        self.assertIn('src="file:///c/p.gif"', r["html"])
+        self.assertIn("ana@example.test", self.os.seznam()["slike_od"])
+        self.os.nastavi_slike_od("ana@example.test", False)                # preklic v podoknu osebe
+        self.assertFalse(self.os.html_pisma("k", "uid:7", "sl")["prikazane"])
 
     def test_storitev_hrani_html_in_priponke(self):
         s = self.os.storitev.sporocilo("k", "uid:7")
@@ -567,6 +584,236 @@ class Predpomnilnik(unittest.TestCase):
         p = a.sporocila("a@example.test")[0].priponke[0]
         self.assertEqual((p["mapa"], p["uidvalidity"]), ("INBOX", "555"))
         self.assertEqual(a.uidvalidity_priponk, "555")
+
+
+def _tg(rezultat):
+    """Nadomestek urlopen za Telegram: zapise zahtevo in vrne {"ok": true, "result": rezultat}."""
+    zahteve = []
+
+    class Odg:
+        def __init__(self, z):
+            zahteve.append(z)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return json.dumps({"ok": True, "result": rezultat}).encode()
+    return zahteve, (lambda z, timeout=None: Odg(z))
+
+
+class PosiljanjeTelegramMatrix(unittest.TestCase):
+    def setUp(self):
+        self.d = tempfile.TemporaryDirectory()
+        self.m = Path(self.d.name)
+        (self.m / "racun.pdf").write_bytes(b"%PDF-1.4 x")
+        (self.m / "slika.jpg").write_bytes(b"\xff\xd8\xff jpeg")
+
+    def tearDown(self):
+        self.d.cleanup()
+
+    def test_telegram_dokument_s_napisom_in_fotografija(self):
+        from core.sporocila.telegram_bot import TelegramBotAdapter
+        a = TelegramBotAdapter("t", zeton="123:abc")
+        zahteve, odpri = _tg({"message_id": 9, "date": 1760000000, "document": {"file_id": "F1"}})
+        with patch("core.sporocila.telegram_bot.urlopen", side_effect=odpri):
+            s = a.poslji("42", "Racun v prilogi", [{"pot": str(self.m / "racun.pdf")}, {"pot": str(self.m / "slika.jpg")}])
+        self.assertEqual([z.full_url.rsplit("/", 1)[1] for z in zahteve], ["sendDocument", "sendPhoto"])
+        prvi = email.message_from_bytes(b"Content-Type: " + zahteve[0].headers["Content-type"].encode() + b"\r\n\r\n" + zahteve[0].data)
+        polja = {d.get_param("name", header="content-disposition"): d for d in prvi.get_payload()}
+        self.assertEqual(polja["caption"].get_payload(), "Racun v prilogi")       # besedilo je napis prve priloge
+        self.assertEqual(polja["chat_id"].get_payload(), "42")
+        self.assertEqual(polja["document"].get_filename(), "racun.pdf")
+        self.assertEqual(polja["document"].get_payload(decode=True), b"%PDF-1.4 x")
+        self.assertEqual([p["ime"] for p in s.priponke], ["racun.pdf", "slika.jpg"])
+
+    def test_telegram_meja_50_mb_pred_omrezjem(self):
+        from core.sporocila import telegram_bot
+        velika = self.m / "velika.bin"
+        with open(velika, "wb") as f:
+            f.truncate(telegram_bot.NAJVEC_DATOTEKA + 1)
+        a = telegram_bot.TelegramBotAdapter("t", zeton="123:abc")
+        with patch("core.sporocila.telegram_bot.urlopen") as odpri, self.assertRaisesRegex(ValueError, "priloga_prevelika_kanal"):
+            a.poslji("42", "x", [{"pot": str(velika)}])
+        odpri.assert_not_called()
+
+    def test_matrix_sifrirana_soba_zavrne_nicesar_ne_nalozi(self):
+        from core.sporocila.matrix import MatrixAdapter
+        a = MatrixAdapter("m", "https://matrix.example.test", zeton="tok")
+        with patch.object(a, "_api", return_value={"algorithm": "m.megolm.v1.aes-sha2"}) as api, \
+                patch("core.sporocila.matrix.urlopen") as odpri, self.assertRaisesRegex(ValueError, "priloge_e2ee"):
+            a.poslji("!s:example.test", "x", [{"pot": str(self.m / "racun.pdf")}])
+        odpri.assert_not_called()                                                  # nic nesifriranega na streznik
+        self.assertEqual(api.call_count, 1)
+
+    def test_matrix_nalaganje_in_dogodek(self):
+        from core.sporocila.matrix import MatrixAdapter
+        a = MatrixAdapter("m", "https://matrix.example.test", zeton="tok")
+        napaka404 = type("E404", (Exception,), {"code": 404})
+        klici = []
+
+        def api(pot, metoda="GET", podatki=None, *ar, **kw):
+            klici.append((pot, metoda, podatki))
+            if "/state/m.room.encryption" in pot:
+                raise napaka404()
+            return {"event_id": "$e%d" % len(klici)}
+        zahteve = []
+
+        class Odg:
+            def __init__(self, z):
+                zahteve.append(z)
+                self.z = z
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *x):
+                return False
+
+            def read(self):
+                if "config" in self.z.full_url:
+                    return json.dumps({"m.upload.size": 1000}).encode()
+                return json.dumps({"content_uri": "mxc://example.test/abc"}).encode()
+        with patch.object(a, "_api", side_effect=api), patch("core.sporocila.matrix.urlopen", side_effect=lambda z, timeout=None: Odg(z)):
+            s = a.poslji("!s:example.test", "Glej", [{"pot": str(self.m / "racun.pdf")}])
+        self.assertIn("/_matrix/client/v1/media/config", zahteve[0].full_url)
+        nalaganje = zahteve[1]
+        self.assertIn("/_matrix/media/v3/upload?filename=racun.pdf", nalaganje.full_url)
+        self.assertEqual(nalaganje.headers["Content-type"], "application/pdf")
+        self.assertEqual(nalaganje.data, b"%PDF-1.4 x")
+        dogodki = [k[2] for k in klici if k[1] == "PUT"]
+        self.assertEqual(dogodki[0], {"msgtype": "m.text", "body": "Glej"})
+        self.assertEqual(dogodki[1]["msgtype"], "m.file")
+        self.assertEqual(dogodki[1]["url"], "mxc://example.test/abc")
+        self.assertEqual(dogodki[1]["info"], {"mimetype": "application/pdf", "size": 10})
+        self.assertEqual(s.priponke[0]["url"], "mxc://example.test/abc")
+        (self.m / "vecja.bin").write_bytes(b"x" * 1001)                           # meja iz /media/config (1000 B)
+        with patch.object(a, "_api", side_effect=api), self.assertRaisesRegex(ValueError, "priloga_prevelika_kanal"):
+            a.poslji("!s:example.test", "", [{"pot": str(self.m / "vecja.bin")}])
+
+    def test_gumb_prilozi_samo_kjer_kanal_zna(self):
+        from core.sporocila.chatwoot import ChatwootAdapter
+        from core.sporocila.matrix import MatrixAdapter
+        from core.sporocila.telegram_bot import TelegramBotAdapter
+        sp = os_sporocila.SporocilaOS(self.m / "sp.db", zazeni=False)
+        for kid, vrsta, a in (("e", "email", EmailAdapter("e", "a@example.test", "i", "s")),
+                              ("t", "telegram_bot", TelegramBotAdapter("t")),
+                              ("m", "matrix", MatrixAdapter("m", "https://x.example.test")),
+                              ("c", "chatwoot", ChatwootAdapter("c", "https://x.example.test", 1))):
+            sp.storitev.registriraj(Kanal(kid, vrsta, kid), a, {})
+        kanali = {k["id"]: k["priloge"] for k in sp.seznam()["kanali"]}
+        self.assertEqual(kanali, {"e": True, "t": True, "m": True, "c": False})
+        with self.assertRaisesRegex(ValueError, "priloge_ni_podprto"):
+            sp._priloge("c", ["/x"])
+        sp.zapri()
+
+
+def _png(sirina: int, visina: int) -> bytes:
+    """Veljaven PNG brez Pillow (enobarvna slika)."""
+    import struct
+    import zlib
+
+    def kos(vrsta, podatki):
+        return struct.pack(">I", len(podatki)) + vrsta + podatki + struct.pack(">I", zlib.crc32(vrsta + podatki))
+    surovo = b"".join(b"\x00" + b"\xc8\x0a\x0a" * sirina for _ in range(visina))
+    return (b"\x89PNG\r\n\x1a\n" + kos(b"IHDR", struct.pack(">IIBBBBB", sirina, visina, 8, 2, 0, 0, 0)) +
+            kos(b"IDAT", zlib.compress(surovo)) + kos(b"IEND", b""))
+
+
+class SlikeSSpleta(unittest.TestCase):
+    """Oddaljene slike v HTML pismih: privzeto skrite; ob prikazu prek zascite Safeer (core/sporocila/slike.py)."""
+
+    def setUp(self):
+        from core.sporocila import slike
+        self.sl = slike
+        self.d = tempfile.TemporaryDirectory()
+        self.m = self.d.name
+
+    def tearDown(self):
+        self.d.cleanup()
+
+    @staticmethod
+    def _razresi(gost, _p):
+        return [(0, 0, 0, "", ({"lan.example": "192.168.1.1", "zanka.example": "127.0.0.1"}.get(gost, "93.184.216.34"), 0))]
+
+    def _odpri(self, tip="image/png", vsebina=None):
+        zahteve = []
+        if vsebina is None:
+            vsebina = _png(40, 30)
+
+        class Odg:
+            headers = {"Content-Type": tip}
+
+            def __init__(self, z):
+                zahteve.append(z)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *x):
+                return False
+
+            def read(self, n=-1):
+                return vsebina
+        return zahteve, (lambda z, timeout=None: Odg(z))
+
+    def test_sledilci_in_domace_omrezje(self):
+        self.assertTrue(self.sl.je_sledilec("https://x.list-manage.com/track/open.php?u=1"))
+        self.assertTrue(self.sl.je_sledilec("https://mailtrack.io/trace/mail/abc.png"))
+        self.assertTrue(self.sl.je_sledilec("https://cdn.example.test/a.png", lambda u: "cdn.example" in u))  # seznami Safeer
+        self.assertFalse(self.sl.je_sledilec("https://cdn.example.test/logo.png"))
+        self.assertFalse(self.sl.javni_gostitelj("lan.example", self._razresi))
+        self.assertFalse(self.sl.javni_gostitelj("zanka.example", self._razresi))
+        self.assertTrue(self.sl.javni_gostitelj("cdn.example.test", self._razresi))
+
+    def test_prenos_brez_piskotkov_in_referer(self):
+        zahteve, odpri = self._odpri()
+        pot = self.sl.prenesi_sliko("https://cdn.example.test/foto.png", self.m, self._razresi, odpri)
+        self.assertTrue(pot.endswith(".png") and os.path.getsize(pot) > 0)
+        self.assertEqual(os.stat(pot).st_mode & 0o777, 0o600)
+        glave = {k.lower() for k in zahteve[0].headers}
+        self.assertNotIn("referer", glave)
+        self.assertNotIn("cookie", glave)
+        self.assertEqual(self.sl.prenesi_sliko("https://cdn.example.test/foto.png", self.m, self._razresi, odpri), pot)
+        self.assertEqual(len(zahteve), 1)                                     # drugic iz predpomnilnika
+
+    def test_blokirano(self):
+        _z, piksel = self._odpri("image/gif", b"GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00!\xf9\x04"
+                                 b"\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;")
+        self.assertEqual(self.sl.prenesi_sliko("https://a.example.test/x.gif", self.m, self._razresi, piksel), "")
+        _z, piksel = self._odpri("image/png", _png(1, 1))
+        self.assertEqual(self.sl.prenesi_sliko("https://a.example.test/x.gif", self.m, self._razresi, piksel), "")
+        _z, html = self._odpri("text/html", b"<html>")
+        self.assertEqual(self.sl.prenesi_sliko("https://a.example.test/y", self.m, self._razresi, html), "")
+        zahteve, odpri = self._odpri()
+        self.assertEqual(self.sl.prenesi_sliko("http://lan.example/router.png", self.m, self._razresi, odpri), "")
+        self.assertEqual(self.sl.prenesi_sliko("file:///etc/passwd", self.m, self._razresi, odpri), "")
+        self.assertEqual(self.sl.prenesi_sliko("https://u:p@cdn.example.test/a.png", self.m, self._razresi, odpri), "")
+        self.assertEqual(zahteve, [])
+
+    def test_varen_html_z_oddaljenimi(self):
+        from core import predogled_datotek as pd
+        vir = ('<img src="https://cdn.example.test/foto.png"><img src="https://sled.example.test/p.gif" width="1" height="1">'
+               '<img src="https://cdn.example.test/blok.png" style="width:1px;height:1px">')
+        self.assertEqual(pd.oddaljene_slike(vir), ["https://cdn.example.test/foto.png"])   # piksli niso niti kandidati
+        html, skrite = pd.varen_html(vir)
+        self.assertEqual((skrite, "https://" in html), (1, False))
+        html, skrite = pd.varen_html(vir, oddaljene={"https://cdn.example.test/foto.png": "file:///c/f.png"})
+        self.assertIn('src="file:///c/f.png"', html)
+        self.assertEqual(skrite, 0)
+
+    def test_vedno_od_posiljatelja(self):
+        v = self.sl.DovoljeniPosiljatelji(os.path.join(self.m, "s.json"))
+        self.assertFalse(v.dovoljen("Ana@Example.test"))
+        self.assertEqual(v.nastavi("Ana@Example.test", True), ["ana@example.test"])
+        self.assertTrue(self.sl.DovoljeniPosiljatelji(os.path.join(self.m, "s.json")).dovoljen("ana@example.test"))
+        self.assertEqual(os.stat(os.path.join(self.m, "s.json")).st_mode & 0o777, 0o600)
+        self.assertEqual(v.nastavi("ana@example.test", False), [])
+        with self.assertRaises(ValueError):
+            v.nastavi("ni-naslov", True)
 
 
 class StaraBaza(unittest.TestCase):

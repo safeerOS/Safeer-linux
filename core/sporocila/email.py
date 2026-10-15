@@ -145,7 +145,7 @@ def _besedilo_dela(surovo: bytes, opis: dict) -> str:
 
 class EmailAdapter(Adapter):
     vrsta = "email"
-    zmore = {"poslji"}
+    zmore = {"poslji", "priloge"}
     MAPA_PRIPONK = MAPA
 
     def __init__(self, kanal_id: str, naslov: str, imap_streznik: str, smtp_streznik: str,

@@ -39,6 +39,7 @@ class OknoPredogleda:
         self._nevarno = False
         self._shranjeno = ""
         self._prenesi: Optional[Callable[[], str]] = None
+        self._slike: Optional[dict] = None
 
     # ------------------------------------------------------------------ besedila
     def _t(self, kljuc: str, **z) -> str:
@@ -78,6 +79,21 @@ class OknoPredogleda:
         glava.pack_end(self._gumb_odpri)
         glava.pack_end(self._gumb_mapa)
         okno.set_titlebar(glava)
+        # Vrstica »Slike so skrite« (HTML pismo z oddaljenimi slikami): gradnik GTK nad vsebino, ne del strani -
+        # besedilo pisma je ne more ponarediti ali »klikniti« namesto uporabnika.
+        self._okvir = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self._vrstica = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8, margin_start=12, margin_end=12,
+                                margin_top=6, margin_bottom=6)
+        self._vrstica_napis = Gtk.Label(xalign=0, hexpand=True, wrap=True)
+        self._gumb_slike = Gtk.Button(label="")
+        self._gumb_slike.connect("clicked", lambda *_: self._na_slike(False))
+        self._gumb_vedno = Gtk.Button(label="")
+        self._gumb_vedno.connect("clicked", lambda *_: self._na_slike(True))
+        for g in (self._vrstica_napis, self._gumb_slike, self._gumb_vedno):
+            self._vrstica.append(g)
+        self._vrstica.set_visible(False)
+        self._okvir.append(self._vrstica)
+        okno.set_child(self._okvir)
         bliznjice = Gtk.ShortcutController()
         bliznjice.set_scope(Gtk.ShortcutScope.MANAGED)
         for tipka in ("Escape", "<Control>w"):
@@ -174,6 +190,8 @@ class OknoPredogleda:
         self._gumb_prenesi.set_sensitive(True)
         self._gumb_odpri.set_visible(False)
         self._gumb_mapa.set_visible(False)
+        self._slike = None
+        self._vrstica.set_visible(False)
         self._nalozi_html(predogled_datotek.stran_sporocila(self._t("pripravljam"), "", self._jezik(), nalaganje=True), "")
         self._okno.present()
         return self._rod
@@ -184,13 +202,26 @@ class OknoPredogleda:
         self._zamenjaj(pogled)
 
     def _zamenjaj(self, pogled) -> None:
-        self._okno.set_child(pogled)
+        if self._pogled is not None and self._pogled.get_parent() is self._okvir:
+            self._okvir.remove(self._pogled)
+        self._okvir.append(pogled)
         self._pogled = pogled
 
-    def pokazi(self, rod: int, izid: dict, pot: str = "") -> bool:
-        """Rezultat predogled_datotek.pripravi (klic v glavni niti). Vrne False, ce je okno vmes zaprto ali zamenjano."""
+    def pokazi(self, rod: int, izid: dict, pot: str = "", slike: Optional[dict] = None) -> bool:
+        """Rezultat predogled_datotek.pripravi (klic v glavni niti). Vrne False, ce je okno vmes zaprto ali zamenjano.
+        slike: {"skritih", "posiljatelj", "prikazi": fn(vedno)} - vrstica »Prikazi slike« nad HTML pismom."""
         if self._okno is None or rod != self._rod:
             return False
+        self._slike = slike if slike and int(slike.get("skritih") or 0) > 0 else None
+        if self._slike is not None:
+            self._vrstica_napis.set_text(self._t("slike_vrstica"))
+            self._gumb_slike.set_label(self._t("slike_prikazi"))
+            od = str(self._slike.get("posiljatelj") or "")
+            self._gumb_vedno.set_label(self._t("slike_vedno", od=od))
+            self._gumb_vedno.set_visible(bool(od))
+            self._gumb_slike.set_sensitive(True)
+            self._gumb_vedno.set_sensitive(True)
+        self._vrstica.set_visible(self._slike is not None)
         self._pot = pot if pot and os.path.isfile(pot) else ""
         self._gumb_odpri.set_visible(bool(self._pot) and self._odpri_v_programu is not None)
         self._gumb_mapa.set_visible(bool(self._pot) and self._prenesi is None and self._pokazi_v_mapi is not None)
@@ -201,6 +232,13 @@ class OknoPredogleda:
         else:
             self._nalozi_html(str(izid.get("html") or ""), str(izid.get("osnova") or ""))
         return True
+
+    def _na_slike(self, vedno: bool) -> None:
+        if self._slike is None:
+            return
+        self._gumb_slike.set_sensitive(False)
+        self._gumb_vedno.set_sensitive(False)
+        self._slike["prikazi"](vedno)
 
     def napaka(self, rod: int, besedilo: str) -> None:
         if self._okno is None or rod != self._rod:

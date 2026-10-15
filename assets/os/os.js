@@ -3486,7 +3486,7 @@
   function naloziSporocila() {
     if (!most) { narisiSporocila(); return; }
     klic("sporocilaSeznam").then(function (p) {
-      S.sporocilaSkupine = p.skupine || []; S.sporocilaKanali = p.kanali || []; S.sporocilaOznakeVse = p.oznake || [];
+      S.sporocilaSkupine = p.skupine || []; S.sporocilaKanali = p.kanali || []; S.sporocilaOznakeVse = p.oznake || []; S.slikeOd = p.slike_od || S.slikeOd || [];
       narisiSporocila(); uskladiOdprtPogovor(); odpriCakajociPogovor(); naloziOsnutke();
     }).catch(function () { narisiSporocila(); });
   }
@@ -3723,7 +3723,7 @@
     $("slojOseba").classList.add("viden"); (nacin === "preimenuj" ? $("osebaIme") : $("osebaIzbira")).focus();
   }
   function posodobiSeznamIzOdgovora(p) {
-    S.sporocilaSkupine = p.skupine || []; S.sporocilaKanali = p.kanali || []; S.sporocilaOznakeVse = p.oznake || [];
+    S.sporocilaSkupine = p.skupine || []; S.sporocilaKanali = p.kanali || []; S.sporocilaOznakeVse = p.oznake || []; S.slikeOd = p.slike_od || S.slikeOd || [];
     // Oseba je lahko dobila novo ime ali se zdruzila: pano in naslov kazeta novo stanje.
     var a = S.sporocilaAktivni, nova = null, svez = null;
     S.sporocilaSkupine.forEach(function (sk) { (sk.pogovori || []).forEach(function (x) { if (a && x.id === a.id && x.kanal_id === a.kanal_id) { nova = sk.oseba; svez = x; } }); });
@@ -3738,7 +3738,8 @@
     vnos.disabled = false; gumb.disabled = false;
     var kljucP = pogovor.kanal_id + "\u0001" + pogovor.id;
     if (S.prilogeZa !== kljucP) { S.prilogeZa = kljucP; S.priloge.odgovor = []; narisiPriloge("odgovor"); }
-    $("sporocilaPrilozi").hidden = ((pogovor.kanal || {}).vrsta || "") !== "email";
+    // Gumb samo v kanalih, ki priloge res posljejo (e-posta, Telegram, Matrix - pove Safeer OS).
+    $("sporocilaPrilozi").hidden = !(pogovor.kanal || {}).priloge;
     var pano = $("sporocilaPano"); pano.hidden = false; pano.title = t("pokaziPano");
     narisiPano(oseba, pogovor, []);
     naloziVsebinoPogovora(pogovor, true);
@@ -3769,6 +3770,13 @@
       idn.appendChild(vr);
     });
     if (!idn.children.length) idn.appendChild(el("span", "identiteta", ubezi(pogovor.id || "")));
+    // »Vedno prikazi slike od …« (izbrano v oknu izvirnika): tu se preklice.
+    var slikeVedno = (pogovor.kanal || {}).vrsta === "email" && (S.slikeOd || []).indexOf(String(pogovor.id || "").toLowerCase()) >= 0;
+    $("panoSlikeSkupina").hidden = !slikeVedno;
+    $("panoSlikePreklici").onclick = function () {
+      klic("sporocilaSlikeOd", [pogovor.id, false]).then(function (seznam) { S.slikeOd = seznam || []; narisiPano(oseba, pogovor, S.sporocilaZadnjaVsebina); },
+        function (e) { obvesti(napakaSporocil(e)); });
+    };
     var pr = $("panoPriponke"); pr.innerHTML = "";
     var priponke = [];
     (sporocila || []).forEach(function (s) { pravePriponke(s).forEach(function (a) { priponke.push([s, a]); }); });
@@ -6108,6 +6116,10 @@
     katDogodek(vrsta, podatki);
     if (vrsta === "priponkaNapredek" && podatki) napredekPriponke(podatki);
     if (vrsta === "priponkaShranjena" && podatki) priponkaShranjena(podatki);
+    if (vrsta === "sporocilaSlikeOd" && Array.isArray(podatki)) {
+      S.slikeOd = podatki;
+      if (S.sporocilaOseba && S.sporocilaAktivni) narisiPano(S.sporocilaOseba, S.sporocilaAktivni, S.sporocilaZadnjaVsebina);
+    }
     // Drugo okno (glavno ali Safeer Player) je skrilo ali vrnilo predmet menija; novi samodejni seznami.
     if (vrsta === "mediaSkrito") nastaviSkrito(podatki, false);
     if (vrsta === "mediaSamodejniOsvezeni") naloziSamodejne();

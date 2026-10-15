@@ -23,6 +23,7 @@ from .sporocila.model import Kanal
 from .sporocila.storitev import StoritevSporocil
 from . import predogled_datotek, splet_prenosi
 from .sporocila import predpomnilnik
+from .sporocila import slike as _slike
 
 # Znani ponudniki: IMAP/SMTP streznik in namig za prijavo (vecina zahteva "geslo za aplikacije").
 PONUDNIKI = {
@@ -339,12 +340,16 @@ class SporocilaOS:
             s_priponkami = self.storitev.pogovori_s_priponkami()
         except Exception:
             s_priponkami = set()
+        for kid, k in kanali.items():
+            # Gumb »Prilozi« samo v kanalih, ki priloge res posljejo (brez nedelujocih gumbov).
+            k["priloge"] = "priloge" in getattr(self.storitev.adapterji.get(kid), "zmore", set())
         for s in skupine:
             for p in s["pogovori"]:
                 p["kanal"] = kanali.get(p["kanal_id"], {})
                 p["zadnji_ven"] = smeri.get((p["kanal_id"], p["id"])) == "ven"
                 p["priponke"] = (p["kanal_id"], p["id"]) in s_priponkami
-        return {"kanali": list(kanali.values()), "skupine": skupine, "oznake": self.storitev.vse_oznake()}
+        return {"kanali": list(kanali.values()), "skupine": skupine, "oznake": self.storitev.vse_oznake(),
+                "slike_od": self.slike_od.seznam()}
 
     # ---- osebe in oznake (uporabnikovo urejanje) ----
     def preimenuj_osebo(self, oseba_id: str, ime: str) -> dict:
@@ -399,7 +404,7 @@ class SporocilaOS:
         if not poti:
             return []
         adapter = self.storitev.adapterji.get(str(kanal_id))
-        if getattr(adapter, "vrsta", "") != "email":
+        if "priloge" not in getattr(adapter, "zmore", set()):
             raise ValueError(NAPAKE_PRILOG["priloge_ni_podprto"])
         return [{"pot": p} for p in poti[:50]]
 
@@ -741,8 +746,11 @@ class SporocilaOS:
         # Slicica ostane v vnosu priponke (drugic brez branja velike slike).
         return predpomnilnik.slicica(pot, self.mapa_vnosa(kanal_id, sporocilo_id, kljuc)) or pot
 
-    def html_pisma(self, kanal_id: str, sporocilo_id: str, jezik: str = "sl") -> str:
-        """HTML telo pisma (»Prikaži kot izvirnik«) s slikami v vrstici (cid:) iz predpomnilnika."""
+    def html_pisma(self, kanal_id: str, sporocilo_id: str, jezik: str = "sl", slike: bool = False,
+                   je_blokirano: Optional[Callable[[str], bool]] = None) -> dict:
+        """HTML telo pisma (»Prikaži izvirnik«) s slikami v vrstici (cid:) iz predpomnilnika. Oddaljene slike so skrite,
+        razen ce jih uporabnik pokaze (slike=True) ali jih vedno dovoli za tega posiljatelja; takrat jih prenese
+        zascita Safeer (core/sporocila/slike.py). Vrne {"html", "skritih", "posiljatelj", "prikazane"}."""
         s = self.storitev.sporocilo(str(kanal_id), str(sporocilo_id))
         adapter = self.storitev.adapterji.get(str(kanal_id))
         if s is None or not s.html or adapter is None or not hasattr(adapter, "html_pisma"):
@@ -761,7 +769,32 @@ class SporocilaOS:
                     continue
                 from urllib.parse import quote
                 cid[str(p["cid"])] = "file://" + quote(os.path.abspath(pot))
-        return predogled_datotek.html_pisma(vsebina, cid, jezik)
+        posiljatelj = str(s.pogovor_id) if s.smer == "noter" and "@" in str(s.pogovor_id) else ""
+        prikazane = bool(slike) or (bool(posiljatelj) and self.slike_od.dovoljen(posiljatelj))
+        oddaljene = None
+        if prikazane:
+            naslovi = predogled_datotek.oddaljene_slike(vsebina)
+            if naslovi:
+                vnos = predpomnilnik.mapa_vnosa(str(kanal_id), "", "", str(sporocilo_id), "slike-s-spleta")
+                oddaljene = _slike.prenesi_slike(naslovi, vnos, je_blokirano)
+            else:
+                oddaljene = {}
+        html, skritih = predogled_datotek.html_pisma(vsebina, cid, jezik, oddaljene)
+        return {"html": html, "skritih": skritih, "posiljatelj": posiljatelj, "prikazane": prikazane}
+
+    # ---- »Vedno prikazi slike od …« (lokalno, po naslovu posiljatelja; preklic v podoknu osebe)
+    @property
+    def slike_od(self) -> "_slike.DovoljeniPosiljatelji":
+        if getattr(self, "_slike_od", None) is None:
+            self._slike_od = _slike.DovoljeniPosiljatelji(str(Path(self.storitev.pot).with_name("slike_posiljateljev.json")))
+        return self._slike_od
+
+    def html_posiljatelj(self, kanal_id: str, sporocilo_id: str) -> str:
+        s = self.storitev.sporocilo(str(kanal_id), str(sporocilo_id))
+        return str(s.pogovor_id) if s is not None and s.smer == "noter" and "@" in str(s.pogovor_id) else ""
+
+    def nastavi_slike_od(self, naslov: str, dovoli: bool) -> list:
+        return self.slike_od.nastavi(str(naslov), bool(dovoli))
 
     def isci(self, niz: str) -> list:
         n = str(niz).casefold().strip()

@@ -427,3 +427,36 @@ def dodaj_priloge(msg, priloge) -> List[dict]:
         msg.add_attachment(vsebina, maintype=glavni, subtype=pod, filename=ime)
         opis.append({"ime": ime, "tip": glavni + "/" + pod, "velikost": velikost, "lokalno": pot})
     return opis
+
+
+def datoteke_prilog(priloge, najvec_ena: int, najvec_skupaj: int = 0) -> List[dict]:
+    """Priloge s strani -> [{"pot", "ime", "velikost", "tip"}] za kanale, ki datoteko nalozijo sami (Telegram,
+    Matrix). ValueError »prilog_ni« ali »priloga_prevelika_kanal« (vec, kot kanal sprejme), preden gre kaj na splet."""
+    import os
+    izid, skupaj = [], 0
+    for p in priloge or ():
+        pot = str((p or {}).get("pot") or "") if isinstance(p, dict) else str(p or "")
+        pot = os.path.realpath(os.path.expanduser(pot))
+        if not pot or not os.path.isfile(pot):
+            raise ValueError("prilog_ni")
+        velikost = os.path.getsize(pot)
+        skupaj += velikost
+        if velikost > najvec_ena or (najvec_skupaj and skupaj > najvec_skupaj):
+            raise ValueError("priloga_prevelika_kanal")
+        glavni, pod = mime_za(os.path.basename(pot))
+        izid.append({"pot": pot, "ime": os.path.basename(pot), "velikost": velikost, "tip": glavni + "/" + pod})
+    return izid
+
+
+def vecdelni_obrazec(polja: dict, ime_polja: str, ime: str, tip: str, vsebina: bytes) -> Tuple[bytes, str]:
+    """multipart/form-data (RFC 7578) brez dodatnih knjiznic: (telo, Content-Type)."""
+    import uuid
+    meja = "safeer" + uuid.uuid4().hex
+    deli = []
+    for k, v in polja.items():
+        deli.append(("--%s\r\nContent-Disposition: form-data; name=\"%s\"\r\n\r\n%s\r\n" % (meja, k, v)).encode("utf-8"))
+    varno = ime.replace("\\", "_").replace('"', "_").replace("\r", " ").replace("\n", " ")
+    deli.append(("--%s\r\nContent-Disposition: form-data; name=\"%s\"; filename=\"%s\"\r\nContent-Type: %s\r\n\r\n"
+                 % (meja, ime_polja, varno, tip)).encode("utf-8") + vsebina + b"\r\n")
+    deli.append(("--%s--\r\n" % meja).encode("ascii"))
+    return b"".join(deli), "multipart/form-data; boundary=" + meja

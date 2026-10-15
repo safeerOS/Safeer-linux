@@ -3024,15 +3024,32 @@ class SafeerOS(Gtk.Application):
         okno = self._predogled()
         rod = okno.odpri(naslov or kanal, self._okno_pogleda(pogled))
 
-        def delo() -> None:
+        def je_blokirano(url: str) -> bool:
+            # Oddaljene slike: isti seznami oglasov, sledilcev in groženj kot v Spletu.
+            from core import adblock
+            return adblock.is_ad_domain(url) or adblock.is_threat_domain(url)
+
+        def delo(slike: bool = False) -> None:
             try:
-                html = self.sporocila.html_pisma(kanal, sid, jezik)
-                izid = {"nacin": "html", "html": html,
+                r = self.sporocila.html_pisma(kanal, sid, jezik, slike=slike, je_blokirano=je_blokirano)
+                izid = {"nacin": "html", "html": r["html"],
                         "osnova": GLib.filename_to_uri(predpomnilnik.koren(), None) + "/"}
-                GLib.idle_add(lambda: (okno.pokazi(rod, izid), False)[1])
+                vrstica = None if r["prikazane"] else {"skritih": r["skritih"], "posiljatelj": r["posiljatelj"],
+                                                       "prikazi": prikazi}
+                GLib.idle_add(lambda: (okno.pokazi(rod, izid, "", vrstica), False)[1])
             except ValueError as e:
                 koda = "ni_povezave" if "povezave" in str(e) else "napaka"
                 GLib.idle_add(lambda: (okno.napaka(rod, predogled_datotek.besedilo(koda, jezik)), False)[1])
+
+        def prikazi(vedno: bool) -> None:
+            """»Prikazi slike« ali »Vedno prikazi od …« (ta izbira ostane po naslovu posiljatelja; preklic v podoknu)."""
+            if vedno:
+                try:
+                    self.sporocila.nastavi_slike_od(self.sporocila.html_posiljatelj(kanal, sid), True)
+                    self._dogodek("sporocilaSlikeOd", self.sporocila.slike_od.seznam())
+                except ValueError:
+                    pass
+            threading.Thread(target=delo, args=(True,), name="safeer-predogled-slike", daemon=True).start()
         threading.Thread(target=delo, name="safeer-predogled-pisma", daemon=True).start()
         return True
 
@@ -3664,6 +3681,8 @@ class SafeerOS(Gtk.Application):
             "sporocilaSlicicaPriponke": lambda: (lambda pot: GLib.filename_to_uri(pot, None) if pot else "")(
                 self.sporocila.priponka_slicica(str(a[0]), str(a[1]), str(a[2]))),
             "opisPrilog": lambda: _opis_prilog(a[0] if a and isinstance(a[0], list) else []),
+            # »Vedno prikazi slike od …«: preklic (ali vklop) v podoknu osebe; lokalno, po naslovu posiljatelja.
+            "sporocilaSlikeOd": lambda: self.sporocila.nastavi_slike_od(str(a[0]) if a else "", bool(a[1]) if len(a) > 1 else False),
             "sporocilaOsnutki": self.sporocila.uskladi_osnutke,
             "sporocilaShraniOsnutek": lambda: self.sporocila.shrani_osnutek(a[0] if a and isinstance(a[0], dict) else {}),
             "sporocilaOdstraniOsnutek": lambda: self.sporocila.odstrani_osnutek(str(a[0]) if a else ""),

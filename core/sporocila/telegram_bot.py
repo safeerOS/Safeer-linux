@@ -12,6 +12,11 @@ from typing import Callable, Iterable, Optional, Sequence
 from urllib.request import Request, urlopen
 
 from .adapter import Adapter, prenesi_url
+from . import priponke as _priponke
+
+#: Bot API: datoteka do 50 MB (sendDocument), fotografija do 10 MB (sendPhoto) - omejitvi Telegrama.
+NAJVEC_DATOTEKA = 50 * 1024 * 1024
+NAJVEC_FOTO = 10 * 1024 * 1024
 from .model import Pogovor, Sporocilo
 from . import skrivnosti
 
@@ -24,7 +29,7 @@ class NapakaPrijave(RuntimeError):
 
 class TelegramBotAdapter(Adapter):
     vrsta = "telegram_bot"
-    zmore = {"poslji"}
+    zmore = {"poslji", "priloge"}
 
     def __init__(self, kanal_id: str, zeton: str = "", vnos_zetona: Optional[Callable[[], str]] = None, timeout: float = 20):
         self.kanal_id = kanal_id
@@ -159,10 +164,50 @@ class TelegramBotAdapter(Adapter):
     def sporocila(self, pogovor_id: str, pred: Optional[str] = None, najvec: int = 50) -> Iterable[Sporocilo]:
         return list(self._klepeti.get(pogovor_id, {}).get("sporocila", []))[-max(1, min(int(najvec), NAJVEC_NA_KLEPET)):]
 
+    def _api_datoteka(self, metoda: str, polja: dict, ime_polja: str, d: dict) -> dict:
+        """Klic Bot API z datoteko (multipart/form-data)."""
+        with open(d["pot"], "rb") as f:
+            vsebina = f.read(NAJVEC_DATOTEKA + 1)
+        telo, vrsta = _priponke.vecdelni_obrazec(polja, ime_polja, d["ime"], d["tip"], vsebina)
+        zahteva = Request("https://api.telegram.org/bot" + self._skrivnost() + "/" + metoda, data=telo, method="POST",
+                          headers={"Content-Type": vrsta, "Accept": "application/json"})
+        try:
+            with urlopen(zahteva, timeout=max(self.timeout, 120)) as odgovor:
+                surovo = odgovor.read()
+        except Exception as e:  # noqa: BLE001
+            if getattr(e, "code", 0) in (401, 404):
+                raise NapakaPrijave("Žeton bota ni sprejet") from e
+            if getattr(e, "code", 0) == 413:
+                raise ValueError("priloga_prevelika_kanal") from e
+            raise
+        odg = json.loads(surovo.decode("utf-8")) if surovo else {}
+        if not odg.get("ok"):
+            raise RuntimeError(str(odg.get("description") or "Telegram napaka"))
+        return odg.get("result") or {}
+
     def poslji(self, pogovor_id: str, besedilo: str, priponke: Sequence[dict] = ()) -> Sporocilo:
-        odg = self._api("sendMessage", {"chat_id": int(pogovor_id) if pogovor_id.lstrip("-").isdigit() else pogovor_id, "text": besedilo}) or {}
+        """Besedilo in priloge: fotografija (JPEG/PNG/WebP do 10 MB) kot sendPhoto, vse drugo sendDocument; besedilo
+        do 1024 znakov gre kot napis k prvi prilogi, daljse kot svoje sporocilo pred njimi."""
+        datoteke = _priponke.datoteke_prilog(priponke, NAJVEC_DATOTEKA)
+        chat_id = int(pogovor_id) if pogovor_id.lstrip("-").isdigit() else pogovor_id
+        odg: dict = {}
+        napis = besedilo if datoteke and len(besedilo) <= 1024 else ""
+        if besedilo and not napis:
+            odg = self._api("sendMessage", {"chat_id": chat_id, "text": besedilo}) or {}
+        opis = []
+        for i, d in enumerate(datoteke):
+            foto = d["tip"] in ("image/jpeg", "image/png", "image/webp") and d["velikost"] <= NAJVEC_FOTO
+            polja = {"chat_id": chat_id}
+            if i == 0 and napis:
+                polja["caption"] = napis
+            odg = self._api_datoteka("sendPhoto" if foto else "sendDocument", polja, "photo" if foto else "document", d)
+            vrnjeno = odg.get("photo") or odg.get("document") or {}
+            if isinstance(vrnjeno, list):
+                vrnjeno = vrnjeno[-1] if vrnjeno else {}
+            opis.append({"ime": d["ime"], "tip": d["tip"], "velikost": d["velikost"], "lokalno": d["pot"],
+                         "file_id": str((vrnjeno or {}).get("file_id") or "")})
         s = Sporocilo(str(odg.get("message_id") or ""), pogovor_id, "ven", besedilo,
-                      datetime.fromtimestamp(int(odg.get("date") or 0), timezone.utc).isoformat() if odg.get("date") else datetime.now(timezone.utc).isoformat(), [], "poslano")
+                      datetime.fromtimestamp(int(odg.get("date") or 0), timezone.utc).isoformat() if odg.get("date") else datetime.now(timezone.utc).isoformat(), opis, "poslano")
         self._klepeti.setdefault(pogovor_id, {"ime": "", "oseba": pogovor_id, "neprebrano": 0, "sporocila": []})["sporocila"].append(s)
         return s
 

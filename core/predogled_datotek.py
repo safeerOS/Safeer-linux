@@ -71,7 +71,7 @@ NEVARNI_TIPI = {"application/x-msdownload", "application/x-ms-dos-executable", "
 MAKRO_KONCNICE = (".docm", ".dotm", ".xlsm", ".xltm", ".pptm", ".potm", ".ppsm", ".sldm")
 
 BESEDILA_PREDOGLEDA = {
-    "sl": {"prenesi": "Prenesi", "odpri": "Odpri v programu", "mapa": "Pokaži v mapi", "zapri": "Zapri",
+    "sl": {"slike_vrstica": "Slike so skrite zaradi zasebnosti", "slike_prikazi": "Prikaži slike", "slike_vedno": "Vedno prikaži od {od}", "prenesi": "Prenesi", "odpri": "Odpri v programu", "mapa": "Pokaži v mapi", "zapri": "Zapri",
            "pripravljam": "Pripravljam predogled …", "nevarno_naslov": "Ta datoteka je lahko nevarna",
            "nevarno": "»{ime}« je program, skripta ali dokument z makri. Take datoteke lahko škodijo računalniku, zato jih Safeer ne prikaže. Odpri jo samo, če pošiljatelju zaupaš in jo pričakuješ.",
            "brez_naslov": "Predogled ni na voljo", "brez": "Te vrste datoteke ({vrsta}) Safeer ne zna prikazati. Prenesi jo ali jo odpri v programu.",
@@ -80,7 +80,7 @@ BESEDILA_PREDOGLEDA = {
            "slike_skrite": "Slike s spleta so zaradi zasebnosti skrite (pošiljatelj ne izve, da si pismo odprl).",
            "od": "Od", "za": "Za", "datum": "Datum", "zadeva": "Zadeva", "priponke": "Priponke",
            "skrajsano": "Prikazan je samo začetek datoteke.", "shranjeno": "Shranjeno v Prejemi: {ime}"},
-    "en": {"prenesi": "Download", "odpri": "Open in app", "mapa": "Show in folder", "zapri": "Close",
+    "en": {"slike_vrstica": "Images are hidden for your privacy", "slike_prikazi": "Show images", "slike_vedno": "Always show from {od}", "prenesi": "Download", "odpri": "Open in app", "mapa": "Show in folder", "zapri": "Close",
            "pripravljam": "Preparing preview …", "nevarno_naslov": "This file may be dangerous",
            "nevarno": "“{ime}” is a program, a script or a document with macros. Files like this can harm your computer, so Safeer does not show them. Open it only if you trust the sender and expect it.",
            "brez_naslov": "No preview available", "brez": "Safeer cannot show this kind of file ({vrsta}). Download it or open it in an app.",
@@ -89,7 +89,7 @@ BESEDILA_PREDOGLEDA = {
            "slike_skrite": "Images from the web are hidden for your privacy (the sender does not learn that you opened the email).",
            "od": "From", "za": "To", "datum": "Date", "zadeva": "Subject", "priponke": "Attachments",
            "skrajsano": "Only the beginning of the file is shown.", "shranjeno": "Saved to Downloads: {ime}"},
-    "de": {"prenesi": "Herunterladen", "odpri": "In App öffnen", "mapa": "Im Ordner zeigen", "zapri": "Schließen",
+    "de": {"slike_vrstica": "Bilder sind zum Schutz der Privatsphäre ausgeblendet", "slike_prikazi": "Bilder anzeigen", "slike_vedno": "Immer anzeigen von {od}", "prenesi": "Herunterladen", "odpri": "In App öffnen", "mapa": "Im Ordner zeigen", "zapri": "Schließen",
            "pripravljam": "Vorschau wird vorbereitet …", "nevarno_naslov": "Diese Datei kann gefährlich sein",
            "nevarno": "„{ime}“ ist ein Programm, ein Skript oder ein Dokument mit Makros. Solche Dateien können deinem Computer schaden, daher zeigt Safeer sie nicht an. Öffne sie nur, wenn du dem Absender vertraust und sie erwartest.",
            "brez_naslov": "Keine Vorschau verfügbar", "brez": "Safeer kann diese Dateiart ({vrsta}) nicht anzeigen. Lade sie herunter oder öffne sie in einer App.",
@@ -98,7 +98,7 @@ BESEDILA_PREDOGLEDA = {
            "slike_skrite": "Bilder aus dem Web sind zum Schutz deiner Privatsphäre ausgeblendet (der Absender erfährt nicht, dass du die E-Mail geöffnet hast).",
            "od": "Von", "za": "An", "datum": "Datum", "zadeva": "Betreff", "priponke": "Anhänge",
            "skrajsano": "Nur der Anfang der Datei wird angezeigt.", "shranjeno": "In Downloads gespeichert: {ime}"},
-    "es": {"prenesi": "Descargar", "odpri": "Abrir en una app", "mapa": "Mostrar en carpeta", "zapri": "Cerrar",
+    "es": {"slike_vrstica": "Las imágenes están ocultas por privacidad", "slike_prikazi": "Mostrar imágenes", "slike_vedno": "Mostrar siempre de {od}", "prenesi": "Descargar", "odpri": "Abrir en una app", "mapa": "Mostrar en carpeta", "zapri": "Cerrar",
            "pripravljam": "Preparando la vista previa …", "nevarno_naslov": "Este archivo puede ser peligroso",
            "nevarno": "«{ime}» es un programa, un script o un documento con macros. Estos archivos pueden dañar tu ordenador, por eso Safeer no los muestra. Ábrelo solo si confías en el remitente y lo esperabas.",
            "brez_naslov": "Vista previa no disponible", "brez": "Safeer no puede mostrar este tipo de archivo ({vrsta}). Descárgalo o ábrelo en una app.",
@@ -107,7 +107,7 @@ BESEDILA_PREDOGLEDA = {
            "slike_skrite": "Las imágenes de la web están ocultas por tu privacidad (el remitente no sabe que abriste el correo).",
            "od": "De", "za": "Para", "datum": "Fecha", "zadeva": "Asunto", "priponke": "Adjuntos",
            "skrajsano": "Solo se muestra el principio del archivo.", "shranjeno": "Guardado en Descargas: {ime}"},
-    "fr": {"prenesi": "Télécharger", "odpri": "Ouvrir dans une app", "mapa": "Afficher dans le dossier", "zapri": "Fermer",
+    "fr": {"slike_vrstica": "Les images sont masquées pour votre confidentialité", "slike_prikazi": "Afficher les images", "slike_vedno": "Toujours afficher de {od}", "prenesi": "Télécharger", "odpri": "Ouvrir dans une app", "mapa": "Afficher dans le dossier", "zapri": "Fermer",
            "pripravljam": "Préparation de l’aperçu …", "nevarno_naslov": "Ce fichier peut être dangereux",
            "nevarno": "« {ime} » est un programme, un script ou un document avec des macros. Ces fichiers peuvent nuire à votre ordinateur, Safeer ne les affiche donc pas. Ouvrez-le seulement si vous faites confiance à l’expéditeur et l’attendiez.",
            "brez_naslov": "Aperçu indisponible", "brez": "Safeer ne peut pas afficher ce type de fichier ({vrsta}). Téléchargez-le ou ouvrez-le dans une app.",
@@ -116,7 +116,7 @@ BESEDILA_PREDOGLEDA = {
            "slike_skrite": "Les images du web sont masquées pour votre confidentialité (l’expéditeur ne sait pas que vous avez ouvert le message).",
            "od": "De", "za": "À", "datum": "Date", "zadeva": "Objet", "priponke": "Pièces jointes",
            "skrajsano": "Seul le début du fichier est affiché.", "shranjeno": "Enregistré dans Téléchargements : {ime}"},
-    "it": {"prenesi": "Scarica", "odpri": "Apri in un'app", "mapa": "Mostra nella cartella", "zapri": "Chiudi",
+    "it": {"slike_vrstica": "Le immagini sono nascoste per la privacy", "slike_prikazi": "Mostra immagini", "slike_vedno": "Mostra sempre da {od}", "prenesi": "Scarica", "odpri": "Apri in un'app", "mapa": "Mostra nella cartella", "zapri": "Chiudi",
            "pripravljam": "Preparazione dell'anteprima …", "nevarno_naslov": "Questo file può essere pericoloso",
            "nevarno": "«{ime}» è un programma, uno script o un documento con macro. Questi file possono danneggiare il computer, perciò Safeer non li mostra. Aprilo solo se ti fidi del mittente e te lo aspettavi.",
            "brez_naslov": "Anteprima non disponibile", "brez": "Safeer non può mostrare questo tipo di file ({vrsta}). Scaricalo o aprilo in un'app.",
@@ -251,9 +251,11 @@ _CSS_URL = re.compile(r"url\s*\(\s*(['\"]?)(.*?)\1\s*\)", re.I | re.S)
 
 
 class _Cistilnik(HTMLParser):
-    def __init__(self, cid: Dict[str, str]):
+    def __init__(self, cid: Dict[str, str], oddaljene: Optional[Dict[str, str]] = None):
         super().__init__(convert_charrefs=True)
         self.cid = {k.strip("<>").lower(): v for k, v in (cid or {}).items()}
+        self.oddaljene = oddaljene                  # {url: file://} slike, ki jih je prenesla zascita Safeer
+        self.oddaljeni: list = []                   # vsi oddaljeni naslovi slik (za prenos)
         self.izhod: list = []
         self.preskoci = 0
         self.skrite_slike = 0
@@ -266,8 +268,24 @@ class _Cistilnik(HTMLParser):
         if nizko.startswith("data:image/") and not nizko.startswith("data:image/svg"):
             return v
         if nizko.startswith(("http:", "https:", "//")):
+            url = ("https:" + v) if v.startswith("//") else v
+            if url not in self.oddaljeni:
+                self.oddaljeni.append(url)
+            if self.oddaljene is not None:
+                return self.oddaljene.get(url, "")    # blokirano (sledilec, 1x1, domace omrezje): ni slike
             self.skrite_slike += 1
         return ""
+
+    @staticmethod
+    def _piksel(atributi) -> bool:
+        """Sledilni piksel po atributih: sirina ali visina 0-2 tocke ali skrita slika."""
+        a = {str(k or "").lower(): str(v or "") for k, v in atributi}
+        for kljuc in ("width", "height"):
+            m = re.match(r"\s*(\d+)(px)?\s*$", a.get(kljuc, ""))
+            if m and int(m.group(1)) <= 2:
+                return True
+        slog = a.get("style", "").replace(" ", "").lower()
+        return bool(re.search(r"(^|;)(width|height):[0-2](px)?(;|$)|display:none|visibility:hidden", slog))
 
     def _css(self, css: str) -> str:
         css = re.sub(r"(?i)@import[^;]*;?", "", css)
@@ -280,6 +298,8 @@ class _Cistilnik(HTMLParser):
 
     def handle_starttag(self, oznaka, atributi, prazna=False):
         oznaka = oznaka.lower()
+        if oznaka == "img" and not self.preskoci and self._piksel(atributi):
+            return                                      # sledilni piksel se ne steje med skrite slike
         if self.preskoci:
             if oznaka in _PREPOVEDANO_Z_VSEBINO:
                 self.preskoci += 1
@@ -345,16 +365,27 @@ class _Cistilnik(HTMLParser):
         pass
 
 
-def varen_html(vsebina: str, cid: Optional[Dict[str, str]] = None) -> tuple:
-    """Preciscen HTML (brez skript, okvirjev, obrazcev, dogodkov, oddaljenih virov). cid: {Content-ID: naslov slike}
-    za slike v vrstici. Vrne (html, stevilo skritih oddaljenih slik)."""
-    c = _Cistilnik(cid or {})
+def _cisti(vsebina: str, cid, oddaljene):
+    c = _Cistilnik(cid or {}, oddaljene)
     try:
         c.feed(str(vsebina or ""))
         c.close()
     except Exception:  # noqa: BLE001 - pokvarjen HTML: kar je preciscenega do tu
         pass
+    return c
+
+
+def varen_html(vsebina: str, cid: Optional[Dict[str, str]] = None, oddaljene: Optional[Dict[str, str]] = None) -> tuple:
+    """Preciscen HTML (brez skript, okvirjev, obrazcev, dogodkov, oddaljenih virov). cid: {Content-ID: naslov slike}
+    za slike v vrstici; oddaljene: {url: file://} slike, ki jih je prenesla zascita Safeer (None = oddaljene skrite).
+    Vrne (html, stevilo skritih oddaljenih slik)."""
+    c = _cisti(vsebina, cid, oddaljene)
     return "".join(c.izhod), c.skrite_slike
+
+
+def oddaljene_slike(vsebina: str) -> list:
+    """Naslovi oddaljenih slik v HTML (brez sledilnih pikslov po atributih), v vrstnem redu."""
+    return list(_cisti(vsebina, {}, None).oddaljeni)
 
 
 #: Brez skript, okvirjev, obrazcev in omrezja; slike samo iz datotek predpomnilnika in data:. Velja tudi brez JS.
@@ -698,8 +729,9 @@ def pripravi(pot: str, ime: str = "", tip: str = "", jezik: str = "sl",
     return sporocilo("brez_naslov", besedilo("brez", jezik, vrsta=(_koncnica(ime).lstrip(".").upper() or tip or "?")))
 
 
-def html_pisma(vsebina: str, cid: Dict[str, str], jezik: str = "sl") -> str:
-    """HTML telo e-pisma kot v Gmailu: preciscen, slike v vrstici (cid:) iz predpomnilnika, oddaljene skrite."""
-    telo, skrite = varen_html(vsebina, cid)
-    opomba = '<p class="opomba">%s</p>' % _html.escape(besedilo("slike_skrite", jezik)) if skrite else ""
-    return stran(opomba + '<div class="okvir">%s</div>' % telo, jezik, svetla=True)
+def html_pisma(vsebina: str, cid: Dict[str, str], jezik: str = "sl", oddaljene: Optional[Dict[str, str]] = None) -> tuple:
+    """HTML telo e-pisma kot v Gmailu: preciscen, slike v vrstici (cid:) iz predpomnilnika; oddaljene skrite ali iz
+    zascite Safeer (oddaljene). Vrne (stran, skritih) - vrstico »Prikazi slike« pokaze okno predogleda (GTK, ne
+    stran: besedilo pisma je ne more ponarediti)."""
+    telo, skrite = varen_html(vsebina, cid, oddaljene)
+    return stran('<div class="okvir">%s</div>' % telo, jezik, svetla=True), skrite
