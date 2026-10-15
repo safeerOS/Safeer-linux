@@ -54,9 +54,17 @@ class StranskaPlosca:
         (to je stran na tem racunalniku, ne spletna storitev)."""
         izid = {}
         for kid, v in (self.config.get("integrations", {}) or {}).items():
-            url = str((v or {}).get("url") or "")
-            if isinstance(v, dict) and url.startswith("https://"):
-                izid[kid] = v
+            if not isinstance(v, dict):
+                continue
+            try:
+                # Ista preverba kot lasten klepet v Sporocilih: samo https, brez imena/gesla v naslovu, gostitelj IDN
+                # kot punycode (spletni_klepeti.preveri_naslov) - tudi za rocno vpisane naslove v nastavitvah.
+                url = spletni_klepeti.preveri_naslov(spletni_klepeti.preseli_naslov(str(v.get("url") or "")))
+            except spletni_klepeti.NeveljavenNaslov:
+                continue
+            if not str(v.get("url") or "").lower().startswith("https://"):
+                continue
+            izid[kid] = dict(v, url=url)
         return izid
 
     def narisi(self) -> None:
@@ -130,8 +138,7 @@ class StranskaPlosca:
             return
         a = self.aplikacije.get(kid)
         if a is None:
-            url = spletni_klepeti.preseli_naslov(v["url"])
-            a = self.aplikacije[kid] = self.splet.aplikacija(url, ob_naslovu=lambda n, kid=kid: self._znacka(kid, n))
+            a = self.aplikacije[kid] = self.splet.aplikacija(v["url"], ob_naslovu=lambda n, kid=kid: self._znacka(kid, n))
             self.sklad.add_named(a.gradnik, kid)
         self.sklad.set_visible_child(a.gradnik)
         self.razkrij.set_reveal_child(True)

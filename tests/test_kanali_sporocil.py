@@ -151,6 +151,29 @@ class Kanali(unittest.TestCase):
         self.k.vklopi(kid, False)
         self.assertEqual(self.k.neprebrano_skupaj(), 0)
 
+    def test_kanal_nima_mostu_safeer_os_in_ima_svoj_proces(self):
+        """Stran kanala (tuja stran) ne vidi mostu Safeer OS (window.SafeerOS / safeerOs); vsak kanal ima svoj
+        upravitelj vsebine (ne deli ga z namizjem ali drugim kanalom)."""
+        a, b = self._lasten("most-a"), self._lasten("most-b")
+        self.k.zazeni_vse()
+        self.assertTrue(_cakaj(lambda: a in self.k.zivi and b in self.k.zivi))
+        pa, pb = self.k.zivi[a].aplikacija.pogled, self.k.zivi[b].aplikacija.pogled
+        for p, ime in ((pa, "most-a"), (pb, "most-b")):
+            p.load_html("<!doctype html><title>x</title>", IZVOR + ime)
+        self.assertTrue(_cakaj(lambda: pa.get_title() == "x" and pb.get_title() == "x"))
+        izid = {}
+
+        def beri(p, kljuc):
+            def konec(v, r, *_):
+                izid[kljuc] = v.evaluate_javascript_finish(r).to_string()
+            p.evaluate_javascript("typeof window.SafeerOS + ',' + typeof window.__safeerOsOdgovor + ',' + "
+                                  "(window.webkit && window.webkit.messageHandlers && "
+                                  "typeof window.webkit.messageHandlers.safeerOs)", -1, None, None, None, konec, None)
+        beri(pa, "a")
+        self.assertTrue(_cakaj(lambda: "a" in izid, 5))
+        self.assertEqual(izid["a"], "undefined,undefined,undefined", "most Safeer OS ni izpostavljen strani kanala")
+        self.assertIsNot(pa.get_user_content_manager(), pb.get_user_content_manager())
+
     def test_mesto_nad_stranjo_in_preklop_brez_ponovnega_nalaganja(self):
         a, b = self._lasten("a"), self._lasten("b")
         okno = Gtk.Window()

@@ -62,6 +62,18 @@ class Plosca(unittest.TestCase):
         p.vklopi("whatsapp", False)
         self.assertNotIn("whatsapp", p.aplikacije, "izklop storitev sprosti")
         self.assertFalse(c.get("integrations")["whatsapp"]["enabled"])
+        # rocno vpisani naslovi: samo https brez imena/gesla, IDN kot punycode
+        integ = c.get("integrations")
+        integ.update({"geslo": {"name": "G", "url": "https://ime:geslo@chat.primer.org/", "enabled": True},
+                      "http": {"name": "H", "url": "http://chat.primer.org/", "enabled": True},
+                      "js": {"name": "J", "url": "javascript:alert(1)", "enabled": True},
+                      "idn": {"name": "I", "url": "https://аpple.com/", "enabled": True}})
+        c.set("integrations", integ)
+        izid = p.integracije()
+        self.assertNotIn("geslo", izid)
+        self.assertNotIn("http", izid)
+        self.assertNotIn("js", izid)
+        self.assertEqual(izid["idn"]["url"], "https://xn--pple-43d.com/", "homograf kot punycode")
 
 
 if __name__ == "__main__":

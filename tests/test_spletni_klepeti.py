@@ -127,6 +127,9 @@ class LastenNaslov(unittest.TestCase):
         self.assertEqual(sk.preveri_naslov("https://192.168.1.5/"), "https://192.168.1.5/")
         idn = sk.preveri_naslov("https://čevapčiči.si/")
         self.assertEqual(idn, "https://" + "čevapčiči.si".encode("idna").decode() + "/")
+        # homograf (cirilski »а« namesto latinskega »a«): shranjen in prikazan kot punycode, ne kot »apple.com«
+        self.assertEqual(sk.preveri_naslov("https://аpple.com/"), "https://xn--pple-43d.com/")
+        self.assertEqual(sk.ime_iz_naslova(sk.preveri_naslov("https://аpple.com/")), "xn--pple-43d.com")
 
     def test_neveljavni(self):
         primeri = {"": "prazno", "   ": "prazno", "http://chat.example.org": "https", "ftp://x.org": "https",
@@ -134,7 +137,9 @@ class LastenNaslov(unittest.TestCase):
                    "https://ime:geslo@chat.example.org": "poverilnice", "https://ime@chat.example.org": "poverilnice",
                    "https://": "gostitelj", "https://chat example.org": "gostitelj", "https://a\nb.org": "gostitelj",
                    "https://-x-.org": "gostitelj", "https://x.org:99999/": "gostitelj",
-                   "https://x.org/" + "a" * 3000: "dolzina"}
+                   "https://x.org/" + "a" * 3000: "dolzina",
+                   "data:text/html,<script>alert(1)</script>": "https", "JaVaScRiPt:alert(1)": "https",
+                   "javascript://chat.example.org/%0aalert(1)": "https", "https://evil.example\\@chat.example.org": "poverilnice"}
         for url, koda in primeri.items():
             with self.assertRaises(sk.NeveljavenNaslov, msg=url) as e:
                 sk.preveri_naslov(url)
