@@ -331,7 +331,9 @@ jobs:
           grep -q '^build.ninja -fuse-ld=lld: [1-9]' "$G"
           flatpak run --command=sh io.github.memelandfaner.SafeerOS -c "test -x /app/libexec/webkitgtk-6.0/WebKitWebProcess"
           # Slicica prve strani PDF (priponke v Sporocilih, Datoteke): pdftoppm v paketu res naredi sliko strani.
-          flatpak run --command=sh io.github.memelandfaner.SafeerOS -c "command -v pdftoppm && pdftoppm -v"
+          # Kaj je v paketu (opozorilo posla, ker je konec dnevnika v opozorilu ob napaki prirezan).
+          flatpak run --command=sh io.github.memelandfaner.SafeerOS -c 'echo "::notice::pdftoppm: $(command -v pdftoppm) | poppler v /app: $(ls /app/lib /app/lib64 2>/dev/null | grep -i poppler | tr "\n" " ") | manjka: $(ldd /app/bin/pdftoppm 2>&1 | grep -i "not found" | tr "\n" " ")"'
+          flatpak run --command=sh io.github.memelandfaner.SafeerOS -c "pdftoppm -v"
           flatpak run --command=python3 io.github.memelandfaner.SafeerOS - <<'PY'
           import os, shutil, subprocess, sys, tempfile
           sys.path.insert(0, '/app/lib/safeer-os')
