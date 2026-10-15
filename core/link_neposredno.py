@@ -589,14 +589,22 @@ class VhodNeposredno:
         if hub_vrata <= 0:
             _zapri(t)
             return False
+        # Krajevna vrata oznacimo, PREDEN se povezemo: Hub vidi 127.0.0.1 in mora ze ob sprejemu vedeti, da je to
+        # neposredna pot (meritve, vmesnik, izbira boljse poti).
+        h = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        lokalna = 0
         try:
-            h = socket.create_connection(("127.0.0.1", hub_vrata), timeout=5)
+            h.bind(("127.0.0.1", 0))
+            lokalna = h.getsockname()[1]
+            _oznaci(lokalna, POT_NEPOSREDNO)
+            h.settimeout(5)
+            h.connect(("127.0.0.1", hub_vrata))
             h.settimeout(None)
         except OSError:
+            _odznaci(lokalna)
+            _zapri(h)
             _zapri(t)
             return False
-        lokalna = h.getsockname()[1]
-        _oznaci(lokalna, POT_NEPOSREDNO)        # Hub vidi 127.0.0.1; meritve in vmesnik vedo, da je to neposredna pot
         try:
             t.sendall(POTRDITEV)
             t.settimeout(None)
