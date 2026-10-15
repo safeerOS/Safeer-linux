@@ -51,6 +51,19 @@ config-opts:
   - -DCMAKE_AR=/usr/lib/sdk/llvm22/bin/llvm-ar
   - -DCMAKE_RANLIB=/usr/lib/sdk/llvm22/bin/llvm-ranlib
   - -DCMAKE_NM=/usr/lib/sdk/llvm22/bin/llvm-nm
+# Zapis gradnje (prevajalnik, LTO, PGO) za preverbo v CI in na testnem PC: flatpak-builder knjiznicam odstrani .comment
+# (strip --remove-section=.comment), zato prevajalnika iz knjiznice ni mogoce prebrati (CI 38677265636).
+# Tece v mapi gradnje (_flatpak_build) s CMakeCache.txt in build.ninja.
+post-install:
+  - |
+    d=/app/share/webkitgtk-safeer
+    mkdir -p "$d"
+    {
+      clang --version | head -n 1
+      grep -E '^(CMAKE_BUILD_TYPE|CMAKE_CXX_COMPILER|LTO_MODE|ENABLE_LLVM_PROFILE_GENERATION|USE_PGO_PROFILE):' CMakeCache.txt
+      for z in -fuse-ld=lld -flto=thin -fprofile-generate -fprofile-use; do echo "build.ninja $z: $(grep -c -e "$z" build.ninja)"; done
+    } > "$d/gradnja.txt"
+    cat "$d/gradnja.txt"
 cleanup:
   - /bin
   - /include
