@@ -5916,10 +5916,93 @@
             else obvesti(t("mediaNapaka_ni_toka", { ime: item.naslov || "" }));
           }, function () { obvesti(t("katNapakaVira")); });
         };
-        row.appendChild(play); cilj.appendChild(row);
+        row.appendChild(play);
+        // Viri epizode (razlicice): seznam se odpre pod vrstico, ko ga uporabnik zahteva - dodatkov ne sprasujemo za
+        // vsako epizodo vnaprej.
+        var viri = el("button", "gumb-ikona kat-epizoda-viri", svg("drsniki")); viri.type = "button";
+        viri.title = t("razlViri"); viri.setAttribute("aria-label", t("razlViri") + " – E" + String(ep.stevilka).padStart(2, "0"));
+        viri.setAttribute("aria-expanded", "false");
+        var seznamEp = el("section", "kat-razlicice kat-razlicice-epizoda"); seznamEp.hidden = true;
+        viri.onclick = function () {
+          if (viri.getAttribute("aria-expanded") === "true") { viri.setAttribute("aria-expanded", "false"); seznamEp.hidden = true; return; }
+          viri.setAttribute("aria-expanded", "true");
+          var vnosEp = klic("mediaEpizoda", [item.tmdb_id, season, ep.stevilka, item.naslov + " · " + ep.naslov])
+            .then(function (entry) { return entry && entry.id ? entry.id : ""; });
+          narisiRazlicice(seznamEp, vnosEp, item, season, ep.stevilka, function (vnosId) {
+            zapriKatalogPodrobnosti(); kat.vrsta = []; narisiVrsto(); odpriKatalogVnos(vnosId);
+          }, true);
+        };
+        row.appendChild(viri); cilj.appendChild(row); cilj.appendChild(seznamEp);
       });
       if (!episodes.length) cilj.appendChild(el("div", "prazno", ubezi(t("katBrezEpizod"))));
     }, function () { cilj.innerHTML = ""; cilj.appendChild(el("div", "prazno", ubezi(t("katBrezEpizod")))); });
+  }
+  // ---- razlicice naslova (lastnik, 15. 10. 2026): v podrobnostih filma ali epizode je en seznam vseh moznosti
+  // predvajanja - toki iz dodatkov in streznikov, ki jih je dodal uporabnik (ime vira, kakovost, odziv), in lastni
+  // vgrajeni viri, ce jih ima. Prva je samodejna izbira (privzeta); rocna izbira se zapomni za ta naslov.
+  var RAZL = { ura: 0 };
+  function vrsticaRazlicice(r, oznake, ob) {
+    var b = el("button", "kat-razlicica" + (r.izbrana ? " izbrana" : "")); b.type = "button"; b.setAttribute("role", "listitem");
+    var ime = el("span", "kat-razlicica-ime", ubezi(r.vir || r.ime || t("razlVir")));
+    var podatki = [r.kakovost, r.opis && r.opis !== r.kakovost ? r.opis : ""].filter(Boolean).join(" · ");
+    b.appendChild(ime);
+    if (podatki) b.appendChild(el("span", "kat-razlicica-opis", ubezi(podatki)));
+    var desno = el("span", "kat-razlicica-oznake");
+    oznake.forEach(function (o) { desno.appendChild(el("span", "kat-razlicica-znacka " + o[0], ubezi(o[1]))); });
+    if (r.ping != null) desno.appendChild(el("span", "kat-razlicica-ping", ubezi(t("razlMs", { ms: r.ping }))));
+    b.appendChild(desno);
+    b.setAttribute("aria-pressed", r.izbrana ? "true" : "false");
+    b.title = [r.vir || r.ime || "", podatki, r.ping != null ? t("razlMs", { ms: r.ping }) : ""].filter(Boolean).join(" · ");
+    b.onclick = ob;
+    return b;
+  }
+  // cilj: prazen <section>; vnos: Promise z id-jem vnosa za predvajanje; predvajaj(id): obstojeca pot predvajanja.
+  function narisiRazlicice(cilj, vnos, item, sezona, epizoda, predvajaj, vedno) {
+    var ura = ++RAZL.ura;
+    cilj.innerHTML = ""; cilj.hidden = !vedno;
+    if (vedno) cilj.appendChild(el("p", "drobno", ubezi(t("razlIscem"))));
+    var naslov = (item.naslov || "") + (sezona ? " · S" + String(sezona).padStart(2, "0") + "E" + String(epizoda).padStart(2, "0") : "");
+    // Lastni vgrajeni viri (veja gtk4-mc-vgrajeni-viri): ce most to zna, so v istem seznamu, ne kot loceni gumbi.
+    var vgrajeni = klic("mediaVgrajeneMoznosti", [item, sezona || 0, epizoda || 0])
+      .then(function (m) { return Array.isArray(m) ? m : []; }, function () { return []; });
+    var toki = Promise.resolve(vnos).then(function (id) {
+      if (!id) return { id: "", razlicice: [] };
+      return klic("mediaRazlicice", [id]).then(function (r) { return r || { id: id, razlicice: [] }; },
+                                               function () { return { id: id, razlicice: [] }; });
+    }, function () { return { id: "", razlicice: [] }; });
+    Promise.all([toki, vgrajeni]).then(function (izid) {
+      if (ura !== RAZL.ura && !vedno) return;
+      var r = izid[0], moznosti = izid[1], razl = r.razlicice || [];
+      cilj.innerHTML = "";
+      // En sam tok brez drugih moznosti: izbire ni, seznam ostane skrit (gumb Predvajaj zadostuje).
+      if (razl.length + moznosti.length < 2) {
+        if (vedno) cilj.appendChild(el("p", "drobno", ubezi(razl.length || moznosti.length ? t("razlEna") : t("razlNi"))));
+        cilj.hidden = !vedno; return;
+      }
+      var glava = el("h4", "", ubezi(t("razlNaslov"))); cilj.appendChild(glava);
+      var seznam = el("div", "kat-razlicice-seznam"); seznam.setAttribute("role", "list");
+      razl.forEach(function (x) {
+        var oznake = [];
+        if (x.izbrana) oznake.push(["izbrana", t("razlIzbrana")]);
+        else if (x.privzeta && !r.izbira) oznake.push(["privzeta", t("razlPrivzeta")]);
+        if (x.najhitrejsi) oznake.push(["najhitrejsi", t("razlNajhitrejsi")]);
+        if (x.lastni) oznake.push(["lastni", t("razlLastni")]);
+        seznam.appendChild(vrsticaRazlicice(x, oznake, function () {
+          klic("mediaIzberiRazlicico", [r.id, x.privzeta && !x.izbrana ? "" : x.podpis]).then(function () { predvajaj(r.id); },
+                                                                                          function () { predvajaj(r.id); });
+        }));
+      });
+      moznosti.forEach(function (m, i) {
+        var oznake = [["vgrajeno", t("razlVgrajeno")]];
+        if (m.privzeta && !razl.length) oznake.unshift(["privzeta", t("razlPrivzeta")]);
+        seznam.appendChild(vrsticaRazlicice({ vir: m.ime, ping: m.ms != null ? Math.round(m.ms) : null }, oznake, function () {
+          if (typeof vgrOdpri !== "function") return;
+          if (!m.privzeta) klic("mediaVgrajenaIzbira", [item, sezona || 0, epizoda || 0, m.id]);
+          vgrOdpri(moznosti.slice(i).filter(function (x, j) { return j === 0 || x.vrsta === m.vrsta; }), 0, naslov);
+        }));
+      });
+      cilj.appendChild(seznam); cilj.hidden = false;
+    });
   }
   // rezerva: kaj narediti, ce naslova ni vec v katalogu (polica Priljubljene po ponovnem zagonu): predvajaj ga.
   function odpriKatalogPodrobnosti(id, rezerva) {
@@ -5948,6 +6031,15 @@
           else pojdi2(item.id);
         };
         episodes.appendChild(playBtn);
+        // Vse moznosti predvajanja na enem mestu: razlicice iz dodatkov in streznikov (ter lastni vgrajeni viri).
+        var seznamFilma = el("section", "kat-razlicice"); seznamFilma.hidden = true;
+        episodes.appendChild(seznamFilma);
+        var vnosFilma = item.tmdb_id ? klic("mediaFilm", [item.tmdb_id, item.naslov]).then(function (e) { return e && e.id ? e.id : item.id; },
+                                                                                              function () { return item.id; })
+                                     : Promise.resolve(item.id);
+        narisiRazlicice(seznamFilma, vnosFilma, item, 0, 0, function (vnosId) {
+          zapriKatalogPodrobnosti(); kat.vrsta = []; narisiVrsto(); odpriKatalogVnos(vnosId);
+        });
       } else {
         $("mediaEpizodeNaslov").textContent = t("katEpizode");
         (item.sezone || []).forEach(function (season, index) {

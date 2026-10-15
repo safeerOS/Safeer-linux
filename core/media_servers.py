@@ -18,6 +18,7 @@ import socket
 import unicodedata
 import urllib.error
 import urllib.parse
+import time
 import urllib.request
 import xml.etree.ElementTree as ET
 from typing import Optional
@@ -79,19 +80,31 @@ def _request(url: str, headers: dict | None = None, body: dict | None = None, ra
         return response.read(5 * 1024 * 1024 + 1)
 
 
-def tok_odgovarja(url: str, glave: dict | None = None, rok: float = 4.0) -> bool:
-    """Ali streznik toka na zahtevo prvih bajtov odgovori z vsebino. Mrtva povezava (potekla, izbrisana, zavrnjena:
-    4xx/5xx), stran HTML namesto posnetka in neodziven streznik ne stejejo. Telesa ne beremo."""
+def tok_stanje(url: str, glave: dict | None = None, rok: float = 4.0) -> tuple[bool, int, int]:
+    """(odgovarja, HTTP koda, Retry-After v s) za zahtevo prvih dveh bajtov (Range 0-1) z glavami, ki jih tok zahteva.
+    Mrtva povezava (potekla, izbrisana, zavrnjena: 4xx/5xx), stran HTML namesto posnetka in neodziven streznik ne
+    stejejo. 429 z Retry-After pomeni »zivo, a pocakaj« (odgovarja=True). Telesa ne beremo.
+    Meritev 15. 10. 2026: streznik toka je na isti podpisani naslov z glavami dodatka petkrat v 70 s odgovoril 206 -
+    ena sonda pred predvajanjem naslova ne porabi; brez glave Referer pa vedno 429 (zato predvajalnik dobi glave)."""
     if not dovoljen_naslov(url):
-        return False
+        return False, 0, 0
     zahteva = urllib.request.Request(url, headers={"User-Agent": "SafeerOS/1.0", "Accept": "*/*", "Range": "bytes=0-1",
                                                    **{str(k): str(v) for k, v in (glave or {}).items()}})
     try:
         with urllib.request.build_opener(_HTTPSOnlyRedirect()).open(zahteva, timeout=rok) as odgovor:
             vrsta = str(odgovor.headers.get("Content-Type") or "").lower()
-            return odgovor.status in (200, 206) and not vrsta.startswith("text/html")
-    except Exception:  # noqa: BLE001 - vsaka napaka pomeni "ne odgovarja"
-        return False
+            return odgovor.status in (200, 206) and not vrsta.startswith("text/html"), int(odgovor.status), 0
+    except urllib.error.HTTPError as napaka:
+        cakaj = str(napaka.headers.get("Retry-After") or "").strip() if napaka.headers else ""
+        sekund = min(int(cakaj), 600) if cakaj.isdigit() else 0
+        return napaka.code == 429 and sekund > 0, int(napaka.code), sekund
+    except Exception:  # noqa: BLE001 - vsaka druga napaka pomeni "ne odgovarja"
+        return False, 0, 0
+
+
+def tok_odgovarja(url: str, glave: dict | None = None, rok: float = 4.0) -> bool:
+    """Ali streznik toka na zahtevo prvih bajtov odgovori z vsebino (glej tok_stanje)."""
+    return tok_stanje(url, glave, rok)[0]
 
 
 # ---------------------------------------------------------------------------------- Jellyfin in Emby
@@ -811,11 +824,23 @@ def stremio_naslov_dodatka(url: str) -> str:
     return _stremio_koren(url) + "/manifest.json"
 
 
-def stremio_manifest(url: str) -> dict:
+#: Manifesti dodatkov (koren -> (cas, manifest)): katalog in iskanje ga prej prenasala ob vsakem klicu.
+_MANIFESTI: dict = {}
+MANIFEST_VELJA = 600.0
+
+
+def stremio_manifest(url: str, iz_predpomnilnika: bool = False) -> dict:
+    """Manifest dodatka. iz_predpomnilnika=True (katalog, iskanje): zadnji prenos, ce ni starejsi od MANIFEST_VELJA."""
     koren = _stremio_koren(url)
+    znan = _MANIFESTI.get(koren)
+    if znan and iz_predpomnilnika and time.time() - znan[0] < MANIFEST_VELJA:
+        return znan[1]
     m = json.loads(_request(koren + "/manifest.json"))
     if not isinstance(m, dict) or not m.get("id"):
         raise ValueError("To ni Stremio dodatek (manifest.json).")
+    if len(_MANIFESTI) > 200:
+        _MANIFESTI.clear()
+    _MANIFESTI[koren] = (time.time(), m)
     return m
 
 
@@ -835,8 +860,8 @@ def stremio_idji(mid: str) -> dict:
 def _stremio_items(base: str, server: dict, query: str) -> list[dict]:
     """Katalogi dodatka po protokolu Stremio. Predvajalne povezave (stream) poiscemo sele ob kliku."""
     koren = _stremio_koren(base)
-    manifest = stremio_manifest(koren)
-    rezultat = []
+    manifest = stremio_manifest(koren, iz_predpomnilnika=True)
+    zahteve = []
     for katalog in (manifest.get("catalogs") or [])[:8]:
         tip, ident = str(katalog.get("type") or ""), str(katalog.get("id") or "")
         if not tip or not ident:
@@ -854,15 +879,29 @@ def _stremio_items(base: str, server: dict, query: str) -> list[dict]:
             if obvezen:
                 continue
             pot = "/catalog/%s/%s.json" % (tip, urllib.parse.quote(ident, safe=""))
+        zahteve.append((katalog, tip, vrsta, iscem_sam, pot))
+
+    def prenesi(zahteva) -> list:
         try:
-            metas = json.loads(_request(koren + pot)).get("metas") or []
+            return json.loads(_request(koren + zahteva[4])).get("metas") or []
         except Exception:
-            continue
+            return []
+    # Katalogi dodatka hkrati (prej eden za drugim: dodatek z 8 katalogi je iskanje zadrzal za vsoto vseh).
+    if len(zahteve) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(4, len(zahteve))) as bazen:
+            odgovori = list(bazen.map(prenesi, zahteve))
+    else:
+        odgovori = [prenesi(z) for z in zahteve]
+    rezultat = []
+    for (katalog, tip, vrsta, iscem_sam, _pot), metas in zip(zahteve, odgovori):
         if iscem_sam:
             metas = [m for m in metas if isinstance(m, dict) and _stremio_ujema(m.get("name", ""), query)]
         if vrsta in ("film", "serija", "video") and stremio_metas_glasbeni(metas):
             vrsta = "glasba"
         for meta in metas[:100]:
+            if not isinstance(meta, dict):
+                continue
             mid = str(meta.get("id") or "")
             if not mid:
                 continue
