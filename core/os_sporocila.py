@@ -462,6 +462,29 @@ class SporocilaOS:
             raise ValueError("Sporočilo se že pošilja ali je poslano.")
         return self.pogovor(str(kanal_id), str(pogovor_id))
 
+    # ---- poraba kanalov (plosca »Info«, core/os_poraba_kanalov.py) ----
+    def seznam_kanalov(self) -> list:
+        """Kanali API brez pogovorov: id, ime, vrsta, vklopljen (lahko - za ploscico porabe vsakih 5 s)."""
+        izklopljeni = _vklop.izklopljeni_kanali()
+        return [{"id": k.id, "ime": k.ime, "vrsta": k.vrsta, "vklopljen": k.id not in izklopljeni}
+                for k in self.storitev.kanali()]
+
+    def velikost_kanalov(self) -> dict:
+        """kanal_id -> bajti na disku: besedila in opisi prilog v lokalni bazi (brez kazal in praznega prostora SQLite,
+        ki ga ni mogoce pripisati kanalu) + predpomnilnik prilog kanala. Klicati v niti ozadja."""
+        st = self.storitev
+        with st._zaklep:
+            vrstice = st.db.execute(
+                "SELECT kanal_id, SUM(LENGTH(CAST(COALESCE(besedilo,'') AS BLOB)) + LENGTH(COALESCE(priponke,''))"
+                " + LENGTH(id) + LENGTH(pogovor_id)) FROM sporocila GROUP BY kanal_id").fetchall()
+            kanali = [k.id for k in st.kanali()]
+        izid = {str(r[0]): int(r[1] or 0) for r in vrstice}
+        from core import poraba_kanalov
+        for kid in kanali:
+            mapa = os.path.join(predpomnilnik.koren(), predpomnilnik._h(kid))
+            izid[kid] = izid.get(kid, 0) + poraba_kanalov.velikost_mape(mapa)
+        return izid
+
     def neprebrano_skupaj(self) -> int:
         """Stevilo za kuverto v pultu: iz baze (pravo ze ob zagonu), brez branja celega nabiralnika.
         Izklopljeni kanali se ne stejejo (stikalo kanala)."""

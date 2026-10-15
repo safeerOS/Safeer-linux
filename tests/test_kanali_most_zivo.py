@@ -65,6 +65,8 @@ class _Nic:
 class _Sporocila(_Nic):
     ponudniki = staticmethod(lambda jezik="sl": _ponudniki.za_vmesnik(jezik))
     seznam = staticmethod(lambda *a: {"skupine": [], "kanali": []})
+    seznam_kanalov = staticmethod(lambda: [{"id": "posta", "ime": "Posta", "vrsta": "email", "vklopljen": True}])
+    velikost_kanalov = staticmethod(lambda: {"posta": 3 * 1024 * 1024})
 
 
 def _os_razred():
@@ -227,6 +229,47 @@ class KanaliSkoziStran(unittest.TestCase):
         self.assertTrue(_cakaj(lambda: self._js("!document.getElementById('kanalNapaka').hidden"), 5), "napaka je vidna")
         self.assertTrue(self._js("document.getElementById('kanalNapaka').textContent.length > 0"))
         self.assertEqual(self.splet.config.get(spletni_klepeti.Kanali.KLJUC, []), [])
+
+    def test_plosca_porabe(self):
+        """Gumb »Info«: plosca s porabo po kanalih (prava stran, pravi most, pravi WebKit in /proc), SKUPAJ, namig
+        »ni merljivo locno« pri kanalu v Safeer OS, tipkovnica (fokus, Escape) in izklop kanala iz plosce."""
+        k = self.os._kanali()
+        k.dodaj(katalog="telegram")
+        self.assertTrue(_cakaj(lambda: "telegram" in k.zivi and k.zivi["telegram"].nalozen, 15))
+        self.assertTrue(_cakaj(lambda: "telegram" in k.poraba.pid_spleta, 10), "sonda najde spletni proces kanala")
+        pid = k.poraba.pid_spleta["telegram"][0]
+        with open("/proc/%d/comm" % pid) as f:
+            self.assertEqual(f.read().strip(), "WebKitWebProces")
+        self.assertTrue(self._js("!!document.getElementById('sporocilaPoraba')"), "gumb ob seznamu kanalov")
+        self.assertTrue(_cakaj(lambda: self._js("!!document.querySelector('#sporocilaKanali .kanal-cip.vgrajen[data-kanal=telegram]')"), 5))
+        self._js("document.querySelector('#sporocilaKanali .kanal-cip.vgrajen[data-kanal=telegram]').click(), 1")
+        self.assertTrue(_cakaj(lambda: self._js("!document.getElementById('vgrajenKanal').hidden"), 5), "kanal je odprt")
+        # kanal je odprt: gumb »Info« v orodni vrstici kanala
+        self._js("document.getElementById('vgrajenKanalInfo').focus(), document.getElementById('vgrajenKanalInfo').click(), 1")
+        self.assertTrue(_cakaj(lambda: (self._js("document.querySelectorAll('#porabaVrstice tr').length") or 0) >= 2, 10))
+        self.assertEqual(self._js("document.activeElement && document.activeElement.id"), "porabaZapri", "fokus v plosci")
+        vrstica = "Array.prototype.find.call(document.querySelectorAll('#porabaVrstice tr'), function (r) { return r.textContent.indexOf('%s') >= 0; })"
+        telegram = self._js("(%s).cells[1].textContent" % (vrstica % "Telegram"))
+        self.assertRegex(telegram, r"zdaj [0-9]+(,[0-9])? MiB", "trenutna poraba spletnega procesa")
+        posta = self._js("(%s).cells[1].textContent" % (vrstica % "Posta"))
+        self.assertIn("ni merljivo ločeno", posta)
+        self.assertIn("Safeer OS", posta, "namig, zakaj")
+        self.assertEqual(self._js("(%s).cells[3].textContent" % (vrstica % "Posta")), "3,0 MiB")
+        self.assertIn("SKUPAJ", self._js("document.getElementById('porabaSkupaj').textContent"))
+        self.assertIn("vsaj", self._js("document.querySelector('#porabaSkupaj .poraba-vsota').cells[1].textContent"),
+                      "kanal v Safeer OS ni vstet: vsota je spodnja meja")
+        self.assertTrue(self._js("!!document.querySelector('#porabaVrstice [aria-label=\"Izklopi kanal Telegram\"]')"))
+        # Escape zapre, fokus nazaj na gumb
+        self._js("document.getElementById('slojPoraba').dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true})), 1")
+        self.assertTrue(_cakaj(lambda: self._js("!document.getElementById('slojPoraba').classList.contains('viden')"), 3))
+        self.assertEqual(self._js("document.activeElement.id"), "vgrajenKanalInfo", "fokus nazaj na gumb")
+        # izklop iz plosce
+        self._js("document.getElementById('vgrajenKanalInfo').click(), 1")
+        self.assertTrue(_cakaj(lambda: self._js("!!document.querySelector('[data-poraba-kanal=telegram]')"), 10))
+        self._js("document.querySelector('[data-poraba-kanal=telegram]').click(), 1")
+        self.assertTrue(_cakaj(lambda: "telegram" not in k.zivi, 10), "kanal je izklopljen in sproscen")
+        self.assertFalse(k.kanali.najdi("telegram")["vklopljen"])
+        self.assertTrue(_cakaj(lambda: self._js("(%s).cells[4].textContent" % (vrstica % "Telegram")) == "izklopljenVklopi", 10))
 
 
 if __name__ == "__main__":

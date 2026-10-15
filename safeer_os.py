@@ -3861,6 +3861,8 @@ class SafeerOS(Gtk.Application):
             "kanalIzberiProgram": lambda konec: self._izberi_poti(
                 str(a[0]) if a else "", pogled.get_root() if hasattr(pogled, "get_root") else self.okno, "datoteka",
                 lambda poti: konec(poti[0] if poti else "")),
+            # Plosca »Info« v Sporocilih: poraba kanalov (pomnilnik, procesor, disk); disk prebere WebKit asinhrono.
+            "kanaliPoraba": lambda konec: self._kanali().poraba.porocilo(konec),
             # »Prilozi« v Sporocilih: sistemsko okno za vec datotek; stran dobi ime in velikost (cipi pod vnosom).
             "izberiPriloge": lambda konec: self._izberi_poti(
                 str(a[0]) if a else "", self._okno_pogleda(pogled), "datoteke",
@@ -4075,6 +4077,9 @@ class SafeerOS(Gtk.Application):
             from core import os_kanali_sporocil
             k = self._kanali_sporocil = os_kanali_sporocil.KanaliSporocil(
                 Gtk, GLib, Gio, self._jedro_spleta, self._config_spleta(), _jezik, self._kanali_dogodek, self._odpri_kanal)
+            # Plosca »Info«: poraba kanalov (vzorci vsakih 30 s, samo ko tece vsaj en spletni kanal ali program).
+            from core import os_poraba_kanalov
+            k.poraba = os_poraba_kanalov.PorabaKanalov(GLib, k, lambda: getattr(self, "sporocila", None))
         return k
 
     def _config_spleta(self):

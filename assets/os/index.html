@@ -120,7 +120,8 @@
             </div>
             <b class="nabiralnik-naslov" data-t="oznakeNaslov"></b>
             <div class="mape oznake-mape" id="sporocilaOznake"></div>
-            <b class="nabiralnik-naslov" data-t="kanaliNaslov"></b>
+            <div class="nabiralnik-naslov-vrstica"><b class="nabiralnik-naslov" data-t="kanaliNaslov"></b>
+              <button type="button" class="gumb-ikona poraba-gumb" id="sporocilaPoraba" data-naslov="porabaGumb"><svg data-ikona="info"></svg></button></div>
             <div class="kanali-seznam" id="sporocilaKanali"></div>
           </aside>
           <div class="nabiralnik-seznam">
@@ -166,6 +167,7 @@
               <button type="button" class="gumb-ikona" id="vgrajenKanalOsvezi" data-naslov="kanalOsvezi"><svg data-ikona="ponovno"></svg></button>
               <button type="button" class="gumb-ikona" id="vgrajenKanalDomov" data-naslov="kanalDomov"><svg data-ikona="domov"></svg></button>
               <button type="button" class="gumb-ikona" id="vgrajenKanalSplet" data-naslov="kanalVSpletu"><svg data-ikona="splet"></svg></button>
+              <button type="button" class="gumb-ikona" id="vgrajenKanalInfo" data-naslov="porabaGumb"><svg data-ikona="info"></svg></button>
               <button type="button" class="gumb-ikona" id="vgrajenKanalUredi" data-naslov="kanalUredi"><svg data-ikona="uredi"></svg></button>
             </div>
             <div class="vgrajen-kanal-vsebina" id="vgrajenKanalVsebina"><p class="drobno" id="vgrajenKanalSporocilo" hidden></p></div>
@@ -631,6 +633,19 @@
     <label class="drobno potrditev"><input type="checkbox" id="vgrajenUrediPodatkeTudi"><span data-t="kanalOdstraniPodatke"></span></label>
     <div class="gumbi"><button type="button" class="gumb" id="vgrajenUrediOdstrani" data-t="odstraniKanal"></button><button type="button" class="gumb" id="vgrajenUrediPreklici" data-t="preklici"></button><button class="gumb glavni" type="submit" data-t="shrani"></button></div>
   </form>
+</div>
+
+<!-- Poraba kanalov (gumb »Info«, lastnik 15. 10. 2026): pomnilnik, procesor in disk po kanalih + SKUPAJ -->
+<div class="sloj" id="slojPoraba"><div class="tancica"></div>
+  <section class="plosca poraba-plosca" role="dialog" aria-modal="true" aria-labelledby="porabaNaslov">
+    <h3 id="porabaNaslov" data-t="porabaNaslov"></h3>
+    <p class="drobno" data-t="porabaOpis"></p>
+    <div class="poraba-tabela-ovoj"><table class="poraba-tabela" id="porabaTabela" aria-describedby="porabaOpomba">
+      <thead><tr><th scope="col" data-t="porabaKanal"></th><th scope="col" data-t="porabaPomnilnik"></th><th scope="col" data-t="porabaProcesor"></th><th scope="col" data-t="porabaDisk"></th><th scope="col" data-t="porabaStanje"></th></tr></thead>
+      <tbody id="porabaVrstice"></tbody><tfoot id="porabaSkupaj"></tfoot></table></div>
+    <p class="drobno poraba-opomba" id="porabaOpomba"></p>
+    <div class="gumbi"><button type="button" class="gumb glavni" id="porabaZapri" data-t="zapri"></button></div>
+  </section>
 </div>
 
 <!-- Novo e-sporocilo ali osnutek (lastnik, 14. 10. 2026: v Sporocilih je manjkalo) -->

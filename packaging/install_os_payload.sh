@@ -21,7 +21,8 @@ for modul in budnost en_proces obvestila priljubljeno pladenj_sni uvoz_zavihkov 
              link_datoteke link_delta link_nadaljuj link_teamwork link_urejanje link_hub link_hub_streznik link_obramba link_varovalka link_hub_deljenje link_mesh link_rele link_pretok link_sprotno link_predvajanje link_iskanje link_krog link_dostop link_e2e link_kripto link_mediji link_programi link_seja link_tls link_ws link_vticnik link_pot spake2 signed_feed threat_intel \
              os_katalog os_media knjiznica_kroga media_servers tok_izbira watch_providers zakoniti_viri izvirni_jezik uvoz_seznama seznami_sink viri_sink predvajalnik_moznosti podnapisi_splet \
              os_splet splet_temno splet_varuh ikone_strani dlna_zvocniki zvok_na_zvocnik adblock config bookmarks_importer doh_proxy filter_lists webkit_filters bank_guard odlozisce_varuh ozadje_strani drm safeer_drm splet_prenosi external_apps i18n pojavna_okna network_errors zascita dovoljenja_strani \
-             spletni_klepeti os_kanali_sporocil vstavi_okno namizni_programi znacke_programov; do
+             spletni_klepeti os_kanali_sporocil vstavi_okno namizni_programi znacke_programov \
+             poraba_kanalov os_poraba_kanalov; do
     cp -a "$ROOT/core/$modul.py" "$LIB/core/"
 done
 mkdir -p "$LIB/core/sporocila" && install -m 644 "$ROOT"/core/sporocila/*.py "$LIB/core/sporocila/"

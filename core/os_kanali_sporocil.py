@@ -48,6 +48,7 @@ class _Kanal:
         self.obvestil = 0               # vir 3: obvestila programa od zadnjega odprtja kanala
         self.iskanje = 0
         self.zagnani: list = []         # PID-i procesov, ki jih je zagnal Safeer (preverba lastnika okna)
+        self.pid = 0                    # _NET_WM_PID vstavljenega okna programa (poraba kanala, plosca »Info«)
 
 
 class KanaliSporocil:
@@ -71,6 +72,8 @@ class KanaliSporocil:
         self._ikone_poskusene: set = set()
         #: Cas zacetka nalaganja posameznega kanala (meritev casa do vsebine).
         self.casi: Dict[str, dict] = {}
+        #: Poraba kanalov (core/os_poraba_kanalov.PorabaKanalov, nastavi gostitelj): zivi kanali ji povedo zase.
+        self.poraba = None
 
     # ------------------------------------------------------------------ stanje
     @staticmethod
@@ -257,6 +260,8 @@ class KanaliSporocil:
             z.aplikacija.pogled.connect("load-changed", lambda p, d, kid=kid: self._nalaganje(kid, p, d))
             z.gradnik = z.aplikacija.gradnik
         self.zivi[k["id"]] = z
+        if self.poraba is not None:
+            self.poraba.prikljuci(k["id"], z)
         return z
 
     def _nalaganje(self, kid: str, _pogled, dogodek) -> None:
@@ -278,6 +283,8 @@ class KanaliSporocil:
             self._vrsta.remove(kid)
         if z is None:
             return
+        if self.poraba is not None:
+            self.poraba.pozabi(kid)
         for plast in self.plasti.values():
             if plast.get("kanal") == kid:
                 plast["kanal"] = None
@@ -350,6 +357,7 @@ class KanaliSporocil:
         try:
             x11 = vstavi_okno.X11()
             okno = x11.najdi(z.program["razredi"], sprejmi=self._lastnik_okna(z))
+            z.pid = x11.pid(okno) if okno else z.pid
             x11.zapri()
         except OSError:
             okno = 0

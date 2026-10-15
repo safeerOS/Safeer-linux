@@ -7120,6 +7120,159 @@
   }
   /* ==== konec: vgrajeni kanali Sporocil ========================================================================== */
 
+  /* ==== Poraba kanalov (gumb »Info«) ===========================================================================
+     Lastnik, 15. 10. 2026: »S pritiskom uporabnik izve povprecno uporabo strojne opreme za posamezni kanal pri
+     Sporocilih ter sestevek skupnega – da se lazje odloci, kateri kanal potrebuje.« Meritve so v Safeer OS
+     (core/os_poraba_kanalov.py, metoda opisana tam); ta stran jih samo pokaze. Cesar ni mogoce izmeriti, pise
+     »ni merljivo locno« z razlogom - nikoli izmisljena stevilka. */
+  IK.info = "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M12 11v6 M12 7.5v.1";
+  var POR = { casovnik: 0, od: null, podatki: null };
+  var POR_OSVEZI_MS = 5000;
+  function porStevilo(v, decimalk) {
+    try { return new Intl.NumberFormat(jezik, { maximumFractionDigits: decimalk, minimumFractionDigits: decimalk }).format(v); }
+    catch (e) { return v.toFixed(decimalk); }
+  }
+  function porMiB(v) {
+    if (typeof v !== "number") return null;
+    return v >= 1024 ? porStevilo(v / 1024, 2) + " GiB" : porStevilo(v, v >= 100 ? 0 : 1) + " MiB";
+  }
+  function porBajti(b) {
+    if (typeof b !== "number") return null;
+    if (b < 1024) return porStevilo(b, 0) + " B";
+    if (b < 1024 * 1024) return porStevilo(b / 1024, b < 10240 ? 1 : 0) + " KiB";
+    return porMiB(b / 1048576);
+  }
+  function porCpu(v) { return typeof v === "number" ? porStevilo(v, 1) + " %" : null; }
+  function porVsaj(niz, delno) { return niz && delno ? t("porabaVsaj", { v: niz }) : niz; }
+  // Celica: glavna vrednost (povprecje zadnje ure) in pod njo zdaj / od zagona.
+  function porCelica(td, glavna, vrstice, ni, namig) {
+    if (ni) {
+      td.appendChild(el("span", "poraba-ni", ubezi(t("porabaNiMerljivo"))));
+      if (namig) td.appendChild(el("small", "poraba-namig", ubezi(namig)));
+      return;
+    }
+    td.appendChild(el("b", "", ubezi(glavna || t("porabaNiPodatka"))));
+    vrstice.forEach(function (v) { if (v[1]) td.appendChild(el("small", "", ubezi(t(v[0]) + " " + v[1]))); });
+  }
+  function porVrstica(v, telo) {
+    var tr = document.createElement("tr");
+    if (!v.vklopljen) tr.className = "izklopljen";
+    var ime = document.createElement("th"); ime.scope = "row";
+    ime.appendChild(el("span", "", ubezi(v.ime)));
+    ime.appendChild(el("small", "", ubezi(t(v.vrsta === "splet" ? "porabaVrstaSplet" : v.vrsta === "program" ? "porabaVrstaProgram" : "porabaVrstaApi"))));
+    if (v.deljeno) ime.appendChild(el("small", "poraba-namig", ubezi(t("porabaDeljeno"))));
+    tr.appendChild(ime);
+    var niMem = v.vklopljen && (v.ni_merljivo || []).indexOf("mem_ura") >= 0;
+    var namig = v.razlog ? t("porabaRazlog_" + v.razlog) : "";
+    var mem = document.createElement("td"), cpu = document.createElement("td"), disk = document.createElement("td");
+    porCelica(mem, porMiB(v.mem_ura), [["porabaTrenutno", porMiB(v.mem_trenutno)], ["porabaZagon", porMiB(v.mem_zagon)]], niMem, namig);
+    porCelica(cpu, porCpu(v.cpu_ura), [["porabaTrenutno", porCpu(v.cpu_trenutno)], ["porabaZagon", porCpu(v.cpu_zagon)]], niMem, "");
+    var niDisk = (v.ni_merljivo || []).indexOf("disk") >= 0;
+    porCelica(disk, porBajti(v.disk), [], niDisk, niDisk ? t("porabaDisk_" + (v.razlog_disk || "program")) : "");
+    if (!niDisk && v.razlog_disk) disk.title = t("porabaDisk_" + v.razlog_disk);
+    tr.appendChild(mem); tr.appendChild(cpu); tr.appendChild(disk);
+    var st = document.createElement("td");
+    st.appendChild(el("span", "poraba-stanje", ubezi(t(v.vklopljen ? "porabaVklopljen" : "porabaIzklopljen"))));
+    var g = el("button", "gumb", ubezi(t(v.vklopljen ? "porabaIzklopi" : "porabaVklopi"))); g.type = "button";
+    g.setAttribute("aria-label", t(v.vklopljen ? "porabaIzklopiKanal" : "porabaVklopiKanal", { ime: v.ime }));
+    g.setAttribute("data-poraba-kanal", v.id);
+    g.addEventListener("click", function () { porPreklopi(v, g); });
+    st.appendChild(g);
+    tr.appendChild(st);
+    telo.appendChild(tr);
+  }
+  function porSkupno(telo, ime, m) {
+    var tr = document.createElement("tr"); tr.className = "poraba-skupno";
+    var th = document.createElement("th"); th.scope = "row"; th.appendChild(el("span", "", ubezi(ime))); tr.appendChild(th);
+    var mem = document.createElement("td"), cpu = document.createElement("td");
+    porCelica(mem, porMiB(m.mem_ura), [["porabaTrenutno", porMiB(m.mem_trenutno)], ["porabaZagon", porMiB(m.mem_zagon)]], false, "");
+    porCelica(cpu, porCpu(m.cpu_ura), [["porabaTrenutno", porCpu(m.cpu_trenutno)], ["porabaZagon", porCpu(m.cpu_zagon)]], false, "");
+    tr.appendChild(mem); tr.appendChild(cpu);
+    tr.appendChild(el("td", "", ubezi(t("porabaNiPodatka")))); tr.appendChild(document.createElement("td"));
+    telo.appendChild(tr);
+  }
+  function narisiPorabo(p) {
+    POR.podatki = p;
+    var telo = $("porabaVrstice"), noga = $("porabaSkupaj"); telo.textContent = ""; noga.textContent = "";
+    var kanali = (p && p.kanali) || [];
+    if (!kanali.length) {
+      var tr = document.createElement("tr"), td = el("td", "", ubezi(t("porabaNiKanalov"))); td.colSpan = 5;
+      tr.appendChild(td); telo.appendChild(tr);
+    }
+    kanali.forEach(function (v) { porVrstica(v, telo); });
+    var s = p.skupaj || {};
+    var tr2 = document.createElement("tr"); tr2.className = "poraba-vsota";
+    var th = document.createElement("th"); th.scope = "row"; th.appendChild(el("span", "", ubezi(t("porabaSkupaj"))));
+    if (s.mem_ura_delno || s.mem_trenutno_delno) th.appendChild(el("small", "poraba-namig", ubezi(t("porabaSkupajDelno"))));
+    tr2.appendChild(th);
+    var mem = document.createElement("td"), cpu = document.createElement("td"), disk = document.createElement("td");
+    porCelica(mem, porVsaj(porMiB(s.mem_ura), s.mem_ura_delno), [["porabaTrenutno", porVsaj(porMiB(s.mem_trenutno), s.mem_trenutno_delno)],
+      ["porabaZagon", porVsaj(porMiB(s.mem_zagon), s.mem_zagon_delno)]], false, "");
+    porCelica(cpu, porVsaj(porCpu(s.cpu_ura), s.cpu_ura_delno), [["porabaTrenutno", porVsaj(porCpu(s.cpu_trenutno), s.cpu_trenutno_delno)],
+      ["porabaZagon", porVsaj(porCpu(s.cpu_zagon), s.cpu_zagon_delno)]], false, "");
+    porCelica(disk, porVsaj(porBajti(s.disk), s.disk_delno), [], false, "");
+    tr2.appendChild(mem); tr2.appendChild(cpu); tr2.appendChild(disk); tr2.appendChild(document.createElement("td"));
+    noga.appendChild(tr2);
+    var sk = p.skupno || {};
+    var naslov = document.createElement("tr"), tdn = el("th", "poraba-podnaslov", ubezi(t("porabaSkupno"))); tdn.colSpan = 5; tdn.scope = "colgroup";
+    naslov.appendChild(tdn); noga.appendChild(naslov);
+    if (sk.safeer) porSkupno(noga, t("porabaSafeer"), sk.safeer);
+    if (sk.omrezje && sk.omrezje.procesov) porSkupno(noga, t("porabaOmrezje"), sk.omrezje);
+    if (sk.drugi && sk.drugi.procesov) porSkupno(noga, t("porabaDrugi"), sk.drugi);
+    $("porabaOpomba").textContent = p.vzorcev ? t("porabaOpomba", { n: p.vzorcev, ms: porStevilo(p.cena_ms || 0, 1) }) : t("porabaZbiram");
+  }
+  function porOsvezi() {
+    if (!$("slojPoraba").classList.contains("viden")) { porUstavi(); return; }
+    klic("kanaliPoraba").then(narisiPorabo).catch(function () { $("porabaOpomba").textContent = t("porabaNapaka"); });
+  }
+  function porUstavi() { if (POR.casovnik) { clearInterval(POR.casovnik); POR.casovnik = 0; } }
+  function odpriPorabo(od) {
+    zapriSloje();
+    POR.od = od || document.activeElement;
+    $("porabaVrstice").textContent = ""; $("porabaSkupaj").textContent = ""; $("porabaOpomba").textContent = "";
+    $("slojPoraba").classList.add("viden");
+    $("porabaZapri").focus();
+    porOsvezi();
+    porUstavi(); POR.casovnik = setInterval(porOsvezi, POR_OSVEZI_MS);
+  }
+  function zapriPorabo() {
+    porUstavi();
+    $("slojPoraba").classList.remove("viden");
+    if (POR.od && POR.od.focus && document.contains(POR.od)) POR.od.focus();
+    // Gumb, ki je plosco odprl, ni vec viden (npr. kanal se je zaprl): fokus na drug viden gumb »Info«.
+    if (document.activeElement === POR.od) return;
+    ["vgrajenKanalInfo", "sporocilaPoraba"].some(function (id) {
+      var g = $(id); if (!g || !g.getBoundingClientRect().width) return false;
+      g.focus(); return true;
+    });
+  }
+  function porPreklopi(v, g) {
+    g.disabled = true;
+    var nov = !v.vklopljen;
+    var obljuba = (v.vrsta === "splet" || v.vrsta === "program")
+      ? klicKanala("kanalVklopi", [v.id, nov]).then(vkPosodobi)
+      : klic("sporocilaKanalVklop", [v.id, nov]).then(function (p) {
+        S.sporocilaSkupine = p.skupine || []; S.sporocilaKanali = p.kanali || []; narisiSporocila();
+      });
+    obljuba.then(function () {
+      porOsvezi();
+      setTimeout(function () { var n = document.querySelector('[data-poraba-kanal="' + v.id + '"]'); if (n) n.focus(); }, 300);
+    }).catch(function (e) { g.disabled = false; vkNapaka(e); });
+  }
+  function poveziPorabo() {
+    if (!$("slojPoraba")) return;
+    $("porabaZapri").addEventListener("click", zapriPorabo);
+    $("slojPoraba").querySelector(".tancica").addEventListener("click", zapriPorabo);
+    $("slojPoraba").addEventListener("keydown", function (e) {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); zapriPorabo(); }
+    });
+    ["sporocilaPoraba", "vgrajenKanalInfo"].forEach(function (id) {
+      var g = $(id); if (!g) return;
+      g.setAttribute("aria-label", t("porabaGumb")); g.setAttribute("aria-haspopup", "dialog");
+      g.addEventListener("click", function () { odpriPorabo(g); });
+    });
+  }
+
   function zacni() {
     if (/[?&]namizje=1/.test(location.search)) document.body.classList.add("namizje");
     if (RAZDELEK) {
@@ -7140,6 +7293,7 @@
     prevedi();
     poveziDogodke();
     poveziVgrajeneKanale();
+    poveziPorabo();
     osveziUro();
     setInterval(osveziUro, 1000);
     narisiDomov();
