@@ -116,10 +116,14 @@ modules:
     # pdftoppm: slika prve strani PDF (slicica priponke v Sporocilih kot v Gmailu, predogled v Datotekah). Runtime GNOME
     # 50 nima popplerja (preverjeno v namescenem Flatpaku 0.4.84: brez pdftoppm in libpoppler). PDF se nikoli ne
     # razclenjuje v procesu Safeer OS - pdftoppm tece loceno s casovno mejo (core/os_datoteke.slika_prve_strani).
-    # Brez ovojev (glib, cpp, Qt), omreznih in kriptografskih zaledij; v paketu ostane samo pdftoppm in knjiznica.
+    # Brez ovojev (glib, cpp, Qt), omreznih in kriptografskih zaledij; v paketu ostane samo pdftoppm.
+    # Staticna libpoppler v pdftoppm: z deljeno je bila knjiznica v paketu, a je nalagalnik ni nasel (CI 15. 10. 2026:
+    # »libpoppler.so.165 => not found«, izhod 127; verjetno lib64 iz GNUInstallDirs). Zdaj en sam program brez nje.
     buildsystem: cmake-ninja
     config-opts:
       - -DCMAKE_BUILD_TYPE=Release
+      - -DCMAKE_INSTALL_LIBDIR=lib
+      - -DBUILD_SHARED_LIBS=OFF
       - -DENABLE_BOOST=OFF
       - -DENABLE_CPP=OFF
       - -DENABLE_GLIB=OFF
@@ -136,6 +140,7 @@ modules:
       - /include
       - /lib/pkgconfig
       - /lib/cmake
+      - /lib/libpoppler.a
       - /share/man
       - /bin/pdfattach
       - /bin/pdfdetach

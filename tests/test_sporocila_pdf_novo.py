@@ -156,6 +156,7 @@ def test_flatpak_ima_pdftoppm_in_deb_poppler():
     modul = m.split("  - name: poppler-pdftoppm\n", 1)[1].split("\n  - name: ", 1)[0]
     assert re.search(r"url: https://poppler\.freedesktop\.org/poppler-[\d.]+\.tar\.xz\n\s+sha256: [0-9a-f]{64}", modul)
     assert "-DENABLE_LIBCURL=OFF" in modul and "- /bin/pdftotext" in modul and "- /bin/pdftoppm" not in modul
+    assert "-DBUILD_SHARED_LIBS=OFF" in modul      # deljene libpoppler nalagalnik v Flatpaku ni nasel (izhod 127)
     assert "poppler-utils" in (KOREN / "build_os_deb.sh").read_text(encoding="utf-8").split("Depends:", 1)[1].split("\n", 1)[0]
 
 
