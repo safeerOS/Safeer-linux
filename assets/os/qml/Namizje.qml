@@ -273,7 +273,9 @@ Item {
         visible: govor.plosca !== ""
         width: iskanje.width; x: iskanje.x; y: iskanje.y + iskanje.height + 8
         height: govorVsebina.implicitHeight + 32
-        barva: koren.plosca(Math.min(0.95, koren.prosojnostPlosc + 0.27))
+        // Skoraj neprosojno: zadetki lezijo cez plosce Datoteke in Programi, njihovo besedilo (opozorilo o prostoru,
+        // kategorije) se je pri 0,82 videlo skozi (posnetek 1440 x 900, 15. 10. 2026).
+        barva: koren.plosca(Math.max(0.96, koren.prosojnostPlosc))
         ColumnLayout {
             id: govorVsebina
             anchors.fill: parent; anchors.margins: 16; spacing: 10
@@ -331,7 +333,9 @@ Item {
         visible: polje.text.length > 0 && zadetkiModel.count > 0 && govor.plosca === ""
         width: iskanje.width; x: iskanje.x; y: iskanje.y + iskanje.height + 8
         height: Math.min(Math.max(220, koren.height - y - koren.robSpodaj - 40), seznamZadetkov.contentHeight + 16)
-        barva: koren.plosca(Math.min(0.95, koren.prosojnostPlosc + 0.27))
+        // Skoraj neprosojno: zadetki lezijo cez plosce Datoteke in Programi, njihovo besedilo (opozorilo o prostoru,
+        // kategorije) se je pri 0,82 videlo skozi (posnetek 1440 x 900, 15. 10. 2026).
+        barva: koren.plosca(Math.max(0.96, koren.prosojnostPlosc))
         // Ucenje lupe (core/os_lupa.py, isti zapis kot prejsnja delovna povrsina): kar je uporabnik za tak niz ze
         // izbral, je oznaceno. Izbire [niz, kljuc, cas, prvi]; novejse stejejo vec (polovica po 30 dneh), enak niz dvojno.
         property var izbire: []

@@ -248,6 +248,7 @@ Steklo {
     Meni {
         id: meniOblaka
         objectName: "meniOblaka"
+        sirina: koren.px(380)
         property var o: ({})
         readonly property var zdr: o.zdruzljivost || {}
         function razlog() {
@@ -257,9 +258,9 @@ Steklo {
             return b === k ? "" : b
         }
         function pokazi(o) { meniOblaka.o = o; meniOblaka.popup() }
-        MeniVnos { text: koren.t("oblakOpis", { ponudnik: meniOblaka.o.ponudnik || "" }); enabled: false }
+        MeniVnos { text: koren.t("oblakOpis", { ponudnik: meniOblaka.o.ponudnik || "" }); enabled: false; prelomi: true }
         MeniVnos { text: meniOblaka.zdr.stanje === "zdruzljivo" ? koren.t("oblakZdruzljivo")
-                       : koren.t(meniOblaka.zdr.stanje === "ne" ? "oblakNe" : "oblakPoskusi", { razlog: meniOblaka.razlog() }); enabled: false }
+                       : koren.t(meniOblaka.zdr.stanje === "ne" ? "oblakNe" : "oblakPoskusi", { razlog: meniOblaka.razlog() }); enabled: false; prelomi: true }
         MeniCrta {}
         MeniVnos { text: koren.t("oblakNamesti", { ponudnik: meniOblaka.o.ponudnik || "" }); enabled: meniOblaka.zdr.stanje !== "ne"
                    onTriggered: panel.namestiOblak(meniOblaka.o) }

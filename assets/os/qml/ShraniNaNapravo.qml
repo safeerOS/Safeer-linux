@@ -42,6 +42,7 @@ Okno {
         else if (r.stanje === "prenasam") besedilo = koren.t("shrPrenasam", zamenjave)
         else if (r.stanje === "kopija") {
             naslov = koren.t("shrKopijaNaslov"); besedilo = koren.t("shrKopija", zamenjave); vprasanje = koren.t("shrVprasaj", zamenjave)
+            okno.contentItem.forceActiveFocus()     // fokus ne sme ostati na gumbu Zapri, ki se skrije
             kopija = true; obdrzi.forceActiveFocus(); return
         } else if (r.stanje === "napaka") { napaka(r); return }
         casovnik.restart()
