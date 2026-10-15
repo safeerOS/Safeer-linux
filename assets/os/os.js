@@ -76,6 +76,9 @@
     ,seznam: "M4 6h12 M4 12h12 M4 18h8 M19 15v6 M16 18h6"
     // »Predvajaj na …« (oddajanje na drugo napravo ali zvocnik)
     ,oddajaj: "M3 8V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-5 M3 12a8 8 0 0 1 8 8 M3 16a4 4 0 0 1 4 4 M3 20h.01"
+    // Priponke v Sporocilih (15. 10. 2026)
+    ,sponka: "M20.5 11.5l-8.2 8.2a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.8 1.8 0 0 1-2.5-2.5l7.9-7.9"
+    ,prenos: "M12 4v11 M7 10l5 5 5-5 M5 20h14"
   };
   function svg(ime) {
     return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + (IK[ime] || IK.datoteka) + '"/></svg>';
@@ -3556,6 +3559,12 @@
     if (o.kanal_id && kanali.some(function (k) { return k.id === o.kanal_id; })) sel.value = o.kanal_id;
     $("novoZa").value = o.za || ""; $("novoZadeva").value = o.zadeva || ""; $("novoBesedilo").value = o.besedilo || "";
     $("novoOdstrani").hidden = !S.novoOsnutek;
+    S.priloge.novo = []; narisiPriloge("novo");
+    // Osnutek s prilogami: datoteke, ki so se na racunalniku, so spet pod pismom (z aktualno velikostjo).
+    if (Array.isArray(o.priloge) && o.priloge.length) {
+      var osnutekId = S.novoOsnutek;
+      klic("opisPrilog", [o.priloge]).then(function (p) { if (S.novoOsnutek === osnutekId) dodajPriloge("novo", p); }, function () {});
+    }
     var napaka = $("novoNapaka");
     napaka.hidden = !!kanali.length; napaka.textContent = kanali.length ? "" : t("niEpostnegaKanala");
     $("slojNovo").classList.add("viden");
@@ -3563,7 +3572,8 @@
   }
   function podatkiNovega() {
     return { id: S.novoOsnutek || "", kanal_id: $("novoOd").value || "", za: $("novoZa").value.trim(),
-             zadeva: $("novoZadeva").value.trim(), besedilo: $("novoBesedilo").value };
+             zadeva: $("novoZadeva").value.trim(), besedilo: $("novoBesedilo").value,
+             priloge: S.priloge.novo.map(function (x) { return x.pot; }) };
   }
   function shraniNovoKotOsnutek() {
     klic("sporocilaShraniOsnutek", [podatkiNovega()]).then(function (o) {
@@ -3574,12 +3584,15 @@
     if (dogodek) dogodek.preventDefault();
     var d = podatkiNovega(), napaka = $("novoNapaka");
     if (!d.kanal_id) { napaka.hidden = false; napaka.textContent = t("niEpostnegaKanala"); return; }
+    var priloge = S.priloge.novo.map(function (x) { return x.pot; });
+    if (!d.besedilo.trim() && !priloge.length) { napaka.hidden = false; napaka.textContent = t("praznoSporocilo"); $("novoBesedilo").focus(); return; }
+    if (prilogePrevelike("novo")) { napaka.hidden = false; napaka.textContent = t("priloge_prevelike"); return; }
     var gumb = $("obrazecNovo").querySelector('button[type="submit"]'); gumb.disabled = true;
-    klic("sporocilaNovo", [d.kanal_id, d.za, d.zadeva, d.besedilo, d.id]).then(function (p) {
-      gumb.disabled = false; zapriSloje(); obvesti(t("sporociloPoslano"));
+    klic("sporocilaNovo", [d.kanal_id, d.za, d.zadeva, d.besedilo, d.id, priloge]).then(function (p) {
+      gumb.disabled = false; S.priloge.novo = []; narisiPriloge("novo"); zapriSloje(); obvesti(t("sporociloPoslano"));
       posodobiSeznamIzOdgovora(p); naloziOsnutke();
     }).catch(function (e) {
-      gumb.disabled = false; napaka.hidden = false; napaka.textContent = typeof e === "string" && e ? e : t("niUspelo");
+      gumb.disabled = false; napaka.hidden = false; napaka.textContent = napakaSporocil(e);
     });
   }
   /* Safeer Chat: napisi napravi v Linku (telefon, tablica, TV, drug racunalnik). */
@@ -3656,7 +3669,8 @@
       var b = el("button", "pogovor-vrstica" + (S.sporocilaAktivni && S.sporocilaAktivni.id === p.id && S.sporocilaAktivni.kanal_id === p.kanal_id ? " izbran" : ""));
       b.innerHTML = '<span class="kanal-ikona">' + ubezi(zacetnice(skupina.oseba.ime)) + '</span><span><b>' + ubezi(skupina.oseba.ime) +
         '<span class="oznaka-kanala">' + ubezi((p.kanal || {}).ime || vrsta) + '</span>' + (p.oznake || []).map(function (o) { return '<span class="oznaka-pogovora">' + ubezi(o) + '</span>'; }).join("") + '</b><small>' + ubezi(p.zadeva && vrsta === "email" ? p.zadeva + " – " + (p.zadnje_sporocilo || "") : (p.zadnje_sporocilo || p.zadeva || "")) + '</small></span><span><time>' +
-        ubezi(kratekCas(p.cas)) + '</time>' + (p.neprebrano ? '<i>' + Number(p.neprebrano) + '</i>' : '') + '</span>';
+        ubezi(kratekCas(p.cas)) + '</time>' + (p.priponke ? '<span class="sponka" title="' + ubezi(t("imaPriponke")) + '">' + svg("sponka") + '</span>' : '') +
+        (p.neprebrano ? '<i>' + Number(p.neprebrano) + '</i>' : '') + '</span>';
       b.addEventListener("click", function () { odpriPogovor(skupina.oseba, p); }); cilj.appendChild(b);
     });
     if (S.sporocilaMapa === "osnutki") narisiOsnutke(cilj);
@@ -3720,8 +3734,11 @@
     S.sporocilaAktivni = pogovor; S.sporocilaOseba = oseba; narisiSporocila();
     $("sporocilaNaslov").textContent = oseba.ime;
     $("sporocilaPodnaslov").textContent = ((pogovor.kanal || {}).ime || "") + (pogovor.zadeva ? " · " + pogovor.zadeva : "");
-    var vnos = $("sporocilaBesedilo"), gumb = $("sporocilaVnos").querySelector("button");
+    var vnos = $("sporocilaBesedilo"), gumb = $("sporocilaVnos").querySelector('button[type="submit"]');
     vnos.disabled = false; gumb.disabled = false;
+    var kljucP = pogovor.kanal_id + "\u0001" + pogovor.id;
+    if (S.prilogeZa !== kljucP) { S.prilogeZa = kljucP; S.priloge.odgovor = []; narisiPriloge("odgovor"); }
+    $("sporocilaPrilozi").hidden = ((pogovor.kanal || {}).vrsta || "") !== "email";
     var pano = $("sporocilaPano"); pano.hidden = false; pano.title = t("pokaziPano");
     narisiPano(oseba, pogovor, []);
     naloziVsebinoPogovora(pogovor, true);
@@ -3754,9 +3771,11 @@
     if (!idn.children.length) idn.appendChild(el("span", "identiteta", ubezi(pogovor.id || "")));
     var pr = $("panoPriponke"); pr.innerHTML = "";
     var priponke = [];
-    (sporocila || []).forEach(function (s) { (s.priponke || []).forEach(function (a) { priponke.push(a); }); });
+    (sporocila || []).forEach(function (s) { pravePriponke(s).forEach(function (a) { priponke.push([s, a]); }); });
     if (!priponke.length) pr.appendChild(el("p", "drobno", ubezi(t("panoNiPriponk"))));
-    priponke.slice(-12).reverse().forEach(function (a) { pr.appendChild(el("span", "identiteta", ubezi(a.ime || a.name || String(a)))); });
+    var seznamP = el("div", "priponke priponke-pano");
+    priponke.slice(-12).reverse().forEach(function (x) { seznamP.appendChild(cipPriponke(pogovor.kanal_id, x[0], x[1])); });
+    if (priponke.length) pr.appendChild(seznamP);
   }
   /* ---- Sporocila: kopiranje ----------------------------------------------------------------------------------
      Besedilo sporocila se da oznaciti z misko in kopirati (Ctrl+C); desni klik, tipka Meni ali Shift+F10 na mehurcku
@@ -3806,8 +3825,213 @@
       var k = el("pre", "mehurcek-koda"); k.textContent = deli[1];
       m.classList.add("s-kodo"); m.appendChild(k);
     }
+    dodajPriponke(m, s, (S.sporocilaAktivni || {}).kanal_id || "");
     m.appendChild(el("time", "", ubezi(kratekCas(s.cas))));
     return m;
+  }
+  /* ---- Sporocila: priponke ---------------------------------------------------------------------------------
+     Lastnik, 15. 10. 2026: »Sporocila morajo znati zaznati priloge in jih tudi prenesti. Ce je pdf dokument ali doc se
+     pripravi predogled. Uporabnik ne sme pogresati na primer Gmail ali Outlook.« Pod mehurckom so cipi priponk (ikona po
+     vrsti, ime, velikost): klik odpre predogled v oknu Safeer OS (core/os_predogled.py), gumb ob cipu prenese v Prejemi
+     z napredkom. Slike dobijo slicico; slike v vrstici HTML (logotipi v podpisu) so v »Prikazi izvirnik«. Kaj se da
+     predogledati in kaj je nevarno, pove Safeer OS (core/predogled_datotek.py) - ena pravila za vse. */
+  var NAJVEC_PRILOG = 25 * 1024 * 1024;           // Gmail, Outlook.com: 25 MB na pismo (core/sporocila/priponke.py)
+  S.priloge = { odgovor: [], novo: [] };
+  var CIPI_PRIPONK = Object.create(null);          // kanal|sporocilo|kljuc -> cipi (napredek prenosa)
+  function kljucCipa(kanal, sid, kljuc) { return kanal + "\u0001" + sid + "\u0001" + kljuc; }
+  function napakaSporocil(e) {
+    var k = typeof e === "string" ? e : "";
+    if (k && BESEDILA_OS.en[k] != null) return t(k);
+    return k || t("niUspelo");
+  }
+  function pravePriponke(s) { return (s.priponke || []).filter(function (a) { return !a.inline; }); }
+  // Slika, prilepljena v pismo (ne drobni logotip v podpisu): v mehurcku kot slicica, sicer bi jo besedilo skrilo.
+  function slikeVVrstici(s) {
+    return (s.priponke || []).filter(function (a) { return a.inline && a.predogled === "slika" && a.velikost >= 20480; });
+  }
+  function ikonaPriponke(a) {
+    if (a.nevarna) return "program";
+    if (/^video\//.test(a.tip)) return "video";
+    if (/^audio\//.test(a.tip)) return "glasba";
+    if (/zip|rar|7z|x-tar|gzip|compressed/.test(a.tip) || /\.(zip|rar|7z|tar|gz|tgz|xz|bz2)$/i.test(a.ime)) return "arhiv";
+    return { slika: "slika", pdf: "dokument", dokument: "dokument", besedilo: "dokument", tabela: "dokument",
+             html: "datoteka", posta: "sporocila" }[a.predogled] || "datoteka";
+  }
+  function dodajPriponke(m, s, kanal) {
+    var prave = pravePriponke(s), slike = slikeVVrstici(s);
+    if (!prave.length && !slike.length && !s.html) return;
+    var okvir = el("div", "priponke");
+    slike.concat(prave).forEach(function (a) { okvir.appendChild(cipPriponke(kanal, s, a)); });
+    var dejanja = el("div", "priponke-dejanja");
+    if (prave.length > 1) {
+      var vse = el("button", "gumb", svg("prenos") + "<span>" + ubezi(t("priponkePrenesiVse")) + "</span>"); vse.type = "button";
+      vse.addEventListener("click", function (e) { e.stopPropagation(); prenesiVse(kanal, s, prave, vse); });
+      dejanja.appendChild(vse);
+    }
+    if (s.html) {
+      var izv = el("button", "gumb", ubezi(t("priponkaIzvirnik"))); izv.type = "button";
+      izv.title = t("priponkaIzvirnikNamig");
+      izv.addEventListener("click", function (e) {
+        e.stopPropagation();
+        var naslov = ((S.sporocilaAktivni || {}).zadeva || "") || $("sporocilaNaslov").textContent;
+        klic("sporocilaIzvirnik", [kanal, s.id, naslov]).catch(function (x) { obvesti(napakaSporocil(x)); });
+      });
+      dejanja.appendChild(izv);
+    }
+    if (okvir.children.length) m.appendChild(okvir);
+    if (dejanja.children.length) m.appendChild(dejanja);
+  }
+  function cipPriponke(kanal, s, a) {
+    var slika = a.predogled === "slika" && !a.nevarna && a.velikost <= 10 * 1024 * 1024;
+    var c = el("div", "priponka" + (a.nevarna ? " nevarna" : "") + (slika ? " s-sliko" : ""));
+    var glavni = el("button", "priponka-odpri"); glavni.type = "button";
+    glavni.innerHTML = '<span class="priponka-ikona">' + svg(ikonaPriponke(a)) + '</span><span class="priponka-besedilo"><b>' +
+      ubezi(a.ime) + '</b><small>' + ubezi((a.velikost ? velikost(a.velikost) : "") + (a.nevarna ? " · " + t("priponkaNevarna") : "")) + "</small></span>";
+    glavni.title = a.nevarna ? t("priponkaNevarna") : t(a.predogled ? "priponkaPredogled" : "priponkaPrenesi");
+    glavni.addEventListener("click", function (e) { e.stopPropagation(); odpriPriponko(kanal, s, a, c); });
+    var prenos = el("button", "gumb-ikona priponka-prenesi", svg("prenos")); prenos.type = "button";
+    prenos.title = t("priponkaPrenesi"); prenos.setAttribute("aria-label", prenos.title + ": " + a.ime);
+    prenos.addEventListener("click", function (e) { e.stopPropagation(); prenesiPriponko(kanal, s, a, c); });
+    c.appendChild(glavni); c.appendChild(prenos); c.appendChild(el("span", "priponka-napredek"));
+    var k = kljucCipa(kanal, s.id, a.kljuc);
+    (CIPI_PRIPONK[k] = (CIPI_PRIPONK[k] || []).filter(function (x) { return x.isConnected; })).push(c);
+    if (slika) slicicaKoVidna(c, function () {
+      klic("sporocilaSlicicaPriponke", [kanal, s.id, a.kljuc]).then(function (uri) {
+        if (!uri) return;
+        var img = el("img"); img.alt = ""; img.src = uri; img.decoding = "async";
+        var ik = c.querySelector(".priponka-ikona"); if (ik) { ik.innerHTML = ""; ik.appendChild(img); }
+      }, function () {});
+    });
+    return c;
+  }
+  // Slicica se nalozi sele, ko je cip na zaslonu (dolg pogovor ne prenese vseh slik naenkrat).
+  var opazovalecSlicic = null;
+  function slicicaKoVidna(c, nalozi) {
+    if (!window.IntersectionObserver) { nalozi(); return; }
+    if (!opazovalecSlicic) opazovalecSlicic = new IntersectionObserver(function (vnosi) {
+      vnosi.forEach(function (v) {
+        if (!v.isIntersecting || !v.target._nalozi) return;
+        var f = v.target._nalozi; v.target._nalozi = null; opazovalecSlicic.unobserve(v.target); f();
+      });
+    }, { rootMargin: "200px" });
+    c._nalozi = nalozi; opazovalecSlicic.observe(c);
+  }
+  function potrdiNevarno(ime, nadaljuj) {
+    $("nevarnoOpis").textContent = t("priponkaNevarnaOpis", { ime: ime });
+    S.nevarnoNadaljuj = nadaljuj; $("slojNevarno").classList.add("viden");
+    setTimeout(function () { $("nevarnoPreklici").focus(); }, 30);
+  }
+  function odpriPriponko(kanal, s, a, c) {
+    // Program ali skripta: brez predogleda; ponudimo prenos po potrditvi (kot Gmail, ki jih ne odpre).
+    if (a.nevarna && a.predogled === "nevarno") { prenesiPriponko(kanal, s, a, c); return; }
+    if (!a.predogled) { prenesiPriponko(kanal, s, a, c); return; }
+    klic("sporocilaPredogled", [kanal, s.id, a.kljuc]).catch(function (e) { obvesti(napakaSporocil(e)); });
+  }
+  function nastaviNapredek(c, delez) {
+    c.style.setProperty("--napredek", Math.round(Math.max(0, Math.min(1, delez)) * 100) + "%");
+  }
+  function napredekPriponke(d) {
+    (CIPI_PRIPONK[kljucCipa(d.kanal, d.sid, d.kljuc)] || []).forEach(function (c) {
+      if (!c.classList.contains("prenasam")) return;
+      nastaviNapredek(c, Number(d.delez) || 0);
+      var g = c.querySelector(".priponka-prenesi"); if (g) g.title = t("priponkaPrenasam", { odstotek: Math.round(100 * (Number(d.delez) || 0)) });
+    });
+  }
+  function priponkaShranjena(d) {
+    (CIPI_PRIPONK[kljucCipa(d.kanal, d.sid, d.kljuc)] || []).forEach(function (c) { c.classList.add("shranjeno"); c._pot = d.pot; });
+  }
+  function prenesiPriponko(kanal, s, a, c) {
+    function zacni() {
+      if (c.classList.contains("prenasam")) return;
+      c.classList.add("prenasam"); nastaviNapredek(c, 0);
+      klic("sporocilaPrenesiPriponko", [kanal, s.id, a.kljuc]).then(function (r) {
+        c.classList.remove("prenasam");
+        priponkaShranjena({ kanal: kanal, sid: s.id, kljuc: a.kljuc, pot: r.pot });
+        obvestiShranjeno(t("priponkaShranjena", { ime: r.ime }), r.pot, a.nevarna);
+      }, function (e) { c.classList.remove("prenasam"); obvesti(napakaSporocil(e)); });
+    }
+    if (a.nevarna) potrdiNevarno(a.ime, zacni); else zacni();
+  }
+  function prenesiVse(kanal, s, prave, gumb) {
+    function zacni() {
+      gumb.disabled = true;
+      prave.forEach(function (a) { (CIPI_PRIPONK[kljucCipa(kanal, s.id, a.kljuc)] || []).forEach(function (c) { c.classList.add("prenasam"); nastaviNapredek(c, 0); }); });
+      klic("sporocilaPrenesiVse", [kanal, s.id]).then(function (r) {
+        gumb.disabled = false;
+        prave.forEach(function (a) { (CIPI_PRIPONK[kljucCipa(kanal, s.id, a.kljuc)] || []).forEach(function (c) { c.classList.remove("prenasam"); c.classList.add("shranjeno"); }); });
+        var poti = (r && r.poti) || [];
+        obvestiShranjeno(t(r && r.napake ? "priponkeShranjeneDelno" : "priponkeShranjene", { n: poti.length }), poti[0] || "", true);
+      }, function (e) {
+        gumb.disabled = false;
+        prave.forEach(function (a) { (CIPI_PRIPONK[kljucCipa(kanal, s.id, a.kljuc)] || []).forEach(function (c) { c.classList.remove("prenasam"); }); });
+        obvesti(napakaSporocil(e));
+      });
+    }
+    if (prave.some(function (a) { return a.nevarna; })) potrdiNevarno(prave.filter(function (a) { return a.nevarna; }).map(function (a) { return a.ime; }).join(", "), zacni);
+    else zacni();
+  }
+  // Obvestilo po prenosu z gumboma »Odpri« in »Pokazi v mapi« (8 s). Nevarne datoteke ne ponudimo odpreti.
+  function obvestiShranjeno(besedilo, pot, brezOdpri) {
+    var o = $("obvestilo");
+    o.textContent = ""; o.appendChild(el("span", "", ubezi(besedilo)));
+    if (pot && !brezOdpri) {
+      var g1 = el("button", "", ubezi(t("priponkaOdpri"))); g1.type = "button";
+      g1.addEventListener("click", function () { klic("odpriDatoteko", [pot]); o.classList.remove("viden", "z-gumbom"); });
+      o.appendChild(g1);
+    }
+    if (pot) {
+      var g2 = el("button", "", ubezi(t("priponkaMapa"))); g2.type = "button";
+      g2.addEventListener("click", function () { klic("pokaziVMapi", [pot]); o.classList.remove("viden", "z-gumbom"); });
+      o.appendChild(g2);
+    }
+    o.classList.add("viden", "z-gumbom");
+    clearTimeout(obvestiloCas);
+    obvestiloCas = setTimeout(function () { o.classList.remove("viden", "z-gumbom"); }, 8000);
+  }
+  // ---- priloge pri pisanju (»Prilozi«, povleci in spusti)
+  function skupajPrilog(kje) { return S.priloge[kje].reduce(function (v, p) { return v + (Number(p.velikost) || 0); }, 0); }
+  function prilogePrevelike(kje) { return skupajPrilog(kje) > NAJVEC_PRILOG; }
+  function narisiPriloge(kje) {
+    var cilj = $(kje === "novo" ? "novoPriloge" : "sporocilaPriloge"); if (!cilj) return;
+    cilj.innerHTML = "";
+    S.priloge[kje].forEach(function (p, i) {
+      var c = el("span", "priloga", svg("sponka") + "<b>" + ubezi(p.ime) + "</b><small>" + ubezi(velikost(p.velikost || 0)) + "</small>");
+      var x = el("button", "", "×"); x.type = "button"; x.title = t("prilogaOdstrani"); x.setAttribute("aria-label", t("prilogaOdstrani") + ": " + p.ime);
+      x.addEventListener("click", function () { S.priloge[kje].splice(i, 1); narisiPriloge(kje); });
+      c.appendChild(x); cilj.appendChild(c);
+    });
+    if (prilogePrevelike(kje)) cilj.appendChild(el("span", "priloge-napaka", ubezi(t("priloge_prevelike"))));
+    cilj.hidden = !S.priloge[kje].length;
+  }
+  function dodajPriloge(kje, nove) {
+    (nove || []).forEach(function (p) {
+      if (p && p.pot && !S.priloge[kje].some(function (x) { return x.pot === p.pot; })) S.priloge[kje].push(p);
+    });
+    narisiPriloge(kje);
+  }
+  function izberiPriloge(kje) {
+    klic("izberiPriloge", [t("prilozi"), t("prilozi")]).then(function (p) { dodajPriloge(kje, p); }, function (e) { obvesti(napakaSporocil(e)); });
+  }
+  function sprejemPrilog(element, kje, dovoljeno) {
+    function datoteke(ev) {
+      var vrste = ev.dataTransfer && ev.dataTransfer.types ? Array.prototype.slice.call(ev.dataTransfer.types) : [];
+      return vrste.indexOf("Files") >= 0 || vrste.indexOf("text/uri-list") >= 0;
+    }
+    element.addEventListener("dragover", function (ev) {
+      if (!dovoljeno() || !datoteke(ev)) return;
+      ev.preventDefault(); ev.dataTransfer.dropEffect = "copy"; element.classList.add("spusti-prilogo");
+    });
+    element.addEventListener("dragleave", function () { element.classList.remove("spusti-prilogo"); });
+    element.addEventListener("drop", function (ev) {
+      element.classList.remove("spusti-prilogo");
+      if (!dovoljeno() || !datoteke(ev)) return;
+      ev.preventDefault();
+      // Poti datotek iz Nema WebKitGTK strani ne pove; Safeer OS si jih zapomni ob vstopu vlecenja (spusceneDatoteke).
+      klic("spusceneDatoteke").then(function (poti) {
+        if (!Array.isArray(poti) || !poti.length) return;
+        return klic("opisPrilog", [poti]).then(function (p) { dodajPriloge(kje, p); });
+      }).catch(function () {});
+    });
   }
   // [besedilo, koda]: koda se zacne pri prvi vrstici popravka (lastnik, 14. 10. 2026: popravek v pismu se je bral
   // kot zmeda prelomljenih vrstic). Brez popravka je koda "".
@@ -4000,7 +4224,7 @@
       $("sporocilaNaslov").textContent = t("izberiPogovor"); $("sporocilaPodnaslov").textContent = "";
       $("sporocilaPano").hidden = true; $("sporocilaPanoVsebina").hidden = true;
       $("sporocilaVsebina").innerHTML = ""; $("sporocilaVsebina")._kljuc = "";
-      $("sporocilaBesedilo").disabled = true; $("sporocilaVnos").querySelector("button").disabled = true;
+      $("sporocilaBesedilo").disabled = true; $("sporocilaVnos").querySelector('button[type="submit"]').disabled = true;
       narisiSporocila();
       return;
     }
@@ -5882,6 +6106,8 @@
   // ------------------------------------------------------------------ dogodki iz safeer_os.py
   window.safeerOsDogodek = function (vrsta, podatki) {
     katDogodek(vrsta, podatki);
+    if (vrsta === "priponkaNapredek" && podatki) napredekPriponke(podatki);
+    if (vrsta === "priponkaShranjena" && podatki) priponkaShranjena(podatki);
     // Drugo okno (glavno ali Safeer Player) je skrilo ali vrnilo predmet menija; novi samodejni seznami.
     if (vrsta === "mediaSkrito") nastaviSkrito(podatki, false);
     if (vrsta === "mediaSamodejniOsvezeni") naloziSamodejne();
@@ -5967,6 +6193,17 @@
     $("sporocilaPisi").addEventListener("click", odpriPisiNapravi);
     $("sporocilaNovo").addEventListener("click", function () { odpriNovo(null); });
     $("obrazecNovo").addEventListener("submit", posljiNovo);
+    $("sporocilaPrilozi").addEventListener("click", function () { izberiPriloge("odgovor"); });
+    $("novoPrilozi").addEventListener("click", function () { izberiPriloge("novo"); });
+    // Datoteke se prilozijo, ce jih uporabnik spusti na vnos ali kamorkoli na odprt pogovor (kot v Gmailu).
+    sprejemPrilog($("sporocilaVnos"), "odgovor", function () { return !!S.sporocilaAktivni && !$("sporocilaPrilozi").hidden; });
+    sprejemPrilog($("sporocilaVsebina"), "odgovor", function () { return !!S.sporocilaAktivni && !$("sporocilaPrilozi").hidden; });
+    sprejemPrilog($("obrazecNovo"), "novo", function () { return true; });
+    $("nevarnoPreklici").addEventListener("click", function () { $("slojNevarno").classList.remove("viden"); S.nevarnoNadaljuj = null; });
+    $("nevarnoNadaljuj").addEventListener("click", function () {
+      var nadaljuj = S.nevarnoNadaljuj; S.nevarnoNadaljuj = null; $("slojNevarno").classList.remove("viden");
+      if (nadaljuj) nadaljuj();
+    });
     $("novoPreklici").addEventListener("click", zapriSloje);
     $("novoOsnutek").addEventListener("click", shraniNovoKotOsnutek);
     $("novoOdstrani").addEventListener("click", function () {
@@ -6131,12 +6368,17 @@
     });
     $("sporocilaVnos").addEventListener("submit", function (e) {
       e.preventDefault(); var p = S.sporocilaAktivni, besedilo = $("sporocilaBesedilo").value.trim();
-      if (!p || !besedilo) return;
-      klic("sporocilaPoslji", [p.kanal_id, p.id, besedilo]).then(function (r) {
-        $("sporocilaBesedilo").value = ""; odpriPogovor({ ime: $("sporocilaNaslov").textContent.split(" · ")[0] }, p);
+      var priloge = S.priloge.odgovor.map(function (x) { return x.pot; });
+      if (!p || (!besedilo && !priloge.length)) return;
+      if (prilogePrevelike("odgovor")) { obvesti(t("priloge_prevelike")); return; }
+      var gumbP = $("sporocilaVnos").querySelector('button[type="submit"]'); gumbP.disabled = true;
+      klic("sporocilaPoslji", [p.kanal_id, p.id, besedilo, priloge]).then(function (r) {
+        gumbP.disabled = false;
+        $("sporocilaBesedilo").value = ""; S.priloge.odgovor = []; narisiPriloge("odgovor");
+        odpriPogovor({ ime: $("sporocilaNaslov").textContent.split(" · ")[0] }, p);
         naloziSporocila();          // seznam pokaze zadnje sporocilo takoj, ne sele ob naslednji osvezitvi
         if (r && r.caka) obvesti(t("klepetCaka"));
-      }).catch(function (e) { obvesti(typeof e === "string" && e ? e : t("niUspelo")); });
+      }).catch(function (e) { gumbP.disabled = false; obvesti(napakaSporocil(e)); });
     });
     $("kBrskalnik").addEventListener("click", function () {
       // Safeer Browser je jedro OS: vedno se odpre v tem oknu, tudi ce je namescen njegov
