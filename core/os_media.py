@@ -97,6 +97,12 @@ def canonical_url(url: str) -> str:
     return urllib.parse.urlunsplit((scheme, netloc, path, urllib.parse.urlencode(sorted(query)), ""))
 
 
+def _drzava_radia(koda: Any) -> str:
+    """Koda drzave za radio (ISO 3166-1 alpha-2) ali "" - nic drugega ne pride do kljuca ali do Radio Browserja."""
+    koda = str(koda or "").strip().upper()
+    return koda if re.fullmatch(r"[A-Z]{2}", koda) else ""
+
+
 def _text(value: Any, limit: int = 300) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()[:limit]
 
@@ -1316,7 +1322,7 @@ class MediaCenter:
 
     def kljuc_kataloga(self, query: str = "", kind: str = "vse", genre: str = "", page: int = 1,
                        razvrsti: str = "", izklopljeni: Iterable[str] = (), samo_lokalno: bool = False,
-                       izklopljeni_jeziki: Iterable[str] = (), jezik: str = "") -> str:
+                       izklopljeni_jeziki: Iterable[str] = (), jezik: str = "", drzava_radia: str = "") -> str:
         # Prvi element je razlicica oblike pogleda: ob spremembi vrstnega reda stari pogledi ne veljajo.
         kljuc = ["v5", _text(query, 120).casefold(), kind or "vse", _text(genre, 20),
                  max(1, int(page or 1)), self.izbrana_drzava or "auto", razvrsti or "",
@@ -1325,6 +1331,8 @@ class MediaCenter:
         if jezik in izvirni_jezik.KODE:
             # Izbran jezik vsebine je svoj pogled; brez izbire ostane kljuc tak kot prej (shranjeni pogledi veljajo).
             kljuc.append("jezik:" + jezik)
+        if _drzava_radia(drzava_radia):
+            kljuc.append("radio-drzava:" + _drzava_radia(drzava_radia))
         return json.dumps(kljuc, ensure_ascii=False)
 
     def _zapomni_katalog(self, kljuc: str, rezultat: dict) -> None:
@@ -1336,7 +1344,8 @@ class MediaCenter:
 
     def catalog_hitro(self, query: str = "", kind: str = "vse", genre: str = "", page: int = 1,
                       ob_osvezitvi=None, razvrsti: str = "", izklopljeni: Iterable[str] = (),
-                      samo_lokalno: bool = False, izklopljeni_jeziki: Iterable[str] = (), jezik: str = "") -> dict:
+                      samo_lokalno: bool = False, izklopljeni_jeziki: Iterable[str] = (), jezik: str = "",
+                      drzava_radia: str = "") -> dict:
         """Katalog najprej iz predpomnilnika (takoj), nato sveze v ozadju.
 
         ob_osvezitvi(kljuc, rezultat) se poklice samo, ce se je vsebina v ozadju res spremenila.
@@ -1347,6 +1356,8 @@ class MediaCenter:
                     "izklopljeni_jeziki": sorted({str(x) for x in (izklopljeni_jeziki or []) if x})}
         if jezik in izvirni_jezik.KODE:
             moznosti["jezik"] = jezik
+        if _drzava_radia(drzava_radia):
+            moznosti["drzava_radia"] = _drzava_radia(drzava_radia)
         kljuc = self.kljuc_kataloga(query, kind, genre, page, **moznosti)
         if samo_lokalno:
             # Krajevne datoteke so takoj na voljo: brez predpomnilnika (vedno sveze).
@@ -3378,9 +3389,11 @@ class MediaCenter:
 
     def catalog(self, query: str = "", kind: str = "vse", genre: str = "", page: int = 1,
                 razvrsti: str = "", izklopljeni: Iterable[str] = (), samo_lokalno: bool = False,
-                izklopljeni_jeziki: Iterable[str] = (), jezik: str = "") -> dict:
-        """`jezik` (koda iz izvirni_jezik.KODE): izbran jezik vsebine - katalog pokaze samo vsebino v njem."""
+                izklopljeni_jeziki: Iterable[str] = (), jezik: str = "", drzava_radia: str = "") -> dict:
+        """`jezik` (koda iz izvirni_jezik.KODE): izbran jezik vsebine - katalog pokaze samo vsebino v njem.
+        `drzava_radia` (npr. "SI"): radijske postaje samo iz te drzave."""
         jezik = jezik if jezik in izvirni_jezik.KODE else ""
+        drzava_radia = _drzava_radia(drzava_radia)
         izklopljeni_jeziki = {str(x) for x in (izklopljeni_jeziki or []) if x}
         razvrsti = razvrsti if razvrsti in self.RAZVRSTITVE else ""
         izklopljeni = {str(x) for x in (izklopljeni or []) if x}
@@ -3421,10 +3434,10 @@ class MediaCenter:
         with ThreadPoolExecutor(max_workers=2) as _vzporedno:
             _osebni = _vzporedno.submit(self._personal_items, _text(query, 120))
             lawful = (self._zakoniti_viri.get(_text(query, 120), configured_hosts, _text(genre, 20), jezik,
-                                              vrsta=vrsta_virov) if glasbena
+                                              vrsta=vrsta_virov, drzava_radia=drzava_radia) if glasbena
                       else self._zakoniti_viri.get(_text(query, 120), configured_hosts, "", jezik,
                                                    filmska_zvrst=_text(genre, 20) if kind in ("film", "vse") else "",
-                                                   vrsta=vrsta_virov))
+                                                   vrsta=vrsta_virov, drzava_radia=drzava_radia))
             try:
                 _osebni_vnosi = _osebni.result()
             except Exception:  # noqa: BLE001 - en vir ne sme podreti kataloga
@@ -3432,6 +3445,10 @@ class MediaCenter:
         if glasbena:
             # Pri zvrsti pokazemo samo zadetke te zvrsti, ne tudi krajevnih datotek in osebnih virov.
             local, remote = [], []
+        if drzava_radia and kind == "radio":
+            # Izbrana drzava radia: samo postaje, za katere vemo, da so iz nje (osebni viri drzave ne povejo).
+            local, remote = [], []
+            _osebni_vnosi = [x for x in _osebni_vnosi if isinstance(x, dict) and str(x.get("drzava") or "").upper() == drzava_radia]
         if kind == "tv-v-zivo":
             lawful = lawful + zakoniti_viri.tv_v_zivo(self._drzava_uporabnika())
             izbrana = _text(genre, 20)

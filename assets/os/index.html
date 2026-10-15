@@ -190,6 +190,8 @@
             <div class="media-nav-glava">
               <button class="gumb-ikona media-nav-skrci" id="mediaNavSkrci" type="button" aria-controls="mediaNav" aria-expanded="true"><svg data-ikona="vrstica"></svg></button>
             </div>
+            <!-- Drsi samo seznam, ne glava: drsnik je prej lezal cez gumb Skrci in klik ga ni dosegel (lastnik, 15. 10. 2026). -->
+            <div class="media-nav-drsno">
             <div class="media-nav-kategorije" id="mediaNavKategorije" role="tablist" aria-orientation="vertical"></div>
             <div class="media-nav-viri" id="mediaNavViri" hidden>
               <h2 class="media-nav-naslov" id="mediaNavViriNaslov" data-t="mediaViriNaslov"></h2>
@@ -198,6 +200,7 @@
             <!-- Skrij, kar uporabnik ne potrebuje (lastnik, 14. 10. 2026): plosca s potrditvenimi polji za zavihke in vire. -->
             <button class="media-nav-prilagodi" id="mediaNavPrilagodi" type="button" aria-haspopup="dialog" aria-controls="slojPrilagodi"><svg data-ikona="drsniki"></svg><span data-t="mediaPrilagodiMeni"></span></button>
             <button class="media-nav-prilagodi media-nav-skrij" id="mediaNavSkrij" type="button" aria-controls="mediaNav"><svg data-ikona="x"></svg><span data-t="mediaNavSkrij"></span></button>
+            </div>
           </nav>
           <div class="media-vsebina">
         <div class="media-orodna">
@@ -231,6 +234,7 @@
                 <div class="kat-orodja">
                   <label class="kat-razvrsti"><span data-t="katRazvrsti"></span><select id="mediaRazvrsti"></select></label>
                   <label class="kat-jezik" id="mediaJezikPolje" hidden><select id="mediaJezik"></select></label>
+                  <label class="kat-jezik" id="mediaDrzavaPolje" hidden><select id="mediaDrzava"></select></label>
                   <div class="kat-filter-viri">
                     <button class="gumb" id="mediaViriFilterGumb" type="button" aria-expanded="false" aria-controls="mediaViriFilter"></button>
                     <div class="kat-viri-filter" id="mediaViriFilter" hidden>

@@ -348,7 +348,7 @@ class Katalog:
         return getattr(self, self.METODE[metoda])(a)
 
     METODE = {
-        "mediaZvrsti": "_zvrsti", "mediaKatalog": "_katalog", "mediaPredgrej": "_predgrej", "mediaIsciPredpomnilnik": "_isci_predpomnilnik",
+        "mediaZvrsti": "_zvrsti", "mediaRadioDrzave": "_radio_drzave", "mediaKatalog": "_katalog", "mediaPredgrej": "_predgrej", "mediaIsciPredpomnilnik": "_isci_predpomnilnik",
         "mediaPodrobnosti": "_podrobnosti", "mediaWatchSettings": "_watch_settings", "mediaWatchCountry": "_watch_country",
         "mediaSezona": "_sezona", "mediaEpizoda": "_epizoda", "mediaFilm": "_film",
         "mediaViri": "_viri", "mediaDodajVir": "_dodaj_vir", "mediaDodajStreznik": "_dodaj_streznik",
@@ -399,7 +399,18 @@ class Katalog:
             razvrsti=self._niz(a, 4), izklopljeni=izklopljeni, samo_lokalno=False,
             izklopljeni_jeziki=izklopljeni_jeziki,
             # Izbran jezik vsebine (poleg zvrsti); neznana koda v jedru ne velja.
-            jezik=self._niz(a, 8)[:8]))
+            jezik=self._niz(a, 8)[:8],
+            # Izbrana drzava radia (lastnik 15. 10. 2026); jedro sprejme samo kodo ISO s 2 crkama.
+            drzava_radia=self._niz(a, 9)[:2]))
+
+    def _radio_drzave(self, _a: list) -> Any:
+        """Drzave za izbiro pri radiu: uporabnikova najprej, nato po stevilu postaj. Imena napise stran (Intl)."""
+        drzava = (self.mc._drzava_uporabnika() or "").upper()
+        try:
+            vse = self.mc._zakoniti_viri.radio_drzave()
+        except Exception:  # noqa: BLE001 - brez omrezja: izbira ostane samo »Vse drzave«
+            vse = []
+        return {"uporabnik": drzava, "drzave": sorted(vse, key=lambda d: d.get("id") != drzava)}
 
     def _predgrej(self, _a: list) -> Any:
         """Ob odprtju Medijskega centra v ozadju pripravi prve strani glavnih zavihkov (Glasba, Filmi, Serije, Radio,

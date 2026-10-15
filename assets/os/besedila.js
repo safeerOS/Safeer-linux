@@ -751,3 +751,9 @@ Object.assign(BESEDILA_OS.de, {"mediaNavSkrci": "Menü einklappen ({tipka})", "m
 Object.assign(BESEDILA_OS.es, {"mediaNavSkrci": "Contraer menú ({tipka})", "mediaNavRazsiri": "Expandir menú ({tipka})", "mediaNavSkrij": "Ocultar menú", "mediaNavPokazi": "Mostrar menú ({tipka})"});
 Object.assign(BESEDILA_OS.fr, {"mediaNavSkrci": "Réduire le menu ({tipka})", "mediaNavRazsiri": "Développer le menu ({tipka})", "mediaNavSkrij": "Masquer le menu", "mediaNavPokazi": "Afficher le menu ({tipka})"});
 Object.assign(BESEDILA_OS.it, {"mediaNavSkrci": "Comprimi menu ({tipka})", "mediaNavRazsiri": "Espandi menu ({tipka})", "mediaNavSkrij": "Nascondi menu", "mediaNavPokazi": "Mostra menu ({tipka})"});
+Object.assign(BESEDILA_OS.sl, {"katDrzavaPostaj": "Država postaj", "katPraznoDrzava": "V izbrani državi ({drzava}) tu ni postaj. Izberi drugo državo ali vse države."});
+Object.assign(BESEDILA_OS.en, {"katDrzavaPostaj": "Station country", "katPraznoDrzava": "No stations here for the selected country ({drzava}). Choose another country or all countries."});
+Object.assign(BESEDILA_OS.de, {"katDrzavaPostaj": "Land der Sender", "katPraznoDrzava": "Für das gewählte Land ({drzava}) gibt es hier keine Sender. Wähle ein anderes Land oder alle Länder."});
+Object.assign(BESEDILA_OS.es, {"katDrzavaPostaj": "País de las emisoras", "katPraznoDrzava": "No hay emisoras aquí para el país elegido ({drzava}). Elige otro país o todos los países."});
+Object.assign(BESEDILA_OS.fr, {"katDrzavaPostaj": "Pays des stations", "katPraznoDrzava": "Aucune station ici pour le pays choisi ({drzava}). Choisis un autre pays ou tous les pays."});
+Object.assign(BESEDILA_OS.it, {"katDrzavaPostaj": "Paese delle stazioni", "katPraznoDrzava": "Nessuna stazione qui per il paese scelto ({drzava}). Scegli un altro paese o tutti i paesi."});

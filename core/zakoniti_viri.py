@@ -549,12 +549,48 @@ class ZakonitiViri:
                     "audioformat": "mp32"}, **dodatno)), selected) for track in rows]
         return self._cached("jam-search:" + query.casefold() + ("|" + dodatno["lang"] if "lang" in dodatno else ""), fetch)
 
-    def radio(self, query: str = "", zvrst: str = "") -> list[dict]:
+    def _radio_browser(self, pot: str, params: dict) -> Any:
+        # Radio Browser ima vec zrcal; ce eno ne odgovori (11. 10. 2026: de1 vracal 503), poskusimo naslednje.
+        napaka = None
+        for streznik in ("de1", "de2", "fi1", "nl1", "at1"):
+            try:
+                return self._json("https://%s.api.radio-browser.info/json/%s?%s"
+                                  % (streznik, pot, urllib.parse.urlencode(params)), 4)
+            except Exception as e:  # noqa: BLE001
+                napaka = e
+        raise napaka or OSError("Radio Browser")
+
+    def radio_drzave(self) -> list[dict]:
+        """Drzave z delujocimi postajami v Radio Browserju ({"id": "SI", "postaj": 120}), najvec postaj najprej.
+        Drzave z manj kot 3 postajami izpustimo: izbira, ki da prazen ali skoraj prazen seznam, uporabniku ne koristi."""
+        def fetch():
+            rows = self._radio_browser("countries", {"order": "stationcount", "reverse": "true", "hidebroken": "true"})
+            izid, videne = [], set()
+            for row in rows if isinstance(rows, list) else []:
+                koda = str((row or {}).get("iso_3166_1") or "").upper() if isinstance(row, dict) else ""
+                try:
+                    stevilo = int(row.get("stationcount") or 0)
+                except (TypeError, ValueError):
+                    stevilo = 0
+                if re.fullmatch(r"[A-Z]{2}", koda) and stevilo >= 3 and koda not in videne:
+                    videne.add(koda); izid.append({"id": koda, "postaj": stevilo})
+            return izid
+        return self._cached("radio-drzave", fetch)
+
+    def radio(self, query: str = "", zvrst: str = "", drzava: str = "") -> list[dict]:
+        """`drzava` (ISO 3166-1 alpha-2, npr. "SI"): samo postaje iz te drzave (lastnik, 15. 10. 2026)."""
         ime, _, oznaka = GLASBENE_ZVRSTI.get(zvrst, ("", "", ""))
         if zvrst and not oznaka:
             return []
+        drzava = (drzava or "").upper()
+        if not re.fullmatch(r"[A-Z]{2}", drzava):
+            drzava = ""
         if oznaka:
             tags = [(oznaka, ime)]
+        elif drzava:
+            # Izbrana drzava: vse iskanje in vse skupine samo v njej; najprej najbolj poslusane, nato po zvrsteh.
+            tags = ([("ime:" + query, "Iskanje"), (query, "Iskanje")] if query else
+                    [("", "Najbolj poslušane")] + [(tag, tag.title()) for tag in RADIO_TAGS])
         else:
             # Iskanje: najprej postaje s tem imenom v Sloveniji (»rock radio« = Rock Radio iz Slovenije), nato po svetu,
             # nato postaje s to oznako (zvrstjo). Prej je iskalo samo po oznaki - »rock radio« ni nasel nicesar.
@@ -563,29 +599,22 @@ class ZakonitiViri:
         def load_tag(entry):
             value, label = entry
             params = {"order": "clickcount", "reverse": "true", "hidebroken": "true",
-                      "limit": "60" if oznaka else "30", "is_https": "true"}
+                      "limit": "60" if (oznaka or (drzava and not value)) else "30", "is_https": "true"}
             if value == "SI": params["countrycode"] = "SI"
             elif value.startswith("ime:SI:"): params["name"] = value[len("ime:SI:"):]; params["countrycode"] = "SI"
             elif value.startswith("ime:"): params["name"] = value[len("ime:"):]
             elif value: params["tag"] = value
-            key = "radio:" + label + ":" + value
+            if drzava:
+                params["countrycode"] = drzava
+            key = "radio:" + label + ":" + value + (":" + drzava if drzava else "")
             def fetch(params=params, label=label):
-                # Radio Browser ima vec zrcal; ce eno ne odgovori (11. 10. 2026: de1 vracal 503), poskusimo naslednje.
-                napaka = None
-                for streznik in ("de1", "de2", "fi1", "nl1", "at1"):
-                    try:
-                        rows = self._json("https://%s.api.radio-browser.info/json/stations/search?%s"
-                                          % (streznik, urllib.parse.urlencode(params)), 4)
-                        break
-                    except Exception as e:  # noqa: BLE001
-                        napaka = e
-                else:
-                    raise napaka or OSError("Radio Browser")
+                rows = self._radio_browser("stations/search", params)
                 return [self._station(row, label) for row in rows if isinstance(row, dict)]
             return self._cached(key, fetch)
         with ThreadPoolExecutor(max_workers=len(tags)) as pool:
             result = [station for rows in pool.map(load_tag, tags) for station in rows]
-        if not zvrst:
+        # TuneIn ne pove drzave postaje: pri izbrani drzavi bi pomesal postaje od drugod.
+        if not zvrst and not drzava:
             # TuneIn (neuradni OPML vmesnik; uporabo je izrecno dovolil lastnik izdelka): pri iskanju zadetki,
             # sicer postaje v blizini. Ce vmesnik ne odgovori, se tiho izpusti.
             try:
@@ -843,15 +872,15 @@ class ZakonitiViri:
         return self._cached("archive-pd:" + iskanje.casefold() + (("|" + jezik) if jezik else "") + (("|z" + predmet) if predmet else ""), fetch)
 
     def get(self, query: str = "", configured_hosts: list[str] | None = None, zvrst: str = "", jezik: str = "",
-            filmska_zvrst: str = "", vrsta: str = "") -> list[dict]:
+            filmska_zvrst: str = "", vrsta: str = "", drzava_radia: str = "") -> list[dict]:
         """`jezik`: izbran jezik vsebine. PeerTube in Jamendo izbereta ze sama; pri radiu in javni lasti jezik pove
         vnos. Tocno izbiro (in vnose brez znanega jezika) opravi katalog."""
         if zvrst:
             # Glasbena zvrst velja samo za glasbo in radio (video nima teh zvrsti).
-            tasks = ((self.music, (query, zvrst, jezik)), (self.radio, (query, zvrst)))
+            tasks = ((self.music, (query, zvrst, jezik)), (self.radio, (query, zvrst, drzava_radia)))
         else:
             # Lastnik, 11. 10. 2026: Internet Archive (filmi v javni lasti) ni vgrajen vir.
-            tasks = ((self.videos, (query, configured_hosts, jezik)), (self.music, (query, "", jezik)), (self.radio, (query,)))
+            tasks = ((self.videos, (query, configured_hosts, jezik)), (self.music, (query, "", jezik)), (self.radio, (query, "", drzava_radia)))
         # Samo viri, ki dajo to vrsto (lastnik 14. 10. 2026: cakanje na filme - prej je katalog filmov cakal tudi na
         # radijske postaje, 1,7 s na prenosniku, ceprav jih katalog nato izloci).
         potrebni = {"film": ("videos",), "serija": ("videos",), "video": ("videos",), "glasba": ("music",),

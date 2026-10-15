@@ -4342,6 +4342,7 @@
               nalagaVec: false, napakaVec: false, zvrsti: false,
               aktivni: null, zahteva: 0, timer: 0, kljuc: "", razvrsti: "", izklopljeni: {}, znaniViri: {},
               jezikVsebine: "", jezikiZa: null, seznami: [], seznam: null,
+              drzavaRadia: "", radioDrzave: null, radioDrzaveZa: "",
               vrsta: [], vrstaMesto: 0, vrstaZgodovina: [], izVrste: false,
               igra: false, nalozen: false, zanri: null, zahtevaPredvajanja: 0, knjiznica: [], zahtevaKnjiznice: 0 };
   // Kategorije Medijskega centra (zgoraj) -> vrsta v katalogu; slike so samo krajevne.
@@ -4358,6 +4359,12 @@
   function jezikVelja(filter) { return filter === "vse" || filter === "film" || filter === "serija" || filter === "video" || filter === "glasba"; }
   // Izbrani jezik vsebine za pogled, ki ga katalog kaze ("" = vsi jeziki ali pogled brez te izbire).
   function izbranJezik() { return !kat.seznam && jezikVelja(kat.filter) ? (kat.jezikVsebine || "") : ""; }
+  // Izbrana drzava radijskih postaj ("" = vse drzave); velja samo v pogledu Radio (lastnik, 15. 10. 2026).
+  function izbranaDrzavaRadia() { return !kat.seznam && kat.filter === "radio" ? (kat.drzavaRadia || "") : ""; }
+  function imeDrzave(koda) {
+    try { return new Intl.DisplayNames([LOKALE[jezik] || "sl-SI"], { type: "region" }).of(koda) || koda; }
+    catch (_) { return koda; }
+  }
   function katIkona(vrsta) { return vrsta === "glasba" || vrsta === "podcast" ? "glasba" : vrsta === "radio" ? "radio" : "video"; }
   function katOznaka(vrsta) {
     var k = { glasba: "media_glasba", video: "media_video", radio: "media_radio", "tv-v-zivo": "media_tv", serija: "media_serije",
@@ -4373,12 +4380,16 @@
     blok.hidden = skrij;
     if (skrij) return;
     // Prazen katalog pri izbranem jeziku: povemo, da je prazno zaradi izbire (ne »ni zadetkov«).
-    $("katPraznoBesedilo").textContent = izbranJezik() ? t("katPraznoJezik", { jezik: imeJezika(kat.jezikVsebine, true) }) : t("katPrazno");
+    $("katPraznoBesedilo").textContent = izbranJezik() ? t("katPraznoJezik", { jezik: imeJezika(kat.jezikVsebine, true) })
+      : izbranaDrzavaRadia() ? t("katPraznoDrzava", { drzava: imeDrzave(kat.drzavaRadia) }) : t("katPrazno");
     var gumb = $("katPraznoDejanje"), vseZvrsti = $("mediaZanri").querySelector('[data-media-genre=""]');
     gumb.hidden = false;
     if (izbranJezik()) {
       gumb.textContent = t("katVsiJeziki");
       gumb.onclick = function () { $("mediaJezik").value = ""; $("mediaJezik").dispatchEvent(new Event("change")); };
+    } else if (izbranaDrzavaRadia()) {
+      gumb.textContent = t("katVseDrzave");
+      gumb.onclick = function () { $("mediaDrzava").value = ""; $("mediaDrzava").dispatchEvent(new Event("change")); };
     } else if (kat.genre && vseZvrsti) {
       gumb.textContent = vseZvrsti.textContent;
       gumb.onclick = function () { izberiZanr(vseZvrsti); };
@@ -4438,6 +4449,7 @@
     var izSeznama = !!kat.seznam;
     if (zanriEl) zanriEl.hidden = izSeznama || !zanriVidni();
     narisiJezikVsebine();
+    narisiDrzavoRadia();
     narisiSeznamePredvajanja();
     narisiKnjiznico();
     // Odprt seznam predvajanja: mreža kaže njegove skladbe v vrstnem redu seznama (brez združevanja po izvajalcu).
@@ -5438,6 +5450,37 @@
     izbira.value = kat.jezikVsebine || "";
     polje.classList.toggle("izbran", !!kat.jezikVsebine);
   }
+  // Izbira drzave pri radiu: »Vse drzave«, nato uporabnikova, ostale po abecedi v jeziku vmesnika (s stevilom
+  // postaj). Seznam drzav da Radio Browser (samo drzave z vsaj 3 delujocimi postajami); nalozi se ob prvem ogledu.
+  function narisiDrzavoRadia() {
+    var polje = $("mediaDrzavaPolje"), izbira = $("mediaDrzava"); if (!polje || !izbira) return;
+    var vidno = !kat.seznam && kat.filter === "radio";
+    polje.hidden = !vidno || !kat.radioDrzave || !kat.radioDrzave.drzave.length;
+    if (!vidno) return;
+    if (!kat.radioDrzave) {
+      if (kat.radioDrzaveZa === "nalagam") return;
+      kat.radioDrzaveZa = "nalagam";
+      klic("mediaRadioDrzave", []).then(function (odg) {
+        kat.radioDrzave = { uporabnik: (odg && odg.uporabnik) || "", drzave: (odg && odg.drzave) || [] };
+        kat.radioDrzaveZa = ""; narisiDrzavoRadia();
+      }).catch(function () { kat.radioDrzaveZa = ""; });
+      return;
+    }
+    if (kat.radioDrzaveZa !== jezik) {
+      kat.radioDrzaveZa = jezik;
+      var lok = LOKALE[jezik] || "sl-SI", upor = kat.radioDrzave.uporabnik;
+      var vse = kat.radioDrzave.drzave.slice().sort(function (a, b) {
+        return (a.id === upor ? -1 : b.id === upor ? 1 : 0) || imeDrzave(a.id).localeCompare(imeDrzave(b.id), lok);
+      });
+      izbira.innerHTML = "";
+      izbira.add(new Option(t("katVseDrzave"), ""));
+      vse.forEach(function (d) { izbira.add(new Option(imeDrzave(d.id) + " (" + d.postaj + ")", d.id)); });
+      izbira.setAttribute("aria-label", t("katDrzavaPostaj"));
+      izbira.title = t("katDrzavaPostaj");
+    }
+    izbira.value = kat.drzavaRadia || "";
+    polje.classList.toggle("izbran", !!kat.drzavaRadia);
+  }
   function osveziGumbViri() {
     var gumb = $("mediaViriFilterGumb"); if (!gumb) return;
     var n = Object.keys(kat.izklopljeni).length;
@@ -5512,7 +5555,7 @@
     if (vec) narisiNalaganje();
     else if (!kat.katalog.length) $("mediaPovzetek").textContent = t("katNalagam");
     klic("mediaKatalog", [kat.query, kat.filter, kat.genre, stran, kat.razvrsti, Object.keys(kat.izklopljeni), false,
-                          [], izbranJezik()]).then(function (response) {
+                          [], izbranJezik(), izbranaDrzavaRadia()]).then(function (response) {
       if (zahteva !== kat.zahteva) return;
       kat.nalagaVec = false;
       prevzemiKatalog(response, false, stran);
@@ -5727,6 +5770,11 @@
       kat.katalog = []; kat.strani = []; kat.nalozen = false; kat.skupaj = null; kat.skupaj_strani = 1;
       narisiKatalog(); naloziKatalog();
     });
+    ob("mediaDrzava", "change", function () {
+      kat.drzavaRadia = this.value; kat.page = 1;
+      kat.katalog = []; kat.strani = []; kat.nalozen = false; kat.skupaj = null; kat.skupaj_strani = 1;
+      narisiKatalog(); naloziKatalog();
+    });
     ob("mediaViriFilterGumb", "click", function (event) {
       event.stopPropagation();
       var plosca = $("mediaViriFilter"), odpri = plosca.hidden;
@@ -5819,7 +5867,8 @@
       if (!r.options[i]) r.add(new Option("", o[0]));
       r.options[i].textContent = t(o[1]);
     });
-    kat.jezikiZa = null; narisiJezikVsebine();      // imena jezikov v novem jeziku vmesnika
+    kat.jezikiZa = null; narisiJezikVsebine();
+    if (kat.radioDrzave) kat.radioDrzaveZa = ""; narisiDrzavoRadia();      // imena jezikov v novem jeziku vmesnika
     POL.podpis = ""; narisiPolice();                // naslovi polic in napisi na karticah v novem jeziku
     osveziGumbViri(); katPrilagodiObrazec();
   }
