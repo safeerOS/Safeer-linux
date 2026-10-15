@@ -226,6 +226,19 @@ class PackagingTests(unittest.TestCase):
                                              'packaging/webkit/webkitgtk6-safeer-typelib.yml',
                                              'packaging/libsoup/libsoup3-safeer.yml'])
 
+    def test_webkit_s_clangom_in_thinlto(self):
+        """WebKitGTK 2.53.1+ podpira LTO/PGO samo s Clangom (Speedometer 3.1 na testnem PC z GCC -O2: 8.2, Firefox 12.8):
+        modul ga gradi s Clangom 22 iz razsiritve SDK, ki jo oba manifesta in CI namestita (veja 25.08 = GNOME 50)."""
+        modul=(ROOT/'packaging/webkit/webkitgtk6-safeer.yml').read_text()
+        for niz in ('  append-path: /usr/lib/sdk/llvm22/bin\n','    CC: clang\n','    CXX: clang++\n',
+                    '  - -DLTO_MODE=thin\n','  - -DCMAKE_AR=/usr/lib/sdk/llvm22/bin/llvm-ar\n'):
+            self.assertIn(niz,modul)
+        for manifest in ('io.github.memelandfaner.SafeerOS.yml','io.github.memelandfaner.SafeerBrowser.yml'):
+            with self.subTest(manifest=manifest):
+                self.assertIn('\nsdk-extensions:\n  - org.freedesktop.Sdk.Extension.llvm22\n',(ROOT/manifest).read_text())
+        wf=(ROOT/'.github/workflows/linux-packages.yml').read_text()
+        self.assertEqual(wf.count('org.gnome.Sdk//50 org.freedesktop.Sdk.Extension.llvm22//25.08'),2)
+
     def test_debian_maintainer_scripts_are_posix_sh(self):
         for builder in ('build_deb.sh','build_os_deb.sh'):
             with self.subTest(builder=builder):

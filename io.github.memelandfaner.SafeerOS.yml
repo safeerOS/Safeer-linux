@@ -2,6 +2,9 @@ app-id: io.github.memelandfaner.SafeerOS
 runtime: org.gnome.Platform
 runtime-version: '50'
 sdk: org.gnome.Sdk
+# Clang/LLVM 22 za nas WebKitGTK (packaging/webkit/webkitgtk6-safeer.yml): LTO in PGO WebKit podpira samo s Clangom.
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.llvm22
 command: safeer-os
 # Safeer OS is a shell over the desktop: it needs the session bus (Safeer Control's D-Bus name is
 # used by the browser and by Safeer OS), the network (Safeer Link at home), sound, the home folder

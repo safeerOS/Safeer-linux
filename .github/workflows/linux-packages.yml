@@ -273,7 +273,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y flatpak flatpak-builder appstream-compose desktop-file-utils
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user --noninteractive flathub org.gnome.Platform//50 org.gnome.Sdk//50
+          # Clang/LLVM 22 za WebKitGTK (ThinLTO, packaging/webkit/webkitgtk6-safeer.yml); veja 25.08 = osnova GNOME 50.
+          flatpak install --user --noninteractive flathub org.gnome.Platform//50 org.gnome.Sdk//50 org.freedesktop.Sdk.Extension.llvm22//25.08
       - run: python3 packaging/check_version.py
       # Flatpak brskalnika gradi posel flatpak-brskalnik: ID programa je v kljucu predpomnilnika flatpak-builderja,
       # zato bi tu WebKit gradili se enkrat (2-3 h) in presegli cas posla.
@@ -302,6 +303,11 @@ jobs:
           flatpak run --command=python3 io.github.memelandfaner.SafeerOS -c "import gi; gi.require_version('WebKit', '6.0'); from gi.repository import WebKit; v = (WebKit.get_major_version(), WebKit.get_minor_version(), WebKit.get_micro_version()); m = open('/proc/self/maps').read(); knj = sorted({l.split()[-1] for l in m.splitlines() if 'libwebkitgtk-6.0' in l}); print('GTK4 knjiznice:', knj, v); assert knj and all(k.startswith('/app/') for k in knj), 'WebKitGTK 6.0 ni iz /app'; print('WebKitGTK 6.0 iz /app', *v)"
           # libsoup 3.8.0 iz /app (packaging/libsoup): runtime 50 ima 3.6.6 z znanimi ranljivostmi.
           flatpak run --command=python3 io.github.memelandfaner.SafeerOS -c "import gi; gi.require_version('Soup', '3.0'); gi.require_version('WebKit', '6.0'); from gi.repository import Soup, WebKit; v = (Soup.get_major_version(), Soup.get_minor_version(), Soup.get_micro_version()); m = open('/proc/self/maps').read(); knj = sorted({l.split()[-1] for l in m.splitlines() if 'libsoup-3.0' in l}); print('libsoup:', knj, v); assert knj and all(k.startswith('/app/') for k in knj) and v >= (3, 8, 0), 'libsoup ni 3.8 iz /app'"
+          # WebKit je preveden s Clangom 22 in povezan z lld (ThinLTO); velikost knjiznic za primerjavo z gradnjo GCC.
+          WK="$(flatpak info --show-location io.github.memelandfaner.SafeerOS)/files/lib"
+          ls -l "$WK"/libwebkitgtk-6.0.so.* "$WK"/libjavascriptcoregtk-6.0.so.*
+          readelf -p .comment "$WK"/libwebkitgtk-6.0.so.4 | tee /dev/stderr | grep -q 'clang version 22'
+          readelf -p .comment "$WK"/libwebkitgtk-6.0.so.4 | grep -q 'Linker: LLD'
           flatpak run --command=sh io.github.memelandfaner.SafeerOS -c "test -x /app/libexec/webkitgtk-6.0/WebKitWebProcess"
           flatpak run --command=python3 io.github.memelandfaner.SafeerOS -c "import zeroconf, qrcode, cryptography; from cryptography.hazmat.primitives.ciphers.aead import AESGCM; AESGCM(AESGCM.generate_key(bit_length=256)); from PySide6.QtWidgets import QApplication, QSystemTrayIcon; from PySide6.QtQuick import QQuickView; import gi; gi.require_version('Gtk', '4.0'); from gi.repository import Gtk"
       - name: Shield inside the sandbox of the package that was just built
@@ -340,7 +346,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y flatpak flatpak-builder appstream-compose desktop-file-utils
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user --noninteractive flathub org.gnome.Platform//50 org.gnome.Sdk//50
+          # Clang/LLVM 22 za WebKitGTK (ThinLTO, packaging/webkit/webkitgtk6-safeer.yml); veja 25.08 = osnova GNOME 50.
+          flatpak install --user --noninteractive flathub org.gnome.Platform//50 org.gnome.Sdk//50 org.freedesktop.Sdk.Extension.llvm22//25.08
       - run: python3 packaging/check_version.py
       - name: Safeer Browser Flatpak
         run: bash packaging/build_flatpak.sh
@@ -371,6 +378,11 @@ jobs:
           flatpak run --command=python3 io.github.memelandfaner.SafeerBrowser -c "import gi; gi.require_version('WebKit', '6.0'); from gi.repository import WebKit; v = (WebKit.get_major_version(), WebKit.get_minor_version(), WebKit.get_micro_version()); m = open('/proc/self/maps').read(); knj = sorted({l.split()[-1] for l in m.splitlines() if 'libwebkitgtk-6.0' in l}); print('GTK4 knjiznice:', knj, v); assert knj and all(k.startswith('/app/') for k in knj), 'WebKitGTK 6.0 ni iz /app'; print('WebKitGTK 6.0 iz /app', *v)"
           # libsoup 3.8.0 iz /app (packaging/libsoup): runtime 50 ima 3.6.6 z znanimi ranljivostmi.
           flatpak run --command=python3 io.github.memelandfaner.SafeerBrowser -c "import gi; gi.require_version('Soup', '3.0'); gi.require_version('WebKit', '6.0'); from gi.repository import Soup, WebKit; v = (Soup.get_major_version(), Soup.get_minor_version(), Soup.get_micro_version()); m = open('/proc/self/maps').read(); knj = sorted({l.split()[-1] for l in m.splitlines() if 'libsoup-3.0' in l}); print('libsoup:', knj, v); assert knj and all(k.startswith('/app/') for k in knj) and v >= (3, 8, 0), 'libsoup ni 3.8 iz /app'"
+          # WebKit je preveden s Clangom 22 in povezan z lld (ThinLTO); velikost knjiznic za primerjavo z gradnjo GCC.
+          WK="$(flatpak info --show-location io.github.memelandfaner.SafeerBrowser)/files/lib"
+          ls -l "$WK"/libwebkitgtk-6.0.so.* "$WK"/libjavascriptcoregtk-6.0.so.*
+          readelf -p .comment "$WK"/libwebkitgtk-6.0.so.4 | tee /dev/stderr | grep -q 'clang version 22'
+          readelf -p .comment "$WK"/libwebkitgtk-6.0.so.4 | grep -q 'Linker: LLD'
           flatpak run --command=sh io.github.memelandfaner.SafeerBrowser -c "test -x /app/libexec/webkitgtk-6.0/WebKitWebProcess && test -f /app/lib/safeer-browser/assets/safeer_drm/main.js && test -x /app/host-bin/gio && test ! -e /app/host-bin/safeer"
           xvfb-run -a dbus-run-session -- flatpak run --command=python3 io.github.memelandfaner.SafeerBrowser "$PWD/packaging/smoke_brskalnik.py" /app/lib/safeer-browser
       - uses: actions/upload-artifact@v7
