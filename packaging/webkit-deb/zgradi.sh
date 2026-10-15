@@ -14,9 +14,11 @@
 # (GI_TYPELIB_PATH), brez LD_LIBRARY_PATH, ki bi se prenesel v vse programe, ki jih zazene Safeer OS.
 # Peskovnik bubblewrap ostane vklopljen (sistemska /usr/bin/bwrap in /usr/bin/xdg-dbus-proxy).
 #
-# PGO (neobvezno, enako kot packaging/webkit/pgo.py za Flatpak):
-#   SAFEER_WEBKIT_PGO=ucenje                          instrumentirana gradnja (-DENABLE_LLVM_PROFILE_GENERATION=ON)
+# PGO (gradnja izdaje je s PGO, lastnik 15. 10. 2026: izmerjeno ThinLTO 9.2 -> PGO 10.7 v Speedometru 3.1):
+#   SAFEER_WEBKIT_PGO=ucenje                          instrumentirana gradnja (-DENABLE_LLVM_PROFILE_GENERATION=ON),
+#                                                     nato packaging/webkit-deb/ucni_tek.sh
 #   SAFEER_WEBKIT_PGO=uporaba SAFEER_WEBKIT_PROFRAW=MAPA   gradnja s profilom (*.profraw iz ucnega teka TE gradnje)
+# Brez SAFEER_WEBKIT_PGO je gradnja brez profila (samo za razvoj; CI izdaje zahteva PGO).
 # Odvisnosti: packaging/webkit-deb/odvisnosti.sh. Tece kot root (namesti v PREDPONO); traja 2-3 h na 4 jedrih.
 # ==============================================================================
 set -euo pipefail
@@ -97,7 +99,8 @@ case "$PGO" in
         # Profil mora biti iz te gradnje (isti izvor, popravki, sistemske glave noble in Clang 22): llvm-profdata iste
         # razlicice kot prevajalnik. Profil iz Flatpaka (glave GNOME 50) bi se za del funkcij ne ujemal.
         "$LLVM/llvm-profdata" merge --output="$DELO/pgo/webkit.profdata" "$PROFRAW"/*.profraw
-        "$LLVM/llvm-profdata" show --detailed-summary "$DELO/pgo/webkit.profdata" | head -n 30
+        # sed (ne head): head bi zaprl cev, llvm-profdata bi dobil SIGPIPE in pipefail bi ustavil gradnjo.
+        "$LLVM/llvm-profdata" show --detailed-summary "$DELO/pgo/webkit.profdata" | sed -n '1,30p'
         PGO_MOZNOSTI=(-DUSE_PGO_PROFILE=ON "-DPGO_PROFILE_PATH=$DELO/pgo/webkit.profdata") ;;
     *) echo "SAFEER_WEBKIT_PGO je ucenje ali uporaba" >&2; exit 2 ;;
 esac

@@ -388,7 +388,7 @@ class DebWebkitTests(unittest.TestCase):
         self.assertIn('llvm-toolchain-${VERSION_CODENAME:-noble}-22',odvisnosti)
         for paket in ('clang-22','lld-22','libclang-rt-22-dev','libgtk-4-dev','gettext','bubblewrap','xdg-dbus-proxy'):
             self.assertIn(paket,odvisnosti)
-        for skripta in ('zgradi.sh','odvisnosti.sh','vgradi.sh'):
+        for skripta in ('zgradi.sh','odvisnosti.sh','vgradi.sh','ucni_tek.sh'):
             subprocess.run(['bash','-n',str(self.WEBKIT_DEB/skripta)],check=True)
 
     def test_typelib_dobi_absolutno_pot_do_nase_knjiznice(self):
@@ -495,16 +495,27 @@ class DebWebkitTests(unittest.TestCase):
 
     def test_ci_gradi_webkit_za_oba_paketa_in_ju_preizkusi(self):
         potek=(ROOT/'.github/workflows/linux-packages.yml').read_text()
+        profil=potek.split('\n  webkit-deb-profil:\n',1)[1].split('\n  webkit-deb:\n',1)[0]
         posel=potek.split('\n  webkit-deb:\n',1)[1].split('\n  brskalnik:\n',1)[0]
         self.assertIn('paket: [safeer-browser, safeer-os]',posel)
         self.assertIn('image: ubuntu:24.04',posel)
+        # PGO je privzet (lastnik, 15. 10. 2026): lasten ucni tek gradnje noble, profil v predpomnilniku.
+        self.assertIn('needs: webkit-deb-profil',posel)
+        self.assertIn('SAFEER_WEBKIT_PGO=ucenje bash packaging/webkit-deb/zgradi.sh /usr/lib/safeer-browser/webkit',profil)
+        self.assertIn('bash packaging/webkit-deb/ucni_tek.sh /usr/lib/safeer-browser/webkit build/pgo/profraw',profil)
+        self.assertIn('SAFEER_WEBKIT_PGO=uporaba SAFEER_WEBKIT_PROFRAW=build/pgo/profraw',posel)
         self.assertIn('packaging/webkit-deb/zgradi.sh /usr/lib/${{ matrix.paket }}/webkit',posel)
-        # Kljuc predpomnilnika iz vseh datotek gradnje; brez restore-keys (star WebKit ne sme v paket).
+        self.assertIn("grep -q '^USE_PGO_PROFILE:BOOL=ON$' gradnja.txt",posel)
+        # Kljuca predpomnilnika iz vseh datotek gradnje in ucnega teka; brez restore-keys (star WebKit ne sme v paket).
         for datoteka in ('packaging/webkit/webkitgtk6-safeer.yml','packaging/webkit/*.patch','packaging/libsoup/**',
                          'packaging/webkit-deb/zgradi.sh','packaging/webkit-deb/modul.py','packaging/webkit-deb/typelibi.py',
-                         'packaging/webkit-deb/odvisnosti.sh'):
+                         'packaging/webkit-deb/odvisnosti.sh','packaging/webkit/pgo_trening.py','packaging/webkit-deb/ucni_tek.sh'):
             self.assertEqual(posel.count("'%s'"%datoteka),2,datoteka)
-        self.assertNotIn('restore-keys',posel)
+            self.assertEqual(profil.count("'%s'"%datoteka),2,datoteka)
+        self.assertNotIn('restore-keys',posel+profil)
+        # Isti Speedometer kot ucni tek Flatpaka.
+        self.assertIn('1386415be8fef2f6b6bbdbe1828872471c5d802a',(self.WEBKIT_DEB/'ucni_tek.sh').read_text())
+        self.assertIn('1386415be8fef2f6b6bbdbe1828872471c5d802a',potek.split('\n  webkit-pgo-ucenje:\n',1)[1])
         for ime,paket,skripta in (('brskalnik','safeer-browser','build_deb.sh'),('safeer-os','safeer-os','build_os_deb.sh')):
             with self.subTest(posel=ime):
                 del_=potek.split('\n  %s:\n'%ime,1)[1].split('\n  mint:\n' if ime=='safeer-os' else '\n  safeer-os:\n',1)[0]
@@ -515,10 +526,6 @@ class DebWebkitTests(unittest.TestCase):
                 self.assertIn('_amd64.deb',del_)
         self.assertIn('/smoke_webkit_deb.py',(ROOT/'tools/mint_namestitev/preizkus.sh').read_text())
         self.assertIn('webkit_preizkus "s sistemskim WebKitGTK',(ROOT/'tools/mint_namestitev/v_vsebniku.sh').read_text())
-        # PGO za .deb samo na rocni tek, z lastnim ucnim tekom (profil Flatpaka se z gradnjo noble ne ujema).
-        self.assertEqual(potek.count("if: github.event_name == 'workflow_dispatch' && inputs.pgo_deb\n"),2)
-        self.assertIn('SAFEER_WEBKIT_PGO=ucenje bash packaging/webkit-deb/zgradi.sh',potek)
-        self.assertIn('SAFEER_WEBKIT_PGO=uporaba SAFEER_WEBKIT_PROFRAW=build/pgo/profraw',potek)
 
 
 class MintInstallTests(unittest.TestCase):

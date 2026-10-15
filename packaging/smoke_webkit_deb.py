@@ -5,7 +5,7 @@ Uporaba: python3 smoke_webkit_deb.py KOREN_PROGRAMA     npr. /usr/lib/safeer-bro
 Preveri, kar mora veljati na racunalniku uporabnika (tudi ce je namescen sistemski WebKitGTK 6.0 iz Ubuntuja):
   * core/zasebni_webkit.py najde predpono paketa in Python nalozi typelibe iz nje,
   * /proc/self/maps: libwebkitgtk-6.0, libjavascriptcoregtk-6.0 in libsoup-3.0 so iz predpone, nobena iz sistema,
-  * libsoup >= 3.8, WebKitGTK je razlicica iz zapisa gradnje (gradnja.txt: Clang 22, ThinLTO, lld, ta predpona),
+  * libsoup >= 3.8, WebKitGTK je razlicica iz zapisa gradnje (gradnja.txt: Clang 22, ThinLTO, lld, PGO, ta predpona),
   * stran prek HTTP se nalozi; spletni proces je WebKitWebProcess iz predpone in tece v peskovniku bubblewrap
     (predhodnik bwrap in lasten imenski prostor PID - NSpid v /proc/<pid>/status).
 Izhod 0 in vrstica PASS, sicer FAIL: ... in izhod 1.
@@ -45,6 +45,9 @@ def knjiznice(pid="self"):
 
 
 def preveri_knjiznice():
+    # GI nalozi knjiznico typeliba sele ob prvem klicu funkcije: razlicici najprej, nato /proc/self/maps.
+    soup = (Soup.get_major_version(), Soup.get_minor_version(), Soup.get_micro_version())
+    wk = (WebKit.get_major_version(), WebKit.get_minor_version(), WebKit.get_micro_version())
     knj = knjiznice()
     print("predpona:", PREDPONA, flush=True)
     print("knjiznice:", knj, flush=True)
@@ -54,8 +57,6 @@ def preveri_knjiznice():
             napaka("%s ni nalozena" % ime)
         elif not all(k.startswith(PREDPONA + "/") for k in poti):
             napaka("%s ni iz %s: %s" % (ime, PREDPONA, poti))
-    soup = (Soup.get_major_version(), Soup.get_minor_version(), Soup.get_micro_version())
-    wk = (WebKit.get_major_version(), WebKit.get_minor_version(), WebKit.get_micro_version())
     print("libsoup %d.%d.%d, WebKitGTK %d.%d.%d" % (soup + wk), flush=True)
     if soup < (3, 8, 0):
         napaka("libsoup %s < 3.8.0" % (soup,))
@@ -69,6 +70,10 @@ def preveri_knjiznice():
         napaka("gradnja.txt: LTO_MODE ni thin")
     if "build.ninja -fuse-ld=lld: 0" in gradnja:
         napaka("gradnja.txt: ni povezano z lld")
+    # Izdaja je s PGO (lastnik, 15. 10. 2026): profil iz ucnega teka te gradnje (packaging/webkit-deb/ucni_tek.sh).
+    if "USE_PGO_PROFILE:BOOL=ON\n" not in gradnja or "build.ninja -fprofile-use: 0" in gradnja \
+            or "build.ninja -fprofile-use:" not in gradnja:
+        napaka("gradnja.txt: WebKit ni preveden s profilom (PGO)")
 
 
 def procesi_potomci():

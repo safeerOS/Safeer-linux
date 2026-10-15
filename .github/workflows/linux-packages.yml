@@ -22,12 +22,6 @@ on:
         description: 'Id teka z artefaktom webkit-pgo-profraw (prazno = nov ucni tek)'
         type: string
         default: ''
-      pgo_deb:
-        # Rocni tek: PGO tudi za WebKitGTK paketov .deb (posla webkit-deb-pgo-*). Lasten ucni tek, ker se profil Flatpaka
-        # (glave GNOME 50, poti /run/build) z gradnjo noble ne ujema (packaging/webkit-deb/zgradi.sh).
-        description: 'WebKitGTK paketov .deb s PGO (ucni tek in optimizirani gradnji, ni del izdaje)'
-        type: boolean
-        default: false
 permissions:
   contents: read
 jobs:
@@ -100,12 +94,77 @@ jobs:
           path: |
             *.deb
             dist/*.AppImage
+  # ---- Nas WebKitGTK za pakete .deb (PGO je privzet, lastnik 15. 10. 2026) ---------------------------------------------
+  # Loceni posli (webkit-deb-profil, webkit-deb), da se ne prepletajo s posli Flatpak. Profil Flatpaka tu ni uporaben:
+  # LLVM zahteva profil iz istega izvora - gradnja noble ima druge sistemske glave (GTK 4.14, GLib 2.80, GStreamer 1.24
+  # namesto GNOME 50) in druge poti izvora (imena staticnih funkcij v profilu vsebujejo pot datoteke). Zato lasten ucni tek
+  # z isto pripeto kopijo Speedometra 3.1 in packaging/webkit/pgo_trening.py.
+  webkit-deb-profil:
+    # PGO 1/2: instrumentiran WebKitGTK (-DENABLE_LLVM_PROFILE_GENERATION=ON) za predpono safeer-browser, ucni tek pod
+    # Xvfb, .profraw v predpomnilnik s kljucem iz datotek gradnje. En profil zadosca za oba paketa: gradnji se razlikujeta
+    # le v nizih poti (predpona), ne v kodi, in imata isto mapo izvora (build/webkit-deb/izvor). ~2,5 h ob spremembi.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    container:
+      image: ubuntu:24.04
+      options: --privileged
+      # Mape gostitelja, ki jih gradnja ne potrebuje: WebKit z ThinLTO potrebuje ~10 GB prostora.
+      volumes:
+        - /usr/share/dotnet:/gostitelj/dotnet
+        - /usr/local/lib/android:/gostitelj/android
+        - /opt/ghc:/gostitelj/ghc
+        - /opt/hostedtoolcache/CodeQL:/gostitelj/codeql
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TZ: UTC
+    steps:
+      - name: Free disk space and tools for the cache
+        run: |
+          rm -rf /gostitelj/dotnet/* /gostitelj/android/* /gostitelj/ghc/* /gostitelj/codeql/*
+          df -h /
+          apt-get update -q
+          apt-get install -y -q --no-install-recommends ca-certificates zstd git
+      - uses: actions/checkout@v5
+      - name: Restore the PGO profile (recorded earlier from the same files)
+        id: profil
+        uses: actions/cache/restore@v4
+        with:
+          path: build/pgo/profraw
+          key: webkit-deb-profil-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh') }}
+      - name: Build dependencies and the training run tools
+        if: steps.profil.outputs.cache-hit != 'true'
+        run: |
+          bash packaging/webkit-deb/odvisnosti.sh
+          apt-get install -y -q --no-install-recommends python3-gi gir1.2-gtk-4.0 xvfb xauth dbus procps
+      - name: Instrumented WebKitGTK (Clang 22, ThinLTO, -fprofile-generate)
+        if: steps.profil.outputs.cache-hit != 'true'
+        run: SAFEER_WEBKIT_PGO=ucenje bash packaging/webkit-deb/zgradi.sh /usr/lib/safeer-browser/webkit
+      - name: Training run (Speedometer 3.1, pinned offline copy)
+        if: steps.profil.outputs.cache-hit != 'true'
+        run: bash packaging/webkit-deb/ucni_tek.sh /usr/lib/safeer-browser/webkit build/pgo/profraw
+      - name: Save the PGO profile
+        if: steps.profil.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: build/pgo/profraw
+          key: webkit-deb-profil-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh') }}
+      - name: Profile summary
+        run: |
+          ls -l build/pgo/profraw
+          echo "::notice::profil .deb: $(ls build/pgo/profraw/*.profraw | wc -l) .profraw, $(du -sh build/pgo/profraw | cut -f1)"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: webkit-deb-profraw
+          path: build/pgo/profraw/*.profraw
+          retention-days: 14
   webkit-deb:
-    # Nas WebKitGTK 6.0 in libsoup 3.8 za pakete .deb (lastnik, 15. 10. 2026: .deb dobi vse izboljsave Flatpaka): isti
-    # izvor, popravki in moznosti kot modula Flatpak (packaging/webkit-deb/modul.py), Clang 22 iz apt.llvm.org, ThinLTO
-    # in lld, na Ubuntu 24.04 (osnova Linux Mint 22). Poti pomoznih procesov WebKit prevede v knjiznico, zato ima vsak
-    # paket svojo gradnjo s svojo predpono (/usr/lib/<paket>/webkit) - vzporedno, ~2,5 h. Gotov arhiv je v predpomnilniku
-    # s kljucem iz datotek gradnje: ob spremembi samo kode Safeerja posel traja minuto.
+    # PGO 2/2: nas WebKitGTK 6.0 in libsoup 3.8 za pakete .deb (lastnik, 15. 10. 2026: .deb dobi vse izboljsave
+    # Flatpaka): isti izvor, popravki in moznosti kot modula Flatpak (packaging/webkit-deb/modul.py), Clang 22 iz
+    # apt.llvm.org, ThinLTO, lld in profil iz posla webkit-deb-profil, na Ubuntu 24.04 (osnova Linux Mint 22). Poti
+    # pomoznih procesov WebKit prevede v knjiznico, zato ima vsak paket svojo gradnjo s svojo predpono
+    # (/usr/lib/<paket>/webkit) - vzporedno, ~2,5 h. Gotov arhiv je v predpomnilniku s kljucem iz datotek gradnje: ob
+    # spremembi samo kode Safeerja posel traja minuto.
+    needs: webkit-deb-profil
     runs-on: ubuntu-24.04
     timeout-minutes: 340
     strategy:
@@ -114,7 +173,6 @@ jobs:
         paket: [safeer-browser, safeer-os]
     container:
       image: ubuntu:24.04
-      # Mape gostitelja, ki jih gradnja ne potrebuje: WebKit z ThinLTO potrebuje ~10 GB prostora.
       volumes:
         - /usr/share/dotnet:/gostitelj/dotnet
         - /usr/local/lib/android:/gostitelj/android
@@ -131,28 +189,40 @@ jobs:
           apt-get update -q
           apt-get install -y -q --no-install-recommends ca-certificates zstd
       - uses: actions/checkout@v5
-      - name: Restore our WebKitGTK (built earlier from the same files)
+      - name: Restore our WebKitGTK (built earlier from the same files and profile)
         id: wk
         uses: actions/cache/restore@v4
         with:
           path: build/webkit-${{ matrix.paket }}.tar.zst
-          key: webkit-deb-${{ matrix.paket }}-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py') }}
+          key: webkit-deb-pgo-${{ matrix.paket }}-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh') }}
+      - uses: actions/download-artifact@v8
+        if: steps.wk.outputs.cache-hit != 'true'
+        with:
+          name: webkit-deb-profraw
+          path: build/pgo/profraw
       - name: Build dependencies (Clang 22 from apt.llvm.org, noble libraries)
         if: steps.wk.outputs.cache-hit != 'true'
         run: bash packaging/webkit-deb/odvisnosti.sh
-      - name: WebKitGTK and libsoup for /usr/lib/${{ matrix.paket }}/webkit (Clang 22, ThinLTO)
+      - name: WebKitGTK and libsoup for /usr/lib/${{ matrix.paket }}/webkit (Clang 22, ThinLTO, PGO)
         if: steps.wk.outputs.cache-hit != 'true'
-        run: bash packaging/webkit-deb/zgradi.sh /usr/lib/${{ matrix.paket }}/webkit build/webkit-${{ matrix.paket }}.tar.zst
+        run: |
+          SAFEER_WEBKIT_PGO=uporaba SAFEER_WEBKIT_PROFRAW=build/pgo/profraw \
+            bash packaging/webkit-deb/zgradi.sh /usr/lib/${{ matrix.paket }}/webkit build/webkit-${{ matrix.paket }}.tar.zst
       - name: Save our WebKitGTK
         if: always() && steps.wk.outputs.cache-hit != 'true' && hashFiles(format('build/webkit-{0}.tar.zst', matrix.paket)) != ''
         uses: actions/cache/save@v4
         with:
           path: build/webkit-${{ matrix.paket }}.tar.zst
-          key: webkit-deb-${{ matrix.paket }}-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py') }}
-      - name: Build record
+          key: webkit-deb-pgo-${{ matrix.paket }}-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py', 'packaging/webkit/pgo_trening.py', 'packaging/webkit-deb/ucni_tek.sh') }}
+      - name: Build record (Clang 22, ThinLTO, lld, PGO)
         run: |
           tar -I zstd -xOf build/webkit-${{ matrix.paket }}.tar.zst usr/lib/${{ matrix.paket }}/webkit/share/webkitgtk-safeer/gradnja.txt | tee gradnja.txt
           echo "::notice::${{ matrix.paket }}: $(stat -c %s build/webkit-${{ matrix.paket }}.tar.zst) B | $(paste -sd '|' gradnja.txt)"
+          grep -q 'clang version 22\.' gradnja.txt
+          grep -q '^LTO_MODE:.*=thin$' gradnja.txt
+          grep -q '^build.ninja -fuse-ld=lld: [1-9]' gradnja.txt
+          grep -q '^USE_PGO_PROFILE:BOOL=ON$' gradnja.txt
+          grep -q '^build.ninja -fprofile-use: [1-9]' gradnja.txt
       - uses: actions/upload-artifact@v7
         with:
           name: webkit-deb-${{ matrix.paket }}
@@ -674,124 +744,6 @@ jobs:
           grep -q '^USE_PGO_PROFILE:BOOL=ON$' "$G"
           grep -q '^build.ninja -fprofile-use: [1-9]' "$G"
           xvfb-run -a dbus-run-session -- flatpak run --command=python3 io.github.memelandfaner.SafeerBrowser "$PWD/packaging/smoke_brskalnik.py" /app/lib/safeer-browser
-  webkit-deb-pgo-ucenje:
-    # PGO paketov .deb 1/2 (samo rocni tek z vhodom pgo_deb): instrumentiran WebKitGTK za predpono safeer-browser, ucni tek
-    # Speedometer 3.1 (pripeta lokalna kopija) pod Xvfb, .profraw v artefakt. Profil Flatpaka (webkit-pgo-profraw) tu ni
-    # uporaben: LLVM zahteva profil iz istega izvora - gradnja noble ima druge sistemske glave (GTK 4.14, GLib 2.80,
-    # GStreamer 1.24 namesto GNOME 50) in druge poti izvora (imena staticnih funkcij v profilu vsebujejo pot datoteke),
-    # zato bi se velik del funkcij ne ujemal. En ucni tek zadosca za oba paketa: gradnji se razlikujeta le v nizih poti
-    # (predpona), ne v kodi, in imata isto mapo izvora (build/webkit-deb/izvor).
-    if: github.event_name == 'workflow_dispatch' && inputs.pgo_deb
-    runs-on: ubuntu-24.04
-    timeout-minutes: 340
-    container:
-      image: ubuntu:24.04
-      options: --privileged
-      volumes:
-        - /usr/share/dotnet:/gostitelj/dotnet
-        - /usr/local/lib/android:/gostitelj/android
-        - /opt/ghc:/gostitelj/ghc
-        - /opt/hostedtoolcache/CodeQL:/gostitelj/codeql
-    env:
-      DEBIAN_FRONTEND: noninteractive
-      TZ: UTC
-    steps:
-      - name: Free disk space
-        run: |
-          rm -rf /gostitelj/dotnet/* /gostitelj/android/* /gostitelj/ghc/* /gostitelj/codeql/*
-          df -h /
-          apt-get update -q
-          apt-get install -y -q --no-install-recommends ca-certificates git
-      - uses: actions/checkout@v5
-      - name: Build dependencies and the training run tools
-        run: |
-          bash packaging/webkit-deb/odvisnosti.sh
-          apt-get install -y -q --no-install-recommends python3-gi gir1.2-gtk-4.0 xvfb xauth dbus procps
-      - name: Instrumented WebKitGTK (Clang 22, ThinLTO, -fprofile-generate)
-        run: SAFEER_WEBKIT_PGO=ucenje bash packaging/webkit-deb/zgradi.sh /usr/lib/safeer-browser/webkit
-      - name: Speedometer 3.1 (pinned, offline copy)
-        run: |
-          git clone -q -b release/3.1 https://github.com/WebKit/Speedometer.git build/pgo/speedometer
-          git -C build/pgo/speedometer checkout -q 1386415be8fef2f6b6bbdbe1828872471c5d802a
-      - name: Training run
-        # Kot pri Flatpaku: spletni proces brez peskovnika samo v tem ucnem teku (lokalna vsebina), da zapise profil.
-        run: |
-          P="$PWD/build/pgo/profraw"
-          mkdir -p "$P"
-          python3 -m http.server 8123 --bind 127.0.0.1 --directory build/pgo/speedometer >/dev/null 2>&1 & SRV=$!
-          sleep 2
-          GI_TYPELIB_PATH=/usr/lib/safeer-browser/webkit/lib/girepository-1.0 LLVM_PROFILE_FILE="$P/%p-%m.profraw" \
-            WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 xvfb-run -a -s "-screen 0 1920x1080x24" dbus-run-session -- \
-            python3 packaging/webkit/pgo_trening.py "http://127.0.0.1:8123/?startAutomatically&iterationCount=5" 150
-          for i in $(seq 60); do pgrep -f 'WebKit(Network|Web)Process' >/dev/null || break; sleep 1; done
-          kill "$SRV" || true
-          ls -l "$P"
-          echo "::notice::$(ls "$P" | wc -l) .profraw, $(du -sh "$P" | cut -f1)"
-          test "$(find "$P" -name '*.profraw' -size +1k | wc -l)" -ge 2
-      - uses: actions/upload-artifact@v7
-        with:
-          name: webkit-deb-pgo-profraw
-          path: build/pgo/profraw/*.profraw
-          retention-days: 14
-  webkit-deb-pgo:
-    # PGO paketov .deb 2/2: WebKitGTK s profilom (-DUSE_PGO_PROFILE=ON, ThinLTO) za oba paketa in iz njega paketa .deb
-    # (artefakt deb-pgo-<paket> za meritve na testnem PC, ni del izdaje). Isti preizkus kot gradnja izdaje.
-    needs: webkit-deb-pgo-ucenje
-    if: github.event_name == 'workflow_dispatch' && inputs.pgo_deb
-    runs-on: ubuntu-24.04
-    timeout-minutes: 340
-    strategy:
-      fail-fast: false
-      matrix:
-        paket: [safeer-browser, safeer-os]
-    container:
-      image: ubuntu:24.04
-      options: --privileged
-      volumes:
-        - /usr/share/dotnet:/gostitelj/dotnet
-        - /usr/local/lib/android:/gostitelj/android
-        - /opt/ghc:/gostitelj/ghc
-        - /opt/hostedtoolcache/CodeQL:/gostitelj/codeql
-    env:
-      DEBIAN_FRONTEND: noninteractive
-      TZ: UTC
-    steps:
-      - name: Free disk space
-        run: |
-          rm -rf /gostitelj/dotnet/* /gostitelj/android/* /gostitelj/ghc/* /gostitelj/codeql/*
-          df -h /
-          apt-get update -q
-          apt-get install -y -q --no-install-recommends ca-certificates
-      - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v8
-        with:
-          name: webkit-deb-pgo-profraw
-          path: build/pgo/profraw
-      - name: Build dependencies
-        run: bash packaging/webkit-deb/odvisnosti.sh
-      - name: WebKitGTK with the profile for /usr/lib/${{ matrix.paket }}/webkit
-        run: |
-          SAFEER_WEBKIT_PGO=uporaba SAFEER_WEBKIT_PROFRAW=build/pgo/profraw \
-            bash packaging/webkit-deb/zgradi.sh /usr/lib/${{ matrix.paket }}/webkit build/webkit-${{ matrix.paket }}.tar.zst
-          G=/usr/lib/${{ matrix.paket }}/webkit/share/webkitgtk-safeer/gradnja.txt
-          grep -q '^USE_PGO_PROFILE:BOOL=ON$' "$G"
-          grep -q '^build.ninja -fprofile-use: [1-9]' "$G"
-          echo "::notice::$(paste -sd '|' "$G")"
-      - name: Debian package with the PGO WebKitGTK
-        run: |
-          apt-get install -y -q --no-install-recommends python3 python3-gi gir1.2-gtk-4.0 desktop-file-utils xvfb xauth dbus
-          if [ "${{ matrix.paket }}" = safeer-browser ]; then
-            SAFEER_WEBKIT_TAR=build/webkit-safeer-browser.tar.zst bash build_deb.sh
-            DEB="safeer-browser_$(cat packaging/VERSION)_amd64.deb"
-          else
-            SAFEER_WEBKIT_TAR=build/webkit-safeer-os.tar.zst bash build_os_deb.sh
-            DEB="safeer-os_$(cat packaging/VERSION_OS)_amd64.deb"
-          fi
-          mkdir -p dist && mv "$DEB" "dist/${DEB%.deb}-pgo.deb"
-      - uses: actions/upload-artifact@v7
-        with:
-          name: deb-pgo-${{ matrix.paket }}
-          path: dist/*-pgo.deb
   scit-lab:
     # Scit spreminja sistemsko nastavitev DNS. Enotni testi ne vidijo, kako se systemd-resolved in NetworkManager
     # obnasata v resnici - in prav tam so bile napake do Safeer OS 0.4.42 (izklop je pustil racunalnik brez DNS).
