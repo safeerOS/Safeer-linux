@@ -46,7 +46,7 @@ def procesi(lastni_mnt: str) -> dict:
     - "podpeskovniki": zagoni flatpak-spawn --sandbox za procese Chromiuma (zypak mimic: zygote in z njim procesi
       strani tecejo v podpeskovniku portala, brez omrezja),
     - "brez_peskovnika": procesi z --no-sandbox (ne sme jih biti)."""
-    izid = {"renderji": [], "podpeskovniki": [], "brez_peskovnika": []}
+    izid = {"renderji": [], "podpeskovniki": [], "brez_peskovnika": [], "vsi": []}
     for pid in os.listdir("/proc"):
         if not pid.isdigit():
             continue
@@ -55,6 +55,7 @@ def procesi(lastni_mnt: str) -> dict:
                 ukaz = [a.decode("utf-8", "replace") for a in f.read().split(b"\0") if a]
         except OSError:
             continue
+        izid["vsi"].append((int(pid), " ".join(os.path.basename(a) if i == 0 else a for i, a in enumerate(ukaz[:3]))[:90]))
         if "--no-sandbox" in ukaz:
             izid["brez_peskovnika"].append((int(pid), " ".join(ukaz)[:200]))
         vrsta = next((a[len("--type="):] for a in ukaz if a.startswith("--type=")), "")
@@ -115,14 +116,16 @@ def zazeni(exe, krog: int, cas: int) -> list:
     for x in d:
         print(f"krog {krog}: dogodek {x.get('type')} {x.get('detail', '')}"[:300], flush=True)
     print(f"krog {krog}: procesi:", videni, flush=True)
-    if not zivo or not d or "NAVIGATION_OK" not in {x.get("type") for x in d}:
+    if True:     # dnevnik zypaka (ZYPAK_DEBUG=1) vedno: strategija zagona podprocesov in klici portala
         try:
             with open(os.path.join(seja, "zypak.log"), encoding="utf-8", errors="replace") as f:
                 vrstice = [v.rstrip() for v in f if v.strip()]
         except OSError:
             vrstice = ["(ni dnevnika)"]
         # Ena vrstica na vrstico dnevnika s predpono »zypak:« - CI jih zdruzi v eno opombo (glej workflow).
-        for v in vrstice[-40:]:
+        kljucne = [v for v in vrstice if any(k in v.lower() for k in ("strateg", "spawn", "sandbox", "expose", "reject",
+                                                                        "error", "fail", "zygote"))]
+        for v in (kljucne or vrstice)[-30:]:
             print("zypak: " + v[:300], flush=True)
     return d, videni or {"renderji": [], "podpeskovniki": [], "brez_peskovnika": []}
 
