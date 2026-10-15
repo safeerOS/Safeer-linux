@@ -244,7 +244,7 @@ class KanaliSporocil:
         z = _Kanal(k)
         self.casi[k["id"]] = {"zacetek": time.monotonic()}
         if spletni_klepeti.je_program(vnos):
-            if not self._ustvari_program(z, vnos):
+            if not self._ustvari_program_zivo(z, vnos):
                 self._nalozeno(k["id"])
                 return None
         else:
@@ -292,6 +292,8 @@ class KanaliSporocil:
                 stars.remove(z.gradnik)
         if z.iskanje:
             self.GLib.source_remove(z.iskanje)
+        if z.program is not None:
+            self._uskladi_znacke()      # zadnji program izklopljen: opazovalec obvestil se ustavi
         try:
             from core import pomnilnik
             pomnilnik.obrezuj()
@@ -306,7 +308,6 @@ class KanaliSporocil:
             return False
         z.program = najdba
         kid = z.podatki["id"]
-        self._zacni_znacke()
         if not namizni_programi.x11_seja():
             # Wayland: okna drugega programa ni mogoce vstaviti - program v svojem oknu, vmesnik to pove (nikoli lazna
             # vgradnja). Zazene se samo, ce se ne tece.
@@ -333,6 +334,14 @@ class KanaliSporocil:
             namizni_programi.zazeni(najdba)      # ce program ze tece v pladnju, navadno pokaze svoje okno
         z.iskanje = self.GLib.timeout_add(500, self._isci_okno, kid, time.monotonic(), bool(okno))
         return True
+
+    def _ustvari_program_zivo(self, z: _Kanal, vnos: dict) -> bool:
+        """_ustvari_program in nato viri neprebranih (D-Bus) za vse zive programe."""
+        ok = self._ustvari_program(z, vnos)
+        if ok:
+            self.zivi[z.podatki["id"]] = z
+            self._uskladi_znacke()
+        return ok
 
     def _isci_okno(self, kid: str, zacetek: float, takoj: bool) -> bool:
         from core import vstavi_okno
@@ -370,12 +379,23 @@ class KanaliSporocil:
             z.nalozen = False
             self._sporoci()
 
-    def _zacni_znacke(self) -> None:
-        if self._znacke is not None:
+    def _uskladi_znacke(self) -> None:
+        """Viri neprebranih namiznih programov (core/znacke_programov.py) tecejo samo, ko je vklopljen vsaj en kanal
+        programa; opazovalec obvestil gleda samo obvestila teh programov (zasebnost, pregled 15. 10. 2026)."""
+        programi = list(self._kanali_programa())
+        if not programi:
+            if self._znacke is not None:
+                self._znacke.ustavi()
+                self._znacke = None
             return
-        from core import znacke_programov
-        self._znacke = znacke_programov.Poslusalec(self.Gio, self.GLib, ob_znacki=self._znacka,
-                                                   ob_pladnju=self._pladenj, ob_obvestilu=self._obvestilo_programa)
+        if self._znacke is None:
+            from core import znacke_programov
+            self._znacke = znacke_programov.Poslusalec(self.Gio, self.GLib, ob_znacki=self._znacka,
+                                                       ob_pladnju=self._pladenj, ob_obvestilu=self._obvestilo_programa)
+        imena = set()
+        for _kid, z, vnos in programi:
+            imena |= self._imena_izvirna(z, vnos)
+        self._znacke.nastavi_obvestila(imena)
 
     def _kanali_programa(self):
         for kid, z in self.zivi.items():
@@ -383,13 +403,18 @@ class KanaliSporocil:
                 yield kid, z, (spletni_klepeti.po_id(z.podatki.get("katalog", "")) or {})
 
     @staticmethod
-    def _imena(z: _Kanal, vnos: dict) -> set:
+    def _imena_izvirna(z: _Kanal, vnos: dict) -> set:
+        """Imena, po katerih se program predstavi (WM_CLASS, ukaz, ime iz kataloga), v izvirni obliki."""
         p = vnos.get("program") or {}
-        imena = {str(x).casefold() for x in list(p.get("razredi") or []) + list(p.get("ukazi") or []) + [vnos.get("ime", "")]}
-        imena |= {os.path.basename(str(x)).casefold() for x in p.get("ukazi") or []}
+        imena = {str(x) for x in list(p.get("razredi") or []) + list(p.get("ukazi") or []) + [vnos.get("ime", "")]}
+        imena |= {os.path.basename(str(x)) for x in p.get("ukazi") or []}
         if z.program and z.program.get("ukaz"):
-            imena.add(os.path.basename(z.program["ukaz"][0]).casefold())
-        return {i for i in imena if i}
+            imena.add(os.path.basename(z.program["ukaz"][0]))
+        return {i for i in imena if i and "/" not in i}
+
+    @classmethod
+    def _imena(cls, z: _Kanal, vnos: dict) -> set:
+        return {i.casefold() for i in cls._imena_izvirna(z, vnos)}
 
     def _znacka(self, desktop_id: str, n: int) -> None:
         for kid, z, vnos in self._kanali_programa():
@@ -403,7 +428,7 @@ class KanaliSporocil:
                 self._stevilo(kid, max(1, int(self.kanali.najdi(kid).get("neprebrano") or 0)) if pozornost else 0,
                               VIR_PLADENJ)
 
-    def _obvestilo_programa(self, app: str, _povzetek: str, _besedilo: str) -> None:
+    def _obvestilo_programa(self, app: str) -> None:
         for kid, z, vnos in self._kanali_programa():
             if str(app).casefold() in self._imena(z, vnos) and z.vir >= VIR_OBVESTILA:
                 z.obvestil += 1
@@ -548,6 +573,7 @@ class KanaliSporocil:
                 z.okno.unici()
         if self._znacke is not None:
             self._znacke.ustavi()
+            self._znacke = None
 
     # ------------------------------------------------------------------ ikone
     def _prenesi_ikone(self, naslovi: list, dogodek: str = "") -> None:

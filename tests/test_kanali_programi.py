@@ -153,7 +153,7 @@ class KanalProgram(unittest.TestCase):
                 self[k] = v
         with mock.patch.object(spletni_klepeti, "KATALOG", spletni_klepeti.KATALOG + [vnos]), \
                 mock.patch.dict(os.environ, {"XDG_SESSION_TYPE": "x11"}), \
-                mock.patch.object(os_kanali_sporocil.KanaliSporocil, "_zacni_znacke"):
+                mock.patch.object(os_kanali_sporocil.KanaliSporocil, "_uskladi_znacke"):
             k = os_kanali_sporocil.KanaliSporocil(Gtk, GLib, Gio, lambda: None, _S(), lambda: "sl", lambda *a: None,
                                                   lambda kid: None)
             self.assertTrue(k.katalog()[-1]["namescen"] is False, "brez izbrane poti program ni namescen")
@@ -232,6 +232,48 @@ class Zaznava(unittest.TestCase):
             self.assertTrue(namizni_programi.x11_seja())
 
 
+class ViriSamoZaVklopljeneProgramce(unittest.TestCase):
+    """Opazovalec obvestil (vir 3) tece samo, ko je vklopljen kanal namiznega programa, in samo za njegova imena."""
+
+    def test_opazovalec_samo_z_vklopljenim_programom(self):
+        from unittest import mock
+        from core import os_kanali_sporocil, spletni_klepeti, znacke_programov
+
+        class _P:
+            primerki = []
+
+            def __init__(self, *_a, **k):
+                self.imena, self.ustavljen, self.k = None, False, k
+                _P.primerki.append(self)
+
+            def nastavi_obvestila(self, imena):
+                self.imena = set(imena)
+
+            def ustavi(self):
+                self.ustavljen = True
+
+        class _S(dict):
+            def set(self, k, v):
+                self[k] = v
+        k = os_kanali_sporocil.KanaliSporocil(Gtk, GLib, Gio, lambda: None, _S(), lambda: "sl", lambda *a: None,
+                                              lambda kid: None)
+        z = os_kanali_sporocil._Kanal({"id": "viber", "katalog": "viber"})
+        z.program = {"ukaz": ["/opt/viber/Viber"], "razredi": ["ViberPC"]}
+        with mock.patch.object(znacke_programov, "Poslusalec", _P):
+            k._uskladi_znacke()
+            self.assertEqual(_P.primerki, [], "brez kanalov programov ni poslusanja vodila")
+            k.zivi["viber"] = z
+            k._uskladi_znacke()
+            self.assertEqual(len(_P.primerki), 1)
+            self.assertIn("Viber", _P.primerki[0].imena)
+            self.assertNotIn("/opt/viber/Viber", _P.primerki[0].imena)
+            k.zivi["viber"].okno = None
+            k._unici("viber")
+            self.assertTrue(_P.primerki[0].ustavljen, "zadnji program izklopljen: opazovalec ustavljen")
+            self.assertIsNone(k._znacke)
+        self.assertEqual(spletni_klepeti.po_id("viber")["ime"], "Viber")
+
+
 ODDAJNIK = r"""
 import sys, time
 import gi
@@ -241,7 +283,9 @@ from core import znacke_programov
 prejeto = []
 p = znacke_programov.Poslusalec(Gio, GLib, ob_znacki=lambda d, n: prejeto.append(["znacka", d, n]),
                                 ob_pladnju=lambda i, a: prejeto.append(["pladenj", i, a]),
-                                ob_obvestilu=lambda a, s, b: prejeto.append(["obvestilo", a, s]))
+                                ob_obvestilu=lambda *a: prejeto.append(["obvestilo"] + list(a)))
+p.nastavi_obvestila(["Primer"])
+prejeto.append(["opazovalec", p.opazovalec is not None])
 v = Gio.bus_get_sync(Gio.BusType.SESSION, None)
 v.emit_signal(None, "/primer", "com.canonical.Unity.LauncherEntry", "Update",
               GLib.Variant("(sa{sv})", ("application://primer.desktop", {"count": GLib.Variant("x", 5),
@@ -262,8 +306,17 @@ streznik.register_object("/org/freedesktop/Notifications", Gio.DBusNodeInfo.new_
                          lambda c, s, p, i, m, a, inv: inv.return_value(GLib.Variant("(u)", (1,))), None, None)
 streznik.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "RequestName",
                    GLib.Variant("(su)", ("org.freedesktop.Notifications", 0)), None, Gio.DBusCallFlags.NONE, 2000, None)
+for app in ("Drugo", "Primer"):     # obvestilo drugega programa: vodilo ga opazovalcu sploh ne poslje
+    v.call("org.freedesktop.Notifications", "/org/freedesktop/Notifications", "org.freedesktop.Notifications", "Notify",
+           GLib.Variant("(susssasa{sv}i)", (app, 0, "", "Ana", "Zivjo", [], {}, -1)), None,
+           Gio.DBusCallFlags.NONE, 2000, None, None, None)
+k = GLib.MainContext.default(); rok = time.monotonic() + 2
+while time.monotonic() < rok:
+    k.iteration(False); time.sleep(0.01)
+p.nastavi_obvestila([])            # brez kanalov programov: opazovalec ustavljen
+prejeto.append(["ustavljen", p.opazovalec is None])
 v.call("org.freedesktop.Notifications", "/org/freedesktop/Notifications", "org.freedesktop.Notifications", "Notify",
-       GLib.Variant("(susssasa{sv}i)", ("Primer", 0, "", "Ana", "Zivjo", [], {}, -1)), None,
+       GLib.Variant("(susssasa{sv}i)", ("Primer", 0, "", "Ana", "Drugic", [], {}, -1)), None,
        Gio.DBusCallFlags.NONE, 2000, None, None, None)
 k = GLib.MainContext.default(); rok = time.monotonic() + 3
 while time.monotonic() < rok:
@@ -290,7 +343,22 @@ class Znacke(unittest.TestCase):
         prejeto = json.loads(r.stdout.strip().splitlines()[-1])
         self.assertIn(["znacka", "primer.desktop", 5], prejeto)
         self.assertIn(["znacka", "primer.desktop", 0], prejeto, "count-visible=false pomeni brez znacke")
-        self.assertIn(["obvestilo", "Primer", "Ana"], prejeto, "vir 3: klic Notify programa")
+        self.assertIn(["opazovalec", True], prejeto)
+        # Zasebnost: samo app_name izbranega programa - brez povzetka in besedila, brez obvestil drugih programov.
+        self.assertEqual([x for x in prejeto if x[0] == "obvestilo"], [["obvestilo", "Primer"]],
+                         "vir 3: en klic Notify izbranega programa, po ustavitvi nic")
+        self.assertIn(["ustavljen", True], prejeto)
+        self.assertNotIn("Ana", r.stdout + r.stderr, "besedilo obvestila se ne izpise")
+        self.assertNotIn("Zivjo", r.stdout + r.stderr)
+
+    def test_pravila_opazovalca_najozja(self):
+        from core import znacke_programov
+        pravila = znacke_programov.pravila_obvestil(["Viber", "ViberPC", "signal-desktop", "x' ,eavesdrop='true", ""])
+        self.assertIn("type='method_call',interface='org.freedesktop.Notifications',member='Notify',arg0='Viber'", pravila)
+        self.assertIn("type='method_call',interface='org.freedesktop.Notifications',member='Notify',arg0='viber'", pravila)
+        self.assertTrue(all("arg0='" in p for p in pravila), "nikoli opazovanje vseh obvestil")
+        self.assertFalse(any("eavesdrop" in p for p in pravila), "ime ne sme razsiriti pravila")
+        self.assertEqual(znacke_programov.pravila_obvestil([]), [])
 
 
 if __name__ == "__main__":

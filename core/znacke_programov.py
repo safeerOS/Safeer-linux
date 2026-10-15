@@ -6,19 +6,45 @@ Viri po prednosti (kanal uporabi prvega, ki ga program oddaja):
      oddajajo ga Electron (app.setBadgeCount), Telegram Desktop, Thunderbird ...; Plank ga bere za znacke docka.
   2. StatusNotifierItem (ikona v pladnju): stanje NeedsAttention pomeni vsaj eno neprebrano (stevila ne pove).
   3. org.freedesktop.Notifications.Notify tega programa (po app_name): steje obvestila, dokler uporabnik ne odpre
-     kanala. Za to se loceno povezavo naredimo za opazovalca vodila (BecomeMonitor) - samo za klice Notify.
+     kanala. Rezerva za programe brez 1. in 2. (Viber). Za to loceno povezavo naredimo za opazovalca vodila
+     (BecomeMonitor).
   4. Naslov okna (core/spletni_klepeti.neprebrano) - to bere kanal sam.
 
+Zasebnost vira 3 (pregled 15. 10. 2026): opazovalec vidi obvestila VSEH programov, ce ga ne omejimo. Zato:
+  * tece samo, ko je vklopljen vsaj en kanal namiznega programa (nastavi_obvestila(imena); prazno = ustavljen);
+  * pravila vodila so najozja mogoca - klic Notify z arg0 (app_name) natanko enim od imen vgrajenih programov
+    (»arg0='Viber'«): vodilo nam drugih obvestil sploh ne poslje;
+  * iz sporocila preberemo SAMO app_name; povzetka in besedila obvestila ne beremo, ne hranimo in ne izpisujemo.
+
 Ta modul samo poslusa in javlja: ob_znacki(desktop_id, stevilo), ob_pladnju(ime_predmeta, potrebuje_pozornost),
-ob_obvestilu(app_name, povzetek, besedilo). Pripis kanalu naredi klicatelj (core/os_kanali_sporocil.py).
+ob_obvestilu(app_name). Pripis kanalu naredi klicatelj (core/os_kanali_sporocil.py).
 """
 from __future__ import annotations
 
-from typing import Callable, Optional
+import re
+from typing import Callable, Iterable, Optional
 
 LAUNCHER = "com.canonical.Unity.LauncherEntry"
 SNI = "org.kde.StatusNotifierItem"
 OBVESTILA = "org.freedesktop.Notifications"
+#: Najvec pravil opazovalca (dbus-daemon: max_match_rules_per_connection je 512; nasih nekaj imen je dovolj).
+NAJVEC_PRAVIL = 32
+#: Ime programa v pravilu: brez narekovajev in nadzornih znakov (pravila vodila so niz; ime ne sme pravila razsiriti).
+_VARNO_IME = re.compile(r"^[A-Za-z0-9 ._+-]{1,64}$")
+
+
+def pravila_obvestil(imena: Iterable[str]) -> list:
+    """Pravila za BecomeMonitor: samo klici Notify z app_name (arg0) natanko enim od imen. Ime v obliki, kot jo ima
+    katalog, in v obliki z veliko/malo zacetnico - app_name je obcutljiv na velikost crk (»Signal«, »signal«)."""
+    izid, videna = [], set()
+    for ime in imena or ():
+        ime = str(ime or "").strip()
+        for oblika in (ime, ime.lower(), ime[:1].upper() + ime[1:]):
+            if oblika in videna or not _VARNO_IME.match(oblika):
+                continue
+            videna.add(oblika)
+            izid.append("type='method_call',interface='%s',member='Notify',arg0='%s'" % (OBVESTILA, oblika))
+    return izid[:NAJVEC_PRAVIL]
 
 
 def desktop_id(app_uri: str) -> str:
@@ -53,11 +79,14 @@ class Poslusalec:
 
     def __init__(self, Gio, GLib, ob_znacki: Callable[[str, int], None] = None,
                  ob_pladnju: Callable[[str, bool], None] = None,
-                 ob_obvestilu: Callable[[str, str, str], None] = None, naslov_vodila: str = "") -> None:
+                 ob_obvestilu: Callable[[str], None] = None, naslov_vodila: str = "") -> None:
         self.Gio, self.GLib = Gio, GLib
         self.ob_znacki, self.ob_pladnju, self.ob_obvestilu = ob_znacki, ob_pladnju, ob_obvestilu
         self.vodilo = None
         self.opazovalec = None
+        self._naslov = naslov_vodila
+        #: Imena programov (casefold), katerih obvestila stejemo; prazno = opazovalec ne tece.
+        self.imena_obvestil: frozenset = frozenset()
         self._narocila: list = []
         try:
             self.vodilo = (Gio.DBusConnection.new_for_address_sync(
@@ -67,12 +96,9 @@ class Poslusalec:
         except Exception as e:  # noqa: BLE001 - brez seje D-Bus (preizkusi, Flatpak brez vodila)
             print("[Sporocila] vodilo seje:", e, flush=True)
             return
-        self._naslov = naslov_vodila
         F = Gio.DBusSignalFlags.NONE
         self._narocila.append(self.vodilo.signal_subscribe(None, LAUNCHER, "Update", None, None, F, self._launcher))
         self._narocila.append(self.vodilo.signal_subscribe(None, SNI, "NewStatus", None, None, F, self._sni_stanje))
-        if ob_obvestilu is not None:
-            self._zacni_opazovanje()
 
     # ------------------------------------------------------------------ 1. LauncherEntry
     def _launcher(self, _v, _posiljatelj, _pot, _vmesnik, _signal, parametri, *_a) -> None:
@@ -104,8 +130,22 @@ class Poslusalec:
                     self.Gio.DBusCallFlags.NONE, 2000, None, prebrano)
 
     # ------------------------------------------------------------------ 3. obvestila (opazovalec Notify)
-    def _zacni_opazovanje(self) -> None:
-        """Loceno povezavo naredi za opazovalca (BecomeMonitor): vidi samo klice Notify, nic drugega."""
+    def nastavi_obvestila(self, imena: Iterable[str]) -> bool:
+        """Obvestila katerih programov stejemo (app_name). Prazno: opazovalec se ustavi. Ob spremembi imen se opazovalec
+        naredi znova (pravil opazovalca ni mogoce spremeniti). Vrne, ali opazovalec tece."""
+        nova = frozenset(str(i).casefold() for i in (imena or ()) if str(i or "").strip())
+        pravila = pravila_obvestil(imena) if self.ob_obvestilu is not None else []
+        if nova == self.imena_obvestil and (self.opazovalec is not None) == bool(pravila):
+            return self.opazovalec is not None
+        self._ustavi_opazovanje()
+        self.imena_obvestil = nova if pravila else frozenset()
+        if pravila and self.vodilo is not None:
+            self._zacni_opazovanje(pravila)
+        return self.opazovalec is not None
+
+    def _zacni_opazovanje(self, pravila: list) -> None:
+        """Loceno povezavo naredi za opazovalca (BecomeMonitor) s pravili pravila_obvestil (samo Notify izbranih
+        programov)."""
         Gio = self.Gio
         try:
             naslov = self._naslov or Gio.dbus_address_get_for_bus_sync(Gio.BusType.SESSION, None)
@@ -114,23 +154,29 @@ class Poslusalec:
                 None, None)
             self.opazovalec.add_filter(self._filter)
             self.opazovalec.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus.Monitoring",
-                                      "BecomeMonitor",
-                                      self.GLib.Variant("(asu)", (["type='method_call',interface='%s',member='Notify'"
-                                                                   % OBVESTILA], 0)),
+                                      "BecomeMonitor", self.GLib.Variant("(asu)", (list(pravila), 0)),
                                       None, Gio.DBusCallFlags.NONE, 2000, None)
-        except Exception as e:  # noqa: BLE001 - vodilo ne dovoli opazovanja: vir 3 ni na voljo
+        except Exception as e:  # noqa: BLE001 - vodilo ne dovoli opazovanja (npr. Flatpak): vir 3 ni na voljo
             print("[Sporocila] opazovanje obvestil ni mogoce:", e, flush=True)
+            self._ustavi_opazovanje()
+
+    def _ustavi_opazovanje(self) -> None:
+        if self.opazovalec is not None:
+            try:
+                self.opazovalec.close_sync(None)
+            except Exception:  # noqa: BLE001
+                pass
             self.opazovalec = None
 
     def _filter(self, _povezava, sporocilo, dohodno):
         try:
             if (dohodno and sporocilo.get_member() == "Notify" and sporocilo.get_interface() == OBVESTILA):
                 telo = sporocilo.get_body()
-                if telo is not None and telo.n_children() >= 5:
+                if telo is not None and telo.n_children() >= 1:
+                    # Samo app_name (arg0); povzetka in besedila obvestila ne beremo (zasebnost).
                     app = telo.get_child_value(0).get_string()
-                    povzetek = telo.get_child_value(3).get_string()
-                    besedilo = telo.get_child_value(4).get_string()
-                    self.GLib.idle_add(lambda: (self.ob_obvestilu(app, povzetek, besedilo), False)[1])
+                    if app.casefold() in self.imena_obvestil and self.ob_obvestilu is not None:
+                        self.GLib.idle_add(lambda: (self.ob_obvestilu(app), False)[1])
                 return None      # opazovani klic ni za nas: ne obdelujemo ga naprej
         except Exception:  # noqa: BLE001 - filter ne sme podreti povezave
             pass
@@ -143,9 +189,5 @@ class Poslusalec:
             except Exception:  # noqa: BLE001
                 pass
         self._narocila = []
-        if self.opazovalec is not None:
-            try:
-                self.opazovalec.close_sync(None)
-            except Exception:  # noqa: BLE001
-                pass
-            self.opazovalec = None
+        self._ustavi_opazovanje()
+        self.imena_obvestil = frozenset()
