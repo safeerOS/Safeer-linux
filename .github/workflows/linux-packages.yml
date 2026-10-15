@@ -331,8 +331,9 @@ jobs:
           grep -q '^build.ninja -fuse-ld=lld: [1-9]' "$G"
           flatpak run --command=sh io.github.memelandfaner.SafeerOS -c "test -x /app/libexec/webkitgtk-6.0/WebKitWebProcess"
           # Slicica prve strani PDF (priponke v Sporocilih, Datoteke): pdftoppm v paketu res naredi sliko strani.
+          flatpak run --command=sh io.github.memelandfaner.SafeerOS -c "command -v pdftoppm && pdftoppm -v"
           flatpak run --command=python3 io.github.memelandfaner.SafeerOS - <<'PY'
-          import os, sys, tempfile
+          import os, shutil, subprocess, sys, tempfile
           sys.path.insert(0, '/app/lib/safeer-os')
           from core import os_datoteke
           d = tempfile.mkdtemp()
@@ -347,9 +348,14 @@ jobs:
           t += b'trailer<</Size 4/Root 1 0 R>>\nstartxref\n%d\n%%%%EOF\n' % xref
           pdf, png = os.path.join(d, 'a.pdf'), os.path.join(d, 'a.png')
           open(pdf, 'wb').write(t)
-          assert os_datoteke.slika_prve_strani(pdf, png, 160), 'pdftoppm ni naredil slike prve strani'
+          if not os_datoteke.slika_prve_strani(pdf, png, 160):
+              # Kratko sporocilo napake na svoji vrstici (konec dnevnika v opozorilu posla je prirezan).
+              r = subprocess.run([shutil.which('pdftoppm') or 'pdftoppm', '-f', '1', '-l', '1', '-singlefile', '-png',
+                                  '-scale-to', '160', '--', pdf, os.path.join(d, 'b')], capture_output=True, text=True)
+              print('::error::pdftoppm v Flatpaku: koda %s, %s' % (r.returncode, (r.stderr or r.stdout)[-400:].replace('\n', ' | ')))
+              sys.exit(1)
           assert open(png, 'rb').read(8) == b'\x89PNG\r\n\x1a\n'
-          print('pdftoppm:', os_datoteke.shutil.which('pdftoppm'), os.path.getsize(png), 'B')
+          print('pdftoppm:', shutil.which('pdftoppm'), os.path.getsize(png), 'B')
           PY
           flatpak run --command=python3 io.github.memelandfaner.SafeerOS -c "import zeroconf, qrcode, cryptography; from cryptography.hazmat.primitives.ciphers.aead import AESGCM; AESGCM(AESGCM.generate_key(bit_length=256)); from PySide6.QtWidgets import QApplication, QSystemTrayIcon; from PySide6.QtQuick import QQuickView; import gi; gi.require_version('Gtk', '4.0'); from gi.repository import Gtk"
           # Zagon iz seje Cinnamon (XDG_CURRENT_DESKTOP): Qt ne sme naloziti teme GTK3 v proces z GTK4 - lupina se
