@@ -330,6 +330,27 @@ jobs:
           grep -q '^LTO_MODE:.*=thin$' "$G"
           grep -q '^build.ninja -fuse-ld=lld: [1-9]' "$G"
           flatpak run --command=sh io.github.memelandfaner.SafeerOS -c "test -x /app/libexec/webkitgtk-6.0/WebKitWebProcess"
+          # Slicica prve strani PDF (priponke v Sporocilih, Datoteke): pdftoppm v paketu res naredi sliko strani.
+          flatpak run --command=python3 io.github.memelandfaner.SafeerOS - <<'PY'
+          import os, sys, tempfile
+          sys.path.insert(0, '/app/lib/safeer-os')
+          from core import os_datoteke
+          d = tempfile.mkdtemp()
+          deli = [b'1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n', b'2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n',
+                  b'3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 300]>>endobj\n']
+          t, odmiki = b'%PDF-1.4\n', []
+          for x in deli:
+              odmiki.append(len(t))
+              t += x
+          xref = len(t)
+          t += b'xref\n0 4\n0000000000 65535 f \n' + b''.join(b'%010d 00000 n \n' % o for o in odmiki)
+          t += b'trailer<</Size 4/Root 1 0 R>>\nstartxref\n%d\n%%%%EOF\n' % xref
+          pdf, png = os.path.join(d, 'a.pdf'), os.path.join(d, 'a.png')
+          open(pdf, 'wb').write(t)
+          assert os_datoteke.slika_prve_strani(pdf, png, 160), 'pdftoppm ni naredil slike prve strani'
+          assert open(png, 'rb').read(8) == b'\x89PNG\r\n\x1a\n'
+          print('pdftoppm:', os_datoteke.shutil.which('pdftoppm'), os.path.getsize(png), 'B')
+          PY
           flatpak run --command=python3 io.github.memelandfaner.SafeerOS -c "import zeroconf, qrcode, cryptography; from cryptography.hazmat.primitives.ciphers.aead import AESGCM; AESGCM(AESGCM.generate_key(bit_length=256)); from PySide6.QtWidgets import QApplication, QSystemTrayIcon; from PySide6.QtQuick import QQuickView; import gi; gi.require_version('Gtk', '4.0'); from gi.repository import Gtk"
           # Zagon iz seje Cinnamon (XDG_CURRENT_DESKTOP): Qt ne sme naloziti teme GTK3 v proces z GTK4 - lupina se
           # sicer ne izrise (testni PC 15. 10. 2026, »cannot register existing type 'GtkWidget'«).

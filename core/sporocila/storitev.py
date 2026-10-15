@@ -82,6 +82,13 @@ def _opisi_cakajocih(priponke) -> list:
     return izid
 
 
+def _uid(sporocilo_id: str) -> int:
+    try:
+        return int(str(sporocilo_id)[4:])
+    except ValueError:
+        return 0
+
+
 def _povzetek(besedilo: str, priponke=()) -> str:
     """Zadnje sporocilo v seznamu; pismo samo s prilogo pokaze ime priloge (kot Gmail)."""
     b = str(besedilo or "").strip()
@@ -150,6 +157,9 @@ class StoritevSporocil:
         #: Klic ob spremembi (novo sporocilo, oznake, stanje kanala): kuverta v pultu in odprt razdelek Sporocila se
         #: osvezita takoj, brez periodicnega branja. Klic pride iz niti kanala.
         self.ob_sinhronizaciji: Optional[Callable[[], None]] = None
+        #: Klic ob na novo prispelih e-pismih (kanal_id, [(pogovor, oseba_id, sporocilo)]): obvestilo namizja »Novo
+        #: sporocilo« kot v Gmailu in Outlooku. Ne ob prvem uvozu predala in ne ob ponovnem branju po UIDVALIDITY.
+        self.ob_novih: Optional[Callable[[str, list], None]] = None
 
     # ------------------------------------------------------------------ iskalni indeks (FTS5)
     _SPROZILCI_FTS = (
@@ -306,6 +316,8 @@ class StoritevSporocil:
                         adapter.obnovi(json.loads(vrstica["podatki"] or "{}"))
                     self._obnovljeni.add(kid)
                 adapter.povezi()
+                # E-posta: do zdaj znano pismo z najvisjim UID. 0 = prvi uvoz (200 starih pisem ni »novih«).
+                prej_uid = int(getattr(adapter, "zadnji_uid", 0) or 0) if getattr(adapter, "vrsta", "") == "email" else 0
                 pogovori = list(adapter.pogovori())
                 pripravljeni = []
                 for p in pogovori:
@@ -341,9 +353,14 @@ class StoritevSporocil:
                         self.db.execute("DELETE FROM sporocila_polno WHERE kanal_id=? AND id LIKE 'uid:%'", (kid,))
                         adapter.ponastavljen = False
                     self.db.execute("UPDATE kanali SET stanje='povezan' WHERE id=? AND stanje IS NOT 'povezan'", (kid,))
+                    nova = []
                     for p, oseba_id, sporocila in pripravljeni:
                         self._shrani_pogovor(kid, p, oseba_id, None if inkrementalno else p.neprebrano)
                         for s in sporocila:
+                            if prej_uid and not ponastavljen and s.smer == "noter" and s.id.startswith("uid:") \
+                                    and _uid(s.id) > prej_uid and self.db.execute(
+                                        "SELECT 1 FROM sporocila WHERE id=? AND kanal_id=?", (s.id, kid)).fetchone() is None:
+                                nova.append((p, oseba_id, s))
                             self._shrani_sporocilo(kid, s)
                     for uid, prebrano in oznake.items():
                         novo = "prebrano" if prebrano else "prejeto"
@@ -363,6 +380,11 @@ class StoritevSporocil:
                         self._stanje_zapisano[kid] = zdaj
                         self.db.execute("INSERT OR REPLACE INTO kanal_stanje VALUES(?,?)",
                                         (kid, json.dumps(adapter.stanje(), ensure_ascii=False)))
+                if nova and self.ob_novih is not None:
+                    try:
+                        self.ob_novih(kid, nova)
+                    except Exception:  # noqa: BLE001 - obvestilo ne sme ustaviti niti kanala
+                        pass
                 return len(pripravljeni), True, spremenjeno
             except Exception as napaka:
                 # Brez skrivnosti/omrezja kanal ostane uporaben po predpomnilniku. Izjeme namenoma

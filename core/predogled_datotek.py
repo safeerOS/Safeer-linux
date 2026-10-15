@@ -7,7 +7,9 @@ Kako (izmerjeno 15. 10. 2026, WebKitGTK 2.52.6, Xvfb):
 * PDF pokaze WebKit sam (vgrajeni PDF.js, »webkit-pdfjs-viewer://«): stran nalozena v 1,6 s skupaj z zagonom spletnega
   procesa, iskanje, povecava in tiskanje brez dodatnih programov. PDF.js potrebuje JavaScript - zato tece v svojem
   pogledu brez mostu, brez omrezja in brez piskotkov (os_predogled.py). Isti WebKit je v Flatpaku (nasa gradnja,
-  packaging/webkit) in na gostitelju (libwebkitgtk-6.0), zato ni razlike med njima in ni potrebe po popplerju.
+  packaging/webkit) in na gostitelju (libwebkitgtk-6.0), zato ni razlike med njima (zivo preverjeno v Flatpaku 0.4.84,
+  WebKitGTK 2.54.1: PDF.js prebere vse strani priponke). Poppler (pdftoppm, v svojem procesu) naredi samo slicico prve
+  strani za cip priponke in Datoteke (core/os_datoteke.slika_prve_strani).
 * DOC/DOCX/ODT/XLS(X)/ODS/PPT(X)/ODP/RTF: LibreOffice brez okna v PDF (txt->pdf 1,9 s ob prvem zagonu) in potem kot
   PDF. V Flatpaku LibreOffice tece na racunalniku prek /app/host-bin/soffice (core/os_pretvorba_datotek.orodje),
   datoteka je zato v ~/.cache racunalnika. Brez LibreOffice: besedilo iz DOCX/ODF/PPTX/XLSX (zip + XML), sicer jasno
