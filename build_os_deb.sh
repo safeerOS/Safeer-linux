@@ -182,6 +182,9 @@ for script in "$BUILD_ROOT/DEBIAN/postinst" "$BUILD_ROOT/DEBIAN/prerm" "$BUILD_R
 done
 
 echo "🔨 Izdelava paketa z dpkg-deb..."
+# Installed-Size (KiB): namestitveni programi (GDebi, Captain, apt) uporabniku pokazejo, koliko prostora paket zasede
+# (z nasim WebKitom ~135 MiB vec); dpkg-deb ga sam ne izracuna.
+echo "Installed-Size: $(du -sk --exclude=DEBIAN "$BUILD_ROOT" | cut -f1)" >> "$BUILD_ROOT/DEBIAN/control"
 dpkg-deb --build --root-owner-group "$BUILD_ROOT" "$DIR/$DEB_PACKAGE"
 echo "✅ $DIR/$DEB_PACKAGE"
 dpkg-deb -I "$DIR/$DEB_PACKAGE"

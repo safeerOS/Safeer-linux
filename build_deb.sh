@@ -164,6 +164,9 @@ done
 
 # 8. Build Debian package (amd64 with our WebKitGTK, otherwise all)
 echo "🔨 Izdelava paketa z dpkg-deb..."
+# Installed-Size (KiB): namestitveni programi (GDebi, Captain, apt) uporabniku pokazejo, koliko prostora paket zasede
+# (z nasim WebKitom ~135 MiB vec); dpkg-deb ga sam ne izracuna.
+echo "Installed-Size: $(du -sk --exclude=DEBIAN "$BUILD_ROOT" | cut -f1)" >> "$BUILD_ROOT/DEBIAN/control"
 dpkg-deb --build --root-owner-group "$BUILD_ROOT" "$DIR/$DEB_PACKAGE"
 
 # 9. Build portable tar.gz package

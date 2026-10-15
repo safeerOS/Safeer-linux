@@ -474,8 +474,9 @@ class DebWebkitTests(unittest.TestCase):
             try:
                 r=subprocess.run(['bash',str(ROOT/'build_deb.sh')],cwd=ROOT,env=okolje,capture_output=True,text=True)
                 self.assertEqual(r.returncode,0,r.stdout[-2000:]+r.stderr[-2000:])
-                polja=subprocess.run(['dpkg-deb','-f',str(deb),'Architecture','Depends'],capture_output=True,text=True,check=True).stdout
+                polja=subprocess.run(['dpkg-deb','-f',str(deb),'Architecture','Depends','Installed-Size'],capture_output=True,text=True,check=True).stdout
                 self.assertIn('Architecture: amd64',polja)
+                self.assertRegex(polja,r'Installed-Size: [1-9][0-9]*')
                 for odvisnost in ('libc6','bubblewrap','xdg-dbus-proxy','glib-networking','gir1.2-gtk-4.0'):
                     self.assertIn(odvisnost,polja)
                 self.assertNotIn('gir1.2-webkit-6.0',polja)
