@@ -87,7 +87,7 @@ Latest release: **v1.0.127** — [release notes and downloads](../../releases/ta
 
 ```bash
 # Debian, Ubuntu, Linux Mint
-sudo apt install ./safeer-browser_1.0.127_all.deb
+sudo apt install ./safeer-browser_1.0.127_amd64.deb
 ```
 
 
@@ -95,7 +95,7 @@ Download from [Releases](../../releases/latest). Three formats are built for eve
 
 ```bash
 # Debian / Ubuntu / Linux Mint
-sudo apt install ./safeer-browser_<version>_all.deb
+sudo apt install ./safeer-browser_<version>_amd64.deb
 
 # AppImage — no installation, just make it executable
 chmod +x Safeer-Browser-<version>-x86_64.AppImage && ./Safeer-Browser-<version>-x86_64.AppImage
@@ -106,11 +106,12 @@ flatpak install ./Safeer-Browser-<version>-x86_64.flatpak
 
 Or double-click the `.deb` in your file manager.
 
-Our patched WebKit is in the **Flatpak**; the `.deb` and the AppImage use the system's WebKitGTK 6.0.
-When both the `.deb` and the Flatpak are installed, the `safeer` command starts the Flatpak (same
-settings, sign-ins and bookmarks). The AppImage and Flatpak are built for x86_64 only. The `.deb` is
-architecture-independent (Python on the system's GTK4 and WebKitGTK), but it is not tested on ARM64 for
-every release.
+The `.deb` and the **Flatpak** both carry our own WebKitGTK 2.54 and libsoup 3.8 (Clang ThinLTO build
+with Safeer's fixes, `packaging/webkit`, `packaging/webkit-deb`); the `.deb` keeps them in
+`/usr/lib/safeer-browser/webkit` next to the program and never replaces the system's WebKitGTK. The
+AppImage uses the WebKitGTK of the build system. When both the `.deb` and the Flatpak are installed, the
+`safeer` command starts the Flatpak (same settings, sign-ins and bookmarks). All packages are built for
+x86_64 (amd64) only.
 
 Verify what you downloaded against `SHA256SUMS` from the same release:
 
@@ -122,7 +123,7 @@ The checksums catch a damaged download. They are not signed yet, so they do not 
 against someone who can replace files in the release itself.
 
 **Safeer Control** — pairs this computer with a Safeer phone or television over your own network —
-is part of the single Safeer OS package `safeer-os_<version>_all.deb` in the same release (one
+is part of the single Safeer OS package `safeer-os_<version>_amd64.deb` in the same release (one
 install for Safeer OS, Control and the Safeer Cinnamon look) and does not require the browser. It also brings `safeerctl`, Safeer Link from the command
 line (`safeerctl devices`, `safeerctl send file --to DEVICE`, `--json` for scripts): see
 [docs/SAFEERCTL.md](docs/SAFEERCTL.md). With a phone running Safeer OS Mobile it can also send this

@@ -91,7 +91,7 @@ Prenesi iz [Izdaj](../../releases/latest). Za vsako izdajo nastanejo trije paket
 
 ```bash
 # Debian / Ubuntu / Linux Mint
-sudo apt install ./safeer-browser_<verzija>_all.deb
+sudo apt install ./safeer-browser_<verzija>_amd64.deb
 
 # AppImage — brez namestitve, samo izvršljiv
 chmod +x Safeer-Browser-<verzija>-x86_64.AppImage && ./Safeer-Browser-<verzija>-x86_64.AppImage
@@ -102,10 +102,11 @@ flatpak install ./Safeer-Browser-<verzija>-x86_64.flatpak
 
 Ali pa v upravitelju datotek preprosto dvoklikni `.deb`.
 
-Naš popravljeni WebKit je v **Flatpaku**; `.deb` in AppImage uporabljata WebKitGTK 6.0 sistema.
-Če sta nameščena `.deb` in Flatpak, ukaz `safeer` zažene Flatpak (iste nastavitve, prijave in
-zaznamki). AppImage in Flatpak sta narejena samo za x86_64. Paket `.deb` ni vezan na arhitekturo
-(Python na sistemskem GTK4 in WebKitGTK), a na ARM64 ni preizkušen ob vsaki izdaji.
+`.deb` in **Flatpak** imata naš WebKitGTK 2.54 in libsoup 3.8 (gradnja s Clangom in ThinLTO, s popravki
+Safeerja); `.deb` ju hrani v `/usr/lib/safeer-browser/webkit` ob programu in WebKitGTK sistema ne
+zamenja. AppImage uporablja WebKitGTK sistema, na katerem je zgrajen. Če sta nameščena `.deb` in
+Flatpak, ukaz `safeer` zažene Flatpak (iste nastavitve, prijave in zaznamki). Vsi paketi so narejeni
+samo za x86_64 (amd64).
 
 Preveri, kaj si prenesel, s `SHA256SUMS` iz iste izdaje:
 
@@ -117,7 +118,7 @@ Vsote ujamejo poškodovan prenos. Še niso podpisane, zato ne varujejo pred neko
 zamenjal datoteke v sami izdaji.
 
 **Safeer Control** — ta računalnik poveže s telefonom ali televizorjem Safeer prek tvojega omrežja — je
-del enega paketa Safeer OS `safeer-os_<verzija>_all.deb` v isti izdaji (ena namestitev za Safeer OS,
+del enega paketa Safeer OS `safeer-os_<verzija>_amd64.deb` v isti izdaji (ena namestitev za Safeer OS,
 Control in videz Safeer Cinnamon) in brskalnika ne potrebuje. Prinese tudi `safeerctl`, Safeer Link
 iz ukazne vrstice (`safeerctl devices`, `safeerctl send datoteka --to NAPRAVA`, `--json` za skripte):
 glej [docs/SAFEERCTL.md](docs/SAFEERCTL.md). S telefonom s Safeer OS Mobile lahko internet tega računalnika

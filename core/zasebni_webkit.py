@@ -22,7 +22,10 @@ def predpona(koren: str) -> Optional[str]:
 
     Safeer Control v paketu safeer-os tece iz /usr/lib/safeer-control in uporabi WebKit paketa safeer-os."""
     koren = os.path.abspath(koren)
-    for mapa in (os.path.join(koren, "webkit"), os.path.join(os.path.dirname(koren), "safeer-os", "webkit")):
+    mape = [os.path.join(koren, "webkit")]
+    if os.path.basename(koren) == "safeer-control":
+        mape.append(os.path.join(os.path.dirname(koren), "safeer-os", "webkit"))
+    for mapa in mape:
         if os.path.isfile(os.path.join(mapa, TYPELIB)):
             return mapa
     return None
