@@ -1126,6 +1126,27 @@ class VdelaniSplet:
         self._pojavno = None
         self._drm_ponudba = None      # (pogled, url): vrstica ponuja Safeer DRM (isto mesto kot pojavna okna)
         self.gradnik.append(self.pojavna)
+        # Vprasanje strani (lokacija, kamera, mikrofon, obvestila ...): vrstica nad stranjo kot v Firefoxu, ne modalno
+        # okno. Modalni dialog je zaklenil celo okno Splet - ✕ in Esc nista delovala, ker je vnos dobil le dialog
+        # (lastnik, 15. 10. 2026: speedtest.net je zahteval lokacijo, Spleta ni mogel zapreti). Stran ne sme zakleniti
+        # brskalnika; odgovor velja za zavihek, kjer je nastal.
+        self.vprasanje = Gtk.Revealer()
+        vrsta = _robovi(Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8), 4)
+        vrsta.set_name("splet-pojavna")
+        self.vprasanje_napis = Gtk.Label(xalign=0, hexpand=True)
+        self.vprasanje_napis.set_ellipsize(self.Pango.EllipsizeMode.END)
+        vrsta.append(self.vprasanje_napis)
+        for oznaka, i in (("zavrni", 0), ("dovoli", 1)):
+            g = Gtk.Button(label=self._t(oznaka))
+            g.connect("clicked", lambda _g, i=i: self._vprasanje_odgovor(i))
+            vrsta.append(g)
+        skrij = Gtk.Button.new_from_icon_name("window-close-symbolic")
+        skrij.set_has_frame(False)
+        skrij.connect("clicked", lambda *_: self._vprasanje_odgovor(-1))    # »ne zdaj«: zavrne, ne zapomni
+        vrsta.append(skrij)
+        self.vprasanje.set_child(vrsta)
+        self.gradnik.append(self.vprasanje)
+        self._dialogi = []            # odprti dialogi (Gio.Cancellable): zapri_dialoge() jih zapre skupaj s Spletom
         self.sklad = Gtk.Stack()
         self.sklad.set_transition_type(Gtk.StackTransitionType.NONE)
         self.sklad.set_vexpand(True); self.sklad.set_hexpand(True)
@@ -1629,6 +1650,7 @@ class VdelaniSplet:
         if z is None: return
         self._zapomni_zaprt(pogled)
         indeks = self.zavihki.index(z); self.zavihki.remove(z)
+        self._opusti_vprasanja(z)
         self._drm_konec(z)
         self.skatla_zavihkov.remove(z["dogodek"]); self.sklad.remove(pogled)
         try:
@@ -1931,6 +1953,7 @@ class VdelaniSplet:
         """Zapre vse zavihke (spletni proces se konca in vrne pomnilnik); naslednji odpri() naredi nov zavihek.
         Objekt in kontekst ostaneta - ponovno ustvarjanje celega Spleta bi pustilo staro (casovnik, kontekst)."""
         for z in list(self.zavihki):
+            self._opusti_vprasanja(z)
             try:
                 self.skatla_zavihkov.remove(z["dogodek"]); self.sklad.remove(z["pogled"])
                 _unici_pogled(z["pogled"])
@@ -1938,6 +1961,7 @@ class VdelaniSplet:
                 pass
         self.zavihki = []
         self.aktivni = None
+        self._pokazi_vprasanje()
         self.koncaj_omrezni_proces()
 
     def koncaj_omrezni_proces(self) -> bool:
@@ -1997,6 +2021,7 @@ class VdelaniSplet:
             self._pojavno = None; self.pojavna.set_reveal_child(False)   # vrstica velja za zavihek, kjer je nastala
         if getattr(self, "_drm_ponudba", None) and self._drm_ponudba[0] is not pogled:
             self._drm_ponudba = None; self.pojavna.set_reveal_child(False)
+        self._pokazi_vprasanje()
         z = self._zavihek(pogled)
         if z is not None and z.get("drm") is not None:
             self.sklad.set_visible_child(z["drm"].gradnik)
@@ -2287,6 +2312,7 @@ class VdelaniSplet:
                 pass
         if star in self.zavihki:
             self.zavihki.remove(star)
+            self._opusti_vprasanja(star)
             try:
                 self.skatla_zavihkov.remove(star["dogodek"]); self.sklad.remove(pogled); _unici_pogled(pogled)
             except Exception:  # noqa: BLE001
@@ -2385,6 +2411,14 @@ class VdelaniSplet:
             if getattr(self, "_drm_ponudba", None) and self._drm_ponudba[0] is pogled:
                 self._drm_ponudba = None; self.pojavna.set_reveal_child(False)
                 self.pojavna_odpri.set_label(self._t("po_odpri"))
+        if z is not None and z.get("vprasanja"):
+            # Vprasanje velja za stran, ki ga je postavila: na drugi strani se zavrne (brez spomina) in vrstica izgine.
+            gost = _gostitelj(pogled.get_uri() or "")
+            stara = [v for v in z["vprasanja"] if v[2] != gost]
+            if stara:
+                z["vprasanja"] = [v for v in z["vprasanja"] if v[2] == gost]
+                self._opusti_vprasanja({"vprasanja": stara})
+                if pogled is self.trenutni(): self._pokazi_vprasanje()
         if pogled is self.trenutni(): self._osvezi_orodja()
 
     # ------------------------------------------------------------------ Safeer DRM (Widevine) v zavihku
@@ -2723,17 +2757,79 @@ class VdelaniSplet:
         if opis:
             d.set_detail(opis)
         d.set_buttons(list(gumbi))
-        d.set_modal(True)
+        # Ne modalno: modalen dialog zaklene vnos v okno Splet (tudi ✕ in Esc na plosci Splet) - lastnik, 15. 10. 2026.
+        # Dialog ostane nad Spletom (transient), ob zaprtju Spleta ga zapre zapri_dialoge().
+        d.set_modal(False)
         d.set_cancel_button(0)
+        preklic = self.Gio.Cancellable()
+        dialogi = getattr(self, "_dialogi", None)
+        if dialogi is not None:
+            dialogi.append(preklic)
 
         def koncano(dialog, rezultat, *_):
+            if dialogi is not None and preklic in dialogi:
+                dialogi.remove(preklic)
             try:
                 i = dialog.choose_finish(rezultat)
-            except Exception:  # noqa: BLE001 - zaprto brez izbire
+            except Exception:  # noqa: BLE001 - zaprto brez izbire (tudi preklic ob zaprtju Spleta)
                 i = -1
             if ob_odgovoru is not None:
                 ob_odgovoru(i)
-        d.choose(self._okno_za_dialog(pogled), None, koncano, None)
+        d.choose(self._okno_za_dialog(pogled), preklic, koncano, None)
+
+    def zapri_dialoge(self) -> None:
+        """Zaprtje Spleta (✕, Esc, »Odpri v brskalniku«) zapre tudi njegove odprte dialoge - brez tega bi dialog ostal
+        sam na namizju nad skritim Spletom. Odgovor je -1 (kot zaprtje dialoga brez izbire)."""
+        for preklic in list(getattr(self, "_dialogi", None) or []):
+            try:
+                preklic.cancel()
+            except Exception:  # noqa: BLE001
+                pass
+
+    # ------------------------------------------------------------------ vprasanja strani v vrstici
+    def _vprasaj_v_vrstici(self, pogled, besedilo: str, ob_odgovoru) -> bool:
+        """Vprasanje strani v vrstici nad stranjo (zavihek pogleda). False: pogled ni zavihek tega Spleta (vdelana
+        aplikacija v svojem oknu) - takrat dialog. ob_odgovoru(0 zavrni, 1 dovoli, -1 opusceno brez odlocitve)."""
+        z = self._zavihek(pogled)
+        if z is None or getattr(self, "vprasanje", None) is None:
+            return False
+        z.setdefault("vprasanja", []).append((besedilo, ob_odgovoru, _gostitelj(pogled.get_uri() or "")))
+        if pogled is self.trenutni():
+            self._pokazi_vprasanje()
+        return True
+
+    def _pokazi_vprasanje(self) -> None:
+        if getattr(self, "vprasanje", None) is None:
+            return
+        p = self.trenutni()
+        z = self._zavihek(p) if p is not None else None
+        cakajo = z.get("vprasanja") if z is not None else None
+        if cakajo:
+            self.vprasanje_napis.set_text(cakajo[0][0])
+            self.vprasanje_napis.set_tooltip_text(cakajo[0][0])
+        self.vprasanje.set_reveal_child(bool(cakajo))
+
+    def _vprasanje_odgovor(self, i: int) -> None:
+        p = self.trenutni()
+        z = self._zavihek(p) if p is not None else None
+        if z is None or not z.get("vprasanja"):
+            self._pokazi_vprasanje()
+            return
+        _besedilo, ob_odgovoru, _gost = z["vprasanja"].pop(0)
+        self._pokazi_vprasanje()
+        try:
+            ob_odgovoru(i)
+        except Exception as e:  # noqa: BLE001 - napaka odgovora ne sme pustiti vrstice
+            print("[Splet] vprasanje:", e, flush=True)
+
+    @staticmethod
+    def _opusti_vprasanja(z) -> None:
+        """Zaprt zavihek ali druga stran: odprta vprasanja se zavrnejo brez spomina (WebKit zahteva ne visi)."""
+        for _besedilo, ob_odgovoru, _gost in z.pop("vprasanja", None) or []:
+            try:
+                ob_odgovoru(-1)
+            except Exception as e:  # noqa: BLE001
+                print("[Splet] vprasanje:", e, flush=True)
 
     def _opozorilo_bank(self, pogled, uri, sodba, nalozen=False):
         gumbi = [self._t("nazaj")] + ([sodba.official_domain] if sodba.official_domain else [])
@@ -2776,9 +2872,11 @@ class VdelaniSplet:
                 zahteva.deny()
             if i in (0, 1):
                 dovoljenja_strani.zapomni(self.config, uri, vrste, "dovoli" if i == 1 else "zavrni")
-        # Zahteva ostane odprta, dokler uporabnik ne odgovori (WebKit to dovoli, ce signal vrne True).
-        self._vprasaj(self._t("dv_zahteva").format(stran=stran, kaj=kaj), "", [self._t("zavrni"), self._t("dovoli")], odgovor,
-                      pogled=pogled)
+        # Zahteva ostane odprta, dokler uporabnik ne odgovori (WebKit to dovoli, ce signal vrne True). V zavihku:
+        # vrstica nad stranjo (ne modalno okno, ki je zaklenilo ✕ Spleta); vdelana aplikacija v svojem oknu: dialog.
+        besedilo = self._t("dv_zahteva").format(stran=stran, kaj=kaj)
+        if not self._vprasaj_v_vrstici(pogled, besedilo, odgovor):
+            self._vprasaj(besedilo, "", [self._t("zavrni"), self._t("dovoli")], odgovor, pogled=pogled)
         return True
 
     OBDOBJA = (("ura", 3600), ("dan", 86400), ("teden", 7 * 86400), ("vse", 0))

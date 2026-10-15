@@ -2648,6 +2648,8 @@ class SafeerOS(Gtk.Application):
         if self._plosca_spleta is None or not self._plosca_spleta.get_visible():
             return False
         self._plosca_spleta.set_visible(False)
+        if self._spletni_namizje is not None:
+            self._spletni_namizje.zapri_dialoge()      # dialog ne ostane sam nad skritim Spletom
         self._dogodek("spletNaNamizjuZaprt", None, self.pogled_delovna)
         # Takoj: predpomnilnik v pomnilniku spletnih procesov (zavihki ostanejo) in prazne strani Pythona sistemu.
         if self._spletni_namizje is not None:
