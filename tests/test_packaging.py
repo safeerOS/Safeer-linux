@@ -241,16 +241,23 @@ class PackagingTests(unittest.TestCase):
             with self.subTest(manifest=manifest):
                 self.assertIn('\nsdk-extensions:\n  - org.freedesktop.Sdk.Extension.llvm22\n',(ROOT/manifest).read_text())
         wf=(ROOT/'.github/workflows/linux-packages.yml').read_text()
-        # Posla izdaje (flatpak, flatpak-brskalnik) in oba posla PGO.
-        self.assertEqual(wf.count('org.gnome.Sdk//50 org.freedesktop.Sdk.Extension.llvm22//25.08'),4)
+        # Posla izdaje (flatpak, flatpak-brskalnik) in ucni tek PGO; posel kljuca profila namesti samo razsiritev llvm22.
+        self.assertEqual(wf.count('org.gnome.Sdk//50 org.freedesktop.Sdk.Extension.llvm22//25.08'),3)
+        self.assertEqual(wf.count('flatpak install --user --noninteractive flathub org.freedesktop.Sdk.Extension.llvm22//25.08\n'),1)
 
-    def test_webkit_pgo_razlicici_manifesta(self):
-        """PGO (packaging/webkit/pgo.py, samo rocni tek CI): instrumentirana razlicica in razlicica s profilom imata isti
-        izvor in popravke kot gradnja izdaje; profil zdruzi llvm-profdata iz iste razsiritve pred gradnjo WebKita."""
+    @staticmethod
+    def _pgo():
         import importlib.util
         spec=importlib.util.spec_from_file_location('pgo',ROOT/'packaging/webkit/pgo.py')
         pgo=importlib.util.module_from_spec(spec)
         spec.loader.exec_module(pgo)
+        return pgo
+
+    def test_webkit_pgo_razlicici_manifesta(self):
+        """PGO (packaging/webkit/pgo.py): instrumentirana razlicica in razlicica s profilom imata isti izvor, popravke in
+        ime modula (pot gradnje /run/build/<ime> je v imenih lokalnih funkcij profila) kot gradnja brez PGO; profil
+        zdruzi llvm-profdata iz iste razsiritve pred gradnjo WebKita."""
+        pgo=self._pgo()
         izdaja=(ROOT/'packaging/webkit/webkitgtk6-safeer.yml').read_text()
         with tempfile.TemporaryDirectory() as d:
             d=Path(d)
@@ -266,7 +273,7 @@ class PackagingTests(unittest.TestCase):
                     for opcija in opcije:
                         self.assertIn('  - %s\n'%opcija,modul)
                     self.assertEqual(modul.replace(''.join('  - %s\n'%o for o in opcije),'')
-                                     .replace('name: webkitgtk6-safeer-pgo-%s\n'%nacin,'name: webkitgtk6-safeer\n')
+                                     .replace('name: %s\n'%pgo.MODUL_IME,'name: webkitgtk6-safeer\n')
                                      .replace(str(ROOT/'packaging/webkit')+'/',''),izdaja)
                     for pot in re.findall(r'(?m)^    path: (\S+)$',modul):
                         self.assertTrue(Path(pot).is_file(),pot)
@@ -279,12 +286,127 @@ class PackagingTests(unittest.TestCase):
                         self.assertIn('    path: %s\n'%(d/'profraw'),profil)
                     self.assertEqual(seznam[:len(pricakovano)],pricakovano)
                     self.assertIn('        path: %s\n'%ROOT,manifest)
+        self.assertEqual(pgo.MODUL_IME,'webkitgtk6-safeer-pgo')
+        self.assertIn('startAutomatically&iterationCount=',pgo.TRENING_POIZVEDBA)
+        self.assertEqual(pgo.SPEEDOMETER[2],'1386415be8fef2f6b6bbdbe1828872471c5d802a')
+
+    def test_webkit_pgo_manifest_safeer_os_in_relativne_poti(self):
+        """Manifest s profilom tudi za Safeer OS; v razlicici (build/pgo/<ID>) so vse poti absolutne in obstajajo - tudi
+        popravek zypaka (packaging/zypak), ki ga stari pgo.py ni prestavil (gradnja bi padla)."""
+        pgo=self._pgo()
+        with tempfile.TemporaryDirectory() as d:
+            d=Path(d)
+            (d/'profraw').mkdir()
+            (d/'profraw'/'1-a.profraw').write_bytes(b'x')
+            for ime in ('io.github.memelandfaner.SafeerOS.yml','io.github.memelandfaner.SafeerBrowser.yml'):
+                with self.subTest(manifest=ime):
+                    pot=pgo.manifest('uporaba',d/'profraw',d/ime,ROOT/ime)
+                    besedilo=pot.read_text()
+                    seznam=re.findall(r'^  - (\S.*)$',besedilo.split('\nmodules:\n',1)[1],re.M)
+                    self.assertEqual(seznam[:4],[str(d/ime/'webkitgtk6-safeer-pgo-profil.yml'),str(d/ime/'webkitgtk6-safeer-pgo.yml'),
+                                                 str(ROOT/'packaging/webkit/webkitgtk6-safeer-typelib.yml'),
+                                                 str(ROOT/'packaging/libsoup/libsoup3-safeer.yml')])
+                    poti=re.findall(r'(?m)^\s*(?:- )?path: (\S+)$',besedilo)
+                    self.assertIn(str(ROOT),poti)
+                    for p in poti+[s for s in seznam if s.endswith('.yml')]:
+                        self.assertTrue(os.path.isabs(p) and os.path.exists(p),p)
+                    if 'Browser' in ime:
+                        self.assertIn(str(ROOT/'packaging/zypak/zypak-expose-paths.patch'),poti)
+                    # Izvirni manifest ostane nespremenjen (lokalna gradnja brez PGO).
+                    self.assertIn('  - packaging/webkit/webkitgtk6-safeer.yml\n',(ROOT/ime).read_text())
+            profil=(d/'io.github.memelandfaner.SafeerOS.yml'/'webkitgtk6-safeer-pgo-profil.yml').read_text()
+            self.assertIn('> %s'%pgo.POVZETEK,profil)
+            self.assertIn("grep -o '/run/build/[^/;:]*'",profil)
+
+    def test_webkit_pgo_kljuc_profila(self):
+        """Kljuc profila se spremeni z izvorom/popravki WebKita, ucnim tekom in razlicico LLVM - ne pa s kodo Safeerja,
+        libsoup ali drugimi moduli (ucni tek ~2 h tece samo, ko je res potreben)."""
+        pgo=self._pgo()
+        osnova=pgo.kljuc('22.1.8')
+        self.assertRegex(osnova,r'^[0-9a-f]{20}-llvm22\.1\.8$')
+        self.assertEqual(pgo.kljuc('22.1.8'),osnova)
+        self.assertNotEqual(pgo.kljuc('22.1.9'),osnova)
+        with self.assertRaises(SystemExit):
+            pgo.kljuc('22.1.8; rm -rf /')
+        with tempfile.TemporaryDirectory() as d:
+            d=Path(d)
+            shutil.copytree(ROOT/'packaging/webkit',d/'webkit')
+            with patch.object(pgo,'WEBKIT',d/'webkit'),patch.object(pgo,'MODUL',d/'webkit/webkitgtk6-safeer.yml'),\
+                 patch.object(pgo,'TRENING',d/'webkit/pgo_trening.py'):
+                self.assertEqual(pgo.kljuc('22.1.8'),osnova)
+                self.assertEqual([p.name for p in pgo.popravki()],['skia-backdrop-2n.patch','gst-mse-suspend.patch'])
+                for datoteka in ('gst-mse-suspend.patch','webkitgtk6-safeer.yml','pgo_trening.py'):
+                    with self.subTest(datoteka=datoteka):
+                        izvirnik=(d/'webkit'/datoteka).read_bytes()
+                        (d/'webkit'/datoteka).write_bytes(izvirnik+b'\n')
+                        self.assertNotEqual(pgo.kljuc('22.1.8'),osnova)
+                        (d/'webkit'/datoteka).write_bytes(izvirnik)
+                with patch.object(pgo,'TRENING_POIZVEDBA','?startAutomatically&iterationCount=10'):
+                    self.assertNotEqual(pgo.kljuc('22.1.8'),osnova)
+
+    def test_webkit_pgo_razlicica_llvm(self):
+        pgo=self._pgo()
+        with tempfile.TemporaryDirectory() as d:
+            d=Path(d)
+            with self.assertRaises(SystemExit):
+                pgo.llvm_razlicica(d)
+            (d/'lib').mkdir()
+            (d/'lib/libLLVM.so.22.1').write_bytes(b'')
+            self.assertEqual(pgo.llvm_razlicica(d),'22.1')
+            (d/'lib/cmake/llvm').mkdir(parents=True)
+            (d/'lib/cmake/llvm/LLVMConfig.cmake').write_text('set(LLVM_VERSION_MAJOR 22)\nset(LLVM_PACKAGE_VERSION 22.1.8)\n')
+            self.assertEqual(pgo.llvm_razlicica(d),'22.1.8')
+
+    def test_flatpaka_izdaje_z_webkitom_s_pgo(self):
+        """Lastnik 15. 10. 2026 ("DA"): oba Flatpaka izdaje (iste datoteke kot prej) imata WebKitGTK s PGO. Ucni tek
+        samo, ko profila s kljucem ni; brez profila posla Flatpak ne tecata (nikoli tiho brez PGO) in izdaje ni."""
         wf=(ROOT/'.github/workflows/linux-packages.yml').read_text()
-        self.assertEqual(wf.count("if: github.event_name == 'workflow_dispatch' && inputs.pgo && inputs.pgo_profraw_run == ''"),1)
-        self.assertEqual(wf.count("if: always() && github.event_name == 'workflow_dispatch' && inputs.pgo && "),1)
-        # Paket s PGO se nalozi pred preizkusi (ob padcu preizkusa ga preverimo brez nove gradnje).
-        self.assertLess(wf.index('name: flatpak-brskalnik-pgo'),wf.index('PGO build runs on our WebKitGTK and libsoup'))
-        self.assertIn('startAutomatically&iterationCount=',wf)
+        posli=dict(re.findall(r'(?ms)^  ([a-z0-9-]+):\n(.*?)(?=^  [a-z0-9-]+:\n|\Z)',wf.split('\njobs:\n',1)[1]))
+        self.assertNotIn('webkit-pgo-brskalnik',posli)
+        profil=posli['webkit-pgo-profil']
+        self.assertIn('python3 packaging/webkit/pgo.py kljuc',profil)
+        self.assertIn('actions/artifacts?name=$IME',profil)
+        self.assertIn('IME="webkit-pgo-profraw-$KLJUC"',profil)
+        ucenje=posli['webkit-pgo-ucenje']
+        self.assertIn("    needs: webkit-pgo-profil\n    if: needs.webkit-pgo-profil.outputs.run_id == ''\n",ucenje)
+        self.assertIn('name: webkit-pgo-profraw-${{ needs.webkit-pgo-profil.outputs.kljuc }}',ucenje)
+        self.assertIn('retention-days: 90',ucenje)
+        self.assertIn('python3 packaging/webkit/pgo.py ucenje',ucenje)
+        self.assertIn('python3 packaging/webkit/pgo.py speedometer',ucenje)
+        pogoj=("    if: ${{ !cancelled() && needs.webkit-pgo-profil.result == 'success' && (needs.webkit-pgo-ucenje.result == "
+               "'success' || (needs.webkit-pgo-ucenje.result == 'skipped' && needs.webkit-pgo-profil.outputs.run_id != '')) }}\n")
+        for posel,manifest,skripta in (('flatpak','io.github.memelandfaner.SafeerOS.yml','build_os_flatpak.sh'),
+                                       ('flatpak-brskalnik','io.github.memelandfaner.SafeerBrowser.yml','build_flatpak.sh')):
+            with self.subTest(posel=posel):
+                k=posli[posel]
+                self.assertIn('    needs: [webkit-pgo-profil, webkit-pgo-ucenje]\n'+pogoj,k)
+                self.assertIn('python3 packaging/webkit/pgo.py uporaba build/pgo/profraw %s'%manifest,k)
+                self.assertIn('SAFEER_FLATPAK_MANIFEST: ${{ steps.pgo.outputs.manifest }}',k)
+                self.assertIn('bash packaging/%s 2>&1 | tee'%skripta,k)
+                self.assertIn('set -o pipefail\n',k)
+                self.assertIn('run-id: ${{ needs.webkit-pgo-profil.outputs.run_id || github.run_id }}',k)
+                # Isti kljuc profila z namescenim Clangom; predpomnilnik flatpak-builderja s profilom in commitoma SDK/llvm22.
+                self.assertIn('[ "$K" = "${{ needs.webkit-pgo-profil.outputs.kljuc }}" ]',k)
+                self.assertIn('$(python3 packaging/webkit/pgo.py okolje)',k)
+                self.assertIn('key: ${{ steps.pgo.outputs.predpomnilnik }}',k)
+                for preverba in ("grep -q '^USE_PGO_PROFILE:BOOL=ON$' \"$G\"","grep -q '^build.ninja -fprofile-use: [1-9]' \"$G\"",
+                                 "/run/build/webkitgtk6-safeer-pgo$","grep -q 'clang version 22\\.' \"$G\"",
+                                 "grep -q '^LTO_MODE:.*=thin$' \"$G\""):
+                    self.assertIn(preverba,k)
+                self.assertIn('from gi.repository import Soup, WebKit',k)
+        self.assertIn('smoke_brskalnik.py',posli['flatpak-brskalnik'])
+        self.assertIn('zypak-wrapper',posli['flatpak-brskalnik'])
+        self.assertIn('scit_lab/lab.sh preizkus',posli['flatpak'])
+        izdaja=posli['release']
+        self.assertIn('ls -l artifacts/flatpak/Safeer-OS-*-x86_64.flatpak artifacts/flatpak-brskalnik/Safeer-Browser-*-x86_64.flatpak',izdaja)
+        potrebe=[p.strip() for p in re.search(r'^    needs: \[([^\]]+)\]$',izdaja,re.M).group(1).split(',')]
+        self.assertTrue({'flatpak','flatpak-brskalnik'}<=set(potrebe),potrebe)
+        # Imena paketov za uporabnike ostanejo.
+        for skripta,ime in (('build_os_flatpak.sh','"dist/Safeer-OS-${VERSION}-x86_64.flatpak"'),
+                            ('build_flatpak.sh','"dist/Safeer-Browser-${VERSION}-x86_64.flatpak"')):
+            besedilo=(ROOT/'packaging'/skripta).read_text()
+            self.assertIn(ime,besedilo)
+            self.assertIn('MANIFEST="${SAFEER_FLATPAK_MANIFEST:-io.github.memelandfaner.',besedilo)
 
     def test_debian_maintainer_scripts_are_posix_sh(self):
         for builder in ('build_deb.sh','build_os_deb.sh'):

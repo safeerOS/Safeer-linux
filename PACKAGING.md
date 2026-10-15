@@ -42,6 +42,8 @@ Permissions:
 
 The manifest builds our WebKitGTK 6.0 from `packaging/webkit/webkitgtk6-safeer.yml` and `webkitgtk6-safeer-typelib.yml`, the same files the Safeer OS manifest uses. flatpak-builder keys its cache by app ID, so CI builds and caches the browser's WebKit in its own job (`flatpak-brskalnik`).
 
+Since 15 Oct 2026 both Flatpaks built by CI (every push and every `v*` tag, the files attached to releases) use WebKitGTK compiled with a profile (PGO, `packaging/webkit/pgo.py`; Speedometer 3.1 on the test PC: 9.2 with Clang + ThinLTO, 10.7 with PGO). The profile is keyed by `pgo.py kljuc` (WebKit module and patches, the training run, the LLVM version of the `llvm22` SDK extension) and stored as the artifact `webkit-pgo-profraw-<key>` for 90 days; the `webkit-pgo-ucenje` job (instrumented build and a Speedometer 3.1 training run, about 1.5-2.5 h) runs only when no profile with the current key exists. `flatpak` and `flatpak-brskalnik` never fall back to a build without PGO: without a valid profile they do not run, and the release job needs both. A local `bash packaging/build_flatpak.sh` builds without PGO; `SAFEER_FLATPAK_MANIFEST="$(python3 packaging/webkit/pgo.py uporaba DIR_WITH_PROFRAW)"` builds with a downloaded profile.
+
 Permissions:
 
 - Wayland and fallback X11, IPC: windows and X11 shared-memory rendering; X11 is also how Safeer DRM's window is embedded into the tab.
