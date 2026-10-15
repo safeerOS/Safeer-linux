@@ -105,23 +105,18 @@ class KanaliSporocil:
         return izid
 
     def katalog(self) -> list:
-        """Katalog za carovnik (spletni_klepeti.za_vmesnik) z »namescen« za namizne programe in ikono strani iz
-        predpomnilnika (core/ikone_strani). Manjkajoce ikone se prenesejo v ozadju neposredno s strani storitve (brez
-        piskotkov in tujih storitev za ikone); ko so tu, stran dobi dogodek »kanaliKatalog«. Zacetnica je le rezerva."""
+        """Katalog za carovnik (spletni_klepeti.za_vmesnik) z »namescen« za namizne programe in ikono strani, ce je ze v
+        predpomnilniku (core/ikone_strani). Odprtje kataloga NE klice strani storitev (zasebnost pred udobjem - lastnik,
+        15. 10. 2026): ikono kanal dobi sele, ko je dodan (seznam), sicer ploscica z zacetnico."""
         from core import ikone_strani
-        izid, manjkajo = [], []
+        izid = []
         for v in spletni_klepeti.za_vmesnik(self.jezik()):
             v = dict(v, ikona="")
             if v.get("program"):
                 v["namescen"] = namizni_programi.najdi(v["program"]) is not None
             if v.get("splet"):
                 v["ikona"] = ikone_strani.iz_predpomnilnika(v["splet"])
-                if not v["ikona"]:
-                    manjkajo.append(v["splet"])
             izid.append(v)
-        manjkajo = [u for u in manjkajo if u not in self._ikone_poskusene]
-        if manjkajo:
-            self._prenesi_ikone(manjkajo, "kanaliKatalog")
         return izid
 
     def neprebrano_skupaj(self) -> int:

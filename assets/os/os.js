@@ -6854,7 +6854,12 @@
     // Ikona strani (core/ikone_strani - prenesena neposredno s strani) ali ploscica z zacetnico.
     var z = el("span", razred || "kanal-znak");
     if (k.ikona) { var i = document.createElement("img"); i.src = k.ikona; i.alt = ""; z.appendChild(i); }
-    else { z.textContent = zacetnice(k.ime); z.style.background = "hsl(" + barvaIzImena(k.katalog || k.id || k.ime) + ", 45%, 40%)"; }
+    else {
+      // Ploscica z zacetnico v barvi iz tokens.css (stalna za storitev); ikona strani se prenese sele, ko je kanal dodan.
+      var barve = ["splet", "slika", "video", "zvok", "dokument", "mapa", "arhiv", "naprava"];
+      z.textContent = zacetnice(k.ime); z.classList.add("crka");
+      z.style.background = "var(--vrsta-" + barve[barvaIzImena(k.katalog || k.id || k.ime) % barve.length] + ")";
+    }
     return z;
   }
   function naloziVgrajeneKanale() {

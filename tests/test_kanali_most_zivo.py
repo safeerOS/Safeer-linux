@@ -202,10 +202,15 @@ class KanaliSkoziStran(unittest.TestCase):
         gumbi = self._js("Array.prototype.map.call((%s).querySelectorAll('button'), function (b) { return b.textContent; })"
                          % (vrsta % "Viber"))
         self.assertEqual(gumbi, ["Namesti", "Izberi program …"])
-        # manjkajoce ikone gredo po ikono neposredno na stran storitve (v ozadju), WhatsApp je ze v predpomnilniku
+        # zasebnost: odprtje kataloga ne klice nobene strani storitve; ploscica brez ikone ima barvo iz tokens.css
+        _cakaj(lambda: False, 1.0)
+        self.assertEqual(self.prenosi_ikon, [], "katalog ne prenasa ikon")
+        self.assertIn("var(--vrsta-", self._js("(%s).querySelector('.kanal-znak').getAttribute('style')" % (vrsta % "Telegram")))
+        # dodan kanal dobi ikono svoje strani (s to stranjo se kanal tako ali tako poveze)
+        self.os._kanali().dodaj(katalog="telegram")
         telegram = spletni_klepeti.po_id("telegram")["splet"]
         self.assertTrue(_cakaj(lambda: telegram in self.prenosi_ikon, 5), self.prenosi_ikon)
-        self.assertNotIn(spletni_klepeti.po_id("whatsapp")["splet"], self.prenosi_ikon)
+        self.assertEqual([u for u in self.prenosi_ikon if u != telegram], [], "samo dodani kanal")
 
     def test_podokno_osebe_skrito_brez_pogovora(self):
         # Brez izbranega pogovora ni praznega avatarja in gumbov »Preimenuj«, »Zdruzi z …« (nic nedelujocega).
