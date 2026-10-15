@@ -1,0 +1,13 @@
+# Safeer Browser for Linux 1.0.127 · Safeer OS 0.4.84 (with Safeer Control 2.1.82)
+
+**Safeer Browser on GTK 4.** The browser is rebuilt on GTK 4 and WebKitGTK 6.0. The Flatpak carries our own patched WebKitGTK 2.54.1 and libsoup 3.8.0, and Safeer DRM for protected video – it starts only after you click Play in Safeer DRM and never without the site's permission.
+
+**Privacy like Firefox.** Tracking protection in three levels (Standard, Strict, Custom) and a shield to turn it off for one site; per-site permissions (camera, microphone, location, notifications, autoplay, protected content); choose your DNS-over-HTTPS provider; clear browsing data, also on exit. Unwanted pop-ups are blocked – sign-in and payment windows still open. A pop-up that opens empty and then jumps to another site is blocked too.
+
+**A real browser.** Downloads to your Downloads folder with a question before running programs; find with a match counter; print; full screen; mute a tab; zoom; links to apps (e-mail, phone, magnet) open after you confirm; network and certificate error pages in six languages; offer to make Safeer your default browser.
+
+**Media Center, redesigned.** A left menu with your real sources, a Home page with Continue watching, Recently added, Most played and Favourites, and a now-playing bar at the bottom. Automatic playlists from your own music (Most played, Not heard for a while, genres, artists, Discover) – made on your computer, no cloud. Hide what you don't use from the menu. Play on … sends music to a network speaker (DLNA) or to your devices in Safeer Link. Audio tracks, audio and subtitle delay, subtitles from a file or the web, equaliser. The film and series catalogue loads twice as fast; live TV shows every channel logo and RTV SLO plays again. Login tokens of your media servers (Jellyfin, Navidrome, Plex …) are never stored in playlists or sent to other devices; Jellyfin 12 is supported.
+
+**One desktop, one process.** Safeer OS, Safeer Control, Safeer Link, the Media Center, the player and the web all run in one process (640 MiB measured on the test PC). The desktop speaks six languages, uses one colour theme, works with the keyboard and the TV remote, and now has everything the previous desktop had: file actions, Continue here, Show on …, voice and notes in search, largest files, dock editing. Notifications go one way, settings for Link, the web and the desktop are in Safeer OS Settings, and the desktop widget shows what is playing.
+
+**Linux Mint.** The desktop no longer hides behind the Mint panel or the dock; a mouse applet in the panel replaces the misleading battery icon on desktop PCs.

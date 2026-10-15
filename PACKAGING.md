@@ -18,7 +18,7 @@ Install build dependencies: Python 3, Pillow, dpkg-dev, desktop-file-utils and a
 
 ```sh
 bash build_deb.sh
-sudo apt install ./safeer-browser_1.0.126_all.deb
+sudo apt install ./safeer-browser_1.0.127_all.deb
 ```
 
 The source tarball (`install.sh`, GTK 3) is built only with `SAFEER_BRSKALNIK_GTK3=1`. Builds no longer copy into neighbouring website repositories. Native package upgrades continue using the existing `~/.config/safeer-mint` profile unless XDG_CONFIG_HOME is explicitly set. Existing alternatives registration and removal scripts are retained.
@@ -32,7 +32,7 @@ flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flath
 flatpak install --user flathub org.gnome.Platform//50 org.gnome.Sdk//50
 # Also install your distribution's flatpak-builder and AppStream compose tools.
 bash packaging/build_flatpak.sh
-flatpak install --user dist/Safeer-Browser-1.0.126-x86_64.flatpak
+flatpak install --user dist/Safeer-Browser-1.0.127-x86_64.flatpak
 flatpak run io.github.memelandfaner.SafeerBrowser
 ```
 
@@ -62,8 +62,8 @@ Release build baseline: Ubuntu 24.04 x86_64 / glibc 2.39 (GTK 4 and WebKitGTK 6.
 ```sh
 bash packaging/fetch_linuxdeploy.sh
 LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_appimage.sh
-chmod +x dist/Safeer-Browser-1.0.126-x86_64.AppImage
-./dist/Safeer-Browser-1.0.126-x86_64.AppImage
+chmod +x dist/Safeer-Browser-1.0.127-x86_64.AppImage
+./dist/Safeer-Browser-1.0.127-x86_64.AppImage
 ```
 
 linuxdeploy is pinned to a versioned release and checked against SHA256. The AppDir includes Python, GI modules/typelibs, GTK, WebKit subprocesses, GStreamer and GIO TLS resources. linuxdeploy resolves ELF dependencies and applies its system-library exclusions. glibc, the ELF loader and GPU drivers must remain host-provided. WebKit process sandboxing is not disabled. Host bubblewrap/user-namespace support may be required by the distro WebKit build. A build must fail acceptance rather than use an insecure fallback.
