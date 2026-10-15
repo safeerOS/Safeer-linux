@@ -74,6 +74,42 @@ class Nabiralnik:
             o.prekini()
 
 
+def _deli(surovo: bytes):
+    """[(stevilka dela, glava dela, telo dela)] - en del (text/plain) ali multipart/mixed z otroki."""
+    loc = b"\r\n\r\n"
+    glava, _, telo = surovo.partition(loc)
+    m = re.search(rb'boundary="?([^";\r\n]+)"?', glava, re.I)
+    if not m:
+        return [("1", glava, telo)]
+    meja = b"--" + m.group(1)
+    izid = []
+    for i, kos in enumerate(telo.split(meja)[1:-1], 1):
+        kos = kos[2:] if kos.startswith(b"\r\n") else kos
+        g, _, t = kos.partition(loc)
+        izid.append((str(i), g, t[:-2] if t.endswith(b"\r\n") else t))
+    return izid
+
+
+def bodystructure(surovo: bytes) -> bytes:
+    """BODYSTRUCTURE (RFC 3501 7.4.2) za preprosta pisma iz preizkusov: text/plain ali multipart/mixed s prilogami."""
+    def en_del(g, t):
+        tip = re.search(rb"Content-Type: *([\w-]+)/([\w.+-]+)", g, re.I)
+        glavni, pod = (tip.group(1), tip.group(2)) if tip else (b"text", b"plain")
+        kod = re.search(rb"Content-Transfer-Encoding: *([\w-]+)", g, re.I)
+        ime = re.search(rb'filename="([^"]+)"', g, re.I)
+        kodiranje = (kod.group(1) if kod else b"7bit").upper()
+        if ime:
+            return (b'("%s" "%s" ("NAME" "%s") NIL NIL "%s" %d NIL ("ATTACHMENT" ("FILENAME" "%s")) NIL)'
+                    % (glavni.upper(), pod.upper(), ime.group(1), kodiranje, len(t), ime.group(1)))
+        return (b'("%s" "%s" ("CHARSET" "utf-8") NIL NIL "%s" %d %d NIL NIL NIL)'
+                % (glavni.upper(), pod.upper(), kodiranje, len(t), t.count(b"\n")))
+    deli = _deli(surovo)
+    if len(deli) == 1 and not re.search(rb"boundary=", surovo.partition(b"\r\n\r\n")[0], re.I):
+        g = surovo.partition(b"\r\n\r\n")[0]
+        return en_del(g, deli[0][2])
+    return b"(" + b"".join(en_del(g, t) for _st, g, t in deli) + b' "MIXED" ("BOUNDARY" "x") NIL NIL)'
+
+
 def _mnozica(niz: str, najvisji: int):
     izid = set()
     for del_ in niz.split(","):
@@ -214,6 +250,7 @@ class _Seja(socketserver.StreamRequestHandler):
         changedsince = re.search(r"\(CHANGEDSINCE (\d+)\)", ostalo)
         deli = ostalo.upper()
         m_body = re.search(r"BODY\.PEEK\[\]<0\.(\d+)>", deli)
+        m_del = re.search(r"BODY\.PEEK\[([\d.]+)\](?:<(\d+)\.(\d+)>)?", deli)
         with n.zaklep:
             najvisji = max([p["uid"] for p in n.pisma] or [0])
             izbrani = _mnozica(mnoz, najvisji)
@@ -226,7 +263,17 @@ class _Seja(socketserver.StreamRequestHandler):
                 glava += b" MODSEQ (%d)" % p["modseq"]
             if "RFC822.SIZE" in deli:
                 glava += b" RFC822.SIZE %d" % len(p["surovo"])
-            if m_body:
+            if "BODYSTRUCTURE" in deli:
+                glava += b" BODYSTRUCTURE " + bodystructure(p["surovo"])
+            if m_del:
+                telo = dict((st, t) for st, _g, t in _deli(p["surovo"])).get(m_del.group(1), b"")
+                odmik = int(m_del.group(2) or 0)
+                vsebina = telo[odmik:odmik + int(m_del.group(3))] if m_del.group(3) else telo
+                with self.pisalni:
+                    self.wfile.write(glava + b" BODY[%s]<%d> {%d}\r\n" % (m_del.group(1).encode(), odmik, len(vsebina))
+                                     + vsebina + b")\r\n")
+                    self.wfile.flush()
+            elif m_body:
                 vsebina = p["surovo"][:int(m_body.group(1))]
                 with self.pisalni:
                     self.wfile.write(glava + b" BODY[]<0> {%d}\r\n" % len(vsebina) + vsebina + b")\r\n")

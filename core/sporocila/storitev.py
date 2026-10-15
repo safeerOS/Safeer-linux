@@ -53,6 +53,8 @@ def _je_omrezna(napaka: Exception) -> bool:
     if ime in ("NapakaPrijave", "ManjkaSkrivnost", "SMTPAuthenticationError", "SMTPRecipientsRefused",
                "SMTPSenderRefused", "SMTPNotSupportedError"):
         return False
+    if isinstance(napaka, (FileNotFoundError, PermissionError, IsADirectoryError, NotADirectoryError)):
+        return False            # priloga iz vrste je medtem izginila: ponovni poskus tega ne popravi
     koda = getattr(napaka, "smtp_code", None)
     if isinstance(koda, int):
         return 400 <= koda < 500
@@ -60,6 +62,32 @@ def _je_omrezna(napaka: Exception) -> bool:
     if isinstance(koda, int):
         return koda == 429 or koda >= 500
     return isinstance(napaka, (OSError, TimeoutError))
+
+
+def _opisi_cakajocih(priponke) -> list:
+    """[{"pot"}] iz vmesnika -> opisi prilog za sporocilo v odhodni vrsti (ime, tip, velikost, lokalno)."""
+    import mimetypes
+    import os
+    izid = []
+    for p in priponke or ():
+        pot = str((p or {}).get("pot") or "") if isinstance(p, dict) else str(p or "")
+        if not pot:
+            continue
+        try:
+            velikost = os.path.getsize(pot)
+        except OSError:
+            velikost = 0
+        izid.append({"ime": os.path.basename(pot), "tip": mimetypes.guess_type(pot)[0] or "application/octet-stream",
+                     "velikost": velikost, "lokalno": pot})
+    return izid
+
+
+def _povzetek(besedilo: str, priponke=()) -> str:
+    """Zadnje sporocilo v seznamu; pismo samo s prilogo pokaze ime priloge (kot Gmail)."""
+    b = str(besedilo or "").strip()
+    if b or not priponke:
+        return b[:240]
+    return ("📎 " + ", ".join(str(p.get("ime", "")) for p in priponke if isinstance(p, dict)))[:240]
 
 
 class StoritevSporocil:
@@ -97,6 +125,9 @@ class StoritevSporocil:
             # Surova identiteta pogovora (naslov/racun pri kanalu) - potrebna za razdruzitev oseb.
             if "identiteta" not in {r[1] for r in self.db.execute("PRAGMA table_info(pogovori)")}:
                 self.db.execute("ALTER TABLE pogovori ADD COLUMN identiteta TEXT NOT NULL DEFAULT ''")
+            # Stevilka dela s HTML telesom (pogled s slikami v vrstici; 15. 10. 2026).
+            if "html" not in {r[1] for r in self.db.execute("PRAGMA table_info(sporocila)")}:
+                self.db.execute("ALTER TABLE sporocila ADD COLUMN html TEXT NOT NULL DEFAULT ''")
         with self._zaklep, self.db:
             # Posiljanje, ki ga je prekinil konec programa: idem (Message-ID/txn) ostane, poskus se ponovi. Samo staro
             # (> 10 min): bazo odpre tudi drug primerek (Safeer Link za klepet), ki ne sme vzeti sporocila, ki ga
@@ -420,15 +451,16 @@ class StoritevSporocil:
         Matrix in Telegram ob vsaki sinhronizaciji vrneta tudi starejsa sporocila z oznako »prejeto«; stanje iz
         streznika (oznake IMAP) gre posebej v _sinhroniziraj_en."""
         priponke = json.dumps(s.priponke, ensure_ascii=False)
-        self.db.execute("""INSERT INTO sporocila(id,pogovor_id,kanal_id,smer,besedilo,cas,priponke,stanje) VALUES(?,?,?,?,?,?,?,?)
+        self.db.execute("""INSERT INTO sporocila(id,pogovor_id,kanal_id,smer,besedilo,cas,priponke,stanje,html)
+            VALUES(?,?,?,?,?,?,?,?,?)
             ON CONFLICT(id,kanal_id) DO UPDATE SET pogovor_id=excluded.pogovor_id, smer=excluded.smer,
-              besedilo=excluded.besedilo, cas=excluded.cas, priponke=excluded.priponke,
+              besedilo=excluded.besedilo, cas=excluded.cas, priponke=excluded.priponke, html=excluded.html,
               stanje=CASE WHEN sporocila.stanje='prebrano' AND excluded.stanje='prejeto' THEN 'prebrano' ELSE excluded.stanje END
             WHERE sporocila.pogovor_id IS NOT excluded.pogovor_id OR sporocila.smer IS NOT excluded.smer
               OR sporocila.besedilo IS NOT excluded.besedilo OR sporocila.cas IS NOT excluded.cas
-              OR sporocila.priponke IS NOT excluded.priponke
+              OR sporocila.priponke IS NOT excluded.priponke OR sporocila.html IS NOT excluded.html
               OR (sporocila.stanje IS NOT excluded.stanje AND NOT (sporocila.stanje='prebrano' AND excluded.stanje='prejeto'))""",
-            (s.id, s.pogovor_id, kanal_id, s.smer, s.besedilo, s.cas, priponke, s.stanje))
+            (s.id, s.pogovor_id, kanal_id, s.smer, s.besedilo, s.cas, priponke, s.stanje, s.html or ""))
 
     def pogovori(self, kanal: str = ""):
         sql = "SELECT * FROM pogovori"
@@ -660,7 +692,30 @@ class StoritevSporocil:
             vrstice = self.db.execute("""SELECT * FROM sporocila WHERE kanal_id=? AND pogovor_id=?
                 ORDER BY cas DESC, rowid DESC LIMIT ?""", (kanal_id, pogovor_id, max(1, min(int(najvec), 200)))).fetchall()
         return [Sporocilo(r["id"], r["pogovor_id"], r["smer"], r["besedilo"], r["cas"],
-                          json.loads(r["priponke"] or "[]"), r["stanje"]) for r in reversed(vrstice)]
+                          json.loads(r["priponke"] or "[]"), r["stanje"], r["html"] or "") for r in reversed(vrstice)]
+
+    def sporocilo(self, kanal_id: str, sporocilo_id: str) -> Optional[Sporocilo]:
+        """Eno sporocilo iz predpomnilnika (priponke za prenos vzamemo od tu, ne od strani)."""
+        with self._zaklep:
+            r = self.db.execute("SELECT * FROM sporocila WHERE kanal_id=? AND id=?", (kanal_id, sporocilo_id)).fetchone()
+        if r is None:
+            return None
+        return Sporocilo(r["id"], r["pogovor_id"], r["smer"], r["besedilo"], r["cas"],
+                         json.loads(r["priponke"] or "[]"), r["stanje"], r["html"] or "")
+
+    def pogovori_s_priponkami(self) -> set:
+        """{(kanal_id, pogovor_id)} s pravo priponko (sponka v seznamu; slike v vrstici HTML ne stejejo, kot v Gmailu)."""
+        izid = set()
+        with self._zaklep:
+            vrstice = self.db.execute("SELECT kanal_id, pogovor_id, priponke FROM sporocila "
+                                      "WHERE priponke NOT IN ('', '[]')").fetchall()
+        for r in vrstice:
+            try:
+                if any(isinstance(p, dict) and not p.get("inline") for p in json.loads(r["priponke"] or "[]")):
+                    izid.add((r["kanal_id"], r["pogovor_id"]))
+            except ValueError:
+                continue
+        return izid
 
     # ------------------------------------------------------------------ posiljanje in odhodna vrsta
     @staticmethod
@@ -709,13 +764,15 @@ class StoritevSporocil:
         with self._zaklep, self.db:
             self._shrani_sporocilo(kanal_id, s)
             self.db.execute("UPDATE pogovori SET zadnje_sporocilo=?,cas=? WHERE id=? AND kanal_id=?",
-                            (besedilo[:240], s.cas, pogovor_id, kanal_id))
+                            (_povzetek(besedilo, s.priponke), s.cas, pogovor_id, kanal_id))
         return s
 
     def _v_vrsto(self, kanal_id: str, pogovor_id: str, besedilo: str, priponke, idem: str) -> Sporocilo:
         oid = uuid.uuid4().hex
         cas = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-        s = Sporocilo("caka:" + oid, pogovor_id, "ven", besedilo, cas, list(priponke or []), "caka")
+        # V vrsto gredo poti prilog (poslane bodo ob vrnitvi povezave); v pogovoru so priloge vidne kot lokalne
+        # (»lokalno«: predogled in shranjevanje delata ze, preden je sporocilo poslano).
+        s = Sporocilo("caka:" + oid, pogovor_id, "ven", besedilo, cas, _opisi_cakajocih(priponke), "caka")
         with self._zaklep, self.db:
             self.db.execute("INSERT INTO odhodni(id,kanal_id,pogovor_id,besedilo,priponke,idem,ustvarjeno,stanje) "
                             "VALUES(?,?,?,?,?,?,?,?)",
@@ -723,7 +780,7 @@ class StoritevSporocil:
                              idem, time.time(), "caka"))
             self._shrani_sporocilo(kanal_id, s)
             self.db.execute("UPDATE pogovori SET zadnje_sporocilo=?,cas=? WHERE id=? AND kanal_id=?",
-                            (besedilo[:240], cas, pogovor_id, kanal_id))
+                            (_povzetek(besedilo, s.priponke), cas, pogovor_id, kanal_id))
         return s
 
     def cakajoca(self, kanal_id: str = "") -> list:
@@ -801,19 +858,19 @@ class StoritevSporocil:
             except Exception:  # noqa: BLE001
                 pass
 
-    def novo(self, kanal_id: str, prejemnik: str, zadeva: str, besedilo: str):
+    def novo(self, kanal_id: str, prejemnik: str, zadeva: str, besedilo: str, priponke=()):
         """Novo e-sporocilo osebi, s katero morda se ni pogovora: poslje ga in pogovor doda v nabiralnik."""
         adapter = self.adapterji[kanal_id]
         if getattr(adapter, "vrsta", "") != "email":
             raise ValueError("Novo sporočilo zna samo e-pošta")
-        s = adapter.poslji(prejemnik, besedilo, (), zadeva_nova=zadeva)
+        s = adapter.poslji(prejemnik, besedilo, priponke, zadeva_nova=zadeva)
         oseba_id = self._oseba("email", prejemnik, "")
         with self._zaklep, self.db:
             self.db.execute("INSERT OR IGNORE INTO pogovori(id,kanal_id,oseba_id,zadeva,zadnje_sporocilo,neprebrano,cas,identiteta) "
                             "VALUES(?,?,?,?,?,0,?,?)", (prejemnik, kanal_id, oseba_id, zadeva, "", s.cas, prejemnik))
             self._shrani_sporocilo(kanal_id, s)
             self.db.execute("UPDATE pogovori SET zadeva=?,zadnje_sporocilo=?,cas=? WHERE id=? AND kanal_id=?",
-                            (zadeva, besedilo[:240], s.cas, prejemnik, kanal_id))
+                            (zadeva, _povzetek(besedilo, s.priponke), s.cas, prejemnik, kanal_id))
             if hasattr(adapter, "stanje"):
                 self.db.execute("INSERT OR REPLACE INTO kanal_stanje VALUES(?,?)",
                                 (kanal_id, json.dumps(adapter.stanje(), ensure_ascii=False)))

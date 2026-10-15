@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,6 +21,9 @@ from .sporocila.matrix import MatrixAdapter
 from .sporocila.telegram_bot import TelegramBotAdapter
 from .sporocila.model import Kanal
 from .sporocila.storitev import StoritevSporocil
+from . import predogled_datotek, splet_prenosi
+from .sporocila import predpomnilnik
+from .sporocila import slike as _slike
 
 # Znani ponudniki: IMAP/SMTP streznik in namig za prijavo (vecina zahteva "geslo za aplikacije").
 PONUDNIKI = {
@@ -49,6 +54,51 @@ NAPAKE_KLEPETA = {
     "meja": "Sporočilo je predolgo.",
     "potek": "Središče Safeer Linka ni odgovorilo.",
 }
+
+
+#: Napake pri prilogah in priponkah: notranja koda -> koda za stran (os.js jo prevede v jezik vmesnika).
+NAPAKE_PRILOG = {
+    "priloge_prevelike": "priloge_prevelike",
+    "prilog_ni": "prilog_ni",
+    "priloge_ni_podprto": "priloge_ni_podprto",
+    "ni_pisma": "priponka_ni_pisma",
+    "ni_povezave": "priponka_ni_povezave",
+    "prevelik": "priponka_prevelika",
+    "ni_podprto": "priloge_ni_podprto",
+    "ni_varno": "priponka_ni_povezave",
+    "napaka": "priponka_napaka",
+}
+
+
+def kljuc_priponke(p: dict, indeks: int) -> str:
+    """Kljuc priponke znotraj sporocila: stevilka dela IMAP ali zaporedna stevilka (drugi kanali)."""
+    return str(p.get("del") or "#%d" % indeks)
+
+
+def opis_priponke(p: dict, indeks: int) -> dict:
+    """Priponka za stran: brez lokalnih poti in zetonov, s kljucem, vrsto predogleda in oznako nevarnosti (en vir)."""
+    ime, tip = str(p.get("ime") or "priponka"), str(p.get("tip") or "")
+    return {"kljuc": kljuc_priponke(p, indeks), "ime": ime, "tip": tip, "velikost": int(p.get("velikost") or 0),
+            "inline": bool(p.get("inline")), "cid": bool(p.get("cid")),
+            "predogled": predogled_datotek.vrsta_predogleda(ime, tip),
+            "nevarna": predogled_datotek.je_nevarna(ime, tip)}
+
+
+def mapa_prejemov() -> str:
+    """Mapa za prenose po XDG (~/.config/user-dirs.dirs: na slovenskem namizju »Prejemi«), sicer kot v Spletu."""
+    dom = os.path.expanduser("~")
+    try:
+        with open(os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.join(dom, ".config"), "user-dirs.dirs"),
+                  encoding="utf-8") as f:
+            for vrstica in f:
+                m = re.match(r'\s*XDG_DOWNLOAD_DIR\s*=\s*"(.*)"\s*$', vrstica)
+                if m:
+                    pot = m.group(1).replace("$HOME", dom)
+                    if os.path.isabs(pot) and os.path.isdir(pot) and os.path.realpath(pot) != os.path.realpath(dom):
+                        return pot
+    except OSError:
+        pass
+    return splet_prenosi.mapa_prenosov(None)
 
 
 #: En naslov prejemnika (brez imena, brez vec naslovov in brez novih vrstic - glava To ne sme dobiti vrinjenih glav).
@@ -101,7 +151,7 @@ class SporocilaOS:
         self.poslji_klepet: Optional[Callable[[str, str, str], str]] = None
         #: Naprave v Linku, ki znajo klepet (nastavi gostitelj): [{"id", "ime"}]
         self.naprave_klepeta: Optional[Callable[[], List[dict]]] = None
-        self.storitev.ob_sinhronizaciji = _sporoci
+        self.storitev.ob_sinhronizaciji = self._po_sinhronizaciji
         self._samodejno = bool(zazeni)
         self._nalozi()
         if zazeni and self.storitev.adapterji:
@@ -268,8 +318,20 @@ class SporocilaOS:
             self.storitev.zazeni_kanal(kanal_id)     # nit takoj na novo (ne caka zamika po napaki prijave)
         return self.seznam()
 
+    def _po_sinhronizaciji(self) -> None:
+        """Nova UIDVALIDITY mape (streznik je mapo na novo ostevilcil): stari vnosi predpomnilnika ne veljajo."""
+        for kid, a in list(self.storitev.adapterji.items()):
+            uidv = getattr(a, "uidvalidity_priponk", "")
+            if uidv:
+                try:
+                    predpomnilnik.velja(kid, getattr(a, "MAPA_PRIPONK", "INBOX"), uidv)
+                except OSError:
+                    pass
+        _sporoci()
+
     def odstrani_kanal(self, kanal_id: str) -> dict:
         self.storitev.odstrani_kanal(str(kanal_id))
+        predpomnilnik.odstrani_kanal(str(kanal_id))      # priponke odstranjenega racuna ne ostanejo na disku
         return self.seznam()
 
     # ------------------------------------------------------------------ branje/pisanje
@@ -280,6 +342,13 @@ class SporocilaOS:
             smeri = self.storitev.zadnje_smeri()
         except Exception:
             smeri = {}
+        try:
+            s_priponkami = self.storitev.pogovori_s_priponkami()
+        except Exception:
+            s_priponkami = set()
+        for kid, k in kanali.items():
+            # Gumb »Prilozi« samo v kanalih, ki priloge res posljejo (brez nedelujocih gumbov).
+            k["priloge"] = "priloge" in getattr(self.storitev.adapterji.get(kid), "zmore", set())
         for s in skupine:
             for p in s["pogovori"]:
                 p["kanal"] = kanali.get(p["kanal_id"], {})
@@ -287,7 +356,9 @@ class SporocilaOS:
                 # Vsebina pogovora se je spremenila brez novega sporocila (celotno besedilo, poslano iz vrste):
                 # odprt pogovor se osvezi (os.js uskladiOdprtPogovor).
                 p["razlicica"] = self.storitev.razlicica(p["kanal_id"], p["id"])
-        return {"kanali": list(kanali.values()), "skupine": skupine, "oznake": self.storitev.vse_oznake()}
+                p["priponke"] = (p["kanal_id"], p["id"]) in s_priponkami
+        return {"kanali": list(kanali.values()), "skupine": skupine, "oznake": self.storitev.vse_oznake(),
+                "slike_od": self.slike_od.seznam()}
 
     # ---- osebe in oznake (uporabnikovo urejanje) ----
     def preimenuj_osebo(self, oseba_id: str, ime: str) -> dict:
@@ -323,7 +394,12 @@ class SporocilaOS:
             # Dolga pisma (prirezana na 64 KB): celotno besedilo v ozadju, enkrat; dogodek osvezi odprt pogovor.
             threading.Thread(target=self._dopolni, args=(kanal_id, ids), name="safeer-sporocila-celotno",
                              daemon=True).start()
-        return [s.slovar() for s in sporocila]
+        izid = []
+        for s in sporocila:
+            d = s.slovar()
+            d["priponke"] = [opis_priponke(p, i) for i, p in enumerate(s.priponke or []) if isinstance(p, dict)]
+            izid.append(d)
+        return izid
 
     def _dopolni(self, kanal_id: str, ids: list) -> None:
         try:
@@ -335,7 +411,7 @@ class SporocilaOS:
         """Neposlano sporocilo (stanje »caka« ali »napaka«) uporabnik preklice; vrne pogovor brez njega."""
         if not self.storitev.preklici_cakajoce(str(kanal_id), str(sporocilo_id)):
             raise ValueError("Sporočilo se že pošilja ali je poslano.")
-        return [s.slovar() for s in self.storitev.sporocila(str(kanal_id), str(pogovor_id))]
+        return self.pogovor(str(kanal_id), str(pogovor_id))
 
     def neprebrano_skupaj(self) -> int:
         """Stevilo za kuverto v pultu: iz baze (pravo ze ob zagonu), brez branja celega nabiralnika."""
@@ -349,27 +425,43 @@ class SporocilaOS:
         self.storitev.ustavi_kanal(str(kanal_id))
         return self.seznam()
 
-    def poslji(self, kanal_id: str, pogovor_id: str, besedilo: str) -> dict:
+    def poslji(self, kanal_id: str, pogovor_id: str, besedilo: str, priloge=None) -> dict:
         besedilo = str(besedilo).strip()
-        if not besedilo:
+        priloge = self._priloge(kanal_id, priloge)
+        if not besedilo and not priloge:
             raise ValueError("Prazno sporočilo")
         if kanal_id == KANAL_LINKA:
             return self._poslji_po_linku(str(pogovor_id), besedilo)
-        s = self.storitev.poslji(kanal_id, pogovor_id, besedilo)
-        # Brez povezave: sporocilo caka v odhodni vrsti in odide samo, ko se kanal spet poveze.
-        return dict(s.slovar(), caka=s.stanje == "caka")
+        s = self.storitev.poslji(kanal_id, pogovor_id, besedilo, priloge)
+        d = s.slovar()
+        d["priponke"] = [opis_priponke(p, i) for i, p in enumerate(s.priponke or []) if isinstance(p, dict)]
+        # Brez povezave: sporocilo (s prilogami) caka v odhodni vrsti in odide samo, ko se kanal spet poveze.
+        d["caka"] = s.stanje == "caka"
+        return d
+
+    def _priloge(self, kanal_id: str, priloge) -> list:
+        """Poti prilog s strani -> [{"pot"}]. Priloge zna zdaj poslati e-posta; drug kanal jih jasno zavrne."""
+        poti = [str(p.get("pot") if isinstance(p, dict) else p) for p in (priloge or []) if p]
+        if not poti:
+            return []
+        adapter = self.storitev.adapterji.get(str(kanal_id))
+        if "priloge" not in getattr(adapter, "zmore", set()):
+            raise ValueError(NAPAKE_PRILOG["priloge_ni_podprto"])
+        return [{"pot": p} for p in poti[:50]]
 
     # ------------------------------------------------------------------ novo sporocilo in osnutki
-    def novo(self, kanal_id: str, prejemnik: str, zadeva: str, besedilo: str, osnutek_id: str = "") -> dict:
+    def novo(self, kanal_id: str, prejemnik: str, zadeva: str, besedilo: str, osnutek_id: str = "",
+             priloge=None) -> dict:
         """Novo e-sporocilo (lastnik, 14. 10. 2026: v Sporocilih je manjkalo). Vrne nabiralnik in poslan pogovor."""
         prejemnik, zadeva, besedilo = str(prejemnik).strip(), str(zadeva).strip(), str(besedilo).strip()
         if not _NASLOV.fullmatch(prejemnik):
             raise ValueError("Naslov prejemnika ni veljaven")
-        if not besedilo:
+        priloge = self._priloge(kanal_id, priloge)
+        if not besedilo and not priloge:
             raise ValueError("Prazno sporočilo")
         if "\n" in zadeva or "\r" in zadeva:
             raise ValueError("Zadeva ne sme imeti novih vrstic")
-        self.storitev.novo(str(kanal_id), prejemnik, zadeva, besedilo)
+        self.storitev.novo(str(kanal_id), prejemnik, zadeva, besedilo, priloge)
         if osnutek_id:
             self.odstrani_osnutek(osnutek_id)
         return dict(self.seznam(), poslano={"kanal_id": str(kanal_id), "id": prejemnik})
@@ -429,7 +521,10 @@ class SporocilaOS:
         o = o if isinstance(o, dict) else {}
         cist = {"id": str(o.get("id") or uuid.uuid4().hex[:12]), "kanal_id": str(o.get("kanal_id") or "")[:200],
                 "za": str(o.get("za") or "")[:320], "zadeva": str(o.get("zadeva") or "")[:300].replace("\n", " "),
-                "besedilo": str(o.get("besedilo") or "")[:200000], "cas": _cas_zdaj()}
+                "besedilo": str(o.get("besedilo") or "")[:200000], "cas": _cas_zdaj(),
+                # Priloge osnutka (poti na tem racunalniku): ob ponovnem odprtju so spet pod pismom.
+                "priloge": [os.path.realpath(str(p)) for p in (o.get("priloge") or [])[:50]
+                            if isinstance(p, str) and os.path.isfile(os.path.expanduser(p))]}
         prejsnji = next((x for x in self.osnutki() if x.get("id") == cist["id"]), {})
         # Tudi v mapo Osnutki e-postnega racuna (lastnik, 14. 10. 2026: osnutek naj bo viden v Gmailu na telefonu).
         cist["mid"] = self._osnutek_na_streznik(cist, str(prejsnji.get("mid") or "")) or str(prejsnji.get("mid") or "")
@@ -447,7 +542,8 @@ class SporocilaOS:
         if a is None or not hasattr(a, "shrani_osnutek"):
             return ""
         try:
-            return a.shrani_osnutek(o.get("za", ""), o.get("zadeva", ""), o.get("besedilo", ""), prejsnji_mid)
+            return a.shrani_osnutek(o.get("za", ""), o.get("zadeva", ""), o.get("besedilo", ""), prejsnji_mid,
+                                    [{"pot": p} for p in o.get("priloge") or []])
         except Exception as e:  # noqa: BLE001 - osnutek ostane vsaj na tem racunalniku
             print("[Sporocila] osnutek na strezniku:", e, flush=True)
             return ""
@@ -509,7 +605,8 @@ class SporocilaOS:
                 return False
         cas = _cas_klepeta(cas)
         with st._zaklep, st.db:
-            st.db.execute("INSERT OR REPLACE INTO sporocila VALUES(?,?,?,?,?,?,?,?)",
+            st.db.execute("INSERT OR REPLACE INTO sporocila(id,pogovor_id,kanal_id,smer,besedilo,cas,priponke,stanje) "
+                          "VALUES(?,?,?,?,?,?,?,?)",
                           (sid, od, KANAL_LINKA, "noter", besedilo, cas, "[]", "prejeto"))
         self._pogovor_linka(od, ime, besedilo.replace("\n", " "), cas, 1)
         _sporoci()
@@ -542,13 +639,205 @@ class SporocilaOS:
         sid = "chat:ven:" + uuid.uuid4().hex
         st = self.storitev
         with st._zaklep, st.db:
-            st.db.execute("INSERT OR REPLACE INTO sporocila VALUES(?,?,?,?,?,?,?,?)",
+            st.db.execute("INSERT OR REPLACE INTO sporocila(id,pogovor_id,kanal_id,smer,besedilo,cas,priponke,stanje) "
+                          "VALUES(?,?,?,?,?,?,?,?)",
                           (sid, naprava_id, KANAL_LINKA, "ven", besedilo, cas, "[]",
                            "caka" if izid == "queued" else "poslano"))
             st.db.execute("UPDATE pogovori SET zadnje_sporocilo=?,cas=? WHERE id=? AND kanal_id=?",
                           (besedilo[:240], cas, naprava_id, KANAL_LINKA))
         return {"id": sid, "pogovor_id": naprava_id, "smer": "ven", "besedilo": besedilo, "cas": cas,
                 "stanje": "caka" if izid == "queued" else "poslano", "caka": izid == "queued"}
+
+    # ------------------------------------------------------------------ priponke (prenos, predogled, slicice)
+    def _najdi_priponko(self, kanal_id: str, sporocilo_id: str, kljuc: str):
+        """(adapter, sporocilo, priponka) iz predpomnilnika sporocil - stran poda samo kljuc, ne podatkov priponke."""
+        s = self.storitev.sporocilo(str(kanal_id), str(sporocilo_id))
+        if s is None:
+            raise ValueError(NAPAKE_PRILOG["ni_pisma"])
+        for i, p in enumerate(s.priponke or []):
+            if isinstance(p, dict) and kljuc_priponke(p, i) == str(kljuc):
+                return self.storitev.adapterji.get(str(kanal_id)), s, p
+        raise ValueError(NAPAKE_PRILOG["ni_pisma"])
+
+    def _vnos(self, kanal_id: str, s, p: dict, kljuc: str) -> str:
+        """Mapa vnosa v predpomnilniku s kljucem (kanal_id, mapa, UIDVALIDITY, UID, del) - core/sporocila/predpomnilnik.py.
+        Kanali brez map IMAP: mapa "", UID = id sporocila, del = kljuc priponke."""
+        uid = s.id[4:] if str(s.id).startswith("uid:") else str(s.id)
+        return predpomnilnik.mapa_vnosa(str(kanal_id), str(p.get("mapa") or ""), p.get("uidvalidity") or "", uid, kljuc)
+
+    def _prenesi_v(self, adapter, s, p, cilj: str, napredek: Optional[Callable[[float], None]] = None) -> str:
+        """Prenese priponko v datoteko `cilj` (prek .part: nedokoncan prenos ne pusti pokvarjene datoteke)."""
+        lokalno = str(p.get("lokalno") or "")
+        if lokalno and os.path.isfile(lokalno):          # poslano iz Safeerja: priloga je na tem racunalniku
+            if os.path.realpath(lokalno) != os.path.realpath(cilj):
+                shutil.copyfile(lokalno, cilj)
+            return cilj
+        if adapter is None:
+            raise ValueError(NAPAKE_PRILOG["ni_povezave"])
+        skupaj = int(p.get("kodirano") or 0) or int(p.get("velikost") or 0)
+        zadnji = [0.0]
+
+        def javi(preneseno: int) -> None:
+            if napredek is None or not skupaj:
+                return
+            zdaj = time.monotonic()
+            if zdaj - zadnji[0] >= 0.2:               # najvec 5 dogodkov na sekundo
+                zadnji[0] = zdaj
+                napredek(min(0.99, preneseno / skupaj))
+        zacasna = cilj + ".part"
+        try:
+            with open(zacasna, "wb") as f:
+                os.chmod(zacasna, 0o600)
+                adapter.prenesi_priponko(s.id, p, f.write, javi)
+            os.replace(zacasna, cilj)
+        except NotImplementedError as e:
+            raise ValueError(NAPAKE_PRILOG["priloge_ni_podprto"]) from e
+        except ValueError as e:
+            raise ValueError(NAPAKE_PRILOG.get(str(e), NAPAKE_PRILOG["napaka"])) from e
+        except Exception as e:  # noqa: BLE001 - omrezje, streznik: koda za uporabnika, ne sled (lahko nosi naslov)
+            raise ValueError(NAPAKE_PRILOG["ni_pisma"] if "ni_pisma" in str(e) else NAPAKE_PRILOG["ni_povezave"]) from e
+        finally:
+            if os.path.exists(zacasna):
+                try:
+                    os.remove(zacasna)
+                except OSError:
+                    pass
+        if napredek is not None:
+            napredek(1.0)
+        return cilj
+
+    def priponka_v_predpomnilnik(self, kanal_id: str, sporocilo_id: str, kljuc: str,
+                                 napredek: Optional[Callable[[float], None]] = None) -> tuple:
+        """Priponka na disku za predogled, slicico in »Odpri v programu«. Vrne (pot, priponka). Najprej iz Prejemov
+        (ce jo je uporabnik prenesel in je tam nespremenjena), nato iz predpomnilnika; sele potem z omrezja."""
+        adapter, s, p = self._najdi_priponko(kanal_id, sporocilo_id, kljuc)
+        lokalno = str(p.get("lokalno") or "")
+        if lokalno and os.path.isfile(lokalno):
+            return lokalno, p
+        vnos = self._vnos(kanal_id, s, p, kljuc)
+        v_prejemih = predpomnilnik.prejeto(vnos)
+        if v_prejemih:
+            predpomnilnik.uporabi(os.path.join(vnos, "prejeto.json"))
+            return v_prejemih, p
+        cilj = os.path.join(vnos, predogled_datotek.varno_ime(p.get("ime", "")))
+        if not (os.path.isfile(cilj) and os.path.getsize(cilj) > 0):
+            self._prenesi_v(adapter, s, p, cilj, napredek)
+            predpomnilnik.pocisti()                      # meja velikosti (LRU) po vsakem novem vnosu
+        predpomnilnik.uporabi(cilj)
+        return cilj, p
+
+    def mapa_vnosa(self, kanal_id: str, sporocilo_id: str, kljuc: str) -> str:
+        """Mapa vnosa priponke (za PDF pretvorbe predogleda, ki ostanejo ob priponki)."""
+        _a, s, p = self._najdi_priponko(kanal_id, sporocilo_id, kljuc)
+        return self._vnos(kanal_id, s, p, kljuc)
+
+    def priponka_prenesi(self, kanal_id: str, sporocilo_id: str, kljuc: str,
+                         napredek: Optional[Callable[[float], None]] = None, mapa: str = "") -> dict:
+        """»Prenesi«: v mapo Prejemi (XDG), z varnim in edinstvenim imenom. Vrne {"pot", "ime", "mapa"}.
+        Kopija iz predpomnilnika se premakne v Prejemi (ne hranimo je dvakrat); vnos si zapomni pot v Prejemih."""
+        adapter, s, p = self._najdi_priponko(kanal_id, sporocilo_id, kljuc)
+        mapa = mapa or mapa_prejemov()
+        cilj = splet_prenosi.edinstvena_pot(mapa, predogled_datotek.varno_ime(p.get("ime", "")))
+        lokalno = str(p.get("lokalno") or "")
+        if lokalno and os.path.isfile(lokalno):
+            shutil.copyfile(lokalno, cilj)
+            return {"ok": True, "pot": cilj, "ime": os.path.basename(cilj), "mapa": mapa}
+        vnos = self._vnos(kanal_id, s, p, kljuc)
+        predpomnjeno = os.path.join(vnos, predogled_datotek.varno_ime(p.get("ime", "")))
+        if os.path.isfile(predpomnjeno) and os.path.getsize(predpomnjeno) > 0:
+            shutil.move(predpomnjeno, cilj)              # ze v predogledu: brez omrezja in brez dvojnika
+            os.chmod(cilj, 0o644)
+            if napredek is not None:
+                napredek(1.0)
+        else:
+            self._prenesi_v(adapter, s, p, cilj, napredek)
+            os.chmod(cilj, 0o644)                        # v Prejemih kot vsak drug prenos
+        predpomnilnik.zapisi_prejeto(vnos, cilj)
+        return {"ok": True, "pot": cilj, "ime": os.path.basename(cilj), "mapa": mapa}
+
+    def priponke_prenesi_vse(self, kanal_id: str, sporocilo_id: str,
+                             napredek: Optional[Callable[[str, float], None]] = None) -> dict:
+        """»Prenesi vse«: vse prave priponke pisma (ne slike v vrstici HTML) v Prejemi."""
+        s = self.storitev.sporocilo(str(kanal_id), str(sporocilo_id))
+        if s is None:
+            raise ValueError(NAPAKE_PRILOG["ni_pisma"])
+        poti, napake = [], 0
+        for i, p in enumerate(s.priponke or []):
+            if not isinstance(p, dict) or p.get("inline"):
+                continue
+            kljuc = kljuc_priponke(p, i)
+            try:
+                poti.append(self.priponka_prenesi(kanal_id, sporocilo_id, kljuc,
+                                                  (lambda d, k=kljuc: napredek(k, d)) if napredek else None)["pot"])
+            except ValueError:
+                napake += 1
+        if not poti:
+            raise ValueError(NAPAKE_PRILOG["ni_povezave"] if napake else NAPAKE_PRILOG["ni_pisma"])
+        return {"ok": not napake, "poti": poti, "napake": napake, "mapa": mapa_prejemov()}
+
+    def priponka_slicica(self, kanal_id: str, sporocilo_id: str, kljuc: str) -> str:
+        """Slicica slike za mehurcek (pot datoteke; "" ce je ni). Samo slike do 10 MB - kot Gmail, brez cakanja."""
+        _a, _s, p = self._najdi_priponko(kanal_id, sporocilo_id, kljuc)
+        if predogled_datotek.vrsta_predogleda(p.get("ime", ""), p.get("tip", "")) != "slika" or \
+                int(p.get("velikost") or 0) > 10 * 1024 * 1024:
+            return ""
+        pot, _p = self.priponka_v_predpomnilnik(kanal_id, sporocilo_id, kljuc)
+        if pot.lower().endswith((".svg", ".gif", ".avif", ".ico")) or os.path.getsize(pot) <= 300 * 1024:
+            return pot                       # majhna slika ali vektor: brez pomanjsevanja (animacija GIF ostane)
+        # Slicica ostane v vnosu priponke (drugic brez branja velike slike).
+        return predpomnilnik.slicica(pot, self.mapa_vnosa(kanal_id, sporocilo_id, kljuc)) or pot
+
+    def html_pisma(self, kanal_id: str, sporocilo_id: str, jezik: str = "sl", slike: bool = False,
+                   je_blokirano: Optional[Callable[[str], bool]] = None,
+                   posrednik: Optional[Callable[[str], str]] = None) -> dict:
+        """HTML telo pisma (»Prikaži izvirnik«) s slikami v vrstici (cid:) iz predpomnilnika. Oddaljene slike so skrite,
+        razen ce jih uporabnik pokaze (slike=True) ali jih vedno dovoli za tega posiljatelja; takrat jih prenese
+        zascita Safeer (core/sporocila/slike.py). Vrne {"html", "skritih", "posiljatelj", "prikazane"}."""
+        s = self.storitev.sporocilo(str(kanal_id), str(sporocilo_id))
+        adapter = self.storitev.adapterji.get(str(kanal_id))
+        if s is None or not s.html or adapter is None or not hasattr(adapter, "html_pisma"):
+            raise ValueError(NAPAKE_PRILOG["ni_pisma"])
+        try:
+            vsebina = adapter.html_pisma(s.id, s.html)
+        except Exception as e:  # noqa: BLE001
+            raise ValueError(NAPAKE_PRILOG["ni_povezave"]) from e
+        cid = {}
+        for i, p in enumerate(s.priponke or []):
+            if isinstance(p, dict) and p.get("cid") and str(p.get("tip", "")).startswith("image/") \
+                    and p.get("tip") != "image/svg+xml" and int(p.get("velikost") or 0) <= 10 * 1024 * 1024:
+                try:
+                    pot, _p = self.priponka_v_predpomnilnik(kanal_id, sporocilo_id, kljuc_priponke(p, i))
+                except ValueError:
+                    continue
+                from urllib.parse import quote
+                cid[str(p["cid"])] = "file://" + quote(os.path.abspath(pot))
+        posiljatelj = str(s.pogovor_id) if s.smer == "noter" and "@" in str(s.pogovor_id) else ""
+        prikazane = bool(slike) or (bool(posiljatelj) and self.slike_od.dovoljen(posiljatelj))
+        oddaljene = None
+        if prikazane:
+            naslovi = predogled_datotek.oddaljene_slike(vsebina)
+            if naslovi:
+                vnos = predpomnilnik.mapa_vnosa(str(kanal_id), "", "", str(sporocilo_id), "slike-s-spleta")
+                oddaljene = _slike.prenesi_slike(naslovi, vnos, je_blokirano,
+                                                 posrednik=posrednik or _slike.posrednik_okolja)
+            else:
+                oddaljene = {}
+        html, skritih = predogled_datotek.html_pisma(vsebina, cid, jezik, oddaljene)
+        return {"html": html, "skritih": skritih, "posiljatelj": posiljatelj, "prikazane": prikazane}
+
+    # ---- »Vedno prikazi slike od …« (lokalno, po naslovu posiljatelja; preklic v podoknu osebe)
+    @property
+    def slike_od(self) -> "_slike.DovoljeniPosiljatelji":
+        if getattr(self, "_slike_od", None) is None:
+            self._slike_od = _slike.DovoljeniPosiljatelji(str(Path(self.storitev.pot).with_name("slike_posiljateljev.json")))
+        return self._slike_od
+
+    def html_posiljatelj(self, kanal_id: str, sporocilo_id: str) -> str:
+        s = self.storitev.sporocilo(str(kanal_id), str(sporocilo_id))
+        return str(s.pogovor_id) if s is not None and s.smer == "noter" and "@" in str(s.pogovor_id) else ""
+
+    def nastavi_slike_od(self, naslov: str, dovoli: bool) -> list:
+        return self.slike_od.nastavi(str(naslov), bool(dovoli))
 
     def isci(self, niz: str) -> list:
         n = str(niz).casefold().strip()

@@ -265,6 +265,7 @@ class LazniHttp(ThreadingHTTPServer):
     def __init__(self, obravnava):
         self.pogoj = threading.Condition()
         self.dogodki, self.zahteve, self.poslano, self.napake, self.napake_posiljanja = [], [], {}, [], []
+        self.nalozeno = []
         self.obravnava = obravnava
         super().__init__(("127.0.0.1", 0), _HttpObravnava)
         threading.Thread(target=self.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
@@ -307,6 +308,12 @@ def _matrix_obravnava(h, metoda, telo):
     srv.zahteve.append((metoda, deli.path, q))
     if srv.napake:
         return h._odgovori(srv.napake.pop(0), {"errcode": "M_UNKNOWN"})
+    if deli.path.endswith("/_matrix/media/v3/upload"):
+        with srv.pogoj:
+            srv.nalozeno.append((q.get("filename"), len(telo)))
+        return h._odgovori(200, {"content_uri": "mxc://lokalno/d%d" % len(srv.nalozeno)})
+    if "/state/m.room.encryption" in deli.path or "/media/" in deli.path:
+        return h._odgovori(404, {"errcode": "M_NOT_FOUND"})       # nesifrirana soba; meja nalaganja privzeta
     if deli.path.endswith("/account/whoami"):
         return h._odgovori(200, {"user_id": "@jaz:lokalno"})
     if "/send/m.room.message/" in deli.path:
@@ -318,7 +325,8 @@ def _matrix_obravnava(h, metoda, telo):
             return h._odgovori(srv.napake_posiljanja.pop(0), {"errcode": "M_UNKNOWN"})
         with srv.pogoj:
             if txn not in srv.poslano:               # isti txn = isti dogodek (idempotentno kot Synapse)
-                srv.poslano[txn] = json.loads(telo)["body"]
+                vsebina = json.loads(telo)
+                srv.poslano[txn] = vsebina["body"] if vsebina.get("msgtype") == "m.text" else ("datoteka", vsebina["body"])
         return h._odgovori(200, {"event_id": "$" + txn})
     if deli.path.endswith("/sync"):
         od = int(q.get("since") or 0)
@@ -692,5 +700,69 @@ def test_znacka_eposte_enaka_strezniku_ne_samo_predpomnilniku(lokalno, baza):
         st.oznaci_prebrano("e1", "o249@example.test")       # prebrano tukaj: znacka takoj, streznik potrdi
         assert st.neprebrano_po_kanalih()["e1"] == 249
         assert _cakaj(lambda: st.neprebrano_skupaj() == 249, 3.0)
+    finally:
+        st.zapri(); srv.ustavi()
+
+
+def test_odhodna_vrsta_s_prilogo(baza, tmp_path):
+    """Sporocilo s prilogo brez povezave: v pogovoru takoj s prilogo (lokalno), ob vrnitvi povezave enkrat poslano."""
+    datoteka = tmp_path / "porocilo.pdf"
+    datoteka.write_bytes(b"%PDF-1.4 preizkus" * 100)
+    srv = LazniHttp(_matrix_obravnava)
+    st = StoritevSporocil(baza)
+    try:
+        a = MatrixAdapter("m1", srv.url, "ZETON-PREIZKUS")
+        st.registriraj(Kanal("m1", "matrix", "Matrix", "nepovezan"), a, {})
+        st.sinhroniziraj("m1")
+        pravi, a.streznik = a.streznik, "http://127.0.0.1:9"
+        s = st.poslji("m1", "!soba:lokalno", "Priloga", [{"pot": str(datoteka)}])
+        assert s.stanje == "caka"
+        caka = [x for x in st.sporocila("m1", "!soba:lokalno") if x.stanje == "caka"][0]
+        assert caka.priponke[0]["ime"] == "porocilo.pdf" and caka.priponke[0]["lokalno"] == str(datoteka)
+        assert json.loads(st.cakajoca("m1")[0]["priponke"]) == [{"pot": str(datoteka)}]
+        a.streznik = pravi
+        st.sinhroniziraj("m1")
+        assert srv.nalozeno == [("porocilo.pdf", 1700)]
+        assert sorted(map(str, srv.poslano.values())) == sorted(["Priloga", str(("datoteka", "porocilo.pdf"))])
+        assert st.cakajoca("m1") == []
+        # Priloga, ki je pred vrnitvijo povezave izginila: sporocilo je »ni poslano«, vrsta ni zablokirana.
+        a.streznik = "http://127.0.0.1:9"
+        izgubljena = tmp_path / "izgubljena.txt"; izgubljena.write_text("x")
+        st.poslji("m1", "!soba:lokalno", "", [{"pot": str(izgubljena)}])
+        st.poslji("m1", "!soba:lokalno", "Za njo")
+        izgubljena.unlink()
+        a.streznik = pravi
+        st.sinhroniziraj("m1")
+        assert st.cakajoca("m1") == []
+        stanja = {(x.besedilo, x.stanje) for x in st.sporocila("m1", "!soba:lokalno") if x.smer == "ven"}
+        assert ("", "napaka") in stanja and ("Za njo", "poslano") in stanja and ("Priloga", "poslano") in stanja
+    finally:
+        st.zapri(); srv.ustavi()
+
+
+def test_dolgo_pismo_s_priponko_prenese_samo_del_z_besedilom(lokalno, baza):
+    """Celotno besedilo po delih (BODYSTRUCTURE): 1 MB priponke pred besedilom se ne prenasa znova."""
+    import base64
+    besedilo = ("Dolga vrstica %05d.\r\n" * 5000) % tuple(range(5000))
+    priponka = base64.encodebytes(b"\0" * 750000).replace(b"\n", b"\r\n")
+    surovo = (b"From: Ana <ana@example.test>\r\nTo: jaz@example.test\r\nSubject: Dolgo\r\n"
+              b"Date: Thu, 15 Oct 2026 10:00:00 +0000\r\nMessage-ID: <dolgo@example.test>\r\nMIME-Version: 1.0\r\n"
+              b'Content-Type: multipart/mixed; boundary="MEJA"\r\n\r\n'
+              b'--MEJA\r\nContent-Type: application/octet-stream\r\nContent-Transfer-Encoding: base64\r\n'
+              b'Content-Disposition: attachment; filename="velika.bin"\r\n\r\n' + priponka + b"\r\n"
+              b"--MEJA\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n" + besedilo.encode() + b"\r\n--MEJA--\r\n")
+    srv = LazniImap()
+    srv.nabiralnik.dodaj(surovo)
+    st = StoritevSporocil(baza)
+    try:
+        _email_kanal(st, srv)
+        st.sinhroniziraj("e1")
+        assert _besedila(st)[0].startswith("Dolga vrstica 00000.") and not _besedila(st)[0].rstrip().endswith("04999.")
+        n = len(srv.nabiralnik.ukazi)
+        assert st.dopolni_besedila("e1", ["uid:1"]) == 1
+        assert _besedila(st)[0].rstrip().endswith("04999.")
+        novi = srv.nabiralnik.ukazi[n:]
+        assert any("BODY.PEEK[2]" in u for u in novi)
+        assert not any("BODY.PEEK[1]" in u or "BODY.PEEK[]" in u for u in novi)   # priponke ne prenasamo
     finally:
         st.zapri(); srv.ustavi()

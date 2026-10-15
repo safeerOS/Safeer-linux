@@ -2,7 +2,8 @@
 
 Pogovor je oseba (njen e-naslov), ne posamezno pismo: vsa pisma z isto osebo so ena nit, kot v
 klepetu. Pisma beremo z BODY.PEEK, zato jih sinhronizacija NE oznaci kot prebrana; prenesemo le
-nova pisma (UID vecji od zadnjega) in iz vsakega najvec prvih 64 KB - lahko za pomnilnik in omrezje.
+nova pisma (UID vecji od zadnjega) in iz vsakega najvec prvih 64 KB - lahko za pomnilnik in omrezje. Priponke pove
+zgradba pisma (BODYSTRUCTURE) ne glede na velikost; prenese se samo del, ki ga uporabnik odpre (core/sporocila/priponke.py).
 """
 
 from __future__ import annotations
@@ -16,14 +17,18 @@ import imaplib
 import re
 import smtplib
 import ssl
+import threading
+from contextlib import contextmanager
 from typing import Callable, Dict, Iterable, List, Optional, Sequence
 
 from .adapter import Adapter
 from .model import Pogovor, Sporocilo
 from . import skrivnosti
+from . import priponke as _priponke_mod
 
 PRVIC_NAJVEC = 200        # ob prvi povezavi zadnjih 200 pisem
 NAJVEC_BAJTOV = 65536     # iz vsakega pisma prvih 64 KB (besedilo, ne priponke)
+MAPA = "INBOX"
 CASOVNA_OMEJITEV = 20
 
 
@@ -120,6 +125,7 @@ def telo_pisma(msg) -> str:
 
 
 def _priponke(msg) -> List[dict]:
+    """Rezerva za streznik brez BODYSTRUCTURE: samo priponke v prebranem delu pisma (brez stevilke dela)."""
     out = []
     for d in msg.walk():
         if d.get_content_disposition() == "attachment":
@@ -127,9 +133,20 @@ def _priponke(msg) -> List[dict]:
     return out
 
 
+def _besedilo_dela(surovo: bytes, opis: dict) -> str:
+    """Besedilo dela (BODY.PEEK[<del>]) v pravem kodiranju in naboru znakov."""
+    podatki = _priponke_mod.dekodiraj(surovo or b"", opis.get("kodiranje", ""))
+    nabor = (opis.get("charset") or "utf-8").strip().lower() or "utf-8"
+    try:
+        return podatki.decode(nabor, "replace")
+    except LookupError:
+        return podatki.decode("utf-8", "replace")
+
+
 class EmailAdapter(Adapter):
     vrsta = "email"
-    zmore = {"poslji"}
+    zmore = {"poslji", "priloge"}
+    MAPA_PRIPONK = MAPA
 
     def __init__(self, kanal_id: str, naslov: str, imap_streznik: str, smtp_streznik: str,
                  imap_vrata: int = 993, smtp_vrata: int = 465, uporabnik: str = "",
@@ -150,6 +167,11 @@ class EmailAdapter(Adapter):
         # Sporocila zadnje sinhronizacije po osebi (storitev jih shrani v bazo).
         self._nova: Dict[str, List[Sporocilo]] = {}
         self._zadnja_niti: Dict[str, dict] = {}   # oseba -> {"zadeva", "message_id", "uidi"}
+        # Povezava za prenos priponk (lastna: glavno povezavo uporablja sinhronizacija v drugi niti).
+        self._prenosna: Optional[imaplib.IMAP4_SSL] = None
+        self._prenosna_klj = threading.Lock()
+        #: UIDVALIDITY mape ob zadnji sinhronizaciji (kljuc predpomnilnika priponk; nova vrednost = stari UID-ji ne veljajo).
+        self.uidvalidity_priponk = ""
 
     # --------------------------------------------------------------- skrivnost
     @property
@@ -264,9 +286,10 @@ class EmailAdapter(Adapter):
             pass
         return "UIDPLUS" in {str(z).upper() for z in zmoznosti}
 
-    def shrani_osnutek(self, za: str, zadeva: str, besedilo: str, prejsnji_mid: str = "") -> str:
+    def shrani_osnutek(self, za: str, zadeva: str, besedilo: str, prejsnji_mid: str = "",
+                       priloge: Sequence[dict] = ()) -> str:
         """Osnutek tudi v mapo Osnutki na strezniku (Gmail na telefonu ga vidi in lahko poslje). Vrne Message-ID;
-        prejsnja razlicica istega osnutka se odstrani."""
+        prejsnja razlicica istega osnutka se odstrani. Priloge gredo zraven, da jih ima tudi osnutek na telefonu."""
         msg = EmailMessage()
         msg["From"] = self.naslov
         if za:
@@ -275,6 +298,10 @@ class EmailAdapter(Adapter):
         msg["Message-ID"] = make_msgid(domain=self.naslov.split("@")[-1] or None)
         msg["Date"] = datetime.now(timezone.utc)
         msg.set_content(besedilo or "")
+        try:
+            _priponke_mod.dodaj_priloge(msg, priloge)
+        except ValueError:
+            pass          # prevelike ali izginule priloge: osnutek brez njih (na tem racunalniku ostanejo v osnutku)
         imap = self._locena_povezava()
         try:
             mapa = self._mapa_osnutkov(imap)
@@ -331,6 +358,161 @@ class EmailAdapter(Adapter):
             except Exception:
                 pass
             self._imap = None
+        with self._prenosna_klj:
+            if self._prenosna is not None:
+                try:
+                    self._prenosna.logout()
+                except Exception:
+                    pass
+                self._prenosna = None
+
+    # --------------------------------------------------------------- priponke (prenos enega dela)
+    @contextmanager
+    def _povezava_prenosa(self):
+        """Povezava z izbranim INBOX samo za branje (EXAMINE: prenos ne spremeni oznak). Ce jo ze uporablja drug
+        prenos (velika priponka), dobi ta svojo kratko povezavo - slicica ne caka na konec prenosa."""
+        if self._prenosna_klj.acquire(blocking=False):
+            try:
+                imap = self._prenosna
+                if imap is not None:
+                    try:
+                        if imap.noop()[0] != "OK":
+                            imap = None
+                    except Exception:  # noqa: BLE001
+                        imap = None
+                if imap is None:
+                    imap = self._locena_povezava()
+                    if imap.select(MAPA, readonly=True)[0] != "OK":
+                        raise RuntimeError("Mape ni mogoce odpreti")
+                    self._prenosna = imap
+                try:
+                    yield imap
+                except (imaplib.IMAP4.abort, OSError):
+                    self._prenosna = None
+                    raise
+            finally:
+                self._prenosna_klj.release()
+            return
+        imap = self._locena_povezava()
+        try:
+            if imap.select(MAPA, readonly=True)[0] != "OK":
+                raise RuntimeError("Mape ni mogoce odpreti")
+            yield imap
+        finally:
+            try:
+                imap.logout()
+            except Exception:  # noqa: BLE001
+                pass
+
+    @staticmethod
+    def _uidvalidity(imap) -> str:
+        """UIDVALIDITY izbrane mape: iz odgovora na SELECT/EXAMINE, sicer STATUS. "" ce je streznik ne pove."""
+        try:
+            v = (getattr(imap, "untagged_responses", None) or {}).get("UIDVALIDITY")
+            v = v[-1] if isinstance(v, list) and v else v
+            if isinstance(v, (bytes, str)):
+                v = v.decode("ascii", "replace") if isinstance(v, bytes) else v
+                if v.strip().isdigit():
+                    return v.strip()
+            status, odg = imap.status(MAPA, "(UIDVALIDITY)")
+            if status == "OK" and odg and isinstance(odg[0], (bytes, str)):
+                m = re.search(r"UIDVALIDITY (\d+)", odg[0].decode("ascii", "replace") if isinstance(odg[0], bytes) else odg[0])
+                if m:
+                    return m.group(1)
+        except Exception:  # noqa: BLE001
+            pass
+        return ""
+
+    @staticmethod
+    def uid_sporocila(sporocilo_id: str) -> int:
+        if not str(sporocilo_id).startswith("uid:"):
+            raise ValueError("ni_na_strezniku")       # poslano iz Safeerja: priloga je na tem racunalniku
+        return int(str(sporocilo_id)[4:])
+
+    def zgradba_pisma(self, uid: int) -> dict:
+        """BODYSTRUCTURE enega pisma (za priponke, shranjene pred 15. 10. 2026 brez stevilke dela)."""
+        with self._povezava_prenosa() as imap:
+            status, podatki = imap.uid("fetch", str(int(uid)), "(UID BODYSTRUCTURE)")
+        if status == "OK":
+            for odg in _priponke_mod.razcleni_fetch(podatki):
+                if isinstance(odg.get("BODYSTRUCTURE"), list):
+                    return _priponke_mod.zgradba(odg["BODYSTRUCTURE"])
+        raise RuntimeError("ni_pisma")
+
+    def prenesi_del(self, uid: int, del_: str, kodiranje: str, pisi: Callable[[bytes], None],
+                    napredek: Optional[Callable[[int], None]] = None, uidvalidity: str = "") -> int:
+        """Prenese en del pisma po kosih (BODY.PEEK[del]<odmik.dolzina>), sproti dekodira in poda pisi(); vrne
+        stevilo zapisanih bajtov. napredek(prenesenih kodiranih bajtov) po vsakem kosu. uidvalidity: ce jo ima mapa
+        zdaj drugo, UID ne pomeni vec istega pisma - prenos se zavrne (ni_pisma)."""
+        if not re.fullmatch(r"\d+(\.\d+)*", str(del_ or "")):
+            raise ValueError("ni_dela")
+        dek = _priponke_mod.Dekodirnik(kodiranje)
+        zapisano, odmik = 0, 0
+        with self._povezava_prenosa() as imap:
+            if uidvalidity:
+                zdaj = self._uidvalidity(imap)
+                if zdaj and zdaj != str(uidvalidity):
+                    raise RuntimeError("ni_pisma")
+            while odmik < _priponke_mod.NAJVEC_DEL:
+                status, podatki = imap.uid("fetch", str(int(uid)), "(BODY.PEEK[%s]<%d.%d>)"
+                                           % (del_, odmik, _priponke_mod.KOS_PRENOSA))
+                if status != "OK":
+                    raise RuntimeError("ni_pisma")
+                kos = None
+                for odg in _priponke_mod.razcleni_fetch(podatki):
+                    kos = _priponke_mod.vsebina_dela(odg)
+                    if kos is not None:
+                        break
+                if kos is None:
+                    if odmik == 0:
+                        raise RuntimeError("ni_pisma")      # pismo je bilo izbrisano ali premaknjeno
+                    break
+                odmik += len(kos)
+                izhod = dek.vnesi(kos)
+                if izhod:
+                    pisi(izhod)
+                    zapisano += len(izhod)
+                if napredek is not None:
+                    napredek(odmik)
+                if len(kos) < _priponke_mod.KOS_PRENOSA:
+                    break
+        konec = dek.koncaj()
+        if konec:
+            pisi(konec)
+            zapisano += len(konec)
+        return zapisano
+
+    def prenesi_priponko(self, sporocilo_id: str, priponka: dict, pisi: Callable[[bytes], None],
+                         napredek: Optional[Callable[[int], None]] = None) -> int:
+        uid = self.uid_sporocila(sporocilo_id)
+        del_, kodiranje = str(priponka.get("del") or ""), str(priponka.get("kodiranje") or "")
+        if not del_:
+            # Priponka iz starejse sinhronizacije (brez stevilke dela): poiscemo jo po imenu in vrsti.
+            for p in self.zgradba_pisma(uid)["priponke"]:
+                if p["ime"] == priponka.get("ime") and (not priponka.get("tip") or p["tip"] == priponka.get("tip")):
+                    del_, kodiranje = p["del"], p["kodiranje"]
+                    break
+            if not del_:
+                raise RuntimeError("ni_pisma")
+        return self.prenesi_del(uid, del_, kodiranje, pisi, napredek, str(priponka.get("uidvalidity") or ""))
+
+    def html_pisma(self, sporocilo_id: str, del_: str) -> str:
+        """HTML telo pisma (do 2 MB) za pogled s slikami v vrstici."""
+        uid = self.uid_sporocila(sporocilo_id)
+        zg = self.zgradba_pisma(uid)
+        opis = zg.get("html") or {}
+        if not opis or (del_ and opis.get("del") != del_):
+            raise RuntimeError("ni_pisma")
+        deli: List[bytes] = []
+        velikost = [0]
+
+        def pisi(b: bytes) -> None:
+            velikost[0] += len(b)
+            if velikost[0] > 2 * 1024 * 1024:
+                raise ValueError("prevelik")
+            deli.append(b)
+        self.prenesi_del(uid, opis["del"], "", pisi)
+        return _besedilo_dela(b"".join(deli), opis)
 
     # --------------------------------------------------------------- branje
     def _nova_pisma(self):
@@ -346,26 +528,49 @@ class EmailAdapter(Adapter):
         if not self.zadnji_uid:
             uidi = uidi[-PRVIC_NAJVEC:]
         pisma = []
+        uidv = self._uidvalidity(self._imap)
+        if uidv:
+            self.uidvalidity_priponk = uidv
         for i in range(0, len(uidi), 25):
             skupina = ",".join(str(u) for u in uidi[i:i + 25])
-            status, podatki = self._imap.uid("fetch", skupina, "(UID FLAGS BODY.PEEK[]<0.%d>)" % NAJVEC_BAJTOV)
+            # BODYSTRUCTURE: priponke in deli pisma ne glede na velikost (prvih 64 KB jih pogosto nima).
+            status, podatki = self._imap.uid("fetch", skupina, "(UID FLAGS BODYSTRUCTURE BODY.PEEK[]<0.%d>)" % NAJVEC_BAJTOV)
             if status != "OK":
                 continue
-            for kos in podatki or []:
-                if not isinstance(kos, tuple) or len(kos) < 2:
-                    continue
-                glava = kos[0].decode("utf-8", "replace") if isinstance(kos[0], bytes) else str(kos[0])
-                m = re.search(r"UID (\d+)", glava)
-                if not m:
-                    continue
-                pisma.append((int(m.group(1)), "\\Seen" in glava, message_from_bytes(kos[1], policy=policy.default)))
+            for odg_ in _priponke_mod.razcleni_fetch(podatki):
+                try:
+                    uid = int(str(odg_.get("UID") or ""))
+                except ValueError:
+                    continue                      # nenaroceni FETCH (sprememba oznak) nima UID
+                zastavice = odg_.get("FLAGS") or []
+                prebrano = any(str(z).lower() == "\\seen" for z in zastavice) if isinstance(zastavice, list) else False
+                surovo = _priponke_mod.vsebina_dela(odg_) or b""
+                bs = odg_.get("BODYSTRUCTURE")
+                zg = _priponke_mod.zgradba(bs) if isinstance(bs, list) else None
+                for pr in (zg or {}).get("priponke", []):
+                    pr["mapa"], pr["uidvalidity"] = MAPA, uidv       # kljuc predpomnilnika in preverba ob prenosu
+                pisma.append((uid, prebrano, message_from_bytes(surovo, policy=policy.default), zg))
         return pisma
+
+    def _telo_iz_dela(self, uid: int, opis: dict) -> str:
+        """Besedilo pisma, ki ga ni v prvih 64 KB (pred njim je velika priponka ali dolga glava): samo ta del."""
+        try:
+            status, podatki = self._imap.uid("fetch", str(uid), "(BODY.PEEK[%s]<0.%d>)" % (opis["del"], NAJVEC_BAJTOV))
+            if status != "OK":
+                return ""
+            for odg_ in _priponke_mod.razcleni_fetch(podatki):
+                surovo = _priponke_mod.vsebina_dela(odg_)
+                if surovo:
+                    return _besedilo_dela(surovo, opis)
+        except Exception:  # noqa: BLE001 - brez besedila pismo ostane (s priponkami)
+            pass
+        return ""
 
     def pogovori(self, od: Optional[str] = None) -> Iterable[Pogovor]:
         self._nova = {}
         pogovori: Dict[str, Pogovor] = {}
         lasten = self.naslov.casefold()
-        for uid, prebrano, msg in sorted(self._nova_pisma(), key=lambda x: x[0]):
+        for uid, prebrano, msg, zg in sorted(self._nova_pisma(), key=lambda x: x[0]):
             self.zadnji_uid = max(self.zadnji_uid, uid)
             od_koga = parseaddr(str(msg.get("From", "")))
             komu = parseaddr(str(msg.get("To", "")))
@@ -375,15 +580,24 @@ class EmailAdapter(Adapter):
             zadeva = _glava(msg.get("Subject"))
             cas = _cas(msg)
             besedilo = telo_pisma(msg)
+            if not besedilo and zg:
+                if zg.get("besedilo"):
+                    besedilo = _brez_citata(self._telo_iz_dela(uid, zg["besedilo"]).strip())
+                elif zg.get("html"):
+                    besedilo = _brez_citata(_brez_html(self._telo_iz_dela(uid, zg["html"])))
             mid = str(msg.get("Message-ID") or "").strip()
-            s = Sporocilo("uid:%d" % uid, oseba, "ven" if moje else "noter", besedilo, cas, _priponke(msg),
-                          "poslano" if moje else ("prebrano" if prebrano else "prejeto"))
+            s = Sporocilo("uid:%d" % uid, oseba, "ven" if moje else "noter", besedilo, cas,
+                          zg["priponke"] if zg is not None else _priponke(msg),
+                          "poslano" if moje else ("prebrano" if prebrano else "prejeto"),
+                          (zg.get("html") or {}).get("del", "") if zg is not None else "")
             self._nova.setdefault(oseba, []).append(s)
             nit = self._zadnja_niti.setdefault(oseba, {"uidi": []})
             nit.update({"zadeva": zadeva, "message_id": mid, "ime": _glava(ime)})
             nit["uidi"].append(uid)
             p = pogovori.get(oseba) or Pogovor(oseba, self.kanal_id, oseba, zadeva, "", 0, cas)
-            p.zadeva, p.zadnje_sporocilo, p.cas = zadeva, besedilo.replace("\n", " ")[:240], cas
+            prave = [a["ime"] for a in s.priponke if not a.get("inline")]
+            povzetek = besedilo.replace("\n", " ").strip() or ("📎 " + ", ".join(prave) if prave else "")
+            p.zadeva, p.zadnje_sporocilo, p.cas = zadeva, povzetek[:240], cas
             if not moje and not prebrano:
                 p.neprebrano += 1
             pogovori[oseba] = p
@@ -399,7 +613,9 @@ class EmailAdapter(Adapter):
     # --------------------------------------------------------------- pisanje
     def poslji(self, pogovor_id: str, besedilo: str,
                priponke: Sequence[dict] = (), zadeva_nova: str = "", idem: str = "") -> Sporocilo:
-        """Odgovor v zadnji niti z osebo; zadeva_nova: novo sporocilo (nova nit s to zadevo, brez In-Reply-To)."""
+        """Odgovor v zadnji niti z osebo; zadeva_nova: novo sporocilo (nova nit s to zadevo, brez In-Reply-To).
+        priponke: [{"pot": datoteka}] - skupaj najvec 25 MB (ValueError »priloge_prevelike«).
+        idem: Message-ID iz odhodne vrste (ponovitev nosi istega)."""
         prejemnik = pogovor_id if "@" in pogovor_id else ""
         if not prejemnik:
             raise ValueError("Ni naslova prejemnika")
@@ -417,6 +633,8 @@ class EmailAdapter(Adapter):
         # idem: Message-ID iz cakalne vrste (ponovljen poskus nosi isti Message-ID - prejemnik dvojnika ne pokaze).
         msg["Message-ID"] = idem or make_msgid(domain=self.naslov.rsplit("@", 1)[-1] or None)
         msg.set_content(besedilo)
+        # Pred povezavo: prevelike ali manjkajoce priloge zavrnemo, preden kaj gre na streznik.
+        opis_prilog = _priponke_mod.dodaj_priloge(msg, priponke)
         kontekst = ssl.create_default_context()
         # 587 in 25 = STARTTLS, vse drugo (465 in nestandardna vrata) = neposreden TLS.
         if self.smtp_vrata not in (587, 25):
@@ -449,7 +667,7 @@ class EmailAdapter(Adapter):
             # Odgovor na to sporocilo (iz te aplikacije) nadaljuje novo nit.
             prej = self._zadnja_niti.get(pogovor_id) or {}
             self._zadnja_niti[pogovor_id] = dict(prej, zadeva=zadeva_nova.strip(), message_id=str(msg["Message-ID"]))
-        return Sporocilo("mid:" + str(msg["Message-ID"]).strip("<>"), pogovor_id, "ven", besedilo, cas, [], "poslano")
+        return Sporocilo("mid:" + str(msg["Message-ID"]).strip("<>"), pogovor_id, "ven", besedilo, cas, opis_prilog, "poslano")
 
     def oznaci_prebrano(self, pogovor_id: str) -> None:
         uidi = (self._zadnja_niti.get(pogovor_id) or {}).get("uidi") or []
@@ -476,7 +694,8 @@ class EmailAdapter(Adapter):
         """UIDVALIDITY iz odgovora na SELECT (imaplib ga hrani v untagged_responses do prvega branja). Drugacna
         vrednost: streznik je mapo na novo ostevilcil - brez te preveritve bi nova pisma z nizjimi UID-ji za vedno
         ostala neopazena (zadnji_uid je ze visji). Znano zacnemo znova; storitev zavrze stara pisma kanala."""
-        odg = (getattr(self._imap, "untagged_responses", None) or {}).pop("UIDVALIDITY", None)
+        # .get, ne .pop: isti odgovor bere tudi _uidvalidity (kljuc predpomnilnika priponk) - brez dodatnega STATUS.
+        odg = (getattr(self._imap, "untagged_responses", None) or {}).get("UIDVALIDITY")
         try:
             vrednost = int((odg or [b"0"])[-1])
         except (TypeError, ValueError):

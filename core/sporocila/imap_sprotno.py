@@ -21,7 +21,6 @@ import socket
 import ssl
 import threading
 import time
-from email import message_from_bytes, policy
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 #: Ponovni IDLE vsaj na 25 min (RFC 2177: streznik sme po 30 min neaktivnosti prekiniti; priporocilo 29 min).
@@ -371,33 +370,51 @@ def neprebrano_na_strezniku(adapter) -> Optional[int]:
 
 def polna_besedila(adapter, uidi: Iterable[int]) -> Dict[int, Optional[str]]:
     """Celotno besedilo pisem, ki so bila ob sinhronizaciji prirezana na 64 KB. {uid: besedilo} za prirezana,
-    {uid: None} za pisma, ki so ze cela (ni kaj prenesti). Pisem, ki jih streznik nima vec, ni v izidu."""
-    from .email import telo_pisma
+    {uid: None} za pisma, ki so ze cela (ni kaj prenesti). Pisem, ki jih streznik nima vec, ni v izidu.
+
+    Po delih (BODYSTRUCTURE): prenese se samo del z besedilom (text/plain, sicer text/html) do CELOTNO_NAJVEC,
+    nikoli priponke - pismo z 20 MB priponko pomeni le nekaj KB prenosa."""
+    from . import priponke as _priponke_mod
+    from .email import _besedilo_dela, _brez_citata, _brez_html
     uidi = sorted(set(int(u) for u in uidi))
     if not uidi:
         return {}
     adapter.povezi()
     imap = adapter._imap
-    status, podatki = imap.uid("fetch", _obmocja(uidi), "(UID RFC822.SIZE)")
+    status, podatki = imap.uid("fetch", _obmocja(uidi), "(UID RFC822.SIZE BODYSTRUCTURE)")
     if status != "OK":
         return {}
-    velikosti = {}
-    for v in _odgovori_fetch(podatki):
-        m, n = re.search(rb"UID (\d+)", v), re.search(rb"RFC822\.SIZE (\d+)", v)
-        if m and n:
-            velikosti[int(m.group(1))] = int(n.group(1))
     izid: Dict[int, Optional[str]] = {}
-    for uid, velikost in velikosti.items():
-        if velikost <= PRIREZANO_NAD:
+    for odg in _priponke_mod.razcleni_fetch(podatki):
+        try:
+            uid = int(str(odg.get("UID") or ""))
+            velikost = int(str(odg.get("RFC822.SIZE") or "0"))
+        except ValueError:
+            continue
+        bs = odg.get("BODYSTRUCTURE")
+        zg = _priponke_mod.zgradba(bs) if isinstance(bs, list) else {}
+        opis = zg.get("besedilo") or zg.get("html")
+        # Celo: majhno pismo, brez besedila, ali del z besedilom, ki je ze v celoti prisel s prvimi 64 KB.
+        if velikost <= PRIREZANO_NAD or not opis or 0 < int(opis.get("velikost") or 0) <= PRIREZANO_NAD // 2:
             izid[uid] = None
             continue
-        status, podatki = imap.uid("fetch", str(uid), "(BODY.PEEK[]<0.%d>)" % CELOTNO_NAJVEC)
-        if status != "OK":
-            continue
-        for kos in podatki or []:
-            if isinstance(kos, tuple) and len(kos) >= 2:
-                izid[uid] = telo_pisma(message_from_bytes(kos[1], policy=policy.default))
-                break
+        deli: List[bytes] = []
+        dolzina = [0]
+
+        def pisi(b: bytes, deli=deli, dolzina=dolzina) -> None:
+            dolzina[0] += len(b)
+            if dolzina[0] > CELOTNO_NAJVEC:
+                raise OverflowError
+            deli.append(b)
+        try:
+            adapter.prenesi_del(uid, opis["del"], "", pisi)
+        except OverflowError:
+            pass                                      # zelo dolgo besedilo: prvih CELOTNO_NAJVEC je dovolj
+        except RuntimeError:
+            continue                                  # pismo je medtem izginilo
+        besedilo = _besedilo_dela(b"".join(deli), opis)
+        izid[uid] = _brez_citata(_brez_html(besedilo) if opis is zg.get("html") and not zg.get("besedilo")
+                                 else besedilo.strip())
     return izid
 
 
