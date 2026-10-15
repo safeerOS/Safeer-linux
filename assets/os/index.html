@@ -807,6 +807,21 @@
     <div class="gumbi"><button type="button" class="gumb" id="mediaOdkrijDlna" data-t="katOdkrijDlna"></button><button type="button" class="gumb" id="katViriZapri" data-t="zapri"></button></div>
   </div>
 </div>
+<!-- Vticniki strežnika Jellyfin (core/jellyfin_vticniki.py): tecejo na uporabnikovem strežniku, Safeer jih le upravlja. -->
+<div class="sloj" id="slojJellyfin"><div class="tancica"></div>
+  <div class="plosca kat-viri-plosca jf-plosca" role="dialog" aria-modal="true" aria-labelledby="jfNaslov" aria-describedby="jfOpis">
+    <span class="media-kicker">SAFEER MEDIA · JELLYFIN</span>
+    <h3 id="jfNaslov" data-t="jfVticniki"></h3>
+    <p class="drobno" id="jfOpis" data-t="jfOpis"></p>
+    <div class="jf-zagon" id="jfZagon" hidden>
+      <p id="jfZagonBesedilo" data-t="jfPotrebenZagon"></p>
+      <button type="button" class="gumb glavni" id="jfZagonGumb"><svg data-ikona="ponovno"></svg><span data-t="jfZazeniZnova"></span></button>
+    </div>
+    <p class="drobno kat-vir-sporocilo" id="jfSporocilo" aria-live="polite"></p>
+    <div class="jf-vsebina" id="jfVsebina"></div>
+    <div class="gumbi"><button type="button" class="gumb" id="jfOsvezi"><svg data-ikona="ponovno"></svg><span data-t="katOsvezi"></span></button><button type="button" class="gumb" id="jfZapri" data-t="zapri"></button></div>
+  </div>
+</div>
 <div id="obvestilo"></div>
 <script src="besedila.js"></script>
 <script src="izhod.js"></script>
