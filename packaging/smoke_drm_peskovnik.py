@@ -68,11 +68,16 @@ def procesi(lastni_mnt: str) -> dict:
             try:
                 with open(f"/proc/{pid}/status", encoding="utf-8") as f:
                     polja = dict(v.split(":", 1) for v in f.read().splitlines() if ":" in v)
-                mnt = os.readlink(f"/proc/{pid}/ns/mnt")
             except OSError:
                 continue
+            # /proc/PID/ns je za proces strani nedosegljiv (Chromium ga oznaci kot ne-dumpable; CI 15. 10. 2026) -
+            # tudi to je znak peskovnika. Ce je berljiv, mora biti imenski prostor mount drug kot nas.
+            try:
+                svoj_mnt = os.readlink(f"/proc/{pid}/ns/mnt") != lastni_mnt
+            except OSError:
+                svoj_mnt = True
             izid["renderji"].append((int(pid), polja.get("Seccomp", "?").strip(), polja.get("NoNewPrivs", "?").strip(),
-                                     mnt != lastni_mnt))
+                                     svoj_mnt))
     return izid
 
 
