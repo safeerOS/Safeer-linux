@@ -33,9 +33,10 @@ class LazniProc:
     def odstrani(self, pid):
         shutil.rmtree(os.path.join(self.koren, str(pid)), ignore_errors=True)
 
-    def proc(self):
+    def proc(self, flatpak=False):
         pr = p.Proc(self.koren)
         pr.hz = 100
+        pr.flatpak = flatpak
         return pr
 
 
@@ -291,36 +292,42 @@ class Poraba(unittest.TestCase):
 
 
 class Flatpak(unittest.TestCase):
-    """Zivi preizkus 15. 10. 2026 (Flatpak Safeer OS, WhatsApp): sonda ni nasla procesa kanala. V Flatpaku WebKit zazene
-    spletne procese prek portala (podpeskovnik): v nasem imenskem prostoru procesov so vidni, a niso nasi potomci -
-    njihov bwrap ima starsa 0. Lazni /proc to posnema."""
+    """Zivi preizkus 15. 10. 2026 (Flatpak Safeer OS, WhatsApp): sonda ni nasla procesa kanala. Pravo drevo s testnega PC
+    (pid ppid comm v nasem imenskem prostoru procesov): spletni procesi niso potomci Safeer OS - zazene jih
+    flatpak-spawn --sandbox, njihov bwrap je otrok pid 1 (bwrap nasega peskovnika). Lazni /proc je to drevo."""
 
     def setUp(self):
         self.l = LazniProc()
         self.addCleanup(shutil.rmtree, self.l.koren, True)
-        self.l.proces(1, 0, "bwrap", 1)                                  # init peskovnika Safeer OS
+        for pid, stars, ime in ((1, 0, "bwrap"), (168, 2, "flatpak-spawn"), (177, 1, "bwrap"), (242, 2, "flatpak-spawn"),
+                                (249, 1, "bwrap"), (269, 2, "flatpak-spawn"), (274, 1, "bwrap"), (364, 2, "flatpak-spawn"),
+                                (379, 1, "bwrap")):
+            self.l.proces(pid, stars, ime, 1)
         self.l.proces(2, 1, "python3", 200 * 1024, 100)                  # Safeer OS
-        self.l.proces(3, 2, "WebKitNetworkPr", 30 * 1024, 5)
-        self.l.proces(40, 0, "bwrap", 1)                                 # podpeskovnik portala (stars ni viden)
-        self.l.proces(41, 40, "WebKitWebProces", 180 * 1024, 300)        # kanal
-        self.l.proces(42, 40, "WebKitWebProces", 20 * 1024, 3)           # servisni delavec
+        self.l.proces(151, 2, "WebKitNetworkPr", 30 * 1024, 5)
+        self.l.proces(178, 177, "WebKitWebProces", 180 * 1024, 300)      # kanal
+        self.l.proces(250, 249, "WebKitWebProces", 20 * 1024, 3)
+        self.l.proces(275, 274, "WebKitWebProces", 20 * 1024, 3)
+        self.l.proces(380, 379, "WebKitWebProces", 20 * 1024, 3)
         self.kanali = _Kanali([{"id": "w", "ime": "WhatsApp", "katalog": "whatsapp",
                                 "url": "https://web.whatsapp.com/", "vklopljen": True}])
         self.glib = _GLib()
-        self.poraba = op.PorabaKanalov(self.glib, self.kanali, lambda: None, proc=self.l.proc(), koren_pid=2)
+        self.poraba = op.PorabaKanalov(self.glib, self.kanali, lambda: None, proc=self.l.proc(flatpak=True), koren_pid=2)
 
     def _kanal(self, pid):
         def ob_sondi():
-            self.l.proces(pid, 40, "WebKitWebProces", 180 * 1024, self.l.proc().tiki(pid) + 25)
+            self.l.proces(pid, 177, "WebKitWebProces", 180 * 1024, self.l.proc().tiki(pid) + 25)
 
         class _A:
             pogled = _Pogled("https://web.whatsapp.com/", ob_sondi)
         return _Z(aplikacija=_A())
 
     def test_procesi_v_podpeskovniku_so_nasi(self):
-        pr = self.l.proc()
-        self.assertEqual(pr.nasi(2, "WebKitWebProces"), ([], [41, 42]))
-        self.assertEqual(pr.nasi(2, "WebKitNetworkPr"), ([3], []))
+        pr = self.l.proc(flatpak=True)
+        self.assertEqual(pr.nasi(2, "WebKitWebProces"), ([], [178, 250, 275, 380]))
+        self.assertEqual(pr.nasi(2, "WebKitNetworkPr"), ([151], []))
+        # Zunaj Flatpaka bi veriga do pid 1 pomenila tuj program: pravilo velja samo tam.
+        self.assertEqual(self.l.proc(flatpak=False).nasi(2, "WebKitWebProces"), ([], []))
 
     def test_tuji_procesi_niso_nasi(self):
         # Zunaj Flatpaka: drug program z WebKitom (veriga do pid 1) ni nas; nasi so potomci.
@@ -328,56 +335,55 @@ class Flatpak(unittest.TestCase):
         self.l.proces(51, 50, "WebKitWebProces", 1)
         self.l.proces(60, 2, "bwrap", 1)
         self.l.proces(61, 60, "WebKitWebProces", 1)
-        self.l.odstrani(40)          # brez podpeskovnika
-        self.l.odstrani(41)
-        self.l.odstrani(42)
-        self.assertEqual(self.l.proc().nasi(2, "WebKitWebProces"), ([61], []))
+        for pid in (177, 178, 249, 250, 274, 275, 379, 380):
+            self.l.odstrani(pid)
+        self.assertEqual(self.l.proc(flatpak=False).nasi(2, "WebKitWebProces"), ([61], []))
 
     def test_sonda_najde_kanal_v_podpeskovniku(self):
-        self.kanali.zivi["w"] = self._kanal(41)
+        self.kanali.zivi["w"] = self._kanal(178)
         self.poraba.sonda("w")
         self.glib.pozeni()
-        self.assertEqual(self.poraba.pid_spleta["w"][0], 41)
+        self.assertEqual(self.poraba.pid_spleta["w"][0], 178)
         r = []
         self.poraba._disk["cas"] = op.time.monotonic()
         self.poraba.porocilo(r.append)
         self.assertEqual(r[0]["kanali"][0]["mem_trenutno"], 180.0)
-        self.assertEqual(r[0]["skupno"]["drugi"]["procesov"], 1, "servisni delavec v vrstici drugih procesov")
+        self.assertEqual(r[0]["skupno"]["drugi"]["procesov"], 3, "ostali spletni procesi v vrstici drugih procesov")
 
     def test_brez_smaps_priblizek_rss(self):
         # Proces v drugem uporabniskem imenskem prostoru: smaps_rollup ni berljiv (ptrace), status je.
-        os.remove(os.path.join(self.l.koren, "41", "smaps_rollup"))
-        with open(os.path.join(self.l.koren, "41", "status"), "w") as f:
+        os.remove(os.path.join(self.l.koren, "178", "smaps_rollup"))
+        with open(os.path.join(self.l.koren, "178", "status"), "w") as f:
             f.write("Name:\tWebKitWebProces\nVmRSS:\t 409600 kB\n")
         self.kanali.zivi["w"] = _Z(aplikacija=object())
-        self.poraba.pid_spleta = {"w": (41, "whatsapp.com")}
+        self.poraba.pid_spleta = {"w": (178, "whatsapp.com")}
         m = self.poraba._vse_meritve({})
         self.assertEqual(m["w"]["mem"], 400.0)
         self.assertTrue(m["w"]["priblizek"], "vmesnik pokaze »≈« in namig")
 
     def test_neuspela_sonda_se_ponovi(self):
-        for pid in (41, 42):
+        for pid in (178, 250, 275, 380):
             self.l.odstrani(pid)       # spletni proces se ni zagnan (kanal se nalaga ob zagonu)
-        self.kanali.zivi["w"] = self._kanal(41)
+        self.kanali.zivi["w"] = self._kanal(178)
         with mock.patch("builtins.print") as izpis:
             self.poraba.sonda("w")
             self.glib.casovniki.pop(0)[1]()          # prva sonda: ni kandidatov
         self.assertNotIn("w", self.poraba.pid_spleta)
         self.assertIn("brez kandidatov", str(izpis.call_args))
         self.assertEqual(self.glib.casovniki[0][0], 5000, "znova cez 5 s")
-        self.l.proces(41, 40, "WebKitWebProces", 180 * 1024, 300)   # proces je medtem nastal
+        self.l.proces(178, 177, "WebKitWebProces", 180 * 1024, 300)   # proces je medtem nastal
         self.glib.pozeni()
-        self.assertEqual(self.poraba.pid_spleta["w"][0], 41)
+        self.assertEqual(self.poraba.pid_spleta["w"][0], 178)
 
     def test_odprto_okno_sprozi_sondo(self):
-        self.kanali.zivi["w"] = self._kanal(41)
+        self.kanali.zivi["w"] = self._kanal(178)
         self.poraba._poskusi["w"] = op.SONDA_POSKUSOV           # hitri poskusi so ze porabljeni
         self.poraba.ob_prikazu("w")
         self.glib.pozeni()
-        self.assertEqual(self.poraba.pid_spleta["w"][0], 41)
+        self.assertEqual(self.poraba.pid_spleta["w"][0], 178)
 
     def test_vzorec_ponovi_sondo_s_premorom(self):
-        self.kanali.zivi["w"] = self._kanal(41)
+        self.kanali.zivi["w"] = self._kanal(178)
         ura = [1000.0]
         with mock.patch.object(op.time, "monotonic", lambda: ura[0]):
             self.poraba._zadnja_sonda["w"] = 990.0
@@ -386,7 +392,7 @@ class Flatpak(unittest.TestCase):
             ura[0] = 1051.0
             self.poraba._vse_meritve({})
             self.glib.pozeni()
-        self.assertEqual(self.poraba.pid_spleta["w"][0], 41)
+        self.assertEqual(self.poraba.pid_spleta["w"][0], 178)
 
 
 if __name__ == "__main__":
