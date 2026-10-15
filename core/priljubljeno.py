@@ -7,9 +7,15 @@ ki ga oba berejo prek mostu (priljubljenoSeznam …), spremembo pa SafeerOS spor
 Brez GTK (uporablja ga tudi preizkus). Pisanje je atomarno (zacasna datoteka + os.replace) pod zaklepom: klici mostu
 tecejo v vec nitih, zaklep datoteke (fcntl) pa varuje pred drugim procesom Safeer OS istega uporabnika.
 
+Lastnik, 15. 10. 2026: »nimamo nedelujocih ikon ali datotek«. Priljubljena datoteka ali mapa, ki je ni na njeni poti
+(v Smeteh, izbrisana, na odklopljenem disku), se nikjer ne pokaze; zapis ostane skrit, zato se ob obnovitvi iz Smeti
+(Obnovi ali Razveljavi) ali ponovnem priklopu diska vrne na isto mesto. Izpraznjene Smeti zapis izbrisejo; kar je
+izginilo drugace (drug program, odklopljen USB), se pozabi sele, ko ga 30 dni ni (»videno«). Enako programi: namizji
+pokazeta samo priljubljene, ki so namesceni - ob ponovni namestitvi se vrnejo.
+
 Zapis:
     {"verzija": 1,
-     "datoteke": [{"pot", "ime", "mapa"}],      vrstni red = uporabnikov
+     "datoteke": [{"pot", "ime", "mapa", "videno"}],   vrstni red = uporabnikov; videno = nazadnje na poti (unix s)
      "programi": ["ta:gimp.desktop", ...],       kljuc kot kljucPrograma v delovna.js: naprava + ":" + id
      "kategorije": {"ta:gimp.desktop": "mediji"},
      "nastavitve": {"programiRazvrsti": "ime", "programiPogled": "mreza"},
@@ -22,11 +28,16 @@ import contextlib
 import json
 import os
 import threading
+import time
 from typing import Any, Callable, Dict, List, Optional
 
 VERZIJA = 1
 NAJVEC_DATOTEK = 200
 NAJVEC_PROGRAMOV = 200
+#: Skrita priljubljena (ni je na poti in ni v Smeteh) se pozabi po toliko casa.
+POZABI_PO = 30 * 24 * 3600
+#: Kako pogosto se zapise »videno« za vidne priljubljene (ne ob vsakem branju).
+VIDENO_OSVEZI = 24 * 3600
 #: Kategorije kataloga programov (iste kot KATEGORIJE v delovna.js, brez »vse« in »priljubljeni«).
 KATEGORIJE = ("pisarna", "ustvarjanje", "mediji", "splet", "igre", "drugo")
 #: Skupina iz metapodatkov programa (core/os_programi.skupina) -> kategorija kataloga (IZ_SKUPINE v delovna.js).
@@ -80,8 +91,10 @@ def _preveri(podatki: Any) -> dict:
         if not pot or pot in videne:
             continue
         videne.add(pot)
+        videno = d.get("videno")
         z["datoteke"].append({"pot": pot, "ime": str(d.get("ime") or os.path.basename(pot) or pot)[:255],
-                              "mapa": bool(d.get("mapa"))})
+                              "mapa": bool(d.get("mapa")),
+                              "videno": float(videno) if isinstance(videno, (int, float)) and not isinstance(videno, bool) else 0.0})
     z["datoteke"] = z["datoteke"][:NAJVEC_DATOTEK]
     kljuci = []
     for k in podatki.get("programi") or []:
@@ -107,6 +120,9 @@ class Priljubljeno:
         self.pot = pot or privzeta_pot()
         self.ob_spremembi = ob_spremembi
         self._zaklep = threading.RLock()
+        self._podpis: Optional[str] = None       # kar sta namizji nazadnje dobili (za osvezi)
+        self.cas: Callable[[], float] = time.time
+        self.v_smeteh: Callable[[], List[str]] = _izvirne_v_smeteh
 
     # ------------------------------------------------------------------ branje in pisanje
     @contextlib.contextmanager
@@ -160,31 +176,90 @@ class Priljubljeno:
             if spremenjeno:
                 self._pisi(z)
         stanje = self.stanje(z)
-        if spremenjeno and self.ob_spremembi is not None:
+        if spremenjeno:
+            self._sporoci(stanje)
+        return stanje
+
+    def _sporoci(self, stanje: dict) -> None:
+        self._podpis = self._podpis_stanja(stanje)
+        if self.ob_spremembi is not None:
             try:
                 self.ob_spremembi(stanje)
             except Exception as e:  # noqa: BLE001
                 print("[priljubljeno] dogodek:", e, flush=True)
+
+    @staticmethod
+    def _podpis_stanja(stanje: dict) -> str:
+        return json.dumps([[d["pot"], d["mapa"]] for d in stanje["datoteke"]] + [stanje["programi"], stanje["kategorije"],
+                                                                                 stanje["nastavitve"]], sort_keys=True)
+
+    def osvezi(self) -> dict:
+        """Po dejanju z datotekami (Smeti, obnovitev, Razveljavi, premik) ali priklopu/odklopu diska: ce se je spremenilo,
+        katere priljubljene so vidne, namizji dobita dogodek - seznam se osvezi brez ponovnega zagona."""
+        stanje = self.stanje()
+        if self._podpis_stanja(stanje) != self._podpis:
+            self._sporoci(stanje)
         return stanje
+
+    def odstrani_poti(self, poti: Any) -> dict:
+        """Trajno izbrisano (izpraznjene Smeti): zapisi za te poti in vse pod njimi gredo. Kar je na poti medtem
+        spet (nova datoteka z istim imenom), ostane."""
+        cisti = [x for x in (_cista_pot(p) for p in (poti if isinstance(poti, (list, tuple)) else [])) if x]
+        if not cisti:
+            return self.stanje()
+
+        def kaj(z):
+            pred = len(z["datoteke"])
+            z["datoteke"] = [x for x in z["datoteke"] if os.path.lexists(x["pot"])
+                             or not any(x["pot"] == a or x["pot"].startswith(a + os.sep) for a in cisti)]
+            return len(z["datoteke"]) != pred
+        return self._spremeni(kaj)
+
+    def _pospravi(self, z: dict) -> bool:
+        """Vidnim zapise cas, ko so bile nazadnje na poti; skrite, ki jih ni vec kot POZABI_PO in niso v Smeteh, pozabi."""
+        zdaj, sprememba, stare = self.cas(), False, []
+        for x in z["datoteke"]:
+            if os.path.exists(x["pot"]):
+                if zdaj - x.get("videno", 0) > VIDENO_OSVEZI:
+                    x["videno"], sprememba = zdaj, True
+            elif zdaj - x.get("videno", 0) > POZABI_PO:
+                stare.append(x)
+        if stare:
+            if not any(x.get("videno") for x in stare):
+                # Zapis brez casa (prejsnja razlicica): ura zacne teci zdaj, ne pozabimo ga takoj.
+                for x in stare:
+                    x["videno"] = zdaj
+                return True
+            try:
+                smeti = self.v_smeteh()
+            except Exception:  # noqa: BLE001 - Smeti ni mogoce prebrati: raje nic ne pozabimo
+                return sprememba
+            ostanejo = [x for x in stare if any(x["pot"] == a or x["pot"].startswith(a + os.sep) for a in smeti)]
+            pozabi = [x for x in stare if x not in ostanejo]
+            if pozabi:
+                z["datoteke"] = [x for x in z["datoteke"] if x not in pozabi]
+                sprememba = True
+        return sprememba
 
     # ------------------------------------------------------------------ za most
     def stanje(self, z: Optional[dict] = None) -> dict:
-        """Za namizje: datoteke s trenutnim stanjem (obstaja, velikost, cas) - manjkajoca ostane na seznamu kot
-        nedosegljiva (uporabnik jo odstrani sam), programi v uporabnikovem vrstnem redu, kategorije, nastavitve."""
+        """Za namizje: samo datoteke in mape, ki so na svoji poti (velikost, cas), v uporabnikovem vrstnem redu;
+        programi v uporabnikovem vrstnem redu (namizje pokaze samo namescene), kategorije, nastavitve."""
         if z is None:
-            with self._zaklep:
+            with self._zaklenjeno():
                 z = self._beri()
+                if self._pospravi(z):
+                    self._pisi(z)
         datoteke = []
         for d in z["datoteke"]:
             pot = d["pot"]
             try:
                 st = os.stat(pot)
-                obstaja, mapa = True, os.path.isdir(pot)
             except OSError:
-                st, obstaja, mapa = None, False, d["mapa"]
+                continue             # ni na poti: skrita, zapis pocaka (Smeti, odklopljen disk)
+            mapa = os.path.isdir(pot)
             datoteke.append({"pot": pot, "ime": d["ime"], "mapa": mapa, "vrsta": _vrsta(d["ime"], mapa),
-                             "velikost": 0 if (mapa or st is None) else st.st_size,
-                             "spremenjeno": st.st_mtime if st is not None else 0, "obstaja": obstaja})
+                             "velikost": 0 if mapa else st.st_size, "spremenjeno": st.st_mtime})
         nastavitve = {k: z["nastavitve"].get(k, v[0]) for k, v in NASTAVITVE.items()}
         return {"datoteke": datoteke, "programi": list(z["programi"]), "kategorije": dict(z["kategorije"]),
                 "nastavitve": nastavitve, "preseljeno": z["preseljeno"],
@@ -207,7 +282,7 @@ class Priljubljeno:
                     if len(z["datoteke"]) >= NAJVEC_DATOTEK:
                         z["datoteke"].pop(0)
                     z["datoteke"].append({"pot": pot, "ime": str(d.get("ime") or os.path.basename(pot) or pot)[:255],
-                                          "mapa": bool(d.get("mapa")) or os.path.isdir(pot)})
+                                          "mapa": bool(d.get("mapa")) or os.path.isdir(pot), "videno": self.cas()})
                 else:
                     z["datoteke"] = [x for x in z["datoteke"] if x["pot"] != pot]
                 return True
@@ -233,8 +308,8 @@ class Priljubljeno:
         return self.stanje()
 
     def vrstni_red(self, vrsta: str, seznam: Any) -> dict:
-        """Nov vrstni red (poti ali kljuci). Nepoznani izpadejo, izpusceni ostanejo na koncu v prejsnjem redu - tako
-        sprememba iz enega namizja ne izgubi priljubljene, ki jo je medtem dodalo drugo."""
+        """Nov vrstni red (poti ali kljuci) za tiste, ki jih namizje vidi. Nepoznani izpadejo; izpusceni (skriti:
+        v Smeteh, odstranjen program, druga naprava) ostanejo na svojih mestih - ob vrnitvi so tam, kjer so bili."""
         if not isinstance(seznam, list):
             return self.stanje()
         if vrsta == "datoteke":
@@ -242,8 +317,9 @@ class Priljubljeno:
 
             def kaj(z):
                 po_poti = {x["pot"]: x for x in z["datoteke"]}
-                urejeno = [po_poti[p] for p in dict.fromkeys(nov) if p in po_poti]
-                urejeno += [x for x in z["datoteke"] if x not in urejeno]
+                vrsta_ = iter([po_poti[p] for p in dict.fromkeys(nov) if p in po_poti])
+                izbrani = {p for p in nov if p in po_poti}
+                urejeno = [next(vrsta_) if x["pot"] in izbrani else x for x in z["datoteke"]]
                 if urejeno == z["datoteke"]:
                     return False
                 z["datoteke"] = urejeno
@@ -253,8 +329,9 @@ class Priljubljeno:
             nov_k = [_cist_kljuc(k) for k in seznam]
 
             def kaj_p(z):
-                urejeno = [k for k in dict.fromkeys(nov_k) if k in z["programi"]]
-                urejeno += [k for k in z["programi"] if k not in urejeno]
+                vrsta_ = iter([k for k in dict.fromkeys(nov_k) if k in z["programi"]])
+                izbrani = set(nov_k)
+                urejeno = [next(vrsta_) if k in izbrani else k for k in z["programi"]]
                 if urejeno == z["programi"]:
                     return False
                 z["programi"] = urejeno
@@ -305,7 +382,7 @@ class Priljubljeno:
                     if pot and pot not in ze and len(z["datoteke"]) < NAJVEC_DATOTEK:
                         ze.add(pot)
                         z["datoteke"].append({"pot": pot, "ime": str(d.get("ime") or os.path.basename(pot))[:255],
-                                              "mapa": bool(d.get("mapa"))})
+                                              "mapa": bool(d.get("mapa")), "videno": self.cas()})
             for k in s.get("priljubljeniPrg") or []:
                 k = _cist_kljuc(k)
                 if k and k not in z["programi"] and len(z["programi"]) < NAJVEC_PROGRAMOV:
@@ -356,6 +433,12 @@ class Priljubljeno:
                 z["datoteke"] = nove
             return sprememba
         return self._spremeni(kaj)
+
+
+def _izvirne_v_smeteh() -> List[str]:
+    """Izvirne poti vsega, kar je v Smeteh (Smeti tega uporabnika, kot jih pokaze Datoteke)."""
+    from core import os_datoteke
+    return [str(e.get("izvirna") or "") for e in os_datoteke.smeti().get("elementi") or [] if e.get("izvirna")]
 
 
 _privzeta: Optional[Priljubljeno] = None

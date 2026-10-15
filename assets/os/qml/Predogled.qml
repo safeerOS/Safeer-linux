@@ -157,7 +157,7 @@ Okno {
             }
             RowLayout {
                 Layout.fillWidth: true; spacing: 8
-                Text { Layout.fillWidth: true; text: koren.t("predogledNamig"); color: Qt.darker(koren.paleta.medlo, 1.1)
+                Text { Layout.fillWidth: true; text: koren.t(okno.seznam.length > 1 ? "predogledNamig" : "predogledNamigEna"); color: Qt.darker(koren.paleta.medlo, 1.1)
                        font.pixelSize: koren.px(11); elide: Text.ElideRight }
                 Gumb { objectName: "predogledPredvajaj"; visible: okno.nacin === "medij"; poudarjen: true; besedilo: koren.t("predvajaj"); onKlik: okno.potrdi() }
                 Gumb { objectName: "predogledOdpri"; visible: okno.nacin !== "medij"; poudarjen: true; besedilo: koren.t("odpri"); onKlik: okno.potrdi() }

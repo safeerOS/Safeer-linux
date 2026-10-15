@@ -107,7 +107,6 @@ svg { width: 1.3em; height: 1.3em; fill: none; stroke: currentColor; stroke-widt
 .zadetek small { color: var(--tise); font-size: .78em; white-space: nowrap; }
 .zadetek img, .zadetek .ikona-vrste, .zadetek .crka { width: 1.6em; height: 1.6em; flex: none; border-radius: 6px; }
 .oznaka-vira { font-size: .7em; padding: .1em .55em; border-radius: 99px; border: 1px solid var(--obroba); color: var(--tiho); white-space: nowrap; }
-tr.nedosegljivo .celica-ime > span:first-of-type, tr.nedosegljivo td:not(:first-child) { opacity: .55; }
 .oznaka-vira.oddaljeno { border-color: rgba(127, 224, 182, .45); color: var(--ok); }
 
 /* ---- Postavitev -------------------------------------------------------- */

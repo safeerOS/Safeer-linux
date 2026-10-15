@@ -219,24 +219,25 @@ class Priljubljeno(Osnova):
         self._tipka(Qt.Key.Key_D, Qt.KeyboardModifier.ControlModifier)
         self.assertTrue(self._pocakaj(lambda: len(self.shramba.stanje()["datoteke"]) == 2))
         self.assertTrue(self.shramba.stanje()["datoteke"][1]["mapa"])
-        # Stranska vrstica: Priljubljeno; datoteka, ki je ni vec, je nedosegljiva (ne izgine) in ima samo Odstrani.
+        # Stranska vrstica: Priljubljeno. Datoteka v Smeteh se ne pokaze nikjer (brez »ni na voljo«); obnovljena se
+        # vrne na isto mesto - Safeer OS po dejanju poslje dogodek (osvezi), seznam se osvezi sam.
         viri = self._js("datoteke.viri")
         self.assertEqual(viri[1]["oznaka"], "Priljubljeno")
         self._js('datoteke.odpri({ vrsta: "priljubljeno", pot: "@priljubljeno" })')
-        self.assertTrue(self._pocakaj(lambda: len(self._js("datoteke.prikazani")) == 2))
-        os.remove(txt)
-        self.shramba.preklopi("program", "ta:x.desktop")         # sprememba od drugod -> dogodek -> nov seznam
-        self.assertTrue(self._pocakaj(lambda: self._js("datoteke.prikazani[0].nedosegljivo") is True))
-        self._js("datoteke.odpriElement(datoteke.prikazani[0])")
-        self.assertFalse(any(m == "odpriDatoteko" for m, _ in self.klici))
-        self._js("datoteke.meniZa(0)")
-        self.assertTrue(self._pocakaj(lambda: self._obj("meniDatoteke").property("visible")))
-        self.assertFalse(self._obj("vnosPredogled").property("visible"))
-        self.assertFalse(self._obj("vnosLastnosti").property("visible"))
-        self.assertTrue(vnos.property("visible"))
-        vnos.triggered.emit()
-        self.assertTrue(self._pocakaj(lambda: len(self._js("datoteke.prikazani")) == 1))
-        self.assertEqual(self._js("datoteke.prikazani[0].ime"), "Projekti")
+        self.assertTrue(self._pocakaj(lambda: [e["ime"] for e in self._js("datoteke.prikazani")] == ["beri.txt", "Projekti"]))
+        smeti = os.path.join(self.mapa, "Smeti")
+        os.mkdir(smeti)
+        os.rename(txt, os.path.join(smeti, "beri.txt"))
+        self.shramba.osvezi()
+        self.assertTrue(self._pocakaj(lambda: [e["ime"] for e in self._js("datoteke.prikazani")] == ["Projekti"]))
+        self.assertFalse(self._js("koren.jePriljubljenaPot(%r)" % txt))
+        os.rename(os.path.join(smeti, "beri.txt"), txt)
+        self.shramba.osvezi()
+        self.assertTrue(self._pocakaj(lambda: [e["ime"] for e in self._js("datoteke.prikazani")] == ["beri.txt", "Projekti"]))
+        # Ob ponovnem odprtju vira Safeer OS vprasa znova (izginilo z drugim programom, odklopljen disk).
+        os.rename(txt, os.path.join(smeti, "beri.txt"))
+        self._js('datoteke.odpri({ vrsta: "priljubljeno", pot: "@priljubljeno" })')
+        self.assertTrue(self._pocakaj(lambda: [e["ime"] for e in self._js("datoteke.prikazani")] == ["Projekti"]))
 
     def test_programi_priljubljeni_vrstni_red_kategorija_razvrsti_pogled(self):
         from PySide6.QtCore import Qt
@@ -302,6 +303,17 @@ class Priljubljeno(Osnova):
         self.assertTrue(self._pocakaj(lambda: self.shramba.stanje()["kategorije"] == {"ta:gimp.desktop": "mediji"}))
         self.assertTrue(self._pocakaj(lambda: self._js("programi.kategorijaP(%s)" % gimp) == "mediji"))
         self.assertIn("mediji", self._js("programi.skupine"))
+        # Odstranjen program se ne pokaze (ne v vrstici, ne v kategoriji Priljubljeni); ob namestitvi se vrne.
+        vsi = list(self.odgovori["programiNamizja"])
+        self.odgovori["programiNamizja"] = [p for p in vsi if p["id"] != "firefox.desktop"]
+        self._js("programi.nalozi()")
+        self.assertTrue(self._pocakaj(lambda: vrsta.property("count") == 2))
+        self.assertNotIn("Firefox", [p["ime"] for p in self._js("programi.priljubljeni")])
+        self.assertIn("ta:firefox.desktop", self.shramba.stanje()["programi"])      # zapis ostane
+        self.odgovori["programiNamizja"] = vsi
+        self._js("programi.nalozi()")
+        self.assertTrue(self._pocakaj(lambda: vrsta.property("count") == 3))
+        self.assertEqual(self._js("programi.priljubljeni[0].id"), "firefox.desktop")    # na svojem mestu
         # Ctrl+D v mrezi odstrani priljubljenega.
         mreza.forceActiveFocus()
         i = [p["id"] for p in self._js("programi.prikazani")].index("gimp.desktop")
@@ -360,12 +372,15 @@ class Izbira(Osnova):
         meni = self._obj("meniVec")
         self.assertTrue(self._pocakaj(lambda: meni.property("visible")))
         self.assertEqual(self._js("count", meni) >= 8, True)
-        self.assertTrue(self._obj("vnosPosljiVec").property("visible"))
+        self.assertTrue(self._pocakaj(lambda: self._obj("vnosPosljiVec").property("visible")))
         self.assertFalse(self._obj("vnosPretvoriTvVec").property("visible"))       # ne samo videi
+        self.assertFalse(self._obj("vnosPretvoriVec").property("visible"))         # ni skupne oblike: vnosa ni
         self._obj("vnosKopirajVec").triggered.emit()
         self.assertEqual(self._js("datoteke.odlozisce.poti"), [txt, png, mp3])
         # Poslji na napravo: vse naenkrat.
+        self._js("close()", meni)
         self._js("datoteke.meniVrstice(datoteke.prikazani[1], null)")
+        self.assertTrue(self._pocakaj(lambda: meni.property("visible")))
         self._obj("vnosPosljiVec").triggered.emit()
         self.assertTrue(self._klicano("napraveZaPosiljanje", []))
         self.assertTrue(self._pocakaj(lambda: len(self._js("moznosti", self._izbirnik())) == 1))
@@ -389,6 +404,30 @@ class Izbira(Osnova):
             if o.property("naslov") is not None and o.property("moznosti") is not None:
                 return o
         self.fail("izbirnik")
+
+    def test_brez_mrtvih_vnosov(self):
+        """Brez naprave ni »Poslji na napravo«, brez pretvorbe ni »Pretvori v …«; ko gre, sta tam (15. 10. 2026)."""
+        self._namizje()
+        self._odpri_dokumente()
+        self.odgovori["napraveZaPosiljanje"] = []
+        self._js("datoteke.meniZa(1)")
+        self.assertTrue(self._pocakaj(lambda: self._obj("meniDatoteke").property("visible")))
+        self.assertTrue(self._klicano("pretvorbaMoznosti", [os.path.join(self.dok, "beri.txt")]))
+        self.assertFalse(self._obj("vnosPoslji").property("visible"))
+        self.assertFalse(self._obj("vnosPretvori").property("visible"))
+        self._js("close()", self._obj("meniDatoteke"))
+        self.odgovori["napraveZaPosiljanje"] = [{"id": "tv1", "ime": "Televizor"}]
+        self.odgovori["pretvorbaMoznosti"] = {"skupina": "besedilo", "cilji": ["pdf", "odt"], "orodje": True}
+        self._js("datoteke.meniZa(1)")
+        self.assertTrue(self._pocakaj(lambda: self._obj("vnosPretvori").property("visible")))
+        self.assertTrue(self._obj("vnosPoslji").property("visible"))
+        self._js("close()", self._obj("meniDatoteke"))
+        # Orodja ni (npr. LibreOffice): vnosa ni.
+        self.odgovori["pretvorbaMoznosti"] = {"skupina": "besedilo", "cilji": ["pdf"], "orodje": False}
+        self._js("datoteke.meniZa(1)")
+        self.assertTrue(self._pocakaj(lambda: self._obj("meniDatoteke").property("visible")))
+        self._pocakaj(lambda: False, 0.2)
+        self.assertFalse(self._obj("vnosPretvori").property("visible"))
 
     def test_pretvori_vec_skupne_oblike(self):
         self._namizje()

@@ -306,7 +306,9 @@ class NamizjeQmlZivo(unittest.TestCase):
         from core import os_lupina
         n = self._namizje("sl")
         koren = n.okno.rootObject()
-        self.assertTrue(self._pocakaj(lambda: koren.property("jezik") == "sl"))
+        # »sl« je privzeti jezik: na odgovor »zacetek« pocakamo po platformi, sicer bi njegov videz (merilo 1) prisel
+        # za dogodkom spodaj in ga prepisal (obcasen padec, tudi na gtk4 pred 15. 10. 2026).
+        self.assertTrue(self._pocakaj(lambda: koren.property("jezik") == "sl" and koren.property("platforma") == "linux"))
         self.assertAlmostEqual(koren.property("merilo"), 1.0)
         n.dogodek("videz", {"paleta": os_lupina.paleta(kontrast=True, merilo=1.5), "kontrast": True})
         self.assertTrue(self._pocakaj(lambda: abs(koren.property("merilo") - 1.5) < 1e-6))

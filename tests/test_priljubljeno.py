@@ -25,7 +25,6 @@ class Shramba(unittest.TestCase):
     def test_preklopi_datoteko_in_dogodek(self):
         st = self.s.preklopi("datoteka", {"pot": self.f, "ime": "a.txt"})
         self.assertEqual([d["pot"] for d in st["datoteke"]], [self.f])
-        self.assertTrue(st["datoteke"][0]["obstaja"])
         self.assertEqual(st["datoteke"][0]["vrsta"], "dokument")
         self.assertEqual(len(self.dogodki), 1)
         # Isto stanje se enkrat: brez zapisa in brez dogodka.
@@ -35,12 +34,60 @@ class Shramba(unittest.TestCase):
         self.assertEqual(st["datoteke"], [])
         self.assertEqual(len(self.dogodki), 2)
 
-    def test_manjkajoca_ostane_kot_nedosegljiva(self):
+    def test_v_smeteh_skrita_ob_obnovi_na_istem_mestu(self):
+        """Lastnik, 15. 10. 2026: v Smeti gre tudi priljubljena; ni je nikjer; obnovljena se vrne na svoje mesto."""
+        g, h = os.path.join(self.mapa, "g.txt"), os.path.join(self.mapa, "h.txt")
+        for p in (g, h):
+            open(p, "w").close()
+        for p in (g, self.f, h):
+            self.s.preklopi("datoteka", p)
+        self.s.osvezi()
+        n = len(self.dogodki)
+        smeti = os.path.join(self.mapa, "Smeti")
+        os.mkdir(smeti)
+        os.rename(self.f, os.path.join(smeti, "a.txt"))                 # »V Smeti«
+        st = self.s.osvezi()
+        self.assertEqual([d["pot"] for d in st["datoteke"]], [g, h])
+        self.assertNotIn("obstaja", st["datoteke"][0])
+        self.assertEqual(len(self.dogodki), n + 1)                       # namizji dobita dogodek
+        self.s.osvezi()
+        self.assertEqual(len(self.dogodki), n + 1)                       # brez spremembe brez dogodka
+        # Vrstni red, ki ga uporabnik medtem spremeni, skrite ne premakne.
+        self.s.vrstni_red("datoteke", [h, g])
+        os.rename(os.path.join(smeti, "a.txt"), self.f)                 # Obnovi / Razveljavi
+        st = self.s.osvezi()
+        self.assertEqual([d["pot"] for d in st["datoteke"]], [h, self.f, g])
+        self.assertEqual(len(self.dogodki), n + 3)
+
+    def test_izpraznjene_smeti_in_30_dni(self):
+        g = os.path.join(self.mapa, "usb", "film.mkv")
+        os.makedirs(os.path.dirname(g))
+        open(g, "w").close()
         self.s.preklopi("datoteka", self.f)
-        os.remove(self.f)
-        d = self.s.stanje()["datoteke"]
-        self.assertEqual(len(d), 1)
-        self.assertFalse(d[0]["obstaja"])
+        self.s.preklopi("datoteka", g)
+        os.remove(self.f)                                                # izpraznjene Smeti: trajno izbrisano
+        shutil.rmtree(os.path.dirname(g))                               # odklopljen USB
+        self.s.odstrani_poti([self.f])
+        with open(self.s.pot, encoding="utf-8") as f:
+            self.assertEqual([d["pot"] for d in json.load(f)["datoteke"]], [g])
+        # USB: dokler ga ni manj kot 30 dni, zapis ostane (skrit); po tem se pozabi - razen ce je v Smeteh.
+        zdaj = [10 ** 9]
+        self.s.cas = lambda: zdaj[0]
+        self.s.v_smeteh = lambda: [os.path.dirname(g)]
+        with open(self.s.pot, encoding="utf-8") as f:
+            videno = json.load(f)["datoteke"][0]["videno"]
+        zdaj[0] = videno + priljubljeno.POZABI_PO - 10
+        self.assertEqual(self.s.stanje()["datoteke"], [])
+        with open(self.s.pot, encoding="utf-8") as f:
+            self.assertEqual(len(json.load(f)["datoteke"]), 1)
+        zdaj[0] = videno + priljubljeno.POZABI_PO + 10
+        self.s.stanje()
+        with open(self.s.pot, encoding="utf-8") as f:
+            self.assertEqual(len(json.load(f)["datoteke"]), 1)           # mapa je v Smeteh: ostane
+        self.s.v_smeteh = lambda: []
+        self.s.stanje()
+        with open(self.s.pot, encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["datoteke"], [])
 
     def test_atomarno_in_pokvarjen_zapis(self):
         self.s.preklopi("program", "ta:gimp.desktop")
@@ -69,7 +116,7 @@ class Shramba(unittest.TestCase):
         for k in ("ta:a", "ta:b", "ta:c"):
             self.s.preklopi("program", k)
         st = self.s.vrstni_red("programi", ["ta:c", "ta:a", "ta:neznan"])
-        self.assertEqual(st["programi"], ["ta:c", "ta:a", "ta:b"])       # izpusceni ostane na koncu
+        self.assertEqual(st["programi"], ["ta:c", "ta:b", "ta:a"])       # izpusceni (skriti) ostane na svojem mestu
         st = self.s.kategorija("ta:a", "mediji")
         self.assertEqual(st["kategorije"], {"ta:a": "mediji"})
         self.assertEqual(self.s.kategorija("ta:a", "neznana")["kategorije"], {"ta:a": "mediji"})
@@ -80,7 +127,7 @@ class Shramba(unittest.TestCase):
         open(g, "w").close()
         self.s.preklopi("datoteka", self.f)
         self.s.preklopi("datoteka", g)
-        self.assertEqual([d["pot"] for d in self.s.vrstni_red("datoteke", [g])["datoteke"]], [g, self.f])
+        self.assertEqual([d["pot"] for d in self.s.vrstni_red("datoteke", [g, self.f])["datoteke"]], [g, self.f])
 
     def test_preselitev_iz_localstorage(self):
         self.s.preklopi("program", "ta:obstojeci")
@@ -316,6 +363,40 @@ class Most(unittest.TestCase):
         self.assertEqual(shramba.stanje()["kategorije"], {"ta:x": "igre"})
         ok, r = klic("predogledDatoteke", [os.path.join(mapa, "b.txt")])
         self.assertEqual(r["nacin"], "besedilo")
+        # V Smeti (pravi os_datoteke z Smetmi v zacasni mapi) -> skrita + dogodek; Razveljavi -> spet na istem mestu.
+        b, c = os.path.join(mapa, "b.txt"), os.path.join(mapa, "c.txt")
+        open(c, "w").close()
+        klic("priljubljenoPreklopi", ["datoteka", c])
+        smeti = os.path.join(mapa, "Smeti")
+        os.makedirs(os.path.join(smeti, "files"))
+        os.makedirs(os.path.join(smeti, "info"))
+
+        def v_smeti(pot):
+            ime = os.path.basename(pot)
+            os.rename(pot, os.path.join(smeti, "files", ime))
+            with open(os.path.join(smeti, "info", ime + ".trashinfo"), "w") as f:
+                f.write("[Trash Info]\nPath=%s\nDeletionDate=2026-10-15T10:00:00\n" % pot)
+        with mock.patch.object(so, "os_iskalnik", mock.MagicMock()), \
+                mock.patch("core.link_urejanje.v_smeti", v_smeti), \
+                mock.patch.object(os_datoteke, "_mapa_smeti", lambda: smeti):
+            n = len(dogodki)
+            ok, r = klic("vSmetiVec", [[b]])
+            self.assertEqual(r["idji"], ["b.txt"])
+            self.assertEqual([d["pot"] for d in dogodki[-1]["datoteke"]], [c])
+            self.assertEqual(len(dogodki), n + 1)
+            ok, r = klic("razveljaviDatoteke", [{"vrsta": "smeti", "idji": r["idji"]}])
+            self.assertEqual(r["narejeno"], 1)
+            self.assertEqual([d["pot"] for d in dogodki[-1]["datoteke"]], [b, c])
+            # Spet v Smeti in Smeti izpraznjene (potrditev v sistemskem oknu): zapis za b izbrisan, c ostane.
+            klic("vSmeti", [b])
+            self.assertEqual([d["pot"] for d in dogodki[-1]["datoteke"]], [c])
+            gotovo.clear()
+            so.SafeerOS._obdelaj_klic(jaz, Pogled(), 1, "izprazniSmeti", [])
+            odlocitev = jaz._potrdi_izpraznitev_smeti.call_args[0][0]
+            odlocitev(True)
+            self.assertTrue(gotovo.wait(5))
+        with open(shramba.pot, encoding="utf-8") as f:
+            self.assertEqual([d["pot"] for d in json.load(f)["datoteke"]], [c])
 
 
 if __name__ == "__main__":

@@ -3182,8 +3182,8 @@ class SafeerOS(Gtk.Application):
         nadzor = getattr(self, "_nadzor_map", None)
         if nadzor is None:
             nadzor = self._nadzor_map = os_datoteke.NadzorMap(
-                lambda spremenjen: self._dogodek("datoteke", {"pot": spremenjen}),
-                lambda: self._dogodek("nosilci", None))
+                lambda spremenjen: (self._dogodek("datoteke", {"pot": spremenjen}), self._priljubljene_osvezi_v_ozadju()),
+                lambda: (self._dogodek("nosilci", None), self._priljubljene_osvezi_v_ozadju()))
             try:
                 # Seznam nedavnih vodi GTK in spremembo javi sam (datoteka, odprta ali shranjena v drugem programu).
                 _nedavni().connect(
@@ -3578,7 +3578,14 @@ class SafeerOS(Gtk.Application):
             # Trajni izbris: potrditev v sistemskem oknu na glavni niti (stran je ne more preskociti), brisanje v ozadju.
             def delo_smeti():
                 try:
-                    self._odgovori(pogled, id_, True, dict(os_datoteke.izprazni_smeti(), potrjeno=True))
+                    # Kar je bilo v Smeteh, je zdaj trajno izbrisano: zapisi priljubljenih zanj gredo.
+                    izvirne = [str(e.get("izvirna") or "") for e in os_datoteke.smeti().get("elementi") or []]
+                    izid = os_datoteke.izprazni_smeti()
+                    try:
+                        self._priljubljeno().odstrani_poti([x for x in izvirne if x])
+                    except Exception as e:  # noqa: BLE001
+                        print("[SafeerOS] priljubljene:", e)
+                    self._odgovori(pogled, id_, True, dict(izid, potrjeno=True))
                 except Exception as e:  # noqa: BLE001
                     print("[SafeerOS] izprazni smeti:", e)
                     self._odgovori(pogled, id_, False, str(e))
@@ -3654,8 +3661,19 @@ class SafeerOS(Gtk.Application):
                     else priljubljeno.premaknjeno_po_dejanju(metoda, a, izid))
             if pari:
                 self._priljubljeno().premaknjeno(pari)
+            # V Smeti, obnova (Obnovi, Razveljavi), premik: vidne priljubljene so se lahko spremenile.
+            self._priljubljeno().osvezi()
         except Exception as e:  # noqa: BLE001 - priljubljene ne smejo podreti dejanja z datotekami
             print("[SafeerOS] priljubljene:", e)
+
+    def _priljubljene_osvezi_v_ozadju(self) -> None:
+        """Disk priklopljen/odklopljen ali mapa spremenjena zunaj: priljubljene na njem se pokazejo ali skrijejo."""
+        def delo():
+            try:
+                self._priljubljeno().osvezi()
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] priljubljene:", e)
+        threading.Thread(target=delo, daemon=True, name="safeer-priljubljene").start()
 
     #: Besedila sistemskega okna za trajni izbris (naslov, opis, preklic, potrditev).
     BESEDILA_SMETI = {

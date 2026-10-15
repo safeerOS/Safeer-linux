@@ -540,8 +540,8 @@
       klic("najvecjeDatoteke").then(prispelo(function (r) { nastaviVnose(r || [], t("niVelikih")); drobtine([t("najvecje")]); }))
         .catch(prispelo(function () { nastaviVnose([], t("niUspelo"), true); }));
     } else if (vir.vrsta === "priljubljeno") {
-      nastaviVnose(PR.datoteke.map(function (d) { return d.obstaja === false ? Object.assign({}, d, { nedosegljivo: true }) : d; }),
-                   t("niPriljubljenih")); drobtine([t("priljubljeno")]);
+      // Safeer OS poslje samo priljubljene, ki so na svoji poti (v Smeteh, na odklopljenem disku so skrite).
+      nastaviVnose(PR.datoteke.slice(), t("niPriljubljenih")); drobtine([t("priljubljeno")]);
     } else if (vir.vrsta === "smeti") {
       // Smeti: stolpec Lokacija pove, kje je datoteka bila, cas pa, kdaj je bila izbrisana.
       klic("smeti").then(prispelo(function (r) {
@@ -699,8 +699,6 @@
     var ik = ikonaVrste(e.mapa ? "mapa" : e.vrsta);
     if (e.pot && !e.oddaljeno && !e.smeti && (e.vrsta === "slika" || e.vrsta === "video")) ik.setAttribute("data-slicica", e.pot);
     c.appendChild(ik); c.appendChild(el("span", "", e.ime));
-    // Priljubljena, ki je ni vec na tem mestu (premaknjena drugje, izbrisana, odklopljen USB): vidna, ne izgine tiho.
-    if (e.nedosegljivo) { tr.classList.add("nedosegljivo"); c.appendChild(el("span", "oznaka-vira", t("niNaVoljo"))); }
     // Polno ime kot namig samo, ko je odrezano: sicer bi namig (WebKitGTK ga pokaze z zamikom, brez premika miske)
     // prekril meni desnega klika, ki se odpre pod kazalcem - tudi postavko »Pretvori v …«.
     td.appendChild(c); tr.appendChild(td);
@@ -1247,7 +1245,6 @@
   }
 
   function odpriVnos(e) {
-    if (e.nedosegljivo) { obvesti(t("niVecNaVoljo", { ime: e.ime })); return; }
     if (e.smeti) { var vrs = $("datVrstice").rows[D.izbran], rr = vrs ? vrs.getBoundingClientRect() : { left: 80, bottom: 200 }; meniDatoteke(e, rr.left + 40, rr.bottom); return; }
     if (e.oddaljeno) {
       var v = D.vir;
@@ -1330,12 +1327,6 @@
       m.push([t("obnovi"), function () { obnoviIzSmeti(e); }]);
       m.push(["—"]);
       m.push([t("izprazniSmeti"), izprazniSmeti]);
-      pokaziMeni(m, x, y);
-      return;
-    }
-    if (e.nedosegljivo) {
-      // Priljubljena, ki je ni vec na tem mestu: samo odstranitev (ne izgine sama - uporabnik vidi, kaj manjka).
-      m.push([t("odstraniPriljubljeno"), function () { preklopiPriljubljeno(e); }]);
       pokaziMeni(m, x, y);
       return;
     }
