@@ -405,7 +405,11 @@ def stran(telo: str, jezik: str = "sl", svetla: bool = False) -> str:
     """Cela stran predogleda. svetla: HTML pisma in dokumenti so pisani za belo podlago (kot v Gmailu)."""
     slog = _zetoni() + """
 body { margin:0; font: 15px/1.5 system-ui, sans-serif; background: var(--kartica-polna); color: var(--besedilo); }
-.okvir { max-width: 1100px; margin: 0 auto; padding: 24px; }
+.okvir { max-width: 1100px; margin: 0 auto; padding: 24px; overflow-wrap: anywhere; }
+/* Pismo »Prikazi izvirnik«: slike in tabele posiljatelja ne smejo biti sirse od okna (testni PC 15. 10. 2026: slika v
+   vrstici v polni locljivosti je segala daleč cez okno). Kot v Gmailu: pomanjsaj na sirino, razmerje ostane. */
+.okvir img, .okvir video { max-width: 100% !important; height: auto !important; }
+.okvir table { max-width: 100% !important; }
 .sporocilo { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:80vh;
   text-align:center; gap:10px; padding:24px; }
 .sporocilo h1 { font-size: 20px; margin: 0; } .sporocilo p { color: var(--medlo); max-width: 560px; margin: 0; }

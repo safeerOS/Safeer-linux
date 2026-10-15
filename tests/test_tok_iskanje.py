@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.parse
 from types import SimpleNamespace
 from unittest import mock
 
@@ -266,12 +267,14 @@ class IzbiraRazliciceTests(unittest.TestCase):
                 "razlicice": razlicice, "imdb_id": "tt0000001"}
         mc._dynamic_items["x"] = vnos
         with mock.patch.object(mc, "resolve", lambda i, pripravi_torrent=True: mc._dynamic_items[i]), \
-                mock.patch.object(mc, "_izmeri_ping", lambda u: None):
+                mock.patch.object(mc, "_izmeri_ping", lambda u: None), mock.patch.object(mc._meritve, "ms", lambda u: None):
             seznam = mc.razlicice_naslova("x")["razlicice"]
         self.assertEqual([(r["vir"], r["privzeta"]) for r in seznam], [("Dodatek A", True), ("Dodatek B", False)])
         self.assertEqual([r["najhitrejsi"] for r in seznam], [False, False])      # odziv ni izmerjen: brez oznake
-        mc._ping_cache = {"cdn.test:443": (time.time(), 80.0), "drug.test:443": (time.time(), 20.0)}
-        with mock.patch.object(mc, "resolve", lambda i, pripravi_torrent=True: mc._dynamic_items[i]):
+        pingi = {"cdn.test": 80.0, "drug.test": 20.0}
+        with mock.patch.object(mc, "resolve", lambda i, pripravi_torrent=True: mc._dynamic_items[i]), \
+                mock.patch.object(mc._meritve, "ms", lambda u: pingi.get(urllib.parse.urlsplit(u).hostname)), \
+                mock.patch.object(mc._meritve, "zastarelo", lambda u: False):
             hitri = mc.razlicice_naslova("x")["razlicice"]
         self.assertEqual([(r["ping"], r["najhitrejsi"]) for r in hitri], [(80, False), (20, True)])
         self.assertNotIn("sign", str(seznam))                       # podpisani naslovi ne gredo na stran
