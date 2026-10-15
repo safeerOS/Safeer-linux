@@ -346,8 +346,9 @@ assert.strictEqual(privzetiZadetek([splet, { vrsta: "zapisek", z: { naslov: "Nak
         self.assertIn("posljiNaNapravo(naprava, poti);", blok)
         self.assertNotIn("premakniAliKopiraj", blok)
         self.assertNotIn("prilepiDatoteke", blok)
-        # Meni: ena datoteka in izbira vec datotek (mape niso poslane).
-        self.assertIn('if (!e.mapa) m.push([t("posljiNaNapravo"), function () { izberiNapravoInPoslji([e.pot]); }]);', js)
+        # Meni: ena datoteka in izbira vec datotek (mape niso poslane); samo, ko je kaksna naprava, ki sprejme
+        # (vedenje preverja test_priljubljeno.MeniDelovnePovrsine).
+        self.assertIn('if (!e.mapa && D.sprejmejo.length) m.push([t("posljiNaNapravo"), function () { izberiNapravoInPoslji([e.pot]); }]);', js)
         self.assertIn('var samoDatoteke = lok.filter(function (e) { return !e.mapa; });', js)
         self.assertIn('klic("posljiNapravi", [naprava.id, poti])', js)
         self.assertIn('klic("posljiStanje", [id])', js)
