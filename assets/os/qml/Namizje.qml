@@ -40,6 +40,8 @@ Item {
             if (vrsta === "predvajalnik" && p) koren.medij = p
             if (vrsta === "medijskaKnjiznica") koren.osveziMedij()
             if (vrsta === "prilagodi") prilagodi.odpri()   // Nastavitve Safeer OS -> Namizje -> Prilagodi namizje
+            if (vrsta === "programi") programi.osveziTiho()   // program namescen ali odstranjen
+            if (vrsta === "priljubljeno" && p) koren.nastaviPriljubljeno(p)   // tudi sprememba na delovni povrsini WebKit
         }
     }
     property string jezik: "sl"
@@ -688,6 +690,36 @@ Item {
 
     // Domaca mapa kot »~« (kot upravitelji datotek): krajse in brez uporabniskega imena na posnetkih zaslona (14. 10. 2026).
     property string dom: ""
+    // Priljubljene datoteke, mape in programi, kategorije programov, razvrscanje in pogled Programov: en zapis v Safeer OS
+    // (core/priljubljeno.py) za to namizje in delovno povrsino WebKit; sprememba pride kot dogodek »priljubljeno«.
+    property var priljubljeno: ({ datoteke: [], programi: [], kategorije: ({}), nastavitve: ({}), izSkupine: ({}), kategorijeProgramov: [] })
+    // Odgovori mostu tecejo v vec nitih: odgovor starejse spremembe lahko pride za dogodkom novejse. Stanje starejsega
+    // rodu (core/priljubljeno.py »rod«) se ne uporabi - sicer bi namizje pokazalo, kar ni vec res (pregled 15. 10. 2026).
+    function nastaviPriljubljeno(p) {
+        if (!p || Array.isArray(p) || typeof p !== "object") return
+        if (typeof p.rod === "number" && typeof priljubljeno.rod === "number" && p.rod < priljubljeno.rod) return
+        priljubljeno = p
+    }
+    function naloziPriljubljeno() {
+        if (platforma !== "linux") return
+        klic("priljubljenoSeznam", [], function (p) { koren.nastaviPriljubljeno(p) })
+    }
+    function jePriljubljenaPot(pot) { return (priljubljeno.datoteke || []).some(function (d) { return d.pot === pot }) }
+    function jePriljubljenProgram(kljuc) { return (priljubljeno.programi || []).indexOf(kljuc) >= 0 }
+    // vrsta "datoteka" (podatek {pot, ime, mapa}) ali "program" (kljuc); vkljuci: true/false ali undefined (preklopi).
+    function preklopiPriljubljeno(vrsta, podatek, ime, vkljuci) {
+        var a = [vrsta, podatek]
+        if (vkljuci === true || vkljuci === false) a.push(vkljuci)
+        var bilo = vrsta === "program" ? jePriljubljenProgram(podatek) : jePriljubljenaPot(podatek.pot)
+        klic("priljubljenoPreklopi", a, function (p) {
+            if (!p) return
+            koren.nastaviPriljubljeno(p)
+            // Iz tega odgovora (ne iz koren.priljubljeno - ta je lahko ze novejsi ali odgovor ni bil uporabljen).
+            var je = vrsta === "program" ? (p.programi || []).indexOf(podatek) >= 0
+                                         : (p.datoteke || []).some(function (d) { return d.pot === podatek.pot })
+            if (ime && je !== bilo) obvesti(t(je ? "dodanoPriljubljeno" : "odstranjenoPriljubljeno", { ime: ime }))
+        }, function () { obvesti(t("niUspelo")) })
+    }
     function kratkaPot(p) {
         p = p || ""
         if (!dom) return p
@@ -1018,6 +1050,7 @@ Item {
             programi.spletne = Array.isArray(z.spletne) ? z.spletne : []
             programi.mapaPrenosov = ((z.mape || []).filter(function (m) { return m.vrsta === "DOWNLOAD" })[0] || {}).pot || ""
             if (koren.platforma === "linux") koren.klic("povezava", [], function (p) { koren.linkStanje = p || null })
+            koren.naloziPriljubljeno()
             programi.naloziOblak()
         })
         programi.nalozi()

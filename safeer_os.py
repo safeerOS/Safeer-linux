@@ -64,6 +64,7 @@ from core import (os_datoteke, os_govor, os_katalog, os_knjiznica, os_lupa, os_o
 from core import budnost, gostitelj, odlozisce_varuh, os_iskalnik, os_odpri_z, os_pretvorba_datotek  # noqa: E402
 from core import media_servers  # noqa: E402
 from core import os_dock  # noqa: E402
+from core import priljubljeno  # noqa: E402
 from core import os_lupina  # noqa: E402
 from core import x11  # noqa: E402
 pomnilnik.tlak_omrezja(WebKit2, 160)   # pred prvim pogledom: omrezni procesi WebKita z mejo pomnilnika
@@ -796,6 +797,21 @@ def naprave_za_posiljanje() -> list:
     return [{"id": n.get("id", ""), "ime": n.get("ime", ""), "platforma": n.get("platforma", ""),
              "vrsta": n.get("vrsta", "")}
             for n in izid.get("naprave") or [] if n.get("id") and not n.get("ta") and "file" in (n.get("zmoznosti") or [])]
+
+
+def pretvorba_za_tv_mozna(najdi=None) -> dict:
+    """»Pretvori za televizor« dela, ce tece Safeer Control in video pretvori ta racunalnik (ffmpeg, rezerva v
+    core/link_pretvorba._lokalno) ali naprava v Linku, ki pretvorbo zna (ne namizna, z datotekami - kot
+    razvrsti_naprave). Brez tega vnos ne bi deloval (lastnik, 15. 10. 2026: »nimamo nedelujocih ikon«)."""
+    namizne = ("linux", "windows", "macos")     # core/link_pretvorba.NAMIZNE (modul je v paketu Controla, ne OS)
+    izid = _control_naprave("Seznam")
+    if not izid.get("ok"):
+        return {"ok": False, "koda": izid.get("koda") or "ni_controla"}
+    naprave = [n for n in izid.get("naprave") or [] if not n.get("ta") and "files" in (n.get("zmoznosti") or [])
+               and n.get("platforma") not in namizne]
+    import shutil
+    lokalno = bool((najdi or shutil.which)("ffmpeg"))
+    return {"ok": lokalno or bool(naprave), "lokalno": lokalno, "naprave": len(naprave)}
 
 
 def datoteke_naprave(id_naprave: str, mapa: str = "") -> dict:
@@ -3339,8 +3355,8 @@ class SafeerOS(Gtk.Application):
         nadzor = getattr(self, "_nadzor_map", None)
         if nadzor is None:
             nadzor = self._nadzor_map = os_datoteke.NadzorMap(
-                lambda spremenjen: self._dogodek("datoteke", {"pot": spremenjen}),
-                lambda: self._dogodek("nosilci", None))
+                lambda spremenjen: (self._dogodek("datoteke", {"pot": spremenjen}), self._priljubljene_osvezi_v_ozadju()),
+                lambda: (self._dogodek("nosilci", None), self._priljubljene_osvezi_v_ozadju()))
             try:
                 # Seznam nedavnih vodi GTK in spremembo javi sam (datoteka, odprta ali shranjena v drugem programu).
                 _nedavni().connect(
@@ -3550,6 +3566,19 @@ class SafeerOS(Gtk.Application):
             "predlogeDatotek": os_datoteke.predloge,
             "preimenujDatoteko": lambda: os_datoteke.preimenuj(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "vSmeti": lambda: os_datoteke.v_smeti(str(a[0]) if a else ""),
+            # Izbira vec datotek v Datotekah: vse v Smeti z enim zapisom za Razveljavi (idji).
+            "vSmetiVec": lambda: os_datoteke.v_smeti_vec(a[0] if a and isinstance(a[0], list) else []),
+            # Preslednica v Datotekah: slika, zacetek besedila (najvec 200 KB, ne binarno), prva stran PDF, medij.
+            "predogledDatoteke": lambda: os_datoteke.predogled(str(a[0]) if a else ""),
+            # Priljubljene datoteke, mape in programi (core/priljubljeno.py): en zapis za namizje QML in delovno
+            # povrsino; sprememba gre obema kot dogodek »priljubljeno«.
+            "priljubljenoSeznam": lambda: self._priljubljeno().stanje(),
+            "priljubljenoPreklopi": lambda: self._priljubljeno().preklopi(
+                str(a[0]) if a else "", a[1] if len(a) > 1 else None, a[2] if len(a) > 2 and isinstance(a[2], bool) else None),
+            "priljubljenoVrstniRed": lambda: self._priljubljeno().vrstni_red(str(a[0]) if a else "", a[1] if len(a) > 1 else None),
+            "priljubljenoKategorija": lambda: self._priljubljeno().kategorija(str(a[0]) if a else "", str(a[1]) if len(a) > 1 and a[1] else ""),
+            "priljubljenoNastavi": lambda: self._priljubljeno().nastavi(str(a[0]) if a else "", a[1] if len(a) > 1 else None),
+            "priljubljenoPreseli": lambda: self._priljubljeno().preseli(a[0] if a and isinstance(a[0], dict) else {}),
             "prostorDiska": lambda: os_datoteke.prostor(),
             "igreOblak": lambda: os_oblak_igre.stanje(),
             "igreOblakNamesti": lambda: os_oblak_igre.namesti(str(a[0]) if a else ""),
@@ -3651,6 +3680,8 @@ class SafeerOS(Gtk.Application):
                                                                               str(a[1]) if len(a) > 1 else ""),
             "pretvorbaDatotekeStanje": lambda: os_pretvorba_datotek.pretvorbe().stanje(str(a[0]) if a else ""),
             "pretvoriVideo": lambda: _control_naprave("PretvorbaZacni", str(a[0]) if a else ""),
+            # Ali »Pretvori za televizor« ta trenutek deluje (vnos menija se sicer ne pokaze).
+            "pretvorbaZaTvMozna": pretvorba_za_tv_mozna,
             "pretvorbaStanje": lambda: _control_naprave("PretvorbaStanje", str(a[0]) if a else ""),
             "pretvorbaPrenesi": lambda: _control_naprave("PretvorbaPrenesi", str(a[0]) if a else ""),
             "pretvorbaPusti": lambda: _control_naprave("PretvorbaPusti", str(a[0]) if a else ""),
@@ -3743,7 +3774,16 @@ class SafeerOS(Gtk.Application):
             # Trajni izbris: potrditev v sistemskem oknu na glavni niti (stran je ne more preskociti), brisanje v ozadju.
             def delo_smeti():
                 try:
-                    self._odgovori(pogled, id_, True, dict(os_datoteke.izprazni_smeti(), potrjeno=True))
+                    # Kar je bilo v Smeteh, je zdaj trajno izbrisano: zapisi priljubljenih zanj gredo. Samo za tisto,
+                    # cesar po praznjenju res ni vec v Smeteh (delno praznjenje: ostalo se da se obnoviti).
+                    izvirne = {str(e.get("izvirna") or "") for e in os_datoteke.smeti().get("elementi") or []}
+                    izid = os_datoteke.izprazni_smeti()
+                    try:
+                        ostale = {str(e.get("izvirna") or "") for e in os_datoteke.smeti().get("elementi") or []}
+                        self._priljubljeno().odstrani_poti(sorted(x for x in izvirne - ostale if x))
+                    except Exception as e:  # noqa: BLE001
+                        print("[SafeerOS] priljubljene:", e)
+                    self._odgovori(pogled, id_, True, dict(izid, potrjeno=True))
                 except Exception as e:  # noqa: BLE001
                     print("[SafeerOS] izprazni smeti:", e)
                     self._odgovori(pogled, id_, False, str(e))
@@ -3794,6 +3834,7 @@ class SafeerOS(Gtk.Application):
                     izid = ozadje[metoda]()
                     if metoda in self.SPREMINJAJO_DATOTEKE:
                         os_iskalnik.zastarel()      # naslednje iskanje naj indeks datotek obnovi
+                        self._priljubljene_sledijo(metoda, a, izid)
                     self._odgovori(pogled, id_, True, izid)
                 except Exception as e:  # noqa: BLE001
                     print("[SafeerOS]", metoda, e)
@@ -3803,9 +3844,44 @@ class SafeerOS(Gtk.Application):
             self._odgovori(pogled, id_, False, "neznano")
 
     #: Metode mostu, po katerih je indeks imen datotek (core/os_iskalnik.py) zastarel.
-    SPREMINJAJO_DATOTEKE = frozenset({"novaMapa", "novaDatoteka", "preimenujDatoteko", "vSmeti", "prilepiDatoteke",
+    SPREMINJAJO_DATOTEKE = frozenset({"novaMapa", "novaDatoteka", "preimenujDatoteko", "vSmeti", "vSmetiVec", "prilepiDatoteke",
                                       "obnoviIzSmeti", "razveljaviDatoteke", "nadaljujTukaj",
                                       "prenesiDatotekoNaprave"})
+
+    def _priljubljeno(self) -> "priljubljeno.Priljubljeno":
+        """Shramba priljubljenih; vsaka sprememba gre obema namizjema (QML in WebKit) kot dogodek »priljubljeno«."""
+        return priljubljeno.shramba(lambda stanje: self._dogodek("priljubljeno", stanje))
+
+    def _priljubljene_sledijo(self, metoda: str, a: list, izid) -> None:
+        """Preimenovana ali premaknjena datoteka (tudi z Razveljavi) ostane priljubljena na novem mestu."""
+        try:
+            pari = (priljubljeno.premaknjeno_po_razveljavitvi(a[0] if a else {}, izid) if metoda == "razveljaviDatoteke"
+                    else priljubljeno.premaknjeno_po_dejanju(metoda, a, izid))
+            if pari:
+                self._priljubljeno().premaknjeno(pari)
+            # V Smeti, obnova (Obnovi, Razveljavi), premik: vidne priljubljene so se lahko spremenile.
+            self._priljubljeno().osvezi()
+        except Exception as e:  # noqa: BLE001 - priljubljene ne smejo podreti dejanja z datotekami
+            print("[SafeerOS] priljubljene:", e)
+
+    def _priljubljene_osvezi_v_ozadju(self) -> None:
+        """Disk priklopljen/odklopljen ali mapa spremenjena zunaj: priljubljene na njem se pokazejo ali skrijejo.
+        Zdruzeno: kopiranje 1000 datotek v spremljano mapo da 1000 sprememb - ena osvezitev po 0,7 s, ne 1000 niti."""
+        if getattr(self, "_prilj_caka", False):
+            return
+        self._prilj_caka = True
+
+        def delo():
+            self._prilj_caka = False
+            try:
+                self._priljubljeno().osvezi()
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] priljubljene:", e)
+
+        def zazeni():
+            threading.Thread(target=delo, daemon=True, name="safeer-priljubljene").start()
+            return False
+        GLib.timeout_add(700, zazeni)
 
     #: Besedila sistemskega okna za trajni izbris (naslov, opis, preklic, potrditev).
     BESEDILA_SMETI = {
