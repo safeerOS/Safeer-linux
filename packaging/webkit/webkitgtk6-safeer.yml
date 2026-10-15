@@ -16,11 +16,22 @@ builddir: true
 # (internal compiler error: in expand_debug_locations, CI 13. 10. 2026, oba teka). Lastna gradnja brez -g na testnem PC
 # je uspela. Pospesi tudi gradnjo in izlocanje debuginfo (WebKit je velik).
 no-debuginfo: true
+# Clang 22 iz razsiritve org.freedesktop.Sdk.Extension.llvm22 (veja 25.08 = osnova org.gnome.Sdk//50) namesto GCC:
+# WebKitGTK od 2.53.1 podpira LTO in PGO samo s Clangom. Izmerjeno na testnem PC (i5-4590, 15. 10. 2026): Speedometer 3.1
+# Safeer (GCC -O2) 8.2, Firefox 12.8. Razsiritev mora biti v sdk-extensions obeh manifestov (Safeer OS in brskalnik).
 build-options:
+  append-path: /usr/lib/sdk/llvm22/bin
+  prepend-ld-library-path: /usr/lib/sdk/llvm22/lib
   cflags: -O2
   cflags-override: true
   cxxflags: -O2
   cxxflags-override: true
+  env:
+    CC: clang
+    CXX: clang++
+    # ThinLTO povezuje libjavascriptcoregtk in libwebkitgtk z vsemi jedri (lld --thinlto-jobs); dve hkratni povezavi
+    # na runnerju (4 jedra, 16 GB) bi tekmovali za pomnilnik. WebKit privzeto dovoli 4 (Release).
+    WEBKIT_NINJA_LINK_MAX: '1'
 config-opts:
   - -DPORT=GTK
   - -DCMAKE_BUILD_TYPE=Release
@@ -34,6 +45,25 @@ config-opts:
   - -DENABLE_MINIBROWSER=OFF
   - -DENABLE_API_TESTS=OFF
   - -DENABLE_LAYOUT_TESTS=OFF
+  # ThinLTO (WebKitCompilerFlags.cmake: -flto=thin za prevod in povezavo, OptionsCommon.cmake: ld.lld). Arhivi z bitno
+  # kodo LLVM potrebujejo llvm-ar/llvm-ranlib (GNU ar iz SDK nima vticnika LLVM za kazalo simbolov).
+  - -DLTO_MODE=thin
+  - -DCMAKE_AR=/usr/lib/sdk/llvm22/bin/llvm-ar
+  - -DCMAKE_RANLIB=/usr/lib/sdk/llvm22/bin/llvm-ranlib
+  - -DCMAKE_NM=/usr/lib/sdk/llvm22/bin/llvm-nm
+# Zapis gradnje (prevajalnik, LTO, PGO) za preverbo v CI in na testnem PC: flatpak-builder knjiznicam odstrani .comment
+# (strip --remove-section=.comment), zato prevajalnika iz knjiznice ni mogoce prebrati (CI 38677265636).
+# Tece v mapi gradnje (_flatpak_build) s CMakeCache.txt in build.ninja.
+post-install:
+  - |
+    d=/app/share/webkitgtk-safeer
+    mkdir -p "$d"
+    {
+      clang --version | head -n 1
+      grep -E '^(CMAKE_BUILD_TYPE|CMAKE_CXX_COMPILER|LTO_MODE|ENABLE_LLVM_PROFILE_GENERATION|USE_PGO_PROFILE):' CMakeCache.txt
+      for z in -fuse-ld=lld -flto=thin -fprofile-generate -fprofile-use; do echo "build.ninja $z: $(grep -c -e "$z" build.ninja)"; done
+    } > "$d/gradnja.txt"
+    cat "$d/gradnja.txt"
 cleanup:
   - /bin
   - /include

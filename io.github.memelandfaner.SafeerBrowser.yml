@@ -2,6 +2,9 @@ app-id: io.github.memelandfaner.SafeerBrowser
 runtime: org.gnome.Platform
 runtime-version: '50'
 sdk: org.gnome.Sdk
+# Clang/LLVM 22 za nas WebKitGTK (packaging/webkit/webkitgtk6-safeer.yml): LTO in PGO WebKit podpira samo s Clangom.
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.llvm22
 command: safeer
 # Safeer Browser na GTK4 (safeer_brskalnik.py) z nasim WebKitGTK 6.0 - isti modul kot Safeer OS (packaging/webkit).
 finish-args:
