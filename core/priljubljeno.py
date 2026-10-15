@@ -34,6 +34,10 @@ from typing import Any, Callable, Dict, List, Optional
 VERZIJA = 1
 NAJVEC_DATOTEK = 200
 NAJVEC_PROGRAMOV = 200
+#: Najvec uporabnikovih kategorij programov (vec jih iz zapisa izpade - _preveri).
+NAJVEC_KATEGORIJ = 1000
+#: Najdaljsa pot (PATH_MAX na Linuxu); daljsa ni prava pot, samo bi napihnila zapis.
+NAJDALJSA_POT = 4096
 #: Skrita priljubljena (ni je na poti in ni v Smeteh) se pozabi po toliko casa.
 POZABI_PO = 30 * 24 * 3600
 #: Kako pogosto se zapise »videno« za vidne priljubljene (ne ob vsakem branju).
@@ -70,7 +74,7 @@ def _cista_pot(pot: Any) -> str:
     if not p or "\0" in p:
         return ""
     p = os.path.expanduser(p)
-    return os.path.normpath(p) if os.path.isabs(p) else ""
+    return os.path.normpath(p) if os.path.isabs(p) and len(p) <= NAJDALJSA_POT else ""
 
 
 def _cist_kljuc(k: Any) -> str:
@@ -104,7 +108,7 @@ def _preveri(podatki: Any) -> dict:
     z["programi"] = kljuci[:NAJVEC_PROGRAMOV]
     kat = podatki.get("kategorije")
     if isinstance(kat, dict):
-        z["kategorije"] = {k: v for k, v in ((_cist_kljuc(k), str(v)) for k, v in list(kat.items())[:1000])
+        z["kategorije"] = {k: v for k, v in ((_cist_kljuc(k), str(v)) for k, v in list(kat.items())[:NAJVEC_KATEGORIJ])
                            if k and v in KATEGORIJE}
     nas = podatki.get("nastavitve")
     if isinstance(nas, dict):
@@ -121,6 +125,10 @@ class Priljubljeno:
         self.ob_spremembi = ob_spremembi
         self._zaklep = threading.RLock()
         self._podpis: Optional[str] = None       # kar sta namizji nazadnje dobili (za osvezi)
+        #: Rod stanja: vsaka shranjena sprememba ga poveca. Odgovori mostu tecejo v vec nitih in lahko pridejo pozneje
+        #: kot dogodek novejse spremembe - namizje starejsega rodu ne uporabi (pregled 15. 10. 2026).
+        self._rod = 0
+        self._globina = 0                         # gnezdenje _zaklenjeno v niti, ki drzi zaklep
         self.cas: Callable[[], float] = time.time
         self.v_smeteh: Callable[[], List[str]] = _izvirne_v_smeteh
 
@@ -130,6 +138,15 @@ class Priljubljeno:
         """Zaklep niti + zaklep datoteke (drug proces istega uporabnika). Brez fcntl (ni Linux) samo zaklep niti."""
         with self._zaklep:
             fd = None
+            self._globina += 1
+            if self._globina > 1:
+                # Gnezdeno v isti niti (osvezi -> stanje): datoteka je ze zaklenjena. Drugi flock na novem opisniku
+                # istega procesa bi cakal sam nase.
+                try:
+                    yield
+                finally:
+                    self._globina -= 1
+                return
             try:
                 os.makedirs(os.path.dirname(self.pot), exist_ok=True)
                 fd = os.open(self.pot + ".lock", os.O_RDWR | os.O_CREAT, 0o600)
@@ -140,6 +157,7 @@ class Priljubljeno:
             try:
                 yield
             finally:
+                self._globina -= 1
                 if fd is not None:
                     try:
                         os.close(fd)          # zapre tudi flock
@@ -150,13 +168,23 @@ class Priljubljeno:
         try:
             with open(self.pot, encoding="utf-8") as f:
                 return _preveri(json.load(f))
-        except (OSError, ValueError):
+        except ValueError:
+            # Pokvarjen zapis (rocno urejen, poln disk pri drugem programu): namizje dela naprej s praznim, kopija
+            # ostane ob njem - naslednje pisanje bi ga sicer prepisalo in priljubljene bi bile za vedno izgubljene.
+            try:
+                os.replace(self.pot, self.pot + ".pokvarjeno")
+                print("[priljubljeno] pokvarjen zapis shranjen kot", os.path.basename(self.pot) + ".pokvarjeno", flush=True)
+            except OSError:
+                pass
+            return _prazno()
+        except OSError:
             return _prazno()
 
     def _pisi(self, z: dict) -> None:
         zacasna = "%s.%d.%d.tmp" % (self.pot, os.getpid(), threading.get_ident())
         try:
-            with open(zacasna, "w", encoding="utf-8") as f:
+            # 0600: poti priljubljenih datotek so zasebne (drug uporabnik racunalnika jih ne bere).
+            with os.fdopen(os.open(zacasna, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as f:
                 json.dump(z, f, ensure_ascii=False, indent=1)
                 f.flush()
                 os.fsync(f.fileno())
@@ -175,9 +203,11 @@ class Priljubljeno:
             spremenjeno = bool(kaj(z))
             if spremenjeno:
                 self._pisi(z)
-        stanje = self.stanje(z)
-        if spremenjeno:
-            self._sporoci(stanje)
+                self._rod += 1
+            # Stanje in dogodek pod zaklepom: dogodki dveh hkratnih sprememb gredo namizjema v pravem vrstnem redu.
+            stanje = self.stanje(z)
+            if spremenjeno:
+                self._sporoci(stanje)
         return stanje
 
     def _sporoci(self, stanje: dict) -> None:
@@ -196,9 +226,12 @@ class Priljubljeno:
     def osvezi(self) -> dict:
         """Po dejanju z datotekami (Smeti, obnovitev, Razveljavi, premik) ali priklopu/odklopu diska: ce se je spremenilo,
         katere priljubljene so vidne, namizji dobita dogodek - seznam se osvezi brez ponovnega zagona."""
-        stanje = self.stanje()
-        if self._podpis_stanja(stanje) != self._podpis:
-            self._sporoci(stanje)
+        with self._zaklenjeno():
+            stanje = self.stanje()
+            if self._podpis_stanja(stanje) != self._podpis:
+                self._rod += 1
+                stanje["rod"] = self._rod
+                self._sporoci(stanje)
         return stanje
 
     def odstrani_poti(self, poti: Any) -> dict:
@@ -224,12 +257,15 @@ class Priljubljeno:
                     x["videno"], sprememba = zdaj, True
             elif zdaj - x.get("videno", 0) > POZABI_PO:
                 stare.append(x)
+        brez_casa = [x for x in stare if not x.get("videno")]
+        if brez_casa:
+            # Zapis brez casa (prejsnja razlicica, preselitev): ura zacne teci zdaj, ne pozabimo ga takoj. Vsak zase -
+            # prej je en zapis s casom med njimi povzrocil, da so bili pozabljeni tudi vsi brez casa.
+            for x in brez_casa:
+                x["videno"] = zdaj
+            stare = [x for x in stare if x not in brez_casa]
+            sprememba = True
         if stare:
-            if not any(x.get("videno") for x in stare):
-                # Zapis brez casa (prejsnja razlicica): ura zacne teci zdaj, ne pozabimo ga takoj.
-                for x in stare:
-                    x["videno"] = zdaj
-                return True
             try:
                 smeti = self.v_smeteh()
             except Exception:  # noqa: BLE001 - Smeti ni mogoce prebrati: raje nic ne pozabimo
@@ -262,11 +298,39 @@ class Priljubljeno:
                              "velikost": 0 if mapa else st.st_size, "spremenjeno": st.st_mtime})
         nastavitve = {k: z["nastavitve"].get(k, v[0]) for k, v in NASTAVITVE.items()}
         return {"datoteke": datoteke, "programi": list(z["programi"]), "kategorije": dict(z["kategorije"]),
-                "nastavitve": nastavitve, "preseljeno": z["preseljeno"],
+                "nastavitve": nastavitve, "preseljeno": z["preseljeno"], "rod": self._rod,
                 "kategorijeProgramov": list(KATEGORIJE), "izSkupine": dict(IZ_SKUPINE)}
 
     def preklopi(self, vrsta: str, podatek: Any, vkljuci: Optional[bool] = None) -> dict:
-        """vrsta "datoteka": podatek {pot, ime, mapa} ali pot; "program": kljuc naprava:id. vkljuci None = preklopi."""
+        """vrsta "datoteka": podatek {pot, ime, mapa} ali pot; "datoteke": seznam takih (izbira vec datotek - ena
+        sprememba, en dogodek; vkljuci None = dodaj vse, ce niso ze vse, sicer odstrani vse); "program": kljuc
+        naprava:id. vkljuci None = preklopi."""
+        if vrsta == "datoteke":
+            vnosi = []
+            for d in (podatek if isinstance(podatek, (list, tuple)) else [])[:NAJVEC_DATOTEK]:
+                d = d if isinstance(d, dict) else {"pot": d}
+                pot = _cista_pot(d.get("pot"))
+                if pot and pot not in [v[0] for v in vnosi]:
+                    vnosi.append((pot, d))
+            if not vnosi:
+                return self.stanje()
+
+            def kaj_vec(z):
+                je = {x["pot"] for x in z["datoteke"]}
+                hoce = (not all(p in je for p, _ in vnosi)) if vkljuci is None else bool(vkljuci)
+                if not hoce:
+                    poti = {p for p, _ in vnosi}
+                    pred = len(z["datoteke"])
+                    z["datoteke"] = [x for x in z["datoteke"] if x["pot"] not in poti]
+                    return len(z["datoteke"]) != pred
+                novi = [(p, d) for p, d in vnosi if p not in je]
+                for p, d in novi:
+                    if len(z["datoteke"]) >= NAJVEC_DATOTEK:
+                        z["datoteke"].pop(0)
+                    z["datoteke"].append({"pot": p, "ime": str(d.get("ime") or os.path.basename(p) or p)[:255],
+                                          "mapa": bool(d.get("mapa")) or os.path.isdir(p), "videno": self.cas()})
+                return bool(novi)
+            return self._spremeni(kaj_vec)
         if vrsta == "datoteka":
             d = podatek if isinstance(podatek, dict) else {"pot": podatek}
             pot = _cista_pot(d.get("pot"))
@@ -349,6 +413,8 @@ class Priljubljeno:
             if (z["kategorije"].get(k) or "") == kat:
                 return False
             if kat:
+                if k not in z["kategorije"] and len(z["kategorije"]) >= NAJVEC_KATEGORIJ:
+                    z["kategorije"].pop(next(iter(z["kategorije"])))     # najstarejsa izbira
                 z["kategorije"][k] = kat
             else:
                 z["kategorije"].pop(k, None)

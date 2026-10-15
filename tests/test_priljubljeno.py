@@ -163,6 +163,89 @@ class Shramba(unittest.TestCase):
         self.assertIsNone(priljubljeno.premaknjeno_po_dejanju("prilepiDatoteke", [[v], "/x", False], {"pari": [[v, "/x/v"]]}))
 
 
+class PregledShrambe(unittest.TestCase):
+    """Popravki neodvisnega pregleda (15. 10. 2026) - vsak preizkus je padel pred popravkom."""
+
+    def setUp(self):
+        self.mapa = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.mapa, True)
+        self.dogodki = []
+        self.s = priljubljeno.Priljubljeno(os.path.join(self.mapa, "cfg", "priljubljeno.json"), self.dogodki.append)
+
+    def _zapis(self, podatki):
+        os.makedirs(os.path.dirname(self.s.pot), exist_ok=True)
+        with open(self.s.pot, "w", encoding="utf-8") as f:
+            json.dump(podatki, f)
+
+    def _datoteke_v_zapisu(self):
+        with open(self.s.pot, encoding="utf-8") as f:
+            return [d["pot"] for d in json.load(f)["datoteke"]]
+
+    def test_zapis_brez_casa_ni_pozabljen_zaradi_drugega(self):
+        """Ena stara skrita s casom in ena brez casa (prejsnja razlicica): brez casa mora dobiti 30 dni, ne izginiti."""
+        stara, brez = os.path.join(self.mapa, "stara.txt"), os.path.join(self.mapa, "brez.txt")
+        self._zapis({"datoteke": [{"pot": stara, "videno": 1000.0}, {"pot": brez}]})
+        self.s.cas = lambda: 1000.0 + priljubljeno.POZABI_PO + 5
+        self.s.v_smeteh = lambda: []
+        self.s.stanje()
+        self.assertEqual(self._datoteke_v_zapisu(), [brez])
+
+    def test_pokvarjen_zapis_ostane_kot_kopija(self):
+        self._zapis({"programi": ["ta:gimp.desktop"]})
+        with open(self.s.pot, "a", encoding="utf-8") as f:
+            f.write("}}")
+        st = self.s.preklopi("program", "ta:x")                  # pisanje po pokvarjenem: prej je izvirnik izgubljen
+        self.assertEqual(st["programi"], ["ta:x"])
+        with open(self.s.pot + ".pokvarjeno", encoding="utf-8") as f:
+            self.assertIn("ta:gimp.desktop", f.read())
+
+    def test_osvezi_ne_zaklene_samega_sebe(self):
+        """osvezi drzi zaklep datoteke in klice stanje: drugi flock v istem procesu bi cakal za vedno."""
+        t = threading.Thread(target=self.s.osvezi, daemon=True)
+        t.start()
+        t.join(5)
+        self.assertFalse(t.is_alive(), "osvezi je obvisel")
+        self.assertEqual(len(self.dogodki), 1)
+
+    def test_vec_datotek_ena_sprememba_in_rod(self):
+        poti = []
+        for ime in ("a", "b", "c"):
+            poti.append(os.path.join(self.mapa, ime))
+            open(poti[-1], "w").close()
+        self.s.preklopi("datoteka", poti[0])
+        rod = self.s.stanje()["rod"]
+        n = len(self.dogodki)
+        st = self.s.preklopi("datoteke", [{"pot": p, "ime": os.path.basename(p)} for p in poti])
+        self.assertEqual([d["pot"] for d in st["datoteke"]], poti)          # brez podvojene »a«
+        self.assertEqual(len(self.dogodki), n + 1)                          # en dogodek za vse
+        self.assertGreater(st["rod"], rod)
+        st = self.s.preklopi("datoteke", poti)                              # vse so: odstrani vse
+        self.assertEqual(st["datoteke"], [])
+        self.assertEqual(self.s.preklopi("datoteke", "ni seznam")["datoteke"], [])
+
+    def test_meje_dolzine_in_stevila(self):
+        self.assertEqual(self.s.preklopi("datoteka", "/" + "a" * 5000)["datoteke"], [])
+        with mock.patch.object(priljubljeno, "NAJVEC_KATEGORIJ", 3):
+            for i in range(5):
+                self.s.kategorija("ta:p%d" % i, "igre")
+            self.assertEqual(list(self.s.stanje()["kategorije"]), ["ta:p2", "ta:p3", "ta:p4"])
+
+    def test_zapis_samo_za_uporabnika(self):
+        self.s.preklopi("program", "ta:x")
+        self.assertEqual(os.stat(self.s.pot).st_mode & 0o777, 0o600)
+
+    def test_dogodki_po_vrsti_sprememb(self):
+        """Dogodek gre pod zaklepom: zadnji dogodek je vedno koncno stanje (prej sta se dve niti lahko prehiteli)."""
+        niti = [threading.Thread(target=self.s.preklopi, args=("program", "ta:p%d" % i)) for i in range(20)]
+        for n in niti:
+            n.start()
+        for n in niti:
+            n.join()
+        self.assertEqual(len(self.dogodki[-1]["programi"]), 20)
+        rodovi = [d["rod"] for d in self.dogodki]
+        self.assertEqual(rodovi, sorted(rodovi))
+
+
 class Predogled(unittest.TestCase):
     def setUp(self):
         self.mapa = tempfile.mkdtemp()
@@ -221,6 +304,58 @@ class Predogled(unittest.TestCase):
             r = os_datoteke.predogled(pdf, najdi=lambda _ime: None)
         self.assertEqual((r["nacin"], r["brezOrodja"]), ("podatki", True))
 
+    def test_cev_namesto_datoteke_ne_obvisi(self):
+        """Datoteka, zamenjana s cevjo med preverjanjem in branjem: branje ne caka na pisca (nit mostu bi obvisela)."""
+        cev = os.path.join(self.mapa, "zamenjana.txt")
+        os.mkfifo(cev)
+        izid = []
+        t = threading.Thread(target=lambda: izid.append(self._beri_varno(cev)), daemon=True)
+        t.start()
+        t.join(5)
+        self.assertFalse(t.is_alive(), "branje cevi je obviselo")
+        self.assertEqual(izid, ["ni_navadna"])
+        # Ce stat pokaze navadno datoteko, odpre pa se cev: predogled vrne napako, ne obvisi.
+        resnicni = os.stat
+        with mock.patch.object(os_datoteke.os, "stat", lambda p, *a, **k: resnicni(__file__) if p == cev else resnicni(p, *a, **k)):
+            r = os_datoteke.predogled(cev)
+        self.assertEqual((r["ok"], r["napaka"]), (False, "ni_navadna"))
+
+    @staticmethod
+    def _beri_varno(pot):
+        try:
+            os_datoteke._besedilo_z_zacetka(pot)
+            return "prebrano"
+        except OSError as e:
+            return str(e)
+
+    def test_pdf_pokvarjen_izhod_ni_v_predpomnilniku(self):
+        """pdftoppm, ki pade ali ga prekine casovna meja, ne pusti pokvarjene slike, ki bi jo predogled nato vedno kazal.
+        PDF se nikoli ne razclenjuje v procesu Safeer OS (Poppler GI) - en pokvarjen PDF bi podrl namizje."""
+        orodja = os.path.join(self.mapa, "bin")
+        os.mkdir(orodja)
+        orodje = os.path.join(orodja, "pdftoppm")
+        with open(orodje, "w") as f:
+            f.write('#!/bin/sh\nfor a; do z="$a"; done\nprintf "\\211PNG polovica" > "$z.png"\nexit 1\n')
+        os.chmod(orodje, 0o755)
+        pdf = self._pot("d.pdf", b"%PDF-1.4 pokvarjen")
+        r = os_datoteke.predogled(pdf, najdi=lambda ime: orodje if ime == "pdftoppm" else None)
+        self.assertEqual((r["nacin"], r.get("brezOrodja")), ("podatki", True))
+        mapa = os_datoteke._mapa_predogledov()
+        self.assertEqual(os.listdir(mapa), [])
+        self.assertEqual(os.stat(mapa).st_mode & 0o777, 0o700)
+        with mock.patch.dict("sys.modules", {"gi": None}):          # brez orodja: Popplerja v procesu ne poskusi
+            self.assertEqual(os_datoteke.predogled(pdf, najdi=lambda _i: None)["brezOrodja"], True)
+
+    def test_predpomnilnik_predogledov_omejen(self):
+        mapa = os_datoteke._mapa_predogledov()
+        os.makedirs(mapa)
+        for i in range(8):
+            p = os.path.join(mapa, "%02d.png" % i)
+            open(p, "w").close()
+            os.utime(p, (1000 + i, 1000 + i))
+        os_datoteke._pospravi_predoglede(mapa, 5)
+        self.assertEqual(sorted(os.listdir(mapa)), ["%02d.png" % i for i in range(3, 8)])
+
     @unittest.skipUnless(shutil.which("pdftoppm"), "brez pdftoppm")
     def test_pdf_prva_stran(self):
         pdf = os.path.join(self.mapa, "d.pdf")
@@ -253,6 +388,8 @@ class VecVSmeti(unittest.TestCase):
         self.assertEqual(r["napake"], [{"pot": "/c", "napaka": "ni_dovoljenja"}])
         self.assertFalse(r["ok"])
         self.assertEqual(os_datoteke.v_smeti_vec([])["napaka"], "ni_datoteke")
+        r = os_datoteke.v_smeti_vec(["/x%d" % i for i in range(os_datoteke.NAJVEC_NAENKRAT + 1)])
+        self.assertEqual((r["napaka"], r["najvec"]), ("prevec", os_datoteke.NAJVEC_NAENKRAT))   # namizje pove mejo
         # En zapis razveljavi obnovi vse.
         with mock.patch.object(os_datoteke, "obnovi_iz_smeti", return_value={"ok": True}) as obnovi:
             r = os_datoteke.razveljavi({"vrsta": "smeti", "idji": ["a.1", "b"]})
@@ -397,6 +534,68 @@ class Most(unittest.TestCase):
             self.assertTrue(gotovo.wait(5))
         with open(shramba.pot, encoding="utf-8") as f:
             self.assertEqual([d["pot"] for d in json.load(f)["datoteke"]], [c])
+
+    def test_delno_izpraznjene_smeti(self):
+        """Ce praznjenje Smeti ne izbrise vsega, ostane zapis za tisto, kar je se v Smeteh (obnova ga vrne)."""
+        import safeer_os as so
+        mapa = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, mapa, True)
+        shramba = priljubljeno.Priljubljeno(os.path.join(mapa, "p.json"))
+        b, c = os.path.join(mapa, "b.txt"), os.path.join(mapa, "c.txt")
+        shramba.preklopi("datoteke", [b, c], True)
+        v_smeteh = [{"izvirna": b}, {"izvirna": c}]
+        gotovo = threading.Event()
+
+        class Pogled:
+            def qml_odgovor(self, *_a):
+                gotovo.set()
+
+        def izprazni():
+            del v_smeteh[0]                       # c se ni dalo izbrisati
+            return {"ok": False, "izbrisano": 1}
+        jaz = mock.MagicMock()
+        jaz._katalog_most.return_value.pozna.return_value = False
+        jaz._odgovori = lambda p, i, ok, d: so.SafeerOS._odgovori(jaz, p, i, ok, d)
+        jaz._priljubljeno = lambda: shramba
+        with mock.patch.object(os_datoteke, "smeti", lambda: {"elementi": list(v_smeteh)}), \
+                mock.patch.object(os_datoteke, "izprazni_smeti", izprazni):
+            so.SafeerOS._obdelaj_klic(jaz, Pogled(), 1, "izprazniSmeti", [])
+            jaz._potrdi_izpraznitev_smeti.call_args[0][0](True)
+            self.assertTrue(gotovo.wait(5))
+        with open(shramba.pot, encoding="utf-8") as f:
+            self.assertEqual([d["pot"] for d in json.load(f)["datoteke"]], [c])
+
+    def test_pretvorba_za_tv_mozna(self):
+        """»Pretvori za televizor« samo, ko dela: Control tece in (ffmpeg ali naprava, ki pretvorbo zna)."""
+        import safeer_os as so
+        naprave = {"ok": True, "naprave": [{"id": "pc", "ta": True, "zmoznosti": ["files"], "platforma": "linux"},
+                                           {"id": "pc2", "zmoznosti": ["files"], "platforma": "windows"}]}
+        with mock.patch.object(so, "_control_naprave", return_value=naprave):
+            self.assertFalse(so.pretvorba_za_tv_mozna(najdi=lambda _i: None)["ok"])          # samo namizne naprave
+            self.assertTrue(so.pretvorba_za_tv_mozna(najdi=lambda _i: "/usr/bin/ffmpeg")["ok"])
+        naprave["naprave"].append({"id": "tv", "zmoznosti": ["files"], "platforma": "android"})
+        with mock.patch.object(so, "_control_naprave", return_value=naprave):
+            r = so.pretvorba_za_tv_mozna(najdi=lambda _i: None)
+        self.assertEqual((r["ok"], r["naprave"]), (True, 1))
+        with mock.patch.object(so, "_control_naprave", return_value={"ok": False, "koda": "ni_controla"}):
+            self.assertFalse(so.pretvorba_za_tv_mozna(najdi=lambda _i: "/usr/bin/ffmpeg")["ok"])   # brez Controla nic
+
+    def test_osvezitev_ob_spremembah_zdruzena(self):
+        """1000 sprememb v spremljani mapi: ena osvezitev priljubljenih, ne 1000 niti."""
+        import safeer_os as so
+        jaz = mock.MagicMock()
+        jaz._prilj_caka = False
+        casovniki = []
+        with mock.patch.object(so.GLib, "timeout_add", lambda ms, f: casovniki.append(f)):
+            for _ in range(1000):
+                so.SafeerOS._priljubljene_osvezi_v_ozadju(jaz)
+            self.assertEqual(len(casovniki), 1)
+            with mock.patch.object(so.threading, "Thread") as nit:
+                casovniki[0]()
+                nit.call_args[1]["target"]()
+            jaz._priljubljeno.return_value.osvezi.assert_called_once()
+            so.SafeerOS._priljubljene_osvezi_v_ozadju(jaz)                  # po osvezitvi spet sprejme
+            self.assertEqual(len(casovniki), 2)
 
 
 if __name__ == "__main__":

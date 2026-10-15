@@ -757,6 +757,21 @@ def naprave_za_posiljanje() -> list:
             for n in izid.get("naprave") or [] if n.get("id") and not n.get("ta") and "file" in (n.get("zmoznosti") or [])]
 
 
+def pretvorba_za_tv_mozna(najdi=None) -> dict:
+    """»Pretvori za televizor« dela, ce tece Safeer Control in video pretvori ta racunalnik (ffmpeg, rezerva v
+    core/link_pretvorba._lokalno) ali naprava v Linku, ki pretvorbo zna (ne namizna, z datotekami - kot
+    razvrsti_naprave). Brez tega vnos ne bi deloval (lastnik, 15. 10. 2026: »nimamo nedelujocih ikon«)."""
+    namizne = ("linux", "windows", "macos")     # core/link_pretvorba.NAMIZNE (modul je v paketu Controla, ne OS)
+    izid = _control_naprave("Seznam")
+    if not izid.get("ok"):
+        return {"ok": False, "koda": izid.get("koda") or "ni_controla"}
+    naprave = [n for n in izid.get("naprave") or [] if not n.get("ta") and "files" in (n.get("zmoznosti") or [])
+               and n.get("platforma") not in namizne]
+    import shutil
+    lokalno = bool((najdi or shutil.which)("ffmpeg"))
+    return {"ok": lokalno or bool(naprave), "lokalno": lokalno, "naprave": len(naprave)}
+
+
 def datoteke_naprave(id_naprave: str, mapa: str = "") -> dict:
     """Mapa druge naprave (files.list prek Controla): vnosi, streznik za tok in kljuc naprave iz kroga."""
     return _control_naprave("Datoteke", str(id_naprave or ""), str(mapa or ""))
@@ -3503,6 +3518,8 @@ class SafeerOS(Gtk.Application):
                                                                               str(a[1]) if len(a) > 1 else ""),
             "pretvorbaDatotekeStanje": lambda: os_pretvorba_datotek.pretvorbe().stanje(str(a[0]) if a else ""),
             "pretvoriVideo": lambda: _control_naprave("PretvorbaZacni", str(a[0]) if a else ""),
+            # Ali »Pretvori za televizor« ta trenutek deluje (vnos menija se sicer ne pokaze).
+            "pretvorbaZaTvMozna": pretvorba_za_tv_mozna,
             "pretvorbaStanje": lambda: _control_naprave("PretvorbaStanje", str(a[0]) if a else ""),
             "pretvorbaPrenesi": lambda: _control_naprave("PretvorbaPrenesi", str(a[0]) if a else ""),
             "pretvorbaPusti": lambda: _control_naprave("PretvorbaPusti", str(a[0]) if a else ""),
@@ -3578,11 +3595,13 @@ class SafeerOS(Gtk.Application):
             # Trajni izbris: potrditev v sistemskem oknu na glavni niti (stran je ne more preskociti), brisanje v ozadju.
             def delo_smeti():
                 try:
-                    # Kar je bilo v Smeteh, je zdaj trajno izbrisano: zapisi priljubljenih zanj gredo.
-                    izvirne = [str(e.get("izvirna") or "") for e in os_datoteke.smeti().get("elementi") or []]
+                    # Kar je bilo v Smeteh, je zdaj trajno izbrisano: zapisi priljubljenih zanj gredo. Samo za tisto,
+                    # cesar po praznjenju res ni vec v Smeteh (delno praznjenje: ostalo se da se obnoviti).
+                    izvirne = {str(e.get("izvirna") or "") for e in os_datoteke.smeti().get("elementi") or []}
                     izid = os_datoteke.izprazni_smeti()
                     try:
-                        self._priljubljeno().odstrani_poti([x for x in izvirne if x])
+                        ostale = {str(e.get("izvirna") or "") for e in os_datoteke.smeti().get("elementi") or []}
+                        self._priljubljeno().odstrani_poti(sorted(x for x in izvirne - ostale if x))
                     except Exception as e:  # noqa: BLE001
                         print("[SafeerOS] priljubljene:", e)
                     self._odgovori(pogled, id_, True, dict(izid, potrjeno=True))
@@ -3667,13 +3686,23 @@ class SafeerOS(Gtk.Application):
             print("[SafeerOS] priljubljene:", e)
 
     def _priljubljene_osvezi_v_ozadju(self) -> None:
-        """Disk priklopljen/odklopljen ali mapa spremenjena zunaj: priljubljene na njem se pokazejo ali skrijejo."""
+        """Disk priklopljen/odklopljen ali mapa spremenjena zunaj: priljubljene na njem se pokazejo ali skrijejo.
+        Zdruzeno: kopiranje 1000 datotek v spremljano mapo da 1000 sprememb - ena osvezitev po 0,7 s, ne 1000 niti."""
+        if getattr(self, "_prilj_caka", False):
+            return
+        self._prilj_caka = True
+
         def delo():
+            self._prilj_caka = False
             try:
                 self._priljubljeno().osvezi()
             except Exception as e:  # noqa: BLE001
                 print("[SafeerOS] priljubljene:", e)
-        threading.Thread(target=delo, daemon=True, name="safeer-priljubljene").start()
+
+        def zazeni():
+            threading.Thread(target=delo, daemon=True, name="safeer-priljubljene").start()
+            return False
+        GLib.timeout_add(700, zazeni)
 
     #: Besedila sistemskega okna za trajni izbris (naslov, opis, preklic, potrditev).
     BESEDILA_SMETI = {

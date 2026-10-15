@@ -826,8 +826,13 @@ BESEDILNE = (".txt", ".md", ".py", ".js", ".mjs", ".ts", ".qml", ".json", ".csv"
 
 
 def _besedilo_z_zacetka(pot: str, meja: int = MEJA_BESEDILA) -> Optional[dict]:
-    """Prvih `meja` bajtov kot besedilo ali None, ce je datoteka binarna (nicelni bajt ali ne-UTF-8 v vzorcu)."""
-    with open(pot, "rb") as f:
+    """Prvih `meja` bajtov kot besedilo ali None, ce je datoteka binarna (nicelni bajt ali ne-UTF-8 v vzorcu).
+    O_NONBLOCK in fstat: ce je bila datoteka med preverjanjem in odpiranjem zamenjana s cevjo ali napravo, branje ne
+    obvisi (nit mostu bi cakala za vedno) - beremo samo navadno datoteko."""
+    import stat as _stat
+    with open(pot, "rb", opener=lambda p, z: os.open(p, z | os.O_NONBLOCK | getattr(os, "O_NOCTTY", 0))) as f:
+        if not _stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+            raise OSError("ni_navadna")
         podatki = f.read(meja + 1)
     odrezano = len(podatki) > meja
     podatki = podatki[:meja]
@@ -853,42 +858,58 @@ def _mapa_predogledov() -> str:
     return os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "safeer-os", "predogled")
 
 
+#: Najvec slik prvih strani v predpomnilniku (starejse gredo; ena je nekaj sto KB).
+NAJVEC_PREDOGLEDOV = 100
+
+
+def _pospravi_predoglede(mapa: str, najvec: int = NAJVEC_PREDOGLEDOV) -> None:
+    try:
+        slike = sorted((e for e in os.scandir(mapa) if e.name.endswith(".png") and e.is_file(follow_symlinks=False)),
+                       key=lambda e: e.stat(follow_symlinks=False).st_mtime, reverse=True)
+    except OSError:
+        return
+    for e in slike[najvec:]:
+        try:
+            os.remove(e.path)
+        except OSError:
+            pass
+
+
 def _prva_stran_pdf(pot: str, st: os.stat_result, najdi=shutil.which) -> str:
-    """Prva stran PDF kot PNG v predpomnilniku (pdftoppm iz poppler-utils ali Poppler GI s cairo); prazno brez orodja.
+    """Prva stran PDF kot PNG v predpomnilniku (pdftoppm iz poppler-utils); prazno brez orodja.
     Predpomnilnik se obnovi, ko se PDF spremeni."""
     import hashlib
+    import threading
     kljuc = hashlib.sha1(("%s|%d|%d" % (pot, st.st_size, int(st.st_mtime))).encode("utf-8", "surrogateescape")).hexdigest()[:24]
     cilj = os.path.join(_mapa_predogledov(), kljuc + ".png")
     if os.path.isfile(cilj):
         return cilj
-    os.makedirs(os.path.dirname(cilj), exist_ok=True)
+    # 0700: slike strani zasebnih dokumentov vidi samo uporabnik.
+    os.makedirs(os.path.dirname(cilj), mode=0o700, exist_ok=True)
     orodje = najdi("pdftoppm")
-    if orodje:
-        try:
-            subprocess.run([orodje, "-f", "1", "-l", "1", "-singlefile", "-png", "-scale-to", "1200", pot, cilj[:-4]],
-                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, check=False)
-        except (OSError, subprocess.SubprocessError):
-            pass
-        return cilj if os.path.isfile(cilj) else ""
-    try:
-        import gi
-        gi.require_version("Poppler", "0.18")
-        import cairo
-        from gi.repository import Gio, Poppler
-        dok = Poppler.Document.new_from_file(Gio.File.new_for_path(pot).get_uri(), None)
-        stran = dok.get_page(0)
-        s, v = stran.get_size()
-        merilo = 1200 / max(s, v, 1)
-        povrsina = cairo.ImageSurface(cairo.FORMAT_RGB24, max(1, int(s * merilo)), max(1, int(v * merilo)))
-        c = cairo.Context(povrsina)
-        c.set_source_rgb(1, 1, 1)
-        c.paint()
-        c.scale(merilo, merilo)
-        stran.render(c)
-        povrsina.write_to_png(cilj)
-        return cilj
-    except Exception:  # noqa: BLE001 - ni Popplerja ali poskodovan PDF
+    if not orodje:
+        # Brez pdftoppm ni slike strani (»Odpri« ostane). PDF-ja ne razclenjujemo v tem procesu (Poppler GI): pokvarjen
+        # ali zlonameren PDF bi podrl Safeer OS, Control in Splet hkrati (en proces) - pdftoppm tece loceno, s casovno mejo.
         return ""
+    zacasna = "%s.%d.%d" % (cilj[:-4], os.getpid(), threading.get_ident())
+    try:
+        r = subprocess.run([orodje, "-f", "1", "-l", "1", "-singlefile", "-png", "-scale-to", "1200", pot, zacasna],
+                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, check=False)
+        # Samo cela slika gre v predpomnilnik (prekinjena po casovni meji bi tam ostala pokvarjena za vedno).
+        if r.returncode == 0 and os.path.isfile(zacasna + ".png"):
+            os.replace(zacasna + ".png", cilj)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    finally:
+        if os.path.exists(zacasna + ".png"):
+            try:
+                os.remove(zacasna + ".png")
+            except OSError:
+                pass
+    if os.path.isfile(cilj):
+        _pospravi_predoglede(os.path.dirname(cilj))
+        return cilj
+    return ""
 
 
 def predogled(pot: str, najdi=shutil.which) -> dict:
@@ -930,8 +951,8 @@ def predogled(pot: str, najdi=shutil.which) -> dict:
     if mime.startswith("text/") or konc in BESEDILNE or (not mime and st.st_size <= 4 * 1024 * 1024):
         try:
             b = _besedilo_z_zacetka(pot)
-        except OSError:
-            return dict(izid, ok=False, napaka="ni_dovoljenja")
+        except OSError as e:
+            return dict(izid, ok=False, napaka="ni_navadna" if str(e) == "ni_navadna" else "ni_dovoljenja")
         if b is not None:
             izid.update(nacin="besedilo", **b)
         else:
@@ -944,7 +965,8 @@ def v_smeti_vec(poti) -> dict:
     zapis za Razveljavi, da Ctrl+Z vrne VSE, kar je slo v Smeti z enim dejanjem."""
     seznam = [str(p) for p in (poti if isinstance(poti, (list, tuple)) else [poti]) if p]
     if not seznam or len(seznam) > NAJVEC_NAENKRAT:
-        return {"ok": False, "napaka": "prevec" if seznam else "ni_datoteke", "idji": [], "narejeno": [], "napake": []}
+        return {"ok": False, "napaka": "prevec" if seznam else "ni_datoteke", "najvec": NAJVEC_NAENKRAT, "idji": [],
+                "narejeno": [], "napake": []}
     idji, narejeno, napake = [], [], []
     for pot in dict.fromkeys(seznam):
         r = v_smeti(pot)
