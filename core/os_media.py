@@ -2471,7 +2471,7 @@ class MediaCenter:
         tokovi: list[dict] = []
         videni: set[str] = set()
         # Vsi dodatki hkrati. Ko ima kateri ze neposreden tok in je minil TOKOVI_ROK_S, ne cakamo na pocasne (meritev
-        # 15. 10. 2026: en dodatek je Predvajaj zadrzal 10 s, ceprav je tok ze bil); ti stejejo kot izpad, zato
+        # 15. 10. 2026: neodziven dodatek je Predvajaj zadrzal 10 s, ceprav je tok ze bil); ti stejejo kot izpad, zato
         # naslov ne postane »ni na voljo«.
         bazen = ThreadPoolExecutor(max_workers=min(10, len(koreni)))
         niti = {bazen.submit(vprasaj, k): k for k in koreni[:10]}
@@ -2508,7 +2508,9 @@ class MediaCenter:
         return tokovi
 
     #: Tokovi: ko kateri dodatek ze da tok, na ostale cakamo se najvec do toliko sekund od zacetka.
-    TOKOVI_ROK_S = 3.0
+    #: Meritev 15. 10. 2026 (10 dodatkov, 4 filmi x 3): vsi dodatki odgovorijo v 2,9-5,4 s, izjeme 7,7 in 10,1 s
+    #: (dodatek, ki ne odgovori). Pri 3 s je odpadla vecina razlicic (34 -> 1), pri 5 s ostanejo, izjeme pa odpadejo.
+    TOKOVI_ROK_S = 5.0
     #: Brez nobenega toka cakamo do toliko sekund (zahteva dodatka ima svoj rok 10 s).
     TOKOVI_NAJDLJE_S = 12.0
 
@@ -4150,6 +4152,11 @@ class MediaCenter:
         return out
 
     def _ping_ms(self, url: str) -> Optional[float]:
+        """Zadnji izmerjeni odziv gostitelja (ms) ali None. Z zbirko meritev (core/meritve_virov.py, veja z lastnimi
+        vgrajenimi viri) beremo iz nje, sicer iz _ping_cache."""
+        meritve = getattr(self, "_meritve", None)
+        if meritve is not None:
+            return meritve.ms(str(url))
         parsed = urllib.parse.urlsplit(str(url))
         if not parsed.hostname:
             return None

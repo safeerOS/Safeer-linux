@@ -255,6 +255,7 @@ class Predvajalnik:
         s = self.vrsta[indeks]
         self._poskusi = [(s.uri, tuple(s.glave or ()))] + [n for n in (s.nadomestni or ()) if n[0] != s.uri]
         self._poskus, self._glave, self._nalozeno = 0, tuple(s.glave or ()), False
+        self._dekoder, self._stari_dekoderji = "", set()
         self.element.set_property("uri", s.uri)
         self._pripravi_podnapise(self.vrsta[indeks])
         # Zamik velja za en posnetek (kot v VLC); jezik zvoka izberemo, ko playbin pozna tokove (ASYNC_DONE).
@@ -720,6 +721,11 @@ class Predvajalnik:
 
     def _nastavi_vir(self, _playbin, vir) -> None:
         """playbin je ustvaril vir (souphttpsrc): glave, ki jih tok zahteva."""
+        try:
+            stars = vir.get_parent()
+            self._dekoder = stars.get_name() if stars is not None else ""
+        except Exception:  # noqa: BLE001
+            self._dekoder = ""
         if not self._glave:
             return
         try:
@@ -748,6 +754,9 @@ class Predvajalnik:
             ostali = drugi + isti
         self._poskusi[self._poskus + 1:] = ostali
         self._poskus += 1
+        if self._dekoder:
+            # Neuspeli vir poslje se kaksno napako (»streaming stopped«): ta ne velja za naslednjo razlicico.
+            self._stari_dekoderji.add(self._dekoder)
         uri, glave = self._poskusi[self._poskus]
         indeks = self.indeks
         print("[SafeerOS] predvajanje: tok %d/%d ni odprt (%s), poskusim naslednjo razlicico" % (
@@ -799,9 +808,12 @@ class Predvajalnik:
             self.poskusi_nadaljevati()
         elif sporocilo.type == self.gst.MessageType.ERROR:
             napaka, razhroscevanje = sporocilo.parse_error()
+            import re
+            dekoder = re.search(r"uridecodebin\d+", str(razhroscevanje or ""))
+            if dekoder and dekoder.group(0) in getattr(self, "_stari_dekoderji", ()):
+                return          # zakasnela napaka prejsnje (ze zamenjane) razlicice
             # Uporabnik vidi razumljivo, prevedeno sporočilo (koda); surovo napako GStreamerja damo v dnevnik.
             # Podpisani naslovi toka (sign=..., token ...) ne gredo v dnevnik: samo gostitelj.
-            import re
             print("[SafeerOS] predvajanje:", napaka, re.sub(r"\?\S*", "?…", str(razhroscevanje or "")), flush=True)
             uri = self._poskusi[self._poskus][0] if self._poskus < len(self._poskusi) else (self.trenutna.uri if self.trenutna else "")
             koda = vrsta_napake(napaka, uri)

@@ -161,6 +161,22 @@ class PredvajalnikRazliciceTests(unittest.TestCase):
         self.assertEqual((self.p.stanje, self.p.napaka), ("napaka", "tok"))
         self.assertEqual([s.naslov for s in self.neuspeli], ["Film"])      # naslov se oznaci kot nepredvajljiv
 
+    def test_zakasnela_napaka_prejsnje_razlicice_ne_steje(self):
+        # GStreamer po 429 poslje se »streaming stopped« istega vira (izmerjeno na testnem PC): ne sme preskociti
+        # naslednje razlicice.
+        self.p.zamenjaj_vrsto([Skladba("https://cdn.test/a.mp4", "Film", "video",
+                                       nadomestni=(("https://drug.test/b.mp4", ()), ("https://tretji.test/c.mp4", ())))])
+        self.p._dekoder = "uridecodebin0"
+        napaka = SimpleNamespace(domain="gst-resource-error-quark", code=5)
+        self.p._sporocilo(None, SimpleNamespace(type="error", parse_error=lambda: (
+            napaka, "/GstPlayBin:safeer-media/GstURIDecodeBin:uridecodebin0/GstSoupHTTPSrc:source: Unknown Error (429)")))
+        self.assertEqual(self.element.lastnosti["uri"], "https://drug.test/b.mp4")
+        tok = SimpleNamespace(domain="gst-stream-error-quark", code=1)
+        self.p._sporocilo(None, SimpleNamespace(type="error", parse_error=lambda: (
+            tok, "/GstPlayBin:safeer-media/GstURIDecodeBin:uridecodebin0/GstSoupHTTPSrc:source: streaming stopped")))
+        self.assertEqual(self.element.lastnosti["uri"], "https://drug.test/b.mp4")     # se vedno druga razlicica
+        self.assertEqual(self.p.stanje, "predvaja")
+
     def test_po_zacetku_predvajanja_ni_nadomescanja(self):
         self.p.zamenjaj_vrsto([Skladba("https://cdn.test/a.mp4", "Film", "video",
                                        nadomestni=(("https://cdn.test/b.mp4", ()),))])
