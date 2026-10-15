@@ -166,7 +166,6 @@ class PredvajalnikRazliciceTests(unittest.TestCase):
         # naslednje razlicice.
         self.p.zamenjaj_vrsto([Skladba("https://cdn.test/a.mp4", "Film", "video",
                                        nadomestni=(("https://drug.test/b.mp4", ()), ("https://tretji.test/c.mp4", ())))])
-        self.p._dekoder = "uridecodebin0"
         napaka = SimpleNamespace(domain="gst-resource-error-quark", code=5)
         self.p._sporocilo(None, SimpleNamespace(type="error", parse_error=lambda: (
             napaka, "/GstPlayBin:safeer-media/GstURIDecodeBin:uridecodebin0/GstSoupHTTPSrc:source: Unknown Error (429)")))

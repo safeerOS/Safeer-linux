@@ -721,11 +721,6 @@ class Predvajalnik:
 
     def _nastavi_vir(self, _playbin, vir) -> None:
         """playbin je ustvaril vir (souphttpsrc): glave, ki jih tok zahteva."""
-        try:
-            stars = vir.get_parent()
-            self._dekoder = stars.get_name() if stars is not None else ""
-        except Exception:  # noqa: BLE001
-            self._dekoder = ""
         if not self._glave:
             return
         try:
@@ -812,6 +807,8 @@ class Predvajalnik:
             dekoder = re.search(r"uridecodebin\d+", str(razhroscevanje or ""))
             if dekoder and dekoder.group(0) in getattr(self, "_stari_dekoderji", ()):
                 return          # zakasnela napaka prejsnje (ze zamenjane) razlicice
+            if dekoder:
+                self._dekoder = dekoder.group(0)
             # Uporabnik vidi razumljivo, prevedeno sporočilo (koda); surovo napako GStreamerja damo v dnevnik.
             # Podpisani naslovi toka (sign=..., token ...) ne gredo v dnevnik: samo gostitelj.
             print("[SafeerOS] predvajanje:", napaka, re.sub(r"\?\S*", "?…", str(razhroscevanje or "")), flush=True)
