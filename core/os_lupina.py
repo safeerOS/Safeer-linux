@@ -14,6 +14,7 @@ Vklop: SAFEER_LUPINA=qml (privzeto, ce je PySide6 na voljo) ali html (prejsnja d
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import itertools
 import json
@@ -61,6 +62,26 @@ def zelena() -> bool:
     return importlib.util.find_spec("PySide6") is not None and QML.is_file()
 
 
+_NAMIZJE_SPREMENLJIVKE = ("XDG_CURRENT_DESKTOP", "DESKTOP_SESSION", "GNOME_DESKTOP_SESSION_ID", "KDE_FULL_SESSION")
+_GTK_TEME_QT = ("", "gtk3", "gtk2", "gnome")
+
+
+@contextlib.contextmanager
+def brez_gtk_teme_qt():
+    """Qt v tem procesu ne sme naloziti GTK3 (modul teme libqgtk3): v istem procesu tece GTK4 in obe knjiznici
+    registrirata iste tipe GObject (GtkWidget ...), lupina se ne izrise (testni PC 15. 10. 2026, zagon iz seje Cinnamon:
+    »cannot register existing type 'GtkWidget'«, vidno samo ozadje). Qt temo GTK3 izbere po XDG_CURRENT_DESKTOP
+    (GNOME, Cinnamon, Unity ...), zato med ustvarjanjem QApplication: tema xdgdesktopportal (portal, brez GTK), namizne
+    spremenljivke pa zacasno skrite in nato vrnjene - programi, ki jih Safeer OS zazene, jih potrebujejo."""
+    if os.environ.get("QT_QPA_PLATFORMTHEME", "").strip().lower() in _GTK_TEME_QT:
+        os.environ["QT_QPA_PLATFORMTHEME"] = "xdgdesktopportal"
+    shranjeno = {k: os.environ.pop(k) for k in _NAMIZJE_SPREMENLJIVKE if k in os.environ}
+    try:
+        yield
+    finally:
+        os.environ.update(shranjeno)
+
+
 def pripravi(argv: list, pozno: bool = False) -> bool:
     """QGuiApplication pred GTK (en na proces). Zanko potem vrti Gtk.Application.run.
 
@@ -81,7 +102,8 @@ def pripravi(argv: list, pozno: bool = False) -> bool:
         if os.environ.get("XDG_SESSION_TYPE") != "wayland":
             os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
         QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
-        _qt_app = QApplication.instance() or QApplication(list(argv) or ["safeer-os"])
+        with brez_gtk_teme_qt():
+            _qt_app = QApplication.instance() or QApplication(list(argv) or ["safeer-os"])
         _qt_app.setQuitOnLastWindowClosed(False)     # zivljenje procesa vodi Gtk.Application
         _qt_app.setApplicationName("Safeer OS")
         _qt_app.setDesktopFileName("io.github.memelandfaner.SafeerOS")
