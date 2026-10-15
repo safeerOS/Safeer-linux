@@ -739,26 +739,38 @@ class SlikeSSpleta(unittest.TestCase):
     def _razresi(gost, _p):
         return [(0, 0, 0, "", ({"lan.example": "192.168.1.1", "zanka.example": "127.0.0.1"}.get(gost, "93.184.216.34"), 0))]
 
-    def _odpri(self, tip="image/png", vsebina=None):
+    def _odpri(self, tip="image/png", vsebina=None, preusmeritve=None):
+        """Nadomestek povezave (slike.povezi): zapise ime, IP, vrata in glave; preusmeritve: {pot: Location}."""
         zahteve = []
         if vsebina is None:
             vsebina = _png(40, 30)
 
         class Odg:
-            headers = {"Content-Type": tip}
+            def __init__(self, status, glave):
+                self.status, self._glave = status, glave
 
-            def __init__(self, z):
-                zahteve.append(z)
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *x):
-                return False
+            def getheader(self, ime, privzeto=None):
+                return self._glave.get(ime, privzeto)
 
             def read(self, n=-1):
                 return vsebina
-        return zahteve, (lambda z, timeout=None: Odg(z))
+
+        class Pov:
+            def __init__(self, ime, ip, vrata, https, cas):
+                self.z = {"ime": ime, "ip": ip, "vrata": vrata, "https": https}
+                zahteve.append(self.z)
+
+            def request(self, metoda, pot, headers=None):
+                self.z.update(metoda=metoda, pot=pot, glave=dict(headers or {}))
+
+            def getresponse(self):
+                if preusmeritve and self.z["pot"] in preusmeritve:
+                    return Odg(302, {"Location": preusmeritve[self.z["pot"]]})
+                return Odg(200, {"Content-Type": tip})
+
+            def close(self):
+                pass
+        return zahteve, Pov
 
     def test_sledilci_in_domace_omrezje(self):
         self.assertTrue(self.sl.je_sledilec("https://x.list-manage.com/track/open.php?u=1"))
@@ -774,7 +786,7 @@ class SlikeSSpleta(unittest.TestCase):
         pot = self.sl.prenesi_sliko("https://cdn.example.test/foto.png", self.m, self._razresi, odpri)
         self.assertTrue(pot.endswith(".png") and os.path.getsize(pot) > 0)
         self.assertEqual(os.stat(pot).st_mode & 0o777, 0o600)
-        glave = {k.lower() for k in zahteve[0].headers}
+        glave = {k.lower() for k in zahteve[0]["glave"]}
         self.assertNotIn("referer", glave)
         self.assertNotIn("cookie", glave)
         self.assertEqual(self.sl.prenesi_sliko("https://cdn.example.test/foto.png", self.m, self._razresi, odpri), pot)
@@ -793,6 +805,42 @@ class SlikeSSpleta(unittest.TestCase):
         self.assertEqual(self.sl.prenesi_sliko("file:///etc/passwd", self.m, self._razresi, odpri), "")
         self.assertEqual(self.sl.prenesi_sliko("https://u:p@cdn.example.test/a.png", self.m, self._razresi, odpri), "")
         self.assertEqual(zahteve, [])
+
+    def test_dns_rebinding_poveze_na_preverjeni_naslov(self):
+        """Lazni razresevalnik: prvic javni naslov, nato 192.168.x - povezava gre na prvega ali nikamor."""
+        klici = []
+
+        def razresi(gost, _p):
+            klici.append(gost)
+            return [(0, 0, 0, "", ("93.184.216.34" if len(klici) == 1 else "192.168.1.1", 0))]
+        zahteve, povezi = self._odpri()
+        pot = self.sl.prenesi_sliko("https://rebind.example.test/a.png", self.m, razresi, povezi)
+        self.assertTrue(pot)
+        self.assertEqual(klici, ["rebind.example.test"])                        # ime razreseno samo enkrat
+        self.assertEqual((zahteve[0]["ime"], zahteve[0]["ip"], zahteve[0]["vrata"], zahteve[0]["https"]),
+                         ("rebind.example.test", "93.184.216.34", 443, True))
+        # Mesan odgovor (javni + zasebni naslov): zavrnjeno, brez povezave.
+        zahteve2, povezi2 = self._odpri()
+        mesano = lambda g, p: [(0, 0, 0, "", ("93.184.216.34", 0)), (0, 0, 0, "", ("10.0.0.1", 0))]  # noqa: E731
+        self.assertEqual(self.sl.prenesi_sliko("https://mesano.example.test/a.png", self.m, mesano, povezi2), "")
+        self.assertEqual(zahteve2, [])
+
+    def test_preusmeritev_v_domace_omrezje_zavrnjena(self):
+        zahteve, povezi = self._odpri(preusmeritve={"/a.png": "http://lan.example/router.png"})
+        self.assertEqual(self.sl.prenesi_sliko("https://cdn.example.test/a.png", self.m, self._razresi, povezi), "")
+        self.assertEqual([z["ime"] for z in zahteve], ["cdn.example.test"])     # na lan.example ni povezave
+        zahteve, povezi = self._odpri(preusmeritve={"/b.png": "/c.png"})
+        self.assertTrue(self.sl.prenesi_sliko("https://cdn.example.test/b.png", self.m, self._razresi, povezi))
+        self.assertEqual([z["pot"] for z in zahteve], ["/b.png", "/c.png"])
+
+    def test_prava_povezava_ip_in_ime_za_sni(self):
+        """http.client: vticnica na preverjeni IP, ime ostane za Host, SNI in preverjanje potrdila."""
+        pov = self.sl._povezava("cdn.example.test", "93.184.216.34", 443, True, 5)
+        self.assertEqual(pov.host, "cdn.example.test")
+        with patch("core.sporocila.slike.socket.create_connection", return_value="vticnica") as cc:
+            self.assertEqual(pov._create_connection(("cdn.example.test", 443), 5), "vticnica")
+        self.assertEqual(cc.call_args.args[0], ("93.184.216.34", 443))
+        self.assertTrue(pov._context.check_hostname)
 
     def test_varen_html_z_oddaljenimi(self):
         from core import predogled_datotek as pd

@@ -3,7 +3,8 @@
 Privzeto so skrite (posiljatelj ne izve, kdaj in kje je bilo pismo odprto). Ko jih uporabnik pokaze, jih prenese
 Safeer sam - ne pogled predogleda, ki ostane brez omrezja, JavaScripta in mostu (core/os_predogled.py):
 * brez piskotkov, brez Referer, splosen User-Agent; samo http(s) in samo javni naslovi (slika v pismu ne sme
-  dosegati usmerjevalnika ali naprav v domacem omrezju);
+  dosegati usmerjevalnika ali naprav v domacem omrezju). Ime se razresi enkrat, povezava gre na preverjeni IP
+  (SNI, potrdilo in Host ostanejo ime) - DNS rebinding (drug odgovor ob povezavi) ne pride v domace omrezje;
 * sledilni piksli: slike 1x1 (po atributih in po dejanski velikosti), znani sledilni naslovi in domene s seznamov
   oglasov/groženj Safeerja (je_blokirano, poda Safeer OS) se ne prenesejo ali ne pokazejo;
 * najvec NAJVEC_SLIK slik po najvec NAJVEC_BAJTOV, samo vrste image/*; shranijo se v vnos pisma v predpomnilniku.
@@ -21,7 +22,6 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Dict, Iterable, Optional
 from urllib.parse import quote, urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener, HTTPHandler, HTTPSHandler
 
 NAJVEC_SLIK = 40
 NAJVEC_BAJTOV = 5 * 1024 * 1024
@@ -53,26 +53,50 @@ def je_sledilec(url: str, je_blokirano: Optional[Callable[[str], bool]] = None) 
     return False
 
 
-def javni_gostitelj(gostitelj: str, razresi=socket.getaddrinfo) -> bool:
-    """Vsi naslovi gostitelja so javni (ne 127.*, 10.*, 192.168.*, fe80::, ...)."""
+def javni_naslov(gostitelj: str, razresi=socket.getaddrinfo) -> str:
+    """Ime razresi ENKRAT in vrne prvi naslov, ce so VSI dobljeni naslovi javni (ne 127.*, 10.*, 192.168.*, fe80::);
+    sicer "". Povezava gre potem na ta naslov (glej _povezava) - drugo razresevanje (DNS rebinding) je ne preusmeri."""
     try:
-        naslovi = {i[4][0] for i in razresi(gostitelj, None)}
+        naslovi = [i[4][0] for i in razresi(gostitelj, None)]
     except (OSError, UnicodeError):
-        return False
+        return ""
     try:
-        return bool(naslovi) and all(ipaddress.ip_address(n.split("%")[0]).is_global for n in naslovi)
+        if naslovi and all(ipaddress.ip_address(n.split("%")[0]).is_global for n in naslovi):
+            return naslovi[0]
     except ValueError:
-        return False
+        pass
+    return ""
 
 
-def _dovoljen_url(url: str, razresi) -> bool:
+def javni_gostitelj(gostitelj: str, razresi=socket.getaddrinfo) -> bool:
+    return bool(javni_naslov(gostitelj, razresi))
+
+
+def _deli_url(url: str):
+    """(shema, ime, vrata, pot) ali None za nedovoljen naslov (ne http(s), uporabnik/geslo, slaba vrata)."""
     try:
         deli = urlsplit(url)
-        deli.port  # noqa: B018 - neveljavna vrata
+        vrata = deli.port
     except ValueError:
-        return False
-    return deli.scheme in ("http", "https") and bool(deli.hostname) and not deli.username and not deli.password \
-        and javni_gostitelj(deli.hostname, razresi)
+        return None
+    if deli.scheme not in ("http", "https") or not deli.hostname or deli.username or deli.password:
+        return None
+    pot = (deli.path or "/") + ("?" + deli.query if deli.query else "")
+    return deli.scheme, deli.hostname, vrata or (443 if deli.scheme == "https" else 80), pot
+
+
+def _povezava(ime: str, ip: str, vrata: int, https: bool, cas: float):
+    """Povezava na ze preverjeni IP; ime ostane za glavo Host, SNI in preverjanje potrdila (http.client, ssl)."""
+    import http.client
+    import ssl
+    if https:
+        pov = http.client.HTTPSConnection(ime, vrata, timeout=cas, context=ssl.create_default_context())
+    else:
+        pov = http.client.HTTPConnection(ime, vrata, timeout=cas)
+    # http.client se poveze s self._create_connection((self.host, port)) in nato (HTTPS) ovije vticnico s
+    # server_hostname=self.host: zamenjamo samo naslov vticnice - ime za SNI in potrdilo ostane.
+    pov._create_connection = lambda naslov, *a, **k: socket.create_connection((ip, naslov[1]), *a, **k)
+    return pov
 
 
 def _majhna(podatki: bytes) -> bool:
@@ -97,41 +121,51 @@ _KONCNICE = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "im
              "image/svg+xml": ".svg", "image/avif": ".avif", "image/bmp": ".bmp"}
 
 
-def _odpiralnik(razresi):
-    class Preusmeritve(HTTPRedirectHandler):
-        max_redirections = 4
+def _pridobi(url: str, razresi, povezi) -> tuple:
+    """GET slike brez piskotkov in Referer; vsaka preusmeritev (najvec 4) gre skozi isto preverbo. (tip, podatki)."""
+    from urllib.parse import urljoin
+    for _ in range(5):
+        deli = _deli_url(url)
+        if deli is None:
+            return "", b""
+        shema, ime, vrata, pot = deli
+        ip = javni_naslov(ime, razresi)
+        if not ip:
+            return "", b""
+        pov = povezi(ime, ip, vrata, shema == "https", CAS_S)
+        try:
+            pov.request("GET", pot, headers={"User-Agent": USER_AGENT, "Accept": "image/*"})
+            odg = pov.getresponse()
+            if odg.status in (301, 302, 303, 307, 308):
+                cilj = odg.getheader("Location") or ""
+                if not cilj:
+                    return "", b""
+                url = urljoin(url, cilj)
+                continue
+            if odg.status != 200:
+                return "", b""
+            tip = str(odg.getheader("Content-Type") or "").split(";")[0].strip().lower()
+            if tip not in _KONCNICE:
+                return "", b""
+            return tip, odg.read(NAJVEC_BAJTOV + 1)
+        finally:
+            pov.close()
+    return "", b""
 
-        def redirect_request(self, req, fp, code, msg, headers, newurl):
-            if not _dovoljen_url(newurl, razresi):        # preusmeritev v domace omrezje ali na drugo shemo
-                return None
-            nova = super().redirect_request(req, fp, code, msg, headers, newurl)
-            if nova is not None:
-                nova.remove_header("Referer")
-                nova.remove_header("Cookie")
-            return nova
-    # Brez HTTPCookieProcessor: piskotki se ne sprejmejo in ne posljejo.
-    return build_opener(HTTPHandler, HTTPSHandler, Preusmeritve)
 
-
-def prenesi_sliko(url: str, mapa: str, razresi=socket.getaddrinfo, odpri=None) -> str:
+def prenesi_sliko(url: str, mapa: str, razresi=socket.getaddrinfo, povezi=_povezava) -> str:
     """Ena slika v `mapa` (ime = zgostitev naslova). Vrne pot ali "" (blokirano, ni slika, prevelika, napaka)."""
-    if not _dovoljen_url(url, razresi):
+    if _deli_url(url) is None:
         return ""
     ime = hashlib.sha256(url.encode("utf-8")).hexdigest()[:24]
     for konc in set(_KONCNICE.values()):
         if os.path.isfile(os.path.join(mapa, ime + konc)):
             return os.path.join(mapa, ime + konc)
-    zahteva = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "image/*"})
     try:
-        odpri = odpri or _odpiralnik(razresi).open
-        with odpri(zahteva, timeout=CAS_S) as odg:
-            tip = str(odg.headers.get("Content-Type") or "").split(";")[0].strip().lower()
-            if tip not in _KONCNICE:
-                return ""
-            podatki = odg.read(NAJVEC_BAJTOV + 1)
-    except Exception:  # noqa: BLE001 - omrezje: slike pac ni
+        tip, podatki = _pridobi(url, razresi, povezi)
+    except Exception:  # noqa: BLE001 - omrezje, potrdilo: slike pac ni
         return ""
-    if len(podatki) > NAJVEC_BAJTOV or not podatki or _majhna(podatki):
+    if not tip or len(podatki) > NAJVEC_BAJTOV or not podatki or _majhna(podatki):
         return ""
     pot = os.path.join(mapa, ime + _KONCNICE[tip])
     with open(pot + ".tmp", "wb") as f:
@@ -142,7 +176,7 @@ def prenesi_sliko(url: str, mapa: str, razresi=socket.getaddrinfo, odpri=None) -
 
 
 def prenesi_slike(naslovi: Iterable[str], mapa: str, je_blokirano: Optional[Callable[[str], bool]] = None,
-                  razresi=socket.getaddrinfo, odpri=None) -> Dict[str, str]:
+                  razresi=socket.getaddrinfo, povezi=_povezava) -> Dict[str, str]:
     """{url: file:// naslov} za slike, ki so prestale zascito (vzporedno, najvec NAJVEC_SLIK)."""
     izbrani = []
     for u in naslovi:
@@ -154,7 +188,7 @@ def prenesi_slike(naslovi: Iterable[str], mapa: str, je_blokirano: Optional[Call
     if not izbrani:
         return izid
     with ThreadPoolExecutor(max_workers=6) as bazen:
-        for u, pot in zip(izbrani, bazen.map(lambda x: prenesi_sliko(x, mapa, razresi, odpri), izbrani)):
+        for u, pot in zip(izbrani, bazen.map(lambda x: prenesi_sliko(x, mapa, razresi, povezi), izbrani)):
             if pot:
                 izid[u] = "file://" + quote(os.path.abspath(pot))
     return izid
