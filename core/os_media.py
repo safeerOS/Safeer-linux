@@ -3692,6 +3692,7 @@ class MediaCenter:
         # TMDB, javni viri in osebni (dodatki Stremio, Cinemeta, strezniki) hkrati, vsak najvec rok_vira s: pocasen vir
         # ne zadrzi prvih zadetkov (meritev 15. 10. 2026: iskanje 20-40 s, ker so osebni viri sli eden za drugim).
         rok = self._rok_zdaj()
+        zacetek_virov = time.monotonic()
         nit_tmdb = None if (glasbena or tmdb_izklopljen or not self._ima_embed_vir(data)) else self._vzporedno(
             self._tmdb_catalog, data, _text(query, 120), kind, _text(genre, 20), page_num, razvrsti, jezik)
         nit_javni = (self._vzporedno(lambda: self._zakoniti_viri.get(
@@ -3705,7 +3706,9 @@ class MediaCenter:
             _osebni_vnosi = self._personal_items(_text(query, 120))   # sam caka najvec rok_vira s
         except Exception:  # noqa: BLE001 - en vir ne sme podreti kataloga
             _osebni_vnosi = []
-        self._cakaj([n for n in (nit_tmdb, nit_javni) if n is not None], rok)
+        # En skupen rok za vse vire (osebni so ga ze porabili del): prvi zadetki najkasneje po rok_vira s.
+        self._cakaj([n for n in (nit_tmdb, nit_javni) if n is not None],
+                    None if rok is None else max(0.0, rok - (time.monotonic() - zacetek_virov)))
 
         def izid(nit, privzeto):
             if nit is None or not nit.done() or nit.exception() is not None:
