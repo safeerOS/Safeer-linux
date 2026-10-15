@@ -300,6 +300,9 @@ jobs:
         # Kot pri AppImage: paket se ne sme samo zgraditi, v njem morata res teci Safeer OS in Control
         # (Safeer OS brez Controla nima Safeer Linka). Namestimo prav datoteko, ki gre v izdajo.
         run: |
+          # Ob napaki ukaz in zadnji izpis kot opozorilo posla (dnevniki posla v API niso vedno dosegljivi).
+          exec > >(tee "$RUNNER_TEMP/smoke.log") 2>&1
+          trap 'sleep 1; python3 -c "import sys; t = open(sys.argv[1], errors=\"replace\").read()[-6000:]; print(\"::error::\" + (sys.argv[2] + \"\\n\" + t).replace(\"%\", \"%25\").replace(\"\\r\", \"\").replace(\"\\n\", \"%0A\"))" "$RUNNER_TEMP/smoke.log" "$BASH_COMMAND"' ERR
           sudo apt-get install -y xvfb dbus
           flatpak install --user --noninteractive --bundle dist/Safeer-OS-*.flatpak
           dbus-run-session -- xvfb-run -a flatpak run io.github.memelandfaner.SafeerOS --version | tee /dev/stderr | grep -Fx "Safeer OS $(cat packaging/VERSION_OS)"
@@ -378,6 +381,9 @@ jobs:
         # gostitelju prek flatpak-spawn --host ter ga vstavi v okno. xvfb-run zunaj dbus-run-session: storitev Flatpak
         # na gostitelju dobi DISPLAY kot v namizni seji.
         run: |
+          # Ob napaki ukaz in zadnji izpis kot opozorilo posla (dnevniki posla v API niso vedno dosegljivi).
+          exec > >(tee "$RUNNER_TEMP/smoke.log") 2>&1
+          trap 'sleep 1; python3 -c "import sys; t = open(sys.argv[1], errors=\"replace\").read()[-6000:]; print(\"::error::\" + (sys.argv[2] + \"\\n\" + t).replace(\"%\", \"%25\").replace(\"\\r\", \"\").replace(\"\\n\", \"%0A\"))" "$RUNNER_TEMP/smoke.log" "$BASH_COMMAND"' ERR
           sudo apt-get install -y xvfb dbus x11-utils
           flatpak install --user --noninteractive --bundle dist/Safeer-Browser-*.flatpak
           xvfb-run -a dbus-run-session -- flatpak run io.github.memelandfaner.SafeerBrowser --version | tee /dev/stderr | grep -Fx "Safeer Browser $(cat packaging/VERSION)"
@@ -480,6 +486,9 @@ jobs:
           fi
       - name: PGO build runs on our WebKitGTK and libsoup, with the sandbox
         run: |
+          # Ob napaki ukaz in zadnji izpis kot opozorilo posla (dnevniki posla v API niso vedno dosegljivi).
+          exec > >(tee "$RUNNER_TEMP/smoke.log") 2>&1
+          trap 'sleep 1; python3 -c "import sys; t = open(sys.argv[1], errors=\"replace\").read()[-6000:]; print(\"::error::\" + (sys.argv[2] + \"\\n\" + t).replace(\"%\", \"%25\").replace(\"\\r\", \"\").replace(\"\\n\", \"%0A\"))" "$RUNNER_TEMP/smoke.log" "$BASH_COMMAND"' ERR
           flatpak install --user --noninteractive --bundle dist/Safeer-Browser-*-pgo-x86_64.flatpak
           xvfb-run -a dbus-run-session -- flatpak run io.github.memelandfaner.SafeerBrowser --version | tee /dev/stderr | grep -Fx "Safeer Browser $(cat packaging/VERSION)"
           flatpak run --command=python3 io.github.memelandfaner.SafeerBrowser -c "import gi; gi.require_version('Soup', '3.0'); gi.require_version('WebKit', '6.0'); from gi.repository import Soup, WebKit; m = open('/proc/self/maps').read(); knj = sorted({l.split()[-1] for l in m.splitlines() if 'libwebkitgtk-6.0' in l or 'libsoup-3.0' in l}); print(knj); assert len(knj) == 2 and all(k.startswith('/app/') for k in knj); assert (Soup.get_major_version(), Soup.get_minor_version()) >= (3, 8)"
