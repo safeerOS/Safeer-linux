@@ -5948,7 +5948,9 @@
   function vrsticaRazlicice(r, oznake, ob) {
     var b = el("button", "kat-razlicica" + (r.izbrana ? " izbrana" : "")); b.type = "button"; b.setAttribute("role", "listitem");
     var ime = el("span", "kat-razlicica-ime", ubezi(r.vir || r.ime || t("razlVir")));
-    var podatki = [r.kakovost, r.opis && r.opis !== r.kakovost ? r.opis : ""].filter(Boolean).join(" · ");
+    // Opis dodatka pogosto ze vsebuje kakovost (»1080p · WEB«): ne ponavljamo je.
+    var podatki = r.opis && r.kakovost && r.opis.indexOf(r.kakovost) >= 0 ? r.opis
+      : [r.kakovost, r.opis && r.opis !== r.kakovost ? r.opis : ""].filter(Boolean).join(" · ");
     b.appendChild(ime);
     if (podatki) b.appendChild(el("span", "kat-razlicica-opis", ubezi(podatki)));
     var desno = el("span", "kat-razlicica-oznake");
@@ -5988,13 +5990,22 @@
         if (vedno) cilj.appendChild(el("p", "drobno", ubezi(razl.length || moznosti.length ? t("razlEna") : t("razlNi"))));
         cilj.hidden = !vedno; return;
       }
+      // »Najhitrejsi« je en sam v celem seznamu: najnizji izmerjeni odziv med tistimi, ki jih je vir oznacil (tok na
+      // vec streznikih, vec izmerjenih vgrajenih virov), in samo ce noben drug ni hitrejsi.
+      var vsi = razl.map(function (x) { return x.ping; }).concat(moznosti.map(function (m) { return m.ms; }))
+        .filter(function (p) { return p != null; });
+      var najmanj = vsi.length > 1 ? Math.min.apply(null, vsi) : null, oznacen = false;
+      var najhitrejsi = function (x, p) {
+        if (oznacen || !x.najhitrejsi || p == null || najmanj == null || Math.round(p) > Math.round(najmanj)) return false;
+        oznacen = true; return true;
+      };
       var glava = el("h4", "", ubezi(t("razlNaslov"))); cilj.appendChild(glava);
       var seznam = el("div", "kat-razlicice-seznam"); seznam.setAttribute("role", "list");
       razl.forEach(function (x) {
         var oznake = [];
         if (x.izbrana) oznake.push(["izbrana", t("razlIzbrana")]);
         else if (x.privzeta && !r.izbira) oznake.push(["privzeta", t("razlPrivzeta")]);
-        if (x.najhitrejsi) oznake.push(["najhitrejsi", t("razlNajhitrejsi")]);
+        if (najhitrejsi(x, x.ping)) oznake.push(["najhitrejsi", t("razlNajhitrejsi")]);
         if (x.lastni) oznake.push(["lastni", t("razlLastni")]);
         seznam.appendChild(vrsticaRazlicice(x, oznake, function () {
           klic("mediaIzberiRazlicico", [r.id, x.privzeta && !x.izbrana ? "" : x.podpis]).then(function () { predvajaj(r.id); },
@@ -6005,7 +6016,7 @@
         var oznake = [["vgrajeno", m.oznaka || t("razlVgrajeno")]];
         if (m.izbrana) oznake.unshift(["izbrana", t("razlIzbrana")]);
         else if (m.privzeta && !razl.length) oznake.unshift(["privzeta", t("razlPrivzeta")]);
-        if (m.najhitrejsi) oznake.push(["najhitrejsi", t("razlNajhitrejsi")]);
+        if (najhitrejsi(m, m.ms)) oznake.push(["najhitrejsi", t("razlNajhitrejsi")]);
         seznam.appendChild(vrsticaRazlicice({ vir: m.ime, opis: m.opis || "", ping: m.ms != null ? Math.round(m.ms) : null,
                                               izbrana: !!m.izbrana },
                                             oznake, function () { if (typeof m.odpri === "function") m.odpri(); }));
