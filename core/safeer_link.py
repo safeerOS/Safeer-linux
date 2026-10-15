@@ -2084,8 +2084,9 @@ class SafeerLink:
             self._odziv("dostop", {"id": i, "ok": bool(ok), **_dostop_naprave(i)})
 
     def odobri_prosnjo_dostopa(self, jedro: str, zmoznost: str) -> bool:
-        """»Dovoli« v obvestilu na tem racunalniku (klik uporabnika - glej safeer_control): napravi doda samo zaprošeno
-        zmoznost. Odobri se samo prosnja, ki res caka (core/link_dostop.odobri_prosnjo)."""
+        """»Dovoli« v obvestilu na tem racunalniku (klik uporabnika - glej safeer_control): napravi doda samo zaprošene
+        zmoznosti, nastete v obvestilu (ena ali vec crk). Odobrijo se samo prosnje, ki res cakajo
+        (core/link_dostop.odobri_prosnjo)."""
         ok = link_dostop.odobri_prosnjo(str(jedro or ""), str(zmoznost or ""))
         if ok:
             self._po_spremembi_dostopa(str(jedro), True)

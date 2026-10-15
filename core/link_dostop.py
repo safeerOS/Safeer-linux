@@ -718,12 +718,21 @@ def zabelezi(posiljatelj: str, kaj: str, zdaj: Optional[float] = None) -> None:
 #
 # Napravi gre v odgovoru (ob nespremenjeni stari obliki zavrnitve) se "access_request": "pending" | "declined" | "none"
 # in "capability": crka (isti protokol kot Android).
+#
+# Ena naprava = eno obvestilo (lastnik, 15. 10. 2026: telefon je ob odpiranju racunalnika hkrati zaprosil za
+# predvajalnik, zaslon in programe - racunalnik je pokazal tri obvestila zapored). Prosnje se se vedno vodijo vsaka
+# zase (pogostost, 24 ur, najvec odprtih), obvestilo pa je eno na napravo (id po jedru) in nasteje vse njene odprte
+# prosnje; nova prosnja iste naprave ga zamenja. Prikaz je odlozen za ZDRUZI_S (ZdruzenPrikaz), da prosnje, ki
+# pridejo skoraj hkrati, ne utripnejo trikrat. »Dovoli« odobri natanko nastete crke - in od teh samo tiste, ki se
+# cakajo; »Zavrni« zavrne vse nastete za 24 ur.
 
 PROSNJA_PONOVNO_S = 600.0
 ZAVRNITEV_VELJA_S = 86400.0
 NAJVEC_PROSENJ = 5
 NAJVEC_IMENA = 60
 NAJVEC_ZAVRNITEV = 256
+#: Prosnje iste naprave, ki pridejo v tem casu, gredo v eno obvestilo (ZdruzenPrikaz).
+ZDRUZI_S = 2.0
 PROSNJA_ODPRTA, PROSNJA_ZAVRNJENA, PROSNJA_NI = "pending", "declined", "none"
 
 #: Odprte prosnje po vrsti nastanka: "<jedro>|<crka>" -> {"jedro", "ime", "zmoznost", "cas"}.
@@ -741,6 +750,11 @@ def kljuc_prosnje(jedro_naprave: str, zmoznost: str) -> str:
     return f"{jedro_naprave}|{zmoznost}"
 
 
+def kljuc_skupine(jedro_naprave: str, zmoznosti: str) -> str:
+    """Parameter gumbov obvestila: "<jedro>|<crke>" (npr. "n-…|vzp")."""
+    return f"{jedro_naprave}|{zmoznosti}"
+
+
 def _je_jedro(j: object) -> bool:
     return isinstance(j, str) and len(j) == DOLZINA_JEDRA and je_id_iz_kljuca(j)
 
@@ -753,6 +767,18 @@ def razcleni_kljuc_prosnje(kljuc: str) -> Optional[Tuple[str, str]]:
     if not locilo or not _je_jedro(j) or z not in VSE_ZMOZNOSTI:
         return None
     return j, z
+
+
+def razcleni_kljuc_skupine(kljuc: str) -> Optional[Tuple[str, str]]:
+    """"<jedro>|<crke>" -> (jedro, crke) ali None. Crke: 1 do 4 razlicne iz VSE_ZMOZNOSTI (ne »*«); en sam znak je
+    stara oblika parametra (ena prosnja)."""
+    if not isinstance(kljuc, str):
+        return None
+    j, locilo, crke = kljuc.partition("|")
+    if (not locilo or not _je_jedro(j) or not crke or len(crke) > len(VSE_ZMOZNOSTI)
+            or len(set(crke)) != len(crke) or any(c not in VSE_ZMOZNOSTI for c in crke)):
+        return None
+    return j, crke
 
 
 def _zavrnjeno_iz(surovo: object) -> Dict[str, float]:
@@ -864,17 +890,15 @@ def prosnja_ob_zavrnitvi(device_id: str, zahteva: str, zascita: Optional[str] = 
         _prosnje.pop(kljuc, None)
         _prosnje[kljuc] = prosnja
         _zadnji_poziv[kljuc] = zdaj
-        izpadle = []
+        izpadle = set()
         while len(_prosnje) > NAJVEC_PROSENJ:
-            izpadle.append(_prosnje.popitem(last=False)[0])
-    for k in izpadle:
-        if umakni is not None:
-            try:
-                umakni(k)
-            except Exception:  # noqa: BLE001
-                pass
+            izpadle.add(_prosnje.popitem(last=False)[1]["jedro"])
+        izpadle.discard(j)
+        skupina = _skupina(j)
+    for drugo in sorted(izpadle):       # obvestilo naprave, ki ji je prosnja izpadla: manj crk ali umik
+        _osvezi_prikaz(drugo)
     try:
-        pokazi(dict(prosnja))
+        pokazi(skupina)
     except Exception as e:  # noqa: BLE001 - obvestila ni bilo: napravi povemo, da prosnje ni
         with _zaklep:
             if _prosnje.get(kljuc) is prosnja:
@@ -910,22 +934,66 @@ def odprte_prosnje() -> List[dict]:
         return [dict(p) for p in _prosnje.values()]
 
 
-def dodaj_zmoznost(device_id: str, zmoznost: str) -> bool:
-    """Napravi doda ENO zmoznost k tistim, ki jih ze ima (branje-sprememba-zapis pod zaklepom, kot nastavi)."""
-    if zmoznost not in VSE_ZMOZNOSTI or not device_id or je_ta_naprava(device_id):
+def _skupina(jedro_naprave: str) -> Optional[dict]:
+    """Odprte prosnje ene naprave kot eno obvestilo (klicati pod _zaklep): {"jedro", "ime", "zmoznosti" (crke po
+    vrsti prihoda), "zmoznost" (prva - za starejse bralce), "cas" (najnovejsa)}. None, ce naprava nima odprte prosnje."""
+    odprte = [p for p in _prosnje.values() if p.get("jedro") == jedro_naprave]
+    if not odprte:
+        return None
+    zadnja = odprte[-1]
+    crke = "".join(str(p["zmoznost"]) for p in odprte)
+    return {"jedro": jedro_naprave, "ime": zadnja.get("ime"), "zmoznosti": crke, "zmoznost": crke[0],
+            "cas": zadnja.get("cas")}
+
+
+def skupina_prosenj(jedro_naprave: str) -> Optional[dict]:
+    """Kar mora zdaj pisati v obvestilu naprave (glej _skupina); None = obvestila ni vec."""
+    with _zaklep:
+        _pocisti_prosnje(time.time())
+        return _skupina(str(jedro_naprave or ""))
+
+
+def _osvezi_prikaz(jedro_naprave: str) -> None:
+    """Obvestilo naprave po spremembi njenih prosenj: s preostalimi crkami ali umik, ce ni nobene vec."""
+    with _zaklep:
+        skupina = _skupina(jedro_naprave)
+        pokazi, umakni = _prikaz, _umik
+    try:
+        if skupina is not None and pokazi is not None:
+            pokazi(skupina)
+        elif skupina is None and umakni is not None:
+            umakni(jedro_naprave)
+    except Exception as e:  # noqa: BLE001
+        print(f"[SafeerDostop] Obvestila prosnje ni bilo mogoce osveziti: {e}")
+
+
+def opusti_prosnje(jedro_naprave: str) -> None:
+    """Obvestila naprave ni bilo mogoce pokazati: njene prosnje niso vec odprte (naprava dobi "none", nic se ne
+    zavrne). Uporabi ZdruzenPrikaz, ki obvestilo pokaze z zamikom."""
+    with _zaklep:
+        for k in [k for k, p in _prosnje.items() if p.get("jedro") == jedro_naprave]:
+            _prosnje.pop(k, None)
+
+
+def dodaj_zmoznosti(device_id: str, zmoznosti: Iterable[str]) -> bool:
+    """Napravi doda nastete zmoznosti k tistim, ki jih ze ima - z enim zapisom (branje-sprememba-zapis pod zaklepom,
+    kot nastavi). Vse ali nic: neznana crka ali »*« zavrne celoto."""
+    dodaj = set(zmoznosti or ())
+    if not dodaj or not dodaj <= VSE_ZMOZNOSTI or not device_id or je_ta_naprava(device_id):
         return False
     j = jedro(device_id)
     if not j:
         return False
-    kljuc = kljuc_prosnje(j, zmoznost)
+    kljuci = {kljuc_prosnje(j, z) for z in dodaj}
 
     def sprememba(naprave: Dict[str, Set[str]], zascita: Set[str]) -> None:
-        naprave[j] = set(naprave.get(j) or ()) | {zmoznost}
+        naprave[j] = set(naprave.get(j) or ()) | dodaj
 
     def sprememba_ostalega(ostalo: dict) -> None:
         if "zavrnjeno" in ostalo:
             z = _zavrnjeno_iz(ostalo.get("zavrnjeno"))
-            z.pop(kljuc, None)
+            for k in kljuci:
+                z.pop(k, None)
             ostalo["zavrnjeno"] = z
     with _zaklep:
         _nalozen()
@@ -933,52 +1001,117 @@ def dodaj_zmoznost(device_id: str, zmoznost: str) -> bool:
             _spremeni(sprememba, sprememba_ostalega)
         except OSError:
             return False
-        _zavrnjeno.pop(kljuc, None)
+        for k in kljuci:
+            _zavrnjeno.pop(k, None)
     return True
 
 
-def odobri_prosnjo(jedro_naprave: str, zmoznost: str) -> bool:
-    """Uporabnik je na TEM racunalniku pritisnil Dovoli. Odobri se samo odprta prosnja in samo ta ena zmoznost."""
-    kljuc = kljuc_prosnje(str(jedro_naprave or ""), str(zmoznost or ""))
-    if razcleni_kljuc_prosnje(kljuc) is None:
+def dodaj_zmoznost(device_id: str, zmoznost: str) -> bool:
+    """Napravi doda ENO zmoznost (glej dodaj_zmoznosti)."""
+    if zmoznost not in VSE_ZMOZNOSTI:
         return False
+    return dodaj_zmoznosti(device_id, (zmoznost,))
+
+
+def odobri_prosnjo(jedro_naprave: str, zmoznosti: str) -> bool:
+    """Uporabnik je na TEM racunalniku pritisnil Dovoli. `zmoznosti` so crke, nastete v obvestilu (ena ali vec);
+    odobrijo se samo tiste, za katere prosnja res caka - nic drugega. True, ce je bila odobrena vsaj ena."""
+    par = razcleni_kljuc_skupine(kljuc_skupine(str(jedro_naprave or ""), str(zmoznosti or "")))
+    if par is None:
+        return False
+    j, crke = par
     with _zaklep:
         _pocisti_prosnje(time.time())
-        if kljuc not in _prosnje:
-            return False
-    if not dodaj_zmoznost(jedro_naprave, zmoznost):
-        return False                    # zapis ni uspel: prosnja ostane odprta, uporabnik lahko poskusi znova
+        odprte = "".join(c for c in crke if kljuc_prosnje(j, c) in _prosnje)
+    if not odprte:
+        return False
+    if not dodaj_zmoznosti(j, odprte):
+        _osvezi_prikaz(j)               # zapis ni uspel: prosnje ostanejo odprte, obvestilo se pokaze znova
+        return False
     with _zaklep:
-        _prosnje.pop(kljuc, None)
-        _zadnji_poziv.pop(kljuc, None)
-    print(f"[SafeerDostop] Uporabnik je dovolil: {jedro_naprave[:2]}…{jedro_naprave[-4:]} dobi {zmoznost}", flush=True)
+        for c in odprte:
+            _prosnje.pop(kljuc_prosnje(j, c), None)
+            _zadnji_poziv.pop(kljuc_prosnje(j, c), None)
+    print(f"[SafeerDostop] Uporabnik je dovolil: {j[:2]}…{j[-4:]} dobi {odprte}", flush=True)
+    _osvezi_prikaz(j)
     return True
 
 
-def zavrni_prosnjo(jedro_naprave: str, zmoznost: str, zdaj: Optional[float] = None) -> bool:
-    """Uporabnik je pritisnil Zavrni: iste prosnje 24 ur ne kazemo (velja tudi po ponovnem zagonu)."""
-    kljuc = kljuc_prosnje(str(jedro_naprave or ""), str(zmoznost or ""))
-    if razcleni_kljuc_prosnje(kljuc) is None:
+def zavrni_prosnjo(jedro_naprave: str, zmoznosti: str, zdaj: Optional[float] = None) -> bool:
+    """Uporabnik je pritisnil Zavrni: nastetih prosenj (ena ali vec crk) 24 ur ne kazemo - velja tudi po ponovnem
+    zagonu. Zavrne se vse nasteto, tudi ce kaksna prosnja vmes ni vec odprta."""
+    par = razcleni_kljuc_skupine(kljuc_skupine(str(jedro_naprave or ""), str(zmoznosti or "")))
+    if par is None:
         return False
+    j, crke = par
+    kljuci = [kljuc_prosnje(j, c) for c in crke]
     zdaj = time.time() if zdaj is None else zdaj
 
     def sprememba_ostalega(ostalo: dict) -> None:
         z = {k: t for k, t in _zavrnjeno_iz(ostalo.get("zavrnjeno")).items() if abs(zdaj - t) < ZAVRNITEV_VELJA_S}
-        z[kljuc] = zdaj
+        for k in kljuci:
+            z[k] = zdaj
         if len(z) > NAJVEC_ZAVRNITEV:
             z = dict(sorted(z.items(), key=lambda x: x[1])[-NAJVEC_ZAVRNITEV:])
         ostalo["zavrnjeno"] = z
     with _zaklep:
-        _prosnje.pop(kljuc, None)
-        _zavrnjeno[kljuc] = zdaj         # v tem programu velja takoj, tudi ce zapis ne uspe
+        for k in kljuci:
+            _prosnje.pop(k, None)
+            _zavrnjeno[k] = zdaj         # v tem programu velja takoj, tudi ce zapis ne uspe
         _nalozen()
         try:
             _spremeni(lambda naprave, zascita: None, sprememba_ostalega)
         except OSError:
             pass
-    print(f"[SafeerDostop] Uporabnik je zavrnil: {jedro_naprave[:2]}…{jedro_naprave[-4:]} ({zmoznost}) za 24 ur",
-          flush=True)
+    print(f"[SafeerDostop] Uporabnik je zavrnil: {j[:2]}…{j[-4:]} ({crke}) za 24 ur", flush=True)
+    _osvezi_prikaz(j)
     return True
+
+
+class ZdruzenPrikaz:
+    """Prikaz prosenj z zamikom ZDRUZI_S na napravo: prosnje iste naprave, ki pridejo v tem casu, gredo v ENO
+    obvestilo (prej so tri hkratne prosnje telefona pokazale tri obvestila). Ob prikazu se vsebina vzame sveza iz
+    skupina_prosenj - kar je bilo vmes odobreno, zavrnjeno ali je izpadlo, se ne pokaze.
+
+    `pokazi(skupina)` in `umakni(jedro)` sta prikaz programa (glavna nit); `razporedi(sekunde, klic)` klic odlozi
+    (Control: GLib.timeout_add). Velja za samostojni Safeer Control in za Control v procesu Safeer OS."""
+
+    def __init__(self, pokazi: Callable[[dict], None], umakni: Callable[[str], None],
+                 razporedi: Callable[[float, Callable[[], None]], object], cakaj_s: float = ZDRUZI_S):
+        self._pokazi, self._umakni, self._razporedi, self._cakaj_s = pokazi, umakni, razporedi, cakaj_s
+        self._cakajo: Set[str] = set()
+        self._zaklep = threading.Lock()
+
+    def pokazi(self, skupina: dict) -> None:
+        j = str((skupina or {}).get("jedro") or "")
+        if not _je_jedro(j):
+            return
+        with self._zaklep:
+            if j in self._cakajo:
+                return                  # ze caka na prikaz; takrat se vzame vse, kar je odprto
+            self._cakajo.add(j)
+        try:
+            self._razporedi(self._cakaj_s, lambda: self._izvedi(j))
+        except Exception:
+            with self._zaklep:
+                self._cakajo.discard(j)
+            raise
+
+    def umakni(self, kljuc: str) -> None:
+        self._umakni(str(kljuc).partition("|")[0])
+
+    def _izvedi(self, j: str) -> None:
+        with self._zaklep:
+            self._cakajo.discard(j)
+        skupina = skupina_prosenj(j)
+        try:
+            if skupina is None:
+                self._umakni(j)
+            else:
+                self._pokazi(skupina)
+        except Exception as e:  # noqa: BLE001 - obvestila ni bilo: napravi ob naslednjem poskusu povemo, da prosnje ni
+            opusti_prosnje(j)
+            print(f"[SafeerDostop] Prosnje ni bilo mogoce pokazati: {e}")
 
 
 # ---------------------------------------------------------------------- obvestilo s prosnjo (Safeer Control)
@@ -1016,15 +1149,27 @@ def besedilo_obvestila(jezik: Optional[str], kljuc: str) -> str:
         kljuc, BESEDILA_OBVESTILA["en"].get(kljuc, kljuc))
 
 
+def _crke(prosnja: dict) -> str:
+    """Crke obvestila: "zmoznosti" (skupina) ali "zmoznost" (ena prosnja); samo znane, vsaka enkrat."""
+    surovo = str(prosnja.get("zmoznosti") or prosnja.get("zmoznost") or "")
+    izid = ""
+    for c in surovo:
+        if c in VSE_ZMOZNOSTI and c not in izid:
+            izid += c
+    return izid
+
+
 def telo_obvestila(prosnja: dict, jezik: Optional[str]) -> str:
-    """Besedilo obvestila. Ime je iz kroga tega racunalnika in ze precisceno (cisto_ime)."""
+    """Besedilo obvestila: vse zaprosene zmoznosti z navadnimi besedami. Ime je iz kroga tega racunalnika in ze
+    precisceno (cisto_ime)."""
     ime = cisto_ime(prosnja.get("ime")) or str(prosnja.get("jedro") or "")
-    kaj = besedilo_obvestila(jezik, str(prosnja.get("zmoznost") or ""))
+    kaj = ", ".join(besedilo_obvestila(jezik, c) for c in _crke(prosnja))
     return besedilo_obvestila(jezik, "prosnja").format(ime=ime, kaj=kaj)
 
 
-def id_obvestila(kljuc_prosnje: str) -> str:
-    return PREDPONA_ID + str(kljuc_prosnje)
+def id_obvestila(kljuc: str) -> str:
+    """Eno obvestilo na napravo: id je jedro (iz "<jedro>", "<jedro>|<crka>" ali "<jedro>|<crke>")."""
+    return PREDPONA_ID + str(kljuc).partition("|")[0]
 
 
 def razcleni_parameter(parameter) -> Optional[Tuple[str, str]]:
@@ -1033,12 +1178,13 @@ def razcleni_parameter(parameter) -> Optional[Tuple[str, str]]:
         niz = parameter.get_string() if hasattr(parameter, "get_string") else parameter
     except Exception:  # noqa: BLE001
         return None
-    return razcleni_kljuc_prosnje(niz) if isinstance(niz, str) else None
+    return razcleni_kljuc_skupine(niz) if isinstance(niz, str) else None
 
 
 def poslji_obvestilo(app, Gio, GLib, prosnja: dict, jezik: Optional[str]) -> str:
-    """Namizno obvestilo s prosnjo; vrne njegov id (en na prosnjo - ponovno vprasanje zamenja starega)."""
-    kljuc = kljuc_prosnje(str(prosnja.get("jedro") or ""), str(prosnja.get("zmoznost") or ""))
+    """Namizno obvestilo s prosnjami ene naprave; vrne njegov id (en na napravo - nova prosnja iste naprave zamenja
+    starega). Gumba nosita natanko nastete crke: Dovoli odobri samo to, kar je uporabnik prebral."""
+    kljuc = kljuc_skupine(str(prosnja.get("jedro") or ""), _crke(prosnja))
     obvestilo = Gio.Notification.new(NASLOV)
     obvestilo.set_body(telo_obvestila(prosnja, jezik))
     try:
@@ -1069,7 +1215,7 @@ def umakni_obvestilo(app, kljuc_prosnje: str) -> None:
 def registriraj_dejanja(app, Gio, GLib, dovoli: Callable[[str, str], object], zavrni: Callable[[str, str], object],
                         odpri_naprave: Callable[[], object]) -> None:
     """Dejanja »Dovoli«, »Zavrni« in »odpri seznam naprav« na aplikaciji Control. Dovoli/Zavrni sprejmeta samo
-    parameter prave oblike; vse drugo se tiho prezre."""
+    parameter prave oblike "<jedro>|<crke>" in klic dobi (jedro, crke); vse drugo se tiho prezre."""
     def ob_odgovoru(klic):
         def obravnava(_dejanje, parameter) -> None:
             par = razcleni_parameter(parameter)
