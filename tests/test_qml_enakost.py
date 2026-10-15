@@ -53,6 +53,7 @@ NADOMESCENO = {
     "programiNaprave": "programiNapraveNamizja (izbira naprave v plosci Programi)",
     "nadaljujTukaj": "prenesiDatotekoNaprave -> safeer_os.nadaljuj_tukaj (isti prenos razlik in Teamwork)",
     "nastavitveOzadja": "Prilagodi namizje (ozadja) in »Sistemska ozadja …« (sistemskeNastavitve backgrounds)",
+    "priljubljenoPreseli": "QML nima localStorage: enkratni prenos starih priljubljenih potrebuje samo delovna povrsina",
 }
 #: Metode, ki jih namizje QML (se) nima - zavestno, z razlogom.
 NI_PRENESENO = {
@@ -385,7 +386,8 @@ class NamizjeQml(unittest.TestCase):
         self.assertEqual(self.n.most.datotekaPot("file:///tmp/a%20b.txt"), "/tmp/a b.txt")
         self.assertEqual(self.n.most.datotekaPot("https://example.org/a"), "")
         q = _beri("assets", "os", "qml", "Datoteke.qml")
-        self.assertIn('Drag.mimeData: ({ "text/uri-list": (Most ? Most.datotekaUrl(modelData.pot || "") : "") + "\\r\\n" })', q)
+        self.assertIn('Drag.mimeData: ({ "text/uri-list": panel.naslovi(modelData) })', q)
+        self.assertEqual(self._js("datoteke.naslovi(datoteke.prikazani[1])"), "file://%s/Dokumenti/a.odt\r\n" % D)
         self.assertIn("Drag.dragType: Drag.Automatic", q)
 
     def test_mediji_in_datoteke_z_naprave(self):
@@ -503,7 +505,7 @@ class Staticno(unittest.TestCase):
 
     def test_brez_trdo_kodiranih_barv_v_novih_datotekah(self):
         for ime in ("Okno.qml", "Meni.qml", "MeniVnos.qml", "MeniCrta.qml", "NovoIme.qml", "Lastnosti.qml", "ShraniNaNapravo.qml",
-                    "PretvoriZaTv.qml", "UrediDock.qml", "PonudnikiProgramov.qml"):
+                    "PretvoriZaTv.qml", "UrediDock.qml", "PonudnikiProgramov.qml", "Predogled.qml", "Programi.qml", "Datoteke.qml"):
             self.assertNotRegex(_beri("assets", "os", "qml", ime), r'"#[0-9a-fA-F]{3,8}"', ime)
 
     def test_iskanje_js_je_knjiznica_za_qml(self):

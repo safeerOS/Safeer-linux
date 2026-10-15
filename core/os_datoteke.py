@@ -843,10 +843,10 @@ def _besedilo_z_zacetka(pot: str, meja: int = MEJA_BESEDILA) -> Optional[dict]:
                 vzorec.decode("latin-1")
                 if sum(1 for b in vzorec if b < 9 or 13 < b < 32) > len(vzorec) // 100:
                     return None
-                return {"besedilo": podatki.decode("latin-1"), "odrezano": odrezano, "kodiranje": "latin-1"}
+                return {"besedilo": podatki.decode("latin-1"), "odrezano": odrezano, "kodiranje": "latin-1", "prebrano": len(podatki)}
             except UnicodeDecodeError:
                 return None
-    return {"besedilo": podatki.decode("utf-8", errors="replace"), "odrezano": odrezano, "kodiranje": "utf-8"}
+    return {"besedilo": podatki.decode("utf-8", errors="replace"), "odrezano": odrezano, "kodiranje": "utf-8", "prebrano": len(podatki)}
 
 
 def _mapa_predogledov() -> str:

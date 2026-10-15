@@ -20,12 +20,13 @@ Okno {
     property bool izbira: false          // Prenesi sem / Pusti na napravi
     property var zadnji: ({})
     signal spremenjeno()
-    function zacni(e, jeMapa) {
+    // poti: vec izbranih videov in map v Datotekah (ena skupina, naprave si delo razdelijo).
+    function zacni(e, jeMapa, poti) {
         mapa = !!jeMapa; id_ = ""; izbira = false; vprasanje = ""; naprave = ""
         naslov = mapa ? koren.t("prvSkNaslov") : koren.t("pretvori").replace(/\s…$/, "")
         besedilo = koren.t("prvIscem", { ime: e.ime })
         open(); zapri.forceActiveFocus()
-        koren.klic(mapa ? "pretvoriVec" : "pretvoriVideo", [mapa ? [e.pot] : e.pot], function (r) {
+        koren.klic(mapa ? "pretvoriVec" : "pretvoriVideo", [mapa ? (poti && poti.length ? poti : [e.pot]) : e.pot], function (r) {
             if (!r || !r.ok) { okno.napaka(r); return }
             okno.id_ = r.id; okno.pokazi(r)
         }, function () { okno.napaka(null) })

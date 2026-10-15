@@ -228,6 +228,48 @@ class VecVSmeti(unittest.TestCase):
         self.assertTrue(all(os.path.exists(p) for p in poti))
 
 
+class PreselitevDelovnePovrsine(unittest.TestCase):
+    """delovna.js: stare priljubljene iz localStorage gredo enkrat v Safeer OS, nato localStorage ni vec vir."""
+
+    @unittest.skipUnless(shutil.which("node"), "node ni namescen")
+    def test_enkrat_v_safeer_os(self):
+        import subprocess
+        koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(koren, "assets", "os", "delovna.js"), encoding="utf-8") as f:
+            js = f.read()
+        blok = js[js.index("  var PR = {"):js.index("  // Vecje besedilo in manj prosojnosti")]
+        koda = """
+var assert = require("assert");
+var N = { priljubljeneDat: [{ pot: "/d/a.txt", ime: "a.txt" }], priljubljeniPrg: ["ta:gimp.desktop"], kategorije: { "ta:x": "igre" }, pogled: "seznam" };
+var D = { vir: null }, shranjeno = 0, klici = [], izrisano = 0;
+function shrani() { shranjeno++; }
+function izrisiPrograme() { izrisano++; }
+function odpriVir() {}
+var stanje = { datoteke: [], programi: [], kategorije: {}, nastavitve: { programiPogled: "mreza" }, preseljeno: false };
+function klic(m, a) {
+  klici.push([m, a]);
+  if (m === "priljubljenoPreseli") stanje = { datoteke: [{ pot: "/d/a.txt", obstaja: true }], programi: ["ta:gimp.desktop"],
+                                              kategorije: { "ta:x": "igre" }, nastavitve: { programiPogled: "seznam" }, preseljeno: true };
+  return Promise.resolve(stanje);
+}
+""" + blok + """
+naloziPriljubljene().then(function () {
+  assert.deepStrictEqual(klici.map(function (k) { return k[0]; }), ["priljubljenoSeznam", "priljubljenoPreseli"]);
+  assert.deepStrictEqual(klici[1][1][0].priljubljeniPrg, ["ta:gimp.desktop"]);
+  assert.strictEqual(klici[1][1][0].pogled, "seznam");
+  assert.deepStrictEqual([N.priljubljeneDat, N.priljubljeniPrg, N.kategorije], [[], [], {}]);   // localStorage ni vec vir
+  assert.ok(shranjeno > 0 && izrisano > 0);
+  assert.strictEqual(PR.programi[0], "ta:gimp.desktop");
+  assert.strictEqual(N.pogled, "seznam");
+  klici = [];
+  return naloziPriljubljene();
+}).then(function () {
+  assert.deepStrictEqual(klici.map(function (k) { return k[0]; }), ["priljubljenoSeznam"]);    // drugic: brez prenosa
+}).catch(function (e) { console.error(e); process.exit(1); });
+"""
+        subprocess.run(["node", "-e", koda], check=True)
+
+
 class Most(unittest.TestCase):
     """Klici iz namizja gredo skozi SafeerOS._obdelaj_klic do shrambe; preimenovanje premakne priljubljeno."""
 

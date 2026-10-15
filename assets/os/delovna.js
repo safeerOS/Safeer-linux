@@ -81,6 +81,33 @@
     return n;
   }
   function shrani() { try { localStorage.setItem("safeer_delovna", JSON.stringify(N)); } catch (e) { /* ni shrambe */ } }
+  // Priljubljene datoteke, mape in programi, kategorije programov in pogled Programov so v Safeer OS
+  // (core/priljubljeno.py, ~/.config/safeer-os/priljubljeno.json): isti za to stran in namizje QML. Prej so bili samo v
+  // localStorage tega pogleda WebKit (15. 10. 2026) - ob prvem nalaganju jih enkrat prenesemo (priljubljenoPreseli).
+  var PR = { datoteke: [], programi: [], kategorije: {}, nastavitve: {} };
+  function nastaviPriljubljene(p) {
+    if (!p || typeof p !== "object") return;
+    PR = { datoteke: Array.isArray(p.datoteke) ? p.datoteke : [], programi: Array.isArray(p.programi) ? p.programi : [],
+           kategorije: p.kategorije || {}, nastavitve: p.nastavitve || {} };
+    if (PR.nastavitve.programiPogled) N.pogled = PR.nastavitve.programiPogled;
+    if (D.vir && D.vir.vrsta === "priljubljeno") odpriVir(D.vir);
+    izrisiPrograme();
+  }
+  function naloziPriljubljene() {
+    return klic("priljubljenoSeznam").then(function (p) {
+      var imaLokalne = N.priljubljeneDat.length || N.priljubljeniPrg.length || Object.keys(N.kategorije).length;
+      if (p && imaLokalne) {
+        // Enkrat na pogled: Safeer OS zdruzi brez podvajanja (tudi ce je drug pogled ze prenesel svoje). Nato
+        // localStorage ni vec vir - sicer bi ob naslednjem nalaganju prinesel nazaj, kar je uporabnik medtem odstranil.
+        return klic("priljubljenoPreseli", [{ priljubljeneDat: N.priljubljeneDat, priljubljeniPrg: N.priljubljeniPrg,
+                                              kategorije: N.kategorije, pogled: N.pogled }]).then(function (n) {
+          N.priljubljeneDat = []; N.priljubljeniPrg = []; N.kategorije = {}; shrani();
+          nastaviPriljubljene(n);
+        });
+      }
+      nastaviPriljubljene(p);
+    }).catch(function () { /* brez mosta: brez priljubljenih */ });
+  }
   // Vecje besedilo in manj prosojnosti: ko je vklopljen Safeer Cinnamon, sta to nastavitvi SISTEMA (tema lupine in
   // programov, velikost besedila) - stikali ju upravljata in jima sledita. Brez njega veljata samo za to stran.
   var V = { naVoljo: false, kontrast: false, vecjiTekst: false };
@@ -289,6 +316,7 @@
       Z.spletne = Array.isArray(z.spletne) ? z.spletne : [];
       zgradiStranDatotek();
       odpriVir({ vrsta: "nedavno" });
+      naloziPriljubljene();
       preveriProstor();
       klic("predlogeDatotek").then(function (p) { predlogeDatotek = Array.isArray(p) ? p.slice(0, 12) : []; }).catch(function () {});
       naloziProgrameNaprav();
@@ -512,7 +540,8 @@
       klic("najvecjeDatoteke").then(prispelo(function (r) { nastaviVnose(r || [], t("niVelikih")); drobtine([t("najvecje")]); }))
         .catch(prispelo(function () { nastaviVnose([], t("niUspelo"), true); }));
     } else if (vir.vrsta === "priljubljeno") {
-      nastaviVnose(N.priljubljeneDat.slice(), t("niPriljubljenih")); drobtine([t("priljubljeno")]);
+      nastaviVnose(PR.datoteke.map(function (d) { return d.obstaja === false ? Object.assign({}, d, { nedosegljivo: true }) : d; }),
+                   t("niPriljubljenih")); drobtine([t("priljubljeno")]);
     } else if (vir.vrsta === "smeti") {
       // Smeti: stolpec Lokacija pove, kje je datoteka bila, cas pa, kdaj je bila izbrisana.
       klic("smeti").then(prispelo(function (r) {
@@ -670,6 +699,8 @@
     var ik = ikonaVrste(e.mapa ? "mapa" : e.vrsta);
     if (e.pot && !e.oddaljeno && !e.smeti && (e.vrsta === "slika" || e.vrsta === "video")) ik.setAttribute("data-slicica", e.pot);
     c.appendChild(ik); c.appendChild(el("span", "", e.ime));
+    // Priljubljena, ki je ni vec na tem mestu (premaknjena drugje, izbrisana, odklopljen USB): vidna, ne izgine tiho.
+    if (e.nedosegljivo) { tr.classList.add("nedosegljivo"); c.appendChild(el("span", "oznaka-vira", t("niNaVoljo"))); }
     // Polno ime kot namig samo, ko je odrezano: sicer bi namig (WebKitGTK ga pokaze z zamikom, brez premika miske)
     // prekril meni desnega klika, ki se odpre pod kazalcem - tudi postavko »Pretvori v …«.
     td.appendChild(c); tr.appendChild(td);
@@ -730,6 +761,7 @@
       else if (ev.key === "Delete" && !e.oddaljeno && !e.smeti) { ev.preventDefault(); vSmetiVec(zaDejanje(e)); }
       else if (ev.ctrlKey && !ev.shiftKey && !ev.altKey && !e.oddaljeno && !e.smeti && (ev.key === "c" || ev.key === "C")) { ev.preventDefault(); vOdlozisceVec(zaDejanje(e), false); }
       else if (ev.ctrlKey && !ev.shiftKey && !ev.altKey && !e.oddaljeno && !e.smeti && (ev.key === "x" || ev.key === "X")) { ev.preventDefault(); vOdlozisceVec(zaDejanje(e), true); }
+      else if (ev.ctrlKey && !ev.shiftKey && !ev.altKey && !e.oddaljeno && !e.smeti && (ev.key === "d" || ev.key === "D")) { ev.preventDefault(); preklopiPriljubljeneVec(zaDejanje(e)); }
       else if (ev.key.length === 1 && !ev.ctrlKey && !ev.altKey && !ev.metaKey && (ev.key !== " " || tipkano && Date.now() - tipkanoCas <= 900)) {
         ev.preventDefault(); skociNaIme(ev.key);
       }
@@ -782,6 +814,7 @@
       m.push([t("izreziN", { n: koliko }), function () { vOdlozisceVec(lok, true); }]);
       if (O.poti.length && D.vir && D.vir.vrsta === "lokalno") m.push([t("prilepi"), function () { prilepi(null); }]);
       m.push([t("vSmetiN", { n: koliko }), function () { vSmetiVec(lok); }]);
+      m.push([t(lok.every(jePriljubljena) ? "odstraniPriljubljeno" : "dodajPriljubljeno"), function () { preklopiPriljubljeneVec(lok); }]);
       var samoDatoteke = lok.filter(function (e) { return !e.mapa; });
       if (samoDatoteke.length) m.push([t("posljiNaNapravo"), function () { izberiNapravoInPoslji(samoDatoteke.map(function (e) { return e.pot; })); }]);
       m.push(["—"]);
@@ -1114,7 +1147,6 @@
     }).then(function (izidi) {
       var ok = izidi.filter(Boolean).length, vSmeteh = {};
       vnosi.forEach(function (e, i) { if (izidi[i]) vSmeteh[e.pot] = true; });
-      N.priljubljeneDat = N.priljubljeneDat.filter(function (p) { return !vSmeteh[p.pot]; }); shrani();
       obvesti(ok === vnosi.length ? t("vSmetiVecOk", { ime: steviloElementov(ok) }) : ok ? t("delnoUspelo", { ok: ok, ne: vnosi.length - ok }) : t("nSmeti"),
               zapomniDejanje({ vrsta: "smeti", idji: idji }));
       if (D.vir) odpriVir(D.vir);
@@ -1215,6 +1247,7 @@
   }
 
   function odpriVnos(e) {
+    if (e.nedosegljivo) { obvesti(t("niVecNaVoljo", { ime: e.ime })); return; }
     if (e.smeti) { var vrs = $("datVrstice").rows[D.izbran], rr = vrs ? vrs.getBoundingClientRect() : { left: 80, bottom: 200 }; meniDatoteke(e, rr.left + 40, rr.bottom); return; }
     if (e.oddaljeno) {
       var v = D.vir;
@@ -1270,7 +1303,27 @@
       obvesti(b);
     }).catch(function () { delete nadaljujTece[kljuc]; obvesti(t("nadaljujNapaka")); });
   }
-  function jePriljubljena(e) { return N.priljubljeneDat.some(function (p) { return p.pot === e.pot; }); }
+  function jePriljubljena(e) { return PR.datoteke.some(function (p) { return p.pot === e.pot; }); }
+  function preklopiPriljubljeno(e) {
+    var bilo = jePriljubljena(e);
+    klic("priljubljenoPreklopi", ["datoteka", { pot: e.pot, ime: e.ime, mapa: !!e.mapa }]).then(function (p) {
+      nastaviPriljubljene(p);
+      obvesti(t(bilo ? "odstranjenoPriljubljeno" : "dodanoPriljubljeno", { ime: e.ime }));
+    }).catch(function () { obvesti(t("niUspelo")); });
+  }
+  // Ctrl+D ali meni vec izbranih: vse v priljubljene; ce so ze vse, jih odstrani (kot na namizju QML).
+  function preklopiPriljubljeneVec(v) {
+    v = v.filter(function (e) { return e.pot && !e.oddaljeno && !e.smeti; });
+    if (!v.length) return;
+    if (v.length === 1) { preklopiPriljubljeno(v[0]); return; }
+    var vse = v.every(jePriljubljena);
+    zapored(v, function (e) {
+      return klic("priljubljenoPreklopi", ["datoteka", { pot: e.pot, ime: e.ime, mapa: !!e.mapa }, !vse]);
+    }).then(function () {
+      klic("priljubljenoSeznam").then(nastaviPriljubljene).catch(function () {});
+      obvesti(t(vse ? "odstranjenoPriljubljeno" : "dodanoPriljubljeno", { ime: steviloElementov(v.length) }));
+    });
+  }
   function meniDatoteke(e, x, y) {
     var m = [];
     if (e.smeti) {
@@ -1280,22 +1333,19 @@
       pokaziMeni(m, x, y);
       return;
     }
+    if (e.nedosegljivo) {
+      // Priljubljena, ki je ni vec na tem mestu: samo odstranitev (ne izgine sama - uporabnik vidi, kaj manjka).
+      m.push([t("odstraniPriljubljeno"), function () { preklopiPriljubljeno(e); }]);
+      pokaziMeni(m, x, y);
+      return;
+    }
     m.push([t("odpri"), function () { odpriVnos(e); }]);
     if (e.oddaljeno && !e.mapa) m.push([t("nadaljujTukaj"), function () { nadaljujTukaj(e); }]);
     if (!e.oddaljeno) {
       m.push([t("odpriZ"), function () { odpriZ(e); }]);
       m.push([t("predogled"), function () { predogled(e); }, e.mapa]);
       m.push([t("pokaziVMapi"), function () { klic("pokaziVMapi", [e.pot]); }]);
-      m.push(jePriljubljena(e)
-        ? [t("odstraniPriljubljeno"), function () {
-            N.priljubljeneDat = N.priljubljeneDat.filter(function (p) { return p.pot !== e.pot; }); shrani();
-            if (D.vir && D.vir.vrsta === "priljubljeno") odpriVir(D.vir);
-          }]
-        : [t("dodajPriljubljeno"), function () {
-            N.priljubljeneDat.push({ ime: e.ime, pot: e.pot, mapa: !!e.mapa, vrsta: e.mapa ? "mapa" : e.vrsta,
-                                     velikost: e.velikost || 0, spremenjeno: e.spremenjeno || 0 });
-            N.priljubljeneDat = N.priljubljeneDat.slice(-60); shrani();
-          }]);
+      m.push([t(jePriljubljena(e) ? "odstraniPriljubljeno" : "dodajPriljubljeno"), function () { preklopiPriljubljeno(e); }]);
       m.push(["—"]);
       m.push([t("kopiraj"), function () { vOdlozisce(e, false); }]);
       m.push([t("izrezi"), function () { vOdlozisce(e, true); }]);
@@ -1717,7 +1767,6 @@
   function vSmeti(e) {
     klic("vSmeti", [e.pot]).then(function (r) {
       if (!r || !r.ok) { obvesti(t("nSmeti")); return; }
-      N.priljubljeneDat = N.priljubljeneDat.filter(function (p) { return p.pot !== e.pot; }); shrani();
       obvesti(t("vSmetiOk", { ime: e.ime }), zapomniDejanje({ vrsta: "smeti", idji: r.id ? [r.id] : [] }));
       if (D.vir) odpriVir(D.vir);
     }).catch(function () { obvesti(t("nSmeti")); });
@@ -1768,9 +1817,9 @@
   var IZ_SKUPINE = { pisarna: "pisarna", ucenje: "pisarna", programiranje: "ustvarjanje", predstavnost: "mediji",
                      splet: "splet", igre: "igre", orodja: "drugo", sistem: "drugo", drugo: "drugo" };
   function kljucPrograma(p) { return p.naprava + ":" + p.id; }
-  function kategorijaPrograma(p) { return N.kategorije[kljucPrograma(p)] || IZ_SKUPINE[p.skupina] || "drugo"; }
+  function kategorijaPrograma(p) { return PR.kategorije[kljucPrograma(p)] || IZ_SKUPINE[p.skupina] || "drugo"; }
 
-  function jePriljubljen(p) { return N.priljubljeniPrg.indexOf(kljucPrograma(p)) >= 0; }
+  function jePriljubljen(p) { return PR.programi.indexOf(kljucPrograma(p)) >= 0; }
   // Kje program tece: Ta racunalnik, ime naprave ali Oblak · ponudnik.
   function oznakaOblaka(ponudnik) { return "☁ " + t("oblak") + " · " + ponudnik; }
   // Programi tega racunalnika so v istem seznamu kot programi naprav: uporabnik isce na enem mestu in si
@@ -1881,8 +1930,9 @@
     });
     var po = $("prgRazvrsti").value;
     r.sort(function (a, b) {
-      var fa = jePriljubljen(a), fb = jePriljubljen(b);
-      if (fa !== fb) return fa ? -1 : 1;
+      var fa = PR.programi.indexOf(kljucPrograma(a)), fb = PR.programi.indexOf(kljucPrograma(b));
+      if ((fa >= 0) !== (fb >= 0)) return fa >= 0 ? -1 : 1;
+      if (fa >= 0 && fa !== fb) return fa - fb;                // priljubljeni v uporabnikovem vrstnem redu (tudi z namizja QML)
       if (po === "naprava" && a.imeNaprave !== b.imeNaprave) return a.imeNaprave.localeCompare(b.imeNaprave, jezik);
       return a.ime.localeCompare(b.ime, jezik, { sensitivity: "base" });
     });
@@ -1952,6 +2002,10 @@
       meniPrograma(p, r.left + 12, r.bottom - 6, e);
     });
     b.addEventListener("contextmenu", function (e) { e.preventDefault(); if (p.ponudnikOblaka) meniOblaka(p, e.clientX, e.clientY); else meniPrograma(p, e.clientX, e.clientY, e); });
+    // Ctrl+D: priljubljen (kot v Datotekah in na namizju QML).
+    b.addEventListener("keydown", function (e) {
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === "d" || e.key === "D") && !p.ponudnikOblaka) { e.preventDefault(); preklopiPriljubljen(p); }
+    });
     return b;
   }
   // Igra v oblaku, ki se ni namescena: kaj je, ali bo delovala, in namestitev iz ponudnikovega uradnega vira (samo na klik).
@@ -2277,7 +2331,9 @@
     m.push([t("kategorija", { k: t(IMENA_KATEGORIJ[kategorijaPrograma(p)]) }), null, true]);
     ["pisarna", "ustvarjanje", "mediji", "splet", "igre", "drugo"].forEach(function (k) {
       if (k === kategorijaPrograma(p)) return;
-      m.push(["  → " + t(IMENA_KATEGORIJ[k]), function () { N.kategorije[kljucPrograma(p)] = k; shrani(); izrisiPrograme(); }]);
+      m.push(["  → " + t(IMENA_KATEGORIJ[k]), function () {
+        klic("priljubljenoKategorija", [kljucPrograma(p), k]).then(nastaviPriljubljene).catch(function () { obvesti(t("niUspelo")); });
+      }]);
     });
     pokaziMeni(m, x, y);
   }
@@ -2370,10 +2426,7 @@
     dockNalozi().then(function () { narisi(); var f = ovoj.querySelector("button:not(:disabled)"); if (f) f.focus(); });
   }
   function preklopiPriljubljen(p) {
-    var k = kljucPrograma(p);
-    if (jePriljubljen(p)) N.priljubljeniPrg = N.priljubljeniPrg.filter(function (x) { return x !== k; });
-    else N.priljubljeniPrg.push(k);
-    shrani(); izrisiPrograme();
+    klic("priljubljenoPreklopi", ["program", kljucPrograma(p)]).then(nastaviPriljubljene).catch(function () { obvesti(t("niUspelo")); });
   }
   function zazeniLokalni(p) {
     klic("zazeni", [p.id]).then(function (ok) { if (!ok) obvesti(t("niUspelo")); }).catch(function () { obvesti(t("niUspelo")); });
@@ -3275,8 +3328,8 @@
     });
     $("gumbZamenjaj").addEventListener("click", function () { N.zamenjano = !N.zamenjano; shrani(); uveljaviPostavitev(); });
     $("gumbPonastavi").addEventListener("click", function () {
-      var ohrani = { priljubljeniPrg: N.priljubljeniPrg, kategorije: N.kategorije, priljubljeneDat: N.priljubljeneDat };
-      N = JSON.parse(JSON.stringify(PRIVZETO)); Object.keys(ohrani).forEach(function (k) { N[k] = ohrani[k]; });
+      // Priljubljene in kategorije so v Safeer OS (PR) - ponastavitev postavitve se jih ne dotakne.
+      N = JSON.parse(JSON.stringify(PRIVZETO)); N.pogled = PR.nastavitve.programiPogled || N.pogled;
       shrani(); uveljaviPostavitev();
     });
     $("stikaloTekst").addEventListener("change", function () {
@@ -3374,7 +3427,10 @@
     });
     $("prgRazvrsti").addEventListener("change", function () { izrisiPrograme(); });
     $("prgNamesti").addEventListener("click", ponudnikiProgramov);
-    $("prgPogled").addEventListener("click", function () { N.pogled = N.pogled === "seznam" ? "mreza" : "seznam"; shrani(); P.stran = 0; izrisiPrograme(); });
+    $("prgPogled").addEventListener("click", function () {
+      N.pogled = N.pogled === "seznam" ? "mreza" : "seznam"; shrani(); P.stran = 0; izrisiPrograme();
+      klic("priljubljenoNastavi", ["programiPogled", N.pogled]).catch(function () {});     // isti pogled tudi na namizju QML
+    });
     $("ploscaProgrami").addEventListener("keydown", function (e) {
       if (e.key === "PageDown" || e.key === "PageUp") {
         e.preventDefault(); var b = $("prgStrani").querySelectorAll("button")[e.key === "PageDown" ? 1 : 0];
@@ -3425,6 +3481,7 @@
       else if (vrsta === "vleceneDatoteke") { VL.zunanje = (arguments[1] && arguments[1].stevilo) || 0; if (!VL.zunanje) pocistiCilje(); }
       else if (vrsta === "vlecenjeKoncano") koncajVlecenje(!!(arguments[1] && arguments[1].sprejeto));
       else if (vrsta === "programi") naloziLokalnePrograme();     // program namescen ali odstranjen
+      else if (vrsta === "priljubljeno") nastaviPriljubljene(arguments[1]);   // tudi sprememba na namizju QML
       // Prikazana mapa (nedavne, Smeti) se je spremenila zunaj Safeer OS; nosilec priklopljen ali odklopljen.
       else if (vrsta === "datoteke") { if (arguments[1] && arguments[1].pot === pogledVira(D.vir)) osveziVirTiho(); }
       else if (vrsta === "nosilci") osveziNosilce();
