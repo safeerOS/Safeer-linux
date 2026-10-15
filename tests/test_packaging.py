@@ -276,7 +276,10 @@ class PackagingTests(unittest.TestCase):
                     self.assertEqual(seznam[:len(pricakovano)],pricakovano)
                     self.assertIn('        path: %s\n'%ROOT,manifest)
         wf=(ROOT/'.github/workflows/linux-packages.yml').read_text()
-        self.assertEqual(wf.count("if: github.event_name == 'workflow_dispatch' && inputs.pgo"),2)
+        self.assertEqual(wf.count("if: github.event_name == 'workflow_dispatch' && inputs.pgo && inputs.pgo_profraw_run == ''"),1)
+        self.assertEqual(wf.count("if: always() && github.event_name == 'workflow_dispatch' && inputs.pgo && "),1)
+        # Paket s PGO se nalozi pred preizkusi (ob padcu preizkusa ga preverimo brez nove gradnje).
+        self.assertLess(wf.index('name: flatpak-brskalnik-pgo'),wf.index('PGO build runs on our WebKitGTK and libsoup'))
         self.assertIn('startAutomatically&iterationCount=',wf)
 
     def test_debian_maintainer_scripts_are_posix_sh(self):

@@ -16,6 +16,12 @@ on:
         description: 'WebKitGTK s PGO (ucni tek Speedometer 3.1 in optimizirana gradnja brskalnika)'
         type: boolean
         default: false
+      pgo_profraw_run:
+        # Ponovna optimizirana gradnja brez novega ucnega teka: id teka CI, katerega artefakt webkit-pgo-profraw uporabimo
+        # (prazno = nov ucni tek). Prihrani ~2 h 20 min, ce je padel samo posel webkit-pgo-brskalnik.
+        description: 'Id teka z artefaktom webkit-pgo-profraw (prazno = nov ucni tek)'
+        type: string
+        default: ''
 permissions:
   contents: read
 jobs:
@@ -415,7 +421,7 @@ jobs:
   webkit-pgo-ucenje:
     # PGO 1/2 (samo rocni tek z vhodom pgo): instrumentiran WebKitGTK (-DENABLE_LLVM_PROFILE_GENERATION=ON) v Flatpaku
     # brskalnika, ucni tek Speedometer 3.1 (pripeta lokalna kopija, brez omrezja) pod Xvfb, .profraw v artefakt.
-    if: github.event_name == 'workflow_dispatch' && inputs.pgo
+    if: github.event_name == 'workflow_dispatch' && inputs.pgo && inputs.pgo_profraw_run == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 340
     steps:
@@ -487,7 +493,11 @@ jobs:
     # zdruzi llvm-profdata iz iste razsiritve llvm22 v gradnji (modul webkitgtk6-safeer-pgo-profil). Isti preizkusi
     # kot flatpak-brskalnik; artefakt flatpak-brskalnik-pgo za meritve na testnem PC (ni del izdaje).
     needs: webkit-pgo-ucenje
-    if: github.event_name == 'workflow_dispatch' && inputs.pgo
+    # Tece tudi, ko je ucni tek preskocen (pgo_profraw_run): profil je tedaj iz artefakta podanega teka.
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.pgo && (needs.webkit-pgo-ucenje.result == 'success' || (needs.webkit-pgo-ucenje.result == 'skipped' && inputs.pgo_profraw_run != ''))
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-24.04
     timeout-minutes: 340
     steps:
@@ -500,6 +510,8 @@ jobs:
         with:
           name: webkit-pgo-profraw
           path: build/pgo/profraw
+          run-id: ${{ inputs.pgo_profraw_run || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Install Flatpak toolchain
         run: |
           sudo apt-get update
@@ -512,6 +524,11 @@ jobs:
           mkdir -p dist
           flatpak-builder --user --force-clean --repo=build/flatpak-repo build/flatpak "$M"
           flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo build/flatpak-repo "dist/Safeer-Browser-$(cat packaging/VERSION)-pgo-x86_64.flatpak" io.github.memelandfaner.SafeerBrowser master
+      # Paket nalozimo pred preizkusi: ob padcu preizkusa ga lahko preverimo na testnem PC brez nove ~2,5-urne gradnje.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: flatpak-brskalnik-pgo
+          path: dist/Safeer-Browser-*-pgo-x86_64.flatpak
       - name: Unprivileged user namespaces for the WebKit sandbox
         run: |
           if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
@@ -524,7 +541,7 @@ jobs:
           trap 'sleep 1; python3 -c "import sys; t = open(sys.argv[1], errors=\"replace\").read()[-6000:]; print(\"::error::\" + (sys.argv[2] + \"\\n\" + t).replace(\"%\", \"%25\").replace(\"\\r\", \"\").replace(\"\\n\", \"%0A\"))" "$RUNNER_TEMP/smoke.log" "$BASH_COMMAND"' ERR
           flatpak install --user --noninteractive --bundle dist/Safeer-Browser-*-pgo-x86_64.flatpak
           xvfb-run -a dbus-run-session -- flatpak run io.github.memelandfaner.SafeerBrowser --version | tee /dev/stderr | grep -Fx "Safeer Browser $(cat packaging/VERSION)"
-          flatpak run --command=python3 io.github.memelandfaner.SafeerBrowser -c "import gi; gi.require_version('Soup', '3.0'); gi.require_version('WebKit', '6.0'); from gi.repository import Soup, WebKit; m = open('/proc/self/maps').read(); knj = sorted({l.split()[-1] for l in m.splitlines() if 'libwebkitgtk-6.0' in l or 'libsoup-3.0' in l}); print(knj); assert len(knj) == 2 and all(k.startswith('/app/') for k in knj); assert (Soup.get_major_version(), Soup.get_minor_version()) >= (3, 8)"
+          flatpak run --command=python3 io.github.memelandfaner.SafeerBrowser -c "import gi; gi.require_version('Soup', '3.0'); gi.require_version('WebKit', '6.0'); from gi.repository import Soup, WebKit; m = open('/proc/self/maps').read(); knj = sorted({l.split()[-1] for l in m.splitlines() if 'libwebkitgtk-6.0' in l or 'libsoup-3.0' in l}); import sys; print(knj, file=sys.stderr, flush=True); assert len(knj) == 2 and all(k.startswith('/app/') for k in knj), knj; assert (Soup.get_major_version(), Soup.get_minor_version()) >= (3, 8), (Soup.get_major_version(), Soup.get_minor_version())"
           WK="$(flatpak info --show-location io.github.memelandfaner.SafeerBrowser)/files/lib"
           ls -l "$WK"/libwebkitgtk-6.0.so.* "$WK"/libjavascriptcoregtk-6.0.so.*
           echo "::notice::$(stat -L -c '%n %s' "$WK"/libwebkitgtk-6.0.so.4 "$WK"/libjavascriptcoregtk-6.0.so.1 | paste -sd ' ')"
@@ -536,10 +553,6 @@ jobs:
           grep -q '^USE_PGO_PROFILE:BOOL=ON$' "$G"
           grep -q '^build.ninja -fprofile-use: [1-9]' "$G"
           xvfb-run -a dbus-run-session -- flatpak run --command=python3 io.github.memelandfaner.SafeerBrowser "$PWD/packaging/smoke_brskalnik.py" /app/lib/safeer-browser
-      - uses: actions/upload-artifact@v7
-        with:
-          name: flatpak-brskalnik-pgo
-          path: dist/Safeer-Browser-*-pgo-x86_64.flatpak
   scit-lab:
     # Scit spreminja sistemsko nastavitev DNS. Enotni testi ne vidijo, kako se systemd-resolved in NetworkManager
     # obnasata v resnici - in prav tam so bile napake do Safeer OS 0.4.42 (izklop je pustil racunalnik brez DNS).
