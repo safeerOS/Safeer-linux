@@ -35,7 +35,14 @@ class Kavc(unittest.TestCase):
         bes = _beri("assets/os/besedila.js")
         for j in ("sl", "en", "de", "es", "fr", "it"):
             self.assertIn('BESEDILA_OS.%s, {"kavcVklop"' % j, bes)
-        self.assertIn("html.kavc body { zoom", _beri("assets/os/os.css"))
+        # Lastnik 15. 10. 2026: »Celozaslonski nacin« s standardno ikono; povecava je stran potisnila cez rob zaslona.
+        self.assertNotIn("html.kavc body { zoom", _beri("assets/os/os.css"))
+        self.assertIn('BESEDILA_OS.sl, {"kavcVklop": "Celozaslonski način"', bes)
+        self.assertIn('id="medijiKavc" type="button" aria-pressed="false"><svg data-ikona="celZaslon">', _beri("assets/os/index.html"))
+        kavc = _beri("assets/os/kavc.js")
+        self.assertIn('ime = vklop ? "celZaslonIzhod" : "celZaslon"', kavc)
+        self.assertIn('if (e.key !== "F11"', kavc)
+        self.assertIn("window.SafeerIkone = IK;", _beri("assets/os/os.js"))
 
 
 if __name__ == "__main__":

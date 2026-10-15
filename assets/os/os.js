@@ -21,6 +21,9 @@
     qr: "M4 4h6v6H4z M14 4h6v6h-6z M4 14h6v6H4z M14 14h2v2h-2z M18 14h2 M14 18h2 M18 18h2v2",
     poslji: "M4 12l16-8-6 16-2-7z",
     zaslon: "M3 4h18v12H3z M8 20h8 M12 16v4 M10 8l4 2-4 2z",
+    // Standardni ikoni za cel zaslon (vogali navzven / navznoter), lastnik 15. 10. 2026.
+    celZaslon: "M4 9V4h5 M15 4h5v5 M20 15v5h-5 M9 20H4v-5",
+    celZaslonIzhod: "M9 4v5H4 M15 4v5h5 M20 15h-5v5 M4 15h5v5",
     daljinec: "M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z M12 6v.1 M10 11h4 M12 9v4 M10 17h4",
     celozaslonsko: "M4 9V4h5 M15 4h5v5 M20 15v5h-5 M9 20H4v-5",
     namizje: "M3 4h18v13H3z M3 14h18 M9 21h6",
@@ -77,6 +80,7 @@
     // »Predvajaj na …« (oddajanje na drugo napravo ali zvocnik)
     ,oddajaj: "M3 8V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-5 M3 12a8 8 0 0 1 8 8 M3 16a4 4 0 0 1 4 4 M3 20h.01"
   };
+  window.SafeerIkone = IK;   // kavc.js zamenja ikono gumba za cel zaslon
   function svg(ime) {
     return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + (IK[ime] || IK.datoteka) + '"/></svg>';
   }

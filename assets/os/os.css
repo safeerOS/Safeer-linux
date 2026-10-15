@@ -926,8 +926,9 @@ body.en-razdelek #vsebina { padding-top: 30px; }
 .media-skladbe-vse:hover, .media-skladbe-vse:focus-visible { background: rgba(138, 199, 255, .1); outline: 0; }
 .media-skladba:hover .media-kartica-odstrani, .media-skladba:focus-within .media-kartica-odstrani { opacity: 1; }
 
-/* Nacin za kavc (kavc.js): vecje, jasen okvir izbora, kazalec se skrije, ko miska miruje (lastnik, 11. 10. 2026). */
-html.kavc body { zoom: 1.25; }
+/* Celozaslonski nacin (kavc.js; prej »nacin za kavc«): jasen okvir izbora, kazalec se skrije, ko miska miruje.
+   Brez povecave body { zoom: 1.25 } - ta je stran potisnila cez rob zaslona (naslov in gumbi odrezani, lastnik
+   15. 10. 2026); vecje pisave za ogled od dalec da nastavitev Velikost besedila. */
 html.kavc-tipke :focus, html.kavc :focus-visible {
   outline: 3px solid #8ac7ff !important; outline-offset: 3px; box-shadow: 0 0 0 7px rgba(138, 199, 255, .22) !important; }
 html.kavc .kat-kartica:focus, html.kavc .media-kartica-odpri:focus, html.kavc .media-skladba-odpri:focus {
