@@ -315,3 +315,34 @@ html.kavc .kat-katalog { grid-template-columns: repeat(auto-fill, minmax(180px, 
 .jf-kategorija .kat-vir { margin: 6px 0; }
 .jf-plosca .gumb.potrdi { background: var(--rdeca); color: var(--zelena-temna); }
 .kat-vir-vticniki { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+
+/* Lastni vgrajeni viri (assets/os/vgrajeno.js): vir cez ves Medijski center, nad podrobnostmi in sloji; barve iz tokens.css. */
+.vgrajeno-sloj { position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column; background: var(--ozadje); }
+.vgrajeno-vrstica { flex: none; display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: var(--media-meni); border-bottom: 1px solid var(--tanka); }
+.vgrajeno-naslov { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--besedilo); }
+.vgrajeno-okvir { flex: 1; width: 100%; min-height: 0; border: 0; background: var(--ozadje); }
+.vgrajeno-sloj:fullscreen .vgrajeno-vrstica { display: none; }
+.vgrajeno-vrstica .gumb:focus-visible, .vgrajeno-okvir:focus-visible { outline: 2px solid var(--fokus); outline-offset: 2px; }
+.vgr-sekcija { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--tanka); }
+.vgr-sekcija h4 { margin: 0 0 4px; }
+.vgr-odgovornost { margin: 0 0 10px; color: var(--tise); }
+.vgr-obrazec { display: grid; grid-template-columns: minmax(170px, .6fr) minmax(160px, .7fr) minmax(220px, 1.4fr); gap: 10px; margin: 12px 0 6px; }
+.vgr-obrazec [hidden] { display: none; }
+.vgr-obrazec select, .vgr-obrazec input[type=text], .vgr-obrazec textarea { min-width: 0; padding: 10px 13px; border: 1px solid var(--rob); border-radius: 11px; background: var(--vnos); color: var(--besedilo); font: inherit; font-size: 14px; outline: 0; color-scheme: dark; }
+.vgr-obrazec textarea { grid-column: 1 / -1; min-height: 160px; font-family: ui-monospace, monospace; font-size: 13px; resize: vertical; background: var(--koda-podlaga); }
+.vgr-obrazec select:focus, .vgr-obrazec input:focus, .vgr-obrazec textarea:focus { border-color: var(--zelena); }
+.vgr-namig, .vgr-obrazec .gumbi, .vgr-obrazec .kat-vir-sporocilo, .vgr-potrdi { grid-column: 1 / -1; margin: 0; }
+.vgr-potrdi { display: flex; align-items: center; gap: 8px; color: var(--medlo); }
+.vgr-potrdi input:focus-visible { outline: 2px solid var(--fokus); outline-offset: 2px; }
+.vgr-obrazec .kat-vir-sporocilo { overflow-wrap: anywhere; }
+.vgr-vir.izklopljen b, .vgr-vir.izklopljen small { color: var(--tise); }
+.vgr-vir .gumb.potrdi, .vgr-vir .gumb-ikona.potrdi { width: auto; padding: 0 10px; background: var(--rdeca); color: var(--zelena-temna); }
+.vgr-moznosti { margin: 14px 0; }
+.vgr-moznosti h3 { margin: 0 0 4px; }
+.vgr-gumbi { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.vgr-gumb { display: inline-flex; align-items: center; gap: 8px; }
+.vgr-gumb svg { width: 18px; height: 18px; fill: currentColor; }
+.vgr-gumb small { color: inherit; opacity: .8; font-weight: 500; }
+.vgr-epizoda { flex-basis: 100%; }
+.vgr-majhen { padding: 6px 10px; font-size: 13px; }
+@media (max-width: 720px) { .vgr-obrazec { grid-template-columns: 1fr; } }

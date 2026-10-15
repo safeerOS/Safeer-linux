@@ -91,14 +91,18 @@ class VgradnjaYoutubeTests(unittest.TestCase):
         self.assertEqual(K.STRANI_SKRIPTA_SKLADBE, ("https://www.youtube.com/embed/*",))
 
     def test_safeer_os_tuje_vsebine_ne_vgradi_v_svojo_stran(self):
-        """Klici mostu Safeer OS so dosegljivi vsem okvirjem strani, zato stran Safeer OS ne sme vgrajevati tujih
-        okvirjev: politika vsebine jih ne dovoli, skladba pa gre v locen lahki pogled."""
+        """Klici mostu Safeer OS (window.webkit.messageHandlers) so dosegljivi vsem okvirjem strani. Stran sme okvirje
+        samo za lastne vgrajene vire uporabnika (lastnik, 15. 10. 2026) - most okvirjem ne odgovori (zeton v MOST_JS, ki
+        ga dobi le glavni okvir); stran sama nima okvirjev v HTML, skladba gre v locen lahki pogled."""
         with open(os.path.join(KOREN, "assets", "os", "index.html"), encoding="utf-8") as f:
             stran = f.read()
         politika = re.search(r'Content-Security-Policy" content="([^"]+)"', stran).group(1)
-        self.assertNotIn("frame-src", politika)
+        self.assertIn("frame-src https: http: file:", politika)
+        self.assertIn("script-src 'self'", politika)
         self.assertNotIn("<iframe", stran)
         self.assertRegex(politika, r"default-src 'none'|default-src 'self'")
+        with open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8") as f:
+            self.assertIn("if not zeton_velja(s):", f.read())
         with open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8") as f:
             okno = f.read()
         pogled = okno[okno.index("def _ustvari_medijski_pogled"):okno.index("def _katalog_youtube(")]

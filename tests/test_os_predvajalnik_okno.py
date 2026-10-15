@@ -327,8 +327,22 @@ class Most(_Lupina):
 
     def _klic(self, lazna, pogled, metoda, argumenti=()):
         rezultat = mock.Mock()
-        rezultat.get_js_value.return_value.to_string.return_value = json.dumps({"id": 7, "m": metoda, "a": list(argumenti)})
+        # Klic strani Safeer OS nosi zeton mostu (MOST_JS); brez njega ga _na_sporocilo zavrne (vgrajeni okvirji).
+        rezultat.get_js_value.return_value.to_string.return_value = json.dumps(
+            {"id": 7, "m": metoda, "a": list(argumenti), "t": self.os_.ZETON_MOSTU})
         self.SafeerOS._na_sporocilo(lazna, pogled, rezultat)
+
+    def test_klic_brez_zetona_zavrnjen(self):
+        """Sporocilo iz vgrajenega okvirja (brez zetona ali z napacnim) Safeer OS ne izvede."""
+        lazna = self._lazna()
+        for sporocilo in ({"id": 7, "m": "razdelek", "a": ["media"]},
+                          {"id": 7, "m": "razdelek", "a": ["media"], "t": "ugibam"}):
+            rezultat = mock.Mock()
+            rezultat.get_js_value.return_value.to_string.return_value = json.dumps(sporocilo)
+            self.SafeerOS._na_sporocilo(lazna, lazna.pogled, rezultat)
+        lazna._razdelek.assert_not_called()
+        self.assertIn('t: zeton', self.os_.MOST_JS)
+        self.assertNotIn("__ZETON__", self.os_.MOST_JS)
 
     def test_razdelek_velja_samo_za_glavno_okno(self):
         lazna = self._lazna()

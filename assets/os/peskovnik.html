@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="sl">
+<head>
+<meta charset="utf-8">
+<!-- Peskovnik komponente React uporabnika (assets/os/vgrajeno.js): okvir s sandbox="allow-scripts" (neprozoren izvor),
+     brez omrezja (connect-src 'none'), brez obrazcev. React, ReactDOM in Babel dobi od strani kot besedilo (Safeer OS
+     jih preveri s SHA-256) - nic se ne nalozi s spleta ali z diska. Ne srcdoc: ta bi podedoval politiko strani (script-src
+     'self'). Skripta je vrinjena (neprozoren izvor datotek ne sme nalagati), CSP jo dovoli samo po odtisu SHA-256 -
+     ob spremembi skripte popravi odtis (tests/test_os_vgrajeni_viri.py ga preveri). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-LCxrn08x+9AsnJncdroRRJRhfXtTviFSu0as4WfrsmA=' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob: https:; media-src blob: https:; font-src data:; frame-src https:; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>Safeer</title>
+<style>html, body { margin: 0; height: 100%; background: var(--ozadje); color: var(--besedilo); font: 16px system-ui, sans-serif; } #koren { min-height: 100%; }</style>
+</head>
+<body>
+<div id="koren"></div>
+<script>
+/* Peskovnik komponente React uporabnika (peskovnik.html, odpre ga assets/os/vgrajeno.js). Tece v okvirju z neprozornim
+ * izvorom: ne vidi strani Safeer OS, mostu, piskotkov ne shrambe. Od strani sprejme samo: zazeni (koda, props, knjiznice,
+ * barve), babel (besedilo knjiznice), props. Nazaj poslje samo: nalozen, pripravljen, zapri, celozaslonsko, napaka,
+ * potrebujemBabel. Komponenta dobi props (url, title, imdb, tmdb, tvdb, type, season, episode, year) in onClose. */
+(function () {
+  "use strict";
+  var stars = window.parent, koda = "", props = {}, koren = null, Komponenta = null;
+  var BARVE = ["--ozadje", "--besedilo", "--medlo", "--zelena", "--rob", "--kartica"];
+  function poslji(o) { o.safeerVgrajeno = 1; stars.postMessage(o, "*"); }
+  function napaka(e) { poslji({ tip: "napaka", sporocilo: String((e && (e.message || e)) || "napaka").slice(0, 500) }); }
+  window.addEventListener("error", function (e) { napaka(e.error || e.message); });
+  window.addEventListener("unhandledrejection", function (e) { napaka(e.reason); });
+  var safeer = { zapri: function () { poslji({ tip: "zapri" }); }, celZaslon: function () { poslji({ tip: "celozaslonsko" }); } };
+  function izrisi() {
+    var p = {};
+    for (var k in props) if (Object.prototype.hasOwnProperty.call(props, k)) p[k] = props[k];
+    p.onClose = safeer.zapri;
+    koren.render(React.createElement(Komponenta, p));
+  }
+  function zazeni(babel) {
+    var izvor = koda, rabi = /^\s*(import|export)\b/m.test(izvor);
+    if (!rabi) { try { new Function(izvor); } catch (e) { rabi = true; } }
+    if (rabi && !babel) { poslji({ tip: "potrebujemBabel" }); return; }
+    if (rabi) izvor = Babel.transform(izvor, { presets: ["react"], plugins: ["transform-modules-commonjs"], sourceType: "module" }).code;
+    var modul = { exports: {} };
+    var zahtevaj = function (ime) {
+      if (ime === "react") return React;
+      if (ime === "react-dom" || ime === "react-dom/client") return ReactDOM;
+      throw new Error("Modul ni na voljo: " + ime);
+    };
+    // Komponenta: module.exports (default ali prva funkcija), sicer prva funkcija/razred z veliko zacetnico v kodi.
+    var m = koda.match(/(?:^|\n)\s*(?:export\s+default\s+)?(?:function\s+([A-Z][\w$]*)|(?:const|let|var|class)\s+([A-Z][\w$]*))/);
+    var ime = m ? (m[1] || m[2]) : "";
+    var konec = "\n;var __e = module.exports; return (typeof __e === 'function' ? __e : (__e && (__e['default'] || " +
+      "Object.keys(__e).map(function (k) { return __e[k]; }).filter(function (v) { return typeof v === 'function'; })[0])))" +
+      (ime ? " || (typeof " + ime + " !== 'undefined' ? " + ime + " : null)" : "") + ";";
+    Komponenta = new Function("React", "ReactDOM", "require", "module", "exports", "safeer", izvor + konec)(
+      React, ReactDOM, zahtevaj, modul, modul.exports, safeer);
+    if (typeof Komponenta !== "function") throw new Error("V kodi ni funkcijske komponente (export default ali function Ime).");
+    koren = ReactDOM.createRoot(document.getElementById("koren"));
+    izrisi();
+    poslji({ tip: "pripravljen" });
+  }
+  window.addEventListener("message", function (e) {
+    if (e.source !== stars) return;
+    var d = e.data; if (!d || typeof d !== "object") return;
+    try {
+      if (d.tip === "zazeni") {
+        var b = d.barve || {};
+        BARVE.forEach(function (ime) { if (typeof b[ime] === "string") document.documentElement.style.setProperty(ime, b[ime]); });
+        (0, eval)(String(d.react || ""));
+        (0, eval)(String(d.reactDom || ""));
+        koda = String(d.koda || ""); props = d.props || {};
+        zazeni(false);
+      } else if (d.tip === "babel") { (0, eval)(String(d.koda || "")); zazeni(true); }
+      else if (d.tip === "props") { props = d.props || {}; if (koren) izrisi(); }
+    } catch (x) { napaka(x); }
+  });
+  poslji({ tip: "nalozen" });
+})();
+</script>
+</body>
+</html>
