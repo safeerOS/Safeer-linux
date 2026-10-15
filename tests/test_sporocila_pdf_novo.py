@@ -9,6 +9,7 @@ Brez omrezja in brez pravih racunov: lokalni nadomestni streznik IMAP (tests/laz
 """
 import imaplib
 import os
+import re
 import shutil
 import socket
 import tempfile
@@ -147,15 +148,14 @@ def test_cip_pdf_zahteva_slicico():
 
 
 def test_flatpak_ima_pdftoppm_in_deb_poppler():
-    """Runtime GNOME 50 nima popplerja: modul v manifestu (samo pdftoppm), deb zahteva poppler-utils."""
-    import yaml
-    m = yaml.safe_load((KOREN / "io.github.memelandfaner.SafeerOS.yml").read_text(encoding="utf-8"))
-    imena = [x["name"] if isinstance(x, dict) else x for x in m["modules"]]
-    assert "poppler-pdftoppm" in imena
-    assert imena.index("poppler-pdftoppm") < imena.index("safeer-os")
-    pop = next(x for x in m["modules"] if isinstance(x, dict) and x["name"] == "poppler-pdftoppm")
-    assert pop["sources"][0]["sha256"] and pop["sources"][0]["url"].startswith("https://poppler.freedesktop.org/")
-    assert "/bin/pdftoppm" not in pop["cleanup"] and "-DENABLE_LIBCURL=OFF" in pop["config-opts"]
+    """Runtime GNOME 50 nima popplerja: modul v manifestu (samo pdftoppm), deb zahteva poppler-utils. Brez PyYAML
+    (posel deb-appimage ga nima): besedilo manifesta."""
+    m = (KOREN / "io.github.memelandfaner.SafeerOS.yml").read_text(encoding="utf-8")
+    assert "  - name: poppler-pdftoppm\n" in m
+    assert m.index("  - name: poppler-pdftoppm\n") < m.index("  - name: safeer-os\n")
+    modul = m.split("  - name: poppler-pdftoppm\n", 1)[1].split("\n  - name: ", 1)[0]
+    assert re.search(r"url: https://poppler\.freedesktop\.org/poppler-[\d.]+\.tar\.xz\n\s+sha256: [0-9a-f]{64}", modul)
+    assert "-DENABLE_LIBCURL=OFF" in modul and "- /bin/pdftotext" in modul and "- /bin/pdftoppm" not in modul
     assert "poppler-utils" in (KOREN / "build_os_deb.sh").read_text(encoding="utf-8").split("Depends:", 1)[1].split("\n", 1)[0]
 
 
