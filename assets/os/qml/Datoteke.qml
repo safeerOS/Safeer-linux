@@ -124,7 +124,11 @@ Steklo {
         naprava = ""; imeNaprave = ""; panel.pot = []; streznik = null; viri = lokalniViri
         odpri({ vrsta: "lokalno", pot: pot })
     }
-    function odpri(v) { vir = v; filter = ""; poljeFilter.text = ""; pocistiIzbor(); seznam.currentIndex = seznam.activeFocus ? 0 : -1; nalozi(false) }
+    function odpri(v) {
+        // Nova mapa: meni, ki se se odpira (caka na odgovore mostu), ali odprt meni ne sme delati na prejsnji izbiri.
+        zahtevaMenija++; meni.close(); meniVec.close()
+        vir = v; filter = ""; poljeFilter.text = ""; pocistiIzbor(); seznam.currentIndex = seznam.activeFocus ? 0 : -1; nalozi(false)
+    }
     function izberiNapravo(id, ime) {
         naprava = id; imeNaprave = ime; pot = []; streznik = null; kljucNaprave = ""
         if (!id) { viri = lokalniViri; odpri({ vrsta: "nedavno", pot: "" }); return }
@@ -196,7 +200,7 @@ Steklo {
             // Sveze iz Safeer OS (kar je medtem izginilo ali se vrnilo, npr. USB disk); do odgovora zadnje znano.
             koren.klic("spremljajMapo", [""])
             konec(seznamPriljubljenih())
-            if (linux) koren.klic("priljubljenoSeznam", [], function (p) { if (p && !Array.isArray(p) && st === zahteva) koren.priljubljeno = p })
+            if (linux) koren.klic("priljubljenoSeznam", [], function (p) { if (st === zahteva) koren.nastaviPriljubljeno(p) })
             return
         }
         if (vir.vrsta === "lokalno") { koren.klic("mapa", [vir.pot], konec); koren.klic("spremljajMapo", [vir.pot]) }
@@ -413,23 +417,25 @@ Steklo {
     }
     // Vec v Smeti z enim dejanjem: en zapis za Razveljavi (Ctrl+Z vrne vse) - core/os_datoteke.v_smeti_vec.
     function vKosVec(v) {
+        var v0 = vir
         koren.klic("vSmetiVec", [v.map(function (x) { return x.pot })], function (r) {
             r = r || {}
             var ok = (r.narejeno || []).length, ne = (r.napake || []).length
-            panel.pocistiIzbor()
-            panel.nalozi(true)
+            // Uporabnik je medtem morda ze v drugi mapi: tam izbire ne pocistimo.
+            if (panel.vir === v0) { panel.pocistiIzbor(); panel.nalozi(true) }
+            if (r.napaka === "prevec") { koren.obvesti(koren.t("prevecNaenkrat", { najvec: r.najvec || 500 })); return }
             if (!ok) { koren.obvesti(koren.t("niUspelo")); return }
             var nazaj = panel.zapomni({ vrsta: "smeti", idji: r.idji || [] })
             panel.obvestiZRazveljavi(ne ? koren.t("delnoUspelo", { ok: ok, ne: ne }) : koren.t("vSmetiVecOk", { ime: panel.steviloElementov(ok) }), nazaj)
         }, function () { koren.obvesti(koren.t("niUspelo")) })
     }
     function obnoviVec(v) {
-        var ostane = v.length, ok = 0
+        var ostane = v.length, ok = 0, v0 = vir
         v.forEach(function (x) {
             koren.klic("obnoviIzSmeti", [x.id], function (r) {
                 if (r && r.ok) ok++
                 if (--ostane === 0) {
-                    panel.pocistiIzbor(); panel.nalozi(true)
+                    if (panel.vir === v0) { panel.pocistiIzbor(); panel.nalozi(true) }
                     koren.obvesti(ok === v.length ? koren.t("obnovljenoN", { ime: panel.steviloElementov(ok) }) : koren.t("delnoUspelo", { ok: ok, ne: v.length - ok }))
                 }
             }, function () { if (--ostane === 0) { panel.nalozi(true); koren.obvesti(koren.t("niUspelo")) } })
@@ -441,9 +447,12 @@ Steklo {
         v = (v || []).filter(function (x) { return x && x.pot })
         if (!linux || !v.length || vir.vrsta === "naprava" || vir.vrsta === "smeti") return
         if (v.length === 1) { koren.preklopiPriljubljeno("datoteka", { pot: v[0].pot, ime: v[0].ime, mapa: !!v[0].mapa }, v[0].ime); return }
+        // En klic za vse (ena sprememba, en dogodek): prej je N vzporednih klicev lahko odgovore vrnilo v drugem vrstnem redu.
         var vsi = v.every(function (x) { return koren.jePriljubljenaPot(x.pot) })
-        v.forEach(function (x) { koren.preklopiPriljubljeno("datoteka", { pot: x.pot, ime: x.ime, mapa: !!x.mapa }, "", !vsi) })
-        koren.obvesti(koren.t(vsi ? "odstranjenoPriljubljeno" : "dodanoPriljubljeno", { ime: steviloElementov(v.length) }))
+        koren.klic("priljubljenoPreklopi", ["datoteke", v.map(function (x) { return { pot: x.pot, ime: x.ime, mapa: !!x.mapa } }), !vsi], function (p) {
+            koren.nastaviPriljubljeno(p)
+            koren.obvesti(koren.t(vsi ? "odstranjenoPriljubljeno" : "dodanoPriljubljeno", { ime: panel.steviloElementov(v.length) }))
+        }, function () { koren.obvesti(koren.t("niUspelo")) })
     }
     // Preslednica ali »Predogled«: datoteke tega racunalnika v tem pogledu (puscici levo/desno se premikata po njih).
     function predogledZa(e) {
@@ -463,9 +472,11 @@ Steklo {
     // se ne pokaze (lastnik, 15. 10. 2026: »nimamo nedelujocih ikon«).
     property var napraveZaPos: []
     property var ciljiPretvorbe: []
+    property bool tvMozna: false         // »Pretvori za televizor«: Control + ffmpeg ali naprava, ki zna (pretvorbaZaTvMozna)
     function meniVrstice(e, kje, x, y) {
         var vec = !!e && jeIzbran(e) && steviloIzbranih > 1
-        var dat = (vec ? izbraniVnosi() : (e ? [e] : [])).filter(function (d) { return d && !d.mapa && d.pot })
+        var vsi_ = (vec ? izbraniVnosi() : (e ? [e] : [])).filter(function (d) { return d && d.pot })
+        var dat = vsi_.filter(function (d) { return !d.mapa })
         var ostane = 1, cilji = null, st = ++zahtevaMenija
         var pokazi = function () {
             if (--ostane || st !== panel.zahtevaMenija) return
@@ -474,7 +485,14 @@ Steklo {
             meni.e = e
             if (kje) meni.popup(kje, x, y); else meni.popup()
         }
-        napraveZaPos = []; ciljiPretvorbe = []
+        napraveZaPos = []; ciljiPretvorbe = []; tvMozna = false
+        if (linux && jeLokalniPogled() && vsi_.some(function (d) { return d.mapa || d.vrsta === "video" })) {
+            ostane++
+            koren.klic("pretvorbaZaTvMozna", [], function (r) {
+                if (st === panel.zahtevaMenija) panel.tvMozna = !!(r && r.ok)
+                pokazi()
+            }, pokazi)
+        }
         if (jeLokalniPogled() && dat.length) {
             ostane++
             koren.klic("napraveZaPosiljanje", [], function (n) {
@@ -876,9 +894,10 @@ Steklo {
         MeniVnos { text: koren.t("shraniNaNapravo"); objectName: "vnosShrani"; visible: meni.datoteka && panel.linux; onTriggered: shrani.zacni(meni.e) }
         MeniVnos { text: koren.t("pretvoriV"); objectName: "vnosPretvori"; visible: meni.datoteka && panel.ciljiPretvorbe.length > 0; onTriggered: izbirnik.pretvori(meni.e) }
         // Krog solidarnosti (Safeer Control): video ali vsi videi v mapi za televizor na napravi z najboljsim kodirnikom.
-        MeniVnos { text: koren.t("pretvori"); objectName: "vnosPretvoriTv"; visible: meni.datoteka && panel.linux && meni.e.vrsta === "video"
+        // Samo, ko pretvorba ta trenutek deluje (Control + ffmpeg ali naprava, ki zna) - sicer bi vnos koncal z napako.
+        MeniVnos { text: koren.t("pretvori"); objectName: "vnosPretvoriTv"; visible: meni.datoteka && panel.linux && meni.e.vrsta === "video" && panel.tvMozna
                    onTriggered: pretvoriTv.zacni(meni.e, false) }
-        MeniVnos { text: koren.t("pretvoriMapo"); visible: meni.lok && panel.linux && !!(meni.e && meni.e.mapa)
+        MeniVnos { text: koren.t("pretvoriMapo"); objectName: "vnosPretvoriMapo"; visible: meni.lok && panel.linux && !!(meni.e && meni.e.mapa) && panel.tvMozna
                    onTriggered: pretvoriTv.zacni(meni.e, true) }
         MeniVnos { text: koren.t("obnovi"); visible: panel.vir.vrsta === "smeti"
                    onTriggered: koren.klic("obnoviIzSmeti", [meni.e.id], function (r) {
@@ -911,7 +930,7 @@ Steklo {
                    onTriggered: izbirnik.pretvoriVec(meniVec.dat) }
         // Krog solidarnosti: vsi izbrani videi (in videi v izbranih mapah) za televizor - naprave si delo razdelijo.
         MeniVnos { text: koren.t("pretvori"); objectName: "vnosPretvoriTvVec"
-                   visible: meniVec.lok && meniVec.v.every(function (x) { return x.mapa || x.vrsta === "video" })
+                   visible: meniVec.lok && panel.tvMozna && meniVec.v.every(function (x) { return x.mapa || x.vrsta === "video" })
                    onTriggered: pretvoriTv.zacni({ ime: meniVec.n }, true, meniVec.v.map(function (x) { return x.pot })) }
         MeniVnos { text: koren.t("obnoviN", { n: meniVec.n }); visible: panel.vir.vrsta === "smeti"; onTriggered: panel.obnoviVec(meniVec.v) }
         MeniCrta {}

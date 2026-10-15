@@ -87,7 +87,9 @@
   var PR = { datoteke: [], programi: [], kategorije: {}, nastavitve: {} };
   function nastaviPriljubljene(p) {
     if (!p || typeof p !== "object") return;
-    PR = { datoteke: Array.isArray(p.datoteke) ? p.datoteke : [], programi: Array.isArray(p.programi) ? p.programi : [],
+    // Odgovor starejse spremembe, ki pride za dogodkom novejse (most tece v vec nitih), ne povozi novejsega stanja.
+    if (typeof p.rod === "number" && typeof PR.rod === "number" && p.rod < PR.rod) return;
+    PR = { rod: p.rod, datoteke: Array.isArray(p.datoteke) ? p.datoteke : [], programi: Array.isArray(p.programi) ? p.programi : [],
            kategorije: p.kategorije || {}, nastavitve: p.nastavitve || {} };
     if (PR.nastavitve.programiPogled) N.pogled = PR.nastavitve.programiPogled;
     if (D.vir && D.vir.vrsta === "priljubljeno") odpriVir(D.vir);
@@ -1314,12 +1316,11 @@
     if (!v.length) return;
     if (v.length === 1) { preklopiPriljubljeno(v[0]); return; }
     var vse = v.every(jePriljubljena);
-    zapored(v, function (e) {
-      return klic("priljubljenoPreklopi", ["datoteka", { pot: e.pot, ime: e.ime, mapa: !!e.mapa }, !vse]);
-    }).then(function () {
-      klic("priljubljenoSeznam").then(nastaviPriljubljene).catch(function () {});
+    // En klic za vse izbrane: ena sprememba in en dogodek (kot na namizju QML).
+    klic("priljubljenoPreklopi", ["datoteke", v.map(function (e) { return { pot: e.pot, ime: e.ime, mapa: !!e.mapa }; }), !vse]).then(function (p) {
+      nastaviPriljubljene(p);
       obvesti(t(vse ? "odstranjenoPriljubljeno" : "dodanoPriljubljeno", { ime: steviloElementov(v.length) }));
-    });
+    }).catch(function () { obvesti(t("niUspelo")); });
   }
   function meniDatoteke(e, x, y) {
     var m = [];

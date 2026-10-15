@@ -62,7 +62,7 @@ Steklo {
     property bool zastarelo: false       // uporaba se je spremenila, ko je bil seznam po imenu
     function nastavi(kljuc_, vrednost) {
         if (!linux) { if (kljuc_ === "programiRazvrsti") razvrstiTu = vrednost; else pogledTu = vrednost; return }
-        koren.klic("priljubljenoNastavi", [kljuc_, vrednost], function (p) { if (p) koren.priljubljeno = p })
+        koren.klic("priljubljenoNastavi", [kljuc_, vrednost], function (p) { koren.nastaviPriljubljeno(p) })
     }
     function nastaviRazvrsti(v) { nastavi("programiRazvrsti", v); if (zastarelo && v !== "ime") nalozi() }
     function ujema(p) { return !niz || String(p.ime).toLowerCase().indexOf(niz.toLowerCase()) >= 0 }
@@ -73,7 +73,9 @@ Steklo {
         return r.sort(function (a, b) {
             if (po === "nazadnje" && (b.zadnjic || 0) !== (a.zadnjic || 0)) return (b.zadnjic || 0) - (a.zadnjic || 0)
             if (po === "najveckrat" && (b.uporaba || 0) !== (a.uporaba || 0)) return (b.uporaba || 0) - (a.uporaba || 0)
-            return String(a.ime).toLowerCase().localeCompare(String(b.ime).toLowerCase())
+            var c = String(a.ime).toLowerCase().localeCompare(String(b.ime).toLowerCase())
+            // Enaka imena (dva »Terminal«): vedno isti vrstni red, ne da ploscici ob vsakem osvezevanju zamenjata mesti.
+            return c !== 0 ? c : (panel.kljuc(a) < panel.kljuc(b) ? -1 : panel.kljuc(a) > panel.kljuc(b) ? 1 : 0)
         })
     }
     property string naprava: ""          // "" = ta racunalnik
@@ -96,6 +98,14 @@ Steklo {
             if (!r || !r.ok) { stanje = "napaka"; return }
             panel.vsi = r.programi || []; stanje = panel.vsi.length ? "" : "prazno"
         }, function () { if (st === zahteva) stanje = "napaka" })
+    }
+    // Program namescen ali odstranjen (dogodek »programi«, Safeer OS spremlja mape z zaganjalniki): seznam se osvezi
+    // brez praznjenja, izbrana kategorija in iskanje ostaneta; priljubljeni odstranjenega se skrijejo, ob ponovni
+    // namestitvi vrnejo na svoje mesto (prej se odprta plosca ni osvezila do ponovnega odprtja).
+    function osveziTiho() {
+        if (naprava) return
+        var st = ++zahteva
+        koren.klic("programiNamizja", [], function (s) { if (st === zahteva) { panel.vsi = s || []; panel.stanje = ""; panel.zastarelo = false } })
     }
     // Igre v oblaku (igreOblak) - na Linuxu; klice se tudi ob »zacetek«, ko namizje izve platformo.
     function naloziOblak() { if (linux) koren.klic("igreOblak", [], function (o) { panel.oblak = o || [] }) }
@@ -148,19 +158,21 @@ Steklo {
         return true
     }
     function shraniVrstniRed() {
-        var k = vrstniRedPril(), vidni = {}, j = 0
+        // Samo kljuci, ki so v zapisu: program, odstranjen med vlecenjem, ne sme zamakniti ostalih.
+        var zapis = pril.programi || []
+        var k = vrstniRedPril().filter(function (x) { return zapis.indexOf(x) >= 0 }), vidni = {}, j = 0
         k.forEach(function (x) { vidni[x] = true })
-        var polno = (pril.programi || []).map(function (x) { return vidni[x] ? k[j++] : x })
+        var polno = zapis.map(function (x) { return vidni[x] ? k[j++] : x })
         if (JSON.stringify(polno) === JSON.stringify(pril.programi || [])) return
         // Takoj vidno (tudi v kategoriji Priljubljeni); Safeer OS potrdi in poslje obema namizjema.
         var z = {}
         for (var x in pril) z[x] = pril[x]
         z.programi = polno
         koren.priljubljeno = z
-        koren.klic("priljubljenoVrstniRed", ["programi", polno], function (p) { if (p) koren.priljubljeno = p })
+        koren.klic("priljubljenoVrstniRed", ["programi", polno], function (p) { koren.nastaviPriljubljeno(p) })
     }
     function prestaviVKategorijo(p, k) {
-        koren.klic("priljubljenoKategorija", [kljuc(p), k], function (r) { if (r) koren.priljubljeno = r }, function () { koren.obvesti(koren.t("niUspelo")) })
+        koren.klic("priljubljenoKategorija", [kljuc(p), k], function (r) { koren.nastaviPriljubljeno(r) }, function () { koren.obvesti(koren.t("niUspelo")) })
     }
     function meniZa(p, kje, x, y) {
         if (!p) return
@@ -329,8 +341,9 @@ Steklo {
                                 ploscicaP.Drag.drop()
                                 panel.vlecemPril = false
                                 if (JSON.stringify(redPrej) !== JSON.stringify(panel.vrstniRedPril())) panel.shraniVrstniRed()
+                                panel.sinhronizirajPril()     // program namescen/odstranjen med vlecenjem
                             }
-                            onCanceled: panel.vlecemPril = false
+                            onCanceled: { panel.vlecemPril = false; panel.sinhronizirajPril() }
                             onClicked: function (m) {
                                 vrstaPril.currentIndex = celica.vi
                                 if (m.button === Qt.RightButton) panel.meniZa(celica.p, null)
@@ -482,6 +495,11 @@ Steklo {
         function pokazi(p, kje, x, y) {
             meniPrograma.p = p
             var odpri = function () { if (kje) meniPrograma.popup(kje, x, y); else meniPrograma.popup() }
+            // Podmeni Kategorija je samo tam, kjer Safeer OS hrani kategorije (Linux) - drugje bi bil prazen.
+            for (var i = 0; i < meniPrograma.count; i++) {
+                var it = meniPrograma.itemAt(i)
+                if (it && it.subMenu === podmeniKategorija) it.visible = panel.linux
+            }
             if (panel.naprava) { meniPrograma.plank = false; odpri(); return }
             koren.klic("dock", [], function (d) {
                 meniPrograma.plank = !!(d && d.plank)

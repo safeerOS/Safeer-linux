@@ -455,6 +455,90 @@ class Izbira(Osnova):
         self.assertTrue(self._pocakaj(lambda: len([1 for m, _ in self.klici if m == "pretvoriDatoteko"]) == 2))
 
 
+class PregledPopravki(Osnova):
+    """Popravki neodvisnega pregleda (15. 10. 2026)."""
+
+    def test_pretvori_za_televizor_samo_ko_dela(self):
+        """Brez Controla, ffmpeg ali naprave, ki zna, se »Pretvori za televizor« (video, mapa, vec izbranih) ne pokaze."""
+        with open(os.path.join(self.dok, "film.mkv"), "wb") as f:
+            f.write(b"\x1aE\xdf\xa3" + b"\0" * 32)
+        self._namizje()
+        self._js('datoteke.odpriLokalno("%s")' % self.dok)
+        self.assertTrue(self._pocakaj(lambda: self._js("datoteke.prikazani.length") == 5))
+        imena = [e["ime"] for e in self._js("datoteke.prikazani")]
+        film, projekti = imena.index("film.mkv"), imena.index("Projekti")
+        meni = self._obj("meniDatoteke")
+        for mozna in (False, True):
+            self.odgovori["pretvorbaZaTvMozna"] = {"ok": mozna}
+            for i, vnos in ((film, "vnosPretvoriTv"), (projekti, "vnosPretvoriMapo")):
+                self.klici.clear()
+                self._js("datoteke.meniZa(%d)" % i)
+                self.assertTrue(self._pocakaj(lambda: meni.property("visible")))
+                self.assertTrue(self._klicano("pretvorbaZaTvMozna", []))
+                self.assertEqual(self._obj(vnos).property("visible"), mozna, (vnos, mozna))
+                self._js("close()", meni)
+                self._pocakaj(lambda: not meni.property("visible"))
+        # Vec izbranih (film in mapa): isto pravilo.
+        self.odgovori["pretvorbaZaTvMozna"] = {"ok": False}
+        self._js("datoteke.izberiSamo(%d); datoteke.preklopiIzbor(%d)" % (film, projekti))
+        self._js("datoteke.meniVrstice(datoteke.prikazani[%d], null)" % film)
+        self.assertTrue(self._pocakaj(lambda: self._obj("meniVec").property("visible")))
+        self.assertFalse(self._obj("vnosPretvoriTvVec").property("visible"))
+
+    def test_meni_ne_dela_na_prejsnji_mapi(self):
+        """Uporabnik odpre meni in takoj zamenja mapo (odgovori mostu se pridejo): meni prejsnje mape se ne odpre."""
+        self._namizje()
+        self._odpri_dokumente()
+        meni = self._obj("meniDatoteke")
+        self._js('datoteke.meniZa(1); datoteke.odpri({ vrsta: "nedavno", pot: "" })')
+        self.assertFalse(self._pocakaj(lambda: meni.property("visible") or meni.property("e") is not None, 1.0))
+        self.assertFalse(self._obj("meniVec").property("visible"))
+
+    def test_vec_priljubljenih_en_klic_in_star_odgovor(self):
+        from PySide6.QtCore import Qt
+        self._namizje()
+        self._odpri_dokumente()
+        self._klik_vrstice(1)
+        self._klik_vrstice(3, Qt.KeyboardModifier.ShiftModifier)
+        self.klici.clear()
+        self._tipka(Qt.Key.Key_D, Qt.KeyboardModifier.ControlModifier)
+        poti = [os.path.join(self.dok, x) for x in ("beri.txt", "jezero.png", "pesem.mp3")]
+        self.assertTrue(self._pocakaj(lambda: [d["pot"] for d in self.shramba.stanje()["datoteke"]] == poti))
+        self.assertEqual([m for m, _ in self.klici if m == "priljubljenoPreklopi"], ["priljubljenoPreklopi"])
+        self.assertTrue(self._pocakaj(lambda: self._js("koren.jePriljubljenaPot(%r)" % poti[2])))
+        # Odgovor starejse spremembe, ki pride za novejsim stanjem, ga ne povozi.
+        self._js("koren.nastaviPriljubljeno({ rod: 0, datoteke: [], programi: [], kategorije: ({}), nastavitve: ({}) })")
+        self.assertTrue(self._js("koren.jePriljubljenaPot(%r)" % poti[0]))
+
+    def test_programi_osvezeni_ob_namestitvi(self):
+        """Program namescen/odstranjen, ko je plosca odprta: seznam se osvezi, izbrana kategorija ostane; enaka imena
+        imajo stalen vrstni red."""
+        self._namizje()
+        self.assertTrue(self._pocakaj(lambda: len(self._js("programi.prikazani")) == 4))
+        self._js('programi.skupina = "splet"')
+        self.odgovori["programiNamizja"] = self.odgovori["programiNamizja"] + [
+            {"id": "z-terminal.desktop", "ime": "Terminal", "skupina": "splet"},
+            {"id": "a-terminal.desktop", "ime": "Terminal", "skupina": "splet"}]
+        self.n.dogodek("programi", None)
+        self.assertTrue(self._pocakaj(lambda: len(self._js("programi.prikazani")) == 3))
+        self.assertEqual(self._js("programi.skupina"), "splet")
+        self.assertEqual([p["id"] for p in self._js("programi.prikazani")],
+                         ["firefox.desktop", "a-terminal.desktop", "z-terminal.desktop"])
+        # Podmeni Kategorija samo, kjer se kategorije hranijo (Linux) - drugje bi bil prazen podmeni.
+        vidnost = ("(function () { for (var i = 0; i < count; i++) { var it = itemAt(i); "
+                   "if (it && it.subMenu) return it.visible } return null })()")
+        meni = self._obj("meniPrograma")
+        self._js("programi.meniZa(programi.prikazani[0], null)")
+        self.assertTrue(self._pocakaj(lambda: meni.property("visible")))
+        self.assertTrue(self._js(vidnost, meni))
+        self._js("close()", meni)
+        self._pocakaj(lambda: not meni.property("visible"))
+        self._js('koren.platforma = "windows"')
+        self._js("programi.meniZa(programi.prikazani[0], null)")
+        self.assertTrue(self._pocakaj(lambda: meni.property("visible")))
+        self.assertFalse(self._js(vidnost, meni))
+
+
 class Predogled(Osnova):
     def test_slika_besedilo_puscice_enter_escape(self):
         from PySide6.QtCore import Qt
