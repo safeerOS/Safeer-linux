@@ -13,7 +13,7 @@ Vhod na sredisci (VhodNeposredno) - vse, kar pride z interneta, gre skozi tri vr
      Sredisce poisce kljuc clana kroga za ta id (neznan id: brez kriptografije ven), preveri cas (+-120 s), nonce
      (enkrat) in podpis. Kdor trka ne zna, ne dobi niti enega bajta odgovora - pregledovalnik vrat ne vidi ne TLS
      ne potrdila (to nosi ime racunalnika), ne Safeerja.
-  2. TLS 1.3 s potrdilom sredisca (kljuc naprave); odjemalec sprejme samo potrdilo s kljucem tega clana kroga.
+  2. TLS (1.3, najmanj 1.2) s potrdilom sredisca (kljuc naprave); odjemalec sprejme samo potrdilo s kljucem tega clana kroga.
   3. Izziv: sredisce poslje 32 nakljucnih bajtov, odjemalec podpise izziv + odtis potrdila, ki ga je videl, +
      namen. Podpis veze odjemalcev kljuc na TO sejo TLS (odtis) - posnet trk sam ne odpre nicesar.
 Sele nato sredisce povezavo prevezi na krajevna vrata Huba (127.0.0.1), kot to dela agent releja. Skozi tece
@@ -410,7 +410,8 @@ class VhodNeposredno:
             obramba = link_obramba.Obramba(izvzet=lambda _v: False)
         self.obramba = obramba
         self._ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        self._ctx.minimum_version = ssl.TLSVersion.TLSv1_3
+        # TLS 1.2 je spodnja meja zaradi Androida 9 (minSdk 28: TLS 1.3 sele od Androida 10); izziv je enak.
+        self._ctx.minimum_version = ssl.TLSVersion.TLSv1_2
         self._ctx.load_cert_chain(pot_potrdila, pot_kljuca)
         with open(pot_potrdila, "rb") as d:
             der = ssl.PEM_cert_to_DER_cert(d.read().decode("ascii"))
@@ -630,7 +631,7 @@ def _kontekst_odjemalca() -> ssl.SSLContext:
     k = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     k.check_hostname = False
     k.verify_mode = ssl.CERT_NONE           # zaupanje da kljuc v potrdilu = kljuc clana kroga (spodaj), ne overitelj
-    k.minimum_version = ssl.TLSVersion.TLSv1_3
+    k.minimum_version = ssl.TLSVersion.TLSv1_2
     return k
 
 
