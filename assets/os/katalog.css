@@ -284,3 +284,34 @@ html.kavc .kat-katalog { grid-template-columns: repeat(auto-fill, minmax(180px, 
 /* Logotipi TV kanalov in radijskih postaj: celi, na sredini, na svetli podlagi (14. 10. 2026). */
 .kat-plakat.kat-logotip { background: var(--media-logotip-podlaga); }
 .kat-plakat.kat-logotip img { object-fit: contain; padding: 18%; box-sizing: border-box; background: var(--media-logotip-podlaga); }
+
+/* Vticniki strežnika Jellyfin (core/jellyfin_vticniki.py) - barve samo iz tokens.css. */
+.jf-plosca { width: min(820px, 92vw); }
+.jf-sekcija { margin: 16px 0 4px; display: grid; gap: 8px; }
+.jf-sekcija h4 { margin: 0; font-size: 15px; color: var(--besedilo); }
+.jf-sekcija h5 { margin: 8px 0 0; font-size: 13px; color: var(--medlo); font-weight: 650; }
+.jf-paket { align-items: flex-start; }
+.jf-paket b small { display: inline; color: var(--tise); font-weight: 500; margin-left: 6px; }
+.jf-paket .jf-opis { white-space: normal; overflow: visible; color: var(--medlo); }
+.jf-paket > .gumb, .jf-paket > .jf-stikalo, .jf-paket > .jf-ni { flex: none; align-self: center; }
+.jf-ni { color: var(--tise); }
+.jf-znacke { display: flex; flex-wrap: wrap; gap: 6px; margin: 3px 0; }
+.jf-znacka { padding: 1px 8px; border: 1px solid var(--rob); border-radius: 999px; font-size: 11px; color: var(--medlo); }
+.jf-znacka.jf-tretja { border-color: var(--opozorilo); color: var(--opozorilo); }
+.jf-znacka.jf-zna { border-color: var(--ok); color: var(--ok); }
+.jf-stanje { color: var(--medlo); }
+.jf-stanje-Malfunctioned, .jf-stanje-NotSupported { color: var(--rdeca); }
+.jf-stanje-Restart, .jf-stanje-Deleted { color: var(--opozorilo); }
+.jf-stikalo { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--medlo); }
+.jf-stikalo input { width: 18px; height: 18px; accent-color: var(--zelena); }
+.jf-opozorilo { padding: 10px 12px; border: 1px solid var(--opozorilo); border-radius: 12px; color: var(--opozorilo); }
+.jf-zagon { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0; padding: 10px 12px;
+  border: 1px solid var(--opozorilo); border-radius: 12px; background: var(--kartica); }
+.jf-zagon p { margin: 0; color: var(--opozorilo); }
+.jf-kategorija { border: 1px solid var(--tanka); border-radius: 12px; padding: 6px 10px; }
+.jf-kategorija summary { cursor: pointer; padding: 6px 2px; font-weight: 650; color: var(--besedilo); }
+.jf-kategorija summary small { color: var(--tise); font-weight: 500; margin-left: 6px; }
+.jf-kategorija summary:focus-visible, .jf-stikalo input:focus-visible { outline: 2px solid var(--fokus); outline-offset: 2px; }
+.jf-kategorija .kat-vir { margin: 6px 0; }
+.jf-plosca .gumb.potrdi { background: var(--rdeca); color: var(--zelena-temna); }
+.kat-vir-vticniki { flex: none; display: inline-flex; align-items: center; gap: 6px; }

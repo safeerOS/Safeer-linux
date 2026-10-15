@@ -1588,6 +1588,9 @@
         (vidni[0] || prvi || document.body).focus();
       });
     });
+    // Strežnik Jellyfin: vticniki tudi iz menija vira v levi navigaciji.
+    var virJf = kljuc.indexOf("vir:") === 0 ? S.mediaViriNav.filter(function (v) { return "vir:" + v.id === kljuc; })[0] : null;
+    if (virJf && virJf.ponudnik === "jellyfin" && virJf.vticniki) postavka("program", t("jfVticniki"), function () { odpriJellyfin(virJf); });
     postavka("drsniki", t("mediaPrilagodiMeni"), function () { odpriPrilagodi(gumb); });
     m.hidden = false;
     var r = gumb.getBoundingClientRect();
@@ -5977,6 +5980,13 @@
                                                 function () { $("katVirSporocilo").textContent = t("katNapakaVira"); });
       };
       row.appendChild(refresh);
+      // Vticniki strežnika Jellyfin (samo, ce most to zna - core/os_katalog.py doda oznako »vticniki«).
+      if (source.ponudnik === "jellyfin" && source.vticniki) {
+        var plugins = el("button", "gumb kat-vir-vticniki", svg("program") + "<span>" + ubezi(t("jfVticniki")) + "</span>");
+        plugins.type = "button"; plugins.title = t("jfVticnikiNamig");
+        plugins.onclick = function () { odpriJellyfin(source); };
+        row.appendChild(plugins);
+      }
       var remove = el("button", "gumb-ikona", svg("x")); remove.type = "button"; remove.title = t("odstrani");
       // Vir, ki je enak na vseh napravah v Safeer Linku, se izbriše povsod: prvi klik vpraša (brez sistemskega okna).
       var povsod = (source.ponudnik === "stremio" && source.zaseben === false) ||
@@ -5992,6 +6002,210 @@
   }
   function naloziKatViri() {
     return klic("mediaViri").then(function (viri) { kat.viri = Array.isArray(viri) ? viri : []; narisiKatViri(); }, function () {});
+  }
+
+  // ---- vticniki strežnika Jellyfin (core/jellyfin_vticniki.py): tecejo na strežniku, Safeer jih le upravlja.
+  // Ne-skrbnik vidi samo branje in razlog; gumba, ki ne bi delal, ni (lastnik: nobenih nedelujocih gumbov).
+  // spremenjeni: strežniki, kjer je bil vticnik spremenjen in zagon se ni bil narejen (izklop ne da stanja Restart).
+  var jf = { vir: null, stanje: null, zaganjam: false, potrjeno: null, spremenjeni: {} };
+  var JF_KATEGORIJE = { administration: "jfKatAdministracija", anime: "jfKatAnime", authentication: "jfKatPrijava", books: "jfKatKnjige",
+    channels: "jfKatKanali", general: "jfKatSplosno", livetv: "jfKatTv", "live tv": "jfKatTv", metadata: "jfKatMetapodatki",
+    moviesandshows: "jfKatFilmi", music: "jfKatGlasba", notifications: "jfKatObvestila", subtitles: "jfKatPodnapisi", other: "jfKatDrugo" };
+  function jfKategorija(k) { var kljuc = JF_KATEGORIJE[String(k || "").toLowerCase()]; return kljuc ? t(kljuc) : String(k || ""); }
+  function jfSporocilo(besedilo) { $("jfSporocilo").textContent = besedilo || ""; }
+  function jfNapaka(r) { return t("jfNapaka_" + ((r && r.napaka) || "omrezje")); }
+  function odpriJellyfin(vir) {
+    jf.vir = vir; jf.stanje = null; jf.potrjeno = null;
+    $("jfNaslov").textContent = t("jfVticniki") + " · " + (vir.ime || vir.url || "Jellyfin");
+    $("jfZagon").hidden = true;
+    $("jfVsebina").innerHTML = "";
+    $("slojJellyfin").classList.add("viden");
+    $("jfZapri").focus({ preventScroll: true });
+    naloziJellyfin();
+  }
+  // ohrani: sporocilo o pravkar izvedeni spremembi ostane vidno (ne »Nalagam …«).
+  function naloziJellyfin(ohrani) {
+    if (!jf.vir) return;
+    var vir = jf.vir;
+    if (ohrani !== true) jfSporocilo(t("jfNalagam"));
+    klic("mediaJellyfinVticniki", [vir.id]).then(function (r) {
+      if (jf.vir !== vir) return;
+      if (!r || !r.ok) { jf.stanje = null; $("jfVsebina").innerHTML = ""; $("jfZagon").hidden = true; jfSporocilo(jfNapaka(r)); return; }
+      jf.stanje = r; if (ohrani !== true) jfSporocilo("");
+      var plosca = $("slojJellyfin").querySelector(".plosca"), vrh = plosca.scrollTop;
+      narisiJellyfin();
+      plosca.scrollTop = ohrani === true ? vrh : 0;        // ob odprtju od vrha, po spremembi ostane, kjer je bil
+    }, function () { jfSporocilo(t("jfNapaka_omrezje")); });
+  }
+  // Gumb z dvema korakoma (kot Odstrani vir): prvi klik vpraša, drugi izvede; drugam z miško prekliče.
+  function jfPotrdi(gumb, besedilo, potrdilo, dejanje) {
+    gumb.textContent = besedilo;
+    gumb.addEventListener("click", function () {
+      if (jf.potrjeno !== gumb) {
+        if (jf.potrjeno) { jf.potrjeno.textContent = jf.potrjeno._besedilo; jf.potrjeno.classList.remove("potrdi"); }
+        jf.potrjeno = gumb; gumb._besedilo = besedilo; gumb.textContent = potrdilo; gumb.classList.add("potrdi"); return;
+      }
+      jf.potrjeno = null; gumb.classList.remove("potrdi"); dejanje();
+    });
+    gumb.addEventListener("blur", function () {
+      if (jf.potrjeno === gumb) { jf.potrjeno = null; gumb.textContent = besedilo; gumb.classList.remove("potrdi"); }
+    });
+  }
+  function jfIzvedi(metoda, argumenti, gumb) {
+    if (gumb) gumb.disabled = true;
+    jfSporocilo(t("jfIzvajam"));
+    return klic(metoda, [jf.vir.id].concat(argumenti)).then(function (r) {
+      if (gumb) gumb.disabled = false;
+      if (!r || !r.ok) { jfSporocilo(jfNapaka(r)); return; }
+      jf.spremenjeni[jf.vir.id] = true;
+      jfSporocilo(t("jfVeljaPoZagonu"));
+      naloziJellyfin(true);
+    }, function () { if (gumb) gumb.disabled = false; jfSporocilo(t("jfNapaka_omrezje")); });
+  }
+  function jfPaketGumb(p) {
+    // Namesti ali posodobi (ista pot: strežnik izbere najnovejšo združljivo različico).
+    if (p.namescen && !p.posodobitev) return null;
+    var g = el("button", "gumb" + (p.priporocen ? " glavni" : "")); g.type = "button";
+    g.textContent = t(p.namescen ? "jfPosodobi" : "jfNamesti");
+    g.setAttribute("aria-label", g.textContent + " " + p.ime);
+    g.addEventListener("click", function () { jfIzvedi("mediaJellyfinNamesti", [p.ime, p.guid, p.repozitorij_url || ""], g); });
+    return g;
+  }
+  function jfZnacke(p) {
+    var z = el("span", "jf-znacke");
+    if (p.namescen) z.appendChild(el("span", "jf-znacka", ubezi(t("jfNamescen", { v: p.namescena_razlicica || "" }).trim())));
+    if (!p.uradni) z.appendChild(el("span", "jf-znacka jf-tretja", ubezi(t("jfTretjaOseba"))));
+    if (p.safeer_zna) z.appendChild(el("span", "jf-znacka jf-zna", ubezi(t("jfSafeerZna"))));
+    if (p.ni_v_safeerju) z.appendChild(el("span", "jf-znacka", ubezi(t("jfNiVSafeerju"))));
+    return z;
+  }
+  function jfVrsticaPaketa(p, razlogKljuc) {
+    var row = el("div", "kat-vir jf-paket"); row.innerHTML = svg("program");
+    var info = el("div");
+    var naslov = el("b", "", ubezi(p.ime) + (p.razlicica ? " <small>" + ubezi(p.razlicica) + "</small>" : ""));
+    info.appendChild(naslov);
+    info.appendChild(jfZnacke(p));
+    var opis = razlogKljuc ? t(razlogKljuc) : (p.opis || "");
+    if (p.safeer_zna && !razlogKljuc) opis = t(p.safeer_zna);
+    if (opis) info.appendChild(el("small", "jf-opis", ubezi(opis)));
+    if (p.repozitorij) info.appendChild(el("small", "", ubezi(t("jfIzRepozitorija", { ime: p.repozitorij }))));
+    row.appendChild(info);
+    return row;
+  }
+  function narisiJellyfin() {
+    var r = jf.stanje, cilj = $("jfVsebina"); if (!r) return;
+    cilj.innerHTML = "";
+    var streznik = [r.streznik && r.streznik.ime, r.streznik && r.streznik.razlicica ? "Jellyfin " + r.streznik.razlicica : ""].filter(Boolean).join(" · ");
+    if (streznik) cilj.appendChild(el("p", "drobno", ubezi(streznik)));
+    var skrbnik = !!r.skrbnik;
+    $("jfZagon").hidden = !(skrbnik && (r.potreben_zagon || jf.spremenjeni[jf.vir.id])) || jf.zaganjam;
+    if (!skrbnik) cilj.appendChild(el("p", "jf-opozorilo", ubezi(t("jfNiSkrbnik"))));
+
+    // Priporočeno: kratek izbor z uporabnikove strani; kar Safeer že zna, je označeno in ni ponujeno za namestitev.
+    var prip = (r.priporoceno || []), sekcija = el("section", "jf-sekcija");
+    sekcija.appendChild(el("h4", "", ubezi(t("jfPriporoceno"))));
+    prip.filter(function (p) { return !p.safeer_zna; }).forEach(function (p) {
+      var paket = p.paket || { ime: p.ime, guid: p.guid, uradni: true, namescen: p.namescen };
+      var row = jfVrsticaPaketa(paket, p.razlog);
+      if (skrbnik && p.paket) { var g = jfPaketGumb(p.paket); if (g) row.appendChild(g); }
+      else if (skrbnik && !p.namescen) row.appendChild(el("small", "jf-ni", ubezi(t("jfNiVKatalogu"))));
+      sekcija.appendChild(row);
+    });
+    var zna = prip.filter(function (p) { return p.safeer_zna; });
+    if (zna.length) {
+      sekcija.appendChild(el("h5", "", ubezi(t("jfSafeerZnaNaslov"))));
+      zna.forEach(function (p) {
+        var row = jfVrsticaPaketa({ ime: p.ime, guid: p.guid, uradni: true, namescen: p.namescen,
+                                    namescena_razlicica: p.paket ? p.paket.namescena_razlicica : "" }, p.razlog);
+        sekcija.appendChild(row);
+      });
+    }
+    cilj.appendChild(sekcija);
+    if (!skrbnik) return;
+
+    // Nameščeni vtičniki: stikalo vklop/izklop, stanje, Odstrani (s potrditvijo).
+    var namesceni = el("section", "jf-sekcija");
+    namesceni.appendChild(el("h4", "", ubezi(t("jfNamesceni"))));
+    if (!(r.namesceni || []).length) namesceni.appendChild(el("p", "drobno", ubezi(t("jfBrezNamescenih"))));
+    (r.namesceni || []).forEach(function (v) {
+      var row = el("div", "kat-vir jf-paket"); row.innerHTML = svg("program");
+      var info = el("div");
+      info.appendChild(el("b", "", ubezi(v.ime) + " <small>" + ubezi(v.razlicica) + "</small>"));
+      info.appendChild(el("small", "jf-stanje jf-stanje-" + ubezi(v.stanje), ubezi(t("jfStanje_" + v.stanje))));
+      if (v.opis) info.appendChild(el("small", "jf-opis", ubezi(v.opis)));
+      row.appendChild(info);
+      if (v.lahko_preklopi) {
+        var stikalo = el("label", "jf-stikalo"), cb = document.createElement("input");
+        cb.type = "checkbox"; cb.checked = !!v.vklopljen; cb.setAttribute("role", "switch");
+        cb.setAttribute("aria-label", t(v.vklopljen ? "jfIzklopi" : "jfVklopi") + " " + v.ime);
+        cb.addEventListener("change", function () {
+          jfIzvedi("mediaJellyfinVticnik", [cb.checked ? "vklopi" : "izklopi", v.id, v.razlicica], cb);
+        });
+        stikalo.appendChild(cb); stikalo.appendChild(el("span", "", ubezi(t("jfVklopljen"))));
+        row.appendChild(stikalo);
+      }
+      if (v.lahko_odstrani) {
+        var odstrani = el("button", "gumb jf-odstrani"); odstrani.type = "button";
+        jfPotrdi(odstrani, t("jfOdstrani"), t("jfOdstraniRes"), function () {
+          jfIzvedi("mediaJellyfinVticnik", ["odstrani", v.id, v.razlicica], odstrani);
+        });
+        row.appendChild(odstrani);
+      }
+      namesceni.appendChild(row);
+    });
+    cilj.appendChild(namesceni);
+
+    // Katalog strežnika po kategorijah (iz repozitorijev, ki jih je skrbnik vklopil na strežniku).
+    var katalog = el("section", "jf-sekcija");
+    katalog.appendChild(el("h4", "", ubezi(t("jfKatalog"))));
+    var repo = (r.repozitoriji || []).filter(function (x) { return x.vklopljen; });
+    if (repo.length) katalog.appendChild(el("p", "drobno", ubezi(t("jfRepozitoriji") + ": " + repo.map(function (x) {
+      return x.ime + (x.uradni ? "" : " (" + t("jfTretjaOseba") + ")");
+    }).join(", "))));
+    if (r.napaka_kataloga) katalog.appendChild(el("p", "drobno", ubezi(t("jfNapaka_" + r.napaka_kataloga))));
+    var skupine = {};
+    (r.katalog || []).forEach(function (p) { (skupine[p.kategorija] = skupine[p.kategorija] || []).push(p); });
+    Object.keys(skupine).sort(function (a, b) { return jfKategorija(a).localeCompare(jfKategorija(b)); }).forEach(function (k) {
+      var d = document.createElement("details"); d.className = "jf-kategorija";
+      d.appendChild(el("summary", "", ubezi(jfKategorija(k)) + " <small>" + skupine[k].length + "</small>"));
+      skupine[k].forEach(function (p) {
+        var row = jfVrsticaPaketa(p, "");
+        var g = jfPaketGumb(p); if (g) row.appendChild(g);
+        d.appendChild(row);
+      });
+      katalog.appendChild(d);
+    });
+    cilj.appendChild(katalog);
+  }
+  function jfZazeniZnova() {
+    var gumb = $("jfZagonGumb");
+    if (!jf.vir || jf.zaganjam) return;
+    if (!gumb.classList.contains("potrdi")) {
+      gumb.classList.add("potrdi"); gumb.querySelector("span").textContent = t("jfZazeniZnovaRes"); return;
+    }
+    gumb.classList.remove("potrdi"); gumb.querySelector("span").textContent = t("jfZazeniZnova");
+    jf.zaganjam = true; $("jfZagon").hidden = true;
+    var vir = jf.vir;
+    jfSporocilo(t("jfZagon_ustavljam"));
+    klic("mediaJellyfinZagon", [vir.id]).then(function (r) {
+      jf.zaganjam = false;
+      if (jf.vir !== vir) return;
+      if (r && r.ok) { delete jf.spremenjeni[vir.id]; jfSporocilo(t("jfZagon_pripravljen")); naloziKatalog(); naloziJellyfin(true); }
+      else { jfSporocilo(r && r.napaka === "cas" ? t("jfZagon_napaka") : jfNapaka(r)); $("jfZagon").hidden = false; }
+    }, function () { jf.zaganjam = false; jfSporocilo(t("jfNapaka_omrezje")); $("jfZagon").hidden = false; });
+  }
+  function jfNapredekZagona(p) {
+    if (!p || !jf.vir || p.streznik !== jf.vir.id || !jf.zaganjam) return;
+    jfSporocilo(t("jfZagon_" + p.faza, { s: p.sekund || 0 }));
+  }
+  function poveziJellyfin() {
+    if (!$("slojJellyfin")) return;
+    $("jfZapri").addEventListener("click", function () { $("slojJellyfin").classList.remove("viden"); jf.vir = null; });
+    $("jfOsvezi").addEventListener("click", function () { naloziJellyfin(); });
+    $("jfZagonGumb").addEventListener("click", jfZazeniZnova);
+    $("jfZagonGumb").addEventListener("blur", function () {
+      if (this.classList.contains("potrdi")) { this.classList.remove("potrdi"); this.querySelector("span").textContent = t("jfZazeniZnova"); }
+    });
   }
   function odpriKatViri() {
     $("katVirSporocilo").textContent = "";
@@ -6034,6 +6248,7 @@
   }
   function poveziKatalog() {
     poveziPolice();       // prvi: Escape zapre meni kartice ali ponudbo epizode, preden zapre podrobnosti
+    poveziJellyfin();
     var ob = function (id, dogodek, fn) { var e = $(id); if (e) e.addEventListener(dogodek, fn); };
     ob("mediaRazvrsti", "change", function () { kat.razvrsti = this.value; naloziKatalog(); });
     ob("mediaJezik", "change", function () {
@@ -6240,6 +6455,7 @@
     // Film iz torrenta (dodatek): med branjem torrenta in prenosom zacetka uporabnik vidi, da se nekaj dogaja.
     if (vrsta === "mediaTorrent") obvesti(t("mediaTorrentPripravljam", { ime: (podatki && podatki.naslov) || "" }));
     if (vrsta === "mediaMotor" && podatki) motorNapredek(podatki);
+    if (vrsta === "mediaJellyfinZagon") jfNapredekZagona(podatki);
     if (vrsta === "magnetProgram" && S.magnet.gumbPrograma)
       S.magnet.gumbPrograma.textContent = t("magnetProgramPrenasam", { odstotek: Math.floor(100 * podatki.n / (podatki.vse || 1)) });
     if (vrsta === "magnetDeljen") {
