@@ -585,7 +585,8 @@ def naslovi_iz_poti(poti) -> list:
 
 # ---------------------------------------------------------------------- Smeti (specifikacija freedesktop, domaca)
 def _mapa_smeti() -> str:
-    return os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "Trash")
+    from core import gostitelj
+    return os.path.join(gostitelj.podatki_gostitelja(), "Trash")
 
 
 def _velikost_poti(pot: str, rok: float) -> int:

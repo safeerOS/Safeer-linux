@@ -21,6 +21,16 @@ def v_flatpaku() -> bool:
     return bool(os.environ.get("FLATPAK_ID")) and os.path.exists("/.flatpak-info")
 
 
+def podatki_gostitelja() -> str:
+    """Uporabnikova mapa s podatki NA RACUNALNIKU (Smeti, zaganjalniki, ikone): v Flatpaku je XDG_DATA_HOME
+    zasebna mapa peskovnika (~/.var/app/<id>/data), zato bi Safeer OS gledal v prazne Smeti, medtem ko gio trash
+    datoteke odlozi v prave (preizkus na testnem PC 15. 10. 2026: »Smeti so prazne«, Razveljavi ni nasel nicesar).
+    Flatpak hrani gostiteljevo vrednost v HOST_XDG_DATA_HOME."""
+    if v_flatpaku():
+        return os.environ.get("HOST_XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    return os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+
+
 def mape_gostitelja(podmapa: str) -> List[str]:
     """Npr. podmapa "applications" -> ["/run/host/usr/share/applications", "/run/host/usr/local/share/applications"]."""
     if not v_flatpaku():

@@ -852,7 +852,11 @@ Steklo {
                     }
                 }
                 Text {
+                    // Daljse besedilo (npr. namig v Priljubljeno) se prelomi znotraj seznama, ne gre cez rob
+                    // (posnetek s testnega PC 15. 10. 2026).
                     anchors.centerIn: parent; visible: seznam.count === 0
+                    width: Math.max(0, parent.width - koren.px(32))
+                    wrapMode: Text.Wrap; horizontalAlignment: Text.AlignHCenter
                     text: panel.prazno(); color: koren.paleta.medlo; font.pixelSize: koren.px(13)
                 }
             }
