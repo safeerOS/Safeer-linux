@@ -530,8 +530,11 @@ class AgentHuba:
     """Drzi hub dosegljiv prek link.safeer.si, dokler je `vrata()` > 0 in je Global Link vklopljen."""
 
     def __init__(self, vrata: Callable[[], int], vklopljen: Callable[[], bool],
-                 krog_json: Callable[[], dict], dnevnik: Callable[[str], None] = print) -> None:
+                 krog_json: Callable[[], dict], dnevnik: Callable[[str], None] = print,
+                 namigi: Optional[Callable[[], List[str]]] = None) -> None:
         self.vrata, self.vklopljen, self.krog_json, self.dnevnik = vrata, vklopljen, krog_json, dnevnik
+        #: `candidate_hints` prisotnosti: podpisan oglas neposredne poti od zunaj (core/link_neposredno) ali [].
+        self.namigi = namigi
         self._nit: Optional[threading.Thread] = None
         self._ws: Optional[WsOdjemalec] = None
         self.stanje = "izklopljen"
@@ -544,7 +547,14 @@ class AgentHuba:
     def objavi(self) -> None:
         from core import link_krog
         nas = id_iz_kljuca(link_krog.javni_kljuc_b64())
-        telo = json.dumps({"allow": dovoljeni_iz_kroga(self.krog_json(), nas), "ttl": 120}).encode()
+        prisotnost = {"allow": dovoljeni_iz_kroga(self.krog_json(), nas), "ttl": 120}
+        try:
+            namigi = [str(n)[:512] for n in (self.namigi() if self.namigi is not None else [])][:4]
+        except Exception:  # noqa: BLE001 - brez oglasa ostane prisotnost kot doslej
+            namigi = []
+        if namigi:
+            prisotnost["candidate_hints"] = namigi
+        telo = json.dumps(prisotnost).encode()
         z = urllib.request.Request(f"https://{GOSTITELJ}/v1/presence", data=telo, method="POST",
                                    headers=dict(podpisane_glave("POST", "/v1/presence", telo), **{"Content-Type": "application/json", "User-Agent": UA}))
         with urllib.request.urlopen(z, timeout=15) as r:
@@ -646,12 +656,17 @@ class LokalniRele:
     """
 
     def __init__(self, cilj: str, kljuc: Optional[Callable[[], str]] = None,
-                 podpisi: Optional[Callable[[bytes], str]] = None) -> None:
+                 podpisi: Optional[Callable[[bytes], str]] = None, poslusaj: bool = True) -> None:
+        """`poslusaj=False`: brez lastnih krajevnih vrat - povezave mu preda klicatelj (`kanal`), npr.
+        core/link_neposredno.LokalniOdZunaj, ko neposredna pot ni na voljo."""
         self.cilj, self.kljuc, self.podpisi = cilj, kljuc, podpisi
         self.zadnja_napaka = ""       # za dnevnik: zakaj zadnji kanal ni uspel (npr. 404, 429)
-        self.streznik = socket.create_server(("127.0.0.1", 0))
-        self.vrata = self.streznik.getsockname()[1]
-        threading.Thread(target=self._sprejemaj, name="safeer-rele-lokalno", daemon=True).start()
+        self.streznik = None
+        self.vrata = 0
+        if poslusaj:
+            self.streznik = socket.create_server(("127.0.0.1", 0))
+            self.vrata = self.streznik.getsockname()[1]
+            threading.Thread(target=self._sprejemaj, name="safeer-rele-lokalno", daemon=True).start()
 
     def _sprejemaj(self) -> None:
         while True:
@@ -677,6 +692,10 @@ class LokalniRele:
         uid = _uid_lokalne_povezave(int(naslov[1]), self.vrata)
         return uid is None or uid == os.getuid()
 
+    def kanal(self, tcp: socket.socket) -> None:
+        """Ena krajevna povezava skozi en kanal releja (blokira do konca povezave)."""
+        self._kanal(tcp)
+
     def _kanal(self, tcp: socket.socket) -> None:
         kanal = os.urandom(16).hex()
         pot = f"/v1/connect?to={self.cilj}&kanal={kanal}"
@@ -700,6 +719,8 @@ class LokalniRele:
         cev(ws, tcp)
 
     def zapri(self) -> None:
+        if self.streznik is None:
+            return
         try:
             self.streznik.close()
         except Exception:

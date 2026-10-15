@@ -183,6 +183,37 @@ mesh.trust     {type, id, payload: <krog json>}     (zdruzi s preverjanjem podpi
   ko je nobena nit ne uporablja več. Prej je druga nit (OpenSSL) brala že zaprto številko vtičnice, ki jo je
   sistem dal naslednjemu kanalu → `WRONG_VERSION_NUMBER` (4 od 10 prijav prek releja; po popravku 25/25).
 
+## Global Link: neposredna pot od zunaj (INTERNET_DIRECT, 15. 10. 2026)
+
+Vrstni red poti: **LAN_DIRECT → INTERNET_DIRECT → SAFEER_RELAY**. Koda: `core/link_neposredno.py` (Linux),
+`link/GlobalLink.kt` (Android, odjemalec). Neobvezno, privzeto izklopljeno: »Neposredna povezava od zunaj«
+(Safeer Link → Povezava zdoma). Potrebuje stalen javni IPv4 doma in ENA preusmerjena vrata TCP (privzeto 48990)
+na računalnik s središčem. Razlog: oba konca imata simetričen CGNAT, luknjanje UDP ne uspe (webrtc-raziskava,
+POROCILO.md); če en konec sprejema dohodne povezave, telefon odpre navadno odhodno povezavo TCP.
+
+- **Vhod (središče):** trk pred TLS (id iz ključa + čas ±120 s + nonce enkrat + podpis ECDSA nad id-jem središča)
+  → TLS (1.3; najmanj 1.2 zaradi Androida 9) s ključem središča → izziv (podpis nad izzivom, odtisom potrdila in namenom). Neznan id, napačen
+  podpis, star ali ponovljen trk: tiho zaprto, brez bajta odgovora (pregledovalnik ne vidi ne TLS ne potrdila
+  z imenom računalnika). Lastna `link_obramba` (brez izjeme za zanko), največ 16 hkratnih rokovanj in 64 tunelov.
+  Šele nato tunel na `127.0.0.1:<vrata Huba>` – skozenj nespremenjen TLS Linka, prijava, vstopnica in pravila
+  dostopa (`link_dostop`). Novih končnih točk ni.
+- **Oglas:** javni IPv4 iz STUN (`stun.cloudflare.com`, isti ponudnik kot rele), podpisan s ključem središča, rok
+  15 min, v `candidate_hints` prisotnosti na `link.safeer.si` – vidijo ga samo člani kroga (`allow`). Odjemalec
+  ga preveri s ključem iz kroga (ne zaupa releju): podpis, id, odtis ključa, rok, javni IPv4, vrata ≥ 1024.
+- **Preverjanje dosegljivosti:** središče oglas označi kot preverjen šele, ko je z JAVNEGA naslova prišla prava
+  overjena povezava (preizkus ali tunel). Naprava zdoma, ki vidi nepreverjen oglas, v ozadju sama naredi preizkus
+  (namen 2: overi se in takoj zapre, Huba ne doseže). Nepreverjen oglas se nikoli ne uporabi na poti, na katero
+  uporabnik čaka. Nov javni naslov ali druga vrata: preverjanje znova.
+- **Odjemalec:** `LokalniOdZunaj` zamenja `LokalniRele` (isti vmesnik `vrata`): vsaka krajevna povezava najprej
+  neposredno (TCP 1,5 s, rokovanje 3 s), ob neuspehu takoj prek releja. Po neuspehu premor 5 min (do 30 min);
+  sprememba omrežja (drug krajevni naslov) ga izbriše. Zadnja delujoča pot in oglas: `global-link-poti.json`.
+  Povezava prek releja se nadgradi na neposredno, ko ta postane na voljo (samo neposredna vrata, brez novega
+  kanala releja); Hub obdrži boljšo pot (`link_pot.RANG_POTI`: lan > neposredno > rele).
+- **Meritve in vmesnik:** obe poti sta na zanki; `link_pot.oznaci_zanko` po vratih loči neposredno od releja, zato
+  `poti_sosedov` in razdelek »Povezava zdoma« kažeta »Lokalno«, »Neposredno (internet)« ali »Prek releja« z
+  izmerjenim zamikom (brez naslovov IP).
+- Izklop ne glede na nastavitev: `SAFEER_NEPOSREDNO=0`.
+
 ## Združljivost
 
 - Hub z mesh1 sprejema stare odjemalce kot doslej.

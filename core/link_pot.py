@@ -14,7 +14,8 @@ Na povezavo:
   izgube          sonde brez odgovora med zadnjimi 20; zgresena je sele po ROK = max(5 s, 4 * EWMA)
   zaporedno_brez  zgresene zapored
   odgovoril       ali je povezava kdaj odgovorila
-  pot             'rele' (naslov je zanka - krajevni konec Global Linka) ali 'lan'
+  pot             'lan', 'rele' (naslov je zanka - krajevni konec Global Linka) ali 'neposredno' (zanka, ki je
+                  krajevni konec neposredne poti od zunaj - core/link_neposredno.py jo oznaci po vratih)
 
 `mrtva` je tu definirana, uporablja pa jo sele 4. faza: v 1. fazi povezave zaradi meritve nikoli ne zapremo.
 """
@@ -63,6 +64,48 @@ def razpakiraj(podatki) -> Optional[Tuple[int, int]]:
 
 def _us(t: float) -> int:
     return int(round(t * 1_000_000)) & _MASKA_US
+
+
+#: Krajevne povezave (127.0.0.1) neposredne poti od zunaj in releja, po vratih druge strani zanke: obe sta zanka,
+#: razlikuje ju samo ta zapis (core/link_neposredno.py). Brez zapisa je zanka 'rele' kot doslej.
+_ZANKE: dict = {}
+_ZANKE_ZAKLEP = threading.Lock()
+NAJVEC_ZANK = 4096
+#: Vrstni red poti (vecje = boljse): domace omrezje, neposredno od zunaj, rele.
+RANG_POTI = {"rele": 0, "neposredno": 1, "lan": 2}
+
+
+def oznaci_zanko(vrata: int, pot: str) -> None:
+    if not vrata:
+        return
+    with _ZANKE_ZAKLEP:
+        if len(_ZANKE) >= NAJVEC_ZANK:
+            _ZANKE.pop(next(iter(_ZANKE)))
+        _ZANKE[int(vrata)] = pot
+
+
+def odznaci_zanko(vrata: int) -> None:
+    with _ZANKE_ZAKLEP:
+        _ZANKE.pop(int(vrata or 0), None)
+
+
+def pot_zanke(vrata: int) -> str:
+    """Oznaka krajevne povezave po vratih druge strani zanke ('' = ni oznacena)."""
+    with _ZANKE_ZAKLEP:
+        return _ZANKE.get(int(vrata or 0), "")
+
+
+def pot_vticnika(naslov: str, vticnik=None, konec: str = "getpeername") -> str:
+    """Kot pot_naslova, le da zanko z oznako (neposredna pot od zunaj) prepozna po vratih vticnice: `konec` je
+    "getpeername" (dohodna povezava: druga stran zanke je vhod ali krajevni konec) ali "getsockname" (odhodna)."""
+    pot = pot_naslova(naslov)
+    if pot != "rele" or vticnik is None:
+        return pot
+    try:
+        vrata = getattr(vticnik, konec)()[1]
+    except Exception:  # noqa: BLE001 - zaprta ali lazna vticnica
+        return pot
+    return pot_zanke(vrata) or pot
 
 
 def pot_naslova(naslov: str) -> str:
@@ -228,4 +271,5 @@ class MeritevPoti:
                     "delez_retrans": None if self.delez_retrans is None else round(self.delez_retrans, 4)}
 
 
-__all__ = ["paket", "razpakiraj", "pot_naslova", "MeritevPoti"]
+__all__ = ["paket", "razpakiraj", "pot_naslova", "pot_vticnika", "oznaci_zanko", "odznaci_zanko", "pot_zanke",
+           "RANG_POTI", "MeritevPoti"]

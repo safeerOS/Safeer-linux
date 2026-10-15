@@ -641,18 +641,49 @@ class GlobalLinkMesh(unittest.TestCase):
             self.m._klici(self.oglas())
         self.assertEqual(self.naslovi, ["wss://192.168.0.77:8990/cast/ws"])
 
+    def _povezan_prek_releja(self, neposredno: bool):
+        from core import link_pot
+
+        class Povezava:
+            naslov = "wss://127.0.0.1:45678/cast/ws"
+            meritev = link_pot.MeritevPoti("rele")
+            podatki = {}
+        self.hub.povezave_sosedov = lambda: {self.hid: Povezava()}
+        self.hub.sosedje = lambda: [self.hid]
+
+        class OdZunaj:
+            vrata, vrata_neposredno, zadnja_napaka = 45678, 45679, ""
+            def neposredno_na_voljo(self): return neposredno
+            def zapri(self): pass
+        self.m._releji[self.hid] = OdZunaj()
+
+    def test_prek_releja_nadgradi_na_neposredno(self):
+        """Povezan prek releja, neposredna pot od zunaj je na voljo: klic samo na vrata 'samo neposredno' (brez LAN in
+        brez novega kanala releja); Hub nato obdrzi boljso pot."""
+        self._povezan_prek_releja(neposredno=True)
+        self.odpri(doma=False, rele=True)
+        izbrani = self.m.kandidati([self.oglas()], zdaj=1e12)
+        self.assertEqual([h["id"] for h in izbrani], [self.hid])
+        self.m._klici(self.oglas())
+        self.assertEqual(self.naslovi, ["wss://127.0.0.1:45679/cast/ws"])
+
+    def test_prek_releja_brez_neposredne_ostane(self):
+        self._povezan_prek_releja(neposredno=False)
+        self.assertEqual(self.m.kandidati([self.oglas()], zdaj=1e12), [])
+
     def test_rele_samo_za_id_iz_kljuca(self):
         # Rele pozna napravo samo po id-ju iz njenega kljuca; id, ki ne izhaja iz kljuca, ne gre prek releja.
         self.assertIsNone(self.m._rele("n-drug"))
         # Hub z id-jem s pripono (n-...-control): cilj releja je id iz kljuca.
-        from core import link_rele
+        # Krajevni konec zunaj doma je LokalniOdZunaj (najprej neposredno, nato rele - core/link_neposredno).
+        from core import link_neposredno
         ustvarjeni = []
 
         class Lazni:
             def __init__(self, cilj): self.cilj, self.vrata = cilj, 1; ustvarjeni.append(cilj)
         krog = self.link_mesh.link_krog.krog()
         krog.clan_za_id.side_effect = lambda i: {"kljuc": self.kljuc}
-        with mock.patch.object(link_rele, "LokalniRele", Lazni):
+        with mock.patch.object(link_neposredno, "od_zunaj", Lazni):
             self.assertIsNotNone(self.m._rele(self.hid + "-control"))
         self.assertEqual(ustvarjeni, [self.hid])
 
