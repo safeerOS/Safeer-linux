@@ -118,7 +118,11 @@ cmake -S "$WK_IZVOR" -B "$DELO/webkit" -G Ninja \
 if [ "${SAFEER_WEBKIT_SAMO_CMAKE:-0}" = 1 ]; then
     echo "SAFEER_WEBKIT_SAMO_CMAKE: CMake WebKita je uspel, prevod WebKita preskocen"
 else
-    ninja -C "$DELO/webkit" -j "$JEDRA"
+    # WebKitDirectoryInputStreamData.h ustvari ukaz cilja WebKit, prevaja pa ga tudi cilj WebKitNetworkProcess, ki
+    # nanj nima odvisnosti (2.54.1, CMake 3.28 na noble): CI 38769520578 je padel pri koraku 8830/8918 z »file not
+    # found«. Glavo zato zgradimo najprej; ce bi ninja padel se zaradi podobnega vrstnega reda, nadaljuje enkrat.
+    ninja -C "$DELO/webkit" WebKitGTK/DerivedSources/WebKitDirectoryInputStreamData.h
+    ninja -C "$DELO/webkit" -j "$JEDRA" || { echo "ninja: ponovni poskus (vrstni red generiranih datotek)" >&2; ninja -C "$DELO/webkit" -j "$JEDRA"; }
     ninja -C "$DELO/webkit" install
 fi
 
