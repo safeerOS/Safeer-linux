@@ -965,7 +965,31 @@ def parse_payload(payload: bytes, content_type: str, source_url: str,
     return parser.finish()
 
 
+_KAKOVOST_KANALA = re.compile(r"\b(?:4k|8k|uhd|fhd|hd|sd|hevc|h26[45]|x26[45]|\d{3,4}[pi]|\d{2}fps|backup|geo[ -]?blocked)\b")
+_PREDPONA_DRZAVE = re.compile(r"^\s*(?:\[([a-z]{2})\]|\(([a-z]{2})\)|([a-z]{2})\s*[:|])\s*")
+_PRIPONA_DRZAVE = re.compile(r"\s*(?:\[([a-z]{2})\]|\(([a-z]{2})\))\s*$")
+
+
+def ime_kanala(item: dict) -> tuple:
+    """(normalizirano ime, drzava) kanala TV v zivo. Kanali nimajo uradnega id-ja, zato isti kanal iz TVHeadenda,
+    dodatka Stremio, seznama M3U in javnega seznama spoznamo po imenu brez oznak kakovosti (HD, FHD, 1080p, HEVC)
+    in drzave (»SI: POP TV HD« = »POP TV« iz Slovenije). Drzava je iz polja `drzava` ali iz oznake v imenu."""
+    t = unicodedata.normalize("NFKD", _text(item.get("naslov"), 200)).encode("ascii", "ignore").decode().lower()
+    drzava = str(item.get("drzava") or "").strip().lower()[:2]
+    for vzorec in (_PREDPONA_DRZAVE, _PRIPONA_DRZAVE):
+        m = vzorec.search(t)
+        if m:
+            drzava = drzava or next(g for g in m.groups() if g)
+            t = t[:m.start()] + " " + t[m.end():]
+    t = re.sub(r"\[[^\]]*\]|\([^)]*\)", " ", t).replace("+", " plus ")
+    t = _KAKOVOST_KANALA.sub(" ", t)
+    return re.sub(r"[^a-z0-9]+", " ", t).strip(), (drzava if re.fullmatch(r"[a-z]{2}", drzava) else "")
+
+
 def _identity(item: dict, include_year: bool = True) -> str:
+    if item.get("vrsta") == "tv-v-zivo":
+        ime, drzava = ime_kanala(item)
+        return "|".join(("tv-v-zivo", ime) + ((drzava,) if include_year else ()))
     title = unicodedata.normalize("NFKD", _text(item.get("naslov"), 200)).encode("ascii", "ignore").decode().lower()
     title = re.sub(r"\b(4k|uhd|fhd|hd|1080p?|720p?|2160p?|webrip|bluray)\b", "", title)
     title = re.sub(r"[^a-z0-9]+", " ", title).strip()
@@ -986,6 +1010,12 @@ def _score(item: dict) -> int:
     return (int(item.get("locljivost") or 0) * 1000 + int(item.get("bitrate") or 0) // 1000
             + (150 if ext in MEDIA_EXT else 0) + (30 if url.startswith("https://") else 0)
             + (40 if url.startswith("file:") else 0))
+
+
+def lastni_vir(item: dict) -> bool:
+    """Vnos z uporabnikovega osebnega strežnika (Jellyfin, Plex, Kodi, TVHeadend ...): ima prednost pred istim
+    naslovom iz dodatka ali s spleta - tok je doma, brez tujega strežnika in brez cakanja."""
+    return bool(item.get("lastni")) or bool(media_servers.streznik_iz_id(item.get("id")))
 
 
 def _id_scope(item: dict) -> str:
@@ -1048,9 +1078,11 @@ def merge_duplicates(items: Iterable[dict]) -> list[dict]:
         scope = _id_scope(item)
         imdb = _imdb_id(item.get("imdb_id"))
         tmdb = _tmdb_id(item.get("tmdb_id"))
+        tvdb = _tmdb_id(item.get("tvdb_id"))
         for token in filter(None, (
             f"{scope}|imdb:{imdb}" if imdb else "",
             f"{scope}|tmdb:{tmdb}" if tmdb else "",
+            f"{scope}|tvdb:{tvdb}" if tvdb else "",
         )):
             if token in id_owner:
                 union(index, id_owner[token])
@@ -1061,13 +1093,18 @@ def merge_duplicates(items: Iterable[dict]) -> list[dict]:
     # Naslov je rezervna identiteta za vire brez ID-ja. Različnih predelav z
     # različnimi znanimi letnicami ne združimo; neznan letnik povežemo samo,
     # kadar obstaja natanko en možen znani letnik.
+    # Kanali TV v zivo: namesto letnice drzava - isto ime iz dveh drzav ni isti kanal, neznana drzava se pridruzi
+    # edini znani (kot neznan letnik).
     for indices in title_groups.values():
-        by_year: dict[int, list[int]] = {}
+        by_year: dict = {}
         for index in indices:
-            try:
-                year = int(normalized[index].get("leto") or 0)
-            except (TypeError, ValueError):
-                year = 0
+            if normalized[index].get("vrsta") == "tv-v-zivo":
+                year = ime_kanala(normalized[index])[1] or 0
+            else:
+                try:
+                    year = int(normalized[index].get("leto") or 0)
+                except (TypeError, ValueError):
+                    year = 0
             by_year.setdefault(year, []).append(index)
         known_years = [year for year in by_year if year]
 
@@ -1093,14 +1130,20 @@ def merge_duplicates(items: Iterable[dict]) -> list[dict]:
 
     result = []
     for variants in groups.values():
-        variants.sort(key=_score, reverse=True)
+        # Uporabnikov lastni strežnik pred vsem drugim, znotraj tega po kakovosti toka.
+        variants.sort(key=lambda item: (lastni_vir(item), _score(item)), reverse=True)
         best = dict(variants[0])
+        if lastni_vir(variants[0]):
+            best["lastni"] = True
         metadata = max(variants, key=_metadata_score)
         if _metadata_score(metadata) > _metadata_score(best):
             best["naslov"] = metadata.get("naslov") or best.get("naslov")
         for field in ("imdb_id", "tmdb_id", "leto", "slika", "opis", "izvajalec"):
             if not best.get(field):
                 best[field] = next((item.get(field) for item in variants if item.get(field)), best.get(field))
+        for field in ("tvdb_id", "drzava"):
+            if not best.get(field) and any(item.get(field) for item in variants):
+                best[field] = next(item.get(field) for item in variants if item.get(field))
         # Jezik vsebine pove le kateri od virov (TMDB, PeerTube ...): zdruzena kartica ga obdrzi.
         if not best.get("jezik"):
             jezik_razlicice = next((item.get("jezik") for item in variants if item.get("jezik")), "")
@@ -1117,14 +1160,69 @@ def merge_duplicates(items: Iterable[dict]) -> list[dict]:
         else:
             identity = _identity(best, include_year=True)
         best["id"] = hashlib.sha256(identity.encode()).hexdigest()[:20]
-        best["razlicice"] = [{k: value for k, value in item.items()
-                              if k in ("url", "vir", "vir_id", "kakovost", "locljivost", "bitrate",
-                                       "glave", "referer", "imdb_id", "tmdb_id")}
+        best["razlicice"] = [dict({k: value for k, value in item.items()
+                                   if k in ("url", "vir", "vir_id", "kakovost", "locljivost", "bitrate",
+                                            "glave", "referer", "imdb_id", "tmdb_id")},
+                                  **({"lastni": True} if lastni_vir(item) else {}))
                              for item in variants]
         best["stevilo_razlicic"] = len(variants)
         best["viri"] = list(dict.fromkeys(item.get("vir", "") for item in variants if item.get("vir")))
         result.append(best)
     return sorted(result, key=lambda item: (item.get("vrsta", ""), item.get("naslov", "").casefold()))
+
+
+def _serijski_zetoni(item: dict) -> list:
+    imdb, tmdb, tvdb = _imdb_id(item.get("imdb_id")), _tmdb_id(item.get("tmdb_id")), _tmdb_id(item.get("tvdb_id"))
+    return [z for z in (imdb and "imdb:" + imdb, tmdb and "tmdb:%d" % tmdb, tvdb and "tvdb:%d" % tvdb) if z]
+
+
+def zdruzi_epizode_v_serije(items: list) -> list:
+    """Kartica serije (dodatek Stremio, Cinemeta, TMDB) in epizode iste serije z uporabnikovega strežnika: v katalogu
+    ena kartica, ne serija in poleg nje se njene epizode (lastnik, 15. 10. 2026: brez podvajanja vsebine). Epizode
+    nosijo id-je serije (media_servers._jellyfin_vrstica). Kartica dobi epizode kot vire; ce je med njimi lastni
+    strežnik, kartica predvaja njegovo prvo epizodo (doma, brez tujega strežnika), izbira epizode v podrobnostih pa
+    tudi uporabi strežnik (MediaCenter.episode_item)."""
+    kartice: dict = {}
+    for i, it in enumerate(items):
+        if isinstance(it, dict) and it.get("vrsta") == "serija" and not int(it.get("sezona") or 0) and not int(it.get("epizoda") or 0):
+            for z in _serijski_zetoni(it):
+                kartice.setdefault(z, i)
+    if not kartice:
+        return items
+    epizode: dict = {}
+    for i, it in enumerate(items):
+        if isinstance(it, dict) and it.get("vrsta") == "serija" and int(it.get("epizoda") or 0):
+            cilj = next((kartice[z] for z in _serijski_zetoni(it) if z in kartice), None)
+            if cilj is not None and cilj != i:
+                epizode.setdefault(cilj, []).append(i)
+    if not epizode:
+        return items
+    odstranjene = {j for seznam in epizode.values() for j in seznam}
+    izid = []
+    for i, it in enumerate(items):
+        if i in odstranjene:
+            continue
+        if i in epizode:
+            eps = sorted((items[j] for j in epizode[i]),
+                         key=lambda e: (int(e.get("sezona") or 0) or 999, int(e.get("epizoda") or 0)))
+            it = dict(it)
+            lastne = [e for e in eps if lastni_vir(e) or any(r.get("lastni") for r in (e.get("razlicice") or []) if isinstance(r, dict))]
+            razlicice = [r for r in (it.get("razlicice") or [{"url": it.get("url"), "vir": it.get("vir")}]) if isinstance(r, dict)]
+            if lastne:
+                prva = lastne[0]
+                it["url"] = prva.get("url")
+                it["lastni"] = True
+                razlicice = [dict({k: prva.get(k) for k in ("url", "vir", "vir_id") if prva.get(k)}, lastni=True)] + razlicice
+            for polje in ("imdb_id", "tmdb_id", "tvdb_id", "slika", "opis"):
+                if not it.get(polje):
+                    it[polje] = next((e.get(polje) for e in eps if e.get(polje)), it.get(polje))
+            it["razlicice"] = razlicice
+            it["stevilo_razlicic"] = len(razlicice)
+            it["epizod_na_strezniku"] = len(lastne)
+            it["viri"] = list(dict.fromkeys([v for v in (it.get("viri") or [it.get("vir")]) if v]
+                                            + [str(e.get("vir")) for e in eps if e.get("vir")]))
+        izid.append(it)
+    return izid
 
 
 def _series_catalog_card(item: dict) -> dict:
@@ -1256,7 +1354,8 @@ class MediaCenter:
 
     #: Razlicica pravil kataloga: ob spremembi (11. 10. 2026: PeerTube in Internet Archive nista vec vgrajena, glasbeni
     #: dodatki gredo pod Glasbo) shranjen katalog ne velja vec - sicer bi stara vsebina ob zagonu se enkrat zasvetila.
-    RAZLICICA_KATALOGA = 4      # 4: 14. 10. 2026 programi RTV 365 po kanalih in logotipi TV v zivo
+    RAZLICICA_KATALOGA = 5      # 5: 15. 10. 2026 brez dvojnikov Jellyfin/Stremio (lastni strežnik prvi, kanali po imenu
+    #                             in drzavi, epizode s strežnika v kartici serije); 4: programi RTV 365 po kanalih
 
     @property
     def pot_predpomnilnika(self) -> Path:
@@ -1783,7 +1882,8 @@ class MediaCenter:
         Kodija iz starega predpomnilnika (Safeer jih ne more poganjati, zato jih ne ponuja)."""
         if isinstance(rezultat, dict) and isinstance(rezultat.get("vnosi"), list):
             vnosi = [v for v in rezultat["vnosi"] if not (isinstance(v, dict) and (
-                self.znano_ni_na_voljo(v) or str(v.get("url") or "").startswith("kodi-dodatek:")))]
+                (self.znano_ni_na_voljo(v) and not lastni_vir(v))      # na lastnem strežniku je vedno na voljo
+                or str(v.get("url") or "").startswith("kodi-dodatek:")))]
             if len(vnosi) != len(rezultat["vnosi"]):
                 novo = dict(rezultat, vnosi=vnosi)
                 if isinstance(rezultat.get("skupaj"), int):  # stevec nad mrezo naj se ujema s prikazanim
@@ -2256,6 +2356,21 @@ class MediaCenter:
             self._vir_potrjen(viri_sink.STREMIO, base)
         return {"ok": True, "vir": {k: v for k, v in source.items() if k not in ("secret_enc", "uporabnik")}}
 
+    def jellyfin_dostop(self, server_id: str) -> tuple:
+        """(naslov, zeton) dodanega strežnika Jellyfin za upravljanje vticnikov (core/jellyfin_vticniki.py). Zeton je
+        v sistemski zbirki skrivnosti; tu ga samo preberemo za en klic in ga nikamor ne shranimo."""
+        with self._lock:
+            server = next((x for x in self._load().get("osebni_strezniki", []) if isinstance(x, dict)
+                           and x.get("id") == server_id and x.get("ponudnik") == "jellyfin" and x.get("url")), None)
+        if server is None:
+            raise ValueError("Tega strežnika Jellyfin ni med viri.")
+        return str(server["url"]), self._secret_decryptor(str(server.get("secret_enc") or ""))
+
+    def streznik_spremenjen(self, server_id: str) -> None:
+        """Vsebina strežnika se je spremenila (vticnik, ponovni zagon): knjiznico preberemo znova, katalog se osvezi."""
+        self._server_cache = {k: v for k, v in self._server_cache.items() if not k.startswith(str(server_id) + ":")}
+        self.ozastari_predpomnilnik()
+
     def _stremio_strezniki(self) -> list[dict]:
         """Uporabnikovi Stremio dodatki (osebni strezniki s ponudnikom stremio)."""
         with self._lock:
@@ -2343,6 +2458,25 @@ class MediaCenter:
                           "kakovost": "", "slika": "", "opis": "", "leto": 0, "izvajalec": "", "stremio": {"koren": koren, "tip": tip, "id": ident}})
         return items
 
+    def _osebni_naslovi(self, vrsta: str, imdb: str, tmdb_id: int, sezona: int = 0, epizoda: int = 0) -> list[dict]:
+        """Isti film ali epizoda na uporabnikovem strežniku (iz ze prebranih knjiznic, brez omrezja): ob izbiri iz
+        kataloga TMDB ali dodatka ima lastni tok prednost (merge_duplicates)."""
+        if not imdb and not tmdb_id:
+            return []
+        izid, videni = [], set()
+        for _cas, vrstice in list(self._server_cache.values()):
+            for r in vrstice:
+                if not isinstance(r, dict) or r.get("vrsta") != vrsta or not media_servers.streznik_iz_id(r.get("id")):
+                    continue
+                if not ((imdb and _imdb_id(r.get("imdb_id")) == imdb) or (tmdb_id and _tmdb_id(r.get("tmdb_id")) == tmdb_id)):
+                    continue
+                if vrsta == "serija" and (int(r.get("sezona") or 0) != sezona or int(r.get("epizoda") or 0) != epizoda):
+                    continue
+                if r.get("url") and r["url"] not in videni:
+                    videni.add(r["url"])
+                    izid.append(dict(r))
+        return izid
+
     def _kodi_streznik(self, server_id: str = "") -> Optional[tuple]:
         """(streznik, geslo) povezanega Kodija - dolocenega ali prvega."""
         with self._lock:
@@ -2420,8 +2554,9 @@ class MediaCenter:
         uporabnik dodatek, ki predvaja filme ali serije po id-jih IMDb, njegovi katalogi pa takih naslovov ne dajo -
         kot Safeer OS na Androidu (Stremio.zKatalogom). Uporabnik doda dodatek in pozabi nanj: filmi in serije se
         pokazejo, kar noben dodatek ne predvaja, skrije preverba razpolozljivosti."""
-        if any(isinstance(x, dict) and str(x.get("imdb_id") or "").startswith("tt") and x.get("vrsta") in ("film", "serija")
-               for x in vrstice):
+        # Samo katalogi dodatkov: naslovi z id-ji IMDb z osebnega strežnika (Jellyfin) Cinemete ne nadomestijo.
+        if any(isinstance(x, dict) and x.get("stremio") and str(x.get("imdb_id") or "").startswith("tt")
+               and x.get("vrsta") in ("film", "serija") for x in vrstice):
             return []
         stremio = [s for s in servers if isinstance(s, dict) and s.get("ponudnik") == "stremio" and s.get("url")
                    and media_servers._stremio_koren(str(s.get("url"))) != media_servers._stremio_koren(media_servers.CINEMETA)]
@@ -3489,7 +3624,8 @@ class MediaCenter:
         for indeks, vnos in enumerate(prednostni):
             if isinstance(vnos, dict) and vnos.get("url"):
                 mesto.setdefault(str(vnos["url"]), indeks)
-        merged = self._filtriraj_vire(merge_duplicates(local + remote + dynamic + lawful + personal), izklopljeni)
+        merged = self._filtriraj_vire(zdruzi_epizode_v_serije(merge_duplicates(local + remote + dynamic + lawful + personal)),
+                                      izklopljeni)
         if not razvrsti:
             def prednost(vnos: dict) -> int:
                 urlji = [str(vnos.get("url") or "")] + [str(r.get("url") or "") for r in (vnos.get("razlicice") or [])
@@ -3614,6 +3750,7 @@ class MediaCenter:
             if it:
                 items.append(it)
         items += self._stremio_vnosi(imdb, int(tmdb_id), "serija", ep_title, s, ep)
+        items += self._osebni_naslovi("serija", imdb, int(tmdb_id), s, ep)
         if not items:
             return None
         merged = merge_duplicates(items)
@@ -3636,6 +3773,7 @@ class MediaCenter:
             if it:
                 items.append(it)
         items += self._stremio_vnosi(imdb, int(tmdb_id), "film", title or "Film")
+        items += self._osebni_naslovi("film", imdb, int(tmdb_id))
         if not items:
             return None
         merged = merge_duplicates(items)
@@ -3800,6 +3938,12 @@ class MediaCenter:
         item = self._vnos_s_prijavo(item)
         if str(item.get("url") or "").startswith("knjiznica:"):
             return self._razresi_knjiznico(item) if pripravi_torrent else dict(item, torrent=True)
+        if item.get("lastni") and str(item.get("url") or "").startswith(("http://", "https://")):
+            # Kartica s tokom z uporabnikovega strežnika (merge_duplicates): predvaja se takoj, brez cakanja na dodatke
+            # Stremio. Razlicice ostanejo tiste, ki jih predvajalnik zna odpreti (http), lastne najprej.
+            razlicice = [v for v in (item.get("razlicice") or []) if isinstance(v, dict)
+                         and str(v.get("url") or "").startswith(("http://", "https://"))]
+            item = dict(item, razlicice=razlicice, stevilo_razlicic=len(razlicice))
         # Posebni naslovi (Stremio dodatek) so lahko tudi med razlicicami zdruzene kartice.
         posebni = [str(item.get("url") or "")] + [str(v.get("url") or "") for v in (item.get("razlicice") or []) if isinstance(v, dict)]
         if any(u.startswith("kodi-dodatek:") for u in posebni):
@@ -4002,15 +4146,16 @@ class MediaCenter:
             quality = int(variant.get("locljivost") or 0)
             # Ne čakamo na meritve: kakovost je začetni kriterij, svež ping pa
             # ima prednost, ko je že na voljo.
-            scored.append((0 if ping < 9999 else 1, ping, -quality, variant))
+            # Lastni strežnik (merge_duplicates) ostane prvi; med ostalimi odloca svez ping, nato kakovost.
+            scored.append((0 if variant.get("lastni") else 1, 0 if ping < 9999 else 1, ping, -quality, variant))
             if ping >= 9999 and url:
                 threading.Thread(target=self._izmeri_ping, args=(url,), daemon=True).start()
-        scored.sort(key=lambda row: row[:3])
-        best = scored[0][3]
+        scored.sort(key=lambda row: row[:4])
+        best = scored[0][4]
         out = dict(item)
-        out["razlicice"] = [row[3] for row in scored]
+        out["razlicice"] = [row[4] for row in scored]
         out["url"] = best.get("url", out.get("url"))
-        out["izbran_ping_ms"] = None if scored[0][1] >= 9999 else scored[0][1]
+        out["izbran_ping_ms"] = None if scored[0][2] >= 9999 else scored[0][2]
         out["izbran_vir"] = best.get("vir", out.get("vir", ""))
         return out
 

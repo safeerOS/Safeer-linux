@@ -20,6 +20,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+from typing import Optional
 
 
 #: Vrste osebnih streznikov, ki jih zna Medijski center.
@@ -405,10 +406,106 @@ def _dlna_items(base: str, server: dict) -> list[dict]:
     return rezultat
 
 
+def ponudnikovi_idji(row: dict) -> dict:
+    """ProviderIds vnosa Jellyfin/Emby (Imdb, Tmdb, Tvdb - velike in male crke) -> {"imdb_id", "tmdb_id", "tvdb_id"}.
+    Po njih Safeer isti naslov s strežnika in iz dodatka Stremio (tt..., tmdb:...) pokaze enkrat (os_media.merge_duplicates)."""
+    ids = row.get("ProviderIds") if isinstance(row.get("ProviderIds"), dict) else {}
+    po_imenu = {str(k).lower(): str(v or "").strip() for k, v in ids.items()}
+    izid = {}
+    imdb = po_imenu.get("imdb", "").lower()
+    if re.fullmatch(r"tt\d{5,12}", imdb):
+        izid["imdb_id"] = imdb
+    for kljuc, polje in (("tmdb", "tmdb_id"), ("tvdb", "tvdb_id")):
+        v = po_imenu.get(kljuc, "")
+        if re.fullmatch(r"\d{1,10}", v) and int(v) > 0:
+            izid[polje] = int(v)
+    return izid
+
+
+def _jellyfin_vrstica(base: str, server: dict, token: str, kind: str, row: dict, serije: dict) -> Optional[dict]:
+    typ = str(row.get("Type") or "")
+    ident = str(row.get("Id") or "")
+    if not ident or row.get("IsFolder"):
+        return None
+    zvok = typ == "Audio" or str(row.get("MediaType") or "") == "Audio"
+    media_kind = ("glasba" if zvok else "serija" if typ == "Episode" else "film" if typ == "Movie" else "video")
+    kljuc = parameter_zetona(kind)
+    image = _url(base, "/Items/%s/Images/Primary" % ident, {"maxHeight": 240, kljuc: token})
+    stream = _url(base, "/%s/%s/stream" % ("Audio" if zvok else "Videos", ident), {"static": "true", kljuc: token})
+    ticks = int(row.get("RunTimeTicks") or 0)
+    vrstica = {"id": "server:%s:%s" % (server["id"], ident), "naslov": row.get("Name", ""),
+               "vrsta": media_kind, "url": stream, "slika": image,
+               "izvajalec": row.get("AlbumArtist") or ", ".join(row.get("Artists") or []),
+               "album": row.get("Album") or "", "leto": int(row.get("ProductionYear") or 0),
+               "opis": str(row.get("Overview") or "")[:500], "trajanje": ticks // 10_000_000,
+               "vir": server["ime"], "skupina": row.get("Album") or row.get("AlbumArtist") or ""}
+    if typ == "Episode":
+        # Epizoda nosi id-je SERIJE ter sezono in epizodo - tako kot epizode iz dodatkov Stremio (tt...:S:E).
+        # Brez stevilke epizode je ne povezemo s serijo (lahko bi se zdruzila s kartico cele serije).
+        sezona, epizoda = row.get("ParentIndexNumber"), row.get("IndexNumber")
+        ime_serije = str(row.get("SeriesName") or "").strip()
+        if isinstance(epizoda, int) and epizoda > 0:
+            vrstica.update(serije.get(str(row.get("SeriesId") or ""), {}))
+            vrstica["sezona"] = int(sezona) if isinstance(sezona, int) and sezona >= 0 else 1
+            vrstica["epizoda"] = int(epizoda)
+        if ime_serije:
+            vrstica["naslov"] = ime_serije + (" – " + str(row.get("Name")) if row.get("Name") else "")
+            vrstica["skupina"] = ime_serije
+    else:
+        vrstica.update(ponudnikovi_idji(row))
+    return vrstica
+
+
+def _jellyfin_serije(base: str, glave: dict, user_id: str, serije_id: list, kind: str) -> dict:
+    """Id-ji serij (ProviderIds) za epizode v knjiznici - ena zahteva za do 200 serij."""
+    if not serije_id:
+        return {}
+    parametri = {"Ids": ",".join(serije_id[:200]), "Fields": "ProviderIds", "Limit": 200}
+    try:
+        if kind == "emby":
+            pot = _url(base, "/Users/%s/Items" % urllib.parse.quote(user_id, safe=""), parametri)
+        else:
+            pot = _url(base, "/Items", dict(parametri, userId=user_id))
+        surovo = json.loads(_request(pot, glave))
+    except Exception:  # noqa: BLE001 - brez id-jev serij epizode ostanejo, kot so bile
+        return {}
+    return {str(s.get("Id")): ponudnikovi_idji(s) for s in surovo.get("Items", []) if isinstance(s, dict) and s.get("Id")}
+
+
+def _jellyfin_kanali(base: str, server: dict, token: str, glave: dict, user_id: str) -> list[dict]:
+    """Vsebina kanalov iz vticnikov Jellyfina (kategorija Channels): /Channels in /Channels/{id}/Items. Oddaljeni
+    posnetki kanala gredo prek strežnika (Videos/{id}/stream?static=true - VideosController jih posreduje)."""
+    try:
+        kanali = json.loads(_request(_url(base, "/Channels", {"userId": user_id, "limit": 20}), glave)).get("Items") or []
+    except Exception:  # noqa: BLE001 - strežnik brez kanalov ali starejsi brez te poti
+        return []
+    kanali = [k for k in kanali[:10] if isinstance(k, dict) and re.fullmatch(r"[0-9a-fA-F-]{32,36}", str(k.get("Id") or ""))]
+
+    def vsebina(kanal: dict) -> list:
+        # Vticnik kanala vsebino pogosto bere s spleta sele ob zahtevi: kanale beremo hkrati, en pocasen ne zadrzi drugih.
+        try:
+            odgovor = json.loads(_request(_url(base, "/Channels/%s/Items" % kanal["Id"],
+                                               {"userId": user_id, "limit": 200, "fields": "ProviderIds,Overview"}), glave))
+        except Exception:  # noqa: BLE001
+            return []
+        vrstice = []
+        for row in (odgovor.get("Items") or [])[:200]:
+            v = _jellyfin_vrstica(base, server, token, "jellyfin", row, {}) if isinstance(row, dict) else None
+            if v:
+                v["skupina"] = str(kanal.get("Name") or v["skupina"])
+                vrstice.append(v)
+        return vrstice
+    if not kanali:
+        return []
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=min(4, len(kanali))) as bazen:
+        return [v for vrstice in bazen.map(vsebina, kanali) for v in vrstice]
+
+
 def _jellyfin_items(base: str, server: dict, token: str, kind: str = "jellyfin") -> list[dict]:
     user_id = str(server.get("user_id", ""))
     parametri = {"Recursive": "true", "IncludeItemTypes": "Movie,Episode,Audio", "Limit": 1000,
-                 "Fields": "Overview,RunTimeTicks,ProductionYear,Album,AlbumArtist,Artists"}
+                 "Fields": "Overview,RunTimeTicks,ProductionYear,Album,AlbumArtist,Artists,ProviderIds"}
     glave = _glave_mediabrowser(kind, token)
     stara_pot = _url(base, "/Users/%s/Items" % urllib.parse.quote(user_id, safe=""), parametri)
     if kind == "emby":
@@ -421,24 +518,13 @@ def _jellyfin_items(base: str, server: dict, token: str, kind: str = "jellyfin")
             if napaka.code != 404:
                 raise
             raw = json.loads(_request(stara_pot, glave))
-    kljuc = parameter_zetona(kind)
-    result = []
-    for row in raw.get("Items", []):
-        typ = row.get("Type")
-        media_kind = "glasba" if typ == "Audio" else "serija" if typ == "Episode" else "film"
-        ident = str(row.get("Id") or "")
-        if not ident:
-            continue
-        image = _url(base, "/Items/%s/Images/Primary" % ident, {"maxHeight": 240, kljuc: token})
-        stream = _url(base, "/%s/%s/stream" % ("Audio" if typ == "Audio" else "Videos", ident),
-                      {"static": "true", kljuc: token})
-        ticks = int(row.get("RunTimeTicks") or 0)
-        result.append({"id": "server:%s:%s" % (server["id"], ident), "naslov": row.get("Name", ""),
-                       "vrsta": media_kind, "url": stream, "slika": image,
-                       "izvajalec": row.get("AlbumArtist") or ", ".join(row.get("Artists") or []),
-                       "album": row.get("Album") or "", "leto": int(row.get("ProductionYear") or 0),
-                       "opis": str(row.get("Overview") or "")[:500], "trajanje": ticks // 10_000_000,
-                       "vir": server["ime"], "skupina": row.get("Album") or row.get("AlbumArtist") or ""})
+    vrstice = [r for r in raw.get("Items", []) if isinstance(r, dict)]
+    serije_id = list(dict.fromkeys(str(r.get("SeriesId")) for r in vrstice if r.get("Type") == "Episode" and r.get("SeriesId")))
+    serije = _jellyfin_serije(base, glave, user_id, serije_id, kind)
+    result = [v for v in (_jellyfin_vrstica(base, server, token, kind, r, serije) for r in vrstice) if v]
+    if kind == "jellyfin":
+        znani = {v["id"] for v in result}
+        result.extend(v for v in _jellyfin_kanali(base, server, token, glave, user_id) if v["id"] not in znani)
     return result
 
 
@@ -740,6 +826,12 @@ def stremio_je_zaseben(manifest: dict) -> bool:
     return bool(isinstance(namigi, dict) and namigi.get("adult"))
 
 
+def stremio_idji(mid: str) -> dict:
+    """TMDB in TVDB id iz id-ja dodatka (»tmdb:603«, »tvdb:81189«), da se naslov zdruzi z istim s strežnika."""
+    m = re.fullmatch(r"(tmdb|tvdb):(\d{1,10})", str(mid or "").strip().lower())
+    return {m.group(1) + "_id": int(m.group(2))} if m and int(m.group(2)) > 0 else {}
+
+
 def _stremio_items(base: str, server: dict, query: str) -> list[dict]:
     """Katalogi dodatka po protokolu Stremio. Predvajalne povezave (stream) poiscemo sele ob kliku."""
     koren = _stremio_koren(base)
@@ -780,6 +872,7 @@ def _stremio_items(base: str, server: dict, query: str) -> list[dict]:
                              "opis": str(meta.get("description") or "")[:500], "leto": int(str(meta.get("releaseInfo") or "0")[:4] or 0)
                              if str(meta.get("releaseInfo") or "")[:4].isdigit() else 0,
                              "imdb_id": mid if mid.startswith("tt") else "", "vir": server["ime"],
+                             **stremio_idji(mid),
                              "stremio": {"koren": koren, "tip": tip, "id": mid},
                              "skupina": katalog.get("name") or manifest.get("name") or ""})
             if vrsta == "glasba":
