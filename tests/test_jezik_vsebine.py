@@ -273,10 +273,10 @@ class ViriVJeziku(unittest.TestCase):
         self.viri.radio = lambda *a: klici.append(("radio", a)) or []
         self.viri.javna_last = lambda *a: klici.append(("javna_last", a)) or []
         self.viri.get("", ["h"], "", "sl")
-        self.assertEqual(dict(klici), {"videos": ("", ["h"], "sl"), "music": ("", "", "sl"), "radio": ("",)})
+        self.assertEqual(dict(klici), {"videos": ("", ["h"], "sl"), "music": ("", "", "sl"), "radio": ("", "", "")})
         klici.clear()
         self.viri.get("", None, "rock", "sl")
-        self.assertEqual(dict(klici), {"music": ("", "rock", "sl"), "radio": ("", "rock")})
+        self.assertEqual(dict(klici), {"music": ("", "rock", "sl"), "radio": ("", "rock", "")})
 
 
 class MostInPaket(unittest.TestCase):
@@ -347,7 +347,7 @@ class Vmesnik(unittest.TestCase):
 
     def test_katalog_dobi_izbrani_jezik(self):
         # Jezik vsebine izbira samo izbirnik (brez seznama izklopljenih jezikov): jedru gre prazen seznam.
-        self.assertIn("Object.keys(kat.izklopljeni), false,\n                          [], izbranJezik()])", self.js)
+        self.assertIn("Object.keys(kat.izklopljeni), false,\n                          [], izbranJezik(), izbranaDrzavaRadia()])", self.js)
         self.assertNotIn("izklopljeniJeziki", self.js)
         izbira = self.js.split('ob("mediaJezik", "change", function () {', 1)[1].split("});", 1)[0]
         self.assertIn("kat.jezikVsebine = this.value; kat.page = 1;", izbira)
@@ -371,7 +371,8 @@ class Vmesnik(unittest.TestCase):
         self.assertNotIn('$("r-media").classList.toggle("ima-katalog", list.length > 0);', self.js)
 
     def test_prazen_katalog_pove_zakaj(self):
-        self.assertIn('izbranJezik() ? t("katPraznoJezik", { jezik: imeJezika(kat.jezikVsebine, true) }) : t("katPrazno")', self.js)
+        self.assertIn('izbranJezik() ? t("katPraznoJezik", { jezik: imeJezika(kat.jezikVsebine, true) })', self.js)
+        self.assertIn(': izbranaDrzavaRadia() ? t("katPraznoDrzava", { drzava: imeDrzave(kat.drzavaRadia) }) : t("katPrazno");', self.js)
         self.assertNotIn('data-t="katPrazno"', self.html)
         besedila = _beri("assets", "os", "besedila.js")
         for kljuc in ("katVsiJeziki", "katJezikVsebine", "katPraznoJezik"):

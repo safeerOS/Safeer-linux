@@ -53,6 +53,7 @@ NADOMESCENO = {
     "programiNaprave": "programiNapraveNamizja (izbira naprave v plosci Programi)",
     "nadaljujTukaj": "prenesiDatotekoNaprave -> safeer_os.nadaljuj_tukaj (isti prenos razlik in Teamwork)",
     "nastavitveOzadja": "Prilagodi namizje (ozadja) in »Sistemska ozadja …« (sistemskeNastavitve backgrounds)",
+    "priljubljenoPreseli": "QML nima localStorage: enkratni prenos starih priljubljenih potrebuje samo delovna povrsina",
 }
 #: Metode, ki jih namizje QML (se) nima - zavestno, z razlogom.
 NI_PRENESENO = {
@@ -189,6 +190,8 @@ class NamizjeQml(unittest.TestCase):
         self.odgovori = {
             "nosilci": [{"ime": "USB", "pot": "/media/u/USB", "naprava": "/dev/sdb1", "velikost": 32e9, "prosto": 2e9, "odstranljiv": True}],
             "prostorDiska": {"skupaj": 256e9, "prosto": 3e9, "malo": True},
+            # Naprava v Linku, ki shrani in pretvori (sicer »Shrani na napravo« ni v meniju).
+            "pretvorbaZaTvMozna": {"ok": True, "shramba": True, "naprave": 1},
             "predlogeDatotek": [{"ime": "Racun", "pot": D + "/Predloge/Racun.ods"}],
             "mapa": {"pot": D + "/Dokumenti", "stars": D, "elementi": [
                 {"ime": "Projekti", "pot": D + "/Dokumenti/Projekti", "mapa": True, "vrsta": "mapa"},
@@ -338,7 +341,7 @@ class NamizjeQml(unittest.TestCase):
         self._js("datoteke.meniZa(1)")
         self.assertTrue(self._pocakaj(lambda: self._obj("meniDatoteke").property("visible")))
         self.assertTrue(self._obj("vnosLastnosti").property("visible"))
-        self.assertTrue(self._obj("vnosShrani").property("visible"))
+        self.assertTrue(self._pocakaj(lambda: self._obj("vnosShrani").property("visible")))
         self._obj("vnosLastnosti").triggered.emit()
         self.assertTrue(self._klicano("lastnostiDatoteke", [D + "/Dokumenti/a.odt"]))
         self.assertTrue(self._pocakaj(lambda: self._obj("lastnosti").property("visible")))
@@ -385,7 +388,8 @@ class NamizjeQml(unittest.TestCase):
         self.assertEqual(self.n.most.datotekaPot("file:///tmp/a%20b.txt"), "/tmp/a b.txt")
         self.assertEqual(self.n.most.datotekaPot("https://example.org/a"), "")
         q = _beri("assets", "os", "qml", "Datoteke.qml")
-        self.assertIn('Drag.mimeData: ({ "text/uri-list": (Most ? Most.datotekaUrl(modelData.pot || "") : "") + "\\r\\n" })', q)
+        self.assertIn('Drag.mimeData: ({ "text/uri-list": panel.naslovi(modelData) })', q)
+        self.assertEqual(self._js("datoteke.naslovi(datoteke.prikazani[1])"), "file://%s/Dokumenti/a.odt\r\n" % D)
         self.assertIn("Drag.dragType: Drag.Automatic", q)
 
     def test_mediji_in_datoteke_z_naprave(self):
@@ -503,7 +507,7 @@ class Staticno(unittest.TestCase):
 
     def test_brez_trdo_kodiranih_barv_v_novih_datotekah(self):
         for ime in ("Okno.qml", "Meni.qml", "MeniVnos.qml", "MeniCrta.qml", "NovoIme.qml", "Lastnosti.qml", "ShraniNaNapravo.qml",
-                    "PretvoriZaTv.qml", "UrediDock.qml", "PonudnikiProgramov.qml"):
+                    "PretvoriZaTv.qml", "UrediDock.qml", "PonudnikiProgramov.qml", "Predogled.qml", "Programi.qml", "Datoteke.qml"):
             self.assertNotRegex(_beri("assets", "os", "qml", ime), r'"#[0-9a-fA-F]{3,8}"', ime)
 
     def test_iskanje_js_je_knjiznica_za_qml(self):

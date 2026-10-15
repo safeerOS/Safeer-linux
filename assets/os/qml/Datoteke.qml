@@ -2,6 +2,8 @@
 // kopiranjem, prilepljanjem, novo mapo ali datoteko (tudi iz predloge), preimenovanjem, Lastnostmi, Košem in Razveljavi
 // (Ctrl+Z) - ista dejanja in besedila kot Datoteke na delovni povrsini WebKit (delovna.js). Datoteke se vlecejo v druge
 // programe (seznam naslovov datotek) in iz njih (kopija v mapo). Seznam se osvezi sam, ko se mapa spremeni zunaj.
+// Priljubljeno (skupni zapis Safeer OS, Ctrl+D), izbira vec datotek (Ctrl/Shift+klik, Ctrl+A, Shift+puscice) z dejanji
+// za vse izbrane in predogled s preslednico (Predogled.qml).
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -32,10 +34,41 @@ Steklo {
     property var razveljavitve: []       // zapisi za razveljaviDatoteke (zadnjih 20), kot RZ v delovna.js
     property var slicice: ({})           // pot -> naslov slicice (sliciceDatotek)
     property var vlecem: []              // poti, ki jih uporabnik vlece iz tega seznama
+    // Izbira vec datotek (kot v Nemu in na delovni povrsini): Ctrl+klik doda/odvzame, Shift+klik in Shift+puscice
+    // izberejo obseg od sidra, Ctrl+A vse, Ctrl+preslednica doda/odvzame vrstico s fokusom, Escape pusti eno.
+    property var izbrane: ({})           // kljuc vnosa -> true
+    property int sidro: -1
+    readonly property int steviloIzbranih: Object.keys(izbrane).length
     readonly property var prikazani: elementi.filter(function (e) {
         return !filter || e.ime.toLowerCase().indexOf(filter.toLowerCase()) >= 0
     })
 
+    function kljucVnosa(e) { return e ? String(e.pot || e.id || e.ime || "") : "" }
+    function jeIzbran(e) { return !!izbrane[kljucVnosa(e)] }
+    function izbraniVnosi() { var z = izbrane; return prikazani.filter(function (e) { return !!z[panel.kljucVnosa(e)] }) }
+    function izberiSamo(i) { var e = prikazani[i], z = {}; if (e) z[kljucVnosa(e)] = true; izbrane = z; sidro = e ? i : -1 }
+    function preklopiIzbor(i) {
+        var e = prikazani[i]
+        if (!e) return
+        var z = {}, k = kljucVnosa(e)
+        for (var x in izbrane) z[x] = true
+        if (z[k]) delete z[k]; else z[k] = true
+        izbrane = z; sidro = i
+    }
+    function izberiObseg(i) {
+        if (i < 0 || i >= prikazani.length) return
+        var a = sidro >= 0 && sidro < prikazani.length ? sidro : i, z = {}
+        for (var j = Math.min(a, i); j <= Math.max(a, i); j++) z[kljucVnosa(prikazani[j])] = true
+        izbrane = z
+        if (sidro < 0) sidro = i
+    }
+    function izberiVse() { var z = {}; prikazani.forEach(function (e) { z[panel.kljucVnosa(e)] = true }); izbrane = z }
+    function pocistiIzbor() { izbrane = ({}); sidro = -1 }
+    // Dejanje na vrstici e velja za vse izbrane, ce je e med njimi; sicer samo za e (kot v Nemu).
+    function zaDejanje(e) {
+        var v = izbraniVnosi()
+        return e && !jeIzbran(e) ? [e] : (v.length ? v : (e ? [e] : []))
+    }
     function zacni(mape) {
         mapeNamizja = mape || []
         sestaviVire()
@@ -48,6 +81,8 @@ Steklo {
     }
     function sestaviVire() {
         var v = [{ oznaka: koren.t("nedavno"), vir: { vrsta: "nedavno", pot: "" } }]
+        // Priljubljeno: datoteke in mape, ki si jih je uporabnik izbral (skupaj z delovno povrsino WebKit).
+        if (linux) v.push({ oznaka: koren.t("priljubljeno"), vir: { vrsta: "priljubljeno", pot: "@priljubljeno" } })
         // Najvecje datoteke (za skupni prostor): kot »Največje datoteke« na delovni povrsini.
         if (linux) v.push({ oznaka: koren.t("najvecje"), vir: { vrsta: "najvecje", pot: "@najvecje" } })
         v.push({ oznaka: koren.t("smeti"), vir: { vrsta: "smeti", pot: "smeti" } })
@@ -89,7 +124,11 @@ Steklo {
         naprava = ""; imeNaprave = ""; panel.pot = []; streznik = null; viri = lokalniViri
         odpri({ vrsta: "lokalno", pot: pot })
     }
-    function odpri(v) { vir = v; filter = ""; poljeFilter.text = ""; seznam.currentIndex = seznam.activeFocus ? 0 : -1; nalozi(false) }
+    function odpri(v) {
+        // Nova mapa: meni, ki se se odpira (caka na odgovore mostu), ali odprt meni ne sme delati na prejsnji izbiri.
+        zahtevaMenija++; meni.close(); meniVec.close()
+        vir = v; filter = ""; poljeFilter.text = ""; pocistiIzbor(); seznam.currentIndex = seznam.activeFocus ? 0 : -1; nalozi(false)
+    }
     function izberiNapravo(id, ime) {
         naprava = id; imeNaprave = ime; pot = []; streznik = null; kljucNaprave = ""
         if (!id) { viri = lokalniViri; odpri({ vrsta: "nedavno", pot: "" }); return }
@@ -106,7 +145,25 @@ Steklo {
                  spremenjeno: d.mtime || d.modified || d.spremenjeno || 0,
                  vrsta: mapa ? "mapa" : (d.vrsta || vrstaOddaljenega(d.type)), pot: d.id || "", izvirnik: d }
     }
-    function jeLokalniPogled() { return vir.vrsta === "lokalno" || vir.vrsta === "nedavno" || vir.vrsta === "najvecje" }
+    function jeLokalniPogled() { return vir.vrsta === "lokalno" || vir.vrsta === "nedavno" || vir.vrsta === "najvecje" || vir.vrsta === "priljubljeno" }
+    // Priljubljene iz skupnega zapisa: Safeer OS poslje samo tiste, ki so na svoji poti (lastnik, 15. 10. 2026:
+    // »nimamo nedelujocih ikon ali datotek«) - v Smeteh ali na odklopljenem disku so skrite in se vrnejo same.
+    function seznamPriljubljenih() {
+        return (koren.priljubljeno.datoteke || []).map(function (d) {
+            return { ime: d.ime, pot: d.pot, mapa: !!d.mapa, vrsta: d.mapa ? "mapa" : (d.vrsta || ""), velikost: d.velikost || 0,
+                     spremenjeno: d.spremenjeno || 0 }
+        })
+    }
+    Connections {
+        target: koren
+        function onPriljubljenoChanged() {
+            if (panel.vir.vrsta !== "priljubljeno") return
+            panel.elementi = panel.seznamPriljubljenih()
+            var z = {}, prej = panel.izbrane
+            panel.elementi.forEach(function (e) { var k = panel.kljucVnosa(e); if (prej[k]) z[k] = true })
+            panel.izbrane = z
+        }
+    }
     function nalozi(tiho) {
         var st = ++zahteva
         if (!tiho) elementi = []
@@ -115,6 +172,10 @@ Steklo {
             if (vir.vrsta === "lokalno") { elementi = (r && r.elementi) || []; stars = (r && r.stars) || "" }
             else if (vir.vrsta === "smeti") { elementi = (r && r.elementi) || []; stars = "" }
             else { elementi = r || []; stars = "" }
+            // Izbira ostane za vnose, ki so se v seznamu (osvezitev po spremembi zunaj).
+            var z = {}, prej = izbrane
+            elementi.forEach(function (e) { var k = panel.kljucVnosa(e); if (prej[k]) z[k] = true })
+            izbrane = z
             naloziSlicice()
         }
         stanje = ""
@@ -133,6 +194,13 @@ Steklo {
                         .map(function (e) { return { oznaka: e.ime, vir: { vrsta: "naprava", pot: e.id }, ime: e.ime } }))
                 }
             }, function () { if (st === zahteva) { stanje = "napaka"; elementi = [] } })
+            return
+        }
+        if (vir.vrsta === "priljubljeno") {
+            // Sveze iz Safeer OS (kar je medtem izginilo ali se vrnilo, npr. USB disk); do odgovora zadnje znano.
+            koren.klic("spremljajMapo", [""])
+            konec(seznamPriljubljenih())
+            if (linux) koren.klic("priljubljenoSeznam", [], function (p) { if (st === zahteva) koren.nastaviPriljubljeno(p) })
             return
         }
         if (vir.vrsta === "lokalno") { koren.klic("mapa", [vir.pot], konec); koren.klic("spremljajMapo", [vir.pot]) }
@@ -265,10 +333,14 @@ Steklo {
         }
         return koren.t(n === 1 ? "elem1" : "elemN", { n: n })
     }
-    function vOdlozisce(e, rezi) {
-        if (!e || !e.pot || vir.vrsta === "naprava" || vir.vrsta === "smeti") return
-        odlozisce = { poti: [e.pot], rezi: !!rezi, ime: e.ime }
-        koren.obvesti(koren.t(rezi ? "izrezano" : "kopirano", { ime: e.ime }))
+    function vOdlozisce(e, rezi) { if (e) vOdloziscePoti(zaDejanje(e), rezi) }
+    function vOdloziscePoti(v, rezi) {
+        if (vir.vrsta === "naprava" || vir.vrsta === "smeti") return
+        v = (v || []).filter(function (x) { return x && x.pot })
+        if (!v.length) return
+        var ime = v.length === 1 ? v[0].ime : steviloElementov(v.length)
+        odlozisce = { poti: v.map(function (x) { return x.pot }), rezi: !!rezi, ime: ime }
+        koren.obvesti(koren.t(rezi ? "izrezano" : "kopirano", { ime: ime }))
     }
     function kamNovo() { return vir.vrsta === "lokalno" && vir.pot ? vir.pot : (koren.dom || "~") }
     function prilepi(vMapo) {
@@ -331,6 +403,9 @@ Steklo {
     }
 
     function vKos(e) {
+        var v = zaDejanje(e).filter(function (x) { return x.pot })
+        if (v.length > 1) { vKosVec(v); return }
+        if (!e || !e.pot) return
         koren.klic("vSmeti", [e.pot], function (r) {
             if (!r || !r.ok) { koren.obvesti(koren.t("niUspelo")); return }
             panel.nalozi(true)
@@ -340,6 +415,103 @@ Steklo {
             panel.obvestiZRazveljavi(koren.t("vKosPoslano", { ime: e.ime }), nazaj)
         })
     }
+    // Vec v Smeti z enim dejanjem: en zapis za Razveljavi (Ctrl+Z vrne vse) - core/os_datoteke.v_smeti_vec.
+    function vKosVec(v) {
+        var v0 = vir
+        koren.klic("vSmetiVec", [v.map(function (x) { return x.pot })], function (r) {
+            r = r || {}
+            var ok = (r.narejeno || []).length, ne = (r.napake || []).length
+            // Uporabnik je medtem morda ze v drugi mapi: tam izbire ne pocistimo.
+            if (panel.vir === v0) { panel.pocistiIzbor(); panel.nalozi(true) }
+            if (r.napaka === "prevec") { koren.obvesti(koren.t("prevecNaenkrat", { najvec: r.najvec || 500 })); return }
+            if (!ok) { koren.obvesti(koren.t("niUspelo")); return }
+            var nazaj = panel.zapomni({ vrsta: "smeti", idji: r.idji || [] })
+            panel.obvestiZRazveljavi(ne ? koren.t("delnoUspelo", { ok: ok, ne: ne }) : koren.t("vSmetiVecOk", { ime: panel.steviloElementov(ok) }), nazaj)
+        }, function () { koren.obvesti(koren.t("niUspelo")) })
+    }
+    function obnoviVec(v) {
+        var ostane = v.length, ok = 0, v0 = vir
+        v.forEach(function (x) {
+            koren.klic("obnoviIzSmeti", [x.id], function (r) {
+                if (r && r.ok) ok++
+                if (--ostane === 0) {
+                    if (panel.vir === v0) { panel.pocistiIzbor(); panel.nalozi(true) }
+                    koren.obvesti(ok === v.length ? koren.t("obnovljenoN", { ime: panel.steviloElementov(ok) }) : koren.t("delnoUspelo", { ok: ok, ne: v.length - ok }))
+                }
+            }, function () { if (--ostane === 0) { panel.nalozi(true); koren.obvesti(koren.t("niUspelo")) } })
+        })
+    }
+    // Ctrl+D ali meni: v priljubljene (ali iz njih) - za vse izbrane naenkrat; ce so ze vsi priljubljeni, jih odstrani.
+    function preklopiPriljubljene(e) { preklopiPriljubljeneVec(zaDejanje(e)) }
+    function preklopiPriljubljeneVec(v) {
+        v = (v || []).filter(function (x) { return x && x.pot })
+        if (!linux || !v.length || vir.vrsta === "naprava" || vir.vrsta === "smeti") return
+        if (v.length === 1) { koren.preklopiPriljubljeno("datoteka", { pot: v[0].pot, ime: v[0].ime, mapa: !!v[0].mapa }, v[0].ime); return }
+        // En klic za vse (ena sprememba, en dogodek): prej je N vzporednih klicev lahko odgovore vrnilo v drugem vrstnem redu.
+        var vsi = v.every(function (x) { return koren.jePriljubljenaPot(x.pot) })
+        koren.klic("priljubljenoPreklopi", ["datoteke", v.map(function (x) { return { pot: x.pot, ime: x.ime, mapa: !!x.mapa } }), !vsi], function (p) {
+            koren.nastaviPriljubljeno(p)
+            koren.obvesti(koren.t(vsi ? "odstranjenoPriljubljeno" : "dodanoPriljubljeno", { ime: panel.steviloElementov(v.length) }))
+        }, function () { koren.obvesti(koren.t("niUspelo")) })
+    }
+    // Preslednica ali »Predogled«: datoteke tega racunalnika v tem pogledu (puscici levo/desno se premikata po njih).
+    function predogledZa(e) {
+        if (!e || e.mapa || !e.pot || !linux || !jeLokalniPogled()) return false
+        var d = prikazani.filter(function (x) { return !x.mapa && x.pot })
+        predogled.odpri(d, Math.max(0, d.indexOf(e)))
+        return true
+    }
+    // Vlecenje: vse izbrane, ce uporabnik vlece izbrano vrstico, sicer samo to (standardni seznam naslovov datotek).
+    function potiZaVlecenje(e) {
+        return (jeIzbran(e) && steviloIzbranih > 1 ? izbraniVnosi() : [e])
+            .filter(function (x) { return x && x.pot }).map(function (x) { return x.pot })
+    }
+    function naslovi(e) { return potiZaVlecenje(e).map(function (p) { return Most ? Most.datotekaUrl(p) : "" }).join("\r\n") + "\r\n" }
+    // Desni klik ali tipka Meni: meni vec izbranih, ce je vrstica med njimi, sicer meni vrstice. Pred menijem Safeer OS
+    // pove, ali je kaksna naprava za posiljanje in v katere oblike se izbrano da pretvoriti - vnos, ki ne bi deloval,
+    // se ne pokaze (lastnik, 15. 10. 2026: »nimamo nedelujocih ikon«).
+    property var napraveZaPos: []
+    property var ciljiPretvorbe: []
+    property bool tvMozna: false         // »Pretvori za televizor«: Control + ffmpeg ali naprava, ki zna (pretvorbaZaTvMozna)
+    property bool shrambaMozna: false    // »Shrani na napravo«: naprava v Linku, ki shrani (isti odgovor, »shramba«)
+    function meniVrstice(e, kje, x, y) {
+        var vec = !!e && jeIzbran(e) && steviloIzbranih > 1
+        var vsi_ = (vec ? izbraniVnosi() : (e ? [e] : [])).filter(function (d) { return d && d.pot })
+        var dat = vsi_.filter(function (d) { return !d.mapa })
+        var ostane = 1, cilji = null, st = ++zahtevaMenija
+        var pokazi = function () {
+            if (--ostane || st !== panel.zahtevaMenija) return
+            panel.ciljiPretvorbe = cilji || []
+            if (vec) { meniVec.pokazi(kje, x, y); return }
+            meni.e = e
+            if (kje) meni.popup(kje, x, y); else meni.popup()
+        }
+        napraveZaPos = []; ciljiPretvorbe = []; tvMozna = false; shrambaMozna = false
+        if (linux && jeLokalniPogled() && vsi_.length) {
+            ostane++
+            koren.klic("pretvorbaZaTvMozna", [], function (r) {
+                if (st === panel.zahtevaMenija) { panel.tvMozna = !!(r && r.ok); panel.shrambaMozna = !!(r && r.shramba) }
+                pokazi()
+            }, pokazi)
+        }
+        if (jeLokalniPogled() && dat.length) {
+            ostane++
+            koren.klic("napraveZaPosiljanje", [], function (n) {
+                if (st === panel.zahtevaMenija) panel.napraveZaPos = (n || []).filter(function (x) { return x && x.id })
+                pokazi()
+            }, pokazi)
+            if (dat.length <= 50) dat.forEach(function (d) {
+                ostane++
+                koren.klic("pretvorbaMoznosti", [d.pot], function (m) {
+                    var c = m && m.orodje ? (m.cilji || []) : []
+                    cilji = cilji === null ? c.slice() : cilji.filter(function (x) { return c.indexOf(x) >= 0 })
+                    pokazi()
+                }, function () { cilji = []; pokazi() })
+            })
+        }
+        pokazi()
+    }
+    property int zahtevaMenija: 0
     function izprazniSmeti() {
         // Linux: trajni izbris potrdi sistemsko okno Safeer OS (stran ga ne more preskociti) - brez drugega vprasanja tu.
         if (linux) {
@@ -358,8 +530,9 @@ Steklo {
     // Meni vrstice i (kot tipka Meni na izbrani vrstici); uporabljajo ga tudi preizkusi.
     function meniZa(i) {
         seznam.currentIndex = i; seznam.forceActiveFocus()
-        meni.e = prikazani[i] || null
-        if (meni.e) meni.popup(seznam.currentItem, 40, seznam.currentItem ? seznam.currentItem.height : 0)
+        var e = prikazani[i] || null
+        if (e && !jeIzbran(e)) izberiSamo(i)
+        if (e) meniVrstice(e, seznam.currentItem, 40, seznam.currentItem ? seznam.currentItem.height : 0)
     }
     function meniPraznega() { meniOzadja.popup(seznam, 40, 30) }
     function meniPogonaZa(n) { meniPogona.n = n; meniPogona.popup(viriSeznam, 20, viriSeznam.height / 2) }
@@ -368,6 +541,7 @@ Steklo {
         if (stanje === "napaka") return vir.vrsta === "najvecje" ? koren.t("niUspelo") : koren.t("niOdgovorila")
         if (stanje === "neDeli") return koren.t("neDeli")
         return vir.vrsta === "smeti" ? koren.t("kosPrazen") : vir.vrsta === "nedavno" ? koren.t("niNedavnih")
+             : vir.vrsta === "priljubljeno" ? koren.t("niPriljubljenih")
              : vir.vrsta === "najvecje" ? koren.t("niVelikih") : koren.t("prazno")
     }
 
@@ -492,7 +666,14 @@ Steklo {
                     Layout.fillWidth: true; color: koren.paleta.besedilo; font.pixelSize: koren.px(12); elide: Text.ElideLeft
                     text: panel.vir.vrsta === "naprava" ? [panel.imeNaprave].concat(panel.pot.map(function (x) { return x.ime })).join("  ›  ")
                         : panel.vir.vrsta === "lokalno" ? koren.kratkaPot(panel.vir.pot) : panel.vir.vrsta === "smeti" ? koren.t("smeti")
-                        : panel.vir.vrsta === "najvecje" ? koren.t("najvecje") : koren.t("nedavno")
+                        : panel.vir.vrsta === "najvecje" ? koren.t("najvecje") : panel.vir.vrsta === "priljubljeno" ? koren.t("priljubljeno")
+                        : koren.t("nedavno")
+                }
+                Text {
+                    objectName: "steviloIzbranih"
+                    visible: panel.steviloIzbranih > 1
+                    text: koren.t("izbranoN", { n: panel.steviloIzbranih }); color: koren.paleta.poudarek; font.pixelSize: koren.px(12)
+                    Accessible.role: Accessible.StaticText; Accessible.name: text
                 }
                 Gumb { besedilo: koren.t("izprazni"); visible: panel.vir.vrsta === "smeti" && panel.elementi.length > 0; onKlik: panel.izprazniSmeti() }
                 // Nova mapa ali datoteka (prazna, besedilo, dokument … ali predloga): meni kot »Novo« na delovni povrsini.
@@ -517,12 +698,13 @@ Steklo {
                 objectName: "seznamDatotek"
                 Layout.fillWidth: true; Layout.fillHeight: true
                 // Tipkovnica (AGENTS: dostopnost): puscice, Enter odpre, Delete v Smeti, F2 preimenuj, Alt+Enter Lastnosti,
-                // Ctrl+C/X/V kopiraj, izrezi, prilepi, Ctrl+Z razveljavi, tipka Meni/Shift+F10.
+                // Ctrl+C/X/V kopiraj, izrezi, prilepi, Ctrl+Z razveljavi, tipka Meni/Shift+F10, preslednica predogled,
+                // Ctrl+D priljubljeno, Shift+puscice/Home/End obseg, Ctrl+A vse, Ctrl+preslednica izbira, Escape ena.
                 activeFocusOnTab: true; keyNavigationEnabled: true; currentIndex: -1
                 Accessible.role: Accessible.List; Accessible.name: koren.t("datoteke")
                 onCountChanged: if (currentIndex >= count) currentIndex = count - 1
                 function izbran() { return currentIndex >= 0 && currentIndex < panel.prikazani.length ? panel.prikazani[currentIndex] : null }
-                onActiveFocusChanged: if (activeFocus && currentIndex < 0 && count > 0) currentIndex = 0
+                onActiveFocusChanged: if (activeFocus && currentIndex < 0 && count > 0) { currentIndex = 0; if (!panel.steviloIzbranih) panel.izberiSamo(0) }
                 Keys.onReturnPressed: function (d) {
                     var e = izbran()
                     if (e && (d.modifiers & Qt.AltModifier) && panel.linux && panel.jeLokalniPogled()) lastnosti.pokazi(e.pot)
@@ -532,7 +714,21 @@ Steklo {
                 Keys.onLeftPressed: viriSeznam.forceActiveFocus()
                 Keys.onDeletePressed: { var e = izbran(); if (e && panel.jeLokalniPogled()) panel.vKos(e) }
                 Keys.onPressed: function (d) {
-                    var e = izbran(), ctrl = d.modifiers & Qt.ControlModifier
+                    var e = izbran(), ctrl = d.modifiers & Qt.ControlModifier, shift = d.modifiers & Qt.ShiftModifier
+                    var premik = d.key === Qt.Key_Down ? 1 : d.key === Qt.Key_Up ? -1 : d.key === Qt.Key_Home ? -count : d.key === Qt.Key_End ? count : 0
+                    if (premik && !(d.modifiers & Qt.AltModifier)) {
+                        if (count === 0) return
+                        if (shift && panel.sidro < 0) panel.sidro = Math.max(0, currentIndex)
+                        var n = Math.max(0, Math.min(count - 1, currentIndex + premik))
+                        currentIndex = n; positionViewAtIndex(n, ListView.Contain)
+                        if (shift) panel.izberiObseg(n); else if (!ctrl) panel.izberiSamo(n)   // Ctrl+puscica: fokus brez izbire
+                        d.accepted = true; return
+                    }
+                    if (ctrl && d.key === Qt.Key_A) { panel.izberiVse(); d.accepted = true; return }
+                    if (ctrl && d.key === Qt.Key_Space && currentIndex >= 0) { panel.preklopiIzbor(currentIndex); d.accepted = true; return }
+                    if (d.key === Qt.Key_Escape && panel.steviloIzbranih > 1) { panel.izberiSamo(currentIndex); d.accepted = true; return }
+                    if (d.key === Qt.Key_Space && !d.modifiers && e) { if (panel.predogledZa(e)) d.accepted = true; return }
+                    if (ctrl && d.key === Qt.Key_D && e && panel.linux) { panel.preklopiPriljubljene(e); d.accepted = true; return }
                     if (ctrl && d.key === Qt.Key_Z && panel.linux) { panel.razveljavi(null); d.accepted = true; return }
                     if (ctrl && d.key === Qt.Key_V && panel.linux && panel.vir.vrsta === "lokalno") { panel.prilepi(null); d.accepted = true; return }
                     if ((d.key === Qt.Key_Menu || (d.key === Qt.Key_F10 && (d.modifiers & Qt.ShiftModifier))) && !e) {
@@ -542,8 +738,8 @@ Steklo {
                     if (ctrl && (d.key === Qt.Key_C || d.key === Qt.Key_X) && panel.linux && panel.jeLokalniPogled()) { panel.vOdlozisce(e, d.key === Qt.Key_X); d.accepted = true }
                     else if (d.key === Qt.Key_F2 && panel.jeLokalniPogled()) { panel.novo({ nacin: "preimenuj", pot: e.pot, ime: e.ime, mapa: e.mapa }); d.accepted = true }
                     else if (d.key === Qt.Key_Menu || (d.key === Qt.Key_F10 && (d.modifiers & Qt.ShiftModifier))) {
-                        meni.e = e; var it = currentItem
-                        meni.popup(it, 40, it ? it.height : 0); d.accepted = true
+                        var it = currentItem
+                        panel.meniVrstice(e, it, 40, it ? it.height : 0); d.accepted = true
                     }
                 }
                 // Ozka plosca (aplikacija v manjsem oknu, 14. 10. 2026: pri 1080 px ime ni bilo vidno): stolpca
@@ -580,10 +776,16 @@ Steklo {
                     id: vrstica
                     width: seznam.width; height: koren.px(34); radius: 8
                     readonly property bool izrezana: panel.odlozisce.rezi && panel.odlozisce.poti.indexOf(modelData.pot) >= 0
-                    color: spustMapa.containsDrag ? koren.poudarekA(0.3) : index === seznam.currentIndex && seznam.activeFocus ? koren.poudarekA(0.2)
+                    readonly property bool oznacena: !!panel.izbrane[panel.kljucVnosa(modelData)]
+                    color: spustMapa.containsDrag ? koren.poudarekA(0.3) : oznacena ? koren.poudarekA(seznam.activeFocus ? 0.22 : 0.14)
                          : md.containsMouse ? koren.prekriv(0.08) : "transparent"
+                    border.width: index === seznam.currentIndex && seznam.activeFocus ? 2 : 0; border.color: koren.paleta.fokus
                     opacity: izrezana ? 0.55 : 1
-                    Accessible.role: Accessible.ListItem; Accessible.name: modelData.ime
+                    // V Priljubljenem ni stolpca z mapo: kje je datoteka, pove namig.
+                    ToolTip.visible: md.containsMouse && panel.vir.vrsta === "priljubljeno"; ToolTip.delay: 600
+                    ToolTip.text: panel.vir.vrsta === "priljubljeno" ? koren.kratkaPot(modelData.pot) : ""
+                    Accessible.role: Accessible.ListItem; Accessible.selectable: true; Accessible.selected: oznacena
+                    Accessible.name: modelData.ime
                     Behavior on color { ColorAnimation { duration: 100 } }
                     Row {
                         anchors.verticalCenter: parent.verticalCenter; x: 6; spacing: 0
@@ -600,13 +802,14 @@ Steklo {
                                     sourceSize: Qt.size(48, 48); source: panel.slicice[modelData.pot] || ""
                                 }
                             }
-                            Text { text: modelData.ime; color: koren.paleta.besedilo; font.pixelSize: koren.px(13); elide: Text.ElideRight
+                            Text { text: modelData.ime
+                                   color: koren.paleta.besedilo; font.pixelSize: koren.px(13); elide: Text.ElideRight
                                    width: parent.width - koren.px(22) - 10; anchors.verticalCenter: parent.verticalCenter }
                         }
-                        Text { text: modelData.mapa ? "" : koren.velikost(modelData.velikost); color: koren.paleta.medlo; font.pixelSize: koren.px(12); width: koren.px(80); visible: !seznam.zeloOzko
-                               anchors.verticalCenter: parent.verticalCenter }
-                        Text { text: koren.cas(modelData.spremenjeno || modelData.izbrisano); color: koren.paleta.medlo; font.pixelSize: koren.px(12); width: koren.px(110); visible: !seznam.ozko
-                               anchors.verticalCenter: parent.verticalCenter }
+                        Text { text: modelData.mapa ? "" : koren.velikost(modelData.velikost); color: koren.paleta.medlo; font.pixelSize: koren.px(12); width: koren.px(80)
+                               visible: !seznam.zeloOzko; anchors.verticalCenter: parent.verticalCenter }
+                        Text { text: koren.cas(modelData.spremenjeno || modelData.izbrisano); color: koren.paleta.medlo; font.pixelSize: koren.px(12); width: koren.px(110)
+                               visible: !seznam.ozko; anchors.verticalCenter: parent.verticalCenter }
                     }
                     // Vlecenje v drug program (Nemo, brskalnik, posta): samo standardni seznam naslovov datotek - ciljni
                     // program kopira (s Shift premakne). Kot zacniVlecenje na delovni povrsini; mi ne brisemo nicesar.
@@ -616,9 +819,9 @@ Steklo {
                         Drag.dragType: Drag.Automatic
                         Drag.supportedActions: Qt.CopyAction | Qt.MoveAction
                         Drag.proposedAction: Qt.CopyAction
-                        Drag.mimeData: ({ "text/uri-list": (Most ? Most.datotekaUrl(modelData.pot || "") : "") + "\r\n" })
+                        Drag.mimeData: ({ "text/uri-list": panel.naslovi(modelData) })
                         Drag.active: md.drag.active && panel.linux && panel.jeLokalniPogled() && !!modelData.pot
-                        Drag.onDragStarted: panel.vlecem = [modelData.pot]
+                        Drag.onDragStarted: panel.vlecem = panel.potiZaVlecenje(modelData)
                         Drag.onDragFinished: function (dejanje) {
                             panel.vlecem = []; vlecen.x = 0; vlecen.y = 0
                             if (dejanje === Qt.MoveAction) panel.nalozi(true)
@@ -638,12 +841,23 @@ Steklo {
                         onDoubleClicked: panel.odpriElement(modelData)
                         onClicked: function (m) {
                             seznam.currentIndex = index; seznam.forceActiveFocus()
-                            if (m.button === Qt.RightButton) { meni.e = modelData; meni.popup() }
+                            if (m.button === Qt.RightButton) {
+                                if (!panel.jeIzbran(modelData)) panel.izberiSamo(index)
+                                panel.meniVrstice(modelData, null)
+                                return
+                            }
+                            if (m.modifiers & Qt.ShiftModifier) panel.izberiObseg(index)
+                            else if (m.modifiers & Qt.ControlModifier) panel.preklopiIzbor(index)
+                            else panel.izberiSamo(index)
                         }
                     }
                 }
                 Text {
+                    // Daljse besedilo (npr. namig v Priljubljeno) se prelomi znotraj seznama, ne gre cez rob
+                    // (posnetek s testnega PC 15. 10. 2026).
                     anchors.centerIn: parent; visible: seznam.count === 0
+                    width: Math.max(0, parent.width - koren.px(32))
+                    wrapMode: Text.Wrap; horizontalAlignment: Text.AlignHCenter
                     text: panel.prazno(); color: koren.paleta.medlo; font.pixelSize: koren.px(13)
                 }
             }
@@ -658,6 +872,7 @@ Steklo {
         readonly property bool lok: panel.jeLokalniPogled() && !!meni.e
         readonly property bool datoteka: meni.lok && !!meni.e && !meni.e.mapa
         MeniVnos { text: koren.t("odpri"); visible: panel.vir.vrsta !== "smeti"; onTriggered: panel.odpriElement(meni.e) }
+        MeniVnos { text: koren.t("predogled"); objectName: "vnosPredogled"; visible: meni.datoteka && panel.linux; onTriggered: panel.predogledZa(meni.e) }
         MeniVnos { text: koren.t("nadaljujTukaj"); objectName: "vnosNadaljuj"
                    visible: panel.vir.vrsta === "naprava" && !!meni.e && !meni.e.mapa && !!panel.streznik && !!panel.streznik.base_url
                    onTriggered: panel.odpriTukaj(meni.e) }
@@ -667,6 +882,10 @@ Steklo {
         // Kot Datoteke na prejsnji delovni povrsini (delovna.js): Odpri z … in Poslji na napravo … (14. 10. 2026).
         MeniVnos { text: koren.t("odpriZ"); visible: meni.datoteka; onTriggered: izbirnik.odpriZ(meni.e) }
         MeniVnos { text: koren.t("pokazi"); visible: meni.lok; onTriggered: koren.klic("pokaziVMapi", [meni.e.pot]) }
+        // Priljubljeno (Ctrl+D).
+        MeniVnos { text: koren.t(meni.e && koren.jePriljubljenaPot(meni.e.pot) ? "odstraniPriljubljeno" : "dodajPriljubljeno"); objectName: "vnosPriljubljeno"
+                   visible: panel.linux && !!meni.e && !!meni.e.pot && meni.lok
+                   onTriggered: panel.preklopiPriljubljene(meni.e) }
         MeniCrta { visible: meni.lok && panel.linux }
         MeniVnos { text: koren.t("kopiraj"); visible: meni.lok && panel.linux; onTriggered: panel.vOdlozisce(meni.e, false) }
         MeniVnos { text: koren.t("izrezi"); visible: meni.lok && panel.linux; onTriggered: panel.vOdlozisce(meni.e, true) }
@@ -676,18 +895,55 @@ Steklo {
         MeniVnos { text: koren.t("preimenuj"); visible: meni.lok; onTriggered: panel.novo({ nacin: "preimenuj", pot: meni.e.pot, ime: meni.e.ime, mapa: meni.e.mapa }) }
         MeniVnos { text: koren.t("vKos"); visible: meni.lok; onTriggered: panel.vKos(meni.e) }
         MeniVnos { text: koren.t("lastnosti"); objectName: "vnosLastnosti"; visible: meni.lok && panel.linux; onTriggered: lastnosti.pokazi(meni.e.pot) }
-        MeniVnos { text: koren.t("posljiNaNapravo"); visible: meni.datoteka; onTriggered: izbirnik.poslji(meni.e) }
-        MeniVnos { text: koren.t("shraniNaNapravo"); objectName: "vnosShrani"; visible: meni.datoteka && panel.linux; onTriggered: shrani.zacni(meni.e) }
-        MeniVnos { text: koren.t("pretvoriV"); visible: meni.datoteka; onTriggered: izbirnik.pretvori(meni.e) }
+        MeniVnos { text: koren.t("posljiNaNapravo"); objectName: "vnosPoslji"; visible: meni.datoteka && panel.napraveZaPos.length > 0; onTriggered: izbirnik.poslji(meni.e) }
+        MeniVnos { text: koren.t("shraniNaNapravo"); objectName: "vnosShrani"; visible: meni.datoteka && panel.linux && panel.shrambaMozna; onTriggered: shrani.zacni(meni.e) }
+        MeniVnos { text: koren.t("pretvoriV"); objectName: "vnosPretvori"; visible: meni.datoteka && panel.ciljiPretvorbe.length > 0; onTriggered: izbirnik.pretvori(meni.e) }
         // Krog solidarnosti (Safeer Control): video ali vsi videi v mapi za televizor na napravi z najboljsim kodirnikom.
-        MeniVnos { text: koren.t("pretvori"); objectName: "vnosPretvoriTv"; visible: meni.datoteka && panel.linux && meni.e.vrsta === "video"
+        // Samo, ko pretvorba ta trenutek deluje (Control + ffmpeg ali naprava, ki zna) - sicer bi vnos koncal z napako.
+        MeniVnos { text: koren.t("pretvori"); objectName: "vnosPretvoriTv"; visible: meni.datoteka && panel.linux && meni.e.vrsta === "video" && panel.tvMozna
                    onTriggered: pretvoriTv.zacni(meni.e, false) }
-        MeniVnos { text: koren.t("pretvoriMapo"); visible: meni.lok && panel.linux && !!(meni.e && meni.e.mapa)
+        MeniVnos { text: koren.t("pretvoriMapo"); objectName: "vnosPretvoriMapo"; visible: meni.lok && panel.linux && !!(meni.e && meni.e.mapa) && panel.tvMozna
                    onTriggered: pretvoriTv.zacni(meni.e, true) }
         MeniVnos { text: koren.t("obnovi"); visible: panel.vir.vrsta === "smeti"
                    onTriggered: koren.klic("obnoviIzSmeti", [meni.e.id], function (r) {
                        if (r && r.ok) { panel.nalozi(true); koren.obvesti(koren.t("obnovljeno", { ime: meni.e.ime })) } else koren.obvesti(koren.t("niUspelo")) }) }
         MeniVnos { text: koren.t("izprazniSmeti"); visible: panel.vir.vrsta === "smeti"; onTriggered: panel.izprazniSmeti() }
+    }
+    // Vec izbranih (meniVec v delovna.js): samo dejanja, ki jih Safeer OS zna za vec datotek naenkrat.
+    Meni {
+        id: meniVec
+        objectName: "meniVec"
+        property var v: []
+        readonly property bool lok: panel.linux && panel.jeLokalniPogled()
+        readonly property var dat: meniVec.v.filter(function (x) { return !x.mapa })
+        readonly property string n: panel.steviloElementov(meniVec.v.length)
+        readonly property bool vsiPriljubljeni: meniVec.v.length > 0 && meniVec.v.every(function (x) { return koren.jePriljubljenaPot(x.pot) })
+        function pokazi(kje, x, y) {
+            v = panel.izbraniVnosi()
+            if (kje) popup(kje, x, y); else popup()
+        }
+        MeniVnos { text: koren.t("izbranoN", { n: meniVec.v.length }); enabled: false }
+        MeniCrta {}
+        MeniVnos { text: koren.t("kopirajN", { n: meniVec.n }); objectName: "vnosKopirajVec"; visible: meniVec.lok; onTriggered: panel.vOdloziscePoti(meniVec.v, false) }
+        MeniVnos { text: koren.t("izreziN", { n: meniVec.n }); visible: meniVec.lok; onTriggered: panel.vOdloziscePoti(meniVec.v, true) }
+        MeniVnos { text: koren.t("prilepi"); visible: meniVec.lok && panel.vir.vrsta === "lokalno" && panel.odlozisce.poti.length > 0; onTriggered: panel.prilepi(null) }
+        MeniVnos { text: koren.t("vSmetiN", { n: meniVec.n }); objectName: "vnosSmetiVec"; visible: meniVec.lok; onTriggered: panel.vKosVec(meniVec.v) }
+        MeniVnos { text: koren.t(meniVec.vsiPriljubljeni ? "odstraniPriljubljeno" : "dodajPriljubljeno"); objectName: "vnosPriljubljenoVec"
+                   visible: meniVec.lok; onTriggered: panel.preklopiPriljubljeneVec(meniVec.v) }
+        MeniVnos { text: koren.t("posljiNaNapravo"); objectName: "vnosPosljiVec"; visible: meniVec.lok && meniVec.dat.length > 0 && panel.napraveZaPos.length > 0; onTriggered: izbirnik.posljiVec(meniVec.dat) }
+        MeniVnos { text: koren.t("pretvoriV"); objectName: "vnosPretvoriVec"; visible: meniVec.lok && meniVec.dat.length > 1 && meniVec.dat.length === meniVec.v.length && panel.ciljiPretvorbe.length > 0
+                   onTriggered: izbirnik.pretvoriVec(meniVec.dat) }
+        // Krog solidarnosti: vsi izbrani videi (in videi v izbranih mapah) za televizor - naprave si delo razdelijo.
+        MeniVnos { text: koren.t("pretvori"); objectName: "vnosPretvoriTvVec"
+                   visible: meniVec.lok && panel.tvMozna && meniVec.v.every(function (x) { return x.mapa || x.vrsta === "video" })
+                   onTriggered: pretvoriTv.zacni({ ime: meniVec.n }, true, meniVec.v.map(function (x) { return x.pot })) }
+        MeniVnos { text: koren.t("obnoviN", { n: meniVec.n }); visible: panel.vir.vrsta === "smeti"; onTriggered: panel.obnoviVec(meniVec.v) }
+        MeniCrta {}
+        MeniVnos { text: koren.t("pocistiIzbiro"); onTriggered: panel.izberiSamo(seznam.currentIndex) }
+    }
+    Predogled {
+        id: predogled
+        onOdpriDatoteko: function (e) { panel.odpriElement(e) }
     }
     // Pogon (USB kljuc, zunanji disk): Odpri in varno Izvrzi (izvrziNosilec).
     Meni {
@@ -800,6 +1056,43 @@ Steklo {
                 }))
             })
         }
+        // Pretvori v … za vec datotek: oblike, ki jih znajo vse izbrane (pretvorbaMoznosti), vsaka v svojo novo datoteko.
+        function pretvoriVec(v) {
+            var ostane = v.length, cilji = null, brezOrodja = "", skupina = ""
+            var ORODJA = { slika: "ImageMagick", zvok: "ffmpeg", besedilo: "LibreOffice", preglednica: "LibreOffice", predstavitev: "LibreOffice" }
+            v.forEach(function (e) {
+                koren.klic("pretvorbaMoznosti", [e.pot], function (m) {
+                    m = m || {}
+                    if (m.cilji && m.cilji.length && !m.orodje) brezOrodja = ORODJA[m.skupina] || "?"
+                    var c = (m.cilji || [])
+                    cilji = cilji === null ? c.slice() : cilji.filter(function (x) { return c.indexOf(x) >= 0 })
+                    if (--ostane) return
+                    if (brezOrodja) { koren.obvesti(koren.t("ptdNiOrodja", { orodje: brezOrodja })); return }
+                    if (!cilji.length) { koren.obvesti(koren.t("ptdVecNiSkupne")); return }
+                    izbirnik.pokazi(koren.t("pretvoriV") + " · " + panel.steviloElementov(v.length), cilji.map(function (c) {
+                        return { ime: c.toUpperCase(), opis: "", ob: function () {
+                            koren.obvesti(koren.t("ptdPretvarjam", { ime: panel.steviloElementov(v.length), cilj: c.toUpperCase() }))
+                            v.forEach(function (e2) {
+                                koren.klic("pretvoriDatoteko", [e2.pot, c], function (r) {
+                                    if (!r || !r.ok) { koren.obvesti(koren.t("ptdNapaka")); return }
+                                    pretvarjanje.dodaj(r.id)
+                                }, function () { koren.obvesti(koren.t("ptdNapaka")) })
+                            })
+                        } }
+                    }))
+                }, function () { if (--ostane === 0) koren.obvesti(koren.t("ptdNapaka")) })
+            })
+        }
+        function posljiVec(v) {
+            koren.klic("napraveZaPosiljanje", [], function (n) {
+                n = (n || []).filter(function (x) { return x && x.id })
+                if (!n.length) { koren.obvesti(koren.t("posNiNaprav")); return }
+                var paket = { poti: v.map(function (x) { return x.pot }), ime: panel.steviloElementov(v.length) }
+                pokazi(koren.t("posljiNaNapravo") + " · " + paket.ime, n.map(function (x) {
+                    return { ime: x.ime, opis: "", ob: function () { panel.posljiNapravi(x, paket) } }
+                }))
+            })
+        }
         function poslji(e) {
             koren.klic("napraveZaPosiljanje", [], function (n) {
                 n = (n || []).filter(function (x) { return x && x.id })
@@ -852,7 +1145,7 @@ Steklo {
     // Datoteko odda Safeer Control (kot »Poslji datoteko« v njem); tu spremljamo napredek do konca.
     function posljiNapravi(naprava, e) {
         koren.obvesti(koren.t("posPosiljam", { naprava: naprava.ime, ime: e.ime }))
-        koren.klic("posljiNapravi", [naprava.id, [e.pot]], function (r) {
+        koren.klic("posljiNapravi", [naprava.id, e.poti || [e.pot]], function (r) {
             if (!r || !r.ok) { koren.obvesti(koren.t("posNapaka", { naprava: naprava.ime })); return }
             if (r.stanje === "posiljam") posiljanje.dodaj(r.id, naprava, e.ime)
             else koren.obvesti(koren.t("posPoslano", { naprava: naprava.ime, ime: e.ime }))

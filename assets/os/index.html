@@ -145,10 +145,14 @@
                 <div class="pano-skupina"><b data-t="panoIskanje"></b>
                   <input id="panoIskanjeVnos" type="search" autocomplete="off" data-ph="panoIskanjePh"><div class="pano-zadetki" id="panoZadetki"></div></div>
                 <div class="pano-skupina"><b data-t="panoIdentitete"></b><div id="panoIdentitete"></div></div>
+                <div class="pano-skupina" id="panoSlikeSkupina" hidden><b data-t="panoSlike"></b><p class="drobno" data-t="panoSlikeVedno"></p>
+                  <button type="button" class="gumb" id="panoSlikePreklici" data-t="panoSlikePreklici"></button></div>
                 <div class="pano-skupina"><b data-t="panoPriponke"></b><div id="panoPriponke"><p class="drobno" data-t="panoNiPriponk"></p></div></div>
               </aside>
             </div>
+            <div class="priloge-cipi" id="sporocilaPriloge" hidden></div>
             <form class="sporocila-vnos" id="sporocilaVnos">
+              <button class="gumb-ikona" type="button" id="sporocilaPrilozi" data-naslov="prilozi" hidden><svg data-ikona="sponka"></svg></button>
               <textarea id="sporocilaBesedilo" rows="2" data-ph="napisiSporocilo" disabled></textarea>
               <button class="gumb glavni" type="submit" disabled><svg data-ikona="poslji"></svg><span data-t="posljiSporocilo"></span></button>
             </form>
@@ -178,7 +182,7 @@
           <div class="media-glava-dejanja">
             <button class="gumb" id="medijiDisk" type="button" hidden><svg data-ikona="disk"></svg><span id="medijiDiskIme" data-t="predvajajDisk"></span></button>
             <button class="media-ikona-gumb" id="medijiPredaja" type="button" data-naslov="mediaPredaja"><svg data-ikona="naprave"></svg></button>
-            <button class="media-ikona-gumb" id="medijiKavc" type="button" aria-pressed="false"><svg data-ikona="daljinec"></svg></button>
+            <button class="media-ikona-gumb" id="medijiKavc" type="button" aria-pressed="false"><svg data-ikona="celZaslon"></svg></button>
             <div class="media-dodaj">
               <button class="gumb glavni" id="medijiDodajMeniGumb" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="medijiDodajMeni"><svg data-ikona="plus"></svg><span data-t="mediaDodaj"></span></button>
               <div class="media-dodaj-meni" id="medijiDodajMeni" role="menu" hidden>
@@ -203,6 +207,8 @@
             <div class="media-nav-glava">
               <button class="gumb-ikona media-nav-skrci" id="mediaNavSkrci" type="button" aria-controls="mediaNav" aria-expanded="true"><svg data-ikona="vrstica"></svg></button>
             </div>
+            <!-- Drsi samo seznam, ne glava: drsnik je prej lezal cez gumb Skrci in klik ga ni dosegel (lastnik, 15. 10. 2026). -->
+            <div class="media-nav-drsno">
             <div class="media-nav-kategorije" id="mediaNavKategorije" role="tablist" aria-orientation="vertical"></div>
             <div class="media-nav-viri" id="mediaNavViri" hidden>
               <h2 class="media-nav-naslov" id="mediaNavViriNaslov" data-t="mediaViriNaslov"></h2>
@@ -211,6 +217,7 @@
             <!-- Skrij, kar uporabnik ne potrebuje (lastnik, 14. 10. 2026): plosca s potrditvenimi polji za zavihke in vire. -->
             <button class="media-nav-prilagodi" id="mediaNavPrilagodi" type="button" aria-haspopup="dialog" aria-controls="slojPrilagodi"><svg data-ikona="drsniki"></svg><span data-t="mediaPrilagodiMeni"></span></button>
             <button class="media-nav-prilagodi media-nav-skrij" id="mediaNavSkrij" type="button" aria-controls="mediaNav"><svg data-ikona="x"></svg><span data-t="mediaNavSkrij"></span></button>
+            </div>
           </nav>
           <div class="media-vsebina">
         <div class="media-orodna">
@@ -244,6 +251,7 @@
                 <div class="kat-orodja">
                   <label class="kat-razvrsti"><span data-t="katRazvrsti"></span><select id="mediaRazvrsti"></select></label>
                   <label class="kat-jezik" id="mediaJezikPolje" hidden><select id="mediaJezik"></select></label>
+                  <label class="kat-jezik" id="mediaDrzavaPolje" hidden><select id="mediaDrzava"></select></label>
                   <div class="kat-filter-viri">
                     <button class="gumb" id="mediaViriFilterGumb" type="button" aria-expanded="false" aria-controls="mediaViriFilter"></button>
                     <div class="kat-viri-filter" id="mediaViriFilter" hidden>
@@ -632,10 +640,21 @@
     <label class="drobno"><span data-t="novoOd"></span><select id="novoOd"></select></label>
     <input id="novoZa" type="email" autocomplete="email" data-ph="novoZa" required>
     <input id="novoZadeva" type="text" autocomplete="off" data-ph="novoZadeva" maxlength="300">
-    <textarea id="novoBesedilo" rows="14" data-ph="napisiSporocilo" required></textarea>
+    <textarea id="novoBesedilo" rows="14" data-ph="napisiSporocilo"></textarea>
+    <div class="priloge-vrstica"><button type="button" class="gumb" id="novoPrilozi"><svg data-ikona="sponka"></svg><span data-t="prilozi"></span></button>
+      <div class="priloge-cipi" id="novoPriloge" hidden></div></div>
     <p class="drobno" id="novoNapaka" hidden></p>
     <div class="gumbi"><button type="button" class="gumb" id="novoOdstrani" data-t="odstraniOsnutek" hidden></button><button type="button" class="gumb" id="novoPreklici" data-t="preklici"></button><button type="button" class="gumb" id="novoOsnutek" data-t="shraniOsnutek"></button><button class="gumb glavni" type="submit" data-t="posljiSporocilo"></button></div>
   </form>
+</div>
+
+<!-- Priponka, ki je lahko nevarna (program, skripta, dokument z makri): potrditev pred prenosom ali odpiranjem -->
+<div class="sloj" id="slojNevarno"><div class="tancica"></div>
+  <div class="plosca kanal-carovnik" role="alertdialog" aria-modal="true" aria-labelledby="nevarnoNaslov" aria-describedby="nevarnoOpis">
+    <h3 id="nevarnoNaslov" data-t="priponkaNevarnaNaslov"></h3>
+    <p class="drobno" id="nevarnoOpis"></p>
+    <div class="gumbi"><button type="button" class="gumb" id="nevarnoPreklici" data-t="preklici"></button><button type="button" class="gumb" id="nevarnoNadaljuj" data-t="priponkaVseeno"></button></div>
+  </div>
 </div>
 
 <!-- Safeer Chat: izbira naprave v Linku -->

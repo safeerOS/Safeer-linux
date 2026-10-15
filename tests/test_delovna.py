@@ -346,8 +346,9 @@ assert.strictEqual(privzetiZadetek([splet, { vrsta: "zapisek", z: { naslov: "Nak
         self.assertIn("posljiNaNapravo(naprava, poti);", blok)
         self.assertNotIn("premakniAliKopiraj", blok)
         self.assertNotIn("prilepiDatoteke", blok)
-        # Meni: ena datoteka in izbira vec datotek (mape niso poslane).
-        self.assertIn('if (!e.mapa) m.push([t("posljiNaNapravo"), function () { izberiNapravoInPoslji([e.pot]); }]);', js)
+        # Meni: ena datoteka in izbira vec datotek (mape niso poslane); samo, ko je kaksna naprava, ki sprejme
+        # (vedenje preverja test_priljubljeno.MeniDelovnePovrsine).
+        self.assertIn('if (!e.mapa && D.sprejmejo.length) m.push([t("posljiNaNapravo"), function () { izberiNapravoInPoslji([e.pot]); }]);', js)
         self.assertIn('var samoDatoteke = lok.filter(function (e) { return !e.mapa; });', js)
         self.assertIn('klic("posljiNapravi", [naprava.id, poti])', js)
         self.assertIn('klic("posljiStanje", [id])', js)
@@ -476,8 +477,9 @@ assert.strictEqual(izrisov, 9);
         # Stolpec je cilj samo med premikanjem plosce; spust mimo cilja nima ucinka.
         self.assertIn('s.addEventListener("dragover", function (e) { if (!vlecemPlosco) return;', js)
         self.assertIn('e.dataTransfer.dropEffect = "none";', js)
-        # Safeer OS: poti si zapomni samo pogled delovne povrsine; ven ponudi samo standardni seznam naslovov.
-        self.assertIn('if stran.startswith("delovna.html"):', py)
+        # Safeer OS: poti si zapomni pogled delovne povrsine in Sporocil (priloge, 15. 10. 2026); ven ponudi samo
+        # standardni seznam naslovov.
+        self.assertIn('if stran.startswith(("delovna.html", "index.html")):', py)
         # GTK4: poti iz Gdk.Drop ob vstopu (DropControllerMotion spusta ne prevzame - spust ostane WebKitu).
         self.assertIn("vlecenje = Gtk.DropControllerMotion()", py)
         self.assertIn('vlecenje.connect("enter", lambda k, *_a: self._na_vlecene_podatke(pogled, k.get_drop()))', py)

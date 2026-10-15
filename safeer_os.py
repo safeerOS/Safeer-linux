@@ -64,6 +64,7 @@ from core import (os_datoteke, os_govor, os_katalog, os_knjiznica, os_lupa, os_o
 from core import budnost, gostitelj, odlozisce_varuh, os_iskalnik, os_odpri_z, os_pretvorba_datotek  # noqa: E402
 from core import media_servers  # noqa: E402
 from core import os_dock  # noqa: E402
+from core import priljubljeno  # noqa: E402
 from core import os_lupina  # noqa: E402
 from core import x11  # noqa: E402
 from core.sporocila import vklop as sporocila_vklop  # noqa: E402
@@ -186,6 +187,80 @@ def _jezik() -> str:
             lang = vrednost.split(":")[0].replace("-", "_").split(".")[0].split("_")[0].strip().lower()[:2]
             return lang if lang in ("sl", "en", "de", "es", "fr", "it") else "en"
     return "en"
+
+
+def _opis_prilog(poti) -> list:
+    """Priloge za cipe pod vnosom sporocila: samo obstojece datoteke (ne mape), z imenom in velikostjo."""
+    izid = []
+    for pot in list(poti or [])[:50]:
+        pot = os.path.realpath(os.path.expanduser(str(pot or "")))
+        if os.path.isfile(pot):
+            izid.append({"pot": pot, "ime": os.path.basename(pot), "velikost": os.path.getsize(pot)})
+    return izid
+
+
+def _posrednik_slik(url: str) -> str:
+    """Posrednik za slike s spleta v pismih - isti, kot ga uporablja Splet: Safeerjev lasten posrednik
+    (secure_proxy_mode »custom«), sicer sistemske nastavitve namizja (Gio.ProxyResolver: rocno, PAC, okolje).
+    "" = neposredno. Ce posrednika ni mogoce ugotoviti, vrne neuporabnega - slike se ne nalozijo (nikoli mimo)."""
+    try:
+        from core.config import ConfigManager
+        nastavitve = ConfigManager()
+        lasten = str(nastavitve.get("secure_proxy_url", "") or "").strip()
+        if nastavitve.get("secure_proxy_mode", "disabled") == "custom" and lasten:
+            return lasten
+    except Exception:  # noqa: BLE001
+        return "neznan://"
+    try:
+        seznam = Gio.ProxyResolver.get_default().lookup(url, None) or []
+    except Exception:  # noqa: BLE001
+        return "neznan://"
+    prvi = str(seznam[0]) if seznam else "direct://"
+    return "" if prvi.startswith("direct://") else prvi
+
+
+def _razresevalnik_slik(nastavitve=None):
+    """Razresevanje imen slik s spleta v pismih: ce je v Safeerju vklopljen sifriran DNS (doh_enabled + ponudnik),
+    prek istega ponudnika DoH kot Splet (core/doh_proxy.DoHResolver) - sicer bi ponudnik interneta videl, katere
+    strežnike pismo klice. Ce DoH ime ne razresi, slike ni (brez vrnitve na sistemski DNS). Brez DoH: sistemski DNS."""
+    try:
+        if nastavitve is None:
+            from core.config import ConfigManager
+            nastavitve = ConfigManager()
+        vklopljen = bool(nastavitve.get("doh_enabled", True)) and nastavitve.get("doh_provider", "cloudflare") != "disabled"
+    except Exception:  # noqa: BLE001
+        vklopljen = True                                     # nastavitev ni mogoce prebrati: raje sifrirano
+        nastavitve = None
+    if not vklopljen:
+        return socket.getaddrinfo
+    from core import doh_proxy
+    ponudnik = nastavitve.get("doh_provider", "cloudflare") if nastavitve is not None else "cloudflare"
+    lasten = nastavitve.get("custom_doh_url", "") if nastavitve is not None else ""
+    razresevalnik = doh_proxy._global_resolver         # isti (in isti predpomnilnik) kot Splet, ce ze tece
+    if razresevalnik is None:
+        razresevalnik = doh_proxy.DoHResolver(ponudnik, lasten)
+    else:
+        razresevalnik.set_provider(ponudnik, lasten)
+
+    def razresi(ime, _vrata=None):
+        try:
+            ip = razresevalnik.resolve(str(ime))
+        except Exception:  # noqa: BLE001
+            ip = None
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, 0))] if ip else []
+    return razresi
+
+
+def _velikost_napis(b: int) -> str:
+    """»2,4 MB« za podnaslov okna predogleda (enake enote kot stran)."""
+    if b <= 0:
+        return ""
+    enote, v = ["B", "kB", "MB", "GB"], float(b)
+    i = 0
+    while v >= 1024 and i < len(enote) - 1:
+        v /= 1024
+        i += 1
+    return ("%d %s" % (v, enote[i])) if i == 0 or v >= 10 else ("%.1f %s" % (v, enote[i])).replace(".", ",")
 
 
 def _ime_sistema() -> str:
@@ -755,6 +830,23 @@ def naprave_za_posiljanje() -> list:
     return [{"id": n.get("id", ""), "ime": n.get("ime", ""), "platforma": n.get("platforma", ""),
              "vrsta": n.get("vrsta", "")}
             for n in izid.get("naprave") or [] if n.get("id") and not n.get("ta") and "file" in (n.get("zmoznosti") or [])]
+
+
+def pretvorba_za_tv_mozna(najdi=None) -> dict:
+    """»Pretvori za televizor« dela, ce tece Safeer Control in video pretvori ta racunalnik (ffmpeg, rezerva v
+    core/link_pretvorba._lokalno) ali naprava v Linku, ki pretvorbo zna (ne namizna, z datotekami - kot
+    razvrsti_naprave). Brez tega vnos ne bi deloval (lastnik, 15. 10. 2026: »nimamo nedelujocih ikon«).
+    "shramba": »Shrani na napravo« dela samo z enako napravo (core/link_shramba: ne namizna, z datotekami) - brez
+    rezerve na tem racunalniku, zato ffmpeg tu ne steje."""
+    namizne = ("linux", "windows", "macos")     # core/link_pretvorba.NAMIZNE (modul je v paketu Controla, ne OS)
+    izid = _control_naprave("Seznam")
+    if not izid.get("ok"):
+        return {"ok": False, "shramba": False, "koda": izid.get("koda") or "ni_controla"}
+    naprave = [n for n in izid.get("naprave") or [] if not n.get("ta") and "files" in (n.get("zmoznosti") or [])
+               and n.get("platforma") not in namizne]
+    import shutil
+    lokalno = bool((najdi or shutil.which)("ffmpeg"))
+    return {"ok": lokalno or bool(naprave), "lokalno": lokalno, "naprave": len(naprave), "shramba": bool(naprave)}
 
 
 def datoteke_naprave(id_naprave: str, mapa: str = "") -> dict:
@@ -1441,10 +1533,21 @@ class SafeerOS(Gtk.Application):
         self.lupa = os_lupa.Ucenje()
         self.govor = os_govor.Govor()
         self.sporocila = os_sporocila.SporocilaOS()
+        # Predpomnilnika: priponke Sporocil (LRU do 500 MB, core/sporocila/predpomnilnik.py) in pretvorbe krajevnih
+        # datotek za predogled (starejse od tedna in prek 400 MB).
+        def _pocisti_predpomnilnika() -> None:
+            from core import predogled_datotek
+            from core.sporocila import predpomnilnik
+            predpomnilnik.pocisti()
+            predogled_datotek.pocisti_predpomnilnik()
+        threading.Thread(target=_pocisti_predpomnilnika, name="safeer-priponke-ciscenje", daemon=True).start()
         # Safeer Chat gre po Linku, ki ga drzi Safeer Control (D-Bus).
         self.sporocila.poslji_klepet = lambda n, b, c: _control_naprave("Klepet", n, b, c).get("stanje") \
             or _control_naprave_koda("Klepet")
         self.sporocila.naprave_klepeta = lambda: _control_naprave("KlepetNaprave").get("naprave") or []
+        # Novo sporocilo, oznake, stanje kanala: odprte strani (razdelek Sporocila, plosca) se osvezijo takoj (niti
+        # kanalov v realnem casu - lastnik, 15. 10. 2026), ne sele ob 30-sekundnem osvezevanju strani.
+        os_sporocila.ob_spremembi(lambda: GLib.idle_add(lambda: (self._dogodek("sporocila", {}), False)[1]))
         #: Scit: filtriranje DNS za ves racunalnik; ce je bil vklopljen, tece od zagona naprej.
         self.scit = os_scit.Scit(self.shramba)
         # Posodobitve s safeer.si: zadnja preverba (izid, cas) in tekoce posodabljanje (prenos + namestitev v niti).
@@ -1936,7 +2039,8 @@ class SafeerOS(Gtk.Application):
         pogled.set_hexpand(True)
         pogled.set_vexpand(True)
         pogled.connect("context-menu", lambda *a: True)   # brez »Reload / Inspect« v preobleki
-        if stran.startswith("delovna.html"):   # Datoteke na delovni povrsini sprejmejo datoteke iz drugih programov
+        # Datoteke na delovni povrsini sprejmejo datoteke iz drugih programov, Sporocila (index.html) priloge.
+        if stran.startswith(("delovna.html", "index.html")):
             # GTK4: signala drag-data-received ni; DropControllerMotion vlecenja ne prevzame (spust ostane WebKitu).
             vlecenje = Gtk.DropControllerMotion()
             vlecenje.connect("enter", lambda k, *_a: self._na_vlecene_podatke(pogled, k.get_drop()))
@@ -2212,8 +2316,8 @@ class SafeerOS(Gtk.Application):
 
         def delo() -> None:
             try:
-                seznam = self.sporocila.seznam()
-                n = spletni + sum(int(s.get("neprebrano") or 0) for s in seznam.get("skupine") or [])
+                # Zadnje znano stevilo iz baze (pravo ze ob zagonu, preden se kanali povezejo), brez branja nabiralnika.
+                n = spletni + int(self.sporocila.neprebrano_skupaj())
             except Exception as e:  # noqa: BLE001 - brez Sporocil kuverta ostane brez stevila
                 print("[SafeerOS] kuverta:", e)
                 n = 0
@@ -2954,6 +3058,113 @@ class SafeerOS(Gtk.Application):
         poti, self._vlecene_poti = list(self._vlecene_poti), []
         return poti
 
+    # ------------------------------------------------------------------ priponke in predogled (Sporocila)
+    def _predogled(self):
+        """Eno okno predogleda za ves Safeer OS (core/os_predogled.py), ustvarjeno ob prvi uporabi."""
+        if getattr(self, "_okno_predogleda", None) is None:
+            from core import os_predogled
+            self._okno_predogleda = os_predogled.OknoPredogleda(
+                Gtk, Gdk, GLib, WebKit2, _jezik,
+                # Povezava iz PDF ali pisma: kot povezava v sporocilu (Splet v glavnem oknu, sicer privzeti brskalnik).
+                odpri_povezavo=lambda u: self._splet(u, True) if self.okno is not None else self._odpri_v_brskalniku(u),
+                odpri_v_programu=os_datoteke.odpri, pokazi_v_mapi=os_datoteke.pokazi_v_mapi)
+        return self._okno_predogleda
+
+    def _okno_pogleda(self, pogled):
+        """Okno, nad katerim se odpre predogled ali izbira datotek: okno strani (WebKit), sicer glavno okno (lupina
+        QML nima Gtk okna)."""
+        koren = pogled.get_root() if pogled is not None and hasattr(pogled, "get_root") else None
+        return koren if isinstance(koren, Gtk.Window) else (self.okno or getattr(self, "okno_delovna", None))
+
+    def _napredek_priponke(self, kanal: str, sid: str, kljuc: str, delez: float) -> None:
+        self._dogodek("priponkaNapredek", {"kanal": kanal, "sid": sid, "kljuc": kljuc, "delez": round(float(delez), 3)})
+
+    def _prenesi_priponko(self, kanal: str, sid: str, kljuc: str) -> dict:
+        izid = self.sporocila.priponka_prenesi(kanal, sid, kljuc,
+                                               napredek=lambda d: self._napredek_priponke(kanal, sid, kljuc, d))
+        os_iskalnik.zastarel()                          # nova datoteka v Prejemih: iskanje jo najde
+        return izid
+
+    def _predogled_priponke(self, pogled, kanal: str, sid: str, kljuc: str) -> bool:
+        from core import predogled_datotek
+        _a, _s, p = self.sporocila._najdi_priponko(kanal, sid, kljuc)
+        ime, tip = str(p.get("ime") or ""), str(p.get("tip") or "")
+        jezik = _jezik()
+        vrsta = predogled_datotek.vrsta_predogleda(ime, tip)
+        velikost = int(p.get("velikost") or 0)
+
+        def prenesi() -> str:
+            izid = self._prenesi_priponko(kanal, sid, kljuc)
+            self._dogodek("priponkaShranjena", {"kanal": kanal, "sid": sid, "kljuc": kljuc, "pot": izid["pot"]})
+            return izid["pot"]
+        okno = self._predogled()
+        rod = okno.odpri(ime, self._okno_pogleda(pogled),
+                         _velikost_napis(velikost), prenesi, predogled_datotek.je_nevarna(ime, tip))
+
+        def delo() -> None:
+            try:
+                if vrsta == "nevarno":
+                    # Programa ali skripte ne prenesemo niti v predpomnilnik: samo opozorilo (prenos je v glavi okna).
+                    izid, pot = predogled_datotek.pripravi("", ime, tip, jezik), ""
+                else:
+                    pot, _p = self.sporocila.priponka_v_predpomnilnik(
+                        kanal, sid, kljuc, napredek=lambda d: self._napredek_priponke(kanal, sid, kljuc, d))
+                    # PDF iz LibreOffice ostane ob priponki: drugo odprtje brez ponovne pretvorbe.
+                    izid = predogled_datotek.pripravi(pot, ime, tip, jezik,
+                                                      mapa_pretvorbe=self.sporocila.mapa_vnosa(kanal, sid, kljuc))
+                GLib.idle_add(lambda: (okno.pokazi(rod, izid, pot), False)[1])
+            except ValueError as e:
+                koda = "ni_povezave" if "povezave" in str(e) else "napaka"
+                GLib.idle_add(lambda: (okno.napaka(rod, predogled_datotek.besedilo(koda, jezik)), False)[1])
+        threading.Thread(target=delo, name="safeer-predogled-priponke", daemon=True).start()
+        return True
+
+    def _predogled_pisma(self, pogled, kanal: str, sid: str, naslov: str = "") -> bool:
+        """»Prikazi izvirnik«: HTML pisma kot v Gmailu (slike v vrstici iz pisma, oddaljene skrite, brez skript)."""
+        from core import predogled_datotek
+        from core.sporocila import predpomnilnik
+        jezik = _jezik()
+        okno = self._predogled()
+        rod = okno.odpri(naslov or kanal, self._okno_pogleda(pogled))
+
+        def je_blokirano(url: str) -> bool:
+            # Oddaljene slike: isti seznami oglasov, sledilcev in groženj kot v Spletu.
+            from core import adblock
+            return adblock.is_ad_domain(url) or adblock.is_threat_domain(url)
+
+        def delo(slike: bool = False) -> None:
+            try:
+                r = self.sporocila.html_pisma(kanal, sid, jezik, slike=slike, je_blokirano=je_blokirano,
+                                              posrednik=_posrednik_slik, razresi=_razresevalnik_slik())
+                izid = {"nacin": "html", "html": r["html"],
+                        "osnova": GLib.filename_to_uri(predpomnilnik.koren(), None) + "/"}
+                vrstica = None if r["prikazane"] else {"skritih": r["skritih"], "posiljatelj": r["posiljatelj"],
+                                                       "prikazi": prikazi}
+                GLib.idle_add(lambda: (okno.pokazi(rod, izid, "", vrstica), False)[1])
+            except ValueError as e:
+                koda = "ni_povezave" if "povezave" in str(e) else "napaka"
+                GLib.idle_add(lambda: (okno.napaka(rod, predogled_datotek.besedilo(koda, jezik)), False)[1])
+
+        def prikazi(vedno: bool) -> None:
+            """»Prikazi slike« ali »Vedno prikazi od …« (ta izbira ostane po naslovu posiljatelja; preklic v podoknu)."""
+            if vedno:
+                try:
+                    self.sporocila.nastavi_slike_od(self.sporocila.html_posiljatelj(kanal, sid), True)
+                    self._dogodek("sporocilaSlikeOd", self.sporocila.slike_od.seznam())
+                except ValueError:
+                    pass
+            threading.Thread(target=delo, args=(True,), name="safeer-predogled-slike", daemon=True).start()
+        threading.Thread(target=delo, name="safeer-predogled-pisma", daemon=True).start()
+        return True
+
+    def _predogled_datoteke(self, pogled, pot: str) -> bool:
+        """Predogled krajevne datoteke (za Datoteke in namizje QML - ista komponenta kot priponke)."""
+        pot = os.path.realpath(os.path.expanduser(pot or ""))
+        if not os.path.isfile(pot):
+            return False
+        self._predogled().odpri_datoteko(pot, self._okno_pogleda(pogled))
+        return True
+
     def _na_politiko(self, _pogled, odlocitev, vrsta) -> bool:
         """Pogled sme prikazati samo stran Safeer OS (most ne sme k tuji strani)."""
         try:
@@ -3211,8 +3422,8 @@ class SafeerOS(Gtk.Application):
         nadzor = getattr(self, "_nadzor_map", None)
         if nadzor is None:
             nadzor = self._nadzor_map = os_datoteke.NadzorMap(
-                lambda spremenjen: self._dogodek("datoteke", {"pot": spremenjen}),
-                lambda: self._dogodek("nosilci", None))
+                lambda spremenjen: (self._dogodek("datoteke", {"pot": spremenjen}), self._priljubljene_osvezi_v_ozadju()),
+                lambda: (self._dogodek("nosilci", None), self._priljubljene_osvezi_v_ozadju()))
             try:
                 # Seznam nedavnih vodi GTK in spremembo javi sam (datoteka, odprta ali shranjena v drugem programu).
                 _nedavni().connect(
@@ -3380,6 +3591,12 @@ class SafeerOS(Gtk.Application):
                 bool(a[3]) if len(a) > 3 and a[3] is not None else None),
             "zapisekIzbrisi": lambda: self.zapiski.izbrisi(str(a[0]) if a else ""),
             "sporocilaSeznam": lambda: self.sporocila.seznam(str(a[0]) if a else ""),
+            # Predogled v oknu Safeer OS (core/os_predogled.py): okno takoj, prenos in priprava v ozadju.
+            "sporocilaPredogled": lambda: self._predogled_priponke(pogled, *[str(x) for x in (list(a) + ["", "", ""])[:3]]),
+            "sporocilaIzvirnik": lambda: self._predogled_pisma(pogled, *[str(x) for x in (list(a) + ["", "", ""])[:3]]),
+            # Celo okno predogleda (core/os_predogled.py) za krajevno datoteko; »predogledDatoteke« je podatek za
+            # predogled s preslednico v Datotekah (os_datoteke.predogled) - imeni sta locena, da se ne prekrijeta.
+            "predogledOkno": lambda: self._predogled_datoteke(pogled, str(a[0]) if a else ""),
             "samozagon": lambda: self._samozagon(bool(a[0])) if a else je_samozagon(),
             "nazajVMint": lambda: self._nazaj_v_mint(bool(a[0]) if a else False),
             # Razdelek izbira postavitev GLAVNEGA okna (vgrajeni Splet); Safeer Player ima samo Medijski center.
@@ -3418,6 +3635,19 @@ class SafeerOS(Gtk.Application):
             "predlogeDatotek": os_datoteke.predloge,
             "preimenujDatoteko": lambda: os_datoteke.preimenuj(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "vSmeti": lambda: os_datoteke.v_smeti(str(a[0]) if a else ""),
+            # Izbira vec datotek v Datotekah: vse v Smeti z enim zapisom za Razveljavi (idji).
+            "vSmetiVec": lambda: os_datoteke.v_smeti_vec(a[0] if a and isinstance(a[0], list) else []),
+            # Preslednica v Datotekah: slika, zacetek besedila (najvec 200 KB, ne binarno), prva stran PDF, medij.
+            "predogledDatoteke": lambda: os_datoteke.predogled(str(a[0]) if a else ""),
+            # Priljubljene datoteke, mape in programi (core/priljubljeno.py): en zapis za namizje QML in delovno
+            # povrsino; sprememba gre obema kot dogodek »priljubljeno«.
+            "priljubljenoSeznam": lambda: self._priljubljeno().stanje(),
+            "priljubljenoPreklopi": lambda: self._priljubljeno().preklopi(
+                str(a[0]) if a else "", a[1] if len(a) > 1 else None, a[2] if len(a) > 2 and isinstance(a[2], bool) else None),
+            "priljubljenoVrstniRed": lambda: self._priljubljeno().vrstni_red(str(a[0]) if a else "", a[1] if len(a) > 1 else None),
+            "priljubljenoKategorija": lambda: self._priljubljeno().kategorija(str(a[0]) if a else "", str(a[1]) if len(a) > 1 and a[1] else ""),
+            "priljubljenoNastavi": lambda: self._priljubljeno().nastavi(str(a[0]) if a else "", a[1] if len(a) > 1 else None),
+            "priljubljenoPreseli": lambda: self._priljubljeno().preseli(a[0] if a and isinstance(a[0], dict) else {}),
             "prostorDiska": lambda: os_datoteke.prostor(),
             "igreOblak": lambda: os_oblak_igre.stanje(),
             "igreOblakNamesti": lambda: os_oblak_igre.namesti(str(a[0]) if a else ""),
@@ -3519,6 +3749,8 @@ class SafeerOS(Gtk.Application):
                                                                               str(a[1]) if len(a) > 1 else ""),
             "pretvorbaDatotekeStanje": lambda: os_pretvorba_datotek.pretvorbe().stanje(str(a[0]) if a else ""),
             "pretvoriVideo": lambda: _control_naprave("PretvorbaZacni", str(a[0]) if a else ""),
+            # Ali »Pretvori za televizor« ta trenutek deluje (vnos menija se sicer ne pokaze).
+            "pretvorbaZaTvMozna": pretvorba_za_tv_mozna,
             "pretvorbaStanje": lambda: _control_naprave("PretvorbaStanje", str(a[0]) if a else ""),
             "pretvorbaPrenesi": lambda: _control_naprave("PretvorbaPrenesi", str(a[0]) if a else ""),
             "pretvorbaPusti": lambda: _control_naprave("PretvorbaPusti", str(a[0]) if a else ""),
@@ -3556,15 +3788,29 @@ class SafeerOS(Gtk.Application):
             "scitDovoli": lambda: self.scit.dovoli(str(a[0]) if a else "", bool(a[1]) if len(a) > 1 else True),
             "scitPremor": lambda: self.scit.premor(a[0] if a and isinstance(a[0], (int, float)) and not isinstance(a[0], bool) else 0),
             "sporocilaDodaj": lambda: self.sporocila.dodaj_kanal(a[0] if a and isinstance(a[0], dict) else {}),
-            "sporocilaPoslji": lambda: self.sporocila.poslji(str(a[0]), str(a[1]), str(a[2])),
+            "sporocilaPoslji": lambda: self.sporocila.poslji(str(a[0]), str(a[1]), str(a[2]),
+                                                             a[3] if len(a) > 3 and isinstance(a[3], list) else None),
             "sporocilaNovo": lambda: self.sporocila.novo(str(a[0]), str(a[1]), str(a[2]), str(a[3]),
-                                                         str(a[4]) if len(a) > 4 else ""),
+                                                         str(a[4]) if len(a) > 4 else "",
+                                                         a[5] if len(a) > 5 and isinstance(a[5], list) else None),
+            # Priponke (lastnik, 15. 10. 2026: »uporabnik ne sme pogresati Gmaila ali Outlooka«): prenos v Prejemi z
+            # napredkom (dogodek priponkaNapredek) in slicice slik. »Odpri v programu« je samo v oknu predogleda, kjer
+            # nevarno datoteko odpre sele po potrditvi.
+            "sporocilaPrenesiPriponko": lambda: self._prenesi_priponko(*[str(x) for x in (list(a) + ["", "", ""])[:3]]),
+            "sporocilaPrenesiVse": lambda: self.sporocila.priponke_prenesi_vse(
+                str(a[0]), str(a[1]), napredek=lambda k, d: self._napredek_priponke(str(a[0]), str(a[1]), k, d)),
+            "sporocilaSlicicaPriponke": lambda: (lambda pot: GLib.filename_to_uri(pot, None) if pot else "")(
+                self.sporocila.priponka_slicica(str(a[0]), str(a[1]), str(a[2]))),
+            "opisPrilog": lambda: _opis_prilog(a[0] if a and isinstance(a[0], list) else []),
+            # »Vedno prikazi slike od …«: preklic (ali vklop) v podoknu osebe; lokalno, po naslovu posiljatelja.
+            "sporocilaSlikeOd": lambda: self.sporocila.nastavi_slike_od(str(a[0]) if a else "", bool(a[1]) if len(a) > 1 else False),
             "sporocilaOsnutki": self.sporocila.uskladi_osnutke,
             "sporocilaShraniOsnutek": lambda: self.sporocila.shrani_osnutek(a[0] if a and isinstance(a[0], dict) else {}),
             "sporocilaOdstraniOsnutek": lambda: self.sporocila.odstrani_osnutek(str(a[0]) if a else ""),
             "sporocilaSinhroniziraj": self.sporocila.sinhroniziraj,
             "sporocilaIsci": lambda: self.sporocila.isci(str(a[0]) if a else ""),
             "sporocilaPogovor": lambda: self.sporocila.pogovor(str(a[0]), str(a[1])),
+            "sporocilaPreklici": lambda: self.sporocila.preklici(str(a[0]), str(a[1]), str(a[2])),
             "sporocilaSkrivnost": lambda: self.sporocila.nastavi_skrivnost(str(a[0]), str(a[1])),
             "sporocilaOdstrani": lambda: self.sporocila.odstrani_kanal(str(a[0])),
             "sporocilaStreznik": lambda: self.sporocila.privzeta_streznika(str(a[0]) if a else ""),
@@ -3612,12 +3858,25 @@ class SafeerOS(Gtk.Application):
             "kanalIzberiProgram": lambda konec: self._izberi_poti(
                 str(a[0]) if a else "", pogled.get_root() if hasattr(pogled, "get_root") else self.okno, "datoteka",
                 lambda poti: konec(poti[0] if poti else "")),
+            # »Prilozi« v Sporocilih: sistemsko okno za vec datotek; stran dobi ime in velikost (cipi pod vnosom).
+            "izberiPriloge": lambda konec: self._izberi_poti(
+                str(a[0]) if a else "", self._okno_pogleda(pogled), "datoteke",
+                lambda poti: konec(_opis_prilog(poti)), potrdi=str(a[1]) if len(a) > 1 else ""),
         }
         if metoda == "izprazniSmeti":
             # Trajni izbris: potrditev v sistemskem oknu na glavni niti (stran je ne more preskociti), brisanje v ozadju.
             def delo_smeti():
                 try:
-                    self._odgovori(pogled, id_, True, dict(os_datoteke.izprazni_smeti(), potrjeno=True))
+                    # Kar je bilo v Smeteh, je zdaj trajno izbrisano: zapisi priljubljenih zanj gredo. Samo za tisto,
+                    # cesar po praznjenju res ni vec v Smeteh (delno praznjenje: ostalo se da se obnoviti).
+                    izvirne = {str(e.get("izvirna") or "") for e in os_datoteke.smeti().get("elementi") or []}
+                    izid = os_datoteke.izprazni_smeti()
+                    try:
+                        ostale = {str(e.get("izvirna") or "") for e in os_datoteke.smeti().get("elementi") or []}
+                        self._priljubljeno().odstrani_poti(sorted(x for x in izvirne - ostale if x))
+                    except Exception as e:  # noqa: BLE001
+                        print("[SafeerOS] priljubljene:", e)
+                    self._odgovori(pogled, id_, True, dict(izid, potrjeno=True))
                 except Exception as e:  # noqa: BLE001
                     print("[SafeerOS] izprazni smeti:", e)
                     self._odgovori(pogled, id_, False, str(e))
@@ -3668,6 +3927,7 @@ class SafeerOS(Gtk.Application):
                     izid = ozadje[metoda]()
                     if metoda in self.SPREMINJAJO_DATOTEKE:
                         os_iskalnik.zastarel()      # naslednje iskanje naj indeks datotek obnovi
+                        self._priljubljene_sledijo(metoda, a, izid)
                     self._odgovori(pogled, id_, True, izid)
                 except Exception as e:  # noqa: BLE001
                     print("[SafeerOS]", metoda, e)
@@ -3677,9 +3937,44 @@ class SafeerOS(Gtk.Application):
             self._odgovori(pogled, id_, False, "neznano")
 
     #: Metode mostu, po katerih je indeks imen datotek (core/os_iskalnik.py) zastarel.
-    SPREMINJAJO_DATOTEKE = frozenset({"novaMapa", "novaDatoteka", "preimenujDatoteko", "vSmeti", "prilepiDatoteke",
+    SPREMINJAJO_DATOTEKE = frozenset({"novaMapa", "novaDatoteka", "preimenujDatoteko", "vSmeti", "vSmetiVec", "prilepiDatoteke",
                                       "obnoviIzSmeti", "razveljaviDatoteke", "nadaljujTukaj",
                                       "prenesiDatotekoNaprave"})
+
+    def _priljubljeno(self) -> "priljubljeno.Priljubljeno":
+        """Shramba priljubljenih; vsaka sprememba gre obema namizjema (QML in WebKit) kot dogodek »priljubljeno«."""
+        return priljubljeno.shramba(lambda stanje: self._dogodek("priljubljeno", stanje))
+
+    def _priljubljene_sledijo(self, metoda: str, a: list, izid) -> None:
+        """Preimenovana ali premaknjena datoteka (tudi z Razveljavi) ostane priljubljena na novem mestu."""
+        try:
+            pari = (priljubljeno.premaknjeno_po_razveljavitvi(a[0] if a else {}, izid) if metoda == "razveljaviDatoteke"
+                    else priljubljeno.premaknjeno_po_dejanju(metoda, a, izid))
+            if pari:
+                self._priljubljeno().premaknjeno(pari)
+            # V Smeti, obnova (Obnovi, Razveljavi), premik: vidne priljubljene so se lahko spremenile.
+            self._priljubljeno().osvezi()
+        except Exception as e:  # noqa: BLE001 - priljubljene ne smejo podreti dejanja z datotekami
+            print("[SafeerOS] priljubljene:", e)
+
+    def _priljubljene_osvezi_v_ozadju(self) -> None:
+        """Disk priklopljen/odklopljen ali mapa spremenjena zunaj: priljubljene na njem se pokazejo ali skrijejo.
+        Zdruzeno: kopiranje 1000 datotek v spremljano mapo da 1000 sprememb - ena osvezitev po 0,7 s, ne 1000 niti."""
+        if getattr(self, "_prilj_caka", False):
+            return
+        self._prilj_caka = True
+
+        def delo():
+            self._prilj_caka = False
+            try:
+                self._priljubljeno().osvezi()
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] priljubljene:", e)
+
+        def zazeni():
+            threading.Thread(target=delo, daemon=True, name="safeer-priljubljene").start()
+            return False
+        GLib.timeout_add(700, zazeni)
 
     #: Besedila sistemskega okna za trajni izbris (naslov, opis, preklic, potrditev).
     BESEDILA_SMETI = {

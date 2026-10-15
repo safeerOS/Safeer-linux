@@ -170,6 +170,11 @@
     }
   });
   document.addEventListener("keydown", naTipko);
+  // F11: standardna tipka za cel zaslon v Medijskem centru in Safeer Playerju.
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "F11" || e.ctrlKey || e.altKey || e.metaKey || !document.getElementById("medijiKavc")) return;
+    e.preventDefault(); nastaviKavc(!kavc());
+  });
 
   // ------------------------------------------------------------------ igralni plosek
   var plosek = { stanje: {}, cas: {} };
@@ -217,7 +222,10 @@
     if (!g) return;
     g.setAttribute("aria-pressed", vklop ? "true" : "false");
     g.setAttribute("aria-label", besedilo("kavcVklop"));
-    g.title = besedilo(vklop ? "kavcIzklop" : "kavcVklop");
+    g.title = besedilo(vklop ? "kavcIzklop" : "kavcVklop") + " (F11)";
+    // Ikona pove, kaj naredi klik: vstop v cel zaslon ali izhod (standard kot v predvajalnikih in brskalnikih).
+    var svg = g.querySelector("svg"), ime = vklop ? "celZaslonIzhod" : "celZaslon", pot = window.SafeerIkone && window.SafeerIkone[ime];
+    if (svg && pot) { svg.setAttribute("data-ikona", ime); svg.innerHTML = '<path d="' + pot + '"/>'; }
   }
   function nastaviKavc(vklop) {
     vklop = !!vklop;

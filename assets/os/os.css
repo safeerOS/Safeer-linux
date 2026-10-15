@@ -344,6 +344,56 @@ h2 .dodatno + .dodatno { margin-left: 14px; }
 .mehurcek time { display:block; color:var(--medlo); font-size:11px; margin-top:5px; text-align:right; -webkit-user-select: none; user-select: none; cursor: default; }
 .mehurcek.fokus-tipke:focus { outline: 2px solid var(--zelena); outline-offset: 2px; }
 .mehurcek.s-kodo { max-width:94%; align-self:stretch; }
+/* Priponke pod mehurckom (15. 10. 2026): cip = ikona ali slicica, ime, velikost; gumb za prenos; napredek kot crta. */
+.priponke { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; white-space:normal; -webkit-user-select:none; user-select:none; cursor:default; }
+.priponka { position:relative; display:flex; align-items:stretch; min-width:0; max-width:300px; border:1px solid var(--rob);
+  border-radius:12px; background:var(--kartica-polna); overflow:hidden; }
+.priponka.nevarna { border-color:var(--opozorilo); }
+.priponka-odpri { display:flex; align-items:center; gap:10px; min-width:0; flex:1; padding:8px 10px; background:none; color:inherit; text-align:left; }
+.priponka-odpri:hover, .priponka-odpri:focus-visible { background:var(--kartica-poudarek); }
+.priponka-odpri:focus-visible, .priponka-prenesi:focus-visible { outline:2px solid var(--fokus); outline-offset:-2px; }
+.priponka-ikona { flex:none; width:34px; height:34px; display:grid; place-items:center; border-radius:8px; background:var(--izbrano); color:var(--zelena); overflow:hidden; }
+.priponka-ikona svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.priponka.nevarna .priponka-ikona { color:var(--opozorilo); }
+.priponka.s-sliko .priponka-ikona { width:56px; height:56px; }
+.priponka-ikona img { width:100%; height:100%; object-fit:cover; }
+.priponka-besedilo { min-width:0; display:flex; flex-direction:column; }
+.priponka-besedilo b { font-size:13px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.priponka-besedilo small { font-size:11px; color:var(--medlo); }
+.priponka-prenesi.gumb-ikona { flex:none; width:38px; height:auto; border-radius:0; background:none; border-left:1px solid var(--tanka); color:var(--medlo); }
+.priponka-prenesi svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.priponka-prenesi:hover { color:var(--besedilo); background:var(--kartica-poudarek); }
+.priponka.shranjeno .priponka-prenesi { color:var(--ok); }
+.priponka-napredek { position:absolute; left:0; bottom:0; height:3px; width:var(--napredek, 0%); background:var(--zelena); opacity:0; }
+.priponka.prenasam .priponka-napredek { opacity:1; }
+.priponka.prenasam .priponka-prenesi { pointer-events:none; opacity:.5; }
+@media (prefers-reduced-motion: no-preference) { .priponka-napredek { transition: width .2s linear; } }
+.priponke-dejanja { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; white-space:normal; -webkit-user-select:none; user-select:none; }
+.priponke-dejanja .gumb { padding:6px 10px; font-size:12px; display:inline-flex; align-items:center; gap:6px; }
+.priponke-dejanja .gumb svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.priponke-pano { flex-direction:column; margin-top:0; }
+.priponke-pano .priponka { max-width:100%; }
+.pogovor-vrstica .sponka { display:inline-grid; place-items:center; margin:6px 0 0 6px; color:var(--medlo); vertical-align:top; }
+.pogovor-vrstica .sponka svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+/* Priloge pri pisanju: cipi z imenom, velikostjo in ×; spust datotek obarva obrazec. */
+.priloge-cipi { display:flex; flex-wrap:wrap; gap:6px; padding:8px 14px 0; }
+.priloga { display:inline-flex; align-items:center; gap:6px; max-width:280px; padding:4px 4px 4px 8px; border-radius:999px;
+  background:var(--izbrano); color:var(--besedilo); font-size:12px; }
+.priloga svg { flex:none; width:14px; height:14px; fill:none; stroke:var(--zelena); stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.priloga b { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.priloga small { color:var(--medlo); white-space:nowrap; }
+.priloga button { background:none; color:inherit; padding:0 6px; font-size:15px; line-height:1; border-radius:50%; }
+.priloga button:hover { background:var(--kartica-poudarek); }
+.priloge-napaka { flex-basis:100%; color:var(--opozorilo); font-size:12px; }
+.priloge-vrstica { display:flex; flex-direction:column; gap:8px; }
+.priloge-vrstica .priloge-cipi { padding:0; }
+#novoPrilozi { align-self:flex-start; display:inline-flex; align-items:center; gap:6px; }
+#novoPrilozi svg, #sporocilaPrilozi svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+#sporocilaPrilozi { flex:none; align-self:center; }
+.spusti-prilogo { outline:2px dashed var(--zelena); outline-offset:-4px; }
+#slojNevarno .plosca { left:50%; top:50%; transform:translate(-50%,-50%); width:480px; max-width:calc(100vw - 32px); }
+#slojNevarno h3 { color:var(--opozorilo); margin:0; }
+#slojNevarno .gumbi { display:flex; justify-content:flex-end; gap:10px; }
 .mehurcek.ven.s-kodo { align-self:flex-end; }
 .mehurcek-koda { margin:10px 0 0; padding:10px 12px; border-radius:8px; background:var(--koda-podlaga); color:var(--besedilo);
   font:13px/1.45 ui-monospace, "DejaVu Sans Mono", "Liberation Mono", monospace; white-space:pre; overflow-x:auto; tab-size:8; }
@@ -389,6 +439,14 @@ h2 .dodatno + .dodatno { margin-left: 14px; }
 .pano-zadetek:hover { border-color:var(--zelena); }
 .pano-zadetek small { display:block; opacity:.7; font-size:11px; margin-bottom:2px; }
 .pano-zadetek span { display:block; font-size:12px; line-height:1.3; }
+.mehurcek.caka, .mehurcek.napaka { opacity:.75; }
+.mehurcek-stanje { display:flex; align-items:center; justify-content:flex-end; gap:10px; margin-top:5px; }
+.mehurcek-stanje time { margin-top:0; }
+.mehurcek.napaka .mehurcek-stanje time { color:var(--rdeca); }
+.mehurcek-preklici { font:inherit; font-size:12px; padding:3px 10px; border-radius:999px; border:1px solid var(--medlo);
+  background:transparent; color:inherit; cursor:pointer; -webkit-user-select:none; user-select:none; }
+.mehurcek-preklici:focus-visible { outline:2px solid var(--zelena); outline-offset:2px; }
+.mehurcek-preklici:disabled { opacity:.5; cursor:default; }
 .mehurcek.zadetek-iskanja { outline:2px solid var(--zelena); outline-offset:2px; }
 /* Meni mehurcka (desni klik, tipka Meni): kopiraj izbrano / celo sporocilo, odpri povezavo. */
 .spor-meni { position: fixed; z-index: 15; display: flex; flex-direction: column; min-width: 200px; padding: 6px; border-radius: 12px;
@@ -926,8 +984,9 @@ body.en-razdelek #vsebina { padding-top: 30px; }
 .media-skladbe-vse:hover, .media-skladbe-vse:focus-visible { background: rgba(138, 199, 255, .1); outline: 0; }
 .media-skladba:hover .media-kartica-odstrani, .media-skladba:focus-within .media-kartica-odstrani { opacity: 1; }
 
-/* Nacin za kavc (kavc.js): vecje, jasen okvir izbora, kazalec se skrije, ko miska miruje (lastnik, 11. 10. 2026). */
-html.kavc body { zoom: 1.25; }
+/* Celozaslonski nacin (kavc.js; prej »nacin za kavc«): jasen okvir izbora, kazalec se skrije, ko miska miruje.
+   Brez povecave body { zoom: 1.25 } - ta je stran potisnila cez rob zaslona (naslov in gumbi odrezani, lastnik
+   15. 10. 2026); vecje pisave za ogled od dalec da nastavitev Velikost besedila. */
 html.kavc-tipke :focus, html.kavc :focus-visible {
   outline: 3px solid #8ac7ff !important; outline-offset: 3px; box-shadow: 0 0 0 7px rgba(138, 199, 255, .22) !important; }
 html.kavc .kat-kartica:focus, html.kavc .media-kartica-odpri:focus, html.kavc .media-skladba-odpri:focus {
@@ -1047,8 +1106,11 @@ body.v-mediji #ozadje::after, body.predvajalnik #ozadje::after { background: var
   .media-nav-rocaj::before { content: ""; position: absolute; left: 4px; top: 12px; width: 6px; height: 72px; border-radius: 3px;
     background: var(--zelena); opacity: .6; transition: opacity .15s, width .15s; }
   .media-nav-rocaj:hover::before, .media-nav-rocaj:focus-visible::before { opacity: 1; width: 8px; }
-  .media-nav { position: sticky; top: 0; display: flex; flex-direction: column; gap: 24px; max-height: calc(100vh - 120px);
-    overflow-y: auto; padding: 2px 4px 8px 2px; scrollbar-width: thin; scrollbar-color: var(--rob) transparent; }
+  .media-nav { position: sticky; top: 0; display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 120px);
+    padding: 2px 0 8px 2px; }
+  /* Glava z gumbom Skrci ostane zunaj drsnega dela; desni odmik, da drsnik ne prekrije vsebine. */
+  .media-nav-drsno { display: flex; flex-direction: column; gap: 24px; min-height: 0; overflow-y: auto;
+    padding: 0 14px 0 0; scrollbar-width: thin; scrollbar-color: var(--rob) transparent; }
   #r-media .media-orodna .media-kategorije { display: none; }
   #r-media .media-iskalnik { margin-left: 0; max-width: 560px; flex: 1 1 auto; }
 }
@@ -1190,7 +1252,7 @@ body.v-mediji #ozadje::after, body.predvajalnik #ozadje::after { background: var
   border-radius: 12px; color: var(--medlo); font-size: 14px; text-align: left; }
 .media-nav-prilagodi svg { width: 18px; height: 18px; }
 .media-nav-skrij { margin-top: -20px; }
-.media-nav-glava { display: flex; justify-content: flex-end; margin-bottom: -16px; }
+.media-nav-glava { flex: none; display: flex; justify-content: flex-end; padding-right: 14px; }
 .media-nav-skrci { width: 36px; height: 36px; color: var(--medlo); }
 .media-nav-skrci svg { width: 20px; height: 20px; }
 .media-nav-skrci:hover, .media-nav-skrci:focus-visible { color: var(--zelena); }

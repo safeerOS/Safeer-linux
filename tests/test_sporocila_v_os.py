@@ -175,7 +175,7 @@ class MostKanalov(unittest.TestCase):
         narisano = []
         o._narisi_kuverto = narisano.append
         o.sporocila = mock.Mock()
-        o.sporocila.seznam.return_value = {"skupine": [{"neprebrano": 2}]}
+        o.sporocila.neprebrano_skupaj.return_value = 2
         with mock.patch.object(so.sporocila_vklop, "sporocila_vklopljena", lambda: True), \
                 mock.patch.object(so.threading, "Thread", lambda target, **k: mock.Mock(start=target)), \
                 mock.patch.object(so.GLib, "idle_add", lambda f, *a: f()):

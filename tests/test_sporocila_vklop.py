@@ -66,8 +66,12 @@ class Vklop(unittest.TestCase):
             s.storitev.db.execute("INSERT INTO pogovori(id,kanal_id,oseba_id,zadeva,zadnje_sporocilo,neprebrano,cas,identiteta)"
                                   " VALUES('p1','k1',?,'','zivjo',3,'2026-10-15T10:00:00+00:00','@ana:m')", (oseba,))
         self.assertEqual(sum(g["neprebrano"] for g in s.seznam()["skupine"]), 3)
-        p = s.vklopi_kanal("k1", False)
+        self.assertEqual(s.neprebrano_skupaj(), 3)
+        with mock.patch.object(s.storitev, "ustavi_kanal", wraps=s.storitev.ustavi_kanal) as ustavi_kanal:
+            p = s.vklopi_kanal("k1", False)
+        ustavi_kanal.assert_called_once_with("k1")    # sprotna storitev: nit kanala se ustavi
         self.assertTrue(a.zaprt, "izklop zapre povezavo kanala")
+        self.assertEqual(s.neprebrano_skupaj(), 0, "kuverta ne steje izklopljenega kanala")
         self.assertNotIn("k1", s.storitev.adapterji, "izklopljen kanal se ne sinhronizira")
         self.assertEqual(p["kanali"][0]["vklopljen"], False)
         self.assertEqual(p["skupine"], [], "pogovori izklopljenega kanala se ne stejejo")
@@ -76,8 +80,10 @@ class Vklop(unittest.TestCase):
         self.addCleanup(s2.zapri)
         self.assertNotIn("k1", s2.storitev.adapterji)
         self.assertEqual([k["id"] for k in s2.seznam()["kanali"]], ["k1"], "kanal ostane na seznamu")
-        with mock.patch.object(os_sporocila.SporocilaOS, "_prvic"):
+        s2._samodejno = True
+        with mock.patch.object(s2.storitev, "zazeni_kanal") as zazeni_kanal:
             p = s2.vklopi_kanal("k1", True)
+        zazeni_kanal.assert_called_once_with("k1")    # nit kanala takoj (sinhronizacija in realni cas)
         self.assertIn("k1", s2.storitev.adapterji, "vklop ga takoj nalozi")
         self.assertEqual(sum(g["neprebrano"] for g in p["skupine"]), 3)
         with self.assertRaises(ValueError):
@@ -98,7 +104,8 @@ class Vklop(unittest.TestCase):
         vklop.nastavi_sporocila(False)
         with mock.patch.object(os_sporocila.SporocilaOS, "_adapter", lambda *a: _Adapter()):
             s2 = self._sporocila(zazeni=True)
-        self.assertIsNone(s2.storitev._nit, "storitev ne tece (nic ne preverja poste)")
+        self.assertEqual(s2.storitev.delavci(), {}, "storitev ne tece (nic ne preverja poste)")
+        self.assertFalse(getattr(s2.storitev, "_tece", False))
         vklop.nastavi_sporocila(True)
         with mock.patch.object(s2.storitev, "zazeni") as zazeni:
             s2.nadaljuj()

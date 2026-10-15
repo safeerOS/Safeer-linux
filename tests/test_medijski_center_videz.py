@@ -516,7 +516,7 @@ class Kavc(unittest.TestCase):
     def test_gumb_ikona_s_stanjem(self):
         js = _beri("assets", "os", "kavc.js")
         self.assertIn('g.setAttribute("aria-label", besedilo("kavcVklop"));', js)
-        self.assertIn('g.title = besedilo(vklop ? "kavcIzklop" : "kavcVklop");', js)
+        self.assertIn('g.title = besedilo(vklop ? "kavcIzklop" : "kavcVklop") + " (F11)";', js)
         # Odprt meni ujame izbor puscic kot okno.
         self.assertIn("[role=menu]:not([hidden])", js)
         self.assertTrue(re.search(r"napis: function \(\) \{ napisGumba\(kavc\(\)\); \}", js))

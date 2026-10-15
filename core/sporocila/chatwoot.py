@@ -107,6 +107,11 @@ class ChatwootAdapter(Adapter):
     def oznaci_prebrano(self, pogovor_id: str) -> None:
         self._api("/conversations/" + str(pogovor_id) + "/update_last_seen", "POST", {})
 
+    def prenesi_priponko(self, sporocilo_id: str, priponka: dict, pisi, napredek=None) -> int:
+        """data_url je podpisan naslov datoteke (Active Storage) - brez zetona racuna, samo https."""
+        from .adapter import prenesi_url
+        return prenesi_url(str(priponka.get("url") or ""), pisi, napredek, timeout=60)
+
     def sprejmi_webhook(self, telo) -> bool:
         """Sprejme ze preverjeno JSON telo HTTP ovojnice; omrezni streznik ostane zamenljiv."""
         if isinstance(telo, (bytes, str)):

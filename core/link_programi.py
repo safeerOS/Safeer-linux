@@ -78,7 +78,8 @@ IZPUSTI_OZNAKE = {"safeer-control.desktop"}
 
 def _kandidati_map() -> List[str]:
     """Vse mape, v katerih so lahko zaganjalniki - tudi tiste, ki jih (se) ni."""
-    doma = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    from core import gostitelj
+    doma = gostitelj.podatki_gostitelja()   # v Flatpaku zaganjalniki uporabnika na racunalniku, ne v peskovniku
     sistem = os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share"
     mape = [os.path.join(doma, "applications")]
     for d in sistem.split(":"):
@@ -478,7 +479,8 @@ class Programi:
         return gostitelj.ikona_iz_teme(ime, IKONA_VELIKOST)
 
     def _poisci_ikono(self, ime: str, samo_pixmaps: bool = False) -> str:
-        doma = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+        from core import gostitelj
+        doma = gostitelj.podatki_gostitelja()
         korenine = [os.path.join(doma, "icons"), os.path.expanduser("~/.icons"),
                     "/usr/share/icons", "/usr/local/share/icons",
                     # Flatpak: sistemski in tisti, ki jih je uporabnik namestil zase (--user).
