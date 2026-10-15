@@ -237,7 +237,47 @@ class PackagingTests(unittest.TestCase):
             with self.subTest(manifest=manifest):
                 self.assertIn('\nsdk-extensions:\n  - org.freedesktop.Sdk.Extension.llvm22\n',(ROOT/manifest).read_text())
         wf=(ROOT/'.github/workflows/linux-packages.yml').read_text()
-        self.assertEqual(wf.count('org.gnome.Sdk//50 org.freedesktop.Sdk.Extension.llvm22//25.08'),2)
+        # Posla izdaje (flatpak, flatpak-brskalnik) in oba posla PGO.
+        self.assertEqual(wf.count('org.gnome.Sdk//50 org.freedesktop.Sdk.Extension.llvm22//25.08'),4)
+
+    def test_webkit_pgo_razlicici_manifesta(self):
+        """PGO (packaging/webkit/pgo.py, samo rocni tek CI): instrumentirana razlicica in razlicica s profilom imata isti
+        izvor in popravke kot gradnja izdaje; profil zdruzi llvm-profdata iz iste razsiritve pred gradnjo WebKita."""
+        import importlib.util
+        spec=importlib.util.spec_from_file_location('pgo',ROOT/'packaging/webkit/pgo.py')
+        pgo=importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pgo)
+        izdaja=(ROOT/'packaging/webkit/webkitgtk6-safeer.yml').read_text()
+        with tempfile.TemporaryDirectory() as d:
+            d=Path(d)
+            (d/'profraw').mkdir()
+            with self.assertRaises(SystemExit):
+                pgo.manifest('uporaba',d/'profraw',d/'izhod')
+            (d/'profraw'/'1-a.profraw').write_bytes(b'x')
+            for nacin,opcije in (('ucenje',['-DENABLE_LLVM_PROFILE_GENERATION=ON']),
+                                 ('uporaba',['-DUSE_PGO_PROFILE=ON','-DPGO_PROFILE_PATH='+pgo.PROFDATA])):
+                with self.subTest(nacin=nacin):
+                    manifest=pgo.manifest(nacin,d/'profraw',d/nacin).read_text()
+                    modul=(d/nacin/'webkitgtk6-safeer-pgo.yml').read_text()
+                    for opcija in opcije:
+                        self.assertIn('  - %s\n'%opcija,modul)
+                    self.assertEqual(modul.replace(''.join('  - %s\n'%o for o in opcije),'')
+                                     .replace('name: webkitgtk6-safeer-pgo-%s\n'%nacin,'name: webkitgtk6-safeer\n')
+                                     .replace(str(ROOT/'packaging/webkit')+'/',''),izdaja)
+                    for pot in re.findall(r'(?m)^    path: (\S+)$',modul):
+                        self.assertTrue(Path(pot).is_file(),pot)
+                    seznam=re.findall(r'^  - (\S.*)$',manifest.split('\nmodules:\n',1)[1],re.M)
+                    pricakovano=[str(d/nacin/'webkitgtk6-safeer-pgo.yml'),str(ROOT/'packaging/webkit/webkitgtk6-safeer-typelib.yml')]
+                    if nacin=='uporaba':
+                        pricakovano.insert(0,str(d/nacin/'webkitgtk6-safeer-pgo-profil.yml'))
+                        profil=(d/nacin/'webkitgtk6-safeer-pgo-profil.yml').read_text()
+                        self.assertIn('llvm-profdata merge --output=%s *.profraw'%pgo.PROFDATA,profil)
+                        self.assertIn('    path: %s\n'%(d/'profraw'),profil)
+                    self.assertEqual(seznam[:len(pricakovano)],pricakovano)
+                    self.assertIn('        path: %s\n'%ROOT,manifest)
+        wf=(ROOT/'.github/workflows/linux-packages.yml').read_text()
+        self.assertEqual(wf.count("if: github.event_name == 'workflow_dispatch' && inputs.pgo"),2)
+        self.assertIn('startAutomatically&iterationCount=',wf)
 
     def test_debian_maintainer_scripts_are_posix_sh(self):
         for builder in ('build_deb.sh','build_os_deb.sh'):
