@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from typing import Callable, Iterable, Optional, Sequence
 from urllib.request import Request, urlopen
 
-from .adapter import Adapter
+from .adapter import Adapter, prenesi_url
 from .model import Pogovor, Sporocilo
 from . import skrivnosti
 
@@ -108,7 +108,8 @@ class TelegramBotAdapter(Adapter):
             priponke = []
             for vrsta in ("document", "photo", "video", "audio", "voice"):
                 if m.get(vrsta):
-                    priponke.append({"ime": (m[vrsta].get("file_name") if isinstance(m[vrsta], dict) else vrsta) or vrsta}); besedilo = besedilo or "📎 " + vrsta
+                    priponke.append(self._priponka(vrsta, m[vrsta], str(m.get("message_id"))))
+                    besedilo = besedilo or "📎 " + priponke[-1]["ime"]
             if klepet.get("type") != "private" and od:
                 besedilo = self._ime_uporabnika(od) + ": " + besedilo
             mid = str(m.get("message_id"))
@@ -120,6 +121,30 @@ class TelegramBotAdapter(Adapter):
             k["sporocila"] = k["sporocila"][-NAJVEC_NA_KLEPET:]
             if not lasten:
                 k["neprebrano"] += 1
+
+    @staticmethod
+    def _priponka(vrsta: str, podatki, mid: str) -> dict:
+        """Opis priponke z file_id (za prenos z getFile). Fotografija pride v vec velikostih: vzamemo najvecjo."""
+        if isinstance(podatki, list):
+            podatki = podatki[-1] if podatki and isinstance(podatki[-1], dict) else {}
+        if not isinstance(podatki, dict):
+            podatki = {}
+        privzeto = {"photo": ("foto_%s.jpg", "image/jpeg"), "voice": ("glas_%s.ogg", "audio/ogg"),
+                    "video": ("video_%s.mp4", "video/mp4"), "audio": ("zvok_%s.mp3", "audio/mpeg")}.get(vrsta, ("datoteka_%s", ""))
+        return {"ime": str(podatki.get("file_name") or privzeto[0] % mid), "tip": str(podatki.get("mime_type") or privzeto[1]),
+                "velikost": int(podatki.get("file_size") or 0), "file_id": str(podatki.get("file_id") or "")}
+
+    def prenesi_priponko(self, sporocilo_id: str, priponka: dict, pisi, napredek=None) -> int:
+        """Bot API: getFile -> https://api.telegram.org/file/bot<zeton>/<pot> (najvec 20 MB, omejitev Telegrama)."""
+        file_id = str(priponka.get("file_id") or "")
+        if not file_id:
+            raise ValueError("ni_podprto")
+        datoteka = self._api("getFile", {"file_id": file_id}) or {}
+        pot = str(datoteka.get("file_path") or "")
+        if not pot or ".." in pot.split("/"):
+            raise ValueError("ni_podprto")
+        return prenesi_url("https://api.telegram.org/file/bot" + self._skrivnost() + "/" + pot, pisi, napredek,
+                           timeout=max(self.timeout, 60))
 
     def pogovori(self, od: Optional[str] = None) -> Iterable[Pogovor]:
         self._prenesi()

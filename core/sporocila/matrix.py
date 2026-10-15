@@ -16,7 +16,7 @@ from typing import Callable, Iterable, Optional, Sequence
 from urllib.parse import quote, urlencode
 from urllib.request import Request
 
-from .adapter import Adapter, odpri_brez_preusmeritev, varen_streznik
+from .adapter import Adapter, odpri_brez_preusmeritev, prenesi_url, varen_streznik
 from .model import Pogovor, Sporocilo
 from . import skrivnosti
 
@@ -138,7 +138,10 @@ class MatrixAdapter(Adapter):
                 vsebina = d.get("content") if isinstance(d.get("content"), dict) else {}
                 besedilo = str(vsebina.get("body") or "")
                 if vsebina.get("msgtype") in ("m.image", "m.file", "m.video", "m.audio"):
-                    priponke = [{"ime": besedilo or "priponka", "url": str(vsebina.get("url") or "")}]
+                    info = vsebina.get("info") if isinstance(vsebina.get("info"), dict) else {}
+                    priponke = [{"ime": str(vsebina.get("filename") or besedilo or "priponka"),
+                                 "url": str(vsebina.get("url") or ""), "tip": str(info.get("mimetype") or ""),
+                                 "velikost": int(info.get("size") or 0) if str(info.get("size") or "0").isdigit() else 0}]
                     besedilo = "📎 " + besedilo
                 else:
                     priponke = []
@@ -180,6 +183,19 @@ class MatrixAdapter(Adapter):
 
     def sporocila(self, pogovor_id: str, pred: Optional[str] = None, najvec: int = 50) -> Iterable[Sporocilo]:
         return list(self._sobe.get(pogovor_id, {}).get("sporocila", []))[-max(1, min(int(najvec), NAJVEC_NA_SOBO)):]
+
+    def prenesi_priponko(self, sporocilo_id: str, priponka: dict, pisi, napredek=None) -> int:
+        """Datoteka iz mxc://streznik/id: overjeni prenos (Matrix 1.11, /client/v1/media) z zetonom tega kanala.
+        Sifrirane datoteke (E2EE sobe) Safeer ne desifrira - te sobe tudi sicer berejo samo odjemalci s kljuci."""
+        url = str(priponka.get("url") or "")
+        if not url.startswith("mxc://") or not varen_streznik(self.streznik):
+            raise ValueError("ni_podprto")
+        streznik, _, media = url[6:].partition("/")
+        if not streznik or not media or "/" in media:
+            raise ValueError("ni_podprto")
+        return prenesi_url(self.streznik + "/_matrix/client/v1/media/download/" + quote(streznik, safe="") + "/" +
+                           quote(media, safe=""), pisi, napredek, {"Authorization": "Bearer " + self._skrivnost()},
+                           timeout=max(self.timeout, 60))
 
     def poslji(self, pogovor_id: str, besedilo: str, priponke: Sequence[dict] = ()) -> Sporocilo:
         txn = "safeer-" + uuid.uuid4().hex
