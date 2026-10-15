@@ -203,6 +203,11 @@ class Splet(unittest.TestCase):
             okolje = p.okolje_zagona(True)
             self.assertEqual(okolje["ZYPAK_EXPOSE_WIDEVINE_PATH"], d + "/config/Safeer DRM/WidevineCdm")
             self.assertTrue(os.path.isdir(okolje["ZYPAK_EXPOSE_WIDEVINE_PATH"]))
+            # Program je v zasebni mapi podatkov: podpeskovnik ga vidi samo prek ZYPAK_EXPOSE_PATHS (nas popravek zypaka).
+            self.assertEqual(okolje["ZYPAK_EXPOSE_PATHS"], str(p.mapa_verzije()))
+        manifest = (KOREN / "io.github.memelandfaner.SafeerBrowser.yml").read_text(encoding="utf-8")
+        self.assertIn("path: packaging/zypak/zypak-expose-paths.patch", manifest)
+        self.assertIn("ZYPAK_EXPOSE_PATHS", (KOREN / "packaging/zypak/zypak-expose-paths.patch").read_text())
         self.assertIsNone(p.okolje_zagona(False))
 
     def test_logika_je_s_safeer_os(self):

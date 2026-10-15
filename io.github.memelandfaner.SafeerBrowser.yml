@@ -53,6 +53,10 @@ modules:
         url: https://github.com/refi64/zypak
         tag: v2025.09
         commit: 693a71c5ffa80ec9c9ce2ae03b1ccc493c698e53
+      # ZYPAK_EXPOSE_PATHS: Safeer DRM se prenese ob prvi potrebi v ~/.var/app/<ID>/data, ne v /app - podpeskovnik
+      # (flatpak-spawn --sandbox) vidi samo /app in runtime, zato mapo izpostavimo samo za branje. Za vrnitev v zypak.
+      - type: patch
+        path: packaging/zypak/zypak-expose-paths.patch
   - name: safeer-browser
     buildsystem: simple
     build-commands:

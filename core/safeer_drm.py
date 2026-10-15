@@ -107,7 +107,9 @@ def okolje_zagona(peskovnik: Optional[bool] = None) -> Optional[dict]:
         wv.mkdir(parents=True, exist_ok=True)
     except OSError:
         pass
-    return dict(os.environ, ZYPAK_EXPOSE_WIDEVINE_PATH=str(wv))
+    # ZYPAK_EXPOSE_PATHS (packaging/zypak/zypak-expose-paths.patch): podpeskovniki Chromiuma vidijo samo /app in
+    # runtime; program Safeer DRM je v zasebni mapi podatkov, zato mapo verzije izpostavimo samo za branje.
+    return dict(os.environ, ZYPAK_EXPOSE_WIDEVINE_PATH=str(wv), ZYPAK_EXPOSE_PATHS=str(mapa_verzije()))
 
 
 def mapa_verzije() -> Path:
