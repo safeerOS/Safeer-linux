@@ -90,7 +90,10 @@ class KanaliSporocil:
                      vgrajeno=bool(z.vgrajeno) if z else namizni_programi.x11_seja() or not program,
                      ikona="")
             if program:
-                d["namescen"] = namizni_programi.najdi(vnos["program"], k.get("pot", "")) is not None
+                # Zivi kanal programa je program ze nasel; sicer iskanje (mape menija, AppImage) - seznam gre strani ob
+                # vsaki spremembi znacke, zato brez iskanja po disku za zive kanale.
+                d["namescen"] = (z is not None and z.program is not None) or \
+                    namizni_programi.najdi(vnos["program"], k.get("pot", "")) is not None
             elif k["url"]:
                 d["ikona"] = ikone_strani.iz_predpomnilnika(k["url"])
                 if not d["ikona"]:
