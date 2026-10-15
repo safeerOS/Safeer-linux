@@ -378,7 +378,9 @@ jobs:
           read -r URL MINUT <<< "$(python3 packaging/webkit/pgo.py trening 8123)"
           python3 -m http.server 8123 --bind 127.0.0.1 --directory build/pgo/speedometer >/dev/null 2>&1 & SRV=$!
           sleep 2
-          xvfb-run -a -s "-screen 0 1920x1080x24" dbus-run-session -- flatpak run --filesystem="$P" \
+          # Brskalnik od 1.0.127 nima dostopa do doma (delovna mapa je pod njim): ucni program samo za branje, kot pri
+          # smoke_brskalnik.py (CI 38787148915: "can't open file .../pgo_trening.py").
+          xvfb-run -a -s "-screen 0 1920x1080x24" dbus-run-session -- flatpak run --filesystem="$P" --filesystem="$PWD/packaging:ro" \
             --env=LLVM_PROFILE_FILE="$P/%p-%m.profraw" --env=WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 \
             --command=python3 io.github.memelandfaner.SafeerBrowser "$PWD/packaging/webkit/pgo_trening.py" "$URL" "$MINUT"
           for i in $(seq 60); do pgrep -f 'WebKit(Network|Web)Process' >/dev/null || break; sleep 1; done
