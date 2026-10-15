@@ -329,9 +329,11 @@
 
   // ------------------------------------------------------------------ DATOTEKE
   // D.naprave: naprave, ki delijo svoje datoteke (odpres jih); D.sprejmejo: naprave, ki sprejmejo datoteko (cilj
-  // spusta in »Poslji na napravo«).
+  // spusta in »Poslji na napravo«). D.tvMozna: »Pretvori za televizor« ta trenutek deluje (Control + ffmpeg ali naprava,
+  // ki pretvorbo zna - most pretvorbaZaTvMozna). Meni je sinhron, zato oboje drzimo v predpomnilniku in ga osvezimo ob
+  // zagonu, vrnitvi v Safeer OS, stanju Linka (60 s) in ob vsakem odprtju menija (lastnik: nic nedelujocega).
   var D = { vir: null, vse: [], stran: 0, razvrsti: "ime", smer: 1, izbran: -1, naprave: [], sprejmejo: [], nosilci: [],
-            zahteva: 0, izbrani: {}, sidro: "" };
+            zahteva: 0, izbrani: {}, sidro: "", tvMozna: false, shrambaMozna: false };
 
   // Izbira vec datotek: klik izbere eno, Ctrl+klik doda ali odvzame, Shift+klik (ali Shift+puscica) izbere obseg od
   // zadnje izbrane - tudi cez strani -, Ctrl+A vse. D.izbrani: kljuc vnosa -> vnos; D.izbran ostane vrstica s fokusom.
@@ -432,12 +434,25 @@
       D.naprave = Array.isArray(naprave) ? naprave.filter(function (n) { return n && n.id; }) : [];
       if (JSON.stringify(D.naprave) !== prej) zgradiStranDatotek();
     }).catch(function () {});
-    klic("napraveZaPosiljanje").then(function (naprave) {
+    osveziCilje();
+    osveziNosilce();
+  }
+  // Kam lahko datoteke gredo (Poslji na napravo) in ali pretvorba za televizor deluje - za sinhrona menija datotek.
+  var ciljiRod = 0;
+  function osveziCilje() {
+    if (!most) return;
+    // Samo odgovor zadnje poizvedbe velja: starejsi (npr. neuspel, ki pride pozneje) ne povozi novejsega.
+    var rod = ++ciljiRod;
+    function sprejmejo(naprave) {
+      if (rod !== ciljiRod) return;
       var prej = JSON.stringify(D.sprejmejo);
       D.sprejmejo = Array.isArray(naprave) ? naprave.filter(function (n) { return n && n.id; }) : [];
       if (JSON.stringify(D.sprejmejo) !== prej) zgradiStranDatotek();
-    }).catch(function () {});
-    osveziNosilce();
+    }
+    klic("napraveZaPosiljanje").then(sprejmejo, function () { sprejmejo([]); });
+    // Isti odgovor pove se, ali je naprava za »Shrani na napravo« (shramba).
+    klic("pretvorbaZaTvMozna").then(function (r) { if (rod === ciljiRod) { D.tvMozna = !!(r && r.ok); D.shrambaMozna = !!(r && r.shramba); } },
+                                    function () { if (rod === ciljiRod) { D.tvMozna = false; D.shrambaMozna = false; } });
   }
   function osveziNosilce() {
     if (!most) return;
@@ -816,9 +831,10 @@
       m.push([t("vSmetiN", { n: koliko }), function () { vSmetiVec(lok); }]);
       m.push([t(lok.every(jePriljubljena) ? "odstraniPriljubljeno" : "dodajPriljubljeno"), function () { preklopiPriljubljeneVec(lok); }]);
       var samoDatoteke = lok.filter(function (e) { return !e.mapa; });
-      if (samoDatoteke.length) m.push([t("posljiNaNapravo"), function () { izberiNapravoInPoslji(samoDatoteke.map(function (e) { return e.pot; })); }]);
+      if (samoDatoteke.length && D.sprejmejo.length) m.push([t("posljiNaNapravo"), function () { izberiNapravoInPoslji(samoDatoteke.map(function (e) { return e.pot; })); }]);
       m.push(["—"]);
     }
+    osveziCilje();      // za naslednje odprtje (naprava se je medtem lahko povezala ali odklopila)
     m.push([t("pocistiIzbiro"), function () { pocistiIzbiro(); oznaciIzbrano(); }]);
     pokaziMeni(m, x, y);
   }
@@ -1345,14 +1361,16 @@
       m.push([t("preimenujMeni"), function () { odpriOknoNovo({ nacin: "preimenuj", pot: e.pot, ime: e.ime, mapa: e.mapa }); }]);
       m.push([t("vSmeti"), function () { vSmeti(e); }]);
       m.push([t("lastnosti"), function () { lastnosti(e); }]);
-      if (!e.mapa) m.push([t("posljiNaNapravo"), function () { izberiNapravoInPoslji([e.pot]); }]);
-      if (!e.mapa) m.push([t("shraniNaNapravo"), function () { shraniNaNapravo(e); }]);
-      if (!e.mapa && e.vrsta === "video") m.push([t("pretvori"), function () { pretvoriVideo(e); }]);
+      // Samo, ko res deluje (D.sprejmejo, D.tvMozna - osveziCilje): brez naprave ali orodja vnosa ni.
+      if (!e.mapa && D.sprejmejo.length) m.push([t("posljiNaNapravo"), function () { izberiNapravoInPoslji([e.pot]); }]);
+      if (!e.mapa && D.shrambaMozna) m.push([t("shraniNaNapravo"), function () { shraniNaNapravo(e); }]);
+      if (!e.mapa && e.vrsta === "video" && D.tvMozna) m.push([t("pretvori"), function () { pretvoriVideo(e); }]);
       if (!e.mapa && pretvorljiva(e.ime))
         m.push([t("pretvoriV"), function () { pretvoriDatoteko(e); }]);
-      if (e.mapa) m.push([t("pretvoriMapo"), function () { pretvoriMapo(e); }]);
+      if (e.mapa && D.tvMozna) m.push([t("pretvoriMapo"), function () { pretvoriMapo(e); }]);
       m.push(["—"]);
       postavkeNovo(m, e.mapa ? e.pot : null);
+      osveziCilje();    // za naslednje odprtje
     }
     pokaziMeni(m, x, y);
   }
@@ -3246,7 +3264,11 @@
   function osveziLink() {
     clearTimeout(L.casovnik);
     if (!most) return;
-    klic("povezava").then(function (p) { L.stanje = p || null; izrisiLink(); }).catch(function () {});
+    klic("povezava").then(function (p) {
+      var prej = JSON.stringify(L.stanje);
+      L.stanje = p || null; izrisiLink();
+      if (JSON.stringify(L.stanje) !== prej) osveziCilje();   // Link se je povezal/odklopil: drugi cilji in pretvorba
+    }).catch(function () {});
     L.casovnik = setTimeout(osveziLink, 60000);
   }
 

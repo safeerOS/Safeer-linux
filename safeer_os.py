@@ -834,16 +834,18 @@ def naprave_za_posiljanje() -> list:
 def pretvorba_za_tv_mozna(najdi=None) -> dict:
     """»Pretvori za televizor« dela, ce tece Safeer Control in video pretvori ta racunalnik (ffmpeg, rezerva v
     core/link_pretvorba._lokalno) ali naprava v Linku, ki pretvorbo zna (ne namizna, z datotekami - kot
-    razvrsti_naprave). Brez tega vnos ne bi deloval (lastnik, 15. 10. 2026: »nimamo nedelujocih ikon«)."""
+    razvrsti_naprave). Brez tega vnos ne bi deloval (lastnik, 15. 10. 2026: »nimamo nedelujocih ikon«).
+    "shramba": »Shrani na napravo« dela samo z enako napravo (core/link_shramba: ne namizna, z datotekami) - brez
+    rezerve na tem racunalniku, zato ffmpeg tu ne steje."""
     namizne = ("linux", "windows", "macos")     # core/link_pretvorba.NAMIZNE (modul je v paketu Controla, ne OS)
     izid = _control_naprave("Seznam")
     if not izid.get("ok"):
-        return {"ok": False, "koda": izid.get("koda") or "ni_controla"}
+        return {"ok": False, "shramba": False, "koda": izid.get("koda") or "ni_controla"}
     naprave = [n for n in izid.get("naprave") or [] if not n.get("ta") and "files" in (n.get("zmoznosti") or [])
                and n.get("platforma") not in namizne]
     import shutil
     lokalno = bool((najdi or shutil.which)("ffmpeg"))
-    return {"ok": lokalno or bool(naprave), "lokalno": lokalno, "naprave": len(naprave)}
+    return {"ok": lokalno or bool(naprave), "lokalno": lokalno, "naprave": len(naprave), "shramba": bool(naprave)}
 
 
 def datoteke_naprave(id_naprave: str, mapa: str = "") -> dict:

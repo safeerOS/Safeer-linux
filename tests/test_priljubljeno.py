@@ -454,6 +454,74 @@ naloziPriljubljene().then(function () {
         subprocess.run(["node", "-e", koda], check=True)
 
 
+class MeniDelovnePovrsine(unittest.TestCase):
+    """delovna.js: »Poslji na napravo« in »Pretvori za televizor« samo, ko delujeta (predpomnjeno, osvezeno ob odprtju
+    menija in spremembi Linka) - lastnik, 15. 10. 2026: nic nedelujocega."""
+
+    @unittest.skipUnless(shutil.which("node"), "node ni namescen")
+    def test_vnosi_samo_ko_delujejo(self):
+        import subprocess
+        koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(koren, "assets", "os", "delovna.js"), encoding="utf-8") as f:
+            js = f.read()
+
+        def funkcija(ime):
+            z = js.index("  function %s(" % ime)
+            return js[z:js.index("\n  }\n", z) + 4]
+        koda = """
+var assert = require("assert");
+var most = true, odgovori = {}, klici = [], meni = null, prerisano = 0;
+var D = { sprejmejo: [], tvMozna: false, shrambaMozna: false, vir: { vrsta: "lokalno" }, izbrani: {} }, O = { poti: [] };
+function t(k) { return k; }
+function klic(m) { klici.push(m); return m in odgovori ? Promise.resolve(odgovori[m]) : Promise.reject(new Error(m)); }
+function pokaziMeni(m) { meni = m.map(function (x) { return x[0]; }); }
+function zgradiStranDatotek() { prerisano++; }
+function jePriljubljena() { return false; }
+function pretvorljiva() { return false; }
+function postavkeNovo() {}
+var lok = [];
+function izbraniVnosi() { return lok; }
+function izbraniLokalni() { return lok; }
+function steviloElementov(n) { return String(n); }
+var ciljiRod = 0;
+""" + funkcija("osveziCilje") + funkcija("meniDatoteke") + funkcija("meniVec") + """
+var video = { pot: "/d/film.mkv", ime: "film.mkv", vrsta: "video", mapa: false };
+var mapa = { pot: "/d/M", ime: "M", mapa: true };
+function pocakaj() { return new Promise(function (r) { setTimeout(r, 10); }); }
+meniDatoteke(video, 0, 0);
+assert.ok(meni.indexOf("posljiNaNapravo") < 0 && meni.indexOf("pretvori") < 0 && meni.indexOf("shraniNaNapravo") < 0, meni.join());
+meniDatoteke(mapa, 0, 0);
+assert.ok(meni.indexOf("pretvoriMapo") < 0);
+// Odprtje menija osvezi predpomnilnik: naprava je zdaj povezana in pretvorba dela.
+odgovori.napraveZaPosiljanje = [{ id: "tv1", ime: "TV" }];
+odgovori.pretvorbaZaTvMozna = { ok: true, shramba: true };
+klici = [];
+osveziCilje();
+pocakaj().then(function () {
+  assert.deepStrictEqual(klici, ["napraveZaPosiljanje", "pretvorbaZaTvMozna"]);
+  assert.strictEqual(prerisano, 1);                         // nov cilj spusta: stran datotek se prerise
+  meniDatoteke(video, 0, 0);
+  assert.ok(meni.indexOf("posljiNaNapravo") >= 0 && meni.indexOf("pretvori") >= 0 && meni.indexOf("shraniNaNapravo") >= 0, meni.join());
+  meniDatoteke(mapa, 0, 0);
+  assert.ok(meni.indexOf("pretvoriMapo") >= 0);
+  lok = [video, { pot: "/d/b.txt", ime: "b.txt" }];
+  meniVec(0, 0);
+  assert.ok(meni.indexOf("posljiNaNapravo") >= 0);
+  // Naprava odklopljena, Control ne odgovori: vnosa izgineta ob naslednjem odprtju.
+  odgovori.napraveZaPosiljanje = [];
+  delete odgovori.pretvorbaZaTvMozna;
+  meniVec(0, 0);
+  return pocakaj();
+}).then(function () {
+  meniVec(0, 0);
+  assert.ok(meni.indexOf("posljiNaNapravo") < 0);
+  meniDatoteke(video, 0, 0);
+  assert.ok(meni.indexOf("posljiNaNapravo") < 0 && meni.indexOf("pretvori") < 0 && meni.indexOf("shraniNaNapravo") < 0, meni.join());
+}).catch(function (e) { console.error(e); process.exit(1); });
+"""
+        subprocess.run(["node", "-e", koda], check=True)
+
+
 class Most(unittest.TestCase):
     """Klici iz namizja gredo skozi SafeerOS._obdelaj_klic do shrambe; preimenovanje premakne priljubljeno."""
 
@@ -572,11 +640,12 @@ class Most(unittest.TestCase):
                                            {"id": "pc2", "zmoznosti": ["files"], "platforma": "windows"}]}
         with mock.patch.object(so, "_control_naprave", return_value=naprave):
             self.assertFalse(so.pretvorba_za_tv_mozna(najdi=lambda _i: None)["ok"])          # samo namizne naprave
-            self.assertTrue(so.pretvorba_za_tv_mozna(najdi=lambda _i: "/usr/bin/ffmpeg")["ok"])
+            r = so.pretvorba_za_tv_mozna(najdi=lambda _i: "/usr/bin/ffmpeg")
+            self.assertEqual((r["ok"], r["shramba"]), (True, False))     # ffmpeg pretvori tu, shraniti pa nima kam
         naprave["naprave"].append({"id": "tv", "zmoznosti": ["files"], "platforma": "android"})
         with mock.patch.object(so, "_control_naprave", return_value=naprave):
             r = so.pretvorba_za_tv_mozna(najdi=lambda _i: None)
-        self.assertEqual((r["ok"], r["naprave"]), (True, 1))
+        self.assertEqual((r["ok"], r["naprave"], r["shramba"]), (True, 1, True))
         with mock.patch.object(so, "_control_naprave", return_value={"ok": False, "koda": "ni_controla"}):
             self.assertFalse(so.pretvorba_za_tv_mozna(najdi=lambda _i: "/usr/bin/ffmpeg")["ok"])   # brez Controla nic
 

@@ -473,6 +473,7 @@ Steklo {
     property var napraveZaPos: []
     property var ciljiPretvorbe: []
     property bool tvMozna: false         // »Pretvori za televizor«: Control + ffmpeg ali naprava, ki zna (pretvorbaZaTvMozna)
+    property bool shrambaMozna: false    // »Shrani na napravo«: naprava v Linku, ki shrani (isti odgovor, »shramba«)
     function meniVrstice(e, kje, x, y) {
         var vec = !!e && jeIzbran(e) && steviloIzbranih > 1
         var vsi_ = (vec ? izbraniVnosi() : (e ? [e] : [])).filter(function (d) { return d && d.pot })
@@ -485,11 +486,11 @@ Steklo {
             meni.e = e
             if (kje) meni.popup(kje, x, y); else meni.popup()
         }
-        napraveZaPos = []; ciljiPretvorbe = []; tvMozna = false
-        if (linux && jeLokalniPogled() && vsi_.some(function (d) { return d.mapa || d.vrsta === "video" })) {
+        napraveZaPos = []; ciljiPretvorbe = []; tvMozna = false; shrambaMozna = false
+        if (linux && jeLokalniPogled() && vsi_.length) {
             ostane++
             koren.klic("pretvorbaZaTvMozna", [], function (r) {
-                if (st === panel.zahtevaMenija) panel.tvMozna = !!(r && r.ok)
+                if (st === panel.zahtevaMenija) { panel.tvMozna = !!(r && r.ok); panel.shrambaMozna = !!(r && r.shramba) }
                 pokazi()
             }, pokazi)
         }
@@ -895,7 +896,7 @@ Steklo {
         MeniVnos { text: koren.t("vKos"); visible: meni.lok; onTriggered: panel.vKos(meni.e) }
         MeniVnos { text: koren.t("lastnosti"); objectName: "vnosLastnosti"; visible: meni.lok && panel.linux; onTriggered: lastnosti.pokazi(meni.e.pot) }
         MeniVnos { text: koren.t("posljiNaNapravo"); objectName: "vnosPoslji"; visible: meni.datoteka && panel.napraveZaPos.length > 0; onTriggered: izbirnik.poslji(meni.e) }
-        MeniVnos { text: koren.t("shraniNaNapravo"); objectName: "vnosShrani"; visible: meni.datoteka && panel.linux; onTriggered: shrani.zacni(meni.e) }
+        MeniVnos { text: koren.t("shraniNaNapravo"); objectName: "vnosShrani"; visible: meni.datoteka && panel.linux && panel.shrambaMozna; onTriggered: shrani.zacni(meni.e) }
         MeniVnos { text: koren.t("pretvoriV"); objectName: "vnosPretvori"; visible: meni.datoteka && panel.ciljiPretvorbe.length > 0; onTriggered: izbirnik.pretvori(meni.e) }
         // Krog solidarnosti (Safeer Control): video ali vsi videi v mapi za televizor na napravi z najboljsim kodirnikom.
         // Samo, ko pretvorba ta trenutek deluje (Control + ffmpeg ali naprava, ki zna) - sicer bi vnos koncal z napako.
