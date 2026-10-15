@@ -670,3 +670,27 @@ def test_vmesnik_dogodek_ura_preklic_v_vseh_jezikih():
     besedila = (koren / "assets/os/besedila.js").read_text("utf-8")
     for kljuc in ("sporCaka:", "sporNiPoslano:", "sporPreklici:", "sporPreklicano:", "sporCakaObvestilo:"):
         assert besedila.count(kljuc) == 6, kljuc
+
+
+def test_znacka_eposte_enaka_strezniku_ne_samo_predpomnilniku(lokalno, baza):
+    """INBOX s 250 neprebranimi: predpomnilnik ima zadnjih 200, znacka kanala pa pravo stevilo (STATUS UNSEEN)."""
+    srv = LazniImap()
+    for i in range(250):
+        srv.nabiralnik.dodaj(pismo(od="O%d <o%d@example.test>" % (i, i), mid="z%d" % i, telo="Pismo %d" % i))
+    st = StoritevSporocil(baza)
+    try:
+        _email_kanal(st, srv)
+        st.zazeni_kanal("e1")
+        assert _cakaj(lambda: st.neprebrano_po_kanalih().get("e1") == 250)
+        assert _neprebrano(st) == 200                       # seznam pogovorov: iz predpomnilnika
+        assert any(u.startswith("STATUS INBOX") for u in srv.nabiralnik.ukazi)
+        assert _cakaj(lambda: st._delavci["e1"].stevci["idle"] >= 1)
+        srv.nabiralnik.nastavi_prebrano(1, True)            # najstarejse pismo, ki ga v predpomnilniku ni
+        assert _cakaj(lambda: st.neprebrano_po_kanalih().get("e1") == 249, 2.0)
+        srv.nabiralnik.dodaj(pismo(mid="novo", telo="Novo"))
+        assert _cakaj(lambda: st.neprebrano_po_kanalih().get("e1") == 250, 2.0)
+        st.oznaci_prebrano("e1", "o249@example.test")       # prebrano tukaj: znacka takoj, streznik potrdi
+        assert st.neprebrano_po_kanalih()["e1"] == 249
+        assert _cakaj(lambda: st.neprebrano_skupaj() == 249, 3.0)
+    finally:
+        st.zapri(); srv.ustavi()

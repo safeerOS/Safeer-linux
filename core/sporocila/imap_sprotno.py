@@ -347,6 +347,28 @@ def uskladi_oznake(adapter, znani_uidi: Iterable[int]) -> Dict[int, bool]:
     return izid
 
 
+def neprebrano_na_strezniku(adapter) -> Optional[int]:
+    """Stevilo neprebranih v INBOX, kot ga pokaze Gmail: STATUS INBOX (UNSEEN) - en kratek odgovor ne glede na
+    velikost mape (predpomnilnik ima samo zadnjih 200 pisem). Ce streznik STATUS na izbrani mapi zavrne, UID SEARCH
+    UNSEEN. None: stevila ni bilo mogoce dobiti (ostane zadnje znano)."""
+    imap = adapter._imap
+    if imap is None:
+        return None
+    try:
+        status, odg = imap.status("INBOX", "(UNSEEN)")
+        if status == "OK" and odg:
+            v = odg[0].decode("ascii", "replace") if isinstance(odg[0], bytes) else str(odg[0])
+            m = re.search(r"UNSEEN (\d+)", v, re.I)
+            if m:
+                return int(m.group(1))
+    except Exception:  # noqa: BLE001
+        pass
+    status, odg = imap.uid("search", None, "UNSEEN")
+    if status == "OK" and odg is not None:
+        return len((odg[0] or b"").split()) if odg else 0
+    return None
+
+
 def polna_besedila(adapter, uidi: Iterable[int]) -> Dict[int, Optional[str]]:
     """Celotno besedilo pisem, ki so bila ob sinhronizaciji prirezana na 64 KB. {uid: besedilo} za prirezana,
     {uid: None} za pisma, ki so ze cela (ni kaj prenesti). Pisem, ki jih streznik nima vec, ni v izidu."""

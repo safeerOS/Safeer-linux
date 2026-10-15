@@ -158,6 +158,10 @@ class _Seja(socketserver.StreamRequestHandler):
                     self._pisi(b"* OK [HIGHESTMODSEQ %d] modseq" % n.modseq)
             self.izbrano = True
             ok("[READ-%s] done" % ("ONLY" if ukaz == "EXAMINE" else "WRITE"))
+        elif ukaz == "STATUS":
+            with n.zaklep:
+                neprebranih = sum(1 for p in n.pisma if "\\Seen" not in p["zastavice"])
+            self._pisi(b'* STATUS "INBOX" (UNSEEN %d)' % neprebranih); ok()
         elif ukaz == "NOOP":
             ok()
         elif ukaz == "IDLE":

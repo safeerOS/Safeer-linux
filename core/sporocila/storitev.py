@@ -290,6 +290,15 @@ class StoritevSporocil:
                         oznake = imap_sprotno.uskladi_oznake(adapter, self._znani_uidi(kid))
                     except Exception as e:  # noqa: BLE001 - nova pisma so ze prenesena; oznake ob naslednji
                         print("[Sporocila] oznake:", type(e).__name__, flush=True)
+                na_strezniku = None
+                if getattr(adapter, "vrsta", "") == "email" and getattr(adapter, "_imap", None) is not None \
+                        and hasattr(adapter, "modseq"):
+                    from . import imap_sprotno
+                    try:
+                        # Znacka kanala = stevilo na strezniku (kot Gmail za INBOX); seznam pogovorov steje predpomnilnik.
+                        na_strezniku = imap_sprotno.neprebrano_na_strezniku(adapter)
+                    except Exception as e:  # noqa: BLE001
+                        print("[Sporocila] STATUS:", type(e).__name__, flush=True)
                 inkrementalno = hasattr(adapter, "obnovi")
                 with self._zaklep, self.db:
                     if self.adapterji.get(kid) is not adapter:
@@ -312,6 +321,8 @@ class StoritevSporocil:
                                         (novo, "uid:%d" % uid, kid, novo))
                     if inkrementalno:
                         self._preracunaj_neprebrano(kid)
+                    if na_strezniku is not None:
+                        self._zapisi_neprebrano_kanala(kid, na_strezniku)
                     spremenjeno = self.db.total_changes != prej
                     # Stanje kanala (Matrix: sobe z zadnjimi sporocili) ob vsaki dolgi poizvedbi (30 s) bi pomenilo
                     # stalno pisanje na disk brez novic: zapisemo ob spremembi ali najkasneje vsakih 5 min.
@@ -356,8 +367,12 @@ class StoritevSporocil:
     def oznaci_prebrano(self, kanal_id: str, pogovor_id: str) -> None:
         with self._zaklep, self.db:
             self.db.execute("UPDATE pogovori SET neprebrano=0 WHERE id=? AND kanal_id=?", (pogovor_id, kanal_id))
-            self.db.execute("UPDATE sporocila SET stanje='prebrano' WHERE kanal_id=? AND pogovor_id=? AND smer='noter' "
-                            "AND stanje='prejeto'", (kanal_id, pogovor_id))
+            c = self.db.execute("UPDATE sporocila SET stanje='prebrano' WHERE kanal_id=? AND pogovor_id=? AND smer='noter' "
+                                "AND stanje='prejeto'", (kanal_id, pogovor_id))
+            if c.rowcount:
+                # Znacka takoj (streznik potrdi ob naslednji uskladitvi, pri IDLE v delcu sekunde).
+                self.db.execute("UPDATE kanal_neprebrano SET stevilo=MAX(0, stevilo-?) WHERE kanal_id=?",
+                                (c.rowcount, kanal_id))
         adapter = self.adapterji.get(kanal_id)
         if not adapter:
             return
@@ -557,13 +572,15 @@ class StoritevSporocil:
         return sum(self.neprebrano_po_kanalih().values())
 
     def nastavi_neprebrano_kanala(self, kanal_id: str, stevilo: int) -> None:
-        stevilo = max(0, int(stevilo or 0))
         with self._zaklep, self.db:
-            c = self.db.execute("""INSERT INTO kanal_neprebrano VALUES(?,?,?) ON CONFLICT(kanal_id) DO UPDATE SET
-                stevilo=excluded.stevilo, cas=excluded.cas WHERE kanal_neprebrano.stevilo IS NOT excluded.stevilo""",
-                (str(kanal_id), stevilo, datetime.now(timezone.utc).replace(microsecond=0).isoformat()))
+            c = self._zapisi_neprebrano_kanala(kanal_id, stevilo)
         if c.rowcount > 0:
             self._sporoci()
+
+    def _zapisi_neprebrano_kanala(self, kanal_id: str, stevilo: int):
+        return self.db.execute("""INSERT INTO kanal_neprebrano VALUES(?,?,?) ON CONFLICT(kanal_id) DO UPDATE SET
+            stevilo=excluded.stevilo, cas=excluded.cas WHERE kanal_neprebrano.stevilo IS NOT excluded.stevilo""",
+            (str(kanal_id), max(0, int(stevilo or 0)), datetime.now(timezone.utc).replace(microsecond=0).isoformat()))
 
     def dopolni_besedila(self, kanal_id: str, ids: Iterable[str]) -> int:
         """Pisma, prirezana ob sinhronizaciji na 64 KB: celotno besedilo prenese enkrat in shrani, da je pismo
