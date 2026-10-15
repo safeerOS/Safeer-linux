@@ -64,6 +64,7 @@ from core import (os_datoteke, os_govor, os_katalog, os_knjiznica, os_lupa, os_o
 from core import budnost, gostitelj, odlozisce_varuh, os_iskalnik, os_odpri_z, os_pretvorba_datotek  # noqa: E402
 from core import media_servers  # noqa: E402
 from core import os_dock  # noqa: E402
+from core import priljubljeno  # noqa: E402
 from core import os_lupina  # noqa: E402
 from core import x11  # noqa: E402
 pomnilnik.tlak_omrezja(WebKit2, 160)   # pred prvim pogledom: omrezni procesi WebKita z mejo pomnilnika
@@ -3388,6 +3389,19 @@ class SafeerOS(Gtk.Application):
             "predlogeDatotek": os_datoteke.predloge,
             "preimenujDatoteko": lambda: os_datoteke.preimenuj(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "vSmeti": lambda: os_datoteke.v_smeti(str(a[0]) if a else ""),
+            # Izbira vec datotek v Datotekah: vse v Smeti z enim zapisom za Razveljavi (idji).
+            "vSmetiVec": lambda: os_datoteke.v_smeti_vec(a[0] if a and isinstance(a[0], list) else []),
+            # Preslednica v Datotekah: slika, zacetek besedila (najvec 200 KB, ne binarno), prva stran PDF, medij.
+            "predogledDatoteke": lambda: os_datoteke.predogled(str(a[0]) if a else ""),
+            # Priljubljene datoteke, mape in programi (core/priljubljeno.py): en zapis za namizje QML in delovno
+            # povrsino; sprememba gre obema kot dogodek »priljubljeno«.
+            "priljubljenoSeznam": lambda: self._priljubljeno().stanje(),
+            "priljubljenoPreklopi": lambda: self._priljubljeno().preklopi(
+                str(a[0]) if a else "", a[1] if len(a) > 1 else None, a[2] if len(a) > 2 and isinstance(a[2], bool) else None),
+            "priljubljenoVrstniRed": lambda: self._priljubljeno().vrstni_red(str(a[0]) if a else "", a[1] if len(a) > 1 else None),
+            "priljubljenoKategorija": lambda: self._priljubljeno().kategorija(str(a[0]) if a else "", str(a[1]) if len(a) > 1 and a[1] else ""),
+            "priljubljenoNastavi": lambda: self._priljubljeno().nastavi(str(a[0]) if a else "", a[1] if len(a) > 1 else None),
+            "priljubljenoPreseli": lambda: self._priljubljeno().preseli(a[0] if a and isinstance(a[0], dict) else {}),
             "prostorDiska": lambda: os_datoteke.prostor(),
             "igreOblak": lambda: os_oblak_igre.stanje(),
             "igreOblakNamesti": lambda: os_oblak_igre.namesti(str(a[0]) if a else ""),
@@ -3615,6 +3629,7 @@ class SafeerOS(Gtk.Application):
                     izid = ozadje[metoda]()
                     if metoda in self.SPREMINJAJO_DATOTEKE:
                         os_iskalnik.zastarel()      # naslednje iskanje naj indeks datotek obnovi
+                        self._priljubljene_sledijo(metoda, a, izid)
                     self._odgovori(pogled, id_, True, izid)
                 except Exception as e:  # noqa: BLE001
                     print("[SafeerOS]", metoda, e)
@@ -3624,9 +3639,23 @@ class SafeerOS(Gtk.Application):
             self._odgovori(pogled, id_, False, "neznano")
 
     #: Metode mostu, po katerih je indeks imen datotek (core/os_iskalnik.py) zastarel.
-    SPREMINJAJO_DATOTEKE = frozenset({"novaMapa", "novaDatoteka", "preimenujDatoteko", "vSmeti", "prilepiDatoteke",
+    SPREMINJAJO_DATOTEKE = frozenset({"novaMapa", "novaDatoteka", "preimenujDatoteko", "vSmeti", "vSmetiVec", "prilepiDatoteke",
                                       "obnoviIzSmeti", "razveljaviDatoteke", "nadaljujTukaj",
                                       "prenesiDatotekoNaprave"})
+
+    def _priljubljeno(self) -> "priljubljeno.Priljubljeno":
+        """Shramba priljubljenih; vsaka sprememba gre obema namizjema (QML in WebKit) kot dogodek »priljubljeno«."""
+        return priljubljeno.shramba(lambda stanje: self._dogodek("priljubljeno", stanje))
+
+    def _priljubljene_sledijo(self, metoda: str, a: list, izid) -> None:
+        """Preimenovana ali premaknjena datoteka (tudi z Razveljavi) ostane priljubljena na novem mestu."""
+        try:
+            pari = (priljubljeno.premaknjeno_po_razveljavitvi(a[0] if a else {}, izid) if metoda == "razveljaviDatoteke"
+                    else priljubljeno.premaknjeno_po_dejanju(metoda, a, izid))
+            if pari:
+                self._priljubljeno().premaknjeno(pari)
+        except Exception as e:  # noqa: BLE001 - priljubljene ne smejo podreti dejanja z datotekami
+            print("[SafeerOS] priljubljene:", e)
 
     #: Besedila sistemskega okna za trajni izbris (naslov, opis, preklic, potrditev).
     BESEDILA_SMETI = {

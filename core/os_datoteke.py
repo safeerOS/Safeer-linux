@@ -813,6 +813,150 @@ def lastnosti(pot: str) -> dict:
     return izid
 
 
+# ---------------------------------------------------------------------- predogled (preslednica v Datotekah)
+#: Besedilo: najvec toliko z zacetka datoteke (vecja se nikoli ne prebere vsa) - kot Quick Look.
+MEJA_BESEDILA = 200 * 1024
+#: Slika vecja od tega se v predogledu ne nalozi (QML bi jo dekodiral v pomnilnik); pokazemo podatke in »Odpri«.
+MEJA_SLIKE = 80 * 1024 * 1024
+#: Koncnice, ki so besedilo, ceprav jih mimetypes ne pozna kot text/* (koda, nastavitve, dnevniki).
+BESEDILNE = (".txt", ".md", ".py", ".js", ".mjs", ".ts", ".qml", ".json", ".csv", ".tsv", ".xml", ".html", ".htm", ".css",
+             ".sh", ".bash", ".zsh", ".c", ".h", ".cpp", ".hpp", ".cc", ".rs", ".go", ".java", ".kt", ".rb", ".php", ".pl",
+             ".lua", ".sql", ".yml", ".yaml", ".toml", ".ini", ".cfg", ".conf", ".log", ".desktop", ".srt", ".vtt", ".tex",
+             ".rst", ".svg", ".diff", ".patch", ".gitignore", ".env")
+
+
+def _besedilo_z_zacetka(pot: str, meja: int = MEJA_BESEDILA) -> Optional[dict]:
+    """Prvih `meja` bajtov kot besedilo ali None, ce je datoteka binarna (nicelni bajt ali ne-UTF-8 v vzorcu)."""
+    with open(pot, "rb") as f:
+        podatki = f.read(meja + 1)
+    odrezano = len(podatki) > meja
+    podatki = podatki[:meja]
+    vzorec = podatki[:8192]
+    if b"\0" in vzorec:
+        return None
+    try:
+        vzorec.decode("utf-8")
+    except UnicodeDecodeError as e:
+        # Na koncu vzorca je lahko prerezan vecbajtni znak; drugje pomeni, da to ni UTF-8 besedilo.
+        if e.start < len(vzorec) - 4:
+            try:
+                vzorec.decode("latin-1")
+                if sum(1 for b in vzorec if b < 9 or 13 < b < 32) > len(vzorec) // 100:
+                    return None
+                return {"besedilo": podatki.decode("latin-1"), "odrezano": odrezano, "kodiranje": "latin-1"}
+            except UnicodeDecodeError:
+                return None
+    return {"besedilo": podatki.decode("utf-8", errors="replace"), "odrezano": odrezano, "kodiranje": "utf-8"}
+
+
+def _mapa_predogledov() -> str:
+    return os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "safeer-os", "predogled")
+
+
+def _prva_stran_pdf(pot: str, st: os.stat_result, najdi=shutil.which) -> str:
+    """Prva stran PDF kot PNG v predpomnilniku (pdftoppm iz poppler-utils ali Poppler GI s cairo); prazno brez orodja.
+    Predpomnilnik se obnovi, ko se PDF spremeni."""
+    import hashlib
+    kljuc = hashlib.sha1(("%s|%d|%d" % (pot, st.st_size, int(st.st_mtime))).encode("utf-8", "surrogateescape")).hexdigest()[:24]
+    cilj = os.path.join(_mapa_predogledov(), kljuc + ".png")
+    if os.path.isfile(cilj):
+        return cilj
+    os.makedirs(os.path.dirname(cilj), exist_ok=True)
+    orodje = najdi("pdftoppm")
+    if orodje:
+        try:
+            subprocess.run([orodje, "-f", "1", "-l", "1", "-singlefile", "-png", "-scale-to", "1200", pot, cilj[:-4]],
+                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, check=False)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        return cilj if os.path.isfile(cilj) else ""
+    try:
+        import gi
+        gi.require_version("Poppler", "0.18")
+        import cairo
+        from gi.repository import Gio, Poppler
+        dok = Poppler.Document.new_from_file(Gio.File.new_for_path(pot).get_uri(), None)
+        stran = dok.get_page(0)
+        s, v = stran.get_size()
+        merilo = 1200 / max(s, v, 1)
+        povrsina = cairo.ImageSurface(cairo.FORMAT_RGB24, max(1, int(s * merilo)), max(1, int(v * merilo)))
+        c = cairo.Context(povrsina)
+        c.set_source_rgb(1, 1, 1)
+        c.paint()
+        c.scale(merilo, merilo)
+        stran.render(c)
+        povrsina.write_to_png(cilj)
+        return cilj
+    except Exception:  # noqa: BLE001 - ni Popplerja ali poskodovan PDF
+        return ""
+
+
+def predogled(pot: str, najdi=shutil.which) -> dict:
+    """Podatki za predogled datoteke (preslednica ali »Predogled« v Datotekah). Samo navadne datoteke (ne naprave,
+    cevi, vticnice - branje bi lahko obviselo); besedilo samo do MEJA_BESEDILA, binarno se ne pokaze kot besedilo.
+    Vrne {"ok", "nacin": slika|besedilo|pdf|medij|podatki, ime, pot, velikost, spremenjeno, mime, ...}."""
+    import stat as _stat
+    pot = os.path.abspath(os.path.expanduser(str(pot or "")))
+    try:
+        st = os.stat(pot)
+    except OSError:
+        return {"ok": False, "napaka": "ni_datoteke"}
+    if _stat.S_ISDIR(st.st_mode):
+        return {"ok": False, "napaka": "mapa"}
+    if not _stat.S_ISREG(st.st_mode):
+        return {"ok": False, "napaka": "ni_navadna"}
+    ime = os.path.basename(pot)
+    vrsta = vrsta_datoteke(ime)
+    mime = mimetypes.guess_type(ime)[0] or ""
+    izid = {"ok": True, "nacin": "podatki", "ime": ime, "pot": pot, "vrsta": vrsta, "mime": mime,
+            "velikost": st.st_size, "spremenjeno": st.st_mtime}
+    konc = os.path.splitext(ime)[1].lower() or ime.lower()
+    if vrsta == "slika" and konc != ".svg":
+        if st.st_size <= MEJA_SLIKE:
+            izid["nacin"] = "slika"
+        else:
+            izid["prevelika"] = True
+        return izid
+    if vrsta in ("zvok", "video"):
+        izid["nacin"] = "medij"
+        return izid
+    if konc == ".pdf":
+        stran = _prva_stran_pdf(pot, st, najdi)
+        if stran:
+            izid.update(nacin="pdf", slika=stran)
+        else:
+            izid["brezOrodja"] = True
+        return izid
+    if mime.startswith("text/") or konc in BESEDILNE or (not mime and st.st_size <= 4 * 1024 * 1024):
+        try:
+            b = _besedilo_z_zacetka(pot)
+        except OSError:
+            return dict(izid, ok=False, napaka="ni_dovoljenja")
+        if b is not None:
+            izid.update(nacin="besedilo", **b)
+        else:
+            izid["binarno"] = True
+    return izid
+
+
+def v_smeti_vec(poti) -> dict:
+    """Vec datotek in map v Smeti (izbira v Datotekah): {"ok", "idji", "narejeno": [poti], "napake"}. Idji gredo v en
+    zapis za Razveljavi, da Ctrl+Z vrne VSE, kar je slo v Smeti z enim dejanjem."""
+    seznam = [str(p) for p in (poti if isinstance(poti, (list, tuple)) else [poti]) if p]
+    if not seznam or len(seznam) > NAJVEC_NAENKRAT:
+        return {"ok": False, "napaka": "prevec" if seznam else "ni_datoteke", "idji": [], "narejeno": [], "napake": []}
+    idji, narejeno, napake = [], [], []
+    for pot in dict.fromkeys(seznam):
+        r = v_smeti(pot)
+        if r.get("ok"):
+            narejeno.append(pot)
+            if r.get("id"):
+                idji.append(r["id"])
+        else:
+            napake.append({"pot": pot, "napaka": r.get("napaka") or "napaka"})
+    return {"ok": bool(narejeno) and not napake, "idji": idji, "narejeno": narejeno, "napake": napake}
+
+
 # ---------------------------------------------------------------------- slicice
 SLICICA_VELIKOST = 256
 _SLIKE = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff")
