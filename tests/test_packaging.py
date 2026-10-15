@@ -363,7 +363,8 @@ class MintInstallTests(unittest.TestCase):
         odstranjeni=set(re.search(r'apt-get remove ([^>\n]*)',preizkus).group(1).split())
         for paket in sorted(zgrajeni):
             with self.subTest(paket=paket):
-                self.assertIn("paket '%s_*_all.deb'"%paket,preizkus)
+                # Od 15. 10. 2026 sta paketa amd64 (nas WebKitGTK, packaging/webkit-deb).
+                self.assertRegex(preizkus,r"paket '%s_\*_(all|amd64)\.deb'"%re.escape(paket))
                 self.assertIn(paket,odstranjeni)
 
     def test_release_waits_for_the_mint_job(self):

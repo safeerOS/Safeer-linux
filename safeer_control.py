@@ -38,6 +38,9 @@ if KOREN not in sys.path:
     sys.path.insert(0, KOREN)
 
 # Manj RAM-a: najvec dve areni malloc (pred nitmi GTK/WebKit/GStreamer) - core/pomnilnik.py.
+# Paket .deb: nas WebKitGTK in libsoup iz /usr/lib/<paket>/webkit namesto sistemskih (pred `import gi`).
+from core import zasebni_webkit  # noqa: E402
+zasebni_webkit.nastavi(KOREN)
 from core import pomnilnik  # noqa: E402
 pomnilnik.omeji_arene(2)
 

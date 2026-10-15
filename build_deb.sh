@@ -1,14 +1,23 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Safeer Browser — Debian / Ubuntu / Linux Mint .deb Package Builder
-# Produces production-ready safeer-browser_<version>_all.deb
+# Produces production-ready safeer-browser_<version>_amd64.deb with our WebKitGTK and libsoup
+# (SAFEER_WEBKIT_TAR, packaging/webkit-deb) or, without it, safeer-browser_<version>_all.deb on the system WebKitGTK
+# (local builds and tests; GTK3 browser: SAFEER_BRSKALNIK_GTK3=1).
 # ==============================================================================
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PKG_NAME="safeer-browser"
 VERSION="$(cat "$DIR/packaging/VERSION")"
-ARCH="all"
+# Nas WebKitGTK 6.0 in libsoup 3.8 (lastnik, 15. 10. 2026: .deb dobi vse izboljsave Flatpaka): arhiv iz
+# packaging/webkit-deb/zgradi.sh za predpono /usr/lib/safeer-browser/webkit (CI: posel webkit-deb). Z njim je paket amd64.
+WEBKIT_TAR="${SAFEER_WEBKIT_TAR:-}"
+if [ -n "$WEBKIT_TAR" ] && [ "${SAFEER_BRSKALNIK_GTK3:-0}" = 1 ]; then
+    echo "SAFEER_WEBKIT_TAR je WebKitGTK 6.0 (GTK4); brskalnik GTK3 uporablja WebKit2GTK 4.1 sistema." >&2
+    exit 2
+fi
+if [ -n "$WEBKIT_TAR" ]; then ARCH="amd64"; else ARCH="all"; fi
 DEB_PACKAGE="${PKG_NAME}_${VERSION}_${ARCH}.deb"
 TAR_PACKAGE="safeer-browser-linux.tar.gz"
 BUILD_ROOT="$DIR/build/deb"
@@ -25,18 +34,30 @@ cp -a "$DIR/build/stage/usr" "$BUILD_ROOT/"
 # The system package knows where it lives: an absolute Exec cannot be shadowed by a stale
 # "safeer" earlier in the user's PATH (e.g. an old ~/.local/bin symlink to a source checkout).
 sed -i 's|^Exec=safeer|Exec=/usr/bin/safeer|' "$BUILD_ROOT/usr/share/applications/safeer-browser.desktop"
+WEBKIT_ODVISNOSTI=""
+if [ -n "$WEBKIT_TAR" ]; then
+    WEBKIT_ODVISNOSTI="$(bash "$DIR/packaging/webkit-deb/vgradi.sh" "$BUILD_ROOT" "$PKG_NAME" "$WEBKIT_TAR")"
+fi
 
 # 6. Create DEBIAN/control
 echo "📝 Generiranje DEBIAN/control..."
-# GTK4 brskalnik (privzeto) potrebuje WebKitGTK 6.0 in GTK4: Linux Mint 22 / Ubuntu 24.04 naprej. Paket .deb uporabi
-# WebKitGTK sistema; nas WebKitGTK s popravki (packaging/webkit) je samo v Flatpaku, ki ga zaganjalnik zazene, ce je
-# namescen (packaging/safeer-launcher). GDebi ne namesti priporocenih paketov: kar mora delovati takoj, je v Depends
+# GTK4 brskalnik (privzeto) potrebuje WebKitGTK 6.0 in GTK4: Linux Mint 22 / Ubuntu 24.04 naprej. Paket izdaje (amd64) ima
+# nas WebKitGTK in libsoup v /usr/lib/safeer-browser/webkit (core/zasebni_webkit.py): odvisnosti njunih knjiznic izracuna
+# dpkg-shlibdeps, peskovnik potrebuje bwrap in xdg-dbus-proxy, TLS za libsoup glib-networking. Brez arhiva (lokalna
+# gradnja) paket uporabi WebKitGTK sistema. GDebi ne namesti priporocenih paketov: kar mora delovati takoj, je v Depends
 # (kodeki GStreamer za video na straneh - isti kot v paketu safeer-os).
 if [ "${SAFEER_BRSKALNIK_GTK3:-0}" = 1 ]; then
     ODVISNOSTI="python3, python3-gi, python3-gi-cairo, gir1.2-gtk-3.0, gir1.2-webkit2-4.1, gir1.2-soup-3.0, gir1.2-glib-2.0"
     PRIPOROCILA=""
     OPIS_GTK=" specifically for Linux Mint and Ubuntu. Built natively with GTK3 and
  WebKit2GTK, it includes ad filtering, a local threat blocklist,"
+elif [ -n "$WEBKIT_TAR" ]; then
+    ODVISNOSTI="python3 (>= 3.10), python3-gi (>= 3.42), python3-gi-cairo, gir1.2-gtk-4.0, gir1.2-glib-2.0, ${WEBKIT_ODVISNOSTI}, bubblewrap, xdg-dbus-proxy, glib-networking, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-libav, gstreamer1.0-gl"
+    PRIPOROCILA="Recommends: python3-cryptography, xdg-utils
+"
+    OPIS_GTK=" specifically for Linux Mint 22+ and Ubuntu 24.04+. Built natively with GTK4 and
+ its own WebKitGTK 6.0 and libsoup 3 (Clang ThinLTO build with Safeer fixes), it includes
+ ad filtering, a local threat blocklist,"
 else
     ODVISNOSTI="python3 (>= 3.10), python3-gi (>= 3.42), python3-gi-cairo, gir1.2-gtk-4.0, gir1.2-webkit-6.0, gir1.2-soup-3.0, gir1.2-glib-2.0, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-libav, gstreamer1.0-gl"
     PRIPOROCILA="Recommends: python3-cryptography, xdg-utils
@@ -141,7 +162,7 @@ for script in "$BUILD_ROOT/DEBIAN/postinst" "$BUILD_ROOT/DEBIAN/prerm" "$BUILD_R
     if grep -q pipefail "$script"; then echo "pipefail is not supported by /bin/sh: $script" >&2; exit 1; fi
 done
 
-# 8. Build Debian package (all architecture)
+# 8. Build Debian package (amd64 with our WebKitGTK, otherwise all)
 echo "🔨 Izdelava paketa z dpkg-deb..."
 dpkg-deb --build --root-owner-group "$BUILD_ROOT" "$DIR/$DEB_PACKAGE"
 
@@ -170,7 +191,7 @@ sha256sum "$DEB_PACKAGE" $TAR_DATOTEKE > "$DIR/SHA256SUMS"
 echo ""
 echo "=========================================================="
 echo "✅ PAKETI USPEŠNO ZGRAJENI:"
-echo "   All-Arch .deb: $DIR/$DEB_PACKAGE"
+echo "   .deb ($ARCH): $DIR/$DEB_PACKAGE"
 [ -z "$TAR_DATOTEKE" ] || echo "   Portable tar : $DIR/$TAR_PACKAGE"
 cat "$DIR/SHA256SUMS"
 echo "=========================================================="

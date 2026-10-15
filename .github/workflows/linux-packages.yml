@@ -22,6 +22,12 @@ on:
         description: 'Id teka z artefaktom webkit-pgo-profraw (prazno = nov ucni tek)'
         type: string
         default: ''
+      pgo_deb:
+        # Rocni tek: PGO tudi za WebKitGTK paketov .deb (posla webkit-deb-pgo-*). Lasten ucni tek, ker se profil Flatpaka
+        # (glave GNOME 50, poti /run/build) z gradnjo noble ne ujema (packaging/webkit-deb/zgradi.sh).
+        description: 'WebKitGTK paketov .deb s PGO (ucni tek in optimizirani gradnji, ni del izdaje)'
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -94,9 +100,69 @@ jobs:
           path: |
             *.deb
             dist/*.AppImage
+  webkit-deb:
+    # Nas WebKitGTK 6.0 in libsoup 3.8 za pakete .deb (lastnik, 15. 10. 2026: .deb dobi vse izboljsave Flatpaka): isti
+    # izvor, popravki in moznosti kot modula Flatpak (packaging/webkit-deb/modul.py), Clang 22 iz apt.llvm.org, ThinLTO
+    # in lld, na Ubuntu 24.04 (osnova Linux Mint 22). Poti pomoznih procesov WebKit prevede v knjiznico, zato ima vsak
+    # paket svojo gradnjo s svojo predpono (/usr/lib/<paket>/webkit) - vzporedno, ~2,5 h. Gotov arhiv je v predpomnilniku
+    # s kljucem iz datotek gradnje: ob spremembi samo kode Safeerja posel traja minuto.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        paket: [safeer-browser, safeer-os]
+    container:
+      image: ubuntu:24.04
+      # Mape gostitelja, ki jih gradnja ne potrebuje: WebKit z ThinLTO potrebuje ~10 GB prostora.
+      volumes:
+        - /usr/share/dotnet:/gostitelj/dotnet
+        - /usr/local/lib/android:/gostitelj/android
+        - /opt/ghc:/gostitelj/ghc
+        - /opt/hostedtoolcache/CodeQL:/gostitelj/codeql
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TZ: UTC
+    steps:
+      - name: Free disk space and tools for the cache
+        run: |
+          rm -rf /gostitelj/dotnet/* /gostitelj/android/* /gostitelj/ghc/* /gostitelj/codeql/*
+          df -h /
+          apt-get update -q
+          apt-get install -y -q --no-install-recommends ca-certificates zstd
+      - uses: actions/checkout@v5
+      - name: Restore our WebKitGTK (built earlier from the same files)
+        id: wk
+        uses: actions/cache/restore@v4
+        with:
+          path: build/webkit-${{ matrix.paket }}.tar.zst
+          key: webkit-deb-${{ matrix.paket }}-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py') }}
+      - name: Build dependencies (Clang 22 from apt.llvm.org, noble libraries)
+        if: steps.wk.outputs.cache-hit != 'true'
+        run: bash packaging/webkit-deb/odvisnosti.sh
+      - name: WebKitGTK and libsoup for /usr/lib/${{ matrix.paket }}/webkit (Clang 22, ThinLTO)
+        if: steps.wk.outputs.cache-hit != 'true'
+        run: bash packaging/webkit-deb/zgradi.sh /usr/lib/${{ matrix.paket }}/webkit build/webkit-${{ matrix.paket }}.tar.zst
+      - name: Save our WebKitGTK
+        if: always() && steps.wk.outputs.cache-hit != 'true' && hashFiles(format('build/webkit-{0}.tar.zst', matrix.paket)) != ''
+        uses: actions/cache/save@v4
+        with:
+          path: build/webkit-${{ matrix.paket }}.tar.zst
+          key: webkit-deb-${{ matrix.paket }}-${{ hashFiles('packaging/webkit/webkitgtk6-safeer.yml', 'packaging/webkit/*.patch', 'packaging/libsoup/**', 'packaging/webkit-deb/odvisnosti.sh', 'packaging/webkit-deb/zgradi.sh', 'packaging/webkit-deb/modul.py', 'packaging/webkit-deb/typelibi.py') }}
+      - name: Build record
+        run: |
+          tar -I zstd -xOf build/webkit-${{ matrix.paket }}.tar.zst usr/lib/${{ matrix.paket }}/webkit/share/webkitgtk-safeer/gradnja.txt | tee gradnja.txt
+          echo "::notice::${{ matrix.paket }}: $(stat -c %s build/webkit-${{ matrix.paket }}.tar.zst) B | $(paste -sd '|' gradnja.txt)"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: webkit-deb-${{ matrix.paket }}
+          path: build/webkit-${{ matrix.paket }}.tar.zst
+          retention-days: 14
   brskalnik:
     # Safeer Browser na GTK4 (safeer_brskalnik.py) in WebKitGTK 6.0: .deb in AppImage za Linux Mint 22 / Ubuntu 24.04
-    # naprej (kot Safeer OS). WebKitGTK v teh dveh paketih je sistemski (Ubuntu); nas s popravki je v Flatpaku.
+    # naprej (kot Safeer OS). Paket .deb (amd64) ima nas WebKitGTK in libsoup iz posla webkit-deb v
+    # /usr/lib/safeer-browser/webkit; AppImage se nosi WebKitGTK sistema gradnje (Ubuntu).
+    needs: webkit-deb
     # Preizkus brskalnika (packaging/smoke_brskalnik.py): stran, prenos, nastavitve in vstavitev Safeer DRM v okno.
     runs-on: ubuntu-24.04
     container:
@@ -109,27 +175,41 @@ jobs:
       - name: Install build and test dependencies
         run: |
           apt-get update
-          apt-get install -y ca-certificates curl git sudo dbus python3-cryptography python3-pytest python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-webkit-6.0 gir1.2-soup-3.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-gl desktop-file-utils appstream dpkg-dev glib-networking xvfb x11-utils bubblewrap file libglib2.0-bin libglib2.0-dev-bin binutils patchelf libx11-6
+          apt-get install -y ca-certificates curl git sudo dbus python3-cryptography python3-pytest python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-webkit-6.0 gir1.2-soup-3.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-gl desktop-file-utils appstream dpkg-dev glib-networking xvfb x11-utils bubblewrap file libglib2.0-bin libglib2.0-dev-bin binutils patchelf libx11-6 zstd
           [ "$(getconf GNU_LIBC_VERSION)" = 'glibc 2.39' ]
       - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v8
+        with:
+          name: webkit-deb-safeer-browser
+          path: build
       - name: Verify version consistency
         run: python3 packaging/check_version.py
-      - name: Debian package and launch smoke
+      - name: Debian package with our WebKitGTK, and launch smoke of the payload
         run: |
-          bash build_deb.sh
-          dpkg-deb -f "safeer-browser_$(cat packaging/VERSION)_all.deb" Package Version Depends Recommends
-          dpkg-deb -f "safeer-browser_$(cat packaging/VERSION)_all.deb" Depends | grep -F 'gir1.2-webkit-6.0'
+          SAFEER_WEBKIT_TAR=build/webkit-safeer-browser.tar.zst bash build_deb.sh
+          DEB="safeer-browser_$(cat packaging/VERSION)_amd64.deb"
+          dpkg-deb -f "$DEB" Package Version Architecture Depends Recommends
+          # Nas WebKit je v paketu: sistemskega WebKitGTK/libsoup paket ne zahteva, peskovnik pa potrebuje bwrap.
+          if dpkg-deb -f "$DEB" Depends | grep -E 'gir1\.2-webkit-6\.0|gir1\.2-soup-3\.0|libwebkitgtk|libsoup-3\.0'; then echo "::error::paket zahteva sistemski WebKitGTK/libsoup"; exit 1; fi
+          dpkg-deb -f "$DEB" Depends | grep -F 'bubblewrap' && dpkg-deb -f "$DEB" Depends | grep -F 'xdg-dbus-proxy'
+          dpkg-deb -c "$DEB" | grep -F './usr/lib/safeer-browser/webkit/libexec/webkitgtk-6.0/WebKitWebProcess'
+          echo "::notice::$(stat -c '%n %s B' "$DEB") | namesceno $(dpkg-deb -f "$DEB" Installed-Size) KiB"
           xvfb-run -a dbus-run-session -- /usr/bin/python3 packaging/smoke_brskalnik.py build/stage/usr/lib/safeer-browser
-      - name: Install, launch and remove the Debian package
+      - name: Install, launch and remove the Debian package (system WebKitGTK 6.0 installed too)
+        # gir1.2-webkit-6.0 in gir1.2-soup-3.0 sistema sta namescena (prvi korak): paket mora kljub temu teci na nasih.
         run: |
-          sudo apt-get install -y --no-install-recommends "./safeer-browser_$(cat packaging/VERSION)_all.deb"
+          sudo apt-get install -y --no-install-recommends "./safeer-browser_$(cat packaging/VERSION)_amd64.deb"
           xvfb-run -a safeer --version | tee /dev/stderr | grep -Fx "Safeer Browser $(cat packaging/VERSION)"
           desktop-file-validate /usr/share/applications/safeer-browser.desktop
           grep -Fx 'StartupWMClass=io.github.memelandfaner.SafeerBrowser' /usr/share/applications/safeer-browser.desktop
           test -f /usr/lib/safeer-browser/safeer_brskalnik.py && test ! -e /usr/lib/safeer-browser/safeer_mint.py
+          dpkg -s libwebkitgtk-6.0-4 | grep -E '^(Status|Version)'
+          xvfb-run -a dbus-run-session -- /usr/bin/python3 packaging/smoke_webkit_deb.py /usr/lib/safeer-browser
           xvfb-run -a dbus-run-session -- /usr/bin/python3 packaging/smoke_brskalnik.py /usr/lib/safeer-browser
           sudo apt-get remove -y safeer-browser
-          [ ! -e /usr/lib/safeer-browser ] || { echo "po odstranitvi je ostalo /usr/lib/safeer-browser"; exit 1; }
+          [ ! -e /usr/lib/safeer-browser ] || { echo "po odstranitvi je ostalo /usr/lib/safeer-browser"; find /usr/lib/safeer-browser | head; exit 1; }
+          # Sistemski WebKitGTK ostane nedotaknjen.
+          dpkg -s libwebkitgtk-6.0-4 | grep -Fx 'Status: install ok installed'
       - name: AppImage
         run: |
           bash packaging/fetch_linuxdeploy.sh
@@ -144,6 +224,8 @@ jobs:
   safeer-os:
     # Safeer OS na GTK4 + WebKitGTK 6.0 z lupino v Qt Quick (en proces). Ubuntu 24.04 je osnova Linux Mint 22 - prve
     # razlicice Minta z WebKitGTK 6.0 (Mint 21 ga nima; lastnik 14. 10. 2026: .deb za Mint 22+, PySide6 v paketu).
+    # Paket .deb (amd64) ima nas WebKitGTK in libsoup iz posla webkit-deb v /usr/lib/safeer-os/webkit.
+    needs: webkit-deb
     runs-on: ubuntu-24.04
     container:
       image: ubuntu:24.04
@@ -155,9 +237,13 @@ jobs:
       - name: Install build and test dependencies
         run: |
           apt-get update
-          apt-get install -y ca-certificates curl git sudo python3-cryptography python3-qrcode python3-zeroconf python3-ifaddr python3-pytest python3-gi python3-gi-cairo python3-pil python3-numpy gir1.2-gtk-4.0 gir1.2-gtk-3.0 gir1.2-webkit-6.0 gir1.2-soup-3.0 gir1.2-secret-1 gir1.2-atspi-2.0 gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-gl desktop-file-utils appstream dpkg-dev glib-networking xvfb bubblewrap file libglib2.0-bin libglib2.0-dev-bin binutils patchelf libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libegl1 libfontconfig1 libdbus-1-3
+          apt-get install -y ca-certificates curl git sudo python3-cryptography python3-qrcode python3-zeroconf python3-ifaddr python3-pytest python3-gi python3-gi-cairo python3-pil python3-numpy gir1.2-gtk-4.0 gir1.2-gtk-3.0 gir1.2-webkit-6.0 gir1.2-soup-3.0 gir1.2-secret-1 gir1.2-atspi-2.0 gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-gl desktop-file-utils appstream dpkg-dev glib-networking xvfb bubblewrap file libglib2.0-bin libglib2.0-dev-bin binutils patchelf libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libegl1 libfontconfig1 libdbus-1-3 zstd dbus
           [ "$(getconf GNU_LIBC_VERSION)" = 'glibc 2.39' ]
       - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v8
+        with:
+          name: webkit-deb-safeer-os
+          path: build
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
@@ -175,9 +261,13 @@ jobs:
         # Od 12. 10. 2026 je za Linux en sam paket .deb: ena namestitev (tudi z dvoklikom v GDebi), ena posodobitev.
         # mint-themes je le priporocilo, zato se paket tu namesti tudi na Ubuntu 24.04 brez priporocenih paketov.
         run: |
-          bash build_os_deb.sh
-          OS="./safeer-os_$(cat packaging/VERSION_OS)_all.deb"
-          dpkg-deb -f "$OS" Package Version Depends Recommends Provides Replaces
+          SAFEER_WEBKIT_TAR=build/webkit-safeer-os.tar.zst bash build_os_deb.sh
+          OS="./safeer-os_$(cat packaging/VERSION_OS)_amd64.deb"
+          dpkg-deb -f "$OS" Package Version Architecture Depends Recommends Provides Replaces
+          DEB="$OS"
+          if dpkg-deb -f "$DEB" Depends | grep -E 'gir1\.2-webkit-6\.0|gir1\.2-soup-3\.0|libwebkitgtk|libsoup-3\.0'; then echo "::error::paket zahteva sistemski WebKitGTK/libsoup"; exit 1; fi
+          dpkg-deb -f "$OS" Depends | grep -F 'bubblewrap' && dpkg-deb -f "$OS" Depends | grep -F 'xdg-dbus-proxy'
+          echo "::notice::$(stat -c '%n %s B' "$OS") | namesceno $(dpkg-deb -f "$OS" Installed-Size) KiB"
           dpkg-deb -f "$OS" Provides | grep -F "safeer-control (= $(cat packaging/VERSION_CONTROL))"
           dpkg-deb -f "$OS" Provides | grep -F "safeer-cinnamon (= $(cat packaging/VERSION_CINNAMON))"
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$OS"
@@ -189,6 +279,10 @@ jobs:
           safeerctl --version | tee /dev/stderr | grep -Fx "safeerctl $(cat packaging/VERSION_CONTROL)"
           # Lupina QML: PySide6 iz paketa (Mint 22 ga nima) se nalozi in pozene Qt Quick brez zaslona.
           QT_QPA_PLATFORM=offscreen /usr/bin/python3 -c "import sys; sys.path.insert(0, '/usr/lib/safeer-os/vendor'); from PySide6.QtGui import QGuiApplication; from PySide6.QtQuick import QQuickView; a = QGuiApplication([]); v = QQuickView(); print('PySide6 OK')"
+          # Splet v Safeer OS in Safeer Control tece na nasem WebKitGTK in libsoup (sistemski WebKitGTK 6.0 je namescen),
+          # stran se nalozi v peskovniku bubblewrap.
+          xvfb-run -a dbus-run-session -- /usr/bin/python3 packaging/smoke_webkit_deb.py /usr/lib/safeer-os
+          xvfb-run -a dbus-run-session -- /usr/bin/python3 packaging/smoke_webkit_deb.py /usr/lib/safeer-control
           bash -n /usr/bin/safeer-cinnamon
           # Okno z izbiro postavitve (GTK 4) se prevede.
           python3 -m py_compile /usr/lib/safeer-cinnamon/izbira
@@ -201,6 +295,7 @@ jobs:
           done
           test -f /usr/share/icons/hicolor/scalable/apps/safeer-os.Player.svg
           sudo apt-get remove -y safeer-os
+          dpkg -s libwebkitgtk-6.0-4 | grep -Fx 'Status: install ok installed'
           for ostanek in /usr/lib/safeer-os /usr/lib/safeer-control /usr/lib/safeer-cinnamon /usr/bin/safeer-control /usr/bin/safeer-cinnamon; do
             [ ! -e "$ostanek" ] || { echo "po odstranitvi je ostalo $ostanek"; exit 1; }
           done
@@ -579,6 +674,124 @@ jobs:
           grep -q '^USE_PGO_PROFILE:BOOL=ON$' "$G"
           grep -q '^build.ninja -fprofile-use: [1-9]' "$G"
           xvfb-run -a dbus-run-session -- flatpak run --command=python3 io.github.memelandfaner.SafeerBrowser "$PWD/packaging/smoke_brskalnik.py" /app/lib/safeer-browser
+  webkit-deb-pgo-ucenje:
+    # PGO paketov .deb 1/2 (samo rocni tek z vhodom pgo_deb): instrumentiran WebKitGTK za predpono safeer-browser, ucni tek
+    # Speedometer 3.1 (pripeta lokalna kopija) pod Xvfb, .profraw v artefakt. Profil Flatpaka (webkit-pgo-profraw) tu ni
+    # uporaben: LLVM zahteva profil iz istega izvora - gradnja noble ima druge sistemske glave (GTK 4.14, GLib 2.80,
+    # GStreamer 1.24 namesto GNOME 50) in druge poti izvora (imena staticnih funkcij v profilu vsebujejo pot datoteke),
+    # zato bi se velik del funkcij ne ujemal. En ucni tek zadosca za oba paketa: gradnji se razlikujeta le v nizih poti
+    # (predpona), ne v kodi, in imata isto mapo izvora (build/webkit-deb/izvor).
+    if: github.event_name == 'workflow_dispatch' && inputs.pgo_deb
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    container:
+      image: ubuntu:24.04
+      options: --privileged
+      volumes:
+        - /usr/share/dotnet:/gostitelj/dotnet
+        - /usr/local/lib/android:/gostitelj/android
+        - /opt/ghc:/gostitelj/ghc
+        - /opt/hostedtoolcache/CodeQL:/gostitelj/codeql
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TZ: UTC
+    steps:
+      - name: Free disk space
+        run: |
+          rm -rf /gostitelj/dotnet/* /gostitelj/android/* /gostitelj/ghc/* /gostitelj/codeql/*
+          df -h /
+          apt-get update -q
+          apt-get install -y -q --no-install-recommends ca-certificates git
+      - uses: actions/checkout@v5
+      - name: Build dependencies and the training run tools
+        run: |
+          bash packaging/webkit-deb/odvisnosti.sh
+          apt-get install -y -q --no-install-recommends python3-gi gir1.2-gtk-4.0 xvfb xauth dbus procps
+      - name: Instrumented WebKitGTK (Clang 22, ThinLTO, -fprofile-generate)
+        run: SAFEER_WEBKIT_PGO=ucenje bash packaging/webkit-deb/zgradi.sh /usr/lib/safeer-browser/webkit
+      - name: Speedometer 3.1 (pinned, offline copy)
+        run: |
+          git clone -q -b release/3.1 https://github.com/WebKit/Speedometer.git build/pgo/speedometer
+          git -C build/pgo/speedometer checkout -q 1386415be8fef2f6b6bbdbe1828872471c5d802a
+      - name: Training run
+        # Kot pri Flatpaku: spletni proces brez peskovnika samo v tem ucnem teku (lokalna vsebina), da zapise profil.
+        run: |
+          P="$PWD/build/pgo/profraw"
+          mkdir -p "$P"
+          python3 -m http.server 8123 --bind 127.0.0.1 --directory build/pgo/speedometer >/dev/null 2>&1 & SRV=$!
+          sleep 2
+          GI_TYPELIB_PATH=/usr/lib/safeer-browser/webkit/lib/girepository-1.0 LLVM_PROFILE_FILE="$P/%p-%m.profraw" \
+            WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 xvfb-run -a -s "-screen 0 1920x1080x24" dbus-run-session -- \
+            python3 packaging/webkit/pgo_trening.py "http://127.0.0.1:8123/?startAutomatically&iterationCount=5" 150
+          for i in $(seq 60); do pgrep -f 'WebKit(Network|Web)Process' >/dev/null || break; sleep 1; done
+          kill "$SRV" || true
+          ls -l "$P"
+          echo "::notice::$(ls "$P" | wc -l) .profraw, $(du -sh "$P" | cut -f1)"
+          test "$(find "$P" -name '*.profraw' -size +1k | wc -l)" -ge 2
+      - uses: actions/upload-artifact@v7
+        with:
+          name: webkit-deb-pgo-profraw
+          path: build/pgo/profraw/*.profraw
+          retention-days: 14
+  webkit-deb-pgo:
+    # PGO paketov .deb 2/2: WebKitGTK s profilom (-DUSE_PGO_PROFILE=ON, ThinLTO) za oba paketa in iz njega paketa .deb
+    # (artefakt deb-pgo-<paket> za meritve na testnem PC, ni del izdaje). Isti preizkus kot gradnja izdaje.
+    needs: webkit-deb-pgo-ucenje
+    if: github.event_name == 'workflow_dispatch' && inputs.pgo_deb
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        paket: [safeer-browser, safeer-os]
+    container:
+      image: ubuntu:24.04
+      options: --privileged
+      volumes:
+        - /usr/share/dotnet:/gostitelj/dotnet
+        - /usr/local/lib/android:/gostitelj/android
+        - /opt/ghc:/gostitelj/ghc
+        - /opt/hostedtoolcache/CodeQL:/gostitelj/codeql
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TZ: UTC
+    steps:
+      - name: Free disk space
+        run: |
+          rm -rf /gostitelj/dotnet/* /gostitelj/android/* /gostitelj/ghc/* /gostitelj/codeql/*
+          df -h /
+          apt-get update -q
+          apt-get install -y -q --no-install-recommends ca-certificates
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v8
+        with:
+          name: webkit-deb-pgo-profraw
+          path: build/pgo/profraw
+      - name: Build dependencies
+        run: bash packaging/webkit-deb/odvisnosti.sh
+      - name: WebKitGTK with the profile for /usr/lib/${{ matrix.paket }}/webkit
+        run: |
+          SAFEER_WEBKIT_PGO=uporaba SAFEER_WEBKIT_PROFRAW=build/pgo/profraw \
+            bash packaging/webkit-deb/zgradi.sh /usr/lib/${{ matrix.paket }}/webkit build/webkit-${{ matrix.paket }}.tar.zst
+          G=/usr/lib/${{ matrix.paket }}/webkit/share/webkitgtk-safeer/gradnja.txt
+          grep -q '^USE_PGO_PROFILE:BOOL=ON$' "$G"
+          grep -q '^build.ninja -fprofile-use: [1-9]' "$G"
+          echo "::notice::$(paste -sd '|' "$G")"
+      - name: Debian package with the PGO WebKitGTK
+        run: |
+          apt-get install -y -q --no-install-recommends python3 python3-gi gir1.2-gtk-4.0 desktop-file-utils xvfb xauth dbus
+          if [ "${{ matrix.paket }}" = safeer-browser ]; then
+            SAFEER_WEBKIT_TAR=build/webkit-safeer-browser.tar.zst bash build_deb.sh
+            DEB="safeer-browser_$(cat packaging/VERSION)_amd64.deb"
+          else
+            SAFEER_WEBKIT_TAR=build/webkit-safeer-os.tar.zst bash build_os_deb.sh
+            DEB="safeer-os_$(cat packaging/VERSION_OS)_amd64.deb"
+          fi
+          mkdir -p dist && mv "$DEB" "dist/${DEB%.deb}-pgo.deb"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: deb-pgo-${{ matrix.paket }}
+          path: dist/*-pgo.deb
   scit-lab:
     # Scit spreminja sistemsko nastavitev DNS. Enotni testi ne vidijo, kako se systemd-resolved in NetworkManager
     # obnasata v resnici - in prav tam so bile napake do Safeer OS 0.4.42 (izklop je pustil racunalnik brez DNS).

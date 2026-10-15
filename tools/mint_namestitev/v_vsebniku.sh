@@ -9,9 +9,10 @@ echo "== Linux Mint: $(grep -rhs "packages.linuxmint.com" /etc/apt/sources.list.
 
 paket() { local p; p="$(ls /paketi/$1 2>/dev/null | head -1)"; [ -f "$p" ] || { echo "NAPAKA: manjka paket $1" >&2; exit 1; }; echo "$p"; }
 razlicica() { dpkg-deb -f "$1" Version; }
-BRSKALNIK="$(paket 'safeer-browser_*_all.deb')"
+# Od 15. 10. 2026 sta paketa amd64 (nas WebKitGTK in libsoup v /usr/lib/<paket>/webkit, packaging/webkit-deb).
+BRSKALNIK="$(paket 'safeer-browser_*_amd64.deb')"
 # Od 12. 10. 2026 je Safeer OS en paket: Safeer Control in Safeer Cinnamon sta v njem (glej build_os_deb.sh).
-OS="$(paket 'safeer-os_*_all.deb')"
+OS="$(paket 'safeer-os_*_amd64.deb')"
 VSEBNIK_OS="$(dpkg-deb -c "$OS" | awk '{print $6}' | sed -n 's|^\./||p')"
 razlicica_v() { dpkg-deb -f "$OS" Provides | tr ',' '\n' | sed -n "s/^ *$1 (= \(.*\))\$/\1/p"; }
 
@@ -21,8 +22,10 @@ apt-get update -q >/dev/null
 apt-get install -y -q --no-install-recommends xvfb xauth dbus-x11 desktop-file-utils >/dev/null
 # Priporocenih paketov ne namescamo: pri uporabniku so ze tam (namizje Cinnamon), tu bi jih bilo vec sto.
 useradd -m preizkus
-if ls /prejsnji/safeer-*_all.deb >/dev/null 2>&1; then
-  echo "   najprej prejsnja izdaja: $(cd /prejsnji && echo safeer-*_all.deb)"
+# Prejsnja izdaja ima pakete _all (do 1.0.127) ali _amd64 (z nasim WebKitom): posodobitev all -> amd64 je pot vseh
+# obstojecih uporabnikov.
+if ls /prejsnji/safeer-*.deb >/dev/null 2>&1; then
+  echo "   najprej prejsnja izdaja: $(cd /prejsnji && echo safeer-*.deb)"
   # Paketa, ki ju je nadomestil safeer-os, morata ob posodobitvi »izginiti« (Replaces): to se zgodi samo, ce ima
   # novi paket VSE njune datoteke. Sicer bi ostala namescena in lastnika polovice datotek.
   # (Brez cevi printf | grep -q: s pipefail grep -q zapre cev, printf dobi SIGPIPE in najdena datoteka velja za manjkajoco.)
@@ -32,7 +35,7 @@ if ls /prejsnji/safeer-*_all.deb >/dev/null 2>&1; then
       grep -qxF -- "$d" <<<"$VSEBNIK_OS" || echo "$d"; done)"
     [ -z "$manjka" ] || { echo "$manjka" | head -20; echo "NAPAKA: safeer-os nima vseh datotek paketa $(basename "$star")"; exit 1; }
   done
-  apt-get install -y -q --no-install-recommends /prejsnji/safeer-*_all.deb >/tmp/prejsnja.log 2>&1 \
+  apt-get install -y -q --no-install-recommends /prejsnji/safeer-*.deb >/tmp/prejsnja.log 2>&1 \
     || { tail -40 /tmp/prejsnja.log; echo "NAPAKA: namestitev prejsnje izdaje"; exit 1; }
   # Najslabsi primer za posodobitev: programi so ze tekli kot root in v mapah programov pustili svojo bajtno kodo.
   xvfb-run -a safeer --version >/dev/null
@@ -63,6 +66,28 @@ for mapa in /usr/lib/safeer-browser /usr/lib/safeer-control /usr/lib/safeer-os; 
   [ "$(find "$mapa" -name '*.pyc' | wc -l)" -ge "$(find "$mapa" -name '*.py' | wc -l)" ] \
     || { echo "NAPAKA: $mapa nima bajtne kode za vse module (postinst je ni prevedel)"; exit 1; }
 done
+
+for p in safeer-browser safeer-os; do
+  [ "$(dpkg-query -W -f '${Architecture}' "$p")" = amd64 ] || { echo "NAPAKA: $p ni amd64 (ni nasega WebKita)"; exit 1; }
+done
+
+echo "== 1a. nas WebKitGTK in libsoup (navaden uporabnik, peskovnik bubblewrap)"
+# Brez sistemskega WebKitGTK 6.0 (paketa ga ne zahtevata) in nato z njim: paketa morata teci na svojem.
+webkit_preizkus() {
+  for koren in /usr/lib/safeer-browser /usr/lib/safeer-os /usr/lib/safeer-control; do
+    su preizkus -c "cd ~ && dbus-run-session -- xvfb-run -a timeout 120 python3 /smoke_webkit_deb.py $koren" >/tmp/webkit.log 2>&1 \
+      || { tail -40 /tmp/webkit.log; echo "NAPAKA: nas WebKit v $koren ($1)"; exit 1; }
+    grep -E '^(knjiznice|libsoup|peskovnik|PASS)' /tmp/webkit.log
+  done
+}
+# Prejsnja izdaja je zahtevala gir1.2-webkit-6.0; po posodobitvi ga noben paket ne potrebuje vec in ga autoremove vzame.
+apt-get autoremove -y -q >/tmp/autoremove.log 2>&1 || { tail -20 /tmp/autoremove.log; echo "NAPAKA: autoremove"; exit 1; }
+if dpkg-query -W -f '${db:Status-Abbrev}\n' libwebkitgtk-6.0-4 2>/dev/null | grep -q '^ii'; then
+  echo "   (sistemski WebKitGTK 6.0 ostaja namescen: $(apt-cache rdepends --installed libwebkitgtk-6.0-4 | tail -n +3 | tr '\n' ' '))"
+fi
+webkit_preizkus "brez sistemskega WebKitGTK"
+apt-get install -y -q --no-install-recommends gir1.2-webkit-6.0 gir1.2-soup-3.0 >/dev/null
+webkit_preizkus "s sistemskim WebKitGTK $(dpkg-query -W -f '${Version}' libwebkitgtk-6.0-4)"
 
 echo "== 1b. odvisnosti, brez katerih Safeer Link ne najde naprav"
 /usr/bin/python3 -c "import zeroconf, qrcode, cryptography" || { echo "NAPAKA: manjka python3-zeroconf/qrcode/cryptography"; exit 1; }
@@ -115,4 +140,5 @@ for ostanek in /usr/lib/safeer-os /usr/lib/safeer-control /usr/lib/safeer-browse
                /usr/share/themes/Safeer-Cinnamon /usr/share/applications/safeer-os.desktop; do
   [ ! -e "$ostanek" ] || { echo "NAPAKA: po odstranitvi je ostalo $ostanek"; find "$ostanek" | head -5; exit 1; }
 done
+dpkg-query -W -f '${db:Status-Abbrev}\n' libwebkitgtk-6.0-4 | grep -q '^ii' || { echo "NAPAKA: odstranitev je vzela sistemski WebKitGTK"; exit 1; }
 echo "== USPEH: namestitev, zagon in odstranitev na Linux Mintu"
