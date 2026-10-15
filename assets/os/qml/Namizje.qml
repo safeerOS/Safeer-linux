@@ -694,7 +694,7 @@ Item {
     property var priljubljeno: ({ datoteke: [], programi: [], kategorije: ({}), nastavitve: ({}), izSkupine: ({}), kategorijeProgramov: [] })
     function naloziPriljubljeno() {
         if (platforma !== "linux") return
-        klic("priljubljenoSeznam", [], function (p) { if (p) koren.priljubljeno = p })
+        klic("priljubljenoSeznam", [], function (p) { if (p && !Array.isArray(p) && typeof p === "object") koren.priljubljeno = p })
     }
     function jePriljubljenaPot(pot) { return (priljubljeno.datoteke || []).some(function (d) { return d.pot === pot }) }
     function jePriljubljenProgram(kljuc) { return (priljubljeno.programi || []).indexOf(kljuc) >= 0 }
