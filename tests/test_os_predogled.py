@@ -199,6 +199,35 @@ class Most(unittest.TestCase):
                 patch.object(safeer_os.Gio.ProxyResolver, "get_default", side_effect=RuntimeError("x")):
             self.assertEqual(safeer_os._posrednik_slik("https://cdn.example.test/a.png"), "neznan://")   # nikoli mimo
 
+    def test_razresevanje_slik_prek_doh_kot_splet(self):
+        import socket
+        import safeer_os
+        from unittest.mock import patch
+        from core import doh_proxy
+
+        class Nast(dict):
+            def get(self, k, privzeto=None):
+                return dict.get(self, k, privzeto)
+
+        class DoH:
+            def __init__(self, ponudnik, lasten=""):
+                self.ponudnik, self.vprasana = ponudnik, []
+
+            def set_provider(self, ponudnik, lasten=""):
+                self.ponudnik = ponudnik
+
+            def resolve(self, ime, timeout=3.5):
+                self.vprasana.append(ime)
+                return {"cdn.example.test": "93.184.216.34"}.get(ime)
+        with patch.object(doh_proxy, "_global_resolver", None), patch.object(doh_proxy, "DoHResolver", DoH), \
+                patch.object(socket, "getaddrinfo", side_effect=AssertionError("sistemski DNS")):
+            razresi = safeer_os._razresevalnik_slik(Nast(doh_enabled=True, doh_provider="quad9"))
+            from core.sporocila import slike
+            self.assertEqual(slike.javni_naslov("cdn.example.test", razresi), "93.184.216.34")   # prek DoH
+            self.assertEqual(slike.javni_naslov("neznano.example.test", razresi), "")            # DoH ne ve: ni slike
+        self.assertIs(safeer_os._razresevalnik_slik(Nast(doh_enabled=False)), socket.getaddrinfo)
+        self.assertIs(safeer_os._razresevalnik_slik(Nast(doh_enabled=True, doh_provider="disabled")), socket.getaddrinfo)
+
     def test_metode_mostu(self):
         py = (Path(__file__).resolve().parents[1] / "safeer_os.py").read_text(encoding="utf-8")
         for metoda in ("sporocilaPredogled", "sporocilaIzvirnik", "predogledOkno", "sporocilaPrenesiPriponko",

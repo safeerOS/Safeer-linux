@@ -789,7 +789,7 @@ class SporocilaOS:
 
     def html_pisma(self, kanal_id: str, sporocilo_id: str, jezik: str = "sl", slike: bool = False,
                    je_blokirano: Optional[Callable[[str], bool]] = None,
-                   posrednik: Optional[Callable[[str], str]] = None) -> dict:
+                   posrednik: Optional[Callable[[str], str]] = None, razresi=None) -> dict:
         """HTML telo pisma (»Prikaži izvirnik«) s slikami v vrstici (cid:) iz predpomnilnika. Oddaljene slike so skrite,
         razen ce jih uporabnik pokaze (slike=True) ali jih vedno dovoli za tega posiljatelja; takrat jih prenese
         zascita Safeer (core/sporocila/slike.py). Vrne {"html", "skritih", "posiljatelj", "prikazane"}."""
@@ -819,7 +819,8 @@ class SporocilaOS:
             if naslovi:
                 vnos = predpomnilnik.mapa_vnosa(str(kanal_id), "", "", str(sporocilo_id), "slike-s-spleta")
                 oddaljene = _slike.prenesi_slike(naslovi, vnos, je_blokirano,
-                                                 posrednik=posrednik or _slike.posrednik_okolja)
+                                                 posrednik=posrednik or _slike.posrednik_okolja,
+                                                 **({"razresi": razresi} if razresi is not None else {}))
             else:
                 oddaljene = {}
         html, skritih = predogled_datotek.html_pisma(vsebina, cid, jezik, oddaljene)
