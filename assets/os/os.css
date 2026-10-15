@@ -358,6 +358,8 @@ h2 .dodatno + .dodatno { margin-left: 14px; }
 .priponka.nevarna .priponka-ikona { color:var(--opozorilo); }
 .priponka.s-sliko .priponka-ikona { width:56px; height:56px; }
 .priponka-ikona img { width:100%; height:100%; object-fit:cover; }
+/* PDF: prva stran od zgoraj (naslov dokumenta), na belem kot papir - tudi v temni temi. */
+.priponka.s-stranjo .priponka-ikona img { object-position:top; background:#fff; }
 .priponka-besedilo { min-width:0; display:flex; flex-direction:column; }
 .priponka-besedilo b { font-size:13px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .priponka-besedilo small { font-size:11px; color:var(--medlo); }
@@ -1008,6 +1010,16 @@ html.kavc:not(.kavc-miska), html.kavc:not(.kavc-miska) * { cursor: none !importa
 
 /* Carovnik »Dodaj kanal«: ponudniki kot ploscice z znakom, navodila za geslo, aplikacije po skupinah. */
 .kanal-carovnik { max-height: 86vh; overflow: auto; width: min(720px, 94vw); }
+/* Glava (z ✕) in gumbi (Preklici, Povezi) ostanejo vidni med pomikanjem dolgega seznama aplikacij (lastnik,
+   15. 10. 2026: iz carovnika ni bilo izhoda brez pomikanja). Odmik -20px pokrije notranji rob plosce. */
+.kanal-carovnik-glava { position:sticky; top:-20px; z-index:2; display:flex; align-items:center; gap:10px;
+  margin:-20px -20px 0; padding:20px 20px 8px; background:rgb(14, 21, 31); }
+.kanal-carovnik-glava h3 { flex:1; margin:0; }
+#obrazecKanal > .gumbi { position:sticky; bottom:-20px; z-index:2; margin:0 -20px -20px; padding:12px 20px 20px;
+  background:rgb(14, 21, 31); border-top:1px solid var(--rob); }
+.vgrajen-kanal-glava .kanal-preklici[hidden] { display:none; }
+.vgrajen-kanal-glava .kanal-preklici { border-color:var(--zelena); }
+#vgrajenKanalOdstrani.potrdi { color:var(--opozorilo); background:rgba(255, 120, 90, .14); }
 .ponudniki-mreza { display:grid; grid-template-columns:repeat(auto-fill, minmax(210px, 1fr)); gap:8px; }
 .ponudniki-mreza button { display:flex; align-items:center; gap:12px; text-align:left; padding:10px 12px; border:1px solid var(--rob);
   border-radius:12px; background:rgba(255,255,255,.04); color:inherit; font:inherit; cursor:pointer; }

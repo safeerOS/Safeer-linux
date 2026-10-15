@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from email import message_from_bytes, policy
 from email.header import decode_header, make_header
 from email.message import EmailMessage
-from email.utils import make_msgid, parseaddr, parsedate_to_datetime
+from email.utils import getaddresses, make_msgid, parseaddr, parsedate_to_datetime
 import imaplib
 import re
 import smtplib
@@ -71,6 +71,16 @@ def _glava(vrednost) -> str:
         return str(make_header(decode_header(str(vrednost or ""))))
     except Exception:
         return str(vrednost or "")
+
+
+def _je_naslovljeno_nase(msg, lasten: str) -> bool:
+    """Lastni naslov je med prejemniki (To, Cc): pismo je uporabnik poslal sebi. Delivered-To ne steje - streznik ga
+    doda vsaki dostavljeni kopiji, tudi lastni kopiji pisma drugim (Bcc sebi)."""
+    try:
+        naslovi = getaddresses([str(v) for k in ("To", "Cc") for v in (msg.get_all(k) or [])])
+    except Exception:  # noqa: BLE001 - pokvarjena glava: kot da ni naslovljeno nase
+        return False
+    return any(n.strip().casefold() == lasten for _i, n in naslovi)
 
 
 def _cas(msg) -> str:
@@ -574,7 +584,11 @@ class EmailAdapter(Adapter):
             self.zadnji_uid = max(self.zadnji_uid, uid)
             od_koga = parseaddr(str(msg.get("From", "")))
             komu = parseaddr(str(msg.get("To", "")))
-            moje = od_koga[1].casefold() == lasten
+            # Beremo samo INBOX: pismo, ki je tu, je bilo uporabniku DOSTAVLJENO. Pismo samemu sebi (From in To/Cc =
+            # lastni naslov) je zato prejeto, kot v Gmailu in Outlooku (v Prejetem, neprebrano po oznaki streznika) -
+            # prej je slo med »poslano«, samo v mapo Poslano, brez znacke in obvestila (lastnik, 15. 10. 2026).
+            # Kot poslano ostane samo lastna kopija pisma drugim (npr. Bcc sebi): to je uporabnik sam napisal drugemu.
+            moje = od_koga[1].casefold() == lasten and not _je_naslovljeno_nase(msg, lasten)
             ime, naslov = (komu if moje else od_koga)
             oseba = (naslov or "neznan").casefold()
             zadeva = _glava(msg.get("Subject"))

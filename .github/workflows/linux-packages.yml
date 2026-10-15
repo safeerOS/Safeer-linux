@@ -330,6 +330,35 @@ jobs:
           grep -q '^LTO_MODE:.*=thin$' "$G"
           grep -q '^build.ninja -fuse-ld=lld: [1-9]' "$G"
           flatpak run --command=sh io.github.memelandfaner.SafeerOS -c "test -x /app/libexec/webkitgtk-6.0/WebKitWebProcess"
+          # Slicica prve strani PDF (priponke v Sporocilih, Datoteke): pdftoppm v paketu res naredi sliko strani.
+          # Kaj je v paketu (opozorilo posla, ker je konec dnevnika v opozorilu ob napaki prirezan).
+          flatpak run --command=sh io.github.memelandfaner.SafeerOS -c 'echo "::notice::pdftoppm: $(command -v pdftoppm) | poppler v /app: $(ls /app/lib /app/lib64 2>/dev/null | grep -i poppler | tr "\n" " ") | manjka: $(ldd /app/bin/pdftoppm 2>&1 | grep -i "not found" | tr "\n" " ")"'
+          flatpak run --command=sh io.github.memelandfaner.SafeerOS -c "pdftoppm -v"
+          flatpak run --command=python3 io.github.memelandfaner.SafeerOS - <<'PY'
+          import os, shutil, subprocess, sys, tempfile
+          sys.path.insert(0, '/app/lib/safeer-os')
+          from core import os_datoteke
+          d = tempfile.mkdtemp()
+          deli = [b'1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n', b'2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n',
+                  b'3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 300]>>endobj\n']
+          t, odmiki = b'%PDF-1.4\n', []
+          for x in deli:
+              odmiki.append(len(t))
+              t += x
+          xref = len(t)
+          t += b'xref\n0 4\n0000000000 65535 f \n' + b''.join(b'%010d 00000 n \n' % o for o in odmiki)
+          t += b'trailer<</Size 4/Root 1 0 R>>\nstartxref\n%d\n%%%%EOF\n' % xref
+          pdf, png = os.path.join(d, 'a.pdf'), os.path.join(d, 'a.png')
+          open(pdf, 'wb').write(t)
+          if not os_datoteke.slika_prve_strani(pdf, png, 160):
+              # Kratko sporocilo napake na svoji vrstici (konec dnevnika v opozorilu posla je prirezan).
+              r = subprocess.run([shutil.which('pdftoppm') or 'pdftoppm', '-f', '1', '-l', '1', '-singlefile', '-png',
+                                  '-scale-to', '160', '--', pdf, os.path.join(d, 'b')], capture_output=True, text=True)
+              print('::error::pdftoppm v Flatpaku: koda %s, %s' % (r.returncode, (r.stderr or r.stdout)[-400:].replace('\n', ' | ')))
+              sys.exit(1)
+          assert open(png, 'rb').read(8) == b'\x89PNG\r\n\x1a\n'
+          print('pdftoppm:', shutil.which('pdftoppm'), os.path.getsize(png), 'B')
+          PY
           flatpak run --command=python3 io.github.memelandfaner.SafeerOS -c "import zeroconf, qrcode, cryptography; from cryptography.hazmat.primitives.ciphers.aead import AESGCM; AESGCM(AESGCM.generate_key(bit_length=256)); from PySide6.QtWidgets import QApplication, QSystemTrayIcon; from PySide6.QtQuick import QQuickView; import gi; gi.require_version('Gtk', '4.0'); from gi.repository import Gtk"
           # Zagon iz seje Cinnamon (XDG_CURRENT_DESKTOP): Qt ne sme naloziti teme GTK3 v proces z GTK4 - lupina se
           # sicer ne izrise (testni PC 15. 10. 2026, »cannot register existing type 'GtkWidget'«).

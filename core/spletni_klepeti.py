@@ -243,6 +243,16 @@ def preveri_naslov(naslov) -> str:
     return urllib.parse.urlunsplit(("https", netloc, d.path or "/", d.query, d.fragment))
 
 
+def ista_stran(trenutni: str, kanal: str) -> bool:
+    """Trenutni naslov kanala je na gostitelju kanala (https, isti gostitelj): prijava je koncana. Gmail med prijavo
+    pokaze accounts.google.com (drug gostitelj) in se po njej vrne na mail.google.com."""
+    try:
+        a, b = urllib.parse.urlsplit(str(trenutni or "")), urllib.parse.urlsplit(str(kanal or ""))
+    except ValueError:
+        return False
+    return a.scheme == "https" and bool(a.hostname) and (a.hostname or "").lower() == (b.hostname or "").lower()
+
+
 def ime_iz_naslova(naslov: str) -> str:
     gost = (urllib.parse.urlsplit(str(naslov or "")).hostname or "").lower()
     return gost[4:] if gost.startswith("www.") else gost
@@ -293,7 +303,9 @@ class Kanali:
                          "url": nov, "pot": str(k.get("pot") or "") if je_program(vnos) else "",
                          "vklopljen": k.get("vklopljen", True) is not False,
                          "neprebrano": max(0, min(int(k.get("neprebrano") or 0), NAJVEC_NEPREBRANIH))
-                         if str(k.get("neprebrano") or "0").isdigit() else 0})
+                         if str(k.get("neprebrano") or "0").isdigit() else 0,
+                         # Dodan, a se ne v uporabi (prijava ni koncana): »Preklici dodajanje« ga odstrani.
+                         "caka": k.get("caka") is True})
         if spremenjeno:
             self._shrani(izid)
         return izid
@@ -321,7 +333,7 @@ class Kanali:
         kid = katalog if katalog and all(k["id"] != katalog for k in seznam) else "k-" + uuid.uuid4().hex[:10]
         kanal = {"id": kid, "katalog": katalog, "ime": (str(ime_kanala or "").strip() or privzeto_ime)[:NAJDALJSE_IME],
                  "url": naslov, "pot": str(pot or "") if je_program(po_id(katalog)) else "", "vklopljen": True,
-                 "neprebrano": 0}
+                 "neprebrano": 0, "caka": True}
         self._shrani(seznam + [kanal])
         return kanal
 
@@ -339,6 +351,14 @@ class Kanali:
 
     def vklopi(self, kid: str, vklopljen: bool) -> dict:
         return self._spremeni(kid, vklopljen=bool(vklopljen))
+
+    def potrdi(self, kid: str) -> bool:
+        """Kanal je v uporabi (prijava koncana): ni vec »caka«. True, ce se je spremenilo."""
+        k = self.najdi(kid)
+        if k is None or not k.get("caka"):
+            return False
+        self._spremeni(kid, caka=False)
+        return True
 
     def zapomni_neprebrano(self, kid: str, n: int) -> bool:
         """Zadnje znano stevilo neprebranih (znacka na namizju ga pokaze ob zagonu, se preden se kanal nalozi).
