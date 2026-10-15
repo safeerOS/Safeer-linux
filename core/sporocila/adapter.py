@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Iterable, Optional, Sequence, Set
+from typing import Callable, Iterable, Optional, Sequence, Set
 
 from .model import Pogovor, Sporocilo
 
@@ -45,6 +45,32 @@ def odpri_brez_preusmeritev(zahteva, timeout=None):
     return build_opener(_BrezPreusmeritve).open(zahteva, timeout=timeout)
 
 
+#: Varovalo pri prenosu priponke po HTTP (Telegram Bot API dovoli 20 MB, Matrix streznik obicajno 50-100 MB).
+NAJVEC_HTTP_PRIPONKA = 512 * 1024 * 1024
+
+
+def prenesi_url(url: str, pisi: Callable[[bytes], None], napredek: Optional[Callable[[int], None]] = None,
+                glave: Optional[dict] = None, timeout: float = 30) -> int:
+    """Prenos priponke po kosih (samo https:// ali povratni naslov, brez preusmeritev - zahteva lahko nosi zeton)."""
+    from urllib.request import Request
+    if not varen_streznik(url):
+        raise ValueError("ni_varno")
+    zahteva = Request(url, headers=dict(glave or {}, Accept="*/*"))
+    skupaj = 0
+    with odpri_brez_preusmeritev(zahteva, timeout=timeout) as odgovor:
+        while True:
+            kos = odgovor.read(256 * 1024)
+            if not kos:
+                break
+            skupaj += len(kos)
+            if skupaj > NAJVEC_HTTP_PRIPONKA:
+                raise ValueError("prevelik")
+            pisi(kos)
+            if napredek is not None:
+                napredek(skupaj)
+    return skupaj
+
+
 class Adapter(ABC):
     vrsta: str = ""
     zmore: Set[str] = set()
@@ -70,3 +96,8 @@ class Adapter(ABC):
     @abstractmethod
     def oznaci_prebrano(self, pogovor_id: str) -> None:
         pass
+
+    def prenesi_priponko(self, sporocilo_id: str, priponka: dict, pisi: Callable[[bytes], None],
+                         napredek: Optional[Callable[[int], None]] = None) -> int:
+        """Vsebino priponke poda pisi() po kosih; vrne stevilo bajtov. Kanal, ki tega ne zna, sprozi NotImplementedError."""
+        raise NotImplementedError("ni_podprto")
