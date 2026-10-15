@@ -217,6 +217,38 @@ def _posrednik_slik(url: str) -> str:
     return "" if prvi.startswith("direct://") else prvi
 
 
+def _razresevalnik_slik(nastavitve=None):
+    """Razresevanje imen slik s spleta v pismih: ce je v Safeerju vklopljen sifriran DNS (doh_enabled + ponudnik),
+    prek istega ponudnika DoH kot Splet (core/doh_proxy.DoHResolver) - sicer bi ponudnik interneta videl, katere
+    strežnike pismo klice. Ce DoH ime ne razresi, slike ni (brez vrnitve na sistemski DNS). Brez DoH: sistemski DNS."""
+    try:
+        if nastavitve is None:
+            from core.config import ConfigManager
+            nastavitve = ConfigManager()
+        vklopljen = bool(nastavitve.get("doh_enabled", True)) and nastavitve.get("doh_provider", "cloudflare") != "disabled"
+    except Exception:  # noqa: BLE001
+        vklopljen = True                                     # nastavitev ni mogoce prebrati: raje sifrirano
+        nastavitve = None
+    if not vklopljen:
+        return socket.getaddrinfo
+    from core import doh_proxy
+    ponudnik = nastavitve.get("doh_provider", "cloudflare") if nastavitve is not None else "cloudflare"
+    lasten = nastavitve.get("custom_doh_url", "") if nastavitve is not None else ""
+    razresevalnik = doh_proxy._global_resolver         # isti (in isti predpomnilnik) kot Splet, ce ze tece
+    if razresevalnik is None:
+        razresevalnik = doh_proxy.DoHResolver(ponudnik, lasten)
+    else:
+        razresevalnik.set_provider(ponudnik, lasten)
+
+    def razresi(ime, _vrata=None):
+        try:
+            ip = razresevalnik.resolve(str(ime))
+        except Exception:  # noqa: BLE001
+            ip = None
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, 0))] if ip else []
+    return razresi
+
+
 def _velikost_napis(b: int) -> str:
     """»2,4 MB« za podnaslov okna predogleda (enake enote kot stran)."""
     if b <= 0:
@@ -3052,7 +3084,7 @@ class SafeerOS(Gtk.Application):
         def delo(slike: bool = False) -> None:
             try:
                 r = self.sporocila.html_pisma(kanal, sid, jezik, slike=slike, je_blokirano=je_blokirano,
-                                              posrednik=_posrednik_slik)
+                                              posrednik=_posrednik_slik, razresi=_razresevalnik_slik())
                 izid = {"nacin": "html", "html": r["html"],
                         "osnova": GLib.filename_to_uri(predpomnilnik.koren(), None) + "/"}
                 vrstica = None if r["prikazane"] else {"skritih": r["skritih"], "posiljatelj": r["posiljatelj"],
