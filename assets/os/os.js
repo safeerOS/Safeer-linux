@@ -7143,6 +7143,8 @@
     return porMiB(b / 1048576);
   }
   function porCpu(v) { return typeof v === "number" ? porStevilo(v, 1) + " %" : null; }
+  // RSS namesto PSS (procesa ni mogoce brati natancno, npr. podpeskovnik Flatpaka): »≈« in namig.
+  function porPribl(niz, pribl) { return niz && pribl ? "≈ " + niz : niz; }
   function porVsaj(niz, delno) { return niz && delno ? t("porabaVsaj", { v: niz }) : niz; }
   // Celica: glavna vrednost (povprecje zadnje ure) in pod njo zdaj / od zagona.
   function porCelica(td, glavna, vrstice, ni, namig) {
@@ -7165,7 +7167,9 @@
     var niMem = v.vklopljen && (v.ni_merljivo || []).indexOf("mem_ura") >= 0;
     var namig = v.razlog ? t("porabaRazlog_" + v.razlog) : "";
     var mem = document.createElement("td"), cpu = document.createElement("td"), disk = document.createElement("td");
-    porCelica(mem, porMiB(v.mem_ura), [["porabaTrenutno", porMiB(v.mem_trenutno)], ["porabaZagon", porMiB(v.mem_zagon)]], niMem, namig);
+    porCelica(mem, porPribl(porMiB(v.mem_ura), v.priblizek), [["porabaTrenutno", porPribl(porMiB(v.mem_trenutno), v.priblizek)],
+      ["porabaZagon", porPribl(porMiB(v.mem_zagon), v.priblizek)]], niMem, namig);
+    if (v.priblizek && !niMem) { mem.appendChild(el("small", "poraba-namig", ubezi(t("porabaPriblizek")))); }
     porCelica(cpu, porCpu(v.cpu_ura), [["porabaTrenutno", porCpu(v.cpu_trenutno)], ["porabaZagon", porCpu(v.cpu_zagon)]], niMem, "");
     var niDisk = (v.ni_merljivo || []).indexOf("disk") >= 0;
     porCelica(disk, porBajti(v.disk), [], niDisk, niDisk ? t("porabaDisk_" + (v.razlog_disk || "program")) : "");
@@ -7185,7 +7189,8 @@
     var tr = document.createElement("tr"); tr.className = "poraba-skupno";
     var th = document.createElement("th"); th.scope = "row"; th.appendChild(el("span", "", ubezi(ime))); tr.appendChild(th);
     var mem = document.createElement("td"), cpu = document.createElement("td");
-    porCelica(mem, porMiB(m.mem_ura), [["porabaTrenutno", porMiB(m.mem_trenutno)], ["porabaZagon", porMiB(m.mem_zagon)]], false, "");
+    porCelica(mem, porPribl(porMiB(m.mem_ura), m.priblizek), [["porabaTrenutno", porPribl(porMiB(m.mem_trenutno), m.priblizek)],
+      ["porabaZagon", porPribl(porMiB(m.mem_zagon), m.priblizek)]], false, "");
     porCelica(cpu, porCpu(m.cpu_ura), [["porabaTrenutno", porCpu(m.cpu_trenutno)], ["porabaZagon", porCpu(m.cpu_zagon)]], false, "");
     tr.appendChild(mem); tr.appendChild(cpu);
     tr.appendChild(el("td", "", ubezi(t("porabaNiPodatka")))); tr.appendChild(document.createElement("td"));

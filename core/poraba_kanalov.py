@@ -64,35 +64,78 @@ class Proc:
         except (IndexError, ValueError):
             return 0
 
-    def pss_kib(self, pid: int) -> int:
-        """PSS v KiB; brez smaps_rollup (stara jedra) RSS iz status - tega vmesnik oznaci kot priblizek."""
+    def pomnilnik(self, pid: int) -> tuple:
+        """(KiB, natancno): PSS iz smaps_rollup; ce ga ni mogoce brati (staro jedro, proces v drugem uporabniskem
+        imenskem prostoru - podpeskovnik Flatpaka, kjer smaps zahteva pravico ptrace), RSS iz status: priblizek
+        (deljene knjiznice steje v celoti), vmesnik ga oznaci z »≈«."""
         for vrstica in self._beri(pid, "smaps_rollup").splitlines():
             if vrstica.startswith("Pss:"):
                 try:
-                    return int(vrstica.split()[1])
+                    return int(vrstica.split()[1]), True
                 except (IndexError, ValueError):
-                    return 0
+                    return 0, True
         for vrstica in self._beri(pid, "status").splitlines():
             if vrstica.startswith("VmRSS:"):
                 try:
-                    return int(vrstica.split()[1])
+                    return int(vrstica.split()[1]), False
                 except (IndexError, ValueError):
-                    return 0
-        return 0
+                    return 0, False
+        return 0, False
 
-    def otroci(self) -> Dict[int, List[int]]:
-        """stars -> otroci za vse procese (en prehod cez /proc)."""
-        izid: Dict[int, List[int]] = {}
+    def pss_kib(self, pid: int) -> int:
+        return self.pomnilnik(pid)[0]
+
+    def starsi(self) -> Dict[int, int]:
+        """pid -> stars za vse vidne procese (en prehod cez /proc)."""
+        izid: Dict[int, int] = {}
         try:
             imena = os.listdir(self.koren)
         except OSError:
             return izid
         for ime in imena:
-            if ime.isdigit():
-                s = self.stars(int(ime))
-                if s:
-                    izid.setdefault(s, []).append(int(ime))
+            if ime.isdigit() and self._stat(int(ime)):
+                izid[int(ime)] = self.stars(int(ime))
         return izid
+
+    def otroci(self, starsi: Optional[Dict[int, int]] = None) -> Dict[int, List[int]]:
+        """stars -> otroci za vse procese (en prehod cez /proc)."""
+        izid: Dict[int, List[int]] = {}
+        for pid, s in (starsi if starsi is not None else self.starsi()).items():
+            if s:
+                izid.setdefault(s, []).append(pid)
+        return izid
+
+    @staticmethod
+    def koren_verige(pid: int, starsi: Dict[int, int]) -> int:
+        """Prvi prednik, katerega stars ni viden v tem imenskem prostoru procesov (stars 0)."""
+        videni = set()
+        while pid in starsi and starsi[pid] and pid not in videni and len(videni) < 256:
+            videni.add(pid)
+            pid = starsi[pid]
+        return pid
+
+    def nasi(self, koren_pid: int, ime: str, starsi: Optional[Dict[int, int]] = None) -> tuple:
+        """Procesi z imenom `ime`, ki pripadajo programu `koren_pid`: (v drevesu, v podpeskovniku).
+
+        Zunaj Flatpaka so spletni procesi WebKita potomci programa (bwrap je otrok). V Flatpaku jih WebKit zazene prek
+        portala Flatpak (org.freedesktop.portal.Flatpak.Spawn, podpeskovnik): v nasem imenskem prostoru procesov so
+        vidni, a njihov stars (bwrap podpeskovnika) ima starsa 0 - ni nas potomec (zivi preizkus 15. 10. 2026: sonda
+        jih zato ni nasla). Tak proces steje kot nas, ce se njegova veriga prednikov konca v korenu, ki ni koren
+        nase verige (init peskovnika ali sistema, pid 1) - procesi drugih programov na sistemu se koncajo v 1."""
+        starsi = starsi if starsi is not None else self.starsi()
+        drevo = set(self.drevo(koren_pid, self.otroci(starsi)))
+        nas_koren = self.koren_verige(koren_pid, starsi)
+        v_drevesu, podpeskovnik = [], []
+        for pid in starsi:
+            if self.ime(pid) != ime:
+                continue
+            if pid in drevo:
+                v_drevesu.append(pid)
+                continue
+            k = self.koren_verige(pid, starsi)
+            if k not in (1, 2, nas_koren) and starsi.get(k, 0) == 0:
+                podpeskovnik.append(pid)
+        return sorted(v_drevesu), sorted(podpeskovnik)
 
     def drevo(self, pid: int, otroci: Optional[Dict[int, List[int]]] = None) -> List[int]:
         """pid in vsi potomci (ziv proces); prazno, ce procesa ni."""

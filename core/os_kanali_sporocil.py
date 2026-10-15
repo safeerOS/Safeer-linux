@@ -537,6 +537,8 @@ class KanaliSporocil:
         p["sklad"].set_visible(True)
         if z.aplikacija is not None:
             z.aplikacija.pogled.grab_focus()
+        if self.poraba is not None:
+            self.poraba.ob_prikazu(kid)      # proces kanala se ni znan (plosca »Info«): sonda zdaj
         return {"ok": True, "vgrajeno": True}
 
     def _ustvari_program_okno(self, z: _Kanal) -> bool:
