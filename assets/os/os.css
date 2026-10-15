@@ -401,7 +401,9 @@ h2 .dodatno + .dodatno { margin-left: 14px; }
 .mehurcek-besedilo + .mehurcek-koda { margin-top:12px; }
 .mehurcek ::selection { background: rgba(138, 199, 255, .45); color: #fff; }
 /* Nabiralnik (preneseno s Safeer OS za Windows): mape, oznake, iskanje, pano z osebo */
-.nabiralnik { display:grid; grid-template-columns:200px minmax(260px, 24%) 1fr; min-height:520px; height:calc(100vh - 230px); max-height:calc(100vh - 230px);
+.nabiralnik { display:grid; grid-template-columns:200px minmax(260px, 24%) 1fr;
+  /* Vrstica mreze ne sme rasti z vsebino: sicer je polje za odgovor odrezano pod robom (testni PC 15. 10. 2026). */
+  grid-template-rows:minmax(0, 1fr); min-height:520px; height:calc(100vh - 230px); max-height:calc(100vh - 230px);
   border:1px solid var(--rob); border-radius:16px; background:var(--kartica); overflow:hidden; }
 .nabiralnik-mape { border-right:1px solid var(--rob); padding:12px 10px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; }
 .mape button { width:100%; display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:10px; text-align:left; background:transparent; }
