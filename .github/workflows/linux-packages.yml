@@ -252,6 +252,8 @@ jobs:
         with:
           name: webkit-deb-safeer-browser
           path: build
+      - name: Libraries of our WebKitGTK (dpkg-shlibdeps)
+        run: bash packaging/webkit-deb/knjiznice.sh
       - name: Verify version consistency
         run: python3 packaging/check_version.py
       - name: Debian package with our WebKitGTK, and launch smoke of the payload
@@ -314,6 +316,8 @@ jobs:
         with:
           name: webkit-deb-safeer-os
           path: build
+      - name: Libraries of our WebKitGTK (dpkg-shlibdeps)
+        run: bash packaging/webkit-deb/knjiznice.sh
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
