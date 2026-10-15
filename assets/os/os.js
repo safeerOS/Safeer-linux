@@ -3796,7 +3796,8 @@
      sporocila ni bilo mogoce kopirati. */
   // Podpis sporocila: po njem ob osvezitvi pogovora vemo, ali je ze narisani mehurcek se pravi.
   function podpisSporocila(s) {
-    return String(s.id == null ? "" : s.id) + "\u0001" + (s.smer || "") + "\u0001" + (s.cas || "") + "\u0001" + (s.besedilo || "");
+    return String(s.id == null ? "" : s.id) + "\u0001" + (s.smer || "") + "\u0001" + (s.cas || "") + "\u0001" + (s.besedilo || "") +
+      "\u0001" + (s.stanje === "caka" || s.stanje === "napaka" ? s.stanje : "");
   }
   // Sporocilo je ena sama spletna povezava: meni ponudi se »Odpri povezavo« (kot Safeer OS na telefonu).
   // Besedilo pride od drugod (e-posta, klepet, druga naprava), zato ponudimo samo naslov, pri katerem uporabnik vidi,
@@ -3838,6 +3839,24 @@
       m.classList.add("s-kodo"); m.appendChild(k);
     }
     dodajPriponke(m, s, (S.sporocilaAktivni || {}).kanal_id || "");
+    if (s.stanje === "caka" || s.stanje === "napaka") {
+      // Neposlano (ni povezave ali zavrnjeno): ura namesto casa in »Preklici« - poslje se samo, ko se povezava vrne.
+      m.classList.add(s.stanje === "caka" ? "caka" : "napaka");
+      var st = el("div", "mehurcek-stanje");
+      st.appendChild(el("time", "", ubezi(s.stanje === "caka" ? "\u23F1 " + t("sporCaka") : t("sporNiPoslano"))));
+      var pr = el("button", "mehurcek-preklici", ubezi(t("sporPreklici"))); pr.type = "button";
+      pr.addEventListener("click", function (e) {
+        e.stopPropagation();
+        var a = S.sporocilaAktivni; if (!a) return;
+        pr.disabled = true;
+        klic("sporocilaPreklici", [a.kanal_id, a.id, s.id]).then(function () {
+          obvesti(t("sporPreklicano")); naloziVsebinoPogovora(a); naloziSporocila();
+        }, function (napaka) { pr.disabled = false; obvesti(typeof napaka === "string" && napaka ? napaka : t("niUspelo")); });
+      });
+      st.appendChild(pr);
+      m.appendChild(st);
+      return m;
+    }
     m.appendChild(el("time", "", ubezi(kratekCas(s.cas))));
     return m;
   }
@@ -4240,11 +4259,23 @@
       narisiSporocila();
       return;
     }
-    if (nov.cas !== a.cas || nov.zadnje_sporocilo !== a.zadnje_sporocilo) {
+    if (nov.cas !== a.cas || nov.zadnje_sporocilo !== a.zadnje_sporocilo || nov.razlicica !== a.razlicica) {
       // Ob vrnitvi v razdelek pokazemo nova sporocila odprtega pogovora: branje pogovora jih oznaci kot prebrana, zato
       // jih mora uporabnik tudi videti. Osvezitev v ozadju pogleda ne premika.
       S.sporocilaAktivni = nov; narisiSporocila(); naloziVsebinoPogovora(nov, vrnitev && Number(nov.neprebrano) > 0);
     }
+  }
+  // Vec dogodkov v kratkem (20 novih pisem naenkrat) = eno branje seznama.
+  var sporocilaDogodekCas = 0;
+  function sporocilaSpremenjena() {
+    if (sporocilaDogodekCas || !most) return;
+    sporocilaDogodekCas = setTimeout(function () {
+      sporocilaDogodekCas = 0;
+      if (S.razdelek === "sporocila") { naloziSporocila(); return; }
+      klic("sporocilaSeznam").then(function (p) {
+        S.sporocilaSkupine = p.skupine || []; S.sporocilaKanali = p.kanali || []; S.sporocilaOznakeVse = p.oznake || [];
+      }).catch(function () {});
+    }, 120);
   }
   var sporocilaCasovnik = 0;
   function sporocilaZanka() {
@@ -6212,6 +6243,8 @@
         magnetOsveziPrenose();
       }
     }
+    // Niti kanalov so v bazo zapisale novo (sporocilo, oznake, stanje kanala): seznam takoj, ne ob 30-s osvezitvi.
+    if (vrsta === "sporocila") sporocilaSpremenjena();
     // »pojdi« in »fokus« sta za glavno okno; Safeer Player in okna razdelkov dobijo svoj ukaz neposredno
     // (safeer_os.py _odpri_predvajalnik, _odpri_okno_razdelka).
     if (EN_RAZDELEK) return;
@@ -6442,7 +6475,7 @@
         $("sporocilaBesedilo").value = ""; S.priloge.odgovor = []; narisiPriloge("odgovor");
         odpriPogovor({ ime: $("sporocilaNaslov").textContent.split(" · ")[0] }, p);
         naloziSporocila();          // seznam pokaze zadnje sporocilo takoj, ne sele ob naslednji osvezitvi
-        if (r && r.caka) obvesti(t("klepetCaka"));
+        if (r && r.caka) obvesti(t(p.kanal_id === "safeer-link" ? "klepetCaka" : "sporCakaObvestilo"));
       }).catch(function (e) { gumbP.disabled = false; obvesti(napakaSporocil(e)); });
     });
     $("kBrskalnik").addEventListener("click", function () {

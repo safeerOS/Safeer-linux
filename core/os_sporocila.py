@@ -40,7 +40,9 @@ PONUDNIKI = {
     "hotmail.com": ("outlook.office365.com", "smtp.office365.com", "oauth"),
     "live.com": ("outlook.office365.com", "smtp.office365.com", "oauth"),
 }
-INTERVAL_S = 120
+#: Poizvedba za kanale brez potiska (Chatwoot). E-posta (IMAP IDLE), Matrix in Telegram (dolga poizvedba) sporocilo
+#: dobijo v trenutku (core/sporocila/sprotno.py); prej so vsi kanali brali zaporedoma vsakih 120 s.
+INTERVAL_S = 30
 #: Safeer Chat: sporocila med napravami v Safeer Linku (en pogovor na napravo).
 KANAL_LINKA = "safeer-link"
 VRSTA_LINKA = "safeer"
@@ -150,6 +152,7 @@ class SporocilaOS:
         #: Naprave v Linku, ki znajo klepet (nastavi gostitelj): [{"id", "ime"}]
         self.naprave_klepeta: Optional[Callable[[], List[dict]]] = None
         self.storitev.ob_sinhronizaciji = self._po_sinhronizaciji
+        self._samodejno = bool(zazeni)
         self._nalozi()
         if zazeni and self.storitev.adapterji:
             self.storitev.zazeni()
@@ -301,7 +304,8 @@ class SporocilaOS:
 
     def _prvic(self, kid: str) -> None:
         self.storitev.sinhroniziraj(kid)
-        self.storitev.zazeni()
+        if getattr(self, "_samodejno", False):
+            self.storitev.zazeni_kanal(kid)     # od zdaj v realnem casu (nit kanala)
 
     def nastavi_skrivnost(self, kanal_id: str, skrivnost: str) -> dict:
         """Ponovni vnos gesla/zetona (npr. brez zbirke skrivnosti po ponovnem zagonu)."""
@@ -310,6 +314,8 @@ class SporocilaOS:
             raise ValueError("Ni kanala")
         (a.shrani_geslo if hasattr(a, "shrani_geslo") else a.shrani_zeton)(str(skrivnost))
         self.storitev.sinhroniziraj(kanal_id)
+        if getattr(self, "_samodejno", False) and kanal_id in self.storitev.delavci():
+            self.storitev.zazeni_kanal(kanal_id)     # nit takoj na novo (ne caka zamika po napaki prijave)
         return self.seznam()
 
     def _po_sinhronizaciji(self) -> None:
@@ -347,6 +353,9 @@ class SporocilaOS:
             for p in s["pogovori"]:
                 p["kanal"] = kanali.get(p["kanal_id"], {})
                 p["zadnji_ven"] = smeri.get((p["kanal_id"], p["id"])) == "ven"
+                # Vsebina pogovora se je spremenila brez novega sporocila (celotno besedilo, poslano iz vrste):
+                # odprt pogovor se osvezi (os.js uskladiOdprtPogovor).
+                p["razlicica"] = self.storitev.razlicica(p["kanal_id"], p["id"])
                 p["priponke"] = (p["kanal_id"], p["id"]) in s_priponkami
         return {"kanali": list(kanali.values()), "skupine": skupine, "oznake": self.storitev.vse_oznake(),
                 "slike_od": self.slike_od.seznam()}
@@ -379,12 +388,42 @@ class SporocilaOS:
     def pogovor(self, kanal_id: str, pogovor_id: str) -> list:
         self.storitev.oznaci_prebrano(kanal_id, pogovor_id)
         _sporoci()
+        sporocila = self.storitev.sporocila(kanal_id, pogovor_id)
+        ids = [s.id for s in sporocila if s.id.startswith("uid:")]
+        if ids and getattr(self.storitev.adapterji.get(kanal_id), "vrsta", "") == "email":
+            # Dolga pisma (prirezana na 64 KB): celotno besedilo v ozadju, enkrat; dogodek osvezi odprt pogovor.
+            threading.Thread(target=self._dopolni, args=(kanal_id, ids), name="safeer-sporocila-celotno",
+                             daemon=True).start()
         izid = []
-        for s in self.storitev.sporocila(kanal_id, pogovor_id):
+        for s in sporocila:
             d = s.slovar()
             d["priponke"] = [opis_priponke(p, i) for i, p in enumerate(s.priponke or []) if isinstance(p, dict)]
             izid.append(d)
         return izid
+
+    def _dopolni(self, kanal_id: str, ids: list) -> None:
+        try:
+            self.storitev.dopolni_besedila(kanal_id, ids)
+        except Exception as e:  # noqa: BLE001 - brez povezave ostane prirezano besedilo; poskus ob naslednjem odprtju
+            print("[Sporocila] celotno besedilo:", type(e).__name__, flush=True)
+
+    def preklici(self, kanal_id: str, pogovor_id: str, sporocilo_id: str) -> list:
+        """Neposlano sporocilo (stanje »caka« ali »napaka«) uporabnik preklice; vrne pogovor brez njega."""
+        if not self.storitev.preklici_cakajoce(str(kanal_id), str(sporocilo_id)):
+            raise ValueError("Sporočilo se že pošilja ali je poslano.")
+        return self.pogovor(str(kanal_id), str(pogovor_id))
+
+    def neprebrano_skupaj(self) -> int:
+        """Stevilo za kuverto v pultu: iz baze (pravo ze ob zagonu), brez branja celega nabiralnika."""
+        return self.storitev.neprebrano_skupaj()
+
+    def zazeni_kanal(self, kanal_id: str) -> dict:
+        self.storitev.zazeni_kanal(str(kanal_id))
+        return self.seznam()
+
+    def ustavi_kanal(self, kanal_id: str) -> dict:
+        self.storitev.ustavi_kanal(str(kanal_id))
+        return self.seznam()
 
     def poslji(self, kanal_id: str, pogovor_id: str, besedilo: str, priloge=None) -> dict:
         besedilo = str(besedilo).strip()
@@ -396,6 +435,8 @@ class SporocilaOS:
         s = self.storitev.poslji(kanal_id, pogovor_id, besedilo, priloge)
         d = s.slovar()
         d["priponke"] = [opis_priponke(p, i) for i, p in enumerate(s.priponke or []) if isinstance(p, dict)]
+        # Brez povezave: sporocilo (s prilogami) caka v odhodni vrsti in odide samo, ko se kanal spet poveze.
+        d["caka"] = s.stanje == "caka"
         return d
 
     def _priloge(self, kanal_id: str, priloge) -> list:
@@ -816,7 +857,8 @@ class SporocilaOS:
         return izid
 
     def sinhroniziraj(self) -> dict:
-        self.storitev.sinhroniziraj()
+        # Kanali z nitjo se osvezijo v njej (vmesnik ne caka na dolgo poizvedbo Matrixa); spremembo javi dogodek.
+        self.storitev.osvezi()
         return self.seznam()
 
     def zapri(self) -> None:

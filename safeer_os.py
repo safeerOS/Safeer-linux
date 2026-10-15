@@ -1510,6 +1510,9 @@ class SafeerOS(Gtk.Application):
         self.sporocila.poslji_klepet = lambda n, b, c: _control_naprave("Klepet", n, b, c).get("stanje") \
             or _control_naprave_koda("Klepet")
         self.sporocila.naprave_klepeta = lambda: _control_naprave("KlepetNaprave").get("naprave") or []
+        # Novo sporocilo, oznake, stanje kanala: odprte strani (razdelek Sporocila, plosca) se osvezijo takoj (niti
+        # kanalov v realnem casu - lastnik, 15. 10. 2026), ne sele ob 30-sekundnem osvezevanju strani.
+        os_sporocila.ob_spremembi(lambda: GLib.idle_add(lambda: (self._dogodek("sporocila", {}), False)[1]))
         #: Scit: filtriranje DNS za ves racunalnik; ce je bil vklopljen, tece od zagona naprej.
         self.scit = os_scit.Scit(self.shramba)
         # Posodobitve s safeer.si: zadnja preverba (izid, cas) in tekoce posodabljanje (prenos + namestitev v niti).
@@ -2265,8 +2268,8 @@ class SafeerOS(Gtk.Application):
     def _osvezi_kuverto(self) -> None:
         def delo() -> None:
             try:
-                seznam = self.sporocila.seznam()
-                n = sum(int(s.get("neprebrano") or 0) for s in seznam.get("skupine") or [])
+                # Zadnje znano stevilo iz baze (pravo ze ob zagonu, preden se kanali povezejo), brez branja nabiralnika.
+                n = int(self.sporocila.neprebrano_skupaj())
             except Exception as e:  # noqa: BLE001 - brez Sporocil kuverta ostane brez stevila
                 print("[SafeerOS] kuverta:", e)
                 n = 0
@@ -3743,6 +3746,7 @@ class SafeerOS(Gtk.Application):
             "sporocilaSinhroniziraj": self.sporocila.sinhroniziraj,
             "sporocilaIsci": lambda: self.sporocila.isci(str(a[0]) if a else ""),
             "sporocilaPogovor": lambda: self.sporocila.pogovor(str(a[0]), str(a[1])),
+            "sporocilaPreklici": lambda: self.sporocila.preklici(str(a[0]), str(a[1]), str(a[2])),
             "sporocilaSkrivnost": lambda: self.sporocila.nastavi_skrivnost(str(a[0]), str(a[1])),
             "sporocilaOdstrani": lambda: self.sporocila.odstrani_kanal(str(a[0])),
             "sporocilaStreznik": lambda: self.sporocila.privzeta_streznika(str(a[0]) if a else ""),

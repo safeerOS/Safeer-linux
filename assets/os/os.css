@@ -439,6 +439,14 @@ h2 .dodatno + .dodatno { margin-left: 14px; }
 .pano-zadetek:hover { border-color:var(--zelena); }
 .pano-zadetek small { display:block; opacity:.7; font-size:11px; margin-bottom:2px; }
 .pano-zadetek span { display:block; font-size:12px; line-height:1.3; }
+.mehurcek.caka, .mehurcek.napaka { opacity:.75; }
+.mehurcek-stanje { display:flex; align-items:center; justify-content:flex-end; gap:10px; margin-top:5px; }
+.mehurcek-stanje time { margin-top:0; }
+.mehurcek.napaka .mehurcek-stanje time { color:var(--rdeca); }
+.mehurcek-preklici { font:inherit; font-size:12px; padding:3px 10px; border-radius:999px; border:1px solid var(--medlo);
+  background:transparent; color:inherit; cursor:pointer; -webkit-user-select:none; user-select:none; }
+.mehurcek-preklici:focus-visible { outline:2px solid var(--zelena); outline-offset:2px; }
+.mehurcek-preklici:disabled { opacity:.5; cursor:default; }
 .mehurcek.zadetek-iskanja { outline:2px solid var(--zelena); outline-offset:2px; }
 /* Meni mehurcka (desni klik, tipka Meni): kopiraj izbrano / celo sporocilo, odpri povezavo. */
 .spor-meni { position: fixed; z-index: 15; display: flex; flex-direction: column; min-width: 200px; padding: 6px; border-radius: 12px;

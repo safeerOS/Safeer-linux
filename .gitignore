@@ -28,6 +28,7 @@ tests/*
 !tests/conftest.py
 !tests/besedila_namizja.py
 !tests/dostop_za_preizkus.py
+!tests/lazni_imap.py
 !tests/test_*.js
 !tests/README.md
 !tests/fixtures/

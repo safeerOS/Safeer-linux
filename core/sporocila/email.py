@@ -158,6 +158,12 @@ class EmailAdapter(Adapter):
         self._geslo, self._vnos_gesla = geslo, vnos_gesla
         self._imap: Optional[imaplib.IMAP4_SSL] = None
         self.zadnji_uid = 0
+        #: UIDVALIDITY mape INBOX (RFC 3501 2.3.1.1): ce se spremeni, so vsi znani UID-ji neveljavni.
+        self.uidvalidity = 0
+        #: Zadnji znani HIGHESTMODSEQ (CONDSTORE, RFC 7162) za uskladitev oznak; 0 = streznik ga ne podpira.
+        self.modseq = 0
+        #: Streznik je ponastavil UID-je: storitev zavrze pisma tega kanala iz predpomnilnika (imap_sprotno).
+        self.ponastavljen = False
         # Sporocila zadnje sinhronizacije po osebi (storitev jih shrani v bazo).
         self._nova: Dict[str, List[Sporocilo]] = {}
         self._zadnja_niti: Dict[str, dict] = {}   # oseba -> {"zadeva", "message_id", "uidi"}
@@ -511,6 +517,7 @@ class EmailAdapter(Adapter):
     # --------------------------------------------------------------- branje
     def _nova_pisma(self):
         self.povezi()
+        self._preveri_uidvalidity()
         if self.zadnji_uid:
             status, odg = self._imap.uid("search", None, "UID", "%d:*" % (self.zadnji_uid + 1))
         else:
@@ -605,9 +612,10 @@ class EmailAdapter(Adapter):
 
     # --------------------------------------------------------------- pisanje
     def poslji(self, pogovor_id: str, besedilo: str,
-               priponke: Sequence[dict] = (), zadeva_nova: str = "") -> Sporocilo:
+               priponke: Sequence[dict] = (), zadeva_nova: str = "", idem: str = "") -> Sporocilo:
         """Odgovor v zadnji niti z osebo; zadeva_nova: novo sporocilo (nova nit s to zadevo, brez In-Reply-To).
-        priponke: [{"pot": datoteka}] - skupaj najvec 25 MB (ValueError »priloge_prevelike«)."""
+        priponke: [{"pot": datoteka}] - skupaj najvec 25 MB (ValueError »priloge_prevelike«).
+        idem: Message-ID iz odhodne vrste (ponovitev nosi istega)."""
         prejemnik = pogovor_id if "@" in pogovor_id else ""
         if not prejemnik:
             raise ValueError("Ni naslova prejemnika")
@@ -622,7 +630,8 @@ class EmailAdapter(Adapter):
         if nit.get("message_id"):
             msg["In-Reply-To"] = nit["message_id"]
             msg["References"] = nit["message_id"]
-        msg["Message-ID"] = make_msgid(domain=self.naslov.rsplit("@", 1)[-1] or None)
+        # idem: Message-ID iz cakalne vrste (ponovljen poskus nosi isti Message-ID - prejemnik dvojnika ne pokaze).
+        msg["Message-ID"] = idem or make_msgid(domain=self.naslov.rsplit("@", 1)[-1] or None)
         msg.set_content(besedilo)
         # Pred povezavo: prevelike ali manjkajoce priloge zavrnemo, preden kaj gre na streznik.
         opis_prilog = _priponke_mod.dodaj_priloge(msg, priponke)
@@ -670,11 +679,31 @@ class EmailAdapter(Adapter):
     # --------------------------------------------------------------- stanje med zagoni
     def stanje(self) -> dict:
         """Kar mora ostati med zagoni (brez skrivnosti in brez vsebine pisem)."""
-        return {"zadnji_uid": self.zadnji_uid,
+        return {"zadnji_uid": self.zadnji_uid, "uidvalidity": self.uidvalidity, "modseq": self.modseq,
                 "niti": {o: {"zadeva": n.get("zadeva", ""), "message_id": n.get("message_id", ""),
                              "ime": n.get("ime", ""), "uidi": n.get("uidi", [])[-50:]}
                          for o, n in list(self._zadnja_niti.items())[-500:]}}
 
     def obnovi(self, stanje: dict) -> None:
         self.zadnji_uid = int(stanje.get("zadnji_uid") or 0)
+        self.uidvalidity = int(stanje.get("uidvalidity") or 0)
+        self.modseq = int(stanje.get("modseq") or 0)
         self._zadnja_niti = {str(o): dict(n) for o, n in (stanje.get("niti") or {}).items()}
+
+    def _preveri_uidvalidity(self) -> None:
+        """UIDVALIDITY iz odgovora na SELECT (imaplib ga hrani v untagged_responses do prvega branja). Drugacna
+        vrednost: streznik je mapo na novo ostevilcil - brez te preveritve bi nova pisma z nizjimi UID-ji za vedno
+        ostala neopazena (zadnji_uid je ze visji). Znano zacnemo znova; storitev zavrze stara pisma kanala."""
+        # .get, ne .pop: isti odgovor bere tudi _uidvalidity (kljuc predpomnilnika priponk) - brez dodatnega STATUS.
+        odg = (getattr(self._imap, "untagged_responses", None) or {}).get("UIDVALIDITY")
+        try:
+            vrednost = int((odg or [b"0"])[-1])
+        except (TypeError, ValueError):
+            return
+        if not vrednost:
+            return
+        if self.uidvalidity and vrednost != self.uidvalidity:
+            self.zadnji_uid, self.modseq, self.ponastavljen = 0, 0, True
+            for nit in self._zadnja_niti.values():
+                nit["uidi"] = []
+        self.uidvalidity = vrednost

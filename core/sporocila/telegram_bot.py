@@ -30,6 +30,8 @@ class NapakaPrijave(RuntimeError):
 class TelegramBotAdapter(Adapter):
     vrsta = "telegram_bot"
     zmore = {"poslji", "priloge"}
+    #: Naslov Bot API (preizkusi ga preusmerijo na lokalni nadomestni streznik).
+    API = "https://api.telegram.org"
 
     def __init__(self, kanal_id: str, zeton: str = "", vnos_zetona: Optional[Callable[[], str]] = None, timeout: float = 20):
         self.kanal_id = kanal_id
@@ -39,6 +41,8 @@ class TelegramBotAdapter(Adapter):
         self._offset = 0
         self._klepeti: dict = {}   # chat_id -> {"ime", "oseba", "sporocila": [], "neprebrano"}
         self._imena: dict = {}
+        #: Dolgi getUpdates (s): nastavi nit kanala (sprotno.py); 0 = takoj.
+        self.dolgo_cakanje_s = 0.0
 
     @property
     def kljuc_skrivnosti(self): return "telegram_bot:" + self.kanal_id
@@ -53,13 +57,18 @@ class TelegramBotAdapter(Adapter):
     def _skrivnost(self):
         return skrivnosti.zahtevaj(self.kljuc_skrivnosti, self._zeton, self._vnos_zetona)
 
-    def _api(self, metoda: str, podatki: Optional[dict] = None, timeout: Optional[float] = None) -> dict:
+    def _api(self, metoda: str, podatki: Optional[dict] = None, timeout: Optional[float] = None, dolga: bool = False) -> dict:
         telo = json.dumps(podatki or {}, ensure_ascii=False).encode("utf-8")
-        zahteva = Request("https://api.telegram.org/bot" + self._skrivnost() + "/" + metoda, data=telo, method="POST",
-                          headers={"Content-Type": "application/json", "Accept": "application/json"})
+        url = self.API + "/bot" + self._skrivnost() + "/" + metoda
+        glave = {"Content-Type": "application/json", "Accept": "application/json"}
         try:
-            with urlopen(zahteva, timeout=timeout or self.timeout) as odgovor:
-                surovo = odgovor.read()
+            if dolga:
+                # Dolgi getUpdates: povezavo drzimo sami, da jo izklop kanala prekine takoj (sprotno.prekini_zahtevo).
+                from .sprotno import dolga_zahteva
+                surovo = dolga_zahteva(self, url, "POST", telo, glave, timeout or self.timeout)
+            else:
+                with urlopen(Request(url, data=telo, method="POST", headers=glave), timeout=timeout or self.timeout) as odgovor:
+                    surovo = odgovor.read()
         except Exception as e:  # noqa: BLE001
             if getattr(e, "code", 0) in (401, 404):
                 raise NapakaPrijave("Žeton bota ni sprejet") from e
@@ -81,9 +90,12 @@ class TelegramBotAdapter(Adapter):
                                   "sporocila": [Sporocilo.iz_slovarja(m) for m in (k.get("sporocila") or [])]}
 
     def povezi(self) -> None:
+        if getattr(self, "_preverjen", False):
+            return      # dolga poizvedba: getMe samo enkrat na zagon (preklican zeton javi getUpdates z 401)
         self.bot = self._api("getMe") or {}
         if not self.bot.get("id"):
             raise NapakaPrijave("Žeton bota ni sprejet")
+        self._preverjen = True
 
     def ime_osebe(self, oseba_id: str) -> str:
         return self._imena.get(oseba_id, "")
@@ -93,7 +105,9 @@ class TelegramBotAdapter(Adapter):
         return " ".join(x for x in (u.get("first_name"), u.get("last_name")) if x) or (("@" + u["username"]) if u.get("username") else str(u.get("id", "")))
 
     def _prenesi(self) -> None:
-        posodobitve = self._api("getUpdates", {"offset": self._offset, "timeout": 0, "allowed_updates": ["message", "edited_message"]}, timeout=max(self.timeout, 30)) or []
+        cakaj = int(max(0, self.dolgo_cakanje_s))
+        posodobitve = self._api("getUpdates", {"offset": self._offset, "timeout": cakaj, "allowed_updates": ["message", "edited_message"]},
+                                timeout=max(self.timeout, 30, cakaj + 15), dolga=cakaj > 0) or []
         for u in posodobitve:
             self._offset = max(self._offset, int(u.get("update_id") or 0) + 1)
             m = u.get("message") or u.get("edited_message")

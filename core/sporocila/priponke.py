@@ -318,9 +318,9 @@ def _obdelaj(d: list, stevilka: str, izid: dict, starsevski: str, globina: int) 
     elif tip.startswith("text/") and not ime:
         # Telo pisma (prvo besedilo in prvi HTML zunaj priponk).
         if tip == "text/plain" and izid["besedilo"] is None and disp != "attachment":
-            izid["besedilo"] = {"del": stevilka, "kodiranje": kodiranje, "charset": par.get("charset", "")}
+            izid["besedilo"] = {"del": stevilka, "kodiranje": kodiranje, "charset": par.get("charset", ""), "velikost": velikost}
         elif tip == "text/html" and izid["html"] is None and disp != "attachment":
-            izid["html"] = {"del": stevilka, "kodiranje": kodiranje, "charset": par.get("charset", "")}
+            izid["html"] = {"del": stevilka, "kodiranje": kodiranje, "charset": par.get("charset", ""), "velikost": velikost}
         return
     elif tip.startswith("image/") and cid and disp != "attachment" and (starsevski == "related" or disp == "inline" or not ime):
         priponka, inline = True, True

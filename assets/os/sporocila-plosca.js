@@ -113,6 +113,12 @@
       S.podatki = p || { skupine: [], kanali: [] }; S.nalozeno = true; narisi();
     }, function () { S.nalozeno = true; narisi(); });
   }
+  // Novo sporocilo ali prebran pogovor (niti kanalov v realnem casu): odprta plosca se osvezi takoj.
+  var dogodekCas = 0;
+  window.safeerOsDogodek = function (vrsta) {
+    if (vrsta !== "sporocila" || dogodekCas || document.visibilityState === "hidden") return;
+    dogodekCas = setTimeout(function () { dogodekCas = 0; osvezi(); }, 120);
+  };
   // Safeer OS poklice ob vsakem odprtju plosce (podatki so sveži, iskanje prazno, fokus v iskanju).
   window.safeerPloscaOsvezi = function () {
     $("iskanje").value = "";
