@@ -6,8 +6,12 @@ Kako vemo, kateri proces je kanalov (dokumentirana metoda, nic izmisljenega):
     vsebujeta strani). Zato SONDA: v locenem svetu skript (stran ga ne vidi) kanal za SONDA_MS zaposli procesor,
     hkrati beremo /proc/<pid>/stat vseh spletnih procesov Safeer OS - proces kanala je tisti, ki je v tem casu porabil
     procesor (najmanj polovico pricakovanega in vsaj 3-krat vec od naslednjega; sicer poskus znova, nic ugibanja).
-    Preizkus 15. 10. 2026 (3 pogledi, 150 ms): 16-17 tikov v pravem procesu, 0 v ostalih. Sonda tece enkrat na proces:
-    ob prvem nalaganju, ko se spremeni registrirana domena strani (WebKit takrat lahko zamenja proces) in po padcu.
+    Preizkus 15. 10. 2026 (3 pogledi, 150 ms): 16-17 tikov v pravem procesu, 0 v ostalih. Stran, ki se nalaga, porabi
+    procesor tudi sama (39 proti 16 tikov), zato se najprej izmeri enako dolgo okno brez sonde in steje razlika.
+    Sonda tece ob nalaganju, ko se spremeni registrirana domena strani (WebKit takrat lahko zamenja proces), po padcu,
+    ko se kanal odpre v oknu Sporocil, in po neuspehu znova (5 s, 10 s, nato ob vzorcu najvec vsakih 60 s).
+    Kandidati so potomci Safeer OS in - v Flatpaku - procesi v podpeskovniku portala (poraba_kanalov.Proc.nasi).
+    Diagnostika gre v dnevnik (»[Sporocila] poraba:«, brez vsebine strani).
     Servisni delavci tecejo v svojih procesih brez strani - teh sonda ne najde; so v vrstici »drugi spletni procesi«.
   * Namizni program: _NET_WM_PID vstavljenega okna, koren programa (navzgor, dokler je ime procesa enako) in vsi
     njegovi potomci (Electron, QtWebEngine). Brez PID (Flatpak, drug imenski prostor procesov): ni merljivo.
@@ -24,16 +28,25 @@ from typing import Callable, Dict, Optional
 
 from core import poraba_kanalov as _p
 
-#: Koliko casa sonda zaposli kanal (en tik ure je 10 ms; 120 ms = ~12 tikov).
-SONDA_MS = 120
+#: Koliko casa sonda zaposli kanal (en tik ure je 10 ms; 250 ms = ~25 tikov - vec od sunkov strani, ki se nalaga).
+SONDA_MS = 250
 #: Po koliko ms sonde beremo stevce (sonda + zakasnitev zagona skripta).
-SONDA_BERI_MS = 400
+SONDA_BERI_MS = 500
 SONDA_POSKUSOV = 3
+#: Po neuspelih hitrih poskusih: sonda znova ob vzorcu, najvec vsakih toliko sekund.
+SONDA_PREMOR_S = 60
 SONDA_SVET = "safeer-poraba"
 #: Kako dolgo velja izmerjen prostor na disku (branje podatkov strani in mape prilog ni zastonj).
 DISK_VELJA_S = 60
 SPLETNI_PROCES = "WebKitWebProces"      # /proc/<pid>/comm je prirezan na 15 znakov
 OMREZNI_PROCES = "WebKitNetworkPr"
+
+
+def _imenski_prostor() -> str:
+    try:
+        return os.readlink("/proc/self/ns/pid") + (" flatpak" if os.path.exists("/.flatpak-info") else "")
+    except OSError:
+        return "?"
 
 
 def _domena(url: str) -> str:
@@ -55,6 +68,7 @@ class PorabaKanalov:
         self._sonde: list = []
         self._sonda_tece = False
         self._poskusi: Dict[str, int] = {}
+        self._zadnja_sonda: Dict[str, float] = {}
         self._casovnik = 0
         #: kljuc -> {"cas", "tiki": {pid: tiki}} - za procesor med vzorcema (posebej za vzorce in za odprto plosco)
         self._prej_vzorec: Dict[str, dict] = {}
@@ -76,6 +90,7 @@ class PorabaKanalov:
     def pozabi(self, kid: str) -> None:
         self.pid_spleta.pop(kid, None)
         self._poskusi.pop(kid, None)
+        self._zadnja_sonda.pop(kid, None)
         self._prej_vzorec.pop(kid, None)
         self._prej_ogled.pop(kid, None)
         self.uskladi()
@@ -103,15 +118,41 @@ class PorabaKanalov:
             self.sonda(kid)
 
     # ------------------------------------------------------------------ sonda
-    def spletni_procesi(self, otroci=None) -> list:
-        otroci = otroci if otroci is not None else self.proc.otroci()
-        return [p for p in self.proc.drevo(self.koren_pid, otroci) if self.proc.ime(p) == SPLETNI_PROCES]
+    def spletni_procesi(self, starsi=None, ime: str = SPLETNI_PROCES) -> list:
+        """Nasi procesi WebKita: potomci Safeer OS in (Flatpak) procesi v podpeskovniku portala (Proc.nasi)."""
+        v_drevesu, podpeskovnik = self.proc.nasi(self.koren_pid, ime, starsi)
+        return v_drevesu + podpeskovnik
 
     def sonda(self, kid: str) -> None:
         if kid not in self._sonde:
             self._sonde.append(kid)
+        self._zadnja_sonda[kid] = time.monotonic()
         if not self._sonda_tece:
             self.GLib.idle_add(self._naslednja_sonda, priority=self.GLib.PRIORITY_LOW)
+
+    def ob_prikazu(self, kid: str) -> None:
+        """Kanal je odprt v oknu Sporocil: ce njegov proces se ni znan, sonda takoj (stevec poskusov znova)."""
+        z = self.kanali.zivi.get(kid)
+        if z is not None and z.aplikacija is not None and kid not in self.pid_spleta:
+            self._poskusi.pop(kid, None)
+            self.sonda(kid)
+
+    def _ponovi_kasneje(self, kid: str) -> None:
+        """Neuspela sonda: znova cez 5 s, 10 s; nato ob vsakem vzorcu ali odprtju plosce, najvec vsakih 60 s."""
+        n = self._poskusi.get(kid, 0) + 1
+        self._poskusi[kid] = n
+        if n < SONDA_POSKUSOV:
+            self.GLib.timeout_add_seconds(5 * n, lambda: (kid in self.kanali.zivi and kid not in self.pid_spleta
+                                                          and self.sonda(kid), False)[1])
+
+    def _sonda_ce_je_cas(self, kid: str, premor_s: float = SONDA_PREMOR_S) -> None:
+        if time.monotonic() - self._zadnja_sonda.get(kid, -1e9) >= premor_s:
+            self.sonda(kid)
+
+    @staticmethod
+    def _dnevnik(*deli) -> None:
+        # Diagnostika sonde (brez vsebine strani): id kanala, stevila procesov, tiki, izid.
+        print("[Sporocila] poraba:", *deli, flush=True)
 
     def _naslednja_sonda(self) -> bool:
         if self._sonda_tece:
@@ -122,35 +163,58 @@ class PorabaKanalov:
             if z is None or z.aplikacija is None:
                 continue
             pogled = z.aplikacija.pogled
-            kandidati = self.spletni_procesi()
+            v_drevesu, podpeskovnik = self.proc.nasi(self.koren_pid, SPLETNI_PROCES)
+            kandidati = v_drevesu + podpeskovnik
             if not kandidati:
+                vidni = len([p for p in self.proc.starsi() if self.proc.ime(p) == SPLETNI_PROCES])
+                self._dnevnik("sonda kanal=%s brez kandidatov (drevo 0, podpeskovnik 0, vidnih procesov WebKit %d, "
+                              "pid=%d, imenski prostor %s)" % (kid, vidni, self.koren_pid, _imenski_prostor()))
+                self._ponovi_kasneje(kid)
                 continue
             self._sonda_tece = True
-            pred = {p: self.proc.tiki(p) for p in kandidati}
-            domena = _domena(pogled.get_uri() or "")
-            koda = "var t=performance.now();while(performance.now()-t<%d){}" % SONDA_MS
-            try:
-                pogled.evaluate_javascript(koda, -1, SONDA_SVET, None, None, None, None)
-            except Exception:  # noqa: BLE001 - pogled je ze unicen
-                self._sonda_tece = False
-                continue
-            self.GLib.timeout_add(SONDA_BERI_MS, self._sonda_izid, kid, pred, domena)
+            # Ozadje: najprej enako dolgo okno brez sonde (proces, ki se nalaga, porabi procesor tudi sam - zivi
+            # preizkus: 39 proti 16 tikov), nato sonda; steje razlika med oknoma.
+            ozadje = {p: self.proc.tiki(p) for p in kandidati}
+            self.GLib.timeout_add(SONDA_BERI_MS, self._sonda_zazeni, kid, ozadje)
             return False
         return False
 
-    def _sonda_izid(self, kid: str, pred: dict, domena: str) -> bool:
+    def _sonda_zazeni(self, kid: str, ozadje: dict) -> bool:
+        z = self.kanali.zivi.get(kid)
+        if z is None or z.aplikacija is None:
+            self._sonda_tece = False
+            self._naslednja_sonda()
+            return False
+        pogled = z.aplikacija.pogled
+        pred = {p: self.proc.tiki(p) for p in ozadje}
+        brez_sonde = {p: max(0, pred[p] - t) for p, t in ozadje.items()}
+        domena = _domena(pogled.get_uri() or "")
+        koda = "var t=performance.now();while(performance.now()-t<%d){}" % SONDA_MS
+        try:
+            pogled.evaluate_javascript(koda, -1, SONDA_SVET, None, None, None, None)
+        except Exception:  # noqa: BLE001 - pogled je ze unicen
+            self._sonda_tece = False
+            self._naslednja_sonda()
+            return False
+        self.GLib.timeout_add(SONDA_BERI_MS, self._sonda_izid, kid, pred, domena, brez_sonde)
+        return False
+
+    def _sonda_izid(self, kid: str, pred: dict, domena: str, brez_sonde: Optional[dict] = None) -> bool:
         self._sonda_tece = False
-        razlike = sorted(((self.proc.tiki(p) - t, p) for p, t in pred.items() if self.proc.zivi(p)), reverse=True)
+        brez_sonde = brez_sonde or {}
+        razlike = sorted(((self.proc.tiki(p) - t - brez_sonde.get(p, 0), p) for p, t in pred.items()
+                          if self.proc.zivi(p)), reverse=True)
         pricakovano = SONDA_MS / 1000.0 * self.proc.hz
-        if razlike and razlike[0][0] >= pricakovano / 2 and (len(razlike) < 2 or razlike[0][0] >= 3 * razlike[1][0]):
+        uspeh = bool(razlike) and razlike[0][0] >= pricakovano / 2 and (
+            len(razlike) < 2 or razlike[0][0] >= 3 * razlike[1][0])
+        self._dnevnik("sonda kanal=%s kandidatov=%d tiki=%s pricakovano=%d izid=%s" % (
+            kid, len(pred), [r[0] for r in razlike[:3]], round(pricakovano), razlike[0][1] if uspeh else "ni"))
+        if uspeh:
             if kid in self.kanali.zivi:
                 self.pid_spleta[kid] = (razlike[0][1], domena)
             self._poskusi.pop(kid, None)
         else:
-            n = self._poskusi.get(kid, 0) + 1
-            self._poskusi[kid] = n
-            if n < SONDA_POSKUSOV:
-                self.GLib.timeout_add_seconds(5 * n, lambda: (self.sonda(kid), False)[1])
+            self._ponovi_kasneje(kid)
         self._naslednja_sonda()
         return False
 
@@ -163,6 +227,8 @@ class PorabaKanalov:
                 if znan is not None:
                     self.pid_spleta.pop(kid, None)
                     self.sonda(kid)
+                else:
+                    self._sonda_ce_je_cas(kid)      # prejsnja sonda ni uspela: znova, najvec vsakih 60 s
                 return [], "sonda"
             return [znan[0]], ""
         if z.program is not None:
@@ -175,7 +241,13 @@ class PorabaKanalov:
     def _meri(self, kljuc: str, pidi: list, prej: dict, delez: float = 1.0) -> tuple:
         """(MiB, % procesorja ali None) za mnozico procesov; prej[kljuc] hrani stevce za naslednjic."""
         zdaj = time.monotonic()
-        mem = sum(self.proc.pss_kib(p) for p in pidi) / 1024.0 * delez
+        meritve = [self.proc.pomnilnik(p) for p in pidi]
+        mem = sum(m[0] for m in meritve) / 1024.0 * delez
+        prej.setdefault("_priblizek", set())
+        if any(not m[1] for m in meritve):
+            prej["_priblizek"].add(kljuc)
+        else:
+            prej["_priblizek"].discard(kljuc)
         tiki = {p: self.proc.tiki(p) for p in pidi}
         star = prej.get(kljuc)
         cpu = None
@@ -190,7 +262,8 @@ class PorabaKanalov:
 
     def _vse_meritve(self, prej: dict) -> dict:
         """kljuc -> {"mem", "cpu", "razlog", "deljeno"} za zive kanale in skupne vrstice."""
-        otroci = self.proc.otroci()
+        starsi = self.proc.starsi()
+        otroci = self.proc.otroci(starsi)
         izid, pidi_kanalov = {}, {}
         for kid, z in list(self.kanali.zivi.items()):
             pidi, razlog = self._pidi(kid, z, otroci)
@@ -206,14 +279,15 @@ class PorabaKanalov:
                 continue
             n = max(stetje.get(p, 1) for p in pidi) if pidi else 1
             mem, cpu = self._meri(kid, pidi, prej, 1.0 / n)
-            izid[kid] = {"mem": mem, "cpu": cpu, "razlog": "", "deljeno": n > 1}
+            izid[kid] = {"mem": mem, "cpu": cpu, "razlog": "", "deljeno": n > 1,
+                         "priblizek": kid in prej.get("_priblizek", ())}
         pripisani = {p for pidi, _r in pidi_kanalov.values() for p in pidi}
-        vsi = self.proc.drevo(self.koren_pid, otroci)
-        drugi = [p for p in vsi if self.proc.ime(p) == SPLETNI_PROCES and p not in pripisani]
-        omrezje = [p for p in vsi if self.proc.ime(p) == OMREZNI_PROCES]
+        drugi = [p for p in self.spletni_procesi(starsi) if p not in pripisani]
+        omrezje = self.spletni_procesi(starsi, OMREZNI_PROCES)
         for kljuc, pidi in (("_safeer", [self.koren_pid]), ("_omrezje", omrezje), ("_drugi", drugi)):
             mem, cpu = self._meri(kljuc, pidi, prej)
-            izid[kljuc] = {"mem": mem, "cpu": cpu, "razlog": "", "procesov": len(pidi)}
+            izid[kljuc] = {"mem": mem, "cpu": cpu, "razlog": "", "procesov": len(pidi),
+                           "priblizek": kljuc in prej.get("_priblizek", ())}
         return izid
 
     def _vzorci(self) -> bool:
@@ -284,6 +358,9 @@ class PorabaKanalov:
     # ------------------------------------------------------------------ porocilo za ploscico
     def porocilo(self, ob_koncu: Callable[[dict], None]) -> None:
         """Porocilo za ploscico »Info« (klic na glavni niti); prostor na disku se osvezi najvec vsakih 60 s."""
+        for kid, z in list(self.kanali.zivi.items()):
+            if z.aplikacija is not None and kid not in self.pid_spleta:
+                self._sonda_ce_je_cas(kid, 10)       # plosca je odprta: neznan proces poskusi najti zdaj
         if time.monotonic() - self._disk["cas"] > DISK_VELJA_S and not self._disk_tece:
             self._osvezi_disk(lambda: ob_koncu(self._sestavi()))
             return
@@ -326,7 +403,7 @@ class PorabaKanalov:
             p = self.zgodovina.povzetek(kljuc)
             skupno[kljuc[1:]] = {"mem_trenutno": m.get("mem"), "cpu_trenutno": m.get("cpu"), "mem_ura": p["mem_ura"],
                                  "mem_zagon": p["mem_zagon"], "cpu_ura": p["cpu_ura"], "cpu_zagon": p["cpu_zagon"],
-                                 "procesov": m.get("procesov", 0)}
+                                 "procesov": m.get("procesov", 0), "priblizek": bool(m.get("priblizek"))}
         return {"kanali": vrstice, "skupaj": _p.sestej(vrstice), "skupno": skupno,
                 "vzorec_s": _p.VZOREC_S, "okno_s": _p.OKNO_S, "vzorcev": self.vzorcev,
                 "cena_ms": round(self.cena_s / self.vzorcev * 1000, 2) if self.vzorcev else None,
@@ -336,9 +413,10 @@ class PorabaKanalov:
         p = self.zgodovina.povzetek(kid)
         v = {"id": kid, "ime": ime, "vrsta": vrsta, "vklopljen": vklopljen, "mem_trenutno": None, "cpu_trenutno": None,
              "mem_ura": p["mem_ura"], "mem_zagon": p["mem_zagon"], "cpu_ura": p["cpu_ura"], "cpu_zagon": p["cpu_zagon"],
-             "vzorcev": p["vzorcev"], "razlog": "", "deljeno": False, "ni_merljivo": []}
+             "vzorcev": p["vzorcev"], "razlog": "", "deljeno": False, "priblizek": False, "ni_merljivo": []}
         if m is not None:
-            v.update(mem_trenutno=m["mem"], cpu_trenutno=m["cpu"], razlog=m["razlog"], deljeno=bool(m.get("deljeno")))
+            v.update(mem_trenutno=m["mem"], cpu_trenutno=m["cpu"], razlog=m["razlog"], deljeno=bool(m.get("deljeno")),
+                     priblizek=bool(m.get("priblizek")))
         if vklopljen and (m is None or m["razlog"]):
             v["razlog"] = v["razlog"] or ("nalaga" if vrsta in ("splet", "program") else "safeer")
             v["ni_merljivo"] += ["mem_trenutno", "mem_ura", "mem_zagon", "cpu_trenutno", "cpu_ura", "cpu_zagon"]
