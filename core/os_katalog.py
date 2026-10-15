@@ -27,7 +27,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from . import knjiznica_kroga, media_servers, os_media, os_police, samodejni_seznami, zakoniti_viri
+from . import jellyfin_vticniki, knjiznica_kroga, media_servers, os_media, os_police, samodejni_seznami, zakoniti_viri
 
 #: Posnetek YouTube: natanko 11 znakov iz te abecede.
 YOUTUBE_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -366,6 +366,8 @@ class Katalog:
         "mediaSkrito": "_skrito", "mediaSkrij": "_skrij",
         "mediaSamodejniSeznami": "_samodejni_seznami", "mediaSamodejniSeznam": "_samodejni_seznam",
         "mediaSamodejniShrani": "_samodejni_shrani",
+        "mediaJellyfinVticniki": "_jf_vticniki", "mediaJellyfinVticnik": "_jf_vticnik",
+        "mediaJellyfinNamesti": "_jf_namesti", "mediaJellyfinZagon": "_jf_zagon",
     }
 
     @staticmethod
@@ -459,7 +461,8 @@ class Katalog:
         return self.mc.movie_item(int(a[0]) if a else 0, self._niz(a, 1))
 
     def _viri(self, _a: list) -> Any:
-        return self.mc.sources()
+        # »vticniki«: ta most zna upravljati vticnike strežnika Jellyfin (stran sicer gumba ne pokaze).
+        return [dict(v, vticniki=True) if v.get("ponudnik") == "jellyfin" else v for v in self.mc.sources()]
 
     def _dodaj_vir(self, a: list) -> Any:
         return self.mc.add_source(self._niz(a, 0), self._niz(a, 1))
@@ -487,6 +490,62 @@ class Katalog:
 
     def _odkrij_dlna(self, _a: list) -> Any:
         return media_servers.odkrij_dlna()
+
+    # ------------------------------------------------------------------ vticniki strežnika Jellyfin
+    @staticmethod
+    def _jf_napaka(napaka: Exception) -> dict:
+        if isinstance(napaka, jellyfin_vticniki.NapakaJellyfin):
+            koda = napaka.koda
+        elif isinstance(napaka, RuntimeError):
+            koda = "skrivnost"      # zbirka skrivnosti zaklenjena ali brez gesla (razkrij)
+        elif isinstance(napaka, ValueError):
+            koda = "neveljavno"     # strežnika ni (vec) med viri
+        else:
+            koda = "omrezje"
+        return {"ok": False, "napaka": koda}
+
+    def _jf_vticniki(self, a: list) -> Any:
+        """[id strežnika] -> namesceni vticniki, katalog, repozitoriji, priporoceno (samo branje za ne-skrbnika)."""
+        try:
+            base, zeton = self.mc.jellyfin_dostop(self._niz(a, 0))
+            return jellyfin_vticniki.stanje(base, zeton)
+        except Exception as napaka:  # noqa: BLE001 - stran pove razlog, ne sklad klicev
+            return self._jf_napaka(napaka)
+
+    def _jf_vticnik(self, a: list) -> Any:
+        """[id strežnika, "vklopi" | "izklopi" | "odstrani", id vticnika, razlicica]."""
+        dejanje = self._niz(a, 1)
+        if dejanje not in ("vklopi", "izklopi", "odstrani"):
+            return {"ok": False, "napaka": "neveljavno"}
+        try:
+            base, zeton = self.mc.jellyfin_dostop(self._niz(a, 0))
+            if dejanje == "odstrani":
+                return jellyfin_vticniki.odstrani(base, zeton, self._niz(a, 2), self._niz(a, 3))
+            return jellyfin_vticniki.preklopi(base, zeton, self._niz(a, 2), self._niz(a, 3), dejanje == "vklopi")
+        except Exception as napaka:  # noqa: BLE001
+            return self._jf_napaka(napaka)
+
+    def _jf_namesti(self, a: list) -> Any:
+        """[id strežnika, ime paketa, guid, naslov repozitorija]."""
+        try:
+            base, zeton = self.mc.jellyfin_dostop(self._niz(a, 0))
+            return jellyfin_vticniki.namesti(base, zeton, self._niz(a, 1), self._niz(a, 2), self._niz(a, 3))
+        except Exception as napaka:  # noqa: BLE001
+            return self._jf_napaka(napaka)
+
+    def _jf_zagon(self, a: list) -> Any:
+        """[id strežnika] -> ponovni zagon; napredek gre strani kot dogodek mediaJellyfinZagon {streznik, faza, sekund}."""
+        ident = self._niz(a, 0)
+        try:
+            base, zeton = self.mc.jellyfin_dostop(ident)
+            izid = jellyfin_vticniki.ponovni_zagon(
+                base, zeton, lambda faza, sekund: self.dogodek("mediaJellyfinZagon", {"streznik": ident, "faza": faza,
+                                                                                      "sekund": sekund}))
+        except Exception as napaka:  # noqa: BLE001
+            return self._jf_napaka(napaka)
+        if izid.get("ok"):
+            self.mc.streznik_spremenjen(ident)      # novi vticniki (kanali, metapodatki) se pokazejo v katalogu
+        return izid
 
     # ------------------------------------------------------------------ prilagojen meni (skriti zavihki in viri)
     #: Kljuc skritega predmeta leve navigacije: "kat:<zavihek>" ali "vir:<id vira>" ("vir:mape" = Ta racunalnik).
