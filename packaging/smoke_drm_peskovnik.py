@@ -65,6 +65,7 @@ def renderji(lastni_mnt: str) -> list:
 
 
 def zazeni(exe, krog: int, cas: int) -> list:
+    safeer_drm.mapa_sej().mkdir(parents=True, exist_ok=True)
     seja = tempfile.mkdtemp(prefix="drm-smoke-", dir=str(safeer_drm.mapa_sej()))
     stanje = os.path.join(seja, "events.jsonl")
     ukazi = os.path.join(seja, "command.txt")
@@ -150,4 +151,11 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception as napaka:  # noqa: BLE001 - v CI mora biti vzrok v eni vrstici (opomba posla)
+        import traceback
+        traceback.print_exc()
+        sled = traceback.extract_tb(napaka.__traceback__)[-1]
+        print(f"FAIL: izjema {type(napaka).__name__}: {napaka} (vrstica {sled.lineno})", flush=True)
+        sys.exit(1)
