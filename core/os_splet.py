@@ -283,32 +283,43 @@ _BRISANJE = {
            "bp_piskotki": "Piškotki in podatki strani (odjava s strani)", "bp_predpomnilnik": "Predpomnilnik (slike in datoteke)",
            "bp_prenosi": "Seznam prenosov (datoteke ostanejo)", "bp_dovoljenja": "Nastavitve spletnih mest",
            "bp_izbrisi": "Izbriši", "bp_ob_izhodu": "Izbranih podatkov ob zaprtju ne shranjuj (izbriši ob izhodu)",
-           "bp_koncano": "Izbrisano."},
+           "bp_koncano": "Izbrisano.", "bp_kanali_ostanejo": "Prijave in sporočila kanalov Sporočil ostanejo (izbrišeš jih pri kanalu: Izbriši podatke kanala).",
+           "bp_kanali_obdobje": "Pozor: izbrišejo se tudi podatki kanalov Sporočil, spremenjeni v tem obdobju – v kanalu se boš morda moral znova prijaviti."},
     "en": {"bp_naslov": "Clear browsing data", "bp_obdobje": "Time range", "bp_ura": "Last hour", "bp_dan": "Last 24 hours",
            "bp_teden": "Last week", "bp_vse": "Everything", "bp_zgodovina": "Browsing history",
            "bp_piskotki": "Cookies and site data (signs you out)", "bp_predpomnilnik": "Cache (images and files)",
            "bp_prenosi": "Download list (files stay)", "bp_dovoljenja": "Site settings", "bp_izbrisi": "Clear",
-           "bp_ob_izhodu": "Delete the selected data when closing", "bp_koncano": "Cleared."},
+           "bp_ob_izhodu": "Delete the selected data when closing", "bp_koncano": "Cleared.",
+           "bp_kanali_ostanejo": "Sign-ins and messages of Messages channels stay (delete them at the channel: Delete channel data).",
+           "bp_kanali_obdobje": "Note: data of Messages channels changed in this period is deleted too – you may need to sign in to the channel again."},
     "de": {"bp_naslov": "Browserdaten löschen", "bp_obdobje": "Zeitraum", "bp_ura": "Letzte Stunde", "bp_dan": "Letzte 24 Stunden",
            "bp_teden": "Letzte Woche", "bp_vse": "Alles", "bp_zgodovina": "Verlauf",
            "bp_piskotki": "Cookies und Website-Daten (meldet dich ab)", "bp_predpomnilnik": "Cache (Bilder und Dateien)",
            "bp_prenosi": "Download-Liste (Dateien bleiben)", "bp_dovoljenja": "Website-Einstellungen", "bp_izbrisi": "Löschen",
-           "bp_ob_izhodu": "Ausgewählte Daten beim Schließen löschen", "bp_koncano": "Gelöscht."},
+           "bp_ob_izhodu": "Ausgewählte Daten beim Schließen löschen", "bp_koncano": "Gelöscht.",
+           "bp_kanali_ostanejo": "Anmeldungen und Nachrichten der Nachrichten-Kanäle bleiben (löschen beim Kanal: Kanaldaten löschen).",
+           "bp_kanali_obdobje": "Hinweis: Auch Daten der Nachrichten-Kanäle, die in diesem Zeitraum geändert wurden, werden gelöscht – eventuell musst du dich im Kanal erneut anmelden."},
     "es": {"bp_naslov": "Borrar datos de navegación", "bp_obdobje": "Intervalo", "bp_ura": "Última hora",
            "bp_dan": "Últimas 24 horas", "bp_teden": "Última semana", "bp_vse": "Todo", "bp_zgodovina": "Historial",
            "bp_piskotki": "Cookies y datos de sitios (cierra sesiones)", "bp_predpomnilnik": "Caché (imágenes y archivos)",
            "bp_prenosi": "Lista de descargas (los archivos se quedan)", "bp_dovoljenja": "Ajustes de sitios",
-           "bp_izbrisi": "Borrar", "bp_ob_izhodu": "Borrar los datos seleccionados al cerrar", "bp_koncano": "Borrado."},
+           "bp_izbrisi": "Borrar", "bp_ob_izhodu": "Borrar los datos seleccionados al cerrar", "bp_koncano": "Borrado.",
+           "bp_kanali_ostanejo": "Las sesiones y mensajes de los canales de Mensajes se conservan (bórralos en el canal: Borrar datos del canal).",
+           "bp_kanali_obdobje": "Atención: también se borran los datos de los canales de Mensajes modificados en este periodo; quizá debas volver a iniciar sesión en el canal."},
     "fr": {"bp_naslov": "Effacer les données de navigation", "bp_obdobje": "Période", "bp_ura": "Dernière heure",
            "bp_dan": "Dernières 24 heures", "bp_teden": "Dernière semaine", "bp_vse": "Tout", "bp_zgodovina": "Historique",
            "bp_piskotki": "Cookies et données de sites (vous déconnecte)", "bp_predpomnilnik": "Cache (images et fichiers)",
            "bp_prenosi": "Liste des téléchargements (les fichiers restent)", "bp_dovoljenja": "Paramètres des sites",
-           "bp_izbrisi": "Effacer", "bp_ob_izhodu": "Effacer les données sélectionnées à la fermeture", "bp_koncano": "Effacé."},
+           "bp_izbrisi": "Effacer", "bp_ob_izhodu": "Effacer les données sélectionnées à la fermeture", "bp_koncano": "Effacé.",
+           "bp_kanali_ostanejo": "Les connexions et messages des canaux de Messages sont conservés (à supprimer depuis le canal : Supprimer les données du canal).",
+           "bp_kanali_obdobje": "Attention : les données des canaux de Messages modifiées pendant cette période sont aussi effacées – vous devrez peut-être vous reconnecter au canal."},
     "it": {"bp_naslov": "Cancella dati di navigazione", "bp_obdobje": "Intervallo", "bp_ura": "Ultima ora",
            "bp_dan": "Ultime 24 ore", "bp_teden": "Ultima settimana", "bp_vse": "Tutto", "bp_zgodovina": "Cronologia",
            "bp_piskotki": "Cookie e dati dei siti (esce dagli account)", "bp_predpomnilnik": "Cache (immagini e file)",
            "bp_prenosi": "Elenco download (i file restano)", "bp_dovoljenja": "Impostazioni dei siti", "bp_izbrisi": "Cancella",
-           "bp_ob_izhodu": "Cancella i dati selezionati alla chiusura", "bp_koncano": "Cancellato."},
+           "bp_ob_izhodu": "Cancella i dati selezionati alla chiusura", "bp_koncano": "Cancellato.",
+           "bp_kanali_ostanejo": "Accessi e messaggi dei canali di Messaggi restano (si eliminano dal canale: Elimina dati del canale).",
+           "bp_kanali_obdobje": "Attenzione: vengono cancellati anche i dati dei canali di Messaggi modificati in questo periodo; potrebbe essere necessario accedere di nuovo al canale."},
 }
 for _j, _b in (list(_BRISANJE.items()) + list(splet_prenosi.BESEDILA.items()) + list(pojavna_okna.BESEDILA.items()) + list(_BRSKALNIK.items())
                + list(zascita.BESEDILA.items()) + list(_NASTAVITVE.items()) + list(dovoljenja_strani.BESEDILA.items()) + list(drm.BESEDILA.items())):   # skupaj s Safeer Browserjem
@@ -2868,6 +2879,26 @@ class VdelaniSplet:
         ob_izhodu.set_active(bool(self.config.get("brisi_ob_izhodu", [])))
         ob_izhodu.set_margin_top(8)
         vsebina.append(ob_izhodu)
+        # Kanali Sporocil (zasciteni_podatki): pri »Vse« in ob izhodu ostanejo; casovno obdobje WebKit brise brez izbire
+        # strani (WebsiteDataManager.clear), zato vmesnik posteno pove, da se izbrisejo tudi kanali (pregled 15. 10. 2026).
+        opomba = Gtk.Label(xalign=0, wrap=True)
+        opomba.set_max_width_chars(60)
+        opomba.add_css_class("dim-label")
+        vsebina.append(opomba)
+
+        def uskladi_opombo(*_):
+            try:
+                kanali = bool(self.zasciteni_podatki())
+            except Exception:  # noqa: BLE001
+                kanali = False
+            podatki_strani = stikala["piskotki"].get_active() or stikala["predpomnilnik"].get_active()
+            opomba.set_visible(kanali and podatki_strani)
+            opomba.set_text(self._t("bp_kanali_ostanejo" if (obdobje.get_active_id() or "ura") == "vse" else "bp_kanali_obdobje"))
+        obdobje.connect("changed", uskladi_opombo)
+        for c in stikala.values():
+            c.connect("toggled", uskladi_opombo)
+        uskladi_opombo()
+        d._opomba_kanalov = opomba
         obmocje.append(vsebina)
 
         def odgovor(o):
@@ -2881,6 +2912,7 @@ class VdelaniSplet:
             d.destroy()
         d.odgovor = odgovor
         d.present()
+        return d
 
     def _dovoljenja_strani(self, *_):
         """Nastavitve spletnih mest: privzeto za vsako vrsto, strani z lastno nastavitvijo, samodejno predvajanje,

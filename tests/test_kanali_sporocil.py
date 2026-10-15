@@ -43,6 +43,14 @@ def _cakaj(pogoj, cas=8.0):
     return pogoj()
 
 
+def _vsi(gradnik):
+    otrok = gradnik.get_first_child()
+    while otrok is not None:
+        yield otrok
+        yield from _vsi(otrok)
+        otrok = otrok.get_next_sibling()
+
+
 def _js(pogled, koda):
     pogled.evaluate_javascript(koda, -1, None, None, None, None, None)
 
@@ -216,6 +224,32 @@ class Kanali(unittest.TestCase):
                          "tuja stran je izbrisana, kanal ostane")
         self.k.izbrisi_podatke(kid)
         self.assertTrue(_cakaj(lambda: "primer.invalid" not in imena(), 5), "»Izbrisi podatke kanala« ga izbrise")
+
+    def test_brisanje_po_obdobju_posteno_pove_kanale(self):
+        """Casovno obdobje WebKit brise brez izbire strani: vmesnik pove, da se izbrisejo tudi kanali; pri »Vse« pove,
+        da ostanejo. Brez kanalov opombe ni (pregled 15. 10. 2026)."""
+        from core.os_splet import besedila
+        self.splet.config.set("brisi_vrste", ["piskotki"])
+        self.splet.config.set("brisi_obdobje", "ura")
+        self.splet.zasciteni_podatki = lambda: set()
+        self.addCleanup(lambda: setattr(self.splet, "zasciteni_podatki", lambda: set()))
+        d = self.splet._izbrisi_podatke()
+        self.addCleanup(d.destroy)
+        self.assertFalse(d._opomba_kanalov.get_visible(), "brez kanalov ni opombe")
+        d.destroy()
+        self._lasten("opomba")
+        self.splet.zasciteni_podatki = self.k.zasciteni
+        d = self.splet._izbrisi_podatke()
+        self.addCleanup(d.destroy)
+        o = d._opomba_kanalov
+        self.assertTrue(o.get_visible())
+        self.assertEqual(o.get_text(), besedila("sl")["bp_kanali_obdobje"])
+        izbira = [g for g in _vsi(d) if isinstance(g, Gtk.ComboBoxText)][0]
+        izbira.set_active_id("vse")
+        self.assertEqual(o.get_text(), besedila("sl")["bp_kanali_ostanejo"])
+        for c in [g for g in _vsi(d) if isinstance(g, Gtk.CheckButton)]:
+            c.set_active(False)
+        self.assertFalse(o.get_visible(), "brez piskotkov in predpomnilnika kanali niso prizadeti")
 
     def test_skrit_kanal_tece_v_realnem_casu(self):
         """Stran v skritem kanalu (pogled ni v nobenem oknu) s setInterval 1 s naredi v 60 s ~60 tikov. Izmerjeno
