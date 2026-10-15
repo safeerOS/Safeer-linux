@@ -430,10 +430,29 @@ jobs:
           sudo apt-get install -y flatpak flatpak-builder appstream-compose desktop-file-utils xvfb dbus
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           flatpak install --user --noninteractive flathub org.gnome.Platform//50 org.gnome.Sdk//50 org.freedesktop.Sdk.Extension.llvm22//25.08
+      - name: Restore flatpak-builder cache (instrumented WebKitGTK)
+        # Instrumentirana gradnja traja ~2 h 20 min (CI 38709018765); ob ponovnem ucnem teku jo vzamemo iz predpomnilnika.
+        id: pgo-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .flatpak-builder/cache
+            .flatpak-builder/downloads
+          key: flatpak-pgo-ucenje-${{ hashFiles('packaging/webkit/**', 'io.github.memelandfaner.SafeerBrowser.yml') }}
+          restore-keys: |
+            flatpak-pgo-ucenje-
       - name: Instrumented WebKitGTK (Safeer Browser Flatpak)
         run: |
           M="$(python3 packaging/webkit/pgo.py ucenje)"
           flatpak-builder --user --install --force-clean build/pgo/app "$M"
+      - name: Save flatpak-builder cache (instrumented WebKitGTK)
+        if: always() && steps.pgo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .flatpak-builder/cache
+            .flatpak-builder/downloads
+          key: flatpak-pgo-ucenje-${{ hashFiles('packaging/webkit/**', 'io.github.memelandfaner.SafeerBrowser.yml') }}
       - name: Speedometer 3.1 (pinned, offline copy)
         run: |
           git clone -q -b release/3.1 https://github.com/WebKit/Speedometer.git build/pgo/speedometer
@@ -442,6 +461,9 @@ jobs:
         # Spletni proces brez peskovnika samo v tem ucnem teku (lokalna vsebina): podeduje LLVM_PROFILE_FILE in zapise
         # profil v mapo posla. %m loci knjiznici (libwebkitgtk, libjavascriptcoregtk) v istem procesu.
         run: |
+          # Ob napaki ukaz in zadnji izpis kot opozorilo posla (dnevniki posla v API niso vedno dosegljivi).
+          exec > >(tee "$RUNNER_TEMP/trening.log") 2>&1
+          trap 'sleep 1; python3 -c "import sys; t = open(sys.argv[1], errors=\"replace\").read()[-6000:]; print(\"::error::\" + (sys.argv[2] + \"\\n\" + t).replace(\"%\", \"%25\").replace(\"\\r\", \"\").replace(\"\\n\", \"%0A\"))" "$RUNNER_TEMP/trening.log" "$BASH_COMMAND"' ERR
           P="$PWD/build/pgo/profraw"
           mkdir -p "$P"
           python3 -m http.server 8123 --bind 127.0.0.1 --directory build/pgo/speedometer >/dev/null 2>&1 & SRV=$!
@@ -453,6 +475,7 @@ jobs:
           for i in $(seq 60); do pgrep -f 'WebKit(Network|Web)Process' >/dev/null || break; sleep 1; done
           kill "$SRV" || true
           ls -l "$P"
+          echo "::notice::$(grep '^pgo_trening:' "$RUNNER_TEMP/trening.log" | paste -sd '|') | $(ls "$P" | wc -l) .profraw, $(du -sh "$P" | cut -f1)"
           test "$(find "$P" -name '*.profraw' -size +1k | wc -l)" -ge 2
       - uses: actions/upload-artifact@v7
         with:

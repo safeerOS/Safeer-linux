@@ -13,7 +13,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("WebKit", "6.0")
-from gi.repository import GLib, Gtk, WebKit  # noqa: E402
+from gi.repository import Gio, GLib, Gtk, WebKit  # noqa: E402
 
 URL = sys.argv[1]
 ROK = time.monotonic() + 60 * float(sys.argv[2] if len(sys.argv) > 2 else 90)
@@ -66,8 +66,12 @@ def ob_zagonu(app):
     GLib.timeout_add_seconds(10, preveri)
 
 
-app = Gtk.Application(application_id="io.github.memelandfaner.SafeerPgo")
+# Flatpak dovoli programu na seji D-Bus samo ime programa in njegova podimena: drugo ime (prej ...SafeerPgo) je
+# registracijo zavrnilo in app.run() se je koncal brez okna (CI 38709018765). NON_UNIQUE: ime ni potrebno.
+app = Gtk.Application(application_id="io.github.memelandfaner.SafeerBrowser.Pgo", flags=Gio.ApplicationFlags.NON_UNIQUE)
 app.connect("activate", ob_zagonu)
-app.run([])
+koda = app.run([])
+if koda:
+    print("pgo_trening: Gtk.Application.run je vrnil %d" % koda, flush=True)
 # Omrezni proces se konca, ko se zapre povezava s tem procesom, in profil zapise ob izhodu (atexit); na to pocaka posel CI.
 sys.exit(izid["koda"])
