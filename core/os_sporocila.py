@@ -22,6 +22,7 @@ from .sporocila.telegram_bot import TelegramBotAdapter
 from .sporocila.model import Kanal
 from .sporocila.storitev import StoritevSporocil
 from . import predogled_datotek, splet_prenosi
+from .sporocila import predpomnilnik
 
 # Znani ponudniki: IMAP/SMTP streznik in namig za prijavo (vecina zahteva "geslo za aplikacije").
 PONUDNIKI = {
@@ -147,7 +148,7 @@ class SporocilaOS:
         self.poslji_klepet: Optional[Callable[[str, str, str], str]] = None
         #: Naprave v Linku, ki znajo klepet (nastavi gostitelj): [{"id", "ime"}]
         self.naprave_klepeta: Optional[Callable[[], List[dict]]] = None
-        self.storitev.ob_sinhronizaciji = _sporoci
+        self.storitev.ob_sinhronizaciji = self._po_sinhronizaciji
         self._nalozi()
         if zazeni and self.storitev.adapterji:
             self.storitev.zazeni()
@@ -310,8 +311,20 @@ class SporocilaOS:
         self.storitev.sinhroniziraj(kanal_id)
         return self.seznam()
 
+    def _po_sinhronizaciji(self) -> None:
+        """Nova UIDVALIDITY mape (streznik je mapo na novo ostevilcil): stari vnosi predpomnilnika ne veljajo."""
+        for kid, a in list(self.storitev.adapterji.items()):
+            uidv = getattr(a, "uidvalidity_priponk", "")
+            if uidv:
+                try:
+                    predpomnilnik.velja(kid, getattr(a, "MAPA_PRIPONK", "INBOX"), uidv)
+                except OSError:
+                    pass
+        _sporoci()
+
     def odstrani_kanal(self, kanal_id: str) -> dict:
         self.storitev.odstrani_kanal(str(kanal_id))
+        predpomnilnik.odstrani_kanal(str(kanal_id))      # priponke odstranjenega racuna ne ostanejo na disku
         return self.seznam()
 
     # ------------------------------------------------------------------ branje/pisanje
@@ -462,7 +475,10 @@ class SporocilaOS:
         o = o if isinstance(o, dict) else {}
         cist = {"id": str(o.get("id") or uuid.uuid4().hex[:12]), "kanal_id": str(o.get("kanal_id") or "")[:200],
                 "za": str(o.get("za") or "")[:320], "zadeva": str(o.get("zadeva") or "")[:300].replace("\n", " "),
-                "besedilo": str(o.get("besedilo") or "")[:200000], "cas": _cas_zdaj()}
+                "besedilo": str(o.get("besedilo") or "")[:200000], "cas": _cas_zdaj(),
+                # Priloge osnutka (poti na tem racunalniku): ob ponovnem odprtju so spet pod pismom.
+                "priloge": [os.path.realpath(str(p)) for p in (o.get("priloge") or [])[:50]
+                            if isinstance(p, str) and os.path.isfile(os.path.expanduser(p))]}
         prejsnji = next((x for x in self.osnutki() if x.get("id") == cist["id"]), {})
         # Tudi v mapo Osnutki e-postnega racuna (lastnik, 14. 10. 2026: osnutek naj bo viden v Gmailu na telefonu).
         cist["mid"] = self._osnutek_na_streznik(cist, str(prejsnji.get("mid") or "")) or str(prejsnji.get("mid") or "")
@@ -480,7 +496,8 @@ class SporocilaOS:
         if a is None or not hasattr(a, "shrani_osnutek"):
             return ""
         try:
-            return a.shrani_osnutek(o.get("za", ""), o.get("zadeva", ""), o.get("besedilo", ""), prejsnji_mid)
+            return a.shrani_osnutek(o.get("za", ""), o.get("zadeva", ""), o.get("besedilo", ""), prejsnji_mid,
+                                    [{"pot": p} for p in o.get("priloge") or []])
         except Exception as e:  # noqa: BLE001 - osnutek ostane vsaj na tem racunalniku
             print("[Sporocila] osnutek na strezniku:", e, flush=True)
             return ""
@@ -596,9 +613,11 @@ class SporocilaOS:
                 return self.storitev.adapterji.get(str(kanal_id)), s, p
         raise ValueError(NAPAKE_PRILOG["ni_pisma"])
 
-    @staticmethod
-    def _kljuc_predpomnilnika(kanal_id: str, sporocilo_id: str, kljuc: str) -> str:
-        return "%s\0%s\0%s" % (kanal_id, sporocilo_id, kljuc)
+    def _vnos(self, kanal_id: str, s, p: dict, kljuc: str) -> str:
+        """Mapa vnosa v predpomnilniku s kljucem (kanal_id, mapa, UIDVALIDITY, UID, del) - core/sporocila/predpomnilnik.py.
+        Kanali brez map IMAP: mapa "", UID = id sporocila, del = kljuc priponke."""
+        uid = s.id[4:] if str(s.id).startswith("uid:") else str(s.id)
+        return predpomnilnik.mapa_vnosa(str(kanal_id), str(p.get("mapa") or ""), p.get("uidvalidity") or "", uid, kljuc)
 
     def _prenesi_v(self, adapter, s, p, cilj: str, napredek: Optional[Callable[[float], None]] = None) -> str:
         """Prenese priponko v datoteko `cilj` (prek .part: nedokoncan prenos ne pusti pokvarjene datoteke)."""
@@ -643,35 +662,51 @@ class SporocilaOS:
 
     def priponka_v_predpomnilnik(self, kanal_id: str, sporocilo_id: str, kljuc: str,
                                  napredek: Optional[Callable[[float], None]] = None) -> tuple:
-        """Priponka v zasebnem predpomnilniku (predogled, slicica, »Odpri v programu«). Vrne (pot, priponka)."""
+        """Priponka na disku za predogled, slicico in »Odpri v programu«. Vrne (pot, priponka). Najprej iz Prejemov
+        (ce jo je uporabnik prenesel in je tam nespremenjena), nato iz predpomnilnika; sele potem z omrezja."""
         adapter, s, p = self._najdi_priponko(kanal_id, sporocilo_id, kljuc)
         lokalno = str(p.get("lokalno") or "")
         if lokalno and os.path.isfile(lokalno):
             return lokalno, p
-        cilj = predogled_datotek.pot_v_predpomnilniku(self._kljuc_predpomnilnika(kanal_id, sporocilo_id, kljuc),
-                                                      p.get("ime", ""))
+        vnos = self._vnos(kanal_id, s, p, kljuc)
+        v_prejemih = predpomnilnik.prejeto(vnos)
+        if v_prejemih:
+            predpomnilnik.uporabi(os.path.join(vnos, "prejeto.json"))
+            return v_prejemih, p
+        cilj = os.path.join(vnos, predogled_datotek.varno_ime(p.get("ime", "")))
         if not (os.path.isfile(cilj) and os.path.getsize(cilj) > 0):
             self._prenesi_v(adapter, s, p, cilj, napredek)
-        try:
-            os.utime(cilj)            # nedavno uporabljeno ostane v predpomnilniku dlje
-        except OSError:
-            pass
+            predpomnilnik.pocisti()                      # meja velikosti (LRU) po vsakem novem vnosu
+        predpomnilnik.uporabi(cilj)
         return cilj, p
+
+    def mapa_vnosa(self, kanal_id: str, sporocilo_id: str, kljuc: str) -> str:
+        """Mapa vnosa priponke (za PDF pretvorbe predogleda, ki ostanejo ob priponki)."""
+        _a, s, p = self._najdi_priponko(kanal_id, sporocilo_id, kljuc)
+        return self._vnos(kanal_id, s, p, kljuc)
 
     def priponka_prenesi(self, kanal_id: str, sporocilo_id: str, kljuc: str,
                          napredek: Optional[Callable[[float], None]] = None, mapa: str = "") -> dict:
-        """»Prenesi«: v mapo Prejemi (XDG), z varnim in edinstvenim imenom. Vrne {"pot", "ime", "mapa"}."""
+        """»Prenesi«: v mapo Prejemi (XDG), z varnim in edinstvenim imenom. Vrne {"pot", "ime", "mapa"}.
+        Kopija iz predpomnilnika se premakne v Prejemi (ne hranimo je dvakrat); vnos si zapomni pot v Prejemih."""
         adapter, s, p = self._najdi_priponko(kanal_id, sporocilo_id, kljuc)
         mapa = mapa or mapa_prejemov()
         cilj = splet_prenosi.edinstvena_pot(mapa, predogled_datotek.varno_ime(p.get("ime", "")))
-        predpomnjeno = predogled_datotek.pot_v_predpomnilniku(
-            self._kljuc_predpomnilnika(kanal_id, sporocilo_id, kljuc), p.get("ime", ""))
+        lokalno = str(p.get("lokalno") or "")
+        if lokalno and os.path.isfile(lokalno):
+            shutil.copyfile(lokalno, cilj)
+            return {"ok": True, "pot": cilj, "ime": os.path.basename(cilj), "mapa": mapa}
+        vnos = self._vnos(kanal_id, s, p, kljuc)
+        predpomnjeno = os.path.join(vnos, predogled_datotek.varno_ime(p.get("ime", "")))
         if os.path.isfile(predpomnjeno) and os.path.getsize(predpomnjeno) > 0:
-            shutil.copyfile(predpomnjeno, cilj)          # ze v predogledu: ne prenasamo se enkrat
+            shutil.move(predpomnjeno, cilj)              # ze v predogledu: brez omrezja in brez dvojnika
+            os.chmod(cilj, 0o644)
             if napredek is not None:
                 napredek(1.0)
         else:
             self._prenesi_v(adapter, s, p, cilj, napredek)
+            os.chmod(cilj, 0o644)                        # v Prejemih kot vsak drug prenos
+        predpomnilnik.zapisi_prejeto(vnos, cilj)
         return {"ok": True, "pot": cilj, "ime": os.path.basename(cilj), "mapa": mapa}
 
     def priponke_prenesi_vse(self, kanal_id: str, sporocilo_id: str,
@@ -703,8 +738,8 @@ class SporocilaOS:
         pot, _p = self.priponka_v_predpomnilnik(kanal_id, sporocilo_id, kljuc)
         if pot.lower().endswith((".svg", ".gif", ".avif", ".ico")) or os.path.getsize(pot) <= 300 * 1024:
             return pot                       # majhna slika ali vektor: brez pomanjsevanja (animacija GIF ostane)
-        from core import os_datoteke
-        return os_datoteke.slicica(pot) or pot
+        # Slicica ostane v vnosu priponke (drugic brez branja velike slike).
+        return predpomnilnik.slicica(pot, self.mapa_vnosa(kanal_id, sporocilo_id, kljuc)) or pot
 
     def html_pisma(self, kanal_id: str, sporocilo_id: str, jezik: str = "sl") -> str:
         """HTML telo pisma (»Prikaži kot izvirnik«) s slikami v vrstici (cid:) iz predpomnilnika."""

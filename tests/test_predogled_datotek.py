@@ -88,7 +88,7 @@ class Priprava(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.TemporaryDirectory()
         self.m = Path(self.d.name)
-        self.okolje = patch.dict(os.environ, {"HOME": str(self.m)})
+        self.okolje = patch.dict(os.environ, {"HOME": str(self.m), "XDG_CACHE_HOME": str(self.m / ".cache")})
         self.okolje.start()
 
     def tearDown(self):
@@ -136,6 +136,27 @@ class Priprava(unittest.TestCase):
         self.assertIn("--headless", u)
         self.assertEqual(u[u.index("--convert-to") + 1], "pdf")
         self.assertEqual(cas, pd.CAS_PRETVORBE_S)
+
+    def test_pretvorba_v_vnosu_priponke_prezivi_lru_dotik(self):
+        """Izmerjeno 15. 10. 2026: drugo odprtje je ponovno zagnalo LibreOffice, ker je dotik za LRU spremenil mtime."""
+        _docx(self.m / "p.docx", ["x"])
+        vnos = self.m / "vnos"
+        vnos.mkdir()
+        klici = []
+
+        def zazeni(u, cas):
+            klici.append(u)
+            Path(u[u.index("--outdir") + 1], "p.pdf").write_bytes(b"%PDF")
+            return 0
+        najdi = lambda ime: "/usr/bin/soffice" if ime == "soffice" else None  # noqa: E731
+        with patch("core.os_pretvorba_datotek._zazeni_s_koncem", side_effect=zazeni):
+            r1 = pd.pripravi(str(self.m / "p.docx"), najdi=najdi, mapa_pretvorbe=str(vnos))
+            os.utime(self.m / "p.docx", (time.time() + 50, time.time() + 50))
+            r2 = pd.pripravi(str(self.m / "p.docx"), najdi=najdi, mapa_pretvorbe=str(vnos))
+        self.assertEqual(len(klici), 1)
+        self.assertEqual(r1["pot"], r2["pot"])
+        self.assertEqual(os.path.dirname(r1["pot"]), str(vnos))
+        self.assertEqual(os.stat(r1["pot"]).st_mode & 0o777, 0o600)
 
     def test_libreoffice_prepocasi(self):
         import subprocess

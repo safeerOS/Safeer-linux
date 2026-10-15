@@ -173,8 +173,10 @@ def vrsta_predogleda(ime: str, tip: str = "") -> str:
 
 # ---------------------------------------------------------------------------------------------- predpomnilnik
 def mapa_predpomnilnika() -> str:
-    """~/.cache/safeer-os/priponke (zasebna, 0700)."""
-    pot = os.path.join(os.path.expanduser("~"), ".cache", "safeer-os", "priponke")
+    """Pretvorbe krajevnih datotek (Datoteke, namizje): $XDG_CACHE_HOME/safeer-os/predogled (zasebna, 0700).
+    Priponke sporocil imajo svoj predpomnilnik s kljucem sporocila (core/sporocila/predpomnilnik.py)."""
+    pot = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache"),
+                       "safeer-os", "predogled")
     os.makedirs(pot, mode=0o700, exist_ok=True)
     try:
         os.chmod(pot, 0o700)
@@ -516,16 +518,26 @@ def besedilo_dokumenta(pot: str) -> str:
 _zaklep_lo = threading.Lock()
 
 
-def v_pdf(pot: str, najdi: Callable[[str], Optional[str]] = shutil.which, cas: float = CAS_PRETVORBE_S) -> tuple:
+def v_pdf(pot: str, najdi: Callable[[str], Optional[str]] = shutil.which, cas: float = CAS_PRETVORBE_S,
+          cilj_mapa: str = "") -> tuple:
     """Dokument -> PDF z LibreOffice brez okna (v Flatpaku na racunalniku). Vrne (pot_pdf, "") ali ("", koda):
-    »ni_orodja«, »prepocasi«, »ni_uspelo«. Rezultat ostane v predpomnilniku (isti dokument se ne pretvarja znova)."""
+    »ni_orodja«, »prepocasi«, »ni_uspelo«. Rezultat ostane v predpomnilniku (isti dokument se ne pretvarja znova):
+    v `cilj_mapa` (vnos priponke), sicer v mapi pretvorb, oboje s kljucem velikosti in casa spremembe."""
     from core import os_pretvorba_datotek as pretvorba
     try:
         st = os.stat(pot)
     except OSError:
         return "", "ni_uspelo"
     kljuc = hashlib.sha256(("%s\0%d\0%d" % (os.path.realpath(pot), st.st_size, int(st.st_mtime))).encode()).hexdigest()[:24]
-    cilj = os.path.join(mapa_predpomnilnika(), "pdf-" + kljuc, os.path.splitext(varno_ime(os.path.basename(pot)))[0] + ".pdf")
+    if cilj_mapa:
+        # Vnos priponke: kljuc po vsebini (cas spremembe se ob vsaki uporabi osvezi za LRU in ne sme sprozit pretvorbe).
+        zg = hashlib.sha256()
+        with open(pot, "rb") as f:
+            for kos in iter(lambda: f.read(1024 * 1024), b""):
+                zg.update(kos)
+        cilj = os.path.join(cilj_mapa, "predogled-%s.pdf" % zg.hexdigest()[:16])
+    else:
+        cilj = os.path.join(mapa_predpomnilnika(), "pdf-" + kljuc, os.path.splitext(varno_ime(os.path.basename(pot)))[0] + ".pdf")
     if os.path.isfile(cilj) and os.path.getsize(cilj) > 0:
         return cilj, ""
     soffice = pretvorba.orodje("besedilo", najdi)
@@ -552,6 +564,7 @@ def v_pdf(pot: str, najdi: Callable[[str], Optional[str]] = shutil.which, cas: f
                 return "", "ni_uspelo"
             os.makedirs(os.path.dirname(cilj), mode=0o700, exist_ok=True)
             shutil.move(narejeno, cilj)
+            os.chmod(cilj, 0o600)
             return cilj, ""
         finally:
             shutil.rmtree(zacasna, ignore_errors=True)
@@ -632,9 +645,10 @@ def _posta(pot: str, jezik: str) -> str:
 
 
 def pripravi(pot: str, ime: str = "", tip: str = "", jezik: str = "sl",
-             najdi: Callable[[str], Optional[str]] = shutil.which) -> dict:
+             najdi: Callable[[str], Optional[str]] = shutil.which, mapa_pretvorbe: str = "") -> dict:
     """Kaj pokazati za datoteko. Vrne {"nacin": "pdf", "pot"} (PDF.js) ali {"nacin": "html", "html", "osnova"}
-    (stran brez JavaScripta) in vedno »vrsta«; nikoli prazne strani."""
+    (stran brez JavaScripta) in vedno »vrsta«; nikoli prazne strani. mapa_pretvorbe: kam shraniti PDF pretvorbe
+    (vnos priponke v predpomnilniku Sporocil)."""
     ime = ime or os.path.basename(pot)
     vrsta = vrsta_predogleda(ime, tip)
     osnova = _uri(os.path.dirname(os.path.abspath(pot))) + "/"
@@ -656,7 +670,7 @@ def pripravi(pot: str, ime: str = "", tip: str = "", jezik: str = "sl",
         if vrsta == "slika":
             return html('<div class="slika"><img src="%s" alt="%s"></div>' % (_html.escape(_uri(pot)), _html.escape(ime)))
         if vrsta == "dokument":
-            pdf, koda = v_pdf(pot, najdi)
+            pdf, koda = v_pdf(pot, najdi, cilj_mapa=mapa_pretvorbe)
             if pdf:
                 return {"nacin": "pdf", "vrsta": vrsta, "pot": pdf, "pretvorjeno": True}
             golo = besedilo_dokumenta(pot)

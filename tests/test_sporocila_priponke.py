@@ -273,6 +273,67 @@ class PosiljanjePrilog(unittest.TestCase):
             smtp.assert_not_called()
 
 
+class OsnutekSPrilogami(unittest.TestCase):
+    def test_osnutek_hrani_priloge_in_jih_poslje_na_streznik(self):
+        with tempfile.TemporaryDirectory() as d:
+            priloga = Path(d) / "skica.png"
+            priloga.write_bytes(b"\x89PNG")
+            sp = os_sporocila.SporocilaOS(Path(d) / "sp.db", zazeni=False)
+            adapter = MagicMock()
+            adapter.shrani_osnutek.return_value = "<o@x>"
+            sp.storitev.adapterji["k"] = adapter
+            o = sp.shrani_osnutek({"kanal_id": "k", "za": "bob@example.test", "besedilo": "b",
+                                   "priloge": [str(priloga), str(Path(d) / "ni.pdf"), 5]})[0]
+            self.assertEqual(o["priloge"], [str(priloga.resolve())])          # samo obstojece datoteke
+            self.assertEqual(adapter.shrani_osnutek.call_args.args[4], [{"pot": str(priloga.resolve())}])
+            sp.zapri()
+
+    def test_imap_osnutek_s_prilogo(self):
+        with tempfile.TemporaryDirectory() as d:
+            priloga = Path(d) / "skica.png"
+            priloga.write_bytes(b"\x89PNG")
+            imap = MagicMock()
+            imap.list.return_value = ("OK", [b'(\\HasNoChildren \\Drafts) "/" "Drafts"'])
+            imap.append.return_value = ("OK", [b""])
+            with patch("core.sporocila.email.imaplib.IMAP4_SSL", return_value=imap):
+                EmailAdapter("k", "jaz@example.test", "i.example.test", "s.example.test", geslo="x").shrani_osnutek(
+                    "bob@example.test", "Z", "B", "", [{"pot": str(priloga)}])
+            telo = imap.append.call_args.args[3]
+            msg = email.message_from_bytes(telo, policy=policy.default)
+            self.assertEqual([p.get_filename() for p in msg.iter_attachments()], ["skica.png"])
+
+
+class DrugiKanali(unittest.TestCase):
+    def test_telegram_najvecja_fotografija_in_getfile(self):
+        from core.sporocila.telegram_bot import TelegramBotAdapter
+        p = TelegramBotAdapter._priponka("photo", [{"file_id": "maj", "file_size": 10}, {"file_id": "vel", "file_size": 900}], "5")
+        self.assertEqual((p["ime"], p["tip"], p["file_id"], p["velikost"]), ("foto_5.jpg", "image/jpeg", "vel", 900))
+        a = TelegramBotAdapter("t", zeton="123:abc")
+        with patch.object(a, "_api", return_value={"file_path": "photos/f.jpg"}) as api, \
+                patch("core.sporocila.telegram_bot.prenesi_url", return_value=3) as prenos:
+            a.prenesi_priponko("5", p, lambda b: None)
+        api.assert_called_once_with("getFile", {"file_id": "vel"})
+        self.assertEqual(prenos.call_args.args[0], "https://api.telegram.org/file/bot123:abc/photos/f.jpg")
+        with patch.object(a, "_api", return_value={"file_path": "../x"}), self.assertRaises(ValueError):
+            a.prenesi_priponko("5", p, lambda b: None)
+
+    def test_matrix_overjeni_prenos_mxc(self):
+        from core.sporocila.matrix import MatrixAdapter
+        a = MatrixAdapter("m", "https://matrix.example.test", zeton="tok")
+        with patch("core.sporocila.matrix.prenesi_url", return_value=1) as prenos:
+            a.prenesi_priponko("$e", {"url": "mxc://example.test/AbC"}, lambda b: None)
+        self.assertEqual(prenos.call_args.args[0], "https://matrix.example.test/_matrix/client/v1/media/download/example.test/AbC")
+        self.assertEqual(prenos.call_args.args[3], {"Authorization": "Bearer tok"})
+        for slab in ("https://drugje/x", "mxc://a/b/../c", "mxc://"):
+            with self.assertRaises(ValueError):
+                a.prenesi_priponko("$e", {"url": slab}, lambda b: None)
+
+    def test_prenos_url_samo_https(self):
+        from core.sporocila.adapter import prenesi_url
+        with self.assertRaisesRegex(ValueError, "ni_varno"):
+            prenesi_url("http://zunaj.example/datoteka", lambda b: None)
+
+
 class _Adapter:
     vrsta = "email"
 
@@ -290,6 +351,9 @@ class _Adapter:
     def oznaci_prebrano(self, _):
         pass
 
+    def html_pisma(self, sid, del_):
+        return '<p>Pozdrav</p><img src="cid:logo@x"><img src="https://sled.example/p.gif"><script>x()</script>'
+
 
 class SporocilaOSPriponke(unittest.TestCase):
     def setUp(self):
@@ -299,7 +363,8 @@ class SporocilaOSPriponke(unittest.TestCase):
         (self.dom / ".config").mkdir(parents=True)
         (self.dom / "Prejemi").mkdir()
         (self.dom / ".config" / "user-dirs.dirs").write_text('XDG_DOWNLOAD_DIR="$HOME/Prejemi"\n', encoding="utf-8")
-        self.okolje = patch.dict(os.environ, {"HOME": str(self.dom), "XDG_CONFIG_HOME": str(self.dom / ".config")})
+        self.okolje = patch.dict(os.environ, {"HOME": str(self.dom), "XDG_CONFIG_HOME": str(self.dom / ".config"),
+                                              "XDG_CACHE_HOME": str(self.dom / ".cache")})
         self.okolje.start()
         self.os = os_sporocila.SporocilaOS(self.koren / "sp.db", zazeni=False)
         self.adapter = _Adapter(b"VSEBINA PDF")
@@ -353,10 +418,24 @@ class SporocilaOSPriponke(unittest.TestCase):
         pot2, _p = self.os.priponka_v_predpomnilnik("k", "uid:7", "3")
         self.assertEqual(pot, pot2)
         self.assertEqual(self.adapter.klici, 1)                                  # drugic iz predpomnilnika
-        self.assertTrue(pot.startswith(str(self.dom / ".cache" / "safeer-os" / "priponke")))
-        self.assertEqual(os.stat(os.path.dirname(os.path.dirname(pot))).st_mode & 0o777, 0o700)
-        self.os.priponka_prenesi("k", "uid:7", "3")
+        self.assertTrue(pot.startswith(str(self.dom / ".cache" / "safeer-os" / "priloge")))
+        self.assertEqual(os.stat(os.path.dirname(pot)).st_mode & 0o777, 0o700)
+        self.assertEqual(os.stat(pot).st_mode & 0o777, 0o600)
+        r = self.os.priponka_prenesi("k", "uid:7", "3")
         self.assertEqual(self.adapter.klici, 1)                                  # »Prenesi« po predogledu: brez omrezja
+        self.assertFalse(os.path.exists(pot))                                    # ni dvojnika v predpomnilniku
+        pot3, _p = self.os.priponka_v_predpomnilnik("k", "uid:7", "3")
+        self.assertEqual(pot3, r["pot"])                                         # predogled bere iz Prejemov
+        self.assertEqual(self.adapter.klici, 1)
+        Path(r["pot"]).write_bytes(b"spremenjeno besedilo")                     # druga velikost: Prejemi ne veljajo
+        pot4, _p = self.os.priponka_v_predpomnilnik("k", "uid:7", "3")
+        self.assertNotEqual(pot4, r["pot"])
+        self.assertEqual(self.adapter.klici, 2)
+
+    def test_odstranjen_kanal_izbrise_predpomnilnik(self):
+        pot, _p = self.os.priponka_v_predpomnilnik("k", "uid:7", "3")
+        self.os.odstrani_kanal("k")
+        self.assertFalse(os.path.exists(pot))
 
     def test_prenesi_vse_brez_slik_v_vrstici(self):
         r = self.os.priponke_prenesi_vse("k", "uid:7")
@@ -374,11 +453,120 @@ class SporocilaOSPriponke(unittest.TestCase):
             self.os._priloge("drug", ["/tmp/x"])
         self.assertEqual(self.os._priloge("k", [{"pot": "/a"}, "/b"]), [{"pot": "/a"}, {"pot": "/b"}])
 
+    def test_izvirnik_s_slikami_v_vrstici_iz_predpomnilnika(self):
+        html = self.os.html_pisma("k", "uid:7", "sl")
+        self.assertIn('src="file://' + str(self.dom / ".cache" / "safeer-os" / "priloge"), html)
+        self.assertNotIn("sled.example", html)
+        self.assertNotIn("x()", html)
+        self.assertIn("Content-Security-Policy", html)
+
     def test_storitev_hrani_html_in_priponke(self):
         s = self.os.storitev.sporocilo("k", "uid:7")
         self.assertEqual(s.html, "1.1")
         self.assertEqual(len(s.priponke), 4)
         self.assertEqual(Sporocilo.iz_slovarja(dict(s.slovar(), neznano=1)).html, "1.1")   # stanje novejse razlicice
+
+
+class Predpomnilnik(unittest.TestCase):
+    """Kljuc (kanal_id, mapa, UIDVALIDITY, UID, del), LRU do meje, ciscenje ob odstranitvi kanala in novi UIDVALIDITY."""
+
+    def setUp(self):
+        from core.sporocila import predpomnilnik
+        self.pp = predpomnilnik
+        self.d = tempfile.TemporaryDirectory()
+        self.okolje = patch.dict(os.environ, {"XDG_CACHE_HOME": self.d.name})
+        self.okolje.start()
+
+    def tearDown(self):
+        self.okolje.stop()
+        self.d.cleanup()
+
+    def _vnos(self, kanal="k", mapa="INBOX", uidv="100", uid="7", del_="2", vsebina=b"x" * 10, cas=None):
+        v = self.pp.mapa_vnosa(kanal, mapa, uidv, uid, del_)
+        f = Path(v) / "a.pdf"
+        f.write_bytes(vsebina)
+        if cas is not None:
+            os.utime(f, (cas, cas))
+        return v
+
+    def test_kljuc(self):
+        osnova = self.pp.mapa_vnosa("k", "INBOX", "100", "7", "2")
+        self.assertEqual(osnova, self.pp.mapa_vnosa("k", "INBOX", "100", "7", "2"))
+        for drug in (("k2", "INBOX", "100", "7", "2"), ("k", "Sent", "100", "7", "2"), ("k", "INBOX", "101", "7", "2"),
+                     ("k", "INBOX", "100", "8", "2"), ("k", "INBOX", "100", "7", "2.1")):
+            self.assertNotEqual(self.pp.mapa_vnosa(*drug), osnova, drug)
+        self.assertTrue(osnova.startswith(os.path.join(self.d.name, "safeer-os", "priloge") + os.sep))
+        self.assertNotIn("INBOX", osnova)                                        # imena so zgoscena
+        self.assertEqual(os.stat(osnova).st_mode & 0o777, 0o700)
+        zlo = self.pp.mapa_vnosa("../../x", "../..", "../1", "../", "..")      # nic ne uide iz korena
+        self.assertTrue(os.path.realpath(zlo).startswith(os.path.realpath(self.pp.koren())))
+
+    def test_lru_do_meje(self):
+        import time as _t
+        zdaj = _t.time()
+        star = self._vnos(uid="1", cas=zdaj - 300)
+        srednji = self._vnos(uid="2", cas=zdaj - 200)
+        nov = self._vnos(uid="3", cas=zdaj - 100)
+        self.pp.uporabi(str(Path(star) / "a.pdf"))                              # star je bil pravkar uporabljen
+        self.assertEqual(self.pp.pocisti(najvec=25), 1)
+        self.assertFalse(os.path.exists(srednji))                                # najdlje neuporabljen gre prvi
+        self.assertTrue(os.path.exists(star) and os.path.exists(nov))
+        self.assertEqual(self.pp.pocisti(najvec=25), 0)
+
+    def test_odstranitev_kanala(self):
+        a, b = self._vnos(kanal="a"), self._vnos(kanal="b")
+        self.pp.odstrani_kanal("a")
+        self.assertFalse(os.path.exists(a))
+        self.assertTrue(os.path.exists(b))
+
+    def test_nova_uidvalidity(self):
+        stari, nov, druga_mapa = self._vnos(uidv="100"), self._vnos(uidv="200", uid="9"), self._vnos(mapa="Sent", uidv="100")
+        self.assertEqual(self.pp.velja("k", "INBOX", "200"), 1)
+        self.assertFalse(os.path.exists(stari))
+        self.assertTrue(os.path.exists(nov) and os.path.exists(druga_mapa))
+        self.assertEqual(self.pp.velja("k", "INBOX", ""), 0)                    # neznana: nic ne brisemo
+
+    def test_sinhronizacija_razveljavi_staro_uidvalidity(self):
+        with tempfile.TemporaryDirectory() as d:
+            sp = os_sporocila.SporocilaOS(Path(d) / "sp.db", zazeni=False)
+            a = MagicMock()
+            a.uidvalidity_priponk, a.MAPA_PRIPONK = "200", "INBOX"
+            sp.storitev.adapterji["k"] = a
+            stari = self._vnos(uidv="100")
+            sp._po_sinhronizaciji()
+            self.assertFalse(os.path.exists(stari))
+            sp.zapri()
+
+    def test_prenos_zavrne_drugo_uidvalidity(self):
+        imap, _ = _imap_s_deli({"2": b"abc"})
+        imap.untagged_responses = {"UIDVALIDITY": [b"200"]}
+        with patch("core.sporocila.email.imaplib.IMAP4_SSL", return_value=imap):
+            a = EmailAdapter("k", "jaz@example.test", "imap.example.test", "smtp.example.test", geslo="skrivno")
+            with self.assertRaisesRegex(RuntimeError, "ni_pisma"):
+                a.prenesi_priponko("uid:7", {"del": "2", "kodiranje": "7bit", "uidvalidity": "100"}, lambda b: None)
+            izhod = []
+            a.prenesi_priponko("uid:7", {"del": "2", "kodiranje": "7bit", "uidvalidity": "200"}, izhod.append)
+            self.assertEqual(b"".join(izhod), b"abc")
+
+    def test_sinhronizacija_zapise_uidvalidity_v_priponke(self):
+        imap = MagicMock()
+        imap.noop.return_value = ("OK", [b""])
+        imap.untagged_responses = {"UIDVALIDITY": [b"555"]}
+
+        def uid(ukaz, *a):
+            if ukaz == "search":
+                return ("OK", [b"7"])
+            if ukaz == "fetch":
+                return ("OK", [(b"7 (UID 7 FLAGS () BODYSTRUCTURE " + GMAIL + b" BODY[]<0> {1}",
+                                b"From: a@example.test\r\nSubject: x\r\n\r\nzivjo\r\n"), b")"])
+            return ("OK", [b""])
+        imap.uid.side_effect = uid
+        with patch("core.sporocila.email.imaplib.IMAP4_SSL", return_value=imap):
+            a = EmailAdapter("k", "jaz@example.test", "imap.example.test", "smtp.example.test", geslo="skrivno")
+            list(a.pogovori())
+        p = a.sporocila("a@example.test")[0].priponke[0]
+        self.assertEqual((p["mapa"], p["uidvalidity"]), ("INBOX", "555"))
+        self.assertEqual(a.uidvalidity_priponk, "555")
 
 
 class StaraBaza(unittest.TestCase):
