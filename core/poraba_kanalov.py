@@ -25,6 +25,8 @@ class Proc:
 
     def __init__(self, koren: str = "/proc") -> None:
         self.koren = koren
+        #: V peskovniku Flatpaka je v nasem imenskem prostoru procesov samo Safeer OS s svojimi procesi.
+        self.flatpak = os.path.exists("/.flatpak-info")
         try:
             self.hz = os.sysconf("SC_CLK_TCK") or 100
         except (ValueError, OSError, AttributeError):
@@ -117,11 +119,11 @@ class Proc:
     def nasi(self, koren_pid: int, ime: str, starsi: Optional[Dict[int, int]] = None) -> tuple:
         """Procesi z imenom `ime`, ki pripadajo programu `koren_pid`: (v drevesu, v podpeskovniku).
 
-        Zunaj Flatpaka so spletni procesi WebKita potomci programa (bwrap je otrok). V Flatpaku jih WebKit zazene prek
-        portala Flatpak (org.freedesktop.portal.Flatpak.Spawn, podpeskovnik): v nasem imenskem prostoru procesov so
-        vidni, a njihov stars (bwrap podpeskovnika) ima starsa 0 - ni nas potomec (zivi preizkus 15. 10. 2026: sonda
-        jih zato ni nasla). Tak proces steje kot nas, ce se njegova veriga prednikov konca v korenu, ki ni koren
-        nase verige (init peskovnika ali sistema, pid 1) - procesi drugih programov na sistemu se koncajo v 1."""
+        Zunaj Flatpaka so spletni procesi WebKita potomci programa (bwrap je otrok); procesi drugih programov se
+        koncajo v pid 1 in niso nasi, nas je se proces, katerega veriga se konca v korenu z nevidnim starsem.
+        V Flatpaku (/.flatpak-info) jih WebKit zazene prek flatpak-spawn --sandbox: zivo drevo s testnega PC
+        (15. 10. 2026) je WebKitWebProcess -> bwrap podpeskovnika -> 1 (bwrap nasega peskovnika), ne do Safeer OS.
+        V nasem imenskem prostoru procesov so samo nasi procesi, zato je tam vsak tak proces nas."""
         starsi = starsi if starsi is not None else self.starsi()
         drevo = set(self.drevo(koren_pid, self.otroci(starsi)))
         nas_koren = self.koren_verige(koren_pid, starsi)
@@ -131,6 +133,9 @@ class Proc:
                 continue
             if pid in drevo:
                 v_drevesu.append(pid)
+                continue
+            if self.flatpak:
+                podpeskovnik.append(pid)       # v Flatpaku je vsak tak proces v nasem imenskem prostoru nas
                 continue
             k = self.koren_verige(pid, starsi)
             if k not in (1, 2, nas_koren) and starsi.get(k, 0) == 0:
