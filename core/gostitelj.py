@@ -6,6 +6,9 @@ racunalnika pa je (z dovoljenjem --filesystem=host-os:ro) pod /run/host/usr. Zat
   - program zazenemo na gostitelju (flatpak-spawn --host gio launch <pot na gostitelju>), s potjo, kot jo vidi
     gostitelj (/run/host/usr/... -> /usr/...).
 Zunaj Flatpaka so vse funkcije brez ucinka (vrnejo izvirne poti).
+
+Safeer Browser v Flatpaku (od 1.0.127) teh dovoljenj nima: sme_na_gostitelja()/v_peskovniku() povesta skupni kodi
+(Splet, Safeer DRM), da gre vse prek portalov (odpri_prek_portala, Gtk.UriLauncher/FileLauncher) in v peskovniku.
 """
 from __future__ import annotations
 
@@ -19,6 +22,29 @@ PREDPONA = "/run/host"
 
 def v_flatpaku() -> bool:
     return bool(os.environ.get("FLATPAK_ID")) and os.path.exists("/.flatpak-info")
+
+
+def sme_na_gostitelja(info: str = "/.flatpak-info") -> bool:
+    """Ali ta Flatpak sme zaganjati programe na gostitelju (dovoljenje org.freedesktop.Flatpak=talk)?
+
+    Safeer OS (lupina namizja) ga ima, Safeer Browser od 1.0.127 ne vec (lastnik, 15. 10. 2026: brskalnik brez izhoda
+    iz peskovnika). Skupna koda (Splet, Safeer DRM) se po tem odloci: brez dovoljenja gre vse prek portalov in v
+    peskovniku. Vir je /.flatpak-info, ki ga napise Flatpak ob zagonu (program ga ne more spremeniti)."""
+    if not os.path.exists(info):
+        return False
+    try:
+        import configparser
+        p = configparser.ConfigParser(interpolation=None, strict=False)
+        p.optionxform = str
+        p.read(info, encoding="utf-8")
+        return p.get("Session Bus Policy", "org.freedesktop.Flatpak", fallback="") in ("talk", "own")
+    except Exception:  # noqa: BLE001 - neberljivo: ravnaj kot brez dovoljenja (varneje)
+        return False
+
+
+def v_peskovniku() -> bool:
+    """Flatpak brez dostopa do gostitelja (Safeer Browser): odpiranje prek portala, Safeer DRM prek zypaka."""
+    return os.path.exists("/.flatpak-info") and not sme_na_gostitelja()
 
 
 def mape_gostitelja(podmapa: str) -> List[str]:
@@ -46,6 +72,36 @@ def zazeni_vnos(pot: str, datoteke: Sequence[str] = ()) -> bool:
         subprocess.Popen(ukaz, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         return True
     except Exception:
+        return False
+
+
+PORTAL = ("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop", "org.freedesktop.portal.OpenURI")
+
+
+def odpri_prek_portala(uri: str, vprasaj: bool = True, vodilo=None, ob_koncu=None) -> bool:
+    """Naslov preda programu racunalnika prek portala xdg-desktop-portal (OpenURI) - brez zagona na gostitelju.
+
+    `vprasaj`: portal pokaze izbiro programa (rezervni brskalnik z Widevine: privzeti brskalnik je lahko Safeer sam).
+    `ob_koncu(uspeh)` se poklice, ko portal odgovori. Vrne False, ce zahteve ni bilo mogoce poslati."""
+    try:
+        from gi.repository import Gio, GLib
+        vodilo = vodilo or Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        moznosti = {"ask": GLib.Variant("b", bool(vprasaj))}
+
+        def odgovor(v, rezultat):
+            uspeh = True
+            try:
+                v.call_finish(rezultat)
+            except Exception as napaka:  # noqa: BLE001
+                print("[Safeer] portal OpenURI:", napaka, flush=True)
+                uspeh = False
+            if ob_koncu is not None:
+                ob_koncu(uspeh)
+        vodilo.call(PORTAL[0], PORTAL[1], PORTAL[2], "OpenURI", GLib.Variant("(ssa{sv})", ("", str(uri), moznosti)),
+                    None, Gio.DBusCallFlags.NONE, 30000, None, odgovor)
+        return True
+    except Exception as napaka:  # noqa: BLE001
+        print("[Safeer] portal OpenURI:", napaka, flush=True)
         return False
 
 

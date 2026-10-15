@@ -27,13 +27,8 @@ VSTOP="$APP_DIR/safeer_brskalnik.py"
 [ -f "$VSTOP" ] || VSTOP="$APP_DIR/safeer_mint.py"
 PY="${PYTHON:-python3}"
 
-# Flatpak: orodja racunalnika (gio za »Odpri z«, xdg-open ...) so ovoji v /app/host-bin, ki jih zazenejo prek
-# flatpak-spawn --host (packaging/flatpak_host_wrappers.sh). Iste nastavitve, prijave in zaznamki kot v paketu .deb
-# (~/.config/safeer-mint), ne kopija v ~/.var/app - kot packaging/safeer-os-launcher (--filesystem=home).
-if [ -n "${FLATPAK_ID:-}" ] && [ -d /app/host-bin ]; then
-    export PATH="/app/host-bin:$PATH"
-    export XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share" XDG_CACHE_HOME="$HOME/.cache"
-fi
+# Flatpak (od 1.0.127): brez ovojev /app/host-bin in brez preusmeritve XDG_* v dom - brskalnik nima dostopa do
+# gostitelja. Skupno mapo nastavitev s paketom .deb (~/.config/safeer-mint) izbere safeer_brskalnik.py.
 
 # Enkratni zagoni (razlicica) brez preusmeritve v Flatpak in brez obsega systemd.
 for arg in "$@"; do

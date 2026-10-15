@@ -49,7 +49,10 @@ def normalize_web_url(url: str) -> str:
         return ""
 
 
-CONFIG_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "safeer-mint")
+# SAFEER_MINT_CONFIG_DIR: Safeer Browser v Flatpaku (safeer_brskalnik.py) - ista mapa kot .deb (~/.config/safeer-mint),
+# ki jo manifest pokaze kot edino mapo v ~/.config; XDG_CONFIG_HOME ostane zasebna mapa peskovnika.
+CONFIG_DIR = os.environ.get("SAFEER_MINT_CONFIG_DIR") or os.path.join(
+    os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "safeer-mint")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "settings.json")
 
 SEARCH_ENGINES = {

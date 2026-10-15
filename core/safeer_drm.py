@@ -8,6 +8,9 @@ opaziti menjave. Zato: ko stran zaprosi za Widevine, se ista stran odpre v Safee
 Paket (~120 MB, castLabs ECS za linux-x64; Linux ne potrebuje VMP podpisa) se prenese enkrat ob prvi potrebi, preveri se
 SHA-256. Logika (main.js) pride s Safeer OS (assets/safeer_drm) in se uskladi ob vsakem zagonu. Safeer OS v Flatpaku
 Safeer DRM zazene na gostitelju (flatpak-spawn --host), da ostane peskovnik Chromiuma v celoti vklopljen.
+Safeer Browser v Flatpaku (od 1.0.127 brez dostopa do gostitelja, lastnik 15. 10. 2026) ga zazene v svojem peskovniku
+prek zypak-wrapper (packaging/zypak, kot Electron programi na Flathubu): Chromium svoje procese (zygote, strani, CDM)
+zapre v podpeskovnike portala Flatpak (flatpak-spawn --sandbox) - peskovnik ostane vklopljen, brez --no-sandbox.
 Brez X11 (Wayland) okna ni mogoce vstaviti: Safeer DRM se odpre v svojem oknu.
 """
 
@@ -35,9 +38,76 @@ OZNAKA = ".preverjeno"
 _zaklep = threading.Lock()
 
 
+def v_peskovniku() -> bool:
+    """Flatpak brez dostopa do gostitelja (Safeer Browser): Safeer DRM tece v istem peskovniku prek zypaka."""
+    from core import gostitelj
+    return gostitelj.v_peskovniku()
+
+
+def _xdg(ime: str, privzeto: str) -> Path:
+    return Path(os.environ.get(ime) or os.path.expanduser(privzeto))
+
+
 def koren() -> Path:
-    # Pot na gostitelju (ne ~/.var/app/...): Safeer DRM v Flatpaku tece na gostitelju.
+    if v_peskovniku():
+        # Zasebna mapa programa (~/.var/app/<ID>/data): edina, kamor sme peskovnik pisati brez dodatnih dovoljenj.
+        return _xdg("XDG_DATA_HOME", "~/.local/share") / "safeer-drm"
+    # Pot na gostitelju (ne ~/.var/app/...): Safeer DRM v Flatpaku Safeer OS tece na gostitelju.
     return Path(os.path.expanduser("~/.local/share/safeer-drm"))
+
+
+def mapa_sej() -> Path:
+    if v_peskovniku():
+        return _xdg("XDG_CACHE_HOME", "~/.cache") / "safeer-drm"
+    return Path(os.path.expanduser("~/.cache/safeer-drm"))
+
+
+def mapa_widevine() -> Path:
+    """Kamor castLabs ECS prenese Widevine CDM: <userData>/WidevineCdm, userData = $XDG_CONFIG_HOME/<productName>
+    (package.json: »Safeer DRM«). zypak mapo izpostavi podpeskovnikom (ZYPAK_EXPOSE_WIDEVINE_PATH), sicer se CDM
+    prenese, naloziti pa ga ne more (README zypaka)."""
+    return _xdg("XDG_CONFIG_HOME", "~/.config") / "Safeer DRM" / "WidevineCdm"
+
+
+ZYPAK = "/app/bin/zypak-wrapper"
+
+
+def ukaz_zagona(argumenti: list, peskovnik: Optional[bool] = None, gostitelj: Optional[bool] = None,
+                zypak: str = ZYPAK) -> Optional[list]:
+    """Ukaz, s katerim se zazene Safeer DRM (argumenti[0] je program).
+
+    - Safeer Browser v Flatpaku (peskovnik): zypak-wrapper v istem peskovniku; brez zypaka None (nikoli brez
+      peskovnika Chromiuma in nikoli na gostitelju).
+    - Safeer OS v Flatpaku (gostitelj): flatpak-spawn --host, kot doslej.
+    - Zunaj Flatpaka: neposredno."""
+    peskovnik = v_peskovniku() if peskovnik is None else peskovnik
+    gostitelj = (v_flatpaku() and not peskovnik) if gostitelj is None else gostitelj
+    if peskovnik:
+        if not (os.path.isfile(zypak) and os.access(zypak, os.X_OK)):
+            print("[SafeerDRM] zypak-wrapper manjka - Safeer DRM ne tece brez peskovnika", flush=True)
+            return None
+        return [zypak] + list(argumenti)
+    if gostitelj:
+        # --watch-bus: konca se s Safeer OS. Zaslon izrecno (kot core/os_dock.py): sicer okno Safeer DRM nastane le,
+        # ce je DISPLAY v okolju aktivacije D-Bus seje (pregled paketa 14. 10. 2026).
+        return ["flatpak-spawn", "--host", "--watch-bus",
+                "--env=DISPLAY=" + os.environ.get("DISPLAY", ""),
+                "--env=WAYLAND_DISPLAY=" + os.environ.get("WAYLAND_DISPLAY", "")] + list(argumenti)
+    return list(argumenti)
+
+
+def okolje_zagona(peskovnik: Optional[bool] = None) -> Optional[dict]:
+    """V peskovniku: zypak mora poznati mapo Widevine (ustvarimo jo vnaprej, ker zypak izpostavi samo obstojeco -
+    sicer bi prvo predvajanje po prenosu CDM odpovedalo)."""
+    peskovnik = v_peskovniku() if peskovnik is None else peskovnik
+    if not peskovnik:
+        return None
+    wv = mapa_widevine()
+    try:
+        wv.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    return dict(os.environ, ZYPAK_EXPOSE_WIDEVINE_PATH=str(wv))
 
 
 def mapa_verzije() -> Path:
@@ -309,30 +379,29 @@ class Gostitelj:
         if self._gtk3:
             self.gradnik.realize()   # GTK3: X okno gradnika mora obstajati, preden ga damo procesu DRM kot starsa
         stars = self._xid_starsa()
-        mapa_sej = Path(os.path.expanduser("~/.cache/safeer-drm"))
-        mapa_sej.mkdir(parents=True, exist_ok=True)
-        self.seja = tempfile.mkdtemp(prefix="seja-", dir=str(mapa_sej))
+        seje = mapa_sej()
+        seje.mkdir(parents=True, exist_ok=True)
+        self.seja = tempfile.mkdtemp(prefix="seja-", dir=str(seje))
         self.stanje = os.path.join(self.seja, "events.jsonl")
         self.ukazi = os.path.join(self.seja, "command.txt")
-        profil = (os.path.expanduser("~/.local/share/safeer-drm/profil") if storitev
-                  else os.path.join(self.seja, "profil"))
+        profil = str(koren() / "profil") if storitev else os.path.join(self.seja, "profil")
         args = [str(exe), f"--parent={stars or 1}", f"--url={url}", f"--profile={profil}",
                 f"--state={self.stanje}", f"--command={self.ukazi}"]
         if storitev:
             args.append("--storitev=1")
         if not stars:
             args = [str(exe), url]   # brez X11: lastno okno (samostojni nacin)
-        if v_flatpaku():
-            # --watch-bus: konca se s Safeer OS. Zaslon izrecno (kot core/os_dock.py): sicer okno Safeer DRM nastane le,
-            # ce je DISPLAY v okolju aktivacije D-Bus seje (pregled paketa 14. 10. 2026).
-            args = ["flatpak-spawn", "--host", "--watch-bus",
-                    "--env=DISPLAY=" + os.environ.get("DISPLAY", ""),
-                    "--env=WAYLAND_DISPLAY=" + os.environ.get("WAYLAND_DISPLAY", "")] + args
-        elif stars:
-            args.append(f"--lastnik={os.getpid()}")
+        peskovnik = v_peskovniku()
+        na_gostitelju = v_flatpaku() and not peskovnik
+        if stars and not na_gostitelju:
+            args.append(f"--lastnik={os.getpid()}")   # v peskovniku isti imenski prostor PID kot brskalnik
+        args = ukaz_zagona(args, peskovnik=peskovnik, gostitelj=na_gostitelju)
+        if args is None:
+            return False
         try:
             self.proces = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                           stdin=subprocess.DEVNULL, start_new_session=True)
+                                           stdin=subprocess.DEVNULL, start_new_session=True,
+                                           env=okolje_zagona(peskovnik))
         except OSError as e:
             print("[SafeerDRM] zagon ni uspel:", e, flush=True)
             return False

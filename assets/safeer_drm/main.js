@@ -210,7 +210,17 @@ function odpri(url) {
     if (!glavni && okvirjevJavljenih < 5) { okvirjevJavljenih++; zapisi('FRAME_READY'); }
     zacniKlik();
   });
-  wc.on('did-finish-load', () => zapisi('NAVIGATION_OK', 'Success'));
+  wc.on('did-finish-load', () => {
+    zapisi('NAVIGATION_OK', 'Success');
+    // Samo za preizkus paketa (CI, Flatpak s zypakom): ali stran dobi Widevine (CDM nalozen v peskovniku).
+    // Safeer OS in Safeer Browser te spremenljivke nikoli ne nastavita.
+    if (process.env.SAFEER_DRM_EME_PREIZKUS === '1') {
+      wc.executeJavaScript(`navigator.requestMediaKeySystemAccess('com.widevine.alpha', [{initDataTypes: ['cenc'],
+        videoCapabilities: [{contentType: 'video/mp4; codecs="avc1.42E01E"', robustness: 'SW_SECURE_CRYPTO'}]}])
+        .then(a => a.createMediaKeys()).then(() => 'ok', e => 'napaka ' + (e && e.name) + ' ' + (e && e.message))`)
+        .then(r => zapisi('EME', String(r).slice(0, 200)), e => zapisi('EME', 'napaka ' + String(e).slice(0, 200)));
+    }
+  });
   wc.on('did-fail-load', (_e, koda, opis, _u, glavni) => { if (glavni && koda !== -3) zapisi('NAVIGATION_FAILED', opis); });
   wc.on('enter-html-full-screen', () => { htmlCelozaslonsko = true; zapisi('FULLSCREEN_ON'); });
   wc.on('leave-html-full-screen', () => { htmlCelozaslonsko = false; zapisi('FULLSCREEN_OFF'); });

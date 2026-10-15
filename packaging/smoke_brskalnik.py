@@ -5,9 +5,9 @@ Uporaba: python3 smoke_brskalnik.py POT_DO_TOVORA   (npr. /usr/lib/safeer-browse
 Preveri, kar uporabnik potrebuje takoj po namestitvi: stran prek HTTP se izrise, prenos zapise tocne bajte v mapo
 prenosov, nastavitve ostanejo, WebKitGTK 6.0 je v Flatpaku nas (/app, packaging/webkit) in Safeer DRM se vstavi v okno
 brskalnika (X11). Namesto pravega Safeer DRM (paket ~120 MB z Widevine) tece nadomestni program z istim vmesnikom
-(--parent, --state ... in dogodek WINDOW_HANDLE), zagnan po isti poti kot pravi: v Flatpaku na gostitelju prek
-flatpak-spawn --host. Vsi podatki so v zacasni mapi; v Flatpaku pod pravim ~/.cache, ker program na gostitelju bere
-iste poti.
+(--parent, --state ... in dogodek WINDOW_HANDLE), zagnan po isti poti kot pravi: v Flatpaku (od 1.0.127) v peskovniku
+brskalnika prek zypak-wrapper, nikoli na gostitelju. V Flatpaku preveri se, da brskalnik ne more na gostitelja in da
+povezave drugim programom (mailto: ...) gredo portalu (Gtk.UriLauncher). Vsi podatki so v zacasni mapi.
 """
 import ctypes
 import json
@@ -19,10 +19,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 V_FLATPAKU = os.path.exists("/.flatpak-info")
-osnova = os.path.expanduser("~/.cache") if V_FLATPAKU else None
-if osnova:
-    os.makedirs(osnova, exist_ok=True)
-DOM = tempfile.mkdtemp(prefix="safeer-smoke-", dir=osnova)
+DOM = tempfile.mkdtemp(prefix="safeer-smoke-")
 os.environ.update(HOME=DOM, XDG_CONFIG_HOME=os.path.join(DOM, ".config"), XDG_DATA_HOME=os.path.join(DOM, ".local", "share"),
                   XDG_CACHE_HOME=os.path.join(DOM, ".cache"))
 nastavitve = pathlib.Path(DOM, ".config", "safeer-mint")
@@ -107,7 +104,8 @@ class Xlib:
         return stars.value
 
 
-izid = {"stran": False, "prenos": False, "nastavitve": False, "webkit": False, "drm": None}
+izid = {"stran": False, "prenos": False, "nastavitve": False, "webkit": False, "drm": None, "portal": None,
+        "peskovnik": None}
 stanje = {"prenos_zacet": False, "drm": None}
 
 
@@ -128,12 +126,68 @@ def preveri_webkit():
     izid["webkit"] = bool(knjiznice) and (not V_FLATPAKU or all(k.startswith("/app/") for k in knjiznice))
 
 
+def preveri_peskovnik():
+    """Flatpak: brez dovoljenja org.freedesktop.Flatpak, Safeer DRM prek zypaka v peskovniku."""
+    if not V_FLATPAKU:
+        return
+    from core import gostitelj
+    ukaz = safeer_drm.ukaz_zagona(["/x/safeer-drm", "--url=https://a.test/"])
+    with open("/.flatpak-info", encoding="utf-8") as f:
+        info = f.read()
+    izid["peskovnik"] = (gostitelj.v_peskovniku() and not gostitelj.sme_na_gostitelja()
+                         and "org.freedesktop.Flatpak=" not in info and not os.path.exists("/app/host-bin")
+                         and ukaz is not None and ukaz[0] == "/app/bin/zypak-wrapper" and "flatpak-spawn" not in ukaz)
+    print("peskovnik:", izid["peskovnik"], "ukaz Safeer DRM:", ukaz, flush=True)
+
+
+def preveri_portal():
+    """mailto: s strani: vprasanje Safeerja, nato Gtk.UriLauncher (v Flatpaku portal OpenURI), brez iskanja programa
+    na gostitelju. UriLauncher zamenjamo z zapisovalnikom, da se v CI ne odpre nic."""
+    splet = app.splet
+    zapis = {"vprasanje": None, "launch": None}
+
+    class Zaganjalnik:
+        def __init__(self, uri):
+            self.uri = uri
+
+        def launch(self, okno, preklic, povratni, podatki):
+            zapis["launch"] = self.uri
+
+    class GtkZapis:
+        def __getattr__(self, ime):
+            return Zaganjalnik_razred if ime == "UriLauncher" else getattr(pravi_gtk, ime)
+
+    class Zaganjalnik_razred:
+        @staticmethod
+        def new(uri):
+            return Zaganjalnik(uri)
+
+    pravi_gtk, pravi_vprasaj = splet.Gtk, splet._vprasaj
+
+    def vprasaj(naslov, opis, gumbi, odgovor=None):
+        zapis["vprasanje"] = naslov
+        if odgovor:
+            odgovor(1)        # »Odpri program«
+    splet.Gtk, splet._vprasaj = GtkZapis(), vprasaj
+    try:
+        splet._zunanji_program("mailto:smoke@safeer.test", "mailto", "https://stran.safeer.test/", True)
+    finally:
+        splet.Gtk, splet._vprasaj = pravi_gtk, pravi_vprasaj
+    from core.i18n import TRANSLATIONS
+    vprasanja = {j["external_app_portal_title"].format(scheme="mailto") for j in TRANSLATIONS.values()}
+    izid["portal"] = zapis["launch"] == "mailto:smoke@safeer.test" and zapis["vprasanje"] in vprasanja
+    print("portal:", zapis, izid["portal"], flush=True)
+
+
 def prenos_koncan(_prenos):
     pot = pathlib.Path(splet_prenosi.mapa_prenosov(GLib)) / "smoke.txt"
     izid["prenos"] = pot.is_file() and pot.read_bytes() == VSEBINA
     print("prenos:", pot, izid["prenos"], flush=True)
     app.splet.config.set("packaging_smoke_marker", "persistent")
     izid["nastavitve"] = ConfigManager().get("packaging_smoke_marker") == "persistent"
+    preveri_peskovnik()
+    if V_FLATPAKU:
+        preveri_portal()
     zacni_drm()
 
 
@@ -183,7 +237,7 @@ def preveri_drm(okno, x, stevec):
     try:
         with open(gost.stanje or os.devnull) as f:
             if "SMOKE_NO_DISPLAY" in f.read():
-                print("FAIL: Safeer DRM na gostitelju ni dobil zaslona (DISPLAY)", flush=True)
+                print("FAIL: Safeer DRM ni dobil zaslona (DISPLAY)", flush=True)
                 izid["drm"] = False
                 return koncaj()
     except OSError:
@@ -228,7 +282,8 @@ GLib.timeout_add_seconds(90, cas_potekel)
 app.run([sys.argv[0], URL])
 streznik.shutdown()
 print("izid:", izid, flush=True)
-ok = not izid.get("potekel") and izid["stran"] and izid["prenos"] and izid["nastavitve"] and izid["webkit"] and izid["drm"] is not False
+ok = (not izid.get("potekel") and izid["stran"] and izid["prenos"] and izid["nastavitve"] and izid["webkit"]
+      and izid["drm"] is not False and (not V_FLATPAKU or (izid["peskovnik"] and izid["portal"])))
 if ok:
     print("PASS: GTK4 brskalnik je izrisal stran, prenesel tocne bajte, ohranil nastavitve%s" %
           (" in vstavil Safeer DRM" if izid["drm"] else ""), flush=True)

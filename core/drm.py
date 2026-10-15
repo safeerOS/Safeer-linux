@@ -179,21 +179,35 @@ def primeren_naslov(url: str) -> bool:
 class Preusmeritev:
     """Ena preusmeritev na stran (stran za Widevine pogosto vprasa veckrat zapored)."""
 
-    def __init__(self, najdi=najdi_brskalnik, zazeni=None, ura=time.monotonic):
+    def __init__(self, najdi=najdi_brskalnik, zazeni=None, ura=time.monotonic, peskovnik=None, portal=None):
         self._najdi, self._ura = najdi, ura
+        # Safeer Browser v Flatpaku (brez dostopa do gostitelja, 1.0.127): brskalnikov racunalnika ne vidimo in jih ne
+        # smemo zagnati - naslov gre portalu OpenURI z izbiro programa (uporabnik izbere npr. Brave).
+        if peskovnik is None:
+            from core import gostitelj
+            peskovnik = gostitelj.v_peskovniku
+        if portal is None:
+            from core import gostitelj
+            portal = gostitelj.odpri_prek_portala
+        self._peskovnik, self._portal = peskovnik, portal
         self._zazeni = zazeni or (lambda ukaz: subprocess.Popen(ukaz, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                                                  stdin=subprocess.DEVNULL, start_new_session=True))
         self._zadnje: dict = {}
 
     def odpri(self, url: str) -> Tuple[str, str]:
-        """Vrne (izid, ime brskalnika): izid »odprto«, »ze« (ta stran je bila pravkar odprta), »ni« (ni brskalnika)
-        ali »neveljavno«."""
+        """Vrne (izid, ime brskalnika): izid »odprto«, »ze« (ta stran je bila pravkar odprta), »ni« (ni brskalnika),
+        »portal« (v peskovniku: program izbere uporabnik v oknu sistema) ali »neveljavno«."""
         if not primeren_naslov(url):
             return "neveljavno", ""
         gostitelj = urllib.parse.urlsplit(url).hostname or ""
         zdaj = self._ura()
         if zdaj - self._zadnje.get(gostitelj, -1e9) < 30:
             return "ze", ""
+        if self._peskovnik():
+            if not self._portal(url, True):
+                return "ni", ""
+            self._zadnje[gostitelj] = zdaj
+            return "portal", ""
         najden = self._najdi()
         if not najden:
             self._zadnje[gostitelj] = zdaj

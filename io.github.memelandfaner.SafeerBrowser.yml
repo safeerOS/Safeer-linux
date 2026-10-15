@@ -5,26 +5,36 @@ sdk: org.gnome.Sdk
 command: safeer
 # Safeer Browser na GTK4 (safeer_brskalnik.py) z nasim WebKitGTK 6.0 - isti modul kot Safeer OS (packaging/webkit).
 finish-args:
+  # Od 1.0.127 (lastnik, 15. 10. 2026) brez izhoda iz peskovnika: brez org.freedesktop.Flatpak (flatpak-spawn --host),
+  # brez celega doma in brez host-os. Datoteke in povezave drugim programom preda portal (Gtk.FileLauncher /
+  # Gtk.UriLauncher -> OpenURI), Safeer DRM tece v tem peskovniku prek zypaka (spodaj), privzeti brskalnik se nastavi v
+  # nastavitvah namizja (navodila). tests/test_peskovnik_brskalnika.py pade, ce se kaj od tega vrne.
   - --socket=wayland
+  # X11 (Cinnamon): tudi za vstavitev okna Safeer DRM v zavihek (XReparentWindow, core/safeer_drm.py).
   - --socket=fallback-x11
   - --share=ipc
   - --device=dri
   - --share=network
   - --socket=pulseaudio
-  # Iste nastavitve, prijave, piskotki in zaznamki kot paket .deb (~/.config/safeer-mint; zaganjalnik in
-  # safeer_brskalnik.py v Flatpaku nastavita XDG_* na domaco mapo), prenosi v mapo XDG (»Prejemi«), uvoz zaznamkov
-  # iz Firefoxa in Chroma ter Safeer DRM: paket se prenese v ~/.local/share/safeer-drm, seja je v ~/.cache/safeer-drm,
-  # program pa tece na gostitelju in obe mapi bere po isti poti. Ozja dovoljenja ne bi nic zaprla, ker
-  # org.freedesktop.Flatpak (spodaj) ze dovoli zagon programov na gostitelju.
-  - --filesystem=home
-  # Povezave mailto:, magnet: ... odpre program racunalnika (core/os_odpri_z.py bere zaganjalnike pod /run/host/usr,
-  # Flatpak in Snap programe), rezervni brskalnik z Widevine (core/drm.py) tudi med Flatpak programi.
-  - --filesystem=host-os:ro
-  - --filesystem=/var/lib/flatpak:ro
-  - --filesystem=/var/lib/snapd/desktop:ro
-  # flatpak-spawn --host: Safeer DRM (core/safeer_drm.py, Chromium s peskovnikom na gostitelju), program za povezavo
-  # (gio open) in ovoji orodij v /app/host-bin.
-  - --talk-name=org.freedesktop.Flatpak
+  # Prenosi gredo v mapo XDG za prenose (na slovenskem namizju »Prejemi«, core/splet_prenosi.py); drugam (»Shrani
+  # kot«) prek portala za izbiro datoteke.
+  - --filesystem=xdg-download
+  # Iste nastavitve, prijave, piskotki, zaznamki in zgodovina kot paket .deb (core/config.py, SAFEER_MINT_CONFIG_DIR
+  # iz safeer_brskalnik.py); zaganjalnik .deb zazene ta Flatpak, ce je namescen. Samo ta mapa v ~/.config.
+  - --filesystem=xdg-config/safeer-mint:create
+  # Samo branje: ali je Safeer privzeti brskalnik (core/default_browser.privzeti_v_flatpaku).
+  - --filesystem=xdg-config/mimeapps.list:ro
+  # Samo branje, samo ob kliku »Uvozi«: zaznamki in odprti zavihki iz brskalnikov na tem racunalniku
+  # (core/bookmarks_importer.py, core/uvoz_zavihkov.py) - Firefox (.deb in Snap) in brskalniki Chromium.
+  - --filesystem=~/.mozilla/firefox:ro
+  - --filesystem=~/snap/firefox/common/.mozilla/firefox:ro
+  - --filesystem=xdg-config/google-chrome:ro
+  - --filesystem=xdg-config/chromium:ro
+  - --filesystem=~/snap/chromium/common/chromium:ro
+  - --filesystem=xdg-config/BraveSoftware:ro
+  - --filesystem=xdg-config/microsoft-edge:ro
+  - --filesystem=xdg-config/vivaldi:ro
+  - --filesystem=xdg-config/opera:ro
   - --env=GTK_USE_PORTAL=1
 modules:
   # Nas WebKitGTK s popravki, API 6.0 za GTK4 - ista datoteka modula kot v io.github.memelandfaner.SafeerOS.yml.
@@ -34,14 +44,19 @@ modules:
   - packaging/webkit/webkitgtk6-safeer-typelib.yml
   # libsoup 3.8.0 (varnostni popravki, runtime 50 ima 3.6.6) - za WebKitom, da njegov predpomnilnik ostane.
   - packaging/libsoup/libsoup3-safeer.yml
+  # zypak (kot org.electronjs.Electron2.BaseApp//25.08, ista oznaka in commit): Safeer DRM (castLabs Electron) tece v
+  # tem peskovniku, peskovnik Chromiuma pa prek portala Flatpak (flatpak-spawn --sandbox). Modul namesto osnove
+  # BaseApp: osnova bi spremenila kljuc predpomnilnika vseh modulov in WebKit bi se gradil znova (2-3 h).
+  - name: zypak
+    sources:
+      - type: git
+        url: https://github.com/refi64/zypak
+        tag: v2025.09
+        commit: 693a71c5ffa80ec9c9ce2ae03b1ccc493c698e53
   - name: safeer-browser
     buildsystem: simple
     build-commands:
       - bash packaging/install_payload.sh /app io.github.memelandfaner.SafeerBrowser
-      - bash packaging/flatpak_host_wrappers.sh /app/host-bin
-      # Ovoja safeer in safeer-browser sta za Safeer OS (zagon brskalnika na gostitelju); v brskalniku bi ime
-      # zaganjalnika zaradi PATH=/app/host-bin pokazalo na gostitelja.
-      - rm -f /app/host-bin/safeer /app/host-bin/safeer-browser
     sources:
       - type: dir
         path: .
