@@ -26,6 +26,10 @@ gradnje ne bo več.
 **Isti pogon kot Safeer OS.** Brskalnik in Splet v Safeer OS sta ena koda: vsaka izboljšava spleta je
 takoj v obeh.
 
+**Klepeti in pošta ob strani.** Stranska plošča ima spletne klepete in pošto (WhatsApp, Messenger,
+Telegram, Gmail …) z istega seznama kot Sporočila v Safeer OS, prijavljene z isto sejo kot zavihki in
+z isto zaščito. Število neprebranih pove naslov strani.
+
 **Zaščiten video.** Safeer DRM, majhen pomočnik, ki se zažene le ob potrebi, predvaja video z
 Widevine (Netflix, Disney+ …) v zavihku brskalnika, pogon strani pa ostane v celoti v peskovniku.
 

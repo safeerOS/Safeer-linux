@@ -67,6 +67,7 @@ from core import os_dock  # noqa: E402
 from core import priljubljeno  # noqa: E402
 from core import os_lupina  # noqa: E402
 from core import x11  # noqa: E402
+from core.sporocila import vklop as sporocila_vklop  # noqa: E402
 pomnilnik.tlak_omrezja(WebKit2, 160)   # pred prvim pogledom: omrezni procesi WebKita z mejo pomnilnika
 from core import en_proces  # noqa: E402
 
@@ -1991,6 +1992,9 @@ class SafeerOS(Gtk.Application):
         # Safeer Link ob prijavi v namizje: ce racunalnik ni povezan, tiho obvestilo z gumbom »Poveži«
         # (okno ob zagonu je bilo moteče - lastnik, 13. 10. 2026), razen ce je ze povezan ali v tej seji izbral brez.
         GLib.timeout_add_seconds(4, self._prijavno_okno_ob_prijavi)
+        # Kanali Sporocil se nalozijo ob zagonu namizja (lastnik, 15. 10. 2026: brez cakanja ob prvem odprtju), a sele
+        # ko je namizje izrisano in mirno: po Controlu, z nizko prednostjo, zaporedoma po dva (os_kanali_sporocil).
+        GLib.timeout_add_seconds(5, lambda: (GLib.idle_add(self._zacni_kanale, priority=GLib.PRIORITY_LOW), False)[1])
 
     def _izklopi_delovno(self) -> bool:
         """Dejanje »delovna-izklopi« (safeer-cinnamon ob izklopu): proces z delovno povrsino se konca kot ob SIGTERM."""
@@ -2231,7 +2235,9 @@ class SafeerOS(Gtk.Application):
             # Na delovni povrsini se stara lupina Safeer OS ne odpira vec (lastnik, 12. 10. 2026: »namizno okolje lahko
             # ponudi vec udobja kot aplikacija«): vsak razdelek ima svoje mesto na namizju.
             osnova = "zapiski" if razdelek.startswith("zapisek:") else \
-                "sporocila" if razdelek.startswith(("pogovor:", "sporocila:")) else razdelek.split("#", 1)[0]
+                "sporocila" if razdelek.startswith(("pogovor:", "sporocila:", "kanal:")) else razdelek.split("#", 1)[0]
+            if osnova == "sporocila" and not sporocila_vklop.sporocila_vklopljena():
+                return False                                 # Sporocila izklopljena: razdelka ni (tudi z Linka)
             if osnova in RAZDELKI_V_SVOJEM_OKNU:
                 return self._odpri_okno_razdelka(osnova, razdelek)
             if osnova == "naprave":
@@ -2279,7 +2285,7 @@ class SafeerOS(Gtk.Application):
 
     def _zacni_kuverto(self) -> None:
         """Kuverta v pultu s stevilom neprebranih sporocil (glej _namesti_kuverto)."""
-        if getattr(self, "_kuverta", None) is not None:
+        if getattr(self, "_kuverta", None) is not None or not sporocila_vklop.sporocila_vklopljena():
             return
         k = self._namesti_kuverto()
         if not k:
@@ -2292,6 +2298,9 @@ class SafeerOS(Gtk.Application):
 
     def pokazi_sporocila(self) -> None:
         """Klik na obvestilo novega sporocila (core/safeer_link.py): odpre plosco Sporocil, ce ni ze odprta."""
+        if not sporocila_vklop.sporocila_vklopljena():
+            return
+
         def zdaj() -> bool:
             okno = getattr(self, "_plosca_sporocil", None)
             if okno is None or not okno.get_visible():
@@ -2300,10 +2309,15 @@ class SafeerOS(Gtk.Application):
         GLib.idle_add(zdaj)
 
     def _osvezi_kuverto(self) -> None:
+        if not sporocila_vklop.sporocila_vklopljena():
+            return
+        # Vgrajeni kanali: zadnje znano stevilo je shranjeno - znacka je pravilna ze ob zagonu, preden se kanal nalozi.
+        spletni = self._kanali().neprebrano_skupaj() if self._kanali() is not None else 0
+
         def delo() -> None:
             try:
                 # Zadnje znano stevilo iz baze (pravo ze ob zagonu, preden se kanali povezejo), brez branja nabiralnika.
-                n = int(self.sporocila.neprebrano_skupaj())
+                n = spletni + int(self.sporocila.neprebrano_skupaj())
             except Exception as e:  # noqa: BLE001 - brez Sporocil kuverta ostane brez stevila
                 print("[SafeerOS] kuverta:", e)
                 n = 0
@@ -2386,12 +2400,14 @@ class SafeerOS(Gtk.Application):
             pogled = self._nov_pogled(stran)
             okno = Gtk.ApplicationWindow(application=self, title=_naslov_razdelka(ime))
             _razred_okna(okno, ime)
+            # Kanali Sporocil (spletni klepeti, namizni programi) so nad stranjo na mestu vsebine (prekrivanje).
+            prekrivanje = self._prekrivanje_kanalov(pogled)
             zaslon = self._zaslon()
             g = self._delovno_obmocje(zaslon) if zaslon else None
             sirina, visina = (min(1280, int(g.width * 0.85)) if g else 1200, min(860, int(g.height * 0.85)) if g else 800)
             okno.set_default_size(sirina, visina)
             self._na_sredino(okno, sirina, visina)
-            okno.set_child(pogled)
+            okno.set_child(prekrivanje)
             # Zapiranje okno samo skrije: naslednji klic ga takoj vrne (nezapisano besedilo zapiska ostane).
             okno.connect("close-request", lambda w, *_: (w.set_visible(False), True)[1])
             self.okna_razdelkov[ime] = par = (okno, pogled)
@@ -2538,12 +2554,37 @@ class SafeerOS(Gtk.Application):
             _iskalnik() + GLib.uri_escape_string(niz, None, False)
         if not self._peskovnik_na_voljo():
             return self._odpri_v_brskalniku(niz) if niz else False
+        self._ustvari_splet_namizja()
+        okno = self._plosca_spleta
+        zaslon = self._zaslon()
+        g = self._delovno_obmocje(zaslon) if zaslon else None
+        x0, y0, sirina, visina = (g.x, g.y, g.width, g.height) if g else (0, 0, 1280, 800)
+        # Lastnik, 11. 10. 2026: Splet se odpre cez cel zaslon (kot Safeer Player) - pult in dock ostaneta vidna.
+        okno.set_default_size(sirina, visina)
+        x11.premakni(okno, x0, y0)
+        okno.set_visible(True)
+        okno.maximize()
+        self._spletni_namizje.odpri(url)
+        _v_ospredje(okno)
+        try:
+            self._spletni_namizje.trenutni().grab_focus()
+        except Exception:  # noqa: BLE001
+            pass
+        return True
+
+    def _ustvari_splet_namizja(self, prvi_zavihek: bool = True) -> None:
+        """Plosca Splet na namizju (okno ostane skrito, dokler je ne odpre _splet_na_namizju). prvi_zavihek=False: jedro
+        za vgrajene kanale Sporocil - brez zavihka (in brez spletnega procesa zanj), dokler uporabnik ne odpre Spleta."""
         if self._plosca_spleta is None:
             from core.os_splet import VdelaniSplet
             _css(self.CSS_SPLETA_NA_NAMIZJU)
             self._spletni_namizje = VdelaniSplet(Gtk, Gdk, Gio, GLib, WebKit2, KOREN, _jezik, stanje_povezave,
                                                  self._splet_v_zapisek, self.okno_delovna,
-                                                 stremio_dodatek=self._odpri_stremio_dodatek)
+                                                 stremio_dodatek=self._odpri_stremio_dodatek,
+                                                 prvi_zavihek=prvi_zavihek, config=self._config_spleta())
+            # Povezava iz vgrajenega kanala Sporocil (target=_blank) se odpre v tem Spletu, v novem zavihku.
+            self._spletni_namizje.odpri_zunaj = lambda naslov: self._splet(naslov, True)
+            self._spletni_namizje.zasciteni_podatki = self._kanali().zasciteni
             plosca = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
             plosca.set_name("splet-namizje")
             glava = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -2582,22 +2623,6 @@ class SafeerOS(Gtk.Application):
             okno.add_controller(esc)
             okno.connect("close-request", lambda *_: (self._skrij_splet_na_namizju(), True)[1])
             self._plosca_spleta = okno
-        okno = self._plosca_spleta
-        zaslon = self._zaslon()
-        g = self._delovno_obmocje(zaslon) if zaslon else None
-        x0, y0, sirina, visina = (g.x, g.y, g.width, g.height) if g else (0, 0, 1280, 800)
-        # Lastnik, 11. 10. 2026: Splet se odpre cez cel zaslon (kot Safeer Player) - pult in dock ostaneta vidna.
-        okno.set_default_size(sirina, visina)
-        x11.premakni(okno, x0, y0)
-        okno.set_visible(True)
-        okno.maximize()
-        self._spletni_namizje.odpri(url)
-        _v_ospredje(okno)
-        try:
-            self._spletni_namizje.trenutni().grab_focus()
-        except Exception:  # noqa: BLE001
-            pass
-        return True
 
     def _spremljaj_zaklep(self) -> None:
         """Ob zaklepu zaslona (Cinnamon) Splet sprosti pomnilnik; zavihki ostanejo."""
@@ -2764,7 +2789,7 @@ class SafeerOS(Gtk.Application):
                 okno.set_default_size(g.width, g.height - VISINA_VRSTICE)
                 okno.set_size_request(g.width, g.height - VISINA_VRSTICE)
         postavitev = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        postavitev.append(pogled)
+        postavitev.append(self._prekrivanje_kanalov(pogled))
         okno.set_child(postavitev)
         # F11 v fazi zajema: deluje tudi, ko ima fokus stran (kot GTK3 key-press-event okna).
         _tipke(okno, self._na_tipko, zajem=True)
@@ -2915,6 +2940,11 @@ class SafeerOS(Gtk.Application):
             self.sporocila.zapri()
         except Exception:
             pass
+        try:
+            if getattr(self, "_kanali_sporocil", None) is not None:
+                self._kanali_sporocil.koncaj()   # okna vgrajenih programov nazaj na namizje (programi tecejo naprej)
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] kanali Sporocil ob izhodu:", e)
         try:
             # »Izbrisi ob izhodu« in Safeer DRM za oba Spleta (okno in namizje), s cakanjem na WebKit (najvec 5 s).
             if self._spletni is not None or self._spletni_namizje is not None:
@@ -3475,6 +3505,25 @@ class SafeerOS(Gtk.Application):
         Odgovor gre prek _odgovori nazaj istemu klicatelju."""
         # Na glavni niti (Gtk, ikone, okna):
         glavna = {
+            # Vgrajeni kanali Sporocil (core/os_kanali_sporocil.py): v GLAVNI niti - ustvarjajo gradnike GTK in poglede
+            # WebKit (v niti ozadja je proces padel ali obvisel; zivi preizkus 15. 10. 2026: »Dodaj v Sporocila« ni
+            # naredil nicesar). Seznam bere tudi zive kanale (self.zivi), ki jih spreminja samo glavna nit.
+            "kanaliSeznam": lambda: self._kanali_klic("seznam"),
+            "kanaliKatalog": lambda: self._kanali_klic("katalog"),
+            "kanalDodaj": lambda: self._kanali_klic("dodaj", str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "",
+                                                    str(a[2]) if len(a) > 2 else "", str(a[3]) if len(a) > 3 else ""),
+            "kanalOdstrani": lambda: self._kanali_klic("odstrani", str(a[0]) if a else "", len(a) > 1 and a[1] is True),
+            "kanalPreimenuj": lambda: self._kanali_klic("preimenuj", str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
+            "kanalPremakni": lambda: self._kanali_klic("premakni", str(a[0]) if a else "",
+                                                       int(a[1]) if len(a) > 1 and isinstance(a[1], (int, float)) else 1),
+            "kanalVklopi": lambda: self._kanali_klic("vklopi", str(a[0]) if a else "", len(a) < 2 or a[1] is True),
+            "kanalIzbrisiPodatke": lambda: self._kanali_klic("izbrisi_podatke", str(a[0]) if a else ""),
+            "kanalPokazi": lambda: self._kanal_pokazi(pogled, str(a[0]) if a else "",
+                                                      a[1] if len(a) > 1 and isinstance(a[1], dict) else {}),
+            "kanalPolozaj": lambda: self._kanali() is not None and self._kanali().polozaj(
+                pogled, a[0] if a and isinstance(a[0], dict) else {}),
+            "kanalSkrij": lambda: self._kanali() is not None and self._kanali().skrij(pogled),
+            "kanalUkaz": lambda: self._kanali_klic("ukaz", str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "zacetek": self._zacetek,
             "zacniVlecenje": lambda: self._zacni_vlecenje(pogled, a[0] if a else []),
             "programi": self._seznam_programov,
@@ -3784,7 +3833,10 @@ class SafeerOS(Gtk.Application):
             "sporocilaSkrivnost": lambda: self.sporocila.nastavi_skrivnost(str(a[0]), str(a[1])),
             "sporocilaOdstrani": lambda: self.sporocila.odstrani_kanal(str(a[0])),
             "sporocilaStreznik": lambda: self.sporocila.privzeta_streznika(str(a[0]) if a else ""),
-            "sporocilaPonudniki": lambda: self.sporocila.ponudniki(),
+            "sporocilaPonudniki": lambda: self.sporocila.ponudniki(str(a[0]) if a else _jezik()),
+            # Vgrajeni kanali Sporocil (spletni klepeti, namizni programi) in vklop - core/os_kanali_sporocil.py.
+            "sporocilaVklop": lambda: self._nastavi_sporocila(bool(a[0]) if a else True),
+            "sporocilaKanalVklop": lambda: self.sporocila.vklopi_kanal(str(a[0]), bool(a[1]) if len(a) > 1 else True),
             "sporocilaNaprave": self.sporocila.naprave_za_klepet,
             "sporocilaPreimenuj": lambda: self.sporocila.preimenuj_osebo(str(a[0]), str(a[1])),
             "sporocilaZdruzi": lambda: self.sporocila.zdruzi_osebi(str(a[0]), str(a[1])),
@@ -3805,6 +3857,10 @@ class SafeerOS(Gtk.Application):
             "magnetIzDatoteke": lambda konec: self._magnet_iz_datoteke(bool(a[0]) if a else False,
                                                                        self._okno_klica(pogled), konec),
             "izberiMapo": lambda konec: self._izberi_mapo(*[str(x) for x in a[:4]], konec=konec),
+            # Namizni program kot kanal Sporocil, ki ni v obicajni mapi (AppImage drugje): uporabnik izbere datoteko.
+            "kanalIzberiProgram": lambda konec: self._izberi_poti(
+                str(a[0]) if a else "", pogled.get_root() if hasattr(pogled, "get_root") else self.okno, "datoteka",
+                lambda poti: konec(poti[0] if poti else "")),
             # »Prilozi« v Sporocilih: sistemsko okno za vec datotek; stran dobi ime in velikost (cipi pod vnosom).
             "izberiPriloge": lambda konec: self._izberi_poti(
                 str(a[0]) if a else "", self._okno_pogleda(pogled), "datoteke",
@@ -3988,7 +4044,118 @@ class SafeerOS(Gtk.Application):
             "sistem": _ime_sistema(),
             "samozagon": je_samozagon(),
             "povezava": stanje_povezave(),
+            "sporocila": sporocila_vklop.sporocila_vklopljena(),
         }
+
+    # ------------------------------------------------------------------ vgrajeni kanali Sporocil
+    def _prekrivanje_kanalov(self, pogled):
+        """Gtk.Overlay okoli strani: nad njo so vgrajeni kanali Sporocil na mestu vsebine (os_kanali_sporocil)."""
+        prekrivanje = Gtk.Overlay()
+        prekrivanje.set_child(pogled)
+        if not hasattr(self, "_prekrivanja"):
+            self._prekrivanja = {}
+        self._prekrivanja[id(pogled)] = prekrivanje
+        return prekrivanje
+
+    def _jedro_spleta(self):
+        """Vgrajeni Splet, v katerem tecejo spletni kanali (ista seja = ena prijava). Obstojeci (glavno okno ali plosca
+        na namizju), sicer plosca na namizju brez okna in brez zavihka. None brez peskovnika WebKit."""
+        if self._spletni is not None:
+            return self._spletni
+        if self._spletni_namizje is None:
+            if not self._peskovnik_na_voljo():
+                return None
+            self._ustvari_splet_namizja(prvi_zavihek=False)
+        return self._spletni_namizje
+
+    def _kanali(self):
+        """Kanali Sporocil (ustvari se ob prvi rabi); None, ce so Sporocila izklopljena in se niso bili ustvarjeni."""
+        k = getattr(self, "_kanali_sporocil", None)
+        if k is None:
+            from core import os_kanali_sporocil
+            k = self._kanali_sporocil = os_kanali_sporocil.KanaliSporocil(
+                Gtk, GLib, Gio, self._jedro_spleta, self._config_spleta(), _jezik, self._kanali_dogodek, self._odpri_kanal)
+        return k
+
+    def _config_spleta(self):
+        """Ena shramba nastavitev Spleta v procesu (oba Spleta in kanali Sporocil): vsak ConfigManager pise celo
+        datoteko, dva primerka bi si prepisovala spremembe (npr. seznam kanalov ali dovoljenja strani)."""
+        c = getattr(self, "_nastavitve_spleta", None)
+        if c is None:
+            from core.config import ConfigManager
+            c = self._nastavitve_spleta = ConfigManager()
+        return c
+
+    def _kanali_dogodek(self, vrsta: str, podatki) -> None:
+        self._dogodek(vrsta, podatki)
+        self._osvezi_kuverto()           # znacka se posodobi takoj ob spremembi naslova strani (< 1 s)
+
+    def _kanali_klic(self, metoda: str, *argumenti):
+        k = self._kanali()
+        try:
+            return getattr(k, metoda)(*argumenti)
+        except (KeyError, ValueError) as e:
+            raise ValueError(str(e.args[0]) if e.args else metoda) from None
+
+    def _kanal_pokazi(self, pogled, kid: str, pravokotnik: dict) -> dict:
+        prekrivanje = getattr(self, "_prekrivanja", {}).get(id(pogled))
+        if prekrivanje is None:
+            return {"ok": False, "razlog": "okno"}
+        return self._kanali().pokazi(pogled, prekrivanje, kid, pravokotnik)
+
+    def _odpri_kanal(self, kid: str) -> None:
+        """Klik na obvestilo kanala: Sporocila se odprejo na tem kanalu."""
+        if sporocila_vklop.sporocila_vklopljena():
+            GLib.idle_add(lambda: (self._odpri_razdelek("kanal:" + kid) if _ima_delovno(self) or self.okno is None
+                                   else self._domov("kanal:" + kid), False)[1])
+
+    def _zacni_kanale(self) -> bool:
+        if sporocila_vklop.sporocila_vklopljena() and not self.posnetek:
+            self._kanali().zazeni_vse()
+        return False
+
+    def _nastavi_sporocila(self, vklop: bool) -> bool:
+        """Moznost Sporocila v celoti (Nastavitve Safeer OS, Prilagodi namizje): izklop ustavi storitev, kanale, kuverto
+        in obvestila; razdelka ni nikjer. Vklop vse vrne brez ponovnega zagona; nastavitve kanalov ostanejo."""
+        sporocila_vklop.nastavi_sporocila(bool(vklop))
+        # Storitev (IMAP, Telegram ...) lahko ob ustavljanju caka na omrezje: tu, v niti klica (most: ozadje). Kanali,
+        # kuverta in okna so GTK in WebKit - samo v glavni niti (pregled 15. 10. 2026).
+        if vklop:
+            self.sporocila.nadaljuj()
+        else:
+            self.sporocila.ustavi()
+        if threading.current_thread() is threading.main_thread():
+            self._uskladi_vklop_sporocil(bool(vklop))
+        else:
+            GLib.idle_add(lambda: (self._uskladi_vklop_sporocil(bool(vklop)), False)[1])
+        return bool(vklop)
+
+    def _uskladi_vklop_sporocil(self, vklop: bool) -> None:
+        """Del vklopa Sporocil v glavni niti: kanali, kuverta, okno Sporocil, dogodek strani in namizju."""
+        if vklop:
+            self._zacni_kanale()
+            self._zacni_kuverto()
+        else:
+            k = getattr(self, "_kanali_sporocil", None)
+            if k is not None:
+                k.ustavi_vse()
+            kuverta = getattr(self, "_kuverta", None)
+            if kuverta is not None:
+                try:
+                    kuverta.zapri()
+                except Exception as e:  # noqa: BLE001
+                    print("[SafeerOS] kuverta:", e)
+                self._kuverta = None
+            okno = self.okna_razdelkov.get("sporocila")
+            if okno is not None:
+                okno[0].set_visible(False)
+            self._skrij_plosco_sporocil()
+        self._dogodek("sporocilaVklop", bool(vklop))
+        if self.lupina is not None:
+            try:
+                self.lupina.dogodek("videz", self.lupina.videz())
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] videz ob vklopu Sporocil:", e)
 
     def _samozagon(self, vklop: bool) -> bool:
         ok = nastavi_samozagon(vklop)
@@ -4121,12 +4288,14 @@ class SafeerOS(Gtk.Application):
         """Kateri deli Safeerja imajo nastavitve v Nastavitvah Safeer OS: Control (v tem procesu), Splet (WebKitov
         peskovnik dela) in namizje QML (lupina tece)."""
         return {"control": nastavitve_controla(), "splet": bool(self._peskovnik_na_voljo()),
-                "namizje": self.lupina is not None}
+                "namizje": self.lupina is not None, "sporocila": sporocila_vklop.sporocila_vklopljena()}
 
     def _nastavitev_dela(self, pogled, kljuc: str, vrednost=None):
         """Klik v skupinah Naprave in Link, Splet in Namizje (Nastavitve Safeer OS)."""
         if kljuc in _NASTAVITVE_CONTROLA:
             return nastavi_control(kljuc, bool(vrednost))
+        if kljuc == "sporocila":
+            return self._nastavi_sporocila(bool(vrednost))
         if kljuc == "mape":
             c = en_proces.control_app()
             if c is None:
@@ -4220,7 +4389,11 @@ class SafeerOS(Gtk.Application):
             return False
         self._spletni = VdelaniSplet(Gtk, Gdk, Gio, GLib, WebKit2, KOREN, _jezik, stanje_povezave,
                                      self._splet_v_zapisek, self.okno,
-                                     stremio_dodatek=self._odpri_stremio_dodatek)
+                                     stremio_dodatek=self._odpri_stremio_dodatek, config=self._config_spleta())
+        # Povezava iz vgrajenega kanala Sporocil se odpre v Spletu (nacin Splet glavnega okna), ne v skritem zavihku.
+        self._spletni.odpri_zunaj = lambda naslov: self._splet(naslov, True)
+        # Podatki dodanih kanalov Sporocil (prijava, shramba) ostanejo pri brisanju Spleta - tudi ko so Sporocila izklopljena.
+        self._spletni.zasciteni_podatki = self._kanali().zasciteni
         self._spletni.gradnik.set_hexpand(True)
         self._spletni.gradnik.set_vexpand(True)
         self._spletni.gradnik.set_visible(False)       # GTK4: skrit, dokler uporabnik ne odpre Spleta

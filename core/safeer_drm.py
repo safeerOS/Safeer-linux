@@ -16,7 +16,6 @@ Brez X11 (Wayland) okna ni mogoce vstaviti: Safeer DRM se odpre v svojem oknu.
 
 from __future__ import annotations
 
-import ctypes
 import hashlib
 import json
 import os
@@ -29,6 +28,8 @@ import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Callable, Optional
+
+from core import vstavi_okno
 
 VERZIJA = "0.2.0"
 URL = ("https://github.com/safeerOS/Safeer-linux/releases/download/"
@@ -229,43 +230,8 @@ def v_flatpaku() -> bool:
     return os.path.exists("/.flatpak-info")
 
 
-class _X11:
-    """Najmanj Xlib za vstavitev tujega okna (XReparentWindow); brez dodatnih paketov."""
-
-    def __init__(self) -> None:
-        self.lib = ctypes.cdll.LoadLibrary("libX11.so.6")
-        L = self.lib
-        L.XOpenDisplay.restype = ctypes.c_void_p
-        L.XOpenDisplay.argtypes = [ctypes.c_char_p]
-        for ime, args in (("XReparentWindow", [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_int, ctypes.c_int]),
-                          ("XMapWindow", [ctypes.c_void_p, ctypes.c_ulong]),
-                          ("XUnmapWindow", [ctypes.c_void_p, ctypes.c_ulong]),
-                          ("XMoveResizeWindow", [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_int,
-                                                 ctypes.c_uint, ctypes.c_uint]),
-                          ("XFlush", [ctypes.c_void_p]), ("XCloseDisplay", [ctypes.c_void_p])):
-            getattr(L, ime).argtypes = args
-        self.dpy = L.XOpenDisplay(None)
-        if not self.dpy:
-            raise OSError("X11 ni na voljo")
-
-    def vstavi(self, otrok: int, stars: int, x: int, y: int, sirina: int, visina: int) -> None:
-        self.lib.XReparentWindow(self.dpy, otrok, stars, x, y)
-        self.lib.XMoveResizeWindow(self.dpy, otrok, x, y, max(1, sirina), max(1, visina))
-        self.lib.XMapWindow(self.dpy, otrok)
-        self.lib.XFlush(self.dpy)
-
-    def velikost(self, okno: int, x: int, y: int, sirina: int, visina: int) -> None:
-        self.lib.XMoveResizeWindow(self.dpy, okno, x, y, max(1, sirina), max(1, visina))
-        self.lib.XFlush(self.dpy)
-
-    def pokazi(self, okno: int, vidno: bool) -> None:
-        (self.lib.XMapWindow if vidno else self.lib.XUnmapWindow)(self.dpy, okno)
-        self.lib.XFlush(self.dpy)
-
-    def zapri(self) -> None:
-        if self.dpy:
-            self.lib.XCloseDisplay(self.dpy)
-            self.dpy = None
+#: Xlib za vstavitev okna je skupen s Sporocili (vgrajeni namizni programi): core/vstavi_okno.py - ena izvedba.
+_X11 = vstavi_okno.X11
 
 
 class Gostitelj:
@@ -294,6 +260,7 @@ class Gostitelj:
             self.gradnik.connect("resize", lambda *_: self._prilagodi())
             self.gradnik.set_draw_func(lambda _g, cr, *_: self._risi(_g, cr))
         self._mesto = None
+        self._mesto_gradnika = vstavi_okno.Mesto(Gtk, self.gradnik)
         # Okno DRM je otrok vrhnjega okna, zato ga ob skritju gradnika (drug zavihek, Splet skrit) skrijemo sami.
         self.gradnik.connect("map", lambda *_: self._vidno(True))
         self.gradnik.connect("unmap", lambda *_: self._vidno(False))
@@ -317,59 +284,11 @@ class Gostitelj:
         return izvrsljiva() is not None
 
     def _xid_starsa(self) -> int:
-        if self._gtk3:
-            return self._xid_gtk3()
-        try:
-            koren = self.gradnik.get_native()
-            povrsina = koren.get_surface() if koren is not None else None
-            if povrsina is None:
-                return 0
-            import gi
-            gi.require_version("GdkX11", "4.0")
-            from gi.repository import GdkX11
-            if not isinstance(povrsina, GdkX11.X11Surface):
-                return 0
-            return int(povrsina.get_xid())
-        except Exception:  # noqa: BLE001 - Wayland: ni X11 okna
-            return 0
-
-    def _xid_gtk3(self) -> int:
-        okno = self.gradnik.get_window()
-        if okno is None:
-            return 0
-        try:
-            import gi
-            gi.require_version("GdkX11", "3.0")
-            from gi.repository import GdkX11
-            if not isinstance(okno, GdkX11.X11Window):
-                return 0
-            okno.ensure_native()
-            return int(okno.get_xid())
-        except Exception:  # noqa: BLE001 - Wayland: ni X11 okna
-            return 0
+        return self._mesto_gradnika.xid_starsa()
 
     def _pravokotnik(self):
-        """(x, y, sirina, visina) gradnika v X pikah povrsine vrhnjega okna."""
-        if self._gtk3:   # starsevsko okno je gradnikovo lastno X okno
-            m = self.gradnik.get_scale_factor() or 1
-            return (0, 0, self.gradnik.get_allocated_width() * m, self.gradnik.get_allocated_height() * m)
-        koren = self.gradnik.get_native()
-        if koren is None:
-            return None
-        ok, tocka = self.gradnik.compute_point(koren, self._Tocka())
-        if not ok:
-            return None
-        try:
-            dx, dy = koren.get_surface_transform()   # senca/okvir odjemalca (CSD)
-        except Exception:  # noqa: BLE001
-            dx = dy = 0.0
-        m = self.gradnik.get_scale_factor() or 1
-        return (int(round((tocka.x + dx) * m)), int(round((tocka.y + dy) * m)),
-                self.gradnik.get_width() * m, self.gradnik.get_height() * m)
-
-    def _Tocka(self):
-        from gi.repository import Graphene
-        return Graphene.Point().init(0, 0)
+        """(x, y, sirina, visina) gradnika v X pikah povrsine vrhnjega okna (core/vstavi_okno.Mesto)."""
+        return self._mesto_gradnika.pravokotnik()
 
     def zacni(self, url: str, storitev: bool = False) -> bool:
         exe = izvrsljiva()

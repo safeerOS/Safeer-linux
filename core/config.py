@@ -133,7 +133,8 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         },
         "messenger": {
             "name": "Facebook Messenger",
-            "url": "https://www.messenger.com",
+            # Meta je messenger.com ukinila 15. 4. 2026 (preusmeri sem); naslov iz kataloga core/spletni_klepeti.py.
+            "url": "https://www.facebook.com/messages/",
             "icon": "💬",
             "enabled": False,
             "color": "#0084ff"
@@ -157,6 +158,24 @@ LEGACY_DEFAULT_PORTALS = [
         {"id": "p2", "title": "GitHub", "url": "https://github.com", "mark": "🐙", "bg": "linear-gradient(145deg, #1b1f24, #24292e)", "color": "#24292e"},
         {"id": "p3", "title": "DuckDuckGo", "url": "https://duckduckgo.com", "mark": "🦆", "bg": "linear-gradient(145deg, #3d2303, #de5833)", "color": "#de5833"}
     ]
+
+
+def dodaj_katalog_integracijam(nastavitve: Dict[str, Any]) -> bool:
+    """Integracije stranske plosce iz kataloga spletnih klepetov; vrne True, ce je bilo kaj spremenjeno."""
+    from core import spletni_klepeti
+    integracije = nastavitve.setdefault("integrations", {})
+    spremenjeno = spletni_klepeti.preseli_integracije(integracije)
+    ponujeni = list(nastavitve.get("integrations_katalog", []) or [])
+    for kid, vnos in spletni_klepeti.integracije(str(nastavitve.get("language", "sl") or "sl")[:2]).items():
+        if kid in ponujeni:
+            continue
+        ponujeni.append(kid)
+        spremenjeno = True
+        if kid not in integracije and not any(isinstance(v, dict) and v.get("url") == vnos["url"]
+                                              for v in integracije.values()):
+            integracije[kid] = vnos
+    nastavitve["integrations_katalog"] = ponujeni
+    return spremenjeno
 
 
 class ConfigManager:
@@ -197,14 +216,21 @@ class ConfigManager:
                         if s.get("id") == "sample_banner_cleaner" and s.get("enabled") is True:
                             s["enabled"] = False
                             migrated = True
+                    # Stranska plosca bere katalog spletnih klepetov (core/spletni_klepeti.py - en vir za Sporocila in
+                    # vse brskalnike): ukinjeni naslovi se preselijo, nove storitve kataloga se ponudijo (izklopljene)
+                    # enkrat - ce jih uporabnik odstrani, se ne vracajo.
+                    if dodaj_katalog_integracijam(merged):
+                        migrated = True
                     if migrated:
                         self.save_settings(merged)
                     return merged
             except Exception as e:
                 print(f"[Config] Napaka pri branju nastavitev: {e}")
 
-        self.save_settings(DEFAULT_SETTINGS)
-        return copy.deepcopy(DEFAULT_SETTINGS)
+        nove = copy.deepcopy(DEFAULT_SETTINGS)
+        dodaj_katalog_integracijam(nove)
+        self.save_settings(copy.deepcopy(nove))
+        return nove
 
     def save_settings(self, settings: Dict[str, Any] = None) -> bool:
         if settings is not None:

@@ -98,7 +98,8 @@ class VklopDelovne(_Pocisti):
             self.so.SafeerOS._ob_namizju(lazna)
             self.so.SafeerOS._ob_namizju(lazna)
             klici = glib.timeout_add_seconds.call_args_list
-            self.assertEqual(len(klici), 3)
+            # kuverta, Control, prijavno okno in (15. 10. 2026) kanali Sporocil po izrisu namizja
+            self.assertEqual(len(klici), 4)
             for k in klici:
                 k.args[1]()
         lazna.scit.zacni_ce_vklopljen.assert_called_once_with()

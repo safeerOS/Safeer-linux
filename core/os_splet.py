@@ -16,6 +16,7 @@ import urllib.parse
 import weakref
 from html import escape as _escape_html
 from pathlib import Path
+from types import MappingProxyType
 
 from core import (adblock, dovoljenja_strani, drm, odlozisce_varuh, os_stabilnost, ozadje_strani, pojavna_okna,
                   safeer_drm, splet_prenosi, splet_temno, zascita)
@@ -298,32 +299,43 @@ _BRISANJE = {
            "bp_piskotki": "Piškotki in podatki strani (odjava s strani)", "bp_predpomnilnik": "Predpomnilnik (slike in datoteke)",
            "bp_prenosi": "Seznam prenosov (datoteke ostanejo)", "bp_dovoljenja": "Nastavitve spletnih mest",
            "bp_izbrisi": "Izbriši", "bp_ob_izhodu": "Izbranih podatkov ob zaprtju ne shranjuj (izbriši ob izhodu)",
-           "bp_koncano": "Izbrisano."},
+           "bp_koncano": "Izbrisano.", "bp_kanali_ostanejo": "Prijave in sporočila kanalov Sporočil ostanejo (izbrišeš jih pri kanalu: Izbriši podatke kanala).",
+           "bp_kanali_obdobje": "Pozor: izbrišejo se tudi podatki kanalov Sporočil, spremenjeni v tem obdobju – v kanalu se boš morda moral znova prijaviti."},
     "en": {"bp_naslov": "Clear browsing data", "bp_obdobje": "Time range", "bp_ura": "Last hour", "bp_dan": "Last 24 hours",
            "bp_teden": "Last week", "bp_vse": "Everything", "bp_zgodovina": "Browsing history",
            "bp_piskotki": "Cookies and site data (signs you out)", "bp_predpomnilnik": "Cache (images and files)",
            "bp_prenosi": "Download list (files stay)", "bp_dovoljenja": "Site settings", "bp_izbrisi": "Clear",
-           "bp_ob_izhodu": "Delete the selected data when closing", "bp_koncano": "Cleared."},
+           "bp_ob_izhodu": "Delete the selected data when closing", "bp_koncano": "Cleared.",
+           "bp_kanali_ostanejo": "Sign-ins and messages of Messages channels stay (delete them at the channel: Delete channel data).",
+           "bp_kanali_obdobje": "Note: data of Messages channels changed in this period is deleted too – you may need to sign in to the channel again."},
     "de": {"bp_naslov": "Browserdaten löschen", "bp_obdobje": "Zeitraum", "bp_ura": "Letzte Stunde", "bp_dan": "Letzte 24 Stunden",
            "bp_teden": "Letzte Woche", "bp_vse": "Alles", "bp_zgodovina": "Verlauf",
            "bp_piskotki": "Cookies und Website-Daten (meldet dich ab)", "bp_predpomnilnik": "Cache (Bilder und Dateien)",
            "bp_prenosi": "Download-Liste (Dateien bleiben)", "bp_dovoljenja": "Website-Einstellungen", "bp_izbrisi": "Löschen",
-           "bp_ob_izhodu": "Ausgewählte Daten beim Schließen löschen", "bp_koncano": "Gelöscht."},
+           "bp_ob_izhodu": "Ausgewählte Daten beim Schließen löschen", "bp_koncano": "Gelöscht.",
+           "bp_kanali_ostanejo": "Anmeldungen und Nachrichten der Nachrichten-Kanäle bleiben (löschen beim Kanal: Kanaldaten löschen).",
+           "bp_kanali_obdobje": "Hinweis: Auch Daten der Nachrichten-Kanäle, die in diesem Zeitraum geändert wurden, werden gelöscht – eventuell musst du dich im Kanal erneut anmelden."},
     "es": {"bp_naslov": "Borrar datos de navegación", "bp_obdobje": "Intervalo", "bp_ura": "Última hora",
            "bp_dan": "Últimas 24 horas", "bp_teden": "Última semana", "bp_vse": "Todo", "bp_zgodovina": "Historial",
            "bp_piskotki": "Cookies y datos de sitios (cierra sesiones)", "bp_predpomnilnik": "Caché (imágenes y archivos)",
            "bp_prenosi": "Lista de descargas (los archivos se quedan)", "bp_dovoljenja": "Ajustes de sitios",
-           "bp_izbrisi": "Borrar", "bp_ob_izhodu": "Borrar los datos seleccionados al cerrar", "bp_koncano": "Borrado."},
+           "bp_izbrisi": "Borrar", "bp_ob_izhodu": "Borrar los datos seleccionados al cerrar", "bp_koncano": "Borrado.",
+           "bp_kanali_ostanejo": "Las sesiones y mensajes de los canales de Mensajes se conservan (bórralos en el canal: Borrar datos del canal).",
+           "bp_kanali_obdobje": "Atención: también se borran los datos de los canales de Mensajes modificados en este periodo; quizá debas volver a iniciar sesión en el canal."},
     "fr": {"bp_naslov": "Effacer les données de navigation", "bp_obdobje": "Période", "bp_ura": "Dernière heure",
            "bp_dan": "Dernières 24 heures", "bp_teden": "Dernière semaine", "bp_vse": "Tout", "bp_zgodovina": "Historique",
            "bp_piskotki": "Cookies et données de sites (vous déconnecte)", "bp_predpomnilnik": "Cache (images et fichiers)",
            "bp_prenosi": "Liste des téléchargements (les fichiers restent)", "bp_dovoljenja": "Paramètres des sites",
-           "bp_izbrisi": "Effacer", "bp_ob_izhodu": "Effacer les données sélectionnées à la fermeture", "bp_koncano": "Effacé."},
+           "bp_izbrisi": "Effacer", "bp_ob_izhodu": "Effacer les données sélectionnées à la fermeture", "bp_koncano": "Effacé.",
+           "bp_kanali_ostanejo": "Les connexions et messages des canaux de Messages sont conservés (à supprimer depuis le canal : Supprimer les données du canal).",
+           "bp_kanali_obdobje": "Attention : les données des canaux de Messages modifiées pendant cette période sont aussi effacées – vous devrez peut-être vous reconnecter au canal."},
     "it": {"bp_naslov": "Cancella dati di navigazione", "bp_obdobje": "Intervallo", "bp_ura": "Ultima ora",
            "bp_dan": "Ultime 24 ore", "bp_teden": "Ultima settimana", "bp_vse": "Tutto", "bp_zgodovina": "Cronologia",
            "bp_piskotki": "Cookie e dati dei siti (esce dagli account)", "bp_predpomnilnik": "Cache (immagini e file)",
            "bp_prenosi": "Elenco download (i file restano)", "bp_dovoljenja": "Impostazioni dei siti", "bp_izbrisi": "Cancella",
-           "bp_ob_izhodu": "Cancella i dati selezionati alla chiusura", "bp_koncano": "Cancellato."},
+           "bp_ob_izhodu": "Cancella i dati selezionati alla chiusura", "bp_koncano": "Cancellato.",
+           "bp_kanali_ostanejo": "Accessi e messaggi dei canali di Messaggi restano (si eliminano dal canale: Elimina dati del canale).",
+           "bp_kanali_obdobje": "Attenzione: vengono cancellati anche i dati dei canali di Messaggi modificati in questo periodo; potrebbe essere necessario accedere di nuovo al canale."},
 }
 for _j, _b in (list(_BRISANJE.items()) + list(splet_prenosi.BESEDILA.items()) + list(pojavna_okna.BESEDILA.items()) + list(_BRSKALNIK.items())
                + list(zascita.BESEDILA.items()) + list(_NASTAVITVE.items()) + list(dovoljenja_strani.BESEDILA.items()) + list(drm.BESEDILA.items())):   # skupaj s Safeer Browserjem
@@ -663,6 +675,13 @@ def _unici_pogled(pogled) -> None:
         pass
 
 
+def _pogled_prenosa(prenos):
+    try:
+        return prenos.get_web_view()
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _ocisti(skatla) -> None:
     """GTK4: odstrani vse otroke gradnika (ListBox, Box)."""
     otrok = skatla.get_first_child()
@@ -706,6 +725,127 @@ class _Klik:
         self.button, self.x, self.y = button, x, y
 
 
+#: Funkcije WebKita, ki pogled v ozadju dusijo (izmerjeno 15. 10. 2026, WebKitGTK 2.52, Xvfb: stran s setInterval 1 s je
+#: v pogledu, ki ni prikazan - skrit sklad, skrito okno ali brez okna -, v 60 s naredila 33 tikov, z izklopljenimi temi
+#: funkcijami 60). Vdelani klepeti morajo delovati v realnem casu (lastnik, 15. 10. 2026); zavihki Spleta dusenje
+#: ohranijo (varcuje procesor in baterijo).
+DUSENJE_V_OZADJU = ("HiddenPageDOMTimerThrottling", "PageVisibilityBasedProcessSuppression")
+
+
+def izklopi_dusenje(WebKit, nastavitve) -> list:
+    """Na nastavitvah pogleda izklopi dusenje skritih strani; vrne imena izklopljenih funkcij."""
+    izklopljene = []
+    try:
+        funkcije = WebKit.Settings.get_all_features()
+    except Exception:  # noqa: BLE001 - WebKit brez API funkcij (pred 2.42)
+        return izklopljene
+    for i in range(funkcije.get_length()):
+        f = funkcije.get(i)
+        if f.get_identifier() in DUSENJE_V_OZADJU:
+            try:
+                nastavitve.set_feature_enabled(f, False)
+                izklopljene.append(f.get_identifier())
+            except Exception:  # noqa: BLE001
+                pass
+    return izklopljene
+
+
+class SpletnaAplikacija:
+    """Vdelana spletna aplikacija (kanal v Sporocilih, stranska plosca brskalnika): en pogled Spleta z isto sejo,
+    zascito in dovoljenji kot zavihki, a brez zavihka. Pojavna okna (prijava z Googlom, Microsoftom, Apple) se odprejo v
+    lastnem oknu in se po prijavi zaprejo nazaj v aplikacijo; navadne povezave (target=_blank, srednji klik) gredo v
+    Splet. Nad stranjo je vrstica za blokirano pojavno okno (kot v Spletu).
+
+    Klici gostitelja: ob_naslovu(naslov strani), ob_obvestilu(naslov, besedilo, klik) - klik() pove strani, da je
+    uporabnik kliknil obvestilo."""
+
+    def __init__(self, splet, naslov: str, ob_naslovu=None, ob_obvestilu=None) -> None:
+        Gtk = splet.Gtk
+        self.splet, self.naslov = splet, naslov
+        self.ob_naslovu, self.ob_obvestilu = ob_naslovu, ob_obvestilu
+        self.unicena = False
+        self.pojavna_okna: list = []
+        self.gradnik = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.gradnik.add_css_class("safeer-aplikacija")
+        self.vrstica = Gtk.Revealer()
+        vrsta = _robovi(Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8), 4)
+        vrsta.set_name("splet-pojavna")
+        self._napis = Gtk.Label(xalign=0, hexpand=True)
+        self._napis.set_ellipsize(splet.Pango.EllipsizeMode.MIDDLE)
+        self._odpri = Gtk.Button(label=splet._t("po_odpri"))
+        self._vedno = Gtk.Button()
+        skrij = Gtk.Button.new_from_icon_name("window-close-symbolic")
+        skrij.set_has_frame(False)
+        skrij.connect("clicked", lambda *_: self.vrstica.set_reveal_child(False))
+        for g in (self._napis, self._odpri, self._vedno, skrij):
+            vrsta.append(g)
+        self._odpri.connect("clicked", lambda *_: self._blokirano_odpri(False))
+        self._vedno.connect("clicked", lambda *_: self._blokirano_odpri(True))
+        self.vrstica.set_child(vrsta)
+        self.gradnik.append(self.vrstica)
+        self._blokirano = None
+        self.pogled = splet._pogled_aplikacije(self)
+        self.pogled.set_vexpand(True)
+        self.pogled.set_hexpand(True)
+        self.gradnik.append(self.pogled)
+        self.pogled.load_uri(naslov)
+
+    # -- dejanja gostitelja
+    def domov(self) -> None:
+        self.pogled.load_uri(self.naslov)
+
+    def nazaj(self) -> None:
+        if self.pogled.can_go_back():
+            self.pogled.go_back()
+
+    def osvezi(self) -> None:
+        self.pogled.reload()
+
+    def uri(self) -> str:
+        return self.pogled.get_uri() or ""
+
+    def unici(self) -> None:
+        """Pogled se sprosti (ne le skrije): spletni proces se konca in vrne pomnilnik (izklop kanala)."""
+        if self.unicena:
+            return
+        self.unicena = True
+        for okno in list(self.pojavna_okna):
+            try:
+                okno.destroy()
+            except Exception:  # noqa: BLE001
+                pass
+        self.splet._pozabi_aplikacijo(self)
+        stars = self.gradnik.get_parent()
+        if stars is not None:
+            try:
+                stars.remove(self.gradnik)
+            except Exception:  # noqa: BLE001 - stars brez remove (npr. Gtk.Window)
+                self.gradnik.unparent()
+        self.gradnik.remove(self.pogled)      # GTK: pogled brez starsa, preden ga sprostimo (run_dispose)
+        _unici_pogled(self.pogled)
+
+    # -- pojavna okna, ki jih pravila blokirajo
+    def pokazi_blokirano(self, pogled, cilj: str) -> None:
+        s = self.splet
+        self._blokirano = (pogled.get_uri() or "", cilj)
+        stran = pojavna_okna.osnova(pojavna_okna.gostitelj(self._blokirano[0]))
+        self._napis.set_text(s._t("po_blokirano").format(cilj=pojavna_okna.gostitelj(cilj) or cilj))
+        self._vedno.set_label(s._t("po_vedno").format(stran=stran))
+        self._vedno.set_visible(bool(stran))
+        self.vrstica.set_reveal_child(True)
+
+    def _blokirano_odpri(self, vedno: bool) -> None:
+        if not self._blokirano:
+            return
+        izvor, cilj = self._blokirano
+        self._blokirano = None
+        self.vrstica.set_reveal_child(False)
+        if vedno:
+            self.splet.config.set("popup_dovoljeni",
+                                  pojavna_okna.zapomni(self.splet.config.get("popup_dovoljeni", []), izvor))
+        self.splet.odpri_zunaj(cilj)
+
+
 class VdelaniSplet:
     """GTK4 gradnik z zavihki (WebKitGTK 6.0); namenoma ni okno in zato ne more zapustiti Safeer OS.
 
@@ -713,8 +853,23 @@ class VdelaniSplet:
     v vmesnik in Xorg (24ur ~40 % jedra); GTK4 sliko pokaze z EGL brez kopije. Lupina Safeer OS je v QML (kot na
     Windows), Splet in vsebine ostanejo na nasem WebKitGTK - v istem procesu (Qt vrti zanko GLib)."""
 
+    #: Vdelane aplikacije (glej __init__); na razredu prazno in nespremenljivo za predmete brez __init__ (preizkusi).
+    aplikacije = MappingProxyType({})
+
+    def odpri_zunaj(self, naslov: str):
+        """Navadna povezava iz vdelane aplikacije (target=_blank, srednji klik): gostitelj jo odpre v svojem Spletu
+        (Safeer OS: okno Splet) - nastavi jo kot atribut predmeta. Privzeto nov zavihek tega Spleta."""
+        return self.odpri_povezavo(naslov)
+
+    @staticmethod
+    def zasciteni_podatki() -> set:
+        """Registrirane domene, katerih podatkov (piskotki, shramba strani, predpomnilnik) brisanje Spleta ne izbrise:
+        dodani kanali Sporocil (lastnik, 15. 10. 2026 - prijava in sporocila ostanejo med zagoni). Gostitelj jo
+        nastavi kot atribut predmeta."""
+        return set()
+
     def __init__(self, Gtk, Gdk, Gio, GLib, WebKit2, koren: str, jezik, stanje_povezave,
-                 odpri_zapisek=None, stars=None, stremio_dodatek=None):
+                 odpri_zapisek=None, stars=None, stremio_dodatek=None, prvi_zavihek: bool = True, config=None):
         # WebKit2 je tu modul WebKit (API 6.0); ime parametra ostane zaradi skupnih pomoznih funkcij.
         self.Gtk, self.Gdk, self.Gio, self.GLib, self.WebKit2 = Gtk, Gdk, Gio, GLib, WebKit2
         from gi.repository import Pango
@@ -724,7 +879,9 @@ class VdelaniSplet:
         self.stars = stars
         #: Gumb »Install« dodatka Stremio (povezava stremio://...): Safeer Player pokaze dodatek in vprasa (kot Android).
         self.stremio_dodatek = stremio_dodatek
-        self.config = ConfigManager()
+        # config: ena shramba nastavitev za vse dele procesa (Safeer OS: oba Spleta in kanali Sporocil). Dva primerka
+        # ConfigManager bi drug drugemu ob shranjevanju prepisala spremembe (vsak pise celo datoteko).
+        self.config = config if config is not None else ConfigManager()
         ucene_brez_pospesevanja(self.config)   # ob novi razlicici kompozitorja pozabi stari uceni seznam
         #: »Vsili temno« (core/splet_temno.py): skripta Dark Reader vsakega pogleda, da jo ob spremembi zamenjamo.
         self._temno_skripte = weakref.WeakKeyDictionary()
@@ -735,18 +892,31 @@ class VdelaniSplet:
         self.zavihki, self.aktivni, self._stevec = [], None, 0
         self.filter, self.filter_store, self.filter_agent = None, None, None
         self.prenosi = []
+        #: Vdelane spletne aplikacije (pogled -> SpletnaAplikacija; tudi pojavna okna aplikacije): glej aplikacija().
+        self.aplikacije = {}
         self._threat_service = None
         self._ustvari_kontekst()
         self._zgradi()
         self._zazeni_zascito()
-        self.nov_zavihek()
+        if prvi_zavihek:
+            # Brez prvega zavihka (jedro vgrajenih kanalov Sporocil): zavihek nastane ob prvem odpri() - kot po
+            # sprosti_zavihke(); do takrat Splet nima spletnega procesa za zacetno stran.
+            self.nov_zavihek()
         self.GLib.timeout_add_seconds(5, self.osvezi_povezavo)
 
 
-    def _okno_za_dialog(self):
+    def _okno_za_dialog(self, pogled=None):
         """Okno, nad katerim se odpre dialog: tisto, v katerem je Splet ZDAJ (na delovni povrsini je to svoje okno
         »Splet«, ne okno delovne povrsine, ki je bilo podano ob ustvarjanju). Modalni dialog nad napacnim oknom je ostal
-        skrit ZA celozaslonskim Spletom in zaklenil vnos vanj - Splet je bil videti zamrznjen (lastnik, 12. 10. 2026)."""
+        skrit ZA celozaslonskim Spletom in zaklenil vnos vanj - Splet je bil videti zamrznjen (lastnik, 12. 10. 2026).
+        pogled: zahteva vdelane aplikacije (Sporocila) - dialog je nad njenim oknom, ne nad (morda skritim) Spletom."""
+        if pogled is not None:
+            try:
+                vrh = pogled.get_root()
+                if isinstance(vrh, self.Gtk.Window) and vrh.get_visible():
+                    return vrh
+            except Exception:  # noqa: BLE001
+                pass
         try:
             vrh = self.gradnik.get_root()
             if isinstance(vrh, self.Gtk.Window) and vrh.get_visible():
@@ -789,8 +959,23 @@ class VdelaniSplet:
         except Exception:
             pass
         self._nastavi_omrezje()
+        try:
+            # Zapomnjena dovoljenja za obvestila (dovoljenja_strani) veljajo ze ob nalaganju strani: Notification.permission
+            # je »granted« brez ponovnega vprasanja (vdelani klepeti v Sporocilih jih preverijo ob zagonu).
+            self.kontekst.connect("initialize-notification-permissions", self._dovoljenja_obvestil)
+        except TypeError:   # WebKit brez signala
+            pass
         self.seja.connect("download-started", self._prenos_zacet)
         self._omeji_predpomnilnik()
+
+    def _dovoljenja_obvestil(self, kontekst, *_a) -> None:
+        dovoljeni, zavrnjeni = dovoljenja_strani.izvori_obvestil(self.config)
+        try:
+            Izvor = self.WebKit2.SecurityOrigin
+            kontekst.initialize_notification_permissions([Izvor.new_for_uri(u) for u in dovoljeni],
+                                                         [Izvor.new_for_uri(u) for u in zavrnjeni])
+        except Exception as napaka:  # noqa: BLE001
+            print("[Splet] dovoljenja obvestil:", napaka, flush=True)
 
     def podatki(self):
         """WebsiteDataManager Spleta (6.0: na seji)."""
@@ -1152,8 +1337,8 @@ class VdelaniSplet:
         def nalozen(shramba, rezultat, *_a):
             try:
                 self.filter = shramba.load_finish(rezultat)
-                for z in self.zavihki:
-                    self._uporabi_filter(z["pogled"])
+                for p in self._vsi_pogledi():
+                    self._uporabi_filter(p)
             except Exception as napaka:
                 # Shramba je pokvarjena ali je ni: naslednjic seznam pretvorimo znova.
                 print("[Safeer OS Splet] preveden filter:", napaka)
@@ -1190,10 +1375,14 @@ class VdelaniSplet:
             if self.filter_agent is not None and self.filter_agent.list_sha256:
                 from core.webkit_filters import VERZIJA_PRETVORNIKA
                 (self._filter_mapa / "list.sha256").write_text("%s:%s" % (self.filter_agent.list_sha256, VERZIJA_PRETVORNIKA), "utf-8")
-            for z in self.zavihki:
-                self._uporabi_filter(z["pogled"])
+            for p in self._vsi_pogledi():
+                self._uporabi_filter(p)
         except Exception as napaka:
             print("[Safeer OS Splet] prevajanje filtra:", napaka)
+
+    def _vsi_pogledi(self) -> list:
+        """Zavihki in vdelane aplikacije (z njihovimi pojavnimi okni)."""
+        return [z["pogled"] for z in self.zavihki] + list(self.aplikacije)
 
     def _uporabi_filter(self, pogled):
         self._filter_za(pogled, pogled.get_uri() or "")
@@ -1217,7 +1406,7 @@ class VdelaniSplet:
             koda, self.WebKit2.UserContentInjectedFrames.ALL_FRAMES,
             cas or self.WebKit2.UserScriptInjectionTime.START, dovoljeni, izloceni))
 
-    def _nov_pogled(self, povezan=None):
+    def _nov_pogled(self, povezan=None, aplikacija: bool = False):
         W = self.WebKit2
         # WebKitGTK 6.0: kontekst (procesi strani, meja pomnilnika) in omrezna seja (podatki, piskotki) sta locena.
         # povezan: okno, ki ga odpre stran (window.open, prijava z Googlom/Microsoftom): WebKit zahteva »related-view«,
@@ -1259,9 +1448,13 @@ class VdelaniSplet:
             adblock.GENERIC_COSMETIC_SCRIPT, W.UserContentInjectedFrames.ALL_FRAMES,
             W.UserScriptInjectionTime.END, adblock.STEVEC_SVET, None, izvzemi_oglase))
         self._skripta(upravitelj, adblock.ANTI_CLICKJACKING_SCRIPT, W.UserScriptInjectionTime.END, izloceni=izvzemi + ["file://*"])
-        self._skripta(upravitelj, adblock.TAB_THROTTLER_SCRIPT, izloceni=izvzemi)
+        if not aplikacija:
+            # Vdelana aplikacija (klepet) mora v ozadju teci v realnem casu: brez uspavanja zavihka.
+            self._skripta(upravitelj, adblock.TAB_THROTTLER_SCRIPT, izloceni=izvzemi)
         self._temno_skripte[pogled] = self._temno_namesti(upravitelj)
         nastavitve = pogled.get_settings()
+        if aplikacija:
+            izklopi_dusenje(W, nastavitve)
         nastavi_kompozitor(W, nastavitve, self._skia())
         nastavitve.set_hardware_acceleration_policy(getattr(self, "_naslednja_politika", None)
                                                     or politika_pospesevanja(W, self.config.get("hardware_acceleration", "on_demand")))
@@ -1290,7 +1483,9 @@ class VdelaniSplet:
         fc = pogled.get_find_controller()
         fc.connect("counted-matches", lambda f, n: pogled is self.trenutni() and self._najdi_stevec(f, n))
         fc.connect("failed-to-find-text", lambda f: pogled is self.trenutni() and self._najdi_stevec(f, 0))
-        self._tipke(pogled, lambda e: self.tipka(e))
+        if not aplikacija:
+            # Bliznjice Spleta (Ctrl+W, Ctrl+T ...) veljajo za zavihke; v vdelani aplikaciji jih ima stran sama.
+            self._tipke(pogled, lambda e: self.tipka(e))
         self._klik(pogled, lambda gumb, x, y, p: self._miska(p, _Klik(gumb, x, y)))
         pogled.connect("create", lambda p, a: self._novo_okno(p, a))
         pogled.connect("context-menu", self._kontekstni_meni)
@@ -1301,11 +1496,98 @@ class VdelaniSplet:
         self._uporabi_filter(pogled)
         return pogled
 
+    # ---------------------------------------------------------------- vdelane spletne aplikacije
+    def aplikacija(self, naslov: str, ob_naslovu=None, ob_obvestilu=None) -> SpletnaAplikacija:
+        """Vdelana spletna aplikacija z isto sejo (prijave), zascito in dovoljenji kot Splet (glej SpletnaAplikacija)."""
+        return SpletnaAplikacija(self, naslov, ob_naslovu, ob_obvestilu)
+
+    def _pogled_aplikacije(self, aplikacija, povezan=None):
+        pogled = self._nov_pogled(povezan, aplikacija=True)
+        self.aplikacije[pogled] = aplikacija
+        ref = weakref.ref(aplikacija)
+        pogled.connect("notify::title", lambda p, _l: self._naslov_aplikacije(ref(), p))
+        pogled.connect("show-notification", lambda p, o: self._obvestilo_aplikacije(ref(), p, o))
+        return pogled
+
+    def _pozabi_aplikacijo(self, aplikacija) -> None:
+        for p in [p for p, a in self.aplikacije.items() if a is aplikacija]:
+            self.aplikacije.pop(p, None)
+
+    @staticmethod
+    def _naslov_aplikacije(aplikacija, pogled) -> None:
+        if aplikacija is None or aplikacija.unicena or pogled is not aplikacija.pogled or aplikacija.ob_naslovu is None:
+            return
+        try:
+            aplikacija.ob_naslovu(pogled.get_title() or "")
+        except Exception as napaka:  # noqa: BLE001 - gostitelj ne sme podreti pogleda
+            print("[Splet] naslov aplikacije:", napaka, flush=True)
+
+    @staticmethod
+    def _obvestilo_aplikacije(aplikacija, _pogled, obvestilo) -> bool:
+        """Spletno obvestilo (Notification API) gre skozi obvestila gostitelja (Safeer OS), ne mimo njih."""
+        if aplikacija is None or aplikacija.unicena or aplikacija.ob_obvestilu is None:
+            return False
+        try:
+            aplikacija.ob_obvestilu(obvestilo.get_title() or "", obvestilo.get_body() or "", obvestilo.clicked)
+        except Exception as napaka:  # noqa: BLE001
+            print("[Splet] obvestilo aplikacije:", napaka, flush=True)
+        return True
+
+    def _okno_aplikacije(self, odpiralec, aplikacija, dejanje=None):
+        """Pojavno okno vdelane aplikacije (prijava z Googlom, Microsoftom, Apple ...): svoje okno nad aplikacijo s
+        povezanim pogledom (opener ostane, prijava vrne rezultat strani), stran ga zapre z window.close()."""
+        Gtk = self.Gtk
+        nov = self._pogled_aplikacije(aplikacija, povezan=odpiralec)
+        okno = Gtk.Window()
+        vrh = odpiralec.get_root()
+        if isinstance(vrh, Gtk.Window):
+            okno.set_transient_for(vrh)
+        okno.set_default_size(520, 680)
+        okno.set_child(nov)
+        aplikacija.pojavna_okna.append(okno)
+        nov.connect("notify::title", lambda p, _l: okno.set_title(p.get_title() or ""))
+
+        def pokazi(p):
+            try:
+                g = p.get_window_properties().get_geometry()
+                if g is not None and g.width >= 240 and g.height >= 240:
+                    okno.set_default_size(min(g.width, 1200), min(g.height, 900))
+            except Exception:  # noqa: BLE001
+                pass
+            okno.present()
+        nov.connect("ready-to-show", pokazi)
+
+        def zapri(*_):
+            def zdaj():
+                if okno in aplikacija.pojavna_okna:
+                    aplikacija.pojavna_okna.remove(okno)
+                self.aplikacije.pop(nov, None)
+                okno.set_child(None)
+                _unici_pogled(nov)
+                okno.destroy()
+                return False
+            self.GLib.idle_add(zdaj)
+        nov.connect("close", zapri)
+        okno.connect("close-request", lambda *_: (zapri(), True)[1])
+        return nov
+
     def _proces_koncan(self, pogled, _razlog: str = "") -> None:
         """os_stabilnost strani ne nalozi vec znova (ponovno prekoracen pomnilnik, prevec padcev): namesto bele
         strani razlaga z gumbom za ponovno nalaganje."""
         uri = pogled.get_uri() or ""
         if not uri.startswith(("http://", "https://")):
+            return
+        if pogled in self.aplikacije:
+            # Kanal (lastnik, 15. 10. 2026): po padcu se tiho nalozi znova - tudi ko ga os_stabilnost po vec padcih
+            # ne bi vec; cez minuto, da proces, ki pada ob zagonu, ne zasede procesorja.
+            ref = weakref.ref(pogled)
+
+            def znova():
+                p = ref()
+                if p is not None and p in self.aplikacije and not getattr(p, "_safeer_zaprt", False):
+                    p.reload()
+                return False
+            self.GLib.timeout_add_seconds(60, znova)
             return
         pogled.load_alternate_html(stran_procesa_koncana(self._t("proces_naslov"), self._t("proces_besedilo"),
                                                          self._t("proces_znova"), uri), uri, None)
@@ -1666,6 +1948,8 @@ class VdelaniSplet:
         tako pomnilnik vrnemo ob vsaki sprostitvi Spleta; DNS ostane sifriran. Proces Spleta prepoznamo po tem, da ima
         odprto shrambo piskotkov Spleta (zanesljivo, ne glede na cas zagona; namizje in Control je nimata)."""
         konec = False
+        if self.aplikacije:
+            return False      # vdelani klepeti (Sporocila) tecejo v realnem casu na istem omreznem procesu
         for pid in omrezni_procesi_shrambe(os.path.join(self.config.config_dir, "cookies.sqlite")):
             try:
                 os.kill(pid, 15)
@@ -1678,6 +1962,8 @@ class VdelaniSplet:
         """Zaslon zaklenjen: zavihki ostanejo, sprostimo predpomnilnik; prevelik omrezni proces (libsoup pusca prek
         DoH posrednika) obnovimo, ce se nobena stran ne nalaga. Vrne True, ce je bil omrezni proces obnovljen."""
         self.sprazni_predpomnilnik()
+        if self.aplikacije:
+            return False      # ponovni zagon omreznega procesa bi prekinil povezave vdelanih klepetov
         try:
             if any(z["pogled"].is_loading() for z in self.zavihki):
                 return False
@@ -1812,6 +2098,16 @@ class VdelaniSplet:
                     kretnja = dejanje.get_navigation_type() == W.NavigationType.LINK_CLICKED
                 self.GLib.idle_add(lambda: self._zunanji_program(naslov, shema, pogled.get_uri() or "", kretnja) and False)
                 return True
+            # Vdelana aplikacija: navadna povezava v novo okno (target=_blank, srednji ali Ctrl+klik) gre v Splet;
+            # okna, ki jih odpre skripta (prijava), ostanejo pri aplikaciji (_novo_okno).
+            if (pogled in self.aplikacije and naslov.startswith(("http://", "https://"))
+                    and not pojavna_okna.je_prijava(naslov, pogled.get_uri() or "")
+                    and dejanje.get_navigation_type() == W.NavigationType.LINK_CLICKED
+                    and (nov_okno or dejanje.get_mouse_button() == 2
+                         or dejanje.get_modifiers() & int(self.Gdk.ModifierType.CONTROL_MASK))):
+                odlocitev.ignore()
+                self.GLib.idle_add(lambda: self.odpri_zunaj(naslov) and False)
+                return True
             # Srednji klik ali Ctrl+klik na povezavo: nov zavihek (kot v drugih brskalnikih).
             if (dejanje.get_navigation_type() == W.NavigationType.LINK_CLICKED and naslov.startswith(("http://", "https://"))
                     and (dejanje.get_mouse_button() == 2 or dejanje.get_modifiers() & int(self.Gdk.ModifierType.CONTROL_MASK))):
@@ -1883,6 +2179,9 @@ class VdelaniSplet:
             if self.config.get("popup_blokiraj", True) and not pojavna_okna.dovoli(
                     pogled.get_uri() or "", naslov, prava, self.config.get("popup_dovoljeni", []) or []):
                 self._pojavno_blokirano(pogled, naslov); return None
+        aplikacija = self.aplikacije.get(pogled)
+        if aplikacija is not None:
+            return self._okno_aplikacije(pogled, aplikacija, dejanje)
         nov = self.nov_zavihek(povezan=pogled)
         ref = weakref.ref(nov)
         izvor = weakref.ref(pogled)
@@ -1931,6 +2230,8 @@ class VdelaniSplet:
         """Odgovor strezenika (RESPONSE): samo tu WebKit pove, ali je to glavni okvir. Stran s seznama puscanja dobi
         nov pogled z drugim izrisom - samo glavni okvir in GET (prej je okvir zamenjal ves zavihek, POST je postal GET).
         Zamenjava gre izven rokovalnika (pogleda ne unicujemo med njegovim signalom)."""
+        if pogled in self.aplikacije:
+            return False      # izris aplikacije je dolocen ob nastanku; pogleda kanala ne menjamo
         try:
             if not odlocitev.is_main_frame_main_resource():
                 return False
@@ -2029,6 +2330,8 @@ class VdelaniSplet:
         naslov = pogled.get_uri() or ""
         if je_domaca_stran(naslov, self.koren):
             self._poslji_stanje(pogled)
+        elif pogled in self.aplikacije:
+            self._preveri_bank_stran(pogled, naslov)   # vdelan kanal ni brskanje: ne gre v zgodovino Spleta
         else:
             self._preveri_bank_stran(pogled, naslov)
             from core import zgodovina
@@ -2413,7 +2716,7 @@ class VdelaniSplet:
         sodba = adblock.fake_bank_page_verdict(uri, signali)
         if sodba is not None: self._opozorilo_bank(pogled0, uri, sodba, True)
 
-    def _vprasaj(self, naslov: str, opis: str, gumbi, ob_odgovoru=None) -> None:
+    def _vprasaj(self, naslov: str, opis: str, gumbi, ob_odgovoru=None, pogled=None) -> None:
         """GTK4 Gtk.AlertDialog (asinhrono; GTK3 MessageDialog.run je odstranjen). ob_odgovoru(indeks gumba ali -1)."""
         d = self.Gtk.AlertDialog()
         d.set_message(naslov)
@@ -2430,7 +2733,7 @@ class VdelaniSplet:
                 i = -1
             if ob_odgovoru is not None:
                 ob_odgovoru(i)
-        d.choose(self._okno_za_dialog(), None, koncano, None)
+        d.choose(self._okno_za_dialog(pogled), None, koncano, None)
 
     def _opozorilo_bank(self, pogled, uri, sodba, nalozen=False):
         gumbi = [self._t("nazaj")] + ([sodba.official_domain] if sodba.official_domain else [])
@@ -2474,7 +2777,8 @@ class VdelaniSplet:
             if i in (0, 1):
                 dovoljenja_strani.zapomni(self.config, uri, vrste, "dovoli" if i == 1 else "zavrni")
         # Zahteva ostane odprta, dokler uporabnik ne odgovori (WebKit to dovoli, ce signal vrne True).
-        self._vprasaj(self._t("dv_zahteva").format(stran=stran, kaj=kaj), "", [self._t("zavrni"), self._t("dovoli")], odgovor)
+        self._vprasaj(self._t("dv_zahteva").format(stran=stran, kaj=kaj), "", [self._t("zavrni"), self._t("dovoli")], odgovor,
+                      pogled=pogled)
         return True
 
     OBDOBJA = (("ura", 3600), ("dan", 86400), ("teden", 7 * 86400), ("vse", 0))
@@ -2506,12 +2810,58 @@ class VdelaniSplet:
         if not tipi:
             ob_koncu and ob_koncu()
             return
+        zasciteni = set()
+        try:
+            zasciteni = {str(d).lower() for d in (self.zasciteni_podatki() or ()) if d}
+        except Exception as napaka:  # noqa: BLE001
+            print("[Splet] zasciteni podatki:", napaka, flush=True)
+        if zasciteni and not sekund:
+            # Vse ali »ob izhodu«: podatki dodanih kanalov Sporocil ostanejo (izbrise jih samo »Izbrisi podatke kanala«).
+            self.izbrisi_strani(tipi, lambda ime: ime not in zasciteni, ob_koncu)
+            return
         try:
             upravitelj = self.seja.get_website_data_manager()
             upravitelj.clear(W.WebsiteDataTypes(tipi), sekund * 1_000_000, None,
                              lambda m, r, *_: (m.clear_finish(r), ob_koncu and ob_koncu()), None)
         except Exception as napaka:  # noqa: BLE001
             print("[Splet] brisanje podatkov:", napaka, flush=True)
+            ob_koncu and ob_koncu()
+
+    #: Vrste podatkov strani, ki jih ima kanal (prijava, sporocila v IndexedDB, predpomnilnik).
+    PODATKI_STRANI = ("COOKIES", "LOCAL_STORAGE", "SESSION_STORAGE", "INDEXEDDB_DATABASES", "OFFLINE_APPLICATION_CACHE",
+                      "SERVICE_WORKER_REGISTRATIONS", "DOM_CACHE", "HSTS_CACHE", "ITP", "DISK_CACHE", "MEMORY_CACHE")
+
+    def izbrisi_strani(self, tipi, izberi, ob_koncu=None) -> None:
+        """Izbrise podatke strani, katerih ime (registrirana domena, kot jo vodi WebKit) izbere izberi(ime). tipi=0:
+        vse vrste PODATKI_STRANI. Za »Izbrisi podatke kanala« in brisanje Spleta brez kanalov Sporocil."""
+        W = self.WebKit2
+        if not tipi:
+            for ime in self.PODATKI_STRANI:
+                tipi |= int(getattr(W.WebsiteDataTypes, ime, 0) or 0)
+        upravitelj = self.seja.get_website_data_manager()
+        vrste = W.WebsiteDataTypes(tipi)
+
+        def odstranjeno(m, r, *_):
+            try:
+                m.remove_finish(r)
+            except Exception as napaka:  # noqa: BLE001
+                print("[Splet] brisanje strani:", napaka, flush=True)
+            ob_koncu and ob_koncu()
+
+        def prebrano(m, r, *_):
+            try:
+                zapisi = [z for z in m.fetch_finish(r) if izberi(str(z.get_name() or "").lower())]
+            except Exception as napaka:  # noqa: BLE001
+                print("[Splet] branje podatkov strani:", napaka, flush=True)
+                zapisi = []
+            if not zapisi:
+                ob_koncu and ob_koncu()
+                return
+            m.remove(vrste, zapisi, None, odstranjeno, None)
+        try:
+            upravitelj.fetch(vrste, None, prebrano, None)
+        except Exception as napaka:  # noqa: BLE001
+            print("[Splet] brisanje strani:", napaka, flush=True)
             ob_koncu and ob_koncu()
 
     def pocisti_ob_izhodu(self, ob_koncu=None) -> None:
@@ -2545,6 +2895,26 @@ class VdelaniSplet:
         ob_izhodu.set_active(bool(self.config.get("brisi_ob_izhodu", [])))
         ob_izhodu.set_margin_top(8)
         vsebina.append(ob_izhodu)
+        # Kanali Sporocil (zasciteni_podatki): pri »Vse« in ob izhodu ostanejo; casovno obdobje WebKit brise brez izbire
+        # strani (WebsiteDataManager.clear), zato vmesnik posteno pove, da se izbrisejo tudi kanali (pregled 15. 10. 2026).
+        opomba = Gtk.Label(xalign=0, wrap=True)
+        opomba.set_max_width_chars(60)
+        opomba.add_css_class("dim-label")
+        vsebina.append(opomba)
+
+        def uskladi_opombo(*_):
+            try:
+                kanali = bool(self.zasciteni_podatki())
+            except Exception:  # noqa: BLE001
+                kanali = False
+            podatki_strani = stikala["piskotki"].get_active() or stikala["predpomnilnik"].get_active()
+            opomba.set_visible(kanali and podatki_strani)
+            opomba.set_text(self._t("bp_kanali_ostanejo" if (obdobje.get_active_id() or "ura") == "vse" else "bp_kanali_obdobje"))
+        obdobje.connect("changed", uskladi_opombo)
+        for c in stikala.values():
+            c.connect("toggled", uskladi_opombo)
+        uskladi_opombo()
+        d._opomba_kanalov = opomba
         obmocje.append(vsebina)
 
         def odgovor(o):
@@ -2558,6 +2928,7 @@ class VdelaniSplet:
             d.destroy()
         d.odgovor = odgovor
         d.present()
+        return d
 
     def _dovoljenja_strani(self, *_):
         """Nastavitve spletnih mest: privzeto za vsako vrsto, strani z lastno nastavitvijo, samodejno predvajanje,
@@ -2665,7 +3036,7 @@ class VdelaniSplet:
             else:
                 prenos.cancel()
         self._vprasaj(self._t("pr_program"), self._t("pr_program_opis").format(ime=ime, mapa=_kratka_pot(mapa)),
-                      [self._t("pr_preklici"), self._t("pr_prenesi")], odgovor)
+                      [self._t("pr_preklici"), self._t("pr_prenesi")], odgovor, pogled=_pogled_prenosa(prenos))
         return True
 
     def _ti(self, kljuc: str) -> str:
@@ -2848,6 +3219,10 @@ class VdelaniSplet:
             self._pojavno_odpri(vedno)
 
     def _pojavno_blokirano(self, pogled, naslov: str) -> None:
+        aplikacija = self.aplikacije.get(pogled)
+        if aplikacija is not None:
+            aplikacija.pokazi_blokirano(pogled, naslov)
+            return
         self._drm_ponudba = None
         self.pojavna_odpri.set_label(self._t("po_odpri"))
         self._pojavno = (pogled.get_uri() or "", naslov, pogled)
@@ -2902,7 +3277,7 @@ class VdelaniSplet:
                     self._prenos_v(prenos, pot, prepisi=True)
                 else:
                     prenos.cancel()
-            dialog.save(self._okno_za_dialog(), None, koncano, None)
+            dialog.save(self._okno_za_dialog(_pogled_prenosa(prenos)), None, koncano, None)
         except Exception as napaka:  # noqa: BLE001 - brez FileDialog: v mapo Prenosi
             print("[Splet] izbira mape prenosa:", napaka, flush=True)
             self._prenos_v(prenos, splet_prenosi.edinstvena_pot(mapa, ime))

@@ -22,8 +22,9 @@ class Ponudniki(unittest.TestCase):
                                   "icloud": "https://account.apple.com"})
 
     def test_aplikacije_po_skupinah(self):
+        # Klepeti in posta brez IMAP so od 15. 10. 2026 v katalogu vgrajenih kanalov (core/spletni_klepeti.py).
         vrste = {a["vrsta"] for a in ponudniki.APLIKACIJE_SPOROCIL}
-        self.assertEqual(vrste, {"posta", "klepet", "vec"})
+        self.assertEqual(vrste, {"vec"})
         vec = [a["ime"] for a in ponudniki.APLIKACIJE_SPOROCIL if a["vrsta"] == "vec"]
         for ime in ("Thunderbird", "Ferdium", "Pidgin", "Delta Chat", "Beeper"):
             self.assertIn(ime, vec)
@@ -34,7 +35,7 @@ class Ponudniki(unittest.TestCase):
 
     def test_vmesnik_in_most(self):
         js, html = beri("assets", "os", "os.js"), beri("assets", "os", "index.html")
-        self.assertIn('klic("sporocilaPonudniki")', js)
+        self.assertIn('klic("sporocilaPonudniki"', js)
         self.assertIn('"sporocilaPonudniki":', beri("safeer_os.py"))
         for idn in ("kanalPonudnikiMreza", "kanalAplikacijeMreza", "kanalApi", "kanalStranGesla"):
             self.assertIn('id="%s"' % idn, html)

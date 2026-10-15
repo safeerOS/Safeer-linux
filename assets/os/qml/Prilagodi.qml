@@ -150,6 +150,10 @@ Item {
                 Gumb { objectName: "spletVBrskalniku"; besedilo: (koren.videz.spletVBrskalniku ? "✓ " : "") + prilagodi.napisBrskalnik
                        Accessible.role: Accessible.CheckBox; Accessible.checked: !!koren.videz.spletVBrskalniku
                        onKlik: prilagodi.nastavi({ spletVBrskalniku: !koren.videz.spletVBrskalniku }) }
+                // Moznost Sporocila v celoti (lastnik, 15. 10. 2026): izklop skrije razdelek povsod in ustavi kanale.
+                Gumb { objectName: "sporocilaVklop"; besedilo: (koren.videz.sporocila !== false ? "✓ " : "") + koren.t("sporocilaVklop")
+                       Accessible.role: Accessible.CheckBox; Accessible.checked: koren.videz.sporocila !== false
+                       onKlik: prilagodi.nastavi({ sporocila: koren.videz.sporocila === false }) }
             }
             Text { visible: koren.platforma === "linux"; text: koren.t("sistemNaslov"); color: koren.paleta.medlo; font.pixelSize: koren.px(13) }
             Flow {

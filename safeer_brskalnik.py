@@ -165,7 +165,16 @@ class SafeerBrskalnik(Gtk.Application):
         skatla = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         skatla.set_name("safeer-brskalnik")      # ozadje kot Splet (brez belega roba okoli vrstice)
         skatla.append(self._vrstica_privzetega())
-        skatla.append(self.splet.gradnik)
+        # Stranska plosca (spletni klepeti in posta ob strani) iz istega kataloga kot Sporocila v Safeer OS
+        # (core/spletni_klepeti.py) - ista seja in zascita kot zavihki (core/stranska_plosca.py).
+        from core.stranska_plosca import StranskaPlosca
+        vsebina = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        vsebina.set_vexpand(True)
+        self.splet.gradnik.set_hexpand(True)
+        vsebina.append(self.splet.gradnik)
+        self.plosca = StranskaPlosca(Gtk, Gio, self.splet, jezik)
+        vsebina.append(self.plosca.gradnik)
+        skatla.append(vsebina)
         self.splet.gradnik.set_vexpand(True)
         okno.set_child(skatla)
         k = Gtk.EventControllerKey()

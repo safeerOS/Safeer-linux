@@ -4663,7 +4663,7 @@ class SafeerMintBrowser(Gtk.Window):
                 None,
                 # Social feeds have no anti-adblock walls; their huge DOMs make every scan cost real CPU.
                 AUTH_SCRIPT_EXCLUSIONS + ["*://*.google.com/*", "*://*.google.si/*", "*://*.banka.si/*",
-                                          "*://*.facebook.com/*", "*://*.messenger.com/*", "*://*.instagram.com/*"]
+                                          "*://*.facebook.com/*", "*://*.instagram.com/*"]
             )
             content_mgr.add_script(adg_script)
 
@@ -4674,7 +4674,7 @@ class SafeerMintBrowser(Gtk.Window):
             WebKit2.UserScriptInjectionTime.END,
             STEVEC_SVET,
             None,
-            AUTH_SCRIPT_EXCLUSIONS + ["*://*.google.com/*", "*://*.google.si/*", "*://*.facebook.com/*", "*://*.messenger.com/*", "*://*.banka.si/*"]
+            AUTH_SCRIPT_EXCLUSIONS + ["*://*.google.com/*", "*://*.google.si/*", "*://*.facebook.com/*", "*://*.banka.si/*"]
         )
         content_mgr.add_script(gen_script)
 

@@ -312,6 +312,7 @@
         document.documentElement.style.setProperty("--ozadje-slika", 'url("' + z.ozadje + '")');
       }
       nastaviVidez(z.videz);
+      sporocilaVklopljena = z.sporocila !== false;
       VL.sistemsko = !!z.vlecenjeDatotek;
       Z.mape = z.mape || []; Z.dom = (Z.mape[0] && Z.mape[0].pot) || "";
       Z.zaznamki = Array.isArray(z.zaznamki) ? z.zaznamki : [];
@@ -2785,8 +2786,10 @@
     ["sporocila", "ciljSporocila", "sporocila posta klepet messages mail chat"],
     ["splet", "ciljSplet", "splet brskalnik zaznamki web browser"]
   ];
+  // Izklopljena Sporocila (Nastavitve Safeer OS, Prilagodi namizje): razdelka ni med zadetki (brez mrtvih ciljev).
+  var sporocilaVklopljena = true;
   function safeerCilji(besede) {
-    return SAFEER_CILJI.filter(function (c) { return ujemaZadetek(t(c[1]) + " " + c[2], besede); })
+    return SAFEER_CILJI.filter(function (c) { return (sporocilaVklopljena || c[0] !== "sporocila") && ujemaZadetek(t(c[1]) + " " + c[2], besede); })
       .map(function (c) { return { vrsta: "safeer", cilj: c[0], ime: t(c[1]) }; }).slice(0, 4);
   }
   // Naprave iz Safeer Linka, po imenu ali po vrsti (»telefon«, »tv«). Zadetek pokaze datoteke naprave tu, v plosci
@@ -3492,6 +3495,7 @@
       }
       else if (vrsta === "robovi") { robovi(arguments[1] || {}); izrisiDatoteke(); izrisiPrograme(); }
       else if (vrsta === "videz") nastaviVidez(arguments[1]);
+      else if (vrsta === "sporocilaVklop") sporocilaVklopljena = arguments[1] !== false;
       else if (vrsta === "vleceneDatoteke") { VL.zunanje = (arguments[1] && arguments[1].stevilo) || 0; if (!VL.zunanje) pocistiCilje(); }
       else if (vrsta === "vlecenjeKoncano") koncajVlecenje(!!(arguments[1] && arguments[1].sprejeto));
       else if (vrsta === "programi") naloziLokalnePrograme();     // program namescen ali odstranjen
