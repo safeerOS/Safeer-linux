@@ -120,6 +120,9 @@ def _preveri_videz(sprememba: dict) -> dict:
         x = sprememba.get(k)
         if isinstance(x, (int, float)) and not isinstance(x, bool):
             izid[k] = round(max(lo, min(hi, float(x))), 3)
+    # Iskanje po spletu v privzetem brskalniku namesto plosce na namizju (stikalo delovne povrsine, 15. 10. 2026 tudi QML).
+    if isinstance(sprememba.get("spletVBrskalniku"), bool):
+        izid["spletVBrskalniku"] = sprememba["spletVBrskalniku"]
     return izid
 
 
@@ -260,7 +263,7 @@ def paleta(kontrast: bool = False, merilo: float = 1.0, pot: Path = TOKENI) -> d
     return {
         "poudarek": b("zelena"), "poudarekTemna": b("zelena-temna"), "besedilo": b("besedilo"), "medlo": b("medlo"),
         "tise": b("tise"), "vnos": b("media-meni"), "ozadje": b("ozadje"), "ozadje2": b("ozadje-2"),
-        "ok": b("ok"), "rdeca": b("rdeca"), "fokus": b("fokus"),
+        "ok": b("ok"), "rdeca": b("rdeca"), "opozorilo": b("opozorilo"), "fokus": b("fokus"),
         "karticaRgb": _rgb(t["kartica"]), "poudarekRgb": _rgb(t["zelena"]), "prekrivRgb": _rgb(t["prekriv"]),
         "robRgb": _rgb(t["rob"]), "robA": t["rob"][3],
         "vrste": {v: b("vrsta-" + v) for v in VRSTE_DATOTEK if "vrsta-" + v in t},
@@ -294,7 +297,7 @@ def videz_za_qml(shramba, ozadje_sistema: str, jezik: str = "sl", paleta: Option
             if ozadje_sistema and os.path.basename(pot) == os.path.basename(ozadje_sistema):
                 izbira = "safeer:" + kljuc
     izid = {"izbira": izbira or ozadje_sistema, "ozadje": _url(ozadje_sistema), "zameglitev": v["zameglitev"],
-            "prosojnost": v["prosojnost"], "ozadja": ozadja, "windows": "",
+            "prosojnost": v["prosojnost"], "spletVBrskalniku": bool(v.get("spletVBrskalniku")), "ozadja": ozadja, "windows": "",
             "lastna": "" if izbira else ozadje_sistema}
     if paleta:
         izid["paleta"] = paleta
@@ -394,6 +397,18 @@ def _ustvari_razrede():
         @Slot(str, result=str)
         def datotekaUrl(self, pot: str) -> str:  # noqa: N802 - ime za QML
             return QUrl.fromLocalFile(pot).toString() if pot else ""
+
+        @Slot(str, result=str)
+        def datotekaPot(self, naslov: str) -> str:  # noqa: N802 - ime za QML
+            """Spust iz drugega programa: file:// -> pot (drugi naslovi, npr. https, niso datoteke tega racunalnika)."""
+            u = QUrl(naslov or "")
+            return u.toLocalFile() if u.isLocalFile() else ""
+
+        @Slot(result=bool)
+        def ctrl(self) -> bool:
+            """Ali je med spustom drzana tipka Ctrl (vlecenje znotraj Datotek: kopija namesto premika)."""
+            from PySide6.QtGui import QGuiApplication
+            return bool(QGuiApplication.queryKeyboardModifiers() & Qt.KeyboardModifier.ControlModifier)
 
     class Okno(QQuickView):
         def __init__(self, v_oknu: bool = False) -> None:
@@ -506,6 +521,10 @@ class Namizje:
         elif metoda == "napraveNamizja":
             self._odgovor_v_ozadju(klic_id, lambda: naprave_za_izbiro(
                 so.vse_naprave(), so.naprave_s_programi(), so.naprave_z_datotekami()))
+        elif metoda == "oddaljeniZaslon":
+            # Gumb »Oddaljeno« v Programih (isti QML kot na Windows): na Linuxu odpre zaslon naprave Safeer Control
+            # (upravljaj_racunalnik, kot »Upravljaj« na delovni povrsini). Prej je klic koncal z neznano metodo (15. 10. 2026).
+            self._odgovor_v_ozadju(klic_id, lambda: so.upravljaj_racunalnik(str(a[0]) if a else ""))
         elif metoda == "videzNamizja":
             odg(klic_id, True, self.videz())
         elif metoda == "nastaviVidezNamizja":
@@ -543,7 +562,8 @@ class Namizje:
         kontrast = bool(sistem.get("kontrast"))
         p = paleta(kontrast, merilo_besedila(sistem.get("tekstOdstotek") or 100, razmerje))
         v = videz_za_qml(self.os.shramba, os_sistem.ozadje_namizja() or "", jezik or so._jezik(), p)
-        v.update({"kontrast": kontrast, "tekstOdstotek": int(sistem.get("tekstOdstotek") or 100)})
+        # cinnamon: velikost besedila in kontrast se nastavita v sistemu (videzCinnamonNastavi, kot na delovni povrsini).
+        v.update({"kontrast": kontrast, "tekstOdstotek": int(sistem.get("tekstOdstotek") or 100), "cinnamon": bool(sistem.get("naVoljo"))})
         return v
 
     def _spremljaj_temo(self) -> None:

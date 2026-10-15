@@ -1,10 +1,11 @@
-/* Cista logika pametnega iskanja Safeer OS. Datoteka deluje tudi v Node.js testih. */
-(function (koren, tvornica) {
+/* Cista logika pametnega iskanja Safeer OS. Datoteka deluje tudi v Node.js testih in kot knjiznica JavaScript v
+ * namizju QML (import "../iskanje.js" - zato »var« na vrhu: QML ne dovoli pisanja v globalni objekt). */
+var SafeerIskanje = (function (tvornica) {
   "use strict";
   var api = tvornica();
-  if (typeof module === "object" && module.exports) module.exports = api;
-  else koren.SafeerIskanje = api;
-}(typeof globalThis !== "undefined" ? globalThis : this, function () {
+  if (typeof module === "object" && module && module.exports) module.exports = api;
+  return api;
+}(function () {
   "use strict";
 
   // Crke, ki jih razstavitev NFD ne loci na osnovo in naglas (ista tabela kot core/os_datoteke.py).

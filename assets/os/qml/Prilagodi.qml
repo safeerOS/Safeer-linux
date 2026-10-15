@@ -19,6 +19,8 @@ Item {
         fokusPrej = Window.activeFocusItem
         opacity = 1; prilagodi.forceActiveFocus()
         koren.klic("videzNamizja", [], function (v) { koren.uporabiVidez(v) })
+        if (koren.platforma === "linux")
+            koren.klic("privzetiBrskalnik", [], function (ime) { prilagodi.napisBrskalnik = ime && typeof ime === "string" ? koren.t("spletVBrskalnikuIme", { ime: ime }) : koren.t("spletVBrskalniku") })
     }
     function zapri() {
         opacity = 0
@@ -30,20 +32,31 @@ Item {
     Accessible.role: Accessible.Dialog
     Accessible.name: koren.t("prilagodi").replace(" …", "")
     function nastavi(sprememba) { koren.klic("nastaviVidezNamizja", [sprememba], function (v) { koren.uporabiVidez(v) }) }
+    // Videz sistema (safeer-cinnamon): po spremembi preberemo videz znova (paleta, kontrast, velikost besedila).
+    function sistem(kaj, vrednost) {
+        koren.klic("videzCinnamonNastavi", [kaj, vrednost], function () { koren.klic("videzNamizja", [], function (v) { koren.uporabiVidez(v) }) })
+    }
+    property string napisBrskalnik: koren.t("spletVBrskalniku")
 
     Rectangle { anchors.fill: parent; color: Qt.rgba(0, 0, 0, 0.35)
         MouseArea { anchors.fill: parent; onClicked: prilagodi.zapri() } }
 
     Rectangle {
         id: okvir
-        width: Math.min(720, parent.width - 80); height: vsebina.implicitHeight + 48
+        // Na nizkih zaslonih (1366 x 768) se vsebina pomika, okno ne seže cez rob.
+        width: Math.min(720, parent.width - 80); height: Math.min(vsebina.implicitHeight + 48, parent.height - 32)
         anchors.centerIn: parent
         radius: 22
         color: koren.plosca(0.96); border.color: koren.crta(0.14)
         MouseArea { anchors.fill: parent }        // klik v oknu ga ne zapre
+        Flickable {
+            anchors.fill: parent; anchors.margins: 24; clip: true
+            contentWidth: width; contentHeight: vsebina.implicitHeight; boundsBehavior: Flickable.StopAtBounds
+            interactive: contentHeight > height
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
         Column {
             id: vsebina
-            x: 24; y: 24; width: okvir.width - 48; spacing: 16
+            width: okvir.width - 48; spacing: 16
             Text { text: koren.t("prilagodi").replace(" …", ""); color: koren.paleta.besedilo; font.pixelSize: koren.px(20); font.bold: true }
             Text { text: koren.t("ozadje"); color: koren.paleta.medlo; font.pixelSize: koren.px(13) }
             Flow {
@@ -110,12 +123,55 @@ Item {
                          onPressedChanged: if (!pressed) prilagodi.nastavi({ prosojnost: value }) }
             }
             Text { width: parent.width; wrapMode: Text.WordWrap; text: koren.t("temaOpis"); color: koren.paleta.medlo; font.pixelSize: koren.px(12) }
+            // Kot meni plosc na delovni povrsini (Linux): velikost besedila in manj prosojnosti za ves sistem (safeer-cinnamon),
+            // iskanje po spletu v privzetem brskalniku in sistemske nastavitve namizja (en klik stran - lastnik, 12. 10. 2026).
+            Flow {
+                visible: koren.platforma === "linux" && !!koren.videz.cinnamon
+                width: parent.width; spacing: 8
+                Text { text: koren.t("velikostBesedila"); color: koren.paleta.besedilo; font.pixelSize: koren.px(13); height: koren.px(30); verticalAlignment: Text.AlignVCenter; rightPadding: 6 }
+                Repeater {
+                    model: [100, 125, 150, 175, 200]
+                    delegate: Gumb {
+                        required property int modelData
+                        objectName: "tekst" + modelData
+                        besedilo: modelData === 200 ? koren.t("tekst200") : modelData + " %"
+                        poudarjen: (koren.videz.tekstOdstotek || 100) === modelData
+                        Accessible.role: Accessible.RadioButton; Accessible.checked: poudarjen
+                        onKlik: prilagodi.sistem("tekst", modelData)
+                    }
+                }
+            }
+            Row {
+                spacing: 10; width: parent.width
+                visible: koren.platforma === "linux"
+                Gumb { objectName: "manjProsojnosti"; visible: !!koren.videz.cinnamon; besedilo: (koren.kontrast ? "✓ " : "") + koren.t("manjProsojnosti")
+                       Accessible.role: Accessible.CheckBox; Accessible.checked: koren.kontrast
+                       onKlik: prilagodi.sistem("kontrast", !koren.kontrast) }
+                Gumb { objectName: "spletVBrskalniku"; besedilo: (koren.videz.spletVBrskalniku ? "✓ " : "") + prilagodi.napisBrskalnik
+                       Accessible.role: Accessible.CheckBox; Accessible.checked: !!koren.videz.spletVBrskalniku
+                       onKlik: prilagodi.nastavi({ spletVBrskalniku: !koren.videz.spletVBrskalniku }) }
+            }
+            Text { visible: koren.platforma === "linux"; text: koren.t("sistemNaslov"); color: koren.paleta.medlo; font.pixelSize: koren.px(13) }
+            Flow {
+                visible: koren.platforma === "linux"
+                width: parent.width; spacing: 8
+                Repeater {
+                    model: [["themes", "modulTeme"], ["backgrounds", "modulOzadja"], ["fonts", "modulPisave"], ["display", "modulZaslon"],
+                            ["windows", "modulOkna"], ["panel", "modulPult"], ["nightlight", "modulNocna"], ["", "modulVse"]]
+                    delegate: Gumb {
+                        required property var modelData
+                        besedilo: koren.t(modelData[1])
+                        onKlik: koren.klic("sistemskeNastavitve", [modelData[0]])
+                    }
+                }
+            }
             Row {
                 spacing: 10; anchors.right: parent.right
                 Gumb { besedilo: koren.t("temaSistema"); onKlik: { prilagodi.zapri(); koren.klic("odpriRazdelek", ["nastavitve"]) } }
                 Gumb { besedilo: koren.t("privzeto"); onKlik: prilagodi.nastavi({ privzeto: true }) }
                 Gumb { besedilo: koren.t("zapri"); poudarjen: true; onKlik: prilagodi.zapri() }
             }
+        }
         }
     }
     // Drsnika s puscicami: shranimo, ko se tipke umirijo (z misko ob spustu).

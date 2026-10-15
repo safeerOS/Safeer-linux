@@ -15,6 +15,12 @@ ComboBox {
     implicitWidth: koren.px(190); implicitHeight: koren.px(32)
     font.pixelSize: koren.px(12)
     onActivated: function (i) { izbira.izbrana(moznosti[i].id, moznosti[i].ime) }
+    // Izbira od drugod (zadetek »naprava« v iskanju): ista pot kot rocna izbira.
+    function izberiId(id) {
+        for (var i = 0; i < moznosti.length; i++)
+            if (moznosti[i].id === id) { currentIndex = i; izbira.izbrana(moznosti[i].id, moznosti[i].ime); return true }
+        return false
+    }
     background: Rectangle {
         radius: 16; color: izbira.hovered ? koren.prekriv(0.14) : koren.prekriv(0.08)
         border.color: izbira.currentIndex > 0 ? koren.paleta.poudarek : koren.crta(0.14)

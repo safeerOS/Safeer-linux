@@ -76,7 +76,8 @@ class Jeziki(unittest.TestCase):
     def test_vsak_uporabljen_kljuc_obstaja(self):
         kljuci = set(self.b["sl"])
         for ime in os.listdir(QML):
-            for k in re.findall(r'koren\.t\("(\w+)"', _beri("assets", "os", "qml", ime)):
+            # Sestavljeni kljuci (»ppIme_" + id«) se preverijo kot v delovna.js: samo celi nizi.
+            for k in re.findall(r'koren\.t\("(\w+)"(?!\s*\+)', _beri("assets", "os", "qml", ime)):
                 self.assertTrue(k in kljuci or ("qml_" + k) in kljuci, "%s: %s" % (ime, k))
         js = _beri("assets", "os", "delovna.js")
         for k in set(re.findall(r'\bt\("([A-Za-z0-9_]+)"(?!\s*\+)', js)):
@@ -202,8 +203,15 @@ class Tipkovnica(unittest.TestCase):
         self.assertIn("sequences: [StandardKey.Cancel, \"Back\"]", nam)
         pri = _beri("assets", "os", "qml", "Prilagodi.qml")
         self.assertIn("Keys.onEscapePressed: zapri()", pri)
+        # Okna Datotek, Programov in iskanja so Okno.qml (Popup: modalno, fokus, Escape zapre - CloseOnEscape privzeto);
+        # okni z napredkom (Shrani na napravo, Pretvori za TV) zapre samo Escape, Uredi dock vrne Escape na seznam.
+        self.assertIn("modal: true; focus: true", _beri("assets", "os", "qml", "Okno.qml"))
         dat = _beri("assets", "os", "qml", "Datoteke.qml")
-        self.assertEqual(dat.count("modal: true; focus: true"), 3)        # Popup dobi Escape (CloseOnEscape)
+        self.assertGreaterEqual(len(re.findall(r"^    Okno \{", dat, re.M)), 2)
+        for ime in ("NovoIme.qml", "Lastnosti.qml", "ShraniNaNapravo.qml", "PretvoriZaTv.qml", "UrediDock.qml", "PonudnikiProgramov.qml"):
+            self.assertRegex(_beri("assets", "os", "qml", ime), r"(?m)^Okno \{", ime)
+        self.assertIn("closePolicy: Popup.CloseOnEscape", _beri("assets", "os", "qml", "ShraniNaNapravo.qml"))
+        self.assertIn("Keys.onEscapePressed: function (d) { if (okno.izbiram)", _beri("assets", "os", "qml", "UrediDock.qml"))
 
     def test_kavc_na_delovni_povrsini(self):
         html = _beri("assets", "os", "delovna.html")
