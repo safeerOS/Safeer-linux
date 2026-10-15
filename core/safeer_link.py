@@ -1698,8 +1698,10 @@ class SafeerLink:
             # Zasciten ukaz, manjka ena zmoznost in naprava je v krogu: uporabnik TEGA racunalnika dobi obvestilo z
             # Dovoli / Zavrni (nezasciten ukaz dobi "none" - posiljatelja vpise sredisce).
             # Naprava izve le, da prosnja caka (ali da je zavrnjena) - stara oblika zavrnitve ostane nespremenjena.
+            # "background": true - naprava je vprasala v ozadju (predpomnjenje), ne na uporabnikov ukaz: brez obvestila.
+            v_ozadju = isinstance(parametri, dict) and parametri.get("background") is True
             stanje, zmoznost = link_dostop.prosnja_ob_zavrnitvi(
-                posiljatelj, link_dostop.zahteva_dejanja(dejanje), zascita=sporocilo.get("_zascita"))
+                posiljatelj, link_dostop.zahteva_dejanja(dejanje), zascita=sporocilo.get("_zascita"), v_ozadju=v_ozadju)
             koncaj(link_dostop.z_prosnjo(link_dostop.zavrnitev(dejanje), stanje, zmoznost))
             return
 

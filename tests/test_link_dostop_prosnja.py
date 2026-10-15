@@ -308,10 +308,11 @@ class RacunalnikVprasa(_Osnova):
         self.idle_add = p.start()
         self.addCleanup(p.stop)
 
-    def _ukaz(self, od, dejanje, zasciteno=True, **dodatno):
+    def _ukaz(self, od, dejanje, zasciteno=True, parametri=None, **dodatno):
         """Ukaz od naprave; privzeto zasciten (kot ga oznaci core/link_hub: _zascita = jedro preverjenega kljuca)."""
         self.poslano.clear()
-        s = {"id": "u1", "type": "control.command", "sender": od, "payload": {"action": dejanje, "params": {}}}
+        s = {"id": "u1", "type": "control.command", "sender": od,
+             "payload": {"action": dejanje, "params": dict(parametri or {})}}
         if zasciteno:
             s["_zascita"] = od[:link_dostop.DOLZINA_JEDRA]
         s.update(dodatno)
@@ -353,6 +354,33 @@ class RacunalnikVprasa(_Osnova):
         self.assertEqual((o["code"], o["access_request"], o["capability"]), ("ni_dovoljeno", "none", "p"))
         self.assertEqual(self.pokazano, [])
         self.assertEqual(link_dostop.odprte_prosnje(), [])
+
+    def test_zahteva_v_ozadju_ne_odpre_obvestila(self):
+        """Lastnik, 15. 10. 2026: telefon v ozadju predpomni seznam programov (apps.list) - uporabnik ni nic zahteval,
+        zato obvestila ni. Polje obvestilo samo prepreci; dostopa nikoli ne odpre."""
+        o = self._ukaz(A, "apps.list", parametri={"background": True})
+        self.assertEqual((o["ok"], o["data"]["enabled"], o["data"]["reason"]), (True, False, "access"))
+        self.assertEqual((o["access_request"], o["capability"]), ("none", "p"))
+        self.assertEqual(self.pokazano, [])
+        self.assertEqual(link_dostop.odprte_prosnje(), [])
+        self.assertEqual(link_dostop.zmoznosti(A), set())
+        # Samo pravi True; "true", 1 ... so navadna zahteva.
+        o = self._ukaz(A, "apps.list", parametri={"background": "true"})
+        self.assertEqual(o["access_request"], "pending")
+        self.assertEqual(len(self.pokazano), 1)
+        # Prosnja ze caka (uporabnik je odprl programe): zahteva v ozadju izve, da caka, novega obvestila ni.
+        o = self._ukaz(A, "apps.list", parametri={"background": True})
+        self.assertEqual(o["access_request"], "pending")
+        self.assertEqual(len(self.pokazano), 1)
+        link_dostop.zavrni_prosnjo(A, "p")
+        self.assertEqual(self._ukaz(A, "apps.list", parametri={"background": True})["access_request"], "declined")
+        self.assertEqual(link_dostop.zmoznosti(A), set())
+
+    def test_v_ozadju_jedro(self):
+        self.assertEqual(_vprasaj(A, "p", zdaj=ZDAJ, v_ozadju=True), ("none", "p"))
+        self.assertEqual((self.pokazano, link_dostop.odprte_prosnje()), ([], []))
+        self.assertEqual(_vprasaj(A, "p", zdaj=ZDAJ), ("pending", "p"))     # uporabnik sam: obvestilo
+        self.assertEqual(len(self.pokazano), 1)
 
     def test_po_zavrnitvi_declined(self):
         self._ukaz(A, "files.list")

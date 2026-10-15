@@ -853,14 +853,19 @@ def nastavi_prikaz(pokazi: Optional[Callable[[dict], None]], umakni: Optional[Ca
 
 
 def prosnja_ob_zavrnitvi(device_id: str, zahteva: str, zascita: Optional[str] = None,
-                         zdaj: Optional[float] = None) -> Tuple[str, str]:
+                         zdaj: Optional[float] = None, v_ozadju: bool = False) -> Tuple[str, str]:
     """Racunalnik je zahtevo naprave pravkar zavrnil. Ce je sporocilo prislo ZASCITENO (posiljatelja dokazuje kljuc),
     napravi manjka ena zmoznost in je clan kroga, uporabnika tu vprasa (obvestilo). Vrne (access_request, capability)
     za odgovor napravi. Nikoli ne odpre nicesar.
 
     Samo zasciteno (isto pravilo kot Android): polje »sender« nezascitenega sporocila vpise sredisce, zato bi lahko
     ponarejeno sporocilo uporabniku pokazalo »<druzinski clan> prosi za dostop« in ga pripravilo do odobritve tuji
-    napravi. Nezascitena sporocila (tudi starejsih naprav, ki zascite ne znajo) dobijo "none" in obvestila ni."""
+    napravi. Nezascitena sporocila (tudi starejsih naprav, ki zascite ne znajo) dobijo "none" in obvestila ni.
+
+    `v_ozadju` (lastnik, 15. 10. 2026): zahteva, ki je naprava ni poslala na uporabnikov ukaz (npr. predpomnjenje
+    seznama programov na domacem zaslonu telefona), obvestila NE odpre - uporabnik ni nic zahteval in ga to zmede.
+    Napravi povemo le, ali prosnja ze caka ali je zavrnjena. Polje lahko obvestilo samo prepreci, nikoli ne odpre
+    nicesar."""
     zdaj = time.time() if zdaj is None else zdaj
     if zahteva not in VSE_ZMOZNOSTI or not zascita:
         return PROSNJA_NI, zahteva
@@ -878,6 +883,10 @@ def prosnja_ob_zavrnitvi(device_id: str, zahteva: str, zascita: Optional[str] = 
             return PROSNJA_NI, zahteva   # ni clan kroga tega racunalnika
     except Exception:  # noqa: BLE001 - napaka nikoli ne sprozi vprasanja
         return PROSNJA_NI, zahteva
+    if v_ozadju:
+        with _zaklep:
+            _pocisti_prosnje(zdaj)
+            return (PROSNJA_ODPRTA if kljuc in _prosnje else PROSNJA_NI), zahteva
     with _zaklep:
         pokazi, umakni = _prikaz, _umik
         if pokazi is None:
