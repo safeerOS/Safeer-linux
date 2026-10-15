@@ -705,8 +705,17 @@ class _Klik:
 DUSENJE_V_OZADJU = ("HiddenPageDOMTimerThrottling", "PageVisibilityBasedProcessSuppression")
 
 
-def izklopi_dusenje(WebKit, nastavitve) -> list:
-    """Na nastavitvah pogleda izklopi dusenje skritih strani; vrne imena izklopljenih funkcij."""
+#: Funkcije, zaradi katerih vsak kanal dobi svoj spletni proces, ceprav je pogled povezan (related-view) s prvim
+#: kanalom: zamenjava procesa ob navigaciji na drugo stran (PSON) in loceno okolje strani z glavo
+#: Cross-Origin-Opener-Policy. Meritev 15. 10. 2026 (WebKitGTK 2.52, Telegram + WhatsApp + Discord, PSS drevesa po
+#: 120 s): loceni procesi 944,5 MiB; povezani pogledi 927,9; + brez PSON 886,2; + brez COOP 767,5 MiB (en proces
+#: kanalov namesto petih). Cena: kanali si delijo proces (padec ali meja pomnilnika zadene vse - tiho se nalozijo
+#: znova), stran nima crossOriginIsolated. Velja le za vdelane kanale; zavihki Spleta ostanejo loceni.
+SKUPNI_PROCES = ("ProcessSwapOnCrossSiteNavigation", "CrossOriginOpenerPolicy")
+
+
+def izklopi_dusenje(WebKit, nastavitve, imena=DUSENJE_V_OZADJU) -> list:
+    """Na nastavitvah pogleda izklopi funkcije WebKita (privzeto dusenje skritih strani); vrne izklopljene."""
     izklopljene = []
     try:
         funkcije = WebKit.Settings.get_all_features()
@@ -714,7 +723,7 @@ def izklopi_dusenje(WebKit, nastavitve) -> list:
         return izklopljene
     for i in range(funkcije.get_length()):
         f = funkcije.get(i)
-        if f.get_identifier() in DUSENJE_V_OZADJU:
+        if f.get_identifier() in imena:
             try:
                 nastavitve.set_feature_enabled(f, False)
                 izklopljene.append(f.get_identifier())
@@ -737,6 +746,7 @@ class SpletnaAplikacija:
         self.splet, self.naslov = splet, naslov
         self.ob_naslovu, self.ob_obvestilu = ob_naslovu, ob_obvestilu
         self.unicena = False
+        self._povezave: list = []        # (signal, klic) gostitelja: veljajo tudi za pogled po padcu procesa
         self.pojavna_okna: list = []
         self.gradnik = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.gradnik.add_css_class("safeer-aplikacija")
@@ -776,6 +786,38 @@ class SpletnaAplikacija:
 
     def uri(self) -> str:
         return self.pogled.get_uri() or ""
+
+    def povezi(self, signal: str, klic) -> None:
+        """Signal pogleda za gostitelja (npr. load-changed); ostane povezan tudi na novem pogledu po padcu."""
+        self._povezave.append((signal, klic))
+        self.pogled.connect(signal, klic)
+
+    def zamenjaj_pogled(self) -> None:
+        """Skupni proces kanalov je padel: nov pogled (spet v skupnem procesu) na istem naslovu, tiho. Ponovno
+        nalaganje starega pogleda bi vsakemu kanalu dalo svoj proces (preizkus 15. 10. 2026)."""
+        if self.unicena:
+            return
+        star = self.pogled
+        naslov = star.get_uri() or ""
+        for okno in list(self.pojavna_okna):      # pojavna okna so bila v istem procesu
+            try:
+                okno.close()
+            except Exception:  # noqa: BLE001
+                pass
+        nov = self.splet._pogled_aplikacije(self)
+        nov.set_vexpand(True)
+        nov.set_hexpand(True)
+        for signal, klic in self._povezave:
+            nov.connect(signal, klic)
+        imel_fokus = star.has_focus()
+        self.gradnik.remove(star)
+        self.gradnik.append(nov)
+        self.pogled = nov
+        self.splet.aplikacije.pop(star, None)
+        _unici_pogled(star)
+        nov.load_uri(naslov if naslov.startswith(("http://", "https://")) else self.naslov)
+        if imel_fokus:
+            nov.grab_focus()
 
     def unici(self) -> None:
         """Pogled se sprosti (ne le skrije): spletni proces se konca in vrne pomnilnik (izklop kanala)."""
@@ -1390,7 +1432,11 @@ class VdelaniSplet:
                                  website_policies=self._pravila_strani()))
         # Padec spletnega procesa (sesutje strani, pomanjkanje pomnilnika): zavihek se nalozi znova, kot v brskalniku.
         pogled.connect("web-process-terminated", self._proces_pomnilnik)   # pred obnovo (ta caka 400 ms)
-        os_stabilnost.obnovi_ob_padcu(W, self.GLib, pogled, "safeer-os", "splet", ob_odpovedi=self._proces_koncan)
+        if aplikacija:
+            # Skupni proces kanalov: po padcu nov pogled za vse kanale (_padec_aplikacije), ne ponovno nalaganje.
+            pogled.connect("web-process-terminated", self._padec_aplikacije)
+        else:
+            os_stabilnost.obnovi_ob_padcu(W, self.GLib, pogled, "safeer-os", "splet", ob_odpovedi=self._proces_koncan)
         upravitelj = pogled.get_user_content_manager()
         registriraj_most(upravitelj, "safeer")
         # Sibka referenca (glej drm.prikljuci): sicer zaprt zavihek nikoli ne sprosti svojega WebView.
@@ -1428,6 +1474,7 @@ class VdelaniSplet:
         nastavitve = pogled.get_settings()
         if aplikacija:
             izklopi_dusenje(W, nastavitve)
+            izklopi_dusenje(W, nastavitve, SKUPNI_PROCES)
         nastavi_kompozitor(W, nastavitve, self._skia())
         nastavitve.set_hardware_acceleration_policy(getattr(self, "_naslednja_politika", None)
                                                     or politika_pospesevanja(W, self.config.get("hardware_acceleration", "on_demand")))
@@ -1475,12 +1522,59 @@ class VdelaniSplet:
         return SpletnaAplikacija(self, naslov, ob_naslovu, ob_obvestilu)
 
     def _pogled_aplikacije(self, aplikacija, povezan=None):
-        pogled = self._nov_pogled(povezan, aplikacija=True)
+        # Vsi kanali v enem spletnem procesu: nov kanal je povezan z zivim pogledom ze odprtega (SKUPNI_PROCES).
+        pogled = self._nov_pogled(povezan if povezan is not None else self._skupni_pogled(), aplikacija=True)
         self.aplikacije[pogled] = aplikacija
         ref = weakref.ref(aplikacija)
         pogled.connect("notify::title", lambda p, _l: self._naslov_aplikacije(ref(), p))
         pogled.connect("show-notification", lambda p, o: self._obvestilo_aplikacije(ref(), p, o))
         return pogled
+
+    def _skupni_pogled(self):
+        """Pogled kanala z zivim procesom, s katerim se poveze nov kanal (None: prvi kanal zacne nov proces)."""
+        for a in list(self.aplikacije.values()):
+            p = getattr(a, "pogled", None)
+            if p is not None and not a.unicena and not getattr(p, "_safeer_mrtev", False):
+                return p
+        return None
+
+    def _padec_aplikacije(self, pogled, _razlog=None) -> None:
+        """Padec procesa kanalov (sesutje, meja pomnilnika): vsi kanali v njem dobijo nov pogled - tiho, takoj; ob
+        ponavljajocih padcih (vec kot 3 v 5 minutah) cez minuto, da proces, ki pada, ne zasede procesorja."""
+        pogled._safeer_mrtev = True
+        if getattr(self, "_obnova_aplikacij", 0):
+            return
+        zdaj = time.monotonic()
+        self._padci_aplikacij = [t for t in getattr(self, "_padci_aplikacij", []) if zdaj - t < 300] + [zdaj]
+        zamik = 400 if len(self._padci_aplikacij) <= 3 else 60000
+        self._obnova_aplikacij = self.GLib.timeout_add(zamik, self._obnovi_aplikacije)
+
+    def sprosti_proces_aplikacij(self, zamik_ms: int = 2000) -> None:
+        """Kanal je izklopljen ali odstranjen: ostali kanali se preselijo v nov proces, da stari (z zasedenim
+        pomnilnikom izklopljenega kanala) konca. Z zamikom, da vec izklopov zapored preseli kanale le enkrat."""
+        if getattr(self, "_selitev_aplikacij", 0):
+            self.GLib.source_remove(self._selitev_aplikacij)
+
+        def zdaj():
+            self._selitev_aplikacij = 0
+            for a in list(self.aplikacije.values()):
+                if not a.unicena and a.pogled is not None:
+                    a.pogled._safeer_mrtev = True
+            return self._obnovi_aplikacije()
+        self._selitev_aplikacij = self.GLib.timeout_add(int(zamik_ms), zdaj)
+
+    def _obnovi_aplikacije(self) -> bool:
+        self._obnova_aplikacij = 0
+        videne = []
+        for a in list(self.aplikacije.values()):
+            if a in videne or a.unicena or not getattr(a.pogled, "_safeer_mrtev", False):
+                continue
+            videne.append(a)
+            try:
+                a.zamenjaj_pogled()
+            except Exception as napaka:  # noqa: BLE001 - en kanal ne sme ustaviti obnove drugih
+                print("[Splet] obnova kanala:", napaka, flush=True)
+        return False
 
     def _pozabi_aplikacijo(self, aplikacija) -> None:
         for p in [p for p, a in self.aplikacije.items() if a is aplikacija]:
@@ -1551,17 +1645,7 @@ class VdelaniSplet:
         if not uri.startswith(("http://", "https://")):
             return
         if pogled in self.aplikacije:
-            # Kanal (lastnik, 15. 10. 2026): po padcu se tiho nalozi znova - tudi ko ga os_stabilnost po vec padcih
-            # ne bi vec; cez minuto, da proces, ki pada ob zagonu, ne zasede procesorja.
-            ref = weakref.ref(pogled)
-
-            def znova():
-                p = ref()
-                if p is not None and p in self.aplikacije and not getattr(p, "_safeer_zaprt", False):
-                    p.reload()
-                return False
-            self.GLib.timeout_add_seconds(60, znova)
-            return
+            return      # kanal se po padcu obnovi sam (_padec_aplikacije), brez strani z razlago
         pogled.load_alternate_html(stran_procesa_koncana(self._t("proces_naslov"), self._t("proces_besedilo"),
                                                          self._t("proces_znova"), uri), uri, None)
 

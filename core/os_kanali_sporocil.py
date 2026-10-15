@@ -8,6 +8,8 @@
     (core/vstavi_okno.py, X11). Na Waylandu vgradnja ni mogoca: program ostane v svojem oknu in vmesnik to pove.
   * Kanali se nalozijo ob zagonu namizja (ko je namizje izrisano, zaporedoma po dva) in tecejo ves cas v realnem casu
     (brez dusenja skritih strani); izklopljen kanal ali izklopljena Sporocila: nic se ne nalozi, nic ne tece.
+  * Vsi spletni kanali so v enem spletnem procesu (os_splet.SKUPNI_PROCES, meritev tam); po padcu procesa vsi kanali
+    tiho dobijo nov pogled, spet v skupnem procesu.
   * Neprebrano: naslov strani (spletni_klepeti.neprebrano) oziroma splosni viri D-Bus za programe
     (core/znacke_programov.py); zadnje znano stevilo se shrani, da je znacka pravilna ze ob zagonu.
   * Mesto v oknu: stran Sporocil (HTML) pove pravokotnik vsebine (CSS px); kanal je v Gtk.Stack nad stranjo
@@ -138,7 +140,7 @@ class KanaliSporocil:
 
     def odstrani(self, kid: str, izbrisi_podatke: bool = False) -> list:
         k = self.kanali.najdi(kid)
-        self._unici(kid)
+        self._unici_in_sprosti(kid)
         if k is not None and izbrisi_podatke and k.get("url"):
             self._izbrisi_podatke_strani(k["url"])
         self.kanali.odstrani(kid)
@@ -161,7 +163,7 @@ class KanaliSporocil:
         if vklopljen and self.vklopljena():
             self._ustvari(k)
         else:
-            self._unici(kid)
+            self._unici_in_sprosti(kid)
             self.kanali.zapomni_neprebrano(kid, 0)
         self._sporoci()
         return self.seznam()
@@ -244,7 +246,7 @@ class KanaliSporocil:
             kid = k["id"]
             z.aplikacija = splet.aplikacija(k["url"], ob_naslovu=lambda n, kid=kid: self._naslov(kid, n, VIR_NASLOV),
                                             ob_obvestilu=lambda n, b, klik, kid=kid: self._obvestilo(kid, n, b, klik))
-            z.aplikacija.pogled.connect("load-changed", lambda p, d, kid=kid: self._nalaganje(kid, p, d))
+            z.aplikacija.povezi("load-changed", lambda p, d, kid=kid: self._nalaganje(kid, p, d))
             z.gradnik = z.aplikacija.gradnik
         self.zivi[k["id"]] = z
         return z
@@ -260,6 +262,17 @@ class KanaliSporocil:
                 c["vsebina_s"] = round(time.monotonic() - c["zacetek"], 2)
             self._nalozeno(kid)
             self._sporoci()
+
+    def _unici_in_sprosti(self, kid: str) -> None:
+        """Izklop ali odstranitev spletnega kanala: v skupnem procesu (os_splet.SKUPNI_PROCES) bi njegov pomnilnik
+        ostal procesu (meritev 15. 10. 2026: izklop 2 od 3 kanalov le 777,9 -> 704,8 MiB), zato ostali kanali dobijo
+        nov proces in stari se konca."""
+        z = self.zivi.get(kid)
+        spletni = z is not None and z.aplikacija is not None
+        self._unici(kid)
+        splet = self.jedro() if spletni else None
+        if splet is not None and any(x.aplikacija is not None for x in self.zivi.values()):
+            splet.sprosti_proces_aplikacij()
 
     def _unici(self, kid: str) -> None:
         z = self.zivi.pop(kid, None)
