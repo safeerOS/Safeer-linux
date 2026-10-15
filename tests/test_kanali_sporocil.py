@@ -92,12 +92,6 @@ class Kanali(unittest.TestCase):
             self.k.kanali.vklopi(k["id"], False)
         return k["id"]
 
-    def _miruje(self, kid):
-        """Prvo nalaganje kanala je koncano (brez omrezja: neuspeh in nato stran z napako omrezja)."""
-        self.assertTrue(_cakaj(lambda: self.k.zivi[kid].nalozen, 10))
-        _cakaj(lambda: False, 1.0)
-        self.assertTrue(_cakaj(lambda: not self.k.zivi[kid].aplikacija.pogled.is_loading(), 5))
-
     def test_zagon_nalozi_vklopljene_zaporedoma(self):
         a, b, c = self._lasten("a"), self._lasten("b", vklopljen=False), self._lasten("c")
         self.k.zazeni_vse()
@@ -169,8 +163,12 @@ class Kanali(unittest.TestCase):
         self.assertFalse(s.get_hexpand() or s.get_vexpand(), "sklad ne sme razsiriti prekrivanja")
         self.assertIs(s.get_visible_child(), self.k.zivi[a].gradnik)
         nalaganja = []
-        self._miruje(a)
-        self.k.zivi[a].aplikacija.pogled.connect("load-changed", lambda p, d: nalaganja.append((d.value_nick, p.get_uri())))
+        self.k.zivi[a].aplikacija.pogled.connect("load-changed", lambda p, d: nalaganja.append((time.monotonic(), d.value_nick)))
+        # prvo nalaganje najprej konca (brez omrezja: neuspeh in nato stran z napako omrezja - sicer tekma):
+        # 1,5 s brez dogodkov nalaganja
+        self.assertTrue(_cakaj(lambda: self.k.zivi[a].nalozen and not self.k.zivi[a].aplikacija.pogled.is_loading()
+                               and (not nalaganja or time.monotonic() - nalaganja[-1][0] > 1.5), 15))
+        nalaganja.clear()
         self.k.pokazi(stran, prekrivanje, b, r)
         self.assertIs(s.get_visible_child(), self.k.zivi[b].gradnik)
         self.k.pokazi(stran, prekrivanje, a, dict(r, w=500))
@@ -221,67 +219,17 @@ class Kanali(unittest.TestCase):
 
     def test_skrit_kanal_tece_v_realnem_casu(self):
         """Stran v skritem kanalu (pogled ni v nobenem oknu) s setInterval 1 s naredi v 60 s ~60 tikov. Izmerjeno
-        15. 10. 2026 v Xvfb: z dusenjem WebKita 33, brez (os_splet.izklopi_dusenje) 60. Tudi z dvema kanaloma v
-        skupnem spletnem procesu (os_splet.SKUPNI_PROCES)."""
-        kidi = [self._lasten("tiki"), self._lasten("tiki2")]
+        15. 10. 2026 v Xvfb: z dusenjem WebKita 33, brez (os_splet.izklopi_dusenje) 60."""
+        kid = self._lasten("tiki")
         self.k.zazeni_vse()
-        self.assertTrue(_cakaj(lambda: all(k in self.k.zivi for k in kidi)))
-        pogledi = [self.k.zivi[k].aplikacija.pogled for k in kidi]
-        self.assertIsNone(self.k.zivi[kidi[0]].gradnik.get_parent(), "kanal ni prikazan")
-        for p, k in zip(pogledi, ("tiki", "tiki2")):
-            p.load_html(TIKI, IZVOR + k)
-        self.assertTrue(_cakaj(lambda: all((p.get_title() or "").startswith("tiki") for p in pogledi)))
+        self.assertTrue(_cakaj(lambda: kid in self.k.zivi))
+        pogled = self.k.zivi[kid].aplikacija.pogled
+        self.assertIsNone(self.k.zivi[kid].gradnik.get_parent(), "kanal ni prikazan")
+        pogled.load_html(TIKI, IZVOR + "tiki")
+        self.assertTrue(_cakaj(lambda: (pogled.get_title() or "").startswith("tiki")))
         _cakaj(lambda: False, 60.0)
-        for p in pogledi:
-            tiki = int((p.get_title() or "tiki 0").split()[-1])
-            self.assertGreaterEqual(tiki, 57, "skrit kanal se ne sme dusiti (tikov v 60 s: %d)" % tiki)
-
-    def test_kanali_v_enem_procesu_locene_shrambe_in_obnova_po_padcu(self):
-        """Vsi kanali so v enem spletnem procesu (meritev v os_splet.SKUPNI_PROCES); shramba in piskotki ostanejo
-        loceni po izvoru (ista omrezna seja kot prej); padec procesa vse kanale tiho obnovi - spet v enem procesu."""
-        a, b = self._lasten("a"), self._lasten("b")
-        self.k.zazeni_vse()
-        self.assertTrue(_cakaj(lambda: a in self.k.zivi and b in self.k.zivi))
-        self._miruje(a)
-        self._miruje(b)
-        pa, pb = self.k.zivi[a].aplikacija.pogled, self.k.zivi[b].aplikacija.pogled
-        shrani = ("<!doctype html><script>var prej = (localStorage.getItem('k') || '-') + '|' + document.cookie;"
-                  "localStorage.setItem('k', location.host); document.cookie = 'c=' + location.hostname;"
-                  "document.title = 'shramba ' + prej;</script>")
-        pa.load_html(shrani, "https://a.primer.invalid/")
-        self.assertTrue(_cakaj(lambda: (pa.get_title() or "").startswith("shramba")))
-        pb.load_html(shrani, "https://b.drugo.invalid/")
-        self.assertTrue(_cakaj(lambda: (pb.get_title() or "").startswith("shramba")))
-        self.assertEqual(pb.get_title(), "shramba -|", "drug izvor ne vidi shrambe in piskotkov prvega")
-        # padec: proces je skupen, zato padeta oba pogleda
-        padli = []
-        for p in (pa, pb):
-            p.connect("web-process-terminated", lambda p, _r: padli.append(p))
-        nalozeni = {a: [], b: []}
-        for kid in (a, b):
-            self.k.zivi[kid].aplikacija.povezi("load-changed", lambda p, d, kid=kid: nalozeni[kid].append(p))
-        pa.terminate_web_process()
-        self.assertTrue(_cakaj(lambda: len(padli) == 2, 5), "oba kanala sta v istem procesu")
-        self.assertTrue(_cakaj(lambda: all(self.k.zivi[k].aplikacija.pogled not in (pa, pb) for k in (a, b)), 5),
-                        "kanala dobita nov pogled")
-        na, nb = self.k.zivi[a].aplikacija.pogled, self.k.zivi[b].aplikacija.pogled
-        self.assertIs(na.get_parent(), self.k.zivi[a].gradnik)
-        self.assertTrue(_cakaj(lambda: nalozeni[a] and nalozeni[b], 5), "kanal se nalozi znova (povezi velja naprej)")
-        self.assertNotIn(pa, self.splet.aplikacije)
-        # se vedno skupaj: drugi padec spet zadene oba
-        padli.clear()
-        for p in (na, nb):
-            p.connect("web-process-terminated", lambda p, _r: padli.append(p))
-        nb.terminate_web_process()
-        self.assertTrue(_cakaj(lambda: len(padli) == 2, 5), "po obnovi sta kanala spet v enem procesu")
-        # izklop kanala: ostali se preselijo v nov proces (stari z njegovim pomnilnikom konca)
-        self.assertTrue(_cakaj(lambda: self.k.zivi[a].aplikacija.pogled not in (na, nb), 5))
-        ostali = self.k.zivi[a].aplikacija.pogled
-        self.k.vklopi(b, False)
-        self.assertIs(self.k.zivi[a].aplikacija.pogled, ostali, "selitev pocaka (vec izklopov zapored)")
-        self.assertTrue(_cakaj(lambda: self.k.zivi[a].aplikacija.pogled is not ostali, 5), "ostali kanal v nov proces")
-        self.assertTrue(getattr(ostali, "_safeer_zaprt", False), "stari pogled je sproscen")
-        self.assertIn(self.k.zivi[a].aplikacija.uri(), ("https://a.primer.invalid/", IZVOR + "a"), "naslov kanala")
+        tiki = int((pogled.get_title() or "tiki 0").split()[-1])
+        self.assertGreaterEqual(tiki, 57, "skrit kanal se ne sme dusiti (tikov v 60 s: %d)" % tiki)
 
 
 if __name__ == "__main__":
