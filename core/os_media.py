@@ -16,7 +16,6 @@ import math
 import mimetypes
 import os
 import re
-import socket
 import subprocess
 import threading
 import time
@@ -40,6 +39,7 @@ from . import watch_providers
 from . import uvoz_seznama
 from . import seznami_sink
 from . import viri_sink
+from . import meritve_virov
 
 AUDIO = {".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".aac", ".wav", ".wma"}
 VIDEO = {".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v", ".mpeg", ".mpg", ".ts", ".m3u8"}
@@ -1278,8 +1278,8 @@ class MediaCenter:
         self._spoznavam_dodatke = False
         self._dodatki_vprasani: dict[str, float] = {}
         self._izvoz_virov_zapisan = False
-        self._ping_cache: dict[str, tuple[float, float]] = {}
-        self._ping_lock = threading.Lock()
+        #: Zapomnjene meritve odziva gostiteljev (core/meritve_virov.py) - ista za razlicice toka in lastne vgrajene vire.
+        self._meritve = meritve_virov.Meritve(self.config_dir / "meritve-virov.json")
         self._zakoniti_viri = zakoniti_viri.ZakonitiViri()
         #: Izvirni jezik naslovov z id-jem IMDb (Wikidata) za izbiro jezika vsebine; predpomnilnik je ob nastavitvah.
         self._izvirni_jeziki = izvirni_jezik.IzvirniJeziki(str(self.config_dir / "izvirni-jeziki.tsv"))
@@ -3711,7 +3711,13 @@ class MediaCenter:
                                           country_settings["drzava"], str(item.get("naslov") or ""))
         providers.update({"ime_drzave": country_settings["ime_drzave"],
                           "vir": "JustWatch prek TMDB"})
-        return dict(item, opis=raw.get("overview") or item.get("opis", ""),
+        # Id-ji za lastne vgrajene vire ({imdb}, {tvdb} - core/os_vgrajeni_viri.py): TMDB jih da v external_ids.
+        zunanji = raw.get("external_ids") if isinstance(raw.get("external_ids"), dict) else {}
+        imdb = item.get("imdb_id") or _imdb_id(zunanji.get("imdb_id"))
+        tvdb = item.get("tvdb_id") or _tmdb_id(zunanji.get("tvdb_id"))
+        leto = item.get("leto") or str(raw.get("release_date") or raw.get("first_air_date") or "")[:4]
+        return dict(item, imdb_id=imdb or "", tvdb_id=tvdb or 0, leto=leto,
+                    opis=raw.get("overview") or item.get("opis", ""),
                     ocena=round(float(raw.get("vote_average") or item.get("ocena") or 0), 1),
                     sezone=seasons, media_type=media_type, kje_gledati=providers)
 
@@ -4114,19 +4120,9 @@ class MediaCenter:
         return out
 
     def _izmeri_ping(self, url: str) -> None:
-        """V ozadju izmeri TCP odziv gostitelja; predvajanje na to ne čaka."""
+        """V ozadju izmeri odziv gostitelja (core/meritve_virov.py: 3 vzorci, mediana, zapomnjeno); predvajanje ne caka."""
         try:
-            parsed = urllib.parse.urlsplit(str(url))
-            host = parsed.hostname
-            if not host or parsed.scheme not in ("http", "https"):
-                return
-            port = parsed.port or (443 if parsed.scheme == "https" else 80)
-            zacetek = time.perf_counter()
-            with socket.create_connection((host, port), timeout=0.8):
-                pass
-            meritev = round((time.perf_counter() - zacetek) * 1000, 1)
-            with self._ping_lock:
-                self._ping_cache[f"{host}:{port}"] = (time.time(), meritev)
+            self._meritve.izmeri(str(url))
         except (OSError, ValueError):
             return
 
@@ -4134,28 +4130,18 @@ class MediaCenter:
         variants = item.get("razlicice") or []
         if len(variants) < 2:
             return item
-        zdaj = time.time()
-        scored = []
-        for variant in variants:
-            url = str(variant.get("url") or "")
-            parsed = urllib.parse.urlsplit(url)
-            key = f"{parsed.hostname}:{parsed.port or (443 if parsed.scheme == 'https' else 80)}" if parsed.hostname else ""
-            with self._ping_lock:
-                cached = self._ping_cache.get(key)
-            ping = cached[1] if cached and zdaj - cached[0] < 300 else 9999.0
-            quality = int(variant.get("locljivost") or 0)
-            # Ne čakamo na meritve: kakovost je začetni kriterij, svež ping pa
-            # ima prednost, ko je že na voljo.
-            # Lastni strežnik (merge_duplicates) ostane prvi; med ostalimi odloca svez ping, nato kakovost.
-            scored.append((0 if variant.get("lastni") else 1, 0 if ping < 9999 else 1, ping, -quality, variant))
-            if ping >= 9999 and url:
-                threading.Thread(target=self._izmeri_ping, args=(url,), daemon=True).start()
-        scored.sort(key=lambda row: row[:4])
-        best = scored[0][4]
+        # Skupno pravilo (meritve_virov.razvrsti): lastni strežnik, nato dosegljivi po zapomnjenem odzivu, neizmerjeni,
+        # nedosegljivi; znotraj enakih kakovost. Neizmerjene in zastarele izmerimo v ozadju za naslednjic.
+        urejene = meritve_virov.razvrsti([dict(v) for v in variants], self._meritve)
+        zastarele = [str(v.get("url") or "") for v in variants if self._meritve.zastarelo(str(v.get("url") or ""))]
+        if zastarele:
+            self._meritve.izmeri_v_ozadju(zastarele)
+        best = urejene[0]
+        ping = self._meritve.ms(str(best.get("url") or ""))
         out = dict(item)
-        out["razlicice"] = [row[4] for row in scored]
+        out["razlicice"] = urejene
         out["url"] = best.get("url", out.get("url"))
-        out["izbran_ping_ms"] = None if scored[0][2] >= 9999 else scored[0][2]
+        out["izbran_ping_ms"] = ping
         out["izbran_vir"] = best.get("vir", out.get("vir", ""))
         return out
 
