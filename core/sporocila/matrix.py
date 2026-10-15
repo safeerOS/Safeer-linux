@@ -43,6 +43,8 @@ class MatrixAdapter(Adapter):
         self._since = ""
         self._sobe: dict = {}      # room_id -> {"ime", "oseba", "clani": {uid: ime}, "sporocila": [Sporocilo], "neprebrano", "zadnji_event"}
         self._imena: dict = {}     # uid -> prikazno ime
+        #: Dolgi /sync (s): streznik zahtevo zadrzi, dokler ni novic. Nastavi nit kanala (sprotno.py); 0 = takoj.
+        self.dolgo_cakanje_s = 0.0
 
     @property
     def kljuc_skrivnosti(self): return "matrix:" + self.kanal_id
@@ -57,16 +59,22 @@ class MatrixAdapter(Adapter):
     def _skrivnost(self):
         return skrivnosti.zahtevaj(self.kljuc_skrivnosti, self._zeton, self._vnos_zetona)
 
-    def _api(self, pot: str, metoda: str = "GET", podatki=None, parametri: Optional[dict] = None, timeout: Optional[float] = None):
+    def _api(self, pot: str, metoda: str = "GET", podatki=None, parametri: Optional[dict] = None, timeout: Optional[float] = None,
+             dolga: bool = False):
         if not varen_streznik(self.streznik):
             raise ValueError("Naslov strežnika se mora začeti s https://")
         url = self.streznik + "/_matrix/client/v3" + pot + ("?" + urlencode(parametri) if parametri else "")
         telo = None if podatki is None else json.dumps(podatki, ensure_ascii=False).encode("utf-8")
-        zahteva = Request(url, data=telo, method=metoda, headers={"Authorization": "Bearer " + self._skrivnost(),
-                                                                   "Content-Type": "application/json", "Accept": "application/json"})
+        glave = {"Authorization": "Bearer " + self._skrivnost(), "Content-Type": "application/json", "Accept": "application/json"}
         try:
-            with urlopen(zahteva, timeout=timeout or self.timeout) as odgovor:  # nosec: streznik izrecno nastavi uporabnik
-                surovo = odgovor.read()
+            if dolga:
+                # Dolgi /sync: povezavo drzimo sami, da jo izklop kanala prekine takoj (sprotno.prekini_zahtevo).
+                from .sprotno import dolga_zahteva
+                surovo = dolga_zahteva(self, url, metoda, telo, glave, timeout or self.timeout)
+            else:
+                with urlopen(Request(url, data=telo, method=metoda, headers=glave),
+                             timeout=timeout or self.timeout) as odgovor:  # nosec: streznik izrecno nastavi uporabnik
+                    surovo = odgovor.read()
         except Exception as e:  # noqa: BLE001
             koda = getattr(e, "code", 0)
             if koda in (401, 403):
@@ -93,22 +101,26 @@ class MatrixAdapter(Adapter):
     def povezi(self) -> None:
         if not varen_streznik(self.streznik):
             raise ValueError("Naslov strežnika se mora začeti s https://")
+        if getattr(self, "_preverjen", False):
+            return      # dolga poizvedba: whoami samo enkrat na zagon (preklican zeton javi /sync z 401)
         kdo = self._api("/account/whoami")
         self.uporabnik = str(kdo.get("user_id") or "")
         if not self.uporabnik:
             raise NapakaPrijave("Žeton ni sprejet")
+        self._preverjen = True
 
     def ime_osebe(self, oseba_id: str) -> str:
         return self._imena.get(oseba_id) or (self._sobe.get(oseba_id, {}).get("ime") if oseba_id in self._sobe else "") or ""
 
     # ---- sinhronizacija ----
-    def _sync(self) -> None:
+    def _sync(self, cakaj_s: float = 0) -> None:
         filt = json.dumps({"room": {"timeline": {"limit": 30}, "ephemeral": {"types": []}, "state": {"types": ["m.room.name", "m.room.member", "m.room.canonical_alias"], "lazy_load_members": True}},
                            "presence": {"types": []}, "account_data": {"types": ["m.direct"]}}, separators=(",", ":"))
-        parametri = {"filter": filt, "timeout": "0"}
+        cakaj_ms = int(max(0, cakaj_s) * 1000) if self._since else 0
+        parametri = {"filter": filt, "timeout": str(cakaj_ms)}
         if self._since:
             parametri["since"] = self._since
-        odg = self._api("/sync", parametri=parametri, timeout=max(self.timeout, 30))
+        odg = self._api("/sync", parametri=parametri, timeout=max(self.timeout, 30, cakaj_ms / 1000 + 15), dolga=cakaj_ms > 0)
         self._since = str(odg.get("next_batch") or self._since)
         direktne = {}
         for dogodek in ((odg.get("account_data") or {}).get("events") or []):
@@ -165,7 +177,7 @@ class MatrixAdapter(Adapter):
 
     def pogovori(self, od: Optional[str] = None) -> Iterable[Pogovor]:
         zacetni = not self._since
-        self._sync()
+        self._sync(0 if zacetni else self.dolgo_cakanje_s)
         if zacetni and self._since:
             # Synapse zacetni /sync nekaj minut streze iz predpomnilnika (lahko je zastarel); inkrementalni
             # sync od next_batch takoj prinese, kar je v vmesnem casu prislo (preverjeno na lokalnem Synapse).
@@ -181,8 +193,9 @@ class MatrixAdapter(Adapter):
     def sporocila(self, pogovor_id: str, pred: Optional[str] = None, najvec: int = 50) -> Iterable[Sporocilo]:
         return list(self._sobe.get(pogovor_id, {}).get("sporocila", []))[-max(1, min(int(najvec), NAJVEC_NA_SOBO)):]
 
-    def poslji(self, pogovor_id: str, besedilo: str, priponke: Sequence[dict] = ()) -> Sporocilo:
-        txn = "safeer-" + uuid.uuid4().hex
+    def poslji(self, pogovor_id: str, besedilo: str, priponke: Sequence[dict] = (), idem: str = "") -> Sporocilo:
+        # idem: id transakcije iz cakalne vrste - streznik ponovljen PUT z istim txn ne objavi znova (Matrix C-S API).
+        txn = idem or ("safeer-" + uuid.uuid4().hex)
         odg = self._api("/rooms/" + quote(pogovor_id, safe="") + "/send/m.room.message/" + txn, "PUT", {"msgtype": "m.text", "body": besedilo})
         s = Sporocilo(str(odg.get("event_id") or txn), pogovor_id, "ven", besedilo, datetime.now(timezone.utc).isoformat(), [], "poslano")
         soba = self._sobe.setdefault(pogovor_id, {"ime": "", "oseba": pogovor_id, "clani": {}, "neprebrano": 0, "zadnji_event": "", "sporocila": []})
