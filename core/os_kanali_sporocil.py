@@ -101,12 +101,23 @@ class KanaliSporocil:
         return izid
 
     def katalog(self) -> list:
-        """Katalog za carovnik (spletni_klepeti.za_vmesnik) z »namescen« za namizne programe."""
-        izid = []
+        """Katalog za carovnik (spletni_klepeti.za_vmesnik) z »namescen« za namizne programe in ikono strani iz
+        predpomnilnika (core/ikone_strani). Manjkajoce ikone se prenesejo v ozadju neposredno s strani storitve (brez
+        piskotkov in tujih storitev za ikone); ko so tu, stran dobi dogodek »kanaliKatalog«. Zacetnica je le rezerva."""
+        from core import ikone_strani
+        izid, manjkajo = [], []
         for v in spletni_klepeti.za_vmesnik(self.jezik()):
+            v = dict(v, ikona="")
             if v.get("program"):
-                v = dict(v, namescen=namizni_programi.najdi(v["program"]) is not None)
+                v["namescen"] = namizni_programi.najdi(v["program"]) is not None
+            if v.get("splet"):
+                v["ikona"] = ikone_strani.iz_predpomnilnika(v["splet"])
+                if not v["ikona"]:
+                    manjkajo.append(v["splet"])
             izid.append(v)
+        manjkajo = [u for u in manjkajo if u not in self._ikone_poskusene]
+        if manjkajo:
+            self._prenesi_ikone(manjkajo, "kanaliKatalog")
         return izid
 
     def neprebrano_skupaj(self) -> int:
@@ -539,24 +550,33 @@ class KanaliSporocil:
             self._znacke.ustavi()
 
     # ------------------------------------------------------------------ ikone
-    def _prenesi_ikone(self, naslovi: list) -> None:
+    def _prenesi_ikone(self, naslovi: list, dogodek: str = "") -> None:
         if self._ikone_tecejo:
             return
         self._ikone_tecejo = True
-        self._ikone_poskusene.update(naslovi)
+        self._ikone_poskusene.update(naslovi[:30])
+        naslovi = naslovi[:30]
 
         def delo():
             from core import ikone_strani
             novih = 0
-            for url in naslovi[:20]:
-                ikona = ikone_strani.ikona_strani(url)
+            for url in naslovi:
+                try:
+                    ikona = ikone_strani.ikona_strani(url)
+                except Exception:  # noqa: BLE001 - brez omrezja ali stran brez ikone: ostane zacetnica
+                    ikona = ""
                 if ikona:
                     ikone_strani.shrani(url, ikona)
                     novih += 1
-            self.GLib.idle_add(lambda: (self._ikone_konec(novih), False)[1])
+            self.GLib.idle_add(lambda: (self._ikone_konec(novih, dogodek), False)[1])
         threading.Thread(target=delo, name="safeer-ikone-kanalov", daemon=True).start()
 
-    def _ikone_konec(self, novih: int) -> None:
+    def _ikone_konec(self, novih: int, dogodek: str = "") -> None:
         self._ikone_tecejo = False
         if novih:
             self._sporoci()
+            if dogodek:
+                try:
+                    self.dogodek(dogodek, None)
+                except Exception as e:  # noqa: BLE001
+                    print("[Sporocila] dogodek kataloga:", e, flush=True)

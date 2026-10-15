@@ -125,6 +125,14 @@ class KanaliSkoziStran(unittest.TestCase):
         p.start()
         self.addCleanup(p.stop)
         vklop.nastavi_sporocila(True)
+        from core import ikone_strani
+        self.prenosi_ikon = []
+        p2 = mock.patch.object(ikone_strani, "ikona_strani", lambda url: (self.prenosi_ikon.append(url), "")[1])
+        p2.start()          # brez omrezja: preizkus ne sme klicati strani storitev
+        self.addCleanup(p2.stop)
+        p3 = mock.patch.object(ikone_strani, "MAPA", tempfile.mkdtemp(dir=_DOM))   # predpomnilnik ikon preizkusa
+        p3.start()
+        self.addCleanup(p3.stop)
         self.splet.config.set(spletni_klepeti.Kanali.KLJUC, [])
         self.os = _os_razred()(self.splet)
         self.addCleanup(lambda: self.os._kanali_sporocil and self.os._kanali_sporocil.ustavi_vse())
@@ -174,6 +182,35 @@ class KanaliSkoziStran(unittest.TestCase):
         self.assertTrue(_cakaj(lambda: "whatsapp" in k.zivi and k.plasti, 5), "pogled kanala je nad stranjo")
         plast = next(iter(k.plasti.values()))
         self.assertTrue(plast["sklad"].get_visible())
+
+    def test_katalog_z_ikonami_strani(self):
+        # Ikona iz predpomnilnika core/ikone_strani (kot jo shrani prenos s strani); brez ikone ostane zacetnica.
+        from core import ikone_strani
+        ikona = ("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJ"
+                 "RU5ErkJggg==")
+        ikone_strani.shrani(spletni_klepeti.po_id("whatsapp")["splet"], ikona)
+        self._js("document.getElementById('sporocilaDodaj').click(), 1")
+        self._js("document.querySelector('#kanalVrstaIzbira [data-vrsta=aplikacije]').click(), 1")
+        vrsta = """Array.prototype.find.call(document.querySelectorAll('#kanalAplikacijeMreza .aplikacije-vrsta'),
+              function (x) { return x.querySelector('.ime').textContent.indexOf('%s') === 0; })"""
+        self.assertTrue(_cakaj(lambda: self._js("(%s || {querySelector: function () { return null; }}).querySelector('.kanal-znak img') ? (%s).querySelector('.kanal-znak img').getAttribute('src') : ''"
+                                                % (vrsta % "WhatsApp", vrsta % "WhatsApp")) == ikona, 10),
+                        "ikona strani v katalogu")
+        self.assertEqual(self._js("(%s).querySelector('.kanal-znak').textContent" % (vrsta % "Viber")), "V",
+                         "program brez spletne strani: zacetnica")
+        # namizni program, ki ni namescen: »Namesti« in »Izberi program« (oba delujeta), brez »Dodaj«
+        gumbi = self._js("Array.prototype.map.call((%s).querySelectorAll('button'), function (b) { return b.textContent; })"
+                         % (vrsta % "Viber"))
+        self.assertEqual(gumbi, ["Namesti", "Izberi program …"])
+        # manjkajoce ikone gredo po ikono neposredno na stran storitve (v ozadju), WhatsApp je ze v predpomnilniku
+        telegram = spletni_klepeti.po_id("telegram")["splet"]
+        self.assertTrue(_cakaj(lambda: telegram in self.prenosi_ikon, 5), self.prenosi_ikon)
+        self.assertNotIn(spletni_klepeti.po_id("whatsapp")["splet"], self.prenosi_ikon)
+
+    def test_podokno_osebe_skrito_brez_pogovora(self):
+        # Brez izbranega pogovora ni praznega avatarja in gumbov »Preimenuj«, »Zdruzi z …« (nic nedelujocega).
+        self.assertEqual(self._js("getComputedStyle(document.getElementById('sporocilaPanoVsebina')).display"), "none")
+        self.assertEqual(self._js("getComputedStyle(document.getElementById('sporocilaPano')).display"), "none")
 
     def test_neuspeh_pokaze_napako(self):
         # Neveljaven lasten naslov: carovnik ostane odprt z napako (nikoli tisina).

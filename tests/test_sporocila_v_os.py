@@ -175,7 +175,16 @@ class MostKanalov(unittest.TestCase):
                        "kanalIzbrisiPodatke", "kanalPokazi", "kanalPolozaj", "kanalSkrij", "kanalUkaz",
                        "kanalIzberiProgram", "sporocilaKanalVklop"):
             self.assertIn('"%s":' % metoda, vir, metoda)
-            self.assertIn('klic("%s"' % metoda, js, metoda)
+            self.assertTrue('klic("%s"' % metoda in js or 'klicKanala("%s"' % metoda in js, metoda)
+        # Kanali ustvarjajo in premikajo gradnike GTK in poglede WebKit: samo v glavni niti (slovar »glavna«), nikoli v
+        # niti ozadja (zivi preizkus 15. 10. 2026: »Dodaj v Sporocila« brez odziva).
+        telo = vir.split("def _obdelaj_klic", 1)[1]
+        glavna = telo.split("        glavna = {", 1)[1].split("\n        }\n", 1)[0]
+        ozadje = telo.split("        ozadje = {", 1)[1].split("\n        }\n", 1)[0]
+        for metoda in ("kanaliSeznam", "kanaliKatalog", "kanalDodaj", "kanalOdstrani", "kanalPreimenuj", "kanalPremakni",
+                       "kanalVklopi", "kanalIzbrisiPodatke", "kanalPokazi", "kanalPolozaj", "kanalSkrij", "kanalUkaz"):
+            self.assertIn('"%s":' % metoda, glavna, metoda)
+            self.assertNotIn('"%s":' % metoda, ozadje, metoda)
         html = beri("assets", "os", "index.html")
         for idn in ("vgrajenKanal", "vgrajenKanalVsebina", "slojVgrajenUredi", "kanalUrediVklop", "vgrajenUrediVklop"):
             self.assertIn('id="%s"' % idn, html)

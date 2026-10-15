@@ -63,6 +63,7 @@ nav button.izbran { background: var(--kartica-poudarek); border-color: var(--zel
   background: rgba(255, 255, 255, .06);
 }
 .gumb-ikona:hover { background: rgba(255, 255, 255, .12); }
+.gumb-ikona[hidden] { display:none; }   /* display:grid zgoraj bi prepisal hidden (npr. gumb podokna osebe brez pogovora) */
 .poganja { color: var(--medlo); font-size: 13px; }
 .poganja b { display: flex; align-items: center; gap: 8px; color: var(--zelena); font-size: 17px; margin-top: 4px; }
 .poganja svg { width: 20px; height: 20px; }
@@ -416,6 +417,9 @@ h2 .dodatno + .dodatno { margin-left: 14px; }
 .nabiralnik-seznam .pogovori-seznam { flex:1; max-height:none; border-right:0; }
 .pogovor-telo { flex:1; display:flex; min-height:0; }
 .pogovor-pano { width:260px; border-left:1px solid var(--rob); padding:16px; overflow-y:auto; display:flex; flex-direction:column; gap:16px; }
+/* Podokno osebe samo ob izbranem pogovoru: display:flex zgoraj bi sicer prepisal atribut hidden (prazen avatar in gumbi brez
+   osebe; zivi preizkus 15. 10. 2026). */
+.pogovor-pano[hidden] { display:none; }
 .pano-oseba { display:flex; flex-direction:column; align-items:center; gap:6px; text-align:center; }
 .pano-avatar { width:64px; height:64px; border-radius:50%; background:rgba(138, 199, 255,.18); color:var(--zelena); display:grid; place-items:center; font-size:24px; font-weight:700; }
 .pano-oseba small { color:var(--medlo); } .pano-gumbi { display:flex; gap:6px; margin-top:6px; } .pano-gumbi .gumb { padding:6px 10px; font-size:12px; }
