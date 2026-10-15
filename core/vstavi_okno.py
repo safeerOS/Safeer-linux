@@ -16,6 +16,8 @@ from typing import Callable, List, Optional, Tuple
 _ENTER_MASK, _LEAVE_MASK, _STRUCTURE_MASK, _PROPERTY_MASK = 1 << 4, 1 << 5, 1 << 17, 1 << 22
 ENTER_NOTIFY, LEAVE_NOTIFY, DESTROY_NOTIFY, UNMAP_NOTIFY, PROPERTY_NOTIFY = 7, 8, 17, 18, 28
 _REVERT_TO_PARENT = 2
+#: Button1Mask .. Button5Mask (X.h)
+_GUMBI_MASKA = 0x1F00
 _ANY_PROPERTY_TYPE = 0
 
 
@@ -79,7 +81,11 @@ class X11:
                                            ctypes.POINTER(ul)], i),
                 ("XSendEvent", [dpy, win, i, ctypes.c_long, ctypes.c_void_p], i),
                 ("XQueryTree", [dpy, win, ctypes.POINTER(ul), ctypes.POINTER(ul), ctypes.POINTER(ctypes.c_void_p),
-                                ctypes.POINTER(ctypes.c_uint)], i)):
+                                ctypes.POINTER(ctypes.c_uint)], i),
+                ("XChangeSaveSet", [dpy, win, i], i),
+                ("XQueryPointer", [dpy, win, ctypes.POINTER(ul), ctypes.POINTER(ul), ctypes.POINTER(i),
+                                   ctypes.POINTER(i), ctypes.POINTER(i), ctypes.POINTER(i), ctypes.POINTER(ctypes.c_uint)], i),
+                ("XGetInputFocus", [dpy, ctypes.POINTER(ul), ctypes.POINTER(i)], i)):
             f = getattr(L, ime)
             f.argtypes = args
             f.restype = vrne
@@ -102,6 +108,17 @@ class X11:
         self.lib.XMoveResizeWindow(self.dpy, okno, x, y, max(1, sirina), max(1, visina))
         self.lib.XFlush(self.dpy)
         self.sporoci_polozaj(okno)
+
+    def v_shrambo(self, dpy_starsa: int, okno: int, dodaj: bool = True) -> bool:
+        """Okno v »save-set« povezave, ki je ustvarila starsa (GDK): ce Safeer OS pade ali se konca brez vrni(), X
+        streznik tuje okno vrne korenskemu oknu in ga prikaze, namesto da ga unici skupaj z nasim oknom (izmerjeno
+        15. 10. 2026 v Xvfb: brez tega je okno izginilo in lazni program GTK4 je padel). Save-set velja samo za okna
+        povezave, ki je ustvarila starsa, zato ga nastavimo na povezavi GDK (dpy_starsa), ne na nasi."""
+        if not dpy_starsa:
+            return False
+        self.lib.XChangeSaveSet(ctypes.c_void_p(dpy_starsa), okno, 0 if dodaj else 1)   # SetModeInsert / Delete
+        self.lib.XFlush(ctypes.c_void_p(dpy_starsa))
+        return True
 
     def umakni(self, okno: int) -> None:
         """Okno odvzame upravljalniku oken (XWithdrawWindow). Na testnem PC (Muffin, 15. 10. 2026) je samo
@@ -147,6 +164,26 @@ class X11:
     def fokus(self, okno: int) -> None:
         self.lib.XSetInputFocus(self.dpy, okno, _REVERT_TO_PARENT, 0)
         self.lib.XFlush(self.dpy)
+
+    def gumbi_miske(self) -> int:
+        """Pritisnjeni gumbi miske (maska Button1..5 iz XQueryPointer); 0, ce nobeden."""
+        koren, otrok = ctypes.c_ulong(), ctypes.c_ulong()
+        rx, ry, x, y, maska = ctypes.c_int(), ctypes.c_int(), ctypes.c_int(), ctypes.c_int(), ctypes.c_uint()
+        if not self.lib.XQueryPointer(self.dpy, self.koren(), ctypes.byref(koren), ctypes.byref(otrok), ctypes.byref(rx),
+                                      ctypes.byref(ry), ctypes.byref(x), ctypes.byref(y), ctypes.byref(maska)):
+            return 0
+        return int(maska.value) & _GUMBI_MASKA
+
+    def fokus_v(self, okno: int) -> bool:
+        """Ali je fokus tipkovnice v oknu `okno` ali v katerem od njegovih podoken."""
+        f, nazaj = ctypes.c_ulong(), ctypes.c_int()
+        self.lib.XGetInputFocus(self.dpy, ctypes.byref(f), ctypes.byref(nazaj))
+        w, koren, korak = int(f.value), self.koren(), 0
+        while w and w != koren and korak < 32:
+            if w == okno:
+                return True
+            w, korak = self.stars(w), korak + 1
+        return False
 
     def zapri(self) -> None:
         if self.dpy:
@@ -232,13 +269,21 @@ class X11:
         v = self._cela_stevila(okno, "_NET_WM_PID")
         return int(v[0]) if v else 0
 
-    def najdi(self, razredi, okna: Optional[List[int]] = None) -> int:
-        """Prvo okno odjemalca, katerega WM_CLASS (ime ali razred, brez velikosti crk) je med `razredi`; 0, ce ga ni."""
+    def najdi(self, razredi, okna: Optional[List[int]] = None,
+              sprejmi: Optional[Callable[[int], bool]] = None) -> int:
+        """Prvo glavno okno odjemalca, katerega WM_CLASS (ime ali razred, brez velikosti crk) je med `razredi`; 0, ce
+        ga ni. Pogovorna okna (WM_TRANSIENT_FOR) niso glavno okno. sprejmi(pid): ali okno s tem _NET_WM_PID res pripada
+        programu (core/namizni_programi.pripada_programu) - WM_CLASS si lahko nastavi vsak program."""
         iskani = {str(r).casefold() for r in razredi if r}
         for okno in (okna if okna is not None else self.okna_odjemalcev()):
             ime, razred = self.razred(okno)
-            if ime.casefold() in iskani or razred.casefold() in iskani:
-                return okno
+            if ime.casefold() not in iskani and razred.casefold() not in iskani:
+                continue
+            if self._lastnost(okno, "WM_TRANSIENT_FOR")[1]:
+                continue
+            if sprejmi is not None and not sprejmi(self.pid(okno)):
+                continue
+            return okno
         return 0
 
     # ------------------------------------------------------------------ dogodki (vstop miske, zaprtje okna)
@@ -267,6 +312,25 @@ class Mesto:
     def __init__(self, Gtk, gradnik) -> None:
         self.Gtk, self.gradnik = Gtk, gradnik
         self.gtk3 = Gtk.get_major_version() == 3
+
+    def dpy_gdk(self) -> int:
+        """Kazalec Display* povezave GDK (ta je ustvarila X okno starsa); 0 brez X11."""
+        try:
+            prikaz = self.gradnik.get_display()
+            import gi
+            gi.require_version("GdkX11", "3.0" if self.gtk3 else "4.0")
+            from gi.repository import GdkX11
+            if not isinstance(prikaz, GdkX11.X11Display):
+                return 0
+            api = ctypes.pythonapi
+            api.PyCapsule_GetPointer.restype = ctypes.c_void_p
+            api.PyCapsule_GetPointer.argtypes = [ctypes.py_object, ctypes.c_char_p]
+            gdk = ctypes.CDLL("libgdk-3.so.0" if self.gtk3 else "libgtk-4.so.1")
+            gdk.gdk_x11_display_get_xdisplay.restype = ctypes.c_void_p
+            gdk.gdk_x11_display_get_xdisplay.argtypes = [ctypes.c_void_p]
+            return int(gdk.gdk_x11_display_get_xdisplay(api.PyCapsule_GetPointer(prikaz.__gpointer__, None)) or 0)
+        except Exception:  # noqa: BLE001 - Wayland ali GDK brez X11
+            return 0
 
     def xid_starsa(self) -> int:
         if self.gtk3:
@@ -325,8 +389,15 @@ class VstavljenoOkno:
     """Okno drugega programa nad gradnikom GTK4 (namestnik v Sporocilih). Sledi mestu in velikosti gradnika, se skrije,
     ko gradnik ni prikazan (drug kanal ali razdelek), in se ob koncu vrne na namizje.
 
-    Fokus tipkovnice: vstavljeno okno ga od upravljalnika oken ne dobi (upravlja le vrhnja okna), zato ga dobi, ko
-    miska vstopi vanj, in vrhnje okno ga dobi nazaj, ko miska izstopi (izmerjeno 15. 10. 2026 v Xvfb z XTest)."""
+    Fokus tipkovnice: vstavljeno okno ga od upravljalnika oken ne dobi (upravlja le vrhnja okna). Dobi ga ob KLIKU vanj,
+    Safeer ga dobi nazaj ob kliku na svoj del okna ali ko se kanal skrije; sam premik miske fokusa ne premakne (prej je
+    izhod miske programu vzel fokus sredi tipkanja; pregled 15. 10. 2026). Klika v tuje okno ne prestrezamo (brez
+    zgrabitve gumba, ki bi ob zastoju Safeerja zamrznila misko na vsem namizju): dokler je miska v oknu, na 30 ms beremo
+    stanje gumbov (XQueryPointer).
+
+    Omejitev X11 (izmerjeno v Xvfb 15. 10. 2026): ko ima fokus Safeer (vrhnje okno, ki je STARS vstavljenega okna) in je
+    miska nad vstavljenim oknom, X tipke dostavi oknu pod misko. To bi resilo le posredovanje tipk po XEmbed ali
+    vstavljanje v loceno vrhnje okno - ni narejeno."""
 
     def __init__(self, Gtk, GLib, gradnik, x11: Optional[X11] = None,
                  ob_naslovu: Optional[Callable[[str], None]] = None, ob_koncu: Optional[Callable[[], None]] = None) -> None:
@@ -338,12 +409,17 @@ class VstavljenoOkno:
         self._stars = 0
         self._vir = 0
         self.ob_naslovu, self.ob_koncu = ob_naslovu, ob_koncu
+        self._miska = 0              # casovnik branja gumbov, dokler je miska v vstavljenem oknu
+        self._pritisnjeno = False
+        self._klik_vrha = None       # (vrhnje okno, kretnja) - klik na Safeer vrne fokus
         gradnik.connect("map", lambda *_: self.vidno(True))
         gradnik.connect("unmap", lambda *_: self.vidno(False))
         if Gtk.get_major_version() != 3:
             gradnik.connect("resize", lambda *_: self.prilagodi())
 
     BRANJE_MS = 150
+    #: Branje gumbov miske, dokler je miska v vstavljenem oknu (klik je navadno 80-150 ms).
+    KLIK_MS = 30
     #: Najdlje cakanje, da upravljalnik oken izpusti umaknjeno okno (izmerjeno na testnem PC: do ~2,5 s).
     UMIK_MS, UMIK_KORAK_MS = 3000, 50
 
@@ -393,8 +469,10 @@ class VstavljenoOkno:
         if not stars or mesto is None or not self.okno:
             return
         if stars != self._stars:
+            self.x11.v_shrambo(self.mesto.dpy_gdk(), self.okno)
             self.x11.vstavi(self.okno, stars, *mesto)
             self._stars = stars
+            self._poslusaj_vrh()
         else:
             self.x11.velikost(self.okno, *mesto)
             self.x11.pokazi(self.okno, True)
@@ -419,7 +497,58 @@ class VstavljenoOkno:
             self._zadnje = None
             self._v_starsa()
         else:
+            self._fokus_nazaj()
+            self._miska_ven()
             self.x11.pokazi(self.okno, False)
+
+    # ------------------------------------------------------------------ fokus tipkovnice (klik)
+    def _poslusaj_vrh(self) -> None:
+        """Klik kamorkoli v Safeer (vrhnje okno gradnika) vrne fokus Safeerju, ce ga ima vstavljeni program."""
+        vrh = self.gradnik.get_root() if hasattr(self.gradnik, "get_root") else self.gradnik.get_toplevel()
+        if vrh is None or (self._klik_vrha is not None and self._klik_vrha[0] is vrh):
+            return
+        self._odklopi_vrh()
+        try:
+            kretnja = self.Gtk.GestureClick()
+            kretnja.set_button(0)
+            kretnja.set_propagation_phase(self.Gtk.PropagationPhase.CAPTURE)
+            kretnja.connect("pressed", lambda *_: self._fokus_nazaj())
+            vrh.add_controller(kretnja)
+            self._klik_vrha = (vrh, kretnja)
+        except Exception:  # noqa: BLE001 - GTK3 (brez kontrolerjev na oknu): fokus vrne skrivanje kanala
+            self._klik_vrha = None
+
+    def _odklopi_vrh(self) -> None:
+        if self._klik_vrha is not None:
+            try:
+                self._klik_vrha[0].remove_controller(self._klik_vrha[1])
+            except Exception:  # noqa: BLE001
+                pass
+            self._klik_vrha = None
+
+    def _fokus_nazaj(self) -> None:
+        if self.x11 is not None and self.okno and self._stars and self.x11.fokus_v(self.okno):
+            self.x11.fokus(self._stars)
+
+    def _miska_noter(self) -> None:
+        if not self._miska:
+            self._pritisnjeno = bool(self.x11.gumbi_miske())
+            self._miska = self.GLib.timeout_add(self.KLIK_MS, self._preveri_klik)
+
+    def _miska_ven(self) -> None:
+        if self._miska:
+            self.GLib.source_remove(self._miska)
+            self._miska = 0
+
+    def _preveri_klik(self) -> bool:
+        if self.x11 is None or not self.okno:
+            self._miska = 0
+            return False
+        dol = bool(self.x11.gumbi_miske())
+        if dol and not self._pritisnjeno and not self.x11.fokus_v(self.okno):
+            self.x11.fokus(self.okno)
+        self._pritisnjeno = dol
+        return True
 
     def _beri(self) -> None:
         if self.x11 is None:
@@ -428,12 +557,13 @@ class VstavljenoOkno:
             if okno != self.okno:
                 continue
             if vrsta == ENTER_NOTIFY:
-                self.x11.fokus(self.okno)
-            elif vrsta == LEAVE_NOTIFY and self._stars:
-                self.x11.fokus(self._stars)
+                self._miska_noter()
+            elif vrsta == LEAVE_NOTIFY:
+                self._miska_ven()
             elif vrsta == PROPERTY_NOTIFY and self.ob_naslovu is not None:
                 self.ob_naslovu(self.x11.naslov(self.okno))
             elif vrsta == DESTROY_NOTIFY:
+                self._miska_ven()
                 self.okno, self._stars = 0, 0
                 if self.ob_koncu is not None:
                     self.ob_koncu()
@@ -443,6 +573,8 @@ class VstavljenoOkno:
 
     def vrni(self) -> None:
         """Okno nazaj na namizje (konec Safeer OS, izklop kanala): program tece naprej v svojem oknu."""
+        self._miska_ven()
+        self._odklopi_vrh()
         if self.x11 is not None and self.okno:
             try:
                 self.x11.vrni_na_namizje(self.okno)

@@ -62,6 +62,36 @@ class Vstavljanje(unittest.TestCase):
         except subprocess.TimeoutExpired:
             self.otrok.kill()
 
+    def test_okno_samo_od_pravega_procesa(self):
+        """WM_CLASS si lahko nastavi vsak program: okno se izbere samo, ce _NET_WM_PID pripada programu."""
+        self.assertTrue(_cakaj(lambda: self.x.najdi(["safeer-lazni-program"]), 5))
+        okno = self.x.najdi(["safeer-lazni-program"])
+        self.assertEqual(self.x.pid(okno), self.otrok.pid)
+        self.assertEqual(self.x.najdi(["safeer-lazni-program"], sprejmi=lambda pid: False), 0)
+        self.assertEqual(self.x.najdi(["safeer-lazni-program"], sprejmi=lambda pid: pid == self.otrok.pid), okno)
+        program = {"ukazi": ["viber"], "razredi": ["safeer-lazni-program"]}
+        self.assertFalse(namizni_programi.pripada_programu(self.otrok.pid, {"ukaz": ["/opt/viber/Viber"]}, program),
+                         "tuj proces (python) z enakim WM_CLASS ni program kanala")
+        self.assertTrue(namizni_programi.pripada_programu(self.otrok.pid, {"ukaz": ["/opt/viber/Viber"]}, program,
+                                                          [self.otrok.pid]), "proces, ki ga je zagnal Safeer")
+
+    def test_padec_safeer_okno_programa_ostane(self):
+        """Safeer OS pade (SIGKILL) z vstavljenim oknom: okno programa se vrne na namizje in ostane (X11 save-set),
+        ne izgine skupaj z nasim oknom (pregled 15. 10. 2026)."""
+        import signal
+        self.assertTrue(_cakaj(lambda: self.x.najdi(["safeer-lazni-program"]), 5))
+        tuje = self.x.najdi(["safeer-lazni-program"])
+        vstavi = subprocess.Popen([sys.executable, os.path.join(KOREN, "tests", "fixtures", "vstavi_in_padi.py"),
+                                   "safeer-lazni-program", KOREN], stdout=subprocess.PIPE, text=True)
+        self.addCleanup(lambda: vstavi.poll() is None and vstavi.kill())
+        self.assertTrue(vstavi.stdout.readline().startswith("vstavljeno"))
+        self.assertNotEqual(self.x.stars(tuje), self.x.koren())
+        vstavi.send_signal(signal.SIGKILL)
+        vstavi.wait(5)
+        self.assertTrue(_cakaj(lambda: self.x.stars(tuje) == self.x.koren(), 3), "okno programa nazaj na namizju")
+        self.assertEqual(self.x.stanje_prikaza(tuje), 2, "okno programa je vidno")
+        self.assertIsNone(self.otrok.poll(), "program tece naprej")
+
     def test_vstavi_sledi_skrije_tipke_vrne(self):
         self.assertTrue(_cakaj(lambda: self.x.najdi(["SAFEER-lazni-program"]), 5), "iskanje po razredu brez velikosti crk")
         okno_programa = self.x.najdi(["safeer-lazni-program"])
@@ -69,7 +99,9 @@ class Vstavljanje(unittest.TestCase):
         okno = Gtk.Window()
         okno.set_default_size(800, 600)
         skatla = Gtk.Box()
-        skatla.append(Gtk.Label(label="stran"))
+        nas_vnos = Gtk.Entry()          # vnos Safeerja: tipke, ki jih uporabnik tipka v Safeer
+        nas_vnos.set_size_request(80, -1)
+        skatla.append(nas_vnos)
         mesto = Gtk.DrawingArea()
         mesto.set_hexpand(True)
         mesto.set_vexpand(True)
@@ -96,31 +128,58 @@ class Vstavljanje(unittest.TestCase):
         self.assertTrue(_cakaj(lambda: self.x.stanje_prikaza(okno_programa) == vstavi_okno.IS_UNMAPPED, 2))
         mesto.set_visible(True)
         self.assertTrue(_cakaj(lambda: self.x.stanje_prikaza(okno_programa) == 2, 2))
-        # tipkovnica: miska vstopi v vstavljeno okno -> fokus programu, tipke XTest pridejo v njegov vnos
+        # Tipkovnica (pregled 15. 10. 2026): sam prehod miske program NE dobi fokusa (tipke ostanejo v Safeerju); klik v
+        # program mu da fokus; klik v Safeer ga vrne.
         xtst = ctypes.cdll.LoadLibrary("libXtst.so.6")
         xtst.XTestFakeMotionEvent.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_ulong]
         xtst.XTestFakeKeyEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_int, ctypes.c_ulong]
+        xtst.XTestFakeButtonEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_int, ctypes.c_ulong]
         self.x.lib.XKeysymToKeycode.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
         self.x.lib.XKeysymToKeycode.restype = ctypes.c_ubyte
-        # Miska najprej na nas del okna (napis levo od vstavljenega okna), nato v vstavljeno okno - vstop je dogodek.
-        lx, ly, _o = ctypes.c_int(), ctypes.c_int(), ctypes.c_ulong()
-        self.x.lib.XTranslateCoordinates(self.x.dpy, nase, self.x.koren(), max(1, r[0] // 2), 5, ctypes.byref(lx),
-                                         ctypes.byref(ly), ctypes.byref(_o))
-        xtst.XTestFakeMotionEvent(self.x.dpy, -1, lx.value, ly.value, 0)
-        self.x.lib.XFlush(self.x.dpy)
-        _cakaj(lambda: False, 0.4)
-        rx, ry = ctypes.c_int(), ctypes.c_int()
-        self.x.lib.XTranslateCoordinates(self.x.dpy, okno_programa, self.x.koren(), 20, 20, ctypes.byref(rx),
-                                         ctypes.byref(ry), ctypes.byref(_o))
-        xtst.XTestFakeMotionEvent(self.x.dpy, -1, rx.value, ry.value, 0)
-        self.x.lib.XFlush(self.x.dpy)
-        _cakaj(lambda: False, 0.5)
-        for crka in "safeer":
-            kc = self.x.lib.XKeysymToKeycode(self.x.dpy, ord(crka))
-            xtst.XTestFakeKeyEvent(self.x.dpy, kc, 1, 0)
-            xtst.XTestFakeKeyEvent(self.x.dpy, kc, 0, 0)
-        self.x.lib.XFlush(self.x.dpy)
-        _cakaj(lambda: False, 0.8)
+        _o = ctypes.c_ulong()
+
+        def miska(okno_, x, y):
+            rx, ry = ctypes.c_int(), ctypes.c_int()
+            self.x.lib.XTranslateCoordinates(self.x.dpy, okno_, self.x.koren(), x, y, ctypes.byref(rx), ctypes.byref(ry),
+                                             ctypes.byref(_o))
+            xtst.XTestFakeMotionEvent(self.x.dpy, -1, rx.value, ry.value, 0)
+            self.x.lib.XFlush(self.x.dpy)
+            _cakaj(lambda: False, 0.4)
+
+        def klik():
+            xtst.XTestFakeButtonEvent(self.x.dpy, 1, 1, 0)
+            self.x.lib.XFlush(self.x.dpy)
+            _cakaj(lambda: False, 0.12)          # kratek klik (pod 150 ms)
+            xtst.XTestFakeButtonEvent(self.x.dpy, 1, 0, 0)
+            self.x.lib.XFlush(self.x.dpy)
+            _cakaj(lambda: False, 0.4)
+
+        def tipkaj(besedilo):
+            for crka in besedilo:
+                kc = self.x.lib.XKeysymToKeycode(self.x.dpy, ord(crka))
+                xtst.XTestFakeKeyEvent(self.x.dpy, kc, 1, 0)
+                xtst.XTestFakeKeyEvent(self.x.dpy, kc, 0, 0)
+            self.x.lib.XFlush(self.x.dpy)
+            _cakaj(lambda: False, 0.6)
+        miska(nase, 10, 10)
+        klik()                                    # klik v nas vnos: fokus Safeerju
+        nas_vnos.grab_focus()
+        self.x.fokus(nase)
+        _cakaj(lambda: False, 0.3)
+        tipkaj("ab")
+        self.assertEqual(nas_vnos.get_text(), "ab")
+        miska(okno_programa, 20, 20)              # samo prehod miske: fokus ostane Safeerju
+        self.assertFalse(self.x.fokus_v(okno_programa), "prehod miske ne premakne fokusa")
+        klik()                                    # klik v program: fokus programu
+        self.assertTrue(self.x.fokus_v(okno_programa))
+        tipkaj("safeer")
+        self.assertEqual(nas_vnos.get_text(), "ab")
+        miska(nase, 10, 10)                       # samo izhod miske: program obdrzi fokus (prej ga je izgubil)
+        self.assertTrue(self.x.fokus_v(okno_programa), "izhod miske ne vzame fokusa programu")
+        klik()                                    # klik v Safeer: fokus nazaj
+        self.assertFalse(self.x.fokus_v(okno_programa))
+        tipkaj("c")
+        self.assertEqual(sorted(nas_vnos.get_text()), ["a", "b", "c"], "tipke spet v Safeerju (klik postavi kazalec)")
         # vrnitev na namizje: okno programa spet otrok korenskega okna, program tece naprej
         v.vrni()
         self.assertTrue(_cakaj(lambda: self.x.stars(okno_programa) == self.x.koren(), 2))
@@ -128,6 +187,7 @@ class Vstavljanje(unittest.TestCase):
         self._koncaj_otroka()
         izhod = self.otrok.stdout.read()
         self.assertIn("vnos:safeer", izhod, "tipke so prisle v vstavljeni program")
+        self.assertNotIn("safeerc", izhod)
 
 
 @unittest.skipUnless(os.environ.get("DISPLAY") and _x11() is not None, "potrebuje X11 (Xvfb)")
@@ -223,6 +283,71 @@ class Zaznava(unittest.TestCase):
         self.assertIn("org.signal.Signal.desktop", signal["program"]["vnosi"])
         self.assertIn("--ozone-platform=x11", signal["program"]["argumenti"], "Electron mora odpreti okno X11")
         self.assertEqual(signal["prenos"], "https://signal.org/download/", "Flatpak je neuraden - uradna stran")
+
+    def test_exec_kode_polj_in_nevarni_ukazi(self):
+        f = namizni_programi.ukaz_iz_exec
+        self.assertEqual(f("/opt/Signal/signal-desktop --no-sandbox %U"), ["/opt/Signal/signal-desktop", "--no-sandbox"])
+        self.assertEqual(f('"/opt/My App/app" --file=%f --name=100%% %i'), ["/opt/My App/app", "--file=", "--name=100%"])
+        self.assertEqual(f("/usr/bin/flatpak run --command=signal-desktop org.signal.Signal @@u %U @@"),
+                         ["/usr/bin/flatpak", "run", "--command=signal-desktop", "org.signal.Signal", "@@u", "@@"])
+        self.assertEqual(f("--help"), [], "prvi argument z »-« bi flatpak-spawn bral kot moznost")
+        self.assertEqual(f('"neprekinjeno'), [])
+        self.assertEqual(f("%U"), [])
+        # zazeni: brez lupine, nevaren prvi argument zavrnjen
+        from unittest import mock
+        with mock.patch.object(namizni_programi.subprocess, "Popen") as popen:
+            self.assertIsNone(namizni_programi.zazeni({"ukaz": ["--env=X=1", "sh"]}))
+            self.assertIsNone(namizni_programi.zazeni({"ukaz": []}))
+            popen.assert_not_called()
+        with mock.patch.object(namizni_programi.gostitelj, "v_flatpaku", lambda: True), \
+                mock.patch.object(namizni_programi.shutil, "which", lambda u: "/usr/bin/" + u), \
+                mock.patch.object(namizni_programi.subprocess, "Popen") as popen:
+            namizni_programi.zazeni({"ukaz": ["/opt/viber/Viber", "--x"]})
+            argv = popen.call_args[0][0]
+            self.assertEqual(argv[:2], ["flatpak-spawn", "--host"])
+            self.assertTrue(argv[2].startswith("--env=DISPLAY="))
+            self.assertEqual(argv[3:], [namizni_programi.gostitelj.na_gostitelju("/opt/viber/Viber"), "--x"])
+            self.assertNotIn("shell", popen.call_args[1])
+
+    def test_izbrana_pot_absolutna_navadna_izvrsljiva(self):
+        ai = self._izvrsljiva(os.path.join(self.mapa, "Viber.AppImage"))
+        self.assertTrue(namizni_programi.je_izvrsljiva(ai))
+        self.assertFalse(namizni_programi.je_izvrsljiva(os.path.relpath(ai)), "relativna pot")
+        self.assertFalse(namizni_programi.je_izvrsljiva(self.mapa), "mapa ni program")
+        self.assertFalse(namizni_programi.je_izvrsljiva(""))
+        fifo = os.path.join(self.mapa, "cev")
+        os.mkfifo(fifo)
+        os.chmod(fifo, 0o755)
+        self.assertFalse(namizni_programi.je_izvrsljiva(fifo), "posebna datoteka ni program")
+
+    def test_pripada_programu(self):
+        f = namizni_programi.pripada_programu
+        self.assertFalse(f(os.getpid(), {"ukaz": ["/x"]}, {}), "nikoli nase okno")
+        self.assertTrue(f(0, {"ukaz": ["/x"]}, {}), "okno brez PID: preveriti ni mogoce")
+        self.assertTrue(f(4194304 + 7, {"ukaz": ["/x"]}, {}), "procesa ne vidimo (drug imenski prostor)")
+        kopija = os.path.join(self.mapa, "viber-preizkus")
+        shutil.copy(shutil.which("sleep"), kopija)
+        p = subprocess.Popen([kopija, "30"])
+        self.addCleanup(p.kill)
+        tuj = subprocess.Popen(["sleep", "30"])
+        self.addCleanup(tuj.kill)
+        program = {"ukazi": ["viber"], "razredi": ["ViberPC", "Viber"]}
+        self.assertTrue(f(p.pid, {"ukaz": ["/opt/viber/Viber"]}, program), "ime programa v poti procesa")
+        self.assertFalse(f(tuj.pid, {"ukaz": ["/opt/viber/Viber"]}, program), "drug program z WM_CLASS Viber")
+        lupina = subprocess.Popen(["sh", "-c", "sleep 30 & wait"])
+        self.addCleanup(lupina.kill)
+        otrok = None
+        rok = time.monotonic() + 3
+        while otrok is None and time.monotonic() < rok:
+            try:
+                otrok = int(open("/proc/%d/task/%d/children" % (lupina.pid, lupina.pid)).read().split()[0])
+            except (OSError, IndexError, ValueError):
+                time.sleep(0.05)
+        self.assertIsNotNone(otrok)
+        self.addCleanup(lambda: os.kill(otrok, 9))
+        self.assertTrue(f(otrok, {"ukaz": ["/opt/viber/Viber"]}, program, [lupina.pid]), "potomec zagnanega procesa")
+        self.assertTrue(f(tuj.pid, {"ukaz": ["/usr/bin/flatpak", "run", "com.viber.Viber"]}, program),
+                        "program v Flatpaku: PID je iz peskovnika, preverba ni mogoca")
 
     def test_wayland_ni_vgradnje(self):
         from unittest import mock

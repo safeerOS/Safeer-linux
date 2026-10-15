@@ -47,6 +47,7 @@ class _Kanal:
         self.vir = VIR_NASLOV + 1
         self.obvestil = 0               # vir 3: obvestila programa od zadnjega odprtja kanala
         self.iskanje = 0
+        self.zagnani: list = []         # PID-i procesov, ki jih je zagnal Safeer (preverba lastnika okna)
 
 
 class KanaliSporocil:
@@ -328,10 +329,10 @@ class KanaliSporocil:
             namizni_programi.zazeni(najdba)
             z.nalozen = True
             return True
-        okno = x11.najdi(najdba["razredi"])
+        okno = x11.najdi(najdba["razredi"], sprejmi=self._lastnik_okna(z))
         x11.zapri()
         if not okno:
-            namizni_programi.zazeni(najdba)      # ce program ze tece v pladnju, navadno pokaze svoje okno
+            self._zazeni(z)      # ce program ze tece v pladnju, navadno pokaze svoje okno
         z.iskanje = self.GLib.timeout_add(500, self._isci_okno, kid, time.monotonic(), bool(okno))
         return True
 
@@ -350,7 +351,7 @@ class KanaliSporocil:
             return False
         try:
             x11 = vstavi_okno.X11()
-            okno = x11.najdi(z.program["razredi"])
+            okno = x11.najdi(z.program["razredi"], sprejmi=self._lastnik_okna(z))
             x11.zapri()
         except OSError:
             okno = 0
@@ -371,6 +372,18 @@ class KanaliSporocil:
             self._nalozeno(kid)
             return False
         return True
+
+    def _zazeni(self, z: _Kanal) -> None:
+        proces = namizni_programi.zazeni(z.program)
+        if proces is not None:
+            z.zagnani = (z.zagnani + [proces.pid])[-8:]
+
+    @staticmethod
+    def _lastnik_okna(z: _Kanal):
+        """Okno vstavimo samo, ce pripada programu kanala (zagnal ga je Safeer ali je to ta program po imenu procesa),
+        ne kateremukoli oknu z enakim WM_CLASS (pregled 15. 10. 2026)."""
+        vnos = spletni_klepeti.po_id(z.podatki.get("katalog", "")) or {}
+        return lambda pid: namizni_programi.pripada_programu(pid, z.program or {}, vnos.get("program") or {}, z.zagnani)
 
     def _program_zaprl_okno(self, kid: str) -> None:
         """Program je zaprl (unicil) svoje okno: ob naslednjem prikazu kanala ga poiscemo ali zazenemo znova."""
@@ -523,7 +536,7 @@ class KanaliSporocil:
     def _ustvari_program_okno(self, z: _Kanal) -> bool:
         if z.program is None:
             return False
-        namizni_programi.zazeni(z.program)
+        self._zazeni(z)
         z.iskanje = self.GLib.timeout_add(500, self._isci_okno, z.podatki["id"], time.monotonic(), False)
         return True
 
