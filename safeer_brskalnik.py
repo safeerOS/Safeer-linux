@@ -17,16 +17,14 @@ KOREN = os.path.dirname(os.path.abspath(__file__))
 if KOREN not in sys.path:
     sys.path.insert(0, KOREN)
 
-if os.environ.get("FLATPAK_ID") and os.path.isdir("/app/host-bin"):
-    # Kot packaging/safeer-os-launcher: orodja racunalnika (gio za »Odpri z«, povezave mailto: ...) prek ovojev in iste
-    # mape podatkov kot .deb (prijave, zaznamki). Preizkus 14. 10.: brez tega je bil mailto »program ni najden«.
-    # Pred uvozom core.config (CONFIG_DIR se doloci ob uvozu).
-    if "/app/host-bin" not in os.environ.get("PATH", "").split(":"):
-        os.environ["PATH"] = "/app/host-bin:" + os.environ.get("PATH", "")
-    _dom = os.path.expanduser("~")
-    os.environ["XDG_CONFIG_HOME"] = os.path.join(_dom, ".config")
-    os.environ["XDG_DATA_HOME"] = os.path.join(_dom, ".local", "share")
-    os.environ["XDG_CACHE_HOME"] = os.path.join(_dom, ".cache")
+if os.environ.get("FLATPAK_ID"):
+    # Flatpak od 1.0.127 brez dostopa do gostitelja (lastnik, 15. 10. 2026): brez ovojev /app/host-bin in brez celega
+    # doma. Nastavitve, prijave in zaznamki ostanejo skupni s paketom .deb: manifest pokaze samo ~/.config/safeer-mint
+    # (--filesystem=xdg-config/safeer-mint:create), drugi podatki (predpomnilnik, seznami groženj, Safeer DRM) so v
+    # zasebni mapi Flatpaka (~/.var/app/<ID>). Pred uvozom core.config (CONFIG_DIR se doloci ob uvozu).
+    _skupna = os.path.join(os.path.expanduser("~"), ".config", "safeer-mint")
+    if os.path.isdir(_skupna) and os.access(_skupna, os.W_OK):
+        os.environ.setdefault("SAFEER_MINT_CONFIG_DIR", _skupna)
 
 from core import pomnilnik  # noqa: E402
 pomnilnik.omeji_arene(2)
@@ -133,10 +131,11 @@ def besedila_privzetega() -> tuple:
 
 
 def nastavi_privzetega() -> tuple:
-    """(uspeh, napake) - .deb, Flatpak (prek racunalnika); AppImage pove, kje se nastavi (core/default_browser.py)."""
+    """(uspeh, napake) - .deb nastavi sam; Flatpak (brez portala za to) in AppImage povesta, kje v nastavitvah sistema
+    se nastavi (core/default_browser.py)."""
     from core.default_browser import set_default_browser
     try:
-        return set_default_browser(KOREN)
+        return set_default_browser(KOREN, jezik())
     except Exception as e:  # noqa: BLE001 - klik ne sme zapreti okna
         return False, [repr(e)]
 
@@ -191,7 +190,7 @@ class SafeerBrskalnik(Gtk.Application):
         vrsta.set_name("splet-pojavna")
         for stran in ("set_margin_start", "set_margin_end", "set_margin_top", "set_margin_bottom"):
             getattr(vrsta, stran)(4)
-        napis = Gtk.Label(label=besedila[0], xalign=0, hexpand=True)
+        napis = Gtk.Label(label=besedila[0], xalign=0, hexpand=True, wrap=True)   # navodila Flatpaka so daljsa
         nastavi = Gtk.Button(label=besedila[1])
         nikoli = Gtk.Button(label=besedila[2])
         for g in (napis, nastavi, nikoli):
@@ -204,7 +203,8 @@ class SafeerBrskalnik(Gtk.Application):
                 napis.set_text(besedila[3]); nastavi.set_visible(False); nikoli.set_visible(False)
                 GLib.timeout_add_seconds(4, lambda: rev.set_reveal_child(False) or False)
             else:
-                napis.set_text("; ".join(napake)[:200])
+                napis.set_text("; ".join(napake)[:400])
+                nastavi.set_visible(False)      # Flatpak: navodila namesto gumba, ki ne more nic narediti
 
         def ob_nikoli(*_):
             self.splet.config.set("check_default_browser", False)

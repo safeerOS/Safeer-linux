@@ -168,11 +168,47 @@ class Splet(unittest.TestCase):
         self.assertIn("gost.tipka(e)", vir)
         self.assertIn("self._drm_konec(z)", vir)
 
-    def test_flatpak_zazene_na_gostitelju(self):
+    def test_flatpak_safeer_os_zazene_na_gostitelju(self):
+        """Safeer OS (Flatpak z org.freedesktop.Flatpak): kot doslej na gostitelju."""
+        ukaz = p.ukaz_zagona(["/d/safeer-drm", "--url=https://a.test/"], peskovnik=False, gostitelj=True)
+        self.assertEqual(ukaz[:3], ["flatpak-spawn", "--host", "--watch-bus"])
+        self.assertTrue(any(a.startswith("--env=DISPLAY=") for a in ukaz))
+        self.assertEqual(ukaz[-2:], ["/d/safeer-drm", "--url=https://a.test/"])
         vir = (KOREN / "core" / "safeer_drm.py").read_text(encoding="utf-8")
-        self.assertIn('["flatpak-spawn", "--host", "--watch-bus",', vir)
-        self.assertIn('"--env=DISPLAY=" + os.environ.get("DISPLAY", "")', vir)
         self.assertIn('f"--lastnik={os.getpid()}"', vir)
+
+    def test_brskalnik_v_peskovniku_prek_zypaka(self):
+        """Safeer Browser (Flatpak brez dostopa do gostitelja): zypak-wrapper v istem peskovniku, nikoli na gostitelju
+        in nikoli brez peskovnika Chromiuma (brez zypaka se ne zazene)."""
+        with tempfile.TemporaryDirectory() as d:
+            zypak = os.path.join(d, "zypak-wrapper")
+            with open(zypak, "w") as f:
+                f.write("#!/bin/sh\n")
+            os.chmod(zypak, 0o755)
+            ukaz = p.ukaz_zagona(["/d/safeer-drm", "--parent=5"], peskovnik=True, zypak=zypak)
+            self.assertEqual(ukaz, [zypak, "/d/safeer-drm", "--parent=5"])
+            self.assertNotIn("--no-sandbox", ukaz)
+            self.assertIsNone(p.ukaz_zagona(["/d/safeer-drm"], peskovnik=True, zypak=os.path.join(d, "ni")))
+        self.assertEqual(p.ukaz_zagona(["/d/safeer-drm"], peskovnik=False, gostitelj=False), ["/d/safeer-drm"])
+
+    def test_peskovnik_mape_in_widevine(self):
+        """V peskovniku so paket, seje in Widevine v zasebnih mapah XDG Flatpaka; mapa WidevineCdm obstaja pred zagonom
+        (zypak izpostavi samo obstojeco)."""
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.dict(os.environ, {"XDG_DATA_HOME": d + "/data", "XDG_CACHE_HOME": d + "/cache",
+                                             "XDG_CONFIG_HOME": d + "/config"}), \
+                mock.patch.object(p, "v_peskovniku", return_value=True):
+            self.assertEqual(str(p.koren()), d + "/data/safeer-drm")
+            self.assertEqual(str(p.mapa_sej()), d + "/cache/safeer-drm")
+            okolje = p.okolje_zagona(True)
+            self.assertEqual(okolje["ZYPAK_EXPOSE_WIDEVINE_PATH"], d + "/config/Safeer DRM/WidevineCdm")
+            self.assertTrue(os.path.isdir(okolje["ZYPAK_EXPOSE_WIDEVINE_PATH"]))
+            # Program je v zasebni mapi podatkov: podpeskovnik ga vidi samo prek ZYPAK_EXPOSE_PATHS (nas popravek zypaka).
+            self.assertEqual(okolje["ZYPAK_EXPOSE_PATHS"], str(p.mapa_verzije()))
+        manifest = (KOREN / "io.github.memelandfaner.SafeerBrowser.yml").read_text(encoding="utf-8")
+        self.assertIn("path: packaging/zypak/zypak-expose-paths.patch", manifest)
+        self.assertIn("ZYPAK_EXPOSE_PATHS", (KOREN / "packaging/zypak/zypak-expose-paths.patch").read_text())
+        self.assertIsNone(p.okolje_zagona(False))
 
     def test_logika_je_s_safeer_os(self):
         self.assertTrue((KOREN / "assets" / "safeer_drm" / "main.js").is_file())

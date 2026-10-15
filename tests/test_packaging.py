@@ -170,20 +170,24 @@ class PackagingTests(unittest.TestCase):
         self.assertNotIn('Actions',d)
         subprocess.run(['desktop-file-validate',str(ROOT/'packaging/safeer-browser.desktop')],check=True)
 
-    def test_browser_launcher_in_flatpak_uses_host_tools_and_deb_data(self):
-        """Kot packaging/safeer-os-launcher: ovoji orodij gostitelja in iste mape podatkov kot .deb."""
+    def test_browser_launcher_in_flatpak_has_no_host_tools(self):
+        """Od 1.0.127 brskalnik v Flatpaku nima ovojev gostitelja; Safeer OS (lupina) jih obdrzi. Skupna mapa nastavitev s
+        paketom .deb gre prek SAFEER_MINT_CONFIG_DIR (safeer_brskalnik.py), ne prek XDG_* v dom."""
         brskalnik=(ROOT/'packaging/safeer-launcher').read_text()
         os_=(ROOT/'packaging/safeer-os-launcher').read_text()
         for vrstica in ('if [ -n "${FLATPAK_ID:-}" ] && [ -d /app/host-bin ]; then','export PATH="/app/host-bin:$PATH"',
                         'export XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share" XDG_CACHE_HOME="$HOME/.cache"'):
             self.assertIn(vrstica,os_)
-            self.assertIn(vrstica,brskalnik)
+            self.assertNotIn(vrstica,brskalnik)
+        vstop=(ROOT/'safeer_brskalnik.py').read_text()
+        self.assertNotIn('/app/host-bin:',vstop)
+        self.assertIn('os.environ.setdefault("SAFEER_MINT_CONFIG_DIR", _skupna)',vstop)
         # Obseg systemd ostane (odziven racunalnik, ko stran porabi prevec), Flatpak paketa .deb pa ga ne potrebuje.
         self.assertLess(brskalnik.index('exec flatpak run "$FP_ID"'),brskalnik.index('systemd-run --user --scope'))
 
     def test_browser_flatpak_ships_our_webkit_and_safeer_drm(self):
-        """Flatpak brskalnika ima nas WebKitGTK 6.0 iz iste datoteke modula kot Safeer OS (brez kopije gradnje) in
-        dovoljenja, ki jih Safeer DRM potrebuje: zagon na gostitelju (flatpak-spawn --host) in skupne mape v domu."""
+        """Flatpak brskalnika ima nas WebKitGTK 6.0 iz iste datoteke modula kot Safeer OS (brez kopije gradnje) in zypak
+        za Safeer DRM v peskovniku (od 1.0.127 brez zagona na gostitelju; tests/test_peskovnik_brskalnika.py)."""
         brskalnik=(ROOT/'io.github.memelandfaner.SafeerBrowser.yml').read_text()
         os_=(ROOT/'io.github.memelandfaner.SafeerOS.yml').read_text()
         moduli=('  - packaging/webkit/webkitgtk6-safeer.yml\n','  - packaging/webkit/webkitgtk6-safeer-typelib.yml\n')
@@ -197,17 +201,17 @@ class PackagingTests(unittest.TestCase):
         self.assertRegex(brskalnik,r"(?m)^runtime: org\.gnome\.Platform\nruntime-version: '50'$")
         self.assertIn("runtime-version: '50'",os_)
         self.assertIn('bash packaging/install_payload.sh /app io.github.memelandfaner.SafeerBrowser',brskalnik)
-        self.assertIn('bash packaging/flatpak_host_wrappers.sh /app/host-bin',brskalnik)
+        self.assertNotIn('flatpak_host_wrappers.sh',brskalnik)
+        self.assertNotIn('/app/host-bin',brskalnik)
         dovoljenja=set(re.findall(r'^  - (--\S+)$',brskalnik,re.M))
         drm=(ROOT/'core/safeer_drm.py').read_text()
-        self.assertIn('"flatpak-spawn", "--host"',drm)
-        self.assertIn('--talk-name=org.freedesktop.Flatpak',dovoljenja)
-        self.assertIn('Path(os.path.expanduser("~/.local/share/safeer-drm"))',drm)
-        self.assertIn('--filesystem=home',dovoljenja)
+        self.assertIn('ZYPAK = "/app/bin/zypak-wrapper"',drm)
+        self.assertIn('  - name: zypak\n',brskalnik)
         self.assertTrue({'--socket=wayland','--socket=fallback-x11','--share=network','--socket=pulseaudio',
-                         '--device=dri'}<=dovoljenja,dovoljenja)
-        # Ovoj »safeer« v /app/host-bin bi v brskalniku pokazal na brskalnik gostitelja.
-        self.assertIn('rm -f /app/host-bin/safeer /app/host-bin/safeer-browser',brskalnik)
+                         '--device=dri','--filesystem=xdg-download','--filesystem=xdg-config/safeer-mint:create'}<=dovoljenja,
+                        dovoljenja)
+        # Safeer OS (lupina namizja) obdrzi dostop do gostitelja.
+        self.assertIn('--talk-name=org.freedesktop.Flatpak',os_)
 
     def test_flatpak_libsoup_s_popravki_za_webkitom(self):
         """org.gnome.Platform//50 ima libsoup 3.6.6 (CVE-2026-5119, CVE-2026-3099, CVE-2026-66337 …): oba Flatpaka

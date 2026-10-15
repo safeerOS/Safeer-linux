@@ -126,6 +126,22 @@ def peskovnik_dela(zazeni=None, kje=None, obstaja=None, okolje=None) -> bool:
         return False
 
 
+def _preklic(napaka) -> bool:
+    """GLib.Error, ki pomeni, da je uporabnik izbiro zaprl (Gio CANCELLED ali Gtk.DialogError CANCELLED/DISMISSED)."""
+    try:
+        from gi.repository import Gio, Gtk
+        if napaka.matches(Gio.io_error_quark(), Gio.IOErrorEnum.CANCELLED):
+            return True
+        kvark = getattr(Gtk, "dialog_error_quark", None)
+        napake = getattr(Gtk, "DialogError", None)
+        if kvark is not None and napake is not None:
+            return any(napaka.matches(kvark(), getattr(napake, ime)) for ime in ("CANCELLED", "DISMISSED")
+                       if hasattr(napake, ime))
+    except Exception:  # noqa: BLE001 - ni GLib.Error
+        pass
+    return False
+
+
 def omrezni_procesi(starsevski: int | None = None) -> set:
     """PID-i omreznih procesov WebKita, ki so neposredni otroci tega procesa."""
     starsevski = os.getpid() if starsevski is None else starsevski
@@ -2680,6 +2696,13 @@ class VdelaniSplet:
             return
         if shema in self._iscem_sheme:
             return                       # iskanje ze tece: nove zahteve iste sheme ne cakajo v vrsti
+        from core import gostitelj as _gost
+        if _gost.v_peskovniku():
+            # Safeer Browser v Flatpaku (od 1.0.127 brez dostopa do gostitelja): programov racunalnika ne vidimo, zato
+            # ga ne iscemo - vprasanje ostane, program izbere portal (Gtk.UriLauncher -> OpenURI), »ni programa« pa
+            # pove odgovor portala (_zunanji_program_nadaljuj).
+            self._zunanji_program_nadaljuj(uri, shema, gostitelj, kretnja, {"oznaka": "", "ime": "", "portal": True})
+            return
         self._iscem_sheme.add(shema)
         import threading
 
@@ -2706,20 +2729,26 @@ class VdelaniSplet:
             return
         if program["oznaka"].lower().startswith(("safeer", "io.github.memelandfaner")):
             return        # povezava bi vodila nazaj v Safeer
-        ime = program["ime"]
+        portal = bool(program.get("portal"))
+        ime = program["ime"] or self._ti("external_app_generic")
 
         def odpri():
             try:
-                if os.environ.get("FLATPAK_ID"):
-                    # Program racunalnika neposredno (portal bi uporabnika vprasal se enkrat, katerega programa).
+                from core import gostitelj as _gost
+                if os.environ.get("FLATPAK_ID") and _gost.sme_na_gostitelja():
+                    # Safeer OS v Flatpaku: program racunalnika neposredno (portal bi vprasal se enkrat, katerega).
                     from core import os_dock
                     subprocess.Popen(os_dock._gostitelj(["gio", "open", uri]), stdin=subprocess.DEVNULL,
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
                 else:
-                    self.Gtk.UriLauncher.new(uri).launch(self._okno_za_dialog(), None, None, None)
+                    # Safeer Browser v Flatpaku gre prek portala OpenURI (izbiro programa pokaze sistem), .deb prek
+                    # privzetega programa. Napaka portala (ni programa) se pokaze kot »program ni najden«.
+                    self.Gtk.UriLauncher.new(uri).launch(
+                        self._okno_za_dialog(), None,
+                        lambda vir, izid: self._zunanji_program_izid(vir, izid, gostitelj, shema, portal), None)
             except Exception as napaka:  # noqa: BLE001
                 print("[Splet] zunanji program:", napaka, flush=True)
-                self._ni_programa(gostitelj, shema)
+                self._ni_programa(gostitelj, shema, portal)
 
         dovoljenja = self.config.get("external_app_permissions", {})
         if external_apps.is_allowed(dovoljenja, gostitelj, shema):
@@ -2741,18 +2770,35 @@ class VdelaniSplet:
                     self.config.get("external_app_permissions", {}), gostitelj, shema))
             if i in (1, 2):
                 odpri()
+        stran = gostitelj or self._ti("external_app_this_page")
+        if portal:
+            self._vprasaj(self._ti("external_app_portal_title").format(scheme=shema),
+                          self._ti("external_app_portal_body").format(site=stran, scheme=shema), gumbi, odgovor)
+            return
         self._vprasaj(self._ti("external_app_title").format(app=ime),
-                      self._ti("external_app_body").format(site=gostitelj or self._ti("external_app_this_page"),
-                                                           app=ime, scheme=shema), gumbi, odgovor)
+                      self._ti("external_app_body").format(site=stran, app=ime, scheme=shema), gumbi, odgovor)
 
-    def _ni_programa(self, gostitelj: str, shema: str) -> None:
+    def _zunanji_program_izid(self, vir, izid, gostitelj: str, shema: str, portal: bool) -> None:
+        """Odgovor Gtk.UriLauncher (v Flatpaku portala OpenURI): preklic izbire programa ni napaka, drugo pa pomeni,
+        da programa za to povezavo ni (ali ga sistem ni mogel odpreti)."""
+        try:
+            vir.launch_finish(izid)
+        except Exception as napaka:  # noqa: BLE001 - GLib.Error
+            if _preklic(napaka):
+                return
+            print("[Splet] zunanji program:", napaka, flush=True)
+            self._ni_programa(gostitelj, shema, portal)
+
+    def _ni_programa(self, gostitelj: str, shema: str, portal: bool = False) -> None:
         kljuc = (gostitelj, shema)
         if not hasattr(self, "_ni_programa_pokazano"):
             self._ni_programa_pokazano = set()
         if kljuc in self._ni_programa_pokazano:
             return
         self._ni_programa_pokazano.add(kljuc)
-        self._opozorilo(self._ti("external_app_missing_title"), self._ti("external_app_missing_body").format(scheme=shema))
+        self._opozorilo(self._ti("external_app_missing_title"),
+                        self._ti("external_app_portal_missing_body" if portal else "external_app_missing_body")
+                        .format(scheme=shema))
 
     def _kontekstni_meni(self, _pogled, meni, zadetek, *_):
         """Meni desnega klika kot v Firefoxu (lastnik 14. 10. 2026: »Kopiraj« na povezavi ni kopiral nicesar - prav je
@@ -3046,11 +3092,20 @@ class VdelaniSplet:
         if privzeti is not None and not privzeti[0]():
             gumb_privzeti = Gtk.Button(label=privzeti[2]()[4])
 
+            navodila_privzetega = napis("", opis=True)
+            navodila_privzetega.set_wrap(True)
+            navodila_privzetega.set_visible(False)
+
             def ob_privzeti(g):
                 ok, napake = privzeti[1]()
-                g.set_label(privzeti[2]()[3] if ok else "; ".join(napake)[:120]); g.set_sensitive(not ok)
+                if ok:
+                    g.set_label(privzeti[2]()[3]); g.set_sensitive(False)
+                else:
+                    # Flatpak: portala za privzeti brskalnik ni - navodila za nastavitve namizja v celoti, ne v gumbu.
+                    navodila_privzetega.set_text("; ".join(napake)[:400]); navodila_privzetega.set_visible(True)
             gumb_privzeti.connect("clicked", ob_privzeti)
             splosno.attach(gumb_privzeti, 0, 3, 2, 1)
+            splosno.attach(navodila_privzetega, 0, 4, 2, 1)
 
         # ---- Zasebnost in varnost
         zas = stran(self._t("nas_zasebnost"))

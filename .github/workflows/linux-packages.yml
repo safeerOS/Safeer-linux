@@ -358,21 +358,47 @@ jobs:
           if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
-      - name: Safeer Browser Flatpak runs on our WebKitGTK, with Safeer DRM
+      - name: Safeer Browser Flatpak runs on our WebKitGTK, sandboxed
         # Namestimo prav datoteko, ki gre v izdajo. Brskalnik mora teci na nasem WebKitGTK 6.0 (/app), ne na tistem iz
-        # runtime-a; smoke_brskalnik.py izrise stran, prenese datoteko in Safeer DRM (nadomestni program) zazene na
-        # gostitelju prek flatpak-spawn --host ter ga vstavi v okno. xvfb-run zunaj dbus-run-session: storitev Flatpak
-        # na gostitelju dobi DISPLAY kot v namizni seji.
+        # runtime-a. Od 1.0.127 je brez izhoda iz peskovnika (brez org.freedesktop.Flatpak, doma, host-os, /app/host-bin):
+        # smoke_brskalnik.py izrise stran, prenese datoteko, preveri pot portala za mailto: in Safeer DRM (nadomestni
+        # program) zazene v peskovniku prek zypaka ter ga vstavi v okno. Preizkusne skripte so v delovni mapi (pod
+        # domom), zato jih zazenemo z dodatnim dovoljenjem samo za branje te mape (--filesystem=...:ro).
+        # Napake so vrstice ::error:: (celoten dnevnik posla iz tega okolja ni vedno dosegljiv).
         run: |
           sudo apt-get install -y xvfb dbus x11-utils
           flatpak install --user --noninteractive --bundle dist/Safeer-Browser-*.flatpak
-          xvfb-run -a dbus-run-session -- flatpak run io.github.memelandfaner.SafeerBrowser --version | tee /dev/stderr | grep -Fx "Safeer Browser $(cat packaging/VERSION)"
-          flatpak info --show-permissions io.github.memelandfaner.SafeerBrowser | tee /dev/stderr | grep -F 'org.freedesktop.Flatpak=talk'
-          flatpak run --command=python3 io.github.memelandfaner.SafeerBrowser -c "import gi; gi.require_version('WebKit', '6.0'); from gi.repository import WebKit; v = (WebKit.get_major_version(), WebKit.get_minor_version(), WebKit.get_micro_version()); m = open('/proc/self/maps').read(); knj = sorted({l.split()[-1] for l in m.splitlines() if 'libwebkitgtk-6.0' in l}); print('GTK4 knjiznice:', knj, v); assert knj and all(k.startswith('/app/') for k in knj), 'WebKitGTK 6.0 ni iz /app'; print('WebKitGTK 6.0 iz /app', *v)"
+          APP=io.github.memelandfaner.SafeerBrowser
+          xvfb-run -a dbus-run-session -- flatpak run $APP --version | tee /dev/stderr | grep -Fx "Safeer Browser $(cat packaging/VERSION)" \
+            || { echo "::error::brskalnik --version ne vrne razlicice"; exit 1; }
+          flatpak info --show-permissions $APP | tee dovoljenja.txt
+          if grep -F 'org.freedesktop.Flatpak' dovoljenja.txt; then echo "::error::brskalnik ima org.freedesktop.Flatpak (izhod iz peskovnika)"; exit 1; fi
+          if grep -E '^filesystems=.*(^|[=;])(home|host|host-os|host-etc)(:[a-z]+)?(;|$)' dovoljenja.txt; then echo "::error::brskalnik ima dostop do doma ali gostitelja"; exit 1; fi
+          grep -E '^filesystems=.*xdg-download' dovoljenja.txt || { echo "::error::brskalnik nima xdg-download"; exit 1; }
+          echo "OK: brez org.freedesktop.Flatpak, brez home/host"
+          flatpak run --command=python3 $APP -c "import gi; gi.require_version('WebKit', '6.0'); from gi.repository import WebKit; v = (WebKit.get_major_version(), WebKit.get_minor_version(), WebKit.get_micro_version()); m = open('/proc/self/maps').read(); knj = sorted({l.split()[-1] for l in m.splitlines() if 'libwebkitgtk-6.0' in l}); print('GTK4 knjiznice:', knj, v); assert knj and all(k.startswith('/app/') for k in knj), 'WebKitGTK 6.0 ni iz /app'; print('WebKitGTK 6.0 iz /app', *v)" \
+            || { echo "::error::WebKitGTK 6.0 ni iz /app"; exit 1; }
           # libsoup 3.8.0 iz /app (packaging/libsoup): runtime 50 ima 3.6.6 z znanimi ranljivostmi.
-          flatpak run --command=python3 io.github.memelandfaner.SafeerBrowser -c "import gi; gi.require_version('Soup', '3.0'); gi.require_version('WebKit', '6.0'); from gi.repository import Soup, WebKit; v = (Soup.get_major_version(), Soup.get_minor_version(), Soup.get_micro_version()); m = open('/proc/self/maps').read(); knj = sorted({l.split()[-1] for l in m.splitlines() if 'libsoup-3.0' in l}); print('libsoup:', knj, v); assert knj and all(k.startswith('/app/') for k in knj) and v >= (3, 8, 0), 'libsoup ni 3.8 iz /app'"
-          flatpak run --command=sh io.github.memelandfaner.SafeerBrowser -c "test -x /app/libexec/webkitgtk-6.0/WebKitWebProcess && test -f /app/lib/safeer-browser/assets/safeer_drm/main.js && test -x /app/host-bin/gio && test ! -e /app/host-bin/safeer"
-          xvfb-run -a dbus-run-session -- flatpak run --command=python3 io.github.memelandfaner.SafeerBrowser "$PWD/packaging/smoke_brskalnik.py" /app/lib/safeer-browser
+          flatpak run --command=python3 $APP -c "import gi; gi.require_version('Soup', '3.0'); gi.require_version('WebKit', '6.0'); from gi.repository import Soup, WebKit; v = (Soup.get_major_version(), Soup.get_minor_version(), Soup.get_micro_version()); m = open('/proc/self/maps').read(); knj = sorted({l.split()[-1] for l in m.splitlines() if 'libsoup-3.0' in l}); print('libsoup:', knj, v); assert knj and all(k.startswith('/app/') for k in knj) and v >= (3, 8, 0), 'libsoup ni 3.8 iz /app'" \
+            || { echo "::error::libsoup ni 3.8 iz /app"; exit 1; }
+          flatpak run --command=sh $APP -c "test -x /app/libexec/webkitgtk-6.0/WebKitWebProcess && test -f /app/lib/safeer-browser/assets/safeer_drm/main.js && test ! -e /app/host-bin && test -x /app/bin/zypak-wrapper && test -x /app/bin/zypak-helper" \
+            || { echo "::error::v paketu manjka WebKitWebProcess, main.js ali zypak, ali pa je ostal /app/host-bin"; exit 1; }
+          # Na ravni enot, v paketu: peskovnik zaznan, Safeer DRM gre na zypak-wrapper, portal (Gtk.UriLauncher,
+          # Gtk.FileLauncher, OpenURI) je na voljo, privzeti brskalnik ne kliče gostitelja (navodila).
+          flatpak run --command=python3 $APP -c "import sys; sys.path.insert(0, '/app/lib/safeer-browser'); import gi; gi.require_version('Gtk', '4.0'); from gi.repository import Gtk; from core import gostitelj, safeer_drm, default_browser; u = safeer_drm.ukaz_zagona(['/x/safeer-drm']); print('peskovnik', gostitelj.v_peskovniku(), 'DRM', u); assert gostitelj.v_peskovniku() and not gostitelj.sme_na_gostitelja(), 'ni peskovnika'; assert u == ['/app/bin/zypak-wrapper', '/x/safeer-drm'], u; assert hasattr(Gtk, 'UriLauncher') and hasattr(Gtk, 'FileLauncher'); ok, n = default_browser.set_default_browser('/app/lib/safeer-browser', 'sl'); print('privzeti:', ok, n); assert ok or n == [default_browser.navodila('sl')]" \
+            || { echo "::error::preverjanje peskovnika na ravni enot ni uspelo"; exit 1; }
+          xvfb-run -a dbus-run-session -- flatpak run --filesystem="$PWD/packaging:ro" --command=python3 $APP "$PWD/packaging/smoke_brskalnik.py" /app/lib/safeer-browser \
+            || { echo "::error::smoke_brskalnik.py v Flatpaku ni uspel"; exit 1; }
+      - name: Real Safeer DRM (castLabs Electron) inside the browser sandbox
+        # Pravi paket Safeer DRM z izdaje, zagnan po poti Spleta (zypak-wrapper): knjiznice, nalaganje strani, podpeskovnik
+        # procesov strani (seccomp) in Widevine (EME). Glej packaging/smoke_drm_peskovnik.py.
+        run: |
+          xvfb-run -a dbus-run-session -- flatpak run --filesystem="$PWD/packaging:ro" --command=python3 io.github.memelandfaner.SafeerBrowser "$PWD/packaging/smoke_drm_peskovnik.py" /app/lib/safeer-browser 2>&1 | tee drm.txt || true
+          grep '^FAIL: ' drm.txt | while read -r v; do echo "::error::Safeer DRM: ${v#FAIL: }"; done || true
+          # Vse diagnostike v eni opombi (GitHub pokaze najvec 10 opomb na korak; %0A = nova vrstica), nato kljucne.
+          echo "::notice title=Safeer DRM diagnostika::$(grep -E '^(krog|zypak:|v peskovniku|koren|ZYPAK|Traceback|  File|[A-Za-z]+Error)' drm.txt | tail -60 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+          grep -E '^(ldd|EME|krog [12]: procesi)' drm.txt | head -8 | while read -r v; do echo "::notice::${v}"; done || true
+          grep -qx PASS drm.txt
       - uses: actions/upload-artifact@v7
         with:
           name: flatpak-brskalnik
