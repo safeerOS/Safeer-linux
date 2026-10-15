@@ -7,7 +7,10 @@ import os
 import urllib.parse
 from typing import Dict, List, Tuple
 
-MAPA = os.path.join(os.path.expanduser("~"), ".cache", "safeer-os", "ikone")
+# XDG_CACHE_HOME: Safeer Browser v Flatpaku (od 1.0.127 brez doma) pise samo v svojo zasebno mapo; Safeer OS in .deb
+# ostaneta na ~/.cache.
+MAPA = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache"), "safeer-os",
+                    "ikone")
 
 
 class _IkonePovezave(html.parser.HTMLParser):
