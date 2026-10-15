@@ -52,14 +52,17 @@ def procesi(lastni_mnt: str) -> dict:
             continue
         try:
             with open(f"/proc/{pid}/cmdline", "rb") as f:
-                ukaz = [a.decode("utf-8", "replace") for a in f.read().split(b"\0") if a]
+                surovo = [a.decode("utf-8", "replace") for a in f.read().split(b"\0") if a]
+            # Chromium procesom strani prepise naslov procesa (setproctitle): ves ukaz je en niz s presledki - CI
+            # 15. 10. 2026: »/…/Safeer DRM --type=renderer …« kot en argument. Zato razclenimo po presledkih.
+            ukaz = surovo if len(surovo) > 1 else (surovo[0].split() if surovo else [])
         except OSError:
             continue
-        izid["vsi"].append((int(pid), " ".join(os.path.basename(a) if i == 0 else a for i, a in enumerate(ukaz[:3]))[:90]))
+        izid["vsi"].append((int(pid), " ".join(ukaz[:3])[-90:]))
         if "--no-sandbox" in ukaz:
             izid["brez_peskovnika"].append((int(pid), " ".join(ukaz)[:200]))
         vrsta = next((a[len("--type="):] for a in ukaz if a.startswith("--type=")), "")
-        if ukaz and os.path.basename(ukaz[0]) == "flatpak-spawn" and "--sandbox" in ukaz and vrsta:
+        if ukaz and os.path.basename(ukaz[0]) in ("flatpak-spawn", "bwrap") and "--sandbox" in ukaz and vrsta:
             izid["podpeskovniki"].append((int(pid), vrsta, "--no-network" in ukaz))
         elif vrsta == "renderer":
             try:
