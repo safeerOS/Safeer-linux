@@ -121,20 +121,150 @@ _KONCNICE = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "im
              "image/svg+xml": ".svg", "image/avif": ".avif", "image/bmp": ".bmp"}
 
 
-def _pridobi(url: str, razresi, povezi) -> tuple:
-    """GET slike brez piskotkov in Referer; vsaka preusmeritev (najvec 4) gre skozi isto preverbo. (tip, podatki)."""
+# ---------------------------------------------------------------------------------------------- posrednik
+# Ce je uporabnik nastavil posrednika (Safeer secure_proxy_mode ali sistemski), slike gredo PREK njega - neposredna
+# povezava bi razkrila naslov IP, ki ga je hotel skriti. Posrednik ime razresi sam; zascito domacega omrezja
+# preverimo za ime pred zahtevo. Posrednika, ki ga ne znamo (npr. SOCKS4, PAC), ne obidemo: slike se ne nalozijo.
+_PODPRTI_POSREDNIKI = ("http", "https", "socks5", "socks5h", "socks")
+
+
+def posrednik_okolja(url: str) -> str:
+    """Posrednik iz okolja (http_proxy, https_proxy, all_proxy); "" = neposredno. Safeer OS poda boljsega
+    (nastavitev Spleta in sistemske nastavitve namizja, glej safeer_os._posrednik_slik)."""
+    from urllib.request import getproxies, proxy_bypass
+    try:
+        deli = urlsplit(url)
+        if deli.hostname and proxy_bypass(deli.hostname):
+            return ""
+        vsi = getproxies()
+        return str(vsi.get(deli.scheme) or vsi.get("all") or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _beri_do(vticnica, konec: bytes, najvec: int = 16384) -> bytes:
+    podatki = b""
+    while konec not in podatki:
+        kos = vticnica.recv(1024)
+        if not kos:
+            raise OSError("posrednik je prekinil")
+        podatki += kos
+        if len(podatki) > najvec:
+            raise OSError("predolg odgovor posrednika")
+    return podatki
+
+
+def _beri_n(vticnica, n: int) -> bytes:
+    podatki = b""
+    while len(podatki) < n:
+        kos = vticnica.recv(n - len(podatki))
+        if not kos:
+            raise OSError("posrednik je prekinil")
+        podatki += kos
+    return podatki
+
+
+def _socks5(vticnica, ime: str, vrata: int, uporabnik: str = "", geslo: str = "") -> None:
+    """RFC 1928 CONNECT z imenom (ATYP 3: posrednik razresi sam), po potrebi prijava RFC 1929."""
+    import struct
+    metode = b"\x00\x02" if uporabnik else b"\x00"
+    vticnica.sendall(b"\x05" + bytes([len(metode)]) + metode)
+    odg = _beri_n(vticnica, 2)
+    if odg[0] != 5 or odg[1] == 0xFF:
+        raise OSError("SOCKS5: posrednik zavrne")
+    if odg[1] == 2:
+        u, g = uporabnik.encode("utf-8")[:255], geslo.encode("utf-8")[:255]
+        vticnica.sendall(b"\x01" + bytes([len(u)]) + u + bytes([len(g)]) + g)
+        if _beri_n(vticnica, 2)[1] != 0:
+            raise OSError("SOCKS5: prijava zavrnjena")
+    ime_b = ime.encode("idna")[:255]
+    vticnica.sendall(b"\x05\x01\x00\x03" + bytes([len(ime_b)]) + ime_b + struct.pack(">H", vrata))
+    glava = _beri_n(vticnica, 4)
+    if glava[1] != 0:
+        raise OSError("SOCKS5: povezava zavrnjena")
+    _beri_n(vticnica, {1: 4, 4: 16}.get(glava[3], 0) or _beri_n(vticnica, 1)[0])
+    _beri_n(vticnica, 2)
+
+
+def _povezava_prek(posrednik: str, ime: str, vrata: int, https: bool, cas: float, odpri_vticnico=None):
+    """Povezava do ime:vrata prek posrednika. Vrne (povezava, absolutna_pot): pri HTTP posredniku in http cilju gre
+    zahteva v absolutni obliki (GET http://ime/...), sicer je povezava tunel (CONNECT ali SOCKS5)."""
+    import base64
+    import http.client
+    import ssl
+    from urllib.parse import unquote
+    odpri_vticnico = odpri_vticnico or socket.create_connection
+    d = urlsplit(posrednik if "://" in posrednik else "http://" + posrednik)
+    shema = (d.scheme or "http").lower()
+    if shema not in _PODPRTI_POSREDNIKI or not d.hostname:
+        raise OSError("posrednika ne znamo uporabiti")
+    p_vrata = d.port or {"http": 8080, "https": 443}.get(shema, 1080)
+    uporabnik, geslo = unquote(d.username or ""), unquote(d.password or "")
+
+    def do_posrednika():
+        v = odpri_vticnico((d.hostname, p_vrata), cas)
+        if shema == "https":
+            v = ssl.create_default_context().wrap_socket(v, server_hostname=d.hostname)
+        return v
+
+    if shema in ("http", "https") and not https:
+        pov = http.client.HTTPConnection(d.hostname, p_vrata, timeout=cas)
+        pov._create_connection = lambda *_a, **_k: do_posrednika()
+        if uporabnik:
+            pov._safeer_glave = {"Proxy-Authorization": "Basic " + base64.b64encode(
+                ("%s:%s" % (uporabnik, geslo)).encode("utf-8")).decode("ascii")}
+        return pov, True
+
+    def tunel(*_a, **_k):
+        v = do_posrednika()
+        try:
+            if shema.startswith("socks"):
+                _socks5(v, ime, vrata, uporabnik, geslo)
+            else:
+                zahteva = "CONNECT %s:%d HTTP/1.1\r\nHost: %s:%d\r\n" % (ime, vrata, ime, vrata)
+                if uporabnik:
+                    zahteva += "Proxy-Authorization: Basic %s\r\n" % base64.b64encode(
+                        ("%s:%s" % (uporabnik, geslo)).encode("utf-8")).decode("ascii")
+                v.sendall((zahteva + "\r\n").encode("utf-8"))
+                vrstica = _beri_do(v, b"\r\n\r\n").split(b"\r\n", 1)[0].split()
+                if len(vrstica) < 2 or vrstica[1] != b"200":
+                    raise OSError("posrednik ni odprl tunela")
+            return v
+        except Exception:
+            v.close()
+            raise
+    if https:
+        pov = http.client.HTTPSConnection(ime, vrata, timeout=cas, context=ssl.create_default_context())
+    else:
+        pov = http.client.HTTPConnection(ime, vrata, timeout=cas)
+    pov._create_connection = tunel          # TLS do slike (SNI, potrdilo) gre skozi tunel z imenom
+    return pov, False
+
+
+def _pridobi(url: str, razresi, povezi, posrednik=None, povezi_prek=_povezava_prek) -> tuple:
+    """GET slike brez piskotkov in Referer; vsaka preusmeritev (najvec 4) gre skozi isto preverbo. (tip, podatki).
+    posrednik(url) -> naslov posrednika ali "" (neposredno, na preverjeni IP)."""
     from urllib.parse import urljoin
     for _ in range(5):
         deli = _deli_url(url)
         if deli is None:
             return "", b""
         shema, ime, vrata, pot = deli
-        ip = javni_naslov(ime, razresi)
+        ip = javni_naslov(ime, razresi)          # zascita domacega omrezja: vedno, tudi ko razresi posrednik
         if not ip:
             return "", b""
-        pov = povezi(ime, ip, vrata, shema == "https", CAS_S)
+        prek = posrednik(url) if posrednik is not None else ""
+        glave = {"User-Agent": USER_AGENT, "Accept": "image/*"}
+        if prek:
+            pov, absolutno = povezi_prek(prek, ime, vrata, shema == "https", CAS_S)
+            if absolutno:
+                pot = "http://%s:%d%s" % (ime, vrata, pot)
+                glave["Host"] = ime if vrata == 80 else "%s:%d" % (ime, vrata)
+                glave.update(getattr(pov, "_safeer_glave", {}))
+        else:
+            pov = povezi(ime, ip, vrata, shema == "https", CAS_S)
         try:
-            pov.request("GET", pot, headers={"User-Agent": USER_AGENT, "Accept": "image/*"})
+            pov.request("GET", pot, headers=glave)
             odg = pov.getresponse()
             if odg.status in (301, 302, 303, 307, 308):
                 cilj = odg.getheader("Location") or ""
@@ -153,7 +283,8 @@ def _pridobi(url: str, razresi, povezi) -> tuple:
     return "", b""
 
 
-def prenesi_sliko(url: str, mapa: str, razresi=socket.getaddrinfo, povezi=_povezava) -> str:
+def prenesi_sliko(url: str, mapa: str, razresi=socket.getaddrinfo, povezi=_povezava, posrednik=None,
+                  povezi_prek=_povezava_prek) -> str:
     """Ena slika v `mapa` (ime = zgostitev naslova). Vrne pot ali "" (blokirano, ni slika, prevelika, napaka)."""
     if _deli_url(url) is None:
         return ""
@@ -162,7 +293,7 @@ def prenesi_sliko(url: str, mapa: str, razresi=socket.getaddrinfo, povezi=_povez
         if os.path.isfile(os.path.join(mapa, ime + konc)):
             return os.path.join(mapa, ime + konc)
     try:
-        tip, podatki = _pridobi(url, razresi, povezi)
+        tip, podatki = _pridobi(url, razresi, povezi, posrednik, povezi_prek)
     except Exception:  # noqa: BLE001 - omrezje, potrdilo: slike pac ni
         return ""
     if not tip or len(podatki) > NAJVEC_BAJTOV or not podatki or _majhna(podatki):
@@ -176,7 +307,8 @@ def prenesi_sliko(url: str, mapa: str, razresi=socket.getaddrinfo, povezi=_povez
 
 
 def prenesi_slike(naslovi: Iterable[str], mapa: str, je_blokirano: Optional[Callable[[str], bool]] = None,
-                  razresi=socket.getaddrinfo, povezi=_povezava) -> Dict[str, str]:
+                  razresi=socket.getaddrinfo, povezi=_povezava, posrednik=posrednik_okolja,
+                  povezi_prek=_povezava_prek) -> Dict[str, str]:
     """{url: file:// naslov} za slike, ki so prestale zascito (vzporedno, najvec NAJVEC_SLIK)."""
     izbrani = []
     for u in naslovi:
@@ -188,7 +320,7 @@ def prenesi_slike(naslovi: Iterable[str], mapa: str, je_blokirano: Optional[Call
     if not izbrani:
         return izid
     with ThreadPoolExecutor(max_workers=6) as bazen:
-        for u, pot in zip(izbrani, bazen.map(lambda x: prenesi_sliko(x, mapa, razresi, povezi), izbrani)):
+        for u, pot in zip(izbrani, bazen.map(lambda x: prenesi_sliko(x, mapa, razresi, povezi, posrednik, povezi_prek), izbrani)):
             if pot:
                 izid[u] = "file://" + quote(os.path.abspath(pot))
     return izid

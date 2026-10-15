@@ -197,6 +197,26 @@ def _opis_prilog(poti) -> list:
     return izid
 
 
+def _posrednik_slik(url: str) -> str:
+    """Posrednik za slike s spleta v pismih - isti, kot ga uporablja Splet: Safeerjev lasten posrednik
+    (secure_proxy_mode »custom«), sicer sistemske nastavitve namizja (Gio.ProxyResolver: rocno, PAC, okolje).
+    "" = neposredno. Ce posrednika ni mogoce ugotoviti, vrne neuporabnega - slike se ne nalozijo (nikoli mimo)."""
+    try:
+        from core.config import ConfigManager
+        nastavitve = ConfigManager()
+        lasten = str(nastavitve.get("secure_proxy_url", "") or "").strip()
+        if nastavitve.get("secure_proxy_mode", "disabled") == "custom" and lasten:
+            return lasten
+    except Exception:  # noqa: BLE001
+        return "neznan://"
+    try:
+        seznam = Gio.ProxyResolver.get_default().lookup(url, None) or []
+    except Exception:  # noqa: BLE001
+        return "neznan://"
+    prvi = str(seznam[0]) if seznam else "direct://"
+    return "" if prvi.startswith("direct://") else prvi
+
+
 def _velikost_napis(b: int) -> str:
     """»2,4 MB« za podnaslov okna predogleda (enake enote kot stran)."""
     if b <= 0:
@@ -3031,7 +3051,8 @@ class SafeerOS(Gtk.Application):
 
         def delo(slike: bool = False) -> None:
             try:
-                r = self.sporocila.html_pisma(kanal, sid, jezik, slike=slike, je_blokirano=je_blokirano)
+                r = self.sporocila.html_pisma(kanal, sid, jezik, slike=slike, je_blokirano=je_blokirano,
+                                              posrednik=_posrednik_slik)
                 izid = {"nacin": "html", "html": r["html"],
                         "osnova": GLib.filename_to_uri(predpomnilnik.koren(), None) + "/"}
                 vrstica = None if r["prikazane"] else {"skritih": r["skritih"], "posiljatelj": r["posiljatelj"],

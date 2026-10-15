@@ -182,6 +182,23 @@ class Most(unittest.TestCase):
         self.assertEqual(safeer_os._velikost_napis(2_500_000), "2,4 MB")
         self.assertEqual(safeer_os._velikost_napis(0), "")
 
+    def test_posrednik_slik_kot_splet(self):
+        import safeer_os
+        from unittest.mock import patch
+
+        class Nast:
+            def __init__(self, d):
+                self.d = d
+
+            def get(self, k, privzeto=None):
+                return self.d.get(k, privzeto)
+        with patch("core.config.ConfigManager", return_value=Nast({"secure_proxy_mode": "custom",
+                                                                   "secure_proxy_url": "socks5://127.0.0.1:9050"})):
+            self.assertEqual(safeer_os._posrednik_slik("https://cdn.example.test/a.png"), "socks5://127.0.0.1:9050")
+        with patch("core.config.ConfigManager", return_value=Nast({})), \
+                patch.object(safeer_os.Gio.ProxyResolver, "get_default", side_effect=RuntimeError("x")):
+            self.assertEqual(safeer_os._posrednik_slik("https://cdn.example.test/a.png"), "neznan://")   # nikoli mimo
+
     def test_metode_mostu(self):
         py = (Path(__file__).resolve().parents[1] / "safeer_os.py").read_text(encoding="utf-8")
         for metoda in ("sporocilaPredogled", "sporocilaIzvirnik", "predogledDatoteke", "sporocilaPrenesiPriponko",

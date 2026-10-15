@@ -833,6 +833,80 @@ class SlikeSSpleta(unittest.TestCase):
         self.assertTrue(self.sl.prenesi_sliko("https://cdn.example.test/b.png", self.m, self._razresi, povezi))
         self.assertEqual([z["pot"] for z in zahteve], ["/b.png", "/c.png"])
 
+    def test_s_posrednikom_ne_mimo_njega(self):
+        """Nastavljen posrednik: slika gre prek njega (ime razresi posrednik), nikoli neposredno; zascita domacega
+        omrezja velja za ime pred zahtevo."""
+        zahteve, povezi = self._odpri()
+        prek = []
+
+        def povezi_prek(posrednik, ime, vrata, https, cas):
+            prek.append((posrednik, ime, vrata, https))
+            return povezi(ime, "", vrata, https, cas), False
+        posrednik = lambda url: "socks5h://127.0.0.1:9050"  # noqa: E731
+        pot = self.sl.prenesi_sliko("https://cdn.example.test/p.png", self.m, self._razresi, povezi=lambda *a: self.fail("mimo"),
+                                    posrednik=posrednik, povezi_prek=povezi_prek)
+        self.assertTrue(pot)
+        self.assertEqual(prek, [("socks5h://127.0.0.1:9050", "cdn.example.test", 443, True)])
+        self.assertNotIn("referer", {k.lower() for k in zahteve[0]["glave"]})
+        self.assertEqual(self.sl.prenesi_sliko("http://lan.example/r.png", self.m, self._razresi,
+                                               posrednik=posrednik, povezi_prek=povezi_prek), "")
+        self.assertEqual(len(prek), 1)                                         # domace omrezje: niti do posrednika
+        # Posrednik, ki ga ne znamo (SOCKS4): slike ni - in tudi neposredne povezave ne.
+        self.assertEqual(self.sl.prenesi_sliko("https://cdn.example.test/q.png", self.m, self._razresi,
+                                               povezi=lambda *a: self.fail("mimo"), posrednik=lambda u: "socks4://p:1080"), "")
+
+    def _vticnica(self, odgovori):
+        poslano = bytearray()
+
+        class V:
+            def __init__(self):
+                self.ostanek = b"".join(odgovori)
+
+            def sendall(self, b):
+                poslano.extend(b)
+
+            def recv(self, n):
+                kos, self.ostanek = self.ostanek[:n], self.ostanek[n:]
+                return kos
+
+            def close(self):
+                pass
+        naslovi = []
+
+        def odpri(naslov, cas):
+            naslovi.append(naslov)
+            return V()
+        return poslano, naslovi, odpri
+
+    def test_http_connect_tunel(self):
+        poslano, naslovi, odpri = self._vticnica([b"HTTP/1.1 200 Connection established\r\n\r\n"])
+        pov, absolutno = self.sl._povezava_prek("http://upo:ge%40slo@proxy.example:3128", "cdn.example.test", 443, True, 5, odpri)
+        self.assertFalse(absolutno)
+        self.assertEqual(pov.host, "cdn.example.test")                          # TLS do slike z imenom (SNI)
+        pov._create_connection(("cdn.example.test", 443), 5)
+        self.assertEqual(naslovi, [("proxy.example", 3128)])
+        self.assertTrue(bytes(poslano).startswith(b"CONNECT cdn.example.test:443 HTTP/1.1\r\n"))
+        import base64
+        self.assertIn(b"Proxy-Authorization: Basic " + base64.b64encode(b"upo:ge@slo"), bytes(poslano))
+        poslano, _n, odpri = self._vticnica([b"HTTP/1.1 403 Forbidden\r\n\r\n"])
+        pov, _a = self.sl._povezava_prek("http://proxy.example:3128", "cdn.example.test", 443, True, 5, odpri)
+        with self.assertRaises(OSError):
+            pov._create_connection(("cdn.example.test", 443), 5)
+
+    def test_socks5_ime_razresi_posrednik(self):
+        poslano, naslovi, odpri = self._vticnica([b"\x05\x00", b"\x05\x00\x00\x01\x01\x02\x03\x04\x01\xbb"])
+        pov, absolutno = self.sl._povezava_prek("socks5h://127.0.0.1:9050", "cdn.example.test", 443, True, 5, odpri)
+        pov._create_connection(("cdn.example.test", 443), 5)
+        self.assertEqual(naslovi, [("127.0.0.1", 9050)])
+        self.assertEqual(bytes(poslano), b"\x05\x01\x00" + b"\x05\x01\x00\x03\x10cdn.example.test\x01\xbb")
+
+    def test_http_posrednik_http_slika_absolutna_pot(self):
+        _p, _n, odpri = self._vticnica([])
+        pov, absolutno = self.sl._povezava_prek("http://a:b@proxy.example:8080", "cdn.example.test", 80, False, 5, odpri)
+        self.assertTrue(absolutno)
+        self.assertEqual(pov.host, "proxy.example")
+        self.assertIn("Proxy-Authorization", pov._safeer_glave)
+
     def test_prava_povezava_ip_in_ime_za_sni(self):
         """http.client: vticnica na preverjeni IP, ime ostane za Host, SNI in preverjanje potrdila."""
         pov = self.sl._povezava("cdn.example.test", "93.184.216.34", 443, True, 5)
