@@ -53,7 +53,7 @@ Okno {
         else if (st === "koncano") {
             naslov = koren.t("prvKoncanoNaslov")
             if (r.napaka) { koncaj(r.napaka === "naprava_ne_deli" ? koren.t("prvNeDeli", z) : koren.t("prvKoncano", z) + " " + koren.t("prvNapaka", { koda: r.napaka })); return }
-            besedilo = koren.t("prvKoncano", z); vprasanje = koren.t("prvVprasaj"); izbira = true
+            besedilo = koren.t("prvKoncano", z); vprasanje = koren.t("prvVprasaj"); okno.contentItem.forceActiveFocus(); izbira = true
             Qt.callLater(function () { prenesi.forceActiveFocus() }); return
         }
         else if (st === "napaka") { napaka(r); return }
@@ -85,7 +85,7 @@ Okno {
             }
             if (!r.uspesno) { koncaj(tekst); return }
             if ((r.opravila || []).some(function (o) { return o.stanje === "pusceno" })) { koncaj(tekst + " " + koren.t("prvSkPusceno")); return }
-            besedilo = tekst; vprasanje = koren.t("prvSkVprasaj"); izbira = true
+            besedilo = tekst; vprasanje = koren.t("prvSkVprasaj"); okno.contentItem.forceActiveFocus(); izbira = true
             Qt.callLater(function () { prenesi.forceActiveFocus() }); return
         }
         else besedilo = koren.t("prvSkPoteka", z)

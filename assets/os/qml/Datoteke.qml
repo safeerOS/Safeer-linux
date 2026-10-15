@@ -671,7 +671,7 @@ Steklo {
         MeniVnos { text: koren.t("kopiraj"); visible: meni.lok && panel.linux; onTriggered: panel.vOdlozisce(meni.e, false) }
         MeniVnos { text: koren.t("izrezi"); visible: meni.lok && panel.linux; onTriggered: panel.vOdlozisce(meni.e, true) }
         MeniVnos { text: koren.t(meni.e && meni.e.mapa ? "prilepiV" : "prilepi"); objectName: "vnosPrilepi"
-                   visible: meni.lok && panel.linux && panel.odlozisce.poti.length > 0 && (panel.vir.vrsta === "lokalno" || (!!meni.e && meni.e.mapa))
+                   visible: meni.lok && panel.linux && panel.odlozisce.poti.length > 0 && (panel.vir.vrsta === "lokalno" || !!(meni.e && meni.e.mapa))
                    onTriggered: panel.prilepi(meni.e && meni.e.mapa ? meni.e.pot : null) }
         MeniVnos { text: koren.t("preimenuj"); visible: meni.lok; onTriggered: panel.novo({ nacin: "preimenuj", pot: meni.e.pot, ime: meni.e.ime, mapa: meni.e.mapa }) }
         MeniVnos { text: koren.t("vKos"); visible: meni.lok; onTriggered: panel.vKos(meni.e) }
@@ -682,7 +682,7 @@ Steklo {
         // Krog solidarnosti (Safeer Control): video ali vsi videi v mapi za televizor na napravi z najboljsim kodirnikom.
         MeniVnos { text: koren.t("pretvori"); objectName: "vnosPretvoriTv"; visible: meni.datoteka && panel.linux && meni.e.vrsta === "video"
                    onTriggered: pretvoriTv.zacni(meni.e, false) }
-        MeniVnos { text: koren.t("pretvoriMapo"); visible: meni.lok && panel.linux && !!meni.e && meni.e.mapa
+        MeniVnos { text: koren.t("pretvoriMapo"); visible: meni.lok && panel.linux && !!(meni.e && meni.e.mapa)
                    onTriggered: pretvoriTv.zacni(meni.e, true) }
         MeniVnos { text: koren.t("obnovi"); visible: panel.vir.vrsta === "smeti"
                    onTriggered: koren.klic("obnoviIzSmeti", [meni.e.id], function (r) {
