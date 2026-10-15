@@ -201,7 +201,7 @@ class Most(unittest.TestCase):
 
     def test_metode_mostu(self):
         py = (Path(__file__).resolve().parents[1] / "safeer_os.py").read_text(encoding="utf-8")
-        for metoda in ("sporocilaPredogled", "sporocilaIzvirnik", "predogledDatoteke", "sporocilaPrenesiPriponko",
+        for metoda in ("sporocilaPredogled", "sporocilaIzvirnik", "predogledOkno", "sporocilaPrenesiPriponko",
                        "sporocilaPrenesiVse", "sporocilaSlicicaPriponke", "opisPrilog", "izberiPriloge", "sporocilaSlikeOd"):
             self.assertIn('"%s":' % metoda, py, metoda)
         # Odpiranje priponke v programu je samo v oknu predogleda (s potrditvijo za nevarne), ne neposredno s strani.

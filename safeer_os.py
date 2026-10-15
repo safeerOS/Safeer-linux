@@ -3527,7 +3527,9 @@ class SafeerOS(Gtk.Application):
             # Predogled v oknu Safeer OS (core/os_predogled.py): okno takoj, prenos in priprava v ozadju.
             "sporocilaPredogled": lambda: self._predogled_priponke(pogled, *[str(x) for x in (list(a) + ["", "", ""])[:3]]),
             "sporocilaIzvirnik": lambda: self._predogled_pisma(pogled, *[str(x) for x in (list(a) + ["", "", ""])[:3]]),
-            "predogledDatoteke": lambda: self._predogled_datoteke(pogled, str(a[0]) if a else ""),
+            # Celo okno predogleda (core/os_predogled.py) za krajevno datoteko; »predogledDatoteke« je podatek za
+            # predogled s preslednico v Datotekah (os_datoteke.predogled) - imeni sta locena, da se ne prekrijeta.
+            "predogledOkno": lambda: self._predogled_datoteke(pogled, str(a[0]) if a else ""),
             "samozagon": lambda: self._samozagon(bool(a[0])) if a else je_samozagon(),
             "nazajVMint": lambda: self._nazaj_v_mint(bool(a[0]) if a else False),
             # Razdelek izbira postavitev GLAVNEGA okna (vgrajeni Splet); Safeer Player ima samo Medijski center.
