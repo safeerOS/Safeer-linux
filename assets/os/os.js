@@ -3893,7 +3893,10 @@
     // Oseba je lahko dobila novo ime ali se zdruzila: pano in naslov kazeta novo stanje.
     var a = S.sporocilaAktivni, nova = null, svez = null;
     S.sporocilaSkupine.forEach(function (sk) { (sk.pogovori || []).forEach(function (x) { if (a && x.id === a.id && x.kanal_id === a.kanal_id) { nova = sk.oseba; svez = x; } }); });
-    if (nova) { S.sporocilaOseba = nova; S.sporocilaAktivni = svez; $("sporocilaNaslov").textContent = nova.ime; narisiPano(nova, svez, S.sporocilaZadnjaVsebina || []); }
+    if (nova) {
+      S.sporocilaOseba = nova; S.sporocilaAktivni = svez; $("sporocilaNaslov").textContent = nova.ime;
+      narisiPano(nova, svez, S.sporocilaZadnjaVsebina || []); narisiKanalOdgovora(nova, svez);
+    }
     narisiSporocila();
   }
   // Vsi pogovori te osebe (en na kanal): »Povezani viri« v panu in izbira kanala za odgovor. Samo pravi pogovori iz
@@ -3926,7 +3929,7 @@
     sel.addEventListener("change", function () {
       var p = vsi[Number(sel.value)]; if (!p) return;
       odpriPogovor(oseba, p);
-      var s2 = $("sporocilaKanalOdgovora"); if (s2) s2.focus();
+      var s2 = $("sporocilaVnosKanal").querySelector("select"); if (s2) s2.focus();   // izbira je narisana znova
     });
     cilj.appendChild(sel);
   }
@@ -7130,9 +7133,10 @@
     $("sporocilaPocisti").addEventListener("click", function () {
       S.sporocilaFilter = ""; izberiMapo("vse"); $("sporocilaFilterGumb").focus(); odpriFilter(false);
     });
-    $("sporocilaFilterPlosca").addEventListener("keydown", function (e) {
-      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); odpriFilter(false); $("sporocilaFilterGumb").focus(); }
-    });
+    // Esc zapre samo plosco filtra (ne razdelka - »Esc Domov«), tudi ce fokus ni vec v njej; fokus nazaj na gumb.
+    window.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && odpriFilter(false)) { e.preventDefault(); e.stopImmediatePropagation(); $("sporocilaFilterGumb").focus(); }
+    }, true);
     document.addEventListener("mousedown", function (e) {
       var c = e.target && e.target.closest ? e.target : null;
       if (c && (c.closest("#sporocilaFilterPlosca") || c.closest("#sporocilaFilterGumb"))) return;

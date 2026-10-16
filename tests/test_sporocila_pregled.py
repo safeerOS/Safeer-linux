@@ -205,7 +205,7 @@ class Vedenje(unittest.TestCase):
         self.assertIn('getAttribute("data-kljuc") === fokus', f)
 
     def test_tipkovnica(self):
-        for niz in ('$("sporocilaSeznam").addEventListener("keydown"', "ArrowDown", 'e.key === "Escape") { e.preventDefault(); e.stopPropagation(); odpriFilter(false)',
+        for niz in ('$("sporocilaSeznam").addEventListener("keydown"', "ArrowDown", 'e.key === "Escape" && odpriFilter(false)',
                     '$("sporocilaNazaj").addEventListener("click", nazajNaSeznam)'):
             self.assertIn(niz, self.js, niz)
 
