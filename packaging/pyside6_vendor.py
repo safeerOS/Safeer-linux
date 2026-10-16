@@ -18,7 +18,8 @@ MANIFEST = os.path.join(KOREN, "io.github.memelandfaner.SafeerOS.yml")
 
 def kolesa() -> list:
     """[(url, sha256)] iz modula python3-pyside6 v manifestu Flatpak."""
-    besedilo = open(MANIFEST, encoding="utf-8").read()
+    with open(MANIFEST, encoding="utf-8") as f:
+        besedilo = f.read()
     m = re.search(r"- name: python3-pyside6\n(.*?)(?=\n  - name: )", besedilo, re.S)
     if not m:
         raise SystemExit("v manifestu ni modula python3-pyside6")
