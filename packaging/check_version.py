@@ -41,7 +41,8 @@ readme = (r / "README.md").read_text(encoding="utf-8")
 PRICAKOVANO = [
     (f"badge/Release-v{v}-", "znacka Release v README"),
     (f"releases/tag/v{v}", "povezava na izdajo v README"),
-    (f"safeer-browser_{v}_all.deb", "ukaz apt install v README"),
+    # Od 15. 10. 2026 je paket amd64 (nas WebKitGTK v paketu, packaging/webkit-deb).
+    (f"safeer-browser_{v}_amd64.deb", "ukaz apt install v README"),
 ]
 for niz, opis in PRICAKOVANO:
     if niz not in readme:
@@ -55,12 +56,12 @@ for vrstica in readme.splitlines():
     for stara in re.findall(r"releases/tag/v(\d+\.\d+\.\d+)", vrstica):
         if stara != v:
             napake.append(f"README.md kaze na izdajo v{stara}, koda je {v}: {vrstica.strip()[:90]}")
-    for stara in re.findall(r"safeer-browser_(\d+\.\d+\.\d+)_all\.deb", vrstica):
+    for stara in re.findall(r"safeer-browser_(\d+\.\d+\.\d+)_(?:all|amd64)\.deb", vrstica):
         if stara != v:
             napake.append(f"README.md namescа {stara}, koda je {v}: {vrstica.strip()[:90]}")
 
 pack = (r / "PACKAGING.md").read_text(encoding="utf-8")
-for stara in set(re.findall(r"safeer-browser_(\d+\.\d+\.\d+)_all\.deb", pack)) | \
+for stara in set(re.findall(r"safeer-browser_(\d+\.\d+\.\d+)_(?:all|amd64)\.deb", pack)) | \
              set(re.findall(r"Safeer-Browser-(\d+\.\d+\.\d+)-x86_64", pack)):
     if stara != v:
         napake.append(f"PACKAGING.md navaja {stara}, koda je {v}")

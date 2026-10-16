@@ -26,6 +26,9 @@ if os.environ.get("FLATPAK_ID"):
     if os.path.isdir(_skupna) and os.access(_skupna, os.W_OK):
         os.environ.setdefault("SAFEER_MINT_CONFIG_DIR", _skupna)
 
+# Paket .deb: nas WebKitGTK in libsoup iz /usr/lib/<paket>/webkit namesto sistemskih (pred `import gi`).
+from core import zasebni_webkit  # noqa: E402
+zasebni_webkit.nastavi(KOREN)
 from core import pomnilnik  # noqa: E402
 pomnilnik.omeji_arene(2)
 

@@ -122,8 +122,14 @@ def preveri_webkit():
     with open("/proc/self/maps") as f:
         knjiznice = sorted({v_.split()[-1] for v_ in f if "libwebkitgtk-6.0" in v_})
     print("WebKitGTK %d.%d.%d" % v, knjiznice, flush=True)
-    # V Flatpaku mora biti nas WebKit (/app), ne tisti iz runtime-a org.gnome.Platform.
-    izid["webkit"] = bool(knjiznice) and (not V_FLATPAKU or all(k.startswith("/app/") for k in knjiznice))
+    # V Flatpaku mora biti nas WebKit (/app), ne tisti iz runtime-a org.gnome.Platform; v paketu .deb z nasim WebKitom
+    # (packaging/webkit-deb) iz /usr/lib/safeer-browser/webkit, tudi ce je namescen sistemski WebKitGTK 6.0.
+    from core import zasebni_webkit
+    predpona = None if V_FLATPAKU else zasebni_webkit.predpona(LIB)
+    if predpona:
+        print("nas WebKit .deb:", predpona, flush=True)
+    izid["webkit"] = bool(knjiznice) and (not V_FLATPAKU or all(k.startswith("/app/") for k in knjiznice)) \
+        and (not predpona or all(k.startswith(predpona + "/") for k in knjiznice))
 
 
 def preveri_peskovnik():
