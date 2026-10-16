@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 import subprocess
+import threading
 import time
 import urllib.parse
 import weakref
@@ -22,7 +23,8 @@ from core import (adblock, dovoljenja_strani, drm, odlozisce_varuh, os_stabilnos
                   safeer_drm, splet_prenosi, splet_temno, zascita)
 from core.config import ConfigManager, SEARCH_ENGINES, normalize_web_url
 from core import external_apps
-from core.doh_proxy import get_doh_proxy, nastavitve_posrednika
+from core.doh_proxy import (DOH_PROVIDERS, IZBIRE_DNS, IZBIRE_NAPREJ, PRIVZETI_DNS, PRIVZETI_NAPREJ, doh_iz_nastavitev,
+                             get_doh_proxy, nastavitve_posrednika, preizkusi_dns, razcleni_po_meri)
 from core.filter_lists import FILTER_ID
 
 
@@ -84,12 +86,12 @@ _PROCES = {
 
 # Skupna dodatna besedila so zapisana posebej, da zgornji slovar ostane berljiv.
 _DODATNA = {
-    "sl": ("Spletna stran zahteva posebno dovoljenje.", "Zavrni", "Dovoli", "Iskalnik", "Blokiraj oglase in sledilce", "Šifriran DNS (DoH)"),
-    "en": ("The website requests a special permission.", "Deny", "Allow", "Search engine", "Block ads and trackers", "Encrypted DNS (DoH)"),
-    "de": ("Die Website fordert eine besondere Berechtigung an.", "Ablehnen", "Zulassen", "Suchmaschine", "Werbung und Tracker blockieren", "Verschlüsseltes DNS (DoH)"),
-    "es": ("El sitio web solicita un permiso especial.", "Denegar", "Permitir", "Buscador", "Bloquear anuncios y rastreadores", "DNS cifrado (DoH)"),
-    "fr": ("Le site demande une autorisation spéciale.", "Refuser", "Autoriser", "Moteur de recherche", "Bloquer les publicités et traqueurs", "DNS chiffré (DoH)"),
-    "it": ("Il sito richiede un'autorizzazione speciale.", "Nega", "Consenti", "Motore di ricerca", "Blocca annunci e tracker", "DNS crittografato (DoH)"),
+    "sl": ("Spletna stran zahteva posebno dovoljenje.", "Zavrni", "Dovoli", "Iskalnik", "Blokiraj oglase in sledilce", "DNS – iskanje imen strani"),
+    "en": ("The website requests a special permission.", "Deny", "Allow", "Search engine", "Block ads and trackers", "DNS – looking up site names"),
+    "de": ("Die Website fordert eine besondere Berechtigung an.", "Ablehnen", "Zulassen", "Suchmaschine", "Werbung und Tracker blockieren", "DNS – Namen von Seiten auflösen"),
+    "es": ("El sitio web solicita un permiso especial.", "Denegar", "Permitir", "Buscador", "Bloquear anuncios y rastreadores", "DNS – búsqueda de nombres de sitios"),
+    "fr": ("Le site demande une autorisation spéciale.", "Refuser", "Autoriser", "Moteur de recherche", "Bloquer les publicités et traqueurs", "DNS – résolution des noms de sites"),
+    "it": ("Il sito richiede un'autorizzazione speciale.", "Nega", "Consenti", "Motore di ricerca", "Blocca annunci e tracker", "DNS – risoluzione dei nomi dei siti"),
 }
 for _jezik, _vrednosti in _DODATNA.items():
     BESEDILA[_jezik].update(dict(zip(("dovoljenje", "zavrni", "dovoli", "iskalnik", "adblock", "doh"), _vrednosti)))
@@ -990,14 +992,11 @@ class VdelaniSplet:
                 p = W.NetworkProxySettings.new(self.config.get("secure_proxy_url").strip(), izjeme)
                 self.seja.set_proxy_settings(W.NetworkProxyMode.CUSTOM, p)
                 return
-            if self.config.get("doh_enabled", True) and self.config.get("doh_provider", "cloudflare") != "disabled":
-                doh = get_doh_proxy(provider=self.config.get("doh_provider", "cloudflare"),
-                                    custom_url=self.config.get("custom_doh_url", "https://1.1.1.1/dns-query"), enabled=True,
-                                    lokalno=bool(self.config.get("doh_lokalno_omrezje", False)))
-                if doh and doh.actual_port > 0:
-                    p = nastavitve_posrednika(W, doh.actual_port, izjeme)
-                    self.seja.set_proxy_settings(W.NetworkProxyMode.CUSTOM, p)
-                    return
+            doh = doh_iz_nastavitev(self.config)
+            if doh and doh.actual_port > 0:
+                p = nastavitve_posrednika(W, doh.actual_port, izjeme)
+                self.seja.set_proxy_settings(W.NetworkProxyMode.CUSTOM, p)
+                return
             self.seja.set_proxy_settings(W.NetworkProxyMode.DEFAULT, None)
         except Exception as napaka:
             print("[Safeer OS Splet] DoH/proxy:", napaka)
@@ -3610,19 +3609,79 @@ class VdelaniSplet:
         zas.attach(po_meri, 0, vrsta, 2, 1); vrsta += 1
         pojavna = Gtk.CheckButton(label=self._t("po_nastavitev")); pojavna.set_active(self.config.get("popup_blokiraj", True))
         zas.attach(pojavna, 0, vrsta, 2, 1); vrsta += 1
-        # Izbira DNS (lastnik 14. 10. 2026: »ne pozabi na moznost menjave DNS«) - isti ponudniki kot Safeer Browser.
+        # Izbira DNS (lastnik 16. 10. 2026: »DNS naj bo prevzeto od Safeer Scita; top 5 izbir«; »uporabnika ne omejujemo«:
+        # po meri je lahko katerikoli DoH ali IP, tudi Pi-hole). Pod izbiro je vedno napisano, kdo vidi imena strani.
         doh = Gtk.ComboBoxText()
-        for kljuc in ("quad9", "adguard", "cloudflare", "google", "custom", "disabled"):
+        for kljuc in IZBIRE_DNS:
             doh.append(kljuc, self._ti("doh_" + kljuc))
-        izbran_dns = self.config.get("doh_provider", "cloudflare") if self.config.get("doh_enabled", True) else "disabled"
-        doh.set_active_id(izbran_dns if izbran_dns in ("quad9", "adguard", "cloudflare", "google", "custom") else "disabled")
-        lasten = Gtk.Entry(placeholder_text="https://dns.example/dns-query")
-        lasten.set_text(self.config.get("custom_doh_url", "") or "")
-        lasten.set_visible(doh.get_active_id() == "custom")
-        doh.connect("changed", lambda c: lasten.set_visible(c.get_active_id() == "custom"))
-        zas.attach(napis(self._t("doh"), krepko=True), 0, vrsta, 2, 1); vrsta += 1
-        zas.attach(doh, 0, vrsta, 2, 1); vrsta += 1
-        zas.attach(lasten, 0, vrsta, 2, 1); vrsta += 1
+        izbran_dns = self.config.get("doh_provider", PRIVZETI_DNS) if self.config.get("doh_enabled", True) else "disabled"
+        doh.set_active_id(izbran_dns if izbran_dns in IZBIRE_DNS else PRIVZETI_DNS)
+        naprej = Gtk.ComboBoxText()
+        for kljuc in IZBIRE_NAPREJ:
+            naprej.append(kljuc, self._ti("doh_" + ("naprej_router" if kljuc == "router" else kljuc)))
+        naprej.set_active_id(self.config.get("scit_naprej", PRIVZETI_NAPREJ) if self.config.get("scit_naprej") in IZBIRE_NAPREJ
+                             else PRIVZETI_NAPREJ)
+        napis_naprej = napis(self._ti("doh_naprej_lbl"))
+
+        def polje_po_meri(besedilo):
+            vnos = Gtk.Entry(placeholder_text=self._ti("doh_po_meri_namig"))
+            vnos.set_hexpand(True)
+            vnos.set_text(besedilo or "")
+            gumb = Gtk.Button(label=self._ti("doh_preizkusi"))
+            izid = napis("", opis=True)
+            vrstica = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            vrstica.append(vnos); vrstica.append(gumb)
+            okvir = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            okvir.append(vrstica); okvir.append(izid)
+
+            def preizkusi(*_):
+                besedilo = vnos.get_text().strip()
+                vrsta, kljuc = razcleni_po_meri(besedilo)
+                if not vrsta:
+                    izid.set_text(self._ti(kljuc))
+                    return
+                izid.set_text(self._ti("doh_po_meri_preverjam"))
+                gumb.set_sensitive(False)
+
+                def v_ozadju():
+                    ok, kljuc = preizkusi_dns(besedilo)
+                    def pokazi():
+                        izid.set_text(self._ti(kljuc)); gumb.set_sensitive(True)
+                        return False
+                    self.GLib.idle_add(pokazi)
+                threading.Thread(target=v_ozadju, name="safeer-dns-preizkus", daemon=True).start()
+            gumb.connect("clicked", preizkusi)
+            vnos.connect("activate", preizkusi)
+            return okvir, vnos, izid
+
+        okvir_lasten, lasten, izid_lasten = polje_po_meri(self.config.get("custom_doh_url", "") or "")
+        okvir_naprej, naprej_lasten, izid_naprej = polje_po_meri(self.config.get("scit_naprej_po_meri", "") or "")
+        rezerva = Gtk.CheckButton(label=self._ti("doh_rezerva_lbl"))
+        rezerva.set_active(bool(self.config.get("dns_rezerva", True)))
+        kdo_vidi = napis("", opis=True)
+
+        def osvezi_dns(*_):
+            izbira = doh.get_active_id() or PRIVZETI_DNS
+            n = naprej.get_active_id() or PRIVZETI_NAPREJ
+            scit = izbira == "scit"
+            for g in (napis_naprej, naprej):
+                g.set_visible(scit)
+            okvir_naprej.set_visible(scit and n == "custom")
+            okvir_lasten.set_visible(izbira == "custom")
+            rezerva.set_visible(izbira not in ("custom", "disabled") and not (scit and n in ("router", "custom")))
+            # Kdo vidi imena strani - povedano po resnici za vsako izbiro.
+            koncni = n if scit else izbira
+            deli = [self._ti("doh_kdo_scit")] if scit else []
+            if koncni in DOH_PROVIDERS:
+                deli.append(self._ti("doh_kdo_ponudnik").format(ime=DOH_PROVIDERS[koncni]["name"].split(" (")[0]))
+            elif koncni in ("router", "disabled", "custom"):
+                deli.append(self._ti("doh_kdo_" + koncni))
+            kdo_vidi.set_text(" ".join(deli))
+        doh.connect("changed", osvezi_dns)
+        naprej.connect("changed", osvezi_dns)
+        for g in (napis(self._t("doh"), krepko=True), doh, okvir_lasten, napis_naprej, naprej, okvir_naprej, kdo_vidi, rezerva):
+            zas.attach(g, 0, vrsta, 2, 1); vrsta += 1
+        osvezi_dns()
         for kljuc, dejanje in (("nas_dovoljenja", lambda *_: (d.destroy(), self._dovoljenja_strani())),
                                ("nas_brisi", lambda *_: (d.destroy(), self._izbrisi_podatke()))):
             g = Gtk.Button(label=self._t(kljuc)); g.set_halign(Gtk.Align.START); g.connect("clicked", dejanje)
@@ -3641,6 +3700,16 @@ class VdelaniSplet:
 
         def odgovor(o):
             if o == R.OK:
+                # DNS po meri se preveri po obliki; z napacno obliko okno ostane odprto in pove, kaj ni prav.
+                dns = doh.get_active_id() or PRIVZETI_DNS
+                n = naprej.get_active_id() or PRIVZETI_NAPREJ
+                for vklop, vnos, izid in ((dns == "custom", lasten, izid_lasten),
+                                          (dns == "scit" and n == "custom", naprej_lasten, izid_naprej)):
+                    vrsta_vnosa, kljuc = razcleni_po_meri(vnos.get_text())
+                    if vklop and not vrsta_vnosa:
+                        izid.set_text(self._ti(kljuc))
+                        vnos.grab_focus()
+                        return
                 self.config.set("search_engine", motor.get_active_id() or "duckduckgo")
                 izbrana = next((ime for ime, g in gumbi_ravni.items() if g.get_active()), "obicajna")
                 if izbrana == "po_meri":
@@ -3648,15 +3717,19 @@ class VdelaniSplet:
                         self.config.set(kljuc, c.get_active())
                 else:
                     zascita.nastavi_raven(self.config, izbrana)
-                dns = doh.get_active_id() or "cloudflare"
-                url = lasten.get_text().strip()
-                if dns == "custom" and not (url.startswith("https://") and len(url) > 12 and " " not in url):
-                    dns = self.config.get("doh_provider", "cloudflare")      # neveljaven naslov: ostane prejsnji
-                    dns = "cloudflare" if dns in ("custom", "disabled") else dns
-                elif dns == "custom":
-                    self.config.set("custom_doh_url", url)
+                prej = (self.config.get("doh_provider", PRIVZETI_DNS) if self.config.get("doh_enabled", True) else "disabled",
+                        self.config.get("scit_naprej", PRIVZETI_NAPREJ))
+                if (dns, n) != prej or "custom" in (dns, n):
+                    self.config.set("dns_izbira_uporabnika", True)    # izrecna izbira: prihodnje selitve je ne povozijo
+                if dns == "custom":
+                    self.config.set("custom_doh_url", lasten.get_text().strip())
+                if dns == "scit":
+                    self.config.set("scit_naprej", n)
+                    if n == "custom":
+                        self.config.set("scit_naprej_po_meri", naprej_lasten.get_text().strip())
                 self.config.set("doh_enabled", dns != "disabled")
                 self.config.set("doh_provider", dns)
+                self.config.set("dns_rezerva", rezerva.get_active())
                 self.config.set("popup_blokiraj", pojavna.get_active())
                 self.config.set("always_ask_download_dir", vprasaj.get_active())
                 self.config.set("hardware_acceleration", "on_demand" if strojno.get_active() else "never")

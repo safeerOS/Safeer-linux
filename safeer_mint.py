@@ -43,7 +43,7 @@ sys.path.insert(0, BASE_DIR)
 
 from core.runtime_safety import install_main_thread_gc, collect_closed_views
 from core.config import CONFIG_DIR, ConfigManager, SEARCH_ENGINES, normalize_web_url
-from core.doh_proxy import get_doh_proxy, DOH_PROVIDERS, nastavitve_posrednika
+from core.doh_proxy import get_doh_proxy, DOH_PROVIDERS, IZBIRE_DNS, PRIVZETI_DNS, doh_iz_nastavitev, nastavitve_posrednika, razcleni_po_meri
 from core.i18n import t, set_language, get_current_language, SUPPORTED_LANGUAGES
 from core import drm
 from core import dovoljenja_strani
@@ -680,7 +680,7 @@ class SafeerMintBrowser(Gtk.Window):
                 proxy_mode = "disabled"
                 self.config.set("secure_proxy_mode", "disabled")
             doh_enabled = self.config.get("doh_enabled", True)
-            doh_provider = self.config.get("doh_provider", "cloudflare")
+            doh_provider = self.config.get("doh_provider", PRIVZETI_DNS)
             custom_doh_url = self.config.get("custom_doh_url", "https://1.1.1.1/dns-query")
 
             # Izjeme za lokalna omrežja (bypassi)
@@ -707,8 +707,8 @@ class SafeerMintBrowser(Gtk.Window):
             if proxy_mode == "disabled":
                 if doh_enabled and doh_provider != "disabled":
                     # Vgrajen lokalni DoH posrednik
-                    doh_proxy = get_doh_proxy(provider=doh_provider, custom_url=custom_doh_url, enabled=True,
-                                              lokalno=bool(self.config.get("doh_lokalno_omrezje", False)))
+                    # Ista pot kot Splet (GTK4): Safeer Scit, streznik naprej, rezerva.
+                    doh_proxy = doh_iz_nastavitev(self.config)
                     if doh_proxy and doh_proxy.actual_port > 0:
                         local_proxy_url = f"http://127.0.0.1:{doh_proxy.actual_port}"
                         proxy_settings = nastavitve_posrednika(WebKit2, doh_proxy.actual_port, ignore_hosts)
@@ -3090,25 +3090,26 @@ class SafeerMintBrowser(Gtk.Window):
         card_doh.pack_start(lbl_doh_sub, False, False, 0)
 
         combo_doh = Gtk.ComboBoxText()
-        combo_doh.append("quad9", t('doh_quad9'))
-        combo_doh.append("adguard", t('doh_adguard'))
-        combo_doh.append("cloudflare", t('doh_cloudflare'))
-        combo_doh.append("google", t('doh_google'))
-        combo_doh.append("custom", t('doh_custom'))
-        combo_doh.append("disabled", t('doh_disabled'))
+        for kljuc in IZBIRE_DNS:
+            combo_doh.append(kljuc, t('doh_' + kljuc))
 
-        cur_doh = self.config.get("doh_provider", "cloudflare")
+        cur_doh = self.config.get("doh_provider", PRIVZETI_DNS)
         if not self.config.get("doh_enabled", True):
             cur_doh = "disabled"
+        if cur_doh not in IZBIRE_DNS:
+            cur_doh = PRIVZETI_DNS
         combo_doh.set_active_id(cur_doh)
 
         entry_custom_doh = Gtk.Entry()
-        entry_custom_doh.set_placeholder_text("https://1.1.1.1/dns-query")
+        entry_custom_doh.set_placeholder_text(t('doh_po_meri_namig'))
         entry_custom_doh.set_text(self.config.get("custom_doh_url", "https://1.1.1.1/dns-query"))
         entry_custom_doh.set_visible(cur_doh == "custom")
         entry_custom_doh.get_style_context().add_class("item-card-row")
 
         def on_custom_doh_changed(entry):
+            # Shranimo sele veljaven naslov (DoH ali IP, tudi Pi-hole): delno vpisan naslov ne podre DNS.
+            if not razcleni_po_meri(entry.get_text())[0]:
+                return
             self.config.set("custom_doh_url", entry.get_text().strip())
             if combo_doh.get_active_id() == "custom":
                 self.setup_network_security_and_proxy()
@@ -3116,7 +3117,8 @@ class SafeerMintBrowser(Gtk.Window):
         entry_custom_doh.connect("changed", on_custom_doh_changed)
 
         def on_doh_changed(cb):
-            sel = cb.get_active_id() or "cloudflare"
+            sel = cb.get_active_id() or PRIVZETI_DNS
+            self.config.set("dns_izbira_uporabnika", True)
             if sel == "disabled":
                 self.config.set("doh_enabled", False)
                 self.config.set("doh_provider", "disabled")

@@ -230,9 +230,16 @@ class Priklop(unittest.TestCase):
         self.assertIs(DEFAULT_SETTINGS.get("doh_lokalno_omrezje"), False)
 
     def test_oba_klicatelja_posredujeta_stikalo(self):
+        # Oba gresta skozi eno pot (doh_iz_nastavitev), ta pa stikalo poda posredniku.
         for rel in ("safeer_mint.py", "core/os_splet.py"):
             with self.subTest(rel):
-                self.assertRegex(self._src(rel), r'(?s)get_doh_proxy\(.{0,400}?lokalno=.{0,100}?doh_lokalno_omrezje')
+                self.assertIn("doh_iz_nastavitev(self.config)", self._src(rel))
+        self.assertRegex(self._src("core/doh_proxy.py"),
+                         r'(?s)def doh_iz_nastavitev.{0,600}?get_doh_proxy\(.{0,400}?lokalno=.{0,100}?doh_lokalno_omrezje')
+        klici = []
+        with mock.patch.object(doh_proxy, "get_doh_proxy", side_effect=lambda **k: klici.append(k)):
+            doh_proxy.doh_iz_nastavitev({"doh_lokalno_omrezje": True})
+        self.assertIs(klici[0]["lokalno"], True)
 
     def test_nastavitev_je_v_vmesniku(self):
         s = self._src("safeer_mint.py")

@@ -44,6 +44,7 @@ sudo apt install python3-gi python3-gi-cairo python3-pytest python3-cryptography
   gir1.2-gtk-4.0 gir1.2-gtk-3.0 gir1.2-webkit-6.0 gir1.2-webkit2-4.1 gir1.2-soup-3.0 \
   gir1.2-secret-1 gir1.2-gstreamer-1.0 gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
   gstreamer1.0-libav glib-networking xvfb
+# gir1.2-gtk-3.0 in gir1.2-webkit2-4.1 sta samo za skupino preizkusov gtk3 (zastareli safeer_mint.py).
 
 python3 safeer_brskalnik.py        # Safeer Browser (GTK 4)
 python3 safeer_os.py               # lupina Safeer OS
@@ -68,7 +69,9 @@ Med delom zadošča ena datoteka: `xvfb-run -a python3 -m pytest -q tests/test_p
 - `core/` – skupni moduli. Logika, ki ne potrebuje okna (imena prenosov, pravila pojavnih oken,
   stopnje zaščite, dovoljenja strani …), je v modulih brez GTK, da si brskalnik, Safeer OS in
   preizkusi delijo eno izvedbo.
-- `safeer_brskalnik.py` – Safeer Browser (GTK 4). `safeer_mint.py` – starejši brskalnik GTK 3.
+- `safeer_brskalnik.py` – Safeer Browser (GTK 4). GTK 4 je privzet povsod (paketi,
+  `install.sh`). `safeer_mint.py` – zastareli brskalnik GTK 3, samo na izrecno izbiro
+  (`SAFEER_BRSKALNIK_GTK3=1`) do umika; novih zmožnosti ne gradimo tam.
 - `safeer_os.py`, `assets/os/` – lupina Safeer OS (QML, plošče HTML/JS; vse barve in teme so v `os.css`).
 - `packaging/` – .deb, AppImage, Flatpak (Flatpak ima naš popravljeni WebKitGTK).
 - Nov modul v `core/` dodaj v `packaging/install_os_payload.sh` ali `install_control_payload.sh`;

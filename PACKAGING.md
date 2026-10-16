@@ -21,7 +21,7 @@ bash build_deb.sh
 sudo apt install ./safeer-browser_1.0.127_all.deb
 ```
 
-The source tarball (`install.sh`, GTK 3) is built only with `SAFEER_BRSKALNIK_GTK3=1`. Builds no longer copy into neighbouring website repositories. Native package upgrades continue using the existing `~/.config/safeer-mint` profile unless XDG_CONFIG_HOME is explicitly set. Existing alternatives registration and removal scripts are retained.
+The source tarball `safeer-browser-linux.tar.gz` (`install.sh`) installs the GTK 4 browser (`safeer_brskalnik.py`) like the packages; it also carries the deprecated `safeer_mint.py`, which `safeer-mint.sh` starts only with `SAFEER_BRSKALNIK_GTK3=1`. `debian/` (PPA source package, Ubuntu 24.04 on) installs the same payload through `packaging/install_payload.sh`. Builds no longer copy into neighbouring website repositories. Native package upgrades continue using the existing `~/.config/safeer-mint` profile unless XDG_CONFIG_HOME is explicitly set. Existing alternatives registration and removal scripts are retained.
 
 The `.deb` packages of the browser, Safeer Control and Safeer OS compile the Python byte-code in `postinst` (`python3 -m compileall` on the program folder): a user cannot write into `/usr/lib`, so without it Python would compile every module again at each start. `prerm` removes the byte-code again — on removal and before an upgrade — because dpkg does not know these files and would otherwise leave the program folder behind. AppImage and Flatpak ship the code read-only and are unchanged.
 

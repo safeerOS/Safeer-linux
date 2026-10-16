@@ -128,6 +128,20 @@ class StaleEntryTests(unittest.TestCase):
             launcher=root/'bin'/'safeer';launcher.write_text('#!/bin/sh\n');launcher.chmod(0o755)
             self.assertEqual(default.launcher_command(root/'lib'/'safeer-browser'),str(launcher))
 
+    def test_source_checkout_registers_the_gtk4_browser(self):
+        # 16. 10. 2026: GTK4 privzet tudi iz izvorne kode; »Nastavi kot privzeti« ne sme vnosa prepisati na GTK3.
+        with tempfile.TemporaryDirectory(prefix='safeer-gtk4-') as temp:
+            app_dir=Path(temp)
+            for ime in default.VSTOPA:(app_dir/ime).write_text('#')
+            with patch.object(default,'_gtk3',return_value=False):
+                self.assertIn('safeer_brskalnik.py',default.launcher_command(app_dir))
+                text=default.desktop_entry_text('',app_dir)
+                self.assertIn('StartupWMClass=io.github.memelandfaner.SafeerBrowser',text)
+                self.assertTrue(default._starts_this_install(f'/usr/bin/python3 {app_dir}/safeer_brskalnik.py %U',app_dir))
+            with patch.object(default,'_gtk3',return_value=True):
+                self.assertIn('safeer_mint.py',default.launcher_command(app_dir))
+                self.assertIn('StartupWMClass=safeer-browser',default.desktop_entry_text('',app_dir))
+
     def test_deb_desktop_entry_uses_an_absolute_launcher(self):
         text=(ROOT/'build_deb.sh').read_text()
         self.assertIn("s|^Exec=safeer|Exec=/usr/bin/safeer|",text)

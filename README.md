@@ -135,6 +135,11 @@ computer's internet through the phone while the home connection is down — no h
 WebKitGTK 6.0 (AppImages are built against glibc 2.39). Older systems such as Linux Mint 21: use the
 Flatpak — it brings GTK4 and our WebKit with it.
 
+From a source checkout, `bash install.sh` installs the same GTK4 browser (`safeer_brskalnik.py`) for
+the current user and checks the same packages as the `.deb`; `bash uninstall.sh` removes it
+(`--purge` also removes the profile). The older GTK3 browser (`safeer_mint.py`, WebKit2GTK 4.1) is
+deprecated and starts only with `SAFEER_BRSKALNIK_GTK3=1`.
+
 ## Build from source
 
 ```bash

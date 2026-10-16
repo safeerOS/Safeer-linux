@@ -112,8 +112,13 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "tracking_protection_enabled": True,  # Odstranjevanje sledilnih parametrov (UTM, fbclid, gclid, si, itd.)
     "gpc_dnt_enabled": True,             # W3C Global Privacy Control & Do Not Track signal
     "doh_enabled": True,                 # Šifriran DNS (DNS-over-HTTPS) za zaščito pred ISP cenzuro in prisluškovanjem
-    "doh_provider": "cloudflare",        # "cloudflare" (Privzeto 1.1.1.1), "quad9" (9.9.9.9), "google" (8.8.8.8), "custom", "disabled"
-    "custom_doh_url": "https://1.1.1.1/dns-query",  # URL za poljuben zasebni DoH strežnik
+    "doh_provider": "scit",              # "scit" (privzeto: Safeer Ščit + naprej), "quad9", "cloudflare", "google", "adguard", "opendns", "custom", "disabled"
+    "custom_doh_url": "https://1.1.1.1/dns-query",  # DNS po meri: naslov DoH (https://…/dns-query) ali IP strežnika (tudi Pi-hole)
+    "scit_naprej": "cloudflare",         # Ščit v brskalniku pošlje dovoljena imena naprej: ponudnik, "custom" ali "router" (DNS usmerjevalnika)
+    "scit_naprej_po_meri": "",           # strežnik naprej po meri (DoH ali IP)
+    "dns_rezerva": True,                 # SERVFAIL/časovna odpoved/lažna blokada ponudnika -> drug ponudnik (Ščitove blokade ostanejo)
+    "dns_scit_selitev": True,            # nove namestitve: selitev na Ščit ni potrebna
+    "dns_izbira_uporabnika": False,      # True, ko uporabnik sam shrani izbiro DNS (prihodnje spremembe privzetega je ne povozijo)
     "doh_lokalno_omrezje": False,        # Imena, ki se prevedejo v domaci naslov (Pi-hole, usmerjevalnik), se odprejo; povratni in metapodatkovni naslovi ostanejo zavrnjeni
     "secure_proxy_mode": "disabled",     # "disabled", "custom" (Lasten šifriran proxy)
     "secure_proxy_url": "http://127.0.0.1:8080",    # URL za lasten varen SOCKS5/HTTPS proxy
@@ -178,6 +183,24 @@ def dodaj_katalog_integracijam(nastavitve: Dict[str, Any]) -> bool:
     return spremenjeno
 
 
+def preseli_dns_na_scit(merged: Dict[str, Any], user_settings: Dict[str, Any]) -> bool:
+    """Enkratna selitev (1.0.128, lastnik 16. 10. 2026: »DNS naj bo prevzeto od Safeer Scita«).
+
+    Nastavitve se ob prvem zagonu shranijo v celoti (save_settings zapise vse privzete vrednosti), zato »cloudflare«
+    v datoteki ne pove, ali ga je uporabnik izbral sam. Na Scit zato preselimo vse z »cloudflare«: Scit dovoljena
+    imena privzeto poslje naprej prav Cloudflaru (1.1.1.1, DoH), torej razresuje isti ponudnik - doda se le filter.
+    Kdor je izbral drugega ponudnika, svoj DoH ali izklop, obdrzi svojo izbiro. Od zdaj si izrecno izbiro zapomnimo
+    (dns_izbira_uporabnika)."""
+    if user_settings.get("dns_scit_selitev"):
+        return False
+    merged["dns_scit_selitev"] = True
+    if (merged.get("doh_provider", "cloudflare") == "cloudflare" and merged.get("doh_enabled", True)
+            and not user_settings.get("dns_izbira_uporabnika")):
+        merged["doh_provider"] = "scit"
+        merged["scit_naprej"] = "cloudflare"
+    return True
+
+
 class ConfigManager:
     def __init__(self):
         self.config_dir = CONFIG_DIR
@@ -220,6 +243,8 @@ class ConfigManager:
                     # vse brskalnike): ukinjeni naslovi se preselijo, nove storitve kataloga se ponudijo (izklopljene)
                     # enkrat - ce jih uporabnik odstrani, se ne vracajo.
                     if dodaj_katalog_integracijam(merged):
+                        migrated = True
+                    if preseli_dns_na_scit(merged, user_settings):
                         migrated = True
                     if migrated:
                         self.save_settings(merged)

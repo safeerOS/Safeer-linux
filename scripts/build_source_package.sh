@@ -2,7 +2,7 @@
 # ==============================================================================
 # Safeer Browser — Debian / Launchpad PPA Source Package Generator
 # Prepares .orig.tar.gz, .dsc, .debian.tar.xz, and _source.changes
-# Compatible with Ubuntu 24.04 (Noble - Mint 22) and Ubuntu 22.04 (Jammy - Mint 21)
+# Ubuntu 24.04 (Noble - Mint 22) naprej: GTK4 brskalnik potrebuje WebKitGTK 6.0, ki ga Jammy (Mint 21) nima.
 # ==============================================================================
 set -e
 
@@ -10,7 +10,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$DIR"
 
 VERSION="1.0.7"
-DISTROS=("noble" "jammy")
+DISTROS=("noble")
 TARGET_DISTRO="${1:-all}"
 OUT_DIR="$DIR/build/ppa"
 
@@ -27,7 +27,8 @@ ORIG_TAR="$OUT_DIR/safeer-browser_$VERSION.orig.tar.gz"
 rm -rf "$ORIG_DIR"
 mkdir -p "$ORIG_DIR"
 
-cp -r safeer_mint.py core ui assets safeer-mint.sh install.sh uninstall.sh \
+# packaging/: debian/rules namesti tovor s packaging/install_payload.sh (zaganjalnik, vnos .desktop, ikone, VERSION).
+cp -r safeer_brskalnik.py safeer_mint.py core ui assets packaging safeer-mint.sh install.sh uninstall.sh \
       safeer-browser.desktop io.github.memelandfaner.SafeerBrowser.metainfo.xml \
       README.md LICENSE "$ORIG_DIR/"
 

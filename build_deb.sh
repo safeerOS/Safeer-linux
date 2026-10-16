@@ -146,10 +146,9 @@ echo "🔨 Izdelava paketa z dpkg-deb..."
 dpkg-deb --build --root-owner-group "$BUILD_ROOT" "$DIR/$DEB_PACKAGE"
 
 # 9. Build portable tar.gz package
-# Prenosni arhiv je namestitev iz izvorne kode GTK3 brskalnika (install.sh, safeer-mint.sh -> safeer_mint.py), zato
-# samo za GTK3; GTK4 brskalnik je v paketih .deb, Flatpak in AppImage.
-TAR_DATOTEKE=""
-if [ "${SAFEER_BRSKALNIK_GTK3:-0}" = 1 ]; then
+# Prenosni arhiv je namestitev iz izvorne kode (install.sh, safeer-mint.sh): privzeto GTK4 brskalnik
+# safeer_brskalnik.py (kot .deb, Flatpak in AppImage). safeer_mint.py je zraven, ker ga safeer-mint.sh zazene z
+# zastarelo izbiro SAFEER_BRSKALNIK_GTK3=1; packaging/ da vnos .desktop GTK4 in VERSION za --version.
 echo "📦 Izdelava prenosnega arhiva: $TAR_PACKAGE..."
 tar -czf "$DIR/$TAR_PACKAGE" \
     --exclude="__pycache__" \
@@ -157,9 +156,9 @@ tar -czf "$DIR/$TAR_PACKAGE" \
     --exclude=".git" \
     --exclude="build" \
     -C "$DIR" \
-    safeer_mint.py core ui assets safeer-mint.sh install.sh uninstall.sh safeer-browser.desktop README.md LICENSE
+    safeer_brskalnik.py safeer_mint.py core ui assets safeer-mint.sh install.sh uninstall.sh safeer-browser.desktop \
+    packaging/safeer-browser.desktop packaging/VERSION README.md LICENSE
 TAR_DATOTEKE="$TAR_PACKAGE"
-fi
 
 # 10. Generate SHA256SUMS
 echo "🔒 Računanje SHA256 kontrolnih vsot..."

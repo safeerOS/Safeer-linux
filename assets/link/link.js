@@ -2648,10 +2648,40 @@
     narisiPinVabila(p.koda);
   }
 
+  // SVG kode QR narise program sam (python3-qrcode), a v stran ga ne vstavimo kot HTML (innerHTML bi izvedel
+  // <script>, on* in javascript: iz niza): razclenimo ga kot image/svg+xml, odstranimo vse, kar lahko izvaja kodo ali
+  // nalaga od drugod, in vstavimo uvozeno vozlisce. Vrne false, ce niz ni veljaven SVG.
+  var SVG_NS = "http://www.w3.org/2000/svg";
+  var SVG_NEVARNO = { script: 1, foreignobject: 1, iframe: 1, embed: 1, object: 1, style: 1, a: 1, use: 1, image: 1,
+                      animate: 1, set: 1, animatemotion: 1, animatetransform: 1, handler: 1, listener: 1 };
+  function vstaviSvg(okvir, besedilo) {
+    if (typeof DOMParser === "undefined") return false;
+    var dok = new DOMParser().parseFromString(String(besedilo || ""), "image/svg+xml");
+    var koren = dok && dok.documentElement;
+    if (!koren || koren.namespaceURI !== SVG_NS || String(koren.localName).toLowerCase() !== "svg" ||
+        dok.getElementsByTagName("parsererror").length) return false;
+    var vsi = [koren].concat(Array.prototype.slice.call(koren.getElementsByTagName("*")));
+    vsi.forEach(function (e) {
+      if (SVG_NEVARNO[String(e.localName || "").toLowerCase()] || e.namespaceURI !== SVG_NS) {
+        if (e.parentNode) e.parentNode.removeChild(e);
+        return;
+      }
+      Array.prototype.slice.call(e.attributes).forEach(function (a) {
+        var ime = String(a.localName || a.name).toLowerCase();
+        var vrednost = String(a.value).replace(/[\u0000-\u0020]+/g, "").toLowerCase();
+        if (ime.indexOf("on") === 0 || ime === "href" || ime === "style" ||
+            vrednost.indexOf("javascript:") >= 0 || vrednost.indexOf("url(") >= 0) e.removeAttributeNode(a);
+      });
+    });
+    okvir.textContent = "";
+    okvir.appendChild(document.importNode(koren, true));
+    return true;
+  }
+
   function narisiVabilo(p) {
     var qr = el("vabiloQr");
     if (p.svg) {
-      qr.innerHTML = p.svg;
+      if (!vstaviSvg(qr, p.svg)) qr.textContent = "";   // brez slike ostane koda PIN spodaj
       zadnjiPinVabila = String(p.pin || "");
       narisiPinVabila(zadnjiPinVabila);
       if (Date.now() >= potrdiloVabilaDo) besedilo("opombaVabilo", "");
@@ -2737,9 +2767,10 @@
     var okvir = el("qrSlika");
     if (!okvir) return;
     if (podatki && podatki.svg) {
-      // SVG narise program sam (python3-qrcode) iz nase povezave; z omrezja ne pride nic.
-      okvir.classList.remove("prazno");
-      okvir.innerHTML = String(podatki.svg).replace(/^<\?xml[^>]*>\s*/, "");
+      // SVG narise program sam (python3-qrcode) iz nase povezave; z omrezja ne pride nic (vstaviSvg ga vseeno ocisti).
+      // Ce slike ni mogoce pokazati, ostane koda te naprave za vnos.
+      if (vstaviSvg(okvir, podatki.svg)) okvir.classList.remove("prazno");
+      else { okvir.textContent = ""; okvir.classList.add("prazno"); }
       besedilo("opombaQr", t("prijavaQrOsvezi"));
       narisiKodoTe(podatki.koda);
       pokazi("gumbQrZnova", false);
