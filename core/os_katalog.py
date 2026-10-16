@@ -145,6 +145,24 @@ def naslov_za_predvajalnik(item: dict) -> str:
     return naslov[:80] or "Safeer"
 
 
+def tok_za_predvajalnik(item: dict, url: str) -> dict:
+    """Glave, ki jih zahteva izbrani tok (dodatek jih poda ob toku - brez njih streznik vrne npr. 429), in druge
+    razlicice istega naslova, ki jih predvajalnik tiho poskusi, ce se izbrani tok ne odpre. Prazno = nic od tega."""
+    razlicice = [r for r in (item.get("razlicice") or []) if isinstance(r, dict)]
+    izbrana = next((r for r in razlicice if str(r.get("url") or "") == url), None)
+    glave = (izbrana or {}).get("glave") or item.get("glave") or {}
+    # Samo tokovi (datoteka, HLS, tok dodatka z glavami) - spletna stran z vdelanim predvajalnikom ni razlicica toka.
+    nadomestni = [(str(r["url"]), r.get("glave") or {}) for r in razlicice
+                  if str(r.get("url") or "").startswith(("http://", "https://")) and str(r.get("url")) != url
+                  and (r.get("tok") or nacin_predvajanja({"url": r["url"], "glave": r.get("glave")}) == "neposredno")][:10]
+    tok = {}
+    if isinstance(glave, dict) and glave:
+        tok["glave"] = dict(glave)
+    if nadomestni:
+        tok["nadomestni"] = nadomestni
+    return tok
+
+
 def podnapisi_vnosa(item: dict) -> tuple:
     """Podnapisi iz dodatka -> ((uri, ime, jezik, oznaka), ...) za os_predvajalnik.Skladba."""
     izhod = []
@@ -285,6 +303,9 @@ class Katalog:
                 self._mc.visina_zaslona = self.visina_zaslona
                 # Pred predvajanjem preverimo, da prvi tok res odgovori (mrtva povezava ne sme biti prva).
                 self._mc.preveri_tokove = True
+                # Iskanje in katalog: vsak vir najvec 2,5 s, pocasnejsi se doda z dogodkom mediaKatalogOsvezen (meritev
+                # 15. 10. 2026: hitri dodatki 0,2-1,6 s, javni viri 1,2-3,4 s, pocasni dodatki 10-20 s).
+                self._mc.rok_vira = 2.5
                 # Film iz torrenta: branje torrenta traja - stran med tem pove, da ga pripravljamo.
                 self._mc.ob_pripravi_torrenta = lambda item: self.dogodek(
                     "mediaTorrent", {"naslov": str(item.get("naslov") or "")})
@@ -352,6 +373,8 @@ class Katalog:
         "mediaZvrsti": "_zvrsti", "mediaRadioDrzave": "_radio_drzave", "mediaKatalog": "_katalog", "mediaPredgrej": "_predgrej", "mediaIsciPredpomnilnik": "_isci_predpomnilnik",
         "mediaPodrobnosti": "_podrobnosti", "mediaWatchSettings": "_watch_settings", "mediaWatchCountry": "_watch_country",
         "mediaSezona": "_sezona", "mediaEpizoda": "_epizoda", "mediaFilm": "_film",
+        # Razlicice naslova v podrobnostih (dodatki in strezniki, ki jih je dodal uporabnik): seznam in rocna izbira.
+        "mediaRazlicice": "_razlicice", "mediaIzberiRazlicico": "_izberi_razlicico",
         "mediaViri": "_viri", "mediaDodajVir": "_dodaj_vir", "mediaDodajStreznik": "_dodaj_streznik",
         "mediaOdstraniVir": "_odstrani_vir", "mediaOsveziVir": "_osvezi_vir", "mediaOdkrijDlna": "_odkrij_dlna",
         "mediaSeznami": "_seznami", "mediaSeznam": "_seznam", "mediaUvoziSeznam": "_uvozi_seznam",
@@ -466,6 +489,14 @@ class Katalog:
 
     def _film(self, a: list) -> Any:
         return self.mc.movie_item(int(a[0]) if a else 0, self._niz(a, 1))
+
+    def _razlicice(self, a: list) -> Any:
+        """[id vnosa]: razlicice za seznam v podrobnostih (core/os_media.razlicice_naslova)."""
+        return self.mc.razlicice_naslova(self._niz(a, 0))
+
+    def _izberi_razlicico(self, a: list) -> bool:
+        """[id vnosa, podpis]: rocna izbira se zapomni za ta naslov; podpis privzete izbiro pobrise."""
+        return self.mc.izberi_razlicico(self._niz(a, 0), self._niz(a, 1))
 
     def _viri(self, _a: list) -> Any:
         # »vticniki«: ta most zna upravljati vticnike strežnika Jellyfin (stran sicer gumba ne pokaze).
@@ -969,6 +1000,9 @@ class Katalog:
     def _predvajaj_vnos(self, a: list) -> Optional[dict]:
         ident = self._niz(a, 0)
         item = self.mc.resolve(ident)
+        uporabi = getattr(self.mc, "uporabi_izbiro", None)
+        if uporabi is not None:
+            item = uporabi(item)            # rocno izbrana razlicica (podrobnosti) najprej
         if not item:
             return None
         return self._predvajaj_razresen(item, ident)
@@ -1015,8 +1049,11 @@ class Katalog:
                 url = Path(str(item["pot"])).as_uri()
             vrsta = vrsta_predvajalnika(item)
             zacetek = self._zacetek(item, ident, kljuc) if vrsta in ("video", "medij") else 0
-            ok = self._v_glavni_pocakaj(lambda: self._predvajaj(url, vrsta, naslov_za_predvajalnik(item), zacetek,
-                                                                 podnapisi_vnosa(item), vrsta in ("video", "tv")))
+            argumenti = [url, vrsta, naslov_za_predvajalnik(item), zacetek, podnapisi_vnosa(item), vrsta in ("video", "tv")]
+            tok = tok_za_predvajalnik(item, url)
+            if tok:
+                argumenti.append(tok)    # glave toka in druge razlicice (samo, ce jih vnos ima)
+            ok = self._v_glavni_pocakaj(lambda: self._predvajaj(*argumenti))
             if not ok:
                 return dict(item, native=True, napaka_koda="tok")
             if len(self._predvajano) > 50:
@@ -1038,6 +1075,25 @@ class Katalog:
     # ------------------------------------------------------------------ polica »Na tvojih napravah« (knjiznica kroga)
     def _knjiznica_seznam(self, _a: list) -> Any:
         return self._knjiznica.seznam() if self._knjiznica is not None else []
+
+    def predvajanje_ni_uspelo(self, uri: str) -> bool:
+        """Domaci predvajalnik ni odprl naslova z nobeno razlicico (vse so vrnile napako). Lastnik: »nimamo
+        nedelujocih ikon« - naslov izgine iz kataloga (mediaNiNaVoljo) do ponovne preverbe (NI_NA_VOLJO_VELJA), naslednji
+        klic pa tokove vprasa znova (razreseni vnos s starimi povezavami pozabimo)."""
+        zapis = self._predvajano.get(str(uri or "")) or {}
+        ident = str(zapis.get("id") or "")
+        if not ident:
+            return False
+        mc = self.mc
+        item = mc._dynamic_items.get(ident)
+        if not isinstance(item, dict) or os_media.lastni_vir(item):   # na lastnem strezniku je vedno na voljo
+            return False
+        mc.oznaci_ni_na_voljo(item)
+        if mc.znano_ni_na_voljo(item):
+            mc._dynamic_items.pop(ident, None)
+            self.dogodek("mediaNiNaVoljo", {"idji": [ident]})
+            return True
+        return False
 
     def _knjiznica_predvajaj(self, a: list) -> Optional[dict]:
         """Film s police: prenos motorja Safeer OS naravnost iz torrenta; film na drugi napravi pretaka naprava, ki ga

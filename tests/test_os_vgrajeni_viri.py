@@ -395,9 +395,12 @@ class StranInMost(unittest.TestCase):
         klici = set(re.findall(r'klic\("(mediaVgrajen[A-Za-z]*)"', self.os_js))
         self.assertTrue(klici and klici <= set(K.Katalog.METODE), klici - set(K.Katalog.METODE))
         self.assertIn('"vgrajenoAktivno": lambda: self._vgrajeno_aktivno(pogled', self.py)
-        for ident in ("vgrSeznam", "vgrObrazec", "slojVgrOdgovornost", "vgrOdgPotrdi", "mediaVgrajeneMoznosti",
-                      "mediaVgrajenePloscice"):
+        for ident in ("vgrSeznam", "vgrObrazec", "slojVgrOdgovornost", "vgrOdgPotrdi", "mediaVgrajenePloscice"):
             self.assertIn('id="%s"' % ident, self.html)
+        # Moznosti vgrajenih virov so vrstice v seznamu razlicic (narisiRazlicice) - ni drugih, podvojenih gumbov.
+        self.assertIn("RAZL.ponudniki.push(vgrPonudnik)", self.os_js)
+        self.assertNotIn('id="mediaVgrajeneMoznosti"', self.html)
+        self.assertNotIn("narisiVgrajeneMoznosti", self.os_js)
         self.assertLess(self.html.index('src="vgrajeno.js"'), self.html.index('src="os.js"'))
 
     def test_besedila_v_vseh_jezikih(self):
