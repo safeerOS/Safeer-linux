@@ -309,6 +309,8 @@ MOST_JS = """
     upravljajRacunalnik: function (id) { poslji("upravljajRacunalnik", [id]); },
     koncajDeljenjeZaslona: function () { poslji("koncajDeljenjeZaslona"); },
     deljenjeZaslonaStanje: function () { return JSON.stringify(window.__safeerLink.deljenje || {tece: false}); },
+    globalLinkStanje: function () { return JSON.stringify(window.__safeerLink.globalLink || null); },
+    nastaviNeposredno: function (vklop) { poslji("nastaviNeposredno", [!!vklop]); },
     preimenujNapravo: function (id, ime) { poslji("preimenujNapravo", [id, String(ime || "")]); },
     nastaviDostop: function (id, crke) { poslji("nastaviDostop", [id, String(crke || "")]); },
     vzdevki: function () { return JSON.stringify(window.__safeerLink.vzdevki || {}); },
@@ -779,6 +781,7 @@ class SafeerLink:
             "jezik": self._jezik(),
             "deljenje": self._deljenje_stanje(),
             "vzdevki": self._vzdevki(),
+            "globalLink": self._global_link_stanje(),
         }
         # ensure_ascii=True: imena naprav pridejo z omrezja, U+2028/U+2029 pa sta
         # v JavaScriptu ločilnika vrstic. Ubezimo vsemu, kar ni ASCII.
@@ -836,6 +839,8 @@ class SafeerLink:
             "dodajDeljenoMapo": lambda: self._dodaj_deljeno_mapo(),
             "odstraniDeljenoMapo": lambda: self._odstrani_deljeno_mapo(argumenti[0] if argumenti else -1),
             "deliStandardneMape": lambda: self._deli_standardne_mape(),
+            "nastaviNeposredno": lambda: self._v_ozadju(
+                lambda: self._nastavi_neposredno(bool(argumenti[0]) if argumenti else False)),
             "zapri": lambda: self._zapri_okno(),
         }.get(metoda)
         if obravnava is not None:
@@ -843,6 +848,52 @@ class SafeerLink:
                 obravnava()
             except Exception as e:  # noqa: BLE001 - stran ne sme podreti brskalnika
                 self._odziv("napaka", str(e))
+
+    # Global Link: po kateri poti so naprave povezane (Lokalno, Neposredno (internet), Prek releja) z izmerjenim
+    # zamikom, in neobvezna neposredna povezava od zunaj (core/link_neposredno.py). Brez naslovov IP.
+    def _global_link_stanje(self) -> Optional[dict]:
+        try:
+            from core import link_krog, link_neposredno
+            st = link_neposredno.stanje_za_vmesnik()
+        except Exception:  # noqa: BLE001 - stran brez tega razdelka
+            return None
+        poti: Dict[str, dict] = {}
+        g = getattr(self, "_hub_gostitelj", None)
+        hub = getattr(getattr(g, "streznik", None), "hub", None) if g is not None else None
+        try:
+            for hid, m in (hub.poti_sosedov() if hub is not None else {}).items():
+                poti[hid] = {"pot": m.get("pot") or "", "ms": m.get("rtt_ms")}
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            for jedro, m in link_neposredno.poti_od_zunaj(samo_zive=True).items():
+                if m.get("pot") and not any(h.startswith(jedro) for h in poti):
+                    poti[jedro] = {"pot": m.get("pot"), "ms": m.get("ms")}
+        except Exception:  # noqa: BLE001
+            pass
+        seznam = []
+        for hid, m in sorted(poti.items()):
+            ime = ""
+            try:
+                c = link_krog.krog().clan_za_id(hid)
+                ime = str((c or {}).get("ime") or "")
+            except Exception:  # noqa: BLE001
+                pass
+            seznam.append({"id": hid, "ime": ime, "pot": m["pot"], "ms": m["ms"]})
+        return {"vhod": st.get("vhod") or {}, "poti": seznam}
+
+    def _nastavi_neposredno(self, vklop: bool) -> None:
+        """Uporabnik je vklopil/izklopil neposredno povezavo od zunaj; ce sredisce tece tu, velja takoj."""
+        try:
+            from core import link_neposredno
+            link_neposredno.shrani_nastavitve(bool(vklop))
+            s = link_neposredno.sredisce()
+            if s is not None:
+                s.korak()
+        except Exception as e:  # noqa: BLE001
+            self._odziv("napaka", str(e))
+            return
+        self._odziv("globalLink", {})
 
     def _upravljaj_racunalnik(self, id_naprave: str = "") -> None:
         """Odpre domaci gledalec; odziv strani vsebuje tudi zavrnitev ciljne naprave."""

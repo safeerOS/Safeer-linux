@@ -341,6 +341,19 @@
       </div>
     </details>
 
+    <!-- Global Link: po kateri poti so naprave povezane, ko niso v istem omrezju, in neobvezna neposredna povezava od
+         zunaj (core/link_neposredno.py). Samo kjer most to zna (most.globalLinkStanje). -->
+    <details class="panel zlozljiv" id="panelGlobalLink" data-razdelek="naprave" hidden>
+      <summary data-t="glNaslov">Povezava zdoma</summary>
+      <div class="zlozljivaVsebina">
+        <p class="pojasnilo" data-t="glOpis">Po kateri poti so tvoje naprave povezane, ko niso v istem omrežju.</p>
+        <ul class="seznam" id="seznamGlobalLink"></ul>
+        <p class="opomba" id="opombaGlobalLink" data-t="glNiPoti">Zdaj nobena naprava ni povezana od zunaj.</p>
+        <label class="dostopVrstica"><input type="checkbox" id="glNeposredno"><span><b data-t="glNeposrednoIme">Neposredna povezava od zunaj</b><small id="glNeposrednoOpis"></small></span></label>
+        <p class="opomba" id="glNeposrednoStanje" aria-live="polite"></p>
+      </div>
+    </details>
+
     <div class="panel" id="panelSync" data-razdelek="sync">
       <h2 data-t="sinhronizacija">Sinhronizacija</h2>
       <p class="pojasnilo" data-t="syncOpis">

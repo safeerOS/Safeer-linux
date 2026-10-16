@@ -7,7 +7,9 @@ Kako (izmerjeno 15. 10. 2026, WebKitGTK 2.52.6, Xvfb):
 * PDF pokaze WebKit sam (vgrajeni PDF.js, »webkit-pdfjs-viewer://«): stran nalozena v 1,6 s skupaj z zagonom spletnega
   procesa, iskanje, povecava in tiskanje brez dodatnih programov. PDF.js potrebuje JavaScript - zato tece v svojem
   pogledu brez mostu, brez omrezja in brez piskotkov (os_predogled.py). Isti WebKit je v Flatpaku (nasa gradnja,
-  packaging/webkit) in na gostitelju (libwebkitgtk-6.0), zato ni razlike med njima in ni potrebe po popplerju.
+  packaging/webkit) in na gostitelju (libwebkitgtk-6.0), zato ni razlike med njima (zivo preverjeno v Flatpaku 0.4.84,
+  WebKitGTK 2.54.1: PDF.js prebere vse strani priponke). Poppler (pdftoppm, v svojem procesu) naredi samo slicico prve
+  strani za cip priponke in Datoteke (core/os_datoteke.slika_prve_strani).
 * DOC/DOCX/ODT/XLS(X)/ODS/PPT(X)/ODP/RTF: LibreOffice brez okna v PDF (txt->pdf 1,9 s ob prvem zagonu) in potem kot
   PDF. V Flatpaku LibreOffice tece na racunalniku prek /app/host-bin/soffice (core/os_pretvorba_datotek.orodje),
   datoteka je zato v ~/.cache racunalnika. Brez LibreOffice: besedilo iz DOCX/ODF/PPTX/XLSX (zip + XML), sicer jasno
@@ -405,7 +407,11 @@ def stran(telo: str, jezik: str = "sl", svetla: bool = False) -> str:
     """Cela stran predogleda. svetla: HTML pisma in dokumenti so pisani za belo podlago (kot v Gmailu)."""
     slog = _zetoni() + """
 body { margin:0; font: 15px/1.5 system-ui, sans-serif; background: var(--kartica-polna); color: var(--besedilo); }
-.okvir { max-width: 1100px; margin: 0 auto; padding: 24px; }
+.okvir { max-width: 1100px; margin: 0 auto; padding: 24px; overflow-wrap: anywhere; }
+/* Pismo »Prikazi izvirnik«: slike in tabele posiljatelja ne smejo biti sirse od okna (testni PC 15. 10. 2026: slika v
+   vrstici v polni locljivosti je segala daleč cez okno). Kot v Gmailu: pomanjsaj na sirino, razmerje ostane. */
+.okvir img, .okvir video { max-width: 100% !important; height: auto !important; }
+.okvir table { max-width: 100% !important; }
 .sporocilo { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:80vh;
   text-align:center; gap:10px; padding:24px; }
 .sporocilo h1 { font-size: 20px; margin: 0; } .sporocilo p { color: var(--medlo); max-width: 560px; margin: 0; }

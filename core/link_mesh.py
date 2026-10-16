@@ -4,9 +4,10 @@ Hub na tej napravi tece vedno. Ta modul poisce druge Hube (mDNS), preveri, da po
 kljuc clana kroga, se prijavi s podpisom nasega kljuca in odpre **sosednjo povezavo**. Od tam naprej
 vse dela Hub.obdelaj_soseda: izmenjava lokalnih naprav, usmerjanje, krog.
 
-Global Link: kadar soseda neposredno ni (naprava je zunaj doma), ga poklicemo prek link.safeer.si.
-Rele prenasa samo sifrirane bajte; TLS s kljucem iz kroga in prijava s podpisom ostaneta enaka kot v LAN.
-Nas Hub se na releju tudi sam objavi (AgentHuba), da ga clani kroga dosezejo od zunaj.
+Global Link: kadar soseda neposredno ni (naprava je zunaj doma), ga poklicemo od zunaj: najprej neposredno na javni
+naslov njegovega doma, ce ga je sosed objavil in preveril (core/link_neposredno.py, INTERNET_DIRECT), sicer prek
+link.safeer.si (SAFEER_RELAY). Rele prenasa samo sifrirane bajte; TLS s kljucem iz kroga in prijava s podpisom
+ostaneta enaka kot v LAN. Nas Hub se na releju tudi sam objavi (AgentHuba), da ga clani kroga dosezejo od zunaj.
 
 Da nastane za vsak par ena povezava, prvi klice manjsi id; vecji pocaka in klice sam sele, ce ga
 manjsi dolgo ne doseze (npr. pozarni zid na eni strani). Ce vseeno nastaneta dve, Hub obdrzi tisto,
@@ -67,7 +68,8 @@ class OdhodnaSosednja:
         self._zaprta = False
         #: Meritev poti do soseda (zamik, nihanje, izgube) iz srcnega utripa. Samo opazovanje: zaradi nje
         #: povezave ne zapremo (to je sele 4. faza).
-        self.meritev = link_pot.MeritevPoti("rele" if _je_zanka(naslov) else "lan")
+        # Zanka je lahko rele ali neposredna pot od zunaj: razlikuje ju oznaka krajevnih vrat (core/link_neposredno).
+        self.meritev = link_pot.MeritevPoti(link_pot.pot_vticnika(naslov, getattr(ws, "vticnik", None), "getsockname"))
         try:
             ws.ob_pongu = self.meritev.pong
         except Exception:  # noqa: BLE001 - odjemalec brez tega (stari, lazni) ostane brez meritve
@@ -161,6 +163,8 @@ class MeshPovezovalec:
         self._neuspehi: Dict[str, int] = {}
         self._premor_releja: Dict[str, tuple] = {}
         self._releji: Dict[str, object] = {}
+        #: Sosedje, povezani prek releja, do katerih je na voljo neposredna pot od zunaj (kandidati, en krog).
+        self._nadgradi: set = set()
         #: Meritve poti: kdaj je bila katera dohodna povezava nazadnje izmerjena (id -> (povezava, cas)) in kam ter
         #: kdaj zapisemo porocilo (mesh-poti.json ob zapomnjenih sosedih; brez te poti samo dnevnik).
         self._izmerjeno: Dict[str, tuple] = {}
@@ -208,13 +212,19 @@ class MeshPovezovalec:
                 except Exception:
                     return 0
 
+            # Neposredna povezava od zunaj (neobvezna nastavitev, privzeto izklopljena): vhod in podpisan oglas, ki ga
+            # agent doda v prisotnost - vidijo ga samo clani kroga.
+            from core import link_neposredno
+            link_neposredno.zazeni_na_sredisci(vrata)
             _agent = link_rele.AgentHuba(vrata=vrata, vklopljen=global_link_vklopljen,
-                                         krog_json=lambda: link_krog.krog().json())
+                                         krog_json=lambda: link_krog.krog().json(),
+                                         namigi=link_neposredno.namigi_sredisca)
             _agent.zazeni()
 
     def _rele(self, hid: str):
-        """Lokalna vrata do soseda prek releja (eno na soseda) ali None, ce ga rele ne more doseci."""
-        from core import link_rele
+        """Lokalna vrata do soseda zunaj doma (eno na soseda): vsaka povezava najprej neposredno (ce je sosed objavil
+        preverjen javni naslov), nato prek releja - core/link_neposredno.LokalniOdZunaj. None, ce ga ne moremo doseci."""
+        from core import link_neposredno, link_rele
         clan = link_krog.krog().clan_za_id(hid)
         try:
             # Rele pozna napravo po id-ju iz njenega kljuca (Hub se lahko oglasa z id-jem s pripono,
@@ -227,7 +237,7 @@ class MeshPovezovalec:
         with self._zaklep:
             rele = self._releji.get(hid)
             if rele is None:
-                rele = link_rele.LokalniRele(cilj)
+                rele = link_neposredno.od_zunaj(cilj)
                 self._releji[hid] = rele
         return rele
 
@@ -255,6 +265,19 @@ class MeshPovezovalec:
         print("[SafeerLink] mesh: %s prek releja ni dosegljiv%s; znova cez %d s"
               % (hid, " (%s)" % napaka if napaka else "", premor))
         return False
+
+    def _klici_neposredno(self, h: dict) -> bool:
+        hid = str(h["id"])
+        with self._zaklep:
+            o = self._releji.get(hid)
+        vrata = int(getattr(o, "vrata_neposredno", 0) or 0)
+        if not vrata:
+            return False
+        try:
+            return self._odpri(dict(h, naslov="wss://127.0.0.1:%d/cast/ws" % vrata))
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerLink] mesh: %s neposredno od zunaj ni dosegljiv (%s)" % (hid, e))
+            return False
 
     # -- zapomnjeni naslovi
 
@@ -341,8 +364,13 @@ class MeshPovezovalec:
         # Sosedje, povezani prek Global Linka: ce jih mDNS zdaj oglasa v domacem omrezju, jih poklicemo neposredno -
         # lokalna povezava ima prednost (lastnik, 13. 10. 2026); Hub nato zapre pot prek releja (dodaj_soseda).
         povezave = getattr(self.hub, "povezave_sosedov", None)
-        prek_releja = {hid for hid, p in (povezave() if callable(povezave) else {}).items()
+        povezave_zdaj = povezave() if callable(povezave) else {}
+        prek_releja = {hid for hid, p in povezave_zdaj.items()
                        if _je_zanka(str(getattr(p, "naslov", "") or ""))}
+        # Povezani prek releja, do katerih je zdaj na voljo neposredna pot od zunaj: poklicemo jih neposredno (boljsa pot
+        # zamenja slabso - Hub.dodaj_soseda), vendar samo neposredno, brez novega kanala releja.
+        self._nadgradi = {hid for hid in prek_releja
+                          if self._pot_povezave(povezave_zdaj.get(hid)) == "rele" and self._neposredno_na_voljo(hid)}
         izbrani = []
         # Isti Hub je lahko v krogu pod dvema id-jema (npr. `n-x` in `n-x-control`, isti kljuc, isti naslov).
         # Ce smo z njim ze povezani ali ga ze klicemo pod drugim id-jem, ga ne klicemo znova: Hub bi drugo povezavo
@@ -352,7 +380,8 @@ class MeshPovezovalec:
         zasedeni_kljuci = {k for k in (self._kljuc_clana(i) for i in zasedeni) if k}
         for h in oglasi:
             hid = str(h.get("id") or "")
-            domov = hid in prek_releja and bool(h.get("mdns")) and not _je_zanka(str(h.get("naslov") or ""))
+            domov = (hid in prek_releja and bool(h.get("mdns")) and not _je_zanka(str(h.get("naslov") or ""))) \
+                or hid in self._nadgradi
             if not hid or hid == self.nas_id or not h.get("tls") or (hid in povezani and not domov):
                 continue
             if h.get("mesh") != link_hub_streznik_mesh():
@@ -370,12 +399,30 @@ class MeshPovezovalec:
                 continue            # isti Hub pod drugim id-jem: ze povezan ali ga ze klicemo
             if self._zavrnjeni.get(hid, (0.0, 0.0))[0] > zdaj:
                 continue            # nas je zavrnil; pocakamo
-            if hid < self.nas_id and zdaj - prvic < VECJI_CAKA_S and hid not in self._po_zagonu:
-                continue            # manjsi id klice prvi; pocakamo nanj (razen takoj po nasem zagonu)
+            if hid < self.nas_id and zdaj - prvic < VECJI_CAKA_S and hid not in self._po_zagonu \
+                    and hid not in self._nadgradi:
+                continue            # manjsi id klice prvi; pocakamo nanj (razen takoj po nasem zagonu in razen
+                #                     nadgradnje releja na neposredno pot: do nas zdoma sosed ne more klicati sam)
             izbrani.append(h)
             if kljuc:
                 zasedeni_kljuci.add(kljuc)   # isti Hub pod drugim id-jem v tem krogu: enkrat
         return izbrani
+
+    @staticmethod
+    def _pot_povezave(p) -> str:
+        if p is None:
+            return ""
+        from core import link_hub_streznik
+        return link_hub_streznik._pot_povezave(p)
+
+    def _neposredno_na_voljo(self, hid: str) -> bool:
+        with self._zaklep:
+            o = self._releji.get(hid)
+        f = getattr(o, "neposredno_na_voljo", None)
+        try:
+            return bool(f()) if callable(f) else False
+        except Exception:  # noqa: BLE001
+            return False
 
     @staticmethod
     def _kljuc_clana(hid: str) -> Optional[str]:
@@ -460,6 +507,10 @@ class MeshPovezovalec:
         hid = str(h["id"])
         try:
             dosegljiv = False
+            if hid in self._nadgradi and hid in self.hub.sosedje():
+                # Povezan prek releja, neposredna pot od zunaj je na voljo: samo neposredno (brez LAN, brez releja).
+                self._klici_neposredno(h)
+                return
             if hid not in samo_prek_releja():
                 try:
                     dosegljiv = self._odpri(h)
@@ -507,7 +558,9 @@ class MeshPovezovalec:
         if not self.hub.dodaj_soseda(hid, povezava, self.nas_id):
             povezava.zapri()
             return dosegljiv
-        print("[SafeerLink] mesh: sosed %s (%s%s)" % (hid, naslov, ", Global Link" if _je_zanka(naslov) else ""))
+        pot = povezava.meritev.pot if _je_zanka(naslov) else ""
+        print("[SafeerLink] mesh: sosed %s (%s%s)" % (hid, naslov, ", Global Link %s" % (
+            "neposredno" if pot == "neposredno" else "prek releja") if pot else ""))
         # Premor po zavrnitvi pobrisemo sele, ko nas sosed res sprejme (prvo sporocilo, ki ni zavrnitev);
         # zavrnitev pride sele po odprtju, zato bi ga brisanje tu vedno vrnilo na 30 s.
         self._beri(hid, povezava)

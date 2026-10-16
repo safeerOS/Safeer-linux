@@ -499,7 +499,39 @@ jobs:
           grep -q '^LTO_MODE:.*=thin$' "$G"
           grep -q '^build.ninja -fuse-ld=lld: [1-9]' "$G"
           flatpak run --command=sh io.github.memelandfaner.SafeerOS -c "test -x /app/libexec/webkitgtk-6.0/WebKitWebProcess"
+          # Slicica prve strani PDF (priponke v Sporocilih, Datoteke): pdftoppm v paketu res naredi sliko strani.
+          # Kaj je v paketu (opozorilo posla, ker je konec dnevnika v opozorilu ob napaki prirezan).
+          flatpak run --command=sh io.github.memelandfaner.SafeerOS -c 'echo "::notice::pdftoppm: $(command -v pdftoppm) | poppler v /app: $(ls /app/lib /app/lib64 2>/dev/null | grep -i poppler | tr "\n" " ") | manjka: $(ldd /app/bin/pdftoppm 2>&1 | grep -i "not found" | tr "\n" " ")"'
+          flatpak run --command=sh io.github.memelandfaner.SafeerOS -c "pdftoppm -v"
+          flatpak run --command=python3 io.github.memelandfaner.SafeerOS - <<'PY'
+          import os, shutil, subprocess, sys, tempfile
+          sys.path.insert(0, '/app/lib/safeer-os')
+          from core import os_datoteke
+          d = tempfile.mkdtemp()
+          deli = [b'1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n', b'2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n',
+                  b'3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 300]>>endobj\n']
+          t, odmiki = b'%PDF-1.4\n', []
+          for x in deli:
+              odmiki.append(len(t))
+              t += x
+          xref = len(t)
+          t += b'xref\n0 4\n0000000000 65535 f \n' + b''.join(b'%010d 00000 n \n' % o for o in odmiki)
+          t += b'trailer<</Size 4/Root 1 0 R>>\nstartxref\n%d\n%%%%EOF\n' % xref
+          pdf, png = os.path.join(d, 'a.pdf'), os.path.join(d, 'a.png')
+          open(pdf, 'wb').write(t)
+          if not os_datoteke.slika_prve_strani(pdf, png, 160):
+              # Kratko sporocilo napake na svoji vrstici (konec dnevnika v opozorilu posla je prirezan).
+              r = subprocess.run([shutil.which('pdftoppm') or 'pdftoppm', '-f', '1', '-l', '1', '-singlefile', '-png',
+                                  '-scale-to', '160', '--', pdf, os.path.join(d, 'b')], capture_output=True, text=True)
+              print('::error::pdftoppm v Flatpaku: koda %s, %s' % (r.returncode, (r.stderr or r.stdout)[-400:].replace('\n', ' | ')))
+              sys.exit(1)
+          assert open(png, 'rb').read(8) == b'\x89PNG\r\n\x1a\n'
+          print('pdftoppm:', shutil.which('pdftoppm'), os.path.getsize(png), 'B')
+          PY
           flatpak run --command=python3 io.github.memelandfaner.SafeerOS -c "import zeroconf, qrcode, cryptography; from cryptography.hazmat.primitives.ciphers.aead import AESGCM; AESGCM(AESGCM.generate_key(bit_length=256)); from PySide6.QtWidgets import QApplication, QSystemTrayIcon; from PySide6.QtQuick import QQuickView; import gi; gi.require_version('Gtk', '4.0'); from gi.repository import Gtk"
+          # Zagon iz seje Cinnamon (XDG_CURRENT_DESKTOP): Qt ne sme naloziti teme GTK3 v proces z GTK4 - lupina se
+          # sicer ne izrise (testni PC 15. 10. 2026, »cannot register existing type 'GtkWidget'«).
+          XDG_CURRENT_DESKTOP=X-Cinnamon DESKTOP_SESSION=cinnamon dbus-run-session -- xvfb-run -a flatpak run --env=XDG_CURRENT_DESKTOP=X-Cinnamon --env=DESKTOP_SESSION=cinnamon --command=python3 io.github.memelandfaner.SafeerOS -c "import sys; sys.path.insert(0, '/app/lib/safeer-os'); import gi; gi.require_version('Gtk', '4.0'); from gi.repository import Gtk; from core import os_lupina; assert os_lupina.pripravi(['t']), 'Qt lupina se ni pripravila'; import os; m = {l.split()[-1].rsplit('/', 1)[-1] for l in open('/proc/self/maps')}; g = sorted(x for x in m if x.startswith(('libgtk-3', 'libqgtk3'))); print('GTK3 v procesu:', g, 'XDG_CURRENT_DESKTOP', os.environ.get('XDG_CURRENT_DESKTOP')); assert not g, g; assert os.environ.get('XDG_CURRENT_DESKTOP') == 'X-Cinnamon'"
       - name: Shield inside the sandbox of the package that was just built
         # Scit v peskovniku Flatpak, s kodo samega paketa, na pravem systemd-resolved + NetworkManager (tools/scit_lab).
         run: |
@@ -736,7 +768,7 @@ jobs:
           trap 'sleep 1; python3 -c "import sys; t = open(sys.argv[1], errors=\"replace\").read()[-6000:]; print(\"::error::\" + (sys.argv[2] + \"\\n\" + t).replace(\"%\", \"%25\").replace(\"\\r\", \"\").replace(\"\\n\", \"%0A\"))" "$RUNNER_TEMP/smoke.log" "$BASH_COMMAND"' ERR
           flatpak install --user --noninteractive --bundle dist/Safeer-Browser-*-pgo-x86_64.flatpak
           xvfb-run -a dbus-run-session -- flatpak run io.github.memelandfaner.SafeerBrowser --version | tee /dev/stderr | grep -Fx "Safeer Browser $(cat packaging/VERSION)"
-          flatpak run --command=python3 io.github.memelandfaner.SafeerBrowser -c "import gi; gi.require_version('Soup', '3.0'); gi.require_version('WebKit', '6.0'); from gi.repository import Soup, WebKit; m = open('/proc/self/maps').read(); knj = sorted({l.split()[-1] for l in m.splitlines() if 'libwebkitgtk-6.0' in l or 'libsoup-3.0' in l}); import sys; print(knj, file=sys.stderr, flush=True); assert len(knj) == 2 and all(k.startswith('/app/') for k in knj), knj; assert (Soup.get_major_version(), Soup.get_minor_version()) >= (3, 8), (Soup.get_major_version(), Soup.get_minor_version())"
+          flatpak run --command=python3 io.github.memelandfaner.SafeerBrowser -c "import gi; gi.require_version('Soup', '3.0'); gi.require_version('WebKit', '6.0'); from gi.repository import Soup, WebKit; v = (WebKit.get_major_version(), Soup.get_major_version(), Soup.get_minor_version()); m = open('/proc/self/maps').read(); knj = sorted({l.split()[-1] for l in m.splitlines() if 'libwebkitgtk-6.0' in l or 'libsoup-3.0' in l}); import sys; print(knj, file=sys.stderr, flush=True); assert len(knj) == 2 and all(k.startswith('/app/') for k in knj), knj; assert v[1:] >= (3, 8), v"
           WK="$(flatpak info --show-location io.github.memelandfaner.SafeerBrowser)/files/lib"
           ls -l "$WK"/libwebkitgtk-6.0.so.* "$WK"/libjavascriptcoregtk-6.0.so.*
           echo "::notice::$(stat -L -c '%n %s' "$WK"/libwebkitgtk-6.0.so.4 "$WK"/libjavascriptcoregtk-6.0.so.1 | paste -sd ' ')"

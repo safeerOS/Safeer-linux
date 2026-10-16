@@ -1610,6 +1610,46 @@
     for (var _kv in BESEDILA_VABILO[_jv]) BESEDILA[_jv][_kv] = BESEDILA_VABILO[_jv][_kv];
   }
 
+  // Global Link: pot do naprav zdoma in neobvezna neposredna povezava od zunaj (core/link_neposredno.py).
+  var BESEDILA_GL = {
+    sl: {
+      glNaslov: "Povezava zdoma",
+      glOpis: "Po kateri poti so tvoje naprave povezane, ko niso v istem omrežju.",
+      glNiPoti: "Zdaj nobena naprava ni povezana od zunaj.",
+      glLokalno: "Lokalno",
+      glNeposredno: "Neposredno (internet)",
+      glRele: "Prek releja",
+      glMs: "{ms} ms",
+      glNeposrednoIme: "Neposredna povezava od zunaj",
+      glNeposrednoOpis: "Tvoje naprave zdoma (npr. telefon na mobilnih podatkih) se s tem računalnikom povežejo naravnost, brez releja – hitreje. Potrebuješ stalen javni naslov IPv4 doma in na usmerjevalniku preusmeritev ENIH vrat (TCP {vrata}) na ta računalnik. Varnost: skozi ta vrata pride samo naprava iz tvojega kroga zaupanja – vsaka povezava se najprej podpiše s ključem naprave, tujcu računalnik ne odgovori z niti enim bajtom. Ko je izklopljeno, so vrata zaprta in vse gre prek releja kot doslej.",
+      glStanjeIzklop: "Izklopljeno: naprave zdoma gredo prek releja.",
+      glStanjeNapaka: "Ni mogoče odpreti vrat {vrata}: {napaka}",
+      glStanjeBrezNaslova: "Vrata {vrata} so odprta na tem računalniku, javnega naslova pa še ni bilo mogoče ugotoviti.",
+      glStanjeCaka: "Vrata {vrata} so odprta. Preverjeno bo, ko se prvič poveže naprava zdoma – do takrat gre vse prek releja.",
+      glStanjePreverjeno: "Deluje: naprava zdoma se je povezala neposredno."
+    },
+    en: {
+      glNaslov: "Connection when away",
+      glOpis: "Which path your devices use when they are not on the same network.",
+      glNiPoti: "No device is connected from outside right now.",
+      glLokalno: "Local",
+      glNeposredno: "Direct (internet)",
+      glRele: "Via relay",
+      glMs: "{ms} ms",
+      glNeposrednoIme: "Direct connection from outside",
+      glNeposrednoOpis: "Your devices away from home (e.g. a phone on mobile data) connect straight to this computer, without the relay – faster. You need a static public IPv4 address at home and ONE port forwarded on your router (TCP {vrata}) to this computer. Security: only a device from your circle of trust gets through this port – every connection is first signed with the device key, and a stranger gets not a single byte back. When off, the port is closed and everything goes via the relay as before.",
+      glStanjeIzklop: "Off: devices away from home go via the relay.",
+      glStanjeNapaka: "Could not open port {vrata}: {napaka}",
+      glStanjeBrezNaslova: "Port {vrata} is open on this computer, but the public address could not be determined yet.",
+      glStanjeCaka: "Port {vrata} is open. It will be verified when a device first connects from outside – until then everything goes via the relay.",
+      glStanjePreverjeno: "Working: a device away from home connected directly."
+    }
+  };
+  for (var _jg in BESEDILA_GL) {
+    if (!BESEDILA[_jg]) BESEDILA[_jg] = {};
+    for (var _kg in BESEDILA_GL[_jg]) BESEDILA[_jg][_kg] = BESEDILA_GL[_jg][_kg];
+  }
+
   var jezik = (function () {
     var oznaka = "";
     try {
@@ -2248,6 +2288,45 @@
     narisiTrenutnoStran();
     if (!stanje.televizor) narisiPredvajanje();
     if (stanje.control) narisiControl();
+    narisiGlobalLink();
+  }
+
+  // ---------- Global Link: pot do naprav zdoma in neposredna povezava od zunaj ----------
+
+  function globalLinkStanje() {
+    if (!(most && most.globalLinkStanje)) return null;
+    try { return JSON.parse(most.globalLinkStanje() || "null"); } catch (e) { return null; }
+  }
+
+  function narisiGlobalLink() {
+    var gl = globalLinkStanje();
+    pokazi("panelGlobalLink", !!gl && stanje.znan && (stanje.seznanjen || stanje.vKrogu));
+    if (!gl) return;
+    var seznam = el("seznamGlobalLink");
+    if (seznam) {
+      seznam.innerHTML = "";
+      var poti = gl.poti || [];
+      poti.forEach(function (p) {
+        var ime = vzdevki[p.id] || p.ime || t("zaslon");
+        var oznaka = p.pot === "lan" ? t("glLokalno") : (p.pot === "neposredno" ? t("glNeposredno") : t("glRele"));
+        var pod = (p.ms !== null && p.ms !== undefined) ? t("glMs", { ms: Math.round(p.ms) }) : "";
+        seznam.appendChild(vrstica("povezava", ime, pod, oznaka, p.pot === "rele" ? "rumena" : "zelena", null));
+      });
+      pokazi("opombaGlobalLink", poti.length === 0);
+    }
+    var v = gl.vhod || {};
+    var vrata = v.vrata || 48990;
+    var opis = el("glNeposrednoOpis");
+    if (opis) opis.textContent = t("glNeposrednoOpis", { vrata: vrata });
+    var stikalo = el("glNeposredno");
+    if (stikalo && document.activeElement !== stikalo) stikalo.checked = !!v.vklopljeno;
+    var st = "";
+    if (!v.vklopljeno) st = t("glStanjeIzklop");
+    else if (v.napaka && !v.tece) st = t("glStanjeNapaka", { vrata: vrata, napaka: v.napaka });
+    else if (v.preverjeno) st = t("glStanjePreverjeno");
+    else if (v.tece && !v.javni_naslov) st = t("glStanjeBrezNaslova", { vrata: vrata });
+    else if (v.tece) st = t("glStanjeCaka", { vrata: vrata });
+    besedilo("glNeposrednoStanje", st);
   }
 
   /** Safeer Control (namizna aplikacija brez brskalnika): ista stran, brez tistega, kar potrebuje brskalnik. */
@@ -2927,6 +3006,8 @@
         } else {
           besedilo("opombaSync", t("syncUgasnjena"));
         }
+      } else if (vrsta === "globalLink") {
+        narisiGlobalLink();
       } else if (vrsta === "deljeneMape") {
         stanje.deljeneMape = (podatki && podatki.mape) || [];
         stanje.standardneDeljene = !!(podatki && podatki.standardne);
@@ -3398,6 +3479,10 @@
       if (most && most.jeTelevizor && most.jeTelevizor()) stanje.televizor = true;
     } catch (e) {}
 
+    var glStikalo = el("glNeposredno");
+    if (glStikalo) glStikalo.addEventListener("change", function () {
+      if (most && most.nastaviNeposredno) most.nastaviNeposredno(!!glStikalo.checked);
+    });
     naKlik("gumbDodajMapo", function () {
       if (most && most.dodajDeljenoMapo) most.dodajDeljenoMapo();
     });

@@ -2,7 +2,9 @@
 <html lang="sl">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<!-- frame-src: samo lastni vgrajeni viri uporabnika (assets/os/vgrajeno.js) in njihov peskovnik (peskovnik.html). Most
+     Safeer OS okvirjem ne odgovori (zeton v safeer_os.MOST_JS), okvirje http(s) Safeer OS pusti samo, ko je vir odprt. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src https: http: file:">
 <title>Safeer OS</title>
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="os.css">
@@ -162,6 +164,8 @@
           <section class="vgrajen-kanal" id="vgrajenKanal" hidden>
             <div class="vgrajen-kanal-glava">
               <span class="kanal-znak" id="vgrajenKanalZnak"></span><b id="vgrajenKanalIme"></b>
+              <!-- Kanal se ni v uporabi (prijava ni koncana): jasen izhod nazaj, tudi Esc in Nazaj na daljincu -->
+              <button type="button" class="gumb kanal-preklici" id="vgrajenKanalPreklici" data-t="kanalPrekliciDodajanje" data-naslov="kanalPrekliciNamig" hidden></button>
               <span class="presledek"></span>
               <button type="button" class="gumb-ikona" id="vgrajenKanalNazaj" data-naslov="kanalNazaj"><svg data-ikona="nazaj"></svg></button>
               <button type="button" class="gumb-ikona" id="vgrajenKanalOsvezi" data-naslov="kanalOsvezi"><svg data-ikona="ponovno"></svg></button>
@@ -169,6 +173,7 @@
               <button type="button" class="gumb-ikona" id="vgrajenKanalSplet" data-naslov="kanalVSpletu"><svg data-ikona="splet"></svg></button>
               <button type="button" class="gumb-ikona" id="vgrajenKanalInfo" data-naslov="porabaGumb"><svg data-ikona="info"></svg></button>
               <button type="button" class="gumb-ikona" id="vgrajenKanalUredi" data-naslov="kanalUredi"><svg data-ikona="uredi"></svg></button>
+              <button type="button" class="gumb-ikona" id="vgrajenKanalOdstrani" data-naslov="odstraniKanal"><svg data-ikona="smeti"></svg></button>
             </div>
             <div class="vgrajen-kanal-vsebina" id="vgrajenKanalVsebina"><p class="drobno" id="vgrajenKanalSporocilo" hidden></p></div>
           </section>
@@ -236,6 +241,7 @@
                  tiste z vsebino in samo na zavihkih, kjer imajo smisel (core/os_police.py). Na Domov se vsa vrsta z
                  »Vse →« odpre v svojem zavihku. -->
             <div class="media-police media-domov-del" id="mediaPolice" hidden></div>
+            <section class="media-polica media-domov-del vgr-polica" id="mediaVgrajenePloscice" aria-labelledby="mediaVgrajenePlosciceNaslov" hidden></section>
             <div class="media-naslov-vrstice"><div><span class="media-kicker" data-t="mediaLokalno"></span><h2 id="mediaNaslovZbirke" data-t="mediaTvojaZbirka"></h2></div><div class="media-knjiznica-dejanja"><span class="media-stevec" id="mediaStevec"></span><button class="media-osvezi" id="mediaNapraveGumb" type="button" data-naslov="mediaNaprave" aria-label="Devices"><svg data-ikona="naprave"></svg></button><button class="media-osvezi" id="mediaMapeGumb" type="button" data-naslov="mediaMape" aria-label="Folders"><svg data-ikona="mapa"></svg></button><button class="media-osvezi" id="mediaOsvezi" type="button" data-naslov="mediaOsvezi" aria-label="Refresh library" disabled><svg data-ikona="ponovno"></svg></button></div></div>
             <div class="media-knjiznica" id="mediaMreza"></div>
             <div class="media-prazno media-domov-del" id="mediaPrazno" hidden>
@@ -684,7 +690,8 @@
 <!-- Dodaj komunikacijski kanal -->
 <div class="sloj" id="slojKanal"><div class="tancica"></div>
   <form class="plosca kanal-carovnik" id="obrazecKanal">
-    <h3 data-t="dodajKanal"></h3>
+    <!-- Zapri in Preklici sta vedno vidna (glava in gumbi ostaneta na mestu, ko se seznam aplikacij pomika) -->
+    <div class="kanal-carovnik-glava"><h3 data-t="dodajKanal"></h3><button type="button" class="gumb-ikona" id="kanalZapri" data-naslov="zapri"><svg data-ikona="x"></svg></button></div>
     <div class="filtri" id="kanalVrstaIzbira"><button type="button" class="izbran" data-vrsta="email" data-t="eposta"></button><button type="button" data-vrsta="chatwoot">Chatwoot</button><button type="button" data-vrsta="aplikacije" data-t="kanalAplikacije"></button><button type="button" data-vrsta="api" data-t="kanalLastniApi"></button></div>
     <input type="hidden" id="kanalVrsta" value="email">
     <input type="hidden" id="kanalPonudnik" value="">
@@ -748,6 +755,7 @@
   </div>
   <div class="kat-podrobnosti-junak" id="mediaPodrobnostiJunak"></div>
   <section class="kat-kje-gledati" id="mediaWatchProviders" aria-live="polite"></section>
+  <section class="vgr-moznosti" id="mediaVgrajeneMoznosti" aria-labelledby="mediaVgrajeneNaslov" hidden></section>
   <h3 id="mediaSezoneNaslov"></h3><div class="kat-sezone" id="mediaSezone"></div>
   <h3 id="mediaEpizodeNaslov"></h3><div class="kat-epizode" id="mediaEpizode"></div>
 </div>
@@ -804,7 +812,33 @@
     </form>
     <p class="drobno kat-vir-sporocilo" id="katVirSporocilo" aria-live="polite"></p>
     <div class="kat-viri" id="katViri"></div>
+    <!-- Lastni vgrajeni viri (core/os_vgrajeni_viri.py, assets/os/vgrajeno.js): seznam je prazen, vsak vir doda uporabnik
+         sam in ga uporablja na lastno odgovornost; Scit ga varuje ne glede na stran. -->
+    <section class="vgr-sekcija" aria-labelledby="vgrNaslov">
+      <h4 id="vgrNaslov" data-t="vgrNaslov"></h4>
+      <p class="drobno vgr-odgovornost" data-t="vgrOdgovornost"></p>
+      <div class="kat-viri" id="vgrSeznam" role="list" aria-labelledby="vgrNaslov"></div>
+      <form class="vgr-obrazec" id="vgrObrazec" novalidate>
+        <select id="vgrVrsta" data-naslov="vgrVrsta"><option value="url" data-t="vgrVrstaUrl"></option><option value="komponenta" data-t="vgrVrstaKomponenta"></option></select>
+        <input id="vgrIme" type="text" maxlength="80" autocomplete="off" data-ph="vgrIme">
+        <input id="vgrUrl" type="text" maxlength="2048" autocomplete="off" spellcheck="false" data-ph="vgrUrlPh">
+        <textarea id="vgrKoda" rows="8" maxlength="200000" spellcheck="false" data-ph="vgrKodaPh" hidden></textarea>
+        <p class="drobno vgr-namig" id="vgrNamig" data-t="vgrZnacke"></p>
+        <label class="vgr-potrdi" id="vgrPojavnaPolje"><input type="checkbox" id="vgrPojavna"><span data-t="vgrPojavna"></span></label>
+        <div class="gumbi"><button type="button" class="gumb" id="vgrPreizkusi" data-t="vgrPreizkusi"></button><button type="button" class="gumb" id="vgrPreklici" data-t="preklici" hidden></button><button type="submit" class="gumb glavni" id="vgrShrani" data-t="vgrDodaj"></button></div>
+        <p class="drobno kat-vir-sporocilo" id="vgrSporocilo" role="status" aria-live="polite"></p>
+      </form>
+    </section>
     <div class="gumbi"><button type="button" class="gumb" id="mediaOdkrijDlna" data-t="katOdkrijDlna"></button><button type="button" class="gumb" id="katViriZapri" data-t="zapri"></button></div>
+  </div>
+</div>
+<!-- Obvestilo ob prvem lastnem vgrajenem viru: enkrat, potrdi ga en gumb (lastnik, 15. 10. 2026). -->
+<div class="sloj" id="slojVgrOdgovornost"><div class="tancica"></div>
+  <div class="plosca media-mape-plosca" role="alertdialog" aria-modal="true" aria-labelledby="vgrOdgNaslov" aria-describedby="vgrOdgBesedilo">
+    <span class="media-kicker">SAFEER MEDIA</span>
+    <h3 id="vgrOdgNaslov" data-t="vgrNaslov"></h3>
+    <p id="vgrOdgBesedilo" data-t="vgrOdgovornost"></p>
+    <div class="gumbi"><button type="button" class="gumb glavni" id="vgrOdgPotrdi" data-t="vgrRazumem"></button></div>
   </div>
 </div>
 <!-- Vticniki strežnika Jellyfin (core/jellyfin_vticniki.py): tecejo na uporabnikovem strežniku, Safeer jih le upravlja. -->
@@ -826,6 +860,7 @@
 <script src="besedila.js"></script>
 <script src="izhod.js"></script>
 <script src="iskanje.js"></script>
+<script src="vgrajeno.js"></script>
 <script src="os.js"></script>
 <script src="kavc.js"></script>
 </body>

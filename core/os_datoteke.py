@@ -876,29 +876,30 @@ def _pospravi_predoglede(mapa: str, najvec: int = NAJVEC_PREDOGLEDOV) -> None:
             pass
 
 
-def _prva_stran_pdf(pot: str, st: os.stat_result, najdi=shutil.which) -> str:
-    """Prva stran PDF kot PNG v predpomnilniku (pdftoppm iz poppler-utils); prazno brez orodja.
-    Predpomnilnik se obnovi, ko se PDF spremeni."""
-    import hashlib
+#: Casovna meja za sliko prve strani: pokvarjen ali zlonameren PDF ne sme zadrzati predogleda ali slicice priponke.
+CAS_PRVE_STRANI_S = 15
+
+
+def slika_prve_strani(pot: str, cilj: str, velikost: int = 1200, najdi=shutil.which,
+                      cas: float = CAS_PRVE_STRANI_S) -> bool:
+    """Prva stran PDF kot PNG v `cilj` (daljsa stranica `velikost` px) z orodjem pdftoppm (poppler-utils; v Flatpaku
+    /app/bin/pdftoppm). Vrne True, ce je slika narejena. PDF-ja ne razclenjujemo v tem procesu (Poppler GI): pokvarjen
+    ali zlonameren PDF bi podrl Safeer OS, Control in Splet hkrati (en proces) - pdftoppm tece loceno, s casovno mejo,
+    in v `cilj` pride samo cela slika (prekinjena po casovni meji bi tam ostala pokvarjena za vedno)."""
     import threading
-    kljuc = hashlib.sha1(("%s|%d|%d" % (pot, st.st_size, int(st.st_mtime))).encode("utf-8", "surrogateescape")).hexdigest()[:24]
-    cilj = os.path.join(_mapa_predogledov(), kljuc + ".png")
-    if os.path.isfile(cilj):
-        return cilj
-    # 0700: slike strani zasebnih dokumentov vidi samo uporabnik.
-    os.makedirs(os.path.dirname(cilj), mode=0o700, exist_ok=True)
     orodje = najdi("pdftoppm")
     if not orodje:
-        # Brez pdftoppm ni slike strani (»Odpri« ostane). PDF-ja ne razclenjujemo v tem procesu (Poppler GI): pokvarjen
-        # ali zlonameren PDF bi podrl Safeer OS, Control in Splet hkrati (en proces) - pdftoppm tece loceno, s casovno mejo.
-        return ""
-    zacasna = "%s.%d.%d" % (cilj[:-4], os.getpid(), threading.get_ident())
+        return False
+    zacasna = "%s.%d.%d" % (cilj[:-4] if cilj.endswith(".png") else cilj, os.getpid(), threading.get_ident())
     try:
-        r = subprocess.run([orodje, "-f", "1", "-l", "1", "-singlefile", "-png", "-scale-to", "1200", pot, zacasna],
-                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, check=False)
-        # Samo cela slika gre v predpomnilnik (prekinjena po casovni meji bi tam ostala pokvarjena za vedno).
+        r = subprocess.run([orodje, "-f", "1", "-l", "1", "-singlefile", "-png", "-scale-to", str(int(velikost)),
+                            "--", pot, zacasna],
+                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=cas,
+                           check=False)
         if r.returncode == 0 and os.path.isfile(zacasna + ".png"):
+            os.chmod(zacasna + ".png", 0o600)          # slike strani zasebnih dokumentov vidi samo uporabnik
             os.replace(zacasna + ".png", cilj)
+            return True
     except (OSError, subprocess.SubprocessError):
         pass
     finally:
@@ -907,7 +908,21 @@ def _prva_stran_pdf(pot: str, st: os.stat_result, najdi=shutil.which) -> str:
                 os.remove(zacasna + ".png")
             except OSError:
                 pass
+    return False
+
+
+def _prva_stran_pdf(pot: str, st: os.stat_result, najdi=shutil.which) -> str:
+    """Prva stran PDF kot PNG v predpomnilniku (pdftoppm iz poppler-utils); prazno brez orodja.
+    Predpomnilnik se obnovi, ko se PDF spremeni."""
+    import hashlib
+    kljuc = hashlib.sha1(("%s|%d|%d" % (pot, st.st_size, int(st.st_mtime))).encode("utf-8", "surrogateescape")).hexdigest()[:24]
+    cilj = os.path.join(_mapa_predogledov(), kljuc + ".png")
     if os.path.isfile(cilj):
+        return cilj
+    # 0700: slike strani zasebnih dokumentov vidi samo uporabnik.
+    os.makedirs(os.path.dirname(cilj), mode=0o700, exist_ok=True)
+    # Brez pdftoppm ni slike strani (»Odpri« ostane).
+    if slika_prve_strani(pot, cilj, 1200, najdi):
         _pospravi_predoglede(os.path.dirname(cilj))
         return cilj
     return ""

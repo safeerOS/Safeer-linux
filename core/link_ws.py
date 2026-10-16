@@ -128,7 +128,7 @@ class Povezava:
             return False
         meritev = self.meritev
         if meritev is None:
-            meritev = self.meritev = link_pot.MeritevPoti(link_pot.pot_naslova(self.naslov))
+            meritev = self.meritev = link_pot.MeritevPoti(link_pot.pot_vticnika(self.naslov, self.vticnik))
         meritev.preveri()
         meritev.tcp(link_vticnik.tcp_info(self.vticnik))
         with self._zaklep:

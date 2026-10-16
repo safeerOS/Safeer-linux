@@ -23,8 +23,10 @@ Naprave lahko uporabnik kadarkoli poveze v razdelku Naprave.
 
 from __future__ import annotations
 
+import hmac
 import json
 import os
+import secrets
 import socket
 import subprocess
 import weakref
@@ -69,6 +71,7 @@ from core import media_servers  # noqa: E402
 from core import os_dock  # noqa: E402
 from core import priljubljeno  # noqa: E402
 from core import os_lupina  # noqa: E402
+from core import os_vgrajeni_viri  # noqa: E402
 from core import x11  # noqa: E402
 from core.sporocila import vklop as sporocila_vklop  # noqa: E402
 pomnilnik.tlak_omrezja(WebKit2, 160)   # pred prvim pogledom: omrezni procesi WebKita z mejo pomnilnika
@@ -149,9 +152,15 @@ ISKALNIKI = {"google": "https://www.google.com/search?q=", "duckduckgo": "https:
              "brave": "https://search.brave.com/search?q=", "startpage": "https://www.startpage.com/do/search?q=",
              "bing": "https://www.bing.com/search?q=", "ecosia": "https://www.ecosia.org/search?q="}
 
+#: Zeton mostu safeerOs (lastni vgrajeni viri, 15. 10. 2026). WebKit da window.webkit.messageHandlers VSEM okvirjem
+#: strani, tudi tujim iframom (vgrajen vir, peskovnik komponente) - rokovalnik pa ne pove, iz katerega okvirja je
+#: sporocilo. Zeton je samo v zaprtju MOST_JS, ki ga dobi le glavni okvir (TOP_FRAME); _na_sporocilo zavrne vsako
+#: sporocilo brez njega. Nov ob vsakem zagonu procesa, nikoli na disku ali v dnevniku.
+ZETON_MOSTU = secrets.token_urlsafe(32)
+
 MOST_JS = r"""
 (function () {
-  var cakajo = {}, stevec = 0;
+  var cakajo = {}, stevec = 0, zeton = "__ZETON__";
   window.__safeerOsOdgovor = function (id, ok, podatki) {
     var c = cakajo[id]; if (!c) return; delete cakajo[id];
     if (ok) c.res(podatki); else c.rej(podatki);
@@ -161,13 +170,18 @@ MOST_JS = r"""
       return new Promise(function (res, rej) {
         var id = ++stevec; cakajo[id] = { res: res, rej: rej };
         try {
-          window.webkit.messageHandlers.safeerOs.postMessage(JSON.stringify({ id: id, m: metoda, a: argumenti || [] }));
+          window.webkit.messageHandlers.safeerOs.postMessage(JSON.stringify({ id: id, m: metoda, a: argumenti || [], t: zeton }));
         } catch (e) { delete cakajo[id]; rej(String(e)); }
       });
     }
   };
 })();
-"""
+""".replace("__ZETON__", ZETON_MOSTU)
+
+
+def zeton_velja(sporocilo: dict) -> bool:
+    """Sporocilo mostu safeerOs je iz glavnega okvirja strani Safeer OS (MOST_JS), ne iz vgrajenega okvirja."""
+    return isinstance(sporocilo, dict) and hmac.compare_digest(str(sporocilo.get("t") or ""), ZETON_MOSTU)
 
 
 def _jezik() -> str:
@@ -1551,6 +1565,9 @@ class SafeerOS(Gtk.Application):
         # Novo sporocilo, oznake, stanje kanala: odprte strani (razdelek Sporocila, plosca) se osvezijo takoj (niti
         # kanalov v realnem casu - lastnik, 15. 10. 2026), ne sele ob 30-sekundnem osvezevanju strani.
         os_sporocila.ob_spremembi(lambda: GLib.idle_add(lambda: (self._dogodek("sporocila", {}), False)[1]))
+        # Novo e-pismo: obvestilo namizja (kot Gmail in Outlook), klik odpre ta pogovor (lastnik, 15. 10. 2026: pismo
+        # je prislo brez znacke in brez obvestila).
+        self.sporocila.obvesti_novo = self._obvesti_novo_pismo
         #: Scit: filtriranje DNS za ves racunalnik; ce je bil vklopljen, tece od zagona naprej.
         self.scit = os_scit.Scit(self.shramba)
         # Posodobitve s safeer.si: zadnja preverba (izid, cas) in tekoce posodabljanje (prenos + namestitev v niti).
@@ -1628,6 +1645,9 @@ class SafeerOS(Gtk.Application):
         self._plosca_spleta = None
         self._prekrivanje_delovne = None
         self._peskovnik_dela = None   # None = še ni preverjeno (core.os_splet.peskovnik_dela)
+        #: Pogledi z odprtim lastnim vgrajenim virom (okvirji http(s) dovoljeni, filter EasyList) in tisti v celem zaslonu.
+        self._vgrajeni_pogledi = weakref.WeakSet()
+        self._vgrajeni_cel_zaslon = weakref.WeakSet()
         self._peskovnik_preverjen = 0.0   # kdaj (time.monotonic) je bil nazadnje preverjen
         self._glavna_postavitev = None
         self._spletni_nacin = False
@@ -2010,9 +2030,11 @@ class SafeerOS(Gtk.Application):
         """WebKit z mostom do tega procesa; odgovori gredo nazaj v isti pogled."""
         upravitelj = WebKit2.UserContentManager()
         _registriraj_most(upravitelj, "safeerOs")
+        # Most samo v glavnem okvirju in samo na straneh file:// (Safeer OS): vgrajeni viri (iframe) ga ne dobijo; tuja
+        # stran v glavnem okvirju tudi ne (to sicer prepreci ze _na_politiko, glej os_vgrajeni_viri.tuja_glavna_stran).
         upravitelj.add_script(WebKit2.UserScript(
             MOST_JS, WebKit2.UserContentInjectedFrames.TOP_FRAME,
-            WebKit2.UserScriptInjectionTime.START, None, None))
+            WebKit2.UserScriptInjectionTime.START, ["file:///*"], None))
         odlozisce_varuh.dodaj(WebKit2, upravitelj)   # Ctrl+C brez izbora ne sme izprazniti odložišča
         # Strani Safeer OS (namizje, glavno okno) imajo skupen kontekst z mejo pomnilnika spletnega procesa.
         if getattr(self, "_os_kontekst", None) is None:
@@ -2037,6 +2059,11 @@ class SafeerOS(Gtk.Application):
         barva.parse("#090d15")
         pogled.set_background_color(barva)
         pogled.connect("decide-policy", self._na_politiko)
+        # Pojavno okno iz vgrajenega vira (samo ce ga je uporabnik dovolil - sicer ga ustavi ze peskovnik iframa).
+        pogled.connect("create", self._vgrajeno_novo_okno)
+        # Cel zaslon elementa (video v vgrajenem viru): Escape ga zapusti (WebKit), ne zapre vira (_vgrajeno_tipka).
+        pogled.connect("enter-fullscreen", lambda p: (self._vgrajeni_cel_zaslon.add(p), False)[1])
+        pogled.connect("leave-fullscreen", lambda p: (self._vgrajeni_cel_zaslon.discard(p), False)[1])
         # Ce spletni proces pade (sesutje, pomanjkanje pomnilnika), se stran nalozi znova - sicer ostane prazno namizje.
         os_stabilnost.obnovi_ob_padcu(WebKit2, GLib, pogled, "safeer-os", stran.split("?", 1)[0])
         pogled.set_hexpand(True)
@@ -2465,6 +2492,8 @@ class SafeerOS(Gtk.Application):
             if self.posnetek:
                 self._na_sredino(okno, sirina, visina)   # sicer je povecano (spodaj); premik bi ga motil
         okno.set_child(pogled)
+        # Vgrajen vir: F11 in Escape dobi okno pred tujo stranjo v okvirju (glej _vgrajeno_tipka).
+        _tipke(okno, lambda _o, e: self._vgrajeno_tipka(pogled, e), zajem=True)
         okno.connect("close-request", self._zapri_predvajalnik)
         self.okno_predvajalnik, self.pogled_predvajalnik = okno, pogled
         if not self.posnetek:
@@ -2651,6 +2680,8 @@ class SafeerOS(Gtk.Application):
         if self._plosca_spleta is None or not self._plosca_spleta.get_visible():
             return False
         self._plosca_spleta.set_visible(False)
+        if self._spletni_namizje is not None:
+            self._spletni_namizje.zapri_dialoge()      # dialog ne ostane sam nad skritim Spletom
         self._dogodek("spletNaNamizjuZaprt", None, self.pogled_delovna)
         # Takoj: predpomnilnik v pomnilniku spletnih procesov (zavihki ostanejo) in prazne strani Pythona sistemu.
         if self._spletni_namizje is not None:
@@ -3168,28 +3199,181 @@ class SafeerOS(Gtk.Application):
         self._predogled().odpri_datoteko(pot, self._okno_pogleda(pogled))
         return True
 
-    def _na_politiko(self, _pogled, odlocitev, vrsta) -> bool:
-        """Pogled sme prikazati samo stran Safeer OS (most ne sme k tuji strani)."""
+    def _na_politiko(self, pogled, odlocitev, vrsta) -> bool:
+        """Pogled sme prikazati samo stran Safeer OS (most ne sme k tuji strani). Izjema: okvirji (iframe) odprtega
+        lastnega vgrajenega vira - ti gredo skozi Scit (_vgrajeno_dovoli); glavni okvir tudi takrat ostane Safeer OS
+        (odgovor tuje strani za glavni okvir zavrnemo, preden se karkoli izrise)."""
         try:
+            if vrsta == WebKit2.PolicyDecisionType.RESPONSE:
+                if odlocitev.is_main_frame_main_resource() and os_vgrajeni_viri.tuja_glavna_stran(
+                        odlocitev.get_request().get_uri() or "", getattr(self, "_koren_strani", "")):
+                    odlocitev.ignore()
+                    return True
+                return False
             if vrsta not in (WebKit2.PolicyDecisionType.NAVIGATION_ACTION,
                              WebKit2.PolicyDecisionType.NEW_WINDOW_ACTION):
                 return False
             naslov = odlocitev.get_navigation_action().get_request().get_uri() or ""
             if naslov.startswith(self._koren_strani + "/"):
                 return False
+            if vrsta == WebKit2.PolicyDecisionType.NAVIGATION_ACTION and self._vgrajeno_odprto(pogled):
+                # Navigacije okvirja vgrajenega vira (WebKitGTK ne pove, ali gre za okvir - glavni okvir ustavi
+                # odgovor zgoraj); Scit ustavi domene groženj in oglasov.
+                if self._vgrajeno_dovoli(naslov):
+                    odlocitev.use()
+                else:
+                    odlocitev.ignore()
+                return True
             odlocitev.ignore()
-            if naslov.startswith(("http://", "https://")):
+            if naslov.startswith(("http://", "https://")) and not self._vgrajeno_scit_ustavi(naslov):
                 self._splet(naslov)
             return True
         except Exception:
             odlocitev.ignore()
             return True
 
+    # ------------------------------------------------------------------ lastni vgrajeni viri (iframe v Medijskem centru)
+    def _vgrajeno_odprto(self, pogled) -> bool:
+        return pogled is not None and pogled in getattr(self, "_vgrajeni_pogledi", ())
+
+    def _vgrajeno_scit_ustavi(self, naslov: str) -> bool:
+        """Scit za vgrajene vire: domene groženj in oglasov (isti seznami kot Splet) se ne nalozijo."""
+        if not naslov.lower().startswith(("http://", "https://")):
+            return False
+        try:
+            from core import adblock
+            return adblock.is_threat_domain(naslov) or adblock.is_ad_domain(naslov)
+        except Exception:  # noqa: BLE001 - seznama ni: ne ugibamo
+            return False
+
+    def _vgrajeno_dovoli(self, naslov: str) -> bool:
+        return os_vgrajeni_viri.dovoli_okvir(naslov) and not self._vgrajeno_scit_ustavi(naslov)
+
+    def _vgrajeno_aktivno(self, pogled, da: bool) -> bool:
+        """Stran pove, da je odprla (ali zaprla) vgrajen vir. Sele tedaj pogled pusti okvirje http(s) in dobi filter
+        EasyList (WebKit content blocker velja za vse okvirje strani, kot v Spletu); ob zaprtju filter odstranimo, da
+        strani Safeer OS ne tecejo skozenj."""
+        if not hasattr(self, "_vgrajeni_pogledi"):
+            self._vgrajeni_pogledi = weakref.WeakSet()
+        if da:
+            self._vgrajeni_pogledi.add(pogled)
+            self._vgrajeno_scit_pripravi()
+            self._vgrajeno_filter()
+        else:
+            self._vgrajeni_pogledi.discard(pogled)
+            try:
+                from core.filter_lists import FILTER_ID
+                pogled.get_user_content_manager().remove_filter_by_id(FILTER_ID)
+            except Exception:  # noqa: BLE001
+                pass
+        return bool(da)
+
+    def _vgrajeno_scit_pripravi(self) -> None:
+        """Vir groženj (podpisan seznam Safeer, isti kot Splet in Scit) za preverjanje okvirjev - enkrat na proces."""
+        if getattr(self, "_vgrajeno_scit", False):
+            return
+        self._vgrajeno_scit = True
+        try:
+            from core import adblock
+            from core.threat_intel import default_data_dir, skupna
+            adblock.register_threat_matcher(skupna(default_data_dir("safeer-mint")).match)
+        except Exception as e:  # noqa: BLE001 - vgrajeni seznam domen ostane
+            print("[SafeerOS] vgrajeni viri, vir groženj:", e, flush=True)
+
+    def _vgrajeno_filter(self) -> None:
+        """EasyList (preveden filter Spleta, ista shramba in id) na poglede z vgrajenim virom. Ce prevedenega se ni
+        (Splet se ni tekel), ga enkrat pripravimo iz shranjenega seznama oziroma prenosa, kot Splet."""
+        from core.filter_lists import FILTER_ID, FilterListAgent
+        from core.threat_intel import default_data_dir
+
+        def uporabi(filter_) -> None:
+            self._vgrajeni_filter = filter_
+            for p in list(getattr(self, "_vgrajeni_pogledi", ())):
+                try:
+                    upravitelj = p.get_user_content_manager()
+                    upravitelj.remove_filter_by_id(FILTER_ID)
+                    upravitelj.add_filter(filter_)
+                except Exception as e:  # noqa: BLE001
+                    print("[SafeerOS] vgrajeni viri, filter:", e, flush=True)
+        if getattr(self, "_vgrajeni_filter", None) is not None:
+            uporabi(self._vgrajeni_filter)
+            return
+        if getattr(self, "_vgrajeni_filter_nalagam", False):
+            return
+        self._vgrajeni_filter_nalagam = True
+        mapa = default_data_dir("safeer-mint").parent / "filter-lists"
+        try:
+            (mapa / "compiled").mkdir(parents=True, exist_ok=True)
+            shramba = WebKit2.UserContentFilterStore.new(str(mapa / "compiled"))
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] vgrajeni viri, shramba filtra:", e, flush=True)
+            self._vgrajeni_filter_nalagam = False
+            return
+
+        def shranjen(st, rezultat, *_a) -> None:
+            try:
+                uporabi(st.save_finish(rezultat))
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] vgrajeni viri, prevajanje filtra:", e, flush=True)
+            self._vgrajeni_filter_nalagam = False
+
+        def pravila(json_pravila, _vir) -> None:
+            agent = getattr(self, "_vgrajeni_agent", None)
+            if agent is not None:
+                agent.stop()                       # en seznam je dovolj; osvezevanje ostane Spletu
+            GLib.idle_add(lambda: (shramba.save(FILTER_ID, GLib.Bytes.new(json_pravila.encode("utf-8")), None, shranjen),
+                                   False)[1])
+
+        def nalozen(st, rezultat, *_a) -> None:
+            try:
+                uporabi(st.load_finish(rezultat))
+                self._vgrajeni_filter_nalagam = False
+            except Exception:  # noqa: BLE001 - se ni preveden: iz shranjenega seznama ali prenosa
+                try:
+                    from core import adblock
+                    self._vgrajeni_agent = FilterListAgent(mapa, on_rules=pravila, first_delay=0,
+                                                           never_block_domains=adblock.real_bank_domains())
+                    self._vgrajeni_agent.start()
+                except Exception as e:  # noqa: BLE001
+                    print("[SafeerOS] vgrajeni viri, EasyList:", e, flush=True)
+                    self._vgrajeni_filter_nalagam = False
+        shramba.load(FILTER_ID, None, nalozen)
+
+    def _vgrajeno_novo_okno(self, pogled, dejanje):
+        """window.open iz vgrajenega vira (peskovnik ga pusti samo z »Dovoli pojavna okna«): okno se odpre v Spletu,
+        kjer veljajo Scit in pravila pojavnih oken; v Medijskem centru novega pogleda z mostom ne naredimo."""
+        try:
+            naslov = dejanje.get_request().get_uri() or ""
+        except Exception:  # noqa: BLE001
+            naslov = ""
+        if (self._vgrajeno_odprto(pogled) and naslov.lower().startswith(("http://", "https://"))
+                and not self._vgrajeno_scit_ustavi(naslov)):
+            GLib.idle_add(lambda: (self._splet(naslov), False)[1])
+        return None
+
+    def _vgrajeno_tipka(self, pogled, dogodek) -> bool:
+        """F11 in Escape v oknu z odprtim vgrajenim virom: tipko dobi okno pred okvirjem (fokus je pogosto v tuji strani,
+        ki je stran Safeer OS ne slisi). F11 = nacin za kavc (cel zaslon), Escape = nazaj iz vira; cel zaslon elementa
+        (video v okvirju) Escape zapusti WebKit sam."""
+        if not self._vgrajeno_odprto(pogled):
+            return False
+        ime = Gdk.keyval_name(dogodek.keyval) or ""
+        if ime == "F11":
+            self._js("window.SafeerKavc && window.SafeerKavc.nastavi(!window.SafeerKavc.vklopljen());", pogled)
+            return True
+        if ime == "Escape" and pogled not in self._vgrajeni_cel_zaslon:
+            self._js("window.SafeerVgrajeno && window.SafeerVgrajeno.zapriVse();", pogled)
+            return True
+        return False
+
     def _na_tipko(self, _okno, dogodek) -> bool:
         # F11: namizni nacin / okno (obicajna bliznjica, deluje tudi, ko se kaj zatakne).
         if dogodek.keyval == Gdk.KEY_F11 and not self.posnetek:
             self._celozaslonsko(not self.namizje)
             return True
+        # Escape iz vgrajenega vira v glavnem oknu (fokus je v tuji strani v okvirju).
+        if dogodek.keyval == Gdk.KEY_Escape and self._vgrajeno_odprto(getattr(self, "pogled", None)):
+            return self._vgrajeno_tipka(self.pogled, dogodek)
         return False
 
     def _celozaslonsko(self, vklop: bool) -> bool:
@@ -3498,6 +3682,12 @@ class SafeerOS(Gtk.Application):
         try:
             vrednost = rezultat.get_js_value() if hasattr(rezultat, "get_js_value") else rezultat   # WebKit 4.1 / 6.0
             s = json.loads(vrednost.to_string())
+            if not zeton_velja(s):
+                # Vgrajen okvir (tuja stran, komponenta) ali tuja stran: brez odgovora, brez izvedbe.
+                if not getattr(self, "_most_zavrnjen", False):
+                    self._most_zavrnjen = True
+                    print("[SafeerOS] most: zavrnjeno sporocilo brez zetona (vgrajen okvir?)", flush=True)
+                return
             id_, metoda, a = int(s.get("id", 0)), str(s.get("m", "")), list(s.get("a") or [])
         except Exception:
             return
@@ -3516,6 +3706,8 @@ class SafeerOS(Gtk.Application):
             "kanalDodaj": lambda: self._kanali_klic("dodaj", str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "",
                                                     str(a[2]) if len(a) > 2 else "", str(a[3]) if len(a) > 3 else ""),
             "kanalOdstrani": lambda: self._kanali_klic("odstrani", str(a[0]) if a else "", len(a) > 1 and a[1] is True),
+            # »Preklici dodajanje«: samo kanal, ki se ni v uporabi (prijava ni koncana); podatki strani ostanejo.
+            "kanalPreklici": lambda: self._kanali_klic("preklici", str(a[0]) if a else ""),
             "kanalPreimenuj": lambda: self._kanali_klic("preimenuj", str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "kanalPremakni": lambda: self._kanali_klic("premakni", str(a[0]) if a else "",
                                                        int(a[1]) if len(a) > 1 and isinstance(a[1], (int, float)) else 1),
@@ -3563,6 +3755,7 @@ class SafeerOS(Gtk.Application):
             "cakajociMagnet": self._vzemi_cakajoci_magnet,
             "cakajociStremio": self._vzemi_cakajoci_stremio,
             "kavcCelZaslon": lambda: self._kavc_cel_zaslon(pogled, bool(a[0]) if a else False),
+            "vgrajenoAktivno": lambda: self._vgrajeno_aktivno(pogled, bool(a[0]) if a else False),
             "kopiraj": lambda: self._kopiraj(str(a[0]) if a else ""),
             "magnetPredvajaj": lambda: self._predvajaj_magnet(int(a[0]) if a else -1, int(a[1]) if len(a) > 1 else -1,
                                                              str(a[2]) if len(a) > 2 else ""),
@@ -3831,7 +4024,7 @@ class SafeerOS(Gtk.Application):
             "sporocilaOdstraniOsnutek": lambda: self.sporocila.odstrani_osnutek(str(a[0]) if a else ""),
             "sporocilaSinhroniziraj": self.sporocila.sinhroniziraj,
             "sporocilaIsci": lambda: self.sporocila.isci(str(a[0]) if a else ""),
-            "sporocilaPogovor": lambda: self.sporocila.pogovor(str(a[0]), str(a[1])),
+            "sporocilaPogovor": lambda: self.sporocila.pogovor(str(a[0]), str(a[1]), a[2] is not False if len(a) > 2 else True),
             "sporocilaPreklici": lambda: self.sporocila.preklici(str(a[0]), str(a[1]), str(a[2])),
             "sporocilaSkrivnost": lambda: self.sporocila.nastavi_skrivnost(str(a[0]), str(a[1])),
             "sporocilaOdstrani": lambda: self.sporocila.odstrani_kanal(str(a[0])),
@@ -4110,6 +4303,22 @@ class SafeerOS(Gtk.Application):
         if prekrivanje is None:
             return {"ok": False, "razlog": "okno"}
         return self._kanali().pokazi(pogled, prekrivanje, kid, pravokotnik)
+
+    def _obvesti_novo_pismo(self, kanal_id: str, pogovor_id: str, naslov: str, besedilo: str) -> None:
+        """Nit kanala -> glavna nit. Ko je okno Safeer OS aktivno, uporabnik pismo vidi v seznamu (znacka, na vrhu
+        Prejetega) in obvestila ne dobi - tako kot Gmail v ospredju. Klik na obvestilo odpre pogovor."""
+        def pokazi() -> bool:
+            if any(o.is_active() for o in Gtk.Window.list_toplevels() if isinstance(o, Gtk.Window)):
+                return False
+            cilj = "pogovor:%s:%s" % (kanal_id, pogovor_id)
+
+            def odpri() -> None:
+                GLib.idle_add(lambda: (self._odpri_razdelek(cilj) if _ima_delovno(self) or self.okno is None
+                                       else self._domov(cilj), False)[1])
+            from core import obvestila
+            obvestila.poslji(naslov or "Safeer OS", besedilo, "safeer-posta-" + kanal_id, privzeto=odpri)
+            return False
+        GLib.idle_add(pokazi)
 
     def _odpri_kanal(self, kid: str) -> None:
         """Klik na obvestilo kanala: Sporocila se odprejo na tem kanalu."""

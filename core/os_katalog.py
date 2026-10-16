@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from . import jellyfin_vticniki, knjiznica_kroga, media_servers, os_media, os_police, samodejni_seznami, zakoniti_viri
+from . import os_vgrajeni_viri
 
 #: Posnetek YouTube: natanko 11 znakov iz te abecede.
 YOUTUBE_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -368,6 +369,12 @@ class Katalog:
         "mediaSamodejniShrani": "_samodejni_shrani",
         "mediaJellyfinVticniki": "_jf_vticniki", "mediaJellyfinVticnik": "_jf_vticnik",
         "mediaJellyfinNamesti": "_jf_namesti", "mediaJellyfinZagon": "_jf_zagon",
+        # Lastni vgrajeni viri (core/os_vgrajeni_viri.py): seznam je prazen, vsak vnos doda uporabnik.
+        "mediaVgrajeniViri": "_vgr_seznam", "mediaVgrajenVirShrani": "_vgr_shrani",
+        "mediaVgrajenVirOdstrani": "_vgr_odstrani", "mediaVgrajenVirPreizkusi": "_vgr_preizkusi",
+        "mediaVgrajeniObvestilo": "_vgr_obvestilo", "mediaVgrajeneMoznosti": "_vgr_moznosti",
+        "mediaVgrajenaKnjiznica": "_vgr_knjiznica", "mediaVgrajeniOsvezi": "_vgr_osvezi",
+        "mediaVgrajenaIzbira": "_vgr_izbira", "mediaVgrajenoPreveri": "_vgr_preveri",
     }
 
     @staticmethod
@@ -561,6 +568,113 @@ class Katalog:
     def _skrito(self, _a: list) -> list:
         """Kaj je uporabnik skril iz leve navigacije Medijskega centra (skupno glavnemu oknu in Safeer Playerju)."""
         return self._skriti()
+
+    # ------------------------------------------------------------------ lastni vgrajeni viri
+    def _vgr_meritve(self):
+        """Meritve odziva gostiteljev (ista zbirka kot za razlicice toka, core/meritve_virov.py); domen groženj in
+        oglasov ne merimo (Scit - za njih velja »ni dosegljiv«)."""
+        meritve = self.mc._meritve
+        if meritve._blokirano is None:
+            from . import adblock
+
+            def blokirano(naslov: str) -> bool:
+                try:
+                    return adblock.is_threat_domain(naslov) or adblock.is_ad_domain(naslov)
+                except Exception:  # noqa: BLE001
+                    return False
+            meritve._blokirano = blokirano
+        return meritve
+
+    def _vgr_izmeri(self, viri: list, samo_zastarele: bool = True) -> None:
+        """Meritve virov v ozadju; ko se dosegljivost spremeni, stran osvezi seznam in gumbe (dogodek)."""
+        naslovi = [v["url"] for v in viri if v.get("vrsta") == "url" and v.get("vklopljen", True)]
+        self._vgr_meritve().izmeri_v_ozadju(naslovi, samo_zastarele=samo_zastarele,
+                                            ob_koncu=lambda _sp: self.dogodek("mediaVgrajeniMeritve", None))
+
+    def _vgr_seznam(self, _a: list) -> dict:
+        """Ob odprtju Medijskega centra: seznam z meritvami; zastarele meritve se osvezijo v ozadju."""
+        d = self._nastavitve()
+        viri = os_vgrajeni_viri.seznam(d)
+        meritve = self._vgr_meritve()
+        self._vgr_izmeri(viri)
+        return {"viri": [os_vgrajeni_viri.javni(v, meritve) for v in viri],
+                "obvestilo": bool(d.get(os_vgrajeni_viri.KLJUC_OBVESTILA)),
+                "ploscice": [p for p in os_vgrajeni_viri.ploscice(viri) if not meritve.nedosegljiv(p["url"])]}
+
+    def _vgr_osvezi(self, a: list) -> bool:
+        """[vse]: vsakih 15 min (nedosegljivi) ali ob spremembi omrezja (vse=True) - meritve v ozadju."""
+        self._vgr_izmeri(os_vgrajeni_viri.seznam(self._nastavitve()), samo_zastarele=not (a and a[0] is True))
+        return True
+
+    def _vgr_shrani(self, a: list) -> dict:
+        """[vnos]: doda ali spremeni vir; napaka je koda za besedilo strani (vgrNapaka_<koda>). Gostitelja izmerimo
+        takoj v ozadju - ob prvem predvajanju je meritev ze tu."""
+        vnos = a[0] if a and isinstance(a[0], dict) else {}
+        izid: dict = {}
+
+        def sprememba(d: dict) -> None:
+            izid["vir"] = os_vgrajeni_viri.shrani(d, vnos)
+        try:
+            self._spremeni_nastavitve(sprememba)
+        except os_vgrajeni_viri.NapakaVira as napaka:
+            return {"ok": False, "napaka": napaka.koda}
+        self._vgr_izmeri([izid["vir"]], samo_zastarele=False)
+        return {"ok": True, "vir": os_vgrajeni_viri.javni(izid["vir"], self._vgr_meritve())}
+
+    def _vgr_odstrani(self, a: list) -> bool:
+        izid = []
+        self._spremeni_nastavitve(lambda d: izid.append(os_vgrajeni_viri.odstrani(d, self._niz(a, 0))))
+        return bool(izid and izid[0])
+
+    def _vgr_preizkusi(self, a: list) -> dict:
+        try:
+            return dict(os_vgrajeni_viri.preizkusi(a[0] if a and isinstance(a[0], dict) else {}), ok=True)
+        except os_vgrajeni_viri.NapakaVira as napaka:
+            return {"ok": False, "napaka": napaka.koda}
+
+    def _vgr_obvestilo(self, _a: list) -> bool:
+        """Uporabnik je potrdil obvestilo »na lastno odgovornost« (enkrat, ob prvem viru)."""
+        self._spremeni_nastavitve(lambda d: d.update({os_vgrajeni_viri.KLJUC_OBVESTILA: True}))
+        return True
+
+    def _vgr_moznosti(self, a: list) -> list:
+        """[vnos, sezona, epizoda]: gumbi »Predvajaj prek« za eno (ze zdruzeno) kartico - viri ne dodajo kartic;
+        nedosegljivih ni, najhitrejsi (ali rocno izbran) je prvi."""
+        item = a[0] if a and isinstance(a[0], dict) else {}
+        sezona, epizoda = (a[1] if len(a) > 1 else 0), (a[2] if len(a) > 2 else 0)
+        d = self._nastavitve()
+        izbire = d.get(os_vgrajeni_viri.KLJUC_IZBIRE) if isinstance(d.get(os_vgrajeni_viri.KLJUC_IZBIRE), dict) else {}
+        izbira = str(izbire.get(os_vgrajeni_viri.kljuc_naslova(item, sezona, epizoda)) or "")
+        return os_vgrajeni_viri.moznosti_za(os_vgrajeni_viri.seznam(d), item, sezona, epizoda,
+                                            self._vgr_meritve(), izbira)
+
+    def _vgr_izbira(self, a: list) -> bool:
+        """[vnos, sezona, epizoda, id vira]: uporabnik je rocno izbral vir za ta naslov."""
+        item = a[0] if a and isinstance(a[0], dict) else {}
+        kljuc = os_vgrajeni_viri.kljuc_naslova(item, a[1] if len(a) > 1 else 0, a[2] if len(a) > 2 else 0)
+        vid = self._niz(a, 3)
+        if not kljuc or not any(v["id"] == vid for v in os_vgrajeni_viri.seznam(self._nastavitve())):
+            return False
+        self._spremeni_nastavitve(lambda d: os_vgrajeni_viri.zapomni_izbiro(d, kljuc, vid))
+        return True
+
+    def _vgr_preveri(self, a: list) -> bool:
+        """[naslov]: hitra preverba tik pred odprtjem (en vzorec). False: stran tiho izbere naslednji najhitrejsi vir."""
+        naslov = self._niz(a, 0)
+        try:
+            os_vgrajeni_viri.preveri_naslov(naslov)
+        except os_vgrajeni_viri.NapakaVira:
+            return False
+        meritve = self._vgr_meritve()
+        z = meritve.izmeri(naslov, vzorcev=1)
+        if z is None:                       # gostitelja ze meri druga nit: velja zadnja meritev
+            return not meritve.nedosegljiv(naslov)
+        if not z.get("ok"):
+            self.dogodek("mediaVgrajeniMeritve", None)
+        return bool(z.get("ok"))
+
+    def _vgr_knjiznica(self, a: list) -> str:
+        return os_vgrajeni_viri.knjiznica(self._niz(a, 0))
 
     def _skrij(self, a: list) -> list:
         """[kljuc, da]: skrij ali spet pokazi zavihek oziroma vir v navigaciji. Samo videz menija - podatki, viri in
