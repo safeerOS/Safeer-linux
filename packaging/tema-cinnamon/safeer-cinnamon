@@ -226,23 +226,31 @@ PY
 # Gumb »Pokaži namizje« v desnem kotu pulta (lastnik, 14. 10. 2026: hitri gumb za prikaz namizja, smiselno uvrscen):
 # skrajno desno, za uro - kot v Windows, kotu se ne da zgresiti. Samo pri postavitvah z dockom (dock, delovna), kjer
 # namizje Safeer OS nadomesti okna; dodani vnos si zapomnimo, da ga izklop ali videz odstrani - nic drugega ne spreminja.
+# Mintov »cornerbar« (tanek trak v kotu, prav tako pokaze namizje) na tem pultu skrijemo (lastnik, 16. 10. 2026: dva
+# gumba za isto stvar, obdrzimo samo nasega) - tudi ce je uporabnik nas gumb dodal sam. Tocen vnos, mesto v seznamu in
+# nastavitve appleta si zapomnimo; odstrani ga vrne na prejsnje mesto, razen ce ga je uporabnik medtem dodal sam.
 pokazi_namizje() {   # $1 = dodaj | odstrani
     local v izid
     v="$(beri org.cinnamon:enabled-applets)" || return 0
     mkdir -p "$MAPA"
     [ "$1" = dodaj ] && : > "$MAPA/pokazi-namizje-ponujeno"
-    izid="$(python3 - "$1" "$v" "$MAPA/pokazi-namizje-dodan" <<'PY'
-import ast, os, sys
-kaj, vrednost, zapis = sys.argv[1:4]
-UUID = "show-desktop@cinnamon.org"
+    izid="$(python3 - "$1" "$v" "$MAPA/pokazi-namizje-dodan" "$MAPA/cornerbar-skrit" "$SPICES" "$MAPA/cornerbar-nastavitve" <<'PY'
+import ast, os, shutil, sys
+kaj, vrednost, zapis, skrit, spices, hramba = sys.argv[1:7]
+UUID, KOT = "show-desktop@cinnamon.org", "cornerbar@cinnamon.org"
 try:
     appleti = [str(a) for a in ast.literal_eval(vrednost.replace("@as ", ""))]
 except Exception:
     sys.exit(1)
+zacetni = list(appleti)
 
 
 def deli(a):
     return a.split(":")
+
+
+def je(a, uuid):
+    return len(deli(a)) >= 4 and deli(a)[3] == uuid
 
 
 def premakni(seznam, pult, od, za):
@@ -256,36 +264,76 @@ def premakni(seznam, pult, od, za):
     return izid
 
 
+def nastavitve(a):
+    d = deli(a)
+    return os.path.join(KOT, d[4] + ".json") if len(d) >= 5 and d[4].isdigit() else None
+
+
 if kaj == "dodaj":
-    if any(len(deli(a)) >= 4 and deli(a)[3] == UUID for a in appleti):
-        sys.exit(0)                      # uporabnik ga ze ima (tudi drugje): ne podvajamo
-    pult = next((deli(a)[0] for a in appleti if len(deli(a)) >= 4), "panel1")
-    desno = [deli(a) for a in appleti if len(deli(a)) >= 4 and deli(a)[0] == pult and deli(a)[1] == "right"
-             and deli(a)[2].isdigit()]
+    # Stevilke instanc pred skrivanjem: nas gumb ne sme dobiti stevilke skritega cornerbarja (ob vrnitvi bi se srecala).
     st = [int(deli(a)[4]) for a in appleti if len(deli(a)) >= 5 and deli(a)[4].isdigit()]
-    mesto = max(int(d[2]) for d in desno) + 1 if desno else 0
-    # Mintov »cornerbar« (tanek trak v samem kotu, prav tako pokaze namizje) ostane v kotu; gumb gre tik pred njega,
-    # sicer je trak med uro in gumbom videti kot locilo (preizkus na testnem PC, 14. 10. 2026).
-    kot = next((d for d in desno if d[3] == "cornerbar@cinnamon.org"), None)
-    if kot is not None:
-        mesto = int(kot[2])
-        appleti = premakni(appleti, pult, mesto, 1)
-    vnos = "%s:right:%d:%s:%d" % (pult, mesto, UUID, max(st) + 1 if st else 1)
-    with open(zapis, "w", encoding="utf-8") as f:
-        f.write(vnos + "\n")
-    print(repr(appleti + [vnos]))
+    nas = not any(je(a, UUID) for a in appleti)      # uporabnik ga ze ima (tudi drugje): ne podvajamo
+    pult = next((deli(a)[0] for a in appleti if len(deli(a)) >= 4), "panel1")
+    pulti = {pult} if nas else {deli(a)[0] for a in appleti if je(a, UUID)}
+    zapisani = []
+    for a in [a for a in appleti if je(a, KOT) and deli(a)[0] in pulti]:
+        i = appleti.index(a)
+        zapisani.append("%s\t%d\t%s\n" % (a, i, appleti[i - 1] if i else ""))
+        rel = nastavitve(a)
+        if rel and os.path.isfile(os.path.join(spices, rel)) and not os.path.exists(os.path.join(hramba, rel)):
+            os.makedirs(os.path.dirname(os.path.join(hramba, rel)), exist_ok=True)
+            shutil.copy2(os.path.join(spices, rel), os.path.join(hramba, rel))
+        del appleti[i]
+        d = deli(a)
+        if d[1] == "right" and d[2].isdigit():
+            appleti = premakni(appleti, d[0], int(d[2]) + 1, -1)     # brez luknje na desnem delu pulta
+    # Prvi zapis ostane (ob ponovnem vklopu je cornerbar ze skrit ali ga je uporabnik dodal sam).
+    if zapisani and not os.path.exists(skrit):
+        with open(skrit, "w", encoding="utf-8") as f:
+            f.write("".join(zapisani))
+    if nas:                                          # skrajno desno, za vsemi appleti desnega dela pulta
+        mesta = [int(deli(a)[2]) for a in appleti if len(deli(a)) >= 4 and deli(a)[0] == pult
+                 and deli(a)[1] == "right" and deli(a)[2].isdigit()]
+        vnos = "%s:right:%d:%s:%d" % (pult, max(mesta) + 1 if mesta else 0, UUID, max(st) + 1 if st else 1)
+        with open(zapis, "w", encoding="utf-8") as f:
+            f.write(vnos + "\n")
+        appleti.append(vnos)
+    if appleti != zacetni:
+        print(repr(appleti))
 else:
-    if not os.path.isfile(zapis):
-        sys.exit(0)
-    vnos = open(zapis, encoding="utf-8").read().strip()
-    os.remove(zapis)
-    d = deli(vnos)
-    ostali = [a for a in appleti if a != vnos]
-    if len(ostali) == len(appleti):
-        sys.exit(0)
-    if len(d) >= 3 and d[2].isdigit():
-        ostali = premakni(ostali, d[0], int(d[2]) + 1, -1)   # cornerbar in ostali nazaj na svoje mesto
-    print(repr(ostali))
+    if os.path.isfile(zapis):
+        vnos = open(zapis, encoding="utf-8").read().strip()
+        os.remove(zapis)
+        d = deli(vnos)
+        if vnos in appleti:
+            appleti = [a for a in appleti if a != vnos]
+            if len(d) >= 3 and d[2].isdigit():
+                appleti = premakni(appleti, d[0], int(d[2]) + 1, -1)
+    if os.path.isfile(skrit):
+        vrstice = [v.rstrip("\n").split("\t") for v in open(skrit, encoding="utf-8") if v.strip()]
+        os.remove(skrit)
+        for v in reversed(vrstice):
+            vnos, i, pred = (v + ["0", ""])[:3]
+            d = deli(vnos)
+            # Uporabnik je cornerbar na ta pult medtem dodal sam: ne podvajamo.
+            if not any(je(a, KOT) and deli(a)[0] == d[0] for a in appleti):
+                if len(d) >= 5 and d[4].isdigit() and any(len(deli(a)) >= 5 and deli(a)[4] == d[4] for a in appleti):
+                    st = [int(deli(a)[4]) for a in appleti if len(deli(a)) >= 5 and deli(a)[4].isdigit()]
+                    d[4] = str(max(st) + 1)       # stevilko je medtem dobil drug applet
+                    vnos = ":".join(d)
+                if d[1] == "right" and d[2].isdigit():
+                    appleti = premakni(appleti, d[0], int(d[2]), 1)
+                # Za applet, ki je bil pred njim; ce ga ni vec, na prejsnje mesto v seznamu.
+                mesto = appleti.index(pred) + 1 if pred in appleti else min(int(i) if i.isdigit() else 0, len(appleti))
+                appleti.insert(mesto, vnos)
+                rel, izvor = nastavitve(vnos), nastavitve(v[0])
+                if rel and izvor and os.path.isfile(os.path.join(hramba, izvor)) \
+                        and not os.path.exists(os.path.join(spices, rel)):
+                    os.makedirs(os.path.dirname(os.path.join(spices, rel)), exist_ok=True)
+                    shutil.copy2(os.path.join(hramba, izvor), os.path.join(spices, rel))
+    shutil.rmtree(hramba, ignore_errors=True)
+    if appleti != zacetni:
+        print(repr(appleti))
 PY
 )" || return 0
     [ -n "$izid" ] && pisi org.cinnamon:enabled-applets "$izid"

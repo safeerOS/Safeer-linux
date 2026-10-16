@@ -788,24 +788,116 @@ class TestTemaCinnamon(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
-    def test_gumb_pokazi_namizje_pred_cornerbar(self):
-        """Mintov tanek trak »cornerbar« ostane v samem kotu, gumb gre tik pred njega (ura | gumb | trak); izklop vrne
-        trak na prvotno mesto (testni PC, 14. 10. 2026)."""
+    def _z_appleti(self, appleti, preizkus):
+        """Pozene preizkus(o) v laznem okolju z drugacnim zacetnim seznamom appletov pulta."""
         tmp = tempfile.mkdtemp()
-        prej = self.APPLETI
         try:
-            self.APPLETI = prej[:-1] + ", 'panel1:right:6:cornerbar@cinnamon.org:14']"
-            self.ZACETNO = TestTemaCinnamon.ZACETNO.replace(prej, self.APPLETI)
-            o = self._okolje(tmp)
-            self._ukaz(o, "--profil", "dock")
-            appleti = [a.strip("'") for a in self._vrednost(o, "org.cinnamon", "enabled-applets").strip("[]").split(", ")]
-            mesto = {a.split(":")[3]: int(a.split(":")[2]) for a in appleti if a.split(":")[1] == "right"}
-            self.assertLess(mesto["calendar@cinnamon.org"], mesto["show-desktop@cinnamon.org"])
-            self.assertLess(mesto["show-desktop@cinnamon.org"], mesto["cornerbar@cinnamon.org"])
-            self._ukaz(o, "--izklopi")
-            self._kot_na_zacetku(o)
+            self.APPLETI = appleti
+            self.ZACETNO = TestTemaCinnamon.ZACETNO.replace(TestTemaCinnamon.APPLETI, appleti)
+            preizkus(self._okolje(tmp))
         finally:
+            self.APPLETI, self.ZACETNO = TestTemaCinnamon.APPLETI, TestTemaCinnamon.ZACETNO
             shutil.rmtree(tmp, ignore_errors=True)
+
+    def _appleti(self, o):
+        return [a.strip("'") for a in self._vrednost(o, "org.cinnamon", "enabled-applets").strip("[]").split(", ")]
+
+    def _desno(self, o):
+        """{uuid: mesto} desnega dela pulta panel1."""
+        return {a.split(":")[3]: int(a.split(":")[2]) for a in self._appleti(o) if a.split(":")[:2] == ["panel1", "right"]}
+
+    def _pisi_appleti(self, o, appleti):
+        subprocess.run(["gsettings", "set", "org.cinnamon", "enabled-applets", repr(appleti)], env=o["env"], check=True)
+
+    def test_gumb_pokazi_namizje_namesto_cornerbar(self):
+        """Mintov tanek trak »cornerbar« v kotu prav tako pokaze namizje: postavitev z dockom ga skrije, nas gumb je edini
+        in skrajno desno (za uro), desni del pulta brez luknje; izklop vrne seznam appletov in nastavitve traku bajt za
+        bajtom (lastnik, 16. 10. 2026: obdrzimo samo nasega)."""
+        trak = "panel1:right:4:cornerbar@cinnamon.org:14"
+        appleti = TestTemaCinnamon.APPLETI.replace("'panel1:right:5:calendar", "'%s', 'panel1:right:5:calendar" % trak)
+
+        def preizkus(o):
+            nast = os.path.join(o["dom"], ".config", "cinnamon", "spices", "cornerbar@cinnamon.org", "14.json")
+            os.makedirs(os.path.dirname(nast))
+            with open(nast, "w") as f:
+                f.write('{"action": {"type": "combobox", "value": "show-desktop"}}')
+            for profil in ("dock", "delovna", "delovna"):          # tudi menjava in ponoven vklop
+                self._ukaz(o, "--profil", profil)
+                vrednost = self._vrednost(o, "org.cinnamon", "enabled-applets")
+                self.assertNotIn("cornerbar", vrednost, profil)
+                self.assertEqual(vrednost.count("show-desktop@cinnamon.org"), 1, profil)
+                desno = self._desno(o)
+                self.assertEqual(desno["calendar@cinnamon.org"], 4, profil)          # luknjo za trakom zapre
+                self.assertEqual(desno["show-desktop@cinnamon.org"], 5, profil)      # za uro, v kotu
+                self.assertEqual(max(desno.values()), 5, profil)
+                with open(os.path.join(o["mapa"], "cornerbar-skrit")) as f:
+                    self.assertEqual(f.read().split("\t")[0], trak)
+            os.remove(nast)                       # Cinnamon ob odstranitvi appleta izbrise njegove nastavitve
+            self._ukaz(o, "--izklopi")
+            self.assertEqual(self._vrednost(o, "org.cinnamon", "enabled-applets"), appleti)
+            with open(nast) as f:
+                self.assertEqual(f.read(), '{"action": {"type": "combobox", "value": "show-desktop"}}')
+            self._kot_na_zacetku(o)
+        self._z_appleti(appleti, preizkus)
+
+    def test_cornerbar_v_kotu_videz_vrne_na_mesto(self):
+        """Trak skrajno desno (za uro): videz ga vrne na isto mesto in na isto mesto v seznamu, dvakratni dodaj nicesar ne
+        spremeni (testni PC, 14. 10. 2026: trak v samem kotu)."""
+        appleti = TestTemaCinnamon.APPLETI[:-1] + ", 'panel1:right:6:cornerbar@cinnamon.org:14']"
+
+        def preizkus(o):
+            self._ukaz(o, "--profil", "dock")
+            po_dodaj = self._vrednost(o, "org.cinnamon", "enabled-applets")
+            self.assertNotIn("cornerbar", po_dodaj)
+            self.assertEqual(self._desno(o), {"calendar@cinnamon.org": 5, "show-desktop@cinnamon.org": 6})
+            gumb = [a for a in self._appleti(o) if "show-desktop" in a][0]
+            self.assertNotEqual(gumb.split(":")[4], "14")                 # ne dobi stevilke skritega traku
+            self._ukaz(o, "--profil", "dock")
+            self.assertEqual(self._vrednost(o, "org.cinnamon", "enabled-applets"), po_dodaj)   # idempotentno
+            self._ukaz(o, "--profil", "videz")
+            self.assertNotIn("show-desktop", self._vrednost(o, "org.cinnamon", "enabled-applets"))
+            self.assertIn("'panel1:right:6:cornerbar@cinnamon.org:14'", self._vrednost(o, "org.cinnamon", "enabled-applets"))
+            self.assertFalse(os.path.exists(os.path.join(o["mapa"], "cornerbar-skrit")))
+            self._ukaz(o, "--izklopi")
+            self.assertEqual(self._vrednost(o, "org.cinnamon", "enabled-applets"), appleti)
+            self._kot_na_zacetku(o)
+        self._z_appleti(appleti, preizkus)
+
+    def test_uporabnikov_gumb_cornerbar_vseeno_skrit(self):
+        """Uporabnik ima nas gumb ze sam: ne podvojimo ga, trak pa vseeno skrijemo (dva gumba ne ostaneta); izklop vrne
+        oba tocno tako, kot sta bila."""
+        appleti = TestTemaCinnamon.APPLETI[:-1] + (", 'panel1:right:6:show-desktop@cinnamon.org:15', "
+                                                   "'panel1:right:7:cornerbar@cinnamon.org:14', "
+                                                   "'panel2:right:0:cornerbar@cinnamon.org:16']")   # drug pult ostane
+
+        def preizkus(o):
+            self._ukaz(o, "--profil", "dock")
+            self.assertEqual(self._desno(o), {"calendar@cinnamon.org": 5, "show-desktop@cinnamon.org": 6})
+            self.assertIn("'panel1:right:6:show-desktop@cinnamon.org:15'", self._vrednost(o, "org.cinnamon", "enabled-applets"))
+            self.assertTrue(os.path.exists(os.path.join(o["mapa"], "cornerbar-skrit")))
+            self.assertIn("'panel2:right:0:cornerbar@cinnamon.org:16'", self._vrednost(o, "org.cinnamon", "enabled-applets"))
+            self._ukaz(o, "--izklopi")
+            self.assertEqual(self._vrednost(o, "org.cinnamon", "enabled-applets"), appleti)
+            self._kot_na_zacetku(o)
+        self._z_appleti(appleti, preizkus)
+
+    def test_uporabnikov_cornerbar_po_izklopu(self):
+        """Trak, ki ga uporabnik doda sam med vklopom, po izklopu ostane - enkrat, tudi ce smo prvotnega skrili mi."""
+        for s_trakom in (False, True):
+            appleti = TestTemaCinnamon.APPLETI[:-1] + (", 'panel1:right:6:cornerbar@cinnamon.org:14']" if s_trakom else "]")
+
+            def preizkus(o):
+                self._ukaz(o, "--profil", "delovna")
+                zdaj = self._appleti(o)
+                self.assertNotIn("cornerbar@cinnamon.org", ":".join(zdaj))
+                self._pisi_appleti(o, zdaj + ["panel1:right:9:cornerbar@cinnamon.org:40"])
+                self._ukaz(o, "--izklopi")
+                uuid = [a.split(":")[3] for a in self._appleti(o)]
+                self.assertEqual(uuid.count("cornerbar@cinnamon.org"), 1, s_trakom)
+                self.assertNotIn("show-desktop@cinnamon.org", uuid)
+                self.assertIn("panel1:right:8:cornerbar@cinnamon.org:40", self._appleti(o))   # nas gumb pred njim je sel
+                self.assertEqual(os.listdir(o["mapa"]), ["zadnje-ozadje"])
+            self._z_appleti(appleti, preizkus)
 
     def test_miska_namesto_porabe_na_namiznem_racunalniku(self):
         """Applet Safeer Miska: na racunalniku brez baterije nadomesti Mintov applet porabe (ta je kazal le baterijo
