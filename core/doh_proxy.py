@@ -318,18 +318,24 @@ _scit_vrata = (0.0, 0)      # (do kdaj velja, vrata) - preverimo najvec vsakih 3
 
 
 def sistemski_scit_vrata() -> int:
-    """Vrata sistemskega Scita na 127.0.0.1 (0 = ne tece). Brskalnik ga uporabi, ce tece: ista pravila, en filter."""
+    """Vrata sistemskega Scita na 127.0.0.1 (0 = ne tece). Brskalnik ga uporabi, ce tece: ista pravila, en filter.
+
+    Preverjanje (do 4 x 0,3 s - na 5355 je lahko LLMNR, ki ne odgovori) tece v ozadju; poizvedba ne caka nanj."""
     global _scit_vrata
     zdaj = time.monotonic()
-    if zdaj < _scit_vrata[0]:
-        return _scit_vrata[1]
-    try:
-        from core import os_scit
-        vrata = os_scit.tekoci_scit()
-    except Exception:  # noqa: BLE001
-        vrata = 0
-    _scit_vrata = (zdaj + 30.0, vrata)
-    return vrata
+    if zdaj >= _scit_vrata[0]:
+        _scit_vrata = (zdaj + 30.0, _scit_vrata[1])       # en preverjevalec naenkrat
+
+        def preveri() -> None:
+            global _scit_vrata
+            try:
+                from core import os_scit
+                vrata = os_scit.tekoci_scit()
+            except Exception:  # noqa: BLE001
+                vrata = 0
+            _scit_vrata = (time.monotonic() + 30.0, vrata)
+        threading.Thread(target=preveri, name="safeer-scit-vrata", daemon=True).start()
+    return _scit_vrata[1]
 
 
 def scit_kategorija(ime: str, samo_z_diska: bool = False) -> Optional[str]:

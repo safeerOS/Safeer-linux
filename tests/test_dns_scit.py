@@ -271,6 +271,22 @@ class ScitVBrskalniku(unittest.TestCase):
             self.assertIsNone(r.resolve("ads.oglas.example"))
         self.assertEqual(razresevalnik.blokiranih, 1)
 
+    def test_iskanje_sistemskega_scita_ne_zadrzi_poizvedbe(self):
+        """Na 5355 je lahko LLMNR, ki ne odgovori: preverjanje vrat tece v ozadju, poizvedba ne caka nanj."""
+        import time
+        konec = threading.Event()
+        with mock.patch.object(doh_proxy, "_scit_vrata", (0.0, 0)), \
+                mock.patch.object(os_scit, "tekoci_scit", side_effect=lambda: (konec.wait(2), 5354)[1]):
+            zacetek = time.monotonic()
+            self.assertEqual(doh_proxy.sistemski_scit_vrata(), 0)
+            self.assertLess(time.monotonic() - zacetek, 0.2)
+            konec.set()
+            for _ in range(50):
+                if doh_proxy._scit_vrata[1]:
+                    break
+                time.sleep(0.02)
+            self.assertEqual(doh_proxy.sistemski_scit_vrata(), 5354)
+
     def test_stran_napake_pove_da_je_blokiral_scit(self):
         class R:
             def resolve(self, h):

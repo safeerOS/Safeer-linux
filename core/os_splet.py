@@ -3700,13 +3700,6 @@ class VdelaniSplet:
 
         def odgovor(o):
             if o == R.OK:
-                self.config.set("search_engine", motor.get_active_id() or "duckduckgo")
-                izbrana = next((ime for ime, g in gumbi_ravni.items() if g.get_active()), "obicajna")
-                if izbrana == "po_meri":
-                    for kljuc, c in stikala.items():
-                        self.config.set(kljuc, c.get_active())
-                else:
-                    zascita.nastavi_raven(self.config, izbrana)
                 # DNS po meri se preveri po obliki; z napacno obliko okno ostane odprto in pove, kaj ni prav.
                 dns = doh.get_active_id() or PRIVZETI_DNS
                 n = naprej.get_active_id() or PRIVZETI_NAPREJ
@@ -3717,15 +3710,23 @@ class VdelaniSplet:
                         izid.set_text(self._ti(kljuc))
                         vnos.grab_focus()
                         return
+                self.config.set("search_engine", motor.get_active_id() or "duckduckgo")
+                izbrana = next((ime for ime, g in gumbi_ravni.items() if g.get_active()), "obicajna")
+                if izbrana == "po_meri":
+                    for kljuc, c in stikala.items():
+                        self.config.set(kljuc, c.get_active())
+                else:
+                    zascita.nastavi_raven(self.config, izbrana)
+                prej = (self.config.get("doh_provider", PRIVZETI_DNS) if self.config.get("doh_enabled", True) else "disabled",
+                        self.config.get("scit_naprej", PRIVZETI_NAPREJ))
+                if (dns, n) != prej or "custom" in (dns, n):
+                    self.config.set("dns_izbira_uporabnika", True)    # izrecna izbira: prihodnje selitve je ne povozijo
                 if dns == "custom":
                     self.config.set("custom_doh_url", lasten.get_text().strip())
                 if dns == "scit":
                     self.config.set("scit_naprej", n)
                     if n == "custom":
                         self.config.set("scit_naprej_po_meri", naprej_lasten.get_text().strip())
-                if (dns, n) != (self.config.get("doh_provider", PRIVZETI_DNS), self.config.get("scit_naprej", PRIVZETI_NAPREJ)) \
-                        or dns == "custom":
-                    self.config.set("dns_izbira_uporabnika", True)
                 self.config.set("doh_enabled", dns != "disabled")
                 self.config.set("doh_provider", dns)
                 self.config.set("dns_rezerva", rezerva.get_active())
