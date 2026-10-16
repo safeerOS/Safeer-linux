@@ -40,8 +40,170 @@ DOH_PROVIDERS = {
         "name": "Google Public DNS (8.8.8.8)",
         "url": "https://dns.google/dns-query",
         "fallback_ip": "8.8.8.8"
+    },
+    # Preverjeno 16. 10. 2026: doh.opendns.com odgovori 200 application/dns-message, 208.67.222.222 je v SAN potrdila.
+    "opendns": {
+        "name": "Cisco OpenDNS (208.67.222.222)",
+        "url": "https://doh.opendns.com/dns-query",
+        "fallback_ip": "208.67.222.222"
     }
 }
+
+#: Izbire DNS v vrstnem redu vmesnika (lastnik, 16. 10. 2026: »DNS naj bo prevzeto od Safeer Scita; top 5 izbir«).
+#: "scit" = imena najprej preveri Safeer Scit (blokirana zavrne), ostala razresi strezniki naprej (privzeto Cloudflare).
+IZBIRE_DNS = ("scit", "quad9", "cloudflare", "google", "adguard", "opendns", "custom", "disabled")
+PRIVZETI_DNS = "scit"
+#: Streznik naprej za Scit: Cloudflare je prevzet namenoma - strani s preverjanjem (Turnstile, challenges.cloudflare.com)
+#: z njim delajo bolje kot z 9.9.9.9 (lastnik). "router" = DNS usmerjevalnika, nic v oblak.
+IZBIRE_NAPREJ = ("cloudflare", "quad9", "google", "adguard", "opendns", "custom", "router")
+PRIVZETI_NAPREJ = "cloudflare"
+
+#: Ponudniki, ki namenoma blokirajo: njihov »ni imena« je lahko blokada (lazno pozitivni zadetki). Izmerjeno 16. 10. 2026:
+#: Quad9 blokirano = NXDOMAIN brez SOA (pravi NXDOMAIN ima SOA), AdGuard = 0.0.0.0, OpenDNS = 146.112.61.104-110.
+BLOKIRAJO = frozenset({"quad9", "adguard", "opendns"})
+_OPENDNS_BLOKADA = ipaddress.ip_network("146.112.61.104/29")
+#: Rezerva, ce izbrani ponudnik odpove (SERVFAIL, cas) ali blokira ime, ki ga Scit ne blokira.
+REZERVNI_PONUDNIK = {"cloudflare": "google"}
+
+OK, NI_IMENA, NAPAKA, BLOKIRANO = "ok", "ni_imena", "napaka", "blokirano"
+
+
+class Izid(tuple):
+    """(naslov, ttl) kot doslej, z razlogom: ok, ni_imena, napaka (SERVFAIL, cas, prenos) ali blokirano (ponudnik)."""
+    stanje = ""
+
+
+def _izid(naslov, ttl, stanje) -> Izid:
+    i = Izid((naslov, ttl))
+    i.stanje = stanje
+    return i
+
+
+def stanje_izida(izid) -> str:
+    s = getattr(izid, "stanje", "")
+    if s:
+        return s
+    return OK if izid[0] else (NAPAKA if izid[1] == 15 else NI_IMENA)
+
+
+def razvrsti_odgovor(data: bytes, ponudnik: str) -> str:
+    """Razlog iz glave odgovora DNS (preden pogledamo zapise): SERVFAIL je napaka (Quad9 pri pokvarjenem DNSSEC),
+    NXDOMAIN brez SOA ali REFUSED pri ponudniku, ki blokira, je blokada."""
+    if len(data) < 12:
+        return NAPAKA
+    rcode = data[3] & 0x0F
+    if rcode == 0:
+        return OK
+    if rcode == 3:
+        return BLOKIRANO if ponudnik in BLOKIRAJO and data[8:10] == b"\x00\x00" else NI_IMENA
+    if rcode == 5 and ponudnik in BLOKIRAJO:
+        return BLOKIRANO
+    return NAPAKA
+
+
+def je_naslov_blokade(naslov: str) -> bool:
+    """Naslov, ki ga ponudnik vrne namesto blokirane strani (0.0.0.0, ::, stran blokade OpenDNS)."""
+    try:
+        ip = ipaddress.ip_address(naslov)
+    except ValueError:
+        return False
+    return ip.is_unspecified or (ip.version == 4 and ip in _OPENDNS_BLOKADA)
+
+
+def razcleni_po_meri(besedilo: str) -> Tuple[str, str]:
+    """DNS po meri (lastnik: »uporabnika ne omejujemo«): naslov DoH ali navaden IP streznika DNS.
+
+    Vrne ("doh", "https://.../dns-query"), ("ip", "naslov" ali "naslov:vrata" / "[v6]:vrata") ali ("", kljuc napake).
+    Gol ime streznika (dns.primer.si) postane https://dns.primer.si/dns-query. Lokalni naslovi (Pi-hole, usmerjevalnik)
+    so dovoljeni; povezavno-lokalni (metapodatki oblaka), vecvrstni in nedolocen pa ne."""
+    t = str(besedilo or "").strip()
+    if not t or len(t) > 300 or any(c.isspace() for c in t):
+        return "", "doh_po_meri_prazno" if not t else "doh_po_meri_oblika"
+    if t.lower().startswith("http://"):
+        return "", "doh_po_meri_https"
+    if t.lower().startswith("https://"):
+        try:
+            p = urllib.parse.urlsplit(t)
+            p.port
+        except ValueError:
+            return "", "doh_po_meri_oblika"
+        if not p.hostname or p.username or p.password or not je_dovoljen_doh_streznik(p.hostname):
+            return "", "doh_po_meri_oblika"
+        return "doh", urllib.parse.urlunsplit(("https", p.netloc, p.path or "/dns-query", p.query, ""))
+    naslov, vrata = t, ""
+    if t.startswith("[") and "]" in t:
+        naslov, _, ostalo = t[1:].partition("]")
+        if ostalo:
+            if not ostalo.startswith(":"):
+                return "", "doh_po_meri_oblika"
+            vrata = ostalo[1:]
+    elif t.count(":") == 1:
+        naslov, vrata = t.split(":", 1)
+    try:
+        ip = ipaddress.ip_address(naslov)
+    except ValueError:
+        if "/" in t or ":" in t or "." not in t or not je_dovoljen_doh_streznik(t):
+            return "", "doh_po_meri_oblika"
+        return "doh", "https://%s/dns-query" % t.lower()
+    if vrata and not (vrata.isdigit() and 0 < int(vrata) <= 65535):
+        return "", "doh_po_meri_oblika"
+    if ip.is_link_local or ip.is_multicast or ip.is_unspecified or (ip.is_reserved and not ip.is_loopback):
+        return "", "doh_po_meri_naslov"
+    if not vrata:
+        return "ip", str(ip)
+    return "ip", ("[%s]:%s" % (ip, vrata)) if ip.version == 6 else "%s:%s" % (ip, vrata)
+
+
+def _naslov_in_vrata(vrednost: str) -> Tuple[str, int]:
+    if vrednost.startswith("["):
+        naslov, _, vrata = vrednost[1:].partition("]:")
+        return naslov, int(vrata or 53)
+    if vrednost.count(":") == 1:
+        naslov, vrata = vrednost.split(":")
+        return naslov, int(vrata)
+    return vrednost, 53
+
+
+def vprasaj_navadno(streznik: str, vrata: int, telo: bytes, timeout: float) -> Optional[bytes]:
+    """Navadna poizvedba DNS (UDP, ob prirezanem odgovoru TCP) z nakljucnim ID: uporabnikov streznik po meri (Pi-hole) ali
+    sistemski Scit na 127.0.0.1. Odgovor velja samo z istim ID; telo je vprasanje z ID 0 (DoH), ID tu zamenjamo."""
+    import os as _os
+    ident = _os.urandom(2)
+    paket = ident + telo[2:]
+    druzina = socket.AF_INET6 if ":" in streznik else socket.AF_INET
+    try:
+        with socket.socket(druzina, socket.SOCK_DGRAM) as s:
+            s.settimeout(timeout)
+            s.connect((streznik, vrata))
+            s.send(paket)
+            konec = time.monotonic() + timeout
+            while True:
+                s.settimeout(max(0.05, konec - time.monotonic()))
+                odgovor = s.recv(4096)
+                if odgovor[:2] == ident and len(odgovor) >= 12:
+                    break
+        if not odgovor[2] & 0x02:       # TC: odgovor ne gre v UDP, vprasamo prek TCP
+            return b"\x00\x00" + odgovor[2:]
+        with socket.create_connection((streznik, vrata), timeout=timeout) as s:
+            s.sendall(len(paket).to_bytes(2, "big") + paket)
+            dolzina = int.from_bytes(_preberi_tocno(s, 2), "big")
+            odgovor = _preberi_tocno(s, dolzina)
+        return b"\x00\x00" + odgovor[2:] if odgovor[:2] == ident else None
+    except (OSError, ValueError):
+        return None
+
+
+def sistemski_dns(ime: str) -> Izid:
+    """Ime prek sistemskega DNS (usmerjevalnik ali sistemski Scit): samo za Scit, kadar sifriran streznik naprej ne
+    odgovori (lastnik: »ce DoH ne gre, DNS usmerjevalnika«)."""
+    try:
+        naslovi = socket.getaddrinfo(ime, 443, 0, socket.SOCK_STREAM)
+    except (OSError, UnicodeError):
+        return _izid(None, 15, NAPAKA)
+    v4 = [a[4][0] for a in naslovi if a[0] == socket.AF_INET]
+    v6 = [a[4][0] for a in naslovi if a[0] == socket.AF_INET6]
+    naslov = (v4 or v6 or [None])[0]
+    return _izid(naslov, 60, OK) if naslov else _izid(None, 60, NI_IMENA)
 
 # Vrata, na katera lokalni posrednik nikoli ne vzpostavi povezave.
 # Seznam sledi seznamu "bad ports" iz standarda Fetch -- enako delajo brskalniki --
@@ -151,27 +313,79 @@ def je_dovoljena_vrata(vrata: int) -> bool:
     return 0 < v <= 65535 and v not in PREPOVEDANA_VRATA
 
 
+NASLOV_SCITA = "127.0.0.1"
+_scit_vrata = (0.0, 0)      # (do kdaj velja, vrata) - preverimo najvec vsakih 30 s
+
+
+def sistemski_scit_vrata() -> int:
+    """Vrata sistemskega Scita na 127.0.0.1 (0 = ne tece). Brskalnik ga uporabi, ce tece: ista pravila, en filter."""
+    global _scit_vrata
+    zdaj = time.monotonic()
+    if zdaj < _scit_vrata[0]:
+        return _scit_vrata[1]
+    try:
+        from core import os_scit
+        vrata = os_scit.tekoci_scit()
+    except Exception:  # noqa: BLE001
+        vrata = 0
+    _scit_vrata = (zdaj + 30.0, vrata)
+    return vrata
+
+
+def scit_kategorija(ime: str, samo_z_diska: bool = False) -> Optional[str]:
+    """Kategorija, ce Safeer Scit ime blokira; '' ce ga ne; None, ce nabora (se) ni. Isti nabor kot sistemski Scit
+    (os_scit.skupni_seznami - en prenos seznamov na proces). samo_z_diska: brez prenasanja (rezerva pri ponudniku)."""
+    try:
+        from core import os_scit
+        seznami = os_scit.skupni_seznami(zazeni=not samo_z_diska)
+        if not seznami.na_voljo():
+            return None
+        return seznami.kategorija(str(ime or "").lower().rstrip(".")) or ""
+    except Exception:  # noqa: BLE001
+        return None
+
+
 class DoHResolver:
     """
     Kriptografski razreševalnik DNS-over-HTTPS z lokalnim predpomnilnikom (In-Memory TTL Cache).
     Poizvedbe pošilja prek šifriranega TLS protokola neposredno na DoH strežnike.
     """
 
-    def __init__(self, provider: str = "cloudflare", custom_url: str = ""):
-        self.provider = provider if (provider in DOH_PROVIDERS or provider == "custom") else "cloudflare"
+    def __init__(self, provider: str = "cloudflare", custom_url: str = "", naprej: str = PRIVZETI_NAPREJ,
+                 naprej_po_meri: str = "", rezerva: bool = False):
+        self.provider = provider if (provider in DOH_PROVIDERS or provider in ("custom", "scit")) else "cloudflare"
         self.custom_url = custom_url.strip()
+        self.naprej = naprej if naprej in IZBIRE_NAPREJ else PRIVZETI_NAPREJ
+        self.naprej_po_meri = str(naprej_po_meri or "").strip()
+        #: Samodejna rezerva (SERVFAIL, cas, blokada brez Scita): vklopi jo get_doh_proxy po nastavitvi dns_rezerva.
+        self.rezerva = bool(rezerva)
+        #: Samo stetje (zasebnost: imen domen ne hranimo in ne zapisujemo).
+        self.stevci = {"rezerva": 0, "scit_blokiral": 0, "sistemski_scit": 0}
         # Predpomnilnik: hostname -> (ip_address, expire_timestamp)
         self._cache: Dict[str, Tuple[str, float]] = {}
         self._lock = threading.Lock()
         self._pending = {}
+        #: Nedavno blokirana imena (samo v pomnilniku, najvec 64): stran napake pove »blokiral Scit«.
+        self._blokirana: Dict[str, str] = {}
 
-    def set_provider(self, provider: str, custom_url: str = ""):
+    def _generacija(self):
+        return (self.provider, self.custom_url, self.naprej, self.naprej_po_meri)
+
+    def set_provider(self, provider: str, custom_url: str = "", naprej: Optional[str] = None,
+                     naprej_po_meri: Optional[str] = None, rezerva: Optional[bool] = None):
         with self._lock:
             c_url = custom_url.strip()
-            if (provider in DOH_PROVIDERS or provider == "custom") and (provider != self.provider or c_url != self.custom_url):
-                self.provider = provider
-                self.custom_url = c_url
+            if rezerva is not None:
+                self.rezerva = bool(rezerva)
+            if not (provider in DOH_PROVIDERS or provider in ("custom", "scit")):
+                return
+            nova = (provider, c_url,
+                    naprej if naprej in IZBIRE_NAPREJ else self.naprej,
+                    str(naprej_po_meri).strip() if naprej_po_meri is not None else self.naprej_po_meri)
+            if nova != self._generacija():
+                self.provider, self.custom_url, self.naprej, self.naprej_po_meri = nova
                 self._cache.clear()
+                self._blokirana.clear()
                 self._rezerva_do = 0.0
 
     def resolve(self, hostname: str, timeout: float = 3.5) -> Optional[str]:
@@ -221,7 +435,7 @@ class DoHResolver:
 
         # Coalesce requests for one host and never fall back to plaintext DNS.
         with self._lock:
-            generation = (self.provider, self.custom_url)
+            generation = self._generacija()
             key = (generation, h)
             event = self._pending.get(key)
             owner = event is None
@@ -239,7 +453,7 @@ class DoHResolver:
             except Exception:  # noqa: BLE001 - kot neuspela poizvedba
                 ip, ttl = None, 15
             with self._lock:
-                if generation == (self.provider, self.custom_url):
+                if generation == self._generacija():
                     self._cache[h] = (ip, time.time() + (max(1, min(ttl, 3600)) if ip else 15))
             return ip
         finally:
@@ -253,19 +467,33 @@ class DoHResolver:
     def ogrej(self) -> None:
         """Odpre (ali ohrani) povezavo do streznika DoH z vprasanjem po imenu samega streznika - nic ne izda."""
         try:
-            if self.provider == "custom":
-                gostitelj = urllib.parse.urlsplit(self.custom_url).hostname or ""
+            ponudnik, lasten = self._ponudnik_za_doh()
+            if ponudnik == "custom":
+                vrsta, url = razcleni_po_meri(lasten)
+                gostitelj = urllib.parse.urlsplit(url).hostname or "" if vrsta == "doh" else ""
+            elif ponudnik:
+                gostitelj = urllib.parse.urlsplit(DOH_PROVIDERS.get(ponudnik, DOH_PROVIDERS["cloudflare"])["url"]).hostname or ""
             else:
-                gostitelj = urllib.parse.urlsplit(DOH_PROVIDERS.get(self.provider, DOH_PROVIDERS["cloudflare"])["url"]).hostname or ""
+                gostitelj = ""
             try:
                 ipaddress.ip_address(gostitelj)
                 gostitelj = "example.com"      # streznik z IP naslovom: nevtralno ime (IANA, nic ne izda)
             except ValueError:
                 pass
-            if gostitelj:
+            if gostitelj and (ponudnik, lasten) == (self.provider, self.custom_url):
                 self._poizvedba(gostitelj, 3.5, 1)
+            elif gostitelj:
+                self._poizvedba(gostitelj, 3.5, 1, ponudnik, lasten)
         except Exception:  # noqa: BLE001
             pass
+
+    def _ponudnik_za_doh(self) -> Tuple[str, str]:
+        """(ponudnik, naslov po meri), ki mu gre poizvedba; pri Scitu je to streznik naprej ("" = usmerjevalnik)."""
+        if self.provider == "scit":
+            if self.naprej == "router":
+                return "", ""
+            return self.naprej, self.naprej_po_meri
+        return self.provider, self.custom_url
 
     def pozabi(self, hostname: str) -> None:
         """Pozabi naslov imena (npr. star naslov ne sprejme povezave): naslednji resolve vpraša DoH znova."""
@@ -275,7 +503,7 @@ class DoHResolver:
 
     def _osvezi_v_ozadju(self, h: str, timeout: float) -> None:
         with self._lock:
-            generation = (self.provider, self.custom_url)
+            generation = self._generacija()
             key = (generation, h)
             if key in self._pending:
                 return
@@ -287,7 +515,7 @@ class DoHResolver:
                 ip, ttl = self._query_doh(h, timeout)
                 with self._lock:
                     # Neuspela osvezitev ne izbrise delujocega starega naslova.
-                    if ip and generation == (self.provider, self.custom_url):
+                    if ip and generation == self._generacija():
                         self._cache[h] = (ip, time.time() + max(1, min(ttl, 3600)))
             except Exception:  # noqa: BLE001
                 pass
@@ -415,51 +643,163 @@ class DoHResolver:
         return None, 300
 
     def _query_doh(self, hostname: str, timeout: float) -> Tuple[Optional[str], int]:
-        """Najprej A. Samo ce je strezniku uspelo odgovoriti in zapisa A ni (ttl != 15: ne gre za napako prenosa), vprasamo se
+        """Izbrani nacin: Scit (filter, nato streznik naprej) ali ponudnik; ob odpovedi samodejna rezerva (ce je vklopljena)."""
+        if self.provider == "scit":
+            return self._razresi_scit(hostname, timeout)
+        izid = self._vprasaj(hostname, timeout, self.provider, self.custom_url)
+        stanje = stanje_izida(izid)
+        if stanje in (NAPAKA, BLOKIRANO) and self.rezerva and self.provider != "custom":
+            # Lastnik: Quad9 strogo blokira in preverja DNSSEC - poizvedbo ponovimo pri drugem ponudniku. Nikoli za ime,
+            # ki ga blokira Scit sam; blokade ponudnika ne obidemo, ce Scitovega nabora ni (ne vemo, ali je nevarno).
+            scit = scit_kategorija(hostname, samo_z_diska=True)
+            if not scit and (stanje == NAPAKA or scit is not None):
+                rezervni = REZERVNI_PONUDNIK.get(self.provider, "cloudflare")
+                self._zabelezi_rezervo(self.provider, rezervni, stanje)
+                drugi = self._vprasaj(hostname, timeout, rezervni, "")
+                if stanje_izida(drugi) == OK:
+                    return drugi
+        return izid
+
+    def _vprasaj(self, hostname: str, timeout: float, ponudnik: str, lasten: str) -> Tuple[Optional[str], int]:
+        """Najprej A. Samo ce je strezniku uspelo odgovoriti in zapisa A ni (ne gre za napako ali blokado), vprasamo se
         za AAAA: strani samo z IPv6 se tako odprejo, namesto da bi padle s tihim 502."""
-        ip, ttl = self._poizvedba(hostname, timeout, 1)
-        if ip or ttl == 15:
-            return ip, ttl
-        ip6, ttl6 = self._poizvedba(hostname, timeout, 28)
-        return (ip6, ttl6) if ip6 else (None, ttl)
-
-    def _poizvedba(self, hostname: str, timeout: float, qtype: int = 1) -> Tuple[Optional[str], int]:
-        if self.provider == "custom":
-            base_url = self.custom_url
+        if ponudnik == self.provider and lasten == self.custom_url:
+            a = self._poizvedba(hostname, timeout, 1)       # pot, ki jo preizkusi lahko zamenjajo
+            vprasaj = lambda q: self._poizvedba(hostname, timeout, q)  # noqa: E731
         else:
-            provider_info = DOH_PROVIDERS.get(self.provider, DOH_PROVIDERS["cloudflare"])
-            base_url = provider_info["url"]
+            a = self._poizvedba(hostname, timeout, 1, ponudnik, lasten)
+            vprasaj = lambda q: self._poizvedba(hostname, timeout, q, ponudnik, lasten)  # noqa: E731
+        if stanje_izida(a) != NI_IMENA:
+            return a
+        aaaa = vprasaj(28)
+        return aaaa if aaaa[0] or stanje_izida(aaaa) == BLOKIRANO else a
 
-        # libsoup 3 negotiates HTTP/2 (required by Quad9). It is already used by
-        # WebKitGTK; keep normal certificate validation and bypass proxy recursion.
+    def _zabelezi_rezervo(self, od: str, na: str, razlog: str) -> None:
+        with self._lock:
+            self.stevci["rezerva"] += 1
+            n = self.stevci["rezerva"]
+        if n <= 3 or n % 100 == 0:      # dnevnik brez imen domen, samo stetje
+            print("[DoH] rezerva: %s -> %s (%s), skupaj %d" % (od, na, razlog, n), flush=True)
+
+    # ---- Safeer Scit kot DNS (privzeto)
+    def _razresi_scit(self, hostname: str, timeout: float) -> Tuple[Optional[str], int]:
+        """Ce sistemski Scit tece (127.0.0.1:5354-5357), vprasamo njega: filtrira in posreduje sam. Sicer filtriramo tu
+        (isti nabor, os_scit.skupni_seznami) in razresimo prek streznika naprej; ce ta ne odgovori, sistemski DNS."""
+        vrata = sistemski_scit_vrata()
+        if vrata:
+            izid = self._vprasaj_scit(hostname, timeout, vrata)
+            if stanje_izida(izid) != NAPAKA:
+                with self._lock:
+                    self.stevci["sistemski_scit"] += 1
+                return izid
+        kategorija = scit_kategorija(hostname)
+        if kategorija:
+            with self._lock:
+                self.stevci["scit_blokiral"] += 1
+                self._blokirana[hostname] = kategorija
+                while len(self._blokirana) > 64:
+                    self._blokirana.pop(next(iter(self._blokirana)))
+            return _izid(None, 300, BLOKIRANO)
+        ponudnik, lasten = self._ponudnik_za_doh()
+        if not ponudnik:
+            return sistemski_dns(hostname)
+        izid = self._vprasaj(hostname, timeout, ponudnik, lasten)
+        if stanje_izida(izid) in (NAPAKA, BLOKIRANO) and self.rezerva and ponudnik != "custom":
+            self._zabelezi_rezervo(ponudnik, "sistemski DNS", stanje_izida(izid))
+            drugi = sistemski_dns(hostname)
+            if drugi[0]:
+                return drugi
+        return izid
+
+    def _vprasaj_scit(self, hostname: str, timeout: float, vrata: int) -> Tuple[Optional[str], int]:
+        izid = _izid(None, 15, NAPAKA)
+        for qtype in (1, 28):
+            try:
+                odgovor = vprasaj_navadno(NASLOV_SCITA, vrata, self._build_dns_wire_query(hostname, qtype), min(timeout, 2.0))
+            except ValueError:
+                return izid
+            if odgovor is None:
+                return izid
+            stanje = razvrsti_odgovor(odgovor, "scit")
+            if stanje != OK:
+                return _izid(None, 300 if stanje == NI_IMENA else 15, stanje)
+            ip, ttl = self._parse_dns_wire_response(odgovor, hostname, qtype)
+            if ip:
+                return _izid(ip, ttl, OK)
+            izid = _izid(None, ttl, NI_IMENA)
+        return izid
+
+    def blokiral_scit(self, hostname: str) -> str:
+        """Kategorija, ce je Scit to ime pravkar blokiral (za razumljivo stran napake); sicer ''."""
+        h = (hostname or "").lower().strip().rstrip(".")
+        with self._lock:
+            return self._blokirana.get(h, "")
+
+    def _poizvedba(self, hostname: str, timeout: float, qtype: int = 1, ponudnik: Optional[str] = None,
+                   lasten: Optional[str] = None) -> Tuple[Optional[str], int]:
+        ponudnik = self.provider if ponudnik is None else ponudnik
+        lasten = self.custom_url if lasten is None else lasten
+        try:
+            telo = self._build_dns_wire_query(hostname, qtype)
+        except ValueError:
+            return _izid(None, 15, NAPAKA)
+        if ponudnik == "custom":
+            vrsta, vrednost = razcleni_po_meri(lasten)
+            if vrsta == "ip":
+                streznik, vrata = _naslov_in_vrata(vrednost)
+                return self._iz_odgovora(vprasaj_navadno(streznik, vrata, telo, timeout), hostname, qtype, "custom")
+            if vrsta != "doh":
+                return _izid(None, 15, NAPAKA)
+            # Lastni DoH: kot ga je vpisal (razcleni_po_meri ga je ze preveril); stari zapisi brez https odpadejo.
+            base_url = lasten.strip() if lasten.strip().lower().startswith("https://") else vrednost
+        else:
+            base_url = DOH_PROVIDERS.get(ponudnik, DOH_PROVIDERS["cloudflare"])["url"]
+        return self._iz_odgovora(self._poslji_doh(ponudnik, base_url, telo, timeout), hostname, qtype, ponudnik)
+
+    def _iz_odgovora(self, odgovor, hostname: str, qtype: int, ponudnik: str) -> Tuple[Optional[str], int]:
+        if odgovor is None:
+            return _izid(None, 15, NAPAKA)
+        if isinstance(odgovor, tuple):
+            status, vrsta, data = odgovor
+            if status != 200 or vrsta != "application/dns-message" or len(data) > 65535:
+                return _izid(None, 15, NAPAKA)
+        else:
+            data = odgovor
+        stanje = razvrsti_odgovor(data, ponudnik)
+        if stanje == NAPAKA:
+            return _izid(None, 15, NAPAKA)
+        if stanje != OK:
+            return _izid(None, 300, stanje)
+        ip, ttl = self._parse_dns_wire_response(data, hostname, qtype)
+        if ip and je_naslov_blokade(ip):
+            return _izid(None, 300, BLOKIRANO)
+        return _izid(ip, ttl, OK if ip else NI_IMENA)
+
+    def _poslji_doh(self, ponudnik: str, base_url: str, telo: bytes, timeout: float):
+        """POST na streznik DoH (libsoup 3, HTTP/2 - Quad9 ga zahteva; obicajno preverjanje potrdil, mimo posrednika).
+        Ce sistemski DNS ne razresi imena ponudnika, gre poizvedba na njegov fallback_ip. Vrne (status, vrsta, telo) ali None."""
         parsed = urllib.parse.urlsplit(base_url)
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-            return None, 15
-        if self.provider == "custom" and not je_dovoljen_doh_streznik(parsed.hostname):
-            return None, 15
-        rezerva = "" if self.provider == "custom" else DOH_PROVIDERS.get(self.provider, {}).get("fallback_ip", "")
+            return None
+        if ponudnik == "custom" and not je_dovoljen_doh_streznik(parsed.hostname):
+            return None
+        rezerva = "" if ponudnik == "custom" else DOH_PROVIDERS.get(ponudnik, {}).get("fallback_ip", "")
         if rezerva == parsed.hostname:
             rezerva = ""
         try:
-            telo = self._build_dns_wire_query(hostname, qtype)
             odgovor = None
             if not (rezerva and time.time() < self._rezerva_do):
                 try:
                     odgovor = _zanka_doh().poslji(base_url, telo, timeout)
                 except ImeNiRazreseno:
                     if not rezerva:
-                        return None, 15
+                        return None
                     self._rezerva_do = time.time() + self.REZERVA_S
             if odgovor is None and rezerva and time.time() < self._rezerva_do:
                 odgovor = self._poslji_na_rezervo(base_url, parsed, rezerva, telo, timeout)
-            if odgovor is None:
-                return None, 15
-            status, vrsta, data = odgovor
-            if status != 200 or vrsta != "application/dns-message" or len(data) > 65535:
-                return None, 15
-            return self._parse_dns_wire_response(data, hostname, qtype)
-        except Exception:
-            return None, 15
+            return odgovor
+        except Exception:  # noqa: BLE001
+            return None
 
     #: Kako dolgo po neuspeli razresitvi imena ponudnika gremo naravnost na fallback_ip (brez novega cakanja na DNS).
     REZERVA_S = 60
@@ -807,6 +1147,11 @@ class LocalDoHProxy:
 
         resolved_ip = self.resolver.resolve(host)
         if not resolved_ip:
+            blokiral = getattr(self.resolver, "blokiral_scit", None)
+            if callable(blokiral) and blokiral(host):
+                self._napaka_502(client_sock, "Safeer Ščit je to stran blokiral (nevarna stran, oglasi ali sledenje). / "
+                                              "Safeer Shield blocked this site (dangerous site, ads or tracking).")
+                return None
             self._napaka_502(client_sock, "Strani s tem imenom ni bilo mogoče najti (DNS). / The site name could not be found (DNS).")
             return None
 
@@ -1033,7 +1378,8 @@ _proxy_lock = threading.Lock()
 
 
 def get_doh_proxy(provider: str = "cloudflare", custom_url: str = "", enabled: bool = True,
-                  lokalno: bool = False) -> Optional[LocalDoHProxy]:
+                  lokalno: bool = False, naprej: str = PRIVZETI_NAPREJ, naprej_po_meri: str = "",
+                  rezerva: bool = True) -> Optional[LocalDoHProxy]:
     """Pridobi ali inicializira globalni primerek DoH posrednika."""
     global _global_resolver, _global_proxy
     with _proxy_lock:
@@ -1044,9 +1390,9 @@ def get_doh_proxy(provider: str = "cloudflare", custom_url: str = "", enabled: b
             return None
 
         if _global_resolver is None:
-            _global_resolver = DoHResolver(provider, custom_url)
+            _global_resolver = DoHResolver(provider, custom_url, naprej, naprej_po_meri, rezerva)
         else:
-            _global_resolver.set_provider(provider, custom_url)
+            _global_resolver.set_provider(provider, custom_url, naprej, naprej_po_meri, rezerva)
 
         if _global_proxy is None:
             _global_proxy = LocalDoHProxy(_global_resolver, dovoli_lokalno=lokalno)
@@ -1055,3 +1401,75 @@ def get_doh_proxy(provider: str = "cloudflare", custom_url: str = "", enabled: b
             _global_proxy.dovoli_lokalno = bool(lokalno)
 
         return _global_proxy
+
+
+_posrednik_scita: Optional["DoHResolver"] = None
+
+
+def posreduj_paket(ponudnik: str, lasten: str, paket: bytes, timeout: float) -> Optional[bytes]:
+    """Sistemski Scit posreduje poizvedbo (cel paket, s svojim ID) strezniku naprej: DoH ponudniku ali strezniku po meri
+    (DoH ali IP). None = ni odgovora ali SERVFAIL: Scit vprasa usmerjevalnik. ID je pri DoH 0 (RFC 8484), vrnemo izvirnega."""
+    global _posrednik_scita
+    if len(paket) < 12:
+        return None
+    if _posrednik_scita is None:
+        _posrednik_scita = DoHResolver("cloudflare")
+    telo = b"\x00\x00" + paket[2:]
+    if ponudnik == "custom":
+        vrsta, vrednost = razcleni_po_meri(lasten)
+        if vrsta == "ip":
+            streznik, vrata = _naslov_in_vrata(vrednost)
+            data = vprasaj_navadno(streznik, vrata, telo, timeout)
+        elif vrsta == "doh":
+            o = _posrednik_scita._poslji_doh("custom", lasten.strip() if lasten.strip().lower().startswith("https://")
+                                              else vrednost, telo, timeout)
+            data = o[2] if o and o[0] == 200 and o[1] == "application/dns-message" else None
+        else:
+            return None
+    elif ponudnik in DOH_PROVIDERS:
+        o = _posrednik_scita._poslji_doh(ponudnik, DOH_PROVIDERS[ponudnik]["url"], telo, timeout)
+        data = o[2] if o and o[0] == 200 and o[1] == "application/dns-message" else None
+    else:
+        return None
+    if not data or len(data) < 12 or len(data) > 65535 or data[3] & 0x0F == 2:
+        return None
+    if ponudnik in BLOKIRAJO and _blokada_ponudnika(data, ponudnik):
+        return None      # ime, ki ga Scit ne blokira, ponudnik pa (lazno pozitivno): vprasa usmerjevalnik
+    return paket[:2] + data[2:]
+
+
+def _blokada_ponudnika(data: bytes, ponudnik: str) -> bool:
+    stanje = razvrsti_odgovor(data, ponudnik)
+    if stanje != OK:
+        return stanje == BLOKIRANO
+    try:
+        ime, idx = DoHResolver._preberi_ime(data, 12)
+        qtype = int.from_bytes(data[idx:idx + 2], "big")
+        ip, _ttl = DoHResolver._parse_dns_wire_response(b"\x00\x00" + data[2:], ime.decode("ascii"), qtype)
+    except (ValueError, UnicodeError):
+        return False
+    return bool(ip) and je_naslov_blokade(ip)
+
+
+def doh_iz_nastavitev(config, lokalno: Optional[bool] = None) -> Optional[LocalDoHProxy]:
+    """Posrednik po nastavitvah brskalnika (ConfigManager) - ena pot za Splet (GTK4) in safeer_mint.py (GTK3)."""
+    izbira = config.get("doh_provider", PRIVZETI_DNS)
+    if not config.get("doh_enabled", True) or izbira == "disabled":
+        return get_doh_proxy(enabled=False)
+    if izbira not in IZBIRE_DNS:
+        izbira = PRIVZETI_DNS
+    return get_doh_proxy(provider=izbira, custom_url=config.get("custom_doh_url", "") or "", enabled=True,
+                         lokalno=bool(config.get("doh_lokalno_omrezje", False)) if lokalno is None else lokalno,
+                         naprej=config.get("scit_naprej", PRIVZETI_NAPREJ),
+                         naprej_po_meri=config.get("scit_naprej_po_meri", "") or "",
+                         rezerva=bool(config.get("dns_rezerva", True)))
+
+
+def preizkusi_dns(besedilo: str, timeout: float = 3.5) -> Tuple[bool, str]:
+    """Poskusna poizvedba (example.com) na streznik po meri: (uspeh, kljuc besedila). Za gumb »Preizkusi« v nastavitvah."""
+    vrsta, vrednost = razcleni_po_meri(besedilo)
+    if not vrsta:
+        return False, vrednost
+    r = DoHResolver("custom", besedilo)
+    ip, _ttl = r._query_doh("example.com", timeout)
+    return (True, "doh_po_meri_dela") if ip else (False, "doh_po_meri_ne_odgovori")

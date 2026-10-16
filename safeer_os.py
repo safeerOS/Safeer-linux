@@ -241,18 +241,21 @@ def _razresevalnik_slik(nastavitve=None):
         if nastavitve is None:
             from core.config import ConfigManager
             nastavitve = ConfigManager()
-        vklopljen = bool(nastavitve.get("doh_enabled", True)) and nastavitve.get("doh_provider", "cloudflare") != "disabled"
+        vklopljen = bool(nastavitve.get("doh_enabled", True)) and nastavitve.get("doh_provider", "scit") != "disabled"
     except Exception:  # noqa: BLE001
         vklopljen = True                                     # nastavitev ni mogoce prebrati: raje sifrirano
         nastavitve = None
     if not vklopljen:
         return socket.getaddrinfo
     from core import doh_proxy
-    ponudnik = nastavitve.get("doh_provider", "cloudflare") if nastavitve is not None else "cloudflare"
+    ponudnik = nastavitve.get("doh_provider", "scit") if nastavitve is not None else "scit"
     lasten = nastavitve.get("custom_doh_url", "") if nastavitve is not None else ""
     razresevalnik = doh_proxy._global_resolver         # isti (in isti predpomnilnik) kot Splet, ce ze tece
     if razresevalnik is None:
         razresevalnik = doh_proxy.DoHResolver(ponudnik, lasten)
+        if nastavitve is not None:      # Scit: isti streznik naprej kot Splet
+            razresevalnik.naprej = nastavitve.get("scit_naprej", "cloudflare")
+            razresevalnik.naprej_po_meri = nastavitve.get("scit_naprej_po_meri", "") or ""
     else:
         razresevalnik.set_provider(ponudnik, lasten)
 
@@ -3998,6 +4001,7 @@ class SafeerOS(Gtk.Application):
             "scit": self.scit.stanje,
             "scitVklop": lambda: self.scit.nastavi(bool(a[0]) if a else False),
             "scitDovoli": lambda: self.scit.dovoli(str(a[0]) if a else "", bool(a[1]) if len(a) > 1 else True),
+            "scitNaprej": lambda: self.scit.nastavi_naprej(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "scitPremor": lambda: self.scit.premor(a[0] if a and isinstance(a[0], (int, float)) and not isinstance(a[0], bool) else 0),
             "sporocilaDodaj": lambda: self.sporocila.dodaj_kanal(a[0] if a and isinstance(a[0], dict) else {}),
             "sporocilaPoslji": lambda: self.sporocila.poslji(str(a[0]), str(a[1]), str(a[2]),

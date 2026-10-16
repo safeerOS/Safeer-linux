@@ -3,8 +3,12 @@
 Safeer OS tece majhen razresevalnik DNS na 127.0.0.1 (vrata nad 1024, brez pravic). Vsako ime, ki ga
 racunalnik hoce razresiti, najprej preveri v naboru blokiranih domen - isti seznami kot pri Scitu na
 televizorju (hagezi PRO in TIF, Fake, URLhaus, Phishing Army, SI-CERT) in Safeerjev podpisani seznam
-groznj - in ga, ce je na seznamu, zavrne (NXDOMAIN); vse drugo posreduje strezniku DNS, ki ga je dal
-usmerjevalnik (NetworkManager). Nic ne gre v oblak, noben tuj streznik ne vidi poizvedb.
+groznj - in ga, ce je na seznamu, zavrne (NXDOMAIN); vse drugo posreduje strezniku naprej. Privzeto je to
+Cloudflare 1.1.1.1 prek sifriranega DoH (lastnik, 16. 10. 2026: strani s preverjanjem - Turnstile,
+challenges.cloudflare.com - z njim delajo bolje kot z 9.9.9.9): ponudnik interneta poizvedb ne vidi, Cloudflare pa
+vidi dovoljena imena (blokirana ne zapustijo racunalnika). Ce DoH ne odgovori, gre poizvedba na DNS, ki ga je dal
+usmerjevalnik (NetworkManager). Uporabnik lahko izbere drug streznik naprej (Quad9, Google, AdGuard, OpenDNS, svoj)
+ali »DNS usmerjevalnika« - takrat nic ne gre v oblak razen tega, kar usmerjevalnik sam poslje naprej.
 
 Da racunalnik ta razresevalnik uporablja, Safeer OS systemd-resolved za povezano omrezje pove:
 »DNS je 127.0.0.1:<vrata>« (resolvectl). To je sistemska nastavitev in polkit zanjo zahteva geslo;
@@ -60,6 +64,9 @@ polkit.addRule(function (action, subject) {
 });
 """
 CAS_UPSTREAM = 2.5
+#: Strezniki naprej (isti kljuci kot core/doh_proxy.IZBIRE_NAPREJ; tu, da modul ne potrebuje libsoup ob uvozu).
+IZBIRE_NAPREJ = ("cloudflare", "quad9", "google", "adguard", "opendns", "custom", "router")
+PRIVZETI_NAPREJ = "cloudflare"
 
 #: Seznami domen - isti kot pri Scitu na televizorju (ThreatFeedsUpdater). Kategorija je kljuc za besedila.
 VIRI: Tuple[Tuple[str, str, str], ...] = (
@@ -88,6 +95,14 @@ POSODOBITVE = ("archive.ubuntu.com", "security.ubuntu.com", "ports.ubuntu.com", 
                "packages.linuxmint.com", "deb.debian.org", "security.debian.org", "flathub.org",
                "github.com", "api.github.com", "objects.githubusercontent.com",
                "release-assets.githubusercontent.com")
+
+#: Strani s preverjanjem »ali si clovek« (Cloudflare Turnstile, hCaptcha, reCAPTCHA): ce bi jih seznam blokiral, se
+#: prijave in nakupi ne bi dali dokoncati (lastnik, 16. 10. 2026). Velja tudi za poddomene.
+PREVERJANJE = ("cloudflare.com", "hcaptcha.com", "recaptcha.net", "www.google.com", "www.gstatic.com")
+
+
+def je_preverjanje(ime: str) -> bool:
+    return any(ime == d or ime.endswith("." + d) for d in PREVERJANJE)
 
 
 #: Najvec domen, ki jih uporabnik dovoli sam (izjeme), in najdaljsi premor Scita.
@@ -154,6 +169,19 @@ def odgovor_zavrnjeno(paket: bytes) -> bytes:
     return glava + paket[12:konec]
 
 
+#: Najvecji odgovor prek UDP (priporocilo DNS Flag Day 2020); vecji gre s TC, odjemalec vprasa prek TCP.
+NAJVEC_UDP = 1232
+
+
+def prirezan(paket: bytes) -> bytes:
+    """Odgovor s TC (prirezano) in istim vprasanjem: odjemalec ponovi poizvedbo prek TCP."""
+    konec = 12
+    while konec < len(paket) and paket[konec] != 0:
+        konec += 1 + paket[konec]
+    konec += 5
+    return paket[:2] + struct.pack("!HHHHH", 0x8380, 1, 0, 0, 0) + paket[12:konec]
+
+
 def _vrednosti_nmcli(izpis: str) -> List[str]:
     """Vrednosti iz `nmcli -g`: vec vrednosti istega polja loci » | «, dvopicja naslovov IPv6 so ubezana (\\:)."""
     return [v.strip().replace("\\:", ":") for v in izpis.replace("|", "\n").splitlines() if v.strip()]
@@ -203,9 +231,13 @@ KANAREK_DOH = "use-application-dns.net"
 class Razresevalnik:
     """Razresevalnik DNS (UDP in TCP) na 127.0.0.1: blokirana imena zavrne, ostala posreduje."""
 
-    def __init__(self, blokiraj: Callable[[str], Optional[str]], upstream: Callable[[], List[str]]) -> None:
+    def __init__(self, blokiraj: Callable[[str], Optional[str]], upstream: Callable[[], List[str]],
+                 naprej: Optional[Callable[[bytes], Optional[bytes]]] = None) -> None:
         self.blokiraj = blokiraj
         self.upstream = upstream
+        #: Sifriran streznik naprej (DoH); None ali odpoved (cas, SERVFAIL) = strezniki usmerjevalnika (upstream).
+        self.naprej = naprej
+        self.rezerv = 0
         self.vrata = 0
         self.blokiranih = 0
         self.poizvedb = 0
@@ -265,6 +297,15 @@ class Razresevalnik:
         return self._posreduj(paket, tcp)
 
     def _posreduj(self, paket: bytes, tcp: bool) -> Optional[bytes]:
+        if self.naprej is not None:
+            try:
+                odgovor = self.naprej(paket)
+            except Exception:  # noqa: BLE001
+                odgovor = None
+            if odgovor:
+                return odgovor if tcp or len(odgovor) <= NAJVEC_UDP else prirezan(paket)
+            with self._kljuc:
+                self.rezerv += 1          # samo stetje, brez imen
         for streznik in self.upstream() or []:
             try:
                 if tcp:
@@ -458,6 +499,8 @@ class Seznami:
         self._nit: Optional[threading.Thread] = None
         self._stop = threading.Event()
         self._kljuc = threading.Lock()
+        #: Kdo potrebuje osvezevanje (Scit, brskalnik): skupni seznami se ustavijo sele, ko ga ne potrebuje nihce.
+        self._lastniki: set = set()
 
     # -- datoteke
     def _meta_pot(self) -> str:
@@ -479,7 +522,13 @@ class Seznami:
         os.replace(zacasna, self._meta_pot())
 
     # -- zivljenje
-    def zazeni(self) -> None:
+    def na_voljo(self) -> bool:
+        """Ali je nabor ze tu (z diska ali prenesen) - sicer Scit se ne more presoditi."""
+        s = self.storitev
+        return bool(len(self.nabor)) or bool(s is not None and s.loaded.is_set())
+
+    def zazeni(self, lastnik: str = "scit") -> None:
+        self._lastniki.add(lastnik)
         if self.storitev is None:
             try:
                 from core.threat_intel import default_data_dir, skupna
@@ -491,7 +540,10 @@ class Seznami:
             self._nit = threading.Thread(target=self._tek, name="safeer-scit-seznami", daemon=True)
             self._nit.start()
 
-    def ustavi(self) -> None:
+    def ustavi(self, lastnik: str = "scit") -> None:
+        self._lastniki.discard(lastnik)
+        if self._lastniki:
+            return
         self._stop.set()
         self._nit = None
 
@@ -566,7 +618,8 @@ class Seznami:
 
     # -- preverjanje
     def kategorija(self, ime: str) -> Optional[str]:
-        if not ime or "." not in ime or ime in NIKOLI or ime.endswith(NIKOLI_KONCNICE) or je_posodobitev(ime):
+        if (not ime or "." not in ime or ime in NIKOLI or ime.endswith(NIKOLI_KONCNICE) or je_posodobitev(ime)
+                or je_preverjanje(ime)):
             return None
         with self._kljuc:
             k = self.nabor.kategorija(ime)
@@ -591,6 +644,42 @@ class Seznami:
             except Exception:
                 st["pravil"] = 0
         return st
+
+
+_skupni: Optional[Seznami] = None
+_skupni_kljuc = threading.Lock()
+
+
+def skupni_seznami(zazeni: bool = True) -> Seznami:
+    """Seznami v obicajni mapi, eni za proces: Scit in brskalnik (izbira DNS »Safeer Scit«) delita isti nabor in en
+    prenos (ne podvajamo seznamov). zazeni=False samo prebere nabor z diska (brez prenosov)."""
+    global _skupni
+    with _skupni_kljuc:
+        if _skupni is None:
+            _skupni = Seznami(podatkovna_mapa())
+        if zazeni:
+            _skupni.zazeni("brskalnik")
+        return _skupni
+
+
+def tekoci_scit(cas: float = 0.3) -> int:
+    """Vrata Scita, ki tece na tem racunalniku (tudi drugega uporabnika), ali 0. Preverimo z imenom, ki ga Scit vedno
+    zavrne sam (KANAREK_DOH, brez poizvedbe naprej): odgovor NXDOMAIN z istim ID pomeni, da je na vratih res Scit."""
+    for vrata in VRATA:
+        ident = os.urandom(2)
+        vprasanje = ident + b"\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00" + b"".join(
+            bytes([len(d)]) + d.encode() for d in KANAREK_DOH.split(".")) + b"\x00\x00\x01\x00\x01"
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as u:
+                u.settimeout(cas)
+                u.connect((NASLOV, vrata))
+                u.send(vprasanje)
+                odgovor = u.recv(512)
+        except OSError:
+            continue
+        if odgovor[:2] == ident and len(odgovor) >= 12 and odgovor[3] & 0x0F == 3:
+            return vrata
+    return 0
 
 
 # ---------------------------------------------------------------------- systemd-resolved
@@ -842,6 +931,7 @@ class Scit:
     def __init__(self, shramba, mapa: Optional[str] = None) -> None:
         self.shramba = shramba
         self.mapa = mapa or podatkovna_mapa()
+        self._skupni = mapa is None          # obicajna mapa: isti seznami kot brskalnik (en prenos na proces)
         self.seznami: Optional[Seznami] = None
         self.razresevalnik: Optional[Razresevalnik] = None
         self.vmesniki: List[str] = []
@@ -861,6 +951,45 @@ class Scit:
             if cista and cista not in izid:
                 izid.append(cista)
         return izid[:NAJVEC_IZJEM]
+
+    # -- streznik naprej
+    def naprej(self) -> Tuple[str, str]:
+        """(izbira, naslov po meri): kam Scit posreduje dovoljena imena. Privzeto Cloudflare prek DoH."""
+        izbira = str(self.shramba.get("scit_naprej", PRIVZETI_NAPREJ) or PRIVZETI_NAPREJ)
+        return (izbira if izbira in IZBIRE_NAPREJ else PRIVZETI_NAPREJ), str(self.shramba.get("scit_naprej_po_meri", "") or "")
+
+    def nastavi_naprej(self, izbira, po_meri="") -> dict:
+        """Uporabnik izbere streznik naprej. Naslov po meri (DoH ali IP, tudi Pi-hole) se preveri samo po obliki."""
+        izbira = str(izbira or "")
+        po_meri = str(po_meri or "").strip()
+        self.napaka = ""
+        if izbira not in IZBIRE_NAPREJ:
+            self.napaka = "naprej"
+            return self.stanje()
+        if izbira == "custom":
+            from core.doh_proxy import razcleni_po_meri, _naslov_in_vrata
+            vrsta, vrednost = razcleni_po_meri(po_meri)
+            if vrsta == "ip":
+                naslov, vrata = _naslov_in_vrata(vrednost)
+                if vrata in VRATA and ipaddress.ip_address(naslov).is_loopback:
+                    vrsta, vrednost = "", "doh_po_meri_naslov"       # Scit ne sme posredovati sam sebi
+            if not vrsta:
+                self.napaka = "naprej"
+                return self.stanje()
+            self.shramba.set("scit_naprej_po_meri", po_meri)
+        self.shramba.set("scit_naprej", izbira)
+        self._osvezi_predpomnilnik()
+        return self.stanje()
+
+    def _naprej(self, paket: bytes) -> Optional[bytes]:
+        izbira, po_meri = self.naprej()
+        if izbira == "router":
+            return None
+        try:
+            from core.doh_proxy import posreduj_paket
+        except Exception:  # noqa: BLE001 - brez libsoup: usmerjevalnik
+            return None
+        return posreduj_paket(izbira, po_meri, paket, CAS_UPSTREAM)
 
     def _kategorija(self, ime: str) -> Optional[str]:
         """Kar razresevalnik vprasa za vsako ime. Uporabnikovih izjem ne blokiramo; med premorom ne blokiramo
@@ -940,7 +1069,8 @@ class Scit:
              "vmesniki": list(self.vmesniki), "strezniki": list(self.strezniki), "blokiranih": r.blokiranih if r else 0,
              "poizvedb": r.poizvedb if r else 0, "zadnje": list(r.zadnje) if r else [],
              "pravilo": pravilo_namesceno(), "domen": 0, "pravil": 0,
-             "izjeme": list(self._izjeme), "premor": self.premor_se()}
+             "izjeme": list(self._izjeme), "premor": self.premor_se(),
+             "naprej": self.naprej()[0], "naprejPoMeri": self.naprej()[1], "rezerv": getattr(r, "rezerv", 0)}
         if self.seznami is not None:
             s.update(self.seznami.stanje())
         return s
@@ -993,10 +1123,10 @@ class Scit:
     def _zazeni(self) -> bool:
         with self._kljuc:
             if self.seznami is None:
-                self.seznami = Seznami(self.mapa)
+                self.seznami = skupni_seznami(zazeni=False) if self._skupni else Seznami(self.mapa)
             self.seznami.zazeni()
             if self.razresevalnik is None:
-                self.razresevalnik = Razresevalnik(self._kategorija, lambda: self.strezniki)
+                self.razresevalnik = Razresevalnik(self._kategorija, lambda: self.strezniki, self._naprej)
             vrata = self.razresevalnik.zazeni()
             if not vrata:
                 self.napaka = "vrata"

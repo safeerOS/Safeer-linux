@@ -3007,7 +3007,7 @@
       if (S.razdelek !== "nastavitve") { clearInterval(scitCas); return; }
       // Seznam nazadnje blokiranih naj ne skoci izpod kazalca ali izbranega gumba (»Dovoli« bi zadel napacno domeno).
       var blok = $("blokScit");
-      if (blok && blok.querySelector(".scit-zadnje:hover, .scit-zadnje button:focus")) return;
+      if (blok && blok.querySelector(".scit-zadnje:hover, .scit-zadnje button:focus, .scit-naprej select:focus, .scit-naprej input:focus")) return;
       if (!scitZaposleno) nalozScit();
     }, 5000);
   }
@@ -3037,6 +3037,7 @@
     if (!s.mozno) st.classList.add("onemogoceno");
     c.appendChild(st);
     function poScitu(r) { if (r) scitStanje = r; narisiScit(); }
+    if (s.mozno) c.appendChild(scitNaprej(s, poScitu));
     if (s.vklop && s.tece) {
       // Premor: ko stran ali program brez blokirane domene ne dela, uporabniku ni treba izklopiti celega Scita.
       var pr = el("div", "scit-zadnje scit-premor");
@@ -3084,6 +3085,46 @@
       });
       c.appendChild(iz);
     }
+  }
+  // Streznik naprej: kam Scit poslje dovoljena imena (privzeto Cloudflare prek DoH) in kdo jih vidi - po resnici.
+  var SCIT_NAPREJ = ["cloudflare", "quad9", "google", "adguard", "opendns", "custom", "router"];
+  var SCIT_IMENA = { cloudflare: "Cloudflare", quad9: "Quad9", google: "Google", adguard: "AdGuard", opendns: "Cisco OpenDNS" };
+  function scitNaprej(s, poScitu) {
+    var izbrano = SCIT_NAPREJ.indexOf(s.naprej) >= 0 ? s.naprej : "cloudflare";
+    var o = el("div", "scit-zadnje scit-naprej", "<b>" + ubezi(t("scitNaprej")) + "</b>");
+    var izbor = el("select");
+    izbor.setAttribute("aria-label", t("scitNaprej"));
+    SCIT_NAPREJ.forEach(function (k) {
+      var op = el("option", "", ubezi(t("scitNaprej_" + k)));
+      op.value = k;
+      if (k === izbrano) op.selected = true;
+      izbor.appendChild(op);
+    });
+    var vnos = el("input");
+    vnos.type = "text";
+    vnos.placeholder = t("scitNaprejNamig");
+    vnos.value = s.naprejPoMeri || "";
+    vnos.setAttribute("aria-label", t("scitNaprej_custom"));
+    var shrani = el("button", "", ubezi(t("scitNaprejShrani")));
+    shrani.type = "button";
+    var kdo = el("span", "");
+    function osvezi() {
+      var k = izbor.value;
+      vnos.hidden = shrani.hidden = k !== "custom";
+      kdo.textContent = SCIT_IMENA[k] ? t("scitKdo_ponudnik", { ime: SCIT_IMENA[k] }) : t("scitKdo_" + k);
+    }
+    function poslji() {
+      klic("scitNaprej", [izbor.value, vnos.value]).then(function (r) {
+        if (r && r.napaka) obvesti(t("scitNapaka_" + r.napaka));
+        poScitu(r);
+      }, function () {});
+    }
+    izbor.addEventListener("change", function () { osvezi(); if (izbor.value !== "custom") poslji(); });
+    shrani.addEventListener("click", poslji);
+    vnos.addEventListener("keydown", function (e) { if (e.key === "Enter") poslji(); });
+    o.appendChild(izbor); o.appendChild(vnos); o.appendChild(shrani); o.appendChild(kdo);
+    osvezi();
+    return o;
   }
   function nalozZvok() {
     klic("zvok").then(function (z) {
