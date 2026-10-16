@@ -36,6 +36,9 @@ Velja za vsako spremembo v tem repozitoriju. Kratko, preverljivo; podrobnosti so
 - GTK3 in GTK4 ne moreta v isti proces pytest: skupini da `tools/razdeli_teste.py gtk3|gtk4 --poti` (za pytest; CI poganja pytest, ker unittest ne vidi preizkusov kot funkcij) (CI: brskalnik na Ubuntu 22.04, Safeer OS na 24.04).
 - `python3 -m pytest -q -p no:cacheprovider tests/<datoteka>`; za JS `node -e "new Function(require('fs').readFileSync(F,'utf8'))"`.
 - Zivi preizkus na testnem PC (Flatpak): `flatpak run --command=sh … -c "export PATH=/app/host-bin:$PATH; …"` – brez tega PATH orodja gostitelja (gsettings …) niso vidna.
+- Vsak preizkus za sabo pospravi (lastnik, 16. 10. 2026: vsebnik `stres-tm` je 3 dni zasedal pomnilnik prenosnika):
+  Docker samo z `--rm` (ali `docker rm -f` v `trap … EXIT`), zagnani procesi z `trap 'kill $PID' EXIT`, zacasne datoteke v `mktemp -d`.
+  Na koncu preveri `docker ps -a` in `pgrep -af safeer` - ostane samo to, kar je teklo pred preizkusom. Procese koncaj po PID, ne s `pkill -f`.
 
 ## Kaj ni delovalo (preveri, preden poskusis)
 - Zapisnik poskusov, ki niso bili ucinkoviti, vodi lastnik izven repozitorija (SAFEER-ZNANJE.md, razdelek ZAPISNIK). Novo napako dopisi tja.
