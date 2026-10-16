@@ -256,6 +256,65 @@ class IskanjeRokTests(unittest.TestCase):
         self.assertEqual(len(self.mc.catalog("Dune")["vnosi"]), 2)
 
 
+class LastniStreznikPrviTests(unittest.TestCase):
+    """Pravilo lastnika: uporabnikov strežnik je vedno privzet (pred kakovostjo in hitrostjo). Prava pot: movie_item
+    (merge_duplicates) -> resolve (tokovi dodatkov) -> razlicice_naslova -> Predvajaj."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.streznik = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Tok)
+        threading.Thread(target=cls.streznik.serve_forever, daemon=True).start()
+        cls.koren = "http://127.0.0.1:%d" % cls.streznik.server_address[1]
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.streznik.shutdown()
+
+    def _mc(self, lastni_url):
+        mc = os_media.MediaCenter(tempfile.mkdtemp(), roots=[], secret_decryptor=lambda s: s)
+        mc.preveri_tokove = True
+        # Film na uporabnikovem strežniku (prebrana knjiznica) in isti film iz dodatka.
+        mc._server_cache["streznik-jf:"] = (time.time(), [{"id": "server:streznik-jf:1", "naslov": "Film", "vrsta": "film",
+                                                  "imdb_id": "tt0000001", "tmdb_id": 1, "url": lastni_url,
+                                                  "vir": "Moj Jellyfin", "vir_id": "streznik-jf"}])
+        dodatek = {"id": "stremio:d:movie:tt0000001", "naslov": "Film", "vrsta": "film", "imdb_id": "tt0000001",
+                   "tmdb_id": 1, "url": "stremio:https://dodatek.test|movie|tt0000001", "vir": "Dodatek A", "vir_id": "d"}
+        tokovi = [{"url": self.koren + "/stej?1080", "vir": "Dodatek A", "dodatek": "Dodatek A", "kakovost": "1080p",
+                   "opis": "1080p"},
+                  {"url": self.koren + "/stej?720", "vir": "Dodatek B", "dodatek": "Dodatek B", "kakovost": "720p",
+                   "opis": "720p"}]
+        zakrpe = [mock.patch.object(mc, "_stremio_vnosi", lambda *a, **k: [dict(dodatek)]),
+                  mock.patch.object(mc, "_stremio_tokovi_vseh", lambda *a: [dict(t) for t in tokovi]),
+                  mock.patch.object(mc, "_izmeri_ping", lambda u: None)]
+        for z in zakrpe:
+            z.start()
+            self.addCleanup(z.stop)
+        return mc
+
+    def test_dosegljiv_lastni_streznik_je_samodejna_izbira(self):
+        mc = self._mc(self.koren + "/jf.mkv")
+        vnos = mc.movie_item(1, "Film")
+        seznam = mc.razlicice_naslova(vnos["id"])["razlicice"]
+        self.assertEqual((seznam[0]["vir"], seznam[0]["privzeta"], seznam[0]["lastni"]), ("Moj Jellyfin", True, True))
+        self.assertEqual(sorted(r["vir"] for r in seznam), ["Dodatek A", "Dodatek B", "Moj Jellyfin"])
+        predvajaj = mc.uporabi_izbiro(mc.resolve(vnos["id"]))
+        self.assertEqual(predvajaj["url"], self.koren + "/jf.mkv")                       # Predvajaj: lastni
+        # Toki dodatkov so za lastnim kot tiha rezerva predvajalnika.
+        from core.os_katalog import tok_za_predvajalnik
+        self.assertEqual([u for u, _g in tok_za_predvajalnik(predvajaj, predvajaj["url"])["nadomestni"]],
+                         [self.koren + "/stej?1080", self.koren + "/stej?720"])
+
+    def test_nedosegljiv_lastni_streznik_je_skrit_samodejna_je_naslednja(self):
+        mc = self._mc("http://127.0.0.1:9/jf.mkv")          # nihce ne poslusa
+        vnos = mc.movie_item(1, "Film")
+        seznam = mc.razlicice_naslova(vnos["id"])["razlicice"]
+        self.assertNotIn("Moj Jellyfin", [r["vir"] for r in seznam])
+        self.assertEqual((seznam[0]["vir"], seznam[0]["privzeta"]), ("Dodatek A", True))
+        predvajaj = mc.uporabi_izbiro(mc.resolve(vnos["id"]))
+        self.assertEqual(predvajaj["url"], self.koren + "/stej?1080")                     # Predvajaj: naslednja ziva
+        self.assertIn("http://127.0.0.1:9/jf.mkv", [r["url"] for r in predvajaj["razlicice"]])   # rezerva ostane
+
+
 class IzbiraRazliciceTests(unittest.TestCase):
     def test_rocna_izbira_se_zapomni_za_naslov(self):
         mapa = tempfile.mkdtemp()

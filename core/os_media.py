@@ -4165,14 +4165,49 @@ class MediaCenter:
         except Exception:  # noqa: BLE001
             return None
 
+    def _dodaj_toke_dodatkov(self, item_id: str, izvirni: Optional[dict], item: dict) -> dict:
+        """Kartica z lastnim strežnikom se predvaja takoj (resolve ne caka na dodatke), zato toki dodatkov iste vsebine
+        pridejo sele za seznam v podrobnostih: za lastnimi, kot rezerva ob Predvajaj (tiha zamenjava)."""
+        if not item.get("lastni") or item.get("toki_dodatkov") or not isinstance(izvirni, dict):
+            return item
+        stremio_url = next((str(v.get("url")) for v in (izvirni.get("razlicice") or [])
+                            if isinstance(v, dict) and str(v.get("url") or "").startswith("stremio:")), "")
+        if not stremio_url:
+            return item
+        koren, tip, ident = (stremio_url[len("stremio:"):].split("|") + ["", ""])[:3]
+        try:
+            tokovi = self._stremio_tokovi_vseh(koren, tip, ident)
+        except Exception:  # noqa: BLE001
+            tokovi = []
+        neposredni = [dict(t, tok=True) for t in tokovi if t.get("url") and not t.get("zunanje")
+                      and (t["url"].startswith("https://") or media_servers.dovoljen_naslov(t["url"]))]
+        neposredni = tok_izbira.uredi(neposredni, lambda t: str(t.get("opis") or "%s %s" % (t.get("vir", ""), t.get("kakovost", ""))),
+                                      tok_izbira.Zmoznosti(visina=int(getattr(self, "visina_zaslona", 0) or 1080)),
+                                      naslov=lambda t: str(t.get("url") or ""), **self._jezik_zvoka(item))
+        obstojeci = {str(r.get("url")) for r in (item.get("razlicice") or []) if isinstance(r, dict)}
+        dodani = [t for t in neposredni[:10] if t["url"] not in obstojeci]
+        out = dict(item, razlicice=list(item.get("razlicice") or []) + dodani, toki_dodatkov=True)
+        out["stevilo_razlicic"] = len(out["razlicice"])
+        self._dynamic_items[item_id] = out
+        return out
+
     def razlicice_naslova(self, item_id: str) -> dict:
         """Razlicice za seznam v podrobnostih: ime vira (dodatek ali streznik, ki ga je dodal uporabnik), kakovost,
         izmerjen odziv gostitelja. Mrtvih (sonda pred predvajanjem jih je zavrnila) ni. Prva je privzeta (samodejna)."""
+        izvirni = self._dynamic_items.get(item_id)
         item = self.resolve(item_id, pripravi_torrent=False)
         if not isinstance(item, dict) or item.get("napaka_koda") or item.get("napaka"):
             return {"id": item_id, "razlicice": []}
+        item = self._dodaj_toke_dodatkov(item_id, izvirni, item)
         samodejno = [r for r in (item.get("razlicice") or []) if isinstance(r, dict)
                      and str(r.get("url") or "").startswith(("http://", "https://"))]
+        if self.preveri_tokove:
+            # Lastni strežnik je vedno privzet (lastnik): tudi njega vprasamo, ali odgovori - nedosegljiv ni na seznamu,
+            # privzeta (in Predvajaj) je naslednja razlicica.
+            from concurrent.futures import wait
+            lastni = [r for r in samodejno if r.get("lastni")][:3]
+            if lastni:
+                wait([_bazen_virov().submit(self._sonda, r) for r in lastni], timeout=4.5)
         sonde = getattr(self, "_sonde", {})
 
         def ziva(r: dict) -> bool:
@@ -4184,6 +4219,16 @@ class MediaCenter:
             except Exception:  # noqa: BLE001
                 return True
         zive = [r for r in samodejno if ziva(r)]
+        if zive and samodejno and zive[0] is not samodejno[0]:
+            # Prva (samodejna) razlicica ne odgovori: Predvajaj zacne z naslednjo zivo, ostale ostanejo za tiho zamenjavo.
+            mrtve = [r for r in samodejno if r not in zive]
+            prva = zive[0]
+            popravljen = dict(item, url=prva["url"], razlicice=zive + mrtve)
+            if prva.get("glave"):
+                popravljen["glave"] = dict(prva["glave"])
+            else:
+                popravljen.pop("glave", None)
+            self._dynamic_items[item_id] = popravljen
         gostitelji = {urllib.parse.urlsplit(str(r["url"])).hostname: r["url"] for r in zive}
         neznani = [u for u in gostitelji.values() if self._ping_ms(u) is None or self._meritve.zastarelo(u)]
         if neznani:
@@ -4424,6 +4469,13 @@ class MediaCenter:
         # Skupno pravilo (meritve_virov.razvrsti): lastni strežnik, nato dosegljivi po zapomnjenem odzivu, neizmerjeni,
         # nedosegljivi; znotraj enakih kakovost. Neizmerjene in zastarele izmerimo v ozadju za naslednjic.
         urejene = meritve_virov.razvrsti([dict(v) for v in variants], self._meritve)
+        # Razlicica, ki na sondo pred kratkim ni odgovorila (tudi lastni strežnik), gre na konec: ostane le kot rezerva.
+        sonde, zdaj = getattr(self, "_sonde", {}), time.time()
+
+        def mrtva(v: dict) -> bool:
+            z = sonde.get(str(v.get("url") or ""))
+            return bool(z) and not z[1] and zdaj - z[0] < self.SONDA_VELJA
+        urejene = [v for v in urejene if not mrtva(v)] + [v for v in urejene if mrtva(v)]
         zastarele = [str(v.get("url") or "") for v in variants if self._meritve.zastarelo(str(v.get("url") or ""))]
         if zastarele:
             self._meritve.izmeri_v_ozadju(zastarele)
