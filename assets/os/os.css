@@ -321,8 +321,6 @@ h2 .dodatno + .dodatno { margin-left: 14px; }
 .filtri button.izbran { background: var(--zelena); color: var(--zelena-temna); font-weight: 600; }
 
 /* Zdruzeni nabiralnik */
-.sporocila-glava { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; }
-.sporocila-glava p { color:var(--medlo); font-size:18px; margin:0 0 20px; }
 .sporocila-postavitev { display:grid; grid-template-columns:minmax(280px, 36%) 1fr; min-height:520px;
   border:1px solid var(--rob); border-radius:var(--polmer); overflow:hidden; background:var(--kartica); }
 .pogovori-seznam { border-right:1px solid var(--rob); overflow-y:auto; overflow-x:hidden; max-height:58vh; }
@@ -340,8 +338,8 @@ h2 .dodatno + .dodatno { margin-left: 14px; }
 .pogovor-naslov { padding:17px 20px; border-bottom:1px solid var(--rob); font-weight:700; }
 .pogovor-vsebina { flex:1; overflow-y:auto; overscroll-behavior: contain; padding:20px; display:flex; flex-direction:column; gap:10px; }
 /* Besedilo sporocila se da oznaciti in kopirati (stran kot celota je neizberljiva); ura ne gre v izbor. */
-.mehurcek { align-self:flex-start; max-width:76%; padding:11px 14px; border-radius:15px 15px 15px 4px; background:rgba(255,255,255,.08); white-space:pre-wrap; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; cursor: text; }
-.mehurcek.ven { align-self:flex-end; border-radius:15px 15px 4px 15px; background:rgba(138, 199, 255, .2); }
+.mehurcek { align-self:flex-start; max-width:76%; padding:11px 14px; border-radius:15px 15px 15px 4px; background:var(--mehurcek-noter); white-space:pre-wrap; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; cursor: text; }
+.mehurcek.ven { align-self:flex-end; border-radius:15px 15px 4px 15px; background:var(--mehurcek-ven); color:var(--mehurcek-ven-besedilo); }
 .mehurcek time { display:block; color:var(--medlo); font-size:11px; margin-top:5px; text-align:right; -webkit-user-select: none; user-select: none; cursor: default; }
 .mehurcek.fokus-tipke:focus { outline: 2px solid var(--zelena); outline-offset: 2px; }
 .mehurcek.s-kodo { max-width:94%; align-self:stretch; }
@@ -403,18 +401,16 @@ h2 .dodatno + .dodatno { margin-left: 14px; }
 .mehurcek-besedilo + .mehurcek-koda { margin-top:12px; }
 .mehurcek ::selection { background: rgba(138, 199, 255, .45); color: #fff; }
 /* Nabiralnik (preneseno s Safeer OS za Windows): mape, oznake, iskanje, pano z osebo */
-.nabiralnik { display:grid; grid-template-columns:200px minmax(260px, 24%) 1fr;
-  /* Vrstica mreze ne sme rasti z vsebino: sicer je polje za odgovor odrezano pod robom (testni PC 15. 10. 2026). */
-  grid-template-rows:minmax(0, 1fr); min-height:520px; height:calc(100vh - 230px); max-height:calc(100vh - 230px);
+.nabiralnik { display:grid; grid-template-columns:minmax(300px, 360px) minmax(0, 1fr);
+  /* Vrstica mreze ne sme rasti z vsebino: sicer je polje za odgovor odrezano pod robom (testni PC 15. 10. 2026).
+     Brez glave razdelka (prenova 16. 10. 2026) ima nabiralnik ~110 px vec visine. */
+  grid-template-rows:minmax(0, 1fr); min-height:460px; height:calc(100vh - 162px); max-height:calc(100vh - 162px);
   border:1px solid var(--rob); border-radius:16px; background:var(--kartica); overflow:hidden; }
-.nabiralnik-mape { border-right:1px solid var(--rob); padding:12px 10px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; }
 .mape button { width:100%; display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:10px; text-align:left; background:transparent; }
 .mape button svg { width:18px; height:18px; color:var(--medlo); } .mape button.izbran { background:var(--kartica-poudarek); font-weight:600; }
 .mape button.izbran svg { color:var(--zelena); } .mape button:hover { background:rgba(255,255,255,.05); }
 .mape button i { margin-left:auto; min-width:20px; height:20px; padding:0 6px; border-radius:10px; background:var(--zelena); color:var(--zelena-temna); font-size:12px; font-style:normal; display:grid; place-items:center; }
 .nabiralnik-naslov { display:block; margin:14px 12px 6px; font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--medlo); }
-.nabiralnik-mape .kanali-seznam { flex-direction:column; flex-wrap:nowrap; gap:4px; margin:0; }
-.nabiralnik-mape .kanal-cip { width:100%; justify-content:flex-start; }
 .nabiralnik-seznam { border-right:1px solid var(--rob); display:flex; flex-direction:column; min-width:0; }
 .sporocila-iskanje { margin:12px 12px 8px; } .nabiralnik-seznam .filtri { padding:0 12px 8px; margin:0; }
 .nabiralnik-seznam .filtri button { padding:6px 12px; font-size:13px; }
@@ -431,15 +427,11 @@ h2 .dodatno + .dodatno { margin-left: 14px; }
 .oznake-cipi span button { background:none; color:inherit; padding:0 2px; font-size:13px; line-height:1; }
 .oznaka-vnos { display:flex; gap:6px; margin-top:8px; } .oznaka-vnos input { flex:1; min-width:0; border:1px solid var(--rob); border-radius:8px; background:rgba(255,255,255,.06); padding:6px 8px; } .oznaka-vnos .gumb { padding:4px 10px; }
 .oznake-mape button { padding:6px 12px; } .oznake-mape button span::before { content:"#"; color:var(--medlo); margin-right:4px; }
-.pogovor-vrstica .oznaka-pogovora { display:inline-block; margin-left:4px; padding:0 6px; border-radius:6px; background:rgba(138, 199, 255,.14); color:var(--zelena); font-size:11px; vertical-align:middle; } .pano-skupina b { display:block; font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--medlo); margin-bottom:6px; }
-.pano-skupina .identiteta { display:flex; align-items:center; gap:6px; padding:6px 0; border-bottom:1px solid var(--rob); font-size:13px; word-break:break-all; }
+.pano-skupina > b { display:block; font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--medlo); margin-bottom:6px; }
+.pano-skupina .identiteta { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:6px 0; border-bottom:1px solid var(--rob); font-size:13px; overflow-wrap:anywhere; }
 .pano-skupina .identiteta .gumb { margin-left:auto; flex:none; }
 .pogovor-naslov { display:flex; align-items:center; justify-content:space-between; gap:10px; }
 .pogovor-naslov-besedilo b { display:block; } .pogovor-naslov-besedilo small { color:var(--medlo); font-weight:400; }
-.pogovor-vrstica .oznaka-kanala { display:inline-block; margin-left:6px; padding:1px 6px; border-radius:6px; background:rgba(255,255,255,.08); font-size:11px; color:var(--medlo); vertical-align:middle; }
-/* 1080p in ozje: pogovor ostane siroka sredina, pano je ozji; pod 1100 px ostaneta samo seznam in pogovor. */
-@media (max-width: 1700px) { .nabiralnik { grid-template-columns:180px minmax(240px, 22%) 1fr; } .pogovor-pano { width:230px; padding:12px; } }
-@media (max-width: 1100px) { .nabiralnik { grid-template-columns:minmax(260px, 34%) 1fr; } .nabiralnik-mape { display:none; } .pogovor-pano { display:none; } }
 .nabiralnik .pogovor-okno { max-height:none; min-height:0; }
 #panoIskanjeVnos { width:100%; box-sizing:border-box; border:1px solid var(--rob); border-radius:8px; background:rgba(255,255,255,.06); color:inherit; padding:6px 8px; margin-top:8px; font:inherit; }
 .pano-zadetki { display:flex; flex-direction:column; gap:4px; margin-top:6px; max-height:220px; overflow:auto; }
@@ -840,7 +832,6 @@ div.vrstica { cursor: default; }
 .kanal-carovnik .dva { display:flex; gap:10px; flex-direction:row; }
 .kanal-carovnik .filtri { flex-direction:row; }
 .kanal-napaka { margin:0; padding:10px 12px; border-radius:10px; background:rgba(242,184,75,.12); color:#f2b84b; }
-.sporocila-glava .gumbi-glave { display:flex; gap:10px; margin-bottom:20px; }
 .pisi-naprave { display:flex; flex-direction:column; gap:6px; max-height:50vh; overflow:auto; margin:10px 0; }
 
 /* Zlozljiva stranska vrstica (kot v brskalnikih): gumb v glavi vrstice ali Ctrl+B; izbira ostane zapomnjena. */
@@ -1312,13 +1303,8 @@ body.v-mediji #ozadje::after, body.predvajalnik #ozadje::after { background: var
 
 /* ==== Vgrajeni kanali Sporocil (spletni klepeti, namizni programi) - core/os_kanali_sporocil.py ====
    Kanal je nad stranjo na mestu #vgrajenKanalVsebina (Safeer OS ga tja postavi); stran pusti prostor prazen. */
-.nabiralnik.kanal-odprt { grid-template-columns:200px 1fr; }
-.nabiralnik.kanal-odprt .nabiralnik-seznam, .nabiralnik.kanal-odprt .pogovor-okno { display:none; }
-@media (max-width: 1100px) {
-  /* ozko okno: seznam kanalov ostane viden ob odprtem kanalu (drugace ga ne bi mogli zamenjati) */
-  .nabiralnik.kanal-odprt { grid-template-columns:180px 1fr; }
-  .nabiralnik.kanal-odprt .nabiralnik-mape { display:flex; }
-}
+/* Odprt kanal zamenja pogovor na desni; seznam s kanali ostane viden (prenova 16. 10. 2026; prej je kanal skril seznam). */
+.nabiralnik.kanal-odprt .pogovor-okno { display:none; }
 .vgrajen-kanal { display:flex; flex-direction:column; min-width:0; min-height:0; }
 .vgrajen-kanal[hidden] { display:none; }
 .vgrajen-kanal-glava { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--rob); }
@@ -1374,3 +1360,161 @@ body.v-mediji #ozadje::after, body.predvajalnik #ozadje::after { background: var
 .poraba-opomba { margin:0; color:var(--tise); }
 #slojPoraba .gumb:focus-visible, .poraba-gumb:focus-visible { outline:2px solid var(--fokus); outline-offset:2px; }
 /* ==== konec: poraba kanalov ==== */
+/* ==== Nabiralnik Sporocil - prenova 16. 10. 2026 (lastnik: »malo nepregledno«) ====
+   Kot v klepetalnikih: seznam pogovorov | pogovor (+ pano z osebo, ce je prostor). Mape, kanal in oznake so v plosci
+   filtra, kanali (tudi vgrajeni) v vrstici nad seznamom. Razdelek, ozji od 720 px: en stolpec z »Nazaj na seznam«.
+   Barve samo iz tokens.css. */
+#r-sporocila { container-type:inline-size; container-name:sporocila; }
+.nabiralnik-seznam { position:relative; min-height:0; }
+.seznam-glava { display:flex; align-items:center; gap:6px; padding:14px 14px 4px 18px; }
+.seznam-glava h1 { flex:1; min-width:0; margin:0; font-size:24px; letter-spacing:-.01em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.seznam-glava .gumb-ikona { width:36px; height:36px; border-radius:10px; }
+.seznam-glava .gumb-ikona svg, .seznam-iskanje .gumb-ikona svg, .pogovor-naslov .gumb-ikona svg { width:20px; height:20px; }
+.gumb-ikona.glavni { background:var(--zelena); color:var(--zelena-temna); }
+.gumb-ikona.glavni:hover { filter:brightness(1.08); }
+.seznam-iskanje { display:flex; align-items:center; gap:8px; padding:8px 14px; }
+.nabiralnik .seznam-iskanje .sporocila-iskanje { flex:1; width:auto; height:40px; margin:0; padding:0 12px; }
+#sporocilaFilterGumb { position:relative; width:40px; height:40px; border-radius:12px; }
+#sporocilaFilterGumb.aktiven, #sporocilaFilterGumb[aria-expanded="true"] { background:var(--izbrano); color:var(--zelena); }
+.filter-pika { position:absolute; top:7px; right:7px; width:8px; height:8px; border-radius:50%; background:var(--zelena); }
+.filter-pika[hidden] { display:none; }
+.filter-plosca { position:absolute; z-index:6; top:110px; left:14px; right:14px; max-height:calc(100% - 124px); overflow:auto;
+  display:flex; flex-direction:column; gap:6px; padding:10px 12px 12px; border:1px solid var(--rob-mocan); border-radius:14px;
+  background:var(--kartica-polna); box-shadow:var(--senca); }
+.filter-plosca[hidden] { display:none; }
+.filter-plosca .nabiralnik-naslov { margin:6px 4px 0; }
+.filter-plosca .mape { display:flex; flex-wrap:wrap; gap:6px; }
+.filter-plosca .mape button { width:auto; padding:6px 12px; border:1px solid var(--rob); border-radius:999px; font-size:14px; }
+.filter-plosca .mape button svg { width:16px; height:16px; }
+.filter-plosca .mape button i { margin-left:4px; }
+.filter-plosca .filtri { margin:0; gap:6px; }
+.filter-plosca .filtri button { display:inline-flex; align-items:center; gap:6px; padding:6px 12px; font-size:13px; border:1px solid var(--rob); }
+.filter-plosca .filtri button.izbran .znak-kanala { box-shadow:0 0 0 2px var(--zelena-temna); }
+.filter-plosca .filtri button span { opacity:1; margin-left:0; }   /* splosni .filtri button span je za stevec */
+.filter-pocisti { align-self:flex-start; margin-top:6px; padding:6px 12px; font-size:13px; }
+.filter-pocisti[hidden] { display:none; }
+.aktivni-filtri { display:flex; flex-wrap:wrap; gap:6px; padding:0 14px 8px; }
+.aktivni-filtri[hidden] { display:none; }
+.cip-filtra { display:inline-flex; align-items:center; gap:6px; padding:4px 8px 4px 12px; border-radius:999px; background:var(--izbrano); font-size:13px; }
+.cip-filtra svg { width:14px; height:14px; }
+.cip-filtra:hover { box-shadow:inset 0 0 0 1px var(--zelena); }
+.kanali-vrstica { display:flex; align-items:center; gap:6px; padding:2px 10px 10px 14px; border-bottom:1px solid var(--tanka); }
+/* Kanali kot okrogli znaki v eni vrstici (8 kanalov v 360 px brez drsenja). Ime je v namigu in za bralnik zaslona
+   (vizualno skrito, ne display:none); neprebrano in napaka sta znacki na znaku. */
+.kanali-vrstica .kanali-seznam { flex:1; min-width:0; flex-wrap:wrap; gap:3px; margin:0; padding:3px; max-height:84px; overflow-y:auto; scrollbar-width:thin; }
+.kanali-vrstica .kanal-cip { position:relative; flex:none; width:34px; height:34px; padding:0; gap:0; justify-content:center; border-radius:50%; }
+.kanali-vrstica .kanal-cip.izbran { box-shadow:0 0 0 2px var(--zelena); }
+.kanali-vrstica .kanal-cip .kanal-ime, .kanali-vrstica .kanal-cip > small:not(.kanal-opozorilo) { position:absolute; width:1px; height:1px;
+  overflow:hidden; clip:rect(0 0 0 0); clip-path:inset(50%); white-space:nowrap; }
+.kanali-vrstica .kanal-cip .kanal-znak, .kanali-vrstica .kanal-cip .znak-kanala { width:28px; height:28px; border-radius:50%; font-size:12px; }
+.kanali-vrstica .kanal-cip .znak-kanala svg { width:15px; height:15px; }
+.kanali-vrstica .kanal-cip .kanal-znacka, .kanali-vrstica .kanal-cip .kanal-opozorilo { position:absolute; top:-4px; right:-6px; min-width:18px;
+  height:18px; padding:0 4px; box-sizing:border-box; border-radius:9px; font-size:11px; line-height:18px; box-shadow:0 0 0 2px var(--kartica-polna); }
+.kanal-cip .kanal-ime { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.kanal-opozorilo { display:grid; place-items:center; width:18px; height:18px; border-radius:50%; background:var(--opozorilo); color:var(--zelena-temna); font-size:12px; font-weight:700; }
+.kanali-vrstica .poraba-gumb { width:32px; height:32px; flex:none; border-radius:50%; }
+.kanali-vrstica .poraba-gumb svg { width:18px; height:18px; }
+.kanali-vrstica .kanali-seznam:empty { display:none; }
+
+/* Vrstica pogovora: pika neprebrano | avatar | ime + cas / predogled + znak kanala */
+.nabiralnik-seznam .pogovori-seznam { flex:1; min-height:0; max-height:none; border-right:0; padding:6px 0 10px; }
+.vrstica-pogovora { position:relative; width:calc(100% - 16px); margin:1px 8px; display:grid; grid-template-columns:44px minmax(0, 1fr);
+  align-items:center; gap:12px; padding:10px 12px 10px 20px; border-radius:12px; text-align:left; }
+.vrstica-pogovora:hover { background:var(--kartica-poudarek); }
+.vrstica-pogovora.izbran { background:var(--izbrano); box-shadow:inset 3px 0 0 var(--zelena); }
+.vrstica-pogovora:focus-visible { outline:2px solid var(--fokus); outline-offset:-2px; }
+.neprebrano-pika { width:8px; height:8px; border-radius:50%; }
+.vrstica-pogovora .neprebrano-pika { position:absolute; left:7px; top:50%; margin-top:-4px; }
+.vrstica-pogovora.neprebrano .neprebrano-pika, .povezan-vir .neprebrano-pika { background:var(--zelena); }
+.avatar { flex:none; width:44px; height:44px; border-radius:50%; display:grid; place-items:center; background:var(--kanal-drugo);
+  color:var(--znak-besedilo); font-size:15px; font-weight:700; letter-spacing:.02em; }
+.avatar[hidden] { display:none; }
+.vrstica-telo { min-width:0; display:flex; flex-direction:column; gap:3px; }
+.vrstica-vrh, .vrstica-dno { min-width:0; display:flex; align-items:center; gap:8px; }
+.vrstica-ime { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:15px; font-weight:600; }
+.vrstica-pogovora.neprebrano .vrstica-ime { font-weight:800; }
+.vrstica-oznaka { flex:none; padding:1px 6px; border-radius:6px; background:var(--izbrano); color:var(--zelena); font-size:11px; }
+.vrstica-vrh time { flex:none; margin-left:auto; color:var(--tise); font-size:12px; }
+.vrstica-pogovora.neprebrano .vrstica-vrh time { color:var(--zelena); font-weight:600; }
+.vrstica-predogled { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--medlo); font-size:13px; }
+.vrstica-pogovora.neprebrano .vrstica-predogled { color:var(--besedilo); }
+.vrstica-dno .sponka { display:inline-grid; color:var(--tise); }
+.vrstica-dno .sponka svg { width:14px; height:14px; stroke-width:2; }
+.vrstica-stevilo { flex:none; min-width:20px; height:20px; padding:0 6px; border-radius:10px; display:grid; place-items:center;
+  background:var(--zelena); color:var(--zelena-temna); font-size:11px; font-weight:700; }
+/* Znak kanala: krog z znakom vrste kanala */
+.znak-kanala { flex:none; width:20px; height:20px; border-radius:50%; display:grid; place-items:center; background:var(--kanal-drugo); color:var(--znak-besedilo); }
+.znak-kanala svg { width:12px; height:12px; stroke-width:2.2; }
+.znak-kanala[data-vrsta="email"] { background:var(--kanal-eposta); }
+.znak-kanala[data-vrsta="telegram"], .znak-kanala[data-vrsta="telegram_bot"] { background:var(--kanal-telegram); }
+.znak-kanala[data-vrsta="matrix"] { background:var(--kanal-matrix); }
+.znak-kanala[data-vrsta="safeer"] { background:var(--kanal-safeer); }
+.znak-kanala[data-vrsta="chatwoot"] { background:var(--kanal-chatwoot); }
+
+/* Pogovor: glava z avatarjem, prazno stanje, mehurcki, vnos s kanalom odgovora */
+.pogovor-naslov { justify-content:flex-start; gap:12px; padding:12px 16px 12px 20px; min-height:68px; box-sizing:border-box; }
+.pogovor-naslov .avatar { width:40px; height:40px; font-size:14px; }
+.pogovor-naslov-besedilo { flex:1; min-width:0; }
+.pogovor-naslov-besedilo b, .pogovor-naslov-besedilo small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pogovor-naslov-besedilo b { font-size:17px; }
+.pogovor-naslov-besedilo small { display:block; margin-top:2px; font-size:13px; }
+#sporocilaPano[aria-pressed="true"] { background:var(--izbrano); color:var(--zelena); }
+.nazaj-na-seznam { display:none; }
+.gumb-ikona.nazaj-na-seznam[hidden] { display:none; }
+.pogovor-prazno { display:none; }
+.pogovor-okno.brez-pogovora .pogovor-prazno { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; padding:24px; text-align:center; color:var(--medlo); }
+.pogovor-prazno svg { width:48px; height:48px; color:var(--zelena); stroke-width:1.4; margin-bottom:6px; }
+.pogovor-prazno b { color:var(--besedilo); font-size:18px; }
+.pogovor-prazno p { margin:0; max-width:28em; }
+.pogovor-okno.brez-pogovora .pogovor-naslov, .pogovor-okno.brez-pogovora .pogovor-vsebina,
+.pogovor-okno.brez-pogovora .sporocila-vnos, .pogovor-okno.brez-pogovora .priloge-cipi { display:none; }
+.pogovor-vsebina { padding:20px 24px; gap:6px; }
+/* Dohodni mehurcki: avatar osebe ob prvem v nizu (::before ni v izboru besedila; zacetnice nastavi os.js) */
+.pogovor-vsebina .mehurcek.noter { position:relative; margin-left:44px; }
+.pogovor-vsebina .mehurcek.noter::before { content:var(--zacetnice, ""); position:absolute; left:-44px; top:0; width:32px; height:32px;
+  border-radius:50%; display:grid; place-items:center; background:var(--avatar, var(--kanal-drugo)); color:var(--znak-besedilo);
+  font-size:12px; font-weight:700; white-space:normal; }
+.pogovor-vsebina .mehurcek.noter + .mehurcek.noter::before { visibility:hidden; }
+.pogovor-vsebina .mehurcek.ven + .mehurcek.noter, .pogovor-vsebina .mehurcek.noter + .mehurcek.ven { margin-top:10px; }
+.mehurcek.ven time { color:var(--mehurcek-ven-medlo); }
+.mehurcek.ven ::selection { background:var(--mehurcek-ven-besedilo); color:var(--mehurcek-ven); }
+.mehurcek time .kljukica { display:inline-grid; vertical-align:-2px; margin-left:4px; }
+.mehurcek time .kljukica svg { width:14px; height:14px; stroke-width:2.4; }
+.sporocila-vnos { flex-direction:column; gap:6px; padding:12px 16px 10px; }
+.vnos-vrstica { display:flex; align-items:flex-end; gap:10px; }
+.vnos-vrstica textarea { flex:1; min-height:44px; max-height:30vh; }
+.vnos-vrstica .gumb.glavni:disabled { opacity:.45; cursor:default; filter:none; }
+.vnos-kanal { display:flex; align-items:center; gap:6px; min-height:24px; color:var(--medlo); font-size:13px; }
+.vnos-kanal b { color:var(--besedilo); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.vnos-kanal select { min-width:0; max-width:100%; padding:3px 8px; border:1px solid var(--rob); border-radius:8px; background:var(--kartica-polna);
+  color:var(--besedilo); font:inherit; font-size:13px; }
+.vnos-kanal select:focus-visible { outline:2px solid var(--fokus); outline-offset:1px; }
+/* Pano: povezani viri */
+.povezani-viri { display:flex; flex-direction:column; gap:4px; }
+.povezan-vir { display:flex; align-items:center; gap:10px; width:100%; padding:7px 8px; border-radius:10px; text-align:left; }
+.povezan-vir:hover { background:var(--kartica-poudarek); }
+.povezan-vir.izbran { background:var(--izbrano); cursor:default; }
+.povezan-vir .znak-kanala { width:26px; height:26px; }
+.povezan-vir .znak-kanala svg { width:15px; height:15px; }
+.povezan-vir span:not(.znak-kanala) { flex:1; min-width:0; }
+.povezan-vir b, .povezan-vir small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.povezan-vir b { font-size:13px; letter-spacing:0; text-transform:none; color:var(--besedilo); margin:0; }
+.povezan-vir small { color:var(--medlo); font-size:12px; }
+.pano-avatar { color:var(--znak-besedilo); }
+/* Okno razdelka na delovni povrsini (brez glave in noge Safeer OS): nabiralnik zapolni okno. */
+body.en-razdelek .nabiralnik { height:calc(100vh - 60px); max-height:calc(100vh - 60px); }
+/* Pano samo, ce je ob pogovoru dovolj prostora (pogovor ima vsaj ~440 px). */
+@container sporocila (max-width: 1080px) { .pogovor-pano { display:none !important; } #sporocilaPano { display:none; } }
+@container sporocila (max-width: 900px) { .nabiralnik { grid-template-columns:minmax(260px, 320px) minmax(0, 1fr); } }
+/* Ozko: en stolpec. Seznam ali (ob izbranem pogovoru oziroma odprtem kanalu) pogovor z »Nazaj na seznam«. */
+@container sporocila (max-width: 720px) {
+  .nabiralnik { grid-template-columns:minmax(0, 1fr); }
+  .nabiralnik-seznam { border-right:0; }
+  .nabiralnik.pogovor-odprt .nabiralnik-seznam, .nabiralnik.kanal-odprt .nabiralnik-seznam { display:none; }
+  .nabiralnik:not(.pogovor-odprt) .pogovor-okno { display:none; }
+  .nazaj-na-seznam { display:grid; }
+  .pogovor-naslov { padding-left:10px; }
+  .pogovor-vsebina { padding:14px 12px; }
+  .mehurcek { max-width:88%; }
+}
+/* ==== konec: nabiralnik Sporocil ==== */

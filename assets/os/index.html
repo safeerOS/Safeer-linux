@@ -104,45 +104,58 @@
 
       <!-- SPOROCILA -->
       <section class="razdelek" id="r-sporocila">
-        <div class="sporocila-glava">
-          <div><h1 data-t="sporocila"></h1><p data-t="sporocilaOpis"></p></div>
-          <div class="gumbi-glave"><button class="gumb glavni" id="sporocilaNovo"><svg data-ikona="sporocilo"></svg><span data-t="novoSporocilo"></span></button>
-          <button class="gumb" id="sporocilaPisi"><svg data-ikona="povezava"></svg><span data-t="pisiNapravi"></span></button>
-          <button class="gumb" id="sporocilaDodaj"><svg data-ikona="plus"></svg><span data-t="dodajKanal"></span></button></div>
-        </div>
-        <!-- Nabiralnik: mape in kanali | pogovori z iskanjem in filtri | pogovor + stranski pano z osebo -->
+        <!-- Nabiralnik (prenova 16. 10. 2026, lastnik: »malo nepregledno«): seznam pogovorov | pogovor (+ pano z osebo).
+             Mape, kanal in oznake so v plosci filtra; kanali (tudi vgrajeni) v vrstici nad seznamom. -->
         <div class="nabiralnik">
-          <aside class="nabiralnik-mape">
-            <div class="mape" id="sporocilaMape">
-              <button class="izbran" data-mapa="vse"><svg data-ikona="sporocila"></svg><span data-t="mapaPrejeto"></span><i id="stPrejeto" hidden></i></button>
-              <button data-mapa="neprebrano"><svg data-ikona="sporocila"></svg><span data-t="mapaNeprebrano"></span><i id="stNeprebrano" hidden></i></button>
-              <button data-mapa="poslano"><svg data-ikona="poslji"></svg><span data-t="mapaPoslano"></span></button>
-              <button data-mapa="vsi"><svg data-ikona="arhiv"></svg><span data-t="mapaVsiPogovori"></span></button>
-              <button data-mapa="osnutki"><svg data-ikona="uredi"></svg><span data-t="mapaOsnutki"></span><i id="stOsnutki" hidden></i></button>
-            </div>
-            <b class="nabiralnik-naslov" data-t="oznakeNaslov"></b>
-            <div class="mape oznake-mape" id="sporocilaOznake"></div>
-            <div class="nabiralnik-naslov-vrstica"><b class="nabiralnik-naslov" data-t="kanaliNaslov"></b>
-              <button type="button" class="gumb-ikona poraba-gumb" id="sporocilaPoraba" data-naslov="porabaGumb"><svg data-ikona="info"></svg></button></div>
-            <div class="kanali-seznam" id="sporocilaKanali"></div>
-          </aside>
           <div class="nabiralnik-seznam">
-            <label class="ciljno-iskanje sporocila-iskanje"><svg data-ikona="isci"></svg><input id="sporocilaIskanje" type="search" autocomplete="off" data-ph="isciSporocila"></label>
-            <div class="filtri" id="sporocilaFiltri">
-              <button class="izbran" data-kanal-vrsta="" data-t="vsiKanali"></button>
-              <button data-kanal-vrsta="email" data-t="eposta"></button>
-              <button data-kanal-vrsta="klepet" data-t="filterKlepeti"></button>
+            <div class="seznam-glava">
+              <h1 id="sporocilaMapaNaslov" data-t="mapaPrejeto"></h1>
+              <button class="gumb-ikona glavni" id="sporocilaNovo" type="button" data-naslov="novoSporocilo"><svg data-ikona="uredi"></svg></button>
+              <button class="gumb-ikona" id="sporocilaPisi" type="button" data-naslov="pisiNapravi"><svg data-ikona="povezava"></svg></button>
+              <button class="gumb-ikona" id="sporocilaDodaj" type="button" data-naslov="dodajKanal"><svg data-ikona="plus"></svg></button>
+            </div>
+            <div class="seznam-iskanje">
+              <label class="ciljno-iskanje sporocila-iskanje"><svg data-ikona="isci"></svg><input id="sporocilaIskanje" type="search" autocomplete="off" data-ph="spIsci"></label>
+              <button class="gumb-ikona" id="sporocilaFilterGumb" type="button" data-naslov="spFilter" aria-haspopup="true" aria-expanded="false" aria-controls="sporocilaFilterPlosca"><svg data-ikona="filter"></svg><i class="filter-pika" hidden></i></button>
+            </div>
+            <div class="filter-plosca" id="sporocilaFilterPlosca" role="group" hidden>
+              <b class="nabiralnik-naslov" data-t="spFilterPrikazi"></b>
+              <div class="mape" id="sporocilaMape">
+                <button class="izbran" data-mapa="vse" aria-pressed="true"><svg data-ikona="sporocila"></svg><span data-t="mapaPrejeto"></span><i id="stPrejeto" hidden></i></button>
+                <button data-mapa="neprebrano" aria-pressed="false"><svg data-ikona="sporocila"></svg><span data-t="mapaNeprebrano"></span><i id="stNeprebrano" hidden></i></button>
+                <button data-mapa="poslano" aria-pressed="false"><svg data-ikona="poslji"></svg><span data-t="mapaPoslano"></span></button>
+                <button data-mapa="osnutki" aria-pressed="false"><svg data-ikona="uredi"></svg><span data-t="mapaOsnutki"></span><i id="stOsnutki" hidden></i></button>
+              </div>
+              <b class="nabiralnik-naslov" data-t="spFilterKanal"></b>
+              <div class="filtri" id="sporocilaFiltri">
+                <button class="izbran" data-kanal-vrsta="" aria-pressed="true" data-t="vsiKanali"></button>
+                <button data-kanal-vrsta="email" aria-pressed="false" data-t="eposta"></button>
+                <button data-kanal-vrsta="klepet" aria-pressed="false" data-t="filterKlepeti"></button>
+              </div>
+              <b class="nabiralnik-naslov" data-t="oznakeNaslov"></b>
+              <div class="mape oznake-mape" id="sporocilaOznake"></div>
+              <button class="gumb filter-pocisti" id="sporocilaPocisti" type="button" data-t="spPocistiFiltre" hidden></button>
+            </div>
+            <div class="aktivni-filtri" id="sporocilaAktivniFiltri" hidden></div>
+            <div class="kanali-vrstica">
+              <div class="kanali-seznam" id="sporocilaKanali" role="group"></div>
+              <button type="button" class="gumb-ikona poraba-gumb" id="sporocilaPoraba" data-naslov="porabaGumb"><svg data-ikona="info"></svg></button>
             </div>
             <div class="pogovori-seznam" id="sporocilaSeznam"><p class="prazno" data-t="niPogovorov"></p></div>
           </div>
-          <div class="pogovor-okno">
-            <div class="pogovor-naslov"><div class="pogovor-naslov-besedilo"><b id="sporocilaNaslov" data-t="izberiPogovor"></b><small id="sporocilaPodnaslov"></small></div>
-              <button class="gumb-ikona" id="sporocilaPano" type="button" hidden title=""><svg data-ikona="sporocilo"></svg></button></div>
+          <div class="pogovor-okno brez-pogovora">
+            <div class="pogovor-naslov">
+              <button class="gumb-ikona nazaj-na-seznam" id="sporocilaNazaj" type="button" data-naslov="spNazajSeznam"><svg data-ikona="nazaj"></svg></button>
+              <span class="avatar" id="sporocilaAvatar" aria-hidden="true" hidden></span>
+              <div class="pogovor-naslov-besedilo"><b id="sporocilaNaslov" data-t="izberiPogovor"></b><small id="sporocilaPodnaslov"></small></div>
+              <button class="gumb-ikona" id="sporocilaPano" type="button" hidden aria-pressed="false"><svg data-ikona="uporabnik"></svg></button></div>
             <div class="pogovor-telo">
+              <div class="pogovor-prazno" id="sporocilaPrazno"><svg data-ikona="sporocila"></svg><b data-t="izberiPogovor"></b><p data-t="spIzberiOpis"></p></div>
               <div class="pogovor-vsebina" id="sporocilaVsebina"></div>
               <aside class="pogovor-pano" id="sporocilaPanoVsebina" hidden>
-                <div class="pano-oseba"><span class="pano-avatar" id="panoAvatar"></span><b id="panoIme"></b><small id="panoPrivzeto"></small><small id="panoKanal"></small>
+                <div class="pano-oseba"><span class="pano-avatar" id="panoAvatar"></span><b id="panoIme"></b><small id="panoPrivzeto"></small>
                   <div class="pano-gumbi"><button type="button" class="gumb" id="panoPreimenuj" data-t="panoPreimenuj"></button><button type="button" class="gumb" id="panoZdruzi" data-t="panoZdruzi"></button></div></div>
+                <div class="pano-skupina"><b data-t="spPovezaniViri"></b><div class="povezani-viri" id="panoViri"></div></div>
                 <div class="pano-skupina"><b data-t="panoOznake"></b><div class="oznake-cipi" id="panoOznake"></div>
                   <form class="oznaka-vnos" id="panoOznakaObrazec"><input id="panoOznakaVnos" list="seznamOznak" maxlength="40" data-ph="panoNovaOznaka"><datalist id="seznamOznak"></datalist><button type="submit" class="gumb">+</button></form></div>
                 <div class="pano-skupina"><b data-t="panoIskanje"></b>
@@ -155,14 +168,18 @@
             </div>
             <div class="priloge-cipi" id="sporocilaPriloge" hidden></div>
             <form class="sporocila-vnos" id="sporocilaVnos">
-              <button class="gumb-ikona" type="button" id="sporocilaPrilozi" data-naslov="prilozi" hidden><svg data-ikona="sponka"></svg></button>
-              <textarea id="sporocilaBesedilo" rows="2" data-ph="napisiSporocilo" disabled></textarea>
-              <button class="gumb glavni" type="submit" disabled><svg data-ikona="poslji"></svg><span data-t="posljiSporocilo"></span></button>
+              <div class="vnos-vrstica">
+                <button class="gumb-ikona" type="button" id="sporocilaPrilozi" data-naslov="prilozi" hidden><svg data-ikona="sponka"></svg></button>
+                <textarea id="sporocilaBesedilo" rows="2" data-ph="spNapisiOdgovor" disabled></textarea>
+                <button class="gumb glavni" type="submit" disabled><svg data-ikona="poslji"></svg><span data-t="posljiSporocilo"></span></button>
+              </div>
+              <div class="vnos-kanal" id="sporocilaVnosKanal"></div>
             </form>
           </div>
           <!-- Vgrajeni kanal (spletni klepet ali namizni program): Safeer OS ga postavi nad #vgrajenKanalVsebina -->
           <section class="vgrajen-kanal" id="vgrajenKanal" hidden>
             <div class="vgrajen-kanal-glava">
+              <button type="button" class="gumb-ikona nazaj-na-seznam" id="vgrajenKanalSeznam" data-naslov="spNazajSeznam"><svg data-ikona="nazaj"></svg></button>
               <span class="kanal-znak" id="vgrajenKanalZnak"></span><b id="vgrajenKanalIme"></b>
               <!-- Kanal se ni v uporabi (prijava ni koncana): jasen izhod nazaj, tudi Esc in Nazaj na daljincu -->
               <button type="button" class="gumb kanal-preklici" id="vgrajenKanalPreklici" data-t="kanalPrekliciDodajanje" data-naslov="kanalPrekliciNamig" hidden></button>
