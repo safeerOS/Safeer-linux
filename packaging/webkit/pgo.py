@@ -72,10 +72,11 @@ build-commands:
     cat {povzetek}
 cleanup:
   - /share/safeer-pgo
+# Vsak .profraw kot type: file s sha256: flatpak-builder izvoru type: dir da nakljucno kontrolno vsoto (vedno znova
+# gradi), modul profila pa je pred WebKitom - z dir bi se WebKit gradil ob vsakem teku (CI 38815796559: 1 h 48 min).
 sources:
-  - type: dir
-    path: {vir}
-"""
+{viri}"""
+VIR = "  - type: file\n    path: {pot}\n    sha256: {sha256}\n"
 
 
 def _zamenjaj(besedilo: str, staro: str, novo: str) -> str:
@@ -156,7 +157,9 @@ def manifest(nacin: str, profraw: "pathlib.Path | None", izhod: pathlib.Path,
             raise SystemExit("pgo.py: v %s ni datotek .profraw" % profraw)
         (izhod / "webkitgtk6-safeer-pgo-profil.yml").write_text(
             PROFIL.format(mapa=PROFDATA.rsplit("/", 1)[0], profdata=PROFDATA, povzetek=POVZETEK,
-                          mapa_povzetka=POVZETEK.rsplit("/", 1)[0], vir=profraw.resolve()), encoding="utf-8")
+                          mapa_povzetka=POVZETEK.rsplit("/", 1)[0],
+                          viri="".join(VIR.format(pot=p.resolve(), sha256=hashlib.sha256(p.read_bytes()).hexdigest())
+                                       for p in datoteke)), encoding="utf-8")
         novo = "  - %s\n" % (izhod / "webkitgtk6-safeer-pgo-profil.yml") + novo
     besedilo = _zamenjaj(besedilo, vrstica, novo)
     # Ostali moduli, popravki (npr. packaging/zypak) in izvor programa ostanejo v repozitoriju.

@@ -436,7 +436,7 @@ jobs:
           PROFIL="$(cat build/pgo/profraw/*.profraw | sha256sum | cut -c1-12)"
           echo "manifest=$(python3 packaging/webkit/pgo.py uporaba build/pgo/profraw io.github.memelandfaner.SafeerOS.yml)" >> "$GITHUB_OUTPUT"
           echo "zacetek=flatpak-os-pgo-$K-" >> "$GITHUB_OUTPUT"
-          echo "predpomnilnik=flatpak-os-pgo-$K-$PROFIL-$(python3 packaging/webkit/pgo.py okolje)-${{ hashFiles('io.github.memelandfaner.SafeerOS.yml', 'packaging/webkit/*.yml', 'packaging/libsoup/**') }}" >> "$GITHUB_OUTPUT"
+          echo "predpomnilnik=flatpak-os-pgo-$K-$PROFIL-$(python3 packaging/webkit/pgo.py okolje)-${{ hashFiles('io.github.memelandfaner.SafeerOS.yml', 'packaging/webkit/*.yml', 'packaging/webkit/pgo.py', 'packaging/libsoup/**', 'packaging/zypak/**') }}" >> "$GITHUB_OUTPUT"
       - name: Restore flatpak-builder cache (WebKitGTK with PGO)
         id: webkit-cache
         uses: actions/cache/restore@v4
@@ -556,7 +556,7 @@ jobs:
           PROFIL="$(cat build/pgo/profraw/*.profraw | sha256sum | cut -c1-12)"
           echo "manifest=$(python3 packaging/webkit/pgo.py uporaba build/pgo/profraw io.github.memelandfaner.SafeerBrowser.yml)" >> "$GITHUB_OUTPUT"
           echo "zacetek=flatpak-brskalnik-pgo-$K-" >> "$GITHUB_OUTPUT"
-          echo "predpomnilnik=flatpak-brskalnik-pgo-$K-$PROFIL-$(python3 packaging/webkit/pgo.py okolje)-${{ hashFiles('io.github.memelandfaner.SafeerBrowser.yml', 'packaging/webkit/*.yml', 'packaging/libsoup/**') }}" >> "$GITHUB_OUTPUT"
+          echo "predpomnilnik=flatpak-brskalnik-pgo-$K-$PROFIL-$(python3 packaging/webkit/pgo.py okolje)-${{ hashFiles('io.github.memelandfaner.SafeerBrowser.yml', 'packaging/webkit/*.yml', 'packaging/webkit/pgo.py', 'packaging/libsoup/**', 'packaging/zypak/**') }}" >> "$GITHUB_OUTPUT"
       - name: Keep the PGO profile (artifact older than 60 days)
         # Artefakt profila potece po 90 dneh: star profil (isti kljuc) nalozimo znova, da se nespremenjen WebKit ne uci znova.
         if: needs.webkit-pgo-profil.outputs.osvezi == 'true'

@@ -283,7 +283,10 @@ class PackagingTests(unittest.TestCase):
                         pricakovano.insert(0,str(d/nacin/'webkitgtk6-safeer-pgo-profil.yml'))
                         profil=(d/nacin/'webkitgtk6-safeer-pgo-profil.yml').read_text()
                         self.assertIn('llvm-profdata merge --output=%s *.profraw'%pgo.PROFDATA,profil)
-                        self.assertIn('    path: %s\n'%(d/'profraw'),profil)
+                        # type: file s sha256, ne type: dir (flatpak-builder dir vedno gradi znova; WebKit je za tem modulom).
+                        self.assertIn('  - type: file\n    path: %s\n    sha256: %s\n'%(d/'profraw'/'1-a.profraw',
+                                      '2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881'),profil)
+                        self.assertNotIn('  - type: dir\n',profil)
                     self.assertEqual(seznam[:len(pricakovano)],pricakovano)
                     self.assertIn('        path: %s\n'%ROOT,manifest)
         self.assertEqual(pgo.MODUL_IME,'webkitgtk6-safeer-pgo')
@@ -389,6 +392,8 @@ class PackagingTests(unittest.TestCase):
                 self.assertIn('[ "$K" = "${{ needs.webkit-pgo-profil.outputs.kljuc }}" ]',k)
                 self.assertIn('$(python3 packaging/webkit/pgo.py okolje)',k)
                 self.assertIn('key: ${{ steps.pgo.outputs.predpomnilnik }}',k)
+                # pgo.py sestavi manifest: njegova sprememba mora dati nov kljuc (sicer se nov predpomnilnik ne shrani).
+                self.assertIn("'packaging/webkit/pgo.py', 'packaging/libsoup/**'",k)
                 for preverba in ("grep -q '^USE_PGO_PROFILE:BOOL=ON$' \"$G\"","grep -q '^build.ninja -fprofile-use: [1-9]' \"$G\"",
                                  "/run/build/webkitgtk6-safeer-pgo$","grep -q 'clang version 22\\.' \"$G\"",
                                  "grep -q '^LTO_MODE:.*=thin$' \"$G\""):
