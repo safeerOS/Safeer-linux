@@ -45,6 +45,7 @@ sudo apt install python3-gi python3-gi-cairo python3-pytest python3-cryptography
   gir1.2-gtk-4.0 gir1.2-gtk-3.0 gir1.2-webkit-6.0 gir1.2-webkit2-4.1 gir1.2-soup-3.0 \
   gir1.2-secret-1 gir1.2-gstreamer-1.0 gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
   gstreamer1.0-libav glib-networking xvfb
+# gir1.2-gtk-3.0 and gir1.2-webkit2-4.1 are only for the gtk3 test group (deprecated safeer_mint.py).
 
 python3 safeer_brskalnik.py        # Safeer Browser (GTK 4)
 python3 safeer_os.py               # Safeer OS shell
@@ -70,7 +71,9 @@ CI does). One test file at a time is fine while you work:
 - `core/` — shared modules. Logic that does not need a window (download naming, pop-up rules,
   tracking-protection levels, site permissions …) lives in GTK-free modules here, so the
   browser, Safeer OS and their tests share one implementation.
-- `safeer_brskalnik.py` — Safeer Browser (GTK 4). `safeer_mint.py` — the older GTK 3 browser.
+- `safeer_brskalnik.py` — Safeer Browser (GTK 4). GTK 4 is the default everywhere
+  (packages, `install.sh`). `safeer_mint.py` — the deprecated GTK 3 browser, only on explicit request
+  (`SAFEER_BRSKALNIK_GTK3=1`) until it is retired; do not build new features there.
 - `safeer_os.py`, `assets/os/` — the Safeer OS shell (QML, HTML/JS panels, `os.css` holds all
   colours and themes).
 - `packaging/` — .deb, AppImage, Flatpak (the Flatpak carries our patched WebKitGTK).

@@ -8,16 +8,20 @@ set -e
 BIN_DIR="$HOME/.local/bin"
 DESKTOP_DIR="$HOME/.local/share/applications"
 ICON_BASE="$HOME/.local/share/icons/hicolor"
-# Poti, kamor pise brskalnik iz izvorne kode (safeer_mint.py; pregled 16. 10. 2026):
-#  - profil (nastavitve, zaznamki, prijave, web-data): core/config.py CONFIG_DIR;
-#  - privzeti mapi WebKita po prgname »safeer-browser« (safeer_mint.py: GLib.set_prgname), pred tem »safeer_mint.py«;
+# Poti, kamor pise brskalnik iz izvorne kode (safeer_brskalnik.py GTK4 in zastareli safeer_mint.py GTK3; pregled 16. 10. 2026):
+#  - profil (nastavitve, zaznamki, prijave, web-data, dnevnik): core/config.py CONFIG_DIR - skupen obema;
+#  - privzeti mapi WebKita po prgname: GTK4 »io.github.memelandfaner.SafeerBrowser« (safeer_brskalnik.py:
+#    GLib.set_prgname(APP_ID)), GTK3 »safeer-browser«, pred tem ime skripte;
 #  - seznami filtrov in groženj: core/threat_intel.default_data_dir("safeer-mint") (skupni s Safeer OS).
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/safeer-mint"
 CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
-CACHE_DIRS=("$CACHE_HOME/safeer-browser" "$CACHE_HOME/safeer_mint.py" "$CONFIG_DIR/web-data/cache")
+APP_ID="io.github.memelandfaner.SafeerBrowser"
+CACHE_DIRS=("$CACHE_HOME/$APP_ID" "$CACHE_HOME/safeer_brskalnik.py" "$CACHE_HOME/safeer-browser"
+            "$CACHE_HOME/safeer_mint.py" "$CONFIG_DIR/web-data/cache")
 # Podatki strani (piskotki, shramba, licence DRM) in preneseni seznami: samo z --purge.
-PURGE_DIRS=("$CONFIG_DIR" "$DATA_HOME/safeer-browser" "$DATA_HOME/safeer_mint.py" "$DATA_HOME/safeer-mint")
+PURGE_DIRS=("$CONFIG_DIR" "$DATA_HOME/$APP_ID" "$DATA_HOME/safeer_brskalnik.py" "$DATA_HOME/safeer-browser"
+            "$DATA_HOME/safeer_mint.py" "$DATA_HOME/safeer-mint")
 
 echo "=========================================================="
 echo "🗑️ ODSTRANJEVANJE: Safeer Browser iz Linux sistema"
@@ -25,6 +29,7 @@ echo "=========================================================="
 
 # 1. Zaustavi morebitne tekoče procese
 echo "1. Ustavljanje morebitnih aktivnih procesov Safeer..."
+pkill -f safeer_brskalnik.py 2>/dev/null || true
 pkill -f safeer_mint.py 2>/dev/null || true
 pkill -f safeer-mint.sh 2>/dev/null || true
 

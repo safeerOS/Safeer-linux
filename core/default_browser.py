@@ -27,14 +27,35 @@ def _exec_argument(value):
     return '"' + value + '"'
 
 
+#: Vstopa brskalnika v izvorni kodi: GTK4 (privzet od 16. 10. 2026) in zastareli GTK3 (SAFEER_BRSKALNIK_GTK3=1).
+VSTOPA = ('safeer_brskalnik.py', 'safeer_mint.py')
+
+
+def _gtk3():
+    try:
+        import gi
+        return gi.get_required_version('Gtk') == '3.0'
+    except (ImportError, AttributeError, ValueError):
+        return False
+
+
+def _entry_script(app_dir):
+    """Vstop, ki ga zazene vnos .desktop izvorne kode: tisti, ki tece (GTK3 le, ce ta proces tece na GTK3), sicer GTK4.
+    Brez tega bi »Nastavi kot privzeti« v GTK4 brskalniku prepisal vnos install.sh na safeer_mint.py."""
+    gtk4, gtk3 = (Path(app_dir) / ime for ime in VSTOPA)
+    if _gtk3() and gtk3.exists():
+        return gtk3
+    return gtk4 if gtk4.exists() or not gtk3.exists() else gtk3
+
+
 def launcher_command(app_dir):
     """The command that starts *this* install: the packaged launcher next to the payload
-    (/usr/lib/safeer-browser -> /usr/bin/safeer) when it exists, else python3 with safeer_mint.py."""
+    (/usr/lib/safeer-browser -> /usr/bin/safeer) when it exists, else python3 with the entry script."""
     app_dir = Path(app_dir).resolve()
     launcher = app_dir.parent.parent / 'bin' / 'safeer'
     if launcher.is_file() and os.access(launcher, os.X_OK):
         return _exec_argument(launcher)
-    return '/usr/bin/python3 ' + _exec_argument(app_dir / 'safeer_mint.py')
+    return '/usr/bin/python3 ' + _exec_argument(_entry_script(app_dir))
 
 
 def _exec_program(exec_line):
@@ -55,7 +76,7 @@ def _exec_program(exec_line):
 
 
 def _starts_this_install(exec_line, app_dir):
-    """True when the Exec line runs this install's launcher or its safeer_mint.py."""
+    """True when the Exec line runs this install's launcher or one of its entry scripts."""
     program = _exec_program(exec_line)
     if program is None:
         return False
@@ -71,7 +92,8 @@ def _starts_this_install(exec_line, app_dir):
     except OSError:
         pass
     words = [w for w in argv[1:] if not w.startswith('%')]
-    return any(Path(w).resolve() == (app_dir / 'safeer_mint.py') for w in words if os.path.isabs(w))
+    vstopa = {app_dir / ime for ime in VSTOPA}
+    return any(Path(w).resolve() in vstopa for w in words if os.path.isabs(w))
 
 
 def desktop_entry_text(existing, app_dir):
@@ -89,7 +111,10 @@ def desktop_entry_text(existing, app_dir):
         'Type': 'Application', 'Name': 'Safeer Browser',
         'Exec': command + ' %U',
         'Icon': 'safeer-browser', 'Terminal': 'false',
-        'StartupWMClass': 'safeer-browser', 'Categories': 'Network;WebBrowser;',
+        # GTK4 brskalnik: razred okna = ID aplikacije (safeer_brskalnik.py, GLib.set_prgname); GTK3: safeer-browser.
+        'StartupWMClass': ('safeer-browser' if _entry_script(app_dir).name == 'safeer_mint.py'
+                           else 'io.github.memelandfaner.SafeerBrowser'),
+        'Categories': 'Network;WebBrowser;',
     }
     for name, value in defaults.items():
         try:

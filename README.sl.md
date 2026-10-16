@@ -130,6 +130,11 @@ ob izpadu domače povezave teče skozi telefon — brez dostopne točke: glej
 WebKitGTK 6.0 (AppImage je grajen proti glibc 2.39). Starejši sistemi, npr. Linux Mint 21: uporabi
 Flatpak — GTK4 in naš WebKit prinese s sabo.
 
+Iz izvorne kode `bash install.sh` za trenutnega uporabnika namesti isti brskalnik GTK4
+(`safeer_brskalnik.py`) in preveri iste pakete kot `.deb`; `bash uninstall.sh` ga odstrani
+(`--purge` tudi profil). Starejši brskalnik GTK3 (`safeer_mint.py`, WebKit2GTK 4.1) je zastarel in se
+zažene samo s `SAFEER_BRSKALNIK_GTK3=1`.
+
 ## Gradnja iz izvorne kode
 
 ```bash

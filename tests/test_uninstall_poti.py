@@ -19,6 +19,9 @@ MAPE = {
     "profil_strani": ".config/safeer-mint/web-data/localstorage/x",
     "webkit_predpomnilnik": ".cache/safeer-browser/WebKitCache/x",
     "star_predpomnilnik": ".cache/safeer_mint.py/x",
+    # GTK4 brskalnik (privzet od 16. 10. 2026): prgname = ID aplikacije (safeer_brskalnik.py).
+    "gtk4_predpomnilnik": ".cache/io.github.memelandfaner.SafeerBrowser/WebKitCache/x",
+    "gtk4_podatki": ".local/share/io.github.memelandfaner.SafeerBrowser/storage/x",
     "webkit_podatki": ".local/share/safeer-browser/storage/x",
     "stari_podatki": ".local/share/safeer_mint.py/localstorage/x",
     "seznami": ".local/share/safeer-mint/threat-intel/x",
@@ -62,7 +65,8 @@ class PreizkusOdstranitve(unittest.TestCase):
 
     def test_brez_purge_ostane_profil(self):
         ostalo = self._pozeni()
-        self.assertEqual(ostalo, set(MAPE) - {"webkit_predpomnilnik", "star_predpomnilnik", "profil_predpomnilnik"})
+        self.assertEqual(ostalo, set(MAPE) - {"webkit_predpomnilnik", "star_predpomnilnik", "profil_predpomnilnik",
+                                                "gtk4_predpomnilnik"})
 
     def test_purge_odstrani_samo_mape_brskalnika(self):
         ostalo = self._pozeni("--purge")
@@ -75,6 +79,7 @@ class PreizkusOdstranitve(unittest.TestCase):
         self.assertIn("profil", ostalo)
         self.assertIn("seznami", ostalo)
         self.assertNotIn("webkit_predpomnilnik", ostalo)
+        self.assertNotIn("gtk4_predpomnilnik", ostalo)
 
 
 if __name__ == "__main__":
