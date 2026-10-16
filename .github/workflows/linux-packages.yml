@@ -195,11 +195,15 @@ jobs:
           test -f /usr/share/themes/Safeer-Cinnamon/cinnamon/cinnamon.css
           test -f /usr/share/themes/Safeer-Cinnamon-Kontrast/gtk-3.0/gtk.css
           test -f /usr/share/doc/safeer-cinnamon/copyright
-          for d in safeer-os safeer-os.Magnet safeer-os.Stremio safeer-os.Player safeer-control safeer-cinnamon \
+          for d in safeer-os safeer-os.Magnet safeer-os.Stremio safeer-os.Player safeer-os.splet safeer-os.sporocila \
+                   safeer-os.zapiski safeer-os.nastavitve safeer-control safeer-cinnamon \
                    safeer-cinnamon-izklopi safeer-cinnamon-od-vklopa safeer-cinnamon-od-vklopa-izklopi; do
             desktop-file-validate "/usr/share/applications/$d.desktop"
           done
           test -f /usr/share/icons/hicolor/scalable/apps/safeer-os.Player.svg
+          for i in safeer-os.splet safeer-os.sporocila safeer-os.zapiski safeer-os.nastavitve safeer-control; do
+            test -f /usr/share/icons/hicolor/scalable/apps/$i.svg
+          done
           sudo apt-get remove -y safeer-os
           for ostanek in /usr/lib/safeer-os /usr/lib/safeer-control /usr/lib/safeer-cinnamon /usr/bin/safeer-control /usr/bin/safeer-cinnamon; do
             [ ! -e "$ostanek" ] || { echo "po odstranitvi je ostalo $ostanek"; exit 1; }

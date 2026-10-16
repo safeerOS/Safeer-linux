@@ -43,7 +43,8 @@ if [ "${SAFEER_DEB_BREZ_QT:-0}" != 1 ]; then
     python3 "$DIR/packaging/pyside6_vendor.py" "$BUILD_ROOT/usr/lib/safeer-os/vendor"
 fi
 sed -i 's|^Exec=safeer-os|Exec=/usr/bin/safeer-os|' "$BUILD_ROOT/usr/share/applications/safeer-os.desktop" \
-    "$BUILD_ROOT/usr/share/applications/safeer-os.Player.desktop"
+    "$BUILD_ROOT/usr/share/applications/safeer-os.Player.desktop" \
+    "$BUILD_ROOT"/usr/share/applications/safeer-os.{splet,sporocila,zapiski,nastavitve}.desktop
 sed -i 's|^Exec=safeer-control|Exec=/usr/bin/safeer-control|' "$BUILD_ROOT/usr/share/applications/safeer-control.desktop"
 
 # GDebi (dvoklik na paket) ne namesti priporocenih paketov: kar mora delovati takoj, je v Depends.
