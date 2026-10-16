@@ -8,8 +8,16 @@ set -e
 BIN_DIR="$HOME/.local/bin"
 DESKTOP_DIR="$HOME/.local/share/applications"
 ICON_BASE="$HOME/.local/share/icons/hicolor"
-CONFIG_DIR="$HOME/.config/safeer-mint"
-CACHE_DIR="$HOME/.cache/safeer_mint.py"
+# Poti, kamor pise brskalnik iz izvorne kode (safeer_mint.py; pregled 16. 10. 2026):
+#  - profil (nastavitve, zaznamki, prijave, web-data): core/config.py CONFIG_DIR;
+#  - privzeti mapi WebKita po prgname »safeer-browser« (safeer_mint.py: GLib.set_prgname), pred tem »safeer_mint.py«;
+#  - seznami filtrov in groženj: core/threat_intel.default_data_dir("safeer-mint") (skupni s Safeer OS).
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/safeer-mint"
+CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+CACHE_DIRS=("$CACHE_HOME/safeer-browser" "$CACHE_HOME/safeer_mint.py" "$CONFIG_DIR/web-data/cache")
+# Podatki strani (piskotki, shramba, licence DRM) in preneseni seznami: samo z --purge.
+PURGE_DIRS=("$CONFIG_DIR" "$DATA_HOME/safeer-browser" "$DATA_HOME/safeer_mint.py" "$DATA_HOME/safeer-mint")
 
 echo "=========================================================="
 echo "🗑️ ODSTRANJEVANJE: Safeer Browser iz Linux sistema"
@@ -45,13 +53,30 @@ done
 
 # 6. Počisti začasne predpomnilnike in zastarele sockete
 echo "6. Čiščenje predpomnilnika in začasnih socketov..."
-rm -rf "$CACHE_DIR"
+rm -rf "${CACHE_DIRS[@]}"
 rm -f "$CONFIG_DIR/safeer.sock" "$CONFIG_DIR/safeer.lock" 2>/dev/null || true
 
-# Če je podana zastavica --purge, odstrani tudi uporabniške nastavitve in zaznamke
+# Če je podana zastavica --purge, odstrani tudi uporabniške nastavitve, zaznamke in podatke strani.
+# Profil ~/.config/safeer-mint in seznami v ~/.local/share/safeer-mint so skupni s paketom safeer-browser, Safeer OS
+# in Flatpakom: ce je kateri od njih namescen, jih ne brisemo (bili bi izgubljeni tudi tam).
 if [[ "$1" == "--purge" ]]; then
-    echo "⚠️ --purge: Odstranjevanje uporabniškega profila ($CONFIG_DIR)..."
-    rm -rf "$CONFIG_DIR"
+    DRUGI=""
+    for paket in safeer-browser safeer-os; do
+        dpkg -s "$paket" >/dev/null 2>&1 && DRUGI="$DRUGI $paket"
+    done
+    if command -v flatpak >/dev/null 2>&1 && flatpak info io.github.memelandfaner.SafeerBrowser >/dev/null 2>&1; then
+        DRUGI="$DRUGI Flatpak"
+    fi
+    if [[ -n "$DRUGI" ]]; then
+        echo "⚠️ --purge: profil ($CONFIG_DIR) uporablja tudi:$DRUGI - ostane nespremenjen."
+        echo "   Ce ga zelite vseeno odstraniti, najprej odstranite te namestitve."
+    else
+        echo "⚠️ --purge: Odstranjevanje uporabniškega profila in podatkov strani..."
+        for d in "${PURGE_DIRS[@]}"; do
+            echo "   $d"
+        done
+        rm -rf "${PURGE_DIRS[@]}"
+    fi
 fi
 
 # 7. Posodobi sistemske baze namizja in ikon
