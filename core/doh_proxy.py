@@ -172,6 +172,7 @@ class DoHResolver:
                 self.provider = provider
                 self.custom_url = c_url
                 self._cache.clear()
+                self._rezerva_do = 0.0
 
     def resolve(self, hostname: str, timeout: float = 3.5) -> Optional[str]:
         """
@@ -436,9 +437,21 @@ class DoHResolver:
             return None, 15
         if self.provider == "custom" and not je_dovoljen_doh_streznik(parsed.hostname):
             return None, 15
+        rezerva = "" if self.provider == "custom" else DOH_PROVIDERS.get(self.provider, {}).get("fallback_ip", "")
+        if rezerva == parsed.hostname:
+            rezerva = ""
         try:
             telo = self._build_dns_wire_query(hostname, qtype)
-            odgovor = _zanka_doh().poslji(base_url, telo, timeout)
+            odgovor = None
+            if not (rezerva and time.time() < self._rezerva_do):
+                try:
+                    odgovor = _zanka_doh().poslji(base_url, telo, timeout)
+                except ImeNiRazreseno:
+                    if not rezerva:
+                        return None, 15
+                    self._rezerva_do = time.time() + self.REZERVA_S
+            if odgovor is None and rezerva and time.time() < self._rezerva_do:
+                odgovor = self._poslji_na_rezervo(base_url, parsed, rezerva, telo, timeout)
             if odgovor is None:
                 return None, 15
             status, vrsta, data = odgovor
@@ -447,6 +460,29 @@ class DoHResolver:
             return self._parse_dns_wire_response(data, hostname, qtype)
         except Exception:
             return None, 15
+
+    #: Kako dolgo po neuspeli razresitvi imena ponudnika gremo naravnost na fallback_ip (brez novega cakanja na DNS).
+    REZERVA_S = 60
+    _rezerva_do = 0.0
+
+    @staticmethod
+    def _poslji_na_rezervo(base_url: str, parsed, rezerva: str, telo: bytes, timeout: float):
+        """Sistemski DNS ne razresi imena ponudnika (npr. dns.quad9.net): poizvedba gre na njegov stalni naslov IP.
+
+        libsoup 3 ne zna povezati na izbran IP in hkrati poslati SNI/Host z imenom (identiteta TLS je vedno gostitelj
+        iz URL-ja; ponarejen Gio.Resolver bi veljal za ves proces). Zato gre poizvedba na https://<IP>/..., kjer libsoup
+        potrdilo preveri obicajno (veriga in IP v SAN; preverjeno 16. 10. 2026: Quad9, AdGuard, Google imajo IP v SAN),
+        odgovor pa sprejmemo samo, ce isto potrdilo velja tudi za ime ponudnika. HTTP/2 ostane (Quad9 HTTP/1.1 zavrne s 505)."""
+        url = urllib.parse.urlunsplit((parsed.scheme, rezerva + (f":{parsed.port}" if parsed.port else ""),
+                                       parsed.path, parsed.query, ""))
+        try:
+            return _zanka_doh().poslji(url, telo, timeout, ime_potrdila=parsed.hostname)
+        except ImeNiRazreseno:
+            return None
+
+
+class ImeNiRazreseno(Exception):
+    """Sistemski DNS ni razresil imena streznika DoH (Gio.ResolverError): smiselna je rezerva na fallback_ip."""
 
 
 class _ZankaDoH:
@@ -475,8 +511,11 @@ class _ZankaDoH:
         threading.Thread(target=tek, name="safeer-doh", daemon=True).start()
         pripravljena.wait(5)
 
-    def poslji(self, url: str, telo: bytes, timeout: float) -> Optional[Tuple[int, str, bytes]]:
-        """POST application/dns-message; vrne (status, vrsta vsebine, telo) ali None (napaka, cas potekel)."""
+    def poslji(self, url: str, telo: bytes, timeout: float, ime_potrdila: str = "") -> Optional[Tuple[int, str, bytes]]:
+        """POST application/dns-message; vrne (status, vrsta vsebine, telo) ali None (napaka, cas potekel).
+
+        ime_potrdila: odgovor velja samo, ce potrdilo streznika velja tudi za to ime (rezerva na naslov IP).
+        Ce ime streznika ni razreseno, sprozi ImeNiRazreseno."""
         if self._seja is None:
             return None
         konec = threading.Event()
@@ -495,8 +534,13 @@ class _ZankaDoH:
                 def koncano(seja, rezultat, *_b) -> None:
                     try:
                         podatki = seja.send_and_read_finish(rezultat)
+                        if ime_potrdila and not _potrdilo_velja_za(sporocilo.get_tls_peer_certificate(), ime_potrdila):
+                            konec.set()
+                            return
                         vrsta = sporocilo.get_response_headers().get_content_type()[0] or ""
                         izid["o"] = (int(sporocilo.get_status()), vrsta, bytes(podatki.get_data() or b""))
+                    except GLib.Error as napaka:
+                        izid["ime"] = napaka.domain == "g-resolver-error-quark"
                     except Exception:  # noqa: BLE001
                         pass
                     konec.set()
@@ -512,7 +556,21 @@ class _ZankaDoH:
         if not konec.wait(max(0.5, timeout)):
             preklic.cancel()
             return None
+        if izid.get("ime"):
+            raise ImeNiRazreseno(url)
         return izid.get("o")
+
+
+def _potrdilo_velja_za(potrdilo, ime: str) -> bool:
+    """Potrdilo (ze preverjeno za naslov IP) velja tudi za ime ponudnika. Veriga je preverjena ob rokovanju, tu samo
+    identiteta: brez potrdila ali z BAD_IDENTITY odgovora ne sprejmemo."""
+    if potrdilo is None:
+        return False
+    try:
+        zastavice = potrdilo.verify(Gio.NetworkAddress.new(ime, 443), None)
+    except Exception:  # noqa: BLE001
+        return False
+    return not (zastavice & Gio.TlsCertificateFlags.BAD_IDENTITY)
 
 
 _zanka: Optional[_ZankaDoH] = None
