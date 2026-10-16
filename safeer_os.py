@@ -1562,6 +1562,9 @@ class SafeerOS(Gtk.Application):
         # Novo sporocilo, oznake, stanje kanala: odprte strani (razdelek Sporocila, plosca) se osvezijo takoj (niti
         # kanalov v realnem casu - lastnik, 15. 10. 2026), ne sele ob 30-sekundnem osvezevanju strani.
         os_sporocila.ob_spremembi(lambda: GLib.idle_add(lambda: (self._dogodek("sporocila", {}), False)[1]))
+        # Novo e-pismo: obvestilo namizja (kot Gmail in Outlook), klik odpre ta pogovor (lastnik, 15. 10. 2026: pismo
+        # je prislo brez znacke in brez obvestila).
+        self.sporocila.obvesti_novo = self._obvesti_novo_pismo
         #: Scit: filtriranje DNS za ves racunalnik; ce je bil vklopljen, tece od zagona naprej.
         self.scit = os_scit.Scit(self.shramba)
         # Posodobitve s safeer.si: zadnja preverba (izid, cas) in tekoce posodabljanje (prenos + namestitev v niti).
@@ -2674,6 +2677,8 @@ class SafeerOS(Gtk.Application):
         if self._plosca_spleta is None or not self._plosca_spleta.get_visible():
             return False
         self._plosca_spleta.set_visible(False)
+        if self._spletni_namizje is not None:
+            self._spletni_namizje.zapri_dialoge()      # dialog ne ostane sam nad skritim Spletom
         self._dogodek("spletNaNamizjuZaprt", None, self.pogled_delovna)
         # Takoj: predpomnilnik v pomnilniku spletnih procesov (zavihki ostanejo) in prazne strani Pythona sistemu.
         if self._spletni_namizje is not None:
@@ -3698,6 +3703,8 @@ class SafeerOS(Gtk.Application):
             "kanalDodaj": lambda: self._kanali_klic("dodaj", str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "",
                                                     str(a[2]) if len(a) > 2 else "", str(a[3]) if len(a) > 3 else ""),
             "kanalOdstrani": lambda: self._kanali_klic("odstrani", str(a[0]) if a else "", len(a) > 1 and a[1] is True),
+            # »Preklici dodajanje«: samo kanal, ki se ni v uporabi (prijava ni koncana); podatki strani ostanejo.
+            "kanalPreklici": lambda: self._kanali_klic("preklici", str(a[0]) if a else ""),
             "kanalPreimenuj": lambda: self._kanali_klic("preimenuj", str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "kanalPremakni": lambda: self._kanali_klic("premakni", str(a[0]) if a else "",
                                                        int(a[1]) if len(a) > 1 and isinstance(a[1], (int, float)) else 1),
@@ -4014,7 +4021,7 @@ class SafeerOS(Gtk.Application):
             "sporocilaOdstraniOsnutek": lambda: self.sporocila.odstrani_osnutek(str(a[0]) if a else ""),
             "sporocilaSinhroniziraj": self.sporocila.sinhroniziraj,
             "sporocilaIsci": lambda: self.sporocila.isci(str(a[0]) if a else ""),
-            "sporocilaPogovor": lambda: self.sporocila.pogovor(str(a[0]), str(a[1])),
+            "sporocilaPogovor": lambda: self.sporocila.pogovor(str(a[0]), str(a[1]), a[2] is not False if len(a) > 2 else True),
             "sporocilaPreklici": lambda: self.sporocila.preklici(str(a[0]), str(a[1]), str(a[2])),
             "sporocilaSkrivnost": lambda: self.sporocila.nastavi_skrivnost(str(a[0]), str(a[1])),
             "sporocilaOdstrani": lambda: self.sporocila.odstrani_kanal(str(a[0])),
@@ -4293,6 +4300,22 @@ class SafeerOS(Gtk.Application):
         if prekrivanje is None:
             return {"ok": False, "razlog": "okno"}
         return self._kanali().pokazi(pogled, prekrivanje, kid, pravokotnik)
+
+    def _obvesti_novo_pismo(self, kanal_id: str, pogovor_id: str, naslov: str, besedilo: str) -> None:
+        """Nit kanala -> glavna nit. Ko je okno Safeer OS aktivno, uporabnik pismo vidi v seznamu (znacka, na vrhu
+        Prejetega) in obvestila ne dobi - tako kot Gmail v ospredju. Klik na obvestilo odpre pogovor."""
+        def pokazi() -> bool:
+            if any(o.is_active() for o in Gtk.Window.list_toplevels() if isinstance(o, Gtk.Window)):
+                return False
+            cilj = "pogovor:%s:%s" % (kanal_id, pogovor_id)
+
+            def odpri() -> None:
+                GLib.idle_add(lambda: (self._odpri_razdelek(cilj) if _ima_delovno(self) or self.okno is None
+                                       else self._domov(cilj), False)[1])
+            from core import obvestila
+            obvestila.poslji(naslov or "Safeer OS", besedilo, "safeer-posta-" + kanal_id, privzeto=odpri)
+            return False
+        GLib.idle_add(pokazi)
 
     def _odpri_kanal(self, kid: str) -> None:
         """Klik na obvestilo kanala: Sporocila se odprejo na tem kanalu."""

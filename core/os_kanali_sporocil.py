@@ -239,6 +239,34 @@ class KanaliSporocil:
             self._unici(kid)
 
     # ------------------------------------------------------------------ ustvarjanje in unicenje
+    def preklici(self, kid: str) -> list:
+        """»Preklici dodajanje«: kanal, ki se ni v uporabi (dodan, prijava ni koncana), gre stran. Podatkov strani ne
+        brisemo - seja je skupna s Spletom (prijava v Spletu ostane). Kanala v uporabi ta pot nikoli ne odstrani."""
+        k = self.kanali.najdi(kid)
+        if k is None:
+            return self.seznam()
+        if not k.get("caka"):
+            raise ValueError("v_uporabi")
+        return self.odstrani(kid, False)
+
+    def _prijava_koncana(self, kid: str) -> bool:
+        """Spletni kanal je na svoji strani (npr. mail.google.com, ne accounts.google.com): prijava je koncana.
+        Namizni program nima prijave v Safeerju: v uporabi je, ko ga je uporabnik videl."""
+        k = self.kanali.najdi(kid)
+        z = self.zivi.get(kid)
+        if k is None or z is None:
+            return False
+        if z.aplikacija is None:
+            return z.program is not None or z.okno is not None
+        return spletni_klepeti.ista_stran(z.aplikacija.uri() or "", k.get("url") or "")
+
+    def _potrdi_ce_v_uporabi(self, kid: Optional[str]) -> None:
+        if not kid:
+            return
+        k = self.kanali.najdi(kid)
+        if k is not None and k.get("caka") and self._prijava_koncana(kid) and self.kanali.potrdi(kid):
+            self._sporoci()
+
     def _ustvari(self, k: dict) -> Optional[_Kanal]:
         if k["id"] in self.zivi:
             return self.zivi[k["id"]]
@@ -259,10 +287,35 @@ class KanaliSporocil:
                                             ob_obvestilu=lambda n, b, klik, kid=kid: self._obvestilo(kid, n, b, klik))
             z.aplikacija.pogled.connect("load-changed", lambda p, d, kid=kid: self._nalaganje(kid, p, d))
             z.gradnik = z.aplikacija.gradnik
+            self._tipke_preklica(z.aplikacija.pogled, kid)
         self.zivi[k["id"]] = z
         if self.poraba is not None:
             self.poraba.prikljuci(k["id"], z)
         return z
+
+    #: Esc in Nazaj (daljinec, tipka multimedijske tipkovnice) - keyval GDK.
+    TIPKE_PREKLICA = (0xff1b, 0x1008ff26)
+
+    def _tipke_preklica(self, gradnik, kid: str) -> None:
+        """Fokus je v strani kanala, zato Esc ne pride do strani Safeer OS: ujamemo ga tu (pred stranjo kanala), a
+        samo dokler kanal caka (prijava ni koncana) - takrat stran dobi dogodek »kanalPreklici«. Kanal v uporabi tipke
+        dobi nespremenjene (Esc v klepetu zapre okno odgovora ...)."""
+        try:
+            ctl = self.Gtk.EventControllerKey()
+            ctl.set_propagation_phase(self.Gtk.PropagationPhase.CAPTURE)
+            ctl.connect("key-pressed", lambda _c, keyval, _koda, _stanje, kid=kid: self._tipka(kid, keyval))
+            gradnik.add_controller(ctl)
+        except Exception as e:  # noqa: BLE001 - brez tipke ostane gumb »Preklici dodajanje«
+            print("[Sporocila] tipke kanala:", e, flush=True)
+
+    def _tipka(self, kid: str, keyval: int) -> bool:
+        if int(keyval) not in self.TIPKE_PREKLICA:
+            return False
+        k = self.kanali.najdi(kid)
+        if k is None or not k.get("caka"):
+            return False
+        self.dogodek("kanalPreklici", kid)
+        return True
 
     def _nalaganje(self, kid: str, _pogled, dogodek) -> None:
         if getattr(dogodek, "value_nick", "") != "finished":
@@ -567,6 +620,8 @@ class KanaliSporocil:
     def skrij(self, pogled) -> None:
         p = self.plasti.get(id(pogled))
         if p is not None:
+            # Uporabnik je zapustil kanal, ki je na svoji strani (prijavljen): zdaj je v uporabi, brez »Preklici«.
+            self._potrdi_ce_v_uporabi(p.get("kanal"))
             p["sklad"].set_visible(False)
             p["kanal"] = None
 

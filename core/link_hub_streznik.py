@@ -292,9 +292,13 @@ class _Namestnik:
 
 
 def _pot_povezave(povezava) -> str:
-    """'lan' ali 'rele' (krajevni konec Global Linka) za sosednjo povezavo, po njenem naslovu."""
+    """'lan', 'neposredno' (neposredna pot od zunaj, core/link_neposredno) ali 'rele' (krajevni konec Global Linka)
+    za sosednjo povezavo: po izmerjeni poti, sicer po naslovu in vratih zanke."""
     from core import link_pot
-    return link_pot.pot_naslova(str(getattr(povezava, "naslov", "") or ""))
+    pot = str(getattr(getattr(povezava, "meritev", None), "pot", "") or "")
+    if pot in link_pot.RANG_POTI:
+        return pot
+    return link_pot.pot_vticnika(str(getattr(povezava, "naslov", "") or ""), getattr(povezava, "vticnik", None))
 
 class Hub:
     """Register naprav in usmerjanje sporocil. Brez omrezja - to je HubStreznik.
@@ -1478,7 +1482,9 @@ class Hub:
             obstojeca = self._sosedje.get(sosed_id)
             if obstojeca is not None and obstojeca is not povezava:
                 nova_pot, stara_pot = _pot_povezave(povezava), _pot_povezave(obstojeca)
-                if nova_pot == "rele" and stara_pot == "lan":
+                # Boljsa pot ostane: domace omrezje > neposredno od zunaj > rele (link_pot.RANG_POTI).
+                from core import link_pot
+                if link_pot.RANG_POTI.get(nova_pot, 0) < link_pot.RANG_POTI.get(stara_pot, 0):
                     return False
                 zacetnik_stare = getattr(obstojeca, "podatki", {}).get("zacel", "")
                 if (nova_pot == stara_pot and zacetnik_stare == min(sosed_id, self.nas_id)

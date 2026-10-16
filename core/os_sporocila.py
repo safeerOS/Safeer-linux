@@ -44,7 +44,11 @@ PONUDNIKI = {
 #: Poizvedba za kanale brez potiska (Chatwoot). E-posta (IMAP IDLE), Matrix in Telegram (dolga poizvedba) sporocilo
 #: dobijo v trenutku (core/sporocila/sprotno.py); prej so vsi kanali brali zaporedoma vsakih 120 s.
 INTERVAL_S = 30
-#: Safeer Chat: sporocila med napravami v Safeer Linku (en pogovor na napravo).
+#: Slicica prve strani PDF na cipu priponke: do 25 MB (Gmail, Outlook.com: najvec 25 MB na pismo).
+MEJA_SLICICE_PDF = 25 * 1024 * 1024
+#: Velikost slicice prve strani (daljsa stranica v px): cip je 56 px, zasloni HiDPI 2x - ostra tudi pri 125 % povecavi.
+VELIKOST_SLICICE_PDF = 160
+#: Safeer Chat:sporocila med napravami v Safeer Linku (en pogovor na napravo).
 KANAL_LINKA = "safeer-link"
 VRSTA_LINKA = "safeer"
 NAJVEC_KLEPET = 16 * 1024
@@ -153,6 +157,10 @@ class SporocilaOS:
         #: Naprave v Linku, ki znajo klepet (nastavi gostitelj): [{"id", "ime"}]
         self.naprave_klepeta: Optional[Callable[[], List[dict]]] = None
         self.storitev.ob_sinhronizaciji = self._po_sinhronizaciji
+        #: Obvestilo namizja o novem pismu (nastavi gostitelj): (kanal_id, pogovor_id, naslov, besedilo). Klic je iz
+        #: niti kanala; gostitelj sam presodi, ali je uporabnik pogovor ze gleda (takrat obvestila ni).
+        self.obvesti_novo: Optional[Callable[[str, str, str, str], None]] = None
+        self.storitev.ob_novih = self._ob_novih
         self._samodejno = bool(zazeni)
         self._nalozi()
         # Izklopljena Sporocila (core/sporocila/vklop.py): storitev ne tece, nic ne preverja poste.
@@ -335,6 +343,30 @@ class SporocilaOS:
                     pass
         _sporoci()
 
+    def _ob_novih(self, kanal_id: str, nova: list) -> None:
+        """Na novo prispela pisma (storitev, nit kanala) -> eno obvestilo na pogovor, kot Gmail: »Ime« in zadeva ali
+        zacetek besedila. Tudi pismo samemu sebi (Gmail ga ima v Prejetem, pogosto ze kot prebrano): prispelo je
+        in uporabnik ga mora opaziti; obvestilo pravi »novo«, ne »neprebrano«, zato o stanju na strezniku ne lazemo."""
+        if self.obvesti_novo is None or not _vklop.sporocila_vklopljena() or kanal_id in _vklop.izklopljeni_kanali():
+            return
+        po_pogovoru: dict = {}
+        for p, oseba_id, s in nova:
+            po_pogovoru.setdefault(p.id, (p, oseba_id, []))[2].append(s)
+        for pid, (p, oseba_id, sporocila) in list(po_pogovoru.items())[-5:]:   # 50 pisem naenkrat ni 50 obvestil
+            oseba = self.storitev.graf.oseba(oseba_id) if hasattr(self.storitev.graf, "oseba") else None
+            ime = (getattr(oseba, "ime", "") or "").strip() or pid
+            if len(sporocila) > 1:
+                ime = "%s (%d)" % (ime, len(sporocila))
+            zadnje = sporocila[-1]
+            besedilo = (p.zadeva or "").strip()
+            povzetek = " ".join((zadnje.besedilo or "").split())[:160]
+            if povzetek and povzetek != besedilo:
+                besedilo = (besedilo + " - " + povzetek) if besedilo else povzetek
+            try:
+                self.obvesti_novo(kanal_id, pid, ime, besedilo)
+            except Exception as e:  # noqa: BLE001 - obvestilo ne sme ustaviti niti kanala
+                print("[Sporocila] obvestilo:", type(e).__name__, flush=True)
+
     def odstrani_kanal(self, kanal_id: str) -> dict:
         self.storitev.odstrani_kanal(str(kanal_id))
         _vklop.pozabi_kanal(str(kanal_id))
@@ -434,9 +466,11 @@ class SporocilaOS:
     def osebe(self) -> list:
         return [o.slovar() for o in self.storitev.graf.vse()]
 
-    def pogovor(self, kanal_id: str, pogovor_id: str) -> list:
-        self.storitev.oznaci_prebrano(kanal_id, pogovor_id)
-        _sporoci()
+    def pogovor(self, kanal_id: str, pogovor_id: str, oznaci: bool = True) -> list:
+        """Sporocila pogovora. oznaci=False: osvezitev, ki je uporabnik ne vidi (okno v ozadju) - neprebrana ostanejo."""
+        if oznaci:
+            self.storitev.oznaci_prebrano(kanal_id, pogovor_id)
+            _sporoci()
         sporocila = self.storitev.sporocila(kanal_id, pogovor_id)
         ids = [s.id for s in sporocila if s.id.startswith("uid:")]
         if ids and getattr(self.storitev.adapterji.get(kanal_id), "vrsta", "") == "email":
@@ -854,16 +888,36 @@ class SporocilaOS:
         return {"ok": not napake, "poti": poti, "napake": napake, "mapa": mapa_prejemov()}
 
     def priponka_slicica(self, kanal_id: str, sporocilo_id: str, kljuc: str) -> str:
-        """Slicica slike za mehurcek (pot datoteke; "" ce je ni). Samo slike do 10 MB - kot Gmail, brez cakanja."""
+        """Slicica za cip priponke (pot datoteke; "" ce je ni): slike do 10 MB in prva stran PDF do 25 MB - kot Gmail,
+        ki pri PDF-ju pokaze prvo stran (lastnik, 15. 10. 2026: »PDF nima predogleda«)."""
         _a, _s, p = self._najdi_priponko(kanal_id, sporocilo_id, kljuc)
-        if predogled_datotek.vrsta_predogleda(p.get("ime", ""), p.get("tip", "")) != "slika" or \
-                int(p.get("velikost") or 0) > 10 * 1024 * 1024:
+        vrsta = predogled_datotek.vrsta_predogleda(p.get("ime", ""), p.get("tip", ""))
+        if vrsta == "pdf" and not predogled_datotek.je_nevarna(p.get("ime", ""), p.get("tip", "")) \
+                and int(p.get("velikost") or 0) <= MEJA_SLICICE_PDF:
+            return self._slicica_pdf(kanal_id, sporocilo_id, kljuc)
+        if vrsta != "slika" or int(p.get("velikost") or 0) > 10 * 1024 * 1024:
             return ""
         pot, _p = self.priponka_v_predpomnilnik(kanal_id, sporocilo_id, kljuc)
         if pot.lower().endswith((".svg", ".gif", ".avif", ".ico")) or os.path.getsize(pot) <= 300 * 1024:
             return pot                       # majhna slika ali vektor: brez pomanjsevanja (animacija GIF ostane)
         # Slicica ostane v vnosu priponke (drugic brez branja velike slike).
         return predpomnilnik.slicica(pot, self.mapa_vnosa(kanal_id, sporocilo_id, kljuc)) or pot
+
+    def _slicica_pdf(self, kanal_id: str, sporocilo_id: str, kljuc: str) -> str:
+        """Prva stran PDF kot PNG v vnosu priponke (slicica-pdf.png). pdftoppm tece v svojem procesu s casovno mejo
+        (core/os_datoteke.slika_prve_strani) - pokvarjen PDF iz poste ne more podreti Safeer OS. Brez orodja ali ob
+        napaki "" (cip ostane z ikono dokumenta, predogled ob kliku dela s PDF.js WebKita)."""
+        from . import os_datoteke
+        vnos = self.mapa_vnosa(kanal_id, sporocilo_id, kljuc)
+        cilj = os.path.join(vnos, "slicica-pdf.png")
+        if os.path.isfile(cilj):
+            predpomnilnik.uporabi(cilj)
+            return cilj
+        if not shutil.which("pdftoppm"):
+            return ""                            # brez orodja niti ne prenasamo PDF-ja samo zaradi slicice
+        pot, _p = self.priponka_v_predpomnilnik(kanal_id, sporocilo_id, kljuc)
+        os.makedirs(vnos, mode=0o700, exist_ok=True)
+        return cilj if os_datoteke.slika_prve_strani(pot, cilj, VELIKOST_SLICICE_PDF) else ""
 
     def html_pisma(self, kanal_id: str, sporocilo_id: str, jezik: str = "sl", slike: bool = False,
                    je_blokirano: Optional[Callable[[str], bool]] = None,

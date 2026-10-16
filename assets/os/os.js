@@ -3933,8 +3933,11 @@
     if (dejanja.children.length) m.appendChild(dejanja);
   }
   function cipPriponke(kanal, s, a) {
-    var slika = a.predogled === "slika" && !a.nevarna && a.velikost <= 10 * 1024 * 1024;
-    var c = el("div", "priponka" + (a.nevarna ? " nevarna" : "") + (slika ? " s-sliko" : ""));
+    // Slicica: slike in prva stran PDF (kot Gmail; lastnik 15. 10. 2026: »PDF nima predogleda«). Meje so iste kot v
+    // core/os_sporocila.priponka_slicica; brez slicice (npr. brez pdftoppm) cip ostane z ikono.
+    var pdf = a.predogled === "pdf" && !a.nevarna && a.velikost <= 25 * 1024 * 1024;
+    var slika = pdf || (a.predogled === "slika" && !a.nevarna && a.velikost <= 10 * 1024 * 1024);
+    var c = el("div", "priponka" + (a.nevarna ? " nevarna" : "") + (slika ? " s-sliko" : "") + (pdf ? " s-stranjo" : ""));
     var glavni = el("button", "priponka-odpri"); glavni.type = "button";
     glavni.innerHTML = '<span class="priponka-ikona">' + svg(ikonaPriponke(a)) + '</span><span class="priponka-besedilo"><b>' +
       ubezi(a.ime) + '</b><small>' + ubezi((a.velikost ? velikost(a.velikost) : "") + (a.nevarna ? " · " + t("priponkaNevarna") : "")) + "</small></span>";
@@ -4208,12 +4211,23 @@
   }
   var sporocilaZahteva = 0, sporocilaNaDno = "";
   // odpiranje = uporabnik je pogovor odprl sam (klik, poslano sporocilo): pogled gre na zadnje sporocilo.
+  function uporabnikVidi() {
+    return document.visibilityState !== "hidden" && (typeof document.hasFocus !== "function" || document.hasFocus());
+  }
+  // Vrnitev v okno z odprtim pogovorom, ki ima medtem prispela neprebrana pisma: zdaj jih uporabnik vidi.
+  if (typeof window.addEventListener === "function") window.addEventListener("focus", function () {
+    var a = S.sporocilaAktivni;
+    if (S.razdelek === "sporocila" && a && Number(a.neprebrano) > 0) naloziVsebinoPogovora(a, false);
+  });
   function naloziVsebinoPogovora(pogovor, odpiranje) {
     var kljuc = pogovor.kanal_id + "\u0001" + pogovor.id, zahteva = ++sporocilaZahteva;
     // Velja do prvega izrisa TEGA pogovora, tudi ce ga narise odgovor na poznejso zahtevo: po poslanem sporocilu
     // osvezitev seznama pogovor zahteva se enkrat (brez »odpiranje«), odgovor na prvo zahtevo pa se zavrze.
     if (odpiranje) sporocilaNaDno = kljuc;
-    klic("sporocilaPogovor", [pogovor.kanal_id, pogovor.id]).then(function (seznam) {
+    // Branje pogovora ga oznaci kot prebranega (tudi na strezniku). Osvezitev v ozadju - okno ni v ospredju ali je
+    // skrito - pisem, ki jih uporabnik ni videl, ne sme oznaciti: ostanejo neprebrana z znacko in obvestilom, kot v
+    // Gmailu in Outlooku (lastnik, 15. 10. 2026: novo pismo je prislo brez znacke). Oznaci jih vrnitev v okno.
+    klic("sporocilaPogovor", [pogovor.kanal_id, pogovor.id, !!odpiranje || uporabnikVidi()]).then(function (seznam) {
       // Uporabnik je medtem odprl drug pogovor, ali pa je za tega ze poslana novejsa zahteva (odgovori ne pridejo
       // nujno v vrstnem redu zahtev - starejsi ne sme povoziti novejsega).
       if (S.sporocilaAktivni !== pogovor || zahteva !== sporocilaZahteva) return;
@@ -6741,6 +6755,7 @@
     katDogodek(vrsta, podatki);
     // Vgrajeni kanali Sporocil: znacka neprebranih, nalozen, ime; vklop celotnih Sporocil.
     if (vrsta === "kanaliSporocil") vkPosodobi(podatki);
+    if (vrsta === "kanalPreklici") vkPrekliciDodajanje(String(podatki || ""));
     if (vrsta === "kanaliKatalog" && $("slojKanal") && $("slojKanal").classList.contains("viden")) vkOsveziKatalog();
     if (vrsta === "sporocilaVklop") { if (S.zacetek) S.zacetek.sporocila = podatki !== false; uskladiVklopSporocil(); narisiNastavitveDelov(); }
     if (vrsta === "priponkaNapredek" && podatki) napredekPriponke(podatki);
@@ -7374,7 +7389,8 @@
      namizja - v Sporocilih, ne v drugem oknu. Kanal je pogled vgrajenega Spleta (ena prijava s Spletom) ali vstavljeno
      okno programa; Safeer OS ga postavi nad to stran na mesto #vgrajenKanalVsebina (core/os_kanali_sporocil.py). Ta stran
      pove le pravokotnik in kdaj ga skriti (sloj, meni, drug kanal ali razdelek). Katalog je core/spletni_klepeti.py. */
-  var VK = { kanali: [], aktivni: "", katalog: null, skrit: false, opazovalec: null, urejan: null };
+  var VK = { kanali: [], aktivni: "", katalog: null, skrit: false, opazovalec: null, urejan: null, prej: null };
+  IK.smeti = "M4 7h16 M9 7V4h6v3 M6 7l1 13h10l1-13 M10 11v6 M14 11v6";
   function vkKanal(id) { return VK.kanali.find(function (k) { return k.id === id; }) || null; }
   // Dejanje s kanalom (dodaj, vklop, premik ...): ce Safeer OS ne odgovori v 20 s, je to napaka - nikoli tisina
   // (zivi preizkus 15. 10. 2026: klik »Dodaj v Sporocila« brez odgovora ni pokazal nicesar).
@@ -7439,6 +7455,8 @@
     var znak = vkZnak(k, "kanal-znak"); znak.id = "vgrajenKanalZnak"; $("vgrajenKanalZnak").replaceWith(znak);
     var splet = k.vrsta === "splet";
     ["vgrajenKanalNazaj", "vgrajenKanalOsvezi", "vgrajenKanalDomov", "vgrajenKanalSplet"].forEach(function (g) { $(g).hidden = !splet; });
+    vkPonastaviOdstrani();
+    $("vgrajenKanalPreklici").hidden = !k.caka;
     narisiKanale();
     vkSporocilo("");
     if (k.vrsta === "program" && k.namescen === false) { vkSporocilo(t("kanalProgramNi", { ime: k.ime })); return; }
@@ -7459,12 +7477,13 @@
     var p = $("vgrajenKanalSporocilo"); if (!p) return;
     p.textContent = besedilo; p.hidden = !besedilo;
   }
-  function zapriVgrajenKanal() {
+  function zapriVgrajenKanal(brezSkrij) {
     if (!VK.aktivni) return;
     VK.aktivni = "";
     var n = document.querySelector(".nabiralnik"); if (n) n.classList.remove("kanal-odprt");
     if ($("vgrajenKanal")) $("vgrajenKanal").hidden = true;
-    klic("kanalSkrij").catch(function () {});
+    // brezSkrij: kanal gre stran (preklic) - Safeer OS ga skrije sam; »kanalSkrij« bi ga pred tem lahko potrdil.
+    if (brezSkrij !== true) klic("kanalSkrij").catch(function () {});
     narisiKanale();
   }
   function osveziVgrajenKanal() {
@@ -7472,6 +7491,41 @@
     var k = vkKanal(VK.aktivni);
     if (!k || !k.vklopljen) { zapriVgrajenKanal(); return; }
     $("vgrajenKanalIme").textContent = k.ime;
+    $("vgrajenKanalPreklici").hidden = !k.caka;
+  }
+  /* »Preklici dodajanje« (lastnik, 15. 10. 2026: Gmail se je dodal takoj in odprl prijavo Googla, nazaj ni bilo poti):
+     kanal, ki se ni v uporabi (prijava ni koncana, core/os_kanali_sporocil.preklici), gre stran in uporabnik je spet
+     tam, kjer je bil pred carovnikom. Tudi Esc in Nazaj na daljincu (tipko v kanalu ujame Safeer OS, dogodek
+     »kanalPreklici«). Kanala v uporabi ta pot ne odstrani - za to je »Odstrani kanal« s potrditvijo. */
+  function vkPrekliciDodajanje(id) {
+    var k = vkKanal(id || VK.aktivni);
+    if (!k || !k.caka) return false;
+    var prej = VK.prej || {}; VK.prej = null;
+    if (VK.aktivni === k.id) zapriVgrajenKanal(true);
+    klicKanala("kanalPreklici", [k.id]).then(function (s) {
+      vkPosodobi(s);
+      obvesti(t("kanalDodajanjePreklicano", { ime: k.ime }));
+      if (prej.kanal && prej.kanal !== k.id && vkKanal(prej.kanal)) odpriVgrajenKanal(prej.kanal);
+      else if (prej.razdelek && prej.razdelek !== S.razdelek) pojdi(prej.razdelek);
+    }).catch(vkNapaka);
+    return true;
+  }
+  // »Odstrani kanal« v orodni vrstici kanala: ena potrditev (drugi klik v 5 s), brez brisanja podatkov strani.
+  var vkOdstraniRok = 0;
+  function vkPonastaviOdstrani() {
+    var b = $("vgrajenKanalOdstrani"); if (!b) return;
+    clearTimeout(vkOdstraniRok); b.classList.remove("potrdi"); b.title = t("odstraniKanal");
+  }
+  function vkOdstraniAktivni() {
+    var b = $("vgrajenKanalOdstrani"), k = vkKanal(VK.aktivni); if (!k) return;
+    if (!b.classList.contains("potrdi")) {
+      b.classList.add("potrdi"); b.title = t("odstraniKanalPotrdi"); obvesti(t("odstraniKanalPotrdi"));
+      vkOdstraniRok = setTimeout(vkPonastaviOdstrani, 5000);
+      return;
+    }
+    vkPonastaviOdstrani();
+    zapriVgrajenKanal();
+    klicKanala("kanalOdstrani", [k.id, false]).then(vkPosodobi).catch(vkNapaka);
   }
   // Sloj (pogovorno okno), meni ali obvestilo nad vsebino: kanal je nad stranjo, zato se med tem skrije.
   function vkUskladiSloje() {
@@ -7559,6 +7613,8 @@
   }
   function dodajVgrajeni(p, gumb) {
     $("kanalNapaka").hidden = true;
+    // Kje je bil uporabnik pred carovnikom: »Preklici dodajanje« ga vrne tja.
+    VK.prej = { razdelek: S.razdelek, kanal: VK.aktivni };
     if (gumb) gumb.disabled = true;          // med cakanjem: brez dvojnega dodajanja
     klicKanala("kanalDodaj", [p.katalog || "", p.url || "", p.ime || "", p.pot || ""]).then(function (s) {
       if (gumb) gumb.disabled = false;
@@ -7638,6 +7694,14 @@
       });
     });
     $("vgrajenKanalUredi").addEventListener("click", function () { var k = vkKanal(VK.aktivni); if (k) odpriUrejanjeVgrajenega(k); });
+    $("vgrajenKanalPreklici").addEventListener("click", function () { vkPrekliciDodajanje(VK.aktivni); });
+    $("vgrajenKanalOdstrani").addEventListener("click", vkOdstraniAktivni);
+    if ($("kanalZapri")) $("kanalZapri").addEventListener("click", zapriSloje);
+    // Esc na strani (fokus ni v kanalu): enako kot »Preklici dodajanje«, ce je odprt kanal se v cakanju.
+    document.addEventListener("keydown", function (e) {
+      if ((e.key !== "Escape" && e.key !== "BrowserBack") || !VK.aktivni || document.querySelector(".sloj.viden")) return;
+      if (vkPrekliciDodajanje(VK.aktivni)) { e.preventDefault(); e.stopImmediatePropagation(); }
+    }, true);
     // Sloji in meni nad vsebino skrijejo kanal (je nad stranjo); velikost in premik okna mu sledita.
     VK.opazovalec = new MutationObserver(vkUskladiSloje);
     document.querySelectorAll(".sloj").forEach(function (s) { VK.opazovalec.observe(s, { attributes: true, attributeFilter: ["class"] }); });
