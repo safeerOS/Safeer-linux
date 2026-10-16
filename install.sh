@@ -14,9 +14,11 @@ echo "=========================================================="
 echo "🛡️ NAMEŠČANJE: Safeer Browser za Linux Mint"
 echo "=========================================================="
 
-# Preveri potrebne sistemske pakete (Python, GTK3, WebKit2GTK)
+# Preveri potrebne sistemske pakete. install.sh zazene safeer_mint.py (GTK3, WebKit2 4.1), zato velja isti seznam kot
+# Depends paketa build_deb.sh s SAFEER_BRSKALNIK_GTK3=1 (test tests/test_install_odvisnosti.py). Brez gir1.2-soup-3.0
+# brskalnik na svezem sistemu pade ob zagonu: core/doh_proxy.py zahteva Soup 3.0.
 MISSING_PKGS=()
-for pkg in python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-webkit2-4.1; do
+for pkg in python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-webkit2-4.1 gir1.2-soup-3.0 gir1.2-glib-2.0; do
     if ! dpkg -s "$pkg" >/dev/null 2>&1; then
         MISSING_PKGS+=("$pkg")
     fi
