@@ -643,7 +643,8 @@ class DebWebkitTests(unittest.TestCase):
         self.assertNotIn('restore-keys',posel+profil)
         # Isti Speedometer kot ucni tek Flatpaka.
         self.assertIn('1386415be8fef2f6b6bbdbe1828872471c5d802a',(self.WEBKIT_DEB/'ucni_tek.sh').read_text())
-        self.assertIn('1386415be8fef2f6b6bbdbe1828872471c5d802a',potek.split('\n  webkit-pgo-ucenje:\n',1)[1])
+        # Pripeta kopija Flatpaka je od gtk4-integracija v packaging/webkit/pgo.py (vir PGO kot type: file s sha256).
+        self.assertIn('1386415be8fef2f6b6bbdbe1828872471c5d802a',(ROOT/'packaging/webkit/pgo.py').read_text())
         for ime,paket,skripta in (('brskalnik','safeer-browser','build_deb.sh'),('safeer-os','safeer-os','build_os_deb.sh')):
             with self.subTest(posel=ime):
                 del_=potek.split('\n  %s:\n'%ime,1)[1].split('\n  mint:\n' if ime=='safeer-os' else '\n  safeer-os:\n',1)[0]
