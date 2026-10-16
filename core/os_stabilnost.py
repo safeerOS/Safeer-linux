@@ -21,6 +21,7 @@ import json
 import os
 import sys
 import threading
+import time
 from typing import Callable, Optional
 
 NAJVECJI_DNEVNIK = 256 * 1024
@@ -134,9 +135,42 @@ def zakleni_primerek(ime: str):
         return None
 
 
+#: Zgornja meja mehke omejitve odprtih datotek, na katero jo dvignemo (trda meja je lahko 1048576).
+NAJVEC_DATOTEK = 65536
+
+
+def dvigni_omejitev_datotek() -> int:
+    """Mehko omejitev odprtih datotek (RLIMIT_NOFILE) dvigne do trde (najvec NAJVEC_DATOTEK) in vrne novo mehko mejo.
+    Lastnik, 16. 10. 2026, 20:12: Safeer OS (--delovna, 14 h) je ob odpiranju Sporocil koncal s SIGTRAP - WebKit ob
+    zagonu novega spletnega procesa pokliče g_error("Failed to create memfd"), ko memfd_create ne dobi deskriptorja
+    (EMFILE). Mehka meja je bila 1024; novi proces je imel po 16 minutah ze 204 odprte deskriptorje (132 vticnic).
+    GLib in Python (selectors/epoll) select() z mejo 1024 ne uporabljata, zato je visja meja varna."""
+    try:
+        import resource
+        mehka, trda = resource.getrlimit(resource.RLIMIT_NOFILE)
+        cilj = NAJVEC_DATOTEK if trda == resource.RLIM_INFINITY else min(trda, NAJVEC_DATOTEK)
+        if mehka != resource.RLIM_INFINITY and mehka < cilj:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (cilj, trda))
+            return cilj
+        return mehka
+    except (ImportError, ValueError, OSError):
+        return -1
+
+
+#: Kako pogosto se med delom preveri velikost sled.log.
+OBREZI_SLED_VSAKIH_S = 600
+
+
+def _obrezuj_periodicno(pot: str) -> None:
+    while True:
+        time.sleep(OBREZI_SLED_VSAKIH_S)
+        _obrezi(pot)
+
+
 def vkljuci(ime_programa: str = "safeer-os") -> str:
     """Vklopi zapisovanje sledi in dnevnik neujetih izjem. Vrne pot dnevnika sledi."""
     global _datoteka
+    dvigni_omejitev_datotek()
     pot = os.path.join(_mapa(ime_programa), "sled.log")
     try:
         _obrezi(pot)
@@ -144,6 +178,9 @@ def vkljuci(ime_programa: str = "safeer-os") -> str:
         _datoteka.write("\n=== %s zagon %d (%s) ===\n" % (
             ime_programa, os.getpid(), datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         faulthandler.enable(file=_datoteka, all_threads=True)
+        # Zaganjalnik sem preusmeri stderr Pythona in WebKita (packaging/safeer-os-launcher): med dolgim delom omejimo
+        # velikost tudi tu, ne le ob zagonu.
+        threading.Thread(target=_obrezuj_periodicno, args=(pot,), name="safeer-sled-obrezi", daemon=True).start()
     except Exception as e:  # noqa: BLE001
         print("[stabilnost] sledi ni mogoce zapisovati:", e)
 
