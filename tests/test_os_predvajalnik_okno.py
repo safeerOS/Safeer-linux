@@ -244,7 +244,7 @@ class Okno(_Lupina):
         # Glavno okno ostane, kot je bilo: ista stran, isto ime za upravitelja oken.
         glavno = vir[vir.index("def _ustvari_okno"):vir.index("def _ustvari_vrstico")]
         self.assertIn('self._nov_pogled("index.html" + ("?namizje=1" if self.namizje else ""))', glavno)
-        # Razred »safeer-os« (StartupWMClass) za vsa okna Safeer OS (_razred_okna, pregled celovitosti 15. 10. 2026).
+        # Glavno okno: razred »safeer-os« (StartupWMClass vnosa Safeer OS); druga okna svojega (OKNA_V_PULTU).
         self.assertIn('_razred_okna(okno)', glavno)
         self.assertTrue(os.path.isfile(os.path.join(KOREN, "assets", "os", "predvajalnik.svg")))
         # Okno z videom (domaci predvajalnik) je v pultu v skupini Safeer Player.

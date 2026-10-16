@@ -65,6 +65,22 @@ fi
 
 DNEVNIK="${XDG_CACHE_HOME:-$HOME/.cache}/safeer-os/dnevnik.log"
 mkdir -p "$(dirname "$DNEVNIK")" 2>/dev/null
+# stderr Pythona in WebKita (g_error, g_critical, opozorila GTK) gre v sled.log, ce ni terminala. Lastnik, 16. 10. 2026:
+# Safeer OS je ob odpiranju Sporocil koncal s SIGTRAP (fatalno sporocilo WebKita), safeer-cinnamon pa je stderr poslal
+# v /dev/null - besedilo napake je bilo izgubljeno. Velikost omejimo ob vsakem zagonu (tu) in med delom
+# (core/os_stabilnost.vkljuci), da dolg dan z opozorili ne napolni diska.
+SLED="${XDG_CACHE_HOME:-$HOME/.cache}/safeer-os/sled.log"
+NAJVEC_SLEDI=262144
+obrezi_sled() {
+    local velikost
+    velikost=$(stat -c %s "$SLED" 2>/dev/null || echo 0)
+    if [ "$velikost" -gt "$NAJVEC_SLEDI" ]; then
+        local rep
+        rep="$(tail -c $((NAJVEC_SLEDI / 2)) "$SLED" 2>/dev/null)"
+        # Isti inode (ne mv): ce kaj se pise vanj, pise naprej v isto datoteko.
+        { echo "... (starejsi zapisi so odrezani)"; printf '%s\n' "$rep"; } > "$SLED" 2>/dev/null || true
+    fi
+}
 
 # Puts the Cinnamon panel back if Safeer OS left it hidden. Idempotent: with nothing stored it is a
 # no-op, so it is safe to call on every non-clean exit.
@@ -78,7 +94,12 @@ zacetek_okna=$(date +%s)
 zagonov=0
 
 while :; do
-    "$PY" "$APP_DIR/safeer_os.py" "$@"
+    if [ -t 2 ]; then
+        "$PY" "$APP_DIR/safeer_os.py" "$@"
+    else
+        obrezi_sled
+        "$PY" "$APP_DIR/safeer_os.py" "$@" 2>>"$SLED"
+    fi
     koda=$?
     [ "$koda" -eq 0 ] && exit 0                       # normal exit: Safeer OS already restored the panel
     if [ "$koda" -lt 128 ]; then                      # ordinary error: report it, do not loop

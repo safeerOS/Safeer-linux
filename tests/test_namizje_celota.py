@@ -6,7 +6,7 @@
 * videz: barve iz enega vira (assets/os/tokens.css) za strani WebKit in namizje QML (prej zelena #54d6a5 v QML, modra
   drugod); kontrast in velikost besedila sistema dosezeta tudi QML;
 * tipkovnica: Gumb, Escape zapre vrhnji sloj, puscice v Datotekah in Programih, nacin za kavc na delovni povrsini;
-* okna: vsa okna Safeer OS imajo razred »safeer-os« (StartupWMClass) in ikono Safeer OS;
+* okna: vsako okno Safeer OS ima svoj razred (StartupWMClass) in svojo ikono (16. 10. 2026, tests/test_okna_ikone.py);
 * zaslon: namizje QML ob spremembi locljivosti znova postavi dock (kot delovna povrsina WebKit).
 """
 import importlib.util
@@ -239,8 +239,9 @@ class Okna(unittest.TestCase):
         okno = mock.MagicMock()
         with mock.patch.object(so.x11, "nastavi_razred") as razred, mock.patch.object(so, "_ikona_safeer_os", return_value="safeer-os"):
             so._razred_okna(okno, "Splet")
-        razred.assert_called_once_with(okno, "safeer-os.Splet", "safeer-os")
-        okno.set_icon_name.assert_called_once_with("safeer-os")
+        # Od 16. 10. 2026 ima Splet svoj razred in ikono (prej skupna »safeer-os« - Splet in Sporocila enaka v docku).
+        razred.assert_called_once_with(okno, "safeer-os.splet", "safeer-os.splet")
+        self.assertEqual(okno.set_icon_name.call_count, 1)
 
 
 class NamizjeQmlZivo(unittest.TestCase):

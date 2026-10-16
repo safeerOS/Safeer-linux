@@ -1996,6 +1996,27 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
     def log_message(self, *_a) -> None:
         pass
 
+    #: Kako dolgo povezava keep-alive (HTTP/1.1) caka na naslednjo zahtevo. Prej brez roka: naprave Linka so odpirale
+    #: nove povezave, stare pa so ostale odprte, vsaka s svojo nitjo - po 16 minutah 41 povezav z dveh naprav, po urah
+    #: vec kot 1024 deskriptorjev in WebKit je ob odpiranju Sporocil koncal s SIGTRAP (lastnik, 16. 10. 2026).
+    #: Rok velja samo za cakanje na zahtevo; obravnava (WebSocket, tok zaslona, datoteke) ima svoje roke kot prej.
+    ROK_CAKANJA_ZAHTEVE_S = 120.0
+
+    def handle_one_request(self) -> None:
+        try:
+            self.connection.settimeout(self.ROK_CAKANJA_ZAHTEVE_S)
+        except OSError:
+            pass
+        super().handle_one_request()
+
+    def parse_request(self) -> bool:
+        # Vrstica zahteve je prebrana: naprej velja rok streznika po rokovanju (link_tls.RokovanjeVNiti), kot doslej.
+        try:
+            self.connection.settimeout(getattr(self.server, "rok_po_rokovanju", None))
+        except OSError:
+            pass
+        return super().parse_request()
+
     # ------------------------------------------------------------------ pomozno
     @property
     def _hub(self) -> "Hub":

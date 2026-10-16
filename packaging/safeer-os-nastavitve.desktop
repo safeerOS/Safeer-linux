@@ -1,0 +1,20 @@
+[Desktop Entry]
+Type=Application
+Name=Safeer OS settings
+Name[sl]=Nastavitve Safeer OS
+Name[de]=Safeer OS-Einstellungen
+Name[es]=Ajustes de Safeer OS
+Name[fr]=Paramètres de Safeer OS
+Name[it]=Impostazioni di Safeer OS
+Comment=Choose how Safeer OS works
+Comment[sl]=Izberi, kako deluje Safeer OS
+Comment[de]=Lege fest, wie Safeer OS arbeitet
+Comment[es]=Elige cómo funciona Safeer OS
+Comment[fr]=Choisis comment fonctionne Safeer OS
+Comment[it]=Scegli come funziona Safeer OS
+Exec=safeer-os --razdelek nastavitve
+Icon=safeer-os.nastavitve
+Terminal=false
+# Okno Safeer OS s svojo ikono v pultu in docku (safeer_os.OKNA_V_PULTU); v meniju je Safeer OS, zato se vnos ne kaze.
+NoDisplay=true
+StartupWMClass=safeer-os.nastavitve

@@ -1,0 +1,20 @@
+[Desktop Entry]
+Type=Application
+Name=Messages
+Name[sl]=Sporočila
+Name[de]=Nachrichten
+Name[es]=Mensajes
+Name[fr]=Messages
+Name[it]=Messaggi
+Comment=All your messages in Safeer OS
+Comment[sl]=Vsa tvoja sporočila v Safeer OS
+Comment[de]=Alle deine Nachrichten in Safeer OS
+Comment[es]=Todos tus mensajes en Safeer OS
+Comment[fr]=Tous tes messages dans Safeer OS
+Comment[it]=Tutti i tuoi messaggi in Safeer OS
+Exec=safeer-os --razdelek sporocila
+Icon=safeer-os.sporocila
+Terminal=false
+# Okno Safeer OS s svojo ikono v pultu in docku (safeer_os.OKNA_V_PULTU); v meniju je Safeer OS, zato se vnos ne kaze.
+NoDisplay=true
+StartupWMClass=safeer-os.sporocila

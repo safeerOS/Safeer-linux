@@ -1,0 +1,20 @@
+[Desktop Entry]
+Type=Application
+Name=Notes
+Name[sl]=Zapiski
+Name[de]=Notizen
+Name[es]=Notas
+Name[fr]=Notes
+Name[it]=Note
+Comment=Notes in Safeer OS
+Comment[sl]=Zapiski v Safeer OS
+Comment[de]=Notizen in Safeer OS
+Comment[es]=Notas en Safeer OS
+Comment[fr]=Notes dans Safeer OS
+Comment[it]=Note in Safeer OS
+Exec=safeer-os --razdelek zapiski
+Icon=safeer-os.zapiski
+Terminal=false
+# Okno Safeer OS s svojo ikono v pultu in docku (safeer_os.OKNA_V_PULTU); v meniju je Safeer OS, zato se vnos ne kaze.
+NoDisplay=true
+StartupWMClass=safeer-os.zapiski

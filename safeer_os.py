@@ -1361,27 +1361,64 @@ def _prozorno_okno(okno) -> None:
 #: Razred oken Safeer OS za pult (WM_CLASS res_class) - enak StartupWMClass v packaging/safeer-os.desktop.
 RAZRED_SAFEER_OS = "safeer-os"
 
+#: Vsako okno Safeer OS ima v pultu in docku svoj vnos (.desktop), svoj razred in svojo ikono. Lastnik, 16. 10. 2026:
+#: »na stranskem docku imata Sporocila in Splet enako ikono - uporabnik se zmede«; do 0.4.84 so imela vsa okna razred
+#: »safeer-os« in ikono Safeer OS. vloga -> pripona; razred okna (res_name = res_class = StartupWMClass) je
+#: »safeer-os.<pripona>«, vnos in ikona v paketu »<ID>.<pripona>« (.deb: safeer-os.splet, Flatpak:
+#: io.github.memelandfaner.SafeerOS.splet - Flatpak izvozi samo imena z ID-jem spredaj). Male crke: Plank (bamf)
+#: razred okna spremeni v male crke in ga isce med imeni vnosov. Slika ikone je assets/os/<pripona>.svg.
+#: Safeer Player ima svoj vnos ze od prej (WMCLASS_PREDVAJALNIKA, packaging/safeer-player.desktop).
+OKNA_V_PULTU = ("splet", "sporocila", "zapiski", "nastavitve")
+#: Okna, ki sodijo k drugemu programu: Medijski center (stran vira) in njegov dialog sta del Safeer Playerja.
+_OKNA_PREDVAJALNIKA = ("Medijski", "Dialog")
 
-def _ikona_safeer_os() -> str:
-    """Ime ikone Safeer OS, kot jo je namestil paket: .deb »safeer-os«, Flatpak ID programa. Prej so imela okna ikono
-    »safeer-browser«, ki je brez Safeer Browserja ni (pregled celovitosti 15. 10. 2026)."""
+
+def _ime_ikone(imena, slika: str = "") -> str:
+    """Prvo ime iz `imena`, ki ga ima tema ikon (ikona iz paketa: .deb »safeer-os…«, Flatpak »<ID>…«). Brez namescenega
+    paketa (izvorna mapa) ikona iz assets/os pod imenom `slika`; brez zaslona prvo ime."""
     try:
         tema = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
-        for ime in ("safeer-os", APP_ID):
+        for ime in imena:
             if tema.has_icon(ime):
                 return ime
+        if slika:
+            mapa = os.path.join(KOREN, "assets", "os")
+            if mapa not in (tema.get_search_path() or []):
+                tema.add_search_path(mapa)
+            if tema.has_icon(slika):
+                return slika
     except Exception:  # noqa: BLE001 - brez zaslona: ime iz paketa .deb
         pass
-    return "safeer-os"
+    return imena[0]
+
+
+def _ikona_safeer_os(pripona: str = "") -> str:
+    """Ime ikone okna Safeer OS (pripona: ».splet« …), kot jo je namestil paket: .deb »safeer-os«, Flatpak ID programa.
+    Prej so imela okna ikono »safeer-browser«, ki je brez Safeer Browserja ni (pregled celovitosti 15. 10. 2026)."""
+    return _ime_ikone(("safeer-os" + pripona, APP_ID + pripona), pripona.lstrip("."))
+
+
+def razred_in_ikona(vloga: str = ""):
+    """(res_name, res_class, pripona ikone) za okno z vlogo: »« glavno okno, »splet«, »sporocila«, »zapiski«,
+    »nastavitve« (velikost crk ni pomembna) ali okno Safeer Playerja. Neznana vloga dobi razred Safeer OS."""
+    if vloga in _OKNA_PREDVAJALNIKA:
+        return WMCLASS_PREDVAJALNIKA + (".Player",)
+    pripona = vloga.lower()
+    if pripona in OKNA_V_PULTU:
+        razred = RAZRED_SAFEER_OS + "." + pripona
+        return razred, razred, "." + pripona
+    return RAZRED_SAFEER_OS, RAZRED_SAFEER_OS, ""
 
 
 def _razred_okna(okno, vloga: str = "") -> None:
-    """Okna Safeer OS (razdelki, Splet, plosca sporocil, Medijski center, pogovorna okna) so v pultu ena skupina z ikono
-    Safeer OS: res_class = »safeer-os« (StartupWMClass), res_name pove vlogo. Prej je imelo vsako okno svoj razred
-    (»safeer-os.Nastavitve«, »Safeer«, »Safeer Splet« ali nobenega), zato je pult kazal locene skupine s splosno ikono.
-    Safeer Player ima svoj vnos v meniju (WMCLASS_PREDVAJALNIKA) in ostane loceno."""
-    x11.nastavi_razred(okno, RAZRED_SAFEER_OS + ("." + vloga if vloga else ""), RAZRED_SAFEER_OS)
-    okno.set_icon_name(_ikona_safeer_os())
+    """Razred okna (WM_CLASS, po njem pult in dock okno povezeta z vnosom .desktop) in ikona okna (_NET_WM_ICON - Plank
+    jo pokaze tudi, ce vnosa ne najde) po vlogi okna (glej OKNA_V_PULTU)."""
+    ime, razred, pripona = razred_in_ikona(vloga)
+    x11.nastavi_razred(okno, ime, razred)
+    if pripona == ".Player":
+        okno.set_icon_name(_ime_ikone(("safeer-os.Player", APP_ID + ".Player"), "predvajalnik"))
+    else:
+        okno.set_icon_name(_ikona_safeer_os(pripona))
 
 
 def _registriraj_most(upravitelj, ime: str) -> None:
@@ -1708,6 +1745,10 @@ class SafeerOS(Gtk.Application):
         stremio = Gio.SimpleAction.new("stremio", GLib.VariantType.new("s"))
         stremio.connect("activate", lambda _a, v: self._odpri_stremio_dodatek(v.get_string() if v else ""))
         self.add_action(stremio)
+        #: `safeer-os --razdelek splet|sporocila|zapiski|nastavitve` (vnos okna v docku, glej OKNA_V_PULTU): okno razdelka.
+        razdelek = Gio.SimpleAction.new("razdelek", GLib.VariantType.new("s"))
+        razdelek.connect("activate", lambda _a, v: self._razdelek_od_drugod(v.get_string() if v else ""))
+        self.add_action(razdelek)
         #: `safeer-os --delovna` (safeer-cinnamon), ko Safeer OS ze tece brez delovne povrsine (glej _vklopi_delovno).
         delovna_povrsina = Gio.SimpleAction.new("delovna", None)
         delovna_povrsina.connect("activate", lambda *_a: self._vklopi_delovno())
@@ -1718,6 +1759,11 @@ class SafeerOS(Gtk.Application):
         delovna_konec = Gio.SimpleAction.new("delovna-izklopi", None)
         delovna_konec.connect("activate", lambda *_a: self._izklopi_delovno())
         self.add_action(delovna_konec)
+
+    def _razdelek_od_drugod(self, razdelek: str) -> None:
+        """Dejanje »razdelek« (vnos okna v docku ali meniju): samo okna iz OKNA_V_PULTU, nic drugega iz ukazne vrstice."""
+        if razdelek in OKNA_V_PULTU:
+            self._odpri_razdelek(razdelek)
 
     def do_startup(self) -> None:
         Gtk.Application.do_startup(self)
@@ -2134,7 +2180,7 @@ class SafeerOS(Gtk.Application):
         okno = Gtk.ApplicationWindow(application=self, title="Safeer Cinnamon")
         # GTK4 nima set_wmclass, set_type_hint, set_keep_below, move: lastnosti X nastavi core/x11.py.
         x11.nastavi_razred(okno, "safeer-cinnamon", "Safeer Cinnamon")
-        okno.set_icon_name("safeer-browser")
+        okno.set_icon_name(_ikona_safeer_os())
         x11.nastavi_vrsto(okno, "DESKTOP")
         okno.set_decorated(False)
         x11.nastavi_preskoci(okno)
@@ -6572,6 +6618,16 @@ def main() -> int:
                 return 0
         except Exception as e:  # noqa: BLE001 - Safeer OS ne tece: zazenemo ga kot Safeer Player
             print("[SafeerOS] predvajalnik:", e)
+    if "--razdelek" in sys.argv[1:]:
+        # Vnos okna v docku (Splet, Sporocila …): ce Safeer OS tece, odpre okno razdelka v njem; sicer se zazene kot okno.
+        i = sys.argv.index("--razdelek")
+        razdelek = sys.argv[i + 1] if i + 1 < len(sys.argv) else ""
+        try:
+            if razdelek in OKNA_V_PULTU and _predaj_tekocemu("razdelek", razdelek):
+                return 0
+        except Exception as e:  # noqa: BLE001 - Safeer OS ne tece: zazenemo ga v oknu
+            print("[SafeerOS] razdelek:", e)
+        sys.argv = [sys.argv[0], "--okno"]
     ponudba_json = ""
     if "--ponudba" in sys.argv[1:]:
         # Sprejeta ponudba "Poslji na napravo" (Safeer Control, ko Safeer OS se ne tece).

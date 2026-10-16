@@ -34,8 +34,7 @@ install -m755 "$ROOT/packaging/safeer-control-launcher" "$PREFIX/bin/safeer-cont
 install -m755 "$ROOT/packaging/safeerctl-launcher" "$PREFIX/bin/safeerctl"
 install -Dm644 "$ROOT/LICENSE" "$PREFIX/share/doc/safeer-control/LICENSE"
 install -m644 "$ROOT/packaging/safeer-control.desktop" "$PREFIX/share/applications/$ID.desktop"
+# Svoja ikona (daljinec v scitu), ne zeleni »S« Safeer OS in Safeer Browserja: v pultu in docku so okna Controla
+# loceno od Safeer OS (lastnik, 16. 10. 2026). Samo SVG - PNG iste velikosti bi ga v temi ikon prehitel.
+install -Dm644 "$ROOT/assets/link/control.svg" "$PREFIX/share/icons/hicolor/scalable/apps/$ID.svg"
 install -m644 "$ROOT/assets/icon.png" "$PREFIX/share/pixmaps/$ID.png"
-for icon in "$ROOT/packaging/icons/hicolor"/*/apps/safeer-browser.png; do
-    size=$(basename "$(dirname "$(dirname "$icon")")")
-    install -Dm644 "$icon" "$PREFIX/share/icons/hicolor/$size/apps/$ID.png"
-done

@@ -1,0 +1,20 @@
+[Desktop Entry]
+Type=Application
+Name=Safeer OS Web
+Name[sl]=Splet
+Name[de]=Web
+Name[es]=Web
+Name[fr]=Web
+Name[it]=Web
+Comment=The web in Safeer OS
+Comment[sl]=Splet v Safeer OS
+Comment[de]=Das Web in Safeer OS
+Comment[es]=La web en Safeer OS
+Comment[fr]=Le Web dans Safeer OS
+Comment[it]=Il web in Safeer OS
+Exec=safeer-os --razdelek splet
+Icon=safeer-os.splet
+Terminal=false
+# Okno Safeer OS s svojo ikono v pultu in docku (safeer_os.OKNA_V_PULTU); v meniju je Safeer OS, zato se vnos ne kaze.
+NoDisplay=true
+StartupWMClass=safeer-os.splet

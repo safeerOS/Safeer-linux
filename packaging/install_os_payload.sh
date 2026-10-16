@@ -61,6 +61,19 @@ sed "s/^Icon=.*/Icon=$ID/" "$ROOT/packaging/safeer-os-stremio.desktop" > "$PREFI
 # Ime z ID-jem spredaj: Flatpak izvozi samo vnose in ikone, ki se zacnejo z ID-jem programa.
 sed "s/^Icon=.*/Icon=$ID.Player/" "$ROOT/packaging/safeer-player.desktop" > "$PREFIX/share/applications/$ID.Player.desktop"
 install -Dm644 "$ROOT/assets/os/predvajalnik.svg" "$PREFIX/share/icons/hicolor/scalable/apps/$ID.Player.svg"
+# Vsako okno Safeer OS ima v pultu in docku svoj vnos in ikono (safeer_os.OKNA_V_PULTU; lastnik, 16. 10. 2026: Splet in
+# Sporocila sta imela na docku isto ikono). Vnosi se v meniju ne kazejo (NoDisplay), razred okna je safeer-os.<okno>.
+for okno in splet sporocila zapiski nastavitve; do
+    sed "s/^Icon=.*/Icon=$ID.$okno/" "$ROOT/packaging/safeer-os-$okno.desktop" > "$PREFIX/share/applications/$ID.$okno.desktop"
+    install -Dm644 "$ROOT/assets/os/$okno.svg" "$PREFIX/share/icons/hicolor/scalable/apps/$ID.$okno.svg"
+done
+# Safeer Control v istem procesu (okno razreda safeer-control): .deb ima vnos safeer-control.desktop iz tovora Controla,
+# Flatpak (in AppImage) pa ga odstrani - brez vnosa z ID-jem bi pult okno Controla pripisal Safeer OS (ikona Safeer OS).
+if [ "$ID" != "safeer-os" ]; then
+    sed -e "s/^Icon=.*/Icon=$ID.Control/" -e "s/^StartupNotify=.*/NoDisplay=true/" \
+        "$ROOT/packaging/safeer-control.desktop" > "$PREFIX/share/applications/$ID.Control.desktop"
+    install -Dm644 "$ROOT/assets/link/control.svg" "$PREFIX/share/icons/hicolor/scalable/apps/$ID.Control.svg"
+fi
 sed "s|safeer-os.desktop|$ID.desktop|" "$ROOT/io.github.memelandfaner.SafeerOS.metainfo.xml" > "$PREFIX/share/metainfo/io.github.memelandfaner.SafeerOS.metainfo.xml"
 install -Dm644 "$ROOT/assets/os/znak.svg" "$PREFIX/share/icons/hicolor/scalable/apps/$ID.svg"
 install -m644 "$ROOT/assets/icon.png" "$PREFIX/share/pixmaps/$ID.png"
