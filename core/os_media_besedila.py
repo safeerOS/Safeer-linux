@@ -33,6 +33,7 @@ BESEDILA: dict[str, dict[str, str]] = {
         "podnapisi_napaka": "Spletni podnapisi trenutno niso dosegljivi.",
         "podnapisi_neveljavni": "Ta datoteka ni podnapis (SRT, ASS, SSA ali VTT).", "nazaj": "Nazaj",
         "odpri": "Odpri",
+        "povezava": "Povezava s postajo se je prekinila in je ni bilo mogoče obnoviti. Preveri omrežje ali poskusi pozneje.",
     },
     "en": {
         "poslji": "Send to device", "poslano": "Sent to {ime} – confirm there with Accept.", "poslano_odpri": "Sent to {ime} – open Safeer OS on that device and confirm with Accept (a notification is not visible there).", "poslji_napaka": "{ime} is not answering.", "poslji_stara": "{ime} does not know this yet – update Safeer OS there.", "poslji_ni": "No other device in Safeer Link.", "poslji_ni_deljeno": "This cannot be sent (the file is not in a shared folder).", "poslji_izklopljeno": "{ime} does not accept playback from other devices.",
@@ -57,6 +58,7 @@ BESEDILA: dict[str, dict[str, str]] = {
         "podnapisi_napaka": "Online subtitles are not reachable right now.",
         "podnapisi_neveljavni": "This file is not a subtitle (SRT, ASS, SSA or VTT).", "nazaj": "Back",
         "odpri": "Open",
+        "povezava": "The connection to the station dropped and couldn't be restored. Check the network or try again later.",
     },
     "de": {
         "poslji": "An Gerät senden", "poslano": "An {ime} gesendet – dort mit Annehmen bestätigen.", "poslano_odpri": "An {ime} gesendet – öffne dort Safeer OS und bestätige mit Annehmen (eine Benachrichtigung ist dort nicht sichtbar).", "poslji_napaka": "{ime} antwortet nicht.", "poslji_stara": "{ime} kennt das noch nicht – dort Safeer OS aktualisieren.", "poslji_ni": "Kein anderes Gerät im Safeer Link.", "poslji_ni_deljeno": "Das kann nicht gesendet werden (Datei nicht in einem freigegebenen Ordner).", "poslji_izklopljeno": "{ime} nimmt keine Wiedergabe von anderen Geräten an.",
@@ -82,6 +84,7 @@ BESEDILA: dict[str, dict[str, str]] = {
         "podnapisi_napaka": "Online-Untertitel sind gerade nicht erreichbar.",
         "podnapisi_neveljavni": "Diese Datei ist kein Untertitel (SRT, ASS, SSA oder VTT).",
         "nazaj": "Zurück", "odpri": "Öffnen",
+        "povezava": "Die Verbindung zum Sender ist abgebrochen und konnte nicht wiederhergestellt werden. Netzwerk prüfen oder später erneut versuchen.",
     },
     "es": {
         "poslji": "Enviar a un dispositivo", "poslano": "Enviado a {ime} – confirma allí con Aceptar.", "poslano_odpri": "Enviado a {ime} – abre Safeer OS en ese dispositivo y confirma con Aceptar (allí no se ve ninguna notificación).", "poslji_napaka": "{ime} no responde.", "poslji_stara": "{ime} aún no sabe hacerlo – actualiza Safeer OS allí.", "poslji_ni": "No hay otro dispositivo en Safeer Link.", "poslji_ni_deljeno": "No se puede enviar (el archivo no está en una carpeta compartida).", "poslji_izklopljeno": "{ime} no acepta reproducción desde otros dispositivos.",
@@ -108,6 +111,7 @@ BESEDILA: dict[str, dict[str, str]] = {
         "podnapisi_napaka": "Los subtítulos en línea no están disponibles ahora.",
         "podnapisi_neveljavni": "Este archivo no es un subtítulo (SRT, ASS, SSA o VTT).", "nazaj": "Atrás",
         "odpri": "Abrir",
+        "povezava": "Se perdió la conexión con la emisora y no se pudo restablecer. Revisa la red o inténtalo más tarde.",
     },
     "fr": {
         "poslji": "Envoyer à un appareil", "poslano": "Envoyé à {ime} – confirme là-bas avec Accepter.", "poslano_odpri": "Envoyé à {ime} – ouvre Safeer OS sur cet appareil et confirme avec Accepter (aucune notification n'y est visible).", "poslji_napaka": "{ime} ne répond pas.", "poslji_stara": "{ime} ne sait pas encore le faire – mets à jour Safeer OS là-bas.", "poslji_ni": "Aucun autre appareil dans Safeer Link.", "poslji_ni_deljeno": "Impossible à envoyer (le fichier n'est pas dans un dossier partagé).", "poslji_izklopljeno": "{ime} n'accepte pas la lecture depuis d'autres appareils.",
@@ -135,6 +139,7 @@ BESEDILA: dict[str, dict[str, str]] = {
         "podnapisi_napaka": "Les sous-titres en ligne sont injoignables pour le moment.",
         "podnapisi_neveljavni": "Ce fichier n'est pas un sous-titre (SRT, ASS, SSA ou VTT).",
         "nazaj": "Retour", "odpri": "Ouvrir",
+        "povezava": "La connexion à la station a été coupée et n'a pas pu être rétablie. Vérifiez le réseau ou réessayez plus tard.",
     },
     "it": {
         "poslji": "Invia a un dispositivo", "poslano": "Inviato a {ime} – conferma lì con Accetta.", "poslano_odpri": "Inviato a {ime} – apri Safeer OS su quel dispositivo e conferma con Accetta (lì nessuna notifica è visibile).", "poslji_napaka": "{ime} non risponde.", "poslji_stara": "{ime} non lo sa ancora fare – aggiorna Safeer OS lì.", "poslji_ni": "Nessun altro dispositivo in Safeer Link.", "poslji_ni_deljeno": "Non si può inviare (il file non è in una cartella condivisa).", "poslji_izklopljeno": "{ime} non accetta la riproduzione da altri dispositivi.",
@@ -161,6 +166,7 @@ BESEDILA: dict[str, dict[str, str]] = {
         "podnapisi_napaka": "I sottotitoli online non sono raggiungibili ora.",
         "podnapisi_neveljavni": "Questo file non è un sottotitolo (SRT, ASS, SSA o VTT).",
         "nazaj": "Indietro", "odpri": "Apri",
+        "povezava": "La connessione con la stazione si è interrotta e non è stato possibile ripristinarla. Controlla la rete o riprova più tardi.",
     },
 }
 

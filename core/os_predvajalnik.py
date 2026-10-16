@@ -6,6 +6,7 @@ predvajalnih vtičnikov. Vmesnik in baza knjižnice lahko uporabljata isto sejo.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -40,6 +41,7 @@ NAPAKE = {
     "dvd": "Diska ni mogoče prebrati. Zaščitenih diskov (CSS) Safeer ne odklepa.",
     "zacetek": "Predvajanja ni bilo mogoče začeti.",
     "splosno": "Predvajanje se je ustavilo zaradi napake.",
+    "povezava": "Povezava s postajo se je prekinila in je ni bilo mogoče obnoviti. Preveri omrežje ali poskusi pozneje.",
 }
 
 
@@ -98,6 +100,39 @@ def _cisti_podnapisi(podnapisi) -> tuple:
 
 #: GST_PLAY_FLAG_TEXT - playbin prikaže podnapise.
 ZASTAVICA_BESEDILO = 1 << 2
+#: GST_PLAY_FLAG_BUFFERING - playbin medpomni tudi po demultipleksorju (samo radio v zivo).
+ZASTAVICA_MEDPOMNJENJE = 1 << 8
+
+# Radio v zivo (vrsta "radio", http/https): datoteke, video, YouTube in TV ostanejo pri privzetih nastavitvah playbina.
+#: Najvec 10 s stisnjenega toka v queue2 (pri 128 kb/s je to ~160 KB) ...
+ZIVO_MEDPOMNILNIK_S = 10
+#: ... in najvec 1 MiB, da 10 s zadosti tudi za postaje do ~800 kb/s; pri 128 kb/s odloca cas, ne bajti.
+ZIVO_MEDPOMNILNIK_B = 1 << 20
+#: Zvocni tokovi radia ne presegajo 320 kb/s; pri prilagodljivih (HLS) postajah to omeji izbiro razlicice.
+ZIVO_HITROST_KBPS = 320
+#: Predvajanje se zacne (in po zastoju nadaljuje), ko je v zalogi 40 % od 10 s = 4 s; zaloga potem raste do 10 s,
+#: kolikor omrezje prinese vec od hitrosti toka. Polnih 10 s bi pomenilo ~6-10 s tisine ob vsakem zagonu.
+ZIVO_ZACETNA_ZALOGA = 0.4
+#: Zvocni izhod (pulsesink/alsasink): 1 s zaloge namesto 0,2 s premosti kratko obremenitev procesorja,
+#: 50 ms segmenti namesto 10 ms pomenijo petkrat manj prebujanj.
+ZIVO_IZHOD_ZALOGA_US = 1_000_000
+ZIVO_IZHOD_SEGMENT_US = 50_000
+#: souphttpsrc: zastoj omrezja zaznamo po 8 s (privzeto 15 s); prekinjen tok sam znova odpre do 3-krat (neopazno).
+ZIVO_HTTP_TIMEOUT_S = 8
+ZIVO_HTTP_PONOVI = 3
+#: Ko je predvajanje skupaj zaradi zastojev (ali premora) zaostalo za vec kot 15 s, skocimo nazaj na zivi rob.
+ZIVO_ZAOSTANEK_MEJA_S = 15.0
+#: Medpomnjenje, ki se 15 s ne zakljuci, pomeni mrtvo povezavo: povezemo se znova.
+ZIVO_ZASTOJ_MEJA_S = 15.0
+#: Odmiki pred ponovnimi povezavami ob ERROR/EOS; po zadnjem uporabnik vidi napako "povezava".
+ZIVO_ODMIKI_S = (1, 2, 4, 8, 8)
+#: Po toliko sekundah nemotenega predvajanja stejemo poskuse povezave znova od zacetka.
+ZIVO_STABILNO_S = 30.0
+
+
+def je_zivi_tok(s: Skladba | None) -> bool:
+    """Radio prek http(s): tok brez znane dolzine, ki ga medpomnimo in ob prekinitvi sami znova povezemo."""
+    return bool(s and s.vrsta == "radio" and urlsplit(s.uri).scheme in ("http", "https"))
 
 
 class Predvajalnik:
@@ -133,6 +168,15 @@ class Predvajalnik:
         self._obnovi_zvok = -1        # izbrani zvocni tok po ponovnem nalaganju (zamenjava podnapisov)
         self.izenacevalnik = None     # element equalizer-10bands; None = izenacevalnika ni (meni ga ne pokaze)
         self._predojacitev = None
+        #: Odlozen klic (sekunde, f) za ponovne povezave radia; None = GLib.timeout_add v glavni zanki.
+        self.cez = None
+        self._ura = time.monotonic
+        self._zivo = False             # trenutna skladba je radio v zivo (glej je_zivi_tok)
+        self._zivo_nastavljeno = False  # playbin ima nastavitve za radio, ob datoteki jih povrnemo
+        self._rod = 0                  # vsak nov zacetek/ustavitev razveljavi odlozene ponovne povezave
+        self._poskus = 0               # zaporedni neuspeli poskusi povezave (ZIVO_ODMIKI_S)
+        self._zivo_ponastavi()
+        self.statistika = self._prazna_statistika()
         self.element = gst.ElementFactory.make("playbin", "safeer-media")
         if self.element is None:
             raise RuntimeError("GStreamer playbin ni na voljo")
@@ -140,6 +184,11 @@ class Predvajalnik:
         self.vodilo = self.element.get_bus()
         self.vodilo.add_signal_watch()
         self.vodilo.connect("message", self._sporocilo)
+        try:
+            self.element.connect("source-setup", self._zivo_izvor)
+            self.element.connect("deep-element-added", self._zivo_element)
+        except Exception:  # noqa: BLE001
+            pass
 
     @property
     def trenutna(self) -> Skladba | None:
@@ -180,6 +229,7 @@ class Predvajalnik:
         if not 0 <= indeks < len(self.vrsta):
             return False
         self.element.set_state(self.gst.State.NULL)
+        self._zivo_konec()
         self.indeks = indeks
         self.napaka = ""
         self._cakaj_zacetek = self.vrsta[indeks].zacetek
@@ -194,6 +244,7 @@ class Predvajalnik:
                 self.stanje = "napaka"
                 self.sprememba()
                 return False
+        self._nastavi_zivo(je_zivi_tok(self.vrsta[indeks]))
         self.element.set_property("uri", self.vrsta[indeks].uri)
         self._pripravi_podnapise(self.vrsta[indeks])
         # Zamik velja za en posnetek (kot v VLC); jezik zvoka izberemo, ko playbin pozna tokove (ASYNC_DONE).
@@ -579,6 +630,9 @@ class Predvajalnik:
     def premor(self) -> None:
         if self.trenutna is None:
             return
+        if self._zivo:
+            self._zivo_premor()
+            return
         cilj = self.gst.State.PAUSED if self.stanje == "predvaja" else self.gst.State.PLAYING
         if self.element.set_state(cilj) != self.gst.StateChangeReturn.FAILURE:
             self.stanje = "premor" if cilj == self.gst.State.PAUSED else "predvaja"
@@ -650,6 +704,7 @@ class Predvajalnik:
     def ustavi(self) -> None:
         self._cakaj_zacetek = 0
         self.element.set_state(self.gst.State.NULL)
+        self._zivo_konec()
         self.stanje = "ustavljeno"
         self.sprememba()
 
@@ -658,6 +713,8 @@ class Predvajalnik:
         self.vodilo.remove_signal_watch()
 
     def _sporocilo(self, _vodilo, sporocilo) -> None:
+        if self._zivo and self._zivo_sporocilo(sporocilo):
+            return
         if sporocilo.type == self.gst.MessageType.EOS:
             if self.trenutna:
                 self.konec(self.trenutna.uri)
@@ -679,3 +736,229 @@ class Predvajalnik:
             self.element.set_state(self.gst.State.NULL)
             self.stanje = "napaka"
             self.sprememba()
+
+    # ------------------------------------------------------------------ radio v zivo: medpomnjenje in ponovna povezava
+
+    @staticmethod
+    def _prazna_statistika() -> dict:
+        return {"medpomnjenja": 0, "podtoki": 0, "ponovne_povezave": 0, "skoki_na_zivo": 0, "zastoj_s": 0.0}
+
+    def _zivo_ponastavi(self) -> None:
+        """Stanje ene povezave z radiem (po vsaki ponovni povezavi od zacetka)."""
+        self._polni = False            # queue2 se polni (BUFFERING < 100 %): playbin je zacasno v PAUSED
+        self._polni_od = 0.0
+        self._polnjenje = 0            # stevec za cuvaja dolgega medpomnjenja
+        self._predvajal = False        # po tej povezavi je zvok ze tekel (naslednje medpomnjenje je zastoj)
+        self._zaostanek = 0.0          # sekunde za zivim robom (zastoji in premori po tej povezavi)
+        self._povezan_od = None        # kdaj je zvok po tej povezavi stekel
+        self._premor_od = 0.0
+        self._znova_ob_nadaljevanju = False
+
+    def _dnevnik(self, *besedilo) -> None:
+        print("[SafeerOS] radio:", *besedilo, flush=True)
+
+    def _cez_klic(self, sekunde: float, f) -> None:
+        if self.cez is not None:
+            self.cez(sekunde, f)
+            return
+        from gi.repository import GLib
+        GLib.timeout_add(max(1, int(sekunde * 1000)), lambda: (f(), False)[1])
+
+    def _lastnost(self, element, ime: str, vrednost) -> bool:
+        """Nastavi lastnost, ce jo element ima (izvor ali izhod je lahko drug element kot pricakujemo)."""
+        try:
+            if element.find_property(ime) is None:
+                return False
+            element.set_property(ime, vrednost)
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _nastavi_zivo(self, zivo: bool) -> None:
+        """Pred nastavitvijo uri (playbin je v NULL): medpomnjenje za radio, sicer privzete nastavitve playbina."""
+        self._zivo = zivo
+        self._zivo_ponastavi()
+        if zivo:
+            self.statistika = self._prazna_statistika()
+        elif not self._zivo_nastavljeno:
+            return                     # datoteke, video, TV: playbina se ne dotaknemo (kot doslej)
+        try:
+            zastavice = int(self.element.get_property("flags"))
+            zastavice = zastavice | ZASTAVICA_MEDPOMNJENJE if zivo else zastavice & ~ZASTAVICA_MEDPOMNJENJE
+            self.element.set_property("flags", zastavice)
+            self.element.set_property("buffer-duration", ZIVO_MEDPOMNILNIK_S * self.gst.SECOND if zivo else -1)
+            self.element.set_property("buffer-size", ZIVO_MEDPOMNILNIK_B if zivo else -1)
+            self.element.set_property("connection-speed", ZIVO_HITROST_KBPS if zivo else 0)
+        except Exception as e:  # noqa: BLE001
+            self._dnevnik("nastavitve medpomnjenja niso uspele:", e)
+        self._zivo_nastavljeno = zivo
+
+    def _zivo_izvor(self, _playbin, izvor) -> None:
+        """source-setup: souphttpsrc za radio. is-live ostane False, da playbin medpomni (zivi rob vodimo sami)."""
+        if not self._zivo:
+            return
+        for ime, vrednost in (("timeout", ZIVO_HTTP_TIMEOUT_S), ("retries", ZIVO_HTTP_PONOVI),
+                              ("keep-alive", True), ("is-live", False)):
+            self._lastnost(izvor, ime, vrednost)
+
+    def _zivo_element(self, _playbin, _vreca, element) -> None:
+        """deep-element-added: queue2 zacne predvajati pri 4 s zaloge; zvocni izhod dobi vecjo zalogo."""
+        if not self._zivo:
+            return
+        try:
+            tovarna = element.get_factory()
+            ime = tovarna.get_name() if tovarna is not None else ""
+            vrsta = str(tovarna.get_metadata("klass") or "") if tovarna is not None else ""
+        except Exception:  # noqa: BLE001
+            return
+        if ime in ("uridecodebin", "urisourcebin", "queue2"):
+            self._lastnost(element, "use-buffering", True)
+        if ime == "queue2":
+            self._lastnost(element, "high-watermark", ZIVO_ZACETNA_ZALOGA)
+        elif "Sink" in vrsta and "Audio" in vrsta:
+            if self._lastnost(element, "buffer-time", ZIVO_IZHOD_ZALOGA_US):
+                self._lastnost(element, "latency-time", ZIVO_IZHOD_SEGMENT_US)
+                self._lastnost(element, "qos", True)   # pozne/izpuscene vzorce javi kot QOS (stejemo podtoke)
+                self._dnevnik("izhod %s: zaloga %d ms, segment %d ms" % (
+                    ime, ZIVO_IZHOD_ZALOGA_US // 1000, ZIVO_IZHOD_SEGMENT_US // 1000))
+
+    def _zivo_sporocilo(self, sporocilo) -> bool:
+        """Sporocila vodila za radio v zivo; True = obdelano (EOS in napako obravnavamo kot prekinitev povezave)."""
+        vrste = self.gst.MessageType
+        tip = sporocilo.type
+        if tip == getattr(vrste, "BUFFERING", object()):
+            self._medpomnjenje(int(sporocilo.parse_buffering()))
+            return True
+        if tip == getattr(vrste, "QOS", object()):
+            izvor = getattr(sporocilo, "src", None)
+            if izvor is not None and izvor.find_property("buffer-time") is not None:
+                self.statistika["podtoki"] += 1
+                if self.statistika["podtoki"] in (1, 10, 100) or self.statistika["podtoki"] % 1000 == 0:
+                    self._dnevnik("podtok zvocnega izhoda (skupaj %d)" % self.statistika["podtoki"])
+            return True
+        if tip == vrste.ERROR:
+            napaka, razhroscevanje = sporocilo.parse_error()
+            self._dnevnik("napaka toka:", napaka, razhroscevanje or "")
+            self._prekinjeno(vrsta_napake(napaka, self.trenutna.uri if self.trenutna else ""))
+            return True
+        if tip == vrste.EOS:
+            self._dnevnik("streznik je zaprl tok (EOS)")
+            self._prekinjeno("tok")
+            return True
+        if tip == vrste.ASYNC_DONE and self._povezan_od is None and not self._polni and self.stanje == "predvaja":
+            self._povezan_od = self._ura()
+        return False
+
+    def _medpomnjenje(self, odstotek: int) -> None:
+        """Pod 100 %: premor, dokler queue2 ni spet poln (zvok ne zastaja, ampak pocaka); nato nadaljevanje."""
+        if odstotek < 100:
+            if self._polni:
+                return
+            self._polni, self._polni_od = True, self._ura()
+            self._polnjenje += 1
+            if self._predvajal:
+                self.statistika["medpomnjenja"] += 1
+                self._dnevnik("medpomnjenje %d %% (dogodek %d)" % (odstotek, self.statistika["medpomnjenja"]))
+            if self.stanje == "predvaja":
+                self.element.set_state(self.gst.State.PAUSED)
+            rod, polnjenje = self._rod, self._polnjenje
+            self._cez_klic(ZIVO_ZASTOJ_MEJA_S, lambda: self._cuvaj_zastoja(rod, polnjenje))
+            return
+        if self._polni:
+            self._polni = False
+            if self._predvajal:
+                trajanje = max(0.0, self._ura() - self._polni_od)
+                self._zaostanek += trajanje
+                self.statistika["zastoj_s"] += trajanje
+                if self._zaostanek > ZIVO_ZAOSTANEK_MEJA_S and self.stanje == "predvaja":
+                    self._skok_na_zivo("zaostanek %.1f s" % self._zaostanek)
+                    return
+        if self.stanje == "predvaja":
+            self.element.set_state(self.gst.State.PLAYING)
+            if self._povezan_od is None:
+                self._povezan_od = self._ura()
+            self._predvajal = True
+
+    def _cuvaj_zastoja(self, rod: int, polnjenje: int) -> None:
+        if rod == self._rod and self._zivo and self._polni and polnjenje == self._polnjenje and self.stanje == "predvaja":
+            self._dnevnik("medpomnjenje traja vec kot %d s" % ZIVO_ZASTOJ_MEJA_S)
+            self._prekinjeno("tok")
+
+    def _skok_na_zivo(self, razlog: str) -> None:
+        self.statistika["skoki_na_zivo"] += 1
+        self._dnevnik("skok na zivi rob (%s)" % razlog)
+        self._povezi_znova()
+
+    def _prekinjeno(self, koda: str) -> None:
+        """ERROR/EOS radia: tiho znova povezemo (1, 2, 4, 8, 8 s); sele potem uporabnik vidi napako."""
+        self.element.set_state(self.gst.State.NULL)
+        if self._povezan_od is not None and self._ura() - self._povezan_od >= ZIVO_STABILNO_S:
+            self._poskus = 0
+        poskus = self._poskus
+        if poskus >= len(ZIVO_ODMIKI_S):
+            self._dnevnik("povezave ni bilo mogoce obnoviti po %d poskusih" % poskus)
+            self._izpisi_statistiko()
+            self._rod += 1
+            self.napaka = "povezava" if koda == "tok" else koda
+            self.stanje = "napaka"
+            self._zivo_ponastavi()
+            self.sprememba()
+            return
+        self._poskus = poskus + 1
+        odmik = ZIVO_ODMIKI_S[poskus]
+        self._dnevnik("ponovna povezava cez %d s (poskus %d/%d)" % (odmik, poskus + 1, len(ZIVO_ODMIKI_S)))
+        self._rod += 1
+        rod = self._rod
+        self._zivo_ponastavi()
+        if self.stanje == "premor":
+            self._znova_ob_nadaljevanju = True
+            return
+        self._cez_klic(odmik, lambda: rod == self._rod and self._povezi_znova())
+
+    def _povezi_znova(self) -> bool:
+        """Isti naslov od zacetka: nova povezava je vedno na zivem robu. Stanje za uporabnika ostane "predvaja"."""
+        s = self.trenutna
+        if s is None or not self._zivo:
+            return False
+        self._rod += 1
+        self.statistika["ponovne_povezave"] += 1
+        self.element.set_state(self.gst.State.NULL)
+        self._zivo_ponastavi()
+        self.element.set_property("uri", s.uri)
+        if self.element.set_state(self.gst.State.PLAYING) == self.gst.StateChangeReturn.FAILURE:
+            self._prekinjeno("tok")
+            return False
+        self.stanje, self.napaka = "predvaja", ""
+        return True
+
+    def _zivo_premor(self) -> None:
+        """Premor radia: ob nadaljevanju po daljsem premoru (ali prekinjeni povezavi) skocimo na zivi rob."""
+        if self.stanje == "predvaja":
+            if self.element.set_state(self.gst.State.PAUSED) != self.gst.StateChangeReturn.FAILURE:
+                self.stanje, self._premor_od = "premor", self._ura()
+                self.sprememba()
+            return
+        if self.stanje != "premor":
+            return
+        self._zaostanek += max(0.0, self._ura() - self._premor_od)
+        self.stanje = "predvaja"
+        if self._znova_ob_nadaljevanju:      # povezava se je med premorom prekinila
+            self._povezi_znova()
+        elif self._zaostanek > ZIVO_ZAOSTANEK_MEJA_S:
+            self._skok_na_zivo("premor, zaostanek %.1f s" % self._zaostanek)
+        elif not self._polni:
+            self.element.set_state(self.gst.State.PLAYING)
+        self.sprememba()
+
+    def _izpisi_statistiko(self) -> None:
+        st = self.statistika
+        self._dnevnik("statistika: medpomnjenja=%d podtoki=%d ponovne_povezave=%d skoki_na_zivo=%d zastoj=%.1f s" % (
+            st["medpomnjenja"], st["podtoki"], st["ponovne_povezave"], st["skoki_na_zivo"], st["zastoj_s"]))
+
+    def _zivo_konec(self) -> None:
+        """Uporabnik je ustavil ali zamenjal skladbo: odlozene povezave ne veljajo vec, statistika v dnevnik."""
+        self._rod += 1
+        self._poskus = 0
+        if self._zivo:
+            self._izpisi_statistiko()
+        self._zivo_ponastavi()
