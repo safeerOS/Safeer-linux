@@ -34,7 +34,7 @@ BESEDILA = {
         "podnaslov": "Nič se ne spremeni, dokler ne pritisneš {gumb}. Prejšnji videz lahko kadar koli vrneš.",
         "videz": "Samo videz", "videz_opis": "Tema, ikone in ozadje. Pult, okna in ikone na namizju ostanejo, kjer so.",
         "dock": "Videz in dock", "dock_opis": "Pult gre na vrh, spodaj je dock s pripetimi in odprtimi programi (seznama oken na pultu ni).",
-        "delovna": "Delovna površina", "delovna_opis": "Kot zgoraj, namesto ikon na namizju pa iskanje, mediji, datoteke in programi tvojih naprav.",
+        "delovna": "Delovna površina", "delovna_opis": "Odprti programi na sredini pulta, v docku pripeti; namesto ikon na namizju iskanje, mediji, datoteke in programi tvojih naprav.",
         "ni_safeer_os": "Potrebuje Safeer OS (safeer.si/os).", "ni_planka": "Potrebuje program Plank.",
         "ozadje": "Ozadje", "ohrani": "Moje ozadje", "prejsnje": "Moje ozadje", "trenutno": "Trenutno ozadje", "jezero": "Gore in jezero (kot na TV)", "aurora": "Aurora", "zora": "Zora nad jezerom", "globina": "Globina", "gore": "Gore in jezero (risba)",
         "vklopi": "Vklopi", "uporabi": "Uporabi", "preklici": "Prekliči", "vrni": "Vrni prejšnji videz",
@@ -45,7 +45,7 @@ BESEDILA = {
         "podnaslov": "Nothing changes until you press {gumb}. You can restore the previous look at any time.",
         "videz": "Look only", "videz_opis": "Theme, icons and wallpaper. The panel, windows and desktop icons stay where they are.",
         "dock": "Look and dock", "dock_opis": "The panel moves to the top, with a dock for pinned and open apps at the bottom (no window list on the panel).",
-        "delovna": "Workspace", "delovna_opis": "As above, and instead of desktop icons: search, media, files and the apps on your devices.",
+        "delovna": "Workspace", "delovna_opis": "Open apps in the middle of the panel, pinned apps in the dock; instead of desktop icons: search, media, files and the apps on your devices.",
         "ni_safeer_os": "Needs Safeer OS (safeer.si/os).", "ni_planka": "Needs the Plank program.",
         "ozadje": "Wallpaper", "ohrani": "My wallpaper", "prejsnje": "My wallpaper", "trenutno": "Current wallpaper", "jezero": "Mountains and lake (as on TV)", "aurora": "Aurora", "zora": "Dawn over the lake", "globina": "Depth", "gore": "Mountains and lake (drawing)",
         "vklopi": "Turn on", "uporabi": "Apply", "preklici": "Cancel", "vrni": "Restore previous look",
@@ -191,6 +191,10 @@ def narisi_skico(cr, w, h, profil: str, pult_zgoraj: bool):
     if profil == "videz":                                    # seznam oken ostane na pultu
         for i in range(3):
             zaobljen(cr, 14 + i * 20, y_pulta + 2, 16, 5, 1.5)
+            cr.fill()
+    elif profil == "delovna":                                # tekoci programi na sredini pulta
+        for i in range(3):
+            zaobljen(cr, w / 2 - 13 + i * 9, y_pulta + 2, 6, 5, 1.5)
             cr.fill()
     zaobljen(cr, w - 22, y_pulta + 2.5, 18, 4, 1.5)          # ura in obvestila
     cr.fill()

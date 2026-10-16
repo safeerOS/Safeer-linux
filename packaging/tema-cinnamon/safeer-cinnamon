@@ -7,7 +7,8 @@
 #                                   vklopi postavitev P (prejsnje nastavitve si zapomni):
 #                                     videz    tema, ikone in ozadje; pult, okna in ikone na namizju ostanejo, kjer so
 #                                     dock     videz + pult zgoraj in dock spodaj (odprti programi so v docku)
-#                                     delovna  dock + delovna povrsina Safeer OS namesto ikon na namizju
+#                                     delovna  dock + delovna povrsina Safeer OS namesto ikon na namizju; tekoci
+#                                              programi na sredini pulta, v docku samo pripeti
 #                                   ozadje O: ohrani (kot je zdaj) | prejsnje (kot pred Safeer Cinnamon) |
 #                                             jezero | aurora | zora | globina | gore
 #   safeer-cinnamon                 vklopi zadnjo izbrano postavitev (prvic: videz)
@@ -38,6 +39,7 @@ VKLOPLJENO="$MAPA/vklopljeno"
 PROFIL_DAT="$MAPA/profil"
 ZADNJE_OZADJE="$MAPA/zadnje-ozadje"
 SEZNAM_OKEN="$MAPA/seznam-oken.txt"
+SEZNAM_SREDINA="$MAPA/seznam-sredina-dodan"
 # Samozagon Safeer OS (cel zaslon) in seja safeer-os-tema bi se tepla z delovno povrsino: med vklopom ju
 # izklopimo z uporabnikovim preglasitvenim vnosom in ju ob izklopu vrnemo tocno tako, kot sta bila.
 # Samozagon Safeer Control (`safeer-control --ozadje`) tudi: Control tece v procesu delovne povrsine (en proces);
@@ -157,9 +159,9 @@ nadgradi_postavitev() {
 seznam_oken() {
     local v izid
     v="$(beri org.cinnamon:enabled-applets)" || return 0
-    izid="$(python3 - "$1" "$v" "$SEZNAM_OKEN" "$SPICES" "$MAPA/appleti" "$MAPA/appleti-prej.txt" <<'PY'
+    izid="$(python3 - "$1" "$v" "$SEZNAM_OKEN" "$SPICES" "$MAPA/appleti" "$MAPA/appleti-prej.txt" "$SEZNAM_SREDINA" <<'PY'
 import ast, os, shutil, sys
-kaj, vrednost, zapis, spices, hramba, prej = sys.argv[1:7]
+kaj, vrednost, zapis, spices, hramba, prej, sredina = sys.argv[1:8]
 OKNA = ("grouped-window-list@cinnamon.org", "window-list@cinnamon.org")
 try:
     appleti = [str(a) for a in ast.literal_eval(vrednost.replace("@as ", ""))]
@@ -171,8 +173,11 @@ def deli(a):
     d = a.split(":")
     return (d[3], d[4] if len(d) >= 5 else "") if len(d) >= 4 else ("", "")
 
+# Nas seznam tekocih programov na sredini pulta (seznam_sredina) ni uporabnikov: ne skrivamo ga in ne steje kot njegov.
+nas = open(sredina, encoding="utf-8").read().strip() if os.path.isfile(sredina) else ""
+
 def je_seznam(a):
-    return deli(a)[0] in OKNA
+    return deli(a)[0] in OKNA and not (nas and deli(a) == (OKNA[0], nas))
 
 if kaj == "skrij":
     okna = [a for a in appleti if je_seznam(a)]
@@ -383,6 +388,110 @@ PY
 
 # Ze vklopljen Safeer Cinnamon iz starejse razlicice dobi Misko enkrat; ce jo uporabnik odstrani, je ne vracamo.
 miska_enkrat() { [ -e "$MAPA/miska-ponujena" ] || { mkdir -p "$MAPA"; miska dodaj; : > "$MAPA/miska-ponujena"; }; }
+
+# Tekoci programi na sredini pulta (lastnik, 16. 10. 2026: v postavitvi delovna zeli videti, kaj tece, na sredini
+# vrhnjega pulta; vsak program samo na enem mestu - tekoci na pultu, pripeti v docku). Uporabnikov seznam oken s
+# pripetimi programi gre se vedno s pulta (seznam_oken: pripeti so v docku), na sredino pa dodamo nov primerek seznama
+# brez pripetih programov - kaze samo odprta okna, samo ikone. Okna brez gumba v pultu (delovna povrsina Safeer OS:
+# _NET_WM_WINDOW_TYPE_DESKTOP, skip-taskbar) seznam ne kaze. Dodani vnos si zapomnimo: izklop ali druga postavitev
+# odstrani samo njega, tudi ce ga je uporabnik premaknil; ce ga je uporabnik odstranil sam, ga ne vracamo.
+seznam_sredina() {   # $1 = dodaj | odstrani
+    local v izid
+    v="$(beri org.cinnamon:enabled-applets)" || return 0
+    mkdir -p "$MAPA"
+    izid="$(python3 - "$1" "$v" "$(beri org.cinnamon:panels-enabled)" "$SEZNAM_SREDINA" "$SPICES" "$SEZNAM_OKEN" <<'PY'
+import ast, json, os, sys
+kaj, vrednost, pulti, zapis, spices, skriti = sys.argv[1:7]
+UUID, OKNA = "grouped-window-list@cinnamon.org", ("grouped-window-list@cinnamon.org", "window-list@cinnamon.org")
+try:
+    appleti = [str(a) for a in ast.literal_eval(vrednost.replace("@as ", ""))]
+except Exception:
+    sys.exit(1)
+
+
+def deli(a):
+    return a.split(":")
+
+
+def nas(a, st):
+    d = deli(a)
+    return len(d) >= 5 and d[3] == UUID and d[4] == st
+
+
+nastavitve = lambda st: os.path.join(spices, UUID, st + ".json")
+st_prej = open(zapis, encoding="utf-8").read().strip() if os.path.isfile(zapis) else ""
+
+if kaj == "dodaj":
+    if st_prej:
+        sys.exit(0)                      # ze dodan (tudi premaknjen ali ga je uporabnik odstranil): ne podvajamo
+    if any(len(deli(a)) >= 4 and deli(a)[3] in OKNA for a in appleti):
+        sys.exit(0)                      # uporabnikov seznam oken je na pultu: ne dodajamo drugega
+    # Pult na vrhu glavnega zaslona (delovna ga je premaknila tja), sicer pult prvega appleta.
+    try:
+        zgoraj = [deli(p) for p in ast.literal_eval(pulti.replace("@as ", "")) if str(p).endswith(":top")]
+    except Exception:
+        zgoraj = []
+    zgoraj.sort(key=lambda d: (d[1] != "0", d[0]))
+    pult = "panel" + zgoraj[0][0] if zgoraj else next((deli(a)[0] for a in appleti if len(deli(a)) >= 4), "panel1")
+    sredina = [int(deli(a)[2]) for a in appleti if len(deli(a)) >= 4 and deli(a)[0] == pult and deli(a)[1] == "center"
+               and deli(a)[2].isdigit()]
+    # Nova stevilka primerka: ne sme se ujemati s skritim seznamom oken (njegove nastavitve cakajo v hrambi) ali s
+    # starimi nastavitvami, ki jih je Cinnamon pustil.
+    st = [int(deli(a)[4]) for a in appleti if len(deli(a)) >= 5 and deli(a)[4].isdigit()]
+    if os.path.isfile(skriti):
+        st += [int(deli(a)[4]) for a in open(skriti, encoding="utf-8").read().split() if len(deli(a)) >= 5 and deli(a)[4].isdigit()]
+    if os.path.isdir(os.path.join(spices, UUID)):
+        st += [int(i[:-5]) for i in os.listdir(os.path.join(spices, UUID)) if i.endswith(".json") and i[:-5].isdigit()]
+    nova = str(max(st) + 1 if st else 1)
+    # Brez pripetih programov (privzeti Cinnamonovi bi bili nemo, firefox, terminal): Cinnamon ob prvem nalaganju
+    # dopolni ostale nastavitve s privzetimi, nase vrednosti (pinned-apps, title-display 1 = samo ikone) pa ohrani
+    # (settings.js _doUpgrade, Cinnamon 6.6).
+    os.makedirs(os.path.dirname(nastavitve(nova)), exist_ok=True)
+    with open(nastavitve(nova), "w", encoding="utf-8") as f:
+        json.dump({"pinned-apps": {"type": "generic", "default": [], "value": []},
+                   "title-display": {"type": "combobox", "default": 1, "value": 1}}, f)
+    with open(zapis, "w", encoding="utf-8") as f:
+        f.write(nova + "\n")
+    print(repr(appleti + ["%s:center:%d:%s:%s" % (pult, max(sredina) + 1 if sredina else 0, UUID, nova)]))
+else:
+    if not st_prej:
+        sys.exit(0)
+    os.remove(zapis)
+    try:
+        os.remove(nastavitve(st_prej))
+    except OSError:
+        pass
+    ostali = [a for a in appleti if not nas(a, st_prej)]
+    if len(ostali) != len(appleti):
+        print(repr(ostali))
+PY
+)" || return 0
+    [ -n "$izid" ] && pisi org.cinnamon:enabled-applets "$izid"
+    return 0
+}
+
+# V postavitvi delovna dock kaze samo pripete programe, tekoci so na sredini pulta (seznam_sredina) - isti program ne
+# na dveh mestih (lastnik, 16. 10. 2026). Prejsnjo vrednost si zapomnimo; vrnemo jo samo, ce je uporabnik medtem ni
+# spremenil sam (in ponovni vklop njegove spremembe ne povozi).
+DOCK_PRIPETI_PREJ="$MAPA/dock-samo-pripeti-prej"
+
+dock_samo_pripeti() {
+    command -v dconf >/dev/null 2>&1 || return 0
+    [ -e "$DOCK_PRIPETI_PREJ" ] && return 0
+    mkdir -p "$MAPA"
+    dconf read "${PLANK_DOCK}pinned-only" > "$DOCK_PRIPETI_PREJ" 2>/dev/null || : > "$DOCK_PRIPETI_PREJ"
+    dconf write "${PLANK_DOCK}pinned-only" "true"
+}
+
+dock_samo_pripeti_vrni() {
+    [ -e "$DOCK_PRIPETI_PREJ" ] || return 0
+    local prej
+    prej="$(cat "$DOCK_PRIPETI_PREJ")"
+    rm -f "$DOCK_PRIPETI_PREJ"
+    command -v dconf >/dev/null 2>&1 || return 0
+    [ "$(dconf read "${PLANK_DOCK}pinned-only" 2>/dev/null)" = true ] || return 0
+    if [ -n "$prej" ]; then dconf write "${PLANK_DOCK}pinned-only" "$prej"; else dconf reset "${PLANK_DOCK}pinned-only"; fi
+}
 
 seznam_oken_skrij() { mkdir -p "$MAPA"; seznam_oken skrij; }
 seznam_oken_vrni() { seznam_oken vrni; rm -f "$SEZNAM_OKEN" "$MAPA/appleti-prej.txt" "$MAPA/dock-pripeti-dodani"; rm -rf "$MAPA/appleti"; }
@@ -735,6 +844,8 @@ delovna_izklopi() {
     [ -f "$SEJA" ] && bila=1
     rm -f "$SEJA"
     zagoni_vrni
+    seznam_sredina odstrani
+    dock_samo_pripeti_vrni
     [ -e "$MAPA/nemo-ikone-prej" ] && nemo_namizje_vrni
     # Delovna povrsina se konca cisto (Safeer OS pospravi za sabo). Proces, ki mu je bila predana pozneje (zagnan kot
     # Safeer Player ali okno), nima --delovna v ukazni vrstici: zato najprej dejanje »delovna-izklopi« na vodilu (konca
@@ -885,7 +996,9 @@ vklopi() {
     case "$profil" in
         videz)   delovna_izklopi; dock_izklopi; pokazi_namizje odstrani; seznam_oken_vrni; pult_vrni ;;
         dock)    delovna_izklopi; pult_zgoraj; seznam_oken_skrij; pokazi_namizje dodaj; dock ;;
-        delovna) pult_zgoraj; seznam_oken_skrij; pokazi_namizje dodaj; dock; delovna ;;
+        # Ze vklopljena delovna (nas seznam je bil dodan): seznam oken, ki ga je uporabnik dodal sam, ostane.
+        delovna) pult_zgoraj; [ -e "$SEZNAM_SREDINA" ] || seznam_oken_skrij; seznam_sredina dodaj; pokazi_namizje dodaj; dock; dock_samo_pripeti
+                 : > "$MAPA/seznam-sredina-ponujeno"; delovna ;;
     esac
     # Enkrat na vklop (do --izklopi): ob vsaki menjavi postavitve bi se Miska, ki jo je uporabnik odstranil, vrnila.
     miska_enkrat
@@ -907,7 +1020,7 @@ izklopi() {
     delovna_izklopi koncno
     dock_izklopi koncno
     pokazi_namizje odstrani
-    rm -f "$MAPA/pokazi-namizje-ponujeno"
+    rm -f "$MAPA/pokazi-namizje-ponujeno" "$MAPA/seznam-sredina-ponujeno"
     miska odstrani
     rm -f "$MAPA/miska-ponujena"
     seznam_oken_vrni
@@ -1013,6 +1126,13 @@ case "${1:-}" in
                                      p="$(profil_trenutni)"
                                      if [ "$p" = dock ] || [ "$p" = delovna ]; then pokazi_namizje dodaj; fi
                                      mkdir -p "$MAPA"; : > "$MAPA/pokazi-namizje-ponujeno"
+                                 fi
+                                 # Delovna iz starejse razlicice (seznam oken skrit, dock kaze tudi tekoce): enkrat
+                                 # tekoci programi na sredino pulta, dock samo pripeti.
+                                 if [ ! -e "$MAPA/seznam-sredina-ponujeno" ] && [ "$(profil_trenutni)" = delovna ]; then
+                                     seznam_sredina dodaj
+                                     dock_samo_pripeti
+                                     mkdir -p "$MAPA"; : > "$MAPA/seznam-sredina-ponujeno"
                                  fi
                                  exec safeer-os --delovna
                              fi ;;

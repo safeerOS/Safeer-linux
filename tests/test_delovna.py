@@ -914,7 +914,8 @@ class TestTemaCinnamon(unittest.TestCase):
             self._ukaz(o, "--profil", "delovna", "--ozadje", "ohrani")
             self.assertEqual(self._vrednost(o, "org.cinnamon.theme", "name"), "'Safeer-Cinnamon'")
             self.assertEqual(self._vrednost(o, "org.cinnamon", "panels-enabled"), "['1:0:top']")
-            self.assertNotIn("window-list", self._vrednost(o, "org.cinnamon", "enabled-applets"))
+            # Uporabnikov seznam oken (s pripetimi) gre s pulta, na sredini so samo tekoci programi (test spodaj).
+            self.assertNotIn("grouped-window-list@cinnamon.org:2'", self._vrednost(o, "org.cinnamon", "enabled-applets"))
             self.assertEqual(self._vrednost(o, "org.cinnamon.desktop.background", "picture-uri"), "'file:///home/u/moje.jpg'",
                              "ozadje 'ohrani' pusti uporabnikovo")
             # Samozagon Safeer OS (cel zaslon) in starejsa tema Safeer OS bi se tepla z delovno povrsino; samozagon
@@ -941,6 +942,108 @@ class TestTemaCinnamon(unittest.TestCase):
             self._ukaz(o, "--profil", "delovna")
             self._ukaz(o, "--vecji-tekst")
             self.assertEqual(self._vrednost(o, "org.cinnamon.desktop.interface", "text-scaling-factor"), "1.25")
+            self._ukaz(o, "--izklopi")
+            self._kot_na_zacetku(o)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def _appleti(self, o):
+        return [a.strip("'") for a in self._vrednost(o, "org.cinnamon", "enabled-applets").strip("[]").split(", ")]
+
+    def _sredina(self, o):
+        return [a for a in self._appleti(o) if a.split(":")[1:2] == ["center"] and "grouped-window-list" in a]
+
+    def test_delovna_tekoci_programi_na_sredini_pulta(self):
+        """Delovna: tekoci programi na sredini vrhnjega pulta (seznam brez pripetih), dock samo pripeti - isti program
+        ni na dveh mestih (lastnik, 16. 10. 2026). Ponovni vklop ne podvaja in ne povozi uporabnikovih sprememb,
+        druga postavitev in izklop vrneta tocno prejsnje stanje."""
+        import json
+        tmp = tempfile.mkdtemp()
+        try:
+            o = self._okolje(tmp)
+            mapa_spices = os.path.dirname(o["spices"])
+            self._ukaz(o, "--profil", "delovna", "--ozadje", "ohrani")
+            sredina = self._sredina(o)
+            self.assertEqual(len(sredina), 1, sredina)
+            pult, _, mesto, _, st = sredina[0].split(":")
+            self.assertEqual((pult, mesto), ("panel1", "0"))
+            self.assertNotEqual(st, "2", "stevilka skritega uporabnikovega seznama (nastavitve cakajo v hrambi)")
+            self.assertNotIn("panel1:left:2:grouped-window-list@cinnamon.org:2", self._appleti(o))
+            with open(os.path.join(mapa_spices, st + ".json")) as f:
+                nast = json.load(f)
+            self.assertEqual(nast["pinned-apps"]["value"], [])
+            self.assertEqual(nast["title-display"]["value"], 1)                  # samo ikone
+            self.assertEqual(self._dconf(o, "pinned-only"), "true")
+            # Ponovni vklop: en sam seznam, ista stevilka.
+            self._ukaz(o, "--profil", "delovna")
+            self.assertEqual(self._sredina(o), sredina)
+            # Uporabnik v docku spet vklopi odprte programe: ponovni vklop tega ne povozi, druga postavitev ne vrne.
+            subprocess.run(["dconf", "write", self.DOCK + "pinned-only", "false"], env=o["env"], check=True)
+            self._ukaz(o, "--profil", "delovna")
+            self.assertEqual(self._dconf(o, "pinned-only"), "false")
+            # Postavitev dock: seznama na sredini ni vec (dock kaze tekoce kot doslej), dock spet tudi odprte programe.
+            subprocess.run(["dconf", "write", self.DOCK + "pinned-only", "true"], env=o["env"], check=True)
+            self._ukaz(o, "--profil", "dock")
+            self.assertEqual(self._sredina(o), [])
+            self.assertNotIn("window-list", self._vrednost(o, "org.cinnamon", "enabled-applets"))
+            self.assertFalse(os.path.exists(os.path.join(mapa_spices, st + ".json")))
+            self._ukaz(o, "--profil", "delovna")
+            self.assertEqual(len(self._sredina(o)), 1)
+            self.assertEqual(self._dconf(o, "pinned-only"), "true")
+            self.assertEqual(self._dconf(o, "position"), "'right'", "lega docka ostane")
+            # Samo videz: pult in uporabnikov seznam oken (s pripetimi) tocno kot prej.
+            self._ukaz(o, "--profil", "videz")
+            self.assertEqual(self._vrednost(o, "org.cinnamon", "enabled-applets"), self.APPLETI)
+            self._ukaz(o, "--profil", "delovna")
+            self._ukaz(o, "--izklopi")
+            self._kot_na_zacetku(o)
+            self.assertIsNone(self._dconf(o, "pinned-only"))
+            self.assertEqual(sorted(os.listdir(mapa_spices)), ["2.json"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_delovna_uporabnikov_seznam_oken_ostane(self):
+        """Uporabnik je nas seznam s sredine odstranil in dodal svojega: ponovni vklop ga ne skrije in nasega ne vrne."""
+        tmp = tempfile.mkdtemp()
+        try:
+            o = self._okolje(tmp)
+            self._ukaz(o, "--profil", "delovna", "--ozadje", "ohrani")
+            nas = self._sredina(o)[0]
+            svoj = "panel1:left:1:grouped-window-list@cinnamon.org:30"
+            appleti = [a for a in self._appleti(o) if a != nas] + [svoj]
+            subprocess.run(["gsettings", "set", "org.cinnamon", "enabled-applets", repr(appleti)], env=o["env"], check=True)
+            self._ukaz(o, "--profil", "delovna")
+            self.assertEqual(self._appleti(o), appleti)
+            self._ukaz(o, "--izklopi")
+            # Uporabnikov seznam ostane (pult ima seznam oken), skritega izvirnika ne podvajamo.
+            ostali = self._appleti(o)
+            self.assertIn(svoj, ostali)
+            self.assertEqual(sum("grouped-window-list" in a for a in ostali), 1)
+            self.assertEqual(os.listdir(o["mapa"]), ["zadnje-ozadje"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_delovna_iz_starejse_razlicice_dobi_seznam_na_sredini(self):
+        """Delovna, vklopljena s starejso razlicico (seznam oken skrit v seznam-oken.txt, dock kaze tudi tekoce): prva
+        prijava po posodobitvi enkrat doda tekoce programe na sredino pulta in docku pusti samo pripete."""
+        tmp = tempfile.mkdtemp()
+        try:
+            o = self._okolje(tmp)
+            self._ukaz(o, "--profil", "delovna", "--ozadje", "ohrani")
+            # Stanje starejse razlicice: brez nasega seznama in njegovih zapisov, dock kaze tudi odprte programe.
+            nas = self._sredina(o)[0]
+            subprocess.run(["gsettings", "set", "org.cinnamon", "enabled-applets",
+                            repr([a for a in self._appleti(o) if a != nas])], env=o["env"], check=True)
+            os.remove(os.path.join(os.path.dirname(o["spices"]), nas.split(":")[4] + ".json"))
+            for ime in ("seznam-sredina-dodan", "seznam-sredina-ponujeno", "dock-samo-pripeti-prej"):
+                os.remove(os.path.join(o["mapa"], ime))
+            subprocess.run(["dconf", "write", self.DOCK + "pinned-only", "false"], env=o["env"], check=True)
+            with open(os.path.join(o["mapa"], "seznam-oken.txt")) as f:
+                self.assertIn("grouped-window-list@cinnamon.org:2", f.read())
+            for _ in range(2):                                   # dve prijavi: brez podvajanja
+                self._ukaz(o, "--seja")
+                self.assertEqual(len(self._sredina(o)), 1)
+                self.assertEqual(self._dconf(o, "pinned-only"), "true")
             self._ukaz(o, "--izklopi")
             self._kot_na_zacetku(o)
         finally:
