@@ -168,9 +168,9 @@ class Straza:
 
 # ---------------------------------------------------------------------------- proste povezave streznika
 
-#: Toliko povezav, ki samo cakajo na naslednjo zahtevo, sme imeti ena naprava (vir) hkrati; Linkovi odjemalci
-#: uporabljajo eno, brskalnik do 6.
-NAJVEC_PROSTIH_NA_VIR = 8
+#: Brez omejitve stevila povezav na napravo (lastnik 17. 10. 2026: naprave ne omejujemo) - prosta povezava se zapre
+#: sama po roku cakanja na naslednjo zahtevo, nedelujoca takoj. Omejitev je mozna samo izrecno (preizkusi).
+NAJVEC_PROSTIH_NA_VIR = None
 
 
 class ProsteZveze:
@@ -180,7 +180,7 @@ class ProsteZveze:
     povezave konec. Ko ima vir vec kot `najvec` cakajocih, se najstarejsa zapre (shutdown zbudi nit, ki nanjo caka,
     in ta pospravi povezavo kot ob navadnem koncu)."""
 
-    def __init__(self, najvec: int = NAJVEC_PROSTIH_NA_VIR) -> None:
+    def __init__(self, najvec: Optional[int] = NAJVEC_PROSTIH_NA_VIR) -> None:
         self.najvec = najvec
         self._zaklep = threading.Lock()
         self._po_viru: Dict[str, "collections.OrderedDict[int, tuple]"] = {}
@@ -197,7 +197,7 @@ class ProsteZveze:
             vrsta = self._po_viru.setdefault(vir, collections.OrderedDict())
             vrsta[kljuc] = (vticnik, time.monotonic())
             self._vir_vticnika[kljuc] = vir
-            while len(vrsta) > self.najvec:
+            while self.najvec is not None and len(vrsta) > self.najvec:
                 k, (stari, _) = vrsta.popitem(last=False)
                 self._vir_vticnika.pop(k, None)
                 odvec.append(stari)

@@ -35,7 +35,8 @@ def _pocakaj(pogoj, rok: float = 5.0) -> bool:
 
 @unittest.skipUnless(os.path.isdir("/proc/self/fd"), "potrebuje /proc")
 class HubProstePovezave(unittest.TestCase):
-    """Naprava odpira nove povezave in starih ne zapre: Hub drzi najvec NAJVEC_PROSTIH_NA_VIR njenih."""
+    """Naprava odpira nove povezave in starih ne zapre: Hub jih ne omejuje po stevilu (lastnik 17. 10. 2026), ampak
+    zapre vsako, ki po roku ne poslje nove zahteve."""
 
     def _streznik(self, rok_s: float = 30.0):
         from core import link_hub_streznik
@@ -52,14 +53,14 @@ class HubProstePovezave(unittest.TestCase):
             daemon_threads = True
 
         s = Streznik(("127.0.0.1", 0), Obravnava)
-        s.proste = os_deskriptorji.ProsteZveze(najvec=4)
+        s.proste = os_deskriptorji.ProsteZveze()
         threading.Thread(target=s.serve_forever, daemon=True).start()
         self.addCleanup(s.server_close)
         self.addCleanup(s.shutdown)
         return s
 
-    def test_odvecne_proste_povezave_se_zaprejo(self):
-        s = self._streznik()
+    def test_proste_povezave_se_zaprejo_po_roku_brez_omejitve_stevila(self):
+        s = self._streznik(rok_s=0.5)
         pred = _fd()
         odjemalci = []
         for _ in range(30):
@@ -67,12 +68,12 @@ class HubProstePovezave(unittest.TestCase):
             c.request("GET", "/x")
             r = c.getresponse()
             r.read()
-            self.assertEqual(r.status, 204)
+            self.assertEqual(r.status, 204)         # vseh 30 dela - naprave ne omejujemo
             odjemalci.append(c)            # povezava ostane odprta, kot pri napravi, ki je ne zapre
-        self.assertTrue(_pocakaj(lambda: s.proste.cakajocih("127.0.0.1") <= 4))
-        self.assertGreaterEqual(s.proste.zaprtih, 26)
-        # Streznikovih vticnikov je najvec 4 (+ odjemalcevi, ki jih zapremo spodaj).
-        self.assertLessEqual(_fd() - pred, 30 + 4 + 2)
+        self.assertEqual(s.proste.zaprtih, 0)
+        # Po roku streznik vse tihe povezave zapre: ostanejo samo odjemalceve.
+        self.assertTrue(_pocakaj(lambda: s.proste.cakajocih() == 0, rok=5.0))
+        self.assertTrue(_pocakaj(lambda: _fd() <= pred + 30 + 2, rok=5.0), (_fd(), pred))
         for c in odjemalci:
             c.close()
         self.assertTrue(_pocakaj(lambda: _fd() <= pred + 1), (_fd(), pred))
@@ -103,6 +104,7 @@ class HubProstePovezave(unittest.TestCase):
         s = link_hub_streznik._Streznik(("127.0.0.1", 0), link_hub_streznik._Obravnava)
         try:
             self.assertIsInstance(s.proste, os_deskriptorji.ProsteZveze)
+            self.assertIsNone(s.proste.najvec)
             self.assertLessEqual(link_hub_streznik._Obravnava.ROK_CAKANJA_ZAHTEVE_S, 30.0)
         finally:
             s.server_close()
