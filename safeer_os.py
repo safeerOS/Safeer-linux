@@ -4095,6 +4095,10 @@ class SafeerOS(Gtk.Application):
             "sporocilaZdruzi": lambda: self.sporocila.zdruzi_osebi(str(a[0]), str(a[1])),
             "sporocilaRazdruzi": lambda: self.sporocila.razdruzi_osebo(str(a[0]), a[1]),
             "sporocilaOznake": lambda: self.sporocila.nastavi_oznake(str(a[0]), str(a[1]), a[2] if len(a) > 2 else []),
+            # Dejanja v seznamu (arhiv, kos, neprebrano, zvezdica, mapa) za enega ali vec pogovorov; IMAP v tej niti.
+            "sporocilaDejanje": lambda: self.sporocila.dejanje(a[0] if a and isinstance(a[0], list) else [],
+                                                               str(a[1]) if len(a) > 1 else "", str(a[2]) if len(a) > 2 else ""),
+            "sporocilaMapeRacuna": lambda: self.sporocila.mape(str(a[0]) if a else ""),
             "sporocilaOsebe": self.sporocila.osebe,
             "sporocilaIsciPri": lambda: self.sporocila.isci_pri_osebi(
                 str(a[0]), str(a[1]), str(a[2]) if len(a) > 2 else "", str(a[3]) if len(a) > 3 else ""),

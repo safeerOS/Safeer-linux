@@ -37,6 +37,34 @@ def _navedi(mapa: str) -> str:
     return '"%s"' % mapa.replace("\\", "\\\\").replace('"', '\\"')
 
 
+def _obmocja(uidi) -> str:
+    from .imap_sprotno import _obmocja as o
+    return o(uidi)
+
+
+def _iz_obmocij(niz: str) -> set:
+    izid = set()
+    for del_ in niz.split(","):
+        a, _, b = del_.partition(":")
+        izid.update(range(int(a), int(b or a) + 1))
+    return izid
+
+
+def _iz_utf7(ime: str) -> str:
+    """Ime mape iz spremenjenega UTF-7 (RFC 3501 5.1.3): »Ko&AWE-« -> »Koš«."""
+    import base64
+
+    def del_(m):
+        if not m.group(1):
+            return "&"
+        b = m.group(1).replace(",", "/")
+        try:
+            return base64.b64decode(b + "=" * (-len(b) % 4)).decode("utf-16-be")
+        except Exception:  # noqa: BLE001
+            return m.group(0)
+    return re.sub(r"&([A-Za-z0-9+,]*)-", del_, ime)
+
+
 class NapakaPrijave(RuntimeError):
     """Streznik je zavrnil uporabnisko ime ali geslo."""
 
@@ -156,6 +184,8 @@ def _besedilo_dela(surovo: bytes, opis: dict) -> str:
 class EmailAdapter(Adapter):
     vrsta = "email"
     zmore = {"poslji", "priloge"}
+    #: Dejanja v seznamu pogovorov, ki jih IMAP izvede na strezniku (lastnik, 17. 10. 2026).
+    dejanja = ("prebrano", "neprebrano", "zvezdica", "brez_zvezdice", "arhiv", "izbrisi", "nezeleno", "mapa")
     MAPA_PRIPONK = MAPA
 
     def __init__(self, kanal_id: str, naslov: str, imap_streznik: str, smtp_streznik: str,
@@ -689,6 +719,148 @@ class EmailAdapter(Adapter):
             return
         self.povezi()
         self._imap.uid("store", ",".join(str(u) for u in uidi[-200:]), "+FLAGS", "(\\Seen)")
+
+    # --------------------------------------------------------------- dejanja v seznamu (strezniske oznake in mape)
+    @staticmethod
+    def _seznam_map(imap) -> List[tuple]:
+        """[(ime na strezniku, {atributi})] iz LIST (RFC 6154 SPECIAL-USE: \\Archive, \\Trash, \\Junk, \\All)."""
+        status, vrstice = imap.list()
+        izid = []
+        for v in (vrstice or []) if status == "OK" else []:
+            v = v.decode("utf-8", "replace") if isinstance(v, bytes) else str(v)
+            m = re.match(r'\(([^)]*)\)\s+(?:"(?:[^"\\]|\\.)*"|NIL)\s+(.*)$', v)
+            if not m:
+                continue
+            ime = m.group(2).strip()
+            if ime.startswith('"') and ime.endswith('"'):
+                ime = re.sub(r'\\(.)', r'\1', ime[1:-1])
+            izid.append((ime, {a.lower() for a in m.group(1).split()}))
+        return izid
+
+    #: Imena map brez oznake SPECIAL-USE (starejsi strezniki, Dovecot brez nastavitve; Gmail ima oznake vedno).
+    _ZNANA_IMENA = {
+        "arhiv": ("Archive", "Archives", "Arhiv", "INBOX.Archive", "INBOX/Archive"),
+        "izbrisi": ("Trash", "Deleted Items", "Deleted Messages", "Ko&AWE-", "INBOX.Trash", "INBOX/Trash"),
+        "nezeleno": ("Junk", "Spam", "Junk E-mail", "Bulk Mail", "INBOX.Junk", "INBOX.Spam", "INBOX/Junk"),
+    }
+    _OZNAKA = {"arhiv": ("\\archive", "\\all"), "izbrisi": ("\\trash",), "nezeleno": ("\\junk",)}
+
+    @classmethod
+    def posebna_mapa(cls, mape: List[tuple], dejanje: str) -> str:
+        """Ciljna mapa za arhiv/izbris/nezeleno. Arhiv: \\Archive, sicer \\All (Gmail: premik iz INBOX v
+        »[Gmail]/All Mail« je arhiviranje - odstrani le oznako Prejeto). "" = streznik take mape nima."""
+        for oznaka in cls._OZNAKA.get(dejanje, ()):
+            for ime, atributi in mape:
+                if oznaka in atributi and "\\noselect" not in atributi:
+                    return ime
+        po_imenu = {ime.casefold(): ime for ime, atributi in mape if "\\noselect" not in atributi}
+        for kandidat in cls._ZNANA_IMENA.get(dejanje, ()):
+            if kandidat.casefold() in po_imenu:
+                return po_imenu[kandidat.casefold()]
+        return ""
+
+    def mape(self) -> List[dict]:
+        """Mape za »Premakni v mapo« (brez INBOX in map, ki ne morejo imeti pisem)."""
+        imap = self._locena_povezava()
+        try:
+            izid = []
+            for ime, atributi in self._seznam_map(imap):
+                if ime.upper() == "INBOX" or "\\noselect" in atributi or "\\nonexistent" in atributi:
+                    continue
+                # zaseben: mape racuna ostanejo na tej napravi (kot seznami racuna YouTube, core/link_seznami.py).
+                izid.append({"ime": ime, "prikaz": _iz_utf7(ime), "zaseben": True,
+                             "posebna": next((a[1:] for a in sorted(atributi) if a in (
+                                 "\\archive", "\\trash", "\\junk", "\\sent", "\\drafts", "\\all", "\\flagged")), "")})
+            return izid
+        finally:
+            try:
+                imap.logout()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def dejanje(self, pogovor_id: str, dejanje: str, uidi: Iterable[int] = (), mapa: str = "") -> None:
+        self.dejanje_vec({pogovor_id: uidi}, dejanje, mapa)
+
+    def dejanje_vec(self, cilji: Dict[str, Iterable[int]], dejanje: str, mapa: str = "") -> None:
+        """Dejanje na pismih pogovorov v INBOX ({pogovor: uidi iz predpomnilnika}; stanje() hrani le 50 na nit).
+        En ukaz za vse izbrane, lastna kratka povezava: glavno uporablja sinhronizacija (IDLE) v drugi niti.
+        Napaka = izjema (vmesnik spremembo vrne)."""
+        if dejanje not in self.dejanja:
+            raise ValueError("ni_podprto")
+        po_pogovoru = {}
+        for pid, uidi in cilji.items():
+            vsi = sorted({int(u) for u in uidi or ()} | {int(u) for u in (self._zadnja_niti.get(pid) or {}).get("uidi") or []})
+            if vsi:
+                po_pogovoru[pid] = vsi
+        if not po_pogovoru:
+            return
+        if dejanje == "prebrano" or dejanje not in ("neprebrano", "zvezdica", "brez_zvezdice"):
+            izbrani = sorted({u for vsi in po_pogovoru.values() for u in vsi})
+        else:
+            # Neprebrano in zvezdica samo zadnje pismo pogovora (kot Outlook): 50 neprebranih pisem ene osebe ni namen.
+            izbrani = sorted(vsi[-1] for vsi in po_pogovoru.values())
+        imap = self._locena_povezava()
+        try:
+            if imap.select(MAPA, readonly=False)[0] != "OK":
+                raise RuntimeError("Mape ni mogoce odpreti")
+            uidv = self._uidvalidity(imap)
+            if self.uidvalidity and uidv and int(uidv) != self.uidvalidity:
+                raise RuntimeError("uidvalidity")      # UID-ji kazejo na druga pisma: raje nic kot napacna pisma
+            if dejanje in ("prebrano", "neprebrano", "zvezdica", "brez_zvezdice"):
+                zastavica = "\\Seen" if dejanje in ("prebrano", "neprebrano") else "\\Flagged"
+                znak = "-" if dejanje in ("neprebrano", "brez_zvezdice") else "+"
+                status, _ = imap.uid("store", _obmocja(izbrani), znak + "FLAGS", "(%s)" % zastavica)
+                if status != "OK":
+                    raise RuntimeError("store")
+                return
+            mape = self._seznam_map(imap)
+            if dejanje == "mapa":
+                if mapa not in {ime for ime, a in mape if "\\noselect" not in a} or mapa.upper() == "INBOX":
+                    raise ValueError("ni_mape")
+                cilj = mapa
+            else:
+                cilj = self.posebna_mapa(mape, dejanje)
+                if not cilj:
+                    raise ValueError("ni_mape")
+            self._premakni(imap, _obmocja(izbrani), cilj)
+            for pid, vsi in po_pogovoru.items():
+                nit = self._zadnja_niti.get(pid)
+                if nit:
+                    nit["uidi"] = [u for u in nit.get("uidi") or [] if u not in set(vsi)]
+        finally:
+            try:
+                imap.logout()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _premakni(self, imap, mnozica: str, cilj: str) -> None:
+        """UID MOVE (RFC 6851); brez nje COPY + \\Deleted + UID EXPUNGE (UIDPLUS). Brez UIDPLUS navadni EXPUNGE samo,
+        ce drugih oznacenih pisem ni (sicer bi trajno izbrisal tudi tuja, ki jih je drug odjemalec le oznacil)."""
+        zmoznosti = set()
+        try:
+            status, odg = imap.capability()
+            if status == "OK" and odg and odg[0]:
+                zmoznosti = set((odg[0].decode("ascii", "replace") if isinstance(odg[0], bytes) else str(odg[0])).upper().split())
+        except Exception:  # noqa: BLE001
+            pass
+        zmoznosti |= {str(z).upper() for z in (getattr(imap, "capabilities", ()) or ())}
+        if "MOVE" in zmoznosti:
+            status, _ = imap.uid("move", mnozica, _navedi(cilj))
+            if status != "OK":
+                raise RuntimeError("move")
+            return
+        status, _ = imap.uid("copy", mnozica, _navedi(cilj))
+        if status != "OK":
+            raise RuntimeError("copy")
+        if imap.uid("store", mnozica, "+FLAGS.SILENT", "(\\Deleted)")[0] != "OK":
+            raise RuntimeError("store")
+        if "UIDPLUS" in zmoznosti:
+            imap.uid("expunge", mnozica)
+            return
+        status, odg = imap.uid("search", None, "DELETED")
+        oznaceni = {int(u) for u in (odg[0] or b"").split()} if status == "OK" and odg else None
+        if oznaceni is not None and oznaceni <= _iz_obmocij(mnozica):
+            imap.expunge()
 
     # --------------------------------------------------------------- stanje med zagoni
     def stanje(self) -> dict:

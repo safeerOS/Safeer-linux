@@ -23,9 +23,20 @@ class Nabiralnik:
         self.condstore = condstore
         self.odjemalci = set()   # odprte seje
         self.ukazi = []          # zapisnik ukazov (brez gesel)
+        #: Druge mape: ime -> (atributi LIST, [pisma]); INBOX je self.pisma. Brez nastavitve LIST vrne samo INBOX.
+        self.mape = {}
+        self.move = True         # zmoznost MOVE (RFC 6851); False = COPY + STORE \Deleted + EXPUNGE
+        self.uidplus = True
+        self.zavrni = set()      # ukazi (npr. "MOVE"), na katere streznik odgovori NO - preizkus napake
+
+    def dodaj_mapo(self, ime: str, atributi: str = "") -> None:
+        with self.zaklep:
+            self.mape[ime] = (atributi, [])
 
     def zmoznosti(self) -> str:
-        z = ["IMAP4rev1", "AUTH=PLAIN", "UIDPLUS"]
+        z = ["IMAP4rev1", "AUTH=PLAIN"] + (["UIDPLUS"] if getattr(self, "uidplus", True) else [])
+        if getattr(self, "move", False):
+            z.append("MOVE")
         if self.idle:
             z.append("IDLE")
         if self.condstore:
@@ -200,6 +211,16 @@ class _Seja(socketserver.StreamRequestHandler):
             self._pisi(b'* STATUS "INBOX" (UNSEEN %d)' % neprebranih); ok()
         elif ukaz == "NOOP":
             ok()
+        elif ukaz == "LIST":
+            with n.zaklep:
+                self._pisi(b'* LIST (\\HasNoChildren) "/" "INBOX"')
+                for ime, (atributi, _p) in n.mape.items():
+                    self._pisi(('* LIST (\\HasNoChildren%s) "/" "%s"' % ((" " + atributi) if atributi else "", ime)).encode())
+            ok()
+        elif ukaz == "EXPUNGE":
+            with n.zaklep:
+                n.pisma[:] = [p for p in n.pisma if "\\Deleted" not in p["zastavice"]]
+            ok()
         elif ukaz == "IDLE":
             if not n.idle:
                 self._pisi(oznaka.encode() + b" BAD no idle"); return True
@@ -216,6 +237,28 @@ class _Seja(socketserver.StreamRequestHandler):
         elif ukaz == "UID":
             pod, _, arg2 = arg.partition(" ")
             pod = pod.upper()
+            if pod in ("MOVE", "COPY", "EXPUNGE") and pod in n.zavrni or pod == "STORE" and "STORE" in n.zavrni:
+                self._pisi(oznaka.encode() + b" NO zavrnjeno"); return True
+            if pod in ("MOVE", "COPY"):
+                m = re.match(r'(\S+) "?([^"]*)"?$', arg2)
+                with n.zaklep:
+                    if not m or m.group(2) not in n.mape or (pod == "MOVE" and not n.move):
+                        self._pisi(oznaka.encode() + b" NO [TRYCREATE] ni mape"); return True
+                    mn = _mnozica(m.group(1), max([p["uid"] for p in n.pisma] or [0]))
+                    izbrana = [p for p in n.pisma if p["uid"] in mn]
+                    n.mape[m.group(2)][1].extend(dict(p, zastavice=set(p["zastavice"])) for p in izbrana)
+                    if pod == "MOVE":
+                        n.pisma[:] = [p for p in n.pisma if p["uid"] not in mn]
+                ok(); return True
+            if pod == "EXPUNGE":
+                with n.zaklep:
+                    mn = _mnozica(arg2.strip(), max([p["uid"] for p in n.pisma] or [0]))
+                    n.pisma[:] = [p for p in n.pisma if not (p["uid"] in mn and "\\Deleted" in p["zastavice"])]
+                ok(); return True
+            if pod == "SEARCH" and arg2.strip().upper() == "DELETED":
+                with n.zaklep:
+                    uidi = [p["uid"] for p in n.pisma if "\\Deleted" in p["zastavice"]]
+                self._pisi(b"* SEARCH" + b"".join(b" %d" % u for u in uidi)); ok(); return True
             if pod == "SEARCH":
                 with n.zaklep:
                     vsi = [p["uid"] for p in n.pisma]
