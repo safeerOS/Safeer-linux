@@ -2,6 +2,8 @@
 
   * Link (link_hub.Povezava._zanka): izjema v _odpri ali v klicatelju ob_stanju je koncala nit ponovnega
     povezovanja - naprava se ni vec vrnila v Link do ponovnega zagona.
+  * Prekodiranje (link_sprotno.Sprotno._straza): izjema pri ustavljanju toka je koncala strazo, _straza_tece pa je
+    ostal True - nobena nova straza; osiroteli ffmpeg in rastoca .mp4 sta ostala do ponovnega zagona.
   * Scit (os_scit.Seznami._tek): izjema pri osvezitvi je koncala nit, _nit pa je ostal nastavljen, zato je
     zazeni() ni obnovil - seznami groznj se niso vec osvezevali.
 """
@@ -15,7 +17,7 @@ KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if KOREN not in sys.path:
     sys.path.insert(0, KOREN)
 
-from core import link_hub, os_scit  # noqa: E402
+from core import link_hub, link_sprotno, os_scit  # noqa: E402
 
 
 class PonovnoPovezovanje(unittest.TestCase):
@@ -67,6 +69,31 @@ class SeznamiScita(unittest.TestCase):
             n.start()
             n.join(5)
         self.assertEqual(len(klici), 2)
+
+
+class StrazaPrekodiranja(unittest.TestCase):
+    def test_napaka_pri_ustavljanju_ne_ubije_straze(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            sp = link_sprotno.Sprotno(mapa=td)
+            a, b = link_sprotno.Tok("a", td + "/a.mp4"), link_sprotno.Tok("b", td + "/b.mp4")
+            for t in (a, b):
+                t.zadnji_bralec = 0.0
+                sp.tokovi[t.id] = t
+            ustavljeni = []
+
+            def ustavi(t):
+                ustavljeni.append(t.ime)
+                if t is a:
+                    raise OSError("proces ze koncan")
+                t.koncano = True
+                a.koncano = True
+            sp.ustavi = ustavi
+            sp._straza_tece = True
+            with mock.patch.object(link_sprotno.time, "sleep", lambda _s: None):
+                sp._straza()
+            self.assertEqual(ustavljeni, ["a", "b"])
+            self.assertFalse(sp._straza_tece)       # koncala je pravilno: naslednji tok zazene novo
 
 
 if __name__ == "__main__":
