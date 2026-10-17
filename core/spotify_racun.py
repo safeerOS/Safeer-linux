@@ -617,6 +617,8 @@ class Racun:
         self._prenos = ""                 # "" | "tece" | "napaka"
         self._dotik = ura()
         self._utisal = False
+        self._zastoj_od = 0.0             # od kdaj predvajalnik stoji v oglasu (po utisanju), 0 = ne stoji
+        self._zastoj_korak = 0
         self._straza: Optional[threading.Thread] = None
         self._z_strazo = straza
         self._preverjeno = False          # stran je ze povedala, ali je uporabnik prijavljen
@@ -739,8 +741,31 @@ class Racun:
                 pass
         elif self._utisal and not stanje["oglas"]:
             self._utisaj(False)
+        self._popravi_zastoj(stanje)
         self._predvajanje = stanje
         return stanje
+
+    #: Po utisanem oglasu Spotify predvajalnik vcasih obstoji (oglas, premor, naslednje pesmi ni; preizkus 18. 10. 2026):
+    #: poslusalec mora sam pritisniti Predvajaj. Strazar ga potisne naprej: Predvajaj, nato Naslednja, nato znova Predvajaj.
+    ZASTOJ_KORAKI = ((2.0, "control-button-playpause"), (6.0, "control-button-skip-forward"), (12.0, "control-button-playpause"))
+
+    def _popravi_zastoj(self, stanje: dict) -> None:
+        if not (self.scit() and stanje.get("oglas") and not stanje.get("igra")):
+            self._zastoj_od, self._zastoj_korak = 0.0, 0
+            return
+        zdaj = self._ura()
+        if not self._zastoj_od:
+            self._zastoj_od = zdaj
+            return
+        if self._zastoj_korak >= len(self.ZASTOJ_KORAKI):
+            return
+        po, gumb = self.ZASTOJ_KORAKI[self._zastoj_korak]
+        if zdaj - self._zastoj_od >= po:
+            self._zastoj_korak += 1
+            try:
+                self.kanal.izvedi(GUMB_JS % _js(gumb), 3)
+            except (NiOdziva, SpremenjenaStran):
+                pass
 
     def _utisaj(self, da: bool) -> None:
         try:

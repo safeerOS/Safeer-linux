@@ -1520,7 +1520,20 @@
     // Zapomnjen zavihek je skrit: Medijski center se odpre na Domov (samo ob odprtju; »Vse →« ga se vedno odpre).
     if (ob_nalaganju && !prej && jeSkrito("kat:" + S.mediaFilter)) { izberiMedijskoKategorijo("domov"); naloziMedije(); return; }
     narisiMedije();
+    osveziPoliceSkrite();
     if ($("slojPrilagodi").classList.contains("viden")) narisiPrilagodi();
+  }
+  // Police na Domov, ki jih je uporabnik skril (»polica:samodejni«, »polica:nazadnje«): ne naloze se in ne narisejo
+  // (kartice, naslovnice in podatki ne zasedajo pomnilnika); ob ponovnem vklopu se naloze znova.
+  var SKRIVNE_POLICE = [["polica:samodejni", "samNaslov"], ["polica:nazadnje", "policaNazadnje"]];
+  function osveziPoliceSkrite() {
+    try {
+      var sam = jeSkrito("polica:samodejni");
+      if (sam) S.samodejni = [];
+      else if (!(S.samodejni || []).length) naloziSamodejne();
+      if (typeof POL !== "undefined") { POL.podpis = ""; narisiPolice(); }
+      narisiSamodejne();
+    } catch (e) { /* stran se se ne izrisuje */ }
   }
   function skrijPredmet(kljuc, da, ime) {
     return klic("mediaSkrij", [kljuc, !!da]).then(function (seznam) {
@@ -1596,6 +1609,7 @@
     skupina("mediaPrilagodiVrste", MEDIA_KATEGORIJE.filter(function (k) { return k[0] !== "domov" && kategorijaVidna(k); }).map(function (k) {
       return { kljuc: "kat:" + k[0], ime: t("media_" + k[0]), ikona: k[1] };
     }));
+    skupina("policaPrilagodi", SKRIVNE_POLICE.map(function (p) { return { kljuc: p[0], ime: t(p[1]), ikona: "glasba" }; }));
     // Viri niso vec v levem stolpcu (lastnik, 17. 10. 2026), zato jih tu ni kaj skrivati.
     if (aktivni) { var cilj = seznam.querySelector('[data-kljuc="' + aktivni.replace(/"/g, "") + '"]'); if (cilj) cilj.focus(); }
   }
@@ -1634,6 +1648,7 @@
   }
   function naloziSamodejne() {
     if (!most) return;
+    if (jeSkrito("polica:samodejni")) { S.samodejni = []; return; }
     klic("mediaSamodejniSeznami", []).then(function (r) {
       S.samodejni = r && Array.isArray(r.seznami) ? r.seznami : [];
       narisiSamodejne();
@@ -1669,11 +1684,18 @@
     });
     return k;
   }
+  function gumbSkrijPolico(kljuc, ime) {
+    var b = el("button", "media-polica-vse", "<span>" + ubezi(t("policaSkrij")) + "</span>");
+    b.type = "button"; b.setAttribute("aria-label", t("policaSkrij") + ": " + ime);
+    b.addEventListener("click", function () { skrijPredmet(kljuc, true, ime); });
+    return b;
+  }
   function narisiSamodejne() {
     var c = $("mediaSamodejni"); if (!c) return;
     var seznami = S.samodejni || [];
-    var vidno = (S.mediaFilter === "domov" || S.mediaFilter === "glasba") && !String(S.mediaIskanje || "").trim() && seznami.length > 0;
+    var vidno = (S.mediaFilter === "domov" || S.mediaFilter === "glasba") && !String(S.mediaIskanje || "").trim() && seznami.length > 0 && !jeSkrito("polica:samodejni");
     c.hidden = !vidno;
+    if (jeSkrito("polica:samodejni") && c._podpis) { c.innerHTML = ""; c._podpis = ""; }
     if (S.mediaFilter === "domov" && typeof POL !== "undefined") narisiMediaDomov();      // prazno stanje Domov je odvisno tudi od samodejnih seznamov
     var podpis = JSON.stringify(seznami) + "|" + jezik;
     if (!vidno || c._podpis === podpis) return;
@@ -1681,7 +1703,10 @@
     var izbran = document.activeElement && c.contains(document.activeElement) ? document.activeElement.getAttribute("data-id") : null;
     c.innerHTML = "";
     var glava = el("h3", "media-polica-naslov", ubezi(t("samNaslov"))); glava.id = "mediaSamodejniNaslov";
-    c.appendChild(glava);
+    var vrhSam = el("div", "media-polica-glava");
+    vrhSam.appendChild(glava);
+    vrhSam.appendChild(gumbSkrijPolico("polica:samodejni", t("samNaslov")));
+    c.appendChild(vrhSam);
     var vrsta = el("div", "media-polica-vrsta media-samodejni-vrsta"); vrsta.setAttribute("role", "list");
     seznami.forEach(function (sz) {
       var ime = imeSamodejnega(sz);
@@ -6469,7 +6494,7 @@
     var c = $("mediaPolice"); if (!c) return;
     // Samo police tega zavihka: po menjavi zavihka police prejsnjega (npr. Filmi na Domov) ne ostanejo vidne, dokler
     // odgovor (lahko caka na TMDB) ne pride (pregled 14. 10. 2026).
-    var police = POL.nalozeno === S.mediaFilter ? (POL.police || []) : [];
+    var police = POL.nalozeno === S.mediaFilter ? (POL.police || []).filter(function (p) { return !jeSkrito("polica:" + p.id); }) : [];
     var podpis = JSON.stringify(police) + "|" + jezik + "|" + S.mediaFilter;
     if (podpis === POL.podpis) return;          // isti podatki: izbor in polozaj police ostaneta
     POL.podpis = podpis;
@@ -6498,6 +6523,7 @@
         vse.setAttribute("data-zavihek", zavihek);
         vse.addEventListener("click", function () { izberiZavihekMedijev(zavihek); $("vsebina").scrollTop = 0; });
         vrhPolice.appendChild(vse);
+        if (p.id === "nazadnje") vrhPolice.appendChild(gumbSkrijPolico("polica:nazadnje", naslov));
         sekcija.appendChild(vrhPolice);
       } else sekcija.appendChild(glava);
       var vrsta = el("div", "media-polica-vrsta"); vrsta.setAttribute("role", "list");

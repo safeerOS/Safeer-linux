@@ -456,6 +456,34 @@ class RacunTest(unittest.TestCase):
         self.assertFalse(any("utisaj" in x for x in k.izrazi))
         self.assertFalse(r.scit())
 
+    def test_straza_popravi_zastoj_po_oglasu(self):
+        k = LazniKanal()
+        ura = [100.0]
+        r = sr.Racun(self.mapa, kanal=k, na_voljo=lambda: True, straza=False, ura=lambda: ura[0])
+        k.zacni(False, True)
+        ad = {"naslov": "Advertisement", "igra": False}
+        r.straza_korak(ad)
+        k.izrazi.clear()
+        ura[0] = 101.0
+        r.straza_korak(ad)
+        self.assertFalse(any("playpause" in x for x in k.izrazi))
+        ura[0] = 102.5
+        r.straza_korak(ad)
+        self.assertTrue(any("control-button-playpause" in x for x in k.izrazi))
+        n = sum("control-button-playpause" in x for x in k.izrazi)
+        ura[0] = 103.0
+        r.straza_korak(ad)
+        self.assertEqual(sum("control-button-playpause" in x for x in k.izrazi), n)   # en pritisk na korak
+        ura[0] = 107.0
+        r.straza_korak(ad)
+        self.assertTrue(any("control-button-skip-forward" in x for x in k.izrazi))
+        ura[0] = 113.0
+        r.straza_korak(ad)
+        self.assertEqual(sum("control-button-playpause" in x for x in k.izrazi), n + 1)
+        # pesem igra: zastoja ni, stevec se ponastavi
+        r.straza_korak({"naslov": "Pesem", "igra": True})
+        self.assertEqual((r._zastoj_od, r._zastoj_korak), (0.0, 0))
+
     def test_upravljanje(self):
         k = LazniKanal()
         r = self._racun(k)

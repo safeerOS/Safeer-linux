@@ -617,8 +617,8 @@ class Katalog:
         return izid
 
     # ------------------------------------------------------------------ prilagojen meni (skriti zavihki in viri)
-    #: Kljuc skritega predmeta leve navigacije: "kat:<zavihek>" ali "vir:<id vira>" ("vir:mape" = Ta racunalnik).
-    _SKRITO = re.compile(r"^(?:kat|vir):[\w:.\-]{1,200}$")
+    #: Kljuc skritega predmeta leve navigacije: "kat:<zavihek>", "vir:<id vira>" ali "polica:<id police>" (samodejni, nazadnje) ("vir:mape" = Ta racunalnik).
+    _SKRITO = re.compile(r"^(?:kat|vir|polica):[\w:.\-]{1,200}$")
     NAJVEC_SKRITIH = 300
 
     def _skriti(self) -> list:
