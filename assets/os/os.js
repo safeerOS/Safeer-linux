@@ -4852,7 +4852,7 @@
       var znacka = x.kakovost || (x.vrsta === "tv-v-zivo" ? t("katVZivo") : "");
       if (znacka) card.appendChild(el("span", "kat-kakovost", ubezi(znacka)));
       if (Number(x.ocena || 0) > 0) card.appendChild(el("span", "kat-ocena", "★ " + Number(x.ocena).toFixed(1)));
-      if (izSeznama) {
+      if (izSeznama && !kat.seznam.yt) {
         var odstraniSkladbo = el("span", "kat-odstrani", "✕"); odstraniSkladbo.title = t("seznamOdstraniSkladbo");
         odstraniSkladbo.onclick = function (e) {
           e.stopPropagation();
@@ -5058,7 +5058,77 @@
   }
   function seznamiVidni() { return (kat.filter === "glasba" || kat.filter === "vse") && !kat.query.trim(); }
   function naloziSeznamePredvajanja() {
+    naloziYtRacun(false);
     return klic("mediaSeznami").then(function (s) { kat.seznami = s || []; narisiSeznamePredvajanja(); }, function () {});
+  }
+  // ---- račun YouTube (core/youtube_racun.py): prijava samo, če jo uporabnik želi, in samo v Spletu
+  var YT_PRIJAVA = "https://accounts.google.com/ServiceLogin?service=youtube&continue=https://www.youtube.com/";
+  var YT_ODJAVA = "https://www.youtube.com/logout";
+  function naloziYtRacun(vsiljeno) {
+    if (!vsiljeno && kat.ytRacunCas && Date.now() - kat.ytRacunCas < 60000) return Promise.resolve(kat.ytRacun);
+    kat.ytRacunCas = Date.now();
+    return klic("mediaYtRacun").then(function (r) {
+      var prej = kat.ytRacun;
+      kat.ytRacun = r || null;
+      if (r && r.potekla && !(prej && prej.potekla)) obvesti(t("ytPotekla"));
+      if (r && r.prijavljen) ustaviYtCakanje();
+      narisiSeznamePredvajanja();
+      return r;
+    }, function () { return null; });
+  }
+  // Po kliku »Prijava« Medijski center vsakih 5 s pogleda shrambo piškotkov (samo branje, brez omrežja, dokler
+  // prijave ni) - ko se uporabnik v Spletu prijavi, se pokažejo njegovi seznami. Največ 10 minut.
+  function cakajYtPrijavo() {
+    ustaviYtCakanje();
+    var konec = Date.now() + 600000;
+    kat.ytCakanje = setInterval(function () { if (Date.now() > konec) ustaviYtCakanje(); else naloziYtRacun(true); }, 5000);
+  }
+  function ustaviYtCakanje() { if (kat.ytCakanje) { clearInterval(kat.ytCakanje); kat.ytCakanje = 0; } }
+  function ytImeSeznama(x) {
+    return x.posebni === "LL" ? t("ytVseckani") : x.posebni === "WL" ? t("ytPozneje") : x.posebni === "LM" ? t("ytMusicVseckani") : x.ime;
+  }
+  function odpriYtSeznam(x) {
+    obvesti(t("ytNalagam"));
+    klic("mediaYtSeznam", [x.id]).then(function (sz) {
+      if (sz && sz.napaka === "potekla") { obvesti(t("ytPotekla")); naloziYtRacun(true); return; }
+      if (!sz || !sz.vnosi || !sz.vnosi.length) { obvesti(t("seznamNiUspel")); return; }
+      if (x.posebni) sz.ime = ytImeSeznama(x);
+      kat.seznam = sz; narisiKatalog();
+      $("katalog").scrollIntoView({ block: "start" });
+    }, function () { obvesti(t("seznamNiUspel")); });
+  }
+  function narisiYtRacun(c) {
+    var r = kat.ytRacun || {}, blok = el("div", "kat-yt-racun");
+    var glava = el("div", "kat-seznam-glava");
+    glava.appendChild(el("h3", "", ubezi(t("ytRacunNaslov"))));
+    if (r.prijavljen) {
+      glava.appendChild(el("small", "", ubezi(r.ime ? t("ytPrijavljen", { ime: r.ime }) : t("ytPrijavljenBrezImena"))));
+      var odjava = el("button", "gumb", ubezi(t("ytOdjava"))); odjava.type = "button";
+      // Odjava v Spletu: YouTube in Google sama izbrišeta prijavo v naši seji (WebKit), drugi piškotki ostanejo.
+      odjava.onclick = function () { kat.ytRacun = null; kat.ytRacunCas = 0; klic("splet", [YT_ODJAVA, true]); narisiSeznamePredvajanja(); };
+      glava.appendChild(odjava);
+    } else {
+      glava.appendChild(el("small", "", ubezi(r.potekla ? t("ytPotekla") : t("ytPrijavaNamig"))));
+      var prijava = el("button", "gumb", ubezi(t("ytPrijava"))); prijava.type = "button";
+      prijava.onclick = function () { klic("splet", [YT_PRIJAVA, true]); cakajYtPrijavo(); };
+      glava.appendChild(prijava);
+    }
+    blok.appendChild(glava);
+    if (r.prijavljen) {
+      if (r.napaka) blok.appendChild(el("small", "", ubezi(t("ytNiUspelo"))));
+      var vrsta = el("div", "kat-seznami-vrsta");
+      (r.seznami || []).forEach(function (x) {
+        var k = el("button", "kat-seznam-kartica"); k.type = "button";
+        k.appendChild(el("span", "kat-brez-slike", svg("glasba")));
+        var opis = el("span"); opis.appendChild(el("b", "", ubezi(ytImeSeznama(x))));
+        opis.appendChild(el("small", "", "YouTube"));
+        k.appendChild(opis);
+        k.onclick = function () { odpriYtSeznam(x); };
+        vrsta.appendChild(k);
+      });
+      blok.appendChild(vrsta);
+    }
+    c.appendChild(blok);
   }
   function odpriSeznamPredvajanja(ime) {
     klic("mediaSeznam", [ime]).then(function (sz) {
@@ -5071,7 +5141,9 @@
     povezava = String(povezava || "").trim(); if (!povezava) return;
     obvesti(t("seznamUvazam"));
     klic("mediaUvoziSeznam", [povezava]).then(function (r) {
-      if (!r || r.napaka) { obvesti(t(r && r.napaka === "ni_seznam" ? "seznamNiSeznam" : r && r.napaka === "zaseben" ? "seznamZaseben" : "seznamNiUspel")); return; }
+      if (r && r.napaka === "zaseben") { obvesti(t("seznamZaseben") + " " + t("ytZasebenPrijava")); return; }
+      if (r && r.napaka === "potekla") { obvesti(t("ytPotekla")); naloziYtRacun(true); return; }
+      if (!r || r.napaka) { obvesti(t(r && r.napaka === "ni_seznam" ? "seznamNiSeznam" : "seznamNiUspel")); return; }
       obvesti(t("seznamUvozen", { ime: r.ime, n: r.stevilo }));
       naloziSeznamePredvajanja().then(function () { odpriSeznamPredvajanja(r.ime); });
     }, function () { obvesti(t("seznamNiUspel")); });
@@ -5089,6 +5161,19 @@
       var vse = el("button", "gumb glavni", ubezi("▶ " + t("seznamPredvajajVse"))); vse.type = "button";
       vse.onclick = function () { var prvi = sz.vnosi[0]; if (prvi) { nastaviVrsto(prvi); odpriKatalogVnos(prvi.id); } };
       glava.appendChild(vse);
+      if (sz.yt) {
+        // Seznam računa YouTube: predvaja se takoj; shrani ga uporabnik sam (ostane samo na tej napravi).
+        var shrani = el("button", "gumb", ubezi(t("ytShrani"))); shrani.type = "button";
+        shrani.onclick = function () {
+          klic("mediaYtShrani", [sz.yt]).then(function (r) {
+            if (!r || !r.ok) { obvesti(t("seznamNiMogoce")); return; }
+            obvesti(t("ytShranjeno", { ime: r.ime })); naloziSeznamePredvajanja();
+          }, function () { obvesti(t("seznamNiMogoce")); });
+        };
+        glava.appendChild(shrani);
+        c.appendChild(glava);
+        return;
+      }
       // Odstranitev v dveh korakih (prvi klik vpraša), brez sistemskega okna.
       var odstrani = el("button", "gumb", ubezi(t("seznamOdstrani"))), potrjeno = false; odstrani.type = "button";
       odstrani.onclick = function () {
@@ -5123,6 +5208,7 @@
     obrazec.onsubmit = function (e) { e.preventDefault(); var v = polje.value; polje.value = ""; uvoziSeznamPredvajanja(v); };
     vrsta.appendChild(obrazec);
     c.appendChild(vrsta);
+    narisiYtRacun(c);
   }
   // »Na seznam«: skladbo dodaš na obstoječ seznam predvajanja ali na novega. Meni se odpre ob gumbu, ki ga je odprl.
   function pokaziSeznamMeni(item, ob) {

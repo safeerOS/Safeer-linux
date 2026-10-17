@@ -355,6 +355,7 @@ class Katalog:
         "mediaViri": "_viri", "mediaDodajVir": "_dodaj_vir", "mediaDodajStreznik": "_dodaj_streznik",
         "mediaOdstraniVir": "_odstrani_vir", "mediaOsveziVir": "_osvezi_vir", "mediaOdkrijDlna": "_odkrij_dlna",
         "mediaSeznami": "_seznami", "mediaSeznam": "_seznam", "mediaUvoziSeznam": "_uvozi_seznam",
+        "mediaYtRacun": "_yt_racun", "mediaYtSeznam": "_yt_seznam", "mediaYtShrani": "_yt_shrani",
         "mediaOdstraniSeznam": "_odstrani_seznam", "mediaDodajNaSeznam": "_dodaj_na_seznam",
         "mediaOdstraniSSeznama": "_odstrani_s_seznama", "mediaSeznamZamenjava": "_seznam_zamenjava",
         "mediaPredvajaj": "_predvajaj_vnos", "mediaYtUkaz": "_yt_ukaz", "mediaStanje": "_stanje",
@@ -874,6 +875,15 @@ class Katalog:
             # Skladbam brez posnetka (Spotify) posnetke poiscemo v ozadju; ko so, pogled dobi slike skladb.
             self.mc.poisci_posnetke(izid["ime"], ob_koncu=lambda ime: self.dogodek("mediaSeznamOsvezen", {"ime": ime}))
         return izid
+
+    def _yt_racun(self, _a: list) -> Any:
+        return self.mc.yt_stanje()
+
+    def _yt_seznam(self, a: list) -> Any:
+        return self.mc.yt_seznam(self._niz(a, 0))
+
+    def _yt_shrani(self, a: list) -> Any:
+        return self.mc.yt_shrani(self._niz(a, 0))
 
     def _odstrani_seznam(self, a: list) -> Any:
         return self.mc.odstrani_seznam(self._niz(a, 0))

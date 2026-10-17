@@ -44,7 +44,9 @@ def _seznami(koren: str) -> list:
     data = _beri(os.path.join(koren, "seznami.json"))
     if not isinstance(data, list):
         return []
-    return [x for x in data if isinstance(x, dict) and x.get("ime") and isinstance(x.get("skladbe"), list)]
+    # Seznami racuna YouTube ("zaseben", core/youtube_racun.py) ostanejo na napravi.
+    return [x for x in data if isinstance(x, dict) and x.get("ime") and isinstance(x.get("skladbe"), list)
+            and not x.get("zaseben")]
 
 
 def _izbrisani(koren: str) -> dict:
