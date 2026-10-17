@@ -706,6 +706,11 @@ for pot in sorted(glob.glob(os.path.join(sys.argv[1], "grouped-window-list@cinna
             ime = ime[:-len(":flatpak")]
         if ime.endswith(".desktop") and "/" not in ime and " " not in ime and ime[:-8] not in videni:
             videni.append(ime[:-8])
+# Mintovi privzeti pripeti programi (Linux Mint 22: Firefox, Datoteke, Terminal) niso izbira uporabnika: ce jih ni
+# spremenil, dock dobi nabor Safeer (nas brskalnik namesto Firefoxa - lastnik 17. 10. 2026: trije brskalniki zmedejo).
+MINT_PRIVZETI = {"firefox", "nemo", "org.gnome.Terminal", "mintinstall"}
+if videni and set(videni) <= MINT_PRIVZETI:
+    videni = []
 print(" ".join(videni[:24]))
 PY
 }

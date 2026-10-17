@@ -615,7 +615,7 @@ class TestTemaCinnamon(unittest.TestCase):
         os.makedirs(os.path.join(koren, "usr", "share", "icons", "Papirus-Dark"))
         apps = os.path.join(koren, "usr", "share", "applications")
         os.makedirs(apps)
-        for ime in ("nemo", "firefox", "safeer-os", "org.gnome.Terminal"):
+        for ime in ("nemo", "firefox", "gimp", "safeer-os", "org.gnome.Terminal"):
             with open(os.path.join(apps, ime + ".desktop"), "w") as f:
                 f.write("[Desktop Entry]\nName=%s\nExec=%s\n" % (ime, ime))
         # Uporabnik je imel pred vklopom svoj nabor v Planku, zagon Safeer OS ob prijavi in starejso temo Safeer OS.
@@ -631,7 +631,7 @@ class TestTemaCinnamon(unittest.TestCase):
         spices = os.path.join(dom, ".config", "cinnamon", "spices", "grouped-window-list@cinnamon.org")
         os.makedirs(spices)
         with open(os.path.join(spices, "2.json"), "w") as f:
-            f.write('{"pinned-apps": {"type": "generic", "value": ["nemo.desktop", "firefox.desktop"]}}')
+            f.write('{"pinned-apps": {"type": "generic", "value": ["nemo.desktop", "gimp.desktop"]}}')
         env = dict(os.environ, PATH=bin_ + os.pathsep + os.environ.get("PATH", ""), HOME=dom, XDG_CONFIG_HOME="",
                    XDG_DATA_HOME="", SAFEER_CINNAMON_BREZ_SISTEMA="1", SAFEER_CINNAMON_KOREN=koren)
         return {"env": env, "db": db, "dconf": dconf, "dom": dom, "koren": koren, "spices": os.path.join(spices, "2.json"),
@@ -666,7 +666,7 @@ class TestTemaCinnamon(unittest.TestCase):
         with open(os.path.join(o["avto"], "safeer-os.desktop")) as f:
             self.assertEqual(f.read(), "[Desktop Entry]\nName=Safeer OS\nExec=safeer-os\n")
         with open(o["spices"]) as f:
-            self.assertIn("firefox.desktop", f.read())
+            self.assertIn("gimp.desktop", f.read())
         # Ostane samo spomin na zadnje ozadje (za naslednji vklop).
         self.assertEqual(os.listdir(o["mapa"]), ["zadnje-ozadje"])
 
@@ -705,6 +705,22 @@ class TestTemaCinnamon(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_mintovi_privzeti_pripeti_niso_izbira_uporabnika(self):
+        """Lastnik 17. 10. 2026: Mintovi privzeti pripeti programi (Firefox, Datoteke, Terminal) ne dolocijo docka -
+        dock dobi nabor Safeer z nasim brskalnikom, Firefoxa ne vsilimo (trije brskalniki zmedejo)."""
+        tmp = tempfile.mkdtemp()
+        try:
+            o = self._okolje(tmp)
+            with open(o["spices"], "w") as f:
+                f.write('{"pinned-apps": {"type": "generic", "value": ["nemo.desktop", "firefox.desktop", "org.gnome.Terminal.desktop"]}}')
+            self._ukaz(o, "--profil", "dock")
+            dock = sorted(os.listdir(o["launcherji"]))
+            self.assertNotIn("firefox.dockitem", dock)
+            self.assertIn("safeer-os.dockitem", dock)
+            self.assertIn("nemo.dockitem", dock)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_dock_en_sam_seznam_oken(self):
         """Postavitev dock: pult gre na vrh, seznam oken z njega v dock (pripeti programi postanejo zacetni nabor);
         zamenjava postavitve in izklop vrneta pult, applet in njegove nastavitve."""
@@ -718,8 +734,8 @@ class TestTemaCinnamon(unittest.TestCase):
             self.assertIn("menu@cinnamon.org", appleti)
             self.assertIn("calendar@cinnamon.org", appleti)
             # Nabor docka: programi, ki jih je imel uporabnik pripete na pultu, in Safeer OS; Plankov stari nabor caka.
-            self.assertEqual(sorted(os.listdir(o["launcherji"])), ["firefox.dockitem", "nemo.dockitem", "safeer-os.dockitem"])
-            self.assertEqual(self._dconf(o, "dock-items"), "['nemo.dockitem', 'firefox.dockitem', 'safeer-os.dockitem']")
+            self.assertEqual(sorted(os.listdir(o["launcherji"])), ["gimp.dockitem", "nemo.dockitem", "safeer-os.dockitem"])
+            self.assertEqual(self._dconf(o, "dock-items"), "['nemo.dockitem', 'gimp.dockitem', 'safeer-os.dockitem']")
             self.assertEqual(self._dconf(o, "pinned-only"), "false")
             # Privzeto kot pri lastniku (11. 10. 2026): desni rob, prozorna tema (brez sivega traku), skrivanje vklopljeno.
             self.assertEqual(self._dconf(o, "theme"), "'Transparent'")
@@ -743,13 +759,13 @@ class TestTemaCinnamon(unittest.TestCase):
             # Cinnamon ob odstranitvi appleta izbrise njegove nastavitve; uporabnik si dock prilagodi.
             os.remove(o["spices"])
             subprocess.run(["dconf", "write", self.DOCK + "icon-size", "52"], env=o["env"], check=True)
-            os.remove(os.path.join(o["launcherji"], "firefox.dockitem"))          # uporabnik Firefox povlece iz docka
+            os.remove(os.path.join(o["launcherji"], "gimp.dockitem"))          # uporabnik Firefox povlece iz docka
             # Nazaj na "samo videz": pult dol, seznam oken s pripetimi programi nazaj, dock ugasnjen, a zapomnjen.
             self._ukaz(o, "--profil", "videz")
             self.assertEqual(self._vrednost(o, "org.cinnamon", "panels-enabled"), "['1:0:bottom']")
             self.assertEqual(self._vrednost(o, "org.cinnamon", "enabled-applets"), self.APPLETI)
             with open(o["spices"]) as f:
-                self.assertIn("firefox.desktop", f.read())
+                self.assertIn("gimp.desktop", f.read())
             self.assertFalse(os.path.exists(os.path.join(o["avto"], "safeer-cinnamon-dock.desktop")))
             self.assertEqual(os.listdir(o["launcherji"]), ["star.dockitem"])
             self.assertTrue(os.path.isdir(os.path.join(o["mapa"], "dock-nas", "launchers")))
@@ -1200,10 +1216,10 @@ class TestTemaCinnamon(unittest.TestCase):
             self.assertNotIn("window-list", self._vrednost(o, "org.cinnamon", "enabled-applets"))
             self.assertEqual(self._dconf(o, "icon-size"), "48", "dock iz 1.1 obdrzi uporabnikovo velikost")
             # Programi, pripeti na pultu, gredo s seznamom oken v dock - brez podvajanja tistih, ki so ze tam.
-            self.assertEqual(sorted(os.listdir(o["launcherji"])), ["firefox.dockitem", "nemo.dockitem"])
-            self.assertEqual(self._dconf(o, "dock-items"), "['nemo.dockitem', 'firefox.dockitem']")
+            self.assertEqual(sorted(os.listdir(o["launcherji"])), ["gimp.dockitem", "nemo.dockitem"])
+            self.assertEqual(self._dconf(o, "dock-items"), "['nemo.dockitem', 'gimp.dockitem']")
             # Uporabnik Firefox odstrani iz docka; ponovna prijava ga ne vsili nazaj.
-            os.remove(os.path.join(o["launcherji"], "firefox.dockitem"))
+            os.remove(os.path.join(o["launcherji"], "gimp.dockitem"))
             subprocess.run(["bash", os.path.join(TEMA, "safeer-cinnamon"), "--dock"], env=o["env"], capture_output=True)
             self.assertEqual(os.listdir(o["launcherji"]), ["nemo.dockitem"])
             self._ukaz(o, "--profil", "videz")
