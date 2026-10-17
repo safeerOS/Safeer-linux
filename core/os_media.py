@@ -1287,6 +1287,7 @@ class MediaCenter:
         self._lock = threading.RLock()
         self._tokovi_odgovor = threading.local()   # .vsi: ali so ob zadnjem vprasanju po tokovih odgovorili vsi dodatki
         self._tmdb_cache: dict[str, tuple[float, dict]] = {}
+        self._predpomnilnika_pociscena = time.time()
         self._dynamic_items: dict[str, dict] = {}
         #: koren dodatka -> ali je zaseben (manifest behaviorHints.adult); velja do konca tega zagona.
         self._zasebni_koreni: dict[str, bool] = {}
@@ -2816,10 +2817,30 @@ class MediaCenter:
     #: Najdlje toliko cakamo na strezniike brez shranjenega odgovora; kar ne odgovori, se nalaga naprej v ozadju.
     STREZNIKI_ROK_S = 4.0
 
+    #: Odgovori TMDB in iskanja po strezniki, starejsi od tega, v pomnilniku niso vec uporabni (disk velja 24 h, sveze
+    #: 2 h oz. 5 min); brez ciscenja sta v dolgotrajnem procesu rasla z vsakim iskanjem in vsako stranjo kataloga.
+    PREDPOMNILNIK_POMNILNIK_S = 24 * 60 * 60
+
+    def _pocisti_predpomnilnika(self) -> None:
+        """Na 10 min odstrani zapise, starejse od PREDPOMNILNIK_POMNILNIK_S. Knjiznice streznikov (kljuc »id:«) ostanejo:
+        iz njih _osebni_naslovi najde lastne tokove brez omrezja."""
+        zdaj = time.time()
+        if zdaj - self._predpomnilnika_pociscena < 600:
+            return
+        self._predpomnilnika_pociscena = zdaj
+        meja = zdaj - self.PREDPOMNILNIK_POMNILNIK_S
+        for kljuc, (cas, _v) in list(self._tmdb_cache.items()):
+            if cas < meja:
+                self._tmdb_cache.pop(kljuc, None)
+        for kljuc, (cas, _v) in list(self._server_cache.items()):
+            if cas < meja and not kljuc.endswith(":"):
+                self._server_cache.pop(kljuc, None)
+
     def _nalozi_streznik(self, provider: str, server: dict, server_query: str, key: str) -> list[dict]:
         secret = self._secret_decryptor(str(server.get("secret_enc") or ""))
         rows = media_servers.catalog(provider, str(server.get("url") or ""), server, secret, server_query)
         self._server_cache[key] = (time.time(), rows)
+        self._pocisti_predpomnilnika()
         return rows
 
     def _osvezi_streznik_v_ozadju(self, provider: str, server: dict, server_query: str, key: str) -> None:
@@ -2939,6 +2960,7 @@ class MediaCenter:
             return cached[1] if cached else []
         vrstice_c = [x for x in vrstice_c if x.get("vrsta") in ("film", "serija")]
         self._server_cache[kljuc] = (zdaj, vrstice_c)
+        self._pocisti_predpomnilnika()
         return vrstice_c
 
     def add_source(self, url: str, name: str = "", prevzet: Optional[dict] = None) -> dict:
@@ -3665,6 +3687,7 @@ class MediaCenter:
             return {}
         zdaj = time.time()
         self._tmdb_cache[url] = (zdaj, data)
+        self._pocisti_predpomnilnika()
         with self._predpomnilnik_lock:
             self._nalozi_predpomnilnik()["tmdb"][disk_kljuc] = {"cas": zdaj, "uporabljeno": zdaj, "podatki": data}
         self._shrani_predpomnilnik()
