@@ -599,7 +599,18 @@ dock_zazeni() {
     fi
     dock_prilagodi
     pkill -x plank >/dev/null 2>&1 && sleep 0.5
-    (setsid plank >/dev/null 2>&1 &)
+    plank_zazeni
+}
+
+# Plank zazenemo v ovoju, ki ob koncu zapise izhodno kodo: 0 = uporabnik je dock zaprl sam (Quit) - varuh ga potem
+# NE zazene znova (lastnik, 17. 10. 2026: »ce uporabnik namerno zapre dock, mora ostati zaprt«); signal (sesutje)
+# ali nasa ustavitev = dock se vrne.
+PLANK_IZHOD="$MAPA/plank-izhod"
+
+plank_zazeni() {
+    mkdir -p "$MAPA"
+    rm -f "$PLANK_IZHOD"
+    (setsid sh -c 'plank; echo $? > "$1"' sh "$PLANK_IZHOD" >/dev/null 2>&1 < /dev/null &)
 }
 
 # Straza zaslona za postavitev dock: ob spremembi velikosti zaslona (druga locljivost, priklop monitorja) dock
@@ -645,14 +656,16 @@ dock_straza() {
     return 0
 }
 
-# Varuh docka (lastnik, 17. 10. 2026: »uporabnik ne zeli ostati brez docka«). Ce je dock vklopljen in Plank ne tece
-# (sesutje ali neuspel ponovni zagon ob spremembi zaslona), ga zazenemo znova - najvec 3-krat v 10 minutah, da se
-# dock, ki se stalno sesuva, ne zaganja v nedogled. Klice ga straza zaslona (postavitev dock) ali Safeer OS (delovna).
+# Varuh docka (lastnik, 17. 10. 2026: »uporabnik ne zeli ostati brez docka«). Ce je dock vklopljen in se je Plank
+# sesul (izhod s signalom ali napako - plank_zazeni), ga zazenemo znova - najvec 3-krat v 10 minutah, da se dock, ki se
+# stalno sesuva, ne zaganja v nedogled. Ce ga je uporabnik zaprl sam (izhod 0) ali izhod ni znan, ostane zaprt - nic ne
+# vsiljujemo. Klice ga straza zaslona (postavitev dock) ali Safeer OS (delovna).
 DOCK_OZIVLJEN="$MAPA/dock-ozivljen"
 
 dock_ozivi() {
     command -v plank >/dev/null 2>&1 || return 0
     pgrep -u "$(id -u)" -x plank >/dev/null 2>&1 && return 0
+    case "$(head -n1 "$PLANK_IZHOD" 2>/dev/null)" in ""|0|*[!0-9]*) return 0 ;; esac
     local zdaj cas st=0 nedavni=""
     zdaj="$(date +%s)"
     if [ -f "$DOCK_OZIVLJEN" ]; then
@@ -1227,6 +1240,7 @@ case "${1:-}" in
                                  [ "$(profil_trenutni)" = dock ] && dock_straza
                              fi ;;
     --straza)                [ -f "$VKLOPLJENO" ] && [ -f "$AUTOSTART" ] && dock_straza ;;
+    --plank)                 command -v plank >/dev/null 2>&1 && plank_zazeni ;;
     --dock-ozivi)            if [ -f "$VKLOPLJENO" ] && [ -f "$AUTOSTART" ]; then dock_ozivi; fi ;;
     --nastavitve-docka)      command -v plank >/dev/null 2>&1 && exec plank --preferences ;;
     --seja)                  if [ -f "$VKLOPLJENO" ] && [ -f "$SEJA" ] && command -v safeer-os >/dev/null 2>&1; then

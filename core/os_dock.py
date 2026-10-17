@@ -177,6 +177,14 @@ def osvezi() -> None:
         if _plank_pid() is None:
             break
         time.sleep(0.05)
+    # Prek safeer-cinnamon --plank (ovoj z izhodno kodo: varuh docka loci uporabnikov izhod od sesutja); brez njega
+    # (starejsi paket) Plank neposredno.
+    try:
+        subprocess.run(_gostitelj(["safeer-cinnamon", "--plank"]), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       stdin=subprocess.DEVNULL, timeout=10, check=True)
+        return
+    except (OSError, subprocess.SubprocessError):
+        pass
     try:
         subprocess.Popen(_gostitelj(["plank"]), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
                          start_new_session=True)

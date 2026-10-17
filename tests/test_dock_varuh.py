@@ -1,4 +1,5 @@
-"""Varuh docka (safeer-cinnamon --dock-ozivi): Plank, ki ne tece, zazene znova - najvec 3-krat v 10 minutah.
+"""Varuh docka (safeer-cinnamon --dock-ozivi): sesuti Plank zazene znova - najvec 3-krat v 10 minutah; dock, ki ga
+je uporabnik zaprl sam (izhod 0), ostane zaprt.
 
 Lastnik, 17. 10. 2026: stranski dock je izginil (Plank se ni vrnil) - »uporabnik ne zeli ostati brez docka«.
 Preizkus tece z laznimi ukazi (plank, pgrep, xrandr, dconf, gsettings) v zacasni domaci mapi; resnicnega docka ne
@@ -42,6 +43,10 @@ def _vklopi(cfg):
     (cfg / "autostart" / "safeer-cinnamon-dock.desktop").write_text("[Desktop Entry]\n")
 
 
+def _izhod(cfg, koda):
+    (cfg / "safeer-cinnamon" / "plank-izhod").write_text(f"{koda}\n")
+
+
 def _ozivi(env):
     subprocess.run(["bash", SKRIPTA, "--dock-ozivi"], env=env, check=True, timeout=30,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -57,17 +62,47 @@ def _zagoni(zapis):
     return zapis.read_text().count("zagon") if zapis.exists() else 0
 
 
-def test_plank_ne_tece_zazene_znova(tmp_path):
+def test_sesut_plank_zazene_znova(tmp_path):
+    env, cfg, zapis = _okolje(tmp_path)
+    _vklopi(cfg)
+    _izhod(cfg, 139)   # SIGSEGV
+    _ozivi(env)
+    assert _zagoni(zapis) == 1
+
+
+def test_uporabnik_zaprl_ostane_zaprt(tmp_path):
+    """Lastnik, 17. 10. 2026: »ce uporabnik namerno zapre dock, mora ostati zaprt - nic ne vsiljujemo«."""
+    env, cfg, zapis = _okolje(tmp_path)
+    _vklopi(cfg)
+    _izhod(cfg, 0)
+    _ozivi(env)
+    assert _zagoni(zapis) == 0
+
+
+def test_neznan_izhod_ne_vsiljuje(tmp_path):
     env, cfg, zapis = _okolje(tmp_path)
     _vklopi(cfg)
     _ozivi(env)
-    assert _zagoni(zapis) == 1
+    assert _zagoni(zapis) == 0
+
+
+def test_ovoj_zapise_izhodno_kodo(tmp_path):
+    env, cfg, zapis = _okolje(tmp_path)
+    subprocess.run(["bash", SKRIPTA, "--plank"], env=env, check=True, timeout=30)
+    izhod = cfg / "safeer-cinnamon" / "plank-izhod"
+    for _ in range(50):
+        if izhod.exists():
+            break
+        time.sleep(0.05)
+    assert izhod.read_text().strip() == "0"   # lazni plank konca normalno = kot uporabnikov Quit
 
 
 def test_najvec_trikrat_v_desetih_minutah(tmp_path):
     env, cfg, zapis = _okolje(tmp_path)
     _vklopi(cfg)
     for _ in range(5):
+        time.sleep(0.3)        # ovoj prejsnjega laznega Planka zapise svojo kodo
+        _izhod(cfg, 139)
         _ozivi(env)
     assert _zagoni(zapis) == 3
 
@@ -77,6 +112,7 @@ def test_stari_zagoni_ne_stejejo(tmp_path):
     _vklopi(cfg)
     staro = int(time.time()) - 3600
     (cfg / "safeer-cinnamon" / "dock-ozivljen").write_text(f"{staro}\n{staro}\n{staro}\n")
+    _izhod(cfg, 139)
     _ozivi(env)
     assert _zagoni(zapis) == 1
 
@@ -84,6 +120,7 @@ def test_stari_zagoni_ne_stejejo(tmp_path):
 def test_plank_tece_nic(tmp_path):
     env, cfg, zapis = _okolje(tmp_path, plank_tece=True)
     _vklopi(cfg)
+    _izhod(cfg, 139)
     _ozivi(env)
     assert _zagoni(zapis) == 0
 
@@ -91,6 +128,7 @@ def test_plank_tece_nic(tmp_path):
 def test_dock_izklopljen_nic(tmp_path):
     env, cfg, zapis = _okolje(tmp_path)
     (cfg / "safeer-cinnamon" / "vklopljeno").write_text("")   # Safeer Cinnamon vklopljen, dock ne
+    _izhod(cfg, 139)
     _ozivi(env)
     assert _zagoni(zapis) == 0
 
