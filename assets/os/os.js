@@ -5107,6 +5107,10 @@
       var prej = kat.ytRacun;
       kat.ytRacun = r || null;
       if (r && r.potekla && !(prej && prej.potekla)) obvesti(t("ytPotekla"));
+      if (r && r.prijavljen && kat.ytCakanje) {
+        // Prijava je uspela: stran za prijavo v Spletu se zapre, uporabnik je spet v Medijskem centru.
+        klic("spletKonecPrijave", [["accounts.google.com", "youtube.com"]]);
+      }
       if (r && r.prijavljen) ustaviYtCakanje();
       narisiSeznamePredvajanja();
       return r;
@@ -5190,6 +5194,7 @@
       var prej = kat.twRacun;
       kat.twRacun = r || null;
       if (r && r.potekla && !(prej && prej.potekla)) obvesti(t("twitchPotekla"));
+      if (r && r.prijavljen && kat.twCakanje) klic("spletKonecPrijave", [["twitch.tv"]]);
       if (r && r.prijavljen) ustaviTwitchCakanje();
       if (kat.filter === "twitch") narisiSeznamePredvajanja();
       return r;

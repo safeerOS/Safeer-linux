@@ -3794,6 +3794,7 @@ class SafeerOS(Gtk.Application):
             "preklopiOkno": lambda: self._okno_dejanje(a[0] if a else 0, "preklopi"),
             "shraniSpletne": lambda: self._shrani_spletne(a[0] if a else []),
             "splet": lambda: self._splet(str(a[0]) if a else "", len(a) > 1 and a[1] is True),
+            "spletKonecPrijave": lambda: self._splet_konec_prijave([str(x) for x in (a[0] if a and isinstance(a[0], list) else [])]),
             "medij": lambda: self._medij(str(a[0]) if a else ""),
             "osveziMedijskeMape": self._medijski_osvezi_mape,
             "dodajMedijskiTok": lambda: self._shrani_medijski_tok(
@@ -4625,6 +4626,40 @@ class SafeerOS(Gtk.Application):
         if not naslov:
             return True
         return self._spletni.odpri_povezavo(naslov) if nov_zavihek else self._spletni.odpri(naslov)
+
+    def _splet_konec_prijave(self, gostitelji: list) -> bool:
+        """Po prijavi v YouTube/Twitch v Spletu (Medijski center jo zazna v piskotkih): zavihki strani za prijavo se
+        zaprejo in v ospredje pride Safeer Player - gledanje gre v nas predvajalnik (lastnik 17. 10. 2026: po prijavi
+        je Splet ostal odprt na youtube.com). Samo zavihki na danih gostiteljih; drugih zavihkov se ne dotaknemo."""
+        gostitelji = [g.lower().strip(".") for g in gostitelji if g and "/" not in g][:6]
+        if not gostitelji:
+            return False
+
+        def ujema(uri: str) -> bool:
+            host = (urllib.parse.urlsplit(uri or "").hostname or "").lower()
+            return any(host == g or host.endswith("." + g) for g in gostitelji)
+        zaprto = 0
+        for ime in ("_spletni_namizje", "_spletni"):
+            spletni = getattr(self, ime, None)
+            if spletni is None:
+                continue
+            for z in list(getattr(spletni, "zavihki", [])):
+                try:
+                    if ujema(z["pogled"].get_uri() or ""):
+                        if len(spletni.zavihki) == 1 and ime == "_spletni_namizje":
+                            spletni.odpri("")                      # zadnji zavihek: domaca stran, okno skrijemo
+                            okno = getattr(self, "_plosca_spleta", None)
+                            if okno is not None:
+                                okno.set_visible(False)
+                        else:
+                            spletni.zapri_zavihek(z["pogled"])
+                        zaprto += 1
+                except Exception:  # noqa: BLE001
+                    continue
+        okno = getattr(self, "okno_predvajalnik", None)
+        if okno is not None:
+            okno.present()
+        return zaprto > 0
 
     def _peskovnik_na_voljo(self) -> bool:
         """Ali se WebKitov peskovnik da zagnati (core.os_splet.peskovnik_dela). Brez njega Safeer OS ne ustvari
