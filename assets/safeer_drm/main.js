@@ -185,6 +185,44 @@ const SPOTIFY_ZACETEK = `(() => {
   }) });
 })();`;
 
+// Scit, v strani (samo z vklopljenim Scitom): oglas v predvajalniku takoj utisa in ga prevrti (najvecja hitrost
+// predvajanja), brez cakanja na strazo Safeer OS (ta je prvi oglas zaznala sele po 7 s - preizkus 17. 10. 2026).
+// Pesmi se ne dotakne: po oglasu hitrost in glasnost vrne. Oglas prepozna po istih oznakah kot STANJE_JS.
+const SPOTIFY_SCIT = `(() => {
+  if (window.__safeerScit) return;
+  window.__safeerScit = true;
+  const OGLAS = /^(advertisement|ad|oglas|werbung|anzeige|anuncio|publicidad|publicité|annonce|pubblicità|annuncio)$/i;
+  const OZNAKE = '[data-testid="context-item-info-ad-subtitle"], [data-testid="ad-type-label"], [data-testid="advertisement-label"],' +
+    ' [data-testid="now-playing-bar"] a[href*="/ad/"], [data-testid="now-playing-widget"] a[href*="audio_ad"], [data-testid="now-playing-bar"] a[href*="audio_ad"]';
+  let vOglasu = false;
+  function jeOglas() {
+    try {
+      if (document.querySelector(OZNAKE)) return true;
+      const md = navigator.mediaSession && navigator.mediaSession.metadata;
+      return Boolean(md && OGLAS.test(String(md.title || '').trim()));
+    } catch (_) { return false; }
+  }
+  function mediji() {
+    const S = window.__safeerSpotify;
+    const m = new Set(S ? S.mediji() : []);
+    document.querySelectorAll('video,audio').forEach(x => m.add(x));
+    return Array.from(m);
+  }
+  function korak() {
+    const oglas = jeOglas();
+    if (oglas) {
+      if (!vOglasu && window.__safeerSpotify) window.__safeerSpotify.utisaj(true);
+      vOglasu = true;
+      mediji().forEach(m => { try { m.muted = true; if (m.playbackRate < 16) m.playbackRate = 16; } catch (_) {} });
+    } else if (vOglasu) {
+      vOglasu = false;
+      mediji().forEach(m => { try { m.playbackRate = 1; } catch (_) {} });
+      if (window.__safeerSpotify) window.__safeerSpotify.utisaj(false);
+    }
+  }
+  setInterval(korak, 200);          // okno ni duseno (backgroundThrottling: false): zaznava v 0,2 s
+})();`;
+
 const PREVERI_PREDVAJANJE = "(() => Array.from(document.querySelectorAll('video,audio')).some(m => !m.paused && !m.ended && m.readyState >= 2 && m.currentTime > 0))()";
 const SAMODEJNI_ZAGON = `(() => {
   if (window.__safeerAutoplayInstalled) return true;
@@ -268,6 +306,7 @@ function prikljuciCdp() {
   const prijava = okno.loadURL('about:blank').catch(() => {})
     .then(() => dbg.sendCommand('Page.enable'))
     .then(() => dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: SPOTIFY_ZACETEK }))
+    .then(() => pravila ? dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: SPOTIFY_SCIT }) : null)
     .then(() => zapisi('CDP_READY'), e => zapisi('CDP_FAILED', String(e && e.message || e).slice(0, 120)));
   return Promise.race([prijava, new Promise(r => setTimeout(r, 5000))]);
 }
