@@ -301,16 +301,37 @@ class Razresevalnik:
                 return odgovor_zavrnjeno(paket)
         return self._posreduj(paket, tcp)
 
-    def _posreduj(self, paket: bytes, tcp: bool) -> Optional[bytes]:
-        if self.naprej is not None:
+    #: Ko sifriran streznik naprej ne odgovori, gredo poizvedbe toliko sekund naravnost na usmerjevalnik (nato spet
+    #: poskusimo naprej). Brez tega je vsako ime cakalo rok DoH - v omrezju, ki 1.1.1.1 ne spusti, vec sekund na ime
+    #: (CI, Flatpak, 17. 10. 2026: imena se v 12 s niso razresila).
+    PREMOR_NAPREJ_S = 30.0
+
+    def _vprasaj_naprej(self, paket: bytes) -> Optional[bytes]:
+        """Streznik naprej s trdim rokom CAS_UPSTREAM (knjiznica TLS ga ne spostuje vedno, ko paketi izginejo)."""
+        izid: list = []
+
+        def delo() -> None:
             try:
-                odgovor = self.naprej(paket)
+                izid.append(self.naprej(paket))
             except Exception:  # noqa: BLE001
-                odgovor = None
+                izid.append(None)
+
+        nit = threading.Thread(target=delo, name="safeer-scit-naprej", daemon=True)
+        nit.start()
+        nit.join(CAS_UPSTREAM)
+        return izid[0] if izid else None
+
+    def _posreduj(self, paket: bytes, tcp: bool) -> Optional[bytes]:
+        if self.naprej is not None and time.monotonic() >= getattr(self, "_brez_naprej_do", 0.0):
+            odgovor = self._vprasaj_naprej(paket)
             if odgovor:
                 return odgovor if tcp or len(odgovor) <= NAJVEC_UDP else prirezan(paket)
             with self._kljuc:
                 self.rezerv += 1          # samo stetje, brez imen
+                self._brez_naprej_do = time.monotonic() + self.PREMOR_NAPREJ_S
+        elif self.naprej is not None:
+            with self._kljuc:
+                self.rezerv += 1
         for streznik in self.upstream() or []:
             try:
                 if tcp:
