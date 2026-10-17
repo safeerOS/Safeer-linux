@@ -26,6 +26,8 @@
 
 **Desktop.** Safeer Browser instead of Firefox in the dock, one Show desktop button, distinct icons for Messages and Splet.
 
+**Icons you can tell apart.** Safeer Shield now has its own icon in the top panel next to Messages: it shows whether the Shield is on, off or has a problem, with the number of blocked requests; click it for Shield settings, or turn it on and off from its menu. The Linux Mint update icon in the panel is now a circular arrow instead of a shield, so it is no longer mistaken for Safeer Shield. Safeer Browser has its own icon (a globe with the Safeer S), so it is no longer the same as Safeer OS.
+
 
 **First start and the way back.** A new Safeer OS installation opens a short guide: desktop language (six languages, the system language by default), optional sign-in to YouTube, Spotify and Twitch on their own pages, Safeer Shield, and linking a device with Safeer Link – every step can be skipped, and the guide is in Settings to run again. Existing users do not get it on update. *Back to Cinnamon* in Settings (or `safeer-os --nazaj-na-cinnamon` in a terminal) stops Safeer OS from starting at sign-in and restores the Mint panel, dock and look you had before – no uninstalling, no password, your data stays; opening Safeer OS from the menu offers to bring it back.
 

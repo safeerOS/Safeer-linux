@@ -412,4 +412,178 @@ class Kuverta:
         self.pladenj.zapri()
 
 
-__all__ = ["Postavka", "Pladenj", "Kuverta", "lastno_vodilo"]
+#: Safeer Scit v pultu (besedila v vseh jezikih Safeer OS). {n}: stevilo blokiranih oziroma minut premora.
+BESEDILA_SCITA = {
+    "sl": {"naslov": "Safeer Ščit", "vklopljen": "Vklopljen – blokiranih {n}", "premor": "Na premoru še {n} min",
+           "brez_omrezja": "Vklopljen – čaka na omrežje", "izklopljen": "Izklopljen",
+           "ni_na_voljo": "Ni na voljo na tem računalniku", "napaka": "Napaka – odpri nastavitve Ščita",
+           "pripravljam": "Vklapljam …", "izklapljam": "Izklapljam …", "vklopi": "Vklopi Ščit", "izklopi": "Izklopi Ščit",
+           "nastavitve": "Nastavitve Ščita"},
+    "en": {"naslov": "Safeer Shield", "vklopljen": "On – {n} blocked", "premor": "Paused for {n} more min",
+           "brez_omrezja": "On – waiting for a network", "izklopljen": "Off",
+           "ni_na_voljo": "Not available on this computer", "napaka": "Error – open Shield settings",
+           "pripravljam": "Turning on …", "izklapljam": "Turning off …", "vklopi": "Turn Shield on", "izklopi": "Turn Shield off",
+           "nastavitve": "Shield settings"},
+    "de": {"naslov": "Safeer Schild", "vklopljen": "An – {n} blockiert", "premor": "Noch {n} Min. pausiert",
+           "brez_omrezja": "An – wartet auf ein Netzwerk", "izklopljen": "Aus",
+           "ni_na_voljo": "Auf diesem Computer nicht verfügbar", "napaka": "Fehler – Schild-Einstellungen öffnen",
+           "pripravljam": "Wird eingeschaltet …", "izklapljam": "Wird ausgeschaltet …", "vklopi": "Schild einschalten", "izklopi": "Schild ausschalten",
+           "nastavitve": "Schild-Einstellungen"},
+    "es": {"naslov": "Escudo Safeer", "vklopljen": "Activado – {n} bloqueados", "premor": "En pausa {n} min más",
+           "brez_omrezja": "Activado – esperando una red", "izklopljen": "Desactivado",
+           "ni_na_voljo": "No disponible en este ordenador", "napaka": "Error – abre los ajustes del Escudo",
+           "pripravljam": "Activando…", "izklapljam": "Desactivando…", "vklopi": "Activar el Escudo", "izklopi": "Desactivar el Escudo",
+           "nastavitve": "Ajustes del Escudo"},
+    "fr": {"naslov": "Bouclier Safeer", "vklopljen": "Activé – {n} bloqués", "premor": "En pause encore {n} min",
+           "brez_omrezja": "Activé – en attente d'un réseau", "izklopljen": "Désactivé",
+           "ni_na_voljo": "Indisponible sur cet ordinateur", "napaka": "Erreur – ouvrir les réglages du Bouclier",
+           "pripravljam": "Activation…", "izklapljam": "Désactivation…", "vklopi": "Activer le Bouclier", "izklopi": "Désactiver le Bouclier",
+           "nastavitve": "Réglages du Bouclier"},
+    "it": {"naslov": "Scudo Safeer", "vklopljen": "Attivo – {n} bloccati", "premor": "In pausa per altri {n} min",
+           "brez_omrezja": "Attivo – in attesa di una rete", "izklopljen": "Disattivato",
+           "ni_na_voljo": "Non disponibile su questo computer", "napaka": "Errore – apri le impostazioni dello Scudo",
+           "pripravljam": "Attivazione…", "izklapljam": "Disattivazione…", "vklopi": "Attiva lo Scudo", "izklopi": "Disattiva lo Scudo",
+           "nastavitve": "Impostazioni dello Scudo"},
+}
+
+#: Napake Scita, ob katerih ikona pokaze napako (»ni_omrezja« ni napaka: Scit zacne, ko se racunalnik poveze).
+NAPAKE_SCITA = ("pravilo", "vrata", "ni_resolved", "lastni_dns")
+
+
+def vrsta_scita(stanje: dict, zaposlen: str = "") -> str:
+    """Stanje Scita (os_scit.Scit.stanje()) za ikono v pultu: vklopljen, izklopljen, napaka ali pripravljam.
+    zaposlen: »vklop« ali »izklop«, ko preklop iz pulta se tece."""
+    s = stanje or {}
+    if zaposlen:
+        return "pripravljam"
+    if s.get("napaka") in NAPAKE_SCITA or (s.get("vklop") and not s.get("mozno", True)):
+        return "napaka"
+    if not s.get("vklop"):
+        return "izklopljen"
+    # Vklopljen, a razresevalnik se zaganja (zacetek seje) - ni napaka.
+    return "vklopljen" if s.get("tece") or s.get("napaka") == "ni_omrezja" else "pripravljam"
+
+
+def opis_scita(stanje: dict, vrsta: str, besedila: dict, zaposlen: str = "") -> str:
+    s = stanje or {}
+    if vrsta == "pripravljam" and zaposlen == "izklop":
+        return besedila["izklapljam"]
+    if vrsta == "vklopljen":
+        if s.get("napaka") == "ni_omrezja":
+            return besedila["brez_omrezja"]
+        if int(s.get("premor") or 0) > 0:
+            return besedila["premor"].format(n=max(1, (int(s["premor"]) + 59) // 60))
+        return besedila["vklopljen"].format(n=int(s.get("blokiranih") or 0))
+    if vrsta == "izklopljen" and s.get("mozno") is False:
+        return besedila["ni_na_voljo"]
+    return besedila[vrsta]
+
+
+def ikona_scita(vrsta: str, mapa: str, velikost: int = 48, barve: Optional[dict] = None) -> str:
+    """Ikona Scita za pult: crtni scit (kot ostale ikone pulta, vidna na temnem pultu), v njem stanje - kljukica
+    (vklopljen), precrtano (izklopljen), klicaj (napaka), tri pike (pripravljam). Namenoma ne poln zeleni scit na
+    ploscici kot ikona Safeer Control. barve: os_lupina.tokeni() (assets/os/tokens.css) - poda jih Safeer OS, ker je ta
+    modul tudi v tovoru Controla brez os_lupina. Narise cairo, vrne pot do PNG v predpomnilniku."""
+    import cairo
+    t = barve or {}
+    barva = lambda ime, privzeta: tuple(x / 255.0 for x in t.get(ime, privzeta)[:3])  # noqa: E731
+    svetla, medla = barva("besedilo", (234, 242, 255)), barva("tise", (147, 169, 196))
+    os.makedirs(mapa, exist_ok=True)
+    pot = os.path.join(mapa, "scit-v1-%s.png" % vrsta)
+    if os.path.isfile(pot):
+        return pot
+    v = float(velikost)
+    p = cairo.ImageSurface(cairo.FORMAT_ARGB32, velikost, velikost)
+    c = cairo.Context(p)
+    c.scale(v / 48.0, v / 48.0)
+    c.set_line_join(cairo.LINE_JOIN_ROUND)
+    c.set_line_cap(cairo.LINE_CAP_ROUND)
+    # Obris kot znak Safeer (assets/os/znak.svg), na mrezi 48.
+    c.move_to(24, 4)
+    c.line_to(40, 10)
+    c.line_to(40, 22)
+    c.curve_to(40, 32.5, 33.5, 40, 24, 44.5)
+    c.curve_to(14.5, 40, 8, 32.5, 8, 22)
+    c.line_to(8, 10)
+    c.close_path()
+    c.set_line_width(3.6)
+    c.set_source_rgb(*(medla if vrsta in ("izklopljen", "pripravljam") else svetla))
+    c.stroke()
+    if vrsta == "vklopljen":
+        c.set_source_rgb(*barva("ok", (127, 224, 182)))
+        c.set_line_width(4.6)
+        c.move_to(16, 24)
+        c.line_to(22, 30)
+        c.line_to(32, 18)
+        c.stroke()
+    elif vrsta == "izklopljen":
+        c.set_source_rgb(*medla)
+        c.set_line_width(3.6)
+        c.move_to(6, 42)
+        c.line_to(42, 6)
+        c.stroke()
+    elif vrsta == "napaka":
+        c.set_source_rgb(*barva("rdeca", (255, 107, 107)))
+        c.set_line_width(4.8)
+        c.move_to(24, 14)
+        c.line_to(24, 26)
+        c.stroke()
+        c.arc(24, 33.5, 2.9, 0, 6.2832)
+        c.fill()
+    else:
+        c.set_source_rgb(*medla)
+        for x in (17, 24, 31):
+            c.arc(x, 24, 2.6, 0, 6.2832)
+            c.fill()
+    zacasna = pot + ".tmp"
+    p.write_to_png(zacasna)
+    os.replace(zacasna, pot)
+    return pot
+
+
+class ScitPult:
+    """Safeer Scit v pultu poleg kuverte (StatusNotifierItem, isti sklad kot Kuverta): ikona kaze stanje, namig
+    »Safeer Scit« z opisom, levi klik odpre nastavitve Scita; meni Vklopi/Izklopi in Nastavitve Scita.
+    ob_preklopu(vklop) naj Scit vklopi ali izklopi (obstojeca logika z vprasanjem za geslo) in potem poklice osvezi."""
+
+    def __init__(self, besedila: dict, ob_nastavitvah: Callable[[], None], ob_preklopu: Callable[[bool], None],
+                 mapa: str, vodilo: Optional[Gio.DBusConnection] = None, barve: Optional[dict] = None) -> None:
+        self.besedila, self.mapa, self.barve = besedila, mapa, barve
+        self.vrsta, self.opis = "", ""
+        self._stanje: dict = {}
+        self._ob_preklopu = ob_preklopu
+        self.preklop = Postavka(besedila["vklopi"])
+        self.preklop.connect("activate", lambda *_a: self._preklopi())
+        self.nastavitve = Postavka(besedila["nastavitve"])
+        self.nastavitve.connect("activate", lambda *_a: ob_nastavitvah())
+        self.pladenj = Pladenj("safeer-os-scit", besedila["naslov"], ikona_scita("izklopljen", mapa, barve=barve),
+                               [self.preklop, Postavka(locilo=True), self.nastavitve],
+                               ob_aktivaciji=ob_nastavitvah, vodilo=vodilo or lastno_vodilo())
+
+    def _preklopi(self) -> None:
+        vklop = not self._stanje.get("vklop")
+        if self.vrsta == "pripravljam" or (vklop and self._stanje.get("mozno") is False):
+            return
+        self.osvezi(self._stanje, zaposlen="vklop" if vklop else "izklop")
+        self._ob_preklopu(vklop)
+
+    def osvezi(self, stanje: dict, zaposlen: str = "") -> None:
+        self._stanje = dict(stanje or {})
+        vrsta = vrsta_scita(self._stanje, zaposlen)
+        opis = opis_scita(self._stanje, vrsta, self.besedila, zaposlen)
+        self.preklop.set_label(self.besedila["izklopi" if self._stanje.get("vklop") else "vklopi"])
+        self.preklop.set_sensitive(vrsta != "pripravljam" and
+                                   (bool(self._stanje.get("vklop")) or self._stanje.get("mozno") is not False))
+        if vrsta != self.vrsta:
+            self.vrsta = vrsta
+            self.pladenj.nastavi_ikono(ikona_scita(vrsta, self.mapa, barve=self.barve))
+        if opis != self.opis:
+            self.opis = opis
+            self.pladenj.nastavi_namig(opis)
+
+    def zapri(self) -> None:
+        self.pladenj.zapri()
+
+
+__all__ = ["Postavka", "Pladenj", "Kuverta", "ScitPult", "BESEDILA_SCITA", "vrsta_scita", "opis_scita", "ikona_scita",
+           "lastno_vodilo"]
