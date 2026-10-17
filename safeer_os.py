@@ -71,6 +71,7 @@ from core import media_servers  # noqa: E402
 from core import os_dock  # noqa: E402
 from core import priljubljeno  # noqa: E402
 from core import os_lupina  # noqa: E402
+from core import os_medijska_plast  # noqa: E402
 from core import os_vgrajeni_viri  # noqa: E402
 from core import x11  # noqa: E402
 from core.sporocila import vklop as sporocila_vklop  # noqa: E402
@@ -1669,7 +1670,7 @@ class SafeerOS(Gtk.Application):
         self._koncano = False
         self._posnetek_nacrtovan = False
         # Safeer Media ima največ en lahek spletni pogled, ki se med vsebinami ponovno uporabi.
-        self._medijski_okno = None
+        self._medijska_plast = None       # vgrajeni spletni predvajalnik v oknu Medijskega centra (os_medijska_plast)
         self._medijski_pogled = None
         self._medijski_naslov = ""
         self._medijski_js = False
@@ -2544,9 +2545,10 @@ class SafeerOS(Gtk.Application):
             okno.set_default_size(sirina, visina)
             if self.posnetek:
                 self._na_sredino(okno, sirina, visina)   # sicer je povecano (spodaj); premik bi ga motil
-        okno.set_child(pogled)
-        # Vgrajen vir: F11 in Escape dobi okno pred tujo stranjo v okvirju (glej _vgrajeno_tipka).
-        _tipke(okno, lambda _o, e: self._vgrajeno_tipka(pogled, e), zajem=True)
+        # Prekrivanje: nad stranjo je lahko vgrajeni spletni predvajalnik (YouTube s seznama, os_medijska_plast).
+        okno.set_child(self._prekrivanje_kanalov(pogled))
+        # Vgrajen vir: F11 in Escape dobi okno pred tujo stranjo v okvirju (glej _vgrajeno_tipka); najprej plast predvajalnika.
+        _tipke(okno, lambda o, e: self._plast_tipka(o, e) or self._vgrajeno_tipka(pogled, e), zajem=True)
         okno.connect("close-request", self._zapri_predvajalnik)
         self.okno_predvajalnik, self.pogled_predvajalnik = okno, pogled
         if not self.posnetek:
@@ -3419,7 +3421,10 @@ class SafeerOS(Gtk.Application):
             return True
         return False
 
-    def _na_tipko(self, _okno, dogodek) -> bool:
+    def _na_tipko(self, okno, dogodek) -> bool:
+        # Vgrajeni spletni predvajalnik nad Medijskim centrom: Escape (cel zaslon / nazaj) in F11 sta njegova.
+        if self._plast_tipka(okno, dogodek):
+            return True
         # F11: namizni nacin / okno (obicajna bliznjica, deluje tudi, ko se kaj zatakne).
         if dogodek.keyval == Gdk.KEY_F11 and not self.posnetek:
             self._celozaslonsko(not self.namizje)
@@ -5792,9 +5797,8 @@ class SafeerOS(Gtk.Application):
             return True
         if ukaz == "ustavi":
             return self._katalog_youtube_ukaz("zapri")        # zapre pogled: yt_zaprt ustavi tudi vrsto strani
-        if ukaz == "odpri" and self._medijski_okno is not None:
-            self._medijski_okno.present()
-            return True
+        if ukaz == "odpri" and self._medijska_plast is not None:
+            return self._pokazi_medijsko_plast()        # klik na mini predvajalnik: video spet v oknu
         return False
 
     def _medijski_ukaz(self, ukaz: str, vrednost=None) -> bool:
@@ -6347,9 +6351,8 @@ class SafeerOS(Gtk.Application):
         self._medijski_naslov = naslov
         self._medijski_js = False
         self._medijski_pogled.get_settings().set_property("enable-javascript-markup", False)
-        self._medijski_okno.set_title(self._mb("medijski_center"))
         self._medijski_pogled.load_uri(naslov)
-        self._medijski_okno.present()
+        self._pokazi_medijsko_plast(self._mb("medijski_center"))
         return True
 
     def _ustvari_medijski_pogled(self) -> bool:
@@ -6387,14 +6390,75 @@ class SafeerOS(Gtk.Application):
         nastavitve.set_property("enable-javascript-markup", False)
         nastavitve.set_property("enable-webgl", False)
         pogled.connect("load-changed", self._medijski_nalozen)
-        okno = Gtk.ApplicationWindow(application=self, title=self._mb("medijski_center"))
-        _razred_okna(okno, "Medijski")
-        okno.set_default_size(1100, 700)
-        okno.set_transient_for(self.okno or self.okno_predvajalnik)
-        okno.set_child(pogled)
-        okno.connect("close-request", lambda *a: (self._pocisti_medijski_pogled(), True)[1])
-        self._medijski_pogled, self._medijski_okno = pogled, okno
+        # Lastnik, 17. 10. 2026: ne svoje okno, ampak plast v oknu Medijskega centra (core/os_medijska_plast.py).
+        self._medijska_plast = os_medijska_plast.MedijskaPlast(Gtk, pogled, self._mb, self._medijska_plast_nazaj)
+        self._medijska_plast_css()
+        self._medijski_pogled = pogled
         return True
+
+    def _medijska_plast_css(self) -> None:
+        """Barve pasu plasti iz tokens.css (en vir barv), enkrat na proces."""
+        if getattr(self, "_plast_css", None) is not None:
+            return
+        try:
+            besedilo = os_medijska_plast.css_pasu(os_lupina.tokeni())
+            self._plast_css = _css(besedilo) if besedilo else False
+        except Exception as e:  # noqa: BLE001 - brez sloga pas ostane v temi GTK
+            print("[SafeerOS] slog medijske plasti:", type(e).__name__, flush=True)
+            self._plast_css = False
+
+    def _medijsko_okno_cilj(self):
+        """(okno, prekrivanje) Medijskega centra, v katerem se pokaze vgrajeni predvajalnik: okno strani, ki je
+        predvajanje zacela (glavno okno ne v namiznem nacinu - tam je ozadje), sicer Safeer Player; ce ga ni, ga odpre."""
+        prekrivanja = getattr(self, "_prekrivanja", None) or {}
+        pari = [(self.okno_predvajalnik, self.pogled_predvajalnik)]
+        if not self.namizje:
+            pari.append((self.okno, getattr(self, "pogled", None)))
+        klicatelj = getattr(self, "_katalog_pogled", None)
+        for okno, pogled in pari:
+            if okno is not None and pogled is not None and pogled is klicatelj and okno.get_visible() \
+                    and id(pogled) in prekrivanja:
+                return okno, prekrivanja[id(pogled)]
+        if self.okno_predvajalnik is None or id(self.pogled_predvajalnik) not in prekrivanja:
+            self._odpri_predvajalnik()
+            prekrivanja = getattr(self, "_prekrivanja", None) or {}
+        if self.okno_predvajalnik is None or id(self.pogled_predvajalnik) not in prekrivanja:
+            return None, None
+        return self.okno_predvajalnik, prekrivanja[id(self.pogled_predvajalnik)]
+
+    def _pokazi_medijsko_plast(self, naslov: Optional[str] = None) -> bool:
+        """Plast predvajalnika v oknu Medijskega centra (glej _medijsko_okno_cilj) in okno v ospredje."""
+        plast = self._medijska_plast
+        if plast is None:
+            return False
+        okno, prekrivanje = self._medijsko_okno_cilj()
+        if okno is None:
+            return False
+        plast.postavi(okno, prekrivanje)
+        plast.pokazi(naslov)
+        if okno is self.okno_predvajalnik:
+            okno.maximize()                  # Safeer Player je vedno cez cel zaslon (lastnik, 11. 10. 2026)
+        _v_ospredje(okno)
+        return True
+
+    def _plast_tipka(self, okno, dogodek) -> bool:
+        plast = self._medijska_plast
+        if plast is None or plast.okno is not okno:
+            return False
+        return plast.tipka(Gdk.keyval_name(dogodek.keyval) or "")
+
+    def _medijska_plast_nazaj(self) -> None:
+        """»Nazaj na Medijski center«: skladba s seznama igra naprej (mini predvajalnik jo pokaze, klik nanj vrne plast);
+        vdelana stran brez upravljanja v mini predvajalniku se ustavi - sicer bi igrala nevidno in brez gumba."""
+        if getattr(self, "_medijski_skladba", False):
+            self._yt_spremenjeno()
+        else:
+            self._pocisti_medijski_pogled()
+        plast = self._medijska_plast
+        okno = plast.okno if plast is not None else None
+        pogled = self.pogled_predvajalnik if okno is not None and okno is self.okno_predvajalnik else getattr(self, "pogled", None)
+        if pogled is not None:
+            pogled.grab_focus()
 
     # -- skladba s seznama predvajanja: vgradni predvajalnik YouTuba v lahkem pogledu (core/os_katalog.py)
     def _katalog_youtube(self, naslov: str, ime: str) -> bool:
@@ -6409,15 +6473,16 @@ class SafeerOS(Gtk.Application):
         self._medijski_js = True
         self._medijski_skladba = True
         self._medijski_pogled.get_settings().set_property("enable-javascript-markup", True)
-        self._medijski_okno.set_title(ime or self._mb("medijski_center"))
+        self._medijska_plast.nastavi_naslov(ime or self._mb("medijski_center"))
         self._yt_prijava_v_medijski_pogled()
         zahteva = WebKit2.URIRequest.new(naslov)
         # YouTube vgradnjo dovoli samo znanemu izvoru; Safeer se predstavi enako kot na Windows.
         zahteva.get_http_headers().append("Referer", os_katalog.IZVOR_VGRADNJE)
         self._medijski_pogled.load_request(zahteva)
-        self._medijski_okno.set_visible(True)
-        if not self._medijski_okno.is_active() and not getattr(self, "_medijski_skladba_videna", False):
-            self._medijski_okno.present()   # prvic okno pokazemo; naslednja skladba ga ne meče v ospredje
+        if not getattr(self, "_medijski_skladba_videna", False):
+            # Prvic plast pokazemo v oknu Medijskega centra; naslednja skladba je ne vrine nazaj, ce se je uporabnik
+            # vrnil v katalog (glasba igra naprej, mini predvajalnik jo pokaze).
+            self._pokazi_medijsko_plast()
         self._medijski_skladba_videna = True
         GLib.idle_add(lambda: self._yt_spremenjeno() and False)   # ko katalog zapise skladbo (glej _predvajaj_razresen)
         return True
@@ -6541,8 +6606,8 @@ class SafeerOS(Gtk.Application):
             upravitelj.clear(vrste, 0, None, None, None)
         except Exception as e:  # noqa: BLE001
             print("[SafeerOS] čiščenje medijskega pogleda:", e)
-        if self._medijski_okno is not None:
-            self._medijski_okno.set_visible(False)
+        if self._medijska_plast is not None:
+            self._medijska_plast.skrij()
 
     def _prijavno_okno_ob_prijavi(self) -> bool:
         """Ob prijavi v namizje (delovna povrsina) ponudi povezavo v Safeer Link - ne z oknom cez namizje, ampak s tihim

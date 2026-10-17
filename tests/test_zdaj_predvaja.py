@@ -81,7 +81,9 @@ class _Lupina(unittest.TestCase):
         self.l._dogodek = lambda v, p=None, pogled=None: self.dogodki.append((v, p))
         self.l._katalog_youtube_ukaz = mock.MagicMock(return_value=True)
         self.l._mpris_osvezi = mock.MagicMock()
-        self.l._medijski_okno = mock.MagicMock()
+        # Vgrajeni predvajalnik je plast v oknu Medijskega centra (core/os_medijska_plast.py), ne svoje okno.
+        self.l._medijska_plast = mock.MagicMock()
+        self.l._pokazi_medijsko_plast = mock.MagicMock(return_value=True)
         self.l._medijski_predvajalnik = None
         self.l._katalog = _katalog()
 
@@ -171,7 +173,7 @@ class TipkeZaSkladbo(_Lupina):
         self.assertTrue(self.l._medijski_ukaz("ustavi"))
         self.l._katalog_youtube_ukaz.assert_called_with("zapri")
         self.assertTrue(self.l._medijski_ukaz("odpri"))
-        self.l._medijski_okno.present.assert_called_once()
+        self.l._pokazi_medijsko_plast.assert_called_once()
         self.assertFalse(self.l._medijski_ukaz("skok", 30.0))
 
     def test_brez_skladbe_ostane_domaci_predvajalnik(self):

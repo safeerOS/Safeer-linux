@@ -191,9 +191,13 @@ class MedijskiPogled(unittest.TestCase):
     def test_s_peskovnikom_se_pogled_ustvari(self):
         lazna = self._lazna()
         with mock.patch.object(os_splet, "peskovnik_dela", return_value=True), \
-                mock.patch.object(self.os_, "WebKit2") as webkit, mock.patch.object(self.os_, "Gtk"):
+                mock.patch.object(self.os_, "WebKit2") as webkit, mock.patch.object(self.os_, "Gtk") as gtk:
             self.assertTrue(self.os_.SafeerOS._ustvari_medijski_pogled(lazna))
             self.assertTrue(self.os_.SafeerOS._ustvari_medijski_pogled(lazna))      # drugic: ze obstaja
+        # Lastnik 17. 10. 2026: plast v oknu Medijskega centra (core/os_medijska_plast.py), ne svoje okno.
+        gtk.ApplicationWindow.assert_not_called()
+        gtk.Window.assert_not_called()
+        self.assertIsInstance(lazna._medijska_plast, self.os_.os_medijska_plast.MedijskaPlast)
         webkit.WebView.assert_called_once()
         self.assertIs(lazna._medijski_pogled, webkit.WebView.return_value)
         lazna._dogodek.assert_not_called()
