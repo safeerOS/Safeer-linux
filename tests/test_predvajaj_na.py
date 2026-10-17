@@ -46,6 +46,8 @@ console.log(JSON.stringify(izid));
 @unittest.skipUnless(shutil.which("node"), "node ni namescen")
 class SkupnaLogika(unittest.TestCase):
     def _pozeni(self, z, **koraki):
+        from core import os_zvok
+        z = dict(z, moznosti=os_zvok.moznosti_izhoda(z))     # seznam izracuna Python (klic »zvok«)
         r = subprocess.run([shutil.which("node"), "-e", OGRODJE, os.path.join(KOREN, "assets", "os", "izhod.js"),
                             json.dumps(koraki), json.dumps(z)], capture_output=True, text=True, timeout=30, check=True)
         return json.loads(r.stdout)
@@ -90,6 +92,18 @@ class SkupnaLogika(unittest.TestCase):
         r = self._pozeni(ZVOK, izberi=[1], odgovori={"zvokNaNapravo": False})
         self.assertEqual(r["obvestila"], [["niUspelo", None]])
 
+    def test_zamik_zvocnika(self):
+        z = json.loads(json.dumps(ZVOK))
+        z["link"]["zvocnik"] = {"naprava": "dlna:1", "stanje": "tece", "zakasnitev": 1800}
+        r = self._pozeni(z)
+        self.assertEqual(r["aktivna"]["zakasnitev"], 1800)
+        self.assertNotIn("zakasnitev", r["moznosti"][0])
+        ogrodje = OGRODJE.replace("(koraki.izberi || [])", "SafeerIzhod.zakasnitev(SafeerIzhod.aktivna(z), 1873, o); []")
+        out = subprocess.run([shutil.which("node"), "-e", ogrodje, os.path.join(KOREN, "assets", "os", "izhod.js"),
+                              "{}", json.dumps(dict(z, moznosti=__import__("core.os_zvok", fromlist=["x"]).moznosti_izhoda(z)))],
+                             capture_output=True, text=True, timeout=30, check=True).stdout
+        self.assertEqual(json.loads(out)["klici"], [["zvokZakasnitevZvocnika", ["dlna:1", 1850]]])
+
     def test_brez_dom_in_casovnikov(self):
         # QML jo uvozi kot knjiznico JavaScript: ne sme uporabljati okna, dokumenta ali setTimeout.
         js = re.sub(r"/\*.*?\*/|//[^\n]*", "", _beri("assets", "os", "izhod.js"), flags=re.S)
@@ -128,6 +142,8 @@ class Stran(unittest.TestCase):
         for kljuc in ("predvajajNa", "predvajajNaNaslov", "predvajaNa", "zvokIsci", "zvokIscem", "zvokNiIzhodov", "izhodNalagam"):
             self.assertEqual(bes.count('"%s":' % kljuc), 6, kljuc)
             self.assertEqual(stevilo(kljuc), 6, kljuc)      # delovna povrsina in namizje QML: skupni slovar
+        for kljuc in ("zvokZamik", "zvokZamikSplet"):       # drsnik v mini predvajalniku (os.js)
+            self.assertEqual(bes.count(' %s: "' % kljuc), 6, kljuc)
         for j in JEZIKI:
             self.assertIn('Object.assign(BESEDILA_OS.%s, {"predvajajNa"' % j, bes)
 

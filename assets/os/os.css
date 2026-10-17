@@ -1275,6 +1275,9 @@ body.v-mediji #ozadje::after, body.predvajalnik #ozadje::after { background: var
 .media-izhod small { color: var(--medlo); font-size: 12px; }
 .media-izhod-stanje { margin: 8px 4px 0; color: var(--medlo); font-size: 12px; }
 .media-izhod-stanje:empty { display: none; }
+.media-izhod-zamik { display: flex; flex-direction: column; gap: 4px; padding: 4px 12px 8px 46px; font-size: 13px; }
+.media-izhod-zamik input { width: 100%; accent-color: var(--poudarek, currentColor); }
+.media-izhod-zamik small { color: var(--medlo); font-size: 11px; }
 @media (max-width: 1000px) {
   .media-player-bar { grid-template-columns: 48px minmax(0, 1fr) auto auto; gap: 10px; margin: 0 12px 10px; }
   .media-player-art { width: 48px; height: 48px; }

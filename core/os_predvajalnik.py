@@ -161,6 +161,9 @@ class Predvajalnik:
         #: Zamik zvoka in podnapisov v ms za trenutni posnetek (core/predvajalnik_moznosti.py); nov posnetek = 0.
         self.zamik_zvoka = 0
         self.zamik_podnapisov = 0
+        #: Zakasnitev izhoda v ms (zvok gre na zvocnik v omrezju, core/zvok_na_zvocnik.py): za toliko zamaknemo sliko,
+        #: da se ustnice ujemajo. Velja za vse posnetke, dokler zvok ne pride nazaj (0); pri samem zvoku nima ucinka.
+        self.zakasnitev_izhoda = 0
         #: {"zvok_jezik", "izenacevalnik", "po_meri"} - shrani jih klicatelj (shrani_moznosti).
         self.moznosti = _moznosti.privzete()
         self.shrani_moznosti = lambda _n: None
@@ -529,7 +532,7 @@ class Predvajalnik:
         """vrsta "zvok" (pozitivno = zvok kasneje) ali "podnapisi" (pozitivno = podnapisi kasneje)."""
         if vrsta == "zvok":
             self.zamik_zvoka = _moznosti.premakni_zamik(ms, 0, _moznosti.MEJA_ZVOK_MS)
-            lastnost, vrednost = "av-offset", _moznosti.av_offset_ns(self.zamik_zvoka)
+            lastnost, vrednost = "av-offset", _moznosti.av_offset_ns(self.zamik_zvoka - self.zakasnitev_izhoda)
         elif vrsta == "podnapisi":
             self.zamik_podnapisov = _moznosti.premakni_zamik(ms, 0, _moznosti.MEJA_PODNAPISI_MS)
             lastnost, vrednost = "text-offset", _moznosti.text_offset_ns(self.zamik_podnapisov)
@@ -540,6 +543,15 @@ class Predvajalnik:
         except Exception as e:  # noqa: BLE001 - starejsi GStreamer brez lastnosti: zamik ostane 0
             print("[SafeerOS] zamik:", lastnost, e, flush=True)
         return self.zamik_zvoka if vrsta == "zvok" else self.zamik_podnapisov
+
+    def nastavi_zakasnitev_izhoda(self, ms: int) -> int:
+        """Zvok zamuja za ms (zvocnik v omrezju): slika pocaka toliko (av-offset > 0); 0 = brez zamika slike."""
+        try:
+            self.zakasnitev_izhoda = max(0, int(ms))
+        except (TypeError, ValueError):
+            self.zakasnitev_izhoda = 0
+        self.nastavi_zamik("zvok", self.zamik_zvoka)
+        return self.zakasnitev_izhoda
 
     def premakni_zamik(self, vrsta: str, korak_ms: int) -> int:
         trenutni = self.zamik_zvoka if vrsta == "zvok" else self.zamik_podnapisov

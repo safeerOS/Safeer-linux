@@ -11,11 +11,14 @@ nicesar in ne uporabljamo vmesnikov proizvajalcev (core/dlna_zvocniki.py).
 4. Konec (uporabnik izbere drug izhod ali na zvocniku preklopi vir): prejsnji izhod dobi nazaj
    privzetost in vse programe, navidezni izhod izgine.
 
-Zamik je nekaj sekund (medpomnilnik zvocnika) - primerno za glasbo in radio, ne za film z ustnicami.
+Zamik je nekaj sekund (medpomnilnik zvocnika). Za video domaci predvajalnik za toliko zamakne sliko (playbin
+av-offset, core/os_predvajalnik.py): zakasnitev ocenimo iz polozaja, ki ga zvocnik javi (GetPositionInfo), in jo
+zapomnimo za vsak zvocnik posebej (zvocniki.json na tej napravi); uporabnik jo lahko popravi po 50 ms.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import shutil
@@ -32,6 +35,42 @@ PREDPONA = "dlna:"
 OSVEZI_S = 60.0          # seznam zvocnikov iscemo najvec enkrat na minuto (v ozadju)
 PREVERI_S = 5.0          # straza: ali zvocnik se predvaja nas tok
 ZACETNI_ZAMIK_S = 10.0   # zvocnik po ukazu Play nekaj sekund polni medpomnilnik
+#: Zakasnitev zvoka na zvocniku (ms), dokler je ne izmerimo: tipicen medpomnilnik toka MP3 pri zvocnikih DLNA.
+PRIVZETA_ZAKASNITEV_MS = 2000
+MEJA_ZAKASNITVE_MS = 8000
+KORAK_ZAKASNITVE_MS = 50
+MERI_S = 0.25            # meritev: kako pogosto beremo polozaj zvocnika
+MERI_KROGOV = 40         # najvec 10 s merjenja
+
+
+def _pot_zakasnitev() -> str:
+    return os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "safeer-os", "zvocniki.json")
+
+
+def omeji_zakasnitev(ms) -> int:
+    """Na mrezo 50 ms, med 0 in MEJA_ZAKASNITVE_MS; neveljavno = privzeto."""
+    try:
+        ms = int(round(float(ms) / KORAK_ZAKASNITVE_MS)) * KORAK_ZAKASNITVE_MS
+    except (TypeError, ValueError):
+        return PRIVZETA_ZAKASNITEV_MS
+    return max(0, min(MEJA_ZAKASNITVE_MS, ms))
+
+
+def ocena_zakasnitve(meritve: List[tuple]) -> Optional[int]:
+    """Zakasnitev iz zaporednih meritev (cas od prvega bajta toka v s, RelTime zvocnika v celih s).
+
+    Zvocnik zaigra zvok, zajet ob prvem bajtu, z zakasnitvijo L; takrat je njegov RelTime 0. RelTime je zaokrozen
+    navzdol na sekundo, zato natancnost dobimo na prehodih: ko RelTime med meritvama a in b skoci na n, je trenutek
+    n v (a, b], torej L v (a - n, b - n]. Presek vseh intervalov -> sredina. Brez prehoda ali neskladja: None."""
+    spodaj, zgoraj = None, None
+    for (a, ra), (b, rb) in zip(meritve, meritve[1:]):
+        if rb == ra + 1 and b > a:
+            lo, hi = a - rb, b - rb
+            spodaj = lo if spodaj is None else max(spodaj, lo)
+            zgoraj = hi if zgoraj is None else min(zgoraj, hi)
+    if spodaj is None or zgoraj is None or zgoraj < spodaj or zgoraj < 0:
+        return None
+    return omeji_zakasnitev((max(spodaj, 0.0) + zgoraj) / 2 * 1000)
 
 
 def _okolje() -> dict:
@@ -61,6 +100,8 @@ class _Tok:
         self.ukaz = ukaz
         self._procesi: List[subprocess.Popen] = []
         self._kljuc = threading.Lock()
+        #: time.monotonic() prvega kosa, ki ga je zvocnik dobil (za meritev zakasnitve); 0 = se ni.
+        self.prvi_bajt = 0.0
         tok = self
 
         class Obdelava(BaseHTTPRequestHandler):
@@ -98,6 +139,8 @@ class _Tok:
                         if not kos:
                             break
                         self.wfile.write(kos)
+                        if not tok.prvi_bajt:
+                            tok.prvi_bajt = time.monotonic()
                 except (BrokenPipeError, ConnectionResetError, OSError):
                     pass          # zvocnik je prekinil (drug vir, premor) - obicajno
                 finally:
@@ -139,7 +182,8 @@ class Zvocniki:
     """Zvocniki v omrezju za stran Zvok v Safeer OS: seznam (v ozadju) in ena seja naenkrat."""
 
     def __init__(self, najdi: Callable[..., list] = dlna.najdi, pactl: Callable[..., subprocess.CompletedProcess] = _pactl,
-                 ffmpeg: Optional[str] = None, lan_naslov: Callable[[str], str] = dlna.lan_naslov_za) -> None:
+                 ffmpeg: Optional[str] = None, lan_naslov: Callable[[str], str] = dlna.lan_naslov_za,
+                 pot_zakasnitev: str = "") -> None:
         self._najdi = najdi
         self._pactl = pactl
         self.ffmpeg = ffmpeg if ffmpeg is not None else (shutil.which("ffmpeg") or "")
@@ -155,6 +199,10 @@ class Zvocniki:
         self._prejsnji = ""
         self._modul = ""
         self.stanje = ""        # "" / "caka" / "tece"
+        self._pot_zakasnitev = pot_zakasnitev or _pot_zakasnitev()
+        #: Ob vsaki spremembi zakasnitve aktivnega izhoda (ms; 0 = zvok je spet tu): safeer_os zamakne sliko videa.
+        self.ob_zakasnitvi: Callable[[int], None] = lambda _ms: None
+        self.cakaj = time.sleep
 
     # ------------------------------------------------------------------ seznam
     def mozno(self) -> bool:
@@ -196,7 +244,73 @@ class Zvocniki:
     def opis(self) -> dict:
         with self._kljuc:
             return {"naprava": self._id, "ime": getattr(self._zvocnik, "ime", "") if self._zvocnik else "",
-                    "stanje": self.stanje}
+                    "stanje": self.stanje, "zakasnitev": self.zakasnitev() if self._id else 0}
+
+    # ------------------------------------------------------------------ zakasnitev (usklajenost slike)
+    def _shranjene(self) -> dict:
+        try:
+            with open(self._pot_zakasnitev, encoding="utf-8") as d:
+                podatki = json.load(d)
+            return podatki if isinstance(podatki, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def _shrani(self, id_zvocnika: str, ms: int, rocno: bool) -> None:
+        podatki = self._shranjene()
+        podatki[id_zvocnika] = {"ms": omeji_zakasnitev(ms), "rocno": bool(rocno)}
+        try:
+            os.makedirs(os.path.dirname(self._pot_zakasnitev), exist_ok=True)
+            with open(self._pot_zakasnitev + ".tmp", "w", encoding="utf-8") as d:
+                json.dump(podatki, d)
+            os.replace(self._pot_zakasnitev + ".tmp", self._pot_zakasnitev)
+        except OSError:
+            pass
+
+    def zakasnitev(self, id_zvocnika: str = "") -> int:
+        """Zakasnitev zvoka na zvocniku v ms (shranjena ali privzeta); brez seje 0."""
+        id_zvocnika = id_zvocnika or self._id
+        if not id_zvocnika:
+            return 0
+        zapis = self._shranjene().get(id_zvocnika)
+        return omeji_zakasnitev(zapis.get("ms")) if isinstance(zapis, dict) else PRIVZETA_ZAKASNITEV_MS
+
+    def nastavi_zakasnitev(self, id_zvocnika: str, ms) -> int:
+        """Rocna nastavitev (drsnik »Zamik zvoka«): shranimo na to napravo; meritev je vec ne prepise."""
+        ms = omeji_zakasnitev(ms)
+        self._shrani(str(id_zvocnika or ""), ms, rocno=True)
+        if id_zvocnika and id_zvocnika == self._id:
+            self.ob_zakasnitvi(ms)
+        return ms
+
+    def _izmeri(self, seja: int) -> None:
+        """Polozaj zvocnika (RelTime) glede na prvi bajt toka -> zakasnitev; ce je uporabnik ni nastavil rocno."""
+        with self._kljuc:
+            if seja != self._seja or self._tok is None:
+                return
+            zvocnik, tok, id_zvocnika = self._zvocnik, self._tok, self._id
+        zapis = self._shranjene().get(id_zvocnika)
+        if isinstance(zapis, dict) and zapis.get("rocno"):
+            return
+        meritve: List[tuple] = []
+        for _ in range(MERI_KROGOV):
+            with self._kljuc:
+                if seja != self._seja:
+                    return
+            try:
+                rel = zvocnik.polozaj().get("RelTimeSeconds")
+            except Exception:
+                return
+            if tok.prvi_bajt and isinstance(rel, int) and rel >= 0:
+                meritve.append((time.monotonic() - tok.prvi_bajt, rel))
+            self.cakaj(MERI_S)
+        ms = ocena_zakasnitve(meritve)
+        if ms is None:
+            return
+        with self._kljuc:
+            if seja != self._seja:
+                return
+        self._shrani(id_zvocnika, ms, rocno=False)
+        self.ob_zakasnitvi(ms)
 
     # ------------------------------------------------------------------ seja
     def zacni(self, id_zvocnika: str, potrdi: bool = False) -> dict:
@@ -232,6 +346,7 @@ class Zvocniki:
                 self._pocisti()
                 return {"ok": False, "napaka": str(e)[:200]}
             self._zvocnik, self._id, self.stanje = zvocnik, id_zvocnika, "caka"
+        self.ob_zakasnitvi(self.zakasnitev(id_zvocnika))
         threading.Thread(target=self._strazi, args=(seja,), name="safeer-zvocnik-straza", daemon=True).start()
         return {"ok": True, "ime": zvocnik.ime}
 
@@ -270,8 +385,12 @@ class Zvocniki:
                 if st in ("PLAYING", "TRANSITIONING") and (nas or not uri):
                     napake = 0
                     with self._kljuc:
+                        prvic = seja == self._seja and self.stanje != "tece"
                         if seja == self._seja:
                             self.stanje = "tece"
+                    if prvic:
+                        threading.Thread(target=self._izmeri, args=(seja,), name="safeer-zvocnik-meri",
+                                         daemon=True).start()
                 else:
                     napake += 1
             except Exception:
@@ -297,6 +416,8 @@ class Zvocniki:
                 self._tok.ustavi()
             self._tok = None
             self._zvocnik, self._id, self.stanje = None, "", ""
+            if imel:
+                self.ob_zakasnitvi(0)
             if obnovi:
                 self._obnovi_izhod()
             return imel
