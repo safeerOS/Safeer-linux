@@ -22,7 +22,7 @@
 
 **A fuller Media Center.** Home now has discovery shelves (popular films and series, music, your YouTube and Spotify playlists, Twitch live, radio); YouTube plays inside the Media Center window; playlists are shown as track lists; search is much faster and shows one card per title with the best stream; cards show quality, language and source. Adult add-ons appear only in the Private category, only when you turn it on and only on that device. Play on … is also in the video window, and picture and sound stay in sync on network speakers (adjustable delay).
 
-**Messages.** Archive, delete, mark read or unread, star, move or label right in the list, several at once, with Undo; reply from the list without opening the conversation.
+**Messages.** Archive, delete, mark read or unread, star, move or label right in the list, several at once, with Undo; reply from the list without opening the conversation. The messages panel in the top bar can mark a message read or unread, mark it important or delete it (with Undo).
 
 **Desktop.** Safeer Browser instead of Firefox in the dock, one Show desktop button, distinct icons for Messages and Splet.
 

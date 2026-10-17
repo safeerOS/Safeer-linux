@@ -50,3 +50,19 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .gumb.glavni { background: rgba(59, 140, 240, 0.25); border-color: rgba(138, 199, 255, 0.5); }
 .gumb:hover, .gumb:focus-visible { border-color: var(--fokus); outline: none; }
 body.vecji-tekst { font-size: 16px; }
+
+/* Dejanja v vrstici (prebrano, pomembno, izbrisi): pokazejo se ob prehodu ali fokusu, cez cas na desni. */
+.seznam li { position: relative; }
+.dejanja { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); display: none; gap: 2px; padding: 2px;
+  border-radius: 999px; background: var(--povrsina); border: 1px solid var(--tanka); }
+.seznam li:hover .dejanja, .seznam li:focus-within .dejanja { display: flex; }
+.dejanje { width: 30px; height: 30px; border: 0; border-radius: 50%; background: transparent; color: var(--tiho); cursor: pointer;
+  display: grid; place-items: center; }
+.dejanje:hover, .dejanje:focus-visible { background: var(--izbrano); color: var(--besedilo); outline: none; }
+.dejanje.vkljucen { color: #f5c542; }
+.dejanje.vkljucen svg { fill: currentColor; }
+.zvezda { color: #f5c542; font-size: 13px; line-height: 1; }
+.obvestilo { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px;
+  border-radius: var(--r-mal); background: rgba(255, 255, 255, 0.08); border: 1px solid var(--tanka); font-size: 13px; }
+.obvestilo[hidden] { display: none; }
+.razveljavi { border: 0; background: transparent; color: var(--modra); font: inherit; font-weight: 700; cursor: pointer; }
