@@ -6362,6 +6362,7 @@ class SafeerOS(Gtk.Application):
         self._medijski_skladba = True
         self._medijski_pogled.get_settings().set_property("enable-javascript-markup", True)
         self._medijski_okno.set_title(ime or self._mb("medijski_center"))
+        self._yt_prijava_v_medijski_pogled()
         zahteva = WebKit2.URIRequest.new(naslov)
         # YouTube vgradnjo dovoli samo znanemu izvoru; Safeer se predstavi enako kot na Windows.
         zahteva.get_http_headers().append("Referer", os_katalog.IZVOR_VGRADNJE)
@@ -6372,6 +6373,26 @@ class SafeerOS(Gtk.Application):
         self._medijski_skladba_videna = True
         GLib.idle_add(lambda: self._yt_spremenjeno() and False)   # ko katalog zapise skladbo (glej _predvajaj_razresen)
         return True
+
+    def _yt_prijava_v_medijski_pogled(self) -> None:
+        """Ce je uporabnik v Spletu prijavljen v YouTube, dobi lahki (sicer zacasni, brez piskotkov) pogled piskotke
+        youtube.com - samo te. Brez njih YouTube vgrajen predvajalnik zahteva »Prijavite se in potrdite, da niste
+        bot« (testni PC 17. 10. 2026, seznam Favorites)."""
+        try:
+            from core import youtube_racun
+            gi.require_version("Soup", "3.0")
+            from gi.repository import Soup
+            piskotki = youtube_racun.beri_piskotke(youtube_racun.pot_piskotkov())
+            if not youtube_racun.prijavljen(piskotki):
+                return
+            upravitelj = self._medijski_pogled.get_network_session().get_cookie_manager()
+            for ime, vrednost in piskotki.items():
+                c = Soup.Cookie.new(ime, vrednost, ".youtube.com", "/", 6 * 3600)
+                c.set_secure(True)
+                c.set_http_only("APISID" not in ime)          # SAPISID beri skript YouTuba (glava SAPISIDHASH)
+                upravitelj.add_cookie(c, None, None, None)
+        except Exception as e:  # noqa: BLE001 - brez prijave predvaja kot prej
+            print("[Safeer OS] YouTube prijava v predvajalnik:", type(e).__name__, flush=True)
 
     def _medijski_odlocitev(self, _pogled, odlocitev, vrsta) -> bool:
         """Lahki pogled ne odpira novih oken; med skladbo klik na povezavo ne zapusti predvajalnika."""
