@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import threading
 import time
+import re
 import urllib.parse
 import weakref
 from html import escape as _escape_html
@@ -704,6 +705,23 @@ def _robovi(gradnik, rob: int):
         getattr(gradnik, stran)(rob)
     return gradnik
 
+
+def google_z_izbiro_racuna(naslov: str) -> str:
+    """Zahteva OAuth »Prijava z Googlom« brez parametra prompt: isti naslov s prompt=select_account (Google pokaze
+    izbiro racuna in »Uporabi drug racun«). Sicer prazen niz. Tihe prijave (prompt=none) in okvirji niso prizadeti."""
+    try:
+        deli = urllib.parse.urlsplit(naslov)
+    except ValueError:
+        return ""
+    if deli.scheme != "https" or (deli.hostname or "").lower() != "accounts.google.com":
+        return ""
+    if not re.fullmatch(r"/o/oauth2(?:/v2)?/auth|/signin/oauth(?:/v2)?", deli.path or ""):
+        return ""
+    poizvedba = urllib.parse.parse_qsl(deli.query, keep_blank_values=True)
+    if not any(k == "client_id" for k, _ in poizvedba) or any(k == "prompt" for k, _ in poizvedba):
+        return ""
+    poizvedba.append(("prompt", "select_account"))
+    return urllib.parse.urlunsplit(deli._replace(query=urllib.parse.urlencode(poizvedba)))
 
 class _Tipka:
     """Tipka iz GTK4 EventControllerKey z enakima poljema kot Gdk.EventKey v GTK3 (keyval, state)."""
@@ -2172,6 +2190,13 @@ class VdelaniSplet:
                 odlocitev.use(); return True
             if not naslov.startswith(("http://", "https://")):
                 odlocitev.ignore(); return True
+            z_izbiro = google_z_izbiro_racuna(naslov)
+            if z_izbiro and zahteva.get_http_method() == "GET":
+                # »Prijava z Googlom« na drugi strani (Spotify ...): Google pokaze izbiro racuna, ne izbere sam prvega
+                # (lastnik, 17. 10. 2026: Spotify je imel na drugem Google racunu).
+                odlocitev.ignore()
+                self.GLib.idle_add(lambda: pogled.load_uri(z_izbiro) and False)
+                return True
             grozi = adblock.is_threat_domain(naslov)      # enkrat na navigacijo (prej dvakrat)
             izjema = zascita.je_izjema(self.config, naslov)
             if not grozi and not izjema and self.config.get("adblock_enabled", True) and adblock.is_ad_domain(naslov):
