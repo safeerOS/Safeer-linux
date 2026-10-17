@@ -721,7 +721,8 @@ class Racun:
             if not self.kanal.vidno and not self._predvajanje.get("igra") and self._ura() - self._dotik > CAS_MIROVANJA:
                 self.kanal.ustavi()
                 break
-            time.sleep(1.0)
+            # Med oglasom pogosteje: utisanje in preskok (kjer ga Spotify dovoli) takoj, ko se oglas zacne ali konca.
+            time.sleep(0.4 if self._predvajanje.get("oglas") else 1.0)
 
     def straza_korak(self, surovo: dict) -> dict:
         stanje = stanje_iz(surovo)
