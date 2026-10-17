@@ -1030,6 +1030,23 @@ ozadje() {
     esac
 }
 
+# Papirus-Dark z nasimi ikonami posodobitev (Papirus jih rise kot scit - uporabnik jih je imel za Safeer Scit, lastnik,
+# 17. 10. 2026); nasa tema podeduje vse ostalo od Papirus-Dark, zato samo, ce je Papirus namescen.
+IKONE_SAFEER="Safeer-Papirus-Dark"
+tema_ikon() {
+    if [ -f "$KOREN/usr/share/icons/$IKONE_SAFEER/index.theme" ]; then echo "$IKONE_SAFEER"; else echo "Papirus-Dark"; fi
+}
+
+# Postavitev, vklopljena pred 1.0.127, ima Papirus-Dark: enkrat (ob prvi prijavi po nadgradnji) jo zamenjamo z nasimi
+# ikonami posodobitev. Ce uporabnik pozneje sam izbere Papirus-Dark, ostane. Izklop vrne tisto, kar je bilo pred vklopom.
+ikone_posodobitev_enkrat() {
+    [ -e "$MAPA/ikone-posodobitev" ] && return 0
+    mkdir -p "$MAPA"; : > "$MAPA/ikone-posodobitev"
+    [ "$(beri org.cinnamon.desktop.interface:icon-theme)" = "'Papirus-Dark'" ] || return 0
+    [ "$(tema_ikon)" = "$IKONE_SAFEER" ] && pisi org.cinnamon.desktop.interface:icon-theme "'$IKONE_SAFEER'"
+    return 0
+}
+
 tema() {
     local gtk="$TEMA" lupina="$TEMA"
     # Kontrast ostane vklopljen tudi ob zamenjavi postavitve.
@@ -1043,7 +1060,7 @@ tema() {
     pisi org.cinnamon.desktop.wm.preferences:theme "'$TEMA'"
     pisi org.cinnamon.theme:name "'$lupina'"
     # Ikone: Papirus (priporocen paket), sicer Mintove modre - mape naj ne ostanejo v barvi prejsnje teme.
-    if [ -d "$KOREN/usr/share/icons/Papirus-Dark" ]; then pisi org.cinnamon.desktop.interface:icon-theme "'Papirus-Dark'"
+    if [ -d "$KOREN/usr/share/icons/Papirus-Dark" ]; then pisi org.cinnamon.desktop.interface:icon-theme "'$(tema_ikon)'"
     elif [ -d "$KOREN/usr/share/icons/Mint-Y-Blue" ]; then pisi org.cinnamon.desktop.interface:icon-theme "'Mint-Y-Blue'"; fi
 }
 
@@ -1144,7 +1161,7 @@ izklopi() {
     delovna_izklopi koncno
     dock_izklopi koncno
     pokazi_namizje odstrani
-    rm -f "$MAPA/pokazi-namizje-ponujeno" "$MAPA/seznam-sredina-ponujeno"
+    rm -f "$MAPA/pokazi-namizje-ponujeno" "$MAPA/seznam-sredina-ponujeno" "$MAPA/ikone-posodobitev"
     miska odstrani
     rm -f "$MAPA/miska-ponujena"
     seznam_oken_vrni
@@ -1235,6 +1252,7 @@ case "${1:-}" in
     --dock)                  if [ -f "$VKLOPLJENO" ] && [ -f "$AUTOSTART" ]; then
                                  nadgradi_postavitev
                                  miska_enkrat
+                                 ikone_posodobitev_enkrat
                                  dock_mint_zamenjaj        # ob prijavi po nadgradnji (dock iz casa pred 1.0.127)
                                  dock_zazeni
                                  [ "$(profil_trenutni)" = dock ] && dock_straza
@@ -1247,6 +1265,7 @@ case "${1:-}" in
                                  nemo_namizje_izklopi      # ob prijavi Cinnamon zazene tudi Nemovo namizje
                                  zagoni_izklopi            # tudi novejsi TUJI_ZAGONI (safeer-control) ob nadgradnji
                                  miska_enkrat
+                                 ikone_posodobitev_enkrat
                                  # Ze vklopljena postavitev iz starejse razlicice dobi gumb Pokazi namizje enkrat; ce ga
                                  # uporabnik odstrani, ga ne vracamo.
                                  if [ ! -e "$MAPA/pokazi-namizje-ponujeno" ]; then
