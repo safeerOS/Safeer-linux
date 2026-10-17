@@ -9,26 +9,11 @@
 var SafeerIzhod = (function () {
   "use strict";
 
-  // Izbire: ta racunalnik, naprave v Safeer Linku, ki znajo predvajati zvok (core/os_zvok.link_naprave), in zvocniki
-  // DLNA v omrezju (core/zvok_na_zvocnik.py). Natanko ena je aktivna.
+  // Izbire: ta racunalnik, naprave v Safeer Linku in zvocniki DLNA v omrezju - izracuna jih Python v klicu »zvok«
+  // (core/os_zvok.moznosti_izhoda), da je seznam isti tudi v oknu predvajalnika videa (GTK). Natanko ena je aktivna.
   function moznosti(z) {
-    z = z || {};
-    var link = z.link || {}, seja = link.zvok || {}, zv = link.zvocnik || {};
-    var naLinku = seja.naprava || "", naZvocniku = zv.naprava || "";
-    var privzeti = (z.izhodi || []).filter(function (i) { return i.privzeti; })[0];
-    var izid = [{ vrsta: "racunalnik", id: "", ime: "", pod: privzeti ? String(privzeti.ime || "") : "",
-                  aktiven: !naLinku && !naZvocniku, stanje: "" }];
-    (link.naprave || []).forEach(function (n) {
-      var tece = naLinku === n.id;
-      izid.push({ vrsta: "naprava", id: n.id, ime: n.ime, platforma: n.platforma || "", pod: "Safeer Link",
-                  aktiven: tece, stanje: tece ? (seja.stanje === "tece" ? "tece" : "caka") : "" });
-    });
-    (link.zvocniki || []).forEach(function (n) {
-      var tece = naZvocniku === n.id;
-      izid.push({ vrsta: "zvocnik", id: n.id, ime: n.ime, model: n.model && n.model !== n.ime ? n.model : "",
-                  aktiven: tece, stanje: tece ? (zv.stanje === "tece" ? "tece" : "caka") : "" });
-    });
-    return izid;
+    var m = z && z.moznosti;
+    return m && m.length ? m : [{ vrsta: "racunalnik", id: "", ime: "", pod: "", aktiven: true, stanje: "" }];
   }
   function aktivna(z) {
     return moznosti(z).filter(function (m) { return m.aktiven; })[0] || null;
@@ -77,6 +62,12 @@ var SafeerIzhod = (function () {
     else if (m.vrsta === "naprava") naNapravo(st, m, o);
     else if (m.vrsta === "zvocnik") naZvocnik(st, m, o);
   }
+  // Zamik zvoka na aktivnem zvocniku (ms, korak 50): slika videa pocaka zvocnik; shrani se na tej napravi.
+  function zakasnitev(m, ms, o) {
+    if (!m || m.vrsta !== "zvocnik" || !m.aktiven) return;
+    m.zakasnitev = Math.max(0, Math.round(ms / 50) * 50);
+    o.klic("zvokZakasnitevZvocnika", [m.id, m.zakasnitev], function () {}, function () { o.obvesti("niUspelo"); });
+  }
   // Iskanje zvocnikov tece v ozadju (core/zvok_na_zvocnik.py, okoli 3 s): seznam preberemo znova po njem.
   function isci(st, o) {
     st.isce = true;
@@ -87,5 +78,5 @@ var SafeerIzhod = (function () {
   }
 
   return { moznosti: moznosti, aktivna: aktivna, imaDruge: imaDruge, novoStanje: novoStanje, izberi: izberi,
-           nazaj: nazaj, naNapravo: naNapravo, naZvocnik: naZvocnik, isci: isci };
+           nazaj: nazaj, naNapravo: naNapravo, naZvocnik: naZvocnik, isci: isci, zakasnitev: zakasnitev };
 })();

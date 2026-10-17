@@ -600,6 +600,7 @@ def zvok_stanje() -> dict:
         stanje["link"]["zvocnik"] = z.opis()
     except Exception as e:  # noqa: BLE001
         print("[SafeerOS] zvocniki:", e)
+    stanje["moznosti"] = os_zvok.moznosti_izhoda(stanje)
     return stanje
 
 
@@ -608,6 +609,18 @@ def zvok_na_zvocnik(id_zvocnika: str, potrdi: bool = False) -> dict:
     if os_zvok.link_naprave()["zvok"]["naprava"]:
         control_dejanje("zvok-ustavi")
     return zvocniki().zacni(str(id_zvocnika or ""), bool(potrdi))
+
+
+def zvok_izberi_izhod(m: dict, potrdi: bool = False):
+    """Izbira v »Predvajaj na …« okna predvajalnika videa (GTK) - ista dejanja kot izberi() v assets/os/izhod.js."""
+    vrsta, id_ = str(m.get("vrsta") or ""), str(m.get("id") or "")
+    if vrsta == "racunalnik":
+        return zvocniki().ustavi() if _ZVOCNIKI is not None and _ZVOCNIKI.opis()["naprava"] else zvok_ustavi()
+    if vrsta == "naprava":
+        return zvok_na_napravo(id_)
+    if vrsta == "zvocnik":
+        return zvok_na_zvocnik(id_, potrdi)
+    return False
 
 
 def zvok_izhod(ime: str) -> bool:
@@ -3972,6 +3985,7 @@ class SafeerOS(Gtk.Application):
             "zvokNaZvocnik": lambda: zvok_na_zvocnik(str(a[0]) if a else "", bool(a[1]) if len(a) > 1 else False),
             "zvokUstaviZvocnik": lambda: zvocniki().ustavi(),
             "zvokIsciZvocnike": lambda: zvocniki().osvezi() or True,
+            "zvokZakasnitevZvocnika": lambda: zvocniki().nastavi_zakasnitev(str(a[0]) if a else "", a[1] if len(a) > 1 else 0),
             "zvokIzhod": lambda: zvok_izhod(str(a[0]) if a else ""),
             "zvokVhod": lambda: os_zvok.nastavi_vhod(str(a[0]) if a else ""),
             "zvokGlasnostIzhoda": lambda: os_zvok.glasnost_izhoda(str(a[0]), int(a[1])),
@@ -4886,6 +4900,7 @@ class SafeerOS(Gtk.Application):
                 self._medijski_predvajalnik.nastavi_izenacevalnik(self._medijski_predvajalnik.moznosti["izenacevalnik"],
                                                                   shrani=False)
                 self._medijski_predvajalnik.v_glavni = lambda f: GLib.idle_add(f)
+                self._povezi_zakasnitev_zvocnika()
                 if not self._medijski_tik_zacet:
                     self._medijski_tik_zacet = True
                     GLib.timeout_add_seconds(1, self._medijski_tik)
@@ -5032,6 +5047,10 @@ class SafeerOS(Gtk.Application):
         poslji = Gtk.Button(label="📤 " + self._mb("poslji"))
         poslji.connect("clicked", self._medijski_poslji_meni)
         gumbi.append(poslji)
+        # »Predvajaj na …« (kot v mini predvajalniku): ta racunalnik, naprava v Linku ali zvocnik v omrezju.
+        self._medijski_izhod = Gtk.Button(label="🔈 " + self._mb("predvajaj_na"))
+        self._medijski_izhod.connect("clicked", self._medijski_meni_izhoda)
+        gumbi.append(self._medijski_izhod)
         # Podnapisi (kot v VLC): izklop, vgrajeni tokovi in datoteke ob videu; tipka V jih preklaplja.
         self._medijski_podnapisi = Gtk.Button(label="💬 " + self._mb("podnapisi"))
         self._medijski_podnapisi.set_visible(False)
@@ -5541,6 +5560,111 @@ class SafeerOS(Gtk.Application):
                  self._mb("poslji_izklopljeno") if koda == "izklopljeno" else self._mb("poslji_napaka")).replace("{ime}", ime)
             GLib.idle_add(self._medijski_obvestilo, b)
         threading.Thread(target=delo, name="safeer-poslji", daemon=True).start()
+
+    # ------------------------------------------------------------------ »Predvajaj na …« in zakasnitev zvocnika
+    def _povezi_zakasnitev_zvocnika(self) -> None:
+        """Zvok na zvocniku v omrezju zamuja (medpomnilnik): sliko zamaknemo za njegovo zakasnitev, ob vrnitvi na 0."""
+        servis = self._medijski_predvajalnik
+        try:
+            z = zvocniki()
+            z.ob_zakasnitvi = lambda ms: GLib.idle_add(lambda: (servis.nastavi_zakasnitev_izhoda(ms), False)[1])
+            servis.nastavi_zakasnitev_izhoda(z.opis()["zakasnitev"])
+        except Exception as e:  # noqa: BLE001 - predvajanje gre naprej brez zamika slike
+            print("[SafeerOS] zakasnitev zvocnika:", e, flush=True)
+
+    def _medijski_meni_izhoda(self, gumb) -> None:
+        """Seznam izhodov preberemo v ozadju (pactl, Link); okence odpremo, ko je znan - vmesnik ne zamrzne."""
+        def delo() -> None:
+            try:
+                z = zvok_stanje()
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] predvajaj na:", e, flush=True)
+                z = {}
+            if not (z.get("link") or {}).get("zvocniki"):
+                zvocniki().osvezi()          # iskanje tece v ozadju; seznam ob naslednjem odprtju
+            GLib.idle_add(lambda: (self._medijsko_okence(gumb, lambda ok: self._medijska_plosca_izhoda(ok, gumb, z)),
+                                   False)[1])
+        threading.Thread(target=delo, name="safeer-predvajaj-na", daemon=True).start()
+
+    def _medijska_plosca_izhoda(self, okence, gumb, z: dict) -> "Gtk.Widget":
+        plosca = self._medijska_plosca()
+        plosca.append(self._medijski_naslov_plosce(self._mb("predvajaj_na")))
+        moznosti = os_zvok.moznosti_izhoda(z)
+        potrdi = getattr(self, "_medijski_izhod_potrdi", {})
+        self._medijski_izhod_potrdi = potrdi
+        izbran = next((m for m in moznosti if m["aktiven"]), moznosti[0])
+
+        def napis(m: dict) -> str:
+            if m["vrsta"] == "racunalnik":
+                return self._mb("ta_racunalnik") + (" · " + m["pod"] if m.get("pod") else "")
+            pod = self._mb("zvocnik_omrezje") if m["vrsta"] == "zvocnik" else "Safeer Link"
+            if m.get("aktiven") and m.get("stanje") == "caka":
+                pod = self._mb("povezujem")
+            return "%s · %s" % (m.get("ime") or "", pod)
+
+        def izberi(kljuc: str) -> None:
+            m = next((x for x in moznosti if "%s:%s" % (x["vrsta"], x["id"]) == kljuc), None)
+            if m is None or m["aktiven"]:
+                return
+            okence.popdown()
+            soglasje = bool(potrdi.pop(m["id"], None))
+
+            def delo() -> None:
+                r = zvok_izberi_izhod(m, soglasje)
+                if isinstance(r, dict) and r.get("vir"):
+                    potrdi[m["id"]] = r["vir"]      # zvocnik igra drug vir (TV): preklop sele ob drugi izbiri
+                    b = os_media_besedila.besedilo("zvok_zaseden", _jezik()).replace("{ime}", m["ime"] or "")
+                    b = b.replace("{vir}", str(r["vir"]))
+                else:
+                    ok = r.get("ok") if isinstance(r, dict) else bool(r)
+                    b = (napis(m) if ok else self._mb("poslji_napaka").replace("{ime}", m.get("ime") or ""))
+                GLib.idle_add(self._medijski_obvestilo, b)
+            threading.Thread(target=delo, name="safeer-predvajaj-na-izberi", daemon=True).start()
+        self._medijske_izbire(plosca, [("%s:%s" % (m["vrsta"], m["id"]), napis(m)) for m in moznosti],
+                              "%s:%s" % (izbran["vrsta"], izbran["id"]), izberi)
+        if izbran["vrsta"] == "zvocnik":
+            plosca.append(self._medijski_zamik_zvocnika(izbran))
+        isci = Gtk.Button(label="⟳ " + self._mb("isci_zvocnike"))
+        isci.connect("clicked", lambda _g: (zvocniki().osvezi(), okence.popdown(),
+                                            GLib.timeout_add(3500, lambda: (self._medijski_meni_izhoda(gumb), False)[1])))
+        plosca.append(isci)
+        return plosca
+
+    def _medijski_zamik_zvocnika(self, m: dict) -> "Gtk.Widget":
+        """Drsnik »Zamik zvoka« za aktivni zvocnik (0-8 s, korak 50 ms); shrani se na tej napravi (zvocniki.json)."""
+        from core import zvok_na_zvocnik as _zz
+        okvir = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        ime = Gtk.Label(xalign=0)
+        okvir.append(ime)
+        drsnik = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, _zz.MEJA_ZAKASNITVE_MS, _zz.KORAK_ZAKASNITVE_MS)
+        drsnik.set_draw_value(False)
+        drsnik.set_size_request(280, -1)
+        drsnik.set_value(int(m.get("zakasnitev") or 0))
+        drsnik.update_property([Gtk.AccessibleProperty.LABEL], [self._mb("zamik_zvoka")])
+        opis = lambda: ime.set_text("%s: %d ms" % (self._mb("zamik_zvoka"), _zz.omeji_zakasnitev(drsnik.get_value())))
+        opis()
+        cas = [0]
+
+        def spremenjeno(_d) -> None:
+            opis()
+            if cas[0]:
+                GLib.source_remove(cas[0])
+
+            def shrani() -> bool:
+                cas[0] = 0
+                ms = drsnik.get_value()
+                threading.Thread(target=lambda: zvocniki().nastavi_zakasnitev(str(m["id"]), ms),
+                                 name="safeer-zakasnitev", daemon=True).start()
+                return False
+            cas[0] = GLib.timeout_add(300, shrani)
+        drsnik.connect("value-changed", spremenjeno)
+        okvir.append(drsnik)
+        opomba = Gtk.Label(label=self._mb("zamik_splet"), xalign=0)
+        opomba.set_wrap(True)
+        opomba.set_max_width_chars(40)
+        opomba.add_css_class("dim-label")
+        okvir.append(opomba)
+        return okvir
 
     def _medijski_obvestilo(self, besedilo: str) -> bool:
         """Kratko sporocilo v vrstici cakalne vrste okna predvajalnika (brez oken)."""

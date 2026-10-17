@@ -224,6 +224,33 @@ def stanje() -> dict:
             "napredno": shutil.which("cinnamon-settings") is not None}
 
 
+def moznosti_izhoda(z: dict) -> List[dict]:
+    """»Predvajaj na …«: ta racunalnik, naprave v Safeer Linku, ki znajo predvajati zvok, in zvocniki DLNA v omrezju
+    (core/zvok_na_zvocnik.py); natanko ena je aktivna. Ena logika za vse gostitelje: stran in QML jo dobita v klicu
+    »zvok« (assets/os/izhod.js), okno predvajalnika videa (GTK) jo klice neposredno."""
+    z = z if isinstance(z, dict) else {}
+    link = z.get("link") or {}
+    seja, zv = link.get("zvok") or {}, link.get("zvocnik") or {}
+    na_linku, na_zvocniku = seja.get("naprava") or "", zv.get("naprava") or ""
+    privzeti = next((i for i in (z.get("izhodi") or []) if i.get("privzeti")), None)
+    izid = [{"vrsta": "racunalnik", "id": "", "ime": "", "pod": str(privzeti.get("ime") or "") if privzeti else "",
+             "aktiven": not na_linku and not na_zvocniku, "stanje": ""}]
+    for n in link.get("naprave") or []:
+        tece = na_linku == n.get("id")
+        izid.append({"vrsta": "naprava", "id": n.get("id"), "ime": n.get("ime"), "platforma": n.get("platforma") or "",
+                     "pod": "Safeer Link", "aktiven": tece,
+                     "stanje": ("tece" if seja.get("stanje") == "tece" else "caka") if tece else ""})
+    for n in link.get("zvocniki") or []:
+        tece = na_zvocniku == n.get("id")
+        m = {"vrsta": "zvocnik", "id": n.get("id"), "ime": n.get("ime"),
+             "model": n.get("model") if n.get("model") and n.get("model") != n.get("ime") else "",
+             "aktiven": tece, "stanje": ("tece" if zv.get("stanje") == "tece" else "caka") if tece else ""}
+        if tece:
+            m["zakasnitev"] = int(zv.get("zakasnitev") or 0)   # drsnik »Zamik zvoka« (slika pocaka zvocnik)
+        izid.append(m)
+    return izid
+
+
 # ---------------------------------------------------------------------- dejanja
 def _imena(vrsta: str) -> List[str]:
     return [str(n.get("name") or "") for n in _json(["list", vrsta])]

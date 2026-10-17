@@ -1878,6 +1878,7 @@
     g.title = drugje ? t("predvajaNa", { ime: a.ime }) : t("predvajajNa");
     g.setAttribute("aria-label", g.title);
     if ($("mediaIzhodPlosca").hidden) return;
+    if (document.activeElement && document.activeElement.id === "mediaIzhodZamik") return;   // med premikanjem drsnika ne risemo
     var fokus = document.activeElement && c.contains(document.activeElement) ? document.activeElement.getAttribute("data-id") : null;
     c.innerHTML = "";
     $("mediaIzhodIsci").disabled = !!st.isce;
@@ -1896,9 +1897,25 @@
       b.setAttribute("aria-pressed", m.aktiven ? "true" : "false");
       b.addEventListener("click", function () { SafeerIzhod.izberi(st, m, z, izhodGost()); });
       c.appendChild(b);
+      if (m.vrsta === "zvocnik" && m.aktiven) c.appendChild(zamikZvocnika(m));
     });
     $("mediaIzhodStanje").textContent = st.isce ? t("zvokIscem") : (SafeerIzhod.imaDruge(z) ? "" : t("zvokNiIzhodov"));
     if (fokus) { var f = c.querySelector('[data-id="' + fokus.replace(/"/g, "") + '"]'); if (f) f.focus({ preventScroll: true }); }
+  }
+  // Zamik zvoka na aktivnem zvocniku: slika videa pocaka zvocnik (ocena samodejno, tu fina nastavitev po 50 ms).
+  function zamikZvocnika(m) {
+    var v = el("div", "media-izhod-zamik", ""), ms = m.zakasnitev || 0;
+    var napis = el("label", "", ""), d = document.createElement("input");
+    napis.htmlFor = "mediaIzhodZamik";
+    function besedilo(x) { napis.textContent = t("zvokZamik") + ": " + x + " ms"; }
+    besedilo(ms);
+    d.type = "range"; d.id = "mediaIzhodZamik"; d.min = "0"; d.max = "8000"; d.step = "50"; d.value = String(ms);
+    d.setAttribute("data-id", "zamik");
+    d.addEventListener("input", function () { besedilo(d.value); });
+    d.addEventListener("change", function () { SafeerIzhod.zakasnitev(m, +d.value, izhodGost()); });
+    v.appendChild(napis); v.appendChild(d);
+    v.appendChild(el("small", "", ubezi(t("zvokZamikSplet"))));
+    return v;
   }
   function odpriIzhode() {
     zapriVrstoPlosco(false);
