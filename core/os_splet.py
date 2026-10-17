@@ -983,6 +983,8 @@ class VdelaniSplet:
             self.kontekst.set_cache_model(WebKit2.CacheModel.WEB_BROWSER)
         except Exception:
             pass
+        from core import jeziki_strani
+        jeziki_strani.nastavi(self.kontekst)     # navigator.language ni vec »C« (core/jeziki_strani.py)
         self._nastavi_omrezje()
         try:
             # Zapomnjena dovoljenja za obvestila (dovoljenja_strani) veljajo ze ob nalaganju strani: Notification.permission

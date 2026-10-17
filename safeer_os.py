@@ -6493,6 +6493,8 @@ class SafeerOS(Gtk.Application):
         # svoj WebContext = svoj spletni proces.
         kontekst = WebKit2.WebContext()
         kontekst.set_cache_model(WebKit2.CacheModel.DOCUMENT_VIEWER)
+        from core import jeziki_strani
+        jeziki_strani.nastavi(kontekst)
         # Edino sporocilo, ki ga ta pogled sme poslati Safeer OS: stanje skladbe v vgradnem predvajalniku
         # (igra, premor, konec, napaka). Mostu Safeer OS (safeerOs) tu ni.
         upravitelj = WebKit2.UserContentManager()

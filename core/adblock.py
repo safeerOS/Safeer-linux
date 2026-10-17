@@ -452,7 +452,18 @@ YOUTUBE_ADBLOCK_SCRIPT = """
 # often, a light page at the base interval). DOM changes pull the next run forward once per base
 # interval. The background-tab optimizer marks hidden tabs, so they get no scans at all.
 PAGE_TASK_SCHEDULER_JS = """
-if (!window.__safeerSchedule) {
+if (!window.__safeerSchedule) (function () {
+    // Nase skripte uporabljajo izvirne casovnike brskalnika, zajete ob vstavitvi (pred skriptami strani). Stran, ki
+    // setTimeout zamenja s svojim (JetStream Kotlin-compose: polyfill vrze napako za vsak rok razen svojih), sicer
+    // dobi nase klice v svojo zanko - Wasm je dobil izjemo in test je obstal (preizkus 17. 10. 2026).
+    var setTimeout = window.setTimeout.bind(window), clearTimeout = window.clearTimeout.bind(window);
+    var requestIdleCallback = window.requestIdleCallback ? window.requestIdleCallback.bind(window) : null;
+    if (!window.__safeerCasovniki) {
+        try {
+            Object.defineProperty(window, '__safeerCasovniki', { value: Object.freeze({ setTimeout: setTimeout,
+                clearTimeout: clearTimeout, setInterval: window.setInterval.bind(window) }) });
+        } catch (e) {}
+    }
     window.__safeerSchedule = function (fn, baseMs, maxMs) {
         var interval = baseMs, timer = null, mutationSeen = false;
         var now = function () { return (window.performance && performance.now) ? performance.now() : Date.now(); };
@@ -461,7 +472,7 @@ if (!window.__safeerSchedule) {
             if (timer !== null) return;
             timer = setTimeout(function () {
                 timer = null;
-                if (window.requestIdleCallback) requestIdleCallback(run, { timeout: 2000 }); else run();
+                if (requestIdleCallback) requestIdleCallback(run, { timeout: 2000 }); else run();
             }, ms);
         }
         function run() {
@@ -488,12 +499,13 @@ if (!window.__safeerSchedule) {
         });
         arm(baseMs);
     };
-}
+})();
 """
 
 ADGUARD_PROTECTION_SCRIPT = PAGE_TASK_SCHEDULER_JS + """
 /* 🛡️ Safeer Linux Mint - AdGuard Advanced Protection & Anti-Adblock Defuser Engine */
 (function() {
+    var setTimeout = (window.__safeerCasovniki || window).setTimeout;     // izvirni, ne zamenjan s strani
     var host = location.hostname.toLowerCase();
     if (host === 'youtube.com' || host.endsWith('.youtube.com')) return;
     if (window._adguard_safeer_active) return;
@@ -638,6 +650,8 @@ PROTI_ADBLOCK_SCRIPT = r"""
  */
 (function () {
     'use strict';
+    // Izvirni casovnik (zajet ob zacetku dokumenta): stran ga lahko kasneje zamenja s svojim (PAGE_TASK_SCHEDULER_JS).
+    var setTimeout = window.setTimeout.bind(window);
     try { var gost = String(location.hostname || '').toLowerCase();
           if (gost.indexOf('youtube') !== -1) return; } catch (_) {}
     if (window.__safeerProtiAdblock) return;
