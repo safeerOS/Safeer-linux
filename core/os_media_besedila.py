@@ -204,7 +204,24 @@ _OKNA = {
            "tok_tv": "TV in diretta", "tok_radio": "Radio", "tok_primer": "https://esempio.it/canale.m3u8",
            "shrani_predvajaj": "Salva e riproduci", "izberi_mapo_splosno": "Scegli una cartella", "izberi": "Scegli"},
 }
+# Pas vgrajenega spletnega predvajalnika v oknu Medijskega centra (core/os_medijska_plast.py, 17. 10. 2026).
+_PLAST = {
+    "sl": {"nazaj_medijski_center": "Medijski center", "nazaj_medijski_center_namig": "Nazaj na Medijski center (Esc) – predvajanje teče naprej",
+           "celozaslonsko_f11": "Celozaslonsko (F11)"},
+    "en": {"nazaj_medijski_center": "Media centre", "nazaj_medijski_center_namig": "Back to the media centre (Esc) – playback continues",
+           "celozaslonsko_f11": "Full screen (F11)"},
+    "de": {"nazaj_medijski_center": "Mediencenter", "nazaj_medijski_center_namig": "Zurück zum Mediencenter (Esc) – die Wiedergabe läuft weiter",
+           "celozaslonsko_f11": "Vollbild (F11)"},
+    "es": {"nazaj_medijski_center": "Centro multimedia", "nazaj_medijski_center_namig": "Volver al centro multimedia (Esc): la reproducción continúa",
+           "celozaslonsko_f11": "Pantalla completa (F11)"},
+    "fr": {"nazaj_medijski_center": "Centre multimédia", "nazaj_medijski_center_namig": "Retour au centre multimédia (Échap) – la lecture continue",
+           "celozaslonsko_f11": "Plein écran (F11)"},
+    "it": {"nazaj_medijski_center": "Centro multimediale", "nazaj_medijski_center_namig": "Torna al centro multimediale (Esc): la riproduzione continua",
+           "celozaslonsko_f11": "Schermo intero (F11)"},
+}
 for _jezik, _besedila in _OKNA.items():
+    BESEDILA[_jezik].update(_besedila)
+for _jezik, _besedila in _PLAST.items():
     BESEDILA[_jezik].update(_besedila)
 
 

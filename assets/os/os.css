@@ -1219,6 +1219,10 @@ body.v-mediji #ozadje::after, body.predvajalnik #ozadje::after { background: var
 .media-polica-vse svg { width: 16px; height: 16px; }
 .media-polica-vse:hover { background: var(--media-poudarek); }
 #r-media.domov .media-police { gap: 28px; }
+/* Police odkrivanja (17. 10. 2026): pod osebnimi policami in samodejnimi seznami; v vsaki vrsti kartice enake velikosti -
+   plakati 160 px, zvok kvadrat 150 px, Twitch siroki predogledi 16:9. */
+.media-odkrivanje { order: -1; }
+.media-polica.siroko .media-polica-vrsta > .kat-kartica { flex-basis: 260px; }
 
 /* Spodnja vrstica »Predvaja se«: pod drsnim delom, zato vsebine ne prekrije. */
 .media-player-bar { position: relative; display: grid; grid-template-columns: 56px minmax(120px, 1fr) minmax(260px, 1.6fr) minmax(0, 1fr);
