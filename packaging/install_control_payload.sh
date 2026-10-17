@@ -37,4 +37,10 @@ install -m644 "$ROOT/packaging/safeer-control.desktop" "$PREFIX/share/applicatio
 # Svoja ikona (daljinec v scitu), ne zeleni »S« Safeer OS in Safeer Browserja: v pultu in docku so okna Controla
 # loceno od Safeer OS (lastnik, 16. 10. 2026). Samo SVG - PNG iste velikosti bi ga v temi ikon prehitel.
 install -Dm644 "$ROOT/assets/link/control.svg" "$PREFIX/share/icons/hicolor/scalable/apps/$ID.svg"
+# Iste poti PNG kot v starem paketu safeer-control (Replaces mora prevzeti VSE njegove datoteke, sicer ostane namescen),
+# a iz istega control.svg - PNG ni vec zeleni »S«, zato SVG v temi ikon ne prehiti nic drugega.
+for icon in "$ROOT/packaging/icons/control/hicolor"/*/apps/safeer-control.png; do
+    size=$(basename "$(dirname "$(dirname "$icon")")")
+    install -Dm644 "$icon" "$PREFIX/share/icons/hicolor/$size/apps/$ID.png"
+done
 install -m644 "$ROOT/assets/icon.png" "$PREFIX/share/pixmaps/$ID.png"
