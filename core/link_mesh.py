@@ -437,6 +437,10 @@ class MeshPovezovalec:
 
     def en_krog(self, isci: bool = True) -> None:
         """En krog iskanja in klicanja sosedov. isci=False: samo zapomnjeni sosedje, brez iskanja oglasov mDNS."""
+        # Polodprte sosednje povezave (tablica v varcevanju, zamenjano omrezje) zapremo; zaprte poklicemo znova.
+        zapri_tihe = getattr(self.hub, "zapri_tihe_sosede", None)
+        if callable(zapri_tihe):
+            zapri_tihe()
         oglasi = [dict(h, mdns=True) for h in (self.poisci() or []) if isinstance(h, dict)] if isci else []
         for h in oglasi:
             if h.get("mesh") == link_hub_streznik_mesh() and h.get("tls"):

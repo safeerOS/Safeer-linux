@@ -23,6 +23,7 @@ import hashlib
 import os
 import socket
 import struct
+import time
 import threading
 from typing import Callable, Deque, Optional
 
@@ -114,6 +115,9 @@ class Povezava:
         self.meritev = None
         #: Sonda meritve, ki se caka v izhodni vrsti (natanko ta objekt), ali None. Ne steje v meje vrste.
         self._sonda: Optional[bytes] = None
+        #: Kdaj je z druge strani nazadnje prisel kateri koli okvir (tudi ping/pong): po tem Hub loci zivo sosednjo
+        #: povezavo od polodprte (Hub.dodaj_soseda, Hub.zapri_tihe_sosede).
+        self.zadnji_prejem = time.monotonic()
 
     # ------------------------------------------------------------------ meritev poti
 
@@ -233,6 +237,7 @@ class Povezava:
                     self._v_vrsto(okvir(OPKODA_PING, b""))
                     continue
                 tihih = 0
+                self.zadnji_prejem = time.monotonic()
                 zakljucen = bool(prvi & 0x80)
                 opkoda = prvi & 0x0F
                 maskiran = bool(drugi & 0x80)

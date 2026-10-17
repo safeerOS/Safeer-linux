@@ -578,10 +578,12 @@
       })).catch(prispelo(function () { nastaviVnose([], t("niUspelo"), true); }));
     } else if (vir.vrsta === "naprava") {
       var mapa = vir.pot.length ? vir.pot[vir.pot.length - 1].id : "";
+      // Naprava ni odgovorila (pot do nje se morda ravno obnavlja): sporocilo z gumbom, ne prazen seznam.
+      var znova = function () { odpriVir(vir); };
       drobtineNaprava(vir);
       klic("datotekeNaprave", [vir.id, mapa]).then(prispelo(function (r) {
         // Nedosegljiva ali nedeljena naprava: pokazemo stanje, nikoli starih podatkov.
-        if (!r || !r.ok) { nastaviVnose([], t("napravaNeOdgovori"), true); $("datStanje").textContent = t("napravaNedosegljiva", { naprava: vir.ime }); return; }
+        if (!r || !r.ok) { nastaviVnose([], t("napravaNeOdgovori"), true, znova); $("datStanje").textContent = t("napravaNedosegljiva", { naprava: vir.ime }); return; }
         if (r.shared === false) {
           // Ta racunalnik je napravo prosil za dostop: odobri ga uporabnik NA njej (core/link_dostop).
           var prosnja = r.access_request === "pending" ? "dostopProsnjaPoslana" : (r.access_request === "declined" ? "dostopZavrnjen" : "");
@@ -595,7 +597,7 @@
         });
         nastaviVnose(vnosi, t("praznaMapa"));
         $("datStanje").textContent = t("napravaOsvezeno", { cas: cas(Date.now() / 1000) });
-      })).catch(prispelo(function () { nastaviVnose([], t("napravaNeOdgovori"), true); }));
+      })).catch(prispelo(function () { nastaviVnose([], t("napravaNeOdgovori"), true, znova); }));
     }
   }
   function drobtine(deli) {
@@ -632,13 +634,20 @@
     var zadnji = deli.pop(); deli.push(zadnji.ime);
     drobtine(deli);
   }
-  function datSporocilo(b, napaka) {
+  function datSporocilo(b, napaka, znova) {
     var s = $("datSporocilo"); s.textContent = b || ""; s.hidden = !b; s.classList.toggle("napaka", !!napaka);
+    if (b && znova) s.appendChild(gumbZnova(znova));
+  }
+  // »Poskusi znova« ob sporocilu o napaki (naprava v Linku ni odgovorila).
+  function gumbZnova(ob) {
+    var g = el("button", "znova", t("poskusiZnova")); g.type = "button";
+    g.addEventListener("click", function (e) { e.stopPropagation(); ob(); });
+    return g;
   }
   var prazenOpis = "";
-  function nastaviVnose(vnosi, praznoBesedilo, napaka) {
+  function nastaviVnose(vnosi, praznoBesedilo, napaka, znova) {
     D.vse = vnosi; prazenOpis = praznoBesedilo; D.napaka = !!napaka;
-    if (napaka) datSporocilo(praznoBesedilo, true); else datSporocilo("");
+    if (napaka) datSporocilo(praznoBesedilo, true, znova); else datSporocilo("");
     izrisiDatoteke();
   }
   function filtrirani() {
@@ -1989,6 +1998,8 @@
       mreza.appendChild(el("p", "prazno", t(brezPriljubljenih ? "niPriljubljenihPrg" : "niProgramov")));
     }
     sp.textContent = sporocila.join(" · "); sp.hidden = !sporocila.length;
+    // Naprava ni odgovorila: gumb vprasa naprave znova (pot do nje se morda ravno obnavlja).
+    if (P.nalozeno && nedosegljive.length) sp.appendChild(gumbZnova(function () { P.nalozeno = false; izrisiPrograme(); naloziProgrameNaprav(); }));
     sp.title = nedosegljive.join(", ");
     sp.classList.toggle("napaka", P.nedosegljive.length > 0 || P.brezControla);
     ostraniStrani($("prgStrani"), od, do_, seznam.length, strani, P.stran, function (s) { P.stran = s; izrisiPrograme(); });

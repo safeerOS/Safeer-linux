@@ -245,6 +245,12 @@ def _prosnja_iz_odgovora(telo: dict) -> dict:
     return {"access_request": stanje, "capability": zmoznost if zmoznost in ("d", "p", "v", "z", "*") else ""}
 
 
+#: Ukazi samo za branje: ce naprava do polovice roka ne odgovori (ali sredisce javi "ni_poti"), jih ukaz_pocakaj
+#: enkrat poslje znova - pot se je medtem morda obnovila (tablica, 17. 10. 2026). Drugih ukazov ne ponavljamo.
+PONOVLJIVI_UKAZI = frozenset({"apps.list", "files.list", "play.state", "host.info"})
+#: Po "ni_poti" toliko pocakamo, da Mesh soseda poklice znova (zbudi se po 2 s), preden ukaz ponovimo.
+PONOVI_PO_NI_POTI_S = 4.0
+
 KATEGORIJA_ZAZNAMKI = "bookmarks"
 
 # Skripta, ki v strani naredi window.SafeerLink. Sinhroni bralci berejo stanje, ki
@@ -2336,21 +2342,44 @@ class SafeerLink:
     def ukaz_pocakaj(self, id_naprave: str, dejanje: str, parametri: Optional[dict] = None,
                      cas: float = 15.0) -> dict:
         """Ukaz napravi in pocakan odgovor (za klice iz ozadja, npr. Safeer OS prek D-Bus).
-        Vrne {"ok", "message", "data", "koda"}; ce naprava ne odgovori, ok=False."""
+        Vrne {"ok", "message", "data", "koda"}; ce naprava ne odgovori, ok=False (koda "cas").
+
+        Sredisce, ki do naprave nima zive poti, ukaz takoj zavrne s kodo "ni_poti". Ukaz samo za branje
+        (PONOVLJIVI_UKAZI) gre v tem primeru - ali ce do polovice roka ni odgovora - se enkrat; velja prvi odgovor."""
         povezava = self.povezava
         if povezava is None or not povezava.tece:
             return {"ok": False, "message": "Ni povezave s Safeer Linkom.", "koda": "ni_povezave"}
-        ref = "cakaj-" + secrets_token()
-        dogodek = threading.Event()
-        self._cakajoci[ref] = [dogodek, None]
-        poslano = povezava.poslji({"id": ref, "type": "control.command", "target": id_naprave,
-                                   "payload": {"action": dejanje, "params": parametri or {}}})
-        if not poslano:
-            self._cakajoci.pop(ref, None)
-            return {"ok": False, "message": "Ukaza ni bilo mogoče poslati.", "koda": "ni_poslano"}
-        dogodek.wait(cas)
-        vnos = self._cakajoci.pop(ref, None)
-        if vnos is None or vnos[1] is None:
+        konec = time.monotonic() + cas
+        vnos: list = [threading.Event(), None]
+        refi: List[str] = []
+
+        def poslji() -> bool:
+            p = self.povezava
+            if p is None or not p.tece:
+                return False
+            ref = "cakaj-" + secrets_token()
+            self._cakajoci[ref] = vnos           # odgovor na katerikoli poskus izpolni isti vnos
+            refi.append(ref)
+            return p.poslji({"id": ref, "type": "control.command", "target": id_naprave,
+                             "payload": {"action": dejanje, "params": parametri or {}}})
+        try:
+            if not poslji():
+                return {"ok": False, "message": "Ukaza ni bilo mogoče poslati.", "koda": "ni_poslano"}
+            if dejanje in PONOVLJIVI_UKAZI:
+                vnos[0].wait(cas / 2)
+                izid = vnos[1]
+                if izid is None or izid.get("koda") == "ni_poti":
+                    if izid is not None:
+                        time.sleep(min(PONOVI_PO_NI_POTI_S, max(0.0, konec - time.monotonic())))
+                        vnos[1] = None
+                        vnos[0].clear()
+                    if konec > time.monotonic():
+                        poslji()
+            vnos[0].wait(max(0.0, konec - time.monotonic()))
+        finally:
+            for ref in refi:
+                self._cakajoci.pop(ref, None)
+        if vnos[1] is None:
             return {"ok": False, "message": "Naprava ni odgovorila.", "koda": "cas"}
         return vnos[1]
 
