@@ -52,6 +52,7 @@ class LazniPactl:
 def _zvocniki(zvocnik, pactl):
     z = zz.Zvocniki(najdi=lambda cas: [zvocnik], pactl=pactl, ffmpeg=sys.executable,
                     lan_naslov=lambda ip: "127.0.0.1")
+    z.televizorji = lambda: set()
     z.osvezi(pocakaj=True)
     return z
 
@@ -104,7 +105,8 @@ class ZvokNaZvocnikTest(unittest.TestCase):
     def test_straza_vrne_zvok_ko_zvocnik_preklopi_vir(self):
         jbl, pactl = LazniZvocnik(), LazniPactl()
         z = _zvocniki(jbl, pactl)
-        with mock.patch.object(zz, "ZACETNI_ZAMIK_S", 0.0), mock.patch.object(zz, "PREVERI_S", 0.05):
+        with mock.patch.object(zz, "ZACETNI_ZAMIK_S", 0.0), mock.patch.object(zz, "PREVERI_S", 0.05), \
+                mock.patch.object(zz, "ODHOD_PREVERI_S", 0.05), mock.patch.object(zz, "TV_OKNO_S", 0.3):
             self.assertTrue(z.zacni("dlna:uuid:jbl")["ok"])
             jbl._stanje, jbl._uri = "PLAYING", "TV"      # uporabnik na daljincu izbere TV
             for _ in range(100):
@@ -159,3 +161,83 @@ class ZvokNaZvocnikTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _Tok:
+    url = "http://127.0.0.1:1/zeton/safeer.mp3"
+    prvi_bajt = 0.0
+
+    def ustavi(self):
+        pass
+
+
+class SamodejniPreklopTvTest(unittest.TestCase):
+    """HDMI-CEC ob vklopu televizorja preklopi zvocnik na TV: to ni uporabnikova izbira (lastnik, 17. 10. 2026)."""
+
+    def _straza(self, dogodki, konec=120.0, tv_ob_zacetku=()):
+        """Straza na lazni uri; `dogodki`: {cas_s: funkcija(jbl, tv)} - kaj se zgodi ob kateri sekundi."""
+        jbl, pactl = LazniZvocnik(stanje="PLAYING", uri=_Tok.url), LazniPactl()
+        z = zz.Zvocniki(najdi=lambda cas: [], pactl=pactl, ffmpeg=sys.executable, lan_naslov=lambda ip: "127.0.0.1")
+        tv = set(tv_ob_zacetku)
+        z.televizorji = lambda: set(tv)
+        ura = [0.0]
+        z.ura = lambda: ura[0]
+        cakajoci = sorted(dogodki.items())
+
+        def spi(s):
+            ura[0] += s
+            while cakajoci and cakajoci[0][0] <= ura[0]:
+                cakajoci.pop(0)[1](jbl, tv)
+            if ura[0] > konec:
+                z._seja += 1          # varovalka: straza se mora koncati sama
+        z.spi = spi
+        z._seja, z._zvocnik, z._id, z._tok, z._prejsnji = 1, jbl, "dlna:uuid:jbl", _Tok(), "alsa_output.pci"
+        z.stanje = "tece"             # meritev zakasnitve tu ni predmet testa
+        z._strazi(1)
+        return z, jbl, ura[0]
+
+    @staticmethod
+    def _tv_vir(jbl, _tv):
+        jbl._stanje, jbl._uri = "PLAYING", "TV"
+
+    @staticmethod
+    def _tv_zbujen(_jbl, tv):
+        tv.add("tv-dnevna")
+
+    def test_samodejen_preklop_ob_zbujenju_tv_se_nadaljuje(self):
+        # TV se zbudi (v Linku) ob 20 s, CEC preklopi zvocnik ob 22 s; uporabnik kasneje izbere drug izhod.
+        z, jbl, _ = self._straza({20: self._tv_zbujen, 22: self._tv_vir}, konec=80.0)
+        self.assertEqual([k[0] for k in jbl.klici], ["predvajaj"])
+        self.assertEqual(jbl.klici[0][1], _Tok.url)          # isti tok, brez nove seje
+        self.assertEqual(z.opis()["naprava"], "dlna:uuid:jbl")
+        self.assertEqual(jbl._uri, _Tok.url)
+
+    def test_tv_se_v_linku_pojavi_sele_po_preklopu(self):
+        z, jbl, _ = self._straza({22: self._tv_vir, 35: self._tv_zbujen}, konec=80.0)
+        self.assertEqual([k[0] for k in jbl.klici], ["predvajaj"])
+        self.assertEqual(z.opis()["naprava"], "dlna:uuid:jbl")
+
+    def test_brez_dogodka_tv_uporabnik_zmaga(self):
+        z, jbl, cas = self._straza({22: self._tv_vir})
+        self.assertEqual(jbl.klici, [])                      # zvocniku ne vzamemo vira, ki ga je izbral
+        self.assertEqual(z.opis()["naprava"], "")
+        self.assertLess(cas, 22 + zz.TV_OKNO_S + 10)
+
+    def test_tv_ze_v_linku_ob_zacetku_ni_dogodek(self):
+        z, jbl, _ = self._straza({22: self._tv_vir}, tv_ob_zacetku={"tv-dnevna"})
+        # televizor, ki je bil v Linku ze ob zacetku seje, se ni zbudil - preklop je uporabnikov
+        self.assertEqual(jbl.klici, [])
+        self.assertEqual(z.opis()["naprava"], "")
+
+    def test_star_dogodek_tv_ni_samodejen(self):
+        z, jbl, _ = self._straza({15: self._tv_zbujen, 15 + zz.TV_OKNO_S + 10: self._tv_vir})
+        self.assertEqual(jbl.klici, [])
+        self.assertEqual(z.opis()["naprava"], "")
+
+    def test_dvakrat_zapored_tv_zmaga_uporabnik(self):
+        # CEC preklopi, vzamemo nazaj; uporabnik nato sam spet izbere TV -> konec, brez zanke.
+        z, jbl, cas = self._straza({20: self._tv_zbujen, 22: self._tv_vir, 40: self._tv_vir})
+        self.assertEqual([k[0] for k in jbl.klici], ["predvajaj"])
+        self.assertEqual(z.opis()["naprava"], "")
+        self.assertIn(("set-default-sink", "alsa_output.pci"), z._pactl.klici)
+        self.assertLess(cas, 60)
