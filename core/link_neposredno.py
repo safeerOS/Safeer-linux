@@ -56,6 +56,7 @@ from collections import OrderedDict
 from typing import Callable, Dict, List, Optional, Tuple
 
 from core import link_pot
+from core import os_deskriptorji
 
 PROTOKOL = "safeer-neposredno-v1"
 #: Privzeta zunanja (in notranja) vrata. Visoka in neobicajna: manj pregledovalnikov, ki tipajo znana vrata.
@@ -932,7 +933,10 @@ class LokalniOdZunaj:
         while self._tece:
             try:
                 tcp, naslov = streznik.accept()
-            except OSError:
+            except OSError as e:
+                if self._tece and os_deskriptorji.prehodna_napaka_accept(e):
+                    time.sleep(os_deskriptorji.PREMOR_PO_NAPAKI_ACCEPT_S)
+                    continue
                 return
             if hasattr(os, "getuid") and isinstance(naslov, tuple):
                 # Drug uporabnik tega racunalnika ne sme uporabljati poti, podpisane z nasim kljucem.

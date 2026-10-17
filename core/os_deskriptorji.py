@@ -15,6 +15,7 @@ odlozi padec; vzrok je kopicenje povezav, ki jih nihce ne zapre.
 from __future__ import annotations
 
 import collections
+import errno
 import os
 import socket
 import threading
@@ -231,6 +232,24 @@ def zapri_vticnik(vticnik) -> None:
         socket.socket.shutdown(vticnik, socket.SHUT_RDWR)
     except (OSError, TypeError, ValueError):
         pass
+
+
+# ---------------------------------------------------------------------------- sprejemanje povezav
+
+#: Napake accept(), po katerih poslusalec ostane uporaben: zmanjkalo je deskriptorjev ali pomnilnika (mine, ko se
+#: povezave zaprejo) ali pa je odjemalec odnehal pred sprejemom.
+PREHODNE_NAPAKE_ACCEPT = frozenset(getattr(errno, ime) for ime in ("EMFILE", "ENFILE", "ENOBUFS", "ENOMEM",
+                                                                    "ECONNABORTED", "EINTR", "EPROTO")
+                                   if hasattr(errno, ime))
+#: Premor po prehodni napaki (da zanka ne vrti procesorja, dokler deskriptorjev ni).
+PREMOR_PO_NAPAKI_ACCEPT_S = 0.2
+
+
+def prehodna_napaka_accept(napaka: BaseException) -> bool:
+    """Ali naj poslusalna zanka po tej napaki accept() pocaka in nadaljuje (namesto da za vedno konca)?
+    Ob 1024 deskriptorjih (16./17. 10. 2026) so poslusalci, ki so ob vsaki OSError koncali, ostali mrtvi tudi,
+    ko so se deskriptorji sprostili."""
+    return isinstance(napaka, OSError) and getattr(napaka, "errno", None) in PREHODNE_NAPAKE_ACCEPT
 
 
 # ---------------------------------------------------------------------------- rok cakanja na zahtevo

@@ -33,6 +33,7 @@ import time
 from typing import Callable, Dict, List, Optional, Tuple
 
 from core import link_internet
+from core import os_deskriptorji
 
 PRIVZETA_VRATA = 47890
 POSKUSOV_VRAT = 10
@@ -409,7 +410,10 @@ class Posrednik:
                 c, naslov = s.accept()
             except socket.timeout:
                 continue
-            except OSError:
+            except OSError as e:
+                if os_deskriptorji.prehodna_napaka_accept(e):
+                    time.sleep(os_deskriptorji.PREMOR_PO_NAPAKI_ACCEPT_S)
+                    continue
                 break
             threading.Thread(target=self._obravnavaj, args=(c, naslov), name="safeer-internet-povezava", daemon=True).start()
         try:
