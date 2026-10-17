@@ -296,7 +296,9 @@ class Pladenj:
             "OverlayIconName": GLib.Variant("s", ""),
             "AttentionIconName": GLib.Variant("s", ""),
             "IconThemePath": GLib.Variant("s", ""),
-            "ToolTip": GLib.Variant("(sa(iiay)ss)", (self.ikona_ime, [], self.naslov, self.namig)),
+            # Namig enak naslovu bi pult pokazal dvakrat (»Sporočila / Sporočila«, lastnik 17. 10. 2026): takrat brez opisa.
+            "ToolTip": GLib.Variant("(sa(iiay)ss)", (self.ikona_ime, [], self.naslov,
+                                                     "" if self.namig.strip() == self.naslov.strip() else self.namig)),
             "ItemIsMenu": GLib.Variant("b", False),
             "Menu": GLib.Variant("o", MENI_POT),
         }
