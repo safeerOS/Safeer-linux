@@ -55,6 +55,7 @@ rm -f "$HOME/.local/share/pixmaps/safeer-browser.png"
 for size in 512x512 256x256 128x128 64x64 48x48 32x32 24x24 16x16; do
     rm -f "$ICON_BASE/$size/apps/safeer-browser.png" 2>/dev/null || true
 done
+rm -f "$ICON_BASE/scalable/apps/safeer-browser.svg" 2>/dev/null || true
 
 # 6. Počisti začasne predpomnilnike in zastarele sockete
 echo "6. Čiščenje predpomnilnika in začasnih socketov..."

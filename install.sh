@@ -70,31 +70,21 @@ ln -sf "$DIR/safeer-mint.sh" "$BIN_DIR/safeer-browser"
 # Ensure ~/.local/bin is in PATH for current session if not already
 export PATH="$BIN_DIR:$PATH"
 
-# 3. Install App Icon to standard hicolor directory with proper scaling
-if [[ -f "$DIR/assets/icon.png" ]]; then
-    python3 -c "
-import os
-from PIL import Image
-src = '$DIR/assets/icon.png'
-base = '$ICON_BASE'
-sizes = [(256, 256), (128, 128), (64, 64), (48, 48), (32, 32)]
-try:
-    img = Image.open(src)
-    for w, h in sizes:
-        target_dir = os.path.join(base, f'{w}x{h}', 'apps')
-        os.makedirs(target_dir, exist_ok=True)
-        out_path = os.path.join(target_dir, 'safeer-browser.png')
-        img.resize((w, h), Image.Resampling.LANCZOS).save(out_path, 'PNG')
-except Exception:
-    pass
-" 2>/dev/null || {
-        for size in 256x256 128x128 64x64 48x48 32x32; do
-            mkdir -p "$ICON_BASE/$size/apps"
-            cp "$DIR/assets/icon.png" "$ICON_BASE/$size/apps/safeer-browser.png"
-        done
-    }
+# 3. Install App Icon: Safeer Browser's own icon (globe with "S", assets/brskalnik.svg), not the Safeer OS shield.
+# PNG sizes come pre-rendered from packaging/icons/hicolor (tools/izrisi_ikone.py).
+if [[ -d "$DIR/packaging/icons/hicolor" ]]; then
+    for icon in "$DIR/packaging/icons/hicolor"/*/apps/safeer-browser.png; do
+        [[ -f "$icon" ]] || continue
+        size="$(basename "$(dirname "$(dirname "$icon")")")"
+        mkdir -p "$ICON_BASE/$size/apps"
+        cp "$icon" "$ICON_BASE/$size/apps/safeer-browser.png"
+    done
     mkdir -p "$HOME/.local/share/pixmaps"
-    cp "$DIR/assets/icon.png" "$HOME/.local/share/pixmaps/safeer-browser.png"
+    cp "$DIR/packaging/icons/hicolor/256x256/apps/safeer-browser.png" "$HOME/.local/share/pixmaps/safeer-browser.png"
+fi
+if [[ -f "$DIR/assets/brskalnik.svg" ]]; then
+    mkdir -p "$ICON_BASE/scalable/apps"
+    cp "$DIR/assets/brskalnik.svg" "$ICON_BASE/scalable/apps/safeer-browser.svg"
 fi
 
 # 4. Install .desktop file to application menu
