@@ -38,6 +38,7 @@ from . import knjiznica_kroga
 from . import watch_providers
 from . import uvoz_seznama
 from . import youtube_racun
+from . import spotify_racun
 from . import seznami_sink
 from . import viri_sink
 from . import meritve_virov
@@ -2171,6 +2172,58 @@ class MediaCenter:
             self._zapomni_izbris(ime)
         return {"ok": True, "ime": ime, "stevilo": len(sz["skladbe"])}
 
+    # ------------------------------------------------------------------ Spotify (skrit Safeer DRM)
+    # Lastnik 17. 10. 2026: Spotify se predvaja v Medijskem centru prek Safeer DRM (core/spotify_racun.py). Seznami
+    # racuna, ki jih uporabnik shrani, so "zaseben" (kot YouTube) in ostanejo na tej napravi.
+
+    @property
+    def spotify(self) -> "spotify_racun.Racun":
+        racun = getattr(self, "_spotify", None)
+        if racun is None:
+            racun = self._spotify = spotify_racun.Racun(str(self.config_dir))
+        return racun
+
+    def sp_vnos(self, ime: str, s: dict, kontekst: str) -> dict:
+        """Skladba ali epizoda racuna Spotify kot vnos kataloga (kartica); predvaja jo skrit Safeer DRM."""
+        uri = str(s.get("spotify") or "")
+        return {"id": "spotify:" + hashlib.sha1((kontekst + "\n" + uri).encode("utf-8"), usedforsecurity=False).hexdigest()[:20],
+                "naslov": str(s.get("naslov") or ""), "izvajalec": str(s.get("izvajalec") or ""),
+                "slika": str(s.get("slika") or ""), "vrsta": "glasba", "vir": "Spotify", "vir_id": "spotify",
+                "url": "", "spotify": uri, "spotify_kontekst": kontekst, "sekund": int(s.get("sekund") or 0), "seznam": ime}
+
+    def sp_seznam(self, ident: str, ime: str = "") -> dict:
+        sz = self.spotify.seznam(ident)
+        if sz.get("napaka"):
+            return sz
+        if not sz.get("skladbe"):
+            return {"napaka": "prazen"}
+        ime = (ime or str(sz.get("ime") or "") or "Spotify")[:60]
+        sz = dict(sz, ime=ime)
+        with self._lock:
+            self._sp_prebrani = dict(getattr(self, "_sp_prebrani", {}), **{str(ident): sz})
+        vnosi = [self.sp_vnos(ime, s, str(sz.get("kontekst") or "")) for s in sz["skladbe"]]
+        for v in vnosi:
+            self._dynamic_items[v["id"]] = v
+        return {"ime": ime, "vir": "Spotify", "vnosi": vnosi, "sp": str(ident), "kontekst": sz.get("kontekst") or ""}
+
+    def sp_shrani(self, ident: str) -> dict:
+        """Prebrani seznam racuna Spotify med sezname Medijskega centra (zaseben: samo na tej napravi). Skladbe nosijo
+        naslov spotify:...; brez Safeer DRM jih Medijski center poisce na YouTubu (kot uvozen javni seznam)."""
+        with self._lock:
+            sz = getattr(self, "_sp_prebrani", {}).get(str(ident))
+        if not sz:
+            return {"napaka": "ni_mogoce"}
+        ime = str(sz["ime"])[:60]
+        with self._lock:
+            vsi = self._seznami_beri()
+            prej = next((int(x.get("cas") or 0) for x in vsi if x["ime"] == ime), 0)
+            ostali = [x for x in vsi if x["ime"] != ime]
+            self._seznami_pisi([{"ime": ime, "vir": "Spotify", "cas": self._nov_cas(ime, prej), "zaseben": True,
+                                 "skladbe": sz["skladbe"][:uvoz_seznama.NAJVEC]}] + ostali)
+            self._zapomni_izbris(ime)
+        self.poisci_posnetke(ime)
+        return {"ok": True, "ime": ime, "stevilo": len(sz["skladbe"])}
+
     def shrani_seznam(self, ime: str, skladbe: list) -> dict:
         """Samodejni seznam »Shrani kot seznam«: navaden seznam predvajanja z istimi skladbami (isto ime ga zamenja,
         kot ponoven uvoz). Skladbe imajo svoj naslov (datoteka ali tok), zato posnetkov ni treba iskati."""
@@ -4082,6 +4135,8 @@ class MediaCenter:
         samo torrenti, ne zacnemo prenasati - to se zgodi sele, ko uporabnik pritisne Predvajaj."""
         if str(item_id or "").startswith("seznam:"):
             return self.seznam_posnetek(str(item_id))
+        if str(item_id or "").startswith("spotify:"):
+            return self._dynamic_items.get(item_id)      # skladba racuna Spotify (sp_seznam)
         item = self._dynamic_items.get(item_id) or next((item for item in self.catalog()["vnosi"] if item.get("id") == item_id), None)
         if not item:
             return None

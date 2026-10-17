@@ -347,3 +347,15 @@ html.kavc .kat-katalog { grid-template-columns: repeat(auto-fill, minmax(180px, 
 .vgr-epizoda { flex-basis: 100%; }
 .vgr-majhen { padding: 6px 10px; font-size: 13px; }
 @media (max-width: 720px) { .vgr-obrazec { grid-template-columns: 1fr; } }
+/* Spotify v Medijskem centru (core/spotify_racun.py): trenutna skladba in upravljanje skritega Safeer DRM. */
+.kat-sp-racun h4 { margin: 6px 0 0; font-size: 16px; color: var(--medlo); }
+.kat-sp-predvajalnik { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--rob); border-radius: 14px; background: var(--kartica); }
+.kat-sp-predvajalnik img { width: 64px; height: 64px; border-radius: 10px; object-fit: cover; flex: none; }
+.kat-sp-opis { display: grid; min-width: 160px; flex: 1; }
+.kat-sp-opis b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kat-sp-opis small { color: var(--medlo); }
+.kat-sp-gumbi { display: flex; gap: 6px; }
+.kat-sp-gumbi .gumb { min-width: 44px; }
+.kat-sp-cas { display: flex; align-items: center; gap: 8px; flex: 2; min-width: 220px; }
+.kat-sp-cas input { flex: 1; }
+.kat-sp-predvajalnik input[type="range"] { accent-color: var(--zelena); }
