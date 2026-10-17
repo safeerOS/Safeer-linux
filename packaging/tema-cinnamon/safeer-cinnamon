@@ -756,13 +756,42 @@ nabor_docka() {
     done
     command -v dconf >/dev/null 2>&1 && dconf write "${PLANK_DOCK}dock-items" "[$seznam]"
     : > "$MAPA/dock-nabor"
+    : > "$MAPA/dock-mint-preverjen"        # nov dock ima ze nabor Safeer
+}
+
+# Dock, nastal pred 1.0.127, je lahko dobil Mintove privzete programe (Firefox, Datoteke, Terminal) namesto nabora
+# Safeer. Enkrat (ob nadgradnji) ga zamenjamo z naborom Safeer, ce v njem ni nic drugega - torej ga uporabnik ni
+# prilagodil. Dock, ki ga je uporabnik spremenil (dodal ali odstranil kaj drugega), ostane tak, kot je.
+dock_mint_zamenjaj() {
+    [ -e "$MAPA/dock-nabor" ] || return 0
+    [ -e "$MAPA/dock-mint-preverjen" ] && return 0
+    : > "$MAPA/dock-mint-preverjen"
+    [ -d "$LAUNCHERJI" ] || return 0
+    local f ime imena="" pot seznam=""
+    for f in "$LAUNCHERJI"/*.dockitem; do
+        [ -e "$f" ] || continue
+        ime="$(sed -n 's|^Launcher=file://.*/\([^/]*\)\.desktop$|\1|p' "$f" | head -n1)"
+        case "$ime" in
+            firefox|nemo|org.gnome.Terminal|mintinstall) imena="$imena $ime" ;;
+            *) return 0 ;;
+        esac
+    done
+    case "$imena" in *firefox*) ;; *) return 0 ;; esac
+    rm -f "$LAUNCHERJI"/*.dockitem
+    for ime in $NABOR_DOCKA; do
+        pot="$(najdi_program "$ime")" || continue
+        printf '[PlankDockItemPreferences]\nLauncher=file://%s\n' "$pot" > "$LAUNCHERJI/$ime.dockitem"
+        seznam="$seznam${seznam:+, }'$ime.dockitem'"
+    done
+    command -v dconf >/dev/null 2>&1 && dconf write "${PLANK_DOCK}dock-items" "[$seznam]"
+    return 0
 }
 
 nabor_docka_vrni() {
     [ -e "$MAPA/dock-nabor" ] || return 0
     rm -rf "$LAUNCHERJI"
     [ -d "$MAPA/plank-launcherji-prej" ] && mv "$MAPA/plank-launcherji-prej" "$LAUNCHERJI"
-    rm -f "$MAPA/dock-nabor"
+    rm -f "$MAPA/dock-nabor" "$MAPA/dock-mint-preverjen"
 }
 
 dock() {
@@ -799,6 +828,7 @@ dock() {
         [ -n "$novo" ] && printf 'ikone=\nskrivanje=\n' > "$MAPA/dock-nastavljeno"
         nabor_docka
     fi
+    dock_mint_zamenjaj
     dock_dodaj_pripete
     mkdir -p "$(dirname "$AUTOSTART")"
     printf '[Desktop Entry]\nType=Application\nName=Safeer Cinnamon dock\nExec=safeer-cinnamon --dock\nX-GNOME-Autostart-enabled=true\nNoDisplay=true\n' > "$AUTOSTART"

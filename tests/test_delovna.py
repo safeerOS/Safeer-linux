@@ -721,6 +721,46 @@ class TestTemaCinnamon(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_obstojeci_dock_z_mintovimi_programi_dobi_nabor_safeer(self):
+        """Dock, ki je pred 1.0.127 dobil Mintove privzete programe (Firefox, Datoteke, Terminal), ob nadgradnji enkrat
+        dobi nabor Safeer; dock, ki ga je uporabnik prilagodil, ostane nespremenjen."""
+        tmp = tempfile.mkdtemp()
+        try:
+            o = self._okolje(tmp)
+            self._ukaz(o, "--profil", "dock")
+            def mint(imena):
+                for f in os.listdir(o["launcherji"]):
+                    os.remove(os.path.join(o["launcherji"], f))
+                for ime in imena:
+                    with open(os.path.join(o["launcherji"], ime + ".dockitem"), "w") as f:
+                        f.write("[PlankDockItemPreferences]\nLauncher=file:///usr/share/applications/%s.desktop\n" % ime)
+            os.remove(os.path.join(o["mapa"], "dock-mint-preverjen"))   # dock iz casa pred 1.0.127
+            mint(["firefox", "nemo", "org.gnome.Terminal"])
+            self._ukaz(o, "--profil", "dock")
+            dock = sorted(os.listdir(o["launcherji"]))
+            self.assertNotIn("firefox.dockitem", dock)
+            self.assertIn("safeer-os.dockitem", dock)
+            # Samo enkrat: ce si uporabnik Firefox potem doda nazaj, ostane.
+            mint(["firefox", "nemo"])
+            self._ukaz(o, "--profil", "dock")
+            self.assertIn("firefox.dockitem", os.listdir(o["launcherji"]))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        tmp = tempfile.mkdtemp()
+        try:
+            o = self._okolje(tmp)
+            self._ukaz(o, "--profil", "dock")
+            for f in os.listdir(o["launcherji"]):
+                os.remove(os.path.join(o["launcherji"], f))
+            os.remove(os.path.join(o["mapa"], "dock-mint-preverjen"))
+            for ime in ("firefox", "gimp"):
+                with open(os.path.join(o["launcherji"], ime + ".dockitem"), "w") as f:
+                    f.write("[PlankDockItemPreferences]\nLauncher=file:///usr/share/applications/%s.desktop\n" % ime)
+            self._ukaz(o, "--profil", "dock")
+            self.assertEqual(sorted(os.listdir(o["launcherji"])), ["firefox.dockitem", "gimp.dockitem"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_dock_en_sam_seznam_oken(self):
         """Postavitev dock: pult gre na vrh, seznam oken z njega v dock (pripeti programi postanejo zacetni nabor);
         zamenjava postavitve in izklop vrneta pult, applet in njegove nastavitve."""
