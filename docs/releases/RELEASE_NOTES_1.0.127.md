@@ -26,3 +26,5 @@
 
 **Desktop.** Safeer Browser instead of Firefox in the dock, one Show desktop button, distinct icons for Messages and Splet.
 
+
+**Stability.** Idle and unanswered network connections are closed after 10 seconds, so they no longer pile up and crash the desktop; Safeer Link keeps listening even after a temporary error. The desktop no longer stutters every 10 seconds when no Hub is connected, and starting a magnet stream, a handover or loading dock icons no longer freezes it. Network speakers keep playing when the TV turns on and grabs the speaker by itself (HDMI-CEC) – if you switch to the TV yourself, your choice wins. JetStream 3.0 (Kotlin/WebAssembly) works again: web pages now see your real language instead of »C«.
