@@ -180,6 +180,7 @@ class SafeerBrskalnik(Gtk.Application):
         skatla.append(vsebina)
         self.splet.gradnik.set_vexpand(True)
         okno.set_child(skatla)
+        self._zavihki_v_naslovno_vrstico(okno)
         k = Gtk.EventControllerKey()
         k.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         k.connect("key-pressed", lambda _k, keyval, _koda, stanje: bool(self.splet.tipka(_Tipka(keyval, stanje))))
@@ -192,6 +193,29 @@ class SafeerBrskalnik(Gtk.Application):
             for n in seja[1:]:
                 self.splet.nov_zavihek(n)
             self.splet.izberi(self.splet.zavihki[izbran_v_seji(self.splet.config, len(self.splet.zavihki))]["pogled"])
+
+    def _zavihki_v_naslovno_vrstico(self, okno) -> None:
+        """Kot sodobni brskalniki: zavihki so v vrhu okna, brez locene naslovne vrstice (lastnik 17. 10. 2026: napis
+        »Safeer Browser« v Mintovi naslovni vrstici je segal v prvo vrstico brskalnika). Gumbi okna ostanejo desno."""
+        vrstica = getattr(self.splet, "vrstica_zavihkov", None)
+        if vrstica is None or vrstica.get_parent() is None:
+            return
+        try:
+            vrstica.get_parent().remove(vrstica)
+            vrstica.set_hexpand(True)
+            glava = Gtk.HeaderBar()
+            glava.set_name("safeer-glava")
+            glava.set_show_title_buttons(True)
+            glava.set_title_widget(vrstica)
+            okno.set_titlebar(glava)
+            css = Gtk.CssProvider()
+            css.load_from_data(b"#safeer-glava { background: #0b1424; box-shadow: none; border: 0; min-height: 0;"
+                               b" padding: 0 4px 0 0; } #safeer-glava windowcontrols button { color: #eaf2ff; }", -1)
+            Gtk.StyleContext.add_provider_for_display(okno.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        except Exception as e:  # noqa: BLE001 - brez glave ostane prejsnja postavitev (zavihki pod naslovno vrstico)
+            print("[Safeer Browser] zavihki v glavi:", e)
+            if vrstica.get_parent() is None:
+                self.splet.gradnik.prepend(vrstica)
 
     def _vrstica_privzetega(self):
         """Kot Firefox: tiha vrstica, ce Safeer ni privzeti brskalnik - nikoli ne prevzame vloge sam (lastnik: brez
