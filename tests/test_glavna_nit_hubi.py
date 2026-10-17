@@ -1,4 +1,4 @@
-"""Glavna nit GTK ne caka na iskanje Hubov (mDNS, 1,5 s).
+"""Glavna nit GTK ne caka na iskanje Hubov (mDNS, 1,5 s) in ne na dolge klice mostu (magnet, Predaja).
 
 Oznaka povezave v Spletu se osvezuje vsakih 5 s na glavni niti; na nepovezanem racunalniku je stanje_povezave()
 vsakih 10 s cakalo 1,5 s na mDNS - namizje, Splet in Sporocila so zamrznili (zeroconf je na testnem racunalniku)."""
@@ -62,6 +62,48 @@ class IskanjeHubov(unittest.TestCase):
     def test_delovna_nit_pocaka(self):
         self.izpusti.set()
         self.assertEqual(safeer_os.stanje_povezave()["hubi"][0]["ime"], "TV")
+
+
+class _Aplikacija(safeer_os.SafeerOS):
+    """Brez zagona: slovar metod mostu bere atribute (lupa, programi ...), ki jih tu ne potrebujemo."""
+
+    def __getattr__(self, ime):
+        if ime.startswith("__"):
+            raise AttributeError(ime)
+        return mock.MagicMock(name=ime)
+
+
+class DolgiKliciMostu(unittest.TestCase):
+    """Magnet (zagon rqbita, poizvedbe do minute) in Predaja (Control vprasa naprave, do 4 s) sta tekla na glavni niti."""
+
+    def _klic(self, metoda, a, modul=None, metode=None):
+        app = _Aplikacija.__new__(_Aplikacija)
+        odgovori = []
+        app._odgovori = lambda pogled, id_, ok, izid: odgovori.append((ok, izid, threading.current_thread()))
+        app._katalog_most = lambda: mock.Mock(pozna=lambda m: False)
+        app.pogled = object()
+        for ime, fn in (metode or {}).items():
+            setattr(app, ime, fn)
+        with mock.patch.multiple(safeer_os, **(modul or {"_hubi_cache": safeer_os._hubi_cache})):
+            zac = time.monotonic()
+            app._obdelaj_klic(object(), 1, metoda, a)
+            self.assertLess(time.monotonic() - zac, 0.3, metoda)
+            konec = time.monotonic() + 5
+            while not odgovori and time.monotonic() < konec:
+                time.sleep(0.02)
+        self.assertTrue(odgovori, metoda)
+        self.assertIsNot(odgovori[0][2], threading.main_thread())
+        return odgovori[0]
+
+    def test_predaja_v_ozadju(self):
+        pocasi = lambda *a: (time.sleep(0.6), {"ok": True, "ponudbe": []})[1]     # noqa: E731
+        self.assertTrue(self._klic("predajaPoizvedi", [], modul={"_control_naprave": pocasi})[0])
+        self.assertTrue(self._klic("predajaPrevzemi", ["n", {}, False], modul={"_control_naprave": pocasi})[1])
+
+    def test_magnet_v_ozadju(self):
+        pocasi = lambda *a: (time.sleep(0.6), {"ok": True})[1]     # noqa: E731
+        self.assertEqual(self._klic("magnetPredvajaj", [1, 0, "film.mkv"],
+                                    metode={"_predvajaj_magnet": pocasi})[1], {"ok": True})
 
 
 if __name__ == "__main__":
