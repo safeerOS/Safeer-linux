@@ -105,7 +105,7 @@ class HubProstePovezave(unittest.TestCase):
         try:
             self.assertIsInstance(s.proste, os_deskriptorji.ProsteZveze)
             self.assertIsNone(s.proste.najvec)
-            self.assertLessEqual(link_hub_streznik._Obravnava.ROK_CAKANJA_ZAHTEVE_S, 30.0)
+            self.assertLessEqual(link_hub_streznik._Obravnava.ROK_CAKANJA_ZAHTEVE_S, 10.0)
         finally:
             s.server_close()
 

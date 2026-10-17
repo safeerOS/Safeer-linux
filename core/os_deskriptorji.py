@@ -236,7 +236,7 @@ def zapri_vticnik(vticnik) -> None:
 # ---------------------------------------------------------------------------- rok cakanja na zahtevo
 
 #: Kako dolgo sme povezava cakati na (naslednjo) zahtevo, preden jo streznik zapre.
-ROK_CAKANJA_ZAHTEVE_S = 30.0
+ROK_CAKANJA_ZAHTEVE_S = 10.0          # tiha povezava (lastnik 17. 10. 2026)
 
 
 class RokCakanjaZahteve:

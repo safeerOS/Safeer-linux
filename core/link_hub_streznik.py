@@ -2001,15 +2001,15 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
     #: vec kot 1024 deskriptorjev in WebKit je ob odpiranju Sporocil koncal s SIGTRAP (lastnik, 16. 10. 2026).
     #: Rok velja samo za cakanje na zahtevo; obravnava (WebSocket, tok zaslona, datoteke) ima svoje roke kot prej.
     #: 17. 10. 2026 (zivi proces): naprave po zahtevi povezave ne zaprejo in je ne uporabijo vec - 120 s je drzalo
-    #: ~40 mrtvih povezav hkrati; 30 s je dovolj za zaporedne zahteve iste naprave (odjemalec sicer odpre novo).
-    ROK_CAKANJA_ZAHTEVE_S = 30.0
+    #: ~40 mrtvih povezav hkrati; 10 s (lastnik) - odjemalec po roku odpre novo povezavo.
+    ROK_CAKANJA_ZAHTEVE_S = os_deskriptorji.ROK_CAKANJA_ZAHTEVE_S   # lastnik 17. 10. 2026: 10 s
 
     def handle_one_request(self) -> None:
         try:
             self.connection.settimeout(self.ROK_CAKANJA_ZAHTEVE_S)
         except OSError:
             pass
-        # Med cakanjem je povezava prosta: ce jih ima ena naprava prevec, streznik najstarejso zapre (os_deskriptorji).
+        # Med cakanjem je povezava prosta: tiha se po roku zapre (os_deskriptorji).
         proste = getattr(self.server, "proste", None)
         if proste is not None:
             proste.caka(self.client_address[0] if self.client_address else "", self.connection)
