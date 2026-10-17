@@ -5,16 +5,19 @@ from core import os_splet, pomnilnik
 
 
 def test_meja_sprostitve():
-    assert pomnilnik.meja_sprostitve_mb(12 * 1024) == 1536
-    assert pomnilnik.meja_sprostitve_mb(4096) == 768
+    assert pomnilnik.meja_sprostitve_mb(12 * 1024) == 3072
+    assert pomnilnik.meja_sprostitve_mb(4096) == 1024
     assert pomnilnik.meja_sprostitve_mb() == pomnilnik.meja_strani_mb() // 2
 
 
 def test_meja_strani():
-    assert pomnilnik.meja_strani_mb(4096) == 1536
-    assert pomnilnik.meja_strani_mb(12 * 1024) == 3072
-    assert pomnilnik.meja_strani_mb(64 * 1024) == 4096
-    assert 1536 <= pomnilnik.meja_strani_mb() <= 4096
+    assert pomnilnik.meja_strani_mb(2048) == 1536
+    assert pomnilnik.meja_strani_mb(4096) == 2048
+    assert pomnilnik.meja_strani_mb(12 * 1024) == 6144   # polovica RAM-a (odlocitev lastnika 17. 10. 2026)
+    assert pomnilnik.meja_strani_mb(64 * 1024) == 8192
+    assert 1536 <= pomnilnik.meja_strani_mb() <= 8192
+    # JetStream 3.0 (vrh 2,7 GB, meritev 17. 10. 2026) na 12 GB ostane pod mejo varuha (3/4 meje)
+    assert pomnilnik.meja_strani_mb(12 * 1024) * 3 // 4 > 2702
 
 
 class _Nastavitve:

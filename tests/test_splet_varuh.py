@@ -36,3 +36,36 @@ def test_pod_mejo_nic(tmp_path):
 
 def test_pravi_proc_brez_napake():
     assert isinstance(v.nasi_procesi(os.getpid(), False), list)
+
+
+def _rss(koren, pid, rss_mb):
+    (koren / str(pid) / "status").write_text(f"Name:\tWebKitWebProces\nPPid:\t2\nVmRSS:\t{rss_mb * 1024} kB\n")
+
+
+def test_zgodovina_kratek_vrh_ni_ustavljen(tmp_path):
+    """Zahtevna stran (JetStream): kratek vrh nad mejo, nato padec - varuh z zgodovino je ne ustavi."""
+    z, ubiti = {}, []
+    _proces(tmp_path, 10, "WebKitWebProces", 3000, 2)
+    for rss in (3000, 3200, 1100, 3300, 3400):
+        _rss(tmp_path, 10, rss)
+        assert v.preglej(2000, 99, True, lambda p, s: ubiti.append(p), str(tmp_path), zgodovina=z) is None
+    assert ubiti == []
+
+
+def test_zgodovina_puscanje_ustavljeno(tmp_path):
+    """Puscanje: nad mejo VZORCEV_RASTI zaporednih pregledov in ves cas raste - ustavljen."""
+    z, ubiti = {}, []
+    _proces(tmp_path, 10, "WebKitWebProces", 2100, 2)
+    izidi = []
+    for i in range(v.VZORCEV_RASTI):
+        _rss(tmp_path, 10, 2100 + 450 * i)
+        izidi.append(v.preglej(2000, 99, True, lambda p, s: ubiti.append(p), str(tmp_path), zgodovina=z))
+    assert izidi[:-1] == [None] * (v.VZORCEV_RASTI - 1) and izidi[-1] == 10
+    assert ubiti == [10] and 10 not in z
+
+
+def test_zgodovina_mrtvi_procesi_pocisceni(tmp_path):
+    z = {77: [3000, 3100]}
+    _proces(tmp_path, 10, "WebKitWebProces", 500, 2)
+    v.preglej(2000, 99, True, lambda p, s: None, str(tmp_path), zgodovina=z)
+    assert z == {}

@@ -57,15 +57,17 @@ def obrezuj_periodicno(GLib, sekunde: int = 90) -> None:
 
 
 def meja_strani_mb(skupaj_mb: int = 0) -> int:
-    """Koliko pomnilnika sme porabiti en proces strani, preden ga WebKit ustavi: cetrtina RAM-a, najmanj 1,5 GB,
-    najvec 4 GB. Meritev 13. 10. 2026 (testni racunalnik, 12 GB): en proces strani je zrasel na ~7 GB in sistem
-    je moral ubijati programe (OOM); brez meje ena pozresna stran ustavi ves racunalnik."""
+    """Koliko pomnilnika sme porabiti en proces strani, preden ga WebKit ustavi: polovica RAM-a, najmanj 1,5 GB,
+    najvec 8 GB. Meritev 13. 10. 2026 (testni racunalnik, 12 GB): en proces strani je zrasel na ~7 GB in sistem
+    je moral ubijati programe (OOM); brez meje ena pozresna stran ustavi ves racunalnik. Prej cetrtina (najvec 4 GB):
+    JetStream 3.0 potrebuje do 2,7 GB (meritev 17. 10. 2026) in ga je varuh ustavil - odlocitev lastnika 17. 10. 2026:
+    polovica RAM-a."""
     if skupaj_mb <= 0:
         try:
             skupaj_mb = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") // (1024 * 1024)
         except (ValueError, OSError, AttributeError):
             skupaj_mb = 8192
-    return int(min(4096, max(1536, skupaj_mb // 4)))
+    return int(min(8192, max(1536, skupaj_mb // 2)))
 
 
 def meja_sprostitve_mb(skupaj_mb: int = 0) -> int:

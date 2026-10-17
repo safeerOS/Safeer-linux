@@ -628,7 +628,7 @@ class SafeerMintBrowser(Gtk.Window):
             # Meja pomnilnika na proces strani (kot Splet): v WebKit2GTK 4.1 velja
             # WebsiteDataManager.set_memory_pressure_settings le za omrezne procese - prej je bila meja zavihka zato
             # samo na papirju (zavihek je lahko zrasel do OOM). Procesom strani jo da WebContext(memory_pressure_settings).
-            # Sprostitev predpomnilnikov pri polovici, ustavitev pri cetrtini RAM-a (1,5-4 GB; core/pomnilnik.py).
+            # Sprostitev predpomnilnikov pri polovici, ustavitev pri polovici RAM-a (1,5-8 GB; core/pomnilnik.py).
             from core import pomnilnik as meje_pomnilnika
             meje_pomnilnika.tlak_omrezja(WebKit2, 160)   # pred prvim pogledom, kot Safeer OS
             self.web_context = meje_pomnilnika.kontekst(
@@ -5423,7 +5423,8 @@ class SafeerMintBrowser(Gtk.Window):
         WebKitGTK 2.54, meritev 13. 10. 2026: ~90 MB/s), ustavi varuh; zavihek se potem nalozi brez pospesevanja."""
         try:
             from core import splet_varuh
-            pid = splet_varuh.preglej(meja_strani_mb() * 3 // 4, os.getpid(), bool(os.environ.get("FLATPAK_ID")))
+            pid = splet_varuh.preglej(meja_strani_mb() * 3 // 4, os.getpid(), bool(os.environ.get("FLATPAK_ID")),
+                                      zgodovina=self.__dict__.setdefault("_varuh_zgodovina", {}))
             if pid is not None:
                 self._varuh_ubil = time.monotonic()
                 os_stabilnost.zapisi("safeer-browser", "spletni proces nad mejo pomnilnika ustavljen (varuh)")

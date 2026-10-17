@@ -2379,7 +2379,8 @@ class VdelaniSplet:
             from core import pomnilnik, splet_varuh
             # 3/4 meje WebKita: pri puscanju DMA-BUF WebKit proces sprazni in spet napolni (meritev: 0,4 -> 2,8 GB v
             # krogih po ~30 s, brez ustavitve), zato varuh ukrepa nizje, ko je to ze zanesljivo puscanje.
-            pid = splet_varuh.preglej(pomnilnik.meja_strani_mb() * 3 // 4, os.getpid(), bool(os.environ.get("FLATPAK_ID")))
+            pid = splet_varuh.preglej(pomnilnik.meja_strani_mb() * 3 // 4, os.getpid(), bool(os.environ.get("FLATPAK_ID")),
+                                     zgodovina=self.__dict__.setdefault("_varuh_zgodovina", {}))
             if pid is not None:
                 self._varuh_ubil = time.monotonic()
                 os_stabilnost.zapisi("safeer-os", "spletni proces nad mejo pomnilnika ustavljen (varuh)")
