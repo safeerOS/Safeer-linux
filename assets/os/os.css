@@ -1112,11 +1112,10 @@ body.v-mediji #ozadje::after, body.predvajalnik #ozadje::after { background: var
   .media-telo { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 32px; align-items: start; }
   /* Skrcena navigacija: samo ikone (ime v namigu in za bralnik zaslona), vsebina dobi sirino. */
   #r-media.nav-skrcena .media-telo { grid-template-columns: 64px minmax(0, 1fr); gap: 20px; }
-  #r-media.nav-skrcena .media-nav-kategorija > span, #r-media.nav-skrcena .media-nav-vir > span,
+  #r-media.nav-skrcena .media-nav-kategorija > span,
   #r-media.nav-skrcena .media-nav-prilagodi > span, #r-media.nav-skrcena .media-nav-naslov { display: none; }
-  #r-media.nav-skrcena .media-nav-kategorija, #r-media.nav-skrcena .media-nav-vir,
+  #r-media.nav-skrcena .media-nav-kategorija,
   #r-media.nav-skrcena .media-nav-prilagodi { justify-content: center; padding-left: 0; padding-right: 0; }
-  #r-media.nav-skrcena .media-nav-viri { border-top: 1px solid var(--rob); padding-top: 12px; }
   #r-media.nav-skrcena .media-nav-glava { justify-content: center; }
   #r-media.nav-skrcena .media-nav-skrci svg { transform: scaleX(-1); }
   /* Povsem skrita: tanek rocaj na levem robu (kot rocaj stranske vrstice), vsebina cez vso sirino. */
@@ -1142,16 +1141,7 @@ body.v-mediji #ozadje::after, body.predvajalnik #ozadje::after { background: var
 .media-nav-kategorija:hover { color: var(--besedilo); background: var(--media-povrsina); }
 .media-nav-kategorija.izbrana { color: var(--besedilo); font-weight: 650; background: var(--media-poudarek); box-shadow: inset 3px 0 0 var(--zelena); }
 .media-nav-kategorija.izbrana svg { color: var(--zelena); }
-.media-nav-viri[hidden] { display: none; }
 .media-nav-naslov { margin: 0 0 6px; padding: 0 14px; color: var(--medlo); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-.media-nav-vir { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 7px 14px; border-radius: 12px; text-align: left; }
-.media-nav-vir svg { flex: none; width: 18px; height: 18px; color: var(--zelena); }
-.media-nav-vir > span { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.media-nav-vir b, .media-nav-vir small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.media-nav-vir b { font-size: 14px; font-weight: 550; }
-.media-nav-vir small { color: var(--medlo); font-size: 12px; }
-.media-nav-vir:hover { background: var(--media-povrsina); }
-.media-nav-vir.izbran { background: var(--media-poudarek); box-shadow: inset 3px 0 0 var(--zelena); }
 
 /* Domov: samo junak, police in (brez vsebine) prazno stanje z gumbom Dodaj. */
 #r-media.domov .media-glavni > :not(.media-domov-del) { display: none !important; }

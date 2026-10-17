@@ -1077,18 +1077,29 @@ def zavrni_prosnjo(jedro_naprave: str, zmoznosti: str, zdaj: Optional[float] = N
     return True
 
 
+#: Obvestilo s prosnjo je na zaslonu toliko sekund, nato se skrci v stevec na ikoni Safeer Link (pladenj Safeer
+#: Controla), od koder ga uporabnik odpre znova. Prosnja ostane veljavna - nic se ne odobri ali zavrne samo
+#: (lastnik, 17. 10. 2026: obvestilo je na testnem PC od polnoci stalo cez vsebino).
+SKRCI_PO_S = 10.0
+
+
 class ZdruzenPrikaz:
     """Prikaz prosenj z zamikom ZDRUZI_S na napravo: prosnje iste naprave, ki pridejo v tem casu, gredo v ENO
     obvestilo (prej so tri hkratne prosnje telefona pokazale tri obvestila). Ob prikazu se vsebina vzame sveza iz
     skupina_prosenj - kar je bilo vmes odobreno, zavrnjeno ali je izpadlo, se ne pokaze.
 
     `pokazi(skupina)` in `umakni(jedro)` sta prikaz programa (glavna nit); `razporedi(sekunde, klic)` klic odlozi
-    (Control: GLib.timeout_add). Velja za samostojni Safeer Control in za Control v procesu Safeer OS."""
+    (Control: GLib.timeout_add). `skrci(jedro)`: obvestilo, ki je bilo SKRCI_PO_S na zaslonu, gre z zaslona (prosnja
+    ostane in jo kaze stevec). Velja za samostojni Safeer Control in za Control v procesu Safeer OS."""
 
     def __init__(self, pokazi: Callable[[dict], None], umakni: Callable[[str], None],
-                 razporedi: Callable[[float, Callable[[], None]], object], cakaj_s: float = ZDRUZI_S):
+                 razporedi: Callable[[float, Callable[[], None]], object], cakaj_s: float = ZDRUZI_S,
+                 skrci: Optional[Callable[[str], None]] = None, skrci_po_s: float = SKRCI_PO_S):
         self._pokazi, self._umakni, self._razporedi, self._cakaj_s = pokazi, umakni, razporedi, cakaj_s
+        self._skrci, self._skrci_po_s = skrci, skrci_po_s
         self._cakajo: Set[str] = set()
+        #: jedro -> zaporedna stevilka prikaza: skrci se samo zadnje obvestilo naprave (novo ima svoj rok).
+        self._prikazi: Dict[str, int] = {}
         self._zaklep = threading.Lock()
 
     def pokazi(self, skupina: dict) -> None:
@@ -1118,9 +1129,45 @@ class ZdruzenPrikaz:
                 self._umakni(j)
             else:
                 self._pokazi(skupina)
+                self._skrci_pozneje(j)
         except Exception as e:  # noqa: BLE001 - obvestila ni bilo: napravi ob naslednjem poskusu povemo, da prosnje ni
             opusti_prosnje(j)
             print(f"[SafeerDostop] Prosnje ni bilo mogoce pokazati: {e}")
+
+    def _skrci_pozneje(self, j: str) -> None:
+        if self._skrci is None:
+            return
+        with self._zaklep:
+            stevilka = self._prikazi.get(j, 0) + 1
+            self._prikazi[j] = stevilka
+        self._razporedi(self._skrci_po_s, lambda: self._skrci_ce(j, stevilka))
+
+    def _skrci_ce(self, j: str, stevilka: int) -> None:
+        with self._zaklep:
+            if self._prikazi.get(j) != stevilka:
+                return                  # medtem novo obvestilo iste naprave: skrci se ob svojem roku
+            self._prikazi.pop(j, None)
+        if skupina_prosenj(j) is not None and self._skrci is not None:
+            self._skrci(j)
+
+    def pokazi_znova(self) -> int:
+        """Klik na stevec: obvestila vseh odprtih prosenj (eno na napravo) se pokazejo znova in se spet skrcijo.
+        Vrne stevilo naprav."""
+        jedra = list(dict.fromkeys(str(p.get("jedro") or "") for p in odprte_prosnje()))
+        pokazane = 0
+        for j in jedra:
+            skupina = skupina_prosenj(j)
+            if skupina is None:
+                continue
+            self._pokazi(skupina)
+            self._skrci_pozneje(j)
+            pokazane += 1
+        return pokazane
+
+
+def stevilo_cakajocih() -> int:
+    """Stevec na ikoni Safeer Link: koliko naprav caka na odgovor (eno obvestilo na napravo)."""
+    return len({str(p.get("jedro") or "") for p in odprte_prosnje()})
 
 
 # ---------------------------------------------------------------------- obvestilo s prosnjo (Safeer Control)
@@ -1151,6 +1198,27 @@ BESEDILA_OBVESTILA = {
     "it": {"prosnja": "{ime} chiede l'accesso: {kaj} su questo computer.", "dovoli": "Consenti", "zavrni": "Rifiuta",
            "d": "file", "p": "programmi", "v": "lettore", "z": "schermo e controllo"},
 }
+
+#: Stevec na ikoni Safeer Link: (ednina, mnozina) oz. v slovenscini (1, 2, 3-4, 5+).
+BESEDILA_STEVCA = {
+    "sl": ("{n} zahteva za dostop", "{n} zahtevi za dostop", "{n} zahteve za dostop", "{n} zahtev za dostop"),
+    "en": ("{n} access request", "{n} access requests"),
+    "de": ("{n} Zugriffsanfrage", "{n} Zugriffsanfragen"),
+    "es": ("{n} solicitud de acceso", "{n} solicitudes de acceso"),
+    "fr": ("{n} demande d'accès", "{n} demandes d'accès"),
+    "it": ("{n} richiesta di accesso", "{n} richieste di accesso"),
+}
+
+
+def besedilo_stevca(jezik: Optional[str], n: int) -> str:
+    oblike = BESEDILA_STEVCA.get((jezik or "en")[:2].lower(), BESEDILA_STEVCA["en"])
+    n = int(n)
+    if len(oblike) == 4:
+        sto = n % 100
+        oblika = oblike[0] if sto == 1 else oblike[1] if sto == 2 else oblike[2] if sto in (3, 4) else oblike[3]
+    else:
+        oblika = oblike[0] if n == 1 else oblike[1]
+    return oblika.format(n=n)
 
 
 def besedilo_obvestila(jezik: Optional[str], kljuc: str) -> str:
@@ -1201,8 +1269,10 @@ def poslji_obvestilo(app, Gio, GLib, prosnja: dict, jezik: Optional[str]) -> str
         obvestilo.set_icon(Gio.ThemedIcon.new(obvestila.ikona(app)))
     except Exception:  # noqa: BLE001 - brez ikone je obvestilo enako uporabno
         pass
+    # Navadna prioriteta: HIGH je v GLib »critical«, ki ga strežnik obvestil nikoli ne umakne sam (testni PC: obvestilo
+    # je stalo od polnoci). Z zaslona gre po SKRCI_PO_S (ZdruzenPrikaz), prosnjo potem kaze stevec na ikoni Link.
     try:
-        obvestilo.set_priority(Gio.NotificationPriority.HIGH)
+        obvestilo.set_priority(Gio.NotificationPriority.NORMAL)
     except Exception:  # noqa: BLE001
         pass
     # Klik na obvestilo odpre seznam naprav (tam je tudi rocna nastavitev) - nikoli ne odobri.

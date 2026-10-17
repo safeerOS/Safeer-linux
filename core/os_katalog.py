@@ -297,6 +297,8 @@ class Katalog:
                 self._mc.ob_virih = lambda: self.dogodek("mediaViriUsklajeni", None)
                 # Twitch: nastavitev Scita »brez oglasov« (safeer_os jo nastavi v twitch_brez_oglasov).
                 self._mc.twitch.brez_oglasov = lambda: bool(self.twitch_brez_oglasov())
+                # Kategorija »Zasebno« (vsebina za odrasle): privzeto izklopljena.
+                self._mc.zasebno = bool(self._nastavitve().get("media_zasebno"))
             return self._mc
 
     def _motor_napredek(self, preneseno: int, vse: int) -> None:
@@ -370,7 +372,7 @@ class Katalog:
         "mediaPolice": "_police", "mediaPriljubljena": "_priljubljena", "mediaOgledano": "_ogledano",
         "mediaPolicaPredvajaj": "_polica_predvajaj", "mediaPredvajanTok": "_predvajan_tok",
         "mediaNaslednjaPredvajaj": "_naslednja_predvajaj", "mediaNaslednjaPreklici": "_naslednja_preklici",
-        "mediaSkrito": "_skrito", "mediaSkrij": "_skrij",
+        "mediaSkrito": "_skrito", "mediaSkrij": "_skrij", "mediaZasebno": "_zasebno",
         "mediaSamodejniSeznami": "_samodejni_seznami", "mediaSamodejniSeznam": "_samodejni_seznam",
         "mediaSamodejniShrani": "_samodejni_shrani",
         "mediaJellyfinVticniki": "_jf_vticniki", "mediaJellyfinVticnik": "_jf_vticnik",
@@ -481,7 +483,48 @@ class Katalog:
 
     def _viri(self, _a: list) -> Any:
         # »vticniki«: ta most zna upravljati vticnike strežnika Jellyfin (stran sicer gumba ne pokaze).
-        return [dict(v, vticniki=True) if v.get("ponudnik") == "jellyfin" else v for v in self.mc.sources()]
+        # Zasebnih dodatkov ni nikjer, dokler kategorija »Zasebno« ni vklopljena (stran pokaze le njihovo stevilo).
+        mc = self.mc
+        return [dict(v, vticniki=True) if v.get("ponudnik") == "jellyfin" else v for v in mc.sources()
+                if mc.zasebno or not mc.zaseben_streznik(v)]
+
+    def _zasebno(self, a: list) -> dict:
+        """Kategorija »Zasebno« (lastnik, 17. 10. 2026): [] -> stanje, [da] -> vklopi ali izklopi. Vrne
+        {"vklopljeno", "skriti": stevilo zasebnih dodatkov}. Ob izklopu izginejo tudi shranjeni pogledi kategorije."""
+        mc = self.mc
+        if a:
+            da = bool(a[0])
+            self._spremeni_nastavitve(lambda d: d.update(media_zasebno=da))
+            mc.zasebno = da
+            if not da:
+                mc.pozabi_zasebno_v_predpomnilniku()
+        n = sum(1 for v in mc.sources() if mc.zaseben_streznik(v))
+        return {"vklopljeno": bool(mc.zasebno), "skriti": n}
+
+    def _zaseben_vnos(self, item: Any) -> bool:
+        je = getattr(self.mc, "je_zaseben_vnos", None)
+        return bool(je is not None and je(item))
+
+    def _je_zaseben_opis(self) -> Callable[[dict], bool]:
+        """Preverba za vnose polic: ali je naslov ponudil zaseben dodatek (tudi vnosi, shranjeni pred to izdajo)."""
+        mc = self.mc
+        if not hasattr(mc, "zaseben_streznik"):
+            return lambda _d: False
+        with mc._lock:
+            strezniki = [s for s in mc._load().get("osebni_strezniki", []) if isinstance(s, dict)]
+        zasebni = [s for s in strezniki if mc.zaseben_streznik(s)]
+        if not zasebni:
+            return lambda _d: False
+        idji = tuple("stremio:%s:" % s.get("id") for s in zasebni)
+        imena = {str(s.get("ime") or "") for s in zasebni} - {""}
+        koreni = mc.zasebni_koreni()
+
+        def je(d: dict) -> bool:
+            ident = str(d.get("id") or "")
+            if ident.startswith(idji) or str(d.get("vir") or "") in imena:
+                return True
+            return mc.je_zaseben_vnos(mc._dynamic_items.get(ident), koreni)
+        return je
 
     def _dodaj_vir(self, a: list) -> Any:
         return self.mc.add_source(self._niz(a, 0), self._niz(a, 1))
@@ -1017,6 +1060,10 @@ class Katalog:
         kljuc = os_police.kljuc_vnosa(dict(item, id=str(item.get("id") or ident)))
         if str(item.get("vrsta") or "").startswith("twitch"):
             kljuc = ""        # Twitch ne gre na police (te gredo v Link): kaj kdo gleda, ostane na napravi
+        # Odloca kartica iz kataloga (razresen vnos ima namesto naslova dodatka ze naslov toka).
+        zaseben = self._zaseben_vnos(item) or self._zaseben_vnos(getattr(self.mc, "_dynamic_items", {}).get(ident))
+        if zaseben:
+            kljuc = ""        # zasebna vsebina ni na policah (Nadaljuj, Nazadnje, Najvec) - samo v kategoriji Zasebno
         if str(item.get("id") or ident).startswith("samodejno-lokalno:") and item.get("pot"):
             # Datoteka s samodejnega seznama: predvajanje steje krajevna knjiznica (kot klik na skladbo), ne polica -
             # ista skladba ni dvakrat na policah.
@@ -1057,7 +1104,7 @@ class Katalog:
                 self._predvajano.clear()
             # izvajalec in slika: za sistem (MPRIS - zvocni applet in medijske tipke pokazejo, kaj igra)
             self._predvajano[url] = {"id": str(item.get("id") or ident), "zvok": vrsta in ("medij", "radio"), "vrsta": vrsta,
-                                     "kljuc": kljuc,
+                                     "kljuc": kljuc, "zaseben": zaseben,
                                      "izvajalec": str(item.get("izvajalec") or "")[:200], "slika": str(item.get("slika") or "")[:2048]}
             if vrsta == "video":
                 # IMDb oznaka za »Poisci podnapise na spletu« v predvajalniku (core/podnapisi_splet.py)
@@ -1285,6 +1332,11 @@ class Katalog:
             except Exception as e:  # noqa: BLE001 - polica, ki ne gre (baza zaklenjena, TMDB), ne podre ostalih
                 print("[SafeerMedia] polica %s: %s" % (ime, type(e).__name__), flush=True)
                 viri[ime] = []
+        try:
+            zaseben = self._je_zaseben_opis()
+            viri = {ime: [v for v in vnosi if not zaseben(v)] for ime, vnosi in viri.items()}
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerMedia] police zasebno: %s" % type(e).__name__, flush=True)
         izhod["police"] = os_police.sestavi_police(zavihek, viri)
         self._ovitki_s_prijavo(izhod["police"])
         return izhod
@@ -1407,6 +1459,8 @@ class Katalog:
         zapisal ob predvajanju, ima prednost pred opisom s strani."""
         k, da = self._niz(a, 0), bool(a[1]) if len(a) > 1 else True
         opis = a[2] if len(a) > 2 and isinstance(a[2], dict) else {}
+        if da and not k.startswith(("pot:", "tok:")) and self._je_zaseben_opis()(opis):
+            return False      # zasebna vsebina ne gre med priljubljene (te so na Domov in v drugih kategorijah)
         if da and k.startswith("pot:") and not self.lokalna.dobi(k[4:]):
             return False
         if da and k.startswith("tok:") and not self.lokalna.dobi_tok(k[4:]):

@@ -307,14 +307,20 @@ class Pladenj:
         self.locen.connect("activate", lambda *_a: app.namesti_locen_zaslon())
         self.koncaj = Postavka(besedilo(self.jezik, "koncaj"))
         self.koncaj.connect("activate", lambda *_a: app.koncaj())
-        postavke = [self.odpri, self.posodobi, self.mape, self.ves_disk, self.programi, self.zaslon, self.predvajanje,
+        # Cakajoce prosnje za dostop (obvestilo se po 10 s skrci sem): »1 zahteva za dostop«, klik ga pokaze znova.
+        self.zahteve = Postavka("")
+        self.zahteve.connect("activate", lambda *_a: app.dostop_pokazi_prosnje())
+        self.zahteve.hide()
+        self._povezan = False
+        self._zahtev = 0
+        postavke = [self.zahteve, self.odpri, self.posodobi, self.mape, self.ves_disk, self.programi, self.zaslon, self.predvajanje,
                     self.locen, Postavka(locilo=True), self.samozagon, Postavka(locilo=True), self.koncaj]
         if VGRAJEN:
             # Control v procesu Safeer OS (en proces): zivljenje, zagon ob prijavi in posodobitve vodi Safeer OS.
             # »Zaženi ob prijavi« bi pisal samozagon, ki ga Safeer Cinnamon skrije (dva procesa ob prijavi); »Končaj« je
             # Link ustavil le napol (ikona in vgrajeni Control sta ostala, ponovni vklop ni bil mogoc); »Posodobi« je
             # podvajal posodobitve Safeer OS (Nastavitve). Pregled celovitosti 15. 10. 2026.
-            postavke = [self.odpri, self.mape, self.ves_disk, self.programi, self.zaslon, self.predvajanje, self.locen]
+            postavke = [self.zahteve, self.odpri, self.mape, self.ves_disk, self.programi, self.zaslon, self.predvajanje, self.locen]
         self.osvezi_locen()
         self.osvezi_posodobitev()
         self.ikona = None
@@ -332,12 +338,28 @@ class Pladenj:
         self.stanje(False)
 
     def stanje(self, povezan: bool) -> None:
+        self._povezan = bool(povezan)
         napis = besedilo(self.jezik, "povezan" if povezan else "ni")
+        if self._zahtev:
+            napis += " · " + link_dostop.besedilo_stevca(self.jezik, self._zahtev)
         try:
             if self.ikona is not None:
                 self.ikona.nastavi_namig(napis)
         except Exception:
             pass
+
+    def prosnje(self, n: int) -> None:
+        """Stevec cakajocih prosenj za dostop v meniju in namigu ikone (0 = postavke ni)."""
+        n = max(0, int(n or 0))
+        if n == self._zahtev:
+            return
+        self._zahtev = n
+        if n:
+            self.zahteve.set_label(link_dostop.besedilo_stevca(self.jezik, n))
+            self.zahteve.show()
+        else:
+            self.zahteve.hide()
+        self.stanje(self._povezan)
 
     def _preklop_programi(self, postavka) -> None:
         self.app.nastavi_programe(bool(postavka.get_active()))
@@ -1028,9 +1050,12 @@ class SafeerControl(_OSNOVA):
         # (oba sta ta aplikacija z istim ID-jem).
         link_dostop.registriraj_dejanja(self, Gio, GLib, self.dostop_dovoli, self.dostop_zavrni, self.dostop_odpri_naprave)
         # Eno obvestilo na napravo: prosnje iste naprave v ZDRUZI_S gredo skupaj (lastnik, 15. 10. 2026: trije pozivi).
+        # Po link_dostop.SKRCI_PO_S gre obvestilo z zaslona, prosnja ostane in jo kaze stevec v pladnju (ikona Link).
         prikaz = link_dostop.ZdruzenPrikaz(
             self._pokazi_prosnjo_dostopa, self._umakni_prosnjo_dostopa,
-            lambda s, klic: GLib.timeout_add(int(s * 1000), lambda: (klic(), False)[1]))
+            lambda s, klic: GLib.timeout_add(int(s * 1000), lambda: (klic(), False)[1]),
+            skrci=self._skrci_prosnjo_dostopa)
+        self._prikaz_prosenj = prikaz
         link_dostop.nastavi_prikaz(prikaz.pokazi, prikaz.umakni)
         if self.ozadje:
             self.hold()  # brez okna bi se GApplication koncal; ikona v pladnju ga drzi
@@ -1052,16 +1077,40 @@ class SafeerControl(_OSNOVA):
         GLib.idle_add(poslji)
 
     def _umakni_prosnjo_dostopa(self, kljuc: str) -> None:
-        GLib.idle_add(lambda: (link_dostop.umakni_obvestilo(self, kljuc), False)[1])
+        GLib.idle_add(lambda: (link_dostop.umakni_obvestilo(self, kljuc), self._osvezi_stevec_prosenj(), False)[2])
+
+    def _skrci_prosnjo_dostopa(self, jedro: str) -> None:
+        """Obvestilo je bilo dovolj dolgo na zaslonu: gre z njega, prosnja caka naprej (stevec v pladnju)."""
+        GLib.idle_add(lambda: (link_dostop.umakni_obvestilo(self, jedro), self._osvezi_stevec_prosenj(), False)[2])
+
+    def _osvezi_stevec_prosenj(self) -> None:
+        if getattr(self, "pladenj", None) is not None:
+            try:
+                self.pladenj.prosnje(link_dostop.stevilo_cakajocih())
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerControl] stevec prosenj:", e, flush=True)
+
+    def dostop_pokazi_prosnje(self) -> None:
+        """Klik na stevec v pladnju: obvestila cakajocih prosenj se pokazejo znova (nic se ne odobri)."""
+        prikaz = getattr(self, "_prikaz_prosenj", None)
+        if prikaz is None or not prikaz.pokazi_znova():
+            self.dostop_odpri_naprave()
+        self._osvezi_stevec_prosenj()
 
     def dostop_dovoli(self, jedro: str, zmoznost: str) -> bool:
         """»Dovoli« v obvestilu: nastete zmoznosti (ena ali vec crk) in od teh samo tiste, ki res cakajo."""
-        if self.link is not None:
-            return self.link.odobri_prosnjo_dostopa(jedro, zmoznost)
-        return link_dostop.odobri_prosnjo(jedro, zmoznost)
+        try:
+            if self.link is not None:
+                return self.link.odobri_prosnjo_dostopa(jedro, zmoznost)
+            return link_dostop.odobri_prosnjo(jedro, zmoznost)
+        finally:
+            GLib.idle_add(lambda: (self._osvezi_stevec_prosenj(), False)[1])
 
     def dostop_zavrni(self, jedro: str, zmoznost: str) -> bool:
-        return link_dostop.zavrni_prosnjo(jedro, zmoznost)
+        try:
+            return link_dostop.zavrni_prosnjo(jedro, zmoznost)
+        finally:
+            GLib.idle_add(lambda: (self._osvezi_stevec_prosenj(), False)[1])
 
     def dostop_odpri_naprave(self) -> None:
         """Klik na obvestilo: okno Safeer Control na seznamu naprav (nic ne odobri)."""
@@ -1084,6 +1133,8 @@ class SafeerControl(_OSNOVA):
             self._budnost.po_dejavnosti("pomoc", "Safeer pretaka na drugo napravo")
         except Exception:  # noqa: BLE001
             pass
+        # Prosnja lahko izpade ali je odgovorjena drugje (Link): stevec v pladnju sledi.
+        self._osvezi_stevec_prosenj()
         return True
 
     # ------------------------------------------------------------------ D-Bus za Safeer OS: naprave in njihovi programi

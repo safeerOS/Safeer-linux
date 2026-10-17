@@ -1910,6 +1910,10 @@ class SafeerOS(Gtk.Application):
         servis = self._medijski_predvajalnik
         if servis is None or servis.trenutna is None or servis.stanje not in ("predvaja", "premor"):
             return {"ok": True, "stanje": "ustavljeno"}
+        vnos = self._katalog.vnos_predvajanega(servis.trenutna.uri) if self._katalog is not None else None
+        if vnos and vnos.get("zaseben"):
+            # Vsebina zasebnega dodatka (kategorija »Zasebno«): drugim napravam v Linku ne povemo, kaj igra.
+            return {"ok": True, "stanje": "ustavljeno"}
         p = servis.podatki()
         t = servis.trenutna
         return {"ok": True, "stanje": p["stanje"], "uri": t.uri, "naslov": p["naslov"], "vrsta": p["vrsta"],

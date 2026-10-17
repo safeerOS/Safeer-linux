@@ -339,17 +339,14 @@ class Navigacija(unittest.TestCase):
         self.assertIn('b.setAttribute("aria-selected"', telo)
         self.assertIn('role="tablist" aria-orientation="vertical"', self.html)
 
-    def test_viri_samo_pravi_brez_praznega_naslova(self):
-        telo = _funkcija(self.js, "narisiViriNav")
-        self.assertIn("ovoj.hidden = !vnosi.length;", telo)
-        self.assertIn("if (S.mediaMape.length && ", telo)
-        self.assertIn('<div class="media-nav-viri" id="mediaNavViri" hidden>', self.html)
-        # Isto pravilo kot core/os_media.vidni_viri: strezniki, viri z vsebino, delujoci predvajalni viri.
-        self.assertIn('v.vrsta === "streznik" || (v.stevilo || 0) > 0 || (v.tip === "predvajalni_vir" && !v.napaka)', self.js)
-        # Klik na vir uporabi obstojeci zacasni filter virov kataloga (tam ga uporabnik tudi ponastavi).
-        izberi = _funkcija(self.js, "izberiVir")
-        self.assertIn("kat.izklopljeni[x] = 1", izberi)
-        self.assertIn("osveziGumbViri();", izberi)
+    def test_viri_niso_v_levem_stolpcu(self):
+        """Lastnik, 17. 10. 2026: seznama virov (imena dodatkov Stremio) ni vec v levem stolpcu; viri so v Dodatkih in
+        virih, zacasni filter »Viri« ostane v orodni vrstici kataloga."""
+        self.assertNotIn('id="mediaNavViri"', self.html)
+        self.assertNotIn("function narisiViriNav", self.js)
+        self.assertNotIn("S.mediaViriNav", self.js)
+        self.assertIn('id="mediaViriFilterGumb"', self.html)
+        self.assertNotIn('skupina("mediaViriNaslov"', _funkcija(self.js, "narisiPrilagodi"))
 
 
 class SpodnjaVrstica(unittest.TestCase):
@@ -404,7 +401,7 @@ class BesedilaInBarve(unittest.TestCase):
     def test_nova_besedila_v_vseh_jezikih(self):
         bes = _beri("assets", "os", "besedila.js")
         js, html = _beri("assets", "os", "os.js"), _beri("assets", "os", "index.html")
-        for kljuc in ("media_domov", "mediaViriNaslov", "mediaPolozaj", "policaGlasba", "domovVse", "domovVseOznaka",
+        for kljuc in ("media_domov", "mediaPolozaj", "policaGlasba", "domovVse", "domovVseOznaka",
                       "domovUre", "domovMinut", "domovNadaljuj", "domovPredvajaj"):
             self.assertEqual(bes.count('"%s":' % kljuc), 6, kljuc)
             self.assertTrue(kljuc in js or kljuc in html or kljuc == "media_domov", kljuc)
@@ -431,11 +428,8 @@ class PrilagojenMeni(unittest.TestCase):
         console.log(JSON.stringify([jeSkrito("kat:tv"), jeSkrito("kat:domov"), jeSkrito("vir:a"), jeSkrito("kat:radio")]));"""
         self.assertEqual(_node(koda), [True, False, True, False])
         mediji = _funkcija(self.js, "narisiMedije")
-        self.assertIn('MEDIA_KATEGORIJE.filter(function (k) { return k[0] === S.mediaFilter || !jeSkrito("kat:" + k[0]); })', mediji)
+        self.assertIn('MEDIA_KATEGORIJE.filter(function (k) { return kategorijaVidna(k) && (k[0] === S.mediaFilter || !jeSkrito("kat:" + k[0])); })', mediji)
         self.assertIn('poveziMeniNav(b, "kat:" + k[0], t("media_" + k[0]));', mediji)       # vodoravni zavihki in leva navigacija
-        viri = _funkcija(self.js, "narisiViriNav")
-        self.assertIn('!jeSkrito("vir:mape")', viri)
-        self.assertIn('if (jeSkrito("vir:" + v.id)) return;', viri)
         # Zapomnjen skrit zavihek ob odprtju: Domov.
         self.assertIn('if (ob_nalaganju && !prej && jeSkrito("kat:" + S.mediaFilter)) { izberiMedijskoKategorijo("domov");',
                       _funkcija(self.js, "nastaviSkrito"))
@@ -524,3 +518,37 @@ class Kavc(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ZasebnoInKartice(unittest.TestCase):
+    """Lastnik, 17. 10. 2026: kategorija »Zasebno« samo, ce je vklopljena; kartica pove kakovost, jezik in vir v eni
+    diskretni vrstici (kar ni znano, izpade)."""
+
+    def setUp(self):
+        self.js = _beri("assets", "os", "os.js")
+        self.html = _beri("assets", "os", "index.html")
+        self.besedila = _beri("assets", "os", "besedila.js")
+
+    def test_kategorija_zasebno_samo_vklopljena(self):
+        koda = "var S = { mediaZasebno: { vklopljeno: false } };\n" + _funkcija(self.js, "kategorijaVidna") + """
+        var a = [kategorijaVidna(["zasebno"]), kategorijaVidna(["filmi"])];
+        S.mediaZasebno.vklopljeno = true; a.push(kategorijaVidna(["zasebno"]));
+        console.log(JSON.stringify(a));"""
+        self.assertEqual(_node(koda), [False, True, True])
+        self.assertIn('id="katZasebno"', self.html)
+        self.assertIn('role="switch"', self.html.split('id="katZasebno"', 1)[0].rsplit("<button", 1)[1] + 'role="switch"')
+        # Zadnji odprt zavihek ni nikoli Zasebno (Medijski center se odpre na Domov).
+        self.assertNotIn('"zasebno"', _funkcija(self.js, "zadnjaMedijskaKategorija"))
+        for jezik in ("sl", "en", "de", "es", "fr", "it"):
+            self.assertIn("Object.assign(BESEDILA_OS.%s, {\"media_zasebno\"" % jezik, self.besedila)
+
+    def test_vrstica_vira_na_kartici(self):
+        koda = ("var jezik = 'sl', LOKALE = { sl: 'sl-SI' };\nfunction t(k) { return k === 'katPodnapisi' ? 'podnapisi' : k; }\n"
+                + _funkcija(self.js, "katKakovost") + _funkcija(self.js, "katVrsticaVira") + """
+        console.log(JSON.stringify([
+          katVrsticaVira({ kakovost: "2160p", jezik: "sl", vir: "MediaFusion", viri: ["MediaFusion", "Torrentio"] }).besedilo,
+          katVrsticaVira({ kakovost: "Samodejno", vir: "Arhiv" }).besedilo,
+          katVrsticaVira({ locljivost: 1080, podnapisi: [{}], viri: ["A"] }).besedilo,
+          katVrsticaVira({})
+        ]));""")
+        self.assertEqual(_node(koda), ["4K · SL · MediaFusion +1", "Arhiv", "HD · podnapisi · A", None])
