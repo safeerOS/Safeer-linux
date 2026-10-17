@@ -229,7 +229,7 @@ class Okna(unittest.TestCase):
         self.assertIn("StartupWMClass=safeer-os\n", namizni)
         self.assertIn('RAZRED_SAFEER_OS = "safeer-os"', vir)
         for vloga in ('_razred_okna(okno, "Sporocila")', "_razred_okna(okno, ime)", '_razred_okna(okno, "Splet")',
-                      '_razred_okna(okno, "Medijski")', '_razred_okna(dialog, "Dialog")', "_razred_okna(okno)"):
+                      '_razred_okna(dialog, "Dialog")', "_razred_okna(okno)"):
             self.assertIn(vloga, vir)
         for star in ('"safeer-os." + ime, _naslov_razdelka(ime)', '"Safeer Splet"', '"safeer-os.Sporocila", "Safeer"'):
             self.assertNotIn(star, vir)

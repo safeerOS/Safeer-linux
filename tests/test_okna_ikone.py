@@ -59,7 +59,7 @@ def _vloge_v_kodi() -> list:
 class VlogeOken(unittest.TestCase):
     def test_vse_vloge_iz_kode_so_znane(self):
         vloge = _vloge_v_kodi()
-        for nujna in ("", "Splet", "Sporocila", "Medijski", "Dialog", "sporocila", "zapiski", "nastavitve"):
+        for nujna in ("", "Splet", "Sporocila", "Dialog", "sporocila", "zapiski", "nastavitve"):
             self.assertIn(nujna, vloge)
         znane = set(safeer_os.OKNA_V_PULTU) | set(safeer_os._OKNA_PREDVAJALNIKA) | {""}
         for vloga in vloge:

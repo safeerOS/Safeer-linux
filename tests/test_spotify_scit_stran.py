@@ -28,7 +28,8 @@ class TestSpotifyScitStran(unittest.TestCase):
         oder = r"""
 let oznaka = null, naslov = 'Pesem', casi = [];
 const m = { muted: false, playbackRate: 1 };
-global.navigator = { mediaSession: { get metadata() { return { title: naslov }; } } };
+// Node 21+ ima navigator samo za branje: lastnost nastavimo na novo.
+Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { mediaSession: { get metadata() { return { title: naslov }; } } } });
 global.document = { querySelector: s => oznaka, querySelectorAll: () => [m] };
 let utis = false;
 global.window = { __safeerSpotify: { mediji: () => [m], utisaj: d => { utis = d; m.muted = d; } } };
