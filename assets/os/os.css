@@ -747,6 +747,11 @@ button.glava-plosce:hover svg { color: var(--zelena); }
 #vodnikVsebina .vodnik-izbire { display: flex; flex-wrap: wrap; gap: 10px; }
 #vodnikVsebina .vodnik-izbire .gumb.izbran { outline: 2px solid var(--zelena); }
 #vodnikVsebina code { user-select: all; }
+/* Nizek zaslon (1440x900, preizkus 17. 10. 2026: na koraku Scit so bili gumbi odrezani): plosca ne preseze okna,
+   vsebina koraka se pomika, gumbi ostanejo vidni. */
+#slojVodnik .plosca { max-height: calc(100vh - 32px); display: flex; flex-direction: column; }
+#vodnikVsebina { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+#slojVodnik .plosca > .gumbi { flex-shrink: 0; }
 
 /* Namizni nacin: spodaj je Safeerjeva vrstica, noga s tipkami ni potrebna. */
 body.namizje #noga { display: none; }
