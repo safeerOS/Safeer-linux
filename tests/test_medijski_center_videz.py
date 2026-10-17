@@ -363,7 +363,7 @@ class SpodnjaVrstica(unittest.TestCase):
         var document = { body: { classList: { toggle: function () {} } } };
         var S = { mediaPredvajalnik: null }, kat = { aktivni: null }, most = null;
         function zapriIzhode() { return false; }     // izbira »Predvajaj na …« (preizkus: test_predvajaj_na.py)
-        """ + "".join(_funkcija(self.js, f) for f in ("skladbaKataloga", "zapriVrstoPlosco", "uskladiTrak")) + """
+        """ + "".join(_funkcija(self.js, f) for f in ("skladbaKataloga", "zapriVrstoPlosco", "uskladiTrak", "spTrenutna", "spNaTraku")) + """
         var izid = [];
         $("mediaPlayerBar").hidden = false;
         uskladiTrak(); izid.push($("mediaPlayerBar").hidden);                                  // nic
@@ -373,8 +373,11 @@ class SpodnjaVrstica(unittest.TestCase):
         S.mediaPredvajalnik.stanje = "ustavljeno"; kat.aktivni = { zvok: true, naslov: "Skladba 2" };
         uskladiTrak(); izid.push($("mediaPlayerBar").hidden);                                  // skladba iz kataloga
         kat.aktivni = { zvok: false }; uskladiTrak(); izid.push($("mediaPlayerBar").hidden);  // video iz kataloga gre v okno
+        kat.spTrak = true; kat.sp = { tece: true, predvajanje: { naslov: "Pesem", igra: true } };
+        uskladiTrak(); izid.push($("mediaPlayerBar").hidden);                                  // Spotify (Safeer DRM)
+        kat.sp.tece = false; uskladiTrak(); izid.push($("mediaPlayerBar").hidden);            // Safeer DRM ne tece vec
         console.log(JSON.stringify(izid));"""
-        self.assertEqual(_node(koda), [True, True, False, False, True])
+        self.assertEqual(_node(koda), [True, True, False, False, True, False, True])
 
     def test_polozaj_samo_ce_je_znan(self):
         telo = _funkcija(self.js, "narisiTrak")
@@ -389,9 +392,9 @@ class SpodnjaVrstica(unittest.TestCase):
         for id_ in ("mediaPremesaj", "mediaPrejsnja", "mediaKatPremor", "mediaNaslednja", "mediaPonovi", "mediaZapri",
                     "mediaBarNapredek", "mediaBarGlasnostDrsnik", "mediaBarVrstaGumb", "mediaVrsta"):
             self.assertIn('id="%s"' % id_, vrstica)
-        for niz in ('ob("mediaPrejsnja", "click", function () { if (skladbaKataloga()) predvajajIzVrste(-1); else ukaz("prejsnja"); });',
-                    'ob("mediaKatPremor", "click", function () { if (skladbaKataloga()) premorKatPredvajanja(); else ukaz("premor"); });',
-                    'ob("mediaZapri", "click", function () { if (kat.aktivni) ustaviKatPredvajanje(); else ukaz("ustavi"); });'):
+        for niz in ('ob("mediaPrejsnja", "click", function () { if (spNaTraku()) spUkazTraka("nazaj"); else if (skladbaKataloga()) predvajajIzVrste(-1); else ukaz("prejsnja"); });',
+                    'ob("mediaKatPremor", "click", function () { if (spNaTraku()) spUkazTraka("premor"); else if (skladbaKataloga()) premorKatPredvajanja(); else ukaz("premor"); });',
+                    'ob("mediaZapri", "click", function () { if (spNaTraku()) spUstaviTrak(); else if (kat.aktivni) ustaviKatPredvajanje(); else ukaz("ustavi"); });'):
             self.assertIn(niz, self.js)
         # Plosca cakalne vrste: Escape (Nazaj na daljincu) zapre samo njo, izbor se vrne na gumb.
         self.assertIn('if (e.key === "Escape" && zapriVrstoPlosco(true)) { e.preventDefault(); e.stopImmediatePropagation(); }', self.js)

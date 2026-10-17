@@ -1715,7 +1715,7 @@
   function uskladiTrak() {
     var p = S.mediaPredvajalnik, bar = $("mediaPlayerBar"); if (!bar) return false;
     var domaci = !!(p && p.naslov && p.stanje !== "ustavljeno");
-    var vidno = domaci || !!skladbaKataloga();
+    var vidno = domaci || !!skladbaKataloga() || spNaTraku();
     var prej = !bar.hidden;
     bar.hidden = !vidno;
     document.body.classList.toggle("ima-trak", vidno);
@@ -1730,6 +1730,7 @@
   }
   function narisiTrak() {
     if (!uskladiTrak()) return;
+    if (spNaTraku()) { narisiSpTrak(); return; }
     var p = S.mediaPredvajalnik || {}, item = skladbaKataloga();
     var zivo = !item && (p.vrsta === "tv" || p.vrsta === "radio");
     var naslov, opis, igra, slika = "";
@@ -1989,6 +1990,7 @@
   function osveziPredvajalnik(p) {
     if (!p) return;
     S.mediaPredvajalnik = p;
+    spOdDomacega(p);
     narisiTrak();
   }
   function odpriDodaj() {
@@ -5593,7 +5595,8 @@
       kat.sp = r || null;
       // Lastnik 17. 10.: o pogojih Spotifyja ne obvescamo z oknom – vrstica je diskretno v opisu stikala v Ščitu.
       if (r && r.potekla && !(prej && prej.potekla)) obvesti(t("spPotekla"));
-      if (r && r.prijavljen && !r.okno) ustaviSpCakanje();
+      if (r && r.prijavljen && !r.okno && kat.spCakanje) { ustaviSpCakanje(); kat.spPokazi = true; }
+      if (r) { spUskladiTrak(r); if (spNaTraku()) spZanka(); }
       if (r && r.prijavljen && r.drm && !r.okno && !kat.spSeznami && !kat.spBerem && !kat.spNapaka) naloziSpSezname();
       narisiSeznamePredvajanja();
       return r;
@@ -5625,7 +5628,7 @@
         if (!r || !r.prijavljen) return;
         ustaviSpCakanje();
         klic("spletKonecPrijave", [["accounts.spotify.com", "spotify.com", "accounts.google.com"]]);
-        kat.spCas = 0; kat.spSeznami = null; naloziSpotify(true);
+        kat.spCas = 0; kat.spSeznami = null; spPokaziRazdelek(true); naloziSpotify(true);
       }, function () {});
     }, 3000);
   }
@@ -5635,12 +5638,15 @@
     obvesti(t(k) !== k ? t(k) : t("spNapaka_stran"));
   }
   function odpriSpSeznam(ident, ime) {
+    if (kat.spOdpiram === ident) return;           // seznam se ze bere (dvoklik, ponovljen OK na daljincu)
+    kat.spOdpiram = ident;
     obvesti(t("spNalagam"));
     klic("mediaSpSeznam", [ident, ime]).then(function (sz) {
+      kat.spOdpiram = "";
       if (!sz || sz.napaka) { spNapaka(sz ? sz.napaka : "ni_odziva"); if (sz && sz.napaka === "potekla") naloziSpotify(true); return; }
       kat.seznam = sz; narisiKatalog();
       $("katalog").scrollIntoView({ block: "start" });
-    }, function () { spNapaka("ni_odziva"); });
+    }, function () { kat.spOdpiram = ""; spNapaka("ni_odziva"); });
   }
   function spKartica(ime, opis, slika, ikona, ob) {
     var k = el("button", "kat-seznam-kartica"); k.type = "button";
@@ -5689,6 +5695,7 @@
       vr.appendChild(znova); blok.appendChild(vr);
     }
     var sz = kat.spSeznami;
+    if (r.prijavljen && !r.okno && kat.spBerem && !sz) blok.appendChild(el("p", "namig", ubezi(t("spNalagam"))));
     if (r.prijavljen && sz) {
       var vrsta = el("div", "kat-seznami-vrsta");
       vrsta.appendChild(spKartica(t("spVseckane"), "Spotify", "", "glasba", function () { odpriSpSeznam("vseckane", t("spVseckane")); }));
@@ -5709,12 +5716,18 @@
     blok.appendChild(pr);
     c.appendChild(blok);
     narisiSpPredvajalnik();
+    if (kat.spPokazi && sz) {
+      // Pravkar prijavljen: Medijski center pokaže sezname, fokus na prvem (tudi za daljinec).
+      kat.spPokazi = false;
+      blok.scrollIntoView({ block: "start" });
+      var prvi = blok.querySelector(".kat-seznam-kartica"); if (prvi) prvi.focus({ preventScroll: true });
+    }
   }
   // Trenutna skladba in upravljanje (skrit Safeer DRM); posodablja se na mestu, da drsnik ne skoči izpod kazalca.
   function narisiSpPredvajalnik() {
     var c = $("spPredvajalnik"); if (!c) return;
     var p = (kat.sp && kat.sp.predvajanje) || {};
-    if (!p.naslov) { c.hidden = true; c.innerHTML = ""; return; }
+    if (!p.naslov || spNaTraku()) { c.hidden = true; c.innerHTML = ""; return; }
     var a = document.activeElement;
     if (a && a.type === "range" && c.contains(a)) return;
     c.hidden = false; c.innerHTML = "";
@@ -5750,18 +5763,136 @@
     return klic("mediaSpStanje").then(function (r) {
       if (!r) return;
       var prej = kat.sp; kat.sp = r;
+      spUskladiTrak(r);
       if (r.potekla && !(prej && prej.potekla)) { obvesti(t("spPotekla")); narisiSeznamePredvajanja(); return; }
       narisiSpPredvajalnik();
     }, function () {});
   }
-  // Med predvajanjem vsake 1,5 s, dokler je razdelek viden; Safeer DRM se zaradi tega ne zažene (samo prebere stanje).
+  // Med predvajanjem vsake 1,5 s, dokler je razdelek viden ali Spotify kaže spodnji trak; Safeer DRM se zaradi tega ne
+  // zažene (samo prebere stanje) in se po mirovanju ustavi sam - takrat se ustavi tudi zanka.
   function spZanka() {
     if (kat.spZanka) return;
     kat.spZanka = setInterval(function () {
       var c = $("spPredvajalnik");
-      if (!c || !c.offsetParent || !(kat.sp && kat.sp.tece)) { clearInterval(kat.spZanka); kat.spZanka = 0; return; }
+      if (!(kat.sp && kat.sp.tece) || (!kat.spTrak && !(c && c.offsetParent))) { clearInterval(kat.spZanka); kat.spZanka = 0; return; }
       osveziSp();
     }, 1500);
+  }
+  // ---- Spotify v spodnjem traku (lastnik, 17. 10. 2026: mini predvajalnik na dnu in »Predvajaj na …«). Trak kaže en
+  // vir: Spotify ga prevzame, ko začne igrati, in ga odda, ko začne drug vir (domači predvajalnik, katalog, YouTube).
+  function spTrenutna() {
+    var p = kat.sp && kat.sp.tece && kat.sp.predvajanje;
+    return kat.spZacetna || (p && p.naslov ? p : null);
+  }
+  function spNaTraku() {
+    return typeof kat !== "undefined" && !!kat.spTrak && !!spTrenutna();
+  }
+  function drugVirIgra() {
+    var p = S.mediaPredvajalnik;
+    return !!(p && p.naslov && p.stanje === "predvaja") || !!(kat.aktivni && kat.igra);
+  }
+  // Stanje iz mediaSpStanje: trak prevzame Spotify, ki igra (tudi po ponovnem nalaganju strani), in ga odda, ko Safeer
+  // DRM ne teče več. Začetni vnos (naslov s kartice) velja, dokler Spotify ne javi skladbe, največ 20 s.
+  function spUskladiTrak(r) {
+    var p = (r && r.tece && r.predvajanje) || {};
+    var z = kat.spZacetna, cas = Date.now() - (kat.spOd || 0);
+    // Prvi odgovor ima lahko še prejšnjo skladbo: kartica velja, dokler Spotify ne javi nje ali ne minejo 4 s.
+    if (z && ((p.naslov && (p.naslov === z.naslov || cas > 4000)) || cas > 20000)) kat.spZacetna = null;
+    if (!r || !r.tece || r.potekla) { kat.spTrak = false; kat.spZacetna = null; }
+    else if (p.igra && !kat.spTrak && !drugVirIgra()) kat.spTrak = true;
+    narisiTrak();
+  }
+  // Isti trak kot za druge vire (narisiTrak): naslov, izvajalec, ovitek, premor/naprej/nazaj, položaj, »Predvajaj na …«.
+  function narisiSpTrak() {
+    var p = spTrenutna() || {};
+    var opis = p.oglas ? t("spOglas") : [p.izvajalec, "Spotify"].filter(Boolean).join(" · ");
+    var izh = IZ && IZ.z && SafeerIzhod.aktivna(IZ.z);
+    if (izh && izh.vrsta !== "racunalnik") opis += " · " + t("predvajaNa", { ime: izh.ime });
+    $("mediaBarNaslov").textContent = p.naslov || ""; $("mediaBarNaslov").title = p.naslov || "";
+    $("mediaBarVrsta").textContent = opis;
+    var znak = $("mediaBarZnak"), slika = p.slika || "";
+    if (znak._slika !== slika || znak._ikona !== "glasba") {
+      znak._slika = slika; znak._ikona = "glasba";
+      znak.innerHTML = svg("glasba");
+      if (slika) {
+        var img = document.createElement("img"); img.alt = ""; img.src = slika;
+        img.onerror = function () { img.remove(); };
+        znak.appendChild(img);
+      }
+    }
+    var premor = $("mediaKatPremor");
+    premor.innerHTML = svg(p.igra ? "premor" : "predvajaj");
+    premor.setAttribute("aria-pressed", p.igra ? "true" : "false");
+    $("mediaPrejsnja").disabled = false; $("mediaNaslednja").disabled = false;
+    $("mediaPremesaj").hidden = true; $("mediaPonovi").hidden = true;
+    $("mediaBarVrstaGumb").hidden = true; zapriVrstoPlosco(false);
+    var polozaj = Number(p.trajanje) > 0 && !p.oglas;
+    $("mediaBarPolozaj").hidden = !polozaj;
+    if (polozaj) {
+      $("mediaBarCas").textContent = casMedija(p.polozaj);
+      $("mediaBarTrajanje").textContent = casMedija(p.trajanje);
+      var drsnik = $("mediaBarNapredek");
+      if (!S.mediaDragging) drsnik.value = Math.round(1000 * Math.min(1, (Number(p.polozaj) || 0) / p.trajanje));
+      drsnik.setAttribute("aria-valuetext", casMedija(p.polozaj) + " / " + casMedija(p.trajanje));
+    }
+    narisiGlasnostTraku();
+  }
+  function spZacni(item) {
+    // Spotify je začel: drug vir se ustavi (nikoli dva hkrati), trak takoj pokaže skladbo s kartice.
+    if (kat.aktivni) ustaviKatPredvajanje();
+    else if (S.mediaPredvajalnik && S.mediaPredvajalnik.naslov && S.mediaPredvajalnik.stanje !== "ustavljeno")
+      klic("predvajalnikUkaz", ["ustavi"]).catch(function () {});
+    kat.spTrak = true; kat.spOd = Date.now();
+    kat.spZacetna = { naslov: item.naslov || "", izvajalec: item.izvajalec || "", slika: item.slika || "", igra: true };
+    if (kat.sp && kat.sp.predvajanje) kat.sp.predvajanje = {};       // prejšnja skladba ne utripne na traku
+    narisiTrak();
+    if (item.sp_delno) obvesti(t("spDelno"));
+    osveziSp().then(spZanka);
+    setTimeout(osveziSp, 1200);
+  }
+  function spUkazTraka(u, vrednost) {
+    var p = kat.sp && kat.sp.predvajanje;
+    if (u === "premor" && p && p.naslov) { p.igra = !p.igra; narisiTrak(); }      // takoj, stanje potrdi zanka
+    klic("mediaSpUkaz", vrednost == null ? [u] : [u, vrednost]).then(function (x) {
+      if (x && x.napaka === "ne_tece") { kat.spTrak = false; narisiTrak(); }
+      if (x && x.napaka) spNapaka(x.napaka);
+      setTimeout(osveziSp, 400);
+    }, function () { spNapaka("ni_odziva"); });
+    if (u === "premor") spZanka();
+  }
+  function spUstaviTrak() {
+    klic("mediaSpUkaz", ["ustavi"]).then(function () { setTimeout(osveziSp, 400); }, function () {});
+    kat.spTrak = false; kat.spZacetna = null;
+    narisiTrak();
+  }
+  // Drug vir je prevzel predvajanje: trak ni več Spotifyjev. ustavi = Spotify tudi ustavimo (gostitelj ga ustavi sam,
+  // ko vsebina pride iz kataloga; »ustavi« je pri njem varen tudi dvakrat zapored).
+  function spOpusti(ustavi) {
+    var tece = !!(kat.sp && kat.sp.tece);
+    kat.spTrak = false; kat.spZacetna = null;
+    if (ustavi && tece) klic("mediaSpUkaz", ["ustavi"]).then(function () { setTimeout(osveziSp, 400); }, function () {});
+  }
+  // Domači predvajalnik (datoteka, radio, Twitch) je začel ali nadaljeval: Spotify se ustavi. Prve 3 s po zagonu
+  // Spotifyja ne štejejo - takrat še pride staro stanje predvajalnika, ki ga je Spotify pravkar ustavil.
+  function spOdDomacega(p) {
+    if (typeof kat === "undefined") return;
+    var podpis = p && p.naslov && p.stanje === "predvaja" ? p.naslov + "|" + (p.indeks || 0) : "";
+    var nov = !!podpis && podpis !== kat.spDomaci;
+    kat.spDomaci = podpis;
+    if (!nov || Date.now() - (kat.spOd || 0) < 3000) return;
+    if (kat.spTrak || (kat.sp && kat.sp.tece)) spOpusti(true);
+  }
+  // Razdelek Spotify v Medijskem centru (Glasba): po prijavi v Spletu in ob kliku na ovitek v traku.
+  function spPokaziRazdelek(poPrijavi) {
+    pojdi("media");                         // tudi iz načina Splet (gostitelj ga ob tem skrije)
+    if (!seznamiVidni() || kat.seznam) {
+      kat.seznam = null; S.mediaIskanje = "";
+      if ($("mediaIskanje")) $("mediaIskanje").value = "";
+      izberiMedijskoKategorijo("glasba"); narisiMedije();
+    }
+    kat.spPokazi = true;
+    if (poPrijavi) obvesti(t("spPrijavaKoncana"));
+    else narisiSeznamePredvajanja();
   }
   function odpriSeznamPredvajanja(ime) {
     klic("mediaSeznam", [ime]).then(function (sz) {
@@ -5986,7 +6117,7 @@
       if (item.spotify) {
         // Skladba računa Spotify: predvaja skrit Safeer DRM; upravljanje je v razdelku Spotify (ne v traku predvajalnika).
         if (item.sp_napaka) { spNapaka(item.sp_napaka); return; }
-        setTimeout(function () { osveziSp().then(function () { narisiSeznamePredvajanja(); spZanka(); }); }, 1200);
+        spZacni(item);
         return;
       }
       if (item.tip === "lokalno" && item.pot) { odpriLokalno(item.pot); return; }     // naslednja epizoda z diska
@@ -6010,6 +6141,7 @@
       // »stran« ob predvajljivem toku je le izvor (npr. stran filma v arhivu); v Splet gre samo, kar nima toka.
       if (item.stran && !item.native) { katSplet(item.stran); return; }
       kat.aktivni = item; kat.igra = true;
+      spOpusti(false);
       osveziKatTrak();
     }, function () { if (zahteva === kat.zahtevaPredvajanja) obvesti(t("katNapakaVira")); });
   }
@@ -7340,12 +7472,12 @@
     ob("mediaPodrobnostiZapri", "click", zapriKatalogPodrobnosti);
     // Isti gumbi za skladbo iz kataloga (vrsto vodi stran) in za domaci predvajalnik (njegova vrsta datotek).
     var ukaz = function (u) { klic("predvajalnikUkaz", [u]).catch(function () {}); };
-    ob("mediaPrejsnja", "click", function () { if (skladbaKataloga()) predvajajIzVrste(-1); else ukaz("prejsnja"); });
-    ob("mediaNaslednja", "click", function () { if (skladbaKataloga()) predvajajIzVrste(1); else ukaz("naslednja"); });
+    ob("mediaPrejsnja", "click", function () { if (spNaTraku()) spUkazTraka("nazaj"); else if (skladbaKataloga()) predvajajIzVrste(-1); else ukaz("prejsnja"); });
+    ob("mediaNaslednja", "click", function () { if (spNaTraku()) spUkazTraka("naprej"); else if (skladbaKataloga()) predvajajIzVrste(1); else ukaz("naslednja"); });
     ob("mediaPremesaj", "click", function () { vrstaShrani("premesaj", vrstaNastavitev("premesaj", "0") === "1" ? "0" : "1"); narisiVrsto(); });
     ob("mediaPonovi", "click", function () { vrstaShrani("ponovi", vrstaNastavitev("ponovi", "0") === "1" ? "0" : "1"); narisiVrsto(); });
-    ob("mediaKatPremor", "click", function () { if (skladbaKataloga()) premorKatPredvajanja(); else ukaz("premor"); });
-    ob("mediaZapri", "click", function () { if (kat.aktivni) ustaviKatPredvajanje(); else ukaz("ustavi"); });
+    ob("mediaKatPremor", "click", function () { if (spNaTraku()) spUkazTraka("premor"); else if (skladbaKataloga()) premorKatPredvajanja(); else ukaz("premor"); });
+    ob("mediaZapri", "click", function () { if (spNaTraku()) spUstaviTrak(); else if (kat.aktivni) ustaviKatPredvajanje(); else ukaz("ustavi"); });
     ob("medijiDodatki", "click", function () { zapriMeniDodaj(false); odpriKatViri(); });
     ob("katNalaganjeZnova", "click", function () { kat.napakaVec = false; naloziKatalog(true); });
     ob("katViriZapri", "click", zapriSloje);
@@ -8024,13 +8156,14 @@
       }).catch(function () { obvesti(t("mediaNapacenTok")); });
     });
     $("medijiDodajPrazno").addEventListener("click", function () { $("medijiMapa").click(); });
-    $("mediaBarOdpri").addEventListener("click", function () { klic("predvajalnikUkaz", ["odpri"]).catch(function () {}); });
+    $("mediaBarOdpri").addEventListener("click", function () { if (spNaTraku()) { spPokaziRazdelek(false); return; } klic("predvajalnikUkaz", ["odpri"]).catch(function () {}); });
     poveziTrak();
     poveziNav();
     poveziPrilagodi();
     $("mediaBarNapredek").addEventListener("change", function () {
       var p = S.mediaPredvajalnik;
       S.mediaDragging = false;
+      if (spNaTraku()) { spUkazTraka("cas", Number(this.value) / 1000); return; }
       if (p && p.trajanje > 0 && p.vrsta !== "tv" && p.vrsta !== "radio")
         klic("predvajalnikUkaz", ["skok", p.trajanje * Number(this.value) / 1000]);
     });
