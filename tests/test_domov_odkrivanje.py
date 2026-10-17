@@ -182,3 +182,13 @@ class Stran(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestGlasbaEnOvitek(unittest.TestCase):
+    def test_skladbe_istega_albuma_ena_kartica(self):
+        from core import os_police
+        vnosi = [{"id": "a%d" % i, "naslov": "Pesem %d" % i, "vrsta": "glasba", "slika": "https://x/album1.jpg"} for i in range(3)]
+        vnosi.append({"id": "b", "naslov": "Druga", "vrsta": "glasba", "slika": "https://x/album2.jpg"})
+        police = os_police.sestavi_odkrivanje({"odkrij_glasba": vnosi})
+        glasba = [p for p in police if p["id"] == "odkrij_glasba"][0]["vnosi"]
+        self.assertEqual([v["naslov"] for v in glasba], ["Pesem 0", "Druga"])

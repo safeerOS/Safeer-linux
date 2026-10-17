@@ -245,6 +245,10 @@ def sestavi_odkrivanje(viri: dict, izkljuci: Iterable[str] = (), zaseben: Option
             if k is None:
                 continue
             enakost = _kljuci_enakosti(k)
+            # Glasba: ena kartica na ovitek - skladbe z istega albuma bi bile sicer na polici videti enake
+            # (lastnik 17. 10. 2026: »pri razlicnih pesmih enak poster uporabnika zmede«).
+            if zavihek == "glasba" and k.get("slika"):
+                enakost = list(enakost) + ["slika:" + str(k["slika"])]
             if any(x in videni for x in enakost):
                 continue
             videni.update(enakost)
