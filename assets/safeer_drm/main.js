@@ -221,6 +221,20 @@ const SPOTIFY_SCIT = `(() => {
     }
   }
   setInterval(korak, 200);          // okno ni duseno (backgroundThrottling: false): zaznava v 0,2 s
+  // Oglas se sploh ne zacne: predvajalnik dobi namesto zvocnega oglasa (spotify:ad:...) tiho sekundo (tehnika filtrov
+  // AdGuard, okt. 2026 - medpomnilnik predvajalnika z _getCacheKey). Utisanje in prevrtenje zgoraj ostaneta kot rezerva.
+  const TIHO = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU2LjQwLjEwMQAAAAAAAAAAAAAA//tUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAGAAADAABgYGBgYGBgYGBgYGBgYGBggICAgICAgICAgICAgICAgICgoKCgoKCgoKCgoKCgoKCgwMDAwMDAwMDAwMDAwMDAwMDg4ODg4ODg4ODg4ODg4ODg4P////////////////////8AAAAATGF2YzU2LjYwAAAAAAAAAAAAAAAAJAAAAAAAAAAAAwDNZKlY//sUZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAETEFNRTMuOTkuNVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//sUZB4P8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//sUZDwP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//sUZFoP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//sUZHgP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//sUZJYP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV';
+  const zamenjajOglas = { apply(f, t, a) {
+    try { const o = a[0]; if (o && typeof o._uri === 'string' && o._uri.indexOf('spotify:ad:') === 0 && o._url) o._url = TIHO; } catch (_) {}
+    return Reflect.apply(f, t, a);
+  } };
+  const izvThen = Promise.prototype.then;
+  Promise.prototype.then = function (uspeh) {
+    try {
+      if (typeof uspeh === 'function' && Function.prototype.toString.call(uspeh).indexOf('this._getCacheKey') !== -1) arguments[0] = new Proxy(uspeh, zamenjajOglas);
+    } catch (_) {}
+    return izvThen.apply(this, arguments);
+  };
 })();`;
 
 const PREVERI_PREDVAJANJE = "(() => Array.from(document.querySelectorAll('video,audio')).some(m => !m.paused && !m.ended && m.readyState >= 2 && m.currentTime > 0))()";

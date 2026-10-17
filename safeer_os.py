@@ -6502,6 +6502,13 @@ class SafeerOS(Gtk.Application):
             os_katalog.SKRIPT_SKLADBE, WebKit2.UserContentInjectedFrames.TOP_FRAME,
             WebKit2.UserScriptInjectionTime.END, list(os_katalog.STRANI_SKRIPTA_SKLADBE), None))
         odlozisce_varuh.dodaj(WebKit2, upravitelj)
+        # Scit tudi v YouTubu Medijskega centra (vdelan predvajalnik): ista skripta kot v Spletu - oglasi, preskok
+        # neprekinljivih, protiblokada (lastnik 17. 10. 2026: »pri oglasih ne sprejemamo kompromisov«).
+        from core import adblock
+        upravitelj.add_script(WebKit2.UserScript(
+            adblock.YOUTUBE_ADBLOCK_SCRIPT, WebKit2.UserContentInjectedFrames.ALL_FRAMES,
+            WebKit2.UserScriptInjectionTime.START,
+            ["*://*.youtube.com/*", "*://youtube.com/*", "*://*.youtube-nocookie.com/*"], None))
         lastnosti = {"web_context": kontekst, "user_content_manager": upravitelj,
                      "network_session": WebKit2.NetworkSession.new_ephemeral()}
         if hasattr(WebKit2, "WebsitePolicies"):

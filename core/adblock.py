@@ -36,6 +36,9 @@ YOUTUBE_ADBLOCK_SCRIPT = """
             'ytd-banner-promo-renderer',
             'ytd-player-legacy-desktop-watch-ads-renderer',
             '#player-ads',
+            'ytd-enforcement-message-view-model',
+            'tp-yt-paper-dialog:has(ytd-enforcement-message-view-model)',
+            '.ytp-ad-module .ytp-ad-player-overlay-layout',
             'ytd-rich-shelf-renderer[is-playables]',
             'ytd-rich-section-renderer:has(ytd-rich-shelf-renderer[is-playables])',
             'ytd-game-card-renderer',
@@ -229,6 +232,69 @@ YOUTUBE_ADBLOCK_SCRIPT = """
         });
     }
     function cleanGlobals() { cleanPlayerData(window.ytInitialPlayerResponse); }
+
+    // Shorts: ad entries in the reel sequence (uBlock Origin / AdGuard, Oct 2026: reelWatchEndpoint.adClientParams.isAd).
+    function withoutShortsAds(data) {
+        try {
+            if (data && Array.isArray(data.entries) && location.pathname.indexOf('/shorts/') === 0) {
+                var before = data.entries.length;
+                data.entries = data.entries.filter(function(entry) {
+                    var p = entry && entry.command && entry.command.reelWatchEndpoint && entry.command.reelWatchEndpoint.adClientParams;
+                    return !(p && p.isAd);
+                });
+                stats.removedFields += before - data.entries.length;
+            }
+        } catch (_) {}
+        return data;
+    }
+    var playerParse = JSON.parse;
+    JSON.parse = function() {
+        var data = playerParse.apply(this, arguments);
+        return typeof arguments[0] === 'string' && arguments[0].indexOf('reelWatchEndpoint') !== -1 ? withoutShortsAds(data) : data;
+    };
+
+    // Anti-adblock: YouTube's abnormality check runs as a promise continuation (AdGuard and uBlock Origin quick fixes,
+    // Oct 2026). Only that callback is replaced; every other continuation runs unchanged.
+    try {
+        var nativeThen = Promise.prototype.then;
+        Promise.prototype.then = function(onFulfilled) {
+            try {
+                if (typeof onFulfilled === 'function' && Function.prototype.toString.call(onFulfilled).indexOf('onAbnormalityDetected') !== -1) {
+                    arguments[0] = function() {};
+                }
+            } catch (_) {}
+            return nativeThen.apply(this, arguments);
+        };
+    } catch (_) {}
+
+    // The 17 s wait YouTube starts before an ad-blocker check (adjust-setTimeout '[native code]' 17000 0.001).
+    try {
+        var nativeSetTimeout = window.setTimeout;
+        window.setTimeout = function(fn, delay) {
+            try {
+                if (Number(delay) === 17000 && typeof fn === 'function' && Function.prototype.toString.call(fn).indexOf('[native code]') !== -1) {
+                    arguments[1] = 17;
+                }
+            } catch (_) {}
+            return nativeSetTimeout.apply(this, arguments);
+        };
+    } catch (_) {}
+
+    // YouTube fetches through a clean about:blank iframe to bypass page hooks: give it our fetch.
+    try {
+        var nativeAppendChild = Node.prototype.appendChild;
+        Node.prototype.appendChild = function(child) {
+            var result = nativeAppendChild.apply(this, arguments);
+            try {
+                if (child && child.tagName === 'IFRAME' && (!child.src || child.src === 'about:blank') && child.contentWindow) {
+                    child.contentWindow.fetch = window.fetch;
+                    child.contentWindow.Request = window.Request;
+                    child.contentWindow.JSON.parse = JSON.parse;
+                }
+            } catch (_) {}
+            return result;
+        };
+    } catch (_) {}
     document.addEventListener('DOMContentLoaded', cleanGlobals);
 
     // 4. Safe YouTube Ad Fast-Forward & Skip Engine
@@ -256,11 +322,40 @@ YOUTUBE_ADBLOCK_SCRIPT = """
     function isAdActive() {
         var p = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
         if (p && (p.classList.contains('ad-showing') || p.classList.contains('ad-interrupting'))) return true;
+        // Server-side stitched ad (SSAP): the player says so in its stats (uBlock Origin quick fixes, Oct 2026).
+        try {
+            var info = p && typeof p.getStatsForNerds === 'function' ? p.getStatsForNerds() : null;
+            if (info && typeof info.debug_info === 'string' && info.debug_info.indexOf('SSAP, AD') === 0) return true;
+        } catch (_) {}
+        return false;
+    }
+
+    // An ad that cannot be skipped: silent and at the highest speed, then jump to its end. The video is restored
+    // (sound, speed) as soon as the ad is gone - the user's own pause and volume are never touched.
+    function fastForwardAd() {
+        var v = document.querySelector('#movie_player video, .html5-video-player video, video.video-stream');
+        if (!v) return false;
+        if (isAdActive()) {
+            if (!v._safeerAd) { v._safeerAd = { muted: v.muted, rate: v.playbackRate || 1 }; }
+            try { v.muted = true; } catch (_) {}
+            try { if (v.playbackRate < 16) v.playbackRate = 16; } catch (_) {}
+            try {
+                var p = document.getElementById('movie_player');
+                var progress = p && typeof p.getProgressState === 'function' ? p.getProgressState() : null;
+                if (progress && progress.duration > 0 && progress.duration - progress.current > 0.5 && typeof p.seekTo === 'function') p.seekTo(progress.duration);
+                else if (isFinite(v.duration) && v.duration > 0 && v.duration - v.currentTime > 0.3) v.currentTime = v.duration - 0.1;
+            } catch (_) {}
+            return true;
+        }
+        if (v._safeerAd) {
+            try { v.muted = v._safeerAd.muted; v.playbackRate = v._safeerAd.rate; } catch (_) {}
+            v._safeerAd = null;
+        }
         return false;
     }
 
     function superviseYouTube() {
-        if (isAdActive()) clickSkip();
+        if (!(isAdActive() && clickSkip())) fastForwardAd();
 
         var adOverlays = document.querySelectorAll(
             '.ytp-ad-overlay-container, #player-ads, ytd-promoted-sparkles-web-renderer, ' +
@@ -308,7 +403,8 @@ YOUTUBE_ADBLOCK_SCRIPT = """
         var p = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
         if (!p || p._safeerAdMo) return;
         p._safeerAdMo = new MutationObserver(function() {
-            if (isAdActive()) clickSkip();
+            if (isAdActive() && clickSkip()) return;
+            fastForwardAd();
         });
         p._safeerAdMo.observe(p, { attributes: true, attributeFilter: ['class'] });
     }
@@ -1815,6 +1911,8 @@ SPOTIFY_OGLASI = {
         "adeventtracker.spotify.com", "ads-fa.spotify.com", "adclick.g.doubleclick.net", "pubads.g.doubleclick.net",
         "securepubads.g.doubleclick.net", "googleads.g.doubleclick.net", "pagead2.googlesyndication.com",
         "imasdk.googleapis.com", "spotify.demdex.net",
+        # Zvocni oglasi (filtri AdGuard za Spotify, okt. 2026): datoteke oglasov in oglasnih partnerjev.
+        "adstudio-assets.scdn.co", "creativeservice-production.scdn.co", "cf.adxcel.com", "media-us.amillionads.com",
     ],
     # (gostitelj ali njegova nadrejena domena, zacetek poti)
     "poti": [
@@ -1822,7 +1920,8 @@ SPOTIFY_OGLASI = {
     ],
     "css": (
         '[data-testid="upgrade-button"], a[href*="/premium"], [data-testid="embedded-ad"], [data-testid="ad-slot-container"],'
-        ' [data-testid="home-ads-container"], [data-testid="leavebehind-advertisement"], [data-testid="sponsored-content"]'
+        ' [data-testid="home-ads-container"], [data-testid="leavebehind-advertisement"], [data-testid="sponsored-content"],'
+        ' a[data-context-item-type="ad"], div[aria-label="Advertisement"]'
         " { display: none !important; }"
     ),
 }
