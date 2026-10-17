@@ -1327,6 +1327,11 @@ body.v-mediji #ozadje::after, body.predvajalnik #ozadje::after { background: var
 .prilagodi-skupina { margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 6px; }
 .prilagodi-skupina legend { margin: 0 0 6px; padding: 0; color: var(--medlo); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .prilagodi-vrstica { cursor: pointer; min-height: 48px; }
+.skripta-vrstica { cursor: default; display: flex; align-items: center; gap: 10px; }
+.skripta-vrstica > div:first-child { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.skripta-izpis { max-height: 140px; overflow: auto; margin: 4px 0 0; padding: 8px; font-size: 12px; white-space: pre-wrap; word-break: break-word; border-radius: 8px; background: var(--kartica); border: 1px solid var(--rob); }
+.skripta-opozorilo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.skripta-opozorilo p { flex: 1 1 100%; }
 .prilagodi-vrstica input[type=checkbox] { width: 20px; height: 20px; flex: none; margin: 0; accent-color: var(--zelena); }
 /* Neobkljukano polje je bilo v temni temi crn kvadrat brez obrobe (posnetek 14. 10. 2026): vidna obroba in kljukica. */
 .prilagodi-vrstica input[type=checkbox] { -webkit-appearance: none; appearance: none; display: grid; place-content: center;

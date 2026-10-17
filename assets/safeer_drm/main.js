@@ -80,6 +80,14 @@ function beriPravila(pot) {
   try { const p = JSON.parse(fs.readFileSync(pot, 'utf8')); return p && typeof p === 'object' ? p : null; } catch (_) { return null; }
 }
 const pravila = spotify && argumenti.scit ? beriPravila(argumenti.scit) : null;
+// Skripte, ki jih je uporabnik sam uvozil in vklopil (core/uporabniske_skripte.py): [{ime, koda}], samo v strani Spotify.
+function beriSkripte(pot) {
+  try {
+    const p = JSON.parse(fs.readFileSync(pot, 'utf8'));
+    return Array.isArray(p) ? p.filter(s => s && typeof s.koda === 'string').slice(0, 50) : [];
+  } catch (_) { return []; }
+}
+const uporabniskeSkripte = spotify && argumenti.skripte ? beriSkripte(argumenti.skripte) : [];
 function oglasnaZahteva(raw) {
   if (!pravila) return false;
   let u; try { u = new URL(raw); } catch (_) { return false; }
@@ -185,9 +193,10 @@ const SPOTIFY_ZACETEK = `(() => {
   }) });
 })();`;
 
-// Scit, v strani (samo z vklopljenim Scitom): oglas v predvajalniku takoj utisa in ga prevrti (najvecja hitrost
-// predvajanja), brez cakanja na strazo Safeer OS (ta je prvi oglas zaznala sele po 7 s - preizkus 17. 10. 2026).
-// Pesmi se ne dotakne: po oglasu hitrost in glasnost vrne. Oglas prepozna po istih oznakah kot STANJE_JS.
+// Scit, v strani (samo z vklopljenim Scitom): oglas v predvajalniku takoj utisa, brez cakanja na strazo Safeer OS
+// (ta je prvi oglas zaznala sele po 7 s - preizkus 17. 10. 2026). Oglas se predvaja do konca (ne blokiramo ga, ne
+// nadomescamo in ne pospesujemo: sicer predvajalnik obstane in glasba po oglasu ne steche - preizkus 18. 10. 2026).
+// Pesmi se ne dotakne: po oglasu glasnost vrne. Oglas prepozna po istih oznakah kot STANJE_JS.
 const SPOTIFY_SCIT = `(() => {
   if (window.__safeerScit) return;
   window.__safeerScit = true;
@@ -213,28 +222,13 @@ const SPOTIFY_SCIT = `(() => {
     if (oglas) {
       if (!vOglasu && window.__safeerSpotify) window.__safeerSpotify.utisaj(true);
       vOglasu = true;
-      mediji().forEach(m => { try { m.muted = true; if (m.playbackRate < 16) m.playbackRate = 16; } catch (_) {} });
+      mediji().forEach(m => { try { m.muted = true; } catch (_) {} });
     } else if (vOglasu) {
       vOglasu = false;
-      mediji().forEach(m => { try { m.playbackRate = 1; } catch (_) {} });
       if (window.__safeerSpotify) window.__safeerSpotify.utisaj(false);
     }
   }
   setInterval(korak, 200);          // okno ni duseno (backgroundThrottling: false): zaznava v 0,2 s
-  // Oglas se sploh ne zacne: predvajalnik dobi namesto zvocnega oglasa (spotify:ad:...) tiho sekundo (tehnika filtrov
-  // AdGuard, okt. 2026 - medpomnilnik predvajalnika z _getCacheKey). Utisanje in prevrtenje zgoraj ostaneta kot rezerva.
-  const TIHO = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU2LjQwLjEwMQAAAAAAAAAAAAAA//tUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAGAAADAABgYGBgYGBgYGBgYGBgYGBggICAgICAgICAgICAgICAgICgoKCgoKCgoKCgoKCgoKCgwMDAwMDAwMDAwMDAwMDAwMDg4ODg4ODg4ODg4ODg4ODg4P////////////////////8AAAAATGF2YzU2LjYwAAAAAAAAAAAAAAAAJAAAAAAAAAAAAwDNZKlY//sUZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAETEFNRTMuOTkuNVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//sUZB4P8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//sUZDwP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//sUZFoP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//sUZHgP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//sUZJYP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV';
-  const zamenjajOglas = { apply(f, t, a) {
-    try { const o = a[0]; if (o && typeof o._uri === 'string' && o._uri.indexOf('spotify:ad:') === 0 && o._url) o._url = TIHO; } catch (_) {}
-    return Reflect.apply(f, t, a);
-  } };
-  const izvThen = Promise.prototype.then;
-  Promise.prototype.then = function (uspeh) {
-    try {
-      if (typeof uspeh === 'function' && Function.prototype.toString.call(uspeh).indexOf('this._getCacheKey') !== -1) arguments[0] = new Proxy(uspeh, zamenjajOglas);
-    } catch (_) {}
-    return izvThen.apply(this, arguments);
-  };
 })();`;
 
 const PREVERI_PREDVAJANJE = "(() => Array.from(document.querySelectorAll('video,audio')).some(m => !m.paused && !m.ended && m.readyState >= 2 && m.currentTime > 0))()";
@@ -321,6 +315,8 @@ function prikljuciCdp() {
     .then(() => dbg.sendCommand('Page.enable'))
     .then(() => dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: SPOTIFY_ZACETEK }))
     .then(() => pravila ? dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: SPOTIFY_SCIT }) : null)
+    .then(() => uporabniskeSkripte.reduce((p, s) => p.then(() => dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument',
+      { source: '(() => { try {\n' + s.koda + '\n} catch (e) { /* skripta uporabnika */ } })();' })).catch(() => {}), Promise.resolve()))
     .then(() => zapisi('CDP_READY'), e => zapisi('CDP_FAILED', String(e && e.message || e).slice(0, 120)));
   return Promise.race([prijava, new Promise(r => setTimeout(r, 5000))]);
 }
@@ -373,11 +369,9 @@ function nastaviSejo(ses) {
   ses.setPermissionRequestHandler((_wc, p, cb) => { const ok = dovoljeno.has(p); if (!ok) zapisi('PERMISSION_BLOCKED', p); cb(ok); });
   ses.setPermissionCheckHandler((_wc, p) => dovoljeno.has(p));
   ses.on('will-download', (e) => { e.preventDefault(); zapisi('DOWNLOAD_BLOCKED'); });
-  let oglasov = 0;
   ses.webRequest.onBeforeRequest((d, cb) => {
     const h = zaprtGostitelj(d.url);
     if (h) { zapisi('AD_OR_THREAT_RESOURCE_BLOCKED', h); cb({ cancel: true }); }
-    else if (oglasnaZahteva(d.url)) { if (oglasov++ < 50) zapisi('AD_RESOURCE_BLOCKED', varenGostitelj(d.url)); cb({ cancel: true }); }
     else cb({});
   });
   if (spotify) {

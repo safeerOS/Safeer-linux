@@ -33,7 +33,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from . import safeer_drm
+from . import safeer_drm, uporabniske_skripte
 
 IZVOR = "https://open.spotify.com/"
 #: Prijava v Spotify poteka v Spletu (WebKit Safeer OS), ne v Safeer DRM: Google prijavo v vgrajenih brskalnikih
@@ -475,6 +475,13 @@ class Kanal:
                 with open(pot, "w", encoding="utf-8") as f:
                     json.dump(pravila_scita(), f)
                 args.append("--scit=" + pot)
+            skripte = uporabniske_skripte.aktivne_js()
+            if skripte:
+                pot_s = os.path.join(self.seja, "skripte.json")
+                with open(pot_s, "w", encoding="utf-8") as f:
+                    json.dump(skripte, f)
+                os.chmod(pot_s, 0o600)
+                args.append("--skripte=" + pot_s)
             peskovnik = safeer_drm.v_peskovniku()
             na_gostitelju = safeer_drm.v_flatpaku() and not peskovnik
             if not na_gostitelju:

@@ -1526,6 +1526,88 @@
   // Police na Domov, ki jih je uporabnik skril (»polica:samodejni«, »polica:nazadnje«): ne naloze se in ne narisejo
   // (kartice, naslovnice in podatki ne zasedajo pomnilnika); ob ponovnem vklopu se naloze znova.
   var SKRIVNE_POLICE = [["polica:samodejni", "samNaslov"], ["polica:nazadnje", "policaNazadnje"]];
+  // ---- skripte, ki jih uporabnik sam uvozi (core/uporabniske_skripte.py): JavaScript v strani Spotify, shell na ukaz.
+  // Safeer skript ne dostavlja; uporabnik jih uvozi iz datoteke po opozorilu, vklopi ali zazene sam.
+  var SKR = { seznam: null, cakajoca: null, izpis: null };
+  function naloziSkripte() {
+    klic("mediaSkripte").then(function (r) {
+      SKR.seznam = (r && r.skripte) || [];
+      if ($("slojPrilagodi") && $("slojPrilagodi").classList.contains("viden")) narisiPrilagodi();
+    }, function () { SKR.seznam = SKR.seznam || []; });
+  }
+  function skriptaNapaka(r) {
+    var k = r && r.napaka;
+    obvesti(t(k === "vrsta" ? "skriptaNapakaVrsta" : k === "velikost" ? "skriptaNapakaVelikost" : k === "cas" ? "skriptaCas" : "skriptaNapaka"));
+  }
+  function narisiSkripte(cilj) {
+    if (SKR.seznam === null) { SKR.seznam = []; naloziSkripte(); }
+    var g = el("fieldset", "prilagodi-skupina prilagodi-skripte");
+    g.appendChild(el("legend", "", ubezi(t("skriptePrilagodi"))));
+    g.appendChild(el("p", "drobno", ubezi(t("skripteOpis"))));
+    SKR.seznam.forEach(function (s) {
+      var v = el("div", "media-mapa prilagodi-vrstica skripta-vrstica");
+      v.appendChild(el("div", "", "<b>" + ubezi(s.ime) + "</b><small>" + ubezi(t(s.vrsta === "js" ? "skriptaJs" : "skriptaSh")) + "</small>"));
+      if (s.vrsta === "js") {
+        var cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !!s.vklopljena;
+        cb.setAttribute("aria-label", t("skriptaVklop") + ": " + s.ime);
+        cb.addEventListener("change", function () {
+          klic("mediaSkriptaVklop", [s.id, cb.checked]).then(function (r) {
+            if (r && r.ok) { s.vklopljena = cb.checked; obvesti(t("skriptaJsObvestilo")); } else { skriptaNapaka(r); cb.checked = !cb.checked; }
+          }, function () { skriptaNapaka(null); cb.checked = !cb.checked; });
+        });
+        v.appendChild(cb);
+      } else {
+        var z = el("button", "media-polica-vse", "<span>" + ubezi(t("skriptaZazeni")) + "</span>"); z.type = "button";
+        z.addEventListener("click", function () {
+          z.disabled = true;
+          klic("mediaSkriptaZazeni", [s.id]).then(function (r) {
+            SKR.izpis = { ime: s.ime, r: r || {} }; narisiPrilagodi();
+          }, function () { z.disabled = false; skriptaNapaka(null); });
+        });
+        v.appendChild(z);
+      }
+      var o = el("button", "media-polica-vse", "<span>" + ubezi(t("skriptaOdstrani")) + "</span>"); o.type = "button";
+      o.setAttribute("aria-label", t("skriptaOdstrani") + ": " + s.ime);
+      o.addEventListener("click", function () {
+        klic("mediaSkriptaOdstrani", [s.id]).then(function () { if (SKR.izpis && SKR.izpis.ime === s.ime) SKR.izpis = null; naloziSkripte(); }, function () { skriptaNapaka(null); });
+      });
+      v.appendChild(o);
+      g.appendChild(v);
+    });
+    if (SKR.izpis) {
+      var r = SKR.izpis.r, glava = SKR.izpis.ime + " - " + (r.napaka === "cas" ? t("skriptaCas") : t("skriptaKonec", { koda: String(r.koda) }));
+      g.appendChild(el("small", "", ubezi(glava)));
+      var pre = el("pre", "skripta-izpis", ubezi(String(r.izpis || "")));
+      g.appendChild(pre);
+    }
+    if (SKR.cakajoca) {
+      var c = el("div", "skripta-opozorilo");
+      c.appendChild(el("p", "drobno", ubezi(t("skriptaOpozorilo", { ime: SKR.cakajoca.ime }))));
+      var da = el("button", "media-polica-vse", "<span>" + ubezi(t("skriptaPotrdi")) + "</span>"); da.type = "button";
+      da.addEventListener("click", function () {
+        var p = SKR.cakajoca; SKR.cakajoca = null;
+        klic("mediaSkriptaUvozi", [p.ime, p.vsebina]).then(function (r) {
+          if (r && r.ok) { obvesti(t("skriptaUvozena")); naloziSkripte(); } else { skriptaNapaka(r); narisiPrilagodi(); }
+        }, function () { skriptaNapaka(null); narisiPrilagodi(); });
+      });
+      var ne = el("button", "media-polica-vse", "<span>" + ubezi(t("skriptaPreklici")) + "</span>"); ne.type = "button";
+      ne.addEventListener("click", function () { SKR.cakajoca = null; narisiPrilagodi(); });
+      c.appendChild(da); c.appendChild(ne); g.appendChild(c);
+    }
+    var datoteka = document.createElement("input"); datoteka.type = "file"; datoteka.accept = ".js,.sh,text/plain,application/javascript"; datoteka.hidden = true;
+    datoteka.addEventListener("change", function () {
+      var f = datoteka.files && datoteka.files[0]; if (!f) return;
+      if (f.size > 256 * 1024) { skriptaNapaka({ napaka: "velikost" }); return; }
+      var bralec = new FileReader();
+      bralec.onload = function () { SKR.cakajoca = { ime: f.name, vsebina: String(bralec.result || "") }; narisiPrilagodi(); };
+      bralec.onerror = function () { skriptaNapaka(null); };
+      bralec.readAsText(f);
+    });
+    var uvozi = el("button", "media-polica-vse", "<span>" + ubezi(t("skriptaUvozi")) + "</span>"); uvozi.type = "button";
+    uvozi.addEventListener("click", function () { datoteka.click(); });
+    g.appendChild(uvozi); g.appendChild(datoteka);
+    cilj.appendChild(g);
+  }
   function osveziPoliceSkrite() {
     try {
       var sam = jeSkrito("polica:samodejni");
@@ -1610,6 +1692,7 @@
       return { kljuc: "kat:" + k[0], ime: t("media_" + k[0]), ikona: k[1] };
     }));
     skupina("policaPrilagodi", SKRIVNE_POLICE.map(function (p) { return { kljuc: p[0], ime: t(p[1]), ikona: "glasba" }; }));
+    narisiSkripte(seznam);
     // Viri niso vec v levem stolpcu (lastnik, 17. 10. 2026), zato jih tu ni kaj skrivati.
     if (aktivni) { var cilj = seznam.querySelector('[data-kljuc="' + aktivni.replace(/"/g, "") + '"]'); if (cilj) cilj.focus(); }
   }

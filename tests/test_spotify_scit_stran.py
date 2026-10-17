@@ -23,8 +23,14 @@ class TestSpotifyScitStran(unittest.TestCase):
         s = open(MAIN, encoding="utf-8").read()
         self.assertIn("pravila ? dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: SPOTIFY_SCIT })", s)
 
+    def test_oglas_se_ne_blokira_in_ne_nadomesca(self):
+        s = open(MAIN, encoding="utf-8").read()
+        self.assertNotIn("AD_RESOURCE_BLOCKED", s)
+        self.assertNotIn("zamenjajOglas", s)
+        self.assertNotIn("playbackRate = 16", _skript())
+
     @unittest.skipUnless(shutil.which("node"), "brez node")
-    def test_oglas_prevrti_pesem_ne(self):
+    def test_oglas_utisan_pesem_ne(self):
         oder = r"""
 let oznaka = null, naslov = 'Pesem', casi = [];
 const m = { muted: false, playbackRate: 1 };
@@ -38,9 +44,9 @@ global.MutationObserver = undefined;
 eval(process.argv[process.argv.length - 1]);
 const k = casi[0];
 k(); if (m.playbackRate !== 1 || m.muted) throw new Error('pesem spremenjena');
-naslov = 'Oglas'; k(); if (m.playbackRate !== 16 || !m.muted || !utis) throw new Error('oglas ne prevrti');
+naslov = 'Oglas'; k(); if (m.playbackRate !== 1 || !m.muted || !utis) throw new Error('oglas ni utisan (ali je pospesen)');
 naslov = 'Druga pesem'; k(); if (m.playbackRate !== 1 || m.muted || utis) throw new Error('po oglasu ni vrnjeno');
-oznaka = {}; k(); if (m.playbackRate !== 16) throw new Error('oznaka oglasa');
+oznaka = {}; k(); if (!m.muted || m.playbackRate !== 1) throw new Error('oznaka oglasa');
 console.log('ok');
 """
         r = subprocess.run(["node", "-e", oder, _skript()], capture_output=True, text=True, timeout=20)
