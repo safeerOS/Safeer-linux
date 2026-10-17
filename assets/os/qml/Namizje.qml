@@ -36,6 +36,7 @@ Item {
             if (vrsta === "nosilci") datoteke.osveziNosilce()
             if (vrsta === "govor" && p) govor.dogodek(p)
             if (vrsta === "videz" && p) koren.uporabiVidez(p)
+            if (vrsta === "jezik" && p && p.jezik) koren.nastaviJezik(p.jezik)   // izbira v vodniku ob prvem zagonu
             if (vrsta === "iskanjeOdDrugod" && p && p.q) { polje.text = p.q; polje.forceActiveFocus() }
             if (vrsta === "predvajalnik" && p) koren.medij = p
             if (vrsta === "medijskaKnjiznica") koren.osveziMedij()

@@ -3507,11 +3507,116 @@
   }
 
   // ------------------------------------------------------------------ nazaj v Linux Mint
+  // »Nazaj na Cinnamon« je vedno na voljo (lastnik, 17. 10. 2026): vrne tudi pult, dock in videz, ne samo zagon ob prijavi.
   function odpriMint() {
     zapriSloje();
-    $("mintZaStalno").hidden = !(S.zacetek && S.zacetek.samozagon);
     $("slojMint").classList.add("viden");
     setTimeout(function () { $("mintSamoTokrat").focus(); }, 30);
+  }
+
+  // Safeer OS iz menija po »Nazaj na Cinnamon«: enkrat vprasamo, ali naj se spet zaganja ob prijavi.
+  function odpriVrnitev() {
+    zapriSloje();
+    $("slojVrnitev").classList.add("viden");
+    setTimeout(function () { $("vrnitevDa").focus(); }, 30);
+  }
+  function odgovoriVrnitev(da) {
+    if (S.zacetek) S.zacetek.vrnitev = false;
+    zapriSloje();
+    klic("vrniSafeerOs", [da]).then(function (ok) {
+      if (!ok) return;
+      if (S.zacetek) S.zacetek.samozagon = true;
+      obvesti(t("vrVrnjeno"));
+    }, function () { obvesti(t("niUspelo")); });
+  }
+
+  // ------------------------------------------------------------------ vodnik ob prvem zagonu
+  // Lastnik, 17. 10. 2026: jezik, racuni, Scit, Safeer Link in konec; vsak korak je preskocljiv. Vodnik sam nicesar ne
+  // obdeluje: prijave so obstojece (Splet, Medijski center), Scit je obstojeci blok #blokScit, ki ga za ta korak
+  // premaknemo v vodnik, Link je prijavno okno Safeer Control (QR / koda).
+  var JEZIKI_VODNIKA = [["sl", "Slovenščina"], ["en", "English"], ["de", "Deutsch"], ["es", "Español"], ["fr", "Français"], ["it", "Italiano"]];
+  var KORAKI_VODNIKA = ["Jezik", "Racuni", "Scit", "Link", "Konec"];
+  var vodnikKorak = -1, scitMesto = null;
+  function odpriVodnik() {
+    zapriSloje();
+    vodnikKorak = 0;
+    $("slojVodnik").classList.add("viden");
+    narisiVodnik();
+  }
+  function vrniScitIzVodnika() {
+    var b = $("blokScit");
+    if (scitMesto && b.parentNode !== scitMesto.mapa) scitMesto.mapa.insertBefore(b, scitMesto.za);
+  }
+  function zapriVodnik() {
+    if (vodnikKorak < 0) return;
+    vodnikKorak = -1;
+    vrniScitIzVodnika();
+    $("slojVodnik").classList.remove("viden");
+    if (S.zacetek) S.zacetek.vodnik = false;
+    klic("vodnikKoncaj").catch(function () {});
+  }
+  function korakVodnika(premik) {
+    vodnikKorak += premik;
+    if (vodnikKorak >= KORAKI_VODNIKA.length) { zapriVodnik(); return; }
+    narisiVodnik();
+  }
+  function narisiVodnik() {
+    var k = KORAKI_VODNIKA[vodnikKorak], v = $("vodnikVsebina"), konec = k === "Konec";
+    vrniScitIzVodnika();
+    v.innerHTML = "";
+    $("vodnikKorak").textContent = t("vdKorak", { n: vodnikKorak + 1, m: KORAKI_VODNIKA.length });
+    $("vodnikNaslov").textContent = t("vd" + k + "Naslov");
+    $("vodnikOpis").textContent = t("vd" + k + "Opis");
+    $("vodnikNazaj").hidden = vodnikKorak === 0;
+    $("vodnikPreskoci").hidden = konec;
+    $("vodnikPreskoci").textContent = t(k === "Link" ? "vdPozneje" : "vdPreskoci");
+    $("vodnikPreskociVse").hidden = konec;
+    $("vodnikNaprej").textContent = t(konec ? "vdKoncaj" : "vdNaprej");
+    var izbire = el("div", "vodnik-izbire");
+    function gumb(besedilo, ob) {
+      var g = el("button", "gumb", ubezi(besedilo)); g.type = "button"; g.addEventListener("click", ob); izbire.appendChild(g); return g;
+    }
+    if (k === "Jezik") {
+      JEZIKI_VODNIKA.forEach(function (j) {
+        var g = gumb(j[1], function () { izberiJezik(j[0]); });
+        g.lang = j[0];
+        g.classList.toggle("izbran", jezik === j[0]);
+        g.setAttribute("aria-pressed", jezik === j[0] ? "true" : "false");
+      });
+    } else if (k === "Racuni") {
+      gumb(t("vdYoutube"), function () { klic("splet", [YT_PRIJAVA, true]); cakajYtPrijavo(); });
+      gumb(t("vdSpotify"), spPrijava);
+      gumb(t("vdTwitch"), function () { klic("splet", [TW_PRIJAVA, true]); cakajTwitchPrijavo(); });
+    } else if (k === "Scit") {
+      var b = $("blokScit");
+      if (!scitMesto) scitMesto = { mapa: b.parentNode, za: b.nextSibling };
+      v.appendChild(b);
+      nalozScit();
+    } else if (k === "Link") {
+      gumb(t("vdLinkPovezi"), function () { klic("prijava"); });
+    } else {
+      var deli = t("vdKonecUkaz").split("{ukaz}");
+      v.appendChild(el("p", "drobno", ubezi(deli[0]) + "<code>safeer-os --nazaj-na-cinnamon</code>" + ubezi(deli[1] || "")));
+    }
+    if (izbire.childNodes.length) v.appendChild(izbire);
+    setTimeout(function () {
+      var izbran = v.querySelector(".gumb.izbran") || v.querySelector("button") || $("vodnikNaprej");
+      izbran.focus();
+    }, 30);
+  }
+  // Jezik iz vodnika velja takoj: to okno ga zamenja samo, druga okna in lupina QML dobijo dogodek »jezik«.
+  function izberiJezik(j) {
+    uporabiJezik(j);
+    klic("nastaviJezik", [j]).catch(function () {});
+  }
+  function uporabiJezik(j) {
+    if (!BESEDILA_OS[j] || j === jezik) return;
+    jezik = j;
+    if (S.zacetek) S.zacetek.jezik = j;
+    prevedi();
+    narisiDomov();
+    if (S.razdelek === "nastavitve") narisiNastavitve();
+    if (vodnikKorak >= 0) narisiVodnik();
   }
 
   // ------------------------------------------------------------------ iskanje
@@ -4959,6 +5064,7 @@
   }
 
   function zapriSloje() {
+    zapriVodnik();                 // tudi klik ob plosco ali Escape: vodnik je preskocen (Nastavitve ga odprejo znova)
     if (S.galerija) zapriGalerijo();
     zapriMeniSporocila();
     document.querySelectorAll(".sloj").forEach(function (s) { s.classList.remove("viden"); });
@@ -5641,6 +5747,15 @@
       }, function () {});
     }, 3000);
   }
+  // Prijava v Spotify (Medijski center in vodnik ob prvem zagonu).
+  function spPrijava() {
+    klic("mediaSpPrijava").then(function (x) {
+      if (x && x.napaka) { spNapaka(x.napaka); return; }
+      // Prijava v Spletu (Google tam deluje); Medijski center vsakih 3 s pogleda, ali je prijava koncana.
+      if (x && x.splet) { klic("splet", [x.splet, true]); cakajSpPrijavoSplet(); return; }
+      kat.sp = Object.assign({}, kat.sp, { okno: true }); narisiSeznamePredvajanja(); cakajSpPrijavo();
+    }, function () { spNapaka("ni_odziva"); });
+  }
   function ustaviSpCakanje() { if (kat.spCakanje) { clearInterval(kat.spCakanje); kat.spCakanje = 0; } }
   function spNapaka(koda) {
     var k = "spNapaka_" + koda;
@@ -5678,14 +5793,7 @@
       });
     } else if (!r.prijavljen || r.okno) {
       glava.appendChild(el("small", "", ubezi(r.okno ? t("spPrijavaOkno") : r.potekla ? t("spPotekla") : t("spPrijavaNamig"))));
-      if (!r.okno) gumb(t("spPrijava"), function () {
-        klic("mediaSpPrijava").then(function (x) {
-          if (x && x.napaka) { spNapaka(x.napaka); return; }
-          // Prijava v Spletu (Google tam deluje); Medijski center vsakih 3 s pogleda, ali je prijava koncana.
-          if (x && x.splet) { klic("splet", [x.splet, true]); cakajSpPrijavoSplet(); return; }
-          kat.sp = Object.assign({}, kat.sp, { okno: true }); narisiSeznamePredvajanja(); cakajSpPrijavo();
-        }, function () { spNapaka("ni_odziva"); });
-      });
+      if (!r.okno) gumb(t("spPrijava"), spPrijava);
     } else {
       glava.appendChild(el("small", "", ubezi(r.ime ? t("spPrijavljen", { ime: r.ime }) : t("spPrijavljenBrezImena"))));
       // Odjava v dveh korakih: izbriše prijavo Spotifyja na tej napravi (profil Safeer DRM za Spotify).
@@ -7771,6 +7879,7 @@
   // ------------------------------------------------------------------ dogodki iz safeer_os.py
   window.safeerOsDogodek = function (vrsta, podatki) {
     katDogodek(vrsta, podatki);
+    if (vrsta === "jezik" && podatki) uporabiJezik(podatki.jezik);
     // Vgrajeni kanali Sporocil: znacka neprebranih, nalozen, ime; vklop celotnih Sporocil.
     if (vrsta === "kanaliSporocil") vkPosodobi(podatki);
     if (vrsta === "kanalPreklici") vkPrekliciDodajanje(String(podatki || ""));
@@ -8212,6 +8321,25 @@
       klic("nastavitve", ["sound"]);
     });
     $("mintPreklici").addEventListener("click", zapriSloje);
+    $("gumbVodnik").addEventListener("click", odpriVodnik);
+    $("vodnikNaprej").addEventListener("click", function () { korakVodnika(1); });
+    $("vodnikPreskoci").addEventListener("click", function () { korakVodnika(1); });
+    $("vodnikNazaj").addEventListener("click", function () { korakVodnika(-1); });
+    $("vodnikPreskociVse").addEventListener("click", zapriVodnik);
+    $("vrnitevDa").addEventListener("click", function () { odgovoriVrnitev(true); });
+    $("vrnitevNe").addEventListener("click", function () { odgovoriVrnitev(false); });
+    // Tipkovnica in daljinec: puscice med gumbi vodnika (v polju in izbiri ostanejo polju), Escape preskoci vodnik.
+    $("slojVodnik").addEventListener("keydown", function (e) {
+      if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); zapriVodnik(); return; }
+      if (e.defaultPrevented || ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].indexOf(e.key) < 0) return;
+      if (e.target && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+      var gumbi = Array.prototype.filter.call(this.querySelectorAll(".plosca button, .plosca select, .plosca input"),
+        function (x) { return !x.hidden && !x.disabled && x.offsetParent !== null; });
+      if (!gumbi.length) return;
+      e.preventDefault();
+      var i = gumbi.indexOf(document.activeElement), naprej = e.key === "ArrowRight" || e.key === "ArrowDown";
+      gumbi[i < 0 ? 0 : (i + (naprej ? 1 : gumbi.length - 1)) % gumbi.length].focus();
+    });
     $("mintSamoTokrat").addEventListener("click", function () { klic("nazajVMint", [false]); });
     $("mintZaStalno").addEventListener("click", function () { klic("nazajVMint", [true]); });
     document.querySelectorAll(".sloj .tancica").forEach(function (t_) { t_.addEventListener("click", function () {
@@ -8953,6 +9081,7 @@
         return;
       }
       if (PREDVAJALNIK) return;     // stanje, odprta okna, nedavne datoteke in sporocila so v lupini Safeer OS
+      if (z.vodnik) odpriVodnik(); else if (z.vrnitev) odpriVrnitev();
       osveziStanje();
       osveziOkna();
       narisiNedavneDomov();

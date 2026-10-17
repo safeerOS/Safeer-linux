@@ -463,6 +463,7 @@
           <button class="stikalo" id="gumbNamizje"><svg data-ikona="namizje"></svg><div><span data-t="pokaziNamizje"></span><small data-t="pokaziNamizjePod"></small></div></button>
           <button class="stikalo" id="stikaloSamozagon" role="switch" aria-checked="false"><svg data-ikona="ponovno"></svg><div><span data-t="samozagon"></span><small data-t="samozagonPod"></small></div><i></i></button>
           <button class="stikalo" id="stikaloOdVklopa" role="switch" aria-checked="false" hidden><svg data-ikona="namizje"></svg><div><span data-t="odVklopa"></span><small data-t="odVklopaPod"></small></div><i></i></button>
+          <button class="stikalo" id="gumbVodnik"><svg data-ikona="ponovno"></svg><div><span data-t="vdGumb"></span><small data-t="vdGumbPod"></small></div></button>
           <button class="stikalo" id="gumbNazajVMint"><svg data-ikona="odjava"></svg><div><span data-t="nazajVMint"></span><small data-t="nazajVMintPod"></small></div></button>
         </div>
         <h2 data-t="posodobitve"></h2>
@@ -744,6 +745,33 @@
       <button type="button" class="gumb" id="mintPreklici" data-t="preklici"></button>
       <button type="button" class="gumb" id="mintZaStalno" data-t="zaStalno"></button>
       <button type="button" class="gumb glavni" id="mintSamoTokrat" data-t="samoTokrat"></button>
+    </div>
+  </div>
+</div>
+<!-- Vodnik ob prvem zagonu: jezik, racuni, Scit, Safeer Link, konec (os.js: vodnik*). Vsak korak je preskocljiv. -->
+<div class="sloj" id="slojVodnik" role="dialog" aria-modal="true" aria-labelledby="vodnikNaslov"><div class="tancica"></div>
+  <div class="plosca">
+    <small class="drobno" id="vodnikKorak"></small>
+    <h3 id="vodnikNaslov"></h3>
+    <p class="drobno" id="vodnikOpis"></p>
+    <div id="vodnikVsebina"></div>
+    <div class="gumbi">
+      <button type="button" class="gumb" id="vodnikPreskociVse" data-t="vdPreskociVse"></button>
+      <span class="raztegni"></span>
+      <button type="button" class="gumb" id="vodnikNazaj" data-t="vdNazaj"></button>
+      <button type="button" class="gumb" id="vodnikPreskoci"></button>
+      <button type="button" class="gumb glavni" id="vodnikNaprej"></button>
+    </div>
+  </div>
+</div>
+<!-- Safeer OS iz menija po »Nazaj na Cinnamon«: spet ob prijavi ali samo zdaj -->
+<div class="sloj" id="slojVrnitev" role="dialog" aria-modal="true"><div class="tancica"></div>
+  <div class="plosca">
+    <h3 data-t="vrNaslov"></h3>
+    <p class="drobno" data-t="vrOpis"></p>
+    <div class="gumbi">
+      <button type="button" class="gumb" id="vrnitevNe" data-t="vrSamoZdaj"></button>
+      <button type="button" class="gumb glavni" id="vrnitevDa" data-t="vrDa"></button>
     </div>
   </div>
 </div>

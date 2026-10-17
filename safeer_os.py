@@ -15,6 +15,7 @@ Zagon:
   safeer_os.py --okno          v oknu (za preizkus ob drugem delu)
   safeer_os.py --predvajalnik  Safeer Player: samo Medijski center v svojem oknu (tudi --player)
   safeer_os.py --posnetek P    izrise stran, shrani posnetek v P (PNG) in konca (preverjanje)
+  safeer_os.py --nazaj-na-cinnamon  obicajno namizje Cinnamon: brez zagona ob prijavi, vrne pult in dock (tudi --back-to-cinnamon)
 
 Prvi zagon: ce racunalnik se ni v Safeer Linku in uporabnik ni izbral »Nadaljuj brez povezave
 naprav«, Safeer OS odpre prijavno okno Safeer Control (QR / 6-mestna koda / brez povezave).
@@ -1287,6 +1288,103 @@ def popravi_po_sesutju(shramba) -> bool:
     return True
 
 
+# ---------------------------------------------------------------------- vodnik ob prvem zagonu
+def oznaci_vodnik(shramba) -> bool:
+    """Vodnik ob prvem zagonu (jezik, racuni, Scit, Link) se pokaze samo novi namestitvi: shramba os.json je ob
+    zagonu prazna. Kdor Safeer OS ze uporablja (shramba ima karkoli), ga ob posodobitvi ne dobi vsiljenega (lastnik,
+    17. 10. 2026). Klic mora biti pred prvim zapisom v shrambo (uredi_samozagon_ob_zagonu pise ob vsakem zagonu).
+    Vrne True, ce naj se vodnik pokaze; znova ga uporabnik odpre v Nastavitvah."""
+    if shramba.get("vodnik") is None:
+        shramba.set("vodnik", "caka" if not getattr(shramba, "podatki", None) else "ni_potreben")
+    return shramba.get("vodnik") == "caka"
+
+
+# ---------------------------------------------------------------------- nazaj na Cinnamon
+def _profil_safeer_cinnamon() -> str:
+    """Postavitev Safeer Cinnamon (videz | dock | delovna) ali "", ce ni vklopljen."""
+    mapa = os.path.join(_mapa_nastavitev(), "safeer-cinnamon")
+    if not os.path.isfile(os.path.join(mapa, "vklopljeno")):
+        return ""
+    try:
+        with open(os.path.join(mapa, "profil"), encoding="utf-8") as f:
+            profil = f.read().strip()
+    except OSError:
+        profil = ""
+    return profil if profil in ("videz", "dock", "delovna") else "videz"
+
+
+def _ukaz_safeer_cinnamon() -> list:
+    from shutil import which
+    return ["safeer-cinnamon"] if which("safeer-cinnamon") else []
+
+
+def nazaj_na_cinnamon(shramba, pocakaj: bool = True) -> dict:
+    """Pot nazaj na obicajno namizje Cinnamon (lastnik, 17. 10. 2026), brez roota in brez odstranjevanja paketov:
+    Safeer OS se ne zazene vec ob prijavi, Mintov pult se vrne in safeer-cinnamon --izklopi vrne temo, pult, dock,
+    ozadje in zagone iz shranjenega prejsnjega stanja. Zagonski in prijavni zaslon (»Safeer od vklopa«) ostaneta:
+    njuna povrnitev zahteva skrbnisko geslo (SAFEER_CINNAMON_BREZ_SISTEMA), izklopi ju stikalo v Nastavitvah.
+
+    Prejsnjo postavitev si zapomnimo, da jo Safeer OS iz menija ponudi vrniti (vrni_safeer_os). pocakaj=False:
+    safeer-cinnamon tece loceno, ker --izklopi konca tudi proces z delovno povrsino (to je lahko klicatelj)."""
+    profil = _profil_safeer_cinnamon()
+    if shramba.get("nazaj_na_cinnamon") is None or profil:
+        shramba.set("nazaj_na_cinnamon", {"profil": profil})
+    nastavi_samozagon(False)                 # pred --izklopi: ob delovni povrsini gre zapis v kopijo, ki jo izklop vrne
+    shramba.set("samozagon", False)
+    shramba.set("samozagon_izbral", True)
+    vrni_mintov_pult(shramba)
+    ukaz = _ukaz_safeer_cinnamon()
+    if ukaz and profil:
+        okolje = dict(os.environ, SAFEER_CINNAMON_BREZ_SISTEMA="1")
+        try:
+            if pocakaj:
+                subprocess.run(ukaz + ["--izklopi"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, env=okolje, timeout=120)
+            else:
+                subprocess.Popen(ukaz + ["--izklopi"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, env=okolje, start_new_session=True)
+        except Exception as e:  # noqa: BLE001 - samozagon in pult sta ze vrnjena
+            print("[SafeerOS] safeer-cinnamon --izklopi:", e)
+    return {"profil": profil, "safeerCinnamon": bool(ukaz and profil)}
+
+
+def ukaz_nazaj_na_cinnamon() -> int:
+    """`safeer-os --nazaj-na-cinnamon` iz terminala, tudi ce namizje ne dela. Ce Safeer OS tece, to naredi on (ena
+    shramba: njegov zapis bi sicer prepisal nas) in se konca; ce ne odgovori, to naredimo tu."""
+    try:
+        if _predaj_tekocemu("nazaj-na-cinnamon", ""):
+            print("Safeer OS vraca namizje Cinnamon in se zapira.")
+            return 0
+    except Exception as e:  # noqa: BLE001 - ni seje D-Bus ali Safeer OS ne odgovori
+        print("[SafeerOS] nazaj na Cinnamon:", e)
+    izid = nazaj_na_cinnamon(os_programi.Shramba())
+    print("Namizje Cinnamon je vrnjeno; Safeer OS se ne zazene vec ob prijavi." if izid["safeerCinnamon"] else
+          "Safeer OS se ne zazene vec ob prijavi; Mintov pult je viden.")
+    print("Nazaj na Safeer OS: odpri Safeer OS iz menija.")
+    return 0
+
+
+def vrni_safeer_os(shramba, da: bool) -> bool:
+    """Safeer OS iz menija po »Nazaj na Cinnamon«: da = spet ob prijavi (in prejsnja postavitev Safeer Cinnamon),
+    ne = samo ta zagon. Vprasanje se pokaze enkrat; True, ce je bilo kaj vrnjeno."""
+    prej = shramba.get("nazaj_na_cinnamon")
+    shramba.set("nazaj_na_cinnamon", None)
+    if not da:
+        return False
+    nastavi_samozagon(True)
+    shramba.set("samozagon", True)
+    shramba.set("samozagon_izbral", True)
+    profil = prej.get("profil") if isinstance(prej, dict) else ""
+    ukaz = _ukaz_safeer_cinnamon()
+    if ukaz and profil in ("videz", "dock", "delovna"):
+        try:     # delovna: safeer-cinnamon zazene `safeer-os --delovna`, ki se preda temu procesu
+            subprocess.Popen(ukaz + ["--profil", profil], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, start_new_session=True)
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] safeer-cinnamon --profil:", e)
+    return True
+
+
 def _ukaz_controla() -> Optional[list]:
     from shutil import which
     pot = which("safeer-control")
@@ -1626,6 +1724,8 @@ class SafeerOS(Gtk.Application):
         self.v_oknu = v_oknu
         self.posnetek = posnetek
         self.shramba = os_programi.Shramba()
+        # Pred prvim zapisom v shrambo: prazna shramba = nova namestitev (oznaci_vodnik).
+        self._vodnik = not posnetek and oznaci_vodnik(self.shramba)
         self.programi = os_programi.Programi(self.shramba)
         self.zapiski = os_zapiski.Zapiski(ZAPISKI_POT)
         self.lupa = os_lupa.Ucenje()
@@ -1803,6 +1903,10 @@ class SafeerOS(Gtk.Application):
         delovna_konec = Gio.SimpleAction.new("delovna-izklopi", None)
         delovna_konec.connect("activate", lambda *_a: self._izklopi_delovno())
         self.add_action(delovna_konec)
+        #: `safeer-os --nazaj-na-cinnamon`, ko Safeer OS tece: naredi ga ta proces (ena shramba), nato se konca.
+        cinnamon = Gio.SimpleAction.new("nazaj-na-cinnamon", GLib.VariantType.new("s"))   # _predaj_tekocemu poslje niz
+        cinnamon.connect("activate", lambda *_a: self._nazaj_v_mint(True))
+        self.add_action(cinnamon)
 
     def _razdelek_od_drugod(self, razdelek: str) -> None:
         """Dejanje »razdelek« (vnos okna v docku ali meniju): samo okna iz OKNA_V_PULTU, nic drugega iz ukazne vrstice."""
@@ -3907,6 +4011,9 @@ class SafeerOS(Gtk.Application):
             "predogledOkno": lambda: self._predogled_datoteke(pogled, str(a[0]) if a else ""),
             "samozagon": lambda: self._samozagon(bool(a[0])) if a else je_samozagon(),
             "nazajVMint": lambda: self._nazaj_v_mint(bool(a[0]) if a else False),
+            "vodnikKoncaj": lambda: self._vodnik_koncaj(),
+            "vrniSafeerOs": lambda: vrni_safeer_os(self.shramba, bool(a[0]) if a else False),
+            "nastaviJezik": lambda: self._nastavi_jezik(str(a[0]) if a else ""),
             # Razdelek izbira postavitev GLAVNEGA okna (vgrajeni Splet); Safeer Player ima samo Medijski center.
             "razdelek": lambda: self._razdelek(str(a[0]) if a else "domov") if pogled is self.pogled else True,
         }
@@ -4329,7 +4436,7 @@ class SafeerOS(Gtk.Application):
             if ciste_spletne != shranjene_spletne:
                 self.shramba.set("spletne", ciste_spletne)
             shranjene_spletne = ciste_spletne
-        return {
+        izid = {
             "jezik": _jezik(),
             "ime": GLib.get_real_name() if GLib.get_real_name() not in ("", "Unknown") else GLib.get_user_name(),
             "racunalnik": socket.gethostname(),
@@ -4353,6 +4460,15 @@ class SafeerOS(Gtk.Application):
             "povezava": stanje_povezave("ozadje"),
             "sporocila": sporocila_vklop.sporocila_vklopljena(),
         }
+        izid.update(self._zacetek_vodnika())
+        return izid
+
+    def _zacetek_vodnika(self) -> dict:
+        """Vodnik ob prvem zagonu samo v glavnem oknu (okno razdelka in Safeer Player to vesta v os.js); zagon iz menija
+        po »Nazaj na Cinnamon«: os.js enkrat vprasa, ali naj se Safeer OS spet zaganja ob prijavi. Locen slovar: slovar
+        _zacetek ostane pod mejo preizkusa test_most_brez_podvojenih (slovarji mostu imajo vec kot 20 kljucev)."""
+        return {"vodnik": bool(self._vodnik),
+                "vrnitev": isinstance(self.shramba.get("nazaj_na_cinnamon"), dict) and not self.delovna}
 
     # ------------------------------------------------------------------ vgrajeni kanali Sporocil
     def _prekrivanje_kanalov(self, pogled):
@@ -4490,28 +4606,41 @@ class SafeerOS(Gtk.Application):
             self.shramba.set("samozagon_izbral", True)      # izbira uporabnika: selitev ob zagonu je ne spreminja vec
         return je_samozagon()
 
+    def _vodnik_koncaj(self) -> bool:
+        """Vodnik ob prvem zagonu je koncan ali preskocen: ne pokaze se vec sam (Nastavitve ga odprejo znova)."""
+        self._vodnik = False
+        self.shramba.set("vodnik", "koncan")
+        return True
+
+    def _nastavi_jezik(self, jezik: str) -> str:
+        """Jezik namizja iz vodnika: ista nastavitev, ki jo bere _jezik() (ui_language Safeer Browserja). Velja takoj
+        za vsa odprta okna in lupino QML (dogodek »jezik«)."""
+        if jezik in ("sl", "en", "de", "es", "fr", "it"):
+            try:
+                from core.config import ConfigManager
+                ConfigManager().set("ui_language", jezik)
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] jezik:", e)
+            self._dogodek("jezik", {"jezik": jezik})
+        return _jezik()
+
     def _nazaj_v_mint(self, za_stalno: bool) -> bool:
         """Zapre Safeer OS; pred uporabnikom je obicajno namizje Linux Mint. Nazaj se vrne iz menija (Safeer OS).
 
         Ob Safeer Cinnamon (delovna povrsina) samo zaprtje ni bilo dovolj (lastnik, 14. 10. 2026: »uporabnik lahko
         kadarkoli preklopi na Mint namizje«): ikone Nemo so ostale skrite, ob naslednji prijavi pa je Safeer OS zagnal
         safeer-cinnamon --seja ne glede na stikalo. Zato: »Samo tokrat« vrne ikone namizja za to sejo (ob naslednji
-        prijavi spet Safeer OS); »Ne zaganjaj vec ob prijavi« vrne prejsnji videz Minta (safeer-cinnamon --izklopi:
-        tema, pult, dock, ozadje, ikone) - Safeer Cinnamon se znova vklopi iz menija."""
+        prijavi spet Safeer OS); »Nazaj na Cinnamon« (za_stalno) vrne prejsnji videz Minta - nazaj_na_cinnamon, isto kot
+        `safeer-os --nazaj-na-cinnamon`; Safeer OS iz menija ponudi vrnitev."""
         if za_stalno:
-            self._samozagon(False)
-        if videz_cinnamon()["naVoljo"]:
-            ukaz = ["safeer-cinnamon", "--izklopi"] if za_stalno else None
+            # Loceno od Safeer OS: --izklopi konca tudi delovno povrsino (SIGTERM -> _koncaj pospravi).
+            nazaj_na_cinnamon(self.shramba, pocakaj=False)
+        elif videz_cinnamon()["naVoljo"]:
             try:
-                if ukaz:
-                    # Loceno od Safeer OS: --izklopi konca tudi delovno povrsino (SIGTERM -> _koncaj pospravi).
-                    subprocess.Popen(ukaz, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                     start_new_session=True)
-                else:
-                    subprocess.run(["gsettings", "set", "org.nemo.desktop", "show-desktop-icons", "true"],
-                                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
-                    subprocess.Popen(["nemo-desktop"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                     stderr=subprocess.DEVNULL, start_new_session=True)
+                subprocess.run(["gsettings", "set", "org.nemo.desktop", "show-desktop-icons", "true"],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+                subprocess.Popen(["nemo-desktop"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, start_new_session=True)
             except Exception as e:  # noqa: BLE001 - Safeer OS se zapre v vsakem primeru
                 print("[SafeerOS] nazaj v Mint:", e)
         GLib.timeout_add(250, lambda: (self._koncaj(), False)[1])
@@ -6993,6 +7122,8 @@ def main() -> int:
         # Sprejeta ponudba "Poslji na napravo" (Safeer Control, ko Safeer OS se ne tece).
         i = sys.argv.index("--ponudba")
         ponudba_json = sys.argv[i + 1] if i + 1 < len(sys.argv) else ""
+    if "--nazaj-na-cinnamon" in sys.argv[1:] or "--back-to-cinnamon" in sys.argv[1:]:
+        return ukaz_nazaj_na_cinnamon()
     if "--vrni-mint" in sys.argv[1:] or "--restore-mint" in sys.argv[1:]:
         # Samo povrnitev Mintovega pulta, brez okna in brez WebKita: to poklice zaganjalnik, ko
         # odneha, in uporabnik iz terminala, ce bi Safeer OS kdaj pustil namizje brez pulta.
