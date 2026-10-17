@@ -5045,6 +5045,7 @@
   // ---- račun YouTube (core/youtube_racun.py): prijava samo, če jo uporabnik želi, in samo v Spletu
   var YT_PRIJAVA = "https://accounts.google.com/ServiceLogin?service=youtube&continue=https://www.youtube.com/";
   var YT_ODJAVA = "https://www.youtube.com/logout";
+  var YT_DODAJ_RACUN = "https://accounts.google.com/AddSession?service=youtube&continue=https://www.youtube.com/";
   function naloziYtRacun(vsiljeno) {
     if (!vsiljeno && kat.ytRacunCas && Date.now() - kat.ytRacunCas < 60000) return Promise.resolve(kat.ytRacun);
     kat.ytRacunCas = Date.now();
@@ -5074,7 +5075,7 @@
   }
   function odpriYtSeznam(x) {
     obvesti(t("ytNalagam"));
-    klic("mediaYtSeznam", [x.id]).then(function (sz) {
+    klic("mediaYtSeznam", [x.id, x.racun || 0]).then(function (sz) {
       if (sz && sz.napaka === "potekla") { obvesti(t("ytPotekla")); naloziYtRacun(true); return; }
       if (!sz || !sz.vnosi || !sz.vnosi.length) { obvesti(t("seznamNiUspel")); return; }
       if (x.posebni) sz.ime = ytImeSeznama(x);
@@ -5090,8 +5091,16 @@
       glava.appendChild(el("small", "", ubezi(r.ime ? t("ytPrijavljen", { ime: r.ime }) : t("ytPrijavljenBrezImena"))));
       var odjava = el("button", "gumb", ubezi(t("ytOdjava"))); odjava.type = "button";
       // Odjava v Spletu: YouTube in Google sama izbrišeta prijavo v naši seji (WebKit), drugi piškotki ostanejo.
-      odjava.onclick = function () { kat.ytRacun = null; kat.ytRacunCas = 0; klic("splet", [YT_ODJAVA, true]); narisiSeznamePredvajanja(); };
+      odjava.onclick = function () {
+        // Odjava znotraj Safeer OS: izbrišejo se samo piškotki youtube.com v seji Spleta (brez odpiranja Spleta).
+        klic("odjavaStoritve", ["youtube"]).then(function () { kat.ytRacun = null; kat.ytRacunCas = 0; naloziYtRacun(true); });
+        kat.ytRacun = null; narisiSeznamePredvajanja();
+      };
       glava.appendChild(odjava);
+      var dodaj = el("button", "gumb", ubezi(t("ytDodajRacun"))); dodaj.type = "button";
+      // Drug račun Google v isti prijavi (Google dovoli več računov hkrati) – vsi seznami so potem tukaj.
+      dodaj.onclick = function () { klic("splet", [YT_DODAJ_RACUN, true]); cakajYtPrijavo(); };
+      glava.appendChild(dodaj);
     } else {
       glava.appendChild(el("small", "", ubezi(r.potekla ? t("ytPotekla") : t("ytPrijavaNamig"))));
       var prijava = el("button", "gumb", ubezi(t("ytPrijava"))); prijava.type = "button";
@@ -5101,17 +5110,23 @@
     blok.appendChild(glava);
     if (r.prijavljen) {
       if (r.napaka) blok.appendChild(el("small", "", ubezi(t("ytNiUspelo"))));
-      var vrsta = el("div", "kat-seznami-vrsta");
-      (r.seznami || []).forEach(function (x) {
-        var k = el("button", "kat-seznam-kartica"); k.type = "button";
-        k.appendChild(el("span", "kat-brez-slike", svg("glasba")));
-        var opis = el("span"); opis.appendChild(el("b", "", ubezi(ytImeSeznama(x))));
-        opis.appendChild(el("small", "", "YouTube"));
-        k.appendChild(opis);
-        k.onclick = function () { odpriYtSeznam(x); };
-        vrsta.appendChild(k);
+      var racuni = (r.racuni && r.racuni.length) ? r.racuni : [{ racun: 0, ime: r.ime, seznami: r.seznami || [] }];
+      racuni.forEach(function (ra) {
+        // Več računov: vsak ima svojo vrsto z imenom računa (lastnik 17. 10. 2026).
+        if (racuni.length > 1) blok.appendChild(el("small", "kat-yt-racun-ime", ubezi(ra.ime || "YouTube")));
+        var vrsta = el("div", "kat-seznami-vrsta");
+        (ra.seznami || []).forEach(function (x) {
+          var k = el("button", "kat-seznam-kartica"); k.type = "button";
+          k.appendChild(el("span", "kat-brez-slike", svg("glasba")));
+          var opis = el("span"); opis.appendChild(el("b", "", ubezi(ytImeSeznama(x))));
+          opis.appendChild(el("small", "", ubezi(racuni.length > 1 ? "YouTube · " + (ra.ime || "") : "YouTube")));
+          k.appendChild(opis);
+          k.onclick = function () { odpriYtSeznam(x); };
+          vrsta.appendChild(k);
+        });
+        blok.appendChild(vrsta);
       });
-      blok.appendChild(vrsta);
+      blok.appendChild(el("small", "kat-yt-namig", ubezi(t("ytNaVsehNapravah"))));
     }
     c.appendChild(blok);
   }
@@ -5172,7 +5187,10 @@
       glava.appendChild(el("small", "", ubezi(r.ime ? t("twitchPrijavljen", { ime: r.ime }) : t("twitchPrijavljenBrezImena"))));
       var odjava = el("button", "gumb", ubezi(t("twitchOdjava"))); odjava.type = "button";
       // Odjava v Spletu: Twitch sam izbriše prijavo v naši seji (WebKit), drugi piškotki ostanejo.
-      odjava.onclick = function () { kat.twRacun = null; kat.twRacunCas = 0; klic("splet", [TW_ODJAVA, true]); narisiSeznamePredvajanja(); };
+      odjava.onclick = function () {
+        klic("odjavaStoritve", ["twitch"]).then(function () { kat.twRacun = null; kat.twRacunCas = 0; naloziTwitchRacun(true); });
+        kat.twRacun = null; narisiSeznamePredvajanja();
+      };
       glava.appendChild(odjava);
     } else {
       glava.appendChild(el("small", "", ubezi(r.potekla ? t("twitchPotekla") : t("twitchPrijavaNamig"))));
@@ -5444,7 +5462,7 @@
         // Seznam računa YouTube: predvaja se takoj; shrani ga uporabnik sam (ostane samo na tej napravi).
         var shrani = el("button", "gumb", ubezi(t("ytShrani"))); shrani.type = "button";
         shrani.onclick = function () {
-          klic("mediaYtShrani", [sz.yt]).then(function (r) {
+          klic("mediaYtShrani", [sz.yt, sz.yt_racun || 0, sz.ime || ""]).then(function (r) {
             if (!r || !r.ok) { obvesti(t("seznamNiMogoce")); return; }
             obvesti(t("ytShranjeno", { ime: r.ime })); naloziSeznamePredvajanja();
           }, function () { obvesti(t("seznamNiMogoce")); });

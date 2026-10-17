@@ -212,7 +212,7 @@ class Racun:
     def prijavljen(self) -> bool:
         return prijavljen(self.piskotki())
 
-    def _vprasaj(self, pot: str, telo: dict, piskotki: dict, cas: float = 15.0) -> dict:
+    def _vprasaj(self, pot: str, telo: dict, piskotki: dict, cas: float = 15.0, racun: int = 0) -> dict:
         naslov = IZVOR + "/youtubei/v1/" + pot + "?prettyPrint=false"
         razclenjen = urllib.parse.urlsplit(naslov)
         if razclenjen.scheme != "https" or razclenjen.hostname not in _DOVOLJENI:
@@ -222,7 +222,7 @@ class Racun:
             raise PoteklaPrijava()
         glave = {
             "User-Agent": uvoz_seznama._UA, "Accept-Language": "en", "Content-Type": "application/json",
-            "Origin": IZVOR, "X-Origin": IZVOR, "Referer": IZVOR + "/", "X-Goog-AuthUser": "0",
+            "Origin": IZVOR, "X-Origin": IZVOR, "Referer": IZVOR + "/", "X-Goog-AuthUser": str(int(racun)),
             "X-Youtube-Client-Name": "1", "X-Youtube-Client-Version": uvoz_seznama._RAZLICICA,
             "Authorization": avtorizacija,
             "Cookie": "; ".join("%s=%s" % (k, v) for k, v in piskotki.items()),
@@ -241,27 +241,49 @@ class Racun:
             raise PoteklaPrijava()
         return o
 
+    #: Najvec racunov Google v isti prijavi (Google dovoli vec racunov hkrati; X-Goog-AuthUser 0, 1, 2 ...).
+    NAJVEC_RACUNOV = 5
+
+    def _racun(self, piskotki: dict, racun: int) -> tuple:
+        ime = ime_iz(self._vprasaj("account/account_menu", {}, piskotki, racun=racun))
+        seznami = seznami_iz(self._vprasaj("browse", {"browseId": "FEplaylist_aggregation"}, piskotki, racun=racun))
+        if not seznami:
+            seznami = seznami_iz(self._vprasaj("browse", {"browseId": "FElibrary"}, piskotki, racun=racun))
+        return ime, seznami
+
     def stanje(self) -> dict:
-        """{"prijavljen", "ime", "seznami": [{id, ime}|{id, posebni}], "potekla"} - brez izjem (napaka = ni prijave)."""
+        """{"prijavljen", "ime", "seznami", "racuni": [{racun, ime, seznami}], "potekla"} - brez izjem.
+        Lastnik 17. 10. 2026: uporabnik je lahko prijavljen v vec racunov YouTube; vsi njihovi seznami so na voljo."""
         piskotki = self.piskotki()
         if not prijavljen(piskotki):
-            return {"prijavljen": False, "ime": "", "seznami": [], "potekla": False}
-        try:
-            ime = ime_iz(self._vprasaj("account/account_menu", {}, piskotki))
-            seznami = seznami_iz(self._vprasaj("browse", {"browseId": "FEplaylist_aggregation"}, piskotki))
-            if not seznami:
-                seznami = seznami_iz(self._vprasaj("browse", {"browseId": "FElibrary"}, piskotki))
-        except PoteklaPrijava:
-            return {"prijavljen": False, "ime": "", "seznami": [], "potekla": True}
-        except Exception as e:  # noqa: BLE001 - omrezje: Medijski center pokaze, da ni uspelo, nic se ne sesuje
-            print("[YouTube racun] stanje:", type(e).__name__, flush=True)
-            return {"prijavljen": True, "ime": "", "seznami": [{"id": p, "posebni": p} for p in POSEBNI],
-                    "potekla": False, "napaka": True}
-        posebni = [{"id": p, "posebni": p} for p in POSEBNI]
-        return {"prijavljen": True, "ime": ime, "potekla": False,
-                "seznami": posebni + [s for s in seznami if s["id"] not in POSEBNI]}
+            return {"prijavljen": False, "ime": "", "seznami": [], "racuni": [], "potekla": False}
 
-    def seznam(self, ident: str) -> Optional[dict]:
+        def posebni(n):
+            return [{"id": p, "posebni": p, "racun": n} for p in POSEBNI]
+        racuni, videna = [], set()
+        for n in range(self.NAJVEC_RACUNOV):
+            try:
+                ime, seznami = self._racun(piskotki, n)
+            except PoteklaPrijava:
+                if n == 0:
+                    return {"prijavljen": False, "ime": "", "seznami": [], "racuni": [], "potekla": True}
+                break
+            except Exception as e:  # noqa: BLE001 - omrezje: Medijski center pokaze, da ni uspelo, nic se ne sesuje
+                print("[YouTube racun] stanje:", type(e).__name__, flush=True)
+                if n == 0:
+                    return {"prijavljen": True, "ime": "", "seznami": posebni(0), "racuni": [], "potekla": False,
+                            "napaka": True}
+                break
+            # Neobstojec indeks Google preusmeri na privzeti racun: isto ime pomeni, da racunov ni vec.
+            if n > 0 and (not ime or ime in videna):
+                break
+            videna.add(ime)
+            racuni.append({"racun": n, "ime": ime,
+                           "seznami": posebni(n) + [dict(x, racun=n) for x in seznami if x["id"] not in POSEBNI]})
+        prvi = racuni[0] if racuni else {"ime": "", "seznami": posebni(0)}
+        return {"prijavljen": True, "ime": prvi["ime"], "potekla": False, "seznami": prvi["seznami"], "racuni": racuni}
+
+    def seznam(self, ident: str, racun: int = 0) -> Optional[dict]:
         """{"ime", "vir": "YouTube", "skladbe"} vseh posnetkov seznama (z nadaljevanjem, do NAJVEC) ali None.
         Potekla prijava: izjema PoteklaPrijava."""
         ident = str(ident or "")
@@ -270,7 +292,7 @@ class Racun:
         piskotki = self.piskotki()
         if not prijavljen(piskotki):
             raise PoteklaPrijava()
-        prva = uvoz_seznama.iz_youtube(self._vprasaj("browse", {"browseId": "VL" + ident}, piskotki))
+        prva = uvoz_seznama.iz_youtube(self._vprasaj("browse", {"browseId": "VL" + ident}, piskotki, racun=racun))
         skladbe: dict[str, dict] = {}
         for v in prva["vnosi"]:
             skladbe.setdefault(v["id"], v)
@@ -278,7 +300,7 @@ class Racun:
         while zeton and len(skladbe) < uvoz_seznama.NAJVEC and krogov < _KROGOV:
             krogov += 1
             try:
-                stran = uvoz_seznama.iz_youtube(self._vprasaj("browse", {"continuation": zeton}, piskotki))
+                stran = uvoz_seznama.iz_youtube(self._vprasaj("browse", {"continuation": zeton}, piskotki, racun=racun))
             except PoteklaPrijava:
                 raise
             except Exception as e:  # noqa: BLE001 - prve strani ne zavrzemo zaradi ene neuspele naslednje

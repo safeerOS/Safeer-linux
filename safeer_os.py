@@ -3799,6 +3799,7 @@ class SafeerOS(Gtk.Application):
             "shraniSpletne": lambda: self._shrani_spletne(a[0] if a else []),
             "splet": lambda: self._splet(str(a[0]) if a else "", len(a) > 1 and a[1] is True),
             "spletKonecPrijave": lambda: self._splet_konec_prijave([str(x) for x in (a[0] if a and isinstance(a[0], list) else [])]),
+            "odjavaStoritve": lambda: self._odjava_storitve(str(a[0]) if a else ""),
             "medij": lambda: self._medij(str(a[0]) if a else ""),
             "osveziMedijskeMape": self._medijski_osvezi_mape,
             "dodajMedijskiTok": lambda: self._shrani_medijski_tok(
@@ -4630,6 +4631,49 @@ class SafeerOS(Gtk.Application):
         if not naslov:
             return True
         return self._spletni.odpri_povezavo(naslov) if nov_zavihek else self._spletni.odpri(naslov)
+
+    #: Odjava znotraj Safeer OS (lastnik 17. 10. 2026): izbrisemo samo piskotke te storitve v seji Spleta.
+    _ODJAVA_DOMENE = {"youtube": ("youtube.com",), "twitch": ("twitch.tv",)}
+
+    def _odjava_storitve(self, storitev: str) -> bool:
+        domene = self._ODJAVA_DOMENE.get(storitev)
+        if not domene:
+            return False
+        seje = []
+        for ime in ("_spletni", "_spletni_namizje"):
+            spletni = getattr(self, ime, None)
+            seja = getattr(spletni, "seja", None) if spletni is not None else None
+            if seja is not None and seja not in seje:
+                seje.append(seja)
+        if not seje:
+            # Splet v tem procesu se ni odprt: baze nihce nima odprte, piskotke te storitve izbrisemo neposredno.
+            try:
+                import sqlite3
+                from core import youtube_racun
+                povezava = sqlite3.connect(youtube_racun.pot_piskotkov(), timeout=2)
+                try:
+                    for d in domene:
+                        povezava.execute("DELETE FROM moz_cookies WHERE host = ? OR host LIKE ?", (d, "%." + d))
+                    povezava.commit()
+                finally:
+                    povezava.close()
+                return True
+            except Exception as e:  # noqa: BLE001
+                print("[Safeer OS] odjava:", type(e).__name__, flush=True)
+                return False
+        for seja in seje:
+            upravitelj = seja.get_website_data_manager()
+
+            def ob_branju(u, rezultat, u2=upravitelj):
+                try:
+                    podatki = u2.fetch_finish(rezultat)
+                except Exception:  # noqa: BLE001
+                    return
+                izbrani = [x for x in podatki if any(x.get_name() == d or x.get_name().endswith("." + d) for d in domene)]
+                if izbrani:
+                    u2.remove(WebKit2.WebsiteDataTypes.COOKIES, izbrani, None, None, None)
+            upravitelj.fetch(WebKit2.WebsiteDataTypes.COOKIES, None, ob_branju, None)
+        return True
 
     def _splet_konec_prijave(self, gostitelji: list) -> bool:
         """Po prijavi v YouTube/Twitch v Spletu (Medijski center jo zazna v piskotkih): zavihki strani za prijavo se

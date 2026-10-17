@@ -937,11 +937,18 @@ class Katalog:
     def _yt_racun(self, _a: list) -> Any:
         return self.mc.yt_stanje()
 
+    @staticmethod
+    def _racun_iz(a: list, i: int) -> int:
+        try:
+            return max(0, min(9, int(a[i]))) if len(a) > i else 0
+        except (TypeError, ValueError):
+            return 0
+
     def _yt_seznam(self, a: list) -> Any:
-        return self.mc.yt_seznam(self._niz(a, 0))
+        return self.mc.yt_seznam(self._niz(a, 0), self._racun_iz(a, 1))
 
     def _yt_shrani(self, a: list) -> Any:
-        return self.mc.yt_shrani(self._niz(a, 0))
+        return self.mc.yt_shrani(self._niz(a, 0), self._racun_iz(a, 1), self._niz(a, 2))
 
     def _twitch_racun(self, _a: list) -> Any:
         return self.mc.twitch_stanje()

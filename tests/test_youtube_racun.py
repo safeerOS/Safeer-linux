@@ -142,7 +142,7 @@ class RacunTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as mapa:
             it = MockInnerTube(odgovori_racuna())
             r = yr.Racun(baza(mapa, []), it)
-            self.assertEqual(r.stanje(), {"prijavljen": False, "ime": "", "seznami": [], "potekla": False})
+            self.assertEqual(r.stanje(), {"prijavljen": False, "ime": "", "seznami": [], "racuni": [], "potekla": False})
             with self.assertRaises(yr.PoteklaPrijava):
                 r.seznam("LL")
         self.assertEqual(it.zahteve, [])
@@ -233,39 +233,35 @@ class MedijskiCenterRacunTest(unittest.TestCase):
         m._yt_racun = yr.Racun(prijavljena_baza(mapa), MockInnerTube(odgovori_racuna()))
         return m
 
-    def test_predvajanje_in_shranjevanje_brez_linka(self):
+    def test_predvajanje_in_shranjevanje_gre_na_naprave(self):
+        """Lastnik 17. 10. 2026: prijava enkrat, seznami racuna na vseh uporabnikovih napravah (Link)."""
         with tempfile.TemporaryDirectory() as mapa:
             m = self._mc(mapa)
             sz = m.yt_seznam("LL")
-            self.assertEqual((sz["yt"], len(sz["vnosi"])), ("LL", 4))
-            # Neshranjen seznam se predvaja (resolve najde vnos), brez iskanja posnetkov.
+            self.assertEqual((sz["yt"], len(sz["vnosi"]), sz["yt_racun"]), ("LL", 4, 0))
             vnos = m.resolve(sz["vnosi"][1]["id"])
             self.assertEqual(vnos["url"], "https://www.youtube.com/watch?v=aaaaaaaaaa2")
             r = m.yt_shrani("LL")
             self.assertEqual((r["ok"], r["stevilo"]), (True, 4))
             self.assertEqual([x["ime"] for x in m.seznami()], ["Liked videos"])
-            # Zaseben seznam ne gre drugim napravam v Linku (ne iz Safeer OS ne iz Safeer Control).
-            self.assertEqual(m.seznami_izvoz({})["lists"], [])
-            self.assertEqual(m.seznami_izvoz({"ime": "Liked videos"})["skladbe"], [])
-            self.assertEqual(link_seznami.izvoz({}, os.path.join(mapa, "media"))["lists"], [])
+            self.assertEqual([x["ime"] for x in m.seznami_izvoz({})["lists"]], ["Liked videos"])
 
-    def test_usklajevanje_ne_izbrise_zasebnega(self):
+    def test_samodejno_usklajevanje_ne_vrne_izbrisanega(self):
         with tempfile.TemporaryDirectory() as mapa:
             m = self._mc(mapa)
-            m.yt_seznam("WL")
-            m.yt_shrani("WL")
-            dalec = int(time.time() * 1000) + 10 ** 7
+            m._yt_zapisi("Moj seznam", [{"naslov": "A", "izvajalec": "B", "youtube": "aaaaaaaaaa1"}])
+            self.assertEqual([x["ime"] for x in m.seznami()], ["Moj seznam"])
+            m.odstrani_seznam("Moj seznam")
+            m._yt_zapisi("Moj seznam", [{"naslov": "A", "izvajalec": "B", "youtube": "aaaaaaaaaa1"}])
+            self.assertEqual(m.seznami(), [])
 
-            def vprasaj(parametri):
-                if not parametri:
-                    return {"lists": [{"ime": "Watch later", "vir": "", "cas": dalec, "stevilo": 1}],
-                            "deleted": {"Watch later": dalec}}
-                return {"ime": "Watch later", "vir": "", "cas": dalec, "stevilo": 1, "od": 0,
-                        "skladbe": [{"naslov": "Tuja", "izvajalec": "X", "youtube": "ccccccccccc"}]}
-            m._seznami_uskladi(vprasaj)
-            seznami = m._seznami_beri()
-        self.assertEqual([(x["ime"], x.get("zaseben")) for x in seznami], [("Watch later", True)])
-        self.assertEqual(seznami[0]["skladbe"][0]["youtube"], "bbbbbbbbbb1")
+    def test_vec_racunov(self):
+        with tempfile.TemporaryDirectory() as mapa:
+            r = yr.Racun(prijavljena_baza(mapa), MockInnerTube(odgovori_racuna()))
+            st = r.stanje()
+            # Mock vrne isto ime za vsak indeks: drugi racun ne obstaja, ostane en racun.
+            self.assertEqual(len(st["racuni"]), 1)
+            self.assertTrue(all(x.get("racun") == 0 for x in st["seznami"]))
 
     def test_potekla_in_brez_prijave(self):
         with tempfile.TemporaryDirectory() as mapa:

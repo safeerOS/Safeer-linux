@@ -2144,12 +2144,69 @@ class MediaCenter:
         return racun
 
     def yt_stanje(self) -> dict:
-        return self.yt_racun.stanje()
+        st = self.yt_racun.stanje()
+        if st.get("prijavljen") and st.get("racuni"):
+            self._yt_uskladi_v_ozadju(st["racuni"])
+        return st
 
-    def yt_seznam(self, ident: str) -> dict:
+    #: Seznami racunov YouTube se samodejno prenesejo med sezname Medijskega centra in prek Safeer Link na vse
+    #: uporabnikove naprave (lastnik 17. 10. 2026: prijava enkrat, poslusanje povsod). Najvec na toliko sekund.
+    YT_USKLADI_S = 6 * 60 * 60
+
+    def _yt_ime_shranjenega(self, ime: str, racun_ime: str, vec_racunov: bool) -> str:
+        ime = str(ime or "YouTube")[:60]
+        return ("%s · %s" % (ime, racun_ime))[:60] if vec_racunov and racun_ime else ime
+
+    def _yt_uskladi_v_ozadju(self, racuni: list) -> None:
+        zdaj = time.time()
+        with self._lock:
+            if getattr(self, "_yt_uskladujem", False) or zdaj - getattr(self, "_yt_uskladeno", 0) < self.YT_USKLADI_S:
+                return
+            self._yt_uskladujem = True
+
+        def delo():
+            try:
+                vec = len(racuni) > 1
+                posebna = {"LL": "Všečkani videoposnetki", "WL": "Oglej si pozneje", "LM": "YouTube Music – všečkano"}
+                for r in racuni:
+                    for x in r.get("seznami") or []:
+                        try:
+                            sz = self.yt_racun.seznam(x["id"], int(r.get("racun") or 0))
+                        except youtube_racun.PoteklaPrijava:
+                            return
+                        except Exception:  # noqa: BLE001 - en seznam ne ustavi drugih
+                            continue
+                        if not sz or not sz.get("skladbe"):
+                            continue
+                        ime = posebna.get(x.get("posebni") or "", sz.get("ime") or x.get("ime") or "YouTube")
+                        self._yt_zapisi(self._yt_ime_shranjenega(ime, r.get("ime") or "", vec), sz["skladbe"])
+                with self._lock:
+                    self._yt_uskladeno = time.time()
+            finally:
+                with self._lock:
+                    self._yt_uskladujem = False
+        threading.Thread(target=delo, name="safeer-yt-uskladi", daemon=True).start()
+
+    def _yt_zapisi(self, ime: str, skladbe: list) -> None:
+        """Seznam racuna med seznami Medijskega centra - NI zaseben: gre prek Linka na uporabnikove naprave.
+        Seznama, ki ga je uporabnik izbrisal, samodejno usklajevanje ne vrne (izbris ima prednost)."""
+        with self._lock:
+            vsi = self._seznami_beri()
+            obstaja = next((x for x in vsi if x["ime"] == ime), None)
+            if obstaja is None and int(self._izbrisani_beri().get(ime) or 0) > 0:
+                return
+            if obstaja is not None and [s.get("youtube") for s in obstaja.get("skladbe", [])] == \
+                    [s.get("youtube") for s in skladbe]:
+                return                                   # brez spremembe: ne pisemo (in ne budimo Linka)
+            prej = int((obstaja or {}).get("cas") or 0)
+            ostali = [x for x in vsi if x["ime"] != ime]
+            self._seznami_pisi([{"ime": ime, "vir": "YouTube", "cas": self._nov_cas(ime, prej), "skladbe": skladbe}]
+                               + ostali)
+
+    def yt_seznam(self, ident: str, racun: int = 0) -> dict:
         """Seznam racuna za predvajanje (vnosi kot pri shranjenih seznamih) ali {"napaka": "potekla"|"ni_uspel"}."""
         try:
-            sz = self.yt_racun.seznam(ident)
+            sz = self.yt_racun.seznam(ident, racun)
         except youtube_racun.PoteklaPrijava:
             return {"napaka": "potekla"}
         except Exception as e:  # noqa: BLE001 - omrezje ali spremenjen odgovor: sporocilo, ne sesutje
@@ -2158,27 +2215,24 @@ class MediaCenter:
         if not sz or not sz.get("skladbe"):
             return {"napaka": "ni_uspel"}
         ime = str(sz["ime"])[:60]
+        kljuc = "%d:%s" % (int(racun), ident)
         with self._lock:
-            self._yt_prebrani = dict(getattr(self, "_yt_prebrani", {}), **{str(ident): sz})
+            self._yt_prebrani = dict(getattr(self, "_yt_prebrani", {}), **{kljuc: sz})
         vnosi = [self._seznam_vnos(ime, "YouTube", s) for s in sz["skladbe"]]
         for v in vnosi:
             self._dynamic_items[v["id"]] = v
-        return {"ime": ime, "vir": "YouTube", "vnosi": vnosi, "yt": str(ident)}
+        return {"ime": ime, "vir": "YouTube", "vnosi": vnosi, "yt": str(ident), "yt_racun": int(racun)}
 
-    def yt_shrani(self, ident: str) -> dict:
-        """Prebrani seznam racuna shrani med sezname Medijskega centra (zaseben: samo na tej napravi)."""
+    def yt_shrani(self, ident: str, racun: int = 0, ime: str = "") -> dict:
+        """Prebrani seznam racuna shrani med sezname Medijskega centra (gre tudi na uporabnikove naprave v Linku)."""
         with self._lock:
-            sz = getattr(self, "_yt_prebrani", {}).get(str(ident))
+            sz = getattr(self, "_yt_prebrani", {}).get("%d:%s" % (int(racun), ident))
         if not sz:
             return {"napaka": "ni_mogoce"}
-        ime = str(sz["ime"])[:60]
+        ime = str(ime or sz["ime"])[:60]
         with self._lock:
-            vsi = self._seznami_beri()
-            prej = next((int(x.get("cas") or 0) for x in vsi if x["ime"] == ime), 0)
-            ostali = [x for x in vsi if x["ime"] != ime]
-            self._seznami_pisi([{"ime": ime, "vir": "YouTube", "cas": self._nov_cas(ime, prej), "zaseben": True,
-                                 "skladbe": sz["skladbe"]}] + ostali)
             self._zapomni_izbris(ime)
+        self._yt_zapisi(ime, sz["skladbe"])
         return {"ok": True, "ime": ime, "stevilo": len(sz["skladbe"])}
 
     # ------------------------------------------------------------------ Twitch (core/twitch.py)

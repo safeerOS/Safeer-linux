@@ -856,3 +856,11 @@ Object.assign(BESEDILA_OS.de, {"media_zasebno": "Privat", "katZasebno": "Privat"
 Object.assign(BESEDILA_OS.es, {"media_zasebno": "Privado", "katZasebno": "Privado", "katZasebnoPod": "Contenido de complementos para adultos: solo en la categoría Privado. Desactivado, no aparece en ningún sitio.", "katZasebniSkriti": "Fuentes privadas: {n} – ocultas", "katPodnapisi": "subtítulos"});
 Object.assign(BESEDILA_OS.fr, {"media_zasebno": "Privé", "katZasebno": "Privé", "katZasebnoPod": "Contenu des modules pour adultes – uniquement dans la catégorie Privé. Désactivé, il n'apparaît nulle part.", "katZasebniSkriti": "Sources privées : {n} – masquées", "katPodnapisi": "sous-titres"});
 Object.assign(BESEDILA_OS.it, {"media_zasebno": "Privato", "katZasebno": "Privato", "katZasebnoPod": "Contenuti dei componenti per adulti – solo nella categoria Privato. Se disattivato, non compare da nessuna parte.", "katZasebniSkriti": "Fonti private: {n} – nascoste", "katPodnapisi": "sottotitoli"});
+
+// YouTube: več računov in seznami na vseh napravah (lastnik 17. 10. 2026).
+Object.assign(BESEDILA_OS.sl, {"ytDodajRacun": "Dodaj račun", "ytNaVsehNapravah": "Seznami tvojih računov so samodejno na voljo tudi na tvojih drugih napravah v Safeer Linku."});
+Object.assign(BESEDILA_OS.en, {"ytDodajRacun": "Add account", "ytNaVsehNapravah": "Your accounts' playlists are automatically available on your other devices in Safeer Link too."});
+Object.assign(BESEDILA_OS.de, {"ytDodajRacun": "Konto hinzufügen", "ytNaVsehNapravah": "Die Playlists deiner Konten sind automatisch auch auf deinen anderen Geräten in Safeer Link verfügbar."});
+Object.assign(BESEDILA_OS.es, {"ytDodajRacun": "Añadir cuenta", "ytNaVsehNapravah": "Las listas de tus cuentas también están disponibles automáticamente en tus otros dispositivos de Safeer Link."});
+Object.assign(BESEDILA_OS.fr, {"ytDodajRacun": "Ajouter un compte", "ytNaVsehNapravah": "Les playlists de tes comptes sont aussi disponibles automatiquement sur tes autres appareils dans Safeer Link."});
+Object.assign(BESEDILA_OS.it, {"ytDodajRacun": "Aggiungi account", "ytNaVsehNapravah": "Le playlist dei tuoi account sono disponibili automaticamente anche sugli altri tuoi dispositivi in Safeer Link."});
