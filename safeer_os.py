@@ -330,12 +330,12 @@ def hubi_v_omrezju(cas: float = 1.5, cakaj: bool = True) -> list:
         return list(_hubi_cache["hubi"])
     if not cakaj:
         if _hubi_isce.acquire(blocking=False):
-            def isci() -> None:
+            def isci_hube() -> None:
                 try:
                     _poisci_hube(cas)
                 finally:
                     _hubi_isce.release()
-            threading.Thread(target=isci, name="safeer-hubi-mdns", daemon=True).start()
+            threading.Thread(target=isci_hube, name="safeer-hubi-mdns", daemon=True).start()
         return list(_hubi_cache["hubi"])
     return _poisci_hube(cas)
 

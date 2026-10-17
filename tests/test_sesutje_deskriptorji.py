@@ -79,7 +79,8 @@ class HubKeepAlive(unittest.TestCase):
         self.assertEqual(link_hub_streznik._Obravnava.ROK_CAKANJA_ZAHTEVE_S, 10.0)   # lastnik 17. 10. 2026
         vir = open(os.path.join(KOREN, "core", "link_hub_streznik.py"), encoding="utf-8").read()
         telo = vir[vir.index("    def parse_request(self) -> bool:"):]
-        self.assertIn('getattr(self.server, "rok_po_rokovanju", None)', telo[:600])
+        telo = telo[:telo.index("\n    def ", 10)]
+        self.assertIn('getattr(self.server, "rok_po_rokovanju", None)', telo)
 
 
 class ZaganjalnikSled(unittest.TestCase):
