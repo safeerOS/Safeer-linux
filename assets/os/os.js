@@ -112,6 +112,14 @@
     if (zamenjave) Object.keys(zamenjave).forEach(function (k) { b = b.split("{" + k + "}").join(zamenjave[k]); });
     return b;
   }
+  // Slovenscina ima dvojino: 2 razlicici, 3-4 razlicice, 5+ razlicic (prej povsod »2 različic«).
+  function kljucRazlicic(n) {
+    if (jezik !== "sl") return "katRazlicic";
+    var z = n % 100;
+    if (z === 2) return "katRazlicic2";
+    if (z === 3 || z === 4) return "katRazlicic34";
+    return "katRazlicic";
+  }
   var LOKALE = { sl: "sl-SI", en: "en-GB", de: "de-DE", es: "es-ES", fr: "fr-FR", it: "it-IT" };
   function prevedi() {
     document.documentElement.lang = jezik;
@@ -4846,7 +4854,7 @@
       // Skladba: pod naslovom izvajalec (koga pričakovati), ne splošna oznaka »Glasba«.
       if ((izSeznama || x.vrsta === "glasba") && x.izvajalec) metaOznaka = x.izvajalec;
       meta.appendChild(el("span", "", ubezi(metaOznaka)));
-      if (x.stevilo_razlicic > 1) meta.appendChild(el("span", "", ubezi(t("katRazlicic", { n: x.stevilo_razlicic }))));
+      if (x.stevilo_razlicic > 1) meta.appendChild(el("span", "", ubezi(t(kljucRazlicic(x.stevilo_razlicic), { n: x.stevilo_razlicic }))));
       data.appendChild(meta); card.appendChild(data);
       // Kakovost pokažemo le, če jo poznamo – »HD« na filmu iz leta 1938 bi bil zavajajoč.
       var znacka = x.kakovost || (x.vrsta === "tv-v-zivo" ? t("katVZivo") : "");
