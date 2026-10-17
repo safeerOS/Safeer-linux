@@ -143,3 +143,34 @@ def odstrani(upravitelj, skripta) -> None:
             upravitelj.remove_script(skripta)
         except Exception:
             pass
+
+
+def sistem_temen_portal(Gio) -> Optional[bool]:
+    """Ali je namizje temno po portalu (org.freedesktop.appearance color-scheme: 1 = temno, 2 = svetlo), sicer po
+    nastavitvah Cinnamona/GNOME. None, ce tega ne pove nihce. Samostojni Safeer Browser (GTK4) tega ne dobi prek
+    gtk-application-prefer-dark-theme, zato je bil na temnem namizju svetel (lastnik 17. 10. 2026)."""
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        from gi.repository import GLib
+        odgovor = bus.call_sync("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop",
+                                "org.freedesktop.portal.Settings", "ReadOne",
+                                GLib.Variant("(ss)", ("org.freedesktop.appearance", "color-scheme")),
+                                None, Gio.DBusCallFlags.NONE, 400, None)
+        v = odgovor.unpack()[0]
+        while hasattr(v, "unpack"):
+            v = v.unpack()
+        if int(v) in (1, 2):
+            return int(v) == 1
+    except Exception:  # noqa: BLE001 - brez portala poskusimo nastavitve namizja
+        pass
+    for shema, kljuc in (("org.x.apps.portal", "color-scheme"), ("org.gnome.desktop.interface", "color-scheme")):
+        try:
+            vir = Gio.SettingsSchemaSource.get_default()
+            if vir is None or vir.lookup(shema, True) is None:
+                continue
+            vrednost = Gio.Settings.new(shema).get_string(kljuc)
+            if vrednost in ("prefer-dark", "prefer-light"):
+                return vrednost == "prefer-dark"
+        except Exception:  # noqa: BLE001
+            continue
+    return None

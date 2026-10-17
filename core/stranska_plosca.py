@@ -38,8 +38,11 @@ class StranskaPlosca:
         self.razkrij.set_child(self.sklad)
         self.pas = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.pas.set_name("safeer-stranska-pas")
-        for stran in ("set_margin_top", "set_margin_bottom", "set_margin_start", "set_margin_end"):
+        for stran in ("set_margin_bottom", "set_margin_start", "set_margin_end"):
             getattr(self.pas, stran)(6)
+        # Pas se zacne pod vrstico zavihkov: njegov gumb za dodajanje ni bil videti kot drugi »+« zavihkov (lastnik,
+        # 17. 10. 2026: dva enaka gumba »+« ob zavihkih).
+        self.pas.set_margin_top(60)
         self.gradnik.append(self.razkrij)
         self.gradnik.append(self.pas)
         self.narisi()
@@ -85,7 +88,7 @@ class StranskaPlosca:
             self.pas.append(g)
             self.gumbi[kid] = g
         izbira = Gtk.MenuButton()
-        izbira.set_icon_name("list-add-symbolic")
+        izbira.set_icon_name("chat-message-new-symbolic")   # klepeti ob strani, ne nov zavihek
         izbira.set_tooltip_text(self._t("dodaj"))
         izbira.set_create_popup_func(lambda g, *_: g.set_popover(self._izbira()))
         self.pas.append(izbira)

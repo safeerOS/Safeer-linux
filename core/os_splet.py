@@ -1202,7 +1202,8 @@ class VdelaniSplet:
         #safeer-splet { background: #0b1424; color: #eaf2ff; }
         #splet-zavihki { background: #0b1424; min-height: 52px; }
         .splet-tab { background: #101a2b; color: #c3d4ea; border: 1px solid rgba(211,229,255,.14);
-          border-bottom: 0; border-radius: 12px 12px 0 0; padding: 8px 12px; margin-top: 8px; min-width: 180px; }
+          border-bottom: 0; border-radius: 12px 12px 0 0; padding: 8px 12px; margin-top: 8px; min-width: 76px; }
+        #safeer-stranska-pas { border-left: 1px solid rgba(211,229,255,.12); padding-left: 2px; }
         .splet-tab-aktiven { background: #16233a; color: #eaf2ff; border-color: rgba(138,199,255,.55);
           border-top: 2px solid #8ac7ff; }
         .splet-tab button, .new-tab, .nav, .address-action, #splet-meni > button { background: transparent; color: #eaf2ff;
@@ -1258,10 +1259,26 @@ class VdelaniSplet:
         return n if n in splet_temno.NACINI else splet_temno.PRIVZETO
 
     def _namizje_temno(self) -> bool:
+        """Privzeti prikaz strani sledi nastavitvi sistema (lastnik 17. 10. 2026): GTK ali portal/namizje."""
         try:
-            return bool(self.Gtk.Settings.get_default().props.gtk_application_prefer_dark_theme)
+            if bool(self.Gtk.Settings.get_default().props.gtk_application_prefer_dark_theme):
+                return True
         except Exception:
-            return False
+            pass
+        if not hasattr(self, "_portal_temno"):
+            self._portal_temno = splet_temno.sistem_temen_portal(self.Gio)
+            try:
+                bus = self.Gio.bus_get_sync(self.Gio.BusType.SESSION, None)
+
+                def ob_spremembi(*a):
+                    self._portal_temno = splet_temno.sistem_temen_portal(self.Gio)
+                    self._temno_osvezi()
+                bus.signal_subscribe("org.freedesktop.portal.Desktop", "org.freedesktop.portal.Settings",
+                                     "SettingChanged", "/org/freedesktop/portal/desktop", "org.freedesktop.appearance",
+                                     self.Gio.DBusSignalFlags.NONE, ob_spremembi)
+            except Exception:
+                pass
+        return bool(self._portal_temno)
 
     def _temno_izjeme(self) -> list:
         izjeme = self.config.get("temno_izjeme", []) or []
@@ -1619,6 +1636,9 @@ class VdelaniSplet:
         vrstica.add_css_class("splet-tab")
         ikona = self.Gtk.Label(label="🌐")
         naslov_lbl = self.Gtk.Label(label=self._t("nov")); naslov_lbl.set_ellipsize(self.Pango.EllipsizeMode.END)
+        # Zavihki se ob vecjem stevilu najprej skrcijo (kot v Chromu), sele nato drsijo - prej je imel vsak najmanj
+        # 180 px in prvi zavihek je bil pri 7 zavihkih odrezan (testni PC 17. 10. 2026).
+        naslov_lbl.set_width_chars(3); naslov_lbl.set_max_width_chars(22)
         naslov_lbl.set_xalign(0); naslov_lbl.set_hexpand(True)
         zapri = self._gumb("×", lambda *_: self.zapri_zavihek(pogled), "tab-close")
         zvok = self.Gtk.Button.new_from_icon_name("audio-volume-high-symbolic")
