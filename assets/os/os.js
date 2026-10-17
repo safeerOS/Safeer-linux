@@ -3050,7 +3050,7 @@
     if (scitSpotify !== null) {
       c.appendChild(stikalo("scitSpotify", "scit", scitSpotify, function (v) {
         klic("mediaSpScit", [v]).then(function (r) { scitSpotify = !!(r && r.scit); }, function () {});
-      }, t("scitSpotifyOpis")));
+      }, t("scitSpotifyOpis") + " " + t("spScitObvestilo")));
     }
     function poScitu(r) { if (r) scitStanje = r; narisiScit(); }
     // Twitch brez oglasov (core/twitch_hls.py): velja v Medijskem centru, tudi kadar filtra DNS ni mogoce vklopiti.
@@ -5284,7 +5284,7 @@
     return klic("mediaSpStanje").then(function (r) {
       var prej = kat.sp;
       kat.sp = r || null;
-      if (r && r.obvestilo_scit) obvesti(t("spScitObvestilo"));
+      // Lastnik 17. 10.: o pogojih Spotifyja ne obvescamo z oknom – vrstica je diskretno v opisu stikala v Ščitu.
       if (r && r.potekla && !(prej && prej.potekla)) obvesti(t("spPotekla"));
       if (r && r.prijavljen && !r.okno) ustaviSpCakanje();
       if (r && r.prijavljen && r.drm && !r.okno && !kat.spSeznami && !kat.spBerem && !kat.spNapaka) naloziSpSezname();
