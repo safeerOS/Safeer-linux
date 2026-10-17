@@ -747,7 +747,9 @@ class Racun:
 
     #: Po utisanem oglasu Spotify predvajalnik vcasih obstoji (oglas, premor, naslednje pesmi ni; preizkus 18. 10. 2026):
     #: poslusalec mora sam pritisniti Predvajaj. Strazar ga potisne naprej: Predvajaj, nato Naslednja, nato znova Predvajaj.
-    ZASTOJ_KORAKI = ((2.0, "control-button-playpause"), (6.0, "control-button-skip-forward"), (12.0, "control-button-playpause"))
+    ZASTOJ_KORAKI = ((2.0, "control-button-playpause"), (6.0, "control-button-skip-forward"), (12.0, "control-button-playpause"),
+                     (20.0, "control-button-skip-forward"), (30.0, "control-button-playpause"),
+                     (45.0, "control-button-skip-forward"), (60.0, "control-button-playpause"))
 
     def _popravi_zastoj(self, stanje: dict) -> None:
         if not (self.scit() and stanje.get("oglas") and not stanje.get("igra")):
