@@ -76,7 +76,7 @@ class HubKeepAlive(unittest.TestCase):
 
     def test_rok_samo_za_cakanje_na_zahtevo(self):
         from core import link_hub_streznik
-        self.assertEqual(link_hub_streznik._Obravnava.ROK_CAKANJA_ZAHTEVE_S, 120.0)
+        self.assertEqual(link_hub_streznik._Obravnava.ROK_CAKANJA_ZAHTEVE_S, 30.0)
         vir = open(os.path.join(KOREN, "core", "link_hub_streznik.py"), encoding="utf-8").read()
         telo = vir[vir.index("    def parse_request(self) -> bool:"):]
         self.assertIn('getattr(self.server, "rok_po_rokovanju", None)', telo[:600])

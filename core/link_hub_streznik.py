@@ -39,7 +39,7 @@ import time
 from typing import Callable, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
 
-from core import link_dostop, link_hub_deljenje, link_krog, link_obramba, link_tls, link_varovalka, link_ws
+from core import link_dostop, link_hub_deljenje, link_krog, link_obramba, link_tls, link_varovalka, link_ws, os_deskriptorji
 
 #: Vrata Huba. Najprej privzeta (naprave jih poznajo tudi brez mDNS), sicer katerakoli prosta.
 PRIVZETA_VRATA = 8990
@@ -2000,16 +2000,29 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
     #: nove povezave, stare pa so ostale odprte, vsaka s svojo nitjo - po 16 minutah 41 povezav z dveh naprav, po urah
     #: vec kot 1024 deskriptorjev in WebKit je ob odpiranju Sporocil koncal s SIGTRAP (lastnik, 16. 10. 2026).
     #: Rok velja samo za cakanje na zahtevo; obravnava (WebSocket, tok zaslona, datoteke) ima svoje roke kot prej.
-    ROK_CAKANJA_ZAHTEVE_S = 120.0
+    #: 17. 10. 2026 (zivi proces): naprave po zahtevi povezave ne zaprejo in je ne uporabijo vec - 120 s je drzalo
+    #: ~40 mrtvih povezav hkrati; 30 s je dovolj za zaporedne zahteve iste naprave (odjemalec sicer odpre novo).
+    ROK_CAKANJA_ZAHTEVE_S = 30.0
 
     def handle_one_request(self) -> None:
         try:
             self.connection.settimeout(self.ROK_CAKANJA_ZAHTEVE_S)
         except OSError:
             pass
-        super().handle_one_request()
+        # Med cakanjem je povezava prosta: ce jih ima ena naprava prevec, streznik najstarejso zapre (os_deskriptorji).
+        proste = getattr(self.server, "proste", None)
+        if proste is not None:
+            proste.caka(self.client_address[0] if self.client_address else "", self.connection)
+        try:
+            super().handle_one_request()
+        finally:
+            if proste is not None:
+                proste.dela(self.connection)
 
     def parse_request(self) -> bool:
+        proste = getattr(self.server, "proste", None)
+        if proste is not None:
+            proste.dela(self.connection)        # zahteva je prisla: povezava dela (WebSocket, tok) in ni odvecna
         # Vrstica zahteve je prebrana: naprej velja rok streznika po rokovanju (link_tls.RokovanjeVNiti), kot doslej.
         try:
             self.connection.settimeout(getattr(self.server, "rok_po_rokovanju", None))
@@ -2999,6 +3012,11 @@ class _Streznik(link_tls.RokovanjeVNiti, http.server.ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = nastavitve_vticnika()[0]
 
+    def __init__(self, *a, **k) -> None:
+        super().__init__(*a, **k)
+        #: Povezave, ki cakajo na naslednjo zahtevo - po napravah, z zgornjo mejo (core/os_deskriptorji).
+        self.proste = os_deskriptorji.ProsteZveze()
+
     def server_bind(self) -> None:
         izkljucno = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
         if nastavitve_vticnika()[1] and izkljucno is not None:
@@ -3208,7 +3226,11 @@ class HubStreznik:
                 except Exception:
                     pass
                 return False
-            streznik.socket = ctx.wrap_socket(streznik.socket, server_side=True, do_handshake_on_connect=False)
+            try:
+                streznik.socket = ctx.wrap_socket(streznik.socket, server_side=True, do_handshake_on_connect=False)
+            except Exception:
+                streznik.server_close()         # ponovni poskus zagona ne sme pustiti odprtih poslusalnih vrat
+                raise
             streznik.hub = self.hub          # type: ignore[attr-defined]
             streznik.obramba = self.obramba
             self.obramba.zaupan = self.hub.ima_povezavo_z

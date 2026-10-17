@@ -110,6 +110,28 @@ class Socks5(unittest.TestCase):
             self.assertEqual(_beri(s, 6), b"zdravo")
         self.assertEqual(self.res.vprasana, ["primer.test"])
 
+    @unittest.skipUnless(os.path.isdir("/proc/self/fd"), "potrebuje /proc")
+    def test_brskalnik_odide_pred_odgovorom_brez_puscanja(self):
+        """17. 10. 2026: ce je posiljanje odgovora 0 padlo, je oddaljena vticnica ostala odprta (in v _sockets)."""
+        import time
+        pravi = doh_proxy._socks5_odgovor
+
+        def odgovor(koda):
+            if koda == 0:
+                raise BrokenPipeError("brskalnik je odsel")
+            return pravi(koda)
+
+        pred = len(os.listdir("/proc/self/fd"))
+        with mock.patch.object(doh_proxy, "_socks5_odgovor", odgovor):
+            for _ in range(30):
+                s, _odg = self._zahteva(b"primer.test", self.odmev.vrata)
+                s.close()
+        konec = time.monotonic() + 5
+        while time.monotonic() < konec and (len(os.listdir("/proc/self/fd")) > pred + 2 or self.posrednik._sockets):
+            time.sleep(0.05)
+        self.assertLessEqual(len(os.listdir("/proc/self/fd")), pred + 2)
+        self.assertEqual(len(self.posrednik._sockets), 0)
+
     def test_prepovedana_vrata_koda_2(self):
         s, odg = self._zahteva(b"primer.test", 22)
         s.close()

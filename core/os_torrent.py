@@ -35,6 +35,8 @@ import urllib.parse
 import urllib.request
 from typing import Iterable, Callable, Dict, List, Optional, Tuple
 
+from core import os_deskriptorji
+
 RQBIT_RAZLICICA = "9.0.1"
 #: Uradne izdaje (github.com/ikatson/rqbit/releases/tag/v9.0.1) in njihov SHA-256 iz GitHubovega "digest".
 RQBIT_PAKETI: Dict[str, Tuple[str, str, int]] = {
@@ -845,7 +847,7 @@ class _Streznik(http.server.ThreadingHTTPServer):
     allow_reuse_address = True
 
 
-class _Obravnava(http.server.BaseHTTPRequestHandler):
+class _Obravnava(os_deskriptorji.RokCakanjaZahteve, http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "SafeerTorrent"
     sys_version = ""

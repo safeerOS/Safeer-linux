@@ -1328,10 +1328,21 @@ class LocalDoHProxy:
             self._sockets.add(remote_sock)
         if not self.is_running:
             return remote_sock
-        client_sock.sendall(_socks5_odgovor(0))
-        client_sock.settimeout(30.0)
-        remote_sock.settimeout(30.0)
-        self._pipe_sockets(client_sock, remote_sock)
+        try:
+            client_sock.sendall(_socks5_odgovor(0))
+            client_sock.settimeout(30.0)
+            remote_sock.settimeout(30.0)
+            self._pipe_sockets(client_sock, remote_sock)
+        except BaseException:
+            # Brskalnik je odsel pred odgovorom: klicatelj vticnice se nima (vrnjena ni bila) - zapremo jo tu, sicer
+            # bi ostala odprta in v self._sockets do konca procesa.
+            with self._socket_lock:
+                self._sockets.discard(remote_sock)
+            try:
+                remote_sock.close()
+            except OSError:
+                pass
+            raise
         return remote_sock
 
     def _socks5_povezi(self, host: str, naslov: str, vrata: int) -> Optional[socket.socket]:

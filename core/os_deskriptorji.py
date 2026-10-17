@@ -1,0 +1,263 @@
+"""Odprti deskriptorji dolgotrajnega procesa: straza, ki pove, kaj raste, in omejitev prostih povezav strezniku.
+
+Safeer OS (namizje, Control, Link, mediji, sporocila in splet v enem procesu) je 16. in 17. 10. 2026 po 11-14 h dela
+koncal s SIGTRAP: zmanjkalo je deskriptorjev (meja 1024), GLib/WebKit ni dobil ne eventfd ne memfd. Meritev na zivem
+procesu (0.4.84, 17. 10. 2026): v 7 minutah 100 vticnikov, od tega 40 dohodnih povezav na Hub (8990) z dveh naprav -
+vsaka po eni zahtevi tiho odprta (keep-alive), nove pa so prihajale ~1,3 na minuto. Dvig meje (os_stabilnost) samo
+odlozi padec; vzrok je kopicenje povezav, ki jih nihce ne zapre.
+
+  * `ProsteZveze`: streznik ve, katere povezave samo cakajo na naslednjo zahtevo; ko jih ima ena naprava prevec,
+    najstarejso zapre (tako ena naprava, ki povezave odpira in jih ne zapira, ne napolni procesa).
+  * `Straza`: na nekaj minut presteje /proc/self/fd po vrstah in ob rasti zapise opozorilo z razclenitvijo v dnevnik
+    (brez naslovov in podatkov uporabnika: samo vrste, stanja TCP in nasa vrata).
+"""
+
+from __future__ import annotations
+
+import collections
+import os
+import socket
+import threading
+import time
+from typing import Callable, Dict, Optional
+
+# ---------------------------------------------------------------------------- stetje
+
+_STANJA_TCP = {"01": "ESTAB", "02": "SYN_SENT", "03": "SYN_RECV", "04": "FIN_WAIT1", "05": "FIN_WAIT2",
+               "06": "TIME_WAIT", "07": "CLOSE", "08": "CLOSE_WAIT", "09": "LAST_ACK", "0A": "LISTEN",
+               "0B": "CLOSING"}
+
+
+def stevilo(pid: str = "self") -> int:
+    """Stevilo odprtih deskriptorjev procesa (-1, ce /proc ni berljiv)."""
+    try:
+        return len(os.listdir("/proc/%s/fd" % pid))
+    except OSError:
+        return -1
+
+
+def _vrsta(cilj: str) -> str:
+    if cilj.startswith("socket:"):
+        return "socket"
+    if cilj.startswith("anon_inode:"):
+        return cilj[len("anon_inode:"):].strip("[]") or "anon_inode"
+    if cilj.startswith("pipe:"):
+        return "pipe"
+    if cilj.startswith("/memfd:"):
+        return "memfd"
+    if cilj.startswith("/dev/"):
+        return "dev"
+    return "datoteka"
+
+
+def _vticniki_tcp(inode: set) -> Dict[str, int]:
+    """'stanje vrata' -> stevilo za vticnike TCP tega procesa. Vrata so nasa (poslusalna/streznikova) ali oddaljena
+    za odhodne povezave; naslovov ne belezimo."""
+    poslusa = set()
+    vrstice = []
+    for ime in ("tcp", "tcp6"):
+        try:
+            with open("/proc/self/net/" + ime, encoding="ascii") as d:
+                next(d, None)
+                for vrstica in d:
+                    deli = vrstica.split()
+                    if len(deli) > 9 and deli[9] in inode:
+                        vrstice.append(deli)
+                        if deli[3] == "0A":
+                            poslusa.add(int(deli[1].rsplit(":", 1)[1], 16))
+        except OSError:
+            continue
+    izid: Dict[str, int] = collections.Counter()
+    for deli in vrstice:
+        stanje = _STANJA_TCP.get(deli[3], deli[3])
+        nasa = int(deli[1].rsplit(":", 1)[1], 16)
+        njihova = int(deli[2].rsplit(":", 1)[1], 16)
+        if stanje == "LISTEN":
+            kljuc = "LISTEN"
+        elif nasa in poslusa:
+            kljuc = "%s v:%d" % (stanje, nasa)          # dohodna na nas streznik
+        else:
+            kljuc = "%s ->%d" % (stanje, njihova)       # odhodna
+        izid[kljuc] += 1
+    return dict(izid)
+
+
+def razclenitev(pid: str = "self") -> dict:
+    """{'skupaj': n, 'vrste': {vrsta: n}, 'tcp': {'stanje vrata': n}} za odprte deskriptorje procesa."""
+    mapa = "/proc/%s/fd" % pid
+    vrste: Dict[str, int] = collections.Counter()
+    vticniki = set()
+    try:
+        imena = os.listdir(mapa)
+    except OSError:
+        return {"skupaj": -1, "vrste": {}, "tcp": {}}
+    for ime in imena:
+        try:
+            cilj = os.readlink(os.path.join(mapa, ime))
+        except OSError:
+            continue
+        v = _vrsta(cilj)
+        vrste[v] += 1
+        if v == "socket":
+            vticniki.add(cilj[len("socket:["):-1])
+    tcp = _vticniki_tcp(vticniki) if pid == "self" else {}
+    return {"skupaj": len(imena), "vrste": dict(vrste), "tcp": tcp}
+
+
+def besedilo(r: dict) -> str:
+    """Ena vrstica za dnevnik."""
+    vrste = ", ".join("%s=%d" % kv for kv in sorted(r.get("vrste", {}).items(), key=lambda kv: -kv[1]))
+    tcp = ", ".join("%s=%d" % kv for kv in sorted(r.get("tcp", {}).items(), key=lambda kv: -kv[1])[:12])
+    return "deskriptorjev %d (%s; niti %d)%s" % (r.get("skupaj", -1), vrste, threading.active_count(),
+                                                ("; tcp: " + tcp) if tcp else "")
+
+
+# ---------------------------------------------------------------------------- straza
+
+#: Ob zagonu ima Safeer OS 55-70 vticnikov in ~150 deskriptorjev; nad tem pragom se rast zapise.
+PRAG_OPOZORILA = 400
+#: Naslednje opozorilo sele, ko jih je toliko vec kot ob zadnjem (dnevnik ne raste z vsakim pregledom).
+KORAK_OPOZORILA = 100
+PREGLED_VSAKIH_S = 300.0
+
+
+class Straza:
+    """Nit, ki vsakih `vsakih_s` presteje deskriptorje in ob rasti nad `prag` poklice `zapisi(besedilo)`."""
+
+    def __init__(self, zapisi: Callable[[str], None], prag: int = PRAG_OPOZORILA, korak: int = KORAK_OPOZORILA,
+                 vsakih_s: float = PREGLED_VSAKIH_S) -> None:
+        self.zapisi = zapisi
+        self.prag = prag
+        self.korak = korak
+        self.vsakih_s = vsakih_s
+        self.zadnje_opozorilo = 0
+        self._ustavi = threading.Event()
+        self._nit: Optional[threading.Thread] = None
+
+    def preglej(self) -> Optional[str]:
+        """En pregled; vrne zapisano besedilo ali None."""
+        n = stevilo()
+        if n < self.prag or (self.zadnje_opozorilo and n < self.zadnje_opozorilo + self.korak):
+            if n < self.prag // 2:
+                self.zadnje_opozorilo = 0      # padlo je dalec pod prag: ob ponovni rasti spet opozori
+            return None
+        self.zadnje_opozorilo = n
+        vrstica = "OPOZORILO: " + besedilo(razclenitev())
+        try:
+            self.zapisi(vrstica)
+        except Exception:  # noqa: BLE001
+            pass
+        return vrstica
+
+    def _zanka(self) -> None:
+        while not self._ustavi.wait(self.vsakih_s):
+            try:
+                self.preglej()
+            except Exception:  # noqa: BLE001 - straza ne sme nikoli ustaviti programa
+                pass
+
+    def zazeni(self) -> "Straza":
+        if self._nit is None:
+            self._nit = threading.Thread(target=self._zanka, name="safeer-straza-fd", daemon=True)
+            self._nit.start()
+        return self
+
+    def ustavi(self) -> None:
+        self._ustavi.set()
+
+
+# ---------------------------------------------------------------------------- proste povezave streznika
+
+#: Toliko povezav, ki samo cakajo na naslednjo zahtevo, sme imeti ena naprava (vir) hkrati; Linkovi odjemalci
+#: uporabljajo eno, brskalnik do 6.
+NAJVEC_PROSTIH_NA_VIR = 8
+
+
+class ProsteZveze:
+    """Povezave streznika HTTP/1.1, ki cakajo na naslednjo zahtevo (keep-alive), po virih.
+
+    Obravnava poklice `caka(vir, vticnik)` pred branjem zahteve in `dela(vticnik)`, ko je zahteva prisla ali je
+    povezave konec. Ko ima vir vec kot `najvec` cakajocih, se najstarejsa zapre (shutdown zbudi nit, ki nanjo caka,
+    in ta pospravi povezavo kot ob navadnem koncu)."""
+
+    def __init__(self, najvec: int = NAJVEC_PROSTIH_NA_VIR) -> None:
+        self.najvec = najvec
+        self._zaklep = threading.Lock()
+        self._po_viru: Dict[str, "collections.OrderedDict[int, tuple]"] = {}
+        self._vir_vticnika: Dict[int, str] = {}
+        #: Koliko odvecnih povezav smo zaprli (za dnevnik in preizkuse).
+        self.zaprtih = 0
+
+    def caka(self, vir: str, vticnik) -> None:
+        odvec = []
+        with self._zaklep:
+            kljuc = id(vticnik)
+            if kljuc in self._vir_vticnika:
+                return
+            vrsta = self._po_viru.setdefault(vir, collections.OrderedDict())
+            vrsta[kljuc] = (vticnik, time.monotonic())
+            self._vir_vticnika[kljuc] = vir
+            while len(vrsta) > self.najvec:
+                k, (stari, _) = vrsta.popitem(last=False)
+                self._vir_vticnika.pop(k, None)
+                odvec.append(stari)
+            self.zaprtih += len(odvec)
+        for stari in odvec:
+            zapri_vticnik(stari)
+
+    def dela(self, vticnik) -> None:
+        with self._zaklep:
+            kljuc = id(vticnik)
+            vir = self._vir_vticnika.pop(kljuc, None)
+            if vir is None:
+                return
+            vrsta = self._po_viru.get(vir)
+            if vrsta is not None:
+                vrsta.pop(kljuc, None)
+                if not vrsta:
+                    del self._po_viru[vir]
+
+    def cakajocih(self, vir: Optional[str] = None) -> int:
+        with self._zaklep:
+            if vir is not None:
+                return len(self._po_viru.get(vir, ()))
+            return len(self._vir_vticnika)
+
+
+def zapri_vticnik(vticnik) -> None:
+    """Prekine povezavo, na kateri morda caka druga nit: shutdown na surovem vticniku (tudi pod TLS) zbudi recv,
+    nit nato povezavo zapre sama. close() iz druge niti bi lahko zaprl ze ponovno uporabljeno stevilko."""
+    try:
+        socket.socket.shutdown(vticnik, socket.SHUT_RDWR)
+    except (OSError, TypeError, ValueError):
+        pass
+
+
+# ---------------------------------------------------------------------------- rok cakanja na zahtevo
+
+#: Kako dolgo sme povezava cakati na (naslednjo) zahtevo, preden jo streznik zapre.
+ROK_CAKANJA_ZAHTEVE_S = 30.0
+
+
+class RokCakanjaZahteve:
+    """Mesanica za http.server.BaseHTTPRequestHandler: povezava, ki ne poslje zahteve (ali po keep-alive ne poslje
+    naslednje), se po `ROK_CAKANJA_ZAHTEVE_S` zapre. Brez roka je vsaka taka povezava za vedno drzala nit in
+    deskriptor. Ko je vrstica zahteve prebrana, velja spet prejsnji rok vticnika - tok (zvok, video) med pavzo
+    predvajalnika ne izpade."""
+
+    ROK_CAKANJA_ZAHTEVE_S = ROK_CAKANJA_ZAHTEVE_S
+
+    def handle_one_request(self) -> None:
+        try:
+            self._rok_po_zahtevi = self.connection.gettimeout()
+            self.connection.settimeout(self.ROK_CAKANJA_ZAHTEVE_S)
+        except OSError:
+            pass
+        super().handle_one_request()  # type: ignore[misc]
+
+    def parse_request(self) -> bool:
+        try:
+            self.connection.settimeout(getattr(self, "_rok_po_zahtevi", None))
+        except OSError:
+            pass
+        return super().parse_request()  # type: ignore[misc]

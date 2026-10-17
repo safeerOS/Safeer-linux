@@ -28,7 +28,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Callable, Dict, List, Optional
 
-from core import dlna_zvocniki as dlna
+from core import dlna_zvocniki as dlna, os_deskriptorji
 
 IZHOD = "safeer_zvocnik"
 PREDPONA = "dlna:"
@@ -106,7 +106,7 @@ class _Tok:
         self.prvi_bajt = 0.0
         tok = self
 
-        class Obdelava(BaseHTTPRequestHandler):
+        class Obdelava(os_deskriptorji.RokCakanjaZahteve, BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.0"   # tok brez dolzine: konec = zaprta povezava
 
             def log_message(self, *_a) -> None:
@@ -169,6 +169,7 @@ class _Tok:
 
 
 def _koncaj(proc: subprocess.Popen) -> None:
+    """Ustavi ffmpeg, pocaka nanj (brez zombija) in zapre cev (brez odprtega deskriptorja)."""
     try:
         if proc.poll() is None:
             proc.terminate()
@@ -176,6 +177,13 @@ def _koncaj(proc: subprocess.Popen) -> None:
     except Exception:
         try:
             proc.kill()
+            proc.wait(timeout=2)
+        except Exception:
+            pass
+    for cev in (proc.stdout, proc.stderr, proc.stdin):
+        try:
+            if cev is not None:
+                cev.close()
         except Exception:
             pass
 

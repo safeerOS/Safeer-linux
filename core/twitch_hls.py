@@ -28,6 +28,8 @@ import urllib.parse
 import urllib.request
 from typing import Callable, Optional
 
+from core import os_deskriptorji
+
 #: Toliko segmentov (po 2 s) je v nasem seznamu - predvajalnik zacne 3 segmente pred koncem.
 OKNO = 12
 #: Seja, ki je predvajalnik 10 minut ne bere, se zapre (uporabnik je zaprl predvajalnik ali izbral drugo).
@@ -371,7 +373,7 @@ class Seja:
             return "\n".join(vrstice) + "\n"
 
 
-class _Rokovalnik(http.server.BaseHTTPRequestHandler):
+class _Rokovalnik(os_deskriptorji.RokCakanjaZahteve, http.server.BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802 - ime doloca http.server
         m = re.fullmatch(r"/twitch/([A-Za-z0-9_-]{16,64})\.m3u8", urllib.parse.urlsplit(self.path).path)
         seja = self.server.posrednik.seja(m.group(1)) if m else None  # type: ignore[attr-defined]

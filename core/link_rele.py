@@ -572,7 +572,13 @@ class AgentHuba:
             if tcp is not None:
                 tcp.close()
             return
-        cev(ws, tcp)
+        try:
+            cev(ws, tcp)
+        except BaseException:
+            # cev zapre obe strani sama; ce je padla prej, ju zapremo tu (kanal ne sme ostati odprt).
+            _ustavi(tcp)
+            ws.zapri()
+            raise
 
     def _vzdrzuj(self, ws: WsOdjemalec) -> None:
         """Ping in ponovna objava; ob izklopu ali ustavitvi huba zapre povezavo (glavna zanka se vrne)."""
