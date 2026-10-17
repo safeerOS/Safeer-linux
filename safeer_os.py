@@ -2216,6 +2216,8 @@ class SafeerOS(Gtk.Application):
         # Kanali Sporocil se nalozijo ob zagonu namizja (lastnik, 15. 10. 2026: brez cakanja ob prvem odprtju), a sele
         # ko je namizje izrisano in mirno: po Controlu, z nizko prednostjo, zaporedoma po dva (os_kanali_sporocil).
         GLib.timeout_add_seconds(5, lambda: (GLib.idle_add(self._zacni_kanale, priority=GLib.PRIORITY_LOW), False)[1])
+        # Varuh docka: sesuti Plank se vrne (safeer-cinnamon --dock-ozivi), vsakih 30 s - za namizje QML in WebKit.
+        GLib.timeout_add_seconds(30, lambda: (self._varuh_docka(), True)[1])
 
     def _izklopi_delovno(self) -> bool:
         """Dejanje »delovna-izklopi« (safeer-cinnamon ob izklopu): proces z delovno povrsino se konca kot ob SIGTERM."""
@@ -2378,9 +2380,6 @@ class SafeerOS(Gtk.Application):
         if robovi != self._robovi_delovne:
             self._robovi_delovne = robovi
             self._dogodek("robovi", robovi)
-        self._tik_robov = getattr(self, "_tik_robov", 0) + 1
-        if self._tik_robov % 10 == 0:
-            self._varuh_docka()
         return True
 
     def _varuh_docka(self) -> None:

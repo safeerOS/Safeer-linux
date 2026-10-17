@@ -137,4 +137,6 @@ def test_safeer_os_klice_varuha():
     with open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8") as f:
         koda = f.read()
     assert '"safeer-cinnamon", "--dock-ozivi"' in koda
-    assert "self._varuh_docka()" in koda
+    # v _ob_namizju (vsaka delovna povrsina, tudi QML), ne v _preveri_robove (samo WebKit)
+    ob_namizju = koda.split("def _ob_namizju", 1)[1].split("\n    def ", 1)[0]
+    assert "self._varuh_docka()" in ob_namizju
