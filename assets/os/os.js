@@ -5734,7 +5734,7 @@
   }
   // Trenutna skladba in upravljanje (skrit Safeer DRM); posodablja se na mestu, da drsnik ne skoči izpod kazalca.
   function narisiSpPredvajalnik() {
-    var c = document.getElementById("spPredvajalnik"); if (!c) return;
+    var c = $("spPredvajalnik"); if (!c) return;
     var p = (kat.sp && kat.sp.predvajanje) || {};
     if (!p.naslov || spNaTraku()) { c.hidden = true; c.innerHTML = ""; return; }
     var a = document.activeElement;
@@ -5782,7 +5782,7 @@
   function spZanka() {
     if (kat.spZanka) return;
     kat.spZanka = setInterval(function () {
-      var c = document.getElementById("spPredvajalnik");
+      var c = $("spPredvajalnik");
       if (!(kat.sp && kat.sp.tece) || (!kat.spTrak && !(c && c.offsetParent))) { clearInterval(kat.spZanka); kat.spZanka = 0; return; }
       osveziSp();
     }, 1500);

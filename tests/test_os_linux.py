@@ -582,7 +582,9 @@ class Stran(unittest.TestCase):
     def test_elementi_in_prevodi(self):
         html = _beri("assets", "os", "index.html")
         js = _beri("assets", "os", "os.js")
-        for oznaka in set(re.findall(r'\$\("([\w]+)"\)', js)):
+        # Elementi, ki jih stran ustvari sama (el.id = "..."), niso v index.html.
+        sproti = set(re.findall(r'\.id = "([\w]+)"', js))
+        for oznaka in set(re.findall(r'\$\("([\w]+)"\)', js)) - sproti:
             self.assertIn('id="%s"' % oznaka, html, oznaka)
         besedila = _beri("assets", "os", "besedila.js")
         glavni, _, dodatki = besedila.partition("\n};")
