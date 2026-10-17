@@ -83,6 +83,7 @@
     // Priponke v Sporocilih (15. 10. 2026)
     ,sponka: "M20.5 11.5l-8.2 8.2a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.8 1.8 0 0 1-2.5-2.5l7.9-7.9"
     ,prenos: "M12 4v11 M7 10l5 5 5-5 M5 20h14"
+    ,kos: "M4 7h16 M9 7V4h6v3 M6 7l1 13h10l1-13 M10 11v6 M14 11v6"
   };
   window.SafeerIkone = IK;   // kavc.js zamenja ikono gumba za cel zaslon
   function svg(ime) {
@@ -278,6 +279,8 @@
   var S = {
     zacetek: null, programi: [], skupina: "vse", razdelek: "domov", pot: "", stanje: null,
     sporocilaSkupine: [], sporocilaKanali: [], sporocilaFilter: "", sporocilaAktivni: null,
+    // Dejanja v seznamu: izbrane vrstice, skriti (cakajo na »Razveljavi«), hitri odgovor, nedavno poslani odgovori.
+    izbraniPogovori: {}, skritiPogovori: {}, hitriOdgovor: null, poslaniOdgovori: {}, vrsticeSeznama: [], fokusPo: "",
     // Multi-host: programi drugih naprav v Safeer Linku (id naprave -> seznam), izbrana naprava ("" = ta racunalnik).
     naprave: [], vseNaprave: [], programiNaprav: {}, nalagam: {}, naprava: "",
     povezava: { stanje: "nov", control: true }, spletne: null, nedavne: [], mediaFilter: zadnjaMedijskaKategorija(),
@@ -3729,6 +3732,7 @@
     var mapa = S.sporocilaMapa || "vse";
     if (mapa === "osnutki") return false;      // osnutki niso pogovori (narisiOsnutke)
     if (mapa === "neprebrano" && !p.neprebrano) return false;
+    if (mapa === "zvezdica" && !p.zvezdica) return false;
     if (mapa === "poslano" && !p.zadnji_ven) return false;
     if (mapa.indexOf("oznaka:") === 0 && (p.oznake || []).indexOf(mapa.slice(7)) < 0) return false;
     var n = (S.sporocilaNiz || "").trim().toLowerCase();
@@ -3740,24 +3744,63 @@
   }
   function narisiSporocila() {
     narisiKanale();
-    var cilj = $("sporocilaSeznam"); if (!cilj) return; cilj.innerHTML = "";
+    var cilj = $("sporocilaSeznam"); if (!cilj) return;
+    // Osvezitev (sinhronizacija, dejanje) ne sme vzeti fokusa ali besedila hitrega odgovora.
+    var fokus = document.activeElement, fokusOvoj = fokus && cilj.contains(fokus) ? fokus.closest(".pogovor-ovoj") : null;
+    var fokusKljuc = S.fokusPo || (fokusOvoj ? fokusOvoj.getAttribute("data-kljuc") : "");
+    var vHitrem = fokusOvoj && fokus.tagName === "TEXTAREA" ? [fokus.selectionStart, fokus.selectionEnd] : null;
+    var fokusVSeznamu = !!(fokusOvoj || (S.fokusPo && fokus && cilj.contains(fokus)) || (S.fokusPo && fokus === document.body));
+    S.fokusPo = "";
+    cilj.innerHTML = "";
     var neprebrano = 0, vseh = 0, vrstice = [];
     S.sporocilaSkupine.forEach(function (skupina) {
       (skupina.pogovori || []).forEach(function (p) {
         vseh++; if (p.neprebrano) neprebrano += Number(p.neprebrano);
+        if (S.skritiPogovori[kljucPogovora(p)]) return;      // arhiv/izbris caka na »Razveljavi« (5 s)
         if (pogovorUstreza(skupina, p)) vrstice.push({ skupina: skupina, p: p });
       });
     });
     vrstice.sort(function (a, b) { return String(b.p.cas || "").localeCompare(String(a.p.cas || "")); });
+    S.vrsticeSeznama = vrstice;
+    var izbranih = vrstice.filter(function (v) { return S.izbraniPogovori[kljucPogovora(v.p)]; }).length;
+    cilj.classList.toggle("izbiranje", izbranih > 0);
     vrstice.forEach(function (v) {
-      var skupina = v.skupina, p = v.p, vrsta = (p.kanal || {}).vrsta || "";
+      var skupina = v.skupina, p = v.p, vrsta = (p.kanal || {}).vrsta || "", k = kljucPogovora(p);
+      var ovoj = el("div", "pogovor-ovoj" + (S.izbraniPogovori[k] ? " oznacen" : "") + (p.neprebrano ? " neprebran" : ""));
+      ovoj.setAttribute("data-kljuc", k);
       var b = el("button", "pogovor-vrstica" + (S.sporocilaAktivni && S.sporocilaAktivni.id === p.id && S.sporocilaAktivni.kanal_id === p.kanal_id ? " izbran" : ""));
-      b.innerHTML = '<span class="kanal-ikona">' + ubezi(zacetnice(skupina.oseba.ime)) + '</span><span><b>' + ubezi(skupina.oseba.ime) +
+      b.type = "button";
+      b.setAttribute("aria-keyshortcuts", "E Delete U S R X");
+      var poslano = S.poslaniOdgovori[k];
+      b.innerHTML = '<span class="kanal-ikona">' + ubezi(zacetnice(skupina.oseba.ime)) + '</span><span><b>' + (p.zvezdica ? '<span class="zvezdica-pogovora" title="' + ubezi(t("mapaZvezdica")) + '">' + svg("zvezda") + '</span>' : '') + ubezi(skupina.oseba.ime) +
         '<span class="oznaka-kanala">' + ubezi((p.kanal || {}).ime || vrsta) + '</span>' + (p.oznake || []).map(function (o) { return '<span class="oznaka-pogovora">' + ubezi(o) + '</span>'; }).join("") + '</b><small>' + ubezi(p.zadeva && vrsta === "email" ? p.zadeva + " – " + (p.zadnje_sporocilo || "") : (p.zadnje_sporocilo || p.zadeva || "")) + '</small></span><span><time>' +
         ubezi(kratekCas(p.cas)) + '</time>' + (p.priponke ? '<span class="sponka" title="' + ubezi(t("imaPriponke")) + '">' + svg("sponka") + '</span>' : '') +
-        (p.neprebrano ? '<i>' + Number(p.neprebrano) + '</i>' : '') + '</span>';
-      b.addEventListener("click", function () { odpriPogovor(skupina.oseba, p); }); cilj.appendChild(b);
+        (p.neprebrano ? '<i>' + Number(p.neprebrano) + '</i>' : '') + (poslano ? '<em class="poslano-oznaka">' + ubezi(t(poslano === "caka" ? "hitriOdgovorCaka" : "hitriOdgovorPoslano")) + '</em>' : '') + '</span>';
+      b.addEventListener("click", function (e) {
+        if (e.ctrlKey || e.metaKey) { preklopiIzbor(k, false); return; }
+        if (e.shiftKey) { preklopiIzbor(k, true); return; }
+        S.izbraniPogovori = {}; odpriPogovor(skupina.oseba, p);
+      });
+      b.addEventListener("contextmenu", function (e) {
+        e.preventDefault();
+        pokaziMeniPogovora(ciljiDejanja(v), e.clientX, e.clientY, false, b);
+      });
+      var izbor = el("input", "pogovor-izbor"); izbor.type = "checkbox"; izbor.checked = !!S.izbraniPogovori[k];
+      izbor.setAttribute("aria-label", t("dejanjeIzberi") + ": " + skupina.oseba.ime);
+      izbor.addEventListener("click", function (e) { e.stopPropagation(); preklopiIzbor(k, e.shiftKey); });
+      ovoj.appendChild(izbor); ovoj.appendChild(b); ovoj.appendChild(orodjaPogovora(v, b));
+      cilj.appendChild(ovoj);
+      if (S.hitriOdgovor && S.hitriOdgovor.kljuc === k) ovoj.appendChild(hitriOdgovorOkno(v));
+      if (fokusVSeznamu && fokusKljuc === k) {
+        var tf = vHitrem ? ovoj.querySelector("textarea") : null;
+        if (tf) { tf.focus(); try { tf.setSelectionRange(vHitrem[0], vHitrem[1]); } catch (napaka) {} }
+        else if (!S.hitriOdgovor || S.hitriOdgovor.kljuc !== k || !S.hitriOdgovor.fokus) b.focus({ preventScroll: true });
+      }
+      if (S.hitriOdgovor && S.hitriOdgovor.kljuc === k && S.hitriOdgovor.fokus) {
+        S.hitriOdgovor.fokus = false; var tn = ovoj.querySelector("textarea"); if (tn) tn.focus();
+      }
     });
+    if (izbranih) cilj.insertBefore(vrsticaMnozicno(izbranih), cilj.firstChild);
     if (S.sporocilaMapa === "osnutki") narisiOsnutke(cilj);
     else if (!cilj.children.length) cilj.appendChild(el("p", "prazno", ubezi(t(vseh ? "niZadetkov" : "niPogovorov"))));
     var so = $("stOsnutki"); if (so) { so.textContent = (S.osnutki || []).length; so.hidden = !(S.osnutki || []).length; }
@@ -3765,6 +3808,285 @@
     if (sn) { sn.textContent = neprebrano; sn.hidden = !neprebrano; }
     if (sp) { sp.textContent = neprebrano; sp.hidden = !neprebrano; }
     narisiOznakeMape();
+  }
+  // ------------------------------------------------------------------ dejanja v seznamu pogovorov
+  // Lastnik, 17. 10. 2026: urejanje e-poste ze v seznamu (ikone ob prehodu, desni klik, tipke kot v Gmailu/Outlooku,
+  // vec izbranih) in hitri odgovor pod vrstico. Streznik (IMAP) dela v niti ozadja Safeer OS; seznam se spremeni
+  // takoj, ob napaki se vrne. Arhiv/izbris/premik odide sele po 5 s - do takrat ga »Razveljavi« preprosto preklice.
+  var DEJANJA_PREMIK = { arhiv: "dejanjeArhivirano", izbrisi: "dejanjeIzbrisano", nezeleno: "dejanjeNezelenoOk", mapa: "dejanjePremaknjeno" };
+  var razveljaviZadnje = null;
+  function kljucPogovora(p) { return p.kanal_id + "\u0001" + p.id; }
+  function zmoreDejanje(p, dejanje) { return ((p.kanal || {}).dejanja || []).indexOf(dejanje) >= 0; }
+  function izbraneVrstice() { return S.vrsticeSeznama.filter(function (v) { return S.izbraniPogovori[kljucPogovora(v.p)]; }); }
+  // Dejanje na vrstici, ki je med izbranimi, velja za vse izbrane; sicer samo zanjo.
+  function ciljiDejanja(v) {
+    var izbrane = izbraneVrstice();
+    return v && !S.izbraniPogovori[kljucPogovora(v.p)] ? [v] : (izbrane.length ? izbrane : (v ? [v] : []));
+  }
+  function preklopiIzbor(k, obmocje) {
+    var kljuci = S.vrsticeSeznama.map(function (v) { return kljucPogovora(v.p); });
+    if (obmocje && S.zadnjiIzbor && kljuci.indexOf(S.zadnjiIzbor) >= 0) {
+      var a = kljuci.indexOf(S.zadnjiIzbor), b = kljuci.indexOf(k);
+      kljuci.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(function (x) { S.izbraniPogovori[x] = true; });
+    } else if (S.izbraniPogovori[k]) delete S.izbraniPogovori[k];
+    else S.izbraniPogovori[k] = true;
+    S.zadnjiIzbor = k; S.fokusPo = k;
+    narisiSporocila();
+  }
+  function gumbDejanja(ikona, naslov, tipka, ob) {
+    var g = el("button", "dejanje-gumb", svg(ikona)); g.type = "button";
+    g.title = naslov + (tipka ? " (" + tipka + ")" : ""); g.setAttribute("aria-label", naslov);
+    if (tipka) g.setAttribute("aria-keyshortcuts", tipka);
+    g.tabIndex = -1;          // tipkovnica: tipke na vrstici (E, #, U, S, R) in meni (Shift+F10) - brez 6 postankov Tab
+    g.addEventListener("click", function (e) { e.stopPropagation(); ob(e, g); });
+    return g;
+  }
+  // Ikone ob prehodu z misko ali fokusu vrstice: samo, kar kanal res zmore (klepeti nimajo arhiva in Kosa).
+  function orodjaPogovora(v, vrstica) {
+    var p = v.p, o = el("div", "pogovor-dejanja");
+    var dodaj = function (dejanje, ikona, naslov, tipka) {
+      if (zmoreDejanje(p, dejanje)) o.appendChild(gumbDejanja(ikona, t(naslov), tipka, function () { izvediDejanje(ciljiDejanja(v), dejanje); }));
+    };
+    o.appendChild(gumbDejanja("poslji", t("dejanjeOdgovori"), "R", function () { odpriHitriOdgovor(v); }));
+    dodaj("arhiv", "arhiv", "dejanjeArhiviraj", "E");
+    dodaj("izbrisi", "kos", "dejanjeIzbrisi", "Delete");
+    if (p.neprebrano) dodaj("prebrano", "kljukica", "dejanjePrebrano", "U");
+    else dodaj("neprebrano", "sporocila", "dejanjeNeprebrano", "U");
+    // Zvezdica, neželeno, mapa in oznake so v meniju »Vec« (stolpec seznama je ozek: ime in cas ostaneta vidna).
+    o.appendChild(gumbDejanja("vec", t("dejanjeVec"), "Shift+F10", function (e, g) {
+      var r = g.getBoundingClientRect(); pokaziMeniPogovora(ciljiDejanja(v), r.left, r.bottom + 4, e.detail === 0, vrstica);
+    }));
+    return o;
+  }
+  function vrsticaMnozicno(n) {
+    var o = el("div", "pogovori-mnozicno");
+    o.setAttribute("role", "toolbar"); o.setAttribute("aria-label", t("dejanjeIzbranih", { n: n }));
+    o.appendChild(el("span", "", ubezi(t("dejanjeIzbranih", { n: n }))));
+    var izbrane = izbraneVrstice();
+    var vsi = function (d) { return izbrane.some(function (v) { return zmoreDejanje(v.p, d); }); };
+    [["arhiv", "arhiv", "dejanjeArhiviraj", "E"], ["izbrisi", "kos", "dejanjeIzbrisi", "Delete"],
+     ["prebrano", "kljukica", "dejanjePrebrano", ""], ["zvezdica", "zvezda", "dejanjeZvezdica", "S"]].forEach(function (d) {
+      if (!vsi(d[0])) return;
+      var g = gumbDejanja(d[1], t(d[2]), d[3], function () { izvediDejanje(izbraneVrstice(), d[0]); }); g.tabIndex = 0; o.appendChild(g);
+    });
+    var vec = gumbDejanja("vec", t("dejanjeVec"), "", function (e, g) {
+      var r = g.getBoundingClientRect(); pokaziMeniPogovora(izbraneVrstice(), r.left, r.bottom + 4, e.detail === 0, g);
+    }); vec.tabIndex = 0; o.appendChild(vec);
+    var pocisti = gumbDejanja("x", t("dejanjePocistiIzbor"), "Esc", function () { S.izbraniPogovori = {}; narisiSporocila(); });
+    pocisti.tabIndex = 0; o.appendChild(pocisti);
+    return o;
+  }
+  function obvestiRazveljavi(besedilo, razveljavi) {
+    var o = $("obvestilo");
+    o.textContent = ""; o.appendChild(el("span", "", ubezi(besedilo)));
+    var g = el("button", "", ubezi(t("dejanjeRazveljavi"))); g.type = "button";
+    g.title = t("dejanjeRazveljavi") + " (Ctrl+Z)";
+    g.addEventListener("click", function () { o.classList.remove("viden", "z-gumbom"); razveljavi(); });
+    o.appendChild(g); o.classList.add("z-gumbom", "viden");
+    clearTimeout(obvestiloCas);
+    obvestiloCas = setTimeout(function () { o.classList.remove("viden", "z-gumbom"); }, 5000);
+  }
+  function javiNapakeDejanja(p) {
+    var napake = (p && p.napake) || [];
+    if (!napake.length) return false;
+    var koda = napake[0].koda;
+    obvesti(t(koda === "ni_mape" ? "dejanjeNiMape" : koda === "prijava" ? "dejanjePrijava" : "dejanjeNapaka"));
+    return true;
+  }
+  function izvediDejanje(vrstice, dejanje, mapa) {
+    vrstice = (vrstice || []).filter(function (v) { return zmoreDejanje(v.p, dejanje); });
+    if (!vrstice.length) return;
+    var cilji = vrstice.map(function (v) { return [v.p.kanal_id, v.p.id]; });
+    var kljuci = vrstice.map(function (v) { return kljucPogovora(v.p); });
+    if (DEJANJA_PREMIK[dejanje]) {
+      // Fokus gre na naslednjo vrstico (kot v Gmailu), ne na zacetek strani.
+      var vse = S.vrsticeSeznama.map(function (v) { return kljucPogovora(v.p); }), zadnji = -1;
+      kljuci.forEach(function (k) { zadnji = Math.max(zadnji, vse.indexOf(k)); });
+      var naslednji = vse.slice(zadnji + 1).concat(vse.slice(0, zadnji).reverse()).filter(function (k) { return kljuci.indexOf(k) < 0; })[0] || "";
+      kljuci.forEach(function (k) { S.skritiPogovori[k] = true; delete S.izbraniPogovori[k]; });
+      if (S.hitriOdgovor && kljuci.indexOf(S.hitriOdgovor.kljuc) >= 0) S.hitriOdgovor = null;
+      S.fokusPo = naslednji; narisiSporocila();
+      var preklicano = false, vrni = function () { kljuci.forEach(function (k) { delete S.skritiPogovori[k]; }); };
+      var ura = setTimeout(function () {
+        if (razveljaviZadnje === razveljavi) razveljaviZadnje = null;
+        klic("sporocilaDejanje", [cilji, dejanje, mapa || ""]).then(function (p) {
+          vrni(); posodobiSeznamIzOdgovora(p); javiNapakeDejanja(p);
+        }).catch(function () { vrni(); narisiSporocila(); obvesti(t("dejanjeNapaka")); });
+      }, 5000);
+      var razveljavi = function () {
+        if (preklicano) return;
+        preklicano = true; clearTimeout(ura); vrni(); razveljaviZadnje = null;
+        S.fokusPo = kljuci[0]; narisiSporocila();
+      };
+      razveljaviZadnje = razveljavi;
+      obvestiRazveljavi(t(DEJANJA_PREMIK[dejanje], { n: kljuci.length }), razveljavi);
+      return;
+    }
+    // Oznake (prebrano, zvezdica): takoj v seznamu, streznik potrdi v ozadju; ob napaki se vrne.
+    var prej = vrstice.map(function (v) { return { p: v.p, neprebrano: v.p.neprebrano, zvezdica: v.p.zvezdica }; });
+    vrstice.forEach(function (v) {
+      if (dejanje === "prebrano") v.p.neprebrano = 0;
+      else if (dejanje === "neprebrano") v.p.neprebrano = Math.max(1, Number(v.p.neprebrano) || 0);
+      else if (dejanje === "zvezdica") v.p.zvezdica = true;
+      else if (dejanje === "brez_zvezdice") v.p.zvezdica = false;
+    });
+    narisiSporocila();
+    klic("sporocilaDejanje", [cilji, dejanje, mapa || ""]).then(function (p) {
+      posodobiSeznamIzOdgovora(p); javiNapakeDejanja(p);
+    }).catch(function () {
+      prej.forEach(function (x) { x.p.neprebrano = x.neprebrano; x.p.zvezdica = x.zvezdica; });
+      narisiSporocila(); obvesti(t("dejanjeNapaka"));
+    });
+  }
+  // Meni vrstice (desni klik, tipka Meni, Shift+F10, gumb »Vec«): vsa dejanja, ki jih kanali izbranih zmorejo.
+  function pokaziMeniPogovora(vrstice, x, y, sTipkovnico, za) {
+    var m = $("sporocilaMeni"); if (!m || !vrstice.length) return;
+    zapriMeniSporocila();
+    m.innerHTML = ""; m._za = za || null; meniSporocilaOb = Date.now();
+    var vsaj = function (d) { return vrstice.some(function (v) { return zmoreDejanje(v.p, d); }); };
+    var postavka = function (besedilo, tipka, ob) {
+      var g = el("button", "", "<span>" + ubezi(besedilo) + "</span>" + (tipka ? "<kbd>" + ubezi(tipka) + "</kbd>" : ""));
+      g.type = "button"; g.setAttribute("role", "menuitem");
+      g.addEventListener("click", function () {
+        var sTipk = m.contains(document.activeElement), zaj = m._za;
+        zapriMeniSporocila();
+        if (sTipk && zaj && document.contains(zaj)) zaj.focus();
+        ob();
+      });
+      m.appendChild(g); return g;
+    };
+    var ena = vrstice.length === 1 ? vrstice[0] : null;
+    if (ena) postavka(t("dejanjeOdgovori"), "R", function () { odpriHitriOdgovor(ena); });
+    var neprebrani = vrstice.some(function (v) { return v.p.neprebrano; });
+    if (neprebrani && vsaj("prebrano")) postavka(t("dejanjePrebrano"), "U", function () { izvediDejanje(vrstice, "prebrano"); });
+    if (!neprebrani && vsaj("neprebrano")) postavka(t("dejanjeNeprebrano"), "U", function () { izvediDejanje(vrstice, "neprebrano"); });
+    var vsiZvezda = vrstice.every(function (v) { return v.p.zvezdica; });
+    if (vsaj("zvezdica")) postavka(t(vsiZvezda ? "dejanjeBrezZvezdice" : "dejanjeZvezdica"), "S", function () { izvediDejanje(vrstice, vsiZvezda ? "brez_zvezdice" : "zvezdica"); });
+    if (vsaj("arhiv")) postavka(t("dejanjeArhiviraj"), "E", function () { izvediDejanje(vrstice, "arhiv"); });
+    if (vsaj("izbrisi")) postavka(t("dejanjeIzbrisi"), "#", function () { izvediDejanje(vrstice, "izbrisi"); });
+    if (vsaj("nezeleno")) postavka(t("dejanjeNezeleno"), "", function () { izvediDejanje(vrstice, "nezeleno"); });
+    var kanali = {}; vrstice.forEach(function (v) { kanali[v.p.kanal_id] = 1; });
+    if (vsaj("mapa") && Object.keys(kanali).length === 1) postavka(t("dejanjePremakni"), "", function () { meniMap(vrstice, x, y, za); });
+    // Oznake (lokalne, nastavi_oznake): obstojece kot stikala za vse izbrane, nova v podoknu osebe.
+    (S.sporocilaOznakeVse || []).slice(0, 12).forEach(function (o) {
+      var imajo = vrstice.every(function (v) { return (v.p.oznake || []).indexOf(o) >= 0; });
+      postavka((imajo ? "✓ " : "") + t("dejanjeOznaka", { oznaka: o }), "", function () {
+        vrstice.forEach(function (v) {
+          var nove = (v.p.oznake || []).filter(function (y) { return y !== o; });
+          if (!imajo) nove.push(o);
+          shraniOznake(v.p, nove);
+        });
+      });
+    });
+    if (ena) postavka(t("dejanjeNovaOznaka"), "", function () {
+      odpriPogovor(ena.skupina.oseba, ena.p); setTimeout(function () { var i = $("panoOznakaVnos"); if (i) i.focus(); }, 60);
+    });
+    m.hidden = false;
+    m.style.left = Math.max(8, Math.min(window.innerWidth - m.offsetWidth - 8, x)) + "px";
+    m.style.top = Math.max(8, Math.min(window.innerHeight - m.offsetHeight - 8, y)) + "px";
+    if (sTipkovnico && m.firstChild) m.firstChild.focus();
+  }
+  function meniMap(vrstice, x, y, za) {
+    var kanal = vrstice[0].p.kanal_id, m = $("sporocilaMeni");
+    m.innerHTML = ""; m._za = za || null; m.appendChild(el("p", "drobno", ubezi(t("povezujem")))); m.hidden = false;
+    m.style.left = Math.max(8, Math.min(window.innerWidth - m.offsetWidth - 8, x)) + "px";
+    m.style.top = Math.max(8, Math.min(window.innerHeight - m.offsetHeight - 8, y)) + "px";
+    klic("sporocilaMapeRacuna", [kanal]).then(function (mape) {
+      if (m.hidden) return;
+      m.innerHTML = "";
+      mape = (mape || []).filter(function (x) { return x.posebna !== "drafts" && x.posebna !== "sent"; });
+      if (!mape.length) { m.appendChild(el("p", "drobno", ubezi(t("dejanjeNiMap")))); return; }
+      mape.forEach(function (mp) {
+        var g = el("button", "", "<span>" + ubezi(mp.prikaz || mp.ime) + "</span>"); g.type = "button"; g.setAttribute("role", "menuitem");
+        g.addEventListener("click", function () { zapriMeniSporocila(); izvediDejanje(vrstice, "mapa", mp.ime); });
+        m.appendChild(g);
+      });
+      m.style.top = Math.max(8, Math.min(window.innerHeight - m.offsetHeight - 8, y)) + "px";
+      m.firstChild.focus();
+    }).catch(function () { zapriMeniSporocila(); obvesti(t("dejanjeNapaka")); });
+  }
+  // Hitri odgovor: majhno polje pod vrstico (zadnje sporocilo na kratko, besedilo, Poslji = Ctrl+Enter, Esc = preklici).
+  // Gre po obstojecem sporocilaPoslji: e-posta kot pravi odgovor (Re:, In-Reply-To, References - core/sporocila/email.py).
+  function odpriHitriOdgovor(v) {
+    var k = kljucPogovora(v.p);
+    if (!S.hitriOdgovor || S.hitriOdgovor.kljuc !== k) S.hitriOdgovor = { kljuc: k, besedilo: "" };
+    S.hitriOdgovor.fokus = true; narisiSporocila();
+  }
+  function zapriHitriOdgovor() {
+    var k = S.hitriOdgovor && S.hitriOdgovor.kljuc;
+    S.hitriOdgovor = null; S.fokusPo = k || ""; narisiSporocila();
+  }
+  function hitriOdgovorOkno(v) {
+    var h = S.hitriOdgovor, p = v.p;
+    var okno = el("div", "hitri-odgovor"); okno.setAttribute("role", "group");
+    okno.setAttribute("aria-label", t("dejanjeOdgovori") + ": " + v.skupina.oseba.ime);
+    var zadnje = String(p.zadnje_sporocilo || p.zadeva || "").replace(/\s+/g, " ").trim();
+    if (zadnje) okno.appendChild(el("p", "hitri-zadnje", ubezi(zadnje.length > 220 ? zadnje.slice(0, 220) + " …" : zadnje)));
+    var vnos = el("textarea"); vnos.rows = 3; vnos.value = h.besedilo || ""; vnos.maxLength = 20000;
+    vnos.placeholder = t("hitriOdgovorPh"); vnos.setAttribute("aria-label", t("hitriOdgovorPh"));
+    var napaka = el("p", "hitri-napaka"); napaka.hidden = true; napaka.setAttribute("role", "alert");
+    var gumbi = el("div", "hitri-gumbi");
+    var poslji = el("button", "gumb glavni", ubezi(t("hitriOdgovorPoslji"))); poslji.type = "button"; poslji.title = t("hitriOdgovorPoslji") + " (Ctrl+Enter)";
+    var preklici = el("button", "gumb", ubezi(t("preklici"))); preklici.type = "button"; preklici.title = t("preklici") + " (Esc)";
+    var poslji_ = function () {
+      var besedilo = vnos.value.trim();
+      if (!besedilo || h.posiljam) { vnos.focus(); return; }
+      h.posiljam = true; poslji.disabled = true; vnos.disabled = true;
+      klic("sporocilaPoslji", [p.kanal_id, p.id, besedilo]).then(function (d) {
+        var k = kljucPogovora(p);
+        if (S.hitriOdgovor === h) S.hitriOdgovor = null;
+        S.poslaniOdgovori[k] = d && d.caka ? "caka" : "poslano";
+        setTimeout(function () { delete S.poslaniOdgovori[k]; narisiSporocila(); }, 6000);
+        S.fokusPo = k; narisiSporocila();
+      }).catch(function (e) {
+        h.posiljam = false; poslji.disabled = false; vnos.disabled = false;
+        napaka.hidden = false; napaka.textContent = napakaSporocil(e); vnos.focus();
+      });
+    };
+    vnos.addEventListener("input", function () { h.besedilo = vnos.value; });
+    vnos.addEventListener("keydown", function (e) {
+      e.stopPropagation();          // E, U, S, R ... so tu crke besedila, ne dejanja seznama
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); poslji_(); }
+      else if (e.key === "Escape") { e.preventDefault(); zapriHitriOdgovor(); }
+    });
+    poslji.addEventListener("click", poslji_);
+    preklici.addEventListener("click", zapriHitriOdgovor);
+    gumbi.appendChild(preklici); gumbi.appendChild(poslji);
+    okno.appendChild(vnos); okno.appendChild(napaka); okno.appendChild(gumbi);
+    return okno;
+  }
+  // Tipke na vrstici seznama (kot Gmail/Outlook): E arhiv, # ali Delete Kos, U (ne)prebrano, S zvezdica, R odgovor,
+  // X izberi, puscici gor/dol, Shift+F10 ali tipka Meni = meni, Esc pocisti izbor, Ctrl+Z razveljavi.
+  function tipkeSeznama(e) {
+    if (e.target && (e.target.tagName === "TEXTAREA" || (e.target.tagName === "INPUT" && e.target.type !== "checkbox"))) return;
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === "z" || e.key === "Z")) {
+      if (razveljaviZadnje) { e.preventDefault(); $("obvestilo").classList.remove("viden", "z-gumbom"); razveljaviZadnje(); }
+      return;
+    }
+    var ovoj = e.target && e.target.closest ? e.target.closest(".pogovor-ovoj") : null;
+    if (!ovoj || e.altKey || e.ctrlKey || e.metaKey) return;
+    var k = ovoj.getAttribute("data-kljuc"), v = S.vrsticeSeznama.filter(function (x) { return kljucPogovora(x.p) === k; })[0];
+    if (!v) return;
+    var cilji = ciljiDejanja(v), kljucTipke = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    var prvi = cilji[0] ? cilji[0].p : v.p, opravljeno = true;
+    if (kljucTipke === "e") izvediDejanje(cilji, "arhiv");
+    else if (e.key === "#" || e.key === "Delete") izvediDejanje(cilji, "izbrisi");
+    else if (kljucTipke === "u") izvediDejanje(cilji, prvi.neprebrano ? "prebrano" : "neprebrano");
+    else if (kljucTipke === "s") izvediDejanje(cilji, prvi.zvezdica ? "brez_zvezdice" : "zvezdica");
+    else if (kljucTipke === "r") odpriHitriOdgovor(v);
+    else if (kljucTipke === "x") preklopiIzbor(k, e.shiftKey);
+    else if (e.key === "Escape" && Object.keys(S.izbraniPogovori).length) { S.izbraniPogovori = {}; S.fokusPo = k; narisiSporocila(); }
+    else if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+      var r = ovoj.getBoundingClientRect(); pokaziMeniPogovora(cilji, r.left + 24, r.bottom - 6, true, ovoj.querySelector(".pogovor-vrstica"));
+    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      var vrstice = Array.prototype.slice.call($("sporocilaSeznam").querySelectorAll(".pogovor-ovoj"));
+      var sosed = vrstice[vrstice.indexOf(ovoj) + (e.key === "ArrowDown" ? 1 : -1)];
+      if (sosed) {
+        if (e.shiftKey) { S.izbraniPogovori[k] = true; S.izbraniPogovori[sosed.getAttribute("data-kljuc")] = true; S.fokusPo = sosed.getAttribute("data-kljuc"); narisiSporocila(); }
+        else sosed.querySelector(".pogovor-vrstica").focus();
+      }
+    } else opravljeno = false;
+    if (opravljeno) { e.preventDefault(); e.stopPropagation(); }
   }
   function narisiOznakeMape() {
     var cilj = $("sporocilaOznake"); if (!cilj) return; cilj.innerHTML = "";
@@ -7365,6 +7687,7 @@
       });
     });
     $("panoIskanjeVnos").addEventListener("input", function () { isciPriOsebi(this.value); });
+    $("sporocilaSeznam").addEventListener("keydown", tipkeSeznama);
     $("sporocilaMape").querySelectorAll("button").forEach(function (b) {
       b.addEventListener("click", function () {
         S.sporocilaMapa = b.getAttribute("data-mapa") || "vse";

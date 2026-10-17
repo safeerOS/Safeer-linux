@@ -336,6 +336,37 @@ h2 .dodatno + .dodatno { margin-left: 14px; }
 .pogovor-vrstica time { color:var(--medlo); font-size:12px; }
 .pogovor-vrstica i { display:inline-grid; place-items:center; min-width:21px; height:21px; margin-top:7px; padding:0 6px;
   border-radius:11px; background:var(--zelena); color:var(--zelena-temna); font-size:11px; font-style:normal; }
+/* Dejanja v seznamu pogovorov (17. 10. 2026): ikone ob prehodu ali fokusu, potrditveno polje cez zacetnice,
+   vrstica za vec izbranih, hitri odgovor pod vrstico. */
+.pogovor-ovoj { position:relative; }
+.pogovor-ovoj.oznacen .pogovor-vrstica { background:rgba(138, 199, 255, .1); }
+.pogovor-ovoj.neprebran .pogovor-vrstica b { font-weight:800; }
+.pogovor-izbor { position:absolute; left:22px; top:22px; width:20px; height:20px; margin:0; z-index:2; opacity:0; accent-color:var(--zelena); cursor:pointer; }
+.pogovor-ovoj:hover .pogovor-izbor, .pogovor-izbor:focus-visible, .pogovori-seznam.izbiranje .pogovor-izbor { opacity:1; }
+.pogovor-dejanja { position:absolute; right:8px; bottom:6px; display:none; gap:2px; padding:3px; border-radius:10px;
+  background:var(--kartica); border:1px solid var(--rob); box-shadow:var(--senca); z-index:3; }
+.pogovor-ovoj:hover .pogovor-dejanja, .pogovor-ovoj:focus-within .pogovor-dejanja { display:flex; }
+.pogovor-ovoj:has(.hitri-odgovor) .pogovor-dejanja { display:none; }
+.dejanje-gumb { width:28px; height:28px; display:grid; place-items:center; border-radius:8px; color:var(--medlo); }
+.dejanje-gumb:hover, .dejanje-gumb:focus-visible { background:rgba(138, 199, 255, .16); color:var(--besedilo); outline:0; }
+.dejanje-gumb svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.pogovori-mnozicno { position:sticky; top:0; z-index:4; display:flex; flex-wrap:wrap; align-items:center; gap:2px; padding:6px 8px;
+  background:var(--kartica); border-bottom:1px solid var(--rob); }
+.pogovori-mnozicno span { margin-right:auto; color:var(--medlo); font-size:12px; white-space:nowrap; }
+.zvezdica-pogovora { display:inline-grid; vertical-align:-2px; margin-right:5px; color:var(--zelena); }
+.zvezdica-pogovora svg { width:14px; height:14px; fill:currentColor; stroke:currentColor; stroke-width:1.5; }
+.poslano-oznaka { display:block; margin-top:6px; color:var(--zelena); font-size:11px; font-style:normal; }
+.hitri-odgovor { padding:10px 14px 14px 64px; border-bottom:1px solid var(--rob); background:rgba(0,0,0,.12); }
+.hitri-zadnje { margin:0 0 8px; color:var(--medlo); font-size:13px; overflow-wrap:anywhere; }
+.hitri-odgovor textarea { width:100%; box-sizing:border-box; resize:vertical; min-height:64px; border:1px solid var(--rob); border-radius:10px;
+  background:rgba(0,0,0,.18); padding:8px 10px; outline:0; color:inherit; font:inherit; }
+.hitri-odgovor textarea:focus { border-color:var(--zelena); }
+.hitri-napaka { margin:6px 0 0; color:var(--rdeca); font-size:13px; }
+.hitri-gumbi { display:flex; justify-content:flex-end; gap:8px; margin-top:8px; }
+.hitri-gumbi .gumb { height:36px; padding:0 14px; }
+.spor-meni button { display:flex; align-items:center; gap:16px; }
+.spor-meni button kbd { margin-left:auto; color:var(--medlo); font:inherit; font-size:12px; }
+.spor-meni .drobno { margin:8px 12px; }
 .pogovor-okno { display:flex; flex-direction:column; min-width:0; max-height:58vh; }
 .pogovor-naslov { padding:17px 20px; border-bottom:1px solid var(--rob); font-weight:700; }
 .pogovor-vsebina { flex:1; overflow-y:auto; overscroll-behavior: contain; padding:20px; display:flex; flex-direction:column; gap:10px; }

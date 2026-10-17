@@ -119,6 +119,8 @@ class StoritevSporocil:
                 besedilo TEXT,cas TEXT,priponke TEXT,stanje TEXT,PRIMARY KEY(id,kanal_id));
               CREATE TABLE IF NOT EXISTS kanal_stanje(id TEXT PRIMARY KEY, podatki TEXT);
               CREATE TABLE IF NOT EXISTS oznake(kanal_id TEXT,pogovor_id TEXT,oznaka TEXT,PRIMARY KEY(kanal_id,pogovor_id,oznaka));
+              -- Zvezdica (pomembno) v seznamu; pri e-posti tudi \\Flagged na strezniku (17. 10. 2026).
+              CREATE TABLE IF NOT EXISTS zvezdice(kanal_id TEXT,pogovor_id TEXT,PRIMARY KEY(kanal_id,pogovor_id));
               CREATE INDEX IF NOT EXISTS sporocila_pogovor ON sporocila(kanal_id,pogovor_id,cas);
               -- Odhodna vrsta: sporocilo, poslano brez povezave, se poslje samo, ko se povezava vrne (v vrstnem redu,
               -- enkrat; idem = Message-ID / Matrix txn, da ponovljen poskus ni dvojnik).
@@ -456,7 +458,7 @@ class StoritevSporocil:
                 self.db.execute("DELETE FROM %s WHERE id=?" % tabela, (kanal_id,))
             self.db.execute("DELETE FROM pogovori WHERE kanal_id=?", (kanal_id,))
             self.db.execute("DELETE FROM sporocila WHERE kanal_id=?", (kanal_id,))   # sprozilec pocisti tudi iskalni indeks
-            for tabela in ("odhodni", "sporocila_polno", "kanal_neprebrano", "oznake"):
+            for tabela in ("odhodni", "sporocila_polno", "kanal_neprebrano", "oznake", "zvezdice"):
                 self.db.execute("DELETE FROM %s WHERE kanal_id=?" % tabela, (kanal_id,))
         self._izklopljeni.discard(kanal_id)
         # Osebe, ki so ostale brez vsakega pogovora, izginejo skupaj s kanalom.
@@ -517,6 +519,72 @@ class StoritevSporocil:
             self.db.executemany("INSERT OR IGNORE INTO oznake VALUES(?,?,?)", [(kanal_id, pogovor_id, o) for o in ciste])
         return ciste
 
+    # ---- dejanja v seznamu pogovorov (lastnik, 17. 10. 2026) ----
+    #: Kanal brez strezniskih dejanj (klepeti): samo to, kar velja lokalno in se ob sinhronizaciji ne izgubi.
+    LOKALNA_DEJANJA = ("prebrano", "neprebrano", "zvezdica", "brez_zvezdice")
+
+    def dejanja_kanala(self, kanal_id: str) -> tuple:
+        adapter = self.adapterji.get(kanal_id)
+        if adapter is None:
+            return ("zvezdica", "brez_zvezdice")            # Safeer Link: pogovor brez adapterja, zvezdica je lokalna
+        if getattr(adapter, "dejanja", None):
+            return tuple(adapter.dejanja)
+        # Brez obnovi() sinhronizacija prepise stevec neprebranih s streznikovim: lokalno »neprebrano« bi izginilo.
+        return self.LOKALNA_DEJANJA if hasattr(adapter, "obnovi") else ("prebrano", "zvezdica", "brez_zvezdice")
+
+    def _uidi_pogovora(self, kanal_id: str, pogovor_id: str) -> List[int]:
+        with self._zaklep:
+            vrstice = self.db.execute("SELECT id FROM sporocila WHERE kanal_id=? AND pogovor_id=? AND id LIKE 'uid:%'",
+                                      (kanal_id, pogovor_id)).fetchall()
+        return [_uid(r[0]) for r in vrstice if _uid(r[0])]
+
+    def dejanje(self, kanal_id: str, pogovor_id: str, dejanje: str, mapa: str = "") -> None:
+        self.dejanje_vec(kanal_id, [pogovor_id], dejanje, mapa)
+
+    def dejanje_vec(self, kanal_id: str, pogovori, dejanje: str, mapa: str = "") -> None:
+        """Najprej streznik (e-posta, en ukaz za vse izbrane pogovore kanala), potem predpomnilnik: ob napaki streznika
+        lokalno ostane, kot je bilo (izjema gre vmesniku, ki optimisticno spremembo vrne). Klicati v niti ozadja."""
+        if dejanje not in self.dejanja_kanala(kanal_id):
+            raise ValueError("ni_podprto")
+        pogovori = list(dict.fromkeys(str(p) for p in pogovori))
+        adapter = self.adapterji.get(kanal_id)
+        if not hasattr(adapter, "dejanje_vec") and dejanje == "prebrano":
+            for pid in pogovori:
+                self.oznaci_prebrano(kanal_id, pid)      # klepet: obstojeca pot (lokalno + potrdilo branja)
+            self._sporoci()
+            return
+        if hasattr(adapter, "dejanje_vec"):
+            adapter.dejanje_vec({pid: self._uidi_pogovora(kanal_id, pid) for pid in pogovori}, dejanje, mapa)
+        with self._zaklep, self.db:
+            for pid in pogovori:
+                self._dejanje_lokalno(kanal_id, pid, dejanje)
+            if dejanje in ("prebrano", "neprebrano"):
+                self._preracunaj_neprebrano(kanal_id)
+        self._sporoci()
+
+    def _dejanje_lokalno(self, kanal_id: str, pogovor_id: str, dejanje: str) -> None:
+        if dejanje == "prebrano":
+            c = self.db.execute("UPDATE sporocila SET stanje='prebrano' WHERE kanal_id=? AND pogovor_id=? "
+                                "AND smer='noter' AND stanje='prejeto'", (kanal_id, pogovor_id))
+            self.db.execute("UPDATE kanal_neprebrano SET stevilo=MAX(0, stevilo-?) WHERE kanal_id=?",
+                            (c.rowcount, kanal_id))
+        elif dejanje == "neprebrano":
+            # Zadnje prejeto sporocilo (kot na strezniku); brez prejetega ostane, kot je.
+            c = self.db.execute("""UPDATE sporocila SET stanje='prejeto' WHERE rowid=(SELECT rowid FROM sporocila
+                WHERE kanal_id=? AND pogovor_id=? AND smer='noter' ORDER BY cas DESC, rowid DESC LIMIT 1)
+                AND stanje='prebrano'""", (kanal_id, pogovor_id))
+            self.db.execute("UPDATE kanal_neprebrano SET stevilo=stevilo+? WHERE kanal_id=?", (c.rowcount, kanal_id))
+        elif dejanje == "zvezdica":
+            self.db.execute("INSERT OR IGNORE INTO zvezdice VALUES(?,?)", (kanal_id, pogovor_id))
+        elif dejanje == "brez_zvezdice":
+            self.db.execute("DELETE FROM zvezdice WHERE kanal_id=? AND pogovor_id=?", (kanal_id, pogovor_id))
+        else:
+            # Pisma so zapustila INBOX: pogovor gre iz seznama (novo pismo osebe ga spet ustvari, kot v Gmailu).
+            self.db.execute("DELETE FROM sporocila WHERE kanal_id=? AND pogovor_id=?", (kanal_id, pogovor_id))
+            self.db.execute("DELETE FROM pogovori WHERE kanal_id=? AND id=?", (kanal_id, pogovor_id))
+            for tabela in ("oznake", "zvezdice"):
+                self.db.execute("DELETE FROM %s WHERE kanal_id=? AND pogovor_id=?" % tabela, (kanal_id, pogovor_id))
+
     def zdruzi_osebi(self, cilj_id: str, drugi_id: str):
         """Drugo osebo zdruzi v cilj; njeni pogovori se preselijo k cilju."""
         oseba = self.graf.zdruzi(cilj_id, drugi_id)
@@ -536,6 +604,8 @@ class StoritevSporocil:
         skupine = []
         po_osebi = {}
         oznake = self.oznake_pogovorov()
+        with self._zaklep:
+            zvezdice = {(r[0], r[1]) for r in self.db.execute("SELECT kanal_id,pogovor_id FROM zvezdice")}
         for p in self.pogovori(kanal):
             if p.oseba_id not in po_osebi:
                 oseba = self.graf.oseba(p.oseba_id)
@@ -543,6 +613,7 @@ class StoritevSporocil:
                         "pogovori": [], "cas": p.cas, "neprebrano": 0}
                 po_osebi[p.oseba_id] = vnos; skupine.append(vnos)
             slovar = p.slovar(); slovar["oznake"] = oznake.get((p.kanal_id, p.id), [])
+            slovar["zvezdica"] = (p.kanal_id, p.id) in zvezdice
             po_osebi[p.oseba_id]["pogovori"].append(slovar)
             po_osebi[p.oseba_id]["neprebrano"] += p.neprebrano
         return skupine

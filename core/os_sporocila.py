@@ -430,6 +430,8 @@ class SporocilaOS:
         for kid, k in kanali.items():
             # Gumb »Prilozi« samo v kanalih, ki priloge res posljejo (brez nedelujocih gumbov).
             k["priloge"] = "priloge" in getattr(self.storitev.adapterji.get(kid), "zmore", set())
+            # Dejanja v seznamu (os.js pokaze samo ta): e-posta na strezniku, klepeti lokalno.
+            k["dejanja"] = list(self.storitev.dejanja_kanala(kid))
         for s in skupine:
             for p in s["pogovori"]:
                 p["kanal"] = kanali.get(p["kanal_id"], {})
@@ -462,6 +464,33 @@ class SporocilaOS:
     def nastavi_oznake(self, kanal_id: str, pogovor_id: str, oznake) -> dict:
         self.storitev.nastavi_oznake(str(kanal_id), str(pogovor_id), list(oznake or []))
         return self.seznam()
+
+    # ---- dejanja v seznamu pogovorov (lastnik, 17. 10. 2026) ----
+    def dejanje(self, cilji, dejanje: str, mapa: str = "") -> dict:
+        """Isto dejanje za vec pogovorov ([[kanal_id, pogovor_id], ...]). Vrne svez seznam in kode napak za tiste,
+        ki niso uspeli (os.js jih vrne v seznam in sporoci). Napake ne nosijo besedila streznika (zasebnost)."""
+        napake, po_kanalih = [], {}
+        for c in (cilji or [])[:500]:
+            if isinstance(c, (list, tuple)) and len(c) == 2:
+                po_kanalih.setdefault(str(c[0]), []).append(str(c[1]))
+        for kid, pogovori in po_kanalih.items():
+            try:
+                self.storitev.dejanje_vec(kid, pogovori, str(dejanje), str(mapa or ""))
+            except Exception as e:  # noqa: BLE001
+                koda = str(e) if isinstance(e, ValueError) and str(e) in ("ni_mape", "ni_podprto") else (
+                    "prijava" if type(e).__name__ == "NapakaPrijave" else "streznik")
+                print("[Sporocila] dejanje %s: %s" % (dejanje, type(e).__name__), flush=True)
+                napake.extend({"kanal_id": kid, "id": pid, "koda": koda} for pid in pogovori)
+        izid = self.seznam()
+        izid["napake"] = napake
+        return izid
+
+    def mape(self, kanal_id: str) -> list:
+        """Mape e-postnega racuna za »Premakni v mapo« ([] pri klepetih)."""
+        adapter = self.storitev.adapterji.get(str(kanal_id))
+        if not hasattr(adapter, "mape"):
+            return []
+        return adapter.mape()
 
     def osebe(self) -> list:
         return [o.slovar() for o in self.storitev.graf.vse()]
