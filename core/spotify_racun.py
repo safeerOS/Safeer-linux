@@ -36,6 +36,37 @@ from typing import Any, Callable, Optional
 from . import safeer_drm
 
 IZVOR = "https://open.spotify.com/"
+#: Prijava v Spotify poteka v Spletu (WebKit Safeer OS), ne v Safeer DRM: Google prijavo v vgrajenih brskalnikih
+#: aplikacij (Electron) zavrne s »Prijava ni bila mogoca - brskalnik morda ni varen«, kar bi uporabnika prestrasilo
+#: (lastnik 17. 10. 2026). Po prijavi piskotke spotify.com prenesemo v profil Safeer DRM.
+PRIJAVA_SPLET = "https://accounts.spotify.com/login?continue=https%3A%2F%2Fopen.spotify.com%2F"
+
+
+def piskotki_spleta(pot: Optional[str] = None) -> list:
+    """Piskotki *.spotify.com iz shrambe Spleta (samo branje) s polji za Electron cookies.set; [] brez prijave."""
+    import sqlite3
+    if pot is None:
+        from .config import CONFIG_DIR
+        pot = os.path.join(CONFIG_DIR, "cookies.sqlite")
+    if not os.path.isfile(pot):
+        return []
+    try:
+        povezava = sqlite3.connect("file:%s?mode=ro" % urllib.parse.quote(os.path.abspath(pot)), uri=True, timeout=2)
+        try:
+            vrstice = povezava.execute("SELECT name, value, host, path, expiry, isSecure, isHttpOnly FROM moz_cookies "
+                                       "WHERE host = 'spotify.com' OR host LIKE '%.spotify.com'").fetchall()
+        finally:
+            povezava.close()
+    except sqlite3.Error:
+        return []
+    zdaj = time.time()
+    return [{"name": str(i), "value": str(v), "domain": str(h), "path": str(p or "/"), "expirationDate": int(e or 0),
+             "secure": bool(sec), "httpOnly": bool(ho)}
+            for i, v, h, p, e, sec, ho in vrstice if i and v is not None and (not e or int(e) > zdaj)]
+
+
+def prijavljen_v_spletu(piskotki: list) -> bool:
+    return any(c["name"] == "sp_dc" and c["value"] for c in piskotki)
 NAJVEC = 400                   # kot uvoz_seznama.NAJVEC: seznam Medijskega centra
 _STRAN = 100                   # vnosov na klic
 _KROGOV = 8
@@ -412,7 +443,7 @@ class Kanal:
     def tece(self) -> bool:
         return self.proces is not None and self.proces.poll() is None
 
-    def zacni(self, vidno: bool, scit: bool) -> str:
+    def zacni(self, vidno: bool, scit: bool, piskotki: Optional[list] = None) -> str:
         """»ok«, »ni_drm« (Safeer DRM ni prenesen) ali »napaka«."""
         with self._zaklep:
             if self.tece():
@@ -433,6 +464,12 @@ class Kanal:
                     "--command=" + self.ukazi, "--storitev=1", "--spotify=1"]
             if not vidno:
                 args.append("--skrit=1")
+            if piskotki:
+                pot_p = os.path.join(self.seja, "piskotki.json")
+                with open(pot_p, "w", encoding="utf-8") as f:
+                    json.dump(piskotki, f)
+                os.chmod(pot_p, 0o600)
+                args.append("--cookies=" + pot_p)
             if scit:
                 pot = os.path.join(self.seja, "scit.json")
                 with open(pot, "w", encoding="utf-8") as f:
@@ -739,17 +776,26 @@ class Racun:
         return {"ok": True, "prenos": self._prenos}
 
     def prijava(self) -> dict:
-        """Vidno okno Safeer DRM z open.spotify.com: prijavo opravi uporabnik na strani Spotifyja."""
+        """Prijavo opravi uporabnik v Spletu (stran Spotifyja); Medijski center nato klice prijava_iz_spleta()."""
         if not self._na_voljo():
             return {"napaka": "ni_drm"}
-        izid = self.kanal.zacni(True, self.scit())
+        return {"ok": True, "splet": PRIJAVA_SPLET}
+
+    def prijava_iz_spleta(self) -> dict:
+        """Ce je uporabnik v Spletu prijavljen v Spotify: piskotke prenesemo v profil skritega Safeer DRM."""
+        piskotki = piskotki_spleta()
+        if not prijavljen_v_spletu(piskotki):
+            return {"prijavljen": False}
+        self.kanal.ustavi()
+        self._preverjeno = False
+        izid = self.kanal.zacni(False, self.scit(), piskotki)
         if izid != "ok":
             return {"napaka": izid}
         self._dotakni()
         self._zazeni_strazo()
-        # brez prijave stran pokaze gumb »Prijava«: odpremo ga, da uporabnik ne isce
-        threading.Thread(target=self._odpri_prijavo, daemon=True).start()
-        return {"ok": True}
+        self._shrani(prijavljen=True)
+        self._prijavljen = True
+        return {"prijavljen": True}
 
     def _odpri_prijavo(self) -> None:
         konec = self._ura() + 30

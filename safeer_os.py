@@ -4633,7 +4633,7 @@ class SafeerOS(Gtk.Application):
         return self._spletni.odpri_povezavo(naslov) if nov_zavihek else self._spletni.odpri(naslov)
 
     #: Odjava znotraj Safeer OS (lastnik 17. 10. 2026): izbrisemo samo piskotke te storitve v seji Spleta.
-    _ODJAVA_DOMENE = {"youtube": ("youtube.com",), "twitch": ("twitch.tv",)}
+    _ODJAVA_DOMENE = {"youtube": ("youtube.com",), "twitch": ("twitch.tv",), "spotify": ("spotify.com",)}
 
     def _odjava_storitve(self, storitev: str) -> bool:
         domene = self._ODJAVA_DOMENE.get(storitev)

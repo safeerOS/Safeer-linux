@@ -356,6 +356,19 @@ function nastaviSejo(ses) {
   });
 }
 
+function nastaviPiskotke() {
+  const pot = argumenti.cookies || '';
+  if (!pot) return Promise.resolve();
+  let seznam = [];
+  try { seznam = JSON.parse(fs.readFileSync(pot, 'utf8')); } catch (_) {}
+  try { fs.unlinkSync(pot); } catch (_) {}
+  return Promise.all((Array.isArray(seznam) ? seznam : []).filter(c => c && /(^|\.)spotify\.com$/.test(String(c.domain || '').replace(/^\./, '')))
+    .map(c => session.defaultSession.cookies.set({ url: 'https://' + String(c.domain).replace(/^\./, '') + (c.path || '/'),
+      name: String(c.name), value: String(c.value), domain: c.domain, path: c.path || '/', secure: c.secure !== false,
+      httpOnly: Boolean(c.httpOnly), expirationDate: c.expirationDate || undefined }).catch(() => {})))
+    .then(() => zapisi('COOKIES_SET', String(seznam.length)));
+}
+
 function odpri(url) {
   okno = new BrowserWindow({
     width: 1280, height: 720, backgroundColor: '#000000', autoHideMenuBar: true, title: 'Safeer',
@@ -424,7 +437,8 @@ function odpri(url) {
     else if (!vdelan && i.key === 'Escape' && okno.isFullScreen()) okno.setFullScreen(false);
   });
   okno.on('closed', () => { okno = null; app.quit(); });
-  prikljuciCdp().then(() => { if (okno) okno.loadURL(url); });
+  // Prijava iz Spleta (Spotify): piskotke prenesemo v sejo pred prvim nalaganjem, datoteko takoj izbrisemo.
+  Promise.all([prikljuciCdp(), nastaviPiskotke()]).then(() => { if (okno) okno.loadURL(url); });
   zapisi('SESSION_READY', varenGostitelj(url));
   if (nadzor) setInterval(obdelajUkaz, 100);
   if (vdelan) setInterval(preveriPredvajanje, 750);

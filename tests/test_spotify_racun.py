@@ -280,8 +280,8 @@ class LazniKanal:
     def tece(self):
         return self._tece
 
-    def zacni(self, vidno, scit):
-        self._tece, self.vidno, self.scit = True, vidno, scit
+    def zacni(self, vidno, scit, piskotki=None):
+        self._tece, self.vidno, self.scit, self.piskotki = True, vidno, scit, piskotki
         return "ok"
 
     def ustavi(self):
@@ -405,19 +405,39 @@ class RacunTest(unittest.TestCase):
         k = LazniKanal(stanje={"zeton": True, "predvajalnik": True, "prijava": True})
         self.assertEqual(self._racun(k).seznami(), {"napaka": "ni_prijave"})
 
-    def test_prijava_skrije_okno_in_obvestilo_enkrat(self):
-        k = LazniKanal(stanje={"zeton": True, "predvajalnik": True, "prijava": True})
+    def test_prijava_v_spletu_in_prenos_piskotkov(self):
+        """Lastnik 17. 10. 2026: prijava v Spletu (Google tam deluje), ne v Safeer DRM (»brskalnik ni varen«)."""
+        k = LazniKanal(stanje={"zeton": True, "predvajalnik": True, "prijava": False})
         r = self._racun(k)
-        with mock.patch.object(sr.threading, "Thread"):
-            self.assertEqual(r.prijava(), {"ok": True})
-        self.assertTrue(k.vidno)
-        self.assertFalse(r.stanje()["prijavljen"])
-        k.stanje = {"zeton": True, "predvajalnik": True, "prijava": False}
-        r.straza_korak(k.stanje)
-        self.assertFalse(k.vidno)                  # okno za prijavo se skrije, Safeer DRM tece naprej
-        st = r.stanje()
-        self.assertTrue(st["prijavljen"] and st["obvestilo_scit"])
-        self.assertFalse(r.stanje()["obvestilo_scit"])
+        izid = r.prijava()
+        self.assertTrue(izid["ok"] and izid["splet"].startswith("https://accounts.spotify.com/"))
+        self.assertFalse(k.tece())                     # Safeer DRM se za prijavo ne zazene
+        with mock.patch.object(sr, "piskotki_spleta", lambda pot=None: []):
+            self.assertEqual(r.prijava_iz_spleta(), {"prijavljen": False})
+        piskotki = [{"name": "sp_dc", "value": "x", "domain": ".spotify.com", "path": "/", "expirationDate": 0,
+                     "secure": True, "httpOnly": True}]
+        with mock.patch.object(sr, "piskotki_spleta", lambda pot=None: piskotki), \
+                mock.patch.object(sr.threading, "Thread"):
+            self.assertEqual(r.prijava_iz_spleta(), {"prijavljen": True})
+        self.assertTrue(k.tece() and not k.vidno)
+        self.assertEqual(k.piskotki, piskotki)
+        self.assertTrue(r.stanje()["prijavljen"])
+
+    def test_piskotki_spleta_samo_spotify(self):
+        import sqlite3, tempfile, time as _t
+        with tempfile.TemporaryDirectory() as mapa:
+            pot = os.path.join(mapa, "cookies.sqlite")
+            b = sqlite3.connect(pot)
+            b.execute("CREATE TABLE moz_cookies (id INTEGER PRIMARY KEY, name TEXT, value TEXT, host TEXT, path TEXT,"
+                      " expiry INTEGER, lastAccessed INTEGER, isSecure INTEGER, isHttpOnly INTEGER, sameSite INTEGER)")
+            for ime, gost, potek in (("sp_dc", ".spotify.com", int(_t.time()) + 999), ("SID", ".youtube.com", 0),
+                                     ("star", ".spotify.com", 5)):
+                b.execute("INSERT INTO moz_cookies (name, value, host, path, expiry, isSecure, isHttpOnly) VALUES (?,?,?,?,?,1,1)",
+                          (ime, "v", gost, "/", potek))
+            b.commit(); b.close()
+            c = sr.piskotki_spleta(pot)
+        self.assertEqual([x["name"] for x in c], ["sp_dc"])
+        self.assertTrue(sr.prijavljen_v_spletu(c))
 
     def test_straza_utisa_oglas(self):
         k = LazniKanal()

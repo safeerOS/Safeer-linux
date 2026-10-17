@@ -5277,6 +5277,19 @@
     var konec = Date.now() + 600000;
     kat.spCakanje = setInterval(function () { if (Date.now() > konec) ustaviSpCakanje(); else naloziSpotify(true); }, 3000);
   }
+  function cakajSpPrijavoSplet() {
+    ustaviSpCakanje();
+    var konec = Date.now() + 600000;
+    kat.spCakanje = setInterval(function () {
+      if (Date.now() > konec) { ustaviSpCakanje(); return; }
+      klic("mediaSpPrijavaSplet").then(function (r) {
+        if (!r || !r.prijavljen) return;
+        ustaviSpCakanje();
+        klic("spletKonecPrijave", [["accounts.spotify.com", "spotify.com", "accounts.google.com"]]);
+        kat.spCas = 0; kat.spSeznami = null; naloziSpotify(true);
+      }, function () {});
+    }, 3000);
+  }
   function ustaviSpCakanje() { if (kat.spCakanje) { clearInterval(kat.spCakanje); kat.spCakanje = 0; } }
   function spNapaka(koda) {
     var k = "spNapaka_" + koda;
@@ -5311,11 +5324,11 @@
       });
     } else if (!r.prijavljen || r.okno) {
       glava.appendChild(el("small", "", ubezi(r.okno ? t("spPrijavaOkno") : r.potekla ? t("spPotekla") : t("spPrijavaNamig"))));
-      // Google prijavo v vgrajenih brskalnikih aplikacij lahko zavrne (»Prijava ni bila mogoča«); e-pošta deluje vedno.
-      if (r.okno) glava.appendChild(el("small", "kat-sp-namig", ubezi(t("spGoogleNamig"))));
       if (!r.okno) gumb(t("spPrijava"), function () {
         klic("mediaSpPrijava").then(function (x) {
           if (x && x.napaka) { spNapaka(x.napaka); return; }
+          // Prijava v Spletu (Google tam deluje); Medijski center vsakih 3 s pogleda, ali je prijava koncana.
+          if (x && x.splet) { klic("splet", [x.splet, true]); cakajSpPrijavoSplet(); return; }
           kat.sp = Object.assign({}, kat.sp, { okno: true }); narisiSeznamePredvajanja(); cakajSpPrijavo();
         }, function () { spNapaka("ni_odziva"); });
       });
@@ -5324,6 +5337,7 @@
       // Odjava v dveh korakih: izbriše prijavo Spotifyja na tej napravi (profil Safeer DRM za Spotify).
       var potrdi = false, odjava = gumb(t("spOdjava"), function () {
         if (!potrdi) { potrdi = true; odjava.textContent = t("spOdjavaRes"); return; }
+        klic("odjavaStoritve", ["spotify"]);      // tudi prijava Spotifyja v Spletu, da se ne vrne sama
         klic("mediaSpOdjava").then(function () { kat.spSeznami = null; kat.spNapaka = ""; kat.spCas = 0; naloziSpotify(true); }, function () {});
       });
     }

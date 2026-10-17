@@ -365,7 +365,7 @@ class Katalog:
         "mediaTwitchRacun": "_twitch_racun", "mediaTwitchPosnetki": "_twitch_posnetki", "mediaTwitchKakovost": "_twitch_kakovost",
         # Spotify v skritem Safeer DRM (core/spotify_racun.py)
         "mediaSpStanje": "_sp_stanje", "mediaSpSeznami": "_sp_seznami", "mediaSpSeznam": "_sp_seznam",
-        "mediaSpShrani": "_sp_shrani", "mediaSpPrijava": "_sp_prijava", "mediaSpOdjava": "_sp_odjava",
+        "mediaSpShrani": "_sp_shrani", "mediaSpPrijava": "_sp_prijava", "mediaSpPrijavaSplet": "_sp_prijava_splet", "mediaSpOdjava": "_sp_odjava",
         "mediaSpPrenesi": "_sp_prenesi", "mediaSpUkaz": "_sp_ukaz", "mediaSpScit": "_sp_scit",
         "mediaOdstraniSeznam": "_odstrani_seznam", "mediaDodajNaSeznam": "_dodaj_na_seznam",
         "mediaOdstraniSSeznama": "_odstrani_s_seznama", "mediaSeznamZamenjava": "_seznam_zamenjava",
@@ -974,6 +974,9 @@ class Katalog:
 
     def _sp_prijava(self, _a: list) -> Any:
         return self.mc.spotify.prijava()
+
+    def _sp_prijava_splet(self, _a: list) -> Any:
+        return self.mc.spotify.prijava_iz_spleta()
 
     def _sp_odjava(self, _a: list) -> Any:
         return self.mc.spotify.odjava()
