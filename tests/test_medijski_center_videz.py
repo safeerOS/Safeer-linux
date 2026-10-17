@@ -487,7 +487,7 @@ class SamodejniSeznamiStran(unittest.TestCase):
     def test_polica_na_domov_in_glasbi_brez_praznih(self):
         self.assertIn('<section class="media-samodejni media-domov-del" id="mediaSamodejni" aria-labelledby="mediaSamodejniNaslov" hidden>', self.html)
         telo = _funkcija(self.js, "narisiSamodejne")
-        self.assertIn('var vidno = (S.mediaFilter === "domov" || S.mediaFilter === "glasba") && !String(S.mediaIskanje || "").trim() && seznami.length > 0;', telo)
+        self.assertIn('var vidno = (S.mediaFilter === "domov" || S.mediaFilter === "glasba") && !String(S.mediaIskanje || "").trim() && seznami.length > 0 && !jeSkrito("polica:samodejni");', telo)
         self.assertIn("c.hidden = !vidno;", telo)
         self.assertIn('klic("mediaSamodejniSeznami", [])', self.js)
         self.assertIn('if (vrsta === "mediaSamodejniOsvezeni") naloziSamodejne();', self.js)
