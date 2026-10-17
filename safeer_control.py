@@ -333,12 +333,8 @@ class Pladenj:
         self.osvezi_locen()
         self.osvezi_posodobitev()
         self.ikona = None
-        ikona = "safeer-control"
-        try:
-            if not Gtk.IconTheme.get_for_display(Gdk.Display.get_default()).has_icon(ikona):
-                ikona = os.path.join(KOREN, "assets", "icon.png")  # zagon iz izvorne kode brez namescene teme
-        except Exception:
-            pass
+        self._mapa_ikon = os.path.join(GLib.get_user_cache_dir(), "safeer-control", "pult")
+        ikona = self._ikona_pulta(False)
         try:
             self.ikona = PladenjSni("safeer-control", "Safeer Control", ikona, postavke,
                                     ob_aktivaciji=app.pokazi_okno)
@@ -346,7 +342,27 @@ class Pladenj:
             print("[SafeerControl] Pladenj:", e)
         self.stanje(False)
 
+    def _ikona_pulta(self, povezan: bool) -> str:
+        """Crtna ikona Linka (core/pladenj_sni.ikona_linka; lastnik, 17. 10. 2026: ne zelen scit kot Scit in
+        posodobitve). Brez cairo ikona programa iz teme."""
+        try:
+            from core.pladenj_sni import ikona_linka
+            return ikona_linka(povezan, self._mapa_ikon)
+        except Exception:  # noqa: BLE001
+            ikona = "safeer-control"
+            try:
+                if not Gtk.IconTheme.get_for_display(Gdk.Display.get_default()).has_icon(ikona):
+                    ikona = os.path.join(KOREN, "assets", "icon.png")  # zagon iz izvorne kode brez namescene teme
+            except Exception:  # noqa: BLE001
+                pass
+            return ikona
+
     def stanje(self, povezan: bool) -> None:
+        if self.ikona is not None and bool(povezan) != getattr(self, "_povezan", None):
+            try:
+                self.ikona.nastavi_ikono(self._ikona_pulta(bool(povezan)))
+            except Exception:  # noqa: BLE001
+                pass
         self._povezan = bool(povezan)
         napis = besedilo(self.jezik, "povezan" if povezan else "ni")
         if self._zahtev:

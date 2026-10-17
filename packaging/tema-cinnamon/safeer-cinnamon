@@ -1033,8 +1033,12 @@ ozadje() {
 # Papirus-Dark z nasimi ikonami posodobitev (Papirus jih rise kot scit - uporabnik jih je imel za Safeer Scit, lastnik,
 # 17. 10. 2026); nasa tema podeduje vse ostalo od Papirus-Dark, zato samo, ce je Papirus namescen.
 IKONE_SAFEER="Safeer-Papirus-Dark"
+IKONE_SAFEER_MINT="Safeer-Mint-Y-Blue"     # brez Papirusa (lastnik, 17. 10. 2026: tudi Mint-Y brez scita za posodobitve)
 tema_ikon() {
     if [ -f "$KOREN/usr/share/icons/$IKONE_SAFEER/index.theme" ]; then echo "$IKONE_SAFEER"; else echo "Papirus-Dark"; fi
+}
+tema_ikon_mint() {
+    if [ -f "$KOREN/usr/share/icons/$IKONE_SAFEER_MINT/index.theme" ]; then echo "$IKONE_SAFEER_MINT"; else echo "Mint-Y-Blue"; fi
 }
 
 # Postavitev, vklopljena pred 1.0.127, ima Papirus-Dark: enkrat (ob prvi prijavi po nadgradnji) jo zamenjamo z nasimi
@@ -1042,8 +1046,10 @@ tema_ikon() {
 ikone_posodobitev_enkrat() {
     [ -e "$MAPA/ikone-posodobitev" ] && return 0
     mkdir -p "$MAPA"; : > "$MAPA/ikone-posodobitev"
-    [ "$(beri org.cinnamon.desktop.interface:icon-theme)" = "'Papirus-Dark'" ] || return 0
-    [ "$(tema_ikon)" = "$IKONE_SAFEER" ] && pisi org.cinnamon.desktop.interface:icon-theme "'$IKONE_SAFEER'"
+    case "$(beri org.cinnamon.desktop.interface:icon-theme)" in
+        "'Papirus-Dark'") [ "$(tema_ikon)" = "$IKONE_SAFEER" ] && pisi org.cinnamon.desktop.interface:icon-theme "'$IKONE_SAFEER'" ;;
+        "'Mint-Y-Blue'") [ "$(tema_ikon_mint)" = "$IKONE_SAFEER_MINT" ] && pisi org.cinnamon.desktop.interface:icon-theme "'$IKONE_SAFEER_MINT'" ;;
+    esac
     return 0
 }
 
@@ -1061,7 +1067,7 @@ tema() {
     pisi org.cinnamon.theme:name "'$lupina'"
     # Ikone: Papirus (priporocen paket), sicer Mintove modre - mape naj ne ostanejo v barvi prejsnje teme.
     if [ -d "$KOREN/usr/share/icons/Papirus-Dark" ]; then pisi org.cinnamon.desktop.interface:icon-theme "'$(tema_ikon)'"
-    elif [ -d "$KOREN/usr/share/icons/Mint-Y-Blue" ]; then pisi org.cinnamon.desktop.interface:icon-theme "'Mint-Y-Blue'"; fi
+    elif [ -d "$KOREN/usr/share/icons/Mint-Y-Blue" ]; then pisi org.cinnamon.desktop.interface:icon-theme "'$(tema_ikon_mint)'"; fi
 }
 
 # Povratna informacija tudi, ko ukaz tece iz menija (brez terminala).

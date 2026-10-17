@@ -6,7 +6,8 @@ posodobitve.« Papirus mintupdate-* rise kot scit. Tu je krozna puscica (posodob
 (na voljo, s piko v praznini loka), kljukica (posodobljeno), kazalca ure (preverjam), klicaj (napaka), puscica na crto
 (namescam). Vse je zapolnjeno (brez potez): GTK simbolne ikone prebarva samo s »fill«, poteze bi ostale v barvi datoteke.
 
-    python3 tools/ikone_posodobitev.py            # zapise packaging/tema-cinnamon/ikone/Safeer-Papirus-Dark
+    python3 tools/ikone_posodobitev.py            # zapise packaging/tema-cinnamon/ikone/Safeer-Papirus-Dark in
+                                                  # Safeer-Mint-Y-Blue (lastnik, 17. 10. 2026: tudi brez Papirusa)
     python3 tools/ikone_posodobitev.py MAPA       # drugam (predogled)
 """
 import math
@@ -15,7 +16,13 @@ import sys
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 IME = "Safeer-Papirus-Dark"
-CILJ = os.path.join(KOREN, "packaging", "tema-cinnamon", "ikone", IME)
+IKONE = os.path.join(KOREN, "packaging", "tema-cinnamon", "ikone")
+CILJ = os.path.join(IKONE, IME)
+#: Teme: ime -> (od koga podeduje vse ostale ikone, opis).
+TEME = {
+    "Safeer-Papirus-Dark": ("Papirus-Dark,breeze-dark,hicolor", "Papirus-Dark with Safeer update status icons (Safeer Cinnamon)"),
+    "Safeer-Mint-Y-Blue": ("Mint-Y-Blue,Mint-Y,hicolor", "Mint-Y-Blue with Safeer update status icons (Safeer Cinnamon)"),
+}
 STANJA = ("updates-available", "up-to-date", "checking", "error", "installing")
 #: Papirus-Dark ima mintupdate-* v teh mapah (Context=Status); poleg tega ena razsirljiva za ostale velikosti.
 VELIKOSTI = (16, 22, 24)
@@ -110,12 +117,12 @@ def ikona(stanje: str, n: int, simbolna: bool) -> str:
             % (n, n, n, n, "\n ".join(deli)))
 
 
-def index_theme() -> str:
+def index_theme(ime: str = IME) -> str:
     mape = ["%dx%d/panel" % (v, v) for v in VELIKOSTI] + ["scalable/status"]
-    deli = ["[Icon Theme]", "Name=%s" % IME,
-            "Comment=Papirus-Dark with Safeer update status icons (Safeer Cinnamon)",
-            # Vse ostale ikone iz Papirus-Dark; brez Papirusa safeer-cinnamon te teme ne izbere.
-            "Inherits=Papirus-Dark,breeze-dark,hicolor", "Example=folder",
+    deduje, opis = TEME[ime]
+    deli = ["[Icon Theme]", "Name=%s" % ime, "Comment=%s" % opis,
+            # Vse ostale ikone iz podedovane teme; brez nje safeer-cinnamon te teme ne izbere.
+            "Inherits=%s" % deduje, "Example=folder",
             "Directories=" + ",".join(mape), ""]
     for v in VELIKOSTI:
         deli += ["[%dx%d/panel]" % (v, v), "Context=Status", "Size=%d" % v, "Type=Fixed", ""]
@@ -123,7 +130,7 @@ def index_theme() -> str:
     return "\n".join(deli)
 
 
-def zapisi(cilj: str = CILJ) -> list:
+def zapisi(cilj: str = CILJ, tema: str = IME) -> list:
     zapisane = []
     for mapa, n in [("%dx%d/panel" % (v, v), v) for v in VELIKOSTI] + [("scalable/status", 16)]:
         os.makedirs(os.path.join(cilj, mapa), exist_ok=True)
@@ -135,9 +142,10 @@ def zapisi(cilj: str = CILJ) -> list:
                     f.write(ikona(stanje, n, simbolna))
                 zapisane.append(pot)
     with open(os.path.join(cilj, "index.theme"), "w", encoding="utf-8") as f:
-        f.write(index_theme())
+        f.write(index_theme(tema))
     return zapisane
 
 
 if __name__ == "__main__":
-    print(len(zapisi(sys.argv[1] if len(sys.argv) > 1 else CILJ)), "ikon")
+    koren = sys.argv[1] if len(sys.argv) > 1 else IKONE
+    print(sum(len(zapisi(os.path.join(koren, ime), ime)) for ime in TEME), "ikon")

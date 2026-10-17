@@ -541,6 +541,56 @@ def ikona_scita(vrsta: str, mapa: str, velikost: int = 48, barve: Optional[dict]
     return pot
 
 
+def ikona_linka(povezan: bool, mapa: str, velikost: int = 48) -> str:
+    """Ikona Safeer Control (Safeer Link) za pult: crtni racunalnik in telefon, povezana s piko na crti - v istem slogu
+    kot Scit in ikone pulta, ne poln zeleni scit (lastnik, 17. 10. 2026: v pultu so bili trije scitje - Control,
+    Scit, posodobitve). Brez povezave medla. Narise cairo, vrne pot do PNG v predpomnilniku."""
+    import cairo
+    svetla, medla, zelena = (234 / 255, 242 / 255, 1.0), (147 / 255, 169 / 255, 196 / 255), (127 / 255, 224 / 255, 182 / 255)
+    os.makedirs(mapa, exist_ok=True)
+    pot = os.path.join(mapa, "link-v1-%s.png" % ("povezan" if povezan else "ni"))
+    if os.path.isfile(pot):
+        return pot
+    v = float(velikost)
+    p = cairo.ImageSurface(cairo.FORMAT_ARGB32, velikost, velikost)
+    c = cairo.Context(p)
+    c.scale(v / 48.0, v / 48.0)
+    c.set_line_join(cairo.LINE_JOIN_ROUND)
+    c.set_line_cap(cairo.LINE_CAP_ROUND)
+    c.set_source_rgb(*(svetla if povezan else medla))
+    c.set_line_width(3.4)
+
+    def okvir(x, y, s, h, r):
+        c.new_sub_path()
+        c.arc(x + s - r, y + r, r, -1.5708, 0)
+        c.arc(x + s - r, y + h - r, r, 0, 1.5708)
+        c.arc(x + r, y + h - r, r, 1.5708, 3.1416)
+        c.arc(x + r, y + r, r, 3.1416, 4.7124)
+        c.close_path()
+    okvir(4, 9, 25, 18, 2.5)       # zaslon racunalnika
+    c.stroke()
+    c.move_to(11, 33)               # podstavek
+    c.line_to(22, 33)
+    c.stroke()
+    okvir(33, 17, 12, 22, 2.5)      # telefon
+    c.stroke()
+    c.move_to(37.5, 35)
+    c.line_to(40.5, 35)
+    c.stroke()
+    # povezava: crta od racunalnika do telefona s piko
+    c.set_source_rgb(*(zelena if povezan else medla))
+    c.set_line_width(2.6)
+    c.move_to(29, 22)
+    c.line_to(33, 22)
+    c.stroke()
+    c.arc(16.5, 18, 3.2, 0, 6.2832)
+    c.fill()
+    zacasna = pot + ".tmp"
+    p.write_to_png(zacasna)
+    os.replace(zacasna, pot)
+    return pot
+
+
 class ScitPult:
     """Safeer Scit v pultu poleg kuverte (StatusNotifierItem, isti sklad kot Kuverta): ikona kaze stanje, namig
     »Safeer Scit« z opisom, levi klik odpre nastavitve Scita; meni Vklopi/Izklopi in Nastavitve Scita.

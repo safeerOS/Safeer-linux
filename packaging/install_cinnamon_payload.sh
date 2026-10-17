@@ -19,9 +19,11 @@ cp -a "$T/Safeer-Cinnamon" "$T/Safeer-Cinnamon-Kontrast" "$ROOT/usr/share/themes
 # lastnik, 17. 10. 2026: uporabnik je Papirusov scit posodobitev imel za Safeer Scit). Brez predpomnilnika ikon: paket ga
 # ob odstranitvi ne bi pobrisal, zastarel predpomnilnik pa bi skril ikone.
 mkdir -p "$ROOT/usr/share/icons"
-cp -a "$T/ikone/Safeer-Papirus-Dark" "$ROOT/usr/share/icons/"
-find "$ROOT/usr/share/icons/Safeer-Papirus-Dark" -type d -exec chmod 755 {} +
-find "$ROOT/usr/share/icons/Safeer-Papirus-Dark" -type f -exec chmod 644 {} +
+for IKT in Safeer-Papirus-Dark Safeer-Mint-Y-Blue; do
+    cp -a "$T/ikone/$IKT" "$ROOT/usr/share/icons/"
+    find "$ROOT/usr/share/icons/$IKT" -type d -exec chmod 755 {} +
+    find "$ROOT/usr/share/icons/$IKT" -type f -exec chmod 644 {} +
+done
 # Applet Safeer Miska (miska v pultu: nastavitve in baterija brezzicne miske), dodan ob vklopu postavitve.
 mkdir -p "$ROOT/usr/share/cinnamon/applets"
 cp -a "$T/appleti/miska@safeer.si" "$ROOT/usr/share/cinnamon/applets/"
