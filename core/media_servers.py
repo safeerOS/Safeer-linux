@@ -8,6 +8,9 @@ nezavarovan HTTP zato dovolimo samo za naslove v zasebnem omrezju, drugod ostane
 from __future__ import annotations
 
 import base64
+import concurrent.futures
+import threading
+import time
 import hashlib
 import ipaddress
 import json
@@ -64,7 +67,8 @@ def dovoljen_naslov(url: str) -> bool:
     return deli.scheme == "https" or (deli.scheme == "http" and je_domace_omrezje(deli.hostname or ""))
 
 
-def _request(url: str, headers: dict | None = None, body: dict | None = None, raw: bytes | None = None) -> bytes:
+def _request(url: str, headers: dict | None = None, body: dict | None = None, raw: bytes | None = None,
+             timeout: float = 10) -> bytes:
     if not dovoljen_naslov(url):
         raise ValueError("Osebni medijski strežniki zunaj domačega omrežja zahtevajo HTTPS.")
     data = raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
@@ -73,10 +77,20 @@ def _request(url: str, headers: dict | None = None, body: dict | None = None, ra
                                              "User-Agent": "SafeerOS/1.0", **(headers or {})},
                                     method="POST" if data is not None else "GET")
     opener = urllib.request.build_opener(_HTTPSOnlyRedirect())
-    with opener.open(request, timeout=10) as response:
+    with opener.open(request, timeout=timeout) as response:
         if response.status != 200:
             raise OSError("HTTP %d" % response.status)
         return response.read(5 * 1024 * 1024 + 1)
+
+
+_IZVIRNI_REQUEST = _request
+
+
+def _request_z_rokom(url: str, rok: float) -> bytes:
+    """Zahteva s krajsim rokom. Preizkusi zamenjajo `_request` z nadomestkom brez argumenta `timeout`."""
+    if _request is _IZVIRNI_REQUEST:
+        return _request(url, timeout=rok)
+    return _request(url)
 
 
 def tok_odgovarja(url: str, glave: dict | None = None, rok: float = 4.0) -> bool:
@@ -164,7 +178,7 @@ def authenticate(kind: str, base: str, username: str, secret: str) -> dict:
         _dlna_opis(base)
         return {"token": ""}
     if kind == "stremio":
-        stremio_manifest(base)
+        stremio_manifest(base, sveze=True)
         return {"token": ""}
     raise ValueError("Nepodprta vrsta strežnika.")
 
@@ -811,11 +825,31 @@ def stremio_naslov_dodatka(url: str) -> str:
     return _stremio_koren(url) + "/manifest.json"
 
 
-def stremio_manifest(url: str) -> dict:
+#: Manifesti dodatkov Stremio v pomnilniku (koren -> (cas, manifest)): manifest se redko spremeni, pocasen streznik
+#: dodatka pa je pri vsakem iskanju dodal vec sekund (izmerjeno 5,5 s na testnem PC, 17. 10. 2026).
+_MANIFESTI: dict[str, tuple[float, dict]] = {}
+_MANIFESTI_ZAKLEP = threading.Lock()
+MANIFEST_VELJA_S = 30 * 60
+#: Katalogi enega dodatka se nalagajo hkrati, vsak z rokom: en pocasen katalog ne zadrzi drugih (prej zaporedno,
+#: 8 katalogov x do 10 s - iskanje »dune« je trajalo 76 s).
+KATALOG_ROK_S = 6.0
+KATALOGI_HKRATI = 4
+
+
+def stremio_manifest(url: str, sveze: bool = False) -> dict:
+    """Manifest dodatka. `sveze=True` (dodajanje vira, preverba): vedno s streznika, sicer iz pomnilnika, dokler velja."""
     koren = _stremio_koren(url)
+    zdaj = time.monotonic()
+    if not sveze:
+        with _MANIFESTI_ZAKLEP:
+            znan = _MANIFESTI.get(koren)
+        if znan and zdaj - znan[0] < MANIFEST_VELJA_S:
+            return znan[1]
     m = json.loads(_request(koren + "/manifest.json"))
     if not isinstance(m, dict) or not m.get("id"):
         raise ValueError("To ni Stremio dodatek (manifest.json).")
+    with _MANIFESTI_ZAKLEP:
+        _MANIFESTI[koren] = (zdaj, m)
     return m
 
 
@@ -837,6 +871,7 @@ def _stremio_items(base: str, server: dict, query: str) -> list[dict]:
     koren = _stremio_koren(base)
     manifest = stremio_manifest(koren)
     rezultat = []
+    naloge = []
     for katalog in (manifest.get("catalogs") or [])[:8]:
         tip, ident = str(katalog.get("type") or ""), str(katalog.get("id") or "")
         if not tip or not ident:
@@ -854,10 +889,21 @@ def _stremio_items(base: str, server: dict, query: str) -> list[dict]:
             if obvezen:
                 continue
             pot = "/catalog/%s/%s.json" % (tip, urllib.parse.quote(ident, safe=""))
+        naloge.append((katalog, tip, vrsta, iscem_sam, pot))
+
+    def nalozi(naloga):
         try:
-            metas = json.loads(_request(koren + pot)).get("metas") or []
-        except Exception:
-            continue
+            odgovor = json.loads(_request_z_rokom(koren + naloga[4], KATALOG_ROK_S))
+            return (odgovor.get("metas") if isinstance(odgovor, dict) else None) or []
+        except Exception:  # noqa: BLE001 - nedosegljiv ali pokvarjen katalog preskocimo
+            return []
+
+    if len(naloge) > 1:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=KATALOGI_HKRATI) as izvajalec:
+            vsi_metas = list(izvajalec.map(nalozi, naloge))
+    else:
+        vsi_metas = [nalozi(n) for n in naloge]
+    for (katalog, tip, vrsta, iscem_sam, _pot), metas in zip(naloge, vsi_metas):
         if iscem_sam:
             metas = [m for m in metas if isinstance(m, dict) and _stremio_ujema(m.get("name", ""), query)]
         if vrsta in ("film", "serija", "video") and stremio_metas_glasbeni(metas):
@@ -1001,7 +1047,7 @@ def stremio_preveri(base: str) -> str:
     medijskem centru ne bi deloval; dodatek s samimi torrenti deluje na racunalniku, ki zna prenasati torrente.
     """
     koren = _stremio_koren(base)
-    manifest = stremio_manifest(koren)
+    manifest = stremio_manifest(koren, sveze=True)
     viri = [r if isinstance(r, str) else str((r or {}).get("name") or "") for r in (manifest.get("resources") or [])]
     if "stream" not in viri:
         return ("Ta dodatek ponuja samo seznam naslovov brez predvajalnih povezav, "

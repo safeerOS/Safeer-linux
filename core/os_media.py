@@ -1259,6 +1259,20 @@ def _series_catalog_card(item: dict) -> dict:
     return out
 
 
+def _ujemanje_naslova(naslov: str, iskano: str) -> int:
+    """0 = naslov je tocno iskano (brez locil, velikih crk in letnice v oklepaju), 1 = naslov se z njim zacne,
+    2 = vse ostalo. Samo za razvrstitev zadetkov iskanja; kaj je zadetek, odloci ujema_iskanje."""
+    def cisto(besedilo: str) -> str:
+        besedilo = re.sub(r"\(\d{4}\)", " ", unicodedata.normalize("NFKC", besedilo).casefold())
+        return " ".join(re.findall(r"\w+", besedilo))
+    n, q = cisto(naslov), cisto(iskano)
+    if not q:
+        return 2
+    if n == q:
+        return 0
+    return 1 if n.startswith(q + " ") else 2
+
+
 class MediaCenter:
     """Trajen katalog virov z atomskim zapisom in enotno logiko za vse platforme."""
 
@@ -2521,31 +2535,89 @@ class MediaCenter:
             return {"ok": False, "napaka": "Kodi se ni odzval."}
         return {"ok": True, "kodi": kodi[0].get("ime", "Kodi")}
 
+    #: Osebni strezniki in dodatki: svez odgovor velja 5 min; do STREZNIK_STARO_S vrnemo zadnji odgovor takoj in ga
+    #: osvezimo v ozadju (kot DNS »serve stale«), da Medijski center ne caka na pocasen dodatek.
+    STREZNIK_SVEZE_S = 300
+    STREZNIK_STARO_S = 6 * 60 * 60
+    STREZNIKI_HKRATI = 6
+    #: Neodziven dodatek (testni PC 17. 10. 2026: manifest Iracemaflix vsakic 10 s do roka) si zapomnimo za toliko
+    #: sekund z zadnjim znanim (ali praznim) odgovorom; nato ga osvezujemo samo se v ozadju.
+    STREZNIK_NAPAKA_S = 120
+    #: Najdlje toliko cakamo na strezniike brez shranjenega odgovora; kar ne odgovori, se nalaga naprej v ozadju.
+    STREZNIKI_ROK_S = 4.0
+
+    def _nalozi_streznik(self, provider: str, server: dict, server_query: str, key: str) -> list[dict]:
+        secret = self._secret_decryptor(str(server.get("secret_enc") or ""))
+        rows = media_servers.catalog(provider, str(server.get("url") or ""), server, secret, server_query)
+        self._server_cache[key] = (time.time(), rows)
+        return rows
+
+    def _osvezi_streznik_v_ozadju(self, provider: str, server: dict, server_query: str, key: str) -> None:
+        osvezujem = self.__dict__.setdefault("_osvezujem_streznike", set())
+        with self._lock:
+            if key in osvezujem:
+                return
+            osvezujem.add(key)
+
+        def delo():
+            try:
+                self._nalozi_streznik(provider, server, server_query, key)
+            except Exception:  # noqa: BLE001 - ostane zadnji znani odgovor
+                pass
+            finally:
+                with self._lock:
+                    osvezujem.discard(key)
+        threading.Thread(target=delo, name="safeer-streznik-osvezi", daemon=True).start()
+
     def _personal_items(self, query: str) -> list[dict]:
         with self._lock:
             servers = list(self._load().get("osebni_strezniki", []))
-        result = []
         now = time.time()
-        for server in servers:
+
+        def vrstice_streznika(server: dict) -> list[dict]:
             provider = str(server.get("ponudnik") or "")
             server_id = str(server.get("id") or "")
             server_query = query if provider in ("navidrome", "funkwhale") else ""
             key = server_id + ":" + server_query.casefold()
             cached = self._server_cache.get(key)
-            if cached and now - cached[0] < 300:
+            if cached and now - cached[0] < self.STREZNIK_SVEZE_S:
                 rows = cached[1]
-                if query and provider not in ("navidrome", "funkwhale"):
-                    rows = [item for item in rows if media_servers.ujema_iskanje(item, query)]
-                result.extend(rows); continue
-            try:
-                secret = self._secret_decryptor(str(server.get("secret_enc") or ""))
-                rows = media_servers.catalog(provider, str(server.get("url") or ""), server, secret, server_query)
-                self._server_cache[key] = (now, rows)
-            except Exception:
-                rows = cached[1] if cached else []
+            elif cached and now - cached[0] < self.STREZNIK_STARO_S:
+                rows = cached[1]
+                self._osvezi_streznik_v_ozadju(provider, server, server_query, key)
+            else:
+                try:
+                    rows = self._nalozi_streznik(provider, server, server_query, key)
+                except Exception:  # noqa: BLE001
+                    rows = cached[1] if cached else []
+                    # Napaka velja kot odgovor za STREZNIK_NAPAKA_S: naslednja iskanja ne cakajo znova do roka.
+                    self._server_cache[key] = (time.time() - self.STREZNIK_SVEZE_S + self.STREZNIK_NAPAKA_S, rows)
             if query and provider not in ("navidrome", "funkwhale"):
                 rows = [item for item in rows if media_servers.ujema_iskanje(item, query)]
-            result.extend(rows)
+            return rows
+
+        # Strezniki hkrati (prej zaporedno: vsak pocasen dodatek je podaljsal iskanje); vrstni red ostane.
+        if len(servers) > 1:
+            import concurrent.futures
+            izvajalec = concurrent.futures.ThreadPoolExecutor(max_workers=self.STREZNIKI_HKRATI,
+                                                              thread_name_prefix="safeer-streznik")
+            prihodnosti = [izvajalec.submit(vrstice_streznika, server) for server in servers]
+            concurrent.futures.wait(prihodnosti, timeout=self.STREZNIKI_ROK_S)
+            # Kar ne odgovori pravocasno, se dokonca v ozadju in pride v predpomnilnik za naslednje iskanje.
+            izvajalec.shutdown(wait=False)
+            po_streznikih = []
+            for server, prihodnost in zip(servers, prihodnosti):
+                if prihodnost.done() and not prihodnost.exception():
+                    po_streznikih.append(prihodnost.result())
+                else:
+                    znano = self._server_cache.get(str(server.get("id") or "") + ":")
+                    vrstice = list(znano[1]) if znano else []
+                    if query:
+                        vrstice = [item for item in vrstice if media_servers.ujema_iskanje(item, query)]
+                    po_streznikih.append(vrstice)
+        else:
+            po_streznikih = [vrstice_streznika(server) for server in servers]
+        result = [vrstica for vrstice in po_streznikih for vrstica in vrstice]
         result.extend(self._cinemeta_items(servers, result, query))
         return result
 
@@ -3654,7 +3726,10 @@ class MediaCenter:
                 # Iskanje: najprej zadetki, ki se z iskanim ujemajo v naslovu, med njimi uporabnikovi viri in dodatki
                 # (prej so bili na koncu, za desetinami ohlapnih zadetkov s spleta). Vrstni red znotraj skupin ostane.
                 moji = {str(x.get("url")) for x in (personal + local) if isinstance(x, dict)}
+                # Tocno ujemanje naslova je prvo (»breaking bad« -> serija Breaking Bad, ne dokumentarec o njej;
+                # testni PC 17. 10. 2026 je bila serija sele cetrta), nato naslovi, ki se z iskanim zacnejo.
                 merged = sorted(merged, key=lambda it: (
+                    _ujemanje_naslova(str(it.get("naslov") or ""), query),
                     0 if media_servers.ujema_iskanje({"naslov": it.get("naslov")}, query) else 1,
                     0 if str(it.get("url")) in moji else 1))
         merged = self._filtriraj_jezike(merged, izklopljeni_jeziki)
