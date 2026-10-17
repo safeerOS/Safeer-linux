@@ -2522,6 +2522,7 @@
       (drugi.zmoznosti || []).forEach(function (z) { if (zm.indexOf(z) < 0) zm.push(z); });
       glavni.zmoznosti = zm;
       glavni.ta = !!(glavni.ta || drugi.ta);
+      glavni.ozji = !!(glavni.ozji || drugi.ozji);
       poOsnovi[osnova] = glavni;
     });
     var izid = vrstniRed.map(function (k) { return poOsnovi[k]; });
@@ -2555,7 +2556,8 @@
           });
           setTimeout(function () { vnos.focus(); vnos.select(); }, 0);
         } else {
-          var jeRacunalnik = !n.ta && (n.vrsta === "computer" || n.vrsta === "control" ||
+          // Upravljanje zaslona samo za naprave v ozjem krogu zaupanja (lastnik, 17. 10. 2026).
+          var jeRacunalnik = !n.ta && n.ozji && (n.vrsta === "computer" || n.vrsta === "control" ||
             n.platforma === "linux" || n.platforma === "windows" || n.platforma === "macos");
           li.innerHTML = svg(ikonaNaprave(n)) + "<div><b></b><small></small></div>" +
             (jeRacunalnik ? "<button class=\"gumb glavni majhen upravljaj\"></button>" : "") +

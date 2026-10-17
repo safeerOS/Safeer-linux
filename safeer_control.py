@@ -58,6 +58,15 @@ from core import link_daljinec, link_datoteke, link_deljenje, link_hub, link_pro
 from core import budnost, odlozisce_varuh, os_posodobitve, os_stabilnost  # noqa: E402
 from core import link_internet, link_internet_posrednik, sistemski_posrednik  # noqa: E402
 from core import link_dostop  # noqa: E402
+
+
+def _v_ozjem_krogu(id_naprave: str) -> bool:
+    """Ali je naprava v ozjem krogu zaupanja tega racunalnika (ima kaksno dovoljenje v link_dostop). Ob napaki branja
+    zapisa ne (varna stran - »ne vem« ni »da«)."""
+    try:
+        return bool(link_dostop.zmoznosti(str(id_naprave or "")))
+    except Exception:  # noqa: BLE001
+        return False
 from core.link_gledalec import (Gledalec, OKVIR_OBVESTILO, OKVIR_SLIKA,  # noqa: E402
                                 izberi_ponor, niz_cevovoda, preslikaj_tipko,
                                 preslikaj_tocko)
@@ -1198,10 +1207,13 @@ class SafeerControl(_OSNOVA):
             self._pripravi_link()
         link = self.link
         if metoda == "Seznam":
+            # »ozji«: naprava je v ozjem krogu zaupanja tega racunalnika (link_dostop, »Schengen«). Samo take Safeer OS
+            # pokaze za ogled programov, datotek in zaslona (lastnik, 17. 10. 2026: naprave izven ozjega kroga za to
+            # sploh ne smemo videti). Sirsi krog (posiljanje, pomoc pri povezavi) ostane za vse.
             return {"ok": True, "naprave": [
                 {"id": n.get("id", ""), "ime": n.get("ime", ""), "zmoznosti": n.get("zmoznosti") or [],
                  "platforma": n.get("platforma", ""), "vrsta": n.get("vrsta", ""),
-                 "ta": n.get("id", "") == link._id()} for n in link.naprave]}
+                 "ta": n.get("id", "") == link._id(), "ozji": _v_ozjem_krogu(n.get("id", ""))} for n in link.naprave]}
         if metoda.startswith("Shramba"):
             # Skupni prostor: datoteka tega racunalnika na napravo z najvec prostora (core/link_shramba.py).
             if getattr(self, "shramba", None) is None:

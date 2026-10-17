@@ -796,7 +796,8 @@ def naprave_s_programi() -> list:
         # videl programov racunalnika z Windows (ta se v Link prijavi kot Safeer Control).
         if n.get("ta") or n.get("platforma") == "linux" and socket.gethostname() in n.get("ime", ""):
             continue
-        if "apps" in z or "remote" in z:
+        # Samo ozji krog zaupanja (lastnik, 17. 10. 2026): naprave izven njega za ogled programov ne vidimo.
+        if ("apps" in z or "remote" in z) and n.get("ozji"):
             naprave.append({"id": n["id"], "ime": n.get("ime", ""), "platforma": n.get("platforma", ""),
                             "vrsta": n.get("vrsta", "")})
     return naprave
@@ -806,7 +807,8 @@ def vse_naprave() -> list:
     """Vse naprave v Safeer Linku (tudi ta racunalnik) za stran Naprave: id, ime, platforma, vrsta, ta."""
     izid = _control_naprave("Seznam")
     return [{"id": n.get("id", ""), "ime": n.get("ime", ""), "platforma": n.get("platforma", ""),
-             "vrsta": n.get("vrsta", ""), "ta": bool(n.get("ta"))} for n in izid.get("naprave") or [] if n.get("id")]
+             "vrsta": n.get("vrsta", ""), "ta": bool(n.get("ta")), "ozji": bool(n.get("ozji") or n.get("ta"))}
+            for n in izid.get("naprave") or [] if n.get("id")]
 
 
 def _magnet_klic(delo) -> dict:
@@ -883,7 +885,8 @@ def naprave_z_datotekami() -> list:
     izid = _control_naprave("Seznam")
     return [{"id": n.get("id", ""), "ime": n.get("ime", ""), "platforma": n.get("platforma", ""),
              "vrsta": n.get("vrsta", "")}
-            for n in izid.get("naprave") or [] if n.get("id") and not n.get("ta") and "files" in (n.get("zmoznosti") or [])]
+            for n in izid.get("naprave") or [] if n.get("id") and not n.get("ta") and n.get("ozji")
+            and "files" in (n.get("zmoznosti") or [])]
 
 
 def naprave_za_posiljanje() -> list:
@@ -912,7 +915,10 @@ def pretvorba_za_tv_mozna(najdi=None) -> dict:
 
 
 def datoteke_naprave(id_naprave: str, mapa: str = "") -> dict:
-    """Mapa druge naprave (files.list prek Controla): vnosi, streznik za tok in kljuc naprave iz kroga."""
+    """Mapa druge naprave (files.list prek Controla): vnosi, streznik za tok in kljuc naprave iz kroga. Samo naprave
+    v ozjem krogu zaupanja (lastnik, 17. 10. 2026)."""
+    if not _v_ozjem_krogu(str(id_naprave or "")):
+        return {"ok": False, "koda": "ni_ozji_krog", "items": []}
     return _control_naprave("Datoteke", str(id_naprave or ""), str(mapa or ""))
 
 
@@ -996,13 +1002,23 @@ def preimenuj_napravo(id_naprave: str, ime: str) -> dict:
     return _control_naprave("Preimenuj", str(id_naprave or ""), str(ime or ""))
 
 
+def _v_ozjem_krogu(id_naprave: str) -> bool:
+    """Ali je naprava v ozjem krogu zaupanja tega racunalnika (polje »ozji« iz Controla)."""
+    izid = _control_naprave("Seznam")
+    return any(n.get("id") == id_naprave and n.get("ozji") for n in izid.get("naprave") or [])
+
+
 def upravljaj_racunalnik(id_naprave: str) -> dict:
-    """Safeer Control pridobi dovoljenje in odpre oddaljeni zaslon izbranega racunalnika."""
+    """Safeer Control pridobi dovoljenje in odpre oddaljeni zaslon izbranega racunalnika - samo v ozjem krogu."""
+    if not _v_ozjem_krogu(str(id_naprave or "")):
+        return {"ok": False, "koda": "ni_ozji_krog"}
     return _control_naprave("Upravljaj", str(id_naprave or ""))
 
 
 def programi_naprave(id_naprave: str) -> dict:
-    """Programi ene naprave v obliki, kot jo ima stran (ikone kot data URL)."""
+    """Programi ene naprave v obliki, kot jo ima stran (ikone kot data URL). Samo ozji krog zaupanja."""
+    if not _v_ozjem_krogu(str(id_naprave or "")):
+        return {"ok": False, "koda": "ni_ozji_krog", "programi": []}
     izid = _control_naprave("Aplikacije", str(id_naprave or ""))
     if not izid.get("ok"):
         return {"ok": False, "koda": izid.get("koda", ""), "programi": []}
