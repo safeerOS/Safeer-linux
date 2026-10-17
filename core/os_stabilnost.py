@@ -200,6 +200,12 @@ def vkljuci(ime_programa: str = "safeer-os") -> str:
         threading.excepthook = ob_izjemi_niti
     except Exception:  # noqa: BLE001
         pass
+    # Dvig meje je le zadnja varovalka: straza v dnevnik zapise, kaj raste, preden bi deskriptorjev zmanjkalo.
+    try:
+        from core import os_deskriptorji
+        os_deskriptorji.Straza(lambda vrstica: zapisi(ime_programa, vrstica)).zazeni()
+    except Exception:  # noqa: BLE001
+        pass
     return pot
 
 

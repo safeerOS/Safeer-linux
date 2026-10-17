@@ -251,6 +251,7 @@ class Razresevalnik:
         if self._tece:
             return self.vrata
         for vrata in VRATA:
+            u = t = None
             try:
                 u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 u.bind((NASLOV, vrata))
@@ -259,6 +260,10 @@ class Razresevalnik:
                 t.bind((NASLOV, vrata))
                 t.listen(16)
             except OSError:
+                # Zasedena vrata: ze odprte vticnice zapremo, preden poskusimo naslednja.
+                for s in (u, t):
+                    if s is not None:
+                        s.close()
                 continue
             self._udp, self._tcp, self.vrata, self._tece = u, t, vrata, True
             threading.Thread(target=self._zanka_udp, name="safeer-scit-udp", daemon=True).start()

@@ -25,7 +25,7 @@ import urllib.parse
 import uuid
 from typing import Callable, Dict, List, Optional
 
-from core import budnost
+from core import budnost, os_deskriptorji
 
 MB = 1024 * 1024
 VISINA = 1080
@@ -178,7 +178,7 @@ class _Vir:
         return (u.path or "/") + ("?" + u.query if u.query else "")
 
 
-class _Posrednik(http.server.BaseHTTPRequestHandler):
+class _Posrednik(os_deskriptorji.RokCakanjaZahteve, http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def log_message(self, *a):  # noqa: D401

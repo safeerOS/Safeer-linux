@@ -24,6 +24,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from core import os_deskriptorji
+
 SSDP_GROUP = ("239.255.255.250", 1900)
 ST = "urn:schemas-upnp-org:device:MediaRenderer:1"
 SOAP_NS = "http://schemas.xmlsoap.org/soap/envelope/"
@@ -306,7 +308,7 @@ class StreznikDatotek:
 
     def __enter__(self) -> "StreznikDatotek":
         owner = self
-        class Handler(BaseHTTPRequestHandler):
+        class Handler(os_deskriptorji.RokCakanjaZahteve, BaseHTTPRequestHandler):
             def log_message(self, *_: Any) -> None:
                 pass
             def _serve(self, head: bool) -> None:

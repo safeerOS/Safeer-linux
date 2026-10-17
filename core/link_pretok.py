@@ -29,7 +29,7 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional, Tuple
 
-from core import link_tls
+from core import link_tls, os_deskriptorji
 
 KOS = 256 * 1024
 NAJVEC_VIROV = 512
@@ -288,7 +288,7 @@ class _Streznik(http.server.ThreadingHTTPServer):
     allow_reuse_address = True
 
 
-class _Obravnava(http.server.BaseHTTPRequestHandler):
+class _Obravnava(os_deskriptorji.RokCakanjaZahteve, http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "SafeerPretok"
     sys_version = ""

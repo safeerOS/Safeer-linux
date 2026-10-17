@@ -1851,10 +1851,9 @@ def krajevni_naslov() -> str:
     """Naslov tega racunalnika v domacem omrezju (tisti, prek katerega pridemo do sredisca)."""
     for cilj in ("192.0.2.1", "10.255.255.255"):
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect((cilj, 9))
-            naslov = s.getsockname()[0]
-            s.close()
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect((cilj, 9))
+                naslov = s.getsockname()[0]
             if naslov and not naslov.startswith("127."):
                 return naslov
         except OSError:
@@ -1866,10 +1865,9 @@ def naslov_do_huba(hub_url: str) -> str:
     """Naslov tega racunalnika, kot ga vidi sredisce: vticnica proti hubu pove, kateri vmesnik je pravi."""
     try:
         u = urllib.parse.urlparse(hub_url)
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect((u.hostname or "127.0.0.1", u.port or 443))
-        naslov = s.getsockname()[0]
-        s.close()
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:     # zaprta tudi, ce connect ne uspe
+            s.connect((u.hostname or "127.0.0.1", u.port or 443))
+            naslov = s.getsockname()[0]
         if naslov and not naslov.startswith("127."):
             return naslov
     except OSError:

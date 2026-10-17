@@ -32,6 +32,16 @@ MAPA = "INBOX"
 CASOVNA_OMEJITEV = 20
 
 
+def _zapri_imap(imap) -> None:
+    """Zapre vticnico povezave IMAP brez cakanja na streznik (LOGOUT bi na mrtvi povezavi cakal do roka)."""
+    if imap is None:
+        return
+    try:
+        imap.shutdown()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _navedi(mapa: str) -> str:
     """Ime mape IMAP v narekovajih (presledki, krajevna imena v spremenjenem UTF-7)."""
     return '"%s"' % mapa.replace("\\", "\\\\").replace('"', '\\"')
@@ -237,6 +247,8 @@ class EmailAdapter(Adapter):
                     return
             except Exception:
                 pass
+            # Mrtva povezava: zapremo jo, preden odpremo novo (sicer vticnica ostane odprta do zbiranja smeti).
+            _zapri_imap(self._imap)
             self._imap = None
         imap = imaplib.IMAP4_SSL(self.imap_streznik, self.imap_vrata,
                                  ssl_context=ssl.create_default_context(), timeout=CASOVNA_OMEJITEV)
@@ -254,7 +266,14 @@ class EmailAdapter(Adapter):
             except Exception:
                 pass
             raise NapakaPrijave("Prijava ni uspela") from e
-        imap.select("INBOX", readonly=False)
+        except BaseException:
+            _zapri_imap(imap)
+            raise
+        try:
+            imap.select("INBOX", readonly=False)
+        except BaseException:
+            _zapri_imap(imap)
+            raise
         self._imap = imap
 
     # --------------------------------------------------------------- osnutki na strezniku (IMAP Drafts)
@@ -262,8 +281,8 @@ class EmailAdapter(Adapter):
         """Kratka lastna povezava za osnutke: glavna (INBOX) ostane sinhronizaciji, ki tece v drugi niti."""
         imap = imaplib.IMAP4_SSL(self.imap_streznik, self.imap_vrata,
                                  ssl_context=ssl.create_default_context(), timeout=CASOVNA_OMEJITEV)
-        geslo = self._skrivnost()
         try:
+            geslo = self._skrivnost()
             if _ascii(self.uporabnik, geslo):
                 imap.login(self.uporabnik, geslo)
             else:
@@ -274,6 +293,9 @@ class EmailAdapter(Adapter):
             except Exception:
                 pass
             raise NapakaPrijave("Prijava ni uspela") from e
+        except BaseException:
+            _zapri_imap(imap)
+            raise
         return imap
 
     @staticmethod
@@ -420,15 +442,23 @@ class EmailAdapter(Adapter):
                             imap = None
                     except Exception:  # noqa: BLE001
                         imap = None
+                    if imap is None:
+                        _zapri_imap(self._prenosna)       # mrtva: zapremo, preden odpremo novo
+                        self._prenosna = None
                 if imap is None:
                     imap = self._locena_povezava()
-                    if imap.select(MAPA, readonly=True)[0] != "OK":
-                        raise RuntimeError("Mape ni mogoce odpreti")
+                    try:
+                        if imap.select(MAPA, readonly=True)[0] != "OK":
+                            raise RuntimeError("Mape ni mogoce odpreti")
+                    except BaseException:
+                        _zapri_imap(imap)
+                        raise
                     self._prenosna = imap
                 try:
                     yield imap
                 except (imaplib.IMAP4.abort, OSError):
                     self._prenosna = None
+                    _zapri_imap(imap)
                     raise
             finally:
                 self._prenosna_klj.release()
@@ -685,7 +715,11 @@ class EmailAdapter(Adapter):
             smtp = smtplib.SMTP_SSL(self.smtp_streznik, self.smtp_vrata, context=kontekst, timeout=CASOVNA_OMEJITEV)
         else:
             smtp = smtplib.SMTP(self.smtp_streznik, self.smtp_vrata, timeout=CASOVNA_OMEJITEV)
-            smtp.starttls(context=kontekst)
+            try:
+                smtp.starttls(context=kontekst)
+            except BaseException:
+                smtp.close()                    # STARTTLS ni uspel: vticnica se ne sme kopiciti ob ponovnih poskusih
+                raise
         try:
             try:
                 geslo = self._skrivnost()
