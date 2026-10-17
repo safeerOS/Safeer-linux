@@ -373,7 +373,15 @@ function odpri(url) {
   }
   const wc = okno.webContents;
   wc.setWindowOpenHandler(({ url: cilj }) => {
-    // Storitev: novo okno (npr. prijava) odpremo v istem predvajalniku; drugje pojavna okna zapremo.
+    // Prijava prek drugega ponudnika (Google, Apple, Facebook) pri storitvi: pravo pojavno okno z window.opener,
+    // kot v brskalniku - prej se je stran nalozila namesto storitve in prijava se ni mogla vrniti (17. 10. 2026).
+    let gost = ''; try { gost = new URL(cilj).hostname; } catch (_) {}
+    if (storitev && cilj.startsWith('https:') && /(^|\.)(accounts\.google\.com|appleid\.apple\.com|facebook\.com)$/.test(gost)) {
+      zapisi('POPUP_LOGIN', varenGostitelj(cilj));
+      return { action: 'allow', overrideBrowserWindowOptions: { width: 520, height: 720, autoHideMenuBar: true, title: 'Safeer',
+        parent: okno, modal: false, webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true } } };
+    }
+    // Storitev: drugo novo okno odpremo v istem predvajalniku; drugje pojavna okna zapremo.
     if (storitev && cilj.startsWith('https:')) { wc.loadURL(cilj); zapisi('POPUP_IN_PLACE', varenGostitelj(cilj)); }
     else zapisi('POPUP_BLOCKED');
     return { action: 'deny' };

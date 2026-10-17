@@ -864,3 +864,11 @@ Object.assign(BESEDILA_OS.de, {"ytDodajRacun": "Konto hinzufügen", "ytNaVsehNap
 Object.assign(BESEDILA_OS.es, {"ytDodajRacun": "Añadir cuenta", "ytNaVsehNapravah": "Las listas de tus cuentas también están disponibles automáticamente en tus otros dispositivos de Safeer Link."});
 Object.assign(BESEDILA_OS.fr, {"ytDodajRacun": "Ajouter un compte", "ytNaVsehNapravah": "Les playlists de tes comptes sont aussi disponibles automatiquement sur tes autres appareils dans Safeer Link."});
 Object.assign(BESEDILA_OS.it, {"ytDodajRacun": "Aggiungi account", "ytNaVsehNapravah": "Le playlist dei tuoi account sono disponibili automaticamente anche sugli altri tuoi dispositivi in Safeer Link."});
+
+// Spotify: namig ob prijavi prek Googla (lastnik 17. 10. 2026).
+Object.assign(BESEDILA_OS.sl, {"spGoogleNamig": "Če Google prijave ne dovoli (»Prijava ni bila mogoča«), izberi »Nadaljuj z e-pošto« in vpiši svoj Gmail – Spotify ti pošlje kodo za prijavo."});
+Object.assign(BESEDILA_OS.en, {"spGoogleNamig": "If Google doesn't allow the sign-in (\"Couldn't sign you in\"), choose \"Continue with email\" and enter your Gmail – Spotify sends you a sign-in code."});
+Object.assign(BESEDILA_OS.de, {"spGoogleNamig": "Wenn Google die Anmeldung nicht zulässt, wähle „Mit E-Mail fortfahren“ und gib deine Gmail-Adresse ein – Spotify schickt dir einen Code."});
+Object.assign(BESEDILA_OS.es, {"spGoogleNamig": "Si Google no permite el inicio de sesión, elige «Continuar con el correo» e introduce tu Gmail: Spotify te enviará un código."});
+Object.assign(BESEDILA_OS.fr, {"spGoogleNamig": "Si Google refuse la connexion, choisis « Continuer avec l’e-mail » et saisis ton Gmail : Spotify t’envoie un code."});
+Object.assign(BESEDILA_OS.it, {"spGoogleNamig": "Se Google non consente l’accesso, scegli «Continua con l’email» e inserisci la tua Gmail: Spotify ti invierà un codice."});

@@ -5311,6 +5311,8 @@
       });
     } else if (!r.prijavljen || r.okno) {
       glava.appendChild(el("small", "", ubezi(r.okno ? t("spPrijavaOkno") : r.potekla ? t("spPotekla") : t("spPrijavaNamig"))));
+      // Google prijavo v vgrajenih brskalnikih aplikacij lahko zavrne (»Prijava ni bila mogoča«); e-pošta deluje vedno.
+      if (r.okno) glava.appendChild(el("small", "kat-sp-namig", ubezi(t("spGoogleNamig"))));
       if (!r.okno) gumb(t("spPrijava"), function () {
         klic("mediaSpPrijava").then(function (x) {
           if (x && x.napaka) { spNapaka(x.napaka); return; }
