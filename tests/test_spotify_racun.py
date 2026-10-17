@@ -470,6 +470,20 @@ class RacunTest(unittest.TestCase):
         self.assertEqual(r.upravljaj("brisi"), {"napaka": "neveljavno"})
         self.assertEqual(r.upravljaj("cas", "x"), {"napaka": "neveljavno"})
 
+    def test_ustavi_ne_zazene_znova(self):
+        """»ustavi« je premor samo, ce Spotify res igra (sveze stanje), tudi ce ga poklicemo dvakrat zapored."""
+        k = LazniKanal(stanje={"zeton": True, "predvajalnik": True, "naslov": "Pesem", "igra": True})
+        r = self._racun(k)
+        k.zacni(False, True)
+        klik = '"control-button-playpause"'
+        self.assertEqual(r.upravljaj("ustavi"), {"ok": True})
+        self.assertEqual(sum(klik in x and x != sr.STANJE_JS for x in k.izrazi), 1)
+        k.stanje = dict(k.stanje, igra=False)              # stran je ustavljena; straza tega se ni prebrala
+        r._predvajanje = {"naslov": "Pesem", "igra": True}
+        self.assertEqual(r.upravljaj("ustavi"), {"ok": True})
+        self.assertEqual(sum(klik in x and x != sr.STANJE_JS for x in k.izrazi), 1)
+        self.assertFalse(r._predvajanje["igra"])
+
     def test_predvajaj(self):
         k = LazniKanal()
         r = self._racun(k)

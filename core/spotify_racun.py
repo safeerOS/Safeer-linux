@@ -610,6 +610,7 @@ class Racun:
         self._ura = ura
         self._na_voljo = na_voljo or (lambda: safeer_drm.izvrsljiva() is not None)
         self._zaklep = threading.Lock()
+        self._ustavljam = threading.Lock()
         self._predvajanje: dict = {}
         self._prijavljen = False
         self._ime = ""
@@ -1014,8 +1015,12 @@ class Racun:
                 ok = self.kanal.izvedi(DRSNIK_JS % (_js("playback-progressbar" if ukaz == "cas" else "volume-bar"),
                                                     _js(round(delez, 4))), 5)
             elif ukaz == "ustavi":
-                if self._predvajanje.get("igra"):
-                    self.kanal.izvedi(GUMB_JS % _js(self.UKAZI["premor"]), 5)
+                # Gumb je preklopni: stanje beremo sveze (straza ga osvezi le vsako sekundo) in klice zvrstimo, sicer
+                # bi dva hkratna »ustavi« (Medijski center in druga vsebina) Spotify spet zagnala.
+                with self._ustavljam:
+                    if stanje_iz(self.kanal.izvedi(STANJE_JS, 5))["igra"]:
+                        self.kanal.izvedi(GUMB_JS % _js(self.UKAZI["premor"]), 5)
+                    self._predvajanje = dict(self._predvajanje, igra=False)
                 return {"ok": True}
             else:
                 return {"napaka": "neveljavno"}

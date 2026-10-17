@@ -1105,7 +1105,8 @@ class Katalog:
             izid = self.mc.spotify.predvajaj(str(item["spotify"]), str(item.get("spotify_kontekst") or ""))
             if izid.get("napaka"):
                 return dict(item, native=True, spotify=True, sp_napaka=izid["napaka"])
-            return dict(item, native=True, spotify=True, zvok=True)
+            # delno: vrstice skladbe na strani ni bilo, Spotify je zacel seznam od zacetka - stran to pove uporabniku.
+            return dict(item, native=True, spotify=True, zvok=True, sp_delno=bool(izid.get("delno")))
         sp = getattr(self.mc, "_spotify", None)        # Spotify je bil v tej seji uporabljen
         if sp is not None and sp.kanal.tece():
             # druga vsebina: Spotify ne igra zraven (v ozadju - zastal Safeer DRM ne sme zadrzati predvajanja)

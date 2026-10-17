@@ -41,6 +41,8 @@ MEJA_ZAKASNITVE_MS = 8000
 KORAK_ZAKASNITVE_MS = 50
 MERI_S = 0.25            # meritev: kako pogosto beremo polozaj zvocnika
 MERI_KROGOV = 40         # najvec 10 s merjenja
+#: Kako pogosto tokove, ki so nastali po preklopu, premaknemo na zvocnik (en klic pactl, nekaj ms).
+NOVI_TOKOVI_S = 1.0
 
 
 def _pot_zakasnitev() -> str:
@@ -348,6 +350,7 @@ class Zvocniki:
             self._zvocnik, self._id, self.stanje = zvocnik, id_zvocnika, "caka"
         self.ob_zakasnitvi(self.zakasnitev(id_zvocnika))
         threading.Thread(target=self._strazi, args=(seja,), name="safeer-zvocnik-straza", daemon=True).start()
+        threading.Thread(target=self._premikaj_nove, args=(seja,), name="safeer-zvocnik-tokovi", daemon=True).start()
         return {"ok": True, "ime": zvocnik.ime}
 
     def _pripravi_izhod(self, ime: str) -> None:
@@ -368,6 +371,40 @@ class Zvocniki:
             stolpci = vrstica.split()
             if stolpci:
                 self._pactl("move-sink-input", stolpci[0], IZHOD)
+
+    def _premakni_tuje(self) -> int:
+        """Tokove, ki ne gredo na navidezni izhod, premakne nanj; vrne stevilo premaknjenih.
+
+        Privzeti izhod ne zadostuje: PipeWire (WirePlumber, restore-stream) in PulseAudio (module-stream-restore) nov
+        tok programa pripneta na izhod, ki si ga je program zapomnil. Tako je Safeer DRM (Spotify, Electron) ob vsaki
+        novi skladbi ali po premoru odprl nov tok na zvocnikih racunalnika (pregled 17. 10. 2026)."""
+        nas = ""
+        for vrstica in self._pactl("list", "short", "sinks").stdout.splitlines():
+            stolpci = vrstica.split()
+            if len(stolpci) > 1 and stolpci[1] == IZHOD:
+                nas = stolpci[0]
+        if not nas:
+            return 0
+        n = 0
+        for vrstica in self._pactl("list", "short", "sink-inputs").stdout.splitlines():
+            stolpci = vrstica.split()
+            if len(stolpci) > 1 and stolpci[0].isdigit() and stolpci[1] != nas:
+                self._pactl("move-sink-input", stolpci[0], IZHOD)
+                n += 1
+        return n
+
+    def _premikaj_nove(self, seja: int) -> None:
+        """Dokler seja tece, vsak nov tok (nova skladba, drug program) gre na zvocnik in ne na racunalnik."""
+        while True:
+            self.cakaj(NOVI_TOKOVI_S)
+            # Pod kljucem: ustavi() ne sme vmes vrniti tokov na racunalnik, ki bi jih mi nato spet premaknili.
+            with self._kljuc:
+                if seja != self._seja or self._tok is None:
+                    return
+                try:
+                    self._premakni_tuje()
+                except Exception:
+                    pass
 
     def _strazi(self, seja: int) -> None:
         """Ce uporabnik na zvocniku izbere drug vir (ali ga ugasne), vrnemo zvok na racunalnik."""

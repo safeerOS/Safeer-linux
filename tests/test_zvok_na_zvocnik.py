@@ -115,6 +115,43 @@ class ZvokNaZvocnikTest(unittest.TestCase):
         self.assertIn(("set-default-sink", "alsa_output.pci"), pactl.klici)
         self.assertNotIn(("ustavi",), jbl.klici)       # zvocniku ne vzamemo vira, ki ga je izbral
 
+    def test_nov_tok_po_preklopu_gre_na_zvocnik(self):
+        """Safeer DRM (Spotify) odpre ob novi skladbi nov tok; WirePlumber ga pripne na zapomnjen izhod racunalnika."""
+
+        class Pactl(LazniPactl):
+            def __init__(self):
+                super().__init__()
+                self.tokovi = {"7": "1"}          # id toka -> indeks izhoda
+
+            def __call__(self, *a, cas=4.0):
+                if a[:3] == ("list", "short", "sink-inputs"):
+                    self.klici.append(a)
+                    out = "".join("%s\t%s\t3\tPipeWire\n" % (k, v) for k, v in sorted(self.tokovi.items()))
+                    return subprocess.CompletedProcess(a, 0, out, "")
+                if a[:1] == ("move-sink-input",):
+                    self.tokovi[a[1]] = "2" if a[2] == zz.IZHOD else "1"
+                return super().__call__(*a, cas=cas)
+
+        jbl, pactl = LazniZvocnik(), Pactl()
+        z = _zvocniki(jbl, pactl)
+        with mock.patch.object(zz, "NOVI_TOKOVI_S", 0.02), mock.patch.object(zz, "ZACETNI_ZAMIK_S", 30.0):
+            self.assertTrue(z.zacni("dlna:uuid:jbl")["ok"])
+            self.assertEqual(pactl.tokovi["7"], "2")
+            pactl.tokovi["9"] = "1"                 # nova skladba v Safeer DRM: nov tok na zvocnikih racunalnika
+            for _ in range(200):
+                if pactl.tokovi["9"] == "2":
+                    break
+                time.sleep(0.01)
+            self.assertEqual(pactl.tokovi["9"], "2")
+            premikov = len([k for k in pactl.klici if k[:1] == ("move-sink-input",)])
+            time.sleep(0.1)                         # tok, ki ze gre na zvocnik, ne premikamo znova
+            self.assertEqual(premikov, len([k for k in pactl.klici if k[:1] == ("move-sink-input",)]))
+            z.ustavi()
+            self.assertEqual(pactl.tokovi, {"7": "1", "9": "1"})
+            pactl.tokovi["11"] = "1"                # po koncu seje nicesar vec ne premikamo na zvocnik
+            time.sleep(0.1)
+            self.assertEqual(pactl.tokovi["11"], "1")
+
     def test_neznan_zvocnik(self):
         z = _zvocniki(LazniZvocnik(), LazniPactl())
         self.assertEqual(z.zacni("dlna:drug")["napaka"], "ni_zvocnika")
