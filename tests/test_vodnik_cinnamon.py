@@ -74,3 +74,14 @@ class Vmesnik(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_nazaj_na_cinnamon_vrne_tudi_zagonski_zaslon():
+    """Lastnik, 17. 10. 2026: »Nazaj na Cinnamon« vrne tudi Safeerjev zagonski in prijavni zaslon (sistem vpraša za
+    skrbnisko geslo) - safeer-cinnamon --izklopi zato ne dobi SAFEER_CINNAMON_BREZ_SISTEMA."""
+    import re
+    with open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8") as f:
+        koda = f.read()
+    telo = re.search(r"def nazaj_na_cinnamon\(.*?\n(?=def )", koda, re.S).group(0)
+    assert 'SAFEER_CINNAMON_BREZ_SISTEMA="1"' not in telo
+    assert '"--izklopi"' in telo

@@ -1321,8 +1321,8 @@ def _ukaz_safeer_cinnamon() -> list:
 def nazaj_na_cinnamon(shramba, pocakaj: bool = True) -> dict:
     """Pot nazaj na obicajno namizje Cinnamon (lastnik, 17. 10. 2026), brez roota in brez odstranjevanja paketov:
     Safeer OS se ne zazene vec ob prijavi, Mintov pult se vrne in safeer-cinnamon --izklopi vrne temo, pult, dock,
-    ozadje in zagone iz shranjenega prejsnjega stanja. Zagonski in prijavni zaslon (»Safeer od vklopa«) ostaneta:
-    njuna povrnitev zahteva skrbnisko geslo (SAFEER_CINNAMON_BREZ_SISTEMA), izklopi ju stikalo v Nastavitvah.
+    ozadje in zagone iz shranjenega prejsnjega stanja. Ce je vklopljen »Safeer od vklopa« (zagonski in prijavni zaslon),
+    ga --izklopi vrne tudi - sistem vpraša za skrbnisko geslo (pkexec; lastnik, 17. 10. 2026: »Da«). Brez gesla ostaneta.
 
     Prejsnjo postavitev si zapomnimo, da jo Safeer OS iz menija ponudi vrniti (vrni_safeer_os). pocakaj=False:
     safeer-cinnamon tece loceno, ker --izklopi konca tudi proces z delovno povrsino (to je lahko klicatelj)."""
@@ -1335,7 +1335,7 @@ def nazaj_na_cinnamon(shramba, pocakaj: bool = True) -> dict:
     vrni_mintov_pult(shramba)
     ukaz = _ukaz_safeer_cinnamon()
     if ukaz and profil:
-        okolje = dict(os.environ, SAFEER_CINNAMON_BREZ_SISTEMA="1")
+        okolje = dict(os.environ)   # brez SAFEER_CINNAMON_BREZ_SISTEMA: --izklopi vrne tudi »Safeer od vklopa« (geslo)
         try:
             if pocakaj:
                 subprocess.run(ukaz + ["--izklopi"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
