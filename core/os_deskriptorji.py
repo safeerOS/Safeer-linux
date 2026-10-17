@@ -256,8 +256,12 @@ class RokCakanjaZahteve:
         super().handle_one_request()  # type: ignore[misc]
 
     def parse_request(self) -> bool:
+        # Glave se berejo se z rokom cakanja: odjemalec, ki po vrstici zahteve utihne (telefon izgubi Wi-Fi), bi
+        # sicer drzal nit in deskriptor za vedno. Sele po glavah velja prejsnji rok (tok med pavzo ne izpade).
         try:
-            self.connection.settimeout(getattr(self, "_rok_po_zahtevi", None))
-        except OSError:
-            pass
-        return super().parse_request()  # type: ignore[misc]
+            return super().parse_request()  # type: ignore[misc]
+        finally:
+            try:
+                self.connection.settimeout(getattr(self, "_rok_po_zahtevi", None))
+            except OSError:
+                pass

@@ -2003,6 +2003,9 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
     #: 17. 10. 2026 (zivi proces): naprave po zahtevi povezave ne zaprejo in je ne uporabijo vec - 120 s je drzalo
     #: ~40 mrtvih povezav hkrati; 10 s (lastnik) - odjemalec po roku odpre novo povezavo.
     ROK_CAKANJA_ZAHTEVE_S = os_deskriptorji.ROK_CAKANJA_ZAHTEVE_S   # lastnik 17. 10. 2026: 10 s
+    #: Rok tisine med branjem telesa zahteve (JSON in oddaja datoteke): prej brez roka - naprava, ki je sredi
+    #: oddaje izgubila omrezje, je za vedno drzala nit in deskriptor. Velja za tisino, ne za trajanje oddaje.
+    ROK_BRANJA_S = 60.0
 
     def handle_one_request(self) -> None:
         try:
@@ -2023,12 +2026,15 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
         proste = getattr(self.server, "proste", None)
         if proste is not None:
             proste.dela(self.connection)        # zahteva je prisla: povezava dela (WebSocket, tok) in ni odvecna
-        # Vrstica zahteve je prebrana: naprej velja rok streznika po rokovanju (link_tls.RokovanjeVNiti), kot doslej.
+        # Glave beremo se z rokom cakanja (telefon, ki sredi zahteve izgubi Wi-Fi, bi sicer za vedno drzal nit in
+        # deskriptor); po glavah velja rok streznika po rokovanju (link_tls.RokovanjeVNiti), kot doslej.
         try:
-            self.connection.settimeout(getattr(self.server, "rok_po_rokovanju", None))
-        except OSError:
-            pass
-        return super().parse_request()
+            return super().parse_request()
+        finally:
+            try:
+                self.connection.settimeout(getattr(self.server, "rok_po_rokovanju", None))
+            except OSError:
+                pass
 
     # ------------------------------------------------------------------ pomozno
     @property
@@ -2087,9 +2093,20 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
         if dolzina <= 0 or dolzina > 64 * 1024:
             return {}
         try:
+            prej = self.connection.gettimeout()
+            self.connection.settimeout(self.ROK_BRANJA_S)     # telo, ki ne pride, ne drzi niti za vedno
+        except OSError:
+            prej = None
+        try:
             return json.loads(self.rfile.read(dolzina).decode("utf-8")) or {}
         except Exception:
+            self.close_connection = True
             return {}
+        finally:
+            try:
+                self.connection.settimeout(prej)
+            except OSError:
+                pass
 
     # ------------------------------------------------------------------ GET
     def do_GET(self) -> None:
@@ -2417,6 +2434,7 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             self.close_connection = True
             return
         try:
+            self.connection.settimeout(self.ROK_BRANJA_S)
             ostalo = dolzina
             while ostalo > 0:
                 kos = self.rfile.read(min(link_hub_deljenje.KOS, ostalo))
@@ -2467,6 +2485,10 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             odmik = int(self.headers.get("x-safeer-offset") or 0)
         except ValueError:
             skupaj, odmik = None, 0
+        try:
+            self.connection.settimeout(self.ROK_BRANJA_S)
+        except OSError:
+            pass
         koda, odgovor, d = hub.deljenje.sprejmi(self.rfile, dolzina, ime, cilj, posiljatelj,
                                                self.headers.get("x-safeer-sha256") or "", skupaj=skupaj,
                                                odmik=odmik if skupaj is not None else 0,

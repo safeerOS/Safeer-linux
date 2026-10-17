@@ -99,6 +99,36 @@ class HubProstePovezave(unittest.TestCase):
             self.addCleanup(v.close)
         self.assertTrue(_pocakaj(lambda: _fd() <= pred + 20 + 1, rok=5.0), (_fd(), pred))
 
+    def test_utihnjena_sredi_zahteve_ne_drzi_niti(self):
+        """Telefon poslje vrstico zahteve (ali glave in del telesa) in izgubi Wi-Fi: nit se po roku sprosti."""
+        from core import link_hub_streznik
+        s = self._streznik(rok_s=0.3)
+        s.rok_po_rokovanju = None          # kot pravi Hub (link_tls.RokovanjeVNiti)
+        koncane = []
+
+        class Obravnava(s.RequestHandlerClass):
+            ROK_BRANJA_S = 0.3
+
+            def do_POST(self):
+                self._telo()
+                koncane.append(1)
+                self.send_response(204)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def finish(self):
+                koncane.append(0)
+                super().finish()
+        s.RequestHandlerClass = Obravnava
+        self.assertTrue(issubclass(Obravnava, link_hub_streznik._Obravnava))
+        v1 = socket.create_connection(s.server_address, timeout=5)
+        v1.sendall(b"GET /x HTTP/1.1\r\nHost: a\r\n")                 # glave brez konca
+        v2 = socket.create_connection(s.server_address, timeout=5)
+        v2.sendall(b"POST /x HTTP/1.1\r\nHost: a\r\nContent-Length: 100\r\n\r\n{\"a\"")   # telo brez konca
+        self.addCleanup(v1.close)
+        self.addCleanup(v2.close)
+        self.assertTrue(_pocakaj(lambda: koncane.count(0) >= 2, rok=5.0), koncane)
+
     def test_streznik_huba_ima_omejitev(self):
         from core import link_hub_streznik
         s = link_hub_streznik._Streznik(("127.0.0.1", 0), link_hub_streznik._Obravnava)
@@ -148,6 +178,26 @@ class RokCakanjaZahteve(unittest.TestCase):
         c.request("GET", "/")
         self.assertEqual(c.getresponse().read(), b"ok")
         c.close()
+
+    def test_utihnjen_po_vrstici_zahteve_se_zapre(self):
+        koncane = []
+
+        class Obravnava(os_deskriptorji.RokCakanjaZahteve, http.server.BaseHTTPRequestHandler):
+            ROK_CAKANJA_ZAHTEVE_S = 0.3
+            protocol_version = "HTTP/1.1"
+
+            def log_message(self, *_a):
+                pass
+
+            def finish(self):
+                koncane.append(1)
+                super().finish()
+
+        s = self._streznik(Obravnava)
+        v = socket.create_connection(s.server_address, timeout=5)
+        self.addCleanup(v.close)
+        v.sendall(b"GET / HTTP/1.1\r\nHost: a\r\n")      # glave brez prazne vrstice
+        self.assertTrue(_pocakaj(lambda: koncane, rok=5.0))
 
     def test_strezniki_uporabljajo_rok(self):
         from core import link_pretok, link_sprotno, os_torrent
