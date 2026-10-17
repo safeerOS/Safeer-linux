@@ -390,9 +390,11 @@ class Sprotno:
         pr = prosto(self.mapa)
         if 0 <= pr < ocena + rezerva(self.mapa):
             raise NapakaPretoka("ni_prostora")
+        with self._kljucavnica:      # tokovi se spreminjajo iz drugih niti (ustavi_ukaz, straza)
+            v_rabi = {t.datoteka for t in self.tokovi.values()}
         for f in os.listdir(self.mapa):
             pot = os.path.join(self.mapa, f)
-            if all(t.datoteka != pot for t in self.tokovi.values()):
+            if pot not in v_rabi:
                 try:
                     os.remove(pot)
                 except OSError:
@@ -640,13 +642,16 @@ class Sprotno:
             for t in tokovi:
                 if t.koncano:
                     continue
-                if t.bralcev == 0 and time.time() - t.zadnji_bralec > BREZ_BRALCA_S:
-                    _zapisi(f"pretok {t.ime}: nihce ga ne bere, ustavljam")
-                    self.ustavi(t)
-                elif 0 <= prosto(self.mapa) < rezerva(self.mapa):
-                    _zapisi(f"pretok {t.ime}: zmanjkalo prostora, ustavljam")
-                    t.napaka = "ni_prostora"
-                    self.ustavi(t)
+                try:
+                    if t.bralcev == 0 and time.time() - t.zadnji_bralec > BREZ_BRALCA_S:
+                        _zapisi(f"pretok {t.ime}: nihce ga ne bere, ustavljam")
+                        self.ustavi(t)
+                    elif 0 <= prosto(self.mapa) < rezerva(self.mapa):
+                        _zapisi(f"pretok {t.ime}: zmanjkalo prostora, ustavljam")
+                        t.napaka = "ni_prostora"
+                        self.ustavi(t)
+                except Exception as e:  # noqa: BLE001 - straza ne sme umreti (_straza_tece bi ostal True za vedno)
+                    _zapisi(f"pretok {t.ime}: straza: {type(e).__name__}: {e}")
 
 
 #: Podprocesi na Windows brez konzolnega okna (CREATE_NO_WINDOW); drugje 0.

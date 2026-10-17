@@ -35,7 +35,7 @@ import threading
 import time
 import urllib.parse
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 KOREN = os.path.dirname(os.path.abspath(__file__))
 if KOREN not in sys.path:
@@ -317,11 +317,30 @@ def _podatki_controla() -> dict:
 _hubi_cache: dict = {"cas": 0.0, "hubi": []}
 
 
-def hubi_v_omrezju(cas: float = 1.5) -> list:
+_hubi_isce = threading.Lock()
+
+
+def hubi_v_omrezju(cas: float = 1.5, cakaj: bool = True) -> list:
     """Safeer Linki (sredisca), ki se oglasajo v domacem omrezju (mDNS): [{"ime", "naslov"}]. Rezultat velja
-    10 s, da Naprave ne iscejo ob vsakem izrisu. Brez knjiznice zeroconf je seznam prazen."""
+    10 s, da Naprave ne iscejo ob vsakem izrisu. Brez knjiznice zeroconf je seznam prazen.
+
+    Iskanje traja `cas` sekund. Glavna nit GTK ne sme cakati (cakaj=False): dobi zadnji znani seznam, iskanje pa
+    tece v ozadju (prej je zacetek namizja ob vsakem nalaganju zamrznil za 1,5 s)."""
     if time.time() - _hubi_cache["cas"] < 10:
         return list(_hubi_cache["hubi"])
+    if not cakaj:
+        if _hubi_isce.acquire(blocking=False):
+            def isci_hube() -> None:
+                try:
+                    _poisci_hube(cas)
+                finally:
+                    _hubi_isce.release()
+            threading.Thread(target=isci_hube, name="safeer-hubi-mdns", daemon=True).start()
+        return list(_hubi_cache["hubi"])
+    return _poisci_hube(cas)
+
+
+def _poisci_hube(cas: float) -> list:
     try:
         from core import link_hub
         hubi = [{"ime": h.get("ime") or h["naslov"], "naslov": h["naslov"]} for h in link_hub.poisci_hube_mdns(cas)]
@@ -331,11 +350,19 @@ def hubi_v_omrezju(cas: float = 1.5) -> list:
     return list(hubi)
 
 
-def stanje_povezave() -> dict:
+def _stanje_povezave_spleta() -> dict:
+    """Za oznako »povezan« v Spletu (casovnik na glavni niti GTK): brez iskanja Hubov."""
+    return stanje_povezave("brez")
+
+
+def stanje_povezave(hubi: str = "cakaj") -> dict:
     """Ali je racunalnik (Safeer Control) v Safeer Linku: povezan / brez (izbral) / nov.
 
     Povezava nezaupanega racunalnika velja samo do konca prijave (core/link_seja.py): ob novi
-    prijavi je stanje spet »nov« in Safeer OS pokaze prijavno okno."""
+    prijavi je stanje spet »nov« in Safeer OS pokaze prijavno okno.
+
+    hubi: "cakaj" (delovna nit: poisce Hube v omrezju), "ozadje" (glavna nit: zadnji znani, iskanje v ozadju) ali
+    "brez" (oznaka povezave v Spletu vsakih 5 s: Hubov ne potrebuje)."""
     from core import link_seja
     p = _podatki_controla()
     seja = link_seja.trenutna_seja()
@@ -354,9 +381,9 @@ def stanje_povezave() -> dict:
         stanje = "nov"
     izid = {"stanje": stanje, "control": bool(_ukaz_controla()), "zaupana": link_seja.zaupana(p), "hubi": [],
             "predajanje": bool(_nastavitve_pladnja().get("predvajanje_za_naprave", True))}
-    if stanje != "povezan":
+    if stanje != "povezan" and hubi != "brez":
         # Nepovezan racunalnik: Naprave povedo, ali je v omrezju Safeer Link (in kateri), ali ga ni.
-        izid["hubi"] = hubi_v_omrezju()
+        izid["hubi"] = hubi_v_omrezju(cakaj=hubi != "ozadje")
     return izid
 
 
@@ -2678,7 +2705,7 @@ class SafeerOS(Gtk.Application):
         if self._plosca_spleta is None:
             from core.os_splet import VdelaniSplet
             _css(self.CSS_SPLETA_NA_NAMIZJU)
-            self._spletni_namizje = VdelaniSplet(Gtk, Gdk, Gio, GLib, WebKit2, KOREN, _jezik, stanje_povezave,
+            self._spletni_namizje = VdelaniSplet(Gtk, Gdk, Gio, GLib, WebKit2, KOREN, _jezik, _stanje_povezave_spleta,
                                                  self._splet_v_zapisek, self.okno_delovna,
                                                  stremio_dodatek=self._odpri_stremio_dodatek,
                                                  prvi_zavihek=prvi_zavihek, config=self._config_spleta())
@@ -3830,17 +3857,10 @@ class SafeerOS(Gtk.Application):
             "kavcCelZaslon": lambda: self._kavc_cel_zaslon(pogled, bool(a[0]) if a else False),
             "vgrajenoAktivno": lambda: self._vgrajeno_aktivno(pogled, bool(a[0]) if a else False),
             "kopiraj": lambda: self._kopiraj(str(a[0]) if a else ""),
-            "magnetPredvajaj": lambda: self._predvajaj_magnet(int(a[0]) if a else -1, int(a[1]) if len(a) > 1 else -1,
-                                                             str(a[2]) if len(a) > 2 else ""),
             "predvajajZNaprave": lambda: self._predvajaj_z_naprave(
                 a[0] if a and isinstance(a[0], dict) else {}, str(a[1]) if len(a) > 1 else "",
                 a[2] if len(a) > 2 and isinstance(a[2], list) else [], int(a[3]) if len(a) > 3 else 0,
                 str(a[4]) if len(a) > 4 else "", str(a[5]) if len(a) > 5 else ""),
-            # "Nadaljuj z druge naprave" na tem racunalniku (Control vprasa naprave) in prevzem ponudbe (Control -> dejanje ponudba).
-            "predajaPoizvedi": lambda: _control_naprave("Predaja"),
-            "predajaPrevzemi": lambda: bool(_control_naprave("Prevzemi", str(a[0]) if a else "",
-                                                             json.dumps(a[1] if len(a) > 1 and isinstance(a[1], dict) else {}),
-                                                             "1" if len(a) > 2 and a[2] else "0").get("ok")),
             "predvajalnikStanje": self._medijski_podatki,
             "predvajalnikUkaz": lambda: self._medijski_ukaz(str(a[0]) if a else "", a[1] if len(a) > 1 else None),
             "dvdPogoni": lambda: __import__("core.os_dvd", fromlist=["pogoni"]).pogoni(),
@@ -3892,6 +3912,15 @@ class SafeerOS(Gtk.Application):
         }
         # V ozadju (ukazi, ki lahko trajajo):
         ozadje = {
+            # Magnet: zagon rqbita in poizvedbe trajajo do minute (prej na glavni niti - namizje je zamrznilo);
+            # predvajalnik odpre glavna nit (_predvajaj_magnet).
+            "magnetPredvajaj": lambda: self._predvajaj_magnet(int(a[0]) if a else -1, int(a[1]) if len(a) > 1 else -1,
+                                                             str(a[2]) if len(a) > 2 else ""),
+            # "Nadaljuj z druge naprave" (Control vprasa naprave, do 4 s) in prevzem ponudbe - prej na glavni niti.
+            "predajaPoizvedi": lambda: _control_naprave("Predaja"),
+            "predajaPrevzemi": lambda: bool(_control_naprave("Prevzemi", str(a[0]) if a else "",
+                                                             json.dumps(a[1] if len(a) > 1 and isinstance(a[1], dict) else {}),
+                                                             "1" if len(a) > 2 and a[2] else "0").get("ok")),
             # Dock: v Flatpaku vsak klic tece prek flatpak-spawn (pgrep, dconf, kill, plank) - ne na glavni niti (pregled 14. 10.).
             "dock": self._dock_seznam,
             "dockDodaj": lambda: os_dock.dodaj(self.programi.pot(str(a[0]) if a else "") or ""),
@@ -4321,7 +4350,7 @@ class SafeerOS(Gtk.Application):
             "razlicica": RAZLICICA,
             "sistem": _ime_sistema(),
             "samozagon": je_samozagon(),
-            "povezava": stanje_povezave(),
+            "povezava": stanje_povezave("ozadje"),
             "sporocila": sporocila_vklop.sporocila_vklopljena(),
         }
 
@@ -4497,11 +4526,13 @@ class SafeerOS(Gtk.Application):
     def _dock_seznam(self) -> dict:
         """Programi v docku po vrsti, z imenom in ikono; »plank« = ali je dock sploh namescen."""
         programi = []
-        for e in os_dock.elementi():
-            v = os_programi.preberi_vnos(e["pot"]) or {}
+        vnosi = [(e, os_programi.preberi_vnos(e["pot"]) or {}) for e in os_dock.elementi()]
+        # Tema ikon (Gtk) samo na glavni niti (gostitelj.ikona_iz_teme); ta metoda tece v ozadju.
+        ikone = self._v_glavni_pocakaj(lambda: {v["ikona"]: self._ikona(v["ikona"]) for _e, v in vnosi if v.get("ikona")})
+        ikone = ikone if isinstance(ikone, dict) else {}
+        for e, v in vnosi:
             ime = v.get("ime") or (e["id"][: -len(".desktop")] if e["id"].endswith(".desktop") else e["id"])
-            programi.append({"id": e["id"], "dockitem": e["dockitem"], "ime": ime,
-                             "ikona": self._ikona(v["ikona"]) if v.get("ikona") else ""})
+            programi.append({"id": e["id"], "dockitem": e["dockitem"], "ime": ime, "ikona": ikone.get(v.get("ikona"), "")})
         return {"ok": True, "plank": os_dock.je_namescen(), "programi": programi}
 
     def _ikona(self, ime: str) -> str:
@@ -4761,7 +4792,7 @@ class SafeerOS(Gtk.Application):
         if not self._peskovnik_na_voljo():
             self._dogodek("spletBrezPeskovnika", True)
             return False
-        self._spletni = VdelaniSplet(Gtk, Gdk, Gio, GLib, WebKit2, KOREN, _jezik, stanje_povezave,
+        self._spletni = VdelaniSplet(Gtk, Gdk, Gio, GLib, WebKit2, KOREN, _jezik, _stanje_povezave_spleta,
                                      self._splet_v_zapisek, self.okno,
                                      stremio_dodatek=self._odpri_stremio_dodatek, config=self._config_spleta())
         # Povezava iz vgrajenega kanala Sporocil se odpre v Spletu (nacin Splet glavnega okna), ne v skritem zavihku.
@@ -6230,9 +6261,27 @@ class SafeerOS(Gtk.Application):
                 print("[SafeerOS] magnet podnapisi:", e)
         skladba = os_predvajalnik.Skladba(url, os.path.splitext(os.path.basename(ime))[0] or ime,
                                           "video" if video else "medij", izvor="Magnet", podnapisi=tuple(podnapisi))
-        ok = self._predvajaj_neposredno(url, vrsta="video" if video else "medij", prikazi=video,
-                                        ime=skladba.naslov, seznam=[skladba], zacni=0)
+        ok = self._v_glavni_pocakaj(lambda: self._predvajaj_neposredno(
+            url, vrsta="video" if video else "medij", prikazi=video, ime=skladba.naslov, seznam=[skladba], zacni=0))
         return {"ok": bool(ok)}
+
+    @staticmethod
+    def _v_glavni_pocakaj(delo: Callable[[], Any], cas: float = 12.0) -> Any:
+        """Iz niti ozadja: delo z okni (Gtk) izvede glavna nit, nit ozadja pocaka na izid (kot os_katalog)."""
+        if threading.current_thread() is threading.main_thread():
+            return delo()
+        konec, izid = threading.Event(), {}
+
+        def naredi() -> bool:
+            try:
+                izid["v"] = delo()
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] glavna nit:", e)
+            konec.set()
+            return False
+        GLib.idle_add(naredi)
+        konec.wait(cas)
+        return izid.get("v", False)
 
     def _magnet_prenesi_program(self) -> dict:
         """Enkratni prenos odprtokodnega rqbita (preverjen SHA-256); napredek gre na stran."""

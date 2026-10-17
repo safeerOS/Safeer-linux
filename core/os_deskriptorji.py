@@ -15,6 +15,7 @@ odlozi padec; vzrok je kopicenje povezav, ki jih nihce ne zapre.
 from __future__ import annotations
 
 import collections
+import errno
 import os
 import socket
 import threading
@@ -233,6 +234,24 @@ def zapri_vticnik(vticnik) -> None:
         pass
 
 
+# ---------------------------------------------------------------------------- sprejemanje povezav
+
+#: Napake accept(), po katerih poslusalec ostane uporaben: zmanjkalo je deskriptorjev ali pomnilnika (mine, ko se
+#: povezave zaprejo) ali pa je odjemalec odnehal pred sprejemom.
+PREHODNE_NAPAKE_ACCEPT = frozenset(getattr(errno, ime) for ime in ("EMFILE", "ENFILE", "ENOBUFS", "ENOMEM",
+                                                                    "ECONNABORTED", "EINTR", "EPROTO")
+                                   if hasattr(errno, ime))
+#: Premor po prehodni napaki (da zanka ne vrti procesorja, dokler deskriptorjev ni).
+PREMOR_PO_NAPAKI_ACCEPT_S = 0.2
+
+
+def prehodna_napaka_accept(napaka: BaseException) -> bool:
+    """Ali naj poslusalna zanka po tej napaki accept() pocaka in nadaljuje (namesto da za vedno konca)?
+    Ob 1024 deskriptorjih (16./17. 10. 2026) so poslusalci, ki so ob vsaki OSError koncali, ostali mrtvi tudi,
+    ko so se deskriptorji sprostili."""
+    return isinstance(napaka, OSError) and getattr(napaka, "errno", None) in PREHODNE_NAPAKE_ACCEPT
+
+
 # ---------------------------------------------------------------------------- rok cakanja na zahtevo
 
 #: Kako dolgo sme povezava cakati na (naslednjo) zahtevo, preden jo streznik zapre.
@@ -256,8 +275,12 @@ class RokCakanjaZahteve:
         super().handle_one_request()  # type: ignore[misc]
 
     def parse_request(self) -> bool:
+        # Glave se berejo se z rokom cakanja: odjemalec, ki po vrstici zahteve utihne (telefon izgubi Wi-Fi), bi
+        # sicer drzal nit in deskriptor za vedno. Sele po glavah velja prejsnji rok (tok med pavzo ne izpade).
         try:
-            self.connection.settimeout(getattr(self, "_rok_po_zahtevi", None))
-        except OSError:
-            pass
-        return super().parse_request()  # type: ignore[misc]
+            return super().parse_request()  # type: ignore[misc]
+        finally:
+            try:
+                self.connection.settimeout(getattr(self, "_rok_po_zahtevi", None))
+            except OSError:
+                pass

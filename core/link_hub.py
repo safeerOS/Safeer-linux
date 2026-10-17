@@ -1407,8 +1407,7 @@ class Povezava:
             self.tece = False
             if self._ustavljen:
                 break
-            if self.ob_stanju:
-                self.ob_stanju(False)
+            self._javi_stanje(False)
             zamik = ZAMIKI_PONOVNEGA_POSKUSA[
                 min(poskus, len(ZAMIKI_PONOVNEGA_POSKUSA) - 1)]
             izid = self._cakaj_na_poskus(zamik)
@@ -1417,10 +1416,14 @@ class Povezava:
             if izid == "prebudi":
                 # Spanje ali drugo omrezje: poskusimo takoj in spet od zacetka zamikov.
                 poskus = 0
-            if self._odpri():
+            try:
+                odprto = self._odpri()
+            except Exception as e:  # noqa: BLE001 - zanka ponovnega povezovanja se ne sme koncati
+                print("[SafeerLink] povezovanje: %s: %s" % (type(e).__name__, str(e)[:160]), flush=True)
+                odprto = False
+            if odprto:
                 poskus = 0
-                if self.ob_stanju:
-                    self.ob_stanju(True)
+                self._javi_stanje(True)
             else:
                 poskus += 1
         self.tece = False
@@ -1431,6 +1434,13 @@ class Povezava:
                 odjemalec.zapri()
             except Exception:
                 pass
+
+    def _javi_stanje(self, povezan: bool) -> None:
+        if self.ob_stanju:
+            try:
+                self.ob_stanju(povezan)
+            except Exception as e:  # noqa: BLE001 - napaka klicatelja ne sme ustaviti ponovnega povezovanja
+                print("[SafeerLink] ob_stanju: %s: %s" % (type(e).__name__, str(e)[:160]), flush=True)
 
     @property
     def aktivna(self) -> bool:

@@ -23,6 +23,7 @@ import urllib.request
 from typing import Callable, List, Optional
 
 from core import link_vticnik
+from core import os_deskriptorji
 
 GOSTITELJ = "link.safeer.si"
 OBJAVA_VSAKIH_S = 60
@@ -678,7 +679,10 @@ class LokalniRele:
         while True:
             try:
                 tcp, naslov = self.streznik.accept()
-            except OSError:
+            except OSError as e:
+                if os_deskriptorji.prehodna_napaka_accept(e):
+                    time.sleep(os_deskriptorji.PREMOR_PO_NAPAKI_ACCEPT_S)
+                    continue
                 return
             if not self._nas_proces(naslov):
                 # Drug uporabnik tega racunalnika ne sme uporabljati kanala, podpisanega z nasim kljucem.

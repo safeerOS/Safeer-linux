@@ -578,7 +578,11 @@ class Seznami:
         if self._stop.wait(PRVA_OSVEZITEV if not len(self.nabor) else min(OSVEZITEV, self._do_naslednje())):
             return
         while not self._stop.is_set() and self._nit is jaz:
-            ok = self.osvezi()
+            try:
+                ok = self.osvezi()
+            except Exception as e:  # noqa: BLE001 - nit se ne sme koncati (_nit ostane nastavljen, zazeni je ne obnovi)
+                print("[SafeerOS] scit: osvezitev seznamov:", type(e).__name__, e)
+                ok = False
             if self._stop.wait(OSVEZITEV if ok else PONOVNI_POSKUS):
                 return
 

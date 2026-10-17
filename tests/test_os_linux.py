@@ -629,7 +629,7 @@ class Stran(unittest.TestCase):
         js = _beri("assets", "os", "os.js")
         # Ob zagonu ni prijavnega okna; Naprave povedo, ali je v omrezju Safeer Link.
         self.assertNotIn('GLib.timeout_add(1200, lambda: (self._prijava(), False)[1])', py)
-        self.assertIn('izid["hubi"] = hubi_v_omrezju()', py)
+        self.assertIn('izid["hubi"] = hubi_v_omrezju(cakaj=hubi != "ozadje")', py)
         self.assertIn('t("novOpisHub", { ime: hubi[0].ime })', js)
         self.assertIn('id="napraveNamig"', _beri("assets", "os", "index.html"))
         link = _beri("assets", "link", "link.js")

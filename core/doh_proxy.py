@@ -369,6 +369,7 @@ class DoHResolver:
         self.stevci = {"rezerva": 0, "scit_blokiral": 0, "sistemski_scit": 0}
         # Predpomnilnik: hostname -> (ip_address, expire_timestamp)
         self._cache: Dict[str, Tuple[str, float]] = {}
+        self._pocisceno = time.time()
         self._lock = threading.Lock()
         self._pending = {}
         #: Nedavno blokirana imena (samo v pomnilniku, najvec 64): stran napake pove »blokiral Scit«.
@@ -461,6 +462,7 @@ class DoHResolver:
             with self._lock:
                 if generation == self._generacija():
                     self._cache[h] = (ip, time.time() + (max(1, min(ttl, 3600)) if ip else 15))
+                    self._pocisti_predpomnilnik()
             return ip
         finally:
             with self._lock:
@@ -469,6 +471,19 @@ class DoHResolver:
 
     #: Kako dolgo po izteku TTL se sme uporabiti star naslov (medtem ko se osvezuje v ozadju).
     STARO_S = 3600
+    #: Na koliko casa predpomnilnik pocisti imena, ki jih resolve tudi sam ne bi vec uporabil.
+    POCISTI_S = 600
+
+    def _pocisti_predpomnilnik(self) -> None:
+        """Klicati z zaklepom. Zapis se brise ob naslednjem vprasanju po istem imenu; imena, ki jih nihce vec ne vprasa
+        (oglasi, sledilci, CDN-ji), bi v dolgotrajnem procesu ostala za vedno - zato jih na nekaj minut odstranimo z
+        enakim pravilom kot resolve (negativni po izteku, pozitivni po izteku + STARO_S)."""
+        zdaj = time.time()
+        if zdaj - self._pocisceno < self.POCISTI_S:
+            return
+        self._pocisceno = zdaj
+        for ime in [i for i, (ip, exp) in self._cache.items() if zdaj >= exp + (self.STARO_S if ip else 0)]:
+            del self._cache[ime]
 
     def ogrej(self) -> None:
         """Odpre (ali ohrani) povezavo do streznika DoH z vprasanjem po imenu samega streznika - nic ne izda."""
@@ -523,6 +538,7 @@ class DoHResolver:
                     # Neuspela osvezitev ne izbrise delujocega starega naslova.
                     if ip and generation == self._generacija():
                         self._cache[h] = (ip, time.time() + max(1, min(ttl, 3600)))
+                        self._pocisti_predpomnilnik()
             except Exception:  # noqa: BLE001
                 pass
             finally:
@@ -1055,20 +1071,35 @@ class LocalDoHProxy:
 
     def _accept_loop(self):
         while self.is_running:
+            client_sock, mesto = None, False
             try:
                 client_sock, _ = self._server_sock.accept()
                 if not self._slots.acquire(blocking=False):
                     self.zavrnjenih += 1
                     client_sock.close()
                     continue
+                mesto = True
                 _brez_zamika(client_sock)
                 with self._socket_lock:
                     self._sockets.add(client_sock)
                 t = threading.Thread(target=self._handle_client, args=(client_sock,), daemon=True)
                 t.start()
+            except socket.timeout:
+                continue
             except Exception:
                 if not self.is_running:
                     break
+                # Povezava, ki ni dobila niti, ne sme vzeti mesta za vedno; trajna napaka (npr. EMFILE) pa ne sme
+                # vrteti zanke brez premora.
+                if client_sock is not None and mesto:
+                    with self._socket_lock:
+                        self._sockets.discard(client_sock)
+                    self._slots.release()
+                    try:
+                        client_sock.close()
+                    except OSError:
+                        pass
+                time.sleep(0.2)
 
     @staticmethod
     def _zavrni(client_sock: socket.socket, sporocilo: bytes):
