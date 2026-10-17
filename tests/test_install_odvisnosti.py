@@ -97,8 +97,10 @@ class PreizkusNamestitveVLaznemDomu(unittest.TestCase):
         os.makedirs(os.path.join(self.izvor, "packaging"))
         os.makedirs(os.path.join(self.izvor, "assets"))
         for ime in ("install.sh", "uninstall.sh", "safeer-mint.sh", "safeer-browser.desktop",
-                    "packaging/safeer-browser.desktop", "assets/icon.png"):
+                    "packaging/safeer-browser.desktop", "assets/brskalnik.svg"):
             shutil.copy(os.path.join(KOREN, ime), os.path.join(self.izvor, ime))
+        shutil.copytree(os.path.join(KOREN, "packaging", "icons", "hicolor"),
+                        os.path.join(self.izvor, "packaging", "icons", "hicolor"))
         for ime in ("safeer_brskalnik.py", "safeer_mint.py"):
             with open(os.path.join(self.izvor, ime), "w") as f:
                 f.write(f"import sys\nprint({ime!r}, *sys.argv[1:])\n")
@@ -123,6 +125,11 @@ class PreizkusNamestitveVLaznemDomu(unittest.TestCase):
 
     def test_namesti_zazene_gtk4_in_odstrani(self):
         self._pozeni("install.sh")
+        # Svoja ikona brskalnika (globus), ne scit Safeer OS (assets/icon.png) - lastnik, 17. 10. 2026.
+        ikona = os.path.join(self.dom, ".local/share/icons/hicolor/256x256/apps/safeer-browser.png")
+        with open(ikona, "rb") as f, open(os.path.join(KOREN, "assets", "icon.png"), "rb") as g:
+            self.assertNotEqual(f.read(), g.read())
+        self.assertTrue(os.path.isfile(os.path.join(self.dom, ".local/share/icons/hicolor/scalable/apps/safeer-browser.svg")))
         zaganjalnik = os.path.join(self.dom, ".local/bin/safeer-browser")
         vnos = os.path.join(self.dom, ".local/share/applications/safeer-browser.desktop")
         with open(vnos, encoding="utf-8") as f:
@@ -141,7 +148,8 @@ class PreizkusNamestitveVLaznemDomu(unittest.TestCase):
         for pot in (zaganjalnik, os.path.join(self.dom, ".local/bin/safeer"), vnos,
                     os.path.join(self.dom, "Desktop/safeer-browser.desktop"),
                     os.path.join(self.dom, ".local/share/pixmaps/safeer-browser.png"),
-                    os.path.join(self.dom, ".local/share/icons/hicolor/256x256/apps/safeer-browser.png")):
+                    os.path.join(self.dom, ".local/share/icons/hicolor/256x256/apps/safeer-browser.png"),
+                    os.path.join(self.dom, ".local/share/icons/hicolor/scalable/apps/safeer-browser.svg")):
             self.assertFalse(os.path.lexists(pot), pot)
 
     def test_gtk3_vnos_na_izrecno_izbiro(self):

@@ -28,7 +28,10 @@ if [ "$VSTOP" = safeer_mint.py ]; then
     sed -i "s/^StartupWMClass=.*/StartupWMClass=safeer-browser/" "$PREFIX/share/applications/$ID.desktop"
 fi
 sed "s|safeer-browser.desktop|$ID.desktop|" "$ROOT/io.github.memelandfaner.SafeerBrowser.metainfo.xml" > "$PREFIX/share/metainfo/io.github.memelandfaner.SafeerBrowser.metainfo.xml"
-install -m644 "$ROOT/assets/icon.png" "$PREFIX/share/pixmaps/$ID.png"
+# Svoja ikona (globus z »S«, assets/brskalnik.svg), ne scit Safeer OS: lastnik, 17. 10. 2026 - »uporabnik mora na hitro
+# lociti«. PNG v packaging/icons/hicolor so izrisani iz iste SVG (tools/izrisi_ikone.py).
+install -Dm644 "$ROOT/assets/brskalnik.svg" "$PREFIX/share/icons/hicolor/scalable/apps/$ID.svg"
+install -m644 "$ROOT/packaging/icons/hicolor/256x256/apps/safeer-browser.png" "$PREFIX/share/pixmaps/$ID.png"
 for icon in "$ROOT/packaging/icons/hicolor"/*/apps/safeer-browser.png; do
     size=$(basename "$(dirname "$(dirname "$icon")")")
     install -Dm644 "$icon" "$PREFIX/share/icons/hicolor/$size/apps/$ID.png"

@@ -670,6 +670,42 @@ class TestTemaCinnamon(unittest.TestCase):
         # Ostane samo spomin na zadnje ozadje (za naslednji vklop).
         self.assertEqual(os.listdir(o["mapa"]), ["zadnje-ozadje"])
 
+    def test_ikone_posodobitev_niso_scit(self):
+        """Lastnik, 17. 10. 2026: Papirusovo ikono posodobitev (scit) je uporabnik imel za Safeer Scit. Ob vklopu dobi temo
+        Safeer-Papirus-Dark (Papirus z nasimi ikonami posodobitev), ze vklopljena postavitev enkrat ob prijavi; izklop
+        vrne prejsnje ikone. Brez nase teme ostane Papirus-Dark."""
+        tmp = tempfile.mkdtemp()
+        try:
+            o = self._okolje(tmp)
+            ikone = lambda: self._vrednost(o, "org.cinnamon.desktop.interface", "icon-theme")  # noqa: E731
+            self._ukaz(o, "--profil", "delovna", "--ozadje", "ohrani")
+            self.assertEqual(ikone(), "'Papirus-Dark'")
+            nasa = os.path.join(o["koren"], "usr", "share", "icons", "Safeer-Papirus-Dark")
+            os.makedirs(nasa)
+            shutil.copyfile(os.path.join(TEMA, "ikone", "Safeer-Papirus-Dark", "index.theme"), os.path.join(nasa, "index.theme"))
+            # Postavitev iz starejse razlicice (Papirus-Dark): prva prijava po nadgradnji preklopi, druga nic vec.
+            self._ukaz(o, "--seja")
+            self.assertEqual(ikone(), "'Safeer-Papirus-Dark'")
+            subprocess.run(["gsettings", "set", "org.cinnamon.desktop.interface", "icon-theme", "'Papirus-Dark'"],
+                           env=o["env"], check=True)
+            self._ukaz(o, "--seja")
+            self.assertEqual(ikone(), "'Papirus-Dark'")          # uporabnik je sam izbral Papirus-Dark
+            self._ukaz(o, "--izklopi")
+            self._kot_na_zacetku(o)
+            self._ukaz(o)
+            self.assertEqual(ikone(), "'Safeer-Papirus-Dark'")
+            self._ukaz(o, "--izklopi")
+            self.assertEqual(ikone(), "'Mint-Y-Aqua'")
+            # Tudi postavitev z dockom (brez delovne povrsine) dobi nase ikone ob prvi prijavi po nadgradnji.
+            self._ukaz(o, "--profil", "dock", "--ozadje", "ohrani")
+            subprocess.run(["gsettings", "set", "org.cinnamon.desktop.interface", "icon-theme", "'Papirus-Dark'"],
+                           env=o["env"], check=True)
+            self._ukaz(o, "--dock")
+            self.assertEqual(ikone(), "'Safeer-Papirus-Dark'")
+            self._ukaz(o, "--izklopi")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_videz_pusti_pult_in_seznam_oken(self):
         """Privzeta postavitev (ukaz brez moznosti): tema, ikone in ozadje - pult, appleti, dock in zagoni ostanejo."""
         tmp = tempfile.mkdtemp()

@@ -188,7 +188,7 @@ class Paketi(unittest.TestCase):
             self.assertIn("safeer-control.svg", [p.name for p in control])
             for png in (p for p in control if p.suffix == ".png"):
                 velikost = png.parent.parent.name
-                s_ikona = Path(KOREN, "packaging", "icons", "hicolor", velikost, "apps", "safeer-browser.png")
+                s_ikona = Path(KOREN, "packaging", "icons", "os", "hicolor", velikost, "apps", "safeer-os.png")
                 self.assertNotEqual(png.read_bytes(), s_ikona.read_bytes() if s_ikona.exists() else b"", png)
 
     def test_flatpak(self):

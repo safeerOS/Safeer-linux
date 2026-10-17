@@ -290,7 +290,7 @@ class SafeerMintBrowser(Gtk.Window):
         # Set official window & taskbar icon using system theme name and direct fallback file
         Gtk.Window.set_default_icon_name("safeer-browser")
         self.set_icon_name("safeer-browser")
-        icon_path = os.path.join(BASE_DIR, "assets", "icon.png")
+        icon_path = os.path.join(BASE_DIR, "assets", "brskalnik.svg")   # svoja ikona, ne scit Safeer OS
         if os.path.exists(icon_path):
             try:
                 self.set_icon_from_file(icon_path)

@@ -177,6 +177,114 @@ class PladenjSni(unittest.TestCase):
         self.assertTrue(_pocakaj(lambda: kliki == [1, 1]), kliki)
         self.pladenj = pladenj_controla
 
+    def test_scit_v_pultu(self):
+        """Safeer Scit poleg kuverte (lastnik, 17. 10. 2026): svoja ikona SNI na lastni povezavi, namig »Safeer Scit« z
+        opisom, levi klik odpre nastavitve Scita, meni Vklopi/Izklopi in Nastavitve Scita."""
+        import tempfile
+        from core.pladenj_sni import BESEDILA_SCITA, ScitPult, lastno_vodilo
+        nastavitve, preklopi = [], []
+        mapa = tempfile.mkdtemp(prefix="safeer-scit-")
+        self.addCleanup(shutil.rmtree, mapa, True)
+        vodilo_scita = lastno_vodilo(self.vodilo_test.get_bus_address())
+        scit = ScitPult(BESEDILA_SCITA["sl"], lambda: nastavitve.append(1), preklopi.append, mapa, vodilo=vodilo_scita)
+        try:
+            self.pladenj = scit.pladenj
+            self.assertTrue(_pocakaj(lambda: self.prijave == [scit.pladenj.ime_vodila]), self.prijave)
+            scit.osvezi({"vklop": True, "tece": True, "mozno": True, "napaka": "", "blokiranih": 42})
+            lastnosti = self._klic("/StatusNotifierItem", "org.freedesktop.DBus.Properties", "GetAll",
+                                   GLib.Variant("(s)", ("org.kde.StatusNotifierItem",)), "(a{sv})").unpack()[0]
+            self.assertEqual((lastnosti["Id"], lastnosti["Title"], lastnosti["ToolTip"][2], lastnosti["ToolTip"][3]),
+                             ("safeer-os-scit", "Safeer Ščit", "Safeer Ščit", "Vklopljen – blokiranih 42"))
+            self.assertEqual(len(lastnosti["IconPixmap"]), 2)
+            drevo = self._klic("/MenuBar", "com.canonical.dbusmenu", "GetLayout",
+                               GLib.Variant("(iias)", (0, -1, [])), "(u(ia{sv}av))").unpack()[1]
+            napisi = [o[1].get("label") for o in drevo[2]]
+            self.assertEqual(napisi, ["Izklopi Ščit", None, "Nastavitve Ščita"])
+            self._klic("/StatusNotifierItem", "org.kde.StatusNotifierItem", "Activate", GLib.Variant("(ii)", (0, 0)), None)
+            self._klic("/MenuBar", "com.canonical.dbusmenu", "Event",
+                       GLib.Variant("(isvu)", (3, "clicked", GLib.Variant("i", 0), 0)), None)
+            self.assertTrue(_pocakaj(lambda: nastavitve == [1, 1]), nastavitve)
+            # Izklopi: preklop dobi False, med delom je postavka onemogocena (dvojni klik ne sprozi dveh preklopov).
+            self._klic("/MenuBar", "com.canonical.dbusmenu", "Event",
+                       GLib.Variant("(isvu)", (1, "clicked", GLib.Variant("i", 0), 0)), None)
+            self.assertTrue(_pocakaj(lambda: preklopi == [False]), preklopi)
+            self.assertFalse(scit.preklop.get_sensitive())
+            self.assertEqual((scit.vrsta, scit.opis), ("pripravljam", "Izklapljam …"))
+            scit.preklop.aktiviraj()
+            self.assertEqual(preklopi, [False])
+            scit.osvezi({"vklop": False, "tece": False, "mozno": True, "napaka": ""})
+            self.assertEqual((scit.vrsta, scit.opis, scit.preklop.get_label()), ("izklopljen", "Izklopljen", "Vklopi Ščit"))
+            scit.preklop.aktiviraj()
+            self.assertEqual(preklopi, [False, True])
+        finally:
+            scit.zapri()
+            vodilo_scita.close_sync(None)
+
+
+class StanjeScita(unittest.TestCase):
+    """Stanje Scita (os_scit.Scit.stanje()) -> ikona in opis v pultu, v vseh jezikih."""
+
+    def test_vrsta_in_opis(self):
+        from core.pladenj_sni import BESEDILA_SCITA, opis_scita, vrsta_scita
+        b = BESEDILA_SCITA["sl"]
+        primeri = [
+            ({"vklop": True, "tece": True, "mozno": True, "napaka": "", "blokiranih": 7}, "vklopljen", "Vklopljen – blokiranih 7"),
+            ({"vklop": True, "tece": True, "mozno": True, "napaka": "", "premor": 600}, "vklopljen", "Na premoru še 10 min"),
+            ({"vklop": True, "tece": True, "mozno": True, "napaka": "ni_omrezja"}, "vklopljen", "Vklopljen – čaka na omrežje"),
+            ({"vklop": True, "tece": False, "mozno": True, "napaka": ""}, "pripravljam", "Vklapljam …"),
+            ({"vklop": False, "tece": False, "mozno": True, "napaka": ""}, "izklopljen", "Izklopljen"),
+            ({"vklop": False, "tece": False, "mozno": False, "napaka": ""}, "izklopljen", "Ni na voljo na tem računalniku"),
+            # Uporabnik je zavrnil geslo ob vklopu: napaka, ceprav Scit ni vklopljen.
+            ({"vklop": False, "tece": False, "mozno": True, "napaka": "pravilo"}, "napaka", "Napaka – odpri nastavitve Ščita"),
+            ({"vklop": True, "tece": False, "mozno": True, "napaka": "vrata"}, "napaka", "Napaka – odpri nastavitve Ščita"),
+            ({}, "izklopljen", "Izklopljen"),
+        ]
+        for stanje, vrsta, opis in primeri:
+            self.assertEqual(vrsta_scita(stanje), vrsta, stanje)
+            self.assertEqual(opis_scita(stanje, vrsta, b), opis, stanje)
+        self.assertEqual(vrsta_scita({"vklop": True, "tece": True}, zaposlen="izklop"), "pripravljam")
+        self.assertEqual(opis_scita({"vklop": False}, "pripravljam", b, "vklop"), "Vklapljam …")
+
+    def test_vsi_jeziki(self):
+        from core.pladenj_sni import BESEDILA_SCITA
+        self.assertEqual(sorted(BESEDILA_SCITA), ["de", "en", "es", "fr", "it", "sl"])
+        for jezik, b in BESEDILA_SCITA.items():
+            self.assertEqual(set(b), set(BESEDILA_SCITA["sl"]), jezik)
+            self.assertIn("{n}", b["vklopljen"], jezik)
+            self.assertIn("{n}", b["premor"], jezik)
+
+    @unittest.skipUnless(Gio is not None, "potrebuje PyGObject")
+    def test_ikone_razlicne(self):
+        """Stiri stanja = stiri razlicne slike; nobena ni ikona Safeer Control ali Safeer OS (lastnik: Scit mora biti
+        ocitno drugacen od zelenega scita Controla)."""
+        import tempfile
+        try:
+            import cairo  # noqa: F401
+        except ImportError:
+            self.skipTest("ni pycairo")
+        from core import os_lupina
+        from core.pladenj_sni import ikona_scita
+        mapa = tempfile.mkdtemp(prefix="safeer-scit-")
+        barve = os_lupina.tokeni()
+        self.assertIn("ok", barve)
+        self.addCleanup(shutil.rmtree, mapa, True)
+        slike = {}
+        for vrsta in ("vklopljen", "izklopljen", "napaka", "pripravljam"):
+            pot = ikona_scita(vrsta, mapa, barve=barve)
+            with open(pot, "rb") as f:
+                slike[vrsta] = f.read()
+            self.assertTrue(slike[vrsta].startswith(b"\x89PNG"), vrsta)
+            self.assertEqual(ikona_scita(vrsta, mapa, barve=barve), pot)     # iz predpomnilnika
+        self.assertEqual(len(set(slike.values())), 4)
+        gi_pixbuf = __import__("gi")
+        gi_pixbuf.require_version("GdkPixbuf", "2.0")
+        from gi.repository import GdkPixbuf
+        # Crtna ikona: sredina ploscice je prozorna (Control je poln zeleni scit na temni ploscici).
+        p = GdkPixbuf.Pixbuf.new_from_file(os.path.join(mapa, "scit-v1-izklopljen.png"))
+        tocke = p.get_pixels()
+        vogal = tocke[2 * p.get_rowstride() + 2 * 4 + 3]
+        self.assertEqual(vogal, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

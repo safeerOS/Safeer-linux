@@ -2223,6 +2223,8 @@ class SafeerOS(Gtk.Application):
             uredi_samozagon_ob_zagonu(self.shramba)
         # Sporocila na namizju: kuverta z neprebranimi v pultu zgoraj desno, klik odpre plosco sporocil.
         GLib.timeout_add_seconds(2, lambda: (self._zacni_kuverto(), False)[1])
+        # Safeer Scit poleg kuverte: stanje in stevec v pultu, klik odpre nastavitve Scita (lastnik, 17. 10. 2026).
+        GLib.timeout_add_seconds(2, lambda: (self._zacni_scit_pult(), False)[1])
         # Namizje tece ves dan: Control (Safeer Link, naprave, pladenj) tece z njim, v istem procesu. Z zamikom, da
         # namizje ni pocasnejse ob prijavi.
         GLib.timeout_add_seconds(3, lambda: (self._vgradi_control(), False)[1])
@@ -2652,6 +2654,70 @@ class SafeerOS(Gtk.Application):
             self._plosca_skrita_ob = time.monotonic()
         self._osvezi_kuverto()
         return True
+
+    # ------------------------------------------------------------------ Safeer Scit v pultu (poleg kuverte)
+    #: Stanje in stevec blokiranih v pultu se osvezita na toliko sekund, takoj pa po preklopu iz pulta ali Nastavitev.
+    SCIT_PULT_OSVEZI_S = 15
+    #: pladenj_sni.ScitPult, ko tece delovna povrsina; None: ikone Scita ni.
+    scit_pult = None
+    _scit_pult_zaposlen = False
+
+    def _zacni_scit_pult(self) -> None:
+        if self.scit_pult is not None:
+            return
+        try:
+            from core import pladenj_sni
+            self.scit_pult = pladenj_sni.ScitPult(
+                pladenj_sni.BESEDILA_SCITA.get(_jezik(), pladenj_sni.BESEDILA_SCITA["en"]),
+                lambda: GLib.idle_add(lambda: (self._odpri_razdelek("nastavitve#blokScit"), False)[1]),
+                self._preklopi_scit_iz_pulta, os.path.join(GLib.get_user_cache_dir(), "safeer-os"),
+                barve=os_lupina.tokeni())
+        except Exception as e:  # noqa: BLE001 - brez vodila D-Bus ikone Scita ni, Scit dela naprej
+            print("[SafeerOS] scit v pultu:", e, flush=True)
+            return
+        self._osvezi_scit_pult()
+        GLib.timeout_add_seconds(self.SCIT_PULT_OSVEZI_S, lambda: (self._osvezi_scit_pult(), True)[1])
+
+    def _osvezi_scit_pult(self, stanje: Optional[dict] = None) -> None:
+        """Stanje Scita v pult. Brez podanega stanja ga prebere v ozadju (stanje() vprasa systemd za resolved)."""
+        if self.scit_pult is None or self._scit_pult_zaposlen:
+            return
+        if stanje is not None:
+            self.scit_pult.osvezi(stanje)
+            return
+
+        def delo() -> None:
+            try:
+                s = self.scit.stanje()
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] scit v pultu:", e)
+                return
+            GLib.idle_add(lambda: (self._osvezi_scit_pult(s), False)[1])
+        threading.Thread(target=delo, name="safeer-scit-pult", daemon=True).start()
+
+    def _preklopi_scit_iz_pulta(self, vklop: bool) -> None:
+        """Vklopi/Izklopi v meniju pulta: ista pot kot stikalo v Nastavitvah (Scit.nastavi, ob prvem vklopu sistem
+        vprasa za geslo), zato v svoji niti."""
+        self._scit_pult_zaposlen = True
+
+        def delo() -> None:
+            try:
+                s = self.scit.nastavi(bool(vklop))
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] scit v pultu:", e)
+                s = None
+
+            def konec() -> bool:
+                self._scit_pult_zaposlen = False
+                self._osvezi_scit_pult(s)
+                return False
+            GLib.idle_add(konec)
+        threading.Thread(target=delo, name="safeer-scit-preklop", daemon=True).start()
+
+    def _po_scitu(self, stanje: dict) -> dict:
+        """Stikalo v Nastavitvah je Scit preklopilo: pult pokaze novo stanje takoj, ne sele ob naslednjem osvezevanju."""
+        GLib.idle_add(lambda: (self._osvezi_scit_pult(stanje), False)[1])
+        return stanje
 
     # ------------------------------------------------------------------ okna razdelkov (delovna povrsina)
     def _odpri_okno_razdelka(self, ime: str, cilj: str = "") -> bool:
@@ -4245,7 +4311,7 @@ class SafeerOS(Gtk.Application):
             "jbl": lambda: os_jbl.stanje(True) if os_jbl else {"na_voljo": False},
             "jblVklop": lambda: os_jbl.vklopi(bool(a[0]) if a else False) if os_jbl else {"na_voljo": False},
             "scit": self.scit.stanje,
-            "scitVklop": lambda: self.scit.nastavi(bool(a[0]) if a else False),
+            "scitVklop": lambda: self._po_scitu(self.scit.nastavi(bool(a[0]) if a else False)),
             "scitDovoli": lambda: self.scit.dovoli(str(a[0]) if a else "", bool(a[1]) if len(a) > 1 else True),
             "scitNaprej": lambda: self.scit.nastavi_naprej(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
             "scitTwitch": lambda: self.scit.nastavi_twitch(bool(a[0]) if a else True),

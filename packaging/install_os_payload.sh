@@ -77,7 +77,8 @@ fi
 sed "s|safeer-os.desktop|$ID.desktop|" "$ROOT/io.github.memelandfaner.SafeerOS.metainfo.xml" > "$PREFIX/share/metainfo/io.github.memelandfaner.SafeerOS.metainfo.xml"
 install -Dm644 "$ROOT/assets/os/znak.svg" "$PREFIX/share/icons/hicolor/scalable/apps/$ID.svg"
 install -m644 "$ROOT/assets/icon.png" "$PREFIX/share/pixmaps/$ID.png"
-for icon in "$ROOT/packaging/icons/hicolor"/*/apps/safeer-browser.png; do
+# PNG Safeer OS (scit z »S«) so svoje: Safeer Browser ima od 1.0.127 svojo ikono (globus), lastnik 17. 10. 2026.
+for icon in "$ROOT/packaging/icons/os/hicolor"/*/apps/safeer-os.png; do
     size=$(basename "$(dirname "$(dirname "$icon")")")
     install -Dm644 "$icon" "$PREFIX/share/icons/hicolor/$size/apps/$ID.png"
 done
