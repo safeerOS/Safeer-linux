@@ -317,11 +317,30 @@ def _podatki_controla() -> dict:
 _hubi_cache: dict = {"cas": 0.0, "hubi": []}
 
 
-def hubi_v_omrezju(cas: float = 1.5) -> list:
+_hubi_isce = threading.Lock()
+
+
+def hubi_v_omrezju(cas: float = 1.5, cakaj: bool = True) -> list:
     """Safeer Linki (sredisca), ki se oglasajo v domacem omrezju (mDNS): [{"ime", "naslov"}]. Rezultat velja
-    10 s, da Naprave ne iscejo ob vsakem izrisu. Brez knjiznice zeroconf je seznam prazen."""
+    10 s, da Naprave ne iscejo ob vsakem izrisu. Brez knjiznice zeroconf je seznam prazen.
+
+    Iskanje traja `cas` sekund. Glavna nit GTK ne sme cakati (cakaj=False): dobi zadnji znani seznam, iskanje pa
+    tece v ozadju (prej je zacetek namizja ob vsakem nalaganju zamrznil za 1,5 s)."""
     if time.time() - _hubi_cache["cas"] < 10:
         return list(_hubi_cache["hubi"])
+    if not cakaj:
+        if _hubi_isce.acquire(blocking=False):
+            def isci() -> None:
+                try:
+                    _poisci_hube(cas)
+                finally:
+                    _hubi_isce.release()
+            threading.Thread(target=isci, name="safeer-hubi-mdns", daemon=True).start()
+        return list(_hubi_cache["hubi"])
+    return _poisci_hube(cas)
+
+
+def _poisci_hube(cas: float) -> list:
     try:
         from core import link_hub
         hubi = [{"ime": h.get("ime") or h["naslov"], "naslov": h["naslov"]} for h in link_hub.poisci_hube_mdns(cas)]
@@ -331,11 +350,19 @@ def hubi_v_omrezju(cas: float = 1.5) -> list:
     return list(hubi)
 
 
-def stanje_povezave() -> dict:
+def _stanje_povezave_spleta() -> dict:
+    """Za oznako »povezan« v Spletu (casovnik na glavni niti GTK): brez iskanja Hubov."""
+    return stanje_povezave("brez")
+
+
+def stanje_povezave(hubi: str = "cakaj") -> dict:
     """Ali je racunalnik (Safeer Control) v Safeer Linku: povezan / brez (izbral) / nov.
 
     Povezava nezaupanega racunalnika velja samo do konca prijave (core/link_seja.py): ob novi
-    prijavi je stanje spet »nov« in Safeer OS pokaze prijavno okno."""
+    prijavi je stanje spet »nov« in Safeer OS pokaze prijavno okno.
+
+    hubi: "cakaj" (delovna nit: poisce Hube v omrezju), "ozadje" (glavna nit: zadnji znani, iskanje v ozadju) ali
+    "brez" (oznaka povezave v Spletu vsakih 5 s: Hubov ne potrebuje)."""
     from core import link_seja
     p = _podatki_controla()
     seja = link_seja.trenutna_seja()
@@ -354,9 +381,9 @@ def stanje_povezave() -> dict:
         stanje = "nov"
     izid = {"stanje": stanje, "control": bool(_ukaz_controla()), "zaupana": link_seja.zaupana(p), "hubi": [],
             "predajanje": bool(_nastavitve_pladnja().get("predvajanje_za_naprave", True))}
-    if stanje != "povezan":
+    if stanje != "povezan" and hubi != "brez":
         # Nepovezan racunalnik: Naprave povedo, ali je v omrezju Safeer Link (in kateri), ali ga ni.
-        izid["hubi"] = hubi_v_omrezju()
+        izid["hubi"] = hubi_v_omrezju(cakaj=hubi != "ozadje")
     return izid
 
 
@@ -2678,7 +2705,7 @@ class SafeerOS(Gtk.Application):
         if self._plosca_spleta is None:
             from core.os_splet import VdelaniSplet
             _css(self.CSS_SPLETA_NA_NAMIZJU)
-            self._spletni_namizje = VdelaniSplet(Gtk, Gdk, Gio, GLib, WebKit2, KOREN, _jezik, stanje_povezave,
+            self._spletni_namizje = VdelaniSplet(Gtk, Gdk, Gio, GLib, WebKit2, KOREN, _jezik, _stanje_povezave_spleta,
                                                  self._splet_v_zapisek, self.okno_delovna,
                                                  stremio_dodatek=self._odpri_stremio_dodatek,
                                                  prvi_zavihek=prvi_zavihek, config=self._config_spleta())
@@ -4321,7 +4348,7 @@ class SafeerOS(Gtk.Application):
             "razlicica": RAZLICICA,
             "sistem": _ime_sistema(),
             "samozagon": je_samozagon(),
-            "povezava": stanje_povezave(),
+            "povezava": stanje_povezave("ozadje"),
             "sporocila": sporocila_vklop.sporocila_vklopljena(),
         }
 
@@ -4761,7 +4788,7 @@ class SafeerOS(Gtk.Application):
         if not self._peskovnik_na_voljo():
             self._dogodek("spletBrezPeskovnika", True)
             return False
-        self._spletni = VdelaniSplet(Gtk, Gdk, Gio, GLib, WebKit2, KOREN, _jezik, stanje_povezave,
+        self._spletni = VdelaniSplet(Gtk, Gdk, Gio, GLib, WebKit2, KOREN, _jezik, _stanje_povezave_spleta,
                                      self._splet_v_zapisek, self.okno,
                                      stremio_dodatek=self._odpri_stremio_dodatek, config=self._config_spleta())
         # Povezava iz vgrajenega kanala Sporocil se odpre v Spletu (nacin Splet glavnega okna), ne v skritem zavihku.
