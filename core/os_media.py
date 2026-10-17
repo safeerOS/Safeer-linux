@@ -3066,6 +3066,9 @@ class MediaCenter:
 
     def _stremio_zaseben_znano(self, server: dict) -> Optional[bool]:
         """Ali je dodatek zaseben - brez omrezja: iz zapisa streznika ali iz tega zagona. None = se ne vemo."""
+        # Ime dodatka za odrasle (»JAV Nexus«) velja tudi, ce je zapis iz casa pred to presojo shranil »ni zaseben«.
+        if media_servers.je_besedilo_za_odrasle(server.get("ime")):
+            return True
         if isinstance(server.get("zaseben"), bool):
             return server["zaseben"]
         return self._zasebni_koreni.get(media_servers._stremio_koren(str(server.get("url") or "")))

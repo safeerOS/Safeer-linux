@@ -857,7 +857,25 @@ def stremio_je_zaseben(manifest: dict) -> bool:
     """Zaseben dodatek: v manifestu se sam oznaci z `behaviorHints.adult`. Kar pride iz njega, ostane na napravi -
     naslova in plakata ne povemo drugim napravam in ga ni na polici »Na tvojih napravah« (kot v Safeer OS za Android)."""
     namigi = manifest.get("behaviorHints") if isinstance(manifest, dict) else None
-    return bool(isinstance(namigi, dict) and namigi.get("adult"))
+    if isinstance(namigi, dict) and namigi.get("adult"):
+        return True
+    if not isinstance(manifest, dict):
+        return False
+    # Vsi dodatki za odrasle se ne oznacijo sami (JAV Nexus, preizkus 17. 10. 2026: »adult films ... 18+«, brez
+    # behaviorHints.adult) - zato tudi ime, opis in imena katalogov. Raje enkrat prevec v Zasebno kot na Domov.
+    besedila = [manifest.get("name"), manifest.get("description"), manifest.get("id")]
+    besedila += [c.get("name") for c in (manifest.get("catalogs") or []) if isinstance(c, dict)]
+    return any(je_besedilo_za_odrasle(b) for b in besedila)
+
+
+#: Oznake vsebine za odrasle v imenu ali opisu dodatka (ne v naslovih filmov - »Sex Education« ni dodatek za odrasle).
+_ZA_ODRASLE = re.compile(
+    r"(?<![a-z0-9])(18\+|xxx|porn\w*|nsfw|hentai|jav|erotic\w*|erotik\w*|adults?[ -]only|"
+    r"adult (?:films?|movies?|videos?|content|entertainment|stream\w*))(?![a-z0-9])", re.I)
+
+
+def je_besedilo_za_odrasle(besedilo) -> bool:
+    return bool(besedilo) and bool(_ZA_ODRASLE.search(str(besedilo)))
 
 
 def stremio_idji(mid: str) -> dict:

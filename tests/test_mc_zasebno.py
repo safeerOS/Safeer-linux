@@ -230,3 +230,29 @@ class Hitrost(Osnova):
             naslovi = sorted(x["naslov"] for x in self.mc._personal_items(""))
             self.assertLess(_cas.monotonic() - t0, 1.2)
         self.assertEqual(naslovi, ["Javni film", "Skupni film"])
+
+
+class TestDodatekZaOdrasleBrezOznake(unittest.TestCase):
+    """Preizkus 17. 10. 2026: JAV Nexus se v manifestu ne oznaci z behaviorHints.adult, njegovi filmi so bili v Filmih.
+    Ime, opis in imena katalogov dodatka zato tudi stejejo; naslovi filmov ne."""
+
+    def test_manifest_brez_oznake(self):
+        from core import media_servers as ms
+        jav = {"id": "community.discovery.ftv", "name": "JAV Nexus", "behaviorHints": {"configurable": True},
+               "description": "Japanese adult films (JAV) for viewers 18+.",
+               "catalogs": [{"type": "movie", "name": "JAV Top Rated"}]}
+        self.assertTrue(ms.stremio_je_zaseben(jav))
+        self.assertTrue(ms.stremio_je_zaseben({"name": "Cool", "catalogs": [{"name": "XXX Latest"}]}))
+        for javni in ({"name": "Cinemeta", "description": "The official addon for movie and series catalogs"},
+                      {"name": "Anime Kitsu", "catalogs": [{"name": "Kitsu Trending"}]},
+                      {"name": "Adult Swim Shows"}, {"name": "Javelin TV"}, {"name": "Sex Education fan club"}):
+            self.assertFalse(ms.stremio_je_zaseben(javni), javni)
+
+    def test_star_zapis_ni_zaseben_a_ime_pove(self):
+        from core import os_media
+        import tempfile
+        mc = os_media.MediaCenter(tempfile.mkdtemp())
+        self.assertTrue(mc._stremio_zaseben_znano({"ponudnik": "stremio", "ime": "JAV Nexus", "zaseben": False,
+                                                    "url": "https://app.jnexus.site/manifest.json"}))
+        self.assertFalse(mc._stremio_zaseben_znano({"ponudnik": "stremio", "ime": "HdHub", "zaseben": False,
+                                                     "url": "https://hdhub.example/manifest.json"}))
