@@ -182,9 +182,14 @@ class Paketi(unittest.TestCase):
                 self.assertEqual(v["Exec"].split(), ["safeer-os", "--razdelek", vloga])
                 for jezik in ("sl", "de", "es", "fr", "it"):
                     self.assertIn("Name[%s]" % jezik, v)
-            # Control ima samo svojo SVG (PNG »S« iste velikosti bi jo v temi ikon prehitel).
-            control = list((prefix / "share/icons/hicolor").glob("*/apps/safeer-control.*"))
-            self.assertEqual([p.name for p in control], ["safeer-control.svg"])
+            # Control ima svojo ikono: SVG in PNG na starih poteh paketa safeer-control (Replaces mora prevzeti vse
+            # njegove datoteke), PNG narisan iz iste control.svg - nikoli zeleni »S« Safeer OS (bi prehitel SVG).
+            control = sorted((prefix / "share/icons/hicolor").glob("*/apps/safeer-control.*"))
+            self.assertIn("safeer-control.svg", [p.name for p in control])
+            for png in (p for p in control if p.suffix == ".png"):
+                velikost = png.parent.parent.name
+                s_ikona = Path(KOREN, "packaging", "icons", "hicolor", velikost, "apps", "safeer-browser.png")
+                self.assertNotEqual(png.read_bytes(), s_ikona.read_bytes() if s_ikona.exists() else b"", png)
 
     def test_flatpak(self):
         with tempfile.TemporaryDirectory() as mapa:
