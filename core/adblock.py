@@ -1804,3 +1804,25 @@ def preveri_stevec(vrednost) -> "Optional[dict]":
     except (TypeError, ValueError):
         return None
     return {"action": dejanje, "count": stevilo} if stevilo else None
+
+
+# Spotify v Safeer DRM (core/spotify_racun.py, lastnik 17. 10. 2026): Scit brezplacnega racuna. Zahteve, ki prinasajo
+# samo oglase, Safeer DRM zavrne (assets/safeer_drm/main.js, oglasnaZahteva); CSS skrije pasice in ponudbe Premium.
+# Glasba, seznami in prijava gredo prek drugih poti (api.spotify.com, api-partner, spclient .../connect-state ...).
+# Kar se po spremembi strani izmuzne, ujame rezerva: zaznava oglasa v predvajalniku (utisaj, preskoci, ko gre).
+SPOTIFY_OGLASI = {
+    "gostitelji": [
+        "adeventtracker.spotify.com", "ads-fa.spotify.com", "adclick.g.doubleclick.net", "pubads.g.doubleclick.net",
+        "securepubads.g.doubleclick.net", "googleads.g.doubleclick.net", "pagead2.googlesyndication.com",
+        "imasdk.googleapis.com", "spotify.demdex.net",
+    ],
+    # (gostitelj ali njegova nadrejena domena, zacetek poti)
+    "poti": [
+        ["spotify.com", "/ads/"], ["spotify.com", "/ad-logic/"], ["spotify.com", "/v1/ads/"],
+    ],
+    "css": (
+        '[data-testid="upgrade-button"], a[href*="/premium"], [data-testid="embedded-ad"], [data-testid="ad-slot-container"],'
+        ' [data-testid="home-ads-container"], [data-testid="leavebehind-advertisement"], [data-testid="sponsored-content"]'
+        " { display: none !important; }"
+    ),
+}

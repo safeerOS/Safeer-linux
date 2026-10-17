@@ -361,6 +361,10 @@ class Katalog:
         "mediaSeznami": "_seznami", "mediaSeznam": "_seznam", "mediaUvoziSeznam": "_uvozi_seznam",
         "mediaYtRacun": "_yt_racun", "mediaYtSeznam": "_yt_seznam", "mediaYtShrani": "_yt_shrani",
         "mediaTwitchRacun": "_twitch_racun", "mediaTwitchPosnetki": "_twitch_posnetki", "mediaTwitchKakovost": "_twitch_kakovost",
+        # Spotify v skritem Safeer DRM (core/spotify_racun.py)
+        "mediaSpStanje": "_sp_stanje", "mediaSpSeznami": "_sp_seznami", "mediaSpSeznam": "_sp_seznam",
+        "mediaSpShrani": "_sp_shrani", "mediaSpPrijava": "_sp_prijava", "mediaSpOdjava": "_sp_odjava",
+        "mediaSpPrenesi": "_sp_prenesi", "mediaSpUkaz": "_sp_ukaz", "mediaSpScit": "_sp_scit",
         "mediaOdstraniSeznam": "_odstrani_seznam", "mediaDodajNaSeznam": "_dodaj_na_seznam",
         "mediaOdstraniSSeznama": "_odstrani_s_seznama", "mediaSeznamZamenjava": "_seznam_zamenjava",
         "mediaPredvajaj": "_predvajaj_vnos", "mediaYtUkaz": "_yt_ukaz", "mediaStanje": "_stanje",
@@ -906,6 +910,36 @@ class Katalog:
         """Brez argumenta: trenutna izbira; z argumentom ("auto", "720", "audio_only" ...) jo shrani."""
         tw = self.mc.twitch
         return tw.nastavi_kakovost(self._niz(a, 0)) if a else tw.kakovost()
+    def _sp_stanje(self, _a: list) -> Any:
+        return self.mc.spotify.stanje()
+
+    def _sp_seznami(self, _a: list) -> Any:
+        return self.mc.spotify.seznami()
+
+    def _sp_seznam(self, a: list) -> Any:
+        return self.mc.sp_seznam(self._niz(a, 0), self._niz(a, 1)[:60])
+
+    def _sp_shrani(self, a: list) -> Any:
+        return self.mc.sp_shrani(self._niz(a, 0))
+
+    def _sp_prijava(self, _a: list) -> Any:
+        return self.mc.spotify.prijava()
+
+    def _sp_odjava(self, _a: list) -> Any:
+        return self.mc.spotify.odjava()
+
+    def _sp_prenesi(self, _a: list) -> Any:
+        return self.mc.spotify.prenesi()
+
+    def _sp_ukaz(self, a: list) -> Any:
+        vrednost = a[1] if len(a) > 1 and isinstance(a[1], (int, float)) and not isinstance(a[1], bool) else None
+        return self.mc.spotify.upravljaj(self._niz(a, 0), vrednost)
+
+    def _sp_scit(self, a: list) -> Any:
+        """Brez argumenta: stanje; z bool: nastavitev Scita za Spotify (privzeto vklopljena)."""
+        if a and isinstance(a[0], bool):
+            return self.mc.spotify.nastavi_scit(a[0])
+        return {"scit": self.mc.spotify.scit()}
 
     def _odstrani_seznam(self, a: list) -> Any:
         return self.mc.odstrani_seznam(self._niz(a, 0))
@@ -1010,6 +1044,16 @@ class Katalog:
             return item
         if item.get("stran") and str(item.get("url") or "") == str(item.get("stran")):
             return item       # prenos, ki ga izdajatelj ponuja samo na svoji strani: stran ga odpre v Spletu
+        if item.get("spotify") and str(item.get("id") or ident).startswith("spotify:"):
+            # Skladba racuna Spotify: predvaja skrit Safeer DRM (v kontekstu seznama, da Spotify igra naprej).
+            izid = self.mc.spotify.predvajaj(str(item["spotify"]), str(item.get("spotify_kontekst") or ""))
+            if izid.get("napaka"):
+                return dict(item, native=True, spotify=True, sp_napaka=izid["napaka"])
+            return dict(item, native=True, spotify=True, zvok=True)
+        sp = getattr(self.mc, "_spotify", None)        # Spotify je bil v tej seji uporabljen
+        if sp is not None and sp.kanal.tece():
+            # druga vsebina: Spotify ne igra zraven (v ozadju - zastal Safeer DRM ne sme zadrzati predvajanja)
+            threading.Thread(target=sp.upravljaj, args=("ustavi",), daemon=True).start()
         nacin = nacin_predvajanja(item, os_media.je_neposredni_zvok)
         self._yt = None       # nova izbira: prejsnja skladba v vgradnem predvajalniku ne sprozi vec nicesar
         if nacin:

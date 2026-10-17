@@ -3006,9 +3006,10 @@
   }
 
   // ---- Scit: filtriranje DNS za ves racunalnik (stikalo in stanje v Nastavitvah) ----
-  var scitStanje = null, scitZaposleno = false, scitCas = null;
+  var scitStanje = null, scitZaposleno = false, scitCas = null, scitSpotify = null;
   function nalozScit() {
     klic("scit").then(function (s) { scitStanje = s; narisiScit(); }, function () {});
+    if (scitSpotify === null) klic("mediaSpScit").then(function (r) { scitSpotify = !!(r && r.scit); narisiScit(); }, function () {});
   }
   function scitZanka() {
     clearInterval(scitCas);
@@ -3045,6 +3046,12 @@
     }, pod);
     if (!s.mozno) st.classList.add("onemogoceno");
     c.appendChild(st);
+    // Spotify v Safeer DRM (core/spotify_racun.py): oglasi brezplačnega računa, neodvisno od filtriranja DNS.
+    if (scitSpotify !== null) {
+      c.appendChild(stikalo("scitSpotify", "scit", scitSpotify, function (v) {
+        klic("mediaSpScit", [v]).then(function (r) { scitSpotify = !!(r && r.scit); }, function () {});
+      }, t("scitSpotifyOpis")));
+    }
     function poScitu(r) { if (r) scitStanje = r; narisiScit(); }
     // Twitch brez oglasov (core/twitch_hls.py): velja v Medijskem centru, tudi kadar filtra DNS ni mogoce vklopiti.
     c.appendChild(stikalo("scitTwitch", "twitch", s.twitchOglasi !== false, function (v) {
@@ -4875,7 +4882,7 @@
       var znacka = x.kakovost || (x.vrsta === "tv-v-zivo" || x.vrsta === "twitch" ? t("katVZivo") : "");
       if (znacka) card.appendChild(el("span", "kat-kakovost", ubezi(znacka)));
       if (Number(x.ocena || 0) > 0) card.appendChild(el("span", "kat-ocena", "★ " + Number(x.ocena).toFixed(1)));
-      if (izSeznama && !kat.seznam.yt && !kat.seznam.twitch) {
+      if (izSeznama && !kat.seznam.yt && !kat.seznam.twitch && !kat.seznam.sp) {
         var odstraniSkladbo = el("span", "kat-odstrani", "✕"); odstraniSkladbo.title = t("seznamOdstraniSkladbo");
         odstraniSkladbo.onclick = function (e) {
           e.stopPropagation();
@@ -5087,6 +5094,7 @@
   function naloziSeznamePredvajanja() {
     if (kat.filter === "twitch") { naloziTwitchRacun(false); return Promise.resolve(); }
     naloziYtRacun(false);
+    naloziSpotify(false);
     return klic("mediaSeznami").then(function (s) { kat.seznami = s || []; narisiSeznamePredvajanja(); }, function () {});
   }
   // ---- račun YouTube (core/youtube_racun.py): prijava samo, če jo uporabnik želi, in samo v Spletu
@@ -5267,6 +5275,171 @@
     }
     c.appendChild(blok);
   }
+
+  // ---- Spotify (core/spotify_racun.py): predvaja skrit Safeer DRM, Medijski center pokaže sezname in upravljanje.
+  // Prijava samo, če jo uporabnik želi, v oknu Safeer DRM na strani Spotifyja; brez prijave ostane uvoz javnih seznamov.
+  function naloziSpotify(vsiljeno) {
+    if (!vsiljeno && kat.spCas && Date.now() - kat.spCas < 60000) return Promise.resolve(kat.sp);
+    kat.spCas = Date.now();
+    return klic("mediaSpStanje").then(function (r) {
+      var prej = kat.sp;
+      kat.sp = r || null;
+      if (r && r.obvestilo_scit) obvesti(t("spScitObvestilo"));
+      if (r && r.potekla && !(prej && prej.potekla)) obvesti(t("spPotekla"));
+      if (r && r.prijavljen && !r.okno) ustaviSpCakanje();
+      if (r && r.prijavljen && r.drm && !r.okno && !kat.spSeznami && !kat.spBerem && !kat.spNapaka) naloziSpSezname();
+      narisiSeznamePredvajanja();
+      return r;
+    }, function () { return null; });
+  }
+  function naloziSpSezname() {
+    kat.spBerem = true;
+    return klic("mediaSpSeznami").then(function (r) {
+      kat.spBerem = false;
+      kat.spNapaka = r && r.napaka ? r.napaka : "";
+      kat.spSeznami = r && !r.napaka ? r : null;
+      if (kat.spNapaka === "potekla") obvesti(t("spPotekla"));
+      if (kat.spSeznami) spZanka();
+      narisiSeznamePredvajanja();
+    }, function () { kat.spBerem = false; });
+  }
+  // Po kliku »Prijava« Medijski center vsake 3 s vpraša, ali je prijava končana (okno se takrat samo skrije). Največ 10 min.
+  function cakajSpPrijavo() {
+    ustaviSpCakanje();
+    var konec = Date.now() + 600000;
+    kat.spCakanje = setInterval(function () { if (Date.now() > konec) ustaviSpCakanje(); else naloziSpotify(true); }, 3000);
+  }
+  function ustaviSpCakanje() { if (kat.spCakanje) { clearInterval(kat.spCakanje); kat.spCakanje = 0; } }
+  function spNapaka(koda) {
+    var k = "spNapaka_" + koda;
+    obvesti(t(k) !== k ? t(k) : t("spNapaka_stran"));
+  }
+  function odpriSpSeznam(ident, ime) {
+    obvesti(t("spNalagam"));
+    klic("mediaSpSeznam", [ident, ime]).then(function (sz) {
+      if (!sz || sz.napaka) { spNapaka(sz ? sz.napaka : "ni_odziva"); if (sz && sz.napaka === "potekla") naloziSpotify(true); return; }
+      kat.seznam = sz; narisiKatalog();
+      $("katalog").scrollIntoView({ block: "start" });
+    }, function () { spNapaka("ni_odziva"); });
+  }
+  function spKartica(ime, opis, slika, ikona, ob) {
+    var k = el("button", "kat-seznam-kartica"); k.type = "button";
+    if (slika) { var im = el("img"); im.src = slika; im.alt = ""; im.loading = "lazy"; k.appendChild(im); }
+    else k.appendChild(el("span", "kat-brez-slike", svg(ikona)));
+    var o = el("span"); o.appendChild(el("b", "", ubezi(ime))); o.appendChild(el("small", "", ubezi(opis)));
+    k.appendChild(o); k.onclick = ob;
+    return k;
+  }
+  function narisiSpotify(c) {
+    var r = kat.sp; if (!r) return;
+    var blok = el("div", "kat-yt-racun kat-sp-racun"), glava = el("div", "kat-seznam-glava");
+    glava.appendChild(el("h3", "", ubezi(t("spNaslov"))));
+    function gumb(besedilo, ob) { var g = el("button", "gumb", ubezi(besedilo)); g.type = "button"; g.onclick = ob; glava.appendChild(g); return g; }
+    if (!r.drm) {
+      // Kot pri Netflixu: Safeer DRM se prenese samo po kliku uporabnika (preverjen SHA-256).
+      glava.appendChild(el("small", "", ubezi(r.prenos === "tece" ? t("spPrenasam") : r.prenos === "napaka" ? t("spPrenosNi") : t("spNiDrm"))));
+      if (r.prenos !== "tece") gumb(t("spPrenesi"), function () {
+        klic("mediaSpPrenesi").then(function () { kat.spCas = 0; naloziSpotify(true); cakajSpPrijavo(); }, function () {});
+      });
+    } else if (!r.prijavljen || r.okno) {
+      glava.appendChild(el("small", "", ubezi(r.okno ? t("spPrijavaOkno") : r.potekla ? t("spPotekla") : t("spPrijavaNamig"))));
+      if (!r.okno) gumb(t("spPrijava"), function () {
+        klic("mediaSpPrijava").then(function (x) {
+          if (x && x.napaka) { spNapaka(x.napaka); return; }
+          kat.sp = Object.assign({}, kat.sp, { okno: true }); narisiSeznamePredvajanja(); cakajSpPrijavo();
+        }, function () { spNapaka("ni_odziva"); });
+      });
+    } else {
+      glava.appendChild(el("small", "", ubezi(r.ime ? t("spPrijavljen", { ime: r.ime }) : t("spPrijavljenBrezImena"))));
+      // Odjava v dveh korakih: izbriše prijavo Spotifyja na tej napravi (profil Safeer DRM za Spotify).
+      var potrdi = false, odjava = gumb(t("spOdjava"), function () {
+        if (!potrdi) { potrdi = true; odjava.textContent = t("spOdjavaRes"); return; }
+        klic("mediaSpOdjava").then(function () { kat.spSeznami = null; kat.spNapaka = ""; kat.spCas = 0; naloziSpotify(true); }, function () {});
+      });
+    }
+    blok.appendChild(glava);
+    if (r.prijavljen && !r.okno && kat.spNapaka && kat.spNapaka !== "potekla") {
+      var k = "spNapaka_" + kat.spNapaka, vr = el("div", "kat-seznam-glava");
+      vr.appendChild(el("small", "", ubezi(t(k) !== k ? t(k) : t("spNapaka_stran"))));
+      var znova = el("button", "gumb", ubezi(t("spZnova"))); znova.type = "button";
+      znova.onclick = function () { kat.spNapaka = ""; naloziSpSezname(); };
+      vr.appendChild(znova); blok.appendChild(vr);
+    }
+    var sz = kat.spSeznami;
+    if (r.prijavljen && sz) {
+      var vrsta = el("div", "kat-seznami-vrsta");
+      vrsta.appendChild(spKartica(t("spVseckane"), "Spotify", "", "glasba", function () { odpriSpSeznam("vseckane", t("spVseckane")); }));
+      (sz.seznami || []).forEach(function (x) {
+        vrsta.appendChild(spKartica(x.ime, x.stevilo ? stSkladb(x.stevilo) : "Spotify", x.slika, "glasba", function () { odpriSpSeznam(x.id, x.ime); }));
+      });
+      blok.appendChild(vrsta);
+      if ((sz.oddaje || []).length) {
+        blok.appendChild(el("h4", "", ubezi(t("spPodkasti"))));
+        var oddaje = el("div", "kat-seznami-vrsta");
+        sz.oddaje.forEach(function (x) {
+          oddaje.appendChild(spKartica(x.ime, x.avtor || t("spPodkasti"), x.slika, "mikrofon", function () { odpriSpSeznam("show:" + x.id, x.ime); }));
+        });
+        blok.appendChild(oddaje);
+      }
+    }
+    var pr = el("div", "kat-sp-predvajalnik"); pr.id = "spPredvajalnik";
+    blok.appendChild(pr);
+    c.appendChild(blok);
+    narisiSpPredvajalnik();
+  }
+  // Trenutna skladba in upravljanje (skrit Safeer DRM); posodablja se na mestu, da drsnik ne skoči izpod kazalca.
+  function narisiSpPredvajalnik() {
+    var c = $("spPredvajalnik"); if (!c) return;
+    var p = (kat.sp && kat.sp.predvajanje) || {};
+    if (!p.naslov) { c.hidden = true; c.innerHTML = ""; return; }
+    var a = document.activeElement;
+    if (a && a.type === "range" && c.contains(a)) return;
+    c.hidden = false; c.innerHTML = "";
+    if (p.slika) { var im = el("img"); im.src = p.slika; im.alt = ""; c.appendChild(im); }
+    var opis = el("div", "kat-sp-opis");
+    opis.appendChild(el("b", "", ubezi(p.naslov)));
+    opis.appendChild(el("small", "", ubezi(p.oglas ? t("spOglas") : p.izvajalec || "")));
+    c.appendChild(opis);
+    var gumbi = el("div", "kat-sp-gumbi");
+    [["nazaj", "⏮", "spNazaj"], ["premor", p.igra ? "⏸" : "▶", p.igra ? "spPremor" : "spPredvajaj"], ["naprej", "⏭", "spNaprej"]].forEach(function (g) {
+      var b = el("button", "gumb", g[1]); b.type = "button"; b.title = t(g[2]); b.setAttribute("aria-label", t(g[2]));
+      b.onclick = function () { klic("mediaSpUkaz", [g[0]]).then(function (x) { if (x && x.napaka) spNapaka(x.napaka); setTimeout(osveziSp, 400); }, function () {}); };
+      gumbi.appendChild(b);
+    });
+    c.appendChild(gumbi);
+    function drsnik(oznaka, vrednost, ukaz) {
+      var d = el("input"); d.type = "range"; d.min = "0"; d.max = "1000"; d.value = String(Math.round((vrednost || 0) * 1000));
+      d.setAttribute("aria-label", t(oznaka)); d.title = t(oznaka);
+      d.onchange = function () { klic("mediaSpUkaz", [ukaz, Number(d.value) / 1000]).then(function () { d.blur(); setTimeout(osveziSp, 400); }, function () {}); };
+      return d;
+    }
+    if (p.trajanje > 0) {
+      var cas = el("div", "kat-sp-cas");
+      cas.appendChild(el("small", "", ubezi(fmtCasSp(p.polozaj))));
+      cas.appendChild(drsnik("spCas", p.polozaj / p.trajanje, "cas"));
+      cas.appendChild(el("small", "", ubezi(fmtCasSp(p.trajanje))));
+      c.appendChild(cas);
+    }
+    if (typeof p.glasnost === "number") c.appendChild(drsnik("spGlasnost", p.glasnost, "glasnost"));
+  }
+  function fmtCasSp(s) { s = Math.max(0, Math.round(s || 0)); return Math.floor(s / 60) + ":" + ("0" + (s % 60)).slice(-2); }
+  function osveziSp() {
+    return klic("mediaSpStanje").then(function (r) {
+      if (!r) return;
+      var prej = kat.sp; kat.sp = r;
+      if (r.potekla && !(prej && prej.potekla)) { obvesti(t("spPotekla")); narisiSeznamePredvajanja(); return; }
+      narisiSpPredvajalnik();
+    }, function () {});
+  }
+  // Med predvajanjem vsake 1,5 s, dokler je razdelek viden; Safeer DRM se zaradi tega ne zažene (samo prebere stanje).
+  function spZanka() {
+    if (kat.spZanka) return;
+    kat.spZanka = setInterval(function () {
+      var c = $("spPredvajalnik");
+      if (!c || !c.offsetParent || !(kat.sp && kat.sp.tece)) { clearInterval(kat.spZanka); kat.spZanka = 0; return; }
+      osveziSp();
+    }, 1500);
+  }
   function odpriSeznamPredvajanja(ime) {
     klic("mediaSeznam", [ime]).then(function (sz) {
       if (!sz || !sz.vnosi || !sz.vnosi.length) { obvesti(t("seznamNiUspel")); return; }
@@ -5304,6 +5477,19 @@
       var vse = el("button", "gumb glavni", ubezi("▶ " + t("seznamPredvajajVse"))); vse.type = "button";
       vse.onclick = function () { var prvi = sz.vnosi[0]; if (prvi) { nastaviVrsto(prvi); odpriKatalogVnos(prvi.id); } };
       glava.appendChild(vse);
+      if (sz.sp) {
+        // Seznam računa Spotify: predvaja skrit Safeer DRM; shrani ga uporabnik sam (ostane samo na tej napravi).
+        var spShrani = el("button", "gumb", ubezi(t("spShrani"))); spShrani.type = "button";
+        spShrani.onclick = function () {
+          klic("mediaSpShrani", [sz.sp]).then(function (r) {
+            if (!r || !r.ok) { obvesti(t("seznamNiMogoce")); return; }
+            obvesti(t("spShranjeno", { ime: r.ime })); naloziSeznamePredvajanja();
+          }, function () { obvesti(t("seznamNiMogoce")); });
+        };
+        glava.appendChild(spShrani);
+        c.appendChild(glava);
+        return;
+      }
       if (sz.yt) {
         // Seznam računa YouTube: predvaja se takoj; shrani ga uporabnik sam (ostane samo na tej napravi).
         var shrani = el("button", "gumb", ubezi(t("ytShrani"))); shrani.type = "button";
@@ -5353,6 +5539,7 @@
     vrsta.appendChild(obrazec);
     c.appendChild(vrsta);
     narisiYtRacun(c);
+    narisiSpotify(c);
   }
   // »Na seznam«: skladbo dodaš na obstoječ seznam predvajanja ali na novega. Meni se odpre ob gumbu, ki ga je odprl.
   function pokaziSeznamMeni(item, ob) {
@@ -5473,6 +5660,12 @@
     klic(predvajanje ? predvajanje[0] : "mediaPredvajaj", predvajanje ? predvajanje[1] : [id]).then(function (item) {
       if (zahteva !== kat.zahtevaPredvajanja) return;       // uporabnik je medtem izbral drugo vsebino
       if (!item) { if (!(predvajanje && predvajanje[2])) obvesti(t("katNapakaVira")); return; }
+      if (item.spotify) {
+        // Skladba računa Spotify: predvaja skrit Safeer DRM; upravljanje je v razdelku Spotify (ne v traku predvajalnika).
+        if (item.sp_napaka) { spNapaka(item.sp_napaka); return; }
+        setTimeout(function () { osveziSp().then(function () { narisiSeznamePredvajanja(); spZanka(); }); }, 1200);
+        return;
+      }
       if (item.tip === "lokalno" && item.pot) { odpriLokalno(item.pot); return; }     // naslednja epizoda z diska
       if (item.napaka_koda === "ni_toka") {
         // Noben vir tega ne predvaja: brez okna in brez strani – kratko obvestilo, film izgine iz mreže.
