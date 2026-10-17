@@ -1194,6 +1194,7 @@ case "${1:-}" in
     --dock)                  if [ -f "$VKLOPLJENO" ] && [ -f "$AUTOSTART" ]; then
                                  nadgradi_postavitev
                                  miska_enkrat
+                                 dock_mint_zamenjaj        # ob prijavi po nadgradnji (dock iz casa pred 1.0.127)
                                  dock_zazeni
                                  [ "$(profil_trenutni)" = dock ] && dock_straza
                              fi ;;
