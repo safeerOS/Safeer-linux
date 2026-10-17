@@ -10,6 +10,10 @@ nicesar in ne uporabljamo vmesnikov proizvajalcev (core/dlna_zvocniki.py).
 3. Zvocniku po DLNA poslje naslov toka (SetAVTransportURI + Play). Zvocnik tok potegne sam.
 4. Konec (uporabnik izbere drug izhod ali na zvocniku preklopi vir): prejsnji izhod dobi nazaj
    privzetost in vse programe, navidezni izhod izgine.
+5. Izjema: ob vklopu televizorja HDMI-CEC/eARC zvocniku sam preklopi vhod na TV. Ce se je televizor v Safeer Linku
+   pojavil v oknu TV_OKNO_S pred ali po preklopu, preklop ni uporabnikov - zvocnik vzamemo nazaj (isti tok, Play),
+   najvec enkrat na dogodek televizorja; ce uporabnik nato spet izbere TV, zmaga uporabnik (odlocitev lastnika
+   17. 10. 2026). JBL One ne javi ne izvora preklopa ne nastavitve samodejnega preklopa (getStatusEx, JBL_Soundbar).
 
 Zamik je nekaj sekund (medpomnilnik zvocnika). Za video domaci predvajalnik za toliko zamakne sliko (playbin
 av-offset, core/os_predvajalnik.py): zakasnitev ocenimo iz polozaja, ki ga zvocnik javi (GetPositionInfo), in jo
@@ -43,6 +47,20 @@ MERI_S = 0.25            # meritev: kako pogosto beremo polozaj zvocnika
 MERI_KROGOV = 40         # najvec 10 s merjenja
 #: Kako pogosto tokove, ki so nastali po preklopu, premaknemo na zvocnik (en klic pactl, nekaj ms).
 NOVI_TOKOVI_S = 1.0
+#: Preklop zvocnika na drug vir v tem oknu (s) pred ali po pojavu televizorja v Linku je samodejen (HDMI-CEC).
+TV_OKNO_S = 20.0
+#: Ko zvocnik ne igra vec nasega toka, pogosteje gledamo, ali se je pojavil televizor (krajsa prekinitev).
+ODHOD_PREVERI_S = 1.0
+
+
+def televizorji_v_linku() -> set:
+    """Id-ji televizorjev (platforma tv), ki so ta trenutek v Safeer Linku (stanje, ki ga pise Safeer Control)."""
+    from core import os_zvok
+    s = os_zvok._beri_stanje_linka()
+    if not s.get("povezan"):
+        return set()
+    return {str(d.get("id") or "") for d in s.get("naprave") or []
+            if isinstance(d, dict) and d.get("platforma") == "tv" and d.get("id")}
 
 
 def _pot_zakasnitev() -> str:
@@ -213,6 +231,13 @@ class Zvocniki:
         #: Ob vsaki spremembi zakasnitve aktivnega izhoda (ms; 0 = zvok je spet tu): safeer_os zamakne sliko videa.
         self.ob_zakasnitvi: Callable[[int], None] = lambda _ms: None
         self.cakaj = time.sleep
+        #: Televizorji v Linku (zamenljivo v testih); pojav novega = televizor se je zbudil / prisel na splet.
+        self.televizorji: Callable[[], set] = televizorji_v_linku
+        self._tv_videni: set = set()
+        self._tv_dogodek = 0.0       # time.monotonic() zadnjega pojava televizorja; 0 = ni bilo
+        self._tv_porabljen = 0.0     # dogodek, ob katerem smo zvocnik ze vzeli nazaj
+        self.ura = time.monotonic
+        self.spi = time.sleep        # cakanje straze (loceno od self.cakaj, ki ga testi meritve pospesijo)
 
     # ------------------------------------------------------------------ seznam
     def mozno(self) -> bool:
@@ -414,21 +439,55 @@ class Zvocniki:
                 except Exception:
                     pass
 
+    def _poglej_televizorje(self, zacetek: bool = False) -> None:
+        try:
+            zdaj = set(self.televizorji())
+        except Exception:
+            return
+        with self._kljuc:
+            if not zacetek and zdaj - self._tv_videni:
+                self._tv_dogodek = self.ura()
+            self._tv_videni = zdaj
+
+    def _samodejen_preklop(self, odhod: float) -> bool:
+        """Ali je preklop ob `odhod` prisel s televizorjem (CEC) in ga za ta dogodek se nismo vzeli nazaj."""
+        with self._kljuc:
+            d = self._tv_dogodek
+            return bool(d) and d != self._tv_porabljen and abs(d - odhod) <= TV_OKNO_S
+
+    def _vzemi_nazaj(self, seja: int) -> bool:
+        """Zvocnik spet na nas tok (isti naslov, Play); tok in navidezni izhod tecejo ves cas naprej."""
+        with self._kljuc:
+            if seja != self._seja or self._zvocnik is None or self._tok is None:
+                return False
+            self._tv_porabljen = self._tv_dogodek
+            zvocnik, url = self._zvocnik, self._tok.url
+        try:
+            zvocnik.predvajaj(url, "Safeer OS - " + (os.uname().nodename or "racunalnik"), "Safeer OS", "audio/mpeg")
+            return True
+        except Exception:
+            return False
+
     def _strazi(self, seja: int) -> None:
-        """Ce uporabnik na zvocniku izbere drug vir (ali ga ugasne), vrnemo zvok na racunalnik."""
-        time.sleep(ZACETNI_ZAMIK_S)
+        """Ce uporabnik na zvocniku izbere drug vir (ali ga ugasne), vrnemo zvok na racunalnik.
+
+        Preklop, ki ga je ob vklopu sprozil televizor (HDMI-CEC), ni uporabnikova izbira: zvocnik vzamemo nazaj."""
+        self._poglej_televizorje(zacetek=True)
+        self.spi(ZACETNI_ZAMIK_S)
         napake = 0
+        odhod = 0.0      # kdaj zvocnik ni vec igral nasega toka; 0 = igra
         while True:
             with self._kljuc:
                 if seja != self._seja or self._zvocnik is None or self._tok is None:
                     return
                 zvocnik, url = self._zvocnik, self._tok.url
+            self._poglej_televizorje()
             try:
                 st = zvocnik.stanje()
                 uri = str(zvocnik.polozaj().get("TrackURI") or "")
                 nas = uri == url or url.endswith(uri.split("://", 1)[-1][-40:]) if uri else False
                 if st in ("PLAYING", "TRANSITIONING") and (nas or not uri):
-                    napake = 0
+                    napake, odhod = 0, 0.0
                     with self._kljuc:
                         prvic = seja == self._seja and self.stanje != "tece"
                         if seja == self._seja:
@@ -440,12 +499,25 @@ class Zvocniki:
                     napake += 1
             except Exception:
                 napake += 1
-            if napake >= 3:
+            if napake:
+                odhod = odhod or self.ura()
+                if self._samodejen_preklop(odhod):
+                    if self._vzemi_nazaj(seja):
+                        napake, odhod = 0, 0.0
+                        self.spi(PREVERI_S)
+                        continue
+                # Televizor se v Linku pogosto pojavi sele nekaj sekund po preklopu: pocakamo do konca okna,
+                # razen ce smo za zadnji dogodek zvocnik ze vzeli nazaj (spet TV = uporabnik).
                 with self._kljuc:
-                    if seja == self._seja:
-                        self.ustavi(obnovi=True, zvocnik_tudi=False)
-                return
-            time.sleep(PREVERI_S)
+                    porabljen = bool(self._tv_porabljen) and self._tv_porabljen == self._tv_dogodek
+                if napake >= 3 and (porabljen or self.ura() - odhod >= TV_OKNO_S):
+                    with self._kljuc:
+                        if seja == self._seja:
+                            self.ustavi(obnovi=True, zvocnik_tudi=False)
+                    return
+                self.spi(ODHOD_PREVERI_S)
+                continue
+            self.spi(PREVERI_S)
 
     def ustavi(self, obnovi: bool = True, zvocnik_tudi: bool = True) -> bool:
         with self._kljuc:
