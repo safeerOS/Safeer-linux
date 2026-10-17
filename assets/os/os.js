@@ -5179,12 +5179,17 @@
   function katPovrniSidro(sidro) {
     if (!sidro) return;
     var drsnik = $("vsebina");
+    // #vsebina ima scroll-behavior: smooth - obnovitev mora biti takojsnja, sicer animacija vleče pogled nazaj navzdol,
+    // ko uporabnik z miško drsi navzgor.
+    var prej = drsnik.style.scrollBehavior;
+    drsnik.style.scrollBehavior = "auto";
     drsnik.scrollTop = sidro.odmik;
     var kartica = Array.prototype.filter.call($("katMreza").querySelectorAll(".kat-kartica"), function (k) {
       return k.getAttribute("data-id") === sidro.id;
     })[0];
-    if (!kartica) return;
+    if (!kartica) { drsnik.style.scrollBehavior = prej; return; }
     drsnik.scrollTop += kartica.getBoundingClientRect().top - sidro.y;
+    drsnik.style.scrollBehavior = prej;
     if (sidro.izbran) { try { kartica.focus({ preventScroll: true }); } catch (_) { kartica.focus(); } }
   }
 
