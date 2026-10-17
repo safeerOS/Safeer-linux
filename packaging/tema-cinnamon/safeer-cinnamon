@@ -627,9 +627,14 @@ dock_straza() {
     zadnji="$(zaslon)"
     exec 3< <(exec xev -root -event randr 2>/dev/null)
     echo "$!" > "$STRAZA_PID"
-    while IFS= read -r vrstica <&3; do
-        case "$vrstica" in RRScreenChangeNotify*) ;; *) continue ;; esac
+    local st
+    while :; do
+        # Vsakih 30 s brez dogodka zaslona: varuh docka (Plank se je sesul ali se ni znova zagnal).
+        IFS= read -r -t 30 vrstica <&3; st=$?
         [ -f "$AUTOSTART" ] || break
+        if [ "$st" -gt 128 ]; then dock_ozivi; continue; fi
+        [ "$st" -eq 0 ] || break
+        case "$vrstica" in RRScreenChangeNotify*) ;; *) continue ;; esac
         sleep 2
         zdaj="$(zaslon)"
         if [ -z "$zdaj" ] || [ "$zdaj" = "$zadnji" ]; then continue; fi
@@ -638,6 +643,29 @@ dock_straza() {
     done
     exec 3<&-
     return 0
+}
+
+# Varuh docka (lastnik, 17. 10. 2026: »uporabnik ne zeli ostati brez docka«). Ce je dock vklopljen in Plank ne tece
+# (sesutje ali neuspel ponovni zagon ob spremembi zaslona), ga zazenemo znova - najvec 3-krat v 10 minutah, da se
+# dock, ki se stalno sesuva, ne zaganja v nedogled. Klice ga straza zaslona (postavitev dock) ali Safeer OS (delovna).
+DOCK_OZIVLJEN="$MAPA/dock-ozivljen"
+
+dock_ozivi() {
+    command -v plank >/dev/null 2>&1 || return 0
+    pgrep -u "$(id -u)" -x plank >/dev/null 2>&1 && return 0
+    local zdaj cas st=0 nedavni=""
+    zdaj="$(date +%s)"
+    if [ -f "$DOCK_OZIVLJEN" ]; then
+        while IFS= read -r cas; do
+            case "$cas" in ""|*[!0-9]*) continue ;; esac
+            if [ $((zdaj - cas)) -lt 600 ]; then nedavni="$nedavni$cas
+"; st=$((st + 1)); fi
+        done < "$DOCK_OZIVLJEN"
+    fi
+    [ "$st" -ge 3 ] && return 0
+    mkdir -p "$MAPA"
+    printf '%s%s\n' "$nedavni" "$zdaj" > "$DOCK_OZIVLJEN"
+    dock_zazeni takoj
 }
 
 # Velikost ikon in skrivanje docka glede na zaslon. Kar je uporabnik v nastavitvah docka spremenil sam, ostane:
@@ -1199,6 +1227,7 @@ case "${1:-}" in
                                  [ "$(profil_trenutni)" = dock ] && dock_straza
                              fi ;;
     --straza)                [ -f "$VKLOPLJENO" ] && [ -f "$AUTOSTART" ] && dock_straza ;;
+    --dock-ozivi)            if [ -f "$VKLOPLJENO" ] && [ -f "$AUTOSTART" ]; then dock_ozivi; fi ;;
     --nastavitve-docka)      command -v plank >/dev/null 2>&1 && exec plank --preferences ;;
     --seja)                  if [ -f "$VKLOPLJENO" ] && [ -f "$SEJA" ] && command -v safeer-os >/dev/null 2>&1; then
                                  nemo_namizje_izklopi      # ob prijavi Cinnamon zazene tudi Nemovo namizje

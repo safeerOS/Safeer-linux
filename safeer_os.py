@@ -2274,7 +2274,28 @@ class SafeerOS(Gtk.Application):
         if robovi != self._robovi_delovne:
             self._robovi_delovne = robovi
             self._dogodek("robovi", robovi)
+        self._tik_robov = getattr(self, "_tik_robov", 0) + 1
+        if self._tik_robov % 10 == 0:
+            self._varuh_docka()
         return True
+
+    def _varuh_docka(self) -> None:
+        """Vsakih 30 s: ce je dock vklopljen in Plank ne tece, ga safeer-cinnamon --dock-ozivi zazene znova (najvec 3-krat
+        v 10 min). Lastnik, 17. 10. 2026: dock je izginil (Plank se ni vrnil) - »uporabnik ne zeli ostati brez docka«.
+        V niti: ukaz pocaka na konec (brez zombijev), glavna nit ne caka."""
+        if getattr(self, "_varuh_docka_tece", False):
+            return
+        self._varuh_docka_tece = True
+
+        def nit() -> None:
+            try:
+                subprocess.run(os_dock._gostitelj(["safeer-cinnamon", "--dock-ozivi"]), stdin=subprocess.DEVNULL,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+            except (OSError, subprocess.SubprocessError):
+                pass
+            finally:
+                self._varuh_docka_tece = False
+        threading.Thread(target=nit, daemon=True, name="safeer-varuh-docka").start()
 
     def _prestavi_delovno(self) -> None:
         zaslon = self._zaslon()
