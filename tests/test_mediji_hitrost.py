@@ -66,7 +66,8 @@ class StrezikiHkratiInStarOdgovor(unittest.TestCase):
     def _center(self, strezniki):
         center = os_media.MediaCenter(tempfile.mkdtemp(), roots=[], secret_encryptor=lambda s: s,
                                       secret_decryptor=lambda s: s)
-        center._load = lambda: {"osebni_strezniki": strezniki}
+        # Dodatki, za katere je ze znano, da niso zasebni (kot jih zapise add_server) - brez branja manifesta.
+        center._load = lambda: {"osebni_strezniki": [dict(s, zaseben=False) for s in strezniki]}
         center._cinemeta_items = lambda *a, **k: []
         return center
 

@@ -368,6 +368,7 @@ class MedijskiCenter(unittest.TestCase):
         self.assertEqual((o["title"], o["kind"], o["ref"], o["private"], o["file"]), ("Film ena", "movie", it["id"], False, 1))
 
     def test_film_ki_ga_ponudi_zaseben_dodatek_ostane_brez_naslova(self):
+        self.mc.zasebno = True      # zasebni dodatek ponuja tokove samo, ce je kategorija »Zasebno« vklopljena
         it = self.mc.movie_item(12, "Zasebni naslov")
         self.assertNotIn("napaka_koda", self.mc.resolve(it["id"]))
         self.assertEqual(self._opisi()[H2], {"private": True})
@@ -375,6 +376,7 @@ class MedijskiCenter(unittest.TestCase):
             self.assertNotIn("Zasebni naslov", d.read())
 
     def test_kadar_manifesta_ni_mogoce_prebrati_velja_kot_zaseben(self):
+        self.mc.zasebno = True      # zasebni dodatek ponuja tokove samo, ce je kategorija »Zasebno« vklopljena
         it = self.mc.movie_item(13, "Neznano")
         self.assertNotIn("napaka_koda", self.mc.resolve(it["id"]))
         self.assertEqual(self._opisi()[H3], {"private": True})

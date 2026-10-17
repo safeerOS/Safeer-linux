@@ -63,6 +63,8 @@
 .kat-kartica .kat-meta { display:flex;justify-content:space-between;gap:8px;margin-top:5px;color:var(--medlo);font-size:11px;text-transform:uppercase }
 .kat-kartica .kat-kakovost, .kat-kartica .kat-ocena { position:absolute;top:9px;padding:4px 7px;border-radius:7px;background:rgba(3,7,10,.86);font-size:11px;font-weight:750 }
 .kat-kartica .kat-kakovost { right:9px;color:var(--zelena) }
+/* Kakovost · jezik · vir v eni diskretni vrstici pod naslovom (lastnik, 17. 10. 2026). */
+.kat-kartica .kat-vir-vrstica { display:block;margin-top:4px;overflow:hidden;color:var(--medlo);font-size:11px;text-overflow:ellipsis;white-space:nowrap }
 .kat-kartica .kat-ocena { left:9px;color:#ffd466 }
 .kat-podrobnosti { position:fixed;inset:18px;z-index:40;overflow:auto;padding:22px 26px 38px;border:1px solid rgba(138, 199, 255, .4);border-radius:22px;background:radial-gradient(circle at 90% 0,rgba(56,189,248,.15),transparent 36%),#081018;box-shadow:0 28px 90px rgba(0,0,0,.8) }
 .kat-podrobnosti-glava { position:sticky;top:-22px;z-index:2;display:flex;justify-content:space-between;align-items:center;padding:14px 0;background:rgba(8,16,24,.94);backdrop-filter:blur(12px) }

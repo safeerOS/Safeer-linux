@@ -283,7 +283,7 @@
     povezava: { stanje: "nov", control: true }, spletne: null, nedavne: [], mediaFilter: zadnjaMedijskaKategorija(),
     mediaLokalno: [], mediaTokovi: [], mediaMape: [], galerija: null, mediaOsvezuje: false, mediaPredvajalnik: null,
     mediaOffset: 0, mediaHasMore: false, mediaRequest: 0,
-    mediaQueueKey: "", mediaDragging: false, mediaViriNav: [], glasnostDotik: 0,
+    mediaQueueKey: "", mediaDragging: false, glasnostDotik: 0, mediaZasebno: { vklopljeno: false, skriti: 0 },
     mediaSkrito: {}, mediaSkritoNalozeno: false, samodejni: [],
     programIskanje: "", mediaIskanje: "", napraveIskanje: "", datotekeIskanje: "", iskalneDatoteke: []
   };
@@ -702,8 +702,11 @@
   // Domov (zacetna stran: junak in police) je prvi; ostalo so vrste vsebin, ki jih Medijski center ze ima.
   var MEDIA_KATEGORIJE = [
     ["domov", "domov"], ["glasba", "glasba"], ["video", "video"], ["filmi", "video"],
-    ["serije", "video"], ["tv", "video"], ["twitch", "twitch"], ["radio", "radio"], ["slike", "slika"]
+    ["serije", "video"], ["tv", "video"], ["twitch", "twitch"], ["radio", "radio"], ["slike", "slika"],
+    // »Zasebno« (lastnik, 17. 10. 2026): vsebina zasebnih dodatkov, samo ce jo uporabnik vklopi v Dodatkih in virih.
+    ["zasebno", "zakleni"]
   ];
+  function kategorijaVidna(k) { return k[0] !== "zasebno" || !!S.mediaZasebno.vklopljeno; }
   var MEDIA_PREDLOGI = [
     { ime: "Jamendo", url: "https://www.jamendo.com", vrsta: "glasba", obmocje: "world" },
     { ime: "Free Music Archive", url: "https://freemusicarchive.org", vrsta: "glasba", obmocje: "world" },
@@ -773,23 +776,16 @@
       S.mediaMape = Array.isArray(mape) ? mape : [];
       $("mediaOsvezi").disabled = !S.mediaMape.length || S.mediaOsvezuje;
       if ($("slojMediaMape").classList.contains("viden")) narisiMedijskeMape();
-      narisiViriNav();
     }).catch(function () {});
     // Skriti predmeti menija (nastavitve Medijskega centra) in samodejni seznami (predpomnjeni, racunajo se v ozadju).
     if (!veckrat && most) klic("mediaSkrito").then(function (seznam) { nastaviSkrito(seznam, true); }).catch(function () {});
+    if (!veckrat && most) klic("mediaZasebno").then(nastaviZasebno).catch(function () {});
     if (!veckrat) naloziSamodejne();
-    // Viri v levi navigaciji: samo tisti, iz katerih je kaj predvajljivega (isto pravilo kot core/os_media.vidni_viri).
-    if (!veckrat && most) klic("mediaViri").then(function (viri) {
-      S.mediaViriNav = (Array.isArray(viri) ? viri : []).filter(function (v) {
-        return v && v.id && (v.vrsta === "streznik" || (v.stevilo || 0) > 0 || (v.tip === "predvajalni_vir" && !v.napaka));
-      });
-      narisiViriNav();
-    }).catch(function () {});
     if (!veckrat && most) klic("tokoviMedijev").then(function (vnosi) {
       S.mediaTokovi = Array.isArray(vnosi) ? vnosi : [];
       narisiMedije();
     }).catch(function () {});
-    if (S.mediaFilter === "tv" || S.mediaFilter === "twitch" || S.mediaFilter === "radio" || S.mediaFilter === "domov") {
+    if (S.mediaFilter === "tv" || S.mediaFilter === "twitch" || S.mediaFilter === "radio" || S.mediaFilter === "domov" || S.mediaFilter === "zasebno") {
       S.mediaRequest++;
       S.mediaLokalno = []; S.mediaHasMore = false;
       narisiMedije();
@@ -1364,7 +1360,7 @@
       cilj[0].innerHTML = "";
       cilj[0].setAttribute("aria-label", t("mediji"));
       // Skriti zavihki niso v meniju; odprt zavihek (npr. prek »Vse →«) ostane viden, da uporabnik ve, kje je.
-      MEDIA_KATEGORIJE.filter(function (k) { return k[0] === S.mediaFilter || !jeSkrito("kat:" + k[0]); }).forEach(function (k) {
+      MEDIA_KATEGORIJE.filter(function (k) { return kategorijaVidna(k) && (k[0] === S.mediaFilter || !jeSkrito("kat:" + k[0])); }).forEach(function (k) {
         var b = el("button", cilj[1] + (S.mediaFilter === k[0] ? " izbrana" : ""),
           svg(k[1]) + '<span>' + ubezi(t("media_" + k[0])) + '</span>');
         b.type = "button"; b.setAttribute("role", "tab");
@@ -1378,7 +1374,6 @@
       });
     });
     $("mediaNav").setAttribute("aria-label", t("mediji"));
-    narisiViriNav();
     narisiSamodejne();
     var domov = S.mediaFilter === "domov";
     $("r-media").classList.toggle("domov", domov);
@@ -1449,35 +1444,6 @@
     if (S.mediaFilter === "vse") { S.mediaIskanje = ""; $("mediaIskanje").value = ""; }
     izberiMedijskoKategorijo(k); naloziMedije();
   }
-  // ---- »Viri« v levi navigaciji (lastnik, 14. 10. 2026): uporabnikove prave medijske mape (Ta racunalnik) in viri
-  // kataloga (dodatki Stremio, Jellyfin, DLNA ...). Brez virov ni naslova (nobenih praznih naslovov). Klik na mape odpre
-  // okno Medijske mape; klik na vir pokaze katalog samo iz njega - isti zacasni filter kot gumb »Viri« v glavi kataloga
-  // (tam se tudi ponastavi), drugi klik na isti vir spet vklopi vse.
-  var VRSTA_PONUDNIKA = { navidrome: "glasba", funkwhale: "glasba", azuracast: "radio", tvheadend: "tv" };
-  var IME_PONUDNIKA = { jellyfin: "Jellyfin", emby: "Emby", navidrome: "Navidrome", plex: "Plex", kodi: "Kodi", tvheadend: "TVheadend",
-                        azuracast: "AzuraCast", funkwhale: "Funkwhale", dlna: "DLNA", stremio: "Stremio" };
-  function idjiVirov() {
-    if (typeof kat === "undefined" || !kat) return [];
-    var idji = Object.keys(kat.znaniViri);
-    S.mediaViriNav.forEach(function (v) { if (idji.indexOf(v.id) < 0) idji.push(v.id); });
-    return idji;
-  }
-  function samoTaVir(id) {
-    var drugi = idjiVirov().filter(function (x) { return x && x !== id; });
-    if (!drugi.length) return false;                     // en sam vir (ali katalog se ni nalozen): ni kaj izbirati
-    return !kat.izklopljeni[id] && drugi.every(function (x) { return !!kat.izklopljeni[x]; });
-  }
-  function izberiVir(v) {
-    var ze = samoTaVir(v.id);
-    kat.izklopljeni = {};
-    if (!ze) idjiVirov().forEach(function (x) { if (x && x !== v.id) kat.izklopljeni[x] = 1; });
-    osveziGumbViri();
-    var zavihek = VRSTA_PONUDNIKA[v.ponudnik] || (KAT_VRSTE[S.mediaFilter] && S.mediaFilter !== "vse" ? S.mediaFilter : "filmi");
-    var isti = zavihek === S.mediaFilter;
-    izberiZavihekMedijev(zavihek);
-    if (isti) naloziKatalog();
-    narisiViriNav();
-  }
   // ---- leva navigacija: skrci na ikone ali povsem skrij (lastnik, 14. 10. 2026: »ali se da stransko vrstico skriti in
   // jo zlahka spet pokazati«). Kot stranska vrstica Safeer OS (vrsticaPreklopi, vrsticaSkrij): gumb na vrhu navigacije,
   // »Skrij meni« na dnu, rocaj na levem robu in tipke - v glavnem oknu Ctrl+Shift+B (Ctrl+B je stranska vrstica), v
@@ -1527,36 +1493,19 @@
       if (navStanje() === "skrita") navNastavi("", true); else navNastavi(navStanje() === "skrcena" ? "" : "skrcena", false);
     });
   }
-  function narisiViriNav() {
-    var ovoj = $("mediaNavViri"), seznam = $("mediaNavViriSeznam"); if (!ovoj || !seznam) return;
-    var vnosi = [];
-    if (S.mediaMape.length && !jeSkrito("vir:mape")) vnosi.push({ kljuc: "vir:mape", ime: t("mediaTaRacunalnik"), pod: t("mediaMape"),
-                                         ikona: "mapa", izbran: null, dejanje: function () { $("mediaMapeGumb").click(); } });
-    S.mediaViriNav.forEach(function (v) {
-      if (jeSkrito("vir:" + v.id)) return;         // skrit iz menija; vir sam ostane vklopljen in v iskanju
-      var streznik = v.vrsta === "streznik";
-      vnosi.push({ kljuc: "vir:" + v.id, ime: v.ime || v.url || v.id, ikona: streznik && v.ponudnik !== "stremio" ? "naprave" : "splet",
-                   pod: streznik ? (IME_PONUDNIKA[v.ponudnik] || t("katOsebniStreznik")) : t("katVirElementov", { n: v.stevilo || 0 }),
-                   izbran: samoTaVir(v.id), dejanje: function () { izberiVir(v); } });
-    });
-    ovoj.hidden = !vnosi.length;
-    seznam.innerHTML = "";
-    vnosi.forEach(function (v) {
-      var vrstica = el("div", "media-nav-vrstica"); vrstica.setAttribute("role", "listitem");
-      var b = el("button", "media-nav-vir" + (v.izbran ? " izbran" : ""),
-        svg(v.ikona) + '<span><b>' + ubezi(v.ime) + '</b><small>' + ubezi(v.pod) + '</small></span>');
-      b.type = "button"; b.title = v.ime; b.setAttribute("aria-label", v.ime + ", " + v.pod);
-      if (v.izbran !== null) b.setAttribute("aria-pressed", v.izbran ? "true" : "false");
-      b.addEventListener("click", v.dejanje);
-      poveziMeniNav(b, v.kljuc, v.ime);
-      vrstica.appendChild(b);
-      seznam.appendChild(vrstica);
-    });
-  }
   // ---- prilagojen meni (lastnik, 14. 10. 2026: »skrij, kar uporabnik ne potrebuje«): vsak zavihek razen Domov in vsak
   // vir v levi navigaciji (in v vodoravnih zavihkih) se da skriti - desni klik, tipka Meni, Shift+F10, dolg pritisk ali
   // gumb Y na ploscku, ali v plosci »Prilagodi meni«. Skrito je samo v meniju: podatki in viri ostanejo, iskanje najde
   // vse. Shranjeno v nastavitvah Medijskega centra (core/os_katalog.py), skupno glavnemu oknu in Safeer Playerju.
+  // ---- kategorija »Zasebno« (lastnik, 17. 10. 2026): stanje in stevilo zasebnih dodatkov pove jedro (core/os_katalog.py).
+  function nastaviZasebno(z) {
+    var prej = !!S.mediaZasebno.vklopljeno;
+    S.mediaZasebno = { vklopljeno: !!(z && z.vklopljeno), skriti: (z && z.skriti) || 0 };
+    var g = $("katZasebno"); if (g) g.setAttribute("aria-checked", S.mediaZasebno.vklopljeno ? "true" : "false");
+    if (prej === S.mediaZasebno.vklopljeno) return;
+    if (!S.mediaZasebno.vklopljeno && S.mediaFilter === "zasebno") { izberiMedijskoKategorijo("domov"); naloziMedije(); return; }
+    narisiMedije();
+  }
   function jeSkrito(kljuc) { return kljuc !== "kat:domov" && !!S.mediaSkrito[kljuc]; }
   function nastaviSkrito(seznam, ob_nalaganju) {
     var prej = S.mediaSkritoNalozeno;
@@ -1598,9 +1547,6 @@
         (vidni[0] || prvi || document.body).focus();
       });
     });
-    // Strežnik Jellyfin: vticniki tudi iz menija vira v levi navigaciji.
-    var virJf = kljuc.indexOf("vir:") === 0 ? S.mediaViriNav.filter(function (v) { return "vir:" + v.id === kljuc; })[0] : null;
-    if (virJf && virJf.ponudnik === "jellyfin" && virJf.vticniki) postavka("program", t("jfVticniki"), function () { odpriJellyfin(virJf); });
     postavka("drsniki", t("mediaPrilagodiMeni"), function () { odpriPrilagodi(gumb); });
     m.hidden = false;
     var r = gumb.getBoundingClientRect();
@@ -1642,16 +1588,10 @@
       });
       seznam.appendChild(g);
     };
-    skupina("mediaPrilagodiVrste", MEDIA_KATEGORIJE.filter(function (k) { return k[0] !== "domov"; }).map(function (k) {
+    skupina("mediaPrilagodiVrste", MEDIA_KATEGORIJE.filter(function (k) { return k[0] !== "domov" && kategorijaVidna(k); }).map(function (k) {
       return { kljuc: "kat:" + k[0], ime: t("media_" + k[0]), ikona: k[1] };
     }));
-    var viri = [];
-    if (S.mediaMape.length) viri.push({ kljuc: "vir:mape", ime: t("mediaTaRacunalnik"), pod: t("mediaMape"), ikona: "mapa" });
-    S.mediaViriNav.forEach(function (v) {
-      viri.push({ kljuc: "vir:" + v.id, ime: v.ime || v.url || v.id, ikona: v.vrsta === "streznik" && v.ponudnik !== "stremio" ? "naprave" : "splet",
-                  pod: v.vrsta === "streznik" ? (IME_PONUDNIKA[v.ponudnik] || t("katOsebniStreznik")) : t("katVirElementov", { n: v.stevilo || 0 }) });
-    });
-    skupina("mediaViriNaslov", viri);
+    // Viri niso vec v levem stolpcu (lastnik, 17. 10. 2026), zato jih tu ni kaj skrivati.
     if (aktivni) { var cilj = seznam.querySelector('[data-kljuc="' + aktivni.replace(/"/g, "") + '"]'); if (cilj) cilj.focus(); }
   }
   function odpriPrilagodi(odkod) {
@@ -4698,7 +4638,7 @@
               vrsta: [], vrstaMesto: 0, vrstaZgodovina: [], izVrste: false,
               igra: false, nalozen: false, zanri: null, zahtevaPredvajanja: 0, knjiznica: [], zahtevaKnjiznice: 0 };
   // Kategorije Medijskega centra (zgoraj) -> vrsta v katalogu; slike so samo krajevne.
-  var KAT_VRSTE = { vse: "vse", glasba: "glasba", video: "video", filmi: "film", serije: "serija", tv: "tv-v-zivo", twitch: "twitch", radio: "radio", slike: "", domov: "" };
+  var KAT_VRSTE = { vse: "vse", glasba: "glasba", video: "video", filmi: "film", serije: "serija", tv: "tv-v-zivo", twitch: "twitch", radio: "radio", zasebno: "zasebno", slike: "", domov: "" };
   var KAT_FILMSKI_ZANRI = [["28", "katZanr_akcija"], ["878", "katZanr_scifi"], ["35", "katZanr_komedija"], ["27", "katZanr_grozljivka"],
                            ["18", "katZanr_drama"], ["53", "katZanr_triler"], ["16", "katZanr_animirani"], ["10749", "katZanr_romantika"]];
   // Serije imajo pri TMDB svoje stevilke zvrsti (grozljivke, trilerja in romantike tam ni) - s filmskimi bi gumb
@@ -4862,10 +4802,12 @@
       var naslovKartice = el("b", "", ubezi(x.naslov || "")); naslovKartice.title = x.naslov || "";
       data.appendChild(naslovKartice);
       var meta = el("span", "kat-meta");
+      // Kakovost, jezik in vir v eni diskretni vrstici (lastnik, 17. 10. 2026); kar ni znano, izpade.
+      var vrsticaVira = izSeznama || /^twitch/.test(x.vrsta || "") ? null : katVrsticaVira(x);
       // Vrsta (»Filmi«, »Radio«) le, kadar ni ze ime zavihka - v zavihku Radio je »Radio« na vsaki kartici odvec.
       var metaOznaka = kat.filter === x.vrsta ? "" : katOznaka(x.vrsta);
       // »V živo« enkrat: TV v živo ga že nosi kot značko na plakatu.
-      if (x.v_zivo && !(x.vrsta === "tv-v-zivo" && !x.kakovost)) metaOznaka += " · " + t("katVZivo");
+      if (x.v_zivo && !(x.vrsta === "tv-v-zivo" && (!x.kakovost || vrsticaVira))) metaOznaka += " · " + t("katVZivo");
       if (x.codec || x.bitrate) metaOznaka += " · " + [x.codec, x.bitrate ? x.bitrate + " kb/s" : ""].filter(Boolean).join(" ");
       if (x.vrsta === "serija" && (x.sezona || x.epizoda)) {
         metaOznaka += " · S" + String(x.sezona || 1).padStart(2, "0") + "E" + String(x.epizoda || 1).padStart(2, "0");
@@ -4877,9 +4819,12 @@
       if (/^twitch/.test(x.vrsta || "")) metaOznaka = twitchOpis(x);
       meta.appendChild(el("span", "", ubezi(metaOznaka)));
       if (x.stevilo_razlicic > 1) meta.appendChild(el("span", "", ubezi(t(kljucRazlicic(x.stevilo_razlicic), { n: x.stevilo_razlicic }))));
-      data.appendChild(meta); card.appendChild(data);
-      // Kakovost pokažemo le, če jo poznamo – »HD« na filmu iz leta 1938 bi bil zavajajoč.
-      var znacka = x.kakovost || (x.vrsta === "tv-v-zivo" || x.vrsta === "twitch" ? t("katVZivo") : "");
+      data.appendChild(meta);
+      if (vrsticaVira) { var vv = el("span", "kat-vir-vrstica", ubezi(vrsticaVira.besedilo)); vv.title = vrsticaVira.namig; data.appendChild(vv); }
+      card.appendChild(data);
+      // Kakovost pokažemo le, če jo poznamo – »HD« na filmu iz leta 1938 bi bil zavajajoč. Znana je v vrstici vira.
+      var znacka = vrsticaVira ? "" : x.kakovost || (x.vrsta === "tv-v-zivo" || x.vrsta === "twitch" ? t("katVZivo") : "");
+      if (vrsticaVira && x.vrsta === "tv-v-zivo") znacka = t("katVZivo");
       if (znacka) card.appendChild(el("span", "kat-kakovost", ubezi(znacka)));
       if (Number(x.ocena || 0) > 0) card.appendChild(el("span", "kat-ocena", "★ " + Number(x.ocena).toFixed(1)));
       if (izSeznama && !kat.seznam.yt && !kat.seznam.twitch && !kat.seznam.sp) {
@@ -6327,6 +6272,27 @@
       kat.katalog = []; kat.strani = []; kat.nalozen = true; narisiKatalog();
     });
   }
+  // Kakovost (HD/4K le, ce jo vir pove), jezik in podnapisi (ce so znani) ter vir za vrstico pod naslovom kartice.
+  function katKakovost(x) {
+    var visina = Number(x.locljivost || 0), k = String(x.kakovost || "");
+    if (visina >= 2160 || /\b(4k|2160p?|uhd)\b/i.test(k)) return "4K";
+    if (visina >= 720 || /\b(1080p?|720p?|hd|fhd)\b/i.test(k)) return "HD";
+    return "";
+  }
+  function katVrsticaVira(x) {
+    var deli = [], namig = [];
+    var kakovost = katKakovost(x);
+    if (kakovost) deli.push(kakovost);
+    var jez = String(x.jezik || "").toLowerCase();
+    if (/^[a-z]{2,3}$/.test(jez)) {
+      deli.push(jez.toUpperCase());
+      try { namig.push(new Intl.DisplayNames([LOKALE[jezik] || "en-GB"], { type: "language" }).of(jez)); } catch (_) { namig.push(jez); }
+    }
+    if (Array.isArray(x.podnapisi) && x.podnapisi.length) { deli.push(t("katPodnapisi")); namig.push(t("katPodnapisi")); }
+    var viri = (Array.isArray(x.viri) && x.viri.length ? x.viri : [x.vir]).filter(Boolean);
+    if (viri.length) { deli.push(viri[0] + (viri.length > 1 ? " +" + (viri.length - 1) : "")); namig.push(viri.join(", ")); }
+    return deli.length ? { besedilo: deli.join(" · "), namig: namig.join(" · ") } : null;
+  }
   // Krajevna knjižnica je pravkar narisana (izbrana kategorija ali iskanje): katalog sledi isti izbiri.
   function uskladiKatalog() {
     var filter = KAT_VRSTE[S.mediaFilter] == null ? "vse" : KAT_VRSTE[S.mediaFilter];
@@ -6452,7 +6418,10 @@
   // ---- dodatki in viri (dodatek Stremio, osebni strežnik, spletni vir)
   function narisiKatViri() {
     var cilj = $("katViri"); if (!cilj) return; cilj.innerHTML = "";
-    if (!kat.viri.length) { cilj.appendChild(el("p", "drobno", ubezi(t("katBrezVirov")))); return; }
+    // Zasebni dodatki so skriti, dokler »Zasebno« ni vklopljeno: le diskretna vrstica s stevilom.
+    var skriti = !S.mediaZasebno.vklopljeno && S.mediaZasebno.skriti ? el("p", "drobno kat-zasebni-skriti",
+      ubezi(t("katZasebniSkriti", { n: S.mediaZasebno.skriti }))) : null;
+    if (!kat.viri.length) { cilj.appendChild(skriti || el("p", "drobno", ubezi(t("katBrezVirov")))); return; }
     kat.viri.forEach(function (source) {
       var row = el("div", "kat-vir"); row.innerHTML = svg("splet");
       var info = el("div"); info.appendChild(el("b", "", ubezi(source.ime || source.url)));
@@ -6487,9 +6456,19 @@
       row.appendChild(remove);
       cilj.appendChild(row);
     });
+    if (skriti) cilj.appendChild(skriti);
   }
   function naloziKatViri() {
+    klic("mediaZasebno").then(function (z) { nastaviZasebno(z); narisiKatViri(); }, function () {});
     return klic("mediaViri").then(function (viri) { kat.viri = Array.isArray(viri) ? viri : []; narisiKatViri(); }, function () {});
+  }
+  function preklopiZasebno() {
+    var g = $("katZasebno"); if (!g || g.getAttribute("aria-busy") === "true") return;
+    g.setAttribute("aria-busy", "true");
+    klic("mediaZasebno", [!S.mediaZasebno.vklopljeno]).then(function (z) {
+      g.removeAttribute("aria-busy");
+      nastaviZasebno(z); naloziKatViri(); naloziKatalog();
+    }, function () { g.removeAttribute("aria-busy"); });
   }
 
   // ---- lastni vgrajeni viri (core/os_vgrajeni_viri.py, assets/os/vgrajeno.js; lastnik, 15. 10. 2026): uporabnik vgradi
@@ -6997,6 +6976,7 @@
     ob("medijiDodatki", "click", function () { zapriMeniDodaj(false); odpriKatViri(); });
     ob("katNalaganjeZnova", "click", function () { kat.napakaVec = false; naloziKatalog(true); });
     ob("katViriZapri", "click", zapriSloje);
+    ob("katZasebno", "click", preklopiZasebno);
     ob("katPrilepi", "click", katPrilepi);
     // Imenik dodatkov Stremio: Install na strani doda dodatek v Safeer (stremio:// -> okno Dodatki, potrdi Poveži).
     ob("katPoisciDodatke", "click", function () { odpriVSpletu("https://stremio-addons.net/"); });

@@ -217,10 +217,6 @@
             <!-- Drsi samo seznam, ne glava: drsnik je prej lezal cez gumb Skrci in klik ga ni dosegel (lastnik, 15. 10. 2026). -->
             <div class="media-nav-drsno">
             <div class="media-nav-kategorije" id="mediaNavKategorije" role="tablist" aria-orientation="vertical"></div>
-            <div class="media-nav-viri" id="mediaNavViri" hidden>
-              <h2 class="media-nav-naslov" id="mediaNavViriNaslov" data-t="mediaViriNaslov"></h2>
-              <div class="media-nav-seznam" id="mediaNavViriSeznam" role="list" aria-labelledby="mediaNavViriNaslov"></div>
-            </div>
             <!-- Skrij, kar uporabnik ne potrebuje (lastnik, 14. 10. 2026): plosca s potrditvenimi polji za zavihke in vire. -->
             <button class="media-nav-prilagodi" id="mediaNavPrilagodi" type="button" aria-haspopup="dialog" aria-controls="slojPrilagodi"><svg data-ikona="drsniki"></svg><span data-t="mediaPrilagodiMeni"></span></button>
             <button class="media-nav-prilagodi media-nav-skrij" id="mediaNavSkrij" type="button" aria-controls="mediaNav"><svg data-ikona="x"></svg><span data-t="mediaNavSkrij"></span></button>
@@ -811,6 +807,8 @@
       <button class="gumb" type="submit" data-t="katVirDodaj"></button>
     </form>
     <p class="drobno kat-vir-sporocilo" id="katVirSporocilo" aria-live="polite"></p>
+    <!-- Kategorija »Zasebno« (lastnik, 17. 10. 2026): vsebina dodatkov za odrasle samo, ce jo uporabnik vklopi. -->
+    <button class="stikalo kat-zasebno" id="katZasebno" type="button" role="switch" aria-checked="false"><svg data-ikona="zakleni"></svg><div><span data-t="katZasebno"></span><small data-t="katZasebnoPod"></small></div><i></i></button>
     <div class="kat-viri" id="katViri"></div>
     <!-- Lastni vgrajeni viri (core/os_vgrajeni_viri.py, assets/os/vgrajeno.js): seznam je prazen, vsak vir doda uporabnik
          sam in ga uporablja na lastno odgovornost; Scit ga varuje ne glede na stran. -->

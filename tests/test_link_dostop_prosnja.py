@@ -750,3 +750,77 @@ class Zdruzevanje(_Osnova):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Skrcitev(_Osnova):
+    """Obvestilo s prosnjo ne ostane ure na zaslonu (lastnik, 17. 10. 2026: na testnem PC je stalo od polnoci): po
+    SKRCI_PO_S gre z zaslona, prosnja ostane veljavna, stevec na ikoni Link jo kaze, nic se ne odobri ali zavrne samo."""
+
+    def _javi_prikaz(self):
+        self.razporejeno, self.skrceno = [], []
+        self.prikaz = link_dostop.ZdruzenPrikaz(
+            self.pokazano.append, self.umaknjeno.append, lambda s, klic: self.razporejeno.append((s, klic)),
+            skrci=self.skrceno.append)
+        link_dostop.nastavi_prikaz(self.prikaz.pokazi, self.prikaz.umakni)
+
+    def _izvedi(self):
+        cakajo, self.razporejeno = self.razporejeno, []
+        for _s, klic in cakajo:
+            klic()
+
+    def test_po_desetih_sekundah_skrci_prosnja_ostane(self):
+        _vprasaj(A, "v", zdaj=ZDAJ)
+        self._izvedi()                                                  # prikaz po ZDRUZI_S
+        self.assertEqual(len(self.pokazano), 1)
+        self.assertEqual([s for s, _ in self.razporejeno], [link_dostop.SKRCI_PO_S])
+        self.assertEqual(link_dostop.SKRCI_PO_S, 10.0)
+        self._izvedi()                                                  # 10 s pozneje
+        self.assertEqual(self.skrceno, [A])
+        self.assertEqual(self.umaknjeno, [])                            # prosnja ni umaknjena
+        self.assertEqual([p["jedro"] for p in link_dostop.odprte_prosnje()], [A])
+        self.assertEqual(link_dostop.zmoznosti(A), set())               # nic odobreno
+        self.assertEqual(self._zapis().get("zavrnjeno", {}), {})        # nic zavrnjeno
+        self.assertEqual(link_dostop.stevilo_cakajocih(), 1)
+        # Klik na stevec: obvestilo znova, z enakimi gumbi, in se spet skrci.
+        self.assertEqual(self.prikaz.pokazi_znova(), 1)
+        self.assertEqual(len(self.pokazano), 2)
+        self._izvedi()
+        self.assertEqual(self.skrceno, [A, A])
+        self.assertTrue(link_dostop.odobri_prosnjo(A, "v"))             # odgovor uporabnika velja tudi po skrcitvi
+        self.assertEqual(link_dostop.stevilo_cakajocih(), 0)
+
+    def test_novo_obvestilo_iste_naprave_ima_svoj_rok(self):
+        _vprasaj(A, "v", zdaj=ZDAJ)
+        self._izvedi()
+        prvi_rok = self.razporejeno
+        self.razporejeno = []
+        _vprasaj(A, "d", zdaj=ZDAJ + 30)
+        self._izvedi()                                                  # novo obvestilo (vd)
+        for _s, klic in prvi_rok:
+            klic()                                                      # rok prvega obvestila ne skrci novega
+        self.assertEqual(self.skrceno, [])
+        self._izvedi()
+        self.assertEqual(self.skrceno, [A])
+
+    def test_odgovorjena_se_ne_skrci(self):
+        _vprasaj(A, "v", zdaj=ZDAJ)
+        self._izvedi()
+        link_dostop.zavrni_prosnjo(A, "v", zdaj=ZDAJ + 1)
+        self._izvedi()
+        self.assertEqual(self.skrceno, [])
+
+    def test_obvestilo_ni_kriticno(self):
+        _vprasaj(A, "v", zdaj=ZDAJ)
+        self._izvedi()
+        Gio, GLib = mock.MagicMock(), mock.MagicMock()
+        link_dostop.poslji_obvestilo(mock.Mock(), Gio, GLib, self.pokazano[0], "sl")
+        Gio.Notification.new.return_value.set_priority.assert_called_once_with(Gio.NotificationPriority.NORMAL)
+
+    def test_besedilo_stevca(self):
+        self.assertEqual([link_dostop.besedilo_stevca("sl", n) for n in (1, 2, 3, 5, 101)],
+                         ["1 zahteva za dostop", "2 zahtevi za dostop", "3 zahteve za dostop", "5 zahtev za dostop",
+                          "101 zahteva za dostop"])
+        self.assertEqual(link_dostop.besedilo_stevca("en", 2), "2 access requests")
+        for jezik in ("de", "es", "fr", "it"):
+            self.assertIn("1", link_dostop.besedilo_stevca(jezik, 1))
+        self.assertEqual(link_dostop.besedilo_stevca("xx", 1), "1 access request")

@@ -1494,11 +1494,12 @@ class MediaCenter:
                 self._osvezi_v_ozadju(kljuc, query, kind, genre, page, ob_osvezitvi, moznosti)
             rezultat.update(viri=self.vidni_viri(), mape=[str(path) for path in self.roots],
                             kljuc=kljuc, iz_predpomnilnika=True, osvezujem=osvezi)
-            return rezultat
+            # Pogled, shranjen pred to izdajo ali preden je bil dodatek spoznan kot zaseben, ga ne pokaze.
+            return self._brez_zasebnih_rezultat(rezultat, kind)
         rezultat = self.catalog(query, kind, genre, page, **moznosti)
         if rezultat.get("vnosi"):
             self._zapomni_katalog(kljuc, rezultat)
-        return dict(rezultat, kljuc=kljuc, iz_predpomnilnika=False, osvezujem=False)
+        return dict(self._brez_zasebnih_rezultat(rezultat, kind), kljuc=kljuc, iz_predpomnilnika=False, osvezujem=False)
 
     @staticmethod
     def _odtis_vnosov(rezultat: Optional[dict]) -> str:
@@ -1524,7 +1525,8 @@ class MediaCenter:
                 spremenjeno = self._odtis_vnosov(svez) != self._odtis_vnosov(star)
                 self._zapomni_katalog(kljuc, svez)
                 if spremenjeno and ob_osvezitvi is not None:
-                    ob_osvezitvi(kljuc, dict(svez, kljuc=kljuc, iz_predpomnilnika=False, osvezujem=False))
+                    ob_osvezitvi(kljuc, dict(self._brez_zasebnih_rezultat(svez, kind), kljuc=kljuc,
+                                             iz_predpomnilnika=False, osvezujem=False))
             except Exception:
                 pass
             finally:
@@ -1557,7 +1559,9 @@ class MediaCenter:
             return []
         kandidati: list[dict] = []
         with self._predpomnilnik_lock:
-            for zapis in self._nalozi_predpomnilnik()["katalog"].values():
+            for kljuc_pogleda, zapis in self._nalozi_predpomnilnik()["katalog"].items():
+                if self._je_zasebni_pogled(kljuc_pogleda):
+                    continue                      # shranjeni pogledi kategorije »Zasebno«
                 rezultat = zapis.get("rezultat") if isinstance(zapis, dict) else None
                 if isinstance(rezultat, dict):
                     kandidati.extend(x for x in (rezultat.get("vnosi") or []) if isinstance(x, dict))
@@ -1566,11 +1570,15 @@ class MediaCenter:
             for vir in self._load().get("viri", []):
                 kandidati.extend(x for x in (vir.get("vnosi") or []) if isinstance(x, dict))
 
+        # Predlogi iskanja nikoli ne pokazejo zasebne vsebine (tudi iz shranjenih pogledov kategorije »Zasebno«).
+        kandidati = self.brez_zasebnih(kandidati)
         zadetki, videni = [], set()
         for item in kandidati:
             haystack = " ".join(str(item.get(k) or "") for k in ("naslov", "izvajalec", "album", "opis", "vrsta")).casefold()
             if iskano not in haystack:
                 continue
+            if not lastni_vir(item) and self.znano_ni_na_voljo(item):
+                continue                          # noben vir ga ne predvaja (kot brez_nerazpolozljivih)
             kljuc = str(item.get("id") or (item.get("naslov"), item.get("vrsta")))
             if kljuc in videni:
                 continue
@@ -2476,10 +2484,12 @@ class MediaCenter:
             return regular + personal
 
     def vidni_viri(self) -> list[dict]:
-        """Viri za prikaz v medijskem centru: brez tistih, iz katerih ni nic predvajljivega."""
+        """Viri za prikaz v medijskem centru: brez tistih, iz katerih ni nic predvajljivega (in brez zasebnih dodatkov,
+        dokler kategorija »Zasebno« ni vklopljena)."""
         return [vir for vir in self.sources()
-                if vir.get("vrsta") == "streznik" or int(vir.get("stevilo") or 0) > 0
-                or (vir.get("tip") == "predvajalni_vir" and not vir.get("napaka"))]
+                if (vir.get("vrsta") == "streznik" or int(vir.get("stevilo") or 0) > 0
+                    or (vir.get("tip") == "predvajalni_vir" and not vir.get("napaka")))
+                and (self.zasebno or not self.zaseben_streznik(vir))]
 
     def add_server(self, provider: str, name: str, url: str, username: str, secret: str,
                    prevzet: Optional[dict] = None) -> dict:
@@ -2569,9 +2579,10 @@ class MediaCenter:
         self.ozastari_predpomnilnik()
 
     def _stremio_strezniki(self) -> list[dict]:
-        """Uporabnikovi Stremio dodatki (osebni strezniki s ponudnikom stremio)."""
+        """Uporabnikovi Stremio dodatki (osebni strezniki s ponudnikom stremio); zasebni le, ce je »Zasebno« vklopljeno."""
         with self._lock:
-            return [x for x in self._load().get("osebni_strezniki", []) if isinstance(x, dict) and x.get("ponudnik") == "stremio" and x.get("url")]
+            vsi = [x for x in self._load().get("osebni_strezniki", []) if isinstance(x, dict) and x.get("ponudnik") == "stremio" and x.get("url")]
+        return vsi if self.zasebno else [x for x in vsi if not self.zaseben_streznik(x)]
 
     def _stremio_tokovi_vseh(self, koren: str, tip: str, ident: str) -> list[dict]:
         """
@@ -2584,7 +2595,7 @@ class MediaCenter:
                 ident = media_servers.stremio_prva_epizoda(koren, ident) or ident
             except Exception:
                 pass
-        koreni = [koren]
+        koreni = [koren] if self.zasebno or koren not in self.zasebni_koreni() else []
         for streznik in self._stremio_strezniki():
             k = media_servers._stremio_koren(str(streznik.get("url") or ""))
             if k and k not in koreni:
@@ -2615,9 +2626,12 @@ class MediaCenter:
                 if t.get("torrent") and t.get("hash"):
                     dodatki_torrentov.setdefault(str(t["hash"]).lower(), k)
 
+        if not koreni:
+            self._tokovi_odgovor.vsi = False      # ni odgovor »tega ni« - ne skrije kartice za ure
+            return []
         if len(koreni) == 1:
-            tokovi = vprasaj(koren)
-            zapomni(koren, tokovi)
+            tokovi = vprasaj(koreni[0])
+            zapomni(koreni[0], tokovi)
             self._tokovi_odgovor.vsi = not izpadi
             return tokovi
         from concurrent.futures import ThreadPoolExecutor
@@ -2752,12 +2766,17 @@ class MediaCenter:
                     osvezujem.discard(key)
         threading.Thread(target=delo, name="safeer-streznik-osvezi", daemon=True).start()
 
-    def _personal_items(self, query: str) -> list[dict]:
+    def _personal_items(self, query: str, zasebni: bool = False) -> list[dict]:
+        """Vnosi osebnih virov. Zasebni dodatki so posebej: `zasebni=True` vrne samo njihove (kategorija »Zasebno«)."""
         with self._lock:
-            servers = list(self._load().get("osebni_strezniki", []))
+            servers = [s for s in self._load().get("osebni_strezniki", []) if isinstance(s, dict)]
+        zasebni = bool(zasebni)
         now = time.time()
 
         def vrstice_streznika(server: dict) -> list[dict]:
+            # Zasebnost (lahko prebere manifest) v niti streznika: mrtev dodatek ne zadrzi drugih.
+            if self.zaseben_streznik(server) != zasebni:
+                return []
             provider = str(server.get("ponudnik") or "")
             server_id = str(server.get("id") or "")
             server_query = query if provider in ("navidrome", "funkwhale") else ""
@@ -2794,14 +2813,15 @@ class MediaCenter:
                     po_streznikih.append(prihodnost.result())
                 else:
                     znano = self._server_cache.get(str(server.get("id") or "") + ":")
-                    vrstice = list(znano[1]) if znano else []
+                    vrstice = list(znano[1]) if znano and self._zaseben_brez_omrezja(server) == zasebni else []
                     if query:
                         vrstice = [item for item in vrstice if media_servers.ujema_iskanje(item, query)]
                     po_streznikih.append(vrstice)
         else:
             po_streznikih = [vrstice_streznika(server) for server in servers]
         result = [vrstica for vrstice in po_streznikih for vrstica in vrstice]
-        result.extend(self._cinemeta_items(servers, result, query))
+        if not zasebni:
+            result.extend(self._cinemeta_items([s for s in servers if not self._zaseben_brez_omrezja(s)], result, query))
         return result
 
     def _cinemeta_items(self, servers: list, vrstice: list, query: str) -> list[dict]:
@@ -2995,6 +3015,129 @@ class MediaCenter:
         if isinstance(server.get("zaseben"), bool):
             return server["zaseben"]
         return self._zasebni_koreni.get(media_servers._stremio_koren(str(server.get("url") or "")))
+
+    # --- kategorija »Zasebno« (lastnik, 17. 10. 2026) ------------------------------------------------------------
+    # Vsebina zasebnih dodatkov (manifest behaviorHints.adult) se pokaze samo, ce jo uporabnik vklopi, in samo v svoji
+    # kategoriji - nikoli v drugih kategorijah, iskanju, predlogih ali na policah. Privzeto izklopljeno. Kar ne vemo,
+    # ali je zaseben (manifesta ni bilo mogoce prebrati), velja kot zaseben.
+    ZASEBNO = "zasebno"
+    #: Ali je uporabnik vklopil kategorijo »Zasebno« (core/os_katalog.py jo nastavi iz nastavitev Medijskega centra).
+    zasebno = False
+    #: Dodatek, katerega manifesta ni bilo mogoce prebrati, vprasamo znova sele cez toliko sekund (mrtev dodatek ne
+    #: sme ob vsakem iskanju toka cakati na omrezje).
+    ZASEBEN_NEZNANO_S = 300
+
+    def zaseben_streznik(self, server: dict) -> bool:
+        """Ali je osebni vir zaseben dodatek. Prvic lahko prebere manifest (klic iz delovne niti)."""
+        if not isinstance(server, dict) or server.get("ponudnik") != "stremio":
+            return False
+        znano = self._stremio_zaseben_znano(server)
+        if znano is None:
+            koren = media_servers._stremio_koren(str(server.get("url") or ""))
+            neznano = self.__dict__.setdefault("_zaseben_neznano", {})
+            if time.monotonic() - neznano.get(koren, -1e9) > self.ZASEBEN_NEZNANO_S:
+                znano = self._koren_zaseben(koren)
+                if znano is None:
+                    neznano[koren] = time.monotonic()
+        return znano is not False
+
+    def _zaseben_brez_omrezja(self, server: dict) -> bool:
+        """Kot zaseben_streznik, brez omrezja: kar se ne vemo, velja kot zaseben."""
+        if not isinstance(server, dict) or server.get("ponudnik") != "stremio":
+            return False
+        return self._stremio_zaseben_znano(server) is not False
+
+    def zasebni_koreni(self) -> set:
+        """Koreni zasebnih dodatkov med uporabnikovimi viri (in tistih, ki so se v tem zagonu pokazali kot zasebni)."""
+        with self._lock:
+            strezniki = [x for x in self._load().get("osebni_strezniki", []) if isinstance(x, dict)]
+        koreni = {media_servers._stremio_koren(str(s.get("url") or "")) for s in strezniki if self.zaseben_streznik(s)}
+        koreni.update(k for k, z in list(self._zasebni_koreni.items()) if z)
+        koreni.discard("")
+        return koreni
+
+    @staticmethod
+    def _zaseben_naslov(url: str, koreni: set) -> bool:
+        if not url.startswith("stremio:"):
+            return False
+        return url[len("stremio:"):].split("|", 1)[0] in koreni
+
+    def je_zaseben_vnos(self, item: Any, koreni: Optional[set] = None) -> bool:
+        """Kartico je ponudil zaseben dodatek (njen tok ali katera od razlicic je iz njega)."""
+        if not isinstance(item, dict):
+            return False
+        koreni = self.zasebni_koreni() if koreni is None else koreni
+        if not koreni:
+            return False
+        stremio = item.get("stremio") if isinstance(item.get("stremio"), dict) else {}
+        if media_servers._stremio_koren(str(stremio.get("koren") or "")) in koreni:
+            return True
+        naslovi = [str(item.get("url") or "")] + [str(r.get("url") or "") for r in (item.get("razlicice") or [])
+                                                  if isinstance(r, dict)]
+        return any(self._zaseben_naslov(u, koreni) for u in naslovi)
+
+    def brez_zasebnih(self, vnosi: Any, koreni: Optional[set] = None) -> Any:
+        """Seznam kartic brez vsebine zasebnih dodatkov: zasebne razlicice izpadejo, kartica brez drugih tudi."""
+        if not isinstance(vnosi, list):
+            return vnosi
+        koreni = self.zasebni_koreni() if koreni is None else koreni
+        if not koreni:
+            return vnosi
+        izhod = []
+        for item in vnosi:
+            if not isinstance(item, dict) or not self.je_zaseben_vnos(item, koreni):
+                izhod.append(item)
+                continue
+            ostale = [r for r in (item.get("razlicice") or []) if isinstance(r, dict)
+                      and not self._zaseben_naslov(str(r.get("url") or ""), koreni)]
+            if not ostale:
+                continue                          # samo iz zasebnega dodatka
+            glavna = ostale[0]
+            novo = dict(item, razlicice=ostale, stevilo_razlicic=len(ostale),
+                        url=glavna.get("url") or item.get("url"), vir=glavna.get("vir") or item.get("vir"),
+                        vir_id=glavna.get("vir_id") or item.get("vir_id"),
+                        viri=list(dict.fromkeys(r.get("vir", "") for r in ostale if r.get("vir"))))
+            stremio = item.get("stremio") if isinstance(item.get("stremio"), dict) else {}
+            if media_servers._stremio_koren(str(stremio.get("koren") or "")) in koreni:
+                # Javni naslov (npr. TMDB), katerega glavna razlicica je bila iz zasebnega dodatka: dodatek ostane javni.
+                novo.pop("stremio", None)
+                u = str(novo.get("url") or "")
+                if u.startswith("stremio:"):
+                    koren, tip, ident = (u[len("stremio:"):].split("|") + ["", ""])[:3]
+                    novo["stremio"] = {"koren": koren, "tip": tip, "id": ident}
+            izhod.append(novo)
+        return izhod
+
+    def _brez_zasebnih_rezultat(self, rezultat: Any, kind: str) -> Any:
+        """Odgovor kataloga za kategorijo: v »Zasebno« samo, ce je vklopljena; drugje nikoli zasebne vsebine."""
+        if not isinstance(rezultat, dict):
+            return rezultat
+        if kind == self.ZASEBNO:
+            return rezultat if self.zasebno else dict(rezultat, vnosi=[], skupaj=0, skupaj_strani=1)
+        vnosi = self.brez_zasebnih(rezultat.get("vnosi"))
+        if vnosi is rezultat.get("vnosi"):
+            return rezultat
+        novo = dict(rezultat, vnosi=vnosi)
+        if isinstance(rezultat.get("skupaj"), int):
+            novo["skupaj"] = max(len(vnosi), rezultat["skupaj"] - (len(rezultat["vnosi"]) - len(vnosi)))
+        return novo
+
+    def pozabi_zasebno_v_predpomnilniku(self) -> None:
+        """Kategorija »Zasebno« izklopljena: njeni shranjeni pogledi izginejo tudi z diska."""
+        with self._predpomnilnik_lock:
+            katalog = self._nalozi_predpomnilnik()["katalog"]
+            for kljuc in list(katalog):
+                if self._je_zasebni_pogled(kljuc):
+                    katalog.pop(kljuc, None)
+        self._shrani_predpomnilnik()
+
+    @classmethod
+    def _je_zasebni_pogled(cls, kljuc: str) -> bool:
+        """Kljuc shranjenega pogleda (kljuc_kataloga) je kategorija »Zasebno«."""
+        try:
+            return json.loads(kljuc)[2] == cls.ZASEBNO
+        except (ValueError, TypeError, IndexError, KeyError):
+            return False
 
     @staticmethod
     def _vir_za_naprave(source: dict) -> bool:
@@ -3801,6 +3944,8 @@ class MediaCenter:
                     self._dynamic_items.setdefault(shown["id"], shown)
             return {"vnosi": merged, "viri": self.vidni_viri(), "skupaj": len(merged), "stran": 1,
                     "skupaj_strani": 1, "mape": [str(path) for path in self.roots]}
+        if kind == self.ZASEBNO:
+            return self._catalog_zasebno(query, page, razvrsti, izklopljeni)
         with self._lock:
             data = self._load()
         page_num = max(1, int(page or 1))
@@ -3923,6 +4068,8 @@ class MediaCenter:
             merged = self._razvrsti_vnose(v_jeziku, razvrsti) + self._razvrsti_vnose(neznan, razvrsti)
         else:
             merged = self._razvrsti_vnose(merged, razvrsti)
+        # Zasebna vsebina je samo v svoji kategoriji (npr. razlicica filma TMDB iz zasebnega dodatka izpade).
+        merged = self.brez_zasebnih(merged)
         tmdb_strani = (self._ima_embed_vir(data) and not tmdb_izklopljen and tmdb_pages > 1
                        and kind in ("", "vse", "film", "serija"))
         total_pages = tmdb_pages if tmdb_strani else max(1, math.ceil(len(merged) / NA_STRAN))
@@ -3950,6 +4097,22 @@ class MediaCenter:
             "skupaj_strani": total_pages,
             "mape": [str(path) for path in self.roots]
         }
+
+    def _catalog_zasebno(self, query: str, page: int, razvrsti: str, izklopljeni: set) -> dict:
+        """Kategorija »Zasebno«: samo vsebina zasebnih dodatkov in samo, ce jo je uporabnik vklopil."""
+        merged = []
+        if self.zasebno:
+            vnosi = self._personal_items(_text(query, 120), zasebni=True)
+            merged = self._razvrsti_vnose(self._filtriraj_vire(
+                zdruzi_epizode_v_serije(merge_duplicates(vnosi)), izklopljeni), razvrsti)
+        for shown in merged:
+            if shown.get("id"):
+                self._dynamic_items.setdefault(shown["id"], shown)
+        total_pages = max(1, math.ceil(len(merged) / NA_STRAN))
+        trenutna = min(max(1, int(page or 1)), total_pages)
+        return {"vnosi": merged[(trenutna - 1) * NA_STRAN:trenutna * NA_STRAN], "viri": self.vidni_viri(),
+                "skupaj": len(merged), "stran": trenutna, "skupaj_strani": total_pages,
+                "mape": [str(path) for path in self.roots]}
 
     def details(self, item_id: str, country: str = "auto", language: str = "sl") -> dict:
         # Odprte podrobnosti niso predvajanje: torrenta zaradi njih ne zacnemo prenasati.
