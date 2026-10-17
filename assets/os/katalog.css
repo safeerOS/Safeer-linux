@@ -364,3 +364,21 @@ html.kavc .kat-katalog { grid-template-columns: repeat(auto-fill, minmax(180px, 
 .kat-sp-cas { display: flex; align-items: center; gap: 8px; flex: 2; min-width: 220px; }
 .kat-sp-cas input { flex: 1; }
 .kat-sp-predvajalnik input[type="range"] { accent-color: var(--zelena); }
+
+/* Odprt seznam skladb: vrstice (stevilka, ovitek 44 px, naslov in izvajalec, dolzina) - lastnik, 17. 10. 2026. */
+.kat-katalog.kat-skladbe { grid-template-columns: 1fr; gap: 2px; counter-reset: skladba; }
+.kat-skladbe .kat-kartica { min-height: 0; display: flex; align-items: center; gap: 12px; padding: 6px 100px 6px 44px;
+  border-radius: 10px; border-color: transparent; background: transparent; counter-increment: skladba; }
+.kat-skladbe .kat-kartica::before { content: counter(skladba); position: absolute; left: 0; width: 40px; text-align: center;
+  color: var(--medlo); font-size: 13px; font-variant-numeric: tabular-nums; }
+.kat-skladbe .kat-kartica:hover, .kat-skladbe .kat-kartica:focus-visible { transform: none; box-shadow: none;
+  background: var(--kartica); border-color: var(--rob); }
+.kat-skladbe .kat-plakat { width: 44px; height: 44px; border-radius: 6px; overflow: hidden; }
+.kat-skladbe .kat-kartica img, .kat-skladbe .kat-kartica .kat-brez-slike { width: 44px; height: 44px; }
+.kat-skladbe .kat-kartica .kat-brez-slike svg { width: 20px; height: 20px; }
+.kat-skladbe .kat-kartica .kat-podatki { flex: 1; min-width: 0; padding: 0; }
+.kat-skladbe .kat-kartica .kat-meta { margin-top: 2px; text-transform: none; font-size: 12px; }
+.kat-skladbe .kat-kartica .kat-kakovost, .kat-skladbe .kat-kartica .kat-ocena { display: none; }
+.kat-skladbe .kat-trajanje { color: var(--medlo); font-size: 12px; font-variant-numeric: tabular-nums; }
+.kat-skladbe .kat-kartica .kat-na-seznam, .kat-skladbe .kat-kartica .kat-odstrani { left: auto; right: 12px; top: 50%; transform: translateY(-50%); }
+.kat-skladbe .kat-kartica .kat-trajanje { position: absolute; right: 48px; }

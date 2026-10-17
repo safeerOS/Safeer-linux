@@ -5107,6 +5107,9 @@
       return (a.skupina || a.izvajalec || "").localeCompare(b.skupina || b.izvajalec || "");
     });
     kat.prikazano = list;       // vrsta predvajanja sledi vrstnemu redu, ki ga uporabnik vidi
+    // Odprt seznam skladb (Spotify, YouTube, svoj): vrstice s stevilko, majhnim ovitkom in dolzino, ne plakati - skladbe
+    // z istega albuma imajo isti ovitek in velike kartice so bile videti enake (lastnik, 17. 10. 2026).
+    mreza.classList.toggle("kat-skladbe", izSeznama && list.length > 0 && list.every(function (x) { return x.vrsta === "glasba" || x.vrsta === "podcast"; }));
     var zadnjaSkupina = "", neznanOznacen = false;
     list.forEach(function (x) {
       // Izbran jezik: najprej vsebina v njem, nato vsebina, katere jezika vir ne pove (core/os_media._samo_jezik).
@@ -5161,6 +5164,10 @@
       data.appendChild(meta);
       if (vrsticaVira) { var vv = el("span", "kat-vir-vrstica", ubezi(vrsticaVira.besedilo)); vv.title = vrsticaVira.namig; data.appendChild(vv); }
       card.appendChild(data);
+      if (izSeznama && Number(x.sekund) > 0) {
+        var sek = Math.round(Number(x.sekund));
+        card.appendChild(el("span", "kat-trajanje", Math.floor(sek / 60) + ":" + String(sek % 60).padStart(2, "0")));
+      }
       // Kakovost pokažemo le, če jo poznamo – »HD« na filmu iz leta 1938 bi bil zavajajoč. Znana je v vrstici vira.
       var znacka = vrsticaVira ? "" : x.kakovost || (x.vrsta === "tv-v-zivo" || x.vrsta === "twitch" ? t("katVZivo") : "");
       if (vrsticaVira && x.vrsta === "tv-v-zivo") znacka = t("katVZivo");
