@@ -4051,6 +4051,7 @@ class SafeerOS(Gtk.Application):
             "scitVklop": lambda: self.scit.nastavi(bool(a[0]) if a else False),
             "scitDovoli": lambda: self.scit.dovoli(str(a[0]) if a else "", bool(a[1]) if len(a) > 1 else True),
             "scitNaprej": lambda: self.scit.nastavi_naprej(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
+            "scitTwitch": lambda: self.scit.nastavi_twitch(bool(a[0]) if a else True),
             "scitPremor": lambda: self.scit.premor(a[0] if a and isinstance(a[0], (int, float)) and not isinstance(a[0], bool) else 0),
             "sporocilaDodaj": lambda: self.sporocila.dodaj_kanal(a[0] if a and isinstance(a[0], dict) else {}),
             "sporocilaPoslji": lambda: self.sporocila.poslji(str(a[0]), str(a[1]), str(a[2]),
@@ -5783,6 +5784,7 @@ class SafeerOS(Gtk.Application):
                 predvajaj=self._katalog_predvajaj, vdelano=self._odpri_lahki_medijski_pogled,
                 youtube=self._katalog_youtube, youtube_ukaz=self._katalog_youtube_ukaz,
                 jezik=_jezik, visina_zaslona=visina, uskladi_sezname=_seznami_z_naprav, knjiznica=_knjiznica())
+            self._katalog.twitch_brez_oglasov = self.scit.twitch_brez_oglasov
         return self._katalog
 
     def _katalog_predvajaj(self, uri: str, vrsta: str, ime: str, zacetek: int, podnapisi: tuple, prikazi: bool) -> bool:

@@ -1057,6 +1057,15 @@ class Scit:
     def vklopljen(self) -> bool:
         return bool(self.shramba.get("scit", False))
 
+    # -- Twitch brez oglasov (core/twitch_hls.py): velja za Medijski center, tudi ce DNS-filtra ni mogoce vklopiti
+    def twitch_brez_oglasov(self) -> bool:
+        """Lastnik 17. 10. 2026: Scit izloca oglase, ki jih Twitch vstavi v prenos; privzeto vklopljeno."""
+        return self.shramba.get("scit_twitch_oglasi", True) is not False
+
+    def nastavi_twitch(self, vklop: bool) -> dict:
+        self.shramba.set("scit_twitch_oglasi", bool(vklop))
+        return self.stanje()
+
     def mozno(self) -> bool:
         return not razlog_nemoznosti()
 
@@ -1070,7 +1079,8 @@ class Scit:
              "poizvedb": r.poizvedb if r else 0, "zadnje": list(r.zadnje) if r else [],
              "pravilo": pravilo_namesceno(), "domen": 0, "pravil": 0,
              "izjeme": list(self._izjeme), "premor": self.premor_se(),
-             "naprej": self.naprej()[0], "naprejPoMeri": self.naprej()[1], "rezerv": getattr(r, "rezerv", 0)}
+             "naprej": self.naprej()[0], "naprejPoMeri": self.naprej()[1], "rezerv": getattr(r, "rezerv", 0),
+             "twitchOglasi": self.twitch_brez_oglasov()}
         if self.seznami is not None:
             s.update(self.seznami.stanje())
         return s

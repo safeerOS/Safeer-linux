@@ -130,7 +130,7 @@ def vrsta_predvajalnika(item: dict) -> str:
     vrsta = str(item.get("vrsta") or "")
     if vrsta == "radio":
         return "radio"
-    if vrsta == "tv-v-zivo":
+    if vrsta in ("tv-v-zivo", "twitch"):
         return "tv"
     return "medij" if vrsta in ZVOK else "video"
 
@@ -252,6 +252,8 @@ class Katalog:
         self._yt: Optional[dict] = None
         self.jezik = jezik
         self.visina_zaslona = int(visina_zaslona or 1080)
+        #: Scit: izlocanje oglasov v prenosih Twitch (core/os_scit.Scit.twitch_brez_oglasov); privzeto vklopljeno.
+        self.twitch_brez_oglasov: Callable[[], bool] = lambda: True
         self._uskladi_sezname = uskladi_sezname
         #: Polica »Na tvojih napravah« (core/knjiznica_kroga.py); None = brez Linka (preizkusi).
         self._knjiznica = knjiznica
@@ -293,6 +295,8 @@ class Katalog:
                 self._mc.ob_prenosu_motorja = self._motor_napredek
                 # Moji viri z drugih naprav v Linku (core/viri_sink.py): stran osvezi vire in katalog.
                 self._mc.ob_virih = lambda: self.dogodek("mediaViriUsklajeni", None)
+                # Twitch: nastavitev Scita »brez oglasov« (safeer_os jo nastavi v twitch_brez_oglasov).
+                self._mc.twitch.brez_oglasov = lambda: bool(self.twitch_brez_oglasov())
             return self._mc
 
     def _motor_napredek(self, preneseno: int, vse: int) -> None:
@@ -356,6 +360,7 @@ class Katalog:
         "mediaOdstraniVir": "_odstrani_vir", "mediaOsveziVir": "_osvezi_vir", "mediaOdkrijDlna": "_odkrij_dlna",
         "mediaSeznami": "_seznami", "mediaSeznam": "_seznam", "mediaUvoziSeznam": "_uvozi_seznam",
         "mediaYtRacun": "_yt_racun", "mediaYtSeznam": "_yt_seznam", "mediaYtShrani": "_yt_shrani",
+        "mediaTwitchRacun": "_twitch_racun", "mediaTwitchPosnetki": "_twitch_posnetki", "mediaTwitchKakovost": "_twitch_kakovost",
         "mediaOdstraniSeznam": "_odstrani_seznam", "mediaDodajNaSeznam": "_dodaj_na_seznam",
         "mediaOdstraniSSeznama": "_odstrani_s_seznama", "mediaSeznamZamenjava": "_seznam_zamenjava",
         "mediaPredvajaj": "_predvajaj_vnos", "mediaYtUkaz": "_yt_ukaz", "mediaStanje": "_stanje",
@@ -385,6 +390,8 @@ class Katalog:
     def _zvrsti(self, a: list) -> Any:
         vrsta = self._niz(a, 0, "glasba")
         self.mc.izbrana_drzava = self._drzava()
+        if vrsta == "twitch":
+            return self.mc.twitch_kategorije()       # kategorije (igre) Twitcha kot gumbi zvrsti
         return self.mc.tv_drzave() if vrsta == "tv-v-zivo" else zakoniti_viri.zvrsti_za(vrsta)
 
     def _katalog(self, a: list) -> Any:
@@ -393,6 +400,10 @@ class Katalog:
         stran = int(a[3]) if len(a) > 3 and str(a[3]).isdigit() else 1
         izklopljeni = [str(x) for x in a[5]][:200] if len(a) > 5 and isinstance(a[5], list) else []
         izklopljeni_jeziki = [str(x) for x in a[7]][:100] if len(a) > 7 and isinstance(a[7], list) else []
+
+        if self._niz(a, 1) == "twitch":
+            # Zavihek Twitch: priljubljeni prenosi, kategorija (zvrst) ali iskanje kanalov (core/twitch.py).
+            return dict(mc.twitch_katalog(self._niz(a, 0), self._niz(a, 2)), zvrsti=True)
 
         def prikazi(rezultat):
             # Cesar noben vir ne predvaja, ne kazemo; ostalo iz dodatkov preverimo v ozadju (dogodek mediaNiNaVoljo).
@@ -885,6 +896,17 @@ class Katalog:
     def _yt_shrani(self, a: list) -> Any:
         return self.mc.yt_shrani(self._niz(a, 0))
 
+    def _twitch_racun(self, _a: list) -> Any:
+        return self.mc.twitch_stanje()
+
+    def _twitch_posnetki(self, a: list) -> Any:
+        return self.mc.twitch_posnetki(self._niz(a, 0))
+
+    def _twitch_kakovost(self, a: list) -> Any:
+        """Brez argumenta: trenutna izbira; z argumentom ("auto", "720", "audio_only" ...) jo shrani."""
+        tw = self.mc.twitch
+        return tw.nastavi_kakovost(self._niz(a, 0)) if a else tw.kakovost()
+
     def _odstrani_seznam(self, a: list) -> Any:
         return self.mc.odstrani_seznam(self._niz(a, 0))
 
@@ -993,6 +1015,8 @@ class Katalog:
         if nacin:
             self._preklici_ponudbo()  # uporabnik je izbral drugo vsebino: ponujena epizoda se ne zacne sama
         kljuc = os_police.kljuc_vnosa(dict(item, id=str(item.get("id") or ident)))
+        if str(item.get("vrsta") or "").startswith("twitch"):
+            kljuc = ""        # Twitch ne gre na police (te gredo v Link): kaj kdo gleda, ostane na napravi
         if str(item.get("id") or ident).startswith("samodejno-lokalno:") and item.get("pot"):
             # Datoteka s samodejnega seznama: predvajanje steje krajevna knjiznica (kot klik na skladbo), ne polica -
             # ista skladba ni dvakrat na policah.

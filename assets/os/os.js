@@ -52,6 +52,7 @@
     datoteka: "M6 3h8l4 4v14H6z M14 3v4h4",
     paleta: "M12 3a9 9 0 1 0 0 18c1 0 1.5-.8 1.5-1.5 0-.9-.7-1.2-.7-2 0-.8.7-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-4.4-4-8-9-8z M7.5 11v.1 M10 7.5v.1 M14 7.5v.1",
     scit: "M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z",
+    twitch: "M5 3h15v10l-4 4h-4l-3 3H7v-3H4V6z M11 7v4 M15 7v4",
     tipkovnica: "M3 6h18v12H3z M7 10h.1 M11 10h.1 M15 10h.1 M7 14h10",
     miska: "M12 3a6 6 0 0 1 6 6v6a6 6 0 0 1-12 0V9a6 6 0 0 1 6-6z M12 7v3",
     bluetooth: "M7 7l10 10-5 4V3l5 4L7 17",
@@ -265,7 +266,7 @@
   function zadnjaMedijskaKategorija() {
     try {
       var k = localStorage.getItem("safeer.mediaKategorija");
-      if (["domov", "glasba", "video", "filmi", "serije", "tv", "radio", "slike"].indexOf(k) >= 0) return k;
+      if (["domov", "glasba", "video", "filmi", "serije", "tv", "twitch", "radio", "slike"].indexOf(k) >= 0) return k;
     } catch (_) {}
     return "domov";
   }
@@ -701,7 +702,7 @@
   // Domov (zacetna stran: junak in police) je prvi; ostalo so vrste vsebin, ki jih Medijski center ze ima.
   var MEDIA_KATEGORIJE = [
     ["domov", "domov"], ["glasba", "glasba"], ["video", "video"], ["filmi", "video"],
-    ["serije", "video"], ["tv", "video"], ["radio", "radio"], ["slike", "slika"]
+    ["serije", "video"], ["tv", "video"], ["twitch", "twitch"], ["radio", "radio"], ["slike", "slika"]
   ];
   var MEDIA_PREDLOGI = [
     { ime: "Jamendo", url: "https://www.jamendo.com", vrsta: "glasba", obmocje: "world" },
@@ -788,7 +789,7 @@
       S.mediaTokovi = Array.isArray(vnosi) ? vnosi : [];
       narisiMedije();
     }).catch(function () {});
-    if (S.mediaFilter === "tv" || S.mediaFilter === "radio" || S.mediaFilter === "domov") {
+    if (S.mediaFilter === "tv" || S.mediaFilter === "twitch" || S.mediaFilter === "radio" || S.mediaFilter === "domov") {
       S.mediaRequest++;
       S.mediaLokalno = []; S.mediaHasMore = false;
       narisiMedije();
@@ -1400,7 +1401,7 @@
     var predlogi = MEDIA_PREDLOGI.filter(function (v) { return (vrsta === "vse" || v.vrsta === vrsta) && mediaUstreza(v, iskano) && dodani.indexOf(kljucNaslova(v.url)) < 0; });
     $("mediaStevec").textContent = prikaz.length ? String(prikaz.length) : "";
     $("mediaNaslovZbirke").textContent = vrsta === "vse" ? t("katRezultati") : mediaVrsta(vrsta);
-    var samoViri = vrsta === "tv" || vrsta === "radio";
+    var samoViri = vrsta === "tv" || vrsta === "twitch" || vrsta === "radio";
     $("mediaMreza").previousElementSibling.hidden = samoViri;
     $("mediaMreza").hidden = samoViri;
     mreza.innerHTML = "";
@@ -3045,6 +3046,11 @@
     if (!s.mozno) st.classList.add("onemogoceno");
     c.appendChild(st);
     function poScitu(r) { if (r) scitStanje = r; narisiScit(); }
+    // Twitch brez oglasov (core/twitch_hls.py): velja v Medijskem centru, tudi kadar filtra DNS ni mogoce vklopiti.
+    c.appendChild(stikalo("scitTwitch", "twitch", s.twitchOglasi !== false, function (v) {
+      klic("scitTwitch", [v]).then(function (r) { obvesti(t(v ? "scitTwitchVklopljen" : "scitTwitchIzklopljen")); poScitu(r); },
+                                   function () { nalozScit(); });
+    }, t("scitTwitchOpis")));
     if (s.mozno) c.appendChild(scitNaprej(s, poScitu));
     if (s.vklop && s.tece) {
       // Premor: ko stran ali program brez blokirane domene ne dela, uporabniku ni treba izklopiti celega Scita.
@@ -4685,7 +4691,7 @@
               vrsta: [], vrstaMesto: 0, vrstaZgodovina: [], izVrste: false,
               igra: false, nalozen: false, zanri: null, zahtevaPredvajanja: 0, knjiznica: [], zahtevaKnjiznice: 0 };
   // Kategorije Medijskega centra (zgoraj) -> vrsta v katalogu; slike so samo krajevne.
-  var KAT_VRSTE = { vse: "vse", glasba: "glasba", video: "video", filmi: "film", serije: "serija", tv: "tv-v-zivo", radio: "radio", slike: "", domov: "" };
+  var KAT_VRSTE = { vse: "vse", glasba: "glasba", video: "video", filmi: "film", serije: "serija", tv: "tv-v-zivo", twitch: "twitch", radio: "radio", slike: "", domov: "" };
   var KAT_FILMSKI_ZANRI = [["28", "katZanr_akcija"], ["878", "katZanr_scifi"], ["35", "katZanr_komedija"], ["27", "katZanr_grozljivka"],
                            ["18", "katZanr_drama"], ["53", "katZanr_triler"], ["16", "katZanr_animirani"], ["10749", "katZanr_romantika"]];
   // Serije imajo pri TMDB svoje stevilke zvrsti (grozljivke, trilerja in romantike tam ni) - s filmskimi bi gumb
@@ -4706,6 +4712,8 @@
   }
   function katIkona(vrsta) { return vrsta === "glasba" || vrsta === "podcast" ? "glasba" : vrsta === "radio" ? "radio" : "video"; }
   function katOznaka(vrsta) {
+    if (vrsta === "twitch") return t("media_twitch");
+    if (vrsta === "twitch-kanal" || vrsta === "twitch-posnetek") return "Twitch";
     var k = { glasba: "media_glasba", video: "media_video", radio: "media_radio", "tv-v-zivo": "media_tv", serija: "media_serije",
               film: "media_filmi", slika: "media_slike" }[vrsta];
     return k ? t(k) : (vrsta === "podcast" ? "Podcast" : t("media_filmi"));
@@ -4789,6 +4797,9 @@
     if (zanriEl) zanriEl.hidden = izSeznama || !zanriVidni();
     narisiJezikVsebine();
     narisiDrzavoRadia();
+    // Twitch: razvrstitve in virov ni (vrstni red da Twitch: najbolj gledani najprej).
+    $("mediaRazvrsti").parentNode.hidden = kat.filter === "twitch";
+    $("mediaViriFilterGumb").parentNode.hidden = kat.filter === "twitch";
     narisiSeznamePredvajanja();
     narisiKnjiznico();
     // Odprt seznam predvajanja: mreža kaže njegove skladbe v vrstnem redu seznama (brez združevanja po izvajalcu).
@@ -4835,6 +4846,9 @@
         // Logotip TV kanala ali postaje (ne plakat): cel, na svetli podlagi - temni logotipi (RTV) so bili na temni
         // kartici nevidni, siroki (France 24) obrezani (preizkus 14. 10. 2026).
         if (x.vrsta === "tv-v-zivo" || x.vrsta === "radio") plakat.classList.add("kat-logotip");
+        // Twitch: predogled prenosa ali posnetka je sirok (16:9), slika kanala kvadratna - ne plakat 2:3.
+        if (x.vrsta === "twitch" || x.vrsta === "twitch-posnetek") plakat.classList.add("kat-siroko");
+        if (x.vrsta === "twitch-kanal") plakat.classList.add("kat-kvadrat");
         plakat.appendChild(image);
       } else plakat.appendChild(el("span", "kat-brez-slike", svg(katIkona(x.vrsta))));
       var data = el("span", "kat-podatki");
@@ -4853,14 +4867,15 @@
       metaOznaka = metaOznaka.replace(/^ · /, "");
       // Skladba: pod naslovom izvajalec (koga pričakovati), ne splošna oznaka »Glasba«.
       if ((izSeznama || x.vrsta === "glasba") && x.izvajalec) metaOznaka = x.izvajalec;
+      if (/^twitch/.test(x.vrsta || "")) metaOznaka = twitchOpis(x);
       meta.appendChild(el("span", "", ubezi(metaOznaka)));
       if (x.stevilo_razlicic > 1) meta.appendChild(el("span", "", ubezi(t(kljucRazlicic(x.stevilo_razlicic), { n: x.stevilo_razlicic }))));
       data.appendChild(meta); card.appendChild(data);
       // Kakovost pokažemo le, če jo poznamo – »HD« na filmu iz leta 1938 bi bil zavajajoč.
-      var znacka = x.kakovost || (x.vrsta === "tv-v-zivo" ? t("katVZivo") : "");
+      var znacka = x.kakovost || (x.vrsta === "tv-v-zivo" || x.vrsta === "twitch" ? t("katVZivo") : "");
       if (znacka) card.appendChild(el("span", "kat-kakovost", ubezi(znacka)));
       if (Number(x.ocena || 0) > 0) card.appendChild(el("span", "kat-ocena", "★ " + Number(x.ocena).toFixed(1)));
-      if (izSeznama && !kat.seznam.yt) {
+      if (izSeznama && !kat.seznam.yt && !kat.seznam.twitch) {
         var odstraniSkladbo = el("span", "kat-odstrani", "✕"); odstraniSkladbo.title = t("seznamOdstraniSkladbo");
         odstraniSkladbo.onclick = function (e) {
           e.stopPropagation();
@@ -4878,9 +4893,13 @@
         card.appendChild(naSeznam);
       }
       card.setAttribute("data-ime", card.getAttribute("aria-label"));
-      poveziMeniKartice(card, { kljuc: kljucVnosa(x), naslov: x.naslov || "", ogledljivo: !!OGLEDLJIVE[x.vrsta], opis: opisVnosa(x) });
+      // Twitch brez menija kartice (priljubljene in »ogledano« so police, ki gredo v Link): kaj kdo gleda, ostane tu.
+      poveziMeniKartice(card, { kljuc: /^twitch/.test(x.vrsta || "") ? "" : kljucVnosa(x), naslov: x.naslov || "",
+                                ogledljivo: !!OGLEDLJIVE[x.vrsta], opis: opisVnosa(x) });
       card.onclick = function () {
-        if (x.tmdb_id || x.vrsta === "serija" || (x.vrsta === "film" && !x.peertube_uuid)) {
+        if (x.vrsta === "twitch-kanal") {
+          odpriTwitchKanal(x.login, x.naslov);
+        } else if (x.tmdb_id || x.vrsta === "serija" || (x.vrsta === "film" && !x.peertube_uuid)) {
           odpriKatalogPodrobnosti(x.id);
         } else if (x.vrsta === "glasba" || x.vrsta === "podcast") {
           nastaviVrsto(x);
@@ -5066,6 +5085,7 @@
   }
   function seznamiVidni() { return (kat.filter === "glasba" || kat.filter === "vse") && !kat.query.trim(); }
   function naloziSeznamePredvajanja() {
+    if (kat.filter === "twitch") { naloziTwitchRacun(false); return Promise.resolve(); }
     naloziYtRacun(false);
     return klic("mediaSeznami").then(function (s) { kat.seznami = s || []; narisiSeznamePredvajanja(); }, function () {});
   }
@@ -5138,6 +5158,115 @@
     }
     c.appendChild(blok);
   }
+  // ---- Twitch (core/twitch.py): prenosi v živo v našem predvajalniku, oglase izloči Ščit (core/twitch_hls.py).
+  // Prijava je neobvezna in samo v Spletu; kanali, ki jim uporabnik sledi, se ne shranjujejo in ne gredo v Link.
+  var TW_PRIJAVA = "https://www.twitch.tv/login";
+  var TW_ODJAVA = "https://www.twitch.tv/logout";
+  var TW_KAKOVOSTI = ["auto", "1080", "720", "480", "360", "160", "audio_only"];
+  function twitchOpis(x) {
+    if (x.vrsta === "twitch-posnetek") {
+      var ure = Math.floor((x.trajanje || 0) / 3600), min = Math.floor(((x.trajanje || 0) % 3600) / 60);
+      var datum = x.objavljeno ? new Date(x.objavljeno) : null;
+      return [datum && !isNaN(datum) ? datum.toLocaleDateString(LOKALE[jezik] || "sl-SI") : "",
+              x.trajanje ? (ure ? ure + " h " : "") + min + " min" : ""].filter(Boolean).join(" · ");
+    }
+    if (x.vrsta === "twitch-kanal") return t("twitchNiVZivo");
+    return [x.kanal, x.igra, x.gledalcev ? t("twitchGledalcev", { n: Number(x.gledalcev).toLocaleString(LOKALE[jezik] || "sl-SI") }) : ""]
+      .filter(Boolean).join(" · ");
+  }
+  function naloziTwitchRacun(vsiljeno) {
+    if (!vsiljeno && kat.twRacunCas && Date.now() - kat.twRacunCas < 60000) return Promise.resolve(kat.twRacun);
+    kat.twRacunCas = Date.now();
+    if (!kat.twKakovost) klic("mediaTwitchKakovost", []).then(function (k) { kat.twKakovost = k || "auto"; narisiSeznamePredvajanja(); }, function () {});
+    return klic("mediaTwitchRacun").then(function (r) {
+      var prej = kat.twRacun;
+      kat.twRacun = r || null;
+      if (r && r.potekla && !(prej && prej.potekla)) obvesti(t("twitchPotekla"));
+      if (r && r.prijavljen) ustaviTwitchCakanje();
+      if (kat.filter === "twitch") narisiSeznamePredvajanja();
+      return r;
+    }, function () { return null; });
+  }
+  // Po kliku »Prijava« Medijski center vsakih 5 s pogleda shrambo piškotkov (samo branje, brez omrežja, dokler
+  // prijave ni) – ko se uporabnik v Spletu prijavi, se pokažejo kanali, ki jim sledi. Največ 10 minut.
+  function cakajTwitchPrijavo() {
+    ustaviTwitchCakanje();
+    var konec = Date.now() + 600000;
+    kat.twCakanje = setInterval(function () { if (Date.now() > konec) ustaviTwitchCakanje(); else naloziTwitchRacun(true); }, 5000);
+  }
+  function ustaviTwitchCakanje() { if (kat.twCakanje) { clearInterval(kat.twCakanje); kat.twCakanje = 0; } }
+  function odpriTwitchKanal(login, ime) {
+    obvesti(t("twitchNalagam"));
+    klic("mediaTwitchPosnetki", [login]).then(function (sz) {
+      if (!sz || sz.napaka || !sz.vnosi || !sz.vnosi.length) {
+        obvesti(sz && sz.napaka === "ni_posnetkov" ? t("twitchNiPosnetkov", { ime: sz.ime || ime || login }) : t("twitchNiUspelo"));
+        return;
+      }
+      kat.seznam = sz; narisiKatalog();
+      $("katalog").scrollIntoView({ block: "start" });
+    }, function () { obvesti(t("twitchNiUspelo")); });
+  }
+  function narisiTwitch(c) {
+    var r = kat.twRacun || {}, blok = el("div", "kat-yt-racun");
+    var glava = el("div", "kat-seznam-glava");
+    glava.appendChild(el("h3", "", ubezi(t("twitchRacunNaslov"))));
+    if (r.prijavljen) {
+      glava.appendChild(el("small", "", ubezi(r.ime ? t("twitchPrijavljen", { ime: r.ime }) : t("twitchPrijavljenBrezImena"))));
+      var odjava = el("button", "gumb", ubezi(t("twitchOdjava"))); odjava.type = "button";
+      // Odjava v Spletu: Twitch sam izbriše prijavo v naši seji (WebKit), drugi piškotki ostanejo.
+      odjava.onclick = function () { kat.twRacun = null; kat.twRacunCas = 0; klic("splet", [TW_ODJAVA, true]); narisiSeznamePredvajanja(); };
+      glava.appendChild(odjava);
+    } else {
+      glava.appendChild(el("small", "", ubezi(r.potekla ? t("twitchPotekla") : t("twitchPrijavaNamig"))));
+      var prijava = el("button", "gumb", ubezi(t("twitchPrijava"))); prijava.type = "button";
+      prijava.onclick = function () { klic("splet", [TW_PRIJAVA, true]); cakajTwitchPrijavo(); };
+      glava.appendChild(prijava);
+    }
+    // Kakovost prenosa: samodejno (največ ločljivost zaslona) ali izbrana; velja za naslednji prenos.
+    var kakovost = el("label", "kat-razvrsti"); kakovost.appendChild(el("span", "", ubezi(t("twitchKakovost"))));
+    var izbira = document.createElement("select"); izbira.setAttribute("aria-label", t("twitchKakovost"));
+    TW_KAKOVOSTI.forEach(function (k) {
+      izbira.add(new Option(k === "auto" ? t("twitchSamodejno") : k === "audio_only" ? t("twitchSamoZvok") : k + "p", k));
+    });
+    izbira.value = kat.twKakovost || "auto";
+    izbira.onchange = function () {
+      var k = izbira.value;
+      klic("mediaTwitchKakovost", [k]).then(function (v) {
+        kat.twKakovost = v || "auto";
+        // Prenos, ki že teče, se znova odpre v novi kakovosti.
+        if (kat.aktivni && kat.aktivni.vrsta === "twitch" && kat.igra) odpriKatalogVnos(kat.aktivni.id);
+      }, function () {});
+    };
+    kakovost.appendChild(izbira);
+    glava.appendChild(kakovost);
+    blok.appendChild(glava);
+    if (r.prijavljen) {
+      if (r.napaka) blok.appendChild(el("small", "", ubezi(t("twitchNiUspelo"))));
+      var kanali = r.kanali || [], vZivo = kanali.filter(function (x) { return x.v_zivo; });
+      blok.appendChild(el("small", "", ubezi(kanali.length ? t("twitchSledis", { n: vZivo.length }) : t("twitchNiSledenih"))));
+      var vrsta = el("div", "kat-seznami-vrsta");
+      // V živo najprej (jedro jih uredi po gledalcih), nato kanali brez prenosa (klik odpre njihove posnetke).
+      kanali.slice(0, 60).forEach(function (x) {
+        var k = el("button", "kat-seznam-kartica"); k.type = "button";
+        if (x.ikona || x.slika) {
+          var slika = document.createElement("img"); slika.alt = ""; slika.loading = "lazy"; slika.src = x.ikona || x.slika;
+          slika.onerror = function () { slika.replaceWith(el("span", "kat-brez-slike", svg("twitch"))); };
+          k.appendChild(slika);
+        } else k.appendChild(el("span", "kat-brez-slike", svg("twitch")));
+        var opis = el("span"); opis.appendChild(el("b", "", ubezi(x.kanal || x.naslov)));
+        opis.appendChild(el("small", "", ubezi(x.v_zivo ? t("katVZivo") + (x.igra ? " · " + x.igra : "") : t("twitchNiVZivo"))));
+        k.appendChild(opis);
+        k.title = x.v_zivo ? x.naslov : (x.kanal || x.naslov);
+        k.onclick = function () {
+          if (x.v_zivo) { kat.vrsta = []; narisiVrsto(); odpriKatalogVnos(x.id); }
+          else odpriTwitchKanal(x.login, x.kanal);
+        };
+        vrsta.appendChild(k);
+      });
+      blok.appendChild(vrsta);
+    }
+    c.appendChild(blok);
+  }
   function odpriSeznamPredvajanja(ime) {
     klic("mediaSeznam", [ime]).then(function (sz) {
       if (!sz || !sz.vnosi || !sz.vnosi.length) { obvesti(t("seznamNiUspel")); return; }
@@ -5165,6 +5294,12 @@
       nazaj.onclick = function () { kat.seznam = null; narisiKatalog(); };
       glava.appendChild(nazaj);
       glava.appendChild(el("h3", "", ubezi(sz.ime)));
+      if (sz.twitch) {
+        // Posnetki kanala Twitch: vsak se predvaja posebej (brez »Predvajaj vse« in brez urejanja seznama).
+        glava.appendChild(el("small", "", ubezi(t("twitchPosnetkov", { n: sz.vnosi.length }))));
+        c.appendChild(glava);
+        return;
+      }
       glava.appendChild(el("small", "", ubezi(stSkladb(sz.vnosi.length) + (sz.vir ? " · " + sz.vir : ""))));
       var vse = el("button", "gumb glavni", ubezi("▶ " + t("seznamPredvajajVse"))); vse.type = "button";
       vse.onclick = function () { var prvi = sz.vnosi[0]; if (prvi) { nastaviVrsto(prvi); odpriKatalogVnos(prvi.id); } };
@@ -5192,6 +5327,7 @@
       c.appendChild(glava);
       return;
     }
+    if (kat.filter === "twitch" && !kat.query.trim()) { c.hidden = false; narisiTwitch(c); return; }
     if (!seznamiVidni()) { c.hidden = true; return; }
     c.hidden = false;
     c.appendChild(el("h3", "", ubezi(t("seznamiNaslov"))));
@@ -5798,7 +5934,7 @@
   // ---- zvrsti pod kategorijami: pri filmih in serijah filmske (TMDB), pri glasbi, radiu in TV iz kataloga
   function skupinaZanrov(filter) {
     if (filter === "film" || filter === "serija") return filter;      // rezultati iskanja (»vse«) brez zvrsti
-    if (filter === "glasba" || filter === "radio" || filter === "tv-v-zivo") return filter;
+    if (filter === "glasba" || filter === "radio" || filter === "tv-v-zivo" || filter === "twitch") return filter;
     return "";
   }
   // Gumbi zvrsti so vidni samo, kjer izbira res filtrira: glasba in radio (zvrsti), TV v zivo (drzave), filmi in
@@ -5832,7 +5968,8 @@
       b.onclick = function () { izberiZanr(b); };
       vrstica.appendChild(b);
     };
-    gumb("", t(skupina === "radio" ? "katVsePostaje" : skupina === "tv-v-zivo" ? "katVseDrzave" : skupina === "glasba" ? "katVsaGlasba" : "katVseVsebine"), true);
+    gumb("", t(skupina === "radio" ? "katVsePostaje" : skupina === "tv-v-zivo" ? "katVseDrzave" : skupina === "glasba" ? "katVsaGlasba" :
+               skupina === "twitch" ? "twitchVseKategorije" : "katVseVsebine"), true);
     if (skupina === "film" || skupina === "serija") {
       (skupina === "serija" ? KAT_SERIJSKI_ZANRI : KAT_FILMSKI_ZANRI).forEach(function (z) { gumb(z[0], t(z[1]), false); });
       return;
@@ -7351,8 +7488,9 @@
       S.programIskanje = this.value.trim(); S.skupina = "vse"; narisiPrograme();
     });
     $("mediaIskanje").addEventListener("input", function () {
-      // Iskanje gre po vseh vrstah (rezultati); prazno iskanje vrne zadnji zavihek.
-      S.mediaIskanje = this.value.trim(); S.mediaFilter = S.mediaIskanje ? "vse" : zadnjaMedijskaKategorija(); narisiMedije();
+      // Iskanje gre po vseh vrstah (rezultati); prazno iskanje vrne zadnji zavihek. Na zavihku Twitch išče kanale Twitcha.
+      var naTwitchu = zadnjaMedijskaKategorija() === "twitch";
+      S.mediaIskanje = this.value.trim(); S.mediaFilter = S.mediaIskanje && !naTwitchu ? "vse" : zadnjaMedijskaKategorija(); narisiMedije();
       S.mediaRequest++;
       clearTimeout(S.mediaIskanjeZamik);
       S.mediaIskanjeZamik = setTimeout(function () { naloziMedije(); }, 180);

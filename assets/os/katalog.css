@@ -284,6 +284,9 @@ html.kavc .kat-katalog { grid-template-columns: repeat(auto-fill, minmax(180px, 
 @media (prefers-reduced-motion: reduce) { .media-naslednja { animation: none; } .kat-vec { transition: none; } }
 /* Logotipi TV kanalov in radijskih postaj: celi, na sredini, na svetli podlagi (14. 10. 2026). */
 .kat-plakat.kat-logotip { background: var(--media-logotip-podlaga); }
+/* Twitch (core/twitch.py): predogled prenosa je 16:9, slika kanala kvadratna. */
+.kat-plakat.kat-siroko img { aspect-ratio: 16 / 9; }
+.kat-plakat.kat-kvadrat img { aspect-ratio: 1 / 1; }
 .kat-plakat.kat-logotip img { object-fit: contain; padding: 18%; box-sizing: border-box; background: var(--media-logotip-podlaga); }
 
 /* Vticniki strežnika Jellyfin (core/jellyfin_vticniki.py) - barve samo iz tokens.css. */

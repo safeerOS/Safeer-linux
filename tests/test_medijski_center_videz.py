@@ -203,7 +203,7 @@ class Domov(unittest.TestCase):
         self.assertNotIn('"vse"', kategorije)
         # Domov nima kataloga in ne krajevne mreze; izbira se zapomni kot prej (izberiMedijskoKategorijo).
         self.assertIn("slike: \"\", domov: \"\" };", self.js)
-        self.assertIn('S.mediaFilter === "tv" || S.mediaFilter === "radio" || S.mediaFilter === "domov"', self.js)
+        self.assertIn('S.mediaFilter === "tv" || S.mediaFilter === "twitch" || S.mediaFilter === "radio" || S.mediaFilter === "domov"', self.js)
 
     def test_brez_praznih_polic_in_vse_odpre_zavihek(self):
         telo = _funkcija(self.js, "narisiPolice")
