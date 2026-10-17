@@ -738,6 +738,15 @@ button.glava-plosce:hover svg { color: var(--zelena); }
 #slojMint h3 { margin: 4px 0 10px; font-size: 22px; }
 #slojMint .drobno { font-size: 15px; margin-bottom: 18px; }
 #slojMint .gumbi { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+#slojVodnik .plosca, #slojVrnitev .plosca { left: 50%; top: 50%; transform: translate(-50%, -50%); width: 640px;
+  max-width: calc(100vw - 32px); max-height: calc(100vh - 48px); overflow-y: auto; padding: 22px; }
+#slojVodnik h3, #slojVrnitev h3 { margin: 4px 0 10px; font-size: 24px; }
+#slojVodnik .drobno, #slojVrnitev .drobno { font-size: 15px; margin-bottom: 16px; }
+#slojVodnik .gumbi, #slojVrnitev .gumbi { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+#slojVodnik .raztegni { flex: 1; }
+#vodnikVsebina .vodnik-izbire { display: flex; flex-wrap: wrap; gap: 10px; }
+#vodnikVsebina .vodnik-izbire .gumb.izbran { outline: 2px solid var(--zelena); }
+#vodnikVsebina code { user-select: all; }
 
 /* Namizni nacin: spodaj je Safeerjeva vrstica, noga s tipkami ni potrebna. */
 body.namizje #noga { display: none; }

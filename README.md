@@ -130,6 +130,10 @@ line (`safeerctl devices`, `safeerctl send file --to DEVICE`, `--json` for scrip
 computer's internet through the phone while the home connection is down — no hotspot needed: see
 [docs/INTERNET-GATEWAY.md](docs/INTERNET-GATEWAY.md).
 
+**Back to Cinnamon.** Safeer OS Settings → *Back to Cinnamon* (or `safeer-os --nazaj-na-cinnamon` in a terminal,
+also when the desktop does not work) stops Safeer OS from starting at sign-in and restores the Mint panel, dock
+and look saved before Safeer OS. Nothing is uninstalled and your data stays; open Safeer OS from the menu to come back.
+
 ## Requirements
 
 `.deb` and AppImage: Linux Mint 22 or newer, Ubuntu 24.04 or newer, or Debian 13, with GTK4 and

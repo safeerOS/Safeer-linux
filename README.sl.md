@@ -125,6 +125,10 @@ glej [docs/SAFEERCTL.md](docs/SAFEERCTL.md). S telefonom s Safeer OS Mobile lahk
 ob izpadu domače povezave teče skozi telefon — brez dostopne točke: glej
 [docs/INTERNET-GATEWAY.md](docs/INTERNET-GATEWAY.md).
 
+**Nazaj na Cinnamon.** Nastavitve Safeer OS → *Nazaj na Cinnamon* (ali `safeer-os --nazaj-na-cinnamon` v terminalu,
+tudi kadar namizje ne dela): Safeer OS se ne zažene več ob prijavi, Mintov pult, dock in videz se vrnejo, kot so bili
+pred Safeer OS. Nič se ne odstrani, tvoji podatki ostanejo; nazaj prideš, ko Safeer OS odpreš iz menija.
+
 ## Zahteve
 
 `.deb` in AppImage: Linux Mint 22 ali novejši, Ubuntu 24.04 ali novejši ali Debian 13, z GTK4 in
