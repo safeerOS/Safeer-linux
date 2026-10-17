@@ -244,6 +244,9 @@ select option { background: var(--kartica-polna); color: var(--besedilo); }
 
 .sporocilo { color: var(--tiho); font-size: .82em; margin: .8em .2em; }
 .sporocilo.napaka { color: var(--opozorilo); }
+.sporocilo .znova { margin-left: .7em; padding: .25em .8em; border: 1px solid var(--obroba-mocna); border-radius: 999px;
+  background: var(--povrsina-mocna); color: var(--besedilo); cursor: pointer; font-size: 1em; }
+.sporocilo .znova:hover, .sporocilo .znova:focus-visible { border-color: var(--poudarek); }
 #prgSporocilo { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .strani { flex: none; display: flex; align-items: center; justify-content: flex-end; gap: .4em; font-size: .75em; color: var(--tise); margin-top: auto; padding-top: .4em; min-height: 2em; }
 .strani button { border: 1px solid var(--tanka); background: transparent; border-radius: 7px; padding: .15em .6em; cursor: pointer; color: var(--tiho); }

@@ -96,6 +96,13 @@ MESH = "mesh1"
 #: Najvec sosednjih Hubov in najvecje sporocilo, ki ga sosed sme poslati za eno napravo.
 NAJVEC_SOSEDOV = 16
 NAJVEC_MESH_SPOROCILO = 1024 * 1024
+#: Sosed sam utripa vsakih 10 s (Linux UTRIP_S, Android pingInterval). Sosednja povezava, ki je v tem roku nekaj
+#: prejela, je ziva: ponovni klic istega soseda (isti Hub pod drugim id-jem, npr. `n-x` in `n-x-control`) je ne
+#: zamenja - sicer povezava niha in odgovori gredo v zaprto vticnico (tablica, 17. 10. 2026).
+ZIVA_SOSEDNJA_S = 15.0
+#: Brez vsakega okvirja toliko casa (dva zamujena utripa in nas ping po 25 s tisine) je dohodna sosednja povezava
+#: polodprta: zapremo jo, da gre ukaz v hipu v "ni_poti" in Mesh soseda poklice znova (prej sele po ~100 s).
+TIHI_SOSED_S = 30.0
 
 #: Safeer Chat: najvec cakajocih sporocil na napravo in koliko casa pocakajo.
 KLEPET_NA_NAPRAVO = 100
@@ -289,6 +296,18 @@ class _Namestnik:
         # Zapreti se da samo sosednjo povezavo, ne posamezne oddaljene naprave.
         return None
 
+
+
+def _ziva(povezava, ura: Callable[[], float] = time.monotonic) -> bool:
+    """Ali je z druge strani v zadnjih ZIVA_SOSEDNJA_S nekaj prislo. Povezava brez casa prejema (odhodna) velja za zivo."""
+    zadnji = getattr(povezava, "zadnji_prejem", None)
+    return not isinstance(zadnji, (int, float)) or ura() - zadnji <= ZIVA_SOSEDNJA_S
+
+
+def _tiha(povezava, ura: Callable[[], float] = time.monotonic) -> bool:
+    """Polodprta sosednja povezava: dlje kot TIHI_SOSED_S ni prislo nic (tudi ne pong na nas ping)."""
+    zadnji = getattr(povezava, "zadnji_prejem", None)
+    return isinstance(zadnji, (int, float)) and ura() - zadnji > TIHI_SOSED_S
 
 
 def _pot_povezave(povezava) -> str:
@@ -1373,6 +1392,23 @@ class Hub:
 
     # ------------------------------------------------------------------ Link Mesh (docs/LINK-MESH.md)
 
+    def zapri_tihe_sosede(self, samo: Optional[str] = None) -> List[str]:
+        """Zapre polodprte dohodne sosednje povezave (_tiha) - vse ali samo soseda `samo`. Vrne id-je zaprtih.
+
+        Bralna zanka (link_ws) bi tako povezavo zaprla sele po treh tihih krogih (~100 s); ves ta cas bi ukazi
+        napravam tega soseda tiho izginjali. Odstranitev soseda zbudi Mesh (ob_sosedu), ki ga takoj poklice znova."""
+        with self._zaklep:
+            tihi = [(sid, p) for sid, p in self._sosedje.items() if (samo is None or sid == samo) and _tiha(p)]
+        for sid, p in tihi:
+            print("[SafeerLink] mesh: sosed %s %d s brez odziva - povezavo zapiram" % (
+                sid, int(time.monotonic() - getattr(p, "zadnji_prejem", 0.0))), flush=True)
+            self._odstrani_soseda(sid, p)
+            try:
+                p.zapri(1001, "sosed ne odgovarja")
+            except Exception:
+                pass
+        return [sid for sid, _p in tihi]
+
     def sosedje(self) -> List[str]:
         with self._zaklep:
             return sorted(self._sosedje)
@@ -1489,6 +1525,10 @@ class Hub:
                 zacetnik_stare = getattr(obstojeca, "podatki", {}).get("zacel", "")
                 if (nova_pot == stara_pot and zacetnik_stare == min(sosed_id, self.nas_id)
                         and zacel != zacetnik_stare):
+                    return False
+                if nova_pot == stara_pot and zacel == zacetnik_stare and _ziva(obstojeca):
+                    # Isti sosed nas klice znova, stara povezava pa se utripa: klical je isti Hub pod drugim id-jem
+                    # (ali dvakrat hkrati). Ostane stara; nova se zavrne (sosed jo umakne s premorom).
                     return False
                 stara = obstojeca
             if obstojeca is None and len(self._sosedje) >= NAJVEC_SOSEDOV:
@@ -1884,6 +1924,9 @@ class Hub:
                 return self._usmeri_klepet(sporocilo, id_sporocila, cilj, moj_id)
             if naprava is None or naprava.povezava is None:
                 return self._potrditev(id_sporocila, prostor, "rejected", "Naprave ni na Safeer Linku.", "ni_naprave")
+            if isinstance(naprava.povezava, _Namestnik) and self.zapri_tihe_sosede(naprava.povezava.sosed_id):
+                # Naprava je v seznamu, pot do nje pa je mrtva: ukaz bi izginil brez odgovora. Povemo takoj.
+                return self._potrditev(id_sporocila, prostor, "rejected", "Do naprave trenutno ni poti.", "ni_poti")
             sporocilo["sender"] = moj_id
             naprava.povezava.poslji(json.dumps(sporocilo, ensure_ascii=False))
             self._osvezi(moj_id)
