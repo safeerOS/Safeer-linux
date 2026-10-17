@@ -639,6 +639,8 @@ class SafeerMintBrowser(Gtk.Window):
             # Varuh: proces strani, ki ga WebKitova meja ne ujame (puscanje DMA-BUF), ustavimo sami (core/splet_varuh.py).
             self._varuh_ubil = -1e9
             GLib.timeout_add_seconds(5, self._varuh_tik)
+            from core import safeer_drm
+            safeer_drm.pripravi_vnaprej()   # Safeer DRM je vdelan: tih predprenos v ozadju
             self._omeji_predpomnilnik()
             self.web_context.set_sandbox_enabled(True)
             self.register_internal_pages(self.web_context)

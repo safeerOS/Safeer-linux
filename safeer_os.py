@@ -1933,6 +1933,10 @@ class SafeerOS(Gtk.Application):
         Gtk.Application.do_startup(self)
         x11._knjiznica()    # rokovalnik napak X po GDK in v glavni niti (glej core/x11.py)
         gostitelj.dodaj_ikone_gostitelja(Gtk)
+        # Safeer DRM je vdelan: paket se tiho prenese v ozadju kmalu po zagonu (brez posega uporabnika).
+        if not self.posnetek:
+            from core import safeer_drm
+            safeer_drm.pripravi_vnaprej()
         # Spletne strani (prefers-color-scheme) sledijo temi namizja, tudi ob preklopu med delom.
         try:
             from core import os_tema_namizja

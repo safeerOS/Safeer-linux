@@ -209,6 +209,20 @@ def prenesi_v_ozadju(ko_koncano: Optional[Callable[[bool], None]] = None) -> Non
     threading.Thread(target=delo, name="safeer-drm-prenos", daemon=True).start()
 
 
+def pripravi_vnaprej(zamik_s: int = 45) -> None:
+    """Safeer DRM je del Safeer OS in Safeer Browserja: uporabnik ga ne namesti. Paket se enkrat tiho prenese kmalu po
+    zagonu (v ozadju, z nizko prioriteto niti), da je zasciten video pripravljen, ko ga uporabnik prvic odpre.
+    Brez omrezja ali ob napaki se poskusi ob naslednjem zagonu; ob prvi dejanski potrebi se prenese tudi sam."""
+    def delo():
+        time.sleep(max(0, zamik_s))
+        try:
+            if izvrsljiva() is None:
+                prenesi()
+        except Exception:
+            pass
+    threading.Thread(target=delo, name="safeer-drm-vnaprej", daemon=True).start()
+
+
 #: Storitve z narocnino: stalen profil (prijava ostane), brez samodejnega klika, prosto premikanje po https.
 STORITVE = (
     "netflix.com", "primevideo.com", "amazon.com", "disneyplus.com", "max.com", "hbomax.com", "skyshowtime.com",
