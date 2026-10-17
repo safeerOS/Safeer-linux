@@ -63,7 +63,11 @@ def main():
     cmd, dnevnik = os.path.join(mapa, "scit.cmd"), os.path.join(mapa, "scit.log")
     if not os.path.exists(cmd):
         os.mkfifo(cmd)
-    scit = os_scit.Scit(Shramba("/var/tmp/scit-shramba.json"), mapa="/var/tmp/scit-podatki")
+    shramba = Shramba("/var/tmp/scit-shramba.json")
+    # Laboratorij ima lasten usmerjevalnik (172.31.95.x) in nima poti do sifriranih ponudnikov (Cloudflare DoH):
+    # preizkusamo Scit z DNS usmerjevalnika; DoH je pokrit s testi core/doh_proxy in os_scit.
+    shramba.set("scit_naprej", "router")
+    scit = os_scit.Scit(shramba, mapa="/var/tmp/scit-podatki")
 
     def zapisi(ukaz, izid):
         with open(dnevnik, "a", encoding="utf-8") as f:
