@@ -255,6 +255,21 @@ class MedijskiCenterRacunTest(unittest.TestCase):
             m._yt_zapisi("Moj seznam", [{"naslov": "A", "izvajalec": "B", "youtube": "aaaaaaaaaa1"}])
             self.assertEqual(m.seznami(), [])
 
+    def test_drug_racun_ne_podvoji_seznamov(self):
+        """Preizkus 17. 10. 2026: ko se je pojavil drugi racun, so seznami dobili pripono » · racun« in vsi so bili
+        dvakrat. Kljuc (racun|id) drzi seznam istega, stara kopija brez kljuca izgine."""
+        with tempfile.TemporaryDirectory() as mapa:
+            m = self._mc(mapa)
+            sk = [{"naslov": "A", "izvajalec": "B", "youtube": "aaaaaaaaaa1"}]
+            m._yt_zapisi("pitbul", sk)                                     # zapis iz prejsnje razlicice (brez kljuca)
+            m._yt_zapisi("pitbul · Ana", sk, kljuc="Ana|PL1", osnova="pitbul")
+            m._yt_zapisi("pitbul · Ana", sk, kljuc="Ana|PL1", osnova="pitbul")
+            self.assertEqual([x["ime"] for x in m.seznami()], ["pitbul · Ana"])
+            m._yt_zapisi("pitbul", sk, kljuc="Ana|PL1", osnova="pitbul")  # spet en racun: isti seznam, novo ime
+            self.assertEqual([x["ime"] for x in m.seznami()], ["pitbul"])
+            m._yt_zapisi("Drugo", [{"naslov": "C", "izvajalec": "D", "youtube": "aaaaaaaaaa2"}], kljuc="Ana|PL2")
+            self.assertEqual(sorted(x["ime"] for x in m.seznami()), ["Drugo", "pitbul"])
+
     def test_vec_racunov(self):
         with tempfile.TemporaryDirectory() as mapa:
             r = yr.Racun(prijavljena_baza(mapa), MockInnerTube(odgovori_racuna()))

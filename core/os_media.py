@@ -2179,7 +2179,8 @@ class MediaCenter:
                         if not sz or not sz.get("skladbe"):
                             continue
                         ime = posebna.get(x.get("posebni") or "", sz.get("ime") or x.get("ime") or "YouTube")
-                        self._yt_zapisi(self._yt_ime_shranjenega(ime, r.get("ime") or "", vec), sz["skladbe"])
+                        self._yt_zapisi(self._yt_ime_shranjenega(ime, r.get("ime") or "", vec), sz["skladbe"],
+                                        kljuc="%s|%s" % (r.get("ime") or int(r.get("racun") or 0), x["id"]), osnova=ime)
                 with self._lock:
                     self._yt_uskladeno = time.time()
             finally:
@@ -2187,21 +2188,39 @@ class MediaCenter:
                     self._yt_uskladujem = False
         threading.Thread(target=delo, name="safeer-yt-uskladi", daemon=True).start()
 
-    def _yt_zapisi(self, ime: str, skladbe: list) -> None:
+    def _yt_zapisi(self, ime: str, skladbe: list, kljuc: str = "", osnova: str = "") -> None:
         """Seznam racuna med seznami Medijskega centra - NI zaseben: gre prek Linka na uporabnikove naprave.
-        Seznama, ki ga je uporabnik izbrisal, samodejno usklajevanje ne vrne (izbris ima prednost)."""
+        Seznama, ki ga je uporabnik izbrisal, samodejno usklajevanje ne vrne (izbris ima prednost).
+
+        kljuc (racun|id seznama) ga drzi istega, tudi ko se ime spremeni (drug racun doda pripono » · racun«) - brez
+        tega je vsak nov racun podvojil vse sezname (preizkus 17. 10. 2026). Ob tem izginejo starejse kopije istega
+        seznama brez kljuca (isto ime ali ime z pripono in iste skladbe)."""
+        posnetki = [s.get("youtube") for s in skladbe]
+        osnova = osnova or ime
+        def kopija(x: dict) -> bool:
+            return (not x.get("yt_kljuc") and x.get("vir") == "YouTube"
+                    and (x["ime"] == osnova or x["ime"] == ime or x["ime"].startswith(osnova + " · "))
+                    and [s.get("youtube") for s in x.get("skladbe", [])] == posnetki)
         with self._lock:
             vsi = self._seznami_beri()
-            obstaja = next((x for x in vsi if x["ime"] == ime), None)
+            obstaja = next((x for x in vsi if kljuc and x.get("yt_kljuc") == kljuc), None) \
+                or next((x for x in vsi if x["ime"] == ime), None)
             if obstaja is None and int(self._izbrisani_beri().get(ime) or 0) > 0:
                 return
-            if obstaja is not None and [s.get("youtube") for s in obstaja.get("skladbe", [])] == \
-                    [s.get("youtube") for s in skladbe]:
+            kopije = [x for x in vsi if x is not obstaja and kljuc and kopija(x)]
+            if obstaja is not None and not kopije and obstaja["ime"] == ime and (obstaja.get("yt_kljuc") or "") == kljuc \
+                    and [s.get("youtube") for s in obstaja.get("skladbe", [])] == posnetki:
                 return                                   # brez spremembe: ne pisemo (in ne budimo Linka)
             prej = int((obstaja or {}).get("cas") or 0)
-            ostali = [x for x in vsi if x["ime"] != ime]
-            self._seznami_pisi([{"ime": ime, "vir": "YouTube", "cas": self._nov_cas(ime, prej), "skladbe": skladbe}]
-                               + ostali)
+            ostali = [x for x in vsi if x is not obstaja and x["ime"] != ime and not any(x is k for k in kopije)]
+            nov = {"ime": ime, "vir": "YouTube", "cas": self._nov_cas(ime, prej), "skladbe": skladbe}
+            if kljuc:
+                nov["yt_kljuc"] = kljuc
+            self._seznami_pisi([nov] + ostali)
+            # Odstranjene kopije ne smejo prek Linka priti nazaj z drugih naprav (izbris z casom, kot ob brisanju).
+            for k in kopije:
+                if k["ime"] != ime:
+                    self._zapomni_izbris(k["ime"], self._nov_cas(k["ime"], int(k.get("cas") or 0)))
 
     def yt_seznam(self, ident: str, racun: int = 0) -> dict:
         """Seznam racuna za predvajanje (vnosi kot pri shranjenih seznamih) ali {"napaka": "potekla"|"ni_uspel"}."""
