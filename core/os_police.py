@@ -64,10 +64,11 @@ VRSTE_ZAVIHKA = {
 ZVOCNE = frozenset({"glasba", "podcast", "podkast"})
 #: Police na zavihku in njihov vrstni red. Radio in TV nimata »nadaljuj« (prenos v zivo) ne »nazadnje dodano«
 #: (postaj ne dodajamo kot datotek); slike imajo samo priljubljene. Iskanje (»vse«) nima polic.
+#: »Nadaljuj z ogledom« je samo na Domov (lastnik, 17. 10. 2026) - na zavihkih videa ga ni (ena vrstica, ne tri).
 POLICE_ZAVIHKOV = {
-    "filmi": ("nadaljuj", "nazadnje", "priljubljene"),
-    "serije": ("nadaljuj", "nazadnje", "priljubljene"),
-    "video": ("nadaljuj", "nazadnje", "priljubljene"),
+    "filmi": ("nazadnje", "priljubljene"),
+    "serije": ("nazadnje", "priljubljene"),
+    "video": ("nazadnje", "priljubljene"),
     "glasba": ("nadaljuj", "najvec", "nazadnje", "priljubljene"),
     "radio": ("priljubljene", "najvec"),
     "tv": ("priljubljene", "najvec"),
@@ -174,6 +175,84 @@ def sestavi_police(zavihek: str, viri: dict, iskanje: str = "") -> list:
                 break
         if vnosi:
             izhod.append({"id": ime, "vnosi": vnosi})
+    return izhod
+
+
+# ---------------------------------------------------------------------------------------------- odkrivanje (Domov)
+# Lastnik, 17. 10. 2026: »Domov v Medijskem centru deluje zelo prazno.« Pod osebnimi policami so police odkrivanja iz
+# virov, ki jih Medijski center ze ima (katalog, seznami racunov, Twitch, radio). Vsaka ima »Vse →« na svoj zavihek.
+# Pravila: ista vsebina samo enkrat (prva polica jo obdrzi), zasebni dodatki nikoli, prazna polica izpade.
+
+#: (id police, zavihek za »Vse →«) v vrstnem redu prikaza.
+POLICE_ODKRIVANJA = (("odkrij_filmi", "filmi"), ("odkrij_serije", "serije"), ("odkrij_glasba", "glasba"),
+                     ("odkrij_youtube", "glasba"), ("odkrij_spotify", "glasba"), ("odkrij_twitch", "twitch"),
+                     ("odkrij_radio", "radio"))
+NA_POLICI_ODKRIVANJA = 20
+#: Polja vnosa kataloga, ki jih kartica in klik (odpriKatalogPodrobnosti, odpriKatalogVnos, odpriTwitchKanal) rabita.
+_POLJA_ODKRIVANJA = ("id", "naslov", "vrsta", "slika", "ozadje", "leto", "izvajalec", "tmdb_id", "login", "kanal", "igra",
+                     "gledalcev", "ocena", "zanri", "stran", "v_zivo", "peertube_uuid")
+
+
+def kartica_odkrivanja(item: Any) -> Optional[dict]:
+    """Kartica police odkrivanja iz vnosa kataloga (film, serija, skladba, postaja, prenos) ali seznama racuna
+    (tip "yt-seznam" / "sp-seznam"). None, ce vnos nima ne kljuca ne naslova."""
+    if not isinstance(item, dict) or not str(item.get("naslov") or "").strip():
+        return None
+    tip = str(item.get("tip") or "")
+    if tip in ("yt-seznam", "sp-seznam"):
+        ident = str(item.get("id") or "")
+        if not ident:
+            return None
+        k = ("yt:%d:%s" % (_celo(item.get("racun")), ident)) if tip == "yt-seznam" else "sp:" + ident
+        d = {p: item[p] for p in ("id", "naslov", "slika", "podnaslov", "posebni", "racun", "stevilo") if item.get(p) not in (None, "")}
+        return dict(d, tip=tip, kljuc=k[:400])
+    k = kljuc_vnosa(item)
+    if not k:
+        return None
+    d = {p: item[p] for p in _POLJA_ODKRIVANJA if item.get(p) not in (None, "", [])}
+    return dict(d, tip="odkrij", kljuc=k)
+
+
+def _kljuci_enakosti(k: dict) -> list:
+    """Kljuca, po katerih je kartica ista: kljuc vnosa in ime + vrsta + leto (isti naslov iz dveh dodatkov z
+    razlicnim id, ki ga katalog ni zdruzil)."""
+    izid = [k["kljuc"]]
+    if k.get("tip") == "odkrij":
+        ime = kljuc_imena(str(k.get("naslov") or ""))
+        if ime:
+            izid.append("ime:%s:%s:%s" % (k.get("vrsta") or "", ime, _celo(k.get("leto"))))
+    return izid
+
+
+def sestavi_odkrivanje(viri: dict, izkljuci: Iterable[str] = (), zaseben: Optional[Callable[[dict], bool]] = None) -> list:
+    """Police odkrivanja za Domov: [{"id", "zavihek", "vnosi"}].
+
+    viri: {id police: [vnosi kataloga ali seznamov]}. izkljuci: kljuci, ki so ze na osebnih policah (Nadaljuj ...).
+    zaseben(vnos): True za vsebino zasebnih dodatkov - ta na Domov ne pride nikoli. Ista vsebina je samo na prvi polici;
+    prazne police izpadejo; najvec NA_POLICI_ODKRIVANJA na polico."""
+    videni = {str(x) for x in (izkljuci or ()) if x}
+    izhod = []
+    for ime, zavihek in POLICE_ODKRIVANJA:
+        vnosi = []
+        for item in viri.get(ime) or []:
+            if zaseben is not None and isinstance(item, dict):
+                try:
+                    if zaseben(item):
+                        continue
+                except Exception:  # noqa: BLE001 - dvom: vnos izpade (zasebno nikoli na Domov)
+                    continue
+            k = kartica_odkrivanja(item)
+            if k is None:
+                continue
+            enakost = _kljuci_enakosti(k)
+            if any(x in videni for x in enakost):
+                continue
+            videni.update(enakost)
+            vnosi.append(k)
+            if len(vnosi) >= NA_POLICI_ODKRIVANJA:
+                break
+        if vnosi:
+            izhod.append({"id": ime, "zavihek": zavihek, "vnosi": vnosi})
     return izhod
 
 

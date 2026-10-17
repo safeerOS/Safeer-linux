@@ -162,7 +162,10 @@ class Shramba(unittest.TestCase):
 class Vidnost(unittest.TestCase):
     def test_police_zavihkov(self):
         self.assertEqual(P.POLICE_ZAVIHKOV["radio"], ("priljubljene", "najvec"))
-        self.assertEqual(P.POLICE_ZAVIHKOV["filmi"], ("nadaljuj", "nazadnje", "priljubljene"))
+        # »Nadaljuj z ogledom« samo na Domov (lastnik, 17. 10. 2026).
+        self.assertEqual(P.POLICE_ZAVIHKOV["filmi"], ("nazadnje", "priljubljene"))
+        for zavihek in ("filmi", "serije", "video"):
+            self.assertNotIn("nadaljuj", P.POLICE_ZAVIHKOV[zavihek])
         self.assertEqual(P.POLICE_ZAVIHKOV["glasba"], ("nadaljuj", "najvec", "nazadnje", "priljubljene"))
         self.assertNotIn("vse", P.POLICE_ZAVIHKOV)          # iskanje nima polic
         # Domov: vse osebne police in nazadnje predvajana glasba; slike imajo svoj zavihek.
@@ -181,7 +184,7 @@ class Vidnost(unittest.TestCase):
                 "najvec": [], "nadaljuj": [{"kljuc": "id:f", "vrsta": "film"}]}
         self.assertEqual(P.sestavi_police("radio", viri), [{"id": "priljubljene", "vnosi": [{"kljuc": "id:r", "vrsta": "radio"}]}])
         filmi = P.sestavi_police("filmi", viri)
-        self.assertEqual([p["id"] for p in filmi], ["nadaljuj", "priljubljene"])
+        self.assertEqual([p["id"] for p in filmi], ["priljubljene"])
         self.assertEqual(P.sestavi_police("filmi", viri, iskanje="mat"), [])
         self.assertEqual(P.sestavi_police("vse", viri), [])
         self.assertEqual(P.sestavi_police("tv", viri), [])
@@ -327,7 +330,8 @@ class MostPolic(unittest.TestCase):
     def test_nadaljuj_in_naslednja_na_polici_serij(self):
         self.k.izvedi("mediaPredvajaj", ["s11"])
         self.k.shrani_napredek("https://tok.test/s11.mp4", 2300, 2400)     # ogledana
-        police = self.k.izvedi("mediaPolice", ["serije", ""])
+        # »Nadaljuj z ogledom« je samo na Domov (lastnik, 17. 10. 2026).
+        police = self.k.izvedi("mediaPolice", ["domov", ""])
         nadaljuj = police["police"][0]
         self.assertEqual(nadaljuj["id"], "nadaljuj")
         self.assertEqual(nadaljuj["vnosi"][0]["kljuc"], "tmdb:tv:77:1:2")
@@ -336,8 +340,9 @@ class MostPolic(unittest.TestCase):
         # Nedokoncana epizoda iste serije je »Nadaljuj«, naslednje za to serijo ni.
         self.k.izvedi("mediaPredvajaj", ["s13"])
         self.k.shrani_napredek("https://tok.test/s13.mp4", 600, 2400)
-        vnosi = self.k.izvedi("mediaPolice", ["serije", ""])["police"][0]["vnosi"]
+        vnosi = self.k.izvedi("mediaPolice", ["domov", ""])["police"][0]["vnosi"]
         self.assertEqual([(v["kljuc"], v.get("naslednja", False)) for v in vnosi], [("tmdb:tv:77:1:3", False)])
+        self.assertNotIn("nadaljuj", [p["id"] for p in self.k.izvedi("mediaPolice", ["serije", ""])["police"]])
         self.assertEqual(vnosi[0]["pozicija"], 600)
         # Na zavihku Radio ni polic serij; med iskanjem ni polic.
         self.assertEqual(self.k.izvedi("mediaPolice", ["radio", ""])["police"], [])
@@ -400,8 +405,8 @@ class MostPolic(unittest.TestCase):
         # Uporabnik je medtem sam izbral drugo vsebino: ponudba ne zacne nicesar.
         self.k.izvedi("mediaPredvajaj", ["r"])
         self.assertIsNone(self.k.izvedi("mediaNaslednjaPredvajaj", [ponudba["zeton"]]))
-        # Polica Serije: naslednja epizoda po ogledani (prek sezone).
-        vnosi = self.k.izvedi("mediaPolice", ["serije", ""])["police"][0]["vnosi"]
+        # Polica Nadaljuj na Domov: naslednja epizoda po ogledani (prek sezone).
+        vnosi = self.k.izvedi("mediaPolice", ["domov", ""])["police"][0]["vnosi"]
         self.assertEqual([(v["pot"], v["naslednja"]) for v in vnosi], [(poti[2], True)])
 
     def test_nazadnje_dodana_glasba_po_albumih(self):

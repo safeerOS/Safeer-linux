@@ -235,12 +235,17 @@ class Domov(unittest.TestCase):
     def test_prazno_stanje_domov_ne_ob_samodejnih_seznamih(self):
         """Pregled 14. 10. 2026: »Tvoja knjiznica se zacne tukaj« je bil viden skupaj s samodejnimi seznami."""
         koda = self._dom() + _funkcija(self.js, "izbiraJunaka") + _funkcija(self.js, "narisiMediaDomov") + """
+        // Police odkrivanja (17. 10. 2026) tu prazne: prazno stanje odloca samo knjiznica.
+        function narisiOdkrivanje() {} function odkrivanjeVidno() { return POL.odkr || []; } function junakOdkrivanja() { return null; }
         var POL = { nalozeno: "domov", police: [] }, S = { samodejni: [{ id: "sam:odkrij" }] };
         var izid = []; narisiMediaDomov(); izid.push($("mediaPrazno").hidden);
         S.samodejni = []; narisiMediaDomov(); izid.push($("mediaPrazno").hidden);
         POL.nalozeno = ""; narisiMediaDomov(); izid.push($("mediaPrazno").hidden);
+        // Z vsebino odkrivanja Domov ni prazen (lastnik 17. 10. 2026: »deluje zelo prazno«).
+        POL.nalozeno = "domov"; POL.odkr = [{ id: "odkrij_filmi", vnosi: [{ kljuc: "tmdb:film:1" }] }];
+        narisiMediaDomov(); izid.push($("mediaPrazno").hidden);
         console.log(JSON.stringify(izid));"""
-        self.assertEqual(_node(koda), [True, False, True])
+        self.assertEqual(_node(koda), [True, False, True, True])
         # Ko pridejo samodejni seznami, se prazno stanje Domov narise znova.
         self.assertIn('if (S.mediaFilter === "domov" && typeof POL !== "undefined") narisiMediaDomov();',
                       _funkcija(self.js, "narisiSamodejne"))

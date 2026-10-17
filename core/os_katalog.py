@@ -276,6 +276,9 @@ class Katalog:
         self._naslednje: dict = {}
         #: Samodejni seznami (core/samodejni_seznami.py): izracunani v ozadju najvec enkrat na 10 minut.
         self._samodejni: dict = {"cas": 0.0, "seznami": [], "racunam": False}
+        #: Police odkrivanja na Domov (_odkrivanje): {"vir": {polica: (cas, vnosi)}, "tece": set, ...}.
+        self._odkr: dict = {"vir": {}, "tece": set(), "izkljuci": [], "drzava": "", "poslano": ""}
+        self._odkr_pogoj = threading.Condition()
 
     # ------------------------------------------------------------------ jedro
     @property
@@ -373,7 +376,7 @@ class Katalog:
         "mediaKnjiznica": "_knjiznica_seznam", "mediaKnjiznicaPredvajaj": "_knjiznica_predvajaj",
         "mediaKnjiznicaOdstrani": "_knjiznica_odstrani", "mediaKnjiznicaObdrzi": "_knjiznica_obdrzi",
         "mediaMotorPreklici": "_motor_preklici", "mediaTokovi": "_tokovi",
-        "mediaPolice": "_police", "mediaPriljubljena": "_priljubljena", "mediaOgledano": "_ogledano",
+        "mediaPolice": "_police", "mediaOdkrivanje": "_odkrivanje", "mediaPriljubljena": "_priljubljena", "mediaOgledano": "_ogledano",
         "mediaPolicaPredvajaj": "_polica_predvajaj", "mediaPredvajanTok": "_predvajan_tok",
         "mediaNaslednjaPredvajaj": "_naslednja_predvajaj", "mediaNaslednjaPreklici": "_naslednja_preklici",
         "mediaSkrito": "_skrito", "mediaSkrij": "_skrij", "mediaZasebno": "_zasebno",
@@ -1394,6 +1397,142 @@ class Katalog:
         izhod["police"] = os_police.sestavi_police(zavihek, viri)
         self._ovitki_s_prijavo(izhod["police"])
         return izhod
+
+    # ------------------------------------------------------------------ police odkrivanja (Domov)
+    #: Koliko klic mediaOdkrivanje caka na vire (s): katalog iz predpomnilnika je tu v nekaj ms; kar ni pripravljeno
+    #: (omrezje, prvi zagon), pride z dogodkom »mediaOdkrivanje«, Domov se medtem ze pokaze (lastnik 17. 10. 2026).
+    ODKRIVANJE_CAKAJ_S = 0.15
+    #: Viri brez diskovnega predpomnilnika (Twitch, racuna) ostanejo v pomnilniku toliko sekund; katalog ima svojega.
+    ODKRIVANJE_SVEZE_S = {"odkrij_twitch": 180, "odkrij_youtube": 600, "odkrij_spotify": 600}
+
+    def _odkrivanje(self, a: list) -> dict:
+        """Police odkrivanja (core/os_police.sestavi_odkrivanje): a = [drzava radia, kljuci osebnih polic]."""
+        drzava = self._niz(a, 0)[:2]
+        izkljuci = [str(x) for x in a[1]][:400] if len(a) > 1 and isinstance(a[1], list) else []
+        self.mc.izbrana_drzava = self._drzava()
+        viri = self._odkrij_viri(drzava)
+        zdaj = time.monotonic()
+        with self._odkr_pogoj:
+            st = self._odkr
+            st["izkljuci"] = izkljuci
+            if st["drzava"] != drzava:
+                st["drzava"] = drzava
+                st["vir"].pop("odkrij_radio", None)
+            cakam = []
+            for ime, nalozi in viri.items():
+                cas = (st["vir"].get(ime) or (None,))[0]
+                if cas is not None and zdaj - cas < self.ODKRIVANJE_SVEZE_S.get(ime, 0):
+                    continue
+                cakam.append(ime)
+                if ime not in st["tece"]:
+                    st["tece"].add(ime)
+                    threading.Thread(target=self._odkrij_nalozi, args=(ime, nalozi), name="odkrivanje-" + ime,
+                                     daemon=True).start()
+            rok = zdaj + self.ODKRIVANJE_CAKAJ_S
+            while any(ime in st["tece"] for ime in cakam) and time.monotonic() < rok:
+                self._odkr_pogoj.wait(max(0.0, rok - time.monotonic()))
+            police = self._odkrij_sestavi()
+            st["poslano"] = json.dumps(police, sort_keys=True, default=str)
+            return {"police": police, "dopolnjujem": bool(st["tece"])}
+
+    def _odkrij_viri(self, drzava: str) -> dict:
+        """Polica -> nalagalnik (v delovni niti). Katalog iz predpomnilnika (catalog_hitro); sveze v ozadju javi
+        ob_osvezitvi in polica se dopolni brez ponovnega klica."""
+        mc = self.mc
+
+        def katalog(ime: str, vrsta: str, **moznosti):
+            def nalozi() -> list:
+                r = mc.catalog_hitro("", vrsta, "", 1, ob_osvezitvi=lambda _k, svez: self._odkrij_zapisi(
+                    ime, (mc.brez_nerazpolozljivih(svez) or {}).get("vnosi") or [], True), **moznosti)
+                return (mc.brez_nerazpolozljivih(r) or {}).get("vnosi") or []
+            return nalozi
+        return {
+            "odkrij_filmi": katalog("odkrij_filmi", "film"),
+            "odkrij_serije": katalog("odkrij_serije", "serija"),
+            "odkrij_glasba": katalog("odkrij_glasba", "glasba"),
+            "odkrij_youtube": self._odkrij_youtube,
+            "odkrij_spotify": self._odkrij_spotify,
+            "odkrij_twitch": lambda: list(mc.twitch_katalog("", "").get("vnosi") or []),
+            "odkrij_radio": katalog("odkrij_radio", "radio", drzava_radia=drzava),
+        }
+
+    def _odkrij_youtube(self) -> list:
+        """Seznami racuna YouTube (samo, ce je uporabnik v Spletu prijavljen - prijave tu ne sprozimo)."""
+        st = self.mc.yt_stanje()
+        if not st.get("prijavljen"):
+            return []
+        racuni = st.get("racuni") or [{"racun": 0, "ime": st.get("ime") or "", "seznami": st.get("seznami") or []}]
+        izid = []
+        for r in racuni:
+            for x in r.get("seznami") or []:
+                if not isinstance(x, dict) or not x.get("id"):
+                    continue
+                izid.append({"tip": "yt-seznam", "id": str(x["id"]), "racun": int(x.get("racun", r.get("racun", 0)) or 0),
+                             "posebni": str(x.get("posebni") or ""), "naslov": str(x.get("ime") or x.get("posebni") or ""),
+                             "slika": str(x.get("slika") or ""),
+                             "podnaslov": "YouTube · %s" % r["ime"] if len(racuni) > 1 and r.get("ime") else "YouTube"})
+        return izid
+
+    def _odkrij_spotify(self) -> list:
+        """Seznami racuna Spotify - samo, ce Safeer DRM ze tece in je uporabnik prijavljen: Domov ga ne zazene
+        (zagon je tezak, ~120 MB; zgodi se ob odprtju razdelka Spotify)."""
+        sp = self.mc.spotify
+        st = sp.stanje()
+        if not (st.get("prijavljen") and st.get("tece") and st.get("drm")):
+            return []
+        r = sp.seznami()
+        if not isinstance(r, dict) or r.get("napaka"):
+            return []
+        izid = [{"tip": "sp-seznam", "id": "vseckane", "posebni": "vseckane", "naslov": "vseckane", "podnaslov": "Spotify"}]
+        for x in r.get("seznami") or []:
+            if isinstance(x, dict) and x.get("id") and x.get("ime"):
+                izid.append({"tip": "sp-seznam", "id": str(x["id"]), "naslov": str(x["ime"]), "slika": str(x.get("slika") or ""),
+                             "stevilo": int(x.get("stevilo") or 0), "podnaslov": "Spotify"})
+        return izid
+
+    def _odkrij_nalozi(self, ime: str, nalozi: Callable[[], list]) -> None:
+        try:
+            vnosi = list(nalozi() or [])
+        except Exception as e:  # noqa: BLE001 - vir, ki ne gre (omrezje, potekla prijava), ne podre ostalih polic
+            print("[SafeerMedia] odkrivanje %s: %s" % (ime, type(e).__name__), flush=True)
+            vnosi = None
+        self._odkrij_zapisi(ime, vnosi, False)
+
+    def _odkrij_zapisi(self, ime: str, vnosi: Optional[list], osvezitev: bool) -> None:
+        """Vir je nalozen (ali osvezen v ozadju): ko so nalozeni vsi, stran dobi police, ce so drugacne od poslanih."""
+        with self._odkr_pogoj:
+            st = self._odkr
+            if not osvezitev:
+                st["tece"].discard(ime)
+            if vnosi is not None or ime not in st["vir"]:
+                st["vir"][ime] = (time.monotonic(), vnosi or [])
+            self._odkr_pogoj.notify_all()
+            if st["tece"]:
+                return                     # se kdo nalaga: stran dobi police enkrat, ko so vse
+            police = self._odkrij_sestavi()
+            odtis = json.dumps(police, sort_keys=True, default=str)
+            if odtis == st["poslano"]:
+                return
+            st["poslano"] = odtis
+        self.dogodek("mediaOdkrivanje", {"police": police, "dopolnjujem": False})
+
+    def _odkrij_sestavi(self) -> list:
+        """Klice se pod self._odkr_pogoj. Zasebni dodatki izpadejo dvakrat: katalog jih izloci sam (MediaCenter.
+        brez_zasebnih), tu se preverba polic (tudi za vnose iz starega predpomnilnika)."""
+        st = self._odkr
+        try:
+            zaseben = self._je_zaseben_opis()
+            koreni = self.mc.zasebni_koreni() if hasattr(self.mc, "zasebni_koreni") else set()
+            je_vnos = getattr(self.mc, "je_zaseben_vnos", None)
+            if koreni and je_vnos is not None:
+                prva = zaseben
+                zaseben = lambda d: prva(d) or bool(je_vnos(d, koreni))  # noqa: E731
+        except Exception as e:  # noqa: BLE001 - brez preverbe ni polic iz katalogov (zasebno nikoli na Domov)
+            print("[SafeerMedia] odkrivanje zasebno: %s" % type(e).__name__, flush=True)
+            return os_police.sestavi_odkrivanje({k: v[1] for k, v in st["vir"].items()
+                                                 if k in ("odkrij_youtube", "odkrij_spotify", "odkrij_twitch")},
+                                                st["izkljuci"])
+        return os_police.sestavi_odkrivanje({k: v[1] for k, v in st["vir"].items()}, st["izkljuci"], zaseben)
 
     def _ovitki_s_prijavo(self, police: list) -> None:
         """Ovitek skladbe osebnega streznika (Navidrome, Plex) je na polici shranjen brez prijave (core/os_police.py,

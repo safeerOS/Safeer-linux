@@ -768,6 +768,7 @@
     // Prve strani drugih zavihkov v ozadju (klik na Filmi/Serije je potem takoj; enkrat na 10 min, odloci jedro).
     if (most && !naloziMedije.predgreto) { naloziMedije.predgreto = true; klic("mediaPredgrej", []).catch(function () {}); }
     if (!veckrat) naloziPolice();
+    if (!veckrat && S.mediaFilter === "domov") naloziOdkrivanje();
     // DVD v pogonu (brez zaščite): gumb se pokaže samo, kadar je disk vstavljen.
     if (!veckrat && most) klic("dvdPogoni").then(function (pogoni) {
       var disk = (Array.isArray(pogoni) ? pogoni : []).filter(function (p) { return p.vstavljen; })[0];
@@ -1380,6 +1381,7 @@
     narisiSamodejne();
     var domov = S.mediaFilter === "domov";
     $("r-media").classList.toggle("domov", domov);
+    if (!domov) narisiOdkrivanje();      // police odkrivanja so samo na Domov: skrije jih takoj, ne sele po odgovoru polic
     if (domov) {
       $("mediaVec").hidden = true;
       $("r-media").classList.remove("brez-krajevnega");      // pravila prejsnjega zavihka ne skrijejo praznega stanja
@@ -5917,9 +5919,9 @@
     try { var v = localStorage.getItem("safeer_glasba_" + kljuc); return v == null ? privzeto : v; } catch (e) { return privzeto; }
   }
   function vrstaShrani(kljuc, vrednost) { try { localStorage.setItem("safeer_glasba_" + kljuc, String(vrednost)); } catch (e) {} }
-  function nastaviVrsto(zacetni) {
-    // Skladba z odprtega seznama predvajanja: vrsta je seznam (v njegovem vrstnem redu), ne katalog.
-    var osnova = kat.seznam && kat.seznam.vnosi.some(function (x) { return x.id === zacetni.id; }) ? kat.seznam.vnosi : (kat.prikazano || kat.katalog || []);
+  function nastaviVrsto(zacetni, iz) {
+    // Skladba z odprtega seznama predvajanja: vrsta je seznam (v njegovem vrstnem redu), ne katalog; s police na Domov polica.
+    var osnova = iz ? iz : kat.seznam && kat.seznam.vnosi.some(function (x) { return x.id === zacetni.id; }) ? kat.seznam.vnosi : (kat.prikazano || kat.katalog || []);
     var seznam = osnova.filter(function (x) { return x.vrsta === zacetni.vrsta && !x.stran; });
     kat.vrsta = seznam.map(function (x) { return x.id; });
     kat.vrstaVnosi = seznam;
@@ -6002,9 +6004,11 @@
   // vsebino in samo na zavihkih, kjer imajo smisel (pravila, stevci in shramba: core/os_police.py). Srcek in »ogledano«
   // sta na vsaki kartici (katalog, knjiznica, postaje); meni kartice odpre desni klik, tipka Meni ali Shift+F10,
   // igralni plosek Y in z misko »⋯« na kartici.
-  var POL = { priljubljene: {}, ogledano: {}, police: [], zahteva: 0, podpis: "", stanje: null, nalozeno: "" };
+  var POL = { priljubljene: {}, ogledano: {}, police: [], zahteva: 0, podpis: "", stanje: null, nalozeno: "",
+              odkrivanje: [], odkrZahteva: 0, odkrPodpis: "", odkrOd: 0 };
   var POLICE_NASLOVI = { nadaljuj: "policaNadaljujGledanje", nazadnje: "policaNazadnje", najvec: "policaNajvec", priljubljene: "policaPriljubljene",
-                        glasba: "policaGlasba" };
+                        glasba: "policaGlasba", odkrij_filmi: "odkrijFilmi", odkrij_serije: "odkrijSerije", odkrij_glasba: "odkrijGlasba",
+                        odkrij_youtube: "odkrijYoutube", odkrij_spotify: "odkrijSpotify", odkrij_twitch: "odkrijTwitch", odkrij_radio: "odkrijRadio" };
   var OGLEDLJIVE = { filmi: 1, serije: 1, film: 1, serija: 1, video: 1 };
   // Isti kljuc kot core/os_police.kljuc_vnosa (enakost varuje tests/test_os_police.py).
   function kljucVnosa(x) {
@@ -6236,6 +6240,142 @@
     }
     if (domov) narisiMediaDomov();
   }
+  // ---- police odkrivanja na Domov (lastnik, 17. 10. 2026: »Domov deluje zelo prazno in neprijetno«): pod osebnimi
+  // policami vsebina iz virov, ki jih Medijski center ze ima - priljubljeni filmi in serije, glasba, seznami YouTuba in
+  // Spotifyja (ce je uporabnik prijavljen), Twitch v zivo in radio. Pravila (ena kartica za isto vsebino, brez
+  // zasebnih dodatkov, prazne police izpadejo) so v core/os_police.sestavi_odkrivanje; tu se izloci se, kar je ze na
+  // osebni polici (police se nalagata vzporedno). Kliki gredo po obstojecih poteh kataloga - brez nove logike predvajanja.
+  function naloziOdkrivanje() {
+    if (!most) return;
+    var zahteva = ++POL.odkrZahteva;
+    POL.odkrOd = POL.odkrOd || (window.performance ? performance.now() : Date.now());
+    var kljuci = [];
+    if (POL.nalozeno === "domov") (POL.police || []).forEach(function (p) { (p.vnosi || []).forEach(function (v) { if (v.kljuc) kljuci.push(v.kljuc); }); });
+    klic("mediaOdkrivanje", [kat.drzavaRadia || "", kljuci]).then(function (r) {
+      if (zahteva === POL.odkrZahteva && r) prevzemiOdkrivanje(r);
+    }).catch(function () {});
+  }
+  function prevzemiOdkrivanje(r) {
+    POL.odkrivanje = Array.isArray(r.police) ? r.police : [];
+    if (POL.odkrOd && POL.odkrivanje.length) {
+      // Meritev (AGENTS.md: trditve o hitrosti podpre meritev): od odprtja Domov do prvih polic odkrivanja.
+      console.info("[Domov] police odkrivanja v " + Math.round((window.performance ? performance.now() : Date.now()) - POL.odkrOd) + " ms");
+      POL.odkrOd = 0;
+    }
+    if (S.mediaFilter === "domov") narisiMediaDomov();
+  }
+  // Police odkrivanja, kot jih Domov pokaze: brez skritih zavihkov (Prilagodi meni) in brez kartic z osebnih polic.
+  function odkrivanjeVidno() {
+    var osebni = {};
+    (POL.police || []).forEach(function (p) { (p.vnosi || []).forEach(function (v) { if (v.kljuc) osebni[v.kljuc] = 1; }); });
+    return (POL.odkrivanje || []).map(function (p) {
+      return { id: p.id, zavihek: p.zavihek, vnosi: (p.vnosi || []).filter(function (v) { return !osebni[v.kljuc]; }) };
+    }).filter(function (p) { return p.vnosi.length && !jeSkrito("kat:" + p.zavihek); });
+  }
+  function junakOdkrivanja() {
+    var police = odkrivanjeVidno().filter(function (p) { return p.id === "odkrij_filmi" || p.id === "odkrij_serije"; });
+    var vsi = [];
+    police.forEach(function (p) { p.vnosi.forEach(function (v) { vsi.push({ v: v, polica: p.id }); }); });
+    var izbor = vsi.filter(function (x) { return x.v.ozadje; })[0] || vsi.filter(function (x) { return x.v.slika; })[0];
+    if (!izbor) return null;
+    var v = izbor.v;
+    return { v: Object.assign({}, v, { zanr: Array.isArray(v.zanri) && v.zanri.length ? v.zanri[0] : v.zanr }), polica: izbor.polica, odkrij: true };
+  }
+  function naslovOdkrivanja(v) {
+    if (v.tip === "yt-seznam" && v.posebni) return ytImeSeznama({ posebni: v.posebni, ime: v.naslov });
+    if (v.tip === "sp-seznam" && v.posebni === "vseckane") return t("spVseckane");
+    return v.naslov || "";
+  }
+  function metaOdkrivanja(v) {
+    if (v.tip === "yt-seznam" || v.tip === "sp-seznam") return v.stevilo ? stSkladb(v.stevilo) : (v.podnaslov || "");
+    if (/^twitch/.test(v.vrsta || "")) return twitchOpis(v);
+    if (v.vrsta === "glasba" && v.izvajalec) return v.izvajalec;
+    return [v.leto, v.ocena ? "★ " + Number(v.ocena).toFixed(1) : ""].filter(Boolean).join(" · ") || katOznaka(v.vrsta);
+  }
+  function kliknOdkrivanje(v, polica) {
+    if (v.tip === "yt-seznam") {
+      izberiZavihekMedijev("glasba");
+      odpriYtSeznam({ id: v.id, racun: v.racun || 0, posebni: v.posebni || "", ime: v.naslov });
+      return;
+    }
+    if (v.tip === "sp-seznam") { izberiZavihekMedijev("glasba"); odpriSpSeznam(v.id, naslovOdkrivanja(v)); return; }
+    if (v.vrsta === "twitch-kanal") { izberiZavihekMedijev("twitch"); odpriTwitchKanal(v.login, v.naslov); return; }
+    if (v.tmdb_id || v.vrsta === "serija" || (v.vrsta === "film" && !v.peertube_uuid)) { odpriKatalogPodrobnosti(v.id); return; }
+    if (v.vrsta === "glasba" || v.vrsta === "podcast") {
+      // Vrsta skladb je polica (kot v katalogu je vrsta mreza): naslednja skladba je naslednja kartica.
+      var p = (POL.odkrivanje || []).filter(function (x) { return x.id === polica; })[0];
+      nastaviVrsto(v, p ? p.vnosi : [v]);
+      odpriKatalogVnos(v.id);
+      return;
+    }
+    kat.vrsta = []; narisiVrsto();
+    odpriKatalogVnos(v.id);
+  }
+  function karticaOdkrivanja(v, polica) {
+    var card = el("button", "kat-kartica media-polica-kartica"); card.type = "button";
+    card.setAttribute("role", "listitem");
+    var seznam = v.tip === "yt-seznam" || v.tip === "sp-seznam";
+    var plakat = el("span", "kat-plakat"); card.appendChild(plakat);
+    if (v.vrsta === "radio" || v.vrsta === "tv-v-zivo") plakat.classList.add("kat-logotip");
+    if (/^twitch/.test(v.vrsta || "")) plakat.classList.add("kat-siroko");
+    var ikona = seznam ? "glasba" : katIkona(v.vrsta);
+    if (v.slika) {
+      var image = document.createElement("img"); image.alt = ""; image.loading = "lazy"; image.src = v.slika;
+      image.onerror = function () { image.replaceWith(el("span", "kat-brez-slike", svg(ikona))); };
+      plakat.appendChild(image);
+    } else plakat.appendChild(el("span", "kat-brez-slike", svg(ikona)));
+    if (v.vrsta === "twitch") card.appendChild(el("span", "kat-kakovost", ubezi(t("katVZivo"))));      // kot v katalogu
+    var naslov = naslovOdkrivanja(v), meta = metaOdkrivanja(v);
+    var data = el("span", "kat-podatki"), b = el("b", "", ubezi(naslov)); b.title = naslov;
+    data.appendChild(b);
+    var vrsticaMeta = el("span", "kat-meta"); vrsticaMeta.appendChild(el("span", "", ubezi(meta)));
+    data.appendChild(vrsticaMeta); card.appendChild(data);
+    card.setAttribute("data-ime", naslov + (meta ? " — " + meta : ""));
+    card.setAttribute("aria-label", card.getAttribute("data-ime"));
+    card.title = naslov + (meta ? " · " + meta : "");
+    // Srcek in »ogledano« kot v katalogu (isti kljuc); seznami racunov in Twitch ga nimajo (ne gredo v Link).
+    if (!seznam && !/^twitch/.test(v.vrsta || "")) {
+      poveziMeniKartice(card, { kljuc: v.kljuc, naslov: naslov, ogledljivo: !!OGLEDLJIVE[v.vrsta], opis: opisVnosa(v) });
+    }
+    card.addEventListener("click", function () { kliknOdkrivanje(v, polica); });
+    return card;
+  }
+  function narisiOdkrivanje() {
+    var c = $("mediaOdkrivanje"); if (!c || typeof POL === "undefined") return;      // POL: narisiMedije tece ze ob zagonu
+    var police = S.mediaFilter === "domov" ? odkrivanjeVidno() : [];
+    var podpis = JSON.stringify(police) + "|" + jezik;
+    c.hidden = !police.length;
+    if (podpis === POL.odkrPodpis) return;          // isti podatki: izbor in polozaj vrst ostaneta
+    POL.odkrPodpis = podpis;
+    var izbran = document.activeElement && c.contains(document.activeElement) ? document.activeElement.getAttribute("data-kljuc") : null;
+    var odmiki = {};
+    c.querySelectorAll(".media-polica").forEach(function (p) { odmiki[p.getAttribute("data-polica")] = p.querySelector(".media-polica-vrsta").scrollLeft; });
+    c.innerHTML = "";
+    c.hidden = !police.length;
+    police.forEach(function (p) {
+      var zvok = p.zavihek === "glasba" || p.zavihek === "radio";
+      var sekcija = el("section", "media-polica" + (zvok ? " zvok" : "") + (p.zavihek === "twitch" ? " siroko" : ""));
+      sekcija.setAttribute("data-polica", p.id);
+      var naslov = naslovPolice(p.id, p.zavihek);
+      var glava = el("h3", "media-polica-naslov", ubezi(naslov)); glava.id = "mediaPolica_" + p.id;
+      sekcija.setAttribute("aria-labelledby", glava.id);
+      var vrh = el("div", "media-polica-glava"); vrh.appendChild(glava);
+      var vse = el("button", "media-polica-vse", '<span>' + ubezi(t("domovVse")) + '</span>' + svg("desno"));
+      vse.type = "button";
+      vse.setAttribute("aria-label", t("domovVseOznaka", { polica: naslov, zavihek: t("media_" + p.zavihek) }));
+      vse.setAttribute("data-zavihek", p.zavihek);
+      vse.addEventListener("click", function () { izberiZavihekMedijev(p.zavihek); $("vsebina").scrollTop = 0; });
+      vrh.appendChild(vse); sekcija.appendChild(vrh);
+      var vrsta = el("div", "media-polica-vrsta"); vrsta.setAttribute("role", "list");
+      p.vnosi.forEach(function (v) { vrsta.appendChild(karticaOdkrivanja(v, p.id)); });
+      sekcija.appendChild(vrsta); c.appendChild(sekcija);
+      if (odmiki[p.id]) vrsta.scrollLeft = odmiki[p.id];
+    });
+    if (izbran) {
+      var enaka = Array.prototype.filter.call(c.querySelectorAll("[data-kljuc]"), function (k) { return k.getAttribute("data-kljuc") === izbran; })[0];
+      if (enaka) { try { enaka.focus({ preventScroll: true }); } catch (e) { enaka.focus(); } }
+    }
+  }
   // ---- Domov (lastnik, 14. 10. 2026, skica Safeer Playerja): zacetna stran Medijskega centra - junak z eno pravo
   // vsebino, pod njim osebne police (core/os_police.py, zavihek »domov«) z »Vse →«. Prazne police se ne narisejo; brez
   // vsake police ostane prazno stanje z gumbom Dodaj. Junak kaze samo podatke, ki jih vnos res ima (leto, dolzina,
@@ -6258,7 +6398,7 @@
       var p = police.filter(function (x) { return x.id === id; })[0];
       return p && p.vnosi && p.vnosi[0] ? { v: p.vnosi[0], polica: id } : null;
     };
-    return prvi("nadaljuj") || prvi("nazadnje");
+    return prvi("nadaljuj") || prvi("nazadnje") || junakOdkrivanja();
   }
   function imeZvrsti(id) {
     var z = KAT_FILMSKI_ZANRI.concat(KAT_SERIJSKI_ZANRI).filter(function (x) { return Number(x[0]) === Number(id); })[0];
@@ -6292,8 +6432,9 @@
   }
   function narisiMediaDomov() {
     var junak = $("mediaJunak"), prazno = $("mediaPrazno"); if (!junak) return;
+    narisiOdkrivanje();                  // brez kartic, ki so ze na osebnih policah (te so lahko prisle sele zdaj)
     var nalozeno = POL.nalozeno === "domov";
-    var ima = (POL.police || []).length > 0;
+    var ima = (POL.police || []).length > 0 || odkrivanjeVidno().length > 0;
     // Prazno stanje sele, ko je odgovor za Domov prisel (ne utripa ob odprtju); ena poteza: Dodaj mapo. Samodejni
     // seznami so tudi knjiznica: z njimi »Tvoja knjiznica se zacne tukaj« ni res (pregled 14. 10. 2026).
     prazno.hidden = !nalozeno || ima || (S.samodejni || []).length > 0;
@@ -6330,10 +6471,13 @@
     if (d.pod) besedilo.appendChild(el("p", "media-junak-pod", ubezi(d.pod)));
     if (d.meta.length) besedilo.appendChild(el("p", "media-junak-meta", d.meta.map(ubezi).join('<span aria-hidden="true"> · </span>')));
     var dejanja = el("div", "media-junak-dejanja");
-    var gumb = el("button", "gumb glavni", svg("predvajaj") + '<span>' + ubezi(t(d.napredek ? "domovNadaljuj" : "domovPredvajaj")) + '</span>');
+    var gumb = el("button", "gumb glavni", svg(izbor.odkrij ? "vec" : "predvajaj") + '<span>' +
+      ubezi(t(d.napredek ? "domovNadaljuj" : izbor.odkrij ? "domovVec" : "domovPredvajaj")) + '</span>');
     gumb.type = "button"; gumb.id = "mediaJunakPredvajaj";
     gumb.setAttribute("aria-describedby", "mediaJunakNaslov");
-    gumb.addEventListener("click", function () { predvajajSPolice(izbor.v, izbor.polica); });
+    gumb.addEventListener("click", function () {
+      if (izbor.odkrij) kliknOdkrivanje(izbor.v, izbor.polica); else predvajajSPolice(izbor.v, izbor.polica);
+    });
     dejanja.appendChild(gumb);
     if (d.vir) dejanja.appendChild(el("span", "media-junak-vir", svg(izbor.v.tip === "lokalno" ? "mapa" : "splet") + '<span>' + ubezi(d.vir) + '</span>'));
     besedilo.appendChild(dejanja);
@@ -6655,7 +6799,9 @@
     var query = String(S.mediaIskanje || "").trim();
     if (kat.nalozen && filter === kat.filter && query === kat.query && kat.jezik === jezik) return;
     var samoIskanje = kat.nalozen && filter === kat.filter && kat.jezik === jezik;
-    kat.filter = filter; kat.query = query; kat.jezik = jezik; kat.page = 1; kat.seznam = null;
+    // Isti zavihek in iskanje (npr. drugi klic, preden katalog odgovori): seznam, odprt s police Domov, ostane.
+    if (filter !== kat.filter || query !== kat.query) kat.seznam = null;
+    kat.filter = filter; kat.query = query; kat.jezik = jezik; kat.page = 1;
     clearTimeout(kat.timer);
     // Med tipkanjem se ne nalaga naslednja stran starega iskanja (nalaganje, ki ze tece, se zavrze).
     kat.skupaj_strani = 1; kat.zahteva++; kat.nalagaVec = false;
@@ -7408,6 +7554,7 @@
     osveziGumbViri(); katPrilagodiObrazec();
   }
   function katDogodek(vrsta, podatki) {
+    if (vrsta === "mediaOdkrivanje" && podatki) prevzemiOdkrivanje(podatki);
     if (vrsta === "mediaKatalogOsvezen" && podatki && katVidno() && podatki.kljuc &&
         kat.strani.some(function (s) { return s.kljuc === podatki.kljuc; })) prevzemiKatalog(podatki, true);
     if (vrsta === "mediaNiNaVoljo" && podatki && podatki.idji && kat.katalog) {
