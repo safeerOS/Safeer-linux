@@ -40,9 +40,9 @@ class StranskaPlosca:
         self.pas.set_name("safeer-stranska-pas")
         for stran in ("set_margin_bottom", "set_margin_start", "set_margin_end"):
             getattr(self.pas, stran)(6)
-        # Pas se zacne pod vrstico zavihkov: njegov gumb za dodajanje ni bil videti kot drugi »+« zavihkov (lastnik,
+        # Zavihki so v glavi okna (safeer_brskalnik), pas je pod njimi; gumb ima ikono klepeta, ne »+« (lastnik,
         # 17. 10. 2026: dva enaka gumba »+« ob zavihkih).
-        self.pas.set_margin_top(60)
+        self.pas.set_margin_top(6)
         self.gradnik.append(self.razkrij)
         self.gradnik.append(self.pas)
         self.narisi()

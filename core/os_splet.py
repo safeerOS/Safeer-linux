@@ -949,6 +949,11 @@ class VdelaniSplet:
             print("[Safeer OS Splet] shramba:", napaka)
             self.seja = WebKit2.NetworkSession.get_default()
         try:
+            # Ikone strani v zavihkih (lastnik 17. 10. 2026: vsi zavihki so imeli isti globus - strani se ni dalo locit).
+            self.seja.get_website_data_manager().set_favicons_enabled(True)
+        except Exception:
+            pass
+        try:
             self.kontekst = pomnilnik.kontekst(WebKit2, pomnilnik.meja_sprostitve_mb(), ubij_mb=pomnilnik.meja_strani_mb())
         except Exception as napaka:
             print("[Safeer OS Splet] kontekst:", napaka)
@@ -1200,15 +1205,16 @@ class VdelaniSplet:
         # celotne teme (lastnik, 11. 10. 2026), ne zelen kot samostojni Safeer Browser.
         css = """
         #safeer-splet { background: #0b1424; color: #eaf2ff; }
-        #splet-zavihki { background: #0b1424; min-height: 52px; }
+        #splet-zavihki { background: #0b1424; min-height: 38px; }
         .splet-tab { background: #101a2b; color: #c3d4ea; border: 1px solid rgba(211,229,255,.14);
-          border-bottom: 0; border-radius: 12px 12px 0 0; padding: 8px 12px; margin-top: 8px; min-width: 76px; }
+          border-bottom: 0; border-radius: 10px 10px 0 0; padding: 3px 8px; margin-top: 5px; min-width: 76px; }
         #safeer-stranska-pas { border-left: 1px solid rgba(211,229,255,.12); padding-left: 2px; }
         .splet-tab-aktiven { background: #16233a; color: #eaf2ff; border-color: rgba(138,199,255,.55);
           border-top: 2px solid #8ac7ff; }
         .splet-tab button, .new-tab, .nav, .address-action, #splet-meni > button { background: transparent; color: #eaf2ff;
           border: 0; box-shadow: none; text-shadow: none; }
-        .new-tab { font-size: 24px; padding: 5px 10px; }
+        .new-tab { font-size: 18px; padding: 2px 8px; }
+        .splet-tab button.tab-close { min-height: 20px; min-width: 20px; padding: 0 2px; }
         #splet-povezava { color: #e3ecf7; border: 1px solid rgba(138,199,255,.55); border-radius: 14px;
           padding: 5px 14px; margin-top: 8px; margin-bottom: 8px; background: rgba(138,199,255,.08); }
         #splet-orodja { background: #0b1424; padding: 6px 14px 8px; }
@@ -1634,7 +1640,8 @@ class VdelaniSplet:
         pogled = self._nov_pogled(povezan)
         vrstica = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=6)
         vrstica.add_css_class("splet-tab")
-        ikona = self.Gtk.Label(label="🌐")
+        ikona = self.Gtk.Image.new_from_icon_name("web-browser-symbolic")
+        ikona.set_pixel_size(16)
         naslov_lbl = self.Gtk.Label(label=self._t("nov")); naslov_lbl.set_ellipsize(self.Pango.EllipsizeMode.END)
         # Zavihki se ob vecjem stevilu najprej skrcijo (kot v Chromu), sele nato drsijo - prej je imel vsak najmanj
         # 180 px in prvi zavihek je bil pri 7 zavihkih odrezan (testni PC 17. 10. 2026).
@@ -1653,6 +1660,7 @@ class VdelaniSplet:
         self.sklad.add_named(pogled, "splet-%d" % self._stevec)
         zavihek = {"pogled": pogled, "dogodek": dogodek, "vrstica": vrstica, "naslov": naslov_lbl, "ikona": ikona,
                    "zvok": zvok}
+        pogled.connect("notify::favicon", lambda p, _l: self._osvezi_ikono(p))
         pogled.connect("notify::is-playing-audio", lambda p, _l: self._osvezi_zvok(p))
         pogled.connect("notify::is-muted", lambda p, _l: self._osvezi_zvok(p))
         pogled.connect("notify::zoom-level", lambda p, _l: p is self.trenutni() and self._osvezi_povecavo())
@@ -2414,10 +2422,24 @@ class VdelaniSplet:
 
             threading.Thread(target=delo, name="safeer-ikone", daemon=True).start()
 
+    def _osvezi_ikono(self, pogled) -> None:
+        z = self._zavihek(pogled)
+        if z is None:
+            return
+        try:
+            tekstura = pogled.get_favicon()
+        except Exception:
+            tekstura = None
+        if tekstura is not None:
+            z["ikona"].set_from_paintable(tekstura)
+        else:
+            z["ikona"].set_from_icon_name("web-browser-symbolic")
+
     def _naslov_spremenjen(self, pogled, _lastnost):
         z = next((x for x in self.zavihki if x["pogled"] is pogled), None)
         if z:
             z["naslov"].set_text(self._t("nov") if je_domaca_stran(pogled.get_uri() or "", self.koren) else (pogled.get_title() or self._t("nov")))
+            z["vrstica"].set_tooltip_text(z["naslov"].get_text())      # cel naslov, ko je zavihek ozek
 
     def _uri_spremenjen(self, pogled, _lastnost):
         z = self._zavihek(pogled)
