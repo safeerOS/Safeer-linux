@@ -50,21 +50,23 @@ def _ujema(gostitelj: str, domena: str) -> bool:
     return gostitelj == domena
 
 
-def beri_piskotke(pot: str, gostitelj: str = "www.youtube.com", zdaj: Optional[float] = None) -> dict:
+def beri_piskotke(pot: str, gostitelj: str = "www.youtube.com", zdaj: Optional[float] = None,
+                  domena: str = "youtube.com") -> dict:
     """Veljavni piskotki za [gostitelj] iz shrambe WebKita (libsoup, tabela moz_cookies). Samo branje: Splet je
-    lahko odprt in ima bazo v uporabi; zaklenjena ali manjkajoca baza pomeni »ni prijave«."""
+    lahko odprt in ima bazo v uporabi; zaklenjena ali manjkajoca baza pomeni »ni prijave«. [domena] omeji branje
+    (core/twitch.py bere twitch.tv)."""
     if not os.path.isfile(pot):
         return {}
     zdaj = time.time() if zdaj is None else zdaj
     try:
         povezava = sqlite3.connect("file:%s?mode=ro" % urllib.parse.quote(os.path.abspath(pot)), uri=True, timeout=2)
         try:
-            vrstice = povezava.execute("SELECT name, value, host, expiry FROM moz_cookies "
-                                       "WHERE host LIKE '%youtube.com'").fetchall()
+            vrstice = povezava.execute("SELECT name, value, host, expiry FROM moz_cookies WHERE host LIKE ?",
+                                       ("%" + domena,)).fetchall()
         finally:
             povezava.close()
     except sqlite3.Error as e:
-        print("[YouTube racun] piskotki:", type(e).__name__, flush=True)
+        print("[Piskotki Spleta] %s: %s" % (domena, type(e).__name__), flush=True)
         return {}
     izid: dict = {}
     for ime, vrednost, domena, potek in vrstice:

@@ -38,6 +38,7 @@ from . import knjiznica_kroga
 from . import watch_providers
 from . import uvoz_seznama
 from . import youtube_racun
+from . import twitch
 from . import seznami_sink
 from . import viri_sink
 from . import meritve_virov
@@ -2171,6 +2172,66 @@ class MediaCenter:
             self._zapomni_izbris(ime)
         return {"ok": True, "ime": ime, "stevilo": len(sz["skladbe"])}
 
+    # ------------------------------------------------------------------ Twitch (core/twitch.py)
+    # Lastnik 17. 10. 2026: Twitch v nasem predvajalniku, oglase izloci Scit (core/twitch_hls.py). Vnosi so dinamicni
+    # (ne gredo na police ne v Link); kanali, ki jim prijavljen uporabnik sledi, se ne shranjujejo.
+
+    @property
+    def twitch(self) -> "twitch.Twitch":
+        tw = getattr(self, "_twitch", None)
+        if tw is None:
+            tw = self._twitch = twitch.Twitch(nastavitve=str(self.config_dir / "twitch.json"))
+            tw.visina_zaslona = int(getattr(self, "visina_zaslona", 0) or 1080)
+        return tw
+
+    def _twitch_zapomni(self, vnosi: list) -> list:
+        for v in vnosi:
+            self._dynamic_items[v["id"]] = v
+        return vnosi
+
+    def twitch_katalog(self, query: str = "", kategorija: str = "") -> dict:
+        """Zavihek Twitch: iskanje kanalov ali priljubljeni prenosi (v izbrani kategoriji). Napaka omrezja -> prazno."""
+        try:
+            izid = self.twitch.isci(query) if str(query or "").strip() else self.twitch.priljubljeni(kategorija)
+        except Exception as e:  # noqa: BLE001 - omrezje ali spremenjen GQL: prazen katalog, nic se ne sesuje
+            print("[SafeerMedia] Twitch katalog:", type(e).__name__, flush=True)
+            izid = {"vnosi": []}
+        vnosi = self._twitch_zapomni(list(izid.get("vnosi") or []))
+        return {"vnosi": vnosi, "skupaj": len(vnosi), "skupaj_strani": 1, "kljuc": "twitch|%s|%s" % (query, kategorija)}
+
+    def twitch_kategorije(self) -> list[dict]:
+        try:
+            return self.twitch.kategorije()
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerMedia] Twitch kategorije:", type(e).__name__, flush=True)
+            return []
+
+    def twitch_posnetki(self, login: str) -> dict:
+        """Posnetki kanala kot seznam za mrezo kataloga ({"ime", "vnosi", "twitch": True}) ali {"napaka"}."""
+        try:
+            p = self.twitch.posnetki(login)
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerMedia] Twitch posnetki:", type(e).__name__, flush=True)
+            return {"napaka": "ni_uspel"}
+        if not p.get("vnosi"):
+            return {"napaka": "ni_posnetkov", "ime": p.get("ime") or ""}
+        return {"ime": p["ime"], "vir": "Twitch", "vnosi": self._twitch_zapomni(p["vnosi"]), "twitch": True}
+
+    def twitch_stanje(self) -> dict:
+        st = self.twitch.stanje()
+        self._twitch_zapomni(st.get("kanali") or [])
+        return st
+
+    def _razresi_twitch(self, item: dict) -> dict:
+        try:
+            r = self.twitch.predvajaj(item)
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerMedia] Twitch predvajanje:", type(e).__name__, flush=True)
+            r = None
+        if not r or r.get("napaka_koda"):
+            return dict(item, napaka_koda=(r or {}).get("napaka_koda") or "tok")
+        return dict(item, url=r["url"], kakovost=r.get("kakovost") or "", razlicice=[], stevilo_razlicic=0)
+
     def shrani_seznam(self, ime: str, skladbe: list) -> dict:
         """Samodejni seznam »Shrani kot seznam«: navaden seznam predvajanja z istimi skladbami (isto ime ga zamenja,
         kot ponoven uvoz). Skladbe imajo svoj naslov (datoteka ali tok), zato posnetkov ni treba iskati."""
@@ -4082,6 +4143,13 @@ class MediaCenter:
         samo torrenti, ne zacnemo prenasati - to se zgodi sele, ko uporabnik pritisne Predvajaj."""
         if str(item_id or "").startswith("seznam:"):
             return self.seznam_posnetek(str(item_id))
+        if str(item_id or "").startswith(("twitch:", "twitch-posnetek:")):
+            # Twitch: vnos iz zadnjega seznama ali (po ponovnem zagonu) iz samega id-ja - brez iskanja po katalogu.
+            ident = str(item_id).split(":", 1)[1]
+            item = self._dynamic_items.get(item_id) or (
+                {"id": item_id, "vrsta": "twitch", "login": ident, "naslov": ident} if item_id.startswith("twitch:")
+                else {"id": item_id, "vrsta": "twitch-posnetek", "naslov": "Twitch"})
+            return self._razresi_twitch(item)
         item = self._dynamic_items.get(item_id) or next((item for item in self.catalog()["vnosi"] if item.get("id") == item_id), None)
         if not item:
             return None
