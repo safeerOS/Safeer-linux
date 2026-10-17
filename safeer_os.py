@@ -4526,11 +4526,13 @@ class SafeerOS(Gtk.Application):
     def _dock_seznam(self) -> dict:
         """Programi v docku po vrsti, z imenom in ikono; »plank« = ali je dock sploh namescen."""
         programi = []
-        for e in os_dock.elementi():
-            v = os_programi.preberi_vnos(e["pot"]) or {}
+        vnosi = [(e, os_programi.preberi_vnos(e["pot"]) or {}) for e in os_dock.elementi()]
+        # Tema ikon (Gtk) samo na glavni niti (gostitelj.ikona_iz_teme); ta metoda tece v ozadju.
+        ikone = self._v_glavni_pocakaj(lambda: {v["ikona"]: self._ikona(v["ikona"]) for _e, v in vnosi if v.get("ikona")})
+        ikone = ikone if isinstance(ikone, dict) else {}
+        for e, v in vnosi:
             ime = v.get("ime") or (e["id"][: -len(".desktop")] if e["id"].endswith(".desktop") else e["id"])
-            programi.append({"id": e["id"], "dockitem": e["dockitem"], "ime": ime,
-                             "ikona": self._ikona(v["ikona"]) if v.get("ikona") else ""})
+            programi.append({"id": e["id"], "dockitem": e["dockitem"], "ime": ime, "ikona": ikone.get(v.get("ikona"), "")})
         return {"ok": True, "plank": os_dock.je_namescen(), "programi": programi}
 
     def _ikona(self, ime: str) -> str:

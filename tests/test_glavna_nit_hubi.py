@@ -106,5 +106,35 @@ class DolgiKliciMostu(unittest.TestCase):
                                     metode={"_predvajaj_magnet": pocasi})[1], {"ok": True})
 
 
+class IkoneDockaNaGlavniNiti(unittest.TestCase):
+    """_dock_seznam tece v ozadju; tema ikon GTK (pot_ikone) se sme klicati samo na glavni niti."""
+
+    def test_ikone_isce_glavna_nit(self):
+        from gi.repository import GLib
+        app = _Aplikacija.__new__(_Aplikacija)
+        app._ikone = {}
+        niti = []
+
+        def pot_ikone(ime):
+            niti.append(threading.current_thread())
+            return "/tmp/" + ime + ".png"
+        izid = {}
+        zanka = GLib.MainLoop()
+
+        def ozadje():
+            izid["v"] = app._dock_seznam()
+            GLib.idle_add(zanka.quit)
+        from core import os_dock, os_programi
+        with mock.patch.object(os_dock, "elementi", return_value=[{"id": "a.desktop", "dockitem": "a", "pot": "/x"}]), \
+                mock.patch.object(os_dock, "je_namescen", return_value=True), \
+                mock.patch.object(os_programi, "preberi_vnos", return_value={"ime": "A", "ikona": "a"}), \
+                mock.patch.object(os_programi, "pot_ikone", pot_ikone):
+            threading.Thread(target=ozadje, daemon=True).start()
+            GLib.timeout_add_seconds(5, zanka.quit)
+            zanka.run()
+        self.assertEqual(niti, [threading.main_thread()])
+        self.assertEqual(izid["v"]["programi"][0]["ikona"], "file:///tmp/a.png")
+
+
 if __name__ == "__main__":
     unittest.main()
