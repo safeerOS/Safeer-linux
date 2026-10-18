@@ -86,7 +86,7 @@ webkit_preizkus() {
   for koren in /usr/lib/safeer-browser /usr/lib/safeer-os /usr/lib/safeer-control; do
     su preizkus -c "cd ~ && dbus-run-session -- xvfb-run -a timeout 120 python3 /smoke_webkit_deb.py $koren" >"$ZACASNO/webkit.log" 2>&1 \
       || { tail -40 "$ZACASNO/webkit.log"; echo "NAPAKA: nas WebKit v $koren ($1)"; exit 1; }
-    grep -E '^(knjiznice|libsoup|peskovnik|PASS)' "$ZACASNO/webkit.log"
+    grep -E '^(knjiznice|libsoup|peskovnik|gstreamer|stran AV1|::notice::dav1d|PASS)' "$ZACASNO/webkit.log"
   done
 }
 # Prejsnja izdaja je zahtevala gir1.2-webkit-6.0; po posodobitvi ga noben paket ne potrebuje vec in ga autoremove vzame.
