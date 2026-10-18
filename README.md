@@ -87,16 +87,16 @@ you want it.
 Latest release: **v1.0.127** — [release notes and downloads](../../releases/tag/v1.0.127)
 
 ```bash
-# Debian, Ubuntu, Linux Mint
-sudo apt install ./safeer-browser_1.0.127_amd64.deb
+# Debian, Ubuntu, Linux Mint (the browser and its web engine, safeer-webkit, in one command)
+sudo apt install ./safeer-webkit_1.0.127_amd64.deb ./safeer-browser_1.0.127_amd64.deb
 ```
 
 
 Download from [Releases](../../releases/latest). Three formats are built for every release:
 
 ```bash
-# Debian / Ubuntu / Linux Mint
-sudo apt install ./safeer-browser_<version>_amd64.deb
+# Debian / Ubuntu / Linux Mint (the browser and its web engine, safeer-webkit, in one command)
+sudo apt install ./safeer-webkit_<version>_amd64.deb ./safeer-browser_<version>_amd64.deb
 
 # AppImage — no installation, just make it executable
 chmod +x Safeer-Browser-<version>-x86_64.AppImage && ./Safeer-Browser-<version>-x86_64.AppImage
@@ -105,11 +105,11 @@ chmod +x Safeer-Browser-<version>-x86_64.AppImage && ./Safeer-Browser-<version>-
 flatpak install ./Safeer-Browser-<version>-x86_64.flatpak
 ```
 
-Or double-click the `.deb` in your file manager.
+Or double-click the `.deb` files in your file manager: `safeer-webkit` first, then `safeer-browser`.
 
 The `.deb` and the **Flatpak** both carry our own WebKitGTK 2.54 and libsoup 3.8 (Clang ThinLTO build
 with Safeer's fixes, `packaging/webkit`, `packaging/webkit-deb`); the `.deb` keeps them in
-`/usr/lib/safeer-browser/webkit` next to the program and never replaces the system's WebKitGTK. The
+the package `safeer-webkit` (`/usr/lib/safeer-webkit`, shared with Safeer OS) and never replaces the system's WebKitGTK. The
 AppImage uses the WebKitGTK of the build system. When both the `.deb` and the Flatpak are installed, the
 `safeer` command starts the Flatpak (same settings, sign-ins and bookmarks). All packages are built for
 x86_64 (amd64) only.

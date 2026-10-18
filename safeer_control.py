@@ -2169,7 +2169,7 @@ class SafeerControl(_OSNOVA):
             mapa = os.path.join(GLib.get_user_cache_dir(), "safeer-control", "posodobitve")
             datoteke = []
             for n in nove:
-                for d in ([n["datoteka"]] + ([n["tema"]] if n.get("tema") else [])):
+                for d in os_posodobitve.datoteke_namestitve(n):
                     ime = str(d["url"]).rsplit("/", 1)[-1]
                     GLib.idle_add(napis.set_text, besedilo(jezik, "posodobi_prenasam").replace("{ime}", ime))
                     datoteke.append(os_posodobitve.prenesi(str(d["url"]), os.path.join(mapa, ime), str(d.get("sha256") or ""),

@@ -2,7 +2,7 @@
 # Ucni tek za PGO nasega WebKitGTK v paketih .deb: instrumentiran WebKit (zgradi.sh s SAFEER_WEBKIT_PGO=ucenje) pozene
 # Speedometer 3.1 (ista pripeta kopija in packaging/webkit/pgo_trening.py kot ucni tek Flatpaka) pod Xvfb.
 #
-#   ucni_tek.sh PREDPONA MAPA_PROFRAW [pgo|bolt|preveri]   npr. ucni_tek.sh /usr/lib/safeer-browser/webkit build/pgo/profraw
+#   ucni_tek.sh PREDPONA MAPA_PROFRAW [pgo|bolt|preveri]   npr. ucni_tek.sh /usr/lib/safeer-webkit build/pgo/profraw
 #
 # Spletni proces tece brez peskovnika samo v tem teku (lokalna vsebina): podeduje LLVM_PROFILE_FILE in ob SIGTERM
 # zapise profil; %m loci knjiznici (libwebkitgtk, libjavascriptcoregtk) v istem procesu.

@@ -1,6 +1,7 @@
 """Preizkus nasega WebKitGTK in libsoup v namescenem paketu .deb (packaging/webkit-deb).
 
 Uporaba: python3 smoke_webkit_deb.py KOREN_PROGRAMA     npr. /usr/lib/safeer-browser, /usr/lib/safeer-os, /usr/lib/safeer-control
+(vsi trije uporabijo skupni WebKit iz paketa safeer-webkit, /usr/lib/safeer-webkit)
 
 Preveri, kar mora veljati na racunalniku uporabnika (tudi ce je namescen sistemski WebKitGTK 6.0 iz Ubuntuja):
   * core/zasebni_webkit.py najde predpono paketa in Python nalozi typelibe iz nje,
@@ -28,6 +29,11 @@ from core import zasebni_webkit  # noqa: E402
 PREDPONA = zasebni_webkit.nastavi(KOREN)
 if not PREDPONA:
     print("FAIL: v %s ni nasega WebKita (core/zasebni_webkit.py)" % KOREN, flush=True)
+    raise SystemExit(1)
+# Namesceni programi (od 19. 10. 2026) tecejo na skupnem WebKitu iz paketa safeer-webkit, nikoli na ostanku lastne kopije
+# starejsega paketa (/usr/lib/<program>/webkit): sicer bi dva programa spet imela vsak svoje strani kode.
+if KOREN.startswith("/usr/lib/") and PREDPONA != "/usr/lib/safeer-webkit":
+    print("FAIL: %s uporablja %s namesto /usr/lib/safeer-webkit" % (KOREN, PREDPONA), flush=True)
     raise SystemExit(1)
 
 import gi  # noqa: E402

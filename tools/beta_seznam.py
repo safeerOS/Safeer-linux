@@ -89,11 +89,15 @@ def zgradi_seznam(oznaka: str, mapa: str, zdaj: datetime, dni: int = 30, repo: s
             raise Napaka("vnos %s ni veljaven" % ime)
         return d
 
+    # Skupni WebKit (paket safeer-webkit, razlicica izdaje): oba paketa .deb ga zahtevata, program ga namesti v istem
+    # apt-get (core/os_posodobitve.py, "webkit_deb"). Beta kanal imajo samo razlicice, ki to polje poznajo (od 1.0.127).
+    webkit = vnos("safeer-webkit_%s_amd64.deb" % brskalnik)
     linux = {
-        "safeer-os": {"razlicica": razlicica_os, "deb": vnos("safeer-os_%s_amd64.deb" % razlicica_os),
+        "safeer-os": {"razlicica": razlicica_os, "deb": vnos("safeer-os_%s_amd64.deb" % razlicica_os), "webkit_deb": webkit,
                       "flatpak": vnos("Safeer-OS-%s-x86_64.flatpak" % razlicica_os),
                       "appimage": vnos("Safeer-OS-%s-x86_64.AppImage" % razlicica_os)},
         "safeer-browser": {"razlicica": brskalnik, "deb": vnos("safeer-browser_%s_amd64.deb" % brskalnik),
+                           "webkit_deb": webkit,
                            "flatpak": vnos("Safeer-Browser-%s-x86_64.flatpak" % brskalnik),
                            "appimage": vnos("Safeer-Browser-%s-x86_64.AppImage" % brskalnik)},
     }
@@ -126,7 +130,7 @@ def preveri_na_githubu(oznaka: str, seznam: dict, repo: str = REPO, odpri=urllib
         raise Napaka("izdaja %s mora biti objavljena predizdaja (prerelease), ne osnutek in ne stabilna" % oznaka)
     velikosti = {a.get("name"): a.get("size") for a in izdaja.get("assets") or []}
     for paket in seznam["linux"].values():
-        for kljuc in ("deb", "flatpak", "appimage"):
+        for kljuc in ("deb", "webkit_deb", "flatpak", "appimage"):
             d = paket.get(kljuc) if isinstance(paket, dict) else None
             if d:
                 ime = d["url"].rsplit("/", 1)[1]

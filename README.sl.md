@@ -91,8 +91,8 @@ sudo apt install ./safeer-browser_1.0.108_all.deb
 Prenesi iz [Izdaj](../../releases/latest). Za vsako izdajo nastanejo trije paketi:
 
 ```bash
-# Debian / Ubuntu / Linux Mint
-sudo apt install ./safeer-browser_<verzija>_amd64.deb
+# Debian / Ubuntu / Linux Mint (brskalnik in njegov spletni pogon safeer-webkit v enem ukazu)
+sudo apt install ./safeer-webkit_<verzija>_amd64.deb ./safeer-browser_<verzija>_amd64.deb
 
 # AppImage — brez namestitve, samo izvršljiv
 chmod +x Safeer-Browser-<verzija>-x86_64.AppImage && ./Safeer-Browser-<verzija>-x86_64.AppImage
@@ -101,10 +101,10 @@ chmod +x Safeer-Browser-<verzija>-x86_64.AppImage && ./Safeer-Browser-<verzija>-
 flatpak install ./Safeer-Browser-<verzija>-x86_64.flatpak
 ```
 
-Ali pa v upravitelju datotek preprosto dvoklikni `.deb`.
+Ali pa v upravitelju datotek dvoklikni datoteki `.deb`: najprej `safeer-webkit`, nato `safeer-browser`.
 
 `.deb` in **Flatpak** imata naš WebKitGTK 2.54 in libsoup 3.8 (gradnja s Clangom in ThinLTO, s popravki
-Safeerja); `.deb` ju hrani v `/usr/lib/safeer-browser/webkit` ob programu in WebKitGTK sistema ne
+Safeerja); `.deb` ju hrani v paketu `safeer-webkit` (`/usr/lib/safeer-webkit`, skupen s Safeer OS) in WebKitGTK sistema ne
 zamenja. AppImage uporablja WebKitGTK sistema, na katerem je zgrajen. Če sta nameščena `.deb` in
 Flatpak, ukaz `safeer` zažene Flatpak (iste nastavitve, prijave in zaznamki). Vsi paketi so narejeni
 samo za x86_64 (amd64).

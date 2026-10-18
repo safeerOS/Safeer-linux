@@ -146,6 +146,47 @@ class Razlicice(unittest.TestCase):
         self.assertIsNone(n["datoteka"])
         self.assertNotIn("tema", n)
 
+    def test_skupni_webkit_v_istem_apt_get(self):
+        """safeer-os in safeer-browser (.deb) zahtevata safeer-webkit iz iste izdaje (od 19. 10. 2026): program ga prenese
+        in namesti v istem apt-get, sicer posodobitev pade (apt-get odvisnosti ne razresi). Seznam za razlicice do 1.0.126
+        ga nosi tudi kot "tema_deb" (te ga tako ze namestijo) - novejsi program ga ne prenese dvakrat."""
+        webkit = {"url": "https://github.com/x/safeer-webkit_1.0.127_amd64.deb", "sha256": "1" * 64, "velikost": 9}
+        m = json.loads(json.dumps(MANIFEST))
+        m["linux"]["safeer-os"]["webkit_deb"] = webkit
+        m["linux"]["safeer-os"]["tema_deb"] = webkit
+        m["linux"]["safeer-browser"] = {"razlicica": "1.0.127", "webkit_deb": webkit,
+                                        "deb": {"url": "https://github.com/x/safeer-browser_1.0.127_amd64.deb", "sha256": "2" * 64}}
+        n = op.preveri("linux", {"safeer-os": "0.4.22"}, m, nacin="deb")["nove"][0]
+        self.assertEqual(n["webkit"], webkit)
+        self.assertEqual([d["url"].rsplit("/", 1)[1] for d in op.datoteke_namestitve(n)],
+                         ["safeer-os_0.4.23_all.deb", "safeer-webkit_1.0.127_amd64.deb"])
+        b = op.preveri("linux", {"safeer-browser": "1.0.126"}, m, nacin="deb")["nove"][0]
+        self.assertEqual([d["url"].rsplit("/", 1)[1] for d in op.datoteke_namestitve(b)],
+                         ["safeer-browser_1.0.127_amd64.deb", "safeer-webkit_1.0.127_amd64.deb"])
+        # Brez veljavnega vnosa WebKita nic napol (samo stran).
+        m["linux"]["safeer-os"]["webkit_deb"] = dict(webkit, sha256="")
+        self.assertIsNone(op.preveri("linux", {"safeer-os": "0.4.22"}, m, nacin="deb")["nove"][0]["datoteka"])
+        # Flatpak in AppImage imata svoj WebKit; Flatpak z .deb (sistemski deli) dobi safeer-webkit ob .deb.
+        m["linux"]["safeer-os"]["webkit_deb"] = webkit
+        for nacin in ("flatpak", "appimage"):
+            self.assertNotIn("webkit", op.preveri("linux", {"safeer-os": "0.4.22"}, m, nacin=nacin)["nove"][0], nacin)
+        h = op.preveri("linux", {"safeer-os": "0.4.22"}, m, nacin="flatpak+deb")["nove"][0]
+        self.assertEqual([d["url"].rsplit("/", 1)[1] for d in op.datoteke_namestitve(h)],
+                         ["Safeer-OS-0.4.23-x86_64.flatpak", "safeer-os_0.4.23_all.deb", "safeer-webkit_1.0.127_amd64.deb"])
+        # Seznam brez polja (pred to izdajo): kot prej.
+        n = op.preveri("linux", {"safeer-os": "0.4.22"}, MANIFEST, nacin="deb")["nove"][0]
+        self.assertNotIn("webkit", n)
+        self.assertEqual(len(op.datoteke_namestitve(n)), 2)
+
+    def test_posodobitev_uporabi_vse_datoteke(self):
+        """Safeer OS in Safeer Control preneseta datoteke iz op.datoteke_namestitve (program, videz, .deb, WebKit)."""
+        koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        for ime in ("safeer_os.py", "safeer_control.py"):
+            with open(os.path.join(koren, ime), encoding="utf-8") as f:
+                vir = f.read()
+            self.assertIn("for d in os_posodobitve.datoteke_namestitve(n):", vir, ime)
+            self.assertNotIn('[n["datoteka"]] + (', vir, ime)
+
 
 @unittest.skipIf(Ed25519PrivateKey is None, "brez python3-cryptography")
 class Podpis(unittest.TestCase):

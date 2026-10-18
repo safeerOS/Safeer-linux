@@ -299,7 +299,8 @@ class OrodjeBetaSeznam(unittest.TestCase):
     OZNAKA = "v1.0.128-beta.1"
     PAKETI = ("safeer-os_0.4.86-beta.1_amd64.deb", "Safeer-OS-0.4.86-beta.1-x86_64.flatpak",
               "Safeer-OS-0.4.86-beta.1-x86_64.AppImage", "safeer-browser_1.0.128-beta.1_amd64.deb",
-              "Safeer-Browser-1.0.128-beta.1-x86_64.flatpak", "Safeer-Browser-1.0.128-beta.1-x86_64.AppImage")
+              "Safeer-Browser-1.0.128-beta.1-x86_64.flatpak", "Safeer-Browser-1.0.128-beta.1-x86_64.AppImage",
+              "safeer-webkit_1.0.128-beta.1_amd64.deb")
 
     def setUp(self):
         self.mapa = tempfile.mkdtemp()
@@ -335,6 +336,10 @@ class OrodjeBetaSeznam(unittest.TestCase):
         op.preveri_svezino(m, "", zdaj)
         i = op.preveri("linux", {"safeer-os": "0.4.85"}, _stabilni("0.4.85"), nacin="deb", kanal="beta", beta_manifest=m)
         self.assertEqual((i["nove"][0]["razlicica"], i["nove"][0]["datoteka"]), ("0.4.86-beta.1", os_p["deb"]))
+        # Skupni WebKit (safeer-webkit) iste bete gre v isti apt-get kot program (oba paketa .deb ga zahtevata).
+        self.assertEqual(os_p["webkit_deb"]["url"].rsplit("/", 1)[1], "safeer-webkit_1.0.128-beta.1_amd64.deb")
+        self.assertEqual(s["linux"]["safeer-browser"]["webkit_deb"], os_p["webkit_deb"])
+        self.assertEqual(i["nove"][0]["webkit"], os_p["webkit_deb"])
 
     def test_zavrne_neskladje(self):
         zdaj = datetime(2026, 10, 18, tzinfo=timezone.utc)

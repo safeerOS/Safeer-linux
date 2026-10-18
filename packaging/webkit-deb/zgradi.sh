@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Nas WebKitGTK 6.0 (GTK4) in libsoup 3 za pakete .deb (Linux Mint 22 / Ubuntu 24.04) - ISTI izvor, popravki in
-# moznosti kot v Flatpaku (packaging/webkit/webkitgtk6-safeer.yml, packaging/libsoup/libsoup3-safeer.yml, prebere ju
-# packaging/webkit-deb/modul.py), prevedeno s Clangom 22 (apt.llvm.org), ThinLTO in lld.
+# Nas WebKitGTK 6.0 (GTK4) in libsoup 3 za paket safeer-webkit (.deb, Linux Mint 22 / Ubuntu 24.04) - ISTI izvor,
+# popravki in moznosti kot v Flatpaku (packaging/webkit/webkitgtk6-safeer.yml, packaging/libsoup/libsoup3-safeer.yml,
+# prebere ju packaging/webkit-deb/modul.py), prevedeno s Clangom 22 (apt.llvm.org), ThinLTO in lld.
 #
-#   zgradi.sh PREDPONA [IZHOD.tar.zst]      npr. zgradi.sh /usr/lib/safeer-browser/webkit build/webkit-brskalnik.tar.zst
+#   zgradi.sh /usr/lib/safeer-webkit [IZHOD.tar.zst]      npr. zgradi.sh /usr/lib/safeer-webkit build/safeer-webkit.tar.zst
 #
-# Namesti v zasebno PREDPONO (nikoli v /usr/lib/x86_64-linux-gnu): sistemski libwebkitgtk-6.0-4 in libsoup-3.0-0 ostaneta
-# nedotaknjena in se z nasima ne tepeta. WebKit ima poti pomoznih procesov (WebKitWebProcess, WebKitNetworkProcess,
-# WebKitGPUProcess) prevedene v knjiznico (LIBEXECDIR v PREDPONI) - zato ima vsak paket svojo gradnjo s svojo predpono
-# (glej build_deb.sh, build_os_deb.sh). Knjiznice imajo DT_RPATH na PREDPONA/lib (WebKit povezuje z
-# --disable-new-dtags), typelibi pa absolutno pot do knjiznice - Python jih najde prek core/zasebni_webkit.py
-# (GI_TYPELIB_PATH), brez LD_LIBRARY_PATH, ki bi se prenesel v vse programe, ki jih zazene Safeer OS.
-# Peskovnik bubblewrap ostane vklopljen (sistemska /usr/bin/bwrap in /usr/bin/xdg-dbus-proxy).
+# Namesti v zasebno predpono /usr/lib/safeer-webkit (nikoli v /usr/lib/x86_64-linux-gnu): sistemski libwebkitgtk-6.0-4 in
+# libsoup-3.0-0 ostaneta nedotaknjena in se z nasima ne tepeta. WebKit ima poti pomoznih procesov (WebKitWebProcess,
+# WebKitNetworkProcess, WebKitGPUProcess) prevedene v knjiznico (LIBEXECDIR v PREDPONI), zato je predpona ena sama in
+# skupna: paket safeer-webkit (packaging/webkit-deb/paket.sh) jo nosi enkrat, safeer-os in safeer-browser ga zahtevata
+# (lastnik, 19. 10. 2026: prej je imel vsak paket svojo kopijo, ~135 MB vsaka, in CI je WebKit gradil dvakrat).
+# Knjiznice imajo DT_RPATH na PREDPONA/lib (WebKit povezuje z --disable-new-dtags), typelibi pa absolutno pot do
+# knjiznice - Python jih najde prek core/zasebni_webkit.py (GI_TYPELIB_PATH), brez LD_LIBRARY_PATH, ki bi se prenesel v
+# vse programe, ki jih zazene Safeer OS. Peskovnik bubblewrap ostane vklopljen (sistemska /usr/bin/bwrap in
+# /usr/bin/xdg-dbus-proxy).
 #
 # PGO (gradnja izdaje je s PGO, lastnik 15. 10. 2026: izmerjeno ThinLTO 9.2 -> PGO 10.7 v Speedometru 3.1):
 #   SAFEER_WEBKIT_PGO=ucenje                          instrumentirana gradnja (-DENABLE_LLVM_PROFILE_GENERATION=ON),
@@ -27,18 +29,19 @@
 # ==============================================================================
 set -euo pipefail
 KOREN="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-PREDPONA="${1:?Uporaba: zgradi.sh PREDPONA [IZHOD.tar.zst]}"
+PREDPONA="${1:?Uporaba: zgradi.sh /usr/lib/safeer-webkit [IZHOD.tar.zst]}"
 IZHOD="${2:-}"
-case "$PREDPONA" in /usr/lib/safeer-*/webkit) ;; *) echo "PREDPONA mora biti /usr/lib/safeer-<paket>/webkit" >&2; exit 2 ;; esac
-# PREDPONA namescenega paketa (npr. /usr/lib/safeer-os/webkit po namestitvi safeer-os) bi rm -rf spodaj izbrisal in
+# Ena predpona za oba programa (paket safeer-webkit): poti pomoznih procesov so prevedene v knjiznico.
+[ "$PREDPONA" = /usr/lib/safeer-webkit ] || { echo "PREDPONA mora biti /usr/lib/safeer-webkit (paket safeer-webkit)" >&2; exit 2; }
+# PREDPONA namescenega paketa (/usr/lib/safeer-webkit po namestitvi safeer-webkit) bi rm -rf spodaj izbrisal in
 # namesceni Safeer bi ostal brez WebKita (pregled 18. 10. 2026). Lokalno gradnjo zato zavrnemo; CI gradi v cistem vsebniku.
 if command -v dpkg >/dev/null 2>&1 && LASTNIK="$(dpkg -S "$PREDPONA" 2>/dev/null)"; then
     cat >&2 <<NAVODILO
 $PREDPONA pripada namescenemu paketu (${LASTNIK%%: *}): gradnja bi ga izbrisala in prepisala.
 Gradi v cistem vsebniku Ubuntu 24.04 (kot CI, posel webkit-deb), npr.:
   docker run --rm -v "$KOREN:/src" -w /src ubuntu:24.04 bash -c \\
-    'bash packaging/webkit-deb/odvisnosti.sh && bash packaging/webkit-deb/zgradi.sh $PREDPONA build/webkit-$(basename "$(dirname "$PREDPONA")").tar.zst'
-ali paket najprej odstrani (sudo apt-get remove ${LASTNIK%%[:,]*}).
+    'bash packaging/webkit-deb/odvisnosti.sh && bash packaging/webkit-deb/zgradi.sh $PREDPONA build/safeer-webkit.tar.zst'
+ali paket najprej odstrani (sudo apt-get remove ${LASTNIK%%[:,]*} - z njim tudi safeer-os in safeer-browser, ki ga zahtevata).
 NAVODILO
     exit 3
 fi

@@ -383,6 +383,14 @@ def preveri(platforma: str, razlicice: Dict[str, str], manifest: Optional[dict] 
                 vnos["tema"] = paket["tema_deb"]
             else:
                 vnos["datoteka"] = None   # paket videza gre v isti apt-get: brez veljavnega vnosa nic napol (samo stran)
+        # Skupni WebKit (paket safeer-webkit, od 19. 10. 2026): safeer-os in safeer-browser (.deb) ga zahtevata v
+        # razlicici izdaje, zato gre v isti apt-get kot program (sicer apt-get odvisnosti ne razresi in posodobitev pade).
+        # Brez veljavnega vnosa nic napol (samo stran). Flatpak in AppImage imata svoj WebKit.
+        if "webkit_deb" in paket and (nacin == "deb" or "deb" in vnos):
+            if veljavna_datoteka(paket["webkit_deb"]):
+                vnos["webkit"] = paket["webkit_deb"]
+            else:
+                vnos["datoteka"] = None
         nove.append(vnos)
     # Besedilo »kaj je novo« in stran izdaje sta od seznama, iz katerega je ponujena razlicica.
     vir, vir_m = (skupina_b, mb) if iz_bete_kaj else (skupina, m)
@@ -397,6 +405,18 @@ def preveri(platforma: str, razlicice: Dict[str, str], manifest: Optional[dict] 
     return {"nove": nove, "nacin": nacin, "flatpak_preklop": preklop, "stran": str(vir_m.get("stran") or STRAN),
             "preverjeno": int(time.time()), "novo": {k: str(v) for k, v in novo.items() if isinstance(v, str)},
             "kanal": kanal, "na_beti": any(je_predizdaja(v) for v in razlicice.values()), "beta_napaka": beta_napaka}
+
+
+def datoteke_namestitve(n: dict) -> List[dict]:
+    """Datoteke ene nove razlicice za prenos in en klic namestitve: program, paket videza, .deb ob Flatpaku in skupni
+    WebKit (safeer-webkit) - vsaka samo enkrat. Seznam za razlicice do 1.0.127~pred nosi safeer-webkit tudi kot
+    "tema_deb" (te ga namestijo v istem apt-get), novejsi program ga zato ne prenese dvakrat."""
+    izid: List[dict] = []
+    for kljuc in ("datoteka", "tema", "deb", "webkit"):
+        d = n.get(kljuc)
+        if isinstance(d, dict) and all(str(d.get("url")) != str(x.get("url")) for x in izid):
+            izid.append(d)
+    return izid
 
 
 def opis(izid: dict) -> str:

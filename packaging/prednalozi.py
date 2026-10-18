@@ -2,7 +2,7 @@
 """Prednalaganje Safeer Browserja (.deb) po prijavi: nas WebKitGTK in koda brskalnika v predpomnilnik strani, da je prvi
 zagon po prijavi tako hiter kot vsak naslednji.
 
-Paket ima svoj WebKitGTK (/usr/lib/safeer-browser/webkit, ~135 MiB): po zagonu racunalnika ga ni v predpomnilniku strani,
+Nas WebKitGTK (paket safeer-webkit, /usr/lib/safeer-webkit, ~135 MiB): po zagonu racunalnika ga ni v predpomnilniku strani,
 zato prvi zagon brskalnika bere knjiznice z diska po kosih (napake strani). Meritev 18. 10. 2026 (testni PC i5-4590,
 SATA SSD, Safeer Browser 1.0.127~pred13, cas od zagona do prvega izrisa lokalne strani, mediana [razpon]):
 toplo 0,93 s [0,88-1,18] (n=6), hladno 1,30 s [1,29-1,73] (n=9), po tem prednalaganju 0,92 s [0,91-0,93] (n=3),
@@ -20,7 +20,9 @@ import time
 
 KOREN = "/usr/lib/safeer-browser"
 #: Mape in datoteke, ki jih brskalnik prebere ob zagonu (Safeer DRM ne: nalozi se sele ob zasciteni vsebini).
-VSEBINA = ("webkit", "core", "ui", "assets", "safeer_brskalnik.py", "packaging")
+VSEBINA = ("core", "ui", "assets", "safeer_brskalnik.py", "packaging")
+#: Skupni WebKit (paket safeer-webkit) ob mapi programa; ce ga ni, mapa webkit v programu (paketi do 1.0.127~pred).
+WEBKIT = ("../safeer-webkit", "webkit")
 ZAMIK = 60
 NEUPORABA_DNI = 14
 NAJMANJ_PROSTEGA_MIB = 1024
@@ -72,9 +74,18 @@ def nizka_prioriteta() -> None:
         pass
 
 
+def webkit(koren: str = KOREN) -> str:
+    for ime in WEBKIT:
+        pot = os.path.normpath(os.path.join(koren, ime))
+        if os.path.isdir(pot):
+            return pot
+    return ""
+
+
 def datoteke(koren: str = KOREN):
-    for ime in VSEBINA:
-        pot = os.path.join(koren, ime)
+    for pot in [webkit(koren)] + [os.path.join(koren, ime) for ime in VSEBINA]:
+        if not pot:
+            continue
         if os.path.isfile(pot) and not os.path.islink(pot):
             yield pot
         for k, _mape, dd in os.walk(pot):

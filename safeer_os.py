@@ -4017,7 +4017,7 @@ class SafeerOS(Gtk.Application):
             mapa = os.path.join(GLib.get_user_cache_dir(), "safeer-os", "posodobitve")
             datoteke = []
             for n in nove:
-                for d in ([n["datoteka"]] + ([n["tema"]] if n.get("tema") else []) + ([n["deb"]] if n.get("deb") else [])):
+                for d in os_posodobitve.datoteke_namestitve(n):
                     ime = str(d["url"]).rsplit("/", 1)[-1]
                     p.sporocilo = ime
                     datoteke.append(os_posodobitve.prenesi(str(d["url"]), os.path.join(mapa, ime), str(d.get("sha256") or ""),

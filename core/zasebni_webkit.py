@@ -1,9 +1,13 @@
 """Nas WebKitGTK in libsoup v paketu .deb (lastnik, 15. 10. 2026: .deb ima isti hitri WebKit kot Flatpak).
 
-Paketa safeer-browser in safeer-os imata WebKitGTK 6.0 in libsoup 3 s popravki Safeerja (packaging/webkit-deb) v
-zasebni predponi /usr/lib/<paket>/webkit - nikoli namesto sistemskih knjiznic Ubuntuja. Knjiznice najdejo druga drugo
-prek DT_RPATH, typelibi imajo absolutno pot do knjiznic (packaging/webkit-deb/typelibi.py); Python mora le vedeti, kje
-so typelibi. nastavi() zato pred `import gi` doda PREDPONA/lib/girepository-1.0 na zacetek GI_TYPELIB_PATH.
+WebKitGTK 6.0 in libsoup 3 s popravki Safeerja (packaging/webkit-deb) sta v paketu safeer-webkit v zasebni predponi
+/usr/lib/safeer-webkit - nikoli namesto sistemskih knjiznic Ubuntuja. Paketa safeer-os in safeer-browser ga zahtevata
+(lastnik, 19. 10. 2026: ena kopija namesto dveh - ko teceta oba programa, si delita strani kode WebKita). Predpona je
+mapa safeer-webkit ob mapi programa (/usr/lib/safeer-os -> /usr/lib/safeer-webkit); iz izvorne mape (razvoj) je ni, zato
+tam ostane WebKit sistema, kot doslej. Mapa webkit v mapi programa (paketi do 1.0.127~pred, razvoj) ima prednost.
+Knjiznice najdejo druga drugo prek DT_RPATH, typelibi imajo absolutno pot do knjiznic (packaging/webkit-deb/typelibi.py);
+Python mora le vedeti, kje so typelibi. nastavi() zato pred `import gi` doda PREDPONA/lib/girepository-1.0 na zacetek
+GI_TYPELIB_PATH.
 
 Paket ima v PREDPONA/lib/gstreamer-1.0 tudi dekoder AV1 dav1ddec (gst-plugins-rs, packaging/webkit-deb/dav1d.sh):
 noble ima libdav1d7, nima pa vticnika GStreamer zanj - brez njega AV1 (YouTube) dekodira pocasni libaom av1dec.
@@ -27,8 +31,12 @@ from typing import Mapping, Optional
 
 TYPELIB = os.path.join("lib", "girepository-1.0", "WebKit-6.0.typelib")
 GST_VTICNIKI = os.path.join("lib", "gstreamer-1.0")
-#: Predpone nasega WebKita v paketih .deb (packaging/webkit-deb): tudi ce je nastavi() klical drug nas proces.
-PREDPONE_PAKETOV = ("/usr/lib/safeer-os/webkit", "/usr/lib/safeer-browser/webkit", "/usr/lib/safeer-control/webkit")
+#: Ime mape skupnega WebKita ob mapah programov (paket safeer-webkit, /usr/lib/safeer-webkit).
+SKUPNI = "safeer-webkit"
+#: Predpone nasega WebKita v paketih .deb (packaging/webkit-deb): tudi ce je nastavi() klical drug nas proces. Stare
+#: (lastna kopija v vsakem paketu, do 1.0.127~pred) ostanejo, ker jih ima lahko v okolju se tekoca starejsa razlicica.
+PREDPONE_PAKETOV = ("/usr/lib/safeer-webkit", "/usr/lib/safeer-os/webkit", "/usr/lib/safeer-browser/webkit",
+                    "/usr/lib/safeer-control/webkit")
 #: Spremenljivke, ki jih postavi zaganjalnik AppImage (runtime in AppRun-os) in ne sodijo v zunanji program.
 SAMO_APPIMAGE = ("APPIMAGE", "APPDIR", "ARGV0", "OWD", "SAFEER_PORTABLE", "PYTHONNOUSERSITE")
 _nastavljena: Optional[str] = None
@@ -37,11 +45,10 @@ _nastavljena: Optional[str] = None
 def predpona(koren: str) -> Optional[str]:
     """Mapa nasega WebKita za program v mapi koren (npr. /usr/lib/safeer-browser) ali None.
 
-    Safeer Control v paketu safeer-os tece iz /usr/lib/safeer-control in uporabi WebKit paketa safeer-os."""
+    Najprej koren/webkit (paket z lastno kopijo, razvoj), nato skupni safeer-webkit ob mapi programa: /usr/lib/safeer-os,
+    /usr/lib/safeer-control (Safeer Control v paketu safeer-os) in /usr/lib/safeer-browser -> /usr/lib/safeer-webkit."""
     koren = os.path.abspath(koren)
-    mape = [os.path.join(koren, "webkit")]
-    if os.path.basename(koren) == "safeer-control":
-        mape.append(os.path.join(os.path.dirname(koren), "safeer-os", "webkit"))
+    mape = [os.path.join(koren, "webkit"), os.path.join(os.path.dirname(koren), SKUPNI)]
     for mapa in mape:
         if os.path.isfile(os.path.join(mapa, TYPELIB)):
             return mapa

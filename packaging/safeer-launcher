@@ -35,7 +35,7 @@ for arg in "$@"; do
     esac
 done
 
-# Od 15. 10. 2026 ima tudi .deb nas WebKitGTK s popravki (/usr/lib/safeer-browser/webkit, core/zasebni_webkit.py). Kot
+# Od 15. 10. 2026 ima tudi .deb nas WebKitGTK s popravki (paket safeer-webkit, core/zasebni_webkit.py). Kot
 # pri Safeer OS: ce sta Flatpak Safeer Browser in njegov runtime namescena in Flatpak ni starejsi od tega paketa,
 # zaganjalnik .deb zazene Flatpak (podatki so isti, glej zgoraj; uporabnik, ki je namestil Flatpak, je izbral njegov
 # peskovnik). SAFEER_BRSKALNIK_BREZ_FLATPAKA=1 obdrzi .deb.

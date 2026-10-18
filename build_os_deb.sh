@@ -2,9 +2,10 @@
 # ==============================================================================
 # Safeer OS (Linux) — Debian / Ubuntu / Linux Mint .deb Package Builder
 # Produces safeer-os_<version>_amd64.deb: THE one Safeer package for Linux (since 12. 10. 2026). Since 15. 10. 2026 it
-# carries our WebKitGTK 6.0 and libsoup 3 (SAFEER_WEBKIT_TAR, packaging/webkit-deb) in /usr/lib/safeer-os/webkit, the same
-# engine as the Flatpak. Without SAFEER_WEBKIT_TAR (local builds, tests) it is safeer-os_<version>_all.deb on the
-# system WebKitGTK.
+# runs on our WebKitGTK 6.0 and libsoup 3, the same engine as the Flatpak; since 19. 10. 2026 that engine is the shared
+# package safeer-webkit (/usr/lib/safeer-webkit, packaging/webkit-deb/paket.sh, SAFEER_WEBKIT_DEB), which safeer-os and
+# safeer-browser both depend on - one copy instead of two. Without SAFEER_WEBKIT_DEB (local builds, tests) it is
+# safeer-os_<version>_all.deb on the system WebKitGTK.
 # One download, one install, one update: Safeer OS with its desktop workspace, Safeer Control (Safeer Link,
 # devices, D-Bus, safeerctl) and Safeer Cinnamon (look, dock, workspace layout, boot/login look).
 #
@@ -27,15 +28,18 @@ CINNAMON_VERSION="$(cat "$DIR/packaging/VERSION_CINNAMON")"
 # Polja paketa (Version, Provides, Conflicts): beta 0.4.86-beta.1 kot 0.4.86~beta.1, da jo koncna 0.4.86 posodobi
 # (packaging/deb_razlicica.sh). Ime datoteke ostane z »-beta.N« kot oznaka izdaje.
 DEB_VERSION="$(bash "$DIR/packaging/deb_razlicica.sh" "$VERSION")"
+# Do 19. 10. 2026 je vsak paket nosil svoj WebKit (SAFEER_WEBKIT_TAR); zdaj je v paketu safeer-webkit. Star klic bi tiho
+# zgradil paket na WebKitu sistema - zato ga zavrnemo.
+[ -z "${SAFEER_WEBKIT_TAR:-}" ] || { echo "SAFEER_WEBKIT_TAR ni vec: SAFEER_WEBKIT_DEB=safeer-webkit_*.deb (packaging/webkit-deb/paket.sh)" >&2; exit 2; }
 DEB_CONTROL_VERSION="$(bash "$DIR/packaging/deb_razlicica.sh" "$CONTROL_VERSION")"
 DEB_CINNAMON_VERSION="$(bash "$DIR/packaging/deb_razlicica.sh" "$CINNAMON_VERSION")"
-WEBKIT_TAR="${SAFEER_WEBKIT_TAR:-}"
+WEBKIT_DEB="${SAFEER_WEBKIT_DEB:-}"
 # Node.js (x86_64) je v paketu vedno, razen v preizkusih paketa (SAFEER_DEB_BREZ_NODE=1, brez 30 MB prenosa).
 NODE=1
 [ "${SAFEER_DEB_BREZ_NODE:-0}" = 1 ] && NODE=0
 # Safeer DRM (SAFEER_DRM_TOVOR, packaging/namesti_safeer_drm.sh) ima programe za x86_64: paket je tudi z njim amd64.
 # Nas rqbit (SAFEER_RQBIT_TOVOR, packaging/rqbit) je program za x86_64: paket je z njim amd64.
-if [ -n "$WEBKIT_TAR" ] || [ -n "${SAFEER_DRM_TOVOR:-}" ] || [ -n "${SAFEER_RQBIT_TOVOR:-}" ] || [ "$NODE" = 1 ]; then ARCH="amd64"; else ARCH="all"; fi
+if [ -n "$WEBKIT_DEB" ] || [ -n "${SAFEER_DRM_TOVOR:-}" ] || [ -n "${SAFEER_RQBIT_TOVOR:-}" ] || [ "$NODE" = 1 ]; then ARCH="amd64"; else ARCH="all"; fi
 DEB_PACKAGE="${PKG_NAME}_${VERSION}_${ARCH}.deb"
 STAGE="$DIR/build/stage-os"
 BUILD_ROOT="$DIR/build/deb-os"
@@ -79,12 +83,11 @@ sed -i 's|^Exec=safeer-os|Exec=/usr/bin/safeer-os|' "$BUILD_ROOT/usr/share/appli
     "$BUILD_ROOT/usr/share/applications/safeer-os.Player.desktop" \
     "$BUILD_ROOT"/usr/share/applications/safeer-os.{splet,sporocila,zapiski,nastavitve,scit}.desktop
 sed -i 's|^Exec=safeer-control|Exec=/usr/bin/safeer-control|' "$BUILD_ROOT/usr/share/applications/safeer-control.desktop"
-# SAFEER_DAV1D=MAPA (CI: posel dav1d-deb): se dekoder AV1 dav1ddec v predpono (packaging/webkit-deb/vgradi.sh).
-# Nas WebKitGTK in libsoup (core/zasebni_webkit.py; Safeer Control iz /usr/lib/safeer-control uporabi istega). Njune
-# knjiznice dobijo odvisnosti iz dpkg-shlibdeps, peskovnik bwrap in xdg-dbus-proxy, libsoup glib-networking (TLS).
-if [ -n "$WEBKIT_TAR" ]; then
-    WEBKIT_ODVISNOSTI="$(bash "$DIR/packaging/webkit-deb/vgradi.sh" "$BUILD_ROOT" "$PKG_NAME" "$WEBKIT_TAR")"
-    SPLET_ODVISNOSTI="${WEBKIT_ODVISNOSTI}, bubblewrap, xdg-dbus-proxy, glib-networking"
+# Nas WebKitGTK in libsoup iz paketa safeer-webkit (core/zasebni_webkit.py: /usr/lib/safeer-webkit ob /usr/lib/safeer-os
+# in /usr/lib/safeer-control). Knjiznice, peskovnik (bwrap, xdg-dbus-proxy), TLS (glib-networking) in dekoder AV1
+# dav1ddec zahteva in nosi safeer-webkit; ta paket ga zahteva v razlicici te izdaje ali novejsi.
+if [ -n "$WEBKIT_DEB" ]; then
+    SPLET_ODVISNOSTI="$(bash "$DIR/packaging/webkit-deb/razlicica_odvisnosti.sh" "$WEBKIT_DEB")"
 else
     SPLET_ODVISNOSTI="gir1.2-webkit-6.0, gir1.2-soup-3.0"
 fi
@@ -243,7 +246,7 @@ done
 
 echo "🔨 Izdelava paketa z dpkg-deb..."
 # Installed-Size (KiB): namestitveni programi (GDebi, Captain, apt) uporabniku pokazejo, koliko prostora paket zasede
-# (z nasim WebKitom ~135 MiB vec); dpkg-deb ga sam ne izracuna.
+# (nas WebKit, ~135 MiB, steje paket safeer-webkit); dpkg-deb ga sam ne izracuna.
 echo "Installed-Size: $(du -sk --exclude=DEBIAN "$BUILD_ROOT" | cut -f1)" >> "$BUILD_ROOT/DEBIAN/control"
 dpkg-deb --build --root-owner-group "$BUILD_ROOT" "$DIR/$DEB_PACKAGE"
 echo "✅ $DIR/$DEB_PACKAGE"

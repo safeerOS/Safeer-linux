@@ -16,8 +16,10 @@ paket() { local p; p="$(ls /paketi/$1 2>/dev/null | head -1)"; [ -f "$p" ] || { 
 # 1.0.128-beta.1 (packaging/deb_razlicica.sh); stabilna je enaka.
 v_program() { sed -E 's/~((alpha|beta|rc)(\.[0-9]+)?)$/-\1/'; }
 razlicica() { dpkg-deb -f "$1" Version | v_program; }
-# Od 15. 10. 2026 sta paketa amd64 (nas WebKitGTK in libsoup v /usr/lib/<paket>/webkit, packaging/webkit-deb).
+# Od 15. 10. 2026 sta paketa amd64 (nas WebKitGTK in libsoup, packaging/webkit-deb); od 19. 10. 2026 je WebKit v skupnem
+# paketu safeer-webkit (/usr/lib/safeer-webkit), ki ga zahtevata oba.
 BRSKALNIK="$(paket 'safeer-browser_*_amd64.deb')"
+WEBKIT="$(paket 'safeer-webkit_*_amd64.deb')"
 # Od 12. 10. 2026 je Safeer OS en paket: Safeer Control in Safeer Cinnamon sta v njem (glej build_os_deb.sh).
 OS="$(paket 'safeer-os_*_amd64.deb')"
 VSEBNIK_OS="$(dpkg-deb -c "$OS" | awk '{print $6}' | sed -n 's|^\./||p')"
@@ -59,9 +61,9 @@ if ls /prejsnji/safeer-*.deb >/dev/null 2>&1; then
   echo "   nato posodobitev z ukazom, s katerim jo namesti Safeer OS (apt-get install --allow-downgrades)"
 fi
 # --reinstall: tudi kadar ima prejsnja izdaja isto stevilko (veja pred novo stevilko razlicice), se namestijo novi paketi.
-apt-get install -y -q --allow-downgrades --reinstall --no-install-recommends "$BRSKALNIK" "$OS" >"$ZACASNO/namestitev.log" 2>&1 \
+apt-get install -y -q --allow-downgrades --reinstall --no-install-recommends "$WEBKIT" "$BRSKALNIK" "$OS" >"$ZACASNO/namestitev.log" 2>&1 \
   || { tail -40 "$ZACASNO/namestitev.log"; echo "NAPAKA: namestitev"; exit 1; }
-for p in safeer-browser safeer-os; do
+for p in safeer-webkit safeer-browser safeer-os; do
   dpkg-query -W -f '${Package} ${Version} ${db:Status-Abbrev}\n' "$p" | tee /dev/stderr | grep -q " ii " || { echo "NAPAKA: $p ni namescen"; exit 1; }
 done
 for p in safeer-control safeer-cinnamon; do
@@ -79,9 +81,20 @@ for mapa in /usr/lib/safeer-browser /usr/lib/safeer-control /usr/lib/safeer-os; 
     || { echo "NAPAKA: $mapa nima bajtne kode za vse module (postinst je ni prevedel)"; exit 1; }
 done
 
-for p in safeer-browser safeer-os; do
+for p in safeer-webkit safeer-browser safeer-os; do
   [ "$(dpkg-query -W -f '${Architecture}' "$p")" = amd64 ] || { echo "NAPAKA: $p ni amd64 (ni nasega WebKita)"; exit 1; }
 done
+# Posodobitev s paketov z lastno kopijo WebKita (do 1.0.127~pred): dpkg odstrani datoteke, ki jih novi paket nima - ena
+# kopija ostane, v /usr/lib/safeer-webkit. Ostanek bi zasedal ~135 MB na kopijo.
+for star in /usr/lib/safeer-os/webkit /usr/lib/safeer-browser/webkit /usr/lib/safeer-control/webkit; do
+  [ ! -e "$star" ] || { find "$star" | head -10; echo "NAPAKA: po posodobitvi je ostala stara kopija WebKita $star"; exit 1; }
+done
+for star in safeer-os safeer-browser; do
+  if dpkg -L "$star" | grep -E '^/usr/lib/safeer-(os|browser|control)/webkit(/|$)'; then echo "NAPAKA: $star ima svojo kopijo WebKita"; exit 1; fi
+done
+# grep brez -q: s pipefail bi -q zaprl cev in dpkg -L bi dobil SIGPIPE (glej zgoraj).
+dpkg -L safeer-webkit | grep -x /usr/lib/safeer-webkit/libexec/webkitgtk-6.0/WebKitWebProcess >/dev/null \
+  || { echo "NAPAKA: safeer-webkit nima WebKitWebProcess v /usr/lib/safeer-webkit"; exit 1; }
 
 echo "== 1a. nas WebKitGTK in libsoup (navaden uporabnik, peskovnik bubblewrap)"
 # Brez sistemskega WebKitGTK 6.0 (paketa ga ne zahtevata) in nato z njim: paketa morata teci na svojem.
@@ -178,9 +191,9 @@ safeer-cinnamon --help >/dev/null
 echo "== 6. odstranitev ne pusti nicesar"
 # safeer-os-tema (staro celozaslonsko namizje) ni vec v izdaji; ce ga je namestila prejsnja izdaja, gre tudi on.
 dpkg-query -W -f '${db:Status-Abbrev}\n' safeer-os-tema 2>/dev/null | grep -q "^ii" && TEMA_STARA=safeer-os-tema || TEMA_STARA=""
-apt-get remove -y -q $TEMA_STARA safeer-os safeer-browser >"$ZACASNO/odstranitev.log" 2>&1 \
+apt-get remove -y -q $TEMA_STARA safeer-os safeer-browser safeer-webkit >"$ZACASNO/odstranitev.log" 2>&1 \
   || { tail -30 "$ZACASNO/odstranitev.log"; echo "NAPAKA: odstranitev"; exit 1; }
-for ostanek in /usr/lib/safeer-os /usr/lib/safeer-control /usr/lib/safeer-browser /usr/lib/safeer-cinnamon \
+for ostanek in /usr/lib/safeer-os /usr/lib/safeer-control /usr/lib/safeer-browser /usr/lib/safeer-cinnamon /usr/lib/safeer-webkit \
                /usr/bin/safeer /usr/bin/safeer-os /usr/bin/safeer-control /usr/bin/safeerctl /usr/bin/safeer-cinnamon \
                /usr/share/themes/Safeer-Cinnamon /usr/share/applications/safeer-os.desktop; do
   [ ! -e "$ostanek" ] || { echo "NAPAKA: po odstranitvi je ostalo $ostanek"; find "$ostanek" | head -5; exit 1; }

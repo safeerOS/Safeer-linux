@@ -14,8 +14,9 @@ T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 git -C "$korenin" archive "$sha" | tar -x -C "$T"
 cd "$T" || exit 1
 # Vsi preizkusi v enem procesu, kot v CI (samo GTK 4; GTK3 je umaknjen 18. 10. 2026). WebKitGTK 6.0 je tisti, ki ga
-# prinese namesceni Safeer OS.
-W=/usr/lib/safeer-os/webkit/lib
+# prinese namesceni Safeer OS: paket safeer-webkit (od 19. 10. 2026), prej kopija v paketu safeer-os.
+W=/usr/lib/safeer-webkit/lib
+[ -d "$W" ] || W=/usr/lib/safeer-os/webkit/lib
 echo "pre-push: testi na ${sha:0:7} ..."
 # Zaslon kot v CI (xvfb-run): brez zaslona WebKit ob ustvarjanju konteksta pade (segfault) - prej je zapora to
 # spregledala, ker je iskala samo vrstice FAILED (18. 10. 2026).

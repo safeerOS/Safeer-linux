@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Nas WebKitGTK in libsoup (arhiv iz packaging/webkit-deb/zgradi.sh) v drevo paketa .deb.
+# Nas WebKitGTK in libsoup (arhiv iz packaging/webkit-deb/zgradi.sh) v drevo paketa safeer-webkit (packaging/webkit-deb/paket.sh).
 #
-#   vgradi.sh KOREN_PAKETA PAKET ARHIV.tar.zst     npr. vgradi.sh build/deb safeer-browser build/webkit-safeer-browser.tar.zst
+#   vgradi.sh KOREN_PAKETA ARHIV.tar.zst     npr. vgradi.sh build/deb-webkit build/safeer-webkit.tar.zst
 #
-# Razpakira /usr/lib/PAKET/webkit, preveri, da je arhiv zgrajen za to predpono (poti pomoznih procesov so prevedene v
+# Razpakira /usr/lib/safeer-webkit, preveri, da je arhiv zgrajen za to predpono (poti pomoznih procesov so prevedene v
 # knjiznico) in s Clangom 22 + ThinLTO, ter na stdout izpise odvisnosti knjiznic (dpkg-shlibdeps) za polje Depends.
 # Sporocila gredo na stderr.
 #
@@ -12,9 +12,10 @@
 # dpkg-shlibdeps iz knjiznice vticnika.
 set -euo pipefail
 KOREN="${1:?KOREN_PAKETA}"
-PAKET="${2:?PAKET}"
-ARHIV="${3:?ARHIV}"
-PREDPONA="/usr/lib/$PAKET/webkit"
+ARHIV="${2:?ARHIV}"
+[ "$#" = 2 ] || { echo "vgradi.sh: KOREN_PAKETA ARHIV.tar.zst (od 19. 10. 2026 ena predpona, brez imena paketa)" >&2; exit 2; }
+PAKET="safeer-webkit"
+PREDPONA="/usr/lib/$PAKET"
 WK="$KOREN$PREDPONA"
 [ -f "$ARHIV" ] || { echo "vgradi.sh: arhiva $ARHIV ni" >&2; exit 1; }
 rm -rf "$WK"

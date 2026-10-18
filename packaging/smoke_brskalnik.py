@@ -123,7 +123,7 @@ def preveri_webkit():
         knjiznice = sorted({v_.split()[-1] for v_ in f if "libwebkitgtk-6.0" in v_})
     print("WebKitGTK %d.%d.%d" % v, knjiznice, flush=True)
     # V Flatpaku mora biti nas WebKit (/app), ne tisti iz runtime-a org.gnome.Platform; v paketu .deb z nasim WebKitom
-    # (packaging/webkit-deb) iz /usr/lib/safeer-browser/webkit, tudi ce je namescen sistemski WebKitGTK 6.0.
+    # (paket safeer-webkit, packaging/webkit-deb) iz /usr/lib/safeer-webkit, tudi ce je namescen sistemski WebKitGTK 6.0.
     from core import zasebni_webkit
     predpona = None if V_FLATPAKU else zasebni_webkit.predpona(LIB)
     if predpona:

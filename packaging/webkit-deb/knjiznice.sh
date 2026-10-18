@@ -3,7 +3,7 @@
 # dpkg-shlibdeps (packaging/webkit-deb/vgradi.sh) mora vsako knjiznico najti v namescenem paketu, da zapise odvisnost.
 # Sistemski libwebkitgtk-6.0-4 (2.52.6) jih ne potegne vseh: Ubuntu ga gradi brez JPEG XL, AVIF in WOFF2.
 # libdav1d7: dekoder AV1 dav1ddec v predponi (packaging/webkit-deb/dav1d.sh).
-# Tece kot root (CI: posla brskalnik in safeer-os). Paketi so iz main in universe (Linux Mint ima oba).
+# Tece kot root (CI: posel webkit-deb pred packaging/webkit-deb/paket.sh). Paketi so iz main in universe (Linux Mint ima oba).
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 apt-get install -y -q --no-install-recommends \
