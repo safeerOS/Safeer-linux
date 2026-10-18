@@ -247,6 +247,30 @@ class SkripteVSpletu(unittest.TestCase):
         okno.destroy()
         us.odstrani(nova[0]["id"])
 
+    def test_6_urejevalnik_nova_in_sprememba(self):
+        pred = set(Gtk.Window.list_toplevels())
+        self.splet.skripte.uredi(None)                          # »Nova skripta …«: predloga z glavo
+        ured = next(w for w in Gtk.Window.list_toplevels() if w not in pred)
+        koda = next(g for g in _otroci(ured) if isinstance(g, Gtk.TextView))
+        b = koda.get_buffer()
+        self.assertIn("==UserScript==", b.get_text(b.get_start_iter(), b.get_end_iter(), True))
+        b.set_text(POVSOD.replace("Povsod", "Iz urejevalnika"))
+        ured.odgovor(Gtk.ResponseType.OK)
+        nova = [s for s in us.skripte_js(KOREN) if s["naslov"] == "Iz urejevalnika"]
+        self.assertEqual(len(nova), 1)
+        self.assertTrue(nova[0]["vklopljena"])
+        # sprememba obstojece: ista skripta (id, vklop), nova koda
+        pred = set(Gtk.Window.list_toplevels())
+        self.splet.skripte.uredi(nova[0]["id"])
+        ured = next(w for w in Gtk.Window.list_toplevels() if w not in pred)
+        koda = next(g for g in _otroci(ured) if isinstance(g, Gtk.TextView))
+        koda.get_buffer().set_text(POVSOD.replace("Povsod", "Spremenjena").replace("*://*/*", "https://example.com/*"))
+        ured.odgovor(Gtk.ResponseType.OK)
+        s = next(x for x in us.skripte_js(KOREN) if x["id"] == nova[0]["id"])
+        self.assertEqual((s["naslov"], s["vklopljena"], s["pripravljeno"]["dovoljeni"]),
+                         ("Spremenjena", True, ["https://example.com/*"]))
+        us.odstrani(s["id"])
+
 
 if __name__ == "__main__":
     unittest.main()

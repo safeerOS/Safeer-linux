@@ -3,7 +3,6 @@
 Ena shramba (core/uporabniske_skripte.py) in eno jedro (core/userscripts.py) za Splet in Medijski center; tu preverimo
 pomen vzorcev (enak kot v WebKitu, izmerjeno z WebKitGTK 2.52 18. 10. 2026), notranje strani, shrambo GM_setValue,
 selitev skript GTK3 brskalnika in besedila v vseh jezikih. Zivi del je v test_userscripts_splet_zivo.py."""
-import json
 import os
 import re
 import shutil

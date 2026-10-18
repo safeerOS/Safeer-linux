@@ -247,7 +247,8 @@ def besedilo(jezik: str, kljuc: str, **vrednosti) -> str:
 
 
 def css(tokeni: dict) -> str:
-    """CSS oznake in seznama iz assets/os/tokens.css ({ime: (r, g, b, a)}); brez tokenov prazno (tema GTK)."""
+    """CSS oznake iz assets/os/tokens.css ({ime: (r, g, b, a)}) - oznaka je na temni vrstici Spleta; brez tokenov prazno.
+    Okno za upravljanje je v temi GTK (svetla ali temna): tam razreda teme dim-label in warning (kontrast po temi)."""
     def b(ime: str) -> str:
         r, g, m, a = tokeni[ime]
         return "rgba(%d,%d,%d,%.3f)" % (r, g, m, a)
@@ -256,10 +257,8 @@ def css(tokeni: dict) -> str:
                 "margin: 6px 2px; min-height: 0; font-weight: 600; font-size: 12px; box-shadow: none; }\n"
                 ".%s:hover { background: %s; }\n"
                 ".%s:focus-visible { outline: 2px solid %s; outline-offset: 1px; }\n"
-                ".splet-skripte-stanje { color: %s; }\n"
-                ".splet-skripte-opozorilo { color: %s; }\n"
                 % (RAZRED_ZNAKA, b("media-poudarek"), b("zelena"), b("rob"), RAZRED_ZNAKA, b("izbrano"),
-                   RAZRED_ZNAKA, b("fokus"), b("medlo"), b("opozorilo")))
+                   RAZRED_ZNAKA, b("fokus")))
     except (KeyError, TypeError, ValueError):
         return ""
 
@@ -288,6 +287,15 @@ def opis_skripte(jezik: str, s: Dict[str, Any]) -> str:
     if s.get("kje") == "oboje":
         deli.append(besedilo(jezik, "tudi_spotify"))
     return " ".join(deli)
+
+
+def _gradniki(g):
+    """Vsi gradniki pod g (GTK4), po vrsti."""
+    o = g.get_first_child()
+    while o is not None:
+        yield o
+        yield from _gradniki(o)
+        o = o.get_next_sibling()
 
 
 def _js_vrednost(rezultat):
@@ -509,14 +517,14 @@ class SpletSkripte:
             return l
 
         obmocje.append(napis(self.t("opis")))
-        obmocje.append(napis(self.t("mapa", pot=str(uporabniske_skripte.mapa())), "splet-skripte-stanje", True))
+        obmocje.append(napis(self.t("mapa", pot=str(uporabniske_skripte.mapa())), "dim-label", True))
         okvir = Gtk.ScrolledWindow()
         okvir.set_vexpand(True)
         okvir.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         seznam = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         okvir.set_child(seznam)
         obmocje.append(okvir)
-        sporocilo = napis("", "splet-skripte-opozorilo")
+        sporocilo = napis("")
         sporocilo.set_visible(False)
         obmocje.append(sporocilo)
         potrditev = Gtk.Revealer()
@@ -551,7 +559,7 @@ class SpletSkripte:
             if r.get("ok") and uporabniske_skripte.vrsta_iz_imena(r["ime"]) != "js":
                 r = {"ok": False, "napaka": "vrsta"}
             if not r.get("ok"):
-                self._sporoci(self.t(NAPAKE.get(r.get("napaka"), "napaka")))
+                self._sporoci(self.t(NAPAKE.get(r.get("napaka"), "napaka")), napaka=True)
                 return
             self._ponudi(r["ime"], r["vsebina"])
         po_poti.connect("clicked", s_poti)
@@ -561,24 +569,29 @@ class SpletSkripte:
             self._okno = None
             self._d = None
             # Sprememba, ki zadeva trenutno stran, se vidi takoj: stran se nalozi znova (kot pri stopnji zascite).
-            if trenutni is not None and self._za_naslov(trenutni) != prej:
+            if trenutni is not None and trenutni in self._pogledi() and self._za_naslov(trenutni) != prej:
                 uri = trenutni.get_uri() or ""
                 if uri.startswith(("http://", "https://")):
                     trenutni.reload()
         d.connect("destroy", zaprto)
         self._narisi()
+        # Prvi fokus na dejanje, ne na izbirno besedilo (to bi se ob odprtju oznacilo v celoti).
+        prvo = next((g for g in _gradniki(seznam) if isinstance(g, Gtk.Switch)), uvozi)
+        d.set_focus(prvo)
         d.present()
 
     def _za_naslov(self, pogled) -> list:
-        """Id-ji vklopljenih skript, ki bi tekle na strani pogleda (za ponovno nalaganje po spremembi)."""
+        """Skripte (id in koda), ki bi tekle na strani pogleda - za ponovno nalaganje po spremembi ali urejanju.
+        Vrednosti GM_setValue niso zraven: zapis strani med odprtim oknom je ne nalozi znova."""
         uri = (pogled.get_uri() or "") if pogled is not None else ""
-        return [s["id"] for s, _us in self.pripravljene() if userscripts.velja(s["pripravljeno"], uri)]
+        return [(s["id"], s["koda"]) for s, _us in self.pripravljene() if userscripts.velja(s["pripravljeno"], uri)]
 
-    def _sporoci(self, besedilo_sporocila: str) -> None:
+    def _sporoci(self, besedilo_sporocila: str, napaka: bool = False) -> None:
         d = getattr(self, "_d", None)
         if d:
             d["sporocilo"].set_text(besedilo_sporocila)
             d["sporocilo"].set_visible(bool(besedilo_sporocila))
+            (d["sporocilo"].add_css_class if napaka else d["sporocilo"].remove_css_class)("warning")
 
     def _narisi(self) -> None:
         d = getattr(self, "_d", None)
@@ -592,7 +605,7 @@ class SpletSkripte:
             otrok = naslednji
         skripte = uporabniske_skripte.skripte_js(self.koren)
         if not skripte:
-            seznam.append(napis(self.t("prazno"), "splet-skripte-stanje"))
+            seznam.append(napis(self.t("prazno"), "dim-label"))
         jezik = self.jezik()
         for s in skripte:
             vrsta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -612,14 +625,14 @@ class SpletSkripte:
             for g in (ime, stikalo, uredi, odstrani):
                 vrh.append(g)
             vrsta.append(vrh)
-            vrsta.append(napis(opis_skripte(jezik, s), "splet-skripte-stanje", True))
-            vrsta.append(napis(self.t("datoteka", pot=s["pot"]), "splet-skripte-stanje", True))
+            vrsta.append(napis(opis_skripte(jezik, s), "dim-label", True))
+            vrsta.append(napis(self.t("datoteka", pot=s["pot"]), "dim-label", True))
             seznam.append(vrsta)
 
     def _vklopi(self, sid: str, da: bool) -> None:
         r = uporabniske_skripte.vklopi(sid, da)
         if not r.get("ok"):
-            self._sporoci(self.t("napaka"))
+            self._sporoci(self.t("napaka"), napaka=True)
         self.osvezi_vse()
 
     def _odstrani(self, sid: str) -> None:
@@ -660,11 +673,11 @@ class SpletSkripte:
             except Exception:  # noqa: BLE001
                 velikost = 0
             if velikost > uporabniske_skripte.NAJVEC_BAJTOV:
-                self._sporoci(self.t("napaka_velikost"))
+                self._sporoci(self.t("napaka_velikost"), napaka=True)
                 return
             ime = datoteka.get_basename() or "skripta.js"
             if uporabniske_skripte.vrsta_iz_imena(ime) != "js":
-                self._sporoci(self.t("napaka_vrsta"))
+                self._sporoci(self.t("napaka_vrsta"), napaka=True)
                 return
 
             def prebrano(dat, rez, *_a):
@@ -674,7 +687,7 @@ class SpletSkripte:
                 except Exception:  # noqa: BLE001
                     besedilo_skripte = ""
                 if not besedilo_skripte:
-                    self._sporoci(self.t("napaka"))
+                    self._sporoci(self.t("napaka"), napaka=True)
                     return
                 self._ponudi(ime, besedilo_skripte)
             datoteka.load_contents_async(None, prebrano, None)
@@ -689,7 +702,7 @@ class SpletSkripte:
         glava = userscripts.razclenii_glavo(vsebina)
         prikaz = glava.get("name") or ime
         okvir = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        okvir.append(d["napis"](self.t("opozorilo", ime=prikaz), "splet-skripte-opozorilo"))
+        okvir.append(d["napis"](self.t("opozorilo", ime=prikaz), "warning"))
         gumbi = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         da = Gtk.Button(label=self.t("potrdi"))
         ne = Gtk.Button(label=self.t("preklici"))
@@ -713,14 +726,14 @@ class SpletSkripte:
     def _dodaj(self, ime: str, vsebina: str, prikaz: str) -> None:
         r = uporabniske_skripte.uvozi(ime, vsebina, "js")
         if not r.get("ok"):
-            self._sporoci(self.t(NAPAKE.get(r.get("napaka"), "napaka")))
+            self._sporoci(self.t(NAPAKE.get(r.get("napaka"), "napaka")), napaka=True)
             return
         # Uporabnik je skripto izbral in potrdil opozorilo: vklopi se, ce na spletnih straneh lahko tece.
         if uporabniske_skripte.kje(vsebina) in ("splet", "oboje"):
             uporabniske_skripte.vklopi(r["skripta"]["id"], True)
             self._sporoci(self.t("dodana", ime=prikaz))
         else:
-            self._sporoci(self.t("dodana_ne", ime=prikaz))
+            self._sporoci(self.t("dodana_ne", ime=prikaz), napaka=True)
         self.osvezi_vse()
         self._narisi()
 
@@ -736,13 +749,13 @@ class SpletSkripte:
         okvir = Gtk.ScrolledWindow()
         okvir.set_vexpand(True)
         koda = Gtk.TextView(monospace=True)
-        koda.set_wrap_mode(s.Pango.WrapMode.NONE)
+        koda.set_wrap_mode(Gtk.WrapMode.NONE)
         koda.update_property([Gtk.AccessibleProperty.LABEL], [self.t("urejevalnik")])
         koda.get_buffer().set_text(obstojeca["koda"] if obstojeca else PREDLOGA.format(ime=self.t("nova").rstrip(" …")))
         okvir.set_child(koda)
         obmocje.append(okvir)
         izid = Gtk.Label(xalign=0, wrap=True)
-        izid.add_css_class("splet-skripte-opozorilo")
+        izid.add_css_class("warning")
         obmocje.append(izid)
 
         def odgovor(o):
