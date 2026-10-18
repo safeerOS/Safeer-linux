@@ -379,7 +379,13 @@ def nastavi_kompozitor(WebKit2, nastavitve, skia: bool = False) -> bool:
     Skia kompozitor naredi za n elementov z backdrop-filter 2^n izrisov podrevesa (WebKit SkiaCompositingLayer::
     paintBackdrop; poroceno gorvodno 13. 10. 2026): stran z 20+ takimi elementi ustavi izris, porabi 100 % jedra in
     pomnilnik raste do OOM. TextureMapper na 10 straneh ni pocasnejsi (hladno LCP -16 %, toplo load -11 %, FCP enak;
-    zameglitev ozadja, filtri in 3D enaki na 1,6/255). Vrne True, ce WebKit to stikalo pozna (2.54+)."""
+    zameglitev ozadja, filtri in 3D enaki na 1,6/255). Vrne True, ce WebKit to stikalo pozna (2.54+).
+
+    Ponovna meritev 18. 10. 2026 z nasim popravkom 2^n (testni PC, Safeer Browser 1.0.127~pred13, 3 ponovitve, mediana):
+    Skia proti TextureMapperju MotionMark 1.3 1091 proti 1127 (-3 %), 24ur.com 1,12 proti 0,37 jedra CPU in 47 proti
+    62 slicic/s, Speedometer 3.1 11,2 proti 11,4, PSS 10 zavihkov 2837 proti 2928 MiB, LCP ponovnega obiska 1212 proti
+    1336 ms; 24 plasti backdrop-filter pri obeh 60 slicic/s brez rasti pomnilnika. TextureMapper ostane privzet (bolj
+    gladko in manj CPU na straneh z backdrop-filter)."""
     try:
         seznam = WebKit2.Settings.get_all_features()
         for i in range(seznam.get_length()):
