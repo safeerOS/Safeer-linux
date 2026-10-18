@@ -104,12 +104,14 @@ class Zgodovina:
         self._vzorci: Dict[int, collections.deque] = {}
         self._imena: Dict[int, bytes] = {}
         self._zaklep = threading.Lock()
-        #: Trajanje zadnjega vzorca (s) - stran pove, koliko stane.
+        #: Trajanje zadnjega vzorca (s, cas ure) in njegov cas CPU (s) - koliko vzorec stane. Cena je cas CPU: na
+        #: obremenjenem racunalniku cas ure steje tudi cakanje na jedro (preizkus 18. 10. 2026: 60 ms ure za 224 procesov).
         self.zadnji_s = 0.0
+        self.zadnji_cpu_s = 0.0
 
     def vzorci(self, zdaj: Optional[float] = None) -> int:
         """En vzorec vseh procesov drevesa. Vrne stevilo procesov."""
-        t0 = time.perf_counter()
+        t0, c0 = time.perf_counter(), time.thread_time()
         zdaj = time.monotonic() if zdaj is None else zdaj
         pidi = [self.koren] + potomci(self.koren, self.proc)
         branja = {}
@@ -128,6 +130,7 @@ class Zgodovina:
                 vrsta_ = self._vzorci.setdefault(pid, collections.deque(maxlen=self.vzorcev))
                 vrsta_.append((zdaj, tiki, niti, rss))
         self.zadnji_s = time.perf_counter() - t0
+        self.zadnji_cpu_s = time.thread_time() - c0
         return len(branja)
 
     def ima_vzorce(self) -> bool:

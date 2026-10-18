@@ -99,13 +99,14 @@ class PravProces(unittest.TestCase):
             z = pz.Zgodovina()
             z.vzorci()
             time.sleep(1.0)
-            z.vzorci()
+            n = z.vzorci()
             p = z.povzetek(otrok.pid)
             self.assertIsNotNone(p)
             self.assertGreater(p["cpu_vrh"], 0.3)          # otrok racuna
             self.assertGreaterEqual(p["rss_vrh_mb"], 40)
             self.assertIn(otrok.pid, [d["pid"] for d in z.procesi()])
-            self.assertLess(z.zadnji_s, 0.05)
+            # Cena vzorca je cas CPU (ne ure: v polnem naboru steje cakanje na jedro), najvec 0,5 ms na proces drevesa.
+            self.assertLess(z.zadnji_cpu_s, 0.0005 * n)
             t = pz.trenutno(otrok.pid, None)
             self.assertIsNone(t["cpu"])
             t2 = pz.trenutno(otrok.pid, t["branje"])
