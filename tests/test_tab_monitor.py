@@ -121,7 +121,10 @@ class TabMonitorTests(unittest.TestCase):
 
     def test_real_process_tree_of_this_process(self):
         from core.tab_monitor import web_processes_under
-        self.assertEqual(web_processes_under(os.getpid()), [])
+        # Ob skupnem teku testov so pod tem procesom lahko pravi spletni procesi WebKita: vsak mora biti WebKitWebProcess.
+        for pid in web_processes_under(os.getpid()):
+            with open(f"/proc/{pid}/comm", encoding="utf-8") as f:
+                self.assertIn("WebKitWeb", f.read())
 
     def test_describe_is_short_and_localised(self):
         sample = self.monitor.sample([], now=0.0)

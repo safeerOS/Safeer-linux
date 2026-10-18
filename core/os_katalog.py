@@ -1101,7 +1101,8 @@ class Katalog:
         if not isinstance(d, dict):
             return
         if d.get("napaka") is True:
-            if not yt.get("stran") and naslov_strani(yt.get("posnetek", "")):
+            if (not yt.get("stran") and str(d.get("koda") or "").startswith("vgradnja")
+                    and naslov_strani(yt.get("posnetek", ""))):
                 # Lastnik posnetka vgradnje ne dovoli: isti posnetek na obicajni strani YouTube v istem pogledu
                 # (lastnik, 18. 10. 2026 - posnetek se ne preskoci, uporabnik ostane v Medijskem centru).
                 yt["stran"], yt["igra"] = True, False
