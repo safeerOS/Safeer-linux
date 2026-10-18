@@ -895,8 +895,8 @@ class Hub:
 
         Ni pot HTTP: kdor lahko poklice to metodo, ze tece v nasem procesu. Seznanitev s kodo (SPAKE2) med dvema
         koncema istega procesa zato ne varuje nicesar, traja pa (izmerjeno 5. 10. 2026 na testnem Windows)
-        2,6-4,8 s ob vsakem zagonu. Prejsnje zetone iste naprave zamenja: zagon za zagonom bi sicer iz shrambe
-        (NAJVEC_ZETONOV) izrinil zetone drugih naprav.
+        2,6-4,8 s ob vsakem zagonu. Prejsnje zetone iste naprave zamenja: zagon za zagonom bi jih sicer kopicil v
+        shrambi (do NAJVEC_NA_NAPRAVO).
         """
         device_id = (device_id or "").strip()[:NAJVEC_IMENA]
         if not device_id:

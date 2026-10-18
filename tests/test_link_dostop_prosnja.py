@@ -156,16 +156,22 @@ class Omejitve(_Osnova):
         self.assertEqual(_vprasaj(A, "d", zdaj=ZDAJ + 601)[0], "pending")
         self.assertEqual(len(self.pokazano), 3)                         # po desetih minutah se enkrat
 
-    def test_najvec_pet_odprtih_najstarejse_izpadejo(self):
+    def test_vse_odprte_prosnje_ostanejo(self):
+        """Lastnik, 18. 10. 2026: prej najvec 5 odprtih (najstarejse so izpadle, preden jih je uporabnik videl). Zdaj
+        ostanejo vse - prosnjo sprozi samo clan kroga, najvec eno na crko - in izpadejo po 24 urah."""
         for i, j in enumerate(DRUGI[:6]):
             self.assertEqual(_vprasaj(j, "d", zdaj=ZDAJ + i)[0], "pending")
         odprte = [p["jedro"] for p in link_dostop.odprte_prosnje()]
-        self.assertEqual(odprte, DRUGI[1:6])
-        self.assertEqual(self.umaknjeno, [DRUGI[0]])                   # obvestilo naprave brez prosenj se umakne
-        # Izpadla prosnja je v desetih minutah »none« (ne caka vec) in je ni mogoce odobriti.
-        self.assertEqual(_vprasaj(DRUGI[0], "d", zdaj=ZDAJ + 10)[0], "none")
-        self.assertFalse(link_dostop.odobri_prosnjo(DRUGI[0], "d"))
+        self.assertEqual(odprte, DRUGI[:6])
+        self.assertEqual(self.umaknjeno, [])
+        self.assertEqual(_vprasaj(DRUGI[0], "d", zdaj=ZDAJ + 10)[0], "pending")
+        # Dostop se se vedno podeli samo s klikom uporabnika na tem racunalniku.
         self.assertEqual(link_dostop.zmoznosti(DRUGI[0]), set())
+        self.assertTrue(link_dostop.odobri_prosnjo(DRUGI[0], "d"))
+        self.assertEqual(link_dostop.zmoznosti(DRUGI[0]), {"d"})
+        # Po 24 urah neodgovorjena prosnja izpade.
+        self.assertEqual(_vprasaj(DRUGI[1], "p", zdaj=ZDAJ + link_dostop.ZAVRNITEV_VELJA_S + 10)[0], "pending")
+        self.assertNotIn(DRUGI[2], [p["jedro"] for p in link_dostop.odprte_prosnje()])
 
 
 class Zavrnitev(_Osnova):
@@ -717,17 +723,16 @@ class Zdruzevanje(_Osnova):
         self.assertEqual(link_dostop.prosnja_ob_zavrnitvi(A, "v", zdaj=ZDAJ), ("none", "v"))
         self.assertEqual(_vprasaj(B, "v", zdaj=ZDAJ), ("none", "v"))
         self.assertEqual(self.razporejeno, [])
-        # Ime iz kroga, ne iz sporocila; najvec pet odprtih tudi pri zdruzevanju.
+        # Ime iz kroga, ne iz sporocila; vse odprte ostanejo tudi pri zdruzevanju (ena prosnja na crko in napravo).
         for i, j in enumerate(DRUGI[:3]):
             for crka in "vz":
                 _vprasaj(j, crka, zdaj=ZDAJ + i)
-        self.assertEqual(len(link_dostop.odprte_prosnje()), link_dostop.NAJVEC_PROSENJ)
+                _vprasaj(j, crka, zdaj=ZDAJ + i + 0.5)                   # ponovitev ne doda nove
         self.assertEqual(sorted(p["jedro"] + p["zmoznost"] for p in link_dostop.odprte_prosnje()),
-                         sorted([DRUGI[0] + "z", DRUGI[1] + "v", DRUGI[1] + "z", DRUGI[2] + "v", DRUGI[2] + "z"]))
-        self.assertFalse(link_dostop.odobri_prosnjo(DRUGI[0], "v"))     # izpadla prosnja se ne odobri
+                         sorted(j + c for j in DRUGI[:3] for c in "vz"))
         self._izvedi()
         self.assertEqual(sorted((p["jedro"], p["zmoznosti"]) for p in self.pokazano),
-                         sorted([(DRUGI[0], "z"), (DRUGI[1], "vz"), (DRUGI[2], "vz")]))
+                         sorted([(DRUGI[0], "vz"), (DRUGI[1], "vz"), (DRUGI[2], "vz")]))
         self.assertTrue(all(p["ime"].startswith("Naprava ") for p in self.pokazano))
         # Brez klika nic: zapis dovoljenj je prazen.
         self.assertEqual(link_dostop.zmoznosti(DRUGI[1]), set())

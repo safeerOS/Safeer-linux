@@ -64,6 +64,16 @@ class ZetoniTests(unittest.TestCase):
         self.assertFalse(self.s.zeton_velja(a, zdaj=11.0))
         self.assertTrue(self.s.zeton_velja(b, zdaj=11.0))
 
+    def test_zetoni_brez_skupne_meje_samo_na_napravo(self):
+        """Lastnik, 18. 10. 2026: prej 64 zetonov skupaj - v vecjem krogu je naprava izgubila zeton zaradi drugih.
+        Zdaj ostanejo zetoni vseh naprav; meja velja samo na napravo (izpade njen najdlje nerabljen)."""
+        zetoni = [self.s.zeton_za("naprava-%d" % i, zdaj=10.0) for i in range(200)]
+        self.assertTrue(all(self.s.zeton_velja(z, zdaj=11.0) for z in zetoni))
+        svoji = [self.s.zeton_za("ista", zdaj=10.0 + i * link_datoteke.ZETON_VELJA_S) for i in range(12)]
+        zivi = [z for z in svoji if z in self.s._zetoni]
+        self.assertLessEqual(len(zivi), link_datoteke.NAJVEC_ZETONOV_NA_NAPRAVO)
+        self.assertIn(svoji[-1], self.s._zetoni)
+
     def test_privzeto_preverja_krog(self):
         s = link_datoteke.StreznikDatotek(link_datoteke.DeljeneMape([]), tls_mapa=tempfile.mkdtemp())
         z = s.zeton_za("tv-1", zdaj=10.0)
