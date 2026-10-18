@@ -158,6 +158,24 @@ class WholeProgramTests(unittest.TestCase):
         self.assertEqual(vrstice["Čiščenje filmov, ki jih nihče ne gleda"], ["občasno", "pred 45 s", "teče vsake 3 h"])
         self.assertIn("se zažene šele, ko jo potrebuješ", page)
 
+    def test_every_registered_service_has_a_name_in_every_language(self):
+        """Ime vsake storitve in opravila iz kode (registriraj/opravilo v core/) je na strani v vseh jezikih - brez
+        surovega kljuca v vmesniku."""
+        import glob
+        import os
+        koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        imena = set()
+        for pot in glob.glob(os.path.join(koren, "core", "*.py")):
+            with open(pot, encoding="utf-8") as f:
+                besedilo = f.read()
+            imena |= set(re.findall(r'registriraj\(\s*"([a-z_]+)"', besedilo))
+            imena |= set(re.findall(r'\.opravilo\(\s*"([a-z_]+)"', besedilo))
+        self.assertTrue({"torrent", "torrent_naprave", "teamwork", "twitch", "doh", "scit", "link", "iskalnik",
+                         "ciscenje_gledanja", "ciscenje_prenosov"} <= imena, imena)
+        for lang, texts in processes_page._TEXT.items():
+            for ime in imena:
+                self.assertIn("svc_" + ime, texts, (lang, ime))
+
     def test_every_language_renders_all_sections(self):
         for lang in processes_page._TEXT:
             page = processes_page.render(ROWS, lang, system=SYSTEM, services=SERVICES, app="Safeer OS", sample_s=30)

@@ -326,6 +326,7 @@ def vezi_safeer_os(app, GLib) -> None:
     registriraj("sporocila", VEDNO, tece=sporocila_tecejo, razlog=OBVESTILA)
     # Torrent se zares registrira ob prvi rabi (os_torrent.Torrenti); do takrat ga stran pokaze kot »ni zagnan«.
     from core import os_torrent
-    for ime in ("torrent", "torrent_naprave"):
-        if storitev(ime) is None:
-            registriraj(ime, NA_ZAHTEVO, os_torrent.MIROVANJE_S, tece=lambda: False)
+    if storitev("torrent") is None:
+        registriraj("torrent", NA_ZAHTEVO, os_torrent.MIROVANJE_S, tece=lambda: False)
+    if storitev("torrent_naprave") is None:
+        registriraj("torrent_naprave", NA_ZAHTEVO, os_torrent.MIROVANJE_S, tece=lambda: False)

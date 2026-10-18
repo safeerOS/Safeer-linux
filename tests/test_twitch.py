@@ -493,5 +493,36 @@ class TestMedijskiCenterInScit(unittest.TestCase):
                 self.assertIn('"%s"' % kljuc, vrstica)
 
 
+class PosrednikNaZahtevo(unittest.TestCase):
+    """Lokalni streznik Twitcha (lastnik, 18. 10. 2026): zazene se ob prvem prenosu, ura storitev ga ustavi, ko seje
+    NEAKTIVNA_S nihce ne bere; naslednji prenos ga zazene znova (nova vrata, nov naslov seje)."""
+
+    def test_ustavi_po_mirovanju_in_zazene_znova(self):
+        from core import storitve_na_zahtevo as snz
+        snz._za_preizkus()
+        ura = Ura()
+        p = twitch_hls.Posrednik(ura=ura)
+        try:
+            naslov = p.dodaj(twitch_hls.Seja(vir("site", [seznam([(0, "g0")], konec=True)]), [], ura=ura))
+            self.assertTrue(naslov.startswith("http://127.0.0.1:"))
+            s = snz.storitev("twitch")
+            self.assertTrue(s.tece())
+            self.assertEqual(s.mirovanje_s, twitch_hls.NEAKTIVNA_S)
+            self.assertTrue(s.zaposlena())                      # predvajalnik je pravkar bral
+            ura.t += twitch_hls.NEAKTIVNA_S + 1
+            self.assertFalse(s.zaposlena())
+            snz.tik(zdaj=time.time() + twitch_hls.NEAKTIVNA_S + 1)
+            konec = time.monotonic() + 5
+            while s.tece() and time.monotonic() < konec:
+                time.sleep(0.05)
+            self.assertFalse(s.tece())
+            nov = p.dodaj(twitch_hls.Seja(vir("site", [seznam([(0, "g0")], konec=True)]), [], ura=ura))
+            self.assertTrue(s.tece())
+            self.assertNotEqual(nov, naslov)
+        finally:
+            p.ustavi()
+            snz._za_preizkus()
+
+
 if __name__ == "__main__":
     unittest.main()

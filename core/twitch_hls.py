@@ -419,13 +419,29 @@ class Posrednik:
 
     @property
     def vrata(self) -> int:
+        from core import storitve_na_zahtevo as snz
         with self._kljuc:
             if self._streznik is None:
                 streznik = _Streznik(("127.0.0.1", 0), _Rokovalnik)
                 streznik.posrednik = self  # type: ignore[attr-defined]
                 threading.Thread(target=streznik.serve_forever, name="twitch-hls", daemon=True).start()
                 self._streznik = streznik
+                # Na zahtevo (lastnik, 18. 10. 2026): ko nobena seja NEAKTIVNA_S ne bere (seje takrat itak potecejo),
+                # ura storitev streznik ustavi; naslednji prenos ga zazene znova na novih vratih (nov naslov seje).
+                snz.registriraj("twitch", snz.NA_ZAHTEVO, NEAKTIVNA_S, tece=lambda: self._streznik is not None,
+                                ustavi=self._ustavi_ce_miruje, zaposlena=self._gleda)
+            snz.rabi("twitch")
             return self._streznik.server_address[1]
+
+    def _gleda(self) -> bool:
+        """Ali kak predvajalnik se bere sejo (zadnje branje v NEAKTIVNA_S)."""
+        zdaj = self._ura()
+        with self._kljuc:
+            return any(zdaj - s.zadnje_branje <= NEAKTIVNA_S for s in self._seje.values())
+
+    def _ustavi_ce_miruje(self) -> None:
+        if not self._gleda():
+            self.ustavi()
 
     def _pocisti(self) -> None:
         zdaj = self._ura()

@@ -121,7 +121,7 @@ _DODATNO = {
         "svc_scit": "Ščit (zaščita DNS)", "svc_link": "Safeer Link (sprejem drugih naprav)", "svc_varuh": "Varuh pomnilnika",
         "svc_posodobitve": "Posodobitve", "svc_sporocila": "Sporočila", "svc_iskalnik": "Indeks iskanja datotek",
         "svc_torrent": "Torrent (rqbit)", "svc_torrent_naprave": "Torrent za druge naprave (rqbit)",
-        "svc_teamwork": "Teamwork (skupno urejanje)", "svc_twitch": "Twitch (lokalni posrednik)",
+        "svc_teamwork": "Teamwork (skupno urejanje)", "svc_twitch": "Twitch (lokalni posrednik)", "svc_doh": "Šifriran DNS za Splet (DoH)",
         "svc_ciscenje_gledanja": "Čiščenje filmov, ki jih nihče ne gleda", "svc_ciscenje_prenosov": "Čiščenje prenosov za naprave",
     },
     "en": {
@@ -144,7 +144,7 @@ _DODATNO = {
         "svc_scit": "Shield (DNS protection)", "svc_link": "Safeer Link (other devices reach this one)", "svc_varuh": "Memory guard",
         "svc_posodobitve": "Updates", "svc_sporocila": "Messages", "svc_iskalnik": "File search index",
         "svc_torrent": "Torrent (rqbit)", "svc_torrent_naprave": "Torrent for other devices (rqbit)",
-        "svc_teamwork": "Teamwork (editing together)", "svc_twitch": "Twitch (local relay)",
+        "svc_teamwork": "Teamwork (editing together)", "svc_twitch": "Twitch (local relay)", "svc_doh": "Encrypted DNS for Splet (DoH)",
         "svc_ciscenje_gledanja": "Clean-up of films nobody watches", "svc_ciscenje_prenosov": "Clean-up of downloads for devices",
     },
     "de": {
@@ -167,7 +167,7 @@ _DODATNO = {
         "svc_scit": "Schild (DNS-Schutz)", "svc_link": "Safeer Link (andere Geräte erreichen diesen)", "svc_varuh": "Speicherwächter",
         "svc_posodobitve": "Aktualisierungen", "svc_sporocila": "Nachrichten", "svc_iskalnik": "Dateisuchindex",
         "svc_torrent": "Torrent (rqbit)", "svc_torrent_naprave": "Torrent für andere Geräte (rqbit)",
-        "svc_teamwork": "Teamwork (gemeinsam bearbeiten)", "svc_twitch": "Twitch (lokales Relais)",
+        "svc_teamwork": "Teamwork (gemeinsam bearbeiten)", "svc_twitch": "Twitch (lokales Relais)", "svc_doh": "Verschlüsseltes DNS für Splet (DoH)",
         "svc_ciscenje_gledanja": "Aufräumen von Filmen, die niemand ansieht", "svc_ciscenje_prenosov": "Aufräumen von Downloads für Geräte",
     },
     "es": {
@@ -190,7 +190,7 @@ _DODATNO = {
         "svc_scit": "Escudo (protección DNS)", "svc_link": "Safeer Link (otros dispositivos llegan a este)", "svc_varuh": "Guardián de memoria",
         "svc_posodobitve": "Actualizaciones", "svc_sporocila": "Mensajes", "svc_iskalnik": "Índice de búsqueda de archivos",
         "svc_torrent": "Torrent (rqbit)", "svc_torrent_naprave": "Torrent para otros dispositivos (rqbit)",
-        "svc_teamwork": "Teamwork (edición conjunta)", "svc_twitch": "Twitch (relé local)",
+        "svc_teamwork": "Teamwork (edición conjunta)", "svc_twitch": "Twitch (relé local)", "svc_doh": "DNS cifrado para Splet (DoH)",
         "svc_ciscenje_gledanja": "Limpieza de películas que nadie ve", "svc_ciscenje_prenosov": "Limpieza de descargas para dispositivos",
     },
     "fr": {
@@ -213,7 +213,7 @@ _DODATNO = {
         "svc_scit": "Bouclier (protection DNS)", "svc_link": "Safeer Link (vos autres appareils le joignent)", "svc_varuh": "Gardien de mémoire",
         "svc_posodobitve": "Mises à jour", "svc_sporocila": "Messages", "svc_iskalnik": "Index de recherche de fichiers",
         "svc_torrent": "Torrent (rqbit)", "svc_torrent_naprave": "Torrent pour les autres appareils (rqbit)",
-        "svc_teamwork": "Teamwork (édition à plusieurs)", "svc_twitch": "Twitch (relais local)",
+        "svc_teamwork": "Teamwork (édition à plusieurs)", "svc_twitch": "Twitch (relais local)", "svc_doh": "DNS chiffré pour Splet (DoH)",
         "svc_ciscenje_gledanja": "Nettoyage des films que personne ne regarde", "svc_ciscenje_prenosov": "Nettoyage des téléchargements pour les appareils",
     },
     "it": {
@@ -236,7 +236,7 @@ _DODATNO = {
         "svc_scit": "Scudo (protezione DNS)", "svc_link": "Safeer Link (gli altri dispositivi lo raggiungono)", "svc_varuh": "Guardiano della memoria",
         "svc_posodobitve": "Aggiornamenti", "svc_sporocila": "Messaggi", "svc_iskalnik": "Indice di ricerca dei file",
         "svc_torrent": "Torrent (rqbit)", "svc_torrent_naprave": "Torrent per altri dispositivi (rqbit)",
-        "svc_teamwork": "Teamwork (modifica insieme)", "svc_twitch": "Twitch (inoltro locale)",
+        "svc_teamwork": "Teamwork (modifica insieme)", "svc_twitch": "Twitch (inoltro locale)", "svc_doh": "DNS cifrato per Splet (DoH)",
         "svc_ciscenje_gledanja": "Pulizia dei film che nessuno guarda", "svc_ciscenje_prenosov": "Pulizia dei download per i dispositivi",
     },
 }

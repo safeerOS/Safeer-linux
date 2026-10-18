@@ -1458,6 +1458,10 @@ def get_doh_proxy(provider: str = "cloudflare", custom_url: str = "", enabled: b
         if _global_proxy is None:
             _global_proxy = LocalDoHProxy(_global_resolver, dovoli_lokalno=lokalno)
             _global_proxy.start()
+            # Stran safeer://procesi: sifriran DNS Spleta tece, dokler tece Splet (varuje - ni storitev na zahtevo).
+            from core import storitve_na_zahtevo
+            storitve_na_zahtevo.registriraj("doh", storitve_na_zahtevo.VEDNO, tece=lambda: _global_proxy is not None,
+                                            razlog=storitve_na_zahtevo.VARUJE)
         else:
             _global_proxy.dovoli_lokalno = bool(lokalno)
 
