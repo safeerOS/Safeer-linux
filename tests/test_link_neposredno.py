@@ -783,3 +783,28 @@ def test_hub_obdrzi_boljso_pot():
     assert not hub.dodaj_soseda(sid, P("rele"), sid)                 # rele ne zamenja neposredne
     assert hub.dodaj_soseda(sid, lan, sid) and nep.zaprta           # domace omrezje zamenja neposredno
     assert not hub.dodaj_soseda(sid, P("neposredno"), sid)
+
+
+def test_tunel_ima_keepalive_mrtva_stran_ne_drzi_mesta(naprave, monkeypatch):
+    """Tunel je brez roka (settimeout(None)): mrtvo drugo stran mora zaznati keepalive, sicer tunel za vedno drzi
+    niti, deskriptorje in mesto med NAJVEC_TUNELOV. Obe strani tunela (vhod in odjemalec) ga vklopita."""
+    from core import link_vticnik
+    nastavljeno = []
+    izvirna = link_vticnik.ohrani_zivost
+
+    def zabelezi(v, *a, **k):
+        izvirna(v, *a, **k)
+        nastavljeno.append(v.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE))
+    monkeypatch.setattr(link_vticnik, "ohrani_zivost", zabelezi)
+    odmev = Odmev()
+    v = vhod(naprave, odmev.vrata)
+    try:
+        a, hub = naprave["a"], naprave["hub"]
+        t, _, _ = ln.odpri_neposredno("127.0.0.1", v.vrata, hub.id, hub.kljuc, a.id, a.podpisi)
+        assert krog(0, t) == b"safeer"
+        assert nastavljeno and all(nastavljeno), nastavljeno
+        t.close()
+        assert _pocakaj(lambda: v._tunelov == 0), "zaprt tunel sprosti mesto"
+    finally:
+        v.zapri()
+        odmev.zapri()

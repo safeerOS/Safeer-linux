@@ -207,6 +207,32 @@ def brez_zamika(vticnik) -> None:
         pass
 
 
+#: Ohranjanje zivosti tunela: po MIROVANJE_S tisine jedro poslje preizkus vsakih PRESLEDEK_S; po POSKUSI brez odgovora
+#: (skupaj ~2 min) povezava pade. Ziva povezava se nic ne spremeni (preizkus je prazen paket, odgovori ga jedro druge
+#: strani) - tunel, ki ga drzi WebSocket brez prometa, ostane odprt.
+ZIVOST_MIROVANJE_S = 60
+ZIVOST_PRESLEDEK_S = 15
+ZIVOST_POSKUSI = 4
+
+
+def ohrani_zivost(vticnik, mirovanje: int = ZIVOST_MIROVANJE_S, presledek: int = ZIVOST_PRESLEDEK_S,
+                  poskusi: int = ZIVOST_POSKUSI) -> None:
+    """TCP keepalive (in TCP_USER_TIMEOUT, kjer je): mrtva druga stran (izklopljen telefon, izgubljeno omrezje)
+    zapre povezavo v ~2 min. Brez tega je tunel brez roka (settimeout(None)) za vedno drzal niti, deskriptorje in
+    mesto med NAJVEC_TUNELOV."""
+    moznosti = [(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)]
+    for ime, vrednost in (("TCP_KEEPIDLE", mirovanje), ("TCP_KEEPINTVL", presledek), ("TCP_KEEPCNT", poskusi),
+                          # Tudi neposlani podatki (druga stran ne potrjuje) ne cakajo dlje od istega roka.
+                          ("TCP_USER_TIMEOUT", (mirovanje + presledek * poskusi) * 1000)):
+        if hasattr(socket, ime):
+            moznosti.append((socket.IPPROTO_TCP, getattr(socket, ime), vrednost))
+    for raven, moznost, vrednost in moznosti:
+        try:
+            vticnik.setsockopt(raven, moznost, vrednost)
+        except (OSError, AttributeError, ValueError):
+            pass
+
+
 #: struct tcp_info (Linux): polje -> (odmik, oblika). Odmiki preverjeni na jedru 6.18 (struktura ima 280 B).
 #: rtt, rttvar in min_rtt so v mikrosekundah, delivery_rate v bajtih na sekundo.
 _TCP_INFO_POLJA = (

@@ -397,3 +397,20 @@ class OdjemalecPreziviOmejitev(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OhraniZivost(unittest.TestCase):
+    def test_keepalive_in_roki(self):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            link_vticnik.ohrani_zivost(s)
+            self.assertEqual(s.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE), 1)
+            if hasattr(socket, "TCP_KEEPIDLE"):
+                self.assertEqual(s.getsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE), link_vticnik.ZIVOST_MIROVANJE_S)
+                self.assertEqual(s.getsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL), link_vticnik.ZIVOST_PRESLEDEK_S)
+                self.assertEqual(s.getsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT), link_vticnik.ZIVOST_POSKUSI)
+        finally:
+            s.close()
+
+    def test_brez_vticnice_ne_pade(self):
+        link_vticnik.ohrani_zivost(object())

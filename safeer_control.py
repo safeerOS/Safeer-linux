@@ -961,23 +961,18 @@ class SafeerControl(_OSNOVA):
         return link.ukaz_pocakaj(id_naprave, dejanje, parametri, cas=10.0)
 
     def _okna_teamwork(self) -> list:
-        """Odprta okna programov (naslov, razred). Seznam oken bere samo glavna nit (core/os_okna)."""
-        from core import os_okna
-        izid: list = []
-        koncano = threading.Event()
+        """Odprta okna programov (naslov, razred). Seznam oken bere samo glavna nit (core/os_okna); None, ce ga v
+        3 s ni (Teamwork takrat ne spremeni stanja odprtosti). Klic z glavne niti dobi seznam takoj (brez cakanja)."""
+        from core import link_teamwork, os_okna
 
-        def delo() -> bool:
+        def delo() -> list:
+            izid: list = []
             try:
                 izid.extend({"ime": o.get("ime", ""), "program": o.get("program", "")} for o in os_okna.seznam())
             except Exception:  # noqa: BLE001
                 pass
-            koncano.set()
-            return False
-        # Prednost kot dogodki (ne »idle«): zasedena glavna zanka Safeer OS bi klic sicer zadrzevala.
-        GLib.idle_add(delo, priority=GLib.PRIORITY_DEFAULT)
-        if not koncano.wait(3.0):
-            return None              # seznama ta trenutek ni: Teamwork ne spremeni stanja odprtosti
-        return list(izid)
+            return izid
+        return link_teamwork.na_glavni_niti(delo, 3.0)
 
     def _vir_teamwork(self, u):
         """Vir za streznik datotek naprave lastnika (svez zeton iz odgovora na files.session, kljuc iz kroga)."""

@@ -28,6 +28,7 @@ import shutil
 import socket
 import ssl
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -743,6 +744,9 @@ def uredi_pot(obravnava, streznik: "StreznikDatotek", pot: str) -> None:
 _POPRAVKI_HKRATI = threading.BoundedSemaphore(2)
 #: Toliko prostora mora ostati na disku poleg popravka (in sestavljene datoteke).
 REZERVA_DISKA = 512 * 1024 * 1024
+#: Rok tisine med branjem popravka (kot ROK_BRANJA_S Huba): prek Huba povezava po glavah nima roka - naprava, ki je
+#: sredi oddaje izgubila omrezje, je za vedno drzala nit, eno od dveh mest za popravke in zacasno datoteko.
+ROK_BRANJA_POPRAVKA_S = 60.0
 
 
 def sprejmi_popravek(obravnava, streznik: "StreznikDatotek", oznaka: str) -> None:
@@ -777,11 +781,17 @@ def sprejmi_popravek(obravnava, streznik: "StreznikDatotek", oznaka: str) -> Non
     if prosto < 2 * dolzina + REZERVA_DISKA:
         _napaka_http(obravnava, 507, "ni prostora")
         return
+    try:
+        obravnava.connection.settimeout(ROK_BRANJA_POPRAVKA_S)
+    except (OSError, AttributeError):
+        pass
     if not _POPRAVKI_HKRATI.acquire(timeout=30):
         _napaka_http(obravnava, 503, "zasedeno")
         return
     try:
         _sprejmi_popravek(obravnava, tw, naprava, oznaka, dolzina)
+    except Exception as e:  # noqa: BLE001 - naprava je odsla (odgovora ni komu poslati); mesto se sprosti spodaj
+        print("[Teamwork] popravek:", e, file=sys.stderr)
     finally:
         _POPRAVKI_HKRATI.release()
 
@@ -801,6 +811,11 @@ def _sprejmi_popravek(obravnava, tw, naprava: str, oznaka: str, dolzina: int) ->
             _napaka_http(obravnava, 400, "telo ni celo")
             return
         koda, odgovor = tw.popravek(naprava, oznaka, telo)
+    except (socket.timeout, ConnectionError, ssl.SSLError) as e:
+        # Naprava je med oddajo utihnila ali odsla: odgovora ni komu poslati.
+        print("[Teamwork] popravek prekinjen:", e, file=sys.stderr)
+        obravnava.close_connection = True
+        return
     except Exception as e:  # noqa: BLE001 - naprava dobi odgovor, ne prekinjene povezave
         koda, odgovor = 500, {"ok": False, "koda": "napaka", "razlog": str(e)}
     finally:
@@ -809,14 +824,14 @@ def _sprejmi_popravek(obravnava, tw, naprava: str, oznaka: str, dolzina: int) ->
         except OSError:
             pass
     podatki = json.dumps(odgovor).encode("utf-8")
-    obravnava.send_response(koda)
-    obravnava.send_header("Content-Type", "application/json")
-    obravnava.send_header("Content-Length", str(len(podatki)))
-    obravnava.send_header("Connection", "close")
-    obravnava.end_headers()
     try:
+        obravnava.send_response(koda)
+        obravnava.send_header("Content-Type", "application/json")
+        obravnava.send_header("Content-Length", str(len(podatki)))
+        obravnava.send_header("Connection", "close")
+        obravnava.end_headers()
         obravnava.wfile.write(podatki)
-    except (BrokenPipeError, ConnectionResetError, ssl.SSLError, socket.timeout):
+    except (OSError, ssl.SSLError, socket.timeout):
         pass
 
 

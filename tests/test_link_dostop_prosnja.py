@@ -265,11 +265,14 @@ def _safeer_link_brez_gtk():
     shranjeno = {k: sys.modules.get(k) for k in ("gi", "gi.repository")}
     gi = types.ModuleType("gi")
     gi.require_version = lambda *a, **k: None
+    gi.get_required_version = lambda *a, **k: None      # core/safeer_link izbere GTK3/GTK4 po njej (brez izbire GTK4)
     rep = types.ModuleType("gi.repository")
-    for ime in ("Gdk", "Gtk", "WebKit2", "GLib", "Gio"):
+    for ime in ("Gdk", "Gtk", "WebKit2", "WebKit", "GLib", "Gio"):
         setattr(rep, ime, mock.MagicMock(name=ime))
+    rep.Gtk.get_major_version.return_value = 4
     gi.repository = rep
     sys.modules["gi"], sys.modules["gi.repository"] = gi, rep
+    modul = None
     try:
         sys.modules.pop("core.safeer_link", None)
         import importlib
@@ -281,7 +284,7 @@ def _safeer_link_brez_gtk():
             else:
                 sys.modules[k] = v
         sys.modules.pop("core.safeer_link", None)       # drugi preizkusi ne dobijo modula z nadomestnim gi
-        if getattr(core, "safeer_link", None) is modul:
+        if modul is not None and getattr(core, "safeer_link", None) is modul:
             delattr(core, "safeer_link")
     return modul
 

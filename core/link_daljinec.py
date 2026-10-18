@@ -271,13 +271,24 @@ def izvedi_control(dejanje: str, parametri: dict, odpri_naslov: Callable[[str], 
             if tw is None:
                 koncaj(izid(False, "Teamwork tu ni na voljo", koda="neznano"))
                 return
-            stanje = tw.prijava(posiljatelj, parametri)
-            if stanje.get("ok"):
+            # V svoji niti: izvedi_control tece na glavni niti (core/safeer_link), prva prijava pa prebere in kopira
+            # celo datoteko (do 1 GB), seznam oken pa caka na glavno nit - na njej bi Safeer zamrznil ob vsakem
+            # javljanju (vsakih 5 s). Odgovor gre prek koncaj kot pri ostalih ukazih v nitih.
+            import threading
+
+            def prijava() -> None:
                 try:
-                    stanje["streznik"] = datoteke.streznik_za(posiljatelj, hub_url)
-                except Exception:  # noqa: BLE001 - brez streznika ostane obvestilo, popravek pride ob naslednjem
-                    pass
-            koncaj(izid(bool(stanje.get("ok")), "Teamwork", stanje, koda=str(stanje.get("koda") or "")))
+                    stanje = tw.prijava(posiljatelj, parametri)
+                    if stanje.get("ok"):
+                        try:
+                            stanje["streznik"] = datoteke.streznik_za(posiljatelj, hub_url)
+                        except Exception:  # noqa: BLE001 - brez streznika ostane obvestilo, popravek pride ob naslednjem
+                            pass
+                except Exception as e:  # noqa: BLE001 - naprava dobi odgovor, ne izteka casa
+                    print("[Teamwork] prijava:", e, file=sys.stderr)
+                    stanje = {"ok": False, "koda": "napaka"}
+                koncaj(izid(bool(stanje.get("ok")), "Teamwork", stanje, koda=str(stanje.get("koda") or "")))
+            threading.Thread(target=prijava, name="safeer-teamwork-prijava", daemon=True).start()
         elif d in ("files.open", "files.open_locen"):
             # Datoteko odpre racunalnik s svojim programom; televizor jo nato vidi prek zaslona.
             if datoteke is None:

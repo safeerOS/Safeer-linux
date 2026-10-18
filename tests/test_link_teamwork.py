@@ -3,6 +3,8 @@ import os
 import random
 import shutil
 import tempfile
+import threading
+import time
 import unittest
 
 from core import link_delta, link_teamwork as tw
@@ -245,6 +247,52 @@ class Par(unittest.TestCase):
         with open(os.path.join(self.tmp, "b-tw", "udelezbe.json")) as f:
             self.assertNotIn("token", f.read(), "zetonov ne shranjujemo")
 
+    def test_odstranjeno_deljenje_ustavi_sejo(self):
+        """Uporabnik je mapo odstranil iz deljenih: obstojeca seja ne sme vec pisati v datoteko (prej je s shranjeno
+        potjo pisala naprej - preverjeno 18. 10. 2026)."""
+        oznaka = "share:0:vecer.pcraft"
+        self.assertTrue(self.a.prijava("B", {"id": oznaka, "odprto": True})["ok"])
+        nova = bytearray(self.vsebina)
+        nova[10:20] = b"PREPISANO!"
+        b = os.path.join(self.tmp, "nova.pcraft")
+        with open(b, "wb") as f:
+            f.write(nova)
+        telo = os.path.join(self.tmp, "telo")
+        tw.naredi_popravek(b, link_delta.manifest(self.izvirnik), tw._sha(self.izvirnik), telo)
+        self.a.razresi = lambda o: ""
+        self.assertEqual(self.a.popravek("B", oznaka, telo)[0], 409)
+        with open(self.izvirnik, "rb") as f:
+            self.assertEqual(f.read(), self.vsebina, "datoteka ostane nespremenjena")
+        self.assertEqual(self.a.prijava("B", {"id": oznaka, "odprto": True}),
+                         {"ok": False, "koda": "ni_datoteke"})
+        self.assertNotIn(oznaka, self.a._seje)
+        # Oznaka zdaj kaze na drugo datoteko: seja stare poti ne velja, nova je za novo datoteko.
+        druga = os.path.join(self.deljena, "druga.pcraft")
+        with open(druga, "wb") as f:
+            f.write(b"druga")
+        self.a.razresi = lambda o: self.izvirnik
+        self.assertTrue(self.a.prijava("B", {"id": oznaka, "odprto": True})["ok"])
+        self.a.razresi = lambda o: druga
+        self.assertEqual(self.a.prijava("B", {"id": oznaka, "odprto": True})["ime"], "druga.pcraft")
+        self.assertEqual(self.a.popravek("B", oznaka, telo)[0], 409, "popravek stare datoteke ne pristane v drugi")
+        with open(druga, "rb") as f:
+            self.assertEqual(f.read(), b"druga")
+
+    def test_udelezenec_neha_posiljati_ko_deljenja_ni(self):
+        def ukaz(naprava, dejanje, p):
+            d = self.a.prijava("B", p)               # kot SafeerLink.ukaz_pocakaj: napaka naprave -> ok, koda
+            return {"ok": bool(d.get("ok")), "koda": str(d.get("koda") or ""), "data": d}
+        self.b.ukaz = ukaz
+        self.assertTrue(self._udelezi()["podprto"])
+        self.okna_b.append({"ime": "[vecer] (imported) – GIMP", "program": "Gimp-2.10"})
+        self._tiki(1)
+        self.a.razresi = lambda o: ""
+        self._uredi(self.kopija, 1000, b"X" * 50)
+        self._tiki(3)
+        with open(self.izvirnik, "rb") as f:
+            self.assertEqual(f.read(), self.vsebina)
+        self.assertLessEqual(len(self.poslano), 1, "brez ponavljanja posiljanja")
+
     def test_naprava_brez_teamworka(self):
         self.b.ukaz = lambda n, d, p: {"ok": False, "koda": "ni_dovoljeno"}
         self.assertFalse(self._udelezi()["podprto"])
@@ -369,7 +417,7 @@ class Zaznava(unittest.TestCase):
     def test_kratko_ime(self):
         self.assertEqual(tw.kratko_ime("Safeer OS (OnePlus)"), "OnePlus")
         self.assertEqual(tw.kratko_ime("Safeer Control (racunalnik-1)"), "racunalnik-1")
-        self.assertEqual(tw.kratko_ime("Tablica Matej"), "Tablica Matej")
+        self.assertEqual(tw.kratko_ime("Tablica lastnik"), "Tablica lastnik")
         self.assertEqual(os.path.basename(tw.ime_kopije("/x/a.txt", "Safeer OS (OnePlus)")), "a (OnePlus).txt")
 
     def test_besedila_v_vseh_jezikih(self):
@@ -402,6 +450,10 @@ class StreznikPopravkov(unittest.TestCase):
         self.d = link_datoteke.Datoteke([self.deljena], tls_mapa=os.path.join(self.tmp, "tls"))
         self.d.streznik.sme = lambda naprava, zmoznost: True
         self.d.streznik.umaknjena = lambda naprava: False
+        # Preizkus ne sme biti odvisen od prostega prostora na disku gostitelja (507 ni prostora).
+        rezerva = link_datoteke.REZERVA_DISKA
+        link_datoteke.REZERVA_DISKA = 0
+        self.addCleanup(setattr, link_datoteke, "REZERVA_DISKA", rezerva)
         self.tw = tw.Teamwork(razresi=self.d.pot, ime_naprave=lambda i: i, obvesti=lambda k, p: None, ukaz=None,
                               okna=lambda: [], mapa=os.path.join(self.tmp, "tw"), procesi=None)
         self.d.teamwork = self.d.streznik.teamwork = self.tw
@@ -448,3 +500,195 @@ class StreznikPopravkov(unittest.TestCase):
         # Naprava brez pravice do datotek: zavrnjeno.
         self.d.streznik.sme = lambda naprava, zmoznost: False
         self.assertEqual(self._poslji(telo, self.streznik["token"])[0], 401)
+
+    def _napol(self, zapri, vrata, pot):
+        """Naprava zacne oddajo popravka in utihne (izgubljeno omrezje) ali sredi oddaje odide."""
+        import socket
+        ctx = self.ssl.SSLContext(self.ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = self.ssl.CERT_NONE
+        v = ctx.wrap_socket(socket.create_connection(("127.0.0.1", vrata), timeout=10))
+        v.sendall(("POST %s HTTP/1.1\r\nHost: x\r\nContent-Length: 100000\r\n"
+                   "X-Safeer-Token: %s\r\n\r\n" % (pot, self.streznik["token"])).encode() + b"z" * 5000)
+        if zapri:
+            v.close()
+            return None
+        return v
+
+    def _pocakaj(self, pogoj, rok=8.0):
+        konec = time.monotonic() + rok
+        while time.monotonic() < konec:
+            if pogoj():
+                return True
+            time.sleep(0.05)
+        return pogoj()
+
+    def test_prekinjena_oddaja_ne_drzi_niti_mest_in_datotek(self):
+        self._prekinjena(self.d.streznik.vrata, "/popravek/share:0:a.bin")
+
+    def test_prekinjena_oddaja_prek_huba(self):
+        """Prek Huba (Global Link) povezava po glavah nima roka (rok_po_rokovanju=None): tu je bila nit za vedno."""
+        from unittest import mock
+        from core import link_hub_streznik
+        hub = link_hub_streznik.HubStreznik(tls_mapa=os.path.join(self.tmp, "tls"))
+        hub._ze_gosti_lokalno = staticmethod(lambda: False)
+        hub.datoteke = self.d.streznik
+        with mock.patch.object(link_hub_streznik, "PRIVZETA_VRATA", 0):
+            self.assertTrue(hub.zazeni())
+        self.addCleanup(hub.ustavi)
+        self._prekinjena(hub.vrata, "/cast/popravek/share:0:a.bin")
+
+    def _prekinjena(self, vrata, pot):
+        """Prej brez roka branja (prek Huba): utihnjena naprava je za vedno drzala nit, eno od dveh mest za popravke
+        in zacasno datoteko; po dveh takih so vsi popravki dobili 503."""
+        from core import link_datoteke
+        prej_rok = link_datoteke.ROK_BRANJA_POPRAVKA_S
+        link_datoteke.ROK_BRANJA_POPRAVKA_S = 0.5
+        zacasno = self.tw._mapa_zacasnih()
+        try:
+            time.sleep(0.2)
+            niti_prej = threading.active_count()
+            fd_prej = len(os.listdir("/proc/self/fd")) if os.path.isdir("/proc/self/fd") else None
+            tihi = [self._napol(False, vrata, pot) for _ in range(3)]
+            self._napol(True, vrata, pot)
+            self.assertTrue(self._pocakaj(lambda: any(i.startswith(".popravek-") for i in os.listdir(zacasno)), 3.0),
+                            "oddaja se je zacela (zacasna datoteka)")
+            self.assertTrue(self._pocakaj(lambda: threading.active_count() <= niti_prej),
+                            "niti obravnave so ostale: %d > %d" % (threading.active_count(), niti_prej))
+            self.assertEqual([i for i in os.listdir(zacasno) if i.startswith(".popravek-")], [])
+            for v in tihi:
+                v.close()
+            if fd_prej is not None:
+                self.assertTrue(self._pocakaj(lambda: len(os.listdir("/proc/self/fd")) <= fd_prej),
+                                "deskriptorji: %d > %d" % (len(os.listdir("/proc/self/fd")), fd_prej))
+        finally:
+            link_datoteke.ROK_BRANJA_POPRAVKA_S = prej_rok
+        # Obe mesti za popravke sta prosti: pravi popravek gre skozi (ne 503).
+        nova = bytearray(self.vsebina)
+        nova[0:4] = b"ZIVO"
+        b = os.path.join(self.tmp, "b.bin")
+        with open(b, "wb") as f:
+            f.write(nova)
+        telo_pot = os.path.join(self.tmp, "telo")
+        tw.naredi_popravek(b, link_delta.manifest(self.pot), tw._sha(self.pot), telo_pot)
+        with open(telo_pot, "rb") as f:
+            telo = f.read()
+        self.tw.prijava("naprava-b", {"id": "share:0:a.bin", "odprto": True})
+        self.assertEqual(self._poslji(telo, self.streznik["token"])[0], 200)
+
+
+class GlavnaNit(unittest.TestCase):
+    """files.session prihaja na glavni niti (core/safeer_link -> link_daljinec.izvedi_control). Prej je prijava tam
+    cakala na glavno nit samo (seznam oken) - 3 s zamrznitve ob vsakem javljanju udelezenca (vsakih 5 s)."""
+
+    def _glib(self):
+        try:
+            from gi.repository import GLib
+        except Exception as e:  # noqa: BLE001 - okolje brez gi
+            self.skipTest("gi ni na voljo: %s" % e)
+        return GLib
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.pot = os.path.join(self.tmp, "a.txt")
+        with open(self.pot, "w") as f:
+            f.write("x" * 1000)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _tw(self, okna):
+        return tw.Teamwork(razresi=lambda o: self.pot if o == "id1" else "", ime_naprave=lambda i: i,
+                           obvesti=lambda *a: None, ukaz=None, okna=okna, mapa=os.path.join(self.tmp, "tw"),
+                           procesi=None)
+
+    def test_prijava_na_glavni_niti_ne_caka(self):
+        GLib = self._glib()
+        zanka = GLib.MainLoop()
+        izid = {}
+        t = self._tw(lambda: tw.na_glavni_niti(lambda: [{"ime": "a.txt - urejevalnik", "program": "Gedit"}], 3.0))
+
+        def na_glavni():
+            for i in range(2):
+                zacetek = time.monotonic()
+                izid[i] = (t.prijava("n-1", {"id": "id1", "odprto": True}), time.monotonic() - zacetek)
+            zanka.quit()
+            return False
+        GLib.idle_add(na_glavni)
+        GLib.timeout_add_seconds(20, zanka.quit)
+        zanka.run()
+        for i in (0, 1):
+            stanje, cas = izid[i]
+            self.assertTrue(stanje["ok"])
+            self.assertLess(cas, 1.0, "prijava je cakala na glavno nit (%.2f s)" % cas)
+        self.assertEqual(stanje["drugi"], ["@tukaj"], "seznam oken je prebran (datoteka odprta tudi tukaj)")
+
+    def test_iz_niti_prek_glavne_zanke(self):
+        GLib = self._glib()
+        zanka = GLib.MainLoop()
+        izid = {}
+
+        def v_niti():
+            izid["nit"] = tw.na_glavni_niti(lambda: threading.current_thread() is threading.main_thread(), 3.0)
+            GLib.idle_add(zanka.quit)
+        threading.Thread(target=v_niti, daemon=True).start()
+        GLib.timeout_add_seconds(20, zanka.quit)
+        zanka.run()
+        self.assertIs(izid.get("nit"), True, "delo je teklo na glavni niti")
+        # Glavna zanka ne tece (zasedena): po roku None, stanje odprtosti ostane.
+        izid.clear()
+        nit = threading.Thread(target=lambda: izid.setdefault("x", tw.na_glavni_niti(lambda: [], 0.2)), daemon=True)
+        nit.start()
+        nit.join(5)
+        self.assertIn("x", izid)
+        self.assertIsNone(izid["x"])
+        GLib.MainContext.default().iteration(False)   # pocisti cakajoce delo
+
+    def test_files_session_v_niti(self):
+        """izvedi_control (glavna nit) se vrne takoj; odgovor pride prek koncaj iz niti."""
+        from core import link_daljinec
+
+        class Tw:
+            def prijava(self, posiljatelj, p):
+                time.sleep(0.5)                      # npr. prva prijava velike datoteke
+                return {"ok": True, "sha256": "x", "niti": threading.current_thread().name}
+
+        class Datoteke:
+            teamwork = Tw()
+
+            def streznik_za(self, posiljatelj, hub_url):
+                return {"base_url": "https://x"}
+        odgovori = []
+        prispel = threading.Event()
+        zacetek = time.monotonic()
+        link_daljinec.izvedi_control("files.session", {"id": "id1", "odprto": True}, lambda u: None,
+                                     lambda r: (odgovori.append(r), prispel.set()), datoteke=Datoteke(),
+                                     posiljatelj="n-1")
+        self.assertLess(time.monotonic() - zacetek, 0.2, "glavna nit ne caka na prijavo")
+        self.assertTrue(prispel.wait(5))
+        r = odgovori[0]
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["data"]["streznik"], {"base_url": "https://x"})
+        self.assertEqual(r["data"]["niti"], "safeer-teamwork-prijava")
+
+    def test_hkratni_prvi_prijavi_bereta_datoteko_enkrat(self):
+        t = self._tw(lambda: [])
+        branja = []
+        izvirna = tw._sha
+
+        def sha(pot):
+            branja.append(pot)
+            time.sleep(0.3)
+            return izvirna(pot)
+        tw._sha = sha
+        try:
+            niti = [threading.Thread(target=t.prijava, args=("n-%d" % i, {"id": "id1"})) for i in range(3)]
+            for n in niti:
+                n.start()
+            for n in niti:
+                n.join(10)
+        finally:
+            tw._sha = izvirna
+        self.assertEqual(len(branja), 1)
+        self.assertEqual(set(t._seje["id1"].udelezenci), {"n-0", "n-1", "n-2"})
+        self.assertEqual(t._ustvarjanje, {})
