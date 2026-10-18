@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -158,6 +159,10 @@ def _varno_razpakiraj(paket: Path, cilj: Path) -> None:
                 os.chmod(cilj / info.filename, pravice & 0o755)
 
 
+#: Ime mape ene verzije paketa v koren() (druge mape tam so profili s prijavami).
+_VERZIJA_MAPE = re.compile(r"\d+\.\d+\.\d+")
+
+
 def prenesi(url: str = URL, sha256: str = SHA256) -> bool:
     with _zaklep:
         if izvrsljiva() is not None:
@@ -185,8 +190,11 @@ def prenesi(url: str = URL, sha256: str = SHA256) -> bool:
             (nova / OZNAKA).write_text(sha256, encoding="utf-8")
             shutil.rmtree(mapa_verzije(), ignore_errors=True)
             os.replace(nova, mapa_verzije())
+            # Samo stare verzije paketa (mape X.Y.Z): profil, profil-spotify ... so uporabnikove prijave (pregled
+            # 18. 10. 2026: nova verzija je brisala vse mape razen svoje in z njimi prijave v Spotify in storitve).
             for stara in koren().iterdir():
-                if stara.is_dir() and stara.name != VERZIJA:
+                if stara.is_dir() and not stara.is_symlink() and _VERZIJA_MAPE.fullmatch(stara.name) \
+                        and stara.name != VERZIJA:
                     shutil.rmtree(stara, ignore_errors=True)
             print(f"[SafeerDRM] {VERZIJA} pripravljen", flush=True)
             return True

@@ -36,6 +36,19 @@ class Prenos(unittest.TestCase):
         self.assertTrue(exe and os.access(exe, os.X_OK))
         self.assertFalse(os.stat(exe.parent / "chrome-sandbox").st_mode & 0o4000)   # brez setuid
 
+    def test_nova_verzija_ohrani_profile(self):
+        """Regresija (pregled 18. 10. 2026, drm_profil.py): nova verzija pobrise samo stare verzije paketa, ne
+        profilov s prijavami (profil, profil-spotify) ali drugih map."""
+        koren = self.tmp / "drm"
+        for ime in ("profil", "profil-spotify", "0.2.0", "1.10.3", "0.2.0-x", "neznano"):
+            (koren / ime).mkdir(parents=True)
+        (koren / "profil-spotify" / "Cookies").write_bytes(b"prijava")
+        url, sha = self._paket({"safeer-drm": b"ELF"})
+        self.assertTrue(p.prenesi(url, sha))
+        self.assertEqual(sorted(x.name for x in koren.iterdir() if x.is_dir()),
+                         sorted([p.VERZIJA, "0.2.0-x", "neznano", "profil", "profil-spotify"]))
+        self.assertEqual((koren / "profil-spotify" / "Cookies").read_bytes(), b"prijava")
+
     def test_napacen_sha(self):
         url, _ = self._paket({"safeer-drm": b"ELF"})
         self.assertFalse(p.prenesi(url, "0" * 64))
