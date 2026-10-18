@@ -8,7 +8,8 @@ vmesnik: sezname, Vseckane pesmi, oddaje (podkaste), trenutno skladbo, upravljan
 Upravljanje: CDP (Chrome DevTools Protocol) prek webContents.debugger v Safeer DRM (assets/safeer_drm/main.js) - brez
 --remote-debugging-port. Tista vrata bi bila odprta vsakemu lokalnemu procesu (tudi drugim uporabnikom racunalnika) in
 bi z njimi kdorkoli prevzel prijavo; zeton na vratih Chromium ne pozna. Ukazi gredo po ze obstojecem zasebnem kanalu
-seje (command.txt -> events.jsonl v mapi seje, 0700, ki jo pise samo Safeer OS). Dovoljen je le Runtime.evaluate.
+seje (command.txt v mapi seje, 0700, ki jo pise samo Safeer OS); odgovor vsake zahteve je v svoji datoteki
+cdp-<id>.json, ki jo Kanal takoj po branju izbrise (vsebina strani ne ostane na disku). Dovoljen je le Runtime.evaluate.
 
 Podatki: isti klici kot spletna aplikacija, iz strani in z zetonom strani (window.__safeerSpotify, main.js): GraphQL
 (api-partner.spotify.com/pathfinder) z vzorcem, ki ga je stran ze poslala sama; rezerva je spletni API
@@ -549,7 +550,7 @@ class Kanal:
         return odgovor.get("vrednost")
 
     def obdelaj(self, vrstica: str) -> None:
-        """Ena vrstica events.jsonl (main.js): odgovor CDP gre cakajocemu klicu."""
+        """Ena vrstica events.jsonl (main.js). Odgovor CDP v dnevniku je le se za starejsi main.js."""
         try:
             d = json.loads(vrstica)
         except ValueError:
@@ -560,29 +561,92 @@ class Kanal:
         if vrsta == "NAVIGATION_OK":
             self.nalozeno = True
         elif vrsta == "CDP":
+            self._odgovor(str(d.get("detail") or ""))
+
+    def _odgovor(self, besedilo: str) -> None:
+        """Odgovor CDP ({"id", "vrednost" | "napaka"}) gre cakajocemu klicu."""
+        try:
+            o = json.loads(besedilo)
+            cakanje = self._cakajo.get(int(o.get("id")))
+        except (ValueError, TypeError, AttributeError):
+            return
+        if cakanje is not None:
+            cakanje[1] = o
+            cakanje[0].set()
+
+    _ODGOVOR = re.compile(r"^cdp-([0-9]{1,12})\.json$")
+
+    def _beri_odgovore(self) -> None:
+        """Datoteke odgovorov cdp-<id>.json (main.js odgovorCdp): preberemo in takoj izbrisemo - vsebina strani ne
+        ostane na disku. Odgovor, na katerega nihce vec ne caka (cas je potekel), se samo izbrise."""
+        seja = self.seja
+        if not seja:
+            return
+        try:
+            vnosi = list(os.scandir(seja))
+        except OSError:
+            return
+        for v in vnosi:
+            m = self._ODGOVOR.match(v.name)
+            if not m:
+                continue
+            besedilo = ""
+            if int(m.group(1)) in self._cakajo:
+                try:
+                    with open(v.path, "r", encoding="utf-8") as f:
+                        besedilo = f.read(8 * 1024 * 1024)
+                except OSError:
+                    continue
             try:
-                o = json.loads(str(d.get("detail") or ""))
-                cakanje = self._cakajo.get(int(o.get("id")))
-            except (ValueError, TypeError, AttributeError):
-                return
-            if cakanje is not None:
-                cakanje[1] = o
-                cakanje[0].set()
+                os.unlink(v.path)
+            except OSError:
+                pass
+            if besedilo:
+                self._odgovor(besedilo)
+
+    def _preberi_dnevnik(self, f: Any) -> None:
+        f.seek(self._odmik)
+        novo = f.read()
+        # samo cele vrstice: zadnja je lahko se v pisanju
+        konec = novo.rfind(b"\n") + 1
+        self._odmik += konec
+        for vrstica in novo[:konec].decode("utf-8", "replace").splitlines():
+            self.obdelaj(vrstica)
+
+    def _beri_dnevnik(self, ino: Optional[int]) -> Optional[int]:
+        """events.jsonl od zadnjega odmika. main.js ga pri ~1 MB zamenja (events.jsonl -> events.jsonl.1): ce se je
+        datoteka zamenjala, najprej preberemo se konec stare, nato novo od zacetka. Beremo iz iste odprte datoteke,
+        katere inode smo preverili (zamenjava vmes ne pomesa odmikov). Vrne inode trenutne datoteke."""
+        try:
+            f = open(self.stanje, "rb")
+        except OSError:
+            f = None
+        try:
+            zdaj = os.fstat(f.fileno()).st_ino if f is not None else None
+            if ino is not None and zdaj != ino:
+                try:
+                    with open(self.stanje + ".1", "rb") as stara:
+                        if os.fstat(stara.fileno()).st_ino == ino:
+                            self._preberi_dnevnik(stara)
+                except OSError:
+                    pass
+                self._odmik = 0
+            if f is not None:
+                self._preberi_dnevnik(f)
+        finally:
+            if f is not None:
+                f.close()
+        return zdaj
 
     def _beri_zanka(self) -> None:
         proces = self.proces
+        ino: Optional[int] = None
         while proces is not None and proces is self.proces:
             try:
-                with open(self.stanje, "r", encoding="utf-8") as f:
-                    f.seek(self._odmik)
-                    novo = f.read()
-                    # samo cele vrstice: zadnja je lahko se v pisanju
-                    konec = novo.rfind("\n") + 1
-                    self._odmik += len(novo[:konec].encode("utf-8"))
-                for vrstica in novo[:konec].splitlines():
-                    self.obdelaj(vrstica)
+                ino = self._beri_dnevnik(ino)
             except OSError:
                 pass
+            self._beri_odgovore()
             if proces.poll() is not None:
                 break
             time.sleep(0.05)

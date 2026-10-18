@@ -193,8 +193,11 @@ class KanalTest(unittest.TestCase):
                             if odg is None:
                                 continue          # brez odgovora (zastala stran)
                             odg = dict(odg, id=int(ident))
-                            with open(self.k.stanje, "a") as f:
-                                f.write(json.dumps({"type": "CDP", "detail": json.dumps(odg)}) + "\n")
+                            # kot main.js odgovorCdp: svoja datoteka zahteve, atomarno preimenovana
+                            cilj = os.path.join(self.k.seja, "cdp-%s.json" % ident)
+                            with open(cilj + ".tmp", "w") as f:
+                                f.write(json.dumps(odg))
+                            os.rename(cilj + ".tmp", cilj)
                     os.unlink(self.k.ukazi + ".r")
                 time.sleep(0.02)
         threading.Thread(target=tek, daemon=True).start()
@@ -244,6 +247,55 @@ class KanalTest(unittest.TestCase):
             self.k.izvedi("drugo", 3)
         with self.assertRaises(sr.NiOdziva):
             self.k.izvedi("tiho", 0.2)
+
+    def test_odgovori_niso_v_dnevniku_in_se_izbrisejo(self):
+        """Pregled 18. 10. 2026: odgovori CDP (vsebina strani) niso vec v events.jsonl; datoteka zahteve se po branju
+        izbrise, zamujen odgovor tudi."""
+        self.k.zacni(False, True)
+        self._streznik(lambda i: {"vrednost": "Skrivno ime seznama"} if i == "a" else None)
+        self.assertEqual(self.k.izvedi("a", 3), "Skrivno ime seznama")
+        with self.assertRaises(sr.NiOdziva):
+            self.k.izvedi("zamuda", 0.2)
+        zamujen = os.path.join(self.k.seja, "cdp-999.json")
+        with open(zamujen, "w") as f:
+            f.write(json.dumps({"id": 999, "vrednost": "x"}))
+        konec = time.time() + 3
+        while os.path.exists(zamujen) and time.time() < konec:
+            time.sleep(0.05)
+        self.assertFalse(os.path.exists(zamujen))
+        self.assertEqual([x for x in os.listdir(self.k.seja) if x.startswith("cdp-")], [])
+        dnevnik = open(self.k.stanje).read() if os.path.exists(self.k.stanje) else ""
+        self.assertNotIn("Skrivno", dnevnik)
+
+    def test_zamenjava_dnevnika(self):
+        """main.js dnevnik pri ~1 MB zamenja (events.jsonl -> .1): bralec prebere konec starega in nadaljuje v novem."""
+        self.k.stanje = os.path.join(self.mapa, "events.jsonl")
+        self.k.nalozeno = False
+        with open(self.k.stanje, "w") as f:
+            f.write(json.dumps({"type": "X"}) + "\n")
+        ino = self.k._beri_dnevnik(None)
+        with open(self.k.stanje, "a") as f:
+            f.write(json.dumps({"type": "NAVIGATION_OK"}) + "\n")       # zadnja vrstica starega dela
+        os.replace(self.k.stanje, self.k.stanje + ".1")
+        ino = self.k._beri_dnevnik(ino)                                # nov se ni nastal
+        self.assertTrue(self.k.nalozeno)
+        self.assertIsNone(ino)
+        self.k.nalozeno = False
+        with open(self.k.stanje, "w") as f:
+            f.write(json.dumps({"type": "NAVIGATION_OK"}) + "\n")
+        self.k._beri_dnevnik(ino)
+        self.assertTrue(self.k.nalozeno)
+        # zamenjava med dvema branjema: najprej konec starega, nato nov od zacetka
+        self.k.nalozeno = False
+        ino = self.k._beri_dnevnik(None)
+        with open(self.k.stanje, "a") as f:
+            f.write(json.dumps({"type": "NAVIGATION_OK"}) + "\n")
+        os.replace(self.k.stanje, self.k.stanje + ".1")
+        with open(self.k.stanje, "w") as f:
+            f.write(json.dumps({"type": "X"}) + "\n")
+        self.k._beri_dnevnik(ino)
+        self.assertTrue(self.k.nalozeno)
+        self.assertEqual(self.k._odmik, len(json.dumps({"type": "X"})) + 1)
 
     def test_pokvarjene_vrstice_in_ustavljen(self):
         for vr in ("", "{", "[]", json.dumps({"type": "CDP", "detail": "{"}), json.dumps({"type": "CDP", "detail": "{\"id\": \"x\"}"})):
@@ -644,6 +696,14 @@ class SafeerDrmTest(unittest.TestCase):
         self.assertNotIn("remote-debugging-port', '0'", self.js)
         izvedi = self.js[self.js.index("function izvediCdp"):self.js.index("function obdelajUkaz")]
         self.assertEqual(re.findall(r"sendCommand\('([A-Za-z.]+)'", izvedi), ["Runtime.evaluate"])
+
+    def test_odgovor_cdp_ni_v_dnevniku_in_dnevnik_omejen(self):
+        izvedi = self.js[self.js.index("function izvediCdp"):self.js.index("function obdelajUkaz")]
+        self.assertNotIn("zapisi(", izvedi)                       # vsebina strani ne gre v events.jsonl
+        self.assertEqual(izvedi.count("odgovorCdp(id, "), 5)
+        self.assertIn("const NAJVEC_DNEVNIKA = 1024 * 1024;", self.js)
+        self.assertIn("fs.renameSync(statePath, statePath + '.1')", self.js)
+        self.assertIn("cdp:[0-9]{1,12}:", self.js)                # id je stevilo: ime datoteke ostane v mapi seje
 
     def test_zeton_nikoli_v_dnevnik(self):
         for vr in re.findall(r"zapisi\([^;]*", self.js):
