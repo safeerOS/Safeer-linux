@@ -1568,8 +1568,13 @@ class Katalog:
         vrste = os_police.POLICE_ZAVIHKOV.get(zavihek, ())
         if not vrste or iskanje.strip():
             return izhod
+        # Polica, ki jo je uporabnik skril (Prilagodi meni, »Skrij«), se ne nalozi: ne beremo knjiznice ne kataloga in
+        # nicesar ne drzimo v pomnilniku (lastnik 18. 10. 2026). Ob ponovnem vklopu jo stran nalozi znova.
+        skrito = set(self._skriti())
         viri = {}
         for ime in vrste:
+            if "polica:" + ime in skrito:
+                continue
             try:
                 viri[ime] = getattr(self, "_polica_" + ime)(zavihek, ogledano)
             except Exception as e:  # noqa: BLE001 - polica, ki ne gre (baza zaklenjena, TMDB), ne podre ostalih
@@ -1596,10 +1601,15 @@ class Katalog:
         drzava = self._niz(a, 0)[:2]
         izkljuci = [str(x) for x in a[1]][:400] if len(a) > 1 and isinstance(a[1], list) else []
         self.mc.izbrana_drzava = self._drzava()
-        viri = self._odkrij_viri(drzava)
+        skrito = set(self._skriti())
+        # Skrita polica odkrivanja (ali skrit zavihek, kamor vodi) se ne nalozi; kar je ze nalozeno, pozabimo.
+        viri = {ime: nalozi for ime, nalozi in self._odkrij_viri(drzava).items() if not self._odkrij_skrita(ime, skrito)}
         zdaj = time.monotonic()
         with self._odkr_pogoj:
             st = self._odkr
+            st["skrito"] = skrito
+            for ime in [k for k in st["vir"] if self._odkrij_skrita(k, skrito)]:
+                st["vir"].pop(ime, None)
             st["izkljuci"] = izkljuci
             if st["drzava"] != drzava:
                 st["drzava"] = drzava
@@ -1620,6 +1630,11 @@ class Katalog:
             police = self._odkrij_sestavi()
             st["poslano"] = json.dumps(police, sort_keys=True, default=str)
             return {"police": police, "dopolnjujem": bool(st["tece"])}
+
+    @staticmethod
+    def _odkrij_skrita(ime: str, skrito: set) -> bool:
+        zavihek = dict(os_police.POLICE_ODKRIVANJA).get(ime, "")
+        return "polica:" + ime in skrito or (bool(zavihek) and "kat:" + zavihek in skrito)
 
     def _odkrij_viri(self, drzava: str) -> dict:
         """Polica -> nalagalnik (v delovni niti). Katalog iz predpomnilnika (catalog_hitro); sveze v ozadju javi
@@ -1690,7 +1705,9 @@ class Katalog:
             st = self._odkr
             if not osvezitev:
                 st["tece"].discard(ime)
-            if vnosi is not None or ime not in st["vir"]:
+            if self._odkrij_skrita(ime, st.get("skrito") or set()):
+                st["vir"].pop(ime, None)          # medtem skrita (osvezitev v ozadju): ne drzimo je v pomnilniku
+            elif vnosi is not None or ime not in st["vir"]:
                 st["vir"][ime] = (time.monotonic(), vnosi or [])
             self._odkr_pogoj.notify_all()
             if st["tece"]:
@@ -1706,6 +1723,8 @@ class Katalog:
         """Klice se pod self._odkr_pogoj. Zasebni dodatki izpadejo dvakrat: katalog jih izloci sam (MediaCenter.
         brez_zasebnih), tu se preverba polic (tudi za vnose iz starega predpomnilnika)."""
         st = self._odkr
+        skrito = st.get("skrito") or set()
+        vir = {k: v for k, v in st["vir"].items() if not self._odkrij_skrita(k, skrito)}
         try:
             zaseben = self._je_zaseben_opis()
             koreni = self.mc.zasebni_koreni() if hasattr(self.mc, "zasebni_koreni") else set()
@@ -1715,10 +1734,10 @@ class Katalog:
                 zaseben = lambda d: prva(d) or bool(je_vnos(d, koreni))  # noqa: E731
         except Exception as e:  # noqa: BLE001 - brez preverbe ni polic iz katalogov (zasebno nikoli na Domov)
             print("[SafeerMedia] odkrivanje zasebno: %s" % type(e).__name__, flush=True)
-            return os_police.sestavi_odkrivanje({k: v[1] for k, v in st["vir"].items()
+            return os_police.sestavi_odkrivanje({k: v[1] for k, v in vir.items()
                                                  if k in ("odkrij_youtube", "odkrij_spotify", "odkrij_twitch")},
                                                 st["izkljuci"])
-        return os_police.sestavi_odkrivanje({k: v[1] for k, v in st["vir"].items()}, st["izkljuci"], zaseben)
+        return os_police.sestavi_odkrivanje({k: v[1] for k, v in vir.items()}, st["izkljuci"], zaseben)
 
     def _ovitki_s_prijavo(self, police: list) -> None:
         """Ovitek skladbe osebnega streznika (Navidrome, Plex) je na polici shranjen brez prijave (core/os_police.py,

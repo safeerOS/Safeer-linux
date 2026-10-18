@@ -1644,7 +1644,13 @@
       var sam = jeSkrito("polica:samodejni");
       if (sam) S.samodejni = [];
       else if (!(S.samodejni || []).length) naloziSamodejne();
-      if (typeof POL !== "undefined") { POL.podpis = ""; POL.odkrPodpis = ""; narisiPolice(); narisiOdkrivanje(); }
+      if (typeof POL !== "undefined") {
+        POL.podpis = ""; POL.odkrPodpis = ""; narisiPolice(); narisiOdkrivanje();
+        // Jedro skritih polic ne nalozi (core/os_katalog._police, _odkrivanje): ob spremembi police nalozimo znova -
+        // spet vklopljena se pokaze, skrita sprosti pomnilnik tudi v jedru.
+        if (POL.nalozeno) naloziPolice();
+        if (S.mediaFilter === "domov") naloziOdkrivanje();
+      }
       narisiSamodejne();
     } catch (e) { /* stran se se ne izrisuje */ }
   }
