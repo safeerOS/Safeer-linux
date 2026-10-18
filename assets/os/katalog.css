@@ -12,7 +12,8 @@
 .kat-glava { align-items: flex-end; gap: 14px; flex-wrap: wrap; }
 .kat-orodja { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
 .kat-orodja .gumb { min-height: 42px; }
-  border: 1px solid rgba(138, 199, 255, .4); border-radius: 16px; background: linear-gradient(135deg, rgba(138, 199, 255, .12), rgba(17,25,36,.78)); }
+/* 18. 10. 2026: tu je bil ostanek pravila .kat-trak (brez izbirnika); brskalnik je zato zavrgel naslednje pravilo
+   in »+« (na seznam) ni bil nikoli postavljen na kartico - stal je pod izvajalcem. */
 .kat-kartica .kat-odstrani, .kat-kartica .kat-na-seznam { position: absolute; top: 8px; left: 8px; width: 28px; height: 28px; display: grid; place-items: center;
   border-radius: 50%; background: rgba(3,7,10,.82); color: #fff; font-size: 14px; opacity: 0; transition: opacity .15s ease; }
 .kat-kartica:hover .kat-odstrani, .kat-kartica:focus-visible .kat-odstrani, .kat-kartica:hover .kat-na-seznam, .kat-kartica:focus-visible .kat-na-seznam { opacity: 1; }
@@ -375,20 +376,36 @@ html.kavc .kat-katalog { grid-template-columns: repeat(auto-fill, minmax(180px, 
 .kat-sp-cas input { flex: 1; }
 .kat-sp-predvajalnik input[type="range"] { accent-color: var(--zelena); }
 
-/* Odprt seznam skladb: vrstice (stevilka, ovitek 44 px, naslov in izvajalec, dolzina) - lastnik, 17. 10. 2026. */
-.kat-katalog.kat-skladbe { grid-template-columns: 1fr; gap: 2px; counter-reset: skladba; }
-.kat-skladbe .kat-kartica { min-height: 0; display: flex; align-items: center; gap: 12px; padding: 6px 100px 6px 44px;
-  border-radius: 10px; border-color: transparent; background: transparent; counter-increment: skladba; }
-.kat-skladbe .kat-kartica::before { content: counter(skladba); position: absolute; left: 0; width: 40px; text-align: center;
-  color: var(--medlo); font-size: 13px; font-variant-numeric: tabular-nums; }
+/* Odprt seznam skladb (Spotify, YouTube, svoj): vrstice (stevilka, ovitek, naslov in izvajalec, dolzina, »+«) kot
+   glasba s tega racunalnika (.media-skladbe) - lastnik, 17. 10. 2026. 18. 10. 2026: na TV je bila ena ozka sredinska
+   kolona (ovitek, naslov, izvajalec in »+« drug pod drugim): .kat-kartica ima flex-direction: column, vrstica ga ni
+   preklicala. Na sirokem zaslonu vec stolpcev, vrstni red po vrsticah (1 2 3 / 4 5 6), stevilka ga pove. */
+/* Tudi v celozaslonskem nacinu (TV): html.kavc .kat-katalog ima mrezo plakatov 180 px in bi sicer zmagal. */
+.kat-katalog.kat-skladbe, html.kavc .kat-katalog.kat-skladbe { grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr)); gap: 6px 14px; counter-reset: skladba; }
+.kat-skladbe .kat-kartica { min-height: 56px; flex-direction: row; align-items: center; gap: 12px; padding: 6px 116px 6px 44px;
+  border-radius: 12px; border-color: transparent; background: var(--media-povrsina); counter-increment: skladba; }
+.kat-skladbe .kat-kartica::before { content: counter(skladba); position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  width: 40px; text-align: center; color: var(--medlo); font-size: 13px; font-variant-numeric: tabular-nums; }
 .kat-skladbe .kat-kartica:hover, .kat-skladbe .kat-kartica:focus-visible { transform: none; box-shadow: none;
-  background: var(--kartica); border-color: var(--rob); }
+  background: var(--media-poudarek); border-color: var(--rob); }
+html.kavc .kat-skladbe .kat-kartica:focus { transform: scale(1.02); }
+/* Skladba, ki igra (oznaciTrenutnoSkladbo v os.js). */
+.kat-skladbe .kat-kartica[aria-current="true"] { background: var(--izbrano); border-color: var(--zelena); }
+.kat-skladbe .kat-kartica[aria-current="true"]::before { content: "▶"; color: var(--zelena); }
+.kat-skladbe .kat-kartica[aria-current="true"] b { color: var(--zelena); }
 .kat-skladbe .kat-plakat { width: 44px; height: 44px; border-radius: 6px; overflow: hidden; }
-.kat-skladbe .kat-kartica img, .kat-skladbe .kat-kartica .kat-brez-slike { width: 44px; height: 44px; }
+.kat-skladbe .kat-kartica img, .kat-skladbe .kat-kartica .kat-brez-slike { width: 44px; height: 44px; aspect-ratio: auto; }
 .kat-skladbe .kat-kartica .kat-brez-slike svg { width: 20px; height: 20px; }
 .kat-skladbe .kat-kartica .kat-podatki { flex: 1; min-width: 0; padding: 0; }
+.kat-skladbe .kat-kartica b { display: block; min-height: 0; -webkit-line-clamp: unset; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kat-skladbe .kat-kartica .kat-meta { margin-top: 2px; text-transform: none; font-size: 12px; }
 .kat-skladbe .kat-kartica .kat-kakovost, .kat-skladbe .kat-kartica .kat-ocena { display: none; }
-.kat-skladbe .kat-trajanje { color: var(--medlo); font-size: 12px; font-variant-numeric: tabular-nums; }
-.kat-skladbe .kat-kartica .kat-na-seznam, .kat-skladbe .kat-kartica .kat-odstrani { left: auto; right: 12px; top: 50%; transform: translateY(-50%); }
-.kat-skladbe .kat-kartica .kat-trajanje { position: absolute; right: 48px; }
+.kat-skladbe .kat-kartica .kat-trajanje { position: absolute; right: 78px; top: 50%; transform: translateY(-50%);
+  color: var(--medlo); font-size: 12px; font-variant-numeric: tabular-nums; }
+/* »+« (na seznam) desno, rahlo viden vedno; »✕« (odstrani s svojega seznama, brez potrditve) samo ob izboru vrstice,
+   da ga ob pomikanju ne zadene po nesreci. Oba polno ob izboru vrstice. */
+.kat-skladbe .kat-kartica .kat-na-seznam, .kat-skladbe .kat-kartica .kat-odstrani { left: auto; right: 10px; top: 50%; transform: translateY(-50%); }
+.kat-skladbe .kat-kartica .kat-na-seznam { opacity: .45; }
+.kat-skladbe .kat-kartica:hover .kat-na-seznam, .kat-skladbe .kat-kartica:focus-visible .kat-na-seznam,
+.kat-skladbe .kat-kartica:hover .kat-odstrani, .kat-skladbe .kat-kartica:focus-visible .kat-odstrani { opacity: 1; }
+.kat-skladbe .kat-kartica .kat-vec { right: 44px; top: 50%; transform: translateY(-50%); }

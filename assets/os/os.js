@@ -1308,7 +1308,10 @@
     var c = $("katLokalnaGlasba"); if (!c) return;
     c.innerHTML = "";
     var vidno = skladbe.length && (vrsta === "vse" || vrsta === "glasba");
-    c.hidden = !vidno;
+    // Razdelek je del pregleda Glasbe, ne odprtega seznama predvajanja: v seznamu (Spotify, YouTube, svoj) so samo
+    // njegove skladbe (lastnik, 18. 10. 2026: nad seznamom Spotify je bil »Na tem računalniku«). Narisan ostane za
+    // »← Vsi seznami«; vidnost ob odprtju in zaprtju seznama uskladi narisiKatalog.
+    c.hidden = !vidno || (typeof kat !== "undefined" && !!kat.seznam);
     if (!vidno) return;
     var glava = el("div", "kat-knjiznica-glava");
     glava.appendChild(el("h3", "", ubezi(t("katNaTemRacunalniku")) + ' <small>' + skladbe.length + '</small>'));
@@ -1871,7 +1874,21 @@
     if (item) return "glasba";
     return p.vrsta === "radio" ? "radio" : /^(tv|video|filmi|serije)$/.test(p.vrsta || "") ? "video" : "glasba";
   }
+  // Odprt seznam skladb: vrstica, ki igra, ima aria-current (poudarek v katalog.css) - na TV se vidi, kje v seznamu si.
+  // Skladba iz kataloga po id-ju; Spotify (igra skrit Safeer DRM, id-ja ne vrne) po naslovu.
+  function oznaciTrenutnoSkladbo() {
+    var m = $("katMreza");
+    if (!m || typeof kat === "undefined" || !m.classList.contains("kat-skladbe")) return;
+    var akt = kat.aktivni, sp = !akt && spNaTraku() ? spTrenutna() : null;
+    var naslov = sp ? String(sp.naslov || "").trim().toLowerCase() : "", najden = false;
+    Array.prototype.forEach.call(m.querySelectorAll(".kat-kartica"), function (k) {
+      var x = k._skladba, da = false;
+      if (!najden && x) da = akt ? !!akt.id && akt.id === x.id : !!naslov && String(x.naslov || "").trim().toLowerCase() === naslov;
+      if (da) { najden = true; k.setAttribute("aria-current", "true"); } else k.removeAttribute("aria-current");
+    });
+  }
   function narisiTrak() {
+    oznaciTrenutnoSkladbo();
     if (!uskladiTrak()) return;
     if (spNaTraku()) { narisiSpTrak(); return; }
     var p = S.mediaPredvajalnik || {}, item = skladbaKataloga();
@@ -5577,6 +5594,9 @@
     $("mediaViriFilterGumb").parentNode.hidden = kat.filter === "twitch";
     narisiSeznamePredvajanja();
     narisiKnjiznico();
+    // Glasba s tega racunalnika: skrita, dokler je seznam odprt (narise jo narisiMedije, ta pot je ne bi skrila).
+    var lokalnaGlasba = $("katLokalnaGlasba");
+    if (lokalnaGlasba) lokalnaGlasba.hidden = izSeznama || !lokalnaGlasba.firstChild;
     // Odprt seznam predvajanja: mreža kaže njegove skladbe v vrstnem redu seznama (brez združevanja po izvajalcu).
     var list = izSeznama ? kat.seznam.vnosi.slice() : kat.katalog.slice();
     narisiPrazenKatalog(!!list.length || !kat.nalozen);
@@ -5615,6 +5635,7 @@
         mreza.appendChild(el("h3", "kat-skupina", ubezi(zadnjaSkupina)));
       }
       var card = el("button", "kat-kartica"); card.type = "button"; card.setAttribute("data-id", x.id || "");
+      card._skladba = x;          // oznaciTrenutnoSkladbo: katera vrstica seznama igra
       card.setAttribute("aria-label", (x.naslov || "") + " — " + katOznaka(x.vrsta));
       // Slika v ovoju .kat-plakat: srcek, »ogledano« in merilo se drzijo njenega spodnjega roba pri vsaki sirini mreze.
       var plakat = el("span", "kat-plakat"); card.appendChild(plakat);
@@ -5698,6 +5719,7 @@
       };
       mreza.appendChild(card);
     });
+    oznaciTrenutnoSkladbo();
     narisiNalaganje();
     // Dokler ima katalog vsebino, velika uvodna plošča ne odriva vsebine navzdol. Med nalaganjem (druga kategorija,
     // drug jezik) postavitev ostane, kot je bila - sicer se plošča za hip pokaže in katalog skoči navzdol in nazaj.
