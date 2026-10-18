@@ -528,7 +528,7 @@ Steklo {
                            else koren.obvesti(koren.t(dodaj ? "dockDodano" : "dockOdstranjeno", { ime: p.ime }))
                        }, function () { koren.obvesti(koren.t("niUspelo")) })
                    } }
-        MeniVnos { text: koren.t("spletnaOdstrani"); objectName: "vnosOdstraniSpletno"; visible: !!meniPrograma.p && !!meniPrograma.p.url
+        MeniVnos { text: koren.t("spletnaOdstrani"); objectName: "vnosOdstraniSpletno"; visible: panel.linux && !!meniPrograma.p && !!meniPrograma.p.url
                    onTriggered: panel.odstraniSpletno(meniPrograma.p) }
         // Kategorija: program prestavi uporabnik (isti zapis kot na delovni povrsini WebKit).
         Meni {

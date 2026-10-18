@@ -450,9 +450,13 @@ class Stran(unittest.TestCase):
 
     def test_drugi_razdelki_gredo_v_glavno_okno(self):
         self.assertIn('var EN_RAZDELEK = PREDVAJALNIK ? "media" : RAZDELEK;', self.js)
-        self.assertIn('if (EN_RAZDELEK && razdelek !== EN_RAZDELEK) {\n'
+        # Okno razdelka ima lahko podstrani (Nastavitve: Omrezje, Zvok - popis 3.1, 18. 10. 2026); drugo gre Safeer OS.
+        self.assertIn('return !EN_RAZDELEK || razdelek === EN_RAZDELEK || (PODSTRANI_OKNA[EN_RAZDELEK] || []).indexOf(razdelek) >= 0;', self.js)
+        self.assertIn('if (!vTemOknu(razdelek)) {\n'
                       '      // Drugi razdelki niso del tega okna: odpre jih Safeer OS (z delovne povrsine vsakega v svojem oknu).\n'
                       '      klic("odpriRazdelek", [razdelek]).catch(function () {});', self.js)
+        self.assertNotIn("media", self.js[self.js.index("var PODSTRANI_OKNA"):self.js.index("function vTemOknu")],
+                         "Safeer Player nima podstrani")
         self.assertIn('if (PREDVAJALNIK && kam !== "media" && kam.indexOf("mediji:") !== 0) return;', self.js)
 
     def test_dogodki_glavnega_okna_ne_vplivajo(self):

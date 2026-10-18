@@ -325,6 +325,8 @@
       naloziProgrameNaprav();
       medijZanka();
       osveziLink();
+      // Vodnik ob prvem zagonu v oknu Nastavitve (kot namizje QML; glavnega okna na namizju ni - popis 3.1).
+      if (z.vodnik) klic("odpriRazdelek", ["vodnik"]).catch(function () {});
     }).catch(function () { zgradiStranDatotek(); });
   }
 

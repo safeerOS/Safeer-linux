@@ -646,7 +646,8 @@ var BESEDILA_NAMIZJA = {
     spletnaOdstrani: "Odstrani spletno aplikacijo",
     spletnaDodana: "Dodano: {ime}",
     spletnaOdstranjena: "Odstranjeno: {ime}",
-    dodaj: "Dodaj"
+    dodaj: "Dodaj",
+    skSporocila: "Sporočila"
   },
   en: {
     dostopProsnjaPoslana: "Access request sent. Approve it on {naprava}.",
@@ -1291,7 +1292,8 @@ var BESEDILA_NAMIZJA = {
     spletnaOdstrani: "Remove web app",
     spletnaDodana: "Added: {ime}",
     spletnaOdstranjena: "Removed: {ime}",
-    dodaj: "Add"
+    dodaj: "Add",
+    skSporocila: "Messages"
   },
   de: {
     dostopProsnjaPoslana: "Zugriffsanfrage gesendet. Bestätige sie auf {naprava}.",
@@ -1936,7 +1938,8 @@ var BESEDILA_NAMIZJA = {
     spletnaOdstrani: "Web-App entfernen",
     spletnaDodana: "Hinzugefügt: {ime}",
     spletnaOdstranjena: "Entfernt: {ime}",
-    dodaj: "Hinzufügen"
+    dodaj: "Hinzufügen",
+    skSporocila: "Nachrichten"
   },
   es: {
     dostopProsnjaPoslana: "Solicitud de acceso enviada. Apruébala en {naprava}.",
@@ -2581,7 +2584,8 @@ var BESEDILA_NAMIZJA = {
     spletnaOdstrani: "Quitar aplicación web",
     spletnaDodana: "Añadida: {ime}",
     spletnaOdstranjena: "Quitada: {ime}",
-    dodaj: "Añadir"
+    dodaj: "Añadir",
+    skSporocila: "Mensajes"
   },
   fr: {
     dostopProsnjaPoslana: "Demande d'accès envoyée. Approuvez-la sur {naprava}.",
@@ -3226,7 +3230,8 @@ var BESEDILA_NAMIZJA = {
     spletnaOdstrani: "Retirer l'application web",
     spletnaDodana: "Ajoutée : {ime}",
     spletnaOdstranjena: "Retirée : {ime}",
-    dodaj: "Ajouter"
+    dodaj: "Ajouter",
+    skSporocila: "Messages"
   },
   it: {
     dostopProsnjaPoslana: "Richiesta di accesso inviata. Approvala su {naprava}.",
@@ -3871,6 +3876,7 @@ var BESEDILA_NAMIZJA = {
     spletnaOdstrani: "Rimuovi l'app web",
     spletnaDodana: "Aggiunta: {ime}",
     spletnaOdstranjena: "Rimossa: {ime}",
-    dodaj: "Aggiungi"
+    dodaj: "Aggiungi",
+    skSporocila: "Messaggi"
   }
 };

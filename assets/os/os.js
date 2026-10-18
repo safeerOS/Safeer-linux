@@ -373,6 +373,12 @@
       S.mediaIskanje = ""; if ($("mediaIskanje")) $("mediaIskanje").value = "";
       izberiMedijskoKategorijo("domov");
     }
+    // Vodnik ob prvem zagonu na namizju Safeer: glavnega okna tam ni, odpre ga okno Nastavitve (popis 3.1, 18. 10. 2026).
+    if (kam === "vodnik") {
+      if (vodnikKorak >= 0) return;                 // ze odprt: ne zacnemo znova pri prvem koraku
+      if (S.zacetek) odpriVodnik(); else S.vodnikPoZacetku = true;
+      return;
+    }
     if (kam === "hitro") { odpriHitro(); return; }
     if (kam === "napajanje") { odpriNapajanje(); return; }
     if (kam === "mint") { odpriMint(); return; }
@@ -9945,6 +9951,7 @@
         // Okno enega razdelka: ta razdelek (ali ukaz »pojdi«, ki ga je Safeer OS poslal ob odprtju).
         if (S.razdelek !== RAZDELEK) pojdi(RAZDELEK);
         document.title = t({ zapiski: "zapiski", sporocila: "sporocila", nastavitve: "nastavitve", scit: "scitAplikacija" }[RAZDELEK]) || document.title;
+        if (S.vodnikPoZacetku) { S.vodnikPoZacetku = false; odpriVodnik(); }
         return;
       }
       if (PREDVAJALNIK) return;     // stanje, odprta okna, nedavne datoteke in sporocila so v lupini Safeer OS

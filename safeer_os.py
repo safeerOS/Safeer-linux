@@ -2555,7 +2555,8 @@ class SafeerOS(Gtk.Application):
                 return self._prijava()                       # Safeer Control: prijava ali seznam naprav
             if osnova == "splet":
                 return self._splet_na_namizju("", domov=True)
-            if osnova in PODSTRANI_NASTAVITEV:
+            if osnova in PODSTRANI_NASTAVITEV or osnova == "vodnik":
+                # Vodnik ob prvem zagonu: na namizju ga pokaze okno Nastavitve (prej ga uporabnik namizja ni videl).
                 return self._odpri_okno_razdelka("nastavitve", razdelek)
             if osnova.split(":", 1)[0] in RAZDELKI_NAMIZJA:
                 return self._pokazi_na_namizju(osnova.split(":", 1)[0], razdelek.partition(":")[2])
@@ -4809,7 +4810,8 @@ class SafeerOS(Gtk.Application):
         return izid
 
     def _zacetek_vodnika(self) -> dict:
-        """Vodnik ob prvem zagonu samo v glavnem oknu (okno razdelka in Safeer Player to vesta v os.js); zagon iz menija
+        """Vodnik ob prvem zagonu v glavnem oknu; na namizju (QML, delovna povrsina WebKit) ga namizje odpre v oknu
+        Nastavitve (odpriRazdelek »vodnik«; okno razdelka in Safeer Player to vesta v os.js); zagon iz menija
         po »Nazaj na Cinnamon«: os.js enkrat vprasa, ali naj se Safeer OS spet zaganja ob prijavi. Locen slovar: slovar
         _zacetek ostane pod mejo preizkusa test_most_brez_podvojenih (slovarji mostu imajo vec kot 20 kljucev)."""
         return {"vodnik": bool(self._vodnik),

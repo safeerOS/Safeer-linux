@@ -64,6 +64,8 @@ class StaroOknoNikoli(unittest.TestCase):
         # Prej: ploscica Omrezje ali Zvok v oknu Nastavitve -> odpriRazdelek -> _ustvari_okno (stara lupina).
         self.assertEqual(self._odpri("omrezje"), (True, [("okno", "nastavitve", "omrezje")]))
         self.assertEqual(self._odpri("zvok"), (True, [("okno", "nastavitve", "zvok")]))
+        # Vodnik ob prvem zagonu: prej ga je pokazalo samo staro glavno okno.
+        self.assertEqual(self._odpri("vodnik"), (True, [("okno", "nastavitve", "vodnik")]))
 
     def test_datoteke_in_programi_na_namizju(self):
         self.assertEqual(self._odpri("datoteke")[1], [("namizje", "datoteke", "")])
@@ -119,6 +121,14 @@ class StaroOknoNikoli(unittest.TestCase):
     def test_delovna_povrsina_webkit_pozna_dogodek(self):
         js = _beri("assets", "os", "delovna.js")
         self.assertIn('vrsta === "pokaziNaNamizju"', js)
+        self.assertIn('if (z.vodnik) klic("odpriRazdelek", ["vodnik"])', js)
+
+    def test_vodnik_v_oknu_nastavitve(self):
+        js = _beri("assets", "os", "os.js")
+        self.assertIn('if (kam === "vodnik") {', js)
+        self.assertIn("if (S.vodnikPoZacetku) { S.vodnikPoZacetku = false; odpriVodnik(); }", js)
+        # Glavno okno ga se vedno odpre samo (zacetek), okno razdelka samo na ukaz z namizja.
+        self.assertIn("if (z.vodnik) odpriVodnik(); else if (z.vrnitev) odpriVrnitev();", js)
 
 
 class SpletneAplikacije(unittest.TestCase):
@@ -175,6 +185,7 @@ class NamizjeQmlVseIzOs(unittest.TestCase):
         self.klici = []
         self.kuverta = []
         self.shranjeno = {}
+        self.vodnik = False
 
     def _namizje(self):
         import safeer_os as so
@@ -185,7 +196,7 @@ class NamizjeQmlVseIzOs(unittest.TestCase):
             shramba = test.shranjeno
 
             def _zacetek(self):
-                return {"jezik": "sl", "platforma": "linux", "spletne": test.shranjeno.get("spletne"),
+                return {"jezik": "sl", "platforma": "linux", "spletne": test.shranjeno.get("spletne"), "vodnik": test.vodnik,
                         "mape": [{"vrsta": "HOME", "ime": "Domov", "pot": test.DOM}]}
 
             def _seznam_programov(self):
@@ -334,7 +345,7 @@ class NamizjeQmlVseIzOs(unittest.TestCase):
     def test_gumb_sporocila(self):
         self._namizje()
         gumb = self._obj("gumbSporocila")
-        self.assertTrue(self._pocakaj(lambda: len(self.kuverta) > 0), "ob zagonu namizje vprasa za stevilo")
+        self.assertTrue(self._pocakaj(lambda: len(self.kuverta) > 0, 6), "3 s po zagonu namizje vprasa za stevilo")
         self.n.dogodek("sporocilaStevilo", {"n": 3})
         self.assertTrue(self._pocakaj(lambda: gumb.property("stevilo") == 3))
         self.assertTrue(gumb.property("visible"))
@@ -360,6 +371,39 @@ class NamizjeQmlVseIzOs(unittest.TestCase):
         self.assertTrue(self._klicano("mapa", [self.DOM + "/Dokumenti"]))
         self.n.dogodek("pokaziNaNamizju", {"razdelek": "programi", "pot": ""})
         self.assertTrue(self._pocakaj(lambda: self._obj("poljeProgramov").property("activeFocus")))
+
+    def test_vodnik_ob_prvem_zagonu(self):
+        self.vodnik = True
+        self._namizje()
+        self.assertTrue(self._klicano("odpriRazdelek", ["vodnik"]))
+
+    def test_brez_vodnika_ce_ni_nova_namestitev(self):
+        self._namizje()
+        self._pocakaj(lambda: False, 0.5)
+        self.assertFalse(any(m == "odpriRazdelek" for m, _a in self.klici))
+
+    def test_iskanje_sporocil(self):
+        self.odgovori["sporocilaSeznam"] = {"skupine": [
+            {"oseba": {"ime": "Ana Novak", "identitete": [["email", "ana@example.org"]]},
+             "pogovori": [{"id": "p1", "kanal_id": "k1", "zadeva": "", "zadnje_sporocilo": "Se vidiva jutri"}]},
+            {"oseba": {"ime": "Bor", "identitete": []}, "pogovori": [{"id": "p2", "kanal_id": "k2", "zadeva": "Racun", "zadnje_sporocilo": ""}]}]}
+        self._namizje()
+        self._obj("iskalnoPolje").setProperty("text", "ana")
+        najdi = "(function(){for (var i=0;i<zadetkiModel.count;i++) if (zadetkiModel.get(i).vrsta==='pogovor') return i; return -1})()"
+        self.assertTrue(self._pocakaj(lambda: self._js(najdi) >= 0))
+        i = int(self._js(najdi))
+        self.assertEqual(self._js("zadetkiModel.get(%d).ime" % i), "Ana Novak")
+        self.assertEqual(self._js("zadetkiModel.get(%d).opis" % i), "Se vidiva jutri")
+        self.assertEqual(self._js("zadetkiModel.get(zadetki.trenutni).vrsta"), "pogovor", "Enter odpre pogovor osebe po imenu")
+        self._js("zadetki.izberi(%d)" % i)
+        self.assertTrue(self._klicano("odpriRazdelek", ["pogovor:k1:p1"]))
+        # Po e-naslovu in zadevi tudi; seznam se ne bere ob vsaki crki (30 s), po novem sporocilu znova.
+        stevilo = sum(1 for m, _a in self.klici if m == "sporocilaSeznam")
+        self._obj("iskalnoPolje").setProperty("text", "racun")
+        self.assertTrue(self._pocakaj(lambda: self._js("(function(){for (var i=0;i<zadetkiModel.count;i++) if (zadetkiModel.get(i).ime==='Bor') return true; return false})()")))
+        self.assertEqual(sum(1 for m, _a in self.klici if m == "sporocilaSeznam"), stevilo)
+        self.n.dogodek("sporocilaStevilo", {"n": 1})
+        self.assertTrue(self._pocakaj(lambda: self._js("zadetki.sporocilaCas") == 0))
 
     # ------------------------------------------------------------------ spletne aplikacije
     def test_spletne_aplikacije(self):
@@ -390,7 +434,7 @@ class NamizjeQmlVseIzOs(unittest.TestCase):
         for k in ("ustaviMedij", "glasnost", "utisaj", "vklopiZvok", "cakalnaVrsta", "polozajPredvajanja", "odpriPredvajanje",
                   "sporocilaGumb", "sporocilaNeprebrana", "posodobitevNaVoljo", "posodobitevOdpri", "spletnaDodaj", "spletnaIme",
                   "spletnaNaslov", "spletnaNapacenNaslov", "spletnaZeDodana", "spletnaPolno", "spletnaOdstrani", "spletnaDodana",
-                  "spletnaOdstranjena", "dodaj"):
+                  "spletnaOdstranjena", "dodaj", "skSporocila"):
             self.assertEqual(stevilo(k), 6, k)
 
 

@@ -44,7 +44,7 @@ Item {
             if (vrsta === "programi") programi.osveziTiho()   // program namescen ali odstranjen
             if (vrsta === "priljubljeno" && p) koren.nastaviPriljubljeno(p)   // tudi sprememba na delovni povrsini WebKit
             if (vrsta === "pokaziNaNamizju" && p) koren.pokaziNaNamizju(p)
-            if (vrsta === "sporocilaStevilo" && p) koren.sporocilNeprebranih = Math.max(0, Number(p.n) || 0)
+            if (vrsta === "sporocilaStevilo" && p) { koren.sporocilNeprebranih = Math.max(0, Number(p.n) || 0); zadetki.sporocilaCas = 0 }
             // Tiha preverba posodobitev (safeer_os._posodobitve_tiho): opomba pod iskanjem, kot na Domov aplikacije.
             if (vrsta === "posodobitev" && p) koren.posodobitev = (p.nove || []).length ? String(p.opis || "") : ""
         }
@@ -441,6 +441,15 @@ Item {
             return null
         }
         property var deli: ({})
+        property var sporocilaSkupine: []
+        property real sporocilaCas: 0
+        function izSporocil(skupine, bs) {
+            return (skupine || []).filter(function (s) {
+                var o = s.oseba || {}, p = s.pogovori || []
+                return p.length > 0 && zadetki.ujema((o.ime || "") + " " + (o.identitete || []).map(function (x) { return x[1] || "" }).join(" ") + " "
+                                                     + p.map(function (x) { return (x.zadeva || "") + " " + (x.zadnje_sporocilo || "") }).join(" "), bs)
+            }).slice(0, 4)
+        }
         function isci(q) {
             q = (q || "").trim(); zadnjiNiz = q; premaknjen = false; poEnter = false
             var st = ++zahteva
@@ -464,7 +473,7 @@ Item {
                 naprave: q.length >= 2 ? koren.naprave.filter(function (n) {
                     return zadetki.ujema(n.ime, bs) || zadetki.ujema(n.ime + " " + (besedeNaprav[n.platforma] || n.platforma || ""), bs)
                 }).slice(0, 4) : [],
-                datoteke: [], zapiski: [], mediji: [], katalog: [], naCilj: []
+                datoteke: [], zapiski: [], mediji: [], katalog: [], naCilj: [], sporocila: []
             }
             deli = d
             function pocakaj(metoda, args, kam, obdelaj) {
@@ -475,6 +484,15 @@ Item {
                 }, function () { if (st !== zahteva) return; zadetki.caka--; zadetki.sestavi() })
             }
             if (q.length >= 2) pocakaj("isciDatoteke", [q, 6], "datoteke", function (r) { return r.slice(0, 6) })
+            // Sporocila: osebe in pogovori (ime, naslov, zadeva, zadnje sporocilo) kot iskanje v aplikaciji Safeer OS (popis 3.1).
+            // Seznam iz Safeer OS najvec vsakih 30 s (in po novem sporocilu), ne ob vsaki crki.
+            if (linux && q.length >= 2 && koren.videz.sporocila !== false) {
+                if (Date.now() - sporocilaCas < 30000) d.sporocila = izSporocil(sporocilaSkupine, bs)
+                else pocakaj("sporocilaSeznam", [""], "sporocila", function (r) {
+                    zadetki.sporocilaSkupine = (r && r.skupine) || []; zadetki.sporocilaCas = Date.now()
+                    return zadetki.izSporocil(zadetki.sporocilaSkupine, bs)
+                })
+            }
             if (linux && q.length >= 2) {
                 pocakaj("zapiskiSeznam", [q], "zapiski", function (r) { return r.slice(0, 4) })
                 pocakaj("knjiznicaMedijev", ["", q, 0], "mediji", function (r) { return r.slice(0, 5) })
@@ -511,6 +529,11 @@ Item {
                 v.push({ vrsta: "naprava", skupina: koren.t("skNaprave"), ime: n.ime, opis: koren.t(n.datoteke ? "napravaDatoteke" : "napravaProgrami") + " · Safeer Link",
                          kljuc: n.kljuc || n.datoteke || n.programi, ikona: "", podatki: JSON.stringify({ n: n, poImenu: zadetki.ujema(n.ime, bs) }) })
             })
+            d.sporocila.forEach(function (s) {
+                var p = s.pogovori[0]
+                v.push({ vrsta: "pogovor", skupina: koren.t("skSporocila"), ime: (s.oseba || {}).ime || "", opis: p.zadnje_sporocilo || p.zadeva || "",
+                         kljuc: "pogovor:" + p.kanal_id + ":" + p.id, ikona: "", podatki: "{}" })
+            })
             d.datoteke.forEach(function (x) { v.push({ vrsta: x.mapa ? "mapa" : "datoteka", skupina: koren.t("skDatoteke"), ime: x.ime, opis: koren.kratkaPot(x.pot), kljuc: x.pot, ikona: "",
                                                        podatki: JSON.stringify({ vrsta: x.vrsta || "" }) }) })
             d.zapiski.forEach(function (z) { v.push({ vrsta: "zapisek", skupina: koren.t("skZapiski"), ime: z.naslov || "", opis: z.odlomek || "", kljuc: z.id, ikona: "", podatki: "{}" }) })
@@ -538,6 +561,8 @@ Item {
             for (var i = 0; i < v.length; i++) {
                 var x = v[i], r = RANG[x.vrsta] || 0
                 if (x.vrsta === "naprava" && !JSON.parse(x.podatki).poImenu) r = 0
+                // Oseba po imenu: za programom, pred razdelki Safeer OS (kot namera »sporocila« v iskanju aplikacije).
+                if (x.vrsta === "pogovor" && I.oceni(x.ime, q) >= 70) r = 2.5
                 if (x.vrsta === "datoteka" || x.vrsta === "mapa" || x.vrsta === "medij" || x.vrsta === "zapisek") {
                     var ime = x.ime, brez = ime.replace(/\.[^.\s]{1,8}$/, "")
                     var o = Math.max(I.oceni(ime, q), I.oceni(brez, q))
@@ -579,6 +604,7 @@ Item {
             else if (z.vrsta === "mapa") datoteke.odpriLokalno(z.kljuc)   // mapa se odpre v Datotekah (tega racunalnika)
             else if (z.vrsta === "safeer") koren.klic("odpriRazdelek", [z.kljuc])
             else if (z.vrsta === "zapisek") koren.klic("odpriRazdelek", ["zapisek:" + z.kljuc])
+            else if (z.vrsta === "pogovor") koren.klic("odpriRazdelek", [z.kljuc])     // okno Sporocila pri tem pogovoru
             else if (z.vrsta === "naprava") {
                 if (p.n.datoteke) datoteke.pokaziNapravo(p.n.datoteke)
                 else programi.pokaziNapravo(p.n.programi)
@@ -654,7 +680,7 @@ Item {
                 Row {
                     anchors.verticalCenter: parent.verticalCenter; x: 10; spacing: 12
                     Image { source: model.ikona; width: 26; height: 26; visible: model.ikona !== ""; sourceSize: Qt.size(52, 52) }
-                    Text { text: model.vrsta === "splet" ? "🌐" : model.vrsta === "mapa" ? "📁" : model.vrsta === "zapisek" ? "📝"
+                    Text { text: model.vrsta === "splet" ? "🌐" : model.vrsta === "mapa" ? "📁" : model.vrsta === "zapisek" ? "📝" : model.vrsta === "pogovor" ? "✉"
                                : (model.vrsta === "medij" || model.vrsta === "katalog" || model.vrsta === "mediji") ? "🎵"
                                : (model.vrsta === "naprava" || model.vrsta === "naCilj") ? "📺" : model.vrsta === "safeer" ? "✦"
                                : model.vrsta === "program" ? "▣" : "📄"
@@ -1306,7 +1332,11 @@ Item {
             if (koren.platforma === "linux") koren.klic("povezava", [], function (p) { koren.linkStanje = p || null })
             koren.naloziPriljubljeno()
             programi.naloziOblak()
-            koren.osveziSporocila()
+            // Stevilo neprebranih po izrisu (kanali Sporocil se nalozijo, ko je namizje mirno - safeer_os._ob_namizju).
+            koren.pozneje(3000, koren.osveziSporocila)
+            // Nova namestitev: vodnik ob prvem zagonu (jezik, racuni, Scit, Safeer Link) v oknu Nastavitve - prej ga je
+            // pokazalo samo staro glavno okno, uporabnik namizja ga ni videl (popis 3.1, 18. 10. 2026).
+            if (z.vodnik && koren.platforma === "linux") koren.klic("odpriRazdelek", ["vodnik"])
         })
         programi.nalozi()
         koren.klic("lupaUcenje", [], function (p) { zadetki.izbire = (p && p.izbire) || [] })

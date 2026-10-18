@@ -736,6 +736,9 @@ button.glava-plosce:hover svg { color: var(--zelena); }
 #slojVodnik .drobno, #slojVrnitev .drobno { font-size: 15px; margin-bottom: 16px; }
 #slojVodnik .gumbi, #slojVrnitev .gumbi { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
 #slojVodnik .raztegni { flex: 1; }
+/* .gumb ima svoj display, zato ga atribut hidden (Nazaj na prvem koraku, Preskoci na zadnjem) ni skril: Nazaj na
+   prvem koraku je vodnik pokvaril (korak -1; posnetek okna Nastavitve 18. 10. 2026). */
+#slojVodnik [hidden] { display: none !important; }
 #vodnikVsebina .vodnik-izbire { display: flex; flex-wrap: wrap; gap: 10px; }
 #vodnikVsebina .vodnik-izbire .gumb.izbran { outline: 2px solid var(--zelena); }
 #vodnikVsebina code { user-select: all; }
