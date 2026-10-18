@@ -990,6 +990,25 @@ sys.exit("neznan ukaz")
         self.assertLess(preveri,shrani)
         self.assertIn("if: success() && steps.wk.outputs.cache-hit != 'true'\n",posel[shrani:])
         self.assertNotIn('if: always()',posel)
+        zgradi=(ROOT/'packaging/webkit-deb/zgradi.sh').read_text()
+        kos=zgradi.split('if [ -n "$IZHOD" ]; then',1)[1]
+        self.assertLess(kos.index('-cf "$IZHOD.del"'),kos.index('zstd -q -t "$IZHOD.del"'))
+        self.assertLess(kos.index('zstd -q -t "$IZHOD.del"'),kos.index('mv "$IZHOD.del" "$IZHOD"'))
+
+    def test_lokalna_gradnja_ne_izbrise_namescenega_webkita(self):
+        """zgradi.sh zavrne predpono, ki jo ima namescen paket (dpkg -S), preden karkoli izbrise. V PATH sta samo
+        lazni dpkg in nujna orodja: ce bi preverba manjkala, skripta pade (ni nproc) pred rm -rf."""
+        with tempfile.TemporaryDirectory() as d:
+            for orodje in ('dirname','basename','cat'):
+                os.symlink(shutil.which(orodje),os.path.join(d,orodje))
+            Path(d,'dpkg').write_text('#!/bin/sh\n[ "$1" = -S ] && echo "safeer-os: $2" && exit 0\nexit 1\n')
+            os.chmod(os.path.join(d,'dpkg'),0o755)
+            r=subprocess.run(['/bin/bash',str(ROOT/'packaging/webkit-deb/zgradi.sh'),'/usr/lib/safeer-os/webkit'],
+                             env={'PATH':d},capture_output=True,text=True)
+            self.assertEqual(r.returncode,3,r.stderr)
+            self.assertIn('pripada namescenemu paketu (safeer-os)',r.stderr)
+            self.assertIn('docker run --rm',r.stderr)
+            self.assertIn('build/webkit-safeer-os.tar.zst',r.stderr)
 
     def test_libsoup_s_popravkom_puscanja_connect(self):
         """Nas popravek libsoup (Launchpad #2170998): CONNECT skozi posrednik (DoH v Spletu) ne pusca SoupConnection.
