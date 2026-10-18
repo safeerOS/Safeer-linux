@@ -39,6 +39,11 @@ bash "$DIR/packaging/apparmor/namesti.sh" "$BUILD_ROOT" safeer-browser
 WEBKIT_ODVISNOSTI=""
 if [ -n "$WEBKIT_TAR" ]; then
     WEBKIT_ODVISNOSTI="$(bash "$DIR/packaging/webkit-deb/vgradi.sh" "$BUILD_ROOT" "$PKG_NAME" "$WEBKIT_TAR")"
+    # Nas WebKit po prijavi v predpomnilnik strani (packaging/prednalozi.py: hladen prvi zagon je bil izmerjeno
+    # pocasnejsi od toplega, 18. 10. 2026). Samo s tem paketom: sistemski WebKit si deli predpomnilnik z drugimi programi.
+    install -Dm755 "$DIR/packaging/prednalozi.py" "$BUILD_ROOT/usr/lib/safeer-browser/prednalozi.py"
+    install -Dm644 "$DIR/packaging/safeer-browser-prednalaganje.desktop" \
+        "$BUILD_ROOT/etc/xdg/autostart/safeer-browser-prednalaganje.desktop"
 fi
 
 # 6. Create DEBIAN/control

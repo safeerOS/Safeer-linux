@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import time
 from unittest.mock import patch
 from core import default_browser
 
@@ -627,6 +628,48 @@ class DebWebkitTests(unittest.TestCase):
             self.assertTrue(list((d/'delo'/'fdata').glob('jsc.*.fdata')))
             self.assertEqual((d/'delo'/'preveri'/'izhod.txt').read_text(),pricakovano)
             self.assertEqual(subprocess.run([str(d/'glavni')],capture_output=True,text=True).stdout,pricakovano)
+
+    def test_prednalaganje_po_prijavi(self):
+        """packaging/prednalozi.py (paket .deb z nasim WebKitom): po prijavi, z zamikom in najnizjo prioriteto, prebere
+        WebKit in kodo brskalnika (ne Safeer DRM); nic, ce brskalnik tece ali ga uporabnik ni uporabil 14 dni."""
+        import importlib.util
+        spec=importlib.util.spec_from_file_location('prednalozi',ROOT/'packaging/prednalozi.py')
+        p=importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(p)
+        with tempfile.TemporaryDirectory() as d:
+            d=Path(d)
+            for rel,vel in (('webkit/lib/libwebkitgtk-6.0.so.4.19.4',300000),('core/os_splet.py',1000),
+                            ('safeer_brskalnik.py',100),('safeer-drm/safeer-drm',500000)):
+                (d/rel).parent.mkdir(parents=True,exist_ok=True)
+                (d/rel).write_bytes(b'x'*vel)
+            (d/'webkit/lib/libwebkitgtk-6.0.so.4').symlink_to('libwebkitgtk-6.0.so.4.19.4')
+            poti=sorted(os.path.relpath(x,d) for x in p.datoteke(str(d)))
+            self.assertEqual(poti,['core/os_splet.py','safeer_brskalnik.py','webkit/lib/libwebkitgtk-6.0.so.4.19.4'])
+            self.assertEqual(p.prednalozi(str(d)),(3,301100))
+            nastavitve=d/'c'/'safeer-mint'
+            nastavitve.mkdir(parents=True)
+            (nastavitve/'settings.json').write_text('{}')
+            with patch.dict(os.environ,{'XDG_CONFIG_HOME':str(d/'c')}):
+                self.assertTrue(p.nedavno_uporabljen())
+                self.assertFalse(p.nedavno_uporabljen(time.time()+15*86400))
+            with patch.dict(os.environ,{'XDG_CONFIG_HOME':str(d/'ni')}):
+                self.assertFalse(p.nedavno_uporabljen())
+                self.assertEqual(p.main(['--zdaj']),0)     # brskalnik ni bil uporabljen: nic
+        self.assertEqual(p.VSEBINA,("webkit","core","ui","assets","safeer_brskalnik.py","packaging"))
+        self.assertGreaterEqual(p.ZAMIK,30)
+        # Samo paket z nasim WebKitom; zagon ob prijavi (XDG autostart) z isto potjo, besedila v 6 jezikih.
+        deb=(ROOT/'build_deb.sh').read_text()
+        kos=deb.split('if [ -n "$WEBKIT_TAR" ]; then\n    WEBKIT_ODVISNOSTI=',1)[1].split('\nfi\n',1)[0]
+        self.assertIn('install -Dm755 "$DIR/packaging/prednalozi.py" "$BUILD_ROOT/usr/lib/safeer-browser/prednalozi.py"',kos)
+        self.assertIn('"$BUILD_ROOT/etc/xdg/autostart/safeer-browser-prednalaganje.desktop"',kos)
+        vnos=(ROOT/'packaging/safeer-browser-prednalaganje.desktop').read_text()
+        self.assertIn('Exec=/usr/bin/python3 /usr/lib/safeer-browser/prednalozi.py\n',vnos)
+        self.assertIn('TryExec=/usr/lib/safeer-browser/prednalozi.py\n',vnos)
+        for jezik in ('sl','de','es','fr','it'):
+            self.assertIn('Name[%s]='%jezik,vnos)
+            self.assertIn('Comment[%s]='%jezik,vnos)
+        if shutil.which('desktop-file-validate'):
+            subprocess.run(['desktop-file-validate',str(ROOT/'packaging/safeer-browser-prednalaganje.desktop')],check=True)
 
     def test_typelib_dobi_absolutno_pot_do_nase_knjiznice(self):
         import importlib.util

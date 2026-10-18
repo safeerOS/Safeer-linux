@@ -1,0 +1,20 @@
+[Desktop Entry]
+Type=Application
+Name=Safeer Browser: faster first start
+Name[sl]=Safeer Browser: hitrejši prvi zagon
+Name[de]=Safeer Browser: schnellerer erster Start
+Name[es]=Safeer Browser: primer inicio más rápido
+Name[fr]=Safeer Browser : premier démarrage plus rapide
+Name[it]=Safeer Browser: primo avvio più veloce
+Comment=Reads Safeer Browser's web engine into memory after login, at the lowest priority
+Comment[sl]=Po prijavi z najnižjo prioriteto prebere spletni pogon Safeer Browserja v pomnilnik
+Comment[de]=Liest die Web-Engine von Safeer Browser nach der Anmeldung mit niedrigster Priorität in den Speicher
+Comment[es]=Carga el motor web de Safeer Browser en memoria tras iniciar sesión, con la prioridad más baja
+Comment[fr]=Charge le moteur web de Safeer Browser en mémoire après la connexion, avec la priorité la plus basse
+Comment[it]=Carica in memoria il motore web di Safeer Browser dopo l'accesso, con la priorità più bassa
+Exec=/usr/bin/python3 /usr/lib/safeer-browser/prednalozi.py
+TryExec=/usr/lib/safeer-browser/prednalozi.py
+Icon=safeer-browser
+NoDisplay=true
+Terminal=false
+X-GNOME-Autostart-enabled=true
