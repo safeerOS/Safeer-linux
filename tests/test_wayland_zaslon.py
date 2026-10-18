@@ -210,3 +210,15 @@ class OknaNamizjaSway(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BesediloNiMoznost(unittest.TestCase):
+    def test_besedilo_dve_crtici(self):
+        """Besedilo »--« s televizorja se vpise, ne izgine kot moznost xdotool (pregled kode 18. 10. 2026)."""
+        s = LaznaSeja()
+        v = portal_zaslon.VnosPortal(s)
+        self.assertTrue(v.izvedi({"vrsta": "besedilo", "besedilo": "--"}))
+        self.assertEqual([k[1] for k in s.klici if k[2]], [0x2D, 0x2D])
+        s.klici.clear()
+        self.assertTrue(v.izvedi({"vrsta": "klik", "gumb": "levi", "dvojni": True}))
+        self.assertEqual(len([k for k in s.klici if k[2]]), 2)

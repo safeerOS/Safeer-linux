@@ -1456,6 +1456,23 @@ ZASTAVICE_PREDVAJALNIKA = ("--predvajalnik", "--player")
 WMCLASS_PREDVAJALNIKA = ("safeer-os.Player", "Safeer Player")
 
 
+def _monitor_v_tocki(zasloni, povezava):
+    """Gdk.Monitor pod kazalcem miske (X11; povezava = core/x11.povezava()). Geometrija GDK je v logicnih tockah,
+    kazalec X v pikah - delimo z merilom monitorja (HiDPI). None brez X11 ali kazalca."""
+    if povezava is None or zasloni is None:
+        return None
+    tocka = povezava.kazalec()
+    if tocka is None:
+        return None
+    for i in range(zasloni.get_n_items()):
+        m = zasloni.get_item(i)
+        g, merilo = m.get_geometry(), max(1, int(m.get_scale_factor() or 1))
+        x, y = tocka[0] / merilo, tocka[1] / merilo
+        if g.x <= x < g.x + g.width and g.y <= y < g.y + g.height:
+            return m
+    return None
+
+
 def _cas_dogodka(okno=None) -> int:
     """Cas za present_with_time in dejanja oken. GTK4 nima vec »trenutnega dogodka« (Gtk.get_current_event_time), zato
     cas streznika X za dano okno ali katerokoli nase realizirano okno (GdkX11): ta je vedno novejsi od zadnjega klika
@@ -2840,7 +2857,7 @@ class SafeerOS(Gtk.Application):
             _razred_okna(okno, ime)
             # Kanali Sporocil (spletni klepeti, namizni programi) so nad stranjo na mestu vsebine (prekrivanje).
             prekrivanje = self._prekrivanje_kanalov(pogled)
-            zaslon = self._zaslon()
+            zaslon = self._zaslon_za_okno()
             g = self._delovno_obmocje(zaslon) if zaslon else None
             sirina, visina = (min(1280, int(g.width * 0.85)) if g else 1200, min(860, int(g.height * 0.85)) if g else 800)
             okno.set_default_size(sirina, visina)
@@ -2893,7 +2910,7 @@ class SafeerOS(Gtk.Application):
         if velikost:
             okno.set_default_size(*velikost)
         else:
-            zaslon = self._zaslon()
+            zaslon = self._zaslon_za_okno()
             g = self._delovno_obmocje(zaslon) if zaslon else None
             sirina, visina = (min(1440, int(g.width * 0.9)) if g else 1280, min(900, int(g.height * 0.9)) if g else 800)
             okno.set_default_size(sirina, visina)
@@ -3171,6 +3188,16 @@ class SafeerOS(Gtk.Application):
         except Exception:
             return None
 
+    def _zaslon_za_okno(self):
+        """Zaslon za NOVO okno (razdelki, Safeer Player, dialogi): na X11 monitor s kazalcem miske - tam uporabnik
+        dela (vec monitorjev; prej vedno prvi monitor). Brez tega (Wayland: okno postavi sestavljalnik, GNOME na
+        monitor s fokusom) kot _zaslon(). Namizje in vrstica ostaneta na _zaslon() (primarni)."""
+        try:
+            m = _monitor_v_tocki(Gdk.Display.get_default().get_monitors(), x11.povezava())
+        except Exception:  # noqa: BLE001
+            m = None
+        return m if m is not None else self._zaslon()
+
     @staticmethod
     def _delovno_obmocje(zaslon):
         """Del zaslona brez pulta in docka (GTK3 Gdk.Monitor.get_workarea; v GTK4 samo GdkX11.X11Monitor)."""
@@ -3200,7 +3227,7 @@ class SafeerOS(Gtk.Application):
 
     def _na_sredino(self, okno, sirina: int, visina: int) -> None:
         """GTK3 set_position(CENTER): GTK4 tega nima, okno postavimo na sredino delovnega obmocja sami."""
-        zaslon = self._zaslon()
+        zaslon = self._zaslon_za_okno()
         g = self._delovno_obmocje(zaslon) if zaslon else None
         if g is not None:
             x11.premakni(okno, g.x + max(0, (g.width - sirina) // 2), g.y + max(0, (g.height - visina) // 2))
@@ -5482,7 +5509,7 @@ class SafeerOS(Gtk.Application):
             except Exception as e:  # noqa: BLE001
                 print("[SafeerOS] slog predvajalnika:", e)
         # Na velikih zaslonih 960x620 deluje kot sličica; okno naj zavzame približno dve tretjini.
-        zaslon = self._zaslon()
+        zaslon = self._zaslon_za_okno()
         g = self._delovno_obmocje(zaslon) if zaslon else None
         okno.set_default_size(max(960, int(g.width * 0.62)) if g else 960,
                               max(620, int(g.height * 0.7)) if g else 620)

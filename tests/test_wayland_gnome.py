@@ -111,3 +111,16 @@ class NastavitveGnome(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PonudbaNaWaylandu(unittest.TestCase):
+    def test_ponudba_kot_obvestilo_z_gumboma(self):
+        """»Poslji na napravo« na Waylandu: obvestilo namizja s Sprejmi/Zavrni namesto okna v kotu (okna na Waylandu ni
+        mogoce postaviti v kot ne ga drzati nad drugimi)."""
+        vir = (KOREN / "safeer_control.py").read_text(encoding="utf-8")
+        i = vir.index("def _pokazi_ponudbo")
+        telo = vir[i:vir.index("def _umakni_pasico")]
+        self.assertIn("if seja_prikaza.je_wayland():", telo)
+        self.assertIn('("sprejmi", besedilo(jezik, "sprejmi"), self.predaja_sprejmi)', telo)
+        self.assertIn('("zavrni", besedilo(jezik, "zavrni"), self.predaja_zavrni)', telo)
+        self.assertLess(telo.index("je_wayland"), telo.index("Gtk.Window("))

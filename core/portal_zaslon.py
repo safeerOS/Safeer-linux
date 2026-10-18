@@ -289,13 +289,14 @@ class Seja:
 
     # ------------------------------------------------------------------ vnos (RemoteDesktop)
     def _obvesti(self, metoda: str, podpis: str, argumenti: tuple) -> bool:
-        """Dogodek brez cakanja na odgovor (NO_REPLY_EXPECTED): vrstni red ohrani povezava, nit vnosa ne caka."""
+        """Dogodek s cakanjem na odgovor portala. Brez cakanja (NO_REPLY_EXPECTED) je portal klice obdelal vzporedno in
+        crke premesal: »Safeer 127« je prislo kot »Saer 127ef« (izmerjeno 18. 10. 2026, GNOME 46)."""
         if not (self.vnos and self.seja):
             return False
         Gio, _ = _gio()
         try:
-            self.vodilo.call(PORTAL, POT, RD, metoda, _v(podpis, (self.seja, {}) + argumenti), None,
-                             Gio.DBusCallFlags.NONE, -1, None, None)
+            self.vodilo.call_sync(PORTAL, POT, RD, metoda, _v(podpis, (self.seja, {}) + argumenti), None,
+                                  Gio.DBusCallFlags.NONE, 2000, None)
             return True
         except Exception:  # noqa: BLE001
             return False
@@ -368,33 +369,38 @@ class VnosPortal(Vnos):
         return True
 
     def _pozeni(self, argumenti) -> bool:
+        """Ukaz, kot ga Vnos sestavi za xdotool: [ukaz, moznosti ..., (--,) argumenti]. Argumenti so za »--« (besedilo,
+        koordinate) ali zadnji element (tipka, gumb) - besedilo »--« ali »--repeat« zato ni nikoli moznost."""
         if not self.mozno or not argumenti:
             return False
-        a = [x for x in argumenti if x not in ("--clearmodifiers", "--")]
-        ukaz = a[0]
+        ukaz = argumenti[0]
+        if "--" in argumenti:
+            i = argumenti.index("--")
+            moznosti, poz = list(argumenti[1:i]), list(argumenti[i + 1:])
+        else:
+            moznosti, poz = list(argumenti[1:-1]), list(argumenti[-1:])
         ok = False
-        if ukaz == "key" and len(a) >= 2:
-            ok = self._pritisni(a[-1].split("+"))
-        elif ukaz in ("keydown", "keyup") and len(a) >= 2:
-            k = keysym(a[-1])
+        if ukaz == "key" and len(poz) == 1:
+            ok = self._pritisni(poz[0].split("+"))
+        elif ukaz in ("keydown", "keyup") and len(poz) == 1:
+            k = keysym(poz[0])
             ok = bool(k) and self.seja.tipka(k, ukaz == "keydown")
-        elif ukaz == "type" and len(a) >= 2:
-            besedilo = a[-1]
-            kode = [keysym_znaka(z) for z in besedilo]
+        elif ukaz == "type" and len(poz) == 1:
+            kode = [keysym_znaka(z) for z in poz[0]]
             if kode and all(kode):
                 for k in kode:
                     self.seja.tipka(k, True)
                     self.seja.tipka(k, False)
                 ok = True
-        elif ukaz == "mousemove_relative" and len(a) == 3:
-            ok = self.seja.premik(float(a[1]), float(a[2]))
-        elif ukaz == "mousemove" and len(a) == 3:
-            ok = self.seja.premik_na(float(a[1]), float(a[2]))
-        elif ukaz in ("mousedown", "mouseup") and len(a) == 2 and a[1] in GUMBI_EVDEV:
-            ok = self.seja.gumb(GUMBI_EVDEV[a[1]], ukaz == "mousedown")
-        elif ukaz == "click":
-            ponovi = int(a[a.index("--repeat") + 1]) if "--repeat" in a else 1
-            gumb = a[-1]
+        elif ukaz == "mousemove_relative" and len(poz) == 2:
+            ok = self.seja.premik(float(poz[0]), float(poz[1]))
+        elif ukaz == "mousemove" and len(poz) == 2:
+            ok = self.seja.premik_na(float(poz[0]), float(poz[1]))
+        elif ukaz in ("mousedown", "mouseup") and len(poz) == 1 and poz[0] in GUMBI_EVDEV:
+            ok = self.seja.gumb(GUMBI_EVDEV[poz[0]], ukaz == "mousedown")
+        elif ukaz == "click" and len(poz) == 1:
+            ponovi = int(moznosti[moznosti.index("--repeat") + 1]) if "--repeat" in moznosti else 1
+            gumb = poz[0]
             if gumb in ("4", "5"):            # kolesce: 4 gor, 5 dol (v Waylandu pozitivno = navzdol)
                 ok = self.seja.kolesce(ponovi if gumb == "5" else -ponovi)
             elif gumb in GUMBI_EVDEV:

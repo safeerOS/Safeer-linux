@@ -662,6 +662,9 @@ class Zaslon:
         self._zajem_dodatno: dict = {}
         #: Zmoznosti portala (D-Bus) za na_voljo(): (cas, zmoznosti) - status se bere pogosto.
         self._portal_zmore: tuple = (0.0, {})
+        #: En dialog portala naenkrat: televizor, ki screen.start ponovi, ne odpre drugega dialoga (druga zahteva
+        #: pocaka in dobi sejo z zetonom obnovitve brez vprasanja).
+        self._portal_zaklep = threading.Lock()
         self._vnosov = 0
         self._tece_od = 0.0
         self._povezan = False
@@ -917,12 +920,13 @@ class Zaslon:
         """Seja portala za deljenje namizja na Waylandu. Napaka -> RuntimeError z besedilom za gledalca."""
         from core import portal_zaslon
         self.ustavi()                 # prejsnja seja (in njen portal) ne sme ostati odprta
-        try:
-            seja = portal_zaslon.Seja(vnos=True)
-            seja.odpri()
-        except portal_zaslon.NapakaPortala as e:
-            print("[zaslon] portal:", e.koda, e, flush=True)
-            raise RuntimeError(portal_zaslon.SPOROCILA.get(e.koda) or str(e)) from e
+        with self._portal_zaklep:
+            try:
+                seja = portal_zaslon.Seja(vnos=True)
+                seja.odpri()
+            except portal_zaslon.NapakaPortala as e:
+                print("[zaslon] portal:", e.koda, e, flush=True)
+                raise RuntimeError(portal_zaslon.SPOROCILA.get(e.koda) or str(e)) from e
         with self._kljucavnica:
             self._portal = seja
         return seja

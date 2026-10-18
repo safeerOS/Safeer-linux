@@ -219,3 +219,39 @@ print("OK")
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OknaNaMonitorjuSKazalcem(unittest.TestCase):
+    """X11, vec monitorjev: novo okno (razdelek, Safeer Player, video) na monitorju s kazalcem, ne vedno na prvem."""
+
+    def test_monitor_v_tocki_z_merilom(self):
+        import safeer_os as so
+
+        class G:
+            def __init__(self, x, y, w, h):
+                self.x, self.y, self.width, self.height = x, y, w, h
+
+        class M:
+            def __init__(self, ime, g, merilo):
+                self.ime, self._g, self._m = ime, g, merilo
+
+            def get_geometry(self):
+                return self._g
+
+            def get_scale_factor(self):
+                return self._m
+
+        class Seznam(list):
+            def get_n_items(self):
+                return len(self)
+
+            def get_item(self, i):
+                return self[i]
+
+        zasloni = Seznam([M("levi", G(0, 0, 1920, 1080), 2), M("desni", G(1920, 0, 1920, 1080), 2)])
+        # kazalec X v pikah (merilo 2): 4000 px = 2000 logicnih tock -> desni monitor
+        self.assertEqual(so._monitor_v_tocki(zasloni, mock.Mock(kazalec=lambda: (4000, 100))).ime, "desni")
+        self.assertEqual(so._monitor_v_tocki(zasloni, mock.Mock(kazalec=lambda: (100, 100))).ime, "levi")
+        self.assertIsNone(so._monitor_v_tocki(zasloni, None))          # Wayland: ni povezave X
+        vir = (KOREN / "safeer_os.py").read_text(encoding="utf-8")
+        self.assertEqual(vir.count("zaslon = self._zaslon_za_okno()"), 4)
