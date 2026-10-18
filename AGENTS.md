@@ -20,6 +20,9 @@ Velja za vsako spremembo v tem repozitoriju. Kratko, preverljivo; podrobnosti so
 - Delo na vejah; brez `--force`, brez brisanja oznak in izdaj, brez `git stash` brez oznake.
 - Vmesni commiti z `[skip ci]` (gradnja WebKita traja 2–3 h); zadnji commit veje brez.
 - Nic se ne objavi brez lastnikovega »da«. Pred izdajo: pregled kode, zelen CI, preizkus na testnem PC.
+- Avtor commitov je ekipa: `Safeer <info@safeer.si>` (lastnik, 18. 10. 2026: »team Safeer, we have a team work«).
+  Brez vrstic `Co-Authored-By`, `Claude-Session` in podobnih oznak posameznega orodja ali agenta - tudi v PR in MR
+  gorvodno. Da je pri delu pomagal AI, lahko pove opis PR/MR (»Safeer team, with AI assistance«), ne avtorstvo.
 
 ## Koda
 - Komentarji in sporocila commitov v slovenscini (brez sumnikov v imenih), kratki, povejo ZAKAJ in kdaj je bilo izmerjeno.
