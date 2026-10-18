@@ -225,8 +225,14 @@ class Motor(unittest.TestCase):
 
     def test_vsak_motor_dobi_svoja_vrata(self):
         # Zasedena privzeta vrata (drug motor ze tece): dobimo druga prosta, ne napake ob zagonu.
-        zasedena = socket.socket(socket.AF_INET6 if socket.has_ipv6 else socket.AF_INET, socket.SOCK_STREAM)
-        zasedena.bind(("::" if socket.has_ipv6 else "0.0.0.0", 0))
+        # Jedro brez IPv6 (ipv6.disable=1, nekateri vsebniki): socket.has_ipv6 je True, vticnica AF_INET6 pa ne gre.
+        try:
+            zasedena = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+            naslov = "::"
+        except OSError:
+            zasedena = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            naslov = "0.0.0.0"
+        zasedena.bind((naslov, 0))
         zasedena.listen(1)
         vrata = zasedena.getsockname()[1]
         try:
