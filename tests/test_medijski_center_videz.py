@@ -189,6 +189,13 @@ class Domov(unittest.TestCase):
         self.js = _beri("assets", "os", "os.js")
         self.html = _beri("assets", "os", "index.html")
 
+    def test_odprtje_vedno_pokaze_domov(self):
+        # Lastnik 18. 10. 2026: ob kliku na Medijski center se najprej pokaze Domov, ne zadnji zavihek (npr. Serije).
+        self.assertIn('mediaFilter: "domov",', self.js)
+        pojdi = self.js.split("window.safeerOsPojdi = function (kam) {", 1)[1].split("\n  };", 1)[0]
+        self.assertIn('if (kam === "media") {', pojdi)
+        self.assertIn('izberiMedijskoKategorijo("domov");', pojdi)
+
     def test_domov_je_privzet_in_zapomni_se_zadnji_pogled(self):
         koda = _funkcija(self.js, "zadnjaMedijskaKategorija") + """
         var shramba = {}; var localStorage = { getItem: function (k) { return k in shramba ? shramba[k] : null; } };

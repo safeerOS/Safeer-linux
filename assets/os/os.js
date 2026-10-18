@@ -283,7 +283,7 @@
     izbraniPogovori: {}, skritiPogovori: {}, hitriOdgovor: null, poslaniOdgovori: {}, vrsticeSeznama: [], fokusPo: "",
     // Multi-host: programi drugih naprav v Safeer Linku (id naprave -> seznam), izbrana naprava ("" = ta racunalnik).
     naprave: [], vseNaprave: [], programiNaprav: {}, nalagam: {}, naprava: "",
-    povezava: { stanje: "nov", control: true }, spletne: null, nedavne: [], mediaFilter: zadnjaMedijskaKategorija(),
+    povezava: { stanje: "nov", control: true }, spletne: null, nedavne: [], mediaFilter: "domov",   // ob odprtju vedno Domov (lastnik, 18. 10. 2026)
     mediaLokalno: [], mediaTokovi: [], mediaMape: [], galerija: null, mediaOsvezuje: false, mediaPredvajalnik: null,
     mediaOffset: 0, mediaHasMore: false, mediaRequest: 0,
     mediaQueueKey: "", mediaDragging: false, glasnostDotik: 0, mediaZasebno: { vklopljeno: false, skriti: 0 },
@@ -355,6 +355,11 @@
       var p = S.programi.find(function (x) { return x.id === kam.slice(7); });
       if (p) zazeni(p);
       return;
+    }
+    if (kam === "media") {
+      // Odprtje Medijskega centra (z namizja ali iz menija) vedno pokaze Domov, ne zadnjega zavihka (lastnik, 18. 10. 2026).
+      S.mediaIskanje = ""; if ($("mediaIskanje")) $("mediaIskanje").value = "";
+      izberiMedijskoKategorijo("domov");
     }
     if (kam === "hitro") { odpriHitro(); return; }
     if (kam === "napajanje") { odpriNapajanje(); return; }
