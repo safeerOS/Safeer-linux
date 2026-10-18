@@ -1531,7 +1531,7 @@ RAZRED_SAFEER_OS = "safeer-os"
 #: io.github.memelandfaner.SafeerOS.splet - Flatpak izvozi samo imena z ID-jem spredaj). Male crke: Plank (bamf)
 #: razred okna spremeni v male crke in ga isce med imeni vnosov. Slika ikone je assets/os/<pripona>.svg.
 #: Safeer Player ima svoj vnos ze od prej (WMCLASS_PREDVAJALNIKA, packaging/safeer-player.desktop).
-OKNA_V_PULTU = ("splet", "sporocila", "zapiski", "nastavitve")
+OKNA_V_PULTU = ("splet", "sporocila", "zapiski", "nastavitve", "scit")
 #: Okna, ki sodijo k drugemu programu: Medijski center (stran vira) in njegov dialog sta del Safeer Playerja.
 _OKNA_PREDVAJALNIKA = ("Medijski", "Dialog")
 
@@ -1660,14 +1660,15 @@ def ikona_kuverte(n: int, mapa: str, velikost: int = 48) -> str:
 
 
 #: Razdelki, ki se na delovni povrsini odprejo vsak v svojem oknu (ne cela stara lupina Safeer OS).
-RAZDELKI_V_SVOJEM_OKNU = ("zapiski", "sporocila", "nastavitve")
+#: Safeer Scit (lastnik, 18. 10. 2026) je svoj program kot Sporocila: svoj vnos v meniju, okno, ikona v pultu in docku.
+RAZDELKI_V_SVOJEM_OKNU = ("zapiski", "sporocila", "nastavitve", "scit")
 _NASLOVI_RAZDELKOV = {
-    "sl": {"zapiski": "Zapiski", "sporocila": "Sporočila", "nastavitve": "Nastavitve Safeer OS"},
-    "en": {"zapiski": "Notes", "sporocila": "Messages", "nastavitve": "Safeer OS settings"},
-    "de": {"zapiski": "Notizen", "sporocila": "Nachrichten", "nastavitve": "Safeer OS Einstellungen"},
-    "es": {"zapiski": "Notas", "sporocila": "Mensajes", "nastavitve": "Ajustes de Safeer OS"},
-    "fr": {"zapiski": "Notes", "sporocila": "Messages", "nastavitve": "Réglages de Safeer OS"},
-    "it": {"zapiski": "Note", "sporocila": "Messaggi", "nastavitve": "Impostazioni di Safeer OS"},
+    "sl": {"zapiski": "Zapiski", "sporocila": "Sporočila", "nastavitve": "Nastavitve Safeer OS", "scit": "Safeer Ščit"},
+    "en": {"zapiski": "Notes", "sporocila": "Messages", "nastavitve": "Safeer OS settings", "scit": "Safeer Shield"},
+    "de": {"zapiski": "Notizen", "sporocila": "Nachrichten", "nastavitve": "Safeer OS Einstellungen", "scit": "Safeer Schild"},
+    "es": {"zapiski": "Notas", "sporocila": "Mensajes", "nastavitve": "Ajustes de Safeer OS", "scit": "Safeer Escudo"},
+    "fr": {"zapiski": "Notes", "sporocila": "Messages", "nastavitve": "Réglages de Safeer OS", "scit": "Safeer Bouclier"},
+    "it": {"zapiski": "Note", "sporocila": "Messaggi", "nastavitve": "Impostazioni di Safeer OS", "scit": "Safeer Scudo"},
 }
 
 
@@ -1787,6 +1788,7 @@ class SafeerOS(Gtk.Application):
         self.sporocila.obvesti_novo = self._obvesti_novo_pismo
         #: Scit: filtriranje DNS za ves racunalnik; ce je bil vklopljen, tece od zagona naprej.
         self.scit = os_scit.Scit(self.shramba)
+        self._en_vir_naprej()
         # Posodobitve s safeer.si: zadnja preverba (izid, cas) in tekoce posodabljanje (prenos + namestitev v niti).
         self.posodobitve: dict = {"izid": None, "cas": 0.0, "napaka": ""}
         self.posodabljanje = os_posodobitve.Posodabljanje()
@@ -2679,6 +2681,21 @@ class SafeerOS(Gtk.Application):
         self._osvezi_kuverto()
         return True
 
+    def _en_vir_naprej(self) -> None:
+        """Streznik naprej za »Safeer Scit« ima en vir: Scit (velja za ves racunalnik in za Splet; doh_proxy.naprej_iz).
+        Kdor ga je do zdaj izbral samo v Spletu (nastavitve brskalnika), ga obdrzi: ob prvem zagonu ga prevzame Scit."""
+        try:
+            from core import doh_proxy
+            if self.shramba.get("scit_naprej") is None:
+                from core.config import ConfigManager
+                c = ConfigManager()
+                izbira = c.get("scit_naprej")
+                if c.get("dns_izbira_uporabnika") and izbira in os_scit.IZBIRE_NAPREJ and izbira != os_scit.PRIVZETI_NAPREJ:
+                    self.scit.nastavi_naprej(izbira, str(c.get("scit_naprej_po_meri", "") or ""))
+            doh_proxy.nastavi_vir_naprej(self.scit)
+        except Exception as e:  # noqa: BLE001 - brez libsoup Splet ni na voljo, Scit dela naprej
+            print("[SafeerOS] scit, streznik naprej:", type(e).__name__, e, flush=True)
+
     # ------------------------------------------------------------------ Safeer Scit v pultu (poleg kuverte)
     #: Stanje in stevec blokiranih v pultu se osvezita na toliko sekund, takoj pa po preklopu iz pulta ali Nastavitev.
     SCIT_PULT_OSVEZI_S = 15
@@ -2693,7 +2710,7 @@ class SafeerOS(Gtk.Application):
             from core import pladenj_sni
             self.scit_pult = pladenj_sni.ScitPult(
                 pladenj_sni.BESEDILA_SCITA.get(_jezik(), pladenj_sni.BESEDILA_SCITA["en"]),
-                lambda: GLib.idle_add(lambda: (self._odpri_razdelek("nastavitve#blokScit"), False)[1]),
+                lambda: GLib.idle_add(lambda: (self._odpri_razdelek("scit"), False)[1]),
                 self._preklopi_scit_iz_pulta, os.path.join(GLib.get_user_cache_dir(), "safeer-os"),
                 barve=os_lupina.tokeni())
         except Exception as e:  # noqa: BLE001 - brez vodila D-Bus ikone Scita ni, Scit dela naprej
@@ -2739,9 +2756,29 @@ class SafeerOS(Gtk.Application):
         threading.Thread(target=delo, name="safeer-scit-preklop", daemon=True).start()
 
     def _po_scitu(self, stanje: dict) -> dict:
-        """Stikalo v Nastavitvah je Scit preklopilo: pult pokaze novo stanje takoj, ne sele ob naslednjem osvezevanju."""
+        """Scit je spremenjen (Nastavitve, okno Safeer Scit, pult): pult in vse odprte strani pokazejo novo stanje takoj -
+        vir je en sam (self.scit), nobeno okno ne kaze starega."""
         GLib.idle_add(lambda: (self._osvezi_scit_pult(stanje), False)[1])
+        self._dogodek("scit", stanje)
         return stanje
+
+    def _scit_statistika(self) -> dict:
+        """Statistika za okno Safeer Scit: DNS za ves racunalnik, Splet in Sporocila (skupni stevci brskalnika), pravila
+        proti sledenju (core/scit_pravila.py: vgrajen ali podpisan seznam)."""
+        izid: dict = {"scit": self.scit.stanje()}
+        try:
+            from core.config import ConfigManager
+            c = ConfigManager()
+            izid["splet"] = {"oglasi": int(c.get("total_ads_blocked", 0) or 0),
+                             "groznje": int(c.get("total_threats_blocked", 0) or 0)}
+        except Exception:  # noqa: BLE001
+            izid["splet"] = {}
+        try:
+            from core import scit_pravila
+            izid["pravila"] = scit_pravila.skupna(zazeni=False).stanje()
+        except Exception:  # noqa: BLE001
+            izid["pravila"] = {}
+        return izid
 
     # ------------------------------------------------------------------ okna razdelkov (delovna povrsina)
     def _odpri_okno_razdelka(self, ime: str, cilj: str = "") -> bool:
@@ -4364,10 +4401,11 @@ class SafeerOS(Gtk.Application):
             "jblVklop": lambda: os_jbl.vklopi(bool(a[0]) if a else False) if os_jbl else {"na_voljo": False},
             "scit": self.scit.stanje,
             "scitVklop": lambda: self._po_scitu(self.scit.nastavi(bool(a[0]) if a else False)),
-            "scitDovoli": lambda: self.scit.dovoli(str(a[0]) if a else "", bool(a[1]) if len(a) > 1 else True),
-            "scitNaprej": lambda: self.scit.nastavi_naprej(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else ""),
-            "scitTwitch": lambda: self.scit.nastavi_twitch(bool(a[0]) if a else True),
-            "scitPremor": lambda: self.scit.premor(a[0] if a and isinstance(a[0], (int, float)) and not isinstance(a[0], bool) else 0),
+            "scitDovoli": lambda: self._po_scitu(self.scit.dovoli(str(a[0]) if a else "", bool(a[1]) if len(a) > 1 else True)),
+            "scitNaprej": lambda: self._po_scitu(self.scit.nastavi_naprej(str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "")),
+            "scitTwitch": lambda: self._po_scitu(self.scit.nastavi_twitch(bool(a[0]) if a else True)),
+            "scitPremor": lambda: self._po_scitu(self.scit.premor(a[0] if a and isinstance(a[0], (int, float)) and not isinstance(a[0], bool) else 0)),
+            "scitStatistika": self._scit_statistika,
             "sporocilaDodaj": lambda: self.sporocila.dodaj_kanal(a[0] if a and isinstance(a[0], dict) else {}),
             "sporocilaPoslji": lambda: self.sporocila.poslji(str(a[0]), str(a[1]), str(a[2]),
                                                              a[3] if len(a) > 3 and isinstance(a[3], list) else None),

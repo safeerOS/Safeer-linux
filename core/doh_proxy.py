@@ -1552,6 +1552,52 @@ def _blokada_ponudnika(data: bytes, ponudnik: str) -> bool:
     return bool(ip) and je_naslov_blokade(ip)
 
 
+#: Streznik naprej za izbiro »Safeer Scit« ima en sam vir (lastnik, 18. 10. 2026: nastavitve Scita na enem mestu, ki se ne
+#: morejo razhajati). V procesu s Safeer OS je to Scit (core/os_scit.Scit: naprej(), nastavi_naprej()) - isti streznik
+#: velja za ves racunalnik in za Splet; prej sta Splet (ConfigManager) in Scit (shramba Safeer OS) imela vsak svojega.
+#: Brez vira (samostojni Safeer Browser) velja ConfigManager.
+_vir_naprej = None
+
+
+def nastavi_vir_naprej(vir) -> None:
+    global _vir_naprej
+    _vir_naprej = vir
+
+
+def naprej_iz(config) -> Tuple[str, str]:
+    """(izbira, naslov po meri) streznika naprej iz enega vira (Scit v Safeer OS ali nastavitve brskalnika)."""
+    vir = _vir_naprej
+    if vir is not None:
+        try:
+            izbira, po_meri = vir.naprej()
+            return (izbira if izbira in IZBIRE_NAPREJ else PRIVZETI_NAPREJ), str(po_meri or "")
+        except Exception:  # noqa: BLE001
+            pass
+    izbira = config.get("scit_naprej", PRIVZETI_NAPREJ) if config is not None else PRIVZETI_NAPREJ
+    po_meri = str(config.get("scit_naprej_po_meri", "") or "") if config is not None else ""
+    return (izbira if izbira in IZBIRE_NAPREJ else PRIVZETI_NAPREJ), po_meri
+
+
+def shrani_naprej(config, izbira: str, po_meri: str = "") -> str:
+    """Shrani streznik naprej v en vir; vrne kljuc napake (prazno = shranjeno)."""
+    vir = _vir_naprej
+    if vir is not None:
+        stanje = vir.nastavi_naprej(izbira, po_meri) or {}
+        return str(stanje.get("napaka") or "")
+    config.set("scit_naprej", izbira)
+    if izbira == "custom":
+        config.set("scit_naprej_po_meri", po_meri)
+    return ""
+
+
+def osvezi_naprej() -> None:
+    """Scit je dobil nov streznik naprej: Splet (skupni razresevalnik) ga uporabi takoj, s praznim predpomnilnikom."""
+    r, vir = _global_resolver, _vir_naprej
+    if r is not None and vir is not None:
+        izbira, po_meri = naprej_iz(None)
+        r.set_provider(r.provider, r.custom_url, izbira, po_meri)
+
+
 def doh_iz_nastavitev(config, lokalno: Optional[bool] = None) -> Optional[LocalDoHProxy]:
     """Posrednik po nastavitvah brskalnika (ConfigManager) - ena pot za Splet in Safeer Browser."""
     izbira = config.get("doh_provider", PRIVZETI_DNS)
@@ -1559,10 +1605,10 @@ def doh_iz_nastavitev(config, lokalno: Optional[bool] = None) -> Optional[LocalD
         return get_doh_proxy(enabled=False)
     if izbira not in IZBIRE_DNS:
         izbira = PRIVZETI_DNS
+    naprej, naprej_po_meri = naprej_iz(config)
     return get_doh_proxy(provider=izbira, custom_url=config.get("custom_doh_url", "") or "", enabled=True,
                          lokalno=bool(config.get("doh_lokalno_omrezje", False)) if lokalno is None else lokalno,
-                         naprej=config.get("scit_naprej", PRIVZETI_NAPREJ),
-                         naprej_po_meri=config.get("scit_naprej_po_meri", "") or "",
+                         naprej=naprej, naprej_po_meri=naprej_po_meri,
                          rezerva=bool(config.get("dns_rezerva", True)))
 
 

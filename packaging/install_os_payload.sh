@@ -62,8 +62,9 @@ sed "s/^Icon=.*/Icon=$ID/" "$ROOT/packaging/safeer-os-stremio.desktop" > "$PREFI
 sed "s/^Icon=.*/Icon=$ID.Player/" "$ROOT/packaging/safeer-player.desktop" > "$PREFIX/share/applications/$ID.Player.desktop"
 install -Dm644 "$ROOT/assets/os/predvajalnik.svg" "$PREFIX/share/icons/hicolor/scalable/apps/$ID.Player.svg"
 # Vsako okno Safeer OS ima v pultu in docku svoj vnos in ikono (safeer_os.OKNA_V_PULTU; lastnik, 16. 10. 2026: Splet in
-# Sporocila sta imela na docku isto ikono). Vnosi se v meniju ne kazejo (NoDisplay), razred okna je safeer-os.<okno>.
-for okno in splet sporocila zapiski nastavitve; do
+# Sporocila sta imela na docku isto ikono). Vnosi se v meniju ne kazejo (NoDisplay) - razen Safeer Scit, ki je svoj
+# program (lastnik, 18. 10. 2026) -, razred okna je safeer-os.<okno>.
+for okno in splet sporocila zapiski nastavitve scit; do
     sed "s/^Icon=.*/Icon=$ID.$okno/" "$ROOT/packaging/safeer-os-$okno.desktop" > "$PREFIX/share/applications/$ID.$okno.desktop"
     install -Dm644 "$ROOT/assets/os/$okno.svg" "$PREFIX/share/icons/hicolor/scalable/apps/$ID.$okno.svg"
 done

@@ -65,10 +65,10 @@ class OknaRazdelkov(unittest.TestCase):
     def test_stran_pozna_okno_razdelka(self):
         js = open(os.path.join(KOREN, "assets", "os", "os.js"), encoding="utf-8").read()
         css = open(os.path.join(KOREN, "assets", "os", "os.css"), encoding="utf-8").read()
-        self.assertIn("razdelek=(zapiski|sporocila|nastavitve)", js)
+        self.assertIn("razdelek=(zapiski|sporocila|nastavitve|scit)", js)
         self.assertIn("if (EN_RAZDELEK) return;", js, "okna razdelkov ne smejo slediti »pojdi« glavnega okna")
         self.assertIn("body.en-razdelek .razdelek:not(.viden)", css)
-        self.assertEqual(set(self.so.RAZDELKI_V_SVOJEM_OKNU), {"zapiski", "sporocila", "nastavitve"})
+        self.assertEqual(set(self.so.RAZDELKI_V_SVOJEM_OKNU), {"zapiski", "sporocila", "nastavitve", "scit"})
 
 
 if __name__ == "__main__":

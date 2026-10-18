@@ -332,8 +332,8 @@ class IzjemeInPremor(unittest.TestCase):
         koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         with open(os.path.join(koren, "safeer_os.py"), encoding="utf-8") as f:
             vir = f.read()
-        self.assertIn('"scitDovoli": lambda: self.scit.dovoli(', vir)
-        self.assertIn('"scitPremor": lambda: self.scit.premor(', vir)
+        self.assertIn('"scitDovoli": lambda: self._po_scitu(self.scit.dovoli(', vir)
+        self.assertIn('"scitPremor": lambda: self._po_scitu(self.scit.premor(', vir)
         with open(os.path.join(koren, "assets", "os", "os.js"), encoding="utf-8") as f:
             js = f.read()
         self.assertIn('klic("scitDovoli", [x.ime, true])', js)
@@ -929,6 +929,16 @@ class VrataInZanke(unittest.TestCase):
             sc.shramba["scit_naprej"] = "router"
             r.sifrirano_naprej = lambda: sc.naprej()[0] != "router"
             self.assertFalse(sc.stanje()["nesifrirano"])
+
+    def test_telemetrija_storitev_tudi_v_dns(self):
+        """Gostitelji samo za telemetrijo (seznam pravil Scita) so blokirani za ves racunalnik kot »oglasi in sledenje«
+        (premor jih spusti); sledilci tretjih in storitve same ne."""
+        s = os_scit.Seznami.__new__(os_scit.Seznami)
+        s.nabor, s.storitev, s._kljuc = os_scit.Nabor(), None, threading.Lock()
+        self.assertEqual(s.kategorija("dit.whatsapp.net"), "oglasi")
+        self.assertEqual(s.kategorija("spade.twitch.tv"), "oglasi")
+        for ime in ("web.whatsapp.com", "gql.twitch.tv", "www.google-analytics.com"):
+            self.assertIsNone(s.kategorija(ime), ime)
 
 
 UID_NOBODY = 65534

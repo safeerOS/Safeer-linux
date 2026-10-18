@@ -154,6 +154,17 @@ def cista_domena(besedilo) -> str:
     return d if _DOMENA.match(d) else ""
 
 
+def _je_telemetrija(ime: str) -> bool:
+    """Gostitelj, ki ga storitev uporablja samo za telemetrijo ali oglase (core/scit_pravila.py, »telemetrija«: npr.
+    dit.whatsapp.net, spade.twitch.tv) - Scit ga zavrne za ves racunalnik, tudi za namizne programe. Sledilcev tretjih
+    (»sledilci«) DNS ne blokira: tu ni mogoce locit tretje strani od obiska njihove strani (to naredi filter WebKit)."""
+    try:
+        from core import scit_pravila
+        return any(ime == t or ime.endswith("." + t) for t in scit_pravila.trenutna().telemetrija)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def je_posodobitev(ime: str) -> bool:
     return any(ime == d or ime.endswith("." + d) for d in POSODOBITVE)
 
@@ -724,6 +735,8 @@ class Seznami:
             k = self.nabor.kategorija(ime)
         if k:
             return k
+        if _je_telemetrija(ime):
+            return KATEGORIJA_PREMORA       # telemetrija storitev s podpisanega seznama Scita (premor jo spusti)
         s = self.storitev
         if s is not None and s.loaded.is_set():
             try:
@@ -1183,6 +1196,13 @@ class Scit:
         self.shramba.set("scit_naprej", izbira)
         self._zagonska_imena = None
         self._osvezi_predpomnilnik()
+        try:
+            import sys
+            doh = sys.modules.get("core.doh_proxy")
+            if doh is not None:
+                doh.osvezi_naprej()           # isti streznik naprej takoj tudi v Spletu (en vir nastavitve)
+        except Exception:  # noqa: BLE001
+            pass
         return self.stanje()
 
     def _naprej(self, paket: bytes) -> Optional[bytes]:
@@ -1371,6 +1391,11 @@ class Scit:
         return self.stanje()
 
     def _zazeni(self) -> bool:
+        try:
+            from core import scit_pravila
+            scit_pravila.skupna()           # podpisan seznam pravil Scita se osvezuje tudi brez odprtega Spleta
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] scit: pravila:", type(e).__name__, e)
         with self._kljuc:
             if self.seznami is None:
                 self.seznami = skupni_seznami(zazeni=False) if self._skupni else Seznami(self.mapa)

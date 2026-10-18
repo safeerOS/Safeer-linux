@@ -105,7 +105,8 @@
   var PREDVAJALNIK = /[?&]predvajalnik=1(&|$)/.test(location.search);
   // Okno enega razdelka na delovni povrsini (safeer_os.py _odpri_okno_razdelka, lastnik 12. 10. 2026): namizno okolje
   // ne odpira vec cele stare lupine Safeer OS - Zapiski, Sporocila in Nastavitve se odprejo vsak v svojem oknu.
-  var RAZDELEK = (location.search.match(/[?&]razdelek=(zapiski|sporocila|nastavitve)(?:&|$)/) || [])[1] || "";
+  // Safeer Scit (lastnik, 18. 10. 2026) je svoj program z istim blokom nastavitev (#blokScit) in statistiko.
+  var RAZDELEK = (location.search.match(/[?&]razdelek=(zapiski|sporocila|nastavitve|scit)(?:&|$)/) || [])[1] || "";
   // Razdelek, ki ga to okno edini kaze ("" = glavno okno z vsemi razdelki).
   var EN_RAZDELEK = PREDVAJALNIK ? "media" : RAZDELEK;
 
@@ -327,7 +328,8 @@
     if (razdelek === "naprave") { osveziPovezavo(); napraveZanka(); }
     if (razdelek === "sporocila") { sporocilaVrnitev = true; naloziSporocila(); sporocilaZanka(); }
     if (razdelek === "sporocila") naloziVgrajeneKanale();     // vgrajeni kanali (blok »Vgrajeni kanali Sporocil«)
-    if (razdelek === "nastavitve") { narisiNastavitve(); nalozScit(); scitZanka(); nalozPosodobitve(false); }
+    if (razdelek === "nastavitve") { premakniScit("scitMestoNastavitve"); narisiNastavitve(); nalozScit(); scitZanka(); nalozPosodobitve(false); }
+    if (razdelek === "scit") { premakniScit("scitMesto"); nalozScit(); scitZanka(); }
     if (razdelek === "programi") nalozNaprave();
     if (razdelek === "media") naloziMedije();
     prikaziMediaBar();
@@ -3143,18 +3145,25 @@
   function scitZanka() {
     clearInterval(scitCas);
     scitCas = setInterval(function () {
-      if (S.razdelek !== "nastavitve") { clearInterval(scitCas); return; }
+      if (S.razdelek !== "nastavitve" && S.razdelek !== "scit") { clearInterval(scitCas); return; }
       // Seznam nazadnje blokiranih naj ne skoci izpod kazalca ali izbranega gumba (»Dovoli« bi zadel napacno domeno).
       var blok = $("blokScit");
       if (blok && blok.querySelector(".scit-zadnje:hover, .scit-zadnje button:focus, .scit-naprej select:focus, .scit-naprej input:focus")) return;
       if (!scitZaposleno) nalozScit();
     }, 5000);
   }
+  // En blok nastavitev Scita na stran: v Nastavitvah ali v oknu Safeer Scit (premakne se, ne podvaja - obe mesti ne
+  // moreta pokazati razlicnih nastavitev; vir je en sam, Scit v Safeer OS).
+  function premakniScit(mesto) {
+    var b = $("blokScit"), m = $(mesto);
+    if (b && m && b.parentNode !== m && vodnikKorak < 0) m.appendChild(b);
+  }
   function narisiScit() {
     var c = $("blokScit");
     c.innerHTML = "";
     var s = scitStanje;
     if (!s) return;
+    if (S.razdelek === "scit") nalozScitStatistiko();
     var pod;
     if (scitZaposleno) pod = t("scitPripravljam");
     else if (!s.mozno) pod = t(s.razlog === "lastni_dns" ? "scitNapaka_lastni_dns" : "scitNiMozno");
@@ -3175,6 +3184,12 @@
     }, pod);
     if (!s.mozno) st.classList.add("onemogoceno");
     c.appendChild(st);
+    // Tiha izguba sifriranja (pregled 18. 10. 2026): mirna vrstica stanja, brez okna in brez rdece barve.
+    if (s.vklop && s.tece && s.nesifrirano) {
+      var ns = el("div", "scit-zadnje scit-nesifrirano", ubezi(t("scitNesifrirano")));
+      ns.setAttribute("role", "status");
+      c.appendChild(ns);
+    }
     // Spotify v Safeer DRM (core/spotify_racun.py): oglasi brezplačnega računa, neodvisno od filtriranja DNS.
     if (scitSpotify !== null) {
       c.appendChild(stikalo("scitSpotify", "scit", scitSpotify, function (v) {
@@ -3235,6 +3250,36 @@
       });
       c.appendChild(iz);
     }
+  }
+  // Statistika v oknu Safeer Scit: DNS za ves racunalnik, seznami, Splet in Sporocila, pravila proti sledenju.
+  var scitStatCas = 0;
+  function nalozScitStatistiko() {
+    if (Date.now() - scitStatCas < 4000) return;
+    scitStatCas = Date.now();
+    klic("scitStatistika").then(narisiScitStatistiko, function () {});
+  }
+  function scitDatum(sek) {
+    if (!sek) return t("scitStatNikoli");
+    try { return new Date(sek * 1000).toLocaleString(LOKALE[jezik] || "en-GB", { dateStyle: "short", timeStyle: "short" }); }
+    catch (_) { return new Date(sek * 1000).toLocaleString(); }
+  }
+  function narisiScitStatistiko(st) {
+    var dl = $("scitStatistika");
+    if (!dl || !st) return;
+    var s = st.scit || {}, p = st.pravila || {}, sp = st.splet || {};
+    var vrstice = [
+      ["scitStatDns", s.vklop && s.tece ? t("scitStatDnsVrednost", { n: s.blokiranih || 0, p: s.poizvedb || 0 }) : t("scitStatIzklopljen")],
+      ["scitStatSeznami", t("scitStatSeznamiVrednost", { d: s.domen || 0, cas: scitDatum(s.posodobljeno) })],
+      ["scitStatGroznje", t("scitStatGroznjeVrednost", { n: s.pravil || 0 })],
+      ["scitStatNesifrirano", t("scitStatNesifriranoVrednost", { n: s.rezerv || 0 })],
+      ["scitStatSplet", t("scitStatSpletVrednost", { n: (sp.oglasi || 0) + (sp.groznje || 0) })],
+      ["scitStatPravila", t("scitStatPravilaVrednost", { n: p.pravil || 0, v: p.verzija || 0, vir: t("scitVir_" + (p.vir || "vgrajena")) })]
+    ];
+    dl.innerHTML = "";
+    vrstice.forEach(function (v) {
+      dl.appendChild(el("dt", "", ubezi(t(v[0]))));
+      dl.appendChild(el("dd", "", ubezi(v[1])));
+    });
   }
   // Streznik naprej: kam Scit poslje dovoljena imena (privzeto Cloudflare prek DoH) in kdo jih vidi - po resnici.
   var SCIT_NAPREJ = ["cloudflare", "quad9", "google", "adguard", "opendns", "custom", "router"];
@@ -8421,6 +8466,8 @@
     if (vrsta === "mediaSkrito") nastaviSkrito(podatki, false);
     if (vrsta === "mediaSamodejniOsvezeni") naloziSamodejne();
     if (vrsta === "stanje") narisiStanje(podatki);
+    // Scit je spremenjen drugje (drugo okno, pult, Splet): ta stran pokaze isto stanje takoj.
+    if (vrsta === "scit" && podatki && !scitZaposleno) { scitStanje = podatki; if ($("blokScit")) narisiScit(); }
     if (vrsta === "okna") narisiOkna(podatki);
     if (vrsta === "predvajalnik") osveziPredvajalnik(podatki);
     if (vrsta === "medijskaKnjiznica") naloziMedije();
@@ -8872,6 +8919,7 @@
     });
     $("mintPreklici").addEventListener("click", zapriSloje);
     $("gumbVodnik").addEventListener("click", odpriVodnik);
+    $("gumbOdpriScit").addEventListener("click", function () { pojdi("scit"); });
     $("vodnikNaprej").addEventListener("click", function () { korakVodnika(1); });
     $("vodnikPreskoci").addEventListener("click", function () { korakVodnika(1); });
     $("vodnikNazaj").addEventListener("click", function () { korakVodnika(-1); });
@@ -9627,7 +9675,7 @@
       if (RAZDELEK) {
         // Okno enega razdelka: ta razdelek (ali ukaz »pojdi«, ki ga je Safeer OS poslal ob odprtju).
         if (S.razdelek !== RAZDELEK) pojdi(RAZDELEK);
-        document.title = t({ zapiski: "zapiski", sporocila: "sporocila", nastavitve: "nastavitve" }[RAZDELEK]) || document.title;
+        document.title = t({ zapiski: "zapiski", sporocila: "sporocila", nastavitve: "nastavitve", scit: "scitAplikacija" }[RAZDELEK]) || document.title;
         return;
       }
       if (PREDVAJALNIK) return;     // stanje, odprta okna, nedavne datoteke in sporocila so v lupini Safeer OS
