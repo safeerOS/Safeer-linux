@@ -700,7 +700,7 @@ def internet_prek_telefona(ukaz: str, parametri: Optional[dict] = None, zazeni: 
     """Internet prek telefona v Safeer Linku: nastavitve in stanje ima Safeer Control (D-Bus Naprave.Internet).
 
     `zazeni=False`: samo, ce Control ze tece - zaradi prikaza stanja ga ne zaganjamo. Parametre precistimo tu:
-    stran sme nastaviti samo nacin, telefon, pot in sistemski posrednik."""
+    stran sme nastaviti samo nacin, telefon, pot, sistemski posrednik in pomoc ob gneci."""
     if not zazeni:
         try:
             if not _control_na_vodilu(Gio.bus_get_sync(Gio.BusType.SESSION, None)):
@@ -712,7 +712,7 @@ def internet_prek_telefona(ukaz: str, parametri: Optional[dict] = None, zazeni: 
     if ukaz == "stanje":
         cisto["vprasaj"] = bool(p.get("vprasaj"))
     elif ukaz == "nastavi":
-        for kljuc in ("nacin", "naprava", "pot"):
+        for kljuc in ("nacin", "naprava", "pot", "gneca"):
             if isinstance(p.get(kljuc), str):
                 cisto[kljuc] = p[kljuc][:96]
         if isinstance(p.get("sistemski"), bool):

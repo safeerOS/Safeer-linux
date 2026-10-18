@@ -15,6 +15,7 @@ import threading
 import time
 import unittest
 
+from core import gneca as gneca_modul
 from core import link_internet as li
 from core import link_internet_posrednik as lp
 
@@ -554,6 +555,229 @@ class NastavitveInStanje(Osnova):
         o = self.u.okolje()
         self.assertEqual(o["ALL_PROXY"], "socks5h://127.0.0.1:%d" % self.u.posrednik.vrata)
         self.assertEqual(o["HTTPS_PROXY"], "http://127.0.0.1:%d" % self.u.posrednik.vrata)
+
+
+class LazniNadzor:
+    """Namesto core/gneca.Nadzornik: gneco preizkus razglasi sam (detektor ima svoje preizkuse v test_gneca.py)."""
+
+    def __init__(self):
+        self.gneca = False
+        self.ob_spremembi = None
+        self.zagonov = 0
+        self.tece = False
+
+    def zazeni(self):
+        self.zagonov += 1
+        self.tece = True
+
+    def ustavi(self):
+        self.tece = False
+        if self.gneca:
+            self.gneca = False
+            self.ob_spremembi(False)
+
+    def stanje(self):
+        return {"gneca": self.gneca, "osnova_ms": 33.0, "internet_ms": 203.0 if self.gneca else 34.0,
+                "prehod_ms": 0.4, "metoda": "icmp", "meri": self.tece}
+
+    def javi(self, gneca):
+        self.gneca = gneca
+        self.ob_spremembi(gneca)
+
+
+class Gneca(Osnova):
+    """Pomoc ob gneci: domaca linija je zasicena, nove povezave gredo skozi telefon - samo po mobilnem omrezju."""
+
+    def setUp(self):
+        super().setUp()
+        self.u.ustavi()
+        self.naprave[0]["naslov"] = "192.168.1.20"          # telefon je doma (LAN)
+        self.nadzor = LazniNadzor()
+        self.u = lp.InternetUpravitelj(self.odjemalec, lambda: self.naprave, os.path.join(self.mapa, "internet.json"),
+                                       sistemski=self.sistemski, obvesti=lambda k, p: self.obvestila.append((k, p)),
+                                       sonda=self.sonda, krajevni_cilj=lambda _h: False, nadzor=self.nadzor)
+        self.u.vrata = 0
+        self.u.nastavi(pot="any")         # nastavljena pot telefona za izpad; gneca mora vseeno zahtevati mobilno
+
+    def tearDown(self):
+        super().tearDown()
+        self.assertIsNone(gneca_modul.odpiralnik(), "po ustavitvi odpiralnik oddaj ni vec nas")
+
+    def gneca(self, ali=True, vprasaj=True):
+        if vprasaj:
+            self.assertIsNotNone(self.odjemalec.vprasaj("tel"))
+        self.nadzor.javi(ali)
+
+    def odmev_skozi(self, s, besedilo=b"x"):
+        c, odgovor = self.socks5("127.0.0.1", s.vrata, ime=False)
+        self.assertEqual(odgovor[:2], b"\x05\x00")
+        c.sendall(besedilo)
+        self.assertEqual(c.recv(100), besedilo)
+        return c
+
+    def test_privzeto_izklopljeno(self):
+        self.nacin_izpad()
+        st = self.u.stanje()["gneca"]
+        self.assertEqual((st["nastavitev"], st["velja"], st["dejavna"]), ("izklopljeno", False, False))
+        self.assertEqual(self.nadzor.zagonov, 0, "brez vklopa ne merimo")
+        self.assertIsNone(gneca_modul.odpiralnik())
+        self.nadzor.gneca = True                      # tudi ce bi bila gneca, brez vklopa telefona ne uporabimo
+        s = self.streznik()
+        self.odmev_skozi(s).close()
+        self.assertEqual(self.ponudnik.odprtih_skupaj, 0)
+
+    def test_nove_povezave_skozi_mobilno_omrezje_obstojece_ostanejo(self):
+        s = self.streznik()
+        self.nacin_izpad(gneca="vse", sistemski=True)
+        self.assertEqual(self.nadzor.zagonov, 1)
+        prej = self.odmev_skozi(s, b"pred")                 # odprta pred gneco: neposredno
+        self.assertEqual(self.ponudnik.odprtih_skupaj, 0)
+        self.gneca()
+        st = self.u.stanje()
+        self.assertTrue(st["gneca"]["dejavna"])
+        self.assertFalse(st["prek_telefona"], "to ni izpad: obvestila o izpadu ni")
+        self.assertEqual(self.obvestila, [])
+        self.assertTrue(_pocakaj(lambda: ("vklopi", self.u.posrednik.vrata) in self.sistemski.klici),
+                        "ob gneci gredo programi skozi posrednik")
+        med = self.odmev_skozi(s, b"med gneco")
+        self.assertEqual(self.ponudnik.odprtih_skupaj, 1)
+        self.assertEqual(self.ponudnik.zahtevane_poti[-1], li.POT_MOBILNA, "samo mobilno omrezje, ne nastavljena »any«")
+        prej.sendall(b"se vedno")
+        self.assertEqual(prej.recv(100), b"se vedno")
+        self.assertEqual(self.ponudnik.odprtih_skupaj, 1, "obstojeca povezava se ne premakne")
+        self.assertEqual(self.u.stanje()["gneca"]["tokov"], 1)
+        self.gneca(False, vprasaj=False)
+        self.assertTrue(_pocakaj(lambda: self.sistemski.klici[-1] == ("izklopi",)))
+        self.odmev_skozi(s, b"po gneci").close()
+        self.assertEqual(self.ponudnik.odprtih_skupaj, 1, "po gneci nove povezave spet neposredno")
+        med.sendall(b"tok ostane")
+        self.assertEqual(med.recv(100), b"tok ostane", "tok skozi telefon ostane do konca")
+        for c in (prej, med):
+            c.close()
+        self.assertEqual(self.u.stanje()["gneca"]["skupaj"], 1)
+
+    def test_telefon_po_wifi_se_ne_uporabi(self):
+        """Telefon odpre po Wi-Fi (isti domaci usmerjevalnik): tok zapremo, povezava gre tiho neposredno."""
+        s = self.streznik()
+        self.nacin_izpad(gneca="vse")
+        self.gneca()
+        self.ponudnik.vrsta_poti = "wifi"
+        self.odmev_skozi(s).close()
+        self.assertEqual(self.ponudnik.odprtih_skupaj, 1)
+        self.assertTrue(_pocakaj(lambda: not self.ponudnik.tokovi), "tok po Wi-Fi je zaprt")
+        self.assertTrue(self.u.stanje()["gneca"]["premor"])
+        self.odmev_skozi(s).close()
+        self.assertEqual(self.ponudnik.odprtih_skupaj, 1, "v premoru telefona ne sprasujemo")
+        self.assertEqual(self.obvestila, [])
+
+    def test_telefon_brez_mobilnega_omrezja_se_ne_poskusi(self):
+        self.ponudnik.vrsta_poti = "wifi"                # stanje telefona: samo Wi-Fi
+        s = self.streznik()
+        self.nacin_izpad(gneca="vse")
+        self.gneca()
+        self.assertFalse(self.u.stanje()["gneca"]["dejavna"])
+        self.odmev_skozi(s).close()
+        self.assertEqual(self.ponudnik.odprtih_skupaj, 0)
+
+    def test_neuspeh_telefona_je_tih(self):
+        s = self.streznik()
+        self.nacin_izpad(gneca="vse")
+        self.gneca()
+        self.ponudnik.napaka_odpiranja = "no_mobile"
+        self.odmev_skozi(s).close()                      # program dobi neposredno povezavo, ne napake
+        self.assertEqual(self.ponudnik.odprtih_skupaj, 0)
+        self.assertTrue(self.u.stanje()["gneca"]["premor"])
+        self.assertEqual(self.u.zadnja_napaka, "")
+        self.assertEqual(self.obvestila, [])
+
+    def test_napaka_cilja_ne_da_telefona_v_premor(self):
+        s = self.streznik()
+        self.nacin_izpad(gneca="vse")
+        self.gneca()
+        self.ponudnik.napaka_odpiranja = "dns_failed"
+        self.odmev_skozi(s).close()
+        self.assertFalse(self.u.stanje()["gneca"]["premor"])
+
+    def test_telefon_zdoma_ni_drug_vir(self):
+        """Telefon prek Global Linka (naslov zanke) ali brez naslova: skozenj bi sel promet spet po domaci liniji."""
+        s = self.streznik()
+        self.nacin_izpad(gneca="vse")
+        for naslov in ("127.0.0.1", "", "1.2.3.4"):
+            self.naprave[0]["naslov"] = naslov
+            self.gneca()
+            self.assertFalse(self.u.stanje()["gneca"]["telefon_doma"], naslov)
+            self.odmev_skozi(s).close()
+        self.assertEqual(self.ponudnik.odprtih_skupaj, 0)
+        self.assertFalse(self.u._meri_gneco(), "telefona ni doma: ne merimo")
+
+    def test_samo_velika_posiljanja(self):
+        s = self.streznik()
+        self.nacin_izpad(gneca="oddaje", sistemski=True)
+        self.assertEqual(gneca_modul.odpiralnik(), self.u._odpri_za_oddajo)
+        self.gneca()
+        self.odmev_skozi(s).close()
+        self.assertEqual(self.ponudnik.odprtih_skupaj, 0, "programi ostanejo neposredno")
+        self.assertFalse(self.u.gneca_sistemski)
+        v = self.u._odpri_za_oddajo("127.0.0.1", s.vrata, 3.0)
+        self.assertIsNotNone(v)
+        v.sendall(b"oddaja")
+        v.settimeout(5)
+        self.assertEqual(v.recv(100), b"oddaja")
+        v.close()
+        self.assertEqual(self.ponudnik.odprtih_skupaj, 1)
+        self.assertEqual(self.ponudnik.zahtevane_poti[-1], li.POT_MOBILNA)
+        self.gneca(False, vprasaj=False)
+        self.assertIsNone(self.u._odpri_za_oddajo("127.0.0.1", s.vrata, 3.0), "brez gnece neposredno")
+        self.assertNotIn(("vklopi", self.u.posrednik.vrata), self.sistemski.klici)
+        self.u.nastavi(gneca="izklopljeno")
+        self.assertIsNone(gneca_modul.odpiralnik())
+
+    def test_izpad_ostane_kot_prej(self):
+        """Gneca ne spremeni preklopa ob izpadu: obvestilo, nastavljena pot telefona, sistemski posrednik."""
+        s = self.streznik()
+        self.nacin_izpad(gneca="vse", sistemski=True)
+        self.gneca()
+        self.fiksna["dela"] = False
+        self.sonda.preveri()
+        self.sonda.preveri()
+        self.assertTrue(self.u.prek_telefona)
+        self.assertEqual(self.obvestila[-1][0], "prek_telefona")
+        self.assertFalse(self.u.stanje()["gneca"]["dejavna"], "ob izpadu odloca izpad, ne gneca")
+        self.assertFalse(self.u._meri_gneco(), "ob izpadu gnece ne merimo")
+        self.odmev_skozi(s).close()
+        self.assertEqual(self.ponudnik.zahtevane_poti[-1], "any")
+        self.fiksna["dela"] = True
+        self.sonda.preveri()
+        self.sonda.preveri()
+        self.assertEqual(self.obvestila[-1][0], "nazaj_doma")
+
+    def test_neznano_stanje_telefona_ga_vprasa(self):
+        s = self.streznik()
+        self.nacin_izpad(gneca="vse")
+        self.gneca(vprasaj=False)
+        self.assertTrue(_pocakaj(lambda: self.u.stanje()["gneca"]["dejavna"]), "po odgovoru telefona pomoc deluje")
+        self.odmev_skozi(s).close()
+        self.assertEqual(self.ponudnik.odprtih_skupaj, 1)
+
+    def test_nastavitev(self):
+        self.assertEqual(self.u.nastavi(gneca="mogoce")["koda"], "napacna_zahteva")
+        self.nacin_izpad(gneca="vse")
+        with open(self.u.pot_nastavitev) as f:
+            self.assertEqual(json.load(f)["gneca"], "vse")
+        drugi = lp.InternetUpravitelj(self.odjemalec, lambda: self.naprave, self.u.pot_nastavitev, nadzor=LazniNadzor())
+        self.assertEqual(drugi.gneca, "vse")
+        self.u.nastavi(nacin="vedno")
+        self.assertFalse(self.nadzor.tece, "gneca velja samo v nacinu »izpad«")
+        st = self.u.stanje()["gneca"]
+        self.assertEqual((st["nastavitev"], st["velja"]), ("vse", False))
+
+    def test_stanje_gnece(self):
+        self.nacin_izpad(gneca="vse")
+        self.gneca()
+        st = self.u.stanje()["gneca"]
+        for k, v in {"nastavitev": "vse", "velja": True, "zaznana": True, "dejavna": True, "telefon_doma": True,
+                     "premor": False, "osnova_ms": 33.0, "internet_ms": 203.0, "prehod_ms": 0.4, "metoda": "icmp"}.items():
+            self.assertEqual(st[k], v, k)
 
 
 class Zahteve(unittest.TestCase):

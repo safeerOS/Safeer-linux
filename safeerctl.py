@@ -11,7 +11,10 @@
     safeerctl text BESEDILO --to NAPRAVA    poslji besedilo ali povezavo napravi
     safeerctl rename NAPRAVA IME            preimenuj napravo (za vse naprave v Linku)
     safeerctl internet [status]             internet prek telefona v Safeer Linku: stanje
-    safeerctl internet mode off|failover|always [--via NAPRAVA] [--system-proxy on|off]
+    safeerctl internet mode off|failover|always [--via NAPRAVA] [--system-proxy on|off] [--gneca on|uploads|off]
+                                            --gneca: ob izpadu tudi pomoc ob gneci (telefon kot dodatni vir,
+                                            ko je domaca linija zasicena); on = nove povezave in velika
+                                            posiljanja, uploads = samo velika posiljanja Safeerja
     safeerctl internet test [--via NAPRAVA] resnicna zahteva skozi telefon (pove, po katerem omrezju je sla)
     safeerctl internet env                  spremenljivke okolja za programe v tej lupini (eval "$(safeerctl internet env)")
 
@@ -70,6 +73,12 @@ BESEDILA = {
         "i_sistemski": "sistemski posrednik", "i_poraba": "skozi telefon", "i_mobilni": "mobilni podatki telefona",
         "i_izklopljeno": "izklopljeno", "i_izpad": "ob izpadu domačega interneta", "i_vedno": "vedno skozi telefon",
         "i_dela": "dela", "i_ne_dela": "ne dela", "i_neposredno": "neposredno", "i_prek": "skozi telefon",
+        "i_prek_gneca": "skozi telefon (gneča)", "i_gneca": "ob gneči",
+        "i_gneca_vse": "nove povezave in velika pošiljanja skozi mobilno omrežje telefona",
+        "i_gneca_oddaje": "velika pošiljanja skozi mobilno omrežje telefona",
+        "i_gneca_zdaj": "gneča zdaj", "i_gneca_ni": "gneče ni", "i_gneca_merim": "merim osnovo",
+        "i_gneca_ni_doma": "telefon ni v domačem omrežju", "i_gneca_premor": "telefon ni odprl povezave, poskusim znova čez minuto",
+        "i_gneca_meritev": "osnova {osnova} · zdaj {internet} · usmerjevalnik {prehod}",
         "i_ni_telefona": "v Safeer Linku ni telefona, ki deli internet",
         "i_dovoljeno": "dovoljeno", "i_caka": "čaka – na telefonu odpri Safeer OS in dovoli ta računalnik", "i_zavrnjeno": "telefon je ta računalnik zavrnil",
         "i_ne_deli": "deljenje je na telefonu izklopljeno", "i_stari": "na telefonu je starejši Safeer OS (posodobi ga)",
@@ -124,6 +133,12 @@ BESEDILA = {
         "i_nacin": "mode", "i_telefon": "phone", "i_doma": "home internet", "i_zdaj": "now", "i_posrednik": "proxy",
         "i_sistemski": "system proxy", "i_poraba": "through the phone", "i_mobilni": "phone's mobile data",
         "i_izklopljeno": "off", "i_izpad": "when home internet is down", "i_vedno": "always through the phone",
+        "i_prek_gneca": "through the phone (congestion)", "i_gneca": "when busy",
+        "i_gneca_vse": "new connections and large uploads over the phone's mobile network",
+        "i_gneca_oddaje": "large uploads over the phone's mobile network",
+        "i_gneca_zdaj": "congested now", "i_gneca_ni": "no congestion", "i_gneca_merim": "measuring the baseline",
+        "i_gneca_ni_doma": "the phone is not on the home network", "i_gneca_premor": "the phone did not open a connection, retrying in a minute",
+        "i_gneca_meritev": "baseline {osnova} · now {internet} · router {prehod}",
         "i_dela": "works", "i_ne_dela": "down", "i_neposredno": "direct", "i_prek": "through the phone",
         "i_ni_telefona": "no phone in Safeer Link shares its internet",
         "i_dovoljeno": "allowed", "i_caka": "waiting – open Safeer OS on the phone and allow this computer", "i_zavrnjeno": "the phone refused this computer",
@@ -441,6 +456,7 @@ def ukaz_rename(a, klic, izpis) -> int:
 # ---------------------------------------------------------------------- internet prek telefona
 
 NACINI_INTERNETA = {"off": "izklopljeno", "failover": "izpad", "always": "vedno"}
+GNECA_INTERNETA = {"off": "izklopljeno", "uploads": "oddaje", "on": "vse"}
 
 
 def razlog_interneta(koda: str) -> str:
@@ -459,6 +475,33 @@ def _dovoljenje(stanje: dict) -> str:
     return {"allowed": t("i_dovoljeno"), "pending": t("i_caka"), "denied": t("i_zavrnjeno")}.get(str(p.get("permission")), t("i_neznano"))
 
 
+def _ms(v) -> str:
+    if not isinstance(v, (int, float)) or isinstance(v, bool):
+        return "?"
+    niz = ("%.1f ms" % v) if v < 10 else ("%d ms" % round(v))     # usmerjevalnik: zicno ~0,4 ms
+    return niz.replace(".", ",") if jezik() == "sl" else niz
+
+
+def _izpis_gnece(g: dict) -> str:
+    """Vrstica »ob gneci«: nastavitev, stanje in zadnja meritev."""
+    nastavitev = g.get("nastavitev")
+    if nastavitev not in ("vse", "oddaje"):
+        return t("i_izklopljeno")
+    deli = [t("i_gneca_" + nastavitev)]
+    if not g.get("telefon_doma"):
+        deli.append(t("i_gneca_ni_doma"))
+    elif g.get("premor"):
+        deli.append(t("i_gneca_premor"))
+    elif g.get("osnova_ms") is None:
+        deli.append(t("i_gneca_merim"))
+    else:
+        deli.append(t("i_gneca_zdaj") if g.get("zaznana") else t("i_gneca_ni"))
+    if g.get("osnova_ms") is not None:
+        deli.append(t("i_gneca_meritev", osnova=_ms(g.get("osnova_ms")), internet=_ms(g.get("internet_ms")),
+                      prehod=_ms(g.get("prehod_ms"))))
+    return " – ".join(deli[:2]) + ("" if len(deli) < 3 else " (" + deli[2] + ")")
+
+
 def _izpis_stanja_interneta(s: dict) -> str:
     nacin = {"izklopljeno": t("i_izklopljeno"), "izpad": t("i_izpad"), "vedno": t("i_vedno")}.get(s.get("nacin"), str(s.get("nacin")))
     ime = next((x.get("ime") or x.get("id") for x in s.get("telefoni") or [] if x.get("id") == s.get("telefon")), "")
@@ -466,8 +509,12 @@ def _izpis_stanja_interneta(s: dict) -> str:
                [t("i_telefon"), (ime + " – " if ime else "") + _dovoljenje(s)]]
     if s.get("nacin") == "izpad":
         vrstice.append([t("i_doma"), t("i_dela") if (s.get("fiksna") or {}).get("dela") else t("i_ne_dela")])
+    g = s.get("gneca") if isinstance(s.get("gneca"), dict) else {}
     if s.get("nacin") != "izklopljeno":
-        vrstice.append([t("i_zdaj"), t("i_prek") if s.get("prek_telefona") else t("i_neposredno")])
+        vrstice.append([t("i_zdaj"), t("i_prek") if s.get("prek_telefona") else
+                        t("i_prek_gneca") if g.get("dejavna") else t("i_neposredno")])
+    if s.get("nacin") == "izpad" and g:
+        vrstice.append([t("i_gneca"), _izpis_gnece(g)])
     p = s.get("posrednik") or {}
     vrstice.append([t("i_posrednik"), "%s:%s (SOCKS5, HTTP)" % (p.get("naslov"), p.get("vrata")) if p.get("tece") else t("i_ne_tece")])
     sis = s.get("sistemski") or {}
@@ -502,6 +549,8 @@ def ukaz_internet(a, klic, izpis) -> int:
             p["naprava"] = najdi_napravo(naprave(klic), a.via)["id"] if a.via else ""
         if a.system_proxy is not None:
             p["sistemski"] = a.system_proxy == "on"
+        if a.gneca is not None:
+            p["gneca"] = GNECA_INTERNETA[a.gneca]
         s = klic("Internet", "nastavi", json.dumps(p))
         if not s.get("ok"):
             raise Napaka(t("ni_uspelo", razlog=razlog_interneta(s.get("koda"))), IZHOD_NEUSPEH, str(s.get("koda") or "napaka"))
@@ -582,6 +631,9 @@ def razclenjevalnik() -> argparse.ArgumentParser:
     u.add_argument("vrednost", metavar="VALUE", nargs="?", help="for mode: off, failover or always")
     u.add_argument("--via", metavar="DEVICE", help="the phone to use (default: the first one that shares its internet)")
     u.add_argument("--system-proxy", choices=["on", "off"], help="for mode: set the desktop proxy while traffic goes through the phone")
+    u.add_argument("--gneca", choices=["on", "uploads", "off"],
+                   help="for mode failover: use the phone's mobile network as an extra source while the home line is "
+                        "congested (on: new connections and large uploads; uploads: only Safeer's large uploads)")
     u.add_argument("--path", choices=["mobile", "any", "wifi"], help="for test: which network of the phone (default: the configured one)")
     u.add_argument("--legacy", action="store_true", help="for test: also try a phone with an older Safeer OS (diagnostics)")
     u.set_defaults(f=ukaz_internet)
