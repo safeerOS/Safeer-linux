@@ -331,7 +331,20 @@ jobs:
           echo "::notice::$(stat -c '%n %s B' "$OS") | namesceno $(dpkg-deb -f "$OS" Installed-Size) KiB"
           dpkg-deb -f "$OS" Provides | grep -F "safeer-control (= $(cat packaging/VERSION_CONTROL))"
           dpkg-deb -f "$OS" Provides | grep -F "safeer-cinnamon (= $(cat packaging/VERSION_CINNAMON))"
+          # Node.js 22 LTS (lastnik: nacin »deb«): v zasebni predponi z licenco, nikoli v PATH (sistemski node ostane svoj).
+          dpkg-deb -c "$OS" | grep -F './usr/lib/safeer-os/node/bin/node'
+          dpkg-deb -c "$OS" | grep -F './usr/share/doc/safeer-os/nodejs/LICENSE'
+          if dpkg-deb -c "$OS" | grep -E '\./usr/(local/)?s?bin/(node|nodejs|npm|npx)$'; then echo "::error::node v PATH"; exit 1; fi
+          # Profila AppArmor (Ubuntu 24.04+: peskovnik WebKita) kot conffile.
+          dpkg-deb --ctrl-tarfile "$OS" | tar -xO ./conffiles | tee /dev/stderr | grep -Fx /etc/apparmor.d/safeer-os
+          dpkg-deb --ctrl-tarfile "$OS" | tar -xO ./conffiles | grep -Fx /etc/apparmor.d/safeer-control
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$OS"
+          NODE_RAZLICICA="$(python3 -c 'import sys; sys.path.insert(0, "packaging"); import node_vendor; print(node_vendor.RAZLICICA)')"
+          /usr/lib/safeer-os/node/bin/node --version | tee /dev/stderr | grep -Fx "v$NODE_RAZLICICA"
+          for koren in /usr/lib/safeer-os /usr/lib/safeer-control; do
+            /usr/bin/python3 -c "import sys; sys.path.insert(0, '$koren'); from core import node_izvajalnik as n; p = n.pot(sistemski=False); assert p == '/usr/lib/safeer-os/node/bin/node', p"
+          done
+          echo "::notice::Node.js v$NODE_RAZLICICA v paketu: $(du -sh /usr/lib/safeer-os/node | cut -f1)"
           xvfb-run -a safeer-os --version | tee /dev/stderr | grep -Fx "Safeer OS $(cat packaging/VERSION_OS)"
           xvfb-run -a safeer-control --version | tee /dev/stderr | grep -Fx "Safeer Control $(cat packaging/VERSION_CONTROL)"
           # Safeer Link najde naprave prek mDNS: brez zeroconf ni prijave (ne QR ne 6-mestne kode).
@@ -340,6 +353,7 @@ jobs:
           safeerctl --version | tee /dev/stderr | grep -Fx "safeerctl $(cat packaging/VERSION_CONTROL)"
           # Lupina QML: PySide6 iz paketa (Mint 22 ga nima) se nalozi in pozene Qt Quick brez zaslona.
           QT_QPA_PLATFORM=offscreen /usr/bin/python3 -c "import sys; sys.path.insert(0, '/usr/lib/safeer-os/vendor'); from PySide6.QtGui import QGuiApplication; from PySide6.QtQuick import QQuickView; a = QGuiApplication([]); v = QQuickView(); print('PySide6 OK')"
+          bash packaging/preveri_qxcb.sh /usr/lib/safeer-os/vendor
           # Splet v Safeer OS in Safeer Control tece na nasem WebKitGTK in libsoup (sistemski WebKitGTK 6.0 je namescen),
           # stran se nalozi v peskovniku bubblewrap.
           xvfb-run -a dbus-run-session -- /usr/bin/python3 packaging/smoke_webkit_deb.py /usr/lib/safeer-os
@@ -383,6 +397,29 @@ jobs:
           path: |
             safeer-os_*.deb
             dist/Safeer-OS-*.AppImage
+  qt-xcb:
+    # Vticnik Qt xcb lupine QML (PySide6 iz paketa) nalozi libxcb-* neposredno. Posel safeer-os pred tem namesti cel
+    # seznam razvojnih knjiznic, zato tam manjkajoca odvisnost paketa ne bi padla. Tu: cist vsebnik ubuntu:24.04 (osnova
+    # Linux Mint 22), paket z apt --no-install-recommends (kot GDebi) in ldd vticnika brez »not found«.
+    needs: safeer-os
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:24.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TZ: UTC
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v8
+        with:
+          name: safeer-os
+          path: paketi
+      - name: Safeer OS package in a minimal Ubuntu 24.04 (no recommended packages)
+        run: |
+          apt-get update -q
+          apt-get install -y -q --no-install-recommends ./paketi/safeer-os_*_amd64.deb
+      - name: PySide6 xcb plugin finds every library (ldd, no "not found")
+        run: bash packaging/preveri_qxcb.sh /usr/lib/safeer-os/vendor
   mint:
     # The packages are installed, started and removed on real Linux Mint - the way a user does it. The build job
     # installs them on Ubuntu 22.04, where the two look packages cannot be installed at all (mint-themes exists
@@ -926,7 +963,7 @@ jobs:
         run: bash tools/scit_lab/lab.sh preizkus
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [brskalnik, safeer-os, flatpak, flatpak-brskalnik, scit-lab, mint]
+    needs: [brskalnik, safeer-os, qt-xcb, flatpak, flatpak-brskalnik, scit-lab, mint]
     runs-on: ubuntu-24.04
     concurrency:
       group: release-${{ github.ref_name }}
