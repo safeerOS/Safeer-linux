@@ -35,6 +35,9 @@ class Okno(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             os.environ["XDG_CONFIG_HOME"] = d
             app = b.SafeerBrskalnik()
+            # Lasten ID: vsi preizkusi tecejo v enem procesu na vodilu seje - drugi primerek z istim ID je padel z
+            # »already exported ... org.gtk.Application«, pravi tekoci Safeer Browser pa bi prevzel klic (18. 10. 2026).
+            app.set_application_id(b.APP_ID + ".PreizkusOkno")
             app.register(None)
             app._ustvari()
             s = app.splet

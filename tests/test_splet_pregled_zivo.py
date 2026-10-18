@@ -69,6 +69,9 @@ class Zivo(unittest.TestCase):
         threading.Thread(target=cls.streznik.serve_forever, daemon=True).start()
         cls.koren = "http://127.0.0.1:%d" % cls.streznik.server_address[1]
         cls.app = b.SafeerBrskalnik()
+        # Lasten ID: vsi preizkusi tecejo v enem procesu na vodilu seje - drugi primerek z istim ID je padel z
+        # »already exported ... org.gtk.Application«, pravi tekoci Safeer Browser pa bi prevzel klic (18. 10. 2026).
+        cls.app.set_application_id(b.APP_ID + ".PreizkusPregled")
         cls.app.register(None)
         cls.app._ustvari()
         cls.s = cls.app.splet
