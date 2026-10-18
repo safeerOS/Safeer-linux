@@ -12,6 +12,7 @@ import sys
 import pytest
 
 _izid = {}
+_VODILO = "DBUS_SESSION_BUS_ADDRESS"
 
 
 def pytest_configure(config):
@@ -20,12 +21,23 @@ def pytest_configure(config):
     # niti (npr. doh_proxy._accept_loop) unicilo predmet GTK/WebKit - GObject sme koncati samo glavna nit, sicer
     # segfault (izmerjeno pri polnem teku). Zato smeti pobiramo sami, na glavni niti, po vsakem preizkusu.
     gc.disable()
+    # Vodilo seje: brez naslova in brez XDG_RUNTIME_DIR GLib poskusi `dbus-launch --autolaunch` na zaslonu xvfb, ki
+    # obvisi in drzi zaklep vodila - vsi Gio.bus_get_sync (tudi glavna nit) so cakali (gdb, 18. 10. 2026). Naslov je
+    # isti, kot ga GLib sam vzame iz XDG_RUNTIME_DIR.
+    if not os.environ.get(_VODILO):
+        vticnica = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid(), "bus")
+        if os.path.exists(vticnica):
+            os.environ[_VODILO] = "unix:path=" + vticnica
+    _izid["vodilo"] = os.environ.get(_VODILO)
 
 
 @pytest.fixture(autouse=True)
 def _smeti_na_glavni_niti():
     yield
     gc.collect()
+    # Gio.TestDBus.down() (test_obvestila, test_pladenj_sni) naslov vodila seje izbrise (g_unsetenv), ne vrne prejsnjega.
+    if _izid.get("vodilo"):
+        os.environ[_VODILO] = _izid["vodilo"]
 
 
 def pytest_sessionfinish(session, exitstatus):
