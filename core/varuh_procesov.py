@@ -626,8 +626,8 @@ class Varuh:
 def obvesti_uporabnika(naslov: str, besedilo: str) -> bool:
     """Obvestilo namizja brez Gtk: org.freedesktop.Notifications.Notify po vodilu seje (ista pot kot core/obvestila.py
     brez Gio.Application), klic z gdbus - Gio (gi, +MB) v varuhu ne nalagamo. Samo ob obupu (redko), zato subprocess
-    tu (leni uvoz). Brez notify-send (pravilo tests/test_obvestila.py): gdbus je v GLib (Mint, Ubuntu, runtime
-    Flatpaka; v Flatpaku tudi ovoj /app/host-bin), notify-send pa ne."""
+    tu (leni uvoz). Brez notify-send (pravilo tests/test_obvestila.py): gdbus je del GLib (libglib2.0-bin je v
+    odvisnostih .deb, build_os_deb.sh; v Flatpaku ovoj /app/host-bin, packaging/flatpak_host_wrappers.sh)."""
     import shutil
     import subprocess
     if not shutil.which("gdbus"):
