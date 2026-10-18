@@ -196,7 +196,9 @@ class Zgodaj(unittest.TestCase):
 class Vgradnja(unittest.TestCase):
     def test_vgrajeni_brskalnik(self):
         s = beri("core", "os_splet.py")
-        self.assertIn('ozadje_strani.prikljuci(self.Gdk, W, pogled, os.path.join(self.koren, "ui"), TEMNO_OZADJE)', s)
+        # Tudi safeer://procesi (splet_spanje, 18. 10. 2026) je nasa stran: temna podlaga, brez belega bliska.
+        self.assertIn('ozadje_strani.prikljuci(self.Gdk, W, pogled, os.path.join(self.koren, "ui"), TEMNO_OZADJE, '
+                      'nasa=splet_spanje.je_notranja)', " ".join(s.split()))
         # Naš poslušalec odločanja mora biti priklopljen pred poslušalcem brskalnika (ta odločitve sprejema).
         self.assertLess(s.index("ozadje_strani.prikljuci("), s.index('pogled.connect("decide-policy", self._politika)'))
         self.assertNotIn("ozadje_strani.uskladi(", s)
