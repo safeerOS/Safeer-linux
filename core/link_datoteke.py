@@ -1584,32 +1584,10 @@ REZERVA_DISKA = 2 * 1024 * 1024 * 1024
 
 
 def prosti_pomnilnik() -> int:
-    """Prosti pomnilnik v bajtih ali -1, ce ga sistem ne pove (Linux: MemAvailable, Windows: GlobalMemoryStatusEx)."""
-    if os.name == "nt":
-        try:
-            import ctypes
-
-            class _Stanje(ctypes.Structure):
-                _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
-                            ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
-                            ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
-                            ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
-                            ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
-            stanje = _Stanje()
-            stanje.dwLength = ctypes.sizeof(stanje)
-            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stanje)):
-                return int(stanje.ullAvailPhys)
-        except Exception:  # noqa: BLE001 - brez podatka raje pomagamo, kot zavrnemo
-            pass
-        return -1
-    try:
-        with open("/proc/meminfo", encoding="utf-8") as d:
-            for v in d:
-                if v.startswith("MemAvailable:"):
-                    return int(v.split()[1]) * 1024
-    except (OSError, ValueError):
-        pass
-    return -1
+    """Prosti pomnilnik v bajtih ali -1, ce ga sistem ne pove (Linux: MemAvailable, Windows: GlobalMemoryStatusEx).
+    Brez podatka raje pomagamo, kot zavrnemo. Isto merjenje kot meje Safeer Linka (core/pomnilnik.na_voljo)."""
+    from core import pomnilnik
+    return pomnilnik.na_voljo()
 
 
 def prosta_zmogljivost(mapa: str, potrebno: int, procesor: bool = True) -> str:

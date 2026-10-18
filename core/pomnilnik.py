@@ -27,6 +27,53 @@ def _c():
     return _libc or None
 
 
+def _meminfo(kljuc: str) -> int:
+    """Vrednost iz /proc/meminfo v bajtih ali -1."""
+    try:
+        with open("/proc/meminfo", encoding="utf-8") as d:
+            for v in d:
+                if v.startswith(kljuc + ":"):
+                    return int(v.split()[1]) * 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return -1
+
+
+def _stanje_windows():
+    """MEMORYSTATUSEX ali None (samo Windows)."""
+    try:
+        class _Stanje(ctypes.Structure):
+            _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                        ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+        stanje = _Stanje()
+        stanje.dwLength = ctypes.sizeof(stanje)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stanje)):  # type: ignore[attr-defined]
+            return stanje
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def na_voljo() -> int:
+    """Pomnilnik, ki ga sistem lahko da brez izrinjanja (Linux MemAvailable, Windows ullAvailPhys), v bajtih; -1,
+    ce ga sistem ne pove. Merjeno sproti - na tem odlocajo meje za clane kroga Safeer Linka (core/link_viri.py)."""
+    if os.name == "nt":
+        s = _stanje_windows()
+        return int(s.ullAvailPhys) if s is not None else -1
+    return _meminfo("MemAvailable")
+
+
+def skupaj() -> int:
+    """Ves fizicni pomnilnik v bajtih ali -1."""
+    if os.name == "nt":
+        s = _stanje_windows()
+        return int(s.ullTotalPhys) if s is not None else -1
+    return _meminfo("MemTotal")
+
+
 def omeji_arene(st: int = 2) -> bool:
     """Klici cim prej (pred nitmi). Brez glibc (drug sistem) ne naredi nic."""
     c = _c()

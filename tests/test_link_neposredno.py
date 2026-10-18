@@ -70,6 +70,10 @@ class Odmev:
         c.close()
 
     def zapri(self):
+        try:
+            self.s.shutdown(socket.SHUT_RDWR)     # sicer nit v accept() ostane za vedno (glej ln._ustavi_poslusanje)
+        except OSError:
+            pass
         self.s.close()
 
 
@@ -787,7 +791,7 @@ def test_hub_obdrzi_boljso_pot():
 
 def test_tunel_ima_keepalive_mrtva_stran_ne_drzi_mesta(naprave, monkeypatch):
     """Tunel je brez roka (settimeout(None)): mrtvo drugo stran mora zaznati keepalive, sicer tunel za vedno drzi
-    niti, deskriptorje in mesto med NAJVEC_TUNELOV. Obe strani tunela (vhod in odjemalec) ga vklopita."""
+    niti in deskriptorje (meje tunelov ni vec - odlocajo viri). Obe strani tunela (vhod in odjemalec) ga vklopita."""
     from core import link_vticnik
     nastavljeno = []
     izvirna = link_vticnik.ohrani_zivost
@@ -820,7 +824,8 @@ def _iz_naslova(monkeypatch, naslov: str) -> None:
 
 
 def _tihi_trki(stevilo: int, naslov: str = "127.0.0.1", vrata: int = 0) -> list:
-    """Pocasen trk (slowloris): povezava odprta, nic poslano - drzi mesto za rokovanje do ROK_VHODA_S."""
+    """Pocasen trk (slowloris): povezava odprta, nic poslano. Nepreverjena, dokler je ne izrine novejsa povezava
+    ali ne potece ROK_VHODA_S."""
     vticnice = []
     for _ in range(stevilo):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -830,20 +835,97 @@ def _tihi_trki(stevilo: int, naslov: str = "127.0.0.1", vrata: int = 0) -> list:
     return vticnice
 
 
-def test_en_naslov_ne_zasede_vseh_mest_za_rokovanje(naprave, monkeypatch):
-    """Pregled 18. 10. 2026: en naslov je s 16 tihimi trki zasedel vsa mesta - clan kroga z drugega naslova ni prisel
-    skozi, dokler trki niso potekli (ROK_VHODA_S)."""
+
+
+# ------------------------------------------------------------------ meje: samo nepreverjeni (lastnik, 18. 10. 2026)
+
+def _clani_hkrati(naprave, vrata: int, stevilo: int, vir: str = "127.0.0.1") -> tuple:
+    """`stevilo` clanov hkrati z istega naslova (podjetje za NAT): vsi odprejo tunel ob istem trenutku in ga drzijo.
+    Vrne (odprte vticnice, napake)."""
+    a, hub = naprave["a"], naprave["hub"]
+    start = threading.Barrier(stevilo)
+    odprte, napake = [], []
+    zaklep = threading.Lock()
+
+    def odpri(h, p, r):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind((vir, 0))
+        s.settimeout(r)
+        s.connect((h, p))
+        return s
+
+    def en_clan():
+        start.wait()
+        try:
+            # Odjemalcev rok je velikodusen: 200 rokovanj TLS na obeh straneh deli dve jedri (meri se sredisce).
+            t, _tcp, _ms = ln.odpri_neposredno("127.0.0.1", vrata, hub.id, hub.kljuc, a.id, a.podpisi,
+                                               rok_povezave=20.0, rok_rokovanja=30.0, odpri=odpri)
+            with zaklep:
+                odprte.append(t)
+        except Exception as e:  # noqa: BLE001
+            with zaklep:
+                napake.append(repr(e))
+    niti = [threading.Thread(target=en_clan, daemon=True) for _ in range(stevilo)]
+    for n in niti:
+        n.start()
+    for n in niti:
+        n.join(90)
+    return odprte, napake
+
+
+def test_podjetje_za_enim_naslovom_200_clanov_neposredno(naprave):
+    """(a) Tisoc zaposlenih za enim javnim naslovom podjetja mora iti neposredno, ne prek releja: 200 clanov kroga z
+    ISTEGA naslova hkrati - vsi dobijo tunel, vsi tuneli so odprti hkrati, nobena povezava ni izrinjena."""
+    odmev = Odmev()
+    v = vhod(naprave, odmev.vrata)
+    odprte = []
+    try:
+        odprte, napake = _clani_hkrati(naprave, v.vrata, 200)
+        assert napake == [] and len(odprte) == 200, napake[:3]
+        assert _pocakaj(lambda: v._tunelov == 200, 10), v._tunelov
+        for t in odprte[:20] + odprte[-20:]:
+            assert krog(0, t) == b"safeer"
+        assert v.sprejetih == 200 and v.izrinjenih == 0 and v.brez_virov == 0
+        assert v.najvec_nepreverjenih <= ln.NAJVEC_NEPREVERJENIH_NA_VIR
+        assert not v.obramba.zaprt("127.0.0.1")
+    finally:
+        for t in odprte:
+            t.close()
+        assert _pocakaj(lambda: v._tunelov == 0, 10), v._tunelov
+        v.zapri()
+        odmev.zapri()
+
+
+def test_tihe_povezave_z_enega_naslova_ne_zasedejo_mest_za_clane(naprave, monkeypatch):
+    """(b) Pregled 18. 10. 2026: en naslov je s 16 tihimi trki zasedel vsa mesta. Zdaj: tihih z enega naslova je
+    najvec NAJVEC_NEPREVERJENIH_NA_VIR (nova izrine najstarejso), clan z istega in z drugega naslova gre takoj skozi."""
     odmev = Odmev()
     v = vhod(naprave, odmev.vrata)
     tihi = []
     try:
-        tihi = _tihi_trki(ln.NAJVEC_ROKOVANJ, "127.0.0.1", v.vrata)
-        assert _pocakaj(lambda: v._rokovanj == ln.NAJVEC_ROKOVANJ_NA_VIR), v._rokovanj
-        _iz_naslova(monkeypatch, "127.0.0.2")
+        # 8 vec, kot jih en naslov sme imeti: obramba jih se ne zapre (40 povezav + 8 izrinjenih x 10 < PRAG).
+        tihi = _tihi_trki(ln.NAJVEC_NEPREVERJENIH_NA_VIR + 8, "127.0.0.1", v.vrata)
+        assert _pocakaj(lambda: v.izrinjenih == 8), v.izrinjenih
+        assert v.nepreverjenih == ln.NAJVEC_NEPREVERJENIH_NA_VIR
+        assert not v.obramba.zaprt("127.0.0.1")
         a, hub = naprave["a"], naprave["hub"]
+        # clan z ISTEGA naslova (isti NAT kot tihe povezave)
         t, _, _ = ln.odpri_neposredno("127.0.0.1", v.vrata, hub.id, hub.kljuc, a.id, a.podpisi)
         assert krog(0, t) == b"safeer"
         t.close()
+        # clan z drugega naslova
+        _iz_naslova(monkeypatch, "127.0.0.2")
+        t, _, _ = ln.odpri_neposredno("127.0.0.1", v.vrata, hub.id, hub.kljuc, a.id, a.podpisi)
+        assert krog(0, t) == b"safeer"
+        t.close()
+        # Neveljavni trki (tujec) se zavrnejo takoj in ne ostanejo med nepreverjenimi.
+        tujec = naprave["tujec"]
+        for _ in range(5):
+            s = socket.create_connection(("127.0.0.1", v.vrata))
+            s.sendall(ln.sestavi_trk(hub.id, tujec.id, tujec.podpisi))
+            assert brez_odgovora(s)
+            s.close()
+        assert v.nepreverjenih <= ln.NAJVEC_NEPREVERJENIH_NA_VIR
     finally:
         for s in tihi:
             s.close()
@@ -851,8 +933,9 @@ def test_en_naslov_ne_zasede_vseh_mest_za_rokovanje(naprave, monkeypatch):
         odmev.zapri()
 
 
-def test_mnogo_naslovov_ne_izrine_zaupane_naprave(naprave, monkeypatch):
-    """REZERVA_ZAUPANIM mest ostane naslovom, ki so se v zadnjem casu izkazali kot clani kroga."""
+def test_mnogo_naslovov_s_tihimi_ne_izrine_clana(naprave, monkeypatch):
+    """Tihe povezave z mnogih naslovov napolnijo vse nepreverjene: nova povezava izrine najstarejso z naslova, ki
+    jih ima najvec (nezaupani pred zaupanimi) - clan z zaupanega ali novega naslova gre skozi."""
     odmev = Odmev()
     v = vhod(naprave, odmev.vrata)
     tihi = []
@@ -862,11 +945,15 @@ def test_mnogo_naslovov_ne_izrine_zaupane_naprave(naprave, monkeypatch):
         t, _, _ = ln.odpri_neposredno("127.0.0.1", v.vrata, hub.id, hub.kljuc, a.id, a.podpisi)
         t.close()                                  # 127.0.0.9 je zdaj zaupan (obramba.zaupaj)
         assert v.obramba.zaupa("127.0.0.9")
-        prosta = ln.NAJVEC_ROKOVANJ - ln.REZERVA_ZAUPANIM
-        for i in range(prosta // ln.NAJVEC_ROKOVANJ_NA_VIR + 1):
-            tihi += _tihi_trki(ln.NAJVEC_ROKOVANJ_NA_VIR, "127.0.1.%d" % (i + 1), v.vrata)
-        assert _pocakaj(lambda: v._rokovanj == prosta), v._rokovanj
-        assert not v.obramba.zaupa("127.0.1.1")
+        naslovov = ln.NAJVEC_NEPREVERJENIH // 8 + 2
+        for i in range(naslovov):
+            tihi += _tihi_trki(8, "127.0.1.%d" % (i + 1), v.vrata)
+        assert _pocakaj(lambda: v.izrinjenih >= 8 * naslovov - ln.NAJVEC_NEPREVERJENIH), v.izrinjenih
+        assert v.nepreverjenih <= ln.NAJVEC_NEPREVERJENIH
+        t, _, _ = ln.odpri_neposredno("127.0.0.1", v.vrata, hub.id, hub.kljuc, a.id, a.podpisi)
+        assert krog(0, t) == b"safeer"
+        t.close()
+        _iz_naslova(monkeypatch, "127.0.0.10")     # nov, se nezaupan naslov
         t, _, _ = ln.odpri_neposredno("127.0.0.1", v.vrata, hub.id, hub.kljuc, a.id, a.podpisi)
         assert krog(0, t) == b"safeer"
         t.close()
@@ -875,3 +962,155 @@ def test_mnogo_naslovov_ne_izrine_zaupane_naprave(naprave, monkeypatch):
             s.close()
         v.zapri()
         odmev.zapri()
+
+
+def test_izrinjena_tiha_steje_v_obrambi_kot_prej(naprave):
+    """Obramba ostane enako stroga: tiha povezava, ki jo izrine novejsa, steje kot neuspelo rokovanje - enako kot
+    prej tiha povezava po roku. Naslov s poplavo tihih povezav je zaprt."""
+    odmev = Odmev()
+    ura = [1000.0]
+    obramba = link_obramba.Obramba(ura=lambda: ura[0], izvzet=lambda _v: False)
+    v = vhod(naprave, odmev.vrata, obramba=obramba)
+    tihi = []
+    try:
+        tihi = _tihi_trki(ln.NAJVEC_NEPREVERJENIH_NA_VIR + 40, "127.0.0.1", v.vrata)
+        assert _pocakaj(lambda: obramba.zaprt("127.0.0.1"), 5)
+    finally:
+        for s in tihi:
+            s.close()
+        v.zapri()
+        odmev.zapri()
+
+
+_SKRIPTA_BREZ_DESKRIPTORJEV = r"""
+import base64, json, os, resource, socket, sys, tempfile, threading
+from core import link_kripto, link_neposredno as ln, link_viri
+
+mapa = tempfile.mkdtemp()
+def naprava(ime):
+    k, p = os.path.join(mapa, ime + "-k.pem"), os.path.join(mapa, ime + "-p.pem")
+    link_kripto.ustvari_kljuc_in_potrdilo(k, p, "preizkus")
+    kljuc = base64.b64encode(link_kripto.javni_kljuc_der(k)).decode("ascii")
+    return {"k": k, "p": p, "kljuc": kljuc, "id": ln.id_iz_kljuca(kljuc),
+            "podpisi": lambda d, k=k: link_kripto.podpisi(k, d)}
+hub, a = naprava("hub"), naprava("a")
+odmev = socket.create_server(("127.0.0.1", 0))
+def teci():
+    while True:
+        try:
+            c, _ = odmev.accept()
+        except OSError:
+            return
+        threading.Thread(target=lambda c=c: [c.sendall(b) for b in iter(lambda: c.recv(65536), b"")], daemon=True).start()
+threading.Thread(target=teci, daemon=True).start()
+obvestila = []
+link_viri.POSLUSALCI.append(lambda r, kje, n: obvestila.append([r, kje, n]))
+v = ln.VhodNeposredno(0, lambda: odmev.getsockname()[1], hub["id"], hub["k"], hub["p"],
+                      lambda cid: a["kljuc"] if cid == a["id"] else None, naslov="127.0.0.1")
+izid = {}
+mehka, trda = resource.getrlimit(resource.RLIMIT_NOFILE)
+resource.setrlimit(resource.RLIMIT_NOFILE, (256, trda))
+# Racunalnik brez deskriptorjev: drugi deli procesa so jih porabili do 6 pred mejo (rezerva pri meji 256 je 64).
+polnilo = []
+while True:
+    try:
+        polnilo.append(os.open(os.devnull, os.O_RDONLY))
+    except OSError:
+        break
+for _ in range(6):
+    os.close(polnilo.pop())
+izid["prostih"] = link_viri.prostih_deskriptorjev()
+try:
+    t, _, _ = ln.odpri_neposredno("127.0.0.1", v.vrata, hub["id"], hub["kljuc"], a["id"], a["podpisi"])
+    izid["prvic"] = "tunel"
+    t.close()
+except ln.NapakaNeposredne as e:
+    izid["prvic"] = e.koda or str(e)
+izid["stanje"] = link_viri.stanje()
+izid["obvestila"] = obvestila
+izid["brez_virov"] = v.brez_virov
+izid["zaprt"] = v.obramba.zaprt("127.0.0.1")
+for f in polnilo:
+    os.close(f)
+izid["prostih_potem"] = link_viri.prostih_deskriptorjev()
+t, _, _ = ln.odpri_neposredno("127.0.0.1", v.vrata, hub["id"], hub["kljuc"], a["id"], a["podpisi"])
+t.sendall(b"safeer")
+t.settimeout(5)
+izid["drugic"] = t.recv(100).decode()
+t.close()
+v.zapri()
+print(json.dumps(izid))
+"""
+
+
+def test_brez_deskriptorjev_clan_dobi_jasen_odgovor():
+    """(c) Prava meja RLIMIT_NOFILE v svezem procesu (brez nadomestkov): ko drugi deli procesa porabijo deskriptorje
+    do rezerve, clan NI tiho zavrnjen - dobi BREZ_VIROV po TLS (koda ni_virov), sredisce zapise pomanjkanje (vmesnik,
+    obvestilo), obramba ga ne steje kot sovraznika. Ko se deskriptorji sprostijo, gre isti clan skozi."""
+    import subprocess
+    import sys
+    koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    okolje = dict(os.environ, PYTHONPATH=koren, PYTHONDONTWRITEBYTECODE="1")
+    r = subprocess.run([sys.executable, "-c", _SKRIPTA_BREZ_DESKRIPTORJEV], cwd=koren, env=okolje,
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr[-2000:]
+    izid = json.loads(r.stdout.strip().splitlines()[-1])
+    assert izid["prostih"] is not None and izid["prostih"] < 0, izid
+    assert izid["prvic"] == "ni_virov", izid
+    assert izid["brez_virov"] == 1 and izid["zaprt"] is False
+    assert izid["stanje"]["razlog"] == "deskriptorji" and izid["stanje"]["kje"] == "neposredno"
+    assert izid["obvestila"] == [["deskriptorji", "neposredno", 1]]
+    assert izid["prostih_potem"] > 0 and izid["drugic"] == "safeer", izid
+
+
+def test_besedila_pomanjkanja_v_sestih_jezikih():
+    from core import link_viri
+    for jezik in ("sl", "en", "de", "es", "fr", "it"):
+        for razlog in (link_viri.DESKRIPTORJI, link_viri.POMNILNIK, link_viri.NITI, link_viri.KODA):
+            naslov, besedilo = link_viri.besedilo(razlog, jezik, n=3, ime="Pisarna")
+            assert naslov and besedilo and "{" not in besedilo, (jezik, razlog)
+            assert ("3" in besedilo) if razlog != link_viri.KODA else ("Pisarna" in besedilo)
+
+
+def test_izklopljen_vhod_ne_poslusa_vec(naprave):
+    """Po zapri() vrata ne sprejmejo nobene povezave vec in nit vhoda konca (close() je na Linuxu ne zbudi)."""
+    odmev = Odmev()
+    v = vhod(naprave, odmev.vrata)
+    vrata = v.vrata
+    v.zapri()
+    v._nit.join(2)
+    assert not v._nit.is_alive()
+    with pytest.raises(OSError):
+        socket.create_connection(("127.0.0.1", vrata), timeout=1).recv(1)
+    odmev.zapri()
+
+
+def test_odjemalec_pove_zakaj_prek_releja(naprave, monkeypatch):
+    """Odjemalec (LokalniOdZunaj) ob BREZ_VIROV gre prek releja in v stanju pove razlog (vmesnik: Povezava zdoma),
+    uporabnik dobi obvestilo z imenom sredisca."""
+    from core import link_viri
+    link_viri.ponastavi()
+    imena = []
+    monkeypatch.setattr(link_viri, "POSLUSALCI_DRUGIH", [imena.append])
+    monkeypatch.setattr(link_viri, "preveri", lambda *a, **k: link_viri.POMNILNIK)
+    odmev = Odmev()
+    v = vhod(naprave, odmev.vrata)
+    a, hub = naprave["a"], naprave["hub"]
+    rele = LazniRele(odmev.vrata)
+    oglas = {"ip": "127.0.0.1", "vrata": v.vrata, "exp": time.time() + 600, "preverjeno": True}
+    o = ln.LokalniOdZunaj(hub.id, kljuc_huba=hub.kljuc, rele=lambda c: rele, nas_id=lambda: a.id, podpisi=a.podpisi,
+                          poisci=lambda h, k: dict(oglas), omrezje=lambda ip: "doma")
+    try:
+        assert _pocakaj(lambda: o.neposredno_na_voljo())
+        s = socket.create_connection(("127.0.0.1", o.vrata))
+        assert krog(0, s) == b"safeer"             # povezava dela - prek releja
+        s.close()
+        assert rele.kanalov == 1 and v.brez_virov == 1
+        st = o.stanje()
+        assert st["pot"] == ln.POT_RELE and st["napaka"] == link_viri.KODA
+        assert link_viri.zavrnile_druge() and imena
+    finally:
+        o.zapri()
+        v.zapri()
+        odmev.zapri()
+        link_viri.ponastavi()
