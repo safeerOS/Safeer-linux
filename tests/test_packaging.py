@@ -849,3 +849,176 @@ class MintInstallTests(unittest.TestCase):
         potrebe=re.search(r'^    needs: \[([^\]]+)\]$',izdaja,re.M)
         self.assertIsNotNone(potrebe)
         self.assertIn('mint',[p.strip() for p in potrebe.group(1).split(',')])
+
+
+class CiPregledTests(unittest.TestCase):
+    """Pregled CI 18. 10. 2026: profil PGO samo iz zaupanja vrednega teka, pogoji v korakih res ustavijo korak, test
+    nadgradnje se ne preskoci tiho, prirezan arhiv WebKita ne gre v predpomnilnik, lokalna gradnja ne izbrise
+    namescenega WebKita, gstreamer1.0-plugins-good je odvisnost."""
+    POTEK=ROOT/'.github/workflows/linux-packages.yml'
+
+    def _korak(self, posel, ime, potek=None):
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest('python3-yaml ni namescen')
+        wf=yaml.safe_load((potek or self.POTEK).read_text())
+        for k in wf['jobs'][posel]['steps']:
+            if k.get('name')==ime:
+                return k
+        self.fail('ni koraka %s / %s'%(posel,ime))
+
+    def _gh(self, d, podatki):
+        """Lazni gh: `api POT --jq IZRAZ` vrne podatki[POT] skozi pravi jq; `release download OZNAKA … --dir D`."""
+        if not shutil.which('jq'):
+            self.skipTest('jq ni namescen')
+        import json
+        (Path(d)/'podatki.json').write_text(json.dumps(podatki))
+        gh=Path(d)/'bin/gh'
+        gh.parent.mkdir()
+        gh.write_text('''#!/usr/bin/env python3
+import json, os, subprocess, sys
+p = json.load(open(os.path.join(os.path.dirname(__file__), "..", "podatki.json")))
+a = sys.argv[1:]
+if a[0] == "api":
+    v = p.get(a[1])
+    if v is None:
+        sys.exit("HTTP 500")
+    izraz = a[a.index("--jq") + 1]
+    sys.exit(subprocess.run(["jq", "-r", izraz], input=json.dumps(v), text=True).returncode)
+if a[:2] == ["release", "download"]:
+    if p.get("prenos:" + a[2]) != "ok":
+        sys.exit("prenos ni uspel")
+    d = a[a.index("--dir") + 1]
+    open(os.path.join(d, "safeer-os_1.0_amd64.deb"), "w").close()
+    sys.exit(0)
+sys.exit("neznan ukaz")
+''')
+        gh.chmod(0o755)
+        return str(gh.parent)
+
+    def _pozeni(self, d, skripta, okolje):
+        izhod=Path(d)/'izhod'
+        izhod.write_text('')
+        env=dict(os.environ,GITHUB_REPOSITORY='lastnik/repo',GITHUB_OUTPUT=str(izhod),GH_TOKEN='x',**okolje)
+        r=subprocess.run(['bash','-e','-c',skripta],cwd=d,env=env,capture_output=True,text=True)
+        return r.returncode,dict(v.split('=',1) for v in izhod.read_text().splitlines() if '=' in v),r.stdout+r.stderr
+
+    def test_profil_pgo_samo_iz_zaupanja_vrednega_teka(self):
+        skripta=self._korak('webkit-pgo-profil','Profile with this key (artifact of an earlier trusted run)')['run']
+        artefakti=lambda *teki: {'artifacts':[{'expired':t==1,'created_at':'2026-10-1%dT10:00:00Z'%t,'workflow_run':{'id':t}}
+                                             for t in teki]}
+        runs=lambda t,dogodek,repo,veja: {'event':dogodek,'head_repository':{'id':repo},'head_branch':veja}
+        osnova={'repos/lastnik/repo/actions/runs/1':runs(1,'push',42,'main'),
+                'repos/lastnik/repo/actions/runs/2':runs(2,'push',42,'nova-funkcija'),
+                'repos/lastnik/repo/actions/runs/3':runs(3,'pull_request',999,'main'),
+                'repos/lastnik/repo/actions/runs/4':runs(4,'push',42,'gtk4-deb-webkit'),
+                'repos/lastnik/repo/actions/runs/5':runs(5,'pull_request',42,'main')}
+        ime='repos/lastnik/repo/actions/artifacts?name=webkit-pgo-profraw-K&per_page=100'
+        primeri=[  # (teki z artefaktom, izdaja, izbran tek, pricakovana koda, pricakovan run_id)
+            ((1,2,3),'false','',0,'2'),      # fork PR (3) in iztekel (1) izpuscena; veja istega repozitorija je OK
+            ((1,2,3),'true','',0,None),      # izdaja: veja nova-funkcija ni dovoljena -> ucni tek v tem teku
+            ((2,3,4,5),'true','',0,'4'),     # izdaja: najnovejsi zaupanja vreden (5 je pull_request)
+            ((2,3,4),'false','3',1,None),    # izrecno izbran tek iz forka: napaka, ne tiho
+            ((2,3,4),'true','2',1,None),     # izrecno izbran tek z druge veje pri izdaji: napaka
+            ((2,3,4),'false','4',0,'4'),
+        ]
+        for teki,izdaja,tek,koda,run_id in primeri:
+            with self.subTest(teki=teki,izdaja=izdaja,tek=tek), tempfile.TemporaryDirectory() as d:
+                pot=self._gh(d,dict(osnova,**{ime:artefakti(*teki)}))
+                k,izhod,izpis=self._pozeni(d,skripta,{'PATH':pot+os.pathsep+os.environ['PATH'],'KLJUC':'K','NOV':'',
+                                                     'TEK':tek,'REPO_ID':'42','IZDAJA':izdaja})
+                self.assertEqual(k,koda,izpis)
+                self.assertEqual(izhod.get('run_id'),run_id,izpis)
+        with tempfile.TemporaryDirectory() as d:   # napaka API ustavi korak (ne tiho ucni tek)
+            pot=self._gh(d,osnova)
+            k,_i,izpis=self._pozeni(d,skripta,{'PATH':pot+os.pathsep+os.environ['PATH'],'KLJUC':'K','NOV':'','TEK':'',
+                                              'REPO_ID':'42','IZDAJA':'true'})
+            self.assertNotEqual(k,0,izpis)
+
+    def test_nadgradnja_ni_tiho_preskocena(self):
+        skripta=self._korak('mint','Packages of the last published release (for the upgrade test)')['run']
+        self.assertNotIn('|| echo',skripta)
+        izdaje='repos/lastnik/repo/releases?per_page=100'
+        zadnja='repos/lastnik/repo/releases/latest'
+        objavljena=[{'draft':False,'prerelease':False,'tag_name':'v1.0.9'}]
+        primeri=[  # (podatki, izdaja, koda, .deb prenesen, opozorilo)
+            ({izdaje:[]},'true',0,False,'::warning::'),
+            ({izdaje:[{'draft':True,'prerelease':False,'tag_name':'v2'}]},'false',0,False,'::notice::'),
+            ({izdaje:objavljena,zadnja:{'tag_name':'v1.0.9'},'prenos:v1.0.9':'ok'},'true',0,True,'Upgrade test from v1.0.9'),
+            ({izdaje:objavljena,zadnja:{'tag_name':'v1.0.9'}},'true',1,False,''),   # prenos pade: korak pade
+            ({},'true',1,False,''),                                                 # API pade: korak pade
+        ]
+        for podatki,izdaja,koda,deb,besedilo in primeri:
+            with self.subTest(podatki=sorted(podatki),izdaja=izdaja), tempfile.TemporaryDirectory() as d:
+                pot=self._gh(d,podatki)
+                k,_i,izpis=self._pozeni(d,skripta,{'PATH':pot+os.pathsep+os.environ['PATH'],'IZDAJA':izdaja})
+                self.assertEqual(k!=0,koda!=0,izpis)
+                self.assertEqual(any(Path(d,'prejsnji').glob('*.deb')),deb,izpis)
+                self.assertIn(besedilo,izpis)
+
+    def test_pogoji_v_korakih_ustavijo_korak(self):
+        """bash -e ne ustavi koraka, ce pade ukaz pred zadnjim && - vsak pogoj mora biti svoj ukaz (ali z || exit)."""
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest('python3-yaml ni namescen')
+        def ocisti(v):
+            v=re.sub(r"'[^']*'|\"(?:\\.|[^\"\\])*\"",'Q',v)
+            prej=None
+            while prej!=v:
+                prej,v=v,re.sub(r'\([^()]*\)','P',v)
+            return re.sub(r'\[\[.*?\]\]','T',v)
+        napake=[]
+        for potek in sorted((ROOT/'.github/workflows').glob('*.yml')):
+            for posel,j in yaml.safe_load(potek.read_text())['jobs'].items():
+                for k in j.get('steps',[]):
+                    for v in (k.get('run') or '').replace('\\\n',' ').splitlines():
+                        v=v.strip()
+                        c=ocisti(v)
+                        if (v and not v.startswith('#') and ' && ' in c and '||' not in c
+                                and not re.match(r'(if|elif|while|until)\b',c)):
+                            napake.append('%s/%s/%s: %s'%(potek.name,posel,k.get('name'),v))
+        self.assertEqual(napake,[])
+        self.assertTrue(ocisti("a && b").count('&&'))   # varovalo: vzorec res najde verigo
+
+    def test_arhiv_webkita_preverjen_pred_predpomnilnikom(self):
+        wf=self.POTEK.read_text()
+        posel=wf.split('\n  webkit-deb:\n',1)[1].split('\n  dav1d-deb:\n',1)[0]
+        preveri=posel.index('run: zstd -q -t build/webkit-${{ matrix.paket }}.tar.zst')
+        shrani=posel.index('- name: Save our WebKitGTK')
+        self.assertLess(preveri,shrani)
+        self.assertIn("if: success() && steps.wk.outputs.cache-hit != 'true'\n",posel[shrani:])
+        self.assertNotIn('if: always()',posel)
+        zgradi=(ROOT/'packaging/webkit-deb/zgradi.sh').read_text()
+        kos=zgradi.split('if [ -n "$IZHOD" ]; then',1)[1]
+        self.assertLess(kos.index('-cf "$IZHOD.del"'),kos.index('zstd -q -t "$IZHOD.del"'))
+        self.assertLess(kos.index('zstd -q -t "$IZHOD.del"'),kos.index('mv "$IZHOD.del" "$IZHOD"'))
+
+    def test_lokalna_gradnja_ne_izbrise_namescenega_webkita(self):
+        """zgradi.sh zavrne predpono, ki jo ima namescen paket (dpkg -S), preden karkoli izbrise. V PATH sta samo
+        lazni dpkg in nujna orodja: ce bi preverba manjkala, skripta pade (ni nproc) pred rm -rf."""
+        with tempfile.TemporaryDirectory() as d:
+            for orodje in ('dirname','basename','cat'):
+                os.symlink(shutil.which(orodje),os.path.join(d,orodje))
+            Path(d,'dpkg').write_text('#!/bin/sh\n[ "$1" = -S ] && echo "safeer-os: $2" && exit 0\nexit 1\n')
+            os.chmod(os.path.join(d,'dpkg'),0o755)
+            r=subprocess.run(['/bin/bash',str(ROOT/'packaging/webkit-deb/zgradi.sh'),'/usr/lib/safeer-os/webkit'],
+                             env={'PATH':d},capture_output=True,text=True)
+            self.assertEqual(r.returncode,3,r.stderr)
+            self.assertIn('pripada namescenemu paketu (safeer-os)',r.stderr)
+            self.assertIn('docker run --rm',r.stderr)
+            self.assertIn('build/webkit-safeer-os.tar.zst',r.stderr)
+
+    def test_plugins_good_je_odvisnost(self):
+        """qtdemux, matroskademux in vpx so v gstreamer1.0-plugins-good; GDebi ne namesti priporocil."""
+        os_=(ROOT/'build_os_deb.sh').read_text()
+        odvisnosti=re.search(r'^Depends: (.*)$',os_,re.M).group(1)
+        priporocila=re.search(r'^Recommends: (.*)$',os_,re.M).group(1)
+        self.assertIn('gstreamer1.0-plugins-good',odvisnosti)
+        self.assertNotIn('gstreamer1.0-plugins-good',priporocila)
+        brskalnik=(ROOT/'build_deb.sh').read_text()
+        gtk4=[v for v in re.findall(r'^\s*ODVISNOSTI="(.*)"$',brskalnik,re.M) if 'gir1.2-gtk-4.0' in v]
+        self.assertEqual(len(gtk4),2)      # paket izdaje (nas WebKit) in lokalna gradnja (sistemski WebKit)
+        for vrstica in gtk4:
+            self.assertIn('gstreamer1.0-plugins-good',vrstica)

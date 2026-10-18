@@ -72,8 +72,8 @@ Version: ${VERSION}
 Section: x11
 Priority: optional
 Architecture: ${ARCH}
-Depends: python3 (>= 3.10), python3-cryptography, python3-gi (>= 3.42), python3-gi-cairo, python3-qrcode, python3-zeroconf, gir1.2-gtk-4.0, ${SPLET_ODVISNOSTI}, gir1.2-glib-2.0, gir1.2-secret-1, gir1.2-atspi-2.0, gir1.2-gstreamer-1.0, gstreamer1.0-libav, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-base, gstreamer1.0-gl, libxcb-cursor0, libxkbcommon-x11-0, libxcb-icccm4, libxcb-keysyms1, libxcb-shape0, libegl1, libfontconfig1, sway, wf-recorder, wtype, wmctrl, libglib2.0-bin, plank, dconf-cli, poppler-utils
-Recommends: mint-themes, cinnamon, network-manager, pulseaudio-utils, policykit-1, xdg-utils, x11-utils, gstreamer1.0-plugins-good, imagemagick, ffmpeg, python3-pil, python3-numpy, papirus-icon-theme
+Depends: python3 (>= 3.10), python3-cryptography, python3-gi (>= 3.42), python3-gi-cairo, python3-qrcode, python3-zeroconf, gir1.2-gtk-4.0, ${SPLET_ODVISNOSTI}, gir1.2-glib-2.0, gir1.2-secret-1, gir1.2-atspi-2.0, gir1.2-gstreamer-1.0, gstreamer1.0-libav, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-gl, libxcb-cursor0, libxkbcommon-x11-0, libxcb-icccm4, libxcb-keysyms1, libxcb-shape0, libegl1, libfontconfig1, sway, wf-recorder, wtype, wmctrl, libglib2.0-bin, plank, dconf-cli, poppler-utils
+Recommends: mint-themes, cinnamon, network-manager, pulseaudio-utils, policykit-1, xdg-utils, x11-utils, imagemagick, ffmpeg, python3-pil, python3-numpy, papirus-icon-theme
 Suggests: libreoffice-writer, libreoffice-calc, libreoffice-impress, plymouth, slick-greeter
 Provides: safeer-control (= ${CONTROL_VERSION}), safeer-cinnamon (= ${CINNAMON_VERSION})
 Replaces: safeer-control, safeer-cinnamon

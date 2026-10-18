@@ -55,7 +55,9 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
         run: |
-          cd izdaja && sha256sum -- * > SHA256SUMS && cat SHA256SUMS && cd ..
+          # Brez verige &&: bash -e ne ustavi koraka ob napaki ukaza pred zadnjim && (pregled 18. 10. 2026).
+          (cd izdaja && sha256sum -- * > SHA256SUMS)
+          cat izdaja/SHA256SUMS
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --draft --verify-tag --title "Govor za Safeer OS ($TAG)" \
               --notes 'whisper-cli (whisper.cpp v1.9.5, MIT) za prepoznavo govora v iskalni lupi Safeer OS. Deluje na računalniku, nič ne gre na splet.'

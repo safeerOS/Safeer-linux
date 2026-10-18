@@ -208,8 +208,12 @@ jobs:
         run: |
           SAFEER_WEBKIT_PGO=uporaba SAFEER_WEBKIT_PROFRAW=build/pgo/profraw \
             bash packaging/webkit-deb/zgradi.sh /usr/lib/${{ matrix.paket }}/webkit build/webkit-${{ matrix.paket }}.tar.zst
+      - name: Archive is complete (zstd -t)
+        # Tudi arhiv iz predpomnilnika; prirezan arhiv (poln disk, preklic) ne gre v predpomnilnik ne v paket.
+        run: zstd -q -t build/webkit-${{ matrix.paket }}.tar.zst
       - name: Save our WebKitGTK
-        if: always() && steps.wk.outputs.cache-hit != 'true' && hashFiles(format('build/webkit-{0}.tar.zst', matrix.paket)) != ''
+        # Samo po uspesni gradnji in preverbi arhiva (prej always(): prirezan arhiv bi ostal pod koncnim kljucem za vedno).
+        if: success() && steps.wk.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: build/webkit-${{ matrix.paket }}.tar.zst
@@ -304,7 +308,9 @@ jobs:
           dpkg-deb -f "$DEB" Package Version Architecture Depends Recommends
           # Nas WebKit je v paketu: sistemskega WebKitGTK/libsoup paket ne zahteva, peskovnik pa potrebuje bwrap.
           if dpkg-deb -f "$DEB" Depends | grep -E 'gir1\.2-webkit-6\.0|gir1\.2-soup-3\.0|libwebkitgtk|libsoup-3\.0'; then echo "::error::paket zahteva sistemski WebKitGTK/libsoup"; exit 1; fi
-          dpkg-deb -f "$DEB" Depends | grep -F 'bubblewrap' && dpkg-deb -f "$DEB" Depends | grep -F 'xdg-dbus-proxy'
+          # Vsak pogoj v svoji vrstici: bash -e ne ustavi koraka ob napaki ukaza pred zadnjim && (pregled 18. 10. 2026).
+          dpkg-deb -f "$DEB" Depends | grep -F 'bubblewrap'
+          dpkg-deb -f "$DEB" Depends | grep -F 'xdg-dbus-proxy'
           dpkg-deb -c "$DEB" | grep -F './usr/lib/safeer-browser/webkit/libexec/webkitgtk-6.0/WebKitWebProcess'
           # Dekoder AV1 dav1ddec v predponi nasega WebKita, libdav1d7 iz noble.
           dpkg-deb -c "$DEB" | grep -F './usr/lib/safeer-browser/webkit/lib/gstreamer-1.0/libgstdav1d.so'
@@ -318,7 +324,8 @@ jobs:
           xvfb-run -a safeer --version | tee /dev/stderr | grep -Fx "Safeer Browser $(cat packaging/VERSION)"
           desktop-file-validate /usr/share/applications/safeer-browser.desktop
           grep -Fx 'StartupWMClass=io.github.memelandfaner.SafeerBrowser' /usr/share/applications/safeer-browser.desktop
-          test -f /usr/lib/safeer-browser/safeer_brskalnik.py && test ! -e /usr/lib/safeer-browser/safeer_mint.py
+          test -f /usr/lib/safeer-browser/safeer_brskalnik.py
+          test ! -e /usr/lib/safeer-browser/safeer_mint.py
           dpkg -s libwebkitgtk-6.0-4 | grep -E '^(Status|Version)'
           xvfb-run -a dbus-run-session -- /usr/bin/python3 packaging/smoke_webkit_deb.py /usr/lib/safeer-browser
           xvfb-run -a dbus-run-session -- /usr/bin/python3 packaging/smoke_brskalnik.py /usr/lib/safeer-browser
@@ -388,7 +395,8 @@ jobs:
           dpkg-deb -f "$OS" Package Version Architecture Depends Recommends Provides Replaces
           DEB="$OS"
           if dpkg-deb -f "$DEB" Depends | grep -E 'gir1\.2-webkit-6\.0|gir1\.2-soup-3\.0|libwebkitgtk|libsoup-3\.0'; then echo "::error::paket zahteva sistemski WebKitGTK/libsoup"; exit 1; fi
-          dpkg-deb -f "$OS" Depends | grep -F 'bubblewrap' && dpkg-deb -f "$OS" Depends | grep -F 'xdg-dbus-proxy'
+          dpkg-deb -f "$OS" Depends | grep -F 'bubblewrap'
+          dpkg-deb -f "$OS" Depends | grep -F 'xdg-dbus-proxy'
           dpkg-deb -c "$OS" | grep -F './usr/lib/safeer-os/webkit/lib/gstreamer-1.0/libgstdav1d.so'
           dpkg-deb -f "$OS" Depends | grep -E '(^|, )libdav1d7( |,|$)'
           echo "::notice::$(stat -c '%n %s B' "$OS") | namesceno $(dpkg-deb -f "$OS" Installed-Size) KiB"
@@ -436,7 +444,9 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a dist/Safeer-OS-*.AppImage --version | tee /dev/stderr | grep -Fx "Safeer OS $(cat packaging/VERSION_OS)"
           APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a dist/Safeer-OS-*.AppImage --control --version | tee /dev/stderr | grep -Fx "Safeer Control $(cat packaging/VERSION_CONTROL)"
           APPIMAGE_EXTRACT_AND_RUN=1 dist/Safeer-OS-*.AppImage --ctl --version | tee /dev/stderr | grep -Fx "safeerctl $(cat packaging/VERSION_CONTROL)"
-          rm -rf build/os-appimage-x && mkdir -p build/os-appimage-x && (cd build/os-appimage-x && ../../dist/Safeer-OS-*.AppImage --appimage-extract >/dev/null)
+          rm -rf build/os-appimage-x
+          mkdir -p build/os-appimage-x
+          (cd build/os-appimage-x && ../../dist/Safeer-OS-*.AppImage --appimage-extract >/dev/null)
           for modul in qrcode zeroconf ifaddr; do test -d "build/os-appimage-x/squashfs-root/usr/lib/python3/dist-packages/$modul"; done
       - uses: actions/upload-artifact@v7
         with:
@@ -475,13 +485,28 @@ jobs:
       - name: Packages of the last published release (for the upgrade test)
         # An upgrade is the path of every existing user: Safeer OS installs it by itself. On a tag build the new
         # release is not published yet, so "latest" is the release that users have now.
+        # Preizkus nadgradnje odpade samo, ce objavljene izdaje se ni; napaka API ali prenosa ustavi korak (pregled
+        # 18. 10. 2026: "|| echo" je skril tudi napake omrezja/API in gradnja oznake je nadgradnjo tiho preskocila).
         env:
           GH_TOKEN: ${{ github.token }}
+          IZDAJA: ${{ startsWith(github.ref, 'refs/tags/v') }}
         run: |
           mkdir -p prejsnji
-          gh release download --repo "$GITHUB_REPOSITORY" --pattern '*.deb' --dir prejsnji \
-            || echo "No published release found: only a fresh installation is tested."
+          N="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '[.[] | select((.draft or .prerelease) | not)] | length')"
+          if [ "$N" = 0 ]; then
+            if [ "$IZDAJA" = true ]; then
+              echo "::warning::No published release yet: this release build tests only a fresh installation."
+            else
+              echo "::notice::No published release yet: only a fresh installation is tested."
+            fi
+            exit 0
+          fi
+          ZADNJA="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)"
+          test -n "$ZADNJA"
+          gh release download "$ZADNJA" --repo "$GITHUB_REPOSITORY" --pattern '*.deb' --dir prejsnji
           ls -l prejsnji
+          ls prejsnji/*.deb >/dev/null || { echo "::error::release $ZADNJA has no .deb packages for the upgrade test"; exit 1; }
+          echo "::notice::Upgrade test from $ZADNJA"
       - name: Install, upgrade, start and remove all packages on Linux Mint ${{ matrix.mint }}
         run: bash tools/mint_namestitev/preizkus.sh "linuxmintd/mint${{ matrix.mint }}-amd64" paketi prejsnji
   webkit-pgo-profil:
@@ -512,27 +537,48 @@ jobs:
           K="$(python3 packaging/webkit/pgo.py kljuc)"
           echo "kljuc=$K" >> "$GITHUB_OUTPUT"
           echo "::notice::PGO kljuc $K"
-      - name: Profile with this key (artifact of an earlier run)
+      - name: Profile with this key (artifact of an earlier trusted run)
+        # Profil gre v WebKit izdaje, zato samo artefakt teka tega repozitorija (pregled 18. 10. 2026: artefakt lahko
+        # nalozi tudi tek pull_request iz forka): head_repository = ta repozitorij, dogodek push ali workflow_dispatch
+        # (oba zahtevata pravico pisanja), pri gradnji oznake v* pa se veja main / gtk4-deb-webkit ali oznaka v*.
+        # Nezaupanja vrednega profila ne vzamemo nikoli: brez zaupanja vrednega posel webkit-pgo-ucenje profil nauci v tem
+        # teku (tudi tek oznake je zaupanja vreden vir); izrecno izbran tek (pgo_profraw_run), ki ni zaupanja vreden, ustavi tek.
         id: profil
         env:
           GH_TOKEN: ${{ github.token }}
           KLJUC: ${{ steps.kljuc.outputs.kljuc }}
           NOV: ${{ inputs.pgo }}
           TEK: ${{ inputs.pgo_profraw_run }}
+          REPO_ID: ${{ github.repository_id }}
+          IZDAJA: ${{ startsWith(github.ref, 'refs/tags/v') }}
         run: |
           IME="webkit-pgo-profraw-$KLJUC"
           if [ "$NOV" = true ]; then echo "::notice::PGO: nov ucni tek (rocno), $IME"; exit 0; fi
           [[ "$TEK" =~ ^[0-9]*$ ]] || { echo "::error::pgo_profraw_run ni id teka: $TEK"; exit 1; }
-          IZBOR='map(select(.expired | not))'
-          [ -z "$TEK" ] || IZBOR="$IZBOR | map(select(.workflow_run.id == $TEK))"
-          A="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$IME&per_page=100" \
-            --jq ".artifacts | $IZBOR | sort_by(.created_at) | last | select(. != null) | \"\(.workflow_run.id) \(.created_at)\"")"
-          if [ -z "$A" ]; then
-            [ -z "$TEK" ] || { echo "::error::tek $TEK nima artefakta $IME"; exit 1; }
-            echo "::notice::PGO: profila $IME ni, ucni tek v tem teku (webkit-pgo-ucenje)"
+          [[ "$REPO_ID" =~ ^[0-9]+$ ]] || { echo "::error::ni id repozitorija"; exit 1; }
+          zaupanja_vreden() {
+            local tek="$1" dogodek repo veja
+            read -r dogodek repo veja <<< "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$tek" \
+              --jq '"\(.event) \(.head_repository.id) \(.head_branch)"')" || return 1
+            [ "$repo" = "$REPO_ID" ] || return 1
+            case "$dogodek" in push|workflow_dispatch) ;; *) return 1 ;; esac
+            [ "$IZDAJA" = true ] || return 0
+            case "$veja" in main|gtk4-deb-webkit|v*) return 0 ;; *) return 1 ;; esac
+          }
+          SEZNAM="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$IME&per_page=100" \
+            --jq '[.artifacts[] | select(.expired | not)] | sort_by(.created_at) | reverse | .[] | "\(.workflow_run.id) \(.created_at)"')"
+          RUN=""; USTVARJEN=""
+          while read -r R C; do
+            [ -n "$R" ] || continue
+            [ -z "$TEK" ] || [ "$R" = "$TEK" ] || continue
+            if zaupanja_vreden "$R"; then RUN="$R"; USTVARJEN="$C"; break; fi
+            echo "::warning::PGO: $IME iz teka $R ni iz zaupanja vrednega teka (repozitorij, dogodek, veja) - ga ne uporabimo"
+          done <<< "$SEZNAM"
+          if [ -z "$RUN" ]; then
+            [ -z "$TEK" ] || { echo "::error::tek $TEK nima zaupanja vrednega artefakta $IME"; exit 1; }
+            echo "::notice::PGO: zaupanja vrednega profila $IME ni, ucni tek v tem teku (webkit-pgo-ucenje)"
             exit 0
           fi
-          read -r RUN USTVARJEN <<< "$A"
           echo "run_id=$RUN" >> "$GITHUB_OUTPUT"
           # Artefakt potece po 90 dneh; starejsega od 60 dni ta tek nalozi znova (posel flatpak-brskalnik), da se WebKit, ki
           # se dolgo ne spremeni, ne uci znova.
