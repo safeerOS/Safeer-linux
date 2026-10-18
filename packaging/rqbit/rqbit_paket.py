@@ -15,8 +15,9 @@ Uporaba:
       CARGO_TARGET_DIR (neobvezno) - mapa za vmesne datoteke cargo; sicer zacasna mapa, ki se na koncu pobrise.
   rqbit_paket.py preveri MAPA
       Gradnja ustreza pinu, program ima zapisani SHA-256, je staticen in je prava razlicica.
-  rqbit_paket.py namesti MAPA KOREN PAKET
-      Preveri in namesti v KOREN/usr/lib/PAKET/rqbit/rqbit, obvestila v KOREN/usr/share/doc/PAKET/rqbit.
+  rqbit_paket.py namesti MAPA PREDPONA PAKET
+      Preveri in namesti v PREDPONA/lib/PAKET/rqbit/rqbit, obvestila v PREDPONA/share/doc/PAKET/rqbit. PREDPONA:
+      <koren paketa>/usr za .deb in AppImage (ta ga nato premakne v opt/), /app za Flatpak.
   rqbit_paket.py dim PROGRAM [--brez-ipv6]
       Preizkus brez interneta: lokalni sledilnik UDP, seme in prenos z motorjem Safeer (core/os_torrent.py) ter tok
       predvajalnika z Range. --brez-ipv6: socket(AF_INET6) vrne EAFNOSUPPORT (seccomp, python3-seccomp), kot na jedru
@@ -269,11 +270,11 @@ def preveri(mapa: Path) -> dict:
     return g
 
 
-def namesti(mapa: Path, koren: Path, paket: str) -> None:
+def namesti(mapa: Path, predpona: Path, paket: str) -> None:
     preveri(mapa)
     p = pin()
-    lib = koren / "usr" / "lib" / paket / "rqbit"
-    doc = koren / "usr" / "share" / "doc" / paket / "rqbit"
+    lib = predpona / "lib" / paket / "rqbit"
+    doc = predpona / "share" / "doc" / paket / "rqbit"
     lib.mkdir(parents=True, exist_ok=True)
     doc.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(mapa / "rqbit", lib / "rqbit")

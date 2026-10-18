@@ -475,7 +475,7 @@ jobs:
         run: bash packaging/fetch_linuxdeploy.sh
       - name: Safeer OS AppImage (Safeer OS + Safeer Control)
         run: |
-          SAFEER_DRM_TOVOR="$PWD/build/safeer-drm" LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_os_appimage.sh
+          SAFEER_RQBIT_TOVOR="$PWD/build/rqbit" SAFEER_DRM_TOVOR="$PWD/build/safeer-drm" LINUXDEPLOY="$PWD/build/tools/linuxdeploy.AppImage" bash packaging/build_os_appimage.sh
           chmod +x dist/Safeer-OS-*.AppImage
           APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a dist/Safeer-OS-*.AppImage --version | tee /dev/stderr | grep -Fx "Safeer OS $(cat packaging/VERSION_OS)"
           APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a dist/Safeer-OS-*.AppImage --control --version | tee /dev/stderr | grep -Fx "Safeer Control $(cat packaging/VERSION_CONTROL)"
@@ -487,6 +487,14 @@ jobs:
           # Safeer DRM izven usr/ (linuxdeploy ga ne spreminja), s pripetimi odtisi; AppRun-os poda SAFEER_DRM_MAPA.
           python3 packaging/safeer_drm_paket.py preveri build/os-appimage-x/squashfs-root/opt/safeer-drm
           grep -F 'export SAFEER_DRM_MAPA="$APPDIR/opt/safeer-drm"' build/os-appimage-x/squashfs-root/AppRun
+          # Nas rqbit izven usr/ (linuxdeploy ga ne spreminja): isti program kot v paketu .deb, AppRun-os poda SAFEER_RQBIT
+          # in core/os_torrent.py ga uporabi namesto prenosa z GitHuba.
+          RQ=build/os-appimage-x/squashfs-root/opt/rqbit/rqbit
+          echo "$(python3 -c 'import json; print(json.load(open("build/rqbit/gradnja.json"))["program_sha256"])')  $RQ" | sha256sum -c -
+          "$RQ" --version | grep -Fx "rqbit $(python3 -c 'import json; print(json.load(open("packaging/rqbit/rqbit.json"))["razlicica"])')"
+          test -f build/os-appimage-x/squashfs-root/usr/share/doc/safeer-os/rqbit/LICENSES-THIRD-PARTY.txt
+          grep -F 'export SAFEER_RQBIT="$APPDIR/opt/rqbit/rqbit"' build/os-appimage-x/squashfs-root/AppRun
+          SAFEER_RQBIT="$PWD/$RQ" /usr/bin/python3 -c "import os, sys; sys.path.insert(0, 'build/os-appimage-x/squashfs-root/usr/lib/safeer-os'); from core import os_torrent as t; p = t.pot_programa(); assert p == os.environ['SAFEER_RQBIT'] and t.program_na_voljo(), p"
       - uses: actions/upload-artifact@v7
         with:
           name: safeer-os
@@ -728,8 +736,9 @@ jobs:
   flatpak:
     # Safeer OS Flatpak (Safeer OS + Safeer Control) z WebKitGTK s PGO - paket izdaje. Brez veljavnega profila posel ne
     # tece (ne gradi tiho brez PGO): ce ucni tek pade, ga ni in izdaja (needs) se ne ustvari, tek pa je rdec.
-    needs: [webkit-pgo-profil, webkit-pgo-ucenje]
-    if: ${{ !cancelled() && needs.webkit-pgo-profil.result == 'success' && (needs.webkit-pgo-ucenje.result == 'success' || (needs.webkit-pgo-ucenje.result == 'skipped' && needs.webkit-pgo-profil.outputs.run_id != '')) }}
+    # Nas rqbit iz posla rqbit-deb (isti program kot v paketu .deb in AppImage) gre v /app/lib/safeer-os/rqbit.
+    needs: [webkit-pgo-profil, webkit-pgo-ucenje, rqbit-deb]
+    if: ${{ !cancelled() && needs.rqbit-deb.result == 'success' && needs.webkit-pgo-profil.result == 'success' && (needs.webkit-pgo-ucenje.result == 'success' || (needs.webkit-pgo-ucenje.result == 'skipped' && needs.webkit-pgo-profil.outputs.run_id != '')) }}
     permissions:
       contents: read
       actions: read
@@ -756,6 +765,15 @@ jobs:
           path: build/pgo/profraw
           run-id: ${{ needs.webkit-pgo-profil.outputs.run_id || github.run_id }}
           github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: rqbit-deb
+          path: build/rqbit
+      - name: Our rqbit for the Flatpak (artifact of job rqbit-deb)
+        # Artefakt ne ohrani pravic; manifest ga namesti s packaging/rqbit/rqbit_paket.py namesti (preverba pred tem).
+        run: |
+          chmod 755 build/rqbit/rqbit
+          python3 packaging/rqbit/rqbit_paket.py preveri build/rqbit
       - name: PGO manifest and cache key
         # Kljuc predpomnilnika: profil (kljuc in vsebina .profraw), commita SDK in llvm22 (oba sta v kljucu flatpak-builderja)
         # in datoteke modulov pred kodo Safeerja. Sprememba samo kode Safeerja ga ne spremeni: WebKit iz predpomnilnika.
@@ -833,6 +851,15 @@ jobs:
           grep -Eq '^ *[0-9]+ /run/build/webkitgtk6-safeer-pgo$' "$P" && ! grep '/run/build/' "$P" | grep -v '/run/build/webkitgtk6-safeer-pgo$' \
             || { echo "::error::Safeer OS: poti lokalnih funkcij v profilu niso poti gradnje WebKita"; exit 1; }
           flatpak run --command=sh io.github.memelandfaner.SafeerOS -c "test -x /app/libexec/webkitgtk-6.0/WebKitWebProcess"
+          # Nas rqbit v /app (isti SHA-256 kot artefakt posla rqbit-deb); Safeer OS in Safeer Control ga uporabita namesto
+          # prenosa uradnega programa z GitHuba.
+          RQ="$(flatpak info --show-location io.github.memelandfaner.SafeerOS)/files/lib/safeer-os/rqbit/rqbit"
+          echo "$(python3 -c 'import json; print(json.load(open("build/rqbit/gradnja.json"))["program_sha256"])')  $RQ" | sha256sum -c -
+          flatpak run --command=sh io.github.memelandfaner.SafeerOS -c "/app/lib/safeer-os/rqbit/rqbit --version" | grep -Fx "rqbit $(python3 -c 'import json; print(json.load(open("packaging/rqbit/rqbit.json"))["razlicica"])')"
+          flatpak run --command=sh io.github.memelandfaner.SafeerOS -c "test -f /app/share/doc/safeer-os/rqbit/LICENSES-THIRD-PARTY.txt"
+          for koren in /app/lib/safeer-os /app/lib/safeer-control; do
+            flatpak run --command=python3 io.github.memelandfaner.SafeerOS -c "import sys; sys.path.insert(0, '$koren'); from core import os_torrent as t; p = t.pot_programa(); assert p == '/app/lib/safeer-os/rqbit/rqbit' and t.program_na_voljo(), p"
+          done
           # Safeer DRM v paketu (/app, pripet odtis, brez CDM) in na gostitelju po poti iz /.flatpak-info (app-path): ukaz zagona
           # kaze na isto datoteko, kot jo vidi gostitelj (flatpak info --show-location).
           flatpak run --filesystem="$PWD/packaging:ro" --command=python3 io.github.memelandfaner.SafeerOS "$PWD/packaging/safeer_drm_paket.py" preveri /app/lib/safeer-os/safeer-drm

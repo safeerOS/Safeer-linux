@@ -37,6 +37,17 @@ if [ -d "$APPDIR/usr/lib/safeer-os/safeer-drm" ]; then
     mkdir -p "$APPDIR/opt"
     mv "$APPDIR/usr/lib/safeer-os/safeer-drm" "$APPDIR/opt/safeer-drm"
 fi
+# Nas rqbit (SAFEER_RQBIT_TOVOR, packaging/rqbit; CI: posel rqbit-deb) - motor torrentov, ki tece tudi brez IPv6. Po
+# preverbi (zapis gradnje, SHA-256, staticnost, razlicica) izven usr/ kot Safeer DRM: linuxdeploy staticnega programa ne
+# sme spreminjati. AppRun-os poda pot v SAFEER_RQBIT (core/os_torrent.vgrajen_program). V CI je obvezen; lokalna
+# gradnja brez njega ob prvem magnetu prenese uradni program z GitHuba.
+if [ -n "${SAFEER_RQBIT_TOVOR:-}" ]; then
+    python3 packaging/rqbit/rqbit_paket.py namesti "$SAFEER_RQBIT_TOVOR" "$APPDIR/usr" safeer-os
+    mkdir -p "$APPDIR/opt"
+    mv "$APPDIR/usr/lib/safeer-os/rqbit" "$APPDIR/opt/rqbit"
+elif [ -n "${CI:-}" ]; then
+    echo "manjka SAFEER_RQBIT_TOVOR (nas rqbit iz posla rqbit-deb, packaging/rqbit)" >&2; exit 1
+fi
 python3 packaging/prepare_appdir.py "$APPDIR" "$APPID" safeer-os
 install -m755 packaging/AppRun-os "$APPDIR/AppRun"
 export LDAI_RUNTIME_FILE="${LDAI_RUNTIME_FILE:-$ROOT/build/tools/runtime-x86_64}"

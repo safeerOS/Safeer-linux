@@ -1,8 +1,8 @@
 """Safeer Media: magnet povezave (BitTorrent) - prejem, pošiljanje in predvajanje že med prenosom.
 
-Motor je odprtokodni rqbit (Apache-2.0, https://github.com/ikatson/rqbit). Paket .deb Safeer OS ga prinese sam
-(packaging/rqbit: uradni vir z nasim popravkom za racunalnike brez IPv6); drugje ga Safeer ob prvi rabi prenese
-z uradne izdaje na GitHubu in preveri SHA-256. Zažene ga kot lasten proces, samo na 127.0.0.1:
+Motor je odprtokodni rqbit (Apache-2.0, https://github.com/ikatson/rqbit). Paketi Safeer OS za Linux (.deb, Flatpak,
+AppImage) ga prinesejo sami (packaging/rqbit: uradni vir z nasim popravkom za racunalnike brez IPv6); drugje (Windows)
+ga Safeer ob prvi rabi prenese z uradne izdaje na GitHubu in preveri SHA-256. Zažene ga kot lasten proces, samo na 127.0.0.1:
 
 - API rqbita zahteva geslo (HTTP Basic, naključno ob vsakem zagonu). Spletna stran v brskalniku ga zato
   ne more upravljati (CSRF), drug program na računalniku pa ne pozna gesla.
@@ -50,7 +50,8 @@ RQBIT_URL = "https://github.com/ikatson/rqbit/releases/download/v{razlicica}/{im
 #: z nasim popravkom, zgrajena v CI (SHA-256 vira, popravka in programa preverjen ob gradnji paketa). Uradni program se
 #: na jedru brez IPv6 (ipv6.disable=1, nekateri vsebniki) ne zazene - odjemalec sledilnikov UDP veze [::]:0 tudi z
 #: --ipv4-only (EAFNOSUPPORT, izmerjeno 18. 10. 2026). Na Linuxu ima vgrajeni prednost; prenos z GitHuba (RQBIT_PAKETI)
-#: ostane za platforme in pakete brez njega (Windows, Flatpak, AppImage). SAFEER_RQBIT: pot do programa (preizkusi).
+#: ostane za platforme in gradnje brez njega (Windows; izvorna koda). SAFEER_RQBIT: pot do programa (AppImage: AppRun-os,
+#: preizkusi).
 SPREMENLJIVKA_VGRAJENEGA = "SAFEER_RQBIT"
 
 #: Hitrost brez pretirane obremenitve (glej docstring).
@@ -331,8 +332,9 @@ def _tovor() -> str:
 
 
 def vgrajen_program() -> str:
-    """rqbit iz paketa (samo Linux): <tovor>/rqbit/rqbit. Safeer Control (/usr/lib/safeer-control) je v istem paketu
-    kot Safeer OS in uporabi njegovega (/usr/lib/safeer-os/rqbit/rqbit). "" = paket ga nima."""
+    """rqbit iz paketa (samo Linux): <tovor>/rqbit/rqbit (.deb /usr/lib/safeer-os, Flatpak /app/lib/safeer-os) ali
+    SAFEER_RQBIT (AppImage: $APPDIR/opt/rqbit/rqbit). Safeer Control (<lib>/safeer-control) je v istem paketu kot
+    Safeer OS in uporabi njegovega (<lib>/safeer-os/rqbit/rqbit). "" = paket ga nima."""
     if not sys.platform.startswith("linux"):
         return ""
     izrecno = os.environ.get(SPREMENLJIVKA_VGRAJENEGA, "")

@@ -310,7 +310,10 @@ class PackagingTests(unittest.TestCase):
                     poti=re.findall(r'(?m)^\s*(?:- )?path: (\S+)$',besedilo)
                     self.assertIn(str(ROOT),poti)
                     for p in poti+[s for s in seznam if s.endswith('.yml')]:
-                        self.assertTrue(os.path.isabs(p) and os.path.exists(p),p)
+                        # build/rqbit je artefakt posla rqbit-deb (lokalno ga morda ni); pot mora biti absolutna.
+                        self.assertTrue(os.path.isabs(p) and (os.path.exists(p) or p==str(ROOT/'build/rqbit')),p)
+                    if 'SafeerOS' in ime:
+                        self.assertIn(str(ROOT/'build/rqbit'),poti)
                     if 'Browser' in ime:
                         self.assertIn(str(ROOT/'packaging/zypak/zypak-expose-paths.patch'),poti)
                     # Izvirni manifest ostane nespremenjen (lokalna gradnja brez PGO).
@@ -380,7 +383,12 @@ class PackagingTests(unittest.TestCase):
                                        ('flatpak-brskalnik','io.github.memelandfaner.SafeerBrowser.yml','build_flatpak.sh')):
             with self.subTest(posel=posel):
                 k=posli[posel]
-                self.assertIn('    needs: [webkit-pgo-profil, webkit-pgo-ucenje]\n'+pogoj,k)
+                if posel=='flatpak':
+                    # Safeer OS dobi se nas rqbit (posel rqbit-deb): brez njega Flatpaka ne gradimo.
+                    self.assertIn('    needs: [webkit-pgo-profil, webkit-pgo-ucenje, rqbit-deb]\n'
+                                  +pogoj.replace("!cancelled() && ","!cancelled() && needs.rqbit-deb.result == 'success' && "),k)
+                else:
+                    self.assertIn('    needs: [webkit-pgo-profil, webkit-pgo-ucenje]\n'+pogoj,k)
                 self.assertIn('python3 packaging/webkit/pgo.py uporaba build/pgo/profraw %s'%manifest,k)
                 self.assertIn('SAFEER_FLATPAK_MANIFEST: ${{ steps.pgo.outputs.manifest }}',k)
                 self.assertIn('bash packaging/%s 2>&1 | tee'%skripta,k)
@@ -1054,7 +1062,7 @@ class RqbitPaketTests(unittest.TestCase):
             rp,mapa=self._gradnja(d,Path(d)/'r')
             rp.preveri(mapa)
             koren=Path(d)/'deb'
-            rp.namesti(mapa,koren,'safeer-os')
+            rp.namesti(mapa,koren/'usr','safeer-os')
             program=koren/'usr/lib/safeer-os/rqbit/rqbit'
             self.assertEqual(program.stat().st_mode & 0o777,0o755)
             for ime in ('LICENSE','OBVESTILO.txt','LICENSES-THIRD-PARTY.txt','gradnja.json','ipv4-fallback-without-ipv6.patch'):
@@ -1069,7 +1077,7 @@ class RqbitPaketTests(unittest.TestCase):
 
     def test_deb_vgradi_rqbit_iz_posla_ci(self):
         deb=(ROOT/'build_os_deb.sh').read_text()
-        self.assertIn('python3 "$DIR/packaging/rqbit/rqbit_paket.py" namesti "$SAFEER_RQBIT_TOVOR" "$BUILD_ROOT" "$PKG_NAME"',deb)
+        self.assertIn('python3 "$DIR/packaging/rqbit/rqbit_paket.py" namesti "$SAFEER_RQBIT_TOVOR" "$BUILD_ROOT/usr" "$PKG_NAME"',deb)
         self.assertIn('[ -n "${SAFEER_RQBIT_TOVOR:-}" ] ||',deb.split('then ARCH="amd64"',1)[0].rsplit('\n',1)[1])
         potek=(ROOT/'.github/workflows/linux-packages.yml').read_text()
         posel=potek.split('\n  rqbit-deb:\n',1)[1].split('\n  brskalnik:\n',1)[0]
@@ -1093,6 +1101,66 @@ class RqbitPaketTests(unittest.TestCase):
         # Kljuci predpomnilnika WebKita ostanejo nedotaknjeni (gradnja 2-3 h): rqbit ni v njih.
         for kljuc in re.findall(r'key: (webkit-[^\n]*)',potek):
             self.assertNotIn('rqbit',kljuc)
+
+    def test_flatpak_in_appimage_imata_nas_rqbit(self):
+        """Napaka brez IPv6 ne ostane v nobenem paketu za Linux: Flatpak in AppImage Safeer OS nosita isti preverjen program
+        kot .deb (artefakt posla rqbit-deb). Safeer Browser magnetov nima in rqbita ne nosi."""
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest('python3-yaml ni namescen')
+        m=yaml.safe_load((ROOT/'io.github.memelandfaner.SafeerOS.yml').read_text())
+        modul=next(x for x in m['modules'] if isinstance(x,dict) and x.get('name')=='safeer-os')
+        self.assertIn({'type':'dir','path':'build/rqbit','dest':'rqbit-tovor'},modul['sources'])
+        ukazi=modul['build-commands']
+        namesti='python3 packaging/rqbit/rqbit_paket.py namesti rqbit-tovor /app safeer-os'
+        self.assertLess(ukazi.index('chmod 755 rqbit-tovor/rqbit'),ukazi.index(namesti))
+        self.assertLess(next(i for i,u in enumerate(ukazi) if 'install_os_payload.sh /app' in u),ukazi.index(namesti))
+        # Glavni vir (.) izpusti build/: rqbit pride samo iz svojega vira.
+        self.assertIn('build',next(x for x in modul['sources'] if x.get('path')=='.')['skip'])
+        self.assertNotIn('rqbit',(ROOT/'io.github.memelandfaner.SafeerBrowser.yml').read_text())
+        self.assertNotIn('os_torrent',(ROOT/'packaging/install_payload.sh').read_text())
+        flatpak=(ROOT/'packaging/build_os_flatpak.sh').read_text()
+        self.assertLess(flatpak.index('[ ! -f build/rqbit/gradnja.json ]'),flatpak.index('"$BUILDER"'))
+        potek=(ROOT/'.github/workflows/linux-packages.yml').read_text()
+        posel=potek.split('\n  flatpak:\n',1)[1].split('\n  flatpak-brskalnik:\n',1)[0]
+        self.assertIn('name: rqbit-deb\n          path: build/rqbit',posel)
+        self.assertLess(posel.index('python3 packaging/rqbit/rqbit_paket.py preveri build/rqbit'),
+                        posel.index('python3 packaging/webkit/pgo.py uporaba'))
+        self.assertIn("files/lib/safeer-os/rqbit/rqbit\"\n",posel)
+        self.assertIn('for koren in /app/lib/safeer-os /app/lib/safeer-control; do',posel)
+        self.assertIn("assert p == '/app/lib/safeer-os/rqbit/rqbit' and t.program_na_voljo(), p",posel)
+        # AppImage: izven usr/ (pred linuxdeploy), v CI obvezen, AppRun-os poda pot.
+        appimage=(ROOT/'packaging/build_os_appimage.sh').read_text()
+        self.assertIn('python3 packaging/rqbit/rqbit_paket.py namesti "$SAFEER_RQBIT_TOVOR" "$APPDIR/usr" safeer-os',appimage)
+        self.assertLess(appimage.index('mv "$APPDIR/usr/lib/safeer-os/rqbit" "$APPDIR/opt/rqbit"'),appimage.index('"$LINUXDEPLOY"'))
+        self.assertIn('elif [ -n "${CI:-}" ]; then\n    echo "manjka SAFEER_RQBIT_TOVOR',appimage)
+        self.assertIn('export SAFEER_RQBIT="$APPDIR/opt/rqbit/rqbit"',(ROOT/'packaging/AppRun-os').read_text())
+        os_=potek.split('\n  safeer-os:\n',1)[1].split('\n  qt-xcb:\n',1)[0]
+        vrstica=next(v for v in os_.splitlines() if v.rstrip().endswith('bash packaging/build_os_appimage.sh'))
+        self.assertIn('SAFEER_RQBIT_TOVOR="$PWD/build/rqbit"',vrstica)
+        self.assertIn('RQ=build/os-appimage-x/squashfs-root/opt/rqbit/rqbit',os_)
+        self.assertIn("grep -F 'export SAFEER_RQBIT=\"$APPDIR/opt/rqbit/rqbit\"' build/os-appimage-x/squashfs-root/AppRun",os_)
+        # Kot jo postavi Flatpak (predpona /app): core najde program iz Safeer OS in Safeer Control.
+        cc=shutil.which('cc') or shutil.which('gcc')
+        import platform
+        if not cc or not shutil.which('readelf') or platform.machine() not in ('x86_64','amd64'):
+            return
+        rp=self._paket()
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d)/'r.c').write_text('#include <stdio.h>\nint main(void){puts("rqbit %s");return 0;}\n'%rp.pin()['razlicica'])
+            if subprocess.run([cc,'-static','-o',str(Path(d)/'r'),str(Path(d)/'r.c')],capture_output=True).returncode:
+                return
+            rp,mapa=self._gradnja(d,Path(d)/'r')
+            app=Path(d)/'app'
+            rp.namesti(mapa,app,'safeer-os')
+            (app/'lib/safeer-control').mkdir(parents=True)
+            from core import os_torrent as ot
+            with patch.dict(os.environ,{ot.SPREMENLJIVKA_VGRAJENEGA:''}):
+                for tovor in ('safeer-os','safeer-control'):
+                    with patch.object(ot,'_tovor',lambda t=tovor: str(app/'lib'/t)):
+                        self.assertEqual(ot.pot_programa(),str(app/'lib/safeer-os/rqbit/rqbit'))
+            self.assertTrue((app/'share/doc/safeer-os/rqbit/LICENSES-THIRD-PARTY.txt').is_file())
 
 
 class MintInstallTests(unittest.TestCase):

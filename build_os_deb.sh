@@ -73,7 +73,7 @@ fi
 # z GitHuba). Uradni vir s pripetim SHA-256 in nasim popravkom za racunalnike brez IPv6 (packaging/rqbit); pred
 # namestitvijo se preveri zapis gradnje, SHA-256 programa, staticnost in razlicica. Staticen (musl): brez odvisnosti.
 if [ -n "${SAFEER_RQBIT_TOVOR:-}" ]; then
-    python3 "$DIR/packaging/rqbit/rqbit_paket.py" namesti "$SAFEER_RQBIT_TOVOR" "$BUILD_ROOT" "$PKG_NAME"
+    python3 "$DIR/packaging/rqbit/rqbit_paket.py" namesti "$SAFEER_RQBIT_TOVOR" "$BUILD_ROOT/usr" "$PKG_NAME"
 fi
 sed -i 's|^Exec=safeer-os|Exec=/usr/bin/safeer-os|' "$BUILD_ROOT/usr/share/applications/safeer-os.desktop" \
     "$BUILD_ROOT/usr/share/applications/safeer-os.Player.desktop" \

@@ -102,6 +102,21 @@ Since 1.0.127 (owner's decision, 18 Oct 2026) Safeer DRM is part of every packag
 
 The Google Widevine CDM is deliberately **not** in the packages (owner's decision after the castLabs FAQ: a bundled CDM raises decoder-licensing questions, while a CDM that ECS downloads from Google's servers is covered by Google's licence). On the first protected content `assets/safeer_drm/main.js` waits for `components.whenReady()`: ECS downloads the CDM from Google's component update service into the user's `WidevineCdm` folder (`$XDG_CONFIG_HOME/Safeer DRM/WidevineCdm`, in the browser Flatpak `~/.var/app/<ID>/config/...`) and keeps it updated - the user installs nothing and sees no button. Measured on 18 Oct 2026 (ECS 44.5.1, Chromium sandbox, fresh profile): CDM 4.10.3112.0 installed and EME working in the same first start, about 2 s. Electron's spell-check dictionary download stays off. The copy of Safeer DRM that earlier versions downloaded into `~/.local/share/safeer-drm/<version>` is removed on start (`core/safeer_drm.pospravi_staro`); sign-in profiles and the downloaded CDM stay.
 
+## Our rqbit (torrent engine) in the packages
+
+Magnet links in Safeer OS and Safeer Control run on [rqbit](https://github.com/ikatson/rqbit) (Apache-2.0, `core/os_torrent.py`). The official rqbit 9.0.1 does not start on a Linux kernel without IPv6 (`ipv6.disable=1`, some containers): the TCP listener, DHT, LSD and the UDP tracker client bind `[::]` and get `EAFNOSUPPORT`, the UDP tracker client even with `--ipv4-only` (measured 18 Oct 2026). Owner's rule: we fix bugs in open-source software, ship our fix right away and propose it upstream. `packaging/rqbit/ipv4-fallback-without-ipv6.patch` makes rqbit use IPv4 only when the OS has no IPv6 and changes nothing when it has; the upstream proposal (issue and PR text) is in `docs/upstream/rqbit-ipv4-fallback.md`.
+
+`packaging/rqbit/rqbit.json` pins the source (tag, commit and SHA-256 of the source tree), the patch (SHA-256), Rust and the target. `python3 packaging/rqbit/rqbit_paket.py zgradi build/rqbit` clones and checks the source, applies the patch and builds a static program (`x86_64-unknown-linux-musl`, `--no-default-features --features rust-tls`, `cargo --locked`) with `LICENSE`, `OBVESTILO.txt`, `LICENSES-THIRD-PARTY.txt` (licences of every library in the program) and a build record `gradnja.json`. CI job `rqbit-deb` builds it only when something in `packaging/rqbit/` changes (cache key) and on every run checks the record and downloads a torrent through a local UDP tracker with `socket(AF_INET6)` blocked by seccomp (`rqbit_paket.py dim --brez-ipv6`). Before installing, `rqbit_paket.py namesti` checks that the record matches the pins, the program's SHA-256, that it is static and its version.
+
+Where it goes and how Safeer finds it (`core/os_torrent.vgrajen_program`):
+
+- .deb (`SAFEER_RQBIT_TOVOR`, `build_os_deb.sh`): `/usr/lib/safeer-os/rqbit/rqbit`, notices in `/usr/share/doc/safeer-os/rqbit/`. Safeer Control (`/usr/lib/safeer-control`) uses the same program.
+- Flatpak Safeer OS (source `build/rqbit` in the manifest, `packaging/build_os_flatpak.sh` refuses to build without it): `/app/lib/safeer-os/rqbit/rqbit`.
+- AppImage Safeer OS (`SAFEER_RQBIT_TOVOR`, required in CI): `opt/rqbit/rqbit`, out of linuxdeploy's reach; `AppRun-os` passes it in `SAFEER_RQBIT`.
+- Windows keeps downloading the official release (`RQBIT_PAKETI`, SHA-256 pinned in `core/os_torrent.py`) on first use: our fallback in rqbit only applies on Unix (`cfg(unix)`), and the patch is not tested on Windows. Safeer Browser has no magnet support and carries no rqbit.
+
+Any other Linux build without the bundled program (for example a source checkout) also downloads the official release, as before.
+
 ## Tests and release gates
 
 ```sh
