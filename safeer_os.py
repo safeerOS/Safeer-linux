@@ -5174,6 +5174,9 @@ class SafeerOS(Gtk.Application):
                                                                   shrani=False)
                 self._medijski_predvajalnik.v_glavni = lambda f: GLib.idle_add(f)
                 self._povezi_zakasnitev_zvocnika()
+                self._medijski_predvajalnik.zakasni = lambda ms, f: GLib.timeout_add(ms, f)
+                # Naslov, ki se ne odpre z nobeno razlicico: Medijski center ga ne ponuja vec (brez nedelujocih ikon).
+                self._medijski_predvajalnik.neuspeh = lambda s: self._katalog is not None and self._katalog.predvajanje_ni_uspelo(s.uri)
                 if not self._medijski_tik_zacet:
                     self._medijski_tik_zacet = True
                     GLib.timeout_add_seconds(1, self._medijski_tik)
@@ -6270,9 +6273,14 @@ class SafeerOS(Gtk.Application):
             self._katalog.twitch_brez_oglasov = self.scit.twitch_brez_oglasov
         return self._katalog
 
-    def _katalog_predvajaj(self, uri: str, vrsta: str, ime: str, zacetek: int, podnapisi: tuple, prikazi: bool) -> bool:
-        """Tok ali datoteka iz kataloga v domacem predvajalniku (video v oknu, zvok brez okna)."""
-        seznam = [os_predvajalnik.Skladba(uri, ime, vrsta, zacetek=max(0, int(zacetek or 0)), podnapisi=podnapisi)]
+    def _katalog_predvajaj(self, uri: str, vrsta: str, ime: str, zacetek: int, podnapisi: tuple, prikazi: bool,
+                           tok: Optional[dict] = None) -> bool:
+        """Tok ali datoteka iz kataloga v domacem predvajalniku (video v oknu, zvok brez okna). `tok`: glave, ki jih
+        streznik toka zahteva, in druge razlicice ({"glave": {...}, "nadomestni": [(uri, glave), ...]})."""
+        tok = tok if isinstance(tok, dict) else {}
+        seznam = [os_predvajalnik.Skladba(uri, ime, vrsta, zacetek=max(0, int(zacetek or 0)), podnapisi=podnapisi,
+                                          glave=os_predvajalnik.cisti_glave(tok.get("glave")),
+                                          nadomestni=os_predvajalnik.cisti_nadomestne(tok.get("nadomestni")))]
         return self._predvajaj_neposredno(uri, vrsta=vrsta, prikazi=prikazi, ime=ime, seznam=seznam, zacni=0)
 
     def _medijska_knjiznica(self):

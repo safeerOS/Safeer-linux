@@ -7279,11 +7279,111 @@
             else obvesti(t("mediaNapaka_ni_toka", { ime: item.naslov || "" }));
           }, function () { obvesti(t("katNapakaVira")); });
         };
-        row.appendChild(play); cilj.appendChild(row);
-        vgrGumbiEpizode(item, season, ep, row);
+        row.appendChild(play);
+        // Viri epizode (razlicice): seznam se odpre pod vrstico, ko ga uporabnik zahteva - dodatkov ne sprasujemo za
+        // vsako epizodo vnaprej.
+        var viri = el("button", "gumb-ikona kat-epizoda-viri", svg("drsniki")); viri.type = "button";
+        viri.title = t("razlViri"); viri.setAttribute("aria-label", t("razlViri") + " – E" + String(ep.stevilka).padStart(2, "0"));
+        viri.setAttribute("aria-expanded", "false");
+        var seznamEp = el("section", "kat-razlicice kat-razlicice-epizoda"); seznamEp.hidden = true;
+        viri.onclick = function () {
+          if (viri.getAttribute("aria-expanded") === "true") { viri.setAttribute("aria-expanded", "false"); seznamEp.hidden = true; return; }
+          viri.setAttribute("aria-expanded", "true");
+          var vnosEp = klic("mediaEpizoda", [item.tmdb_id, season, ep.stevilka, item.naslov + " · " + ep.naslov])
+            .then(function (entry) { return entry && entry.id ? entry.id : ""; });
+          narisiRazlicice(seznamEp, vnosEp, item, season, ep.stevilka, function (vnosId) {
+            zapriKatalogPodrobnosti(); kat.vrsta = []; narisiVrsto(); odpriKatalogVnos(vnosId);
+          }, true);
+        };
+        row.appendChild(viri); cilj.appendChild(row); cilj.appendChild(seznamEp);
       });
       if (!episodes.length) cilj.appendChild(el("div", "prazno", ubezi(t("katBrezEpizod"))));
     }, function () { cilj.innerHTML = ""; cilj.appendChild(el("div", "prazno", ubezi(t("katBrezEpizod")))); });
+  }
+  // ---- razlicice naslova (lastnik, 15. 10. 2026): v podrobnostih filma ali epizode je en seznam vseh moznosti
+  // predvajanja - toki iz dodatkov in streznikov, ki jih je dodal uporabnik (ime vira, kakovost, odziv), in lastni
+  // vgrajeni viri, ce jih ima. Prva je samodejna izbira (privzeta); rocna izbira se zapomni za ta naslov.
+  // ponudniki: dodatne moznosti predvajanja v istem seznamu (npr. lastni vgrajeni viri): function (item, sezona, epizoda,
+  // naslov) -> Promise([{ ime, ms, privzeta, oznaka, odpri: function () {} }]). Tako ni drugih, podvojenih gumbov.
+  var RAZL = { ura: 0, ponudniki: [] };
+  function vrsticaRazlicice(r, oznake, ob) {
+    var b = el("button", "kat-razlicica" + (r.izbrana ? " izbrana" : "")); b.type = "button"; b.setAttribute("role", "listitem");
+    var ime = el("span", "kat-razlicica-ime", ubezi(r.vir || r.ime || t("razlVir")));
+    // Opis dodatka pogosto ze vsebuje kakovost (»1080p · WEB«): ne ponavljamo je.
+    var podatki = r.opis && r.kakovost && r.opis.indexOf(r.kakovost) >= 0 ? r.opis
+      : [r.kakovost, r.opis && r.opis !== r.kakovost ? r.opis : ""].filter(Boolean).join(" · ");
+    b.appendChild(ime);
+    if (podatki) b.appendChild(el("span", "kat-razlicica-opis", ubezi(podatki)));
+    var desno = el("span", "kat-razlicica-oznake");
+    oznake.forEach(function (o) { desno.appendChild(el("span", "kat-razlicica-znacka " + o[0], ubezi(o[1]))); });
+    if (r.ping != null) desno.appendChild(el("span", "kat-razlicica-ping", ubezi(t("razlMs", { ms: r.ping }))));
+    b.appendChild(desno);
+    b.setAttribute("aria-pressed", r.izbrana ? "true" : "false");
+    b.title = [r.vir || r.ime || "", podatki, r.ping != null ? t("razlMs", { ms: r.ping }) : ""].filter(Boolean).join(" · ");
+    b.onclick = ob;
+    return b;
+  }
+  // cilj: prazen <section>; vnos: Promise z id-jem vnosa za predvajanje; predvajaj(id): obstojeca pot predvajanja.
+  function narisiRazlicice(cilj, vnos, item, sezona, epizoda, predvajaj, vedno) {
+    // Ob novi meritvi virov (dogodek) se zadnji odprti seznam narise znova.
+    RAZL.osvezi = function () { if (document.contains(cilj)) narisiRazlicice(cilj, vnos, item, sezona, epizoda, predvajaj, vedno); };
+    var ura = ++RAZL.ura;
+    cilj.innerHTML = ""; cilj.hidden = !vedno;
+    if (vedno) cilj.appendChild(el("p", "drobno", ubezi(t("razlIscem"))));
+    var naslov = (item.naslov || "") + (sezona ? " · S" + String(sezona).padStart(2, "0") + "E" + String(epizoda).padStart(2, "0") : "");
+    var vgrajeni = Promise.all(RAZL.ponudniki.map(function (ponudnik) {
+      try { return Promise.resolve(ponudnik(item, sezona || 0, epizoda || 0, naslov)).then(function (m) { return Array.isArray(m) ? m : []; },
+                                                                                          function () { return []; }); }
+      catch (e) { return Promise.resolve([]); }
+    })).then(function (skupine) { return [].concat.apply([], skupine); });
+    var toki = Promise.resolve(vnos).then(function (id) {
+      if (!id) return { id: "", razlicice: [] };
+      return klic("mediaRazlicice", [id]).then(function (r) { return r || { id: id, razlicice: [] }; },
+                                               function () { return { id: id, razlicice: [] }; });
+    }, function () { return { id: "", razlicice: [] }; });
+    Promise.all([toki, vgrajeni]).then(function (izid) {
+      if (ura !== RAZL.ura && !vedno) return;
+      var r = izid[0], moznosti = izid[1], razl = r.razlicice || [];
+      cilj.innerHTML = "";
+      // En sam tok brez drugih moznosti: izbire ni, seznam ostane skrit (gumb Predvajaj zadostuje). Vgrajen vir je
+      // viden vedno - drugje ga ni mogoce odpreti.
+      if (!moznosti.length && razl.length < 2) {
+        if (vedno) cilj.appendChild(el("p", "drobno", ubezi(razl.length || moznosti.length ? t("razlEna") : t("razlNi"))));
+        cilj.hidden = !vedno; return;
+      }
+      // »Najhitrejsi« je en sam v celem seznamu: najnizji izmerjeni odziv med tistimi, ki jih je vir oznacil (tok na
+      // vec streznikih, vec izmerjenih vgrajenih virov), in samo ce noben drug ni hitrejsi.
+      var vsi = razl.map(function (x) { return x.ping; }).concat(moznosti.map(function (m) { return m.ms; }))
+        .filter(function (p) { return p != null; });
+      var najmanj = vsi.length > 1 ? Math.min.apply(null, vsi) : null, oznacen = false;
+      var najhitrejsi = function (x, p) {
+        if (oznacen || !x.najhitrejsi || p == null || najmanj == null || Math.round(p) > Math.round(najmanj)) return false;
+        oznacen = true; return true;
+      };
+      var glava = el("h4", "", ubezi(t("razlNaslov"))); cilj.appendChild(glava);
+      var seznam = el("div", "kat-razlicice-seznam"); seznam.setAttribute("role", "list");
+      razl.forEach(function (x) {
+        var oznake = [];
+        if (x.izbrana) oznake.push(["izbrana", t("razlIzbrana")]);
+        else if (x.privzeta && !r.izbira) oznake.push(["privzeta", t("razlPrivzeta")]);
+        if (najhitrejsi(x, x.ping)) oznake.push(["najhitrejsi", t("razlNajhitrejsi")]);
+        if (x.lastni) oznake.push(["lastni", t("razlLastni")]);
+        seznam.appendChild(vrsticaRazlicice(x, oznake, function () {
+          klic("mediaIzberiRazlicico", [r.id, x.privzeta && !x.izbrana ? "" : x.podpis]).then(function () { predvajaj(r.id); },
+                                                                                          function () { predvajaj(r.id); });
+        }));
+      });
+      moznosti.forEach(function (m) {
+        var oznake = [["vgrajeno", m.oznaka || t("razlVgrajeno")]];
+        if (m.izbrana) oznake.unshift(["izbrana", t("razlIzbrana")]);
+        else if (m.privzeta && !razl.length) oznake.unshift(["privzeta", t("razlPrivzeta")]);
+        if (najhitrejsi(m, m.ms)) oznake.push(["najhitrejsi", t("razlNajhitrejsi")]);
+        seznam.appendChild(vrsticaRazlicice({ vir: m.ime, opis: m.opis || "", ping: m.ms != null ? Math.round(m.ms) : null,
+                                              izbrana: !!m.izbrana },
+                                            oznake, function () { if (typeof m.odpri === "function") m.odpri(); }));
+      });
+      cilj.appendChild(seznam); cilj.hidden = false;
+    });
   }
   // rezerva: kaj narediti, ce naslova ni vec v katalogu (polica Priljubljene po ponovnem zagonu): predvajaj ga.
   function odpriKatalogPodrobnosti(id, rezerva) {
@@ -7298,7 +7398,7 @@
       info.appendChild(dejanjaPodrobnosti(item));
       hero.appendChild(info);
       narisiKjeGledati(item);
-      narisiVgrajeneMoznosti(item);
+      RAZL.podrobnosti = item;
       var seasons = $("mediaSezone"); seasons.innerHTML = "";
       var episodes = $("mediaEpizode"); episodes.innerHTML = "";
       var jeSerija = item.vrsta === "serija";
@@ -7313,6 +7413,15 @@
           else pojdi2(item.id);
         };
         episodes.appendChild(playBtn);
+        // Vse moznosti predvajanja na enem mestu: razlicice iz dodatkov in streznikov (ter lastni vgrajeni viri).
+        var seznamFilma = el("section", "kat-razlicice"); seznamFilma.hidden = true;
+        episodes.appendChild(seznamFilma);
+        var vnosFilma = item.tmdb_id ? klic("mediaFilm", [item.tmdb_id, item.naslov]).then(function (e) { return e && e.id ? e.id : item.id; },
+                                                                                              function () { return item.id; })
+                                     : Promise.resolve(item.id);
+        narisiRazlicice(seznamFilma, vnosFilma, item, 0, 0, function (vnosId) {
+          zapriKatalogPodrobnosti(); kat.vrsta = []; narisiVrsto(); odpriKatalogVnos(vnosId);
+        });
       } else {
         $("mediaEpizodeNaslov").textContent = t("katEpizode");
         (item.sezone || []).forEach(function (season, index) {
@@ -7404,7 +7513,8 @@
     return klic("mediaVgrajeniViri").then(function (r) {
       VGR.viri = (r && r.viri) || []; VGR.obvestilo = !!(r && r.obvestilo); VGR.ploscice = (r && r.ploscice) || [];
       narisiVgrajeneNastavitve(); narisiVgrajenePloscice();
-      if (VGR.podrobnosti && !$("mediaPodrobnosti").hidden) narisiVgrajeneMoznosti(VGR.podrobnosti);
+      // Meritve virov so se spremenile: odprt seznam moznosti v podrobnostih se narise znova (nedosegljivih ni).
+      if (RAZL.osvezi && !$("mediaPodrobnosti").hidden) RAZL.osvezi();
     }, function () {});
   }
   function vgrKnjiznica(ime) { return klic("mediaVgrajenaKnjiznica", [ime]); }
@@ -7428,48 +7538,28 @@
       SafeerVgrajeno.odpri({ url: m.url, title: m.ime + (naslov ? " · " + naslov : ""), allowFullscreen: true, allowPopups: !!m.pojavna });
     }, function () { vgrOdpri(moznosti, i + 1, naslov); });
   }
-  function vgrGumb(m, moznosti, item, sezona, epizoda, razred) {
-    var b = el("button", "gumb vgr-gumb" + (m.privzeta ? " glavni" : "") + (razred ? " " + razred : ""));
-    b.type = "button";
-    b.innerHTML = svg("predvajaj") + "<span>" + ubezi(t("vgrPredvajajPrek", { ime: m.ime })) + "</span>" +
-      (m.ms != null ? "<small>" + ubezi(t("vgrMs", { ms: Math.round(m.ms) })) + "</small>" : "");
-    if (m.tudi && m.tudi.length) b.title = t("vgrTudi", { imena: m.tudi.join(", ") });
-    b.addEventListener("click", function () {
-      // Rocna izbira (ne privzeta) se zapomni za ta naslov.
-      if (!m.privzeta) klic("mediaVgrajenaIzbira", [item, sezona || 0, epizoda || 0, m.id]);
-      var od = moznosti.indexOf(m);
-      var vrsta = [m].concat(moznosti.filter(function (x, j) { return j > od && x.vrsta === m.vrsta; }));
-      vgrOdpri(vrsta, 0, item.naslov + (sezona ? " · S" + String(sezona).padStart(2, "0") + "E" + String(epizoda).padStart(2, "0") : ""));
-    });
-    return b;
-  }
   function vgrImaPredloge() {
     return VGR.viri.some(function (v) { return v.vklopljen && !v.navadna; });
   }
-  function narisiVgrajeneMoznosti(item) {
-    VGR.podrobnosti = item;
-    var cilj = $("mediaVgrajeneMoznosti"); if (!cilj) return;
-    cilj.innerHTML = ""; cilj.hidden = true;
-    if (!vgrImaPredloge() || item.vrsta === "serija") return;     // pri seriji so gumbi pri vsaki epizodi
-    var zahteva = ++VGR.ura;
-    klic("mediaVgrajeneMoznosti", [item, 0, 0]).then(function (moznosti) {
-      if (zahteva !== VGR.ura || !Array.isArray(moznosti) || !moznosti.length) return;
-      cilj.appendChild(el("h3", "", ubezi(t("vgrNaslov")))).id = "mediaVgrajeneNaslov";
-      var prva = moznosti[0];
-      if (prva.ms != null) cilj.appendChild(el("p", "drobno", ubezi(t(prva.izbrana ? "vgrIzbran" : "vgrNajhitrejsi", { ime: prva.ime, ms: Math.round(prva.ms) }))));
-      var vrsta = el("div", "vgr-gumbi");
-      moznosti.forEach(function (m) { vrsta.appendChild(vgrGumb(m, moznosti, item, 0, 0)); });
-      cilj.appendChild(vrsta); cilj.hidden = false;
-    }, function () {});
-  }
-  function vgrGumbiEpizode(item, sezona, ep, vrstica) {
-    if (!vgrImaPredloge()) return;
-    klic("mediaVgrajeneMoznosti", [item, sezona, ep.stevilka]).then(function (moznosti) {
-      if (!Array.isArray(moznosti) || !moznosti.length || !document.contains(vrstica)) return;
-      var skupina = el("div", "vgr-gumbi vgr-epizoda");
-      moznosti.forEach(function (m) { skupina.appendChild(vgrGumb(m, moznosti, item, sezona, ep.stevilka, "vgr-majhen")); });
-      vrstica.appendChild(skupina);
-    }, function () {});
+  // Lastni vgrajeni viri so vrstice v istem seznamu kot razlicice dodatkov in streznikov (narisiRazlicice) - edino
+  // mesto za moznosti predvajanja v podrobnostih (lastnik, 15. 10. 2026: brez podvojenih gumbov). Nedosegljivih ni
+  // (core/os_vgrajeni_viri.moznosti_za); »Najhitrejsi« samo, ce je izmerjenih vec virov.
+  function vgrPonudnik(item, sezona, epizoda, naslov) {
+    if (!vgrImaPredloge()) return [];
+    return klic("mediaVgrajeneMoznosti", [item, sezona || 0, epizoda || 0]).then(function (moznosti) {
+      if (!Array.isArray(moznosti)) return [];
+      var izmerjeni = moznosti.filter(function (m) { return m.ms != null; }).length;
+      return moznosti.map(function (m, i) {
+        return { ime: m.ime, ms: m.ms, privzeta: !!m.privzeta, izbrana: !!m.izbrana,
+                 najhitrejsi: !!m.privzeta && !m.izbrana && m.ms != null && izmerjeni > 1,
+                 opis: m.tudi && m.tudi.length ? t("vgrTudi", { imena: m.tudi.join(", ") }) : "",
+                 odpri: function () {
+                   // Rocna izbira (ne privzeta) se zapomni za ta naslov; nedosegljiv vir zamenja naslednji iste vrste.
+                   if (!m.privzeta) klic("mediaVgrajenaIzbira", [item, sezona || 0, epizoda || 0, m.id]);
+                   vgrOdpri([m].concat(moznosti.filter(function (x, j) { return j > i && x.vrsta === m.vrsta; })), 0, naslov);
+                 } };
+      });
+    }, function () { return []; });
   }
   function narisiVgrajenePloscice() {
     var c = $("mediaVgrajenePloscice"); if (!c) return;
@@ -7586,6 +7676,7 @@
     }, function () { msg.textContent = t("niUspelo"); });
   }
   function poveziVgrajene() {
+    if (RAZL.ponudniki.indexOf(vgrPonudnik) < 0) RAZL.ponudniki.push(vgrPonudnik);
     if (!$("vgrObrazec") || !window.SafeerVgrajeno) return;
     SafeerVgrajeno.nastavi({ aktivno: function (da) { return klic("vgrajenoAktivno", [da]); },
                              besedila: { nazaj: t("nazaj"), celZaslon: t("vgrCelZaslon") } });

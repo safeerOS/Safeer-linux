@@ -1306,6 +1306,8 @@ class MediaCenter:
         self._secret_encryptor = secret_encryptor or _dpapi_protect
         self._secret_decryptor = secret_decryptor or _dpapi_unprotect
         self._server_cache: dict[str, tuple[float, list[dict]]] = {}
+        #: Zahteve virov, ki se tecejo (kljuc predpomnilnika -> nit): hitro tipkanje ne sprozi iste zahteve vecrat.
+        self._v_teku: dict = {}
         # Trajni predpomnilnik kataloga in podatkov TMDB: ob odprtju se prikaze takoj,
         # sveze podatke dobimo v ozadju (uporabnik ne caka na prazen zaslon).
         self._predpomnilnik: Optional[dict] = None
@@ -1454,11 +1456,12 @@ class MediaCenter:
             kljuc.append("radio-drzava:" + _drzava_radia(drzava_radia))
         return json.dumps(kljuc, ensure_ascii=False)
 
-    def _zapomni_katalog(self, kljuc: str, rezultat: dict) -> None:
+    def _zapomni_katalog(self, kljuc: str, rezultat: dict, cas: Optional[float] = None) -> None:
         shranjeno = {k: v for k, v in rezultat.items() if k not in ("viri", "mape", "kljuc", "iz_predpomnilnika", "osvezujem")}
         zdaj = time.time()
         with self._predpomnilnik_lock:
-            self._nalozi_predpomnilnik()["katalog"][kljuc] = {"cas": zdaj, "uporabljeno": zdaj, "rezultat": shranjeno}
+            self._nalozi_predpomnilnik()["katalog"][kljuc] = {"cas": zdaj if cas is None else cas, "uporabljeno": zdaj,
+                                                              "rezultat": shranjeno}
         self._shrani_predpomnilnik()
 
     def catalog_hitro(self, query: str = "", kind: str = "vse", genre: str = "", page: int = 1,
@@ -1499,10 +1502,49 @@ class MediaCenter:
                             kljuc=kljuc, iz_predpomnilnika=True, osvezujem=osvezi)
             # Pogled, shranjen pred to izdajo ali preden je bil dodatek spoznan kot zaseben, ga ne pokaze.
             return self._brez_zasebnih_rezultat(rezultat, kind)
-        rezultat = self.catalog(query, kind, genre, page, **moznosti)
+        self._iskanje_nit.cakajoci = cakajoci = []
+        try:
+            rezultat = self.catalog(query, kind, genre, page, **moznosti)
+        finally:
+            self._iskanje_nit.cakajoci = None
+        if cakajoci:
+            # Pocasni viri se niso odgovorili: pokazemo, kar je (prvi zadetki takoj), ostalo stran dobi z dogodkom.
+            # Delni pogled shranimo kot zastarel, da ga naslednje odprtje osvezi.
+            if rezultat.get("vnosi"):
+                self._zapomni_katalog(kljuc, rezultat, cas=0.0)
+            self._dokoncaj_v_ozadju(kljuc, cakajoci, rezultat, query, kind, genre, page, ob_osvezitvi, moznosti)
+            return dict(self._brez_zasebnih_rezultat(rezultat, kind), kljuc=kljuc, iz_predpomnilnika=False,
+                        osvezujem=True)
         if rezultat.get("vnosi"):
             self._zapomni_katalog(kljuc, rezultat)
         return dict(self._brez_zasebnih_rezultat(rezultat, kind), kljuc=kljuc, iz_predpomnilnika=False, osvezujem=False)
+
+    #: Najdlje toliko sekund cakamo v ozadju na pocasne vire iskanja (zahteve imajo svoj rok 10 s, dodatek z vec
+    #: katalogi pa vec zahtev).
+    DOKONCAJ_S = 45.0
+
+    def _dokoncaj_v_ozadju(self, kljuc: str, cakajoci: list, delni: dict, query: str, kind: str, genre: str,
+                           page: int, ob_osvezitvi, moznosti: dict) -> None:
+        drzava = self.izbrana_drzava
+
+        def delo() -> None:
+            from concurrent.futures import wait
+            wait(cakajoci, timeout=self.DOKONCAJ_S)
+            try:
+                self.izbrana_drzava = drzava
+                # Koncani viri so zdaj v svojih predpomnilnikih; kratek rok le za vir, ki se vedno tece.
+                self._iskanje_nit.rok = self.rok_vira or 2.5
+                svez = self.catalog(query, kind, genre, page, **(moznosti or {}))
+            except Exception:  # noqa: BLE001
+                return
+            if not svez.get("vnosi"):
+                return
+            self._zapomni_katalog(kljuc, svez)
+            if ob_osvezitvi is not None and self._odtis_vnosov(svez) != self._odtis_vnosov(delni):
+                ob_osvezitvi(kljuc, dict(self._brez_zasebnih_rezultat(svez, kind), kljuc=kljuc, iz_predpomnilnika=False,
+                                         osvezujem=False))
+
+        threading.Thread(target=delo, name="media-dokoncaj", daemon=True).start()
 
     @staticmethod
     def _odtis_vnosov(rezultat: Optional[dict]) -> str:
@@ -1520,6 +1562,7 @@ class MediaCenter:
         def delo() -> None:
             try:
                 self.izbrana_drzava = drzava
+                self._iskanje_nit.rok = None        # v ozadju pocakamo na vse vire
                 svez = self.catalog(query, kind, genre, page, **(moznosti or {}))
                 with self._predpomnilnik_lock:
                     star = (self._nalozi_predpomnilnik()["katalog"].get(kljuc) or {}).get("rezultat")
@@ -1548,6 +1591,7 @@ class MediaCenter:
                 if time.time() - float(zapis.get("cas") or 0) < self.SVEZE_SEKUND:
                     continue
                 try:
+                    self._iskanje_nit.rok = None    # predgretje v ozadju: vsi viri
                     rezultat = self.catalog("", vrsta, "", 1)
                     if rezultat.get("vnosi"):
                         self._zapomni_katalog(kljuc, rezultat)
@@ -2743,24 +2787,60 @@ class MediaCenter:
             self._tokovi_odgovor.vsi = False      # ni odgovor »tega ni« - ne skrije kartice za ure
             return []
         if len(koreni) == 1:
+            ime = next((str(x.get("ime") or "")[:60] for x in self._stremio_strezniki()
+                        if media_servers._stremio_koren(str(x.get("url") or "")) == koreni[0]), "")
             tokovi = vprasaj(koreni[0])
+            if ime:
+                tokovi = [dict(t, dodatek=ime) for t in tokovi]
             zapomni(koreni[0], tokovi)
             self._tokovi_odgovor.vsi = not izpadi
             return tokovi
-        from concurrent.futures import ThreadPoolExecutor
+        from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
         tokovi: list[dict] = []
         videni: set[str] = set()
-        with ThreadPoolExecutor(max_workers=min(6, len(koreni))) as bazen:
-            for k, izid in zip(koreni[:10], bazen.map(vprasaj, koreni[:10])):
-                zapomni(k, izid)
-                for t in izid:
-                    kljuc = str(t.get("url") or "") or ("torrent:%s:%s" % (t.get("hash") or "", t.get("indeks"))
-                                                         if t.get("torrent") else "")
-                    if kljuc not in videni:
-                        videni.add(kljuc)
-                        tokovi.append(t)
+        # Vsi dodatki hkrati. Ko ima kateri ze neposreden tok in je minil TOKOVI_ROK_S, ne cakamo na pocasne (meritev
+        # 15. 10. 2026: neodziven dodatek je Predvajaj zadrzal 10 s, ceprav je tok ze bil); ti stejejo kot izpad, zato
+        # naslov ne postane »ni na voljo«.
+        bazen = ThreadPoolExecutor(max_workers=min(10, len(koreni)))
+        niti = {bazen.submit(vprasaj, k): k for k in koreni[:10]}
+        zacetek = time.monotonic()
+        izidi: dict[str, list] = {}
+        try:
+            cakajo = set(niti)
+            while cakajo:
+                pretecen = time.monotonic() - zacetek
+                ima_tok = any(t.get("url") and not t.get("zunanje") for v in izidi.values() for t in v)
+                rok = (self.TOKOVI_ROK_S if ima_tok else self.TOKOVI_NAJDLJE_S) - pretecen
+                if rok <= 0:
+                    break
+                koncane, cakajo = wait(cakajo, timeout=rok, return_when=FIRST_COMPLETED)
+                for nit in koncane:
+                    izidi[niti[nit]] = nit.result() if nit.exception() is None else []
+            for nit in cakajo:
+                izpadi.append(niti[nit])
+        finally:
+            bazen.shutdown(wait=False)
+        # Ime dodatka, kot ga je poimenoval uporabnik (seznam razlicic v podrobnostih) - naslova dodatka ne.
+        imena = {media_servers._stremio_koren(str(x.get("url") or "")): str(x.get("ime") or "")[:60]
+                 for x in self._stremio_strezniki()}
+        for k in koreni[:10]:               # vrstni red dodatkov ostane (prvi je dodatek kartice)
+            izid = [dict(t, dodatek=imena.get(k) or "") if imena.get(k) else t for t in (izidi.get(k) or [])]
+            zapomni(k, izid)
+            for t in izid:
+                kljuc = str(t.get("url") or "") or ("torrent:%s:%s" % (t.get("hash") or "", t.get("indeks"))
+                                                     if t.get("torrent") else "")
+                if kljuc not in videni:
+                    videni.add(kljuc)
+                    tokovi.append(t)
         self._tokovi_odgovor.vsi = not izpadi
         return tokovi
+
+    #: Tokovi: ko kateri dodatek ze da tok, na ostale cakamo se najvec do toliko sekund od zacetka.
+    #: Meritev 15. 10. 2026 (10 dodatkov, 4 filmi x 3): vsi dodatki odgovorijo v 2,9-5,4 s, izjeme 7,7 in 10,1 s
+    #: (dodatek, ki ne odgovori). Pri 3 s je odpadla vecina razlicic (34 -> 1), pri 5 s ostanejo, izjeme pa odpadejo.
+    TOKOVI_ROK_S = 5.0
+    #: Brez nobenega toka cakamo do toliko sekund (zahteva dodatka ima svoj rok 10 s).
+    TOKOVI_NAJDLJE_S = 12.0
 
     def _stremio_vnosi(self, imdb: str, tmdb_id: int, kind: str, title: str, season: int = 0, episode: int = 0) -> list[dict]:
         """Vnosi za film/epizodo iz TMDB kataloga, ki jih zna predvajati kateri od uporabnikovih Stremio dodatkov.
@@ -2849,11 +2929,11 @@ class MediaCenter:
     #: osvezimo v ozadju (kot DNS »serve stale«), da Medijski center ne caka na pocasen dodatek.
     STREZNIK_SVEZE_S = 300
     STREZNIK_STARO_S = 6 * 60 * 60
-    STREZNIKI_HKRATI = 6
     #: Neodziven dodatek (testni PC 17. 10. 2026: manifest Iracemaflix vsakic 10 s do roka) si zapomnimo za toliko
     #: sekund z zadnjim znanim (ali praznim) odgovorom; nato ga osvezujemo samo se v ozadju.
     STREZNIK_NAPAKA_S = 120
-    #: Najdlje toliko cakamo na strezniike brez shranjenega odgovora; kar ne odgovori, se nalaga naprej v ozadju.
+    #: Brez roka iskanja (rok_vira) na streznike cakamo najvec toliko sekund; kar ne odgovori, se nalaga naprej v ozadju
+    #: in pride v predpomnilnik za naslednje iskanje.
     STREZNIKI_ROK_S = 4.0
 
     #: Odgovori TMDB in iskanja po strezniki, starejsi od tega, v pomnilniku niso vec uporabni (disk velja 24 h, sveze
@@ -2875,6 +2955,43 @@ class MediaCenter:
             if cas < meja and not kljuc.endswith(":"):
                 self._server_cache.pop(kljuc, None)
 
+    #: Iskanje in katalog cakata na vsak vir najvec toliko sekund (None = do konca, npr. osvezitev v ozadju in orodja;
+    #: osebni strezniki pa najvec STREZNIKI_ROK_S). Pocasni vir se konca v ozadju; njegove zadetke stran dobi z dogodkom
+    #: (catalog_hitro -> ob_osvezitvi). Meritev 15. 10. 2026 (testni racunalnik, 10 dodatkov): viri zaporedno 20-40 s,
+    #: en dodatek sam 11-20 s.
+    rok_vira: Optional[float] = None
+    #: Na nit: rok cakanja na vire in seznam nedokoncanih zahtev zadnjega kataloga (glej rok_vira).
+    _iskanje_nit = threading.local()
+    _v_teku_lock = threading.Lock()
+
+    def _rok_zdaj(self) -> Optional[float]:
+        rok = getattr(self._iskanje_nit, "rok", "privzeto")
+        return self.rok_vira if rok == "privzeto" else rok
+
+    def _rok_osebnih(self) -> Optional[float]:
+        """Rok za osebne vire: rok niti ali rok_vira, sicer STREZNIKI_ROK_S. Le osvezitev v ozadju (rok niti None) pocaka
+        vse - ne zadrzi nikogar, pogled pa je popoln."""
+        rok = getattr(self._iskanje_nit, "rok", "privzeto")
+        if rok != "privzeto":
+            return rok
+        return self.rok_vira if self.rok_vira is not None else self.STREZNIKI_ROK_S
+
+    def _vzporedno(self, delo, *args):
+        """Delo v skupnem bazenu virov (ena nit na vir); iste zahteve, ki se tecejo, se ne ponovijo."""
+        return _bazen_virov().submit(delo, *args)
+
+    def _cakaj(self, niti: list, rok: Optional[float]) -> list:
+        """Pocaka na niti najvec `rok` s; nedokoncane zabelezi (catalog_hitro jih dokonca v ozadju)."""
+        from concurrent.futures import wait
+        if not niti:
+            return []
+        _koncane, nekoncane = wait(niti, timeout=rok)
+        if nekoncane:
+            cakajoci = getattr(self._iskanje_nit, "cakajoci", None)
+            if isinstance(cakajoci, list):
+                cakajoci.extend(nekoncane)
+        return list(nekoncane)
+
     def _nalozi_streznik(self, provider: str, server: dict, server_query: str, key: str) -> list[dict]:
         secret = self._secret_decryptor(str(server.get("secret_enc") or ""))
         rows = media_servers.catalog(provider, str(server.get("url") or ""), server, secret, server_query)
@@ -2882,80 +2999,98 @@ class MediaCenter:
         self._pocisti_predpomnilnika()
         return rows
 
-    def _osvezi_streznik_v_ozadju(self, provider: str, server: dict, server_query: str, key: str) -> None:
-        osvezujem = self.__dict__.setdefault("_osvezujem_streznike", set())
-        with self._lock:
-            if key in osvezujem:
-                return
-            osvezujem.add(key)
-
-        def delo():
+    def _nalozi_enkrat(self, provider: str, server: dict, server_query: str, key: str, cakaj: bool = True) -> list[dict]:
+        """En prenos naenkrat na kljuc (hitro tipkanje, osvezitev v ozadju): ce isti ze tece, pocakamo njegov odgovor
+        (`cakaj`) ali odnehamo. Napaka velja kot odgovor za STREZNIK_NAPAKA_S (zadnji znani ali prazen): naslednja
+        iskanja ne cakajo znova do roka. Prenos se zabelezi sele, ko res tece - kdor caka, ne caka na nit v vrsti."""
+        from concurrent.futures import Future
+        if not isinstance(getattr(self, "_v_teku", None), dict):
+            self._v_teku = {}
+        with self._v_teku_lock:
+            tece = self._v_teku.get(key)
+            lastna = tece is None
+            if lastna:
+                tece = self._v_teku[key] = Future()
+        if not lastna:
+            return tece.result() if cakaj else []
+        rows: list = []
+        try:
             try:
-                self._nalozi_streznik(provider, server, server_query, key)
-            except Exception:  # noqa: BLE001 - ostane zadnji znani odgovor
-                pass
-            finally:
-                with self._lock:
-                    osvezujem.discard(key)
-        threading.Thread(target=delo, name="safeer-streznik-osvezi", daemon=True).start()
+                rows = self._nalozi_streznik(provider, server, server_query, key)
+            except Exception:  # noqa: BLE001
+                cached = self._server_cache.get(key)
+                rows = cached[1] if cached else []
+                self._server_cache[key] = (time.time() - self.STREZNIK_SVEZE_S + self.STREZNIK_NAPAKA_S, rows)
+        finally:
+            with self._v_teku_lock:
+                self._v_teku.pop(key, None)
+            tece.set_result(rows)
+        return rows
+
+    def _osvezi_streznik_v_ozadju(self, provider: str, server: dict, server_query: str, key: str) -> None:
+        self._vzporedno(self._nalozi_enkrat, provider, server, server_query, key, False)
+
+    def _vrstice_streznika(self, server: dict, query: str, zasebni: bool) -> list[dict]:
+        """Vrstice enega osebnega vira (nit v skupnem bazenu): zasebnost (lahko prebere manifest) in prenos v niti
+        streznika, da mrtev dodatek ne zadrzi drugih."""
+        if self.zaseben_streznik(server) != zasebni:
+            return []
+        provider = str(server.get("ponudnik") or "")
+        server_id = str(server.get("id") or "")
+        server_query = query if provider in ("navidrome", "funkwhale") else ""
+        key = server_id + ":" + server_query.casefold()
+        cached = self._server_cache.get(key)
+        now = time.time()
+        if cached and now - cached[0] < self.STREZNIK_SVEZE_S:
+            rows = cached[1]
+        elif cached and now - cached[0] < self.STREZNIK_STARO_S:
+            rows = cached[1]
+            self._osvezi_streznik_v_ozadju(provider, server, server_query, key)
+        else:
+            rows = self._nalozi_enkrat(provider, server, server_query, key)
+        if query and provider not in ("navidrome", "funkwhale"):
+            rows = [item for item in rows if media_servers.ujema_iskanje(item, query)]
+        return rows
+
+    def _znane_vrstice(self, server: dict, query: str, zasebni: bool) -> list[dict]:
+        """Vir, ki do roka ni odgovoril: zadnji znani zadetki (brez omrezja), sveze pridejo z dogodkom."""
+        if self._zaseben_brez_omrezja(server) != zasebni:
+            return []
+        provider = str(server.get("ponudnik") or "")
+        server_query = query if provider in ("navidrome", "funkwhale") else ""
+        sid = str(server.get("id") or "")
+        znano = self._server_cache.get(sid + ":" + server_query.casefold()) or self._server_cache.get(sid + ":")
+        vrstice = list(znano[1]) if znano else []
+        if query:
+            vrstice = [item for item in vrstice if media_servers.ujema_iskanje(item, query)]
+        return vrstice
 
     def _personal_items(self, query: str, zasebni: bool = False) -> list[dict]:
-        """Vnosi osebnih virov. Zasebni dodatki so posebej: `zasebni=True` vrne samo njihove (kategorija »Zasebno«)."""
+        """Vnosi osebnih virov, vsi hkrati (prej zaporedno - iskanje je cakalo na vsoto vseh), najvec _rok_osebnih() s;
+        vrstni red streznikov ostane. Zasebni dodatki so posebej: `zasebni=True` vrne samo njihove (kategorija
+        »Zasebno«)."""
         with self._lock:
             servers = [s for s in self._load().get("osebni_strezniki", []) if isinstance(s, dict)]
         zasebni = bool(zasebni)
-        now = time.time()
-
-        def vrstice_streznika(server: dict) -> list[dict]:
-            # Zasebnost (lahko prebere manifest) v niti streznika: mrtev dodatek ne zadrzi drugih.
-            if self.zaseben_streznik(server) != zasebni:
-                return []
-            provider = str(server.get("ponudnik") or "")
-            server_id = str(server.get("id") or "")
-            server_query = query if provider in ("navidrome", "funkwhale") else ""
-            key = server_id + ":" + server_query.casefold()
-            cached = self._server_cache.get(key)
-            if cached and now - cached[0] < self.STREZNIK_SVEZE_S:
-                rows = cached[1]
-            elif cached and now - cached[0] < self.STREZNIK_STARO_S:
-                rows = cached[1]
-                self._osvezi_streznik_v_ozadju(provider, server, server_query, key)
+        niti = [self._vzporedno(self._vrstice_streznika, server, query, zasebni) for server in servers]
+        javni = [s for s in servers if not self._zaseben_brez_omrezja(s)]
+        cinemeta = self._vzporedno(self._cinemeta_items, javni, [], query) if javni and not zasebni else None
+        self._cakaj(niti + ([cinemeta] if cinemeta else []), self._rok_osebnih())
+        result = []
+        for server, nit in zip(servers, niti):
+            if nit.done() and nit.exception() is None:
+                result.extend(nit.result())
             else:
-                try:
-                    rows = self._nalozi_streznik(provider, server, server_query, key)
-                except Exception:  # noqa: BLE001
-                    rows = cached[1] if cached else []
-                    # Napaka velja kot odgovor za STREZNIK_NAPAKA_S: naslednja iskanja ne cakajo znova do roka.
-                    self._server_cache[key] = (time.time() - self.STREZNIK_SVEZE_S + self.STREZNIK_NAPAKA_S, rows)
-            if query and provider not in ("navidrome", "funkwhale"):
-                rows = [item for item in rows if media_servers.ujema_iskanje(item, query)]
-            return rows
-
-        # Strezniki hkrati (prej zaporedno: vsak pocasen dodatek je podaljsal iskanje); vrstni red ostane.
-        if len(servers) > 1:
-            import concurrent.futures
-            izvajalec = concurrent.futures.ThreadPoolExecutor(max_workers=self.STREZNIKI_HKRATI,
-                                                              thread_name_prefix="safeer-streznik")
-            prihodnosti = [izvajalec.submit(vrstice_streznika, server) for server in servers]
-            concurrent.futures.wait(prihodnosti, timeout=self.STREZNIKI_ROK_S)
-            # Kar ne odgovori pravocasno, se dokonca v ozadju in pride v predpomnilnik za naslednje iskanje.
-            izvajalec.shutdown(wait=False)
-            po_streznikih = []
-            for server, prihodnost in zip(servers, prihodnosti):
-                if prihodnost.done() and not prihodnost.exception():
-                    po_streznikih.append(prihodnost.result())
-                else:
-                    znano = self._server_cache.get(str(server.get("id") or "") + ":")
-                    vrstice = list(znano[1]) if znano and self._zaseben_brez_omrezja(server) == zasebni else []
-                    if query:
-                        vrstice = [item for item in vrstice if media_servers.ujema_iskanje(item, query)]
-                    po_streznikih.append(vrstice)
-        else:
-            po_streznikih = [vrstice_streznika(server) for server in servers]
-        result = [vrstica for vrstice in po_streznikih for vrstica in vrstice]
-        if not zasebni:
-            result.extend(self._cinemeta_items([s for s in servers if not self._zaseben_brez_omrezja(s)], result, query))
+                result.extend(self._znane_vrstice(server, query, zasebni))
+        if cinemeta is not None and cinemeta.done() and cinemeta.exception() is None and not self._ima_katalog_tt(result):
+            result.extend(cinemeta.result())
         return result
+
+    @staticmethod
+    def _ima_katalog_tt(vrstice: list) -> bool:
+        """Katalog dodatka ze daje filme/serije z id-ji IMDb: Cinemete ne dodajamo."""
+        return any(isinstance(x, dict) and x.get("stremio") and str(x.get("imdb_id") or "").startswith("tt")
+                   and x.get("vrsta") in ("film", "serija") for x in vrstice)
 
     def _cinemeta_items(self, servers: list, vrstice: list, query: str) -> list[dict]:
         """Katalog filmov in serij (Cinemeta - samo podatki o naslovih, tokove dajo uporabnikovi dodatki), kadar ima
@@ -2963,8 +3098,7 @@ class MediaCenter:
         kot Safeer OS na Androidu (Stremio.zKatalogom). Uporabnik doda dodatek in pozabi nanj: filmi in serije se
         pokazejo, kar noben dodatek ne predvaja, skrije preverba razpolozljivosti."""
         # Samo katalogi dodatkov: naslovi z id-ji IMDb z osebnega strežnika (Jellyfin) Cinemete ne nadomestijo.
-        if any(isinstance(x, dict) and x.get("stremio") and str(x.get("imdb_id") or "").startswith("tt")
-               and x.get("vrsta") in ("film", "serija") for x in vrstice):
+        if self._ima_katalog_tt(vrstice):
             return []
         stremio = [s for s in servers if isinstance(s, dict) and s.get("ponudnik") == "stremio" and s.get("url")
                    and media_servers._stremio_koren(str(s.get("url"))) != media_servers._stremio_koren(media_servers.CINEMETA)]
@@ -4093,28 +4227,38 @@ class MediaCenter:
         glasbena = kind in ("glasba", "radio") and _text(genre, 20) in zakoniti_viri.GLASBENE_ZVRSTI
         embed_ids = {str(provider.get("id") or host) for provider, _parsed, host in self._embed_viri(data)}
         tmdb_izklopljen = bool(embed_ids) and embed_ids <= izklopljeni
-        dynamic, tmdb_pages = ([], 1) if (glasbena or tmdb_izklopljen) else (
-            self._tmdb_catalog(data, _text(query, 120), kind, _text(genre, 20), page_num, razvrsti, jezik)
-            if self._ima_embed_vir(data) else ([], 1))
         # Javni katalogi imajo svoj 30-minutni cache in se napake posameznega API-ja
         # ne smejo prenesti v glavni katalog.
         configured_hosts = [str(source.get("url") or "") for source in data.get("viri", [])
                             if isinstance(source, dict) and source.get("url")]
         vrsta_virov = "" if kind in ("", "vse") else kind
-        # Javni viri in osebni (dodatki Stremio, Cinemeta, strezniki) hkrati, ne zaporedno: prvi katalog filmov na
-        # prenosniku z 10 dodatki 4,9 s -> priblizno najpocasnejsi vir (meritev 14. 10. 2026).
-        from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=2) as _vzporedno:
-            _osebni = _vzporedno.submit(self._personal_items, _text(query, 120))
-            lawful = (self._zakoniti_viri.get(_text(query, 120), configured_hosts, _text(genre, 20), jezik,
-                                              vrsta=vrsta_virov, drzava_radia=drzava_radia) if glasbena
-                      else self._zakoniti_viri.get(_text(query, 120), configured_hosts, "", jezik,
-                                                   filmska_zvrst=_text(genre, 20) if kind in ("film", "vse") else "",
-                                                   vrsta=vrsta_virov, drzava_radia=drzava_radia))
-            try:
-                _osebni_vnosi = _osebni.result()
-            except Exception:  # noqa: BLE001 - en vir ne sme podreti kataloga
-                _osebni_vnosi = []
+        # TMDB, javni viri in osebni (dodatki Stremio, Cinemeta, strezniki) hkrati, vsak najvec rok_vira s: pocasen vir
+        # ne zadrzi prvih zadetkov (meritev 15. 10. 2026: iskanje 20-40 s, ker so osebni viri sli eden za drugim).
+        rok = self._rok_zdaj()
+        zacetek_virov = time.monotonic()
+        nit_tmdb = None if (glasbena or tmdb_izklopljen or not self._ima_embed_vir(data)) else self._vzporedno(
+            self._tmdb_catalog, data, _text(query, 120), kind, _text(genre, 20), page_num, razvrsti, jezik)
+        nit_javni = (self._vzporedno(lambda: self._zakoniti_viri.get(
+                         _text(query, 120), configured_hosts, _text(genre, 20), jezik, vrsta=vrsta_virov,
+                         drzava_radia=drzava_radia)) if glasbena
+                     else self._vzporedno(lambda: self._zakoniti_viri.get(
+                         _text(query, 120), configured_hosts, "", jezik,
+                         filmska_zvrst=_text(genre, 20) if kind in ("film", "vse") else "",
+                         vrsta=vrsta_virov, drzava_radia=drzava_radia)))
+        try:
+            _osebni_vnosi = self._personal_items(_text(query, 120))   # sam caka najvec rok_vira s
+        except Exception:  # noqa: BLE001 - en vir ne sme podreti kataloga
+            _osebni_vnosi = []
+        # En skupen rok za vse vire (osebni so ga ze porabili del): prvi zadetki najkasneje po rok_vira s.
+        self._cakaj([n for n in (nit_tmdb, nit_javni) if n is not None],
+                    None if rok is None else max(0.0, rok - (time.monotonic() - zacetek_virov)))
+
+        def izid(nit, privzeto):
+            if nit is None or not nit.done() or nit.exception() is not None:
+                return privzeto
+            return nit.result()
+        dynamic, tmdb_pages = izid(nit_tmdb, ([], 1))
+        lawful = list(izid(nit_javni, []) or [])
         if glasbena:
             # Pri zvrsti pokazemo samo zadetke te zvrsti, ne tudi krajevnih datotek in osebnih virov.
             local, remote = [], []
@@ -4454,17 +4598,36 @@ class MediaCenter:
     #: in orodja brez omrezja ostanejo brez zahtev.
     preveri_tokove = False
 
+    #: Izid sonde toka velja toliko sekund: drugi klic Predvajaj (ali podrobnosti, nato Predvajaj) istega naslova ne
+    #: sprasuje znova - streznik toka dobi eno zahtevo manj.
+    SONDA_VELJA = 60.0
+
+    def _sonda(self, tok: dict) -> bool:
+        url = str(tok.get("url") or "")
+        if not hasattr(self, "_sonde"):
+            self._sonde: dict[str, tuple[float, bool]] = {}
+        zdaj = time.time()
+        znano = self._sonde.get(url)
+        if znano and zdaj - znano[0] < self.SONDA_VELJA:
+            return znano[1]
+        ok = media_servers.tok_stanje(url, tok.get("glave"))[0]
+        if len(self._sonde) > 500:
+            self._sonde.clear()
+        self._sonde[url] = (zdaj, ok)
+        return ok
+
     def _zivi_naprej(self, tokovi: list) -> list:
-        """Prvi tok mora res odgovoriti: prve tri vprasamo hkrati (zahteva prvih bajtov, core/media_servers.tok_odgovarja)
-        in na prvo mesto damo najboljsega, ki odgovori - mrtva povezava (izbrisana, zavrnjena, potekla brez roka v
-        naslovu) tako ne pride do predvajalnika. Ce ne odgovori nobeden, vrstni red ostane (predvajalnik pove napako)."""
+        """Prvi tok mora res odgovoriti: prve tri vprasamo hkrati (zahteva prvih bajtov z glavami toka,
+        core/media_servers.tok_stanje) in na prvo mesto damo najboljsega, ki odgovori - mrtva povezava (izbrisana,
+        zavrnjena, potekla brez roka v naslovu) tako ne pride do predvajalnika. Ce ne odgovori nobeden, vrstni red ostane
+        (predvajalnik tiho poskusi razlicice in napako pove sele, ko ne dela nobena)."""
         if not self.preveri_tokove or len(tokovi) < 2:
             return tokovi
         from concurrent.futures import ThreadPoolExecutor
         kandidati = tokovi[:3]
         bazen = ThreadPoolExecutor(max_workers=len(kandidati))
         try:
-            niti = [bazen.submit(media_servers.tok_odgovarja, str(t.get("url") or ""), t.get("glave")) for t in kandidati]
+            niti = [bazen.submit(self._sonda, t) for t in kandidati]
             for i, nit in enumerate(niti):
                 try:
                     ok = bool(nit.result(timeout=5))
@@ -4475,6 +4638,181 @@ class MediaCenter:
         finally:
             bazen.shutdown(wait=False)
         return tokovi
+
+    # --- razlicice naslova (podrobnosti filma ali epizode: uporabnik lahko izbere drug vir) -----------------------------
+    @staticmethod
+    def _podpis_razlicice(r: dict) -> str:
+        """Stalna oznaka razlicice: dodatek ali vir, kakovost in gostitelj - ne naslov (podpisani naslovi potecejo)."""
+        gost = urllib.parse.urlsplit(str(r.get("url") or "")).hostname or ""
+        deli = [str(r.get("dodatek") or r.get("vir") or ""), str(r.get("opis") or r.get("kakovost") or "")[:80],
+                hashlib.sha1(gost.encode("utf-8"), usedforsecurity=False).hexdigest()[:8]]
+        return hashlib.sha1("|".join(deli).encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
+
+    @staticmethod
+    def _kljuc_naslova(item: dict) -> str:
+        """Naslov za zapomnjeno izbiro: film po TMDB/IMDb, epizoda po id-ju dodatka (tt..:sezona:epizoda)."""
+        for u in [str(item.get("url") or "")] + [str(v.get("url") or "") for v in (item.get("razlicice") or []) if isinstance(v, dict)]:
+            if u.startswith("stremio:"):
+                _koren, tip, ident = (u[len("stremio:"):].split("|") + ["", ""])[:3]
+                if tip and ident:
+                    return "stremio:%s:%s" % (tip, ident)
+        if int(item.get("tmdb_id") or 0):
+            return "tmdb:%s:%s:%s:%s" % (item.get("vrsta") or "", item.get("tmdb_id"), item.get("sezona") or 0, item.get("epizoda") or 0)
+        if str(item.get("imdb_id") or "").startswith("tt"):
+            return "imdb:" + str(item["imdb_id"])
+        return "id:" + str(item.get("id") or "") if item.get("id") else ""
+
+    def _izbire_razlicic(self) -> dict:
+        if getattr(self, "_izbire", None) is None:
+            try:
+                data = json.loads((self.config_dir / "izbrane-razlicice.json").read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                data = {}
+            self._izbire = {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+        return self._izbire
+
+    def izberi_razlicico(self, item_id: str, podpis: str) -> bool:
+        """Rocna izbira razlicice za ta naslov (zapomni se); privzeta (samodejna) izbiro pobrise."""
+        item = self._dynamic_items.get(item_id)
+        if not isinstance(item, dict):
+            return False
+        kljuc = self._kljuc_naslova(item)
+        if not kljuc:
+            return False
+        razlicice = [r for r in (item.get("razlicice") or []) if isinstance(r, dict)]
+        if podpis and not any(self._podpis_razlicice(r) == podpis for r in razlicice):
+            return False
+        with self._lock:
+            izbire = self._izbire_razlicic()
+            samodejna = razlicice and self._podpis_razlicice(razlicice[0]) == podpis and not item.get("izbrana_razlicica")
+            if not podpis or samodejna:
+                izbire.pop(kljuc, None)
+            else:
+                izbire[kljuc] = podpis
+            while len(izbire) > 500:
+                izbire.pop(next(iter(izbire)))
+            try:
+                self.config_dir.mkdir(parents=True, exist_ok=True)
+                (self.config_dir / "izbrane-razlicice.json").write_text(json.dumps(izbire), encoding="utf-8")
+            except OSError:
+                pass
+        # Naslednji Predvajaj uporabi izbiro (razresen vnos ostane, uredi ga uporabi_izbiro).
+        self._dynamic_items[item_id] = dict(item, izbrana_razlicica="")
+        return True
+
+    def uporabi_izbiro(self, item: Optional[dict]) -> Optional[dict]:
+        """Zapomnjena rocna izbira gre na prvo mesto (ce je razlicica se med ponujenimi); sicer ostane samodejna."""
+        if not isinstance(item, dict):
+            return item
+        razlicice = [r for r in (item.get("razlicice") or []) if isinstance(r, dict)]
+        podpis = self._izbire_razlicic().get(self._kljuc_naslova(item)) if razlicice else None
+        if not podpis:
+            return item
+        izbrana = next((r for r in razlicice if self._podpis_razlicice(r) == podpis), None)
+        if izbrana is None or not str(izbrana.get("url") or "").startswith(("http://", "https://")):
+            return item
+        out = dict(item, razlicice=[izbrana] + [r for r in razlicice if r is not izbrana], url=izbrana["url"],
+                   izbrana_razlicica=podpis)
+        if izbrana.get("glave"):
+            out["glave"] = dict(izbrana["glave"])
+        elif "glave" in out and izbrana.get("tok"):
+            out.pop("glave", None)
+        return out
+
+    def _ping_ms(self, url: str) -> Optional[float]:
+        """Zadnji izmerjeni odziv gostitelja (ms) ali None - zbirka meritev core/meritve_virov.py (ista kot za lastne
+        vgrajene vire)."""
+        try:
+            return self._meritve.ms(str(url))
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _dodaj_toke_dodatkov(self, item_id: str, izvirni: Optional[dict], item: dict) -> dict:
+        """Kartica z lastnim strežnikom se predvaja takoj (resolve ne caka na dodatke), zato toki dodatkov iste vsebine
+        pridejo sele za seznam v podrobnostih: za lastnimi, kot rezerva ob Predvajaj (tiha zamenjava)."""
+        if not item.get("lastni") or item.get("toki_dodatkov") or not isinstance(izvirni, dict):
+            return item
+        stremio_url = next((str(v.get("url")) for v in (izvirni.get("razlicice") or [])
+                            if isinstance(v, dict) and str(v.get("url") or "").startswith("stremio:")), "")
+        if not stremio_url:
+            return item
+        koren, tip, ident = (stremio_url[len("stremio:"):].split("|") + ["", ""])[:3]
+        try:
+            tokovi = self._stremio_tokovi_vseh(koren, tip, ident)
+        except Exception:  # noqa: BLE001
+            tokovi = []
+        neposredni = [dict(t, tok=True) for t in tokovi if t.get("url") and not t.get("zunanje")
+                      and (t["url"].startswith("https://") or media_servers.dovoljen_naslov(t["url"]))]
+        neposredni = tok_izbira.uredi(neposredni, lambda t: str(t.get("opis") or "%s %s" % (t.get("vir", ""), t.get("kakovost", ""))),
+                                      tok_izbira.Zmoznosti(visina=int(getattr(self, "visina_zaslona", 0) or 1080)),
+                                      naslov=lambda t: str(t.get("url") or ""), **self._jezik_zvoka(item))
+        obstojeci = {str(r.get("url")) for r in (item.get("razlicice") or []) if isinstance(r, dict)}
+        dodani = [t for t in neposredni[:10] if t["url"] not in obstojeci]
+        out = dict(item, razlicice=list(item.get("razlicice") or []) + dodani, toki_dodatkov=True)
+        out["stevilo_razlicic"] = len(out["razlicice"])
+        self._dynamic_items[item_id] = out
+        return out
+
+    def razlicice_naslova(self, item_id: str) -> dict:
+        """Razlicice za seznam v podrobnostih: ime vira (dodatek ali streznik, ki ga je dodal uporabnik), kakovost,
+        izmerjen odziv gostitelja. Mrtvih (sonda pred predvajanjem jih je zavrnila) ni. Prva je privzeta (samodejna)."""
+        izvirni = self._dynamic_items.get(item_id)
+        item = self.resolve(item_id, pripravi_torrent=False)
+        if not isinstance(item, dict) or item.get("napaka_koda") or item.get("napaka"):
+            return {"id": item_id, "razlicice": []}
+        item = self._dodaj_toke_dodatkov(item_id, izvirni, item)
+        samodejno = [r for r in (item.get("razlicice") or []) if isinstance(r, dict)
+                     and str(r.get("url") or "").startswith(("http://", "https://"))]
+        if self.preveri_tokove:
+            # Lastni strežnik je vedno privzet (lastnik): tudi njega vprasamo, ali odgovori - nedosegljiv ni na seznamu,
+            # privzeta (in Predvajaj) je naslednja razlicica.
+            from concurrent.futures import wait
+            lastni = [r for r in samodejno if r.get("lastni")][:3]
+            if lastni:
+                wait([_bazen_virov().submit(self._sonda, r) for r in lastni], timeout=4.5)
+        sonde = getattr(self, "_sonde", {})
+
+        def ziva(r: dict) -> bool:
+            sonda = sonde.get(str(r.get("url")))
+            if sonda is not None:
+                return sonda[1]             # sonda tik pred tem (z glavami toka) ima prednost
+            try:
+                return not self._meritve.nedosegljiv(str(r.get("url")))
+            except Exception:  # noqa: BLE001
+                return True
+        zive = [r for r in samodejno if ziva(r)]
+        if zive and samodejno and zive[0] is not samodejno[0]:
+            # Prva (samodejna) razlicica ne odgovori: Predvajaj zacne z naslednjo zivo, ostale ostanejo za tiho zamenjavo.
+            mrtve = [r for r in samodejno if r not in zive]
+            prva = zive[0]
+            popravljen = dict(item, url=prva["url"], razlicice=zive + mrtve)
+            if prva.get("glave"):
+                popravljen["glave"] = dict(prva["glave"])
+            else:
+                popravljen.pop("glave", None)
+            self._dynamic_items[item_id] = popravljen
+        gostitelji = {urllib.parse.urlsplit(str(r["url"])).hostname: r["url"] for r in zive}
+        neznani = [u for u in gostitelji.values() if self._ping_ms(u) is None or self._meritve.zastarelo(u)]
+        if neznani:
+            from concurrent.futures import wait
+            wait([_bazen_virov().submit(self._izmeri_ping, u) for u in neznani[:8]], timeout=1.0)
+        izbira = self._izbire_razlicic().get(self._kljuc_naslova(item), "")
+        pingi = [self._ping_ms(r["url"]) for r in zive]
+        # »Najhitrejsi« ima smisel samo med vec streznikov: oznaci prvo razlicico najhitrejsega gostitelja.
+        po_gostiteljih = {urllib.parse.urlsplit(str(r["url"])).hostname: p for r, p in zip(zive, pingi) if p is not None}
+        najhitrejsi_i = -1
+        if len(po_gostiteljih) > 1:
+            najhitrejsi_i = min((i for i, p in enumerate(pingi) if p is not None), key=lambda i: (pingi[i], i))
+        izhod = []
+        for i, (r, ping) in enumerate(zip(zive, pingi)):
+            podpis = self._podpis_razlicice(r)
+            kakovost = str(r.get("kakovost") or "") or (_quality_label(int(r.get("locljivost") or 0)) if r.get("locljivost") else "")
+            izhod.append({"podpis": podpis, "vir": str(r.get("dodatek") or r.get("vir") or "")[:60],
+                          "opis": str(r.get("opis") or "").split("\n")[0][:80], "kakovost": kakovost[:20],
+                          "ping": None if ping is None else round(ping), "privzeta": i == 0,
+                          "najhitrejsi": i == najhitrejsi_i,
+                          "izbrana": bool(izbira) and podpis == izbira, "lastni": bool(r.get("lastni"))})
+        return {"id": item_id, "razlicice": izhod, "izbira": bool(izbira) and any(x["izbrana"] for x in izhod)}
 
     def tokovi_postaje(self, item_id: str) -> list[dict]:
         """Programi radijske postaje (Rock Radio: Best Ballads, Hard & Heavy ...) kot vnosi, ki jih resolve() pozna."""
@@ -4527,7 +4865,8 @@ class MediaCenter:
         if stremio_url:
             koren, tip, ident = (stremio_url[len("stremio:"):].split("|") + ["", ""])[:3]
             tokovi = self._stremio_tokovi_vseh(koren, tip, ident)
-            neposredni = [t for t in tokovi if t.get("url") and not t.get("zunanje")
+            # tok=True: neposreden tok dodatka (tudi brez koncnice) - predvajalnik ga sme tiho poskusiti kot razlicico.
+            neposredni = [dict(t, tok=True) for t in tokovi if t.get("url") and not t.get("zunanje")
                           and (t["url"].startswith("https://") or media_servers.dovoljen_naslov(t["url"]))]
             # Najboljsi tok za to napravo na prvo mesto (film se zacne takoj, brez izbiranja); ostali ostanejo kot razlicice.
             # Steje tudi rok veljavnosti povezave: potekla (dodatek jo ponudi iz predpomnilnika) je zadnja, mrtva ne pride
@@ -4701,6 +5040,13 @@ class MediaCenter:
         # Skupno pravilo (meritve_virov.razvrsti): lastni strežnik, nato dosegljivi po zapomnjenem odzivu, neizmerjeni,
         # nedosegljivi; znotraj enakih kakovost. Neizmerjene in zastarele izmerimo v ozadju za naslednjic.
         urejene = meritve_virov.razvrsti([dict(v) for v in variants], self._meritve)
+        # Razlicica, ki na sondo pred kratkim ni odgovorila (tudi lastni strežnik), gre na konec: ostane le kot rezerva.
+        sonde, zdaj = getattr(self, "_sonde", {}), time.time()
+
+        def mrtva(v: dict) -> bool:
+            z = sonde.get(str(v.get("url") or ""))
+            return bool(z) and not z[1] and zdaj - z[0] < self.SONDA_VELJA
+        urejene = [v for v in urejene if not mrtva(v)] + [v for v in urejene if mrtva(v)]
         zastarele = [str(v.get("url") or "") for v in variants if self._meritve.zastarelo(str(v.get("url") or ""))]
         if zastarele:
             self._meritve.izmeri_v_ozadju(zastarele)
@@ -4712,6 +5058,21 @@ class MediaCenter:
         out["izbran_ping_ms"] = ping
         out["izbran_vir"] = best.get("vir", out.get("vir", ""))
         return out
+
+
+_bazen = None
+_bazen_lock = threading.Lock()
+
+
+def _bazen_virov():
+    """Skupen bazen niti za vire kataloga (dodatki, strezniki, javni viri, TMDB). Nit, ki caka na pocasen vir, ne
+    zadrzi iskanja; omejitev 16 hkratnih zahtev varuje omrezje in streznike."""
+    global _bazen
+    with _bazen_lock:
+        if _bazen is None:
+            from concurrent.futures import ThreadPoolExecutor
+            _bazen = ThreadPoolExecutor(max_workers=16, thread_name_prefix="media-vir")
+        return _bazen
 
 
 _default_center: Optional[MediaCenter] = None

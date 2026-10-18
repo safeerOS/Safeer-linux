@@ -30,6 +30,12 @@ class Skladba:
     oznaka: str = ""
     #: Naslov datoteke na tisti napravi (https://.../d/<oznaka>) - uri zgoraj je lokalni posrednik 127.0.0.1.
     izvirnik: str = ""
+    #: Glave HTTP, ki jih streznik toka zahteva (dodatek jih poda ob toku, npr. Referer): ((ime, vrednost), ...).
+    #: Brez njih nekateri strezniki toka vrnejo 429/403, ceprav tok dela (meritev 15. 10. 2026).
+    glave: tuple = ()
+    #: Druge razlicice istega naslova: ((uri, glave), ...). Ce se tok ne odpre (4xx, 5xx, cas, stran HTML), predvajalnik
+    #: tiho poskusi naslednjo; napako pokaze sele, ko ne dela nobena.
+    nadomestni: tuple = ()
 
 
 #: Kode napak predvajanja; stran jih prevede (mediaNapaka_<koda>), okno predvajalnika uporabi NAPAKE.
@@ -83,6 +89,46 @@ def medij(uri: str, vrsta: str = "medij") -> Skladba:
         if pot.is_file():
             return Skladba(pot.resolve().as_uri(), pot.name, vrsta)
     raise ValueError("Medij mora biti spletni tok ali obstoječa lokalna datoteka")
+
+
+#: Glave, ki jih tok sme nastaviti: samo javne (Referer, Origin ...), nikoli prijava ali piskotki. GStreamer pred 1.28.7
+#: (GStreamer-SA-2026-0080; runtime ima 1.26.11) ob preusmeritvi na drug izvor poslje extra-headers naprej - zato v njih
+#: ni nicesar skrivnega (tests/test_prijava_streznikov.py). Host/Range doloci GStreamer sam.
+_DOVOLJENE_GLAVE = {"referer", "origin", "user-agent", "accept", "accept-language", "x-requested-with"}
+
+
+def cisti_glave(glave) -> tuple:
+    """dict ali pari -> ((ime, vrednost), ...) brez nedovoljenih glav in brez prelomov vrstic."""
+    pari = glave.items() if isinstance(glave, dict) else (glave or ())
+    izid = []
+    for par in list(pari)[:12]:
+        try:
+            ime, vrednost = (str(x or "") for x in par)
+        except (TypeError, ValueError):
+            continue
+        if ime.lower() in _DOVOLJENE_GLAVE and "\n" not in vrednost and "\r" not in vrednost:
+            izid.append((ime[:64], vrednost[:2048]))
+    return tuple(izid)
+
+
+def cisti_nadomestne(nadomestni) -> tuple:
+    """Samo naslovi http(s), najvec 12."""
+    izid = []
+    for n in list(nadomestni or ())[:12]:
+        try:
+            uri, glave = (n[0], n[1]) if isinstance(n, (tuple, list)) else (n.get("url"), n.get("glave"))
+        except (AttributeError, IndexError, TypeError):
+            continue
+        if urlsplit(str(uri or "")).scheme in ("http", "https"):
+            izid.append((str(uri), cisti_glave(glave)))
+    return tuple(izid)
+
+
+def status_napake(razhroscevanje: str) -> int:
+    """HTTP koda iz sporocila souphttpsrc (»... (429), URL: ...«); 0 = ni znana."""
+    import re
+    m = re.search(r"\((\d{3})\)", str(razhroscevanje or ""))
+    return int(m.group(1)) if m else 0
 
 
 def _cisti_podnapisi(podnapisi) -> tuple:
@@ -187,11 +233,26 @@ class Predvajalnik:
         self.vodilo = self.element.get_bus()
         self.vodilo.add_signal_watch()
         self.vodilo.connect("message", self._sporocilo)
+        #: Poskusi trenutnega posnetka: [(uri, glave), ...] - prvi je izbrani tok, ostali njegove razlicice.
+        self._poskusi: list = []
+        self._razlicica = 0            # indeks v _poskusi (radio ima svoj stevec _poskus)
+        self._glave: tuple = ()
+        self._nalozeno = False
+        #: Klic, ko se posnetek ne odpre z nobeno razlicico (Medijski center ga oznaci kot nepredvajljivega).
+        self.neuspeh = lambda _skladba: None
+        #: (ms, f): zakasnjen klic v glavni niti (safeer_os: GLib.timeout_add); privzeto takoj.
+        self.zakasni = lambda _ms, f: f()
         try:
-            self.element.connect("source-setup", self._zivo_izvor)
+            # playbin ustvari vir sele ob odpiranju: glave toka (Referer ...) in nastavitve radia v zivo.
+            self.element.connect("source-setup", self._izvor)
             self.element.connect("deep-element-added", self._zivo_element)
         except Exception:  # noqa: BLE001
             pass
+
+    def _izvor(self, playbin, izvor) -> None:
+        """source-setup: glave toka (Referer ...) za souphttpsrc in nastavitve radia v zivo."""
+        self._nastavi_vir(playbin, izvor)
+        self._zivo_izvor(playbin, izvor)
 
     @property
     def trenutna(self) -> Skladba | None:
@@ -223,7 +284,8 @@ class Predvajalnik:
                              zacetek=max(0, int(v.zacetek)), izvor=str(v.izvor or "")[:80],
                              podnapisi=_cisti_podnapisi(v.podnapisi),
                              naprava=str(v.naprava or "")[:80], oznaka=str(v.oznaka or "")[:1024],
-                             izvirnik=str(v.izvirnik or "")[:2048]) for v in vnosi]
+                             izvirnik=str(v.izvirnik or "")[:2048], glave=cisti_glave(v.glave),
+                             nadomestni=cisti_nadomestne(v.nadomestni)) for v in vnosi]
         self.vrsta = preverjeni
         self.indeks = -1
         return self.predvajaj(zacni)
@@ -247,8 +309,12 @@ class Predvajalnik:
                 self.stanje = "napaka"
                 self.sprememba()
                 return False
-        self._nastavi_zivo(je_zivi_tok(self.vrsta[indeks]))
-        self.element.set_property("uri", self.vrsta[indeks].uri)
+        s = self.vrsta[indeks]
+        self._poskusi = [(s.uri, tuple(s.glave or ()))] + [n for n in (s.nadomestni or ()) if n[0] != s.uri]
+        self._razlicica, self._glave, self._nalozeno = 0, tuple(s.glave or ()), False
+        self._dekoder, self._stari_dekoderji = "", set()
+        self._nastavi_zivo(je_zivi_tok(s))
+        self.element.set_property("uri", s.uri)
         self._pripravi_podnapise(self.vrsta[indeks])
         # Zamik velja za en posnetek (kot v VLC); jezik zvoka izberemo, ko playbin pozna tokove (ASYNC_DONE).
         self.nastavi_zamik("zvok", 0)
@@ -724,6 +790,73 @@ class Predvajalnik:
         self.ustavi()
         self.vodilo.remove_signal_watch()
 
+    def _nastavi_vir(self, _playbin, vir) -> None:
+        """playbin je ustvaril vir (souphttpsrc): glave, ki jih tok zahteva."""
+        if not self._glave:
+            return
+        try:
+            if vir.find_property("extra-headers") is None:
+                return
+            struktura = self.gst.Structure.new_empty("extra-headers")
+            for ime, vrednost in self._glave:
+                if ime.lower() == "user-agent" and vir.find_property("user-agent") is not None:
+                    vir.set_property("user-agent", vrednost)
+                else:
+                    struktura.set_value(ime, vrednost)
+            vir.set_property("extra-headers", struktura)
+        except Exception as e:  # noqa: BLE001 - brez glav tok morda vseeno dela
+            print("[SafeerOS] glave toka:", type(e).__name__, flush=True)
+
+    def _naslednji_poskus(self, status: int) -> bool:
+        """Tok se ni odprl: tiho naslednja razlicica. Po 429/403/401 (streznik zavraca ta naslov ali te glave) najprej
+        razlicice z drugih streznikov, isti streznik sele nato (po 429 s kratkim premorom)."""
+        if self._nalozeno or self._razlicica + 1 >= len(self._poskusi):
+            return False
+        neuspel = urlsplit(self._poskusi[self._razlicica][0]).hostname
+        ostali = self._poskusi[self._razlicica + 1:]
+        if status in (401, 403, 429):
+            drugi = [p for p in ostali if urlsplit(p[0]).hostname != neuspel]
+            isti = [p for p in ostali if urlsplit(p[0]).hostname == neuspel]
+            ostali = drugi + isti
+        self._poskusi[self._razlicica + 1:] = ostali
+        self._razlicica += 1
+        if self._dekoder:
+            # Neuspeli vir poslje se kaksno napako (»streaming stopped«): ta ne velja za naslednjo razlicico.
+            self._stari_dekoderji.add(self._dekoder)
+        uri, glave = self._poskusi[self._razlicica]
+        indeks = self.indeks
+        print("[SafeerOS] predvajanje: tok %d/%d ni odprt (%s), poskusim naslednjo razlicico" % (
+            self._razlicica, len(self._poskusi), status or "napaka"), flush=True)
+
+        def zacni() -> bool:
+            if self.indeks != indeks or self.stanje != "predvaja":
+                return False
+            self.element.set_state(self.gst.State.NULL)
+            self._glave = tuple(glave or ())
+            self.element.set_property("uri", uri)
+            if self.element.set_state(self.gst.State.PLAYING) == self.gst.StateChangeReturn.FAILURE:
+                if not self._naslednji_poskus(0):
+                    self._koncna_napaka("zacetek")
+            return False
+        self.stanje = "predvaja"
+        if status == 429 and urlsplit(uri).hostname == neuspel:
+            self.zakasni(2000, zacni)      # isti streznik je rekel »prevec zahtev«: kratek premor
+        else:
+            zacni()
+        return True
+
+    def _koncna_napaka(self, koda: str) -> None:
+        self.napaka = koda
+        self.element.set_state(self.gst.State.NULL)
+        self.stanje = "napaka"
+        # Samo tok, ki ga noben streznik ni dal (ne manjkajoci kodek na tem racunalniku): naslov ni predvajljiv.
+        if koda == "tok" and not self._nalozeno and self.trenutna is not None:
+            try:
+                self.neuspeh(self.trenutna)
+            except Exception:  # noqa: BLE001
+                pass
+        self.sprememba()
+
     def _sporocilo(self, _vodilo, sporocilo) -> None:
         if self._zivo and self._zivo_sporocilo(sporocilo):
             return
@@ -733,6 +866,7 @@ class Predvajalnik:
             if not self.naslednja():
                 self.ustavi()
         elif sporocilo.type == self.gst.MessageType.ASYNC_DONE:
+            self._nalozeno = True
             self._po_nalaganju_podnapisi()
             self._po_nalaganju_zvok()
             if getattr(self, "_premor_skok", 0):
@@ -742,12 +876,23 @@ class Predvajalnik:
             self.poskusi_nadaljevati()
         elif sporocilo.type == self.gst.MessageType.ERROR:
             napaka, razhroscevanje = sporocilo.parse_error()
+            import re
+            dekoder = re.search(r"uridecodebin\d+", str(razhroscevanje or ""))
+            if dekoder and dekoder.group(0) in getattr(self, "_stari_dekoderji", ()):
+                return          # zakasnela napaka prejsnje (ze zamenjane) razlicice
+            if dekoder:
+                self._dekoder = dekoder.group(0)
             # Uporabnik vidi razumljivo, prevedeno sporočilo (koda); surovo napako GStreamerja damo v dnevnik.
-            print("[SafeerOS] predvajanje:", napaka, razhroscevanje or "", flush=True)
-            self.napaka = vrsta_napake(napaka, self.trenutna.uri if self.trenutna else "")
-            self.element.set_state(self.gst.State.NULL)
-            self.stanje = "napaka"
-            self.sprememba()
+            # Podpisani naslovi toka (sign=..., token ...) ne gredo v dnevnik: samo gostitelj.
+            print("[SafeerOS] predvajanje:", napaka, re.sub(r"\?\S*", "?…", str(razhroscevanje or "")), flush=True)
+            uri = self._poskusi[self._razlicica][0] if self._razlicica < len(self._poskusi) else (self.trenutna.uri if self.trenutna else "")
+            koda = vrsta_napake(napaka, uri)
+            # Tok z mrezo, ki se ni odprl: streznik ga ne da (tok) ali je namesto posnetka poslal stran HTML oziroma zapis,
+            # ki ga ta racunalnik ne zna (format) - druga razlicica je morda v redu.
+            if (koda == "tok" or (koda == "format" and uri.startswith(("http://", "https://")))) \
+                    and self._naslednji_poskus(status_napake(razhroscevanje)):
+                return
+            self._koncna_napaka(koda)
 
     # ------------------------------------------------------------------ radio v zivo: medpomnjenje in ponovna povezava
 
