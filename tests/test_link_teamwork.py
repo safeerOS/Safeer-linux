@@ -369,7 +369,7 @@ class Zaznava(unittest.TestCase):
     def test_kratko_ime(self):
         self.assertEqual(tw.kratko_ime("Safeer OS (OnePlus)"), "OnePlus")
         self.assertEqual(tw.kratko_ime("Safeer Control (racunalnik-1)"), "racunalnik-1")
-        self.assertEqual(tw.kratko_ime("Tablica Matej"), "Tablica Matej")
+        self.assertEqual(tw.kratko_ime("Tablica lastnik"), "Tablica lastnik")
         self.assertEqual(os.path.basename(tw.ime_kopije("/x/a.txt", "Safeer OS (OnePlus)")), "a (OnePlus).txt")
 
     def test_besedila_v_vseh_jezikih(self):
