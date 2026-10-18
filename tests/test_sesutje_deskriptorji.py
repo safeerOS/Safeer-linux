@@ -86,34 +86,54 @@ class HubKeepAlive(unittest.TestCase):
 class ZaganjalnikSled(unittest.TestCase):
     def _drevo(self, mapa: str, program: str) -> str:
         os.makedirs(os.path.join(mapa, "bin"))
-        os.makedirs(os.path.join(mapa, "lib", "safeer-os"))
+        os.makedirs(os.path.join(mapa, "lib", "safeer-os", "core"))
         zaganjalnik = os.path.join(mapa, "bin", "safeer-os")
         shutil.copy(os.path.join(KOREN, "packaging", "safeer-os-launcher"), zaganjalnik)
         os.chmod(zaganjalnik, os.stat(zaganjalnik).st_mode | stat.S_IXUSR)
+        # --delovna tece pod varuhom procesov (18. 10. 2026); brez Namizje.qml varuh lupine ne zazene.
+        shutil.copy(os.path.join(KOREN, "core", "varuh_procesov.py"), os.path.join(mapa, "lib", "safeer-os", "core"))
         with open(os.path.join(mapa, "lib", "safeer-os", "safeer_os.py"), "w", encoding="utf-8") as f:
             f.write(program)
         return zaganjalnik
 
+    def _zazeni(self, mapa: str, nacin: str):
+        predpomnilnik = os.path.join(mapa, "cache")
+        os.makedirs(os.path.join(predpomnilnik, "safeer-os"))
+        sled = os.path.join(predpomnilnik, "safeer-os", "sled.log")
+        with open(sled, "w", encoding="utf-8") as f:
+            f.write("stara vrstica\n" * 40000)            # ~560 KB, vec kot meja
+        izvajanje = os.path.join(mapa, "run")
+        os.makedirs(izvajanje, mode=0o700)
+        okolje = dict(os.environ, XDG_CACHE_HOME=predpomnilnik, XDG_RUNTIME_DIR=izvajanje, HOME=mapa,
+                      PYTHON=sys.executable, SAFEER_OS_BREZ_FLATPAKA="1")
+        for ime in ("SAFEER_OS_BREZ_NADZORA", "SAFEER_LUPINA_VTIC", "NOTIFY_SOCKET"):
+            okolje.pop(ime, None)
+        izid = subprocess.run([os.path.join(mapa, "bin", "safeer-os"), nacin], env=okolje, stdin=subprocess.DEVNULL,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+        self.assertEqual(izid.returncode, 0, izid.stderr)
+        self.assertEqual(izid.stderr, b"")                    # ni terminala: vse je v sled.log
+        with open(sled, encoding="utf-8") as f:
+            return f.read(), os.path.getsize(sled)
+
     def test_stderr_v_sled_z_omejitvijo(self):
+        """Zaganjalnik sam (okno, predvajalnik, zagon iz menija): sled obreze ob zagonu in vanjo pise stderr."""
         with tempfile.TemporaryDirectory() as mapa:
-            zaganjalnik = self._drevo(mapa, "import sys\nsys.stderr.write('WebKit: Failed to create memfd\\n')\n")
-            predpomnilnik = os.path.join(mapa, "cache")
-            os.makedirs(os.path.join(predpomnilnik, "safeer-os"))
-            sled = os.path.join(predpomnilnik, "safeer-os", "sled.log")
-            with open(sled, "w", encoding="utf-8") as f:
-                f.write("stara vrstica\n" * 40000)            # ~560 KB, vec kot meja
-            okolje = dict(os.environ, XDG_CACHE_HOME=predpomnilnik, HOME=mapa, PYTHON=sys.executable,
-                          SAFEER_OS_BREZ_FLATPAKA="1")
-            okolje.pop("SAFEER_OS_BREZ_NADZORA", None)
-            izid = subprocess.run([zaganjalnik, "--delovna"], env=okolje, stdin=subprocess.DEVNULL,
-                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
-            self.assertEqual(izid.returncode, 0, izid.stderr)
-            self.assertEqual(izid.stderr, b"")                    # ni terminala: vse je v sled.log
-            besedilo = open(sled, encoding="utf-8").read()
+            self._drevo(mapa, "import sys\nsys.stderr.write('WebKit: Failed to create memfd\\n')\n")
+            besedilo, velikost = self._zazeni(mapa, "--okno")
             self.assertIn("WebKit: Failed to create memfd", besedilo)
             self.assertTrue(besedilo.startswith("... (starejsi zapisi so odrezani)"))
-            self.assertLessEqual(os.path.getsize(sled), 262144)
+            self.assertLessEqual(velikost, 262144)
 
+    def test_delovna_stderr_v_sled_prek_varuha(self):
+        """--delovna (ob prijavi) gre pod varuha procesov: stderr Safeer OS je v sled.log, ne v /dev/null. Sled obreze
+        Safeer OS sam ob zagonu (core/os_stabilnost.vkljuci), zato je tu lazni program ne."""
+        with tempfile.TemporaryDirectory() as mapa:
+            self._drevo(mapa, "import sys\nsys.stderr.write('WebKit: Failed to create memfd\\n')\n")
+            besedilo, _velikost = self._zazeni(mapa, "--delovna")
+            self.assertTrue(besedilo.startswith("stara vrstica\n"), "varuh dopisuje, ne prepise")
+            self.assertTrue(besedilo.endswith("WebKit: Failed to create memfd\n"))
+            with open(os.path.join(mapa, "cache", "safeer-os", "dnevnik.log"), encoding="utf-8") as f:
+                self.assertIn("Safeer OS se je koncal (0)", f.read())
 
 if __name__ == "__main__":
     unittest.main()
