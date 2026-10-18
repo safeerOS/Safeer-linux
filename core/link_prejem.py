@@ -29,6 +29,9 @@ ODGOVOR_VELJA_S = 120.0
 ZBIRKA_S = 90.0
 #: Najvec cakajocih datotek na posiljatelja (ena poslana mapa jih ima lahko vec tisoc - link_posiljanje.NAJVEC_DATOTEK).
 NAJVEC_CAKAJOCIH = 5000
+#: Isto obvestilo (stevec datotek) najvec enkrat na toliko sekund; zadnje stanje pride z zamikom. Mapa s 1000 datotekami
+#: bi sicer streznik obvestil zamenjal 1000-krat v nekaj sekundah.
+OBVESTILO_RAZMIK_S = 1.0
 
 BESEDILA = {
     "sl": {"prejeto_naslov": "Prejeto od {od}", "prejeto_ena": "{ime} je v mapi {mapa}",
@@ -141,6 +144,44 @@ class Prejem:
         self._zaklep = threading.Lock()
         self._ponudbe: Dict[str, _Ponudba] = {}
         self._zbirke: Dict[str, _Zbirka] = {}
+        #: ident -> [cas zadnjega obvestila, cakajoce (args, kw) ali None, casovnik]
+        self._omejitev: Dict[str, list] = {}
+
+    def _obvesti_omejeno(self, ident: str, *args, **kw) -> None:
+        """Obvestilo z id `ident` najvec enkrat na OBVESTILO_RAZMIK_S; vmesna se zdruzijo v zadnje (z zamikom)."""
+        zdaj = time.monotonic()
+        with self._zaklep:
+            z = self._omejitev.setdefault(ident, [0.0, None, None])
+            if zdaj - z[0] >= OBVESTILO_RAZMIK_S and z[2] is None:
+                z[0], z[1] = zdaj, None
+                takoj = True
+            else:
+                z[1] = (args, kw)
+                takoj = False
+                if z[2] is None:
+                    z[2] = threading.Timer(max(0.0, OBVESTILO_RAZMIK_S - (zdaj - z[0])), self._poslji_cakajoce, (ident,))
+                    z[2].daemon = True
+                    z[2].start()
+            if len(self._omejitev) > 256:
+                for k in [k for k, v in self._omejitev.items() if v[2] is None][:64]:
+                    self._omejitev.pop(k, None)
+        if takoj:
+            self._obvesti(ident, *args, **kw)
+
+    def _poslji_cakajoce(self, ident: str) -> None:
+        with self._zaklep:
+            z = self._omejitev.get(ident)
+            if z is None:
+                return
+            cakajoce, z[1], z[2], z[0] = z[1], None, None, time.monotonic()
+        if cakajoce is not None:
+            self._obvesti(ident, *cakajoce[0], **cakajoce[1])
+
+    def _preklici_omejeno(self, ident: str) -> None:
+        with self._zaklep:
+            z = self._omejitev.pop(ident, None)
+        if z is not None and z[2] is not None:
+            z[2].cancel()
 
     def _jez(self) -> str:
         try:
@@ -204,10 +245,10 @@ class Prejem:
             telo = self._t("ponudba_ena", ime=prva, velikost=velikost(skupaj, jezik_velikost))
         else:
             telo = self._t("ponudba_vec", n=len(datoteke), ime=prva, velikost=velikost(skupaj, jezik_velikost))
-        self._obvesti(_ident(posiljatelj, "ponudba"), self._t("ponudba_naslov", od=od), telo,
-                      gumbi=[("sprejmi", self._t("sprejmi"), lambda: self.odgovori(posiljatelj, True)),
-                             ("zavrni", self._t("zavrni"), lambda: self.odgovori(posiljatelj, False))],
-                      privzeto=None, prioriteta="high")
+        self._obvesti_omejeno(_ident(posiljatelj, "ponudba"), self._t("ponudba_naslov", od=od), telo,
+                              gumbi=[("sprejmi", self._t("sprejmi"), lambda: self.odgovori(posiljatelj, True)),
+                                     ("zavrni", self._t("zavrni"), lambda: self.odgovori(posiljatelj, False))],
+                              privzeto=None, prioriteta="high")
 
     def odgovori(self, posiljatelj: str, sprejmi: bool) -> int:
         """Uporabnik je pritisnil Sprejmi ali Zavrni (samo gumb obvestila - nic iz sporocila). Vrne stevilo datotek."""
@@ -219,6 +260,7 @@ class Prejem:
             ponudba.cas = self._ura()
             datoteke, ponudba.datoteke = ponudba.datoteke, []
             od = ponudba.od
+        self._preklici_omejeno(_ident(posiljatelj, "ponudba"))
         try:
             self._umakni(_ident(posiljatelj, "ponudba"))
         except Exception:  # noqa: BLE001
@@ -298,7 +340,8 @@ class Prejem:
                 telo = self._t("prejeto_vec", n=len(poti), mapa=skupna)
                 gumbi = [("pokazi", self._t("pokazi"), lambda: self._pokazi(prva))]
                 privzeto = lambda: self._pokazi(prva)  # noqa: E731
-        self._obvesti(_ident(posiljatelj, "prejem"), naslov, telo, gumbi=gumbi, privzeto=privzeto, prioriteta="normal")
+        self._obvesti_omejeno(_ident(posiljatelj, "prejem"), naslov, telo, gumbi=gumbi, privzeto=privzeto,
+                              prioriteta="normal")
 
 
 __all__ = ["Prejem", "BESEDILA", "besedilo", "velikost"]

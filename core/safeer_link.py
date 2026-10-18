@@ -1647,7 +1647,7 @@ class SafeerLink:
                 })
             self.naprave = _zdruzi_sorodne_naprave(naprave)
             self.naprave_vse = naprave
-            if self._posiljanje is not None:
+            if getattr(self, "_posiljanje", None) is not None:
                 # Naprava, ki ji posiljka caka, je morda spet tu: nadaljuje takoj (core/link_posiljanje).
                 self._posiljanje.zbudi()
             self._osvezi_nemo()
@@ -1906,7 +1906,7 @@ class SafeerLink:
 
     def prejem_datotek(self):
         """Ena instanca core/link_prejem.Prejem za ta Link (prvic ob prvi prejeti datoteki)."""
-        if self._prejem is None:
+        if getattr(self, "_prejem", None) is None:
             from core import link_prejem, obvestila, os_datoteke
 
             def obvesti(ident, naslov, besedilo, gumbi=None, privzeto=None, prioriteta="normal"):
@@ -2082,7 +2082,7 @@ class SafeerLink:
 
     def _poslji_spuscene(self, id_naprave: str = "") -> None:
         """Stran: uporabnik je datoteke spustil na napravo. Poti vzamemo enkrat (po prevzemu jih pozabimo)."""
-        poti, self._vlecene_poti = list(self._vlecene_poti), []
+        poti, self._vlecene_poti = list(getattr(self, "_vlecene_poti", None) or []), []
         if poti and id_naprave:
             self.poslji_datoteke(str(id_naprave), poti)
         else:
@@ -2092,7 +2092,7 @@ class SafeerLink:
     def posiljanje_datotek(self):
         """Ena vrsta posiljanja (core/link_posiljanje) za stran Linka, Datoteke Safeer OS (D-Bus) in Nemo (safeerctl):
         posiljka pocaka na napravo, ki je ni, in nadaljuje, ko se vrne; zadnja naprava je prva v menijih."""
-        if self._posiljanje is None:
+        if getattr(self, "_posiljanje", None) is None:
             from core import link_posiljanje
             self._posiljanje = link_posiljanje.Posiljanje(
                 self.poslji_datoteko_napravi,
@@ -2123,7 +2123,7 @@ class SafeerLink:
 
     def _osvezi_nemo(self) -> None:
         """Safeer Control: dejanja »Poslji na …« v Nemu (core/link_nemo) za naprave, ki zdaj sprejmejo datoteke."""
-        if not self.control:
+        if not getattr(self, "control", False):
             return
         try:
             from core import link_nemo

@@ -3449,22 +3449,27 @@
       narisiZaslonDeljenje();
       return;
     }
-    // Datoteke, spuscene na seznam naprav (ali poslane iz Datotek): napredek pod seznamom, ce plosca te naprave ni odprta.
-    var opomba = (p.vrsta === "datoteka" && !(n && n.id === p.cilj)) ? "opombaNaprave" : "opombaDeljenje";
+    // Datoteke, spuscene na seznam naprav (ali poslane iz Datotek): napredek tudi pod seznamom, ce plosca te naprave
+    // ni odprta (plosca je takrat skrita in uporabnik napisa v njej ne bi videl).
+    var tudiPodSeznamom = p.vrsta === "datoteka" && !(n && n.id === p.cilj);
+    function napis(b) {
+      besedilo("opombaDeljenje", b);
+      if (tudiPodSeznamom) besedilo("opombaNaprave", b);
+    }
     if (p.stanje === "posiljam") {
-      besedilo(opomba, (p.vrsta === "datoteka" && typeof p.odstotek === "number")
+      napis((p.vrsta === "datoteka" && typeof p.odstotek === "number")
         ? t("posiljamOdstotek", { ime: p.ime || "", n: p.odstotek })
         : t("posiljam"));
     } else if (p.stanje === "caka") {
-      besedilo(opomba, t("cakaNaNapravo", { ime: imeCilja }));
+      napis(t("cakaNaNapravo", { ime: imeCilja }));
     } else if (p.stanje === "poslano") {
-      besedilo(opomba, t("poslanoNapravi", { ime: imeCilja }));
+      napis(t("poslanoNapravi", { ime: imeCilja }));
       if (p.vrsta === "besedilo") {
         var v = el("deljenjeBesedilo");
         if (v) v.value = "";
       }
     } else if (p.stanje === "napaka") {
-      besedilo(opomba, napakaDeljenja(p));
+      napis(napakaDeljenja(p));
     }
   }
 

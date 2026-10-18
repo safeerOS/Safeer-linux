@@ -346,13 +346,13 @@ assert.strictEqual(privzetiZadetek([splet, { vrsta: "zapisek", z: { naslov: "Nak
         self.assertIn("posljiNaNapravo(naprava, poti);", blok)
         self.assertNotIn("premakniAliKopiraj", blok)
         self.assertNotIn("prilepiDatoteke", blok)
-        # Meni: ena datoteka in izbira vec datotek (mape niso poslane); samo, ko je kaksna naprava, ki sprejme
-        # (vedenje preverja test_priljubljeno.MeniDelovnePovrsine).
-        self.assertIn('if (!e.mapa && D.sprejmejo.length) m.push([t("posljiNaNapravo"), function () { izberiNapravoInPoslji([e.pot]); }]);', js)
-        self.assertIn('var samoDatoteke = lok.filter(function (e) { return !e.mapa; });', js)
+        # Meni: ena datoteka ali mapa in izbira vec (mape gredo cele, 18. 10. 2026); prve naprave neposredno, samo ko
+        # je kaksna naprava, ki sprejme (vedenje preverja test_priljubljeno.MeniDelovnePovrsine).
+        self.assertIn('postavkePosiljanja([e.pot]).forEach(function (p) { m.push(p); });', js)
+        self.assertIn('postavkePosiljanja(lok.map(function (e) { return e.pot; })).forEach(function (p) { m.push(p); });', js)
         self.assertIn('klic("posljiNapravi", [naprava.id, poti])', js)
         self.assertIn('klic("posljiStanje", [id])', js)
-        for kljuc in ("posljiNaNapravo", "posNiNaprav", "posPosiljam", "posPosiljamN", "posPoslano", "posPoslanoN",
+        for kljuc in ("posljiNaNapravo", "posljiNa", "posCaka", "posNiNaprav", "posPosiljam", "posPosiljamN", "posPoslano", "posPoslanoN",
                       "posNapaka", "posN_naprava_ni_povezana", "posN_sredisce_ne_zna", "posN_naprava_pri_drugem_srediscu",
                       "posN_stari_control", "posN_ni_controla", "posN_hub_ni_znan", "posN_prazna_mapa", "posN_prevec_datotek",
                       "posN_prevelika", "posN_ni_prostora", "posN_naprava_zasedena", "posN_ni_datoteke",

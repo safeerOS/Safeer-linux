@@ -8,11 +8,8 @@
   - mapa prenosov po XDG (»Prejemi« na slovenskem Mintu) tudi za prejem v Linku;
   - stran Linka: spust datotek na napravo.
 """
-import json
 import os
-import re
 import tempfile
-import threading
 import time
 import unittest
 from unittest import mock
@@ -170,6 +167,9 @@ class Prejem(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
+        p = mock.patch.object(link_prejem, "OBVESTILO_RAZMIK_S", 0.0)
+        p.start()
+        self.addCleanup(p.stop)
         self.ozji = {"tel"}
         self.obvestila = {}
         self.umaknjena = []
@@ -256,6 +256,17 @@ class Prejem(unittest.TestCase):
         self.neuspeh.add("a.jpg")
         self.assertEqual(self.p.prispela("tel", "Telefon", self._t("a.jpg")), "prenos")
         self.assertEqual(self.obvestila, {}, "brez okna ali obvestila z napako")
+
+    def test_mapa_s_tisoc_datotekami_ne_zasuje_obvestil(self):
+        poslana = []
+        self._obvesti_prej = self._obvesti
+        self.p._obvesti = lambda ident, *a, **k: (poslana.append(a[1]), self._obvesti_prej(ident, *a, **k))
+        with mock.patch.object(link_prejem, "OBVESTILO_RAZMIK_S", 0.3):
+            for i in range(200):
+                self.p.prispela("tel", "Telefon", self._t("%d.jpg" % i, mapa="Mapa"))
+            self.assertLess(len(poslana), 5, "zdruzena obvestila")
+            self.assertTrue(_pocakaj(lambda: poslana and poslana[-1].startswith("Prejetih datotek: 200"), 2.0),
+                            "zadnje stanje pride z zamikom")
 
     def test_besedila_v_vseh_jezikih(self):
         kljuci = set(link_prejem.BESEDILA["sl"])
