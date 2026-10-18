@@ -3572,8 +3572,31 @@
   }
   // ------------------------------------------------------------------ posodobitve (safeer.si/os/razlicice.json)
   S.posodobitve = { stanje: null, zanka: 0 };
+  function narisiKanal(kanal) {
+    // Stikalo kaze kanal, ki ga je shranil Safeer OS (ne zeljenega); med shranjevanjem ga ne prepisemo.
+    var b = $("stikaloBeta");
+    if (!b || !kanal || b.getAttribute("aria-busy") === "true") return;
+    b.setAttribute("aria-checked", kanal === "beta" ? "true" : "false");
+  }
+  function preklopiBeto() {
+    var b = $("stikaloBeta");
+    if (!b || b.getAttribute("aria-busy") === "true") return;
+    var nov = b.getAttribute("aria-checked") !== "true";
+    b.setAttribute("aria-busy", "true");
+    b.setAttribute("aria-checked", nov ? "true" : "false");
+    klic("posodobitveKanal", [nov ? "beta" : "stabilno"]).then(function (r) {
+      b.removeAttribute("aria-busy");
+      narisiKanal(r && r.kanal);
+      nalozPosodobitve(true);   // takoj pokaze, kaj je v izbranem kanalu na voljo (namesti se samo z gumbom)
+    }).catch(function () {
+      b.removeAttribute("aria-busy");
+      b.setAttribute("aria-checked", nov ? "false" : "true");
+      obvesti(t("niUspelo"));
+    });
+  }
   function narisiPosodobitve(st) {
     S.posodobitve.stanje = st;
+    if (st) narisiKanal(st.kanal);
     var fp = $("gumbFlatpak");
     if (fp) { fp.hidden = !(st && st.flatpak_preklop) || !!(st.posodabljanje && st.posodabljanje.tece); }
     var naslov = $("posodobitveNaslov"), pod = $("posodobitvePod"), gumb = $("gumbPosodobi");
@@ -3595,7 +3618,10 @@
       return;
     }
     naslov.textContent = t("posodobitevNajnovejsa", { v: (st && st.nasa) || (S.zacetek && S.zacetek.razlicica) || "" });
-    pod.textContent = st && st.napaka ? t("posodobitevNapaka", { napaka: st.napaka }) : t("posodobitevNajnovejsaPod");
+    // Beta izklopljena, a tece beta: povemo, da ostane, dokler stabilna ne dohiti (nikoli zamenjava na starejso).
+    pod.textContent = st && st.napaka ? t("posodobitevNapaka", { napaka: st.napaka }) :
+      (st && st.kanal === "beta") ? t("posodobitevNajnovejsaBetaPod") :
+      (st && st.na_beti) ? t("posodobitevNaBetiPod") : t("posodobitevNajnovejsaPod");
   }
   function nalozPosodobitve(vsiljeno) {
     if (vsiljeno) { $("posodobitveNaslov").textContent = t("posodobitevPreverjam"); $("posodobitvePod").textContent = ""; }
@@ -9097,6 +9123,7 @@
     });
     $("gumbPosodobi").addEventListener("click", posodobi);
     $("gumbFlatpak").addEventListener("click", flatpakPreklop);
+    $("stikaloBeta").addEventListener("click", preklopiBeto);
     $("domPosodobitevGumb").addEventListener("click", naPosodobitve);
     $("stikaloPredaja").addEventListener("click", function () {
       // "Predvajanje za druge naprave": Nadaljuj z druge naprave / Pošlji na napravo proti temu računalniku (nastavitev Controla).

@@ -3812,9 +3812,13 @@ class SafeerOS(Gtk.Application):
     def _posodobitve_stanje(self, vsiljeno: bool = False) -> dict:
         """Stanje za vmesnik (v niti): izid zadnje preverbe (najvec 6 ur stare, ali sveze ob [vsiljeno]) + tekoce posodabljanje."""
         s = self.posodobitve
+        kanal = os_posodobitve.izbrani_kanal()
+        # Drug kanal kot ob zadnji preverbi (stikalo Beta kanal): izid ne velja vec, preverimo takoj, ne sele cez 6 ur.
+        if s["izid"] is not None and s["izid"].get("kanal", kanal) != kanal:
+            s["izid"] = None
         if vsiljeno or s["izid"] is None or time.time() - s["cas"] > os_posodobitve.PREVERBA_S:
             try:
-                s["izid"] = os_posodobitve.preveri("linux", self._posodobitve_razlicice())
+                s["izid"] = os_posodobitve.preveri("linux", self._posodobitve_razlicice(), kanal=kanal)
                 s["cas"], s["napaka"] = time.time(), ""
             except Exception as e:  # noqa: BLE001 - brez omrezja: ostane prejsnji izid
                 s["napaka"] = str(e)
@@ -3823,7 +3827,18 @@ class SafeerOS(Gtk.Application):
         izid = s["izid"] or {"nove": [], "nacin": os_posodobitve.nacin_namestitve(), "stran": os_posodobitve.STRAN}
         return {"nove": izid.get("nove") or [], "opis": os_posodobitve.opis(izid), "nacin": izid.get("nacin"), "novo": izid.get("novo") or {},
                 "stran": izid.get("stran"), "nasa": RAZLICICA, "napaka": s["napaka"], "posodabljanje": self.posodabljanje.stanje(),
-                "flatpak_preklop": self._flatpak_ponudba(izid)}
+                "flatpak_preklop": self._flatpak_ponudba(izid), "kanal": kanal,
+                "na_beti": os_posodobitve.je_predizdaja(RAZLICICA)}
+
+    def _posodobitve_kanal(self, novi: str) -> dict:
+        """Stikalo »Beta kanal« (Nastavitve -> Posodobitve): shrani kanal; vmesnik nato preveri na novo. Nicesar ne
+        namesti - tudi izklop bete ne zamenja razlicice navzdol (os_posodobitve.preveri ponudi samo novejse)."""
+        try:
+            kanal = os_posodobitve.nastavi_kanal(novi)
+        except ValueError:
+            return {"ok": False, "koda": "neznan_kanal", "kanal": os_posodobitve.izbrani_kanal()}
+        self.posodobitve["izid"] = None
+        return {"ok": True, "kanal": kanal}
 
     def _flatpak_ponudba(self, izid: dict):
         """Ponudba »hitrejsi Splet« (lastnik, 12. 10. 2026: Flatpak je glavna pot): samo .deb brez Flatpaka."""
@@ -4349,6 +4364,7 @@ class SafeerOS(Gtk.Application):
             "dockOdstrani": lambda: os_dock.odstrani(str(a[0]) if a else ""),
             "dockRazvrsti": lambda: os_dock.razvrsti([str(x) for x in a[0]] if a and isinstance(a[0], list) else []),
             "posodobitveStanje": lambda: self._posodobitve_stanje(bool(a[0]) if a else False),
+            "posodobitveKanal": lambda: self._posodobitve_kanal(str(a[0]) if a else ""),
             "posodobi": self._posodobi,
             "flatpakPreklop": self._flatpak_preklop,
             "stanje": os_sistem.stanje,

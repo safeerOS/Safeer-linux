@@ -5,6 +5,13 @@ razlicic je podpisan (Ed25519, razlicice.json.sig z istega gostitelja) in brez v
 preveri s SHA-256 iz podpisanega seznama (obvezen); vse gre samo prek https. Namescanje: Linux .deb prek `pkexec apt-get install` (polkit vprasa za geslo), Flatpak prek `flatpak install --user`,
 AppImage zamenja sam sebe; Windows zazene nov SafeerOS-Windows-<ver>.exe (zaganjalnik razpakira novo razlicico).
 Nic se ne namesti brez uporabnika; preverba je tiha (najvec na 6 ur) in brez posledic, ce omrezja ni.
+
+Beta kanal (lastnik, 18. 10. 2026: »Beta kanal za navdusence, manjse in pogostejse izdaje«; privzeto izklopljen): poleg
+stabilnega seznama se prebere se razlicice-beta.json z istega gostitelja. Podpisan je z istim kljucem, a z DRUGIM
+kontekstom (KONTEKST_BETA), zato ga noben odjemalec - tudi ze namesceni starejsi, ki polja "kanal" ne poznajo - ne more
+sprejeti kot stabilni seznam. Paket se preveri enako strogo (podpisan SHA-256, samo https). Stabilni kanal predizdaj
+(1.0.128-beta.1) ne vidi nikoli, tudi ce bi pomotoma zasle v stabilni seznam. Izklop bete nicesar ne zamenja navzdol:
+ostane namescena beta, dokler stabilna ni enaka ali novejsa (1.0.128-beta.2 < 1.0.128).
 """
 from __future__ import annotations
 
@@ -26,13 +33,19 @@ from urllib.parse import urlsplit, urlunsplit
 from .signed_feed import _signature_ok
 
 MANIFEST = os.environ.get("SAFEER_MANIFEST_URL") or "https://safeer.si/os/razlicice.json"   # okoljska spremenljivka za preizkuse
+MANIFEST_BETA = os.environ.get("SAFEER_MANIFEST_BETA_URL") or "https://safeer.si/os/razlicice-beta.json"
 STRAN = "https://safeer.si/os/"
+KANAL_STABILNO = "stabilno"
+KANAL_BETA = "beta"
+KANALI = (KANAL_STABILNO, KANAL_BETA)
 PREVERBA_S = 6 * 3600
 IMENA = {"safeer-os": "Safeer OS", "safeer-control": "Safeer Control", "safeer-browser": "Safeer Browser"}
 # Javni kljuci Ed25519 za podpis razlicice.json (zasebni kljuc je samo na racunalniku, ki gradi stran safeer.si).
 # Kontekst loci ta podpis od podpisov seznamov grozenj (core/signed_feed.py), tudi ce bi bil kljuc isti.
 KLJUCI: Dict[str, str] = {"safeer-razlicice-2026-10": "yx7oxoDdoscufSxSOLf9JuDo0uIajPsUNmUjJEqUVjE="}
 KONTEKST = b"safeer-razlicice-v1\n"
+# Beta seznam: lasten kontekst podpisa (glej opis modula) - pristen beta seznam ni nikoli veljaven stabilni seznam.
+KONTEKST_BETA = b"safeer-razlicice-beta-v1\n"
 NAJVEC_SEZNAM = 256 * 1024
 NAJVEC_PODPIS = 8 * 1024
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -102,31 +115,56 @@ def _naslov_podpisa(url: str) -> str:
     return urlunsplit((d.scheme, d.netloc, d.path + ".sig", d.query, ""))
 
 
-def preveri_podpis(podatki: bytes, podpis: bytes, kljuci: Optional[Dict[str, str]] = None) -> None:
+def preveri_podpis(podatki: bytes, podpis: bytes, kljuci: Optional[Dict[str, str]] = None,
+                   kontekst: bytes = KONTEKST) -> None:
     """Vrze NapakaPodpisa, ce `podatki` (natanko bajti razlicice.json) ni podpisal kljuc, ki mu zaupamo.
 
     `podpis` je JSON seznam [{"alg": "ed25519", "key_id": ..., "sig": base64}] - ob menjavi kljuca podpiseta oba.
+    `kontekst` loci stabilni seznam (KONTEKST) od beta seznama (KONTEKST_BETA).
     """
     try:
         vnosi = json.loads(podpis.decode("ascii"))
     except (UnicodeDecodeError, ValueError, RecursionError):
         raise NapakaPodpisa("podpis seznama različic ni berljiv") from None
     zaupani = KLJUCI if kljuci is None else kljuci
-    if not isinstance(vnosi, list) or not any(_signature_ok(v, zaupani, KONTEKST, podatki) for v in vnosi[:8]):
+    if not isinstance(vnosi, list) or not any(_signature_ok(v, zaupani, kontekst, podatki) for v in vnosi[:8]):
         raise NapakaPodpisa("podpis seznama različic ni veljaven")
 
 
-def _stevilke(v: str) -> tuple:
-    return tuple(int(x) for x in re.findall(r"\d+", str(v or ""))[:4]) or (0,)
+# 1.0.128, 0.4.86-beta.2 (oznaka in packaging/VERSION*), 0.4.86~beta.2 (Version paketa .deb, glej packaging/deb_razlicica.sh)
+_RAZLICICA = re.compile(r"\s*v?(\d+(?:\.\d+){0,3})(?:[-~.]?(alpha|beta|rc)(?:\.?(\d+))?)?", re.IGNORECASE)
+_FAZE = {"alpha": 0, "beta": 1, "rc": 2}
+_KONCNA = 9   # koncna izdaja je za vsemi predizdajami iste stevilke
+
+
+def kljuc_razlicice(v) -> tuple:
+    """Kljuc za urejanje: 1.0.128-beta.1 < 1.0.128-beta.2 < 1.0.128-rc.1 < 1.0.128 < 1.0.129-beta.1.
+
+    Do 18. 10. 2026 so stele samo stevilke, zato bi bila 1.0.128-beta.2 (1,0,128,2) novejsa od 1.0.128 in uporabnik bete
+    koncne izdaje ne bi dobil nikoli. Neberljiva razlicica ni novejsa od nobene prave.
+    """
+    m = _RAZLICICA.match(str(v or ""))
+    if not m:
+        return ((0, 0, 0, 0), -1, 0)
+    st = tuple(int(x) for x in m.group(1).split("."))
+    st += (0,) * (4 - len(st))
+    if m.group(2):
+        return (st, _FAZE[m.group(2).lower()], int(m.group(3) or 0))
+    return (st, _KONCNA, 0)
+
+
+def je_predizdaja(v) -> bool:
+    """1.0.128-beta.1 (ali ~beta.1, -rc.1) da; 1.0.128 in neberljivo ne."""
+    return 0 <= kljuc_razlicice(v)[1] < _KONCNA
 
 
 def novejsa(nova: str, nasa: str) -> bool:
-    """Ali je razlicica `nova` ("0.4.23") novejsa od `nasa` ("0.4.22")."""
-    return _stevilke(nova) > _stevilke(nasa)
+    """Ali je razlicica `nova` ("0.4.23", "0.4.24-beta.1") novejsa od `nasa` ("0.4.22")."""
+    return kljuc_razlicice(nova) > kljuc_razlicice(nasa)
 
 
 def _privzeta_stanje_pot() -> str:
-    """Datoteka z najvisjo ze videno izdajo seznama (anti-rollback). Okoljska spremenljivka jo prepise (preizkusi)."""
+    """Datoteka z najvisjo ze videno izdajo seznama (anti-rollback) in kanalom. Okoljska spremenljivka jo prepise (preizkusi)."""
     p = os.environ.get("SAFEER_POSODOBITVE_STANJE")
     if p:
         return p
@@ -134,26 +172,58 @@ def _privzeta_stanje_pot() -> str:
     return os.path.join(baza, "safeer-os", "posodobitve.json")
 
 
-def _zadnje_izdano(pot: str) -> str:
-    """Najvisja ze videna vrednost 'izdano' (RFC3339) ali prazen niz (ni datoteke ali ni berljiva)."""
+# Stanje beremo in pisemo iz niti preverbe (Safeer OS, Control v istem procesu) in iz vmesnika (kanal): ena datoteka,
+# zato branje-sprememba-zapis pod zaklepom, sicer bi preverba z zapisom 'izdano' izbrisala ravnokar izbrani kanal.
+_ZAKLEP_STANJA = threading.Lock()
+
+
+def _beri_stanje(pot: str) -> dict:
     try:
         with open(pot, "r", encoding="ascii") as f:
-            v = json.load(f).get("izdano", "")
-        return v if isinstance(v, str) else ""
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
     except (OSError, ValueError):
-        return ""
+        return {}
 
 
-def _shrani_izdano(pot: str, izdano: str) -> None:
-    """Atomarno shrani najvisjo videno izdajo; ce ni mogoce, anti-rollback tiho odpove (svezina se velja)."""
-    try:
-        os.makedirs(os.path.dirname(pot) or ".", exist_ok=True)
-        zac = pot + ".del"
-        with open(zac, "w", encoding="ascii") as f:
-            json.dump({"izdano": izdano}, f)
-        os.replace(zac, pot)
-    except OSError:
-        pass
+def _zadnje_izdano(pot: str, kljuc: str = "izdano") -> str:
+    """Najvisja ze videna vrednost 'izdano' (RFC3339) ali prazen niz (ni datoteke ali ni berljiva)."""
+    v = _beri_stanje(pot).get(kljuc, "")
+    return v if isinstance(v, str) else ""
+
+
+def _shrani_stanje(pot: str, spremembe: dict) -> bool:
+    """Atomarno doda `spremembe` v datoteko stanja (ostala polja ostanejo); False, ce ni mogoce."""
+    with _ZAKLEP_STANJA:
+        d = _beri_stanje(pot)
+        d.update(spremembe)
+        try:
+            os.makedirs(os.path.dirname(pot) or ".", exist_ok=True)
+            zac = "%s.%d.%d.del" % (pot, os.getpid(), threading.get_ident())
+            with open(zac, "w", encoding="ascii") as f:
+                json.dump(d, f)
+            os.replace(zac, pot)
+            return True
+        except OSError:
+            return False
+
+
+def _shrani_izdano(pot: str, izdano: str, kljuc: str = "izdano") -> None:
+    """Shrani najvisjo videno izdajo; ce ni mogoce, anti-rollback tiho odpove (svezina se velja)."""
+    _shrani_stanje(pot, {kljuc: izdano})
+
+
+def izbrani_kanal(pot: Optional[str] = None) -> str:
+    """Izbrani kanal posodobitev: "beta" samo, ce ga je uporabnik vklopil; sicer (privzeto) "stabilno"."""
+    return KANAL_BETA if _beri_stanje(pot or _privzeta_stanje_pot()).get("kanal") == KANAL_BETA else KANAL_STABILNO
+
+
+def nastavi_kanal(novi: str, pot: Optional[str] = None) -> str:
+    """Shrani kanal ("beta" | "stabilno") in vrne tistega, ki zdaj velja. Nicesar ne namesti in ne odstrani."""
+    if novi not in KANALI:
+        raise ValueError("kanal: beta | stabilno")
+    _shrani_stanje(pot or _privzeta_stanje_pot(), {"kanal": novi})
+    return izbrani_kanal(pot)
 
 
 def _cas(value) -> datetime:
@@ -190,14 +260,17 @@ def preveri_svezino(m: dict, zadnje_videno: str = "", zdaj: Optional[datetime] =
     return izdano_s
 
 
-def prenesi_manifest(url: str = MANIFEST, cas: float = 8.0, agent: str = "SafeerOS",
+def prenesi_manifest(url: str = "", cas: float = 8.0, agent: str = "SafeerOS",
                      kljuci: Optional[Dict[str, str]] = None, stanje_pot: Optional[str] = None,
-                     zdaj: Optional[datetime] = None) -> dict:
+                     zdaj: Optional[datetime] = None, kanal: str = KANAL_STABILNO) -> dict:
     """Prenese razlicice.json in podpis (razlicice.json.sig) z istega gostitelja; brez veljavnega podpisa vrze izjemo.
 
     Po podpisu preveri se svezino: 'potece' mora biti v prihodnosti in 'izdano' ne sme biti starejse od ze videnega
     (anti-rollback), da kdor obvlada gostitelja (ne kljuca), ne more ponoviti pristne stare (ranljive) razlicice.
+    kanal="beta": razlicice-beta.json s kontekstom KONTEKST_BETA, poljem "kanal": "beta" in svojim anti-rollbackom.
     """
+    beta = kanal == KANAL_BETA
+    url = url or (MANIFEST_BETA if beta else MANIFEST)
     podatki, koncni = _beri(url, cas, agent, NAJVEC_SEZNAM)
     try:
         podpis, _ = _beri(_naslov_podpisa(koncni), cas, agent, NAJVEC_PODPIS)
@@ -205,13 +278,17 @@ def prenesi_manifest(url: str = MANIFEST, cas: float = 8.0, agent: str = "Safeer
         if e.code == 404:
             raise NapakaPodpisa("podpis seznama različic manjka") from None
         raise
-    preveri_podpis(podatki, podpis, kljuci)
+    preveri_podpis(podatki, podpis, kljuci, KONTEKST_BETA if beta else KONTEKST)
     m = json.loads(podatki.decode("utf-8"))
-    if not isinstance(m, dict) or "android" not in m:
+    if beta:
+        if not isinstance(m, dict) or m.get("kanal") != KANAL_BETA or not isinstance(m.get("linux"), dict):
+            raise ValueError("seznam beta ni pravi")
+    elif not isinstance(m, dict) or "android" not in m or m.get("kanal", KANAL_STABILNO) != KANAL_STABILNO:
         raise ValueError("manifest ni pravi")
     pot = stanje_pot or _privzeta_stanje_pot()
-    izdano = preveri_svezino(m, _zadnje_izdano(pot), zdaj)
-    _shrani_izdano(pot, izdano)
+    kljuc = "izdano_beta" if beta else "izdano"
+    izdano = preveri_svezino(m, _zadnje_izdano(pot, kljuc), zdaj)
+    _shrani_izdano(pot, izdano, kljuc)
     return m
 
 
@@ -251,22 +328,50 @@ def _vnos_datoteke(paket: dict, nacin: str) -> Optional[dict]:
     return d if veljavna_datoteka(d) else None
 
 
-def preveri(platforma: str, razlicice: Dict[str, str], manifest: Optional[dict] = None, nacin: Optional[str] = None) -> dict:
+def _skupina(m: Optional[dict], platforma: str) -> dict:
+    return m.get(platforma) if isinstance(m, dict) and isinstance(m.get(platforma), dict) else {}
+
+
+def _izberi(stabilni, beta) -> tuple:
+    """(paket, iz_bete): novejsi od obeh vnosov. Predizdaje iz stabilnega seznama ne veljajo (stabilni kanal jih ne vidi
+    nikoli, tudi ce bi pomotoma zasle tja); ob enaki razlicici ima prednost stabilni vnos."""
+    s = stabilni if isinstance(stabilni, dict) and not je_predizdaja(stabilni.get("razlicica", "")) else None
+    b = beta if isinstance(beta, dict) and beta.get("razlicica") else None
+    if b is not None and (s is None or novejsa(b.get("razlicica", ""), s.get("razlicica", ""))):
+        return b, True
+    return s, False
+
+
+def preveri(platforma: str, razlicice: Dict[str, str], manifest: Optional[dict] = None, nacin: Optional[str] = None,
+            kanal: Optional[str] = None, beta_manifest: Optional[dict] = None) -> dict:
     """Primerja nase razlicice ({"safeer-os": "0.4.22", "safeer-control": "2.1.20"}) z manifestom.
 
-    Vrne {"nove": [{"kljuc", "ime", "nasa", "razlicica", "datoteka": {url, sha256, velikost} ali None, "tema": {...}}],
-          "nacin": deb|flatpak|appimage|windows|neznano, "stran": url, "preverjeno": cas}. Brez omrezja vrze izjemo.
+    Vrne {"nove": [{"kljuc", "ime", "nasa", "razlicica", "datoteka": {url, sha256, velikost} ali None, "tema": {...},
+          "beta": bool}], "nacin": deb|flatpak|appimage|windows|neznano, "stran": url, "preverjeno": cas, "kanal",
+          "na_beti": tece predizdaja, "beta_napaka": zakaj beta seznama ni bilo}. Brez omrezja vrze izjemo.
+    kanal=None: izbira uporabnika (izbrani_kanal()); s podanim manifestom (preizkusi) stabilno. V beta kanalu je ponujena
+    novejsa od stabilne in beta razlicice; ce beta seznama ni ali ni veljaven, ostane stabilni (nikoli nic slabsega).
     """
+    if kanal is None:
+        kanal = KANAL_STABILNO if manifest is not None else izbrani_kanal()
     m = manifest if manifest is not None else prenesi_manifest()
+    mb, beta_napaka = None, ""
+    if kanal == KANAL_BETA:
+        try:
+            mb = beta_manifest if beta_manifest is not None else prenesi_manifest(kanal=KANAL_BETA)
+        except Exception as e:  # noqa: BLE001 - brez bete ostane stabilni seznam (ze preverjen)
+            beta_napaka = str(e) or e.__class__.__name__
     nacin = nacin or ("windows" if platforma == "windows" else nacin_namestitve())
-    skupina = m.get(platforma) if isinstance(m.get(platforma), dict) else {}
+    skupina, skupina_b = _skupina(m, platforma), _skupina(mb, platforma)
     nove: List[dict] = []
+    iz_bete_kaj = False
     for kljuc, nasa in razlicice.items():
-        paket = skupina.get(kljuc)
-        if not isinstance(paket, dict) or not novejsa(paket.get("razlicica", ""), nasa):
+        paket, iz_bete = _izberi(skupina.get(kljuc), skupina_b.get(kljuc))
+        if paket is None or not novejsa(paket.get("razlicica", ""), nasa):
             continue
+        iz_bete_kaj = iz_bete_kaj or iz_bete
         vnos = {"kljuc": kljuc, "ime": IMENA.get(kljuc, kljuc), "nasa": nasa, "razlicica": str(paket.get("razlicica")),
-                "datoteka": _vnos_datoteke(paket, nacin)}
+                "datoteka": _vnos_datoteke(paket, nacin), "beta": iz_bete}
         if kljuc == "safeer-os" and nacin == "flatpak+deb":
             # Oba paketa v enem koraku; brez veljavnega .deb nic napol (samo stran).
             if veljavna_datoteka(paket.get("deb")):
@@ -279,16 +384,19 @@ def preveri(platforma: str, razlicice: Dict[str, str], manifest: Optional[dict] 
             else:
                 vnos["datoteka"] = None   # paket videza gre v isti apt-get: brez veljavnega vnosa nic napol (samo stran)
         nove.append(vnos)
-    novo = skupina.get("novo") if isinstance(skupina.get("novo"), dict) else {}
+    # Besedilo »kaj je novo« in stran izdaje sta od seznama, iz katerega je ponujena razlicica.
+    vir, vir_m = (skupina_b, mb) if iz_bete_kaj else (skupina, m)
+    novo = vir.get("novo") if isinstance(vir.get("novo"), dict) else {}
     # Paket .deb brez Flatpaka: ponudba »hitrejsi Splet« (Flatpak na runtime GNOME, ista ali novejsa razlicica).
     preklop = None
-    os_paket = skupina.get("safeer-os") if isinstance(skupina.get("safeer-os"), dict) else {}
+    os_paket = _izberi(skupina.get("safeer-os"), skupina_b.get("safeer-os"))[0] or {}
     nasa_os = razlicice.get("safeer-os", "")
     if nacin == "deb" and veljavna_datoteka(os_paket.get("flatpak")) and \
             not novejsa(nasa_os, str(os_paket.get("razlicica") or "")):
         preklop = {"razlicica": str(os_paket.get("razlicica")), "datoteka": os_paket["flatpak"]}
-    return {"nove": nove, "nacin": nacin, "flatpak_preklop": preklop, "stran": str(m.get("stran") or STRAN), "preverjeno": int(time.time()),
-            "novo": {k: str(v) for k, v in novo.items() if isinstance(v, str)}}
+    return {"nove": nove, "nacin": nacin, "flatpak_preklop": preklop, "stran": str(vir_m.get("stran") or STRAN),
+            "preverjeno": int(time.time()), "novo": {k: str(v) for k, v in novo.items() if isinstance(v, str)},
+            "kanal": kanal, "na_beti": any(je_predizdaja(v) for v in razlicice.values()), "beta_napaka": beta_napaka}
 
 
 def opis(izid: dict) -> str:
