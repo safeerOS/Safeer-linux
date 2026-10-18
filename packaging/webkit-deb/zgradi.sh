@@ -26,18 +26,6 @@ KOREN="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PREDPONA="${1:?Uporaba: zgradi.sh PREDPONA [IZHOD.tar.zst]}"
 IZHOD="${2:-}"
 case "$PREDPONA" in /usr/lib/safeer-*/webkit) ;; *) echo "PREDPONA mora biti /usr/lib/safeer-<paket>/webkit" >&2; exit 2 ;; esac
-# PREDPONA namescenega paketa (npr. /usr/lib/safeer-os/webkit po namestitvi safeer-os) bi rm -rf spodaj izbrisal in
-# namesceni Safeer bi ostal brez WebKita (pregled 18. 10. 2026). Lokalno gradnjo zato zavrnemo; CI gradi v cistem vsebniku.
-if command -v dpkg >/dev/null 2>&1 && LASTNIK="$(dpkg -S "$PREDPONA" 2>/dev/null)"; then
-    cat >&2 <<NAVODILO
-$PREDPONA pripada namescenemu paketu (${LASTNIK%%: *}): gradnja bi ga izbrisala in prepisala.
-Gradi v cistem vsebniku Ubuntu 24.04 (kot CI, posel webkit-deb), npr.:
-  docker run --rm -v "$KOREN:/src" -w /src ubuntu:24.04 bash -c \\
-    'bash packaging/webkit-deb/odvisnosti.sh && bash packaging/webkit-deb/zgradi.sh $PREDPONA build/webkit-$(basename "$(dirname "$PREDPONA")").tar.zst'
-ali paket najprej odstrani (sudo apt-get remove ${LASTNIK%%[:,]*}).
-NAVODILO
-    exit 3
-fi
 DELO="${SAFEER_WEBKIT_DELO:-$KOREN/build/webkit-deb}"
 PGO="${SAFEER_WEBKIT_PGO:-}"
 LLVM=/usr/lib/llvm-22/bin
@@ -166,12 +154,7 @@ find "$PREDPONA" -name '*.la' -delete
 du -sh "$PREDPONA"
 
 if [ -n "$IZHOD" ]; then
-    # Najprej pod zacasnim imenom in preverjeno (zstd -t), sele nato pod koncnim: prirezan arhiv (poln disk, preklic med
-    # zstd) bi CI sicer shranil v predpomnilnik pod koncnim kljucem za vedno (pregled 18. 10. 2026).
     mkdir -p "$(dirname "$IZHOD")"
-    rm -f "$IZHOD" "$IZHOD.del"
-    tar -C / -I 'zstd -19 -T0' -cf "$IZHOD.del" "${PREDPONA#/}"
-    zstd -q -t "$IZHOD.del"
-    mv "$IZHOD.del" "$IZHOD"
+    tar -C / -I 'zstd -19 -T0' -cf "$IZHOD" "${PREDPONA#/}"
     ls -l "$IZHOD"
 fi
