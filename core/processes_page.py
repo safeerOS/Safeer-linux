@@ -308,6 +308,11 @@ def _usage_head(tx, first, tail):
             f'<th scope="colgroup" colspan="3">{tx["memory"]}</th>{rest}</tr><tr>{sub}{sub}</tr></thead>')
 
 
+def _scroll(label):
+    """Ovoj tabele, ki se v ozkem oknu drsi vodoravno: dosegljiv s tipkovnico (Tab, nato puscice), z imenom za bralnik."""
+    return f'<div class="tabela" tabindex="0" role="region" aria-label="{html.escape(label)}">'
+
+
 def _sum(values):
     values = [v for v in values if v is not None]
     return sum(values) if values else None
@@ -346,7 +351,8 @@ def _system_table(system, tx, lang, app):
     threads = sum(int(r.get("threads") or 0) for r in system)
     body.append(f'<tr class="total"><td class="t">{html.escape(tx["total_all"].format(app=app or "Safeer"))}</td>'
                 f'{_usage_cells(total, lang)}<td>{threads}</td><td></td></tr>')
-    return (f'<h2>{html.escape(tx["system"].format(app=app or "Safeer"))}</h2><div class="tabela"><table>'
+    naslov = html.escape(tx["system"].format(app=app or "Safeer"))
+    return (f'<h2>{naslov}</h2>{_scroll(naslov)}<table>'
             f'{_usage_head(tx, tx["process"], (tx["threads"], tx["what"]))}<tbody>{"".join(body)}</tbody></table></div>')
 
 
@@ -376,7 +382,7 @@ def _services_table(services, tx):
         klass = ' class="off"' if state in (tx["stopped"], tx["not_started"], tx["periodic"], tx["off"]) else ""
         body.append(f'<tr{klass}><td class="t">{html.escape(name)}</td><td>{html.escape(state)}</td>'
                     f'<td>{html.escape(last)}</td><td>{html.escape(stops)}</td></tr>')
-    return (f'<h2>{tx["services"]}</h2><p class="rule">{html.escape(tx["services_rule"])}</p><div class="tabela"><table>'
+    return (f'<h2>{tx["services"]}</h2><p class="rule">{html.escape(tx["services_rule"])}</p>{_scroll(tx["services"])}<table>'
             f'<thead><tr><th scope="col">{tx["service"]}</th><th scope="col">{tx["status"]}</th>'
             f'<th scope="col">{tx["last_use"]}</th><th scope="col">{tx["stops"]}</th></tr></thead>'
             f'<tbody>{"".join(body)}</tbody></table></div>')
@@ -476,14 +482,14 @@ def render(rows, lang="sl", limit_mb=0, cpu_budget=0.0, key="", sleep_minutes=0,
   tr.total td {{ color: var(--medlo); font-weight: 600; border-top: 2px solid var(--rob); }}
   a {{ color: var(--zelena); text-decoration: none; border-radius: 4px; }} a.close {{ color: var(--rdeca); }}
   a:hover {{ text-decoration: underline; }}
-  a:focus-visible {{ outline: 2px solid var(--fokus); outline-offset: 2px; }}
+  a:focus-visible, .tabela:focus-visible {{ outline: 2px solid var(--fokus); outline-offset: 2px; }}
   .limit {{ color: var(--tise); font-size: 12px; margin-top: 14px; }}
 </style></head><body>
 <h1>🛡️ Safeer · {tx['title']}</h1>
 <p>{tx['intro']}</p>
 {rule}
 {history}
-<div class="tabela"><table>{_usage_head(tx, tx['tab'], (tx['threads'], tx['state'], tx['actions']))}
+{_scroll(tx['title'])}<table>{_usage_head(tx, tx['tab'], (tx['threads'], tx['state'], tx['actions']))}
 <tbody>{''.join(body)}</tbody></table></div>
 <div class="limit">{html.escape(limit_line)}</div>
 {sections}

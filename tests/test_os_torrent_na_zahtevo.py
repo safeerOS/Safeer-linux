@@ -4,6 +4,8 @@ Dokler kaj dela (prenos, ki se ni koncal, deljenje naprej, odprt tok), se ne ust
 
 Pravi rqbit 9.0.1 v vsebniku brez IPv6 ne tece (odjemalec sledilnikov UDP veze [::]:0 tudi z --ipv4-only - izmerjeno
 18. 10. 2026), zato tu tece ponarejen motor kot pravi podproces: isti ukaz, geslo, API in shranjeno stanje s id-ji.
+S pravim rqbit 9.0.1 na testnem PC (18. 10. 2026) isto zaporedje: ponovni zagon 0,05 s, id 0 -> 0, premor ostane,
+tok po ponovnem zagonu 206 s pravimi bajti.
 """
 import json
 import os

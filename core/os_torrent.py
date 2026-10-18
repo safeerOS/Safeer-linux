@@ -64,9 +64,10 @@ PREBRANO_VELJA_S = 180.0
 _VIR_IPV4 = re.compile(r"\d{1,3}(?:\.\d{1,3}){3}:\d{1,5}")
 #: Motor na zahtevo (lastnik, 18. 10. 2026): rqbit se zazene ob prvi rabi (vsak klic API-ja ga zazene sam) in se
 #: ustavi, ko ga toliko casa nihce ne uporablja in nic ne dela - ni prenosa, ki se ni koncal, ni torrenta, ki ga
-#: uporabnik izrecno deli naprej, ni odprtega toka predvajalnika. 10 min: konec filma in izbira naslednjega dela iz
-#: istega torrenta ne zaganjata motorja znova; ponovni zagon s shranjenim stanjem (fastresume) traja manj kot 1 s
-#: (preizkus motorja, glej tests/test_os_torrent_na_zahtevo.py), torrenti obdrzijo id in stanje premora.
+#: uporabnik izrecno deli naprej, ni odprtega toka predvajalnika. Izmerjeno na testnem PC (rqbit 9.0.1, 18. 10. 2026):
+#: mirujoc motor stane 13-15 MiB PSS, 4 niti, 16-18 deskriptorjev, 110-200 ms CPU na minuto in 15 prebujanj/s (DHT);
+#: ponovni zagon s shranjenim stanjem traja 0,05 s, torrent obdrzi id in premor, tok po njem dela takoj (9 ms). 10 min:
+#: konec filma in izbira naslednjega dela iz istega torrenta motorja ne ustavita; dlje ga ne drzimo za nic.
 MIROVANJE_S = 600.0
 #: Toliko casa posrednik toka caka, da rqbit torrent pripravi (500 "initializing"), preden napako poslje naprej.
 PRIPRAVA_TOKA_S = 45.0
