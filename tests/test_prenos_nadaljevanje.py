@@ -203,14 +203,22 @@ class NadaljevanjeVZivo(unittest.TestCase):
                 # Prvi PUT se prekine po ~1 MB (izpad Wi-Fi); drugi poskus vprasa HEAD in poslje le ostanek.
                 izvirni = link_tls._PripetaHttps.send
                 stanje = {"put": 0, "poslano": [0, 0, 0, 0, 0, 0]}
+                delne = self.streznik.hub.deljenje._delne
 
                 def send(self_, podatki):
                     if isinstance(podatki, (bytes, bytearray, memoryview)) and len(podatki) == link_deljenje.KOS:
                         i = stanje["put"]
-                        stanje["poslano"][i] += len(podatki)
-                        if i == 0 and stanje["poslano"][0] > 1024 * 1024:
+                        if i == 0 and stanje["poslano"][0] + len(podatki) > 1024 * 1024:
+                            # Izpad sele, ko je sredisce prebralo vse poslano: zaprt vtic poslje RST, ki zavrze, kar
+                            # je se v medpomnilnikih jedra - koliko je nit sredisca prej prebrala, je bilo tekma
+                            # (na obremenjenem stroju z 2 jedroma 18. 10. 2026 en sam kos, preizkus je padel).
+                            konec = time.monotonic() + 10
+                            while time.monotonic() < konec and not any(
+                                    d.prejeto >= stanje["poslano"][0] for d in list(delne.values())):
+                                time.sleep(0.01)
                             self_.sock.close()
                             raise ConnectionResetError("Wi-Fi je padel")
+                        stanje["poslano"][i] += len(podatki)
                     return izvirni(self_, podatki)
 
                 spanje = []
@@ -229,10 +237,10 @@ class NadaljevanjeVZivo(unittest.TestCase):
                 self.assertTrue(ok, n)
                 self.assertEqual(stanje["put"], 2, "en prekinjen in en nadaljevan PUT")
                 self.assertEqual(len(spanje), 1)
-                # Koliko je sredisce ob prekinitvi res prejelo, je odvisno od medpomnilnikov jedra (RST zavrze, kar je
-                # se na poti) - drugi poskus pa ne sme poslati vsega znova.
-                self.assertLess(stanje["poslano"][1], len(vsebina) - link_deljenje.KOS,
-                                "drugi poskus poslje le ostanek, ne vse znova")
+                # Sredisce je imelo vse, kar je prislo pred izpadom (~1 MB): drugi poskus poslje natanko ostanek.
+                self.assertGreaterEqual(stanje["poslano"][0], 1024 * 1024 - link_deljenje.KOS)
+                self.assertEqual(stanje["poslano"][1], len(vsebina) - stanje["poslano"][0],
+                                 "drugi poskus poslje le ostanek, ne vse znova")
                 self.assertTrue(prisla.wait(5))
                 tovor = datoteke[-1]["payload"]
                 self.assertEqual((tovor["size"], tovor["sha256"], tovor["dir"]),
