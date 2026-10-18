@@ -12,6 +12,14 @@ Pravila:
     Waylandovi).
   * Nasa okna (lastnosti EWMH, premik) so stvar ozadja GDK: `gdk_x11()`.
   * Kar na Waylandu ni mogoce, `zmoznosti()` vrne False in vmesnik tega ne pokaze (AGENTS.md: brez praznih gumbov).
+
+Na Waylandu ni mogoce (protokol tega odjemalcu namenoma ne da) - in kako je to v Safeerju (18. 10. 2026):
+  * namizje pod okni in vrstica z rezerviranim robom -> Safeer OS je aplikacija v oknu, stikalo Celozaslonsko skrito;
+  * seznam tujih oken (vrstica), premik in »nad vsemi« -> okna postavi sestavljalnik; ponudba »Poslji na napravo«
+    je obvestilo z gumboma namesto okna v kotu;
+  * vgradnja tujega okna (Sporocila, Safeer DRM v zavihek) -> program se odpre v svojem oknu;
+  * zajem zaslona in vnos brez dovoljenja -> portal: prvic dialog sistema, nato izbira obnovljena (core/portal_zaslon);
+  * Plank -> na GNOME dock = priljubljeni (Ubuntu Dock), drugje »Prilagodi dock« skrit (core/os_dock).
 """
 
 from __future__ import annotations

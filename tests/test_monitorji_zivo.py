@@ -58,8 +58,8 @@ finally:
 class PriklopMonitorja(unittest.TestCase):
     def test_namizje_sledi_primarnemu_monitorju(self):
         with tempfile.TemporaryDirectory() as d:
-            okolje = {k: v for k, v in os.environ.items()
-                      if k not in ("WAYLAND_DISPLAY", "XDG_SESSION_TYPE", "DISPLAY", "DBUS_SESSION_BUS_ADDRESS")}
+            import wayland_okolje
+            okolje = wayland_okolje.cisto_okolje()
             okolje.update({"XDG_CONFIG_HOME": os.path.join(d, "c"), "XDG_CACHE_HOME": os.path.join(d, "k"),
                            "XDG_DATA_HOME": os.path.join(d, "p"), "SAFEER_OS_BREZ_FLATPAKA": "1"})
             r = subprocess.run(["xvfb-run", "-a", "-s", "-screen 0 2560x1024x24", sys.executable, "-c", SKRIPTA, KOREN],

@@ -355,7 +355,8 @@ class Samozagoni(_Pocisti):
         vir, js = beri("safeer_os.py"), beri("assets", "os", "os.js")
         self.assertIn('"safeerCinnamon": _safeer_cinnamon_vklopljen(),', vir)
         self.assertIn('"samozagonNamizje": delovna_safeer_cinnamon(),', vir)
-        self.assertIn('$("stikaloCelozaslonsko").hidden = !!(S.zacetek && S.zacetek.safeerCinnamon);', js)
+        # Wayland: celozaslonskega namizja ni (tests/test_wayland_gnome.py), zato stikalo skrito tudi tam.
+        self.assertIn('$("stikaloCelozaslonsko").hidden = !!(S.zacetek && (S.zacetek.safeerCinnamon || S.zacetek.wayland));', js)
         self.assertIn('$("stikaloSamozagon").hidden = !!(S.zacetek && S.zacetek.samozagonNamizje);', js)
 
 

@@ -119,7 +119,8 @@ def sistemske_nastavitve(modul: str = "") -> bool:
     if modul not in MODULI_NASTAVITEV:
         return False
     # Flatpak ima ovoj za vsako orodje (/app/host-bin), tudi ce ga gostitelj nima - zato odloci namizje seje.
-    gnome = seja_prikaza.namizje() == "gnome"
+    from core import seja_prikaza as seja
+    gnome = seja.namizje() == "gnome"
     if which("cinnamon-settings") and not gnome:
         ukaz = ["cinnamon-settings"] + ([modul] if modul else [])
     elif which("gnome-control-center"):
@@ -1781,9 +1782,10 @@ def _nedavni():
 
 
 def _ima_delovno(app) -> bool:
-    """Delovna povrsina tece: okno WebKit (delovna.html) ali namizje QML (core/os_lupina.Namizje)."""
+    """Delovna povrsina tece: okno WebKit (delovna.html) ali namizje QML (core/os_lupina.Namizje) - ali na Waylandu
+    njene storitve brez okna (_delovna_v_ozadju: zaprtje zadnjega okna proces pusti zivega, kot ob delovni povrsini)."""
     return getattr(app, "okno_delovna", None) is not None or \
-        isinstance(getattr(app, "lupina", None), os_lupina.Namizje)
+        isinstance(getattr(app, "lupina", None), os_lupina.Namizje) or getattr(app, "_delovna_v_ozadju", False) is True
 
 
 class SafeerOS(Gtk.Application):
@@ -2160,20 +2162,17 @@ class SafeerOS(Gtk.Application):
 
     # ------------------------------------------------------------------ okno
     def do_activate(self) -> None:
-        if self.delovna and not _ima_delovno(self) and seja_prikaza.je_wayland() and not self._delovna_v_ozadju:
-            # Safeer Cinnamon ob prijavi na Waylandu (Cinnamon na Waylandu, poskusno v Mintu 22): delovne povrsine pod
-            # okni ni mogoce narediti, okno cez ves zaslon bi prekrilo programe. Storitve (Scit, Link, kuverta) tecejo,
-            # okno Safeer OS odpre meni (naslednja aktivacija - QML v oknu).
-            self._delovna_v_ozadju = True
-            self._qml_okno = True
-            self.hold()
-            self._ob_namizju()
-            self._prvic = False
-            self._povezi_koncanje()
-            return
-        if self.delovna and not _ima_delovno(self) and not self._delovna_v_ozadju:
-            # Prvi zagon z --delovna: samo delovna povrsina (glavno okno ob naslednji aktivaciji).
-            self._ustvari_delovno()
+        if self.delovna and not _ima_delovno(self):
+            if seja_prikaza.je_wayland():
+                # Safeer Cinnamon ob prijavi na Waylandu (Cinnamon na Waylandu, poskusno v Mintu 22): delovne povrsine
+                # pod okni ni mogoce narediti, okno cez ves zaslon bi prekrilo programe. Storitve (Scit, Link, kuverta)
+                # tecejo, okno Safeer OS odpre meni (naslednja aktivacija - QML v oknu).
+                self._delovna_v_ozadju = True
+                self._qml_okno = True
+                self.hold()
+            else:
+                # Prvi zagon z --delovna: samo delovna povrsina (glavno okno ob naslednji aktivaciji).
+                self._ustvari_delovno()
             self._ob_namizju()
             self._prvic = False
             self._povezi_koncanje()
@@ -2247,6 +2246,8 @@ class SafeerOS(Gtk.Application):
         jih ne zapremo brez opozorila (pregled 14. 10. 2026): Safeer OS se konca, ko izgine zadnje vidno okno."""
         if self.lupina is not None and self.lupina.okno.isVisible():
             return False                      # okno je medtem spet odprto (dvigni)
+        if self._delovna_v_ozadju is True:
+            return False                      # Wayland, Safeer Cinnamon: storitve (Scit, Link) tecejo naprej, meni okno vrne
         if any(o.get_visible() for o in self.get_windows()):
             GLib.timeout_add_seconds(2, self._zaprto_qml_okno)
             return False

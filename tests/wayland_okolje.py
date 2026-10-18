@@ -25,6 +25,18 @@ from typing import List, Optional
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+#: Spremenljivke, ki jih drugi preizkusi v istem procesu nastavijo (os_lupina.pripravi: QT_QPA_PLATFORM, preizkusi
+#: QML: offscreen) - zivi program na Waylandu mora izbrati sam, kot ob pravem zagonu.
+TUJE = ("DISPLAY", "WAYLAND_DISPLAY", "SWAYSOCK", "DBUS_SESSION_BUS_ADDRESS", "QT_QPA_PLATFORM", "GDK_BACKEND",
+        "QT_XCB_GL_INTEGRATION", "QT_QPA_PLATFORMTHEME", "XDG_SESSION_TYPE", "XDG_CURRENT_DESKTOP", "SAFEER_LUPINA",
+        "SAFEER_OS_BREZ_OKEN")
+
+
+def cisto_okolje() -> dict:
+    """os.environ brez zaslona, vodila in izbir ozadja Qt/GDK (TUJE)."""
+    return {k: v for k, v in os.environ.items() if k not in TUJE}
+
+
 def na_voljo() -> bool:
     return bool(shutil.which("sway") and shutil.which("swaymsg") and shutil.which("dbus-daemon"))
 
@@ -98,8 +110,7 @@ class Sway:
             f.write("output HEADLESS-1 resolution %dx%d position 0 0 scale %s\n" % (self.sirina, self.visina, self.merilo))
             # Brez »output * bg«: swaybg bi tekel kot locen proces zunaj nasega drevesa procesov.
             f.write("xwayland %s\nfocus_follows_mouse no\n" % ("enable" if self.xwayland else "disable"))
-        osnova = {k: v for k, v in os.environ.items()
-                  if k not in ("DISPLAY", "WAYLAND_DISPLAY", "SWAYSOCK", "DBUS_SESSION_BUS_ADDRESS")}
+        osnova = cisto_okolje()
         osnova.update({"XDG_RUNTIME_DIR": run, "WLR_BACKENDS": "headless", "WLR_RENDERER": "pixman",
                        "WLR_LIBINPUT_NO_DEVICES": "1"})
         try:
@@ -286,8 +297,7 @@ class Mutter:
         os.makedirs(run, mode=0o700)
         for m in ("cfg", "cache", "data"):
             os.makedirs(os.path.join(self.mapa, m))
-        osnova = {k: v for k, v in os.environ.items()
-                  if k not in ("DISPLAY", "WAYLAND_DISPLAY", "SWAYSOCK", "DBUS_SESSION_BUS_ADDRESS")}
+        osnova = cisto_okolje()
         osnova.update({"XDG_RUNTIME_DIR": run, "XDG_CURRENT_DESKTOP": "GNOME", "XDG_SESSION_TYPE": "wayland",
                        "XDG_CONFIG_HOME": os.path.join(self.mapa, "cfg"),
                        "XDG_CACHE_HOME": os.path.join(self.mapa, "cache"),
