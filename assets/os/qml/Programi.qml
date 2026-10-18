@@ -305,8 +305,8 @@ Steklo {
                         anchors.horizontalCenter: parent.horizontalCenter; anchors.verticalCenter: parent.verticalCenter
                         radius: 12
                         readonly property bool izbran: vrstaPril.activeFocus && celica.vi === vrstaPril.currentIndex
-                        color: mpp.drag.active ? koren.poudarekA(0.25) : mpp.containsMouse || izbran ? koren.prekriv(0.13) : koren.prekriv(0.05)
-                        border.width: izbran ? 2 : 1; border.color: izbran ? koren.paleta.fokus : koren.crta(0.08)
+                        color: mpp.drag.active ? koren.poudarekA(0.25) : mpp.containsMouse || izbran ? koren.prekriv(0.13) : "transparent"   // mirujoca ploscica prosojna (lastnik 18. 10.)
+                        border.width: izbran ? 2 : (mpp.containsMouse ? 1 : 0); border.color: izbran ? koren.paleta.fokus : koren.crta(0.08)
                         Accessible.role: Accessible.ListItem; Accessible.name: celica.p.ime
                         Drag.active: mpp.drag.active; Drag.source: celica; Drag.keys: ["safeer/priljubljen-program"]
                         Drag.hotSpot.x: width / 2; Drag.hotSpot.y: height / 2
@@ -407,8 +407,8 @@ Steklo {
                     anchors.fill: parent; anchors.margins: vrsta ? 2 : 5; radius: vrsta ? 10 : 14
                     readonly property bool izbran: mreza.activeFocus && index === mreza.currentIndex
                     readonly property bool priljubljen: panel.linux && panel.jePriljubljen(modelData)
-                    color: mp.containsMouse || izbran ? koren.prekriv(0.13) : koren.prekriv(0.05)
-                    border.width: izbran ? 2 : 1
+                    color: mp.containsMouse || izbran ? koren.prekriv(0.13) : "transparent"   // mirujoca ploscica prosojna (lastnik 18. 10.)
+                    border.width: izbran ? 2 : (mp.containsMouse ? 1 : 0)
                     border.color: izbran ? koren.paleta.fokus : mp.containsMouse ? koren.poudarekA(0.55) : koren.crta(0.08)
                     Accessible.role: Accessible.ListItem; Accessible.name: modelData.ime + (priljubljen ? ", " + koren.t("kPriljubljeni") : "")
                     scale: vrsta ? 1 : (mp.pressed ? 0.95 : (mp.containsMouse ? 1.04 : 1))
