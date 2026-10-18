@@ -43,6 +43,10 @@ Item {
             if (vrsta === "prilagodi") prilagodi.odpri()   // Nastavitve Safeer OS -> Namizje -> Prilagodi namizje
             if (vrsta === "programi") programi.osveziTiho()   // program namescen ali odstranjen
             if (vrsta === "priljubljeno" && p) koren.nastaviPriljubljeno(p)   // tudi sprememba na delovni povrsini WebKit
+            if (vrsta === "pokaziNaNamizju" && p) koren.pokaziNaNamizju(p)
+            if (vrsta === "sporocilaStevilo" && p) { koren.sporocilNeprebranih = Math.max(0, Number(p.n) || 0); zadetki.sporocilaCas = 0 }
+            // Tiha preverba posodobitev (safeer_os._posodobitve_tiho): opomba pod iskanjem, kot na Domov aplikacije.
+            if (vrsta === "posodobitev" && p) koren.posodobitev = (p.nove || []).length ? String(p.opis || "") : ""
         }
     }
     property string jezik: "sl"
@@ -110,6 +114,12 @@ Item {
         return d.toLocaleDateString(Qt.locale(l), Locale.ShortFormat)
     }
     function obvesti(besedilo, dejanje, ob) { obvestilo.pokazi(besedilo, dejanje, ob) }
+    // Razdelek Datoteke ali Programi z drugega mesta (okno Zapiski, Nastavitve …): plosca na namizju dobi fokus, Datoteke
+    // pri mapi. Prej se je odprlo staro glavno okno Safeer OS (popis 3.1, safeer_os._pokazi_na_namizju, 18. 10. 2026).
+    function pokaziNaNamizju(p) {
+        if (p.razdelek === "datoteke") { if (p.pot) datoteke.odpriLokalno(p.pot); datoteke.fokus() }
+        else if (p.razdelek === "programi") programi.fokus()
+    }
     // »{n} naprav«: slovenscina ima ednino, dvojino in mnozino (isto pravilo kot delovna.js).
     function steviloNaprav(n) {
         var m = n % 100
@@ -431,6 +441,15 @@ Item {
             return null
         }
         property var deli: ({})
+        property var sporocilaSkupine: []
+        property real sporocilaCas: 0
+        function izSporocil(skupine, bs) {
+            return (skupine || []).filter(function (s) {
+                var o = s.oseba || {}, p = s.pogovori || []
+                return p.length > 0 && zadetki.ujema((o.ime || "") + " " + (o.identitete || []).map(function (x) { return x[1] || "" }).join(" ") + " "
+                                                     + p.map(function (x) { return (x.zadeva || "") + " " + (x.zadnje_sporocilo || "") }).join(" "), bs)
+            }).slice(0, 4)
+        }
         function isci(q) {
             q = (q || "").trim(); zadnjiNiz = q; premaknjen = false; poEnter = false
             var st = ++zahteva
@@ -454,7 +473,7 @@ Item {
                 naprave: q.length >= 2 ? koren.naprave.filter(function (n) {
                     return zadetki.ujema(n.ime, bs) || zadetki.ujema(n.ime + " " + (besedeNaprav[n.platforma] || n.platforma || ""), bs)
                 }).slice(0, 4) : [],
-                datoteke: [], zapiski: [], mediji: [], katalog: [], naCilj: []
+                datoteke: [], zapiski: [], mediji: [], katalog: [], naCilj: [], sporocila: []
             }
             deli = d
             function pocakaj(metoda, args, kam, obdelaj) {
@@ -465,6 +484,15 @@ Item {
                 }, function () { if (st !== zahteva) return; zadetki.caka--; zadetki.sestavi() })
             }
             if (q.length >= 2) pocakaj("isciDatoteke", [q, 6], "datoteke", function (r) { return r.slice(0, 6) })
+            // Sporocila: osebe in pogovori (ime, naslov, zadeva, zadnje sporocilo) kot iskanje v aplikaciji Safeer OS (popis 3.1).
+            // Seznam iz Safeer OS najvec vsakih 30 s (in po novem sporocilu), ne ob vsaki crki.
+            if (linux && q.length >= 2 && koren.videz.sporocila !== false) {
+                if (Date.now() - sporocilaCas < 30000) d.sporocila = izSporocil(sporocilaSkupine, bs)
+                else pocakaj("sporocilaSeznam", [""], "sporocila", function (r) {
+                    zadetki.sporocilaSkupine = (r && r.skupine) || []; zadetki.sporocilaCas = Date.now()
+                    return zadetki.izSporocil(zadetki.sporocilaSkupine, bs)
+                })
+            }
             if (linux && q.length >= 2) {
                 pocakaj("zapiskiSeznam", [q], "zapiski", function (r) { return r.slice(0, 4) })
                 pocakaj("knjiznicaMedijev", ["", q, 0], "mediji", function (r) { return r.slice(0, 5) })
@@ -501,6 +529,11 @@ Item {
                 v.push({ vrsta: "naprava", skupina: koren.t("skNaprave"), ime: n.ime, opis: koren.t(n.datoteke ? "napravaDatoteke" : "napravaProgrami") + " · Safeer Link",
                          kljuc: n.kljuc || n.datoteke || n.programi, ikona: "", podatki: JSON.stringify({ n: n, poImenu: zadetki.ujema(n.ime, bs) }) })
             })
+            d.sporocila.forEach(function (s) {
+                var p = s.pogovori[0]
+                v.push({ vrsta: "pogovor", skupina: koren.t("skSporocila"), ime: (s.oseba || {}).ime || "", opis: p.zadnje_sporocilo || p.zadeva || "",
+                         kljuc: "pogovor:" + p.kanal_id + ":" + p.id, ikona: "", podatki: "{}" })
+            })
             d.datoteke.forEach(function (x) { v.push({ vrsta: x.mapa ? "mapa" : "datoteka", skupina: koren.t("skDatoteke"), ime: x.ime, opis: koren.kratkaPot(x.pot), kljuc: x.pot, ikona: "",
                                                        podatki: JSON.stringify({ vrsta: x.vrsta || "" }) }) })
             d.zapiski.forEach(function (z) { v.push({ vrsta: "zapisek", skupina: koren.t("skZapiski"), ime: z.naslov || "", opis: z.odlomek || "", kljuc: z.id, ikona: "", podatki: "{}" }) })
@@ -528,6 +561,8 @@ Item {
             for (var i = 0; i < v.length; i++) {
                 var x = v[i], r = RANG[x.vrsta] || 0
                 if (x.vrsta === "naprava" && !JSON.parse(x.podatki).poImenu) r = 0
+                // Oseba po imenu: za programom, pred razdelki Safeer OS (kot namera »sporocila« v iskanju aplikacije).
+                if (x.vrsta === "pogovor" && I.oceni(x.ime, q) >= 70) r = 2.5
                 if (x.vrsta === "datoteka" || x.vrsta === "mapa" || x.vrsta === "medij" || x.vrsta === "zapisek") {
                     var ime = x.ime, brez = ime.replace(/\.[^.\s]{1,8}$/, "")
                     var o = Math.max(I.oceni(ime, q), I.oceni(brez, q))
@@ -569,6 +604,7 @@ Item {
             else if (z.vrsta === "mapa") datoteke.odpriLokalno(z.kljuc)   // mapa se odpre v Datotekah (tega racunalnika)
             else if (z.vrsta === "safeer") koren.klic("odpriRazdelek", [z.kljuc])
             else if (z.vrsta === "zapisek") koren.klic("odpriRazdelek", ["zapisek:" + z.kljuc])
+            else if (z.vrsta === "pogovor") koren.klic("odpriRazdelek", [z.kljuc])     // okno Sporocila pri tem pogovoru
             else if (z.vrsta === "naprava") {
                 if (p.n.datoteke) datoteke.pokaziNapravo(p.n.datoteke)
                 else programi.pokaziNapravo(p.n.programi)
@@ -644,7 +680,7 @@ Item {
                 Row {
                     anchors.verticalCenter: parent.verticalCenter; x: 10; spacing: 12
                     Image { source: model.ikona; width: 26; height: 26; visible: model.ikona !== ""; sourceSize: Qt.size(52, 52) }
-                    Text { text: model.vrsta === "splet" ? "🌐" : model.vrsta === "mapa" ? "📁" : model.vrsta === "zapisek" ? "📝"
+                    Text { text: model.vrsta === "splet" ? "🌐" : model.vrsta === "mapa" ? "📁" : model.vrsta === "zapisek" ? "📝" : model.vrsta === "pogovor" ? "✉"
                                : (model.vrsta === "medij" || model.vrsta === "katalog" || model.vrsta === "mediji") ? "🎵"
                                : (model.vrsta === "naprava" || model.vrsta === "naCilj") ? "📺" : model.vrsta === "safeer" ? "✦"
                                : model.vrsta === "program" ? "▣" : "📄"
@@ -661,33 +697,63 @@ Item {
         }
     }
 
-    // Safeer Link pod iskanjem
+    // Pod iskanjem: Safeer Link, Sporocila (neprebrana, isto stevilo kot kuverta v pultu) in opomba o posodobitvi - vstopi,
+    // ki jih je imel Domov aplikacije Safeer OS (popis 3.1, 18. 10. 2026).
     property int napravVLinku: 0
-    Rectangle {
-        id: linkGumb
+    property int sporocilNeprebranih: 0
+    property string posodobitev: ""      // opis nove razlicice (dogodek »posodobitev«) ali ""
+    function osveziSporocila() { if (platforma === "linux" && videz.sporocila !== false) klic("sporocilaNeprebrana", []) }
+    // Varnostno osvezevanje (spremembo sicer javi dogodek »sporocilaStevilo«; brez ikone v pultu ga ni ob vsaki spremembi).
+    Timer { interval: 60000; repeat: true; running: koren.platforma === "linux" && koren.videz.sporocila !== false
+            onTriggered: koren.osveziSporocila() }
+    Row {
+        id: vrsticaCipov
+        objectName: "vrsticaCipov"
         anchors.horizontalCenter: parent.horizontalCenter
         y: iskanje.y + iskanje.height + 10
         visible: !zadetki.visible
-        height: koren.px(26); width: linkVrstica.width + 22; radius: height / 2
-        color: ml.containsMouse || activeFocus ? koren.prekriv(0.16) : koren.plosca(koren.prosojnostPlosc)
-        border.width: activeFocus ? 2 : 1
-        border.color: activeFocus ? koren.paleta.fokus : koren.crta(0.12)
-        activeFocusOnTab: true
-        Accessible.role: Accessible.Button
-        Accessible.name: koren.t("linkNaslov")
-        Keys.onReturnPressed: koren.linkKlik()
-        Keys.onEnterPressed: koren.linkKlik()
-        Keys.onSpacePressed: koren.linkKlik()
-        Behavior on color { ColorAnimation { duration: 150 } }
-        Row {
-            id: linkVrstica; anchors.centerIn: parent; spacing: 7
-            Rectangle { width: 7; height: 7; radius: 4; color: koren.napravVLinku > 0 ? koren.paleta.poudarek : koren.paleta.medlo; anchors.verticalCenter: parent.verticalCenter }
-            Text { objectName: "linkBesedilo"
-                   text: koren.linkNepovezan() ? koren.t("linkPovezi")
-                       : koren.t("link") + (koren.napravVLinku > 0 ? " · " + koren.steviloNaprav(koren.napravVLinku) : "")
-                   color: koren.paleta.besedilo; font.pixelSize: koren.px(12) }
+        spacing: 8
+        Rectangle {
+            id: linkGumb
+            height: koren.px(26); width: linkVrstica.width + 22; radius: height / 2
+            color: ml.containsMouse || activeFocus ? koren.prekriv(0.16) : koren.plosca(koren.prosojnostPlosc)
+            border.width: activeFocus ? 2 : 1
+            border.color: activeFocus ? koren.paleta.fokus : koren.crta(0.12)
+            activeFocusOnTab: true
+            Accessible.role: Accessible.Button
+            Accessible.name: koren.t("linkNaslov")
+            Keys.onReturnPressed: koren.linkKlik()
+            Keys.onEnterPressed: koren.linkKlik()
+            Keys.onSpacePressed: koren.linkKlik()
+            Behavior on color { ColorAnimation { duration: 150 } }
+            Row {
+                id: linkVrstica; anchors.centerIn: parent; spacing: 7
+                Rectangle { width: 7; height: 7; radius: 4; color: koren.napravVLinku > 0 ? koren.paleta.poudarek : koren.paleta.medlo; anchors.verticalCenter: parent.verticalCenter }
+                Text { objectName: "linkBesedilo"
+                       text: koren.linkNepovezan() ? koren.t("linkPovezi")
+                           : koren.t("link") + (koren.napravVLinku > 0 ? " · " + koren.steviloNaprav(koren.napravVLinku) : "")
+                       color: koren.paleta.besedilo; font.pixelSize: koren.px(12) }
+            }
+            MouseArea { id: ml; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: koren.linkKlik() }
         }
-        MouseArea { id: ml; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: koren.linkKlik() }
+        Cip {
+            id: sporocilaGumb
+            objectName: "gumbSporocila"
+            visible: koren.platforma === "linux" && koren.videz.sporocila !== false
+            besedilo: koren.t("sporocilaGumb")
+            stevilo: koren.sporocilNeprebranih
+            ime: koren.sporocilNeprebranih > 0 ? koren.t("sporocilaNeprebrana", { n: koren.sporocilNeprebranih }) : koren.t("sporocilaGumb")
+            onKlik: koren.klic("odpriRazdelek", ["sporocila"])
+        }
+        Cip {
+            id: posodobitevGumb
+            objectName: "gumbPosodobitev"
+            visible: koren.posodobitev !== "" && koren.platforma === "linux"
+            poudarjen: true
+            besedilo: koren.t("posodobitevNaVoljo", { opis: koren.posodobitev })
+            ime: besedilo + " · " + koren.t("posodobitevOdpri")
+            onKlik: koren.klic("odpriRazdelek", ["nastavitve#blokPosodobitve"])
+        }
     }
 
     // Domaca mapa kot »~« (kot upravitelji datotek): krajse in brez uporabniskega imena na posnetkih zaslona (14. 10. 2026).
@@ -759,14 +825,33 @@ Item {
     property real robLevo: 0
     property real robDesno: 0
     // Paneli pod gumbom Safeer Link (ta zraste z vecjim besedilom sistema)
-    readonly property real vrhPanelov: Math.max(robZgoraj + 104, linkGumb.y + linkGumb.height - 2)
+    readonly property real vrhPanelov: Math.max(robZgoraj + 104, vrsticaCipov.y + vrsticaCipov.height - 2)
     // Medijski center: kaj se predvaja (lastnik, 14. 10. 2026: med glasbo je pripomocek kazal »Ni predvajanja«). Isto stanje
     // kot delovna.js in Medijski center (predvajalnikStanje: domaci predvajalnik ali skladba s seznama v vgradnem predvajalniku
     // YouTuba), osvezevanje 1 s med predvajanjem, sicer 3 s; dogodek »predvajalnik« osvezi takoj.
     property var medij: ({})
     readonly property bool medijIgra: !!medij.naslov && medij.stanje !== "ustavljeno"
     function osveziMedij() { koren.klic("predvajalnikStanje", [], function (p) { koren.medij = p || {} }) }
-    function medijUkaz(u) { koren.klic("predvajalnikUkaz", [u], function () { koren.osveziMedij() }) }
+    function medijUkaz(u, v) { koren.klic("predvajalnikUkaz", v === undefined ? [u] : [u, v], function () { koren.osveziMedij() }) }
+    // Premik po posnetku samo, ce ga predvajalnik res zna (kot drsnik vrstice »Predvaja se« v Medijskem centru): ne prenos v
+    // zivo, ne Spotify (njegov trak vodi stran v Safeer DRM). Prej je bil napredek na namizju le prikaz (popis 3.1, 18. 10. 2026).
+    // Ukaze skok, ustavi in predvajaj <n> pozna most na Linuxu (safeer_os._medijski_ukaz); drugje gumbov ni.
+    readonly property bool medijLinux: medijIgra && platforma === "linux"
+    readonly property bool medijPremik: medijLinux && Number(medij.trajanje) > 0 && !medij.zivo && !medij.spotify
+                                        && medij.vrsta !== "tv" && medij.vrsta !== "radio"
+    function casMedija(s) {
+        s = Math.max(0, Math.floor(Number(s) || 0))
+        var h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = ("0" + s % 60).slice(-2)
+        return h ? h + ":" + ("0" + m).slice(-2) + ":" + x : m + ":" + x
+    }
+    // Klik na ovitek: video ali vgradni predvajalnik spet v oknu; kar okna nima (glasba), odpre Medijski center.
+    function odpriPredvajanje() {
+        koren.klic("predvajalnikUkaz", ["odpri"], function (ok) { if (ok !== true) koren.klic("odpriRazdelek", ["media"]) },
+                   function () { koren.klic("odpriRazdelek", ["media"]) })
+    }
+    // Glasnost privzetega izhoda (isti pactl/wpctl kot vrstica Medijskega centra in hitre nastavitve): beremo ob odprtju.
+    property var zvokSistema: null
+    function naloziGlasnost() { koren.klic("zvokGlasnost", [], function (z) { koren.zvokSistema = z || null }) }
     Timer { interval: koren.medij.stanje === "predvaja" ? 1000 : 3000; running: true; repeat: true; triggeredOnStart: true
             onTriggered: koren.osveziMedij() }
     function opisMedija() {
@@ -796,7 +881,8 @@ Item {
         oddajaj: "M3 8V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-5 M3 12a8 8 0 0 1 8 8 M3 16a4 4 0 0 1 4 4 M3 20h.01",
         ponovno: "M20 12a8 8 0 1 1-2.3-5.7 M20 4v5h-5",
         racunalnik: "M3 4h18v13H3z M3 14h18 M9 21h6", naprava: "M3 4h18v12H3z M8 20h8 M12 16v4",
-        zvocnik: "M4 9v6h4l5 4V5L8 9z M16 9a4 4 0 0 1 0 6 M18.5 6.5a8 8 0 0 1 0 11", kljukica: "M5 12.5l4.5 4.5L19 7.5" })
+        zvocnik: "M4 9v6h4l5 4V5L8 9z M16 9a4 4 0 0 1 0 6 M18.5 6.5a8 8 0 0 1 0 11", kljukica: "M5 12.5l4.5 4.5L19 7.5",
+        utisan: "M4 9v6h4l5 4V5L8 9z M16 9l5 6 M21 9l-5 6", ustavi: "M6.5 6.5h11v11h-11z", odpri: "M14 4h6v6 M20 4l-9 9 M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5", vrsta: "M4 6h16 M4 12h16 M4 18h10 M18 16v5l3-2.5z" })
     Steklo {
         id: medijski
         objectName: "medijski"
@@ -807,9 +893,29 @@ Item {
             id: medijVsebina
             anchors.fill: parent; anchors.margins: 18; spacing: 10
             RowLayout {
-                width: parent.width; spacing: 8
+                width: parent.width; spacing: 6
                 Text { text: koren.t("medijski"); color: koren.paleta.besedilo; font.pixelSize: koren.px(16); font.bold: true; Layout.fillWidth: true
                        elide: Text.ElideRight }
+                // Cakalna vrsta domacega predvajalnika (skladbe in videi iz Datotek ali knjiznice): izbira z misko ali tipkami.
+                GumbIkona {
+                    id: gumbVrsta
+                    objectName: "medijVrsta"
+                    visible: koren.medijLinux && (koren.medij.skupaj || 0) > 1 && (koren.medij.vrstaSeznam || []).length > 0
+                    pot: koren.ikone.vrsta; width: 30; height: 30; velikostIkone: 17
+                    ime: koren.t("cakalnaVrsta")
+                    Accessible.role: Accessible.ButtonMenu
+                    onKlik: vrstaPopup.visible ? vrstaPopup.close() : vrstaPopup.open()
+                }
+                GumbIkona {
+                    id: gumbGlasnost
+                    objectName: "medijGlasnost"
+                    visible: koren.medijLinux
+                    pot: koren.zvokSistema && koren.zvokSistema.utisan ? koren.ikone.utisan : koren.ikone.zvocnik
+                    width: 30; height: 30; velikostIkone: 17
+                    ime: koren.t("glasnost")
+                    Accessible.role: Accessible.ButtonMenu
+                    onKlik: glasnostPopup.visible ? glasnostPopup.close() : glasnostPopup.open()
+                }
                 GumbIkona {
                     id: gumbIzhod
                     objectName: "medijIzhod"
@@ -820,13 +926,29 @@ Item {
                     Accessible.role: Accessible.ButtonMenu
                     onKlik: izhodi.visible ? izhodi.close() : izhodi.open()
                 }
-                Gumb { besedilo: koren.t("odpriMedijski"); onKlik: koren.klic("odpriRazdelek", ["media"]) }
+                // Ozka plosca (okno 960 px, zaslon 1024 px): gumb z napisom postane ikona, naslov ostane berljiv (posnetek 18. 10. 2026).
+                Gumb { visible: medijski.width >= koren.px(470); besedilo: koren.t("odpriMedijski"); onKlik: koren.klic("odpriRazdelek", ["media"]) }
+                GumbIkona {
+                    objectName: "medijOdpriIkona"
+                    visible: medijski.width < koren.px(470)
+                    pot: koren.ikone.odpri; width: 30; height: 30; velikostIkone: 16; ime: koren.t("odpriMedijski")
+                    onKlik: koren.klic("odpriRazdelek", ["media"])
+                }
             }
             RowLayout {
                 width: parent.width; spacing: 14
                 Item {
                     id: ovitek
+                    objectName: "medijOvitek"
                     Layout.preferredWidth: 54; Layout.preferredHeight: 54
+                    // Med predvajanjem je ovitek gumb: pokaze, kar se predvaja (video v oknu ali Medijski center).
+                    activeFocusOnTab: koren.medijLinux
+                    Accessible.role: Accessible.Button
+                    Accessible.name: koren.t("odpriPredvajanje")
+                    Accessible.onPressAction: if (koren.medijLinux) koren.odpriPredvajanje()
+                    Keys.onReturnPressed: if (koren.medijLinux) koren.odpriPredvajanje()
+                    Keys.onEnterPressed: if (koren.medijLinux) koren.odpriPredvajanje()
+                    Keys.onSpacePressed: if (koren.medijLinux) koren.odpriPredvajanje()
                     Rectangle {
                         anchors.fill: parent; radius: 12
                         gradient: Gradient { GradientStop { position: 0; color: koren.paleta.poudarek } GradientStop { position: 1; color: koren.paleta.vnos } }
@@ -849,6 +971,13 @@ Item {
                             PathRectangle { width: 54; height: 54; radius: 12 }
                         }
                     }
+                    Rectangle {
+                        anchors.fill: parent; radius: 12; color: "transparent"
+                        border.width: ovitek.activeFocus ? 2 : 0; border.color: koren.paleta.fokus
+                    }
+                    MouseArea { anchors.fill: parent; enabled: koren.medijLinux; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                onClicked: koren.odpriPredvajanje()
+                                ToolTip.visible: containsMouse; ToolTip.text: koren.t("odpriPredvajanje"); ToolTip.delay: 500 }
                 }
                 Column {
                     Layout.fillWidth: true; spacing: 4
@@ -866,7 +995,7 @@ Item {
                     }
                 }
                 Row {
-                    spacing: 6; visible: koren.medijIgra
+                    spacing: 4; visible: koren.medijIgra
                     GumbIkona {
                         objectName: "medijPrejsnja"
                         pot: koren.ikone.prejsnja; polnilo: true; ime: koren.t("prejsnja")
@@ -888,20 +1017,169 @@ Item {
                         enabled: !!koren.medij.vrstaStrani || koren.medij.indeks < (koren.medij.skupaj || 0) - 1
                         onKlik: koren.medijUkaz("naslednja")
                     }
+                    GumbIkona {
+                        objectName: "medijUstavi"
+                        visible: koren.platforma === "linux"
+                        pot: koren.ikone.ustavi; polnilo: true; ime: koren.t("ustaviMedij"); velikostIkone: 15
+                        anchors.verticalCenter: parent.verticalCenter
+                        onKlik: koren.medijUkaz("ustavi")
+                    }
                 }
             }
             // Polozaj samo, ce ga predvajalnik pozna (ne tok v zivo, ne vgradni predvajalnik YouTuba) - brez laznega drsnika.
-            Rectangle {
+            // Premik: miska (klik ali vlecenje) ali puscici levo/desno po 10 s; casa sta levo in desno kot v Medijskem centru.
+            RowLayout {
                 objectName: "medijNapredek"
                 visible: koren.medijIgra && Number(koren.medij.trajanje) > 0
-                width: parent.width; height: 4; radius: 2; color: koren.prekriv(0.12)
-                Accessible.role: Accessible.ProgressBar
-                Accessible.name: Math.floor((koren.medij.pozicija || 0) / 60) + ":" + ("0" + Math.floor((koren.medij.pozicija || 0) % 60)).slice(-2)
-                Rectangle {
-                    height: parent.height; radius: 2; color: koren.paleta.poudarek
-                    width: parent.width * Math.min(1, Math.max(0, (koren.medij.pozicija || 0) / (koren.medij.trajanje || 1)))
+                width: parent.width; spacing: 8
+                Text { objectName: "medijCas"; text: koren.casMedija(drsnikMedija.pressed ? drsnikMedija.value : koren.medij.pozicija)
+                       color: koren.paleta.medlo; font.pixelSize: koren.px(11); font.family: "monospace" }
+                Slider {
+                    id: drsnikMedija
+                    objectName: "medijDrsnik"
+                    Layout.fillWidth: true; implicitHeight: 18
+                    from: 0; to: Math.max(1, Number(koren.medij.trajanje) || 1); stepSize: 10
+                    enabled: koren.medijPremik; focusPolicy: Qt.StrongFocus
+                    Accessible.name: koren.t("polozajPredvajanja") + " " + koren.casMedija(value) + " / " + koren.casMedija(to)
+                    Binding on value { value: Number(koren.medij.pozicija) || 0; when: !drsnikMedija.pressed; restoreMode: Binding.RestoreNone }
+                    // Tipkovnica premakne takoj, miska ob spustu (med vlecenjem tece cas naprej, drsnik ne skace).
+                    onMoved: if (!pressed) koren.medijUkaz("skok", value)
+                    onPressedChanged: if (!pressed && enabled) koren.medijUkaz("skok", value)
+                    background: Rectangle {
+                        x: drsnikMedija.leftPadding; y: drsnikMedija.topPadding + drsnikMedija.availableHeight / 2 - height / 2
+                        width: drsnikMedija.availableWidth; height: 4; radius: 2; color: koren.prekriv(0.12)
+                        Rectangle { width: drsnikMedija.visualPosition * parent.width; height: parent.height; radius: 2; color: koren.paleta.poudarek }
+                    }
+                    handle: Rectangle {
+                        x: drsnikMedija.leftPadding + drsnikMedija.visualPosition * (drsnikMedija.availableWidth - width)
+                        y: drsnikMedija.topPadding + drsnikMedija.availableHeight / 2 - height / 2
+                        width: 12; height: 12; radius: 6; color: koren.paleta.besedilo
+                        border.width: drsnikMedija.activeFocus ? 2 : 0; border.color: koren.paleta.fokus
+                        visible: drsnikMedija.enabled && (drsnikMedija.hovered || drsnikMedija.pressed || drsnikMedija.activeFocus)
+                    }
+                }
+                Text { objectName: "medijTrajanje"; text: koren.casMedija(koren.medij.trajanje)
+                       color: koren.paleta.medlo; font.pixelSize: koren.px(11); font.family: "monospace" }
+            }
+        }
+    }
+
+    // Cakalna vrsta domacega predvajalnika (isti seznam kot plosca »Cakalna vrsta« v Medijskem centru): okno okoli
+    // trenutne skladbe; Enter, preslednica ali klik predvaja izbrano. Escape ali klik drugam zapre.
+    Popup {
+        id: vrstaPopup
+        objectName: "vrstaPopup"
+        parent: gumbVrsta
+        x: gumbVrsta.width - width; y: gumbVrsta.height + 8
+        width: 330; padding: 12
+        modal: false; focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
+        readonly property int zacetek: koren.medij.zacetniIndeks || 0
+        function izberi(i) { if (i >= 0) koren.medijUkaz("predvajaj", zacetek + i) }
+        onOpened: {
+            seznamVrste.currentIndex = Math.max(0, Math.min((koren.medij.indeks || 0) - zacetek, seznamVrste.count - 1))
+            seznamVrste.positionViewAtIndex(seznamVrste.currentIndex, ListView.Contain)
+            seznamVrste.forceActiveFocus()
+        }
+        onClosed: gumbVrsta.forceActiveFocus()
+        background: Rectangle { radius: 14; color: koren.paleta.vnos; border.color: koren.crta(0.14) }
+        contentItem: Column {
+            spacing: 8
+            RowLayout {
+                width: parent.width
+                Text { text: koren.t("cakalnaVrsta"); color: koren.paleta.besedilo; font.pixelSize: koren.px(15); font.bold: true; Layout.fillWidth: true }
+                Text { text: String(koren.medij.skupaj || 0); color: koren.paleta.medlo; font.pixelSize: koren.px(12) }
+            }
+            ListView {
+                id: seznamVrste
+                objectName: "seznamVrste"
+                width: parent.width; height: Math.min(contentHeight, 300)
+                model: koren.medij.vrstaSeznam || []; clip: true; spacing: 2
+                keyNavigationEnabled: true; activeFocusOnTab: true
+                Accessible.role: Accessible.List; Accessible.name: koren.t("cakalnaVrsta")
+                Keys.onReturnPressed: vrstaPopup.izberi(currentIndex)
+                Keys.onEnterPressed: vrstaPopup.izberi(currentIndex)
+                Keys.onSpacePressed: vrstaPopup.izberi(currentIndex)
+                delegate: Rectangle {
+                    id: vrsticaVrste
+                    required property var modelData
+                    required property int index
+                    readonly property bool zdaj: vrstaPopup.zacetek + index === koren.medij.indeks
+                    readonly property bool izbran: seznamVrste.activeFocus && index === seznamVrste.currentIndex
+                    readonly property string pod: modelData.vrsta === "tv" || modelData.vrsta === "radio" ? koren.t("vZivo")
+                                                  : (modelData.izvor || koren.t("medijTaRacunalnik"))
+                    width: seznamVrste.width; height: 44; radius: 10
+                    color: zdaj ? koren.poudarekA(0.22) : (izbran || mv.containsMouse) ? koren.prekriv(0.10) : "transparent"
+                    border.width: izbran ? 2 : 0; border.color: koren.paleta.poudarek
+                    Accessible.role: Accessible.ListItem
+                    Accessible.name: modelData.naslov + ", " + pod
+                    Accessible.selected: zdaj
+                    Text {
+                        x: 10; width: 26; anchors.verticalCenter: parent.verticalCenter; horizontalAlignment: Text.AlignHCenter
+                        text: vrsticaVrste.zdaj ? "♫" : String(vrstaPopup.zacetek + vrsticaVrste.index + 1)
+                        color: vrsticaVrste.zdaj ? koren.paleta.poudarek : koren.paleta.medlo; font.pixelSize: koren.px(12)
+                    }
+                    Column {
+                        x: 44; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 54; spacing: 2
+                        Text { text: vrsticaVrste.modelData.naslov || ""; width: parent.width; elide: Text.ElideRight
+                               color: koren.paleta.besedilo; font.pixelSize: koren.px(13); font.bold: vrsticaVrste.zdaj }
+                        Text { text: vrsticaVrste.pod; width: parent.width; elide: Text.ElideRight; color: koren.paleta.medlo; font.pixelSize: koren.px(11) }
+                    }
+                    MouseArea { id: mv; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                onClicked: { seznamVrste.currentIndex = vrsticaVrste.index; vrstaPopup.izberi(vrsticaVrste.index) } }
                 }
             }
+        }
+    }
+
+    // Glasnost privzetega izhoda in utisaj (kot drsnik v vrstici Medijskega centra): drsnik s puscicami po 5 %.
+    Popup {
+        id: glasnostPopup
+        objectName: "glasnostPopup"
+        parent: gumbGlasnost
+        x: gumbGlasnost.width - width; y: gumbGlasnost.height + 8
+        width: 280; padding: 12
+        modal: false; focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
+        onOpened: { koren.naloziGlasnost(); drsnikGlasnosti.forceActiveFocus() }
+        onClosed: gumbGlasnost.forceActiveFocus()
+        background: Rectangle { radius: 14; color: koren.paleta.vnos; border.color: koren.crta(0.14) }
+        Timer { id: casovnikGlasnosti; interval: 120
+                onTriggered: koren.klic("glasnost", [Math.round(drsnikGlasnosti.value)], function () { koren.naloziGlasnost() }) }
+        contentItem: RowLayout {
+            spacing: 8
+            GumbIkona {
+                objectName: "glasnostUtisaj"
+                readonly property bool utisan: !!(koren.zvokSistema && koren.zvokSistema.utisan)
+                pot: utisan ? koren.ikone.utisan : koren.ikone.zvocnik; vklopljen: utisan
+                width: 30; height: 30; velikostIkone: 17
+                ime: koren.t(utisan ? "vklopiZvok" : "utisaj")
+                onKlik: koren.klic("utisaj", [], function () { koren.naloziGlasnost() })
+            }
+            Slider {
+                id: drsnikGlasnosti
+                objectName: "drsnikGlasnosti"
+                Layout.fillWidth: true; implicitHeight: 22
+                from: 0; to: 100; stepSize: 5
+                enabled: !!koren.zvokSistema
+                Accessible.name: koren.t("glasnost") + " " + Math.round(value) + " %"
+                Binding on value { value: koren.zvokSistema ? Math.min(100, Number(koren.zvokSistema.glasnost) || 0) : 0
+                                   when: !drsnikGlasnosti.pressed && !casovnikGlasnosti.running; restoreMode: Binding.RestoreNone }
+                onMoved: casovnikGlasnosti.restart()
+                background: Rectangle {
+                    x: drsnikGlasnosti.leftPadding; y: drsnikGlasnosti.topPadding + drsnikGlasnosti.availableHeight / 2 - height / 2
+                    width: drsnikGlasnosti.availableWidth; height: 4; radius: 2; color: koren.prekriv(0.12)
+                    Rectangle { width: drsnikGlasnosti.visualPosition * parent.width; height: parent.height; radius: 2; color: koren.paleta.poudarek }
+                }
+                handle: Rectangle {
+                    x: drsnikGlasnosti.leftPadding + drsnikGlasnosti.visualPosition * (drsnikGlasnosti.availableWidth - width)
+                    y: drsnikGlasnosti.topPadding + drsnikGlasnosti.availableHeight / 2 - height / 2
+                    width: 14; height: 14; radius: 7; color: koren.paleta.besedilo
+                    border.width: drsnikGlasnosti.activeFocus ? 2 : 0; border.color: koren.paleta.fokus
+                }
+            }
+            Text { objectName: "glasnostOdstotek"; text: Math.round(drsnikGlasnosti.value) + " %"; color: koren.paleta.medlo; font.pixelSize: koren.px(12)
+                   Layout.preferredWidth: koren.px(40); horizontalAlignment: Text.AlignRight }
         }
     }
 
@@ -1054,6 +1332,11 @@ Item {
             if (koren.platforma === "linux") koren.klic("povezava", [], function (p) { koren.linkStanje = p || null })
             koren.naloziPriljubljeno()
             programi.naloziOblak()
+            // Stevilo neprebranih po izrisu (kanali Sporocil se nalozijo, ko je namizje mirno - safeer_os._ob_namizju).
+            koren.pozneje(3000, koren.osveziSporocila)
+            // Nova namestitev: vodnik ob prvem zagonu (jezik, racuni, Scit, Safeer Link) v oknu Nastavitve - prej ga je
+            // pokazalo samo staro glavno okno, uporabnik namizja ga ni videl (popis 3.1, 18. 10. 2026).
+            if (z.vodnik && koren.platforma === "linux") koren.klic("odpriRazdelek", ["vodnik"])
         })
         programi.nalozi()
         koren.klic("lupaUcenje", [], function (p) { zadetki.izbire = (p && p.izbire) || [] })

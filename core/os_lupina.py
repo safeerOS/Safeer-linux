@@ -565,13 +565,40 @@ class Namizje:
             odg(klic_id, True, v)
             self.dogodek("videz", v)
         elif metoda == "zacetek":
+            from core import os_spletne
             z = dict(self.os._zacetek())
             v = self.videz(str(z.get("jezik") or "sl"))
-            z.update({"ozadje": v["ozadje"], "videz": v, "platforma": "linux", "vOknu": self.v_oknu})
+            z.update({"ozadje": v["ozadje"], "videz": v, "platforma": "linux", "vOknu": self.v_oknu,
+                      # Iste spletne aplikacije kot Domov aplikacije Safeer OS (privzete, dokler uporabnik ne shrani svojih).
+                      "spletne": os_spletne.vidne(z.get("spletne"))})
             odg(klic_id, True, z)
+        elif metoda in ("spletnaDodaj", "spletnaOdstrani"):
+            odg(klic_id, True, self._spletna(metoda, a))
+        elif metoda == "zvokGlasnost":
+            # Glasnost privzetega izhoda za drsnik v pripomocku Medijski center (pactl/wpctl - v niti, ne v glavni).
+            from core import os_sistem
+            self._odgovor_v_ozadju(klic_id, os_sistem.zvok)
+        elif metoda == "sporocilaNeprebrana":
+            # Isto stevilo kot kuverta v pultu: Safeer OS ga izracuna (vgrajeni kanali v glavni niti, baza v niti) in ga
+            # poslje kot dogodek »sporocilaStevilo« (safeer_os._narisi_kuverto) - tudi brez ikone v pultu.
+            self.os._osvezi_kuverto()
+            odg(klic_id, True, True)
         else:
             return False
         return True
+
+    def _spletna(self, metoda: str, a: list) -> dict:
+        """Spletne aplikacije z namizja (Programi): dodaj [ime, naslov] ali odstrani [naslov]. Preverjanje in meja sta v
+        core/os_spletne (en vir); shrani Safeer OS (_shrani_spletne), zato jih vidita tudi aplikacija in Splet."""
+        from core import os_spletne
+        shranjene = self.os.shramba.get("spletne", None)
+        if metoda == "spletnaDodaj":
+            seznam, napaka = os_spletne.dodaj(shranjene, str(a[0]) if a else "", str(a[1]) if len(a) > 1 else "")
+            if napaka:
+                return {"ok": False, "napaka": napaka, "spletne": seznam, "meja": os_spletne.MEJA}
+            return {"ok": True, "ime": seznam[-1]["ime"], "spletne": self.os._shrani_spletne(seznam)}
+        seznam = os_spletne.odstrani(shranjene, str(a[0]) if a else "")
+        return {"ok": True, "spletne": self.os._shrani_spletne(seznam)}
 
     def _nastavi_ozadje_sistema(self, pot: str) -> None:
         nastavi_ozadje_sistema(pot)

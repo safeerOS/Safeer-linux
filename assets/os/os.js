@@ -109,6 +109,12 @@
   var RAZDELEK = (location.search.match(/[?&]razdelek=(zapiski|sporocila|nastavitve|scit)(?:&|$)/) || [])[1] || "";
   // Razdelek, ki ga to okno edini kaze ("" = glavno okno z vsemi razdelki).
   var EN_RAZDELEK = PREDVAJALNIK ? "media" : RAZDELEK;
+  // Podstrani okna razdelka: Nastavitve pokazejo Omrezje in Zvok v svojem oknu (ploscici in gumb Nazaj). Prej je klik nanju
+  // z namizja odprl staro glavno okno Safeer OS (popis 3.1, 18. 10. 2026; isti seznam v safeer_os.PODSTRANI_NASTAVITEV).
+  var PODSTRANI_OKNA = { nastavitve: ["omrezje", "zvok"] };
+  function vTemOknu(razdelek) {
+    return !EN_RAZDELEK || razdelek === EN_RAZDELEK || (PODSTRANI_OKNA[EN_RAZDELEK] || []).indexOf(razdelek) >= 0;
+  }
 
   // ------------------------------------------------------------------ besedila
   var jezik = "sl";
@@ -305,7 +311,7 @@
   // ------------------------------------------------------------------ navigacija
   function pojdi(razdelek) {
     if (razdelek === "sporocila" && !sporocilaVklopljena()) { obvesti(t("sporocilaIzklopljena")); return; }
-    if (EN_RAZDELEK && razdelek !== EN_RAZDELEK) {
+    if (!vTemOknu(razdelek)) {
       // Drugi razdelki niso del tega okna: odpre jih Safeer OS (z delovne povrsine vsakega v svojem oknu).
       klic("odpriRazdelek", [razdelek]).catch(function () {});
       return;
@@ -366,6 +372,12 @@
       // Odprtje Medijskega centra (z namizja ali iz menija) vedno pokaze Domov, ne zadnjega zavihka (lastnik, 18. 10. 2026).
       S.mediaIskanje = ""; if ($("mediaIskanje")) $("mediaIskanje").value = "";
       izberiMedijskoKategorijo("domov");
+    }
+    // Vodnik ob prvem zagonu na namizju Safeer: glavnega okna tam ni, odpre ga okno Nastavitve (popis 3.1, 18. 10. 2026).
+    if (kam === "vodnik") {
+      if (vodnikKorak >= 0) return;                 // ze odprt: ne zacnemo znova pri prvem koraku
+      if (S.zacetek) odpriVodnik(); else S.vodnikPoZacetku = true;
+      return;
     }
     if (kam === "hitro") { odpriHitro(); return; }
     if (kam === "napajanje") { odpriNapajanje(); return; }
@@ -9966,6 +9978,7 @@
         // Okno enega razdelka: ta razdelek (ali ukaz »pojdi«, ki ga je Safeer OS poslal ob odprtju).
         if (S.razdelek !== RAZDELEK) pojdi(RAZDELEK);
         document.title = t({ zapiski: "zapiski", sporocila: "sporocila", nastavitve: "nastavitve", scit: "scitAplikacija" }[RAZDELEK]) || document.title;
+        if (S.vodnikPoZacetku) { S.vodnikPoZacetku = false; odpriVodnik(); }
         return;
       }
       if (PREDVAJALNIK) return;     // stanje, odprta okna, nedavne datoteke in sporocila so v lupini Safeer OS

@@ -325,6 +325,8 @@
       naloziProgrameNaprav();
       medijZanka();
       osveziLink();
+      // Vodnik ob prvem zagonu v oknu Nastavitve (kot namizje QML; glavnega okna na namizju ni - popis 3.1).
+      if (z.vodnik) klic("odpriRazdelek", ["vodnik"]).catch(function () {});
     }).catch(function () { zgradiStranDatotek(); });
   }
 
@@ -3527,6 +3529,15 @@
       // Prikazana mapa (nedavne, Smeti) se je spremenila zunaj Safeer OS; nosilec priklopljen ali odklopljen.
       else if (vrsta === "datoteke") { if (arguments[1] && arguments[1].pot === pogledVira(D.vir)) osveziVirTiho(); }
       else if (vrsta === "nosilci") osveziNosilce();
+      // Razdelek Datoteke ali Programi z drugega mesta (okno Zapiski …): plosca na namizju, ne staro okno Safeer OS
+      // (popis 3.1, safeer_os._pokazi_na_namizju, 18. 10. 2026). Skrita plosca se vrne.
+      else if (vrsta === "pokaziNaNamizju") {
+        var pn = arguments[1] || {};
+        if (pn.razdelek === "datoteke" || pn.razdelek === "programi") nastaviSkrito(pn.razdelek, false);
+        if (pn.razdelek === "datoteke" && pn.pot) odpriVir({ vrsta: "lokalno", pot: pn.pot, koren: pn.pot });
+        var polje = $(pn.razdelek === "programi" ? "prgFilter" : "datFilter");
+        if (polje) polje.focus();
+      }
       else if (vrsta === "fokus" && Date.now() - zadnjeOsvezevanje > 30000) {
         // Naprave v Linku se spreminjajo: ob vrnitvi v Safeer OS osvezimo najvec vsakih 30 s.
         zadnjeOsvezevanje = Date.now(); zgradiStranDatotek(); naloziProgrameNaprav(); osveziLink();

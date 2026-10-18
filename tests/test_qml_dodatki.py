@@ -82,8 +82,10 @@ class Osnova(unittest.TestCase):
             shramba = {}
 
             def _zacetek(self):
-                return {"jezik": jezik, "platforma": "linux", "mape": [{"vrsta": "HOME", "ime": "Domov", "pot": test.DOM},
-                                                                        {"vrsta": "DOCUMENTS", "ime": "Dokumenti", "pot": test.dok}]}
+                # »spletne«: []: uporabnik brez spletnih aplikacij (sicer namizje pokaze privzete kot Domov aplikacije).
+                return {"jezik": jezik, "platforma": "linux", "spletne": [],
+                        "mape": [{"vrsta": "HOME", "ime": "Domov", "pot": test.DOM},
+                                 {"vrsta": "DOCUMENTS", "ime": "Dokumenti", "pot": test.dok}]}
 
             def _seznam_programov(self):
                 return test.odgovori["programiNamizja"]

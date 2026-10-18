@@ -155,7 +155,7 @@ class NamizjeQmlStaticno(unittest.TestCase):
     def test_ni_vec_nadomestka(self):
         # Prej: vedno »Ni predvajanja« brez stanja in tipk (pravilo: brez nadomestkov v vmesniku).
         self.assertIn('koren.klic("predvajalnikStanje"', self.q)
-        self.assertIn('koren.klic("predvajalnikUkaz", [u]', self.q)
+        self.assertIn('koren.klic("predvajalnikUkaz", v === undefined ? [u] : [u, v]', self.q)
         self.assertIn('interval: koren.medij.stanje === "predvaja" ? 1000 : 3000', self.q)
         self.assertIn('if (vrsta === "predvajalnik" && p) koren.medij = p', self.q)
         self.assertIn('text: koren.medijIgra ? koren.medij.naslov : koren.t("niPredvajanja")', self.q)
