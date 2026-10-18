@@ -92,6 +92,9 @@ NAJVEC_ZAGONOV=5          # more than this in the window below means restarting 
 OKNO_S=600
 zacetek_okna=$(date +%s)
 zagonov=0
+# Safeer OS ve, da ga nadzira ta zaganjalnik: ob novi razlicici (core/nova_razlicica.py) konca s kodo 75 in zaganjalnik
+# zazene zaganjalnik NOVE razlicice - isti PID za sejo, profil AppArmor in nova pravila zaganjalnika.
+export SAFEER_OS_NADZOR=$$
 
 while :; do
     if [ -t 2 ]; then
@@ -104,6 +107,16 @@ while :; do
     fi
     koda=$?
     [ "$koda" -eq 0 ] && exit 0                       # normal exit: Safeer OS already restored the panel
+    if [ "$koda" -eq 75 ]; then                       # nova razlicica je namescena: zazene jo njen zaganjalnik
+        echo "$(date '+%Y-%m-%d %H:%M:%S') zaganjalnik: nova razlicica $(cat "$APP_DIR/packaging/VERSION_OS" 2>/dev/null)" >> "$DNEVNIK"
+        nacin=()
+        for arg in "$@"; do
+            case "$arg" in --namizje|--delovna|--okno|--predvajalnik) nacin+=("$arg") ;; esac
+        done
+        [ -x "$PRG" ] && exec "$PRG" "${nacin[@]}"
+        vrni_mint
+        exit 0
+    fi
     if [ "$koda" -lt 128 ]; then                      # ordinary error: report it, do not loop
         vrni_mint
         exit "$koda"

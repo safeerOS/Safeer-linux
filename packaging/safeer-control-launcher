@@ -55,6 +55,8 @@ NAJVEC_ZAGONOV=5          # more than this in the window below means restarting 
 OKNO_S=600
 zacetek_okna=$(date +%s)
 zagonov=0
+# Nova razlicica (core/nova_razlicica.py): Control konca s kodo 75, zaganjalnik zazene zaganjalnik nove razlicice.
+export SAFEER_CONTROL_NADZOR=$$
 
 while :; do
     if [ -t 2 ]; then
@@ -65,6 +67,14 @@ while :; do
     fi
     koda=$?
     [ "$koda" -eq 0 ] && exit 0                       # normal exit: the user quit Safeer Control
+    if [ "$koda" -eq 75 ]; then                       # nova razlicica je namescena: zazene jo njen zaganjalnik
+        nacin=()
+        for arg in "$@"; do
+            case "$arg" in --ozadje) nacin+=("$arg") ;; esac
+        done
+        [ -x "$PRG" ] && exec "$PRG" "${nacin[@]}"
+        exit 0
+    fi
     [ "$koda" -lt 128 ] && exit "$koda"               # ordinary error: report it, do not loop
 
     zdaj=$(date +%s)

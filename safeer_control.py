@@ -59,6 +59,7 @@ from gi.repository import WebKit as WebKit2  # noqa: E402
 from core import link_daljinec, link_datoteke, link_deljenje, link_hub, link_programi, link_sway, link_tls, link_zaslon, link_zvok  # noqa: E402
 from core import budnost, odlozisce_varuh, os_posodobitve, os_stabilnost  # noqa: E402
 from core import peskovnik_userns  # noqa: E402
+from core import nova_razlicica  # noqa: E402
 from core import link_internet, link_internet_posrednik, sistemski_posrednik  # noqa: E402
 from core import link_dostop, link_posiljanje  # noqa: E402
 
@@ -895,6 +896,11 @@ class SafeerControl(_OSNOVA):
         self.ozadje = ozadje
         self.pladenj: Optional[Pladenj] = None
         self._prva_aktivacija = True
+        #: Nova razlicica po namestitvi (samostojni Control; v procesu Safeer OS jo vodi Safeer OS).
+        self._nova_spremljevalec = None
+        self._nova_cakanje = None
+        self._nova_razlicica = ""
+        self._ponovni_zagon = False
         # Deljene mape za televizor; seznam poti je v control.json ("deljene_mape").
         mape = self.nastavitve.get("deljene_mape")
         self.datoteke = link_datoteke.Datoteke(mape if isinstance(mape, list) else [],
@@ -1040,6 +1046,8 @@ class SafeerControl(_OSNOVA):
         _OSNOVA.do_startup(self)
         if not VGRAJEN:         # v procesu Safeer OS obrezuje Safeer OS
             pomnilnik.obrezuj_periodicno(GLib)
+            # Nova razlicica po namestitvi (core/nova_razlicica.py); v procesu Safeer OS jo vodi Safeer OS.
+            self._spremljaj_novo_razlicico()
         # Zagon iz menija, ko Control ze tece (_pokazi_tekocega): izrecna zahteva uporabnika, okno takoj - za razliko od
         # gole aktivacije, ki jo vgrajeni Control prvo minuto prezre (samozagon ob prijavi, do_activate).
         okno = Gio.SimpleAction.new("okno", None)
@@ -2173,7 +2181,7 @@ class SafeerControl(_OSNOVA):
             self.link.povezi_v_ozadju()
             if not VGRAJEN:      # v procesu Safeer OS posodobitve preverja in namesca Safeer OS (en postopek)
                 GLib.timeout_add_seconds(120, self._posodobitve_preveri)
-            if os.environ.pop("SAFEER_CONTROL_ODPRI", "") == "1":
+            if os.environ.pop("SAFEER_CONTROL_ODPRI", "") == "1" or self._okno_po_novi_razlicici():
                 self.pokazi_okno()
             return
         self._prva_aktivacija = False
@@ -2191,6 +2199,69 @@ class SafeerControl(_OSNOVA):
             self._znova_zazeni()
             return
         self.pokazi_okno()
+
+    # ------------------------------------------------------------------ nova razlicica po namestitvi
+    def _spremljaj_novo_razlicico(self) -> None:
+        if self._nova_spremljevalec is not None or not nova_razlicica.velja(KOREN):
+            return
+        try:
+            self._nova_spremljevalec = nova_razlicica.Spremljevalec(
+                Gio, GLib, os.path.join(KOREN, "packaging", "VERSION_CONTROL"), APP_VERSION, self._ob_novi_razlicici)
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerControl] nova razlicica, spremljanje:", e, flush=True)
+
+    def _ob_novi_razlicici(self, nova: str) -> None:
+        print("[SafeerControl] namescena je nova razlicica %s (tece %s)" % (nova, APP_VERSION), flush=True)
+        self._nova_razlicica = nova
+        if self._nova_cakanje is not None:
+            return
+
+        def okno_odprto() -> bool:
+            return bool(self.link is not None and self.link.okno is not None and self.link.okno.get_visible())
+        # Odprto okno Controla = uporabnik ga uporablja: kot pri Safeer OS pocakamo, da ni dejaven.
+        self._nova_cakanje = nova_razlicica.Cakanje(
+            GLib, self.zaposlenost, lambda: nova_razlicica.nedejavnost_s(Gio, GLib),
+            lambda: nova_razlicica.zaslon_zaklenjen(Gio, GLib) or not okno_odprto(), self._znova_v_novo)
+        self._nova_cakanje.zacni()
+
+    def zaposlenost(self) -> str:
+        """Kaj Control ta trenutek dela, da ga ponovni zagon ne sme prekiniti ("" = nic). Klice tudi Safeer OS, ko
+        tece Control v njegovem procesu (core/nova_razlicica.py)."""
+        try:
+            if self.gledalec is not None or self._oddaljeni_gledalec is not None:
+                return "zaslon"                  # uporabnik gleda zaslon druge naprave
+            if self.zaslon is not None and self.zaslon.stanje().get("tece"):
+                return "zaslon"                  # druga naprava gleda ta zaslon
+            if getattr(self.zvok, "stanje", "") in ("caka", "tece"):
+                return "zvok"                    # zvok racunalnika gre na napravo
+            teamwork = getattr(self, "teamwork", None)
+            if teamwork is not None and (teamwork.stanje() or {}).get("datoteke"):
+                return "urejanje"                # skupno urejanje datoteke z drugo napravo
+            posiljanje = getattr(self.link, "_posiljanje", None) if self.link is not None else None
+            if posiljanje is not None and any(getattr(p, "stanje", "") == "posiljam"
+                                              for p in list(getattr(posiljanje, "_posiljke", {}).values())):
+                return "prenos"
+        except Exception as e:  # noqa: BLE001 - pri dvomu pocakamo
+            return "napaka: %s" % e
+        if budnost.dejavno("pomoc", 60):
+            return "prenos"
+        return ""
+
+    def _znova_v_novo(self) -> None:
+        if self._ponovni_zagon:
+            return
+        odprto = bool(self.link is not None and self.link.okno is not None and self.link.okno.get_visible())
+        nova_razlicica.shrani_stanje("safeer-control", {"iz": APP_VERSION, "v": self._nova_razlicica, "okno": odprto})
+        print("[SafeerControl] zaganjam novo razlicico %s" % self._nova_razlicica, flush=True)
+        self._ponovni_zagon = True
+        self.koncaj()
+
+    def _okno_po_novi_razlicici(self) -> bool:
+        """Ali je bilo okno odprto, ko se je zamenjala razlicica (shranjeno stanje, core/nova_razlicica.py)."""
+        try:
+            return bool(nova_razlicica.preberi_stanje("safeer-control", APP_VERSION).get("okno"))
+        except Exception:  # noqa: BLE001
+            return False
 
     def _okno_iz_menija(self) -> None:
         """Dejanje »okno« (zagon iz menija, ko Control ze tece): kot do_activate, brez cakanja ob zagonu seje."""
@@ -2629,7 +2700,11 @@ def main() -> int:
     # sprostil predmet WebKit/GTK zunaj glavne niti - RELEASE_ASSERT(isMainThread) -> SIGTRAP (signal 5, koda 133).
     from core import runtime_safety
     runtime_safety.install_main_thread_gc()
-    return app.run(argv)
+    koda = app.run(argv)
+    if getattr(app, "_ponovni_zagon", False) is True:      # samo pravi zahtevek (ne lazni predmet v preizkusih)
+        # Nova razlicica (core/nova_razlicica.py): zaganjalnik jo zazene ob kodi 75, sicer exec nove kode.
+        return nova_razlicica.znova("SAFEER_CONTROL_NADZOR", os.path.abspath(__file__), sys.argv[1:])
+    return koda
 
 
 if __name__ == "__main__":

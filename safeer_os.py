@@ -71,6 +71,7 @@ from core import (os_datoteke, os_govor, os_katalog, os_knjiznica, os_lupa, os_o
                   os_torrent, os_torrent_tok, os_zapiski, os_zvok, knjiznica_kroga, os_ponudniki_programov, os_github_programi)
 from core import budnost, gostitelj, odlozisce_varuh, os_iskalnik, os_odpri_z, os_pretvorba_datotek  # noqa: E402
 from core import peskovnik_userns  # noqa: E402
+from core import nova_razlicica  # noqa: E402
 from core import media_servers  # noqa: E402
 from core import os_dock  # noqa: E402
 from core import priljubljeno  # noqa: E402
@@ -144,6 +145,8 @@ def _razlicica() -> str:
 
 
 RAZLICICA = _razlicica()
+#: Argumenti zagona, preden jih main() prilagodi: nova razlicica ohrani nacin (core/nova_razlicica.nacin_zagona).
+_ZACETNI_ARGV = list(sys.argv)
 # Najvec znakov, ki jih stran sme dati v odlozisce z enim klicem (sporocilo, povezava).
 NAJVEC_KOPIJE = 1_000_000
 CONTROL_NASTAVITVE = os.path.expanduser("~/.config/safeer-control/link.json")
@@ -1792,6 +1795,13 @@ class SafeerOS(Gtk.Application):
         self.posodobitve: dict = {"izid": None, "cas": 0.0, "napaka": ""}
         self.posodabljanje = os_posodobitve.Posodabljanje()
         GLib.timeout_add_seconds(90, self._posodobitve_tiho)
+        #: Nova razlicica po namestitvi (core/nova_razlicica.py): spremljanje, cakanje, ponovni zagon ob koncu run().
+        self._nova_spremljevalec = None
+        self._nova_cakanje = None
+        self._nova_razlicica = ""
+        self._ponovni_zagon = False
+        #: Posodobitev je zagnal uporabnik v Safeer OS: nova razlicica ne caka na njegovo nedejavnost.
+        self._posodobil_sam = False
         # Prenosi zaradi gledanja (film iz torrenta v Medijskem centru), ki jih 48 ur nihce ni predvajal, se odstranijo sami.
         os_torrent_tok.zazeni_ciscenje()
         self.okno: Optional[Gtk.ApplicationWindow] = None
@@ -1973,6 +1983,10 @@ class SafeerOS(Gtk.Application):
         self._izvozi_predvajanje()
         en_proces.nastavi_os(self, klic=self._predvajanje_neposredno)
         self._spremljaj_zaklep()
+        if not self.posnetek:
+            self._spremljaj_novo_razlicico()
+            # Ponovni zagon nove razlicice: zavihki Spleta in predvajanje iz stare (po aktivaciji, ko so okna).
+            GLib.timeout_add_seconds(3, self._obnovi_po_novi_razlicici)
         threading.Thread(target=stremio_privzeto, name="safeer-stremio-privzeto", daemon=True).start()
         if self.namizje and not self.posnetek:
             # Namizje tece ves dan: Control (Safeer Link, naprave, pladenj) naj tece z njim, v istem procesu, kot je
@@ -3831,6 +3845,7 @@ class SafeerOS(Gtk.Application):
             if r.returncode != 0:
                 p.faza, p.sporocilo = "napaka", (r.stderr or r.stdout or "").strip()[-300:] or "namestitev ni uspela"
                 return
+            self._posodobil_sam = True      # uporabnik je posodobitev zahteval: nova razlicica takoj, ko nic ne tece
             for d in datoteke:
                 if nacin != "appimage":
                     try:
@@ -3840,6 +3855,115 @@ class SafeerOS(Gtk.Application):
             self.posodobitve["izid"] = None   # naslednja preverba pove, da smo na najnovejsi
             p.sporocilo = os_posodobitve.opis(st)
         return {"ok": self.posodabljanje.zacni(delo)}
+
+    # ------------------------------------------------------------------ nova razlicica po namestitvi
+    # Lastnik 18. 10. 2026: po `apt install` je stari Safeer OS tekel se dneve. core/nova_razlicica.py: spremljanje
+    # packaging/VERSION_OS, cakanje na trenutek, ko nic ne tece, shranjeno stanje in zagon nove razlicice.
+    def _spremljaj_novo_razlicico(self) -> None:
+        if self._nova_spremljevalec is not None or not nova_razlicica.velja(KOREN):
+            return
+        try:
+            self._nova_spremljevalec = nova_razlicica.Spremljevalec(
+                Gio, GLib, os.path.join(KOREN, "packaging", "VERSION_OS"), RAZLICICA, self._ob_novi_razlicici)
+        except Exception as e:  # noqa: BLE001 - brez spremljanja pride nova razlicica ob naslednjem zagonu
+            print("[SafeerOS] nova razlicica, spremljanje:", e, flush=True)
+
+    def _ob_novi_razlicici(self, nova: str) -> None:
+        print("[SafeerOS] namescena je nova razlicica %s (tece %s)" % (nova, RAZLICICA), flush=True)
+        self._nova_razlicica = nova
+        if self._nova_cakanje is not None or self._koncano:
+            return
+        self._nova_cakanje = nova_razlicica.Cakanje(
+            GLib, self._zaposleno, lambda: nova_razlicica.nedejavnost_s(Gio, GLib),
+            lambda: nova_razlicica.zaslon_zaklenjen(Gio, GLib), self._znova_v_novo,
+            takoj=lambda: self._posodobil_sam, ob_cakanju=self._obvesti_novo_razlicico)
+        self._nova_cakanje.zacni()
+
+    def _obvesti_novo_razlicico(self, _razlog: str) -> None:
+        """Enkrat, ko mora nova razlicica pocakati: kaj se bo zgodilo in gumb za takojsen zagon."""
+        from core import obvestila
+        b = nova_razlicica.besedila(_jezik(), "Safeer OS", self._nova_razlicica)
+
+        def zdaj() -> None:
+            if self._nova_cakanje is not None and not self._koncano:
+                self._nova_cakanje.zdaj()
+        obvestila.poslji(b["naslov"], b["besedilo"], "safeer-nova-razlicica", gumbi=[("zdaj", b["zdaj"], zdaj)], app=self)
+
+    def _zaposleno(self) -> str:
+        """Kaj bi ponovni zagon prekinil ("" = nic): predvajanje, klic, prenos, posodobitev, delo Controla."""
+        try:
+            if self._medijski_podatki().get("stanje") == "predvaja":
+                return "predvajanje"
+        except Exception:  # noqa: BLE001
+            pass
+        razlog = nova_razlicica.zaposlenost_pogledov(Gtk, WebKit2)
+        if razlog:
+            return razlog
+        for splet in (self._spletni, self._spletni_namizje):
+            if splet is not None and any(z.get("stanje") == "tece" for z in (getattr(splet, "prenosi", None) or [])):
+                return "prenos"
+        if self.posodabljanje.tece():
+            return "posodobitev"
+        if budnost.dejavno("pomoc", 60):          # druga naprava bere datoteko ali tok s tega racunalnika
+            return "prenos"
+        try:
+            torrenti = os_torrent.torrenti()
+            if torrenti.tece() and getattr(torrenti, "_tokovi", None):
+                return "predvajanje"             # film iz torrenta se gleda (prenosi brez gledanja se nadaljujejo sami)
+        except Exception:  # noqa: BLE001
+            pass
+        c = en_proces.control_app()
+        if c is not None and hasattr(c, "zaposlenost"):
+            try:
+                return c.zaposlenost() or ""
+            except Exception:  # noqa: BLE001
+                return ""
+        return ""
+
+    def _znova_v_novo(self) -> None:
+        """Shrani zavihke Spleta in predvajanje, nato obicajen izhod (Scit, Link, pult); main() zazene novo razlicico."""
+        if self._ponovni_zagon or self._koncano:
+            return
+        stanje = {"iz": RAZLICICA, "v": self._nova_razlicica,
+                  "splet": nova_razlicica.zavihki([self._spletni, self._spletni_namizje])}
+        servis = self._medijski_predvajalnik
+        if servis is not None and servis.trenutna is not None and servis.stanje in ("predvaja", "premor"):
+            try:
+                self._zadnji_medijski_napredek = None
+                self._shrani_medijski_napredek()     # »Nadaljuj z ogledom« ima zadnji polozaj (tudi tokovi)
+                pot = nova_razlicica.lokalni_medij(servis.trenutna.uri)
+                if pot:
+                    p = servis.podatki()
+                    stanje["predvajanje"] = {"pot": pot, "naslov": servis.trenutna.naslov,
+                                             "vrsta": servis.trenutna.vrsta, "pozicija": int(p.get("pozicija") or 0),
+                                             "predvaja": servis.stanje == "predvaja"}
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] nova razlicica, predvajanje:", e, flush=True)
+        nova_razlicica.shrani_stanje("safeer-os", stanje)
+        print("[SafeerOS] zaganjam novo razlicico %s (zavihkov: %d, predvajanje: %s)"
+              % (self._nova_razlicica, len(stanje["splet"]), "da" if stanje.get("predvajanje") else "ne"), flush=True)
+        self._ponovni_zagon = True
+        self._koncaj()
+
+    def _obnovi_po_novi_razlicici(self) -> bool:
+        """Nova razlicica tece: zavihki Spleta in predvajanje iz stare (core/nova_razlicica.preberi_stanje)."""
+        stanje = nova_razlicica.preberi_stanje("safeer-os", RAZLICICA)
+        if not stanje:
+            return False
+        print("[SafeerOS] nova razlicica %s tece (prej %s): obnovim stanje" % (RAZLICICA, stanje.get("iz")), flush=True)
+        for naslov in stanje.get("splet") or []:
+            try:
+                self._splet(str(naslov), True)
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] obnova zavihka:", e, flush=True)
+        p = stanje.get("predvajanje") or {}
+        pot = nova_razlicica.lokalni_medij(p.get("pot", ""))
+        if pot:
+            # Predvajanje, ki je teklo (izrecen zagon), se nadaljuje; ustavljeno ostane ustavljeno, na istem mestu.
+            self._predvajaj_neposredno(Gio.File.new_for_path(pot).get_uri(), vrsta=str(p.get("vrsta") or "medij"),
+                                       prikazi=False, ime=str(p.get("naslov") or ""),
+                                       zacetek=int(p.get("pozicija") or 0), v_premoru=not p.get("predvaja"))
+        return False
 
     # ------------------------------------------------------------------ posnetek (preverjanje)
     def _za_posnetek(self, pogled, dogodek) -> None:
@@ -5176,7 +5300,8 @@ class SafeerOS(Gtk.Application):
         return Gst
 
     def _predvajaj_neposredno(self, naslov: str, vrsta: str = "medij", prikazi: bool = True,
-                             ime: str = "", zacetek: int = 0, seznam=None, zacni: int = 0) -> bool:
+                             ime: str = "", zacetek: int = 0, seznam=None, zacni: int = 0,
+                             v_premoru: bool = False) -> bool:
         """Neposredni medij doda v čakalno vrsto domačega predvajalnika."""
         self._pocisti_medijski_pogled()
         try:
@@ -5211,7 +5336,7 @@ class SafeerOS(Gtk.Application):
                 uspesno = self._medijski_predvajalnik.zamenjaj_vrsto(seznam, zacni)
             else:
                 self._medijski_predvajalnik.dodaj(naslov, predvajaj=True, vrsta=vrsta,
-                                                  naslov=ime, zacetek=zacetek)
+                                                  naslov=ime, zacetek=zacetek, v_premoru=v_premoru)
                 uspesno = self._medijski_predvajalnik.stanje != "napaka"
             if prikazi:
                 self._medijski_predvajalnik_okno.present()
@@ -6125,6 +6250,8 @@ class SafeerOS(Gtk.Application):
         if self._koncano:
             return False
         self._budnost_predvajanja()
+        if self._medijski_predvajalnik and self._medijski_predvajalnik.stanje == "premor":
+            self._medijski_predvajalnik.poskusi_nadaljevati()     # obnovljen ustavljen: skok na shranjeni polozaj
         if self._medijski_predvajalnik and self._medijski_predvajalnik.stanje == "predvaja":
             self._medijski_predvajalnik.poskusi_nadaljevati()
             podatki = self._medijski_podatki()
@@ -7370,7 +7497,11 @@ def main() -> int:
     # sprostil predmet WebKit/GTK zunaj glavne niti - RELEASE_ASSERT(isMainThread) -> SIGTRAP (signal 5, koda 133).
     from core import runtime_safety
     runtime_safety.install_main_thread_gc()
-    return app.run([sys.argv[0]])
+    koda = app.run([sys.argv[0]])
+    if getattr(app, "_ponovni_zagon", False) is True:      # samo pravi zahtevek (ne lazni predmet v preizkusih)
+        # Nova razlicica (core/nova_razlicica.py): zaganjalnik jo zazene ob kodi 75, sicer exec nove kode.
+        return nova_razlicica.znova("SAFEER_OS_NADZOR", os.path.abspath(__file__), _ZACETNI_ARGV[1:])
+    return koda
 
 
 if __name__ == "__main__":

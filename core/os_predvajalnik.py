@@ -271,7 +271,7 @@ class Predvajalnik:
         return None
 
     def dodaj(self, uri: str, predvajaj: bool = False, vrsta: str = "medij", naslov: str = "",
-              zacetek: int = 0) -> None:
+              zacetek: int = 0, v_premoru: bool = False) -> None:
         vnos = medij(uri, vrsta)
         if naslov:
             vnos = replace(vnos, naslov=str(naslov)[:80])
@@ -282,7 +282,7 @@ class Predvajalnik:
             self.indeks = max(-1, self.indeks - 1)
         self.vrsta.append(vnos)
         if self.indeks < 0 or predvajaj or self.stanje in ("ustavljeno", "napaka"):
-            self.predvajaj(len(self.vrsta) - 1)
+            self.predvajaj(len(self.vrsta) - 1, v_premoru=v_premoru)
         else:
             self.sprememba()
 
@@ -300,7 +300,9 @@ class Predvajalnik:
         self.indeks = -1
         return self.predvajaj(zacni)
 
-    def predvajaj(self, indeks: int) -> bool:
+    def predvajaj(self, indeks: int, v_premoru: bool = False) -> bool:
+        """v_premoru: posnetek se nalozi in ostane ustavljen (obnova po ponovnem zagonu, core/nova_razlicica.py) -
+        brez zvoka, tudi za trenutek; polozaj (zacetek) se nastavi, ko GStreamer pozna trajanje."""
         if not 0 <= indeks < len(self.vrsta):
             return False
         self.element.set_state(self.gst.State.NULL)
@@ -330,7 +332,7 @@ class Predvajalnik:
         self.nastavi_zamik("zvok", 0)
         self.nastavi_zamik("podnapisi", 0)
         self._samodejni_zvok, self._obnovi_zvok = True, -1
-        rezultat = self.element.set_state(self.gst.State.PLAYING)
+        rezultat = self.element.set_state(self.gst.State.PAUSED if v_premoru else self.gst.State.PLAYING)
         if rezultat == self.gst.StateChangeReturn.FAILURE:
             # Tiho (lastnik 18. 10. 2026): brez naslednje skladbe tu - ta bi se v isti nit klicala rekurzivno.
             _dnevnik_napake("zacetek", self.vrsta[indeks].vrsta)
@@ -338,9 +340,9 @@ class Predvajalnik:
             self._zivo_konec()
             self.stanje = "ustavljeno"
         else:
-            self.stanje = "predvaja"
+            self.stanje = "premor" if v_premoru else "predvaja"
         self.sprememba()
-        return self.stanje == "predvaja"
+        return self.stanje in ("predvaja", "premor")
 
     # ------------------------------------------------------------------ podnapisi
 
@@ -742,7 +744,8 @@ class Predvajalnik:
                     self.gst.SeekFlags.FLUSH | self.gst.SeekFlags.KEY_UNIT, int(cilj * self.gst.SECOND)))
 
     def poskusi_nadaljevati(self) -> bool:
-        if not self._cakaj_zacetek or self.stanje != "predvaja":
+        # Tudi v premoru: posnetek, obnovljen ustavljen (predvajaj(v_premoru=True)), skoci na shranjeni polozaj.
+        if not self._cakaj_zacetek or self.stanje not in ("predvaja", "premor"):
             return False
         try:
             trajanje = self.trajanje()
