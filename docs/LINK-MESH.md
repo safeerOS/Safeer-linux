@@ -220,6 +220,17 @@ POROCILO.md); če en konec sprejema dohodne povezave, telefon odpre navadno odho
   izmerjenim zamikom (brez naslovov IP).
 - Izklop ne glede na nastavitev: `SAFEER_NEPOSREDNO=0`.
 
+## Meje in roki, ki jih uporabnik lahko občuti (pregled 18. 10. 2026)
+
+| Kje | Meja | Zakaj (meritev) |
+|---|---|---|
+| Tiha sosednja povezava (`TIHI_SOSED_S`) | 40 s brez prejetega bajta | Pong prek počasnega releja z oddajo na isti poti: 2,4–8,8 s; 30 s je pongu po pingu (25 s) pustilo 5 s. Vsak prejeti bajt (tudi sredi dolgega okvirja) šteje kot življenje. |
+| Opis kosov `/kosi` | mesto 30 s, računanje 300 s, pisanje 60 s tišine | Opis: 35–38 MB/s z numpy, 5–6 MB/s brez; odjemalec (`link_nadaljuj.ROK_OPISA_S`) dlje kot 300 s ne čaka. Ob preseženem roku 503 – naprava prenese celo datoteko. |
+| Neposredni vhod od zunaj | 8 rokovanj na naslov, 4 od 16 mest za naslove, ki so se v 10 min izkazali kot člani | Prava naprava odpre do ~6 hkrati (OkHttp 5 + WebSocket); zavrnjeno rokovanje odjemalca za 5 min vrne na rele. |
+| Teamwork pri lastniku | 32 sej na napravo, 8 prvih prijav hkrati (`zasedeno`), 1 GiB rezerve diska za zgodovino | Prva prijava kopira celo datoteko (256 MiB v 1,1 s). |
+| Pošiljanje (Control) | čakanje na napravo 24 h, tudi čez ponovni zagon; vrsta največ 50 pošiljk | `posiljanje-vrsta.json` ob nastavitvah Controla (0600, samo poti, id, rok). |
+| Nemo | do 8 naprav, znane brez povezave 90 dni po zadnjem videnju | Naprava mora biti v krogu zaupanja; pripis »(ko bo dosegljiva)«. |
+
 ## Združljivost
 
 - Hub z mesh1 sprejema stare odjemalce kot doslej.
