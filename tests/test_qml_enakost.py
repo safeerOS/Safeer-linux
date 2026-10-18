@@ -492,7 +492,8 @@ class NamizjeQml(unittest.TestCase):
         self._js("koren.linkKlik()")
         self.assertTrue(self._klicano("prijava", []))
         q = _beri("assets", "os", "qml", "Namizje.qml")
-        self.assertIn('MeniVnos { text: koren.t("prilagodiDock"); visible: koren.platforma === "linux"; onTriggered: programi.urediDock() }', q)
+        # Brez docka, ki ga Safeer OS ureja (Wayland brez GNOME), vnosa ni (core/os_dock.vrsta_docka, »dock« v zacetek).
+        self.assertIn('MeniVnos { text: koren.t("prilagodiDock"); visible: koren.platforma === "linux" && koren.dockNaVoljo; onTriggered: programi.urediDock() }', q)
 
 
 class Staticno(unittest.TestCase):

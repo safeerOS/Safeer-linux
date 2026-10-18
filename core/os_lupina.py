@@ -242,6 +242,8 @@ def nastavi_videz(shramba, sprememba: dict, nastavi_ozadje_sistema: Optional[Cal
 
 
 GSETTINGS_OZADJE = ("org.cinnamon.desktop.background", "picture-uri")
+#: GNOME (Ubuntu 24.04): ozadje za svetli in temni slog - nastavimo oba, da izbira velja v obeh.
+GSETTINGS_OZADJE_GNOME = (("org.gnome.desktop.background", "picture-uri"), ("org.gnome.desktop.background", "picture-uri-dark"))
 
 
 def uri_ozadja(pot: str) -> str:
@@ -259,6 +261,9 @@ def nastavi_ozadje_sistema(pot: str, zazeni: Optional[Callable[[list], Any]] = N
     ozadja v Flatpaku ni naredila nicesar (pregled 14. 10. 2026). Paket .deb: Gio.Settings + sync(), da takojsnje
     branje (videz po spremembi) ze vidi novo vrednost."""
     uri = uri_ozadja(pot)
+    from core import seja_prikaza
+    # GNOME: org.gnome.desktop.background (oba sloga); sicer Cinnamon. Prej je izbira ozadja na GNOME ni naredila nic.
+    kljuci = GSETTINGS_OZADJE_GNOME if seja_prikaza.namizje() == "gnome" else (GSETTINGS_OZADJE,)
     try:
         from core import gostitelj
         if gostitelj.v_flatpaku():
@@ -267,15 +272,18 @@ def nastavi_ozadje_sistema(pot: str, zazeni: Optional[Callable[[list], Any]] = N
             ukaz = "/app/host-bin/gsettings" if os.path.exists("/app/host-bin/gsettings") else shutil.which("gsettings")
             if not ukaz:
                 return False
-            argv = [ukaz, "set", GSETTINGS_OZADJE[0], GSETTINGS_OZADJE[1], uri]
-            if zazeni is not None:
-                return bool(zazeni(argv))
-            return subprocess.run(argv, capture_output=True, timeout=5).returncode == 0
+            ok = True
+            for shema, kljuc in kljuci:
+                argv = [ukaz, "set", shema, kljuc, uri]
+                ok = (bool(zazeni(argv)) if zazeni is not None
+                      else subprocess.run(argv, capture_output=True, timeout=5).returncode == 0) and ok
+            return ok
         from gi.repository import Gio
         vir = Gio.SettingsSchemaSource.get_default()
-        if vir is None or vir.lookup(GSETTINGS_OZADJE[0], True) is None:
+        if vir is None or any(vir.lookup(shema, True) is None for shema, _k in kljuci):
             return False
-        Gio.Settings.new(GSETTINGS_OZADJE[0]).set_string(GSETTINGS_OZADJE[1], uri)
+        for shema, kljuc in kljuci:
+            Gio.Settings.new(shema).set_string(kljuc, uri)
         Gio.Settings.sync()
         return True
     except Exception as e:  # noqa: BLE001
@@ -633,7 +641,9 @@ class Namizje:
         elif metoda == "zacetek":
             z = dict(self.os._zacetek())
             v = self.videz(str(z.get("jezik") or "sl"))
-            z.update({"ozadje": v["ozadje"], "videz": v, "platforma": "linux", "vOknu": self.v_oknu})
+            from core import os_dock
+            z.update({"ozadje": v["ozadje"], "videz": v, "platforma": "linux", "vOknu": self.v_oknu,
+                      "dock": os_dock.je_namescen()})
             odg(klic_id, True, z)
         else:
             return False
@@ -686,7 +696,10 @@ class Namizje:
             vir = Gio.SettingsSchemaSource.get_default()
             for shema, kljuc in (("org.cinnamon.theme", "name"), ("org.cinnamon.desktop.interface", "text-scaling-factor"),
                                  ("org.gnome.desktop.interface", "text-scaling-factor"),
-                                 ("org.gnome.desktop.a11y.interface", "high-contrast")):
+                                 ("org.gnome.desktop.a11y.interface", "high-contrast"),
+                                 # Ozadje, izbrano v Nastavitvah GNOME (Videz), takoj tudi na namizju QML.
+                                 ("org.gnome.desktop.background", "picture-uri"),
+                                 ("org.gnome.desktop.background", "picture-uri-dark")):
                 s = vir.lookup(shema, True) if vir is not None else None
                 if s is None or not s.has_key(kljuc):
                     continue

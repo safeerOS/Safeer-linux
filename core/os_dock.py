@@ -19,6 +19,52 @@ from core import zasebni_webkit
 
 PLANK_DOCK = "/net/launchpad/plank/docks/dock1/"
 KONCNICA = ".dockitem"
+#: GNOME (Ubuntu 24.04, tudi na Waylandu): dock je Ubuntu Dock / pregled GNOME, njegovi programi so priljubljeni.
+GNOME_PRILJUBLJENI = ("org.gnome.shell", "favorite-apps")
+
+
+def vrsta_docka() -> str:
+    """Kateri dock ureja Safeer OS: "gnome" (priljubljeni GNOME - Ubuntu Dock), "plank" ali "" (ga ni).
+
+    Plank je program X11: na Waylandu (KDE, sway) se ne prikaze kot dock, zato tam »Prilagodi dock« ni (prej je
+    vmesnik ponudil dock, ki ga ni bilo). Na GNOME je dock Ubuntu Dock: isti seznam kot »Dodaj med priljubljene«;
+    GNOME Shell spremembo kljuca pokaze sam, brez ponovnega zagona (kot Plank osvezi())."""
+    from core import seja_prikaza
+    if seja_prikaza.namizje() == "gnome" and _gnome_beri() is not None:
+        return "gnome"
+    if seja_prikaza.je_wayland():
+        return ""
+    return "plank" if _plank_namescen() else ""
+
+
+def _gnome_beri() -> Optional[List[str]]:
+    """Priljubljeni GNOME (id-ji .desktop) ali None, ce sheme ni (ni GNOME Shell)."""
+    try:
+        r = subprocess.run(_gostitelj(["gsettings", "get"] + list(GNOME_PRILJUBLJENI)), capture_output=True,
+                           text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0:
+        return None
+    return [i for i in razcleni_seznam(r.stdout) if i.endswith(".desktop") and "/" not in i]
+
+
+def _gnome_pisi(imena: List[str]) -> bool:
+    try:
+        return subprocess.run(_gostitelj(["gsettings", "set"] + list(GNOME_PRILJUBLJENI) + [zapisi_seznam(imena)]),
+                              capture_output=True, timeout=5).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _pot_po_id(oznaka: str) -> str:
+    """Pot zaganjalnika z imenom `oznaka` v mapah programov (iste kot meni Safeer OS)."""
+    from core import link_programi
+    for mapa in link_programi._mape_vnosov():
+        pot = os.path.join(mapa, oznaka)
+        if os.path.isfile(pot):
+            return pot
+    return ""
 
 
 def _v_flatpaku() -> bool:
@@ -47,6 +93,11 @@ def mapa_launcherjev() -> str:
 
 
 def je_namescen() -> bool:
+    """Ali ima Safeer OS dock, ki ga zna urejati (vrsta_docka()): Plank na X11 ali priljubljene GNOME."""
+    return bool(vrsta_docka())
+
+
+def _plank_namescen() -> bool:
     """Ali je dock Plank na racunalniku (tudi iz Flatpaka)."""
     import shutil
     if shutil.which("plank") or os.path.lexists("/run/host/usr/bin/plank"):
@@ -109,7 +160,14 @@ def launcher(pot_dockitem: str) -> str:
 
 def elementi() -> List[dict]:
     """Programi v docku po vrsti: [{dockitem, pot, id}] (id = ime .desktop datoteke, kot ga uporablja seznam programov).
-    Datoteke, ki jih ni v dock-items, Plank pokaze na koncu - tako tudi tu."""
+    Datoteke, ki jih ni v dock-items, Plank pokaze na koncu - tako tudi tu. GNOME: priljubljeni po vrsti."""
+    if vrsta_docka() == "gnome":
+        izhod = []
+        for oznaka in _gnome_beri() or []:
+            pot = _pot_po_id(oznaka)
+            if pot:
+                izhod.append({"dockitem": oznaka, "pot": pot, "id": oznaka})
+        return izhod
     mapa = mapa_launcherjev()
     try:
         datoteke = sorted(f for f in os.listdir(mapa) if _veljavno_ime(f))
@@ -128,6 +186,8 @@ def elementi() -> List[dict]:
 def rob_docka(beri=None, tece=None) -> tuple:
     """(stran, piksli), ki jih dock zaseda nad namizjem: Plank ne rezervira prostora (strut 0, preverjeno 14. 10. 2026
     na testnem PC), zato bi pokril rob plosce Programi. ("", 0), ce docka ni ali se skriva vedno."""
+    if beri is None and tece is None and vrsta_docka() != "plank":
+        return "", 0          # Ubuntu Dock prostor rezervira sam (delovno obmocje); drugje Planka ni
     beri = beri or _dconf_beri
     if not (tece or (lambda: _plank_pid() is not None))():
         return "", 0
@@ -205,6 +265,12 @@ def dodaj(pot_desktop: str, osvezi_dock=True) -> dict:
     """Doda program (pot .desktop) na konec docka. Ce je ze v docku, ne naredi nicesar."""
     if not pot_desktop or not os.path.isabs(pot_desktop) or not pot_desktop.endswith(".desktop") or not os.path.isfile(pot_desktop):
         return {"ok": False}
+    if vrsta_docka() == "gnome":
+        imena = _gnome_beri() or []
+        oznaka = os.path.basename(pot_desktop)
+        if oznaka in imena:
+            return {"ok": True, "ze": True}
+        return {"ok": _gnome_pisi(imena + [oznaka])}
     for e in elementi():
         if os.path.realpath(e["pot"]) == os.path.realpath(pot_desktop) or e["id"] == os.path.basename(pot_desktop):
             return {"ok": True, "ze": True}
@@ -222,6 +288,11 @@ def dodaj(pot_desktop: str, osvezi_dock=True) -> dict:
 
 def odstrani(oznaka: str, osvezi_dock=True) -> dict:
     """Odstrani program iz docka (oznaka = ime .desktop ali .dockitem). Program sam ostane namescen."""
+    if vrsta_docka() == "gnome":
+        imena = _gnome_beri() or []
+        if oznaka not in imena:
+            return {"ok": False}
+        return {"ok": _gnome_pisi([i for i in imena if i != oznaka])}
     ime = None
     for e in elementi():
         if oznaka in (e["dockitem"], e["id"]):
@@ -241,6 +312,12 @@ def odstrani(oznaka: str, osvezi_dock=True) -> dict:
 
 def razvrsti(vrsta: List[str], osvezi_dock=True) -> dict:
     """Nov vrstni red (seznam .dockitem ali .desktop imen). Neznana imena izpusti, manjkajoce doda na konec."""
+    if vrsta_docka() == "gnome":
+        # Priljubljeni brez zaganjalnika (odstranjen program) ostanejo na svojem mestu na koncu - GNOME jih skrije sam.
+        imena = _gnome_beri() or []
+        nova = [x for x in dict.fromkeys(str(x) for x in vrsta or []) if x in imena]
+        nova += [i for i in imena if i not in nova]
+        return {"ok": True} if nova == imena else {"ok": _gnome_pisi(nova)}
     zdaj = elementi()
     po_imenu = {}
     for e in zdaj:

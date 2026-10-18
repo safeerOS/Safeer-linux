@@ -292,7 +292,7 @@ class Mutter:
                        "XDG_CONFIG_HOME": os.path.join(self.mapa, "cfg"),
                        "XDG_CACHE_HOME": os.path.join(self.mapa, "cache"),
                        "XDG_DATA_HOME": os.path.join(self.mapa, "data"), "LIBGL_ALWAYS_SOFTWARE": "1",
-                       "SAFEER_OS_BREZ_FLATPAKA": "1", "GSETTINGS_BACKEND": "memory"})
+                       "SAFEER_OS_BREZ_FLATPAKA": "1"})
         try:
             self._dbus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1"],
                                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=osnova, text=True)
@@ -307,7 +307,7 @@ class Mutter:
             while time.monotonic() < konec and not os.path.exists(os.path.join(run, "wayland-safeer")):
                 time.sleep(0.1)
             subprocess.run(["dbus-update-activation-environment"] + ["%s=%s" % (k, self.okolje[k]) for k in (
-                "WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP", "XDG_RUNTIME_DIR", "XDG_SESSION_TYPE", "GSETTINGS_BACKEND")],
+                "WAYLAND_DISPLAY", "XDG_CURRENT_DESKTOP", "XDG_RUNTIME_DIR", "XDG_SESSION_TYPE", "XDG_CONFIG_HOME")],
                 env=self.okolje, capture_output=True, timeout=10)
             if not self._ime_na_vodilu("org.gnome.Mutter.ScreenCast", 15):
                 raise RuntimeError("mutter se ni zagnal")
@@ -378,6 +378,11 @@ class Mutter:
                 return f.read()
         except OSError:
             return ""
+
+    def gsettings(self, *argumenti: str) -> str:
+        """gsettings v tej seji (dconf v zacasni mapi - nastavitve racunalnika ostanejo nedotaknjene)."""
+        r = subprocess.run(["gsettings"] + list(argumenti), capture_output=True, text=True, timeout=10, env=self.okolje)
+        return r.stdout.strip()
 
     # ------------------------------------------------------------------ robot: tipke in posnetek mimo portala
     def _vodilo(self):

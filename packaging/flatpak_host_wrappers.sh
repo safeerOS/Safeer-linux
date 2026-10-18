@@ -11,7 +11,7 @@ DEST="${1:?Usage: flatpak_host_wrappers.sh /app/host-bin}"
 mkdir -p "$DEST"
 TOOLS="nmcli nm-connection-editor resolvectl pkexec pactl pacmd wpctl brightnessctl gsettings gdbus systemctl loginctl
        xdg-open gio xprop xdotool wmctrl sway swaymsg wf-recorder wtype notify-send cinnamon-settings cinnamon-session-quit
-       cinnamon-screensaver-command gnome-screenshot nemo pgrep pkill hostnamectl timedatectl xrandr playerctl amixer
+       cinnamon-screensaver-command gnome-screenshot gnome-control-center nemo pgrep pkill hostnamectl timedatectl xrandr playerctl amixer
        safeer safeer-browser flatpak safeer-cinnamon nemo-desktop
        xdg-mime udisksctl dpkg-query apt-cache avahi-browse dconf soffice libreoffice magick convert"
 for tool in $TOOLS; do

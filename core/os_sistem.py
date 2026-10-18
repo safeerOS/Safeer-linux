@@ -197,9 +197,16 @@ def nastavi_nocno_luc(vklop: bool) -> bool:
 
 
 def ozadje_namizja() -> str:
-    """Pot do slike ozadja namizja Cinnamon ('' ce je ni) - Safeer OS jo uporabi za svoje ozadje."""
+    """Pot do slike ozadja namizja Cinnamon ali GNOME ('' ce je ni) - Safeer OS jo uporabi za svoje ozadje.
+
+    GNOME (Ubuntu 24.04): ozadje je v org.gnome.desktop.background, v temnem slogu picture-uri-dark. Prej je Safeer OS
+    tam ostal brez ozadja (bral je samo Cinnamon)."""
     izpis = _zazeni(["gsettings", "get", "org.cinnamon.desktop.background", "picture-uri"]) or ""
     uri = izpis.strip().strip("'")
+    if not uri.startswith("file://"):
+        temno = "prefer-dark" in (_zazeni(["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"]) or "")
+        kljuc = "picture-uri-dark" if temno else "picture-uri"
+        uri = (_zazeni(["gsettings", "get", "org.gnome.desktop.background", kljuc]) or "").strip().strip("'")
     if uri.startswith("file://"):
         from urllib.parse import unquote
         pot = unquote(uri[len("file://"):])

@@ -95,6 +95,7 @@ Item {
     function nastaviJezik(j) { koren.jezik = besedila[j] ? j : "en" }
     // Windows: Koš namesto Smeti in »Ta PC« (kljuci win_…); namizje QML ima pri nekaterih sporocilih manj zamenjav (qml_…).
     property string platforma: "windows"
+    property bool dockNaVoljo: true
     function t(k, vr) {
         var d = besedila[jezik] || besedila.en, en = besedila.en
         var s = (platforma === "windows" && (d["win_" + k] || en["win_" + k])) || d["qml_" + k] || d[k] || en["qml_" + k] || en[k] || k
@@ -1054,6 +1055,8 @@ Item {
             koren.nastaviJezik(z.jezik)
             if (z.platforma) koren.platforma = z.platforma
             koren.vOknu = !!z.vOknu
+            // Dock, ki ga Safeer OS ureja (Plank na X11, priljubljeni GNOME): brez njega »Prilagodi dock« ni v meniju.
+            koren.dockNaVoljo = !!z.dock
             koren.dom = (z.mape && z.mape[0] && z.mape[0].pot) || ""
             koren.ozadjeUrl = z.ozadje || ""
             if (z.videz) koren.uporabiVidez(z.videz)
@@ -1119,7 +1122,7 @@ Item {
         id: meniNamizja
         objectName: "meniNamizja"
         MeniVnos { text: koren.t("prilagodi"); onTriggered: prilagodi.odpri() }
-        MeniVnos { text: koren.t("prilagodiDock"); visible: koren.platforma === "linux"; onTriggered: programi.urediDock() }
+        MeniVnos { text: koren.t("prilagodiDock"); visible: koren.platforma === "linux" && koren.dockNaVoljo; onTriggered: programi.urediDock() }
         MeniVnos { text: koren.t("temaSistema"); onTriggered: koren.klic("odpriRazdelek", ["nastavitve"]) }
     }
     Prilagodi { id: prilagodi; objectName: "prilagodi"; z: 30; anchors.fill: parent }

@@ -105,13 +105,25 @@ MODULI_NASTAVITEV = ("", "themes", "backgrounds", "fonts", "display", "windows",
                      "effects", "keyboard", "mouse", "sound", "power", "screensaver", "accessibility")
 
 
+#: Moduli Cinnamona -> plosce Nastavitev GNOME 46 (Ubuntu 24.04; imena iz gnome-<plosca>-panel.desktop, preverjeno
+#: 18. 10. 2026). Prej je GNOME vedno odprl prvo stran - npr. »Ozadje« ni odprlo Videza.
+PLOSCE_GNOME = {"themes": "background", "backgrounds": "background", "display": "display", "nightlight": "display",
+                "keyboard": "keyboard", "mouse": "mouse", "sound": "sound", "power": "power",
+                "accessibility": "universal-access", "panel": "ubuntu", "desktop": "ubuntu", "windows": "multitasking",
+                "screensaver": "privacy"}
+
+
 def sistemske_nastavitve(modul: str = "") -> bool:
     """Odpre sistemske nastavitve namizja (Cinnamon; brez njega GNOME/Xfce/MATE). Samo znani moduli."""
     from shutil import which
     if modul not in MODULI_NASTAVITEV:
         return False
-    if which("cinnamon-settings"):
+    # Flatpak ima ovoj za vsako orodje (/app/host-bin), tudi ce ga gostitelj nima - zato odloci namizje seje.
+    gnome = seja_prikaza.namizje() == "gnome"
+    if which("cinnamon-settings") and not gnome:
         ukaz = ["cinnamon-settings"] + ([modul] if modul else [])
+    elif which("gnome-control-center"):
+        ukaz = ["gnome-control-center"] + ([PLOSCE_GNOME[modul]] if modul in PLOSCE_GNOME else [])
     else:
         ukaz = next(([u] for u in ("gnome-control-center", "xfce4-settings-manager", "mate-control-center")
                      if which(u)), None)
@@ -4319,7 +4331,7 @@ class SafeerOS(Gtk.Application):
             "spletNaNamizjuZapri": self._skrij_splet_na_namizju,
             "odpriRazdelek": lambda: self._odpri_razdelek(str(a[0]) if a else ""),
             "nastavitveDocka": lambda: self._zazeni_orodje(["safeer-cinnamon", "--nastavitve-docka"]),
-            "nastavitveOzadja": lambda: self._zazeni_orodje(["cinnamon-settings", "backgrounds"]),
+            "nastavitveOzadja": lambda: sistemske_nastavitve("backgrounds"),
             "lupaUcenje": self.lupa.podatki,
             "lupaZapomni": lambda: self.lupa.zapomni(*(list(a or [])[:3])),
             "lupaPozabi": self.lupa.pozabi,
@@ -4787,6 +4799,8 @@ class SafeerOS(Gtk.Application):
             # Safeer Cinnamon: Safeer OS je vedno v oknu (main), stikalo Celozaslonsko nima ucinka; ob delovni
             # povrsini zagon ob prijavi vodi seja safeer-cinnamon - Nastavitve stikal ne pokazejo (os.js).
             "safeerCinnamon": _safeer_cinnamon_vklopljen(),
+            # Wayland: namizja cez cel zaslon ni (main) - stikalo Celozaslonsko bi bilo prazen gumb (os.js ga skrije).
+            "wayland": seja_prikaza.je_wayland(),
             "samozagonNamizje": delovna_safeer_cinnamon(),
             "namizje": self.namizje,
             "spletne": shranjene_spletne,
@@ -5001,7 +5015,10 @@ class SafeerOS(Gtk.Application):
         for e, v in vnosi:
             ime = v.get("ime") or (e["id"][: -len(".desktop")] if e["id"].endswith(".desktop") else e["id"])
             programi.append({"id": e["id"], "dockitem": e["dockitem"], "ime": ime, "ikona": ikone.get(v.get("ikona"), "")})
-        return {"ok": True, "plank": os_dock.je_namescen(), "programi": programi}
+        # »plank« = ali je dock, ki ga Safeer OS ureja (Plank na X11 ali priljubljeni GNOME - Ubuntu Dock, tudi Wayland);
+        # »Vec nastavitev docka« ima samo Plank (safeer-cinnamon --nastavitve-docka).
+        vrsta = os_dock.vrsta_docka()
+        return {"ok": True, "plank": bool(vrsta), "vecNastavitev": vrsta == "plank", "programi": programi}
 
     def _ikona(self, ime: str) -> str:
         if ime not in self._ikone:

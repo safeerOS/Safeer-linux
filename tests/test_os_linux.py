@@ -689,6 +689,7 @@ class Samozagon(unittest.TestCase):
         lazni._zacni_s_predvajalnikom = False        # zagon s --predvajalnik ima svoj preizkus (test_os_predvajalnik_okno)
         # Delovna povrsina: Scit in zagon ob prijavi uredi _ob_namizju (skupno ob zagonu in ob _vklopi_delovno).
         lazni._namizje_pripravljeno = False
+        lazni._delovna_v_ozadju = False              # Wayland: delovna samo s storitvami (SafeerOS._delovna_v_ozadju)
         lazni._ob_namizju = lambda: self.os_.SafeerOS._ob_namizju(lazni)
         for ime, vrednost in polja.items():
             setattr(lazni, ime, vrednost)
