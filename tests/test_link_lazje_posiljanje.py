@@ -326,6 +326,7 @@ class VrstaPreziviZagon(unittest.TestCase):
         # Control se ustavi (proces izgine): prva vrsta ne pise vec.
         prvi._shramba = None
         prvi.preklici(r["id"])
+        self.assertTrue(_pocakaj(lambda: prvi.stanje(r["id"])["stanje"] == "napaka"))
         drugi = self._p()
         self.assertEqual(drugi.obnovi(), 1)
         time.sleep(0.15)
@@ -338,6 +339,21 @@ class VrstaPreziviZagon(unittest.TestCase):
         self.assertEqual([k[1] for k in self.klici], ["a.txt", "b.txt", "b.txt", "c.txt"])
         self.assertEqual(self.spremembe[-1]["poslanih"], 3)
         self.assertFalse(os.path.exists(self.shramba), "koncana vrsta ne ostane na disku")
+
+    def test_naprava_ze_tu_posilja_takoj(self):
+        prvi = self._p()
+        self.izidi = [(False, {"koda": "naprava_ni_povezana"})]
+        r = prvi.zacni("tab", [self._datoteka("a.txt")])
+        self.assertTrue(_pocakaj(lambda: prvi.stanje(r["id"])["stanje"] == "caka"))
+        prvi._shramba = None
+        prvi.preklici(r["id"])
+        self.assertTrue(_pocakaj(lambda: prvi.stanje(r["id"])["stanje"] == "napaka"))
+        self.spremembe.clear()
+        self.tu = True
+        drugi = self._p()
+        self.assertEqual(drugi.obnovi(), 1)
+        self.assertTrue(_pocakaj(lambda: self.spremembe and self.spremembe[-1]["stanje"] == "poslano"))
+        self.assertEqual([x["stanje"] for x in self.spremembe][-2:], ["posiljam", "poslano"])
 
     def test_neveljavni_zapisi_izpadejo(self):
         import json
@@ -387,6 +403,7 @@ class VrstaPreziviZagon(unittest.TestCase):
         self.assertTrue(_pocakaj(lambda: prvi.stanje(r["id"])["stanje"] == "caka"))
         prvi._shramba = None
         prvi.preklici(r["id"])
+        self.assertTrue(_pocakaj(lambda: prvi.stanje(r["id"])["stanje"] == "napaka"))
         import json
         with open(self.shramba, encoding="utf-8") as f:
             rok = json.load(f)["posiljke"][0]["rok"]

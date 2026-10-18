@@ -144,7 +144,8 @@ class Posiljanje:
     def _shrani(self, takoj: bool = True) -> None:
         """Nekoncane posiljke v shrambo (atomarno, samo za uporabnika). `takoj=False`: najvec vsakih
         SHRANI_NAJVEC_VSAKIH_S (napredek); zacetek, cakanje in konec se zapisejo vedno."""
-        if not self._shramba:
+        pot = self._shramba
+        if not pot:
             return
         zdaj = self._ura()
         if not takoj and zdaj - self._zadnja_shranitev < SHRANI_NAJVEC_VSAKIH_S:
@@ -156,15 +157,15 @@ class Posiljanje:
             self._zadnja_shranitev = zdaj
             try:
                 if not zapisi:
-                    if os.path.exists(self._shramba):
-                        os.remove(self._shramba)
+                    if os.path.exists(pot):
+                        os.remove(pot)
                     return
-                os.makedirs(os.path.dirname(self._shramba) or ".", exist_ok=True)
-                zacasna = self._shramba + ".tmp"
+                os.makedirs(os.path.dirname(pot) or ".", exist_ok=True)
+                zacasna = pot + ".tmp"
                 fd = os.open(zacasna, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
                 with os.fdopen(fd, "w", encoding="utf-8") as d:
                     json.dump({"v": 1, "posiljke": zapisi[:NAJVEC_SHRANJENIH]}, d, ensure_ascii=False)
-                os.replace(zacasna, self._shramba)
+                os.replace(zacasna, pot)
             except OSError as e:
                 print("[SafeerLink] vrste posiljanja ni bilo mogoce shraniti:", e, flush=True)
 
@@ -235,6 +236,8 @@ class Posiljanje:
         return p
 
     def _javi(self, p: Posiljka) -> None:
+        if p.stanje in ("poslano", "napaka"):
+            self._shrani()                  # kdor vidi konec, vidi tudi vrsto brez te posiljke
         if self._ob_spremembi is None:
             return
         try:
@@ -369,6 +372,9 @@ class Posiljanje:
                 p.stanje, p.koda = "napaka", ("preklicano" if p.preklicano else (p.koda or "naprava_ni_povezana"))
                 self._javi(p)
                 return
+            if p.stanje == "caka":          # naprava je ze v Linku: posiljamo, ne cakamo
+                p.stanje = "posiljam"
+                self._javi(p)
         while i < len(p.poti):
             pot, velikost, podmapa = p.poti[i], p.velikosti[i], p.podmape[i]
             if p.preklicano:
