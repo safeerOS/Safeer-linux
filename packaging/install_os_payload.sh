@@ -22,7 +22,8 @@ for modul in budnost en_proces obvestila peskovnik_userns node_izvajalnik nova_r
              os_katalog os_media os_vgrajeni_viri uporabniske_skripte userscripts plakati_predpomnilnik meritve_virov knjiznica_kroga media_servers jellyfin_vticniki tok_izbira watch_providers zakoniti_viri izvirni_jezik uvoz_seznama youtube_racun twitch twitch_hls seznami_sink viri_sink predvajalnik_moznosti podnapisi_splet spotify_racun \
              os_splet splet_spanje splet_skripte processes_page tab_monitor tab_lifecycle splet_temno splet_varuh jeziki_strani ikone_strani dlna_zvocniki zvok_na_zvocnik adblock config bookmarks_importer doh_proxy filter_lists webkit_filters scit_pravila bank_guard odlozisce_varuh ozadje_strani drm safeer_drm splet_prenosi external_apps i18n pojavna_okna network_errors zascita dovoljenja_strani \
              spletni_klepeti os_kanali_sporocil vstavi_okno namizni_programi znacke_programov \
-             poraba_kanalov os_poraba_kanalov; do
+             poraba_kanalov os_poraba_kanalov \
+             lupina_most lupina_streznik lupina_proces varuh_procesov; do
     cp -a "$ROOT/core/$modul.py" "$LIB/core/"
 done
 mkdir -p "$LIB/core/sporocila" && install -m 644 "$ROOT"/core/sporocila/*.py "$LIB/core/sporocila/"

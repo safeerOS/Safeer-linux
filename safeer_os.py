@@ -83,6 +83,8 @@ from core import seja_prikaza  # noqa: E402
 from core.sporocila import vklop as sporocila_vklop  # noqa: E402
 pomnilnik.tlak_omrezja(WebKit2, 160)   # pred prvim pogledom: omrezni procesi WebKita z mejo pomnilnika
 from core import en_proces  # noqa: E402
+# Lupina namizja v svojem procesu pod varuhom (lastnik, 18. 10. 2026: moznost B) - core/lupina_streznik.py.
+from core import lupina_streznik, varuh_procesov  # noqa: E402
 
 # Preklop vhoda zvocne vrstice JBL je samo interni poskus: uradni paket modula ne vsebuje
 # (packaging/install_os_payload.sh), zato ga uvozimo le, ce je prisoten (zagon iz repozitorija).
@@ -1566,6 +1568,8 @@ RAZRED_SAFEER_OS = "safeer-os"
 #: razred okna spremeni v male crke in ga isce med imeni vnosov. Slika ikone je assets/os/<pripona>.svg.
 #: Safeer Player ima svoj vnos ze od prej (WMCLASS_PREDVAJALNIKA, packaging/safeer-player.desktop).
 OKNA_V_PULTU = ("splet", "sporocila", "zapiski", "nastavitve", "scit")
+#: Pod varuhom: stanje za obnovo po sesutju (zavihki, okna, predvajanje) se posname toliko sekund po spremembi.
+POSNETEK_STANJA_S = 10
 #: Okna, ki sodijo k drugemu programu: Medijski center (stran vira) in njegov dialog sta del Safeer Playerja.
 _OKNA_PREDVAJALNIKA = ("Medijski", "Dialog")
 
@@ -2310,6 +2314,11 @@ class SafeerOS(Gtk.Application):
         if self.posnetek or getattr(self, "_namizje_pripravljeno", False):
             return
         self._namizje_pripravljeno = True
+        # Varuh (core/varuh_procesov.py): pripravljen, utrip iz glavne zanke (zamrznitev) in stanje za obnovo po napaki.
+        if varuh_procesov.pod_varuhom():
+            varuh_procesov.obvesti("READY=1")
+            varuh_procesov.utrip_glib(GLib)
+            GLib.timeout_add_seconds(POSNETEK_STANJA_S, self._posnemi_stanje)
         if self._prvic:
             # Ce je bilo glavno okno ze odprto, sta Scit in zagon ob prijavi ze urejena.
             self._prvic = False
@@ -2416,7 +2425,8 @@ class SafeerOS(Gtk.Application):
         (delovna.html). Prej je bilo crno okno brez rezerve ali sesutje v zanko ponovnih zagonov (pregled 14. 10.)."""
         lupina = None
         try:
-            lupina = os_lupina.Namizje(self)
+            # Pod varuhom tece QML v procesu lupine (core/lupina_proces.py); tu samo streznik z isto logiko namizja.
+            lupina = lupina_streznik.OddaljenaLupina(self) if lupina_streznik.locena() else os_lupina.Namizje(self)
             self.lupina = lupina
             self.pogled_delovna = self._qml_pogled = lupina.pogled
             lupina.pokazi()
@@ -2440,9 +2450,12 @@ class SafeerOS(Gtk.Application):
         robovi = self._robovi()
         self._robovi_delovne = robovi
         # pozno: Safeer OS je ze tekel kot Player ali okno (_vklopi_delovno) - Qt mora dobiti EGL (glej os_lupina.pripravi).
-        if not self.posnetek and os_lupina.pripravi(sys.argv[:1], pozno=bool(self.get_windows())) \
-                and self._ustvari_qml_namizje():
+        # Lupina v svojem procesu (varuh, core/lupina_streznik.py): v tem procesu ni Qt, namizje je v procesu lupine.
+        if not self.posnetek and (lupina_streznik.locena() or os_lupina.pripravi(
+                sys.argv[:1], pozno=bool(self.get_windows()))) and self._ustvari_qml_namizje():
             return
+        if lupina_streznik.locena():
+            varuh_procesov.obvesti("SAFEER_BREZ_LUPINE=1")   # spodaj delovna povrsina WebKit: varuh ugasne lupino
         pogled = self._nov_pogled("delovna.html?" + "&".join("%s=%d" % kv for kv in sorted(robovi.items())))
         okno = Gtk.ApplicationWindow(application=self, title="Safeer Cinnamon")
         # GTK4 nima set_wmclass, set_type_hint, set_keep_below, move: lastnosti X nastavi core/x11.py.
@@ -3416,6 +3429,8 @@ class SafeerOS(Gtk.Application):
         """Konec Safeer OS (izhod, odjava, »Nazaj v Linux Mint«): Mintov pult se vrne."""
         if self._koncano:
             return
+        if varuh_procesov.pod_varuhom() and not self._ponovni_zagon:
+            self._posnemi_stanje()        # varuh (meja pomnilnika) zazene Safeer OS znova s tem stanjem
         self._koncano = True
         try:
             self._budnost.sprosti_vse()
@@ -4086,17 +4101,20 @@ class SafeerOS(Gtk.Application):
                 return ""
         return ""
 
-    def _znova_v_novo(self) -> None:
-        """Shrani zavihke Spleta in predvajanje, nato obicajen izhod (Scit, Link, pult); main() zazene novo razlicico."""
-        if self._ponovni_zagon or self._koncano:
-            return
-        stanje = {"iz": RAZLICICA, "v": self._nova_razlicica,
-                  "splet": nova_razlicica.zavihki([self._spletni, self._spletni_namizje])}
+    def _stanje_za_obnovo(self, napredek: bool = False) -> dict:
+        """Zavihki Spleta, odprta okna Safeer OS in predvajanje (lokalna datoteka, polozaj) - za novo razlicico in za
+        ponovni zagon po sesutju ali zamrznitvi (varuh). napredek=True zapise tudi »Nadaljuj z ogledom«."""
+        predvajalnik = self.okno_predvajalnik is not None and self.okno_predvajalnik.get_visible()
+        stanje = {"iz": RAZLICICA, "pid": os.getpid(),
+                  "splet": nova_razlicica.zavihki([self._spletni, self._spletni_namizje]),
+                  "okna": [ime for ime, par in self.okna_razdelkov.items() if par[0].get_visible()]
+                  + (["predvajalnik"] if predvajalnik else [])}
         servis = self._medijski_predvajalnik
         if servis is not None and servis.trenutna is not None and servis.stanje in ("predvaja", "premor"):
             try:
-                self._zadnji_medijski_napredek = None
-                self._shrani_medijski_napredek()     # »Nadaljuj z ogledom« ima zadnji polozaj (tudi tokovi)
+                if napredek:
+                    self._zadnji_medijski_napredek = None
+                    self._shrani_medijski_napredek()     # »Nadaljuj z ogledom« ima zadnji polozaj (tudi tokovi)
                 pot = nova_razlicica.lokalni_medij(servis.trenutna.uri)
                 if pot:
                     p = servis.podatki()
@@ -4104,7 +4122,29 @@ class SafeerOS(Gtk.Application):
                                              "vrsta": servis.trenutna.vrsta, "pozicija": int(p.get("pozicija") or 0),
                                              "predvaja": servis.stanje == "predvaja"}
             except Exception as e:  # noqa: BLE001
-                print("[SafeerOS] nova razlicica, predvajanje:", e, flush=True)
+                print("[SafeerOS] stanje, predvajanje:", e, flush=True)
+        return stanje
+
+    def _posnemi_stanje(self) -> bool:
+        """Vsakih POSNETEK_STANJA_S (samo pod varuhom): stanje za obnovo po sesutju - po njem ni casa za shranjevanje.
+        Pise samo ob spremembi (XDG_RUNTIME_DIR, samo v pomnilniku, 0600)."""
+        if self._koncano or self._ponovni_zagon:
+            return False
+        try:
+            stanje = self._stanje_za_obnovo()
+            besedilo = json.dumps(stanje, sort_keys=True)
+            if besedilo != getattr(self, "_zadnji_posnetek_stanja", "") and \
+                    nova_razlicica.shrani_stanje("safeer-os", stanje, ime=nova_razlicica.OBNOVA):
+                self._zadnji_posnetek_stanja = besedilo
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS] posnetek stanja:", e, flush=True)
+        return True
+
+    def _znova_v_novo(self) -> None:
+        """Shrani zavihke Spleta in predvajanje, nato obicajen izhod (Scit, Link, pult); main() zazene novo razlicico."""
+        if self._ponovni_zagon or self._koncano:
+            return
+        stanje = dict(self._stanje_za_obnovo(napredek=True), v=self._nova_razlicica)
         nova_razlicica.shrani_stanje("safeer-os", stanje)
         print("[SafeerOS] zaganjam novo razlicico %s (zavihkov: %d, predvajanje: %s)"
               % (self._nova_razlicica, len(stanje["splet"]), "da" if stanje.get("predvajanje") else "ne"), flush=True)
@@ -4114,9 +4154,29 @@ class SafeerOS(Gtk.Application):
     def _obnovi_po_novi_razlicici(self) -> bool:
         """Nova razlicica tece: zavihki Spleta in predvajanje iz stare (core/nova_razlicica.preberi_stanje)."""
         stanje = nova_razlicica.preberi_stanje("safeer-os", RAZLICICA)
-        if not stanje:
+        if stanje:
+            print("[SafeerOS] nova razlicica %s tece (prej %s): obnovim stanje" % (RAZLICICA, stanje.get("iz")), flush=True)
+        elif str(getattr(self, "_obnova_po_napaki", "")).isdigit():
+            # Varuh je Safeer OS znova zagnal po sesutju, zamrznitvi ali preveliki porabi pomnilnika (lupina je ostala):
+            # stanje, ki ga je posnel prav prejsnji proces (PID), ne kaksno starejse.
+            prejsnji, self._obnova_po_napaki = int(self._obnova_po_napaki), ""
+            stanje = nova_razlicica.preberi_stanje("safeer-os", ime=nova_razlicica.OBNOVA,
+                                                   velja_s=nova_razlicica.OBNOVA_VELJA_S)
+            if not stanje or stanje.get("pid") != prejsnji:
+                return False
+            print("[SafeerOS] ponovni zagon po napaki: obnovim zavihke (%d), okna (%d), predvajanje: %s" % (
+                len(stanje.get("splet") or []), len(stanje.get("okna") or []), "da" if stanje.get("predvajanje") else "ne"),
+                flush=True)
+        else:
             return False
-        print("[SafeerOS] nova razlicica %s tece (prej %s): obnovim stanje" % (RAZLICICA, stanje.get("iz")), flush=True)
+        for ime in stanje.get("okna") or []:
+            try:
+                if ime == "predvajalnik":
+                    self._odpri_predvajalnik()
+                elif ime in RAZDELKI_V_SVOJEM_OKNU and (ime != "sporocila" or sporocila_vklop.sporocila_vklopljena()):
+                    self._odpri_okno_razdelka(ime)
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] obnova okna:", ime, e, flush=True)
         for naslov in stanje.get("splet") or []:
             try:
                 self._splet(str(naslov), True)
@@ -7619,6 +7679,13 @@ def main() -> int:
     os_stabilnost.vkljuci("safeer-os")
     # print() je sel na stdout (/dev/null pri zagonu iz menija): odslej v sled.log, brez skrivnosti.
     os_stabilnost.preusmeri_izpis()
+    # Pod varuhom (core/varuh_procesov.py): NOTIFY_SOCKET ne gre naprej programom, ki jih Safeer OS zazene. Ce je lupina v
+    # svojem procesu, v tem procesu ni Qt (PySide6 bi brez potrebe nalozil knjiznice Qt - RAM).
+    varuh_procesov.pripravi_obvestila()
+    if lupina_streznik.locena():
+        sys.modules["PySide6"] = None
+    # Varuh je Safeer OS znova zagnal po sesutju, zamrznitvi ali preveliki porabi pomnilnika: stanje se obnovi.
+    obnova_po_napaki = os.environ.pop("SAFEER_OBNOVA", "")
     if os_stabilnost.naj_bo_varni_nacin("safeer-os") and not os.environ.get(os_okna.IZKLOP):
         # Vec sesutij v kratkem casu: tokrat brez seznama oken (libwnck) in brez skrivanja Mintovega
         # pulta, da je Safeer OS vsaj uporaben in da ima uporabnik pot nazaj v Mint.
@@ -7657,6 +7724,7 @@ def main() -> int:
         peskovnik_userns.pojasni_kasneje(GLib, os.path.join(GLib.get_user_config_dir(), "safeer-os"), _jezik(),
                                          "Safeer OS", "safeer-os", app)
     app._cakajoci_magnet = magnet
+    app._obnova_po_napaki = obnova_po_napaki
     app._qml_okno = ("--okno" in sys.argv[1:] or wayland_okno) and not (magnet or datoteka or ponudba_json
                                                                          or predvajalnik or stremio_url)
     app._cakajoci_stremio = stremio_url

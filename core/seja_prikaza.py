@@ -26,7 +26,9 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Dict, Optional
+
+# Brez »from typing import ...«: tipi so samo v opombah (from __future__ import annotations), modul pa uvozi tudi varuh
+# procesov (core/varuh_procesov.py), ki naj bo cim manjsi - typing je +1,7 MB (izmerjeno 18. 10. 2026, Python 3.12).
 
 #: Kaj zmore katera seja (glej zmoznosti()). Kljuci so imena, ki jih uporabljajo moduli in preizkusi.
 ZMOZNOSTI = ("namizje", "seznam_oken", "vstavi_okno", "premik_oken", "rezervacija_roba", "vlecenje_iz_okna",
