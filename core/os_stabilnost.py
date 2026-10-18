@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import datetime
 import faulthandler
+import signal
 import json
 import os
 import sys
@@ -178,6 +179,12 @@ def vkljuci(ime_programa: str = "safeer-os") -> str:
         _datoteka.write("\n=== %s zagon %d (%s) ===\n" % (
             ime_programa, os.getpid(), datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         faulthandler.enable(file=_datoteka, all_threads=True)
+        # SIGTRAP (signal 5, koda 133 - WebKitov RELEASE_ASSERT) faulthandler.enable ne lovi: brez tega sled ne pove,
+        # v kateri niti se je zgodilo (sesutja 16. in 17. 10. 2026).
+        try:
+            faulthandler.register(signal.SIGTRAP, file=_datoteka, all_threads=True, chain=True)
+        except (AttributeError, ValueError, RuntimeError):
+            pass
         # Zaganjalnik sem preusmeri stderr Pythona in WebKita (packaging/safeer-os-launcher): med dolgim delom omejimo
         # velikost tudi tu, ne le ob zagonu.
         threading.Thread(target=_obrezuj_periodicno, args=(pot,), name="safeer-sled-obrezi", daemon=True).start()

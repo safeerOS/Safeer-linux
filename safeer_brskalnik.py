@@ -322,6 +322,10 @@ def main() -> int:
     GLib.set_prgname(APP_ID)
     app = SafeerBrskalnik()
     argumenti = [sys.argv[0]] + naslovi_iz_argumentov(sys.argv[1:])
+    # Zbiranje smeti samo na glavni niti (pregled 18. 10. 2026): samodejni gc v delovni niti (DoH, Link, IMAP ...) je
+    # sprostil predmet WebKit/GTK zunaj glavne niti - RELEASE_ASSERT(isMainThread) -> SIGTRAP (signal 5, koda 133).
+    from core import runtime_safety
+    runtime_safety.install_main_thread_gc()
     return app.run(argumenti)
 
 

@@ -765,3 +765,7 @@ class Kuverta:
         self._ikona.setIcon(self._QIcon(pot_png))
         self._ikona.setToolTip(opis)
         self._ikona.show()
+
+    def zapri(self) -> None:
+        """Izklop Sporocil: ikona izgine iz pulta (enako kot pladenj_sni.Kuverta.zapri)."""
+        self._ikona.hide()

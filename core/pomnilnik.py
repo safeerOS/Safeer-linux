@@ -11,6 +11,7 @@ import ctypes
 import os
 import ctypes.util
 import gc
+import threading
 
 _M_ARENA_MAX = -8
 _libc = None
@@ -38,7 +39,9 @@ def omeji_arene(st: int = 2) -> bool:
 
 
 def obrezuj() -> bool:
-    gc.collect()
+    # gc samo na glavni niti (18. 10. 2026): finalize predmeta WebKit/GTK zunaj nje sesuje proces (signal 5).
+    if threading.current_thread() is threading.main_thread():
+        gc.collect()  # glavna nit
     c = _c()
     if c is None or not hasattr(c, "malloc_trim"):
         return False

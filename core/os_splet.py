@@ -676,6 +676,13 @@ def _unici_pogled(pogled) -> None:
         pogled.run_dispose()
     except Exception:  # noqa: BLE001
         pass
+    # Kroge Python/GObject zaprtega pogleda razbije glavna nit (ne nakljucna delovna nit ob samodejnem gc).
+    try:
+        from gi.repository import GLib
+        from core import runtime_safety
+        GLib.idle_add(runtime_safety.collect_closed_views)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _pogled_prenosa(prenos):

@@ -48,8 +48,8 @@ def _vrni_pomnilnik() -> None:
     """Preverjanje paketa (JSON z 200 000 pravili) pusti za sabo prazne strani: vrnemo jih sistemu."""
     try:
         import ctypes
-        import gc
-        gc.collect()
+        # Brez gc.collect() v tej niti (pregled 18. 10. 2026): smeti pobira glavna nit (core/runtime_safety.py) -
+        # finalize predmeta WebKit/GTK zunaj glavne niti sesuje proces (signal 5).
         ctypes.CDLL("libc.so.6").malloc_trim(0)
     except Exception:  # noqa: BLE001 - drug sistem (Windows): nic
         pass

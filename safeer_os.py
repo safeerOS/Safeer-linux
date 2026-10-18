@@ -3485,6 +3485,9 @@ class SafeerOS(Gtk.Application):
             except ValueError as e:
                 koda = "ni_povezave" if "povezave" in str(e) else "napaka"
                 GLib.idle_add(lambda: (okno.napaka(rod, predogled_datotek.besedilo(koda, jezik)), False)[1])
+            except Exception as e:  # noqa: BLE001 - poln disk, slike, razclenjevanje: okno ne sme obviseti v nalaganju
+                print("[SafeerOS] predogled pisma:", type(e).__name__, file=sys.stderr, flush=True)
+                GLib.idle_add(lambda: (okno.napaka(rod, predogled_datotek.besedilo("napaka", jezik)), False)[1])
 
         def prikazi(vedno: bool) -> None:
             """»Prikazi slike« ali »Vedno prikazi od …« (ta izbira ostane po naslovu posiljatelja; preklic v podoknu)."""
@@ -4696,6 +4699,8 @@ class SafeerOS(Gtk.Application):
                 except Exception as e:  # noqa: BLE001
                     print("[SafeerOS] kuverta:", e)
                 self._kuverta = None
+                # Ponoven vklop mora narediti novo ikono (pregled 18. 10.: kazalec na zaprto kuverto je ostal).
+                self.kuverta_pult = None
             okno = self.okna_razdelkov.get("sporocila")
             if okno is not None:
                 okno[0].set_visible(False)
@@ -7296,6 +7301,10 @@ def main() -> int:
             pass
     # Ce program tece brez tezav, zgodovina sesutij ni vec pomembna (sicer bi varni nacin ostal za vedno).
     GLib.timeout_add_seconds(120, lambda: (os_stabilnost.pozabi_sesutja("safeer-os"), False)[1])
+    # Zbiranje smeti samo na glavni niti (pregled 18. 10. 2026): samodejni gc v delovni niti (DoH, Link, IMAP ...) je
+    # sprostil predmet WebKit/GTK zunaj glavne niti - RELEASE_ASSERT(isMainThread) -> SIGTRAP (signal 5, koda 133).
+    from core import runtime_safety
+    runtime_safety.install_main_thread_gc()
     return app.run([sys.argv[0]])
 
 

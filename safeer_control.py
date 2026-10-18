@@ -2619,6 +2619,10 @@ def main() -> int:
             GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, _sig, lambda *_a: (app.koncaj(), False)[1])
     except Exception:
         pass
+    # Zbiranje smeti samo na glavni niti (pregled 18. 10. 2026): samodejni gc v delovni niti (DoH, Link, IMAP ...) je
+    # sprostil predmet WebKit/GTK zunaj glavne niti - RELEASE_ASSERT(isMainThread) -> SIGTRAP (signal 5, koda 133).
+    from core import runtime_safety
+    runtime_safety.install_main_thread_gc()
     return app.run(argv)
 
 
