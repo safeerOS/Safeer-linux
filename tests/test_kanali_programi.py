@@ -191,6 +191,22 @@ class Vstavljanje(unittest.TestCase):
 
 
 @unittest.skipUnless(os.environ.get("DISPLAY") and _x11() is not None, "potrebuje X11 (Xvfb)")
+
+def _koncaj_lazne(pot: str) -> None:
+    """Konca procese, ki izvajajo lazni program `pot` - po PID (AGENTS.md: ne pkill -f), samo procese tega uporabnika."""
+    import signal
+    for ime in os.listdir("/proc"):
+        if not ime.isdigit():
+            continue
+        try:
+            with open("/proc/%s/cmdline" % ime, "rb") as f:
+                argv = f.read().split(b"\0")
+            if os.stat("/proc/" + ime).st_uid != os.getuid() or pot.encode() not in argv:
+                continue
+            os.kill(int(ime), signal.SIGTERM)
+        except (OSError, ValueError):
+            continue
+
 class KanalProgram(unittest.TestCase):
     """Cela pot: kanal iz kataloga (lazen vnos - samo podatki), zagon ob zagonu namizja, vgradnja v Sporocila,
     stevilo neprebranih iz naslova okna, ob koncu okno nazaj na namizje (program tece naprej)."""
@@ -206,7 +222,7 @@ class KanalProgram(unittest.TestCase):
         os.chmod(ovoj, 0o755)
         vnos = {"id": "lazni", "ime": "Lazni program", "vrsta": "klepet", "splet": "", "prenos": "https://primer.invalid/",
                 "program": {"vnosi": [], "ukazi": [], "appimage": [], "razredi": ["safeer-lazni-program"], "argumenti": []}}
-        self.addCleanup(lambda: subprocess.run(["pkill", "-f", LAZNI]))
+        self.addCleanup(_koncaj_lazne, LAZNI)
 
         class _S(dict):
             def set(self, k, v):
