@@ -10,6 +10,14 @@ Nacini:
     izpad         domaci internet dela -> neposredno; ne dela -> skozi telefon (Sonda)
     vedno         vse skozi telefon
 
+Pomoc ob gneci (nastavitev `gneca`, samo v nacinu »izpad«; core/gneca.py zazna zasiceno domaco linijo):
+    izklopljeno   privzeto
+    oddaje        ob gneci gredo NOVE velike oddaje Safeerja (posiljanje datotek prek Global Linka) skozi telefon
+    vse           in tudi nove povezave programov skozi krajevni posrednik
+Ob gneci gre tok samo po mobilnem omrezju telefona (Wi-Fi telefona je na istem domacem usmerjevalniku).
+Obstojece povezave se ne premikajo; ko gneca mine, gredo nove spet neposredno. Ce telefon toka ne more
+odpreti, gre povezava tiho neposredno (napaka samo v dnevnik).
+
 Programi posrednika ne najdejo sami. Zato lahko Safeer za cas, ko gre promet skozi telefon, nastavi
 sistemski posrednik namizja (core/sistemski_posrednik.py) in ga potem vrne, kot je bil. Za ukazno
 vrstico `safeerctl internet env` izpise spremenljivke okolja.
@@ -32,12 +40,21 @@ import threading
 import time
 from typing import Callable, Dict, List, Optional, Tuple
 
+from core import gneca as gneca_modul
 from core import link_internet
 from core import os_deskriptorji
 
 PRIVZETA_VRATA = 47890
 POSKUSOV_VRAT = 10
 NACINI = ("izklopljeno", "izpad", "vedno")
+GNECA = ("izklopljeno", "oddaje", "vse")
+#: Odpiranje toka skozi telefon ob gneci: izmerjeno 285 ms (18. 10. 2026, mobilno omrezje telefona). Ce telefon
+#: v 3 s ne odpre, gre povezava neposredno - gneca je slabsa od cakanja, a ne smemo je podaljsati za 20 s.
+ROK_GNECA_S = 3.0
+#: Po neuspehu telefona (ni mobilnega omrezja, dovoljenja ...) ga ob gneci toliko casa ne poskusamo.
+PREMOR_GNECA_S = 60.0
+#: Razlogi, ki so stvar cilja (ne telefona): zaradi njih telefona ob gneci ne damo v premor.
+RAZLOGI_CILJA = ("dns_failed", "connect_failed", "port_blocked", "private_destination")
 ZMOZNOST = "internet.gateway"
 NAJVEC_GLAVE = 64 * 1024
 ROK_ROKOVANJA_S = 15.0
@@ -519,6 +536,16 @@ def je_krajevni_cilj(host: str) -> bool:
     return naslov.is_private or naslov.is_loopback or naslov.is_link_local
 
 
+def je_v_domacem_omrezju(naslov: str) -> bool:
+    """Naprava je v domacem omrezju (LAN): zasebni naslov, ki ni zanka. Naprava prek Global Linka ima naslov
+    zanke (krajevni konec releja) ali nobenega - skozi tak telefon bi promet sel spet po domaci liniji."""
+    try:
+        a = ipaddress.ip_address(str(naslov or "").strip().strip("[]").split("%", 1)[0])
+    except ValueError:
+        return False
+    return (a.is_private or a.is_link_local) and not a.is_loopback
+
+
 def _danes() -> Tuple[str, str]:
     t = time.localtime()
     return time.strftime("%Y-%m-%d", t), time.strftime("%Y-%m", t)
@@ -529,7 +556,8 @@ class InternetUpravitelj:
 
     def __init__(self, internet: link_internet.InternetPrekLinka, naprave: Callable[[], List[dict]],
                  pot_nastavitev: str, sistemski=None, obvesti: Optional[Callable[[str, dict], None]] = None,
-                 sonda: Optional[Sonda] = None, krajevni_cilj: Optional[Callable[[str], bool]] = None) -> None:
+                 sonda: Optional[Sonda] = None, krajevni_cilj: Optional[Callable[[str], bool]] = None,
+                 nadzor=None) -> None:
         self.internet = internet
         #: Kateri cilji gredo vedno neposredno (domace omrezje). V preizkusih zamenljivo: ti ciljajo 127.0.0.1.
         self._krajevni_cilj = krajevni_cilj or je_krajevni_cilj
@@ -561,6 +589,16 @@ class InternetUpravitelj:
         self._brez_odgovora: Dict[str, float] = {}
         self._shranjeno = 0.0
         self._umazano = False
+        #: Pomoc ob gneci (GNECA). Privzeto izklopljeno: vklopi uporabnik (Safeer OS, safeerctl).
+        self.gneca = "izklopljeno"
+        self.nadzor = nadzor if nadzor is not None else gneca_modul.Nadzornik(self._na_gneco, dovoljeno=self._meri_gneco)
+        self.nadzor.ob_spremembi = self._na_gneco
+        #: Do kdaj (monotonic) telefona ob gneci ne poskusamo (po njegovem neuspehu).
+        self._gneca_premor_do = 0.0
+        self._gneca_tokovi: List[link_internet.Tok] = []
+        self.gneca_skupaj = 0
+        #: Ali gre zaradi gnece zdaj sistemski posrednik prek nas (nastavitev »vse«).
+        self.gneca_sistemski = False
         self._nalozi()
         internet.ob_prometu = self._na_promet
         internet.ob_stanju = self._na_stanje_ponudnika
@@ -581,6 +619,8 @@ class InternetUpravitelj:
         if d.get("pot") in (link_internet.POT_MOBILNA, link_internet.POT_KATERAKOLI, link_internet.POT_WIFI):
             self.pot = d["pot"]
         self.sistemski_vklopljen = bool(d.get("sistemski", True))
+        if d.get("gneca") in GNECA:
+            self.gneca = d["gneca"]
         self.stari_ponudniki = d.get("stari_ponudniki") is True
         try:
             vrata = int(d.get("vrata") or PRIVZETA_VRATA)
@@ -601,7 +641,7 @@ class InternetUpravitelj:
     def _shrani(self) -> None:
         with self._zaklep:
             d = {"nacin": self.nacin, "naprava": self.naprava, "pot": self.pot, "sistemski": self.sistemski_vklopljen,
-                 "vrata": self.vrata, "poraba": dict(self._poraba)}
+                 "gneca": self.gneca, "vrata": self.vrata, "poraba": dict(self._poraba)}
             if self.stari_ponudniki:
                 d["stari_ponudniki"] = True
             self._umazano = False
@@ -616,12 +656,16 @@ class InternetUpravitelj:
             pass
 
     def nastavi(self, nacin: Optional[str] = None, naprava: Optional[str] = None, sistemski: Optional[bool] = None,
-                pot: Optional[str] = None) -> dict:
+                pot: Optional[str] = None, gneca: Optional[str] = None) -> dict:
         with self._zaklep:
+            if gneca is not None and gneca not in GNECA:
+                return {"ok": False, "koda": "napacna_zahteva"}
             if nacin is not None:
                 if nacin not in NACINI:
                     return {"ok": False, "koda": "napacna_zahteva"}
                 self.nacin = nacin
+            if gneca is not None:
+                self.gneca = gneca
             if naprava is not None:
                 self.naprava = str(naprava)
             if pot is not None:
@@ -640,6 +684,13 @@ class InternetUpravitelj:
         """Posrednik, sonda in sistemski posrednik po trenutnih nastavitvah."""
         with self._zaklep:
             nacin = self.nacin
+            pomoc = nacin == "izpad" and self.gneca != "izklopljeno"
+        if pomoc:
+            gneca_modul.nastavi_odpiralnik(self._odpri_za_oddajo)
+            self.nadzor.zazeni()
+        else:
+            self.nadzor.ustavi()
+            self._sprosti_odpiralnik()
         if nacin == "izklopljeno":
             self.sonda.ustavi()
             self.posrednik.ustavi()
@@ -666,7 +717,13 @@ class InternetUpravitelj:
                 pass
         self.uveljavi()
 
+    def _sprosti_odpiralnik(self) -> None:
+        if gneca_modul.odpiralnik() == self._odpri_za_oddajo:
+            gneca_modul.nastavi_odpiralnik(None)
+
     def ustavi(self) -> None:
+        self.nadzor.ustavi()
+        self._sprosti_odpiralnik()
         self.sonda.ustavi()
         self.posrednik.ustavi()
         self.internet.zapri_vse("shutdown")
@@ -705,6 +762,131 @@ class InternetUpravitelj:
     def _na_spremembo_fiksne(self, _dela: bool) -> None:
         self.osvezi()
 
+    # ------------------------------------------------------------------ pomoc ob gneci
+
+    def _naslov_naprave(self, id_naprave: str) -> str:
+        for n in self._naprave() or []:
+            if str(n.get("id") or "") == id_naprave:
+                return str(n.get("naslov") or "")
+        return ""
+
+    def _telefon_doma(self) -> Optional[str]:
+        """Izbrani telefon, ce je v domacem omrezju (samo tak je ob gneci drug vir)."""
+        t = self.telefon()
+        if t is None or not je_v_domacem_omrezju(self._naslov_naprave(t)):
+            return None
+        return t
+
+    def _ponudnik_dovoli(self, telefon: str) -> bool:
+        """Telefon je povedal, da temu racunalniku deli internet po mobilnem omrezju (zadnje znano stanje)."""
+        if self.internet.protokol(telefon) < 2:
+            return False
+        st = self.internet.znano_stanje(telefon) or {}
+        if not st.get("enabled", True) or str(st.get("permission") or "allowed") != "allowed":
+            return False
+        mob = st.get("cellular")
+        if isinstance(mob, dict) and mob.get("allowed") is False:
+            return False
+        poti = st.get("paths")
+        if isinstance(poti, list) and poti:
+            return any(isinstance(p, dict) and p.get("kind") == "cellular" and p.get("allowed", True) is not False
+                       for p in poti)
+        return True
+
+    def _meri_gneco(self) -> bool:
+        """Ali naj nadzornik zdaj meri: pomoc vklopljena, domaci internet dela, telefon je doma."""
+        with self._zaklep:
+            vklop = self.nacin == "izpad" and self.gneca != "izklopljeno"
+        return vklop and self.sonda.dela and self._telefon_doma() is not None
+
+    def _gneca_telefon(self, vrsta: str) -> Optional[str]:
+        """Telefon, skozi katerega gre ob gneci nova povezava vrste `vrsta` (»oddaje« ali »vse«); sicer None."""
+        with self._zaklep:
+            nacin, g = self.nacin, self.gneca
+        if nacin != "izpad" or g == "izklopljeno" or (vrsta == "vse" and g != "vse"):
+            return None
+        if not self.sonda.dela or not self.nadzor.gneca or time.monotonic() < self._gneca_premor_do:
+            return None
+        t = self._telefon_doma()
+        if t is None or not self._ponudnik_dovoli(t):
+            return None
+        return t
+
+    def _na_gneco(self, zaznana: bool) -> None:
+        if zaznana:
+            t = self._telefon_doma()
+            if t is not None and not self._ponudnik_dovoli(t):
+                # Stanje telefona ne vemo ali je staro: vprasamo ga (v ozadju), nato se enkrat preracunamo.
+                def vprasaj() -> None:
+                    try:
+                        self.internet.vprasaj(t)
+                    finally:
+                        self.osvezi()
+                threading.Thread(target=vprasaj, name="safeer-internet-gneca-vprasaj", daemon=True).start()
+        self.osvezi()
+
+    def _gneca_neuspeh(self, razlog: str) -> None:
+        if razlog in RAZLOGI_CILJA:
+            return
+        self._gneca_premor_do = time.monotonic() + PREMOR_GNECA_S
+        gneca_modul._dnevnik("gneca: telefon ni odprl toka (%s); %d s neposredno" % (razlog, PREMOR_GNECA_S))
+        self.osvezi()
+        # Po premoru preracunamo se enkrat (sistemski posrednik ob gneci spet nas), tudi ce se nic drugega ne zgodi.
+        budilka = threading.Timer(PREMOR_GNECA_S + 0.5, self.osvezi)
+        budilka.daemon = True
+        budilka.start()
+
+    def _odpri_ob_gneci(self, telefon: str, host: str, port: int,
+                        vticnik: socket.socket) -> Optional[link_internet.Tok]:
+        """Tok skozi telefon, SAMO po mobilnem omrezju. None: klicatelj gre neposredno."""
+        tok, razlog = self.internet.odpri(telefon, host, port, vticnik, link_internet.POT_MOBILNA, cas=ROK_GNECA_S)
+        if tok is None:
+            self._gneca_neuspeh(razlog)
+            return None
+        if tok.vrsta_poti != "cellular":
+            # Telefon je odprl po drugem omrezju (npr. Wi-Fi - isti domaci usmerjevalnik): ne pomaga, zapremo.
+            tok.prekini("local")
+            self._gneca_neuspeh("ni_mobilnega:" + (tok.vrsta_poti or "?"))
+            return None
+        with self._zaklep:
+            self._gneca_tokovi = [t for t in self._gneca_tokovi if not t.koncan] + [tok]
+            self.gneca_skupaj += 1
+        return tok
+
+    def _odpri_za_oddajo(self, host: str, port: int, _rok: float) -> Optional[socket.socket]:
+        """Odpiralnik za core/gneca.py: vticnica skozi telefon za veliko oddajo Safeerja, ce je zdaj gneca."""
+        if self._krajevni_cilj(host):
+            return None
+        telefon = self._gneca_telefon("oddaje")
+        if telefon is None:
+            return None
+        a, b = socket.socketpair()
+        tok = self._odpri_ob_gneci(telefon, host, port, b)
+        if tok is None:
+            a.close()
+            b.close()
+            return None
+        tok.zazeni()
+        return a
+
+    def _skozi_telefon_ob_gneci(self, c: socket.socket, zahteva: Zahteva) -> bool:
+        """Nova povezava programa ob gneci skozi telefon. False: telefona ni ali ni uspel - klicatelj gre neposredno."""
+        telefon = self._gneca_telefon("vse")
+        if telefon is None:
+            return False
+        tok = self._odpri_ob_gneci(telefon, zahteva.host, zahteva.port, c)
+        if tok is None:
+            return False
+        try:
+            c.settimeout(ROK_ROKOVANJA_S)
+            zahteva.uspeh(c)
+        except OSError:
+            tok.prekini("local")
+            return True
+        tok.zazeni(zahteva.predpodatki)
+        tok.pocakaj()
+        return True
+
     def _na_stanje_ponudnika(self, _naprava: str, _stanje: dict) -> None:
         self.osvezi()
 
@@ -714,16 +896,18 @@ class InternetUpravitelj:
             nacin = self.nacin
         telefon = self.telefon()
         zeli = telefon is not None and (nacin == "vedno" or (nacin == "izpad" and not self.sonda.dela))
-        self._nastavi_prek_telefona(zeli)
+        # Ob gneci (nastavitev »vse«) gredo skozi posrednik tudi programi: nove povezave nato skozi telefon.
+        self._nastavi_prek_telefona(zeli, gneca=not zeli and self._gneca_telefon("vse") is not None)
 
-    def _nastavi_prek_telefona(self, zeli: bool, tiho: bool = False) -> None:
+    def _nastavi_prek_telefona(self, zeli: bool, tiho: bool = False, gneca: bool = False) -> None:
         with self._zaklep:
             if zeli == self.prek_telefona:
                 spremenjeno = False
             else:
                 self.prek_telefona = zeli
                 spremenjeno = True
-            sistemski = bool(zeli and self.sistemski_vklopljen and self.posrednik.tece)
+            self.gneca_sistemski = bool(gneca)
+            sistemski = bool((zeli or gneca) and self.sistemski_vklopljen and self.posrednik.tece)
             vrata = self.posrednik.vrata or self.vrata
             oddaj = self.sistemski is not None and sistemski != self._sistemski_zeljen
             self._sistemski_zeljen = sistemski
@@ -790,6 +974,8 @@ class InternetUpravitelj:
                 zahteva.napaka(c, razlog)
             return
         pot = self.izberi_pot()
+        if pot == "neposredno" and self._skozi_telefon_ob_gneci(c, zahteva):
+            return
         if pot == "neposredno":
             razlog = self._neposredno(c, zahteva)
             if razlog is None:
@@ -985,9 +1171,31 @@ class InternetUpravitelj:
                                   "podprt": bool(self.sistemski is not None and self.sistemski.podprt()),
                                   "nastavljen": bool(self.sistemski is not None and self.sistemski.nastavljen())}}
         izid["telefoni"] = self.telefoni()
+        izid["gneca"] = self.stanje_gnece()
         izid["ponudnik"] = ponudnik
         izid["brez_odgovora"] = brez_odgovora
         izid["protokol"] = self.internet.protokol(telefon) if telefon else 0
+        return izid
+
+    def stanje_gnece(self) -> dict:
+        """Pomoc ob gneci za vmesnik in safeerctl: nastavitev, ali je gneca, ali gredo nove povezave zdaj skozi telefon."""
+        with self._zaklep:
+            nastavitev, nacin = self.gneca, self.nacin
+            tokov = sum(1 for t in self._gneca_tokovi if not t.koncan)
+            skupaj = self.gneca_skupaj
+            premor = self._gneca_premor_do > time.monotonic()
+        try:
+            meritev = self.nadzor.stanje()
+        except Exception:  # noqa: BLE001
+            meritev = {}
+        izid = {"nastavitev": nastavitev, "velja": nacin == "izpad" and nastavitev != "izklopljeno",
+                "zaznana": bool(self.nadzor.gneca),
+                "dejavna": self._gneca_telefon("oddaje") is not None,
+                "telefon_doma": self._telefon_doma() is not None, "premor": premor,
+                "tokov": tokov, "skupaj": skupaj}
+        for k in ("osnova_ms", "internet_ms", "prehod_ms", "metoda", "meri"):
+            if k in meritev:
+                izid[k] = meritev[k]
         return izid
 
     def okolje(self) -> Dict[str, str]:

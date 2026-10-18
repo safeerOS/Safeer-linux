@@ -55,6 +55,7 @@ import urllib.request
 from collections import OrderedDict
 from typing import Callable, Dict, List, Optional, Tuple
 
+from core import gneca
 from core import link_pot
 from core import os_deskriptorji
 
@@ -651,14 +652,17 @@ def _kljuc_potrdila(der: bytes) -> str:
 
 def odpri_neposredno(ip: str, vrata: int, hub_id: str, kljuc_huba_b64: str, nas_id: str,
                      podpisi: Callable[[bytes], bytes], namen: int = NAMEN_TUNEL,
-                     rok_povezave: float = ROK_POVEZAVE_S, rok_rokovanja: float = ROK_ROKOVANJA_S):
-    """Trk + TLS (kljuc sredisca iz kroga) + izziv. Vrne (TLS vticnica, ms do TCP, ms skupaj) ali dvigne NapakaNeposredne."""
+                     rok_povezave: float = ROK_POVEZAVE_S, rok_rokovanja: float = ROK_ROKOVANJA_S,
+                     odpri: Optional[Callable[[str, int, float], socket.socket]] = None):
+    """Trk + TLS (kljuc sredisca iz kroga) + izziv. Vrne (TLS vticnica, ms do TCP, ms skupaj) ali dvigne NapakaNeposredne.
+
+    `odpri(ip, vrata, rok)`: namesto neposredne povezave TCP (velika oddaja ob gneci: core/gneca.py)."""
     hub_id, nas_id = jedro(hub_id), jedro(nas_id)
     if not hub_id or not nas_id:
         raise NapakaNeposredne("ni id iz kljuca")
     t0 = time.monotonic()
     try:
-        s = socket.create_connection((ip, int(vrata)), timeout=rok_povezave)
+        s = (odpri or (lambda h, p, r: socket.create_connection((h, p), timeout=r)))(ip, int(vrata), rok_povezave)
     except OSError as e:
         raise NapakaNeposredne("ni povezave") from e
     t_tcp = (time.monotonic() - t0) * 1000.0
@@ -954,6 +958,8 @@ class LokalniOdZunaj:
 
     def _povezava(self, tcp: socket.socket, naslov, samo_neposredno: bool = False) -> None:
         vrata_odjemalca = int(naslov[1]) if isinstance(naslov, tuple) and len(naslov) > 1 else 0
+        # Velika oddaja Safeerja (core/link_deljenje.py jo oznaci): ob gneci na domaci liniji gre skozi telefon.
+        oddaja = gneca.vzemi_oddajo(vrata_odjemalca)
         # Na oglas pocakamo (najvec CAKAJ_OGLAS_S) samo, ce je bila zadnja delujoca pot neposredna in oglasa se ni
         # (npr. po ponovnem zagonu je zapomnjeni potekel). Sicer ta povezava ne caka: gre prek releja, iskanje tece.
         cakaj = CAKAJ_OGLAS_S if (self._oglas is None and self.zadnja_pot == POT_NEPOSREDNO) else 0.0
@@ -961,7 +967,8 @@ class LokalniOdZunaj:
         kljuc = self.kljuc()
         if k is not None and kljuc:
             try:
-                t, ms_tcp, _ms = odpri_neposredno(k[0], k[1], self.cilj, kljuc, self.nas_id(), self.podpisi)
+                t, ms_tcp, _ms = odpri_neposredno(k[0], k[1], self.cilj, kljuc, self.nas_id(), self.podpisi,
+                                                  odpri=gneca.odpri_tcp_za_oddajo if oddaja else None)
             except NapakaNeposredne as e:
                 with self._zaklep:
                     self._premor = min(NAJDALJSI_PREMOR_S, self._premor * 2 if self._premor else PREMOR_S)
@@ -993,7 +1000,10 @@ class LokalniOdZunaj:
         _oznaci(vrata_odjemalca, POT_RELE)
         try:
             rele = self.rele()
-            rele.kanal(tcp)
+            if oddaja:
+                rele.kanal(tcp, oddaja=True)
+            else:
+                rele.kanal(tcp)
             napaka = getattr(rele, "zadnja_napaka", "")
             if napaka:
                 self.zadnja_napaka = napaka

@@ -144,9 +144,25 @@ printer or the router (and refuses private destinations); the computer can.
 The proxy listens on loopback only and accepts connections only from processes of the same user (uid from
 `/proc/net/tcp`), so another user of the computer cannot spend the phone's mobile data.
 
+**Help when the line is busy** (`gneca`, failover mode only, off by default; `core/gneca.py`). Measured on the
+owner's line on 18 Oct 2026 (wired, ~116/62 Mbit/s), latency to 1.1.1.1: idle median 33 ms, during a full-speed
+download 31 ms, during a full-speed upload median 203 ms and p95 418 ms, while the router stayed at 0.4 ms —
+the queue is in the ISP modem's uplink. Every 2 s Control measures the latency to the default gateway and to
+1.1.1.1 (one unprivileged ICMP echo each, or a TCP handshake where ICMP is not allowed). The baseline is the
+10th percentile of the latency beyond the router over the last 150 samples outside congestion. A sample is
+high at ≥ max(baseline + 80 ms, 3 × baseline) and low below max(baseline + 40 ms, 2 × baseline); congestion
+starts with 4 high samples out of 5 and ends after 8 low samples in a row. A sample with the router slower than
+30 ms (Wi-Fi, home network) does not count: the phone would not help. During congestion, NEW connections go
+through the phone, over its mobile network only (`path_id` mobile, and a stream the phone opened on another
+network is closed): with `uploads` only Safeer's large uploads (files sent over Global Link — the relay or the
+direct path), with `on` also new connections through the proxy (the system proxy is set for the duration).
+Existing connections never move. The phone must be in the home network (a private address in Link). If the
+phone cannot open a stream, the connection goes directly without an error and the phone is not tried for 60 s.
+
 ```
 safeerctl internet                     status
 safeerctl internet mode failover       use the phone when home internet is down
+safeerctl internet mode failover --gneca on|uploads|off   also use the phone while the home line is congested
 safeerctl internet mode always --via "Phone" --system-proxy on
 safeerctl internet test                a real request through the phone; shows which network it used
 safeerctl internet env                 proxy variables for this shell

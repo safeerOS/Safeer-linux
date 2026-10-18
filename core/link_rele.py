@@ -22,6 +22,7 @@ import time
 import urllib.request
 from typing import Callable, List, Optional
 
+from core import gneca
 from core import link_vticnik
 from core import os_deskriptorji
 
@@ -469,8 +470,32 @@ _topla = TopleTls()
 atexit.register(_topla.ustavi)
 
 
-def odpri_kanal(pot: str, glave: Callable[[], dict], topla: Optional[TopleTls] = None) -> WsOdjemalec:
-    """WebSocket do releja: najprej po topli povezavi; ce je bila mrtva (brez odgovora), po novi."""
+def _tls_za_oddajo(gostitelj: str = GOSTITELJ, rok_s: float = 15.0) -> Optional[ssl.SSLSocket]:
+    """Ob gneci na domaci liniji: TLS do releja skozi mobilno omrezje telefona (core/gneca.py); sicer None."""
+    surovi = gneca.tcp_za_oddajo(gostitelj, 443, rok_s)
+    if surovi is None:
+        return None
+    try:
+        surovi.settimeout(rok_s)
+        return ssl.create_default_context().wrap_socket(surovi, server_hostname=gostitelj)
+    except Exception as e:  # noqa: BLE001 - tiho neposredno
+        print("[Global Link] kanal skozi telefon ni uspel: %r" % (e,), flush=True)
+        _zapri_tiho(surovi)
+        return None
+
+
+def odpri_kanal(pot: str, glave: Callable[[], dict], topla: Optional[TopleTls] = None,
+                oddaja: bool = False) -> WsOdjemalec:
+    """WebSocket do releja: najprej po topli povezavi; ce je bila mrtva (brez odgovora), po novi.
+
+    `oddaja`: kanal nosi veliko oddajo Safeerja - ob gneci gre skozi telefon (topla povezava je na domaci liniji)."""
+    if oddaja:
+        tls = _tls_za_oddajo()
+        if tls is not None:
+            try:
+                return WsOdjemalec(pot, glave(), tls=tls)
+            except Exception as e:  # noqa: BLE001 - tiho neposredno
+                print("[Global Link] kanal skozi telefon ni uspel: %r" % (e,), flush=True)
     topla = _topla if topla is None else topla
     s = topla.vzemi()
     if s is not None:
@@ -692,7 +717,8 @@ class LokalniRele:
                 except Exception:
                     pass
                 continue
-            threading.Thread(target=self._kanal, args=(tcp,), daemon=True).start()
+            oddaja = gneca.vzemi_oddajo(naslov[1]) if isinstance(naslov, tuple) and len(naslov) > 1 else False
+            threading.Thread(target=self._kanal, args=(tcp, oddaja), daemon=True).start()
 
     def _nas_proces(self, naslov) -> bool:
         """Na Linuxu sprejmemo samo povezave procesov istega uporabnika (uid). Drugje (Windows) ali kadar
@@ -702,16 +728,17 @@ class LokalniRele:
         uid = _uid_lokalne_povezave(int(naslov[1]), self.vrata)
         return uid is None or uid == os.getuid()
 
-    def kanal(self, tcp: socket.socket) -> None:
-        """Ena krajevna povezava skozi en kanal releja (blokira do konca povezave)."""
-        self._kanal(tcp)
+    def kanal(self, tcp: socket.socket, oddaja: bool = False) -> None:
+        """Ena krajevna povezava skozi en kanal releja (blokira do konca povezave). `oddaja`: velika oddaja."""
+        self._kanal(tcp, oddaja)
 
-    def _kanal(self, tcp: socket.socket) -> None:
+    def _kanal(self, tcp: socket.socket, oddaja: bool = False) -> None:
         kanal = os.urandom(16).hex()
         pot = f"/v1/connect?to={self.cilj}&kanal={kanal}"
         ws = None
         try:
-            ws = odpri_kanal(pot, lambda: podpisane_glave("GET", pot, kljuc=self.kljuc, podpisi=self.podpisi))
+            ws = odpri_kanal(pot, lambda: podpisane_glave("GET", pot, kljuc=self.kljuc, podpisi=self.podpisi),
+                             oddaja=oddaja)
             ws.s.settimeout(20)
             op, podatki = ws.prejmi()
             if op != 0x1 or podatki != b"ready":
