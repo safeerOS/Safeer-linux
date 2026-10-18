@@ -234,6 +234,50 @@ def zapri_vticnik(vticnik) -> None:
         pass
 
 
+class BrezBujenja:
+    """Mesanica za socketserver streznik (pred ThreadingHTTPServer): serve_forever caka na povezavo brez roka.
+
+    Privzeti serve_forever se zbudi vsakih 0,5 s samo zato, da pogleda, ali ga kdo ustavlja - Hub Safeer Linka, ki tece
+    ves dan, je zato v mirovanju 2,0-krat na sekundo zbudil proces Safeer OS (izmerjeno 18. 10. 2026, Xvfb, 300 s), in
+    enako vsak posrednik toka, ki je nekoc tekel (torrent, Twitch, pretok). Tu zanka spi, dokler ne pride povezava;
+    shutdown() postavi zahtevo za konec in zanko zbudi s prazno povezavo na lastna vrata (zanka jo zapusti, ne da bi
+    jo sprejela)."""
+
+    def serve_forever(self, poll_interval=None) -> None:
+        super().serve_forever(poll_interval)  # type: ignore[misc]
+
+    def shutdown(self) -> None:
+        # Najprej zahteva za konec (zastavica socketserver.BaseServer), sele nato bujenje: sicer bi zanka prazno
+        # povezavo sprejela kot zahtevo in znova zaspala.
+        if hasattr(self, "_BaseServer__shutdown_request"):
+            self._BaseServer__shutdown_request = True
+        konec = threading.Event()
+
+        def zbujaj() -> None:
+            # Bujenje, dokler se zanka ne konca (ce bi prvo prehitelo zastavico v starejsem Pythonu, pride naslednje).
+            while True:
+                self._zbudi()
+                if konec.wait(0.2):
+                    return
+        nit = threading.Thread(target=zbujaj, name="safeer-streznik-konec", daemon=True)
+        nit.start()
+        try:
+            super().shutdown()  # type: ignore[misc]
+        finally:
+            konec.set()
+
+    def _zbudi(self) -> None:
+        naslov = getattr(self, "server_address", None)
+        if not naslov or len(naslov) < 2:
+            return
+        gostitelj = {"0.0.0.0": "127.0.0.1", "": "127.0.0.1", "::": "::1"}.get(str(naslov[0]), str(naslov[0]))
+        try:
+            with socket.create_connection((gostitelj, int(naslov[1])), timeout=1.0):
+                pass
+        except OSError:
+            pass
+
+
 class SledenjePovezav:
     """Mesanica za socketserver.ThreadingMixIn streznik (pred ThreadingHTTPServer): ve za vsako odprto povezavo
     zahteve, da jih `zapri_povezave()` ob ustavitvi prekine. shutdown()/server_close() streznika zapreta samo

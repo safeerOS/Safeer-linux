@@ -3263,7 +3263,7 @@ def nastavitve_vticnika(sistem: str = os.name) -> tuple:
     return (not windows), windows
 
 
-class _Streznik(link_tls.RokovanjeVNiti, http.server.ThreadingHTTPServer):
+class _Streznik(os_deskriptorji.BrezBujenja, link_tls.RokovanjeVNiti, http.server.ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = nastavitve_vticnika()[0]
     #: Vrsta povezav, ki cakajo na sprejem (listen). Privzeta v Pythonu je 5: ob valu prijav (podjetje zjutraj, ponovni

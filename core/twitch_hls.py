@@ -400,7 +400,7 @@ class _Rokovalnik(os_deskriptorji.RokCakanjaZahteve, http.server.BaseHTTPRequest
         pass                 # naslovi nosijo zeton seje - nic v dnevnik
 
 
-class _Streznik(socketserver.ThreadingMixIn, http.server.HTTPServer):
+class _Streznik(os_deskriptorji.BrezBujenja, socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 

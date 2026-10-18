@@ -35,7 +35,7 @@ import time
 import urllib.parse
 from typing import Dict, List, Optional, Tuple
 
-from core import budnost, link_tls, link_urejanje
+from core import budnost, link_tls, link_urejanje, os_deskriptorji
 
 NAJVEC_VNOSOV = 500
 NAJVEC_TELESA = 64 * 1024
@@ -916,7 +916,7 @@ def posreduj_tok(obravnava, streznik: "StreznikDatotek", skrivnost: str, samo_gl
         povezava.close()
 
 
-class _Streznik(link_tls.RokovanjeVNiti, http.server.ThreadingHTTPServer):
+class _Streznik(os_deskriptorji.BrezBujenja, link_tls.RokovanjeVNiti, http.server.ThreadingHTTPServer):
     daemon_threads = True
     #: Predvajalnik, ki obstane (pavza), ne drzi niti v nedogled.
     rok_po_rokovanju = 120.0

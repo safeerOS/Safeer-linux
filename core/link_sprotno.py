@@ -230,7 +230,7 @@ class _Posrednik(os_deskriptorji.RokCakanjaZahteve, http.server.BaseHTTPRequestH
                     pass
 
 
-class _PosrednikStreznik(http.server.ThreadingHTTPServer):
+class _PosrednikStreznik(os_deskriptorji.BrezBujenja, http.server.ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 

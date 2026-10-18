@@ -283,7 +283,7 @@ def _kljuc_poti(vir: Vir) -> tuple:
     return (vir.base_url, vir.odtis, vir.kljuc)
 
 
-class _Streznik(http.server.ThreadingHTTPServer):
+class _Streznik(os_deskriptorji.BrezBujenja, http.server.ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
