@@ -30,3 +30,22 @@ def test_gumb_skrij_in_prilagodi_v_vseh_jezikih():
     assert "gumbSkrijPolico" in OS_JS and 'skupina("policaPrilagodi"' in OS_JS
     for jezik in ("sl", "en", "de", "es", "fr", "it"):
         assert f'BESEDILA_OS.{jezik}, {{"policaSkrij"' in BESEDILA
+
+
+import unittest  # noqa: E402
+
+
+class VsakaPolica(unittest.TestCase):
+    """Lastnik 18. 10. 2026: ob »Vse« na vsaki polici Domov (tudi odkrivanje) je »Skrij«; v Prilagodi meni jih vklopi nazaj."""
+
+    def setUp(self):
+        import pathlib
+        self.js = (pathlib.Path(__file__).resolve().parents[1] / "assets" / "os" / "os.js").read_text(encoding="utf-8")
+
+    def test_skrij_na_vsaki_polici(self):
+        self.assertIn('vrhPolice.appendChild(gumbSkrijPolico("polica:" + p.id, naslov));', self.js)
+        self.assertIn('vrh.appendChild(gumbSkrijPolico("polica:" + p.id, naslov));', self.js)
+        self.assertIn('!jeSkrito("polica:" + p.id); });', self.js)
+
+    def test_prilagodi_vsebuje_vse_police(self):
+        self.assertIn('Object.keys(POLICE_NASLOVI).forEach(function (id) {', self.js)

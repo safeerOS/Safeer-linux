@@ -1635,7 +1635,7 @@
       var sam = jeSkrito("polica:samodejni");
       if (sam) S.samodejni = [];
       else if (!(S.samodejni || []).length) naloziSamodejne();
-      if (typeof POL !== "undefined") { POL.podpis = ""; narisiPolice(); }
+      if (typeof POL !== "undefined") { POL.podpis = ""; POL.odkrPodpis = ""; narisiPolice(); narisiOdkrivanje(); }
       narisiSamodejne();
     } catch (e) { /* stran se se ne izrisuje */ }
   }
@@ -1713,7 +1713,12 @@
     skupina("mediaPrilagodiVrste", MEDIA_KATEGORIJE.filter(function (k) { return k[0] !== "domov" && kategorijaVidna(k); }).map(function (k) {
       return { kljuc: "kat:" + k[0], ime: t("media_" + k[0]), ikona: k[1] };
     }));
-    skupina("policaPrilagodi", SKRIVNE_POLICE.map(function (p) { return { kljuc: p[0], ime: t(p[1]), ikona: "glasba" }; }));
+    // Vse police Domov (tudi odkrivanje): skrito polico tu uporabnik spet vklopi.
+    var police = SKRIVNE_POLICE.map(function (p) { return { kljuc: p[0], ime: t(p[1]), ikona: "glasba" }; });
+    Object.keys(POLICE_NASLOVI).forEach(function (id) {
+      if (id !== "nazadnje") police.push({ kljuc: "polica:" + id, ime: naslovPolice(id, "domov"), ikona: id.indexOf("odkrij_") === 0 ? "zvezda" : "glasba" });
+    });
+    skupina("policaPrilagodi", police);
     narisiSkripte(seznam);
     // Viri niso vec v levem stolpcu (lastnik, 17. 10. 2026), zato jih tu ni kaj skrivati.
     if (aktivni) { var cilj = seznam.querySelector('[data-kljuc="' + aktivni.replace(/"/g, "") + '"]'); if (cilj) cilj.focus(); }
@@ -6628,7 +6633,7 @@
         vse.setAttribute("data-zavihek", zavihek);
         vse.addEventListener("click", function () { izberiZavihekMedijev(zavihek); $("vsebina").scrollTop = 0; });
         vrhPolice.appendChild(vse);
-        if (p.id === "nazadnje") vrhPolice.appendChild(gumbSkrijPolico("polica:nazadnje", naslov));
+        vrhPolice.appendChild(gumbSkrijPolico("polica:" + p.id, naslov));   // vsako polico na Domov lahko skrije (lastnik, 18. 10.)
         sekcija.appendChild(vrhPolice);
       } else sekcija.appendChild(glava);
       var vrsta = el("div", "media-polica-vrsta"); vrsta.setAttribute("role", "list");
@@ -6672,7 +6677,7 @@
     (POL.police || []).forEach(function (p) { (p.vnosi || []).forEach(function (v) { if (v.kljuc) osebni[v.kljuc] = 1; }); });
     return (POL.odkrivanje || []).map(function (p) {
       return { id: p.id, zavihek: p.zavihek, vnosi: (p.vnosi || []).filter(function (v) { return !osebni[v.kljuc]; }) };
-    }).filter(function (p) { return p.vnosi.length && !jeSkrito("kat:" + p.zavihek); });
+    }).filter(function (p) { return p.vnosi.length && !jeSkrito("kat:" + p.zavihek) && !jeSkrito("polica:" + p.id); });
   }
   function junakOdkrivanja() {
     var police = odkrivanjeVidno().filter(function (p) { return p.id === "odkrij_filmi" || p.id === "odkrij_serije"; });
@@ -6767,7 +6772,7 @@
       vse.setAttribute("aria-label", t("domovVseOznaka", { polica: naslov, zavihek: t("media_" + p.zavihek) }));
       vse.setAttribute("data-zavihek", p.zavihek);
       vse.addEventListener("click", function () { izberiZavihekMedijev(p.zavihek); $("vsebina").scrollTop = 0; });
-      vrh.appendChild(vse); sekcija.appendChild(vrh);
+      vrh.appendChild(vse); vrh.appendChild(gumbSkrijPolico("polica:" + p.id, naslov)); sekcija.appendChild(vrh);
       var vrsta = el("div", "media-polica-vrsta"); vrsta.setAttribute("role", "list");
       p.vnosi.forEach(function (v) { vrsta.appendChild(karticaOdkrivanja(v, p.id)); });
       sekcija.appendChild(vrsta); c.appendChild(sekcija);
