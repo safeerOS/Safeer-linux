@@ -1316,8 +1316,9 @@ body.v-mediji #ozadje::after, body.predvajalnik #ozadje::after { background: var
 .media-nav-prilagodi svg { width: 18px; height: 18px; }
 .media-nav-skrij { margin-top: -20px; }
 .media-nav-glava { flex: none; display: flex; justify-content: flex-end; padding-right: 14px; }
-.media-nav-skrci { width: 36px; height: 36px; color: var(--medlo); }
-.media-nav-skrci svg { width: 20px; height: 20px; }
+/* Gumb Skrci brez kvadrata za ikono, ikona cez ves gumb (lastnik, 18. 10. 2026); poudarek ob miski je samo barva. */
+.media-nav-skrci, .media-nav-skrci:hover { width: 36px; height: 36px; padding: 0; color: var(--medlo); background: transparent; }
+.media-nav-skrci svg { width: 100%; height: 100%; }
 .media-nav-skrci:hover, .media-nav-skrci:focus-visible { color: var(--zelena); }
 .media-nav-prilagodi:hover { color: var(--besedilo); background: var(--media-povrsina); }
 .prilagodi-plosca { width: 520px; max-height: calc(100vh - 48px); display: flex; flex-direction: column; gap: 10px; }
