@@ -1987,25 +1987,18 @@ class SafeerLink:
     # ------------------------------------------------------------------ vlecenje datotek na napravo (GTK4)
     def _na_vlecene_datoteke(self, kontekst) -> None:
         """Ob vstopu vlecenja v okno preberemo seznam datotek iz Gdk.Drop (stran ga ne vidi). Novo vlecenje prejsnje
-        pozabi - tudi ce ne prinasa datotek."""
-        def prebrano(spust, izid) -> None:
-            try:
-                from core import os_datoteke
-                seznam = spust.read_value_finish(izid)
-                naslovi = [f.get_uri() for f in (seznam.get_files() if seznam is not None else [])]
-                poti = os_datoteke.poti_iz_naslovov(naslovi)
-                if poti and spust is self._vleceno_kontekst:
-                    self._vlecene_poti = poti
-            except Exception:  # noqa: BLE001 - vlecenje brez datotek ali preklicano
-                pass
+        pozabi - tudi ce ne prinasa datotek. Datoteke iz drugih programov (Nemo, XWayland, Electron) in iz portala
+        dokumentov v Flatpaku (/run/user/<uid>/doc/...) bere os_datoteke.preberi_vlecene."""
+        def prebrano(spust, poti) -> None:
+            if poti and spust is self._vleceno_kontekst:
+                self._vlecene_poti = poti
         try:
             if kontekst is None:
                 return
             if kontekst is not self._vleceno_kontekst:
                 self._vleceno_kontekst, self._vlecene_poti = kontekst, []
-            from gi.repository import Gdk
-            if kontekst.get_formats().contain_gtype(Gdk.FileList.__gtype__):
-                kontekst.read_value_async(Gdk.FileList.__gtype__, GLib.PRIORITY_DEFAULT, None, prebrano)
+            from core import os_datoteke
+            os_datoteke.preberi_vlecene(kontekst, prebrano)
         except Exception as e:  # noqa: BLE001
             print("[SafeerLink] vlecenje:", e, flush=True)
 
