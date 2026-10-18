@@ -24,6 +24,11 @@ PKG_NAME="safeer-os"
 VERSION="$(cat "$DIR/packaging/VERSION_OS")"
 CONTROL_VERSION="$(cat "$DIR/packaging/VERSION_CONTROL")"
 CINNAMON_VERSION="$(cat "$DIR/packaging/VERSION_CINNAMON")"
+# Polja paketa (Version, Provides, Conflicts): beta 0.4.86-beta.1 kot 0.4.86~beta.1, da jo koncna 0.4.86 posodobi
+# (packaging/deb_razlicica.sh). Ime datoteke ostane z »-beta.N« kot oznaka izdaje.
+DEB_VERSION="$(bash "$DIR/packaging/deb_razlicica.sh" "$VERSION")"
+DEB_CONTROL_VERSION="$(bash "$DIR/packaging/deb_razlicica.sh" "$CONTROL_VERSION")"
+DEB_CINNAMON_VERSION="$(bash "$DIR/packaging/deb_razlicica.sh" "$CINNAMON_VERSION")"
 WEBKIT_TAR="${SAFEER_WEBKIT_TAR:-}"
 # Node.js (x86_64) je v paketu vedno, razen v preizkusih paketa (SAFEER_DEB_BREZ_NODE=1, brez 30 MB prenosa).
 NODE=1
@@ -92,16 +97,16 @@ fi
 # poppler-utils (pdftoppm): slika prve strani PDF - slicica priponke v Sporocilih in predogled v Datotekah.
 cat << EOF2 > "$BUILD_ROOT/DEBIAN/control"
 Package: safeer-os
-Version: ${VERSION}
+Version: ${DEB_VERSION}
 Section: x11
 Priority: optional
 Architecture: ${ARCH}
 Depends: python3 (>= 3.10), python3-cryptography, python3-gi (>= 3.42), python3-gi-cairo, python3-qrcode, python3-zeroconf, gir1.2-gtk-4.0, ${SPLET_ODVISNOSTI}, gir1.2-glib-2.0, gir1.2-secret-1, gir1.2-atspi-2.0, gir1.2-gstreamer-1.0, gstreamer1.0-libav, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-gl, libxcb-cursor0, libxkbcommon-x11-0, libxcb-icccm4, libxcb-keysyms1, libxcb-shape0, libxcb-image0, libxcb-randr0, libxcb-render-util0, libxcb-render0, libxcb-shm0, libxcb-sync1, libxcb-util1, libxcb-xfixes0, libxcb-xkb1, libxcb1, libx11-xcb1, libxkbcommon0, libgl1, libegl1, libfontconfig1, sway, wf-recorder, wtype, wmctrl, libglib2.0-bin, plank, dconf-cli, poppler-utils${DRM_ODVISNOSTI}${NODE_ODVISNOSTI}
 Recommends: mint-themes, cinnamon, network-manager, pulseaudio-utils, policykit-1, xdg-utils, x11-utils, imagemagick, ffmpeg, python3-pil, python3-numpy, papirus-icon-theme
 Suggests: libreoffice-writer, libreoffice-calc, libreoffice-impress, plymouth, slick-greeter
-Provides: safeer-control (= ${CONTROL_VERSION}), safeer-cinnamon (= ${CINNAMON_VERSION})
+Provides: safeer-control (= ${DEB_CONTROL_VERSION}), safeer-cinnamon (= ${DEB_CINNAMON_VERSION})
 Replaces: safeer-control, safeer-cinnamon
-Conflicts: safeer-control (<< ${CONTROL_VERSION}~)
+Conflicts: safeer-control (<< ${DEB_CONTROL_VERSION}~)
 Maintainer: Safeer <info@safeer.si>
 Homepage: https://safeer.si/os/
 Description: Safeer OS - the Safeer desktop on top of Linux Mint
