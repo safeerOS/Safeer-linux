@@ -1,0 +1,308 @@
+From 8875d88562609d58e66748057cf670bc55fe445d Mon Sep 17 00:00:00 2001
+From: Safeer <info@safeer.si>
+Date: Sun, 18 Oct 2026 23:10:32 +0200
+Subject: [PATCH] Fall back to IPv4 when the OS has no IPv6 support
+
+On Linux booted with ipv6.disable=1 (and in some containers) creating any
+AF_INET6 socket fails with EAFNOSUPPORT. rqbit binds [::] by default for the
+TCP listener, the DHT, LSD and the UDP tracker client, so the session does
+not start at all:
+
+    error initializing rqbit session
+    Caused by:
+        0: error starting listeners
+        1: error starting TCP listener
+        2: error creating socket: Address family not supported by protocol (os error 97)
+
+--ipv4-only does not help either, because the UDP tracker client always
+binds [::]:0:
+
+        0: error creating UDP tracker client
+        1: error creating UDP socket at [::]:0
+        2: error creating socket: Address family not supported by protocol (os error 97)
+
+- Session::new_with_opts probes whether an IPv6 socket can be created. On
+  EAFNOSUPPORT it logs a warning and behaves as if ipv4_only was set
+  (listener included). If IPv6 is available nothing changes.
+- UdpTrackerClient::new takes ipv4_only and binds 0.0.0.0:0 when it is set.
+- LocalServiceDiscoveryOptions gets ipv4_only (binds 0.0.0.0:6771).
+- rqbit share: the default HTTP API address is 0.0.0.0:0 when IPv4 only.
+
+On a host without IPv6 the existing e2e tests (test_e2e_download_tcp,
+test_e2e_download_utp, test_e2e_stream) failed before this change for the
+same reason and pass with it. New tests: test_fallback_to_ipv4_only_if_no_ipv6,
+test_session_starts_with_default_listen_addr, test_ipv4_only_binds_ipv4.
+---
+ crates/librqbit/src/session.rs                | 124 +++++++++++++++++-
+ crates/librqbit_lsd/src/lib.rs                |  19 +--
+ crates/rqbit/src/main.rs                      |   8 +-
+ crates/tracker_comms/src/tracker_comms_udp.rs |  24 +++-
+ 4 files changed, 161 insertions(+), 14 deletions(-)
+
+diff --git a/crates/librqbit/src/session.rs b/crates/librqbit/src/session.rs
+index 75071b9..fd8efa8 100644
+--- a/crates/librqbit/src/session.rs
++++ b/crates/librqbit/src/session.rs
+@@ -530,6 +530,51 @@ fn torrent_file_from_info_bytes(info_bytes: &[u8], trackers: &[url::Url]) -> any
+     Ok(w.into())
+ }
+ 
++/// Whether the OS refused to create a socket because it has no support for that
++/// address family at all (e.g. IPv6 on Linux booted with `ipv6.disable=1`).
++fn is_address_family_not_supported(e: &std::io::Error) -> bool {
++    #[cfg(unix)]
++    {
++        e.raw_os_error() == Some(nix::errno::Errno::EAFNOSUPPORT as i32)
++    }
++    #[cfg(not(unix))]
++    {
++        let _ = e;
++        false
++    }
++}
++
++fn probe_ipv6_socket() -> std::io::Result<()> {
++    socket2::Socket::new(socket2::Domain::IPV6, socket2::Type::DGRAM, None).map(|_| ())
++}
++
++/// On an OS without IPv6 support every `[::]` bind (TCP listener, DHT, UDP tracker
++/// client, LSD) fails with EAFNOSUPPORT, and the session would not start at all.
++/// In that case behave as if `ipv4_only` was set. If IPv6 sockets can be created,
++/// the options are left untouched.
++fn fallback_to_ipv4_only_if_no_ipv6(
++    opts: &mut SessionOptions,
++    probe: impl FnOnce() -> std::io::Result<()>,
++) {
++    let listen_ipv4_only = opts.listen.as_ref().is_none_or(|l| l.ipv4_only);
++    if opts.ipv4_only && listen_ipv4_only {
++        return;
++    }
++    match probe() {
++        Ok(()) => {}
++        Err(e) if is_address_family_not_supported(&e) => {
++            warn!("IPv6 is not available on this system ({e}), using IPv4 only");
++            opts.ipv4_only = true;
++            if let Some(listen) = opts.listen.as_mut() {
++                listen.ipv4_only = true;
++            }
++        }
++        Err(e) => {
++            debug!("error probing for IPv6 support, assuming it is available: {e:#}");
++        }
++    }
++}
++
+ pub(crate) struct CheckedIncomingConnection {
+     pub kind: ConnectionKind,
+     pub addr: SocketAddr,
+@@ -575,6 +620,8 @@ impl Session {
+                 .unwrap_or_else(|| generate_azereus_style(*b"rQ", crate_version!()));
+             let token = opts.cancellation_token.take().unwrap_or_default();
+ 
++            fallback_to_ipv4_only_if_no_ipv6(&mut opts, probe_ipv6_socket);
++
+             #[cfg(feature = "disable-upload")]
+             if opts.disable_upload {
+                 warn!("uploading disabled");
+@@ -758,9 +805,10 @@ impl Session {
+                 None
+             };
+ 
+-            let udp_tracker_client = UdpTrackerClient::new(token.clone(), bind_device.as_ref())
+-                .await
+-                .context("error creating UDP tracker client")?;
++            let udp_tracker_client =
++                UdpTrackerClient::new(token.clone(), bind_device.as_ref(), opts.ipv4_only)
++                    .await
++                    .context("error creating UDP tracker client")?;
+ 
+             let lsd = {
+                 if opts.disable_local_service_discovery {
+@@ -769,6 +817,7 @@ impl Session {
+                     LocalServiceDiscovery::new(LocalServiceDiscoveryOptions {
+                         cancel_token: token.clone(),
+                         bind_device: bind_device.as_ref(),
++                        ipv4_only: opts.ipv4_only,
+                         ..Default::default()
+                     })
+                     .await
+@@ -1833,4 +1882,73 @@ mod tests {
+         assert_eq!(parsed.info, generated_parsed.info);
+         assert_eq!(parsed_trackers, get_trackers(&generated_parsed));
+     }
++
++    #[cfg(unix)]
++    #[test]
++    fn test_fallback_to_ipv4_only_if_no_ipv6() {
++        use super::{SessionOptions, fallback_to_ipv4_only_if_no_ipv6};
++        use crate::listen::ListenerOptions;
++
++        let opts = || SessionOptions {
++            listen: Some(ListenerOptions::default()),
++            ..Default::default()
++        };
++        let ipv4_only = |o: &SessionOptions| (o.ipv4_only, o.listen.as_ref().unwrap().ipv4_only);
++
++        // No IPv6 in the OS (e.g. Linux booted with ipv6.disable=1): IPv4 only everywhere.
++        let mut o = opts();
++        fallback_to_ipv4_only_if_no_ipv6(&mut o, || {
++            Err(std::io::Error::from_raw_os_error(
++                nix::errno::Errno::EAFNOSUPPORT as i32,
++            ))
++        });
++        assert_eq!(ipv4_only(&o), (true, true));
++
++        // IPv6 available: options are left untouched.
++        let mut o = opts();
++        fallback_to_ipv4_only_if_no_ipv6(&mut o, || Ok(()));
++        assert_eq!(ipv4_only(&o), (false, false));
++
++        // Any other error is not a reason to drop IPv6.
++        let mut o = opts();
++        fallback_to_ipv4_only_if_no_ipv6(&mut o, || {
++            Err(std::io::Error::from_raw_os_error(
++                nix::errno::Errno::EMFILE as i32,
++            ))
++        });
++        assert_eq!(ipv4_only(&o), (false, false));
++
++        // Already IPv4 only: no need to probe.
++        let mut o = opts();
++        o.ipv4_only = true;
++        o.listen.as_mut().unwrap().ipv4_only = true;
++        fallback_to_ipv4_only_if_no_ipv6(&mut o, || panic!("should not probe"));
++        assert_eq!(ipv4_only(&o), (true, true));
++    }
++
++    // Default listen address is [::]. On a system without IPv6 the session must still
++    // start (IPv4 only); with IPv6 it keeps listening on [::].
++    #[tokio::test]
++    async fn test_session_starts_with_default_listen_addr() {
++        use super::{Session, SessionOptions, probe_ipv6_socket};
++        use crate::listen::ListenerOptions;
++
++        let dir = tempfile::tempdir().unwrap();
++        let session = Session::new_with_opts(
++            dir.path().into(),
++            SessionOptions {
++                dht: None,
++                persistence: None,
++                disable_local_service_discovery: true,
++                listen: Some(ListenerOptions::default()),
++                ..Default::default()
++            },
++        )
++        .await
++        .unwrap();
++        let addr = session.listen_addr().unwrap();
++        assert_eq!(addr.is_ipv6(), probe_ipv6_socket().is_ok(), "{addr}");
++        assert_eq!(session.ipv4_only, probe_ipv6_socket().is_err());
++        session.stop().await;
++    }
+ }
+diff --git a/crates/librqbit_lsd/src/lib.rs b/crates/librqbit_lsd/src/lib.rs
+index d66583a..3206783 100644
+--- a/crates/librqbit_lsd/src/lib.rs
++++ b/crates/librqbit_lsd/src/lib.rs
+@@ -79,19 +79,20 @@ pub struct LocalServiceDiscoveryOptions<'a> {
+     pub cancel_token: CancellationToken,
+     pub cookie: Option<u32>,
+     pub bind_device: Option<&'a BindDevice>,
++    /// Bind to 0.0.0.0 (IPv4 multicast only) instead of dual-stack [::].
++    pub ipv4_only: bool,
+ }
+ 
+ impl LocalServiceDiscovery {
+     pub async fn new(opts: LocalServiceDiscoveryOptions<'_>) -> anyhow::Result<Self> {
+-        let socket = MulticastUdpSocket::new(
+-            (Ipv6Addr::UNSPECIFIED, LSD_PORT).into(),
+-            LSD_IPV4,
+-            LSD_IPV6,
+-            None,
+-            opts.bind_device,
+-        )
+-        .await
+-        .context("error binding LSD socket")?;
++        let bind_addr: SocketAddr = if opts.ipv4_only {
++            (Ipv4Addr::UNSPECIFIED, LSD_PORT).into()
++        } else {
++            (Ipv6Addr::UNSPECIFIED, LSD_PORT).into()
++        };
++        let socket = MulticastUdpSocket::new(bind_addr, LSD_IPV4, LSD_IPV6, None, opts.bind_device)
++            .await
++            .context("error binding LSD socket")?;
+         let cookie = opts.cookie.unwrap_or_else(rand::random);
+         let lsd = Self {
+             inner: Arc::new(LocalServiceDiscoveryInner {
+diff --git a/crates/rqbit/src/main.rs b/crates/rqbit/src/main.rs
+index a171274..5dc32dd 100644
+--- a/crates/rqbit/src/main.rs
++++ b/crates/rqbit/src/main.rs
+@@ -956,11 +956,17 @@ async fn async_main(mut opts: Opts, cancel: CancellationToken) -> anyhow::Result
+                 .await
+                 .context("error initializing rqbit session")?;
+ 
++            // The session falls back to IPv4 only if the OS has no IPv6, [::] would not bind then.
++            let default_http_api_ip: IpAddr = if session.ipv4_only {
++                Ipv4Addr::UNSPECIFIED.into()
++            } else {
++                Ipv6Addr::UNSPECIFIED.into()
++            };
+             let http_api_fut = start_http_api(
+                 cancel,
+                 session.clone(),
+                 opts.http_api_listen_addr
+-                    .unwrap_or((Ipv6Addr::UNSPECIFIED, 0).into()),
++                    .unwrap_or((default_http_api_ip, 0).into()),
+                 http_api_opts,
+                 &opts,
+                 log_config,
+diff --git a/crates/tracker_comms/src/tracker_comms_udp.rs b/crates/tracker_comms/src/tracker_comms_udp.rs
+index 517e423..47928f9 100644
+--- a/crates/tracker_comms/src/tracker_comms_udp.rs
++++ b/crates/tracker_comms/src/tracker_comms_udp.rs
+@@ -265,14 +265,22 @@ impl Drop for TransactionIdGuard<'_> {
+ }
+ 
+ impl UdpTrackerClient {
++    /// With `ipv4_only` the socket is bound to `0.0.0.0` instead of dual-stack `[::]`,
++    /// which also works on systems without IPv6 support.
+     pub async fn new(
+         cancel_token: CancellationToken,
+         bind_device: Option<&BindDevice>,
++        ipv4_only: bool,
+     ) -> anyhow::Result<Self> {
+-        let addr = SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0);
++        let addr = if ipv4_only {
++            SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)
++        } else {
++            SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)
++        };
+         let sock = UdpSocket::bind_udp(
+             addr,
+             librqbit_dualstack_sockets::BindOpts {
++                request_dualstack: !ipv4_only,
+                 device: bind_device,
+                 ..Default::default()
+             },
+@@ -434,6 +442,20 @@ mod tests {
+         dbg!(tid, response);
+     }
+ 
++    // ipv4_only must not touch IPv6 at all, so that the client also works on systems
++    // without IPv6 support (binding [::] fails there with EAFNOSUPPORT).
++    #[tokio::test]
++    async fn test_ipv4_only_binds_ipv4() {
++        let cancel = tokio_util::sync::CancellationToken::new();
++        let client = super::UdpTrackerClient::new(cancel.clone(), None, true)
++            .await
++            .unwrap();
++        let addr = client.state.sock.bind_addr();
++        assert!(addr.is_ipv4(), "{addr}");
++        assert!(!client.state.sock.is_dualstack());
++        cancel.cancel();
++    }
++
+     #[ignore]
+     #[tokio::test]
+     async fn test_announce() {

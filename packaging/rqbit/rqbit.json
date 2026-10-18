@@ -1,0 +1,16 @@
+{
+  "_opis": "Nas rqbit (motor torrentov Safeer OS) za paket .deb: uradni vir, pripet z oznako, commitom in SHA-256 drevesa (packaging/rqbit/rqbit_paket.py drevo-sha256), z nasimi popravki (SHA-256 vsake datoteke). Lastnik, 18. 10. 2026: napako v odprti kodi popravimo, popravek takoj vkljucimo v nase pakete in ga predlagamo skupnosti. Isto razlicico prenese core/os_torrent.py (RQBIT_RAZLICICA) na platformah brez vgrajenega programa.",
+  "razlicica": "9.0.1",
+  "repozitorij": "https://github.com/ikatson/rqbit.git",
+  "oznaka": "v9.0.1",
+  "commit": "a499d2f243d124e144aef137afe7cb304a6e3f36",
+  "drevo_sha256": "42e4556d0b78ec152a30c0a9d69b087e784b4f42450c4623171e91199b1b49c5",
+  "popravki": {
+    "ipv4-fallback-without-ipv6.patch": "9c1596722e1cbd8b83a6da4f4f4a1edd67176bf861ac5af8df0b5573286eb192"
+  },
+  "_gradnja": "Staticno (musl) kot uradne izdaje rqbita; brez spletnega vmesnika, postgres in prometheus (Safeer uporablja samo HTTP API), TLS in SHA-1 iz aws-lc (rust-tls) namesto OpenSSL. Rust je pripet; cargo --locked preveri kontrolne vsote vseh odvisnosti iz Cargo.lock vira.",
+  "rust": "1.95.0",
+  "cilj": "x86_64-unknown-linux-musl",
+  "lastnosti": "rust-tls",
+  "profil": "release"
+}
