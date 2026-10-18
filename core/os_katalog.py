@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from . import jellyfin_vticniki, knjiznica_kroga, media_servers, os_media, os_police, samodejni_seznami, zakoniti_viri
-from . import os_vgrajeni_viri, uporabniske_skripte
+from . import os_vgrajeni_viri, plakati_predpomnilnik, uporabniske_skripte
 
 #: Posnetek YouTube: natanko 11 znakov iz te abecede.
 YOUTUBE_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -383,6 +383,7 @@ class Katalog:
         "mediaSamodejniSeznami": "_samodejni_seznami", "mediaSamodejniSeznam": "_samodejni_seznam",
         "mediaSamodejniShrani": "_samodejni_shrani",
         # Skripte, ki jih uporabnik sam uvozi (core/uporabniske_skripte.py): JavaScript v strani Spotify, shell na ukaz.
+        "mediaPlakat": "_plakat",
         "mediaSkripte": "_skripte_seznam", "mediaSkriptaUvozi": "_skripta_uvozi", "mediaSkriptaVklop": "_skripta_vklop",
         "mediaSkriptaOdstrani": "_skripta_odstrani", "mediaSkriptaZazeni": "_skripta_zazeni",
         "mediaJellyfinVticniki": "_jf_vticniki", "mediaJellyfinVticnik": "_jf_vticnik",
@@ -993,6 +994,10 @@ class Katalog:
     def _sp_ukaz(self, a: list) -> Any:
         vrednost = a[1] if len(a) > 1 and isinstance(a[1], (int, float)) and not isinstance(a[1], bool) else None
         return self.mc.spotify.upravljaj(self._niz(a, 0), vrednost)
+
+    def _plakat(self, a: list) -> Any:
+        """Plakat z naslovom http:// prenese Safeer OS (stran dovoli slike samo prek https/file/data)."""
+        return {"pot": plakati_predpomnilnik.predpomni(self._niz(a, 0))}
 
     def _skripte_seznam(self, _a: list) -> Any:
         return {"skripte": uporabniske_skripte.seznam()}

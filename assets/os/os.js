@@ -1608,6 +1608,23 @@
     g.appendChild(uvozi); g.appendChild(datoteka);
     cilj.appendChild(g);
   }
+  // Plakat z naslovom http:// (vir brez TLS, npr. goli IP): CSP strani dovoli samo https/file/data, zato sliko prenese
+  // Safeer OS (core/plakati_predpomnilnik.py) in stran dobi pot do datoteke. Najvec 4 hkratni prenosi.
+  var PLAKATI = { vrsta: [], teko: 0 };
+  function plakatNaprej() {
+    while (PLAKATI.teko < 4 && PLAKATI.vrsta.length) {
+      var p = PLAKATI.vrsta.shift(); PLAKATI.teko++;
+      klic("mediaPlakat", [p.url]).then(function (r) { return r; }, function () { return null; }).then(function (r) {
+        PLAKATI.teko--;
+        if (r && r.pot) p.img.src = "file://" + encodeURI(r.pot); else if (p.img.onerror) p.img.onerror();
+        plakatNaprej();
+      });
+    }
+  }
+  function nastaviSliko(img, url) {
+    if (typeof url === "string" && /^http:\/\//i.test(url)) { PLAKATI.vrsta.push({ img: img, url: url }); plakatNaprej(); }
+    else img.src = url;
+  }
   function osveziPoliceSkrite() {
     try {
       var sam = jeSkrito("polica:samodejni");
@@ -1867,7 +1884,7 @@
       znak._slika = slika; znak._ikona = ikona;
       znak.innerHTML = svg(ikona);
       if (slika) {
-        var img = document.createElement("img"); img.alt = ""; img.src = slika;
+        var img = document.createElement("img"); img.alt = ""; nastaviSliko(img, slika);
         img.onerror = function () { img.remove(); };
         znak.appendChild(img);
       }
@@ -5355,7 +5372,7 @@
       // Slika v ovoju .kat-plakat: srcek, »ogledano« in merilo se drzijo njenega spodnjega roba pri vsaki sirini mreze.
       var plakat = el("span", "kat-plakat"); card.appendChild(plakat);
       if (x.slika) {
-        var image = document.createElement("img"); image.alt = ""; image.loading = "lazy"; image.src = x.slika;
+        var image = document.createElement("img"); image.alt = ""; image.loading = "lazy"; nastaviSliko(image, x.slika);
         image.onerror = function () { image.replaceWith(el("span", "kat-brez-slike", svg(katIkona(x.vrsta)))); };
         // Logotip TV kanala ali postaje (ne plakat): cel, na svetli podlagi - temni logotipi (RTV) so bili na temni
         // kartici nevidni, siroki (France 24) obrezani (preizkus 14. 10. 2026).
@@ -5515,7 +5532,7 @@
       card.setAttribute("aria-label", (x.naslov || "") + " — " + kje);
       card.title = (x.naslov || "") + " · " + kje;
       if (x.slika) {
-        var image = document.createElement("img"); image.alt = ""; image.loading = "lazy"; image.src = x.slika;
+        var image = document.createElement("img"); image.alt = ""; image.loading = "lazy"; nastaviSliko(image, x.slika);
         image.onerror = function () { image.replaceWith(el("span", "kat-brez-slike", svg("video"))); };
         card.appendChild(image);
       } else card.appendChild(el("span", "kat-brez-slike", svg("video")));
@@ -5796,7 +5813,7 @@
       kanali.slice(0, 60).forEach(function (x) {
         var k = el("button", "kat-seznam-kartica"); k.type = "button";
         if (x.ikona || x.slika) {
-          var slika = document.createElement("img"); slika.alt = ""; slika.loading = "lazy"; slika.src = x.ikona || x.slika;
+          var slika = document.createElement("img"); slika.alt = ""; slika.loading = "lazy"; nastaviSliko(slika, x.ikona || x.slika);
           slika.onerror = function () { slika.replaceWith(el("span", "kat-brez-slike", svg("twitch"))); };
           k.appendChild(slika);
         } else k.appendChild(el("span", "kat-brez-slike", svg("twitch")));
@@ -5889,7 +5906,7 @@
   }
   function spKartica(ime, opis, slika, ikona, ob) {
     var k = el("button", "kat-seznam-kartica"); k.type = "button";
-    if (slika) { var im = el("img"); im.src = slika; im.alt = ""; im.loading = "lazy"; k.appendChild(im); }
+    if (slika) { var im = el("img"); nastaviSliko(im, slika); im.alt = ""; im.loading = "lazy"; k.appendChild(im); }
     else k.appendChild(el("span", "kat-brez-slike", svg(ikona)));
     var o = el("span"); o.appendChild(el("b", "", ubezi(ime))); o.appendChild(el("small", "", ubezi(opis)));
     k.appendChild(o); k.onclick = ob;
@@ -5963,7 +5980,7 @@
     var a = document.activeElement;
     if (a && a.type === "range" && c.contains(a)) return;
     c.hidden = false; c.innerHTML = "";
-    if (p.slika) { var im = el("img"); im.src = p.slika; im.alt = ""; c.appendChild(im); }
+    if (p.slika) { var im = el("img"); nastaviSliko(im, p.slika); im.alt = ""; c.appendChild(im); }
     var opis = el("div", "kat-sp-opis");
     opis.appendChild(el("b", "", ubezi(p.naslov)));
     opis.appendChild(el("small", "", ubezi(p.oglas ? t("spOglas") : p.izvajalec || "")));
@@ -6047,7 +6064,7 @@
       znak._slika = slika; znak._ikona = "glasba";
       znak.innerHTML = svg("glasba");
       if (slika) {
-        var img = document.createElement("img"); img.alt = ""; img.src = slika;
+        var img = document.createElement("img"); img.alt = ""; nastaviSliko(img, slika);
         img.onerror = function () { img.remove(); };
         znak.appendChild(img);
       }
