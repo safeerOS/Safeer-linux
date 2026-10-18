@@ -228,11 +228,48 @@ jobs:
           name: webkit-deb-${{ matrix.paket }}
           path: build/webkit-${{ matrix.paket }}.tar.zst
           retention-days: 14
+  dav1d-deb:
+    # Dekoder AV1 dav1ddec (gst-plugins-rs, packaging/webkit-deb/dav1d.sh) za oba paketa .deb, zraven nasega WebKitGTK:
+    # noble ima libdav1d7, nima pa vticnika GStreamer zanj (ostane le pocasni libaom av1dec). Lastnik, 18. 10. 2026:
+    # YouTube AV1 720p z dav1ddec 0 izpuscenih slicic, ~12 % manj CPU. Gradnja na runnerju ubuntu-24.04 (noble, isti
+    # GStreamer 1.24 kot Linux Mint 22) z rustup runnerja (cargo iz apt noble je prestar); ~1 min, nato iz predpomnilnika.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Restore dav1ddec (built earlier from the same script)
+        id: dav1d
+        uses: actions/cache/restore@v4
+        with:
+          path: build/dav1d
+          key: dav1d-deb-${{ hashFiles('packaging/webkit-deb/dav1d.sh') }}
+      - name: Build gst-plugin-dav1d against the noble GStreamer
+        if: steps.dav1d.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libdav1d-dev pkg-config
+          bash packaging/webkit-deb/dav1d.sh build/dav1d
+      - name: Save dav1ddec
+        if: steps.dav1d.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: build/dav1d
+          key: dav1d-deb-${{ hashFiles('packaging/webkit-deb/dav1d.sh') }}
+      - name: Build record
+        run: |
+          ls -l build/dav1d
+          cat build/dav1d/gradnja.txt
+          echo "::notice::dav1ddec: $(paste -sd '|' build/dav1d/gradnja.txt)"
+          grep -q '^gst-plugin-dav1d 0\.14\.5 ' build/dav1d/gradnja.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dav1d-deb
+          path: build/dav1d/
+          retention-days: 14
   brskalnik:
     # Safeer Browser na GTK4 (safeer_brskalnik.py) in WebKitGTK 6.0: .deb in AppImage za Linux Mint 22 / Ubuntu 24.04
     # naprej (kot Safeer OS). Paket .deb (amd64) ima nas WebKitGTK in libsoup iz posla webkit-deb v
     # /usr/lib/safeer-browser/webkit; AppImage se nosi WebKitGTK sistema gradnje (Ubuntu).
-    needs: webkit-deb
+    needs: [webkit-deb, dav1d-deb]
     # Preizkus brskalnika (packaging/smoke_brskalnik.py): stran, prenos, nastavitve in vstavitev Safeer DRM v okno.
     runs-on: ubuntu-24.04
     container:
@@ -252,19 +289,26 @@ jobs:
         with:
           name: webkit-deb-safeer-browser
           path: build
+      - uses: actions/download-artifact@v8
+        with:
+          name: dav1d-deb
+          path: build/dav1d
       - name: Libraries of our WebKitGTK (dpkg-shlibdeps)
         run: bash packaging/webkit-deb/knjiznice.sh
       - name: Verify version consistency
         run: python3 packaging/check_version.py
       - name: Debian package with our WebKitGTK, and launch smoke of the payload
         run: |
-          SAFEER_WEBKIT_TAR=build/webkit-safeer-browser.tar.zst bash build_deb.sh
+          SAFEER_DAV1D=build/dav1d SAFEER_WEBKIT_TAR=build/webkit-safeer-browser.tar.zst bash build_deb.sh
           DEB="safeer-browser_$(cat packaging/VERSION)_amd64.deb"
           dpkg-deb -f "$DEB" Package Version Architecture Depends Recommends
           # Nas WebKit je v paketu: sistemskega WebKitGTK/libsoup paket ne zahteva, peskovnik pa potrebuje bwrap.
           if dpkg-deb -f "$DEB" Depends | grep -E 'gir1\.2-webkit-6\.0|gir1\.2-soup-3\.0|libwebkitgtk|libsoup-3\.0'; then echo "::error::paket zahteva sistemski WebKitGTK/libsoup"; exit 1; fi
           dpkg-deb -f "$DEB" Depends | grep -F 'bubblewrap' && dpkg-deb -f "$DEB" Depends | grep -F 'xdg-dbus-proxy'
           dpkg-deb -c "$DEB" | grep -F './usr/lib/safeer-browser/webkit/libexec/webkitgtk-6.0/WebKitWebProcess'
+          # Dekoder AV1 dav1ddec v predponi nasega WebKita, libdav1d7 iz noble.
+          dpkg-deb -c "$DEB" | grep -F './usr/lib/safeer-browser/webkit/lib/gstreamer-1.0/libgstdav1d.so'
+          dpkg-deb -f "$DEB" Depends | grep -E '(^|, )libdav1d7( |,|$)'
           echo "::notice::$(stat -c '%n %s B' "$DEB") | namesceno $(dpkg-deb -f "$DEB" Installed-Size) KiB"
           xvfb-run -a dbus-run-session -- /usr/bin/python3 packaging/smoke_brskalnik.py build/stage/usr/lib/safeer-browser
       - name: Install, launch and remove the Debian package (system WebKitGTK 6.0 installed too)
@@ -296,8 +340,8 @@ jobs:
   safeer-os:
     # Safeer OS na GTK4 + WebKitGTK 6.0 z lupino v Qt Quick (en proces). Ubuntu 24.04 je osnova Linux Mint 22 - prve
     # razlicice Minta z WebKitGTK 6.0 (Mint 21 ga nima; lastnik 14. 10. 2026: .deb za Mint 22+, PySide6 v paketu).
-    # Paket .deb (amd64) ima nas WebKitGTK in libsoup iz posla webkit-deb v /usr/lib/safeer-os/webkit.
-    needs: webkit-deb
+    # Paket .deb (amd64) ima nas WebKitGTK in libsoup iz posla webkit-deb v /usr/lib/safeer-os/webkit, dav1ddec iz dav1d-deb.
+    needs: [webkit-deb, dav1d-deb]
     runs-on: ubuntu-24.04
     container:
       image: ubuntu:24.04
@@ -316,6 +360,10 @@ jobs:
         with:
           name: webkit-deb-safeer-os
           path: build
+      - uses: actions/download-artifact@v8
+        with:
+          name: dav1d-deb
+          path: build/dav1d
       - name: Libraries of our WebKitGTK (dpkg-shlibdeps)
         run: bash packaging/webkit-deb/knjiznice.sh
       - uses: actions/setup-node@v5
@@ -335,12 +383,14 @@ jobs:
         # Od 12. 10. 2026 je za Linux en sam paket .deb: ena namestitev (tudi z dvoklikom v GDebi), ena posodobitev.
         # mint-themes je le priporocilo, zato se paket tu namesti tudi na Ubuntu 24.04 brez priporocenih paketov.
         run: |
-          SAFEER_WEBKIT_TAR=build/webkit-safeer-os.tar.zst bash build_os_deb.sh
+          SAFEER_DAV1D=build/dav1d SAFEER_WEBKIT_TAR=build/webkit-safeer-os.tar.zst bash build_os_deb.sh
           OS="./safeer-os_$(cat packaging/VERSION_OS)_amd64.deb"
           dpkg-deb -f "$OS" Package Version Architecture Depends Recommends Provides Replaces
           DEB="$OS"
           if dpkg-deb -f "$DEB" Depends | grep -E 'gir1\.2-webkit-6\.0|gir1\.2-soup-3\.0|libwebkitgtk|libsoup-3\.0'; then echo "::error::paket zahteva sistemski WebKitGTK/libsoup"; exit 1; fi
           dpkg-deb -f "$OS" Depends | grep -F 'bubblewrap' && dpkg-deb -f "$OS" Depends | grep -F 'xdg-dbus-proxy'
+          dpkg-deb -c "$OS" | grep -F './usr/lib/safeer-os/webkit/lib/gstreamer-1.0/libgstdav1d.so'
+          dpkg-deb -f "$OS" Depends | grep -E '(^|, )libdav1d7( |,|$)'
           echo "::notice::$(stat -c '%n %s B' "$OS") | namesceno $(dpkg-deb -f "$OS" Installed-Size) KiB"
           dpkg-deb -f "$OS" Provides | grep -F "safeer-control (= $(cat packaging/VERSION_CONTROL))"
           dpkg-deb -f "$OS" Provides | grep -F "safeer-cinnamon (= $(cat packaging/VERSION_CINNAMON))"
@@ -708,6 +758,15 @@ jobs:
           # Zagon iz seje Cinnamon (XDG_CURRENT_DESKTOP): Qt ne sme naloziti teme GTK3 v proces z GTK4 - lupina se
           # sicer ne izrise (testni PC 15. 10. 2026, »cannot register existing type 'GtkWidget'«).
           XDG_CURRENT_DESKTOP=X-Cinnamon DESKTOP_SESSION=cinnamon dbus-run-session -- xvfb-run -a flatpak run --env=XDG_CURRENT_DESKTOP=X-Cinnamon --env=DESKTOP_SESSION=cinnamon --command=python3 io.github.memelandfaner.SafeerOS -c "import sys; sys.path.insert(0, '/app/lib/safeer-os'); import gi; gi.require_version('Gtk', '4.0'); from gi.repository import Gtk; from core import os_lupina; assert os_lupina.pripravi(['t']), 'Qt lupina se ni pripravila'; import os; m = {l.split()[-1].rsplit('/', 1)[-1] for l in open('/proc/self/maps')}; g = sorted(x for x in m if x.startswith(('libgtk-3', 'libqgtk3'))); print('GTK3 v procesu:', g, 'XDG_CURRENT_DESKTOP', os.environ.get('XDG_CURRENT_DESKTOP')); assert not g, g; assert os.environ.get('XDG_CURRENT_DESKTOP') == 'X-Cinnamon'"
+      - name: AV1 decoder dav1ddec in the GNOME 50 runtime (report only)
+        # Paketa .deb nosita dav1ddec sama (posel dav1d-deb); tu le porocilo, ali ga runtime Flatpaka ze ima.
+        continue-on-error: true
+        run: |
+          APP=io.github.memelandfaner.SafeerOS
+          flatpak run --command=gst-inspect-1.0 $APP dav1ddec > dav1d.txt 2>&1 && I=da || I="ne ($(tail -1 dav1d.txt))"
+          head -20 dav1d.txt
+          R="$(flatpak run --command=python3 $APP -c "import gi; gi.require_version('Gst', '1.0'); from gi.repository import Gst; Gst.init(None); n = [(x, Gst.ElementFactory.find(x)) for x in ('dav1ddec', 'av1dec', 'avdec_av1')]; print(' '.join('%s=%s' % (x, '%s(rang %d)' % (f.get_plugin().get_filename(), f.get_rank()) if f else 'NI') for x, f in n))" 2>&1 | tail -1)"
+          echo "::notice::Flatpak $APP: gst-inspect-1.0 dav1ddec: $I | $R"
       - name: Shield inside the sandbox of the package that was just built
         # Scit v peskovniku Flatpak, s kodo samega paketa, na pravem systemd-resolved + NetworkManager (tools/scit_lab).
         run: |
@@ -856,6 +915,15 @@ jobs:
             || { echo "::error::preverjanje peskovnika na ravni enot ni uspelo"; exit 1; }
           xvfb-run -a dbus-run-session -- flatpak run --filesystem="$PWD/packaging:ro" --command=python3 $APP "$PWD/packaging/smoke_brskalnik.py" /app/lib/safeer-browser \
             || { echo "::error::smoke_brskalnik.py v Flatpaku ni uspel"; exit 1; }
+      - name: AV1 decoder dav1ddec in the GNOME 50 runtime (report only)
+        # Paketa .deb nosita dav1ddec sama (posel dav1d-deb); tu le porocilo, ali ga runtime Flatpaka ze ima.
+        continue-on-error: true
+        run: |
+          APP=io.github.memelandfaner.SafeerBrowser
+          flatpak run --command=gst-inspect-1.0 $APP dav1ddec > dav1d.txt 2>&1 && I=da || I="ne ($(tail -1 dav1d.txt))"
+          head -20 dav1d.txt
+          R="$(flatpak run --command=python3 $APP -c "import gi; gi.require_version('Gst', '1.0'); from gi.repository import Gst; Gst.init(None); n = [(x, Gst.ElementFactory.find(x)) for x in ('dav1ddec', 'av1dec', 'avdec_av1')]; print(' '.join('%s=%s' % (x, '%s(rang %d)' % (f.get_plugin().get_filename(), f.get_rank()) if f else 'NI') for x, f in n))" 2>&1 | tail -1)"
+          echo "::notice::Flatpak $APP: gst-inspect-1.0 dav1ddec: $I | $R"
       - name: Real Safeer DRM (castLabs Electron) inside the browser sandbox
         # Pravi paket Safeer DRM z izdaje, zagnan po poti Spleta (zypak-wrapper): knjiznice, nalaganje strani, podpeskovnik
         # procesov strani (seccomp) in Widevine (EME). Glej packaging/smoke_drm_peskovnik.py.
