@@ -612,6 +612,56 @@ class RacunTest(unittest.TestCase):
         self.assertEqual(len(self._pritiski(k)), 1)
         self.assertIn('"igraj"', self._pritiski(k)[0])
 
+    def _oglas_konec(self):
+        """Uporabnik poslusa, pride oglas (igra, utisan), oglas se konca, naslednja pesem pa ne zacne."""
+        k, r, ura = self._zastoj()
+        r.straza_korak({"naslov": "Advertisement", "igra": True})
+        ura[0] = 130.0
+        k.stanje = dict(k.stanje, igra=False)
+        r.straza_korak({"naslov": "Pesem 2", "izvajalec": "B", "povezava": "/track/2", "igra": False})
+        k.izrazi.clear()
+        return k, r, ura
+
+    def test_zastoj_po_oglasu_strazar_pritisne_predvajaj(self):
+        """18. 10. 2026: po oglasu se glasba ni nadaljevala - pesem, ki takoj po oglasu stoji, ni uporabnikov premor.
+        Strazar pritisne SAMO Predvajaj (nikoli Naslednja)."""
+        k, r, ura = self._oglas_konec()
+        stoji = {"naslov": "Pesem 2", "izvajalec": "B", "povezava": "/track/2", "igra": False}
+        for t in (131.0, 133.0, 134.0, 140.0, 160.0, 200.0):
+            ura[0] = t
+            r.straza_korak(stoji)
+        self.assertTrue(r._uporabnik_igra, "postanek po oglasu ni premor")
+        self.assertGreaterEqual(len(self._pritiski(k)), 2)
+        self.assertTrue(all('"igraj"' in x for x in self._pritiski(k)))
+        self.assertFalse(any("skip-forward" in x for x in k.izrazi))
+        # pesem zaigra: zastoja in okna po oglasu ni vec
+        r.straza_korak(dict(stoji, igra=True))
+        self.assertEqual((r._zastoj_od, r._oglas_konec_od), (0.0, 0.0))
+
+    def test_ustavitev_po_oglasu_iz_safeerja_se_spostuje(self):
+        """»premor« je preklop (pesem stoji -> zaigra); »ustavi« je jasna uporabnikova zelja: strazar ne pritiska."""
+        k, r, ura = self._oglas_konec()
+        self.assertEqual(r.upravljaj("ustavi"), {"ok": True})
+        k.izrazi.clear()
+        stoji = {"naslov": "Pesem 2", "izvajalec": "B", "povezava": "/track/2", "igra": False}
+        for t in (131.0, 133.0, 140.0, 160.0, 200.0):
+            ura[0] = t
+            r.straza_korak(stoji)
+        self.assertEqual(self._pritiski(k), [])
+
+    def test_po_oknu_po_oglasu_stoji_pesem_je_premor(self):
+        k, r, ura = self._oglas_konec()
+        stoji = {"naslov": "Pesem 2", "izvajalec": "B", "povezava": "/track/2", "igra": False}
+        ura[0] = 130.0 + sr.Racun.PO_OGLASU_S + 1
+        r.straza_korak(stoji)
+        ura[0] += sr.Racun.PREMOR_PESMI_S + 1
+        r.straza_korak(stoji)
+        self.assertFalse(r._uporabnik_igra)
+        k.izrazi.clear()
+        ura[0] += 100
+        r.straza_korak(stoji)
+        self.assertEqual(self._pritiski(k), [])
+
     def test_zastarelo_stanje_ne_povozi_ukaza(self):
         """Straza je stanje (pesem igra) prebrala pred uporabnikovim premorom: zelja ostane »premor«."""
         k, r, ura = self._zastoj()

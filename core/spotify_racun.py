@@ -30,6 +30,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import sys
 import time
 import urllib.parse
 from pathlib import Path
@@ -73,6 +74,12 @@ NAJVEC = 400                   # kot uvoz_seznama.NAJVEC: seznam Medijskega cent
 _STRAN = 100                   # vnosov na klic
 _KROGOV = 8
 CAS_MIROVANJA = 600.0          # skrit Safeer DRM brez predvajanja in brez klicev se po 10 min ustavi (pomnilnik)
+
+
+def _sled(besedilo: str) -> None:
+    """Odlocitve strazarja v sled.log (stderr), brez naslovov skladb: po zastoju vemo, kaj se je zgodilo (18. 10. 2026
+    se je predvajanje ustavilo, dnevnik seje pa je bil ob koncu Safeer DRM izbrisan)."""
+    print("[Spotify]", time.strftime("%H:%M:%S"), besedilo, file=sys.stderr, flush=True)
 VSECKANE = "vseckane"
 
 URI = re.compile(r"^spotify:(track|episode|playlist|show|album|artist|user|collection)(?::[A-Za-z0-9]+)+$")
@@ -709,6 +716,7 @@ class Racun:
         self._uporabnik_igra = False
         self._ukaz_st = 0                 # stevec ukazov uporabnika: zastarelo branje stanja ne povozi zadnjega ukaza
         self._pesem_stoji_od = 0.0        # od kdaj pesem (ne oglas) stoji; 0 = igra ali ni znano
+        self._oglas_konec_od = 0.0        # kdaj se je zadnji oglas koncal (okno za zastoj po oglasu); 0 = ni
         self._straza: Optional[threading.Thread] = None
         self._z_strazo = straza
         self._preverjeno = False          # stran je ze povedala, ali je uporabnik prijavljen
@@ -820,6 +828,7 @@ class Racun:
             if isinstance(surovo, dict):
                 self.straza_korak(surovo, st)
             if not self.kanal.vidno and not self._predvajanje.get("igra") and self._ura() - self._dotik > CAS_MIROVANJA:
+                _sled("mirovanje %.0f min brez predvajanja: Safeer DRM ustavljen" % (CAS_MIROVANJA / 60))
                 self.kanal.ustavi()
                 break
             # Med oglasom pogosteje: utisanje takoj, ko se oglas zacne, in zvok takoj, ko se konca.
@@ -834,6 +843,14 @@ class Racun:
         if stanje["igra"]:
             self._dotakni()
         sveze = ukaz_st is None or ukaz_st == self._ukaz_st
+        prej_oglas = bool(self._predvajanje.get("oglas"))
+        if stanje["oglas"] and not prej_oglas:
+            _sled("oglas se je zacel (utisam)" if self.scit() else "oglas se je zacel")
+        elif prej_oglas and not stanje["oglas"]:
+            self._oglas_konec_od = self._ura()
+            _sled("oglas se je koncal, pesem %s" % ("igra" if stanje["igra"] else "stoji"))
+        if stanje["igra"]:
+            self._oglas_konec_od = 0.0
         if stanje["oglas"] or stanje["igra"]:
             self._pesem_stoji_od = 0.0
         if sveze and not stanje["oglas"] and stanje["naslov"]:
@@ -844,7 +861,11 @@ class Racun:
                 self._uporabnik_igra = True
             elif not self._pesem_stoji_od:
                 self._pesem_stoji_od = self._ura()
-            elif self._ura() - self._pesem_stoji_od >= self.PREMOR_PESMI_S:
+            elif self._ura() - self._pesem_stoji_od >= self.PREMOR_PESMI_S and not self._po_oglasu():
+                # Takoj po oglasu pesem, ki stoji, ni uporabnikov premor, temvec zastoj Spotifyja (ga popravi strazar);
+                # premor iz Safeerja (upravljaj) uporabnikovo zeljo nastavi sam.
+                if self._uporabnik_igra:
+                    _sled("pesem stoji %.0f s brez oglasa: premor" % (self._ura() - self._pesem_stoji_od))
                 self._uporabnik_igra = False
         if self.scit() and stanje["oglas"]:
             # Samo utisamo (lastnik 18. 10. 2026): brez preskoka, pospesevanja ali »Naslednje« med oglasom.
@@ -862,9 +883,15 @@ class Racun:
     ZASTOJ_KORAKI = (2.0, 12.0, 30.0, 60.0)
     #: Pesem, ki toliko sekund stoji brez oglasa, je v premoru (ne prehod v oglas).
     PREMOR_PESMI_S = 3.0
+    #: Okno po koncu oglasa, v katerem pesem, ki stoji, velja za zastoj (Spotify po utisanem oglasu pesmi ne zacne).
+    PO_OGLASU_S = 90.0
+
+    def _po_oglasu(self) -> bool:
+        return bool(self._oglas_konec_od) and self._ura() - self._oglas_konec_od < self.PO_OGLASU_S
 
     def _popravi_zastoj(self, stanje: dict) -> None:
-        if not (self.scit() and stanje.get("oglas") and not stanje.get("igra") and self._uporabnik_igra):
+        stoji = not stanje.get("igra") and (stanje.get("oglas") or (self._po_oglasu() and stanje.get("naslov")))
+        if not (self.scit() and stoji and self._uporabnik_igra):
             self._zastoj_od, self._zastoj_korak = 0.0, 0
             return
         zdaj = self._ura()
@@ -879,6 +906,8 @@ class Racun:
             try:
                 # preverba (ne igra) in klik v istem izrazu: ce je medtem zaigral, klik ne bi ga ustavil
                 if st == self._ukaz_st and self._uporabnik_igra:
+                    _sled("zastoj %s: Predvajaj (korak %d)" % ("v oglasu" if stanje.get("oglas") else "po oglasu",
+                                                               self._zastoj_korak))
                     self.kanal.izvedi(PREKLOP_JS % _js("igraj"), 3)
             except (NiOdziva, SpremenjenaStran):
                 pass
