@@ -584,13 +584,33 @@ class RacunTest(unittest.TestCase):
         self.assertEqual(self._pritiski(k), [])
 
     def test_premor_pesmi_izven_vmesnika(self):
-        """Pesem obstane brez oglasa (sistemske tipke, konec seznama): to velja kot premor uporabnika."""
+        """Pesem stoji brez oglasa vec kot PREMOR_PESMI_S (sistemske tipke, konec seznama): to velja kot premor."""
         k, r, ura = self._zastoj()
-        r.straza_korak({"naslov": "Pesem", "izvajalec": "A", "povezava": "/track/1", "igra": False})
-        for t in (100.0, 103.0, 113.0, 200.0):
+        stoji = {"naslov": "Pesem", "izvajalec": "A", "povezava": "/track/1", "igra": False}
+        r.straza_korak(stoji)
+        ura[0] = 101.0
+        r.straza_korak(stoji)
+        self.assertTrue(r._uporabnik_igra)                 # kratek postanek se ni premor
+        ura[0] = 103.5
+        r.straza_korak(stoji)
+        self.assertFalse(r._uporabnik_igra)
+        for t in (104.0, 107.0, 117.0, 200.0):
             ura[0] = t
             r.straza_korak({"naslov": "Advertisement", "igra": False})
         self.assertEqual(self._pritiski(k), [])
+
+    def test_prehod_pesem_oglas_ni_premor(self):
+        """Konec pesmi -> oglas: pesem za trenutek ne igra (oglas se nalaga); po zastoju oglasa strazar Predvajaj pritisne."""
+        k, r, ura = self._zastoj()
+        r.straza_korak({"naslov": "Pesem", "izvajalec": "A", "povezava": "/track/1", "igra": False})
+        ura[0] = 101.0
+        r.straza_korak({"naslov": "Advertisement", "igra": True})
+        k.izrazi.clear()
+        for t in (130.0, 131.0, 133.0):
+            ura[0] = t
+            r.straza_korak({"naslov": "Advertisement", "igra": False})
+        self.assertEqual(len(self._pritiski(k)), 1)
+        self.assertIn('"igraj"', self._pritiski(k)[0])
 
     def test_zastarelo_stanje_ne_povozi_ukaza(self):
         """Straza je stanje (pesem igra) prebrala pred uporabnikovim premorom: zelja ostane »premor«."""

@@ -708,6 +708,7 @@ class Racun:
         # Strazar zastoja po oglasu pritisne Predvajaj SAMO, ce je True - uporabnikovega premora nikoli ne razveljavi.
         self._uporabnik_igra = False
         self._ukaz_st = 0                 # stevec ukazov uporabnika: zastarelo branje stanja ne povozi zadnjega ukaza
+        self._pesem_stoji_od = 0.0        # od kdaj pesem (ne oglas) stoji; 0 = igra ali ni znano
         self._straza: Optional[threading.Thread] = None
         self._z_strazo = straza
         self._preverjeno = False          # stran je ze povedala, ali je uporabnik prijavljen
@@ -747,6 +748,7 @@ class Racun:
         self._predvajanje = {}
         self._utisal = self._preverjeno = False
         self._uporabnik_igra = False
+        self._pesem_stoji_od = 0.0
 
     def _uporabnik(self, igra: bool) -> None:
         self._ukaz_st += 1
@@ -832,10 +834,18 @@ class Racun:
         if stanje["igra"]:
             self._dotakni()
         sveze = ukaz_st is None or ukaz_st == self._ukaz_st
+        if stanje["oglas"] or stanje["igra"]:
+            self._pesem_stoji_od = 0.0
         if sveze and not stanje["oglas"] and stanje["naslov"]:
-            # Pesem (ne oglas): igra -> uporabnik jo poslusa; obstala -> premor (uporabnik, sistemske tipke ali konec
-            # seznama). Med oglasom ne sklepamo nic: oglas sam ni uporabnikova odlocitev.
-            self._uporabnik_igra = stanje["igra"]
+            # Pesem (ne oglas): igra -> uporabnik jo poslusa; stoji dlje od PREMOR_PESMI_S -> premor (uporabnik s
+            # sistemskimi tipkami ali konec seznama). Kratek postanek med pesmijo in oglasom (konec pesmi, oglas se
+            # nalaga) ni premor. Med oglasom ne sklepamo nic: oglas sam ni uporabnikova odlocitev.
+            if stanje["igra"]:
+                self._uporabnik_igra = True
+            elif not self._pesem_stoji_od:
+                self._pesem_stoji_od = self._ura()
+            elif self._ura() - self._pesem_stoji_od >= self.PREMOR_PESMI_S:
+                self._uporabnik_igra = False
         if self.scit() and stanje["oglas"]:
             # Samo utisamo (lastnik 18. 10. 2026): brez preskoka, pospesevanja ali »Naslednje« med oglasom.
             if not self._utisal:
@@ -850,6 +860,8 @@ class Racun:
     #: poslusalec bi moral sam pritisniti Predvajaj. Strazar pritisne SAMO Predvajaj (nikoli Naslednja) in samo, ce je
     #: uporabnik pred tem poslusal - njegovega premora ali ustavitve ne razveljavi. Sekunde od zacetka zastoja.
     ZASTOJ_KORAKI = (2.0, 12.0, 30.0, 60.0)
+    #: Pesem, ki toliko sekund stoji brez oglasa, je v premoru (ne prehod v oglas).
+    PREMOR_PESMI_S = 3.0
 
     def _popravi_zastoj(self, stanje: dict) -> None:
         if not (self.scit() and stanje.get("oglas") and not stanje.get("igra") and self._uporabnik_igra):
