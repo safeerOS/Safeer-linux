@@ -76,6 +76,8 @@ class _Lupina(unittest.TestCase):
             _medijski_ukaz = S._medijski_ukaz
             _mpris_podatki = S._mpris_podatki
             _yt_spremenjeno = S._yt_spremenjeno
+            _sp_racun = S._sp_racun
+            _sp_predvajanje = S._sp_predvajanje
         self.l = Lazna()
         self.dogodki = []
         self.l._dogodek = lambda v, p=None, pogled=None: self.dogodki.append((v, p))
@@ -120,6 +122,31 @@ class StanjeZaNamizje(_Lupina):
         self.assertEqual(self.l._medijski_podatki()["naslov"], "Radio")
         servis.stanje = "ustavljeno"
         self.assertEqual(self.l._medijski_podatki()["naslov"], "Pesem")
+
+    def test_spotify_na_namizju(self):
+        """18. 10. 2026: glasba iz Spotifyja je igrala, pripomocek na namizju pa je kazal »Ni predvajanja«."""
+        racun = mock.MagicMock()
+        racun.predvajanje.return_value = {"naslov": "Circles", "izvajalec": "Post Malone", "slika": "https://i.test/c.jpg",
+                                          "igra": True}
+        self.l._katalog._mc = mock.MagicMock(_spotify=racun)
+        p = self.l._medijski_podatki()
+        self.assertEqual((p["stanje"], p["naslov"], p["izvajalec"], p["izvor"], p["trajanje"]),
+                         ("predvaja", "Circles", "Post Malone", "Spotify", 0))
+        self.assertTrue(p["spotify"])
+        racun.predvajanje.return_value = dict(racun.predvajanje.return_value, igra=False)
+        self.assertEqual(self.l._medijski_podatki()["stanje"], "premor")
+        # tipke pripomockov gredo Spotifyju (v niti), domaci predvajalnik pa ima prednost
+        with mock.patch("safeer_os.threading.Thread") as nit:
+            self.assertTrue(self.l._medijski_ukaz("naslednja"))
+        self.assertEqual(nit.call_args.kwargs["args"], ("naprej",))
+        servis = mock.MagicMock(stanje="predvaja")
+        servis.podatki.return_value = {"stanje": "predvaja", "naslov": "Radio"}
+        self.l._medijski_predvajalnik = servis
+        self.assertEqual(self.l._medijski_podatki()["naslov"], "Radio")
+        # Spotify, ki se ni zagnan, se za pripomocek ne zazene
+        self.l._medijski_predvajalnik = None
+        self.l._katalog._mc = None
+        self.assertEqual(self.l._medijski_podatki()["stanje"], "ustavljeno")
 
     def test_skladba_kataloga_v_domacem_predvajalniku(self):
         # Naslednjo vodi stran (vrstaStrani), izvajalec in naslovnica pridejo iz kataloga - za pripomocke in MPRIS.

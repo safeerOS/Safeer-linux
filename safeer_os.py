@@ -6175,6 +6175,29 @@ class SafeerOS(Gtk.Application):
             return None
         return self._katalog.yt_podatki() if self._katalog is not None else None
 
+    def _sp_racun(self):
+        """Spotify (skrit Safeer DRM), ce ze tece - za pripomocke ga ne zaganjamo (brez ustvarjanja MediaCenter)."""
+        mc = getattr(self._katalog, "_mc", None) if self._katalog is not None else None
+        return getattr(mc, "_spotify", None) if mc is not None else None
+
+    def _sp_predvajanje(self) -> Optional[dict]:
+        """Skladba Spotify, kadar domaci predvajalnik ne igra (ne premor). 18. 10. 2026: med glasbo iz Spotifyja je
+        pripomocek na namizju kazal »Ni predvajanja«."""
+        servis = self._medijski_predvajalnik
+        if servis is not None and servis.stanje in ("predvaja", "premor"):
+            return None
+        racun = self._sp_racun()
+        try:
+            p = racun.predvajanje() if racun is not None else {}
+        except Exception:  # noqa: BLE001 - pripomocek ne sme pasti zaradi Spotifyja
+            p = {}
+        if not p.get("naslov"):
+            return None
+        return {"stanje": "predvaja" if p.get("igra") else "premor", "naslov": str(p.get("naslov") or ""),
+                "izvajalec": str(p.get("izvajalec") or ""), "slika": str(p.get("slika") or ""), "vrsta": "glasba",
+                "izvor": "Spotify", "indeks": -1, "zacetniIndeks": 0, "skupaj": 0, "vrstaSeznam": [], "pozicija": 0,
+                "trajanje": 0, "napaka": "", "vrstaStrani": False, "spotify": True}
+
     def _medijski_podatki(self) -> dict:
         yt = self._yt_predvajanje()
         if yt is not None:
@@ -6183,6 +6206,9 @@ class SafeerOS(Gtk.Application):
             # prejsnjo vodi stran (vrstaStrani), zato ju pripomocki ne onemogocijo.
             return dict(yt, indeks=-1, zacetniIndeks=0, skupaj=0, vrstaSeznam=[], pozicija=0, trajanje=0, napaka="",
                         vrstaStrani=True)
+        sp = self._sp_predvajanje()
+        if sp is not None:
+            return sp
         servis = self._medijski_predvajalnik
         if servis is None:
             return {"stanje": "ustavljeno", "naslov": "", "vrsta": "", "indeks": -1,
@@ -6220,6 +6246,14 @@ class SafeerOS(Gtk.Application):
         yt = self._yt_predvajanje()
         if yt is not None:          # katalog jo lahko hkrati konca (nit): podatke beremo enkrat
             return self._yt_ukaz(ukaz, yt)
+        if self._sp_predvajanje() is not None:
+            # Tipke pripomockov in sistema za Spotify: ukaz gre strani v Safeer DRM (do 5 s), zato v niti, ne na glavni.
+            sp_ukaz = {"premor": "premor", "naslednja": "naprej", "prejsnja": "nazaj", "ustavi": "ustavi"}.get(ukaz)
+            racun = self._sp_racun()
+            if sp_ukaz is None or racun is None:
+                return False
+            threading.Thread(target=racun.upravljaj, args=(sp_ukaz,), name="safeer-spotify-ukaz", daemon=True).start()
+            return True
         servis = self._medijski_predvajalnik
         if not servis:
             return False

@@ -2150,6 +2150,10 @@
   }
   function osveziPredvajalnik(p) {
     if (!p) return;
+    // Spotify ima v Medijskem centru svoj trak (kat.sp): stanje gostitelja ga javi samo za pripomocke na namizju in
+    // MPRIS (18. 10. 2026) - tu ni domace predvajanje (sicer bi ga spOdDomacega ustavil).
+    if (p.spotify) p = { stanje: "ustavljeno", naslov: "", vrsta: "", indeks: -1, zacetniIndeks: 0, skupaj: 0,
+                         vrstaSeznam: [], pozicija: 0, trajanje: 0, napaka: "" };
     S.mediaPredvajalnik = p;
     spOdDomacega(p);
     narisiTrak();
