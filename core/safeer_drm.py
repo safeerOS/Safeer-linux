@@ -5,11 +5,12 @@ WebKitGTK nima Widevine. Prej (11. 10. 2026) se je stran z Widevine odprla v dru
 opaziti menjave. Zato: ko stran zaprosi za Widevine, se ista stran odpre v Safeer DRM, katerega okno je vstavljeno
 (X11 XReparentWindow) v isti zavihek Spleta. Zavihek, naslovna vrstica in gumbi ostanejo; Nazaj in Osvezi delujeta.
 
-Od 1.0.127 (lastnik, 18. 10. 2026) je Safeer DRM del paketa kot vse drugo: pripet castLabs ECS (SHA-256) in pripet
-Widevine CDM (verzija in SHA-256) sta ob gradnji namescena samo za branje v <tovor>/safeer-drm (deb:
-/usr/lib/safeer-os/safeer-drm, /usr/lib/safeer-browser/safeer-drm; Flatpak: /app/lib/...; packaging/safeer_drm_paket.py).
-Med delovanjem se nic ne prenasa: main.js Chromiumu pokaze CDM v paketu in izklopi posodobitve komponent ter slovarje
-crkovalnika (assets/safeer_drm/main.js; izmerjeno 18. 10. 2026: EME ok ob prvem zagonu, nobene povezave na Google).
+Od 1.0.127 (lastnik, 18. 10. 2026) je Safeer DRM del paketa kot vse drugo: pripet castLabs ECS (SHA-256) je ob gradnji
+namescen samo za branje v <tovor>/safeer-drm (deb: /usr/lib/safeer-os/safeer-drm, /usr/lib/safeer-browser/safeer-drm;
+Flatpak: /app/lib/...; packaging/safeer_drm_paket.py) in se med delovanjem ne prenasa vec. Widevine CDM NI v paketu
+(lastnik po FAQ castLabs: CDM, ki ga ECS prenese z Googlovih streznikov, pokriva licenca Googla): ECS ga ob prvi
+zasciteni vsebini sam namesti in posodablja v mapa_widevine() - uporabnik ne namesca nicesar (assets/safeer_drm/main.js;
+izmerjeno 18. 10. 2026, peskovnik Chromiuma, svez profil: prenos CDM in EME ok v ~2 s ob istem zagonu).
 Star, ob zagonu prenesen paket (koren()/X.Y.Z, ~280 MB) pospravi pospravi_staro(); profili s prijavami ostanejo.
 
 Safeer OS v Flatpaku Safeer DRM zazene na gostitelju (flatpak-spawn --host, pot programa v /app prevedena v pot na
@@ -53,29 +54,10 @@ def vgrajena_mapa() -> Path:
     return Path(os.environ.get(SPREMENLJIVKA_MAPE) or Path(__file__).resolve().parent.parent / "safeer-drm")
 
 
-def mapa_cdm(mapa: Optional[Path] = None) -> Optional[Path]:
-    """WidevineCdm/<verzija> v paketu (manifest.json in knjiznica), najvisja verzija; brez CDM None."""
-    izbrana, najvisja = None, ()
-    try:
-        vnosi = list((Path(mapa) if mapa else vgrajena_mapa()).joinpath("WidevineCdm").iterdir())
-    except OSError:
-        return None
-    for d in vnosi:
-        if not re.fullmatch(r"\d+(\.\d+){3}", d.name):
-            continue
-        if not ((d / "manifest.json").is_file()
-                and (d / "_platform_specific" / "linux_x64" / "libwidevinecdm.so").is_file()):
-            continue
-        verzija = tuple(int(x) for x in d.name.split("."))
-        if verzija > najvisja:
-            izbrana, najvisja = d, verzija
-    return izbrana
-
-
 def izvrsljiva() -> Optional[Path]:
-    """Program Safeer DRM iz paketa, ce je paket popoln (program in Widevine CDM)."""
+    """Program Safeer DRM iz paketa (Widevine CDM namesti ECS sam ob prvi zasciteni vsebini)."""
     exe = vgrajena_mapa() / "safeer-drm"
-    if exe.is_file() and os.access(exe, os.X_OK) and mapa_cdm() is not None:
+    if exe.is_file() and os.access(exe, os.X_OK):
         return exe
     return None
 
@@ -97,9 +79,9 @@ def mapa_sej() -> Path:
 
 
 def mapa_widevine() -> Path:
-    """<userData>/WidevineCdm, userData = $XDG_CONFIG_HOME/<productName> (package.json: »Safeer DRM«). Od 1.0.127 je tu
-    samo datoteka namiga, ki jo main.js ob vsakem zagonu usmeri na CDM v paketu. zypak mapo izpostavi podpeskovnikom
-    (ZYPAK_EXPOSE_WIDEVINE_PATH), da zygote prebere namig (README zypaka)."""
+    """Kamor castLabs ECS sam prenese in posodablja Widevine CDM: <userData>/WidevineCdm, userData =
+    $XDG_CONFIG_HOME/<productName> (package.json: »Safeer DRM«). zypak mapo izpostavi podpeskovnikom
+    (ZYPAK_EXPOSE_WIDEVINE_PATH), sicer se CDM prenese, naloziti pa ga ne more (README zypaka)."""
     return _xdg("XDG_CONFIG_HOME", "~/.config") / "Safeer DRM" / "WidevineCdm"
 
 
@@ -136,8 +118,8 @@ def ukaz_zagona(argumenti: list, peskovnik: Optional[bool] = None, gostitelj: Op
 
 
 def okolje_zagona(peskovnik: Optional[bool] = None) -> Optional[dict]:
-    """V peskovniku: zypak mora poznati mapo Widevine z namigom (ustvarimo jo vnaprej, ker zypak izpostavi samo
-    obstojeco). Program in CDM sta v /app, ki ga podpeskovniki vidijo brez dodatnih poti."""
+    """V peskovniku: zypak mora poznati mapo Widevine (ustvarimo jo vnaprej, ker zypak izpostavi samo obstojeco - sicer
+    bi prvo predvajanje po prenosu CDM odpovedalo). Program je v /app, ki ga podpeskovniki vidijo brez dodatnih poti."""
     peskovnik = v_peskovniku() if peskovnik is None else peskovnik
     if not peskovnik:
         return None
@@ -156,8 +138,8 @@ _VERZIJA_MAPE = re.compile(r"\d+\.\d+\.\d+")
 def pospravi_staro(mapa: Optional[Path] = None) -> List[str]:
     """Selitev na paket (1.0.127): odstrani SAMO tisto, kar je prej prenesla in upravljala ta koda - mape verzij paketa
     (X.Y.Z s programom safeer-drm ali oznako .preverjeno), nedokoncane prenose (prenos-*.part) in razpakiranja (*.nova).
-    Profili s prijavami (profil, profil-spotify) in vse drugo ostanejo. Kopije CDM, ki jo je ECS prenesel v
-    $XDG_CONFIG_HOME/Safeer DRM/WidevineCdm, ne brisemo (ni nasa); main.js jo prezre."""
+    Profili s prijavami (profil, profil-spotify) in vse drugo ostanejo. Widevine CDM v mapa_widevine() ostane - ECS ga
+    uporablja in posodablja naprej (ni ga treba prenesti znova)."""
     mapa = Path(mapa) if mapa else koren()
     odstranjeno: List[str] = []
     try:

@@ -116,20 +116,27 @@ class ZasebnostPovsod(unittest.TestCase):
     Medijskega centra, slike v pismih in Safeer DRM."""
 
     def test_safeer_drm_dobi_pravila(self):
+        """Safeer DRM iz paketa (od 1.0.127 <tovor>/safeer-drm, tu SAFEER_DRM_MAPA) dobi pravila Scita (--scit=...)."""
+        import os
+        import pathlib
         import tempfile
         from core import safeer_drm
         from types import SimpleNamespace
         zagnano = []
-        with tempfile.TemporaryDirectory() as d, \
-                mock.patch.object(safeer_drm, "izvrsljiva", return_value=__import__("pathlib").Path("/d/safeer-drm")), \
-                mock.patch.object(safeer_drm, "uskladi_logiko"), \
-                mock.patch.object(safeer_drm, "mapa_sej", return_value=__import__("pathlib").Path(d)), \
-                mock.patch.object(safeer_drm, "v_peskovniku", return_value=False), \
-                mock.patch.object(safeer_drm, "v_flatpaku", return_value=False), \
-                mock.patch.object(safeer_drm.subprocess, "Popen", side_effect=lambda a, **k: zagnano.append(a) or object()):
-            g = SimpleNamespace(ustavi=lambda: None, _xid_starsa=lambda: 7, GLib=mock.MagicMock(),
-                                gradnik=mock.MagicMock(), proces=None, _beri=lambda: True)
-            self.assertTrue(safeer_drm.Gostitelj.zacni(g, "https://www.netflix.com/", storitev=True))
+        with tempfile.TemporaryDirectory() as d:
+            paket = pathlib.Path(d, "paket", "safeer-drm")
+            paket.mkdir(parents=True)
+            (paket / "safeer-drm").write_text("#!/bin/sh\n")
+            (paket / "safeer-drm").chmod(0o755)
+            with mock.patch.dict(os.environ, {safeer_drm.SPREMENLJIVKA_MAPE: str(paket)}), \
+                    mock.patch.object(safeer_drm, "mapa_sej", return_value=pathlib.Path(d, "seje")), \
+                    mock.patch.object(safeer_drm, "v_peskovniku", return_value=False), \
+                    mock.patch.object(safeer_drm, "v_flatpaku", return_value=False), \
+                    mock.patch.object(safeer_drm.subprocess, "Popen", side_effect=lambda a, **k: zagnano.append(a) or object()):
+                g = SimpleNamespace(ustavi=lambda: None, _xid_starsa=lambda: 7, GLib=mock.MagicMock(),
+                                    gradnik=mock.MagicMock(), proces=None, _beri=lambda: True)
+                self.assertTrue(safeer_drm.Gostitelj.zacni(g, "https://www.netflix.com/", storitev=True))
+            self.assertEqual(zagnano[0][0], str(paket / "safeer-drm"))
             scit = [a for a in zagnano[0] if a.startswith("--scit=")]
             self.assertEqual(len(scit), 1)
             with open(scit[0][len("--scit="):], encoding="utf-8") as f:
