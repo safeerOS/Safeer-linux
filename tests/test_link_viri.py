@@ -122,3 +122,25 @@ def test_nit_ki_je_sistem_ne_da(monkeypatch):
 def test_meja_procesa_je_prava():
     mehka, _trda = resource.getrlimit(resource.RLIMIT_NOFILE)
     assert link_viri.meja_deskriptorjev() in (mehka, -1)
+
+
+def test_stetje_deskriptorjev_dalec_od_meje_redko_blizu_meje_vedno(monkeypatch):
+    """Stetje /proc/self/fd stane (6,8 ms pri 10 000): dalec od meje velja meritev do SVEZE_S, blizu meje se steje
+    ob vsakem vprasanju."""
+    klici = []
+    pravi = os.listdir
+
+    def stej(pot):
+        klici.append(pot)
+        return pravi(pot)
+    monkeypatch.setattr(link_viri.os, "listdir", stej)
+    monkeypatch.setattr(link_viri, "meja_deskriptorjev", lambda: 65536)
+    for _ in range(5):
+        link_viri.preveri(3)
+    assert len(klici) == 1
+    link_viri.ponastavi()
+    klici.clear()
+    monkeypatch.setattr(link_viri, "meja_deskriptorjev", lambda: len(pravi("/proc/self/fd")) + 600)
+    for _ in range(5):
+        link_viri.preveri(3)
+    assert len(klici) == 5

@@ -521,6 +521,18 @@ class Klicanje(unittest.TestCase):
         m = self._po_ponovnem_zagonu({"n-a": "192.168.0.10", "n-z": "192.168.0.20"})
         self.assertEqual(sorted(self._en_krog_takoj(m)), ["n-a", "n-z"])
 
+    def test_brez_virov_ne_klicemo_novih_sosedov(self):
+        """Stevila sosedov ne omejuje stevilka (prej 16): novega poklicemo, ce ima racunalnik vire. Brez virov v tem
+        krogu nikogar novega, razlog se zabelezi (opozorilo na strani, obvestilo)."""
+        from core import link_viri
+        m = self._po_ponovnem_zagonu({"n-a": "192.168.0.10", "n-z": "192.168.0.20"})
+        link_viri.ponastavi()
+        with mock.patch.object(link_viri, "preveri", lambda *a, **k: link_viri.DESKRIPTORJI), \
+                mock.patch.object(link_viri, "POSLUSALCI", []):
+            self.assertEqual(self._en_krog_takoj(m), [])
+        self.assertEqual(link_viri.stanje()["kje"], "sosed")
+        link_viri.ponastavi()
+
     def test_po_zagonu_ne_cakamo_na_oglase(self):
         # Zanka najprej poklice zapomnjene sosede - brez iskanja oglasov mDNS (to vzame sekunde).
         m = self._po_ponovnem_zagonu({"n-a": "192.168.0.10"})

@@ -461,7 +461,16 @@ class MeshPovezovalec:
         videni = {str(h.get("id") or "") for h in oglasi}
         with self._zaklep:
             oglasi += [dict(z) for hid, z in self._znani.items() if hid not in videni]
-        for h in self.kandidati(oglasi):
+        kandidati = self.kandidati(oglasi)
+        if kandidati:
+            # Stevila sosedov ne omejuje stevilka (lastnik, 18. 10. 2026; prej 16): novega poklicemo, ce ima racunalnik
+            # vire za njegovo povezavo (core/link_viri) - sicer v tem krogu nikogar novega, uporabnik izve zakaj.
+            from core import link_hub_streznik, link_viri
+            razlog = link_viri.preveri(link_hub_streznik.DESKRIPTORJEV_NAPRAVE, link_hub_streznik.POMNILNIK_NAPRAVE)
+            if razlog:
+                link_viri.zabelezi(razlog, "sosed")
+                kandidati = []
+        for h in kandidati:
             with self._zaklep:
                 self._klicem.add(h["id"])
             threading.Thread(target=self._klici, args=(h,), name="safeer-mesh-klic", daemon=True).start()

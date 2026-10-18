@@ -73,12 +73,24 @@ def rezerva_deskriptorjev(meja: int) -> int:
     return min(REZERVA_DESKRIPTORJEV, max(0, meja) // 4)
 
 
+#: Stetje /proc/self/fd stane (izmerjeno 18. 10. 2026: 6,8 ms pri 10 000 odprtih). Dalec od meje (vec kot toliko
+#: prostih nad rezervo) velja meritev najvec SVEZE_S - val tisoc novih clanov tako ne porabi sekund procesorja za
+#: stetje; blizu meje se steje ob vsakem vprasanju (natancno).
+PROSTIH_ZA_PREDPOMNILNIK = 2048
+SVEZE_S = 1.0
+_zadnja_meritev: List[float] = [-1e18, 0.0]       # (kdaj, prostih)
+
+
 def prostih_deskriptorjev() -> Optional[int]:
     """Koliko deskriptorjev ima Link se na voljo nad rezervo za ostali proces (lahko negativno); None = ne vemo
     (ni /proc ali ni meje - Windows). Ce za stetje ni vec niti enega deskriptorja (EMFILE), je odgovor »nic«.
 
     Stetje /proc/self/fd ne vidi stevilk, ki jih jedro rezervira nitim v accept() (Linux dodeli stevilko nove
     povezave, preden caka nanjo) - zato rezerva, ne natancna meja."""
+    zdaj = time.monotonic()
+    kdaj, prostih = _zadnja_meritev
+    if zdaj - kdaj < SVEZE_S and prostih > PROSTIH_ZA_PREDPOMNILNIK:
+        return int(prostih)
     meja = meja_deskriptorjev()
     try:
         odprtih = len(os.listdir("/proc/self/fd"))
@@ -88,7 +100,9 @@ def prostih_deskriptorjev() -> Optional[int]:
         return None
     if meja < 0:
         return None
-    return meja - rezerva_deskriptorjev(meja) - odprtih
+    prostih = meja - rezerva_deskriptorjev(meja) - odprtih
+    _zadnja_meritev[:] = [zdaj, float(prostih)]
+    return prostih
 
 
 def rezerva_pomnilnika(skupaj_b: int) -> int:
@@ -228,6 +242,7 @@ def ponastavi() -> None:
         _zadnje_obvestilo = _zadnji_dnevnik = -1e18
         _drugi.clear()
         _drugi_obvesceni.clear()
+    _zadnja_meritev[:] = [-1e18, 0.0]
 
 
 # ------------------------------------------------------------------ besedila (sl, en, de, es, fr, it)
