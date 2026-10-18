@@ -263,7 +263,8 @@ class SafeerBrskalnik(Gtk.Application):
         try:
             tren = self.splet.trenutni()
             zavihki = self.splet.zavihki
-            shrani_ali_pozabi_sejo(self.splet.config, [z["pogled"].get_uri() or "" for z in zavihki],
+            from core.splet_spanje import naslov_pogleda   # uspan zavihek nima vec get_uri(), v seji pa ostane
+            shrani_ali_pozabi_sejo(self.splet.config, [naslov_pogleda(z["pogled"]) for z in zavihki],
                                    next((i for i, z in enumerate(zavihki) if z["pogled"] is tren), 0))
         except Exception as e:  # noqa: BLE001 - zaprtje mora uspeti tudi brez seje
             print("[Safeer Browser] seja:", e, flush=True)
