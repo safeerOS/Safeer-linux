@@ -132,6 +132,31 @@ class StrezikiHkratiInStarOdgovor(unittest.TestCase):
         self.assertEqual(klici["mrtev"], 1)
 
 
+    def test_osvezitev_v_ozadju_pocaka_vse_iskanje_pa_ne(self):
+        """Iskanje caka najvec STREZNIKI_ROK_S (ali rok_vira); osvezitev v ozadju (rok niti None) pocaka vse vire."""
+        strezniki = [{"id": "hiter", "ponudnik": "stremio", "url": "https://h", "ime": "Hiter"},
+                     {"id": "pocasen", "ponudnik": "stremio", "url": "https://p", "ime": "Pocasen"}]
+        center = self._center(strezniki)
+        center.STREZNIKI_ROK_S = 0.3
+
+        def katalog(provider, url, server, secret, query=""):
+            if server["id"] == "pocasen":
+                time.sleep(0.8)
+            return [{"id": server["id"], "naslov": server["ime"]}]
+        with mock.patch.object(os_media.media_servers, "catalog", katalog):
+            self.assertEqual([x["naslov"] for x in center._personal_items("")], ["Hiter"])
+            center._server_cache.clear()
+            izid = []
+
+            def ozadje():
+                center._iskanje_nit.rok = None
+                izid.extend(x["naslov"] for x in center._personal_items(""))
+            nit = threading.Thread(target=ozadje)
+            nit.start()
+            nit.join(5)
+        self.assertEqual(izid, ["Hiter", "Pocasen"])
+
+
 class VrstniRedIskanja(unittest.TestCase):
     def test_tocen_naslov_prvi(self):
         u = os_media._ujemanje_naslova

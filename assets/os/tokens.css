@@ -47,6 +47,19 @@
   /* Osebne police: znacke na plakatu (srcek, ogledano, »⋯«) in merilo napredka. */
   --media-znacka: rgba(3, 7, 10, .84);
   --media-merilo: rgba(255, 255, 255, .2);
+  /* Sporocila (prenova nabiralnika 16. 10. 2026): mehurcka in znaki kanalov (splosni znaki, ne barve blagovnih znamk).
+     Belo besedilo na --mehurcek-ven ima kontrast nad 4,5 : 1 (WCAG AA), beli znak na barvah kanalov nad 3 : 1. */
+  --mehurcek-noter: rgba(213, 232, 250, .10);
+  --mehurcek-ven: #2160b0;
+  --mehurcek-ven-besedilo: #ffffff;
+  --mehurcek-ven-medlo: #d6e6fa;
+  --kanal-eposta: #b8503c;
+  --kanal-telegram: #23789f;
+  --kanal-matrix: #3f7a43;
+  --kanal-safeer: #2f6aa8;
+  --kanal-chatwoot: #6c55b8;
+  --kanal-drugo: #4a5a70;
+  --znak-besedilo: #ffffff;   /* zacetnice in znak na barvni podlagi (avatar, znak kanala) */
 }
 .kontrast, body.manj-prosojnosti {
   --kartica: #111c2b;
