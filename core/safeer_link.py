@@ -275,6 +275,9 @@ MOST_JS = """
     deljenjeZaslonaStanje: function () { return JSON.stringify(window.__safeerLink.deljenje || {tece: false}); },
     globalLinkStanje: function () { return JSON.stringify(window.__safeerLink.globalLink || null); },
     nastaviNeposredno: function (vklop) { poslji("nastaviNeposredno", [!!vklop]); },
+    // »Pomagaj drugim napravam v Linku pri povezavi« (core/link_mesh.pomaga_pri_povezavi).
+    pomocStanje: function () { return JSON.stringify(window.__safeerLink.pomoc || null); },
+    nastaviPomoc: function (vklop) { poslji("nastaviPomoc", [!!vklop]); },
     preimenujNapravo: function (id, ime) { poslji("preimenujNapravo", [id, String(ime || "")]); },
     nastaviDostop: function (id, crke) { poslji("nastaviDostop", [id, String(crke || "")]); },
     vzdevki: function () { return JSON.stringify(window.__safeerLink.vzdevki || {}); },
@@ -736,6 +739,7 @@ class SafeerLink:
             "deljenje": self._deljenje_stanje(),
             "vzdevki": self._vzdevki(),
             "globalLink": self._global_link_stanje(),
+            "pomoc": self._pomoc_stanje(),
         }
         # ensure_ascii=True: imena naprav pridejo z omrezja, U+2028/U+2029 pa sta
         # v JavaScriptu ločilnika vrstic. Ubezimo vsemu, kar ni ASCII.
@@ -796,6 +800,8 @@ class SafeerLink:
             "deliStandardneMape": lambda: self._deli_standardne_mape(),
             "nastaviNeposredno": lambda: self._v_ozadju(
                 lambda: self._nastavi_neposredno(bool(argumenti[0]) if argumenti else False)),
+            "nastaviPomoc": lambda: self._v_ozadju(
+                lambda: self._nastavi_pomoc(bool(argumenti[0]) if argumenti else True)),
             "zapri": lambda: self._zapri_okno(),
         }.get(metoda)
         if obravnava is not None:
@@ -849,6 +855,29 @@ class SafeerLink:
             self._odziv("napaka", str(e))
             return
         self._odziv("globalLink", {})
+
+    # »Pomagaj drugim napravam v Linku pri povezavi« (core/link_mesh.pomaga_pri_povezavi): privzeto vklopljeno, stran
+    # uporabnika ob seznanitvi enkrat vprasa (vprasano), potem je stikalo v razdelku »Povezava zdoma«.
+    def _pomoc_stanje(self) -> Optional[dict]:
+        try:
+            from core import link_mesh
+            return link_mesh.nastavitve_pomoci()
+        except Exception:  # noqa: BLE001 - stran brez tega stikala
+            return None
+
+    def _nastavi_pomoc(self, vklop: bool) -> None:
+        """Uporabnikova izbira velja takoj: Hub sosedom poslje nov seznam (z ali brez naprav drugih sosedov)."""
+        try:
+            from core import link_mesh
+            link_mesh.shrani_pomoc(bool(vklop))
+            g = getattr(self, "_hub_gostitelj", None)
+            hub = getattr(getattr(g, "streznik", None), "hub", None) if g is not None else None
+            if hub is not None and hasattr(hub, "osvezi_pomoc"):
+                hub.osvezi_pomoc()
+        except Exception as e:  # noqa: BLE001
+            self._odziv("napaka", str(e))
+            return
+        self._odziv("pomoc", {})
 
     def _upravljaj_racunalnik(self, id_naprave: str = "") -> None:
         """Odpre domaci gledalec; odziv strani vsebuje tudi zavrnitev ciljne naprave."""

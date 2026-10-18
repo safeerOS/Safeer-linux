@@ -155,6 +155,11 @@ mesh.trust     {type, id, payload: <krog json>}     (zdruzi s preverjanjem podpi
   pošilja `mesh.route` z `relay: true`; vmesni Hub preda naprej samo napravi svojega neposrednega soseda
   in samo v imenu naprave, ki je lokalna pri prosilcu. Največ en vmesni skok, brez zank; neposredna pot
   ima vedno prednost, ob njenem izpadu promet takoj steče prek vmesnega (in obratno).
+- Nastavitev »Pomagaj drugim napravam v Linku pri povezavi« (18. 10. 2026, `link_mesh.pomaga_pri_povezavi`,
+  `link-pomoc.json` ob nastavitvah Linka): privzeto vklopljena, stran Linka uporabnika ob seznanitvi enkrat vpraša
+  (fokus na »Da«), stikalo je v razdelku »Povezava zdoma«. Izklopljena: Hub sosedom ne pošilja `relay` (naprav
+  drugih sosedov ne predstavi) in `mesh.route` z `relay: true` zavrže. Lastne naprave te naprave in njena pot
+  prek drugih vozlišč ostanejo enake; sprememba velja takoj (`Hub.osvezi_pomoc`).
 - `share.file` prek huba (stari telefonski rele): pot `path` velja na hubu pošiljatelja; oddaljeni
   prejemnik dobi še `hub_address` in `hub_fp`. Stari prejemniki tega ne poznajo — zato novi pošiljatelji
   uporabljajo neposredno pot (Protocol v1).
