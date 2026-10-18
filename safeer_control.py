@@ -1421,8 +1421,13 @@ class SafeerControl(_OSNOVA):
             # {"poti": [...], "obvesti": true}: safeerctl send --notify (Nemo) - Control obvesti namizno, ko je poslano.
             obvesti = bool(poti.get("obvesti")) if isinstance(poti, dict) else False
             poti = poti.get("poti") if isinstance(poti, dict) else poti
-            return link.posiljanje_datotek().zacni(str(a[0]) if a else "",
-                                                   [str(p) for p in poti] if isinstance(poti, list) else [], obvesti=obvesti)
+            cilj = str(a[0]) if a else ""
+            # Cilj je naprava v Linku ali znana naprava iz kroga zaupanja, ki je zdaj ni (Nemo, »ko bo dosegljiva«):
+            # o tem odloca ta racunalnik, ne klicatelj - neznana oznaka ne caka 24 h na napravo, ki je ni.
+            if cilj and not link.sme_posiljati(cilj):
+                return {"ok": False, "koda": "ni_naprave"}
+            return link.posiljanje_datotek().zacni(cilj, [str(p) for p in poti] if isinstance(poti, list) else [],
+                                                   obvesti=obvesti)
         if metoda == "Ponudi":
             # "Poslji na napravo" s tega racunalnika: kar Safeer OS igra, napravi (zeton streznika datotek za njo);
             # tam caka Sprejmi, tu igra naprej.

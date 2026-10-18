@@ -2016,12 +2016,23 @@ class SafeerLink:
         posiljka pocaka na napravo, ki je ni, in nadaljuje, ko se vrne; zadnja naprava je prva v menijih."""
         if getattr(self, "_posiljanje", None) is None:
             from core import link_posiljanje
+            # Safeer Control: nekoncane posiljke prezivijo ponovni zagon (vrsta ob nastavitvah Controla, samo poti).
+            shramba = None
+            if getattr(self, "control", False):
+                try:
+                    shramba = os.path.join(os.path.dirname(self.nastavitve.pot), "posiljanje-vrsta.json")
+                except Exception:  # noqa: BLE001 - brez poti nastavitev vrsta ostane v pomnilniku
+                    shramba = None
             self._posiljanje = link_posiljanje.Posiljanje(
                 self.poslji_datoteko_napravi,
-                lambda i: next((str(n.get("ime") or "") for n in self.naprave if n.get("id") == i), ""),
+                lambda i: next((str(n.get("ime") or "") for n in self.naprave if n.get("id") == i), "")
+                or self._ime_znane(i),
                 dosegljiva=lambda i: any(n.get("id") == i for n in self.naprave),
                 ob_spremembi=self._ob_posiljanju,
-                zabelezi=self._zabelezi_zadnjo)
+                zabelezi=self._zabelezi_zadnjo,
+                shramba=shramba)
+            if shramba:
+                self._posiljanje.obnovi()
         return self._posiljanje
 
     def poslji_datoteke(self, id_naprave: str, poti: List[str], obvesti: bool = False) -> dict:
@@ -2043,13 +2054,50 @@ class SafeerLink:
                    if n.get("id") and n.get("id") != nas and not n.get("jaz") and "file" in (n.get("zmoznosti") or [])]
         return link_posiljanje.razvrsti(naprave)
 
+    def _ime_znane(self, id_naprave: str) -> str:
+        """Ime naprave, ki je zdaj ni v Linku, a je ze sprejemala datoteke (posiljka nanjo caka)."""
+        try:
+            from core import link_posiljanje
+            return link_posiljanje.ime_znane(self.nastavitve, id_naprave)
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def sme_posiljati(self, id_naprave: str) -> bool:
+        """Ali sme Control zaceti posiljanje tej napravi: je v Linku ali je znana naprava iz kroga zaupanja, ki je zdaj
+        ni (posiljka pocaka nanjo)."""
+        i = str(id_naprave or "")
+        if not i:
+            return False
+        if any(n.get("id") == i for n in list(self.naprave) + list(getattr(self, "naprave_vse", None) or [])):
+            return True
+        try:
+            return any(n.get("id") == i for n in self.naprave_za_nemo())
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerLink] posiljanje:", e, flush=True)
+            return False
+
+    def naprave_za_nemo(self) -> List[dict]:
+        """Naprave za »Poslji na …« v Nemu: zdaj v Linku in znane, ki jih zdaj ni (posiljka pocaka nanje), dokler so v
+        krogu zaupanja tega racunalnika."""
+        from core import link_krog, link_posiljanje
+        zdaj = self.naprave_za_posiljanje()
+        try:
+            link_posiljanje.zabelezi_znane(self.nastavitve, zdaj)
+        except Exception as e:  # noqa: BLE001 - brez zapisa ostanejo v meniju samo dosegljive
+            print("[SafeerLink] znane naprave:", e, flush=True)
+
+        def je_clan(i: str) -> bool:
+            return link_krog.krog().clan_za_id(i) is not None
+        return link_posiljanje.za_meni(zdaj, self.nastavitve, je_clan)
+
     def _osvezi_nemo(self) -> None:
-        """Safeer Control: dejanja »Poslji na …« v Nemu (core/link_nemo) za naprave, ki zdaj sprejmejo datoteke."""
+        """Safeer Control: dejanja »Poslji na …« v Nemu (core/link_nemo) za naprave, ki zdaj sprejmejo datoteke, in
+        znane naprave, ki jih zdaj ni (posiljka pocaka, da se vrnejo)."""
         if not getattr(self, "control", False):
             return
         try:
             from core import link_nemo
-            link_nemo.zapisi(self.naprave_za_posiljanje())
+            link_nemo.zapisi(self.naprave_za_nemo())
         except Exception as e:  # noqa: BLE001
             print("[SafeerLink] Nemo:", e, flush=True)
 
