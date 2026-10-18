@@ -664,7 +664,7 @@ class DebWebkitTests(unittest.TestCase):
             self.assertIn('ni libgstdav1d.so',r.stderr)
         # Pozitivno: prava knjiznica, povezana z libdav1d (le ce sta prevajalnik in libdav1d-dev).
         cc=shutil.which('cc')
-        if not cc or not subprocess.run(['pkg-config','--exists','dav1d'],capture_output=True).returncode==0:
+        if not cc or not shutil.which('pkg-config') or not subprocess.run(['pkg-config','--exists','dav1d'],capture_output=True).returncode==0:
             self.skipTest('ni cc ali libdav1d-dev')
         with tempfile.TemporaryDirectory() as d:
             (Path(d)/'v.c').write_text('#include <dav1d/dav1d.h>\nconst char *v(void) { return dav1d_version(); }\n')
