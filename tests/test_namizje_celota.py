@@ -340,7 +340,9 @@ class NamizjeQmlZivo(unittest.TestCase):
             os_lupina.Namizje._postavi_dock(n)
         self.assertEqual(popen.call_args[0][0], ["safeer-cinnamon", "--dock"])
         vir = _beri("core", "os_lupina.py")
-        self.assertIn("geometryChanged.connect(lambda *_: self._zaslon_spremenjen())", vir)
+        # Sprememba geometrije trenutnega zaslona in zamenjava primarnega zaslona (HDMI na TV) postavita dock na novo.
+        self.assertIn("zaslon.geometryChanged.connect(lambda *_: self._zaslon_spremenjen()", vir)
+        self.assertIn("aplikacija.primaryScreenChanged.connect(lambda *_: self._zaslon_spremenjen())", vir)
 
 
 if __name__ == "__main__":
