@@ -189,12 +189,12 @@ PREDPONA_STRANI = "https://www.youtube.com/watch?v="
 STRANI_SKRIPTA_SKLADBE = ("https://www.youtube.com/embed/*", "https://www.youtube.com/watch*")
 
 
-def naslov_vgradnje(posnetek: str) -> str:
-    """Naslov vgradnega predvajalnika za posnetek ali "" (neveljaven ID)."""
+def naslov_vgradnje(posnetek: str, zacetek: int = 0) -> str:
+    """Naslov vgradnega predvajalnika za posnetek ali "" (neveljaven ID). zacetek: sekunda, kjer zacne (»Nadaljuj«)."""
     posnetek = str(posnetek or "")
     if not YOUTUBE_ID.match(posnetek):
         return ""
-    return PREDPONA_VGRADNJE + posnetek + "?autoplay=1&rel=0&playsinline=1"
+    return PREDPONA_VGRADNJE + posnetek + "?autoplay=1&rel=0&playsinline=1" + ("&start=%d" % int(zacetek) if zacetek > 0 else "")
 
 
 def naslov_strani(posnetek: str) -> str:
@@ -248,7 +248,7 @@ SKRIPT_SKLADBE = """
   if (window.__safeerSkladba) return; window.__safeerSkladba = true;
   function javi(o) { try { document.dispatchEvent(new CustomEvent("safeer-skladba", { detail: JSON.stringify(o) })); } catch (e) {} }
   function predvajalnik() { var p = document.getElementById("movie_player"); return p && typeof p.getPlayerState === "function" ? p : null; }
-  var zadnje = null, zadnjeZivo = false, napaka = false, napakaVidea = 0, zacetek = Date.now();
+  var zadnje = null, zadnjeZivo = false, zadnjiCas = -1, napaka = false, napakaVidea = 0, zacetek = Date.now();
   function stanje() {
     var p = predvajalnik();
     if (p) { try { return p.getPlayerState(); } catch (e) {} }
@@ -264,6 +264,13 @@ SKRIPT_SKLADBE = """
     try { var d = p && typeof p.getVideoData === "function" ? p.getVideoData() : null; if (d && d.isLive) return true; } catch (e) {}
     var v = document.querySelector("video");
     return !!(v && v.duration === Infinity);
+  }
+  // Mesto v posnetku (sekunde) za »Nadaljuj« na Domov; javi se najvec na 5 s.
+  function cas() {
+    var p = predvajalnik();
+    try { if (p && typeof p.getCurrentTime === "function") return Math.floor(p.getCurrentTime() || 0); } catch (e) {}
+    var v = document.querySelector("video");
+    return v ? Math.floor(v.currentTime || 0) : 0;
   }
   // Nadomestna pot (stran posnetka): na zaslonu samo predvajalnik cez cel pogled, kot pri vgradnji; ce YouTube sam
   // preide na drug posnetek (samodejno predvajanje), se to steje kot konec skladbe - naslednjo izbere Safeer.
@@ -298,6 +305,7 @@ SKRIPT_SKLADBE = """
     var s = stanje(), z = s === 1 && vZivo();
     if (s === 1) napakaVidea = 0;
     if ((s === 0 || s === 1 || s === 2) && (s !== zadnje || z !== zadnjeZivo)) { zadnje = s; zadnjeZivo = z; javi({ stanje: s, zivo: z }); }
+    if (s === 1 && !z) { var c = cas(); if (Math.abs(c - zadnjiCas) >= 5) { zadnjiCas = c; javi({ stanje: s, cas: c }); } }
     var e = document.querySelector(".ytp-error");
     if (e && e.offsetParent !== null) { javiNapako("vgradnja"); return; }
     // Posnetek se ne da dekodirati in predvajalnik si v nekaj sekundah ni opomogel.
@@ -1373,6 +1381,8 @@ class Katalog:
                                            "zamenjaj": koda.startswith("vgradnja") or koda in ("yt100", "yt101", "yt150")})
             return
         stanje = d.get("stanje")
+        if isinstance(d.get("cas"), (int, float)) and not isinstance(d.get("cas"), bool):
+            self.nazadnje.pozicija(str(yt.get("id") or ""), max(0, int(d["cas"])))     # »Nadaljuj« seznama na Domov
         zivo = d.get("zivo") is True and not yt.get("zivo")
         if stanje == 1 and (not yt["igra"] or zivo):
             if not yt["igra"] and not yt["ze_igral"] and yt.get("kljuc"):
@@ -1469,7 +1479,7 @@ class Katalog:
             # Skladba s seznama predvajanja: vgradni predvajalnik YouTuba v lahkem medijskem pogledu.
             ident = str(item.get("id") or ident)
             naslov = naslov_za_predvajalnik(item)
-            url = naslov_vgradnje(item["youtube"])
+            url = naslov_vgradnje(item["youtube"], self._vzemi_nadaljevanje(ident, item))
             # Naslov, izvajalec in slika: za pripomocek »Predvaja se« na namizju in sistem (MPRIS), ki ne poznata strani.
             self._yt = {"id": ident, "igra": False, "ze_igral": False, "kljuc": kljuc, "posnetek": str(item["youtube"]),
                         "ime": naslov, "stran": False,
@@ -1679,12 +1689,17 @@ class Katalog:
             except OSError:
                 pass
 
+    def _vzemi_nadaljevanje(self, ident: str, item: dict) -> int:
+        """Sekunda iz »Nadaljuj« (enkrat, za skladbo, ki jo je Nadaljuj izbral); 0 za vse drugo."""
+        enkrat, self._nadaljuj_enkrat = self._nadaljuj_enkrat, None
+        return int(enkrat[1]) if enkrat and enkrat[0] in (ident, str(item.get("id") or "")) else 0
+
     def _zacetek(self, item: dict, ident: str, kljuc: str) -> int:
         """Kje nadaljevati: napredek po id vnosa; ce ga ni, po id, pod katerim je bil isti naslov (kljuc) predvajan
         prej (epizodo s police Safeer po ponovnem zagonu sestavi znova in ima lahko drug id)."""
-        enkrat, self._nadaljuj_enkrat = self._nadaljuj_enkrat, None
-        if enkrat and enkrat[0] in (ident, str(item.get("id") or "")):
-            return int(enkrat[1])         # »Nadaljuj« na Domov: skladba seznama tam, kjer je uporabnik ostal
+        enkrat = self._vzemi_nadaljevanje(ident, item)
+        if enkrat:
+            return enkrat                 # »Nadaljuj« na Domov: skladba seznama tam, kjer je uporabnik ostal
         zacetek = self.napredek_za(str(item.get("id") or ident))
         if zacetek or not kljuc:
             return zacetek

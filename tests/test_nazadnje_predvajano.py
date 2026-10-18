@@ -167,6 +167,26 @@ class MostKataloga(unittest.TestCase):
         self.k.izvedi("mediaPredvajaj", [r["vnosi"][1]["id"]])
         self.assertEqual(self.predvajano[-1][3], 0)                         # samo enkrat
 
+    def test_youtube_skladba_nadaljuje_na_istem_mestu(self):
+        yt = []
+        self.k._youtube = lambda u, n: yt.append(u) or True
+        self.k.mc.shrani_seznam("YT", [{"naslov": "Posnetek", "izvajalec": "Alfa", "youtube": "59o4m222aVw",
+                                         "url": "https://www.youtube.com/watch?v=59o4m222aVw"}])
+        vnos = self._vnosi("YT")[0]
+        izvor = {"tip": "seznam", "ref": "YT", "ime": "YT"}
+        self.k.izvedi("mediaNazadnje", ["zapomni", izvor, 0, vnos, 1])
+        self.k.izvedi("mediaPredvajaj", [vnos["id"]])
+        # Vgradni predvajalnik javlja mesto (SKRIPT_SKLADBE, najvec na 5 s).
+        self.k.yt_sporocilo(json.dumps({"v": "59o4m222aVw", "stanje": 1, "cas": 42}))
+        self.assertEqual(self.k.nazadnje.zadnji()["pozicija"], 42)
+        r = self.k.izvedi("mediaNazadnje", ["nadaljuj"])
+        self.k.izvedi("mediaPredvajaj", [r["vnosi"][0]["id"]])
+        self.assertTrue(yt[-1].endswith("&start=42"), yt[-1])
+        self.assertTrue(K.je_naslov_vgradnje(yt[-1]))
+        self.k.izvedi("mediaPredvajaj", [r["vnosi"][0]["id"]])
+        self.assertNotIn("start=", yt[-1])                               # samo enkrat
+        self.assertIn('javi({ stanje: s, cas: c })', K.SKRIPT_SKLADBE)
+
     def test_izbrisan_seznam_izgine_brez_napake(self):
         self.k.izvedi("mediaNazadnje", ["zapomni", self.izvor, 0, self._vnosi("Rock 1")[0], 3])
         self.k.mc.odstrani_seznam("Rock 1")
