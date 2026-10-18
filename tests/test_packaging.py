@@ -1214,6 +1214,28 @@ class DebWebkitTests(unittest.TestCase):
                     if program=='safeer-os':
                         self.assertEqual(izpis['DRM'],str(lib/'safeer-os/safeer-drm/safeer-drm'))
 
+    def test_meritev_pomnilnika_webkita(self):
+        """tools/webkit_pomnilnik.py (meritev prihranka na testnem PC): vsota Pss knjiznic WebKita po datotekah iz
+        /proc/*/smaps; preslikave drugih knjiznic in procesi brez WebKita ne stejejo."""
+        import importlib.util
+        spec=importlib.util.spec_from_file_location('webkit_pomnilnik',ROOT/'tools/webkit_pomnilnik.py')
+        m=importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        wk='/usr/lib/safeer-webkit/lib/libwebkitgtk-6.0.so.4.19.4'
+        jsc='/usr/lib/safeer-webkit/lib/libjavascriptcoregtk-6.0.so.1.8.8'
+        with tempfile.TemporaryDirectory() as d:
+            def proces(pid,preslikave):
+                (Path(d)/pid).mkdir()
+                (Path(d)/pid/'smaps').write_text(''.join(
+                    '7f00%04x000-7f00%04x000 r-xp 00000000 08:01 1 %s\nSize: 9 kB\nRss: %d kB\nPss: %d kB\nShared_Clean: 0 kB\n'
+                    %(i,i+1,pot,rss,pss) for i,(pot,rss,pss) in enumerate(preslikave)))
+            proces('10',[(wk,60000,30000),(jsc,30000,15000),('/usr/lib/x86_64-linux-gnu/libc.so.6',2000,100)])
+            proces('11',[(wk,60000,30000),(jsc,30000,15000)])
+            proces('12',[('[heap]',500,500)])
+            po_datoteki,procesov=m.izmeri(proc=d)
+        self.assertEqual(procesov,2)
+        self.assertEqual(po_datoteki,{wk:{'Rss':120000,'Pss':60000},jsc:{'Rss':60000,'Pss':30000}})
+
     def test_ci_gradi_webkit_enkrat_in_preizkusi_oba_programa(self):
         """En posel webkit-deb (brez matrike) zgradi WebKit s PGO in BOLT za /usr/lib/safeer-webkit in paket safeer-webkit;
         brskalnik in safeer-os ga prenesta, zgradita program z odvisnostjo in ga namestita skupaj z njim."""

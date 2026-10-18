@@ -409,8 +409,8 @@ def preveri(platforma: str, razlicice: Dict[str, str], manifest: Optional[dict] 
 
 def datoteke_namestitve(n: dict) -> List[dict]:
     """Datoteke ene nove razlicice za prenos in en klic namestitve: program, paket videza, .deb ob Flatpaku in skupni
-    WebKit (safeer-webkit) - vsaka samo enkrat. Seznam za razlicice do 1.0.127~pred nosi safeer-webkit tudi kot
-    "tema_deb" (te ga namestijo v istem apt-get), novejsi program ga zato ne prenese dvakrat."""
+    WebKit (safeer-webkit) - vsaka samo enkrat. Stabilni seznam nosi safeer-webkit tudi kot "tema_deb" (izdane
+    razlicice do 1.0.126 ga tako namestijo v istem apt-get), novejsi program ga zato ne prenese dvakrat."""
     izid: List[dict] = []
     for kljuc in ("datoteka", "tema", "deb", "webkit"):
         d = n.get(kljuc)
