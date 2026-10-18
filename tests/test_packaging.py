@@ -808,10 +808,11 @@ class DebWebkitTests(unittest.TestCase):
         self.assertIn('bash packaging/webkit-deb/dav1d.sh build/dav1d',posel)
         self.assertEqual(posel.count("key: dav1d-deb-${{ hashFiles('packaging/webkit-deb/dav1d.sh') }}"),2)
         self.assertIn('name: dav1d-deb',posel)
-        for ime,paket,naslednji in (('brskalnik','safeer-browser','safeer-os'),('safeer-os','safeer-os','mint')):
+        for ime,paket,naslednji,potrebe in (('brskalnik','safeer-browser','safeer-os','[webkit-deb, dav1d-deb]'),
+                                            ('safeer-os','safeer-os','mint','[webkit-deb, dav1d-deb, rqbit-deb]')):
             with self.subTest(posel=ime):
                 del_=potek.split('\n  %s:\n'%ime,1)[1].split('\n  %s:\n'%naslednji,1)[0]
-                self.assertIn('needs: [webkit-deb, dav1d-deb]',del_)
+                self.assertIn('needs: %s\n'%potrebe,del_)
                 self.assertIn('name: dav1d-deb\n          path: build/dav1d',del_)
                 self.assertIn('SAFEER_DAV1D=build/dav1d SAFEER_WEBKIT_TAR=build/webkit-%s.tar.zst'%paket,del_)
                 self.assertIn("grep -F './usr/lib/%s/webkit/lib/gstreamer-1.0/libgstdav1d.so'"%paket,del_)
@@ -916,6 +917,182 @@ class DebWebkitTests(unittest.TestCase):
                 self.assertIn('_amd64.deb',del_)
         self.assertIn('/smoke_webkit_deb.py',(ROOT/'tools/mint_namestitev/preizkus.sh').read_text())
         self.assertIn('webkit_preizkus "s sistemskim WebKitGTK',(ROOT/'tools/mint_namestitev/v_vsebniku.sh').read_text())
+
+
+class RqbitPaketTests(unittest.TestCase):
+    """Nas rqbit v paketu .deb Safeer OS (packaging/rqbit, lastnik 18. 10. 2026): pripet uradni vir, nas popravek za
+    racunalnike brez IPv6, gradnja v CI (posel rqbit-deb) in core/os_torrent.py, ki ga uporabi namesto prenosa."""
+    MAPA=ROOT/'packaging/rqbit'
+
+    def _paket(self):
+        import importlib.util
+        spec=importlib.util.spec_from_file_location('rqbit_paket_preizkus',self.MAPA/'rqbit_paket.py')
+        modul=importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(modul)
+        return modul
+
+    def test_pin_vira_popravkov_in_motorja(self):
+        import hashlib
+        import json
+        from core import os_torrent
+        p=json.loads((self.MAPA/'rqbit.json').read_text())
+        # Ista razlicica kot uradni program, ki ga Safeer prenese tam, kjer vgrajenega ni (Windows, Flatpak, AppImage).
+        self.assertEqual(p['razlicica'],os_torrent.RQBIT_RAZLICICA)
+        self.assertEqual(p['oznaka'],'v'+p['razlicica'])
+        self.assertEqual(p['repozitorij'],'https://github.com/ikatson/rqbit.git')
+        self.assertRegex(p['commit'],r'^[0-9a-f]{40}$')
+        self.assertRegex(p['drevo_sha256'],r'^[0-9a-f]{64}$')
+        self.assertEqual((p['cilj'],p['lastnosti'],p['profil']),('x86_64-unknown-linux-musl','rust-tls','release'))
+        self.assertRegex(p['rust'],r'^\d+\.\d+\.\d+$')
+        self.assertEqual(list(p['popravki']),['ipv4-fallback-without-ipv6.patch'])
+        for ime,odtis in p['popravki'].items():
+            self.assertEqual(hashlib.sha256((self.MAPA/ime).read_bytes()).hexdigest(),odtis,ime)
+        # Vsaka datoteka v packaging/rqbit je v kljucu predpomnilnika CI (hashFiles('packaging/rqbit/**')).
+        self.assertEqual(sorted(f.name for f in self.MAPA.iterdir() if f.name!='__pycache__'),
+                         ['ipv4-fallback-without-ipv6.patch','rqbit.json','rqbit_paket.py'])
+
+    def test_popravek_za_racunalnike_brez_ipv6(self):
+        """Popravek gorvodno: avtor ekipa Safeer, brez oznak orodja; vsa tri mesta, ki vezejo [::], in testi."""
+        popravek=(self.MAPA/'ipv4-fallback-without-ipv6.patch').read_text()
+        self.assertIn('\nFrom: Safeer <info@safeer.si>\n',popravek)
+        self.assertNotRegex(popravek,r'(?i)co-authored-by|claude|generated with')
+        for niz in ('fallback_to_ipv4_only_if_no_ipv6(&mut opts, probe_ipv6_socket);',
+                    'nix::errno::Errno::EAFNOSUPPORT',
+                    'UdpTrackerClient::new(token.clone(), bind_device.as_ref(), opts.ipv4_only)',
+                    '+        ipv4_only: bool,\n',
+                    '+                request_dualstack: !ipv4_only,',
+                    '+            (Ipv4Addr::UNSPECIFIED, LSD_PORT).into()',
+                    '+                        ipv4_only: opts.ipv4_only,',
+                    'fn test_fallback_to_ipv4_only_if_no_ipv6()',
+                    'async fn test_session_starts_with_default_listen_addr()',
+                    'async fn test_ipv4_only_binds_ipv4()'):
+            self.assertIn(niz,popravek)
+        for datoteka in ('crates/librqbit/src/session.rs','crates/tracker_comms/src/tracker_comms_udp.rs',
+                         'crates/librqbit_lsd/src/lib.rs','crates/rqbit/src/main.rs'):
+            self.assertIn('diff --git a/%s b/%s\n'%(datoteka,datoteka),popravek)
+
+    def test_drevo_sha256(self):
+        """Odtis drevesa: neodvisen od gita in arhiva, zazna vsebino, pravice in simbolne povezave, .git na vrhu izpusti."""
+        rp=self._paket()
+        with tempfile.TemporaryDirectory() as d:
+            koren=Path(d)/'vir'
+            (koren/'crates/a').mkdir(parents=True)
+            (koren/'crates/a/lib.rs').write_text('fn a() {}\n')
+            (koren/'README.md').write_text('rqbit\n')
+            (koren/'crates/a/README.md').symlink_to('../../README.md')
+            (koren/'.git').mkdir()
+            (koren/'.git/HEAD').write_text('x\n')
+            prvi=rp.drevo_sha256(koren)
+            self.assertRegex(prvi,r'^[0-9a-f]{64}$')
+            (koren/'.git/HEAD').write_text('y\n')
+            self.assertEqual(rp.drevo_sha256(koren),prvi)
+            (koren/'crates/a/lib.rs').write_text('fn b() {}\n')
+            drugi=rp.drevo_sha256(koren)
+            self.assertNotEqual(drugi,prvi)
+            os.chmod(koren/'crates/a/lib.rs',0o755)
+            self.assertNotEqual(rp.drevo_sha256(koren),drugi)
+            os.chmod(koren/'crates/a/lib.rs',0o644)
+            (koren/'crates/a/README.md').unlink()
+            (koren/'crates/a/README.md').symlink_to('../README.md')
+            self.assertNotEqual(rp.drevo_sha256(koren),drugi)
+
+    def _gradnja(self, d, program):
+        """Mapa gradnje, kot jo naredi `zgradi` (z danim programom)."""
+        import hashlib
+        import json
+        rp=self._paket()
+        p=rp.pin()
+        mapa=Path(d)/'rqbit'
+        mapa.mkdir()
+        shutil.copyfile(program,mapa/'rqbit')
+        os.chmod(mapa/'rqbit',0o755)
+        for ime in rp.DOKUMENTI:
+            (mapa/ime).write_text(ime+'\n')
+        for ime in p['popravki']:
+            shutil.copyfile(self.MAPA/ime,mapa/ime)
+        zapis={k:p[k] for k in ('razlicica','oznaka','commit','drevo_sha256','popravki','rust','cilj','lastnosti','profil')}
+        zapis.update(rustc='rustc %s (preizkus)'%p['rust'],program_sha256=hashlib.sha256((mapa/'rqbit').read_bytes()).hexdigest(),
+                     velikost=(mapa/'rqbit').stat().st_size,staticen=True)
+        (mapa/'gradnja.json').write_text(json.dumps(zapis))
+        return rp,mapa
+
+    def test_preveri_zavrne_tujo_ali_staro_gradnjo(self):
+        import json
+        if not shutil.which('readelf'):
+            self.skipTest('ni readelf (binutils)')
+        with tempfile.TemporaryDirectory() as d:
+            rp,mapa=self._gradnja(d,shutil.which('true'))
+            # Dinamicno povezan program (/bin/true) ni nasa staticna gradnja.
+            with self.assertRaisesRegex(SystemExit,'ni staticen'):
+                rp.preveri(mapa)
+            # Zamenjan program: SHA-256 ni zapisani.
+            with open(mapa/'rqbit','ab') as f:
+                f.write(b'x')
+            with self.assertRaisesRegex(SystemExit,'SHA-256'):
+                rp.preveri(mapa)
+            # Gradnja iz drugega vira (stara v predpomnilniku): ne gre v paket.
+            zapis=json.loads((mapa/'gradnja.json').read_text())
+            zapis['commit']='0'*40
+            (mapa/'gradnja.json').write_text(json.dumps(zapis))
+            with self.assertRaisesRegex(SystemExit,'commit'):
+                rp.preveri(mapa)
+
+    def test_namesti_v_paket(self):
+        """Staticen program, ki se predstavi kot prava razlicica: namesti v lib/<paket>/rqbit, obvestila v share/doc."""
+        cc=shutil.which('cc') or shutil.which('gcc')
+        if not cc or not shutil.which('readelf'):
+            self.skipTest('ni prevajalnika C ali readelf')
+        import platform
+        if platform.machine() not in ('x86_64','amd64'):
+            self.skipTest('preverba razlicice tece samo na x86_64')
+        rp=self._paket()
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d)/'r.c').write_text('#include <stdio.h>\nint main(void){puts("rqbit %s");return 0;}\n'%rp.pin()['razlicica'])
+            r=subprocess.run([cc,'-static','-O1','-o',str(Path(d)/'r'),str(Path(d)/'r.c')],capture_output=True,text=True)
+            if r.returncode:
+                self.skipTest('ni staticne libc: '+r.stderr[-200:])
+            rp,mapa=self._gradnja(d,Path(d)/'r')
+            rp.preveri(mapa)
+            koren=Path(d)/'deb'
+            rp.namesti(mapa,koren,'safeer-os')
+            program=koren/'usr/lib/safeer-os/rqbit/rqbit'
+            self.assertEqual(program.stat().st_mode & 0o777,0o755)
+            for ime in ('LICENSE','OBVESTILO.txt','LICENSES-THIRD-PARTY.txt','gradnja.json','ipv4-fallback-without-ipv6.patch'):
+                self.assertEqual((koren/'usr/share/doc/safeer-os/rqbit'/ime).stat().st_mode & 0o777,0o644,ime)
+            # core/os_torrent.py v tem tovoru najde vgrajenega (Safeer Control prek sosednje mape safeer-os).
+            from core import os_torrent as ot
+            (koren/'usr/lib/safeer-control').mkdir(parents=True)
+            with patch.dict(os.environ,{ot.SPREMENLJIVKA_VGRAJENEGA:''}):
+                for tovor in ('safeer-os','safeer-control'):
+                    with patch.object(ot,'_tovor',lambda t=tovor: str(koren/'usr/lib'/t)):
+                        self.assertEqual(ot.pot_programa(),str(program))
+
+    def test_deb_vgradi_rqbit_iz_posla_ci(self):
+        deb=(ROOT/'build_os_deb.sh').read_text()
+        self.assertIn('python3 "$DIR/packaging/rqbit/rqbit_paket.py" namesti "$SAFEER_RQBIT_TOVOR" "$BUILD_ROOT" "$PKG_NAME"',deb)
+        self.assertIn('[ -n "${SAFEER_RQBIT_TOVOR:-}" ] ||',deb.split('then ARCH="amd64"',1)[0].rsplit('\n',1)[1])
+        potek=(ROOT/'.github/workflows/linux-packages.yml').read_text()
+        posel=potek.split('\n  rqbit-deb:\n',1)[1].split('\n  brskalnik:\n',1)[0]
+        self.assertIn('runs-on: ubuntu-24.04',posel)
+        self.assertIn('musl-tools python3-seccomp',posel)
+        self.assertEqual(posel.count("key: rqbit-deb-${{ hashFiles('packaging/rqbit/**') }}"),2)
+        self.assertIn("if: steps.rqbit.outputs.cache-hit != 'true'\n        run: python3 packaging/rqbit/rqbit_paket.py zgradi build/rqbit",posel)
+        # Preverba in prenos brez IPv6 tudi, ko je program iz predpomnilnika.
+        korak=posel.split('- name: Check the build and download a torrent without IPv6',1)[1].split('\n      - ',1)[0]
+        self.assertNotIn('if:',korak)
+        self.assertIn('rqbit_paket.py preveri build/rqbit',korak)
+        self.assertIn('rqbit_paket.py dim build/rqbit/rqbit --brez-ipv6',korak)
+        self.assertIn('name: rqbit-deb\n          path: build/rqbit/',posel)
+        os_=potek.split('\n  safeer-os:\n',1)[1].split('\n  qt-xcb:\n',1)[0]
+        self.assertIn('name: rqbit-deb\n          path: build/rqbit',os_)
+        self.assertLess(os_.index('chmod 755 build/rqbit/rqbit'),os_.index('SAFEER_RQBIT_TOVOR="$PWD/build/rqbit"'))
+        self.assertIn("./usr/lib/safeer-os/rqbit/rqbit$'",os_)
+        self.assertIn("grep -F './usr/share/doc/safeer-os/rqbit/LICENSES-THIRD-PARTY.txt'",os_)
+        self.assertIn('sha256sum -c -',os_)
+        self.assertIn("assert p == '/usr/lib/safeer-os/rqbit/rqbit', p",os_)
+        # Kljuci predpomnilnika WebKita ostanejo nedotaknjeni (gradnja 2-3 h): rqbit ni v njih.
+        for kljuc in re.findall(r'key: (webkit-[^\n]*)',potek):
+            self.assertNotIn('rqbit',kljuc)
 
 
 class MintInstallTests(unittest.TestCase):

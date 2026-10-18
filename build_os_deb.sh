@@ -34,7 +34,8 @@ WEBKIT_TAR="${SAFEER_WEBKIT_TAR:-}"
 NODE=1
 [ "${SAFEER_DEB_BREZ_NODE:-0}" = 1 ] && NODE=0
 # Safeer DRM (SAFEER_DRM_TOVOR, packaging/namesti_safeer_drm.sh) ima programe za x86_64: paket je tudi z njim amd64.
-if [ -n "$WEBKIT_TAR" ] || [ -n "${SAFEER_DRM_TOVOR:-}" ] || [ "$NODE" = 1 ]; then ARCH="amd64"; else ARCH="all"; fi
+# Nas rqbit (SAFEER_RQBIT_TOVOR, packaging/rqbit) je program za x86_64: paket je z njim amd64.
+if [ -n "$WEBKIT_TAR" ] || [ -n "${SAFEER_DRM_TOVOR:-}" ] || [ -n "${SAFEER_RQBIT_TOVOR:-}" ] || [ "$NODE" = 1 ]; then ARCH="amd64"; else ARCH="all"; fi
 DEB_PACKAGE="${PKG_NAME}_${VERSION}_${ARCH}.deb"
 STAGE="$DIR/build/stage-os"
 BUILD_ROOT="$DIR/build/deb-os"
@@ -67,6 +68,12 @@ if [ "$NODE" = 1 ]; then
     mv "$BUILD_ROOT/usr/lib/safeer-os/node/LICENSE" "$BUILD_ROOT/usr/share/doc/safeer-os/nodejs/LICENSE"
     # bin/node: glibc >= 2.28 in libstdc++ (GLIBCXX_3.4.21) - objdump -T, 18. 10. 2026.
     NODE_ODVISNOSTI=", libc6 (>= 2.28), libstdc++6 (>= 5.2), libgcc-s1"
+fi
+# SAFEER_RQBIT_TOVOR=MAPA (CI: posel rqbit-deb): nas rqbit, motor torrentov (core/os_torrent.py ga uporabi namesto prenosa
+# z GitHuba). Uradni vir s pripetim SHA-256 in nasim popravkom za racunalnike brez IPv6 (packaging/rqbit); pred
+# namestitvijo se preveri zapis gradnje, SHA-256 programa, staticnost in razlicica. Staticen (musl): brez odvisnosti.
+if [ -n "${SAFEER_RQBIT_TOVOR:-}" ]; then
+    python3 "$DIR/packaging/rqbit/rqbit_paket.py" namesti "$SAFEER_RQBIT_TOVOR" "$BUILD_ROOT" "$PKG_NAME"
 fi
 sed -i 's|^Exec=safeer-os|Exec=/usr/bin/safeer-os|' "$BUILD_ROOT/usr/share/applications/safeer-os.desktop" \
     "$BUILD_ROOT/usr/share/applications/safeer-os.Player.desktop" \

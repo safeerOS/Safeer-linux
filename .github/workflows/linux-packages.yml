@@ -207,6 +207,47 @@ jobs:
           name: dav1d-deb
           path: build/dav1d/
           retention-days: 14
+  rqbit-deb:
+    # Nas rqbit (motor torrentov, core/os_torrent.py) za paket .deb Safeer OS: uradni vir v9.0.1, pripet z commitom in
+    # SHA-256 drevesa (packaging/rqbit/rqbit.json), z nasim popravkom packaging/rqbit/*.patch. Uradni program se na jedru
+    # brez IPv6 (ipv6.disable=1) ne zazene: odjemalec sledilnikov UDP veze [::]:0 tudi z --ipv4-only (lastnik, 18. 10.
+    # 2026: popravek takoj v nas paket in predlog gorvodno). Staticno (musl) kot uradne izdaje; gradnja samo ob novem
+    # viru ali popravku (kljuc), preizkus brez IPv6 ob vsakem teku.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Tools (musl for the build, seccomp for the test without IPv6)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends musl-tools python3-seccomp
+      - name: Restore rqbit (built earlier from the same source and patches)
+        id: rqbit
+        uses: actions/cache/restore@v4
+        with:
+          path: build/rqbit
+          key: rqbit-deb-${{ hashFiles('packaging/rqbit/**') }}
+      - name: Build rqbit from the pinned source with our patches
+        if: steps.rqbit.outputs.cache-hit != 'true'
+        run: python3 packaging/rqbit/rqbit_paket.py zgradi build/rqbit
+      - name: Save rqbit
+        if: success() && steps.rqbit.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: build/rqbit
+          key: rqbit-deb-${{ hashFiles('packaging/rqbit/**') }}
+      - name: Check the build and download a torrent without IPv6
+        # Runner ima IPv6: seccomp (--brez-ipv6) da socket(AF_INET6) napako EAFNOSUPPORT kot jedro z ipv6.disable=1.
+        # Lokalni sledilnik UDP, seme in prenos z motorjem Safeer (core/os_torrent.py), tok z Range - brez interneta.
+        run: |
+          /usr/bin/python3 packaging/rqbit/rqbit_paket.py preveri build/rqbit
+          /usr/bin/python3 packaging/rqbit/rqbit_paket.py dim build/rqbit/rqbit --brez-ipv6 > "$RUNNER_TEMP/dim.json"
+          cat "$RUNNER_TEMP/dim.json"
+          echo "::notice::rqbit brez IPv6: $(python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); print("zagon %ss, prenos %s B v %ss, najave %s" % (d["zagon_s"], d["bajtov"], d["prenos_s"], len(d["najave"])))' "$RUNNER_TEMP/dim.json")"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rqbit-deb
+          path: build/rqbit/
+          retention-days: 14
   brskalnik:
     # Safeer Browser na GTK4 (safeer_brskalnik.py) in WebKitGTK 6.0: .deb in AppImage za Linux Mint 22 / Ubuntu 24.04
     # naprej (kot Safeer OS). Paket .deb (amd64) ima nas WebKitGTK in libsoup iz posla webkit-deb v
@@ -297,8 +338,9 @@ jobs:
   safeer-os:
     # Safeer OS na GTK4 + WebKitGTK 6.0 z lupino v Qt Quick (en proces). Ubuntu 24.04 je osnova Linux Mint 22 - prve
     # razlicice Minta z WebKitGTK 6.0 (Mint 21 ga nima; lastnik 14. 10. 2026: .deb za Mint 22+, PySide6 v paketu).
-    # Paket .deb (amd64) ima nas WebKitGTK in libsoup iz posla webkit-deb v /usr/lib/safeer-os/webkit, dav1ddec iz dav1d-deb.
-    needs: [webkit-deb, dav1d-deb]
+    # Paket .deb (amd64) ima nas WebKitGTK in libsoup iz posla webkit-deb v /usr/lib/safeer-os/webkit, dav1ddec iz dav1d-deb,
+    # nas rqbit iz rqbit-deb v /usr/lib/safeer-os/rqbit.
+    needs: [webkit-deb, dav1d-deb, rqbit-deb]
     runs-on: ubuntu-24.04
     container:
       image: ubuntu:24.04
@@ -321,6 +363,10 @@ jobs:
         with:
           name: dav1d-deb
           path: build/dav1d
+      - uses: actions/download-artifact@v8
+        with:
+          name: rqbit-deb
+          path: build/rqbit
       - name: Libraries of our WebKitGTK (dpkg-shlibdeps)
         run: bash packaging/webkit-deb/knjiznice.sh
       - uses: actions/setup-node@v5
@@ -341,7 +387,9 @@ jobs:
         # Od 12. 10. 2026 je za Linux en sam paket .deb: ena namestitev (tudi z dvoklikom v GDebi), ena posodobitev.
         # mint-themes je le priporocilo, zato se paket tu namesti tudi na Ubuntu 24.04 brez priporocenih paketov.
         run: |
-          SAFEER_DRM_TOVOR="$PWD/build/safeer-drm" SAFEER_DAV1D=build/dav1d SAFEER_WEBKIT_TAR=build/webkit-safeer-os.tar.zst bash build_os_deb.sh
+          # Artefakt ne ohrani pravic datotek: program rqbit spet izvrsljiv (namesti ga preveri pred vgradnjo).
+          chmod 755 build/rqbit/rqbit
+          SAFEER_RQBIT_TOVOR="$PWD/build/rqbit" SAFEER_DRM_TOVOR="$PWD/build/safeer-drm" SAFEER_DAV1D=build/dav1d SAFEER_WEBKIT_TAR=build/webkit-safeer-os.tar.zst bash build_os_deb.sh
           OS="./safeer-os_$(cat packaging/VERSION_OS)_amd64.deb"
           dpkg-deb -f "$OS" Package Version Architecture Depends Recommends Provides Replaces
           DEB="$OS"
@@ -355,6 +403,12 @@ jobs:
           dpkg-deb -c "$OS" | grep -F './usr/share/doc/safeer-os/safeer-drm/OBVESTILO.txt'
           if dpkg-deb -c "$OS" | grep -E 'WidevineCdm|libwidevinecdm'; then echo "::error::Widevine CDM je v paketu"; exit 1; fi
           dpkg-deb -f "$OS" Depends | grep -F 'libnss3'
+          # Nas rqbit (posel rqbit-deb) z licenco, obvestilom in popravkom; v PATH ga ni.
+          dpkg-deb -c "$OS" | grep -E '^-rwxr-xr-x .* \./usr/lib/safeer-os/rqbit/rqbit$'
+          dpkg-deb -c "$OS" | grep -F './usr/share/doc/safeer-os/rqbit/LICENSE'
+          dpkg-deb -c "$OS" | grep -F './usr/share/doc/safeer-os/rqbit/LICENSES-THIRD-PARTY.txt'
+          dpkg-deb -c "$OS" | grep -F './usr/share/doc/safeer-os/rqbit/ipv4-fallback-without-ipv6.patch'
+          if dpkg-deb -c "$OS" | grep -E '\./usr/(local/)?s?bin/rqbit$'; then echo "::error::rqbit v PATH"; exit 1; fi
           echo "::notice::$(stat -c '%n %s B' "$OS") | namesceno $(dpkg-deb -f "$OS" Installed-Size) KiB"
           # Polja paketa so v obliki dpkg (beta 2.1.83-beta.1 -> 2.1.83~beta.1, packaging/deb_razlicica.sh; stabilna enaka).
           dpkg-deb -f "$OS" Version | grep -Fx "$(bash packaging/deb_razlicica.sh "$(cat packaging/VERSION_OS)")"
@@ -374,6 +428,14 @@ jobs:
             /usr/bin/python3 -c "import sys; sys.path.insert(0, '$koren'); from core import node_izvajalnik as n; p = n.pot(sistemski=False); assert p == '/usr/lib/safeer-os/node/bin/node', p"
           done
           echo "::notice::Node.js v$NODE_RAZLICICA v paketu: $(du -sh /usr/lib/safeer-os/node | cut -f1)"
+          # Namesceni rqbit je program iz posla rqbit-deb (SHA-256 iz zapisa gradnje); Safeer OS in Safeer Control ga
+          # uporabita namesto prenosa z GitHuba.
+          RQBIT_SHA="$(python3 -c 'import json; print(json.load(open("build/rqbit/gradnja.json"))["program_sha256"])')"
+          echo "$RQBIT_SHA  /usr/lib/safeer-os/rqbit/rqbit" | sha256sum -c -
+          /usr/lib/safeer-os/rqbit/rqbit --version | tee /dev/stderr | grep -Fx "rqbit $(python3 -c 'import json; print(json.load(open("packaging/rqbit/rqbit.json"))["razlicica"])')"
+          for koren in /usr/lib/safeer-os /usr/lib/safeer-control; do
+            /usr/bin/python3 -c "import sys; sys.path.insert(0, '$koren'); from core import os_torrent as t; p = t.pot_programa(); assert p == '/usr/lib/safeer-os/rqbit/rqbit', p; assert t.program_na_voljo()"
+          done
           xvfb-run -a safeer-os --version | tee /dev/stderr | grep -Fx "Safeer OS $(cat packaging/VERSION_OS)"
           python3 packaging/safeer_drm_paket.py preveri /usr/lib/safeer-os/safeer-drm
           /usr/bin/python3 -c "import sys; sys.path.insert(0, '/usr/lib/safeer-os'); from core import safeer_drm as d; e = d.izvrsljiva(); print('Safeer DRM:', e); assert str(e) == '/usr/lib/safeer-os/safeer-drm/safeer-drm', e"
