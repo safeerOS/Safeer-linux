@@ -100,6 +100,17 @@ class Kanali(unittest.TestCase):
             self.k.kanali.vklopi(k["id"], False)
         return k["id"]
 
+    def _po_zacetnem_nalaganju(self, kid):
+        """Pogled kanala, ko je njegovo zacetno nalaganje koncano. Kanal ob nastanku sam nalozi svoj naslov; brez omrezja
+        (zaprt posrednik) mu sledi stran z napako (core/network_errors.py). load-failed zacetne navigacije lahko pride
+        sele PO load_html preizkusa in stran z napako ga prepise - tekma, ki je v polnem naboru 18. 10. 2026 podrla
+        preizkus mostu (poskus: 2 od 56 pri load_html 25-35 ms po nastanku kanala). Vsebino preizkusa zato nalozimo
+        sele na mirujoc pogled s stranjo z napako (kot preizkus mesta nad stranjo)."""
+        pogled = self.k.zivi[kid].aplikacija.pogled
+        self.assertTrue(_cakaj(lambda: getattr(pogled, "_safeer_load_failed", False) and not pogled.is_loading()
+                               and (pogled.get_title() or "").endswith(" — Safeer"), 15), "zacetno nalaganje kanala")
+        return pogled
+
     def test_zagon_nalozi_vklopljene_zaporedoma(self):
         a, b, c = self._lasten("a"), self._lasten("b", vklopljen=False), self._lasten("c")
         self.k.zazeni_vse()
@@ -129,7 +140,7 @@ class Kanali(unittest.TestCase):
         kid = self._lasten("ana")
         self.k.zazeni_vse()
         self.assertTrue(_cakaj(lambda: kid in self.k.zivi))
-        pogled = self.k.zivi[kid].aplikacija.pogled
+        pogled = self._po_zacetnem_nalaganju(kid)
         pogled.load_html("<!doctype html><title>Klepet</title>", IZVOR + "ana")
         self.assertTrue(_cakaj(lambda: pogled.get_title() == "Klepet"))
         self.dogodki.clear()
@@ -157,7 +168,7 @@ class Kanali(unittest.TestCase):
         a, b = self._lasten("most-a"), self._lasten("most-b")
         self.k.zazeni_vse()
         self.assertTrue(_cakaj(lambda: a in self.k.zivi and b in self.k.zivi))
-        pa, pb = self.k.zivi[a].aplikacija.pogled, self.k.zivi[b].aplikacija.pogled
+        pa, pb = self._po_zacetnem_nalaganju(a), self._po_zacetnem_nalaganju(b)
         for p, ime in ((pa, "most-a"), (pb, "most-b")):
             p.load_html("<!doctype html><title>x</title>", IZVOR + ime)
         self.assertTrue(_cakaj(lambda: pa.get_title() == "x" and pb.get_title() == "x"))
@@ -223,7 +234,7 @@ class Kanali(unittest.TestCase):
         self.k.zazeni_vse()
         self.assertTrue(_cakaj(lambda: kid in self.k.zivi))
         self.splet.zasciteni_podatki = self.k.zasciteni
-        kanal = self.k.zivi[kid].aplikacija.pogled
+        kanal = self._po_zacetnem_nalaganju(kid)
         tuj = self.splet.nov_zavihek()
         self.addCleanup(self.splet.zapri_zavihek, tuj)
         shrani = "<!doctype html><title>x</title><script>localStorage.setItem('k','v');document.title='ok'</script>"
@@ -280,7 +291,7 @@ class Kanali(unittest.TestCase):
         kid = self._lasten("tiki")
         self.k.zazeni_vse()
         self.assertTrue(_cakaj(lambda: kid in self.k.zivi))
-        pogled = self.k.zivi[kid].aplikacija.pogled
+        pogled = self._po_zacetnem_nalaganju(kid)
         self.assertIsNone(self.k.zivi[kid].gradnik.get_parent(), "kanal ni prikazan")
         pogled.load_html(TIKI, IZVOR + "tiki")
         self.assertTrue(_cakaj(lambda: (pogled.get_title() or "").startswith("tiki")))
