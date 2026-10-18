@@ -2,6 +2,7 @@
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 import safeer_brskalnik as b
 
@@ -32,8 +33,9 @@ class Seja(unittest.TestCase):
 
 class Okno(unittest.TestCase):
     def test_splet_v_oknu_z_drm_in_temnim(self):
-        with tempfile.TemporaryDirectory() as d:
-            os.environ["XDG_CONFIG_HOME"] = d
+        # XDG_CONFIG_HOME velja samo za ta preizkus: brez obnove bi vsi naslednji preizkusi v istem procesu pisali
+        # nastavitve v ze izbrisano zacasno mapo (ali v napacno, ce jo kdo znova ustvari).
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": d}):
             app = b.SafeerBrskalnik()
             # Lasten ID: vsi preizkusi tecejo v enem procesu na vodilu seje - drugi primerek z istim ID je padel z
             # »already exported ... org.gtk.Application«, pravi tekoci Safeer Browser pa bi prevzel klic (18. 10. 2026).
