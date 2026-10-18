@@ -100,9 +100,12 @@ NAJVEC_MESH_SPOROCILO = 1024 * 1024
 #: prejela, je ziva: ponovni klic istega soseda (isti Hub pod drugim id-jem, npr. `n-x` in `n-x-control`) je ne
 #: zamenja - sicer povezava niha in odgovori gredo v zaprto vticnico (tablica, 17. 10. 2026).
 ZIVA_SOSEDNJA_S = 15.0
-#: Brez vsakega okvirja toliko casa (dva zamujena utripa in nas ping po 25 s tisine) je dohodna sosednja povezava
-#: polodprta: zapremo jo, da gre ukaz v hipu v "ni_poti" in Mesh soseda poklice znova (prej sele po ~100 s).
-TIHI_SOSED_S = 30.0
+#: Brez vsakega prejetega bajta toliko casa (trije zamujeni utripi in nas ping po 25 s tisine) je dohodna sosednja
+#: povezava polodprta: zapremo jo, da gre ukaz v "ni_poti" in Mesh soseda poklice znova (prej sele po ~100 s).
+#: 30 s je pongu na nas ping (po 25 s) pustilo samo 5 s. Meritev 18. 10. 2026 (pravi link_ws.Povezava, rele kot
+#: skupno ozko grlo z oddajo datoteke): pong pride v 2,4 s (1 Mbit/s, medpomnilnik 256 KiB), 4,5 s (0,5 Mbit/s),
+#: 8,8 s (0,25 Mbit/s ali 1 Mbit/s z 1 MiB) - zdrava povezava bi se zaprla. 40 s: 15 s za pong, 6 s rezerve nad 8,8 s.
+TIHI_SOSED_S = 40.0
 
 #: Safeer Chat: najvec cakajocih sporocil na napravo in koliko casa pocakajo.
 KLEPET_NA_NAPRAVO = 100

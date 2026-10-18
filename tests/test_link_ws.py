@@ -242,5 +242,31 @@ class SondaNeZapre(unittest.TestCase):
         self.assertEqual(self.p._bajtov, 0, "sonda ne sme pokvariti stetja bajtov v vrsti")
 
 
+class TihaSosednja(unittest.TestCase):
+    """Sosednja povezava prek pocasnega releja ne sme veljati za tiho, dokler bajti prihajajo (18. 10. 2026)."""
+
+    def test_dolg_okvir_po_kosih_steje_kot_zivljenje(self):
+        a, b = socket.socketpair()
+        p = link_ws.Povezava(a, "127.0.0.1", lambda *_a: None)
+        threading.Thread(target=p.zanka_branja, daemon=True).start()
+        try:
+            okvir = _maskiran(link_ws.OPKODA_BESEDILO, b"x" * 300000)
+            b.sendall(okvir[:2000])
+            time.sleep(0.2)
+            prej = p.zadnji_prejem
+            b.sendall(okvir[2000:4000])          # sredi okvirja: glave ni, bajti pa so prisli
+            time.sleep(0.2)
+            self.assertGreater(p.zadnji_prejem, prej)
+        finally:
+            p.zapri()
+            for v in (a, b):
+                v.close()
+
+    def test_pong_ima_cas_pocasnega_releja(self):
+        # Ping gre po PING_VSAKIH_S tisine; izmerjen pong prek releja z oddajo na isti poti je do 8,8 s.
+        from core import link_hub_streznik as lhs
+        self.assertGreaterEqual(lhs.TIHI_SOSED_S - link_ws.PING_VSAKIH_S, 15.0)
+
+
 if __name__ == "__main__":
     unittest.main()
