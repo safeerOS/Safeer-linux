@@ -297,6 +297,10 @@ def lan_naslov_za(cilj_ip: str) -> str:
         sock.close()
 
 
+class _SledeniStreznik(os_deskriptorji.SledenjePovezav, ThreadingHTTPServer):
+    pass
+
+
 class StreznikDatotek:
     """Začasni HTTP strežnik, ki razkrije samo izbrano datoteko pod skrivnim žetonom."""
     def __init__(self, pot: str | os.PathLike[str], naslov_lan: str):
@@ -356,14 +360,14 @@ class StreznikDatotek:
                                 break
                             try:
                                 self.wfile.write(kos)
-                            except (BrokenPipeError, ConnectionResetError):
-                                return  # zvocnik je prekinil (npr. premik) - obicajno
+                            except OSError:
+                                return  # zvocnik je prekinil (npr. premik) ali je streznik ustavljen - obicajno
                             ostane -= len(kos)
             def do_GET(self) -> None:
                 self._serve(False)
             def do_HEAD(self) -> None:
                 self._serve(True)
-        self._server = ThreadingHTTPServer((self.naslov_lan, 0), Handler)
+        self._server = _SledeniStreznik((self.naslov_lan, 0), Handler)
         self._server.daemon_threads = True
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
@@ -380,6 +384,8 @@ class StreznikDatotek:
         if self._server:
             self._server.shutdown()
             self._server.server_close()
+            # Povezava zvocnika (v premoru ne bere) bi sicer z nitjo in odprto datoteko ostala (pregled 18. 10. 2026).
+            self._server.zapri_povezave()
         if self._thread:
             self._thread.join(timeout=2)
         self._server = None

@@ -234,6 +234,58 @@ def zapri_vticnik(vticnik) -> None:
         pass
 
 
+class SledenjePovezav:
+    """Mesanica za socketserver.ThreadingMixIn streznik (pred ThreadingHTTPServer): ve za vsako odprto povezavo
+    zahteve, da jih `zapri_povezave()` ob ustavitvi prekine. shutdown()/server_close() streznika zapreta samo
+    poslusalni vticnik - povezava toka (zvocnik v premoru ne bere, brez roka po glavah) je sicer z nitjo, cevjo
+    ffmpeg in odprto datoteko ostala za vedno (pregled 18. 10. 2026). Po zapri_povezave() novih ne sprejme vec."""
+
+    def __init__(self, *a, **k) -> None:
+        self._povezave_zaklep = threading.Lock()
+        self._povezave: set = set()
+        self._povezave_zaprte = False
+        super().__init__(*a, **k)  # type: ignore[call-arg]
+
+    def process_request(self, request, client_address) -> None:
+        with self._povezave_zaklep:
+            sprejmi = not self._povezave_zaprte
+            if sprejmi:
+                self._povezave.add(request)
+        if not sprejmi:
+            self.shutdown_request(request)  # type: ignore[attr-defined]
+            return
+        super().process_request(request, client_address)  # type: ignore[misc]
+
+    def shutdown_request(self, request) -> None:
+        with self._povezave_zaklep:
+            self._povezave.discard(request)
+        super().shutdown_request(request)  # type: ignore[misc]
+
+    def odprtih_povezav(self) -> int:
+        with self._povezave_zaklep:
+            return len(self._povezave)
+
+    def zapri_povezave(self, rok_s: float = 2.0) -> None:
+        """shutdown(SHUT_RDWR) zbudi nit, ki pise ali bere, in ta povezavo pospravi sama (shutdown_request); kar v
+        roku ne odide, se zapre tu. close() Pythonovega vticnika je varen: deskriptor zapre samo enkrat (in sele, ko
+        so zaprte tudi datoteke makefile niti), nikoli tuje, ze ponovno uporabljene stevilke."""
+        with self._povezave_zaklep:
+            self._povezave_zaprte = True
+            povezave = list(self._povezave)
+        for v in povezave:
+            zapri_vticnik(v)
+        konec = time.monotonic() + rok_s
+        while self.odprtih_povezav() and time.monotonic() < konec:
+            time.sleep(0.02)
+        with self._povezave_zaklep:
+            ostale, self._povezave = list(self._povezave), set()
+        for v in ostale:
+            try:
+                v.close()
+            except OSError:
+                pass
+
+
 # ---------------------------------------------------------------------------- sprejemanje povezav
 
 #: Napake accept(), po katerih poslusalec ostane uporaben: zmanjkalo je deskriptorjev ali pomnilnika (mine, ko se
