@@ -1772,7 +1772,7 @@
       if (!vnosi.length) { obvesti(t("katNapakaVira")); return; }
       prekliciNaslednjo();
       // Vrsta strani v stalnem vrstnem redu; mesa samo gumb »Premesaj« (naslednjiVVrsti).
-      kat.vrsta = vnosi.map(function (v) { return v.id; }); kat.vrstaVnosi = vnosi; kat.vrstaMesto = 0; kat.vrstaZgodovina = [];
+      kat.vrsta = vnosi.map(function (v) { return v.id; }); kat.vrstaVnosi = vnosi; kat.vrstaMesto = 0; kat.vrstaZgodovina = []; kat.vrstaNapake = 0;
       narisiVrsto();
       odpriKatalogVnos(vnosi[0].id);
     }, function () { obvesti(t("katNapakaVira")); });
@@ -1962,7 +1962,7 @@
         if (stevilka === mesto) b.setAttribute("aria-current", "true");
         b.addEventListener("click", function () {
           if (stevilka === kat.vrstaMesto) return;
-          (kat.vrstaZgodovina = kat.vrstaZgodovina || []).push(kat.vrstaMesto);
+          zapomniMestoVrste();
           kat.vrstaMesto = stevilka; kat.izVrste = true; narisiVrsto(); odpriKatalogVnos(v.id);
         });
         vrstaEl.appendChild(b);
@@ -5223,7 +5223,7 @@
               aktivni: null, zahteva: 0, timer: 0, kljuc: "", razvrsti: "", izklopljeni: {}, znaniViri: {},
               jezikVsebine: "", jezikiZa: null, seznami: [], seznam: null,
               drzavaRadia: "", radioDrzave: null, radioDrzaveZa: "",
-              vrsta: [], vrstaMesto: 0, vrstaZgodovina: [], izVrste: false,
+              vrsta: [], vrstaMesto: 0, vrstaZgodovina: [], vrstaNapake: 0, izVrste: false,
               igra: false, nalozen: false, zanri: null, zahtevaPredvajanja: 0, knjiznica: [], zahtevaKnjiznice: 0 };
   // Kategorije Medijskega centra (zgoraj) -> vrsta v katalogu; slike so samo krajevne.
   var KAT_VRSTE = { vse: "vse", glasba: "glasba", video: "video", filmi: "film", serije: "serija", tv: "tv-v-zivo", twitch: "twitch", radio: "radio", zasebno: "zasebno", slike: "", domov: "" };
@@ -6333,7 +6333,7 @@
     kat.vrsta = seznam.map(function (x) { return x.id; });
     kat.vrstaVnosi = seznam;
     kat.vrstaMesto = Math.max(0, kat.vrsta.indexOf(zacetni.id));
-    kat.vrstaZgodovina = [];
+    kat.vrstaZgodovina = []; kat.vrstaNapake = 0;
     narisiVrsto();
   }
   function naslednjiVVrsti(smer) {
@@ -6354,12 +6354,28 @@
   function predvajajIzVrste(smer) {
     var mesto = naslednjiVVrsti(smer);
     if (mesto == null) return false;
-    if (smer > 0) (kat.vrstaZgodovina = kat.vrstaZgodovina || []).push(kat.vrstaMesto);
+    if (smer > 0) zapomniMestoVrste();
     kat.vrstaMesto = mesto;
     narisiVrsto();
     kat.izVrste = true;
     odpriKatalogVnos(kat.vrsta[mesto]);
     return true;
+  }
+  // Zgodovina za »prejsnja« je omejena: dolgo poslusanje s »ponovi vse« je sicer rasla brez meje (pregled 18. 10. 2026).
+  var VRSTA_ZGODOVINA_NAJVEC = 200;
+  function zapomniMestoVrste() {
+    var z = kat.vrstaZgodovina = kat.vrstaZgodovina || [];
+    z.push(kat.vrstaMesto);
+    if (z.length > VRSTA_ZGODOVINA_NAJVEC) z.splice(0, z.length - VRSTA_ZGODOVINA_NAJVEC);
+  }
+  // Skladba v vrsti se ne da predvajati: tiho naprej. Steje zaporedne napake brez uspesnega predvajanja (pregled
+  // 18. 10. 2026): s »ponovi vse« ali »ponovi skladbo« bi vrsta, v kateri nic ne gre, sicer tiho krozila v nedogled.
+  // Ko pade vsaka skladba vrste (ponovi skladbo: dvakrat zapored), se vrsta tiho ustavi - lastnik: napak predvajalnika
+  // uporabniku ne izpisujemo; napake so v sled.log (core/os_katalog.yt_sporocilo).
+  function naprejPoNapaki() {
+    kat.vrstaNapake = (kat.vrstaNapake || 0) + 1;
+    var meja = vrstaNastavitev("ponovi", "0") === "1" ? 2 : Math.max(1, (kat.vrsta || []).length);
+    if (kat.vrstaNapake >= meja || !predvajajIzVrste(1)) { kat.vrstaNapake = 0; ustaviKatPredvajanje(); }
   }
   // Premešaj in ponovi veljata za vrsto, ki jo vodi stran (vsaj dve skladbi); stanje kaže spodnja vrstica (narisiTrak).
   function narisiVrsto() { narisiTrak(); }
@@ -6367,6 +6383,7 @@
   // predvajanje: [metoda, argumenti, tiho] namesto »mediaPredvajaj« z id (polica, naslednja epizoda); tiho = brez
   // obvestila, ce ni nicesar (ponudbo epizode je medtem ze zacelo ali preklicalo drugo okno).
   function odpriKatalogVnos(id, predvajanje) {
+    if (!kat.izVrste) kat.vrstaNapake = 0;      // izbira uporabnika (ne naslednja iz vrste): stevec napak od zacetka
     kat.izVrste = false;
     // Prenos, ki ga izdajatelj ponuja samo na svoji strani (npr. RTV SLO): odpremo ga v Spletu.
     var znan = id ? (kat.katalog || []).filter(function (x) { return x.id === id; })[0] : null;
@@ -8002,7 +8019,7 @@
     if (vrsta === "mediaKonec") naloziPolice();
     // Tipka ali daljinec »naslednja/prejšnja« pri skladbi iz kataloga: vrsto vodi stran.
     if (vrsta === "mediaVrstaUkaz" && kat.aktivni) predvajajIzVrste(Number(podatki) < 0 ? -1 : 1);
-    if (vrsta === "mediaYt" && zaAktivno) { kat.igra = !!podatki.igra; osveziKatTrak(); }
+    if (vrsta === "mediaYt" && zaAktivno) { kat.igra = !!podatki.igra; if (kat.igra) kat.vrstaNapake = 0; osveziKatTrak(); }
     if (vrsta === "mediaYtZaprt" && zaAktivno) { kat.vrsta = []; skrijKatTrak(); }
     if (vrsta === "mediaYtNapaka" && zaAktivno) {
       // Lastnik posnetka vgradnje ne dovoli (ali posnetka ni več): poiščemo drug posnetek iste skladbe, sicer naslednja.
@@ -8010,18 +8027,19 @@
       if (podatki && podatki.zamenjaj === false) {
         // Napaka dekoderja ali nastavitve: posnetka ne zamenjamo (18. 10. 2026), tiho naprej na naslednjo skladbo -
         // lastnik: napak predvajalnika uporabniku ne izpisujemo, lovilci napak poskrbijo za vsebino (sled je v sled.log).
-        if (!predvajajIzVrste(1)) ustaviKatPredvajanje();
+        naprejPoNapaki();
         return;
       }
       klic("mediaSeznamZamenjava", [skladba.id]).then(function (nova) {
         if (kat.aktivni !== skladba) return;
         if (nova && nova.youtube && nova.youtube !== skladba.youtube) { kat.izVrste = true; odpriKatalogVnos(skladba.id); return; }
-        if (!predvajajIzVrste(1)) ustaviKatPredvajanje();
-      }, function () { if (kat.aktivni === skladba && !predvajajIzVrste(1)) ustaviKatPredvajanje(); });
+        naprejPoNapaki();
+      }, function () { if (kat.aktivni === skladba) naprejPoNapaki(); });
     }
     // Stanje domačega predvajalnika: znak premora v traku sledi resničnemu stanju.
     if (vrsta === "predvajalnik" && kat.aktivni && kat.aktivni.zvok && !kat.aktivni.okno_youtube && podatki) {
       var igra = podatki.stanje === "predvaja";
+      if (igra) kat.vrstaNapake = 0;
       if (igra !== kat.igra) { kat.igra = igra; osveziKatTrak(); }
     }
   }

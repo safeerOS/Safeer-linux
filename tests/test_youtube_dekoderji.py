@@ -77,7 +77,57 @@ class SeznamiYoutubeTests(unittest.TestCase):
         odsek = js[i:i + 900]
         self.assertLess(odsek.index("podatki.zamenjaj === false"), odsek.index('klic("mediaSeznamZamenjava"'))
         # Lastnik: napak predvajalnika uporabniku ne izpisujemo - lovilci napak tiho poskrbijo za naslednjo vsebino.
-        self.assertNotIn("obvesti(", odsek[:odsek.index("ustaviKatPredvajanje")])
+        self.assertNotIn("obvesti(", odsek[:odsek.index("naprejPoNapaki()")])
+        self.assertNotIn("predvajajIzVrste(1)", odsek)          # vedno prek stevca napak (naprejPoNapaki)
+
+    def _vrsta(self, n, ponovi="0", ponovi_vse="1", napake=99):
+        """Simulacija vrste v node: prvih `napake` skladb pade (mediaYtNapaka), nato vse igrajo."""
+        import json
+        import shutil
+        import subprocess
+        if not shutil.which("node"):
+            self.skipTest("node ni namescen")
+        js = (KOREN / "assets/os/os.js").read_text(encoding="utf-8")
+
+        def fn(ime):
+            return "function %s(" % ime + js.split("  function %s(" % ime, 1)[1].split("\n  }\n", 1)[0] + "\n  }\n"
+        meja = js.split("var VRSTA_ZGODOVINA_NAJVEC = ", 1)[1].split(";", 1)[0]
+        koda = ("var VRSTA_ZGODOVINA_NAJVEC = " + meja + ";\n" + "".join(fn(x) for x in (
+            "naslednjiVVrsti", "predvajajIzVrste", "zapomniMestoVrste", "naprejPoNapaki")) + """
+var nast = %s, kat = { vrsta: [], vrstaMesto: 0, vrstaZgodovina: [], vrstaNapake: 0 }, odprtih = 0, ustavljeno = 0;
+for (var i = 0; i < %d; i++) kat.vrsta.push("s" + i);
+function vrstaNastavitev(k, p) { return k in nast ? nast[k] : p; }
+function narisiVrsto() {}
+function ustaviKatPredvajanje() { ustavljeno++; kat.vrsta = []; }
+function odpriKatalogVnos(id) { odprtih++; }
+var napake = %d, korakov = 0;
+odprtih = 1;
+while (kat.vrsta.length && korakov < 1000) {
+  korakov++;
+  if (napake > 0) { napake--; naprejPoNapaki(); }
+  else { kat.vrstaNapake = 0; if (!predvajajIzVrste(1)) break; }   // mediaYt igra, nato mediaKonec
+}
+console.log(JSON.stringify({ odprtih: odprtih, ustavljeno: ustavljeno, korakov: korakov, zgodovina: kat.vrstaZgodovina.length }));
+""" % (json.dumps({"ponovi": ponovi, "ponoviVse": ponovi_vse}), n, napake))
+        izid = subprocess.run(["node", "-e", koda], capture_output=True, text=True, check=True).stdout
+        return json.loads(izid)
+
+    def test_vrsta_brez_delujocih_skladb_se_tiho_ustavi(self):
+        """Regresija (pregled 18. 10. 2026): s »ponovi vse« ali »ponovi skladbo« vrsta, v kateri vse pade, ni vec
+        krozila v nedogled - ustavi se, ko je vsaka skladba enkrat padla (ponovi skladbo: po dveh napakah)."""
+        self.assertEqual(self._vrsta(5), {"odprtih": 5, "ustavljeno": 1, "korakov": 5, "zgodovina": 4})
+        self.assertEqual(self._vrsta(1)["ustavljeno"], 1)
+        r = self._vrsta(5, ponovi="1")
+        self.assertEqual((r["odprtih"], r["ustavljeno"]), (2, 1))
+        r = self._vrsta(5, ponovi_vse="0")
+        self.assertEqual((r["odprtih"], r["ustavljeno"]), (5, 1))
+
+    def test_uspeh_ponastavi_stevec_in_zgodovina_omejena(self):
+        # 3 napake, nato vse igra: vrsta (ponovi vse) tece naprej do omejitve zanke; zgodovina ostane omejena
+        r = self._vrsta(4, napake=3)
+        self.assertEqual(r["ustavljeno"], 0)
+        self.assertEqual(r["korakov"], 1000)
+        self.assertEqual(r["zgodovina"], 200)
 
 
 if __name__ == "__main__":
