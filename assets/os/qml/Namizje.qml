@@ -1432,4 +1432,56 @@ Item {
         }
         Timer { id: skrijObv; interval: 6000; onTriggered: obvestilo.opacity = 0 }
     }
+
+    // ------------------------------------------------------------------ Safeer OS se znova zaganja
+    // Lupina namizja tece v svojem procesu (core/lupina_proces.py): ce se Safeer OS sesuje ali zamrzne, namizje ostane in
+    // varuh (core/varuh_procesov.py) ga zazene znova. Do takrat to obvestilo (dogodek »osStanje«); ozadje, ura in programi
+    // sistema delajo naprej. Ko je Safeer OS spet tu (ponovno), se pripomocki, ki ga rabijo, osvezijo.
+    property string osStanje: ""
+    Connections {
+        target: Most
+        function onDogodek(vrsta, podatki) {
+            if (vrsta !== "osStanje") return
+            var p = null
+            try { p = JSON.parse(podatki) } catch (e) {}
+            if (!p) return
+            koren.osStanje = String(p.stanje || "")
+            if (p.ponovno && koren.osStanje === "") {
+                programi.osveziTiho(); koren.osveziMedij(); koren.osveziLink(); koren.osveziSporocila()
+                koren.klic("videzNamizja", [], function (v) { koren.uporabiVidez(v) })
+            }
+        }
+    }
+    Rectangle {
+        id: stanjeOs
+        objectName: "stanjeOs"
+        z: 25
+        visible: koren.osStanje !== ""
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: koren.height - koren.robSpodaj - koren.px(124)
+        height: Math.max(koren.px(40), vrsticaStanja.height + koren.px(12)); radius: height / 2
+        width: vrsticaStanja.width + koren.px(32)
+        color: koren.plosca(0.96)
+        border.color: koren.osStanje === "obupal" ? koren.paleta.opozorilo : koren.crta(0.2)
+        Accessible.role: Accessible.AlertMessage
+        Accessible.name: napisStanja.text
+        Row {
+            id: vrsticaStanja; anchors.centerIn: parent; spacing: koren.px(14)
+            Text {
+                id: napisStanja
+                anchors.verticalCenter: parent.verticalCenter
+                color: koren.paleta.besedilo; font.pixelSize: koren.px(13)
+                text: koren.osStanje === "obupal" ? koren.t("osUstavljen")
+                    : koren.osStanje === "pomnilnik" ? koren.t("osCakaPomnilnik")
+                    : koren.osStanje === "zaganja" ? koren.t("osSeZaganja") : koren.t("osSeZnovaZaganja")
+            }
+            Gumb {
+                objectName: "osZazeniZnova"
+                visible: koren.osStanje === "obupal"
+                anchors.verticalCenter: parent.verticalCenter
+                besedilo: koren.t("osZazeniZnova")
+                onKlik: koren.klic("varuhZnova", [])
+            }
+        }
+    }
 }

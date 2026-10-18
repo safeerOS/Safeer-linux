@@ -35,6 +35,10 @@ POGLED_S = 20
 NEDEJAVEN_S = 120
 #: Shranjeno stanje velja toliko sekund (stara datoteka ne sme obnoviti zavihkov ob naslednjem dnevu).
 STANJE_VELJA_S = 600
+#: Stanje za obnovo po sesutju (varuh, core/varuh_procesov.py): Safeer OS ga posname ob vsaki spremembi, zato je lahko
+#: starejse od STANJE_VELJA_S, ce se dolgo ni nic spremenilo. Obnovi se samo ob ponovnem zagonu, ki ga sprozi varuh.
+OBNOVA = "obnova.json"
+OBNOVA_VELJA_S = 24 * 3600
 NAJVEC_ZAVIHKOV = 50
 #: Procesi, med katerimi namestitev paketov se tece (comm, najvec 15 znakov).
 NAMESCANJE = ("dpkg", "apt", "apt-get", "aptitude", "unattended-upgr", "synaptic")
@@ -328,14 +332,14 @@ def zaposlenost_pogledov(Gtk, WebKit, okna: Optional[Iterable] = None) -> str:
 
 
 # ---------------------------------------------------------------------------------------------- shranjeno stanje
-def pot_stanja(program: str) -> str:
+def pot_stanja(program: str, ime: str = "nova-razlicica.json") -> str:
     """Vsak program svojo datoteko (Safeer OS in Control v istem procesu: Control ne sme prebrati stanja Safeer OS)."""
     koren = os.environ.get("SAFEER_NOVA_RAZLICICA_MAPA") or os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid()
-    return os.path.join(koren, program, "nova-razlicica.json")
+    return os.path.join(koren, program, ime)
 
 
-def shrani_stanje(program: str, stanje: dict) -> bool:
-    pot = pot_stanja(program)
+def shrani_stanje(program: str, stanje: dict, ime: str = "nova-razlicica.json") -> bool:
+    pot = pot_stanja(program, ime)
     try:
         os.makedirs(os.path.dirname(pot), mode=0o700, exist_ok=True)
         zacasna = pot + ".tmp"
@@ -349,9 +353,10 @@ def shrani_stanje(program: str, stanje: dict) -> bool:
         return False
 
 
-def preberi_stanje(program: str, razlicica: str = "") -> dict:
+def preberi_stanje(program: str, razlicica: str = "", ime: str = "nova-razlicica.json",
+                   velja_s: float = STANJE_VELJA_S) -> dict:
     """Shranjeno stanje (in datoteko izbrise); {} ce ga ni, je staro ali za drugo razlicico."""
-    pot = pot_stanja(program)
+    pot = pot_stanja(program, ime)
     try:
         with open(pot, encoding="utf-8") as d:
             stanje = json.load(d)
@@ -362,7 +367,7 @@ def preberi_stanje(program: str, razlicica: str = "") -> dict:
             os.remove(pot)
         except OSError:
             pass
-    if not isinstance(stanje, dict) or time.time() - float(stanje.get("cas") or 0) > STANJE_VELJA_S:
+    if not isinstance(stanje, dict) or time.time() - float(stanje.get("cas") or 0) > velja_s:
         return {}
     if razlicica and stanje.get("v") and stanje.get("v") != razlicica:
         return {}

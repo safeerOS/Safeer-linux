@@ -62,6 +62,17 @@ fi
 if [ -n "${SAFEER_OS_BREZ_NADZORA:-}" ]; then
     exec "$PY" "$APP_DIR/safeer_os.py" "$@"
 fi
+# Delovna povrsina (--delovna, ob prijavi): lupina namizja (core/lupina_proces.py) in Safeer OS tecejo vsak v svojem
+# procesu pod varuhom procesov (core/varuh_procesov.py; lastnik, 18. 10. 2026): sesutje ali zamrznitev Safeer OS ne podre
+# namizja, varuh zazna tudi zamrznitev (utrip), znova zazene samo proces, ki je odpovedal, omeji ponovne zagone in pazi
+# na pomnilnik. Sled gre v isti sled.log, nova razlicica (koda 75) zazene ta zaganjalnik nove razlicice.
+# SAFEER_LOCENA_LUPINA=0: namizje v procesu Safeer OS (kot do 1.0.126), varuh ostane.
+for arg in "$@"; do
+    if [ "$arg" = "--delovna" ]; then
+        export SAFEER_ZAGANJALNIK="$PRG"
+        exec "$PY" "$APP_DIR/core/varuh_procesov.py" "$@"
+    fi
+done
 
 DNEVNIK="${XDG_CACHE_HOME:-$HOME/.cache}/safeer-os/dnevnik.log"
 mkdir -p "$(dirname "$DNEVNIK")" 2>/dev/null

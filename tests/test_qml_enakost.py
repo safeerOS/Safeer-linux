@@ -64,7 +64,9 @@ NI_PRENESENO = {
 
 class Pokritost(unittest.TestCase):
     def test_vse_metode_qml_imajo_pot_v_safeer_os(self):
-        vir = _beri("safeer_os.py") + _beri("core", "os_lupina.py") + _beri("core", "os_katalog.py")
+        # core/lupina_proces.py: lupina v svojem procesu streze sama varuhZnova (gumb »Zazeni znova«) in zazeni brez OS.
+        vir = _beri("safeer_os.py") + _beri("core", "os_lupina.py") + _beri("core", "os_katalog.py") + \
+            _beri("core", "lupina_proces.py")
         manjka = sorted(m for m in _metode(_vsi_qml()) if '"%s"' % m not in vir)
         self.assertEqual(manjka, [], "QML klice metode, ki je most ne pozna")
 

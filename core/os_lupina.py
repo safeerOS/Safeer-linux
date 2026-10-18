@@ -15,7 +15,6 @@ Vklop: SAFEER_LUPINA=qml (privzeto, ce je PySide6 na voljo) ali html (prejsnja d
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import itertools
 import json
 import os
@@ -292,8 +291,17 @@ def nastavi_ozadje_sistema(pot: str, zazeni: Optional[Callable[[list], Any]] = N
 
 
 def _url(pot: str) -> str:
-    from PySide6.QtCore import QUrl
-    return QUrl.fromLocalFile(pot).toString() if pot else ""
+    """file:// naslov za QML Image. Brez Qt (proces Safeer OS, ko lupina tece v svojem procesu - core/lupina_streznik.py)
+    isti niz kot QUrl.fromLocalFile().toString(): presledek in znaki nad ASCII ostanejo, drugo kot v URL (preizkus
+    tests/test_lupina_locena.py primerja oba za vse tiskljive znake ASCII in sumnike)."""
+    if not pot:
+        return ""
+    try:
+        from PySide6.QtCore import QUrl
+    except ImportError:
+        from urllib.parse import quote
+        return "file://" + "".join(c if ord(c) > 127 else quote(c, safe="/!$&'()*+,;=:@~ ") for c in pot)
+    return QUrl.fromLocalFile(pot).toString()
 
 
 # ---------------------------------------------------------------------------------------- paleta (en vir: tokens.css)
@@ -407,6 +415,7 @@ def _mapa_ikon() -> Path:
 def ikona_v_url(ikona: str) -> str:
     """Ikona programa za QML Image: data:image;base64 -> datoteka v predpomnilniku, pot -> file:// URL."""
     import base64
+    import hashlib      # leni uvoz: OpenSSL je +3,8 MB, lupina v svojem procesu tega ne potrebuje (ikone pripravi Safeer OS)
     if not ikona:
         return ""
     if ikona.startswith("data:image/") and ";base64," in ikona:
@@ -565,7 +574,7 @@ class Namizje:
         self.okno = Okno(self.v_oknu)
         self.okno.rootContext().setContextProperty("Most", self.most)
         # Zmanjsano gibanje ze ob prvem izrisu (vstop panelov), ne sele po odgovoru »zacetek«.
-        self.okno.rootContext().setContextProperty("Gibanje", bool(dostopnost_sistema()["gibanje"]))
+        self.okno.rootContext().setContextProperty("Gibanje", self._gibanje_ob_zagonu())
         self.okno.setSource(QUrl.fromLocalFile(str(QML)))
         for napaka in self.okno.errors():
             print("[SafeerOS lupina]", napaka.toString(), flush=True)
@@ -702,15 +711,7 @@ class Namizje:
             # Brez Safeer Cinnamon (GNOME na Ubuntu 24.04, KDE …): velikost besedila in kontrast iz dostopnosti sistema.
             # Prej je namizje QML tam ostalo pri 100 % in brez kontrasta, ceprav je uporabnik oboje vklopil.
             sistem = dict(sistem, kontrast=dostopnost["kontrast"], tekstOdstotek=dostopnost["tekstOdstotek"])
-        razmerje = 1.0
-        if nativno_x11():
-            # Samo X11: tam Qt merilo zaslona izpelje iz Xft.dpi, ki ze vsebuje povecavo besedila (ne podvojimo).
-            # Na Waylandu je razmerje merilo monitorja (npr. 1,25) in z velikostjo besedila nima zveze.
-            try:
-                from PySide6.QtGui import QGuiApplication
-                razmerje = float(QGuiApplication.primaryScreen().devicePixelRatio())
-            except Exception:  # noqa: BLE001
-                razmerje = 1.0
+        razmerje = self._razmerje_zaslona()
         kontrast = bool(sistem.get("kontrast"))
         p = paleta(kontrast, merilo_besedila(sistem.get("tekstOdstotek") or 100, razmerje))
         v = videz_za_qml(self.os.shramba, os_sistem.ozadje_namizja() or "", jezik or so._jezik(), p)
@@ -721,6 +722,23 @@ class Namizje:
         from core.sporocila import vklop
         v["sporocila"] = vklop.sporocila_vklopljena()
         return v
+
+    def _gibanje_ob_zagonu(self) -> bool:
+        """Animacije ob prvem izrisu (zmanjsano gibanje). Lupina v svojem procesu (core/lupina_proces.py) jih dobi z
+        odgovorom »zacetek« (videz.gibanje iz Safeer OS) - tam Gtk ni nalozen in dostopnost_sistema bi vedno vrnila True."""
+        return bool(dostopnost_sistema()["gibanje"])
+
+    def _razmerje_zaslona(self) -> float:
+        """Razmerje pik primarnega zaslona za merilo besedila. Samo X11: tam Qt merilo zaslona izpelje iz Xft.dpi, ki ze
+        vsebuje povecavo besedila (ne podvojimo). Na Waylandu je razmerje merilo monitorja (npr. 1,25) in z velikostjo
+        besedila nima zveze. Lupina v svojem procesu (core/lupina_proces.py) ga pove Safeer OS ob povezavi."""
+        if not nativno_x11():
+            return 1.0
+        try:
+            from PySide6.QtGui import QGuiApplication
+            return float(QGuiApplication.primaryScreen().devicePixelRatio())
+        except Exception:  # noqa: BLE001
+            return 1.0
 
     def _spremljaj_temo(self) -> None:
         """Tema (Kontrast) in velikost besedila se spremenita v Nastavitvah ali ukazu safeer-cinnamon: namizje QML

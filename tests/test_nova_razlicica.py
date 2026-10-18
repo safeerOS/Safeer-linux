@@ -321,11 +321,14 @@ class ZagonNoveRazlicice(unittest.TestCase):
         (app / skripta).write_text(program)
         (app / "core" / "__init__.py").write_text("")
         (app / "core" / "os_stabilnost.py").write_text("def zabelezi_sesutje(*a, **k):\n    return 1\n")
+        # --delovna gre pod varuha procesov (core/varuh_procesov.py), ki koda 75 obravnava enako kot zanka zaganjalnika.
+        (app / "core" / "varuh_procesov.py").write_text((KOREN / "core" / "varuh_procesov.py").read_text())
         zag = Path(d) / "bin" / mapa_lib
         zag.write_text((KOREN / "packaging" / ime_zaganjalnika).read_text())
         zag.chmod(0o755)
+        (Path(d) / "run").mkdir(mode=0o700)
         okolje = dict(os.environ, XDG_CACHE_HOME=str(Path(d) / "cache"), PYTHON=sys.executable,
-                      SAFEER_OS_BREZ_FLATPAKA="1")
+                      SAFEER_OS_BREZ_FLATPAKA="1", XDG_RUNTIME_DIR=str(Path(d) / "run"))
         r = subprocess.run(["bash", str(zag), *argumenti], capture_output=True, text=True, timeout=120, env=okolje)
         return r, app
 
@@ -346,7 +349,18 @@ class ZagonNoveRazlicice(unittest.TestCase):
         self.assertTrue(zagoni[1].startswith("--delovna|"), zagoni[1])     # enkratni ukaz se ne ponovi
         for vrstica in zagoni:
             _arg, nadzor, stars = vrstica.split("|")
-            self.assertEqual(nadzor, stars, "zaganjalnik je stars in to pove")
+            self.assertEqual(nadzor, stars, "zaganjalnik (za --delovna varuh procesov) je stars in to pove")
+
+    def test_zaganjalnik_os_zazene_novega_brez_varuha(self):
+        """Drugi nacini (Safeer Player, okno) ostanejo v zanki zaganjalnika - koda 75 zazene nov zaganjalnik."""
+        r, app = self._zaganjalnik("safeer-os-launcher", "safeer-os", "safeer_os.py", self.PROGRAM % "SAFEER_OS_NADZOR",
+                                   ["--predvajalnik"])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        zagoni = (app / "zagoni").read_text().splitlines()
+        self.assertEqual([z.split("|")[0] for z in zagoni], ["--predvajalnik", "--predvajalnik"])
+        for vrstica in zagoni:
+            _arg, nadzor, stars = vrstica.split("|")
+            self.assertEqual(nadzor, stars)
 
     def test_zaganjalnik_control_zazene_novega(self):
         r, app = self._zaganjalnik("safeer-control-launcher", "safeer-control", "safeer_control.py",
@@ -376,8 +390,15 @@ class ShraniInObnovi(unittest.TestCase):
         servis = SimpleNamespace(trenutna=SimpleNamespace(uri=self.film.as_uri(), naslov="Film", vrsta="video"),
                                  stanje=stanje_predvajalnika, podatki=lambda: {"pozicija": 754.6, "trajanje": 5400})
         zavihek = {"pogled": SimpleNamespace(get_uri=lambda: "https://www.24ur.com/")}
-        return mock.Mock(_ponovni_zagon=False, _koncano=False, _nova_razlicica="0.4.86", _medijski_predvajalnik=servis,
-                         _spletni=SimpleNamespace(zavihki=[zavihek]), _spletni_namizje=None)
+        # Odprta okna Safeer OS (lupina v svojem procesu: obnova tudi po sesutju) - Zapiski odprti, Nastavitve skrite.
+        okna = {"zapiski": (SimpleNamespace(get_visible=lambda: True), None),
+                "nastavitve": (SimpleNamespace(get_visible=lambda: False), None)}
+        app = mock.Mock(_ponovni_zagon=False, _koncano=False, _nova_razlicica="0.4.86", _medijski_predvajalnik=servis,
+                        _spletni=SimpleNamespace(zavihki=[zavihek]), _spletni_namizje=None, okna_razdelkov=okna,
+                        okno_predvajalnik=None)
+        # Pravo zbiranje stanja (skupno za novo razlicico in obnovo po sesutju pod varuhom).
+        app._stanje_za_obnovo = lambda **kw: self.os_.SafeerOS._stanje_za_obnovo(app, **kw)
+        return app
 
     def test_shrani_konca_in_obnovi_ustavljeno(self):
         app = self._app("premor")
@@ -389,6 +410,7 @@ class ShraniInObnovi(unittest.TestCase):
         with mock.patch.object(self.os_, "RAZLICICA", "0.4.86"):
             self.os_.SafeerOS._obnovi_po_novi_razlicici(nova)
         nova._splet.assert_called_once_with("https://www.24ur.com/", True)
+        nova._odpri_okno_razdelka.assert_called_once_with("zapiski")
         args, kw = nova._predvajaj_neposredno.call_args
         self.assertEqual(args[0], self.film.as_uri())
         self.assertEqual((kw["zacetek"], kw["v_premoru"], kw["prikazi"], kw["vrsta"]), (754, True, False, "video"))
