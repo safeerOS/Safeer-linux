@@ -181,12 +181,14 @@ class MotorNaZahtevo(unittest.TestCase):
         pid = self.t._proces.pid
         self.assertEqual(snz.stanje()[0]["pidi"], [pid])
         self.assertEqual(self._beri(url), (206, bytes(range(100))))
+        # Posrednik zakljuci zahtevo (stevec odprtih tokov) malo za tem, ko odjemalec dobi podatke.
+        self.assertTrue(_cakaj(lambda: self.t._aktivni_tokovi == 0))
         # Mirovanje: ura storitev po MIROVANJE_S motor ustavi (v kratki niti), naslov toka ostane.
         snz.tik(zdaj=time.time() + 5)
         self.assertTrue(self.t.tece())            # pred rokom ne
         snz.tik(zdaj=time.time() + ot.MIROVANJE_S + 1)
         self.assertTrue(_cakaj(lambda: not self.t.tece() and not _zivi(pid)), "motor se ni ustavil")
-        self.assertEqual(s.ustavitev, 1)
+        self.assertTrue(_cakaj(lambda: s.ustavitev == 1))       # steje se po koncu ustavitve (v njeni niti)
         # Predvajalnik nadaljuje: posrednik zazene motor znova, torrent ima isti id, tok dela.
         t0 = time.monotonic()
         koda, podatki = self._beri(url, "bytes=1000-1099")

@@ -13,7 +13,8 @@ tu na enem mestu, da ga stran safeer://procesi pokaze (tece / ustavljena, kdaj n
 
 Ura je ena: GLib.timeout_add_seconds na glavni zanki (Safeer OS) ali, brez GLib, ena nit. Vsakih TIK_S preveri
 mirovanje storitev in rok opravil ter vzame vzorec porabe za zgodovino strani procesov (core/poraba_zgodovina.py).
-Meritev (vsebnik, Xvfb, 18. 10. 2026): en tik z vzorcem drevesa 8 procesov traja ~0,5 ms - 0,002 % jedra.
+Meritev (vsebnik, Xvfb, 18. 10. 2026): vzorec drevesa stane ~0,09 ms na proces (Safeer OS z Linkom 0,8 ms, 108 procesov
+9 ms), na 30 s je to pod 0,03 % jedra; zgodovina ure je 17 kB na proces.
 
 Klici `tece`, `zaposlena` in `pidi` morajo biti poceni in ne smejo cakati na omrezje (ura tece na glavni niti);
 ustavljanje (lahko caka na konec podprocesa) gre v kratko nit. Brez GTK - preizkusljivo.
