@@ -808,6 +808,9 @@ class SpletnaAplikacija:
         self._vedno = Gtk.Button()
         skrij = Gtk.Button.new_from_icon_name("window-close-symbolic")
         skrij.set_has_frame(False)
+        # Gumb samo z ikono: bralnik zaslona brez imena prebere le »gumb« (pregled dostopnosti 18. 10. 2026).
+        skrij.set_tooltip_text(splet._t("zapri"))
+        skrij.update_property([Gtk.AccessibleProperty.LABEL], [splet._t("zapri")])
         skrij.connect("clicked", lambda *_: self.vrstica.set_reveal_child(False))
         for g in (self._napis, self._odpri, self._vedno, skrij):
             vrsta.append(g)
@@ -1160,6 +1163,8 @@ class VdelaniSplet:
         self.pojavna_vedno = Gtk.Button()
         skrij = Gtk.Button.new_from_icon_name("window-close-symbolic")
         skrij.set_has_frame(False)
+        skrij.set_tooltip_text(self._t("zapri"))
+        skrij.update_property([Gtk.AccessibleProperty.LABEL], [self._t("zapri")])
         skrij.connect("clicked", lambda *_: self._vrstica_skrij())
         for g in (self.pojavna_napis, self.pojavna_odpri, self.pojavna_vedno, skrij):
             vrsta.append(g)
@@ -1185,6 +1190,8 @@ class VdelaniSplet:
             vrsta.append(g)
         skrij = Gtk.Button.new_from_icon_name("window-close-symbolic")
         skrij.set_has_frame(False)
+        skrij.set_tooltip_text(self._t("zapri"))
+        skrij.update_property([Gtk.AccessibleProperty.LABEL], [self._t("zapri")])
         skrij.connect("clicked", lambda *_: self._vprasanje_odgovor(-1))    # »ne zdaj«: zavrne, ne zapomni
         vrsta.append(skrij)
         self.vprasanje.set_child(vrsta)

@@ -69,6 +69,10 @@ Item {
     readonly property real merilo: Math.max(1, Math.min(2, Number(paleta.merilo) || 1))
     function px(n) { return Math.round(n * merilo) }
     property var videz: ({})
+    // Zmanjsano gibanje: animacije sistema izklopljene (GNOME Dostopnost, gtk-enable-animations) - brez prehodov, povecav
+    // in vstopa panelov (AGENTS.md, dostopnost). Zacetna vrednost pride iz Pythona pred nalaganjem (Gibanje), da ze prvi
+    // izris ne animira; sprememba med delom pride z dogodkom »videz«.
+    property bool gibanje: typeof Gibanje === "undefined" ? true : !!Gibanje
     function plosca(a) { var c = paleta.karticaRgb; return Qt.rgba(c[0], c[1], c[2], a) }
     function poudarekA(a) { var c = paleta.poudarekRgb; return Qt.rgba(c[0], c[1], c[2], a) }
     function prekriv(a) { var c = paleta.prekrivRgb || [1, 1, 1]; return Qt.rgba(c[0], c[1], c[2], a) }
@@ -85,12 +89,17 @@ Item {
         if (v.ozadje !== undefined) koren.ozadjeUrl = v.ozadje || ""
         if (v.zameglitev !== undefined) koren.zameglitev = v.zameglitev
         if (v.prosojnost !== undefined) koren.prosojnost = v.prosojnost
+        if (v.gibanje !== undefined) {
+            koren.gibanje = !!v.gibanje
+            if (!koren.gibanje && vstop.running) vstop.complete()
+        }
     }
     // Besedila: assets/os/besedila-namizja.js - isti slovar kot delovna povrsina WebKit (sl, en, de, es, fr, it).
     readonly property var besedila: Besedila.BESEDILA_NAMIZJA
     function nastaviJezik(j) { koren.jezik = besedila[j] ? j : "en" }
     // Windows: Koš namesto Smeti in »Ta PC« (kljuci win_…); namizje QML ima pri nekaterih sporocilih manj zamenjav (qml_…).
     property string platforma: "windows"
+    property bool dockNaVoljo: true
     function t(k, vr) {
         var d = besedila[jezik] || besedila.en, en = besedila.en
         var s = (platforma === "windows" && (d["win_" + k] || en["win_" + k])) || d["qml_" + k] || d[k] || en["qml_" + k] || en[k] || k
@@ -145,7 +154,7 @@ Item {
         cache: false
         sourceSize.width: 1920
         opacity: status === Image.Ready ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 600 } }
+        Behavior on opacity { enabled: koren.gibanje; NumberAnimation { duration: 600 } }
     }
     MultiEffect {
         id: zamegljeno
@@ -153,7 +162,7 @@ Item {
         source: ozadje
         blurEnabled: true
         blur: koren.zameglitevPlosc
-        Behavior on blur { NumberAnimation { duration: 200 } }
+        Behavior on blur { enabled: koren.gibanje; NumberAnimation { duration: 200 } }
         blurMax: 64
         saturation: 0.15
         brightness: -0.08
@@ -725,7 +734,7 @@ Item {
             Keys.onReturnPressed: koren.linkKlik()
             Keys.onEnterPressed: koren.linkKlik()
             Keys.onSpacePressed: koren.linkKlik()
-            Behavior on color { ColorAnimation { duration: 150 } }
+            Behavior on color { enabled: koren.gibanje; ColorAnimation { duration: 150 } }
             Row {
                 id: linkVrstica; anchors.centerIn: parent; spacing: 7
                 Rectangle { width: 7; height: 7; radius: 4; color: koren.napravVLinku > 0 ? koren.paleta.poudarek : koren.paleta.medlo; anchors.verticalCenter: parent.verticalCenter }
@@ -1314,14 +1323,18 @@ Item {
 
     // vstop: paneli prihajajo drug za drugim
     Component.onCompleted: {
-        var paneli = [medijski, datoteke, programi]
-        for (var i = 0; i < paneli.length; i++) { paneli[i].opacity = 0; paneli[i].scale = 0.97 }
-        vstop.start()
+        if (koren.gibanje) {
+            var paneli = [medijski, datoteke, programi]
+            for (var i = 0; i < paneli.length; i++) { paneli[i].opacity = 0; paneli[i].scale = 0.97 }
+            vstop.start()
+        }
         koren.klic("zacetek", [], function (z) {
             z = z || {}
             koren.nastaviJezik(z.jezik)
             if (z.platforma) koren.platforma = z.platforma
             koren.vOknu = !!z.vOknu
+            // Dock, ki ga Safeer OS ureja (Plank na X11, priljubljeni GNOME): brez njega »Prilagodi dock« ni v meniju.
+            koren.dockNaVoljo = !!z.dock
             koren.dom = (z.mape && z.mape[0] && z.mape[0].pot) || ""
             koren.ozadjeUrl = z.ozadje || ""
             if (z.videz) koren.uporabiVidez(z.videz)
@@ -1392,7 +1405,7 @@ Item {
         id: meniNamizja
         objectName: "meniNamizja"
         MeniVnos { text: koren.t("prilagodi"); onTriggered: prilagodi.odpri() }
-        MeniVnos { text: koren.t("prilagodiDock"); visible: koren.platforma === "linux"; onTriggered: programi.urediDock() }
+        MeniVnos { text: koren.t("prilagodiDock"); visible: koren.platforma === "linux" && koren.dockNaVoljo; onTriggered: programi.urediDock() }
         MeniVnos { text: koren.t("temaSistema"); onTriggered: koren.klic("odpriRazdelek", ["nastavitve"]) }
     }
     Prilagodi { id: prilagodi; objectName: "prilagodi"; z: 30; anchors.fill: parent }
@@ -1407,7 +1420,7 @@ Item {
         height: 40; radius: 20; width: vrsticaObv.width + 30
         color: koren.plosca(0.94); border.color: koren.crta(0.14)
         opacity: 0; visible: opacity > 0
-        Behavior on opacity { NumberAnimation { duration: 200 } }
+        Behavior on opacity { enabled: koren.gibanje; NumberAnimation { duration: 200 } }
         function pokazi(b, dejanje, ob) {
             napisObv.text = b; gumbObv.besedilo = dejanje || ""; obvestilo.ob = ob || null
             opacity = 1; skrijObv.restart()

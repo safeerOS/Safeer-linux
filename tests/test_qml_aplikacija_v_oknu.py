@@ -12,7 +12,11 @@ class VelikostOkna(unittest.TestCase):
     def test_kot_staro_glavno_okno(self):
         self.assertEqual(os_lupina.velikost_okna(1920, 1040), (1440, 900))
         self.assertEqual(os_lupina.velikost_okna(1366, 728), (1229, 655))
-        self.assertEqual(os_lupina.velikost_okna(800, 600), (960, 620))   # najmanj minimum okna
+        # Majhen logicni zaslon (HiDPI: 1920x1080 pri 200 % = 960x540): okno ne sme cez rob - minimum se zmanjsa.
+        self.assertEqual(os_lupina.velikost_okna(800, 600), (800, 600))
+        self.assertEqual(os_lupina.velikost_okna(960, 540), (960, 540))
+        self.assertEqual(os_lupina.najmanjsa_velikost(1093, 614), (960, 614))
+        self.assertEqual(os_lupina.najmanjsa_velikost(1920, 1080), (960, 620))
 
 
 class OknoQml(unittest.TestCase):
@@ -68,7 +72,7 @@ class Zagon(unittest.TestCase):
         with open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8") as f:
             vir = f.read()
         self.assertIn("self._ustvari_qml_okno()", vir)
-        self.assertIn('app._qml_okno = "--okno" in sys.argv[1:]', vir)
+        self.assertIn('app._qml_okno = ("--okno" in sys.argv[1:] or wayland_okno)', vir)
         self.assertIn("v_oknu=True", vir)
 
 

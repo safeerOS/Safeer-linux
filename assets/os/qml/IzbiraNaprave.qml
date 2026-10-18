@@ -24,7 +24,7 @@ ComboBox {
     background: Rectangle {
         radius: 16; color: izbira.hovered ? koren.prekriv(0.14) : koren.prekriv(0.08)
         border.color: izbira.currentIndex > 0 ? koren.paleta.poudarek : koren.crta(0.14)
-        Behavior on color { ColorAnimation { duration: 120 } }
+        Behavior on color { enabled: koren.gibanje; ColorAnimation { duration: 120 } }
     }
     contentItem: Row {
         leftPadding: 12; spacing: 8

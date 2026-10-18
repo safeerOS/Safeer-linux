@@ -9,8 +9,9 @@ Protokol je isti kot na telefonu (vsebina po HTTPS, nadzor pri Hubu):
               POST /cast/share/screen/stop {id}
  - sprejem datoteke: GET <hub>/<path>, preverjen SHA-256, v mapo prenosov.
 
-Vse gre samo po TLS s pripetim odtisom Huba (link_tls). Zajem zaslona: korensko okno X11 prek Xlib (core/x11.py),
-stisnjeno z GdkPixbuf; na Waylandu zajem ni na voljo in to povemo naravnost.
+Vse gre samo po TLS s pripetim odtisom Huba (link_tls). Zajem zaslona: na X11 primarni monitor prek Xlib (core/x11.py),
+na Waylandu prek portala ScreenCast in PipeWire (core/portal_zaslon.py, uporabnik zaslon izbere enkrat); stisnjeno z
+GdkPixbuf.
 """
 
 from __future__ import annotations
@@ -473,6 +474,20 @@ def sredisce_za_zaslon(sredisce_naprave: Callable[[str], tuple], seja: Callable[
     return nase, {}
 
 
+class _ZajemPortala:
+    """Wayland: seja portala in okvirji PipeWire z vmesnikom x11.Povezava (zajemi, zapri)."""
+
+    def __init__(self, seja, slike) -> None:
+        self.seja, self.slike = seja, slike
+
+    def zajemi(self):
+        return self.slike.zajemi()
+
+    def zapri(self) -> None:
+        self.slike.zapri()
+        self.seja.zapri()
+
+
 class DeljenjeZaslona:
     """Deli zaslon tega računalnika z eno napravo, dokler ga uporabnik ne prekine."""
 
@@ -574,8 +589,13 @@ class DeljenjeZaslona:
     # --- zajem -----------------------------------------------------------
     @staticmethod
     def zajem_na_voljo() -> Tuple[bool, str]:
-        if os.environ.get("WAYLAND_DISPLAY") and not os.environ.get("DISPLAY"):
-            return False, "Zajem zaslona na Waylandu še ni na voljo."
+        from core import seja_prikaza
+        if seja_prikaza.je_wayland():
+            # Prej: »Zajem zaslona na Waylandu še ni na voljo« samo brez DISPLAY; z XWaylandom pa crna slika.
+            from core import portal_zaslon
+            if portal_zaslon.zmoznosti()["zajem"] and portal_zaslon.gstreamer_pipewire():
+                return True, ""
+            return False, portal_zaslon.SPOROCILA["ni_portala"]
         try:
             # Xlib (core/x11.py), ne Gdk: ista pot v procesu GTK3 in GTK4 (Gdk 3 se v GTK4 ne da naloziti).
             from core import x11
@@ -590,14 +610,16 @@ class DeljenjeZaslona:
             return False, f"Zajem zaslona ni na voljo: {e}"
 
     def _okvir(self) -> Optional[bytes]:
-        """En okvir zaslona kot JPEG. Tece v niti deljenja: ima svojo povezavo z X (ne GDK-jeve)."""
+        """En okvir zaslona kot JPEG. Tece v niti deljenja: ima svojo povezavo z X (ne GDK-jeve) ali svojo sejo
+        portala (Wayland). Vec monitorjev (X11): primarni monitor, ne ves koren."""
         import gi
         gi.require_version("GdkPixbuf", "2.0")
         from gi.repository import GdkPixbuf, GLib
         from core import x11
         if getattr(self, "_x11", None) is None:
-            self._x11 = x11.Povezava()
-        zajem = self._x11.zajemi()
+            self._pripravi_zajem()
+        zajem = self._x11.zajemi(getattr(self, "_obmocje", None)) if isinstance(self._x11, x11.Povezava) \
+            else self._x11.zajemi()
         if zajem is None:
             return None
         s, v, rgb = zajem
@@ -611,6 +633,26 @@ class DeljenjeZaslona:
         ok, podatki = pb.save_to_bufferv("jpeg", ["quality"], [str(KAKOVOST_JPEG)])
         return bytes(podatki) if ok else None
 
+    def _pripravi_zajem(self) -> None:
+        """Vir slik: X11 (primarni monitor, ce jih je vec) ali portal na Waylandu. Portal vprasa uporabnika samo
+        prvic (zeton obnovitve, core/portal_zaslon) - zato ga odpremo ENKRAT ob zacetku (_tok), ne ob vsakem okvirju."""
+        from core import seja_prikaza, x11
+        self._obmocje = None
+        if seja_prikaza.je_wayland():
+            from core import portal_zaslon
+            seja = portal_zaslon.Seja(vnos=False)
+            try:
+                seja.odpri()
+                self._x11 = _ZajemPortala(seja, portal_zaslon.SlikePipewire(seja, NAJVEC_PX))
+            except Exception:
+                seja.zapri()
+                raise
+            return
+        self._x11 = x11.Povezava()
+        m = x11.primarni_monitor(self._x11)
+        if m and len(self._x11.monitorji()) > 1:
+            self._obmocje = (m["x"], m["y"], m["sirina"], m["visina"])
+
     def _zapri_x11(self) -> None:
         p, self._x11 = getattr(self, "_x11", None), None
         if p is not None:
@@ -622,6 +664,17 @@ class DeljenjeZaslona:
     def _tok(self) -> None:
         vticnik = None
         try:
+            from core import seja_prikaza
+            if seja_prikaza.je_wayland():
+                # Najprej zaslon (portal): ce ga uporabnik ne dovoli, deljenja pri srediscu sploh ne zacnemo.
+                from core import portal_zaslon
+                try:
+                    self._pripravi_zajem()
+                except portal_zaslon.NapakaPortala as e:
+                    # Kode za assets/link/link.js (prevodi): zavrnjeno = isto kot zavrnjeno dovoljenje na napravi.
+                    self.napaka = portal_zaslon.SPOROCILA.get(e.koda, str(e))
+                    self.koda = {"zavrnjeno": "dovoljenje_zavrnjeno", "rok": "zajem_ni_potrjen"}.get(e.koda, "zajem_ni_mogoc")
+                    return          # stanje javi `finally`
             if self._sredisce is not None:
                 izbrano, n = self._sredisce()
                 if izbrano is None:

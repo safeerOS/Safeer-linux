@@ -9,7 +9,7 @@ Item {
     id: prilagodi
     visible: opacity > 0
     opacity: 0
-    Behavior on opacity { NumberAnimation { duration: 180 } }
+    Behavior on opacity { enabled: koren.gibanje; NumberAnimation { duration: 180 } }
     property Item fokusPrej: null
     function urlSlike(p) {     // Windows C:\… -> file:///C:/…, Linux /home/… -> file:///home/…
         p = String(p || "")

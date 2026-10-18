@@ -259,6 +259,21 @@ def _zaslon_geometrija(display: str) -> Optional[tuple]:
     return None
 
 
+def _deljeni_monitor() -> Optional[dict]:
+    """X11 z vec monitorji (RandR): primarni monitor v pikah X - deli se ta, ne vsi stisnjeni v eno sliko. En monitor
+    ali brez RandR: None (ves zaslon, kot prej)."""
+    from core import x11
+    try:
+        p = x11.Povezava()
+    except OSError:
+        return None
+    try:
+        monitorji = p.monitorji()
+    finally:
+        p.zapri()
+    return monitorji[0] if len(monitorji) > 1 else None
+
+
 #: Kljucna slika: starejsi gledalec jo potrebuje vsako sekundo (enoto, ki jo izpusti, popravi sele ona). Gledalec, ki
 #: enot ne izpusca (`caps: ["gop"]`), dobi dolgo skupino: povezava je zanesljiva, kljucna slika pa je pri mirni sliki
 #: skoraj ves promet.
@@ -461,18 +476,25 @@ def vaapi_naprava(ffmpeg: Optional[str] = None) -> Optional[str]:
 
 def ukaz_ffmpeg(display: str, sirina: int, visina: int, izvor_sirina: int, izvor_visina: int,
                 fps: int, bitrate: str, vaapi: Optional[str], ffmpeg: str = "ffmpeg",
-                qp: int = 24, kodek: str = "h264", gop: int = 0, gpu: bool = False) -> List[str]:
+                qp: int = 24, kodek: str = "h264", gop: int = 0, gpu: bool = False,
+                odmik: tuple = (0, 0), vhod: Optional[List[str]] = None) -> List[str]:
     """Ukaz za zajem in kodiranje. Strojno (VAAPI), ce je mogoce, sicer x264 brez zamika.
 
     `kodek`: "hevc" samo strojno (pri istem kvantizatorju manj bajtov); brez VAAPI vedno H.264.
     `gop`: razmik kljucnih slik v slikah; 0 = vsako sekundo (starejsi gledalec).
     `gpu`: sliko, ki jo je treba pomanjsati, pretvori in pomanjsa graficna kartica (gpu_lestvica_mozna), ne procesor.
+    `odmik`: zgornji levi kot monitorja v pikah X (vec monitorjev: delimo en monitor, ne vseh, stisnjenih v eno sliko).
+    `vhod`: namesto x11grab (Wayland: surove slike iz core/zajem_pipewire.py na stdin, portal_zaslon.vhod_ffmpeg).
     Locen od zagona, da ga je mogoce preveriti v testu brez kamere in zaslona.
     """
     hevc = kodek == "hevc" and bool(vaapi)
-    u = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin",
-         "-f", "x11grab", "-draw_mouse", "1", "-framerate", str(fps),
-         "-video_size", f"{izvor_sirina}x{izvor_visina}", "-i", display]
+    u = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin"]
+    if vhod:
+        u += list(vhod)
+    else:
+        izvor = display + ("+%d,%d" % (int(odmik[0]), int(odmik[1])) if tuple(odmik) != (0, 0) else "")
+        u += ["-f", "x11grab", "-draw_mouse", "1", "-framerate", str(fps),
+              "-video_size", f"{izvor_sirina}x{izvor_visina}", "-i", izvor]
     # Kadar je slika ze prave velikosti, je ne prevzorcimo: vsako skaliranje zmehca besedilo in
     # nekaj stane. To je najpogostejsi primer (zaslon 1920x1080 -> 1920x1080).
     lestvica = (sirina, visina) != (izvor_sirina, izvor_visina)
@@ -635,6 +657,14 @@ class Zaslon:
         self._cilj = "desktop"
         #: Okolje za zajem slike (drugi zaslon potrebuje svoj WAYLAND_DISPLAY); None = nase.
         self._okolje_zajema: Optional[dict] = None
+        #: Wayland: seja portala (core/portal_zaslon.Seja) tekoce seje in dodatno za Popen zajema (fd PipeWire).
+        self._portal = None
+        self._zajem_dodatno: dict = {}
+        #: Zmoznosti portala (D-Bus) za na_voljo(): (cas, zmoznosti) - status se bere pogosto.
+        self._portal_zmore: tuple = (0.0, {})
+        #: En dialog portala naenkrat: televizor, ki screen.start ponovi, ne odpre drugega dialoga (druga zahteva
+        #: pocaka in dobi sejo z zetonom obnovitve brez vprasanja).
+        self._portal_zaklep = threading.Lock()
         self._vnosov = 0
         self._tece_od = 0.0
         self._povezan = False
@@ -644,18 +674,37 @@ class Zaslon:
 
     # ------------------------------------------------------------------ stanje
 
+    def _zmore_portal(self) -> dict:
+        """Wayland: kaj zna portal (zajem, vnos) in ali ima GStreamer pipewiresrc; 60 s v predpomnilniku."""
+        cas, zmore = self._portal_zmore
+        if time.monotonic() - cas > 60 or not zmore:
+            from core import portal_zaslon
+            try:
+                zmore = dict(portal_zaslon.zmoznosti(), gst=portal_zaslon.gstreamer_pipewire())
+            except Exception:  # noqa: BLE001 - ni vodila seje
+                zmore = {"zajem": False, "vnos": False, "gst": False}
+            self._portal_zmore = (time.monotonic(), zmore)
+        return zmore
+
     def na_voljo(self) -> dict:
-        """Ali ta racunalnik sploh zna deliti zaslon in s cim."""
+        """Ali ta racunalnik sploh zna deliti zaslon in s cim.
+
+        Wayland: zajem in vnos prek portala (core/portal_zaslon); prej je tu stal DISPLAY (XWayland) in zajem je dal
+        crno sliko. Kar portal ne zna, ni »mozno« - televizor tega ne ponudi."""
+        from core import seja_prikaza
         display = os.environ.get("DISPLAY", "")
         vaapi = vaapi_naprava(self.ffmpeg)
+        wayland = seja_prikaza.je_wayland()
+        portal = self._zmore_portal() if wayland else {}
         return {
             "dovoljeno": self.vklopljeno,
-            "mozno": bool(self.ffmpeg) and bool(display),
+            "mozno": bool(self.ffmpeg) and (bool(portal.get("zajem") and portal.get("gst")) if wayland else bool(display)),
             "ffmpeg": bool(self.ffmpeg),
-            "zaslon": display,
+            "zaslon": os.environ.get("WAYLAND_DISPLAY", "") if wayland else display,
+            "seja": "wayland" if wayland else ("x11" if display else ""),
             "strojno": bool(vaapi),
             "zvok": bool(privzeti_monitor()),
-            "vnos": self._vnos.mozno,
+            "vnos": bool(portal.get("vnos")) if wayland else self._vnos.mozno,
             "plosek": self._plosek.mozno(),
             "kakovosti": sorted(KAKOVOSTI),
             "locen_zaslon": self.drugi is not None,
@@ -715,8 +764,10 @@ class Zaslon:
             raise RuntimeError("Deljenje zaslona ni vklopljeno")
         if not self.ffmpeg:
             raise RuntimeError("Na tem racunalniku ni ffmpeg")
+        from core import seja_prikaza
         display = os.environ.get("DISPLAY", "")
-        if not display:
+        wayland = seja_prikaza.je_wayland()
+        if not display and not wayland:
             raise RuntimeError("Zaslona ni mogoce zajeti (seja ni na voljo)")
         k = KAKOVOSTI.get(kakovost) or KAKOVOSTI[PRIVZETA_KAKOVOST]
         self._seja_st += 1
@@ -738,8 +789,22 @@ class Zaslon:
             if hasattr(self.drugi, "osnovno_merilo"):
                 self.drugi.osnovno_merilo(merilo)
             sirina, visina = int(izvor[0]), int(izvor[1])
+        elif wayland:
+            # Portal: uporabnik izbere zaslon (prvic) ali se izbira obnovi; velikost je v logicnih tockah zaslona -
+            # v istih tockah gre nazaj vnos (NotifyPointerMotionAbsolute), zato je merilo zaslona (HiDPI) vseeno.
+            portal = self._odpri_portal()
+            izvor = (portal.tok["sirina"], portal.tok["visina"])
+            sirina, visina = self._prilagodi(izvor, k["sirina"], k["visina"])
         else:
-            izvor = _zaslon_geometrija(display) or (NAJVEC_SIRINA, NAJVEC_VISINA)
+            # Vec monitorjev: delimo primarni monitor (prej ves koren, oba zaslona stisnjena v eno sliko - drobno
+            # besedilo neberljivo). En monitor ali brez RandR: kot prej, ves zaslon.
+            monitor = _deljeni_monitor()
+            if monitor and monitor["sirina"] and monitor["visina"]:
+                izvor = (monitor["sirina"], monitor["visina"])
+                odmik = (monitor["x"], monitor["y"])
+            else:
+                izvor = _zaslon_geometrija(display) or (NAJVEC_SIRINA, NAJVEC_VISINA)
+                odmik = (0, 0)
             sirina, visina = self._prilagodi(izvor, k["sirina"], k["visina"])
         with self._kljucavnica:
             self._kakovost = kakovost if kakovost in KAKOVOSTI else PRIVZETA_KAKOVOST
@@ -768,6 +833,7 @@ class Zaslon:
             dodatki = {}
             if na_drugem:
                 self._cilj = "apps"
+                self._zajem_dodatno = {}
                 self._zvok_vir = self.drugi.zvok_vir()
                 self._vnos = self.drugi.vnos
                 self._okolje_zajema = self.drugi.okolje()
@@ -787,24 +853,49 @@ class Zaslon:
                     if kodek != "h264":
                         d["kodek"] = kodek
                     return self.drugi.ukaz_zajema(int(raven["fps"]), int(raven["qp"]), str(raven["bitrate"]), **d)
-            else:
+            elif wayland:
                 self._cilj = "desktop"
                 self._okolje_zajema = None
                 self._zvok_vir = privzeti_monitor()
-                self._vnos = Vnos(display=display)
+                from core import portal_zaslon
+                self._vnos = portal_zaslon.VnosPortal(portal)
+                vaapi = vaapi_naprava(self.ffmpeg)
+                self._kodek = izberi_kodek(kodeki, lambda: hevc_mozen(self.ffmpeg, vaapi))
+                fps = int(k["fps"])
+                vhod = portal_zaslon.vhod_ffmpeg(sirina, visina, fps)
+                # GStreamer sliko pomanjsa ze sam (koncna velikost), ffmpeg samo kodira.
+                ukaz, self._zajem_dodatno = portal_zaslon.ukaz_zajema(
+                    portal, sirina, visina, fps,
+                    ukaz_ffmpeg("", sirina, visina, sirina, visina, fps, str(k["bitrate"]), vaapi, self.ffmpeg,
+                                int(k["qp"]), kodek=self._kodek, gop=gop, vhod=vhod))
+                self._strojno = bool(vaapi)
+
+                def sestavi(kodek, raven, _portal=portal):
+                    return portal_zaslon.ukaz_zajema(
+                        _portal, sirina, visina, int(raven["fps"]),
+                        ukaz_ffmpeg("", sirina, visina, sirina, visina, int(raven["fps"]), str(raven["bitrate"]),
+                                    vaapi, self.ffmpeg, int(raven["qp"]), kodek=kodek, gop=gop,
+                                    vhod=portal_zaslon.vhod_ffmpeg(sirina, visina, int(raven["fps"]))))[0]
+            else:
+                self._cilj = "desktop"
+                self._okolje_zajema = None
+                self._zajem_dodatno = {}
+                self._zvok_vir = privzeti_monitor()
+                self._vnos = Vnos(display=display, odmik=odmik)
+                na_monitor = {"odmik": odmik} if tuple(odmik) != (0, 0) else {}
                 vaapi = vaapi_naprava(self.ffmpeg)
                 self._kodek = izberi_kodek(kodeki, lambda: hevc_mozen(self.ffmpeg, vaapi))
                 # Preizkus graficne samo, kadar sliko res pomanjsamo (sicer ga ne potrebujemo).
                 gpu = (sirina, visina) != tuple(izvor[:2]) and gpu_lestvica_mozna(self.ffmpeg, vaapi)
                 ukaz = ukaz_ffmpeg(display, sirina, visina, izvor[0], izvor[1], int(k["fps"]),
                                    str(k["bitrate"]), vaapi, self.ffmpeg, int(k["qp"]),
-                                   kodek=self._kodek, gop=gop, gpu=gpu)
+                                   kodek=self._kodek, gop=gop, gpu=gpu, **na_monitor)
                 self._strojno = bool(vaapi)
 
                 def sestavi(kodek, raven):
                     return ukaz_ffmpeg(display, sirina, visina, izvor[0], izvor[1], int(raven["fps"]),
                                        str(raven["bitrate"]), vaapi, self.ffmpeg, int(raven["qp"]),
-                                       kodek=kodek, gop=gop, gpu=gpu)
+                                       kodek=kodek, gop=gop, gpu=gpu, **na_monitor)
             self._nit = threading.Thread(target=self._streci, args=(posluh, ctx, ukaz, seja_st, sestavi),
                                          name="safeer-zaslon", daemon=True)
             self._nit.start()
@@ -824,6 +915,21 @@ class Zaslon:
                 # Merilo locenega zaslona (1 = brez): slika je enako velika, programi so narisani vecje.
                 # `scale_max`: do kod sme uporabnik vsebino povecati, da programi se ostanejo celi.
                 "scale": merilo, "scale_max": najvecje_merilo(izvor) if na_drugem else 1.0}
+
+    def _odpri_portal(self):
+        """Seja portala za deljenje namizja na Waylandu. Napaka -> RuntimeError z besedilom za gledalca."""
+        from core import portal_zaslon
+        self.ustavi()                 # prejsnja seja (in njen portal) ne sme ostati odprta
+        with self._portal_zaklep:
+            try:
+                seja = portal_zaslon.Seja(vnos=True)
+                seja.odpri()
+            except portal_zaslon.NapakaPortala as e:
+                print("[zaslon] portal:", e.koda, e, flush=True)
+                raise RuntimeError(portal_zaslon.SPOROCILA.get(e.koda) or str(e)) from e
+        with self._kljucavnica:
+            self._portal = seja
+        return seja
 
     @staticmethod
     def _prilagodi(izvor, najvec_sirina, najvec_visina) -> tuple:
@@ -969,7 +1075,8 @@ class Zaslon:
                     return                  # medtem ustavljeno ali pa se je zacela nova seja
                 # Zajem zazenemo pod kljucem in ga takoj vpisemo: ustavi() ga tako vedno najde.
                 slika = subprocess.Popen(ukaz, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                         stdin=subprocess.DEVNULL, bufsize=0, env=self._okolje_zajema)
+                                         stdin=subprocess.DEVNULL, bufsize=0, env=self._okolje_zajema,
+                                         **self._zajem_dodatno)
                 self._proces = slika
                 self._odjemalec = odjemalec
                 self._povezan = True
@@ -1476,6 +1583,7 @@ class Zaslon:
             nit = self._nit
             proces, zvocni, posluh, odjemalec = self._proces, self._zvocni, self._posluh, self._odjemalec
             prevzeti, self._prevzeti = self._prevzeti, []
+            portal, self._portal = self._portal, None
             self._proces = None
             self._zvocni = None
             self._posluh = None
@@ -1490,6 +1598,8 @@ class Zaslon:
         self._plosek.zapri()
         for p in (proces, zvocni):
             _koncaj(p)
+        if portal is not None:
+            portal.zapri()          # GNOME ugasne oznako deljenja v zgornji vrstici
         # Niti seje lahko visijo na povezavi (pisanje televizorju, ki ne bere vec; branje vnosa). Konec zajema jih
         # ne zbudi; shutdown jih. Brez tega je stara seja zivela naprej in ob svojem koncu podrla naslednjo.
         _zapri(odjemalec)

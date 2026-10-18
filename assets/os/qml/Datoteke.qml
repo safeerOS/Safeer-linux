@@ -620,7 +620,7 @@ Steklo {
                         border.width: (viriSeznam.activeFocus && index === viriSeznam.currentIndex) || spust.containsDrag ? 2 : 0
                         border.color: koren.paleta.fokus
                         Accessible.role: Accessible.ListItem; Accessible.name: modelData.oznaka || ""
-                        Behavior on color { ColorAnimation { duration: 120 } }
+                        Behavior on color { enabled: koren.gibanje; ColorAnimation { duration: 120 } }
                         Text { text: modelData.oznaka || ""; color: parent.izbran ? Qt.lighter(koren.paleta.poudarek, 1.35) : koren.paleta.besedilo; font.pixelSize: koren.px(13); elide: Text.ElideRight
                                width: parent.width - 16; x: 10; anchors.verticalCenter: parent.verticalCenter }
                         // Spust na mapo ali pogon v stranski vrstici (kot ciljSpusta na delovni povrsini).
@@ -801,7 +801,7 @@ Steklo {
                     ToolTip.text: panel.vir.vrsta === "priljubljeno" ? koren.kratkaPot(modelData.pot) : ""
                     Accessible.role: Accessible.ListItem; Accessible.selectable: true; Accessible.selected: oznacena
                     Accessible.name: modelData.ime
-                    Behavior on color { ColorAnimation { duration: 100 } }
+                    Behavior on color { enabled: koren.gibanje; ColorAnimation { duration: 100 } }
                     Row {
                         anchors.verticalCenter: parent.verticalCenter; x: 6; spacing: 0
                         Row {

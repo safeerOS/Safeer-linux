@@ -79,6 +79,7 @@ from core import os_lupina  # noqa: E402
 from core import os_medijska_plast  # noqa: E402
 from core import os_vgrajeni_viri  # noqa: E402
 from core import x11  # noqa: E402
+from core import seja_prikaza  # noqa: E402
 from core.sporocila import vklop as sporocila_vklop  # noqa: E402
 pomnilnik.tlak_omrezja(WebKit2, 160)   # pred prvim pogledom: omrezni procesi WebKita z mejo pomnilnika
 from core import en_proces  # noqa: E402
@@ -104,13 +105,26 @@ MODULI_NASTAVITEV = ("", "themes", "backgrounds", "fonts", "display", "windows",
                      "effects", "keyboard", "mouse", "sound", "power", "screensaver", "accessibility")
 
 
+#: Moduli Cinnamona -> plosce Nastavitev GNOME 46 (Ubuntu 24.04; imena iz gnome-<plosca>-panel.desktop, preverjeno
+#: 18. 10. 2026). Prej je GNOME vedno odprl prvo stran - npr. »Ozadje« ni odprlo Videza.
+PLOSCE_GNOME = {"themes": "background", "backgrounds": "background", "display": "display", "nightlight": "display",
+                "keyboard": "keyboard", "mouse": "mouse", "sound": "sound", "power": "power",
+                "accessibility": "universal-access", "panel": "ubuntu", "desktop": "ubuntu", "windows": "multitasking",
+                "screensaver": "privacy"}
+
+
 def sistemske_nastavitve(modul: str = "") -> bool:
     """Odpre sistemske nastavitve namizja (Cinnamon; brez njega GNOME/Xfce/MATE). Samo znani moduli."""
     from shutil import which
     if modul not in MODULI_NASTAVITEV:
         return False
-    if which("cinnamon-settings"):
+    # Flatpak ima ovoj za vsako orodje (/app/host-bin), tudi ce ga gostitelj nima - zato odloci namizje seje.
+    from core import seja_prikaza as seja
+    gnome = seja.namizje() == "gnome"
+    if which("cinnamon-settings") and not gnome:
         ukaz = ["cinnamon-settings"] + ([modul] if modul else [])
+    elif which("gnome-control-center"):
+        ukaz = ["gnome-control-center"] + ([PLOSCE_GNOME[modul]] if modul in PLOSCE_GNOME else [])
     else:
         ukaz = next(([u] for u in ("gnome-control-center", "xfce4-settings-manager", "mate-control-center")
                      if which(u)), None)
@@ -1443,6 +1457,23 @@ ZASTAVICE_PREDVAJALNIKA = ("--predvajalnik", "--player")
 WMCLASS_PREDVAJALNIKA = ("safeer-os.Player", "Safeer Player")
 
 
+def _monitor_v_tocki(zasloni, povezava):
+    """Gdk.Monitor pod kazalcem miske (X11; povezava = core/x11.povezava()). Geometrija GDK je v logicnih tockah,
+    kazalec X v pikah - delimo z merilom monitorja (HiDPI). None brez X11 ali kazalca."""
+    if povezava is None or zasloni is None:
+        return None
+    tocka = povezava.kazalec()
+    if tocka is None:
+        return None
+    for i in range(zasloni.get_n_items()):
+        m = zasloni.get_item(i)
+        g, merilo = m.get_geometry(), max(1, int(m.get_scale_factor() or 1))
+        x, y = tocka[0] / merilo, tocka[1] / merilo
+        if g.x <= x < g.x + g.width and g.y <= y < g.y + g.height:
+            return m
+    return None
+
+
 def _cas_dogodka(okno=None) -> int:
     """Cas za present_with_time in dejanja oken. GTK4 nima vec »trenutnega dogodka« (Gtk.get_current_event_time), zato
     cas streznika X za dano okno ali katerokoli nase realizirano okno (GdkX11): ta je vedno novejsi od zadnjega klika
@@ -1756,9 +1787,10 @@ def _nedavni():
 
 
 def _ima_delovno(app) -> bool:
-    """Delovna povrsina tece: okno WebKit (delovna.html) ali namizje QML (core/os_lupina.Namizje)."""
+    """Delovna povrsina tece: okno WebKit (delovna.html) ali namizje QML (core/os_lupina.Namizje) - ali na Waylandu
+    njene storitve brez okna (_delovna_v_ozadju: zaprtje zadnjega okna proces pusti zivega, kot ob delovni povrsini)."""
     return getattr(app, "okno_delovna", None) is not None or \
-        isinstance(getattr(app, "lupina", None), os_lupina.Namizje)
+        isinstance(getattr(app, "lupina", None), os_lupina.Namizje) or getattr(app, "_delovna_v_ozadju", False) is True
 
 
 class SafeerOS(Gtk.Application):
@@ -2136,8 +2168,16 @@ class SafeerOS(Gtk.Application):
     # ------------------------------------------------------------------ okno
     def do_activate(self) -> None:
         if self.delovna and not _ima_delovno(self):
-            # Prvi zagon z --delovna: samo delovna povrsina (glavno okno ob naslednji aktivaciji).
-            self._ustvari_delovno()
+            if seja_prikaza.je_wayland():
+                # Safeer Cinnamon ob prijavi na Waylandu (Cinnamon na Waylandu, poskusno v Mintu 22): delovne povrsine
+                # pod okni ni mogoce narediti, okno cez ves zaslon bi prekrilo programe. Storitve (Scit, Link, kuverta)
+                # tecejo, okno Safeer OS odpre meni (naslednja aktivacija - QML v oknu).
+                self._delovna_v_ozadju = True
+                self._qml_okno = True
+                self.hold()
+            else:
+                # Prvi zagon z --delovna: samo delovna povrsina (glavno okno ob naslednji aktivaciji).
+                self._ustvari_delovno()
             self._ob_namizju()
             self._prvic = False
             self._povezi_koncanje()
@@ -2179,13 +2219,15 @@ class SafeerOS(Gtk.Application):
 
     #: `safeer-os --okno` iz menija (GNOME, KDE …) brez datoteke, ponudbe ali predvajalnika: main() nastavi True.
     _qml_okno = False
+    #: --delovna na Waylandu: storitve brez okna delovne povrsine (do_activate).
+    _delovna_v_ozadju = False
 
     def _ustvari_qml_okno(self) -> bool:
         """Aplikacija Safeer OS v oknu = isto namizje QML kot namizno okolje (lastnik, 14. 10. 2026: brez dvojnega dela;
         Datoteke z drugih naprav in Teamwork, Lupa, Programi naprav so tako tudi v aplikaciji). Razdelki (Nastavitve,
         Zapiski, Sporocila, Splet, Safeer Player) se odprejo v svojih oknih kot na namizju (_ima_delovno). Brez PySide6
         ali s SAFEER_LUPINA=html ostane prejsnje okno index.html (vrne False)."""
-        if not self._qml_okno or self.posnetek or self.namizje or self.delovna or \
+        if not self._qml_okno or self.posnetek or self.namizje or (self.delovna and not self._delovna_v_ozadju) or \
                 not os_lupina.pripravi(sys.argv[:1], pozno=bool(self.get_windows())):
             return False
         try:
@@ -2209,6 +2251,8 @@ class SafeerOS(Gtk.Application):
         jih ne zapremo brez opozorila (pregled 14. 10. 2026): Safeer OS se konca, ko izgine zadnje vidno okno."""
         if self.lupina is not None and self.lupina.okno.isVisible():
             return False                      # okno je medtem spet odprto (dvigni)
+        if self._delovna_v_ozadju is True:
+            return False                      # Wayland, Safeer Cinnamon: storitve (Scit, Link) tecejo naprej, meni okno vrne
         if any(o.get_visible() for o in self.get_windows()):
             GLib.timeout_add_seconds(2, self._zaprto_qml_okno)
             return False
@@ -2236,6 +2280,12 @@ class SafeerOS(Gtk.Application):
         okno_aplikacije = isinstance(lupina, os_lupina.Namizje) and lupina.v_oknu
         if (_ima_delovno(self) and not okno_aplikacije) or self.namizje or self.posnetek:
             return False
+        if seja_prikaza.je_wayland():
+            # Wayland: delovne povrsine pod okni ni (do_activate) - samo storitve; odprto okno ostane, kot je.
+            self._delovna_v_ozadju = True
+            self._ob_namizju()
+            self._povezi_koncanje()
+            return True
         if okno_aplikacije:
             # Aplikacija Safeer OS v oknu je isto namizje QML (_ustvari_qml_okno): okno postane delovna povrsina. Prej je
             # odprto okno delovno povrsino blokiralo do naslednje prijave (pregled celovitosti 15. 10. 2026).
@@ -2838,7 +2888,7 @@ class SafeerOS(Gtk.Application):
             _razred_okna(okno, ime)
             # Kanali Sporocil (spletni klepeti, namizni programi) so nad stranjo na mestu vsebine (prekrivanje).
             prekrivanje = self._prekrivanje_kanalov(pogled)
-            zaslon = self._zaslon()
+            zaslon = self._zaslon_za_okno()
             g = self._delovno_obmocje(zaslon) if zaslon else None
             sirina, visina = (min(1280, int(g.width * 0.85)) if g else 1200, min(860, int(g.height * 0.85)) if g else 800)
             okno.set_default_size(sirina, visina)
@@ -2891,7 +2941,7 @@ class SafeerOS(Gtk.Application):
         if velikost:
             okno.set_default_size(*velikost)
         else:
-            zaslon = self._zaslon()
+            zaslon = self._zaslon_za_okno()
             g = self._delovno_obmocje(zaslon) if zaslon else None
             sirina, visina = (min(1440, int(g.width * 0.9)) if g else 1280, min(900, int(g.height * 0.9)) if g else 800)
             okno.set_default_size(sirina, visina)
@@ -3169,6 +3219,16 @@ class SafeerOS(Gtk.Application):
         except Exception:
             return None
 
+    def _zaslon_za_okno(self):
+        """Zaslon za NOVO okno (razdelki, Safeer Player, dialogi): na X11 monitor s kazalcem miske - tam uporabnik
+        dela (vec monitorjev; prej vedno prvi monitor). Brez tega (Wayland: okno postavi sestavljalnik, GNOME na
+        monitor s fokusom) kot _zaslon(). Namizje in vrstica ostaneta na _zaslon() (primarni)."""
+        try:
+            m = _monitor_v_tocki(Gdk.Display.get_default().get_monitors(), x11.povezava())
+        except Exception:  # noqa: BLE001
+            m = None
+        return m if m is not None else self._zaslon()
+
     @staticmethod
     def _delovno_obmocje(zaslon):
         """Del zaslona brez pulta in docka (GTK3 Gdk.Monitor.get_workarea; v GTK4 samo GdkX11.X11Monitor)."""
@@ -3198,7 +3258,7 @@ class SafeerOS(Gtk.Application):
 
     def _na_sredino(self, okno, sirina: int, visina: int) -> None:
         """GTK3 set_position(CENTER): GTK4 tega nima, okno postavimo na sredino delovnega obmocja sami."""
-        zaslon = self._zaslon()
+        zaslon = self._zaslon_za_okno()
         g = self._delovno_obmocje(zaslon) if zaslon else None
         if g is not None:
             x11.premakni(okno, g.x + max(0, (g.width - sirina) // 2), g.y + max(0, (g.height - visina) // 2))
@@ -4344,7 +4404,7 @@ class SafeerOS(Gtk.Application):
             "spletNaNamizjuZapri": self._skrij_splet_na_namizju,
             "odpriRazdelek": lambda: self._odpri_razdelek(str(a[0]) if a else ""),
             "nastavitveDocka": lambda: self._zazeni_orodje(["safeer-cinnamon", "--nastavitve-docka"]),
-            "nastavitveOzadja": lambda: self._zazeni_orodje(["cinnamon-settings", "backgrounds"]),
+            "nastavitveOzadja": lambda: sistemske_nastavitve("backgrounds"),
             "lupaUcenje": self.lupa.podatki,
             "lupaZapomni": lambda: self.lupa.zapomni(*(list(a or [])[:3])),
             "lupaPozabi": self.lupa.pozabi,
@@ -4813,6 +4873,8 @@ class SafeerOS(Gtk.Application):
             # Safeer Cinnamon: Safeer OS je vedno v oknu (main), stikalo Celozaslonsko nima ucinka; ob delovni
             # povrsini zagon ob prijavi vodi seja safeer-cinnamon - Nastavitve stikal ne pokazejo (os.js).
             "safeerCinnamon": _safeer_cinnamon_vklopljen(),
+            # Wayland: namizja cez cel zaslon ni (main) - stikalo Celozaslonsko bi bilo prazen gumb (os.js ga skrije).
+            "wayland": seja_prikaza.je_wayland(),
             "samozagonNamizje": delovna_safeer_cinnamon(),
             "namizje": self.namizje,
             "spletne": shranjene_spletne,
@@ -5028,7 +5090,10 @@ class SafeerOS(Gtk.Application):
         for e, v in vnosi:
             ime = v.get("ime") or (e["id"][: -len(".desktop")] if e["id"].endswith(".desktop") else e["id"])
             programi.append({"id": e["id"], "dockitem": e["dockitem"], "ime": ime, "ikona": ikone.get(v.get("ikona"), "")})
-        return {"ok": True, "plank": os_dock.je_namescen(), "programi": programi}
+        # »plank« = ali je dock, ki ga Safeer OS ureja (Plank na X11 ali priljubljeni GNOME - Ubuntu Dock, tudi Wayland);
+        # »Vec nastavitev docka« ima samo Plank (safeer-cinnamon --nastavitve-docka).
+        vrsta = os_dock.vrsta_docka()
+        return {"ok": True, "plank": bool(vrsta), "vecNastavitev": vrsta == "plank", "programi": programi}
 
     def _ikona(self, ime: str) -> str:
         if ime not in self._ikone:
@@ -5492,7 +5557,7 @@ class SafeerOS(Gtk.Application):
             except Exception as e:  # noqa: BLE001
                 print("[SafeerOS] slog predvajalnika:", e)
         # Na velikih zaslonih 960x620 deluje kot sličica; okno naj zavzame približno dve tretjini.
-        zaslon = self._zaslon()
+        zaslon = self._zaslon_za_okno()
         g = self._delovno_obmocje(zaslon) if zaslon else None
         okno.set_default_size(max(960, int(g.width * 0.62)) if g else 960,
                               max(620, int(g.height * 0.7)) if g else 620)
@@ -7575,6 +7640,14 @@ def main() -> int:
     # Proces, ki ga je zagnal Safeer Player, odpre tudi Safeer OS iz menija v oknu (kot ob --predvajaj).
     v_oknu = "--okno" in sys.argv[1:] or bool(magnet) or bool(datoteka) or bool(ponudba_json) or predvajalnik \
         or (cinnamon and "--namizje" not in sys.argv[1:])
+    # Wayland (GNOME na Ubuntu 24.04, KDE, sway): namizja pod okni ni - protokol odjemalcu ne da vrste DESKTOP, okna
+    # pod vsemi drugimi ne rezervacije roba za vrstico (izmerjeno 18. 10. 2026, brezglavi sway 1.9: privzeti zagon je
+    # odprl okno namizja in »Safeer OS vrstica« kot dve navadni okni med programi, vrstica cez tretjino zaslona).
+    # --namizje in privzeti zagon zato odpreta aplikacijo Safeer OS v oknu (isto namizje QML); --delovna (Safeer
+    # Cinnamon ob prijavi) samo storitve v ozadju (do_activate).
+    wayland_okno = seja_prikaza.je_wayland() and not posnetek and not v_oknu and "--delovna" not in sys.argv[1:]
+    if wayland_okno:
+        v_oknu = True
     # Ubuntu 24.04+: brez nasega profila AppArmor bwrap ne dobi imenskega prostora in WebKit bi ob prvi strani koncal
     # ves proces (g_error). Pred prvim WebKitWebContext: peskovnik izklopi samo, ce res ne more teci (pojasnilo enkrat).
     peskovnik = peskovnik_userns.pripravi()
@@ -7584,7 +7657,8 @@ def main() -> int:
         peskovnik_userns.pojasni_kasneje(GLib, os.path.join(GLib.get_user_config_dir(), "safeer-os"), _jezik(),
                                          "Safeer OS", "safeer-os", app)
     app._cakajoci_magnet = magnet
-    app._qml_okno = "--okno" in sys.argv[1:] and not (magnet or datoteka or ponudba_json or predvajalnik or stremio_url)
+    app._qml_okno = ("--okno" in sys.argv[1:] or wayland_okno) and not (magnet or datoteka or ponudba_json
+                                                                         or predvajalnik or stremio_url)
     app._cakajoci_stremio = stremio_url
     app._cakajoca_datoteka = datoteka
     if ponudba_json:

@@ -22,8 +22,8 @@ Rectangle {
     border.width: activeFocus ? 2 : 0
     border.color: poudarjen ? koren.paleta.besedilo : koren.paleta.poudarek
     scale: m.pressed ? 0.94 : 1
-    Behavior on color { ColorAnimation { duration: 140 } }
-    Behavior on scale { NumberAnimation { duration: 90 } }
+    Behavior on color { enabled: koren.gibanje; ColorAnimation { duration: 140 } }
+    Behavior on scale { enabled: koren.gibanje; NumberAnimation { duration: 90 } }
     activeFocusOnTab: enabled
     Accessible.role: Accessible.Button
     Accessible.name: ime

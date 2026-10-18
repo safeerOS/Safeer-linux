@@ -97,10 +97,14 @@ def pripravi(argv: list, pozno: bool = False) -> bool:
         os.environ["QT_XCB_GL_INTEGRATION"] = "xcb_egl"
     try:
         from PySide6.QtCore import QCoreApplication, Qt
+        from PySide6.QtGui import QGuiApplication
         from PySide6.QtWidgets import QApplication   # QApplication (ne QGuiApplication): QSystemTrayIcon (kuverta)
-        # X11 (Mint): Qt naj ne ugiba Waylanda, ce ga seja nima; Haswell in podobni: privzeti OpenGL je zanesljiv.
-        if os.environ.get("XDG_SESSION_TYPE") != "wayland":
-            os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
+        os.environ.setdefault("QT_QPA_PLATFORM", platforma_qt())
+        # HiDPI: delno merilo zaslona (125, 150, 175 %) Qt uporabi natancno, brez zaokrozanja na 1x/2x - enako kot GTK4.
+        # Izmerjeno 18. 10. 2026, brezglavi sway z merilom 1,5: okno ima devicePixelRatio 1,5 (PassThrough), z Round 2,0
+        # (sestavljalnik bi sliko pomanjsal - mehko besedilo). QScreen.devicePixelRatio tam kaze 2,0 (celo merilo izhoda).
+        if QApplication.instance() is None:
+            QGuiApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
         QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
         with brez_gtk_teme_qt():
             _qt_app = QApplication.instance() or QApplication(list(argv) or ["safeer-os"])
@@ -118,6 +122,66 @@ def pripravi(argv: list, pozno: bool = False) -> bool:
 
 def dejavna() -> bool:
     return _qt_app is not None
+
+
+def platforma_qt(okolje: Optional[dict] = None) -> str:
+    """Vticnik Qt za to sejo (QT_QPA_PLATFORM, ce ga uporabnik ni dolocil sam).
+
+    X11 (Mint): xcb - Qt naj ne ugiba Waylanda, ki ga seja nima. Wayland: najprej wayland (nativno, delno merilo in vec
+    monitorjev pravilno), xcb samo kot rezerva prek XWaylanda. Prej je odlocal le XDG_SESSION_TYPE: sway, zagnan iz
+    konzole, ga nima, zato je Qt sel prek XWaylanda, GTK pa nativno - dve razlicni merili v istem procesu."""
+    from core import seja_prikaza
+    return "wayland;xcb" if seja_prikaza.je_wayland(okolje) else "xcb"
+
+
+def nativno_x11() -> bool:
+    """Ali okna Qt tega procesa tecejo prek X11 (samo tam imajo winId() X okna za lastnosti EWMH)."""
+    try:
+        from PySide6.QtGui import QGuiApplication
+        return QGuiApplication.platformName() == "xcb"
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def zaslon_za_okno():
+    """QScreen, na katerem naj se odpre novo okno: X11 - kjer je kazalec miske (tam uporabnik dela, vec monitorjev),
+    sicer primarni. Wayland: primarni samo za velikost, mesto izbere sestavljalnik (GNOME: monitor s kazalcem)."""
+    from PySide6.QtGui import QCursor, QGuiApplication
+    if nativno_x11():
+        zaslon = QGuiApplication.screenAt(QCursor.pos())
+        if zaslon is not None:
+            return zaslon
+    return QGuiApplication.primaryScreen()
+
+
+def dostopnost_sistema(Gio=None, Gtk=None) -> dict:
+    """Velikost besedila, kontrast in animacije sistema za namizje QML, kjer ni Safeer Cinnamon (GNOME na Ubuntu …).
+
+    GNOME: Nastavitve > Dostopnost (Vecje besedilo = text-scaling-factor 1,25, Visok kontrast, Animacije). Animacije iz
+    Gtk.Settings: isti vir, iz katerega WebKitGTK spletnim stranem nastavi prefers-reduced-motion - namizje QML in strani
+    se tako ujemata. Manjkajoca shema ali GTK: privzeto (100 %, brez kontrasta, animacije vklopljene)."""
+    izid = {"tekstOdstotek": 100, "kontrast": False, "gibanje": True}
+    try:
+        if Gio is None:
+            from gi.repository import Gio
+        vir = Gio.SettingsSchemaSource.get_default()
+        if vir is not None and vir.lookup("org.gnome.desktop.interface", True) is not None:
+            izid["tekstOdstotek"] = int(round(Gio.Settings.new("org.gnome.desktop.interface")
+                                              .get_double("text-scaling-factor") * 100))
+        shema = vir.lookup("org.gnome.desktop.a11y.interface", True) if vir is not None else None
+        if shema is not None and shema.has_key("high-contrast"):
+            izid["kontrast"] = Gio.Settings.new("org.gnome.desktop.a11y.interface").get_boolean("high-contrast")
+    except Exception as e:  # noqa: BLE001
+        print("[SafeerOS lupina] dostopnost:", e, flush=True)
+    try:
+        if Gtk is None and "gi.repository.Gtk" in sys.modules:
+            Gtk = sys.modules["gi.repository.Gtk"]
+        nastavitve = Gtk.Settings.get_default() if Gtk is not None else None
+        if nastavitve is not None:
+            izid["gibanje"] = bool(nastavitve.get_property("gtk-enable-animations"))
+    except Exception as e:  # noqa: BLE001
+        print("[SafeerOS lupina] animacije:", e, flush=True)
+    return izid
 
 
 # ---------------------------------------------------------------------------------------- videz (ozadje, plosce)
@@ -178,6 +242,8 @@ def nastavi_videz(shramba, sprememba: dict, nastavi_ozadje_sistema: Optional[Cal
 
 
 GSETTINGS_OZADJE = ("org.cinnamon.desktop.background", "picture-uri")
+#: GNOME (Ubuntu 24.04): ozadje za svetli in temni slog - nastavimo oba, da izbira velja v obeh.
+GSETTINGS_OZADJE_GNOME = (("org.gnome.desktop.background", "picture-uri"), ("org.gnome.desktop.background", "picture-uri-dark"))
 
 
 def uri_ozadja(pot: str) -> str:
@@ -195,6 +261,9 @@ def nastavi_ozadje_sistema(pot: str, zazeni: Optional[Callable[[list], Any]] = N
     ozadja v Flatpaku ni naredila nicesar (pregled 14. 10. 2026). Paket .deb: Gio.Settings + sync(), da takojsnje
     branje (videz po spremembi) ze vidi novo vrednost."""
     uri = uri_ozadja(pot)
+    from core import seja_prikaza
+    # GNOME: org.gnome.desktop.background (oba sloga); sicer Cinnamon. Prej je izbira ozadja na GNOME ni naredila nic.
+    kljuci = GSETTINGS_OZADJE_GNOME if seja_prikaza.namizje() == "gnome" else (GSETTINGS_OZADJE,)
     try:
         from core import gostitelj
         if gostitelj.v_flatpaku():
@@ -203,15 +272,18 @@ def nastavi_ozadje_sistema(pot: str, zazeni: Optional[Callable[[list], Any]] = N
             ukaz = "/app/host-bin/gsettings" if os.path.exists("/app/host-bin/gsettings") else shutil.which("gsettings")
             if not ukaz:
                 return False
-            argv = [ukaz, "set", GSETTINGS_OZADJE[0], GSETTINGS_OZADJE[1], uri]
-            if zazeni is not None:
-                return bool(zazeni(argv))
-            return subprocess.run(argv, capture_output=True, timeout=5).returncode == 0
+            ok = True
+            for shema, kljuc in kljuci:
+                argv = [ukaz, "set", shema, kljuc, uri]
+                ok = (bool(zazeni(argv)) if zazeni is not None
+                      else subprocess.run(argv, capture_output=True, timeout=5).returncode == 0) and ok
+            return ok
         from gi.repository import Gio
         vir = Gio.SettingsSchemaSource.get_default()
-        if vir is None or vir.lookup(GSETTINGS_OZADJE[0], True) is None:
+        if vir is None or any(vir.lookup(shema, True) is None for shema, _k in kljuci):
             return False
-        Gio.Settings.new(GSETTINGS_OZADJE[0]).set_string(GSETTINGS_OZADJE[1], uri)
+        for shema, kljuc in kljuci:
+            Gio.Settings.new(shema).set_string(kljuc, uri)
         Gio.Settings.sync()
         return True
     except Exception as e:  # noqa: BLE001
@@ -386,9 +458,17 @@ def robovi_delovnega_obmocja(zaslon, delovno) -> dict:
             "robSpodaj": max(0, (zy + zv) - (dy + dv)), "robDesno": max(0, (zx + zs) - (dx + ds))}
 
 
+def najmanjsa_velikost(sirina: int, visina: int) -> tuple:
+    """Minimum okna aplikacije: 960 x 620, a nikoli vec od delovnega obmocja. HiDPI zmanjsa logicni zaslon: 1366x768
+    pri 125 % je 1093x614, 1920x1080 pri 200 % je 960x540 (izmerjeno 18. 10. 2026, sway z merilom 2: logicni izhod
+    960x540) - minimum 620 bi okno potisnil cez spodnji rob zaslona."""
+    return (max(1, min(960, int(sirina))), max(1, min(620, int(visina))))
+
+
 def velikost_okna(sirina: int, visina: int) -> tuple:
-    """Velikost okna aplikacije iz delovnega obmocja: 90 %, najvec 1440 x 900, najmanj 960 x 620 (minimum okna)."""
-    return (max(960, min(1440, int(sirina * 0.9))), max(620, min(900, int(visina * 0.9))))
+    """Velikost okna aplikacije iz delovnega obmocja: 90 %, najvec 1440 x 900, najmanj minimum okna."""
+    ms, mv = najmanjsa_velikost(sirina, visina)
+    return (max(ms, min(1440, int(sirina * 0.9))), max(mv, min(900, int(visina * 0.9))))
 
 
 # ---------------------------------------------------------------------------------------- most in okno
@@ -484,6 +564,8 @@ class Namizje:
         self.pogled = QmlPogled(self.most)
         self.okno = Okno(self.v_oknu)
         self.okno.rootContext().setContextProperty("Most", self.most)
+        # Zmanjsano gibanje ze ob prvem izrisu (vstop panelov), ne sele po odgovoru »zacetek«.
+        self.okno.rootContext().setContextProperty("Gibanje", bool(dostopnost_sistema()["gibanje"]))
         self.okno.setSource(QUrl.fromLocalFile(str(QML)))
         for napaka in self.okno.errors():
             print("[SafeerOS lupina]", napaka.toString(), flush=True)
@@ -568,9 +650,11 @@ class Namizje:
             from core import os_spletne
             z = dict(self.os._zacetek())
             v = self.videz(str(z.get("jezik") or "sl"))
+            from core import os_dock
             z.update({"ozadje": v["ozadje"], "videz": v, "platforma": "linux", "vOknu": self.v_oknu,
                       # Iste spletne aplikacije kot Domov aplikacije Safeer OS (privzete, dokler uporabnik ne shrani svojih).
-                      "spletne": os_spletne.vidne(z.get("spletne"))})
+                      "spletne": os_spletne.vidne(z.get("spletne")),
+                      "dock": os_dock.je_namescen()})
             odg(klic_id, True, z)
         elif metoda in ("spletnaDodaj", "spletnaOdstrani"):
             odg(klic_id, True, self._spletna(metoda, a))
@@ -613,16 +697,27 @@ class Namizje:
         except Exception as e:  # noqa: BLE001 - brez Cinnamona: privzeti videz
             print("[SafeerOS lupina] videz sistema:", e, flush=True)
             sistem = {}
-        try:
-            from PySide6.QtGui import QGuiApplication
-            razmerje = float(QGuiApplication.primaryScreen().devicePixelRatio())
-        except Exception:  # noqa: BLE001
-            razmerje = 1.0
+        dostopnost = dostopnost_sistema()
+        if not sistem.get("naVoljo"):
+            # Brez Safeer Cinnamon (GNOME na Ubuntu 24.04, KDE …): velikost besedila in kontrast iz dostopnosti sistema.
+            # Prej je namizje QML tam ostalo pri 100 % in brez kontrasta, ceprav je uporabnik oboje vklopil.
+            sistem = dict(sistem, kontrast=dostopnost["kontrast"], tekstOdstotek=dostopnost["tekstOdstotek"])
+        razmerje = 1.0
+        if nativno_x11():
+            # Samo X11: tam Qt merilo zaslona izpelje iz Xft.dpi, ki ze vsebuje povecavo besedila (ne podvojimo).
+            # Na Waylandu je razmerje merilo monitorja (npr. 1,25) in z velikostjo besedila nima zveze.
+            try:
+                from PySide6.QtGui import QGuiApplication
+                razmerje = float(QGuiApplication.primaryScreen().devicePixelRatio())
+            except Exception:  # noqa: BLE001
+                razmerje = 1.0
         kontrast = bool(sistem.get("kontrast"))
         p = paleta(kontrast, merilo_besedila(sistem.get("tekstOdstotek") or 100, razmerje))
         v = videz_za_qml(self.os.shramba, os_sistem.ozadje_namizja() or "", jezik or so._jezik(), p)
         # cinnamon: velikost besedila in kontrast se nastavita v sistemu (videzCinnamonNastavi, kot na delovni povrsini).
-        v.update({"kontrast": kontrast, "tekstOdstotek": int(sistem.get("tekstOdstotek") or 100), "cinnamon": bool(sistem.get("naVoljo"))})
+        # gibanje: animacije sistema (zmanjsano gibanje) - QML jih brez tega ne bi upostevalo (AGENTS.md, dostopnost).
+        v.update({"kontrast": kontrast, "tekstOdstotek": int(sistem.get("tekstOdstotek") or 100),
+                  "cinnamon": bool(sistem.get("naVoljo")), "gibanje": dostopnost["gibanje"]})
         from core.sporocila import vklop
         v["sporocila"] = vklop.sporocila_vklopljena()
         return v
@@ -634,14 +729,28 @@ class Namizje:
         try:
             from gi.repository import Gio
             vir = Gio.SettingsSchemaSource.get_default()
-            for shema, kljuc in (("org.cinnamon.theme", "name"), ("org.cinnamon.desktop.interface", "text-scaling-factor")):
-                if vir is None or vir.lookup(shema, True) is None:
+            for shema, kljuc in (("org.cinnamon.theme", "name"), ("org.cinnamon.desktop.interface", "text-scaling-factor"),
+                                 ("org.gnome.desktop.interface", "text-scaling-factor"),
+                                 ("org.gnome.desktop.a11y.interface", "high-contrast"),
+                                 # Ozadje, izbrano v Nastavitvah GNOME (Videz), takoj tudi na namizju QML.
+                                 ("org.gnome.desktop.background", "picture-uri"),
+                                 ("org.gnome.desktop.background", "picture-uri-dark")):
+                s = vir.lookup(shema, True) if vir is not None else None
+                if s is None or not s.has_key(kljuc):
                     continue
                 n = Gio.Settings.new(shema)
                 n.connect("changed::" + kljuc, lambda *_a: self.dogodek("videz", self.videz()))
                 self._nastavitve_sistema.append(n)     # drzimo referenco, sicer signal utihne
         except Exception as e:  # noqa: BLE001
             print("[SafeerOS lupina] tema:", e, flush=True)
+        try:
+            from gi.repository import Gtk
+            nastavitve = Gtk.Settings.get_default()
+            if nastavitve is not None:
+                # Zmanjsano gibanje vklopljeno med delom: namizje QML takoj brez animacij (kot strani WebKit).
+                nastavitve.connect("notify::gtk-enable-animations", lambda *_a: self.dogodek("videz", self.videz()))
+        except Exception as e:  # noqa: BLE001
+            print("[SafeerOS lupina] animacije:", e, flush=True)
 
     def _zaslon_spremenjen(self) -> None:
         """Locljivost ali zaslon se je spremenil: namizje cez nov zaslon in dock Plank na novo (Plank sprememb
@@ -729,15 +838,21 @@ class Namizje:
 
     def _pokazi_okno(self) -> None:
         """Okno aplikacije: 90 % delovnega obmocja (najvec 1440 x 900, kot staro glavno okno), na sredini."""
-        from PySide6.QtGui import QGuiApplication
-        g = QGuiApplication.primaryScreen().availableGeometry()
+        from PySide6.QtCore import QSize
+        zaslon = zaslon_za_okno()
+        g = zaslon.availableGeometry()
         sirina, visina = velikost_okna(g.width(), g.height())
+        self.okno.setMinimumSize(QSize(*najmanjsa_velikost(g.width(), g.height())))
         self.okno.resize(sirina, visina)
-        self.okno.setPosition(g.x() + (g.width() - sirina) // 2, g.y() + (g.height() - visina) // 2)
+        if nativno_x11():
+            # Vec monitorjev: okno na monitorju s kazalcem (zaslon_za_okno). Wayland mesta odjemalcu ne dovoli -
+            # okno postavi sestavljalnik sam (GNOME: monitor s kazalcem/fokusom).
+            self.okno.setScreen(zaslon)
+            self.okno.setPosition(g.x() + (g.width() - sirina) // 2, g.y() + (g.height() - visina) // 2)
         self.okno.create()
         try:
             from core import x11
-            p = x11.povezava()
+            p = x11.povezava() if nativno_x11() else None
             if p is not None and int(self.okno.winId()):
                 p.nastavi_razred(int(self.okno.winId()), "safeer-os", "Safeer OS")   # skupina v pultu, StartupWMClass
                 p.poslji()
@@ -764,7 +879,7 @@ class Namizje:
         """_NET_WM_WINDOW_TYPE_DESKTOP pred prikazom: upravitelj oken ga ne pokaze v pultu in ga drzi spodaj."""
         try:
             from core import x11
-            p = x11.povezava()
+            p = x11.povezava() if nativno_x11() else None
             if p is None or not xid:
                 return
             p.nastavi_stevila(xid, "_NET_WM_WINDOW_TYPE", p.atom("ATOM"), [p.atom("_NET_WM_WINDOW_TYPE_DESKTOP")])

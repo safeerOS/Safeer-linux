@@ -9,6 +9,11 @@ Pravila:
     ob BadWindow koncal ves proces. Napake drugih povezav (GDK) gredo naprej prejsnjemu rokovalniku.
   * Povezava `povezava()` je samo za glavno nit; nit (zajem zaslona) odpre svojo (`Povezava()`).
   * Brez X11 (Wayland, ni libX11) vse vrne False / prazno - nic ne pade.
+  * Seja Wayland (core/seja_prikaza.py): povezave z X ne odpremo, tudi ce je DISPLAY nastavljen. Tam je X le XWayland
+    za stare programe: seznam oken ima samo programe XWayland, GNOME 46 XWayland ob prvi povezavi sele zazene, zajem
+    korena pa ne vidi namizja (izmerjeno 18. 10. 2026, brezglavi sway 1.9 z XWaylandom, ozadje #203040: XGetImage
+    korena ne uspe, ffmpeg x11grab da crno sliko - 3 od 28 500 vzorcev ne-crnih, grim prek Waylanda pa ozadje).
+    Izjema so nasa okna, ce GDK sam tece prek XWaylanda (GDK_BACKEND=x11) - takrat so lastnosti oken prave.
 """
 
 from __future__ import annotations
@@ -64,6 +69,12 @@ class _XImage(ctypes.Structure):
                 ("byte_order", c_int), ("bitmap_unit", c_int), ("bitmap_bit_order", c_int), ("bitmap_pad", c_int),
                 ("depth", c_int), ("bytes_per_line", c_int), ("bits_per_pixel", c_int),
                 ("red_mask", c_ulong), ("green_mask", c_ulong), ("blue_mask", c_ulong)]
+
+
+class _XRRMonitorInfo(ctypes.Structure):
+    _fields_ = [("name", c_ulong), ("primary", c_int), ("automatic", c_int), ("noutput", c_int),
+                ("x", c_int), ("y", c_int), ("width", c_int), ("height", c_int), ("mwidth", c_int), ("mheight", c_int),
+                ("outputs", c_void_p)]
 
 
 _ROKOVALNIK = ctypes.CFUNCTYPE(c_int, c_void_p, POINTER(_XErrorEvent))
@@ -127,6 +138,9 @@ def _nalozi_knjiznico():
         "XSync": (c_int, [c_void_p, c_int]),
         "XFree": (c_int, [c_void_p]),
         "XSetErrorHandler": (c_void_p, [_ROKOVALNIK]),
+        "XQueryPointer": (c_int, [c_void_p, c_ulong, POINTER(c_ulong), POINTER(c_ulong), POINTER(c_int),
+                                  POINTER(c_int), POINTER(c_int), POINTER(c_int), POINTER(c_uint)]),
+        "XGetAtomName": (c_void_p, [c_void_p, c_ulong]),
     }
     try:
         for ime, (vrne, argumenti) in podpisi.items():
@@ -143,9 +157,14 @@ def _nalozi_knjiznico():
 
 
 class Povezava:
-    """Ena povezava z X (XOpenDisplay). OSError, ce X11 ni na voljo."""
+    """Ena povezava z X (XOpenDisplay). OSError, ce X11 ni na voljo ali je seja Wayland.
 
-    def __init__(self) -> None:
+    za_nasa_okna=True: povezava za lastnosti oken tega procesa - na Waylandu dovoljena samo, ce GDK tece prek X11."""
+
+    def __init__(self, za_nasa_okna: bool = False) -> None:
+        from core import seja_prikaza
+        if seja_prikaza.je_wayland() and not (za_nasa_okna and seja_prikaza.gdk_x11()):
+            raise OSError("seja Wayland: X11 je samo XWayland")
         L = _knjiznica()
         if L is None or not os.environ.get("DISPLAY"):
             raise OSError("X11 ni na voljo")
@@ -271,12 +290,20 @@ class Povezava:
             return 0, 0
         return int(s.value), int(v.value)
 
-    def zajemi(self):
-        """Slika korenskega okna kot (sirina, visina, RGB bajti) ali None (le 24/32-bitni zasloni)."""
-        s, v = self.velikost_korena()
-        if not s or not v:
+    def zajemi(self, obmocje: Optional[tuple] = None):
+        """Slika korenskega okna kot (sirina, visina, RGB bajti) ali None (le 24/32-bitni zasloni).
+
+        obmocje=(x, y, sirina, visina) v pikah X: samo ta del (en monitor pri vec monitorjih, glej monitorji())."""
+        sk, vk = self.velikost_korena()
+        if not sk or not vk:
             return None
-        slika = self.L.XGetImage(self.dpy, self.koren, 0, 0, s, v, _ALL_PLANES, _Z_PIXMAP)
+        x0, y0, s, v = 0, 0, sk, vk
+        if obmocje:
+            x0, y0 = max(0, int(obmocje[0])), max(0, int(obmocje[1]))
+            s, v = min(int(obmocje[2]), sk - x0), min(int(obmocje[3]), vk - y0)
+            if s <= 0 or v <= 0:
+                return None
+        slika = self.L.XGetImage(self.dpy, self.koren, x0, y0, s, v, _ALL_PLANES, _Z_PIXMAP)
         if not slika:
             return None
         try:
@@ -296,6 +323,101 @@ class Povezava:
         rgb[2::3] = surovo[0::4]
         return s, v, bytes(rgb)
 
+    # --- monitorji in kazalec (vec monitorjev)
+    def monitorji(self) -> List[dict]:
+        """Monitorji RandR 1.5 v pikah X: [{"ime", "x", "y", "sirina", "visina", "primarni"}], primarni prvi.
+
+        Prazno brez libXrandr ali razsiritve RandR (takrat je en zaslon = koren)."""
+        L = _xrandr()
+        if L is None:
+            return []
+        n = c_int()
+        tabela = L.XRRGetMonitors(self.dpy, self.koren, 1, byref(n))
+        if not tabela:
+            return []
+        izid = []
+        try:
+            for i in range(n.value):
+                m = tabela[i]
+                ime = ""
+                kazalec = self.L.XGetAtomName(self.dpy, m.name) if m.name else None
+                if kazalec:
+                    ime = ctypes.string_at(kazalec).decode("utf-8", "replace")
+                    self.L.XFree(kazalec)
+                izid.append({"ime": ime, "x": int(m.x), "y": int(m.y), "sirina": int(m.width),
+                             "visina": int(m.height), "primarni": bool(m.primary)})
+        finally:
+            L.XRRFreeMonitors(tabela)
+        izid.sort(key=lambda m: (not m["primarni"], m["x"], m["y"]))
+        return izid
+
+    def kazalec(self) -> Optional[tuple]:
+        """(x, y) kazalca miske na korenu v pikah X ali None."""
+        koren, otrok = c_ulong(), c_ulong()
+        x, y, ox, oy, maska = c_int(), c_int(), c_int(), c_int(), c_uint()
+        if not self.L.XQueryPointer(self.dpy, self.koren, byref(koren), byref(otrok), byref(x), byref(y),
+                                    byref(ox), byref(oy), byref(maska)):
+            return None
+        return int(x.value), int(y.value)
+
+
+_xrandr_lib = None
+
+
+def _xrandr():
+    """libXrandr (XRRGetMonitors, RandR 1.5) ali None."""
+    global _xrandr_lib
+    if _xrandr_lib is None:
+        try:
+            L = ctypes.cdll.LoadLibrary("libXrandr.so.2")
+            L.XRRGetMonitors.restype = POINTER(_XRRMonitorInfo)
+            L.XRRGetMonitors.argtypes = [c_void_p, c_ulong, c_int, POINTER(c_int)]
+            L.XRRFreeMonitors.restype = None
+            L.XRRFreeMonitors.argtypes = [POINTER(_XRRMonitorInfo)]
+            _xrandr_lib = L
+        except (OSError, AttributeError):
+            _xrandr_lib = False
+    return _xrandr_lib or None
+
+
+def monitor_za_tocko(monitorji: List[dict], tocka: Optional[tuple]) -> Optional[dict]:
+    """Monitor, na katerem je tocka (x, y); sicer primarni (prvi). None, ce monitorjev ni."""
+    if not monitorji:
+        return None
+    if tocka is not None:
+        x, y = tocka
+        # Najmanjsi, ki tocko vsebuje: navidezni monitorji (xrandr --setmonitor) lahko prekrivajo izhod.
+        vsebujejo = [m for m in monitorji if m["x"] <= x < m["x"] + m["sirina"] and m["y"] <= y < m["y"] + m["visina"]]
+        if vsebujejo:
+            return min(vsebujejo, key=lambda m: m["sirina"] * m["visina"])
+    return monitorji[0]
+
+
+def primarni_monitor(povezava_: Optional["Povezava"] = None) -> Optional[dict]:
+    """Primarni monitor (pike X) za zajem enega zaslona; None brez X11 ali RandR. Odpre svojo povezavo, ce je ne dobi
+    (klic iz niti)."""
+    p, svoja = povezava_, False
+    try:
+        if p is None:
+            p, svoja = Povezava(), True
+        return monitor_za_tocko(p.monitorji(), None)
+    except OSError:
+        return None
+    finally:
+        if svoja and p is not None:
+            p.zapri()
+
+
+def monitor_s_kazalcem() -> Optional[dict]:
+    """Monitor (pike X), na katerem je kazalec miske - tam uporabnik dela, tja odpremo novo okno. Samo glavna nit."""
+    p = povezava()
+    if p is None:
+        return None
+    try:
+        return monitor_za_tocko(p.monitorji(), p.kazalec())
+    except Exception:  # noqa: BLE001
+        return None
+
 
 _glavna: Optional[Povezava] = None
 
@@ -308,7 +430,7 @@ def povezava() -> Optional[Povezava]:
     if _glavna is None:
         with _zaklep:
             try:
-                _glavna = Povezava()
+                _glavna = Povezava(za_nasa_okna=True)
             except OSError:
                 _glavna = False   # type: ignore[assignment]
     return _glavna or None

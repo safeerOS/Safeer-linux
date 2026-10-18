@@ -143,7 +143,7 @@ def zazeni(najdba: dict) -> Optional[subprocess.Popen]:
             return None
         # Brez »--«: GOption ga pusti v argv, ce mu sledi argument z »-« (npr. --ozone-platform=x11), in flatpak-spawn
         # bi zagnal »--«. Program z »-« na zacetku je zavrnjen zgoraj, zato ga flatpak-spawn ne more brati kot moznost.
-        ukaz = ["flatpak-spawn", "--host", "--env=DISPLAY=" + os.environ.get("DISPLAY", "")] + ukaz
+        ukaz = ["flatpak-spawn", "--host"] + gostitelj.env_zaslona() + ukaz
     try:
         return subprocess.Popen(ukaz, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
                                 start_new_session=True, env=zasebni_webkit.okolje_za_zunanje())
@@ -206,8 +206,9 @@ def pripada_programu(pid: int, najdba: dict, program: dict, zagnani=()) -> bool:
 
 
 def x11_seja() -> bool:
-    """Ali je vgradnja okna mogoca (namizje X11). Na Waylandu se program odpre v svojem oknu ob Sporocilih."""
-    if os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland" or (os.environ.get("WAYLAND_DISPLAY")
-                                                                       and not os.environ.get("DISPLAY")):
-        return False
-    return bool(os.environ.get("DISPLAY"))
+    """Ali je vgradnja okna mogoca (namizje X11). Na Waylandu se program odpre v svojem oknu ob Sporocilih.
+
+    Odloci core/seja_prikaza: prej je seja z WAYLAND_DISPLAY in DISPLAY brez XDG_SESSION_TYPE (sway iz konzole) veljala
+    za X11 in vgradnja je tiho odpovedala."""
+    from core import seja_prikaza
+    return seja_prikaza.je_x11() and seja_prikaza.gdk_x11()

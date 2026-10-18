@@ -1934,13 +1934,26 @@ class SafeerControl(_OSNOVA):
         okno brez okvirja, ki ne vzame fokusa in ne odpre nicesar; po minuti se umakne (ponudba velja se 10 minut).
         Lastno okno namesto namiznega obvestila: v Cinnamonu so obvestila lahko izklopljena (display-notifications
         false) in uporabnik ponudbe sploh ne bi videl. Nic se ne predvaja in nic se ne ustavi, dokler ne pritisne Sprejmi."""
-        from core import link_predvajanje
+        from core import link_predvajanje, seja_prikaza
         self._umakni_pasico()
         try:
             jezik = self.nastavitve.get("ui_language")
             ime = str(p.get("od_ime") or "")
             if self.link is not None:
                 ime = next((str(n.get("ime") or "") for n in self.link.naprave if n.get("id") == p.get("od")), "") or ime
+            if seja_prikaza.je_wayland():
+                # Wayland (GNOME, KDE): okna ni mogoce postaviti v kot, ga drzati nad drugimi ne mu odvzeti fokusa -
+                # pasica bi se odprla kot navadno okno sredi dela. Obvestilo namizja z gumboma naredi isto, tam pa so
+                # obvestila privzeto vklopljena (razlog za pasico je bil Cinnamon z izklopljenimi obvestili).
+                from core import obvestila
+                obvestila.poslji(besedilo(jezik, "ponudba_naslov"),
+                                 besedilo(jezik, "ponudba").format(naprava=ime or p.get("od", ""),
+                                                                    kaj=link_predvajanje.opis_ponudbe(p)),
+                                 ident="safeer-ponudba",
+                                 gumbi=[("sprejmi", besedilo(jezik, "sprejmi"), self.predaja_sprejmi),
+                                        ("zavrni", besedilo(jezik, "zavrni"), self.predaja_zavrni)],
+                                 prioriteta="high", app=self)
+                return False
             okno = Gtk.Window(title=besedilo(jezik, "ponudba_naslov"))
             okno.set_decorated(False)
             okno.set_resizable(False)

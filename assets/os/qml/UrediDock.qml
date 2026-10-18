@@ -11,7 +11,8 @@ Okno {
     width: Math.min(460, parent ? parent.width - 24 : 460)
     closePolicy: Popup.CloseOnPressOutside
     property var programiPC: []          // programi tega racunalnika (za »Dodaj program«), z ikonami
-    property bool plank: false
+    property bool plank: false           // dock, ki ga Safeer OS ureja (Plank ali priljubljeni GNOME)
+    property bool vecNastavitev: false   // nastavitve docka ima samo Plank (GNOME: Nastavitve sistema)
     property var dock: []                // [{id, ime, ikona, dockitem}]
     property bool izbiram: false
     property string niz: ""
@@ -27,6 +28,7 @@ Okno {
     function nalozi(potem) {
         koren.klic("dock", [], function (r) {
             okno.plank = !!(r && r.plank); okno.dock = (r && r.programi) || []
+            okno.vecNastavitev = !!(r && r.vecNastavitev)
             if (potem) potem()
         }, function () { okno.plank = false; if (potem) potem() })
     }
@@ -136,7 +138,7 @@ Okno {
         Flow {
             Layout.fillWidth: true; spacing: 8; layoutDirection: Qt.RightToLeft
             Gumb { besedilo: koren.t("zapri"); onKlik: okno.close() }
-            Gumb { visible: okno.plank && !okno.izbiram; besedilo: koren.t("dockVecNastavitev")
+            Gumb { visible: okno.plank && okno.vecNastavitev && !okno.izbiram; besedilo: koren.t("dockVecNastavitev")
                    onKlik: { okno.close(); koren.klic("nastavitveDocka", []) } }
             Gumb { objectName: "dockDodajProgram"; visible: okno.plank && !okno.izbiram; besedilo: koren.t("dockDodajProgram"); poudarjen: true
                    onKlik: { okno.izbiram = true; polje.text = ""; polje.forceActiveFocus() } }

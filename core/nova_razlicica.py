@@ -230,13 +230,20 @@ def _klic(Gio, GLib, ime: str, pot: str, vmesnik: str, metoda: str, vrne: str):
 
 def nedejavnost_s(Gio, GLib) -> Optional[float]:
     """Sekunde brez tipke in miske: Muffin (Cinnamon) ali Mutter (GNOME) prek vodila seje, sicer razsiritev
-    XScreenSaver na X11. None, ce tega ne pove nobeno."""
+    XScreenSaver na X11. None, ce tega ne pove nobeno.
+
+    Wayland brez Mutterja (KDE, sway): XScreenSaver bi bral XWayland, ki vidi samo vnos v programe XWayland - med
+    pisanjem v programu Wayland bi kazal »nedejaven« in nova razlicica bi zagnala znova sredi dela. Tam vrnemo 0
+    (uporabnik je morda dejaven): ponovni zagon pocaka na zaklenjen zaslon ali gumb »Znova zazeni zdaj«."""
     for ime, pot in (("org.cinnamon.Muffin.IdleMonitor", "/org/cinnamon/Muffin/IdleMonitor/Core"),
                      ("org.gnome.Mutter.IdleMonitor", "/org/gnome/Mutter/IdleMonitor/Core")):
         try:
             return float(_klic(Gio, GLib, ime, pot, ime, "GetIdletime", "(t)")) / 1000.0
         except Exception:  # noqa: BLE001 - tega namizja ni
             continue
+    from core import seja_prikaza
+    if seja_prikaza.je_wayland():
+        return 0.0
     return _nedejavnost_x11()
 
 

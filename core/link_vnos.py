@@ -59,8 +59,10 @@ KRMILKE = {"Control_L", "Alt_L", "Shift_L", "Super_L"}
 class Vnos:
     """Odigra dogodke televizorja na namizju. Brez xdotool ne naredi nicesar in to tudi pove."""
 
-    def __init__(self, display: Optional[str] = None, xdotool: Optional[str] = None) -> None:
+    def __init__(self, display: Optional[str] = None, xdotool: Optional[str] = None, odmik: tuple = (0, 0)) -> None:
         self.display = display
+        #: Zgornji levi kot deljenega monitorja v pikah X (vec monitorjev): tocka iz slike je v tockah monitorja.
+        self.odmik = (int(odmik[0]), int(odmik[1]))
         self.xdotool = xdotool if xdotool is not None else (shutil.which("xdotool") or "")
         self.stevec = 0
         # Tipke, ki jih ta trenutek drzimo: ime za X -> kdaj smo nazadnje slisali zanjo.
@@ -99,7 +101,7 @@ class Vnos:
                 return False
             if x < 0 or y < 0 or x > 20000 or y > 20000:
                 return False
-            return self._pozeni(["mousemove", "--", str(x), str(y)])
+            return self._pozeni(["mousemove", "--", str(x + self.odmik[0]), str(y + self.odmik[1])])
         if vrsta == "gumb":
             st = GUMBI.get(str(dogodek.get("gumb", "levi") or "levi").strip().lower())
             if st is None:
