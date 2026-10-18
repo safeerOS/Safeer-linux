@@ -69,3 +69,32 @@ def test_zgodovina_mrtvi_procesi_pocisceni(tmp_path):
     _proces(tmp_path, 10, "WebKitWebProces", 500, 2)
     v.preglej(2000, 99, True, lambda p, s: None, str(tmp_path), zgodovina=z)
     assert z == {}
+
+
+def _zaporedje(tmp_path, vrednosti):
+    z, ubiti = {}, []
+    _proces(tmp_path, 10, "WebKitWebProces", vrednosti[0], 2)
+    for rss in vrednosti:
+        _rss(tmp_path, 10, rss)
+        v.preglej(1536, 99, True, lambda p, s: ubiti.append(p), str(tmp_path), zgodovina=z)
+    return ubiti
+
+
+def test_zgodovina_planota_ni_ustavljena(tmp_path):
+    """Stran, ki se ustali nad mejo (1600 MB pri meji 1536 MB), ni puscanje - tudi dolgo ne."""
+    assert _zaporedje(tmp_path, [1600] * (v.VZORCEV_RASTI * 3)) == []
+
+
+def test_zgodovina_planota_z_nihanjem_ni_ustavljena(tmp_path):
+    """Majhno nihanje navzgor (pod 5 % / 100 MB skupaj) ni puscanje."""
+    assert _zaporedje(tmp_path, [1600, 1610, 1620, 1630, 1640, 1650]) == []
+
+
+def test_zgodovina_ne_strogo_narascajoce_ni_ustavljeno(tmp_path):
+    """Velika skupna rast, a z enim enakim vzorcem vmes - ni dosledna rast."""
+    assert _zaporedje(tmp_path, [1600, 1900, 1900, 2300]) == []
+
+
+def test_zgodovina_prava_rast_ustavljena(tmp_path):
+    """Strogo narascajoce in skupaj vsaj max(5 %, 100 MB) - ustavljeno."""
+    assert _zaporedje(tmp_path, [1600, 1640, 1680, 1720]) == [10]

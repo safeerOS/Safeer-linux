@@ -73,13 +73,22 @@ def nasi_procesi(nas_pid: int, v_flatpaku: bool, proc: str = "/proc") -> List[Tu
 
 
 # Pravo puscanje (odlocitev lastnika 17. 10. 2026): proces mora biti nad mejo VZORCEV_RASTI zaporednih pregledov
-# (pri pregledu vsakih 5 s ~20 s) in njegova poraba med njimi ne sme pasti (dovoljen 1 % nihanja). Zahtevna stran
-# (JetStream 3.0: kratek vrh 2,7 GB, nato padec) tako ni ustavljena, puscanje DMA-BUF (~90 MB/s, ves cas raste) pa je.
+# (pri pregledu vsakih 5 s ~20 s) in njegova poraba mora med njimi ves cas rasti. Zahtevna stran (JetStream 3.0:
+# kratek vrh 2,7 GB, nato padec) tako ni ustavljena, puscanje DMA-BUF (~90 MB/s, ves cas raste) pa je.
+# Planota ni puscanje (pregled 18. 10. 2026): stran, ki se ustali nad mejo (npr. 1600 MB pri meji 1536 MB na 4 GB),
+# bi brez zahteve po pravi rasti po ~20 s ustavili in os_splet.nauci_po_padcu bi domeno trajno oznacil. Zato:
+# vsak vzorec strogo vecji od prejsnjega IN skupna rast vsaj max(5 %, 100 MB) (puscanje: ~450 MB na pregled).
 VZORCEV_RASTI = 4
+RAST_DELEZ = 0.05
+RAST_MB = 100
 
 
 def _ves_cas_raste(vzorci: List[int]) -> bool:
-    return len(vzorci) >= VZORCEV_RASTI and all(b >= a * 0.99 for a, b in zip(vzorci, vzorci[1:]))
+    if len(vzorci) < VZORCEV_RASTI:
+        return False
+    if not all(b > a for a, b in zip(vzorci, vzorci[1:])):
+        return False
+    return vzorci[-1] - vzorci[0] >= max(vzorci[0] * RAST_DELEZ, RAST_MB)
 
 
 def preglej(meja_mb: int, nas_pid: int, v_flatpaku: bool, ubij: Callable[[int, int], None] = os.kill,
