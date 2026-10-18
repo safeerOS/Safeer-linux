@@ -21,7 +21,7 @@ Rectangle {
     Keys.onReturnPressed: cip.klik()
     Keys.onEnterPressed: cip.klik()
     Keys.onSpacePressed: cip.klik()
-    Behavior on color { ColorAnimation { duration: 150 } }
+    Behavior on color { enabled: koren.gibanje; ColorAnimation { duration: 150 } }
     Row {
         id: vsebina; anchors.centerIn: parent; spacing: 7
         Text {
