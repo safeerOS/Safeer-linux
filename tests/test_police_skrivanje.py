@@ -1,4 +1,5 @@
 """Police na Domov (Samodejni seznami, Nazadnje dodano): uporabnik jih skrije za stalno, skrite se ne naložijo."""
+import time
 from pathlib import Path
 
 from core.os_katalog import Katalog
@@ -113,6 +114,15 @@ class SkritoSeNeNalozi(unittest.TestCase):
         self.assertNotIn("odkrij_radio", self.k._odkr["vir"])
         # Osvezitev v ozadju skrite police je ne vrne v pomnilnik.
         self.k._odkrij_zapisi("odkrij_radio", [{"id": "x", "naslov": "x", "vrsta": "radio"}], True)
+        self.assertNotIn("odkrij_radio", self.k._odkr["vir"])
+
+    def test_skritje_sprosti_ze_nalozeno(self):
+        self.k._samodejni.update(seznami=[{"id": "najvec", "skladbe": [{"id": "x"}] * 50}], cas=time.time())
+        self.k._samodejni_vnosi = {"x": {"id": "x"}}
+        self.k._odkr["vir"]["odkrij_radio"] = (0.0, [{"id": "r"}] * 20)
+        self.k.izvedi("mediaSkrij", ["polica:samodejni", True])
+        self.k.izvedi("mediaSkrij", ["polica:odkrij_radio", True])
+        self.assertEqual((self.k._samodejni["seznami"], self.k._samodejni_vnosi), ([], {}))
         self.assertNotIn("odkrij_radio", self.k._odkr["vir"])
 
     def test_stran_ob_spremembi_nalozi_police_znova(self):

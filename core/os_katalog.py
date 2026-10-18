@@ -880,8 +880,21 @@ class Katalog:
             d["media_skrito"] = sorted(skrito)[:self.NAJVEC_SKRITIH]
         self._spremeni_nastavitve(sprememba)
         izid = self._skriti()
+        self._sprosti_skrito(set(izid))
         self.dogodek("mediaSkrito", izid)          # drugo okno (glavno ali Safeer Player) se uskladi takoj
         return izid
+
+    def _sprosti_skrito(self, skrito: set) -> None:
+        """Skrita polica ne drzi vec podatkov v pomnilniku (samodejni seznami, police odkrivanja); ob ponovnem vklopu se
+        nalozijo znova."""
+        if "polica:samodejni" in skrito:
+            with self._zaklep:
+                self._samodejni.update(seznami=[], cas=0.0)
+            self._samodejni_vnosi = {}
+        with self._odkr_pogoj:
+            self._odkr["skrito"] = skrito
+            for ime in [k for k in self._odkr["vir"] if self._odkrij_skrita(k, skrito)]:
+                self._odkr["vir"].pop(ime, None)
 
     # ------------------------------------------------------------------ samodejni seznami (core/samodejni_seznami.py)
     _NASLOVNICE = ("cover.jpg", "cover.png", "folder.jpg", "folder.png", "front.jpg", "front.png")
