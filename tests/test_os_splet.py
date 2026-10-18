@@ -61,3 +61,20 @@ class StevecScita(unittest.TestCase):
         self.assertNotIn("messageHandlers.safeer.postMessage", adblock.GENERIC_COSMETIC_SCRIPT)
         self.assertEqual(adblock.STEVEC_MOST, "safeer_stevec")
         self.assertTrue(adblock.STEVEC_SVET)
+
+    def test_atribut_ne_zakrije_metode(self):
+        """18. 10. 2026: celo stevilo self._stevec (stevec zavihkov) je zakrilo metodo _stevec (stevec Scita) in vsako
+        sporocilo kozmeticne skripte je padlo s TypeError. Noben atribut primerka ne sme imeti imena metode razreda."""
+        import ast
+        drevo = ast.parse(open(os.path.join(KOREN, "core", "os_splet.py"), encoding="utf-8").read())
+        napake = []
+        for razred in (v for v in ast.walk(drevo) if isinstance(v, ast.ClassDef)):
+            metode = {f.name for f in razred.body if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef))}
+            for v in ast.walk(razred):
+                cilji = v.targets if isinstance(v, ast.Assign) else [v.target] if isinstance(v, (ast.AugAssign, ast.AnnAssign)) else []
+                for c in cilji:
+                    for e in (c.elts if isinstance(c, ast.Tuple) else [c]):
+                        if (isinstance(e, ast.Attribute) and isinstance(e.value, ast.Name) and e.value.id == "self"
+                                and e.attr in metode):
+                            napake.append("%s.%s (vrstica %d)" % (razred.name, e.attr, v.lineno))
+        self.assertEqual(napake, [])
