@@ -184,6 +184,22 @@ ZIVO_ODMIKI_S = (1, 2, 4, 8, 8)
 ZIVO_STABILNO_S = 30.0
 #: Napake, ki jih ponovna povezava ne popravi (manjka kodek, DRM): brez ponovnih poskusov.
 TRAJNE_NAPAKE = frozenset({"format", "zascita"})
+#: Premor radia v zivo (lastnik, 18. 10. 2026: »premor zamuja, po nadaljevanju je nekaj casa tisina, po dolgem premoru
+#: zaigra stara pesem, nato se tok pretrga«). Premor tok takoj utisa (playbin »mute«: tisina v trenutku, tudi za zvok, ki
+#: je ze v zvocnem izhodu), tok pa tece naprej: nadaljevanje samo odstrani utisanje - zvok je takoj tu in je zivi program,
+#: nic starega iz zaloge. Prej je premor ustavil cevovod (PAUSED), zaloga in vticnik sta ostala polna starega zvoka:
+#: izmerjeno 18. 10. 2026 (krajevni preizkusni radio, scratchpad meri_radio.py) premor 5 s -> po nadaljevanju 5 s star
+#: zvok (zaostanek 10,3 s namesto 5,3 s) do konca poslusanja, 12 s -> 12 s star, nad 15 s ponovna povezava s 1,2 s tisine
+#: (brez zacetnega izbruha streznika 5,1 s). Po ZIVO_PREMOR_TOPLO_S tihega premora povezavo sprostimo (omrezje, mesto pri
+#: strezniku); nadaljevanje se tedaj poveze znova na zivi rob.
+ZIVO_PREMOR_TOPLO_S = 300.0
+#: Nadaljevanje po sproscenem premoru caka uporabnik: predvajanje se zacne ze pri 10 % zaloge (1 s) namesto 40 %, nato
+#: velja spet ZIVO_ZACETNA_ZALOGA (zastoj se polni do 4 s). Izmerjeno 18. 10. 2026: tisina po nadaljevanju z izbruhom
+#: streznika (64 KB) 1,2 s -> glej meritev v sporocilu commita; brez izbruha 5,1 s -> ~1 s.
+ZIVO_NADALJUJ_ZALOGA = 0.1
+#: Tok brez znane dolzine, ki po nalaganju tece vsaj toliko sekund, je prenos v zivo (radio, ki je na seznamu kot skladba):
+#: stran ga oznaci »V zivo« in ga samodejni prehod vrste preskoci (sicer bi vrsta na njem obstala - prenos nima konca).
+ZIVO_PREPOZNAJ_S = 3.0
 
 
 def je_zivi_tok(s: Skladba | None) -> bool:
@@ -234,6 +250,8 @@ class Predvajalnik:
         self._zivo_nastavljeno = False  # playbin ima nastavitve za radio, ob datoteki jih povrnemo
         self._rod = 0                  # vsak nov zacetek/ustavitev razveljavi odlozene ponovne povezave
         self._poskus = 0               # zaporedni neuspeli poskusi povezave (ZIVO_ODMIKI_S)
+        self._tihi_premor = False      # premor radia: tok tece utisan (ZIVO_PREMOR_TOPLO_S)
+        self._hitro_nadaljuj = False   # prvo polnjenje po nadaljevanju z nizjo zalogo (ZIVO_NADALJUJ_ZALOGA)
         self._zivo_ponastavi()
         self.statistika = self._prazna_statistika()
         self.element = gst.ElementFactory.make("playbin", "safeer-media")
@@ -305,6 +323,7 @@ class Predvajalnik:
             return False
         self.element.set_state(self.gst.State.NULL)
         self._zivo_konec()
+        self._utisaj(False)            # tihi premor prejsnje postaje ne velja za nov posnetek
         self.indeks = indeks
         self.napaka = ""
         self._cakaj_zacetek = self.vrsta[indeks].zacetek
@@ -780,7 +799,18 @@ class Predvajalnik:
                 "vrstaSeznam": [{"naslov": v.naslov, "vrsta": v.vrsta, "izvor": v.izvor}
                                 for v in self.vrsta[zacetek:zacetek + 18]],
                 "pozicija": pozicija, "trajanje": dolzina, "napaka": self.napaka,
+                "zivo": self.je_v_zivo(pozicija, dolzina),
                 "podnapisi": bool(self.trenutna and (self.trenutna.podnapisi or self._stevilo_besedil()))}
+
+    def je_v_zivo(self, pozicija: float, dolzina: float) -> bool:
+        """Trenutni posnetek je prenos v zivo: postaja ali TV, ali spletni tok, ki tece ZIVO_PREPOZNAJ_S brez dolzine."""
+        s = self.trenutna
+        if s is None:
+            return False
+        if s.vrsta in ("tv", "radio"):
+            return True
+        return bool(self._nalozeno and dolzina <= 0 and pozicija >= ZIVO_PREPOZNAJ_S
+                    and urlsplit(s.uri).scheme in ("http", "https"))
 
     def _stevilo_besedil(self) -> int:
         try:
@@ -791,6 +821,16 @@ class Predvajalnik:
     def naslednja(self) -> bool:
         return self.predvajaj(self.indeks + 1)
 
+    def _naslednja_samodejno(self) -> bool:
+        """Samodejni prehod po koncu posnetka ali tihi napaki: postaj in TV v vrsti ne zacne (prenos nima konca, vrsta bi
+        na njem obstala); izbere jih uporabnik sam. Iz prenosa v zivo (seznam postaj) gre naprej kot doslej."""
+        s = self.trenutna
+        i = self.indeks + 1
+        if s is None or s.vrsta not in ("tv", "radio"):
+            while i < len(self.vrsta) and self.vrsta[i].vrsta in ("tv", "radio"):
+                i += 1
+        return self.predvajaj(i)
+
     def prejsnja(self) -> bool:
         return self.predvajaj(self.indeks - 1)
 
@@ -798,6 +838,7 @@ class Predvajalnik:
         self._cakaj_zacetek = 0
         self.element.set_state(self.gst.State.NULL)
         self._zivo_konec()
+        self._utisaj(False)
         self.stanje = "ustavljeno"
         self.sprememba()
 
@@ -876,7 +917,7 @@ class Predvajalnik:
         if sporocilo.type == self.gst.MessageType.EOS:
             if self.trenutna:
                 self.konec(self.trenutna.uri)
-            if not self.naslednja():
+            if not self._naslednja_samodejno():
                 self.ustavi()
         elif sporocilo.type == self.gst.MessageType.ASYNC_DONE:
             self._nalozeno = True
@@ -918,7 +959,7 @@ class Predvajalnik:
         self.napaka = ""
         naslednja = self.vrsta[self.indeks + 1] if 0 <= self.indeks + 1 < len(self.vrsta) else None
         if naslednja is not None and (s is None or s.vrsta != "radio" or naslednja.vrsta == "radio"):
-            if self.naslednja():
+            if self._naslednja_samodejno():
                 return
         self.stanje = "ustavljeno"
         self.sprememba()
@@ -939,6 +980,7 @@ class Predvajalnik:
         self._povezan_od = None        # kdaj je zvok po tej povezavi stekel
         self._premor_od = 0.0
         self._znova_ob_nadaljevanju = False
+        self._cakam_povezavo = False   # povezava se je prekinila, ponovna je odlozena (_prekinjeno)
 
     def _dnevnik(self, *besedilo) -> None:
         print("[SafeerOS] radio:", *besedilo, file=sys.stderr, flush=True)      # stderr = sled.log
@@ -1000,7 +1042,8 @@ class Predvajalnik:
         if ime in ("uridecodebin", "urisourcebin", "queue2"):
             self._lastnost(element, "use-buffering", True)
         if ime == "queue2":
-            self._lastnost(element, "high-watermark", ZIVO_ZACETNA_ZALOGA)
+            self._vrsta2 = element
+            self._lastnost(element, "high-watermark", ZIVO_NADALJUJ_ZALOGA if self._hitro_nadaljuj else ZIVO_ZACETNA_ZALOGA)
         elif "Sink" in vrsta and "Audio" in vrsta:
             if self._lastnost(element, "buffer-time", ZIVO_IZHOD_ZALOGA_US):
                 self._lastnost(element, "latency-time", ZIVO_IZHOD_SEGMENT_US)
@@ -1037,7 +1080,7 @@ class Predvajalnik:
             self._dnevnik("streznik je zaprl tok (EOS)")
             self._prekinjeno("tok")
             return True
-        if tip == vrste.ASYNC_DONE and self._povezan_od is None and not self._polni and self.stanje == "predvaja":
+        if tip == vrste.ASYNC_DONE and self._povezan_od is None and not self._polni and self._tece():
             self._povezan_od = self._ura()
         return False
 
@@ -1051,28 +1094,32 @@ class Predvajalnik:
             if self._predvajal:
                 self.statistika["medpomnjenja"] += 1
                 self._dnevnik("medpomnjenje %d %% (dogodek %d)" % (odstotek, self.statistika["medpomnjenja"]))
-            if self.stanje == "predvaja":
+            if self._tece():
                 self.element.set_state(self.gst.State.PAUSED)
             rod, polnjenje = self._rod, self._polnjenje
             self._cez_klic(ZIVO_ZASTOJ_MEJA_S, lambda: self._cuvaj_zastoja(rod, polnjenje))
             return
+        if self._hitro_nadaljuj:
+            # Prvo polnjenje po nadaljevanju je koncano: naslednji zastoj se polni do obicajne zaloge.
+            self._hitro_nadaljuj = False
+            self._lastnost(getattr(self, "_vrsta2", None), "high-watermark", ZIVO_ZACETNA_ZALOGA)
         if self._polni:
             self._polni = False
             if self._predvajal:
                 trajanje = max(0.0, self._ura() - self._polni_od)
                 self._zaostanek += trajanje
                 self.statistika["zastoj_s"] += trajanje
-                if self._zaostanek > ZIVO_ZAOSTANEK_MEJA_S and self.stanje == "predvaja":
+                if self._zaostanek > ZIVO_ZAOSTANEK_MEJA_S and self._tece():
                     self._skok_na_zivo("zaostanek %.1f s" % self._zaostanek)
                     return
-        if self.stanje == "predvaja":
+        if self._tece():
             self.element.set_state(self.gst.State.PLAYING)
             if self._povezan_od is None:
                 self._povezan_od = self._ura()
             self._predvajal = True
 
     def _cuvaj_zastoja(self, rod: int, polnjenje: int) -> None:
-        if rod == self._rod and self._zivo and self._polni and polnjenje == self._polnjenje and self.stanje == "predvaja":
+        if rod == self._rod and self._zivo and self._polni and polnjenje == self._polnjenje and self._tece():
             self._dnevnik("medpomnjenje traja vec kot %d s" % ZIVO_ZASTOJ_MEJA_S)
             self._prekinjeno("tok")
 
@@ -1098,12 +1145,13 @@ class Predvajalnik:
         self._rod += 1
         rod = self._rod
         self._zivo_ponastavi()
-        if self.stanje == "premor":
+        if self.stanje == "premor" and not self._tihi_premor:
             self._znova_ob_nadaljevanju = True
             return
+        self._cakam_povezavo = True
         self._cez_klic(odmik, lambda: rod == self._rod and self._povezi_znova())
 
-    def _povezi_znova(self) -> bool:
+    def _povezi_znova(self, hitro: bool = False) -> bool:
         """Isti naslov od zacetka: nova povezava je vedno na zivem robu. Stanje za uporabnika ostane "predvaja"."""
         s = self.trenutna
         if s is None or not self._zivo:
@@ -1112,31 +1160,60 @@ class Predvajalnik:
         self.statistika["ponovne_povezave"] += 1
         self.element.set_state(self.gst.State.NULL)
         self._zivo_ponastavi()
+        self._hitro_nadaljuj = hitro       # uporabnik caka na zvok: zacne ze pri ZIVO_NADALJUJ_ZALOGA
         self.element.set_property("uri", s.uri)
+        self._utisaj(self._tihi_premor)    # ponovna povezava med tihim premorom ostane utisana
         if self.element.set_state(self.gst.State.PLAYING) == self.gst.StateChangeReturn.FAILURE:
             self._prekinjeno("tok")
             return False
-        self.stanje, self.napaka = "predvaja", ""
+        if not self._tihi_premor:
+            self.stanje = "predvaja"
+        self.napaka = ""
         return True
 
+    def _utisaj(self, da: bool) -> None:
+        try:
+            self.element.set_property("mute", bool(da))
+        except Exception:  # noqa: BLE001 - playbin brez lastnosti: premor brez utisanja je se vedno premor
+            pass
+
+    def _tece(self) -> bool:
+        """Tok radia tece: predvaja ali je v tihem premoru (utisan, na zivem robu)."""
+        return self.stanje == "predvaja" or (self.stanje == "premor" and self._tihi_premor)
+
     def _zivo_premor(self) -> None:
-        """Premor radia: ob nadaljevanju po daljsem premoru (ali prekinjeni povezavi) skocimo na zivi rob."""
+        """Premor radia (ZIVO_PREMOR_TOPLO_S): takoj utisa, tok tece naprej; nadaljevanje utisanje odstrani. Po
+        ZIVO_PREMOR_TOPLO_S ali prekinjeni povezavi se nadaljevanje poveze znova - vedno na zivi rob, nikoli stara zaloga."""
         if self.stanje == "predvaja":
-            if self.element.set_state(self.gst.State.PAUSED) != self.gst.StateChangeReturn.FAILURE:
-                self.stanje, self._premor_od = "premor", self._ura()
-                self.sprememba()
+            self._utisaj(True)
+            self.stanje, self._premor_od, self._tihi_premor = "premor", self._ura(), True
+            rod = self._rod
+            self._cez_klic(ZIVO_PREMOR_TOPLO_S, lambda: self._sprosti_premor(rod))
+            self.sprememba()
             return
         if self.stanje != "premor":
             return
-        self._zaostanek += max(0.0, self._ura() - self._premor_od)
+        tihi, self._tihi_premor = self._tihi_premor, False
         self.stanje = "predvaja"
-        if self._znova_ob_nadaljevanju:      # povezava se je med premorom prekinila
-            self._povezi_znova()
-        elif self._zaostanek > ZIVO_ZAOSTANEK_MEJA_S:
-            self._skok_na_zivo("premor, zaostanek %.1f s" % self._zaostanek)
-        elif not self._polni:
-            self.element.set_state(self.gst.State.PLAYING)
+        if tihi and not self._znova_ob_nadaljevanju and not self._cakam_povezavo:
+            self._utisaj(False)              # tok je ves cas tekel: takoj zivi program
+            if not self._polni:
+                self.element.set_state(self.gst.State.PLAYING)
+        else:
+            self._dnevnik("nadaljevanje po sproscenem premoru: nova povezava na zivi rob")
+            self._povezi_znova(hitro=True)
         self.sprememba()
+
+    def _sprosti_premor(self, rod: int) -> None:
+        """Tihi premor traja ZIVO_PREMOR_TOPLO_S: povezavo sprostimo, nadaljevanje se poveze znova."""
+        if rod != self._rod or self.stanje != "premor" or not self._tihi_premor:
+            return
+        self._dnevnik("premor dalj kot %d s: povezava sproscena" % ZIVO_PREMOR_TOPLO_S)
+        self._rod += 1                       # odlozene ponovne povezave ne veljajo vec
+        self._tihi_premor = False
+        self.element.set_state(self.gst.State.NULL)
+        self._zivo_ponastavi()
+        self._znova_ob_nadaljevanju = True
 
     def _izpisi_statistiko(self) -> None:
         st = self.statistika
@@ -1147,6 +1224,7 @@ class Predvajalnik:
         """Uporabnik je ustavil ali zamenjal skladbo: odlozene povezave ne veljajo vec, statistika v dnevnik."""
         self._rod += 1
         self._poskus = 0
+        self._tihi_premor = self._hitro_nadaljuj = False
         if self._zivo:
             self._izpisi_statistiko()
         self._zivo_ponastavi()
