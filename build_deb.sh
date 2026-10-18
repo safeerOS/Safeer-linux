@@ -3,7 +3,7 @@
 # Safeer Browser — Debian / Ubuntu / Linux Mint .deb Package Builder
 # Produces production-ready safeer-browser_<version>_amd64.deb with our WebKitGTK and libsoup
 # (SAFEER_WEBKIT_TAR, packaging/webkit-deb) or, without it, safeer-browser_<version>_all.deb on the system WebKitGTK
-# (local builds and tests; GTK3 browser: SAFEER_BRSKALNIK_GTK3=1).
+# (local builds and tests).
 # ==============================================================================
 set -euo pipefail
 
@@ -14,10 +14,6 @@ VERSION="$(cat "$DIR/packaging/VERSION")"
 # packaging/webkit-deb/zgradi.sh za predpono /usr/lib/safeer-browser/webkit (CI: posel webkit-deb). Z njim je paket amd64.
 # SAFEER_DAV1D=MAPA (CI: posel dav1d-deb) doda dekoder AV1 dav1ddec v predpono (packaging/webkit-deb/vgradi.sh).
 WEBKIT_TAR="${SAFEER_WEBKIT_TAR:-}"
-if [ -n "$WEBKIT_TAR" ] && [ "${SAFEER_BRSKALNIK_GTK3:-0}" = 1 ]; then
-    echo "SAFEER_WEBKIT_TAR je WebKitGTK 6.0 (GTK4); brskalnik GTK3 uporablja WebKit2GTK 4.1 sistema." >&2
-    exit 2
-fi
 if [ -n "$WEBKIT_TAR" ]; then ARCH="amd64"; else ARCH="all"; fi
 DEB_PACKAGE="${PKG_NAME}_${VERSION}_${ARCH}.deb"
 TAR_PACKAGE="safeer-browser-linux.tar.gz"
@@ -47,12 +43,7 @@ echo "📝 Generiranje DEBIAN/control..."
 # dpkg-shlibdeps, peskovnik potrebuje bwrap in xdg-dbus-proxy, TLS za libsoup glib-networking. Brez arhiva (lokalna
 # gradnja) paket uporabi WebKitGTK sistema. GDebi ne namesti priporocenih paketov: kar mora delovati takoj, je v Depends
 # (kodeki GStreamer za video na straneh - isti kot v paketu safeer-os).
-if [ "${SAFEER_BRSKALNIK_GTK3:-0}" = 1 ]; then
-    ODVISNOSTI="python3, python3-gi, python3-gi-cairo, gir1.2-gtk-3.0, gir1.2-webkit2-4.1, gir1.2-soup-3.0, gir1.2-glib-2.0"
-    PRIPOROCILA=""
-    OPIS_GTK=" specifically for Linux Mint and Ubuntu. Built natively with GTK3 and
- WebKit2GTK, it includes ad filtering, a local threat blocklist,"
-elif [ -n "$WEBKIT_TAR" ]; then
+if [ -n "$WEBKIT_TAR" ]; then
     ODVISNOSTI="python3 (>= 3.10), python3-gi (>= 3.42), python3-gi-cairo, gir1.2-gtk-4.0, gir1.2-glib-2.0, ${WEBKIT_ODVISNOSTI}, bubblewrap, xdg-dbus-proxy, glib-networking, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-libav, gstreamer1.0-gl"
     PRIPOROCILA="Recommends: python3-cryptography, xdg-utils
 "
@@ -171,9 +162,8 @@ echo "Installed-Size: $(du -sk --exclude=DEBIAN "$BUILD_ROOT" | cut -f1)" >> "$B
 dpkg-deb --build --root-owner-group "$BUILD_ROOT" "$DIR/$DEB_PACKAGE"
 
 # 9. Build portable tar.gz package
-# Prenosni arhiv je namestitev iz izvorne kode (install.sh, safeer-mint.sh): privzeto GTK4 brskalnik
-# safeer_brskalnik.py (kot .deb, Flatpak in AppImage). safeer_mint.py je zraven, ker ga safeer-mint.sh zazene z
-# zastarelo izbiro SAFEER_BRSKALNIK_GTK3=1; packaging/ da vnos .desktop GTK4 in VERSION za --version.
+# Prenosni arhiv je namestitev iz izvorne kode (install.sh, safeer-mint.sh): brskalnik GTK4 safeer_brskalnik.py
+# (kot .deb, Flatpak in AppImage); packaging/ da vnos .desktop in VERSION za --version.
 echo "📦 Izdelava prenosnega arhiva: $TAR_PACKAGE..."
 tar -czf "$DIR/$TAR_PACKAGE" \
     --exclude="__pycache__" \
@@ -181,7 +171,7 @@ tar -czf "$DIR/$TAR_PACKAGE" \
     --exclude=".git" \
     --exclude="build" \
     -C "$DIR" \
-    safeer_brskalnik.py safeer_mint.py core ui assets safeer-mint.sh install.sh uninstall.sh safeer-browser.desktop \
+    safeer_brskalnik.py core ui assets safeer-mint.sh install.sh uninstall.sh \
     packaging/safeer-browser.desktop packaging/VERSION README.md LICENSE
 TAR_DATOTEKE="$TAR_PACKAGE"
 

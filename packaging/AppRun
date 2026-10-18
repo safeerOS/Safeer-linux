@@ -12,12 +12,7 @@ export PYTHON="$APPDIR/usr/bin/python3"
 export GI_TYPELIB_PATH="$APPDIR/usr/lib/$TRIPLET/girepository-1.0"
 export GSETTINGS_SCHEMA_DIR="$APPDIR/usr/share/glib-2.0/schemas"
 export GIO_MODULE_DIR="$APPDIR/usr/lib/$TRIPLET/gio/modules"
-# GTK4 brskalnik (WebKitGTK 6.0) ali prejsnji GTK3 (WebKit2GTK 4.1, SAFEER_BRSKALNIK_GTK3=1 ob gradnji).
-if [ -d "$APPDIR/usr/lib/$TRIPLET/webkitgtk-6.0" ]; then
-    export WEBKIT_EXEC_PATH="$APPDIR/usr/lib/$TRIPLET/webkitgtk-6.0"
-else
-    export WEBKIT_EXEC_PATH="$APPDIR/usr/lib/$TRIPLET/webkit2gtk-4.1"
-fi
+export WEBKIT_EXEC_PATH="$APPDIR/usr/lib/$TRIPLET/webkitgtk-6.0"     # GTK4, WebKitGTK 6.0
 export WEBKIT_INJECTED_BUNDLE_PATH="$WEBKIT_EXEC_PATH/injected-bundle"
 export GST_PLUGIN_SYSTEM_PATH="$APPDIR/usr/lib/$TRIPLET/gstreamer-1.0"
 export GST_PLUGIN_SCANNER="$APPDIR/usr/lib/$TRIPLET/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner"

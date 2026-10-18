@@ -42,10 +42,9 @@ git clone https://github.com/safeerOS/Safeer-linux.git
 cd Safeer-linux && git switch gtk4
 
 sudo apt install python3-gi python3-gi-cairo python3-pytest python3-cryptography \
-  gir1.2-gtk-4.0 gir1.2-gtk-3.0 gir1.2-webkit-6.0 gir1.2-webkit2-4.1 gir1.2-soup-3.0 \
+  gir1.2-gtk-4.0 gir1.2-webkit-6.0 gir1.2-soup-3.0 \
   gir1.2-secret-1 gir1.2-gstreamer-1.0 gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
   gstreamer1.0-libav glib-networking xvfb
-# gir1.2-gtk-3.0 and gir1.2-webkit2-4.1 are only for the gtk3 test group (deprecated safeer_mint.py).
 
 python3 safeer_brskalnik.py        # Safeer Browser (GTK 4)
 python3 safeer_os.py               # Safeer OS shell
@@ -53,15 +52,13 @@ python3 safeer_os.py               # Safeer OS shell
 
 ### Running the tests
 
-GTK 3 and GTK 4 cannot be loaded into the same Python process, so the suite is split into two
-groups. `tools/razdeli_teste.py` picks the group from each test's imports:
+Safeer is GTK 4 and WebKitGTK 6.0 only (GTK 3 was retired on 18 Oct 2026), so the whole suite runs in one process:
 
 ```bash
-PYTHONPATH=tests xvfb-run -a python3 -m pytest -q $(python3 tools/razdeli_teste.py gtk3 --poti)
-PYTHONPATH=tests xvfb-run -a python3 -m pytest -q $(python3 tools/razdeli_teste.py gtk4 --poti)
+PYTHONPATH=tests xvfb-run -a python3 -m pytest -q tests/
 ```
 
-The `gtk4` group also needs PySide6 for the Qt Quick shell (`pip install PySide6`, or
+The suite also needs PySide6 for the Qt Quick shell (`pip install PySide6`, or
 `python3 packaging/pyside6_vendor.py build/vendor` and add `build/vendor` to `PYTHONPATH`, as
 CI does). One test file at a time is fine while you work:
 `xvfb-run -a python3 -m pytest -q tests/test_pojavna_okna.py`.
@@ -71,9 +68,7 @@ CI does). One test file at a time is fine while you work:
 - `core/` — shared modules. Logic that does not need a window (download naming, pop-up rules,
   tracking-protection levels, site permissions …) lives in GTK-free modules here, so the
   browser, Safeer OS and their tests share one implementation.
-- `safeer_brskalnik.py` — Safeer Browser (GTK 4). GTK 4 is the default everywhere
-  (packages, `install.sh`). `safeer_mint.py` — the deprecated GTK 3 browser, only on explicit request
-  (`SAFEER_BRSKALNIK_GTK3=1`) until it is retired; do not build new features there.
+- `safeer_brskalnik.py` — Safeer Browser (GTK 4, WebKitGTK 6.0), the only browser (packages, `install.sh`).
 - `safeer_os.py`, `assets/os/` — the Safeer OS shell (QML, HTML/JS panels, `os.css` holds all
   colours and themes).
 - `packaging/` — .deb, AppImage, Flatpak (the Flatpak carries our patched WebKitGTK).

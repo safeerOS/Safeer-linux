@@ -266,21 +266,12 @@ class Gostitelj:
                  ob_koncu: Optional[Callable[[], None]] = None) -> None:
         self.Gtk, self.Gdk, self.GLib = Gtk, Gdk, GLib
         self.ob_celozaslonu, self.ob_koncu = ob_celozaslonu, ob_koncu
-        #: GTK3 (Safeer Browser, safeer_mint.py): gradnik ima svoje X okno - okno DRM je njegov otrok na (0, 0)
-        #: (tako je delovalo pred prehodom na GTK4, 3995d62). GTK4: otrok vrhnjega okna na mestu gradnika.
-        self._gtk3 = Gtk.get_major_version() == 3
         self.gradnik = Gtk.DrawingArea()
         self.gradnik.set_name("safeer-drm")
         self.gradnik.set_hexpand(True); self.gradnik.set_vexpand(True)
-        if self._gtk3:
-            self.gradnik.set_can_focus(True)
-            self.gradnik.connect("size-allocate", lambda *_: self._prilagodi())
-            self.gradnik.connect("draw", lambda _g, cr: self._risi(_g, cr))
-            self.gradnik.add_events(Gdk.EventMask.KEY_PRESS_MASK)
-        else:
-            self.gradnik.set_focusable(True)
-            self.gradnik.connect("resize", lambda *_: self._prilagodi())
-            self.gradnik.set_draw_func(lambda _g, cr, *_: self._risi(_g, cr))
+        self.gradnik.set_focusable(True)
+        self.gradnik.connect("resize", lambda *_: self._prilagodi())
+        self.gradnik.set_draw_func(lambda _g, cr, *_: self._risi(_g, cr))
         self._mesto = None
         self._mesto_gradnika = vstavi_okno.Mesto(Gtk, self.gradnik)
         # Okno DRM je otrok vrhnjega okna, zato ga ob skritju gradnika (drug zavihek, Splet skrit) skrijemo sami.
@@ -319,8 +310,6 @@ class Gostitelj:
         self.ustavi()
         uskladi_logiko(exe)
         self.url = url
-        if self._gtk3:
-            self.gradnik.realize()   # GTK3: X okno gradnika mora obstajati, preden ga damo procesu DRM kot starsa
         stars = self._xid_starsa()
         seje = mapa_sej()
         seje.mkdir(parents=True, exist_ok=True)

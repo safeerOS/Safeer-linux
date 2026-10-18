@@ -4011,8 +4011,7 @@ class SafeerOS(Gtk.Application):
 
     def _na_sporocilo(self, pogled, rezultat) -> None:
         try:
-            vrednost = rezultat.get_js_value() if hasattr(rezultat, "get_js_value") else rezultat   # WebKit 4.1 / 6.0
-            s = json.loads(vrednost.to_string())
+            s = json.loads(rezultat.to_string())          # JSC.Value (WebKitGTK 6.0)
             if not zeton_velja(s):
                 # Vgrajen okvir (tuja stran, komponenta) ali tuja stran: brez odgovora, brez izvedbe.
                 if not getattr(self, "_most_zavrnjen", False):
@@ -7023,8 +7022,7 @@ class SafeerOS(Gtk.Application):
         if not getattr(self, "_medijski_skladba", False) or self._katalog is None:
             return
         try:
-            vrednost = rezultat.get_js_value() if hasattr(rezultat, "get_js_value") else rezultat   # 4.1 / 6.0
-            self._katalog.yt_sporocilo(vrednost.to_string())
+            self._katalog.yt_sporocilo(rezultat.to_string())
             self._yt_spremenjeno()
         except Exception as e:  # noqa: BLE001
             print("[SafeerOS] stanje skladbe:", e)

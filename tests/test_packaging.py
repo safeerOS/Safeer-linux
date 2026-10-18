@@ -20,7 +20,7 @@ class PackagingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             koren = Path(d)
             for rel in ('packaging/check_version.py','packaging/VERSION','packaging/VERSION_OS','packaging/VERSION_CONTROL',
-                        'safeer_mint.py','README.md','PACKAGING.md','io.github.memelandfaner.SafeerBrowser.metainfo.xml',
+                        'README.md','PACKAGING.md','io.github.memelandfaner.SafeerBrowser.metainfo.xml',
                         'io.github.memelandfaner.SafeerOS.metainfo.xml'):
                 (koren/rel).parent.mkdir(parents=True,exist_ok=True)
                 shutil.copy(ROOT/rel,koren/rel)
@@ -111,20 +111,17 @@ class PackagingTests(unittest.TestCase):
             create.assert_not_called()
 
     def test_shared_launcher_is_relocatable_and_preserves_arguments(self):
-        # Od 14. 10. 2026 je brskalnik v paketih GTK4 (safeer_brskalnik.py); SAFEER_BRSKALNIK_GTK3=1 zgradi prejsnjega.
-        for gtk3,vstop in ((False,'safeer_brskalnik.py'),(True,'safeer_mint.py')):
-            with self.subTest(vstop=vstop), tempfile.TemporaryDirectory(prefix='safeer package ') as directory:
-                prefix=Path(directory)/'usr'
-                okolje={**os.environ,'SAFEER_BRSKALNIK_GTK3':'1' if gtk3 else '0'}
-                subprocess.run(['bash',str(ROOT/'packaging/install_payload.sh'),str(prefix)],check=True,env=okolje)
-                fake=Path(directory)/'python'
-                fake.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
-                fake.chmod(0o755)
-                output=subprocess.check_output([str(prefix/'bin/safeer-browser'),'https://example.com/a b'],env={**os.environ,'PYTHON':str(fake)},text=True).splitlines()
-                self.assertEqual(output,[str(prefix/'lib/safeer-browser'/vstop),'https://example.com/a b'])
-                drugi='safeer_mint.py' if vstop=='safeer_brskalnik.py' else 'safeer_brskalnik.py'
-                self.assertFalse((prefix/'lib/safeer-browser'/drugi).exists(),drugi)
-                subprocess.run(['desktop-file-validate',str(prefix/'share/applications/safeer-browser.desktop')],check=True)
+        # Brskalnik v paketih je GTK4 (safeer_brskalnik.py); GTK3 je umaknjen 18. 10. 2026.
+        vstop='safeer_brskalnik.py'
+        with tempfile.TemporaryDirectory(prefix='safeer package ') as directory:
+            prefix=Path(directory)/'usr'
+            subprocess.run(['bash',str(ROOT/'packaging/install_payload.sh'),str(prefix)],check=True)
+            fake=Path(directory)/'python'
+            fake.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+            fake.chmod(0o755)
+            output=subprocess.check_output([str(prefix/'bin/safeer-browser'),'https://example.com/a b'],env={**os.environ,'PYTHON':str(fake)},text=True).splitlines()
+            self.assertEqual(output,[str(prefix/'lib/safeer-browser'/vstop),'https://example.com/a b'])
+            subprocess.run(['desktop-file-validate',str(prefix/'share/applications/safeer-browser.desktop')],check=True)
 
     def test_browser_payload_can_actually_start(self):
         """Namesceni GTK4 brskalnik se zazene brez izvorne mape: --version prek zaganjalnika (razlicica iz
@@ -134,7 +131,7 @@ class PackagingTests(unittest.TestCase):
             prefix=Path(directory)/'usr'
             subprocess.run(['bash',str(ROOT/'packaging/install_payload.sh'),str(prefix)],check=True)
             lib=prefix/'lib/safeer-browser'
-            environment={k:v for k,v in os.environ.items() if k not in ('PYTHONPATH','SAFEER_BRSKALNIK_GTK3')}
+            environment={k:v for k,v in os.environ.items() if k != 'PYTHONPATH'}
             verzija=(ROOT/'packaging/VERSION').read_text().strip()
             result=subprocess.run([str(prefix/'bin/safeer'),'--version'],capture_output=True,text=True,
                                   cwd=tempfile.gettempdir(),env={**environment,'PYTHON':sys.executable})
@@ -757,7 +754,6 @@ class DebWebkitTests(unittest.TestCase):
             verzija=(ROOT/'packaging/VERSION').read_text().strip()
             deb=ROOT/('safeer-browser_%s_amd64.deb'%verzija)
             okolje=dict(os.environ,SAFEER_WEBKIT_TAR=str(arhiv))
-            okolje.pop('SAFEER_BRSKALNIK_GTK3',None)
             try:
                 r=subprocess.run(['bash',str(ROOT/'build_deb.sh')],cwd=ROOT,env=okolje,capture_output=True,text=True)
                 self.assertEqual(r.returncode,0,r.stdout[-2000:]+r.stderr[-2000:])

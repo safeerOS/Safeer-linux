@@ -12,7 +12,7 @@ import os
 import re
 import unittest
 
-# Na ravni modula: tools/razdeli_teste.py preizkus tako uvrsti v skupino GTK 4 (CI: Ubuntu 24.04 z WebKitGTK 6.0).
+# GTK4 in WebKitGTK 6.0 (CI: Ubuntu 24.04).
 try:
     import gi
     gi.require_version("Gtk", "4.0")

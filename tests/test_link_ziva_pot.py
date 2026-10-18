@@ -146,10 +146,7 @@ class CasPrejema(unittest.TestCase):
 
 class UkazPocakaj(unittest.TestCase):
     def setUp(self):
-        import gi
-        if gi.get_required_version("Gtk") is None:
-            gi.require_version("Gtk", "3.0")     # skupina gtk3: Link z GTK3 + WebKit2GTK 4.1 (kot v brskalniku)
-        from core import safeer_link
+        from core import safeer_link      # GTK4 + WebKitGTK 6.0
         self.link = safeer_link.SafeerLink.__new__(safeer_link.SafeerLink)
         self.link._cakajoci = {}
         self.poslano = []

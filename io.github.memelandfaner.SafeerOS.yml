@@ -34,7 +34,6 @@ finish-args:
   - --env=GTK_USE_PORTAL=1
 modules:
   # Nas WebKitGTK s popravki (packaging/webkit), API 6.0 za GTK4; prvi modul zaradi predpomnilnika flatpak-builderja.
-  # WebKit2GTK 4.1 (GTK3) Safeer OS ne potrebuje vec - ostaja samo v paketu Safeer Browser (safeer_mint.py).
   - packaging/webkit/webkitgtk6-safeer.yml
   # Typelib WebKita na pot, kjer ga Flatpak isce (skupen modul s Safeer Browserjem).
   - packaging/webkit/webkitgtk6-safeer-typelib.yml

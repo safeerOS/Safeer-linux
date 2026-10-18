@@ -1,4 +1,4 @@
-"""Delovne niti ne smejo klicati GTK, Gdk, WebKit ali Wnck - to je isti razred sesutja kot 20. 9. 2026.
+"""Delovne niti ne smejo klicati GTK, Gdk ali WebKit - to je isti razred sesutja kot 20. 9. 2026.
 
 Knjiznice C prek PyGObject so vezane na glavno nit z glavno zanko. Klic iz druge niti ne pade
 vedno, pade pa takrat, ko se objekt pod njim spremeni - zato ga testi brez te straze spregledajo.
@@ -14,9 +14,9 @@ import os
 import unittest
 
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATOTEKE = ("safeer_os.py", "safeer_control.py", "safeer_mint.py")
-#: Knjiznice, ki so vezane na glavno nit (PyGObject / GTK 3).
-GLAVNA_NIT = ("Gtk", "Gdk", "GdkPixbuf", "WebKit2", "Wnck")
+DATOTEKE = ("safeer_os.py", "safeer_control.py", "safeer_brskalnik.py")
+#: Knjiznice, ki so vezane na glavno nit (PyGObject / GTK).
+GLAVNA_NIT = ("Gtk", "Gdk", "GdkPixbuf", "WebKit", "WebKit2")
 #: Klici, s katerimi nit pravilno preda delo glavni niti.
 PREDAJA = ("idle_add", "timeout_add", "timeout_add_seconds")
 

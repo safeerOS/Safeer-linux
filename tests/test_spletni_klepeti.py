@@ -220,7 +220,7 @@ class Brskalnik(unittest.TestCase):
     def test_privzete_nastavitve_brez_messenger_com(self):
         from core import config
         self.assertEqual(config.DEFAULT_SETTINGS["integrations"]["messenger"]["url"], "https://www.facebook.com/messages/")
-        for ime in ("safeer_mint.py", os.path.join("core", "config.py"), os.path.join("ui", "home.html")):
+        for ime in (os.path.join("core", "config.py"), os.path.join("ui", "home.html")):
             self.assertNotRegex(open(os.path.join(KOREN, ime), encoding="utf-8").read(), r"//(www\.)?messenger\.com", ime)
 
     def test_stranska_plosca_gtk4_bere_katalog(self):

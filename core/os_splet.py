@@ -1,7 +1,7 @@
 """Vdelani Safeer Browser za razdelek Splet v Safeer OS.
 
 Varnostna pravila niso podvojena: uporablja iste nastavitve, filtre, skripte,
-BankGuard in podpisan vir grozenj kot ``safeer_mint.py``.
+BankGuard in podpisan vir grozenj kot Safeer Browser.
 """
 
 from __future__ import annotations
@@ -650,8 +650,8 @@ def je_vdelana_vsebina(naslov: str, stran: str) -> bool:
 
 
 def _js_vrednost(rezultat):
-    """Vrednost sporocila skripte: WebKit 6.0 da JSC.Value, WebKit2 4.1 JavascriptResult."""
-    return rezultat.get_js_value() if hasattr(rezultat, "get_js_value") else rezultat
+    """Vrednost sporocila skripte (WebKitGTK 6.0 da JSC.Value)."""
+    return rezultat
 
 
 def registriraj_most(upravitelj, ime: str, svet=None) -> None:
@@ -1534,7 +1534,8 @@ class VdelaniSplet:
         for ime, vrednost in (("enable_javascript", True), ("enable_javascript_markup", True),
                               ("javascript_can_open_windows_automatically", False), ("enable_html5_local_storage", True),
                               ("enable_html5_database", False),
-                              ("enable_dns_prefetching", False), ("enable_page_cache", True),
+                              ("enable_dns_prefetching", False), ("enable_hyperlink_auditing", False),
+                              ("enable_page_cache", True),
                               ("enable_encrypted_media", True),
                               # Stroga zascita: stran ne izve lokalnega naslova IP prek WebRTC.
                               ("enable_webrtc", not self.config.get("zascita_brez_webrtc", False))):
@@ -2225,7 +2226,7 @@ class VdelaniSplet:
             shema = external_apps.external_scheme(naslov)
             if shema:
                 # mailto:, tel:, magnet:, zoommtg:, claude:// po prijavi ...: program na racunalniku, po potrditvi
-                # (prej tiho prezrto; 14. 10. 2026 kot safeer_mint.py open_external_app_link).
+                # (prej tiho prezrto; 14. 10. 2026).
                 odlocitev.ignore()
                 try:
                     kretnja = bool(dejanje.is_user_gesture())
@@ -2287,7 +2288,7 @@ class VdelaniSplet:
                     odlocitev.ignore()
                     self.GLib.idle_add(lambda: self._pojavno_prazno_blokirano(pogled, odpiralec(), naslov) and False)
                     return True
-            # Samo klik na povezavo (kot safeer_mint.py): decide-policy velja tudi za okvirje, load_uri pa bi z naslovom
+            # Samo klik na povezavo: decide-policy velja tudi za okvirje, load_uri pa bi z naslovom
             # okvirja (vdelan predvajalnik z utm_) zamenjal ves zavihek; preusmeritev in obrazec (POST) ostaneta.
             if (not izjema and self.config.get("tracking_protection_enabled", True)
                     and dejanje.get_navigation_type() == W.NavigationType.LINK_CLICKED and not dejanje.is_redirect()
@@ -2305,7 +2306,7 @@ class VdelaniSplet:
     def _novo_okno(self, pogled, dejanje):
         """Okno, ki ga odpre stran (target=_blank, window.open): zavihek s povezanim pogledom. Prej je bil zavihek brez
         opener, zato prijava v oknu (Google, Microsoft, Apple, placila) ni mogla vrniti rezultata strani, ki jo je
-        odprla (14. 10. 2026, kot safeer_mint.py new_tab(related_view)). Stran okno zapre z window.close()."""
+        odprla (14. 10. 2026). Stran okno zapre z window.close()."""
         # window.open ne gre skozi decide-policy NEW_WINDOW_ACTION (to je le za target=_blank; preizkus 14. 10.: okno na
         # tujo stran se je odprlo), zato ista pravila tudi tu.
         try:
@@ -3474,7 +3475,7 @@ class VdelaniSplet:
 
     def _pospravi_zavihek_prenosa(self, prenos):
         """Povezava na datoteko iz drugega programa ali target=_blank odpre zavihek, ki ostane prazen (preizkus
-        14. 10.: »Nov zavihek« za namesti.sh). Zavihek brez lastne strani zapremo, kot safeer_mint.py."""
+        14. 10.: »Nov zavihek« za namesti.sh). Zavihek brez lastne strani zapremo."""
         try:
             pogled = prenos.get_web_view()
         except Exception:  # noqa: BLE001

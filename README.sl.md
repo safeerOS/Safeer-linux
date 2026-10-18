@@ -137,8 +137,7 @@ Flatpak — GTK4 in naš WebKit prinese s sabo.
 
 Iz izvorne kode `bash install.sh` za trenutnega uporabnika namesti isti brskalnik GTK4
 (`safeer_brskalnik.py`) in preveri iste pakete kot `.deb`; `bash uninstall.sh` ga odstrani
-(`--purge` tudi profil). Starejši brskalnik GTK3 (`safeer_mint.py`, WebKit2GTK 4.1) je zastarel in se
-zažene samo s `SAFEER_BRSKALNIK_GTK3=1`.
+(`--purge` tudi profil).
 
 ## Gradnja iz izvorne kode
 
@@ -148,11 +147,10 @@ bash packaging/build_appimage.sh   # AppImage
 bash packaging/build_flatpak.sh    # Flatpak
 ```
 
-Testi (GTK 3 in GTK 4 v ločenih procesih; podrobnosti v [CONTRIBUTING.sl.md](CONTRIBUTING.sl.md#preizkusi)):
+Testi (en proces, samo GTK 4; podrobnosti v [CONTRIBUTING.sl.md](CONTRIBUTING.sl.md#preizkusi)):
 
 ```bash
-PYTHONPATH=tests xvfb-run -a python3 -m pytest -q $(python3 tools/razdeli_teste.py gtk3 --poti)
-PYTHONPATH=tests xvfb-run -a python3 -m pytest -q $(python3 tools/razdeli_teste.py gtk4 --poti)
+PYTHONPATH=tests xvfb-run -a python3 -m pytest -q tests/
 ```
 
 ## Vzemi in predelaj

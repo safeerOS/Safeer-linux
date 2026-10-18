@@ -41,11 +41,9 @@ class YouTubeKeepWatchingTests(unittest.TestCase):
         self.assertIn("nadaljuj", script)
 
     def test_every_tab_injects_the_script_into_youtube_top_frames(self):
-        source = (ROOT / "safeer_mint.py").read_text()
-        block = re.search(r"add_script\(WebKit2\.UserScript\(\s*YOUTUBE_KEEP_WATCHING_SCRIPT,(.*?)\)\)", source, re.S)
-        self.assertIsNotNone(block)
-        self.assertIn("TOP_FRAME", block.group(1))
-        self.assertIn('"*://*.youtube.com/*"', block.group(1))
+        source = (ROOT / "core" / "os_splet.py").read_text()     # GTK4 (Splet in Safeer Browser)
+        vrstica = next(v for v in source.splitlines() if "adblock.YOUTUBE_KEEP_WATCHING_SCRIPT" in v)
+        self.assertIn('"*://*.youtube.com/*"', vrstica)
 
     @unittest.skipUnless(shutil.which("node"), "node is not installed")
     def test_script_is_valid_javascript(self):

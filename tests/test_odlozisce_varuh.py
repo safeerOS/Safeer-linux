@@ -283,16 +283,8 @@ class Vgradnja(unittest.TestCase):
         # setup_webview_settings); okno Safeer Link in gledalec deljenega zaslona v Controlu.
         self.assertGreaterEqual(beri("safeer_os.py").count("odlozisce_varuh.dodaj(WebKit2, upravitelj)"), 2)
         self.assertIn("odlozisce_varuh.dodaj(W, upravitelj)", beri("core", "os_splet.py"))
-        mint = beri("safeer_mint.py")
-        nastavitve = mint[mint.index("    def setup_webview_settings(self, webview):"):]
-        nastavitve = nastavitve[:nastavitve.index("\n    def ", 10)]
-        self.assertIn("odlozisce_varuh.dodaj(WebKit2, webview.get_user_content_manager())", nastavitve)
         self.assertIn("odlozisce_varuh.dodaj(WebKit2, upravitelj)", beri("safeer_control.py"))
         self.assertIn("odlozisce_varuh.dodaj(WebKit2, upravitelj)", beri("core", "safeer_link.py"))
-        # Vsak nov pogled v Safeer Browserju gre skozi setup_webview_settings (zavihki, stranska vrstica, tipkovnica).
-        pogledov = mint.count("WebKit2.WebView.new_with_context(") + mint.count("WebKit2.WebView.new_with_related_view(")
-        self.assertGreaterEqual(mint.count("self.setup_webview_settings("), 3)
-        self.assertEqual(pogledov, 4, "nov pogled WebKit v safeer_mint.py: preveri, da dobi varuha odlozisca")
 
 
 if __name__ == "__main__":

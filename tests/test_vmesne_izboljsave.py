@@ -60,11 +60,6 @@ class RecikliranjeOmreznega(unittest.TestCase):
             with self.subTest(kljuc):
                 self.assertFalse(self.f(**dict(self.osnova, **{kljuc: vrednost})))
 
-    def test_browser_klice_odlocitev(self):
-        besedilo = (KOREN / "safeer_mint.py").read_text(encoding="utf-8")
-        self.assertIn("self._recikliraj_omrezni_proces(zdaj)", besedilo)
-        self.assertIn("recikliraj_omrezni(", besedilo)
-
 
 class OmrezniProcesShrambe(unittest.TestCase):
     def test_pss_tega_procesa(self):
@@ -201,7 +196,6 @@ class ZaprtiZavihkiSeSprostijo(unittest.TestCase):
         import re
         for datoteka, vzorec in (("core/os_splet.py", r"lambda _u, r: self\._sporocilo\(pogled"),
                                  ("core/drm.py", r"def ob_sporocilu\(_u, _r\):\n        url = pogled"),
-                                 ("safeer_mint.py", r"posiljatelj=wv"),
                                  ("safeer_os.py", r"lambda _u, r: self\._na_sporocilo\(pogled")):
             with self.subTest(datoteka):
                 self.assertIsNone(re.search(vzorec, (KOREN / datoteka).read_text(encoding="utf-8")))

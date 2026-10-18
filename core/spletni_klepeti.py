@@ -2,7 +2,7 @@
 
 En vir za vse Safeerjeve brskalnike (AGENTS.md: »vsaka izboljsava spletne izkusnje gre v vse brskalnike«): katalog,
 branje stevila neprebranih iz naslova strani, preverba lastnega naslova, shramba kanalov in preselitev starih naslovov.
-GTK-ja ta modul ne potrebuje (uvaza ga tudi core/config.py, ki ga bere safeer_mint.py na GTK3).
+GTK-ja ta modul ne potrebuje (uvaza ga tudi core/config.py).
 
 Pravilo »brez receptov za strani« (CONTRIBUTING.md): storitev je SAMO podatkovni vnos (ime, naslov, vrsta, povezava za
 prenos). Nobena koda tu ali drugje ne odloca po imenu gostitelja, nobenih vstavljenih skript ali izbirnikov za eno stran.

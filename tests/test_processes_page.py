@@ -40,15 +40,6 @@ class ProcessesPageTests(unittest.TestCase):
         self.assertEqual(processes_page.parse_action("https://example.com/?spi=t2"), (None, None))
         self.assertEqual(processes_page.parse_action("safeer://home?spi=t2"), (None, None))
 
-    def test_browser_allows_the_page_and_registers_the_scheme(self):
-        import os
-        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        with open(os.path.join(root, "safeer_mint.py"), encoding="utf-8") as handle:
-            source = handle.read()
-        self.assertIn('u == "safeer://procesi" or u.startswith("safeer://procesi?")', source)
-        self.assertEqual(source.count("self.register_internal_pages(self.web_context)"), 2)
-        self.assertIn('context.register_uri_scheme("safeer", self.on_internal_page_request)', source)
-
 
 if __name__ == "__main__":
     unittest.main()

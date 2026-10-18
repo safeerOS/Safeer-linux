@@ -183,7 +183,7 @@ def preizkus_okvir_z_utm_ne_zamenja_zavihka():
     s._politika(p, o, "NAV")
     s.GLib.pozeni()
     assert o.izid == "use" and p.nalozeno == []
-    # Klik na povezavo (glavni okvir): sledilni parametri gredo stran, kot v safeer_mint.py.
+    # Klik na povezavo (glavni okvir): sledilni parametri gredo stran.
     o = _Odlocitev(_Dejanje("https://novice.primer.si/a?utm_source=x&id=3", "KLIK"))
     s._politika(p, o, "NAV")
     s.GLib.pozeni()

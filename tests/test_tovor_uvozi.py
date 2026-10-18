@@ -148,9 +148,8 @@ class TovorUvozi(unittest.TestCase):
         self.assertIn("os_splet", uvozi)
         self.assertIn("safeer_drm", uvozi)
         with tempfile.TemporaryDirectory() as mapa:
-            okolje = {k: v for k, v in os.environ.items() if k != "SAFEER_BRSKALNIK_GTK3"}
             subprocess.run(["bash", os.path.join(KOREN, "packaging", "install_payload.sh"), os.path.join(mapa, "usr")],
-                           check=True, env=okolje)
+                           check=True)
             lib = os.path.join(mapa, "usr", "lib", "safeer-browser")
             self.assertTrue(os.path.isfile(os.path.join(lib, "safeer_brskalnik.py")))
             manjka = {m: kje for m, kje in uvozi.items()

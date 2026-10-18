@@ -1511,7 +1511,7 @@ def _blokada_ponudnika(data: bytes, ponudnik: str) -> bool:
 
 
 def doh_iz_nastavitev(config, lokalno: Optional[bool] = None) -> Optional[LocalDoHProxy]:
-    """Posrednik po nastavitvah brskalnika (ConfigManager) - ena pot za Splet (GTK4) in safeer_mint.py (GTK3)."""
+    """Posrednik po nastavitvah brskalnika (ConfigManager) - ena pot za Splet in Safeer Browser."""
     izbira = config.get("doh_provider", PRIVZETI_DNS)
     if not config.get("doh_enabled", True) or izbira == "disabled":
         return get_doh_proxy(enabled=False)

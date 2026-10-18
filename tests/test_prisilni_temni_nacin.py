@@ -52,7 +52,7 @@ class Slog(unittest.TestCase):
         self.assertRegex(self.pravila, r"img, video, canvas[^{]*\{\s*filter: invert\(100%\) hue-rotate\(180deg\) !important;")
 
     def test_slog_se_da_vbrizgati_v_stran(self):
-        # safeer_mint.inject_dark_mode_js vstavi slog v predlogo JavaScript med znaka `: ta znaka, zaporedje ${ in
+        # Slog gre v predlogo JavaScript med znaka `: ta znaka, zaporedje ${ in
         # poševnica nazaj bi predlogo podrli ali spremenili.
         for znak in ("`", "${", "\\"):
             self.assertNotIn(znak, self.css, repr(znak))

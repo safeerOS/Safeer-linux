@@ -3,8 +3,7 @@
 svojem oknu.
 
 Lastnik, 14. 10. 2026: »vsi produkti z najnovejso tehnologijo, ki se dela na nasih napravah« - tudi Safeer Browser.
-Splet in brskalnik sta tako ena koda: vsaka izboljsava spletne izkusnje je takoj v obeh (prej rocni prenos v
-safeer_mint.py, GTK3). Podatki (prijave, piskotki, zaznamki, zgodovina) so v isti mapi kot prej (ConfigManager).
+Splet in brskalnik sta tako ena koda: vsaka izboljsava spletne izkusnje je takoj v obeh . Podatki (prijave, piskotki, zaznamki, zgodovina) so v isti mapi kot prej (ConfigManager).
 
 Uporaba: safeer_brskalnik.py [NASLOV ...]   - drugi zagon odpre naslove v oknu, ki ze tece (en primerek).
 """
@@ -85,7 +84,7 @@ def naslovi_iz_argumentov(argv) -> list:
 
 
 def shrani_sejo(config, naslovi, izbran: int = 0) -> None:
-    """Odprti zavihki ob zaprtju okna (obnovijo se ob naslednjem zagonu, kot prej v safeer_mint.py) in zavihek, ki je
+    """Odprti zavihki ob zaprtju okna (obnovijo se ob naslednjem zagonu) in zavihek, ki je
     bil izbran (preizkus 14. 10.: po zagonu je bil vedno izbran prvi)."""
     shranjeni = [(i, n) for i, n in enumerate(naslovi) if n.startswith(("http://", "https://"))][:30]
     config.set("splet_seja_izbran", next((k for k, (i, _n) in enumerate(shranjeni) if i == izbran), 0))

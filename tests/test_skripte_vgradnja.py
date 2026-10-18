@@ -18,43 +18,6 @@ from core.config import ConfigManager  # noqa: E402
 KOREN = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def izvorna_koda(rel):
-    with open(os.path.join(KOREN, rel), encoding="utf-8") as d:
-        return d.read()
-
-
-class PreizkusVbrizga(unittest.TestCase):
-
-    @classmethod
-    def setUpClass(cls):
-        cls.koda = izvorna_koda("safeer_mint.py")
-
-    def test_skripte_gredo_v_locen_svet(self):
-        self.assertIn("WebKit2.UserScript.new_for_world(", self.koda)
-        self.assertIn('SVET_SKRIPT = "safeer-userscripts"', self.koda)
-
-    def test_most_je_registriran_v_istem_svetu(self):
-        self.assertIn("register_script_message_handler_in_world(", self.koda)
-        self.assertIn("script-message-received::", self.koda)
-
-    def test_priprava_gre_skozi_modul_z_glavo(self):
-        self.assertIn("uporabniske_skripte.pripravi(", self.koda)
-        self.assertIn("from core import userscripts as uporabniske_skripte", self.koda)
-
-    def test_starega_slepega_vbrizga_ni_vec(self):
-        # Prej se je koda skripte vbrizgala neposredno, brez glave in brez sveta.
-        self.assertNotIn('whitelist = None if pattern in ("*", "")', self.koda)
-
-    def test_most_preveri_od_katere_skripte_je_sporocilo(self):
-        odsek = self.koda.split("def on_gm_message", 1)[1][:2000]
-        self.assertIn("get_user_scripts()", odsek)
-        self.assertIn("if script_id not in znane", odsek)
-
-    def test_skripta_brez_podprtih_funkcij_se_ne_vklopi(self):
-        self.assertIn("manjkajoca_dovoljenja(glava)", self.koda)
-        self.assertIn("def opozori_manjkajoca_dovoljenja", self.koda)
-
-
 class PreizkusShrambe(unittest.TestCase):
     """Shramba GM_setValue -- na izmišljenih nastavitvah, uporabnikovih se ne dotaknemo."""
 

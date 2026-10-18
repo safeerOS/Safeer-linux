@@ -554,10 +554,13 @@ merilo_zaslona() {
     [ -n "$KOREN" ] && { echo 1; return 0; }
     python3 - 2>/dev/null <<'PY' || echo 1
 import gi
-gi.require_version("Gdk", "3.0")
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gtk
+Gtk.init()
 from gi.repository import Gdk
 zaslon = Gdk.Display.get_default()
-monitor = (zaslon.get_primary_monitor() or zaslon.get_monitor(0)) if zaslon is not None else None
+zasloni = zaslon.get_monitors() if zaslon is not None else None
+monitor = zasloni.get_item(0) if zasloni is not None and zasloni.get_n_items() else None
 print(max(1, monitor.get_scale_factor()) if monitor is not None else 1)
 PY
 }

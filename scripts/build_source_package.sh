@@ -28,8 +28,8 @@ rm -rf "$ORIG_DIR"
 mkdir -p "$ORIG_DIR"
 
 # packaging/: debian/rules namesti tovor s packaging/install_payload.sh (zaganjalnik, vnos .desktop, ikone, VERSION).
-cp -r safeer_brskalnik.py safeer_mint.py core ui assets packaging safeer-mint.sh install.sh uninstall.sh \
-      safeer-browser.desktop io.github.memelandfaner.SafeerBrowser.metainfo.xml \
+cp -r safeer_brskalnik.py core ui assets packaging safeer-mint.sh install.sh uninstall.sh \
+      io.github.memelandfaner.SafeerBrowser.metainfo.xml \
       README.md LICENSE "$ORIG_DIR/"
 
 # Odstrani pycache

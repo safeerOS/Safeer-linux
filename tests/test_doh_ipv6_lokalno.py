@@ -247,9 +247,9 @@ class LokalnoOmrezje(unittest.TestCase):
             doh_proxy._global_proxy, doh_proxy._global_resolver = stari
 
     def test_splet_ustavi_posrednika_samo_ob_izhodu(self):
-        """Splet (GTK4) in safeer_mint.py (GTK3): ob spremembi nastavitev ne ustavljata skupnega posrednika."""
+        """Splet (tudi brskalnik safeer_brskalnik.py, GTK4): ob spremembi nastavitev ne ustavi skupnega posrednika."""
         koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        for rel in ("core/os_splet.py", "safeer_mint.py"):
+        for rel in ("core/os_splet.py",):
             with open(os.path.join(koren, rel), encoding="utf-8") as f:
                 src = f.read()
             self.assertNotIn("get_doh_proxy(enabled=False)", src, rel)
@@ -271,7 +271,7 @@ class Priklop(unittest.TestCase):
 
     def test_oba_klicatelja_posredujeta_stikalo(self):
         # Oba gresta skozi eno pot (doh_iz_nastavitev), ta pa stikalo poda posredniku.
-        for rel in ("safeer_mint.py", "core/os_splet.py"):
+        for rel in ("core/os_splet.py",):
             with self.subTest(rel):
                 self.assertIn("doh_iz_nastavitev(self.config)", self._src(rel))
         self.assertRegex(self._src("core/doh_proxy.py"),
@@ -280,11 +280,6 @@ class Priklop(unittest.TestCase):
         with mock.patch.object(doh_proxy, "get_doh_proxy", side_effect=lambda **k: klici.append(k)):
             doh_proxy.doh_iz_nastavitev({"doh_lokalno_omrezje": True})
         self.assertIs(klici[0]["lokalno"], True)
-
-    def test_nastavitev_je_v_vmesniku(self):
-        s = self._src("safeer_mint.py")
-        self.assertIn("doh_lokalno_lbl", s)
-        self.assertIn('"doh_lokalno_omrezje"', s)
 
 
 if __name__ == "__main__":

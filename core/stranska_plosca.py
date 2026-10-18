@@ -1,5 +1,4 @@
-"""Stranska plosca Safeer Browserja (GTK4): spletni klepeti in posta ob strani, kot jih je imel Safeer Browser na GTK3
-(safeer_mint.py, nastavitev »integrations«) - z istim katalogom kot Sporocila v Safeer OS (core/spletni_klepeti.py) in
+"""Stranska plosca Safeer Browserja (GTK4): spletni klepeti in posta ob strani (nastavitev »integrations«) - z istim katalogom kot Sporocila v Safeer OS (core/spletni_klepeti.py) in
 z istim vgrajenim pogledom (core/os_splet.SpletnaAplikacija: ista seja, zascita, dovoljenja, pojavna okna za prijavo).
 AGENTS.md: »vsaka izboljsava spletne izkusnje gre v vse brskalnike«.
 
