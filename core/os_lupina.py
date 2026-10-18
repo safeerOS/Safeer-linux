@@ -458,9 +458,17 @@ def robovi_delovnega_obmocja(zaslon, delovno) -> dict:
             "robSpodaj": max(0, (zy + zv) - (dy + dv)), "robDesno": max(0, (zx + zs) - (dx + ds))}
 
 
+def najmanjsa_velikost(sirina: int, visina: int) -> tuple:
+    """Minimum okna aplikacije: 960 x 620, a nikoli vec od delovnega obmocja. HiDPI zmanjsa logicni zaslon: 1366x768
+    pri 125 % je 1093x614, 1920x1080 pri 200 % je 960x540 (izmerjeno 18. 10. 2026, sway z merilom 2: logicni izhod
+    960x540) - minimum 620 bi okno potisnil cez spodnji rob zaslona."""
+    return (max(1, min(960, int(sirina))), max(1, min(620, int(visina))))
+
+
 def velikost_okna(sirina: int, visina: int) -> tuple:
-    """Velikost okna aplikacije iz delovnega obmocja: 90 %, najvec 1440 x 900, najmanj 960 x 620 (minimum okna)."""
-    return (max(960, min(1440, int(sirina * 0.9))), max(620, min(900, int(visina * 0.9))))
+    """Velikost okna aplikacije iz delovnega obmocja: 90 %, najvec 1440 x 900, najmanj minimum okna."""
+    ms, mv = najmanjsa_velikost(sirina, visina)
+    return (max(ms, min(1440, int(sirina * 0.9))), max(mv, min(900, int(visina * 0.9))))
 
 
 # ---------------------------------------------------------------------------------------- most in okno
@@ -803,9 +811,11 @@ class Namizje:
 
     def _pokazi_okno(self) -> None:
         """Okno aplikacije: 90 % delovnega obmocja (najvec 1440 x 900, kot staro glavno okno), na sredini."""
+        from PySide6.QtCore import QSize
         zaslon = zaslon_za_okno()
         g = zaslon.availableGeometry()
         sirina, visina = velikost_okna(g.width(), g.height())
+        self.okno.setMinimumSize(QSize(*najmanjsa_velikost(g.width(), g.height())))
         self.okno.resize(sirina, visina)
         if nativno_x11():
             # Vec monitorjev: okno na monitorju s kazalcem (zaslon_za_okno). Wayland mesta odjemalcu ne dovoli -

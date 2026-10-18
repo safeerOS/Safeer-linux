@@ -467,6 +467,10 @@ Steklo {
                         anchors.right: parent.right; anchors.rightMargin: 8
                         anchors.top: vrsta ? undefined : parent.top; anchors.topMargin: 5
                         anchors.verticalCenter: vrsta ? parent.verticalCenter : undefined
+                        // Bralnik zaslona: zvezdica je gumb z imenom dejanja (tipkovnica: Ctrl+D na izbranem programu).
+                        Accessible.role: Accessible.Button
+                        Accessible.name: koren.t(ploscica.priljubljen ? "odstraniPriljubljeno" : "dodajPriljubljeno")
+                        Accessible.onPressAction: panel.preklopiPriljubljen(modelData)
                         MouseArea { id: mz; anchors.fill: parent; anchors.margins: -6; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                                     onClicked: panel.preklopiPriljubljen(modelData) }
                     }
