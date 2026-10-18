@@ -74,6 +74,7 @@ BESEDILA = {
         "i_izklopljeno": "izklopljeno", "i_izpad": "ob izpadu domačega interneta", "i_vedno": "vedno skozi telefon",
         "i_dela": "dela", "i_ne_dela": "ne dela", "i_neposredno": "neposredno", "i_prek": "skozi telefon",
         "i_prek_gneca": "skozi telefon (gneča)", "i_gneca": "ob gneči",
+        "i_prek_gneca_oddaje": "neposredno, velika pošiljanja skozi telefon (gneča)",
         "i_gneca_vse": "nove povezave in velika pošiljanja skozi mobilno omrežje telefona",
         "i_gneca_oddaje": "velika pošiljanja skozi mobilno omrežje telefona",
         "i_gneca_zdaj": "gneča zdaj", "i_gneca_ni": "gneče ni", "i_gneca_merim": "merim osnovo",
@@ -134,6 +135,7 @@ BESEDILA = {
         "i_sistemski": "system proxy", "i_poraba": "through the phone", "i_mobilni": "phone's mobile data",
         "i_izklopljeno": "off", "i_izpad": "when home internet is down", "i_vedno": "always through the phone",
         "i_prek_gneca": "through the phone (congestion)", "i_gneca": "when busy",
+        "i_prek_gneca_oddaje": "direct, large uploads through the phone (congestion)",
         "i_gneca_vse": "new connections and large uploads over the phone's mobile network",
         "i_gneca_oddaje": "large uploads over the phone's mobile network",
         "i_gneca_zdaj": "congested now", "i_gneca_ni": "no congestion", "i_gneca_merim": "measuring the baseline",
@@ -512,7 +514,8 @@ def _izpis_stanja_interneta(s: dict) -> str:
     g = s.get("gneca") if isinstance(s.get("gneca"), dict) else {}
     if s.get("nacin") != "izklopljeno":
         vrstice.append([t("i_zdaj"), t("i_prek") if s.get("prek_telefona") else
-                        t("i_prek_gneca") if g.get("dejavna") else t("i_neposredno")])
+                        (t("i_prek_gneca") if g.get("nastavitev") == "vse" else t("i_prek_gneca_oddaje"))
+                        if g.get("dejavna") else t("i_neposredno")])
     if s.get("nacin") == "izpad" and g:
         vrstice.append([t("i_gneca"), _izpis_gnece(g)])
     p = s.get("posrednik") or {}

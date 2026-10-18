@@ -274,6 +274,12 @@ class InternetGneca(Osnova):
         self.c.odgovori["Internet"] = brez
         self.zazeni("internet")
         self.assertIn("gneče ni", self.izpisi[-1])
+        oddaje = dict(self.STANJE, gneca=dict(self.STANJE["gneca"], nastavitev="oddaje"))
+        self.c.odgovori["Internet"] = oddaje
+        self.zazeni("internet")
+        self.assertIn("neposredno, velika pošiljanja skozi telefon (gneča)", self.izpisi[-1])
+        self.c.odgovori["Internet"] = brez
+        self.zazeni("internet")
         self.assertNotIn("(gneča)", self.izpisi[-1])
         izkl = dict(self.STANJE, gneca={"nastavitev": "izklopljeno"})
         self.c.odgovori["Internet"] = izkl
