@@ -472,6 +472,23 @@ class Klicanje(unittest.TestCase):
             threading.Thread = stari
         self.assertEqual(klicani, ["n-z"])
 
+    def test_naslovi_clanov_brez_meje_tujih_do_meje(self):
+        """Lastnik, 18. 10. 2026: naslovi sosedov, ki so clani kroga, nimajo stevilske meje (prej 32 - v podjetju bi
+        sredisca naslove izgubljala). Naslovi iz oglasov mDNS, ki niso clani, samo do NAJVEC_ZNANIH."""
+        self.link_mesh.link_krog.krog.return_value.clan_za_id.side_effect = \
+            lambda i: None if i.startswith("t-") else {"kljuc": "k-" + i}
+        m = self.link_mesh.MeshPovezovalec(self.hub, "n-m", poisci=lambda: [])
+        for i in range(10):
+            m.zapomni("t-%d" % i, "192.168.1.%d" % (i + 1))
+        for i in range(100):
+            m.zapomni("n-c%d" % i, "10.0.0.%d" % (i + 1))
+        self.assertEqual(len([h for h in m._znani if h.startswith("n-c")]), 100)
+        self.assertEqual([h for h in m._znani if h.startswith("t-")], [], "tuji izpadejo prvi")
+        m2 = self.link_mesh.MeshPovezovalec(self.hub, "n-m", poisci=lambda: [])
+        for i in range(self.link_mesh.NAJVEC_ZNANIH + 10):
+            m2.zapomni("t-%d" % i, "192.168.1.%d" % (i + 1))
+        self.assertEqual(len(m2._znani), self.link_mesh.NAJVEC_ZNANIH)
+
     def _po_ponovnem_zagonu(self, znani, nas="n-m"):
         """Povezovalec, ki je v prejsnjem teku poznal sosede `znani` (id -> IP), po ponovnem zagonu."""
         import os
@@ -503,6 +520,18 @@ class Klicanje(unittest.TestCase):
         # Sosed za nas ponovni zagon ne ve: nasel bi nas sele v svojem naslednjem krogu iskanja.
         m = self._po_ponovnem_zagonu({"n-a": "192.168.0.10", "n-z": "192.168.0.20"})
         self.assertEqual(sorted(self._en_krog_takoj(m)), ["n-a", "n-z"])
+
+    def test_brez_virov_ne_klicemo_novih_sosedov(self):
+        """Stevila sosedov ne omejuje stevilka (prej 16): novega poklicemo, ce ima racunalnik vire. Brez virov v tem
+        krogu nikogar novega, razlog se zabelezi (opozorilo na strani, obvestilo)."""
+        from core import link_viri
+        m = self._po_ponovnem_zagonu({"n-a": "192.168.0.10", "n-z": "192.168.0.20"})
+        link_viri.ponastavi()
+        with mock.patch.object(link_viri, "preveri", lambda *a, **k: link_viri.DESKRIPTORJI), \
+                mock.patch.object(link_viri, "POSLUSALCI", []):
+            self.assertEqual(self._en_krog_takoj(m), [])
+        self.assertEqual(link_viri.stanje()["kje"], "sosed")
+        link_viri.ponastavi()
 
     def test_po_zagonu_ne_cakamo_na_oglase(self):
         # Zanka najprej poklice zapomnjene sosede - brez iskanja oglasov mDNS (to vzame sekunde).

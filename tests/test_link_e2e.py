@@ -1254,6 +1254,27 @@ class DrugiPregled(unittest.TestCase):
         self.assertEqual([s["id"] for s, _od, _j in b.prejeta if _od == a.id], ["u1", "u2"])
         self.assertFalse(any('"data.error"' in s for s in o.videno))
 
+    def test_potrjenih_sej_ne_omejuje_skupna_stevilka(self):
+        """Lastnik, 18. 10. 2026: potrjene seje (druga stran je dokazala kljuc) se ne izrinjajo zaradi skupne stevilke -
+        samo ob pomanjkanju pomnilnika; nepotrjene (ponovljene ponudbe) imajo mejo NAJVEC_SEJ kot prej."""
+        from unittest import mock
+        o = _Omrezje()
+        a = _Naprava(o, "-control")
+        drugi = [_Naprava(o, "-n%d" % i) for i in range(6)]
+        a.pozna(*drugi)
+        for d in drugi:
+            d.pozna(a)
+        with mock.patch.object(link_e2e, "NAJVEC_SEJ", 3):
+            for i, d in enumerate(drugi):
+                self.assertTrue(a.upravitelj.poslji(d.id, dict(UKAZ, id="u%d" % i)))
+            self.assertEqual(len([s for s in a.upravitelj._seje.values() if s.potrjena]), 6)
+            with mock.patch.object(link_e2e, "_dovolj_pomnilnika", lambda: False):
+                a.upravitelj.pozabi(drugi[0].id)
+                self.assertTrue(a.upravitelj.poslji(drugi[0].id, dict(UKAZ, id="z")))
+            self.assertLessEqual(len(a.upravitelj._seje), 3)
+        for i, d in enumerate(drugi):
+            self.assertIn("u%d" % i, [s["id"] for s, _od, _j in d.prejeta])
+
     def test_ponovljene_ponudbe_iste_naprave_ne_izrinejo_njene_potrjene_seje(self):
         """Meja na napravo: prostor najprej naredijo NEPOTRJENE seje te naprave (ponudbe lahko ponavlja sredisce)."""
         from unittest import mock
@@ -1313,9 +1334,15 @@ class DrugiPregled(unittest.TestCase):
             self.assertEqual(sorted(a.upravitelj._dogovori), sorted([drugi[0].id, drugi[3].id]))
             self.assertFalse(a.upravitelj.dogovori_se(drugi[4].id))                     # dokaz kljuca ukaza ne izrine
             self.assertEqual(zavrnjena, [])
-            self.assertTrue(a.upravitelj.poslji(drugi[5].id, dict(UKAZ, id="u5")))      # ukaz izrine najstarejsega ...
-            self.assertEqual(zavrnjena, [("u0", "cas")])                                # ... in klicatelj to izve
-        self.assertEqual(sorted(a.upravitelj._dogovori), sorted([drugi[3].id, drugi[5].id]))
+            # Ukaz drugega ukaza ne izrine (lastnik, 18. 10. 2026: ukaz tisoc napravam hkrati) ...
+            self.assertTrue(a.upravitelj.poslji(drugi[5].id, dict(UKAZ, id="u5")))
+            self.assertEqual(zavrnjena, [])
+            self.assertEqual(sorted(a.upravitelj._dogovori), sorted([drugi[0].id, drugi[3].id, drugi[5].id]))
+            # ... razen ko racunalniku zmanjkuje pomnilnika: takrat velja meja, najstarejsi izpadejo in klicatelj to izve.
+            with mock.patch.object(link_e2e, "_dovolj_pomnilnika", lambda: False):
+                self.assertTrue(a.upravitelj.poslji(drugi[4].id, dict(UKAZ, id="u4")))
+            self.assertEqual(zavrnjena, [("u0", "cas"), ("u3", "cas")])
+        self.assertEqual(sorted(a.upravitelj._dogovori), sorted([drugi[4].id, drugi[5].id]))
 
     def test_svez_ukaz_prezivi_nov_dogovor_z_isto_napravo_star_se_zavrne(self):
         """Dogovor brez odgovora se po 8 s zacne znova: ukaz, ki caka dlje, ne gre vec (klicatelj izve); ukaz, ki je
@@ -1443,7 +1470,8 @@ class OdjemalecPoDrugemPregledu(unittest.TestCase):
             self.a._dokazi_kljuce()
         ponudbe = [s for s in self.sredisce.videno if '"data.offer"' in s]
         self.assertEqual(len(ponudbe), link_hub.NAJVEC_DOKAZOV_NA_JEDRO)
-        self.assertLessEqual(len(self.a._dokazi_kljucev), link_hub.NAJVEC_ZAPISOV_DOKAZOV)
+        # Zapisov o poskusih ni vec kot dovoli meja na napravo (skupne stevilske meje ni vec, lastnik 18. 10. 2026).
+        self.assertLessEqual(len(self.a._dokazi_kljucev), link_hub.NAJVEC_DOKAZOV_NA_JEDRO)
 
     def test_naprave_brez_kljuca_v_seznamu_ne_porabijo_dokazov(self):
         """Tretji pregled: sredisce pred pravo napravo nasteje veliko izmisljenih (brez kljuca v nasem krogu). Te ne smejo
@@ -1469,6 +1497,23 @@ class OdjemalecPoDrugemPregledu(unittest.TestCase):
         self.assertEqual(self.a._zmoznosti_naprav["dobra"], frozenset({link_e2e.ZMOZNOST}))
         for slaba in ("x\ny", "a" * 500, "5", 5):
             self.assertNotIn(slaba, self.a._zmoznosti_naprav)
+
+    def test_vsi_clani_kroga_v_seznamu_so_znani_tudi_nad_mejo(self):
+        """Lastnik, 18. 10. 2026 (podjetje): v seznamu 600 clanov kroga in 5000 izmisljenih oznak - zmoznosti so znane
+        za VSE clane (prej prvih 512: naprava cez mejo ni bila znana kot naprava z zascito), tujih le do meje."""
+        from unittest import mock
+        from core import link_hub
+        clani = [{"id": "n-%016x-os" % i, "capabilities": [link_e2e.ZMOZNOST]} for i in range(600)]
+        tuji = [{"id": "tuj-%d" % i, "capabilities": [link_e2e.ZMOZNOST]} for i in range(5000)]
+
+        class _Krog:
+            def znani(_s):
+                return {d["id"][:18] for d in clani}, set()
+        with mock.patch.object(link_krog, "krog", lambda: _Krog()):
+            self.a._zapomni_zmoznosti(tuji[:300] + clani + tuji[300:])
+        znane = self.a._zmoznosti_naprav
+        self.assertTrue(all(d["id"] in znane for d in clani))
+        self.assertEqual(len(znane), len(clani) + link_hub.NAJVEC_NAPRAV_V_SEZNAMU)
 
     def test_kljuc_za_zascito_samo_za_veljavno_oznako(self):
         from unittest import mock

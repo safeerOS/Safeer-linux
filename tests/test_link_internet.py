@@ -11,6 +11,7 @@ import socket
 import threading
 import time
 import unittest
+from unittest import mock
 
 from core import link_internet as li
 
@@ -398,17 +399,22 @@ class Napake(Osnova):
         self.assertEqual(dobil, podatki[:len(dobil)], "streznik dobi samo nepokvarjeni zacetek")
         a.close()
 
-    def test_meja_tokov(self):
+    def test_meja_tokov_so_viri(self):
+        """Lastnik, 18. 10. 2026: prej najvec 48 tokov (brskalnik z vec zavihki je dobil 503); zdaj odlocajo viri."""
+        from core import link_viri
         odjemalec = li.InternetPrekLinka(lambda s: True)
         pari = []
-        for _ in range(li.NAJVEC_TOKOV):
+        for _ in range(60):
             a, b = socket.socketpair()
             pari.append((a, b))
             odjemalec._tokovi["s%d" % len(pari)] = li.Tok(odjemalec, "s%d" % len(pari), "tel", "h", 1, b, True)
         a, b = socket.socketpair()
-        tok, razlog = odjemalec.odpri("tel", "h", 1, b, cas=0.1)
+        with mock.patch.object(link_viri, "preveri", lambda *a, **k: link_viri.DESKRIPTORJI), \
+                mock.patch.object(link_viri, "POSLUSALCI", []):
+            tok, razlog = odjemalec.odpri("tel", "h", 1, b, cas=0.1)
         self.assertIsNone(tok)
         self.assertEqual(razlog, "busy_local")
+        link_viri.ponastavi()
         for x, y in pari + [(a, b)]:
             x.close()
             y.close()

@@ -199,8 +199,9 @@ POROCILO.md); če en konec sprejema dohodne povezave, telefon odpre navadno odho
 - **Vhod (središče):** trk pred TLS (id iz ključa + čas ±120 s + nonce enkrat + podpis ECDSA nad id-jem središča)
   → TLS (1.3; najmanj 1.2 zaradi Androida 9) s ključem središča → izziv (podpis nad izzivom, odtisom potrdila in namenom). Neznan id, napačen
   podpis, star ali ponovljen trk: tiho zaprto, brez bajta odgovora (pregledovalnik ne vidi ne TLS ne potrdila
-  z imenom računalnika). Lastna `link_obramba` (brez izjeme za zanko), največ 16 hkratnih rokovanj (z enega naslova največ 8, 4 mesta samo za naslove, ki so se v zadnjih 10 min
-  izkazali kot člani kroga – pregled 18. 10. 2026: en naslov s tihimi trki je zasedel vsa mesta) in 64 tunelov.
+  z imenom računalnika). Lastna `link_obramba` (brez izjeme za zanko). Fiksna meja velja samo za nepreverjene
+  povezave (do zadnjega bajta trka: 128 skupaj, 32 z enega naslova; nova izrine najstarejšo nepreverjeno), člane in
+  tunele omejujejo samo viri računalnika (`core/link_viri.py`) – glej »Meje in roki« spodaj.
   Šele nato tunel na `127.0.0.1:<vrata Huba>` – skozenj nespremenjen TLS Linka, prijava, vstopnica in pravila
   dostopa (`link_dostop`). Novih končnih točk ni.
 - **Oglas:** javni IPv4 iz STUN (`stun.cloudflare.com`, isti ponudnik kot rele), podpisan s ključem središča, rok
@@ -222,14 +223,80 @@ POROCILO.md); če en konec sprejema dohodne povezave, telefon odpre navadno odho
 
 ## Meje in roki, ki jih uporabnik lahko občuti (pregled 18. 10. 2026)
 
-| Kje | Meja | Zakaj (meritev) |
-|---|---|---|
-| Tiha sosednja povezava (`TIHI_SOSED_S`) | 40 s brez prejetega bajta | Pong prek počasnega releja z oddajo na isti poti: 2,4–8,8 s; 30 s je pongu po pingu (25 s) pustilo 5 s. Vsak prejeti bajt (tudi sredi dolgega okvirja) šteje kot življenje. |
-| Opis kosov `/kosi` | mesto 30 s, računanje 300 s, pisanje 60 s tišine | Opis: 35–38 MB/s z numpy, 5–6 MB/s brez; odjemalec (`link_nadaljuj.ROK_OPISA_S`) dlje kot 300 s ne čaka. Ob preseženem roku 503 – naprava prenese celo datoteko. |
-| Neposredni vhod od zunaj | 8 rokovanj na naslov, 4 od 16 mest za naslove, ki so se v 10 min izkazali kot člani | Prava naprava odpre do ~6 hkrati (OkHttp 5 + WebSocket); zavrnjeno rokovanje odjemalca za 5 min vrne na rele. |
-| Teamwork pri lastniku | 32 sej na napravo, 8 prvih prijav hkrati (`zasedeno`), 1 GiB rezerve diska za zgodovino | Prva prijava kopira celo datoteko (256 MiB v 1,1 s). |
-| Pošiljanje (Control) | čakanje na napravo 24 h, tudi čez ponovni zagon; vrsta največ 50 pošiljk | `posiljanje-vrsta.json` ob nastavitvah Controla (0600, samo poti, id, rok). |
-| Nemo | do 8 naprav, znane brez povezave 90 dni po zadnjem videnju | Naprava mora biti v krogu zaupanja; pripis »(ko bo dosegljiva)«. |
+Lastnik, 18. 10. 2026: »Zakaj moramo imeti omejitve glede kroga zaupanja in pri neposrednih vhodih od zunaj? Kaj če
+bi naše okolje želelo imeti veliko podjetje, kot je BSH?«
+
+**Načelo.** Fiksne številke veljajo samo za NEPREVERJENE (kdor se še ni podpisal s ključem iz kroga) in kot tehnične
+meje protokola. Člana kroga ne omejuje nobena številka – samo pravi viri računalnika, merjeni ob vsaki novi povezavi
+ali delu (`core/link_viri.py`):
+
+- deskriptorji: Link vedno pusti ostalemu procesu 512 prostih (pri meji pod 2048 četrtino meje) – Safeer OS je
+  16. in 17. 10. 2026 pri meji 1024 končal s SIGTRAP, ker WebKit ni dobil deskriptorja za nov spletni proces;
+- pomnilnik: nov član samo, če ostane nad 5 % RAM-a (najmanj 256 MiB) – Splet uspava zavihke že pod 10 %;
+- niti: če jih sistem ne da, se to zabeleži enako.
+
+Ko viri pošle, zavrnitev ni tiha: član dobi kodo `ni_virov` (neposredni vhod: bajt `BREZ_VIROV` šele po TLS s ključem
+središča, zato ga nihče na poti ne more ponarediti), naprava brez virov pokaže opozorilo nad seznamom naprav in
+obvestilo namizja (koliko jih je zavrnila, kaj pomaga), zavrnjena naprava pa ime naprave, ki je nima, in pri poti
+zdoma, zakaj je zdaj prek releja – v šestih jezikih (sl, en, de, es, fr, it). Pošiljanje `ni_virov` šteje kot
+prehodno in poskusi znova. Obramba (`link_obramba`) ostane enako stroga; zavrnitev zaradi virov ni sovražen dogodek.
+
+**Podjetje: en javni naslov, veliko naprav.** Meritev 18. 10. 2026 (zanka, 2 deljeni jedri, pravi TLS, trk in izziv):
+
+| Članov z ISTEGA naslova hkrati | Vsi neposredno v | Največ hkrati nepreverjenih | Največ hkrati v TLS | Izrinjenih |
+|---|---|---|---|---|
+| 200 | 1,6 s | 3 | 17 | 0 |
+| 500 | 4,2 s | 5 | 31 | 0 |
+
+Na člana: ~170 KiB RSS (obe strani zanke skupaj), na središču 3 deskriptorji (zunanja vtičnica, zanka, Hub) in 2 niti
+(tunel teče v niti rokovanja). Pri privzeti meji 65 536 deskriptorjev (`os_stabilnost`) je to ~21 000 hkratnih
+tunelov, preden odloči pomnilnik. Prej: največ 8 hkratnih rokovanj z naslova – 9. hkratna povezava izza istega NAT-a
+je bila zavrnjena in je odjemalca za 5 min vrnila na rele.
+
+### Meje, ki ostanejo (in zakaj)
+
+| Kje | Meja | Velja za | Zakaj (meritev) |
+|---|---|---|---|
+| Neposredni vhod, do trka | 128 skupaj, 32 z enega naslova; rok trka 6 s | samo nepreverjene | Pregled 18. 10. 2026: en naslov je s 16 tihimi trki zasedel vsa mesta. Nova povezava nikoli ne čaka: izrine najstarejšo nepreverjeno (istega naslova, sicer z naslova, ki jih ima največ; nezaupani pred zaupanimi). Pravi odjemalec pošlje trk v isti milisekundi kot TCP (500 hkrati: največ 5 nepreverjenih), zato je izrinjena skoraj vedno tiha – v obrambi šteje kot neuspelo rokovanje, kot prej tiha po roku. |
+| Neposredni vhod, TLS in izziv | 30 s | člane | Ne število – rok: član, ki med rokovanjem izgubi signal, ne drži niti za vedno; ob navalu TLS čaka na procesor (500 hkrati: 4,2 s). |
+| Izziv za prijavo pri središču | 1024 hkrati, 60 s, enkraten | nepreverjene | Izziv dobi kdorkoli. Poplava izrine najstarejši izziv (član ga porabi v milisekundah), prej je za 60 s zaprla prijavo vsem. |
+| Seznanitev s kodo | 8 čakajočih, 5 napak na prijavo, 10 napak/min, zapore varovalke | nepreverjene | Ugibanje šestmestne kode (`link_varovalka`, docs/LINK-DEFENCE.md). |
+| Naslovi sosedov iz oglasov mDNS | 32 tujih | nepreverjene | Oglas lahko objavi kdorkoli v omrežju; naslovi članov kroga brez meje. |
+| Seznam naprav pri odjemalcu | 512 tujih oznak | nepreverjene | Seznam piše središče in si oznake lahko izmisli; vsi člani kroga brez meje (prej prvih 512 – naprava čez mejo bi ukaz dobila nezaščiten). |
+| Zaščita od naprave do naprave | nepotrjene seje 256, dogovori brez sporočila 64, dokazi ključa 16 na seznam in 4 na napravo na minuto, podpisi 32 na napravo na minuto, čakajoča sporočila 4 MiB na napravo / 16 MiB skupaj | ponudbe, ki jih središče lahko ponavlja | Vsak dogovor je podpis s ključem naprave (pregledi 7. 10. 2026: 500 ponudb = 500 podpisov). Potrjene seje in dogovori z ukazi tega računalnika nimajo skupne meje – izrinjanje samo ob pomanjkanju pomnilnika. |
+| Na napravo, ne skupno | vstopnice, seje, žetoni seznanitve: 16; žetoni datotek: 8; seje zaščite: 16 | eno napravo | Nova prijava naprave nadomesti njene stare zapise (odjemalec hrani zadnjega); zapisov drugih naprav nikoli ne izrine. Prej skupne meje 64/64/32/64: 65. naprava je drugim izrinila sejo (401). |
+| Tehnične meje protokola | okvir WebSocket 1 MiB, izhodna vrsta 64 okvirjev / 512 KiB na povezavo, sporočilo soseda 1 MiB, id do 128 znakov, ime do 64 | vse | Brez meje okvirja bi naprava (ali kdor se zanjo izdaja) napovedala 4 GiB in napolnila pomnilnik. Seznam naprav: ~245 B na napravo brez kataloga programov (izmerjeno) – v 1 MiB ~4000 naprav; katalog programov (`apps`) to zmanjša. |
+| Seznam mape, programi, ena pošiljka | 500 vnosov, 200 programov, 5000 datotek | eno sporočilo / dejanje | Velikost enega odgovora (Android sprejme do 256 KiB) in zapis vrste ob vsaki datoteki; ni meja števila naprav – za večje mape je potrebno listanje po straneh. |
+| Sprotno pretvarjanje (`link_sprotno`) | 1 tok hkrati | procesor | Dva hkratna pretvarjanja (ffmpeg) bi zatikala oba; to je vir, ne število naprav. |
+| Opis kosov `/kosi` | 2 hkrati, mesto 30 s, računanje 300 s, pisanje 60 s tišine | procesor in disk | Opis: 35–38 MB/s z numpy, 5–6 MB/s brez; odjemalec (`link_nadaljuj.ROK_OPISA_S`) dlje kot 300 s ne čaka. Ob preseženem roku 503 – naprava prenese celo datoteko. |
+| Tiha sosednja povezava (`TIHI_SOSED_S`) | 40 s brez prejetega bajta | rok | Pong prek počasnega releja z oddajo na isti poti: 2,4–8,8 s; 30 s je pongu po pingu (25 s) pustilo 5 s. Vsak prejeti bajt šteje kot življenje. |
+| Pošiljanje (Control) | čakanje na napravo 24 h, tudi čez ponovni zagon | rok | `posiljanje-vrsta.json` ob nastavitvah Controla (0600, samo poti, id, rok). |
+| Znane naprave (Nemo, zadnja naprava) | 90 dni brez videnja / rabe | rok | Zapisujejo se samo člani kroga tega računalnika. |
+| Disk (zgodovina Teamworka) | rezerva 2 % diska, najmanj 1 GiB, največ 10 GiB | disk | Prej 1 GiB za vse diske (64 GB: 1,6 %, 2 TB: 0,05 %). |
+
+### Odstranjene meje (prej → zdaj)
+
+Neposredni vhod: 16 rokovanj, 8 na naslov, 4 rezervirana, 64 tunelov, 4096 noncev (ob navalu bi posnet trk spet
+veljal) → viri, nonci samo z rokom. Središče: 32 naprav, 16 sosedov, prvih 32 naprav v seznamu soseda, 64 sej,
+64 vstopnic, 32 žetonov, 3 prenosi, 64 čakajočih datotek, 4 zasloni, 4 gledalci → viri oz. na napravo. Teamwork:
+32 sej na napravo, 8 prvih prijav, 16 niti `files.session`, 1 GiB rezerve → viri, rezerva po disku. Pošiljanje: vrsta
+50, 32 zadnjih in 32 znanih naprav → vse (90 dni). Nemo: 8 naprav → vse (pri več kot 99 imena s tremi števkami).
+Mesh: 32 naslovov sosedov → člani brez meje. Zaščita: 256 sej, 64 dogovorov z ukazi → samo nepotrjene/prazni.
+Odjemalec: 512 naprav v seznamu, 512 zapisov dokazov → člani brez meje. Datoteke: 64 žetonov skupaj, 512 izrecno
+poslanih, 16 naročnikov → na napravo / brez. Internet prek telefona: 48 tokov → viri. Dostop: 5 odprtih prošenj,
+256 zavrnitev → vse (ena prošnja na črko in napravo, 24 ur). Oznake zank (`link_pot`): 4096 → ključ so vrata.
+
+### Kar pri velikem krogu še ni rešeno (izmerjeno, ni število)
+
+- **Seznam naprav:** vsaka sprememba gre vsem povezanim s CELIM seznamom, zato je val prijav N naprav na eno središče
+  O(N³) bajtov. Meritev 18. 10. 2026 (`Hub.obdelaj`, prave prijave, vsota poslanega): 32 naprav (prejšnja meja)
+  2,8 MB, 100 naprav 79 MB, 200 naprav 628 MB, 400 naprav 5,2 GB. Izhodna vrsta (512 KiB na povezavo) napravo, ki ne
+  dohaja, odklopi. Za podjetje je naslednji korak sporočilo o spremembi (dodana / odstranjena naprava) namesto celega
+  seznama in združevanje sprememb – sprememba protokola, tudi na Androidu.
+- **Iskanje člana v krogu** je linearno: pri 1000 članih 0,2 ms (s spominom id-ja iz ključa; prej 1,9 ms).
+- **Obramba je po naslovu IP:** naprave za istim NAT-om si delijo usodo – naprava, ki se prijavlja narobe, lahko
+  zapre naslov za 10 min (na zaupanem naslovu sovražni dogodki štejejo pol). Po navodilu (obramba enako stroga)
+  nespremenjeno.
 
 ## Združljivost
 

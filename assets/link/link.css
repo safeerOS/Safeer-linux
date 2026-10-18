@@ -491,6 +491,8 @@ svg[aria-hidden] { display: inline-block; fill: none; stroke: currentColor; stro
 .panel.opozoriloOspredje { border-left: 4px solid var(--rumena); padding-left: 14px; }
 .panel.opozoriloOspredje .pojasnilo { margin-bottom: 4px; }
 .panel.opozoriloOspredje button.drugotni.tanek { margin-top: 8px; }
+.panel.opozoriloViri { border-left: 4px solid var(--rumena); padding-left: 14px; }
+.panel.opozoriloViri .pojasnilo { margin-bottom: 0; }
 
 /* ---------- samostojna aplikacija (Safeer Control na racunalniku) ----------
    Levi meni z razdelki, vsebina desno; glava cez celo sirino. Telefon in televizor

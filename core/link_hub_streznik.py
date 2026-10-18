@@ -39,7 +39,7 @@ import time
 from typing import Callable, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
 
-from core import link_dostop, link_hub_deljenje, link_krog, link_obramba, link_tls, link_varovalka, link_ws, os_deskriptorji
+from core import link_dostop, link_hub_deljenje, link_krog, link_obramba, link_tls, link_varovalka, link_viri, link_ws, os_deskriptorji
 
 #: Vrata Huba. Najprej privzeta (naprave jih poznajo tudi brez mDNS), sicer katerakoli prosta.
 PRIVZETA_VRATA = 8990
@@ -61,14 +61,24 @@ POT_NAMIZJE = "/cast/desktop"
 #: Toliko neprebranega telesa se preberemo in zavrzemo, da odjemalec dobi odgovor z napako; pri vecjem zapremo.
 NAJVEC_ZAVRZENEGA = 64 * 1024 * 1024
 
-NAJVEC_NAPRAV = 32
+#: Naprav, sosedov, vstopnic, sej in zetonov clanov ne omejuje skupna stevilka (lastnik, 18. 10. 2026: prej 32 naprav,
+#: 16 sosednjih Hubov, 64 sej, 64 vstopnic in 32 zetonov - v podjetju bi naprave druga drugi izrinjale seje ali
+#: ostale zunaj). Nova naprava ali sosed se sprejme, ce ima racunalnik nad rezervo deskriptor in pomnilnik za njeno
+#: povezavo (core/link_viri.py; izhodna vrsta WebSocket je do link_ws.NAJVEC_BAJTOV_V_VRSTI = 512 KiB, zato 1 MiB);
+#: sicer odgovor ni_virov in obvestilo na tem racunalniku - ne tiha zavrnitev.
+DESKRIPTORJEV_NAPRAVE = 1
+POMNILNIK_NAPRAVE = 1024 * 1024
 NAJVEC_IMENA = 64
-#: Izziv za podpis velja kratko in samo enkrat.
+#: Izziv za podpis velja kratko in samo enkrat. Izziv dobi kdorkoli (se nepreverjen): zato fiksna meja, a polna
+#: tabela ne zavrne novega izziva - izpade najstarejsi (clan svojega porabi v nekaj milisekundah; prej je poplava
+#: izzivov za 60 s zaprla prijavo vsem clanom).
 IZZIV_VELJA_S = 60.0
-NAJVEC_IZZIVOV = 64
-#: Vstopnica je enkratna in kratkoziva: iz nje nastane ena povezava WebSocket.
+NAJVEC_IZZIVOV = 1024
+#: Vstopnica je enkratna in kratkoziva: iz nje nastane ena povezava WebSocket. Dobi jo samo clan (podpis ali zeton).
 VSTOPNICA_VELJA_S = 60.0
-NAJVEC_VSTOPNIC = 64
+#: Na NAPRAVO (id) obdrzimo najvec toliko najnovejsih vstopnic, sej in zetonov: nova prijava naprave nadomesti njene
+#: stare (odjemalec hrani samo zadnjo) - nikoli ne izrine zapisov drugih naprav. Skupne meje ni.
+NAJVEC_NA_NAPRAVO = 16
 #: Protokol, ki ga govorimo (isto kot HubUsmerjevalnik).
 RAZLICICA_PROTOKOLA = "1"
 IDENTITETA_HUBA = "safeer-link-hub"
@@ -84,17 +94,15 @@ NAJVEC_KODA_NAPAK = 10
 NAJVEC_CAKAJOCIH = 8
 #: Zeton iz seznanitve je samo za prvo prijavo in vpis kljuca v krog; potem naprava pride s podpisom.
 ZETON_VELJA_S = 86400.0
-NAJVEC_ZETONOV = 32
 NACIN_SPAKE2 = "spake2"
 #: Naprava iz kroga dobi po prijavi s podpisom kratkoziv HTTP zeton (enako kot TV Hub).
 SEJA_VELJA_S = 12 * 60 * 60.0
-NAJVEC_SEJ = 64
 
 
 #: Link Mesh (docs/LINK-MESH.md): vsaka naprava gosti svoj Hub, Hubi so sosedje vsak z vsakim.
 MESH = "mesh1"
-#: Najvec sosednjih Hubov in najvecje sporocilo, ki ga sosed sme poslati za eno napravo.
-NAJVEC_SOSEDOV = 16
+#: Najvecje sporocilo, ki ga sosed sme poslati za eno napravo (tehnicna meja okvirja, link_ws.NAJVECJE_SPOROCILO).
+#: Stevila sosedov ne omejuje stevilka (glej DESKRIPTORJEV_NAPRAVE).
 NAJVEC_MESH_SPOROCILO = 1024 * 1024
 #: Sosed sam utripa vsakih 10 s (Linux UTRIP_S, Android pingInterval). Sosednja povezava, ki je v tem roku nekaj
 #: prejela, je ziva: ponovni klic istega soseda (isti Hub pod drugim id-jem, npr. `n-x` in `n-x-control`) je ne
@@ -327,6 +335,15 @@ def _pot_povezave(povezava) -> str:
         return pot
     return link_pot.pot_vticnika(str(getattr(povezava, "naslov", "") or ""), getattr(povezava, "vticnik", None))
 
+
+def _omeji_na_napravo(zapisi: dict, device_id: str, najvec: Optional[int] = None) -> None:
+    """Pod zaklepom, pred novim zapisom naprave `device_id`: izpadejo njeni najstarejsi nad NAJVEC_NA_NAPRAVO (zapisi so
+    v vrstnem redu nastanka, vrednost[0] je id naprave). Zapisov drugih naprav se ne dotakne - skupne meje ni."""
+    najvec = NAJVEC_NA_NAPRAVO if najvec is None else najvec
+    njeni = [k for k, v in zapisi.items() if v and v[0] == device_id]
+    for k in njeni[:max(0, len(njeni) - najvec + 1)]:
+        zapisi.pop(k, None)
+
 class Hub:
     """Register naprav in usmerjanje sporocil. Brez omrezja - to je HubStreznik.
 
@@ -386,6 +403,14 @@ class Hub:
         self.zasloni = link_hub_deljenje.Zasloni(ura=ura)
         self.zasloni.ob_koncu = self._zaslon_koncan
 
+    def _ime_tega(self) -> str:
+        """Ime te naprave iz kroga (za sporocilo ni_virov napravi, ki je nismo mogli sprejeti)."""
+        try:
+            c = link_krog.krog().clan_za_id(self.nas_id) if self.nas_id else None
+            return str((c or {}).get("ime") or "")
+        except Exception:
+            return ""
+
     # ------------------------------------------------------------------ prijava s podpisom
 
     def izziv(self, device_id: str) -> Optional[dict]:
@@ -396,8 +421,8 @@ class Hub:
         nonce = link_ws.nakljucni(18)
         with self._zaklep:
             self._pocisti_izzive()
-            if len(self._izzivi) >= NAJVEC_IZZIVOV:
-                return None
+            while len(self._izzivi) >= NAJVEC_IZZIVOV:
+                self._izzivi.pop(next(iter(self._izzivi)))          # najstarejsi (slovar ohrani vrstni red)
             self._izzivi[nonce] = (device_id, self.ura())
         return {"nonce": nonce, "fp": self.odtis, "hub_id": IDENTITETA_HUBA}
 
@@ -460,9 +485,7 @@ class Hub:
         vstopnica = link_ws.nakljucni(24)
         with self._zaklep:
             self._pocisti_vstopnice()
-            if len(self._vstopnice) >= NAJVEC_VSTOPNIC:
-                najstarejsa = min(self._vstopnice, key=lambda k: self._vstopnice[k][1])
-                self._vstopnice.pop(najstarejsa, None)
+            _omeji_na_napravo(self._vstopnice, device_id)
             self._vstopnice[vstopnica] = (device_id, self.ura(), podpis)
         return vstopnica
 
@@ -545,9 +568,7 @@ class Hub:
     def _nov_zeton(self, device_id: str, ime: str) -> str:
         """Doda trajni zeton seznanitve z enotno omejitvijo in varnim zapisom."""
         self._pocisti_prijave()
-        while len(self._zetoni) >= NAJVEC_ZETONOV:
-            najstarejsi = min(self._zetoni, key=lambda k: self._zetoni[k][2])
-            self._zetoni.pop(najstarejsi, None)
+        _omeji_na_napravo(self._zetoni, device_id)
         zeton = "saf_pc_" + link_ws.nakljucni(24)
         self._zetoni[zeton] = (device_id, ime, self.ura())
         self._shrani_zetone()
@@ -558,9 +579,7 @@ class Hub:
             zdaj = self.ura()
             for z in [z for z, (_i, potece) in self._seje.items() if potece < zdaj]:
                 self._seje.pop(z, None)
-            while len(self._seje) >= NAJVEC_SEJ:
-                najstarejsa = min(self._seje, key=lambda k: self._seje[k][1])
-                self._seje.pop(najstarejsa, None)
+            _omeji_na_napravo(self._seje, device_id)
             zeton = "saf_seja_" + link_ws.nakljucni(24)
             self._seje[zeton] = (device_id, zdaj + SEJA_VELJA_S)
             return zeton
@@ -876,8 +895,8 @@ class Hub:
 
         Ni pot HTTP: kdor lahko poklice to metodo, ze tece v nasem procesu. Seznanitev s kodo (SPAKE2) med dvema
         koncema istega procesa zato ne varuje nicesar, traja pa (izmerjeno 5. 10. 2026 na testnem Windows)
-        2,6-4,8 s ob vsakem zagonu. Prejsnje zetone iste naprave zamenja: zagon za zagonom bi sicer iz shrambe
-        (NAJVEC_ZETONOV) izrinil zetone drugih naprav.
+        2,6-4,8 s ob vsakem zagonu. Prejsnje zetone iste naprave zamenja: zagon za zagonom bi jih sicer kopicil v
+        shrambi (do NAJVEC_NA_NAPRAVO).
         """
         device_id = (device_id or "").strip()[:NAJVEC_IMENA]
         if not device_id:
@@ -1238,7 +1257,7 @@ class Hub:
                 odgovor = link_hub_deljenje.napaka("Z napravo trenutno deli %s. Počakaj, da konča." % ime_kdo, koda)
                 odgovor.update({"busy_by": kdo, "busy_by_name": ime_kdo, "target": cilj})
                 return 409, odgovor
-            return 503, link_hub_deljenje.napaka("Preveč deljenih zaslonov.", koda)
+            return 503, link_hub_deljenje.napaka(link_hub_deljenje.BESEDILO_BREZ_VIROV, koda)
         # Cilj izve za deljenje od sredisca in odpre stran gledalca. Ce mu tega ni mogoce povedati, deljenja ne
         # zacnemo - posiljatelj bi sicer delil v prazno.
         if not self.posreduj_deljenje("share.screen", posiljatelj, cilj, z.tovor_zacetka(), ime):
@@ -1327,6 +1346,8 @@ class Hub:
         vloga = str(tovor.get("role") or "receiver")[:16]
         zmoznosti = [str(z)[:24] for z in (tovor.get("capabilities") or [])][:24]
         stara = None
+        # Nova naprava: odlocajo viri racunalnika, ne stevilka (merjeno zunaj kljucavnice - bere /proc).
+        razlog = "" if device_id in self._naprave else link_viri.preveri(DESKRIPTORJEV_NAPRAVE, POMNILNIK_NAPRAVE)
         with self._zaklep:
             obstojeca = self._naprave.get(device_id)
             if obstojeca is not None and obstojeca.sosed:
@@ -1340,8 +1361,9 @@ class Hub:
                 stara = obstojeca.povezava
                 obstojeca.povezava = None
             if obstojeca is None:
-                if len([n for n in self._naprave.values() if n.povezava is not None]) >= NAJVEC_NAPRAV:
-                    return "rejected", "prevec_naprav"
+                if razlog:
+                    link_viri.zabelezi(razlog, "naprava")
+                    return "rejected", link_viri.KODA
                 obstojeca = Naprava(device_id, ime, vloga, zmoznosti, getattr(povezava, "naslov", ""))
                 self._naprave[device_id] = obstojeca
             obstojeca.ime = ime
@@ -1555,8 +1577,6 @@ class Hub:
                     # (ali dvakrat hkrati). Ostane stara; nova se zavrne (sosed jo umakne s premorom).
                     return False
                 stara = obstojeca
-            if obstojeca is None and len(self._sosedje) >= NAJVEC_SOSEDOV:
-                return False
             try:
                 povezava.podatki["zacel"] = zacel
             except Exception:
@@ -1602,6 +1622,14 @@ class Hub:
         from core import link_mesh
         if sosed_id in link_mesh.brez_neposredne():
             return self._potrditev(id_sporocila, "cast", "rejected", "Preizkus: brez neposredne povezave.", "preizkus")
+        with self._zaklep:
+            nov_sosed = sosed_id not in self._sosedje
+        razlog = link_viri.preveri(DESKRIPTORJEV_NAPRAVE, POMNILNIK_NAPRAVE) if nov_sosed else ""
+        if razlog:
+            link_viri.zabelezi(razlog, "sosed")
+            return self._potrditev(id_sporocila, "cast", "rejected",
+                                   link_viri.besedilo(link_viri.KODA, ime=self._ime_tega() or "Safeer Link")[1],
+                                   link_viri.KODA)
         if not self.dodaj_soseda(sosed_id, povezava, sosed_id):
             return self._potrditev(id_sporocila, "cast", "rejected", "Sosednja povezava ze obstaja.", "podvojen_sosed")
         return self._potrditev(id_sporocila, "cast", "accepted")
@@ -1671,7 +1699,7 @@ class Hub:
             for sosed in sorted(self._zadnji_relay):
                 if sosed not in self._sosedje:
                     continue
-                for did, z in list(self._zadnji_relay[sosed].items())[:NAJVEC_NAPRAV]:
+                for did, z in list(self._zadnji_relay[sosed].items()):
                     if did in zeljene or did == self.nas_id or str(z.get("hub") or "") == self.nas_id:
                         continue
                     n = self._naprave.get(did)
@@ -1707,7 +1735,8 @@ class Hub:
 
     def _sosedove_naprave(self, sosed_id: str, povezava, naprave: dict, relay: Optional[dict] = None) -> None:
         novi: Dict[str, dict] = {}
-        for did, z in list((naprave if isinstance(naprave, dict) else {}).items())[:NAJVEC_NAPRAV]:
+        # Brez stevilske meje (prej prvih 32): velikost seznama omeji NAJVEC_MESH_SPOROCILO, cez mejo gredo samo clani.
+        for did, z in list((naprave if isinstance(naprave, dict) else {}).items()):
             if not isinstance(z, dict):
                 continue
             did = str(did or "").strip()
@@ -1748,7 +1777,7 @@ class Hub:
             self._sosed_naprave[sosed_id] = obdrzani
             if relay is not None:
                 cisti = {}
-                for did, zz in list((relay if isinstance(relay, dict) else {}).items())[:NAJVEC_NAPRAV]:
+                for did, zz in list((relay if isinstance(relay, dict) else {}).items()):
                     did = str(did or "").strip()
                     if isinstance(zz, dict) and did and len(did) <= NAJVEC_IMENA and self._je_clan(did):
                         cisti[did] = zz
@@ -1915,7 +1944,11 @@ class Hub:
                 kljuc = self.naprava_iz_kljuca(prijavljen)
                 if kljuc and "chat" in (tovor.get("capabilities") or []):
                     self._dostavi_klepet(kljuc, povezava)
-            return self._potrditev(id_sporocila, "cast", status, "" if status == "accepted" else "Prijava zavrnjena.", koda)
+            if koda == link_viri.KODA:
+                besedilo = link_viri.besedilo(link_viri.KODA, ime=self._ime_tega() or "Safeer Link")[1]
+            else:
+                besedilo = "" if status == "accepted" else "Prijava zavrnjena."
+            return self._potrditev(id_sporocila, "cast", status, besedilo, koda)
 
         if tip == "cast.ping":
             return json.dumps({"id": id_sporocila, "type": "cast.pong"}, ensure_ascii=False)
@@ -2347,7 +2380,7 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
             self._odgovori(404, link_hub_deljenje.napaka("Te datoteke ni.", "ni_datoteke"))
             return
         if not zaloga.zacni_prevzem():
-            self._odgovori(503, link_hub_deljenje.napaka("Preveč hkratnih prenosov.", "prevec_prenosov"))
+            self._odgovori(503, link_hub_deljenje.napaka(link_hub_deljenje.BESEDILO_BREZ_VIROV, link_viri.KODA))
             return
         cela = False
         zacetek = self._zacetek_obsega(self.headers.get("Range") or "", d.velikost)
@@ -2429,8 +2462,8 @@ class _Obravnava(http.server.BaseHTTPRequestHandler):
         zasloni = self._hub.zasloni
         g, koda = zasloni.dodaj_gledalca(z)
         if g is None:
-            if koda == "prevec_gledalcev":
-                self._odgovori(503, link_hub_deljenje.napaka("Preveč gledalcev.", koda))
+            if koda == link_viri.KODA:
+                self._odgovori(503, link_hub_deljenje.napaka(link_hub_deljenje.BESEDILO_BREZ_VIROV, koda))
             else:
                 self._odgovori(404, link_hub_deljenje.napaka("Tega deljenja ni.", koda))
             return
@@ -2999,6 +3032,12 @@ def _obvestilo(naslov: str, besedilo: str, cas_ms: int = 15000, dejanja: Optiona
     obvestila.poslji(naslov, besedilo, gumbi=dejanja, cas_ms=cas_ms, prioriteta="high" if dejanja else "normal")
 
 
+def _obvesti_o_virih(razlog: str, kje: str, zavrnjenih: int) -> None:
+    """Clan kroga ni bil sprejet, ker racunalniku zmanjkuje virov (core/link_viri.py): uporabnik to izve v svojem
+    jeziku (najvec enkrat na link_viri.OBVESTILO_VSAKIH_S), ne ugiba, zakaj se naprava ne poveze."""
+    _obvestilo(*link_viri.besedilo(razlog, n=zavrnjenih), cas_ms=30000)
+
+
 def besedilo_zapore(vir: str, trajanje_s: float, razlog: str, slovensko: bool, ime: str = "") -> tuple:
     """(naslov, besedilo) obvestila ob zapori vira - loceno, da je preizkusljivo. `ime`: naprava, ki jo sredisce pozna
     s tega naslova - potem je to najbrz uporabnikova naprava s pokvarjeno prijavo, ne tujec."""
@@ -3273,6 +3312,8 @@ class HubStreznik:
         return not ni_safeer_hub(PRIVZETA_VRATA)
 
     def zazeni(self) -> bool:
+        if _obvesti_o_virih not in link_viri.POSLUSALCI:
+            link_viri.POSLUSALCI.append(_obvesti_o_virih)
         with self._zaklep:
             if self._streznik is not None:
                 return True

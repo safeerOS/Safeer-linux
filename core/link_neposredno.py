@@ -20,8 +20,10 @@ Sele nato sredisce povezavo prevezi na krajevna vrata Huba (127.0.0.1), kot to d
 nespremenjen TLS Safeer Linka s pripetim kljucem in prijava s podpisom/vstopnico; pravila dostopa (link_dostop:
 "o vsebinah te naprave odloca samo ta naprava") veljajo enako kot doma in prek releja. Novih koncnih tock ni.
 
-Napake se ne opisujejo: vsaka zavrnitev je tiho zaprta povezava. Viri, ki trkajo narobe, gredo v core/link_obramba
-(lastna instanca, brez izjeme za zanko), hkratnih rokovanj in tunelov je omejeno stevilo.
+Napake se ne opisujejo: vsaka zavrnitev nepreverjenega je tiho zaprta povezava. Viri, ki trkajo narobe, gredo v
+core/link_obramba (lastna instanca, brez izjeme za zanko). Fiksno stevilo velja samo za nepreverjene povezave
+(NAJVEC_NEPREVERJENIH, na naslov NAJVEC_NEPREVERJENIH_NA_VIR); clanov kroga in tunelov ne omejuje nobena stevilka,
+samo viri racunalnika (core/link_viri.py) - in clan izve, zakaj ni sprejet (BREZ_VIROV).
 
 Oglas: sredisce svoj javni IPv4 izve s STUN pri Cloudflaru (stun.cloudflare.com - isti ponudnik kot rele, brez
 tretjih storitev), in ga objavi v svoji prisotnosti na link.safeer.si kot `candidate_hints` - samo clanom svojega
@@ -41,6 +43,7 @@ Nastavitev "Neposredna povezava od zunaj" je privzeto IZKLOPLJENA (global-link-n
 from __future__ import annotations
 
 import base64
+import errno
 import hashlib
 import ipaddress
 import json
@@ -57,6 +60,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from core import gneca
 from core import link_pot
+from core import link_viri
 from core import os_deskriptorji
 
 PROTOKOL = "safeer-neposredno-v1"
@@ -66,8 +70,13 @@ PRIVZETA_VRATA = 48990
 ROK_POVEZAVE_S = 1.5
 #: Odjemalec: rok za trk + TLS + izziv po vzpostavljeni povezavi TCP.
 ROK_ROKOVANJA_S = 3.0
-#: Sredisce: rok za trk, TLS in odgovor na izziv (pocasen mobilni odjemalec).
+#: Sredisce: rok za trk - velja samo za NEPREVERJENO povezavo (dokler ne pride veljaven podpisan trk). Pravi odjemalec
+#: poslje trk takoj za rokovanjem TCP (isti let paketov); 6 s pusti pocasnemu mobilnemu odjemalcu dovolj casa.
 ROK_VHODA_S = 6.0
+#: Sredisce: rok za TLS in izziv po veljavnem trku (clan kroga). Daljsi kot za trk: ob jutranjem navalu (tisoc naprav
+#: podjetja za enim naslovom) TLS caka na procesor, a clan ne sme pasti na rele zato, ker je sredisce zasedeno. Rok
+#: ostane, da clan, ki med rokovanjem izgubi signal, ne drzi niti in deskriptorja za vedno.
+ROK_PREVERJENEGA_S = 30.0
 #: Cas v trku in prisotnosti: dovoljen odmik ur.
 OKNO_CASA_S = 120
 #: Oglas velja toliko (sredisce ga obnavlja ob vsaki objavi prisotnosti, vsako minuto).
@@ -86,17 +95,30 @@ CAKAJ_OGLAS_S = 1.0
 #: Po neuspeli neposredni poti jo toliko casa preskocimo (podvaja se do NAJDALJSI_PREMOR_S); sprememba omrezja ga izbrise.
 PREMOR_S = 300.0
 NAJDALJSI_PREMOR_S = 1800.0
-#: Meje vhoda.
-NAJVEC_ROKOVANJ = 16
-#: En naslov ne sme zasesti vseh mest za rokovanje (pocasen trk drzi mesto do ROK_VHODA_S): najvec toliko hkrati.
-#: Prava naprava jih odpre najvec ~6 hkrati (OkHttp: 5 na gostitelja + WebSocket); 8 dopusti se dve napravi za istim
-#: javnim naslovom brez cakanja. Zavrnjeno rokovanje odjemalca za PREMOR_S vrne na rele - zato meja ni nizja.
-NAJVEC_ROKOVANJ_NA_VIR = 8
-#: Toliko mest je samo za naslove, ki so se v zadnjih link_obramba.ZAUPANJE_S izkazali kot clani kroga: tudi veliko
-#: tujih naslovov hkrati ne izrine naprave, ki se po kratkem izpadu vraca z istega naslova.
-REZERVA_ZAUPANIM = 4
-NAJVEC_TUNELOV = 64
-NAJVEC_NONCEV = 4096
+#: Meje vhoda (lastnik, 18. 10. 2026: »Kaj ce bi nase okolje zelelo imeti veliko podjetje, kot je BSH?«).
+#:
+#: Fiksni meji veljata SAMO za nepreverjene povezave - od sprejema TCP do zadnjega bajta trka. Ko trk pride, povezava
+#: ni vec nepreverjena (podpis se preveri takoj, brez cakanja na omrezje): clan kroga gre naprej brez stevila na
+#: naslov ali skupaj - tisoc zaposlenih za enim javnim naslovom podjetja (NAT) gre neposredno, ne prek releja. Clana
+#: ustavijo samo pravi viri racunalnika (core/link_viri.py), in takrat z jasnim odgovorom BREZ_VIROV, ne tiho.
+#:
+#: Tiha povezava ne sme zasesti mest za clane (pregled 18. 10. 2026: en naslov je s 16 tihimi trki zasedel vsa mesta).
+#: Zato nova povezava ni nikoli zavrnjena, ker so mesta polna - izrine najSTAREJSO nepreverjeno: najprej istega
+#: naslova (nad NAJVEC_NEPREVERJENIH_NA_VIR), sicer z naslova, ki jih ima najvec (najprej nezaupani naslovi). Pravi
+#: odjemalec trk poslje v isti milisekundi kot TCP, zato je najstarejsa nepreverjena skoraj vedno tiha. Izrinjena
+#: steje kot neuspelo rokovanje v obrambi (link_obramba), enako kot prej tiha povezava po roku.
+#:
+#: Meritev 18. 10. 2026 (zanka, 2 deljeni jedri): 200 clanov z ISTEGA naslova hkrati - vsi neposredno v 1,6 s, najvec
+#: 3 hkrati nepreverjeni, 17 hkrati v TLS, nobena izrinjena; 500 clanov - 4,2 s, najvec 5 nepreverjenih, 31 v TLS
+#: (test_podjetje_za_enim_naslovom_200_clanov_neposredno). Meja 32 na naslov ima torej vec kot sestkratno rezervo.
+NAJVEC_NEPREVERJENIH = 128
+NAJVEC_NEPREVERJENIH_NA_VIR = 32
+#: Odgovor namesto POTRDITEV: clan je overjen, a racunalnik nima virov za tunel (core/link_viri.py). Odjemalec to pove
+#: uporabniku (link_viri.KODA) in gre ta cas prek releja.
+BREZ_VIROV = b"\x02"
+#: Poslusalna vrsta jedra (sprejete povezave TCP pred accept): sistemska najvecja (net.core.somaxconn), ne 32 - ob navalu
+#: bi jedro sicer zavrglo SYN in odjemalec bi po ROK_POVEZAVE_S odsel na rele.
+VRSTA_POSLUSANJA = socket.SOMAXCONN
 KOS = 64 * 1024
 
 MAGIJA = b"SFN1"
@@ -232,6 +254,20 @@ def _zapri(s) -> None:
         pass
 
 
+def _ustavi_poslusanje(s) -> None:
+    """Zapre poslusalno vticnico TAKO, da se nit v accept() zbudi. Samo close() je na Linuxu ne zbudi: nit ostane
+    v accept() za vedno, vrata pa poslusajo naprej in sprejmejo se eno povezavo (preverjeno 18. 10. 2026 - po izklopu
+    »Neposredne povezave od zunaj« so vrata ostala odprta do naslednje povezave; vsak izklop je pustil nit in
+    rezerviran deskriptor). shutdown() accept() takoj prekine (EINVAL)."""
+    if s is None:
+        return
+    try:
+        s.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+    _zapri(s)
+
+
 # ------------------------------------------------------------------ podpisani podatki (isti na Androidu)
 
 def podatki_trka(hub_id: str, odjemalec_id: str, cas: int, nonce: bytes) -> bytes:
@@ -362,7 +398,8 @@ def _odznaci(vrata: int) -> None:
 # ------------------------------------------------------------------ prepoved (sredisce)
 
 def _pipe(a, b, ob_koncu: Optional[Callable[[], None]] = None) -> None:
-    """Bajti v obe smeri; ob koncu ene smeri zapre obe. `a`, `b`: vticnici (TLS ovita z link_vticnik.zavaruj)."""
+    """Bajti v obe smeri; ob koncu ene smeri zapre obe. `a`, `b`: vticnici (TLS ovita z link_vticnik.zavaruj).
+    Ena smer tece v klicoci niti, druga v novi; ce sistem nove niti ne da, se povezava zapre (link_viri: niti)."""
     def ena(iz, v):
         try:
             while True:
@@ -379,9 +416,14 @@ def _pipe(a, b, ob_koncu: Optional[Callable[[], None]] = None) -> None:
                 pass
 
     nit = threading.Thread(target=ena, args=(b, a), name="safeer-neposredno-cev", daemon=True)
-    nit.start()
-    ena(a, b)
-    nit.join(15)
+    try:
+        nit.start()
+    except RuntimeError:
+        link_viri.zabelezi(link_viri.NITI, "cev")
+        nit = None
+    if nit is not None:
+        ena(a, b)
+        nit.join(15)
     _zapri(a)
     _zapri(b)
     if ob_koncu is not None:
@@ -389,6 +431,22 @@ def _pipe(a, b, ob_koncu: Optional[Callable[[], None]] = None) -> None:
             ob_koncu()
         except Exception:
             pass
+
+
+#: Deskriptorji, ki jih tunel clana potrebuje poleg ze odprte zunanje vticnice: krajevna vticnica do Huba in Hubova
+#: stran zanke (Hub tece v istem procesu).
+DESKRIPTORJEV_TUNELA = 2
+#: Pomnilnik, ki ga mora imeti racunalnik nad rezervo (link_viri) za en tunel clana. Meritev 18. 10. 2026 (zanka,
+#: 200 in 500 hkratnih tunelov s TLS): ~170 KiB RSS na clana za obe strani skupaj (vhod, odjemalec, lazni Hub),
+#: 4 deskriptorji (vhod 2, Hub 1, odjemalec 1), 2 niti na vhodu. 1 MiB ima rezervo za medpomnilnike pod polnim
+#: prometom (2 x 64 KiB KOS + vticnice jedra).
+POMNILNIK_TUNELA = 1024 * 1024
+_NAPAKE_VIROV = frozenset(getattr(errno, ime) for ime in ("EMFILE", "ENFILE", "ENOBUFS", "ENOMEM") if hasattr(errno, ime))
+
+
+def _razlog_napake(e: OSError) -> str:
+    """Razlog za link_viri iz napake jedra: brez deskriptorjev (EMFILE, ENFILE) ali brez pomnilnika (ENOBUFS, ENOMEM)."""
+    return link_viri.DESKRIPTORJI if getattr(e, "errno", None) in (errno.EMFILE, errno.ENFILE) else link_viri.POMNILNIK
 
 
 class VhodNeposredno:
@@ -425,15 +483,28 @@ class VhodNeposredno:
         with open(pot_potrdila, "rb") as d:
             der = ssl.PEM_cert_to_DER_cert(d.read().decode("ascii"))
         self.odtis = hashlib.sha256(der).hexdigest()
+        #: Nonci veljavnih trkov (samo clani: shrani se sele po preverjenem podpisu). Brez stevilske meje: zapis
+        #: izpade po 2 x OKNO_CASA_S - prej je meja 4096 ob navalu (6 povezav x 1000 naprav v 4 min) posnetemu trku
+        #: vrnila veljavnost se znotraj casovnega okna.
         self._nonci: "OrderedDict[bytes, float]" = OrderedDict()
         self._zaklep = threading.Lock()
-        self._rokovanj = 0
-        #: Tekoca rokovanja po naslovu (NAJVEC_ROKOVANJ_NA_VIR).
-        self._rokovanj_vira: Dict[str, int] = {}
+        #: Nepreverjene povezave po starosti: oznaka -> (vir, vticnica, ali je bil naslov ob sprejemu zaupan).
+        self._nepreverjeni: "OrderedDict[int, Tuple[str, socket.socket, bool]]" = OrderedDict()
+        self._nepreverjenih_vira: Dict[str, int] = {}
+        self._oznaka = 0
+        #: Clani v TLS in izzivu ter odprti tuneli: samo stejemo (vmesnik, preizkusi), meje ni.
+        self._preverjenih = 0
         self._tunelov = 0
         self.zavrnjenih = 0
         self.sprejetih = 0
-        self._streznik = socket.create_server((naslov, self.vrata_nastavljena), backlog=32, reuse_port=False)
+        #: Nepreverjene, ki jih je izrinila novejsa povezava (tihe), in clani, zavrnjeni zaradi virov.
+        self.izrinjenih = 0
+        self.brez_virov = 0
+        #: Najvec hkrati nepreverjenih in clanov v rokovanju, odkar vhod tece (meritve).
+        self.najvec_nepreverjenih = 0
+        self.najvec_preverjenih = 0
+        self._streznik = socket.create_server((naslov, self.vrata_nastavljena), backlog=VRSTA_POSLUSANJA,
+                                              reuse_port=False)
         self.vrata = self._streznik.getsockname()[1]
         self._tece = True
         self._nit = threading.Thread(target=self._sprejemaj, name="safeer-neposredno-vhod", daemon=True)
@@ -441,21 +512,31 @@ class VhodNeposredno:
 
     def zapri(self) -> None:
         self._tece = False
-        _zapri(self._streznik)
+        _ustavi_poslusanje(self._streznik)
 
     @property
     def tece(self) -> bool:
         return self._tece
 
+    @property
+    def nepreverjenih(self) -> int:
+        with self._zaklep:
+            return len(self._nepreverjeni)
+
     def _sprejemaj(self) -> None:
         while self._tece:
             try:
                 s, naslov = self._streznik.accept()
-            except OSError:
+            except OSError as e:
                 if not self._tece:
                     return
+                if getattr(e, "errno", None) in _NAPAKE_VIROV:
+                    link_viri.zabelezi(_razlog_napake(e), "neposredno")
                 time.sleep(0.05)
                 continue
+            if not self._tece:
+                _zapri(s)              # vhod je izklopljen: povezava, ki je prisla tik pred tem, ne gre naprej
+                return
             vir = naslov[0] if naslov else ""
             if not self.obramba.dovoli(vir):
                 self.zavrnjenih += 1
@@ -463,20 +544,55 @@ class VhodNeposredno:
                 continue
             zaupan = self._zaupan(vir)
             with self._zaklep:
-                meja = NAJVEC_ROKOVANJ if zaupan else NAJVEC_ROKOVANJ - REZERVA_ZAUPANIM
-                na_viru = self._rokovanj_vira.get(vir, 0)
-                if self._rokovanj >= meja or na_viru >= NAJVEC_ROKOVANJ_NA_VIR or self._tunelov >= NAJVEC_TUNELOV:
-                    polno = True
-                else:
-                    polno = False
-                    self._rokovanj += 1
-                    self._rokovanj_vira[vir] = na_viru + 1
-            if polno:
+                self._oznaka += 1
+                oznaka = self._oznaka
+                self._nepreverjeni[oznaka] = (vir, s, zaupan)
+                self._nepreverjenih_vira[vir] = self._nepreverjenih_vira.get(vir, 0) + 1
+                izrinjene = self._izrini(vir)
+                self.najvec_nepreverjenih = max(self.najvec_nepreverjenih, len(self._nepreverjeni))
+            for v in izrinjene:
+                # Nit, ki na tej vticnici caka trk, se zbudi (EOF) in jo pospravi kot neuspelo rokovanje (obramba).
+                os_deskriptorji.zapri_vticnik(v)
+            if not link_viri.zazeni_nit(self._obdelaj, (s, vir, oznaka), "safeer-neposredno-rokovanje", "neposredno"):
+                self._izstopi(oznaka)
                 self.zavrnjenih += 1
                 _zapri(s)
-                continue
-            threading.Thread(target=self._obdelaj, args=(s, vir), name="safeer-neposredno-rokovanje",
-                             daemon=True).start()
+
+    # -- nepreverjene povezave (edine s fiksno mejo)
+
+    def _odstrani(self, oznaka: int) -> Optional[socket.socket]:
+        """Pod zaklepom: odstrani nepreverjeno povezavo iz stetja; vrne njeno vticnico ali None."""
+        z = self._nepreverjeni.pop(oznaka, None)
+        if z is None:
+            return None
+        ostane = self._nepreverjenih_vira.get(z[0], 1) - 1
+        if ostane > 0:
+            self._nepreverjenih_vira[z[0]] = ostane
+        else:
+            self._nepreverjenih_vira.pop(z[0], None)
+        return z[1]
+
+    def _izrini(self, vir: str) -> List[socket.socket]:
+        """Pod zaklepom, ob novi povezavi z `vir`: nad mejo izpade najstarejsa nepreverjena - najprej istega naslova,
+        sicer z naslova, ki jih ima najvec (nezaupani pred zaupanimi). Nova povezava zato nikoli ne caka na tiho."""
+        izrinjene = []
+        if self._nepreverjenih_vira.get(vir, 0) > NAJVEC_NEPREVERJENIH_NA_VIR:
+            najstarejsa = next(k for k, z in self._nepreverjeni.items() if z[0] == vir)
+            izrinjene.append(self._odstrani(najstarejsa))
+        while len(self._nepreverjeni) > NAJVEC_NEPREVERJENIH:
+            izbor = None
+            for k, (v, _s, zaupan_v) in self._nepreverjeni.items():      # od najstarejse
+                kljuc = (zaupan_v, -self._nepreverjenih_vira.get(v, 0))
+                if izbor is None or kljuc < izbor[0]:
+                    izbor = (kljuc, k)
+            izrinjene.append(self._odstrani(izbor[1]))
+        self.izrinjenih += len(izrinjene)
+        return [v for v in izrinjene if v is not None]
+
+    def _izstopi(self, oznaka: int) -> bool:
+        """Povezava ni vec nepreverjena (trk je prisel ali je konec). False: med cakanjem jo je izrinila novejsa."""
+        with self._zaklep:
+            return self._odstrani(oznaka) is not None
 
     def _zavrni(self, s, vir: str, vrsta: str) -> None:
         """Tiho: brez odgovora, brez razloga."""
@@ -496,51 +612,47 @@ class VhodNeposredno:
             if nonce in self._nonci:
                 return False
             self._nonci[nonce] = zdaj + 2 * OKNO_CASA_S
-            while len(self._nonci) > NAJVEC_NONCEV:
-                self._nonci.popitem(last=False)
             return True
 
-    def _obdelaj(self, s: socket.socket, vir: str) -> None:
-        tunel = False
+    def _obdelaj(self, s: socket.socket, vir: str, oznaka: int = 0) -> None:
+        tunel = None
         try:
-            tunel = self._rokovanje(s, vir)
+            tunel = self._rokovanje(s, vir, oznaka)
         except Exception:
             _zapri(s)
         finally:
-            with self._zaklep:
-                self._rokovanj -= 1
-                ostane = self._rokovanj_vira.get(vir, 1) - 1
-                if ostane > 0:
-                    self._rokovanj_vira[vir] = ostane
-                else:
-                    self._rokovanj_vira.pop(vir, None)
+            self._izstopi(oznaka)
+        if tunel is not None:
+            # Tunel tece v tej niti (ena nit manj na clana, kot ce bi zanj zagnali novo).
+            tunel()
 
     def _zaupan(self, vir: str) -> bool:
-        """Ali se je vir v zadnjem casu izkazal kot clan kroga (rezervirana mesta za rokovanje)."""
+        """Ali se je vir v zadnjem casu izkazal kot clan kroga (prednost pri izrinjanju nepreverjenih)."""
         try:
             return bool(self.obramba.zaupa(vir))
-        except Exception:  # noqa: BLE001 - starejsa ali lazna obramba: brez rezerve
+        except Exception:  # noqa: BLE001 - starejsa ali lazna obramba: brez prednosti
             return False
 
-    def _rokovanje(self, s: socket.socket, vir: str) -> bool:
-        konec = time.monotonic() + ROK_VHODA_S
+    def _rokovanje(self, s: socket.socket, vir: str, oznaka: int = 0) -> Optional[Callable[[], None]]:
+        """Trk, TLS in izziv. Vrne tunel (klic, ki prenasa bajte do konca povezave) ali None."""
+        konec = [time.monotonic() + ROK_VHODA_S]
         from core import link_vticnik
         # Rokovanje so majhni zapisi (izziv za vstopnicami TLS 1.3): z Naglovim algoritmom bi vsak cakal na potrditev
         # prejsnjega (do 40 ms vsak - izmerjeno na zanki).
         link_vticnik.brez_zamika(s)
 
         def ostane() -> float:
-            return max(0.01, konec - time.monotonic())
+            return max(0.01, konec[0] - time.monotonic())
 
-        # 1. trk
+        # 1. trk (nepreverjena povezava: kratek rok, fiksna meja, izrinjanje)
         try:
             glava = _beri_tocno(s, 4 + _DOLZINA_ID + 8 + 16 + 1, ostane())
         except Exception:
             self._zavrni(s, vir, "rokovanje")
-            return False
+            return None
         if glava[:4] != MAGIJA:
             self._zavrni(s, vir, "tipanje")
-            return False
+            return None
         try:
             odjemalec = glava[4:4 + _DOLZINA_ID].decode("ascii")
         except UnicodeDecodeError:
@@ -550,34 +662,52 @@ class VhodNeposredno:
         dolzina = glava[46]
         if not _ID.match(odjemalec) or odjemalec == self.hub_id or not 8 <= dolzina <= 80:
             self._zavrni(s, vir, "brez_zaupanja")
-            return False
+            return None
         kljuc = self.kljuc_clana(odjemalec)
         if not kljuc:
             self._zavrni(s, vir, "brez_zaupanja")        # ni clan kroga (ali umaknjen): brez kriptografije ven
-            return False
+            return None
         zdaj = self.ura()
         if abs(zdaj - cas) > OKNO_CASA_S:
             self._zavrni(s, vir, "brez_zaupanja")
-            return False
+            return None
         try:
             podpis = _beri_tocno(s, dolzina, ostane())
             der = base64.b64decode(kljuc)
         except Exception:
             self._zavrni(s, vir, "rokovanje")
-            return False
+            return None
+        # Trk je prisel: povezava ni vec tiha in ne steje vec med nepreverjene (preverjanje spodaj je samo racunanje).
+        # Ce jo je medtem izrinila novejsa, je ze zaprta - steje kot tiha.
+        if oznaka and not self._izstopi(oznaka):
+            self._zavrni(s, vir, "rokovanje")
+            return None
         if not self.preveri(der, podatki_trka(self.hub_id, odjemalec, cas, nonce), podpis):
             self._zavrni(s, vir, "brez_zaupanja")
-            return False
+            return None
         if not self._sprejmi_nonce(nonce, zdaj):
             self._zavrni(s, vir, "brez_zaupanja")        # ponovljen trk
-            return False
+            return None
+        # Clan kroga: od tu brez fiksnih mej; TLS in izziv imata daljsi rok (naval clanov caka na procesor).
+        konec[0] = time.monotonic() + ROK_PREVERJENEGA_S
+        with self._zaklep:
+            self._preverjenih += 1
+            self.najvec_preverjenih = max(self.najvec_preverjenih, self._preverjenih)
+        try:
+            return self._clan(s, vir, odjemalec, der, ostane)
+        finally:
+            with self._zaklep:
+                self._preverjenih -= 1
+
+    def _clan(self, s: socket.socket, vir: str, odjemalec: str, der: bytes,
+              ostane: Callable[[], float]) -> Optional[Callable[[], None]]:
         # 2. TLS
         try:
             s.settimeout(ostane())
             t = self._ctx.wrap_socket(s, server_side=True)
         except Exception:
             self._zavrni(s, vir, "rokovanje")
-            return False
+            return None
         # 3. izziv
         izziv = os.urandom(32)
         try:
@@ -587,14 +717,14 @@ class VhodNeposredno:
             namen, dolzina = g[0], g[1]
             if namen not in (NAMEN_TUNEL, NAMEN_PREIZKUS) or not 8 <= dolzina <= 80:
                 self._zavrni(t, vir, "brez_zaupanja")
-                return False
+                return None
             podpis = _beri_tocno(t, dolzina, ostane())
         except Exception:
             self._zavrni(t, vir, "rokovanje")
-            return False
+            return None
         if not self.preveri(der, podatki_izziva(self.hub_id, odjemalec, izziv, self.odtis, namen), podpis):
             self._zavrni(t, vir, "brez_zaupanja")
-            return False
+            return None
         try:
             self.obramba.zaupaj(vir)
         except Exception:
@@ -611,27 +741,45 @@ class VhodNeposredno:
             except Exception:
                 pass
             _zapri(t)
-            return False
+            return None
         hub_vrata = int(self.hub_vrata() or 0)
         if hub_vrata <= 0:
             _zapri(t)
-            return False
-        # Krajevna vrata oznacimo, PREDEN se povezemo: Hub vidi 127.0.0.1 in mora ze ob sprejemu vedeti, da je to
-        # neposredna pot (meritve, vmesnik, izbira boljse poti).
-        h = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            return None
+        # Ni fiksne meje tunelov: odloca, ali ima racunalnik se deskriptorje in pomnilnik nad rezervo (link_viri).
+        razlog = link_viri.preveri(DESKRIPTORJEV_TUNELA, POMNILNIK_TUNELA)
+        h = None
         lokalna = 0
-        try:
-            h.bind(("127.0.0.1", 0))
-            lokalna = h.getsockname()[1]
-            _oznaci(lokalna, POT_NEPOSREDNO)
-            h.settimeout(5)
-            h.connect(("127.0.0.1", hub_vrata))
-            h.settimeout(None)
-        except OSError:
-            _odznaci(lokalna)
-            _zapri(h)
+        if not razlog:
+            # Krajevna vrata oznacimo, PREDEN se povezemo: Hub vidi 127.0.0.1 in mora ze ob sprejemu vedeti, da je to
+            # neposredna pot (meritve, vmesnik, izbira boljse poti).
+            try:
+                h = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                h.bind(("127.0.0.1", 0))
+                lokalna = h.getsockname()[1]
+                _oznaci(lokalna, POT_NEPOSREDNO)
+                h.settimeout(5)
+                h.connect(("127.0.0.1", hub_vrata))
+                h.settimeout(None)
+            except OSError as e:
+                _odznaci(lokalna)
+                _zapri(h)
+                h = None
+                if getattr(e, "errno", None) in _NAPAKE_VIROV:
+                    razlog = _razlog_napake(e)
+                else:
+                    _zapri(t)
+                    return None
+        if razlog:
+            # Clan je overjen: pove se mu, zakaj ne (ne tiho) - odjemalec to pokaze in gre ta cas prek releja.
+            self.brez_virov += 1
+            link_viri.zabelezi(razlog, "neposredno")
+            try:
+                t.sendall(BREZ_VIROV)
+            except Exception:
+                pass
             _zapri(t)
-            return False
+            return None
         try:
             t.sendall(POTRDITEV)
             t.settimeout(None)
@@ -639,11 +787,11 @@ class VhodNeposredno:
             _odznaci(lokalna)
             _zapri(t)
             _zapri(h)
-            return False
+            return None
         from core import link_vticnik
         link_vticnik.brez_zamika(h)
         link_vticnik.brez_zamika(t)
-        # Tunel je brez roka (WebSocket sme dolgo molcati): mrtvo drugo stran zazna keepalive in mesto se sprosti.
+        # Tunel je brez roka (WebSocket sme dolgo molcati): mrtvo drugo stran zazna keepalive in tunel se zapre.
         link_vticnik.ohrani_zivost(t)
         with self._zaklep:
             self._tunelov += 1
@@ -653,15 +801,18 @@ class VhodNeposredno:
             with self._zaklep:
                 self._tunelov -= 1
 
-        threading.Thread(target=_pipe, args=(link_vticnik.zavaruj(t), h, konec_tunela),
-                         name="safeer-neposredno-tunel", daemon=True).start()
-        return True
+        return lambda: _pipe(link_vticnik.zavaruj(t), h, konec_tunela)
 
 
 # ------------------------------------------------------------------ odjemalec: neposredna povezava
 
 class NapakaNeposredne(ConnectionError):
-    """Neposredna pot ni uspela (ni povezave, napacen kljuc, zavrnjen)."""
+    """Neposredna pot ni uspela (ni povezave, napacen kljuc, zavrnjen). `koda`: link_viri.KODA, ce je sredisce
+    clana overilo, a nima virov zanj - to se pove uporabniku; drugo je samo za dnevnik."""
+
+    def __init__(self, sporocilo: str = "", koda: str = "") -> None:
+        super().__init__(sporocilo)
+        self.koda = koda
 
 
 def _kontekst_odjemalca() -> ssl.SSLContext:
@@ -707,7 +858,11 @@ def odpri_neposredno(ip: str, vrata: int, hub_id: str, kljuc_huba_b64: str, nas_
         izziv = _beri_tocno(t, 32, rok_rokovanja)
         podpis = podpisi(podatki_izziva(hub_id, nas_id, izziv, odtis, namen))
         t.sendall(bytes([namen, len(podpis)]) + podpis)
-        if _beri_tocno(t, 1, rok_rokovanja) != POTRDITEV:
+        odgovor = _beri_tocno(t, 1, rok_rokovanja)
+        if odgovor == BREZ_VIROV:
+            # Odgovor je prisel po TLS s kljucem sredisca iz kroga: res ga je poslalo sredisce, ne kdo na poti.
+            raise NapakaNeposredne("sredisce nima virov", link_viri.KODA)
+        if odgovor != POTRDITEV:
             raise NapakaNeposredne("zavrnjeno")
         t.settimeout(None)
         return t, t_tcp, (time.monotonic() - t0) * 1000.0
@@ -969,6 +1124,9 @@ class LokalniOdZunaj:
                     time.sleep(os_deskriptorji.PREMOR_PO_NAPAKI_ACCEPT_S)
                     continue
                 return
+            if not self._tece:
+                _zapri(tcp)
+                return
             if hasattr(os, "getuid") and isinstance(naslov, tuple):
                 # Drug uporabnik tega racunalnika ne sme uporabljati poti, podpisane z nasim kljucem.
                 uid = link_rele._uid_lokalne_povezave(int(naslov[1]), vrata)
@@ -1001,7 +1159,10 @@ class LokalniOdZunaj:
                     self._premor = min(NAJDALJSI_PREMOR_S, self._premor * 2 if self._premor else PREMOR_S)
                     self._premor_do = self.ura() + self._premor
                     self._omrezje_ob_neuspehu = self._omrezje(k[0])
-                self.zadnja_napaka = str(e)
+                self.zadnja_napaka = e.koda or str(e)
+                if e.koda == link_viri.KODA:
+                    # Sredisce nas je overilo, a nima virov: uporabnik to izve (vmesnik, obvestilo), ne ugiba.
+                    link_viri.zavrnila_druga(self._ime_sredisca())
                 print("[SafeerLink] neposredna pot do %s ni uspela (%s); prek releja, neposredno znova cez %d s"
                       % (self.cilj, e, self._premor), flush=True)
             else:
@@ -1038,14 +1199,26 @@ class LokalniOdZunaj:
         finally:
             _odznaci(vrata_odjemalca)
 
+    def _ime_sredisca(self) -> str:
+        """Ime sredisca iz NASEGA kroga (nikoli iz sporocila); brez imena njegov id."""
+        try:
+            from core import link_krog
+            c = link_krog.krog().clan_za_id(self.cilj) or {}
+            return str(c.get("ime") or "") or self.cilj
+        except Exception:  # noqa: BLE001
+            return self.cilj
+
     def stanje(self) -> dict:
+        premor = self._premor_do > self.ura()
         return {"pot": self.zadnja_pot, "ms": None if self.zadnji_ms is None else round(self.zadnji_ms, 1),
-                "oglas": self._oglas is not None, "premor": self._premor_do > self.ura()}
+                "oglas": self._oglas is not None, "premor": premor,
+                # Vmesnik pove, zakaj zdaj prek releja: sredisce nas je overilo, a nima virov (link_viri.KODA).
+                "napaka": link_viri.KODA if premor and self.zadnja_napaka == link_viri.KODA else ""}
 
     def zapri(self) -> None:
         self._tece = False
-        _zapri(self.streznik)
-        _zapri(self.streznik_neposredno)
+        _ustavi_poslusanje(self.streznik)
+        _ustavi_poslusanje(self.streznik_neposredno)
         with _registri_zaklep:
             if _registri_poti.get(self.cilj) is self:
                 del _registri_poti[self.cilj]

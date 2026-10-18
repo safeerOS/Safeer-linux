@@ -75,6 +75,9 @@ def _obmocje_zaslona(okno=None):
 
 #: Ena vrsta posiljanja na proces (SafeerLink.posiljanje_datotek).
 _POSILJANJE_ZAKLEP = threading.Lock()
+#: Link, ki pokaze obvestilo, ko nas druga naprava v krogu zaradi svojih virov ne sprejme (core/link_viri.py) - en na
+#: proces (Safeer OS in Control tecejo v istem procesu; obvestilo naj bo eno).
+_OBVESCA_O_VIRIH: list = []
 
 
 def _vprasaj(stars, naslov: str, besedilo: str, gumbi, ob_odgovoru=None, preklic: int = -1, privzeto: int = -1) -> None:
@@ -283,6 +286,8 @@ MOST_JS = """
     koncajDeljenjeZaslona: function () { poslji("koncajDeljenjeZaslona"); },
     deljenjeZaslonaStanje: function () { return JSON.stringify(window.__safeerLink.deljenje || {tece: false}); },
     globalLinkStanje: function () { return JSON.stringify(window.__safeerLink.globalLink || null); },
+    // Viri racunalnika (core/link_viri.py): kdaj ta naprava ali druga v krogu clana ni sprejela zaradi virov.
+    viriStanje: function () { return JSON.stringify(window.__safeerLink.viri || null); },
     nastaviNeposredno: function (vklop) { poslji("nastaviNeposredno", [!!vklop]); },
     // »Pomagaj drugim napravam v Linku pri povezavi« (core/link_mesh.pomaga_pri_povezavi).
     pomocStanje: function () { return JSON.stringify(window.__safeerLink.pomoc || null); },
@@ -336,6 +341,7 @@ class SafeerLink:
         # Brskalnik naj Hubovo samopodpisano potrdilo sprejme za stran gledalca zaslona
         # (pem, gostitelj). Brez tega WebKit stran s Huba zavrne.
         self.dovoli_potrdilo = dovoli_potrdilo
+        self._prijavi_obvestila_virov()
         self.deljenje_zaslona: Optional[link_deljenje.DeljenjeZaslona] = None
         # Naprava, katere zaslon trenutno gledamo (share.screen start): kam gredo dotik in tipke
         # iz okna gledalca (Safeer Vnos na tablici). Prazno, ko ne gledamo nicesar.
@@ -749,6 +755,7 @@ class SafeerLink:
             "vzdevki": self._vzdevki(),
             "globalLink": self._global_link_stanje(),
             "pomoc": self._pomoc_stanje(),
+            "viri": self._viri_stanje(),
         }
         # ensure_ascii=True: imena naprav pridejo z omrezja, U+2028/U+2029 pa sta
         # v JavaScriptu ločilnika vrstic. Ubezimo vsemu, kar ni ASCII.
@@ -838,7 +845,7 @@ class SafeerLink:
         try:
             for jedro, m in link_neposredno.poti_od_zunaj(samo_zive=True).items():
                 if m.get("pot") and not any(h.startswith(jedro) for h in poti):
-                    poti[jedro] = {"pot": m.get("pot"), "ms": m.get("ms")}
+                    poti[jedro] = {"pot": m.get("pot"), "ms": m.get("ms"), "napaka": m.get("napaka") or ""}
         except Exception:  # noqa: BLE001
             pass
         seznam = []
@@ -849,8 +856,38 @@ class SafeerLink:
                 ime = str((c or {}).get("ime") or "")
             except Exception:  # noqa: BLE001
                 pass
-            seznam.append({"id": hid, "ime": ime, "pot": m["pot"], "ms": m["ms"]})
+            seznam.append({"id": hid, "ime": ime, "pot": m["pot"], "ms": m["ms"], "napaka": m.get("napaka") or ""})
         return {"vhod": st.get("vhod") or {}, "poti": seznam}
+
+    # Viri racunalnika (core/link_viri.py): clan kroga ni bil sprejet, ker je zmanjkalo deskriptorjev, pomnilnika ali
+    # niti - na tej napravi (tu) ali na drugi, ki nas ni sprejela (drugi). Stran to pove v jeziku uporabnika.
+    @staticmethod
+    def _viri_stanje() -> Optional[dict]:
+        try:
+            from core import link_viri
+            tu, drugi = link_viri.stanje(), link_viri.zavrnile_druge()
+        except Exception:  # noqa: BLE001 - stran brez tega opozorila
+            return None
+        return {"tu": tu, "drugi": drugi} if (tu or drugi) else None
+
+    def _prijavi_obvestila_virov(self) -> None:
+        """Obvestilo namizja, ko nas druga naprava v krogu zaradi svojih virov ne sprejme (enkrat na proces)."""
+        try:
+            from core import link_viri
+        except Exception:  # noqa: BLE001
+            return
+        if not _OBVESCA_O_VIRIH:
+            _OBVESCA_O_VIRIH.append(self)
+            link_viri.POSLUSALCI_DRUGIH.append(self._obvesti_zavrnitev_druge)
+
+    def _obvesti_zavrnitev_druge(self, ime: str) -> None:
+        from core import link_viri, obvestila
+        naslov, telo = link_viri.besedilo(link_viri.KODA, self._jezik(), ime=ime)
+        try:
+            obvestila.poslji(naslov, telo, "safeer-link-viri", app=self._aplikacija())
+        except Exception as e:  # noqa: BLE001 - obvestilo ne sme ustaviti Linka
+            print("[SafeerLink] obvestilo o virih:", e, flush=True)
+        self._odziv("viri", {})
 
     def _nastavi_neposredno(self, vklop: bool) -> None:
         """Uporabnik je vklopil/izklopil neposredno povezavo od zunaj; ce sredisce tece tu, velja takoj."""
@@ -2127,13 +2164,13 @@ class SafeerLink:
         krogu zaupanja tega racunalnika."""
         from core import link_krog, link_posiljanje
         zdaj = self.naprave_za_posiljanje()
-        try:
-            link_posiljanje.zabelezi_znane(self.nastavitve, zdaj)
-        except Exception as e:  # noqa: BLE001 - brez zapisa ostanejo v meniju samo dosegljive
-            print("[SafeerLink] znane naprave:", e, flush=True)
 
         def je_clan(i: str) -> bool:
             return link_krog.krog().clan_za_id(i) is not None
+        try:
+            link_posiljanje.zabelezi_znane(self.nastavitve, zdaj, je_clan=je_clan)
+        except Exception as e:  # noqa: BLE001 - brez zapisa ostanejo v meniju samo dosegljive
+            print("[SafeerLink] znane naprave:", e, flush=True)
         return link_posiljanje.za_meni(zdaj, self.nastavitve, je_clan)
 
     def _osvezi_nemo(self) -> None:

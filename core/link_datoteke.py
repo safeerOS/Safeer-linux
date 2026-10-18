@@ -44,7 +44,9 @@ UKAZI = ("delete", "rename", "move", "rotate")
 VELIKOST_KOSA = 256 * 1024
 #: Zeton za prenos velja 12 ur od zadnje rabe; nato mora naprava znova po seznam.
 ZETON_VELJA_S = 12 * 3600.0
-NAJVEC_ZETONOV = 64
+#: Na NAPRAVO najvec toliko zivih zetonov (izpade njen najdlje nerabljen). Skupne meje ni vec (lastnik, 18. 10. 2026:
+#: prej 64 skupaj - v vecjem krogu je naprava, ki je pravkar brskala, izgubila zeton zaradi drugih in dobila 401).
+NAJVEC_ZETONOV_NA_NAPRAVO = 8
 #: Zgornja meja zivljenja zetona, tudi ce ga naprava ves cas rabi.
 NAJDLJE_S = 7 * 24 * 3600.0
 
@@ -78,8 +80,9 @@ def _jedro_naprave(id_naprave: str) -> str:
 
 #: Zmoznost, ki jo mora imeti naprava za datoteke deljenih map (prenos, slicice, urejanje).
 ZMOZNOST_DATOTEKE = "d"
-#: Najvec toliko izrecno poslanih datotek hkrati (najstarejse izpadejo).
-NAJVEC_IZRECNIH = 512
+#: Izrecno poslane datoteke (uporabnik tega racunalnika jih je poslal napravi) brez stevilske meje: prej 512 - mapa z
+#: vec datotekami ali vec naprav je izrinila dovoljenja prvih. Zapis nastane samo z dejanjem uporabnika tega
+#: racunalnika in izpade po NAJDLJE_S.
 
 
 def _zeton_zivi(izdan: float, rabljen: float, zdaj: float) -> bool:
@@ -998,8 +1001,11 @@ class StreznikDatotek:
                     return z
             z = secrets.token_urlsafe(24)
             self._zetoni[z] = (id_naprave, zdaj, zdaj)
-            while len(self._zetoni) > NAJVEC_ZETONOV:
-                self._zetoni.pop(min(self._zetoni, key=lambda k: self._zetoni[k][2]), None)
+            njeni = [k for k, v in self._zetoni.items() if v[0] == id_naprave]
+            while len(njeni) > NAJVEC_ZETONOV_NA_NAPRAVO:
+                star = min(njeni, key=lambda k: self._zetoni[k][2])
+                njeni.remove(star)
+                self._zetoni.pop(star, None)
             return z
 
     def zeton_velja(self, zeton: Optional[str], zdaj: Optional[float] = None, zmoznost: Optional[str] = None,
@@ -1053,8 +1059,6 @@ class StreznikDatotek:
             for k in [k for k, rok in self._izrecno.items() if rok <= zdaj]:
                 self._izrecno.pop(k, None)
             self._izrecno[(_jedro_naprave(id_naprave), oznaka)] = zdaj + NAJDLJE_S
-            while len(self._izrecno) > NAJVEC_IZRECNIH:
-                self._izrecno.pop(min(self._izrecno, key=lambda k: self._izrecno[k]), None)
 
     def izrecno_dovoljena(self, id_naprave: str, oznaka: Optional[str], zdaj: Optional[float] = None) -> bool:
         if not id_naprave or not oznaka:
@@ -1584,32 +1588,10 @@ REZERVA_DISKA = 2 * 1024 * 1024 * 1024
 
 
 def prosti_pomnilnik() -> int:
-    """Prosti pomnilnik v bajtih ali -1, ce ga sistem ne pove (Linux: MemAvailable, Windows: GlobalMemoryStatusEx)."""
-    if os.name == "nt":
-        try:
-            import ctypes
-
-            class _Stanje(ctypes.Structure):
-                _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
-                            ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
-                            ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
-                            ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
-                            ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
-            stanje = _Stanje()
-            stanje.dwLength = ctypes.sizeof(stanje)
-            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stanje)):
-                return int(stanje.ullAvailPhys)
-        except Exception:  # noqa: BLE001 - brez podatka raje pomagamo, kot zavrnemo
-            pass
-        return -1
-    try:
-        with open("/proc/meminfo", encoding="utf-8") as d:
-            for v in d:
-                if v.startswith("MemAvailable:"):
-                    return int(v.split()[1]) * 1024
-    except (OSError, ValueError):
-        pass
-    return -1
+    """Prosti pomnilnik v bajtih ali -1, ce ga sistem ne pove (Linux: MemAvailable, Windows: GlobalMemoryStatusEx).
+    Brez podatka raje pomagamo, kot zavrnemo. Isto merjenje kot meje Safeer Linka (core/pomnilnik.na_voljo)."""
+    from core import pomnilnik
+    return pomnilnik.na_voljo()
 
 
 def prosta_zmogljivost(mapa: str, potrebno: int, procesor: bool = True) -> str:
@@ -1835,8 +1817,8 @@ def torrenti_za_naprave():
 
 
 # --- knjiznica kroga: kar je naprava povedala o filmu, ki ga je prosila ------------------------------------------------
-#: Najvec toliko naprav si zapomnimo kot narocnike enega prenosa.
-NAJVEC_NAROCNIKOV = 16
+#: Narocniki enega prenosa (naprave, ki jih obvestimo, ko je film nalozen): vse, ki so ga prosile - brez stevilske meje
+#: (prej 16), vsaka naprava enkrat.
 
 
 def opis_iz_parametrov(parametri) -> Optional[dict]:
@@ -1886,7 +1868,7 @@ def zabelezi_opis(hash_: str, opis: Optional[dict], id_naprave: str, pot_rabe: O
         narocniki = [n for n in (vnos.get("narocniki") or []) if isinstance(n, str) and n != id_naprave]
         if id_naprave:
             narocniki.append(str(id_naprave))
-        vnos["narocniki"] = narocniki[-NAJVEC_NAROCNIKOV:]
+        vnos["narocniki"] = narocniki
         opisi[hash_.lower()] = vnos
         _pisi_rabo(pot, opisi)
 

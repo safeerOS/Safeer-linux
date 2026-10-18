@@ -38,16 +38,17 @@ NAJVEC_KONCANIH = 20
 #: Napake, po katerih ima nov poskus smisel, ko je naprava spet dosegljiva (izpad omrezja, naprava spi ali je ugasnjena,
 #: sredisce zasedeno). Vse druge (napacen odtis, ni prostora, prevelika, naprava ni seznanjena ...) so koncne.
 PREHODNE = frozenset({"naprava_ni_povezana", "sredisce_naprave_ni_dosegljivo", "posiljanje_ni_uspelo",
-                      "prenos_prekinjen", "hub_ni_znan", "prevec_prenosov", "prevec_cakajocih", "ze_v_teku"})
+                      "prenos_prekinjen", "hub_ni_znan", "prevec_prenosov", "prevec_cakajocih", "ze_v_teku",
+                      "ni_virov"})     # sredisce zdaj nima virov (core/link_viri) - ko jih bo imelo, gre naprej
 #: Najdlje toliko cakamo, da se naprava vrne; potem posiljanje konca z zadnjo napako.
 CAKA_NAJVEC_S = 24 * 3600.0
 #: Razmiki med poskusi, ko naprava v seznamu je, sredisce pa je ne doseze (s, zadnji velja naprej).
 RAZMIKI_S = (5.0, 10.0, 20.0, 40.0, 60.0)
 #: Kako pogosto pogledamo, ali je naprava spet v Linku (zbudi() pride takoj ob novem seznamu naprav).
 PREVERI_S = 15.0
-#: Shranjena vrsta: najvec toliko nekoncanih posiljk, napredek najvec tako pogosto (vsaka datoteka zapise celo vrsto;
-#: ob nenadnem koncu se znova poslje najvec, kar je bilo poslano v tem casu - sredisce ima ze prejeti del).
-NAJVEC_SHRANJENIH = 50
+#: Shranjena vrsta: vse nekoncane posiljke (lastnik, 18. 10. 2026: prej najvec 50 - 51. po ponovnem zagonu ni vec
+#: cakala), napredek najvec tako pogosto (vsaka datoteka zapise celo vrsto; ob nenadnem koncu se znova poslje najvec,
+#: kar je bilo poslano v tem casu - sredisce ima ze prejeti del).
 SHRANI_NAJVEC_VSAKIH_S = 0.5
 #: Oznaka naprave v shranjeni vrsti (kot link_nemo._VARNA_OZNAKA).
 _VARNA_OZNAKA = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
@@ -164,7 +165,7 @@ class Posiljanje:
                 zacasna = pot + ".tmp"
                 fd = os.open(zacasna, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
                 with os.fdopen(fd, "w", encoding="utf-8") as d:
-                    json.dump({"v": 1, "posiljke": zapisi[:NAJVEC_SHRANJENIH]}, d, ensure_ascii=False)
+                    json.dump({"v": 1, "posiljke": zapisi}, d, ensure_ascii=False)
                 os.replace(zacasna, pot)
             except OSError as e:
                 print("[SafeerLink] vrste posiljanja ni bilo mogoce shraniti:", e, flush=True)
@@ -183,7 +184,7 @@ class Posiljanje:
         zapisi = vsebina.get("posiljke") if isinstance(vsebina, dict) else None
         obnovljene: List[Posiljka] = []
         zdaj = self._cas()
-        for z in (zapisi if isinstance(zapisi, list) else [])[:NAJVEC_SHRANJENIH]:
+        for z in (zapisi if isinstance(zapisi, list) else []):
             p = self._iz_zapisa(z, zdaj)
             if p is not None:
                 obnovljene.append(p)
@@ -415,7 +416,9 @@ class Posiljanje:
 # ---------------------------------------------------------------------- zadnja naprava prva
 #: Kljuc v nastavitvah Linka (link_hub.Nastavitve): id naprave -> unix cas zadnjega posiljanja.
 KLJUC_ZADNJE = "posiljanje_zadnje"
-NAJVEC_ZADNJIH = 32
+#: Brez stevilske meje (prej 32 - v vecjem krogu je zadnja uporabljena naprava izpadla s prvega mesta): zapis naprave,
+#: ki ji uporabnik toliko casa ni poslal nicesar, izpade (kot znane naprave, ZNANA_VELJA_S).
+ZADNJA_VELJA_S = 90 * 86400.0
 
 
 def zabelezi_zadnjo(nastavitve, naprava: str, zdaj: Optional[float] = None) -> None:
@@ -425,9 +428,9 @@ def zabelezi_zadnjo(nastavitve, naprava: str, zdaj: Optional[float] = None) -> N
         return
     zapis = nastavitve.get(KLJUC_ZADNJE) or {}
     zapis = {str(k): float(v) for k, v in zapis.items() if isinstance(v, (int, float))} if isinstance(zapis, dict) else {}
-    zapis[naprava] = float(time.time() if zdaj is None else zdaj)
-    if len(zapis) > NAJVEC_ZADNJIH:
-        zapis = dict(sorted(zapis.items(), key=lambda x: -x[1])[:NAJVEC_ZADNJIH])
+    zdaj = float(time.time() if zdaj is None else zdaj)
+    zapis[naprava] = zdaj
+    zapis = {k: v for k, v in zapis.items() if zdaj - v <= ZADNJA_VELJA_S}
     nastavitve.podatki[KLJUC_ZADNJE] = zapis
     nastavitve.shrani()
 
@@ -445,7 +448,8 @@ def zadnjic(nastavitve, naprava: str) -> float:
 #: Kljuc v nastavitvah Linka: id -> {"ime", "cas"} naprav, ki so ze sprejemale datoteke. Nemo jih ponudi tudi, ko jih
 #: v Linku zdaj ni - posiljka pocaka nanje (PREHODNE, CAKA_NAJVEC_S) in se nadaljuje, ko se vrnejo.
 KLJUC_ZNANE = "posiljanje_znane"
-NAJVEC_ZNANIH = 32
+#: Brez stevilske meje (lastnik, 18. 10. 2026; prej 32): zapisemo samo clane kroga zaupanja (`je_clan`) - zapisov je
+#: kvecjemu toliko, kolikor je naprav v krogu - in vsaka izpade po ZNANA_VELJA_S brez videnja.
 #: Naprava, ki je toliko casa ni bilo v Linku, izpade iz menija (verjetno je ni vec).
 ZNANA_VELJA_S = 90 * 86400.0
 #: Cas zadnjega videnja zapisemo najvec enkrat na dan (seznam naprav pride ob vsaki spremembi - brez tega bi vsakic
@@ -467,8 +471,11 @@ def _znane(nastavitve) -> Dict[str, dict]:
     return izid
 
 
-def zabelezi_znane(nastavitve, naprave: List[dict], zdaj: Optional[float] = None) -> bool:
-    """Naprave, ki zdaj sprejmejo datoteke, si zapomnimo (ime, kdaj videna). Vrne True, ce se je zapis spremenil."""
+def zabelezi_znane(nastavitve, naprave: List[dict], zdaj: Optional[float] = None,
+                   je_clan: Optional[Callable[[str], bool]] = None) -> bool:
+    """Naprave, ki zdaj sprejmejo datoteke, si zapomnimo (ime, kdaj videna). Vrne True, ce se je zapis spremenil.
+    `je_clan`: zapisemo samo clane kroga TEGA racunalnika (seznam naprav pise sredisce; za meni brez povezave itak
+    velja samo clan - za_meni)."""
     if nastavitve is None:
         return False
     zdaj = time.time() if zdaj is None else zdaj
@@ -478,6 +485,12 @@ def zabelezi_znane(nastavitve, naprave: List[dict], zdaj: Optional[float] = None
         i = str(n.get("id") or "") if isinstance(n, dict) else ""
         if not _VARNA_OZNAKA.match(i) or i.startswith("-"):
             continue
+        if je_clan is not None:
+            try:
+                if not je_clan(i):
+                    continue
+            except Exception:  # noqa: BLE001 - ob dvomu je ne zapisemo
+                continue
         ime = str(n.get("ime") or "")[:128]
         star = znane.get(i)
         if star is None or star["ime"] != ime or zdaj - star["cas"] >= ZNANA_OSVEZI_S:
@@ -485,9 +498,6 @@ def zabelezi_znane(nastavitve, naprave: List[dict], zdaj: Optional[float] = None
             spremenjeno = True
     for i in [i for i, z in znane.items() if zdaj - z["cas"] > ZNANA_VELJA_S]:
         del znane[i]
-        spremenjeno = True
-    if len(znane) > NAJVEC_ZNANIH:
-        znane = dict(sorted(znane.items(), key=lambda x: -x[1]["cas"])[:NAJVEC_ZNANIH])
         spremenjeno = True
     if spremenjeno:
         nastavitve.podatki[KLJUC_ZNANE] = znane

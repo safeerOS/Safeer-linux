@@ -63,7 +63,11 @@ ROK_ODPIRANJA_S = 20.0
 ROK_STANJA_S = 4.0
 #: Tok brez prometa v nobeno smer se po tem casu zapre (ponudnik ima enako mejo).
 NEDEJAVNOST_S = 300.0
-NAJVEC_TOKOV = 48
+#: Hkratnih tokov ne omejuje stevilka (lastnik, 18. 10. 2026: prej 48 - brskalnik z vec zavihki jih odpre vec in dobil
+#: je 503). Vsi tokovi si delijo PRORACUN_NAPRAVE in NAJVEC_OKVIRJEV (meja vrste sredisca), zato vec tokov ne pomeni
+#: vec prometa; nov tok se odpre, ce ima racunalnik nad rezervo deskriptor in pomnilnik za dve okni (core/link_viri),
+#: sicer razlog "busy_local" (503 programu). Telefon (ponudnik) ima lahko svojo mejo - takrat odgovori "busy".
+POMNILNIK_TOKA = 2 * OKNO_TOKA
 #: Ponudnik brez oken: ce program ne bere, se vrsta ne sme polniti v nedogled.
 NAJVEC_BREZ_OKEN = 8 * 1024 * 1024
 #: Kako pogosto se blokirano branje/pisanje zbudi in preveri, ali tok se zivi.
@@ -703,9 +707,12 @@ class InternetPrekLinka:
         je povezava vzpostavljena, sicer bi prvi bajti streznika prehiteli ta odgovor."""
         if okna is None:
             okna = self.protokol(naprava) >= 2
+        from core import link_viri
+        razlog = link_viri.preveri(1, POMNILNIK_TOKA)
+        if razlog:
+            link_viri.zabelezi(razlog, "internet")
+            return None, "busy_local"
         with self._zaklep:
-            if len(self._tokovi) >= NAJVEC_TOKOV:
-                return None, "busy_local"
             id_toka = "s" + os.urandom(10).hex()
             tok = Tok(self, id_toka, naprava, host, int(port), vticnik, okna)
             self._tokovi[id_toka] = tok

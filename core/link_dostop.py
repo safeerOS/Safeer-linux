@@ -727,8 +727,10 @@ def zabelezi(posiljatelj: str, kaj: str, zdaj: Optional[float] = None) -> None:
 # z gumboma Dovoli / Zavrni. Ime naprave je iz kroga TEGA racunalnika, nikoli iz besedila sporocila. Dovoli doda samo
 # tisto eno crko; odobri se lahko samo odprta prosnja in samo s klikom uporabnika (dejanje aplikacije, glej
 # safeer_control) - nic v prispelem sporocilu je ne more odobriti. Zavrni za 24 ur utisa isto prosnjo (zapis
-# »zavrnjeno« v dostop.json, da velja tudi po ponovnem zagonu). Ista prosnja najvec enkrat na 10 minut; odprtih
-# najvec 5 (najstarejse izpadejo).
+# »zavrnjeno« v dostop.json, da velja tudi po ponovnem zagonu). Ista prosnja najvec enkrat na 10 minut. Stevila
+# odprtih prosenj in zavrnitev ne omejuje stevilka (lastnik, 18. 10. 2026: prej 5 odprtih in 256 zavrnitev - v vecjem
+# krogu so prosnje izpadale, preden jih je uporabnik videl): prosnjo sprozi samo clan kroga, vsaka naprava najvec eno
+# na crko (d/p/v/z), zato jih je najvec stirikrat toliko, kolikor je clanov; izpadejo po ZAVRNITEV_VELJA_S.
 #
 # Napravi gre v odgovoru (ob nespremenjeni stari obliki zavrnitve) se "access_request": "pending" | "declined" | "none"
 # in "capability": crka (isti protokol kot Android).
@@ -742,9 +744,7 @@ def zabelezi(posiljatelj: str, kaj: str, zdaj: Optional[float] = None) -> None:
 
 PROSNJA_PONOVNO_S = 600.0
 ZAVRNITEV_VELJA_S = 86400.0
-NAJVEC_PROSENJ = 5
 NAJVEC_IMENA = 60
-NAJVEC_ZAVRNITEV = 256
 #: Prosnje iste naprave, ki pridejo v tem casu, gredo v eno obvestilo (ZdruzenPrikaz).
 ZDRUZI_S = 2.0
 PROSNJA_ODPRTA, PROSNJA_ZAVRNJENA, PROSNJA_NI = "pending", "declined", "none"
@@ -804,8 +804,6 @@ def _zavrnjeno_iz(surovo: object) -> Dict[str, float]:
         if razcleni_kljuc_prosnje(k) is None or isinstance(v, bool) or not isinstance(v, (int, float)) or v != v:
             continue
         izid[k] = float(v)
-        if len(izid) >= NAJVEC_ZAVRNITEV:
-            break
     return izid
 
 
@@ -913,13 +911,7 @@ def prosnja_ob_zavrnitvi(device_id: str, zahteva: str, zascita: Optional[str] = 
         _prosnje.pop(kljuc, None)
         _prosnje[kljuc] = prosnja
         _zadnji_poziv[kljuc] = zdaj
-        izpadle = set()
-        while len(_prosnje) > NAJVEC_PROSENJ:
-            izpadle.add(_prosnje.popitem(last=False)[1]["jedro"])
-        izpadle.discard(j)
         skupina = _skupina(j)
-    for drugo in sorted(izpadle):       # obvestilo naprave, ki ji je prosnja izpadla: manj crk ali umik
-        _osvezi_prikaz(drugo)
     try:
         pokazi(skupina)
     except Exception as e:  # noqa: BLE001 - obvestila ni bilo: napravi povemo, da prosnje ni
@@ -1074,8 +1066,6 @@ def zavrni_prosnjo(jedro_naprave: str, zmoznosti: str, zdaj: Optional[float] = N
         z = {k: t for k, t in _zavrnjeno_iz(ostalo.get("zavrnjeno")).items() if abs(zdaj - t) < ZAVRNITEV_VELJA_S}
         for k in kljuci:
             z[k] = zdaj
-        if len(z) > NAJVEC_ZAVRNITEV:
-            z = dict(sorted(z.items(), key=lambda x: x[1])[-NAJVEC_ZAVRNITEV:])
         ostalo["zavrnjeno"] = z
     with _zaklep:
         for k in kljuci:

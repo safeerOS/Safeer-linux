@@ -695,19 +695,23 @@ class LokalniRele:
         self.zadnja_napaka = ""       # za dnevnik: zakaj zadnji kanal ni uspel (npr. 404, 429)
         self.streznik = None
         self.vrata = 0
+        self._tece = True
         if poslusaj:
             self.streznik = socket.create_server(("127.0.0.1", 0))
             self.vrata = self.streznik.getsockname()[1]
             threading.Thread(target=self._sprejemaj, name="safeer-rele-lokalno", daemon=True).start()
 
     def _sprejemaj(self) -> None:
-        while True:
+        while self._tece:
             try:
                 tcp, naslov = self.streznik.accept()
             except OSError as e:
-                if os_deskriptorji.prehodna_napaka_accept(e):
+                if self._tece and os_deskriptorji.prehodna_napaka_accept(e):
                     time.sleep(os_deskriptorji.PREMOR_PO_NAPAKI_ACCEPT_S)
                     continue
+                return
+            if not self._tece:
+                tcp.close()             # zaprt: povezava, ki je prisla tik pred tem, ne dobi kanala releja
                 return
             if not self._nas_proces(naslov):
                 # Drug uporabnik tega racunalnika ne sme uporabljati kanala, podpisanega z nasim kljucem.
@@ -756,8 +760,16 @@ class LokalniRele:
         cev(ws, tcp)
 
     def zapri(self) -> None:
+        """Samo close() na Linuxu ne zbudi niti v accept(): vrata bi poslusala naprej in naslednja krajevna povezava
+        bi dobila kanal releja, podpisan z nasim kljucem (preverjeno 18. 10. 2026, kot link_neposredno). shutdown()
+        accept() takoj prekine."""
+        self._tece = False
         if self.streznik is None:
             return
+        try:
+            self.streznik.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
         try:
             self.streznik.close()
         except Exception:

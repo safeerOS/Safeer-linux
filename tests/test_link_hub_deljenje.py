@@ -95,12 +95,27 @@ class Zaloga(unittest.TestCase):
         koda, odgovor = self.z.preveri("a.txt", "tv1", 5)
         self.assertEqual((koda, odgovor["koda"], odgovor["error_code"]), (507, "ni_prostora", "ni_prostora"))
 
-    def test_omejeno_stevilo_hkratnih_prenosov(self):
-        for _ in range(link_hub_deljenje.NAJVEC_PRENOSOV):
+    def test_prenosov_ne_omejuje_stevilka_ampak_viri(self):
+        """Lastnik, 18. 10. 2026: prej najvec 3 hkratni prenosi (»prevec_prenosov«); zdaj odlocajo viri."""
+        from unittest import mock
+        from core import link_viri
+        link_viri.ponastavi()
+        for _ in range(20):
             self.assertTrue(self.z.zacni_prevzem())
-        self.assertFalse(self.z.zacni_prevzem())
-        koda, odgovor, d = self._sprejmi()
-        self.assertEqual((koda, odgovor["koda"], d), (503, "prevec_prenosov", None))
+        self.assertEqual(self._sprejmi()[0], 200)
+        with mock.patch.object(link_viri, "preveri", lambda *a, **k: link_viri.POMNILNIK), \
+                mock.patch.object(link_viri, "POSLUSALCI", []):
+            self.assertFalse(self.z.zacni_prevzem())
+            koda, odgovor, d = self._sprejmi()
+        self.assertEqual((koda, odgovor["koda"], d), (503, link_viri.KODA, None))
+        self.assertEqual(link_viri.stanje()["kje"], "prenos")
+        link_viri.ponastavi()
+
+    def test_cakajocih_datotek_ne_omejuje_stevilka(self):
+        """Prej najvec 64 datotek je cakalo na prevzem; disk varuje preverjanje prostora (ni_prostora)."""
+        for _ in range(80):
+            self.assertEqual(self._sprejmi()[0], 200)
+        self.assertEqual(self.z.stevilo(), 80)
 
     def test_neprevzeta_datoteka_po_eni_uri_izgine(self):
         d = self._sprejmi()[2]

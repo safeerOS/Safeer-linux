@@ -82,9 +82,28 @@ DOGOVOR_CAKA_S = 8.0              # po tem casu brez odgovora se ob naslednjem s
 DOGOVOR_VELJA_S = 60.0            # po tem casu cakajocega dogovora ni vec (pozen odgovor ne ustvari seje)
 V_VRSTI_VELJA_S = DOGOVOR_CAKA_S  # sporocilo, ki je na dogovor cakalo dlje, ne gre vec: klicatelj je ze javil napako
 NAJVEC_V_VRSTI = 64               # sporocil, ki cakajo na dogovor z eno napravo
-NAJVEC_DOGOVOROV = 64             # cakajocih dogovorov hkrati (po eden na napravo)
+# Cakajocih dogovorov hkrati: meja velja za dogovore BREZ sporocila (dokaz kljuca ob seznamu naprav, ki ga pise
+# sredisce). Dogovor, na katerega caka sporocilo tega racunalnika, drugega takega ne izrine - stevilske meje zanje ni
+# (lastnik, 18. 10. 2026: ukaz tisoc napravam podjetja hkrati); izrine samo ob pomanjkanju pomnilnika (core/link_viri).
+NAJVEC_DOGOVOROV = 64
 SEJA_VELJA_S = 12 * 3600.0
+# Skupna meja sej velja za NEPOTRJENE seje (nastanejo iz prejetih ponudb, ki jih sredisce lahko ponavlja). Potrjenih
+# (druga stran je dokazala kljuc iz kroga) ne omejuje stevilka - v krogu s tisoc napravami bi se sicer seje izrinjale
+# in vsak ukaz bi zahteval nov dogovor; izpade najstarejsa le ob pomanjkanju pomnilnika (core/link_viri). Meja na
+# napravo (NAJVEC_SEJ_NA_NAPRAVO) ostane: naprava izrine samo svoje seje.
 NAJVEC_SEJ = 256
+#: Pomnilnik nad rezervo (link_viri), ki ga mora imeti racunalnik, da ohrani se eno potrjeno sejo ali dogovor.
+POMNILNIK_SEJE = 64 * 1024
+
+
+def _dovolj_pomnilnika() -> bool:
+    """Ali ima racunalnik nad rezervo (core/link_viri) se pomnilnik za eno sejo ali dogovor; brez podatka da."""
+    try:
+        from core import link_viri
+        prostega = link_viri.prostega_pomnilnika()
+    except Exception:  # noqa: BLE001 - brez meritve ne izrinjamo
+        return True
+    return prostega is None or prostega >= POMNILNIK_SEJE
 NAJVEC_SEJ_NA_NAPRAVO = 16        # sej z ENO napravo (jedrom, vsi njeni programi): naprava izrine le svoje seje
 HRANI_ZADNJIH = 16                # zadnja poslana sporocila: po "ni_seje" jih javimo klicatelju kot zavrnjena
 NEPOTRJENA_VELJAJO_S = 5.0        # starejsih ne javljamo: klicatelj je zanje ze dobil odgovor ali iztek casa
@@ -680,6 +699,8 @@ class Upravitelj:
                 continue
             if sporocilo is None:
                 return False
+            if _dovolj_pomnilnika():
+                break               # vsi nosijo sporocila tega racunalnika in pomnilnika je dovolj: brez izrinjanja
             self._opusti_dogovor(self._dogovori.pop(min(self._dogovori, key=lambda t: self._dogovori[t].zacet)), izrinjena)
         self._sme_podpisati(jedro, zdaj)        # podpis stejemo tik pred njim (zgoraj smo samo pogledali)
         try:
@@ -1048,6 +1069,8 @@ class Upravitelj:
                 self._odstrani(njene.pop(0))
         while len(self._seje) >= NAJVEC_SEJ:
             nepotrjene = [s for s in self._seje.values() if not s.potrjena]
+            if not nepotrjene and _dovolj_pomnilnika():
+                break               # same potrjene seje in dovolj pomnilnika: brez stevilske meje
             self._odstrani(min(nepotrjene or list(self._seje.values()), key=lambda s: s.nastala))
 
     def _naredi_prostor_za_dele(self, seja: Seja, n: int, zdaj: float) -> None:
