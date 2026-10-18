@@ -36,6 +36,8 @@ ZMOZNOSTI: Dict[str, Tuple[str, str]] = {
     "internet.gateway": ("deli svojo internetno povezavo", "shares its internet connection"),
     "e2e1": ("ukaze in odgovore sprejema in pošilja zaščitene od naprave do naprave",
              "commands and their answers are protected device to device"),
+    "devdelta1": ("seznam naprav sprejema kot spremembe (manj prometa v velikem krogu)",
+                  "receives the device list as changes (less traffic in a large circle)"),
 }
 
 

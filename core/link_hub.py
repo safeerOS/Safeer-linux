@@ -29,7 +29,7 @@ import urllib.request
 from typing import Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
-from core import link_krog, link_tls, link_vticnik, spake2
+from core import link_krog, link_spremembe, link_tls, link_vticnik, spake2
 
 # Kaj ta racunalnik pove srediscu: Windows in Linux imata isto kodo, platforma pa mora biti prava
 # (Windows se je predstavljal kot "linux").
@@ -1185,6 +1185,8 @@ class Povezava:
         self._budilka = threading.Event()
         # Zahteva za takojsen nov poskus (prebudi): locena od budilke, ker cakata dve niti.
         self._prebuditev = threading.Event()
+        # Seznam naprav iz posnetka in sprememb (core/link_spremembe.py); nov ob vsaki povezavi - prvo je vedno posnetek.
+        self._seznam = link_spremembe.Prejemnik()
 
     def _odpri(self) -> bool:
         """Ena vzpostavitev: vstopnica, rokovanje, prijava. Brez cakanja."""
@@ -1274,6 +1276,8 @@ class Povezava:
                 zmoznosti.append(z)
         if self._upravitelj_zascite() is not None:
             zmoznosti.append("e2e1")        # link_e2e.ZMOZNOST; zapisano z besedo, da ga preizkus registra zmoznosti vidi
+        # Seznam naprav: po posnetku samo spremembe (link_spremembe.ZMOZNOST, zapisano z besedo kot zgoraj).
+        zmoznosti.append("devdelta1")
         prijava["payload"]["capabilities"] = zmoznosti
         try:
             odjemalec.poslji(json.dumps(prijava))
@@ -1287,6 +1291,7 @@ class Povezava:
         except Exception:
             pass
 
+        self._seznam = link_spremembe.Prejemnik()
         self.odjemalec = odjemalec
         self.tece = True
         return True
@@ -1465,6 +1470,14 @@ class Povezava:
                     continue
                 if not isinstance(sporocilo, dict) or _predolga_oznaka(sporocilo):
                     continue        # sporocilo Linka je slovar s kratko oznako; drugo ne gre ne zasciti ne programu
+                if sporocilo.get("type") in (link_spremembe.POSNETEK, link_spremembe.SPREMEMBE):
+                    # Seznam naprav: posnetek ali spremembe. Program dobi vedno cel `cast.devices`; ob vrzeli ali dvomu
+                    # zahtevamo posnetek, do takrat ostane zadnji pravi seznam.
+                    sporocilo, zahtevaj = self._seznam.sprejmi(sporocilo)
+                    if zahtevaj:
+                        self._poslji_surovo({"id": str(int(time.time() * 1000)), "type": link_spremembe.ZAHTEVA})
+                    if sporocilo is None:
+                        continue
                 zascita = self._zascita
                 if zascita is not None:
                     # Kar predolgo caka na dogovor, klicatelj izve ob vsakem prejetem sporocilu - ne sele, ko spet kaj

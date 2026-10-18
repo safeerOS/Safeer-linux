@@ -39,7 +39,9 @@ import time
 from typing import Callable, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
 
-from core import link_dostop, link_hub_deljenje, link_krog, link_obramba, link_tls, link_varovalka, link_viri, link_ws, os_deskriptorji
+from collections import OrderedDict
+
+from core import link_dostop, link_hub_deljenje, link_krog, link_obramba, link_spremembe, link_tls, link_varovalka, link_viri, link_ws, os_deskriptorji
 
 #: Vrata Huba. Najprej privzeta (naprave jih poznajo tudi brez mDNS), sicer katerakoli prosta.
 PRIVZETA_VRATA = 8990
@@ -352,12 +354,20 @@ class Hub:
     """
 
     def __init__(self, odtis: str = "", nas_id: str = "", ura: Callable[[], float] = _zdaj,
-                 pot_zetonov: str = "", pot_varovalke: str = "") -> None:
+                 pot_zetonov: str = "", pot_varovalke: str = "", okno_s: float = 0.0) -> None:
         self.odtis = (odtis or "").lower()
         self.nas_id = nas_id
         self.ura = ura
         self._zaklep = threading.RLock()
         self._naprave: Dict[str, Naprava] = {}
+        #: Seznam naprav (core/link_spremembe.py): kar je bilo objavljeno vsaki skupini prejemnikov (odjemalci po naslovu
+        #: na poti do njih, sosedje po istem), objave ena za drugo (spremembe morajo priti v vrstnem redu verzij) in
+        #: zdruzevanje sprememb v oknu `okno_s` (HubStreznik: link_spremembe.OKNO_S; 0 = takoj, za preizkuse).
+        self._pogledi: Dict[tuple, link_spremembe.Pogled] = {}
+        self._zaklep_objave = threading.Lock()
+        self._dusilec = link_spremembe.Dusilec(self._objavi_zdaj, okno_s)
+        #: Bajti seznamov naprav, ki jih je to sredisce poslalo (odjemalcem in sosedom) - za meritve.
+        self.poslano_seznamov = 0
         #: Safeer Chat za nepovezane naprave: cilj -> [(cas, surovo sporocilo)]
         self._klepet_cakajoci: Dict[str, list] = {}
         self._klepet_zaklep = threading.Lock()
@@ -390,7 +400,6 @@ class Hub:
         self._sosed_naprave: Dict[str, set] = {}
         #: Zadnji relay zemljevid vsakega soseda (naprave njegovih sosedov): id -> zapis.
         self._zadnji_relay: Dict[str, dict] = {}
-        self._zadnji_mesh = ""
         #: Klice se, ko sosed pride ali odide (id, naslov ali ""): MeshPovezovalec si zapomni naslov
         #: in ob izgubi takoj poskusi znova.
         self.ob_sosedu: Optional[Callable[[str, str], None]] = None
@@ -1106,13 +1115,12 @@ class Hub:
         except Exception:
             return None
 
-    def seznam_json(self, za: Optional[object] = None) -> str:
-        """Seznam naprav za enega odjemalca (`za` = njegova povezava; brez nje surov seznam).
+    def _seznam(self, nas: Optional[str]) -> List[dict]:
+        """Seznam naprav za odjemalce, za katere je `nas` nas naslov na poti do njih (None: odjemalec s TEGA racunalnika).
 
         Program, ki je s Hubom povezan z ISTEGA racunalnika, ima pri nas 127.0.0.1 in dobi polje `here`. Odjemalcu z
         istega racunalnika naslov ostane (po njem prepozna programe svoje naprave). Odjemalec od DRUGOD bi se z njim
         povezal sam nase, zato dobi nas naslov na poti do njega - krajevni konec njegove povezave."""
-        nas = _nas_naslov_za_odjemalca(za)
         naprave = []
         for n in self.povezane():
             zapis = n.json()
@@ -1129,19 +1137,67 @@ class Hub:
                     zapis["own_name"] = n.ime
                     zapis["name"] = ime
             naprave.append(zapis)
+        return naprave
+
+    def seznam_json(self, za: Optional[object] = None) -> str:
+        """Cel seznam naprav za enega odjemalca (`za` = njegova povezava; brez nje surov seznam), v vrstnem redu, kot ga
+        imajo odjemalci: kar je ze objavljeno, na svojem mestu, nove naprave na koncu (link_spremembe.razlika)."""
+        nas = _nas_naslov_za_odjemalca(za)
+        naprave = self._seznam(nas)
+        pogled = self._pogledi.get(("c", nas))
+        if pogled is not None:
+            mesto = {i: k for k, i in enumerate(pogled.deli["devices"])}
+            naprave.sort(key=lambda z: mesto.get(z["id"], len(mesto)))
         return json.dumps({"type": "cast.devices", "devices": naprave}, ensure_ascii=False)
 
     def objavi_naprave(self) -> None:
-        # Odjemalci z istega racunalnika dobijo isti (surov) seznam; odjemalci od drugod svojega - gl. seznam_json.
-        seznami: Dict[Optional[str], str] = {}
-        for n in self.povezane():
-            p = n.povezava
-            if p is not None and not n.sosed:
-                kljuc = _nas_naslov_za_odjemalca(p)
-                if kljuc not in seznami:
-                    seznami[kljuc] = self.seznam_json(p)
-                p.poslji(seznami[kljuc])
-        self._objavi_sosedom()
+        """Seznam naprav se je (morda) spremenil: objava odjemalcem in sosedom - takoj ali ob koncu okna zdruzevanja."""
+        self._dusilec.sprozi()
+
+    def ustavi_objave(self) -> None:
+        """Sredisce se ustavlja: cakajoca objava ne gre vec nikamor."""
+        self._dusilec.ustavi()
+
+    def _objavi_zdaj(self) -> None:
+        """Ena objava (core/link_spremembe.py): vsaka skupina prejemnikov dobi svoj seznam, kdor zna, samo spremembe.
+
+        Skupine so iste kot pri celem seznamu (odjemalci z istega racunalnika surov seznam, odjemalci od drugod svojega,
+        sosedje po nasem naslovu na poti do njih), zato sprememba nikoli ne nosi naprave, ki je cel seznam ne bi."""
+        with self._zaklep_objave:
+            pogledi: Dict[tuple, link_spremembe.Pogled] = {}
+            poslano = 0
+            skupine: Dict[tuple, list] = {}
+            for n in self.povezane():
+                p = n.povezava
+                if p is not None and not n.sosed:
+                    skupine.setdefault(("c", _nas_naslov_za_odjemalca(p)), []).append(p)
+            for kljuc, povezave in skupine.items():
+                pogled = self._pogledi.get(kljuc) or link_spremembe.Pogled({"devices": True})
+                pogledi[kljuc] = pogled
+                pogled.posodobi({"devices": OrderedDict((z["id"], z) for z in self._seznam(kljuc[1]))})
+                poslano += link_spremembe.razposlji(
+                    pogled, povezave,
+                    lambda pg=pogled: json.dumps({"type": link_spremembe.POSNETEK, "devices": pg.posnetek(),
+                                                  "epoch": pg.epoha, "ver": pg.ver}, ensure_ascii=False),
+                    lambda pg=pogled: json.dumps(dict({"type": link_spremembe.SPREMEMBE, "epoch": pg.epoha,
+                                                       "base": pg.ver - 1, "ver": pg.ver}, **pg.zadnja), ensure_ascii=False))
+            with self._zaklep:
+                sosedje = list(self._sosedje.values())
+            if sosedje:
+                posredne = self._posredne_json()
+                skupine = {}
+                for p in sosedje:
+                    skupine.setdefault(("m", _nas_naslov_proti(p)), []).append(p)
+                for kljuc, povezave in skupine.items():
+                    pogled = self._pogledi.get(kljuc) or link_spremembe.Pogled({"devices": False, "relay": False})
+                    pogledi[kljuc] = pogled
+                    pogled.posodobi({"devices": self._lokalne_json(kljuc[1]), "relay": posredne})
+                    poslano += link_spremembe.razposlji(pogled, povezave,
+                                                         lambda pg=pogled: self._mesh_posnetek(pg),
+                                                         lambda pg=pogled: self._mesh_spremembe(pg))
+            # Skupina brez prejemnikov ne hrani nicesar: kdor pride pozneje, dobi posnetek z novo oznako.
+            self._pogledi = pogledi
+            self.poslano_seznamov += poslano
         if self.ob_spremembi is not None:
             try:
                 self.ob_spremembi()
@@ -1526,27 +1582,27 @@ class Hub:
             naprave[n.id] = zapis
         return naprave
 
-    def _mesh_naprave(self, za: Optional[object] = None) -> str:
-        """Seznam za enega soseda (`za` = povezava do njega): vsak sosed dobi nas naslov, kot velja na poti do njega."""
-        return json.dumps({"type": "mesh.devices", "id": link_ws.nakljucni(8),
-                           "payload": {"hub": self.nas_id, "devices": self._lokalne_json(_nas_naslov_proti(za)),
-                                       "relay": self._posredne_json()}},
-                          ensure_ascii=False, sort_keys=True)
+    def _mesh_posnetek(self, pogled: "link_spremembe.Pogled") -> str:
+        """Posnetek za sosede: isti `mesh.devices` kot doslej, z verzijo in zmoznostjo (`caps`) - starejsi sosed ju prezre,
+        novejsi po `caps` ve, da nam sme posiljati samo spremembe."""
+        return json.dumps({"type": link_spremembe.MESH_POSNETEK, "id": link_ws.nakljucni(8),
+                           "payload": {"hub": self.nas_id, "devices": pogled.slovar("devices"),
+                                       "relay": pogled.slovar("relay"), "epoch": pogled.epoha, "ver": pogled.ver,
+                                       "caps": [link_spremembe.ZMOZNOST]}}, ensure_ascii=False)
+
+    def _mesh_spremembe(self, pogled: "link_spremembe.Pogled") -> str:
+        tovor = {"hub": self.nas_id, "epoch": pogled.epoha, "base": pogled.ver - 1, "ver": pogled.ver}
+        tovor.update(pogled.zadnja or {})
+        return json.dumps({"type": link_spremembe.MESH_SPREMEMBE, "id": link_ws.nakljucni(8), "payload": tovor},
+                          ensure_ascii=False)
 
     def _objavi_sosedom(self, samo: Optional[object] = None) -> None:
-        seznam = {"d": self._lokalne_json(), "r": self._posredne_json()}
-        kljuc = json.dumps(seznam, sort_keys=True)
-        with self._zaklep:
-            if samo is None and kljuc == self._zadnji_mesh:
-                return
-            if samo is None:
-                self._zadnji_mesh = kljuc
-            prejemniki = [samo] if samo is not None else list(self._sosedje.values())
-        for p in prejemniki:
-            try:
-                p.poslji(self._mesh_naprave(p))
-            except Exception:
-                pass
+        """Sosedom nase naprave: vsem ob spremembi, novemu (`samo`) vedno posnetek."""
+        if samo is not None:
+            podatki = getattr(samo, "podatki", None)
+            if isinstance(podatki, dict):
+                podatki[link_spremembe.POSLANO] = None
+        self._dusilec.sprozi()
 
     def dodaj_soseda(self, sosed_id: str, povezava, zacel: str) -> bool:
         """Sosednja povezava je vzpostavljena (`zacel` = id Huba, ki jo je odprl).
@@ -1630,6 +1686,11 @@ class Hub:
             return self._potrditev(id_sporocila, "cast", "rejected",
                                    link_viri.besedilo(link_viri.KODA, ime=self._ime_tega() or "Safeer Link")[1],
                                    link_viri.KODA)
+        try:
+            # Sosed, ki zna spremembe seznama, to pove ze v prijavi (link_spremembe.ZMOZNOST); prvi seznam je vseeno posnetek.
+            povezava.podatki[link_spremembe.ZNA] = link_spremembe.ZMOZNOST in (tovor.get("capabilities") or [])
+        except Exception:
+            pass
         if not self.dodaj_soseda(sosed_id, povezava, sosed_id):
             return self._potrditev(id_sporocila, "cast", "rejected", "Sosednja povezava ze obstaja.", "podvojen_sosed")
         return self._potrditev(id_sporocila, "cast", "accepted")
@@ -1824,12 +1885,62 @@ class Hub:
                 del self._naprave[i]
         self.objavi_naprave()
 
+    @staticmethod
+    def _zrcalo_soseda(povezava) -> Optional["link_spremembe.Zrcalo"]:
+        """Kopija seznama, ki nam ga posilja sosed po tej povezavi (posnetek + spremembe). None brez `podatki`."""
+        podatki = getattr(povezava, "podatki", None)
+        if not isinstance(podatki, dict):
+            return None
+        zrcalo = podatki.get(link_spremembe.PREJETO)
+        if zrcalo is None:
+            zrcalo = podatki[link_spremembe.PREJETO] = link_spremembe.Zrcalo({"devices": False, "relay": False})
+        return zrcalo
+
+    def _zahtevaj_posnetek(self, povezava) -> bool:
+        """Ali naj posnetek zahtevamo zdaj (najvec vsakih link_spremembe.ZAHTEVA_NAJPREJ_S, dokler ga ni)."""
+        podatki = getattr(povezava, "podatki", None)
+        if not isinstance(podatki, dict):
+            return False
+        zdaj = time.monotonic()
+        prej = podatki.get("seznam_zahtevano")
+        if isinstance(prej, float) and zdaj - prej < link_spremembe.ZAHTEVA_NAJPREJ_S:
+            return False
+        podatki["seznam_zahtevano"] = zdaj
+        return True
+
     def obdelaj_soseda(self, sosed_id: str, povezava, sporocilo: dict) -> Optional[str]:
         """Sporocilo sosednjega Huba. Sosed nikoli ne posreduje naprej - samo nasim lokalnim napravam."""
         tip = str(sporocilo.get("type") or "")
         tovor = sporocilo.get("payload") if isinstance(sporocilo.get("payload"), dict) else {}
-        if tip == "mesh.devices":
+        if tip == link_spremembe.MESH_POSNETEK:
+            zrcalo = self._zrcalo_soseda(povezava)
+            if zrcalo is not None:
+                zrcalo.posnetek({"devices": tovor.get("devices"), "relay": tovor.get("relay")},
+                                tovor.get("epoch"), tovor.get("ver"))
+                caps = tovor.get("caps")
+                if isinstance(caps, list) and link_spremembe.ZMOZNOST in caps:
+                    povezava.podatki[link_spremembe.ZNA] = True
             self._sosedove_naprave(sosed_id, povezava, tovor.get("devices"), tovor.get("relay") or {})
+            return None
+        if tip == link_spremembe.MESH_SPREMEMBE:
+            zrcalo = self._zrcalo_soseda(povezava)
+            if zrcalo is None:
+                return None
+            izid = zrcalo.uporabi(tovor)
+            if izid != "ok":
+                # Vrzel ali dvom: seznam soseda velja sele s posnetkom. Do takrat ostane zadnji pravi.
+                if self._zahtevaj_posnetek(povezava):
+                    try:
+                        povezava.poslji(json.dumps({"type": link_spremembe.MESH_ZAHTEVA, "id": link_ws.nakljucni(8),
+                                                    "payload": {"hub": self.nas_id}}, ensure_ascii=False))
+                    except Exception:
+                        pass
+                return None
+            self._sosedove_naprave(sosed_id, povezava, zrcalo.slovar("devices"), zrcalo.slovar("relay"))
+            return None
+        if tip == link_spremembe.MESH_ZAHTEVA:
+            # Sosed je izgubil nit: naslednja objava mu da posnetek.
+            self._objavi_sosedom(samo=povezava)
             return None
         if tip == "mesh.route":
             cilj = str(tovor.get("to") or "")
@@ -1932,6 +2043,12 @@ class Hub:
                 return self._sprejmi_soseda(povezava, tovor, id_sporocila)
             status, koda = self.registriraj(povezava, tovor, getattr(povezava, "podatki", {}).get("id", ""))
             if status == "accepted":
+                podatki = getattr(povezava, "podatki", None)
+                if isinstance(podatki, dict):
+                    # Odjemalec, ki zna (core/link_spremembe.py), dobi po posnetku samo spremembe; ponovna prijava po
+                    # isti povezavi zacne s posnetkom.
+                    podatki[link_spremembe.ZNA] = link_spremembe.ZMOZNOST in (tovor.get("capabilities") or [])
+                    podatki[link_spremembe.POSLANO] = None
                 self.objavi_naprave()
                 p = povezava
                 try:
@@ -1957,6 +2074,14 @@ class Hub:
         if moj_id is None:
             # Vticnica brez prijave (npr. po zamenjavi povezave): odjemalec to prepozna in se vrne.
             return self._potrditev(id_sporocila, prostor, "rejected", "Naprava ni povezana.", "naprava_ni_povezana")
+
+        if tip == link_spremembe.ZAHTEVA:
+            # Odjemalec je izgubil nit seznama (vrzel ali dvom): naslednja objava mu da posnetek. Ne gre nikomur naprej.
+            podatki = getattr(povezava, "podatki", None)
+            if isinstance(podatki, dict):
+                podatki[link_spremembe.POSLANO] = None
+            self.objavi_naprave()
+            return None
 
         # Safeer Chat uporablja isto ze avtenticirano/podpisano sejo Linka. Meja je
         # bistveno nizja od splosne WebSocket meje, da klepet ne more izriniti nadzora.
@@ -3335,7 +3460,8 @@ class HubStreznik:
             import os
             self.hub = Hub(odtis=self.odtis, nas_id=nas_id,
                            pot_zetonov=os.path.join(link_krog._mapa_nastavitev(), "hub-zetoni.json"),
-                           pot_varovalke=os.path.join(link_krog._mapa_nastavitev(), "hub-varovalka.json"))
+                           pot_varovalke=os.path.join(link_krog._mapa_nastavitev(), "hub-varovalka.json"),
+                           okno_s=link_spremembe.OKNO_S)
             self.hub.ob_kodi = _obvestilo_kode
             self.hub.ob_zapori_kode = self._ob_zapori_kode
             streznik = None
@@ -3411,6 +3537,7 @@ class HubStreznik:
         if streznik is not None:
             try:
                 if self.hub is not None:
+                    self.hub.ustavi_objave()           # cakajoca objava seznama ne gre vec v zapirajoce se povezave
                     self.hub.zasloni.koncaj_vse()      # cilji se pred zaprtjem povezav izvejo, da je deljenja konec
             except Exception:
                 pass

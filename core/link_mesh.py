@@ -23,7 +23,7 @@ import threading
 import time
 from typing import Callable, Dict, List, Optional
 
-from core import link_hub, link_krog, link_pot, link_tls, link_vticnik
+from core import link_hub, link_krog, link_pot, link_spremembe, link_tls, link_vticnik
 
 #: Kako pogosto iscemo sosede in kdaj vecji id klice sam.
 ISCI_VSAKIH_S = 15.0
@@ -578,7 +578,7 @@ class MeshPovezovalec:
         # dobi karkoli drugega.
         ws.poslji(json.dumps({"id": str(int(time.time() * 1000)), "type": "cast.register",
                               "payload": {"device_id": self.nas_id, "name": self.ime, "role": "hub",
-                                          "capabilities": [link_hub_streznik_mesh()], "protocol": "1"}}))
+                                          "capabilities": [link_hub_streznik_mesh(), link_spremembe.ZMOZNOST], "protocol": "1"}}))
         povezava = OdhodnaSosednja(ws, naslov)
         if not self.hub.dodaj_soseda(hid, povezava, self.nas_id):
             povezava.zapri()

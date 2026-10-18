@@ -280,15 +280,21 @@ class Mesh(unittest.TestCase):
         self.assertEqual(tel2.zadnje("chat.send")["sender"], "tv")
 
     def test_seznam_sosedu_samo_ob_spremembi(self):
+        seznami = lambda: [s for s in ab.poslano if s["type"] in ("mesh.devices", "mesh.devices.delta")]  # noqa: E731
         prijava(self.a, "tv")
         ab, _ = povezi(self.a, self.b)
-        pred = len([s for s in ab.poslano if s["type"] == "mesh.devices"])
+        pred = len(seznami())
         self.a.objavi_naprave()
         self.a.objavi_naprave()
-        po = len([s for s in ab.poslano if s["type"] == "mesh.devices"])
+        po = len(seznami())
         self.assertEqual(pred, po)
         prijava(self.a, "tablica")
-        self.assertEqual(len([s for s in ab.poslano if s["type"] == "mesh.devices"]), po + 1)
+        self.assertEqual(len(seznami()), po + 1)
+        # Sosed, ki zna (caps v posnetku), dobi samo spremembo: novo napravo, ne celega seznama.
+        zadnji = seznami()[-1]
+        self.assertEqual(zadnji["type"], "mesh.devices.delta")
+        self.assertEqual([z["id"] for z in zadnji["payload"]["devices"]["add"]], ["tablica"])
+        self.assertNotIn("chg", zadnji["payload"]["devices"])
 
     def test_brez_posiljatelja_samo_seznanitev(self):
         tv = prijava(self.a, "tv")

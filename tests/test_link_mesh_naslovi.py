@@ -87,7 +87,16 @@ class Cev:
         pass
 
     def zadnji_seznam(self):
-        return [s for s in self.poslano if s.get("type") == "mesh.devices"][-1]["payload"]
+        """Seznam, kot ga ima sosed: zadnji posnetek in spremembe za njim (core/link_spremembe.py)."""
+        from core import link_spremembe
+        zrcalo = link_spremembe.Zrcalo({"devices": False, "relay": False})
+        for s in self.poslano:
+            if s.get("type") == "mesh.devices":
+                t = s["payload"]
+                zrcalo.posnetek({"devices": t.get("devices"), "relay": t.get("relay")}, t.get("epoch"), t.get("ver"))
+            elif s.get("type") == "mesh.devices.delta":
+                assert zrcalo.uporabi(s["payload"]) == "ok", s
+        return {"devices": zrcalo.slovar("devices"), "relay": zrcalo.slovar("relay")}
 
 
 def povezi(a, b, a_vidi_b, b_vidi_a, vticnici=None):
@@ -231,10 +240,10 @@ class NaslovCezMejo(unittest.TestCase):
     def test_seznam_sosedu_se_vedno_samo_ob_spremembi(self):
         prijava(self.pc, "control")
         k_tv, _ = povezi(self.pc, self.tv, a_vidi_b=TV, b_vidi_a=PC, vticnici=(Vticnica(PC, TV), None))
-        prej = len([s for s in k_tv.poslano if s.get("type") == "mesh.devices"])
+        prej = len([s for s in k_tv.poslano if s.get("type") in ("mesh.devices", "mesh.devices.delta")])
         self.pc.objavi_naprave()
         self.pc.objavi_naprave()
-        self.assertEqual(len([s for s in k_tv.poslano if s.get("type") == "mesh.devices"]), prej)
+        self.assertEqual(len([s for s in k_tv.poslano if s.get("type") in ("mesh.devices", "mesh.devices.delta")]), prej)
 
     # ---------------------------------------------------------------- dva skoka
 
