@@ -24,14 +24,7 @@ import gi
 
 
 def _nalozi_gtk():
-    """Gtk in WebKit tiste razlicice, ki jo je program ze izbral. Safeer Browser (safeer_mint.py) ostane na GTK3 +
-    WebKit2GTK 4.1, Safeer OS in Safeer Control sta na GTK4 + WebKitGTK 6.0 - Link je v obeh, zato zna oba API-ja.
-    Brez izbire (samostojen uvoz, preizkusi) GTK4."""
-    if gi.get_required_version("Gtk") == "3.0":
-        gi.require_version("Gdk", "3.0")
-        gi.require_version("WebKit2", "4.1")
-        from gi.repository import Gdk, Gtk, WebKit2
-        return Gdk, Gtk, WebKit2
+    """Gtk 4 in WebKitGTK 6.0 (vsi programi Safeer; GTK3 je umaknjen 18. 10. 2026)."""
     gi.require_version("Gtk", "4.0")
     gi.require_version("Gdk", "4.0")
     gi.require_version("WebKit", "6.0")
@@ -39,9 +32,8 @@ def _nalozi_gtk():
     return Gdk, Gtk, WebKit
 
 
-# WebKit2 je pri GTK4 modul WebKit (API 6.0): imena razredov in nastevanj, ki jih Link uporablja, so enaka.
+# Ime WebKit2 ostaja v kodi Linka; modul je WebKit (API 6.0).
 Gdk, Gtk, WebKit2 = _nalozi_gtk()
-GTK4 = Gtk.get_major_version() >= 4
 from gi.repository import GLib  # noqa: E402
 
 from core import link_deljenje, link_dostop, link_e2e, link_hub, link_hub_streznik, link_iskanje, link_krog, link_mesh, link_seja, link_tls  # noqa: E402
@@ -49,16 +41,13 @@ from core import odlozisce_varuh  # noqa: E402
 
 
 def _izvedi_js(pogled, koda: str) -> None:
-    """JavaScript v strani: WebKitGTK 6.0 (GTK4) ima samo evaluate_javascript, starejsi 4.1 run_javascript."""
-    if hasattr(pogled, "evaluate_javascript"):
-        pogled.evaluate_javascript(koda, -1, None, None, None, None, None)
-    else:
-        pogled.run_javascript(koda, None, None, None)
+    """JavaScript v strani (WebKitGTK 6.0)."""
+    pogled.evaluate_javascript(koda, -1, None, None, None, None, None)
 
 
 def _js_vrednost(rezultat):
-    """Vrednost sporocila skripte: WebKit 6.0 da JSC.Value, WebKit2 4.1 JavascriptResult."""
-    return rezultat.get_js_value() if hasattr(rezultat, "get_js_value") else rezultat
+    """Vrednost sporocila skripte (WebKitGTK 6.0 da JSC.Value)."""
+    return rezultat
 
 
 def _obmocje_zaslona(okno=None):
@@ -67,8 +56,6 @@ def _obmocje_zaslona(okno=None):
     zaslon = Gdk.Display.get_default()
     if zaslon is None:
         return None
-    if not GTK4:
-        return (zaslon.get_primary_monitor() or zaslon.get_monitor(0)).get_workarea()
     povrsina = okno.get_surface() if okno is not None else None
     monitor = zaslon.get_monitor_at_surface(povrsina) if povrsina is not None else None
     if monitor is None:
@@ -88,86 +75,51 @@ def _obmocje_zaslona(okno=None):
 
 def _vprasaj(stars, naslov: str, besedilo: str, gumbi, ob_odgovoru=None, preklic: int = -1) -> None:
     """Nemodalno obvestilo z gumbi; ob_odgovoru(indeks gumba ali -1). preklic: gumb, ki velja ob Esc (privzeto
-    zadnji). GTK4: Gtk.AlertDialog (MessageDialog je opuscen), GTK3: MessageDialog brez run()."""
-    if GTK4:
-        d = Gtk.AlertDialog()
-        d.set_message(naslov)
-        if besedilo:
-            d.set_detail(besedilo)
-        d.set_buttons(list(gumbi))
-        d.set_modal(False)
-        d.set_cancel_button(preklic if preklic >= 0 else len(gumbi) - 1)
-
-        def koncano(dialog, rezultat, *_a):
-            try:
-                i = dialog.choose_finish(rezultat)
-            except Exception:  # noqa: BLE001 - zaprto brez izbire
-                i = -1
-            if ob_odgovoru is not None:
-                ob_odgovoru(i)
-        d.choose(stars, None, koncano)
-        return
-    okno = Gtk.MessageDialog(transient_for=stars, modal=False, message_type=Gtk.MessageType.INFO,
-                             buttons=Gtk.ButtonsType.NONE, text=naslov)
+    zadnji). Gtk.AlertDialog (GTK4)."""
+    d = Gtk.AlertDialog()
+    d.set_message(naslov)
     if besedilo:
-        okno.format_secondary_text(besedilo)
-    for i, napis in enumerate(gumbi):
-        okno.add_button(napis, i)
+        d.set_detail(besedilo)
+    d.set_buttons(list(gumbi))
+    d.set_modal(False)
+    d.set_cancel_button(preklic if preklic >= 0 else len(gumbi) - 1)
 
-    def odgovor(d, r):
-        d.destroy()
+    def koncano(dialog, rezultat, *_a):
+        try:
+            i = dialog.choose_finish(rezultat)
+        except Exception:  # noqa: BLE001 - zaprto brez izbire
+            i = -1
         if ob_odgovoru is not None:
-            ob_odgovoru(r if isinstance(r, int) and r >= 0 else -1)
-    okno.connect("response", odgovor)
-    okno.show_all()
+            ob_odgovoru(i)
+    d.choose(stars, None, koncano)
 
 
 def _v_odlozisce(besedilo: str) -> None:
-    if GTK4:
-        Gdk.Display.get_default().get_clipboard().set(besedilo)
-    else:
-        Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(besedilo, -1)
+    Gdk.Display.get_default().get_clipboard().set(besedilo)
 
 
 def _izberi_poti(stars, naslov: str, gumb: str, mape: bool, ob_izbiri) -> None:
     """Izbira datoteke (ena) ali map (lahko vec); ob_izbiri(seznam poti) samo, ce je uporabnik kaj izbral.
-    GTK4: Gtk.FileDialog (asinhrono), GTK3: FileChooserDialog."""
-    if GTK4:
-        d = Gtk.FileDialog(title=naslov, accept_label=gumb, modal=True)
+    Gtk.FileDialog (GTK4, asinhrono)."""
+    d = Gtk.FileDialog(title=naslov, accept_label=gumb, modal=True)
 
-        def koncano(dialog, rezultat, *_a):
-            try:
-                if mape:
-                    seznam = dialog.select_multiple_folders_finish(rezultat)
-                    poti = [seznam.get_item(i).get_path() for i in range(seznam.get_n_items())] if seznam else []
-                else:
-                    datoteka = dialog.open_finish(rezultat)
-                    poti = [datoteka.get_path()] if datoteka is not None else []
-            except Exception:  # noqa: BLE001 - preklicano
-                return
-            poti = [p for p in poti if p]
-            if poti:
-                ob_izbiri(poti)
-        if mape:
-            d.select_multiple_folders(stars, None, koncano)
-        else:
-            d.open(stars, None, koncano)
-        return
-    okno = Gtk.FileChooserDialog(title=naslov, transient_for=stars,
-                                 action=Gtk.FileChooserAction.SELECT_FOLDER if mape else Gtk.FileChooserAction.OPEN)
-    if mape:
-        okno.set_select_multiple(True)
-    okno.add_button("Prekliči", Gtk.ResponseType.CANCEL)
-    okno.add_button(gumb, Gtk.ResponseType.OK)
-
-    def odgovor(d, r):
-        poti = (list(d.get_filenames() or []) if mape else [d.get_filename()]) if r == Gtk.ResponseType.OK else []
-        d.destroy()
+    def koncano(dialog, rezultat, *_a):
+        try:
+            if mape:
+                seznam = dialog.select_multiple_folders_finish(rezultat)
+                poti = [seznam.get_item(i).get_path() for i in range(seznam.get_n_items())] if seznam else []
+            else:
+                datoteka = dialog.open_finish(rezultat)
+                poti = [datoteka.get_path()] if datoteka is not None else []
+        except Exception:  # noqa: BLE001 - preklicano
+            return
         poti = [p for p in poti if p]
         if poti:
             ob_izbiri(poti)
-    okno.connect("response", odgovor)
-    okno.show()
+    if mape:
+        d.select_multiple_folders(stars, None, koncano)
+    else:
+        d.open(stars, None, koncano)
 
 
 def _agent_na_voljo() -> bool:
@@ -601,10 +553,7 @@ class SafeerLink:
             return
 
         upravitelj = WebKit2.UserContentManager()
-        try:
-            upravitelj.register_script_message_handler("safeerLink", None)   # WebKitGTK 6.0
-        except TypeError:
-            upravitelj.register_script_message_handler("safeerLink")         # WebKit2GTK 4.1
+        upravitelj.register_script_message_handler("safeerLink", None)
         upravitelj.connect("script-message-received::safeerLink", self._na_sporocilo)
         # Jezik mora biti znan ze ob nalaganju strani: link.js ga prebere enkrat, stanje
         # (window.__safeerLink) pa pride sele po nalaganju - prej je stran padla na navigator.language
@@ -617,7 +566,6 @@ class SafeerLink:
         ))
         odlozisce_varuh.dodaj(WebKit2, upravitelj)
 
-        # Lastnost user-content-manager poznata 4.1 in 6.0 (new_with_user_content_manager ima samo 4.1).
         pogled = WebKit2.WebView(user_content_manager=upravitelj)
         nastavitve = pogled.get_settings()
         nastavitve.set_property("enable-javascript", True)
@@ -647,33 +595,21 @@ class SafeerLink:
                 visina = min(visina, int(obmocje.height * 0.92))
             except Exception:
                 pass
-            okno.set_default_size(sirina, visina)
-            if not GTK4:
-                # GTK4 polozaja okna ne doloca: novo okno postavi upravljalnik oken (Muffin: na sredino).
-                okno.set_position(Gtk.WindowPosition.CENTER)
+            okno.set_default_size(sirina, visina)    # polozaj doloci upravljalnik oken (Muffin: na sredino)
         else:
             okno.set_default_size(560, 760)
         if self.control:
-            if GTK4:
-                # GTK4 nima set_wmclass: WM_CLASS zapisemo sami (core/x11.py) - tudi v procesu Safeer OS ima Control
-                # svojo skupino in ikono v pultu (StartupWMClass=safeer-control).
-                from core import x11
-                x11.nastavi_razred(okno, "safeer-control", "Safeer Control")
-            else:
-                okno.set_wmclass("safeer-control", "Safeer Control")
+            # GTK4 nima set_wmclass: WM_CLASS zapisemo sami (core/x11.py) - tudi v procesu Safeer OS ima Control
+            # svojo skupino in ikono v pultu (StartupWMClass=safeer-control).
+            from core import x11
+            x11.nastavi_razred(okno, "safeer-control", "Safeer Control")
             okno.set_icon_name("safeer-control")
         if self.starsevsko is not None:
             okno.set_transient_for(self.starsevsko)
-        if GTK4:
-            okno.set_child(pogled)
-        else:
-            okno.add(pogled)
-        if GTK4:
-            # GTK4 sporoci »destroy« sele, ko okna nihce vec ne drzi (self.okno ga drzi): zaprtje ujamemo ob
-            # close-request (krizec ali okno.close()), privzeto dejanje okno nato unici.
-            okno.connect("close-request", lambda *_a: (self._na_zaprtje(), False)[1])
-        else:
-            okno.connect("destroy", self._na_zaprtje)
+        okno.set_child(pogled)
+        # GTK4 sporoci »destroy« sele, ko okna nihce vec ne drzi (self.okno ga drzi): zaprtje ujamemo ob
+        # close-request (krizec ali okno.close()), privzeto dejanje okno nato unici.
+        okno.connect("close-request", lambda *_a: (self._na_zaprtje(), False)[1])
 
         self.okno = okno
         self.pogled = pogled
@@ -684,19 +620,13 @@ class SafeerLink:
         pogled.load_uri("file://" + pot)
         pogled.connect("load-changed", self._na_nalozeno)
 
-        if GTK4:
-            okno.present()
-        else:
-            okno.show_all()
+        okno.present()
 
     def _zapri_okno(self) -> None:
-        """Zapre okno Linka. GTK4: close() (sprozi close-request in s tem _na_zaprtje), GTK3: destroy() kot prej."""
+        """Zapre okno Linka: close() sprozi close-request in s tem _na_zaprtje."""
         if self.okno is None:
             return
-        if GTK4:
-            self.okno.close()
-        else:
-            self.okno.destroy()
+        self.okno.close()
 
     def _na_politiko(self, pogled, odlocitev, vrsta) -> bool:
         """Ta pogled sme prikazati samo stran Safeer Linka.

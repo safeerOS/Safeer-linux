@@ -8,7 +8,7 @@ set -e
 BIN_DIR="$HOME/.local/bin"
 DESKTOP_DIR="$HOME/.local/share/applications"
 ICON_BASE="$HOME/.local/share/icons/hicolor"
-# Poti, kamor pise brskalnik iz izvorne kode (safeer_brskalnik.py GTK4 in zastareli safeer_mint.py GTK3; pregled 16. 10. 2026):
+# Poti, kamor pise brskalnik iz izvorne kode (safeer_brskalnik.py) ali je pisal umaknjeni GTK3 brskalnik (pregled 16. 10. 2026):
 #  - profil (nastavitve, zaznamki, prijave, web-data, dnevnik): core/config.py CONFIG_DIR - skupen obema;
 #  - privzeti mapi WebKita po prgname: GTK4 »io.github.memelandfaner.SafeerBrowser« (safeer_brskalnik.py:
 #    GLib.set_prgname(APP_ID)), GTK3 »safeer-browser«, pred tem ime skripte;
@@ -30,7 +30,6 @@ echo "=========================================================="
 # 1. Zaustavi morebitne tekoče procese
 echo "1. Ustavljanje morebitnih aktivnih procesov Safeer..."
 pkill -f safeer_brskalnik.py 2>/dev/null || true
-pkill -f safeer_mint.py 2>/dev/null || true
 pkill -f safeer-mint.sh 2>/dev/null || true
 
 # 2. Odstrani zaganjalne povezave (CLI)

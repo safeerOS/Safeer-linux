@@ -133,8 +133,8 @@ class PregledPopravki(unittest.TestCase):
         self.assertLess(del_.index("get_windows()"), del_.index("self._koncaj()"))
 
     def test_temno_brez_prijav(self):
-        with open(os.path.join(KOREN, "safeer_mint.py"), encoding="utf-8") as f:
-            self.assertIn("AUTH_SCRIPT_EXCLUSIONS)", f.read())
+        with open(os.path.join(KOREN, "core", "os_splet.py"), encoding="utf-8") as f:
+            self.assertIn("AUTH_SCRIPT_EXCLUSIONS", f.read())
 
 
 class DatotekeMeni(unittest.TestCase):

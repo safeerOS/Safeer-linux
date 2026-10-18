@@ -8,7 +8,7 @@ Velja za vsako spremembo v tem repozitoriju. Kratko, preverljivo; podrobnosti so
 - Odlocitev vedno s strani uporabnika: kaj je zanj najbolj udobno in varno.
 - Popravek napake v odprtokodnem projektu (WebKit, libsoup …) vrnemo skupnosti.
 - Vsaka izboljsava spletne izkusnje v Spletu (Safeer OS) gre tudi v vse brskalnike Safeer: Safeer Browser za Linux
-  (safeer_mint.py), Windows, telefon in TV (lastnik, 14. 10. 2026). Kar je skupno, je v skupnem modulu (core/).
+  (safeer_brskalnik.py), Windows, telefon in TV (lastnik, 14. 10. 2026). Kar je skupno, je v skupnem modulu (core/).
 
 ## Zasebnost (nikoli v repo, commit, PR ali opombe izdaje)
 - Ime lastnika, domaca pot, uporabnisko ime, ime gostitelja, MAC, e-naslovi, posnetki zaslona naprav. V besedilu: »lastnik«.
@@ -24,7 +24,7 @@ Velja za vsako spremembo v tem repozitoriju. Kratko, preverljivo; podrobnosti so
 ## Koda
 - Komentarji in sporocila commitov v slovenscini (brez sumnikov v imenih), kratki, povejo ZAKAJ in kdaj je bilo izmerjeno.
 - En proces: Safeer OS, Safeer Control, Splet in predvajalnik tecejo v istem procesu (core/en_proces.py).
-- Moduli, ki jih uvaza tudi brskalnik `safeer_mint.py` (GTK3), morajo delati z GTK3 in GTK4 (izbira po `gi.get_required_version("Gtk")`).
+- Safeer je samo GTK4 in WebKitGTK 6.0 (GTK3 umaknjen 18. 10. 2026): nove kode za GTK3 ne pisi.
 - Nov modul v `core/` dodaj v seznam v `packaging/install_os_payload.sh` oziroma `install_control_payload.sh` (test `tests/test_tovor_uvozi.py`).
 - Dostop drugih naprav: o vsebinah te naprave odloca samo ta naprava (core/link_dostop.py); nic iz dohodnega sporocila ne sme podeliti dostopa.
 - Brez nadomestkov (»TODO«, lazni podatki, prazni gumbi) v vmesniku; kar ni narejeno, se ne pokaze.
@@ -33,7 +33,7 @@ Velja za vsako spremembo v tem repozitoriju. Kratko, preverljivo; podrobnosti so
 - Dostopnost: tipkovnica, fokus, kontrast; animacije spostujejo zmanjsano gibanje.
 
 ## Preizkusi
-- GTK3 in GTK4 ne moreta v isti proces pytest: skupini da `tools/razdeli_teste.py gtk3|gtk4 --poti` (za pytest; CI poganja pytest, ker unittest ne vidi preizkusov kot funkcij) (CI: brskalnik na Ubuntu 22.04, Safeer OS na 24.04).
+- Vsi preizkusi v enem procesu: `python3 -m pytest -q -p no:cacheprovider tests/` (CI poganja pytest, ker unittest ne vidi preizkusov kot funkcij).
 - `python3 -m pytest -q -p no:cacheprovider tests/<datoteka>`; za JS `node -e "new Function(require('fs').readFileSync(F,'utf8'))"`.
 - Zivi preizkus na testnem PC (Flatpak): `flatpak run --command=sh … -c "export PATH=/app/host-bin:$PATH; …"` – brez tega PATH orodja gostitelja (gsettings …) niso vidna.
 - Vsak preizkus za sabo pospravi (lastnik, 16. 10. 2026: vsebnik `stres-tm` je 3 dni zasedal pomnilnik prenosnika):

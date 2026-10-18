@@ -29,7 +29,7 @@ class LazniWebView:
     def reload(self):
         self.osvezen = True
 
-    def run_javascript(self, js, *_):
+    def evaluate_javascript(self, js, *_):
         self.js.append(js)
 
     def get_uri(self):

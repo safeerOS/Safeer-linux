@@ -44,8 +44,10 @@ class BrezReceptovZaStrani(unittest.TestCase):
 
     def test_registracije_ne_nosijo_seznama_strani(self):
         # Skripti, ki bi bil vezan na seznam imenovanih strani prek vzorcev URL, ni dovoljeno registrirati (razen YouTube/prijava).
-        with open(os.path.join(KOREN, "safeer_mint.py"), encoding="utf-8") as f:
-            koda = f.read()
+        koda = ""
+        for ime in ("safeer_brskalnik.py", os.path.join("core", "os_splet.py")):
+            with open(os.path.join(KOREN, ime), encoding="utf-8") as f:
+                koda += f.read()
         self.assertNotIn("HOOKSHOT", koda)
         self.assertNotRegex(koda, r'for site in \(\s*"pushsquare')
 

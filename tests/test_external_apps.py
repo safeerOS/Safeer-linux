@@ -79,30 +79,26 @@ class GateTests(unittest.TestCase):
 
 
 class BrowserWiringTests(unittest.TestCase):
+    """Splet in Safeer Browser (GTK4, core/os_splet.py; GTK3 umaknjen 18. 10. 2026)."""
+
     def setUp(self):
-        self.source = (ROOT / "safeer_mint.py").read_text()
+        self.source = (ROOT / "core" / "os_splet.py").read_text()
 
     def _branch(self, start_marker, end_marker):
         start = self.source.index(start_marker)
         return self.source[start:self.source.index(end_marker, start)]
 
     def test_program_links_are_handled_before_they_are_blocked(self):
-        policy = self._branch("def on_decide_policy", "def open_add_page_dialog")
-        new_window = policy[:policy.index("elif decision_type == WebKit2.PolicyDecisionType.NAVIGATION_ACTION")]
-        navigation = policy[policy.index("elif decision_type == WebKit2.PolicyDecisionType.NAVIGATION_ACTION"):]
-        for branch, blocker in ((new_window, "if not is_safe_web_url(uri)"), (navigation, "if is_passthrough_host(uri)")):
-            self.assertIn("external_scheme(uri)", branch)
-            self.assertLess(branch.index("external_scheme(uri)"), branch.index(blocker))
-            self.assertIn("GLib.idle_add(self.open_external_app_link", branch)
+        policy = self._branch("def _politika", "def _odziv")
+        self.assertIn("external_apps.external_scheme(naslov)", policy)
+        self.assertLess(policy.index("external_apps.external_scheme(naslov)"), policy.index("adblock.is_threat_domain(naslov)"))
+        self.assertIn("self._zunanji_program(naslov, shema", policy)
 
     def test_the_user_decides_and_safeer_never_opens_itself(self):
-        method = self._branch("def open_external_app_link", "def show_missing_external_app")
-        self.assertIn("is_allowed(permissions, site, scheme)", method)
-        self.assertIn("gate.may_ask(site, scheme)", method)
-        self.assertIn("set_default_response(Gtk.ResponseType.CANCEL)", method)
-        self.assertIn('startswith("safeer-browser")', method)
-        self.assertIn("app.launch_uris([uri], context)", method)
-        self.assertRegex(method, re.compile(r"if not accepted:\s+return False"))
+        method = self._branch("def _zunanji_program(", "def _zunanji_program_izid")
+        self.assertIn("external_apps.is_allowed(", method)
+        self.assertIn(".may_ask(gostitelj, shema)", method)
+        self.assertIn('self._t("preklici")', method)
 
 
 if __name__ == "__main__":

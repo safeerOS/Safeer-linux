@@ -144,7 +144,7 @@ class IkonaBrskalnika(unittest.TestCase):
                 self.assertIn("Icon=%s\n" % BROWSER_ID, f.read())
 
     def test_vnosi_in_metainfo(self):
-        for vnos, ikona in (("packaging/safeer-browser.desktop", "safeer-browser"), ("safeer-browser.desktop", "safeer-browser"),
+        for vnos, ikona in (("packaging/safeer-browser.desktop", "safeer-browser"),
                             ("packaging/safeer-os.desktop", "safeer-os")):
             with open(os.path.join(KOREN, vnos), encoding="utf-8") as f:
                 self.assertIn("Icon=%s\n" % ikona, f.read(), vnos)

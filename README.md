@@ -142,8 +142,7 @@ Flatpak — it brings GTK4 and our WebKit with it.
 
 From a source checkout, `bash install.sh` installs the same GTK4 browser (`safeer_brskalnik.py`) for
 the current user and checks the same packages as the `.deb`; `bash uninstall.sh` removes it
-(`--purge` also removes the profile). The older GTK3 browser (`safeer_mint.py`, WebKit2GTK 4.1) is
-deprecated and starts only with `SAFEER_BRSKALNIK_GTK3=1`.
+(`--purge` also removes the profile).
 
 ## Build from source
 
@@ -153,11 +152,10 @@ bash packaging/build_appimage.sh   # AppImage
 bash packaging/build_flatpak.sh    # Flatpak
 ```
 
-Tests (GTK 3 and GTK 4 run in separate processes; details in [CONTRIBUTING.md](CONTRIBUTING.md#running-the-tests)):
+Tests (one process, GTK 4 only; details in [CONTRIBUTING.md](CONTRIBUTING.md#running-the-tests)):
 
 ```bash
-PYTHONPATH=tests xvfb-run -a python3 -m pytest -q $(python3 tools/razdeli_teste.py gtk3 --poti)
-PYTHONPATH=tests xvfb-run -a python3 -m pytest -q $(python3 tools/razdeli_teste.py gtk4 --poti)
+PYTHONPATH=tests xvfb-run -a python3 -m pytest -q tests/
 ```
 
 ## Fork it

@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
-# Safeer Browser AppImage. GTK4 brskalnik (privzeto) se gradi na Ubuntu 24.04 (glibc 2.39) kot AppImage Safeer OS:
-# GTK4 in WebKitGTK 6.0 sta od Linux Mint 22 naprej. SAFEER_BRSKALNIK_GTK3=1: prejsnji GTK3 brskalnik na Ubuntu 22.04
-# (glibc 2.35). Novejsi gostitelji samo za diagnostiko (ALLOW_NEWER_GLIBC=1).
+# Safeer Browser AppImage. Brskalnik GTK4 se gradi na Ubuntu 24.04 (glibc 2.39) kot AppImage Safeer OS: GTK4 in
+# WebKitGTK 6.0 sta od Linux Mint 22 naprej. Novejsi gostitelji samo za diagnostiko (ALLOW_NEWER_GLIBC=1).
 # WebKitGTK v AppImage je knjiznica gostitelja gradnje (Ubuntu), ne nas s popravki - ta je samo v Flatpaku.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 [ "$(uname -m)" = x86_64 ] || { echo 'AppImage currently supports x86_64 only' >&2; exit 1; }
-if [ "${SAFEER_BRSKALNIK_GTK3:-0}" = 1 ]; then GLIBC=2.35 UBUNTU=22.04; else GLIBC=2.39 UBUNTU=24.04; fi
+GLIBC=2.39 UBUNTU=24.04
 if [ "$(getconf GNU_LIBC_VERSION | cut -d' ' -f2)" != "$GLIBC" ] && [ "${ALLOW_NEWER_GLIBC:-0}" != 1 ]; then
     echo "Build release AppImages on Ubuntu $UBUNTU. Set ALLOW_NEWER_GLIBC=1 for a host-specific diagnostic build." >&2
     exit 1

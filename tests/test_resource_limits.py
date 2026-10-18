@@ -7,39 +7,8 @@ import tempfile
 import unittest
 
 
-def _source():
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    with open(os.path.join(root, "safeer_mint.py"), encoding="utf-8") as handle:
-        return handle.read()
-
-
-class MemoryLimitTests(unittest.TestCase):
-    def _limit(self):
-        # safeer_mint imports GTK at module level; read the function without importing the module.
-        source = _source()
-        start = source.index("def web_process_memory_limit_mb(")
-        end = source.index("def start_threat_intel():")
-        namespace = {"os": os}
-        exec(source[start:end], namespace)  # noqa: S102 - our own source
-        return namespace["web_process_memory_limit_mb"]
-
-    def test_limit_is_half_of_ram_and_at_least_one_gb(self):
-        limit = self._limit()
-        self.assertEqual(limit(12 * 1024), 6144)
-        self.assertEqual(limit(8 * 1024), 4096)
-        self.assertEqual(limit(4 * 1024), 2048)
-        self.assertEqual(limit(1024), 1024)
-        self.assertEqual(limit(64 * 1024), 32768)
-
-    def test_page_processes_get_the_limit_through_the_web_context(self):
-        # WebKit2GTK 4.1: WebsiteDataManager.set_memory_pressure_settings covers network processes only, so the
-        # per-tab limit must come from WebContext(memory_pressure_settings=...) - core/pomnilnik.kontekst, as Splet.
-        source = _source()
-        self.assertIn("meje_pomnilnika.kontekst(", source)
-        self.assertIn("website_data_manager=self.website_data_manager", source)
-        self.assertNotIn("WebContext.new_with_website_data_manager", source)
-        self.assertIn("meje_pomnilnika.tlak_omrezja(WebKit2, 160)", source)
-        self.assertIn("exceeded-memory-limit", source)
+# Meja pomnilnika procesov strani v GTK4: core/pomnilnik (tests/test_splet_proces.py). Uspavanje zavihkov je imel samo
+# umaknjeni brskalnik GTK3 (18. 10. 2026).
 
 
 class LogFileTests(unittest.TestCase):
@@ -73,39 +42,6 @@ class LogFileTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-class TabLoadIntegrationTests(unittest.TestCase):
-    """Source-level checks of how the browser wires the monitor (GTK cannot be imported here)."""
-
-    def test_monitor_runs_from_the_main_loop_and_tabs_get_an_indicator(self):
-        source = _source()
-        self.assertIn("GLib.timeout_add_seconds(2, self._monitor_tabs)", source)
-        self.assertIn('"load_btn": btn_load', source)
-        self.assertIn('tab.get("load_started_at")', source)
-
-    def test_sleeping_tab_is_not_reported_as_a_crash_and_reloads_on_selection(self):
-        source = _source()
-        handler = source[source.index("def on_web_process_terminated"):source.index("def on_web_process_terminated") + 400]
-        self.assertIn('tab.get("sleeping")', handler)
-        sleep = source[source.index("def sleep_tab"):source.index("def show_tab_load_menu")]
-        self.assertIn('tab["deferred"] = True', sleep)
-        self.assertIn("terminate_web_process()", sleep)
-        started = source[source.index("def on_tab_load_changed"):source.index("def on_tab_title_changed")]
-        self.assertIn('item["sleeping"] = False', started)
-
-    def test_only_background_tabs_without_sound_are_put_to_sleep_and_it_can_be_switched_off(self):
-        source = _source()
-        tick = source[source.index("def _monitor_tabs"):source.index("def sleep_tab")]
-        self.assertIn('sample.verdict == "hog" and not sample.active and not sample.audio', tick)
-        self.assertIn('self.config.get("sleep_heavy_background_tabs", True)', tick)
-        from core import config
-        self.assertTrue(config.DEFAULT_SETTINGS.get("sleep_heavy_background_tabs"))
-
-    def test_closing_a_tab_forgets_it_in_the_monitor(self):
-        source = _source()
-        close = source[source.index("def close_tab"):source.index("def close_tab") + 1800]
-        self.assertIn("self.tab_monitor.forget(tab_id)", close)
 
 
 class LauncherScopeTests(unittest.TestCase):

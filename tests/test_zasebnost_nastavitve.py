@@ -10,7 +10,8 @@ import unittest
 from pathlib import Path
 
 KOREN = Path(__file__).resolve().parent.parent
-GLAVNA = (KOREN / "safeer_mint.py").read_text(encoding="utf-8")
+# Splet in Safeer Browser (GTK4) imata nastavitve WebKita v core/os_splet.py (GTK3 umaknjen 18. 10. 2026).
+GLAVNA = (KOREN / "core" / "os_splet.py").read_text(encoding="utf-8")
 README = (KOREN / "README.md").read_text(encoding="utf-8")
 
 
@@ -34,25 +35,14 @@ class NastavitveWebKita(unittest.TestCase):
                          "razvijalska orodja naj vklopi uporabnik, ne mi za vsako stran")
 
     def test_stran_ne_odpira_oken_sama(self):
-        self.assertIn("set_javascript_can_open_windows_automatically(False)", GLAVNA)
+        self.assertIn('("javascript_can_open_windows_automatically", False)', GLAVNA)
 
     def test_websql_je_izklopljen(self):
-        self.assertIn("set_enable_html5_database(False)", GLAVNA)
+        self.assertIn('("enable_html5_database", False)', GLAVNA)
 
     def test_kar_je_bilo_ze_prav_ostane(self):
-        self.assertIn("set_enable_hyperlink_auditing(False)", GLAVNA)
-        self.assertIn("set_enable_dns_prefetching(False)", GLAVNA)
-
-
-class MostJS(unittest.TestCase):
-
-    def test_zaupna_dejanja_so_nasteta(self):
-        self.assertIn("ZAUPNA_DEJANJA", GLAVNA)
-        for dejanje in ("navigate", "set_default_browser", "open_sidebar", "set_language"):
-            self.assertIn(f'"{dejanje}"', GLAVNA)
-
-    def test_handler_pozna_posiljatelja(self):
-        self.assertIn("def on_js_message(self, content_mgr, js_result, posiljatelj=None)", GLAVNA)
+        self.assertIn('("enable_hyperlink_auditing", False)', GLAVNA)
+        self.assertIn('("enable_dns_prefetching", False)', GLAVNA)
 
 
 if __name__ == "__main__":

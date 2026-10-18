@@ -147,7 +147,7 @@ class Zamenjava(unittest.TestCase):
     def test_dotiki_gredo_samo_napravi_ki_jo_okno_kaze(self):
         def vnos(lazna):
             rezultat = mock.MagicMock()
-            rezultat.get_js_value.return_value.to_string.return_value = '{"d": "input.tap", "p": {"x": 0.5, "y": 0.5}}'
+            rezultat.to_string.return_value = '{"d": "input.tap", "p": {"x": 0.5, "y": 0.5}}'
             safeer_control.SafeerControl._vnos_iz_gledalca(lazna, None, rezultat)
         lazna = self._lazna(gledani="n-A", prikazana="n-A")
         vnos(lazna)

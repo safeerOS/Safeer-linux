@@ -20,6 +20,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core import adblock  # noqa: E402
 
+# GTK4 + WebKitGTK 6.0, kot Safeer (GTK3 je umaknjen 18. 10. 2026).
+try:
+    import gi
+    gi.require_version("Gtk", "4.0")
+    gi.require_version("WebKit", "6.0")
+    from gi.repository import GLib, Gtk, WebKit
+except (ImportError, ValueError):  # brez WebKitGTK 6.0 preizkusa ni
+    GLib = Gtk = WebKit = None
+
 # Stran: en oglas (selektor .ad-unit iz GENERIC_COSMETIC) + poskus ponarejanja iz glavnega sveta.
 STRAN = b"""<!doctype html>
 <html><head><title>zacetek</title></head><body>
@@ -49,6 +58,7 @@ class Streznik(http.server.SimpleHTTPRequestHandler):
 @unittest.skipIf(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"),
                  "zivi WebKit preizkus samo lokalno (v CI pusti spletni proces, ki moti druge teste)")
 @unittest.skipUnless(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"), "potrebuje zaslon")
+@unittest.skipUnless(WebKit, "potrebuje WebKitGTK 6.0")
 class StevecVZivo(unittest.TestCase):
 
     @classmethod
@@ -65,21 +75,17 @@ class StevecVZivo(unittest.TestCase):
         cls.streznik.server_close()
 
     def test_stevec_in_skritje(self):
-        import gi
-        gi.require_version("Gtk", "3.0")
-        gi.require_version("WebKit2", "4.1")
-        from gi.repository import Gtk, WebKit2, GLib  # noqa: F401
-
+        WebKit2 = WebKit
         prejeto = {"stevec": 0, "glavni": 0}
         upravitelj = WebKit2.UserContentManager()
         # Glavni rokovalnik (kot v izdelku): increment tu ne sme vec steti.
-        upravitelj.register_script_message_handler("safeer")
+        upravitelj.register_script_message_handler("safeer", None)
 
         def ob_glavnem(_u, r):
             import json
             from core.os_splet import razcleni_sporocilo
             try:
-                d = json.loads(r.get_js_value().to_json(0))
+                d = json.loads(r.to_json(0))
             except Exception:
                 return
             # Kot v izdelku: glavni rokovalnik gre skozi razcleni_sporocilo, ki increment zavrne (vrne None).
@@ -89,11 +95,11 @@ class StevecVZivo(unittest.TestCase):
         upravitelj.connect("script-message-received::safeer", ob_glavnem)
 
         # Stevec v locenem svetu.
-        upravitelj.register_script_message_handler_in_world(adblock.STEVEC_MOST, adblock.STEVEC_SVET)
+        upravitelj.register_script_message_handler(adblock.STEVEC_MOST, adblock.STEVEC_SVET)
 
         def ob_stevcu(_u, r):
             import json
-            s = adblock.preveri_stevec(json.loads(r.get_js_value().to_json(0)))
+            s = adblock.preveri_stevec(json.loads(r.to_json(0)))
             if s and s["action"] == "increment_ads":
                 prejeto["stevec"] += s["count"]
         upravitelj.connect("script-message-received::" + adblock.STEVEC_MOST, ob_stevcu)
@@ -103,24 +109,25 @@ class StevecVZivo(unittest.TestCase):
             adblock.GENERIC_COSMETIC_SCRIPT, WebKit2.UserContentInjectedFrames.ALL_FRAMES,
             WebKit2.UserScriptInjectionTime.END, adblock.STEVEC_SVET, None, None))
 
-        pogled = WebKit2.WebView.new_with_user_content_manager(upravitelj)
-        okno = Gtk.OffscreenWindow()
-        okno.add(pogled)
-        okno.show_all()
+        Gtk.init()
+        pogled = WebKit2.WebView(user_content_manager=upravitelj)
+        okno = Gtk.Window()
+        okno.set_child(pogled)
+        okno.present()
 
         izid = {}
         zanka = GLib.MainLoop()
 
         def preveri_dom():
             # Je oglas odstranjen, prava vsebina pa ostane?
-            pogled.run_javascript(
+            pogled.evaluate_javascript(
                 "JSON.stringify({oglas: !!document.getElementById('oglas'), vsebina: !!document.getElementById('vsebina')})",
-                None, ob_js, None)
+                -1, None, None, None, ob_js)
 
-        def ob_js(p, res, _d):
+        def ob_js(p, res, *_d):
             import json
             try:
-                v = p.run_javascript_finish(res).get_js_value().to_string()
+                v = p.evaluate_javascript_finish(res).to_string()
                 izid.update(json.loads(v))
             except Exception as e:
                 izid["napaka"] = str(e)

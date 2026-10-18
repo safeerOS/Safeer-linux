@@ -1,6 +1,6 @@
 # Paketi .deb na pravem Linux Mintu
 
-Posel `deb-appimage` v CI pakete zgradi in namesti na Ubuntu 22.04. Tam se paketa videza (`safeer-os-tema`,
+Posla `brskalnik` in `safeer-os` v CI pakete zgradita in namestita na Ubuntu 24.04. Tam se paketa videza (`safeer-os-tema`,
 `safeer-cinnamon`) sploh ne dasta namestiti – `mint-themes` obstaja samo v Linux Mintu –, odvisnosti pa razreši
 drugo skladišče kot pri uporabniku. Ta preizkus naredi to, kar naredi uporabnik: v sliki Linux Minta (skladišča
 Minta in Ubuntuja) namesti vseh pet paketov, jih zažene in odstrani.

@@ -1,7 +1,7 @@
-"""Prenosi v Spletu in Safeer Browserju: ena koda za GTK3 (safeer_mint.py) in GTK4 (core/os_splet.py).
+"""Prenosi v Spletu in Safeer Browserju (GTK4, core/os_splet.py).
 
 14. 10. 2026: Splet je prenose shranjeval v ~/Downloads (na slovenskem namizju je mapa »Prejemi«), z imenom iz naslova
-(ne iz glave strezika), brez potrditve za programe in brez napredka. Pravila prenosov iz safeer_mint.py so zdaj tu.
+(ne iz glave strezika), brez potrditve za programe in brez napredka. Pravila prenosov so tu.
 """
 from __future__ import annotations
 

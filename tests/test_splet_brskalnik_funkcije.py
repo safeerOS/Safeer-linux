@@ -4,7 +4,7 @@ import os
 import tempfile
 
 import gi
-gi.require_version("Gtk", "4.0")   # skupina GTK4 (tools/razdeli_teste.py)
+gi.require_version("Gtk", "4.0")
 
 from core import zgodovina
 

@@ -307,25 +307,24 @@ class X11:
 
 
 class Mesto:
-    """Kje je gradnik v X oknu svojega vrhnjega okna: GTK3 (gradnik ima svoje X okno) in GTK4."""
+    """Kje je gradnik GTK4 v X oknu svojega vrhnjega okna."""
 
     def __init__(self, Gtk, gradnik) -> None:
         self.Gtk, self.gradnik = Gtk, gradnik
-        self.gtk3 = Gtk.get_major_version() == 3
 
     def dpy_gdk(self) -> int:
         """Kazalec Display* povezave GDK (ta je ustvarila X okno starsa); 0 brez X11."""
         try:
             prikaz = self.gradnik.get_display()
             import gi
-            gi.require_version("GdkX11", "3.0" if self.gtk3 else "4.0")
+            gi.require_version("GdkX11", "4.0")
             from gi.repository import GdkX11
             if not isinstance(prikaz, GdkX11.X11Display):
                 return 0
             api = ctypes.pythonapi
             api.PyCapsule_GetPointer.restype = ctypes.c_void_p
             api.PyCapsule_GetPointer.argtypes = [ctypes.py_object, ctypes.c_char_p]
-            gdk = ctypes.CDLL("libgdk-3.so.0" if self.gtk3 else "libgtk-4.so.1")
+            gdk = ctypes.CDLL("libgtk-4.so.1")
             gdk.gdk_x11_display_get_xdisplay.restype = ctypes.c_void_p
             gdk.gdk_x11_display_get_xdisplay.argtypes = [ctypes.c_void_p]
             return int(gdk.gdk_x11_display_get_xdisplay(api.PyCapsule_GetPointer(prikaz.__gpointer__, None)) or 0)
@@ -333,8 +332,6 @@ class Mesto:
             return 0
 
     def xid_starsa(self) -> int:
-        if self.gtk3:
-            return self._xid_gtk3()
         try:
             koren = self.gradnik.get_native()
             povrsina = koren.get_surface() if koren is not None else None
@@ -349,26 +346,8 @@ class Mesto:
         except Exception:  # noqa: BLE001 - Wayland: ni X11 okna
             return 0
 
-    def _xid_gtk3(self) -> int:
-        okno = self.gradnik.get_window()
-        if okno is None:
-            return 0
-        try:
-            import gi
-            gi.require_version("GdkX11", "3.0")
-            from gi.repository import GdkX11
-            if not isinstance(okno, GdkX11.X11Window):
-                return 0
-            okno.ensure_native()
-            return int(okno.get_xid())
-        except Exception:  # noqa: BLE001 - Wayland: ni X11 okna
-            return 0
-
     def pravokotnik(self):
         """(x, y, sirina, visina) gradnika v X pikah povrsine vrhnjega okna; None, ce ni prikazan."""
-        if self.gtk3:   # starsevsko okno je gradnikovo lastno X okno
-            m = self.gradnik.get_scale_factor() or 1
-            return (0, 0, self.gradnik.get_allocated_width() * m, self.gradnik.get_allocated_height() * m)
         koren = self.gradnik.get_native()
         if koren is None:
             return None

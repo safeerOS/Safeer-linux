@@ -7,9 +7,5 @@ DIR="$(dirname "$SCRIPT_PATH")"
 export PULSE_LATENCY_MSEC="${PULSE_LATENCY_MSEC:-120}"
 export GST_PULSE_BUFFER_MS="${GST_PULSE_BUFFER_MS:-120}"
 # Python owns the single-instance handoff and respects XDG_CONFIG_HOME.
-# Privzeto GTK4 brskalnik (WebKitGTK 6.0, kot .deb, Flatpak in AppImage); SAFEER_BRSKALNIK_GTK3=1 zazene zastareli
-# GTK3 brskalnik safeer_mint.py do umika.
-if [ "${SAFEER_BRSKALNIK_GTK3:-0}" = 1 ]; then
-    exec /usr/bin/python3 "$DIR/safeer_mint.py" "$@"
-fi
+# Brskalnik GTK4 (WebKitGTK 6.0), kot .deb, Flatpak in AppImage. GTK3 je umaknjen (lastnik, 18. 10. 2026).
 exec /usr/bin/python3 "$DIR/safeer_brskalnik.py" "$@"

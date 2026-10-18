@@ -88,11 +88,11 @@ def _webkit():
     try:
         import gi
 
-        gi.require_version("Gtk", "3.0")
-        gi.require_version("WebKit2", "4.1")
-        from gi.repository import GLib, WebKit2
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("WebKit", "6.0")       # nas WebKitGTK 6.0 (GTK3 je umaknjen 18. 10. 2026)
+        from gi.repository import GLib, WebKit
 
-        return GLib, WebKit2
+        return GLib, WebKit
     except Exception:  # noqa: BLE001 - not installed here
         return None, None
 

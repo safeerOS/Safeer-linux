@@ -77,14 +77,14 @@ class StaleEntryTests(unittest.TestCase):
     def test_exec_of_a_removed_launcher_is_replaced_and_the_entry_loads(self):
         with tempfile.TemporaryDirectory(prefix='safeer-stale-') as temp:
             app_dir=Path(temp)/'lib'/'safeer-browser';app_dir.mkdir(parents=True)
-            (app_dir/'safeer_mint.py').write_text('#')
+            (app_dir/'safeer_brskalnik.py').write_text('#')
             stale=('[Desktop Entry]\nType=Application\nName=Safeer Browser\nExec=/nonexistent/safeer-browser %U\n'
                    'Actions=NewWindow;\n\n[Desktop Action NewWindow]\nName=New Window\nExec=/nonexistent/safeer-browser\n')
             repaired=default.desktop_entry_text(stale,str(app_dir))
             key=GLib.KeyFile();key.load_from_data(repaired,len(repaired.encode()),GLib.KeyFileFlags.NONE)
-            self.assertIn('safeer_mint.py',key.get_string('Desktop Entry','Exec'))
+            self.assertIn('safeer_brskalnik.py',key.get_string('Desktop Entry','Exec'))
             self.assertTrue(key.get_string('Desktop Entry','Exec').endswith(' %U'))
-            self.assertIn('safeer_mint.py',key.get_string('Desktop Action NewWindow','Exec'))
+            self.assertIn('safeer_brskalnik.py',key.get_string('Desktop Action NewWindow','Exec'))
             path=Path(temp)/'safeer-browser.desktop';path.write_text(repaired)
             self.assertIsNotNone(default.Gio.DesktopAppInfo.new_from_filename(str(path)))
 
@@ -92,12 +92,12 @@ class StaleEntryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='safeer-pkg-') as temp:
             root=Path(temp);(root/'bin').mkdir();(root/'lib'/'safeer-browser').mkdir(parents=True)
             launcher=root/'bin'/'safeer';launcher.write_text('#!/bin/sh\n');launcher.chmod(0o755)
-            (root/'lib'/'safeer-browser'/'safeer_mint.py').write_text('#')
-            other=root/'other'/'safeer_mint.py';other.parent.mkdir();other.write_text('#')
+            (root/'lib'/'safeer-browser'/'safeer_brskalnik.py').write_text('#')
+            other=root/'other'/'safeer_brskalnik.py';other.parent.mkdir();other.write_text('#')
             self.assertEqual(default.launcher_command(root/'lib'/'safeer-browser'),str(launcher))
             self.assertTrue(default._starts_this_install(f'{launcher} %U',root/'lib'/'safeer-browser'))
             self.assertTrue(default._starts_this_install(f'"{launcher}" %U',root/'lib'/'safeer-browser'))
-            self.assertTrue(default._starts_this_install(f'/usr/bin/python3 "{root}/lib/safeer-browser/safeer_mint.py" %U',root/'lib'/'safeer-browser'))
+            self.assertTrue(default._starts_this_install(f'/usr/bin/python3 "{root}/lib/safeer-browser/safeer_brskalnik.py" %U',root/'lib'/'safeer-browser'))
             self.assertFalse(default._starts_this_install(f'/usr/bin/python3 "{other}" %U',root/'lib'/'safeer-browser'))
             text=default.desktop_entry_text(f'[Desktop Entry]\nType=Application\nName=Safeer\nExec=/usr/bin/python3 "{other}" %U\n',root/'lib'/'safeer-browser')
             self.assertIn(f'Exec={launcher} %U',text)
@@ -108,7 +108,7 @@ class StaleEntryTests(unittest.TestCase):
             user.mkdir(parents=True);system.mkdir(parents=True)
             (root/'bin').mkdir();(root/'lib'/'safeer-browser').mkdir(parents=True)
             launcher=root/'bin'/'safeer';launcher.write_text('#!/bin/sh\n');launcher.chmod(0o755)
-            (root/'lib'/'safeer-browser'/'safeer_mint.py').write_text('#')
+            (root/'lib'/'safeer-browser'/'safeer_brskalnik.py').write_text('#')
             (system/default.DESKTOP_ID).write_text(f'[Desktop Entry]\nType=Application\nName=Safeer Browser\nExec={launcher} %U\n')
             (user/default.DESKTOP_ID).write_text('[Desktop Entry]\nType=Application\nName=Safeer Browser\nExec=/nonexistent/safeer-browser %U\n')
             with patch.object(default.GLib,'get_user_data_dir',return_value=str(root/'data')), \
@@ -121,7 +121,7 @@ class StaleEntryTests(unittest.TestCase):
     def test_exec_arguments_are_quoted_only_when_the_spec_requires_it(self):
         # xdg-utils take the first word of Exec literally, so a plain path must stay unquoted.
         self.assertEqual(default._exec_argument('/usr/bin/safeer'),'/usr/bin/safeer')
-        self.assertEqual(default._exec_argument('/home/x/Neimenovana mapa/safeer_mint.py'),'"/home/x/Neimenovana mapa/safeer_mint.py"')
+        self.assertEqual(default._exec_argument('/home/x/Neimenovana mapa/safeer_brskalnik.py'),'"/home/x/Neimenovana mapa/safeer_brskalnik.py"')
         self.assertEqual(default._exec_argument('/tmp/50%/a'),'"/tmp/50%%/a"')
         with tempfile.TemporaryDirectory(prefix='safeer-plain-') as temp:
             root=Path(temp);(root/'bin').mkdir();(root/'lib'/'safeer-browser').mkdir(parents=True)
@@ -129,18 +129,14 @@ class StaleEntryTests(unittest.TestCase):
             self.assertEqual(default.launcher_command(root/'lib'/'safeer-browser'),str(launcher))
 
     def test_source_checkout_registers_the_gtk4_browser(self):
-        # 16. 10. 2026: GTK4 privzet tudi iz izvorne kode; »Nastavi kot privzeti« ne sme vnosa prepisati na GTK3.
+        # Iz izvorne kode se registrira brskalnik GTK4 (GTK3 umaknjen 18. 10. 2026).
         with tempfile.TemporaryDirectory(prefix='safeer-gtk4-') as temp:
             app_dir=Path(temp)
-            for ime in default.VSTOPA:(app_dir/ime).write_text('#')
-            with patch.object(default,'_gtk3',return_value=False):
-                self.assertIn('safeer_brskalnik.py',default.launcher_command(app_dir))
-                text=default.desktop_entry_text('',app_dir)
-                self.assertIn('StartupWMClass=io.github.memelandfaner.SafeerBrowser',text)
-                self.assertTrue(default._starts_this_install(f'/usr/bin/python3 {app_dir}/safeer_brskalnik.py %U',app_dir))
-            with patch.object(default,'_gtk3',return_value=True):
-                self.assertIn('safeer_mint.py',default.launcher_command(app_dir))
-                self.assertIn('StartupWMClass=safeer-browser',default.desktop_entry_text('',app_dir))
+            (app_dir/default.VSTOP).write_text('#')
+            self.assertIn('safeer_brskalnik.py',default.launcher_command(app_dir))
+            text=default.desktop_entry_text('',app_dir)
+            self.assertIn('StartupWMClass=io.github.memelandfaner.SafeerBrowser',text)
+            self.assertTrue(default._starts_this_install(f'/usr/bin/python3 {app_dir}/safeer_brskalnik.py %U',app_dir))
 
     def test_deb_desktop_entry_uses_an_absolute_launcher(self):
         text=(ROOT/'build_deb.sh').read_text()

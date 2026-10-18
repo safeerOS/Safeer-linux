@@ -231,10 +231,9 @@ def besedilo_obvestila(izid: str, ime: str, jezik: str = "sl") -> str:
 
 
 def _vsebina(rezultat) -> str:
-    """Besedilo sporocila skripte (WebKit2 4.1 JavascriptResult ali JSC.Value)."""
+    """Besedilo sporocila skripte (JSC.Value, WebKitGTK 6.0)."""
     try:
-        vrednost = rezultat.get_js_value() if hasattr(rezultat, "get_js_value") else rezultat
-        return str(vrednost.to_string() or "")
+        return str(rezultat.to_string() or "")
     except Exception:  # noqa: BLE001
         return ""
 

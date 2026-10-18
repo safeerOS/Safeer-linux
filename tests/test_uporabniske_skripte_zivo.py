@@ -21,6 +21,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core import userscripts  # noqa: E402
 
+# GTK4 + WebKitGTK 6.0, kot Safeer (GTK3 je umaknjen 18. 10. 2026).
+try:
+    import gi
+    gi.require_version("Gtk", "4.0")
+    gi.require_version("WebKit", "6.0")
+    from gi.repository import GLib, Gtk, WebKit
+except (ImportError, ValueError):  # brez WebKitGTK 6.0 preizkusa ni
+    GLib = Gtk = WebKit = None
+
 STRAN = b"""<!doctype html>
 <html><head><title>zacetek</title></head><body>
 <script>
@@ -62,6 +71,7 @@ def skripta(vzorec):
 
 @unittest.skipUnless(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"),
                      "potrebuje zaslon")
+@unittest.skipUnless(WebKit, "potrebuje WebKitGTK 6.0")
 class PreizkusVZivo(unittest.TestCase):
 
     @classmethod
@@ -82,11 +92,7 @@ class PreizkusVZivo(unittest.TestCase):
 
     def poglej(self, vzorec):
         """Naloži stran z vbrizgano skripto in vrne naslov strani po nalaganju."""
-        import gi
-        gi.require_version("Gtk", "3.0")
-        gi.require_version("WebKit2", "4.1")
-        from gi.repository import Gtk, WebKit2, GLib  # noqa: F401
-
+        WebKit2 = WebKit
         koda = skripta(vzorec)
         pripravljeno = userscripts.pripravi(
             {"id": "script_zivi", "code": koda}, {}, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -102,10 +108,11 @@ class PreizkusVZivo(unittest.TestCase):
             pripravljeno["prepovedani"],
         ))
 
-        pogled = WebKit2.WebView.new_with_user_content_manager(upravitelj)
-        okno = Gtk.OffscreenWindow()
-        okno.add(pogled)
-        okno.show_all()
+        Gtk.init()
+        pogled = WebKit2.WebView(user_content_manager=upravitelj)
+        okno = Gtk.Window()
+        okno.set_child(pogled)
+        okno.present()
 
         izid = {}
         zanka = GLib.MainLoop()

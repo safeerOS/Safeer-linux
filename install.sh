@@ -17,21 +17,16 @@ echo "=========================================================="
 # Preveri potrebne sistemske pakete. Privzeto (od 16. 10. 2026) install.sh zazene GTK4 brskalnik safeer_brskalnik.py
 # (GTK4, WebKitGTK 6.0), zato velja isti seznam kot Depends GTK4 paketa v build_deb.sh (test
 # tests/test_install_odvisnosti.py); kodeki GStreamer so v seznamu, ker brez njih video na straneh ne dela.
-# SAFEER_BRSKALNIK_GTK3=1: zastareli GTK3 brskalnik (safeer_mint.py, WebKit2GTK 4.1) do umika.
-if [ "${SAFEER_BRSKALNIK_GTK3:-0}" = 1 ]; then
-    PAKETI="python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-webkit2-4.1 gir1.2-soup-3.0 gir1.2-glib-2.0"
-else
-    echo "Zahteva: Linux Mint 22 / Ubuntu 24.04 ali novejši (GTK4, WebKitGTK 6.0)."
-    PAKETI="python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-webkit-6.0 gir1.2-soup-3.0 gir1.2-glib-2.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-gl"
-    # WebKitGTK 6.0 je v arhivu sele od Linux Mint 22 / Ubuntu 24.04: na starejsem sistemu ga apt ne najde, zato to
-    # povemo jasno, namesto da apt install pade z »Unable to locate package«.
-    if ! dpkg -s gir1.2-webkit-6.0 >/dev/null 2>&1 && command -v apt-cache >/dev/null 2>&1 \
-            && ! apt-cache policy gir1.2-webkit-6.0 2>/dev/null | grep -q "Candidate: [0-9]"; then
-        echo "❌ Safeer Browser potrebuje WebKitGTK 6.0 (gir1.2-webkit-6.0), ki ga ima Linux Mint 22 / Ubuntu 24.04 ali novejši."
-        echo "   Apt ga na tem sistemu ne najde (po sveži namestitvi najprej: sudo apt update)."
-        echo "   Na starejšem sistemu: nadgradite ga ali namestite Flatpak (io.github.memelandfaner.SafeerBrowser)."
-        exit 1
-    fi
+echo "Zahteva: Linux Mint 22 / Ubuntu 24.04 ali novejši (GTK4, WebKitGTK 6.0)."
+PAKETI="python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-webkit-6.0 gir1.2-soup-3.0 gir1.2-glib-2.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-gl"
+# WebKitGTK 6.0 je v arhivu sele od Linux Mint 22 / Ubuntu 24.04: na starejsem sistemu ga apt ne najde, zato to
+# povemo jasno, namesto da apt install pade z »Unable to locate package«.
+if ! dpkg -s gir1.2-webkit-6.0 >/dev/null 2>&1 && command -v apt-cache >/dev/null 2>&1 \
+        && ! apt-cache policy gir1.2-webkit-6.0 2>/dev/null | grep -q "Candidate: [0-9]"; then
+    echo "❌ Safeer Browser potrebuje WebKitGTK 6.0 (gir1.2-webkit-6.0), ki ga ima Linux Mint 22 / Ubuntu 24.04 ali novejši."
+    echo "   Apt ga na tem sistemu ne najde (po sveži namestitvi najprej: sudo apt update)."
+    echo "   Na starejšem sistemu: nadgradite ga ali namestite Flatpak (io.github.memelandfaner.SafeerBrowser)."
+    exit 1
 fi
 MISSING_PKGS=()
 for pkg in $PAKETI; do
@@ -58,9 +53,7 @@ if [ ${#MISSING_PKGS[@]} -ne 0 ]; then
 fi
 
 # 1. Ensure execute permissions
-chmod +x "$DIR/safeer_mint.py"
 chmod +x "$DIR/safeer-mint.sh"
-chmod +x "$DIR/safeer-browser.desktop"
 
 # 2. Install executable into ~/.local/bin so user can run 'safeer' from anywhere
 mkdir -p "$BIN_DIR"
@@ -89,14 +82,9 @@ fi
 
 # 4. Install .desktop file to application menu
 mkdir -p "$DESKTOP_DIR"
-# GTK4 brskalnik: vnos iz paketov (StartupWMClass = ID aplikacije, brez »Novo okno« - en primerek); GTK3 ima svojega.
-if [ "${SAFEER_BRSKALNIK_GTK3:-0}" = 1 ]; then
-    sed -e "s|Exec=safeer-browser|Exec=$BIN_DIR/safeer-browser|g" \
-        "$DIR/safeer-browser.desktop" > "$DESKTOP_DIR/safeer-browser.desktop"
-else
-    sed -e "s|^Exec=safeer |Exec=$BIN_DIR/safeer-browser |" \
-        "$DIR/packaging/safeer-browser.desktop" > "$DESKTOP_DIR/safeer-browser.desktop"
-fi
+# Vnos iz paketov (StartupWMClass = ID aplikacije, brez »Novo okno« - en primerek).
+sed -e "s|^Exec=safeer |Exec=$BIN_DIR/safeer-browser |" \
+    "$DIR/packaging/safeer-browser.desktop" > "$DESKTOP_DIR/safeer-browser.desktop"
 chmod +x "$DESKTOP_DIR/safeer-browser.desktop"
 
 # 5. Create Desktop shortcut if Desktop or Namizje exists

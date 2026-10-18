@@ -63,7 +63,7 @@ class LiveOverload(unittest.TestCase):
             json.dump({"first_run_completed": True, "check_default_browser": False, "doh_enabled": False}, h)
         stderr_path = os.path.join(tmp, "stderr.txt")
         stderr_file = open(stderr_path, "w")
-        proc = subprocess.Popen(["python3", os.path.join(ROOT, "safeer_mint.py"), "http://127.0.0.1:18765/heavy.html"],
+        proc = subprocess.Popen(["python3", os.path.join(ROOT, "safeer_brskalnik.py"), "http://127.0.0.1:18765/heavy.html"],
                                 cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=stderr_file)
         log = ""
         try:

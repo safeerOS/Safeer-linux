@@ -24,26 +24,17 @@ from typing import Callable, Dict, Optional
 
 
 def _izvedi_js(pogled, koda: str) -> None:
-    """JavaScript v strani: WebKitGTK 6.0 (GTK4) ima samo evaluate_javascript, starejsi 4.1 run_javascript."""
-    if hasattr(pogled, "evaluate_javascript"):
-        pogled.evaluate_javascript(koda, -1, None, None, None, None, None)
-    else:
-        pogled.run_javascript(koda, None, None, None)
+    """JavaScript v strani (WebKitGTK 6.0)."""
+    pogled.evaluate_javascript(koda, -1, None, None, None, None, None)
 
 
 def _gdk_webkit():
-    """(Gdk, WebKit, gtk4) v razlicici, ki jo je program ze izbral: Safeer Browser GTK3 + WebKit2GTK 4.1, Safeer OS
-    in Control GTK4 + WebKitGTK 6.0 (en proces ne sme naloziti obeh)."""
+    """(Gdk, WebKit): GTK4 + WebKitGTK 6.0 (GTK3 je umaknjen 18. 10. 2026)."""
     import gi
-    if gi.get_required_version("Gtk") == "3.0":
-        gi.require_version("Gdk", "3.0")
-        gi.require_version("WebKit2", "4.1")
-        from gi.repository import Gdk, WebKit2
-        return Gdk, WebKit2, False
     gi.require_version("Gdk", "4.0")
     gi.require_version("WebKit", "6.0")
     from gi.repository import Gdk, WebKit
-    return Gdk, WebKit, True
+    return Gdk, WebKit
 
 
 ZMOZNOST = "remote"
@@ -160,7 +151,7 @@ def _dejanje_v_procesu(dejanje: str, vrednost: str) -> bool:
     celovitosti 15. 10. 2026). False: Safeer OS v tem procesu ne tece, ostane zagon programa."""
     try:
         from core import en_proces
-    except ImportError:          # brskalnik Safeer (safeer_mint.py) brez tega modula
+    except ImportError:          # program brez Safeer OS v tem procesu
         return False
     aplikacija = en_proces.os_app()
     if aplikacija is None:
@@ -909,15 +900,11 @@ def _znova_zazeni(app) -> dict:
 def _pocisti(app) -> dict:
     """Pocisti predpomnilnik WebKita (ne piskotkov in ne gesel)."""
     try:
-        _Gdk, WebKit2, gtk4 = _gdk_webkit()
+        _Gdk, WebKit2 = _gdk_webkit()
         wv = _webview(app)
-        if gtk4:
-            # WebKitGTK 6.0: podatki strani so na NetworkSession, ne na WebContext.
-            seja = wv.get_network_session() if wv is not None else WebKit2.NetworkSession.get_default()
-            upravitelj = seja.get_website_data_manager()
-        else:
-            kontekst = wv.get_context() if wv is not None else WebKit2.WebContext.get_default()
-            upravitelj = kontekst.get_website_data_manager()
+        # WebKitGTK 6.0: podatki strani so na NetworkSession, ne na WebContext.
+        seja = wv.get_network_session() if wv is not None else WebKit2.NetworkSession.get_default()
+        upravitelj = seja.get_website_data_manager()
         vrste = WebKit2.WebsiteDataTypes.DISK_CACHE | WebKit2.WebsiteDataTypes.MEMORY_CACHE
         # Predpomnilnika aplikacij (AppCache) WebKitGTK 6.0 nima vec.
         if hasattr(WebKit2.WebsiteDataTypes, "OFFLINE_APPLICATION_CACHE"):
@@ -952,20 +939,19 @@ def _posnetek(app, koncaj: Callable[[dict], None]) -> None:
     if wv is None:
         koncaj(izid(False, "Ni odprtega zavihka"))
         return
-    Gdk, WebKit2, gtk4 = _gdk_webkit()
+    Gdk, WebKit2 = _gdk_webkit()
     from gi.repository import GdkPixbuf
     import base64
 
     def gotovo(pogled, rezultat, *_a):
         try:
-            # WebKitGTK 6.0 vrne Gdk.Texture, 4.1 povrsino cairo.
+            # WebKitGTK 6.0 vrne Gdk.Texture.
             povrsina = pogled.get_snapshot_finish(rezultat)
             sirina, visina = povrsina.get_width(), povrsina.get_height()
             if sirina <= 0 or visina <= 0:
                 koncaj(izid(False, "Zaslon se ni pripravljen"))
                 return
-            slika = (Gdk.pixbuf_get_from_texture(povrsina) if gtk4
-                     else Gdk.pixbuf_get_from_surface(povrsina, 0, 0, sirina, visina))
+            slika = Gdk.pixbuf_get_from_texture(povrsina)
             merilo = min(1.0, 640.0 / sirina)
             if merilo < 1.0:
                 slika = slika.scale_simple(max(1, int(sirina * merilo)), max(1, int(visina * merilo)),
