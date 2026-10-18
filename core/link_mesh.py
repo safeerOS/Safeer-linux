@@ -66,6 +66,8 @@ class OdhodnaSosednja:
         self.naslov = naslov
         self.podatki: dict = {}
         self._vrsta: collections.deque = collections.deque()
+        self._zaklep_vrste = threading.Lock()
+        self._nadomestljivi: dict = {}
         self._ima = threading.Event()
         self._zaprta = False
         #: Meritev poti do soseda (zamik, nihanje, izgube) iz srcnega utripa. Samo opazovanje: zaradi nje
@@ -78,15 +80,31 @@ class OdhodnaSosednja:
             pass
         threading.Thread(target=self._pisi, name="safeer-mesh-pisec", daemon=True).start()
 
-    def poslji(self, besedilo: str) -> bool:
+    #: poslji(..., nadomesti=) zna (core/link_spremembe.razposlji).
+    NADOMESTI = True
+
+    def poslji(self, besedilo: str, nadomesti: Optional[str] = None) -> bool:
+        """V vrsto. `nadomesti`: cakajoce sporocilo te vrste (cel seznam starejsemu sosedu) zamenja novejse."""
         if self._zaprta:
             return False
+        if nadomesti is not None:
+            with self._zaklep_vrste:
+                star = self._nadomestljivi.get(nadomesti)
+                if star is not None:
+                    for i, b in enumerate(self._vrsta):
+                        if b is star:
+                            self._vrsta[i] = besedilo
+                            self._nadomestljivi[nadomesti] = besedilo
+                            return True
         if len(self._vrsta) >= NAJVEC_V_VRSTI:
             print("[SafeerLink] mesh: sosed %s ne bere (%d sporocil v vrsti) - povezavo zapiram" % (self.naslov, len(self._vrsta)),
                   flush=True)
             self.zapri(1008, "sosed ne bere")
             return False
-        self._vrsta.append(besedilo)
+        with self._zaklep_vrste:
+            self._vrsta.append(besedilo)
+            if nadomesti is not None:
+                self._nadomestljivi[nadomesti] = besedilo
         self._ima.set()
         return True
 
@@ -99,7 +117,10 @@ class OdhodnaSosednja:
                     self.zapri()
                 continue
             while self._vrsta and not self._zaprta:
-                besedilo = self._vrsta.popleft()
+                with self._zaklep_vrste:
+                    besedilo = self._vrsta.popleft()
+                    for k in [k for k, v in self._nadomestljivi.items() if v is besedilo]:
+                        del self._nadomestljivi[k]
                 try:
                     self.ws.poslji(besedilo)
                 except Exception:

@@ -35,7 +35,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Tuple
 #: Zmoznost v prijavi (`capabilities`) in v `caps` seznama soseda: prejemnik zna posnetek + spremembe.
 ZMOZNOST = "devdelta1"
 #: Okno zdruzevanja sprememb (s). Meritev 18. 10. 2026 (tools/link_val_prijav.py, zanka, pravi TLS): glej docs/LINK-MESH.md.
-OKNO_S = 0.15
+OKNO_S = 0.25
 #: Sporocila. Posnetek je obstojeci `cast.devices` (z `epoch` in `ver`) oz. `mesh.devices` (z `epoch`, `ver`, `caps`).
 POSNETEK = "cast.devices"
 SPREMEMBE = "cast.devices.delta"
@@ -327,7 +327,15 @@ def razposlji(pogled: Pogled, povezave: Iterable, posnetek: Callable[[], str], s
         # ki je ni dobil.
         podatki[POSLANO] = zdaj
         try:
-            ok = p.poslji(besedila[vrsta]) is not False
+            if vrsta == "p" and not podatki.get(ZNA) and getattr(p, "NADOMESTI", False):
+                # Starejsi prejemnik dobi samo cele sezname: novejsi nadomesti tistega, ki se caka v vrsti (ob valu prijav
+                # sicer vrsta prekipi in prejemnik izpade). Pri tistem, ki zna spremembe, ne - te gredo v vrstnem redu.
+                try:
+                    ok = p.poslji(besedila[vrsta], nadomesti=POSNETEK) is not False
+                except TypeError:       # ovoj povezave brez tega argumenta: navadno posiljanje
+                    ok = p.poslji(besedila[vrsta]) is not False
+            else:
+                ok = p.poslji(besedila[vrsta]) is not False
         except Exception:  # noqa: BLE001 - ena povezava ne sme ustaviti objave drugim
             ok = False
         if not ok:

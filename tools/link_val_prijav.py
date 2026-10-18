@@ -73,6 +73,7 @@ class _Odjemalec:
         self.nov = nov
         self.zaklep = threading.Lock()
         self.bajtov = 0
+        self.bajtov_seznamov = 0
         self.sporocil = 0
         self.zahtev = 0
         self.prejemnik = link_spremembe.Prejemnik() if (nov and link_spremembe) else None
@@ -81,11 +82,13 @@ class _Odjemalec:
 
     def sprejmi(self, besedilo: str, cas: float, vseh: int):
         with self.zaklep:
-            self.bajtov += len(besedilo.encode("utf-8"))
+            n = len(besedilo.encode("utf-8"))
+            self.bajtov += n
             self.sporocil += 1
             s = json.loads(besedilo)
             if s.get("type") not in ("cast.devices", "cast.devices.delta"):
                 return None
+            self.bajtov_seznamov += n
             if self.prejemnik is not None:
                 s, zahtevaj = self.prejemnik.sprejmi(s)
                 if zahtevaj:
@@ -175,14 +178,17 @@ def nacin_obdelaj(n: int, okno: float, razpon: float, stari: float) -> dict:
 
 def sredisce(mapa: str, okno: float) -> None:
     """Podproces: pravo sredisce na 127.0.0.1. Na stdin bere ukaze, na stdout odgovarja z JSON."""
+    # Odgovori gredo po svojem izhodu; kar sredisce izpise samo (npr. »naprava ne bere«), gre v dnevnik (stderr).
+    odgovori = os.fdopen(os.dup(1), "w")
+    sys.stdout = sys.stderr
     from core import link_datoteke, link_hub_streznik as lhs, link_ws, link_viri
     link_viri.POSLUSALCI[:] = []
     stevec = {"bajtov": 0, "seznamov": 0, "sporocil_seznamov": 0, "zaprtih_zaradi_vrste": 0}
     zaklep = threading.Lock()
     izvirni = link_ws.Povezava.poslji
 
-    def poslji(self, besedilo):
-        ok = izvirni(self, besedilo)
+    def poslji(self, besedilo, **k):
+        ok = izvirni(self, besedilo, **k)
         n = len(besedilo.encode("utf-8"))
         glava = besedilo[:48]
         with zaklep:
@@ -209,12 +215,12 @@ def sredisce(mapa: str, okno: float) -> None:
     streznik.datoteke = lambda: None
     streznik.zaslon = lambda: None
     threading.Thread(target=streznik.serve_forever, daemon=True).start()
-    print(json.dumps({"vrata": streznik.server_address[1], "odtis": odtis}), flush=True)
+    print(json.dumps({"vrata": streznik.server_address[1], "odtis": odtis}), file=odgovori, flush=True)
     for vrstica in sys.stdin:
         ukaz = vrstica.strip()
         if ukaz == "stanje":
             with zaklep:
-                print(json.dumps(dict(stevec, cpu_s=_cpu(), povezanih=len(hub.povezane()))), flush=True)
+                print(json.dumps(dict(stevec, cpu_s=_cpu(), povezanih=len(hub.povezane()))), file=odgovori, flush=True)
         elif ukaz == "konec":
             break
     try:
@@ -229,8 +235,9 @@ def nacin_zanka(n: int, okno: float, stari: float, rok: float) -> dict:
     from core import link_hub
     mapa = tempfile.mkdtemp(prefix="safeer-val-")
     okolje = dict(os.environ, XDG_CONFIG_HOME=mapa, PYTHONPATH=KOREN)
+    dnevnik = open(os.path.join(mapa, "sredisce.log"), "w")
     proces = subprocess.Popen([sys.executable, os.path.abspath(__file__), "_sredisce", mapa, str(okno)],
-                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=okolje, cwd=mapa)
+                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=dnevnik, text=True, env=okolje, cwd=mapa)
     try:
         zacetek = json.loads(proces.stdout.readline())
         vrata, odtis = zacetek["vrata"], zacetek["odtis"]
@@ -283,10 +290,14 @@ def nacin_zanka(n: int, okno: float, stari: float, rok: float) -> dict:
         time.sleep(max(0.5, 3 * okno))          # zadnje spremembe po oknu (bajti)
         s = stanje()
         ustavi.set()
+        dnevnik.flush()
+        with open(os.path.join(mapa, "sredisce.log")) as f:
+            ne_bere = sum(1 for v in f if "ne bere" in v)
         return {"naprav": n, "novih": novih, "okno_s": okno if link_spremembe else None,
                 "bajtov_seznamov": s["seznamov"], "bajtov_vseh": s["bajtov"], "sporocil_seznamov": s["sporocil_seznamov"],
                 "konvergenca_s": round(konec - t0, 3) if konec else None, "cpu_s": round(s["cpu_s"] - cpu0, 3),
-                "izpadlih": len(izpadli), "zahtev_posnetka": sum(o.zahtev for o in odjemalci),
+                "prejeto_seznamov": sum(o.bajtov_seznamov for o in odjemalci),
+                "izpadlih": len(izpadli), "odklopov_ne_bere": ne_bere, "zahtev_posnetka": sum(o.zahtev for o in odjemalci),
                 "neujemanj": sum(1 for o in odjemalci if o.cas_celega is None)}
     finally:
         try:
@@ -296,6 +307,7 @@ def nacin_zanka(n: int, okno: float, stari: float, rok: float) -> dict:
         except Exception:  # noqa: BLE001
             proces.kill()
             proces.wait(timeout=10)
+        dnevnik.close()
         shutil.rmtree(mapa, ignore_errors=True)
 
 
@@ -321,7 +333,7 @@ def main() -> int:
             print(json.dumps(r), flush=True)
         else:
             print("%4d naprav (novih %3d, okno %s): seznami %s, vse %s, konvergenca %s s, CPU sredisca %.2f s, "
-                  "neujemanj %d%s" % (n, r["novih"], r["okno_s"], _berljivo(r["bajtov_seznamov"]),
+                  "neujemanj %d%s" % (n, r["novih"], r["okno_s"], _berljivo(r.get("prejeto_seznamov", r["bajtov_seznamov"])),
                                       _berljivo(r["bajtov_vseh"]), r["konvergenca_s"], r["cpu_s"], r["neujemanj"],
                                       (", izpadlih %d, zahtev posnetka %d, sporocil seznamov %d" % (
                                           r["izpadlih"], r["zahtev_posnetka"], r["sporocil_seznamov"]))

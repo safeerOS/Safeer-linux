@@ -106,6 +106,8 @@ class Povezava:
         self.podatki: dict = {}          # kar si o napravi zapomni Hub (id, ime, vloga ...)
         self._vrsta: Deque[bytes] = collections.deque()
         self._bajtov = 0
+        #: vrsta sporocila -> okvir, ki se caka v vrsti in ga novejsi iste vrste nadomesti (poslji(nadomesti=)).
+        self._nadomestljivi: dict = {}
         self._zaklep = threading.Lock()
         self._ima_kaj = threading.Event()
         self._zaprta = False
@@ -148,13 +150,28 @@ class Povezava:
 
     # ------------------------------------------------------------------ pisanje
 
-    def poslji(self, besedilo: str) -> bool:
-        return self._v_vrsto(okvir(OPKODA_BESEDILO, besedilo.encode("utf-8")))
+    #: poslji(..., nadomesti=) zna (core/link_spremembe.razposlji).
+    NADOMESTI = True
 
-    def _v_vrsto(self, surovo: bytes) -> bool:
+    def poslji(self, besedilo: str, nadomesti: Optional[str] = None) -> bool:
+        """V izhodno vrsto. `nadomesti`: sporocilo te vrste, ki se caka v vrsti, se zamenja z novim (na istem mestu) -
+        za cel seznam naprav starejsemu odjemalcu, kjer novejsi seznam stari povsem nadomesti. Prej se je ob valu prijav
+        v vrsti nabralo vec celih seznamov (pri 400 napravah ~120 KB vsak) in odjemalec je izpadel (meja vrste)."""
+        return self._v_vrsto(okvir(OPKODA_BESEDILO, besedilo.encode("utf-8")), nadomesti)
+
+    def _v_vrsto(self, surovo: bytes, nadomesti: Optional[str] = None) -> bool:
         with self._zaklep:
             if self._zaprta:
                 return False
+            if nadomesti is not None:
+                star = self._nadomestljivi.get(nadomesti)
+                if star is not None:
+                    for i, okv in enumerate(self._vrsta):
+                        if okv is star:
+                            self._vrsta[i] = surovo
+                            self._bajtov += len(surovo) - len(star)
+                            self._nadomestljivi[nadomesti] = surovo
+                            return True
             # Sonda meritve (izmeri) ne steje: zaradi meritve povezava ne izpade niti en okvir prej.
             v_vrsti = len(self._vrsta) - (self._sonda is not None)
             if v_vrsti >= NAJVEC_V_VRSTI or self._bajtov + len(surovo) > NAJVEC_BAJTOV_V_VRSTI:
@@ -170,6 +187,8 @@ class Povezava:
                 return False
             self._vrsta.append(surovo)
             self._bajtov += len(surovo)
+            if nadomesti is not None:
+                self._nadomestljivi[nadomesti] = surovo
         self._ima_kaj.set()
         return True
 
@@ -183,6 +202,8 @@ class Povezava:
                         return
                     continue
                 surovo = self._vrsta.popleft()
+                for k in [k for k, v in self._nadomestljivi.items() if v is surovo]:
+                    del self._nadomestljivi[k]          # ze na poti: naslednji iste vrste gre na konec vrste
                 if surovo is self._sonda:
                     self._sonda = None      # sonda ni stela v _bajtov; naslednji izmeri() sme poslati novo
                 else:

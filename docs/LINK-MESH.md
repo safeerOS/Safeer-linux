@@ -135,6 +135,9 @@ mesh.route     {type, id, payload: {to: <lokalni id pri sosedu>, msg: "<surovo s
 mesh.trust     {type, id, payload: <krog json>}     (zdruzi s preverjanjem podpisov, brez odmeva)
 ```
 
+Seznam naprav (`cast.devices`, `mesh.devices`) gre od 1.0.127 (Android 0.5.90) kot posnetek + spremembe – glej
+»Seznam naprav: samo spremembe« spodaj (`cast.devices.delta`, `mesh.devices.delta`, `*.sync`).
+
 - `mesh.route`: prejemnik preveri, da je `to` njegova **lokalna** naprava, in ji pošlje `msg`
   nespremenjen (pošiljatelja je vpisal hub, ki ga je sprejel od svoje naprave). Največ 1 MiB.
 - Hub sprejme `mesh.*` samo od povezave, prijavljene z `role: "hub"` in podpisom člana kroga.
@@ -288,15 +291,117 @@ poslanih, 16 naročnikov → na napravo / brez. Internet prek telefona: 48 tokov
 
 ### Kar pri velikem krogu še ni rešeno (izmerjeno, ni število)
 
-- **Seznam naprav:** vsaka sprememba gre vsem povezanim s CELIM seznamom, zato je val prijav N naprav na eno središče
-  O(N³) bajtov. Meritev 18. 10. 2026 (`Hub.obdelaj`, prave prijave, vsota poslanega): 32 naprav (prejšnja meja)
-  2,8 MB, 100 naprav 79 MB, 200 naprav 628 MB, 400 naprav 5,2 GB. Izhodna vrsta (512 KiB na povezavo) napravo, ki ne
-  dohaja, odklopi. Za podjetje je naslednji korak sporočilo o spremembi (dodana / odstranjena naprava) namesto celega
-  seznama in združevanje sprememb – sprememba protokola, tudi na Androidu.
+- **Seznam naprav:** rešeno v 1.0.127 (Android 0.5.90) – glej »Seznam naprav: samo spremembe«. Do takrat je vsaka
+  sprememba šla vsem povezanim s CELIM seznamom (val prijav N naprav O(N³) bajtov: 32 naprav 2,8 MB, 100 naprav 79 MB,
+  200 naprav 628 MB, 400 naprav 5,2 GB), naprava, ki ni dohajala, pa je izpadla (izhodna vrsta 512 KiB).
 - **Iskanje člana v krogu** je linearno: pri 1000 članih 0,2 ms (s spominom id-ja iz ključa; prej 1,9 ms).
 - **Obramba je po naslovu IP:** naprave za istim NAT-om si delijo usodo – naprava, ki se prijavlja narobe, lahko
   zapre naslov za 10 min (na zaupanem naslovu sovražni dogodki štejejo pol). Po navodilu (obramba enako stroga)
   nespremenjeno.
+
+## Seznam naprav: samo spremembe (devdelta1, 18. 10. 2026)
+
+Lastnik, 18. 10. 2026: »Safeer Link naj pošilja samo spremembe seznama naprav, ne celega seznama ob vsaki spremembi – za
+podjetja z veliko napravami.« Koda: `core/link_spremembe.py` (Linux), `cast/SeznamSprememb.kt` (Android). Skupna pogodba
+s primeri, ki jih preverjata oba: `tests/fixtures/seznam_sprememb.json` (ista datoteka v obeh repozitorijih).
+
+**Dogovor (zmožnost `devdelta1`).** Odjemalec, ki zna, jo navede v `cast.register` (`capabilities`); sosednje središče
+v prijavi in v polju `caps` svojega `mesh.devices`. Kdor je ne navede (starejši Safeer na računalniku, Androidu ali
+Windows), dobi cel seznam kot doslej – mešan krog dela, nič se ne spremeni zanj.
+
+**Sporočila.**
+
+```
+cast.devices        {type, devices: [<zapis>...], epoch, ver}              posnetek (starejši prezre epoch/ver)
+cast.devices.delta  {type, epoch, base, ver, devices: <sprememba>}         samo kdor zna, samo z base = njegova ver
+cast.devices.sync   {id, type}                                             odjemalec -> središče: pošlji posnetek
+mesh.devices        {type, id, payload: {hub, devices: {id: zapis}, relay: {id: zapis}, epoch, ver, caps}}
+mesh.devices.delta  {type, id, payload: {hub, epoch, base, ver, devices: <sprememba>, relay: <sprememba>}}
+mesh.devices.sync   {type, id, payload: {hub}}                             sosed -> sosed: pošlji posnetek
+
+<sprememba> = {add: [<cel zapis z "id">...], chg: [{id, set: {polje: vrednost}, unset: [polje]}], del: [id...]}
+```
+
+- `epoch` je naključna oznaka zaporedja pri tem središču (nova ob ponovnem zagonu in za vsako novo skupino
+  prejemnikov), `ver` zaporedna številka. Sprememba velja samo, če je `epoch` ista in `base` natanko prejemnikova `ver`.
+- Spremenjena naprava nosi samo spremenjena polja (`set`) in odstranjena (`unset`). Čas zadnjega stika (`last_seen`)
+  ni sprememba: sicer bi vsaka objava nosila vse aktivne naprave – gre samo v posnetek in z dodano napravo.
+- Vrstni red: kar ostane, na svojem mestu, nove naprave na koncu – tako ga sestavi prejemnik, zato je posnetek vedno
+  enak seznamu, ki ga ima prejemnik po spremembah. Isti vrstni red dobi tudi starejši odjemalec.
+
+**Vrzel in dvom.** Prejemnik, ki dobi spremembo z drugo `epoch` ali `base` (vrzel), ali spremembo, ki se ne sklada z
+njegovim seznamom (sprememba ali odstranitev naprave, ki je nima, dodajanje naprave, ki jo ima, `id` v `set`/`unset`,
+zrcalo čez 4 MiB – dvom), zahteva posnetek (`*.sync`, največ vsaki 2 s, dokler ga ne dobi); do takrat ostane zadnji
+pravi seznam. Po ponovni povezavi je prvo vedno posnetek. Središče, ki sporočila ne more poslati, prejemniku naslednjič
+pošlje posnetek, ne spremembe. Objave so zaporedne (ena za drugo), zato spremembe pridejo v vrstnem redu verzij.
+
+**Varnost – ista kot pri celem seznamu.** Sprememba je razlika istega seznama, ki bi ga prejemnik dobil cel, zato velja
+isto filtriranje: čez mejo središča gredo samo člani kroga, brez pomoči drugim napravam ni naprav drugih sosedov
+(`relay`), odjemalec od drugod dobi naš naslov namesto zanke (pravilo 7). Skupine prejemnikov so iste kot prej. Ista
+povezava TLS, prijava s podpisom in pravila dostopa (`link_dostop`) – nič iz sporočila sprememb ne podeli dostopa.
+Zahteva za posnetek ne gre nikomur naprej; neprijavljena povezava je ne more poslati (`naprava_ni_povezana`).
+Preizkusi: `tests/test_link_spremembe.py` (tujec ni v nobeni spremembi, brez pomoči ni `relay`, `here`/`ip` kot pri
+celem seznamu, naključni mešani krog: novi odjemalec ima po vsaki spremembi natanko cel seznam), na Androidu
+`tests/SeznamSpremembTest.kt`.
+
+**Združevanje (okno 0,25 s).** Prva sprememba po mirovanju gre takoj (doma ni zakasnitve), vse naslednje v oknu
+gredo skupaj ob njegovem koncu. Objava vedno prebere trenutno stanje, zato se nobena sprememba ne izgubi. Okno je
+izbrano z meritvijo (spodaj): 0,25 s je bilo najboljše pri vseh merilih (bajti, sporočila, procesor, konvergenca).
+
+**Starejši prejemnik v velikem krogu.** Cel seznam, ki še čaka v izhodni vrsti, novejši nadomesti na istem mestu
+(`link_ws.Povezava.poslji(..., nadomesti=)`, enako pri odhodni sosednji povezavi). Prej se jih je ob valu nabralo do meje
+vrste in naprava je izpadla. Pri prejemniku, ki zna spremembe, se nič ne nadomešča.
+
+**Vrsta za sprejem povezav.** Središče na računalniku ima vrsto `listen` 512 (Python privzeto 5): ob valu prijav je
+jedro preostale klice zavrglo in naprave so čakale na ponovni SYN 1, 3, 7, 15 s.
+
+**Meritev 18. 10. 2026** (`tools/link_val_prijav.py zanka`: pravo središče s TLS v svojem procesu na zanki, vseh N
+odjemalcev hkrati v drugem procesu, 2 deljeni jedri; »pred« = 2e05acb, »po« = devdelta1 + okno 0,25 s + vrsta 512):
+
+| Naprav | Pred: seznami | Pred: vsi imajo cel seznam | Pred: CPU središča | Po: seznami | Po: vsi imajo cel seznam | Po: CPU središča |
+|---|---|---|---|---|---|---|
+| 32 | 3,4–4,6 MB | 1,3–2,1 s | 0,11–0,14 s | 0,31 MB | 0,31–0,34 s | 0,08–0,09 s |
+| 100 | 98–107 MB | 2,9–3,9 s | 0,7–0,8 s | 3,0 MB | 0,44–0,55 s | 0,20–0,25 s |
+| 200 | ~500 MB, nato izpad | nikoli (128–145 od 200 izpadlo) | – | 12,2 MB | 1,2–1,5 s | 0,5–0,6 s |
+| 400 | ~630 MB, nato izpad | nikoli (303–318 od 400 izpadlo) | – | 49–50 MB | 5,7–14,8 s (6 meritev, mediana ~7 s) | 1,8–4,3 s |
+
+Bajti so koristna vsebina sporočil seznama, ki so jih odjemalci res prejeli. Na napravo je promet zdaj linearen: pri 400
+napravah ~124 KB, kot en sam cel seznam (vsaka naprava mora vsako drugo izvedeti vsaj enkrat). Pri 400 napravah čas
+določa odjemalski proces (400 rokovanj TLS v enem procesu na dveh jedrih), zato razpon. Ločeno: samo vrsta 512 na starem
+protokolu (100 naprav) 113 MB in 2,4 s, 200 naprav še vedno izpad (197); samo spremembe brez večje vrste (100 naprav)
+3,1 MB in 2,4 s. Cena okna: konec vala pride do 0,25 s pozneje (32 naprav: 0,31 s namesto 0,22 s pri starem protokolu z
+večjo vrsto); posamezna sprememba po mirovanju gre takoj.
+
+Mešan krog na novem središču (isti preizkus; starejši dobijo cel seznam, a z oknom in nadomeščanjem v vrsti): 100 naprav,
+polovica starejših, 3,0 MB in 0,56 s; 100 samih starejših 2,9 MB in 0,38 s; 400 naprav, polovica starejših, 639 MB in
+28,6 s; 400 samih starejših 734 MB in 38,6 s – brez izpadov (pred: nikoli, 303–318 izpadlih). Starejši odjemalci so v
+velikem krogu počasnejši, a ostanejo povezani; posodobitev jih pospeši.
+
+Isti preizkus kot prej (`tools/link_val_prijav.py obdelaj`: `Hub.obdelaj`, prave prijave, vsota poslanega, brez
+omrežja): pred 3,2 MB / 93 MB / 742 MB / 5,9 GB za 32 / 100 / 200 / 400 naprav (zapisi naprav so v tej meritvi
+~10 % daljši kot 18. 10. ob 20.19: prijava nosi protocol, kind, version); po, samo spremembe brez okna 0,35 / 3,4 / 13,7 /
+54,7 MB; po z oknom 0,25 s 0,30 / 2,9 / 11,6 / 46,3 MB (tudi s prijavami, razporejenimi čez 2 s: 0,31 / 2,9 / 11,7 /
+46,4 MB). Android (`tests/SeznamSpremembTest.kt`, 32 naprav – meja središča na Androidu, brez okna): 2,16 milijona znakov
+s celimi seznami, 0,30 milijona s spremembami.
+
+**Izbira okna** (zanka, 400 naprav, vrsta 512, po dve meritvi):
+
+| Okno | Sporočil seznama | Vsi imajo cel seznam | CPU središča | Bajti |
+|---|---|---|---|---|
+| 0 (brez združevanja) | 45–50 tisoč | 13,2–14,2 s | 6,2–6,6 s | 53 MB |
+| 0,10 s | 20–21 tisoč | 9,3–12,0 s | 3,8–4,5 s | 50,5 MB |
+| 0,15 s | 12–13 tisoč | 7,5–8,3 s | 2,6–3,0 s | 49,7 MB |
+| 0,25 s | 6–8 tisoč | 5,7–6,9 s | 1,8–2,2 s | 49,1 MB |
+
+Pri 100 napravah so bila okna 0,10–0,25 s enaka (0,42–0,50 s), brez okna 0,72 s. Večje okno je pri valu boljše po vseh
+merilih, ker središče in odjemalci opravijo manj dela; plača se le z zakasnitvijo spremembe sredi vala (največ 0,25 s).
+Z vidika uporabnika: doma (posamezna sprememba) zakasnitve ni, v podjetju se val konča prej. Izbrano 0,25 s.
+
+**Znane meje.** Prejemnik mora seznam dobiti vsaj enkrat cel, zato je promet vala prijav še vedno sorazmeren N × N (vsaka
+od N naprav mora izvedeti za vse N) – na napravo pa linearen: pri 400 napravah ~120 KB, kot en cel seznam. Starejši
+odjemalec dobi cel seznam ob vsakem oknu, v katerem se je kaj spremenilo. Središče na Androidu ima vrsto za sprejem 16
+in nadomeščanja celega seznama v vrsti še nima (središče na Androidu ima mejo 32 naprav). V polni mreži vsako središče
+sosedom še vedno predstavi naprave vseh svojih sosedov (`relay`) – zdaj s spremembami, ne s celim zemljevidom.
 
 ## Združljivost
 

@@ -3266,6 +3266,11 @@ def nastavitve_vticnika(sistem: str = os.name) -> tuple:
 class _Streznik(link_tls.RokovanjeVNiti, http.server.ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = nastavitve_vticnika()[0]
+    #: Vrsta povezav, ki cakajo na sprejem (listen). Privzeta v Pythonu je 5: ob valu prijav (podjetje zjutraj, ponovni
+    #: zagon sredisca) je jedro preostale klice zavrglo in naprave so cakale na ponovni SYN 1, 3, 7, 15 s. Meritev 18. 10.
+    #: 2026 (tools/link_val_prijav.py zanka, 100 naprav hkrati): glej docs/LINK-MESH.md. Jedro vrsto omeji s somaxconn.
+    #: Preverjanje (obramba, TLS v niti) je isto kot prej - vrsta samo ne zavrze klica, preden ga lahko preverimo.
+    request_queue_size = 512
 
     def __init__(self, *a, **k) -> None:
         super().__init__(*a, **k)

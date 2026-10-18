@@ -535,6 +535,57 @@ class Zdruzevanje(Krog):
         self.assertEqual(len(prvi.vrste("cast.devices")), 1)
 
 
+# ---------------------------------------------------------------------------------------------- vrsta in sprejem
+
+class VrstaInSprejem(unittest.TestCase):
+    def test_starejsemu_cel_seznam_nadomesti_cakajocega(self):
+        """Starejsi odjemalec dobi samo cele sezname: v izhodni vrsti caka najvec eden (novejsi nadomesti starega na istem
+        mestu). Prej se jih je ob valu nabralo do meje vrste in odjemalec je izpadel (meritev: 200 naprav, 128 izpadlih)."""
+        import socket
+        from core import link_ws
+        a, b = socket.socketpair()
+        self.addCleanup(a.close)
+        self.addCleanup(b.close)
+        p = link_ws.Povezava(a, "127.0.0.1", lambda *_a: None)     # brez pisca: vse ostane v vrsti
+        self.assertTrue(p.poslji('{"type":"cast.devices","devices":[1]}', nadomesti="cast.devices"))
+        self.assertTrue(p.poslji('{"type":"chat.send"}'))
+        for i in range(200):
+            self.assertTrue(p.poslji('{"type":"cast.devices","devices":[%d]}' % i, nadomesti="cast.devices"))
+        self.assertEqual(len(p._vrsta), 2, "en sam seznam v vrsti, na prvotnem mestu")
+        self.assertIn(b'"devices":[199]', p._vrsta[0])
+        self.assertEqual(p._bajtov, sum(len(f) for f in p._vrsta))
+        self.assertFalse(p.zaprta)
+        # Spremembe (odjemalec, ki zna) se ne nadomescajo: gredo vse po vrsti.
+        c, d = socket.socketpair()
+        self.addCleanup(c.close)
+        self.addCleanup(d.close)
+        p2 = link_ws.Povezava(c, "127.0.0.1", lambda *_a: None)
+        for i in range(3):
+            p2.poslji('{"type":"cast.devices.delta","ver":%d}' % i)
+        self.assertEqual(len(p2._vrsta), 3)
+
+    def test_razposlji_nadomesca_samo_pri_starejsem(self):
+        class P:
+            NADOMESTI = True
+
+            def __init__(self, zna):
+                self.podatki = {ls.ZNA: zna}
+                self.klici = []
+
+            def poslji(self, b, nadomesti=None):
+                self.klici.append(nadomesti)
+                return True
+        pogled = ls.Pogled({"devices": True})
+        pogled.posodobi({"devices": OrderedDict(a={"id": "a"})})
+        star, nov = P(False), P(True)
+        ls.razposlji(pogled, [star, nov], lambda: "posnetek", lambda: "spremembe")
+        self.assertEqual((star.klici, nov.klici), ([ls.POSNETEK], [None]))
+
+    def test_vrsta_sprejema_ob_valu(self):
+        """Privzeta vrsta v Pythonu (5) je ob valu prijav zavrgla klice; naprave so cakale ponovni SYN 1-15 s."""
+        self.assertGreaterEqual(lhs._Streznik.request_queue_size, 512)
+
+
 # ---------------------------------------------------------------------------------------------- odjemalec
 
 class _LazniWs:
