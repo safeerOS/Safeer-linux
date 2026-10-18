@@ -194,7 +194,7 @@ class Povezave(unittest.TestCase):
     def test_klici_ob_spremembah(self):
         with open(os.path.join(KOREN, "safeer_os.py"), encoding="utf-8") as f:
             koda = f.read()
-        self.assertIn("self._katalog.yt_sporocilo(vrednost.to_string())\n            self._yt_spremenjeno()", koda)
+        self.assertIn("self._katalog.yt_sporocilo(rezultat.to_string())\n            self._yt_spremenjeno()", koda)
         self.assertIn("self._katalog.yt_zaprt()\n                self._yt_spremenjeno()", koda)
         self.assertIn("GLib.idle_add(lambda: self._yt_spremenjeno() and False)", koda)
 
