@@ -76,7 +76,7 @@ class Program(unittest.TestCase):
             def __exit__(self, *a): return False
         try:
             with mock.patch.object(ot, "RQBIT_PAKETI", paket), mock.patch.object(ot, "platforma", lambda: list(paket)[0]), \
-                    mock.patch.object(ot, "mapa_programa", lambda: mapa):
+                    mock.patch.object(ot, "mapa_programa", lambda: mapa), mock.patch.object(ot, "vgrajen_program", lambda: ""):
                 pot = ot.prenesi_program(odpri=lambda *_a, **_k: Odgovor(vsebina))
                 self.assertTrue(os.path.isfile(pot) and os.access(pot, os.X_OK))
                 self.assertTrue(ot.program_na_voljo())
@@ -97,6 +97,89 @@ class Program(unittest.TestCase):
                 self.assertEqual(napredek, [(100, len(vsebina))], "po preklicu se ne bere naprej")
                 self.assertFalse(os.path.exists(pot) or os.path.exists(pot + ".part"))
                 self.assertFalse(ot.program_na_voljo())
+        finally:
+            shutil.rmtree(mapa, ignore_errors=True)
+
+    def _program(self, pot: str) -> str:
+        os.makedirs(os.path.dirname(pot), exist_ok=True)
+        with open(pot, "wb") as d:
+            d.write(b"#!/bin/sh\n")
+        os.chmod(pot, 0o755)
+        return pot
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "vgrajen rqbit je samo v paketu .deb (Linux)")
+    def test_vgrajen_program_ima_prednost_in_se_ne_prenasa(self):
+        # Paket .deb prinese nas rqbit (packaging/rqbit): uporabi se namesto prenesenega, prenos ne gre na omrezje.
+        mapa = tempfile.mkdtemp()
+        try:
+            vgrajen = self._program(os.path.join(mapa, "safeer-os", "rqbit", "rqbit"))
+
+            def ni_omrezja(*_a, **_k):
+                raise AssertionError("vgrajen program se ne prenasa")
+            with mock.patch.object(ot, "_tovor", lambda: os.path.join(mapa, "safeer-os")), \
+                    mock.patch.dict(os.environ, {ot.SPREMENLJIVKA_VGRAJENEGA: ""}), \
+                    mock.patch.object(ot, "mapa_programa", lambda: os.path.join(mapa, "prenos")):
+                self.assertEqual(ot.vgrajen_program(), vgrajen)
+                self.assertEqual(ot.pot_programa(), vgrajen)
+                self.assertTrue(ot.program_na_voljo())
+                self.assertEqual(ot.prenesi_program(odpri=ni_omrezja), vgrajen)
+                self.assertFalse(os.path.exists(os.path.join(mapa, "prenos")))
+                # Safeer Control (/usr/lib/safeer-control) je v istem paketu: uporabi program Safeer OS.
+                os.makedirs(os.path.join(mapa, "safeer-control"))
+                with mock.patch.object(ot, "_tovor", lambda: os.path.join(mapa, "safeer-control")):
+                    self.assertEqual(ot.vgrajen_program(), vgrajen)
+                # Drug tovor (izvorna koda, AppImage brez programa) ne isce v sosednjih mapah: prenos z GitHuba.
+                with mock.patch.object(ot, "_tovor", lambda: os.path.join(mapa, "drugo")):
+                    self.assertEqual(ot.vgrajen_program(), "")
+                    self.assertEqual(ot.pot_programa(), ot.prenesen_program())
+                # Neizvrsljiva datoteka ni program.
+                os.chmod(vgrajen, 0o644)
+                self.assertEqual(ot.vgrajen_program(), "")
+                # SAFEER_RQBIT izrecno poda pot (preizkusi, razvoj).
+                drug = self._program(os.path.join(mapa, "drug", "rqbit"))
+                with mock.patch.dict(os.environ, {ot.SPREMENLJIVKA_VGRAJENEGA: drug}):
+                    self.assertEqual(ot.pot_programa(), drug)
+        finally:
+            shutil.rmtree(mapa, ignore_errors=True)
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "/proc")
+    def test_sirota_po_posodobitvi_paketa(self):
+        # Posodobitev paketa zamenja program, ki tece (/proc/PID/exe dobi " (deleted)"): sirota iz prejsnjega zagona se
+        # kljub temu ustavi; tuj proces z istim PID pa ne.
+        import subprocess
+        import time
+        mapa = tempfile.mkdtemp()
+        try:
+            program = os.path.join(mapa, "rqbit", "rqbit")
+            os.makedirs(os.path.dirname(program))
+            shutil.copyfile(shutil.which("sleep"), program)
+            os.chmod(program, 0o755)
+            stanje = os.path.join(mapa, "stanje")
+            os.makedirs(stanje)
+            sirota = subprocess.Popen([program, "60"])
+            tuj = subprocess.Popen([shutil.which("sleep"), "60"])
+            try:
+                for _ in range(50):
+                    if os.path.exists("/proc/%d/exe" % sirota.pid) and os.readlink("/proc/%d/exe" % sirota.pid) == program:
+                        break
+                    time.sleep(0.02)
+                os.remove(program)                             # dpkg: stari program izgine, nov pride na isto pot
+                shutil.copyfile(shutil.which("sleep"), program)
+                os.chmod(program, 0o755)
+                with open(os.path.join(stanje, "rqbit.pid"), "w") as d:
+                    d.write(str(tuj.pid))
+                ot._ustavi_sirote(stanje, program)
+                self.assertIsNone(tuj.poll(), "tuj proces ostane")
+                with open(os.path.join(stanje, "rqbit.pid"), "w") as d:
+                    d.write(str(sirota.pid))
+                ot._ustavi_sirote(stanje, program)
+                self.assertIsNotNone(sirota.wait(5))
+                self.assertFalse(os.path.exists(os.path.join(stanje, "rqbit.pid")))
+            finally:
+                for p in (sirota, tuj):
+                    if p.poll() is None:
+                        p.kill()
+                    p.wait(5)
         finally:
             shutil.rmtree(mapa, ignore_errors=True)
 

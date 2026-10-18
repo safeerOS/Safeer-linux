@@ -1,7 +1,8 @@
 """Safeer Media: magnet povezave (BitTorrent) - prejem, pošiljanje in predvajanje že med prenosom.
 
-Motor je odprtokodni rqbit (Apache-2.0, https://github.com/ikatson/rqbit). Safeer ga ob prvi rabi prenese
-z uradne izdaje na GitHubu, preveri SHA-256 in ga zažene kot lasten proces, samo na 127.0.0.1:
+Motor je odprtokodni rqbit (Apache-2.0, https://github.com/ikatson/rqbit). Paket .deb Safeer OS ga prinese sam
+(packaging/rqbit: uradni vir z nasim popravkom za racunalnike brez IPv6); drugje ga Safeer ob prvi rabi prenese
+z uradne izdaje na GitHubu in preveri SHA-256. Zažene ga kot lasten proces, samo na 127.0.0.1:
 
 - API rqbita zahteva geslo (HTTP Basic, naključno ob vsakem zagonu). Spletna stran v brskalniku ga zato
   ne more upravljati (CSRF), drug program na računalniku pa ne pozna gesla.
@@ -45,6 +46,12 @@ RQBIT_PAKETI: Dict[str, Tuple[str, str, int]] = {
     "windows-amd64": ("rqbit.exe", "2ed683203beca628e0c45f62f99feeef4242cecc3444c8422dfe5b1b6aa38cea", 12706816),
 }
 RQBIT_URL = "https://github.com/ikatson/rqbit/releases/download/v{razlicica}/{ime}"
+#: Nas rqbit v paketu .deb Safeer OS (packaging/rqbit, lastnik 18. 10. 2026): ista razlicica iz pripetega uradnega vira
+#: z nasim popravkom, zgrajena v CI (SHA-256 vira, popravka in programa preverjen ob gradnji paketa). Uradni program se
+#: na jedru brez IPv6 (ipv6.disable=1, nekateri vsebniki) ne zazene - odjemalec sledilnikov UDP veze [::]:0 tudi z
+#: --ipv4-only (EAFNOSUPPORT, izmerjeno 18. 10. 2026). Na Linuxu ima vgrajeni prednost; prenos z GitHuba (RQBIT_PAKETI)
+#: ostane za platforme in pakete brez njega (Windows, Flatpak, AppImage). SAFEER_RQBIT: pot do programa (preizkusi).
+SPREMENLJIVKA_VGRAJENEGA = "SAFEER_RQBIT"
 
 #: Hitrost brez pretirane obremenitve (glej docstring).
 NAJVEC_POVEZAV = 80
@@ -192,8 +199,13 @@ def _ustavi_sirote(mapa_stanja: str, program: str) -> None:
     try:
         if sys.platform.startswith("win"):
             return          # na Windows rqbit ustavi posel (Job Object) skupaj s Safeer OS
-        exe = os.path.realpath("/proc/%d/exe" % pid)
-        if exe == os.path.realpath(program):
+        exe = os.readlink("/proc/%d/exe" % pid)
+        # Posodobitev paketa program, ki tece, zamenja: jedro poti doda " (deleted)". Sirota je lahko tudi uradni
+        # preneseni program izpred prehoda na vgrajenega (ali obratno) - oba sta nasa.
+        if exe.endswith(" (deleted)"):
+            exe = exe[:-len(" (deleted)")]
+        nasi = {os.path.realpath(p) for p in (program, vgrajen_program(), prenesen_program()) if p}
+        if os.path.realpath(exe) in nasi:
             import signal
             os.kill(pid, signal.SIGTERM)
             for _ in range(30):
@@ -313,11 +325,40 @@ def mapa_prenosov() -> str:
     return os.path.join(prejemi or os.path.join(doma, "Downloads"), "Safeer")
 
 
-def pot_programa() -> str:
+def _tovor() -> str:
+    """Mapa, v kateri je core/ (paket .deb: /usr/lib/safeer-os ali /usr/lib/safeer-control)."""
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def vgrajen_program() -> str:
+    """rqbit iz paketa (samo Linux): <tovor>/rqbit/rqbit. Safeer Control (/usr/lib/safeer-control) je v istem paketu
+    kot Safeer OS in uporabi njegovega (/usr/lib/safeer-os/rqbit/rqbit). "" = paket ga nima."""
+    if not sys.platform.startswith("linux"):
+        return ""
+    izrecno = os.environ.get(SPREMENLJIVKA_VGRAJENEGA, "")
+    if izrecno:
+        kandidati = [izrecno]
+    else:
+        tovor = _tovor()
+        kandidati = [os.path.join(tovor, "rqbit", "rqbit")]
+        if os.path.basename(tovor) == "safeer-control":
+            kandidati.append(os.path.join(os.path.dirname(tovor), "safeer-os", "rqbit", "rqbit"))
+    for pot in kandidati:
+        if os.path.isfile(pot) and os.access(pot, os.X_OK):
+            return pot
+    return ""
+
+
+def prenesen_program() -> str:
+    """Pot uradnega programa, ki ga Safeer prenese z GitHuba (platforme brez vgrajenega)."""
     paket = RQBIT_PAKETI.get(platforma())
     if not paket:
         return ""
     return os.path.join(mapa_programa(), "rqbit.exe" if paket[0].endswith(".exe") else "rqbit")
+
+
+def pot_programa() -> str:
+    return vgrajen_program() or prenesen_program()
 
 
 def _sha256(pot: str) -> str:
@@ -329,7 +370,9 @@ def _sha256(pot: str) -> str:
 
 
 def program_na_voljo() -> bool:
-    pot = pot_programa()
+    if vgrajen_program():
+        return True
+    pot = prenesen_program()
     paket = RQBIT_PAKETI.get(platforma())
     return bool(pot and paket and os.path.isfile(pot) and os.path.getsize(pot) == paket[2])
 
@@ -337,13 +380,17 @@ def program_na_voljo() -> bool:
 def prenesi_program(napredek: Optional[Callable[[int, int], None]] = None,
                     odpri: Callable = urllib.request.urlopen, preklic=None) -> str:
     """Prenese rqbit za to platformo z uradne izdaje in preveri SHA-256. Vrne pot ali dvigne napako.
+    Paket z vgrajenim programom ne prenasa nicesar (vrne vgrajenega).
 
     `preklic` (threading.Event): uporabnik je prenos preklical - delna datoteka se odstrani, NapakaTorrenta("preklicano")."""
+    vgrajen = vgrajen_program()
+    if vgrajen:
+        return vgrajen
     paket = RQBIT_PAKETI.get(platforma())
     if not paket:
         raise RuntimeError("Ta platforma ni podprta")
     ime, pricakovan, velikost = paket
-    cilj = pot_programa()
+    cilj = prenesen_program()
     os.makedirs(os.path.dirname(cilj), exist_ok=True)
     zacasna = cilj + ".part"
     h = hashlib.sha256()
