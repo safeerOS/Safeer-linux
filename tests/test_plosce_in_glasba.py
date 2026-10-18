@@ -92,6 +92,49 @@ class GlasbaVKatalogu(unittest.TestCase):
         self.assertIn("var samoGlasba = prikaz.length > 0 && !neGlasba.length;", js)
 
 
+class SeznamPredvajanja(unittest.TestCase):
+    """Lastnik, 18. 10. 2026: v odprtem seznamu Spotify je bil »Na tem računalniku«, skladbe pa ena ozka kolona."""
+
+    def test_lokalna_glasba_ne_v_odprtem_seznamu(self):
+        js = _beri("assets/os/os.js")
+        lokalna = js.split("function narisiLokalnoGlasbo(skladbe, vrsta) {", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("kat.seznam", lokalna)
+        katalog = js.split("function narisiKatalog() {", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn('lokalnaGlasba.hidden = izSeznama', katalog)
+        self.assertIn("oznaciTrenutnoSkladbo();", katalog)
+
+    def test_skladbe_v_vrsticah(self):
+        css = _beri("assets/os/katalog.css")
+        self.assertRegex(css, r"\.kat-skladbe \.kat-kartica \{[^}]*flex-direction: row")
+        self.assertIn("html.kavc .kat-katalog.kat-skladbe", css)
+        self.assertIn('.kat-skladbe .kat-kartica[aria-current="true"]', css)
+
+    def test_css_brez_osirotelih_deklaracij(self):
+        # Ostanek pravila brez izbirnika (»  border: …; }«) je brskalniku izbrisal naslednje pravilo (postavitev »+«).
+        for ime in sorted(os.listdir(os.path.join(KOREN, "assets", "os"))):
+            if not ime.endswith(".css"):
+                continue
+            css = re.sub(r"/\*.*?\*/", "", _beri("assets/os/" + ime), flags=re.S)
+            sklad, uvod = [], ""
+            for znak in css:
+                if znak == "{":
+                    if not sklad or sklad[-1] == "@":            # izbirnik pravila (na vrhu ali v @media)
+                        self.assertNotIn(";", uvod, "%s: deklaracija zunaj pravila pred »%s«" % (ime, uvod.strip()[-60:]))
+                    sklad.append("@" if uvod.strip().startswith("@") and not uvod.strip().startswith("@font-face") else "p")
+                    uvod = ""
+                elif znak == "}":
+                    self.assertTrue(sklad, "%s: odvecen »}« za »%s«" % (ime, uvod.strip()[:60]))
+                    sklad.pop()
+                    uvod = ""
+                elif znak == ";" and sklad and sklad[-1] == "p":
+                    uvod = ""                                    # deklaracija znotraj pravila
+                else:
+                    uvod += znak
+                    if znak == ";" and not sklad and uvod.strip().startswith("@"):
+                        uvod = ""                                # @import ...;
+            self.assertEqual(sklad, [], ime)
+
+
 class VgrajeniViri(unittest.TestCase):
     """Lastnik, 11. 10. 2026: PeerTube in Internet Archive nista vgrajena vira."""
 
