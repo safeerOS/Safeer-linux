@@ -44,6 +44,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import weakref
 from array import array
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
@@ -103,6 +104,42 @@ PREVERJANJE = ("cloudflare.com", "hcaptcha.com", "recaptcha.net", "www.google.co
 
 def je_preverjanje(ime: str) -> bool:
     return any(ime == d or ime.endswith("." + d) for d in PREVERJANJE)
+
+
+#: Posrednik systemd-resolved (stub): vse, kar dobi, poslje Scitu - streznik naprej tja bi bil zanka.
+RESOLVED_STUB = ("127.0.0.53", "127.0.0.54")
+
+
+def je_zanka_naprej(vrednost: str) -> bool:
+    """Streznik naprej po meri (»naslov«, »naslov:vrata«, »[v6]:vrata«), ki bi poizvedbo vrnil Scitu ali Spletu:
+    Scit sam (127.0.0.1:5354-5357), posrednik systemd-resolved (ta sprasuje Scit) ali lokalni posrednik DoH Spleta
+    v tem procesu (ta ni streznik DNS; pregled 18. 10. 2026: zanka DoH). Domaci Pi-hole ali dnscrypt-proxy na
+    127.0.0.1:5053 je dovoljen."""
+    v = str(vrednost or "").strip()
+    naslov, vrata = v, 53
+    if v.startswith("["):
+        naslov, _, ostalo = v[1:].partition("]")
+        vrata = int(ostalo[1:]) if ostalo.startswith(":") and ostalo[1:].isdigit() else 53
+    elif v.count(":") == 1:
+        naslov, _, del_vrat = v.partition(":")
+        vrata = int(del_vrat) if del_vrat.isdigit() else 53
+    try:
+        ip = ipaddress.ip_address(naslov)
+    except ValueError:
+        return False
+    if getattr(ip, "ipv4_mapped", None) is not None:
+        ip = ip.ipv4_mapped
+    if not ip.is_loopback:
+        return False
+    if str(ip) in RESOLVED_STUB or vrata in VRATA:
+        return True
+    try:
+        import sys
+        doh = sys.modules.get("core.doh_proxy")
+        posrednik = getattr(doh, "_global_proxy", None) if doh is not None else None
+        return bool(posrednik is not None and vrata == getattr(posrednik, "actual_port", 0))
+    except Exception:  # noqa: BLE001
+        return False
 
 
 #: Najvec domen, ki jih uporabnik dovoli sam (izjeme), in najdaljsi premor Scita.
@@ -232,12 +269,19 @@ class Razresevalnik:
     """Razresevalnik DNS (UDP in TCP) na 127.0.0.1: blokirana imena zavrne, ostala posreduje."""
 
     def __init__(self, blokiraj: Callable[[str], Optional[str]], upstream: Callable[[], List[str]],
-                 naprej: Optional[Callable[[bytes], Optional[bytes]]] = None) -> None:
+                 naprej: Optional[Callable[[bytes], Optional[bytes]]] = None,
+                 zagonsko: Optional[Callable[[str], bool]] = None) -> None:
         self.blokiraj = blokiraj
         self.upstream = upstream
         #: Sifriran streznik naprej (DoH); None ali odpoved (cas, SERVFAIL) = strezniki usmerjevalnika (upstream).
         self.naprej = naprej
+        #: Ime streznika DoH naprej (npr. dns.quad9.net): knjiznica TLS ga razresi prek sistemskega DNS, ta pa je Scit
+        #: sam - ce bi ga poslali naprej prek DoH, bi se zavrtela zanka (vsako gnezdenje caka CAS_UPSTREAM in na koncu
+        #: tiho preide na usmerjevalnik). Ta imena gredo zato vedno naravnost usmerjevalniku (ime streznika ni skrivnost).
+        self.zagonsko = zagonsko
         self.rezerv = 0
+        #: time.time() zadnje poizvedbe, ki je zaradi odpovedi DoH sla nesifrirano usmerjevalniku (0 = se nobene).
+        self.nesifrirano_cas = 0.0
         self.vrata = 0
         self.blokiranih = 0
         self.poizvedb = 0
@@ -266,6 +310,8 @@ class Razresevalnik:
                         s.close()
                 continue
             self._udp, self._tcp, self.vrata, self._tece = u, t, vrata, True
+            _AKTIVNA_VRATA.add(vrata)
+            _AKTIVNI.add(self)
             threading.Thread(target=self._zanka_udp, name="safeer-scit-udp", daemon=True).start()
             threading.Thread(target=self._zanka_tcp, name="safeer-scit-tcp", daemon=True).start()
             return vrata
@@ -273,6 +319,7 @@ class Razresevalnik:
 
     def ustavi(self) -> None:
         self._tece = False
+        _AKTIVNA_VRATA.discard(self.vrata)
         for s in (self._udp, self._tcp):
             try:
                 if s is not None:
@@ -299,7 +346,17 @@ class Razresevalnik:
                     if not self.zadnje or self.zadnje[0]["ime"] != ime:
                         self.zadnje = ([{"ime": ime, "kategorija": kategorija, "cas": time.time()}] + self.zadnje)[:20]
                 return odgovor_zavrnjeno(paket)
+            if self.naprej is not None and self.zagonsko is not None and self.zagonsko(ime):
+                return self._vprasaj_usmerjevalnik(paket, tcp)
         return self._posreduj(paket, tcp)
+
+    #: Koliko casa po zadnji nesifrirani poizvedbi stanje kaze, da DNS ni sifriran (straza in strani osvezujejo na
+    #: nekaj sekund; ko DoH spet odgovarja, oznaka izgine sama).
+    NESIFRIRANO_S = 120.0
+
+    def nesifrirano(self) -> bool:
+        """Ali je Scit nazadnje (v NESIFRIRANO_S) moral imena poslati nesifrirano, ker DoH ni odgovoril."""
+        return bool(self.nesifrirano_cas) and time.time() - self.nesifrirano_cas < self.NESIFRIRANO_S
 
     #: Ko sifriran streznik naprej ne odgovori, gredo poizvedbe toliko sekund naravnost na usmerjevalnik (nato spet
     #: poskusimo naprej). Brez tega je vsako ime cakalo rok DoH - v omrezju, ki 1.1.1.1 ne spusti, vec sekund na ime
@@ -321,7 +378,13 @@ class Razresevalnik:
         nit.join(CAS_UPSTREAM)
         return izid[0] if izid else None
 
+    #: Ali je streznik naprej sifriran (False: uporabnik je izbral »DNS usmerjevalnika« - takrat nesifrirana pot ni
+    #: odpoved in je ne stejemo ne kazemo kot izgubo sifriranja).
+    sifrirano_naprej: Callable[[], bool] = staticmethod(lambda: True)
+
     def _posreduj(self, paket: bytes, tcp: bool) -> Optional[bytes]:
+        if self.naprej is not None and not self.sifrirano_naprej():
+            return self._vprasaj_usmerjevalnik(paket, tcp)
         if self.naprej is not None and time.monotonic() >= getattr(self, "_brez_naprej_do", 0.0):
             odgovor = self._vprasaj_naprej(paket)
             if odgovor:
@@ -329,9 +392,15 @@ class Razresevalnik:
             with self._kljuc:
                 self.rezerv += 1          # samo stetje, brez imen
                 self._brez_naprej_do = time.monotonic() + self.PREMOR_NAPREJ_S
+                self.nesifrirano_cas = time.time()
         elif self.naprej is not None:
             with self._kljuc:
                 self.rezerv += 1
+                self.nesifrirano_cas = time.time()
+        return self._vprasaj_usmerjevalnik(paket, tcp)
+
+    def _vprasaj_usmerjevalnik(self, paket: bytes, tcp: bool) -> Optional[bytes]:
+        """Strezniki DNS usmerjevalnika (NetworkManager) - nesifrirano, kot brez Scita."""
         for streznik in self.upstream() or []:
             try:
                 if tcp:
@@ -693,21 +762,13 @@ def skupni_seznami(zazeni: bool = True) -> Seznami:
 
 
 def tekoci_scit(cas: float = 0.3) -> int:
-    """Vrata Scita, ki tece na tem racunalniku (tudi drugega uporabnika), ali 0. Preverimo z imenom, ki ga Scit vedno
-    zavrne sam (KANAREK_DOH, brez poizvedbe naprej): odgovor NXDOMAIN z istim ID pomeni, da je na vratih res Scit."""
+    """Vrata Scita NASEGA uporabnika, ki tece na tem racunalniku, ali 0. Najprej razresevalnik v tem procesu; sicer
+    vrata, ki jih drzi samo nas uid (lastniki_vrat) in na katerih odgovori Scit (KANAREK_DOH: NXDOMAIN z istim ID).
+    Tujih vrat (drug uporabnik, proces, ki je vrata zasedel prvi) brskalnik ne uporabi: videl bi vsa imena."""
+    if _AKTIVNA_VRATA:
+        return min(_AKTIVNA_VRATA)
     for vrata in VRATA:
-        ident = os.urandom(2)
-        vprasanje = ident + b"\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00" + b"".join(
-            bytes([len(d)]) + d.encode() for d in KANAREK_DOH.split(".")) + b"\x00\x00\x01\x00\x01"
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as u:
-                u.settimeout(cas)
-                u.connect((NASLOV, vrata))
-                u.send(vprasanje)
-                odgovor = u.recv(512)
-        except OSError:
-            continue
-        if odgovor[:2] == ident and len(odgovor) >= 12 and odgovor[3] & 0x0F == 3:
+        if vrata_nasa(vrata) and _odgovori_kanarcku(vrata, cas):
             return vrata
     return 0
 
@@ -822,21 +883,134 @@ def nekdo_poslusa(vrata: int) -> bool:
         return False
 
 
+#: Najmanjsi uid prijavljenega cloveka (login.defs UID_MIN); sistemski uporabniki in »nobody« (Flatpak tuje uid-je
+#: pokaze kot 65534) Scita nikoli ne poganjajo.
+UID_CLOVEKA = 1000
+UID_NOBODY = 65534
+
+
+def _naslov_iz_proc(hex_naslov: str) -> str:
+    """Lokalni naslov iz /proc/net/{udp,tcp}[6]: jedro izpise 32-bitne besede v vrstnem redu bajtov gostitelja."""
+    import sys
+    try:
+        surovo = bytes.fromhex(hex_naslov)
+    except ValueError:
+        return ""
+    if sys.byteorder == "little":
+        surovo = b"".join(surovo[i:i + 4][::-1] for i in range(0, len(surovo), 4))
+    try:
+        ip = ipaddress.ip_address(surovo)
+    except ValueError:
+        return ""
+    preslikan = getattr(ip, "ipv4_mapped", None)
+    return "::ffff:%s" % preslikan if preslikan is not None else str(ip)
+
+
+#: Naslovi vticnic, ki bi dobile paket, poslan na 127.0.0.1:<vrata>: tocno ta naslov ali »vsi« (IPv4 in IPv6 brez
+#: V6ONLY, ki ga /proc ne pokaze - zato steje).
+_SPREJMEJO_LOOPBACK = frozenset({"127.0.0.1", "0.0.0.0", "::", "::ffff:127.0.0.1"})
+
+
+def lastniki_vrat(vrata: int, mapa: str = "/proc/net") -> Optional[set]:
+    """Uid-ji lastnikov vticnic (UDP in poslusajoce TCP), ki bi sprejele poizvedbo na 127.0.0.1:<vrata>; prazna
+    mnozica = nihce; None = tega na tem sistemu ni mogoce ugotoviti (ni /proc/net).
+
+    Vrata 5354-5357 lahko prvi zasede katerikoli lokalni proces (pregled 18. 10. 2026): ce bi brskalnik ali systemd-
+    resolved tak »Scit« sprejel, bi tuji proces videl in ponarejal vsa imena. Zato pred uporabo preverimo lastnika."""
+    izid: set = set()
+    prebrano = False
+    for ime, samo_poslusajoce in (("udp", False), ("udp6", False), ("tcp", True), ("tcp6", True)):
+        try:
+            with open(os.path.join(mapa, ime), encoding="ascii", errors="replace") as f:
+                vrstice = f.read().splitlines()[1:]
+        except OSError:
+            continue
+        prebrano = True
+        for v in vrstice:
+            d = v.split()
+            if len(d) < 8 or ":" not in d[1]:
+                continue
+            naslov_hex, _, vrata_hex = d[1].rpartition(":")
+            try:
+                if int(vrata_hex, 16) != vrata:
+                    continue
+                if samo_poslusajoce and d[3].upper() != "0A":     # TCP_LISTEN
+                    continue
+                uid = int(d[7])
+            except ValueError:
+                continue
+            if _naslov_iz_proc(naslov_hex) in _SPREJMEJO_LOOPBACK:
+                izid.add(uid)
+    return izid if prebrano else None
+
+
+def vrata_nasa(vrata: int) -> bool:
+    """Na vratih poslusa samo nas uporabnik (ta ali drug nas proces, npr. Safeer OS ob Safeer Browserju)."""
+    lastniki = lastniki_vrat(vrata)
+    return bool(lastniki) and lastniki == {os.getuid()}
+
+
+#: Vrata razresevalnikov, ki tecejo v TEM procesu (en proces: Safeer OS, Splet in Safeer Control) - zanje ne
+#: sprasujemo nikogar.
+_AKTIVNA_VRATA: set = set()
+_AKTIVNI = weakref.WeakSet()
+
+
+def nesifrirano_v_procesu() -> bool:
+    """Ali je Scit v tem procesu nazadnje moral imena poslati nesifrirano (Splet to pokaze ob svojem scitu)."""
+    return any(r.vrata and r.naprej is not None and r.sifrirano_naprej() and r.nesifrirano() for r in list(_AKTIVNI))
+
+
+def _odgovori_kanarcku(vrata: int, cas: float) -> bool:
+    """Na vratih je res Scit: ime, ki ga Scit vedno zavrne sam (KANAREK_DOH, brez poizvedbe naprej), dobi NXDOMAIN z
+    istim ID."""
+    ident = os.urandom(2)
+    vprasanje = ident + b"\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00" + b"".join(
+        bytes([len(d)]) + d.encode() for d in KANAREK_DOH.split(".")) + b"\x00\x00\x01\x00\x01"
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as u:
+            u.settimeout(cas)
+            u.connect((NASLOV, vrata))
+            u.send(vprasanje)
+            odgovor = u.recv(512)
+    except OSError:
+        return False
+    return odgovor[:2] == ident and len(odgovor) >= 12 and odgovor[3] & 0x0F == 3
+
+
 def tuj_scit(dns: str, nasa_vrata: int) -> bool:
     """Prvi streznik vmesnika je delujoc razresevalnik Scita na DRUGIH vratih - torej Scit drugega prijavljenega
-    uporabnika. Tak vmesnik je ze varovan; ce bi ga prepisali, bi ga njegova straza prepisala nazaj, in tako v nedogled."""
+    uporabnika. Tak vmesnik je ze varovan; ce bi ga prepisali, bi ga njegova straza prepisala nazaj, in tako v nedogled.
+
+    Samo, ce vrata drzi en sam drug clovek (uid >= 1000, ne nobody) in odgovori kot Scit: proces, ki je vrata zasedel
+    po sesutju Scita (ali sistemski uporabnik), vmesnika ne obdrzi - prevzamemo ga."""
     m = re.fullmatch(re.escape(NASLOV) + r":(\d+)", (dns.split() or [""])[0])
-    return bool(m) and int(m.group(1)) != nasa_vrata and int(m.group(1)) in VRATA and nekdo_poslusa(int(m.group(1)))
+    if not m or int(m.group(1)) == nasa_vrata or int(m.group(1)) not in VRATA:
+        return False
+    vrata = int(m.group(1))
+    if not nekdo_poslusa(vrata):
+        return False
+    lastniki = lastniki_vrat(vrata)
+    if not lastniki or len(lastniki) != 1:
+        return False
+    uid = next(iter(lastniki))
+    return uid != os.getuid() and UID_CLOVEKA <= uid != UID_NOBODY and _odgovori_kanarcku(vrata, 0.3)
 
 
 def je_ostanek(vmesnik: str) -> bool:
     """Vmesnik je v stanju, ki ga je za sabo pustil Scit: brez streznikov DNS (stari `resolvectl revert`) ali z nasim
-    streznikom na prvem mestu, na katerem nihce vec ne poslusa (sesutje)."""
+    streznikom na prvem mestu, na katerem nihce vec ne poslusa (sesutje) - ali ga je zasedel proces, ki ni Scit
+    (nas ali drugega prijavljenega uporabnika): tak ne sme dobivati vseh imen racunalnika."""
     deli = dns_vmesnika(vmesnik).split()
     if not deli:
         return True
     m = re.fullmatch(re.escape(NASLOV) + r":(\d+)", deli[0])
-    return bool(m) and int(m.group(1)) in VRATA and not nekdo_poslusa(int(m.group(1)))
+    if not m or int(m.group(1)) not in VRATA:
+        return False
+    vrata = int(m.group(1))
+    if not nekdo_poslusa(vrata):
+        return True
+    return not (vrata_nasa(vrata) or tuj_scit(deli[0], 0))
 
 
 def izprazni_predpomnilnik() -> None:
@@ -997,17 +1171,17 @@ class Scit:
             self.napaka = "naprej"
             return self.stanje()
         if izbira == "custom":
-            from core.doh_proxy import razcleni_po_meri, _naslov_in_vrata
+            from core.doh_proxy import razcleni_po_meri
             vrsta, vrednost = razcleni_po_meri(po_meri)
-            if vrsta == "ip":
-                naslov, vrata = _naslov_in_vrata(vrednost)
-                if vrata in VRATA and ipaddress.ip_address(naslov).is_loopback:
-                    vrsta, vrednost = "", "doh_po_meri_naslov"       # Scit ne sme posredovati sam sebi
+            if vrsta == "ip" and je_zanka_naprej(vrednost):
+                self.napaka = "naprej_zanka"       # Scit ne sme posredovati sam sebi (ne prek resolved, ne prek Spleta)
+                return self.stanje()
             if not vrsta:
                 self.napaka = "naprej"
                 return self.stanje()
             self.shramba.set("scit_naprej_po_meri", po_meri)
         self.shramba.set("scit_naprej", izbira)
+        self._zagonska_imena = None
         self._osvezi_predpomnilnik()
         return self.stanje()
 
@@ -1016,10 +1190,43 @@ class Scit:
         if izbira == "router":
             return None
         try:
-            from core.doh_proxy import posreduj_paket
+            from core.doh_proxy import posreduj_paket, razcleni_po_meri
         except Exception:  # noqa: BLE001 - brez libsoup: usmerjevalnik
             return None
+        if izbira == "custom":
+            vrsta, vrednost = razcleni_po_meri(po_meri)
+            if vrsta == "ip" and je_zanka_naprej(vrednost):
+                return None        # stara nastavitev iz casa pred varovalom: usmerjevalnik namesto zanke
         return posreduj_paket(izbira, po_meri, paket, CAS_UPSTREAM)
+
+    _zagonska_imena: Optional[Tuple[Tuple[str, str], frozenset]] = None
+
+    def _zagonsko(self, ime: str) -> bool:
+        """Ime streznika DoH naprej (glej Razresevalnik.zagonsko). Strezniki z naslovom IP (Cloudflare) imena nimajo."""
+        nastavitev = self.naprej()
+        shranjeno = self._zagonska_imena
+        if shranjeno is None or shranjeno[0] != nastavitev:
+            imena: set = set()
+            try:
+                import urllib.parse
+                from core.doh_proxy import DOH_PROVIDERS, razcleni_po_meri
+                izbira, po_meri = nastavitev
+                url = ""
+                if izbira in DOH_PROVIDERS:
+                    url = DOH_PROVIDERS[izbira]["url"]
+                elif izbira == "custom":
+                    vrsta, vrednost = razcleni_po_meri(po_meri)
+                    url = vrednost if vrsta == "doh" else ""
+                gostitelj = (urllib.parse.urlsplit(url).hostname or "").lower().rstrip(".") if url else ""
+                try:
+                    ipaddress.ip_address(gostitelj)
+                except ValueError:
+                    if gostitelj:
+                        imena.add(gostitelj)
+            except Exception:  # noqa: BLE001 - brez libsoup ni DoH naprej, ni zagonskih imen
+                pass
+            shranjeno = self._zagonska_imena = (nastavitev, frozenset(imena))
+        return ime in shranjeno[1]
 
     def _kategorija(self, ime: str) -> Optional[str]:
         """Kar razresevalnik vprasa za vsako ime. Uporabnikovih izjem ne blokiramo; med premorom ne blokiramo
@@ -1110,6 +1317,9 @@ class Scit:
              "pravilo": pravilo_namesceno(), "domen": 0, "pravil": 0,
              "izjeme": list(self._izjeme), "premor": self.premor_se(),
              "naprej": self.naprej()[0], "naprejPoMeri": self.naprej()[1], "rezerv": getattr(r, "rezerv", 0),
+             # DoH ni odgovoril in imena so sla nesifrirano usmerjevalniku (mirna oznaka v vmesniku, brez okna).
+             "nesifrirano": bool(r is not None and r.vrata and isinstance(r, Razresevalnik) and r.sifrirano_naprej()
+                                 and r.nesifrirano()),
              "twitchOglasi": self.twitch_brez_oglasov()}
         if self.seznami is not None:
             s.update(self.seznami.stanje())
@@ -1166,7 +1376,9 @@ class Scit:
                 self.seznami = skupni_seznami(zazeni=False) if self._skupni else Seznami(self.mapa)
             self.seznami.zazeni()
             if self.razresevalnik is None:
-                self.razresevalnik = Razresevalnik(self._kategorija, lambda: self.strezniki, self._naprej)
+                self.razresevalnik = Razresevalnik(self._kategorija, lambda: self.strezniki, self._naprej,
+                                                   zagonsko=self._zagonsko)
+                self.razresevalnik.sifrirano_naprej = lambda: self.naprej()[0] != "router"
             vrata = self.razresevalnik.zazeni()
             if not vrata:
                 self.napaka = "vrata"

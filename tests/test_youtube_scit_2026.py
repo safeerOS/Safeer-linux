@@ -1,5 +1,5 @@
-"""YouTube Scit, tehnike filtrov AdGuard in uBlock Origin (okt. 2026): neprekinljiv oglas (tudi SSAP) utisan,
-prevrten in po njem obnovljen; oglasi v Shorts; protiblokada onAbnormalityDetected; Scit tudi v Medijskem centru."""
+"""YouTube Scit, tehnike filtrov AdGuard in uBlock Origin (okt. 2026): oglas, ki uide (tudi SSAP), samo utisan
+(lastnik 18. 10. 2026: nikoli preskok ali pospesitev) in po njem obnovljen; oglasi v Shorts; protiblokada onAbnormalityDetected; Scit tudi v Medijskem centru."""
 
 import os
 import shutil
@@ -31,13 +31,14 @@ const p = { classList: { contains: c => razredi.has(c) }, getStatsForNerds: () =
             getProgressState: () => ({ duration: 30, current: 2 }), seekTo: t => { iskano = t; } };
 global.document = { getElementById: () => p, querySelector: () => v };
 """ + koda + r"""
-fastForwardAd();
-if (!v.muted || v.playbackRate !== 16 || iskano !== 30) throw new Error('oglas ni prevrten');
-razredi.clear(); fastForwardAd();
-if (v.muted || v.playbackRate !== 1) throw new Error('po oglasu ni obnovljeno');
+muteAd();
+// Lastnik 18. 10. 2026: oglas, ki ga ni bilo mogoce blokirati, je samo utisan - brez preskoka, pospesitve in iskanja.
+if (!v.muted || v.playbackRate !== 1 || iskano !== null || v.currentTime !== 2) throw new Error('oglas ni samo utisan');
+razredi.clear(); muteAd();
+if (v.muted) throw new Error('po oglasu ni obnovljeno');
 info = 'SSAP, AD 1'; if (!isAdActive()) throw new Error('SSAP');
 info = 'SSAP, CONTENT'; if (isAdActive()) throw new Error('vsebina ni oglas');
-v.muted = true; fastForwardAd(); if (!v.muted) throw new Error('uporabnikov utisan zvok spremenjen');
+v.muted = true; muteAd(); if (!v.muted) throw new Error('uporabnikov utisan zvok spremenjen');
 console.log('ok');
 """)
 

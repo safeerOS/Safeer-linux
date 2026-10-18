@@ -21,7 +21,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from core import (adblock, dovoljenja_strani, drm, odlozisce_varuh, os_stabilnost, ozadje_strani, pojavna_okna,
-                  safeer_drm, splet_prenosi, splet_temno, zascita)
+                  safeer_drm, scit_pravila, splet_prenosi, splet_temno, zascita)
 from core.config import ConfigManager, SEARCH_ENGINES, normalize_web_url
 from core import external_apps
 from core.doh_proxy import (DOH_PROVIDERS, IZBIRE_DNS, IZBIRE_NAPREJ, PRIVZETI_DNS, PRIVZETI_NAPREJ, doh_iz_nastavitev,
@@ -1378,6 +1378,11 @@ class VdelaniSplet:
             adblock.register_threat_matcher(self._threat_service.match)
         except Exception as napaka:
             print("[Safeer OS Splet] vir grozenj:", napaka)
+        # Sledilci in telemetrija (core/scit_pravila.py, podpisan seznam): na vseh zavihkih in kanalih Sporocil, tudi ce
+        # je EasyList izklopljen - ob novem seznamu se zamenja povsod.
+        self.sledilci = scit_pravila.filter_sledilcev(self.WebKit2, self.GLib)
+        if self.sledilci is not None:
+            self.sledilci.ob_novem(lambda _f: [self._uporabi_filter(p) for p in self._vsi_pogledi()])
         if not self.config.get("easylist_enabled", True):
             return
         try:
@@ -1461,13 +1466,20 @@ class VdelaniSplet:
         """Seznam EasyList na zavihku: vklopljen, razen ce ga je uporabnik izklopil (stopnja po meri) ali stran izvzel
         (»Zascita na tej strani: izklopljena«). Upravitelj vsebine je za vsak zavihek svoj, zato velja le zanj."""
         upravitelj = pogled.get_user_content_manager()
+        izjema = zascita.je_izjema(self.config, naslov)
         try:
             upravitelj.remove_filter_by_id(FILTER_ID)
-            if (self.filter is not None and self.config.get("easylist_enabled", True)
-                    and not zascita.je_izjema(self.config, naslov)):
+            if self.filter is not None and self.config.get("easylist_enabled", True) and not izjema:
                 upravitelj.add_filter(self.filter)
         except Exception:  # noqa: BLE001
             pass
+        sledilci = getattr(self, "sledilci", None)
+        if sledilci is not None:
+            try:
+                # »Oglasi in sledilci« (stopnja zascite) in izjema strani veljata tudi za sledilce.
+                sledilci.uporabi(pogled, self.config.get("adblock_enabled", True) and not izjema)
+            except Exception:  # noqa: BLE001
+                pass
 
     def _skripta(self, upravitelj, koda, cas=None, dovoljeni=None, izloceni=None):
         if not koda:
@@ -1523,6 +1535,7 @@ class VdelaniSplet:
             self._skripta(upravitelj, adblock.TAB_THROTTLER_SCRIPT, izloceni=izvzemi)
         self._temno_skripte[pogled] = self._temno_namesti(upravitelj)
         nastavitve = pogled.get_settings()
+        scit_pravila.zasebnost_pogleda(W, nastavitve)     # proti prstnim odtisom (WebRTC, userAgentData, ping)
         if aplikacija:
             izklopi_dusenje(W, nastavitve)
         nastavi_kompozitor(W, nastavitve, self._skia())

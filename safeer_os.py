@@ -3587,14 +3587,39 @@ class SafeerOS(Gtk.Application):
             self._vgrajeni_pogledi.add(pogled)
             self._vgrajeno_scit_pripravi()
             self._vgrajeno_filter()
+            # Sledilci in telemetrija (core/scit_pravila.py) tudi v vgrajenih virih: en poslusalec za vse (nov seznam ->
+            # vsi odprti viri), pogled pa filter dobi takoj.
+            try:
+                self._sledilci_v_pogled(pogled)
+            except Exception as e:  # noqa: BLE001
+                print("[SafeerOS] vgrajeni viri, sledilci:", e, flush=True)
         else:
             self._vgrajeni_pogledi.discard(pogled)
             try:
                 from core.filter_lists import FILTER_ID
+                from core.scit_pravila import FILTER_ID as SLEDILCI
                 pogled.get_user_content_manager().remove_filter_by_id(FILTER_ID)
+                pogled.get_user_content_manager().remove_filter_by_id(SLEDILCI)
             except Exception:  # noqa: BLE001
                 pass
         return bool(da)
+
+    def _sledilci_v_pogled(self, pogled) -> None:
+        """Filter sledilcev (core/scit_pravila.FilterSledilcev) na pogled vgrajenega vira ali predvajalnika Medijskega
+        centra. Poslusalec za nov seznam je en sam (brez kopicenja ob vsakem odprtju) in velja za trenutne poglede."""
+        from core import scit_pravila
+        sledilci = scit_pravila.filter_sledilcev(WebKit2, GLib)
+        if sledilci is None:
+            return
+        if not getattr(self, "_sledilci_prijava", False):
+            self._sledilci_prijava = True
+
+            def nov(_f) -> None:
+                medijski = getattr(self, "_medijski_pogled", None)
+                for p in list(getattr(self, "_vgrajeni_pogledi", ())) + ([medijski] if medijski is not None else []):
+                    sledilci.uporabi(p)
+            sledilci.ob_novem(nov)
+        sledilci.uporabi(pogled)
 
     def _vgrajeno_scit_pripravi(self) -> None:
         """Vir groženj (podpisan seznam Safeer, isti kot Splet in Scit) za preverjanje okvirjev - enkrat na proces."""
@@ -3616,7 +3641,8 @@ class SafeerOS(Gtk.Application):
 
         def uporabi(filter_) -> None:
             self._vgrajeni_filter = filter_
-            for p in list(getattr(self, "_vgrajeni_pogledi", ())):
+            medijski = getattr(self, "_medijski_pogled", None)
+            for p in list(getattr(self, "_vgrajeni_pogledi", ())) + ([medijski] if medijski is not None else []):
                 try:
                     upravitelj = p.get_user_content_manager()
                     upravitelj.remove_filter_by_id(FILTER_ID)
@@ -6865,6 +6891,11 @@ class SafeerOS(Gtk.Application):
         pogled = WebKit2.WebView(**lastnosti)
         pogled.connect("decide-policy", self._medijski_odlocitev)
         nastavitve = pogled.get_settings()
+        # Scit tudi tu (lastnik 18. 10. 2026: »nihce ne sme slediti uporabnikom«): proti prstnim odtisom, sledilci in
+        # telemetrija (core/scit_pravila.py) ter EasyList kot v Spletu - za YouTube, RTV 365 in strani virov.
+        from core import scit_pravila
+        scit_pravila.zasebnost_pogleda(WebKit2, nastavitve)
+        self._sledilci_v_pogled(pogled)
         # Skripte strani izklopimo (markup), API skripte ostanejo - z njimi preverimo, ali je na strani video.
         nastavitve.set_property("enable-javascript-markup", False)
         nastavitve.set_property("enable-webgl", False)
@@ -6873,6 +6904,7 @@ class SafeerOS(Gtk.Application):
         self._medijska_plast = os_medijska_plast.MedijskaPlast(Gtk, pogled, self._mb, self._medijska_plast_nazaj)
         self._medijska_plast_css()
         self._medijski_pogled = pogled
+        self._vgrajeno_filter()            # EasyList (isti preveden filter kot Splet) tudi na ta pogled
         return True
 
     def _medijska_plast_css(self) -> None:

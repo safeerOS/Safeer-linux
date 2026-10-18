@@ -321,6 +321,16 @@ class Gostitelj:
                 f"--state={self.stanje}", f"--command={self.ukazi}"]
         if storitev:
             args.append("--storitev=1")
+        # Scit tudi v Safeer DRM (Netflix, Disney+ ...): sledilci in telemetrija tretjih (core/scit_pravila.py) - v
+        # zasebni mapi seje, kot pravila Spotifyja.
+        try:
+            from core import scit_pravila
+            pot_scita = os.path.join(self.seja, "scit.json")
+            with open(pot_scita, "w", encoding="utf-8") as f:
+                json.dump(scit_pravila.trenutna().za_drm(spotify=False), f)
+            args.append("--scit=" + pot_scita)
+        except (OSError, ImportError) as e:
+            print("[Safeer DRM] pravila Scita:", type(e).__name__, flush=True)
         if not stars:
             args = [str(exe), url]   # brez X11: lastno okno (samostojni nacin)
         peskovnik = v_peskovniku()

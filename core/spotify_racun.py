@@ -16,7 +16,7 @@ Podatki: isti klici kot spletna aplikacija, iz strani in z zetonom strani (windo
 (api.spotify.com/v1). Zeton ostane v strani - nikoli v datoteko, dnevnik ali Safeer Link. Seznami, ki jih uporabnik
 shrani, so v Medijskem centru oznaceni "zaseben" (ostanejo na tej napravi).
 
-Scit (privzeto vklopljen, nastavitev v Scitu): pravila core/adblock.SPOTIFY_OGLASI v Safeer DRM, rezerva je zaznava
+Scit (privzeto vklopljen, nastavitev v Scitu): pravila core/scit_pravila (del »spotify«) v Safeer DRM, rezerva je zaznava
 oglasa v predvajalniku. Oglas se SAMO utisa (lastnik 18. 10. 2026): nic preskakovanja, pospesevanja ali samodejne
 »Naslednje« med oglasom.
 """
@@ -322,9 +322,10 @@ def je_oglasna_zahteva(url: str, pravila: dict) -> bool:
 
 
 def pravila_scita() -> dict:
-    from .adblock import SPOTIFY_OGLASI
-    return {"gostitelji": list(SPOTIFY_OGLASI["gostitelji"]), "poti": [list(x) for x in SPOTIFY_OGLASI["poti"]],
-            "css": SPOTIFY_OGLASI["css"]}
+    """Pravila Scita za sejo Spotify v Safeer DRM: oglasi Spotifyja ter sledilci in telemetrija tretjih - iz seznama
+    Scita (core/scit_pravila.py: vgrajen ali novejsi podpisan)."""
+    from . import scit_pravila
+    return scit_pravila.trenutna().za_drm(spotify=True)
 
 
 # ---------------------------------------------------------------------------------------------- JavaScript v strani
