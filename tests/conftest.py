@@ -6,8 +6,12 @@ zato so te v njih v ozjem krogu racunalnika. Preizkus, ki preverja sama dovoljen
 `@pytest.mark.pravi_dostop` in dobi prava pravila nad praznim zacasnim zapisom.
 """
 import gc
+import os
+import sys
 
 import pytest
+
+_izid = {}
 
 
 def pytest_configure(config):
@@ -22,6 +26,21 @@ def pytest_configure(config):
 def _smeti_na_glavni_niti():
     yield
     gc.collect()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    _izid["koda"] = int(exitstatus)
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_unconfigure(config):
+    # Po porocilu in pospravljanju (korenski conftest pobrise zacasno mapo) proces koncamo brez Py_Finalize: tam je
+    # sprostitev predmeta GObject iz globalne spremenljivke modula (g_object_unref v _PyModule_Clear) obvisela na
+    # futexu - polni tek je izpisal porocilo in nato visel do casovne omejitve (gdb na posnetku jedra, 18. 10. 2026).
+    if "koda" in _izid:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(_izid["koda"])
 
 
 @pytest.fixture(autouse=True)
