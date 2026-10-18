@@ -25,7 +25,7 @@ from core import (adblock, dovoljenja_strani, drm, odlozisce_varuh, os_stabilnos
 from core.config import ConfigManager, SEARCH_ENGINES, normalize_web_url
 from core import external_apps
 from core.doh_proxy import (DOH_PROVIDERS, IZBIRE_DNS, IZBIRE_NAPREJ, PRIVZETI_DNS, PRIVZETI_NAPREJ, doh_iz_nastavitev,
-                             get_doh_proxy, nastavitve_posrednika, preizkusi_dns, razcleni_po_meri)
+                             nastavitve_posrednika, preizkusi_dns, razcleni_po_meri, ustavi_doh_proxy)
 from core.filter_lists import FILTER_ID
 
 
@@ -212,22 +212,22 @@ def omrezni_procesi_shrambe(piskotki: str, starsevski: int | None = None) -> lis
 # Zaznamki, zgodovina in uvoz (12. 10. 2026: Splet naj bo enostavna zamenjava za drug brskalnik)
 for _j, _b in {
     "sl": {"strojno": "Strojno pospeševanje (izklopi, če se strani prikazujejo napačno)", "zaznamki": "Zaznamki", "zgodovina": "Zgodovina", "uvozi": "Uvozi iz drugega brskalnika …",
-           "uvoz_zaznamki": "Zaznamkov dodanih: {n} (iz: {od}).", "uvoz_brez": "Drugega brskalnika s podatki ni bilo mogoče najti.",
+           "uvoz_zaznamki": "Zaznamkov dodanih: {n} (iz: {od}).", "uvoz_brez": "Drugega brskalnika s podatki ni bilo mogoče najti.", "uvoz_izberi": "Izberite brskalnik. Odprla se bo njegova mapa – potrdite jo. Safeer iz nje prebere samo zaznamke in odprte zavihke.", "uvoz_mapa": "Mapa brskalnika {ime}",
            "uvoz_zavihki": "Odpri {n} zavihkov iz brskalnika {ime}", "zapri": "Zapri", "prazno": "Ni zadetkov."},
     "en": {"strojno": "Hardware acceleration (turn off if pages display incorrectly)", "zaznamki": "Bookmarks", "zgodovina": "History", "uvozi": "Import from another browser …",
-           "uvoz_zaznamki": "Bookmarks added: {n} (from: {od}).", "uvoz_brez": "No other browser with data was found.",
+           "uvoz_zaznamki": "Bookmarks added: {n} (from: {od}).", "uvoz_brez": "No other browser with data was found.", "uvoz_izberi": "Choose the browser. Its folder will open – confirm it. Safeer reads only bookmarks and open tabs from it.", "uvoz_mapa": "{ime} browser folder",
            "uvoz_zavihki": "Open {n} tabs from {ime}", "zapri": "Close", "prazno": "No results."},
     "de": {"strojno": "Hardwarebeschleunigung (ausschalten, wenn Seiten falsch angezeigt werden)", "zaznamki": "Lesezeichen", "zgodovina": "Verlauf", "uvozi": "Aus anderem Browser importieren …",
-           "uvoz_zaznamki": "Lesezeichen hinzugefügt: {n} (aus: {od}).", "uvoz_brez": "Kein anderer Browser mit Daten gefunden.",
+           "uvoz_zaznamki": "Lesezeichen hinzugefügt: {n} (aus: {od}).", "uvoz_brez": "Kein anderer Browser mit Daten gefunden.", "uvoz_izberi": "Wählen Sie den Browser. Sein Ordner wird geöffnet – bestätigen Sie ihn. Safeer liest daraus nur Lesezeichen und offene Tabs.", "uvoz_mapa": "Ordner des Browsers {ime}",
            "uvoz_zavihki": "{n} Tabs aus {ime} öffnen", "zapri": "Schließen", "prazno": "Keine Treffer."},
     "es": {"strojno": "Aceleración por hardware (desactívala si las páginas se ven mal)", "zaznamki": "Marcadores", "zgodovina": "Historial", "uvozi": "Importar de otro navegador …",
-           "uvoz_zaznamki": "Marcadores añadidos: {n} (de: {od}).", "uvoz_brez": "No se encontró otro navegador con datos.",
+           "uvoz_zaznamki": "Marcadores añadidos: {n} (de: {od}).", "uvoz_brez": "No se encontró otro navegador con datos.", "uvoz_izberi": "Elija el navegador. Se abrirá su carpeta: confírmela. Safeer solo lee de ella los marcadores y las pestañas abiertas.", "uvoz_mapa": "Carpeta del navegador {ime}",
            "uvoz_zavihki": "Abrir {n} pestañas de {ime}", "zapri": "Cerrar", "prazno": "Sin resultados."},
     "fr": {"strojno": "Accélération matérielle (désactivez-la si les pages s'affichent mal)", "zaznamki": "Favoris", "zgodovina": "Historique", "uvozi": "Importer d'un autre navigateur …",
-           "uvoz_zaznamki": "Favoris ajoutés : {n} (de : {od}).", "uvoz_brez": "Aucun autre navigateur avec des données.",
+           "uvoz_zaznamki": "Favoris ajoutés : {n} (de : {od}).", "uvoz_brez": "Aucun autre navigateur avec des données.", "uvoz_izberi": "Choisissez le navigateur. Son dossier s'ouvrira : confirmez-le. Safeer n'y lit que les favoris et les onglets ouverts.", "uvoz_mapa": "Dossier du navigateur {ime}",
            "uvoz_zavihki": "Ouvrir {n} onglets de {ime}", "zapri": "Fermer", "prazno": "Aucun résultat."},
     "it": {"strojno": "Accelerazione hardware (disattivala se le pagine si vedono male)", "zaznamki": "Segnalibri", "zgodovina": "Cronologia", "uvozi": "Importa da un altro browser …",
-           "uvoz_zaznamki": "Segnalibri aggiunti: {n} (da: {od}).", "uvoz_brez": "Nessun altro browser con dati trovato.",
+           "uvoz_zaznamki": "Segnalibri aggiunti: {n} (da: {od}).", "uvoz_brez": "Nessun altro browser con dati trovato.", "uvoz_izberi": "Scegli il browser. Si aprirà la sua cartella: confermala. Safeer legge solo i segnalibri e le schede aperte.", "uvoz_mapa": "Cartella del browser {ime}",
            "uvoz_zavihki": "Apri {n} schede da {ime}", "zapri": "Chiudi", "prazno": "Nessun risultato."},
 }.items():
     BESEDILA.setdefault(_j, {}).update(_b)
@@ -1893,10 +1893,21 @@ class VdelaniSplet:
         d.add_controller(k)
         return d, obmocje
 
+    # Privzete mape brskalnikov (od doma; v Flatpaku je HOME isti kot na gostitelju) za izbirnik mape v Flatpaku. Snap:
+    # Firefox in Chromium sta na Ubuntu 24.04 privzeto paketa Snap (isti mapi je imel manifest do 18. 10. 2026).
+    MAPE_BRSKALNIKOV = (("Firefox", ".mozilla/firefox"), ("Firefox (Snap)", "snap/firefox/common/.mozilla/firefox"),
+                        ("Chrome", ".config/google-chrome"), ("Chromium", ".config/chromium"),
+                        ("Chromium (Snap)", "snap/chromium/common/chromium"),
+                        ("Brave", ".config/BraveSoftware/Brave-Browser"), ("Edge", ".config/microsoft-edge"),
+                        ("Vivaldi", ".config/vivaldi"), ("Opera", ".config/opera"))
+
     def _uvozi(self, *_):
         """Zaznamki in odprti zavihki iz drugih brskalnikov na tem racunalniku (samo branje njihovih datotek)."""
+        from core import gostitelj
+        if gostitelj.v_peskovniku():
+            self._uvozi_prek_portala()
+            return
         from core import uvoz_zavihkov
-        Gtk = self.Gtk
         try:
             from core.bookmarks_importer import auto_import_all_profiles
             zaznamki, viri = auto_import_all_profiles()
@@ -1904,7 +1915,52 @@ class VdelaniSplet:
         except Exception as napaka:  # noqa: BLE001
             print("[Safeer OS Splet] uvoz zaznamkov:", napaka)
             dodanih, viri = 0, {}
-        zavihki = uvoz_zavihkov.odprti_zavihki()
+        self._pokazi_uvoz(dodanih, viri, uvoz_zavihkov.odprti_zavihki())
+
+    def _uvozi_prek_portala(self) -> None:
+        """Flatpak brskalnika (pregled 18. 10. 2026): brez stalnega dostopa do profilov drugih brskalnikov (tam so tudi
+        nesifrirani piskotki Firefoxa). Uporabnik izbere brskalnik, izbirnik (portal) se odpre v njegovi mapi; dostop
+        dobimo samo do mape, ki jo uporabnik potrdi, in iz nje beremo samo zaznamke in odprte zavihke."""
+        Gtk = self.Gtk
+        d, obmocje = self._dialog(self._t("uvozi").rstrip(" …"))
+        obmocje.append(Gtk.Label(label=self._t("uvoz_izberi"), xalign=0, wrap=True, max_width_chars=56))
+        for ime, mapa in self.MAPE_BRSKALNIKOV:
+            gumb = Gtk.Button(label=ime)
+            gumb.connect("clicked", lambda _g, i=ime, m=mapa: (d.destroy(), self._izberi_mapo_brskalnika(i, m)))
+            obmocje.append(gumb)
+        d.present()
+
+    def _izberi_mapo_brskalnika(self, ime: str, mapa: str) -> None:
+        try:
+            dialog = self.Gtk.FileDialog()
+            dialog.set_title(self._t("uvoz_mapa", ime=ime))
+            dialog.set_initial_folder(self.Gio.File.new_for_path(os.path.join(os.path.expanduser("~"), mapa)))
+
+            def koncano(dlg, rezultat, *_):
+                try:
+                    izbrana = dlg.select_folder_finish(rezultat)
+                except Exception:  # noqa: BLE001 - preklicano
+                    return
+                pot = izbrana.get_path() if izbrana is not None else None
+                if pot:
+                    self._uvozi_iz_mape(pot, ime)
+            dialog.select_folder(self._okno_za_dialog(), None, koncano, None)
+        except Exception as napaka:  # noqa: BLE001
+            print("[Safeer OS Splet] izbira mape brskalnika:", napaka, flush=True)
+
+    def _uvozi_iz_mape(self, pot: str, ime: str) -> None:
+        from core import uvoz_zavihkov
+        try:
+            from core.bookmarks_importer import uvozi_iz_mape
+            zaznamki, viri = uvozi_iz_mape(pot)
+            dodanih, _ = self.config.import_bookmarks_items(zaznamki)
+        except Exception as napaka:  # noqa: BLE001
+            print("[Safeer OS Splet] uvoz zaznamkov:", napaka)
+            dodanih, viri = 0, {}
+        self._pokazi_uvoz(dodanih, viri, uvoz_zavihkov.odprti_zavihki_v_mapi(pot, ime))
+
+    def _pokazi_uvoz(self, dodanih: int, viri, zavihki) -> None:
+        Gtk = self.Gtk
         d, obmocje = self._dialog(self._t("uvozi").rstrip(" …"))
         if viri or zavihki:
             obmocje.append(Gtk.Label(label=self._t("uvoz_zaznamki", n=dodanih, od=", ".join(viri) or "-"),
@@ -3847,7 +3903,8 @@ class VdelaniSplet:
     def koncaj(self):
         if self.filter_agent: self.filter_agent.stop()
         # Vir groženj je skupen za ves proces (threat_intel.skupna: tudi Scit) - ne ustavljamo ga tu.
+        # Skupni posrednik DoH ustavimo samo tu: koncaj() klice Safeer OS / brskalnik ob izhodu procesa.
         try:
-            get_doh_proxy(enabled=False)
+            ustavi_doh_proxy()
         except Exception:
             pass

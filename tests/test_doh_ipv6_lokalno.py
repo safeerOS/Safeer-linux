@@ -215,6 +215,46 @@ class LokalnoOmrezje(unittest.TestCase):
                 doh_proxy._global_proxy = None
                 doh_proxy._global_resolver = None
 
+    def test_izklop_v_eni_seji_ne_ustavi_skupnega_posrednika(self):
+        """Pregled 18. 10. 2026: DNS »Izklopljeno« v enem Spletu je ustavil skupni posrednik in drugi Splet (namizje s
+        kanali Sporocil) je ostal na mrtvih vratih. Posrednik mora teci naprej na istih vratih; ustavi ga samo izhod."""
+        stari = (doh_proxy._global_proxy, doh_proxy._global_resolver)
+        doh_proxy._global_proxy = doh_proxy._global_resolver = None
+        try:
+            with mock.patch.object(doh_proxy.DoHResolver, "ogrej", new=lambda self: None):
+                a = doh_proxy.doh_iz_nastavitev({"doh_provider": "cloudflare"})
+                self.assertIsNotNone(a)
+                vrata = a.actual_port
+                self.assertGreater(vrata, 0)
+                # Drug Splet izklopi DNS: dobi None (svojo sejo preklopi na neposredno), posrednik tece naprej.
+                self.assertIsNone(doh_proxy.doh_iz_nastavitev({"doh_provider": "disabled"}))
+                self.assertIsNone(doh_proxy.doh_iz_nastavitev({"doh_enabled": False}))
+                self.assertTrue(a.is_running)
+                with socket.create_connection(("127.0.0.1", vrata), timeout=2):
+                    pass
+                # Ponovni vklop: isti posrednik, ista vrata.
+                b = doh_proxy.doh_iz_nastavitev({"doh_provider": "quad9"})
+                self.assertIs(a, b)
+                self.assertEqual(b.actual_port, vrata)
+                # Izhod ustavi posrednika.
+                doh_proxy.ustavi_doh_proxy()
+                self.assertFalse(a.is_running)
+                self.assertIsNone(doh_proxy._global_proxy)
+                doh_proxy.ustavi_doh_proxy()   # drugic brez napake
+        finally:
+            if doh_proxy._global_proxy is not None:
+                doh_proxy._global_proxy.stop()
+            doh_proxy._global_proxy, doh_proxy._global_resolver = stari
+
+    def test_splet_ustavi_posrednika_samo_ob_izhodu(self):
+        """Splet (GTK4) in safeer_mint.py (GTK3): ob spremembi nastavitev ne ustavljata skupnega posrednika."""
+        koren = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        for rel in ("core/os_splet.py", "safeer_mint.py"):
+            with open(os.path.join(koren, rel), encoding="utf-8") as f:
+                src = f.read()
+            self.assertNotIn("get_doh_proxy(enabled=False)", src, rel)
+            self.assertEqual(src.count("ustavi_doh_proxy()"), 1, rel)
+
 
 class Priklop(unittest.TestCase):
     """Stikalo mora v resnici priti do posrednika in imeti privzeto izklopljeno vrednost."""

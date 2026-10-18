@@ -112,3 +112,19 @@ def odprti_zavihki(domov: str | None = None) -> dict[str, list[str]]:
         if zavihki:
             izid[ime] = zavihki
     return izid
+
+
+def odprti_zavihki_v_mapi(mapa: str, ime: str) -> dict[str, list[str]]:
+    """Kot odprti_zavihki, a samo v mapi, ki jo je izbral uporabnik (Flatpak: portal dokumentov). Najnovejsa seja do
+    globine 3 (npr. BraveSoftware/Brave-Browser/Default/Sessions)."""
+    datoteke = []
+    for globina in range(4):
+        datoteke += glob.glob(os.path.join(glob.escape(mapa), *(["*"] * globina), "Sessions", "Session_*"))
+    if not datoteke:
+        return {}
+    try:
+        with open(max(datoteke, key=os.path.getmtime), "rb") as f:
+            zavihki = preberi_sejo(f.read())
+    except OSError:
+        return {}
+    return {ime: zavihki} if zavihki else {}

@@ -1428,13 +1428,15 @@ _proxy_lock = threading.Lock()
 def get_doh_proxy(provider: str = "cloudflare", custom_url: str = "", enabled: bool = True,
                   lokalno: bool = False, naprej: str = PRIVZETI_NAPREJ, naprej_po_meri: str = "",
                   rezerva: bool = True) -> Optional[LocalDoHProxy]:
-    """Pridobi ali inicializira globalni primerek DoH posrednika."""
+    """Pridobi ali inicializira globalni primerek DoH posrednika.
+
+    Posrednik je skupen za ves proces (Splet v oknu, Splet na namizju s kanali Sporocil ...). enabled=False samo vrne
+    None - klicatelj svojo sejo preklopi na neposredno povezavo, posrednika pa NE ustavi (pregled 18. 10. 2026: izklop
+    DNS v enem Spletu je ustavil posrednika in drugi Splet je ostal na mrtvih vratih; ob ponovnem vklopu so bila vrata
+    nova). Ustavi ga samo ustavi_doh_proxy() ob izhodu, zato vrata ostanejo ista ves cas procesa."""
     global _global_resolver, _global_proxy
     with _proxy_lock:
         if not enabled:
-            if _global_proxy:
-                _global_proxy.stop()
-                _global_proxy = None
             return None
 
         if _global_resolver is None:
@@ -1449,6 +1451,15 @@ def get_doh_proxy(provider: str = "cloudflare", custom_url: str = "", enabled: b
             _global_proxy.dovoli_lokalno = bool(lokalno)
 
         return _global_proxy
+
+
+def ustavi_doh_proxy() -> None:
+    """Ustavi skupni posrednik - samo ob izhodu procesa (nikoli ob spremembi nastavitev ene seje)."""
+    global _global_proxy
+    with _proxy_lock:
+        if _global_proxy is not None:
+            _global_proxy.stop()
+            _global_proxy = None
 
 
 _posrednik_scita: Optional["DoHResolver"] = None

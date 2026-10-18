@@ -43,7 +43,7 @@ sys.path.insert(0, BASE_DIR)
 
 from core.runtime_safety import install_main_thread_gc, collect_closed_views
 from core.config import CONFIG_DIR, ConfigManager, SEARCH_ENGINES, normalize_web_url
-from core.doh_proxy import get_doh_proxy, DOH_PROVIDERS, IZBIRE_DNS, PRIVZETI_DNS, doh_iz_nastavitev, nastavitve_posrednika, razcleni_po_meri
+from core.doh_proxy import DOH_PROVIDERS, IZBIRE_DNS, PRIVZETI_DNS, doh_iz_nastavitev, nastavitve_posrednika, razcleni_po_meri, ustavi_doh_proxy
 from core.i18n import t, set_language, get_current_language, SUPPORTED_LANGUAGES
 from core import drm
 from core import dovoljenja_strani
@@ -431,8 +431,8 @@ class SafeerMintBrowser(Gtk.Window):
                     pass
                 self.ipc_server_sock.close()
                 self.ipc_server_sock = None
-            # Ustavi lokalni DoH posrednik, če je aktiven
-            get_doh_proxy(enabled=False)
+            # Ustavi lokalni DoH posrednik ob izhodu (ob spremembi nastavitev ostane: ista vrata ves cas procesa)
+            ustavi_doh_proxy()
         except Exception:
             pass
         return False
@@ -700,7 +700,6 @@ class SafeerMintBrowser(Gtk.Window):
                     proxy_settings = WebKit2.NetworkProxySettings.new(custom_url, ignore_hosts)
                     self.web_context.set_network_proxy_settings(WebKit2.NetworkProxyMode.CUSTOM, proxy_settings)
                     print(f"[Network Security] 🔒 Šifriran proxy aktiviran: {custom_url}")
-                    get_doh_proxy(enabled=False)
                     return
                 else:
                     self.web_context.set_network_proxy_settings(WebKit2.NetworkProxyMode.DEFAULT, None)
@@ -722,7 +721,6 @@ class SafeerMintBrowser(Gtk.Window):
                 else:
                     # Privzeta neposredna povezava
                     self.web_context.set_network_proxy_settings(WebKit2.NetworkProxyMode.DEFAULT, None)
-                    get_doh_proxy(enabled=False)
                     print("[Network Security] Uporabljam privzeto neposredno omrežno povezavo.")
         except Exception as e:
             print(f"[Network Security] Napaka pri nastavljanju proxy/DoH: {e}")
