@@ -120,10 +120,25 @@ class PrevzemPriSrediscih(unittest.TestCase):
 
     def setUp(self):
         self.mapa = tempfile.mkdtemp(dir=self.tmp.name, prefix="prejeto-")
+        # Zaloga je skupna vsem preizkusom razreda: datoteka, ki jo je prejsnji preizkus prevzel, mora biti odstranjena,
+        # sicer stetje datotek (»ostane 1«) steje se njo.
+        for sredisce in (self.nase, self.posiljateljevo):
+            self._zaloga_prazna(sredisce, "prejsnji preizkus je pustil datoteko na sredisci")
 
     def _prevzemi(self, sredisca, tovor, odtis=None):
         return link_deljenje.prevzemi_pri_srediscih(sredisca, tovor["path"], tovor["name"],
                                                     tovor["sha256"] if odtis is None else odtis, mapa=self.mapa)
+
+    def _zaloga_prazna(self, sredisce, sporocilo=None):
+        """Sredisce datoteko odstrani v niti streznika SELE po zadnjem poslanem bajtu (finally v _prevzem_datoteke),
+        prejemnik pa je takrat ze prebral vse - na obremenjenem stroju (poln nabor 18. 10. 2026) je bila datoteka ob
+        preverjanju se tam. Pocakamo na odstranitev (ne na cas) in preverimo, da je zaloga res prazna."""
+        def datoteke():
+            return os.listdir(sredisce.zaloga) if os.path.isdir(sredisce.zaloga) else []   # mapo naredi prva oddaja
+        konec = time.monotonic() + 5
+        while datoteke() and time.monotonic() < konec:
+            time.sleep(0.01)
+        self.assertEqual(datoteke(), [], sporocilo)
 
     def _je_cela(self, cilj):
         self.assertTrue(cilj)
@@ -149,7 +164,7 @@ class PrevzemPriSrediscih(unittest.TestCase):
         cilj, razlog = self._prevzemi([self.nase.par, self.posiljateljevo.par], tovor)
         self.assertEqual(razlog, "")
         self._je_cela(cilj)
-        self.assertEqual(os.listdir(self.nase.zaloga), [], "prevzeta datoteka na sredisci ne ostane")
+        self._zaloga_prazna(self.nase, "prevzeta datoteka na sredisci ne ostane")
 
     def test_datoteka_pri_sredisci_posiljatelja_se_prevzame_tam(self):
         """Naprava odda datoteko SVOJEMU sredisci, sporocilo pride cez sosede: nase sredisce je nima (404)."""
@@ -161,7 +176,7 @@ class PrevzemPriSrediscih(unittest.TestCase):
         cilj, razlog = self._prevzemi([self.nase.par, self.posiljateljevo.par], tovor)
         self.assertEqual(razlog, "")
         self._je_cela(cilj)
-        self.assertEqual(os.listdir(self.posiljateljevo.zaloga), [])
+        self._zaloga_prazna(self.posiljateljevo)
 
     def test_ni_je_nikjer(self):
         tovor = {"path": "/cast/file/0123456789abcdef?k=" + "0" * 32, "name": "ni.bin", "sha256": ""}
