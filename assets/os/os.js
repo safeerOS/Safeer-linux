@@ -1523,12 +1523,13 @@
   function naloziSkripte() {
     klic("mediaSkripte").then(function (r) {
       SKR.seznam = (r && r.skripte) || [];
+      SKR.primer = (r && r.primer) || "";
       if ($("slojPrilagodi") && $("slojPrilagodi").classList.contains("viden")) narisiPrilagodi();
     }, function () { SKR.seznam = SKR.seznam || []; });
   }
   function skriptaNapaka(r) {
     var k = r && r.napaka;
-    obvesti(t(k === "vrsta" ? "skriptaNapakaVrsta" : k === "velikost" ? "skriptaNapakaVelikost" : k === "cas" ? "skriptaCas" : "skriptaNapaka"));
+    obvesti(t(k === "vrsta" ? "skriptaNapakaVrsta" : k === "velikost" ? "skriptaNapakaVelikost" : (k === "pot" || k === "ni_datoteke") ? "skriptaNapakaPot" : k === "cas" ? "skriptaCas" : "skriptaNapaka"));
   }
   function narisiSkripte(cilj) {
     if (SKR.seznam === null) { SKR.seznam = []; naloziSkripte(); }
@@ -1597,6 +1598,21 @@
     var uvozi = el("button", "media-polica-vse", "<span>" + ubezi(t("skriptaUvozi")) + "</span>"); uvozi.type = "button";
     uvozi.addEventListener("click", function () { datoteka.click(); });
     g.appendChild(uvozi); g.appendChild(datoteka);
+    // Pot vpisana rocno (lastnik, 18. 10. 2026): kdor datoteke v oknu za izbiro ne najde, jo vpise, npr. ~/Prejemi/x.js.
+    var vrsticaPot = el("div", "skripta-pot");
+    var pot = document.createElement("input"); pot.type = "text"; pot.spellcheck = false; pot.autocomplete = "off";
+    pot.placeholder = SKR.primer ? t("skriptaPotPrimerPot", { pot: SKR.primer }) : t("skriptaPotPrimer"); pot.setAttribute("aria-label", t("skriptaPot"));
+    var poPoti = el("button", "media-polica-vse", "<span>" + ubezi(t("skriptaUvoziPot")) + "</span>"); poPoti.type = "button";
+    function uvoziSPoti() {
+      var v = String(pot.value || "").trim(); if (!v) { pot.focus(); return; }
+      klic("mediaSkriptaPreberi", [v]).then(function (r) {
+        if (r && r.ok) { SKR.cakajoca = { ime: r.ime, vsebina: r.vsebina }; narisiPrilagodi(); } else skriptaNapaka(r);
+      }, function () { skriptaNapaka(null); });
+    }
+    poPoti.addEventListener("click", uvoziSPoti);
+    pot.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); uvoziSPoti(); } });
+    vrsticaPot.appendChild(el("small", "drobno", ubezi(t("skriptaPot"))));
+    vrsticaPot.appendChild(pot); vrsticaPot.appendChild(poPoti); g.appendChild(vrsticaPot);
     cilj.appendChild(g);
   }
   // Plakat z naslovom http:// (vir brez TLS, npr. goli IP): CSP strani dovoli samo https/file/data, zato sliko prenese
@@ -7991,10 +8007,15 @@
     if (vrsta === "mediaYtNapaka" && zaAktivno) {
       // Lastnik posnetka vgradnje ne dovoli (ali posnetka ni več): poiščemo drug posnetek iste skladbe, sicer naslednja.
       var skladba = kat.aktivni;
+      if (podatki && podatki.zamenjaj === false) {
+        // Napaka dekoderja ali nastavitve: posnetka ne zamenjamo (18. 10. 2026), tiho naprej na naslednjo skladbo -
+        // lastnik: napak predvajalnika uporabniku ne izpisujemo, lovilci napak poskrbijo za vsebino (sled je v sled.log).
+        if (!predvajajIzVrste(1)) ustaviKatPredvajanje();
+        return;
+      }
       klic("mediaSeznamZamenjava", [skladba.id]).then(function (nova) {
         if (kat.aktivni !== skladba) return;
         if (nova && nova.youtube && nova.youtube !== skladba.youtube) { kat.izVrste = true; odpriKatalogVnos(skladba.id); return; }
-        obvesti(t("seznamBrezPosnetka", { ime: skladba.naslov || "" }));
         if (!predvajajIzVrste(1)) ustaviKatPredvajanje();
       }, function () { if (kat.aktivni === skladba && !predvajajIzVrste(1)) ustaviKatPredvajanje(); });
     }

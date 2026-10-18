@@ -561,6 +561,166 @@ class DebWebkitTests(unittest.TestCase):
                     self.assertNotIn('GI_TYPELIB_PATH',os.environ)
             self.assertTrue(os_tl)
 
+    def test_zasebni_webkit_doda_vticnike_gstreamer_dav1d(self):
+        """dav1ddec v PREDPONA/lib/gstreamer-1.0 (packaging/webkit-deb/dav1d.sh): mapa na konec GST_PLUGIN_PATH,
+        obstojeca vrednost ostane, brez podvajanja; brez mape (lokalna gradnja) GST_PLUGIN_PATH ostane nedotaknjen."""
+        from core import zasebni_webkit
+        with tempfile.TemporaryDirectory() as d:
+            brskalnik=Path(d)/'safeer-browser'
+            self._webkit(brskalnik)
+            okolje={k:v for k,v in os.environ.items()
+                    if k not in ('FLATPAK_ID','APPIMAGE','SAFEER_SISTEMSKI_WEBKIT','GST_PLUGIN_PATH')}
+            with patch.dict(os.environ,okolje,clear=True):
+                zasebni_webkit.nastavi(str(brskalnik))
+                self.assertNotIn('GST_PLUGIN_PATH',os.environ)
+            vticniki=brskalnik/'webkit/lib/gstreamer-1.0'
+            vticniki.mkdir()
+            with patch.dict(os.environ,dict(okolje,GST_PLUGIN_PATH='/a'),clear=True):
+                zasebni_webkit.nastavi(str(brskalnik))
+                self.assertEqual(os.environ['GST_PLUGIN_PATH'],'/a:%s'%vticniki)
+                zasebni_webkit.nastavi(str(brskalnik))
+                self.assertEqual(os.environ['GST_PLUGIN_PATH'],'/a:%s'%vticniki)
+            with patch.dict(os.environ,okolje,clear=True):
+                zasebni_webkit.nastavi(str(brskalnik))
+                self.assertEqual(os.environ['GST_PLUGIN_PATH'],str(vticniki))
+            # Safeer Control uporabi WebKit (in dav1ddec) paketa safeer-os.
+            os_vt=Path(d)/'safeer-os/webkit/lib/gstreamer-1.0'
+            self._webkit(Path(d)/'safeer-os')
+            os_vt.mkdir()
+            (Path(d)/'safeer-control').mkdir()
+            with patch.dict(os.environ,okolje,clear=True):
+                zasebni_webkit.nastavi(str(Path(d)/'safeer-control'))
+                self.assertEqual(os.environ['GST_PLUGIN_PATH'],str(os_vt))
+            with patch.dict(os.environ,dict(okolje,FLATPAK_ID='x'),clear=True):
+                zasebni_webkit.nastavi(str(brskalnik))
+                self.assertNotIn('GST_PLUGIN_PATH',os.environ)
+
+    def test_dav1d_skripta_pripne_crate_in_preveri_vticnik(self):
+        """packaging/webkit-deb/dav1d.sh: gst-plugin-dav1d 0.14.5 s SHA-256 iz crates.io, odvisnosti iz Cargo.lock
+        (--locked), strip, preverba v GStreamerju sistema (rang nad av1dec)."""
+        skripta=(self.WEBKIT_DEB/'dav1d.sh').read_text()
+        self.assertIn('RAZLICICA=0.14.5\n',skripta)
+        self.assertIn('SHA256=fee4d853d1a7b253a6771e63dac20c43bce86ea27486f8672e65a0f7c0e0bcd6\n',skripta)
+        self.assertRegex(skripta,r'\nRUST=1\.\d+\.\d+\n')
+        for niz in ('https://static.crates.io/crates/gst-plugin-dav1d/gst-plugin-dav1d-$RAZLICICA.crate','sha256sum -c',
+                    'build --release --locked','strip --strip-unneeded','LICENSE-MIT','LICENSE-APACHE','gradnja.txt',
+                    'libdav1d.so.7','b"dav1ddec"','rang >= 256'):
+            self.assertIn(niz,skripta)
+        subprocess.run(['bash','-n',str(self.WEBKIT_DEB/'dav1d.sh')],check=True)
+        self.assertIn(' libdav1d7 ',(self.WEBKIT_DEB/'knjiznice.sh').read_text())
+        vgradi=(self.WEBKIT_DEB/'vgradi.sh').read_text()
+        self.assertIn('SAFEER_DAV1D',vgradi)
+        self.assertIn('"$WK/lib/gstreamer-1.0/libgstdav1d.so"',vgradi)
+        # Vticnik se vgradi pred dpkg-shlibdeps, da odvisnost libdav1d7 zapise iz knjiznice.
+        self.assertLess(vgradi.index('libgstdav1d.so"'),vgradi.index('dpkg-shlibdeps -O'))
+
+    def _lazni_arhiv(self, d, paket):
+        wk=Path(d)/'drevo/usr/lib'/paket/'webkit'
+        for f in ('lib/libwebkitgtk-6.0.so.4','lib/libjavascriptcoregtk-6.0.so.1','lib/libsoup-3.0.so.0',
+                  'libexec/webkitgtk-6.0/WebKitWebProcess','libexec/webkitgtk-6.0/WebKitNetworkProcess'):
+            (wk/f).parent.mkdir(parents=True,exist_ok=True)
+            shutil.copy('/bin/true',wk/f)
+        for f in ('WebKit-6.0','Soup-3.0'):
+            (wk/'lib/girepository-1.0').mkdir(parents=True,exist_ok=True)
+            (wk/'lib/girepository-1.0'/(f+'.typelib')).write_bytes(b'x')
+        (wk/'share/webkitgtk-safeer').mkdir(parents=True)
+        (wk/'share/webkitgtk-safeer/gradnja.txt').write_text(
+            'Ubuntu clang version 22.1.8\nLTO_MODE:UNINITIALIZED=thin\nbuild.ninja -fuse-ld=lld: 10\npredpona: /usr/lib/%s/webkit\n'%paket)
+        arhiv=Path(d)/'webkit.tar.zst'
+        subprocess.run(['tar','-C',str(Path(d)/'drevo'),'-I','zstd','-cf',str(arhiv),'usr'],check=True)
+        return arhiv
+
+    def _dav1d_mapa(self, d, so):
+        mapa=Path(d)/'dav1d'
+        mapa.mkdir()
+        shutil.copy(so,mapa/'libgstdav1d.so')
+        for f in ('LICENSE-MIT','LICENSE-APACHE'):
+            (mapa/f).write_text('licenca\n')
+        (mapa/'gradnja.txt').write_text('gst-plugin-dav1d 0.14.5 (preizkus)\n')
+        return mapa
+
+    def test_vgradi_doda_dav1d_in_zahteva_libdav1d7(self):
+        """SAFEER_DAV1D: vticnik v PREDPONA/lib/gstreamer-1.0 + licenci; libdav1d7 v Depends iz dpkg-shlibdeps,
+        sicer vgradi.sh pade (vticnik, ki ni povezan z libdav1d, ni dav1ddec)."""
+        for orodje in ('dpkg-shlibdeps','zstd','file'):
+            if not shutil.which(orodje):
+                self.skipTest('ni %s'%orodje)
+        # Negativno: ELF brez libdav1d.so.7.
+        with tempfile.TemporaryDirectory() as d:
+            arhiv=self._lazni_arhiv(d,'safeer-os')
+            okolje=dict(os.environ,SAFEER_DAV1D=str(self._dav1d_mapa(d,'/bin/true')))
+            r=subprocess.run(['bash',str(self.WEBKIT_DEB/'vgradi.sh'),str(Path(d)/'koren'),'safeer-os',str(arhiv)],
+                             env=okolje,capture_output=True,text=True)
+            self.assertNotEqual(r.returncode,0,r.stdout)
+            self.assertIn('ni libdav1d7',r.stderr)
+            # Manjkajoca mapa vticnika se zavrne.
+            okolje['SAFEER_DAV1D']=str(Path(d)/'ni')
+            r=subprocess.run(['bash',str(self.WEBKIT_DEB/'vgradi.sh'),str(Path(d)/'koren'),'safeer-os',str(arhiv)],
+                             env=okolje,capture_output=True,text=True)
+            self.assertNotEqual(r.returncode,0)
+            self.assertIn('ni libgstdav1d.so',r.stderr)
+        # Pozitivno: prava knjiznica, povezana z libdav1d (le ce sta prevajalnik in libdav1d-dev).
+        cc=shutil.which('cc')
+        if not cc or not subprocess.run(['pkg-config','--exists','dav1d'],capture_output=True).returncode==0:
+            self.skipTest('ni cc ali libdav1d-dev')
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d)/'v.c').write_text('#include <dav1d/dav1d.h>\nconst char *v(void) { return dav1d_version(); }\n')
+            so=Path(d)/'v.so'
+            subprocess.run([cc,'-shared','-fPIC','-o',str(so),str(Path(d)/'v.c'),'-Wl,--no-as-needed','-ldav1d'],check=True)
+            arhiv=self._lazni_arhiv(d,'safeer-os')
+            okolje=dict(os.environ,SAFEER_DAV1D=str(self._dav1d_mapa(d,so)))
+            koren=Path(d)/'koren'
+            r=subprocess.run(['bash',str(self.WEBKIT_DEB/'vgradi.sh'),str(koren),'safeer-os',str(arhiv)],
+                             env=okolje,capture_output=True,text=True)
+            self.assertEqual(r.returncode,0,r.stderr[-2000:])
+            self.assertRegex(r.stdout,r'(^|, )libdav1d7( |,|$)')
+            wk=koren/'usr/lib/safeer-os/webkit'
+            self.assertTrue((wk/'lib/gstreamer-1.0/libgstdav1d.so').is_file())
+            self.assertEqual((wk/'lib/gstreamer-1.0/libgstdav1d.so').stat().st_mode & 0o777,0o644)
+            for f in ('LICENSE-MIT','LICENSE-APACHE','gradnja.txt'):
+                self.assertTrue((wk/'share/doc/gst-plugin-dav1d'/f).is_file(),f)
+
+    def test_smoke_preveri_dav1d_in_predvaja_av1(self):
+        """packaging/smoke_webkit_deb.py: dav1ddec iz predpone z rangom nad drugimi dekoderji AV1 in predvajanje
+        vgrajenega videa AV1 v strani (proces, ki dekodira, ima nalozen nas libgstdav1d.so)."""
+        import base64
+        import hashlib
+        smoke=(ROOT/'packaging/smoke_webkit_deb.py').read_text()
+        for niz in ('gst_element_factory_find','b"dav1ddec"','b"av1dec"','"libgstdav1d.so"','/av1.webm','"AV1 ok','::notice::dav1d'):
+            self.assertIn(niz,smoke)
+        vgrajen=smoke.split('AV1_WEBM = base64.b64decode("""',1)[1].split('""")',1)[0]
+        webm=base64.b64decode(vgrajen)
+        self.assertEqual(webm[:4],bytes.fromhex('1a45dfa3'))
+        self.assertEqual(hashlib.sha256(webm).hexdigest(),'972c68171a82bd8558b7031503168d7a4351a96ffede52f3e7925b6ae7ff6952')
+        self.assertIn(b'V_AV1',webm)
+        self.assertIn('stran AV1','\n'.join((ROOT/'tools/mint_namestitev/v_vsebniku.sh').read_text().splitlines()))
+
+    def test_ci_gradi_dav1d_za_oba_paketa(self):
+        potek=(ROOT/'.github/workflows/linux-packages.yml').read_text()
+        posel=potek.split('\n  dav1d-deb:\n',1)[1].split('\n  brskalnik:\n',1)[0]
+        self.assertIn('runs-on: ubuntu-24.04',posel)
+        self.assertIn('libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libdav1d-dev',posel)
+        self.assertIn('bash packaging/webkit-deb/dav1d.sh build/dav1d',posel)
+        self.assertEqual(posel.count("key: dav1d-deb-${{ hashFiles('packaging/webkit-deb/dav1d.sh') }}"),2)
+        self.assertIn('name: dav1d-deb',posel)
+        for ime,paket,naslednji in (('brskalnik','safeer-browser','safeer-os'),('safeer-os','safeer-os','mint')):
+            with self.subTest(posel=ime):
+                del_=potek.split('\n  %s:\n'%ime,1)[1].split('\n  %s:\n'%naslednji,1)[0]
+                self.assertIn('needs: [webkit-deb, dav1d-deb]',del_)
+                self.assertIn('name: dav1d-deb\n          path: build/dav1d',del_)
+                self.assertIn('SAFEER_DAV1D=build/dav1d SAFEER_WEBKIT_TAR=build/webkit-%s.tar.zst'%paket,del_)
+                self.assertIn("grep -F './usr/lib/%s/webkit/lib/gstreamer-1.0/libgstdav1d.so'"%paket,del_)
+                self.assertIn("Depends | grep -E '(^|, )libdav1d7( |,|$)'",del_)
+        # Flatpak: samo porocilo, ali runtime GNOME 50 ze ima dav1ddec (posel ne pade).
+        for ime,app,naslednji in (('flatpak','SafeerOS','flatpak-brskalnik'),('flatpak-brskalnik','SafeerBrowser','scit-lab')):
+            with self.subTest(flatpak=ime):
+                del_=potek.split('\n  %s:\n'%ime,1)[1].split('\n  %s:\n'%naslednji,1)[0]
+                korak=del_.split('- name: AV1 decoder dav1ddec in the GNOME 50 runtime (report only)',1)[1].split('\n      - ',1)[0]
+                self.assertIn('continue-on-error: true',korak)
+                self.assertIn('APP=io.github.memelandfaner.%s'%app,korak)
+                self.assertIn('flatpak run --command=gst-inspect-1.0 $APP dav1ddec',korak)
+                self.assertIn('::notice::Flatpak',korak)
+
     def test_vstopne_tocke_nastavijo_webkit_pred_import_gi(self):
         for vstop in ('safeer_brskalnik.py','safeer_os.py','safeer_control.py'):
             with self.subTest(vstop=vstop):
@@ -644,7 +804,7 @@ class DebWebkitTests(unittest.TestCase):
         for ime,paket,skripta in (('brskalnik','safeer-browser','build_deb.sh'),('safeer-os','safeer-os','build_os_deb.sh')):
             with self.subTest(posel=ime):
                 del_=potek.split('\n  %s:\n'%ime,1)[1].split('\n  mint:\n' if ime=='safeer-os' else '\n  safeer-os:\n',1)[0]
-                self.assertIn('needs: webkit-deb',del_)
+                self.assertRegex(del_,r'needs: \[?webkit-deb\b')
                 self.assertIn('name: webkit-deb-%s'%paket,del_)
                 self.assertIn('SAFEER_WEBKIT_TAR=build/webkit-%s.tar.zst bash %s'%(paket,skripta),del_)
                 self.assertIn('packaging/smoke_webkit_deb.py /usr/lib/%s'%paket,del_)

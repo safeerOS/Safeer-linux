@@ -86,6 +86,55 @@ def vrsta_iz_imena(ime: str) -> str:
     return k if k in VRSTE else ""
 
 
+def primer_poti() -> str:
+    """Celotna pot za primer v polju (lastnik, 18. 10. 2026: »~« uporabniku nic ne pove) - mapa Prejemi tega uporabnika
+    (XDG_DOWNLOAD_DIR iz ~/.config/user-dirs.dirs, sicer ~/Downloads) in ime skripta.js."""
+    dom = os.path.expanduser("~")
+    mapa_prejemov = os.path.join(dom, "Downloads")
+    try:
+        with open(os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.join(dom, ".config"), "user-dirs.dirs"),
+                  encoding="utf-8") as f:
+            for vrstica in f:
+                m = re.match(r'\s*XDG_DOWNLOAD_DIR="([^"]+)"', vrstica)
+                if m:
+                    mapa_prejemov = m.group(1).replace("$HOME", dom)
+                    break
+    except OSError:
+        pass
+    return os.path.join(mapa_prejemov, "skripta.js")
+
+
+def preberi_pot(pot: Any) -> Dict[str, Any]:
+    """Prebere skripto s poti, ki jo uporabnik vpise v vmesnik (npr. ~/Prejemi/skripta.js) - za tiste, ki datoteke v
+    oknu za izbiro ne najdejo (lastnik, 18. 10. 2026). Samo branje: uvoz gre se vedno skozi opozorilo in uvozi().
+    Dovoljena je samo navadna datoteka .js/.sh v domaci mapi, ne v skritih mapah (~/.ssh, ~/.config ...)."""
+    besedilo = str(pot or "").strip()
+    if not besedilo or len(besedilo) > 4096 or "\x00" in besedilo:
+        return {"ok": False, "napaka": "pot"}
+    dom = os.path.realpath(os.path.expanduser("~"))
+    polna = os.path.realpath(os.path.expanduser(besedilo) if besedilo.startswith("~") else
+                             (besedilo if os.path.isabs(besedilo) else os.path.join(dom, besedilo)))
+    if not polna.startswith(dom + os.sep):
+        return {"ok": False, "napaka": "pot"}
+    if any(d.startswith(".") for d in os.path.relpath(polna, dom).split(os.sep)):
+        return {"ok": False, "napaka": "pot"}
+    if not vrsta_iz_imena(polna):
+        return {"ok": False, "napaka": "vrsta"}
+    try:
+        if not os.path.isfile(polna):
+            return {"ok": False, "napaka": "ni_datoteke"}
+        if os.path.getsize(polna) > NAJVEC_BAJTOV:
+            return {"ok": False, "napaka": "velikost"}
+        with open(polna, "rb") as f:
+            bajti = f.read(NAJVEC_BAJTOV + 1)
+        vsebina = bajti.decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return {"ok": False, "napaka": "ni_datoteke"}
+    if len(bajti) > NAJVEC_BAJTOV or "\x00" in vsebina:
+        return {"ok": False, "napaka": "velikost"}
+    return {"ok": True, "ime": os.path.basename(polna), "vsebina": vsebina}
+
+
 def seznam() -> List[Dict[str, Any]]:
     with _zaklep:
         return _beri()

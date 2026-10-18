@@ -46,6 +46,8 @@ if KOREN not in sys.path:
 # Paket .deb: nas WebKitGTK in libsoup iz /usr/lib/<paket>/webkit namesto sistemskih (pred `import gi`).
 from core import zasebni_webkit  # noqa: E402
 zasebni_webkit.nastavi(KOREN)
+from core import video_dekoderji  # noqa: E402
+video_dekoderji.programsko()     # VA-API je pri YouTubu odpovedoval (18. 10. 2026), glej modul
 from core import pomnilnik  # noqa: E402
 pomnilnik.omeji_arene(2)
 
@@ -6878,8 +6880,10 @@ class SafeerOS(Gtk.Application):
 
     # -- skladba s seznama predvajanja: vgradni predvajalnik YouTuba v lahkem pogledu (core/os_katalog.py)
     def _katalog_youtube(self, naslov: str, ime: str) -> bool:
-        """Vgradni predvajalnik YouTuba v lahkem pogledu; stanje skladbe javi skript (os_katalog.SKRIPT_SKLADBE)."""
-        if not os_katalog.je_naslov_vgradnje(naslov):
+        """Vgradni predvajalnik YouTuba (ali, ce vgradnja ni dovoljena, stran posnetka) v lahkem pogledu; stanje skladbe
+        javi skript (os_katalog.SKRIPT_SKLADBE)."""
+        vgradnja = os_katalog.je_naslov_vgradnje(naslov)
+        if not vgradnja and not os_katalog.je_naslov_strani(naslov):
             return False
         if not self._ustvari_medijski_pogled():
             return False          # brez peskovnika (glej _odpri_lahki_medijski_pogled)
@@ -6892,8 +6896,9 @@ class SafeerOS(Gtk.Application):
         self._medijska_plast.nastavi_naslov(ime or self._mb("medijski_center"))
         self._yt_prijava_v_medijski_pogled()
         zahteva = WebKit2.URIRequest.new(naslov)
-        # YouTube vgradnjo dovoli samo znanemu izvoru; Safeer se predstavi enako kot na Windows.
-        zahteva.get_http_headers().append("Referer", os_katalog.IZVOR_VGRADNJE)
+        if vgradnja:
+            # YouTube vgradnjo dovoli samo znanemu izvoru; Safeer se predstavi enako kot na Windows.
+            zahteva.get_http_headers().append("Referer", os_katalog.IZVOR_VGRADNJE)
         self._medijski_pogled.load_request(zahteva)
         if not getattr(self, "_medijski_skladba_videna", False):
             # Prvic plast pokazemo v oknu Medijskega centra; naslednja skladba je ne vrine nazaj, ce se je uporabnik
@@ -6932,7 +6937,8 @@ class SafeerOS(Gtk.Application):
             try:
                 dejanje = odlocitev.get_navigation_action()
                 if (dejanje.get_navigation_type() == WebKit2.NavigationType.LINK_CLICKED
-                        and not os_katalog.je_naslov_vgradnje(dejanje.get_request().get_uri() or "")):
+                        and not os_katalog.je_naslov_vgradnje(dejanje.get_request().get_uri() or "")
+                        and not os_katalog.je_naslov_strani(dejanje.get_request().get_uri() or "")):
                     odlocitev.ignore()
                     return True
             except Exception:  # noqa: BLE001

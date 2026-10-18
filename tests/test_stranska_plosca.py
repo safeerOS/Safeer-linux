@@ -40,6 +40,12 @@ class Plosca(unittest.TestCase):
         for k, v in (("doh_enabled", False), ("secure_proxy_mode", "custom"), ("secure_proxy_url", "http://127.0.0.1:9"),
                      ("easylist_enabled", False)):
             c.set(k, v)
+        # V istem procesu pytest je core.config ze uvozil drug preizkus (CONFIG_DIR je tam dolocen ob uvozu), zato so
+        # vklopi storitev lahko ostali od njega (zapora 18. 10. 2026: messenger vklopljen). Izhodisce: vse izklopljeno.
+        for v in (c.settings.get("integrations") or {}).values():
+            if isinstance(v, dict):
+                v["enabled"] = False
+        c.save_settings()
         from core.os_splet import VdelaniSplet
         from core.stranska_plosca import StranskaPlosca
         splet = VdelaniSplet(Gtk, Gdk, Gio, GLib, WebKit, KOREN, lambda: "sl", None, prvi_zavihek=False, config=c)

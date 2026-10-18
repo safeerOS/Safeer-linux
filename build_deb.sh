@@ -12,6 +12,7 @@ PKG_NAME="safeer-browser"
 VERSION="$(cat "$DIR/packaging/VERSION")"
 # Nas WebKitGTK 6.0 in libsoup 3.8 (lastnik, 15. 10. 2026: .deb dobi vse izboljsave Flatpaka): arhiv iz
 # packaging/webkit-deb/zgradi.sh za predpono /usr/lib/safeer-browser/webkit (CI: posel webkit-deb). Z njim je paket amd64.
+# SAFEER_DAV1D=MAPA (CI: posel dav1d-deb) doda dekoder AV1 dav1ddec v predpono (packaging/webkit-deb/vgradi.sh).
 WEBKIT_TAR="${SAFEER_WEBKIT_TAR:-}"
 if [ -n "$WEBKIT_TAR" ]; then ARCH="amd64"; else ARCH="all"; fi
 DEB_PACKAGE="${PKG_NAME}_${VERSION}_${ARCH}.deb"
