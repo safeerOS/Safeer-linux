@@ -6,6 +6,7 @@ predvajalnih vtičnikov. Vmesnik in baza knjižnice lahko uporabljata isto sejo.
 
 from __future__ import annotations
 
+import sys
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -32,7 +33,9 @@ class Skladba:
     izvirnik: str = ""
 
 
-#: Kode napak predvajanja; stran jih prevede (mediaNapaka_<koda>), okno predvajalnika uporabi NAPAKE.
+#: Kode napak predvajanja (za dnevnik). Lastnik 18. 10. 2026: napak predvajalnika uporabniku ne kazemo - predvajalnik
+#: tiho gre na naslednjo skladbo/postajo ali se ustavi, sled je v stderr (sled.log). Uporabnik vidi samo »dvd«:
+#: zasciten disk ni napaka predvajanja, ampak pojasnilo, zakaj ga Safeer ne odklepa.
 NAPAKE = {
     "tok": "Tok ni dosegljiv. Preveri naslov in povezavo.",
     "datoteka": "Datoteke ni mogoče prebrati.",
@@ -60,6 +63,11 @@ def vrsta_napake(napaka, uri: str = "") -> str:
     if "resource" in domena or omrezje:
         return "tok" if omrezje else "datoteka"
     return "splosno"
+
+
+def _dnevnik_napake(koda: str, vrsta: str) -> None:
+    """Sled napake predvajanja (brez naslova vsebine) v stderr - zaganjalnik ga preusmeri v sled.log."""
+    print("[SafeerOS] predvajanje: napaka %s (%s), tiho naprej" % (koda, vrsta or "medij"), file=sys.stderr, flush=True)
 
 
 def medij(uri: str, vrsta: str = "medij") -> Skladba:
@@ -128,6 +136,8 @@ ZIVO_ZASTOJ_MEJA_S = 15.0
 ZIVO_ODMIKI_S = (1, 2, 4, 8, 8)
 #: Po toliko sekundah nemotenega predvajanja stejemo poskuse povezave znova od zacetka.
 ZIVO_STABILNO_S = 30.0
+#: Napake, ki jih ponovna povezava ne popravi (manjka kodek, DRM): brez ponovnih poskusov.
+TRAJNE_NAPAKE = frozenset({"format", "zascita"})
 
 
 def je_zivi_tok(s: Skladba | None) -> bool:
@@ -255,9 +265,14 @@ class Predvajalnik:
         self.nastavi_zamik("podnapisi", 0)
         self._samodejni_zvok, self._obnovi_zvok = True, -1
         rezultat = self.element.set_state(self.gst.State.PLAYING)
-        self.stanje = "napaka" if rezultat == self.gst.StateChangeReturn.FAILURE else "predvaja"
-        if self.stanje == "napaka":
-            self.napaka = "zacetek"
+        if rezultat == self.gst.StateChangeReturn.FAILURE:
+            # Tiho (lastnik 18. 10. 2026): brez naslednje skladbe tu - ta bi se v isti nit klicala rekurzivno.
+            _dnevnik_napake("zacetek", self.vrsta[indeks].vrsta)
+            self.element.set_state(self.gst.State.NULL)
+            self._zivo_konec()
+            self.stanje = "ustavljeno"
+        else:
+            self.stanje = "predvaja"
         self.sprememba()
         return self.stanje == "predvaja"
 
@@ -742,12 +757,25 @@ class Predvajalnik:
             self.poskusi_nadaljevati()
         elif sporocilo.type == self.gst.MessageType.ERROR:
             napaka, razhroscevanje = sporocilo.parse_error()
-            # Uporabnik vidi razumljivo, prevedeno sporočilo (koda); surovo napako GStreamerja damo v dnevnik.
-            print("[SafeerOS] predvajanje:", napaka, razhroscevanje or "", flush=True)
-            self.napaka = vrsta_napake(napaka, self.trenutna.uri if self.trenutna else "")
-            self.element.set_state(self.gst.State.NULL)
-            self.stanje = "napaka"
-            self.sprememba()
+            # Surova napaka GStreamerja gre v dnevnik; uporabnik ne vidi nicesar (lastnik 18. 10. 2026): naslednja
+            # skladba v vrsti, sicer tiha ustavitev.
+            print("[SafeerOS] predvajanje:", napaka, razhroscevanje or "", file=sys.stderr, flush=True)
+            self._tiho_naprej(vrsta_napake(napaka, self.trenutna.uri if self.trenutna else ""))
+
+    def _tiho_naprej(self, koda: str) -> None:
+        """Napaka predvajanja brez sporocila uporabniku: sled v stderr, nato naslednja skladba v vrsti (radio:
+        naslednja postaja, ce je v vrsti) ali tiha ustavitev. Rekurzije ni: napaka naslednje pride spet po vodilu."""
+        s = self.trenutna
+        _dnevnik_napake(koda, s.vrsta if s else "")
+        self.element.set_state(self.gst.State.NULL)
+        self._zivo_konec()
+        self.napaka = ""
+        naslednja = self.vrsta[self.indeks + 1] if 0 <= self.indeks + 1 < len(self.vrsta) else None
+        if naslednja is not None and (s is None or s.vrsta != "radio" or naslednja.vrsta == "radio"):
+            if self.naslednja():
+                return
+        self.stanje = "ustavljeno"
+        self.sprememba()
 
     # ------------------------------------------------------------------ radio v zivo: medpomnjenje in ponovna povezava
 
@@ -767,7 +795,7 @@ class Predvajalnik:
         self._znova_ob_nadaljevanju = False
 
     def _dnevnik(self, *besedilo) -> None:
-        print("[SafeerOS] radio:", *besedilo, flush=True)
+        print("[SafeerOS] radio:", *besedilo, file=sys.stderr, flush=True)      # stderr = sled.log
 
     def _cez_klic(self, sekunde: float, f) -> None:
         if self.cez is not None:
@@ -851,7 +879,13 @@ class Predvajalnik:
         if tip == vrste.ERROR:
             napaka, razhroscevanje = sporocilo.parse_error()
             self._dnevnik("napaka toka:", napaka, razhroscevanje or "")
-            self._prekinjeno(vrsta_napake(napaka, self.trenutna.uri if self.trenutna else ""))
+            koda = vrsta_napake(napaka, self.trenutna.uri if self.trenutna else "")
+            if koda in TRAJNE_NAPAKE:
+                # Manjka kodek ali je tok zascite: ponovna povezava tega ne popravi (pregled 18. 10. 2026).
+                self._dnevnik("trajna napaka %s, brez ponovnih poskusov" % koda)
+                self._tiho_naprej(koda)          # _zivo_konec: odlozene povezave ne veljajo, statistika v dnevnik
+                return True
+            self._prekinjeno(koda)
             return True
         if tip == vrste.EOS:
             self._dnevnik("streznik je zaprl tok (EOS)")
@@ -902,19 +936,15 @@ class Predvajalnik:
         self._povezi_znova()
 
     def _prekinjeno(self, koda: str) -> None:
-        """ERROR/EOS radia: tiho znova povezemo (1, 2, 4, 8, 8 s); sele potem uporabnik vidi napako."""
+        """ERROR/EOS radia: tiho znova povezemo (1, 2, 4, 8, 8 s); potem tiho naslednja postaja v vrsti ali ustavitev
+        (lastnik 18. 10. 2026: napak predvajalnika uporabniku ne kazemo, sled je v sled.log)."""
         self.element.set_state(self.gst.State.NULL)
         if self._povezan_od is not None and self._ura() - self._povezan_od >= ZIVO_STABILNO_S:
             self._poskus = 0
         poskus = self._poskus
         if poskus >= len(ZIVO_ODMIKI_S):
             self._dnevnik("povezave ni bilo mogoce obnoviti po %d poskusih" % poskus)
-            self._izpisi_statistiko()
-            self._rod += 1
-            self.napaka = "povezava" if koda == "tok" else koda
-            self.stanje = "napaka"
-            self._zivo_ponastavi()
-            self.sprememba()
+            self._tiho_naprej("povezava" if koda == "tok" else koda)
             return
         self._poskus = poskus + 1
         odmik = ZIVO_ODMIKI_S[poskus]

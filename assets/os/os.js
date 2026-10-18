@@ -1880,7 +1880,8 @@
       slika = item.slika || "";
     } else {
       naslov = p.naslov || "";
-      opis = p.stanje === "napaka" ? t("mediaNapaka_" + (p.napaka || "splosno")) : p.stanje === "premor" ? t("mediaPremor") :
+      // Napak predvajanja ne kazemo (lastnik 18. 10. 2026, sled je v sled.log); ostane samo pojasnilo za zasciten disk.
+      opis = p.stanje === "napaka" && p.napaka === "dvd" ? t("mediaNapaka_dvd") : p.stanje === "premor" ? t("mediaPremor") :
         zivo ? t("mediaVZivo") : (p.izvor || t("mediaTaRacunalnik"));
       igra = p.stanje === "predvaja";
       if (opis === t("mediaTaRacunalnik")) opis = "";
@@ -5901,7 +5902,12 @@
     }, function () { spNapaka("ni_odziva"); });
   }
   function ustaviSpCakanje() { if (kat.spCakanje) { clearInterval(kat.spCakanje); kat.spCakanje = 0; } }
-  function spNapaka(koda) {
+  // predvajanje: napaka med predvajanjem ali upravljanjem - tiho (lastnik 18. 10. 2026; sled zapise os_katalog v
+  // sled.log). Ostanejo le sporocila, ki niso napaka predvajalnika, ampak uporabnik mora nekaj storiti: Safeer DRM
+  // prenesti, se prijaviti (SP_UKREPAJ). Brskanje (odpiranje seznama) in prijava kazeta vse kot doslej.
+  var SP_UKREPAJ = { ni_drm: 1, potekla: 1, ni_prijave: 1 };
+  function spNapaka(koda, predvajanje) {
+    if (predvajanje && !SP_UKREPAJ[koda]) return;
     var k = "spNapaka_" + koda;
     obvesti(t(k) !== k ? t(k) : t("spNapaka_stran"));
   }
@@ -6000,7 +6006,7 @@
     var gumbi = el("div", "kat-sp-gumbi");
     [["nazaj", "⏮", "spNazaj"], ["premor", p.igra ? "⏸" : "▶", p.igra ? "spPremor" : "spPredvajaj"], ["naprej", "⏭", "spNaprej"]].forEach(function (g) {
       var b = el("button", "gumb", g[1]); b.type = "button"; b.title = t(g[2]); b.setAttribute("aria-label", t(g[2]));
-      b.onclick = function () { klic("mediaSpUkaz", [g[0]]).then(function (x) { if (x && x.napaka) spNapaka(x.napaka); setTimeout(osveziSp, 400); }, function () {}); };
+      b.onclick = function () { klic("mediaSpUkaz", [g[0]]).then(function (x) { if (x && x.napaka) spNapaka(x.napaka, true); setTimeout(osveziSp, 400); }, function () {}); };
       gumbi.appendChild(b);
     });
     c.appendChild(gumbi);
@@ -6116,9 +6122,9 @@
     if (u === "premor" && p && p.naslov) { p.igra = !p.igra; narisiTrak(); }      // takoj, stanje potrdi zanka
     klic("mediaSpUkaz", vrednost == null ? [u] : [u, vrednost]).then(function (x) {
       if (x && x.napaka === "ne_tece") { kat.spTrak = false; narisiTrak(); }
-      if (x && x.napaka) spNapaka(x.napaka);
+      if (x && x.napaka) spNapaka(x.napaka, true);
       setTimeout(osveziSp, 400);
-    }, function () { spNapaka("ni_odziva"); });
+    }, function () {});
     if (u === "premor") spZanka();
   }
   function spUstaviTrak() {
@@ -6391,17 +6397,16 @@
     var zahteva = ++kat.zahtevaPredvajanja;
     klic(predvajanje ? predvajanje[0] : "mediaPredvajaj", predvajanje ? predvajanje[1] : [id]).then(function (item) {
       if (zahteva !== kat.zahtevaPredvajanja) return;       // uporabnik je medtem izbral drugo vsebino
-      if (!item) { if (!(predvajanje && predvajanje[2])) obvesti(t("katNapakaVira")); return; }
+      if (!item) return;            // vira ni bilo mogoce razresiti: tiho (sled v sled.log, os_katalog)
       if (item.spotify) {
         // Skladba računa Spotify: predvaja skrit Safeer DRM; upravljanje je v razdelku Spotify (ne v traku predvajalnika).
-        if (item.sp_napaka) { spNapaka(item.sp_napaka); return; }
+        if (item.sp_napaka) { spNapaka(item.sp_napaka, true); return; }
         spZacni(item);
         return;
       }
       if (item.tip === "lokalno" && item.pot) { odpriLokalno(item.pot); return; }     // naslednja epizoda z diska
       if (item.napaka_koda === "ni_toka") {
-        // Noben vir tega ne predvaja: brez okna in brez strani – kratko obvestilo, film izgine iz mreže.
-        obvesti(t("mediaNapaka_ni_toka", { ime: item.naslov || "" }));
+        // Noben vir tega ne predvaja: brez okna, brez strani in brez sporocila (lastnik 18. 10. 2026) – film izgine iz mreže.
         if (item.vrsta === "film") {
           var prej = (kat.katalog || []).length;
           kat.katalog = (kat.katalog || []).filter(function (x) {
@@ -6412,8 +6417,9 @@
         }
         return;
       }
-      // Pojasnilo, da predvajalnika brez peskovnika ni, je gostitelj pravkar poslal sam: splosna napaka ga ne prekrije.
-      if (item.napaka_koda) { if (!(item.napaka_koda === "tok" && pravkarBrezPeskovnika())) obvesti(t("mediaNapaka_" + item.napaka_koda)); return; }
+      // Napake predvajanja (tok, napaka, motor ...) so tihe, sled je v sled.log (lastnik 18. 10. 2026). Ostanejo samo
+      // stanja, ko mora uporabnik nekaj storiti ali izvedeti (MEDIA_UKREPAJ: prostor na disku, pomnilnik, Twitch ne oddaja).
+      if (item.napaka_koda) { if (MEDIA_UKREPAJ[item.napaka_koda]) obvesti(t("mediaNapaka_" + item.napaka_koda)); return; }
       if (item.napaka) { obvesti(item.napaka); return; }
       if (item.sporocilo) { obvesti(item.sporocilo); return; }
       // »stran« ob predvajljivem toku je le izvor (npr. stran filma v arhivu); v Splet gre samo, kar nima toka.
@@ -6421,8 +6427,9 @@
       kat.aktivni = item; kat.igra = true;
       spOpusti(false);
       osveziKatTrak();
-    }, function () { if (zahteva === kat.zahtevaPredvajanja) obvesti(t("katNapakaVira")); });
+    }, function () {});            // most se ni odzval: tiho (napaka predvajanja)
   }
+  var MEDIA_UKREPAJ = { ni_prostora: 1, malo_pomnilnika: 1, twitch_ni_v_zivo: 1, twitch_ni_posnetka: 1 };
 
   // ---- osebne police (lastnik, 14. 10. 2026: najboljse iz Jellyfina, Kodija, Stremia, Ampacha in Serviia)
   // Nadaljuj (z naslednjo epizodo), Nazadnje dodano, Najvec predvajano in Priljubljene na vrhu zavihka - samo police z
@@ -7292,9 +7299,9 @@
         var play = el("button", "gumb glavni", ubezi(t("katPredvajaj"))); play.type = "button";
         play.onclick = function () {
           klic("mediaEpizoda", [item.tmdb_id, season, ep.stevilka, item.naslov + " · " + ep.naslov]).then(function (entry) {
+            // Epizode noben vir ne predvaja: tiho (lastnik 18. 10. 2026; sled v sled.log, os_katalog._epizoda).
             if (entry && entry.id) { zapriKatalogPodrobnosti(); kat.vrsta = []; narisiVrsto(); odpriKatalogVnos(entry.id); }
-            else obvesti(t("mediaNapaka_ni_toka", { ime: item.naslov || "" }));
-          }, function () { obvesti(t("katNapakaVira")); });
+          }, function () {});
         };
         row.appendChild(play); cilj.appendChild(row);
         vgrGumbiEpizode(item, season, ep, row);

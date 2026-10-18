@@ -208,8 +208,10 @@ class MedijskiPogled(unittest.TestCase):
         # Splosna napaka predvajanja pojasnila ne sme prekriti (obvestilo je eno samo; zadnje zamenja prejsnje).
         # Dogodek in odgovor prideta drug za drugim; okno ene sekunde je dovolj in ne pogoltne napake naslednje izbire.
         self.assertIn("function pravkarBrezPeskovnika() { return Date.now() - brezPeskovnikaOb < 1000; }", js)
-        self.assertIn('if (item.napaka_koda) { if (!(item.napaka_koda === "tok" && pravkarBrezPeskovnika())) '
-                      'obvesti(t("mediaNapaka_" + item.napaka_koda)); return; }', js)
+        # Lastnik 18. 10. 2026: napaka predvajanja (tudi »tok«) je tiha, zato pojasnila nikoli ne prekrije; obvestilo
+        # dobijo le stanja, ko mora uporabnik ukrepati (MEDIA_UKREPAJ).
+        self.assertIn('if (item.napaka_koda) { if (MEDIA_UKREPAJ[item.napaka_koda]) obvesti(t("mediaNapaka_" + item.napaka_koda)); return; }', js)
+        self.assertNotIn("tok:", js.split("var MEDIA_UKREPAJ = {", 1)[1].split("}", 1)[0])
         besedila = beri("assets", "os", "besedila.js")
         for jezik in ("sl", "en", "de", "es", "fr", "it"):
             self.assertRegex(besedila, r'Object\.assign\(BESEDILA_OS\.%s, \{[^\n]*"medijBrezPeskovnika": "[^"]{20,}"' % jezik, jezik)

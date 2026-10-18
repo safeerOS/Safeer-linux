@@ -526,8 +526,11 @@ class Katalog:
         return self.mc.season(int(a[0]) if a else 0, int(a[1]) if len(a) > 1 else 1)
 
     def _epizoda(self, a: list) -> Any:
-        return self.mc.episode_item(int(a[0]) if a else 0, int(a[1]) if len(a) > 1 else 1,
+        izid = self.mc.episode_item(int(a[0]) if a else 0, int(a[1]) if len(a) > 1 else 1,
                                     int(a[2]) if len(a) > 2 else 1, self._niz(a, 3))
+        if not (isinstance(izid, dict) and izid.get("id")):
+            print("[SafeerMedia] epizoda: ni toka", file=sys.stderr, flush=True)    # stran tega ne kaze
+        return izid
 
     def _film(self, a: list) -> Any:
         return self.mc.movie_item(int(a[0]) if a else 0, self._niz(a, 1))
@@ -1033,7 +1036,12 @@ class Katalog:
 
     def _sp_ukaz(self, a: list) -> Any:
         vrednost = a[1] if len(a) > 1 and isinstance(a[1], (int, float)) and not isinstance(a[1], bool) else None
-        return self.mc.spotify.upravljaj(self._niz(a, 0), vrednost)
+        izid = self.mc.spotify.upravljaj(self._niz(a, 0), vrednost)
+        if isinstance(izid, dict) and izid.get("napaka"):
+            # Stran napak predvajanja ne kaze (lastnik 18. 10. 2026): sled je tu, v stderr (sled.log).
+            print("[SafeerMedia] Spotify ukaz %s: napaka %s" % (re.sub(r"\W", "", self._niz(a, 0))[:12], izid["napaka"]),
+                  file=sys.stderr, flush=True)
+        return izid
 
     def _plakat(self, a: list) -> Any:
         """Plakat z naslovom http:// prenese Safeer OS (stran dovoli slike samo prek https/file/data)."""
@@ -1178,11 +1186,15 @@ class Katalog:
         ident = self._niz(a, 0)
         item = self.mc.resolve(ident)
         if not item:
+            print("[SafeerMedia] vnosa ni mogoce razresiti", file=sys.stderr, flush=True)
             return None
         return self._predvajaj_razresen(item, ident)
 
     def _predvajaj_razresen(self, item: dict, ident: str) -> Optional[dict]:
         if item.get("napaka_koda") or item.get("napaka") or item.get("sporocilo"):
+            # Stran napak predvajanja uporabniku ne kaze (lastnik 18. 10. 2026): sled je tu (brez naslova vsebine).
+            print("[SafeerMedia] napaka=%s vrsta=%s" % (re.sub(r"[^\w.-]", "", str(item.get("napaka_koda") or "napaka"))[:24],
+                                                       item.get("vrsta") or ""), file=sys.stderr, flush=True)
             return item
         if item.get("stran") and str(item.get("url") or "") == str(item.get("stran")):
             return item       # prenos, ki ga izdajatelj ponuja samo na svoji strani: stran ga odpre v Spletu
@@ -1190,6 +1202,7 @@ class Katalog:
             # Skladba racuna Spotify: predvaja skrit Safeer DRM (v kontekstu seznama, da Spotify igra naprej).
             izid = self.mc.spotify.predvajaj(str(item["spotify"]), str(item.get("spotify_kontekst") or ""))
             if izid.get("napaka"):
+                print("[SafeerMedia] Spotify predvajanje: napaka %s" % izid["napaka"], file=sys.stderr, flush=True)
                 return dict(item, native=True, spotify=True, sp_napaka=izid["napaka"])
             # delno: vrstice skladbe na strani ni bilo, Spotify je zacel seznam od zacetka - stran to pove uporabniku.
             return dict(item, native=True, spotify=True, zvok=True, sp_delno=bool(izid.get("delno")))
