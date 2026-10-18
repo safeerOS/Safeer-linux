@@ -920,12 +920,6 @@ Object.assign(BESEDILA_OS.de, {"skriptaPot": "Oder gib den Pfad zur Datei ein:",
 Object.assign(BESEDILA_OS.es, {"skriptaPot": "O escribe la ruta del archivo:", "skriptaUvoziPot": "Importar desde ruta", "skriptaNapakaPot": "No hay ningún archivo .js o .sh en esta ruta de tu carpeta personal."});
 Object.assign(BESEDILA_OS.fr, {"skriptaPot": "Ou saisis le chemin du fichier :", "skriptaUvoziPot": "Importer depuis le chemin", "skriptaNapakaPot": "Aucun fichier .js ou .sh à ce chemin dans ton dossier personnel."});
 Object.assign(BESEDILA_OS.it, {"skriptaPot": "Oppure scrivi il percorso del file:", "skriptaUvoziPot": "Importa dal percorso", "skriptaNapakaPot": "In questo percorso della tua cartella home non c'è alcun file .js o .sh."});
-Object.assign(BESEDILA_OS.sl, {"ytNiPredvajan": "»{ime}« se zdaj ne predvaja – nadaljujem z naslednjo skladbo."});
-Object.assign(BESEDILA_OS.en, {"ytNiPredvajan": "“{ime}” can't be played right now – moving on to the next track."});
-Object.assign(BESEDILA_OS.de, {"ytNiPredvajan": "„{ime}“ lässt sich gerade nicht abspielen – weiter mit dem nächsten Titel."});
-Object.assign(BESEDILA_OS.es, {"ytNiPredvajan": "«{ime}» no se puede reproducir ahora; pasamos a la siguiente pista."});
-Object.assign(BESEDILA_OS.fr, {"ytNiPredvajan": "« {ime} » ne peut pas être lu pour l’instant – passage au titre suivant."});
-Object.assign(BESEDILA_OS.it, {"ytNiPredvajan": "«{ime}» non si può riprodurre ora: passo al brano successivo."});
 Object.assign(BESEDILA_OS.sl, {"skriptaPotPrimer": "npr. /home/ime/Prejemi/skripta.js", "skriptaPotPrimerPot": "npr. {pot}"});
 Object.assign(BESEDILA_OS.en, {"skriptaPotPrimer": "e.g. /home/name/Downloads/script.js", "skriptaPotPrimerPot": "e.g. {pot}"});
 Object.assign(BESEDILA_OS.de, {"skriptaPotPrimer": "z. B. /home/name/Downloads/skript.js", "skriptaPotPrimerPot": "z. B. {pot}"});

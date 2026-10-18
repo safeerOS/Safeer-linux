@@ -8008,15 +8008,14 @@
       // Lastnik posnetka vgradnje ne dovoli (ali posnetka ni več): poiščemo drug posnetek iste skladbe, sicer naslednja.
       var skladba = kat.aktivni;
       if (podatki && podatki.zamenjaj === false) {
-        // Napaka dekoderja ali nastavitve: posnetka ne zamenjamo (18. 10. 2026), gremo na naslednjo skladbo.
-        obvesti(t("ytNiPredvajan", { ime: skladba.naslov || "" }));
+        // Napaka dekoderja ali nastavitve: posnetka ne zamenjamo (18. 10. 2026), tiho naprej na naslednjo skladbo -
+        // lastnik: napak predvajalnika uporabniku ne izpisujemo, lovilci napak poskrbijo za vsebino (sled je v sled.log).
         if (!predvajajIzVrste(1)) ustaviKatPredvajanje();
         return;
       }
       klic("mediaSeznamZamenjava", [skladba.id]).then(function (nova) {
         if (kat.aktivni !== skladba) return;
         if (nova && nova.youtube && nova.youtube !== skladba.youtube) { kat.izVrste = true; odpriKatalogVnos(skladba.id); return; }
-        obvesti(t("seznamBrezPosnetka", { ime: skladba.naslov || "" }));
         if (!predvajajIzVrste(1)) ustaviKatPredvajanje();
       }, function () { if (kat.aktivni === skladba && !predvajajIzVrste(1)) ustaviKatPredvajanje(); });
     }

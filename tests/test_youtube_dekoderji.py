@@ -76,9 +76,8 @@ class SeznamiYoutubeTests(unittest.TestCase):
         i = js.index('vrsta === "mediaYtNapaka"')
         odsek = js[i:i + 900]
         self.assertLess(odsek.index("podatki.zamenjaj === false"), odsek.index('klic("mediaSeznamZamenjava"'))
-        besedila = (KOREN / "assets/os/besedila.js").read_text(encoding="utf-8")
-        for jezik in ("sl", "en", "de", "es", "fr", "it"):
-            self.assertRegex(besedila, r'BESEDILA_OS\.%s, \{"ytNiPredvajan"' % jezik)
+        # Lastnik: napak predvajalnika uporabniku ne izpisujemo - lovilci napak tiho poskrbijo za naslednjo vsebino.
+        self.assertNotIn("obvesti(", odsek[:odsek.index("ustaviKatPredvajanje")])
 
 
 if __name__ == "__main__":
