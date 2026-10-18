@@ -28,6 +28,7 @@ var obvestila = [];
 function obvesti(x) { obvestila.push(x); }
 function t(k, o) { return o && o.ime ? k + ":" + o.ime : k; }
 function svg(x) { return x; }
+function nastaviSliko(img, url) { img.src = url; }
 function zapriIzhode() { return false; }
 function narisiGlasnostTraku() {}
 function spNapaka(k) { obvestila.push("napaka:" + k); }
