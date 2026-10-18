@@ -194,7 +194,8 @@ POROCILO.md); če en konec sprejema dohodne povezave, telefon odpre navadno odho
 - **Vhod (središče):** trk pred TLS (id iz ključa + čas ±120 s + nonce enkrat + podpis ECDSA nad id-jem središča)
   → TLS (1.3; najmanj 1.2 zaradi Androida 9) s ključem središča → izziv (podpis nad izzivom, odtisom potrdila in namenom). Neznan id, napačen
   podpis, star ali ponovljen trk: tiho zaprto, brez bajta odgovora (pregledovalnik ne vidi ne TLS ne potrdila
-  z imenom računalnika). Lastna `link_obramba` (brez izjeme za zanko), največ 16 hkratnih rokovanj in 64 tunelov.
+  z imenom računalnika). Lastna `link_obramba` (brez izjeme za zanko), največ 16 hkratnih rokovanj (z enega naslova največ 8, 4 mesta samo za naslove, ki so se v zadnjih 10 min
+  izkazali kot člani kroga – pregled 18. 10. 2026: en naslov s tihimi trki je zasedel vsa mesta) in 64 tunelov.
   Šele nato tunel na `127.0.0.1:<vrata Huba>` – skozenj nespremenjen TLS Linka, prijava, vstopnica in pravila
   dostopa (`link_dostop`). Novih končnih točk ni.
 - **Oglas:** javni IPv4 iz STUN (`stun.cloudflare.com`, isti ponudnik kot rele), podpisan s ključem središča, rok
