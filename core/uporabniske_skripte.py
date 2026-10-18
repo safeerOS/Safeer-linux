@@ -413,18 +413,24 @@ def _glava_iz_starega(s: Dict[str, Any]) -> str:
 def preseli_iz_nastavitev(config) -> int:
     """Enkratna selitev skript GTK3 brskalnika (nastavitev user_scripts in user_script_values) v to shrambo, da ob
     umiku GTK3 (18. 10. 2026) nobena ne izgine. Skripta brez glave dobi glavo iz svojih polj (vzorec, cas zagona),
-    vklop in shranjene vrednosti ostanejo. Vzorcna skripta (sample_banner_cleaner) se ne seli. Vrne stevilo skript."""
-    if config is None or config.get("user_scripts_preseljene", False):
+    vklop in shranjene vrednosti ostanejo. Vzorcna skripta (sample_banner_cleaner) se ne seli. Vrne stevilo skript.
+
+    Oznaka »preseljeno« je v mapi shrambe, ne v nastavitvah: settings.json si delita paket .deb in Flatpak brskalnika,
+    shrambi pa sta locene (Flatpak ima svoj XDG_DATA_HOME) - vsaka shramba dobi skripte enkrat. Brez skript za selitev
+    se ne zapise nic (preizkus z zacasnimi nastavitvami tako ne oznaci prave shrambe)."""
+    if config is None:
         return 0
     stare = config.get("user_scripts") or []
+    stare = [s for s in (stare if isinstance(stare, list) else [])
+             if isinstance(s, dict) and s.get("id") != "sample_banner_cleaner"
+             and isinstance(s.get("code"), str) and s["code"].strip()]
+    oznaka = mapa() / "preseljeno-gtk3"
+    if not stare or oznaka.exists():
+        return 0
     vrednosti_vse = config.get("user_script_values") or {}
     stevilo = 0
-    for s in stare if isinstance(stare, list) else []:
-        if not isinstance(s, dict) or s.get("id") == "sample_banner_cleaner":
-            continue
-        koda = s.get("code")
-        if not isinstance(koda, str) or not koda.strip():
-            continue
+    for s in stare:
+        koda = s["code"]
         if not userscripts.razclenii_glavo(koda)["ima_glavo"]:
             koda = _glava_iz_starega(s) + koda
         r = uvozi(s.get("name") or "skripta", koda, "js")
@@ -442,7 +448,12 @@ def preseli_iz_nastavitev(config) -> int:
         if s.get("enabled", True):
             vklopi(nova, True)
         stevilo += 1
-    config.set("user_scripts_preseljene", True)
+    oznaka.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(oznaka.parent, 0o700)
+    except OSError:
+        pass
+    oznaka.write_text("1\n", encoding="utf-8")
     return stevilo
 
 

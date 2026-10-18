@@ -166,8 +166,9 @@ class Shramba(unittest.TestCase):
              "code": glava("@match https://www.example.org/*", "@grant GM_getValue", ime="Z glavo")},
         ], user_script_values={"script_aa": {"stevec": 3}})
         self.assertEqual(us.preseli_iz_nastavitev(c), 2)
-        self.assertTrue(c["user_scripts_preseljene"])
-        self.assertEqual(us.preseli_iz_nastavitev(c), 0)                       # samo enkrat
+        self.assertTrue((Path(self.mapa) / "preseljeno-gtk3").exists())         # oznaka v shrambi, ne v nastavitvah
+        self.assertNotIn("user_scripts_preseljene", c)                      # nastavitev ne spremeni
+        self.assertEqual(us.preseli_iz_nastavitev(c), 0)                       # samo enkrat v to shrambo
         skripte = {s["naslov"]: s for s in us.skripte_js(str(KOREN))}
         self.assertEqual(sorted(skripte), ["Stara // @match evil", "Z glavo"])  # vzorcna se ne seli
         stara = skripte["Stara // @match evil"]
@@ -177,6 +178,15 @@ class Shramba(unittest.TestCase):
         self.assertEqual(stara["pripravljeno"]["glava"]["matches"], ["example.com"])   # ime ni ubezalo v glavo
         self.assertEqual(us.vrednosti(stara["id"]), {"stevec": 3})
         self.assertFalse(skripte["Z glavo"]["vklopljena"])
+
+    def test_brez_skript_za_selitev_se_shramba_ne_oznaci(self):
+        class Nastavitve(dict):
+            def set(self, k, v):
+                self[k] = v
+        prazne = Nastavitve(user_scripts=[{"id": "sample_banner_cleaner", "code": "x", "name": "Primer"}])
+        self.assertEqual(us.preseli_iz_nastavitev(prazne), 0)
+        self.assertFalse((Path(self.mapa) / "preseljeno-gtk3").exists())
+        self.assertEqual(us.preseli_iz_nastavitev(None), 0)
 
 
 class Vgradnja(unittest.TestCase):
