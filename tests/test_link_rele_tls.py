@@ -447,5 +447,26 @@ class ToplaPovezava(unittest.TestCase):
         self.assertIsNone(klici[1])
 
 
+
+class ZaprtKrajevniRele(unittest.TestCase):
+    def test_po_zapri_vrata_ne_sprejmejo_nicesar_vec(self):
+        """close() na Linuxu ne zbudi niti v accept(): vrata so po zapri() poslusala naprej in naslednja krajevna
+        povezava je dobila kanal releja (18. 10. 2026). Zdaj ne sprejmejo nicesar in nit konca."""
+        prej = set(threading.enumerate())
+        rele = link_rele.LokalniRele("n-cilj", kljuc=lambda: "k", podpisi=lambda _b: "p")
+        kanali = []
+        rele._kanal = lambda tcp, oddaja=False: (kanali.append(1), tcp.close())
+        niti = [n for n in set(threading.enumerate()) - prej if n.name == "safeer-rele-lokalno"]
+        self.assertEqual(len(niti), 1)
+        vrata = rele.vrata
+        rele.zapri()
+        niti[0].join(2)
+        self.assertFalse(niti[0].is_alive(), "nit sprejemanja konca")
+        with self.assertRaises(OSError):
+            socket.create_connection(("127.0.0.1", vrata), 1.0).recv(1)
+        time.sleep(0.2)
+        self.assertEqual(kanali, [])
+
+
 if __name__ == "__main__":
     unittest.main()
