@@ -444,6 +444,11 @@ POMNILNIK_TUNELA = 1024 * 1024
 _NAPAKE_VIROV = frozenset(getattr(errno, ime) for ime in ("EMFILE", "ENFILE", "ENOBUFS", "ENOMEM") if hasattr(errno, ime))
 
 
+def _razlog_napake(e: OSError) -> str:
+    """Razlog za link_viri iz napake jedra: brez deskriptorjev (EMFILE, ENFILE) ali brez pomnilnika (ENOBUFS, ENOMEM)."""
+    return link_viri.DESKRIPTORJI if getattr(e, "errno", None) in (errno.EMFILE, errno.ENFILE) else link_viri.POMNILNIK
+
+
 class VhodNeposredno:
     """Poslusa na preusmerjenih vratih; overjene clane kroga prevezi na krajevni Hub (127.0.0.1)."""
 
@@ -526,7 +531,7 @@ class VhodNeposredno:
                 if not self._tece:
                     return
                 if getattr(e, "errno", None) in _NAPAKE_VIROV:
-                    link_viri.zabelezi(link_viri.DESKRIPTORJI, "neposredno")
+                    link_viri.zabelezi(_razlog_napake(e), "neposredno")
                 time.sleep(0.05)
                 continue
             if not self._tece:
@@ -761,7 +766,7 @@ class VhodNeposredno:
                 _zapri(h)
                 h = None
                 if getattr(e, "errno", None) in _NAPAKE_VIROV:
-                    razlog = link_viri.DESKRIPTORJI if e.errno in (errno.EMFILE, errno.ENFILE) else link_viri.POMNILNIK
+                    razlog = _razlog_napake(e)
                 else:
                     _zapri(t)
                     return None
