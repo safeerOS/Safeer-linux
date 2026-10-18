@@ -30,3 +30,5 @@ for icon in "$ROOT/packaging/icons/hicolor"/*/apps/safeer-browser.png; do
     size=$(basename "$(dirname "$(dirname "$icon")")")
     install -Dm644 "$icon" "$PREFIX/share/icons/hicolor/$size/apps/$ID.png"
 done
+# Safeer DRM (pripet ECS in Widevine CDM) v $LIB/safeer-drm, ce je gradnja paketa podala SAFEER_DRM_TOVOR.
+bash "$ROOT/packaging/namesti_safeer_drm.sh" "$PREFIX" "$LIB" safeer-browser

@@ -2573,21 +2573,9 @@ class VdelaniSplet:
         if z.get("drm") is not None and _gostitelj(z["drm"].url) == _gostitelj(url):
             return True                           # stran vprasa veckrat zapored
         if not safeer_drm.Gostitelj.na_voljo():
-            if z.get("drm_prenos"):
-                return True
-            z["drm_prenos"] = True
-            # Prvic: paket se prenese (enkrat). Do takrat stran ostane, potem se zavihek sam preklopi.
-            self._drm_obvestilo(pogled, "pripravljam")
-            def koncano(uspeh: bool, z=z, url=url):
-                def v_gui():
-                    z["drm_prenos"] = False
-                    if z in self.zavihki and (z["pogled"].get_uri() or "") == url:
-                        if not (uspeh and self._drm_vdelaj(z["pogled"], url)):
-                            self._drm.odpri(url)  # rezerva: brskalnik z Widevine
-                    return False
-                self.GLib.idle_add(v_gui)
-            safeer_drm.prenesi_v_ozadju(koncano)
-            return True
+            # Safeer DRM je del paketa (od 1.0.127 nic ne prenasamo); brez njega (namestitev iz izvorne kode) klicatelj
+            # stran odpre v namescenem brskalniku z Widevine (_drm_klik).
+            return False
         gost = safeer_drm.Gostitelj(self.Gtk, self.Gdk, self.GLib, ob_celozaslonu=self._drm_celozaslonsko,
                                     ob_koncu=lambda z=z: self._drm_konec(z))
         self._tipke(gost.gradnik, lambda e, gost=gost: self.tipka(e) or gost.tipka(e))
@@ -2609,7 +2597,7 @@ class VdelaniSplet:
         ne prenese in ne zazene (pregled 14. 10. 2026: prej je zastoj videa, napaka zapisa ali oglas v okvirju sam
         prenesel ~120 MB in zagnal Chromium na gostitelju)."""
         z = self._zavihek(pogled)
-        if z is None or not url.startswith("https://") or z.get("drm") is not None or z.get("drm_prenos"):
+        if z is None or not url.startswith("https://") or z.get("drm") is not None:
             return
         prej = z.get("drm_ponudba")
         if prej and _gostitelj(prej[0]) == _gostitelj(url) and not prej[1]:
@@ -2691,20 +2679,6 @@ class VdelaniSplet:
                 g.set_visible(not vklopi)
         if okno is not None and hasattr(okno, "fullscreen"):
             (okno.fullscreen if vklopi else okno.unfullscreen)()
-
-    def _drm_obvestilo(self, pogled, kljuc: str) -> None:
-        besedila = {"sl": "Pripravljam predvajalnik zaščitenih vsebin (enkrat) …",
-                    "en": "Preparing the protected video player (one time) …",
-                    "de": "Player für geschützte Inhalte wird vorbereitet (einmalig) …",
-                    "es": "Preparando el reproductor de contenido protegido (solo una vez) …",
-                    "fr": "Préparation du lecteur de contenus protégés (une seule fois) …",
-                    "it": "Preparazione del lettore di contenuti protetti (una sola volta) …"}
-        jezik = str(self.jezik() if callable(self.jezik) else self.jezik or "sl")[:2]
-        koda = drm.OBVESTILO.replace("__BESEDILO__", json.dumps(besedila.get(jezik, besedila["en"])))
-        try:
-            pogled.evaluate_javascript(koda, -1, None, None, None, None, None)
-        except Exception:  # noqa: BLE001
-            pass
 
     def _osvezi_orodja(self):
         pogled = self.trenutni()

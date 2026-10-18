@@ -458,7 +458,7 @@ class Katalog:
         # Spotify v skritem Safeer DRM (core/spotify_racun.py)
         "mediaSpStanje": "_sp_stanje", "mediaSpSeznami": "_sp_seznami", "mediaSpSeznam": "_sp_seznam",
         "mediaSpShrani": "_sp_shrani", "mediaSpPrijava": "_sp_prijava", "mediaSpPrijavaSplet": "_sp_prijava_splet", "mediaSpOdjava": "_sp_odjava",
-        "mediaSpPrenesi": "_sp_prenesi", "mediaSpUkaz": "_sp_ukaz", "mediaSpScit": "_sp_scit",
+        "mediaSpUkaz": "_sp_ukaz", "mediaSpScit": "_sp_scit",
         "mediaOdstraniSeznam": "_odstrani_seznam", "mediaDodajNaSeznam": "_dodaj_na_seznam",
         "mediaOdstraniSSeznama": "_odstrani_s_seznama", "mediaSeznamZamenjava": "_seznam_zamenjava",
         "mediaPredvajaj": "_predvajaj_vnos", "mediaYtUkaz": "_yt_ukaz", "mediaStanje": "_stanje",
@@ -1087,9 +1087,6 @@ class Katalog:
 
     def _sp_odjava(self, _a: list) -> Any:
         return self.mc.spotify.odjava()
-
-    def _sp_prenesi(self, _a: list) -> Any:
-        return self.mc.spotify.prenesi()
 
     def _sp_ukaz(self, a: list) -> Any:
         vrednost = a[1] if len(a) > 1 and isinstance(a[1], (int, float)) and not isinstance(a[1], bool) else None

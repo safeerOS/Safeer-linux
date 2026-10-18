@@ -30,7 +30,7 @@ mkdir -p "$LIB/core/sporocila" && install -m 644 "$ROOT"/core/sporocila/*.py "$L
 mkdir -p "$LIB/core/darkreader" && install -m 644 "$ROOT"/core/darkreader/darkreader.js "$ROOT"/core/darkreader/LICENSE "$LIB/core/darkreader/"
 [ -f "$ROOT/core/__init__.py" ] && cp -a "$ROOT/core/__init__.py" "$LIB/core/" || true
 cp -a "$ROOT/assets/os" "$LIB/assets/"
-# Safeer DRM (Widevine): logika predvajalnika (main.js); paket ECS se prenese ob prvi potrebi (core/safeer_drm.py).
+# Safeer DRM (Widevine): izvor logike predvajalnika (main.js); v paket gre z mapo Safeer DRM na koncu te skripte.
 cp -a "$ROOT/assets/safeer_drm" "$LIB/assets/"
 # Splet v Safeer OS: skupna zacetna stran in podatki BankGuarda (iste datoteke kot na Windows/Androidu).
 mkdir -p "$LIB/ui" && cp -a "$ROOT"/ui/splet.html "$ROOT"/ui/splet.css "$ROOT"/ui/splet.js "$ROOT"/ui/splet-gore.webp "$LIB/ui/"
@@ -82,3 +82,6 @@ for icon in "$ROOT/packaging/icons/os/hicolor"/*/apps/safeer-os.png; do
     size=$(basename "$(dirname "$(dirname "$icon")")")
     install -Dm644 "$icon" "$PREFIX/share/icons/hicolor/$size/apps/$ID.png"
 done
+# Safeer DRM (pripet ECS in Widevine CDM) v $LIB/safeer-drm, ce je gradnja paketa podala SAFEER_DRM_TOVOR. Za
+# poenotenjem pravic zgoraj (chmod 644), ker ima Safeer DRM izvrsljive datoteke.
+bash "$ROOT/packaging/namesti_safeer_drm.sh" "$PREFIX" "$LIB" safeer-os

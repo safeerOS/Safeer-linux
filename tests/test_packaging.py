@@ -139,14 +139,15 @@ class PackagingTests(unittest.TestCase):
             self.assertEqual(result.stdout.strip(),'Safeer Browser '+verzija)
             code=(f"import sys; sys.path.insert(0, {str(lib)!r}); import safeer_brskalnik; "
                   "from core import os_splet, safeer_drm, zgodovina, uvoz_zavihkov, bookmarks_importer, splet_prenosi; "
-                  "print(safeer_brskalnik.APP_ID, safeer_drm.vir_logike())")
+                  "print(safeer_brskalnik.APP_ID, safeer_drm.vgrajena_mapa())")
             result=subprocess.run([sys.executable,'-c',code],capture_output=True,text=True,
                                   cwd=tempfile.gettempdir(),env=environment)
             self.assertEqual(result.returncode,0,result.stderr[-800:])
             self.assertIn('io.github.memelandfaner.SafeerBrowser',result.stdout)
-            # Safeer DRM: logika predvajalnika (main.js) pride s tovorom, paket ECS se prenese ob prvi potrebi.
+            # Safeer DRM: izvor logike (main.js) je v tovoru, Safeer DRM sam pa v <tovor>/safeer-drm, ce je gradnja podala
+            # SAFEER_DRM_TOVOR (tests/test_safeer_drm_paket.py); med delovanjem se nic ne prenese.
             self.assertTrue((lib/'assets/safeer_drm/main.js').is_file())
-            self.assertIn(str(lib/'assets/safeer_drm'),result.stdout)
+            self.assertIn(str(lib/'safeer-drm'),result.stdout)
             self.assertTrue((lib/'ui/splet.html').is_file())
             for ime in NAMERNO_IZPUSCENI:
                 self.assertFalse((lib/'core'/f'{ime}.py').exists(),ime)

@@ -6196,11 +6196,8 @@
     glava.appendChild(el("h3", "", ubezi(t("spNaslov"))));
     function gumb(besedilo, ob) { var g = el("button", "gumb", ubezi(besedilo)); g.type = "button"; g.onclick = ob; glava.appendChild(g); return g; }
     if (!r.drm) {
-      // Kot pri Netflixu: Safeer DRM se prenese samo po kliku uporabnika (preverjen SHA-256).
-      glava.appendChild(el("small", "", ubezi(r.prenos === "tece" ? t("spPrenasam") : r.prenos === "napaka" ? t("spPrenosNi") : t("spNiDrm"))));
-      if (r.prenos !== "tece") gumb(t("spPrenesi"), function () {
-        klic("mediaSpPrenesi").then(function () { kat.spCas = 0; naloziSpotify(true); cakajSpPrijavo(); }, function () {});
-      });
+      // Safeer DRM je od 1.0.127 del paketa (nič se ne prenaša); brez njega je namestitev iz izvorne kode - samo pojasnilo.
+      glava.appendChild(el("small", "", ubezi(t("spNiDrm"))));
     } else if (!r.prijavljen || r.okno) {
       glava.appendChild(el("small", "", ubezi(r.okno ? t("spPrijavaOkno") : r.potekla ? t("spPotekla") : t("spPrijavaNamig"))));
       if (!r.okno) gumb(t("spPrijava"), spPrijava);

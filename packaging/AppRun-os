@@ -18,6 +18,9 @@ export WEBKIT_INJECTED_BUNDLE_PATH="$WEBKIT_EXEC_PATH/injected-bundle"
 export GST_PLUGIN_SYSTEM_PATH="$APPDIR/usr/lib/$TRIPLET/gstreamer-1.0"
 export GST_PLUGIN_SCANNER="$APPDIR/usr/lib/$TRIPLET/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner"
 export SAFEER_PYSIDE6="$APPDIR/opt/pyside6"
+# Safeer DRM (pripet ECS in Widevine CDM) je izven usr/ kot PySide6: linuxdeploy njegovih knjiznic ne sme razresevati
+# (packaging/build_*appimage.sh); core/safeer_drm.vgrajena_mapa() ga najde tu.
+export SAFEER_DRM_MAPA="$APPDIR/opt/safeer-drm"
 export XDG_DATA_DIRS="$APPDIR/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 # "--control" starts Safeer Control (tray) instead of Safeer OS; Safeer OS starts Control itself when needed.
 if [ "${1:-}" = "--control" ]; then
