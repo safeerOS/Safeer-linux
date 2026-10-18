@@ -4965,8 +4965,7 @@ class SafeerOS(Gtk.Application):
     def _zacetek_vodnika(self) -> dict:
         """Vodnik ob prvem zagonu v glavnem oknu; na namizju (QML, delovna povrsina WebKit) ga namizje odpre v oknu
         Nastavitve (odpriRazdelek »vodnik«; okno razdelka in Safeer Player to vesta v os.js); zagon iz menija
-        po »Nazaj na Cinnamon«: os.js enkrat vprasa, ali naj se Safeer OS spet zaganja ob prijavi. Locen slovar: slovar
-        _zacetek ostane pod mejo preizkusa test_most_brez_podvojenih (slovarji mostu imajo vec kot 20 kljucev)."""
+        po »Nazaj na Cinnamon«: os.js enkrat vprasa, ali naj se Safeer OS spet zaganja ob prijavi."""
         return {"vodnik": bool(self._vodnik),
                 "vrnitev": isinstance(self.shramba.get("nazaj_na_cinnamon"), dict) and not self.delovna}
 
