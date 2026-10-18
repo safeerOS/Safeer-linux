@@ -116,7 +116,7 @@ VGRAJENA: Dict[str, object] = {
         ["youtube-nocookie.com", "/api/stats/qoe"], ["youtube-nocookie.com", "/api/stats/ads"],
         ["youtube-nocookie.com", "/youtubei/v1/log_event"], ["youtube-nocookie.com", "/ptracking"],
         ["youtube-nocookie.com", "/pagead/"], ["youtube-nocookie.com", "/csi_204"],
-        ["play.google.com", "/log"], ["www.google.com", "/pagead/"], ["www.google.com", "/ads/"],
+        ["play.google.com", "/log?"], ["www.google.com", "/pagead/"], ["www.google.com", "/ads/"],
         # Meta (kanali Sporocil: Messenger; drugje vgrajeni gumbi): piksel in dnevniki
         ["facebook.com", "/tr?"], ["facebook.com", "/tr/"], ["connect.facebook.net", "/signals/"],
         ["messenger.com", "/ajax/bz"], ["facebook.com", "/ajax/bz"], ["facebook.com", "/ajax/bnzai"],
@@ -266,12 +266,14 @@ class Pravila:
             return not sg or not _ista_stran(g, sg)
         return False
 
-    def webkit_json(self, nikoli: Iterable[str] = ()) -> str:
+    def webkit_json(self, nikoli: Iterable[str] = (), ping: bool = True) -> str:
         """Pravila za WebKitUserContentFilterStore (oblika Safari): sledilci kot vir tretje strani, telemetrija in poti
-        povsod; na koncu izjema za domene pravih bank (kot pri EasyList - ne dotikamo se njihovih strani)."""
+        povsod; na koncu izjema za domene pravih bank (kot pri EasyList - ne dotikamo se njihovih strani).
+        ping=False: brez pravila vrste »ping« (WebKit, ki te vrste ne pozna, bi zavrnil ves filter)."""
         from core.webkit_filters import HOST_END, HOST_PREFIX, _escape
         # <a ping> je samo sledenje klikov (Firefox ga privzeto ne posilja): vsi, tudi prve strani (glej zgoraj).
-        pravila: List[dict] = [{"trigger": {"url-filter": ".*", "resource-type": ["ping"]}, "action": {"type": "block"}}]
+        pravila: List[dict] = ([{"trigger": {"url-filter": ".*", "resource-type": ["ping"]}, "action": {"type": "block"}}]
+                               if ping else [])
         for h in self.sledilci:
             pravila.append({"trigger": {"url-filter": HOST_PREFIX + _escape(h) + HOST_END, "load-type": ["third-party"]},
                             "action": {"type": "block"}})
@@ -660,19 +662,23 @@ class FilterSledilcev:
         self.storitev.ob_spremembi(lambda pravila: GLib.idle_add(self._prevedi, pravila))
         self._prevedi(self.storitev.pravila)
 
-    def _prevedi(self, pravila: Pravila) -> bool:
-        besedilo = pravila.webkit_json(nikoli=_banke())
+    def _prevedi(self, pravila: Pravila, ping: bool = True) -> bool:
+        besedilo = pravila.webkit_json(nikoli=_banke(), ping=ping)
         sha = hashlib.sha256(besedilo.encode("utf-8")).hexdigest()
         if sha != self._sha:
             self._sha = sha
-            self._shramba.save(FILTER_ID, self.GLib.Bytes.new(besedilo.encode("utf-8")), None, self._prevedeno, sha)
+            self._shramba.save(FILTER_ID, self.GLib.Bytes.new(besedilo.encode("utf-8")), None, self._prevedeno,
+                               (sha, pravila, ping))
         return False
 
-    def _prevedeno(self, shramba, rezultat, sha) -> None:
+    def _prevedeno(self, shramba, rezultat, podatki) -> None:
+        sha, pravila, ping = podatki
         try:
             nov = shramba.save_finish(rezultat)
         except Exception as e:  # noqa: BLE001 - ostane prejsnji filter
             print("[Scit] filter sledilcev:", type(e).__name__, e, flush=True)
+            if ping and sha == self._sha:
+                self._prevedi(pravila, ping=False)      # starejsi WebKit brez vrste »ping«: vsaj sledilci
             return
         if sha != self._sha:
             return          # medtem je prisel se novejsi seznam - ta se prevaja

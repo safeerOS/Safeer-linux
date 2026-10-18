@@ -2840,7 +2840,8 @@ class VdelaniSplet:
             return False
         try:
             from core.doh_proxy import dns_nesifriran
-            zdaj = bool(self.config.get("doh_enabled", True)) and dns_nesifriran()
+            zdaj = (bool(self.config.get("doh_enabled", True)) and self.config.get("doh_provider", "scit") != "disabled"
+                    and self.config.get("secure_proxy_mode", "disabled") != "custom" and dns_nesifriran())
         except Exception:  # noqa: BLE001
             zdaj = False
         if zdaj != self._dns_nesifriran:

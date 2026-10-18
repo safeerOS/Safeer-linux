@@ -318,7 +318,8 @@ def je_oglasna_zahteva(url: str, pravila: dict) -> bool:
         return False
     if any(h == d or h.endswith("." + d) for d in pravila.get("gostitelji") or []):
         return True
-    return any((h == d or h.endswith("." + d)) and (u.path or "/").startswith(p) for d, p in pravila.get("poti") or [])
+    pot = (u.path or "/") + ("?" + u.query if u.query else "")      # kot main.js: pathname + search
+    return any((h == d or h.endswith("." + d)) and pot.startswith(p) for d, p in pravila.get("poti") or [])
 
 
 def pravila_scita() -> dict:

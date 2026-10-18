@@ -410,6 +410,28 @@ class FilterWebKit(unittest.TestCase):
         if not [c for c in kontrola["c"] if ip.search(c)]:
             self.skipTest("ta sistem nima vmesnika z naslovom IPv4 - kontrole ni mogoce narediti")
 
+    def test_nov_seznam_zamenja_filter_v_pogledih(self):
+        """FilterSledilcev: preveden ob zagonu, ob novem (podpisanem) seznamu preveden znova in zamenjan naenkrat."""
+        GLib = self.GLib
+        st = sp.StoritevPravil(tempfile.mkdtemp(dir=self.mapa), kljuci={}, osnove=[])
+        f = sp.FilterSledilcev(self.WebKit, GLib, os.path.join(self.mapa, "sledilci"), storitev=st)
+
+        def cakaj(pogoj, s=20):
+            konec = time.monotonic() + s
+            ctx = GLib.MainContext.default()
+            while not pogoj() and time.monotonic() < konec:
+                ctx.iteration(False)
+                time.sleep(0.01)
+            return pogoj()
+        self.assertTrue(cakaj(lambda: f.filter is not None))
+        prejeti = []
+        f.ob_novem(prejeti.append)
+        self.assertEqual(len(prejeti), 1)                         # ze preveden: takoj
+        nova = sp.preveri_pravila({"sledilci": ["sledilec-iz-seznama.test"]}, sp.VGRAJENA_VERZIJA + 5, "podpisana")
+        self.assertTrue(st._uporabi(nova))
+        self.assertTrue(cakaj(lambda: len(prejeti) == 2))
+        self.assertIsNot(prejeti[0], prejeti[1])
+
     def test_banke_izvzete(self):
         z = self._nalozi("http://www.stran.test/stran", sp.vgrajena().webkit_json(nikoli=["stran.test"]))
         self.assertIn("http://www.google-analytics.com/collect.gif", z)

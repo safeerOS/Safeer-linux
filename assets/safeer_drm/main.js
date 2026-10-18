@@ -114,7 +114,7 @@ function oglasnaZahteva(raw) {
   let u; try { u = new URL(raw); } catch (_) { return false; }
   const h = u.hostname.toLowerCase();
   if ((pravila.gostitelji || []).some(d => h === d || h.endsWith('.' + d))) return true;
-  const pot = u.pathname;
+  const pot = u.pathname + (u.search || '');      // pravilo »/tr?« velja samo za pot /tr s poizvedbo (ne /translate)
   return (pravila.poti || []).some(([d, p]) => (h === d || h.endsWith('.' + d)) && pot.startsWith(p));
 }
 

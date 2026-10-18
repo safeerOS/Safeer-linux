@@ -2758,7 +2758,8 @@ class SafeerOS(Gtk.Application):
         """Scit je spremenjen (Nastavitve, okno Safeer Scit, pult): pult in vse odprte strani pokazejo novo stanje takoj -
         vir je en sam (self.scit), nobeno okno ne kaze starega."""
         GLib.idle_add(lambda: (self._osvezi_scit_pult(stanje), False)[1])
-        self._dogodek("scit", stanje)
+        # Klici mostu za Scit tecejo v svoji niti: dogodek (tudi QML) posljemo iz glavne niti.
+        GLib.idle_add(lambda: (self._dogodek("scit", stanje), False)[1])
         return stanje
 
     def _scit_statistika(self) -> dict:
@@ -3671,9 +3672,10 @@ class SafeerOS(Gtk.Application):
         except Exception as e:  # noqa: BLE001 - vgrajeni seznam domen ostane
             print("[SafeerOS] vgrajeni viri, vir groženj:", e, flush=True)
 
-    def _vgrajeno_filter(self) -> None:
+    def _vgrajeno_filter(self, pripravi: bool = True) -> None:
         """EasyList (preveden filter Spleta, ista shramba in id) na poglede z vgrajenim virom. Ce prevedenega se ni
-        (Splet se ni tekel), ga enkrat pripravimo iz shranjenega seznama oziroma prenosa, kot Splet."""
+        (Splet se ni tekel), ga enkrat pripravimo iz shranjenega seznama oziroma prenosa, kot Splet - razen ce
+        pripravi=False (samo ze preveden filter, brez pretvorbe)."""
         from core.filter_lists import FILTER_ID, FilterListAgent
         from core.threat_intel import default_data_dir
 
@@ -3721,6 +3723,9 @@ class SafeerOS(Gtk.Application):
                 uporabi(st.load_finish(rezultat))
                 self._vgrajeni_filter_nalagam = False
             except Exception:  # noqa: BLE001 - se ni preveden: iz shranjenega seznama ali prenosa
+                if not pripravi:
+                    self._vgrajeni_filter_nalagam = False
+                    return
                 try:
                     from core import adblock
                     self._vgrajeni_agent = FilterListAgent(mapa, on_rules=pravila, first_delay=0,
@@ -6943,7 +6948,9 @@ class SafeerOS(Gtk.Application):
         self._medijska_plast = os_medijska_plast.MedijskaPlast(Gtk, pogled, self._mb, self._medijska_plast_nazaj)
         self._medijska_plast_css()
         self._medijski_pogled = pogled
-        self._vgrajeno_filter()            # EasyList (isti preveden filter kot Splet) tudi na ta pogled
+        # EasyList (isti preveden filter kot Splet) tudi na ta pogled - samo ze preveden: pretvorba seznama v Pythonu bi
+        # procesu pustila ~150 MiB (meritev 11. 10. 2026), tega predvajanje skladbe ne sme sproziti.
+        self._vgrajeno_filter(pripravi=False)
         return True
 
     def _medijska_plast_css(self) -> None:

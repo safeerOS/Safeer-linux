@@ -148,7 +148,7 @@ class ZasebnostPovsod(unittest.TestCase):
         so = _beri("safeer_os.py")
         medijski = so[so.index("    def _ustvari_medijski_pogled(self)"):so.index("    def _medijska_plast_css(self)")]
         for del_ in ("scit_pravila.zasebnost_pogleda(WebKit2, nastavitve)", "self._sledilci_v_pogled(pogled)",
-                     "self._vgrajeno_filter()"):
+                     "self._vgrajeno_filter(pripravi=False)"):
             self.assertIn(del_, medijski)
         self.assertIn("self._sledilci_v_pogled(pogled)", so[so.index("    def _vgrajeno_aktivno("):])
         self.assertIn("scit_pravila.trenutna().blokira(url)", so)          # slike v pismih
