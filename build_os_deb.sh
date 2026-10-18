@@ -25,7 +25,10 @@ VERSION="$(cat "$DIR/packaging/VERSION_OS")"
 CONTROL_VERSION="$(cat "$DIR/packaging/VERSION_CONTROL")"
 CINNAMON_VERSION="$(cat "$DIR/packaging/VERSION_CINNAMON")"
 WEBKIT_TAR="${SAFEER_WEBKIT_TAR:-}"
-if [ -n "$WEBKIT_TAR" ]; then ARCH="amd64"; else ARCH="all"; fi
+# Node.js (x86_64) je v paketu vedno, razen v preizkusih paketa (SAFEER_DEB_BREZ_NODE=1, brez 30 MB prenosa).
+NODE=1
+[ "${SAFEER_DEB_BREZ_NODE:-0}" = 1 ] && NODE=0
+if [ -n "$WEBKIT_TAR" ] || [ "$NODE" = 1 ]; then ARCH="amd64"; else ARCH="all"; fi
 DEB_PACKAGE="${PKG_NAME}_${VERSION}_${ARCH}.deb"
 STAGE="$DIR/build/stage-os"
 BUILD_ROOT="$DIR/build/deb-os"
@@ -48,6 +51,17 @@ bash "$DIR/packaging/apparmor/namesti.sh" "$BUILD_ROOT" safeer-os safeer-control
 if [ "${SAFEER_DEB_BREZ_QT:-0}" != 1 ]; then
     python3 "$DIR/packaging/pyside6_vendor.py" "$BUILD_ROOT/usr/lib/safeer-os/vendor"
 fi
+# Node.js 22 LTS (lastnik: nacin »deb«) v zasebni predponi /usr/lib/safeer-os/node: pripeta razlicica, SHA-256 arhiva
+# preverjena pred uporabo (packaging/node_vendor.py). Ne v PATH in ne v /usr/bin - sistemski node ostane nedotaknjen;
+# programi Safeer OS ga najdejo prek core/node_izvajalnik.py. Licenca (z licencami V8, OpenSSL, ICU ...) gre v doc.
+NODE_ODVISNOSTI=""
+if [ "$NODE" = 1 ]; then
+    python3 "$DIR/packaging/node_vendor.py" "$BUILD_ROOT/usr/lib/safeer-os/node"
+    install -d "$BUILD_ROOT/usr/share/doc/safeer-os/nodejs"
+    mv "$BUILD_ROOT/usr/lib/safeer-os/node/LICENSE" "$BUILD_ROOT/usr/share/doc/safeer-os/nodejs/LICENSE"
+    # bin/node: glibc >= 2.28 in libstdc++ (GLIBCXX_3.4.21) - objdump -T, 18. 10. 2026.
+    NODE_ODVISNOSTI=", libc6 (>= 2.28), libstdc++6 (>= 5.2), libgcc-s1"
+fi
 sed -i 's|^Exec=safeer-os|Exec=/usr/bin/safeer-os|' "$BUILD_ROOT/usr/share/applications/safeer-os.desktop" \
     "$BUILD_ROOT/usr/share/applications/safeer-os.Player.desktop" \
     "$BUILD_ROOT"/usr/share/applications/safeer-os.{splet,sporocila,zapiski,nastavitve}.desktop
@@ -63,6 +77,8 @@ else
 fi
 
 # GDebi (dvoklik na paket) ne namesti priporocenih paketov: kar mora delovati takoj, je v Depends.
+# Vticnik Qt xcb (lupina QML, PySide6 iz paketa) nalozi libxcb-* neposredno: vse so nastete, ne le tiste, ki jih prinese
+# kaksen drug paket (readelf/ldd libqxcb.so PySide6 6.11.2, 18. 10. 2026); CI preveri z packaging/preveri_qxcb.sh.
 # python3-zeroconf: brez nje Safeer Link ne najde nobene naprave (mDNS) - ni QR kode in ne 6-mestne kode za prijavo
 # (testni racunalnik, cista namestitev 12. 10. 2026; do 0.4.83 je ni zahteval noben paket).
 # mint-themes obstaja samo v Linux Mintu - ostane priporocilo, da se paket namesti tudi na Ubuntu in Debianu
@@ -74,7 +90,7 @@ Version: ${VERSION}
 Section: x11
 Priority: optional
 Architecture: ${ARCH}
-Depends: python3 (>= 3.10), python3-cryptography, python3-gi (>= 3.42), python3-gi-cairo, python3-qrcode, python3-zeroconf, gir1.2-gtk-4.0, ${SPLET_ODVISNOSTI}, gir1.2-glib-2.0, gir1.2-secret-1, gir1.2-atspi-2.0, gir1.2-gstreamer-1.0, gstreamer1.0-libav, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-gl, libxcb-cursor0, libxkbcommon-x11-0, libxcb-icccm4, libxcb-keysyms1, libxcb-shape0, libegl1, libfontconfig1, sway, wf-recorder, wtype, wmctrl, libglib2.0-bin, plank, dconf-cli, poppler-utils
+Depends: python3 (>= 3.10), python3-cryptography, python3-gi (>= 3.42), python3-gi-cairo, python3-qrcode, python3-zeroconf, gir1.2-gtk-4.0, ${SPLET_ODVISNOSTI}, gir1.2-glib-2.0, gir1.2-secret-1, gir1.2-atspi-2.0, gir1.2-gstreamer-1.0, gstreamer1.0-libav, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-gl, libxcb-cursor0, libxkbcommon-x11-0, libxcb-icccm4, libxcb-keysyms1, libxcb-shape0, libxcb-image0, libxcb-randr0, libxcb-render-util0, libxcb-render0, libxcb-shm0, libxcb-sync1, libxcb-util1, libxcb-xfixes0, libxcb-xkb1, libxcb1, libx11-xcb1, libxkbcommon0, libgl1, libegl1, libfontconfig1, sway, wf-recorder, wtype, wmctrl, libglib2.0-bin, plank, dconf-cli, poppler-utils${NODE_ODVISNOSTI}
 Recommends: mint-themes, cinnamon, network-manager, pulseaudio-utils, policykit-1, xdg-utils, x11-utils, imagemagick, ffmpeg, python3-pil, python3-numpy, papirus-icon-theme
 Suggests: libreoffice-writer, libreoffice-calc, libreoffice-impress, plymouth, slick-greeter
 Provides: safeer-control (= ${CONTROL_VERSION}), safeer-cinnamon (= ${CINNAMON_VERSION})
