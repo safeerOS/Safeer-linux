@@ -204,11 +204,20 @@ Steklo {
                 pot: "M12 4v11 M7 10l5 5 5-5 M5 20h14"; ime: koren.t("ppGumb"); velikostIkone: 17
                 onKlik: panel.odpriPonudnike("")
             }
+            // Spletna aplikacija (kot »Dodaj« na Domov aplikacije Safeer OS): ime in naslov, odpre se v Spletu (popis 3.1).
+            GumbIkona {
+                objectName: "gumbDodajSpletno"
+                visible: panel.linux && panel.naprava === ""
+                pot: "M12 5v14 M5 12h14"; ime: koren.t("spletnaDodaj"); velikostIkone: 17
+                onKlik: dodajSpletno.odpri()
+            }
             Rectangle {
                 Layout.fillWidth: true; height: 34; radius: 17
                 color: koren.prekriv(0.07); border.color: koren.crta(0.12)
                 Lupa { x: 12; anchors.verticalCenter: parent.verticalCenter; scale: 0.8 }
                 TextField {
+                    id: poljeProgramov
+                    objectName: "poljeProgramov"
                     anchors.fill: parent; anchors.leftMargin: 36; anchors.rightMargin: 12
                     placeholderText: koren.t("isciProg"); placeholderTextColor: koren.paleta.medlo; color: koren.paleta.besedilo; font.pixelSize: koren.px(13)
                     background: Item {}
@@ -519,6 +528,8 @@ Steklo {
                            else koren.obvesti(koren.t(dodaj ? "dockDodano" : "dockOdstranjeno", { ime: p.ime }))
                        }, function () { koren.obvesti(koren.t("niUspelo")) })
                    } }
+        MeniVnos { text: koren.t("spletnaOdstrani"); objectName: "vnosOdstraniSpletno"; visible: !!meniPrograma.p && !!meniPrograma.p.url
+                   onTriggered: panel.odstraniSpletno(meniPrograma.p) }
         // Kategorija: program prestavi uporabnik (isti zapis kot na delovni povrsini WebKit).
         Meni {
             id: podmeniKategorija
@@ -579,6 +590,22 @@ Steklo {
     function odpriPonudnike(zavihek) { ponudniki.odpri(mapaPrenosov); if (zavihek) ponudniki.izberiZavihek(zavihek) }
     UrediDock { id: dock }
     PonudnikiProgramov { id: ponudniki; onNamesceno: panel.nalozi() }
+    function fokus() { poljeProgramov.forceActiveFocus() }
+    // Odstranitev spletne aplikacije z »Razveljavi« (prejsnji seznam gre nazaj, isti vrstni red).
+    function odstraniSpletno(p) {
+        var prej = panel.spletne.slice()
+        koren.klic("spletnaOdstrani", [p.url], function (r) {
+            if (!r || !r.ok) { koren.obvesti(koren.t("niUspelo")); return }
+            panel.spletne = r.spletne || []
+            koren.obvesti(koren.t("spletnaOdstranjena", { ime: p.ime }), koren.t("razveljavi"), function () {
+                koren.klic("shraniSpletne", [prej], function (s) { if (Array.isArray(s)) panel.spletne = s })
+            })
+        }, function () { koren.obvesti(koren.t("niUspelo")) })
+    }
+    DodajSpletno {
+        id: dodajSpletno
+        onDodano: function (r) { panel.spletne = r.spletne || []; panel.skupina = "splet"; koren.obvesti(koren.t("spletnaDodana", { ime: r.ime })) }
+    }
     // Zadetek »naprava« v iskanju na namizju: pokaze to napravo v tej plosci.
     function pokaziNapravo(id) { return izbiraNaprave.izberiId(id) }
 }

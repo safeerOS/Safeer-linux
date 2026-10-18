@@ -119,6 +119,7 @@ Steklo {
         koren.klic("prostorDiska", [], function (p) { panel.prostor = p || {} })
     }
 
+    function fokus() { seznam.forceActiveFocus() }
     // Mapa tega racunalnika (npr. iz iskanja): najprej nazaj na »Ta racunalnik«, ce so bile odprte datoteke naprave.
     function odpriLokalno(pot) {
         naprava = ""; imeNaprave = ""; panel.pot = []; streznik = null; viri = lokalniViri

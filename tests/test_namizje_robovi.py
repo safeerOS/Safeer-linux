@@ -18,7 +18,7 @@ def test_brez_delovnega_obmocja():
 
 def test_qml_uporablja_robove():
     q = open(os.path.join(KOREN, "assets", "os", "qml", "Namizje.qml"), encoding="utf-8").read()
-    assert "y: koren.robZgoraj + 18" in q and "vrhPanelov: Math.max(robZgoraj + 104, linkGumb.y + linkGumb.height - 2)" in q and "koren.robSpodaj - 70" in q
+    assert "y: koren.robZgoraj + 18" in q and "vrhPanelov: Math.max(robZgoraj + 104, vrsticaCipov.y + vrsticaCipov.height - 2)" in q and "koren.robSpodaj - 70" in q
 
 
 def test_dock_plank():

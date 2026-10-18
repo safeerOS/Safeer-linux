@@ -1665,6 +1665,11 @@ def ikona_kuverte(n: int, mapa: str, velikost: int = 48) -> str:
 #: Razdelki, ki se na delovni povrsini odprejo vsak v svojem oknu (ne cela stara lupina Safeer OS).
 #: Safeer Scit (lastnik, 18. 10. 2026) je svoj program kot Sporocila: svoj vnos v meniju, okno, ikona v pultu in docku.
 RAZDELKI_V_SVOJEM_OKNU = ("zapiski", "sporocila", "nastavitve", "scit")
+#: Podstrani Nastavitev (ploscici Omrezje in Zvok): na namizju se pokazeta v oknu Nastavitve. Prej je klik nanju v oknu
+#: Nastavitve odprl staro glavno okno Safeer OS (popis 3.1, 18. 10. 2026 - glej docs/NAMIZJE-POPIS.md).
+PODSTRANI_NASTAVITEV = ("omrezje", "zvok")
+#: Razdelka, ki sta na namizju plosci (Datoteke, Programi): pokazeta se tam, ne v oknu.
+RAZDELKI_NAMIZJA = ("datoteke", "programi")
 _NASLOVI_RAZDELKOV = {
     "sl": {"zapiski": "Zapiski", "sporocila": "Sporočila", "nastavitve": "Nastavitve Safeer OS", "scit": "Safeer Ščit"},
     "en": {"zapiski": "Notes", "sporocila": "Messages", "nastavitve": "Safeer OS settings", "scit": "Safeer Shield"},
@@ -2550,17 +2555,37 @@ class SafeerOS(Gtk.Application):
                 return self._prijava()                       # Safeer Control: prijava ali seznam naprav
             if osnova == "splet":
                 return self._splet_na_namizju("", domov=True)
+            if osnova in PODSTRANI_NASTAVITEV:
+                return self._odpri_okno_razdelka("nastavitve", razdelek)
+            if osnova.split(":", 1)[0] in RAZDELKI_NAMIZJA:
+                return self._pokazi_na_namizju(osnova.split(":", 1)[0], razdelek.partition(":")[2])
             if osnova in ("", "domov"):
                 lupina = getattr(self, "lupina", None)
                 if lupina is not None and getattr(lupina, "v_oknu", False):
                     lupina.dvigni()                     # aplikacija v oknu: domaci zaslon je to okno
                 return True                                  # delovna povrsina je domaci zaslon
+            # Razdelka, ki ga namizje nima, ni: stare lupine z namizja ne odpremo (cilj 3.1, lastnik 18. 10. 2026:
+            # »kdor uporablja namizje Safeer, aplikacije Safeer OS ne potrebuje vec«).
+            print("[SafeerOS] razdelek, ki ga namizje nima:", razdelek, flush=True)
+            return False
         if self.okno is None:
             self._ustvari_okno()
             if razdelek:
                 GLib.timeout_add(1500, lambda: (self._dogodek("pojdi", razdelek), False)[1])
             return True
         return self._domov(razdelek)
+
+    def _pokazi_na_namizju(self, razdelek: str, pot: str = "") -> bool:
+        """Datoteke in Programi sta plosci namizja (QML ali delovna povrsina WebKit): razdelek z drugega mesta jih pokaze
+        tam (Datoteke pri mapi [pot]). Prej se je odprlo staro glavno okno Safeer OS (popis 3.1, 18. 10. 2026)."""
+        lupina = getattr(self, "lupina", None)
+        if lupina is not None and getattr(lupina, "v_oknu", False):
+            lupina.dvigni()                             # aplikacija v oknu: plosci sta v tem oknu
+        pogled = getattr(self, "_qml_pogled", None) or getattr(self, "pogled_delovna", None)
+        if pogled is None:
+            return False
+        self._dogodek("pokaziNaNamizju", {"razdelek": razdelek, "pot": pot}, pogled)
+        return True
 
     # ------------------------------------------------------------------ sporocila na namizju (kuverta in plosca)
     #: Varnostno osvezevanje stevila; sicer se kuverta osvezi ob dogodku (os_sporocila.ob_spremembi: novo sporocilo,
@@ -2631,6 +2656,10 @@ class SafeerOS(Gtk.Application):
         threading.Thread(target=delo, name="safeer-kuverta", daemon=True).start()
 
     def _narisi_kuverto(self, n: int) -> None:
+        lupina = getattr(self, "_qml_pogled", None)
+        if lupina is not None:
+            # Gumb Sporocila na namizju QML kaze isto stevilo kot kuverta - tudi kadar ikone v pultu ni (popis 3.1).
+            lupina.qml_dogodek("sporocilaStevilo", {"n": int(n)})
         k = getattr(self, "_kuverta", None)
         if k is None or n == self._kuverta_stevilo:
             return
