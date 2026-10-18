@@ -516,6 +516,110 @@ class DebWebkitTests(unittest.TestCase):
         for skripta in ('zgradi.sh','odvisnosti.sh','vgradi.sh','ucni_tek.sh'):
             subprocess.run(['bash','-n',str(self.WEBKIT_DEB/skripta)],check=True)
 
+    def test_bolt_v_gradnji_izdaje(self):
+        """BOLT (packaging/webkit-deb/bolt.sh) je v gradnji izdaje (lastnik, 18. 10. 2026): CI gradi oba paketa .deb s
+        SAFEER_WEBKIT_BOLT=1; bolt-22 je ista gradnja LLVM kot clang-22; ce BOLT pade, pade gradnja (nikoli tiho brez)."""
+        zgradi=(self.WEBKIT_DEB/'zgradi.sh').read_text()
+        self.assertIn('BOLT="${SAFEER_WEBKIT_BOLT:-0}"',zgradi)
+        self.assertIn('BOLT_MOZNOSTI=(-DCMAKE_SHARED_LINKER_FLAGS=-Wl,--emit-relocs)',zgradi)
+        self.assertIn('"${WK_MOZNOSTI[@]}" "${PGO_MOZNOSTI[@]}" "${BOLT_MOZNOSTI[@]}"',zgradi)
+        # BOLT po namestitvi in pred strip (potrebuje simbole in relokacije), zapis v gradnja.txt.
+        klic=zgradi.index('bash "$KOREN/packaging/webkit-deb/bolt.sh" "$PREDPONA" "$DELO/bolt"')
+        self.assertLess(zgradi.index('ninja -C "$DELO/webkit" install'),klic)
+        self.assertLess(klic,zgradi.index('> "$d/gradnja.txt"'))
+        self.assertLess(klic,zgradi.index('--strip-unneeded'))
+        self.assertIn('else echo "bolt: ne"; fi',zgradi)
+        self.assertIn('-fprofile-use --emit-relocs; do',zgradi)
+        # bolt-22 pripet na isto gradnjo kot clang-22, preverba ponudbe apt.llvm.org in namescene razlicice.
+        odvisnosti=(self.WEBKIT_DEB/'odvisnosti.sh').read_text()
+        self.assertRegex(odvisnosti,r'\nLLVM_PAKET="[^"]+"\n')
+        self.assertIn('for PAKET in clang-22 bolt-22; do',odvisnosti)
+        self.assertIn('"bolt-22=$LLVM_PAKET" "libbolt-22-dev=$LLVM_PAKET"',odvisnosti)
+        self.assertIn("[ \"$(dpkg-query -W -f '${Version}' bolt-22)\" = \"$LLVM_PAKET\" ]",odvisnosti)
+        bolt=(self.WEBKIT_DEB/'bolt.sh').read_text()
+        self.assertIn('set -euo pipefail',bolt)
+        self.assertIn('''sed -n 's/^LLVM_PAKET="\\(.*\\)"$/\\1/p' "$KOREN/packaging/webkit-deb/odvisnosti.sh"''',bolt)
+        for niz in ('-instrument','--instrumentation-file-append-pid','merge-fdata','--reorder-blocks=ext-tsp',
+                    '--reorder-functions=cdsort','--split-functions','--split-all-cold','--icf=safe','--use-gnu-stack',
+                    '"$PREDPONA" "$DELO/fdata" bolt','"$PREDPONA" "$DELO/preveri" preveri','.rela.text',
+                    'bolt: da (llvm-bolt $LLVM_RAZLICICA, bolt-22 $LLVM_PAKET'):
+            self.assertIn(niz,bolt)
+        self.assertNotIn('grep -q',bolt)   # pipefail: -q zapre cev (SIGPIPE) in javi napacno napako
+        self.assertNotIn('apt-get',bolt)   # orodja namesti odvisnosti.sh
+        subprocess.run(['bash','-n',str(self.WEBKIT_DEB/'bolt.sh')],check=True)
+        # Isti ucni tek kot PGO: pgo_trening.py (v kljucu profila Flatpaka) ostane nespremenjen, procesi koncajo normalno.
+        trening=(self.WEBKIT_DEB/'bolt_trening.py').read_text()
+        self.assertIn('WebKit.WebView.terminate_web_process = lambda self: None',trening)
+        self.assertIn('"pgo_trening.py"',trening)
+        compile(trening,'bolt_trening.py','exec')
+        ucni=(self.WEBKIT_DEB/'ucni_tek.sh').read_text()
+        self.assertIn('NACIN="${3:-pgo}"',ucni)
+        self.assertIn('TRENING="$KOREN/packaging/webkit-deb/bolt_trening.py"',ucni)
+        # CI: posel webkit-deb vedno z BOLT, kljuc iz datotek BOLT; profil PGO ni odvisen od BOLT; zapis gradnje preverjen.
+        potek=(ROOT/'.github/workflows/linux-packages.yml').read_text()
+        profil=potek.split('\n  webkit-deb-profil:\n',1)[1].split('\n  webkit-deb:\n',1)[0]
+        posel=potek.split('\n  webkit-deb:\n',1)[1].split('\n  dav1d-deb:\n',1)[0]
+        self.assertIn('SAFEER_WEBKIT_PGO=uporaba SAFEER_WEBKIT_PROFRAW=build/pgo/profraw SAFEER_WEBKIT_BOLT=1 \\\n',posel)
+        self.assertEqual(posel.count('key: webkit-deb-pgo-bolt-${{ matrix.paket }}-'),2)
+        for datoteka in ('packaging/webkit-deb/bolt.sh','packaging/webkit-deb/bolt_trening.py'):
+            self.assertEqual(posel.count("'%s'"%datoteka),2,datoteka)
+        self.assertNotIn('bolt',profil.lower())
+        self.assertIn('python3-gi gir1.2-gtk-4.0 xvfb xauth dbus procps git',posel)
+        self.assertIn("grep -q '^bolt: da (llvm-bolt 22\\.' gradnja.txt",posel)
+        self.assertIn("grep -q '^build.ninja --emit-relocs: [1-9]' gradnja.txt",posel)
+        self.assertNotIn('inputs.bolt',potek)
+        # Paket: preizkus nalozenih knjiznic zahteva zapis BOLT optimizacije (ne instrumentacije).
+        smoke=(ROOT/'packaging/smoke_webkit_deb.py').read_text()
+        self.assertIn('"\\nbolt: da (" not in gradnja',smoke)
+        self.assertIn('b"BOLT revision"',smoke)
+
+    def test_bolt_na_preizkusni_knjiznici(self):
+        """bolt.sh od instrumentacije do optimizirane knjiznice na majhnih knjiznicah z imeni WebKita (Clang 22, lld,
+        --emit-relocs); ucni tek je preizkusni program. Brez bolt-22 in clang-22 (CI preizkusov) preskoceno."""
+        llvm='/usr/lib/llvm-22/bin'
+        if not all(os.access(os.path.join(llvm,o),os.X_OK) for o in ('llvm-bolt','merge-fdata','clang++','llvm-readelf')):
+            self.skipTest('ni bolt-22 in clang-22 (apt.llvm.org)')
+        with tempfile.TemporaryDirectory() as d:
+            d=Path(d)
+            lib=d/'webkit'/'lib'
+            lib.mkdir(parents=True)
+            (d/'wk.cpp').write_text('#include <map>\n#include <string>\nextern "C" int wk(int n) { std::map<std::string,int> m;'
+                                    ' for (int i = 0; i < n; i++) m[std::to_string(i % 31)] += i; int s = 0;'
+                                    ' for (auto& p : m) s += p.second % 7; return s; }\n')
+            (d/'jsc.cpp').write_text('#include <algorithm>\n#include <vector>\nextern "C" int jsc(int n) { std::vector<int> v;'
+                                     ' for (int i = 0; i < n; i++) v.push_back(i * 7919 % 1000); std::sort(v.begin(), v.end());'
+                                     ' return v[n / 2]; }\n')
+            (d/'glavni.cpp').write_text('#include <cstdio>\nextern "C" int wk(int); extern "C" int jsc(int);\n'
+                                        'int main() { long s = 0; for (int i = 0; i < 300; i++) s += wk(50) + jsc(200);'
+                                        ' std::printf("%ld\\n", s); return 0; }\n')
+            for vir,ime,povezava in (('wk.cpp','libwebkitgtk-6.0.so.4.19.4','libwebkitgtk-6.0.so.4'),
+                                     ('jsc.cpp','libjavascriptcoregtk-6.0.so.1.8.8','libjavascriptcoregtk-6.0.so.1')):
+                subprocess.run([llvm+'/clang++','-O2','-fPIC','-shared','-fuse-ld=lld','-Wl,--emit-relocs','-Wl,-soname,'+povezava,
+                                '-o',str(lib/ime),str(d/vir)],check=True)
+                (lib/povezava).symlink_to(ime)
+            subprocess.run([llvm+'/clang++','-O2','-fuse-ld=lld','-o',str(d/'glavni'),str(d/'glavni.cpp'),'-L'+str(lib),
+                            '-l:libwebkitgtk-6.0.so.4','-l:libjavascriptcoregtk-6.0.so.1','-Wl,-rpath,'+str(lib)],check=True)
+            pricakovano=subprocess.run([str(d/'glavni')],capture_output=True,text=True,check=True).stdout
+            tek=d/'tek.sh'
+            tek.write_text('#!/bin/sh\nset -e\nmkdir -p "$2"\n"%s" > "$2/izhod.txt"\n' % (d/'glavni'))
+            okolje=dict(os.environ,SAFEER_BOLT_TEK=str(tek),SAFEER_BOLT_NAJMANJ_PROFILOV='1')
+            r=subprocess.run(['bash',str(self.WEBKIT_DEB/'bolt.sh'),str(d/'webkit'),str(d/'delo')],capture_output=True,
+                             text=True,env=okolje)
+            self.assertEqual(r.returncode,0,r.stdout[-3000:]+r.stderr[-3000:])
+            povzetek=(d/'delo'/'povzetek.txt').read_text()
+            self.assertTrue(povzetek.startswith('bolt: da (llvm-bolt 22.'),povzetek)
+            for ime in ('libwebkitgtk-6.0.so.4.19.4','libjavascriptcoregtk-6.0.so.1.8.8'):
+                self.assertIn(ime,povzetek)
+                sekcije=subprocess.run([llvm+'/llvm-readelf','-S',str(lib/ime)],capture_output=True,text=True).stdout
+                self.assertIn('.note.bolt_info',sekcije)
+                self.assertNotIn('bolt_instr',subprocess.run([llvm+'/llvm-readelf','-s',str(lib/ime)],capture_output=True,
+                                                              text=True).stdout)   # optimizirana, ne instrumentirana
+            # Ucni tek je dal profil (instrumentirani knjiznici), preverba je tekla z optimiziranima - enak rezultat.
+            self.assertTrue(list((d/'delo'/'fdata').glob('webkit.*.fdata')))
+            self.assertTrue(list((d/'delo'/'fdata').glob('jsc.*.fdata')))
+            self.assertEqual((d/'delo'/'preveri'/'izhod.txt').read_text(),pricakovano)
+            self.assertEqual(subprocess.run([str(d/'glavni')],capture_output=True,text=True).stdout,pricakovano)
+
     def test_typelib_dobi_absolutno_pot_do_nase_knjiznice(self):
         import importlib.util
         spec=importlib.util.spec_from_file_location('typelibi',self.WEBKIT_DEB/'typelibi.py')

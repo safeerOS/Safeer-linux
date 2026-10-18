@@ -924,7 +924,10 @@ class VdelaniSplet:
             Gtk.Settings.get_default().connect("notify::gtk-application-prefer-dark-theme", lambda *_: self._temno_osvezi())
         except Exception:
             pass
-        self.zavihki, self.aktivni, self._stevec = [], None, 0
+        # Stevec zavihkov za imena v skladu. NE self._stevec: to je metoda (stevec Scita iz kozmeticne skripte) - celo
+        # stevilo z istim imenom jo je zakrilo in vsako sporocilo stevca je padlo s TypeError (od 1.0.109, najdeno
+        # 18. 10. 2026 v dnevniku meritev na testnem PC).
+        self.zavihki, self.aktivni, self._st_zavihkov = [], None, 0
         self.filter, self.filter_store, self.filter_agent = None, None, None
         self.prenosi = []
         #: Vdelane spletne aplikacije (pogled -> SpletnaAplikacija; tudi pojavna okna aplikacije): glej aplikacija().
@@ -1704,7 +1707,7 @@ class VdelaniSplet:
                                                          self._t("proces_znova"), uri), uri, None)
 
     def nov_zavihek(self, naslov: str = "", povezan=None, lokalno: bool = False):
-        self._stevec += 1
+        self._st_zavihkov += 1
         pogled = self._nov_pogled(povezan)
         vrstica = self.Gtk.Box(orientation=self.Gtk.Orientation.HORIZONTAL, spacing=6)
         vrstica.add_css_class("splet-tab")
@@ -1725,7 +1728,7 @@ class VdelaniSplet:
         self._klik(vrstica, lambda *_: self.izberi(pogled), 1)
         self.skatla_zavihkov.append(vrstica)
         pogled.set_vexpand(True); pogled.set_hexpand(True)
-        self.sklad.add_named(pogled, "splet-%d" % self._stevec)
+        self.sklad.add_named(pogled, "splet-%d" % self._st_zavihkov)
         zavihek = {"pogled": pogled, "dogodek": dogodek, "vrstica": vrstica, "naslov": naslov_lbl, "ikona": ikona,
                    "zvok": zvok}
         pogled.connect("notify::favicon", lambda p, _l: self._osvezi_ikono(p))

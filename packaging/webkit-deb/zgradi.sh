@@ -19,6 +19,10 @@
 #                                                     nato packaging/webkit-deb/ucni_tek.sh
 #   SAFEER_WEBKIT_PGO=uporaba SAFEER_WEBKIT_PROFRAW=MAPA   gradnja s profilom (*.profraw iz ucnega teka TE gradnje)
 # Brez SAFEER_WEBKIT_PGO je gradnja brez profila (samo za razvoj; CI izdaje zahteva PGO).
+# BOLT (gradnja izdaje v CI ga ima, lastnik 18. 10. 2026; lokalno privzeto izklopljen, ker potrebuje ucni tek pod Xvfb):
+#   SAFEER_WEBKIT_BOLT=1   knjiznice povezane z -Wl,--emit-relocs, po namestitvi packaging/webkit-deb/bolt.sh
+#                          (instrumentacija, isti ucni tek kot PGO, llvm-bolt), sele nato strip; v gradnja.txt »bolt: da«.
+#                          Ce BOLT pade, pade gradnja.
 # Odvisnosti: packaging/webkit-deb/odvisnosti.sh. Tece kot root (namesti v PREDPONO); traja 2-3 h na 4 jedrih.
 # ==============================================================================
 set -euo pipefail
@@ -40,6 +44,9 @@ NAVODILO
 fi
 DELO="${SAFEER_WEBKIT_DELO:-$KOREN/build/webkit-deb}"
 PGO="${SAFEER_WEBKIT_PGO:-}"
+BOLT="${SAFEER_WEBKIT_BOLT:-0}"
+case "$BOLT" in 0|1) ;; *) echo "SAFEER_WEBKIT_BOLT je 0 ali 1" >&2; exit 2 ;; esac
+[ "$BOLT" = 0 ] || [ "$PGO" != ucenje ] || { echo "BOLT ne gre z instrumentirano gradnjo PGO (ucenje)" >&2; exit 2; }
 LLVM=/usr/lib/llvm-22/bin
 [ -x "$LLVM/clang" ] || { echo "Ni Clanga 22 ($LLVM/clang): najprej packaging/webkit-deb/odvisnosti.sh" >&2; exit 1; }
 JEDRA="$(nproc)"
@@ -116,9 +123,12 @@ case "$PGO" in
         PGO_MOZNOSTI=(-DUSE_PGO_PROFILE=ON "-DPGO_PROFILE_PATH=$DELO/pgo/webkit.profdata") ;;
     *) echo "SAFEER_WEBKIT_PGO je ucenje ali uporaba" >&2; exit 2 ;;
 esac
+# BOLT premika funkcije med knjiznico samo s staticnimi relokacijami v knjiznici (lld --emit-relocs).
+BOLT_MOZNOSTI=()
+[ "$BOLT" = 0 ] || BOLT_MOZNOSTI=(-DCMAKE_SHARED_LINKER_FLAGS=-Wl,--emit-relocs)
 rm -rf "$DELO/webkit"
 cmake -S "$WK_IZVOR" -B "$DELO/webkit" -G Ninja \
-    "${WK_MOZNOSTI[@]}" "${PGO_MOZNOSTI[@]}" \
+    "${WK_MOZNOSTI[@]}" "${PGO_MOZNOSTI[@]}" "${BOLT_MOZNOSTI[@]}" \
     -DCMAKE_INSTALL_PREFIX="$PREDPONA" \
     -DCMAKE_INSTALL_RPATH="$PREDPONA/lib" \
     -DCMAKE_C_FLAGS="$(polje cflags <<< "$WK_JSON")" \
@@ -142,13 +152,20 @@ fi
 python3 "$KOREN/packaging/webkit-deb/typelibi.py" "$PREDPONA"
 ls -l "$PREDPONA/lib/girepository-1.0"
 
+# --- BOLT (izbirno): pred strip, ker potrebuje simbole in relokacije; ucni tek nalozi knjiznice prek typelibov ---------
+rm -f "$DELO/bolt/povzetek.txt"
+if [ "$BOLT" = 1 ] && [ "${SAFEER_WEBKIT_SAMO_CMAKE:-0}" != 1 ]; then
+    bash "$KOREN/packaging/webkit-deb/bolt.sh" "$PREDPONA" "$DELO/bolt"
+fi
+
 # --- zapis gradnje (kot post-install modula Flatpak; tests in CI ga berejo) -----------------------------------------
 d="$PREDPONA/share/webkitgtk-safeer"
 mkdir -p "$d"
 {
     "$LLVM/clang" --version | head -n 1
     grep -E '^(CMAKE_BUILD_TYPE|CMAKE_CXX_COMPILER|CMAKE_INSTALL_PREFIX|LTO_MODE|ENABLE_LLVM_PROFILE_GENERATION|USE_PGO_PROFILE):' "$DELO/webkit/CMakeCache.txt"
-    for z in -fuse-ld=lld -flto=thin -fprofile-generate -fprofile-use; do echo "build.ninja $z: $(grep -c -e "$z" "$DELO/webkit/build.ninja")"; done
+    for z in -fuse-ld=lld -flto=thin -fprofile-generate -fprofile-use --emit-relocs; do echo "build.ninja $z: $(grep -c -e "$z" "$DELO/webkit/build.ninja")"; done
+    if [ -f "$DELO/bolt/povzetek.txt" ]; then cat "$DELO/bolt/povzetek.txt"; else echo "bolt: ne"; fi
     echo "webkitgtk: $(basename "$WK_ARHIV" .tar.xz) $(polje sha256 <<< "$WK_JSON")"
     echo "libsoup: $(basename "$SOUP_ARHIV" .tar.xz) $(polje sha256 <<< "$SOUP_JSON")"
     for p in $(polje popravki <<< "$WK_JSON") $(polje popravki <<< "$SOUP_JSON"); do echo "popravek: $(basename "$p") $(sha256sum "$p" | cut -d' ' -f1)"; done
