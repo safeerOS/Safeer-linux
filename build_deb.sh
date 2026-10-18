@@ -31,6 +31,8 @@ cp -a "$DIR/build/stage/usr" "$BUILD_ROOT/"
 # The system package knows where it lives: an absolute Exec cannot be shadowed by a stale
 # "safeer" earlier in the user's PATH (e.g. an old ~/.local/bin symlink to a source checkout).
 sed -i 's|^Exec=safeer|Exec=/usr/bin/safeer|' "$BUILD_ROOT/usr/share/applications/safeer-browser.desktop"
+# Profil AppArmor (Ubuntu 24.04+: peskovnik WebKita potrebuje uporabniske imenske prostore) - core/peskovnik_userns.py.
+bash "$DIR/packaging/apparmor/namesti.sh" "$BUILD_ROOT" safeer-browser
 WEBKIT_ODVISNOSTI=""
 if [ -n "$WEBKIT_TAR" ]; then
     WEBKIT_ODVISNOSTI="$(bash "$DIR/packaging/webkit-deb/vgradi.sh" "$BUILD_ROOT" "$PKG_NAME" "$WEBKIT_TAR")"
@@ -100,6 +102,17 @@ if [ -x /usr/bin/python3 ]; then
     /usr/bin/python3 -m compileall -q /usr/lib/safeer-browser >/dev/null 2>&1 || true
 fi
 
+# AppArmor: Ubuntu 24.04+ omejuje uporabniske imenske prostore - brez profila se peskovnik WebKita (bwrap) ne zazene in
+# Splet bi padel. Profila nasih zaganjalnikov nalozimo takoj (ne sele ob naslednjem zagonu racunalnika); brez AppArmorja
+# (vsebnik, sistem brez njega) se ne zgodi nic. Kot dh_apparmor: -r zamenja nalozenega, -T -W osvezi predpomnilnik.
+if [ "${1:-}" = "configure" ] && [ -d /sys/kernel/security/apparmor ] && command -v apparmor_parser >/dev/null 2>&1; then
+    for profil in safeer-browser; do
+        if [ -f "/etc/apparmor.d/$profil" ]; then
+            apparmor_parser -r -T -W "/etc/apparmor.d/$profil" >/dev/null 2>&1 || true
+        fi
+    done
+fi
+
 exit 0
 EOF
 chmod 755 "$BUILD_ROOT/DEBIAN/postinst"
@@ -133,6 +146,14 @@ if [ "${1:-}" = "remove" ] || [ "${1:-}" = "purge" ]; then
         update-alternatives --remove x-www-browser /usr/bin/safeer 2>/dev/null || true
         update-alternatives --remove gnome-www-browser /usr/bin/safeer 2>/dev/null || true
     fi
+fi
+# AppArmor: ob odstranitvi profil umaknemo iz jedra (datoteka v /etc ostane do purge, kot vsaka nastavitev).
+if [ "${1:-}" = "remove" ] && [ -d /sys/kernel/security/apparmor ] && command -v apparmor_parser >/dev/null 2>&1; then
+    for profil in safeer-browser; do
+        if [ -f "/etc/apparmor.d/$profil" ]; then
+            apparmor_parser -R "/etc/apparmor.d/$profil" >/dev/null 2>&1 || true
+        fi
+    done
 fi
 
 exit 0

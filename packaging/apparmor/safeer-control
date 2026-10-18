@@ -1,0 +1,15 @@
+# Samostojni Safeer Control (okno Safeer Linka): WebKitGTK zazene spletne procese v peskovniku
+# bubblewrap, ki potrebuje uporabniske imenske prostore. Ubuntu 24.04+ jih programom brez profila omeji
+# (kernel.apparmor_restrict_unprivileged_userns=1). Ta profil, enak profilom epiphany,
+# geary in evolution v paketu apparmor, programu da ime in dovoljenje userns - nic drugega.
+# Velja za zaganjalnik in njegove otroke (python3, bwrap). Glej core/peskovnik_userns.py.
+
+abi <abi/4.0>,
+include <tunables/global>
+
+profile safeer-control /usr/bin/safeer-control flags=(unconfined) {
+  userns,
+
+  # Site-specific additions and overrides. See local/README for details.
+  include if exists <local/safeer-control>
+}

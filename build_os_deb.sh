@@ -40,6 +40,8 @@ bash "$DIR/packaging/install_control_payload.sh" "$STAGE/usr"
 mkdir -p "$BUILD_ROOT/DEBIAN"
 cp -a "$STAGE/usr" "$BUILD_ROOT/"
 bash "$DIR/packaging/install_cinnamon_payload.sh" "$BUILD_ROOT"
+# Profila AppArmor (Ubuntu 24.04+: peskovnik WebKita potrebuje uporabniske imenske prostore) - core/peskovnik_userns.py.
+bash "$DIR/packaging/apparmor/namesti.sh" "$BUILD_ROOT" safeer-os safeer-control
 # Lupina QML (GTK4 + Qt Quick v istem procesu): PySide6, ki ga Linux Mint 22 nima v svojih paketih - ista kolesa kot v
 # Flatpaku (packaging/pyside6_vendor.py). Brez njih bi Safeer OS tekel s prejsnjo delovno povrsino v WebKitu.
 # SAFEER_DEB_BREZ_QT=1: preizkus paketa (tests/test_delovna.py) brez 80 MB prenosa - PySide6 preverja CI (job safeer-os).
@@ -112,6 +114,16 @@ if [ -x /usr/bin/python3 ]; then
     /usr/bin/python3 -m compileall -q /usr/lib/safeer-os >/dev/null 2>&1 || true
     /usr/bin/python3 -m compileall -q /usr/lib/safeer-control >/dev/null 2>&1 || true
 fi
+# AppArmor: Ubuntu 24.04+ omejuje uporabniske imenske prostore - brez profila se peskovnik WebKita (bwrap) ne zazene in
+# Splet bi padel. Profila nasih zaganjalnikov nalozimo takoj (ne sele ob naslednjem zagonu racunalnika); brez AppArmorja
+# (vsebnik, sistem brez njega) se ne zgodi nic. Kot dh_apparmor: -r zamenja nalozenega, -T -W osvezi predpomnilnik.
+if [ "${1:-}" = "configure" ] && [ -d /sys/kernel/security/apparmor ] && command -v apparmor_parser >/dev/null 2>&1; then
+    for profil in safeer-os safeer-control; do
+        if [ -f "/etc/apparmor.d/$profil" ]; then
+            apparmor_parser -r -T -W "/etc/apparmor.d/$profil" >/dev/null 2>&1 || true
+        fi
+    done
+fi
 exit 0
 EOF2
 cat << 'EOF2' > "$BUILD_ROOT/DEBIAN/prerm"
@@ -174,6 +186,14 @@ if [ "${1:-}" = "remove" ] || [ "${1:-}" = "purge" ]; then
     fi
 fi
 if [ "${1:-}" = "purge" ]; then rm -rf /var/lib/safeer-cinnamon; fi
+# AppArmor: ob odstranitvi profil umaknemo iz jedra (datoteka v /etc ostane do purge, kot vsaka nastavitev).
+if [ "${1:-}" = "remove" ] && [ -d /sys/kernel/security/apparmor ] && command -v apparmor_parser >/dev/null 2>&1; then
+    for profil in safeer-os safeer-control; do
+        if [ -f "/etc/apparmor.d/$profil" ]; then
+            apparmor_parser -R "/etc/apparmor.d/$profil" >/dev/null 2>&1 || true
+        fi
+    done
+fi
 exit 0
 EOF2
 chmod 755 "$BUILD_ROOT/DEBIAN/postinst" "$BUILD_ROOT/DEBIAN/prerm" "$BUILD_ROOT/DEBIAN/postrm"

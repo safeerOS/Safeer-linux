@@ -58,6 +58,7 @@ from gi.repository import WebKit as WebKit2  # noqa: E402
 
 from core import link_daljinec, link_datoteke, link_deljenje, link_hub, link_programi, link_sway, link_tls, link_zaslon, link_zvok  # noqa: E402
 from core import budnost, odlozisce_varuh, os_posodobitve, os_stabilnost  # noqa: E402
+from core import peskovnik_userns  # noqa: E402
 from core import link_internet, link_internet_posrednik, sistemski_posrednik  # noqa: E402
 from core import link_dostop, link_posiljanje  # noqa: E402
 
@@ -2609,7 +2610,13 @@ def main() -> int:
     argv = [a for a in sys.argv if a != "--ozadje"]
     GLib.set_prgname("safeer-control")
     GLib.set_application_name("Safeer Control")
+    # Ubuntu 24.04+ brez nasega profila AppArmor: peskovnik WebKita izklopi samo, ce res ne more teci (sicer g_error).
+    peskovnik = peskovnik_userns.pripravi()
     app = SafeerControl(ozadje=ozadje)
+    if peskovnik.get("izklopljen"):
+        peskovnik_userns.pojasni_kasneje(GLib, os.path.join(GLib.get_user_config_dir(), "safeer-control"),
+                                         _jezik_brskalnika() or _jezik_sistema() or "en", "Safeer Control",
+                                         "safeer-control", app)
     # Ob SIGTERM (odjava, posodobitev paketa) pospravimo kot ob Izhodu: sicer bi locen zaslon s
     # programi ostal tece nevidno in brez lastnika - nihce ga ne bi vec videl ne zaprl.
     try:

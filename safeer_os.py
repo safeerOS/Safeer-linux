@@ -70,6 +70,7 @@ from core import (os_datoteke, os_govor, os_katalog, os_knjiznica, os_lupa, os_o
                   os_media_besedila, os_mediji, os_posodobitve, os_predvajalnik, os_sporocila, os_spletne, os_stabilnost,
                   os_torrent, os_torrent_tok, os_zapiski, os_zvok, knjiznica_kroga, os_ponudniki_programov, os_github_programi)
 from core import budnost, gostitelj, odlozisce_varuh, os_iskalnik, os_odpri_z, os_pretvorba_datotek  # noqa: E402
+from core import peskovnik_userns  # noqa: E402
 from core import media_servers  # noqa: E402
 from core import os_dock  # noqa: E402
 from core import priljubljeno  # noqa: E402
@@ -7330,8 +7331,14 @@ def main() -> int:
     # Proces, ki ga je zagnal Safeer Player, odpre tudi Safeer OS iz menija v oknu (kot ob --predvajaj).
     v_oknu = "--okno" in sys.argv[1:] or bool(magnet) or bool(datoteka) or bool(ponudba_json) or predvajalnik \
         or (cinnamon and "--namizje" not in sys.argv[1:])
+    # Ubuntu 24.04+: brez nasega profila AppArmor bwrap ne dobi imenskega prostora in WebKit bi ob prvi strani koncal
+    # ves proces (g_error). Pred prvim WebKitWebContext: peskovnik izklopi samo, ce res ne more teci (pojasnilo enkrat).
+    peskovnik = peskovnik_userns.pripravi()
     app = SafeerOS(v_oknu=v_oknu, posnetek=posnetek, namizje="--namizje" in sys.argv[1:],
                    delovna="--delovna" in sys.argv[1:], predvajalnik=predvajalnik)
+    if peskovnik.get("izklopljen") and not posnetek:
+        peskovnik_userns.pojasni_kasneje(GLib, os.path.join(GLib.get_user_config_dir(), "safeer-os"), _jezik(),
+                                         "Safeer OS", "safeer-os", app)
     app._cakajoci_magnet = magnet
     app._qml_okno = "--okno" in sys.argv[1:] and not (magnet or datoteka or ponudba_json or predvajalnik or stremio_url)
     app._cakajoci_stremio = stremio_url

@@ -319,7 +319,12 @@ def main() -> int:
     # Razred okna na X11 = prgname: brez tega »safeer_brskalnik.py« in pult okna ne poveze z vnosom v meniju
     # (StartupWMClass; izmerjeno v Xvfb ob pregledu paketa 14. 10. 2026).
     GLib.set_prgname(APP_ID)
+    # Ubuntu 24.04+ brez nasega profila AppArmor: peskovnik WebKita izklopi samo, ce res ne more teci (sicer g_error).
+    from core import peskovnik_userns
+    peskovnik = peskovnik_userns.pripravi()
     app = SafeerBrskalnik()
+    if peskovnik.get("izklopljen"):
+        peskovnik_userns.pojasni_kasneje(GLib, CONFIG_DIR, jezik(), "Safeer Browser", "safeer-browser", app)
     argumenti = [sys.argv[0]] + naslovi_iz_argumentov(sys.argv[1:])
     # Zbiranje smeti samo na glavni niti (pregled 18. 10. 2026): samodejni gc v delovni niti (DoH, Link, IMAP ...) je
     # sprostil predmet WebKit/GTK zunaj glavne niti - RELEASE_ASSERT(isMainThread) -> SIGTRAP (signal 5, koda 133).
