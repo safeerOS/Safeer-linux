@@ -773,3 +773,10 @@ button.povezavaGumb:focus-visible { outline: 2px solid var(--zelena); outline-of
 .prijavaKodaTe { margin-top: 12px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .prijavaKodaTe .vabiloPin { font-size: 30px; margin: 2px 0; color: var(--zelena); }
 .prijavaKodaTe small { color: var(--medlo); font-size: 12px; }
+
+/* Datoteke, ki jih uporabnik vlece nad napravo (spust jih poslje): obroba v barvi poudarka, brez animacije. */
+#seznamNaprav li.spust {
+  outline: 2px dashed var(--zelena);
+  outline-offset: -2px;
+  background: var(--ploscaSvetla);
+}

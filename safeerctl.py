@@ -7,7 +7,8 @@
                                             drugo ime: resources
     safeerctl apps NAPRAVA                  programi naprave
     safeerctl run PROGRAM --on NAPRAVA      zazeni program na napravi
-    safeerctl send DATOTEKA... --to NAPRAVA poslji datoteke napravi
+    safeerctl send DATOTEKA... --to NAPRAVA poslji datoteke napravi (tudi mape; ce naprave ni, pocaka nanjo)
+    safeerctl send --notify ...             ne caka: Safeer Control poslje v ozadju in obvesti namizno (Nemo)
     safeerctl text BESEDILO --to NAPRAVA    poslji besedilo ali povezavo napravi
     safeerctl rename NAPRAVA IME            preimenuj napravo (za vse naprave v Linku)
     safeerctl internet [status]             internet prek telefona v Safeer Linku: stanje
@@ -59,6 +60,8 @@ BESEDILA = {
         "ni_programa": "Programa »{ime}« na napravi ni.", "vec_programov": "»{ime}« ustreza več programom: {seznam}.",
         "zagnano": "Zagnano na napravi {naprava}: {ime}", "ni_uspelo": "Ni uspelo: {razlog}",
         "posiljam": "Pošiljam napravi {naprava}: {ime} … {odst} %",
+        "caka": "Čakam na napravo {naprava}: pošiljanje se nadaljuje, ko bo spet v Safeer Linku …",
+        "v_ozadju": "Pošiljam napravi {naprava} v ozadju; ko bo poslano, se pokaže obvestilo.",
         "poslano": "Poslano napravi {naprava}: {n}",
         "besedilo_poslano": "Besedilo je poslano napravi {naprava}.",
         "preimenovano": "Naprava se zdaj imenuje »{ime}«.",
@@ -114,6 +117,8 @@ BESEDILA = {
         "ni_programa": "There is no app “{ime}” on the device.", "vec_programov": "“{ime}” matches several apps: {seznam}.",
         "zagnano": "Started on {naprava}: {ime}", "ni_uspelo": "Failed: {razlog}",
         "posiljam": "Sending to {naprava}: {ime} … {odst} %",
+        "caka": "Waiting for {naprava}: sending resumes when it is back in Safeer Link…",
+        "v_ozadju": "Sending to {naprava} in the background; a notification appears when it is done.",
         "poslano": "Sent to {naprava}: {n}",
         "besedilo_poslano": "The text was sent to {naprava}.",
         "preimenovano": "The device is now called “{ime}”.",
@@ -389,14 +394,21 @@ def ukaz_send(a, klic, izpis, napredek: Optional[Callable[[str], None]] = None, 
     n = najdi_napravo(naprave(klic), a.to)
     zahtevaj_zmoznost(n, "file")
     poti = [os.path.abspath(os.path.expanduser(p)) for p in a.datoteke]
-    izid = klic("Poslji", n["id"], json.dumps(poti))
+    obvesti = bool(getattr(a, "notify", False))
+    # --notify (Nemo): Control poslje v ozadju in obvesti namizno; ta ukaz ne caka (posiljka lahko caka na napravo).
+    izid = klic("Poslji", n["id"], json.dumps({"poti": poti, "obvesti": True} if obvesti else poti))
     if not izid.get("ok"):
         raise Napaka(t("ni_uspelo", razlog=razlog(izid)), IZHOD_NEUSPEH, str(izid.get("koda") or "napaka"))
     ime = n.get("ime") or n["id"]
+    if obvesti:
+        izpis(json.dumps({"ok": True, "id": n["id"], "name": ime, "files": izid.get("datotek"), "background": True,
+                          "transfer": izid.get("id")}, ensure_ascii=False) if a.json else t("v_ozadju", naprava=ime))
+        return IZHOD_OK
     brez_odgovora = 0
-    while izid.get("stanje") == "posiljam":
+    while izid.get("stanje") in ("posiljam", "caka"):
         if napredek and not a.json:
-            napredek(t("posiljam", naprava=ime, ime=izid.get("ime", ""), odst=izid.get("odstotek", 0)))
+            napredek(t("caka", naprava=ime) if izid.get("stanje") == "caka" else
+                     t("posiljam", naprava=ime, ime=izid.get("ime", ""), odst=izid.get("odstotek", 0)))
         spi(0.4)
         novo = klic("PosljiStanje", str(izid.get("id") or ""))
         if not novo.get("ok"):
@@ -567,6 +579,8 @@ def razclenjevalnik() -> argparse.ArgumentParser:
     u = ukazi.add_parser("send", parents=[skupno], help="send files to a device")
     u.add_argument("datoteke", metavar="FILE", nargs="+")
     u.add_argument("--to", required=True, metavar="DEVICE")
+    u.add_argument("--notify", action="store_true",
+                   help="do not wait: Safeer Control sends in the background and shows a desktop notification")
     u.set_defaults(f=ukaz_send)
     u = ukazi.add_parser("text", parents=[skupno], help="send text or a link to a device")
     u.add_argument("besedilo", metavar="TEXT")

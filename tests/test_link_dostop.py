@@ -124,6 +124,23 @@ class Podedovanje(unittest.TestCase):
         self.assertEqual(self._podedovani(clani), set())
 
 
+class PrejemDatotek(_Osnova):
+    def test_brez_vprasanja_samo_ozji_krog(self):
+        """Datoteko brez vprasanja shranimo samo od naprave z dovoljenjem na tem racunalniku (18. 10. 2026)."""
+        self.assertFalse(link_dostop.prejem_brez_vprasanja(B), "sirsi krog: vprasamo")
+        self.assertFalse(link_dostop.prejem_brez_vprasanja(""))
+        self.assertTrue(link_dostop.nastavi(A, "v"))
+        self.assertTrue(link_dostop.prejem_brez_vprasanja(A), "katerokoli dovoljenje = ozji krog")
+        # Zasciteno sporocilo: odloca jedro iz preverjenega kljuca, ne oznaka v sporocilu.
+        self.assertTrue(link_dostop.prejem_brez_vprasanja(B, zascita=A))
+        self.assertFalse(link_dostop.prejem_brez_vprasanja(A, zascita=B))
+        self.assertTrue(link_dostop.sme_sporocilo(B, "share.file"), "datoteka ostane prosta: vprasamo, ne zavrnemo")
+
+    def test_napaka_branja_pomeni_vprasaj(self):
+        with mock.patch.object(link_dostop, "zmoznosti", side_effect=link_dostop.NapakaBranja("disk")):
+            self.assertFalse(link_dostop.prejem_brez_vprasanja(A))
+
+
 class Zapis(_Osnova):
     def test_naprava_brez_zapisa_samo_pomaga(self):
         self.assertEqual(link_dostop.zmoznosti(B), set())

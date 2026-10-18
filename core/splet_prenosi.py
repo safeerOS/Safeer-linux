@@ -88,6 +88,25 @@ def ime_prenosa(predlagano: str, uri: str) -> str:
     return varno_ime_datoteke(urllib.parse.unquote(ime or ""))
 
 
+def mapa_xdg_prenosov() -> str:
+    """XDG_DOWNLOAD_DIR iz user-dirs.dirs (na slovenskem namizju »Prejemi«) brez GLib; "" ce je ni ali je domaca mapa.
+    Ena koda za Sporocila, prejem v Safeer Linku in Splet brez GLib (prej trije prepisi istega branja)."""
+    import re
+    dom = os.path.expanduser("~")
+    try:
+        with open(os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.join(dom, ".config"), "user-dirs.dirs"),
+                  encoding="utf-8") as f:
+            for vrstica in f:
+                m = re.match(r'\s*XDG_DOWNLOAD_DIR\s*=\s*"(.*)"\s*$', vrstica)
+                if m:
+                    pot = m.group(1).replace("$HOME", dom)
+                    if os.path.isabs(pot) and os.path.isdir(pot) and os.path.realpath(pot) != os.path.realpath(dom):
+                        return pot
+    except OSError:
+        pass
+    return ""
+
+
 def mapa_prenosov(GLib=None) -> str:
     """Sistemska mapa za prenose (XDG: na slovenskem namizju »Prejemi«), sicer Prenosi/Downloads v domu."""
     d = None
@@ -97,6 +116,9 @@ def mapa_prenosov(GLib=None) -> str:
         except Exception:  # noqa: BLE001
             d = None
     if d and os.path.isdir(d):
+        return d
+    d = mapa_xdg_prenosov()
+    if d:
         return d
     for ime in ("Prenosi", "Downloads"):
         p = os.path.expanduser("~/" + ime)
