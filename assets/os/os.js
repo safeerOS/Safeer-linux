@@ -2980,8 +2980,12 @@
     if (vklopljeno) {
       // »Skozi telefon« sele, ko telefon to res dovoli; do takrat povezave skozi njega ne uspejo.
       var sme = !!s.telefon && internetDovoljenje(s)[1];
-      var zdaj = !s.telefon ? "intZdaj_brez" : (!s.prek_telefona ? "intZdaj_doma" : (sme ? "intZdaj_telefon" : "intZdaj_ne"));
-      vrstice.appendChild(internetVrstica("povezava", t("intZdaj"), t(zdaj), !!s.prek_telefona && sme));
+      // Pomoc ob gneci: domaca linija je zasicena, nove povezave (ali samo velika posiljanja) gredo skozi telefon.
+      var gn = s.gneca || {};
+      var obGneci = !s.prek_telefona && !!gn.dejavna;
+      var zdaj = !s.telefon ? "intZdaj_brez" : (obGneci ? (gn.nastavitev === "vse" ? "intZdaj_gneca" : "intZdaj_gnecaOddaje") :
+        (!s.prek_telefona ? "intZdaj_doma" : (sme ? "intZdaj_telefon" : "intZdaj_ne")));
+      vrstice.appendChild(internetVrstica("povezava", t("intZdaj"), t(zdaj), (!!s.prek_telefona && sme) || obGneci));
     }
     var por = s.poraba || {};
     if (vklopljeno || por.mesec) {
@@ -3007,6 +3011,16 @@
         t("intSistemskiPod")));
     } else if (pos.tece) {
       stikala.appendChild(el("p", "namig", ubezi(t("intSistemskiNi", { naslov: naslov }))));
+    }
+    if (s.nacin === "izpad" && s.gneca) {
+      // Privzeto izklopljeno; vklop pomeni tudi nove povezave programov (»vse«), drugo stikalo jih lahko izkljuci.
+      var gneca = s.gneca.nastavitev || "izklopljeno";
+      stikala.appendChild(stikalo("intGneca", "telefon", gneca !== "izklopljeno",
+        function (v) { internetNastavi({ gneca: v ? "vse" : "izklopljeno" }); }, t("intGnecaPod")));
+      if (gneca !== "izklopljeno") {
+        stikala.appendChild(stikalo("intGnecaVse", "program", gneca === "vse",
+          function (v) { internetNastavi({ gneca: v ? "vse" : "oddaje" }); }, t("intGnecaVsePod")));
+      }
     }
     gumb.hidden = !s.telefon;
   }

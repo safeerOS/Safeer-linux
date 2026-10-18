@@ -17,7 +17,7 @@ import http.client
 import json
 import socket
 import ssl
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 from urllib.parse import urlparse
 
 
@@ -169,13 +169,16 @@ class RokovanjeVNiti:
 class _PripetaHttps(http.client.HTTPSConnection):
     """HTTPS povezava, ki po rokovanju preveri odtis Hubovega potrdila."""
 
-    def __init__(self, gostitelj: str, vrata: int, pripeti: Optional[str], timeout: float) -> None:
+    def __init__(self, gostitelj: str, vrata: int, pripeti: Optional[str], timeout: float,
+                 odpri: Optional[Callable[..., socket.socket]] = None) -> None:
+        """`odpri`: namesto socket.create_connection (isti podpis) - npr. core/gneca.odpri_oddajo za velike oddaje."""
         super().__init__(gostitelj, vrata, timeout=timeout, context=_kontekst())
         self.pripeti = pripeti
         self.videni = ""
+        self._odpri = odpri or socket.create_connection
 
     def connect(self) -> None:  # noqa: D401 - http.client API
-        surov = socket.create_connection((self.host, self.port), self.timeout)
+        surov = self._odpri((self.host, self.port), self.timeout)
         try:
             self.sock, self.videni = ovij(surov, self.host, self.pripeti)
         except Exception:

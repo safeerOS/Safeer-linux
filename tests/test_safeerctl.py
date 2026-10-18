@@ -271,6 +271,59 @@ class Posiljanje(Osnova):
         self.assertEqual(self.zazeni("rename", "dnevna", "X"), 1)
 
 
+class InternetGneca(Osnova):
+    """safeerctl internet: pomoc ob gneci (--gneca) in vrstica stanja."""
+
+    STANJE = {"ok": True, "nacin": "izpad", "telefon": "n-tel", "prek_telefona": False,
+              "telefoni": [{"id": "n-tel", "ime": "Telefon v predsobi"}],
+              "ponudnik": {"enabled": True, "permission": "allowed"}, "fiksna": {"dela": True},
+              "posrednik": {"tece": True, "naslov": "127.0.0.1", "vrata": 47890},
+              "sistemski": {"podprt": True, "vklopljen": True, "nastavljen": True}, "poraba": {},
+              "gneca": {"nastavitev": "vse", "velja": True, "zaznana": True, "dejavna": True, "telefon_doma": True,
+                        "premor": False, "osnova_ms": 33.0, "internet_ms": 203.4, "prehod_ms": 0.4}}
+
+    def test_vklop_z_nacinom(self):
+        self.c.odgovori["Internet"] = dict(self.STANJE)
+        self.assertEqual(self.zazeni("internet", "mode", "failover", "--gneca", "on"), 0)
+        self.assertEqual(self.c.klici[-1][:2], ("Internet", "nastavi"))
+        self.assertEqual(json.loads(self.c.klici[-1][2]), {"nacin": "izpad", "gneca": "vse"})
+        self.assertEqual(self.zazeni("internet", "mode", "failover", "--gneca", "uploads"), 0)
+        self.assertEqual(json.loads(self.c.klici[-1][2])["gneca"], "oddaje")
+        self.assertEqual(self.zazeni("internet", "mode", "failover", "--gneca", "off"), 0)
+        self.assertEqual(json.loads(self.c.klici[-1][2])["gneca"], "izklopljeno")
+        self.assertEqual(self.zazeni("internet", "mode", "failover"), 0)
+        self.assertNotIn("gneca", json.loads(self.c.klici[-1][2]), "brez --gneca nastavitev ostane")
+        with mock.patch.object(sys, "stderr"):
+            self.assertEqual(self.zazeni("internet", "mode", "failover", "--gneca", "mogoce"), 2)
+
+    def test_stanje_pove_pot_in_meritev(self):
+        self.c.odgovori["Internet"] = dict(self.STANJE)
+        self.assertEqual(self.zazeni("internet"), 0)
+        izpis = self.izpisi[-1]
+        self.assertIn("skozi telefon (gneča)", izpis)
+        self.assertIn("nove povezave in velika pošiljanja skozi mobilno omrežje telefona – gneča zdaj "
+                      "(osnova 33 ms · zdaj 203 ms · usmerjevalnik 0,4 ms)", izpis)
+        brez = dict(self.STANJE, gneca=dict(self.STANJE["gneca"], zaznana=False, dejavna=False, internet_ms=34.0))
+        self.c.odgovori["Internet"] = brez
+        self.zazeni("internet")
+        self.assertIn("gneče ni", self.izpisi[-1])
+        oddaje = dict(self.STANJE, gneca=dict(self.STANJE["gneca"], nastavitev="oddaje"))
+        self.c.odgovori["Internet"] = oddaje
+        self.zazeni("internet")
+        self.assertIn("neposredno, velika pošiljanja skozi telefon (gneča)", self.izpisi[-1])
+        self.c.odgovori["Internet"] = brez
+        self.zazeni("internet")
+        self.assertNotIn("(gneča)", self.izpisi[-1])
+        izkl = dict(self.STANJE, gneca={"nastavitev": "izklopljeno"})
+        self.c.odgovori["Internet"] = izkl
+        self.zazeni("internet")
+        self.assertRegex(self.izpisi[-1], r"ob gneči\s+izklopljeno")
+        zdoma = dict(self.STANJE, gneca=dict(self.STANJE["gneca"], telefon_doma=False, dejavna=False))
+        self.c.odgovori["Internet"] = zdoma
+        self.zazeni("internet")
+        self.assertIn("telefon ni v domačem omrežju", self.izpisi[-1])
+
+
 class Raba(Osnova):
     def test_brez_ukaza_in_napacen_ukaz(self):
         with mock.patch.object(sys, "stdout"), mock.patch.object(sys, "stderr"):

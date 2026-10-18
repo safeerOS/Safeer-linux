@@ -28,6 +28,7 @@ import time
 from typing import Callable, Dict, Optional, Tuple
 from urllib.parse import quote, urlparse
 
+from core import gneca
 from core import link_tls
 
 KAKOVOST_JPEG = 60
@@ -195,8 +196,10 @@ def poslji_datoteko(ws_naslov: str, zeton: str, odtis: str, moj_id: str, cilj: s
 
 def _oddaja(gostitelj: str, vrata: int, odtis: str, zeton: str, cilj_pot: str, pot: str, velikost: int, odtis_dat: str,
             odmik: int, zna: bool, javi: Callable[[int], None]) -> Tuple[str, int, dict]:
-    """Ena oddaja (PUT) od `odmik` do konca. Vrne ("ok" | "napaka" | "odtis", koda HTTP ali 0, json odgovora)."""
-    povezava = link_tls._PripetaHttps(gostitelj, vrata, odtis, 30.0)
+    """Ena oddaja (PUT) od `odmik` do konca. Vrne ("ok" | "napaka" | "odtis", koda HTTP ali 0, json odgovora).
+
+    Velika oddaja: ob gneci na domaci liniji jo krajevni konec Global Linka odpre skozi telefon (core/gneca.py)."""
+    povezava = link_tls._PripetaHttps(gostitelj, vrata, odtis, 30.0, odpri=gneca.odpri_oddajo)
     try:
         povezava.putrequest("PUT", cilj_pot)
         povezava.putheader("X-Safeer-Token", zeton)

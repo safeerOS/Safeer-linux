@@ -1624,10 +1624,11 @@ class SafeerControl(_OSNOVA):
             return u.stanje(vprasaj=bool(p.get("vprasaj")))
         if ukaz == "nastavi":
             nacin, naprava, pot, sistemski = p.get("nacin"), p.get("naprava"), p.get("pot"), p.get("sistemski")
-            if any(x is not None and not isinstance(x, str) for x in (nacin, naprava, pot)) or \
+            gneca = p.get("gneca")
+            if any(x is not None and not isinstance(x, str) for x in (nacin, naprava, pot, gneca)) or \
                     (sistemski is not None and not isinstance(sistemski, bool)):
                 return {"ok": False, "koda": "napacna_zahteva"}
-            return u.nastavi(nacin=nacin, naprava=naprava, sistemski=sistemski, pot=pot)
+            return u.nastavi(nacin=nacin, naprava=naprava, sistemski=sistemski, pot=pot, gneca=gneca)
         if ukaz == "preizkus":
             return u.preizkus(str(p.get("naprava") or ""), str(p.get("pot") or ""), bool(p.get("stari")))
         if ukaz == "okolje":

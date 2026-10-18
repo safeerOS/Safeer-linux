@@ -1,6 +1,6 @@
 """Safeer OS: plosca »Internet prek telefona« (Omrezne povezave) in njen most do Safeer Controla.
 
-Stran sme nastaviti samo nacin, telefon, pot in sistemski posrednik; zaradi prikaza stanja Controla ne
+Stran sme nastaviti samo nacin, telefon, pot, sistemski posrednik in pomoc ob gneci; zaradi prikaza stanja Controla ne
 zaganjamo. Besedila morajo obstajati za vse, kar plosca sestavi iz kode (nacini, dovoljenja, poti, razlogi).
 """
 import json
@@ -51,6 +51,13 @@ class Most(unittest.TestCase):
         self.assertIs(poslano["sistemski"], True)
         self.assertEqual(len(poslano["naprava"]), 96, "predolg id se odreze")
 
+    def test_pomoc_ob_gneci_gre_v_control(self):
+        with mock.patch.object(self.os, "_control_naprave", return_value={"ok": True}) as control:
+            self.os.internet_prek_telefona("nastavi", {"gneca": "vse"})
+            self.assertEqual(json.loads(control.call_args[0][2]), {"gneca": "vse"})
+            self.os.internet_prek_telefona("nastavi", {"gneca": True})
+            self.assertEqual(json.loads(control.call_args[0][2]), {}, "samo niz (Control ga se preveri)")
+
     def test_sistemski_mora_biti_logicna_vrednost(self):
         with mock.patch.object(self.os, "_control_naprave", return_value={"ok": True}) as control:
             self.os.internet_prek_telefona("nastavi", {"sistemski": "da"})
@@ -94,6 +101,10 @@ class Plosca(unittest.TestCase):
             self.assertIn('id="%s"' % oznaka, omrezje, oznaka)
         js = _beri("assets", "os", "os.js")
         self.assertIn('if (razdelek === "omrezje") { nalozOmrezje(false); nalozInternet(false); internetZanka(); }', js)
+        # Pomoc ob gneci: samo v nacinu »izpad«, vklop pomeni »vse«, drugo stikalo izbere samo velika posiljanja.
+        self.assertIn('if (s.nacin === "izpad" && s.gneca) {', js)
+        self.assertIn('internetNastavi({ gneca: v ? "vse" : "izklopljeno" })', js)
+        self.assertIn('internetNastavi({ gneca: v ? "vse" : "oddaje" })', js)
 
     def test_besedila_za_vse_kar_plosca_sestavi(self):
         b = _besedila()
@@ -102,7 +113,8 @@ class Plosca(unittest.TestCase):
         sestavljeni = (["intNacin_" + n for n in ("izklopljeno", "izpad", "vedno")]
                        + ["intNacinPod_" + n for n in ("izklopljeno", "izpad", "vedno")]
                        + ["intDov_" + d for d in ("allowed", "pending", "denied", "not_trusted", "disabled", "caka", "stari")]
-                       + ["intZdaj_" + z for z in ("telefon", "doma", "brez", "ne")]
+                       + ["intZdaj_" + z for z in ("telefon", "doma", "brez", "ne", "gneca", "gnecaOddaje")]
+                       + ["intGneca", "intGnecaPod", "intGnecaVse", "intGnecaVsePod"]
                        + ["intPot_" + p for p in ("cellular", "wifi", "ethernet", "vpn", "other")])
         for jezik, slovar in b.items():
             self.assertEqual(sorted(slovar), sorted(b["sl"]), jezik)
