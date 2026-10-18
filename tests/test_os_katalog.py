@@ -88,7 +88,7 @@ class VgradnjaYoutubeTests(unittest.TestCase):
         """Skript v lahkem pogledu sme poslati samo stanje skladbe; mostu Safeer OS (safeerOs) v njem ni."""
         self.assertIn("messageHandlers.safeerSkladba", K.SKRIPT_SKLADBE)
         self.assertNotIn("safeerOs", K.SKRIPT_SKLADBE)
-        self.assertEqual(K.STRANI_SKRIPTA_SKLADBE, ("https://www.youtube.com/embed/*",))
+        self.assertEqual(K.STRANI_SKRIPTA_SKLADBE, ("https://www.youtube.com/embed/*", "https://www.youtube.com/watch*"))
 
     def test_safeer_os_tuje_vsebine_ne_vgradi_v_svojo_stran(self):
         """Klici mostu Safeer OS (window.webkit.messageHandlers) so dosegljivi vsem okvirjem strani. Stran sme okvirje
@@ -200,10 +200,27 @@ class MostKatalogaTests(unittest.TestCase):
         for smeti in ("", "ni json", "[1,2]", "{\"stanje\": \"1\"}", "{\"napaka\": 1}", "x" * 5000):
             self.k.yt_sporocilo(smeti)
         self.assertEqual(self.dogodki, [])
+        # Vgradnja ni dovoljena: isti posnetek na strani YouTube v istem pogledu, brez preskoka (lastnik, 18. 10. 2026).
         self.k.yt_sporocilo(json.dumps({"napaka": True, "koda": "vgradnja<script>"}))
+        self.assertEqual(self.dogodki, [])
+        self.assertEqual(self.yt[-1][0], "https://www.youtube.com/watch?v=59o4m222aVw")
+        self.k.yt_sporocilo(json.dumps({"stanje": 1}))
+        self.assertEqual(self.dogodki, [("mediaYt", {"id": "seznam:a", "igra": True})])
+        # Tudi stran ne gre (izbrisan ali zaseben posnetek): naprej, brez zanke.
+        self.dogodki.clear()
+        self.k.yt_sporocilo(json.dumps({"napaka": True, "koda": "vgradnja"}))
         self.assertEqual(self.dogodki, [("mediaYtNapaka", {"id": "seznam:a"})])
+        self.assertEqual(len(self.yt), 2)
         self.k.yt_sporocilo(json.dumps({"stanje": 1}))     # po napaki skladba ni vec aktivna
         self.assertEqual(len(self.dogodki), 1)
+
+    def test_naslov_strani_posnetka(self):
+        self.assertEqual(K.naslov_strani("59o4m222aVw"), "https://www.youtube.com/watch?v=59o4m222aVw")
+        self.assertEqual(K.naslov_strani("x" * 12), "")
+        self.assertTrue(K.je_naslov_strani("https://www.youtube.com/watch?v=59o4m222aVw"))
+        self.assertFalse(K.je_naslov_strani("https://www.youtube.com/watch?v=zlo&x=1x"))
+        self.assertFalse(K.je_naslov_strani("https://evil.test/watch?v=59o4m222aVw"))
+        self.assertIn("https://www.youtube.com/watch*", K.STRANI_SKRIPTA_SKLADBE)
 
     def test_sporocilo_stare_skladbe_ne_vpliva_na_novo_izbiro(self):
         self._vnosi(**{"seznam:a": {"id": "seznam:a", "vrsta": "glasba", "naslov": "A", "youtube": "59o4m222aVw"},
