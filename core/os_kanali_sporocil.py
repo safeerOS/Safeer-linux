@@ -670,6 +670,9 @@ class KanaliSporocil:
                 if ikona:
                     ikone_strani.shrani(url, ikona)
                     novih += 1
+            if self.GLib is None:                  # brez glavne zanke (preizkus brez GLib): koncamo kar tu
+                self._ikone_tecejo = False
+                return
             self.GLib.idle_add(lambda: (self._ikone_konec(novih, dogodek), False)[1])
         threading.Thread(target=delo, name="safeer-ikone-kanalov", daemon=True).start()
 
