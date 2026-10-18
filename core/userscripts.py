@@ -25,10 +25,16 @@ Podprto v tej različici:
 import json
 import os
 import re
+import urllib.parse
 from typing import Dict, List, Optional, Tuple
 
 ZACETEK_GLAVE = "==UserScript=="
 KONEC_GLAVE = "==/UserScript=="
+
+#: »Povsod« za WebKit: samo spletne strani (http, https). Prazen seznam dovoljenih (None) bi v WebKitu pomenil VSE
+#: naslove - tudi safeer://, about: in file://; prepovedan vzorec »safeer://*« naslova safeer://procesi ne ujame
+#: (izmerjeno z WebKitGTK 2.52, 18. 10. 2026). Notranje strani so zato izvzete ze z dovoljenim seznamom.
+VSE_SPLETNE_STRANI = ("*://*/*",)
 
 # Funkcije, ki jih zna ta različica.
 PODPRTA_DOVOLJENJA = frozenset({
@@ -182,7 +188,56 @@ def vzorec_v_webkit(vzorec: str) -> Optional[str]:
         return ""
     if "/" not in ostanek:
         ostanek += "/*"
+    # Vzorca z vrati WebKit ne ujame nikoli (vrata naslova ne uposteva) - brez vrat velja za vsa vrata gostitelja.
+    gostitelj, _, pot = ostanek.partition("/")
+    if re.fullmatch(r"[^:\[\]]+:\d{1,5}", gostitelj):
+        ostanek = gostitelj.rsplit(":", 1)[0] + "/" + pot
     return f"{shema}://{ostanek}"
+
+
+def ujema(vzorec: str, naslov: str) -> bool:
+    """
+    Ali vzorec WebKita (UserContentURLPattern) zajame naslov - za oznako »skripta tece na tej strani«.
+
+    Isti pomen kot WebKit (preverjeno z WebKitGTK 2.52, 18. 10. 2026): shema natanko ali »*« (http, https), vrata
+    naslova se ne upostevajo, »*.domena« zajame domeno in vse poddomene, pot (brez poizvedbe) z zvezdicami.
+    """
+    shema_v, locilo, ostanek = str(vzorec or "").partition("://")
+    if not locilo:
+        return False
+    try:
+        deli = urllib.parse.urlsplit(str(naslov or ""))
+        gost = (deli.hostname or "").lower()
+    except ValueError:
+        return False
+    shema = deli.scheme.lower()
+    if shema_v == "*":
+        if shema not in ("http", "https"):
+            return False
+    elif shema_v != shema:
+        return False
+    gost_v, _, pot_v = ostanek.partition("/")
+    gost_v = gost_v.lower()
+    if shema != "file":
+        if gost_v.startswith("*."):
+            jedro = gost_v[2:]
+            if not jedro or "*" in jedro or not (gost == jedro or gost.endswith("." + jedro)):
+                return False
+        elif gost_v != "*" and ("*" in gost_v or gost_v != gost):
+            return False
+    pot = deli.path or ("/" if shema in ("http", "https") else "")
+    izraz = ".*".join(re.escape(k) for k in ("/" + pot_v).split("*"))
+    return re.fullmatch(izraz, pot, re.S) is not None
+
+
+def velja(pripravljeno: Dict, naslov: str) -> bool:
+    """Ali WebKit skripto, pripravljeno s pripravi(), vbrizga v stran s tem naslovom."""
+    if not pripravljeno or pripravljeno.get("napaka"):
+        return False
+    dovoljeni = pripravljeno.get("dovoljeni")
+    if dovoljeni is not None and not any(ujema(v, naslov) for v in dovoljeni):
+        return False
+    return not any(ujema(v, naslov) for v in pripravljeno.get("prepovedani") or [])
 
 
 def seznama_naslovov(podatki: Dict, zdruzljivi_vzorec: str = "") -> Tuple[Optional[List[str]], List[str]]:
@@ -224,6 +279,9 @@ def notranji_blok_seznam(base_dir: str) -> List[str]:
 
     Naše notranje strani upravljajo brskalnik (zaznamki, privzeti brskalnik,
     jezik), zato tja tuja koda ne spada, tudi če jo je uporabnik namestil sam.
+    Dodatna varovalka: dovoljeni seznam je vedno samo http/https (VSE_SPLETNE_STRANI,
+    vzorec_v_webkit zavrne file:// in druge sheme), zato skripta notranje strani
+    ne doseže, tudi kadar WebKit vzorca »safeer://*« ne ujame.
     """
     mapa = os.path.realpath(os.path.join(base_dir, "ui"))
     return ["safeer://*", f"file://{mapa}/*", f"file://{mapa}*"]
@@ -347,6 +405,8 @@ def pripravi(script: Dict, vrednosti: Dict, base_dir: str, most: str = "safeer_g
     dovoljeni, prepovedani = seznama_naslovov(podatki, script.get("pattern", ""))
     if dovoljeni is not None and not dovoljeni:
         return {"napaka": "ni_veljavnega_vzorca", "manjka": [], "glava": podatki}
+    if dovoljeni is None:
+        dovoljeni = list(VSE_SPLETNE_STRANI)       # nikoli None: glej VSE_SPLETNE_STRANI
 
     prepovedani = list(prepovedani) + notranji_blok_seznam(base_dir)
 
