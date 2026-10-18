@@ -32,7 +32,7 @@ import time
 import urllib.parse
 import weakref
 
-from core import pomnilnik, processes_page, tab_lifecycle
+from core import poraba_zgodovina, pomnilnik, processes_page, storitve_na_zahtevo, tab_lifecycle
 from core.tab_monitor import CLK_TCK, TabMonitor, web_processes_under
 
 SHEMA = "safeer"
@@ -44,6 +44,9 @@ SVET = "safeer-spanje"
 MOST = "safeerSpanje"
 SONDA_MS = 40
 _SONDA_JS = "(function(){var k=performance.now()+%d;while(performance.now()<k){}return 1;})()" % SONDA_MS
+#: Vsi Spleti v procesu (Safeer OS ima dva: okno in plosca na namizju): stran procesov enega pozna naslove zavihkov
+#: drugega (njihovi spletni procesi niso »neznani«).
+_PRIMERKI: "weakref.WeakSet" = weakref.WeakSet()
 #: Ena sonda naenkrat v vsem procesu (Safeer OS ima dva Spleta v istem procesu); cas zacetka, 0 = nobena. Odgovor, ki
 #: ga ni v 3 s (pogled se je medtem zaprl), zaklepa ne drzi vec.
 _SONDA = {"tece": 0.0}
@@ -216,6 +219,13 @@ class SpanjeZavihkov:
         self._okno_neaktivno_od = None
         self._recikliranje = False
         self._css_namescen = False
+        #: Zadnje branje (cas, tiki) procesov programa za trenutni CPU na strani procesov (glej sistem()).
+        self._branja: dict = {}
+        _PRIMERKI.add(self)
+        # Zgodovina porabe (povprecje in vrh zadnje ure) tece na uri registra storitev: v Safeer OS jo je ze zagnal
+        # safeer_os.py, v Safeer Browser jo zazene prvi Splet (glavna zanka GLib, brez lastne niti).
+        poraba_zgodovina.skupna()
+        storitve_na_zahtevo.zacni(self.GLib)
         self._registriraj_shemo(splet.kontekst)
         self.GLib.timeout_add_seconds(2, self._tik_nadzor)
         # Ena ura za vse zavihke (kot GTK3): neaktivni zavihki, pomanjkanje pomnilnika, omrezni proces.
@@ -763,6 +773,7 @@ class SpanjeZavihkov:
         if s is None:
             return []
         vzorci = getattr(self, "vzorci", {})
+        zgodovina = poraba_zgodovina.skupna()
         izid = []
         for ident, p, z in self._pogledi(s):
             if ident in skriti:
@@ -778,14 +789,82 @@ class SpanjeZavihkov:
             else:
                 stanje = self._stanje(z)
                 naslov = z["spanje"].get("naslov") if z["spanje"]["spi"] else (p.get_title() or stanje.get("uri") or "")
-            izid.append({
+            vrstica = {
                 "id": ident, "title": naslov, "pid": pid if v is not None and v.pid else 0,
                 "cpu": v.cpu if v else 0.0, "rss_mb": v.rss_mb if v else 0, "threads": v.threads if v else 0,
                 "active": bool(stanje.get("active")), "audio": bool(stanje.get("audio")),
                 "sleeping": bool(stanje.get("sleeping")), "verdict": v.verdict if v else "calm",
                 "app": bool(stanje.get("app")), "reasons": razlogi_zascite(stanje),
-            })
+            }
+            ura = _zadnja_ura(zgodovina, vrstica["pid"])
+            ura.pop("cpu_zadnji", None)        # zavihek ima trenutni CPU iz nadzora (vsaki 2 s)
+            vrstica.update(ura)
+            izid.append(vrstica)
         return izid
+
+    def _naslovi_drugih(self) -> dict:
+        """PID -> naslov zavihka iz drugih Spletov v procesu (Safeer OS: okno in plosca na namizju)."""
+        izid = {}
+        for drugi in list(_PRIMERKI):
+            if drugi is self:
+                continue
+            s = drugi._splet()
+            if s is None:
+                continue
+            for z in list(s.zavihki):
+                st = z.get("spanje")
+                pid = drugi.nadzor.pid_of(st["id"]) if st else 0
+                if pid:
+                    try:
+                        izid[pid] = z["pogled"].get_title() or z["pogled"].get_uri() or ""
+                    except Exception:  # noqa: BLE001
+                        pass
+        return izid
+
+    def sistem(self, vrstice: list) -> list:
+        """Vsi procesi programa za stran: glavni, omrezni, spletni (zavihki tega okna v eni vrstici, podrobno so zgoraj),
+        podprocesi (rqbit, ffmpeg - s storitvijo, ki ji pripadajo) in peskovnik WebKita v eni vrstici. Trenutni CPU je
+        od prejsnje osvezitve strani (3 s), ob prvem odprtju zadnji interval zgodovine."""
+        zgodovina = poraba_zgodovina.skupna()
+        koren = zgodovina.koren
+        zavihki = {r["pid"] for r in vrstice if r.get("pid")}
+        drugi = self._naslovi_drugih()
+        storitve = {}
+        for st in storitve_na_zahtevo.stanje():
+            for pid in st.get("pidi") or ():
+                storitve[pid] = st["ime"]
+        skupine: dict = {}
+        izid = []
+        branja = {}
+        for pid in [koren] + poraba_zgodovina.potomci(koren):
+            b = poraba_zgodovina.trenutno(pid, self._branja.get(pid))
+            if b is None:
+                continue
+            branja[pid] = b["branje"]
+            zadnja = _zadnja_ura(zgodovina, pid)
+            cpu = b["cpu"] if b["cpu"] is not None else zadnja.pop("cpu_zadnji", None)
+            zadnja.pop("cpu_zadnji", None)
+            vrsta = poraba_zgodovina.vrsta(b["ime"], pid, koren)
+            vrstica = dict(zadnja, pid=pid, name=b["ime"], kind=vrsta, cpu=cpu, rss_mb=b["rss_mb"], threads=b["niti"])
+            if vrsta == poraba_zgodovina.SPLETNI and pid in zavihki:
+                vrstica["kind"] = "zavihki"
+            if vrstica["kind"] in ("zavihki", poraba_zgodovina.PESKOVNIK):
+                sk = skupine.setdefault(vrstica["kind"], {"kind": vrstica["kind"], "count": 0, "threads": 0,
+                                                          "cpu": None, "rss_mb": 0, "avg_cpu": None, "avg_mb": None})
+                sk["count"] += 1
+                sk["threads"] += vrstica["threads"]
+                sk["rss_mb"] += vrstica["rss_mb"]
+                for k in ("cpu", "avg_cpu", "avg_mb"):
+                    if vrstica.get(k) is not None:
+                        sk[k] = (sk[k] or 0) + vrstica[k]
+                continue
+            if pid in drugi:
+                vrstica["tab"] = drugi[pid]
+            if pid in storitve:
+                vrstica["service"] = storitve[pid]
+            izid.append(vrstica)
+        self._branja = branja
+        return izid + list(skupine.values())
 
     def stran_procesov(self, skriti=()) -> str:
         s = self._splet()
@@ -796,8 +875,31 @@ class SpanjeZavihkov:
                 minute = max(0, int(float(s.config.get("tab_discard_after_s", 600) or 0) // 60))
             except (TypeError, ValueError):
                 minute = 0
-        return processes_page.render(self.vrstice(skriti), jezik, pomnilnik.meja_strani_mb(), self.nadzor.cpu_budget,
-                                     key=self._kljuc, sleep_minutes=minute)
+        vrstice = self.vrstice(skriti)
+        try:
+            sistem = self.sistem(vrstice)
+        except Exception as napaka:  # noqa: BLE001 - zavihki se pokazejo tudi brez tabele programa
+            print("[Splet] procesi programa:", napaka, flush=True)
+            sistem = []
+        storitve = storitve_na_zahtevo.stanje()
+        zdaj = time.time()
+        storitve += [{"ime": o["ime"], "opravilo": True, "razmik_s": o["razmik_s"], "tece": o["tece"],
+                      "zadnje_s": (zdaj - o["zadnje"]) if o["zadnje"] else None}
+                     for o in storitve_na_zahtevo.opravila()]
+        return processes_page.render(vrstice, jezik, pomnilnik.meja_strani_mb(), self.nadzor.cpu_budget,
+                                     key=self._kljuc, sleep_minutes=minute, system=sistem, services=storitve,
+                                     app=storitve_na_zahtevo.ime_procesa() or "Safeer Browser",
+                                     sample_s=storitve_na_zahtevo.TIK_S,
+                                     history_ready=poraba_zgodovina.skupna().ima_vzorce())
+
+
+def _zadnja_ura(zgodovina, pid: int) -> dict:
+    """Povprecje in vrh zadnje ure za vrstico strani (kljuci processes_page) ali prazno brez zgodovine."""
+    p = zgodovina.povzetek(pid) if pid else None
+    if p is None:
+        return {}
+    return {"avg_cpu": p["cpu_povp"], "peak_cpu": p["cpu_vrh"], "avg_mb": p["rss_povp_mb"], "peak_mb": p["rss_vrh_mb"],
+            "cpu_zadnji": p["cpu_zadnji"]}
 
 
 def _pogled_prenosa(prenos):

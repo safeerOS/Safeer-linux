@@ -1046,6 +1046,9 @@ class SafeerControl(_OSNOVA):
         _OSNOVA.do_startup(self)
         if not VGRAJEN:         # v procesu Safeer OS obrezuje Safeer OS
             pomnilnik.obrezuj_periodicno(GLib)
+            # Samostojni Control: ura storitev na zahtevo in hisnih opravil na glavni zanki (brez svoje niti).
+            from core import storitve_na_zahtevo
+            storitve_na_zahtevo.zacni(GLib, "Safeer Control")
             # Nova razlicica po namestitvi (core/nova_razlicica.py); v procesu Safeer OS jo vodi Safeer OS.
             self._spremljaj_novo_razlicico()
         # Zagon iz menija, ko Control ze tece (_pokazi_tekocega): izrecna zahteva uporabnika, okno takoj - za razliko od

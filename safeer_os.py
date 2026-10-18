@@ -2017,6 +2017,9 @@ class SafeerOS(Gtk.Application):
         except Exception as e:  # noqa: BLE001 - brez tega strani ostanejo le svetle
             print("[SafeerOS] tema namizja:", e)
         pomnilnik.obrezuj_periodicno(GLib)
+        # Storitve na zahtevo, hisna opravila in zgodovina porabe za safeer://procesi (ena ura na glavni zanki).
+        from core import storitve_na_zahtevo
+        storitve_na_zahtevo.vezi_safeer_os(self, GLib)
         # `safeer-os --okno` iz menija, ko Safeer OS ze tece (npr. kot Safeer Player): drugi zagon to sporoci
         # primerku, ki tece, pred aktivacijo - sicer bi se odprlo staro okno namesto namizja QML (pregled 14. 10. 2026).
         okno_qml = Gio.SimpleAction.new("okno-qml", None)

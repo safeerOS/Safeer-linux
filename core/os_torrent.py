@@ -35,7 +35,7 @@ import urllib.parse
 import urllib.request
 from typing import Iterable, Callable, Dict, List, Optional, Tuple
 
-from core import os_deskriptorji
+from core import os_deskriptorji, storitve_na_zahtevo
 
 RQBIT_RAZLICICA = "9.0.1"
 #: Uradne izdaje (github.com/ikatson/rqbit/releases/tag/v9.0.1) in njihov SHA-256 iz GitHubovega "digest".
@@ -62,6 +62,12 @@ KOS = 256 * 1024
 #: bi metapodatke iskalo se enkrat.
 PREBRANO_VELJA_S = 180.0
 _VIR_IPV4 = re.compile(r"\d{1,3}(?:\.\d{1,3}){3}:\d{1,5}")
+#: Motor na zahtevo (lastnik, 18. 10. 2026): rqbit se zazene ob prvi rabi (vsak klic API-ja ga zazene sam) in se
+#: ustavi, ko ga toliko casa nihce ne uporablja in nic ne dela - ni prenosa, ki se ni koncal, ni torrenta, ki ga
+#: uporabnik izrecno deli naprej, ni odprtega toka predvajalnika. 10 min: konec filma in izbira naslednjega dela iz
+#: istega torrenta ne zaganjata motorja znova; ponovni zagon s shranjenim stanjem (fastresume) traja manj kot 1 s
+#: (preizkus motorja, glej tests/test_os_torrent_na_zahtevo.py), torrenti obdrzijo id in stanje premora.
+MIROVANJE_S = 600.0
 #: Toliko casa posrednik toka caka, da rqbit torrent pripravi (500 "initializing"), preden napako poslje naprej.
 PRIPRAVA_TOKA_S = 45.0
 PRIPRAVA_TOKA_RAZMIK_S = 0.3
@@ -457,6 +463,13 @@ class Torrenti:
         self.vrata_toka = 0
         self._deli_naprej: set = set(self._nalozi_nastavitve().get("deli_naprej", []))
         self._nadzor: Optional[threading.Thread] = None
+        #: Na zahtevo: ali motor dela (prenos, deljenje naprej - nadzor vsakih 10 s) in koliko tokov je odprtih.
+        self._dela = False
+        self._aktivni_tokovi = 0
+        self.ime_storitve = "torrent_naprave" if self.svoj_dht else "torrent"
+        storitve_na_zahtevo.registriraj(
+            self.ime_storitve, storitve_na_zahtevo.NA_ZAHTEVO, MIROVANJE_S, tece=self.tece, ustavi=self.ustavi_motor,
+            zaposlena=self.zaposlen, pidi=lambda: [self._proces.pid] if self.tece() else [])
 
     # -- nastavitve (katere torrente uporabnik izrecno deli naprej)
 
@@ -546,9 +559,33 @@ class Torrenti:
             if koda != 401:
                 self.ustavi()
                 raise NapakaTorrenta("program_brez_gesla")
-            if self._nadzor is None:
+            self._rabi()
+            if self._nadzor is None or not self._nadzor.is_alive():
                 self._nadzor = threading.Thread(target=self._nadzoruj, name="safeer-torrent-nadzor", daemon=True)
                 self._nadzor.start()
+
+    def _rabi(self) -> None:
+        """Uporabnik (ali naprava) je motor pravkar uporabil: rok mirovanja (MIROVANJE_S) se zacne znova."""
+        storitve_na_zahtevo.rabi(self.ime_storitve)
+
+    def zaposlen(self) -> bool:
+        """Motor dela: prenos, ki se ni koncal, izrecno deljenje naprej ali odprt tok predvajalnika (glej _nadzoruj)."""
+        return self._dela or self._aktivni_tokovi > 0
+
+    def ustavi_motor(self) -> None:
+        """Ustavitev ob mirovanju (core/storitve_na_zahtevo): konca samo rqbit. Posrednik toka in naslovi, ki jih ima
+        predvajalnik, ostanejo - ob naslednji zahtevi toka posrednik motor zazene znova (torrenti obdrzijo id)."""
+        with self._zaklep:
+            if self.zaposlen():
+                return
+            p, self._proces = self._proces, None
+        if p is not None and p.poll() is None:
+            p.terminate()
+            try:
+                p.wait(5)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                p.wait(5)
 
     def ustavi(self) -> None:
         with self._zaklep:
@@ -570,6 +607,8 @@ class Torrenti:
 
     def _api(self, metoda: str, pot: str, telo: Optional[bytes] = None, cas: float = 30,
              glave: Optional[dict] = None) -> Tuple[int, bytes]:
+        if threading.current_thread() is not self._nadzor:
+            self._rabi()          # vsak klic uporabnika ali naprave; nadzorovo branje stanja ni raba
         povezava = http.client.HTTPConnection("127.0.0.1", self.vrata, timeout=cas)
         try:
             g = {"Authorization": "Basic " + base64.b64encode(("safeer:" + self._geslo).encode()).decode()}
@@ -825,21 +864,45 @@ class Torrenti:
 
     # -- nadzor: po koncu prenosa ne oddajamo, razen če uporabnik tako izbere
 
+    def _beri_brez_zagona(self, pot: str) -> dict:
+        """GET za nadzor: za razliko od _json motorja ne zazene (ustavljen med mirovanjem ostane ustavljen)."""
+        koda, podatki = self._api("GET", pot, cas=10)
+        if koda != 200:
+            raise NapakaTorrenta("api_%d" % koda)
+        return json.loads(podatki.decode("utf-8") or "{}")
+
     def _nadzoruj(self) -> None:
+        """Dokler motor tece, vsakih 10 s _preveri(). Ko se motor ustavi, nit konca (prej je spala do konca procesa)."""
         while True:
             time.sleep(10)
-            if not self.tece():
-                continue
+            with self._zaklep:
+                if not self.tece():
+                    self._dela = False
+                    if self._nadzor is threading.current_thread():
+                        self._nadzor = None
+                    return
             try:
-                for t in self._json("GET", "/torrents").get("torrents") or []:
-                    hash_ = str(t.get("info_hash") or "").lower()
-                    if hash_ in self._deli_naprej:
-                        continue
-                    s = self._json("GET", "/torrents/%d/stats/v1" % int(t.get("id")))
-                    if s.get("finished") and s.get("state") == "live":
-                        self._api("POST", "/torrents/%d/pause" % int(t.get("id")))
+                self._preveri()
             except Exception:  # noqa: BLE001 - nadzor ne sme pasti
                 continue
+
+    def _preveri(self) -> bool:
+        """Koncanih torrentov, ki jih uporabnik ne deli naprej, ne oddajamo (premor). Vrne in zapomni si, ali motor
+        dela: prenos, ki se ni koncal, ali torrent, ki ga uporabnik izrecno deli naprej (storitve na zahtevo)."""
+        dela = False
+        for t in self._beri_brez_zagona("/torrents").get("torrents") or []:
+            hash_ = str(t.get("info_hash") or "").lower()
+            s = self._beri_brez_zagona("/torrents/%d/stats/v1" % int(t.get("id")))
+            stanje = str(s.get("state") or "")
+            if hash_ in self._deli_naprej:
+                dela = dela or stanje == "live"
+                continue
+            if s.get("finished") and stanje == "live":
+                self._api("POST", "/torrents/%d/pause" % int(t.get("id")))
+            elif stanje in ("live", "initializing") and not s.get("finished"):
+                dela = True          # prenos tece: motor se ne ustavi
+        self._dela = dela
+        return dela
 
 
 class _Streznik(http.server.ThreadingHTTPServer):
@@ -880,6 +943,28 @@ class _Obravnava(os_deskriptorji.RokCakanjaZahteve, http.server.BaseHTTPRequestH
             return
         tid, i = cilj
         glave = {"Range": self.headers["Range"]} if self.headers.get("Range") else {}
+        with torrenti._zaklep:
+            torrenti._aktivni_tokovi += 1
+        try:
+            if not torrenti.tece():
+                # Motor se je ustavil med mirovanjem (MIROVANJE_S), predvajalnik pa nadaljuje: zazenemo ga znova, torrent
+                # ima isti id (shranjeno stanje) - posnetek se nadaljuje brez nove povezave magnet.
+                torrenti.zazeni()
+                torrenti._api("POST", "/torrents/%d/start" % tid, cas=10)
+            torrenti._rabi()
+        except (NapakaTorrenta, OSError):
+            with torrenti._zaklep:
+                torrenti._aktivni_tokovi -= 1
+            self._prazen(503)
+            return
+        try:
+            self._prenesi_tok(torrenti, tid, i, glave, deli, samo_glava)
+        finally:
+            with torrenti._zaklep:
+                torrenti._aktivni_tokovi -= 1
+            torrenti._rabi()
+
+    def _prenesi_tok(self, torrenti, tid: int, i: int, glave: dict, deli: list, samo_glava: bool) -> None:
         povezava = http.client.HTTPConnection("127.0.0.1", torrenti.vrata, timeout=120)
         try:
             glave["Authorization"] = "Basic " + base64.b64encode(("safeer:" + torrenti._geslo).encode()).decode()

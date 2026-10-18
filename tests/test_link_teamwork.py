@@ -299,6 +299,61 @@ class Par(unittest.TestCase):
         self.assertFalse(self._udelezi()["podprto"])
 
 
+class NaZahtevo(unittest.TestCase):
+    """Nit spremljanja (tik vsaki 2 s) tece samo, dokler je kaj za spremljati (lastnik, 18. 10. 2026): brez seje in
+    udelezbe je ni; prva udelezba ali seja jo zbudi, ura storitev jo ustavi, ko dela ni vec. Okolje: par iz Par."""
+
+    def setUp(self):
+        from core import storitve_na_zahtevo
+        storitve_na_zahtevo._za_preizkus()
+        self.par = Par("test_shranitev_na_b_pride_k_lastniku_samo_sprememba")
+        self.par.setUp()
+        self.a, self.b = self.par.a, self.par.b
+
+    def tearDown(self):
+        from core import storitve_na_zahtevo
+        self.a.ustavi()
+        self.b.ustavi()
+        storitve_na_zahtevo._za_preizkus()
+        self.par.tearDown()
+
+    def test_brez_dela_ni_niti_prva_udelezba_jo_zbudi(self):
+        from core import storitve_na_zahtevo as snz
+        self.a.zazeni()
+        self.b.zazeni()
+        self.assertFalse(self.a._nit_tece())
+        self.assertFalse(self.b._nit_tece())
+        self.assertEqual(snz.storitev("teamwork").mirovanje_s, tw.MIROVANJE_S)
+        self.par._udelezi()                          # B: udelezba; A: prva seja (prijava B)
+        self.assertTrue(self.b._nit_tece())
+        self.assertTrue(self.a._nit_tece())
+        nit_b = self.b._nit
+        # Ura storitev: dokler je udelezba, se nit ne ustavi.
+        self.b._ustavi_nit()
+        self.assertTrue(self.b._nit_tece())
+        # Udelezbe ni vec (potekla): ustavitev konca nit; nova udelezba zazene novo.
+        with self.b._zaklep:
+            self.b._udelezbe.clear()
+        self.b._ustavi_nit()
+        nit_b.join(3 * tw.TIK_S)
+        self.assertFalse(nit_b.is_alive())
+        self.assertFalse(self.b._nit_tece())
+        self.par._udelezi()
+        self.assertTrue(self.b._nit_tece())
+        self.assertIsNot(self.b._nit, nit_b)
+
+    def test_shranjena_udelezba_zbudi_ob_zagonu(self):
+        self.par._udelezi()
+        b2 = tw.Teamwork(razresi=lambda o: "", ime_naprave=lambda i: i, obvesti=lambda k, p: None, ukaz=self.par._ukaz,
+                         okna=lambda: [], mapa=os.path.join(self.par.tmp, "b-tw"), procesi=None, zdaj=self.par.ura)
+        try:
+            self.assertTrue(b2.ima_delo())
+            b2.zazeni()
+            self.assertTrue(b2._nit_tece())
+        finally:
+            b2.ustavi()
+
+
 class Popravek(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()

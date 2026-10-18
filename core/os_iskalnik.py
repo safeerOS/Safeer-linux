@@ -217,6 +217,11 @@ def indeks() -> Indeks:
     global _indeks
     if _indeks is None:
         _indeks = Indeks()
+        # Stran safeer://procesi: indeks ostane v pomnilniku (okoli 70 B na datoteko, 100 000 datotek = 7 MiB, gradnja
+        # 1,2 s CPU - izmerjeno 18. 10. 2026), da je prvo iskanje takojsnje (lastnikova odlocitev).
+        from core import storitve_na_zahtevo
+        storitve_na_zahtevo.registriraj("iskalnik", storitve_na_zahtevo.VEDNO, tece=_indeks.pripravljen,
+                                        razlog=storitve_na_zahtevo.TAKOJ)
     return _indeks
 
 
@@ -277,6 +282,8 @@ def isci(niz: str, meja: int = os_datoteke.NAJVEC_ZADETKOV) -> List[dict]:
     if len(niz) < 2:
         return []
     idx = indeks()
+    from core import storitve_na_zahtevo
+    storitve_na_zahtevo.rabi("iskalnik")
     if not idx.pripravljen():
         idx.zgradi_v_ozadju()
         if not idx.pocakaj(CAKAJ_PRVI_INDEKS_S):

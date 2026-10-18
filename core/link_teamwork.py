@@ -63,6 +63,8 @@ UDELEZBA_VELJA_S = 30 * 24 * 3600.0
 #: Seja pri lastniku brez udelezencev toliko casa izgine.
 SEJA_VELJA_S = 600.0
 TIK_S = 2.0
+#: Nit spremljanja se ustavi, ko toliko casa ni seje ne udelezbe (ponovni zagon je takojsen: nova nit).
+MIROVANJE_S = 60.0
 #: Najvec toliko kopij ob sporu na sejo (ista vsebina se nikoli ne zapise dvakrat).
 NAJVEC_KOPIJ = 20
 #: Sej in prvih prijav clanov ne omejuje nobena stevilka (lastnik, 18. 10. 2026: prej 32 sej na napravo in 8 prvih
@@ -652,6 +654,8 @@ class Teamwork:
         self._zaklep = threading.RLock()
         self._nit: Optional[threading.Thread] = None
         self._ustavi = threading.Event()
+        self._omogocen = False
+        self._zaklep_niti = threading.Lock()
         self._tik_st = 0
         self._nalozi()
 
@@ -717,7 +721,9 @@ class Teamwork:
                     nova.sha = _sha(pot)
                     self.zgodovina.shrani(nova.kljuc, nova.sha, pot)
                     with self._zaklep:
-                        return self._seje.setdefault(oznaka, nova)
+                        s = self._seje.setdefault(oznaka, nova)
+                    self._zbudi()           # prva seja: spremljanje (tik vsaki 2 s) se zacne sele zdaj
+                    return s
                 finally:
                     with self._zaklep:
                         if self._ustvarjanje.get(oznaka) is ustvarjanje:
@@ -973,6 +979,7 @@ class Teamwork:
                 u.streznik = stara.streznik
             self._udelezbe[u.kljuc] = u
         self._shrani()
+        self._zbudi()
         odgovor = self._ping(u, odprto=False)
         return {"ok": True, "podprto": u.podprto, "program": (odgovor or {}).get("program", ""),
                 "drugi": (odgovor or {}).get("drugi", [])}
@@ -1208,22 +1215,60 @@ class Teamwork:
             self._shrani()
 
     def zazeni(self) -> None:
-        if self._nit is not None:
-            return
-        self._ustavi.clear()
+        """Teamwork na zahtevo (lastnik, 18. 10. 2026): nit s tikom vsaki 2 s tece samo, dokler je kaj za spremljati
+        (seja lastnika ali udelezba z delovno kopijo). Prej je tekla od zagona Controla pri vsakem uporabniku - tudi
+        brez Teamworka: ena nit in 0,5 prebujanja na sekundo (izmerjeno v Safeer OS, Xvfb, 18. 10. 2026). Prva seja
+        ali udelezba jo zbudi (_zbudi); ura storitev (core/storitve_na_zahtevo) jo ustavi minuto po zadnjem delu."""
+        from core import storitve_na_zahtevo
+        self._omogocen = True
+        storitve_na_zahtevo.registriraj("teamwork", storitve_na_zahtevo.NA_ZAHTEVO, MIROVANJE_S,
+                                        tece=self._nit_tece, ustavi=self._ustavi_nit, zaposlena=self.ima_delo)
+        if self.ima_delo():
+            self._zbudi()
 
-        def zanka() -> None:
-            while not self._ustavi.wait(TIK_S):
-                try:
-                    self.tik()
-                except Exception as e:  # noqa: BLE001 - Teamwork ne sme ustaviti Controla
-                    print("[Teamwork]", e)
-        self._nit = threading.Thread(target=zanka, name="safeer-teamwork", daemon=True)
-        self._nit.start()
+    def ima_delo(self) -> bool:
+        with self._zaklep:
+            return bool(self._seje or self._udelezbe or self._v_ustvarjanju)
+
+    def _nit_tece(self) -> bool:
+        nit = self._nit
+        return nit is not None and nit.is_alive()
+
+    def _zbudi(self) -> None:
+        """Zazene nit spremljanja, ce ne tece (vsaka nit ima svoj znak za konec: stara, ki se ravno ustavlja, ne
+        more podaljsati nove)."""
+        if not self._omogocen:
+            return
+        from core import storitve_na_zahtevo
+        storitve_na_zahtevo.rabi("teamwork")
+        with self._zaklep_niti:
+            if self._nit_tece():
+                return
+            stop = threading.Event()
+            self._ustavi = stop
+
+            def zanka() -> None:
+                while not stop.wait(TIK_S):
+                    try:
+                        self.tik()
+                    except Exception as e:  # noqa: BLE001 - Teamwork ne sme ustaviti Controla
+                        print("[Teamwork]", e)
+            self._nit = threading.Thread(target=zanka, name="safeer-teamwork", daemon=True)
+            self._nit.start()
+
+    def _ustavi_nit(self) -> None:
+        """Ura storitev: minuto ni bilo dela - nit se konca (ce se je medtem pojavilo delo, ostane)."""
+        with self._zaklep_niti:
+            if self.ima_delo():
+                return
+            self._ustavi.set()
+            self._nit = None
 
     def ustavi(self) -> None:
-        self._ustavi.set()
-        self._nit = None
+        self._omogocen = False
+        with self._zaklep_niti:
+            self._ustavi.set()
+            self._nit = None
 
     def stanje(self) -> dict:
         """Za stran: kaj ta naprava ureja skupaj z drugimi."""

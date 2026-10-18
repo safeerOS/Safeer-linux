@@ -86,5 +86,87 @@ class ProcessesPageTests(unittest.TestCase):
             self.assertIn("{min}", texts["rule"], lang)
 
 
+SYSTEM = [
+    {"kind": "glavni", "pid": 100, "name": "python3", "cpu": 0.02, "rss_mb": 410, "threads": 40,
+     "avg_cpu": 0.01, "peak_cpu": 0.35, "avg_mb": 400, "peak_mb": 520},
+    {"kind": "omrezni", "pid": 101, "name": "WebKitNetworkPr", "cpu": 0.0, "rss_mb": 30, "threads": 10},
+    {"kind": "spletni", "pid": 102, "name": "WebKitWebProces", "cpu": 0.0, "rss_mb": 90, "threads": 20, "tab": "Pošta"},
+    {"kind": "spletni", "pid": 103, "name": "WebKitWebProces", "cpu": 0.0, "rss_mb": 60, "threads": 18},
+    {"kind": "drugo", "pid": 104, "name": "rqbit", "cpu": 0.0, "rss_mb": 45, "threads": 12, "service": "torrent"},
+    {"kind": "zavihki", "count": 3, "cpu": 0.1, "rss_mb": 700, "threads": 60, "avg_cpu": 0.05, "avg_mb": 650},
+    {"kind": "peskovnik", "count": 8, "cpu": 0.0, "rss_mb": 4, "threads": 8},
+]
+SERVICES = [
+    {"ime": "torrent", "vrsta": "zahteva", "tece": True, "zadnja_raba_s": 130, "mirovanje_s": 600, "razlog": "", "pidi": [104]},
+    {"ime": "teamwork", "vrsta": "zahteva", "tece": False, "zadnja_raba_s": None, "mirovanje_s": 60, "ustavitev": 0},
+    {"ime": "torrent_naprave", "vrsta": "zahteva", "tece": False, "zadnja_raba_s": 7300, "mirovanje_s": 600, "ustavitev": 1},
+    {"ime": "scit", "vrsta": "vedno", "tece": True, "zadnja_raba_s": None, "mirovanje_s": 0, "razlog": "varuje"},
+    {"ime": "link", "vrsta": "vedno", "tece": False, "zadnja_raba_s": None, "mirovanje_s": 0, "razlog": "dosegljivost"},
+    {"ime": "ciscenje_gledanja", "opravilo": True, "razmik_s": 10800, "tece": False, "zadnje_s": 45},
+]
+
+
+class WholeProgramTests(unittest.TestCase):
+    """1.0.127: ves program (glavni, omrezni, spletni procesi, podprocesi, peskovnik), povprecje in vrh zadnje ure,
+    storitve na zahtevo."""
+
+    def test_history_columns_for_tabs(self):
+        rows = [dict(ROWS[3], pid=55, avg_cpu=0.03, peak_cpu=0.9, avg_mb=280, peak_mb=1500)]
+        page = processes_page.render(rows, "sl", sample_s=30)
+        vrstica = page.split(">Novice</td>", 1)[1].split("</tr>", 1)[0]
+        self.assertEqual(re.findall(r"<td[^>]*>([^<]*)</td>", vrstica)[:6],
+                         ["1 %", "3 %", "90 %", "300 MB", "280 MB", "1,46 GB"])
+        self.assertIn('scope="colgroup" colspan="3">CPU</th>', page)
+        self.assertIn('<th scope="col">povprečje</th><th scope="col">vrh</th>', page)
+        self.assertIn("Povprečje in vrh veljata za zadnjo uro (vzorec vsakih 30 s", page)
+        self.assertIn("prvi vzorec", processes_page.render(rows, "sl", sample_s=30, history_ready=False))
+        self.assertNotIn("<h2>", page)                  # brez podatkov programa in storitev ni teh razdelkov
+
+    def test_system_table_names_every_process_and_sums(self):
+        page = processes_page.render(ROWS, "sl", system=SYSTEM, app="Safeer OS")
+        self.assertIn("<h2>Safeer OS: vsi procesi</h2>", page)
+        self.assertIn("Safeer OS – lupina, Control, Splet in predvajalnik", page)
+        self.assertIn("omrežni proces (piškotki, prenosi)", page)
+        self.assertIn("spletni proces · zavihek: Pošta", page)
+        self.assertIn("spletni proces · drugo okno, vdelan pogled ali vnaprej pripravljen proces", page)
+        self.assertIn("podproces · storitev: Torrent (rqbit)", page)
+        self.assertIn("peskovnik spletnih procesov · 8 procesov", page)
+        self.assertIn("spletni procesi zavihkov in vdelanih aplikacij (podrobno zgoraj) · 3 procesov", page)
+        tabela = page.split("vsi procesi</h2>", 1)[1]
+        self.assertLess(tabela.index("lupina"), tabela.index("omrežni"))          # glavni najprej
+        self.assertLess(tabela.index("omrežni"), tabela.index("peskovnik"))       # peskovnik zadnji
+        skupaj = tabela.split("Skupaj Safeer OS</td>", 1)[1].split("</tr>", 1)[0]
+        celice = re.findall(r"<td[^>]*>([^<]*)</td>", skupaj)
+        self.assertEqual(celice[0], "12 %")              # 2 + 10 %
+        self.assertEqual(celice[3], "1,31 GB")           # 410+30+90+60+45+700+4 MB
+        self.assertEqual(celice[6], "168")               # niti
+        brskalnik = processes_page.render(ROWS, "sl", system=SYSTEM, app="Safeer Browser")
+        self.assertIn('<td class="t">Safeer Browser <span class="pid">100</span></td>', brskalnik)
+        self.assertNotIn("lupina, Control", brskalnik)
+
+    def test_services_states_last_use_and_when_they_stop(self):
+        page = processes_page.render(ROWS, "sl", services=SERVICES)
+        tabela = page.split("<h2>Storitve</h2>", 1)[1]
+        vrstice = {re.findall(r'<td class="t">([^<]*)</td>', v)[0]: re.findall(r"<td>([^<]*)</td>", v)
+                   for v in tabela.split("<tr")[2:]}
+        self.assertEqual(vrstice["Torrent (rqbit)"], ["teče", "pred 2 min", "po 10 min mirovanja"])
+        self.assertEqual(vrstice["Teamwork (skupno urejanje)"], ["ni zagnana", "v tem zagonu še ne", "po 1 min mirovanja"])
+        self.assertEqual(vrstice["Torrent za druge naprave (rqbit)"], ["ustavljena", "pred 2 h", "po 10 min mirovanja"])
+        self.assertEqual(vrstice["Ščit (zaščita DNS)"], ["teče", "—", "nikoli – varuje računalnik"])
+        self.assertEqual(vrstice["Safeer Link (sprejem drugih naprav)"],
+                         ["izklopljena", "—", "nikoli – druge naprave morajo računalnik najti"])
+        self.assertEqual(vrstice["Čiščenje filmov, ki jih nihče ne gleda"], ["občasno", "pred 45 s", "teče vsake 3 h"])
+        self.assertIn("se zažene šele, ko jo potrebuješ", page)
+
+    def test_every_language_renders_all_sections(self):
+        for lang in processes_page._TEXT:
+            page = processes_page.render(ROWS, lang, system=SYSTEM, services=SERVICES, app="Safeer OS", sample_s=30)
+            for kljuc in ("services", "now", "avg", "peak"):
+                self.assertIn(processes_page._TEXT[lang][kljuc], page, (lang, kljuc))
+            self.assertNotIn("svc_", page, lang)          # vsaka storitev ima ime v vsakem jeziku
+            self.assertNotIn("kind_", page, lang)
+            self.assertNotIn("{", page.split("<body>", 1)[1].split("<script")[0], lang)   # vsi nadomestki zapolnjeni
+
+
 if __name__ == "__main__":
     unittest.main()

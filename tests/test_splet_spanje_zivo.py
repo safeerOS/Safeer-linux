@@ -230,7 +230,8 @@ class SpanjeZivo(unittest.TestCase):
         self.assertIn("Spi", za["vrstica"].get_tooltip_text())
         vrstica = next(v for v in self.sp.vrstice() if v["id"] == ident)
         self.assertTrue(vrstica["sleeping"])
-        self.assertIn('Tezka</td><td>—</td><td>—</td><td>—</td><td>spi</td>', self.sp.stran_procesov())
+        # Uspan zavihek: brez procesa - CPU in pomnilnik (zdaj, povprecje, vrh) in niti so »—« (od 1.0.127 sest stolpcev).
+        self.assertIn('Tezka</td>' + '<td>—</td>' * 7 + '<td>spi</td>', self.sp.stran_procesov())
         # Ctrl+Shift+T in seja ob zaprtju vidita naslov uspanega zavihka.
         self.s._zapomni_zaprt(a)
         self.assertEqual(self.s._zaprti[-1], self.koren + "/tezka.html")
@@ -356,6 +357,34 @@ class SpanjeZivo(unittest.TestCase):
         novi = omrezni_procesi_shrambe(piskotki)
         self.assertTrue(novi and novi[0] != pid)
         self.meritve.update(omrezni_pred_mib=round(pred), omrezni_nov_mib=round(pss_mb(novi[0])))
+
+    def test_5_stran_pokaze_ves_program_s_povprecjem_in_vrhom(self):
+        """1.0.127: poleg zavihkov se glavni, omrezni in drugi procesi programa, povprecje in vrh zadnje ure (vzorci
+        ure storitev, tu dva rocno) in strosek vzorca."""
+        from core import poraba_zgodovina
+        self._odpri("/tezka.html")
+        self._odpri("/obrazec.html")                    # tezka gre v ozadje: sonda najde njen proces
+        # Zavihki iz prejsnjih preizkusov tudi cakajo na sondo (ena na 2 s): pocakamo na katerikoli zavihek s procesom.
+        self.assertTrue(_cakaj(lambda: any(v["pid"] for v in self.sp.vrstice()), 40), "sonda ni nasla procesa")
+        z = poraba_zgodovina.skupna()
+        z.vzorci()
+        _cakaj(lambda: False, 1.0)
+        n = z.vzorci()
+        self.meritve.update(vzorec_ms=round(z.zadnji_s * 1000, 2), procesov_v_vzorcu=n)
+        self.assertLess(z.zadnji_s, 0.05)               # vzorec vseh procesov drevesa je poceni (stat + statm)
+        _cakaj(lambda: False, 3.5)                      # nadzor zavihkov (2 s) ima svez vzorec procesa
+        stran = self.sp.stran_procesov()
+        self.assertIn("vsi procesi", stran)
+        self.assertIn("omrežni proces", stran)
+        self.assertIn("glavni proces", stran)
+        self.assertIn("spletni procesi zavihkov", stran)
+        self.assertIn("Povprečje in vrh veljata za zadnjo uro", stran)
+        naslov = next(v["title"] for v in self.sp.vrstice() if v["pid"])
+        vrstica = stran.split(">%s</td>" % naslov, 1)[1].split("</tr>", 1)[0]
+        celice = re.findall(r"<td[^>]*>([^<]*)</td>", vrstica)
+        self.assertNotEqual(celice[1], "—", vrstica)    # povprecje CPU iz zgodovine
+        self.assertTrue(celice[4].endswith("MB") or celice[4].endswith("GB"), vrstica)   # povprecje pomnilnika
+        self.assertTrue(celice[5].endswith("MB") or celice[5].endswith("GB"), vrstica)   # vrh pomnilnika
 
 
 if __name__ == "__main__":

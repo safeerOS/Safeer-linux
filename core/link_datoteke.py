@@ -1770,30 +1770,26 @@ _CISCENJE_TECE = False
 
 def zazeni_ciscenje(razmik_s: float = 3 * 3600, zamik_s: float = 180) -> None:
     """Control: prenose za naprave pregleda kmalu po zagonu in nato vsake tri ure. Ce je rqbit ugasnjen in ima
-    shranjene prenose, ga za pregled prizge in potem spet ugasne (ne ostane v ozadju samo zaradi ciscenja)."""
+    shranjene prenose, ga za pregled prizge in potem spet ugasne (ne ostane v ozadju samo zaradi ciscenja).
+    Hisno opravilo ure storitev (core/storitve_na_zahtevo) namesto niti, ki je ves dan spala."""
     global _CISCENJE_TECE
     if _CISCENJE_TECE:
         return
     _CISCENJE_TECE = True
 
-    def zanka() -> None:
-        time.sleep(zamik_s)
-        while True:
-            try:
-                t = torrenti_za_naprave()
-                tekel = t.tece()
-                if not tekel:
-                    t.seznam()      # zazene rqbit le, ce ima shranjeno stanje
-                odstranjeni = pocisti_neuporabljene(t)
-                if odstranjeni:
-                    from core import os_stabilnost
-                    os_stabilnost.zapisi("safeer-control", f"prenosi za naprave: samodejno odstranjenih {len(odstranjeni)} (48 h brez predvajanja)")
-                if not tekel and t.tece():
-                    t.ustavi()
-            except Exception:  # noqa: BLE001
-                pass
-            time.sleep(razmik_s)
-    threading.Thread(target=zanka, name="safeer-ciscenje-prenosov", daemon=True).start()
+    def delo() -> None:
+        t = torrenti_za_naprave()
+        tekel = t.tece()
+        if not tekel:
+            t.seznam()      # zazene rqbit le, ce ima shranjeno stanje
+        odstranjeni = pocisti_neuporabljene(t)
+        if odstranjeni:
+            from core import os_stabilnost
+            os_stabilnost.zapisi("safeer-control", f"prenosi za naprave: samodejno odstranjenih {len(odstranjeni)} (48 h brez predvajanja)")
+        if not tekel and t.tece():
+            t.ustavi_motor()
+    from core import storitve_na_zahtevo
+    storitve_na_zahtevo.opravilo("ciscenje_prenosov", delo, razmik_s, zamik_s)
 
 
 _ZA_NAPRAVE = None
