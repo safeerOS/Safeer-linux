@@ -1725,6 +1725,64 @@
     for (var _kp in BESEDILA_POMOC[_jp]) BESEDILA[_jp][_kp] = BESEDILA_POMOC[_jp][_kp];
   }
 
+  // Viri racunalnika (core/link_viri.py): clan kroga ni sprejet, ker zmanjkuje povezav, pomnilnika ali niti - na tej
+  // napravi ali na drugi, ki nas ni sprejela. Clanov ne omejuje stevilka (lastnik, 18. 10. 2026), zato mora uporabnik
+  // izvedeti, kadar jih omeji racunalnik.
+  var BESEDILA_VIRI = {
+    sl: {
+      virovTuDeskriptorji: "Ta naprava je dosegla sistemsko mejo hkrati odprtih povezav: novih naprav iz kroga zdaj ne sprejme (zavrnjenih: {n}). Zapri kakšen program ali znova zaženi Safeer.",
+      virovTuPomnilnik: "Tej napravi zmanjkuje pomnilnika: novih naprav iz kroga zdaj ne sprejme (zavrnjenih: {n}). Zapri kakšen program; naprave se povežejo same, ko bo spet dovolj prostora.",
+      virovTuNiti: "Sistem na tej napravi ne dovoli več hkratnih opravil: novih naprav iz kroga zdaj ne sprejme (zavrnjenih: {n}). Zapri kakšen program ali znova zaženi Safeer.",
+      virovDrugi: "Naprava »{ime}« ima zdaj premalo virov (povezav ali pomnilnika) za novo povezavo. Poskusim znova sam.",
+      napNiVirov: "Središče ima zdaj premalo virov (povezav ali pomnilnika). Poskusi znova čez nekaj trenutkov.",
+      glNiVirov: "Naprava nima prostih virov za neposredno povezavo – zdaj prek releja"
+    },
+    en: {
+      virovTuDeskriptorji: "This device has reached the system limit of open connections: it does not accept new devices from the circle right now (refused: {n}). Close a program or restart Safeer.",
+      virovTuPomnilnik: "This device is running out of memory: it does not accept new devices from the circle right now (refused: {n}). Close a program; devices connect by themselves once there is room again.",
+      virovTuNiti: "The system on this device allows no more simultaneous tasks: it does not accept new devices from the circle right now (refused: {n}). Close a program or restart Safeer.",
+      virovDrugi: "The device “{ime}” has too few resources (connections or memory) for a new connection right now. I will try again by myself.",
+      napNiVirov: "The hub has too few resources (connections or memory) right now. Try again in a few moments.",
+      glNiVirov: "The device has no free resources for a direct connection – via relay for now"
+    },
+    de: {
+      virovTuDeskriptorji: "Dieses Gerät hat die Systemgrenze offener Verbindungen erreicht: Es nimmt gerade keine neuen Geräte aus dem Kreis an (abgelehnt: {n}). Schließe ein Programm oder starte Safeer neu.",
+      virovTuPomnilnik: "Diesem Gerät geht der Arbeitsspeicher aus: Es nimmt gerade keine neuen Geräte aus dem Kreis an (abgelehnt: {n}). Schließe ein Programm; die Geräte verbinden sich von selbst, sobald wieder Platz ist.",
+      virovTuNiti: "Das System auf diesem Gerät erlaubt keine weiteren gleichzeitigen Aufgaben: Es nimmt gerade keine neuen Geräte aus dem Kreis an (abgelehnt: {n}). Schließe ein Programm oder starte Safeer neu.",
+      virovDrugi: "Das Gerät „{ime}“ hat gerade zu wenige Ressourcen (Verbindungen oder Arbeitsspeicher) für eine neue Verbindung. Ich versuche es selbst erneut.",
+      napNiVirov: "Die Zentrale hat gerade zu wenige Ressourcen (Verbindungen oder Arbeitsspeicher). Versuche es in einigen Augenblicken erneut.",
+      glNiVirov: "Das Gerät hat keine freien Ressourcen für eine direkte Verbindung – vorerst über das Relais"
+    },
+    es: {
+      virovTuDeskriptorji: "Este dispositivo ha alcanzado el límite del sistema de conexiones abiertas: ahora no acepta nuevos dispositivos del círculo (rechazados: {n}). Cierra algún programa o reinicia Safeer.",
+      virovTuPomnilnik: "A este dispositivo se le está acabando la memoria: ahora no acepta nuevos dispositivos del círculo (rechazados: {n}). Cierra algún programa; los dispositivos se conectarán solos cuando vuelva a haber sitio.",
+      virovTuNiti: "El sistema de este dispositivo no permite más tareas simultáneas: ahora no acepta nuevos dispositivos del círculo (rechazados: {n}). Cierra algún programa o reinicia Safeer.",
+      virovDrugi: "El dispositivo «{ime}» tiene ahora pocos recursos (conexiones o memoria) para una nueva conexión. Lo volveré a intentar yo solo.",
+      napNiVirov: "El centro tiene ahora pocos recursos (conexiones o memoria). Vuelve a intentarlo dentro de unos momentos.",
+      glNiVirov: "El dispositivo no tiene recursos libres para una conexión directa – de momento por el relé"
+    },
+    fr: {
+      virovTuDeskriptorji: "Cet appareil a atteint la limite système de connexions ouvertes : il n'accepte plus de nouveaux appareils du cercle pour l'instant (refusés : {n}). Ferme un programme ou redémarre Safeer.",
+      virovTuPomnilnik: "Cet appareil manque de mémoire : il n'accepte plus de nouveaux appareils du cercle pour l'instant (refusés : {n}). Ferme un programme ; les appareils se connecteront seuls dès qu'il y aura de la place.",
+      virovTuNiti: "Le système de cet appareil n'autorise plus de tâches simultanées : il n'accepte plus de nouveaux appareils du cercle pour l'instant (refusés : {n}). Ferme un programme ou redémarre Safeer.",
+      virovDrugi: "L'appareil « {ime} » manque pour l'instant de ressources (connexions ou mémoire) pour une nouvelle connexion. Je réessaierai tout seul.",
+      napNiVirov: "Le centre manque de ressources (connexions ou mémoire) pour l'instant. Réessaie dans quelques instants.",
+      glNiVirov: "L'appareil n'a pas de ressources libres pour une connexion directe – par le relais pour l'instant"
+    },
+    it: {
+      virovTuDeskriptorji: "Questo dispositivo ha raggiunto il limite di sistema delle connessioni aperte: ora non accetta nuovi dispositivi della cerchia (rifiutati: {n}). Chiudi un programma o riavvia Safeer.",
+      virovTuPomnilnik: "Questo dispositivo sta esaurendo la memoria: ora non accetta nuovi dispositivi della cerchia (rifiutati: {n}). Chiudi un programma; i dispositivi si collegheranno da soli quando ci sarà di nuovo spazio.",
+      virovTuNiti: "Il sistema di questo dispositivo non consente altre attività simultanee: ora non accetta nuovi dispositivi della cerchia (rifiutati: {n}). Chiudi un programma o riavvia Safeer.",
+      virovDrugi: "Il dispositivo «{ime}» ha ora poche risorse (connessioni o memoria) per una nuova connessione. Riproverò da solo.",
+      napNiVirov: "Il centro ha ora poche risorse (connessioni o memoria). Riprova tra qualche istante.",
+      glNiVirov: "Il dispositivo non ha risorse libere per una connessione diretta – per ora tramite relè"
+    }
+  };
+  for (var _jr in BESEDILA_VIRI) {
+    if (!BESEDILA[_jr]) BESEDILA[_jr] = {};
+    for (var _kr in BESEDILA_VIRI[_jr]) BESEDILA[_jr][_kr] = BESEDILA_VIRI[_jr][_kr];
+  }
+
   var jezik = (function () {
     var oznaka = "";
     try {
@@ -2398,6 +2456,26 @@
     if (!stanje.televizor) narisiPredvajanje();
     if (stanje.control) narisiControl();
     narisiGlobalLink();
+    narisiViri();
+  }
+
+  // ---------- Viri racunalnika: zakaj naprava iz kroga ni sprejeta (core/link_viri.py) ----------
+
+  function viriStanje() {
+    if (!(most && most.viriStanje)) return null;
+    try { return JSON.parse(most.viriStanje() || "null"); } catch (e) { return null; }
+  }
+
+  function narisiViri() {
+    var v = viriStanje();
+    var vrstice = [];
+    if (v && v.tu && v.tu.razlog) {
+      var kljuc = { deskriptorji: "virovTuDeskriptorji", pomnilnik: "virovTuPomnilnik", niti: "virovTuNiti" }[v.tu.razlog];
+      vrstice.push(t(kljuc || "virovTuPomnilnik", { n: v.tu.zavrnjenih || 0 }));
+    }
+    ((v && v.drugi) || []).forEach(function (ime) { vrstice.push(t("virovDrugi", { ime: ime })); });
+    besedilo("opozoriloViriBesedilo", vrstice.join(" "));
+    pokazi("opozoriloViri", vrstice.length > 0);
   }
 
   // ---------- Global Link: pot do naprav zdoma in neposredna povezava od zunaj ----------
@@ -2462,6 +2540,7 @@
         var ime = vzdevki[p.id] || p.ime || t("zaslon");
         var oznaka = p.pot === "lan" ? t("glLokalno") : (p.pot === "neposredno" ? t("glNeposredno") : t("glRele"));
         var pod = (p.ms !== null && p.ms !== undefined) ? t("glMs", { ms: Math.round(p.ms) }) : "";
+        if (p.napaka === "ni_virov") pod = t("glNiVirov");
         seznam.appendChild(vrstica("povezava", ime, pod, oznaka, p.pot === "rele" ? "rumena" : "zelena", null));
       });
       pokazi("opombaGlobalLink", poti.length === 0);
@@ -3191,6 +3270,8 @@
         }
       } else if (vrsta === "globalLink" || vrsta === "pomoc") {
         narisiGlobalLink();
+      } else if (vrsta === "viri") {
+        narisiViri();
       } else if (vrsta === "deljeneMape") {
         stanje.deljeneMape = (podatki && podatki.mape) || [];
         stanje.standardneDeljene = !!(podatki && podatki.standardne);
@@ -3576,6 +3657,7 @@
     if (p.koda === "zaslon_ni_na_voljo") return t("napZaslonNiNaVoljo");
     if (p.koda === "konec_pri_napravi") return t("zaslonKonecPriNapravi");
     if (p.koda === "naprava_ni_povezana") return t("niDosegljiv", { ime: t("naprava") });
+    if (p.koda === "ni_virov") return t("napNiVirov");
     return t("napDeljenje", { napaka: clovesko(p.sporocilo || "") });
   }
 
