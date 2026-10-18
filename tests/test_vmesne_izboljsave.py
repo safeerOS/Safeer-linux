@@ -180,7 +180,9 @@ class SistemskeNastavitve(unittest.TestCase):
             def Popen(ukaz, **_k):
                 zagnano.append(ukaz)
 
-        f.__globals__.update(subprocess=Sp, MODULI_NASTAVITEV=("", "themes"))
+        # Zunanji program dobi okolje brez nasih zasebnih poti (zasebni_webkit.okolje_za_zunanje, 18. 10. 2026).
+        f.__globals__.update(subprocess=Sp, MODULI_NASTAVITEV=("", "themes"),
+                             zasebni_webkit=mock.Mock(okolje_za_zunanje=lambda: {"PATH": "/usr/bin"}))
         with mock.patch("shutil.which", lambda u: "/usr/bin/" + u if u == "cinnamon-settings" else None):
             self.assertTrue(f("themes"))
             self.assertTrue(f(""))

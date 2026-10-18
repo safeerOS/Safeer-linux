@@ -134,7 +134,8 @@ def naslov_pogleda(pogled) -> str:
     """Naslov zavihka - tudi uspanega: pogled po koncu procesa nima naslova (meritev zgoraj), zato ga hranimo sami.
     Za sejo ob zaprtju okna in Ctrl+Shift+T (brez tega bi se uspani zavihki izgubili)."""
     try:
-        return getattr(pogled, "_safeer_spi_uri", "") or pogled.get_uri() or ""
+        spi = getattr(pogled, "_safeer_spi_uri", "")
+        return (spi if isinstance(spi, str) and spi else pogled.get_uri()) or ""
     except Exception:  # noqa: BLE001
         return ""
 

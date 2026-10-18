@@ -14,10 +14,18 @@ def beri(*pot) -> str:
 
 
 def bloki_besedil() -> dict:
-    """{jezik: besedilo slovarja} iz assets/os/besedila.js."""
+    """{jezik: besedilo slovarja} iz assets/os/besedila.js.
+
+    Kljuce, ki jih kasnejse vrstice dodajo z Object.assign(BESEDILA_OS.<jezik>, {"kljuc": "..."}) (npr. vrstaNakljucno
+    iz Medijskega centra, 18. 10. 2026), pripnemo bloku tistega jezika v istem zapisu kot v slovarju."""
     s = beri("assets", "os", "besedila.js")
     zac = [(m.group(1), m.start()) for m in re.finditer(r"^  (sl|en|de|es|fr|it): \{", s, re.M)]
-    return {j: s[z:(zac[i + 1][1] if i + 1 < len(zac) else len(s))] for i, (j, z) in enumerate(zac)}
+    konec = re.search(r"^Object\.assign\(", s, re.M)
+    meja = konec.start() if konec else len(s)
+    bloki = {j: s[z:(zac[i + 1][1] if i + 1 < len(zac) else meja)] for i, (j, z) in enumerate(zac)}
+    for m in re.finditer(r"^Object\.assign\(BESEDILA_OS\.(sl|en|de|es|fr|it), \{(.*)\}\);$", s, re.M):
+        bloki[m.group(1)] += "\n" + re.sub(r'"(\w+)": "', r'\1: "', m.group(2))
+    return bloki
 
 
 class Prevodi(unittest.TestCase):
