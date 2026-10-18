@@ -398,7 +398,7 @@ class CistDnevnik(unittest.TestCase):
         self.assertNotIn("SKRIVNOST123", c("glava Authorization: Bearer SKRIVNOST1234567"))
         self.assertNotIn("abcdef123", c("{'token': 'abcdef123456', 'ime': 'x'}"))
         self.assertNotIn("abcdef123", c("prijava geslo=abcdef123456"))
-        self.assertEqual(c("posta janez.novak@example.com"), "posta ***@example.com")
+        self.assertEqual(c("posta ime.priimek@example.com"), "posta ***@example.com")
         self.assertNotIn("eyJhbGciOi", c("jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NSJ9.abcdefghijkl"))
         # Obicajno sporocilo ostane, kot je.
         self.assertEqual(c("[SafeerOS] tema namizja: ni seje"), "[SafeerOS] tema namizja: ni seje")

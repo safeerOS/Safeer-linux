@@ -3,13 +3,18 @@
 Lastnik 18. 10. 2026: tek preizkusov na prenosniku je prej namenoma uporabil pravo vodilo seje (/run/user/UID/bus) -
 imena org.gtk.Application, dejanja in obvestila preizkusov so sla do programov, ki jih lastnik uporablja.
 """
+import importlib.util
 import os
 import shutil
 import subprocess
 
 import pytest
 
-import conftest as nastavitev_preizkusov
+# tests/conftest.py po poti (ime »conftest« ima tudi korenski conftest.py - uvoz po imenu bi bil odvisen od sys.path).
+_spec = importlib.util.spec_from_file_location("safeer_preizkusi_conftest",
+                                               os.path.join(os.path.dirname(os.path.abspath(__file__)), "conftest.py"))
+nastavitev_preizkusov = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(nastavitev_preizkusov)
 
 
 def _pravo_vodilo() -> str:

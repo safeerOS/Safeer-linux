@@ -8,13 +8,18 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import yaml
+try:
+    import yaml
+except ImportError:  # pragma: no cover - CI ga nima vedno (python3-yaml), kot test_packaging
+    yaml = None
 
 KOREN = Path(__file__).resolve().parents[1]
 DELOVNI_TOK = KOREN / ".github" / "workflows" / "linux-packages.yml"
 
 
 def _posli():
+    if yaml is None:
+        raise unittest.SkipTest("python3-yaml ni namescen")
     return yaml.safe_load(DELOVNI_TOK.read_text(encoding="utf-8"))["jobs"]
 
 
