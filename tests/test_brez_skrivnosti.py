@@ -1,5 +1,6 @@
 """V repozitoriju ni zasebnih kljucev, zetonov in osebnih podatkov lastnika (pravilo iz AGENTS.md)."""
 import hashlib
+import os
 import re
 import subprocess
 import unittest
@@ -18,6 +19,8 @@ PRESKOCI = {"tests/test_brez_skrivnosti.py"}
 
 class BrezSkrivnosti(unittest.TestCase):
     def test_sledene_datoteke(self):
+        if not ZASEBNO:
+            self.skipTest("ni seznama zasebnih vrednosti (SAFEER_ZASEBNO_SHA256 ali ~/.config/safeer-razvoj/zasebno-sha256)")
         try:
             datoteke = subprocess.run(["git", "-C", str(KOREN), "ls-files"], capture_output=True, text=True,
                                       check=True, timeout=30).stdout.split("\n")
@@ -41,7 +44,7 @@ class BrezSkrivnosti(unittest.TestCase):
 
     def test_brez_osebnih_podatkov_lastnika(self):
         """Ime in e-naslovi lastnika ne smejo v repozitorij (AGENTS.md: v besedilu »lastnik«). Preizkus hrani le
-        zgoscene vrednosti (z dodatkom), da sam ne vsebuje podatkov, ki jih isce. Nov podatek dodaj v ZASEBNO kot
+        zgoscene vrednosti (z dodatkom), da sam ne vsebuje podatkov, ki jih isce. Nov podatek dodaj v lokalni seznam (glej _zasebno_sha256) kot
         hashlib.sha256(("safeer-zasebnost:" + beseda.lower()).encode()).hexdigest()."""
         try:
             datoteke = subprocess.run(["git", "-C", str(KOREN), "ls-files"], capture_output=True, text=True,
@@ -72,15 +75,20 @@ class BrezSkrivnosti(unittest.TestCase):
         self.assertEqual(najdeno, [], "osebni podatek lastnika - zamenjaj z »lastnik«")
 
 
-#: Zgoscene vrednosti osebnih podatkov lastnika (imena in e-naslovi, male crke) - glej preizkus zgoraj.
-ZASEBNO = {
-    "ce51747ed13c39501b20799fa40676dd8b01138ba3a29e8e3271fd0157124d27",
-    "08f09f3301a6363d74b3f2c74fe5d57ee66cd93f176a42768110c889cdd4ff46",
-    "4ac09f9ae7b2184bd229fbd61657e25bc63520fa4598023a1384338e0a0b3759",
-    "c478dec6dfae0be58cf5c90d3d025214afef1d4ec52deb6d04c48f92c000d934",
-    "5f567bb564e3ad4e275f0a42eaa111ef32150b9bb45216e2654be439b5dc2df1",
-    "19f91db34357afcf94980821b7090a09b5f039a224a1a1918362e13bcfd75500",
-}
+def _zasebno_sha256() -> set:
+    """Zgoscene vrednosti osebnih podatkov lastnika NISO v repozitoriju (z javnim dodatkom bi se ime ali e-naslov dalo
+    potrditi z ugibanjem). Vir: spremenljivka SAFEER_ZASEBNO_SHA256 (vejice; v CI skrivnost repozitorija) ali lokalna
+    datoteka $XDG_CONFIG_HOME/safeer-razvoj/zasebno-sha256 (ena vrednost na vrstico)."""
+    vrednosti = os.environ.get("SAFEER_ZASEBNO_SHA256", "").replace(",", "\n").split()
+    datoteka = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "safeer-razvoj" / "zasebno-sha256"
+    try:
+        vrednosti += datoteka.read_text("utf-8").split()
+    except OSError:
+        pass
+    return {v.strip().lower() for v in vrednosti if re.fullmatch(r"[0-9a-fA-F]{64}", v.strip())}
+
+
+ZASEBNO = _zasebno_sha256()
 
 
 if __name__ == "__main__":
