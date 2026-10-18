@@ -20,7 +20,7 @@ import subprocess
 import time
 from typing import Dict, List, Optional, Tuple
 
-from core import gostitelj, link_programi, os_oblak_igre
+from core import gostitelj, link_programi, os_oblak_igre, zasebni_webkit
 
 NAJVEC = 400
 IKONA_VELIKOST = 96
@@ -309,8 +309,9 @@ class Programi:
                 if shutil.which(ukaz[0]) is None:
                     continue
                 try:
+                    # Brez nasih zasebnih poti (WebKit, AppImage): program dobi sistemske knjiznice in typelibe.
                     subprocess.Popen(ukaz, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                     start_new_session=True)
+                                     start_new_session=True, env=zasebni_webkit.okolje_za_zunanje())
                     ok = True
                     break
                 except Exception:

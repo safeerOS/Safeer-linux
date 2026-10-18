@@ -17,7 +17,7 @@ import shutil
 import subprocess
 from typing import List, Optional
 
-from core import gostitelj
+from core import gostitelj, zasebni_webkit
 
 #: Mape, v katerih uporabniki navadno hranijo AppImage (poleg mape prenosov iz XDG).
 MAPE_APPIMAGE = ("~/Applications", "~/Prejemi", "~/Downloads", "~/Prenosi", "~/.local/bin", "~/bin")
@@ -146,7 +146,7 @@ def zazeni(najdba: dict) -> Optional[subprocess.Popen]:
         ukaz = ["flatpak-spawn", "--host", "--env=DISPLAY=" + os.environ.get("DISPLAY", "")] + ukaz
     try:
         return subprocess.Popen(ukaz, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
-                                start_new_session=True)
+                                start_new_session=True, env=zasebni_webkit.okolje_za_zunanje())
     except OSError as e:
         print("[Sporocila] zagon programa:", e, flush=True)
         return None

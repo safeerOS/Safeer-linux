@@ -22,6 +22,8 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from core import zasebni_webkit
+
 NAJVEC_SKRIPT = 50
 NAJVEC_BAJTOV = 256 * 1024
 NAJVEC_IMEN = 80
@@ -217,8 +219,10 @@ def zazeni_shell(id_: Any, cas: float = CAS_SHELL_S) -> Dict[str, Any]:
     if not pot.is_file():
         return {"ok": False, "napaka": "ni_skripte"}
     try:
+        # Skripta uporabnika tece v njegovem okolju, brez nasih zasebnih poti (WebKit, AppImage).
         r = subprocess.run(["bash", str(pot)], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                           cwd=os.path.expanduser("~"), timeout=cas, text=True, errors="replace")
+                           cwd=os.path.expanduser("~"), timeout=cas, text=True, errors="replace",
+                           env=zasebni_webkit.okolje_za_zunanje())
         izpis, koda = r.stdout or "", r.returncode
     except subprocess.TimeoutExpired as e:
         izpis = e.stdout.decode("utf-8", "replace") if isinstance(e.stdout, bytes) else (e.stdout or "")

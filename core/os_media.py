@@ -5097,8 +5097,9 @@ def odpri(pot: str) -> bool:
     if not path.is_file() or path.suffix.lower() not in MEDIA_EXT:
         return False
     try:
+        from core import zasebni_webkit      # sistemski predvajalnik brez nasih zasebnih poti v okolju
         subprocess.Popen(["xdg-open", str(path)], stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL, start_new_session=True)
+                         stderr=subprocess.DEVNULL, start_new_session=True, env=zasebni_webkit.okolje_za_zunanje())
         return True
     except OSError:
         return False

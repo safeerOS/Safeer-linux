@@ -116,7 +116,7 @@ def sistemske_nastavitve(modul: str = "") -> bool:
             return False
     try:
         subprocess.Popen(ukaz, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                         start_new_session=True)
+                         start_new_session=True, env=zasebni_webkit.okolje_za_zunanje())
         return True
     except OSError:
         return False
@@ -2455,7 +2455,7 @@ class SafeerOS(Gtk.Application):
         # da se zaslon ustali). Robove delovne povrsine potem popravi _preveri_robove (vsake 3 s).
         try:
             subprocess.Popen(["safeer-cinnamon", "--dock"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                             start_new_session=True)
+                             start_new_session=True, env=zasebni_webkit.okolje_za_zunanje())
         except OSError:
             pass
 
@@ -2873,9 +2873,10 @@ class SafeerOS(Gtk.Application):
 
     @staticmethod
     def _zazeni_orodje(ukaz: list) -> bool:
-        """Zazene sistemsko orodje (nastavitve docka, ozadja) loceno od Safeer OS."""
+        """Zazene sistemsko orodje (nastavitve docka, ozadja) loceno od Safeer OS, brez nasih zasebnih poti."""
         try:
-            subprocess.Popen(ukaz, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            subprocess.Popen(ukaz, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+                             env=zasebni_webkit.okolje_za_zunanje())
             return True
         except OSError:
             return False
@@ -3065,7 +3066,7 @@ class SafeerOS(Gtk.Application):
         url = niz if niz.startswith(("http://", "https://")) else \
             _iskalnik() + GLib.uri_escape_string(niz, None, False)
         try:
-            return bool(Gio.AppInfo.launch_default_for_uri(url, None))
+            return bool(Gio.AppInfo.launch_default_for_uri(url, zasebni_webkit.kontekst_za_zunanje(Gio)))
         except Exception as e:  # noqa: BLE001
             print("[SafeerOS] brskalnik:", e)
             return False
@@ -4770,7 +4771,8 @@ class SafeerOS(Gtk.Application):
                 subprocess.run(["gsettings", "set", "org.nemo.desktop", "show-desktop-icons", "true"],
                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
                 subprocess.Popen(["nemo-desktop"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL, start_new_session=True)
+                                 stderr=subprocess.DEVNULL, start_new_session=True,
+                                 env=zasebni_webkit.okolje_za_zunanje())
             except Exception as e:  # noqa: BLE001 - Safeer OS se zapre v vsakem primeru
                 print("[SafeerOS] nazaj v Mint:", e)
         GLib.timeout_add(250, lambda: (self._koncaj(), False)[1])
@@ -4812,7 +4814,7 @@ class SafeerOS(Gtk.Application):
         info = Gio.DesktopAppInfo.new_from_filename(pot)
         if info is None:
             return False
-        kontekst = Gdk.Display.get_default().get_app_launch_context()
+        kontekst = zasebni_webkit.kontekst_za_zunanje(Gio, Gdk.Display.get_default().get_app_launch_context())
         kontekst.set_timestamp(_cas_dogodka() or Gdk.CURRENT_TIME)
         return bool(info.launch([Gio.File.new_for_path(d) for d in datoteke], kontekst))
 

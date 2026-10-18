@@ -637,8 +637,9 @@ class Namizje:
         from PySide6.QtCore import QTimer
         if shutil.which("safeer-cinnamon"):
             try:
+                from core import zasebni_webkit     # Plank in Cinnamon brez nasih zasebnih poti v okolju
                 subprocess.Popen(["safeer-cinnamon", "--dock"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL, start_new_session=True)
+                                 stderr=subprocess.DEVNULL, start_new_session=True, env=zasebni_webkit.okolje_za_zunanje())
             except OSError as e:
                 print("[SafeerOS lupina] dock:", e, flush=True)
         if hasattr(self, "_dock_rob"):

@@ -32,6 +32,7 @@ import threading
 import time
 from typing import Dict, List, Optional, Tuple
 
+from core import zasebni_webkit
 from core.link_vnos import NAJVEC_BESEDILA, NAJVEC_DRZANJA_S, NAJVEC_PREMIK, TIPKE
 
 #: Ime navideznega zvocnega izhoda, na katerega igrajo programi drugega zaslona.
@@ -844,7 +845,9 @@ class DrugiZaslon:
         return os.path.join(_run_mapa(), self._wayland) if self.tece() and self._wayland else ""
 
     def okolje(self) -> dict:
-        o = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY", "SWAYSOCK")}
+        # Programi na drugem zaslonu so zunanji programi: brez nasih zasebnih poti (core/zasebni_webkit.py).
+        o = {k: v for k, v in zasebni_webkit.okolje_za_zunanje().items()
+             if k not in ("DISPLAY", "WAYLAND_DISPLAY", "SWAYSOCK")}
         o.update({"XDG_RUNTIME_DIR": _run_mapa(), "WAYLAND_DISPLAY": self._wayland, "SWAYSOCK": self._ipc})
         return o
 
@@ -868,7 +871,9 @@ class DrugiZaslon:
             self._zvok_pripravi()
             run = _run_mapa()
             pred = set(glob.glob(os.path.join(run, "wayland-*")))
-            okolje = {k: v for k, v in os.environ.items() if k not in ("WAYLAND_DISPLAY", "DISPLAY", "SWAYSOCK")}
+            # Sway in vsi programi, ki jih zazene (exec), dobijo okolje brez nasih zasebnih poti (WebKit, AppImage).
+            okolje = {k: v for k, v in zasebni_webkit.okolje_za_zunanje().items()
+                      if k not in ("WAYLAND_DISPLAY", "DISPLAY", "SWAYSOCK")}
             okolje.update({"XDG_RUNTIME_DIR": run, "WLR_BACKENDS": "headless",
                            "WLR_RENDER_DRM_DEVICE": self.graficna() or "",
                            "WLR_LIBINPUT_NO_DEVICES": "1", "PULSE_SINK": ZVOCNI_IZHOD,

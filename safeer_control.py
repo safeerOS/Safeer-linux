@@ -2269,11 +2269,12 @@ class SafeerControl(_OSNOVA):
             except Exception as e:  # noqa: BLE001 - privzeti brskalnik kot prej
                 print(f"[SafeerControl] Splet: {e}")
         # Prejete strani in povezave odpre brskalnik, ki ga uporabnik ze ima (ce je to Safeer, toliko bolje).
+        # Brskalnik uporabnika je zunanji program: okolje brez nasih zasebnih poti (core/zasebni_webkit.py).
         try:
-            Gio.AppInfo.launch_default_for_uri(cist, None)
+            Gio.AppInfo.launch_default_for_uri(cist, zasebni_webkit.kontekst_za_zunanje(Gio))
         except Exception:
             try:
-                subprocess.Popen(["xdg-open", cist])
+                subprocess.Popen(["xdg-open", cist], env=zasebni_webkit.okolje_za_zunanje())
             except Exception as e:  # noqa: BLE001
                 print(f"[SafeerControl] Naslova ni bilo mogoče odpreti: {e}")
 

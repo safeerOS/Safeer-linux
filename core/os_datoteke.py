@@ -17,6 +17,7 @@ import urllib.parse
 from collections import deque
 from typing import List, Optional
 
+from core import zasebni_webkit
 from core.iskalni_kljuc import kljuc as kljuc_imena  # isti kljuc kot zapiski in medijska knjiznica
 
 NAJVEC_V_MAPI = 5000
@@ -231,7 +232,9 @@ def odpri(pot: str) -> bool:
         if shutil.which(ukaz[0]) is None:
             continue
         try:
-            subprocess.Popen(ukaz, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            # Privzeti program dobi sistemsko okolje, brez nasih zasebnih poti (core/zasebni_webkit.py).
+            subprocess.Popen(ukaz, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+                             env=zasebni_webkit.okolje_za_zunanje())
             return True
         except Exception:
             continue
@@ -244,7 +247,8 @@ def pokazi_v_mapi(pot: str) -> bool:
     if not os.path.exists(pot) or shutil.which("nemo") is None:
         return False
     try:
-        subprocess.Popen(["nemo", pot], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        subprocess.Popen(["nemo", pot], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+                         env=zasebni_webkit.okolje_za_zunanje())
         return True
     except Exception:
         return False

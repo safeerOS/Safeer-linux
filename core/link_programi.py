@@ -24,6 +24,7 @@ import signal
 import subprocess
 from typing import Dict, List, Optional
 
+from core import zasebni_webkit
 from core.link_mediji import PROFIL_PREDVAJALNIK, je_predvajalnik
 
 NAJVEC = 200
@@ -323,7 +324,7 @@ class Programi:
                 continue
             try:
                 subprocess.Popen(ukaz, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                 start_new_session=True)
+                                 start_new_session=True, env=zasebni_webkit.okolje_za_zunanje())
                 return True
             except Exception:
                 continue

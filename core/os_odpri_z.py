@@ -18,7 +18,7 @@ import shutil
 import subprocess
 from typing import Callable, List, Optional, Tuple
 
-from core import link_programi, os_programi
+from core import link_programi, os_programi, zasebni_webkit
 
 NAJVEC_PROGRAMOV = 24
 NAJVEC_VSEH = 300
@@ -213,7 +213,7 @@ def odpri_z(poti, oznaka: str, vedno: bool = False, zaganjalnik: Optional[Callab
     if not ok and shutil.which("gio") is not None:
         try:
             subprocess.Popen(["gio", "launch", vnos] + datoteke, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                             start_new_session=True)
+                             start_new_session=True, env=zasebni_webkit.okolje_za_zunanje())
             ok = True
         except Exception:
             ok = False

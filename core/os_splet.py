@@ -18,10 +18,10 @@ import urllib.parse
 import weakref
 from html import escape as _escape_html
 from pathlib import Path
-from types import MappingProxyType
+from types import MappingProxyType, SimpleNamespace
 
 from core import (adblock, dovoljenja_strani, drm, odlozisce_varuh, os_stabilnost, ozadje_strani, pojavna_okna,
-                  safeer_drm, splet_prenosi, splet_temno, zascita)
+                  safeer_drm, splet_prenosi, splet_temno, zascita, zasebni_webkit)
 from core.config import ConfigManager, SEARCH_ENGINES, normalize_web_url
 from core import external_apps
 from core.doh_proxy import (DOH_PROVIDERS, IZBIRE_DNS, IZBIRE_NAPREJ, PRIVZETI_DNS, PRIVZETI_NAPREJ, doh_iz_nastavitev,
@@ -3342,12 +3342,19 @@ class VdelaniSplet:
                     from core import os_dock
                     subprocess.Popen(os_dock._gostitelj(["gio", "open", uri]), stdin=subprocess.DEVNULL,
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-                else:
-                    # Safeer Browser v Flatpaku gre prek portala OpenURI (izbiro programa pokaze sistem), .deb prek
-                    # privzetega programa. Napaka portala (ni programa) se pokaze kot »program ni najden«.
+                elif os.environ.get("FLATPAK_ID"):
+                    # Safeer Browser v Flatpaku gre prek portala OpenURI (izbiro programa pokaze sistem). Napaka
+                    # portala (ni programa) se pokaze kot »program ni najden«.
                     self.Gtk.UriLauncher.new(uri).launch(
                         self._okno_za_dialog(), None,
                         lambda vir, izid: self._zunanji_program_izid(vir, izid, gostitelj, shema, portal), None)
+                else:
+                    # .deb in AppImage: privzeti program kot Gtk.UriLauncher, a brez nasih zasebnih poti v okolju
+                    # (GI_TYPELIB_PATH, GST_PLUGIN_PATH, LD_LIBRARY_PATH - core/zasebni_webkit.py).
+                    vir = SimpleNamespace(launch_finish=self.Gio.AppInfo.launch_default_for_uri_finish)
+                    self.Gio.AppInfo.launch_default_for_uri_async(
+                        uri, self._kontekst_zunanjega(), None,
+                        lambda _v, izid: self._zunanji_program_izid(vir, izid, gostitelj, shema, portal), None)
             except Exception as napaka:  # noqa: BLE001
                 print("[Splet] zunanji program:", napaka, flush=True)
                 self._ni_programa(gostitelj, shema, portal)
@@ -3610,11 +3617,23 @@ class VdelaniSplet:
             sez.append(vrstica)
 
     def _odpri_datoteko(self, pot):
-        """Gtk.FileLauncher (GTK 4.10+): v Flatpaku gre prek portala, zunaj prek privzetega programa."""
+        """Gtk.FileLauncher (GTK 4.10+) v Flatpaku (portal); zunaj privzeti program brez nasih zasebnih poti."""
         try:
-            self.Gtk.FileLauncher.new(self.Gio.File.new_for_path(pot)).launch(self._okno_za_dialog(), None, None, None)
+            if os.environ.get("FLATPAK_ID"):
+                self.Gtk.FileLauncher.new(self.Gio.File.new_for_path(pot)).launch(self._okno_za_dialog(), None, None, None)
+            else:
+                self.Gio.AppInfo.launch_default_for_uri_async(self.Gio.File.new_for_path(pot).get_uri(),
+                                                              self._kontekst_zunanjega(), None, None, None)
         except Exception as napaka:  # noqa: BLE001
             print("[Splet] odpri prenos:", napaka, flush=True)
+
+    def _kontekst_zunanjega(self):
+        """Kontekst zagona zaslona (ospredje novega okna), z okoljem brez nasih zasebnih poti."""
+        try:
+            kontekst = self.Gdk.Display.get_default().get_app_launch_context()
+        except Exception:  # noqa: BLE001 - brez zaslona (preizkusi)
+            kontekst = None
+        return zasebni_webkit.kontekst_za_zunanje(self.Gio, kontekst)
 
     def _pokazi_najdi(self): self.najdi_vrstica.set_search_mode(True); self.najdi_vnos.grab_focus()
     def _najdi(self, vnos):

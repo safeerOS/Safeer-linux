@@ -15,6 +15,8 @@ import subprocess
 import urllib.parse
 from typing import List, Optional
 
+from core import zasebni_webkit
+
 PLANK_DOCK = "/net/launchpad/plank/docks/dock1/"
 KONCNICA = ".dockitem"
 
@@ -181,13 +183,13 @@ def osvezi() -> None:
     # (starejsi paket) Plank neposredno.
     try:
         subprocess.run(_gostitelj(["safeer-cinnamon", "--plank"]), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                       stdin=subprocess.DEVNULL, timeout=10, check=True)
+                       stdin=subprocess.DEVNULL, timeout=10, check=True, env=zasebni_webkit.okolje_za_zunanje())
         return
     except (OSError, subprocess.SubprocessError):
         pass
     try:
         subprocess.Popen(_gostitelj(["plank"]), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
-                         start_new_session=True)
+                         start_new_session=True, env=zasebni_webkit.okolje_za_zunanje())
     except OSError:
         pass
 

@@ -17,6 +17,8 @@ import shutil
 import subprocess
 from typing import Dict, List, Optional
 
+from core import zasebni_webkit
+
 CAS = 4.0
 
 
@@ -37,7 +39,9 @@ def _v_ozadju(ukaz: List[str]) -> bool:
     if not ukaz or shutil.which(ukaz[0]) is None:
         return False
     try:
-        subprocess.Popen(ukaz, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        # Nastavitve sistema so zunanji program: brez nasih zasebnih poti (core/zasebni_webkit.py).
+        subprocess.Popen(ukaz, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+                         env=zasebni_webkit.okolje_za_zunanje())
         return True
     except Exception:
         return False
